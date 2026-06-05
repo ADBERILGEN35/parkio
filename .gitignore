@@ -1,0 +1,72 @@
+# Gradle
+.gradle/
+**/build/
+!gradle/wrapper/gradle-wrapper.jar
+!**/src/**/build/
+
+# Build output
+out/
+bin/
+
+# IDE - IntelliJ
+.idea/
+*.iml
+*.ipr
+*.iws
+
+# IDE - Eclipse
+.classpath
+.project
+.settings/
+
+# IDE - VS Code
+.vscode/
+
+# Java
+*.class
+*.log
+hs_err_pid*
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Environment / secrets
+.env
+.env.*
+!.env.example
+*.local
+
+# Docker
+docker/data/
+
+# --------------------------------------------------------------------------- #
+# AI coding-tool local files — NEVER commit.                                  #
+# These are per-developer tool memory/config, not project artifacts. Canonical #
+# project documentation lives under /docs and /docs/ai-context (see README).   #
+# A bare filename pattern matches at any depth.                               #
+# --------------------------------------------------------------------------- #
+
+# Claude Code / claude-mem (auto-generated memory & local config)
+CLAUDE.md
+.claude/
+.claude-mem/
+
+# Cursor
+.cursor/
+.cursor-rules/
+.cursorrules
+.cursorignore
+
+# Aider
+.aider*
+
+# OpenAI Codex / GPT / generic LLM & AI tool files
+.codex*
+.gpt*
+.llm*
+.ai*
+
+# Note: /docs and /docs/ai-context stay versioned — none of the patterns above
+# match them (they have no leading dot, and the only CLAUDE.md inside them is a
+# tool-generated stub that SHOULD be ignored). Project docs are *.md files there.

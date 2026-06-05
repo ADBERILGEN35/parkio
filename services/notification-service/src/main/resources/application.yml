@@ -1,0 +1,21 @@
+spring:
+  application:
+    name: notification-service
+
+server:
+  port: ${SERVER_PORT:8086}
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info
+  endpoint:
+    health:
+      probes:
+        enabled: true
+
+info:
+  app:
+    name: notification-service
+    description: Parkio notification-service

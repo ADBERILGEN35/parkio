@@ -1,0 +1,205 @@
+# Parkio — application services overlay.
+#
+# Adds the 10 Spring Boot services on top of the infrastructure defined in
+# docker-compose.yml. Always run WITH the base file:
+#
+#   docker compose -f docker-compose.yml -f docker-compose.apps.yml up -d --build
+#
+# Each service connects ONLY to its own database (database-per-service,
+# ai-context/01 & /05). Connection settings are injected as environment
+# variables (ai-context/01: externalized config). These vars are inert until a
+# service adds the matching Spring starter — no business logic is implied here.
+
+name: parkio
+
+# --------------------------------------------------------------------------- #
+# Reusable fragments                                                          #
+# --------------------------------------------------------------------------- #
+x-app-common: &app-common
+  restart: unless-stopped
+  networks: [parkio-backend]
+  environment: &app-env-common
+    SPRING_KAFKA_BOOTSTRAP_SERVERS: kafka:9092
+    MANAGEMENT_ENDPOINTS_WEB_EXPOSURE_INCLUDE: health,info,prometheus
+    JAVA_TOOL_OPTIONS: ${JAVA_TOOL_OPTIONS:--XX:MaxRAMPercentage=75.0}
+
+x-datasource-depends: &datasource-depends
+  kafka:
+    condition: service_healthy
+
+services:
+  # Edge — no database, uses Redis for rate limiting. Routes to the rest.
+  gateway-service:
+    <<: *app-common
+    build:
+      context: ..
+      dockerfile: services/gateway-service/Dockerfile
+    ports: ["8080:8080"]
+    environment:
+      <<: *app-env-common
+      SPRING_DATA_REDIS_HOST: redis
+      SPRING_DATA_REDIS_PORT: "6379"
+    depends_on:
+      redis:
+        condition: service_healthy
+
+  auth-service:
+    <<: *app-common
+    build:
+      context: ..
+      dockerfile: services/auth-service/Dockerfile
+    ports: ["8081:8081"]
+    environment:
+      <<: *app-env-common
+      SPRING_DATASOURCE_URL: jdbc:postgresql://postgres-auth:5432/${POSTGRES_AUTH_DB:-parkio_auth}
+      SPRING_DATASOURCE_USERNAME: ${POSTGRES_AUTH_USER:-parkio_auth}
+      SPRING_DATASOURCE_PASSWORD: ${POSTGRES_AUTH_PASSWORD}
+      SPRING_DATA_REDIS_HOST: redis
+      SPRING_DATA_REDIS_PORT: "6379"
+    depends_on:
+      <<: *datasource-depends
+      postgres-auth:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+
+  user-service:
+    <<: *app-common
+    build:
+      context: ..
+      dockerfile: services/user-service/Dockerfile
+    ports: ["8082:8082"]
+    environment:
+      <<: *app-env-common
+      SPRING_DATASOURCE_URL: jdbc:postgresql://postgres-user:5432/${POSTGRES_USER_DB:-parkio_user}
+      SPRING_DATASOURCE_USERNAME: ${POSTGRES_USER_USER:-parkio_user}
+      SPRING_DATASOURCE_PASSWORD: ${POSTGRES_USER_PASSWORD}
+    depends_on:
+      <<: *datasource-depends
+      postgres-user:
+        condition: service_healthy
+
+  parking-service:
+    <<: *app-common
+    build:
+      context: ..
+      dockerfile: services/parking-service/Dockerfile
+    ports: ["8083:8083"]
+    environment:
+      <<: *app-env-common
+      SPRING_DATASOURCE_URL: jdbc:postgresql://postgres-parking:5432/${POSTGRES_PARKING_DB:-parkio_parking}
+      SPRING_DATASOURCE_USERNAME: ${POSTGRES_PARKING_USER:-parkio_parking}
+      SPRING_DATASOURCE_PASSWORD: ${POSTGRES_PARKING_PASSWORD}
+      SPRING_DATA_REDIS_HOST: redis
+      SPRING_DATA_REDIS_PORT: "6379"
+    depends_on:
+      <<: *datasource-depends
+      postgres-parking:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+
+  media-service:
+    <<: *app-common
+    build:
+      context: ..
+      dockerfile: services/media-service/Dockerfile
+    ports: ["8084:8084"]
+    environment:
+      <<: *app-env-common
+      SPRING_DATASOURCE_URL: jdbc:postgresql://postgres-media:5432/${POSTGRES_MEDIA_DB:-parkio_media}
+      SPRING_DATASOURCE_USERNAME: ${POSTGRES_MEDIA_USER:-parkio_media}
+      SPRING_DATASOURCE_PASSWORD: ${POSTGRES_MEDIA_PASSWORD}
+      # S3-compatible object storage (MinIO) — media bytes live here only.
+      PARKIO_STORAGE_ENDPOINT: http://minio:9000
+      PARKIO_STORAGE_BUCKET: ${MINIO_BUCKET:-parkio-media}
+      PARKIO_STORAGE_ACCESS_KEY: ${MINIO_ROOT_USER:-parkio}
+      PARKIO_STORAGE_SECRET_KEY: ${MINIO_ROOT_PASSWORD}
+    depends_on:
+      <<: *datasource-depends
+      postgres-media:
+        condition: service_healthy
+      minio:
+        condition: service_healthy
+      minio-setup:
+        condition: service_completed_successfully
+
+  gamification-service:
+    <<: *app-common
+    build:
+      context: ..
+      dockerfile: services/gamification-service/Dockerfile
+    ports: ["8085:8085"]
+    environment:
+      <<: *app-env-common
+      SPRING_DATASOURCE_URL: jdbc:postgresql://postgres-gamification:5432/${POSTGRES_GAMIFICATION_DB:-parkio_gamification}
+      SPRING_DATASOURCE_USERNAME: ${POSTGRES_GAMIFICATION_USER:-parkio_gamification}
+      SPRING_DATASOURCE_PASSWORD: ${POSTGRES_GAMIFICATION_PASSWORD}
+      SPRING_DATA_REDIS_HOST: redis
+      SPRING_DATA_REDIS_PORT: "6379"
+    depends_on:
+      <<: *datasource-depends
+      postgres-gamification:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+
+  notification-service:
+    <<: *app-common
+    build:
+      context: ..
+      dockerfile: services/notification-service/Dockerfile
+    ports: ["8086:8086"]
+    environment:
+      <<: *app-env-common
+      SPRING_DATASOURCE_URL: jdbc:postgresql://postgres-notification:5432/${POSTGRES_NOTIFICATION_DB:-parkio_notification}
+      SPRING_DATASOURCE_USERNAME: ${POSTGRES_NOTIFICATION_USER:-parkio_notification}
+      SPRING_DATASOURCE_PASSWORD: ${POSTGRES_NOTIFICATION_PASSWORD}
+    depends_on:
+      <<: *datasource-depends
+      postgres-notification:
+        condition: service_healthy
+
+  moderation-service:
+    <<: *app-common
+    build:
+      context: ..
+      dockerfile: services/moderation-service/Dockerfile
+    ports: ["8087:8087"]
+    environment:
+      <<: *app-env-common
+      SPRING_DATASOURCE_URL: jdbc:postgresql://postgres-moderation:5432/${POSTGRES_MODERATION_DB:-parkio_moderation}
+      SPRING_DATASOURCE_USERNAME: ${POSTGRES_MODERATION_USER:-parkio_moderation}
+      SPRING_DATASOURCE_PASSWORD: ${POSTGRES_MODERATION_PASSWORD}
+    depends_on:
+      <<: *datasource-depends
+      postgres-moderation:
+        condition: service_healthy
+
+  # Advisory only (ai-context/02): consumes/produces events, owns no database.
+  ai-validation-service:
+    <<: *app-common
+    build:
+      context: ..
+      dockerfile: services/ai-validation-service/Dockerfile
+    ports: ["8088:8088"]
+    environment:
+      <<: *app-env-common
+    depends_on:
+      <<: *datasource-depends
+
+  analytics-service:
+    <<: *app-common
+    build:
+      context: ..
+      dockerfile: services/analytics-service/Dockerfile
+    ports: ["8089:8089"]
+    environment:
+      <<: *app-env-common
+      SPRING_DATASOURCE_URL: jdbc:postgresql://postgres-analytics:5432/${POSTGRES_ANALYTICS_DB:-parkio_analytics}
+      SPRING_DATASOURCE_USERNAME: ${POSTGRES_ANALYTICS_USER:-parkio_analytics}
+      SPRING_DATASOURCE_PASSWORD: ${POSTGRES_ANALYTICS_PASSWORD}
+    depends_on:
+      <<: *datasource-depends
+      postgres-analytics:
+        condition: service_healthy

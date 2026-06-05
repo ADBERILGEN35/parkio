@@ -1,0 +1,21 @@
+spring:
+  application:
+    name: media-service
+
+server:
+  port: ${SERVER_PORT:8084}
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info
+  endpoint:
+    health:
+      probes:
+        enabled: true
+
+info:
+  app:
+    name: media-service
+    description: Parkio media-service

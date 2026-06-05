@@ -1,0 +1,21 @@
+spring:
+  application:
+    name: ai-validation-service
+
+server:
+  port: ${SERVER_PORT:8088}
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info
+  endpoint:
+    health:
+      probes:
+        enabled: true
+
+info:
+  app:
+    name: ai-validation-service
+    description: Parkio ai-validation-service

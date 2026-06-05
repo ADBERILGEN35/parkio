@@ -1,0 +1,21 @@
+spring:
+  application:
+    name: user-service
+
+server:
+  port: ${SERVER_PORT:8082}
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info
+  endpoint:
+    health:
+      probes:
+        enabled: true
+
+info:
+  app:
+    name: user-service
+    description: Parkio user-service

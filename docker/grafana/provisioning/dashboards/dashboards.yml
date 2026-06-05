@@ -1,0 +1,14 @@
+apiVersion: 1
+
+# Drop Grafana dashboard JSON files into ./grafana/provisioning/dashboards/ and
+# they will be loaded automatically. None are bundled yet (scaffold stage).
+providers:
+  - name: parkio
+    orgId: 1
+    type: file
+    disableDeletion: false
+    updateIntervalSeconds: 30
+    allowUiUpdates: true
+    options:
+      path: /etc/grafana/provisioning/dashboards
+      foldersFromFilesStructure: true

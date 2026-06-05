@@ -1,0 +1,40 @@
+# Prometheus scrape configuration for the Parkio local stack.
+#
+# Service targets are resolved over the parkio-backend Docker network. They will
+# report "down" until a service adds the `micrometer-registry-prometheus`
+# dependency and exposes /actuator/prometheus — that is expected at scaffold stage.
+
+global:
+  scrape_interval: 15s
+  evaluation_interval: 15s
+  external_labels:
+    monitor: parkio-local
+
+scrape_configs:
+  - job_name: prometheus
+    static_configs:
+      - targets: ["localhost:9090"]
+
+  - job_name: parkio-services
+    metrics_path: /actuator/prometheus
+    static_configs:
+      - targets: ["gateway-service:8080"]
+        labels: { service: gateway-service }
+      - targets: ["auth-service:8081"]
+        labels: { service: auth-service }
+      - targets: ["user-service:8082"]
+        labels: { service: user-service }
+      - targets: ["parking-service:8083"]
+        labels: { service: parking-service }
+      - targets: ["media-service:8084"]
+        labels: { service: media-service }
+      - targets: ["gamification-service:8085"]
+        labels: { service: gamification-service }
+      - targets: ["notification-service:8086"]
+        labels: { service: notification-service }
+      - targets: ["moderation-service:8087"]
+        labels: { service: moderation-service }
+      - targets: ["ai-validation-service:8088"]
+        labels: { service: ai-validation-service }
+      - targets: ["analytics-service:8089"]
+        labels: { service: analytics-service }

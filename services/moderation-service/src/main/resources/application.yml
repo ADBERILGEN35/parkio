@@ -1,0 +1,21 @@
+spring:
+  application:
+    name: moderation-service
+
+server:
+  port: ${SERVER_PORT:8087}
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info
+  endpoint:
+    health:
+      probes:
+        enabled: true
+
+info:
+  app:
+    name: moderation-service
+    description: Parkio moderation-service
