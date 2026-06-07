@@ -1,0 +1,8 @@
+# Local-development profile. Activate with SPRING_PROFILES_ACTIVE=dev.
+# Supplies a NON-PRODUCTION JWT secret so the app starts without exporting
+# PARKIO_JWT_SECRET. This value must never be used outside local dev; the
+# default (no-profile) configuration has no secret and fails closed.
+parkio:
+  security:
+    jwt:
+      secret: dev-only-parkio-auth-jwt-secret-change-me-please-0123456789

@@ -20,6 +20,16 @@ This service follows clean architecture. Source lives under
 
 > This service owns its own models. Domain models are **not** shared across services.
 
+## Identity contract
+
+- **`userId` in the public API means `authUserId`** — the platform-wide user id
+  issued by `auth-service` and carried in the JWT `sub` / `X-User-Id` header. This
+  is the only id other services and clients use to reference a user (ai-context/03).
+- `GET /api/v1/users/{userId}/public-profile` resolves `{userId}` as the
+  `authUserId`, and the response `userId` echoes that same `authUserId`.
+- **`user_profiles.id` is internal** to user-service (its database primary key). It
+  is never accepted as input nor exposed in any API response.
+
 ## Run locally
 
 From the repository root:

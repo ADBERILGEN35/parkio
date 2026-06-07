@@ -1,0 +1,12 @@
+# Local-development profile. Activate with SPRING_PROFILES_ACTIVE=dev.
+# Supplies a NON-PRODUCTION JWT secret so the gateway starts without exporting
+# PARKIO_JWT_SECRET. This value MUST match auth-service's dev secret so tokens
+# minted locally validate at the edge. Never use it outside local dev; the
+# default (no-profile) configuration has no secret and fails closed.
+parkio:
+  security:
+    jwt:
+      secret: dev-only-parkio-auth-jwt-secret-change-me-please-0123456789
+  gateway:
+    cors:
+      allowed-origins: http://localhost:3000,http://localhost:5173

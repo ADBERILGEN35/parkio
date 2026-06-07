@@ -1,6 +1,20 @@
 spring:
   application:
     name: auth-service
+  datasource:
+    url: ${SPRING_DATASOURCE_URL:jdbc:postgresql://localhost:5432/parkio_auth}
+    username: ${SPRING_DATASOURCE_USERNAME:parkio_auth}
+    password: ${SPRING_DATASOURCE_PASSWORD:auth_local_dev_pw}
+  jpa:
+    open-in-view: false
+    hibernate:
+      # Schema is owned by Flyway; Hibernate only validates the mapping.
+      ddl-auto: validate
+    properties:
+      hibernate.jdbc.time_zone: UTC
+  flyway:
+    enabled: true
+    locations: classpath:db/migration
 
 server:
   port: ${SERVER_PORT:8081}
@@ -19,3 +33,16 @@ info:
   app:
     name: auth-service
     description: Parkio auth-service
+
+parkio:
+  security:
+    jwt:
+      # No default: the application fails to start unless PARKIO_JWT_SECRET is
+      # provided (fail closed, ai-context/07). For local development run with the
+      # `dev` profile (see application-dev.yml) or export PARKIO_JWT_SECRET.
+      # HS256 requires at least 32 bytes.
+      secret: ${PARKIO_JWT_SECRET}
+      issuer: ${PARKIO_JWT_ISSUER:parkio-auth}
+      # ISO-8601 durations.
+      access-token-ttl: ${PARKIO_JWT_ACCESS_TTL:PT15M}
+      refresh-token-ttl: ${PARKIO_JWT_REFRESH_TTL:P30D}

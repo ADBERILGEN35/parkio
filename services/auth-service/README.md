@@ -40,3 +40,55 @@ From the repository root:
 docker build -f services/auth-service/Dockerfile -t parkio/auth-service .
 docker run -p 8081:8081 parkio/auth-service
 ```
+
+## Roles
+
+Roles are stored and carried in the JWT `roles` claim by their **unprefixed**
+names — `USER`, `MODERATOR`, `ADMIN` (the `RoleName` domain enum). The Spring
+Security `ROLE_` prefix is applied only when building authorities in
+`JwtAuthenticationFilter`, so `hasRole("USER")` works downstream while tokens
+stay clean.
+
+## Registration fields
+
+`email` is the **sole login identifier** — required, validated and unique.
+auth-service stores no profile data; a phone number is **not** collected or
+stored here (it belongs to user-service, per ai-context/03).
+
+## Local development
+
+The JWT secret has **no default** and the application **fails to start** without
+one (fail closed, ai-context/07). For local development either:
+
+- run with the `dev` profile, which supplies a non-production secret —
+  `SPRING_PROFILES_ACTIVE=dev ./gradlew :services:auth-service:bootRun`; or
+- export your own: `PARKIO_JWT_SECRET=<at-least-32-chars>`.
+
+In every other environment `PARKIO_JWT_SECRET` must be provided via the
+environment / secret manager; it is never committed.
+
+## Refresh tokens
+
+Refresh tokens are opaque 256-bit random values. Only their SHA-256 hash is
+persisted (`refresh_tokens.token_hash`); the raw value is returned to the client
+exactly once. On `POST /api/v1/auth/refresh-token` the presented token is
+**rotated**: the old row is revoked and a brand-new token is issued, atomically
+in one transaction. `logout` revokes only the presented token (per-session).
+
+## Security hardening backlog
+
+Known, intentionally-deferred gaps — documented so they are not mistaken for
+finished work. None is implemented yet.
+
+- **Refresh-token reuse / theft detection.** Rotation revokes the old token, but
+  replaying an already-rotated (revoked) token is treated as an ordinary invalid
+  token (`INVALID_REFRESH_TOKEN`) rather than as a breach signal. Production
+  hardening should detect reuse of a rotated token and revoke the entire token
+  family / all of the user's active sessions (and ideally alert). This needs
+  token-family/lineage tracking on `refresh_tokens` and is out of scope for the
+  current foundation. See the `TODO(security-hardening)` in
+  `AuthApplicationService.refresh`.
+- **Global "log out everywhere".** Only single-token logout exists today; a bulk
+  "revoke all tokens for user" operation/endpoint is not implemented.
+- **Login throttling / lockout.** No service-level rate limiting on failed
+  logins (gateway-level rate limiting is a separate concern).
