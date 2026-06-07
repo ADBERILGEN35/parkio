@@ -20,6 +20,58 @@ This service follows clean architecture. Source lives under
 
 > This service owns its own models. Domain models are **not** shared across services.
 
+## Domain events (outbox)
+
+These events are written to `outbox_events` in the same transaction as the state
+change (a Kafka relay is not implemented yet, ai-context/06). Consumers — notably
+gamification — should duplicate this contract locally; it is **not** a shared model.
+Every payload carries `eventId`, `parkingSpotId`, `ownerUserId`, `status` and
+`occurredAt`; action events also carry the `actorUserId` who triggered them.
+
+| Event | When | Key payload fields |
+|-------|------|--------------------|
+| `ParkingSpotCreatedEvent` | A spot is created | `parkingSpotId`, `ownerUserId`, `mediaId`, `latitude`, `longitude`, `status` (`ACTIVE`) |
+| `ParkingSpotVerifiedEvent` | A user confirms a spot as available | `parkingSpotId`, `ownerUserId`, `actorUserId` (verifier), `result` (`AVAILABLE`), `verificationCount`, `status` (`VERIFIED`) |
+| `ParkingSpotMarkedFilledEvent` | Filled-reports cross the threshold | `parkingSpotId`, `ownerUserId`, `status` (`FILLED`) |
+| `ParkingSpotClaimedEvent` | A user **successfully claimed/parked in** the spot | `parkingSpotId`, `ownerUserId`, `actorUserId` (claimer), `status` (`FILLED`) |
+| `ParkingSpotExpiredEvent` | The validity window elapsed | `parkingSpotId`, `ownerUserId`, `status` (`EXPIRED`) |
+| `ParkingSpotRejectedEvent` | A verification reported it illegal/risky | `parkingSpotId`, `ownerUserId`, `actorUserId` (reporter), `result` (`ILLEGAL_OR_RISKY`), `status` (`REJECTED`) |
+
+`ParkingSpotClaimedEvent` is the authoritative "a user took this spot" signal
+(distinct from `ParkingSpotMarkedFilledEvent`, which is driven by community
+filled-reports rather than a single claimer). Gamification should reward the
+`actorUserId` (claimer) and the `ownerUserId` (contributor) off this event.
+
+## Nearby search bounds
+
+`GET /spots/nearby` accepts optional `radius` and `limit`. Both default from config
+(`parkio.parking.search.default-*`) and are capped (`max-radius-meters`,
+`max-result-limit`); values `<= 0` or above the cap are rejected with `400`.
+
+## Public vs. owner views
+
+`GET /spots/{id}` and `GET /spots/nearby` (and the verify/claim responses) return a
+privacy-safe view that omits `ownerUserId`, `confidenceScore`, `verificationCount`
+and `filledReportCount`. Owners see those full fields only via
+`GET /my-spots` and `GET /my-spots/{id}`.
+
+## Backlog (not yet implemented)
+
+- **PostGIS Testcontainers integration test** — run the Flyway migrations and exercise
+  the `findNearby` geography query (radius/status/expiry filtering, distance order).
+  Tests currently use H2 with Flyway disabled, so the geo query is unverified in CI.
+- **Scheduled expiration job** — spots currently expire lazily on access; a scheduled
+  expirer is needed so unaccessed spots transition to `EXPIRED` and emit
+  `ParkingSpotExpiredEvent`.
+- **`Idempotency-Key` for create spot** — `POST /spots` has no dedupe key; a retry can
+  create duplicate spots (ai-context/04).
+- **Enum-set normalization** — `suitable_vehicle_types` / `violation_reasons` are stored
+  as comma-separated strings; normalize (Postgres array/`jsonb` + GIN, or a join table)
+  before adding vehicle-type-filtered search.
+- **Illegal/risky verification threshold/moderation** — a single `ILLEGAL_OR_RISKY`
+  report currently REJECTs a spot permanently; gate behind a report threshold or
+  moderation review to prevent abuse.
+
 ## Run locally
 
 From the repository root:

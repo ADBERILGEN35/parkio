@@ -1,6 +1,20 @@
 spring:
   application:
     name: parking-service
+  datasource:
+    url: ${SPRING_DATASOURCE_URL:jdbc:postgresql://localhost:5432/parkio_parking}
+    username: ${SPRING_DATASOURCE_USERNAME:parkio_parking}
+    password: ${SPRING_DATASOURCE_PASSWORD:parking_local_dev_pw}
+  jpa:
+    open-in-view: false
+    hibernate:
+      # Schema is owned by Flyway; Hibernate only validates the mapping.
+      ddl-auto: validate
+    properties:
+      hibernate.jdbc.time_zone: UTC
+  flyway:
+    enabled: true
+    locations: classpath:db/migration
 
 server:
   port: ${SERVER_PORT:8083}
@@ -19,3 +33,13 @@ info:
   app:
     name: parking-service
     description: Parkio parking-service
+
+parkio:
+  parking:
+    search:
+      # Tunable nearby-search defaults and caps (ai-context/02). Client-supplied
+      # radius/limit above the max (or <= 0) are rejected with 400.
+      default-radius-meters: 1000
+      default-result-limit: 10
+      max-radius-meters: 50000
+      max-result-limit: 50

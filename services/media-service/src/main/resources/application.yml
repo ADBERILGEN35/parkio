@@ -1,6 +1,27 @@
 spring:
   application:
     name: media-service
+  datasource:
+    url: ${SPRING_DATASOURCE_URL:jdbc:postgresql://localhost:5432/parkio_media}
+    username: ${SPRING_DATASOURCE_USERNAME:parkio_media}
+    password: ${SPRING_DATASOURCE_PASSWORD:media_local_dev_pw}
+  jpa:
+    open-in-view: false
+    hibernate:
+      # Schema is owned by Flyway; Hibernate only validates the mapping.
+      ddl-auto: validate
+    properties:
+      hibernate.jdbc.time_zone: UTC
+  flyway:
+    enabled: true
+    locations: classpath:db/migration
+  servlet:
+    multipart:
+      # Hard limits enforced by the container. Kept slightly above the
+      # application-level cap (parkio.media.max-file-size) so oversized uploads
+      # surface as a clean 413 from our handler rather than a container error.
+      max-file-size: 12MB
+      max-request-size: 15MB
 
 server:
   port: ${SERVER_PORT:8084}
@@ -19,3 +40,21 @@ info:
   app:
     name: media-service
     description: Parkio media-service
+
+parkio:
+  media:
+    # Application-level upload constraints.
+    max-file-size: 10MB
+    allowed-content-types:
+      - image/jpeg
+      - image/png
+      - image/webp
+    storage:
+      bucket: ${PARKIO_MEDIA_BUCKET:parkio-media}
+      # S3-compatible endpoint (MinIO in local/dev). Credentials are injected;
+      # the defaults below are LOCAL DEV ONLY and must be overridden everywhere
+      # else (ai-context/07).
+      endpoint: ${PARKIO_MEDIA_STORAGE_ENDPOINT:http://localhost:9000}
+      access-key: ${PARKIO_MEDIA_STORAGE_ACCESS_KEY:minioadmin}
+      secret-key: ${PARKIO_MEDIA_STORAGE_SECRET_KEY:minioadmin}
+      region: ${PARKIO_MEDIA_STORAGE_REGION:us-east-1}

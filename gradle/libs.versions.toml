@@ -4,6 +4,8 @@ springBoot = "3.4.1"
 springDependencyManagement = "1.1.7"
 # JJWT is not part of the Spring Boot BOM, so it needs an explicit version.
 jjwt = "0.12.6"
+# MinIO client is not part of the Spring Boot BOM, so it needs an explicit version.
+minio = "8.5.12"
 
 [libraries]
 # Spring Boot starters. Concrete versions are supplied by the Spring Boot BOM,
@@ -23,6 +25,9 @@ spring-cloud-gateway = { module = "org.springframework.cloud:spring-cloud-starte
 postgresql = { module = "org.postgresql:postgresql" }
 flyway-core = { module = "org.flywaydb:flyway-core" }
 flyway-database-postgresql = { module = "org.flywaydb:flyway-database-postgresql" }
+
+# Object storage (S3-compatible, used by media-service).
+minio = { module = "io.minio:minio", version.ref = "minio" }
 
 # JWT (access tokens).
 jjwt-api = { module = "io.jsonwebtoken:jjwt-api", version.ref = "jjwt" }
