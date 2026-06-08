@@ -25,3 +25,6 @@ parkio:
       default-result-limit: 10
       max-radius-meters: 50000
       max-result-limit: 50
+  kafka:
+    # No broker in tests: skip topic provisioning so the context starts without Kafka.
+    provision-topics: false

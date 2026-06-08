@@ -1,6 +1,38 @@
 spring:
   application:
     name: auth-service
+  kafka:
+    # Broker is externalized; local/dev default targets the docker-compose host listener.
+    bootstrap-servers: ${PARKIO_KAFKA_BOOTSTRAP_SERVERS:localhost:29092}
+    producer:
+      acks: all
+      key-serializer: org.apache.kafka.common.serialization.StringSerializer
+      value-serializer: org.springframework.kafka.support.serializer.JsonSerializer
+      properties:
+        enable.idempotence: true
+        # Envelope is self-describing; the consumer reads it as JSON, so no type headers.
+        spring.json.add.type.headers: false
+    consumer:
+      group-id: ${spring.application.name}
+      auto-offset-reset: earliest
+      enable-auto-commit: false
+      key-deserializer: org.apache.kafka.common.serialization.StringDeserializer
+      value-deserializer: org.springframework.kafka.support.serializer.ErrorHandlingDeserializer
+      properties:
+        spring.deserializer.value.delegate.class: org.springframework.kafka.support.serializer.JsonDeserializer
+        spring.json.trusted.packages: "com.parkio.*"
+        spring.json.use.type.headers: false
+    listener:
+      ack-mode: manual
+    admin:
+      # Missing broker at startup must not fail the context.
+      fail-fast: false
+  jackson:
+    # Event compatibility (event-contracts.md): tolerate unknown fields, ISO-8601 instants.
+    deserialization:
+      fail-on-unknown-properties: false
+    serialization:
+      write-dates-as-timestamps: false
   datasource:
     url: ${SPRING_DATASOURCE_URL:jdbc:postgresql://localhost:5432/parkio_auth}
     username: ${SPRING_DATASOURCE_USERNAME:parkio_auth}
@@ -46,3 +78,15 @@ parkio:
       # ISO-8601 durations.
       access-token-ttl: ${PARKIO_JWT_ACCESS_TTL:PT15M}
       refresh-token-ttl: ${PARKIO_JWT_REFRESH_TTL:P30D}
+  kafka:
+    # Topic provisioning via NewTopic beans (KafkaTopicsConfig). Replication factor is
+    # configurable for production; 1 is the local/dev default (single-broker compose).
+    provision-topics: true
+    replication-factor: ${PARKIO_KAFKA_REPLICATION_FACTOR:1}
+    relay:
+      # Outbox relay: publishes UserRegistered to parkio.auth.user. Poll interval and
+      # batch size are configurable; send-timeout bounds the per-row broker ack wait.
+      enabled: true
+      poll-interval-ms: 1000
+      batch-size: 100
+      send-timeout-ms: 10000

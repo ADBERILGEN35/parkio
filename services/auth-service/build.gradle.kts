@@ -14,6 +14,10 @@ dependencies {
     implementation(libs.flyway.core)
     implementation(libs.flyway.database.postgresql)
 
+    // Asynchronous event transport (Kafka). Topic provisioning + config now;
+    // outbox relay and consumers are added later.
+    implementation(libs.spring.kafka)
+
     implementation(libs.jjwt.api)
     runtimeOnly(libs.jjwt.impl)
     runtimeOnly(libs.jjwt.jackson)

@@ -13,6 +13,10 @@ dependencies {
     implementation(libs.flyway.core)
     implementation(libs.flyway.database.postgresql)
 
+    // Asynchronous event transport (Kafka). Topic provisioning + config now;
+    // outbox relay and consumers are added later.
+    implementation(libs.spring.kafka)
+
     runtimeOnly(libs.postgresql)
 
     testImplementation(libs.spring.boot.starter.test)

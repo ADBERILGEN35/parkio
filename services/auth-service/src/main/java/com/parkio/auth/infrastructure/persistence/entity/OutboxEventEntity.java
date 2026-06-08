@@ -88,4 +88,9 @@ public class OutboxEventEntity {
     public boolean isPublished() {
         return published;
     }
+
+    /** Marks this row as published after a successful Kafka send (the outbox relay). */
+    public void markPublished() {
+        this.published = true;
+    }
 }

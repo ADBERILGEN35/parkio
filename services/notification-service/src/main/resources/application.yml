@@ -1,6 +1,30 @@
 spring:
   application:
     name: notification-service
+  kafka:
+    # Broker is externalized; local/dev default targets the docker-compose host listener.
+    bootstrap-servers: ${PARKIO_KAFKA_BOOTSTRAP_SERVERS:localhost:29092}
+    producer:
+      acks: all
+      key-serializer: org.apache.kafka.common.serialization.StringSerializer
+      value-serializer: org.springframework.kafka.support.serializer.JsonSerializer
+      properties:
+        enable.idempotence: true
+    consumer:
+      group-id: ${spring.application.name}
+      auto-offset-reset: earliest
+      enable-auto-commit: false
+      key-deserializer: org.apache.kafka.common.serialization.StringDeserializer
+      value-deserializer: org.springframework.kafka.support.serializer.ErrorHandlingDeserializer
+      properties:
+        spring.deserializer.value.delegate.class: org.springframework.kafka.support.serializer.JsonDeserializer
+        spring.json.trusted.packages: "com.parkio.*"
+        spring.json.use.type.headers: false
+    listener:
+      ack-mode: manual
+    admin:
+      # Missing broker at startup must not fail the context (no relay/consumers yet).
+      fail-fast: false
   datasource:
     url: ${SPRING_DATASOURCE_URL:jdbc:postgresql://localhost:5432/parkio_notification}
     username: ${SPRING_DATASOURCE_USERNAME:parkio_notification}
@@ -33,3 +57,10 @@ info:
   app:
     name: notification-service
     description: Parkio notification-service
+
+parkio:
+  kafka:
+    # Topic provisioning via NewTopic beans (KafkaTopicsConfig). Replication factor is
+    # configurable for production; 1 is the local/dev default (single-broker compose).
+    provision-topics: true
+    replication-factor: ${PARKIO_KAFKA_REPLICATION_FACTOR:1}

@@ -5,6 +5,7 @@ import com.parkio.user.application.command.UpdatePreferencesCommand;
 import com.parkio.user.application.command.UpdateProfileCommand;
 import com.parkio.user.application.command.UpsertVehicleCommand;
 import com.parkio.user.application.event.UserRegisteredEvent;
+import com.parkio.user.application.port.InboxEventRepository;
 import com.parkio.user.application.port.OutboxEventAppender;
 import com.parkio.user.application.port.UserPreferenceRepository;
 import com.parkio.user.application.port.UserProfileRepository;
@@ -46,6 +47,7 @@ public class UserApplicationService {
     private final UserTrustProfileRepository trustProfiles;
     private final UserTrustScoreHistoryRepository trustHistory;
     private final OutboxEventAppender outbox;
+    private final InboxEventRepository inbox;
     private final Clock clock;
 
     public UserApplicationService(UserProfileRepository profiles,
@@ -54,6 +56,7 @@ public class UserApplicationService {
                                   UserTrustProfileRepository trustProfiles,
                                   UserTrustScoreHistoryRepository trustHistory,
                                   OutboxEventAppender outbox,
+                                  InboxEventRepository inbox,
                                   Clock clock) {
         this.profiles = profiles;
         this.preferences = preferences;
@@ -61,6 +64,7 @@ public class UserApplicationService {
         this.trustProfiles = trustProfiles;
         this.trustHistory = trustHistory;
         this.outbox = outbox;
+        this.inbox = inbox;
         this.clock = clock;
     }
 
@@ -89,16 +93,22 @@ public class UserApplicationService {
     }
 
     /**
-     * Idempotent handler for the auth-service {@code UserRegistered} event:
-     * creates a default profile if none exists yet. Placeholder — invoked
-     * directly for now; a Kafka consumer will call it once wired (ai-context/06).
+     * Idempotent handler for the auth-service {@code UserRegistered} event: creates a
+     * default profile if none exists yet. Deduplicated by {@code eventId} via the inbox
+     * (ai-context/06) so at-least-once Kafka redelivery is safe; the {@code
+     * existsByAuthUserId} guard additionally tolerates a missing/duplicate inbox row.
+     * Runs in the surrounding transaction so the profile and the inbox record commit
+     * together. Invoked by the Kafka consumer in {@code infrastructure.messaging}.
      */
     public void handleUserRegistered(UserRegisteredEvent event) {
-        if (profiles.existsByAuthUserId(event.userId())) {
-            return; // already provisioned; safe under at-least-once delivery
+        if (inbox.existsByEventId(event.eventId())) {
+            return; // already processed; skip redelivery
         }
-        String displayName = deriveDisplayName(event.email());
-        createProfile(new CreateProfileCommand(event.userId(), event.email(), displayName, null, null));
+        if (!profiles.existsByAuthUserId(event.userId())) {
+            String displayName = deriveDisplayName(event.email());
+            createProfile(new CreateProfileCommand(event.userId(), event.email(), displayName, null, null));
+        }
+        inbox.markProcessed(event.eventId(), UserRegisteredEvent.TYPE, clock.instant());
     }
 
     @Transactional(readOnly = true)

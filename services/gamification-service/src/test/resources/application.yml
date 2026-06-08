@@ -22,3 +22,6 @@ parkio:
     leaderboard:
       default-limit: 20
       max-limit: 100
+  kafka:
+    # No broker in tests: skip topic provisioning so the context starts without Kafka.
+    provision-topics: false

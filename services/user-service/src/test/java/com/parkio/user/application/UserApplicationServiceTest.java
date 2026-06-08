@@ -8,6 +8,7 @@ import com.parkio.user.application.command.UpdatePreferencesCommand;
 import com.parkio.user.application.command.UpdateProfileCommand;
 import com.parkio.user.application.command.UpsertVehicleCommand;
 import com.parkio.user.application.event.UserRegisteredEvent;
+import com.parkio.user.application.port.InboxEventRepository;
 import com.parkio.user.application.port.OutboxEventAppender;
 import com.parkio.user.application.port.UserPreferenceRepository;
 import com.parkio.user.application.port.UserProfileRepository;
@@ -53,6 +54,7 @@ class UserApplicationServiceTest {
     private FakeUserTrustProfileRepository trustProfiles;
     private FakeUserTrustScoreHistoryRepository trustHistory;
     private FakeOutboxEventAppender outbox;
+    private FakeInboxEventRepository inbox;
     private UserApplicationService service;
 
     @BeforeEach
@@ -63,9 +65,10 @@ class UserApplicationServiceTest {
         trustProfiles = new FakeUserTrustProfileRepository();
         trustHistory = new FakeUserTrustScoreHistoryRepository();
         outbox = new FakeOutboxEventAppender();
+        inbox = new FakeInboxEventRepository();
         Clock clock = Clock.fixed(NOW, ZoneOffset.UTC);
         service = new UserApplicationService(profiles, preferences, vehicles, trustProfiles,
-                trustHistory, outbox, clock);
+                trustHistory, outbox, inbox, clock);
     }
 
     private CreateProfileCommand command(UUID authUserId) {
@@ -125,6 +128,18 @@ class UserApplicationServiceTest {
         UserProfile profile = profiles.findByAuthUserId(authUserId).orElseThrow();
         assertThat(profile.displayName()).isEqualTo("john.doe");
         assertThat(profile.status()).isEqualTo(UserStatus.ACTIVE);
+        assertThat(inbox.processed).containsKey(event.eventId());
+    }
+
+    @Test
+    void handleUserRegisteredSkipsWhenEventAlreadyInInbox() {
+        UUID authUserId = UUID.randomUUID();
+        UserRegisteredEvent event = new UserRegisteredEvent(UUID.randomUUID(), authUserId, "jane@example.com", NOW);
+        inbox.markProcessed(event.eventId(), UserRegisteredEvent.TYPE, NOW); // already processed
+
+        service.handleUserRegistered(event);
+
+        assertThat(profiles.byId).isEmpty(); // dedup via inbox: no profile created
     }
 
     @Test
@@ -329,6 +344,20 @@ class UserApplicationServiceTest {
         @Override
         public void append(UserProfileCreatedEvent event) {
             events.add(event);
+        }
+    }
+
+    private static final class FakeInboxEventRepository implements InboxEventRepository {
+        private final Map<UUID, String> processed = new HashMap<>();
+
+        @Override
+        public boolean existsByEventId(UUID eventId) {
+            return processed.containsKey(eventId);
+        }
+
+        @Override
+        public void markProcessed(UUID eventId, String eventType, Instant processedAt) {
+            processed.put(eventId, eventType);
         }
     }
 }

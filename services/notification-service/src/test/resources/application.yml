@@ -16,3 +16,8 @@ spring:
       hibernate.jdbc.time_zone: UTC
   flyway:
     enabled: false
+
+parkio:
+  kafka:
+    # No broker in tests: skip topic provisioning so the context starts without Kafka.
+    provision-topics: false

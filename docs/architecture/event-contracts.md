@@ -2,9 +2,10 @@
 
 This is the canonical registry of every domain event currently defined in Parkio.
 It is the source of truth for **producers**, **consumers**, and **payload schemas**.
-It complements [`../ai-context/06-event-guidelines.md`](../ai-context/06-event-guidelines.md);
-where this file and code disagree, the code is authoritative and this file must be
-updated in the same change.
+It complements [`../ai-context/06-event-guidelines.md`](../ai-context/06-event-guidelines.md)
+and [`kafka-transport.md`](kafka-transport.md) (topic map, partitioning, retention, DLT
+and producer/consumer config); where this file and code disagree, the code is
+authoritative and this file must be updated in the same change.
 
 > Per ai-context/01 and /03, events are **never** a shared library. Each consumer
 > **duplicates** the payload contract locally as its own DTO. This registry is
