@@ -15,3 +15,12 @@ spring:
       hibernate.jdbc.time_zone: UTC
   flyway:
     enabled: false
+  kafka:
+    listener:
+      # No broker in tests: do not start listener containers (the @KafkaListener consumers).
+      auto-startup: false
+
+parkio:
+  kafka:
+    # No broker in tests: skip topic provisioning so the context starts without Kafka.
+    provision-topics: false

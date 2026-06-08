@@ -7,15 +7,18 @@ import java.util.Set;
 import org.springframework.boot.context.properties.EnableConfigurationProperties;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
+import org.springframework.scheduling.annotation.EnableScheduling;
 import org.springframework.util.StringUtils;
 
 /**
  * Infrastructure wiring: a system-UTC {@link Clock}, the MinIO client built from
- * configuration, and the application's {@link MediaUploadConstraints} derived from
- * properties (so the application layer stays free of Spring config types).
+ * configuration, the application's {@link MediaUploadConstraints} derived from
+ * properties (so the application layer stays free of Spring config types), and
+ * scheduling for the outbox relay poller.
  */
 @Configuration
 @EnableConfigurationProperties(MediaProperties.class)
+@EnableScheduling
 public class MediaInfrastructureConfig {
 
     @Bean

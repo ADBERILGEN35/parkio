@@ -10,6 +10,8 @@ spring:
       value-serializer: org.springframework.kafka.support.serializer.JsonSerializer
       properties:
         enable.idempotence: true
+        # Envelope is self-describing; consumers read it as JSON, so no type headers.
+        spring.json.add.type.headers: false
     consumer:
       group-id: ${spring.application.name}
       auto-offset-reset: earliest
@@ -23,8 +25,14 @@ spring:
     listener:
       ack-mode: manual
     admin:
-      # Missing broker at startup must not fail the context (no relay/consumers yet).
+      # Missing broker at startup must not fail the context.
       fail-fast: false
+  jackson:
+    # Event compatibility (event-contracts.md): tolerate unknown fields, ISO-8601 instants.
+    deserialization:
+      fail-on-unknown-properties: false
+    serialization:
+      write-dates-as-timestamps: false
   datasource:
     url: ${SPRING_DATASOURCE_URL:jdbc:postgresql://localhost:5432/parkio_aivalidation}
     username: ${SPRING_DATASOURCE_USERNAME:parkio_aivalidation}
@@ -64,3 +72,10 @@ parkio:
     # configurable for production; 1 is the local/dev default (single-broker compose).
     provision-topics: true
     replication-factor: ${PARKIO_KAFKA_REPLICATION_FACTOR:1}
+    relay:
+      # Outbox relay: publishes advisory results to parkio.aivalidation.result. Poll
+      # interval and batch size are configurable; send-timeout bounds the ack wait.
+      enabled: true
+      poll-interval-ms: 1000
+      batch-size: 100
+      send-timeout-ms: 10000
