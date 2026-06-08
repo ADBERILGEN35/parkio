@@ -4,6 +4,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 
 import com.parkio.gamification.application.event.ParkingSpotClaimedEvent;
 import com.parkio.gamification.application.event.ParkingSpotCreatedEvent;
+import com.parkio.gamification.application.event.ParkingSpotRejectedByModeratorEvent;
 import com.parkio.gamification.application.event.ParkingSpotRejectedEvent;
 import com.parkio.gamification.application.event.ParkingSpotVerifiedEvent;
 import com.parkio.gamification.application.port.ContributionSnapshotRepository;
@@ -142,6 +143,32 @@ class GamificationApplicationServiceTest {
 
         assertThat(progress.byUser.get(owner).totalPoints()).isEqualTo(5); // 30 - 25
         assertThat(outbox.eventsOfType("PointsDeducted")).hasSize(1);
+    }
+
+    @Test
+    void moderatorRejectionDeductsOwnerPointsOnceWhenOwnerKnown() {
+        UUID owner = UUID.randomUUID();
+        service.handleParkingSpotClaimed(
+                new ParkingSpotClaimedEvent(UUID.randomUUID(), UUID.randomUUID(), owner, UUID.randomUUID(), NOW));
+
+        ParkingSpotRejectedByModeratorEvent event = new ParkingSpotRejectedByModeratorEvent(
+                UUID.randomUUID(), UUID.randomUUID(), owner, UUID.randomUUID(), UUID.randomUUID(),
+                "ILLEGAL_OR_RISKY", NOW);
+        service.handleParkingSpotRejectedByModerator(event);
+        service.handleParkingSpotRejectedByModerator(event); // redelivery — inbox no-op
+
+        assertThat(progress.byUser.get(owner).totalPoints()).isEqualTo(5); // 30 - 25, applied once
+    }
+
+    @Test
+    void moderatorRejectionWithoutOwnerAppliesNoPenalty() {
+        ParkingSpotRejectedByModeratorEvent event = new ParkingSpotRejectedByModeratorEvent(
+                UUID.randomUUID(), UUID.randomUUID(), null, UUID.randomUUID(), UUID.randomUUID(),
+                "ILLEGAL_OR_RISKY", NOW);
+
+        service.handleParkingSpotRejectedByModerator(event);
+
+        assertThat(transactions.all).isEmpty();
     }
 
     @Test

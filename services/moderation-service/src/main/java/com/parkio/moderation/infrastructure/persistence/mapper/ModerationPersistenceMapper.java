@@ -22,16 +22,16 @@ public final class ModerationPersistenceMapper {
 
     public static ModerationCaseEntity toEntity(ModerationCase c) {
         return new ModerationCaseEntity(
-                c.id(), c.targetType(), c.targetId(), c.reason(), c.severity(), c.status(),
+                c.id(), c.targetType(), c.targetId(), c.ownerUserId(), c.reason(), c.severity(), c.status(),
                 c.assignedModeratorId(), c.reportCount(), c.resolutionAction(), c.resolutionNote(),
                 c.openedAt(), c.updatedAt(), c.resolvedAt(), c.version());
     }
 
     public static ModerationCase toDomain(ModerationCaseEntity e) {
         return new ModerationCase(
-                e.getId(), e.getTargetType(), e.getTargetId(), e.getReason(), e.getSeverity(), e.getStatus(),
-                e.getAssignedModeratorId(), e.getReportCount(), e.getResolutionAction(), e.getResolutionNote(),
-                e.getOpenedAt(), e.getUpdatedAt(), e.getResolvedAt(), e.getVersion());
+                e.getId(), e.getTargetType(), e.getTargetId(), e.getOwnerUserId(), e.getReason(), e.getSeverity(),
+                e.getStatus(), e.getAssignedModeratorId(), e.getReportCount(), e.getResolutionAction(),
+                e.getResolutionNote(), e.getOpenedAt(), e.getUpdatedAt(), e.getResolvedAt(), e.getVersion());
     }
 
     public static UserReportEntity toEntity(UserReport r) {

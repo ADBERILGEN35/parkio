@@ -22,5 +22,8 @@ spring:
 
 parkio:
   kafka:
-    # No broker in tests: skip topic provisioning so the context starts without Kafka.
+    # No broker in tests: skip topic provisioning and disable the outbox relay so the
+    # context starts without Kafka (the relay poller / native query never runs).
     provision-topics: false
+    relay:
+      enabled: false

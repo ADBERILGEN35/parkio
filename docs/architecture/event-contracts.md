@@ -454,6 +454,41 @@ consumption is deduplicated by `eventId` via the inbox.
 
 ---
 
+# Moderation
+
+Moderation publishes case-lifecycle events to `parkio.moderation.case` and outward
+moderator actions to `parkio.moderation.action` (relay: `ModerationOutboxRelay`).
+
+## ParkingSpotRejectedByModeratorEvent
+
+- **Producer:** `moderation-service` (topic `parkio.moderation.action`,
+  `aggregateType=ParkingSpot`, `aggregateId=parkingSpotId`).
+- **Consumers:** `gamification-service` (owner point penalty) and `notification-service`
+  (warn the owner). **`parking-service` intentionally does NOT consume it** — see the
+  loop guard in [`kafka-transport.md`](kafka-transport.md). Owner-targeted.
+
+### Payload schema
+
+| Field | Type | Required | Meaning |
+|-------|------|----------|---------|
+| `eventId` | UUID (string) | yes | Dedup key. |
+| `parkingSpotId` | UUID (string) | yes | The rejected spot (partition key). |
+| `ownerUserId` | UUID (string) | no | Spot owner (authUserId). Present when the case knows the owner (opened from a community `ParkingSpotRejected`); **null** for cases opened from a user report or an AI/media signal. Consumers apply the owner penalty / owner notification **only when present**. |
+| `moderatorUserId` | UUID (string) | yes | The moderator who resolved the case. |
+| `moderationCaseId` | UUID (string) | yes | The resolved moderation case. |
+| `reason` | string (enum) | yes | The case's `ModerationReason` name (e.g. `ILLEGAL_OR_RISKY`). |
+| `occurredAt` | timestamp (UTC) | yes | When the moderator rejected the spot. |
+
+- **Version:** 1. **Compatibility:** append-only. `ownerUserId` is optional by design;
+  consumers must tolerate its absence (skip owner-targeted side effects).
+
+> **Other moderation events** (`UserSuspended`, `UserRestored` on `…action`;
+> `ModerationCaseOpened/Resolved`, `AppealCreated/Resolved` on `…case`) are published by
+> the same relay and consumed by user/gamification/notification per
+> `kafka-transport.md`; their payloads are documented in code (`domain.event`).
+
+---
+
 ## Maintenance
 
 When you add, change, or consume an event:

@@ -163,6 +163,28 @@ class ModerationApplicationServiceTest {
     }
 
     @Test
+    void moderatorRejectionEventCarriesOwnerWhenCaseOpenedFromCommunityRejection() {
+        UUID spot = UUID.randomUUID();
+        UUID owner = UUID.randomUUID();
+        // A community rejection carries the owner — moderation records it on the case.
+        service.handleParkingSpotRejected(new ParkingSpotRejectedEvent(
+                UUID.randomUUID(), spot, owner, UUID.randomUUID(), "ILLEGAL_OR_RISKY", NOW));
+        ModerationCase opened = cases.byId.values().iterator().next();
+        outbox.events.clear();
+
+        service.resolveCase(new ResolveCaseCommand(opened.id(), UUID.randomUUID(),
+                ModerationAction.REJECT, "confirmed"));
+
+        com.parkio.moderation.domain.event.ParkingSpotRejectedByModeratorEvent emitted = outbox.events.stream()
+                .filter(e -> e instanceof com.parkio.moderation.domain.event.ParkingSpotRejectedByModeratorEvent)
+                .map(e -> (com.parkio.moderation.domain.event.ParkingSpotRejectedByModeratorEvent) e)
+                .findFirst().orElseThrow();
+        assertThat(emitted.ownerUserId()).isEqualTo(owner);
+        assertThat(emitted.parkingSpotId()).isEqualTo(spot);
+        assertThat(emitted.reason()).isEqualTo("ILLEGAL_OR_RISKY");
+    }
+
+    @Test
     void suspendingUserRecordsViolationAndEmitsSuspendedEvent() {
         UUID targetUser = UUID.randomUUID();
         UUID caseId = openSeriousCase(ModerationTargetType.USER, targetUser);

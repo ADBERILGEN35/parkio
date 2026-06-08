@@ -2,6 +2,7 @@ package com.parkio.gamification.application;
 
 import com.parkio.gamification.application.event.ParkingSpotClaimedEvent;
 import com.parkio.gamification.application.event.ParkingSpotCreatedEvent;
+import com.parkio.gamification.application.event.ParkingSpotRejectedByModeratorEvent;
 import com.parkio.gamification.application.event.ParkingSpotRejectedEvent;
 import com.parkio.gamification.application.event.ParkingSpotVerifiedEvent;
 import com.parkio.gamification.application.port.ContributionSnapshotRepository;
@@ -131,6 +132,25 @@ public class GamificationApplicationService {
         deduct(event.ownerUserId(), transactionKey(event.eventId(), RewardRuleKeys.REJECTED_OWNER),
                 rule, event.eventId(), event.parkingSpotId());
         markProcessed(event.eventId(), "ParkingSpotRejected");
+    }
+
+    /**
+     * Owner penalty when a moderator rejects a spot. Reuses the existing
+     * {@code PARKING_REJECTED_OWNER} penalty rule. The penalty is applied only when the
+     * event carries the spot owner; moderation does not populate it yet, so this is a
+     * no-op until then (still inbox-deduplicated). Idempotent twice over: inbox by
+     * {@code eventId} and the points transaction key.
+     */
+    public void handleParkingSpotRejectedByModerator(ParkingSpotRejectedByModeratorEvent event) {
+        if (alreadyProcessed(event.eventId())) {
+            return;
+        }
+        if (event.ownerUserId() != null) {
+            PenaltyRule rule = penalty(RewardRuleKeys.REJECTED_OWNER);
+            deduct(event.ownerUserId(), transactionKey(event.eventId(), RewardRuleKeys.REJECTED_OWNER),
+                    rule, event.eventId(), event.parkingSpotId());
+        }
+        markProcessed(event.eventId(), "ParkingSpotRejectedByModerator");
     }
 
     // --- Queries ---

@@ -42,3 +42,8 @@ jjwt-jackson = { module = "io.jsonwebtoken:jjwt-jackson", version.ref = "jjwt" }
 spring-security-test = { module = "org.springframework.security:spring-security-test" }
 h2 = { module = "com.h2database:h2" }
 junit-platform-launcher = { module = "org.junit.platform:junit-platform-launcher" }
+
+# Testcontainers — Kafka integration tests only (versions from the Spring Boot BOM).
+# Used by @Tag("integration") tests; the standard `test`/`build` excludes that tag.
+testcontainers-kafka = { module = "org.testcontainers:kafka" }
+testcontainers-junit = { module = "org.testcontainers:junit-jupiter" }

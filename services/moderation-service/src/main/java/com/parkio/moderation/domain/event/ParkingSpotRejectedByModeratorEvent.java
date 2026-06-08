@@ -4,22 +4,33 @@ import java.time.Instant;
 import java.util.UUID;
 
 /**
- * Emitted when a moderator rejects/marks-risky a parking spot. parking-service
- * consumes this to set the spot's status (moderation never writes parking data).
+ * Emitted when a moderator rejects/marks-risky a parking spot. Owner-targeted: consumed
+ * by gamification-service (owner penalty) and notification-service (warn the owner).
+ * parking-service must NOT consume it (loop guard — see kafka-transport.md); moderation
+ * never writes parking data.
+ *
+ * <p>{@code ownerUserId} is the spot owner when the case knows it (cases opened from a
+ * community {@code ParkingSpotRejected} carry it); it is null for cases opened from a user
+ * report or an AI/media signal, in which case downstream owner penalties/notifications are
+ * skipped.
  */
 public record ParkingSpotRejectedByModeratorEvent(
         UUID eventId,
-        UUID caseId,
         UUID parkingSpotId,
-        UUID moderatorId,
+        UUID ownerUserId,
+        UUID moderatorUserId,
+        UUID moderationCaseId,
+        String reason,
         Instant occurredAt) implements ModerationEvent {
 
     public static final String TYPE = "ParkingSpotRejectedByModerator";
     public static final String AGGREGATE_TYPE = "ParkingSpot";
 
-    public static ParkingSpotRejectedByModeratorEvent of(UUID caseId, UUID parkingSpotId,
-                                                         UUID moderatorId, Instant occurredAt) {
-        return new ParkingSpotRejectedByModeratorEvent(UUID.randomUUID(), caseId, parkingSpotId, moderatorId, occurredAt);
+    public static ParkingSpotRejectedByModeratorEvent of(UUID moderationCaseId, UUID parkingSpotId,
+                                                         UUID ownerUserId, UUID moderatorUserId,
+                                                         String reason, Instant occurredAt) {
+        return new ParkingSpotRejectedByModeratorEvent(UUID.randomUUID(), parkingSpotId, ownerUserId,
+                moderatorUserId, moderationCaseId, reason, occurredAt);
     }
 
     @Override

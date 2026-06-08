@@ -32,6 +32,23 @@ dependencyManagement {
     }
 }
 
-tasks.withType<Test>().configureEach {
-    useJUnitPlatform()
+// Default `test` (and therefore `check`/`build`) runs unit tests only and excludes the
+// `integration` tag, so the standard build never requires Docker.
+tasks.named<Test>("test") {
+    useJUnitPlatform {
+        excludeTags("integration")
+    }
+}
+
+// Opt-in Testcontainers integration tests: `./gradlew integrationTest` (requires Docker).
+// Deliberately NOT wired into `check`/`build`. Shares the `test` source set.
+tasks.register<Test>("integrationTest") {
+    description = "Runs @Tag(\"integration\") Kafka/Testcontainers integration tests (requires Docker)."
+    group = "verification"
+    useJUnitPlatform {
+        includeTags("integration")
+    }
+    testClassesDirs = sourceSets["test"].output.classesDirs
+    classpath = sourceSets["test"].runtimeClasspath
+    shouldRunAfter(tasks.named("test"))
 }

@@ -5,6 +5,8 @@ import com.parkio.user.application.command.UpdatePreferencesCommand;
 import com.parkio.user.application.command.UpdateProfileCommand;
 import com.parkio.user.application.command.UpsertVehicleCommand;
 import com.parkio.user.application.event.UserRegisteredEvent;
+import com.parkio.user.application.event.UserRestoredEvent;
+import com.parkio.user.application.event.UserSuspendedEvent;
 import com.parkio.user.application.port.InboxEventRepository;
 import com.parkio.user.application.port.OutboxEventAppender;
 import com.parkio.user.application.port.UserPreferenceRepository;
@@ -109,6 +111,37 @@ public class UserApplicationService {
             createProfile(new CreateProfileCommand(event.userId(), event.email(), displayName, null, null));
         }
         inbox.markProcessed(event.eventId(), UserRegisteredEvent.TYPE, clock.instant());
+    }
+
+    /**
+     * Idempotent handler for moderation's {@code UserSuspended}: flips the profile's
+     * account status to {@code SUSPENDED}. Auth credentials are not touched here
+     * (ai-context/03). A no-op if the profile is unknown. Inbox-deduplicated.
+     */
+    public void handleUserSuspended(UserSuspendedEvent event) {
+        if (inbox.existsByEventId(event.eventId())) {
+            return;
+        }
+        profiles.findByAuthUserId(event.userId()).ifPresent(profile -> {
+            profile.suspend();
+            profiles.save(profile);
+        });
+        inbox.markProcessed(event.eventId(), UserSuspendedEvent.TYPE, clock.instant());
+    }
+
+    /**
+     * Idempotent handler for moderation's {@code UserRestored}: flips the profile's
+     * account status back to {@code ACTIVE}. A no-op if the profile is unknown.
+     */
+    public void handleUserRestored(UserRestoredEvent event) {
+        if (inbox.existsByEventId(event.eventId())) {
+            return;
+        }
+        profiles.findByAuthUserId(event.userId()).ifPresent(profile -> {
+            profile.restore();
+            profiles.save(profile);
+        });
+        inbox.markProcessed(event.eventId(), UserRestoredEvent.TYPE, clock.instant());
     }
 
     @Transactional(readOnly = true)

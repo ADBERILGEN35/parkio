@@ -31,6 +31,9 @@ public class ModerationCaseEntity {
     @Column(name = "target_id", nullable = false, updatable = false)
     private UUID targetId;
 
+    @Column(name = "owner_user_id", updatable = false)
+    private UUID ownerUserId;
+
     @Enumerated(EnumType.STRING)
     @Column(name = "reason", nullable = false, updatable = false)
     private ModerationReason reason;
@@ -73,13 +76,15 @@ public class ModerationCaseEntity {
         // for JPA
     }
 
-    public ModerationCaseEntity(UUID id, ModerationTargetType targetType, UUID targetId, ModerationReason reason,
-                                ModerationSeverity severity, ModerationStatus status, UUID assignedModeratorId,
-                                int reportCount, ModerationAction resolutionAction, String resolutionNote,
-                                Instant openedAt, Instant updatedAt, Instant resolvedAt, Long version) {
+    public ModerationCaseEntity(UUID id, ModerationTargetType targetType, UUID targetId, UUID ownerUserId,
+                                ModerationReason reason, ModerationSeverity severity, ModerationStatus status,
+                                UUID assignedModeratorId, int reportCount, ModerationAction resolutionAction,
+                                String resolutionNote, Instant openedAt, Instant updatedAt, Instant resolvedAt,
+                                Long version) {
         this.id = id;
         this.targetType = targetType;
         this.targetId = targetId;
+        this.ownerUserId = ownerUserId;
         this.reason = reason;
         this.severity = severity;
         this.status = status;
@@ -103,6 +108,10 @@ public class ModerationCaseEntity {
 
     public UUID getTargetId() {
         return targetId;
+    }
+
+    public UUID getOwnerUserId() {
+        return ownerUserId;
     }
 
     public ModerationReason getReason() {

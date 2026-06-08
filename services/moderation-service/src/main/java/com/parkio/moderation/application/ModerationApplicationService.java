@@ -106,8 +106,9 @@ public class ModerationApplicationService {
                 command.targetId(), command.reason(), command.description(), now);
 
         if (command.reason().isSerious()) {
+            // A report knows the reporter, not the target's owner — owner stays null.
             ModerationCase moderationCase = openOrReuseCase(command.targetType(), command.targetId(),
-                    command.reason(), now);
+                    null, command.reason(), now);
             report.linkCase(moderationCase.id());
         }
         // Non-serious reports are recorded only; threshold-based opening is backlog.
@@ -167,7 +168,8 @@ public class ModerationApplicationService {
         if (moderationCase.targetType() == ModerationTargetType.PARKING_SPOT
                 && (action == ModerationAction.REJECT || action == ModerationAction.MARK_RISKY)) {
             outbox.append(ParkingSpotRejectedByModeratorEvent.of(moderationCase.id(),
-                    moderationCase.targetId(), command.moderatorId(), now));
+                    moderationCase.targetId(), moderationCase.ownerUserId(), command.moderatorId(),
+                    moderationCase.reason().name(), now));
         }
 
         if (moderationCase.targetType() == ModerationTargetType.USER) {
@@ -216,7 +218,10 @@ public class ModerationApplicationService {
         if (alreadyProcessed(event.eventId())) {
             return;
         }
-        openCaseIfAbsent(ModerationTargetType.PARKING_SPOT, event.parkingSpotId(), ModerationReason.ILLEGAL_OR_RISKY);
+        // The community rejection carries the spot owner — record it so a later
+        // moderator rejection can penalise/notify the owner.
+        openCaseIfAbsent(ModerationTargetType.PARKING_SPOT, event.parkingSpotId(), event.ownerUserId(),
+                ModerationReason.ILLEGAL_OR_RISKY);
         markProcessed(event.eventId(), "ParkingSpotRejected");
     }
 
@@ -231,7 +236,7 @@ public class ModerationApplicationService {
             default -> null;
         };
         if (reason != null) {
-            openCaseIfAbsent(ModerationTargetType.MEDIA, event.mediaId(), reason);
+            openCaseIfAbsent(ModerationTargetType.MEDIA, event.mediaId(), null, reason);
         }
         markProcessed(event.eventId(), "MediaRejected");
     }
@@ -250,10 +255,10 @@ public class ModerationApplicationService {
         aiValidationCase(event).ifPresent(decision -> {
             if (event.parkingSpotId() != null) {
                 openCaseIfAbsent(ModerationTargetType.PARKING_SPOT, event.parkingSpotId(),
-                        decision.reason(), decision.severity());
+                        null, decision.reason(), decision.severity());
             } else {
                 openCaseIfAbsent(ModerationTargetType.MEDIA, event.mediaId(),
-                        decision.reason(), decision.severity());
+                        null, decision.reason(), decision.severity());
             }
         });
         markProcessed(event.eventId(), "AiValidationCompleted");
@@ -261,36 +266,32 @@ public class ModerationApplicationService {
 
     // --- Internals ---
 
-    private ModerationCase openOrReuseCase(ModerationTargetType targetType, UUID targetId,
+    private ModerationCase openOrReuseCase(ModerationTargetType targetType, UUID targetId, UUID ownerUserId,
                                            ModerationReason reason, Instant now) {
         return cases.findActiveByTarget(targetType, targetId)
                 .map(existing -> {
                     existing.registerAdditionalReport(now);
                     return cases.save(existing);
                 })
-                .orElseGet(() -> openCase(targetType, targetId, reason, now));
+                .orElseGet(() -> openCase(targetType, targetId, ownerUserId, reason, reason.defaultSeverity(), now));
     }
 
-    private void openCaseIfAbsent(ModerationTargetType targetType, UUID targetId, ModerationReason reason) {
-        openCaseIfAbsent(targetType, targetId, reason, reason.defaultSeverity());
+    private void openCaseIfAbsent(ModerationTargetType targetType, UUID targetId, UUID ownerUserId,
+                                  ModerationReason reason) {
+        openCaseIfAbsent(targetType, targetId, ownerUserId, reason, reason.defaultSeverity());
     }
 
-    private void openCaseIfAbsent(ModerationTargetType targetType, UUID targetId,
+    private void openCaseIfAbsent(ModerationTargetType targetType, UUID targetId, UUID ownerUserId,
                                   ModerationReason reason, ModerationSeverity severity) {
         if (cases.findActiveByTarget(targetType, targetId).isEmpty()) {
-            openCase(targetType, targetId, reason, severity, clock.instant());
+            openCase(targetType, targetId, ownerUserId, reason, severity, clock.instant());
         }
     }
 
-    private ModerationCase openCase(ModerationTargetType targetType, UUID targetId,
-                                    ModerationReason reason, Instant now) {
-        return openCase(targetType, targetId, reason, reason.defaultSeverity(), now);
-    }
-
-    private ModerationCase openCase(ModerationTargetType targetType, UUID targetId,
+    private ModerationCase openCase(ModerationTargetType targetType, UUID targetId, UUID ownerUserId,
                                     ModerationReason reason, ModerationSeverity severity, Instant now) {
         ModerationCase moderationCase = cases.save(
-                ModerationCase.open(targetType, targetId, reason, severity, now));
+                ModerationCase.open(targetType, targetId, ownerUserId, reason, severity, now));
         outbox.append(ModerationCaseOpenedEvent.of(moderationCase, now));
         return moderationCase;
     }

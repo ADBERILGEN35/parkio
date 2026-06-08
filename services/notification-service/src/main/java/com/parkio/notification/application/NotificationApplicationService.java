@@ -2,11 +2,16 @@ package com.parkio.notification.application;
 
 import com.parkio.notification.application.command.RegisterDeviceTokenCommand;
 import com.parkio.notification.application.command.UpdatePreferencesCommand;
+import com.parkio.notification.application.event.AppealResolvedEvent;
+import com.parkio.notification.application.event.ModerationCaseResolvedEvent;
 import com.parkio.notification.application.event.ParkingSpotCreatedEvent;
+import com.parkio.notification.application.event.ParkingSpotRejectedByModeratorEvent;
 import com.parkio.notification.application.event.ParkingSpotRejectedEvent;
 import com.parkio.notification.application.event.PointsDeductedEvent;
 import com.parkio.notification.application.event.PointsEarnedEvent;
 import com.parkio.notification.application.event.UserLevelChangedEvent;
+import com.parkio.notification.application.event.UserRestoredEvent;
+import com.parkio.notification.application.event.UserSuspendedEvent;
 import com.parkio.notification.application.port.DeviceTokenRepository;
 import com.parkio.notification.application.port.InboxEventRepository;
 import com.parkio.notification.application.port.NotificationPreferenceRepository;
@@ -119,6 +124,62 @@ public class NotificationApplicationService {
         createInAppNotification(event.ownerUserId(), NotificationType.WARNING,
                 Map.of("message", "Your parking spot was rejected as illegal or risky."));
         markProcessed(event.eventId(), "ParkingSpotRejected");
+    }
+
+    // --- Moderation action events (parkio.moderation.action) ---
+
+    public void handleUserSuspended(UserSuspendedEvent event) {
+        if (alreadyProcessed(event.eventId())) {
+            return;
+        }
+        createInAppNotification(event.userId(), NotificationType.WARNING,
+                Map.of("message", "Your account has been suspended by moderation."));
+        markProcessed(event.eventId(), "UserSuspended");
+    }
+
+    public void handleUserRestored(UserRestoredEvent event) {
+        if (alreadyProcessed(event.eventId())) {
+            return;
+        }
+        createInAppNotification(event.userId(), NotificationType.SYSTEM,
+                Map.of("message", "Your account has been restored."));
+        markProcessed(event.eventId(), "UserRestored");
+    }
+
+    /** Notifies the spot owner of a moderator rejection — only when the owner is known. */
+    public void handleParkingSpotRejectedByModerator(ParkingSpotRejectedByModeratorEvent event) {
+        if (alreadyProcessed(event.eventId())) {
+            return;
+        }
+        if (event.ownerUserId() != null) {
+            createInAppNotification(event.ownerUserId(), NotificationType.WARNING,
+                    Map.of("message", "Your parking spot was rejected by a moderator."));
+        }
+        markProcessed(event.eventId(), "ParkingSpotRejectedByModerator");
+    }
+
+    // --- Moderation case events (parkio.moderation.case) ---
+
+    public void handleAppealResolved(AppealResolvedEvent event) {
+        if (alreadyProcessed(event.eventId())) {
+            return;
+        }
+        String outcome = event.accepted() ? "accepted" : "rejected";
+        createInAppNotification(event.userId(), NotificationType.SYSTEM,
+                Map.of("message", "Your appeal was " + outcome + "."));
+        markProcessed(event.eventId(), "AppealResolved");
+    }
+
+    /** Notifies the affected user when a USER-targeted case is resolved; otherwise a no-op. */
+    public void handleModerationCaseResolved(ModerationCaseResolvedEvent event) {
+        if (alreadyProcessed(event.eventId())) {
+            return;
+        }
+        if (ModerationCaseResolvedEvent.TARGET_TYPE_USER.equals(event.targetType()) && event.targetId() != null) {
+            createInAppNotification(event.targetId(), NotificationType.SYSTEM,
+                    Map.of("message", "A moderation case about your account was resolved."));
+        }
+        markProcessed(event.eventId(), "ModerationCaseResolved");
     }
 
     // --- Queries / commands ---

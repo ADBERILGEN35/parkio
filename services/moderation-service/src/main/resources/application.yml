@@ -10,6 +10,8 @@ spring:
       value-serializer: org.springframework.kafka.support.serializer.JsonSerializer
       properties:
         enable.idempotence: true
+        # Envelope is self-describing; consumers read it as JSON, so no type headers.
+        spring.json.add.type.headers: false
     consumer:
       group-id: ${spring.application.name}
       auto-offset-reset: earliest
@@ -69,4 +71,11 @@ parkio:
     # Topic provisioning via NewTopic beans (KafkaTopicsConfig). Replication factor is
     # configurable for production; 1 is the local/dev default (single-broker compose).
     provision-topics: true
+    relay:
+      # Outbox relay: publishes case events to parkio.moderation.case and outward
+      # moderator actions to parkio.moderation.action. Configurable poll/batch/timeout.
+      enabled: true
+      poll-interval-ms: 1000
+      batch-size: 100
+      send-timeout-ms: 10000
     replication-factor: ${PARKIO_KAFKA_REPLICATION_FACTOR:1}

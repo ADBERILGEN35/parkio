@@ -8,6 +8,8 @@ import com.parkio.user.application.command.UpdatePreferencesCommand;
 import com.parkio.user.application.command.UpdateProfileCommand;
 import com.parkio.user.application.command.UpsertVehicleCommand;
 import com.parkio.user.application.event.UserRegisteredEvent;
+import com.parkio.user.application.event.UserRestoredEvent;
+import com.parkio.user.application.event.UserSuspendedEvent;
 import com.parkio.user.application.port.InboxEventRepository;
 import com.parkio.user.application.port.OutboxEventAppender;
 import com.parkio.user.application.port.UserPreferenceRepository;
@@ -140,6 +142,25 @@ class UserApplicationServiceTest {
         service.handleUserRegistered(event);
 
         assertThat(profiles.byId).isEmpty(); // dedup via inbox: no profile created
+    }
+
+    @Test
+    void handleUserSuspendedThenRestoredFlipsStatusIdempotently() {
+        UUID authUserId = UUID.randomUUID();
+        UserProfile profile = service.createProfile(command(authUserId));
+
+        UserSuspendedEvent suspend = new UserSuspendedEvent(
+                UUID.randomUUID(), UUID.randomUUID(), authUserId, UUID.randomUUID(), NOW);
+        service.handleUserSuspended(suspend);
+        service.handleUserSuspended(suspend); // redelivery — inbox no-op
+
+        assertThat(profiles.byId.get(profile.id()).status()).isEqualTo(UserStatus.SUSPENDED);
+
+        UserRestoredEvent restore = new UserRestoredEvent(
+                UUID.randomUUID(), UUID.randomUUID(), authUserId, UUID.randomUUID(), NOW);
+        service.handleUserRestored(restore);
+
+        assertThat(profiles.byId.get(profile.id()).status()).isEqualTo(UserStatus.ACTIVE);
     }
 
     @Test

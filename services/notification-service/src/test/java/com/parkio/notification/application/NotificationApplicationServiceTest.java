@@ -5,6 +5,7 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 import com.parkio.notification.application.command.RegisterDeviceTokenCommand;
 import com.parkio.notification.application.command.UpdatePreferencesCommand;
+import com.parkio.notification.application.event.ParkingSpotRejectedByModeratorEvent;
 import com.parkio.notification.application.event.PointsEarnedEvent;
 import com.parkio.notification.application.event.UserLevelChangedEvent;
 import com.parkio.notification.application.port.DeviceTokenRepository;
@@ -148,6 +149,27 @@ class NotificationApplicationServiceTest {
         service.handleUserLevelChanged(event); // redelivery
 
         assertThat(notifications.findRecentByUserId(user, 10)).hasSize(1);
+    }
+
+    @Test
+    void moderatorRejectionWarnsOwnerWhenOwnerKnown() {
+        UUID owner = UUID.randomUUID();
+
+        service.handleParkingSpotRejectedByModerator(new ParkingSpotRejectedByModeratorEvent(
+                UUID.randomUUID(), UUID.randomUUID(), owner, UUID.randomUUID(), UUID.randomUUID(),
+                "ILLEGAL_OR_RISKY", NOW));
+
+        assertThat(notifications.findRecentByUserId(owner, 10)).singleElement()
+                .satisfies(n -> assertThat(n.type()).isEqualTo(NotificationType.WARNING));
+    }
+
+    @Test
+    void moderatorRejectionWithoutOwnerCreatesNoNotification() {
+        service.handleParkingSpotRejectedByModerator(new ParkingSpotRejectedByModeratorEvent(
+                UUID.randomUUID(), UUID.randomUUID(), null, UUID.randomUUID(), UUID.randomUUID(),
+                "ILLEGAL_OR_RISKY", NOW));
+
+        assertThat(notifications.byId).isEmpty();
     }
 
     @Test

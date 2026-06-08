@@ -16,6 +16,12 @@ public final class ModerationCase {
     private final UUID id;
     private final ModerationTargetType targetType;
     private final UUID targetId;
+    /**
+     * The owner of the targeted entity (the spot owner for PARKING_SPOT cases, the user
+     * for USER cases), when known. Nullable: cases opened from a user report or an AI/media
+     * signal don't know the owner. Lets the moderator-rejection event carry {@code ownerUserId}.
+     */
+    private final UUID ownerUserId;
     private final ModerationReason reason;
     private final ModerationSeverity severity;
     private ModerationStatus status;
@@ -28,13 +34,15 @@ public final class ModerationCase {
     private Instant resolvedAt;
     private final Long version;
 
-    public ModerationCase(UUID id, ModerationTargetType targetType, UUID targetId, ModerationReason reason,
-                          ModerationSeverity severity, ModerationStatus status, UUID assignedModeratorId,
-                          int reportCount, ModerationAction resolutionAction, String resolutionNote,
-                          Instant openedAt, Instant updatedAt, Instant resolvedAt, Long version) {
+    public ModerationCase(UUID id, ModerationTargetType targetType, UUID targetId, UUID ownerUserId,
+                          ModerationReason reason, ModerationSeverity severity, ModerationStatus status,
+                          UUID assignedModeratorId, int reportCount, ModerationAction resolutionAction,
+                          String resolutionNote, Instant openedAt, Instant updatedAt, Instant resolvedAt,
+                          Long version) {
         this.id = Objects.requireNonNull(id, "id");
         this.targetType = Objects.requireNonNull(targetType, "targetType");
         this.targetId = Objects.requireNonNull(targetId, "targetId");
+        this.ownerUserId = ownerUserId;
         this.reason = Objects.requireNonNull(reason, "reason");
         this.severity = Objects.requireNonNull(severity, "severity");
         this.status = Objects.requireNonNull(status, "status");
@@ -48,10 +56,10 @@ public final class ModerationCase {
         this.version = version;
     }
 
-    /** Opens a new case with a first report counted. */
-    public static ModerationCase open(ModerationTargetType targetType, UUID targetId,
+    /** Opens a new case with a first report counted. {@code ownerUserId} may be null. */
+    public static ModerationCase open(ModerationTargetType targetType, UUID targetId, UUID ownerUserId,
                                       ModerationReason reason, ModerationSeverity severity, Instant now) {
-        return new ModerationCase(UUID.randomUUID(), targetType, targetId, reason, severity,
+        return new ModerationCase(UUID.randomUUID(), targetType, targetId, ownerUserId, reason, severity,
                 ModerationStatus.OPEN, null, 1, null, null, now, now, null, null);
     }
 
@@ -107,6 +115,11 @@ public final class ModerationCase {
 
     public UUID targetId() {
         return targetId;
+    }
+
+    /** The owner of the targeted entity, when known (nullable). */
+    public UUID ownerUserId() {
+        return ownerUserId;
     }
 
     public ModerationReason reason() {

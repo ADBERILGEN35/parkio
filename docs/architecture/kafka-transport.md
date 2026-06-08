@@ -7,26 +7,54 @@ How Parkio's asynchronous event backbone is wired. This complements
 > **Status:** topics + shared Kafka build/config conventions are in place, and **the
 > following end-to-end flows are live:**
 > 1. `auth-service` → `parkio.auth.user` → `user-service`
-> 2. `parking-service` → `parkio.parking.spot` → `gamification-service`
+> 2. `parking-service` → `parkio.parking.spot` → **`gamification`, `notification`,
+>    `analytics`, `ai-validation`, `moderation`** (fan-out: five consumer groups on one
+>    topic, each handling the subset it cares about)
 > 3. `gamification-service` → `parkio.gamification.score` → `notification-service` **and**
->    `analytics-service` (fan-out: two consumer groups on one topic)
+>    `analytics-service`
 > 4. `media-service` → `parkio.media.media` → `ai-validation-service` (`MediaUploaded`)
 >    **and** `moderation-service` (`MediaRejected`)
 > 5. `ai-validation-service` → `parkio.aivalidation.result` → `moderation-service`
 >    (`AiValidationCompleted`)
-> - **Relays implemented:** `auth`, `parking`, `gamification`, `media` (`MediaOutboxRelay`)
->   and `ai-validation` (`AiValidationOutboxRelay`). Still **no relay** in user, moderation.
-> - **Consumers implemented:** `user` (group `parkio.user`), `gamification`
->   (`parkio.gamification`), `notification` + `analytics` (`parkio.notification` /
->   `parkio.analytics`), `ai-validation` (`MediaEventsKafkaConsumer`, group
->   `parkio.aivalidation` — handles `MediaUploaded`, ignores `MediaRejected`), and
->   `moderation` (group `parkio.moderation`, **two** listeners: `MediaEventsKafkaConsumer`
->   handles `MediaRejected` from the media topic, `AiValidationEventsKafkaConsumer` handles
->   `AiValidationCompleted` from the aivalidation topic). All use inbox idempotency + DLT
->   and ignore+ack unknown/unsupported types.
-> - **Not yet implemented:** relays for `user` and `moderation`; the parking→{notification,
->   analytics, ai-validation, moderation} and moderation→{user, gamification, notification}
->   consumer flows.
+> 6. `moderation-service` → `parkio.moderation.action` → **`user`** (UserSuspended/Restored
+>    → account status), **`gamification`** (ParkingSpotRejectedByModerator → owner penalty),
+>    **`notification`** (suspend/restore/spot-rejected notices); and
+>    `moderation-service` → `parkio.moderation.case` → **`notification`** (AppealResolved,
+>    ModerationCaseResolved for USER-targeted cases)
+> - **Relays implemented:** `auth`, `parking`, `gamification`, `media`, `ai-validation`,
+>   and `moderation` (`ModerationOutboxRelay`, routes case events → `parkio.moderation.case`
+>   and action events → `parkio.moderation.action`). Still **no relay** in user.
+> - **Consumers implemented:** `user` (`parkio.user`); `gamification` (`parkio.gamification`);
+>   `notification`, `analytics`, `ai-validation`, `moderation` each run **multiple**
+>   `@KafkaListener`s under their one group across the topics they subscribe to. All use
+>   inbox idempotency + DLT and ignore+ack unknown/unsupported types.
+> - **Loop guard (intentional):** `ParkingSpotRejectedByModerator` is **published** to
+>   `parkio.moderation.action` but **parking-service must NOT consume it** — see the
+>   loop-guard section below. The event now carries `ownerUserId` (moderation stores the
+>   owner on the case when it is opened from a community `ParkingSpotRejected`), so
+>   gamification's owner penalty and notification's owner warning are **active when the
+>   owner is known** and skipped (null owner) for report/AI/media-opened cases.
+> - **Not yet implemented:** relay for `user` (`UserProfileCreated`); a parking consumer of
+>   `parkio.moderation.action` (deferred by design); `ContributionScoreUpdated` consumer.
+
+## Loop guard: parking ↔ moderation (must not close the cycle)
+
+A community-rejected spot already flows `parking` → `ParkingSpotRejected` →
+`moderation` (opens a case). When a moderator then resolves that case with REJECT/
+MARK_RISKY, moderation emits `ParkingSpotRejectedByModerator` to
+`parkio.moderation.action`. If parking-service consumed that event, set the spot
+`REJECTED`, and **re-emitted** `ParkingSpotRejected`, moderation would open another case →
+resolve → emit again → **infinite loop**.
+
+Guard rules (enforced for now by omission, to be honored when the flow is wired):
+1. **No parking-service consumer of `parkio.moderation.action` exists** (intentionally not
+   built in this task).
+2. When parking-service *does* apply a moderator-driven rejection, it **must set the spot
+   status without re-emitting `ParkingSpotRejected`** (a moderator rejection is terminal,
+   not a new community report). Treat `ParkingSpotRejectedByModerator` as the authoritative
+   end state.
+3. moderation already dedupes per active case (`openCaseIfAbsent`), but that is a
+   second line of defence, not the primary guard.
 
 ## Why no shared module
 
@@ -132,44 +160,64 @@ business event is the opaque `payload`):
 
 > The envelope is **not** a shared class — consistent with the no-shared-module rule it
 > is duplicated **locally** per service as `infrastructure.messaging.EventEnvelope`. It
-> now exists in the relays (`auth`, `parking`, `gamification`, `media`, `ai-validation`)
-> and the consumers (`user`, `gamification`, `notification`, `analytics`, `ai-validation`,
-> `moderation`); the remaining services add their own copy when their relay/consumer is
-> built. The relays map `outbox_events` columns → envelope (key = `aggregate_id`, dedup
+> now exists in the relays (`auth`, `parking`, `gamification`, `media`, `ai-validation`,
+> `moderation`) and the consumers (`user`, `gamification`, `notification`, `analytics`,
+> `ai-validation`, `moderation`); the remaining services add their own copy when their
+> relay/consumer is built. The relays map `outbox_events` columns → envelope (key = `aggregate_id`, dedup
 > key = `event_id`) and mirror the routing fields into Kafka headers.
 
 ## Implementation order
 
 1. **(done)** `spring-kafka` per service; common `spring.kafka.*` config; topic + DLT
    provisioning via `KafkaTopicsConfig`; the `event_id` outbox column.
-2. **(done for auth + parking + gamification + media + ai-validation)** **Outbox relay**:
-   poll unpublished `outbox_events`, wrap each in the envelope (key = `aggregate_id`, dedup
-   key = `event_id`), publish with the idempotent producer, mark `published=true` only on
-   ack (`AuthOutboxRelay`, `ParkingOutboxRelay`, `GamificationOutboxRelay`,
-   `MediaOutboxRelay`, `AiValidationOutboxRelay`). Run a single instance per service (or
-   partition-aware) to preserve per-aggregate order. Still TODO for user, moderation.
+2. **(done for auth + parking + gamification + media + ai-validation + moderation)**
+   **Outbox relay**: poll unpublished `outbox_events`, wrap each in the envelope (key =
+   `aggregate_id`, dedup key = `event_id`), publish with the idempotent producer, mark
+   `published=true` only on ack. `ModerationOutboxRelay` routes by event type to
+   `parkio.moderation.case` vs `parkio.moderation.action`. Still TODO for user.
 3. **(done for user + gamification + notification + analytics + ai-validation + moderation)**
    **Consumer**: `@KafkaListener` → dispatch by `eventType` → existing `handleXxx` use case
    (inbox dedup by `eventId`) → manual ack; `DefaultErrorHandler` +
    `DeadLetterPublishingRecoverer` → `parkio.dlt.<service>`. A service may run multiple
-   listeners under one group on different topics (moderation consumes both `media.media`
-   and `aivalidation.result`).
-4. **(next)** Roll out the remaining flows: parking→{notification, analytics,
-   ai-validation, moderation}; moderation→{user, gamification, notification}; and relays
-   for user + moderation.
+   listeners under one group across topics (e.g. notification now consumes
+   `gamification.score`, `parking.spot`, `moderation.action` and `moderation.case`).
+   Per-service listeners reuse the service's single string/manual-ack/DLT container factory.
+4. **(next)** Relay for `user` (`UserProfileCreated`); a parking consumer of
+   `parkio.moderation.action` **only with the loop guard above**; a
+   `ContributionScoreUpdated` consumer (or stop publishing it). **(done)** moderation now
+   populates `ownerUserId` on `ParkingSpotRejectedByModerator` (stored on the case from the
+   community-rejection path), so the gamification penalty / notification owner-warning are
+   active when the owner is known.
 5. DLT redrive tooling, consumer-lag / outbox-lag metrics, replay/backfill runbooks.
 6. Later: optional Debezium CDC relay; schema registry; Testcontainers integration tests
    for the live round-trips (currently unit-tested; see backlog below).
 
-## Integration test backlog
+## Integration tests (Testcontainers)
 
-The relays and consumers are covered by **unit tests** (envelope/header/key/topic
-building + publish-then-mark for the relays; deserialize→dispatch→ack + idempotency +
-ignore-unsupported for the consumers). **Testcontainers** integration tests that run the
-live round-trips (auth→user, parking→gamification, gamification→{notification, analytics},
-media→{ai-validation, moderation}, ai-validation→moderation) against a real broker are
-deferred — they need a Kafka container in the test runtime, which the current
-self-contained (H2-only, no Docker) test setup intentionally avoids (ai-context/08).
+Every relay and consumer is covered by **unit tests** (envelope/header/key/topic building
++ publish-then-mark for relays; deserialize→dispatch→ack + idempotency + ignore-unsupported
+for consumers). The **first real-broker integration tests** now exist, using a
+Testcontainers Kafka broker and the production serializers/classes:
+
+| IT | Module | Verifies |
+|----|--------|----------|
+| `AuthOutboxRelayKafkaIT` | auth | Real `AuthOutboxRelay` publishes `UserRegistered` to `parkio.auth.user`; asserts topic, key, all six headers (`eventId/eventType/aggregateType/aggregateId/occurredAt/version`) and the JSON envelope+payload round-trip. |
+| `UserRegisteredConsumerKafkaIT` | user | Envelope produced to a real broker is consumed by the real `UserRegisteredKafkaConsumer`, deserialized and dispatched to the real `UserApplicationService` (in-memory fakes) → profile provisioned **once**; redelivery deduped by the inbox; both deliveries acked. |
+| `ParkingOutboxRelayKafkaIT` | parking | Real `ParkingOutboxRelay` publishes `ParkingSpotCreated` to `parkio.parking.spot`, keyed by spot id, with headers. |
+| `GamificationKafkaIT` | gamification | (1) `ParkingSpotCreated` envelope → real `ParkingEventsKafkaConsumer` + real `GamificationApplicationService` (fakes) awards owner points **once** across a redelivery (inbox idempotency); (2) a malformed/poison record routed through the **real container factory's error handler** lands on `parkio.dlt.gamification` (DLT behaviour). |
+
+**How to run:** integration tests are tagged `@Tag("integration")` and `@Testcontainers(disabledWithoutDocker = true)`.
+- `./gradlew build` / `test` — **unit tests only** (the `integration` tag is excluded); no Docker required, always green.
+- `./gradlew integrationTest` — runs the tagged ITs; **requires Docker** (Testcontainers pulls `confluentinc/cp-kafka:7.7.1`). Without Docker the ITs are **skipped**, not failed.
+
+### Remaining integration-test backlog
+- Consumer-side ITs for the other live flows: parking→{notification, analytics, ai-validation},
+  gamification→{notification, analytics}, media→{ai-validation, moderation},
+  ai-validation→moderation, moderation→{user, gamification, notification}.
+- A full `@SpringBootTest` boot that drives the real `@KafkaListener` containers end-to-end
+  (the current ITs invoke the real consumer/relay classes directly against a real broker to
+  stay fast and avoid seeding reference data).
+- DLT ITs for the other consumer DLTs (`parkio.dlt.{user,notification,analytics,moderation,aivalidation}`).
 
 ## Local broker
 

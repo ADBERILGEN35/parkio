@@ -77,6 +77,16 @@ public final class UserProfile {
         }
     }
 
+    /** Marks the account suspended (moderator-driven; auth credentials are unaffected). */
+    public void suspend() {
+        this.status = UserStatus.SUSPENDED;
+    }
+
+    /** Restores a suspended account to active (moderator-driven). */
+    public void restore() {
+        this.status = UserStatus.ACTIVE;
+    }
+
     private static String requireValidDisplayName(String displayName) {
         Objects.requireNonNull(displayName, "displayName");
         String trimmed = displayName.trim();
