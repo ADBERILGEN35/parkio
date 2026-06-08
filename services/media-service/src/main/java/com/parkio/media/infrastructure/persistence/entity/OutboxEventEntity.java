@@ -16,6 +16,13 @@ public class OutboxEventEntity {
     @Column(name = "id", nullable = false, updatable = false)
     private UUID id;
 
+    /**
+     * The domain event's {@code eventId} (the consumer dedup key), stored as a column so
+     * a future Kafka relay can read it without parsing the JSON {@code payload}.
+     */
+    @Column(name = "event_id", updatable = false)
+    private UUID eventId;
+
     @Column(name = "aggregate_type", nullable = false)
     private String aggregateType;
 
@@ -38,14 +45,10 @@ public class OutboxEventEntity {
         // for JPA
     }
 
-    public OutboxEventEntity(UUID id,
-                             String aggregateType,
-                             UUID aggregateId,
-                             String eventType,
-                             String payload,
-                             Instant occurredAt,
-                             boolean published) {
+    public OutboxEventEntity(UUID id, UUID eventId, String aggregateType, UUID aggregateId, String eventType,
+                             String payload, Instant occurredAt, boolean published) {
         this.id = id;
+        this.eventId = eventId;
         this.aggregateType = aggregateType;
         this.aggregateId = aggregateId;
         this.eventType = eventType;
@@ -56,6 +59,10 @@ public class OutboxEventEntity {
 
     public UUID getId() {
         return id;
+    }
+
+    public UUID getEventId() {
+        return eventId;
     }
 
     public String getAggregateType() {

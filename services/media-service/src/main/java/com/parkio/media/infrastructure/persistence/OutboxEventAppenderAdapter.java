@@ -30,6 +30,7 @@ public class OutboxEventAppenderAdapter implements OutboxEventAppender {
     public void append(MediaEvent event) {
         OutboxEventEntity entity = new OutboxEventEntity(
                 UUID.randomUUID(),
+                event.eventId(),
                 event.aggregateType(),
                 event.aggregateId(),
                 event.eventType(),

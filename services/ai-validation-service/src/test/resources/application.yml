@@ -1,0 +1,17 @@
+# Test configuration: in-memory H2 (PostgreSQL compatibility), schema generated
+# from the JPA entities, Flyway disabled. Keeps the build self-contained and fast
+# (no Docker / Testcontainers required) per ai-context/08.
+spring:
+  datasource:
+    url: jdbc:h2:mem:aivalidationdb;MODE=PostgreSQL;DB_CLOSE_DELAY=-1;DB_CLOSE_ON_EXIT=FALSE
+    driver-class-name: org.h2.Driver
+    username: sa
+    password: ""
+  jpa:
+    open-in-view: false
+    hibernate:
+      ddl-auto: create-drop
+    properties:
+      hibernate.jdbc.time_zone: UTC
+  flyway:
+    enabled: false

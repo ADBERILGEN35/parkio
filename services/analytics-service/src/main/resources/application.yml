@@ -1,6 +1,20 @@
 spring:
   application:
     name: analytics-service
+  datasource:
+    url: ${SPRING_DATASOURCE_URL:jdbc:postgresql://localhost:5432/parkio_analytics}
+    username: ${SPRING_DATASOURCE_USERNAME:parkio_analytics}
+    password: ${SPRING_DATASOURCE_PASSWORD:analytics_local_dev_pw}
+  jpa:
+    open-in-view: false
+    hibernate:
+      # Schema is owned by Flyway; Hibernate only validates the mapping.
+      ddl-auto: validate
+    properties:
+      hibernate.jdbc.time_zone: UTC
+  flyway:
+    enabled: true
+    locations: classpath:db/migration
 
 server:
   port: ${SERVER_PORT:8089}
