@@ -4,21 +4,26 @@ How Parkio's asynchronous event backbone is wired. This complements
 [`event-contracts.md`](event-contracts.md) (the payload/contract registry) and
 [`../ai-context/06-event-guidelines.md`](../ai-context/06-event-guidelines.md).
 
-> **Status:** topics + shared Kafka build/config conventions are in place, and **two
+> **Status:** topics + shared Kafka build/config conventions are in place, and **three
 > end-to-end flows are live:**
 > 1. `auth-service` → `parkio.auth.user` → `user-service`
 > 2. `parking-service` → `parkio.parking.spot` → `gamification-service`
-> - **Relays implemented:** `auth-service` (`AuthOutboxRelay`, publishes `UserRegistered`)
->   and `parking-service` (`ParkingOutboxRelay`, publishes all parking-spot events). Other
->   producers still write their outbox but have **no relay yet**.
+> 3. `gamification-service` → `parkio.gamification.score` → `notification-service` **and**
+>    `analytics-service` (fan-out: two consumer groups on one topic)
+> - **Relays implemented:** `auth-service` (`AuthOutboxRelay`), `parking-service`
+>   (`ParkingOutboxRelay`) and `gamification-service` (`GamificationOutboxRelay`, publishes
+>   all score events). Other producers still write their outbox but have **no relay yet**.
 > - **Consumers implemented:** `user-service` (`UserRegisteredKafkaConsumer`, group
->   `parkio.user`) and `gamification-service` (`ParkingEventsKafkaConsumer`, group
->   `parkio.gamification`), both with inbox idempotency + DLT. The gamification consumer
->   dispatches `ParkingSpotCreated/Verified/Claimed/Rejected` to the existing handlers and
->   **ignores+acks** `ParkingSpotMarkedFilled`, `ParkingSpotExpired` and unknown types.
-> - **Not yet implemented:** relays for the other producers and the
->   notification/analytics/moderation/ai-validation consumers (and parking's other
->   consumers beyond gamification).
+>   `parkio.user`), `gamification-service` (`ParkingEventsKafkaConsumer`, group
+>   `parkio.gamification`), `notification-service` (`GamificationScoreKafkaConsumer`, group
+>   `parkio.notification` — dispatches `PointsEarned`/`PointsDeducted`/`UserLevelChanged`,
+>   ignores `ContributionScoreUpdated`) and `analytics-service`
+>   (`GamificationScoreKafkaConsumer`, group `parkio.analytics` — dispatches
+>   `PointsEarned`/`UserLevelChanged`, ignores `PointsDeducted`/`ContributionScoreUpdated`).
+>   All use inbox idempotency + DLT and ignore+ack unknown types.
+> - **Not yet implemented:** relays for the other producers (user, media, moderation,
+>   ai-validation) and the moderation/ai-validation consumers (plus parking→{notification,
+>   analytics, ai-validation, moderation} and media→{ai-validation, moderation}).
 
 ## Why no shared module
 
@@ -123,31 +128,30 @@ business event is the opaque `payload`):
 | `payload` | The event's JSON document (the outbox `payload`, embedded verbatim). |
 
 > The envelope is **not** a shared class — consistent with the no-shared-module rule it
-> is duplicated **locally** per service. It now exists in `auth-service` (relay, writes
-> it) and `user-service` (consumer, reads it) as `infrastructure.messaging.EventEnvelope`;
-> other services will add their own copy when their relay/consumer is built. It now
-> exists in `auth-service`, `parking-service` (relays) and `user-service`,
-> `gamification-service` (consumers) as `infrastructure.messaging.EventEnvelope`. The
-> relays map `outbox_events` columns → envelope (key = `aggregate_id`, dedup key =
-> `event_id`) and mirror the routing fields into Kafka headers.
+> is duplicated **locally** per service as `infrastructure.messaging.EventEnvelope`. It
+> now exists in the relays (`auth-service`, `parking-service`, `gamification-service`) and
+> the consumers (`user-service`, `gamification-service`, `notification-service`,
+> `analytics-service`); other services add their own copy when their relay/consumer is
+> built. The relays map `outbox_events` columns → envelope (key = `aggregate_id`, dedup
+> key = `event_id`) and mirror the routing fields into Kafka headers.
 
 ## Implementation order
 
 1. **(done)** `spring-kafka` per service; common `spring.kafka.*` config; topic + DLT
    provisioning via `KafkaTopicsConfig`; the `event_id` outbox column.
-2. **(done for auth + parking)** **Outbox relay**: poll unpublished `outbox_events`, wrap
-   each in the envelope (key = `aggregate_id`, dedup key = `event_id`), publish with the
-   idempotent producer, mark `published=true` only on ack (`AuthOutboxRelay`,
-   `ParkingOutboxRelay`). Run a single instance per service (or partition-aware) to
-   preserve per-aggregate order. Still TODO for the other producers.
-3. **(done for user + gamification)** **Consumer**: `@KafkaListener` → dispatch by
-   `eventType` → existing `handleXxx` use case (inbox dedup by `eventId`) → manual ack;
-   `DefaultErrorHandler` + `DeadLetterPublishingRecoverer` → `parkio.dlt.<service>`
-   (`UserRegisteredKafkaConsumer`, `ParkingEventsKafkaConsumer`). Still TODO for the
-   other consumers.
+2. **(done for auth + parking + gamification)** **Outbox relay**: poll unpublished
+   `outbox_events`, wrap each in the envelope (key = `aggregate_id`, dedup key =
+   `event_id`), publish with the idempotent producer, mark `published=true` only on ack
+   (`AuthOutboxRelay`, `ParkingOutboxRelay`, `GamificationOutboxRelay`). Run a single
+   instance per service (or partition-aware) to preserve per-aggregate order. Still TODO
+   for the other producers (user, media, moderation, ai-validation).
+3. **(done for user + gamification + notification + analytics)** **Consumer**:
+   `@KafkaListener` → dispatch by `eventType` → existing `handleXxx` use case (inbox dedup
+   by `eventId`) → manual ack; `DefaultErrorHandler` + `DeadLetterPublishingRecoverer` →
+   `parkio.dlt.<service>`. Still TODO for the moderation/ai-validation consumers.
 4. **(next)** Roll out the remaining flows: parking→{notification, analytics,
-   ai-validation, moderation}; media→{ai-validation, moderation};
-   gamification→{notification, analytics}; ai-validation→moderation; moderation→{…}.
+   ai-validation, moderation}; media→{ai-validation, moderation}; ai-validation→moderation;
+   moderation→{user, gamification, notification}.
 5. DLT redrive tooling, consumer-lag / outbox-lag metrics, replay/backfill runbooks.
 6. Later: optional Debezium CDC relay; schema registry; Testcontainers integration tests
    for the live round-trips (currently unit-tested; see backlog below).
@@ -156,10 +160,11 @@ business event is the opaque `payload`):
 
 The relays and consumers are covered by **unit tests** (envelope/header/key/topic
 building + publish-then-mark for the relays; deserialize→dispatch→ack + idempotency +
-ignore-unsupported for the consumers). **Testcontainers** integration tests that run
-auth→Kafka→user and parking→Kafka→gamification against a real broker are deferred — they
-need a Kafka container in the test runtime, which the current self-contained (H2-only, no
-Docker) test setup intentionally avoids (ai-context/08).
+ignore-unsupported for the consumers). **Testcontainers** integration tests that run the
+live round-trips (auth→user, parking→gamification, gamification→{notification, analytics})
+against a real broker are deferred — they need a Kafka container in the test runtime,
+which the current self-contained (H2-only, no Docker) test setup intentionally avoids
+(ai-context/08).
 
 ## Local broker
 

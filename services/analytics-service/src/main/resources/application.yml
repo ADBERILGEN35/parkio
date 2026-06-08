@@ -23,8 +23,14 @@ spring:
     listener:
       ack-mode: manual
     admin:
-      # Missing broker at startup must not fail the context (no relay/consumers yet).
+      # Missing broker at startup must not fail the context.
       fail-fast: false
+  jackson:
+    # Event compatibility (event-contracts.md): tolerate unknown fields, ISO-8601 instants.
+    deserialization:
+      fail-on-unknown-properties: false
+    serialization:
+      write-dates-as-timestamps: false
   datasource:
     url: ${SPRING_DATASOURCE_URL:jdbc:postgresql://localhost:5432/parkio_analytics}
     username: ${SPRING_DATASOURCE_USERNAME:parkio_analytics}
