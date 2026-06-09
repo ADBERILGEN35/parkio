@@ -235,6 +235,7 @@ and every payload carries `eventId`, `parkingSpotId`, `ownerUserId`, `status`,
 
 - **Producer:** `parking-service`
 - **Expected consumers:** `gamification-service` (owner +verifier rewards — wired);
+  `moderation-service` (opens a case for `ILLEGAL_OR_RISKY` — wired);
   `notification-service`, `analytics-service` (planned).
 - **Envelope:** `eventType=ParkingSpotVerified`.
 
@@ -244,9 +245,9 @@ and every payload carries `eventId`, `parkingSpotId`, `ownerUserId`, `status`,
 | `parkingSpotId` | UUID (string) | yes | The verified spot. |
 | `ownerUserId` | UUID (string) | yes | Spot owner. |
 | `actorUserId` | UUID (string) | yes | The verifier (never the owner). |
-| `result` | string (enum) | yes | Verification result; emitted for `AVAILABLE`. |
+| `result` | string (enum) | yes | `AVAILABLE` or the unconfirmed community signal `ILLEGAL_OR_RISKY`. |
 | `verificationCount` | integer | yes | Total AVAILABLE verifications so far. |
-| `status` | string (enum) | yes | Resulting status (`VERIFIED`). |
+| `status` | string (enum) | yes | `VERIFIED` for available confirmation; `SUSPICIOUS` for illegal/risky input. |
 | `occurredAt` | timestamp (UTC) | yes | Verification time. |
 
 - **Version:** 1. **Compatibility:** append-only.
@@ -307,10 +308,14 @@ and every payload carries `eventId`, `parkingSpotId`, `ownerUserId`, `status`,
 
 ## ParkingSpotRejectedEvent
 
-- **Producer:** `parking-service`
-- **Expected consumers:** `gamification-service` (owner penalty — wired);
-  `moderation-service`, `notification-service`, `analytics-service` (planned).
+- **Producer:** `parking-service` (legacy contract; no longer emitted by community
+  verification).
+- **Expected consumers:** `moderation-service` accepts legacy records to open a
+  case. Gamification intentionally ignores this event.
 - **Envelope:** `eventType=ParkingSpotRejected`.
+- **Semantics:** retained for backward compatibility with already-published
+  records. A single community report must not produce this event or trigger a
+  penalty.
 
 | Field | Type | Required | Meaning |
 |-------|------|----------|---------|
@@ -489,9 +494,11 @@ moderator actions to `parkio.moderation.action` (relay: `ModerationOutboxRelay`)
 
 - **Producer:** `moderation-service` (topic `parkio.moderation.action`,
   `aggregateType=ParkingSpot`, `aggregateId=parkingSpotId`).
-- **Consumers:** `gamification-service` (owner point penalty) and `notification-service`
-  (warn the owner). **`parking-service` intentionally does NOT consume it** — see the
-  loop guard in [`kafka-transport.md`](kafka-transport.md). Owner-targeted.
+- **Consumers:** `parking-service` (authoritative `REJECTED` transition),
+  `gamification-service` (owner point penalty), and `notification-service`
+  (warn the owner). Parking records inbox deduplication and does not emit a new
+  parking rejection event; see the loop guard in
+  [`kafka-transport.md`](kafka-transport.md). Owner-targeted.
 
 ### Payload schema
 
@@ -499,7 +506,7 @@ moderator actions to `parkio.moderation.action` (relay: `ModerationOutboxRelay`)
 |-------|------|----------|---------|
 | `eventId` | UUID (string) | yes | Dedup key. |
 | `parkingSpotId` | UUID (string) | yes | The rejected spot (partition key). |
-| `ownerUserId` | UUID (string) | no | Spot owner (authUserId). Present when the case knows the owner (opened from a community `ParkingSpotRejected`); **null** for cases opened from a user report or an AI/media signal. Consumers apply the owner penalty / owner notification **only when present**. |
+| `ownerUserId` | UUID (string) | no | Spot owner (authUserId). Present when the case knows the owner (including `ParkingSpotVerified` illegal/risky signals); **null** for cases opened from a user report or an AI/media signal. Consumers apply owner-targeted side effects only when present. |
 | `moderatorUserId` | UUID (string) | yes | The moderator who resolved the case. |
 | `moderationCaseId` | UUID (string) | yes | The resolved moderation case. |
 | `reason` | string (enum) | yes | The case's `ModerationReason` name (e.g. `ILLEGAL_OR_RISKY`). |

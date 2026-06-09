@@ -48,4 +48,25 @@ class ParkingSpotTest {
         assertThatThrownBy(() -> create(LegalStatus.LEGAL, Set.of(VehicleType.ANY), 41.0, 181.0))
                 .isInstanceOf(IllegalArgumentException.class);
     }
+
+    @Test
+    void illegalRiskVerificationMarksSuspiciousAndReducesConfidence() {
+        ParkingSpot spot = create(LegalStatus.LEGAL, Set.of(VehicleType.SEDAN), 41.0, 29.0);
+
+        spot.verify(UUID.randomUUID(), VerificationResult.ILLEGAL_OR_RISKY, NOW.plusSeconds(1));
+
+        assertThat(spot.status()).isEqualTo(ParkingSpotStatus.SUSPICIOUS);
+        assertThat(spot.confidenceScore()).isEqualTo(0.6);
+        assertThat(spot.isTerminal()).isFalse();
+    }
+
+    @Test
+    void moderatorRejectionIsAuthoritativeAndIdempotentForTerminalState() {
+        ParkingSpot spot = create(LegalStatus.LEGAL, Set.of(VehicleType.SEDAN), 41.0, 29.0);
+        spot.verify(UUID.randomUUID(), VerificationResult.ILLEGAL_OR_RISKY, NOW.plusSeconds(1));
+
+        assertThat(spot.markRejectedByModerator(NOW.plusSeconds(2))).isTrue();
+        assertThat(spot.status()).isEqualTo(ParkingSpotStatus.REJECTED);
+        assertThat(spot.markRejectedByModerator(NOW.plusSeconds(3))).isFalse();
+    }
 }

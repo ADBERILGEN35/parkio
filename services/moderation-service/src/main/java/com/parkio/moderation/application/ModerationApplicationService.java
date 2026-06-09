@@ -5,6 +5,7 @@ import com.parkio.moderation.application.command.ResolveCaseCommand;
 import com.parkio.moderation.application.event.AiValidationCompletedEvent;
 import com.parkio.moderation.application.event.MediaRejectedEvent;
 import com.parkio.moderation.application.event.ParkingSpotRejectedEvent;
+import com.parkio.moderation.application.event.ParkingSpotVerifiedEvent;
 import com.parkio.moderation.application.port.AppealRepository;
 import com.parkio.moderation.application.port.InboxEventRepository;
 import com.parkio.moderation.application.port.ModerationCaseRepository;
@@ -223,6 +224,18 @@ public class ModerationApplicationService {
         openCaseIfAbsent(ModerationTargetType.PARKING_SPOT, event.parkingSpotId(), event.ownerUserId(),
                 ModerationReason.ILLEGAL_OR_RISKY);
         markProcessed(event.eventId(), "ParkingSpotRejected");
+    }
+
+    /** An unconfirmed illegal/risky verification opens a case without penalising the owner. */
+    public void handleParkingSpotVerified(ParkingSpotVerifiedEvent event) {
+        if (alreadyProcessed(event.eventId())) {
+            return;
+        }
+        if (event.isIllegalOrRisky()) {
+            openCaseIfAbsent(ModerationTargetType.PARKING_SPOT, event.parkingSpotId(),
+                    event.ownerUserId(), ModerationReason.ILLEGAL_OR_RISKY);
+        }
+        markProcessed(event.eventId(), "ParkingSpotVerified");
     }
 
     /** Only content-safety/relevance media rejections are moderation-worthy. */

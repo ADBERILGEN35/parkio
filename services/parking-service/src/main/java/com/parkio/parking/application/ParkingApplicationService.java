@@ -19,7 +19,6 @@ import com.parkio.parking.domain.event.ParkingSpotClaimedEvent;
 import com.parkio.parking.domain.event.ParkingSpotCreatedEvent;
 import com.parkio.parking.domain.event.ParkingSpotExpiredEvent;
 import com.parkio.parking.domain.event.ParkingSpotMarkedFilledEvent;
-import com.parkio.parking.domain.event.ParkingSpotRejectedEvent;
 import com.parkio.parking.domain.event.ParkingSpotVerifiedEvent;
 import com.parkio.parking.domain.exception.ParkingErrorCode;
 import com.parkio.parking.domain.exception.ParkingException;
@@ -154,6 +153,20 @@ public class ParkingApplicationService {
         return saved;
     }
 
+    /**
+     * Applies an authoritative moderation rejection without emitting a community
+     * rejection event, preventing a parking-to-moderation event loop.
+     */
+    public void rejectSpotByModerator(UUID spotId) {
+        ParkingSpot spot = requireSpot(spotId);
+        Instant now = clock.instant();
+        ParkingSpotStatus previous = spot.status();
+        if (spot.markRejectedByModerator(now)) {
+            spots.save(spot);
+            recordHistory(spot, previous, "MODERATOR_REJECTED", now);
+        }
+    }
+
     /** Expires one locked batch of elapsed, non-terminal spots. */
     public int expireElapsedSpots(int batchSize) {
         if (batchSize < 1) {
@@ -229,11 +242,10 @@ public class ParkingApplicationService {
 
     private void emitVerificationEvent(ParkingSpot spot, UUID verifierUserId, VerificationResult result,
                                        ParkingSpotStatus previous, Instant now) {
-        if (result == VerificationResult.ILLEGAL_OR_RISKY) {
-            outbox.append(ParkingSpotRejectedEvent.of(spot, verifierUserId, result, now));
-        } else if (spot.status() == ParkingSpotStatus.FILLED && previous != ParkingSpotStatus.FILLED) {
+        if (spot.status() == ParkingSpotStatus.FILLED && previous != ParkingSpotStatus.FILLED) {
             outbox.append(ParkingSpotMarkedFilledEvent.of(spot, now));
-        } else if (result == VerificationResult.AVAILABLE) {
+        } else if (result == VerificationResult.AVAILABLE
+                || result == VerificationResult.ILLEGAL_OR_RISKY) {
             outbox.append(ParkingSpotVerifiedEvent.of(spot, verifierUserId, result, now));
         }
         // Single filled-report (→SUSPICIOUS) and wrong-vehicle/invalid signals carry

@@ -3,6 +3,7 @@ package com.parkio.moderation.infrastructure.messaging;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.parkio.moderation.application.ModerationApplicationService;
 import com.parkio.moderation.application.event.ParkingSpotRejectedEvent;
+import com.parkio.moderation.application.event.ParkingSpotVerifiedEvent;
 import org.apache.kafka.clients.consumer.ConsumerRecord;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -13,12 +14,13 @@ import org.springframework.stereotype.Component;
 
 /**
  * Consumes {@code parkio.parking.spot} (group {@code parkio.moderation}) and opens a
- * moderation case for community-rejected spots. Idempotency is enforced by the inbox
+ * moderation case for illegal/risky community signals. Idempotency is enforced by the inbox
  * inside the handler (dedupe by {@code eventId}); the offset is acknowledged only after
  * the handler's transaction commits.
  *
- * <p>Only {@code ParkingSpotRejected} is handled; all other parking-spot lifecycle events
- * and unknown future types are ignored and acked. On failure the record is retried and
+ * <p>{@code ParkingSpotVerified} is handled only when its result is
+ * {@code ILLEGAL_OR_RISKY}. Legacy {@code ParkingSpotRejected} events remain supported.
+ * Other lifecycle events and unknown future types are ignored and acked. On failure the record is retried and
  * ultimately dead-lettered by the container's error handler (reuses the service's
  * {@code moderationKafkaListenerContainerFactory} → {@code parkio.dlt.moderation}).
  */
@@ -29,6 +31,7 @@ public class ParkingEventsKafkaConsumer {
     public static final String GROUP = "parkio.moderation";
 
     private static final String SPOT_REJECTED = "ParkingSpotRejected";
+    private static final String SPOT_VERIFIED = "ParkingSpotVerified";
 
     private static final Logger log = LoggerFactory.getLogger(ParkingEventsKafkaConsumer.class);
 
@@ -51,11 +54,12 @@ public class ParkingEventsKafkaConsumer {
         EventEnvelope envelope = objectMapper.readValue(record.value(), EventEnvelope.class);
         String eventType = eventTypeHeader != null ? eventTypeHeader : envelope.eventType();
 
-        if (SPOT_REJECTED.equals(eventType)) {
-            moderationService.handleParkingSpotRejected(
+        switch (eventType == null ? "" : eventType) {
+            case SPOT_VERIFIED -> moderationService.handleParkingSpotVerified(
+                    objectMapper.treeToValue(envelope.payload(), ParkingSpotVerifiedEvent.class));
+            case SPOT_REJECTED -> moderationService.handleParkingSpotRejected(
                     objectMapper.treeToValue(envelope.payload(), ParkingSpotRejectedEvent.class));
-        } else {
-            log.debug("Ignoring unsupported event type {} on {}", eventType, PARKING_SPOT_TOPIC);
+            default -> log.debug("Ignoring unsupported event type {} on {}", eventType, PARKING_SPOT_TOPIC);
         }
         ack.acknowledge();
     }

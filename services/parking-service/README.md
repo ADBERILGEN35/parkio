@@ -31,16 +31,30 @@ Every payload carries `eventId`, `parkingSpotId`, `ownerUserId`, `status` and
 | Event | When | Key payload fields |
 |-------|------|--------------------|
 | `ParkingSpotCreatedEvent` | A spot is created | `parkingSpotId`, `ownerUserId`, `mediaId`, `latitude`, `longitude`, `status` (`ACTIVE`) |
-| `ParkingSpotVerifiedEvent` | A user confirms a spot as available | `parkingSpotId`, `ownerUserId`, `actorUserId` (verifier), `result` (`AVAILABLE`), `verificationCount`, `status` (`VERIFIED`) |
+| `ParkingSpotVerifiedEvent` | A user confirms availability or reports an unconfirmed illegal/risky signal | `parkingSpotId`, `ownerUserId`, `actorUserId`, `result` (`AVAILABLE` or `ILLEGAL_OR_RISKY`), `verificationCount`, `status` (`VERIFIED` or `SUSPICIOUS`) |
 | `ParkingSpotMarkedFilledEvent` | Filled-reports cross the threshold | `parkingSpotId`, `ownerUserId`, `status` (`FILLED`) |
 | `ParkingSpotClaimedEvent` | A user **successfully claimed/parked in** the spot | `parkingSpotId`, `ownerUserId`, `actorUserId` (claimer), `status` (`FILLED`) |
 | `ParkingSpotExpiredEvent` | The validity window elapsed | `parkingSpotId`, `ownerUserId`, `status` (`EXPIRED`) |
-| `ParkingSpotRejectedEvent` | A verification reported it illegal/risky | `parkingSpotId`, `ownerUserId`, `actorUserId` (reporter), `result` (`ILLEGAL_OR_RISKY`), `status` (`REJECTED`) |
+| `ParkingSpotRejectedEvent` | Legacy confirmed-rejection contract; no longer emitted for community verification | `parkingSpotId`, `ownerUserId`, `actorUserId`, `result`, `status` (`REJECTED`) |
 
 `ParkingSpotClaimedEvent` is the authoritative "a user took this spot" signal
 (distinct from `ParkingSpotMarkedFilledEvent`, which is driven by community
 filled-reports rather than a single claimer). Gamification should reward the
 `actorUserId` (claimer) and the `ownerUserId` (contributor) off this event.
+
+## Community illegal/risky reports
+
+A single `ILLEGAL_OR_RISKY` verification reduces confidence and changes the spot
+to `SUSPICIOUS`; it does not reject the spot or penalize its owner. Parking emits
+`ParkingSpotVerifiedEvent` with that result, and moderation opens a review case.
+
+Only `ParkingSpotRejectedByModerator` is authoritative for rejection and owner
+penalties. Parking consumes that moderation action idempotently through
+`inbox_events`, changes the spot to `REJECTED`, and records
+`MODERATOR_REJECTED` history without emitting another parking rejection event.
+This prevents a parking-to-moderation event loop. The consumer is controlled by
+`parkio.kafka.moderation-consumer.enabled` /
+`PARKIO_MODERATION_CONSUMER_ENABLED` (default `true`).
 
 ## Scheduled expiration
 
@@ -100,9 +114,6 @@ write again.
 - **Enum-set normalization** — `suitable_vehicle_types` / `violation_reasons` are stored
   as comma-separated strings; normalize (Postgres array/`jsonb` + GIN, or a join table)
   before adding vehicle-type-filtered search.
-- **Illegal/risky verification threshold/moderation** — a single `ILLEGAL_OR_RISKY`
-  report currently REJECTs a spot permanently; gate behind a report threshold or
-  moderation review to prevent abuse.
 
 ## Run locally
 

@@ -3,7 +3,6 @@ package com.parkio.gamification.application;
 import com.parkio.gamification.application.event.ParkingSpotClaimedEvent;
 import com.parkio.gamification.application.event.ParkingSpotCreatedEvent;
 import com.parkio.gamification.application.event.ParkingSpotRejectedByModeratorEvent;
-import com.parkio.gamification.application.event.ParkingSpotRejectedEvent;
 import com.parkio.gamification.application.event.ParkingSpotVerifiedEvent;
 import com.parkio.gamification.application.port.ContributionSnapshotRepository;
 import com.parkio.gamification.application.port.InboxEventRepository;
@@ -121,17 +120,6 @@ public class GamificationApplicationService {
         award(event.actorUserId(), transactionKey(event.eventId(), RewardRuleKeys.CLAIMED_CLAIMER),
                 reward(RewardRuleKeys.CLAIMED_CLAIMER), event.eventId(), event.parkingSpotId());
         markProcessed(event.eventId(), "ParkingSpotClaimed");
-    }
-
-    /** Owner penalty when a spot is rejected as illegal/risky/fake. */
-    public void handleParkingSpotRejected(ParkingSpotRejectedEvent event) {
-        if (alreadyProcessed(event.eventId())) {
-            return;
-        }
-        PenaltyRule rule = penalty(RewardRuleKeys.REJECTED_OWNER);
-        deduct(event.ownerUserId(), transactionKey(event.eventId(), RewardRuleKeys.REJECTED_OWNER),
-                rule, event.eventId(), event.parkingSpotId());
-        markProcessed(event.eventId(), "ParkingSpotRejected");
     }
 
     /**

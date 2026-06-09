@@ -60,7 +60,11 @@ Inbound parking events are consumed **idempotently** via `inbox_events` (by
 - `ParkingSpotCreated` → owner upload reward
 - `ParkingSpotVerified` (AVAILABLE) → owner + verifier rewards
 - `ParkingSpotClaimed` → owner + claimer rewards
-- `ParkingSpotRejected` → owner penalty
+- `ParkingSpotRejectedByModerator` → owner penalty
+
+Community `ParkingSpotVerified(result=ILLEGAL_OR_RISKY)` signals are recorded as
+processed but award/deduct no points. Legacy `ParkingSpotRejected` events are
+ignored; moderator confirmation is the only parking-rejection penalty source.
 
 Each point change appends to the outbox: `PointsEarned` / `PointsDeducted`,
 `UserLevelChanged` (on level change), and `ContributionScoreUpdated`. The inbound

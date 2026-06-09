@@ -92,7 +92,27 @@ class ParkingEventsKafkaConsumerTest {
         verify(service, never()).handleParkingSpotCreated(any());
         verify(service, never()).handleParkingSpotVerified(any());
         verify(service, never()).handleParkingSpotClaimed(any());
-        verify(service, never()).handleParkingSpotRejected(any());
+        verify(ack).acknowledge();
+    }
+
+    @Test
+    void ignoresLegacyCommunityParkingSpotRejectedEvent() throws Exception {
+        UUID eventId = UUID.randomUUID();
+        UUID spotId = UUID.randomUUID();
+        ObjectNode payload = objectMapper.createObjectNode();
+        payload.put("eventId", eventId.toString());
+        payload.put("parkingSpotId", spotId.toString());
+        payload.put("ownerUserId", UUID.randomUUID().toString());
+        payload.put("actorUserId", UUID.randomUUID().toString());
+        payload.put("result", "ILLEGAL_OR_RISKY");
+        payload.put("occurredAt", "2026-06-08T12:00:00Z");
+
+        consumer.onMessage(record(eventId, spotId, "ParkingSpotRejected", payload),
+                "ParkingSpotRejected", ack);
+
+        verify(service, never()).handleParkingSpotCreated(any());
+        verify(service, never()).handleParkingSpotVerified(any());
+        verify(service, never()).handleParkingSpotClaimed(any());
         verify(ack).acknowledge();
     }
 

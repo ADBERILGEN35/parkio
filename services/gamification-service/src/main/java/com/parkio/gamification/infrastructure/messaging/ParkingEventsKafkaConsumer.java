@@ -4,7 +4,6 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import com.parkio.gamification.application.GamificationApplicationService;
 import com.parkio.gamification.application.event.ParkingSpotClaimedEvent;
 import com.parkio.gamification.application.event.ParkingSpotCreatedEvent;
-import com.parkio.gamification.application.event.ParkingSpotRejectedEvent;
 import com.parkio.gamification.application.event.ParkingSpotVerifiedEvent;
 import org.apache.kafka.clients.consumer.ConsumerRecord;
 import org.slf4j.Logger;
@@ -34,7 +33,6 @@ public class ParkingEventsKafkaConsumer {
     private static final String SPOT_CREATED = "ParkingSpotCreated";
     private static final String SPOT_VERIFIED = "ParkingSpotVerified";
     private static final String SPOT_CLAIMED = "ParkingSpotClaimed";
-    private static final String SPOT_REJECTED = "ParkingSpotRejected";
 
     private static final Logger log = LoggerFactory.getLogger(ParkingEventsKafkaConsumer.class);
 
@@ -64,8 +62,6 @@ public class ParkingEventsKafkaConsumer {
                     payload(envelope, ParkingSpotVerifiedEvent.class));
             case SPOT_CLAIMED -> gamificationService.handleParkingSpotClaimed(
                     payload(envelope, ParkingSpotClaimedEvent.class));
-            case SPOT_REJECTED -> gamificationService.handleParkingSpotRejected(
-                    payload(envelope, ParkingSpotRejectedEvent.class));
             default -> log.debug("Ignoring unsupported event type {} on {}", eventType, PARKING_SPOT_TOPIC);
         }
         ack.acknowledge();

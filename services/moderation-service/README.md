@@ -85,7 +85,9 @@ Upstream events (see `docs/architecture/event-contracts.md`) are consumed
 **idempotently** via `inbox_events` (dedup by `eventId`). Inbound DTOs are **local
 copies** of producers' payloads (contracts are duplicated, never shared):
 
-- `ParkingSpotRejected` → opens a `PARKING_SPOT` case (`ILLEGAL_OR_RISKY`) for audit
+- `ParkingSpotVerified` with `ILLEGAL_OR_RISKY` → opens a `PARKING_SPOT` case
+  without rejecting or penalizing the owner
+- Legacy `ParkingSpotRejected` → opens the same case for already-published records
 - `MediaRejected` → opens a `MEDIA` case for `IMAGE_SAFETY` (→ `FAKE_PHOTO`) or
   `PARKING_RELEVANCE` (→ `NOT_A_PARKING_SPOT`); other media rejections are ignored
 - `AiValidationCompleted` (**placeholder** — ai-validation-service not built yet): a
@@ -95,7 +97,6 @@ Handlers open a case only if no active one already exists for the target.
 
 ## Backlog (not yet implemented)
 
-- Kafka consumer (to invoke the inbox handlers) + outbox relay (publish to Kafka).
 - Reconcile the **placeholder** `AiValidationCompleted` shape with ai-validation-service
   and register it in `event-contracts.md` when that service lands.
 - Threshold-based case opening for accumulated non-serious reports.

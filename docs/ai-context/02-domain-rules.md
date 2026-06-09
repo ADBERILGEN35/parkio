@@ -61,6 +61,11 @@ Where the spot is:
 Spots with `ILLEGAL` status or high-risk reasons should not be promoted as
 recommended parking; moderation may reject them.
 
+A community `ILLEGAL_OR_RISKY` verification is an unconfirmed signal: it lowers
+confidence and moves the spot to `SUSPICIOUS`, but does not reject the spot or
+penalize its owner. `REJECTED` and the associated penalty require an
+authoritative moderator action.
+
 ## Scoring
 
 All scoring lives in **`gamification-service`**. Other services emit events; they

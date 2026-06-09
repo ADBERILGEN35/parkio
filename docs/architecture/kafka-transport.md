@@ -17,7 +17,8 @@ How Parkio's asynchronous event backbone is wired. This complements
 > 5. `ai-validation-service` → `parkio.aivalidation.result` → `moderation-service`
 >    (`AiValidationCompleted`)
 > 6. `moderation-service` → `parkio.moderation.action` → **`user`** (UserSuspended/Restored
->    → account status), **`gamification`** (ParkingSpotRejectedByModerator → owner penalty),
+>    → account status), **`parking`** (authoritative spot rejection),
+>    **`gamification`** (ParkingSpotRejectedByModerator → owner penalty),
 >    **`notification`** (suspend/restore/spot-rejected notices); and
 >    `moderation-service` → `parkio.moderation.case` → **`notification`** (AppealResolved,
 >    ModerationCaseResolved for USER-targeted cases)
@@ -28,38 +29,35 @@ How Parkio's asynchronous event backbone is wired. This complements
 >   now relay; no relay remains outstanding.** `UserProfileCreated` currently has **no
 >   consumer** — it is published for completeness/future projections (it is not on any
 >   live end-to-end flow yet).
-> - **Consumers implemented:** `user` (`parkio.user`); `gamification` (`parkio.gamification`);
+> - **Consumers implemented:** `user` (`parkio.user`); `parking` (`parkio.parking`);
+>   `gamification` (`parkio.gamification`);
 >   `notification`, `analytics`, `ai-validation`, `moderation` each run **multiple**
 >   `@KafkaListener`s under their one group across the topics they subscribe to. All use
 >   inbox idempotency + DLT and ignore+ack unknown/unsupported types.
-> - **Loop guard (intentional):** `ParkingSpotRejectedByModerator` is **published** to
->   `parkio.moderation.action` but **parking-service must NOT consume it** — see the
->   loop-guard section below. The event now carries `ownerUserId` (moderation stores the
->   owner on the case when it is opened from a community `ParkingSpotRejected`), so
+> - **Loop guard (intentional):** parking consumes
+>   `ParkingSpotRejectedByModerator` and applies `REJECTED` without emitting
+>   `ParkingSpotRejected`. The event carries `ownerUserId` when moderation opened
+>   the case from a community illegal/risky verification, so
 >   gamification's owner penalty and notification's owner warning are **active when the
 >   owner is known** and skipped (null owner) for report/AI/media-opened cases.
-> - **Not yet implemented:** a **consumer** for `UserProfileCreated` (`parkio.user.profile`
->   is produced but nothing subscribes yet); a parking consumer of `parkio.moderation.action`
->   (deferred by design); `ContributionScoreUpdated` consumer.
+> - **Not yet implemented:** a **consumer** for `UserProfileCreated`
+>   (`parkio.user.profile` is produced but nothing subscribes yet);
+>   `ContributionScoreUpdated` consumer.
 
 ## Loop guard: parking ↔ moderation (must not close the cycle)
 
-A community-rejected spot already flows `parking` → `ParkingSpotRejected` →
-`moderation` (opens a case). When a moderator then resolves that case with REJECT/
-MARK_RISKY, moderation emits `ParkingSpotRejectedByModerator` to
-`parkio.moderation.action`. If parking-service consumed that event, set the spot
-`REJECTED`, and **re-emitted** `ParkingSpotRejected`, moderation would open another case →
-resolve → emit again → **infinite loop**.
+An illegal/risky community verification flows `parking` →
+`ParkingSpotVerified(result=ILLEGAL_OR_RISKY, status=SUSPICIOUS)` → `moderation`,
+which opens a case. A moderator rejection then emits
+`ParkingSpotRejectedByModerator`.
 
-Guard rules (enforced for now by omission, to be honored when the flow is wired):
-1. **No parking-service consumer of `parkio.moderation.action` exists** (intentionally not
-   built in this task).
-2. When parking-service *does* apply a moderator-driven rejection, it **must set the spot
-   status without re-emitting `ParkingSpotRejected`** (a moderator rejection is terminal,
-   not a new community report). Treat `ParkingSpotRejectedByModerator` as the authoritative
-   end state.
-3. moderation already dedupes per active case (`openCaseIfAbsent`), but that is a
-   second line of defence, not the primary guard.
+Guard rules:
+1. Parking consumes the moderator action idempotently through `inbox_events`.
+2. Parking changes the spot to `REJECTED` and records history but emits no
+   `ParkingSpotRejected` event.
+3. Gamification ignores community rejection/verification signals and applies a
+   penalty only from `ParkingSpotRejectedByModerator`.
+4. Moderation deduplicates case-opening events and reuses an active case per target.
 
 ## Why no shared module
 
@@ -102,6 +100,7 @@ redrive scoped to one service.
 | DLT | Owner (consumer) | Partitions | Retention |
 |-----|------------------|-----------:|-----------|
 | `parkio.dlt.user` | user | 3 | 14d |
+| `parkio.dlt.parking` | parking | 3 | 14d |
 | `parkio.dlt.gamification` | gamification | 3 | 14d |
 | `parkio.dlt.notification` | notification | 3 | 14d |
 | `parkio.dlt.moderation` | moderation | 3 | 14d |
@@ -234,7 +233,7 @@ older replay.
    `published=true` only on ack. `ModerationOutboxRelay` routes by event type to
    `parkio.moderation.case` vs `parkio.moderation.action`. `UserOutboxRelay` publishes
    `UserProfileCreated` → `parkio.user.profile`. **All producing relays are now done.**
-3. **(done for user + gamification + notification + analytics + ai-validation + moderation)**
+3. **(done for user + parking + gamification + notification + analytics + ai-validation + moderation)**
    **Consumer**: `@KafkaListener` → dispatch by `eventType` → existing `handleXxx` use case
    (inbox dedup by `eventId`) → manual ack; `DefaultErrorHandler` +
    `DeadLetterPublishingRecoverer` → `parkio.dlt.<service>`. A service may run multiple
@@ -242,11 +241,10 @@ older replay.
    `gamification.score`, `parking.spot`, `moderation.action` and `moderation.case`).
    Per-service listeners reuse the service's single string/manual-ack/DLT container factory.
 4. **(next)** A **consumer** for `UserProfileCreated` on `parkio.user.profile` (the relay
-   is **done** — `UserOutboxRelay` — but nothing subscribes yet); a parking consumer of
-   `parkio.moderation.action` **only with the loop guard above**; a
+   is **done** — `UserOutboxRelay` — but nothing subscribes yet); a
    `ContributionScoreUpdated` consumer (or stop publishing it). **(done)** moderation now
    populates `ownerUserId` on `ParkingSpotRejectedByModerator` (stored on the case from the
-   community-rejection path), so the gamification penalty / notification owner-warning are
+   community illegal/risky verification path), so the gamification penalty / notification owner-warning are
    active when the owner is known.
 5. DLT redrive tooling, consumer-lag / outbox-lag metrics, replay/backfill runbooks.
 6. Later: optional Debezium CDC relay; schema registry; Testcontainers integration tests

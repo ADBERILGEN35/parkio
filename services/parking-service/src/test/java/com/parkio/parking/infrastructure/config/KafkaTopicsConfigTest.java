@@ -19,4 +19,13 @@ class KafkaTopicsConfigTest {
         assertThat(t.replicationFactor()).isEqualTo((short) 1);
         assertThat(t.configs()).containsEntry(TopicConfig.RETENTION_MS_CONFIG, "2592000000");
     }
+
+    @Test
+    void provisionsParkingConsumerDeadLetterTopic() {
+        NewTopic t = config.parkingDeadLetterTopic();
+        assertThat(t.name()).isEqualTo("parkio.dlt.parking");
+        assertThat(t.numPartitions()).isEqualTo(3);
+        assertThat(t.replicationFactor()).isEqualTo((short) 1);
+        assertThat(t.configs()).containsEntry(TopicConfig.RETENTION_MS_CONFIG, "1209600000");
+    }
 }

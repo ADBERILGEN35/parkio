@@ -14,8 +14,7 @@ public sealed interface ParkingEvent permits
         ParkingSpotVerifiedEvent,
         ParkingSpotMarkedFilledEvent,
         ParkingSpotClaimedEvent,
-        ParkingSpotExpiredEvent,
-        ParkingSpotRejectedEvent {
+        ParkingSpotExpiredEvent {
 
     String AGGREGATE_TYPE = "ParkingSpot";
 

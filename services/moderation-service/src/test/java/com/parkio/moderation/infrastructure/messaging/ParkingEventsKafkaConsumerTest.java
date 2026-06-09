@@ -12,6 +12,7 @@ import com.fasterxml.jackson.databind.node.ObjectNode;
 import com.fasterxml.jackson.datatype.jsr310.JavaTimeModule;
 import com.parkio.moderation.application.ModerationApplicationService;
 import com.parkio.moderation.application.event.ParkingSpotRejectedEvent;
+import com.parkio.moderation.application.event.ParkingSpotVerifiedEvent;
 import java.util.UUID;
 import org.apache.kafka.clients.consumer.ConsumerRecord;
 import org.junit.jupiter.api.Test;
@@ -52,6 +53,30 @@ class ParkingEventsKafkaConsumerTest {
     }
 
     @Test
+    void dispatchesIllegalRiskParkingSpotVerifiedAndAcks() throws Exception {
+        UUID eventId = UUID.randomUUID();
+        UUID spotId = UUID.randomUUID();
+        ObjectNode payload = objectMapper.createObjectNode();
+        payload.put("eventId", eventId.toString());
+        payload.put("parkingSpotId", spotId.toString());
+        payload.put("ownerUserId", UUID.randomUUID().toString());
+        payload.put("actorUserId", UUID.randomUUID().toString());
+        payload.put("result", "ILLEGAL_OR_RISKY");
+        payload.put("verificationCount", 0);
+        payload.put("status", "SUSPICIOUS");
+        payload.put("occurredAt", "2026-06-08T12:00:00Z");
+
+        consumer.onMessage(record(eventId, spotId, "ParkingSpotVerified", payload),
+                "ParkingSpotVerified", ack);
+
+        ArgumentCaptor<ParkingSpotVerifiedEvent> captor =
+                ArgumentCaptor.forClass(ParkingSpotVerifiedEvent.class);
+        verify(service).handleParkingSpotVerified(captor.capture());
+        assertThat(captor.getValue().isIllegalOrRisky()).isTrue();
+        verify(ack).acknowledge();
+    }
+
+    @Test
     void ignoresUnsupportedEventTypeButStillAcks() throws Exception {
         UUID spotId = UUID.randomUUID();
         ObjectNode payload = objectMapper.createObjectNode();
@@ -63,6 +88,7 @@ class ParkingEventsKafkaConsumerTest {
                 "ParkingSpotCreated", ack);
 
         verify(service, never()).handleParkingSpotRejected(any());
+        verify(service, never()).handleParkingSpotVerified(any());
         verify(ack).acknowledge();
     }
 

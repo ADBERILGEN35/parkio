@@ -149,6 +149,42 @@ class ParkingApplicationServiceTest {
     }
 
     @Test
+    void illegalRiskVerificationIsSuspiciousAndEmitsNoRejectionEvent() {
+        ParkingSpot spot = service.createSpot(createCommand(UUID.randomUUID(), LegalStatus.LEGAL));
+        outbox.events.clear();
+
+        ParkingSpot reported =
+                service.verifySpot(spot.id(), UUID.randomUUID(), VerificationResult.ILLEGAL_OR_RISKY);
+
+        assertThat(reported.status()).isEqualTo(ParkingSpotStatus.SUSPICIOUS);
+        assertThat(reported.confidenceScore()).isEqualTo(0.6);
+        assertThat(outbox.events).singleElement()
+                .isInstanceOf(ParkingSpotVerifiedEvent.class)
+                .satisfies(event -> assertThat(((ParkingSpotVerifiedEvent) event).result())
+                        .isEqualTo(VerificationResult.ILLEGAL_OR_RISKY));
+        assertThat(outbox.events).noneMatch(event -> event.eventType().equals("ParkingSpotRejected"));
+    }
+
+    @Test
+    void moderatorRejectionUpdatesStatusAndHistoryWithoutEmittingParkingEvent() {
+        ParkingSpot spot = service.createSpot(createCommand(UUID.randomUUID(), LegalStatus.LEGAL));
+        service.verifySpot(spot.id(), UUID.randomUUID(), VerificationResult.ILLEGAL_OR_RISKY);
+        outbox.events.clear();
+        statusHistory.all.clear();
+
+        service.rejectSpotByModerator(spot.id());
+
+        assertThat(spots.byId.get(spot.id()).status()).isEqualTo(ParkingSpotStatus.REJECTED);
+        assertThat(statusHistory.all).singleElement()
+                .satisfies(history -> {
+                    assertThat(history.previousStatus()).isEqualTo(ParkingSpotStatus.SUSPICIOUS);
+                    assertThat(history.newStatus()).isEqualTo(ParkingSpotStatus.REJECTED);
+                    assertThat(history.reason()).isEqualTo("MODERATOR_REJECTED");
+                });
+        assertThat(outbox.events).isEmpty();
+    }
+
+    @Test
     void filledReportsMoveSpotToSuspiciousThenFilled() {
         UUID owner = UUID.randomUUID();
         ParkingSpot spot = service.createSpot(createCommand(owner, LegalStatus.LEGAL));

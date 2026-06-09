@@ -7,6 +7,7 @@ import com.parkio.moderation.application.command.CreateReportCommand;
 import com.parkio.moderation.application.command.ResolveCaseCommand;
 import com.parkio.moderation.application.event.AiValidationCompletedEvent;
 import com.parkio.moderation.application.event.ParkingSpotRejectedEvent;
+import com.parkio.moderation.application.event.ParkingSpotVerifiedEvent;
 import com.parkio.moderation.application.port.AppealRepository;
 import com.parkio.moderation.application.port.InboxEventRepository;
 import com.parkio.moderation.application.port.ModerationCaseRepository;
@@ -260,6 +261,24 @@ class ModerationApplicationServiceTest {
         service.handleParkingSpotRejected(event); // redelivery
 
         assertThat(cases.byId).hasSize(1);
+    }
+
+    @Test
+    void illegalRiskVerificationOpensCaseButAvailableVerificationDoesNot() {
+        UUID spot = UUID.randomUUID();
+        UUID owner = UUID.randomUUID();
+
+        service.handleParkingSpotVerified(new ParkingSpotVerifiedEvent(
+                UUID.randomUUID(), spot, owner, UUID.randomUUID(), "ILLEGAL_OR_RISKY", NOW));
+        service.handleParkingSpotVerified(new ParkingSpotVerifiedEvent(
+                UUID.randomUUID(), UUID.randomUUID(), UUID.randomUUID(),
+                UUID.randomUUID(), "AVAILABLE", NOW));
+
+        assertThat(cases.byId.values()).singleElement().satisfies(opened -> {
+            assertThat(opened.targetId()).isEqualTo(spot);
+            assertThat(opened.ownerUserId()).isEqualTo(owner);
+            assertThat(opened.reason()).isEqualTo(ModerationReason.ILLEGAL_OR_RISKY);
+        });
     }
 
     // --- AI validation (advisory) handling ---

@@ -102,6 +102,8 @@ parkio:
     # configurable for production; 1 is the local/dev default (single-broker compose).
     provision-topics: true
     replication-factor: ${PARKIO_KAFKA_REPLICATION_FACTOR:1}
+    moderation-consumer:
+      enabled: ${PARKIO_MODERATION_CONSUMER_ENABLED:true}
     relay:
       # Outbox relay: publishes parking-spot events to parkio.parking.spot. Poll interval
       # and batch size are configurable; send-timeout bounds the per-row broker ack wait.

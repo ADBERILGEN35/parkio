@@ -6,7 +6,10 @@ import com.parkio.parking.domain.VerificationResult;
 import java.time.Instant;
 import java.util.UUID;
 
-/** Emitted when a user confirms a spot as available. {@code actorUserId} is the verifier. */
+/**
+ * Emitted for an available confirmation or an unconfirmed illegal/risky community
+ * signal. {@code actorUserId} is the verifier/reporter.
+ */
 public record ParkingSpotVerifiedEvent(
         UUID eventId,
         UUID parkingSpotId,

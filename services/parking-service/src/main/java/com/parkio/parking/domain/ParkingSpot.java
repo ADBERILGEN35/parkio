@@ -128,7 +128,7 @@ public final class ParkingSpot {
         switch (result) {
             case AVAILABLE -> applyAvailable(now);
             case FILLED -> applyFilledReport();
-            case ILLEGAL_OR_RISKY -> status = ParkingSpotStatus.REJECTED;
+            case ILLEGAL_OR_RISKY -> applyIllegalOrRiskySignal();
             case WRONG_VEHICLE_SIZE, INVALID -> applyNegativeSignal();
         }
         this.updatedAt = now;
@@ -154,6 +154,16 @@ public final class ParkingSpot {
         }
         this.status = ParkingSpotStatus.EXPIRED;
         this.updatedAt = now;
+    }
+
+    /** Applies an authoritative moderator rejection without emitting another report. */
+    public boolean markRejectedByModerator(Instant now) {
+        if (isTerminal()) {
+            return false;
+        }
+        this.status = ParkingSpotStatus.REJECTED;
+        this.updatedAt = now;
+        return true;
     }
 
     private void applyAvailable(Instant now) {
@@ -184,6 +194,11 @@ public final class ParkingSpot {
                 && status != ParkingSpotStatus.REJECTED) {
             status = ParkingSpotStatus.SUSPICIOUS;
         }
+    }
+
+    private void applyIllegalOrRiskySignal() {
+        confidenceScore = Math.max(0.0, confidenceScore - CONFIDENCE_PENALTY);
+        status = ParkingSpotStatus.SUSPICIOUS;
     }
 
     private void ensureVerifiable(Instant now) {

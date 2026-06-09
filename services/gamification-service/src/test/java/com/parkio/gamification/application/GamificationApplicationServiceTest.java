@@ -5,7 +5,6 @@ import static org.assertj.core.api.Assertions.assertThat;
 import com.parkio.gamification.application.event.ParkingSpotClaimedEvent;
 import com.parkio.gamification.application.event.ParkingSpotCreatedEvent;
 import com.parkio.gamification.application.event.ParkingSpotRejectedByModeratorEvent;
-import com.parkio.gamification.application.event.ParkingSpotRejectedEvent;
 import com.parkio.gamification.application.event.ParkingSpotVerifiedEvent;
 import com.parkio.gamification.application.port.ContributionSnapshotRepository;
 import com.parkio.gamification.application.port.InboxEventRepository;
@@ -131,18 +130,16 @@ class GamificationApplicationServiceTest {
     }
 
     @Test
-    void rejectedEventDeductsOwnerPoints() {
+    void illegalRiskCommunityVerificationDoesNotPenalizeOwnerOrReporter() {
         UUID owner = UUID.randomUUID();
-        // Seed the owner with points via a claim (owner +30).
-        service.handleParkingSpotClaimed(
-                new ParkingSpotClaimedEvent(UUID.randomUUID(), UUID.randomUUID(), owner, UUID.randomUUID(), NOW));
+        UUID reporter = UUID.randomUUID();
 
-        service.handleParkingSpotRejected(
-                new ParkingSpotRejectedEvent(UUID.randomUUID(), UUID.randomUUID(), owner, UUID.randomUUID(),
-                        "ILLEGAL_OR_RISKY", NOW));
+        service.handleParkingSpotVerified(new ParkingSpotVerifiedEvent(
+                UUID.randomUUID(), UUID.randomUUID(), owner, reporter, "ILLEGAL_OR_RISKY", NOW));
 
-        assertThat(progress.byUser.get(owner).totalPoints()).isEqualTo(5); // 30 - 25
-        assertThat(outbox.eventsOfType("PointsDeducted")).hasSize(1);
+        assertThat(progress.byUser).doesNotContainKeys(owner, reporter);
+        assertThat(transactions.all).isEmpty();
+        assertThat(outbox.eventsOfType("PointsDeducted")).isEmpty();
     }
 
     @Test
