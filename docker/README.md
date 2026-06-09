@@ -98,7 +98,15 @@ into service code (`ai-context/01`):
 - `SPRING_DATASOURCE_URL` → `jdbc:postgresql://postgres-<svc>:5432/<db>` (own DB only)
 - `SPRING_KAFKA_BOOTSTRAP_SERVERS` → `kafka:9092`
 - `SPRING_DATA_REDIS_HOST` → `redis`
-- `media-service` storage → `PARKIO_STORAGE_*` pointing at `http://minio:9000`
+- `media-service` storage → `PARKIO_MEDIA_STORAGE_ENDPOINT` / `PARKIO_MEDIA_BUCKET` /
+  `PARKIO_MEDIA_STORAGE_ACCESS_KEY` / `PARKIO_MEDIA_STORAGE_SECRET_KEY` (names must match
+  `parkio.media.*` in `application.yml`). The endpoint defaults to
+  `http://host.docker.internal:9000` because it is also the host embedded in presigned
+  GET URLs and must be reachable from both the container and the browser — the in-cluster
+  `minio:9000` is not browser-resolvable. (`media-service` maps `host.docker.internal` to
+  the host gateway so it can reach MinIO's published port.)
+- `gateway-service` → `PARKIO_CORS_ALLOWED_ORIGINS` (browser CORS allow-list; defaults to
+  the local Vite dev origin `http://localhost:5173`, never `*`)
 - `auth-service` → `PARKIO_JWT_PRIVATE_KEY_PEM` for RS256 signing
 - `gateway-service` → auth-service's internal JWKS URL for public-key validation
 
