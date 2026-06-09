@@ -1,5 +1,6 @@
 package com.parkio.gateway.infrastructure.config;
 
+import com.parkio.gateway.infrastructure.client.UserStatusProperties;
 import com.parkio.gateway.infrastructure.security.JwtProperties;
 import java.time.Clock;
 import org.springframework.boot.context.properties.EnableConfigurationProperties;
@@ -11,7 +12,7 @@ import org.springframework.context.annotation.Configuration;
  * beans. Keeping the {@link Clock} injectable keeps time deterministic in tests.
  */
 @Configuration
-@EnableConfigurationProperties({JwtProperties.class, CorsProperties.class})
+@EnableConfigurationProperties({JwtProperties.class, CorsProperties.class, UserStatusProperties.class})
 public class GatewayConfig {
 
     @Bean

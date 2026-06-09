@@ -101,6 +101,27 @@ class AuthenticationGlobalFilterTest {
         assertThat(forwardedHeader(chain, GatewayHeaders.USER_ROLES)).isEqualTo("USER");
     }
 
+    @Test
+    void validTokenOverridesClientSuppliedRolesHeader() {
+        UUID userId = UUID.randomUUID();
+        String token = validToken(userId, "rider@parkio.test", List.of("USER"));
+        MockServerHttpRequest request = MockServerHttpRequest
+                .method(HttpMethod.GET, "/api/v1/analytics/overview")
+                .header(HttpHeaders.AUTHORIZATION, "Bearer " + token)
+                // A client attempts to escalate by injecting privileged roles.
+                .header(GatewayHeaders.USER_ROLES, "ADMIN,MODERATOR")
+                .header(GatewayHeaders.USER_EMAIL, "spoofed@evil.test")
+                .build();
+        MockServerWebExchange exchange = MockServerWebExchange.from(request);
+        CapturingChain chain = new CapturingChain();
+
+        filter.filter(exchange, chain).block();
+
+        // Only the validated token's roles/email survive; the spoofed values are gone.
+        assertThat(forwardedHeader(chain, GatewayHeaders.USER_ROLES)).isEqualTo("USER");
+        assertThat(forwardedHeader(chain, GatewayHeaders.USER_EMAIL)).isEqualTo("rider@parkio.test");
+    }
+
     private static String forwardedHeader(CapturingChain chain, String name) {
         return chain.captured().getRequest().getHeaders().getFirst(name);
     }

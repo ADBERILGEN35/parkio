@@ -1,0 +1,13 @@
+# Test profile (activate with @ActiveProfiles("test")). Loaded ON TOP of the real
+# application.yml, so @SpringBootTest exercises the actual route table and rate-limit
+# wiring while this profile supplies a JWT secret/issuer (the context would otherwise
+# fail closed without PARKIO_JWT_SECRET). The secret matches the one tests use to mint
+# tokens.
+parkio:
+  security:
+    jwt:
+      secret: test-only-parkio-gateway-jwt-secret-0123456789-abcdefghijklmnop
+      issuer: parkio-auth-test
+  gateway:
+    cors:
+      allowed-origins: http://localhost:3000

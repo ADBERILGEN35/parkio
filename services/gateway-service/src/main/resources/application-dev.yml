@@ -3,6 +3,15 @@
 # PARKIO_JWT_SECRET. This value MUST match auth-service's dev secret so tokens
 # minted locally validate at the edge. Never use it outside local dev; the
 # default (no-profile) configuration has no secret and fails closed.
+spring:
+  data:
+    # Edge rate limiting needs Redis. `docker compose up redis` (docker/docker-compose.yml)
+    # exposes it on localhost:6379. Without Redis the rate-limit filter cannot evaluate;
+    # run Redis for a faithful local edge.
+    redis:
+      host: ${SPRING_DATA_REDIS_HOST:localhost}
+      port: ${SPRING_DATA_REDIS_PORT:6379}
+
 parkio:
   security:
     jwt:

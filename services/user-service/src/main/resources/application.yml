@@ -10,6 +10,8 @@ spring:
       value-serializer: org.springframework.kafka.support.serializer.JsonSerializer
       properties:
         enable.idempotence: true
+        # The transport envelope is self-describing; no Jackson type headers on the wire.
+        spring.json.add.type.headers: false
     consumer:
       group-id: ${spring.application.name}
       auto-offset-reset: earliest
@@ -70,3 +72,11 @@ parkio:
     # configurable for production; 1 is the local/dev default (single-broker compose).
     provision-topics: true
     replication-factor: ${PARKIO_KAFKA_REPLICATION_FACTOR:1}
+    relay:
+      # Outbox relay: publishes UserProfileCreated events to parkio.user.profile. Poll
+      # interval and batch size are configurable; send-timeout bounds the per-row broker
+      # ack wait. Disable with enabled=false (e.g. in tests / when no broker is present).
+      enabled: ${PARKIO_KAFKA_RELAY_ENABLED:true}
+      poll-interval-ms: 1000
+      batch-size: 100
+      send-timeout-ms: 10000

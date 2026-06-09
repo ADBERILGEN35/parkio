@@ -17,6 +17,7 @@ import com.parkio.user.application.port.UserProfileRepository;
 import com.parkio.user.application.port.UserTrustProfileRepository;
 import com.parkio.user.application.port.UserTrustScoreHistoryRepository;
 import com.parkio.user.application.port.UserVehicleProfileRepository;
+import com.parkio.user.application.result.AccountStatusView;
 import com.parkio.user.application.result.PublicProfileView;
 import com.parkio.user.domain.TrustBand;
 import com.parkio.user.domain.UserPreference;
@@ -161,6 +162,35 @@ class UserApplicationServiceTest {
         service.handleUserRestored(restore);
 
         assertThat(profiles.byId.get(profile.id()).status()).isEqualTo(UserStatus.ACTIVE);
+    }
+
+    @Test
+    void getAccountStatusReturnsIdAndStatusForActiveUser() {
+        UUID authUserId = UUID.randomUUID();
+        service.createProfile(command(authUserId));
+
+        AccountStatusView view = service.getAccountStatus(authUserId);
+
+        assertThat(view.userId()).isEqualTo(authUserId);
+        assertThat(view.status()).isEqualTo(UserStatus.ACTIVE);
+    }
+
+    @Test
+    void getAccountStatusReflectsSuspension() {
+        UUID authUserId = UUID.randomUUID();
+        service.createProfile(command(authUserId));
+        service.handleUserSuspended(new UserSuspendedEvent(
+                UUID.randomUUID(), UUID.randomUUID(), authUserId, UUID.randomUUID(), NOW));
+
+        assertThat(service.getAccountStatus(authUserId).status()).isEqualTo(UserStatus.SUSPENDED);
+    }
+
+    @Test
+    void getAccountStatusThrowsNotFoundWhenProfileMissing() {
+        assertThatThrownBy(() -> service.getAccountStatus(UUID.randomUUID()))
+                .isInstanceOf(UserException.class)
+                .extracting(e -> ((UserException) e).errorCode())
+                .isEqualTo(UserErrorCode.PROFILE_NOT_FOUND);
     }
 
     @Test

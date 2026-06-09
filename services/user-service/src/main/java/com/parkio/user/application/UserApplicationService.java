@@ -14,6 +14,7 @@ import com.parkio.user.application.port.UserProfileRepository;
 import com.parkio.user.application.port.UserTrustProfileRepository;
 import com.parkio.user.application.port.UserTrustScoreHistoryRepository;
 import com.parkio.user.application.port.UserVehicleProfileRepository;
+import com.parkio.user.application.result.AccountStatusView;
 import com.parkio.user.application.result.PublicProfileView;
 import com.parkio.user.domain.UserPreference;
 import com.parkio.user.domain.UserProfile;
@@ -147,6 +148,17 @@ public class UserApplicationService {
     @Transactional(readOnly = true)
     public UserProfile getMyProfile(UUID authUserId) {
         return requireProfile(authUserId);
+    }
+
+    /**
+     * Resolves the live account status for the gateway's per-request enforcement
+     * check. Returns only id + status (no profile data). Throws
+     * {@link UserErrorCode#PROFILE_NOT_FOUND} (→ 404) when no profile exists yet, so
+     * the gateway treats an unprovisioned/unknown account as non-active (fail closed).
+     */
+    @Transactional(readOnly = true)
+    public AccountStatusView getAccountStatus(UUID authUserId) {
+        return AccountStatusView.of(requireProfile(authUserId));
     }
 
     public UserProfile updateMyProfile(UUID authUserId, UpdateProfileCommand command) {

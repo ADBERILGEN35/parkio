@@ -123,6 +123,32 @@ configured so the contracts above hold and evolve safely:
 
 ---
 
+# User
+
+## UserProfileCreatedEvent
+
+- **Producer:** `user-service` (relay: `UserOutboxRelay` → `parkio.user.profile`).
+- **Expected consumers:** **none yet.** Published for completeness / future read-model
+  projections (e.g. analytics, notification welcome flows). Consumers must dedup by
+  `eventId` when added.
+- **Envelope:** `aggregateType=UserProfile`, `aggregateId=authUserId`,
+  `eventType=UserProfileCreated`.
+
+### Payload schema
+
+| Field | Type | Required | Meaning |
+|-------|------|----------|---------|
+| `eventId` | UUID (string) | yes | Unique event id; consumer dedup key. |
+| `userProfileId` | UUID (string) | yes | The internal user-service profile id (this service's own aggregate id). |
+| `authUserId` | UUID (string) | yes | The platform-wide user id (partition key). |
+| `occurredAt` | timestamp (UTC) | yes | When the profile was created. |
+
+- **Version:** 1.
+- **Compatibility:** append-only. `authUserId` is the stable platform-wide join key;
+  `userProfileId` is user-service-internal and should not be used as a cross-service key.
+
+---
+
 # Media
 
 > `MediaUploadedEvent` exposes the storage `bucketName`/`objectKey` to **internal

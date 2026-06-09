@@ -22,8 +22,12 @@ How Parkio's asynchronous event backbone is wired. This complements
 >    `moderation-service` → `parkio.moderation.case` → **`notification`** (AppealResolved,
 >    ModerationCaseResolved for USER-targeted cases)
 > - **Relays implemented:** `auth`, `parking`, `gamification`, `media`, `ai-validation`,
->   and `moderation` (`ModerationOutboxRelay`, routes case events → `parkio.moderation.case`
->   and action events → `parkio.moderation.action`). Still **no relay** in user.
+>   `moderation` (`ModerationOutboxRelay`, routes case events → `parkio.moderation.case`
+>   and action events → `parkio.moderation.action`), **and `user`** (`UserOutboxRelay`,
+>   publishes `UserProfileCreated` → `parkio.user.profile`). **All six producing services
+>   now relay; no relay remains outstanding.** `UserProfileCreated` currently has **no
+>   consumer** — it is published for completeness/future projections (it is not on any
+>   live end-to-end flow yet).
 > - **Consumers implemented:** `user` (`parkio.user`); `gamification` (`parkio.gamification`);
 >   `notification`, `analytics`, `ai-validation`, `moderation` each run **multiple**
 >   `@KafkaListener`s under their one group across the topics they subscribe to. All use
@@ -34,8 +38,9 @@ How Parkio's asynchronous event backbone is wired. This complements
 >   owner on the case when it is opened from a community `ParkingSpotRejected`), so
 >   gamification's owner penalty and notification's owner warning are **active when the
 >   owner is known** and skipped (null owner) for report/AI/media-opened cases.
-> - **Not yet implemented:** relay for `user` (`UserProfileCreated`); a parking consumer of
->   `parkio.moderation.action` (deferred by design); `ContributionScoreUpdated` consumer.
+> - **Not yet implemented:** a **consumer** for `UserProfileCreated` (`parkio.user.profile`
+>   is produced but nothing subscribes yet); a parking consumer of `parkio.moderation.action`
+>   (deferred by design); `ContributionScoreUpdated` consumer.
 
 ## Loop guard: parking ↔ moderation (must not close the cycle)
 
@@ -170,11 +175,12 @@ business event is the opaque `payload`):
 
 1. **(done)** `spring-kafka` per service; common `spring.kafka.*` config; topic + DLT
    provisioning via `KafkaTopicsConfig`; the `event_id` outbox column.
-2. **(done for auth + parking + gamification + media + ai-validation + moderation)**
+2. **(done for auth + parking + gamification + media + ai-validation + moderation + user)**
    **Outbox relay**: poll unpublished `outbox_events`, wrap each in the envelope (key =
    `aggregate_id`, dedup key = `event_id`), publish with the idempotent producer, mark
    `published=true` only on ack. `ModerationOutboxRelay` routes by event type to
-   `parkio.moderation.case` vs `parkio.moderation.action`. Still TODO for user.
+   `parkio.moderation.case` vs `parkio.moderation.action`. `UserOutboxRelay` publishes
+   `UserProfileCreated` → `parkio.user.profile`. **All producing relays are now done.**
 3. **(done for user + gamification + notification + analytics + ai-validation + moderation)**
    **Consumer**: `@KafkaListener` → dispatch by `eventType` → existing `handleXxx` use case
    (inbox dedup by `eventId`) → manual ack; `DefaultErrorHandler` +
@@ -182,7 +188,8 @@ business event is the opaque `payload`):
    listeners under one group across topics (e.g. notification now consumes
    `gamification.score`, `parking.spot`, `moderation.action` and `moderation.case`).
    Per-service listeners reuse the service's single string/manual-ack/DLT container factory.
-4. **(next)** Relay for `user` (`UserProfileCreated`); a parking consumer of
+4. **(next)** A **consumer** for `UserProfileCreated` on `parkio.user.profile` (the relay
+   is **done** — `UserOutboxRelay` — but nothing subscribes yet); a parking consumer of
    `parkio.moderation.action` **only with the loop guard above**; a
    `ContributionScoreUpdated` consumer (or stop publishing it). **(done)** moderation now
    populates `ownerUserId` on `ParkingSpotRejectedByModerator` (stored on the case from the

@@ -21,4 +21,7 @@ public record EventEnvelope(
         Integer version,
         String traceId,
         JsonNode payload) {
+
+    /** Current transport envelope/schema version (kafka-transport.md). */
+    public static final int CURRENT_VERSION = 1;
 }

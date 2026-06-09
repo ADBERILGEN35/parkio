@@ -30,6 +30,17 @@ This service follows clean architecture. Source lives under
 - **`user_profiles.id` is internal** to user-service (its database primary key). It
   is never accepted as input nor exposed in any API response.
 
+## Internal endpoints (service-to-service only)
+
+- `GET /internal/users/{authUserId}/status` → `{ userId, status }`. Used by the
+  **gateway** for per-request account-status enforcement (a JWT proves identity, not
+  that the account is still active). It returns only the id + account `status`
+  (`ACTIVE`/`SUSPENDED`/`BANNED`) — **no** profile data — and a missing profile yields
+  `404` (the gateway treats that as non-active, failing closed). These `/internal/**`
+  paths are **not** routed by the gateway (it forwards only `/api/v1/**`), so they are
+  reachable only on the internal network and must never be exposed publicly
+  (ai-context/07).
+
 ## Run locally
 
 From the repository root:

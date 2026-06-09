@@ -118,6 +118,25 @@ Two dedicated bridge networks isolate planes:
 - `parkio-observability` — Prometheus and Grafana (Prometheus also joins
   `parkio-backend` so it can scrape service metrics).
 
+## Ingress & exposure — the gateway is the only public entrypoint
+
+`gateway-service` (`:8080`) is the **only** component that should ever be reachable
+from outside the cluster. It authenticates every request, role-gates privileged
+routes, rate-limits, and injects the trusted `X-User-*` identity headers that
+downstream services rely on. Those headers are believable **only** because backend
+services are not directly reachable — a directly-exposed service would let a client
+forge `X-User-Id`/`X-User-Roles` and bypass authentication and edge authorization
+entirely (`ai-context/07`; see `services/gateway-service/README.md`).
+
+> **Local dev vs production.** In `docker-compose.apps.yml` each backend service maps
+> a host port (`8081`–`8089`) purely for local convenience (hit a service directly
+> while developing). **This is not a production layout.** In production:
+> - publish **only** the gateway (`8080`) to the public network / load balancer;
+> - keep every other service on the internal `parkio-backend` network with **no host
+>   port / no public ingress** (Kubernetes: `ClusterIP`, never a public `LoadBalancer`
+>   or `NodePort` for a backend service);
+> - keep databases, Redis, Kafka and MinIO internal-only as well.
+
 ## Persistence
 
 Each stateful component has a named volume (e.g. `postgres-parking-data`,
