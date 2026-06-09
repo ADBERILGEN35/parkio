@@ -21,7 +21,8 @@ parkio:
     internal-secret: test-only-parkio-gateway-internal-secret-0123456789
   security:
     jwt:
-      secret: test-only-parkio-auth-jwt-secret-0123456789-abcdefghijklmnop
+      key-id: auth-test-key
+      generate-ephemeral-key: true
       issuer: parkio-auth-test
       access-token-ttl: PT15M
       refresh-token-ttl: P30D

@@ -33,6 +33,8 @@ public class SecurityConfig {
                                 "/api/v1/auth/login",
                                 "/api/v1/auth/refresh-token",
                                 "/api/v1/auth/logout").permitAll()
+                        .requestMatchers(HttpMethod.GET,
+                                "/api/v1/auth/.well-known/jwks.json").permitAll()
                         .requestMatchers("/actuator/**").permitAll()
                         .anyRequest().authenticated())
                 .exceptionHandling(ex -> ex.authenticationEntryPoint(entryPoint))

@@ -2,8 +2,10 @@
 
 ## Authentication & authorization
 
-- `auth-service` issues tokens (JWT/OAuth2-style). `gateway-service` authenticates
-  requests at the edge and forwards verified identity downstream.
+- `auth-service` signs access tokens with RS256 and exposes public keys through
+  JWKS. `gateway-service` authenticates requests at the edge using JWKS and
+  forwards verified identity downstream. The RSA private key remains only in
+  auth-service.
 - Downstream services **authorize** per endpoint using roles/claims; never trust
   unauthenticated input. Validate tokens (signature, expiry, audience).
 - Service-to-service calls carry a service identity/token; do not expose internal

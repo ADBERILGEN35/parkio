@@ -137,12 +137,9 @@ info:
 parkio:
   security:
     jwt:
-      # No default: the gateway fails to start unless PARKIO_JWT_SECRET is provided
-      # (fail closed, ai-context/07). For local development run with the `dev`
-      # profile (see application-dev.yml) or export PARKIO_JWT_SECRET. The secret
-      # and issuer MUST match auth-service (shared HS256 signing contract).
-      secret: ${PARKIO_JWT_SECRET}
       issuer: ${PARKIO_JWT_ISSUER:parkio-auth}
+      jwks-uri: ${PARKIO_AUTH_JWKS_URI:http://localhost:8081/api/v1/auth/.well-known/jwks.json}
+      jwks-cache-ttl: ${PARKIO_AUTH_JWKS_CACHE_TTL:PT15M}
   gateway:
     # Shared secret stamped onto every routed request as X-Gateway-Auth so downstream
     # services can reject calls that did not come through this gateway. No default →

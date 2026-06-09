@@ -1,25 +1,21 @@
 package com.parkio.gateway.infrastructure.security;
 
+import com.fasterxml.jackson.databind.JsonNode;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import io.jsonwebtoken.Claims;
 import io.jsonwebtoken.Jws;
 import io.jsonwebtoken.JwtException;
 import io.jsonwebtoken.Jwts;
-import io.jsonwebtoken.security.Keys;
-import java.nio.charset.StandardCharsets;
+import java.io.IOException;
+import java.util.Base64;
 import java.util.List;
-import javax.crypto.SecretKey;
 import org.springframework.stereotype.Component;
+import reactor.core.publisher.Mono;
 
 /**
- * Verifies HS256 access tokens at the edge using the same signing contract as
- * auth-service: signature, issuer and expiry are all checked, and the {@code sub},
- * {@code email}, {@code roles} and {@code status} claims are extracted.
- *
- * <p>TODO(security-backlog): before wider rollout, migrate the platform to an
- * asymmetric signature (RS256/ES256) with key distribution via a JWKS endpoint, so
- * the gateway verifies with a public key and only auth-service holds the private
- * signing key. A shared symmetric secret means any service holding it could mint
- * tokens. Coordinate the change with auth-service so both sides switch together.
+ * Verifies RS256 access tokens with auth-service public keys resolved from JWKS.
+ * The untrusted JWT header is read only to select a key; signature, issuer and
+ * expiry are then validated by JJWT.
  */
 @Component
 public class JwtTokenValidator {
@@ -28,12 +24,16 @@ public class JwtTokenValidator {
     private static final String CLAIM_ROLES = "roles";
     private static final String CLAIM_STATUS = "status";
 
-    private final SecretKey signingKey;
     private final String issuer;
+    private final JwksKeyResolver keys;
+    private final ObjectMapper objectMapper;
 
-    public JwtTokenValidator(JwtProperties properties) {
-        this.signingKey = Keys.hmacShaKeyFor(properties.getSecret().getBytes(StandardCharsets.UTF_8));
+    public JwtTokenValidator(JwtProperties properties,
+                             JwksKeyResolver keys,
+                             ObjectMapper objectMapper) {
         this.issuer = properties.getIssuer();
+        this.keys = keys;
+        this.objectMapper = objectMapper;
     }
 
     /**
@@ -44,9 +44,19 @@ public class JwtTokenValidator {
      *                      invalid.
      */
     @SuppressWarnings("unchecked")
-    public AuthenticatedUser validate(String token) {
+    public Mono<AuthenticatedUser> validate(String token) {
+        try {
+            String keyId = requiredKeyId(token);
+            return keys.resolve(keyId).map(publicKey -> parse(token, publicKey));
+        } catch (JwtException | IllegalArgumentException ex) {
+            return Mono.error(ex);
+        }
+    }
+
+    @SuppressWarnings("unchecked")
+    private AuthenticatedUser parse(String token, java.security.interfaces.RSAPublicKey publicKey) {
         Jws<Claims> jws = Jwts.parser()
-                .verifyWith(signingKey)
+                .verifyWith(publicKey)
                 .requireIssuer(issuer)
                 .build()
                 .parseSignedClaims(token);
@@ -60,5 +70,25 @@ public class JwtTokenValidator {
         List<String> roles = claims.get(CLAIM_ROLES, List.class);
         String status = claims.get(CLAIM_STATUS, String.class);
         return new AuthenticatedUser(userId, email, roles == null ? List.of() : List.copyOf(roles), status);
+    }
+
+    private String requiredKeyId(String token) {
+        String[] segments = token.split("\\.", -1);
+        if (segments.length != 3) {
+            throw new JwtException("JWT must contain three segments");
+        }
+        try {
+            JsonNode header = objectMapper.readTree(Base64.getUrlDecoder().decode(segments[0]));
+            if (!"RS256".equals(header.path("alg").asText())) {
+                throw new JwtException("JWT algorithm must be RS256");
+            }
+            String keyId = header.path("kid").asText();
+            if (keyId.isBlank()) {
+                throw new JwtException("JWT is missing the key id");
+            }
+            return keyId;
+        } catch (IOException | IllegalArgumentException ex) {
+            throw new JwtException("JWT header is invalid", ex);
+        }
     }
 }

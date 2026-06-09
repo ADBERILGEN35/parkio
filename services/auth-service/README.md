@@ -57,15 +57,20 @@ stored here (it belongs to user-service, per ai-context/03).
 
 ## Local development
 
-The JWT secret has **no default** and the application **fails to start** without
-one (fail closed, ai-context/07). For local development either:
+Access tokens are signed with RS256. The private key has **no production
+default**, and auth-service fails to start without it. Supply a PKCS#8 PEM through
+`PARKIO_JWT_PRIVATE_KEY_PEM`; optionally set `PARKIO_JWT_KEY_ID` (default
+`parkio-auth-rs256-1`). The private key is never returned by an API.
 
-- run with the `dev` profile, which supplies a non-production secret —
-  `SPRING_PROFILES_ACTIVE=dev ./gradlew :services:auth-service:bootRun`; or
-- export your own: `PARKIO_JWT_SECRET=<at-least-32-chars>`.
+For local development, run
+`SPRING_PROFILES_ACTIVE=dev ./gradlew :services:auth-service:bootRun`. The dev
+profile explicitly generates an ephemeral 2048-bit RSA key on startup, so tokens
+become invalid after a restart. Tests use the same ephemeral-only mechanism and
+do not commit a static private key.
 
-In every other environment `PARKIO_JWT_SECRET` must be provided via the
-environment / secret manager; it is never committed.
+The public key is exposed at
+`GET /api/v1/auth/.well-known/jwks.json` with `kty=RSA`, `alg=RS256`,
+`use=sig`, `kid`, modulus (`n`) and exponent (`e`) only.
 
 ## Refresh tokens
 

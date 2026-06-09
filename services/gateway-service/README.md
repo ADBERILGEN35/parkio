@@ -89,8 +89,8 @@ account status on every protected route:
    never cached (so a freshly-provisioned account activates immediately and outages are
    re-checked next request). Trade-off: a status change takes effect within the TTL.
 
-Public auth routes (`login`/`register`/`refresh-token`/`logout`) and actuator carry no
-identity and are **never** status-checked. Config lives under
+Public auth routes (`login`/`register`/`refresh-token`/`logout` and JWKS discovery)
+and actuator carry no identity and are **never** status-checked. Config lives under
 `parkio.gateway.user-status.*` (`base-url`, `cache-ttl`, `request-timeout`;
 env-overridable via `PARKIO_USER_SERVICE_URI`, `PARKIO_USER_STATUS_CACHE_TTL`,
 `PARKIO_USER_STATUS_TIMEOUT`).
@@ -113,8 +113,9 @@ env-overridable via `PARKIO_USER_SERVICE_URI`, `PARKIO_USER_STATUS_CACHE_TTL`,
 | `/api/v1/ai-validations/**` | `ai-validation-service` | mixed³            |
 | `/api/v1/analytics/**`      | `analytics-service`     | `MODERATOR`/`ADMIN` |
 
-¹ Public: `POST /api/v1/auth/register`, `login`, `refresh-token`, `logout`. Any
-other auth path is protected. Actuator `health`/`info` are public.
+¹ Public: `POST /api/v1/auth/register`, `login`, `refresh-token`, `logout`; and
+`GET /api/v1/auth/.well-known/jwks.json`. Any other auth path is protected.
+Actuator `health`/`info` are public.
 ² See the role matrix below: user-facing report/appeal endpoints need only an
 authenticated user; case/appeal management requires `MODERATOR`/`ADMIN`.
 ³ Read-only lookups need an authenticated user; `POST /api/v1/ai-validations/manual`
@@ -147,9 +148,12 @@ reaches the downstream service.
 
 ## Security
 
-- **JWT (HS256)** validated with the same secret/issuer as `auth-service`
-  (`PARKIO_JWT_SECRET`, `PARKIO_JWT_ISSUER`). The secret has **no default** — the
-  gateway fails to start without it (fail closed).
+- **JWT (RS256)** validated with auth-service public keys from
+  `PARKIO_AUTH_JWKS_URI` (defaulting to auth-service's JWKS endpoint). Keys are
+  cached for `PARKIO_AUTH_JWKS_CACHE_TTL` (default `15m`); an unknown `kid`
+  triggers one immediate JWKS refresh before rejection. The gateway validates
+  `alg=RS256`, `kid`, signature, issuer and expiry and never receives the private
+  signing key.
 - **CORS** is configured via `parkio.gateway.cors.*` (origins empty by default →
   no cross-origin browser access until configured per environment). Lock origins
   down per environment (env var `PARKIO_CORS_ALLOWED_ORIGINS`).
@@ -176,18 +180,10 @@ reaches the downstream service.
   request through rather than 500), so Redis must be treated as part of the edge's
   availability, not an optional add-on.
 
-### Backlog: asymmetric signing
-
-The HS256 shared secret means any service holding it could mint tokens. Before
-wider rollout, migrate to **RS256/ES256 + a JWKS endpoint**, so the gateway
-verifies with a public key and only `auth-service` holds the private key. This must
-be coordinated with `auth-service` so both switch together. Not implemented now to
-stay compatible with the current auth-service contract.
-
 ## Run locally
 
-For local development run under the `dev` profile (supplies a non-production JWT
-secret that matches `auth-service`'s dev secret) or export `PARKIO_JWT_SECRET`:
+Start auth-service first under its `dev` profile, then run the gateway under
+`dev`. The gateway retrieves the current ephemeral public key from JWKS:
 
 ```bash
 SPRING_PROFILES_ACTIVE=dev ./gradlew :services:gateway-service:bootRun

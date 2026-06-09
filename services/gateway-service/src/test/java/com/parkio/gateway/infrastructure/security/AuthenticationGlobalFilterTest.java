@@ -5,9 +5,12 @@ import static org.assertj.core.api.Assertions.assertThat;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.parkio.gateway.infrastructure.web.GatewayErrorResponseWriter;
 import com.parkio.gateway.shared.GatewayHeaders;
+import io.jsonwebtoken.JwtException;
 import io.jsonwebtoken.Jwts;
-import io.jsonwebtoken.security.Keys;
-import java.nio.charset.StandardCharsets;
+import java.security.KeyPair;
+import java.security.KeyPairGenerator;
+import java.security.interfaces.RSAPrivateKey;
+import java.security.interfaces.RSAPublicKey;
 import java.time.Clock;
 import java.time.Instant;
 import java.time.ZoneOffset;
@@ -15,7 +18,7 @@ import java.time.temporal.ChronoUnit;
 import java.util.Date;
 import java.util.List;
 import java.util.UUID;
-import javax.crypto.SecretKey;
+import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.Test;
 import org.springframework.cloud.gateway.filter.GatewayFilterChain;
 import org.springframework.http.HttpHeaders;
@@ -28,39 +31,50 @@ import reactor.core.publisher.Mono;
 
 class AuthenticationGlobalFilterTest {
 
-    private static final String SECRET = "unit-test-parkio-jwt-secret-0123456789-abcdefghij";
+    private static final String KEY_ID = "filter-test-key";
     private static final String ISSUER = "parkio-auth";
+    private static KeyPair keyPair;
 
-    private final AuthenticationGlobalFilter filter = new AuthenticationGlobalFilter(
-            new PublicEndpoints(),
-            new JwtTokenValidator(properties()),
-            new GatewayErrorResponseWriter(new ObjectMapper().findAndRegisterModules(),
-                    Clock.fixed(Instant.parse("2026-06-07T00:00:00Z"), ZoneOffset.UTC)));
+    @BeforeAll
+    static void generateKey() throws Exception {
+        KeyPairGenerator generator = KeyPairGenerator.getInstance("RSA");
+        generator.initialize(2048);
+        keyPair = generator.generateKeyPair();
+    }
 
     @Test
     void publicRouteIsForwardedWithoutTokenAndStripsClientIdentity() {
-        MockServerHttpRequest request = MockServerHttpRequest
-                .method(HttpMethod.POST, "/api/v1/auth/login")
+        var request = MockServerHttpRequest.method(HttpMethod.POST, "/api/v1/auth/login")
                 .header(GatewayHeaders.USER_ID, "spoofed-id")
                 .build();
-        MockServerWebExchange exchange = MockServerWebExchange.from(request);
-        CapturingChain chain = new CapturingChain();
+        var exchange = MockServerWebExchange.from(request);
+        var chain = new CapturingChain();
 
-        filter.filter(exchange, chain).block();
+        filter().filter(exchange, chain).block();
 
         assertThat(chain.wasInvoked()).isTrue();
         assertThat(forwardedHeader(chain, GatewayHeaders.USER_ID)).isNull();
     }
 
     @Test
-    void protectedRouteWithoutTokenIsRejected() {
-        MockServerHttpRequest request = MockServerHttpRequest
-                .method(HttpMethod.GET, "/api/v1/users/me")
+    void jwksRouteIsPublic() {
+        var request = MockServerHttpRequest
+                .get("/api/v1/auth/.well-known/jwks.json")
                 .build();
-        MockServerWebExchange exchange = MockServerWebExchange.from(request);
-        CapturingChain chain = new CapturingChain();
+        var chain = new CapturingChain();
 
-        filter.filter(exchange, chain).block();
+        filter().filter(MockServerWebExchange.from(request), chain).block();
+
+        assertThat(chain.wasInvoked()).isTrue();
+    }
+
+    @Test
+    void protectedRouteWithoutTokenIsRejected() {
+        var exchange = MockServerWebExchange.from(MockServerHttpRequest
+                .get("/api/v1/users/me").build());
+        var chain = new CapturingChain();
+
+        filter().filter(exchange, chain).block();
 
         assertThat(chain.wasInvoked()).isFalse();
         assertThat(exchange.getResponse().getStatusCode()).isEqualTo(HttpStatus.UNAUTHORIZED);
@@ -68,68 +82,59 @@ class AuthenticationGlobalFilterTest {
 
     @Test
     void protectedRouteWithInvalidTokenIsRejected() {
-        MockServerHttpRequest request = MockServerHttpRequest
-                .method(HttpMethod.GET, "/api/v1/users/me")
+        var exchange = MockServerWebExchange.from(MockServerHttpRequest
+                .get("/api/v1/users/me")
                 .header(HttpHeaders.AUTHORIZATION, "Bearer not-a-real-token")
-                .build();
-        MockServerWebExchange exchange = MockServerWebExchange.from(request);
-        CapturingChain chain = new CapturingChain();
+                .build());
+        var chain = new CapturingChain();
 
-        filter.filter(exchange, chain).block();
+        filter().filter(exchange, chain).block();
 
         assertThat(chain.wasInvoked()).isFalse();
         assertThat(exchange.getResponse().getStatusCode()).isEqualTo(HttpStatus.UNAUTHORIZED);
     }
 
     @Test
-    void validTokenInjectsIdentityAndOverridesClientSuppliedHeader() {
+    void validTokenInjectsIdentityAndOverridesClientHeaders() {
         UUID userId = UUID.randomUUID();
         String token = validToken(userId, "rider@parkio.test", List.of("USER"));
-        MockServerHttpRequest request = MockServerHttpRequest
-                .method(HttpMethod.GET, "/api/v1/users/me")
+        var request = MockServerHttpRequest.get("/api/v1/users/me")
                 .header(HttpHeaders.AUTHORIZATION, "Bearer " + token)
                 .header(GatewayHeaders.USER_ID, "spoofed-id")
+                .header(GatewayHeaders.USER_EMAIL, "spoofed@evil.test")
+                .header(GatewayHeaders.USER_ROLES, "ADMIN")
                 .build();
-        MockServerWebExchange exchange = MockServerWebExchange.from(request);
-        CapturingChain chain = new CapturingChain();
+        var chain = new CapturingChain();
 
-        filter.filter(exchange, chain).block();
+        filter().filter(MockServerWebExchange.from(request), chain).block();
 
-        assertThat(chain.wasInvoked()).isTrue();
         assertThat(forwardedHeader(chain, GatewayHeaders.USER_ID)).isEqualTo(userId.toString());
         assertThat(forwardedHeader(chain, GatewayHeaders.USER_EMAIL)).isEqualTo("rider@parkio.test");
         assertThat(forwardedHeader(chain, GatewayHeaders.USER_ROLES)).isEqualTo("USER");
     }
 
-    @Test
-    void validTokenOverridesClientSuppliedRolesHeader() {
-        UUID userId = UUID.randomUUID();
-        String token = validToken(userId, "rider@parkio.test", List.of("USER"));
-        MockServerHttpRequest request = MockServerHttpRequest
-                .method(HttpMethod.GET, "/api/v1/analytics/overview")
-                .header(HttpHeaders.AUTHORIZATION, "Bearer " + token)
-                // A client attempts to escalate by injecting privileged roles.
-                .header(GatewayHeaders.USER_ROLES, "ADMIN,MODERATOR")
-                .header(GatewayHeaders.USER_EMAIL, "spoofed@evil.test")
-                .build();
-        MockServerWebExchange exchange = MockServerWebExchange.from(request);
-        CapturingChain chain = new CapturingChain();
-
-        filter.filter(exchange, chain).block();
-
-        // Only the validated token's roles/email survive; the spoofed values are gone.
-        assertThat(forwardedHeader(chain, GatewayHeaders.USER_ROLES)).isEqualTo("USER");
-        assertThat(forwardedHeader(chain, GatewayHeaders.USER_EMAIL)).isEqualTo("rider@parkio.test");
-    }
-
-    private static String forwardedHeader(CapturingChain chain, String name) {
-        return chain.captured().getRequest().getHeaders().getFirst(name);
+    private static AuthenticationGlobalFilter filter() {
+        JwtProperties properties = new JwtProperties();
+        properties.setIssuer(ISSUER);
+        properties.setJwksUri("http://unused.test/jwks");
+        RSAPublicKey publicKey = (RSAPublicKey) keyPair.getPublic();
+        JwksKeyResolver resolver = keyId -> KEY_ID.equals(keyId)
+                ? Mono.just(publicKey)
+                : Mono.error(new JwtException("Unknown JWT key id"));
+        JwtTokenValidator validator = new JwtTokenValidator(
+                properties, resolver, new ObjectMapper().findAndRegisterModules());
+        return new AuthenticationGlobalFilter(
+                new PublicEndpoints(),
+                validator,
+                new GatewayErrorResponseWriter(
+                        new ObjectMapper().findAndRegisterModules(),
+                        Clock.fixed(Instant.parse("2026-06-07T00:00:00Z"), ZoneOffset.UTC)));
     }
 
     private static String validToken(UUID userId, String email, List<String> roles) {
-        SecretKey key = Keys.hmacShaKeyFor(SECRET.getBytes(StandardCharsets.UTF_8));
         Instant now = Instant.now();
         return Jwts.builder()
+                .header().keyId(KEY_ID).and()
                 .issuer(ISSUER)
                 .subject(userId.toString())
                 .claim("email", email)
@@ -137,18 +142,14 @@ class AuthenticationGlobalFilterTest {
                 .claim("status", "ACTIVE")
                 .issuedAt(Date.from(now))
                 .expiration(Date.from(now.plus(15, ChronoUnit.MINUTES)))
-                .signWith(key)
+                .signWith((RSAPrivateKey) keyPair.getPrivate(), Jwts.SIG.RS256)
                 .compact();
     }
 
-    private static JwtProperties properties() {
-        JwtProperties properties = new JwtProperties();
-        properties.setSecret(SECRET);
-        properties.setIssuer(ISSUER);
-        return properties;
+    private static String forwardedHeader(CapturingChain chain, String name) {
+        return chain.captured().getRequest().getHeaders().getFirst(name);
     }
 
-    /** Captures the exchange handed downstream so injected/stripped headers can be asserted. */
     private static final class CapturingChain implements GatewayFilterChain {
 
         private ServerWebExchange captured;

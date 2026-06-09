@@ -60,6 +60,9 @@ docker compose ps             # all should become "healthy"
 ```
 
 `docker compose` automatically reads `./.env` when run from this directory.
+Before starting the application overlay, set `PARKIO_JWT_PRIVATE_KEY_PEM` in the
+git-ignored `.env` to a PKCS#8 RSA private key. Double-quoted `.env` values may
+use `\n` escapes; the committed `.env.example` intentionally leaves the key blank.
 
 ## Full stack (infrastructure + all services)
 
@@ -96,6 +99,8 @@ into service code (`ai-context/01`):
 - `SPRING_KAFKA_BOOTSTRAP_SERVERS` → `kafka:9092`
 - `SPRING_DATA_REDIS_HOST` → `redis`
 - `media-service` storage → `PARKIO_STORAGE_*` pointing at `http://minio:9000`
+- `auth-service` → `PARKIO_JWT_PRIVATE_KEY_PEM` for RS256 signing
+- `gateway-service` → auth-service's internal JWKS URL for public-key validation
 
 These variables are inert until a service adds the matching Spring starter; they
 document the intended wiring without implying any business logic.
@@ -127,6 +132,10 @@ downstream services rely on. Those headers are believable **only** because backe
 services are not directly reachable — a directly-exposed service would let a client
 forge `X-User-Id`/`X-User-Roles` and bypass authentication and edge authorization
 entirely (`ai-context/07`; see `services/gateway-service/README.md`).
+
+Access-token signing is asymmetric: only `auth-service` receives the RSA private
+key. `gateway-service` fetches and caches public keys from auth-service JWKS, so it
+can validate tokens but cannot mint them.
 
 **Defense in depth — `X-Gateway-Auth` shared secret.** The gateway stamps every routed
 request with a shared internal secret (`PARKIO_GATEWAY_INTERNAL_SECRET`, set once in

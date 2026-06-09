@@ -73,11 +73,11 @@ parkio:
     internal-secret: ${PARKIO_GATEWAY_INTERNAL_SECRET}
   security:
     jwt:
-      # No default: the application fails to start unless PARKIO_JWT_SECRET is
-      # provided (fail closed, ai-context/07). For local development run with the
-      # `dev` profile (see application-dev.yml) or export PARKIO_JWT_SECRET.
-      # HS256 requires at least 32 bytes.
-      secret: ${PARKIO_JWT_SECRET}
+      # PKCS#8 RSA private key. No default: production fails closed unless supplied.
+      # The dev profile explicitly enables ephemeral key generation.
+      private-key-pem: ${PARKIO_JWT_PRIVATE_KEY_PEM:}
+      key-id: ${PARKIO_JWT_KEY_ID:parkio-auth-rs256-1}
+      generate-ephemeral-key: false
       issuer: ${PARKIO_JWT_ISSUER:parkio-auth}
       # ISO-8601 durations.
       access-token-ttl: ${PARKIO_JWT_ACCESS_TTL:PT15M}

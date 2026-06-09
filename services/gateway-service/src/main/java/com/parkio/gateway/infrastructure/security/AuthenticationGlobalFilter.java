@@ -2,7 +2,6 @@ package com.parkio.gateway.infrastructure.security;
 
 import com.parkio.gateway.infrastructure.web.GatewayErrorResponseWriter;
 import com.parkio.gateway.shared.GatewayHeaders;
-import io.jsonwebtoken.JwtException;
 import org.springframework.cloud.gateway.filter.GatewayFilterChain;
 import org.springframework.cloud.gateway.filter.GlobalFilter;
 import org.springframework.core.Ordered;
@@ -67,21 +66,18 @@ public class AuthenticationGlobalFilter implements GlobalFilter, Ordered {
         }
 
         String token = authorization.substring(BEARER_PREFIX.length()).trim();
-        AuthenticatedUser user;
-        try {
-            user = tokenValidator.validate(token);
-        } catch (JwtException | IllegalArgumentException ex) {
-            return errorWriter.write(exchange, HttpStatus.UNAUTHORIZED, "INVALID_TOKEN",
-                    "Authentication token is invalid or expired.");
-        }
-
-        builder.header(GatewayHeaders.USER_ID, user.userId());
-        if (user.email() != null) {
-            builder.header(GatewayHeaders.USER_EMAIL, user.email());
-        }
-        builder.header(GatewayHeaders.USER_ROLES, String.join(",", user.roles()));
-
-        return chain.filter(exchange.mutate().request(builder.build()).build());
+        return tokenValidator.validate(token)
+                .flatMap(user -> {
+                    builder.header(GatewayHeaders.USER_ID, user.userId());
+                    if (user.email() != null) {
+                        builder.header(GatewayHeaders.USER_EMAIL, user.email());
+                    }
+                    builder.header(GatewayHeaders.USER_ROLES, String.join(",", user.roles()));
+                    return chain.filter(exchange.mutate().request(builder.build()).build());
+                })
+                .onErrorResume(ex -> errorWriter.write(
+                        exchange, HttpStatus.UNAUTHORIZED, "INVALID_TOKEN",
+                        "Authentication token is invalid or expired."));
     }
 
     @Override

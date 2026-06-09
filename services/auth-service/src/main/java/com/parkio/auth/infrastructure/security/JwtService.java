@@ -8,18 +8,15 @@ import com.parkio.auth.shared.AuthPrincipal;
 import io.jsonwebtoken.Claims;
 import io.jsonwebtoken.Jws;
 import io.jsonwebtoken.Jwts;
-import io.jsonwebtoken.security.Keys;
-import java.nio.charset.StandardCharsets;
 import java.time.Clock;
 import java.time.Instant;
 import java.util.Date;
 import java.util.List;
 import java.util.UUID;
-import javax.crypto.SecretKey;
 import org.springframework.stereotype.Component;
 
 /**
- * Issues and verifies HS256 JWT access tokens. Claims: {@code sub} (user id),
+ * Issues and verifies RS256 JWT access tokens. Claims: {@code sub} (user id),
  * {@code email}, {@code roles}, {@code status}, {@code iat}, {@code exp}.
  * Implements {@link AccessTokenIssuer}; the bearer filter uses {@link #parse}.
  */
@@ -30,13 +27,13 @@ public class JwtService implements AccessTokenIssuer {
     private static final String CLAIM_ROLES = "roles";
     private static final String CLAIM_STATUS = "status";
 
-    private final SecretKey signingKey;
+    private final RsaKeyProvider keys;
     private final String issuer;
     private final java.time.Duration accessTokenTtl;
     private final Clock clock;
 
-    public JwtService(JwtProperties properties, Clock clock) {
-        this.signingKey = Keys.hmacShaKeyFor(properties.getSecret().getBytes(StandardCharsets.UTF_8));
+    public JwtService(JwtProperties properties, RsaKeyProvider keys, Clock clock) {
+        this.keys = keys;
         this.issuer = properties.getIssuer();
         this.accessTokenTtl = properties.getAccessTokenTtl();
         this.clock = clock;
@@ -52,6 +49,7 @@ public class JwtService implements AccessTokenIssuer {
                 .toList();
 
         String token = Jwts.builder()
+                .header().keyId(keys.keyId()).and()
                 .issuer(issuer)
                 .subject(user.id().toString())
                 .claim(CLAIM_EMAIL, user.email())
@@ -59,7 +57,7 @@ public class JwtService implements AccessTokenIssuer {
                 .claim(CLAIM_STATUS, user.status().name())
                 .issuedAt(Date.from(issuedAt))
                 .expiration(Date.from(expiresAt))
-                .signWith(signingKey)
+                .signWith(keys.privateKey(), Jwts.SIG.RS256)
                 .compact();
 
         return new IssuedAccessToken(token, expiresAt);
@@ -73,7 +71,7 @@ public class JwtService implements AccessTokenIssuer {
     @SuppressWarnings("unchecked")
     public AuthPrincipal parse(String token) {
         Jws<Claims> jws = Jwts.parser()
-                .verifyWith(signingKey)
+                .verifyWith(keys.publicKey())
                 .requireIssuer(issuer)
                 .build()
                 .parseSignedClaims(token);

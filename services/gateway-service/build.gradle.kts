@@ -12,7 +12,7 @@ dependencies {
     // Bean Validation for @ConfigurationProperties (fail-closed JWT secret check).
     implementation(libs.spring.boot.starter.validation)
 
-    // JWT validation at the edge. Same HS256 contract as auth-service.
+    // RS256 JWT parsing after public-key resolution from auth-service JWKS.
     implementation(libs.jjwt.api)
     runtimeOnly(libs.jjwt.impl)
     runtimeOnly(libs.jjwt.jackson)
