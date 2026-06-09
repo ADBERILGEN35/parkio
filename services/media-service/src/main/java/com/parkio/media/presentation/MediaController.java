@@ -1,17 +1,23 @@
 package com.parkio.media.presentation;
 
+import com.fasterxml.jackson.databind.ObjectMapper;
 import com.parkio.media.application.MediaApplicationService;
 import com.parkio.media.application.command.UploadMediaCommand;
 import com.parkio.media.application.result.MediaUploadResult;
 import com.parkio.media.domain.exception.MediaErrorCode;
 import com.parkio.media.domain.exception.MediaException;
+import com.parkio.media.infrastructure.idempotency.IdempotencyService;
+import com.parkio.media.infrastructure.idempotency.IdempotentResponse;
+import com.parkio.media.infrastructure.idempotency.RequestFingerprint;
 import com.parkio.media.presentation.dto.MediaMetadataResponse;
 import com.parkio.media.presentation.dto.UploadMediaResponse;
 import com.parkio.media.presentation.dto.ValidationResultResponse;
 import java.io.IOException;
 import java.io.UncheckedIOException;
 import java.net.URI;
+import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.UUID;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.DeleteMapping;
@@ -39,21 +45,36 @@ public class MediaController {
     private static final String USER_ID_HEADER = "X-User-Id";
 
     private final MediaApplicationService mediaService;
+    private final IdempotencyService idempotencyService;
+    private final ObjectMapper objectMapper;
 
-    public MediaController(MediaApplicationService mediaService) {
+    public MediaController(MediaApplicationService mediaService,
+                           IdempotencyService idempotencyService,
+                           ObjectMapper objectMapper) {
         this.mediaService = mediaService;
+        this.idempotencyService = idempotencyService;
+        this.objectMapper = objectMapper;
     }
 
     @PostMapping("/upload")
     public ResponseEntity<UploadMediaResponse> upload(
             @RequestHeader(value = USER_ID_HEADER, required = false) String userId,
+            @RequestHeader(value = IdempotencyService.HEADER_NAME, required = false) String idempotencyKey,
             @RequestParam("file") MultipartFile file) {
         UUID ownerUserId = requireUserId(userId);
-        UploadMediaCommand command = new UploadMediaCommand(ownerUserId, file.getContentType(), readBytes(file));
-        MediaUploadResult result = mediaService.upload(command);
-        return ResponseEntity
-                .created(URI.create("/api/v1/media/" + result.mediaId()))
-                .body(UploadMediaResponse.from(result));
+        byte[] content = readBytes(file);
+        String path = "/api/v1/media/upload";
+        String fingerprint = RequestFingerprint.sha256(objectMapper, uploadFingerprint(path, file, content));
+        IdempotentResponse<UploadMediaResponse> response = idempotencyService.execute(
+                ownerUserId, "POST", path, idempotencyKey, fingerprint, UploadMediaResponse.class, () -> {
+                    UploadMediaCommand command = new UploadMediaCommand(
+                            ownerUserId, file.getContentType(), content);
+                    MediaUploadResult result = mediaService.upload(command);
+                    return IdempotentResponse.first(201, UploadMediaResponse.from(result));
+                });
+        return ResponseEntity.status(response.statusCode())
+                .location(URI.create("/api/v1/media/" + response.body().mediaId()))
+                .body(response.body());
     }
 
     @GetMapping("/{mediaId}")
@@ -93,5 +114,16 @@ public class MediaController {
         } catch (IllegalArgumentException ex) {
             throw new MediaException(MediaErrorCode.MISSING_USER_ID, "Invalid authenticated user id.");
         }
+    }
+
+    private static Map<String, Object> uploadFingerprint(
+            String path, MultipartFile file, byte[] content) {
+        Map<String, Object> value = new LinkedHashMap<>();
+        value.put("path", path);
+        value.put("filename", file.getOriginalFilename());
+        value.put("contentType", file.getContentType());
+        value.put("fileSize", content.length);
+        value.put("checksum", RequestFingerprint.sha256(content));
+        return value;
     }
 }

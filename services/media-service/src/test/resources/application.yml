@@ -17,6 +17,10 @@ spring:
     enabled: false
 
 parkio:
+  idempotency:
+    ttl: 24h
+  gateway:
+    internal-secret: test-only-parkio-gateway-internal-secret-0123456789
   media:
     max-file-size: 10MB
     allowed-content-types:

@@ -67,6 +67,10 @@ info:
     description: Parkio gamification-service
 
 parkio:
+  gateway:
+    # Shared secret required on every inbound request (X-Gateway-Auth) so only
+    # gateway-originated traffic is accepted. No default → fail closed if unset.
+    internal-secret: ${PARKIO_GATEWAY_INTERNAL_SECRET}
   gamification:
     leaderboard:
       default-limit: 20

@@ -74,6 +74,12 @@ info:
     description: Parkio media-service
 
 parkio:
+  idempotency:
+    ttl: ${PARKIO_IDEMPOTENCY_TTL:24h}
+  gateway:
+    # Shared secret required on every inbound request (X-Gateway-Auth) so only
+    # gateway-originated traffic is accepted. No default → fail closed if unset.
+    internal-secret: ${PARKIO_GATEWAY_INTERNAL_SECRET}
   media:
     # Application-level upload constraints.
     max-file-size: 10MB

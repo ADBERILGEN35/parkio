@@ -9,5 +9,6 @@ parkio:
       secret: test-only-parkio-gateway-jwt-secret-0123456789-abcdefghijklmnop
       issuer: parkio-auth-test
   gateway:
+    internal-secret: test-only-parkio-gateway-internal-secret-0123456789
     cors:
       allowed-origins: http://localhost:3000

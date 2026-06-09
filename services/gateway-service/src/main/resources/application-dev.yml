@@ -17,5 +17,7 @@ parkio:
     jwt:
       secret: dev-only-parkio-auth-jwt-secret-change-me-please-0123456789
   gateway:
+    # NON-PRODUCTION shared secret. Must match every downstream service's dev secret.
+    internal-secret: dev-only-parkio-gateway-internal-secret-change-me-0123456789
     cors:
       allowed-origins: http://localhost:3000,http://localhost:5173

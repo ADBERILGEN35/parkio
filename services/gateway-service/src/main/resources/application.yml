@@ -144,6 +144,12 @@ parkio:
       secret: ${PARKIO_JWT_SECRET}
       issuer: ${PARKIO_JWT_ISSUER:parkio-auth}
   gateway:
+    # Shared secret stamped onto every routed request as X-Gateway-Auth so downstream
+    # services can reject calls that did not come through this gateway. No default →
+    # the gateway fails to start unless PARKIO_GATEWAY_INTERNAL_SECRET is provided
+    # (fail closed, ai-context/07). Every downstream service must be configured with the
+    # SAME secret. For local dev use the `dev` profile or export the env var.
+    internal-secret: ${PARKIO_GATEWAY_INTERNAL_SECRET}
     cors:
       # Lock down to the real web/app origins in each environment. Empty by
       # default → no cross-origin browser access is permitted (safe default).

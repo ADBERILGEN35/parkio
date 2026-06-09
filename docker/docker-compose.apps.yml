@@ -22,6 +22,9 @@ x-app-common: &app-common
     SPRING_KAFKA_BOOTSTRAP_SERVERS: kafka:9092
     MANAGEMENT_ENDPOINTS_WEB_EXPOSURE_INCLUDE: health,info,prometheus
     JAVA_TOOL_OPTIONS: ${JAVA_TOOL_OPTIONS:--XX:MaxRAMPercentage=75.0}
+    # Shared gateway-ingress secret. The gateway stamps it onto every routed request
+    # as X-Gateway-Auth; every downstream service requires it. Same value everywhere.
+    PARKIO_GATEWAY_INTERNAL_SECRET: ${PARKIO_GATEWAY_INTERNAL_SECRET}
 
 x-datasource-depends: &datasource-depends
   kafka:

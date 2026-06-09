@@ -36,7 +36,7 @@ injects a verified `X-User-Id`. Requests without a valid `X-User-Id` fail closed
 
 | Method & path                                | Purpose                                              |
 |----------------------------------------------|------------------------------------------------------|
-| `POST /api/v1/media/upload`                  | Multipart `file`. Validates mime/size, computes SHA-256, rejects duplicates (409), stores the object, returns `{ mediaId, status, contentType, fileSize }`. |
+| `POST /api/v1/media/upload`                  | Multipart `file` plus required `Idempotency-Key`. Validates mime/size, computes SHA-256, rejects duplicates (409), stores the object, returns `{ mediaId, status, contentType, fileSize }`. |
 | `GET /api/v1/media/{mediaId}`                | Metadata only (no raw bucket/object-key internals).  |
 | `DELETE /api/v1/media/{mediaId}`             | Soft-delete (owner only); best-effort object removal. |
 | `GET /api/v1/media/{mediaId}/validation-results` | Recorded validation outcomes.                   |
@@ -49,6 +49,24 @@ injects a verified `X-User-Id`. Requests without a valid `X-User-Id` fail closed
 - Object keys are **generated** (`media/{ownerUserId}/{uuid}.{ext}`) — the original
   filename and any user-controlled path are never trusted.
 - Duplicate checksum → `409`.
+
+### HTTP idempotency
+
+`POST /api/v1/media/upload` requires an `Idempotency-Key` of 8-128 characters.
+Frontends should generate a UUID for each upload action and reuse it only when
+retrying that exact upload. A completed retry returns the original `201` response
+and `mediaId` without another metadata row, outbox event, or object-storage write.
+
+The request fingerprint contains the operation path, original filename, declared
+content type, file size, and SHA-256 checksum; raw file bytes are never stored in
+`idempotency_records`. Reusing a key for different upload metadata/content returns
+`409 IDEMPOTENCY_KEY_CONFLICT`.
+
+Records are scoped by authenticated user, HTTP method, operation path, and key.
+They expire after `parkio.idempotency.ttl` (default `24h`). Concurrent duplicates
+serialize on the database uniqueness constraint. If a persisted request is
+unexpectedly still marked in progress, the service returns
+`409 IDEMPOTENCY_REQUEST_IN_PROGRESS` rather than storing the upload twice.
 
 ### Events (outbox)
 

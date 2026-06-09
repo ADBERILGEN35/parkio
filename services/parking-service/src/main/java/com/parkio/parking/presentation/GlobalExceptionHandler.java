@@ -2,6 +2,7 @@ package com.parkio.parking.presentation;
 
 import com.parkio.parking.domain.exception.ParkingErrorCode;
 import com.parkio.parking.domain.exception.ParkingException;
+import com.parkio.parking.infrastructure.idempotency.IdempotencyException;
 import com.parkio.parking.presentation.dto.ApiError;
 import java.time.Clock;
 import java.util.List;
@@ -40,6 +41,16 @@ public class GlobalExceptionHandler {
         HttpStatus status = statusFor(code);
         ApiError body = ApiError.of(code.name(), ex.getMessage(), clock.instant());
         return ResponseEntity.status(status).body(body);
+    }
+
+    @ExceptionHandler(IdempotencyException.class)
+    public ResponseEntity<ApiError> handleIdempotency(IdempotencyException ex) {
+        HttpStatus status = "IDEMPOTENCY_KEY_CONFLICT".equals(ex.code())
+                        || "IDEMPOTENCY_REQUEST_IN_PROGRESS".equals(ex.code())
+                ? HttpStatus.CONFLICT
+                : HttpStatus.BAD_REQUEST;
+        return ResponseEntity.status(status)
+                .body(ApiError.of(ex.code(), ex.getMessage(), clock.instant()));
     }
 
     @ExceptionHandler(MethodArgumentNotValidException.class)

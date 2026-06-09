@@ -6,13 +6,19 @@ import com.parkio.parking.application.command.SearchNearbyQuery;
 import com.parkio.parking.domain.ParkingSpot;
 import com.parkio.parking.domain.exception.ParkingErrorCode;
 import com.parkio.parking.domain.exception.ParkingException;
+import com.parkio.parking.infrastructure.idempotency.IdempotencyService;
+import com.parkio.parking.infrastructure.idempotency.IdempotentResponse;
+import com.parkio.parking.infrastructure.idempotency.RequestFingerprint;
 import com.parkio.parking.presentation.dto.CreateSpotRequest;
 import com.parkio.parking.presentation.dto.PublicSpotResponse;
 import com.parkio.parking.presentation.dto.SpotResponse;
 import com.parkio.parking.presentation.dto.VerifySpotRequest;
 import jakarta.validation.Valid;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import java.net.URI;
+import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.UUID;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.GetMapping;
@@ -39,23 +45,37 @@ public class ParkingController {
     private static final String USER_ID_HEADER = "X-User-Id";
 
     private final ParkingApplicationService parkingService;
+    private final IdempotencyService idempotencyService;
+    private final ObjectMapper objectMapper;
 
-    public ParkingController(ParkingApplicationService parkingService) {
+    public ParkingController(ParkingApplicationService parkingService,
+                             IdempotencyService idempotencyService,
+                             ObjectMapper objectMapper) {
         this.parkingService = parkingService;
+        this.idempotencyService = idempotencyService;
+        this.objectMapper = objectMapper;
     }
 
     @PostMapping("/spots")
     public ResponseEntity<SpotResponse> createSpot(
             @RequestHeader(value = USER_ID_HEADER, required = false) String userId,
+            @RequestHeader(value = IdempotencyService.HEADER_NAME, required = false) String idempotencyKey,
             @Valid @RequestBody CreateSpotRequest request) {
         UUID ownerUserId = requireUserId(userId);
-        CreateSpotCommand command = new CreateSpotCommand(ownerUserId, request.mediaId(),
-                request.latitude(), request.longitude(), request.addressText(), request.description(),
-                request.manualLocationEdited(), request.suitableVehicleTypes(), request.parkingContext(),
-                request.legalStatus(), request.violationReasons());
-        ParkingSpot spot = parkingService.createSpot(command);
-        return ResponseEntity.created(URI.create("/api/v1/parking/spots/" + spot.id()))
-                .body(SpotResponse.from(spot));
+        String path = "/api/v1/parking/spots";
+        String fingerprint = RequestFingerprint.sha256(objectMapper, createFingerprint(path, request));
+        IdempotentResponse<SpotResponse> response = idempotencyService.execute(
+                ownerUserId, "POST", path, idempotencyKey, fingerprint, SpotResponse.class, () -> {
+                    CreateSpotCommand command = new CreateSpotCommand(ownerUserId, request.mediaId(),
+                            request.latitude(), request.longitude(), request.addressText(), request.description(),
+                            request.manualLocationEdited(), request.suitableVehicleTypes(), request.parkingContext(),
+                            request.legalStatus(), request.violationReasons());
+                    ParkingSpot spot = parkingService.createSpot(command);
+                    return IdempotentResponse.first(201, SpotResponse.from(spot));
+                });
+        return ResponseEntity.status(response.statusCode())
+                .location(URI.create(path + "/" + response.body().id()))
+                .body(response.body());
     }
 
     @GetMapping("/spots/nearby")
@@ -79,17 +99,35 @@ public class ParkingController {
 
     @PostMapping("/spots/{spotId}/verify")
     public PublicSpotResponse verifySpot(@RequestHeader(value = USER_ID_HEADER, required = false) String userId,
+                                         @RequestHeader(value = IdempotencyService.HEADER_NAME,
+                                                 required = false) String idempotencyKey,
                                          @PathVariable("spotId") UUID spotId,
                                          @Valid @RequestBody VerifySpotRequest request) {
         UUID verifierUserId = requireUserId(userId);
-        return PublicSpotResponse.from(parkingService.verifySpot(spotId, verifierUserId, request.result()));
+        String path = "/api/v1/parking/spots/" + spotId + "/verify";
+        String fingerprint = RequestFingerprint.sha256(objectMapper,
+                Map.of("path", path, "result", request.result().name()));
+        return idempotencyService.execute(
+                verifierUserId, "POST", path, idempotencyKey, fingerprint, PublicSpotResponse.class,
+                () -> IdempotentResponse.first(200,
+                        PublicSpotResponse.from(parkingService.verifySpot(
+                                spotId, verifierUserId, request.result()))))
+                .body();
     }
 
     @PostMapping("/spots/{spotId}/claim")
     public PublicSpotResponse claimSpot(@RequestHeader(value = USER_ID_HEADER, required = false) String userId,
+                                        @RequestHeader(value = IdempotencyService.HEADER_NAME,
+                                                required = false) String idempotencyKey,
                                         @PathVariable("spotId") UUID spotId) {
         UUID claimerUserId = requireUserId(userId);
-        return PublicSpotResponse.from(parkingService.claimSpot(spotId, claimerUserId));
+        String path = "/api/v1/parking/spots/" + spotId + "/claim";
+        String fingerprint = RequestFingerprint.sha256(path);
+        return idempotencyService.execute(
+                claimerUserId, "POST", path, idempotencyKey, fingerprint, PublicSpotResponse.class,
+                () -> IdempotentResponse.first(200,
+                        PublicSpotResponse.from(parkingService.claimSpot(spotId, claimerUserId))))
+                .body();
     }
 
     @GetMapping("/my-spots")
@@ -116,5 +154,24 @@ public class ParkingController {
         } catch (IllegalArgumentException ex) {
             throw new ParkingException(ParkingErrorCode.MISSING_USER_ID, "Invalid authenticated user id.");
         }
+    }
+
+    private static Map<String, Object> createFingerprint(String path, CreateSpotRequest request) {
+        Map<String, Object> value = new LinkedHashMap<>();
+        value.put("path", path);
+        value.put("mediaId", request.mediaId());
+        value.put("latitude", request.latitude());
+        value.put("longitude", request.longitude());
+        value.put("addressText", request.addressText());
+        value.put("description", request.description());
+        value.put("manualLocationEdited", request.manualLocationEdited());
+        value.put("suitableVehicleTypes",
+                request.suitableVehicleTypes().stream().map(Enum::name).sorted().toList());
+        value.put("parkingContext", request.parkingContext().name());
+        value.put("legalStatus", request.legalStatus().name());
+        value.put("violationReasons", request.violationReasons() == null
+                ? List.of()
+                : request.violationReasons().stream().map(Enum::name).sorted().toList());
+        return value;
     }
 }

@@ -21,6 +21,8 @@ spring:
       auto-startup: false
 
 parkio:
+  gateway:
+    internal-secret: test-only-parkio-gateway-internal-secret-0123456789
   kafka:
     # No broker in tests: skip topic provisioning and disable the outbox relay so the
     # context starts without Kafka (the relay poller / native query never runs).

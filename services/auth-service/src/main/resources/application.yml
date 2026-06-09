@@ -67,6 +67,10 @@ info:
     description: Parkio auth-service
 
 parkio:
+  gateway:
+    # Shared secret required on every inbound request (X-Gateway-Auth) so only
+    # gateway-originated traffic is accepted. No default → fail closed if unset.
+    internal-secret: ${PARKIO_GATEWAY_INTERNAL_SECRET}
   security:
     jwt:
       # No default: the application fails to start unless PARKIO_JWT_SECRET is

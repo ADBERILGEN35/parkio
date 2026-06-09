@@ -67,6 +67,12 @@ info:
     description: Parkio parking-service
 
 parkio:
+  idempotency:
+    ttl: ${PARKIO_IDEMPOTENCY_TTL:24h}
+  gateway:
+    # Shared secret required on every inbound request (X-Gateway-Auth) so only
+    # gateway-originated traffic is accepted. No default → fail closed if unset.
+    internal-secret: ${PARKIO_GATEWAY_INTERNAL_SECRET}
   parking:
     search:
       # Tunable nearby-search defaults and caps (ai-context/02). Client-supplied

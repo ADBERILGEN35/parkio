@@ -128,6 +128,15 @@ services are not directly reachable — a directly-exposed service would let a c
 forge `X-User-Id`/`X-User-Roles` and bypass authentication and edge authorization
 entirely (`ai-context/07`; see `services/gateway-service/README.md`).
 
+**Defense in depth — `X-Gateway-Auth` shared secret.** The gateway stamps every routed
+request with a shared internal secret (`PARKIO_GATEWAY_INTERNAL_SECRET`, set once in
+`.env` and injected into every service via the compose `app-env-common` env). Each
+service requires it and returns `401 GATEWAY_AUTH_REQUIRED` if it is missing/wrong, so
+even a directly-reachable service rejects un-gatewayed calls. There is **no production
+default** — services fail to start without the secret. Actuator `health`/`info`/
+`prometheus` are exempt so probes and metric scraping keep working. This is a backstop,
+**not** a replacement for keeping services private (below).
+
 > **Local dev vs production.** In `docker-compose.apps.yml` each backend service maps
 > a host port (`8081`–`8089`) purely for local convenience (hit a service directly
 > while developing). **This is not a production layout.** In production:

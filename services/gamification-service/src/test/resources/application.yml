@@ -22,6 +22,8 @@ spring:
       auto-startup: false
 
 parkio:
+  gateway:
+    internal-secret: test-only-parkio-gateway-internal-secret-0123456789
   gamification:
     leaderboard:
       default-limit: 20

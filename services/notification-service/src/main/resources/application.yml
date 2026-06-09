@@ -65,6 +65,10 @@ info:
     description: Parkio notification-service
 
 parkio:
+  gateway:
+    # Shared secret required on every inbound request (X-Gateway-Auth) so only
+    # gateway-originated traffic is accepted. No default → fail closed if unset.
+    internal-secret: ${PARKIO_GATEWAY_INTERNAL_SECRET}
   kafka:
     # Topic provisioning via NewTopic beans (KafkaTopicsConfig). Replication factor is
     # configurable for production; 1 is the local/dev default (single-broker compose).

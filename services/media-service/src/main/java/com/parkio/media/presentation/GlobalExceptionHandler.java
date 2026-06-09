@@ -2,6 +2,7 @@ package com.parkio.media.presentation;
 
 import com.parkio.media.domain.exception.MediaErrorCode;
 import com.parkio.media.domain.exception.MediaException;
+import com.parkio.media.infrastructure.idempotency.IdempotencyException;
 import com.parkio.media.presentation.dto.ApiError;
 import java.time.Clock;
 import org.slf4j.Logger;
@@ -37,6 +38,16 @@ public class GlobalExceptionHandler {
         HttpStatus status = statusFor(code);
         ApiError body = ApiError.of(code.name(), ex.getMessage(), clock.instant());
         return ResponseEntity.status(status).body(body);
+    }
+
+    @ExceptionHandler(IdempotencyException.class)
+    public ResponseEntity<ApiError> handleIdempotency(IdempotencyException ex) {
+        HttpStatus status = "IDEMPOTENCY_KEY_CONFLICT".equals(ex.code())
+                        || "IDEMPOTENCY_REQUEST_IN_PROGRESS".equals(ex.code())
+                ? HttpStatus.CONFLICT
+                : HttpStatus.BAD_REQUEST;
+        return ResponseEntity.status(status)
+                .body(ApiError.of(ex.code(), ex.getMessage(), clock.instant()));
     }
 
     /** Missing multipart {@code file} part or a required query/form parameter. */

@@ -38,9 +38,19 @@ The gateway is the **only public ingress** for backend APIs. It:
   (`X-User-Id` = `sub`, `X-User-Email` = `email`, `X-User-Roles` = comma-separated
   `roles`), overriding anything the client sent. Downstream services trust these only
   because they are reachable solely on the internal network, behind this gateway;
+- **stamps a shared internal secret** (`X-Gateway-Auth`) onto every routed request
+  (`GatewayAuthHeaderGlobalFilter`), stripping any client-supplied copy first. Every
+  downstream service requires this secret and returns `401` (`GATEWAY_AUTH_REQUIRED`)
+  without it — so a directly-reachable service cannot be called without the gateway,
+  enforcing the trust boundary in code (not deployment alone). The secret is
+  externalized (`PARKIO_GATEWAY_INTERNAL_SECRET`, no production default → fail closed);
+  the gateway's own user-status `WebClient` sends it too;
 - manages a request correlation id (`X-Correlation-Id`): forwards a client-supplied
   one or generates it, propagates it downstream, echoes it on the response, and
   includes it as `traceId` in error bodies.
+- passes the client `Idempotency-Key` header through unchanged. Parking
+  create/claim/verify and media upload validate and persist idempotency in their
+  owning service databases; the gateway holds no idempotency state.
 
 It holds **no business state and no database**.
 
@@ -49,9 +59,10 @@ It holds **no business state and no database**.
 > gateway is the sole ingress and downstream services are **not publicly reachable**.
 > In every environment, bind service ports to the internal network only (Docker
 > network / Kubernetes `ClusterIP`, never a public `LoadBalancer`/host port for a
-> backend service) and expose **only** the gateway. A service exposed directly would
-> let a client forge `X-User-Id`/`X-User-Roles` and bypass authentication and the edge
-> role checks entirely. See `docker/README.md`.
+> backend service) and expose **only** the gateway. The `X-Gateway-Auth` shared secret
+> is a second line of defence (a directly-exposed service still rejects un-gatewayed
+> calls with `401`), **not** a substitute for network isolation — anyone who obtains the
+> secret could forge requests, so keep services private regardless. See `docker/README.md`.
 
 ## Account status enforcement
 

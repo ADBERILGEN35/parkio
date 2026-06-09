@@ -17,6 +17,8 @@ spring:
     enabled: false
 
 parkio:
+  gateway:
+    internal-secret: test-only-parkio-gateway-internal-secret-0123456789
   security:
     jwt:
       secret: test-only-parkio-auth-jwt-secret-0123456789-abcdefghijklmnop

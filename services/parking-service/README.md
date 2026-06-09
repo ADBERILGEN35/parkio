@@ -55,6 +55,27 @@ privacy-safe view that omits `ownerUserId`, `confidenceScore`, `verificationCoun
 and `filledReportCount`. Owners see those full fields only via
 `GET /my-spots` and `GET /my-spots/{id}`.
 
+## HTTP idempotency
+
+These high-risk writes require an `Idempotency-Key` header:
+
+- `POST /api/v1/parking/spots`
+- `POST /api/v1/parking/spots/{spotId}/claim`
+- `POST /api/v1/parking/spots/{spotId}/verify`
+
+Keys must be 8-128 characters. Frontends should generate a UUID for each user
+action and reuse that UUID only when retrying the exact same action. A completed
+retry returns the original status and response body without repeating spot,
+verification, status-history, or outbox writes. Reusing a key for a different
+body or path returns `409 IDEMPOTENCY_KEY_CONFLICT`.
+
+Records are scoped by authenticated user, HTTP method, operation path, and key.
+They expire after `parkio.idempotency.ttl` (default `24h`); an expired key may be
+used as a new action. Concurrent duplicates serialize on the database uniqueness
+constraint. If a persisted request is unexpectedly still marked in progress, the
+service returns `409 IDEMPOTENCY_REQUEST_IN_PROGRESS` rather than executing the
+write again.
+
 ## Backlog (not yet implemented)
 
 - **PostGIS Testcontainers integration test** — run the Flyway migrations and exercise
@@ -63,8 +84,6 @@ and `filledReportCount`. Owners see those full fields only via
 - **Scheduled expiration job** — spots currently expire lazily on access; a scheduled
   expirer is needed so unaccessed spots transition to `EXPIRED` and emit
   `ParkingSpotExpiredEvent`.
-- **`Idempotency-Key` for create spot** — `POST /spots` has no dedupe key; a retry can
-  create duplicate spots (ai-context/04).
 - **Enum-set normalization** — `suitable_vehicle_types` / `violation_reasons` are stored
   as comma-separated strings; normalize (Postgres array/`jsonb` + GIN, or a join table)
   before adding vehicle-type-filtered search.
