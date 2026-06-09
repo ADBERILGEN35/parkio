@@ -14,6 +14,10 @@ import com.parkio.media.presentation.dto.MediaAccessUrlResponse;
 import com.parkio.media.presentation.dto.MediaMetadataResponse;
 import com.parkio.media.presentation.dto.UploadMediaResponse;
 import com.parkio.media.presentation.dto.ValidationResultResponse;
+import com.parkio.media.presentation.openapi.StandardApiResponses;
+import io.swagger.v3.oas.annotations.Operation;
+import io.swagger.v3.oas.annotations.security.SecurityRequirement;
+import io.swagger.v3.oas.annotations.tags.Tag;
 import java.io.IOException;
 import java.io.UncheckedIOException;
 import java.net.URI;
@@ -46,6 +50,8 @@ import org.springframework.web.multipart.MultipartFile;
  * {@code X-User-Roles} header: media reads are owner-only unless the caller holds
  * {@code MODERATOR} or {@code ADMIN}.
  */
+@Tag(name = "Media", description = "Upload, access and validation of media assets")
+@StandardApiResponses
 @RestController
 @RequestMapping("/api/v1/media")
 public class MediaController {
@@ -69,6 +75,8 @@ public class MediaController {
         this.mediaMetrics = mediaMetrics;
     }
 
+    @Operation(summary = "Upload a media file")
+    @SecurityRequirement(name = "bearerAuth")
     @PostMapping("/upload")
     public ResponseEntity<UploadMediaResponse> upload(
             @RequestHeader(value = USER_ID_HEADER, required = false) String userId,
@@ -99,6 +107,8 @@ public class MediaController {
     }
 
     /** Metadata — owner or moderator/admin only; others receive 404 (no id probing). */
+    @Operation(summary = "Get media metadata")
+    @SecurityRequirement(name = "bearerAuth")
     @GetMapping("/{mediaId}")
     public MediaMetadataResponse getMetadata(
             @RequestHeader(value = USER_ID_HEADER, required = false) String userId,
@@ -109,6 +119,8 @@ public class MediaController {
     }
 
     /** Short-lived presigned GET URL — owner or moderator/admin only; never persisted. */
+    @Operation(summary = "Get presigned access URL for media")
+    @SecurityRequirement(name = "bearerAuth")
     @GetMapping("/{mediaId}/access-url")
     public MediaAccessUrlResponse getAccessUrl(
             @RequestHeader(value = USER_ID_HEADER, required = false) String userId,
@@ -118,6 +130,8 @@ public class MediaController {
                 mediaService.createAccessUrl(mediaId, requireUserId(userId), hasModeratorRole(roles)));
     }
 
+    @Operation(summary = "Delete media")
+    @SecurityRequirement(name = "bearerAuth")
     @DeleteMapping("/{mediaId}")
     public ResponseEntity<Void> delete(@RequestHeader(value = USER_ID_HEADER, required = false) String userId,
                                        @PathVariable("mediaId") UUID mediaId) {
@@ -126,6 +140,8 @@ public class MediaController {
     }
 
     /** Validation internals — owner or moderator/admin only; others receive 404. */
+    @Operation(summary = "Get AI validation results for media")
+    @SecurityRequirement(name = "bearerAuth")
     @GetMapping("/{mediaId}/validation-results")
     public List<ValidationResultResponse> getValidationResults(
             @RequestHeader(value = USER_ID_HEADER, required = false) String userId,

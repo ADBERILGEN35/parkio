@@ -14,6 +14,10 @@ import com.parkio.moderation.presentation.dto.CreateReportRequest;
 import com.parkio.moderation.presentation.dto.ReportResponse;
 import com.parkio.moderation.presentation.dto.ResolveAppealRequest;
 import com.parkio.moderation.presentation.dto.ResolveCaseRequest;
+import com.parkio.moderation.presentation.openapi.StandardApiResponses;
+import io.swagger.v3.oas.annotations.Operation;
+import io.swagger.v3.oas.annotations.security.SecurityRequirement;
+import io.swagger.v3.oas.annotations.tags.Tag;
 import jakarta.validation.Valid;
 import java.net.URI;
 import java.util.Arrays;
@@ -39,6 +43,8 @@ import org.springframework.web.bind.annotation.RestController;
  * without a valid id fail closed. Moderator/admin endpoints additionally require a
  * {@code MODERATOR} or {@code ADMIN} role in the {@code X-User-Roles} header.
  */
+@Tag(name = "Moderation", description = "Reports, appeals and moderator case management")
+@StandardApiResponses
 @RestController
 @RequestMapping("/api/v1/moderation")
 public class ModerationController {
@@ -55,6 +61,8 @@ public class ModerationController {
 
     // --- User-facing endpoints ---
 
+    @Operation(summary = "Submit a moderation report")
+    @SecurityRequirement(name = "bearerAuth")
     @PostMapping("/reports")
     public ResponseEntity<ReportResponse> createReport(
             @RequestHeader(value = USER_ID_HEADER, required = false) String userId,
@@ -67,6 +75,8 @@ public class ModerationController {
                 .body(ReportResponse.from(report));
     }
 
+    @Operation(summary = "List current user's reports")
+    @SecurityRequirement(name = "bearerAuth")
     @GetMapping("/reports/me")
     public List<ReportResponse> getMyReports(
             @RequestHeader(value = USER_ID_HEADER, required = false) String userId) {
@@ -75,6 +85,8 @@ public class ModerationController {
                 .toList();
     }
 
+    @Operation(summary = "Submit an appeal")
+    @SecurityRequirement(name = "bearerAuth")
     @PostMapping("/appeals")
     public ResponseEntity<AppealResponse> createAppeal(
             @RequestHeader(value = USER_ID_HEADER, required = false) String userId,
@@ -88,6 +100,8 @@ public class ModerationController {
 
     // --- Moderator/admin endpoints ---
 
+    @Operation(summary = "List moderation cases (moderator)")
+    @SecurityRequirement(name = "bearerAuth")
     @GetMapping("/cases")
     public List<CaseResponse> listCases(
             @RequestHeader(value = USER_ID_HEADER, required = false) String userId,
@@ -99,6 +113,8 @@ public class ModerationController {
                 .toList();
     }
 
+    @Operation(summary = "Get moderation case by id (moderator)")
+    @SecurityRequirement(name = "bearerAuth")
     @GetMapping("/cases/{caseId}")
     public CaseResponse getCase(
             @RequestHeader(value = USER_ID_HEADER, required = false) String userId,
@@ -108,6 +124,8 @@ public class ModerationController {
         return CaseResponse.from(moderationService.getCase(caseId));
     }
 
+    @Operation(summary = "Assign moderation case (moderator)")
+    @SecurityRequirement(name = "bearerAuth")
     @PostMapping("/cases/{caseId}/assign")
     public CaseResponse assignCase(
             @RequestHeader(value = USER_ID_HEADER, required = false) String userId,
@@ -117,6 +135,8 @@ public class ModerationController {
         return CaseResponse.from(moderationService.assignCase(caseId, moderatorId));
     }
 
+    @Operation(summary = "Resolve moderation case (moderator)")
+    @SecurityRequirement(name = "bearerAuth")
     @PostMapping("/cases/{caseId}/resolve")
     public CaseResponse resolveCase(
             @RequestHeader(value = USER_ID_HEADER, required = false) String userId,
@@ -128,6 +148,8 @@ public class ModerationController {
                 new ResolveCaseCommand(caseId, moderatorId, request.action(), request.note())));
     }
 
+    @Operation(summary = "List appeals (moderator)")
+    @SecurityRequirement(name = "bearerAuth")
     @GetMapping("/appeals")
     public List<AppealResponse> listAppeals(
             @RequestHeader(value = USER_ID_HEADER, required = false) String userId,
@@ -138,6 +160,8 @@ public class ModerationController {
                 .toList();
     }
 
+    @Operation(summary = "Resolve appeal (moderator)")
+    @SecurityRequirement(name = "bearerAuth")
     @PostMapping("/appeals/{appealId}/resolve")
     public AppealResponse resolveAppeal(
             @RequestHeader(value = USER_ID_HEADER, required = false) String userId,

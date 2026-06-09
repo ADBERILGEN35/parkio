@@ -1,0 +1,40 @@
+# ---------------------------------------------------------------------------
+# Line-ending normalization (prevents Windows/WSL CRLF noise in diffs).
+#
+# Everything Git auto-detects as text is stored with LF in the repository
+# (`text=auto`); checkout EOLs follow each developer's core.autocrlf unless an
+# explicit eol is forced below.
+#
+# Shell scripts and the Gradle wrapper script MUST be LF (they run on Linux/CI);
+# Windows batch files MUST be CRLF (cmd.exe misparses LF-only .bat files — this
+# pins gradlew.bat so it never shows up as a spurious diff between Windows and
+# WSL clones).
+#
+# After changing these rules, existing clones renormalize with:
+#   git add --renormalize . && git commit -m "Normalize line endings"
+# A fresh checkout then materializes gradlew.bat as CRLF and gradlew as LF on
+# every platform — no manual normalization needed.
+#
+# AI-tool local files (.claude/, .cursor/, CLAUDE.md, ...) are git-ignored and
+# never tracked, so these attributes do not touch them; attributes only apply
+# to tracked files.
+# ---------------------------------------------------------------------------
+
+* text=auto
+
+# Scripts that must keep Unix line endings everywhere.
+*.sh text eol=lf
+gradlew text eol=lf
+
+# Windows batch files must keep CRLF everywhere.
+*.bat text eol=crlf
+*.cmd text eol=crlf
+gradlew.bat text eol=crlf
+
+# Binary assets — never diff or normalize.
+*.png binary
+*.jpg binary
+*.jpeg binary
+*.webp binary
+*.ico binary
+*.jar binary

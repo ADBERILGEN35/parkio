@@ -4,6 +4,7 @@ import com.parkio.media.application.MediaApplicationService;
 import com.parkio.media.application.result.MediaAccessUrl;
 import com.parkio.media.presentation.dto.InternalAccessUrlRequest;
 import com.parkio.media.presentation.dto.MediaAccessUrlResponse;
+import io.swagger.v3.oas.annotations.Hidden;
 import java.util.UUID;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -24,6 +25,7 @@ import org.springframework.web.bind.annotation.RestController;
  * The optional request body carries the requester id and purpose for audit logging
  * only; it never influences authorization.
  */
+@Hidden
 @RestController
 @RequestMapping("/internal/media")
 public class InternalMediaController {

@@ -7,10 +7,15 @@ import java.math.BigInteger;
 import java.util.Arrays;
 import java.util.Base64;
 import java.util.List;
+import com.parkio.auth.presentation.openapi.StandardApiResponses;
+import io.swagger.v3.oas.annotations.Operation;
+import io.swagger.v3.oas.annotations.tags.Tag;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
 
+@Tag(name = "JWKS", description = "Public RS256 signing keys")
+@StandardApiResponses
 @RestController
 @RequestMapping("/api/v1/auth/.well-known")
 public class JwksController {
@@ -21,6 +26,7 @@ public class JwksController {
         this.keys = keys;
     }
 
+    @Operation(summary = "JSON Web Key Set for access-token verification")
     @GetMapping("/jwks.json")
     public JwkSetResponse jwks() {
         var publicKey = keys.publicKey();

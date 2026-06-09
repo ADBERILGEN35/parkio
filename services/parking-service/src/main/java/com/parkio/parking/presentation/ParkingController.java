@@ -14,6 +14,10 @@ import com.parkio.parking.presentation.dto.PublicSpotResponse;
 import com.parkio.parking.presentation.dto.SpotMediaAccessUrlResponse;
 import com.parkio.parking.presentation.dto.SpotResponse;
 import com.parkio.parking.presentation.dto.VerifySpotRequest;
+import com.parkio.parking.presentation.openapi.StandardApiResponses;
+import io.swagger.v3.oas.annotations.Operation;
+import io.swagger.v3.oas.annotations.security.SecurityRequirement;
+import io.swagger.v3.oas.annotations.tags.Tag;
 import jakarta.validation.Valid;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import java.net.URI;
@@ -39,6 +43,8 @@ import org.springframework.web.bind.annotation.RestController;
  * gateway strips from client input and re-injects after verifying the JWT. Requests
  * without a valid id fail closed.
  */
+@Tag(name = "Parking", description = "Parking spots, search and verification")
+@StandardApiResponses
 @RestController
 @RequestMapping("/api/v1/parking")
 public class ParkingController {
@@ -57,6 +63,8 @@ public class ParkingController {
         this.objectMapper = objectMapper;
     }
 
+    @Operation(summary = "Create a parking spot")
+    @SecurityRequirement(name = "bearerAuth")
     @PostMapping("/spots")
     public ResponseEntity<SpotResponse> createSpot(
             @RequestHeader(value = USER_ID_HEADER, required = false) String userId,
@@ -79,6 +87,8 @@ public class ParkingController {
                 .body(response.body());
     }
 
+    @Operation(summary = "Search nearby parking spots")
+    @SecurityRequirement(name = "bearerAuth")
     @GetMapping("/spots/nearby")
     public List<PublicSpotResponse> searchNearby(
             @RequestHeader(value = USER_ID_HEADER, required = false) String userId,
@@ -91,6 +101,8 @@ public class ParkingController {
         return parkingService.searchNearby(query).stream().map(PublicSpotResponse::from).toList();
     }
 
+    @Operation(summary = "Get parking spot details")
+    @SecurityRequirement(name = "bearerAuth")
     @GetMapping("/spots/{spotId}")
     public PublicSpotResponse getSpot(@RequestHeader(value = USER_ID_HEADER, required = false) String userId,
                                       @PathVariable("spotId") UUID spotId) {
@@ -102,6 +114,8 @@ public class ParkingController {
      * Short-lived signed URL for the spot's photo, on demand (detail view) rather
      * than in list responses — one signed URL per explicit request.
      */
+    @Operation(summary = "Get signed URL for spot media")
+    @SecurityRequirement(name = "bearerAuth")
     @GetMapping("/spots/{spotId}/media-access-url")
     public SpotMediaAccessUrlResponse getSpotMediaAccessUrl(
             @RequestHeader(value = USER_ID_HEADER, required = false) String userId,
@@ -110,6 +124,8 @@ public class ParkingController {
         return SpotMediaAccessUrlResponse.from(parkingService.getSpotMediaAccessUrl(spotId, requesterUserId));
     }
 
+    @Operation(summary = "Verify a parking spot")
+    @SecurityRequirement(name = "bearerAuth")
     @PostMapping("/spots/{spotId}/verify")
     public PublicSpotResponse verifySpot(@RequestHeader(value = USER_ID_HEADER, required = false) String userId,
                                          @RequestHeader(value = IdempotencyService.HEADER_NAME,
@@ -128,6 +144,8 @@ public class ParkingController {
                 .body();
     }
 
+    @Operation(summary = "Claim a parking spot")
+    @SecurityRequirement(name = "bearerAuth")
     @PostMapping("/spots/{spotId}/claim")
     public PublicSpotResponse claimSpot(@RequestHeader(value = USER_ID_HEADER, required = false) String userId,
                                         @RequestHeader(value = IdempotencyService.HEADER_NAME,
@@ -143,6 +161,8 @@ public class ParkingController {
                 .body();
     }
 
+    @Operation(summary = "List current user's parking spots")
+    @SecurityRequirement(name = "bearerAuth")
     @GetMapping("/my-spots")
     public List<SpotResponse> listMySpots(
             @RequestHeader(value = USER_ID_HEADER, required = false) String userId) {
@@ -150,6 +170,8 @@ public class ParkingController {
         return parkingService.listMySpots(ownerUserId).stream().map(SpotResponse::from).toList();
     }
 
+    @Operation(summary = "Get current user's parking spot by id")
+    @SecurityRequirement(name = "bearerAuth")
     @GetMapping("/my-spots/{spotId}")
     public SpotResponse getMySpot(@RequestHeader(value = USER_ID_HEADER, required = false) String userId,
                                   @PathVariable("spotId") UUID spotId) {

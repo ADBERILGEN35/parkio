@@ -6,6 +6,10 @@ import com.parkio.aivalidation.domain.exception.AiValidationErrorCode;
 import com.parkio.aivalidation.domain.exception.AiValidationException;
 import com.parkio.aivalidation.presentation.dto.AiValidationResponse;
 import com.parkio.aivalidation.presentation.dto.ManualValidationRequest;
+import com.parkio.aivalidation.presentation.openapi.StandardApiResponses;
+import io.swagger.v3.oas.annotations.Operation;
+import io.swagger.v3.oas.annotations.security.SecurityRequirement;
+import io.swagger.v3.oas.annotations.tags.Tag;
 import jakarta.validation.Valid;
 import java.net.URI;
 import java.util.Arrays;
@@ -31,6 +35,8 @@ import org.springframework.web.bind.annotation.RestController;
  * moderators/admins: identity comes from the gateway-injected {@code X-User-Id} (fail
  * closed `401`) and the role from {@code X-User-Roles} (`403` without MODERATOR/ADMIN).
  */
+@Tag(name = "AI Validation", description = "Advisory AI validation results and manual overrides")
+@StandardApiResponses
 @RestController
 @RequestMapping("/api/v1/ai-validations")
 public class AiValidationController {
@@ -45,11 +51,13 @@ public class AiValidationController {
         this.validationService = validationService;
     }
 
+    @Operation(summary = "Get AI validation by id")
     @GetMapping("/{validationId}")
     public AiValidationResponse getById(@PathVariable("validationId") UUID validationId) {
         return AiValidationResponse.from(validationService.getById(validationId));
     }
 
+    @Operation(summary = "List AI validations for media")
     @GetMapping("/media/{mediaId}")
     public List<AiValidationResponse> getByMedia(@PathVariable("mediaId") UUID mediaId) {
         return validationService.getByMediaId(mediaId).stream()
@@ -57,6 +65,7 @@ public class AiValidationController {
                 .toList();
     }
 
+    @Operation(summary = "List AI validations for parking spot")
     @GetMapping("/parking/{parkingSpotId}")
     public List<AiValidationResponse> getByParking(@PathVariable("parkingSpotId") UUID parkingSpotId) {
         return validationService.getByParkingSpotId(parkingSpotId).stream()
@@ -64,6 +73,8 @@ public class AiValidationController {
                 .toList();
     }
 
+    @Operation(summary = "Create manual validation (moderator)")
+    @SecurityRequirement(name = "bearerAuth")
     @PostMapping("/manual")
     public ResponseEntity<AiValidationResponse> createManual(
             @RequestHeader(value = USER_ID_HEADER, required = false) String userId,

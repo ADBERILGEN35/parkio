@@ -11,6 +11,10 @@ import com.parkio.notification.presentation.dto.NotificationResponse;
 import com.parkio.notification.presentation.dto.PreferencesRequest;
 import com.parkio.notification.presentation.dto.PreferencesResponse;
 import com.parkio.notification.presentation.dto.RegisterDeviceTokenRequest;
+import com.parkio.notification.presentation.openapi.StandardApiResponses;
+import io.swagger.v3.oas.annotations.Operation;
+import io.swagger.v3.oas.annotations.security.SecurityRequirement;
+import io.swagger.v3.oas.annotations.tags.Tag;
 import jakarta.validation.Valid;
 import java.net.URI;
 import java.util.List;
@@ -34,6 +38,8 @@ import org.springframework.web.bind.annotation.RestController;
  * (gateway-injected). Requests without a valid id fail closed. A user may only
  * read/modify their own notifications and device tokens.
  */
+@Tag(name = "Notifications", description = "In-app notifications, device tokens and preferences")
+@StandardApiResponses
 @RestController
 @RequestMapping("/api/v1/notifications")
 public class NotificationController {
@@ -47,6 +53,8 @@ public class NotificationController {
         this.notificationService = notificationService;
     }
 
+    @Operation(summary = "List current user's notifications")
+    @SecurityRequirement(name = "bearerAuth")
     @GetMapping("/me")
     public List<NotificationResponse> getMyNotifications(
             @RequestHeader(value = USER_ID_HEADER, required = false) String userId) {
@@ -55,12 +63,16 @@ public class NotificationController {
                 .toList();
     }
 
+    @Operation(summary = "Mark notification as read")
+    @SecurityRequirement(name = "bearerAuth")
     @PatchMapping("/{notificationId}/read")
     public NotificationResponse markRead(@RequestHeader(value = USER_ID_HEADER, required = false) String userId,
                                          @PathVariable("notificationId") UUID notificationId) {
         return NotificationResponse.from(notificationService.markRead(requireUserId(userId), notificationId));
     }
 
+    @Operation(summary = "Register a push device token")
+    @SecurityRequirement(name = "bearerAuth")
     @PostMapping("/device-token")
     public ResponseEntity<DeviceTokenResponse> registerDeviceToken(
             @RequestHeader(value = USER_ID_HEADER, required = false) String userId,
@@ -72,6 +84,8 @@ public class NotificationController {
                 .body(DeviceTokenResponse.from(token));
     }
 
+    @Operation(summary = "Deactivate a device token")
+    @SecurityRequirement(name = "bearerAuth")
     @DeleteMapping("/device-token/{tokenId}")
     public ResponseEntity<Void> deleteDeviceToken(
             @RequestHeader(value = USER_ID_HEADER, required = false) String userId,
@@ -80,12 +94,16 @@ public class NotificationController {
         return ResponseEntity.noContent().build();
     }
 
+    @Operation(summary = "Get notification preferences")
+    @SecurityRequirement(name = "bearerAuth")
     @GetMapping("/me/preferences")
     public PreferencesResponse getMyPreferences(
             @RequestHeader(value = USER_ID_HEADER, required = false) String userId) {
         return PreferencesResponse.from(notificationService.getMyPreferences(requireUserId(userId)));
     }
 
+    @Operation(summary = "Update notification preferences")
+    @SecurityRequirement(name = "bearerAuth")
     @PatchMapping("/me/preferences")
     public PreferencesResponse updateMyPreferences(
             @RequestHeader(value = USER_ID_HEADER, required = false) String userId,

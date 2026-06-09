@@ -3,6 +3,7 @@ package com.parkio.user.presentation;
 import com.parkio.user.application.UserApplicationService;
 import com.parkio.user.presentation.dto.UserStatusResponse;
 import java.util.UUID;
+import io.swagger.v3.oas.annotations.Hidden;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.RequestMapping;
@@ -20,6 +21,7 @@ import org.springframework.web.bind.annotation.RestController;
  * {@link GlobalExceptionHandler} mapping of {@code PROFILE_NOT_FOUND}), which the
  * gateway treats as a non-active account (fail closed).
  */
+@Hidden
 @RestController
 @RequestMapping("/internal/users")
 public class InternalUserController {

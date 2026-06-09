@@ -83,7 +83,8 @@ dependencies {
 
 | Command                                              | Description                          |
 |------------------------------------------------------|--------------------------------------|
-| `./gradlew build`                                    | Build & test every service.          |
+| `./gradlew build`                                    | Build & unit-test every service.     |
+| `./gradlew integrationTest`                          | Testcontainers tests (needs Docker). |
 | `./gradlew :services:<service>:bootRun`              | Run a single service locally.        |
 | `./gradlew :services:<service>:test`                 | Test a single service.               |
 | `./gradlew :services:<service>:bootJar`              | Produce a runnable jar.              |
@@ -91,6 +92,50 @@ dependencies {
 
 Requires JDK 21 (the Gradle toolchain will resolve it). No local Gradle install
 is needed — use the bundled wrapper (`./gradlew`).
+
+`build` runs unit tests only (the `integration` JUnit tag is excluded), so it
+never needs Docker. `integrationTest` runs the `@Tag("integration")`
+Testcontainers suites (PostgreSQL, Kafka, MinIO) and **requires a running Docker
+daemon**; it is deliberately not wired into `build`/`check`.
+
+## Continuous integration
+
+[`.github/workflows/backend-ci.yml`](.github/workflows/backend-ci.yml) is the
+backend quality gate:
+
+- **Every pull request and every push to `master`** runs `./gradlew --no-daemon
+  build` (compile + unit tests for all services) on `ubuntu-latest` with JDK 21
+  and a cached Gradle home. Test reports are uploaded as an artifact when the
+  build fails.
+- **Integration tests are opt-in**: trigger the workflow manually from the
+  Actions tab (*workflow_dispatch*) with the "run integration tests" input to
+  execute `./gradlew --no-daemon integrationTest`. This job needs a
+  Docker-enabled runner (`ubuntu-latest` ships one); PR builds intentionally do
+  not depend on it.
+
+[`.github/dependabot.yml`](.github/dependabot.yml) raises conservative weekly
+update PRs for Gradle dependencies and the GitHub Actions used by CI.
+
+## Line-ending policy
+
+[`.gitattributes`](.gitattributes) normalizes line endings so Windows/WSL
+clones stop producing noise diffs (e.g. `gradlew.bat`):
+
+- text files are stored with LF in the repository (`* text=auto`);
+- `*.sh` and `gradlew` are always checked out with LF (they run on Linux/CI);
+- `*.bat`/`*.cmd` and `gradlew.bat` are always checked out with CRLF;
+- images and jars are marked `binary`.
+
+Existing clones created before this policy should renormalize once:
+
+```bash
+git add --renormalize .
+git commit -m "Normalize line endings"
+```
+
+Fresh checkouts need no manual steps — `gradlew.bat` materializes as CRLF and
+`gradlew` as LF on every platform. AI-tool local files (`.claude/`, `.cursor/`,
+…) are git-ignored and never tracked, so the attributes do not affect them.
 
 ## Running with Docker
 
@@ -121,6 +166,27 @@ artifacts, and are excluded in [`.gitignore`](.gitignore).
   and is not named `CLAUDE.md`), so project docs stay versioned.
 - If you ever need to commit a tool-specific file deliberately, force-add it:
   `git add -f <path>`.
+
+## OpenAPI documentation
+
+Each REST service exposes OpenAPI 3 docs when `PARKIO_OPENAPI_ENABLED=true`
+(default locally; disable in production):
+
+| Service | Swagger UI (direct port) | Gateway prefix |
+|---------|--------------------------|----------------|
+| auth | http://localhost:8081/swagger-ui.html | `/api/v1/auth/**` |
+| user | http://localhost:8082/swagger-ui.html | `/api/v1/users/**` |
+| parking | http://localhost:8083/swagger-ui.html | `/api/v1/parking/**` |
+| media | http://localhost:8084/swagger-ui.html | `/api/v1/media/**` |
+| gamification | http://localhost:8085/swagger-ui.html | `/api/v1/gamification/**` |
+| notification | http://localhost:8086/swagger-ui.html | `/api/v1/notifications/**` |
+| moderation | http://localhost:8087/swagger-ui.html | `/api/v1/moderation/**` |
+| ai-validation | http://localhost:8088/swagger-ui.html | `/api/v1/ai-validations/**` |
+| analytics | http://localhost:8089/swagger-ui.html | `/api/v1/analytics/**` |
+
+Clients call the **gateway** on port 8080; service-level docs are for contract
+reference and client generation. Internal `/internal/**` endpoints are hidden
+from the public spec. See [`docs/architecture/openapi.md`](docs/architecture/openapi.md).
 
 ## Further reading
 

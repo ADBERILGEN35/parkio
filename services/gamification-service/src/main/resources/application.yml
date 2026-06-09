@@ -1,4 +1,4 @@
-spring:
+﻿spring:
   application:
     name: gamification-service
   kafka:
@@ -59,7 +59,7 @@ management:
   endpoints:
     web:
       exposure:
-        # Probes + Prometheus scrape only — never sensitive endpoints (env, beans, ...).
+        # Probes + Prometheus scrape only â€” never sensitive endpoints (env, beans, ...).
         include: health,info,prometheus
   endpoint:
     health:
@@ -70,12 +70,24 @@ management:
       # Tag every metric with the service name (kept in sync with the scrape label).
       application: ${spring.application.name}
 
+
+springdoc:
+  api-docs:
+    enabled: ${parkio.openapi.enabled:true}
+    path: /v3/api-docs
+  swagger-ui:
+    enabled: ${parkio.openapi.enabled:true}
+    path: /swagger-ui.html
+  show-actuator: false
+
 info:
   app:
     name: gamification-service
     description: Parkio gamification-service
 
 parkio:
+  openapi:
+    enabled: ${PARKIO_OPENAPI_ENABLED:true}
   lifecycle:
     retention:
       outbox-enabled: ${PARKIO_OUTBOX_RETENTION_ENABLED:true}
@@ -86,7 +98,7 @@ parkio:
       batch-size: ${PARKIO_RETENTION_BATCH_SIZE:1000}
   gateway:
     # Shared secret required on every inbound request (X-Gateway-Auth) so only
-    # gateway-originated traffic is accepted. No default → fail closed if unset.
+    # gateway-originated traffic is accepted. No default â†’ fail closed if unset.
     internal-secret: ${PARKIO_GATEWAY_INTERNAL_SECRET}
   gamification:
     leaderboard:

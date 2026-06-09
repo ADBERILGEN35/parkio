@@ -14,6 +14,10 @@ import com.parkio.user.presentation.dto.StatsResponse;
 import com.parkio.user.presentation.dto.UpdateProfileRequest;
 import com.parkio.user.presentation.dto.VehicleRequest;
 import com.parkio.user.presentation.dto.VehicleResponse;
+import com.parkio.user.presentation.openapi.StandardApiResponses;
+import io.swagger.v3.oas.annotations.Operation;
+import io.swagger.v3.oas.annotations.security.SecurityRequirement;
+import io.swagger.v3.oas.annotations.tags.Tag;
 import jakarta.validation.Valid;
 import java.util.UUID;
 import org.springframework.web.bind.annotation.GetMapping;
@@ -33,6 +37,8 @@ import org.springframework.web.bind.annotation.RestController;
  * local/service testing. Full gateway/JWT integration is not wired yet; this is
  * the agreed interim contract (the gateway will forward the verified identity).
  */
+@Tag(name = "Users", description = "Profiles, preferences and public profiles")
+@StandardApiResponses
 @RestController
 @RequestMapping("/api/v1/users")
 public class UserController {
@@ -45,11 +51,15 @@ public class UserController {
         this.userService = userService;
     }
 
+    @Operation(summary = "Get current user profile")
+    @SecurityRequirement(name = "bearerAuth")
     @GetMapping("/me")
     public ProfileResponse getMyProfile(@RequestHeader(value = USER_ID_HEADER, required = false) String userId) {
         return ProfileResponse.from(userService.getMyProfile(requireUserId(userId)));
     }
 
+    @Operation(summary = "Update current user profile")
+    @SecurityRequirement(name = "bearerAuth")
     @PatchMapping("/me")
     public ProfileResponse updateMyProfile(@RequestHeader(value = USER_ID_HEADER, required = false) String userId,
                                            @Valid @RequestBody UpdateProfileRequest request) {
@@ -58,11 +68,15 @@ public class UserController {
         return ProfileResponse.from(userService.updateMyProfile(requireUserId(userId), command));
     }
 
+    @Operation(summary = "Get current user preferences")
+    @SecurityRequirement(name = "bearerAuth")
     @GetMapping("/me/preferences")
     public PreferencesResponse getMyPreferences(@RequestHeader(value = USER_ID_HEADER, required = false) String userId) {
         return PreferencesResponse.from(userService.getMyPreferences(requireUserId(userId)));
     }
 
+    @Operation(summary = "Update current user preferences")
+    @SecurityRequirement(name = "bearerAuth")
     @PatchMapping("/me/preferences")
     public PreferencesResponse updateMyPreferences(
             @RequestHeader(value = USER_ID_HEADER, required = false) String userId,
@@ -72,6 +86,8 @@ public class UserController {
         return PreferencesResponse.from(userService.updateMyPreferences(requireUserId(userId), command));
     }
 
+    @Operation(summary = "Get current user vehicle")
+    @SecurityRequirement(name = "bearerAuth")
     @GetMapping("/me/vehicle")
     public VehicleResponse getMyVehicle(@RequestHeader(value = USER_ID_HEADER, required = false) String userId) {
         return userService.getMyVehicle(requireUserId(userId))
@@ -79,6 +95,8 @@ public class UserController {
                 .orElseGet(VehicleResponse::empty);
     }
 
+    @Operation(summary = "Create or update current user vehicle")
+    @SecurityRequirement(name = "bearerAuth")
     @PutMapping("/me/vehicle")
     public VehicleResponse putMyVehicle(@RequestHeader(value = USER_ID_HEADER, required = false) String userId,
                                         @Valid @RequestBody VehicleRequest request) {
@@ -86,6 +104,8 @@ public class UserController {
         return VehicleResponse.from(userService.upsertMyVehicle(requireUserId(userId), command));
     }
 
+    @Operation(summary = "Get current user stats")
+    @SecurityRequirement(name = "bearerAuth")
     @GetMapping("/me/stats")
     public StatsResponse getMyStats(@RequestHeader(value = USER_ID_HEADER, required = false) String userId) {
         return StatsResponse.from(userService.getMyStats(requireUserId(userId)));
@@ -96,6 +116,7 @@ public class UserController {
      * user id — i.e. the {@code authUserId} — not the internal {@code user_profiles.id},
      * which never leaves this service.
      */
+    @Operation(summary = "Get public profile by user id")
     @GetMapping("/{userId}/public-profile")
     public PublicProfileResponse getPublicProfile(@PathVariable("userId") UUID authUserId) {
         return PublicProfileResponse.from(userService.getPublicProfile(authUserId));

@@ -6,6 +6,8 @@ springDependencyManagement = "1.1.7"
 jjwt = "0.12.6"
 # MinIO client is not part of the Spring Boot BOM, so it needs an explicit version.
 minio = "8.5.12"
+# springdoc-openapi (OpenAPI 3 + Swagger UI for Spring MVC). Not in the Spring Boot BOM.
+springdoc = "2.8.5"
 
 [libraries]
 # Spring Boot starters. Concrete versions are supplied by the Spring Boot BOM,
@@ -33,6 +35,9 @@ spring-kafka = { module = "org.springframework.kafka:spring-kafka" }
 # Prometheus metrics export (actuator /actuator/prometheus). Version from the
 # Spring Boot BOM. Added to every service that has the actuator starter.
 micrometer-registry-prometheus = { module = "io.micrometer:micrometer-registry-prometheus" }
+
+# OpenAPI 3 docs + Swagger UI for REST services (Spring MVC only — not the gateway).
+springdoc-openapi-starter-webmvc-ui = { module = "org.springdoc:springdoc-openapi-starter-webmvc-ui", version.ref = "springdoc" }
 
 # Persistence (versions from the Spring Boot BOM).
 postgresql = { module = "org.postgresql:postgresql" }

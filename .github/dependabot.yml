@@ -1,0 +1,21 @@
+# Conservative weekly dependency updates for the Gradle build (version catalog
+# + wrapper) and the GitHub Actions used by CI. Low PR limits keep the noise
+# down; security updates are always raised regardless of these schedules.
+version: 2
+
+updates:
+  - package-ecosystem: gradle
+    directory: "/"
+    schedule:
+      interval: weekly
+    open-pull-requests-limit: 5
+    labels:
+      - dependencies
+
+  - package-ecosystem: github-actions
+    directory: "/"
+    schedule:
+      interval: weekly
+    open-pull-requests-limit: 3
+    labels:
+      - dependencies

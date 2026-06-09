@@ -51,7 +51,11 @@ public class GatewayAuthFilter extends OncePerRequestFilter {
 
     @Override
     protected boolean shouldNotFilter(HttpServletRequest request) {
-        return request.getRequestURI().startsWith("/actuator/");
+        String uri = request.getRequestURI();
+        // Actuator and OpenAPI docs skip gateway-auth (probes, metrics scrape, local API contracts).
+        return uri.startsWith("/actuator/")
+                || uri.startsWith("/v3/api-docs")
+                || uri.startsWith("/swagger-ui");
     }
 
     @Override

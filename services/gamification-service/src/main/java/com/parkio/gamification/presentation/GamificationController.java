@@ -10,6 +10,10 @@ import com.parkio.gamification.presentation.dto.LevelResponse;
 import com.parkio.gamification.presentation.dto.LevelRuleResponse;
 import com.parkio.gamification.presentation.dto.PointsResponse;
 import com.parkio.gamification.presentation.dto.ProgressResponse;
+import com.parkio.gamification.presentation.openapi.StandardApiResponses;
+import io.swagger.v3.oas.annotations.Operation;
+import io.swagger.v3.oas.annotations.security.SecurityRequirement;
+import io.swagger.v3.oas.annotations.tags.Tag;
 import java.util.List;
 import java.util.UUID;
 import java.util.stream.IntStream;
@@ -27,6 +31,8 @@ import org.springframework.web.bind.annotation.RestController;
  * header (gateway-injected) and fail closed if it is absent/invalid. {@code /levels}
  * and {@code /leaderboard} are not user-specific.
  */
+@Tag(name = "Gamification", description = "Points, levels, progress and leaderboard")
+@StandardApiResponses
 @RestController
 @RequestMapping("/api/v1/gamification")
 public class GamificationController {
@@ -40,11 +46,15 @@ public class GamificationController {
         this.gamificationService = gamificationService;
     }
 
+    @Operation(summary = "Get current user progress")
+    @SecurityRequirement(name = "bearerAuth")
     @GetMapping("/me/progress")
     public ProgressResponse getMyProgress(@RequestHeader(value = USER_ID_HEADER, required = false) String userId) {
         return ProgressResponse.from(gamificationService.getProgress(requireUserId(userId)));
     }
 
+    @Operation(summary = "Get current user points and recent transactions")
+    @SecurityRequirement(name = "bearerAuth")
     @GetMapping("/me/points")
     public PointsResponse getMyPoints(@RequestHeader(value = USER_ID_HEADER, required = false) String userId) {
         UUID id = requireUserId(userId);
@@ -53,22 +63,28 @@ public class GamificationController {
                 gamificationService.getRecentTransactions(id, RECENT_TRANSACTIONS_LIMIT));
     }
 
+    @Operation(summary = "Get current user level")
+    @SecurityRequirement(name = "bearerAuth")
     @GetMapping("/me/level")
     public LevelResponse getMyLevel(@RequestHeader(value = USER_ID_HEADER, required = false) String userId) {
         return LevelResponse.from(gamificationService.getLevelView(requireUserId(userId)));
     }
 
+    @Operation(summary = "Get current user access policy")
+    @SecurityRequirement(name = "bearerAuth")
     @GetMapping("/me/access-policy")
     public AccessPolicyResponse getMyAccessPolicy(
             @RequestHeader(value = USER_ID_HEADER, required = false) String userId) {
         return AccessPolicyResponse.from(gamificationService.getAccessPolicy(requireUserId(userId)));
     }
 
+    @Operation(summary = "List level rules")
     @GetMapping("/levels")
     public List<LevelRuleResponse> getLevels() {
         return gamificationService.getLevels().stream().map(LevelRuleResponse::from).toList();
     }
 
+    @Operation(summary = "Get leaderboard")
     @GetMapping("/leaderboard")
     public List<LeaderboardEntryResponse> getLeaderboard(
             @RequestParam(value = "limit", required = false) Integer limit) {

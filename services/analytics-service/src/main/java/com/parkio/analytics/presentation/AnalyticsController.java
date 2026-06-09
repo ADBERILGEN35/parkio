@@ -8,6 +8,10 @@ import com.parkio.analytics.presentation.dto.MetricResponse;
 import com.parkio.analytics.presentation.dto.OverviewResponse;
 import com.parkio.analytics.presentation.dto.ParkingSnapshotResponse;
 import com.parkio.analytics.presentation.dto.UserSnapshotResponse;
+import com.parkio.analytics.presentation.openapi.StandardApiResponses;
+import io.swagger.v3.oas.annotations.Operation;
+import io.swagger.v3.oas.annotations.security.SecurityRequirement;
+import io.swagger.v3.oas.annotations.tags.Tag;
 import java.util.List;
 import java.util.UUID;
 import org.springframework.web.bind.annotation.GetMapping;
@@ -25,6 +29,8 @@ import org.springframework.web.bind.annotation.RestController;
  * {@code X-User-Id}, fails closed if it's absent/invalid, and only lets a user view
  * their own analytics.
  */
+@Tag(name = "Analytics", description = "Platform and user analytics snapshots")
+@StandardApiResponses
 @RestController
 @RequestMapping("/api/v1/analytics")
 public class AnalyticsController {
@@ -37,16 +43,20 @@ public class AnalyticsController {
         this.analyticsService = analyticsService;
     }
 
+    @Operation(summary = "Get platform overview")
     @GetMapping("/overview")
     public OverviewResponse getOverview() {
         return OverviewResponse.from(analyticsService.getOverview());
     }
 
+    @Operation(summary = "Get daily snapshots")
     @GetMapping("/daily")
     public List<DailySnapshotResponse> getDaily() {
         return analyticsService.getDailySnapshots().stream().map(DailySnapshotResponse::from).toList();
     }
 
+    @Operation(summary = "Get user analytics snapshots")
+    @SecurityRequirement(name = "bearerAuth")
     @GetMapping("/users/{userId}")
     public List<UserSnapshotResponse> getUserAnalytics(
             @RequestHeader(value = USER_ID_HEADER, required = false) String userIdHeader,
@@ -58,11 +68,13 @@ public class AnalyticsController {
         return analyticsService.getUserAnalytics(userId).stream().map(UserSnapshotResponse::from).toList();
     }
 
+    @Operation(summary = "Get parking analytics snapshots")
     @GetMapping("/parking")
     public List<ParkingSnapshotResponse> getParking() {
         return analyticsService.getParkingAnalytics().stream().map(ParkingSnapshotResponse::from).toList();
     }
 
+    @Operation(summary = "Get platform metrics")
     @GetMapping("/metrics")
     public List<MetricResponse> getMetrics() {
         return analyticsService.getMetrics().stream().map(MetricResponse::from).toList();

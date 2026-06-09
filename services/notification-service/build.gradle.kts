@@ -6,6 +6,7 @@ description = "Push, email and in-app notifications"
 
 dependencies {
     implementation(libs.spring.boot.starter.web)
+    implementation(libs.springdoc.openapi.starter.webmvc.ui)
     implementation(libs.spring.boot.starter.actuator)
     // Prometheus metrics export: /actuator/prometheus (scraped by docker/prometheus).
     runtimeOnly(libs.micrometer.registry.prometheus)

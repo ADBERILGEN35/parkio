@@ -6,6 +6,7 @@ description = "Content moderation and reporting workflows"
 
 dependencies {
     implementation(libs.spring.boot.starter.web)
+    implementation(libs.springdoc.openapi.starter.webmvc.ui)
     implementation(libs.spring.boot.starter.actuator)
     // Prometheus metrics export: /actuator/prometheus (scraped by docker/prometheus).
     runtimeOnly(libs.micrometer.registry.prometheus)
