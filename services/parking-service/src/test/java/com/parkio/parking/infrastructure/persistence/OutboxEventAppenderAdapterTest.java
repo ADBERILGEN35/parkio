@@ -14,6 +14,7 @@ import java.time.Instant;
 import java.util.UUID;
 import org.junit.jupiter.api.Test;
 import org.mockito.ArgumentCaptor;
+import org.slf4j.MDC;
 
 /** Verifies the outbox row carries the event's eventId in its dedicated event_id column. */
 class OutboxEventAppenderAdapterTest {
@@ -29,10 +30,16 @@ class OutboxEventAppenderAdapterTest {
                 eventId, UUID.randomUUID(), UUID.randomUUID(), ParkingSpotStatus.EXPIRED,
                 Instant.parse("2026-06-08T12:00:00Z"));
 
-        adapter.append(event);
+        MDC.put("traceId", "trace-outbox-123");
+        try {
+            adapter.append(event);
+        } finally {
+            MDC.remove("traceId");
+        }
 
         ArgumentCaptor<OutboxEventEntity> captor = ArgumentCaptor.forClass(OutboxEventEntity.class);
         verify(jpa).save(captor.capture());
         assertThat(captor.getValue().getEventId()).isEqualTo(eventId);
+        assertThat(captor.getValue().getTraceId()).isEqualTo("trace-outbox-123");
     }
 }

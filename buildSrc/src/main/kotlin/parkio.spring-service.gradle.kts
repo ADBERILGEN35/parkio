@@ -43,7 +43,7 @@ tasks.named<Test>("test") {
 // Opt-in Testcontainers integration tests: `./gradlew integrationTest` (requires Docker).
 // Deliberately NOT wired into `check`/`build`. Shares the `test` source set.
 tasks.register<Test>("integrationTest") {
-    description = "Runs @Tag(\"integration\") Kafka/Testcontainers integration tests (requires Docker)."
+    description = "Runs @Tag(\"integration\") Testcontainers integration tests (requires Docker)."
     group = "verification"
     useJUnitPlatform {
         includeTags("integration")

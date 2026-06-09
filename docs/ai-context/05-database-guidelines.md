@@ -33,6 +33,9 @@
   concurrent updates.
 - Each service that publishes events has an **outbox table** in the same DB;
   consumers maintain an **inbox/processed-messages** table (see `06`).
+- Service-local retention jobs delete only published outbox rows after 7 days
+  and processed inbox rows after 30 days by default. Cleanup is bounded and
+  configurable; unpublished outbox rows are never retention-deleted.
 
 ## Caching
 

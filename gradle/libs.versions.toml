@@ -52,3 +52,4 @@ junit-platform-launcher = { module = "org.junit.platform:junit-platform-launcher
 # Used by @Tag("integration") tests; the standard `test`/`build` excludes that tag.
 testcontainers-kafka = { module = "org.testcontainers:kafka" }
 testcontainers-junit = { module = "org.testcontainers:junit-jupiter" }
+testcontainers-postgresql = { module = "org.testcontainers:postgresql" }

@@ -1,6 +1,7 @@
 package com.parkio.parking.infrastructure.persistence.jpa;
 
 import com.parkio.parking.infrastructure.persistence.entity.ParkingSpotEntity;
+import java.time.Instant;
 import java.util.List;
 import java.util.UUID;
 import org.springframework.data.jpa.repository.JpaRepository;
@@ -10,6 +11,18 @@ import org.springframework.data.repository.query.Param;
 public interface ParkingSpotJpaRepository extends JpaRepository<ParkingSpotEntity, UUID> {
 
     List<ParkingSpotEntity> findByOwnerUserIdOrderByCreatedAtDesc(UUID ownerUserId);
+
+    @Query(value = """
+            SELECT * FROM parking_spots
+            WHERE status IN ('ACTIVE', 'VERIFIED', 'SUSPICIOUS')
+              AND expires_at < :now
+            ORDER BY expires_at
+            LIMIT :batchSize
+            FOR UPDATE SKIP LOCKED
+            """, nativeQuery = true)
+    List<ParkingSpotEntity> findExpiredCandidates(
+            @Param("now") Instant now,
+            @Param("batchSize") int batchSize);
 
     /**
      * PostGIS radius search, nearest first. Pre-filters by visibility for index

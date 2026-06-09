@@ -22,6 +22,10 @@ spring:
       auto-startup: false
 
 parkio:
+  lifecycle:
+    retention:
+      outbox-enabled: false
+      inbox-enabled: false
   gateway:
     internal-secret: test-only-parkio-gateway-internal-secret-0123456789
   kafka:

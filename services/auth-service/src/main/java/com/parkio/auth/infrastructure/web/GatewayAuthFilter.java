@@ -11,6 +11,7 @@ import java.security.MessageDigest;
 import java.time.Instant;
 import java.util.LinkedHashMap;
 import java.util.Map;
+import org.slf4j.MDC;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.core.Ordered;
 import org.springframework.core.annotation.Order;
@@ -30,7 +31,7 @@ import org.springframework.web.filter.OncePerRequestFilter;
  * (fail closed, ai-context/07).
  */
 @Component
-@Order(Ordered.HIGHEST_PRECEDENCE)
+@Order(Ordered.HIGHEST_PRECEDENCE + 1)
 public class GatewayAuthFilter extends OncePerRequestFilter {
 
     private static final String GATEWAY_AUTH_HEADER = "X-Gateway-Auth";
@@ -74,6 +75,7 @@ public class GatewayAuthFilter extends OncePerRequestFilter {
         Map<String, Object> body = new LinkedHashMap<>();
         body.put("code", "GATEWAY_AUTH_REQUIRED");
         body.put("message", "Direct service access is not permitted; route requests through the API gateway.");
+        body.put("traceId", MDC.get(CorrelationIdFilter.MDC_KEY));
         body.put("timestamp", Instant.now().toString());
         response.getWriter().write(objectMapper.writeValueAsString(body));
     }

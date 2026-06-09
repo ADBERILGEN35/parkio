@@ -78,21 +78,26 @@ Refresh tokens are opaque 256-bit random values. Only their SHA-256 hash is
 persisted (`refresh_tokens.token_hash`); the raw value is returned to the client
 exactly once. On `POST /api/v1/auth/refresh-token` the presented token is
 **rotated**: the old row is revoked and a brand-new token is issued, atomically
-in one transaction. `logout` revokes only the presented token (per-session).
+in one transaction. The replacement keeps the same `token_family_id` and points
+to its predecessor through `parent_token_id`.
+
+Presenting an unexpired token that was already revoked is treated as refresh-token
+reuse. auth-service marks the replayed token, revokes every active token in that
+family with reason `REUSE_DETECTED`, and writes a security warning containing only
+the user ID and family ID. The client still receives the generic
+`401 INVALID_REFRESH_TOKEN` response; token theft or family state is not disclosed.
+Expired or unknown tokens receive the same generic response without triggering
+family revocation.
+
+Optimistic locking prevents two concurrent refreshes of the same token from
+creating two valid children. `logout` remains idempotent and revokes only the
+presented token with reason `LOGOUT`; there is no logout-all behavior.
 
 ## Security hardening backlog
 
 Known, intentionally-deferred gaps — documented so they are not mistaken for
 finished work. None is implemented yet.
 
-- **Refresh-token reuse / theft detection.** Rotation revokes the old token, but
-  replaying an already-rotated (revoked) token is treated as an ordinary invalid
-  token (`INVALID_REFRESH_TOKEN`) rather than as a breach signal. Production
-  hardening should detect reuse of a rotated token and revoke the entire token
-  family / all of the user's active sessions (and ideally alert). This needs
-  token-family/lineage tracking on `refresh_tokens` and is out of scope for the
-  current foundation. See the `TODO(security-hardening)` in
-  `AuthApplicationService.refresh`.
 - **Global "log out everywhere".** Only single-token logout exists today; a bulk
   "revoke all tokens for user" operation/endpoint is not implemented.
 - **Login throttling / lockout.** No service-level rate limiting on failed

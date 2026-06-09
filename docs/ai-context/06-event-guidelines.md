@@ -38,6 +38,9 @@ Asynchronous side effects flow through **Kafka**. Events keep services decoupled
   don't repurpose or remove fields). Breaking change → new event type/version.
 - Payloads carry **IDs and the minimum data** needed — not another service's full
   domain model.
+- Producers persist the current MDC `traceId` in the outbox and mirror it into
+  the Kafka envelope/header. Consumers restore it into MDC for handler execution
+  and clear it afterward.
 
 ## Reliability (required for production paths)
 
@@ -52,6 +55,10 @@ Asynchronous side effects flow through **Kafka**. Events keep services decoupled
 ## Consumption rules
 
 - Consumers commit offsets only after successful processing (+ inbox write).
+- Retain published outbox rows for 7 days and processed inbox rows for 30 days
+  by default. Inbox cleanup limits the deduplication window: replaying an event
+  after its inbox row is removed may process it again, so configure retention
+  longer than the operational replay and DLT-redrive window.
 - Handle poison messages with a **dead-letter topic**; never block the partition
   indefinitely.
 - Do not call back synchronously into the producer inside a consumer if it can be

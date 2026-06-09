@@ -7,6 +7,7 @@ import com.parkio.aivalidation.domain.event.AiValidationCompletedEvent;
 import com.parkio.aivalidation.infrastructure.persistence.entity.OutboxEventEntity;
 import com.parkio.aivalidation.infrastructure.persistence.jpa.OutboxEventJpaRepository;
 import java.util.UUID;
+import org.slf4j.MDC;
 import org.springframework.stereotype.Component;
 
 /**
@@ -36,6 +37,7 @@ public class OutboxEventAppenderAdapter implements OutboxEventAppender {
                 AiValidationCompletedEvent.TYPE,
                 serialize(event),
                 event.occurredAt(),
+                MDC.get("traceId"),
                 false);
         jpa.save(entity);
     }

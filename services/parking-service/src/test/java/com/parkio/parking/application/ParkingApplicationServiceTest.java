@@ -204,6 +204,46 @@ class ParkingApplicationServiceTest {
     }
 
     @Test
+    void expiryBatchExpiresEligibleSpotsAndEmitsHistoryAndEvents() {
+        Instant past = NOW.minus(1, ChronoUnit.MINUTES);
+        UUID owner = UUID.randomUUID();
+        ParkingSpot active = buildSpot(owner, ParkingSpotStatus.ACTIVE, past, LegalStatus.LEGAL);
+        ParkingSpot verified = buildSpot(owner, ParkingSpotStatus.VERIFIED, past, LegalStatus.LEGAL);
+        ParkingSpot suspicious = buildSpot(owner, ParkingSpotStatus.SUSPICIOUS, past, LegalStatus.LEGAL);
+        List.of(active, verified, suspicious).forEach(spots::save);
+
+        int expired = service.expireElapsedSpots(10);
+
+        assertThat(expired).isEqualTo(3);
+        assertThat(List.of(active, verified, suspicious))
+                .extracting(ParkingSpot::status)
+                .containsOnly(ParkingSpotStatus.EXPIRED);
+        assertThat(statusHistory.all).hasSize(3)
+                .allSatisfy(history -> {
+                    assertThat(history.newStatus()).isEqualTo(ParkingSpotStatus.EXPIRED);
+                    assertThat(history.reason()).isEqualTo("EXPIRED");
+                });
+        assertThat(outbox.events).hasSize(3)
+                .allSatisfy(event -> assertThat(event).isInstanceOf(ParkingSpotExpiredEvent.class));
+    }
+
+    @Test
+    void expiryBatchSkipsTerminalAndFutureSpots() {
+        Instant past = NOW.minus(1, ChronoUnit.MINUTES);
+        Instant future = NOW.plus(1, ChronoUnit.MINUTES);
+        UUID owner = UUID.randomUUID();
+        ParkingSpot expired = buildSpot(owner, ParkingSpotStatus.EXPIRED, past, LegalStatus.LEGAL);
+        ParkingSpot filled = buildSpot(owner, ParkingSpotStatus.FILLED, past, LegalStatus.LEGAL);
+        ParkingSpot rejected = buildSpot(owner, ParkingSpotStatus.REJECTED, past, LegalStatus.LEGAL);
+        ParkingSpot active = buildSpot(owner, ParkingSpotStatus.ACTIVE, future, LegalStatus.LEGAL);
+        List.of(expired, filled, rejected, active).forEach(spots::save);
+
+        assertThat(service.expireElapsedSpots(10)).isZero();
+        assertThat(statusHistory.all).isEmpty();
+        assertThat(outbox.events).isEmpty();
+    }
+
+    @Test
     void nearbySearchFiltersExpiredFilledRejectedAndIllegal() {
         double lat = 41.0;
         double lng = 29.0;
@@ -291,6 +331,18 @@ class ParkingApplicationServiceTest {
         @Override
         public List<ParkingSpot> findByOwnerUserId(UUID ownerUserId) {
             return byId.values().stream().filter(s -> s.isOwnedBy(ownerUserId)).toList();
+        }
+
+        @Override
+        public List<ParkingSpot> findExpiredCandidates(Instant now, int batchSize) {
+            return byId.values().stream()
+                    .filter(spot -> Set.of(
+                            ParkingSpotStatus.ACTIVE,
+                            ParkingSpotStatus.VERIFIED,
+                            ParkingSpotStatus.SUSPICIOUS).contains(spot.status()))
+                    .filter(spot -> spot.expiresAt().isBefore(now))
+                    .limit(batchSize)
+                    .toList();
         }
 
         @Override

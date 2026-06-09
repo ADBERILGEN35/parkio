@@ -102,7 +102,7 @@ public class UserOutboxRelay {
                 row.getAggregateId(),
                 row.getOccurredAt(),
                 EventEnvelope.CURRENT_VERSION,
-                null, // traceId not captured in the outbox yet
+                row.getTraceId(),
                 readPayload(row));
     }
 

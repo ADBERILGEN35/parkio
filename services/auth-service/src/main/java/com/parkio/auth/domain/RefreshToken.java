@@ -14,27 +14,90 @@ public final class RefreshToken {
     private final UUID userId;
     private final String tokenHash;
     private final Instant expiresAt;
+    private final UUID tokenFamilyId;
+    private final UUID parentTokenId;
     private boolean revoked;
+    private boolean reusedDetected;
+    private RefreshTokenRevocationReason revokedReason;
+    private Instant revokedAt;
+    private final Long version;
 
-    public RefreshToken(UUID id, UUID userId, String tokenHash, Instant expiresAt, boolean revoked) {
+    public RefreshToken(UUID id,
+                        UUID userId,
+                        String tokenHash,
+                        Instant expiresAt,
+                        UUID tokenFamilyId,
+                        UUID parentTokenId,
+                        boolean revoked,
+                        boolean reusedDetected,
+                        RefreshTokenRevocationReason revokedReason,
+                        Instant revokedAt,
+                        Long version) {
         this.id = Objects.requireNonNull(id, "id");
         this.userId = Objects.requireNonNull(userId, "userId");
         this.tokenHash = Objects.requireNonNull(tokenHash, "tokenHash");
         this.expiresAt = Objects.requireNonNull(expiresAt, "expiresAt");
+        this.tokenFamilyId = Objects.requireNonNull(tokenFamilyId, "tokenFamilyId");
+        this.parentTokenId = parentTokenId;
         this.revoked = revoked;
+        this.reusedDetected = reusedDetected;
+        this.revokedReason = revokedReason;
+        this.revokedAt = revokedAt;
+        this.version = version;
     }
 
-    /** Issues a brand-new, active refresh token for the given user. */
-    public static RefreshToken issue(UUID userId, String tokenHash, Instant expiresAt) {
-        return new RefreshToken(UUID.randomUUID(), userId, tokenHash, expiresAt, false);
+    /** Issues the root token for a new login/session family. */
+    public static RefreshToken issueRoot(UUID userId, String tokenHash, Instant expiresAt) {
+        return new RefreshToken(
+                UUID.randomUUID(),
+                userId,
+                tokenHash,
+                expiresAt,
+                UUID.randomUUID(),
+                null,
+                false,
+                false,
+                null,
+                null,
+                null);
+    }
+
+    /** Issues a rotated child while retaining the original session family. */
+    public static RefreshToken issueChild(RefreshToken parent, String tokenHash, Instant expiresAt) {
+        Objects.requireNonNull(parent, "parent");
+        return new RefreshToken(
+                UUID.randomUUID(),
+                parent.userId,
+                tokenHash,
+                expiresAt,
+                parent.tokenFamilyId,
+                parent.id,
+                false,
+                false,
+                null,
+                null,
+                null);
     }
 
     public boolean isActive(Instant now) {
         return !revoked && expiresAt.isAfter(now);
     }
 
-    public void revoke() {
+    public boolean isExpired(Instant now) {
+        return !expiresAt.isAfter(now);
+    }
+
+    public void revoke(RefreshTokenRevocationReason reason, Instant now) {
+        if (revoked) {
+            return;
+        }
         this.revoked = true;
+        this.revokedReason = Objects.requireNonNull(reason, "reason");
+        this.revokedAt = Objects.requireNonNull(now, "now");
+    }
+
+    public void markReuseDetected() {
+        this.reusedDetected = true;
     }
 
     public UUID id() {
@@ -53,7 +116,31 @@ public final class RefreshToken {
         return expiresAt;
     }
 
+    public UUID tokenFamilyId() {
+        return tokenFamilyId;
+    }
+
+    public UUID parentTokenId() {
+        return parentTokenId;
+    }
+
     public boolean isRevoked() {
         return revoked;
+    }
+
+    public boolean isReusedDetected() {
+        return reusedDetected;
+    }
+
+    public RefreshTokenRevocationReason revokedReason() {
+        return revokedReason;
+    }
+
+    public Instant revokedAt() {
+        return revokedAt;
+    }
+
+    public Long version() {
+        return version;
     }
 }

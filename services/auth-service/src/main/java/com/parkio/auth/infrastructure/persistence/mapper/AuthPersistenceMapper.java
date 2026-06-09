@@ -61,7 +61,13 @@ public final class AuthPersistenceMapper {
                 entity.getUserId(),
                 entity.getTokenHash(),
                 entity.getExpiresAt(),
-                entity.isRevoked());
+                entity.getTokenFamilyId(),
+                entity.getParentTokenId(),
+                entity.isRevoked(),
+                entity.isReusedDetected(),
+                entity.getRevokedReason(),
+                entity.getRevokedAt(),
+                entity.getVersion());
     }
 
     public static RefreshTokenEntity toEntity(RefreshToken token) {
@@ -70,6 +76,12 @@ public final class AuthPersistenceMapper {
                 token.userId(),
                 token.tokenHash(),
                 token.expiresAt(),
-                token.isRevoked());
+                token.tokenFamilyId(),
+                token.parentTokenId(),
+                token.isRevoked(),
+                token.isReusedDetected(),
+                token.revokedReason(),
+                token.revokedAt(),
+                token.version());
     }
 }

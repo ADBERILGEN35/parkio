@@ -47,12 +47,15 @@ class ParkingIdempotencyTest {
     void missingKeyIsRejectedForCreateClaimAndVerify() throws Exception {
         UUID userId = UUID.randomUUID();
         UUID spotId = UUID.randomUUID();
+        String traceId = UUID.randomUUID().toString();
 
         mockMvc.perform(authenticated(post("/api/v1/parking/spots"), userId)
+                        .header("X-Correlation-Id", traceId)
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(createBody(UUID.randomUUID(), "first")))
                 .andExpect(status().isBadRequest())
-                .andExpect(jsonPath("$.code").value("IDEMPOTENCY_KEY_REQUIRED"));
+                .andExpect(jsonPath("$.code").value("IDEMPOTENCY_KEY_REQUIRED"))
+                .andExpect(jsonPath("$.traceId").value(traceId));
 
         mockMvc.perform(authenticated(post("/api/v1/parking/spots/{spotId}/claim", spotId), userId))
                 .andExpect(status().isBadRequest())
@@ -63,6 +66,21 @@ class ParkingIdempotencyTest {
                         .content("{\"result\":\"AVAILABLE\"}"))
                 .andExpect(status().isBadRequest())
                 .andExpect(jsonPath("$.code").value("IDEMPOTENCY_KEY_REQUIRED"));
+    }
+
+    @Test
+    void errorWithoutCorrelationHeaderGetsGeneratedTraceId() throws Exception {
+        MvcResult result = mockMvc.perform(authenticated(post("/api/v1/parking/spots"), UUID.randomUUID())
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(createBody(UUID.randomUUID(), "generated-trace")))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.traceId").isNotEmpty())
+                .andReturn();
+
+        String traceId = com.jayway.jsonpath.JsonPath.read(
+                result.getResponse().getContentAsString(), "$.traceId");
+        assertThat(UUID.fromString(traceId)).isNotNull();
+        assertThat(result.getResponse().getHeader("X-Correlation-Id")).isEqualTo(traceId);
     }
 
     @Test

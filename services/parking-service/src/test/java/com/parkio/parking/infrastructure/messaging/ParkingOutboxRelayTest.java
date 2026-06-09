@@ -40,7 +40,7 @@ class ParkingOutboxRelayTest {
                 + "\",\"latitude\":41.0,\"longitude\":29.0,\"status\":\"ACTIVE\","
                 + "\"occurredAt\":\"2026-06-08T12:00:00Z\"}";
         return new OutboxEventEntity(UUID.randomUUID(), eventId, "ParkingSpot", spotId,
-                "ParkingSpotCreated", payload, OCCURRED_AT, false);
+                "ParkingSpotCreated", payload, OCCURRED_AT, "trace-relay-123", false);
     }
 
     @Test
@@ -71,6 +71,7 @@ class ParkingOutboxRelayTest {
         assertThat(envelope.aggregateId()).isEqualTo(spotId);
         assertThat(envelope.occurredAt()).isEqualTo(OCCURRED_AT);
         assertThat(envelope.version()).isEqualTo(1);
+        assertThat(envelope.traceId()).isEqualTo("trace-relay-123");
         assertThat(envelope.payload().get("ownerUserId").asText()).isEqualTo(ownerId.toString());
 
         assertThat(headerValue(sent, "eventId")).isEqualTo(eventId.toString());
@@ -79,6 +80,7 @@ class ParkingOutboxRelayTest {
         assertThat(headerValue(sent, "aggregateId")).isEqualTo(spotId.toString());
         assertThat(headerValue(sent, "occurredAt")).isEqualTo(OCCURRED_AT.toString());
         assertThat(headerValue(sent, "version")).isEqualTo("1");
+        assertThat(headerValue(sent, "traceId")).isEqualTo("trace-relay-123");
 
         assertThat(row.isPublished()).isTrue();
     }

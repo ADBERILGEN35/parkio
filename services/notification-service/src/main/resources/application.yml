@@ -49,6 +49,10 @@ spring:
 server:
   port: ${SERVER_PORT:8086}
 
+logging:
+  pattern:
+    level: "%5p [traceId:%X{traceId:-unknown}]"
+
 management:
   endpoints:
     web:
@@ -65,6 +69,14 @@ info:
     description: Parkio notification-service
 
 parkio:
+  lifecycle:
+    retention:
+      outbox-enabled: ${PARKIO_OUTBOX_RETENTION_ENABLED:true}
+      inbox-enabled: ${PARKIO_INBOX_RETENTION_ENABLED:true}
+      outbox-retention: ${PARKIO_OUTBOX_RETENTION:P7D}
+      inbox-retention: ${PARKIO_INBOX_RETENTION:P30D}
+      fixed-delay-ms: ${PARKIO_RETENTION_FIXED_DELAY_MS:3600000}
+      batch-size: ${PARKIO_RETENTION_BATCH_SIZE:1000}
   gateway:
     # Shared secret required on every inbound request (X-Gateway-Auth) so only
     # gateway-originated traffic is accepted. No default → fail closed if unset.

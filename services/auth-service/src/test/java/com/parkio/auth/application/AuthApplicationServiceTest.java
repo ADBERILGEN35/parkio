@@ -20,6 +20,7 @@ import com.parkio.auth.application.result.IssuedAccessToken;
 import com.parkio.auth.domain.AuthUser;
 import com.parkio.auth.domain.AuthUserStatus;
 import com.parkio.auth.domain.RefreshToken;
+import com.parkio.auth.domain.RefreshTokenRevocationReason;
 import com.parkio.auth.domain.Role;
 import com.parkio.auth.domain.RoleName;
 import com.parkio.auth.domain.event.UserRegisteredEvent;
@@ -109,10 +110,14 @@ class AuthApplicationServiceTest {
         service.register(new RegisterCommand("user@example.com", "password1"));
 
         AuthResult result = service.login(new LoginCommand("USER@example.com", "password1"));
+        RefreshToken token = refreshTokens.findByTokenHash(refreshTokenHasher.hash(result.refreshToken()))
+                .orElseThrow();
 
         assertThat(result.user().email()).isEqualTo("user@example.com");
         assertThat(result.accessToken()).isEqualTo("access-" + result.user().id());
         assertThat(result.refreshToken()).isNotBlank();
+        assertThat(token.tokenFamilyId()).isNotNull();
+        assertThat(token.parentTokenId()).isNull();
     }
 
     @Test
@@ -149,13 +154,48 @@ class AuthApplicationServiceTest {
     void refreshRotatesTokenAndRevokesOld() {
         AuthResult initial = service.register(new RegisterCommand("user@example.com", "password1"));
         String oldHash = refreshTokenHasher.hash(initial.refreshToken());
+        RefreshToken oldToken = refreshTokens.findByTokenHash(oldHash).orElseThrow();
 
         AuthResult refreshed = service.refresh(new RefreshTokenCommand(initial.refreshToken()));
+        RefreshToken rotated = refreshTokens.findByTokenHash(oldHash).orElseThrow();
+        RefreshToken child = refreshTokens
+                .findByTokenHash(refreshTokenHasher.hash(refreshed.refreshToken()))
+                .orElseThrow();
 
         assertThat(refreshed.refreshToken()).isNotEqualTo(initial.refreshToken());
-        assertThat(refreshTokens.findByTokenHash(oldHash)).get()
-                .extracting(RefreshToken::isRevoked).isEqualTo(true);
-        assertThat(refreshTokens.findByTokenHash(refreshTokenHasher.hash(refreshed.refreshToken()))).isPresent();
+        assertThat(rotated.isRevoked()).isTrue();
+        assertThat(rotated.revokedReason()).isEqualTo(RefreshTokenRevocationReason.ROTATED);
+        assertThat(rotated.revokedAt()).isEqualTo(NOW);
+        assertThat(child.tokenFamilyId()).isEqualTo(oldToken.tokenFamilyId());
+        assertThat(child.parentTokenId()).isEqualTo(oldToken.id());
+        assertThat(child.isRevoked()).isFalse();
+    }
+
+    @Test
+    void rotatedTokenReuseRevokesActiveFamilyAndReturnsGenericError() {
+        AuthResult initial = service.register(new RegisterCommand("user@example.com", "password1"));
+        AuthResult refreshed = service.refresh(new RefreshTokenCommand(initial.refreshToken()));
+        String presentedToken = initial.refreshToken();
+
+        assertThatThrownBy(() -> service.refresh(new RefreshTokenCommand(presentedToken)))
+                .isInstanceOf(AuthException.class)
+                .hasMessage(AuthErrorCode.INVALID_REFRESH_TOKEN.defaultMessage())
+                .hasMessageNotContaining(presentedToken)
+                .hasMessageNotContaining(refreshTokenHasher.hash(presentedToken))
+                .extracting(e -> ((AuthException) e).errorCode())
+                .isEqualTo(AuthErrorCode.INVALID_REFRESH_TOKEN);
+
+        RefreshToken reused = refreshTokens
+                .findByTokenHash(refreshTokenHasher.hash(initial.refreshToken()))
+                .orElseThrow();
+        RefreshToken activeChild = refreshTokens
+                .findByTokenHash(refreshTokenHasher.hash(refreshed.refreshToken()))
+                .orElseThrow();
+        assertThat(reused.isReusedDetected()).isTrue();
+        assertThat(reused.revokedReason()).isEqualTo(RefreshTokenRevocationReason.ROTATED);
+        assertThat(activeChild.isRevoked()).isTrue();
+        assertThat(activeChild.revokedReason()).isEqualTo(RefreshTokenRevocationReason.REUSE_DETECTED);
+        assertThat(activeChild.revokedAt()).isEqualTo(NOW);
     }
 
     @Test
@@ -171,12 +211,25 @@ class AuthApplicationServiceTest {
         UUID userId = UUID.randomUUID();
         authUsers.save(new AuthUser(userId, "user@example.com",
                 passwordHasher.hash("password1"), AuthUserStatus.ACTIVE, Set.of(USER_ROLE), NOW, 0L));
-        refreshTokens.save(RefreshToken.issue(userId, refreshTokenHasher.hash("expired-token"), NOW.minusSeconds(1)));
+        RefreshToken expired =
+                RefreshToken.issueRoot(userId, refreshTokenHasher.hash("expired-token"), NOW.minusSeconds(1));
+        RefreshToken activeSibling =
+                RefreshToken.issueChild(expired, refreshTokenHasher.hash("active-token"), NOW.plusSeconds(3600));
+        refreshTokens.save(expired);
+        refreshTokens.save(activeSibling);
 
         assertThatThrownBy(() -> service.refresh(new RefreshTokenCommand("expired-token")))
                 .isInstanceOf(AuthException.class)
                 .extracting(e -> ((AuthException) e).errorCode())
                 .isEqualTo(AuthErrorCode.INVALID_REFRESH_TOKEN);
+        assertThat(refreshTokens.findByTokenHash(refreshTokenHasher.hash("expired-token")))
+                .get()
+                .extracting(RefreshToken::isReusedDetected)
+                .isEqualTo(false);
+        assertThat(refreshTokens.findByTokenHash(refreshTokenHasher.hash("active-token")))
+                .get()
+                .extracting(RefreshToken::isRevoked)
+                .isEqualTo(false);
     }
 
     @Test
@@ -185,8 +238,15 @@ class AuthApplicationServiceTest {
 
         service.logout(new LogoutCommand(initial.refreshToken()));
 
-        assertThat(refreshTokens.findByTokenHash(refreshTokenHasher.hash(initial.refreshToken()))).get()
-                .extracting(RefreshToken::isRevoked).isEqualTo(true);
+        RefreshToken token = refreshTokens
+                .findByTokenHash(refreshTokenHasher.hash(initial.refreshToken()))
+                .orElseThrow();
+        assertThat(token.isRevoked()).isTrue();
+        assertThat(token.revokedReason()).isEqualTo(RefreshTokenRevocationReason.LOGOUT);
+        assertThat(token.revokedAt()).isEqualTo(NOW);
+
+        service.logout(new LogoutCommand(initial.refreshToken()));
+        assertThat(token.revokedReason()).isEqualTo(RefreshTokenRevocationReason.LOGOUT);
     }
 
     @Test
@@ -234,6 +294,21 @@ class AuthApplicationServiceTest {
         @Override
         public Optional<RefreshToken> findByTokenHash(String tokenHash) {
             return Optional.ofNullable(byHash.get(tokenHash));
+        }
+
+        @Override
+        public int revokeActiveFamily(
+                UUID tokenFamilyId,
+                RefreshTokenRevocationReason reason,
+                Instant revokedAt) {
+            int revoked = 0;
+            for (RefreshToken token : byHash.values()) {
+                if (token.tokenFamilyId().equals(tokenFamilyId) && !token.isRevoked()) {
+                    token.revoke(reason, revokedAt);
+                    revoked++;
+                }
+            }
+            return revoked;
         }
     }
 

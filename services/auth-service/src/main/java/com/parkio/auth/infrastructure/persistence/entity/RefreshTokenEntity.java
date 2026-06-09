@@ -1,9 +1,13 @@
 package com.parkio.auth.infrastructure.persistence.entity;
 
+import com.parkio.auth.domain.RefreshTokenRevocationReason;
 import jakarta.persistence.Column;
 import jakarta.persistence.Entity;
+import jakarta.persistence.EnumType;
+import jakarta.persistence.Enumerated;
 import jakarta.persistence.Id;
 import jakarta.persistence.Table;
+import jakarta.persistence.Version;
 import java.time.Instant;
 import java.util.UUID;
 
@@ -25,19 +29,55 @@ public class RefreshTokenEntity {
     @Column(name = "expires_at", nullable = false)
     private Instant expiresAt;
 
+    @Column(name = "token_family_id", nullable = false, updatable = false)
+    private UUID tokenFamilyId;
+
+    @Column(name = "parent_token_id", updatable = false)
+    private UUID parentTokenId;
+
     @Column(name = "revoked", nullable = false)
     private boolean revoked;
+
+    @Column(name = "reused_detected", nullable = false)
+    private boolean reusedDetected;
+
+    @Enumerated(EnumType.STRING)
+    @Column(name = "revoked_reason", length = 32)
+    private RefreshTokenRevocationReason revokedReason;
+
+    @Column(name = "revoked_at")
+    private Instant revokedAt;
+
+    @Version
+    @Column(name = "version", nullable = false)
+    private Long version;
 
     protected RefreshTokenEntity() {
         // for JPA
     }
 
-    public RefreshTokenEntity(UUID id, UUID userId, String tokenHash, Instant expiresAt, boolean revoked) {
+    public RefreshTokenEntity(UUID id,
+                              UUID userId,
+                              String tokenHash,
+                              Instant expiresAt,
+                              UUID tokenFamilyId,
+                              UUID parentTokenId,
+                              boolean revoked,
+                              boolean reusedDetected,
+                              RefreshTokenRevocationReason revokedReason,
+                              Instant revokedAt,
+                              Long version) {
         this.id = id;
         this.userId = userId;
         this.tokenHash = tokenHash;
         this.expiresAt = expiresAt;
+        this.tokenFamilyId = tokenFamilyId;
+        this.parentTokenId = parentTokenId;
         this.revoked = revoked;
+        this.reusedDetected = reusedDetected;
+        this.revokedReason = revokedReason;
+        this.revokedAt = revokedAt;
+        this.version = version;
     }
 
     public UUID getId() {
@@ -56,11 +96,31 @@ public class RefreshTokenEntity {
         return expiresAt;
     }
 
+    public UUID getTokenFamilyId() {
+        return tokenFamilyId;
+    }
+
+    public UUID getParentTokenId() {
+        return parentTokenId;
+    }
+
     public boolean isRevoked() {
         return revoked;
     }
 
-    public void setRevoked(boolean revoked) {
-        this.revoked = revoked;
+    public boolean isReusedDetected() {
+        return reusedDetected;
+    }
+
+    public RefreshTokenRevocationReason getRevokedReason() {
+        return revokedReason;
+    }
+
+    public Instant getRevokedAt() {
+        return revokedAt;
+    }
+
+    public Long getVersion() {
+        return version;
     }
 }

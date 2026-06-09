@@ -28,8 +28,15 @@ Applies to synchronous REST APIs exposed by services (behind `gateway-service`).
 
 - Consistent error body, e.g.:
   ```json
-  { "code": "SPOT_EXPIRED", "message": "...", "traceId": "..." }
+  {
+    "code": "SPOT_EXPIRED",
+    "message": "...",
+    "traceId": "...",
+    "timestamp": "2026-06-09T10:00:00Z"
+  }
   ```
+- `traceId` is the request's `X-Correlation-Id`; services generate one when the
+  header is absent. Clients should include it in support reports.
 - Map domain exceptions to HTTP via `@RestControllerAdvice` in `presentation`.
   Never leak stack traces or internal details.
 

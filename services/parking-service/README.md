@@ -23,8 +23,8 @@ This service follows clean architecture. Source lives under
 ## Domain events (outbox)
 
 These events are written to `outbox_events` in the same transaction as the state
-change (a Kafka relay is not implemented yet, ai-context/06). Consumers — notably
-gamification — should duplicate this contract locally; it is **not** a shared model.
+change and published by the Kafka relay (ai-context/06). Consumers — notably
+gamification — duplicate this contract locally; it is **not** a shared model.
 Every payload carries `eventId`, `parkingSpotId`, `ownerUserId`, `status` and
 `occurredAt`; action events also carry the `actorUserId` who triggered them.
 
@@ -41,6 +41,25 @@ Every payload carries `eventId`, `parkingSpotId`, `ownerUserId`, `status` and
 (distinct from `ParkingSpotMarkedFilledEvent`, which is driven by community
 filled-reports rather than a single claimer). Gamification should reward the
 `actorUserId` (claimer) and the `ownerUserId` (contributor) off this event.
+
+## Scheduled expiration
+
+Parking spots still expire lazily when read or mutated, and a scheduled job now
+expires unaccessed `ACTIVE`, `VERIFIED`, and `SUSPICIOUS` spots whose `expiresAt`
+has elapsed. Each bounded database batch uses row locking, transitions each spot
+once, writes an `EXPIRED` status-history row, and appends
+`ParkingSpotExpiredEvent` in the same transaction. Terminal spots are never
+selected again.
+
+Configuration:
+
+| Property | Environment variable | Default |
+|----------|----------------------|---------|
+| `parkio.lifecycle.parking-expiry.enabled` | `PARKIO_PARKING_EXPIRY_ENABLED` | `true` |
+| `parkio.lifecycle.parking-expiry.fixed-delay-ms` | `PARKIO_PARKING_EXPIRY_FIXED_DELAY_MS` | `60000` |
+| `parkio.lifecycle.parking-expiry.batch-size` | `PARKIO_PARKING_EXPIRY_BATCH_SIZE` | `100` |
+
+The test profile disables this scheduler unless a test explicitly enables it.
 
 ## Nearby search bounds
 
@@ -78,12 +97,6 @@ write again.
 
 ## Backlog (not yet implemented)
 
-- **PostGIS Testcontainers integration test** — run the Flyway migrations and exercise
-  the `findNearby` geography query (radius/status/expiry filtering, distance order).
-  Tests currently use H2 with Flyway disabled, so the geo query is unverified in CI.
-- **Scheduled expiration job** — spots currently expire lazily on access; a scheduled
-  expirer is needed so unaccessed spots transition to `EXPIRED` and emit
-  `ParkingSpotExpiredEvent`.
 - **Enum-set normalization** — `suitable_vehicle_types` / `violation_reasons` are stored
   as comma-separated strings; normalize (Postgres array/`jsonb` + GIN, or a join table)
   before adding vehicle-type-filtered search.
@@ -104,6 +117,17 @@ From the repository root:
 ```bash
 ./gradlew :services:parking-service:build
 ```
+
+The normal build uses H2 and does not require Docker. The opt-in infrastructure
+test starts `postgis/postgis:16-3.4`, runs all Flyway migrations with Hibernate
+validation enabled, and verifies the PostGIS extension, location trigger, GiST
+index, and production nearby query:
+
+```bash
+./gradlew :services:parking-service:integrationTest
+```
+
+The integration test is skipped cleanly when Docker is unavailable.
 
 ## Docker
 

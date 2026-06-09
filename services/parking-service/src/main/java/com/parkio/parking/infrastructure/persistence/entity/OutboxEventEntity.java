@@ -38,6 +38,9 @@ public class OutboxEventEntity {
     @Column(name = "occurred_at", nullable = false)
     private Instant occurredAt;
 
+    @Column(name = "trace_id")
+    private String traceId;
+
     @Column(name = "published", nullable = false)
     private boolean published;
 
@@ -47,6 +50,11 @@ public class OutboxEventEntity {
 
     public OutboxEventEntity(UUID id, UUID eventId, String aggregateType, UUID aggregateId, String eventType,
                              String payload, Instant occurredAt, boolean published) {
+        this(id, eventId, aggregateType, aggregateId, eventType, payload, occurredAt, null, published);
+    }
+
+    public OutboxEventEntity(UUID id, UUID eventId, String aggregateType, UUID aggregateId, String eventType,
+                             String payload, Instant occurredAt, String traceId, boolean published) {
         this.id = id;
         this.eventId = eventId;
         this.aggregateType = aggregateType;
@@ -54,6 +62,7 @@ public class OutboxEventEntity {
         this.eventType = eventType;
         this.payload = payload;
         this.occurredAt = occurredAt;
+        this.traceId = traceId;
         this.published = published;
     }
 
@@ -83,6 +92,10 @@ public class OutboxEventEntity {
 
     public Instant getOccurredAt() {
         return occurredAt;
+    }
+
+    public String getTraceId() {
+        return traceId;
     }
 
     public boolean isPublished() {

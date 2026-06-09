@@ -11,6 +11,9 @@
 - Service-to-service calls carry a service identity/token; do not expose internal
   endpoints publicly (only `gateway` is public).
 - Principle of least privilege for roles, DB users, and cloud credentials.
+- Refresh tokens are opaque, stored only as hashes, rotated on use, and linked
+  into token families. Reuse of an unexpired revoked token revokes the active
+  family while returning only generic `401 INVALID_REFRESH_TOKEN` to the client.
 
 ## Secrets & config
 

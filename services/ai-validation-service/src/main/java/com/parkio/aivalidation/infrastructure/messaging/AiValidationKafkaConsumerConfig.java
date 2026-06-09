@@ -56,11 +56,13 @@ public class AiValidationKafkaConsumerConfig {
     @Bean
     ConcurrentKafkaListenerContainerFactory<String, String> mediaEventsKafkaListenerContainerFactory(
             ConsumerFactory<String, String> mediaEventsConsumerFactory,
-            KafkaTemplate<Object, Object> kafkaTemplate) {
+            KafkaTemplate<Object, Object> kafkaTemplate,
+            KafkaTraceRecordInterceptor traceInterceptor) {
         ConcurrentKafkaListenerContainerFactory<String, String> factory =
                 new ConcurrentKafkaListenerContainerFactory<>();
         factory.setConsumerFactory(mediaEventsConsumerFactory);
         factory.setAutoStartup(autoStartup);
+        factory.setRecordInterceptor(traceInterceptor);
         factory.getContainerProperties().setAckMode(AckMode.MANUAL);
 
         DeadLetterPublishingRecoverer recoverer = new DeadLetterPublishingRecoverer(

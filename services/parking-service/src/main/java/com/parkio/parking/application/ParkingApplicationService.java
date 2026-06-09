@@ -154,6 +154,21 @@ public class ParkingApplicationService {
         return saved;
     }
 
+    /** Expires one locked batch of elapsed, non-terminal spots. */
+    public int expireElapsedSpots(int batchSize) {
+        if (batchSize < 1) {
+            throw new IllegalArgumentException("batchSize must be positive");
+        }
+        Instant now = clock.instant();
+        int expired = 0;
+        for (ParkingSpot spot : spots.findExpiredCandidates(now, batchSize)) {
+            if (expireIfElapsed(spot, now)) {
+                expired++;
+            }
+        }
+        return expired;
+    }
+
     /** Nearby search filtering out expired/filled/rejected/illegal spots. */
     public List<ParkingSpot> searchNearby(SearchNearbyQuery query) {
         Instant now = clock.instant();

@@ -11,6 +11,7 @@ import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.http.converter.HttpMessageNotReadableException;
+import org.springframework.orm.ObjectOptimisticLockingFailureException;
 import org.springframework.web.bind.MethodArgumentNotValidException;
 import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.RestControllerAdvice;
@@ -54,6 +55,17 @@ public class GlobalExceptionHandler {
     public ResponseEntity<ApiError> handleUnreadable(HttpMessageNotReadableException ex) {
         ApiError body = ApiError.of("MALFORMED_REQUEST", "Request body is malformed or unreadable.", clock.instant());
         return ResponseEntity.badRequest().body(body);
+    }
+
+    /**
+     * Concurrent refresh of the same token loses its optimistic-lock race. Keep
+     * the client-facing result indistinguishable from any other invalid refresh.
+     */
+    @ExceptionHandler(ObjectOptimisticLockingFailureException.class)
+    public ResponseEntity<ApiError> handleOptimisticLock(ObjectOptimisticLockingFailureException ex) {
+        AuthErrorCode code = AuthErrorCode.INVALID_REFRESH_TOKEN;
+        ApiError body = ApiError.of(code.name(), code.defaultMessage(), clock.instant());
+        return ResponseEntity.status(HttpStatus.UNAUTHORIZED).body(body);
     }
 
     /**

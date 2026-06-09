@@ -1,6 +1,7 @@
 package com.parkio.parking.application.port;
 
 import com.parkio.parking.domain.ParkingSpot;
+import java.time.Instant;
 import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
@@ -13,6 +14,8 @@ public interface ParkingSpotRepository {
     Optional<ParkingSpot> findById(UUID id);
 
     List<ParkingSpot> findByOwnerUserId(UUID ownerUserId);
+
+    List<ParkingSpot> findExpiredCandidates(Instant now, int batchSize);
 
     /**
      * Candidate spots within {@code radiusMeters} of the point, nearest first. The

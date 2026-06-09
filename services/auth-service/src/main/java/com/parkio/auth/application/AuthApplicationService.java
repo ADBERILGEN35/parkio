@@ -16,6 +16,7 @@ import com.parkio.auth.application.result.AuthResult;
 import com.parkio.auth.application.result.IssuedAccessToken;
 import com.parkio.auth.domain.AuthUser;
 import com.parkio.auth.domain.RefreshToken;
+import com.parkio.auth.domain.RefreshTokenRevocationReason;
 import com.parkio.auth.domain.Role;
 import com.parkio.auth.domain.RoleName;
 import com.parkio.auth.domain.event.UserRegisteredEvent;
@@ -26,6 +27,8 @@ import java.time.Duration;
 import java.time.Instant;
 import java.util.Set;
 import java.util.UUID;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -42,6 +45,8 @@ import org.springframework.transaction.annotation.Transactional;
 @Service
 @Transactional
 public class AuthApplicationService {
+
+    private static final Logger log = LoggerFactory.getLogger(AuthApplicationService.class);
 
     private final AuthUserRepository authUsers;
     private final RoleRepository roles;
@@ -92,7 +97,7 @@ public class AuthApplicationService {
 
         outbox.append(UserRegisteredEvent.of(saved.id(), saved.email(), clock.instant()));
 
-        return issueTokens(saved);
+        return issueTokens(saved, null);
     }
 
     public AuthResult login(LoginCommand command) {
@@ -105,23 +110,31 @@ public class AuthApplicationService {
         }
         user.ensureCanAuthenticate();
 
-        return issueTokens(user);
+        return issueTokens(user, null);
     }
 
+    @Transactional(noRollbackFor = AuthException.class)
     public AuthResult refresh(RefreshTokenCommand command) {
         String tokenHash = refreshTokenHasher.hash(command.rawRefreshToken());
         RefreshToken existing = refreshTokens.findByTokenHash(tokenHash)
                 .orElseThrow(() -> new AuthException(AuthErrorCode.INVALID_REFRESH_TOKEN));
 
-        if (!existing.isActive(clock.instant())) {
-            // TODO(security-hardening): refresh-token reuse detection is NOT
-            // implemented. A presented-but-revoked token almost certainly means
-            // a rotated token was replayed (possible theft), yet it is treated
-            // as an ordinary invalid token. Production hardening should detect
-            // reuse of an already-rotated token and revoke the whole token
-            // family / all of the user's sessions. See README "Security
-            // hardening backlog". Deliberately deferred — do not add token-family
-            // tracking here without that change being scoped.
+        Instant now = clock.instant();
+        if (existing.isExpired(now)) {
+            throw new AuthException(AuthErrorCode.INVALID_REFRESH_TOKEN);
+        }
+        if (existing.isRevoked()) {
+            existing.markReuseDetected();
+            refreshTokens.save(existing);
+            int revokedCount = refreshTokens.revokeActiveFamily(
+                    existing.tokenFamilyId(),
+                    RefreshTokenRevocationReason.REUSE_DETECTED,
+                    now);
+            log.warn(
+                    "Refresh token reuse detected; userId={}, tokenFamilyId={}, activeTokensRevoked={}",
+                    existing.userId(),
+                    existing.tokenFamilyId(),
+                    revokedCount);
             throw new AuthException(AuthErrorCode.INVALID_REFRESH_TOKEN);
         }
 
@@ -130,18 +143,20 @@ public class AuthApplicationService {
         user.ensureCanAuthenticate();
 
         // Rotate: the presented token is revoked and a fresh one is issued.
-        existing.revoke();
+        existing.revoke(RefreshTokenRevocationReason.ROTATED, now);
         refreshTokens.save(existing);
 
-        return issueTokens(user);
+        return issueTokens(user, existing);
     }
 
     public void logout(LogoutCommand command) {
         // Idempotent: revoking an unknown/already-revoked token is a no-op.
         String tokenHash = refreshTokenHasher.hash(command.rawRefreshToken());
         refreshTokens.findByTokenHash(tokenHash).ifPresent(token -> {
-            token.revoke();
-            refreshTokens.save(token);
+            if (!token.isRevoked()) {
+                token.revoke(RefreshTokenRevocationReason.LOGOUT, clock.instant());
+                refreshTokens.save(token);
+            }
         });
     }
 
@@ -151,12 +166,16 @@ public class AuthApplicationService {
                 .orElseThrow(() -> new AuthException(AuthErrorCode.USER_NOT_FOUND));
     }
 
-    private AuthResult issueTokens(AuthUser user) {
+    private AuthResult issueTokens(AuthUser user, RefreshToken parent) {
         IssuedAccessToken access = accessTokenIssuer.issue(user);
 
         String rawRefreshToken = tokenGenerator.generate();
         Instant refreshExpiresAt = clock.instant().plus(refreshTokenTtl);
-        refreshTokens.save(RefreshToken.issue(user.id(), refreshTokenHasher.hash(rawRefreshToken), refreshExpiresAt));
+        String tokenHash = refreshTokenHasher.hash(rawRefreshToken);
+        RefreshToken refreshToken = parent == null
+                ? RefreshToken.issueRoot(user.id(), tokenHash, refreshExpiresAt)
+                : RefreshToken.issueChild(parent, tokenHash, refreshExpiresAt);
+        refreshTokens.save(refreshToken);
 
         return new AuthResult(user, access.token(), access.expiresAt(), rawRefreshToken, refreshExpiresAt);
     }

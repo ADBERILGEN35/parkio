@@ -56,11 +56,13 @@ public class GamificationKafkaConsumerConfig {
     @Bean
     ConcurrentKafkaListenerContainerFactory<String, String> parkingEventsKafkaListenerContainerFactory(
             ConsumerFactory<String, String> parkingEventsConsumerFactory,
-            KafkaTemplate<Object, Object> kafkaTemplate) {
+            KafkaTemplate<Object, Object> kafkaTemplate,
+            KafkaTraceRecordInterceptor traceInterceptor) {
         ConcurrentKafkaListenerContainerFactory<String, String> factory =
                 new ConcurrentKafkaListenerContainerFactory<>();
         factory.setConsumerFactory(parkingEventsConsumerFactory);
         factory.setAutoStartup(autoStartup);
+        factory.setRecordInterceptor(traceInterceptor);
         factory.getContainerProperties().setAckMode(AckMode.MANUAL);
 
         DeadLetterPublishingRecoverer recoverer = new DeadLetterPublishingRecoverer(

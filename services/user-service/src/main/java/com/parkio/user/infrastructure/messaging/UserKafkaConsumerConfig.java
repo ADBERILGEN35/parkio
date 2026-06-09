@@ -55,11 +55,13 @@ public class UserKafkaConsumerConfig {
     @Bean
     ConcurrentKafkaListenerContainerFactory<String, String> authUserKafkaListenerContainerFactory(
             ConsumerFactory<String, String> authUserConsumerFactory,
-            KafkaTemplate<Object, Object> kafkaTemplate) {
+            KafkaTemplate<Object, Object> kafkaTemplate,
+            KafkaTraceRecordInterceptor traceInterceptor) {
         ConcurrentKafkaListenerContainerFactory<String, String> factory =
                 new ConcurrentKafkaListenerContainerFactory<>();
         factory.setConsumerFactory(authUserConsumerFactory);
         factory.setAutoStartup(autoStartup);
+        factory.setRecordInterceptor(traceInterceptor);
         factory.getContainerProperties().setAckMode(AckMode.MANUAL);
 
         // Retry transient failures a few times, then route poison messages to the DLT

@@ -21,6 +21,12 @@ spring:
 parkio:
   idempotency:
     ttl: 24h
+  lifecycle:
+    parking-expiry:
+      enabled: false
+    retention:
+      outbox-enabled: false
+      inbox-enabled: false
   gateway:
     internal-secret: test-only-parkio-gateway-internal-secret-0123456789
   parking:

@@ -103,7 +103,7 @@ public class GamificationOutboxRelay {
                 row.getAggregateId(),
                 row.getOccurredAt(),
                 ENVELOPE_VERSION,
-                null, // traceId not captured in the outbox yet
+                row.getTraceId(),
                 readPayload(row));
     }
 

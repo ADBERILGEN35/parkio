@@ -56,11 +56,13 @@ public class ModerationKafkaConsumerConfig {
     @Bean
     ConcurrentKafkaListenerContainerFactory<String, String> moderationKafkaListenerContainerFactory(
             ConsumerFactory<String, String> moderationConsumerFactory,
-            KafkaTemplate<Object, Object> kafkaTemplate) {
+            KafkaTemplate<Object, Object> kafkaTemplate,
+            KafkaTraceRecordInterceptor traceInterceptor) {
         ConcurrentKafkaListenerContainerFactory<String, String> factory =
                 new ConcurrentKafkaListenerContainerFactory<>();
         factory.setConsumerFactory(moderationConsumerFactory);
         factory.setAutoStartup(autoStartup);
+        factory.setRecordInterceptor(traceInterceptor);
         factory.getContainerProperties().setAckMode(AckMode.MANUAL);
 
         DeadLetterPublishingRecoverer recoverer = new DeadLetterPublishingRecoverer(

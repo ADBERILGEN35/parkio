@@ -4,6 +4,7 @@ import com.parkio.parking.application.port.ParkingSpotRepository;
 import com.parkio.parking.domain.ParkingSpot;
 import com.parkio.parking.infrastructure.persistence.jpa.ParkingSpotJpaRepository;
 import com.parkio.parking.infrastructure.persistence.mapper.ParkingPersistenceMapper;
+import java.time.Instant;
 import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
@@ -32,6 +33,13 @@ public class ParkingSpotRepositoryAdapter implements ParkingSpotRepository {
     @Override
     public List<ParkingSpot> findByOwnerUserId(UUID ownerUserId) {
         return jpa.findByOwnerUserIdOrderByCreatedAtDesc(ownerUserId).stream()
+                .map(ParkingPersistenceMapper::toDomain)
+                .toList();
+    }
+
+    @Override
+    public List<ParkingSpot> findExpiredCandidates(Instant now, int batchSize) {
+        return jpa.findExpiredCandidates(now, batchSize).stream()
                 .map(ParkingPersistenceMapper::toDomain)
                 .toList();
     }

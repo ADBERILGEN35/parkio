@@ -46,6 +46,8 @@
 - Unit-test `domain`/`application` without Spring (fast, pure).
 - Use `@SpringBootTest` / slice tests for adapters; Testcontainers for
   Postgres/Kafka/Redis integration where it adds value.
+- Tag Docker-backed tests `integration`; normal `build` excludes them and
+  `integrationTest` runs them, skipping cleanly when Docker is unavailable.
 - Keep the existing `contextLoads` smoke test green. `./gradlew build` must pass.
 
 ## Logging & observability

@@ -7,6 +7,7 @@ import java.io.IOException;
 import java.time.Clock;
 import java.util.LinkedHashMap;
 import java.util.Map;
+import org.slf4j.MDC;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.MediaType;
 import org.springframework.security.core.AuthenticationException;
@@ -39,6 +40,7 @@ public class RestAuthenticationEntryPoint implements AuthenticationEntryPoint {
         Map<String, Object> body = new LinkedHashMap<>();
         body.put("code", "UNAUTHORIZED");
         body.put("message", "Authentication is required to access this resource.");
+        body.put("traceId", MDC.get("traceId"));
         body.put("timestamp", clock.instant().toString());
 
         objectMapper.writeValue(response.getOutputStream(), body);

@@ -95,6 +95,18 @@ From the repository root:
 ./gradlew :services:media-service:build
 ```
 
+The normal build uses H2 and does not require Docker. The opt-in infrastructure
+test starts PostgreSQL 16 and MinIO, runs all Flyway migrations with Hibernate
+validation enabled, and exercises upload/stat/delete through the real
+`MinioMediaStorageAdapter`:
+
+```bash
+./gradlew :services:media-service:integrationTest
+```
+
+The integration test uses only disposable test credentials and a test bucket,
+and is skipped cleanly when Docker is unavailable.
+
 ## Docker
 
 ```bash

@@ -163,6 +163,59 @@ business event is the opaque `payload`):
 | `traceId` | Correlation id propagated producer → consumer. |
 | `payload` | The event's JSON document (the outbox `payload`, embedded verbatim). |
 
+## Correlation and trace propagation
+
+The canonical trace identifier is transported over HTTP as
+`X-Correlation-Id` and represented in JSON/logging as `traceId`.
+
+1. `gateway-service` forwards a client-supplied `X-Correlation-Id` or generates a
+   UUID, then echoes it on the HTTP response.
+2. Every downstream HTTP service puts that value into MDC as `traceId` for the
+   request lifetime. If called without the header, the service generates a UUID.
+3. Every `ApiError` contains `code`, `message`, `traceId`, `timestamp`, and
+   optional `fieldErrors`. Clients should report the `traceId` when contacting
+   support.
+4. Transactional outbox appenders copy the current MDC value into nullable
+   `outbox_events.trace_id`. Existing/background rows may have no trace.
+5. Relays copy the stored value into the envelope `traceId` and the Kafka
+   `traceId` header. When absent, the header is omitted and the envelope field is
+   null.
+6. Consumer record interceptors prefer the Kafka header, fall back to the
+   envelope field, put the value into MDC while the listener runs, and always
+   clear it afterward. Events emitted by a consumer therefore retain the
+   originating trace through their own outbox write.
+
+## Outbox and inbox retention
+
+Every service that owns `outbox_events` or `inbox_events` runs a bounded,
+service-local cleanup job:
+
+- Published outbox rows older than 7 days are deleted. Unpublished rows are
+  never deleted by retention cleanup.
+- Processed inbox rows older than 30 days are deleted.
+- Each run deletes at most the configured batch size; the job repeats on a
+  fixed delay.
+- All lifecycle jobs are disabled in test configuration unless a test
+  explicitly enables or invokes them.
+
+The common property names are local to each service and can be overridden
+independently:
+
+| Property | Environment variable | Default |
+|----------|----------------------|---------|
+| `parkio.lifecycle.retention.outbox-enabled` | `PARKIO_OUTBOX_RETENTION_ENABLED` | `true` |
+| `parkio.lifecycle.retention.inbox-enabled` | `PARKIO_INBOX_RETENTION_ENABLED` | `true` |
+| `parkio.lifecycle.retention.outbox-retention` | `PARKIO_OUTBOX_RETENTION` | `P7D` |
+| `parkio.lifecycle.retention.inbox-retention` | `PARKIO_INBOX_RETENTION` | `P30D` |
+| `parkio.lifecycle.retention.fixed-delay-ms` | `PARKIO_RETENTION_FIXED_DELAY_MS` | `3600000` |
+| `parkio.lifecycle.retention.batch-size` | `PARKIO_RETENTION_BATCH_SIZE` | `1000` |
+
+Inbox retention bounds the deduplication window. After an inbox row is deleted,
+replaying that older Kafka event can execute the consumer again. Production
+retention must therefore exceed Kafka retention plus the expected DLT redrive,
+replay, and backfill window; temporarily extend or disable cleanup before an
+older replay.
+
 > The envelope is **not** a shared class — consistent with the no-shared-module rule it
 > is duplicated **locally** per service as `infrastructure.messaging.EventEnvelope`. It
 > now exists in the relays (`auth`, `parking`, `gamification`, `media`, `ai-validation`,
@@ -201,21 +254,29 @@ business event is the opaque `payload`):
 
 ## Integration tests (Testcontainers)
 
-Every relay and consumer is covered by **unit tests** (envelope/header/key/topic building
-+ publish-then-mark for relays; deserialize→dispatch→ack + idempotency + ignore-unsupported
-for consumers). The **first real-broker integration tests** now exist, using a
-Testcontainers Kafka broker and the production serializers/classes:
+Integration tests use Testcontainers for Kafka and production infrastructure that
+cannot be represented accurately by H2. They share the normal test source set but
+are tagged `integration`, so they are opt-in:
 
 | IT | Module | Verifies |
 |----|--------|----------|
-| `AuthOutboxRelayKafkaIT` | auth | Real `AuthOutboxRelay` publishes `UserRegistered` to `parkio.auth.user`; asserts topic, key, all six headers (`eventId/eventType/aggregateType/aggregateId/occurredAt/version`) and the JSON envelope+payload round-trip. |
+| `AuthOutboxRelayKafkaIT` | auth | Real `AuthOutboxRelay` publishes `UserRegistered` to `parkio.auth.user`; asserts topic, key, routing headers and the JSON envelope+payload round-trip. When the outbox row has a trace, it is mirrored into the `traceId` header and envelope. |
 | `UserRegisteredConsumerKafkaIT` | user | Envelope produced to a real broker is consumed by the real `UserRegisteredKafkaConsumer`, deserialized and dispatched to the real `UserApplicationService` (in-memory fakes) → profile provisioned **once**; redelivery deduped by the inbox; both deliveries acked. |
 | `ParkingOutboxRelayKafkaIT` | parking | Real `ParkingOutboxRelay` publishes `ParkingSpotCreated` to `parkio.parking.spot`, keyed by spot id, with headers. |
 | `GamificationKafkaIT` | gamification | (1) `ParkingSpotCreated` envelope → real `ParkingEventsKafkaConsumer` + real `GamificationApplicationService` (fakes) awards owner points **once** across a redelivery (inbox idempotency); (2) a malformed/poison record routed through the **real container factory's error handler** lands on `parkio.dlt.gamification` (DLT behaviour). |
+| `ParkingPostgisIntegrationTest` | parking | Starts PostGIS 16, runs every parking Flyway migration, validates the schema with Hibernate, verifies the PostGIS extension, location trigger and GiST index, and exercises radius/status/legal/expiry filtering plus nearest-first ordering through the production repository. |
+| `MediaInfrastructureIntegrationTest` | media | Starts PostgreSQL 16 and MinIO, runs every media Flyway migration with Hibernate validation, then uploads, stats and deletes a PNG through the production MinIO adapter. |
 
 **How to run:** integration tests are tagged `@Tag("integration")` and `@Testcontainers(disabledWithoutDocker = true)`.
 - `./gradlew build` / `test` — **unit tests only** (the `integration` tag is excluded); no Docker required, always green.
-- `./gradlew integrationTest` — runs the tagged ITs; **requires Docker** (Testcontainers pulls `confluentinc/cp-kafka:7.7.1`). Without Docker the ITs are **skipped**, not failed.
+- `./gradlew integrationTest` — runs all tagged tests; **requires Docker**.
+- Service-specific runs are available with
+  `./gradlew :services:parking-service:integrationTest` and
+  `./gradlew :services:media-service:integrationTest`.
+- Images currently match local Compose: Kafka `confluentinc/cp-kafka:7.7.1`,
+  PostGIS `postgis/postgis:16-3.4`, PostgreSQL `postgres:16-alpine`, and MinIO
+  `minio/minio:RELEASE.2024-09-13T20-26-02Z`.
+- Without Docker, container tests are discovered and **skipped**, not failed.
 
 ### Remaining integration-test backlog
 - Consumer-side ITs for the other live flows: parking→{notification, analytics, ai-validation},
@@ -225,6 +286,8 @@ Testcontainers Kafka broker and the production serializers/classes:
   (the current ITs invoke the real consumer/relay classes directly against a real broker to
   stay fast and avoid seeding reference data).
 - DLT ITs for the other consumer DLTs (`parkio.dlt.{user,notification,analytics,moderation,aivalidation}`).
+- Flyway smoke coverage for the remaining service databases and S3 providers
+  other than MinIO remain untested.
 
 ## Local broker
 
