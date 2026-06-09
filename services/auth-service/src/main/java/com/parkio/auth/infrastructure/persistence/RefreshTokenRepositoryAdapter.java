@@ -39,4 +39,12 @@ public class RefreshTokenRepositoryAdapter implements RefreshTokenRepository {
             Instant revokedAt) {
         return jpa.revokeActiveFamily(tokenFamilyId, reason, revokedAt);
     }
+
+    @Override
+    public int revokeAllActiveForUser(
+            UUID userId,
+            RefreshTokenRevocationReason reason,
+            Instant revokedAt) {
+        return jpa.revokeAllActiveForUser(userId, reason, revokedAt);
+    }
 }

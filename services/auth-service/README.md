@@ -72,6 +72,24 @@ The public key is exposed at
 `GET /api/v1/auth/.well-known/jwks.json` with `kty=RSA`, `alg=RS256`,
 `use=sig`, `kid`, modulus (`n`) and exponent (`e`) only.
 
+## Token claims: issuer and audience
+
+Issued access tokens carry `iss`, `aud`, `sub` (user id), `email`, `roles`,
+`status`, `iat` and `exp`.
+
+- **Issuer (`iss`)** identifies *who signed* the token: `PARKIO_JWT_ISSUER`
+  (default `parkio-auth`).
+- **Audience (`aud`)** identifies *who the token is for*: `PARKIO_JWT_AUDIENCE`
+  (default `parkio-api`, intended for local/dev only). The gateway validates the
+  audience and rejects tokens whose `aud` is missing or different, so both
+  services must be configured with the **same** value — set it explicitly per
+  environment in production. A blank audience fails closed at startup.
+
+Clock-skew tolerance for `exp` validation is applied by the *consumer* of the
+token (the gateway, `PARKIO_JWT_CLOCK_SKEW_SECONDS`, default 30s) — auth-service
+issues exact `iat`/`exp` timestamps from its own clock. Refresh tokens are
+unaffected (opaque, validated against the database, not JWTs).
+
 ## Refresh tokens
 
 Refresh tokens are opaque 256-bit random values. Only their SHA-256 hash is
@@ -93,12 +111,38 @@ Optimistic locking prevents two concurrent refreshes of the same token from
 creating two valid children. `logout` remains idempotent and revokes only the
 presented token with reason `LOGOUT`; there is no logout-all behavior.
 
+## Moderation status sync (suspend / restore)
+
+auth-service consumes `UserSuspended` / `UserRestored` from
+`parkio.moderation.action` (group `parkio.auth`, local DTOs — no shared models,
+inbox idempotency by `eventId`, manual ack after the transaction commits, poison
+records → `parkio.dlt.auth`):
+
+- **`UserSuspended`** sets `auth_users.status = SUSPENDED` and revokes **every
+  active refresh token across all of the user's families** with reason
+  `ADMIN_REVOKED`, in the same transaction. Login and refresh both call
+  `ensureCanAuthenticate()`, so a suspended user can neither log in nor mint new
+  access tokens by refreshing.
+- **`UserRestored`** sets the status back to `ACTIVE` so future logins succeed.
+  Tokens revoked during the suspension stay revoked — restoration never
+  resurrects old sessions.
+- **Ordering:** `auth_users.status_changed_at` records the `occurredAt` of the
+  last applied status event; an event is applied only when
+  `occurredAt >= status_changed_at`, so a stale out-of-order restore cannot lift
+  a newer suspension. Other moderation action types (e.g.
+  `ParkingSpotRejectedByModerator`) are ignored and acked.
+
+This complements (does not replace) the gateway's per-request status check
+against user-service: the gateway blocks tokens already issued, while auth-service
+prevents suspended users from obtaining new tokens at all.
+
 ## Security hardening backlog
 
 Known, intentionally-deferred gaps — documented so they are not mistaken for
 finished work. None is implemented yet.
 
-- **Global "log out everywhere".** Only single-token logout exists today; a bulk
-  "revoke all tokens for user" operation/endpoint is not implemented.
+- **Global "log out everywhere".** Only single-token logout exists today; the bulk
+  "revoke all tokens for user" operation exists internally (used by moderation
+  suspension) but is not exposed as a user-facing endpoint.
 - **Login throttling / lockout.** No service-level rate limiting on failed
   logins (gateway-level rate limiting is a separate concern).

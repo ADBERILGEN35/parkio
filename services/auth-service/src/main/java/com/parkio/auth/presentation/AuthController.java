@@ -7,6 +7,7 @@ import com.parkio.auth.application.command.RefreshTokenCommand;
 import com.parkio.auth.application.command.RegisterCommand;
 import com.parkio.auth.application.result.AuthResult;
 import com.parkio.auth.domain.AuthUser;
+import com.parkio.auth.infrastructure.metrics.AuthMetrics;
 import com.parkio.auth.presentation.dto.AuthResponse;
 import com.parkio.auth.presentation.dto.LoginRequest;
 import com.parkio.auth.presentation.dto.LogoutRequest;
@@ -34,9 +35,11 @@ import org.springframework.web.bind.annotation.RestController;
 public class AuthController {
 
     private final AuthApplicationService authService;
+    private final AuthMetrics authMetrics;
 
-    public AuthController(AuthApplicationService authService) {
+    public AuthController(AuthApplicationService authService, AuthMetrics authMetrics) {
         this.authService = authService;
+        this.authMetrics = authMetrics;
     }
 
     @PostMapping("/register")
@@ -48,7 +51,14 @@ public class AuthController {
 
     @PostMapping("/login")
     public AuthResponse login(@Valid @RequestBody LoginRequest request) {
-        AuthResult result = authService.login(new LoginCommand(request.email(), request.password()));
+        AuthResult result;
+        try {
+            result = authService.login(new LoginCommand(request.email(), request.password()));
+        } catch (RuntimeException ex) {
+            authMetrics.loginFailed();
+            throw ex;
+        }
+        authMetrics.loginSucceeded();
         return AuthResponse.from(result);
     }
 

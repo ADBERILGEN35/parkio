@@ -8,6 +8,7 @@ import com.parkio.media.application.port.MediaFileRepository;
 import com.parkio.media.application.port.MediaStoragePort;
 import com.parkio.media.application.port.MediaValidationResultRepository;
 import com.parkio.media.application.port.OutboxEventAppender;
+import com.parkio.media.application.result.MediaAccessUrl;
 import com.parkio.media.application.result.MediaUploadResult;
 import com.parkio.media.domain.MediaFile;
 import com.parkio.media.domain.MediaStatus;
@@ -20,6 +21,7 @@ import com.parkio.media.domain.event.MediaUploadedEvent;
 import com.parkio.media.domain.exception.MediaErrorCode;
 import com.parkio.media.domain.exception.MediaException;
 import java.time.Clock;
+import java.time.Duration;
 import java.time.Instant;
 import java.time.ZoneOffset;
 import java.util.ArrayList;
@@ -40,6 +42,7 @@ class MediaApplicationServiceTest {
 
     private static final Instant NOW = Instant.parse("2026-06-07T12:00:00Z");
     private static final long MAX_SIZE = 1024;
+    private static final Duration ACCESS_URL_TTL = Duration.ofMinutes(5);
 
     private FakeMediaFileRepository mediaFiles;
     private FakeMediaValidationResultRepository validationResults;
@@ -57,7 +60,8 @@ class MediaApplicationServiceTest {
                 Set.of("image/jpeg", "image/png", "image/webp"), MAX_SIZE);
         Clock clock = Clock.fixed(NOW, ZoneOffset.UTC);
         service = new MediaApplicationService(mediaFiles, validationResults, storage, outbox,
-                new MediaRejectionRecorder(outbox), constraints, clock);
+                new MediaRejectionRecorder(outbox), constraints,
+                new MediaAccessUrlPolicy(ACCESS_URL_TTL), clock);
     }
 
     private static final byte[] JPEG_MAGIC = {(byte) 0xFF, (byte) 0xD8, (byte) 0xFF};
@@ -221,22 +225,81 @@ class MediaApplicationServiceTest {
     }
 
     @Test
-    void getMetadataReturnsStoredMedia() {
+    void ownerCanReadMetadata() {
         UUID owner = UUID.randomUUID();
         MediaUploadResult result = service.upload(jpeg(owner, new byte[]{1, 2, 3}));
 
-        MediaFile media = service.getMetadata(result.mediaId());
+        MediaFile media = service.getMetadata(result.mediaId(), owner, false);
 
         assertThat(media.id()).isEqualTo(result.mediaId());
         assertThat(media.ownerUserId()).isEqualTo(owner);
     }
 
     @Test
-    void getMetadataThrowsWhenMissing() {
-        assertThatThrownBy(() -> service.getMetadata(UUID.randomUUID()))
+    void nonOwnerMetadataReadIsAnsweredAsNotFound() {
+        UUID owner = UUID.randomUUID();
+        MediaUploadResult result = service.upload(jpeg(owner, new byte[]{1, 2, 3}));
+
+        assertThatThrownBy(() -> service.getMetadata(result.mediaId(), UUID.randomUUID(), false))
                 .isInstanceOf(MediaException.class)
                 .extracting(e -> ((MediaException) e).errorCode())
                 .isEqualTo(MediaErrorCode.MEDIA_NOT_FOUND);
+    }
+
+    @Test
+    void moderatorCanReadAnotherUsersMetadata() {
+        UUID owner = UUID.randomUUID();
+        MediaUploadResult result = service.upload(jpeg(owner, new byte[]{1, 2, 3}));
+
+        MediaFile media = service.getMetadata(result.mediaId(), UUID.randomUUID(), true);
+
+        assertThat(media.id()).isEqualTo(result.mediaId());
+    }
+
+    @Test
+    void getMetadataThrowsWhenMissing() {
+        UUID requester = UUID.randomUUID();
+        assertThatThrownBy(() -> service.getMetadata(UUID.randomUUID(), requester, false))
+                .isInstanceOf(MediaException.class)
+                .extracting(e -> ((MediaException) e).errorCode())
+                .isEqualTo(MediaErrorCode.MEDIA_NOT_FOUND);
+    }
+
+    @Test
+    void ownerObtainsShortLivedAccessUrlThatIsNeverPersisted() {
+        UUID owner = UUID.randomUUID();
+        MediaUploadResult result = service.upload(jpeg(owner, new byte[]{1, 2, 3}));
+        String objectKey = mediaFiles.findById(result.mediaId()).orElseThrow().objectKey();
+
+        MediaAccessUrl accessUrl = service.createAccessUrl(result.mediaId(), owner, false);
+
+        assertThat(accessUrl.mediaId()).isEqualTo(result.mediaId());
+        assertThat(accessUrl.url()).isEqualTo("https://signed.example/" + objectKey + "?ttl=" + ACCESS_URL_TTL);
+        assertThat(accessUrl.expiresAt()).isEqualTo(NOW.plus(ACCESS_URL_TTL));
+        // Generated per request — nothing about the URL is stored on the aggregate.
+        assertThat(storage.presignedKeys).containsExactly(objectKey);
+    }
+
+    @Test
+    void nonOwnerCannotObtainAccessUrl() {
+        UUID owner = UUID.randomUUID();
+        MediaUploadResult result = service.upload(jpeg(owner, new byte[]{1, 2, 3}));
+
+        assertThatThrownBy(() -> service.createAccessUrl(result.mediaId(), UUID.randomUUID(), false))
+                .isInstanceOf(MediaException.class)
+                .extracting(e -> ((MediaException) e).errorCode())
+                .isEqualTo(MediaErrorCode.MEDIA_NOT_FOUND);
+        assertThat(storage.presignedKeys).isEmpty();
+    }
+
+    @Test
+    void moderatorCanObtainAccessUrl() {
+        UUID owner = UUID.randomUUID();
+        MediaUploadResult result = service.upload(jpeg(owner, new byte[]{1, 2, 3}));
+
+        MediaAccessUrl accessUrl = service.createAccessUrl(result.mediaId(), UUID.randomUUID(), true);
+
+        assertThat(accessUrl.url()).isNotBlank();
     }
 
     @Test
@@ -257,21 +320,43 @@ class MediaApplicationServiceTest {
         assertThat(mediaFiles.byId.get(result.mediaId()).status()).isEqualTo(MediaStatus.DELETED);
         assertThat(storage.objects).doesNotContainKey(objectKey);
         assertThat(storage.deleted).contains(objectKey);
-        assertThatThrownBy(() -> service.getMetadata(result.mediaId()))
+        assertThatThrownBy(() -> service.getMetadata(result.mediaId(), owner, false))
                 .isInstanceOf(MediaException.class)
                 .extracting(e -> ((MediaException) e).errorCode())
                 .isEqualTo(MediaErrorCode.MEDIA_NOT_FOUND);
     }
 
     @Test
-    void getValidationResultsReturnsRecordedChecks() {
+    void ownerCanReadValidationResults() {
         UUID owner = UUID.randomUUID();
         MediaUploadResult result = service.upload(jpeg(owner, new byte[]{1, 1, 1}));
 
-        List<MediaValidationResult> results = service.getValidationResults(result.mediaId());
+        List<MediaValidationResult> results = service.getValidationResults(result.mediaId(), owner, false);
 
         assertThat(results).hasSize(3);
         assertThat(results).allMatch(r -> r.result() == MediaValidationOutcome.PASSED);
+    }
+
+    @Test
+    void normalNonOwnerCannotReadValidationResults() {
+        UUID owner = UUID.randomUUID();
+        MediaUploadResult result = service.upload(jpeg(owner, new byte[]{1, 1, 1}));
+
+        assertThatThrownBy(() -> service.getValidationResults(result.mediaId(), UUID.randomUUID(), false))
+                .isInstanceOf(MediaException.class)
+                .extracting(e -> ((MediaException) e).errorCode())
+                .isEqualTo(MediaErrorCode.MEDIA_NOT_FOUND);
+    }
+
+    @Test
+    void moderatorCanReadValidationResults() {
+        UUID owner = UUID.randomUUID();
+        MediaUploadResult result = service.upload(jpeg(owner, new byte[]{1, 1, 1}));
+
+        List<MediaValidationResult> results =
+                service.getValidationResults(result.mediaId(), UUID.randomUUID(), true);
+
+        assertThat(results).hasSize(3);
     }
 
     private void assertRejectedEvent(MediaValidationType expectedType) {
@@ -320,17 +405,24 @@ class MediaApplicationServiceTest {
     private static final class FakeMediaStoragePort implements MediaStoragePort {
         private final Map<String, byte[]> objects = new HashMap<>();
         private final List<String> deleted = new ArrayList<>();
+        private final List<String> presignedKeys = new ArrayList<>();
 
         @Override
         public StoredObject store(String objectKey, byte[] content, String contentType) {
             objects.put(objectKey, content);
-            return new StoredObject("test-bucket", objectKey, null);
+            return new StoredObject("test-bucket", objectKey);
         }
 
         @Override
         public void delete(String objectKey) {
             objects.remove(objectKey);
             deleted.add(objectKey);
+        }
+
+        @Override
+        public String generatePresignedGetUrl(String objectKey, Duration ttl) {
+            presignedKeys.add(objectKey);
+            return "https://signed.example/" + objectKey + "?ttl=" + ttl;
         }
     }
 

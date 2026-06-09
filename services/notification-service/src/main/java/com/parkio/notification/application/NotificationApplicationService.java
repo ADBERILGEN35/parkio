@@ -42,8 +42,9 @@ import org.springframework.transaction.annotation.Transactional;
  *
  * <p>This service owns notifications, device tokens, delivery records and preference
  * projections only — never profiles, auth, parking, gamification scoring or media
- * (ai-context/03). Real push/email delivery is not implemented: in-app notifications
- * are recorded as SENT; external channels would start PENDING for a future relay.
+ * (ai-context/03). Each in-app notification is recorded as SENT and, via
+ * {@link NotificationDeliveryService}, fans out PUSH delivery attempts for the user's
+ * active device tokens (when push is enabled). EMAIL delivery is backlog.
  */
 @Service
 @Transactional
@@ -55,6 +56,7 @@ public class NotificationApplicationService {
     private final NotificationPreferenceRepository preferences;
     private final InboxEventRepository inbox;
     private final OutboxEventAppender outbox;
+    private final NotificationDeliveryService delivery;
     private final Clock clock;
 
     public NotificationApplicationService(NotificationRepository notifications,
@@ -63,6 +65,7 @@ public class NotificationApplicationService {
                                           NotificationPreferenceRepository preferences,
                                           InboxEventRepository inbox,
                                           OutboxEventAppender outbox,
+                                          NotificationDeliveryService delivery,
                                           Clock clock) {
         this.notifications = notifications;
         this.deviceTokens = deviceTokens;
@@ -70,6 +73,7 @@ public class NotificationApplicationService {
         this.preferences = preferences;
         this.inbox = inbox;
         this.outbox = outbox;
+        this.delivery = delivery;
         this.clock = clock;
     }
 
@@ -243,6 +247,7 @@ public class NotificationApplicationService {
         Notification notification = notifications.save(Notification.create(
                 userId, type, NotificationChannel.IN_APP, content.title(), content.body(), now));
         outbox.append(NotificationCreatedEvent.of(notification, now));
+        delivery.enqueuePushDelivery(notification);
         return notification;
     }
 

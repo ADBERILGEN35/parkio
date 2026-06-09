@@ -11,11 +11,13 @@ import com.parkio.user.application.UserApplicationService;
 import com.parkio.user.application.event.UserRegisteredEvent;
 import com.parkio.user.application.port.InboxEventRepository;
 import com.parkio.user.application.port.OutboxEventAppender;
+import com.parkio.user.application.port.PendingUserStatusEventRepository;
 import com.parkio.user.application.port.UserPreferenceRepository;
 import com.parkio.user.application.port.UserProfileRepository;
 import com.parkio.user.application.port.UserTrustProfileRepository;
 import com.parkio.user.application.port.UserTrustScoreHistoryRepository;
 import com.parkio.user.application.port.UserVehicleProfileRepository;
+import com.parkio.user.domain.PendingUserStatusEvent;
 import com.parkio.user.domain.UserPreference;
 import com.parkio.user.domain.UserProfile;
 import com.parkio.user.domain.UserTrustProfile;
@@ -86,6 +88,7 @@ class UserRegisteredConsumerKafkaIT {
                 profiles, new FakeUserPreferenceRepository(), new FakeUserVehicleProfileRepository(),
                 new FakeUserTrustProfileRepository(), new FakeUserTrustScoreHistoryRepository(),
                 new FakeOutboxEventAppender(), new FakeInboxEventRepository(),
+                new FakePendingUserStatusEventRepository(),
                 Clock.fixed(occurredAt, ZoneOffset.UTC));
         UserRegisteredKafkaConsumer consumer = new UserRegisteredKafkaConsumer(userService, objectMapper);
 
@@ -230,6 +233,24 @@ class UserRegisteredConsumerKafkaIT {
         @Override
         public void markProcessed(UUID eventId, String eventType, Instant processedAt) {
             processed.add(eventId);
+        }
+    }
+
+    private static final class FakePendingUserStatusEventRepository
+            implements PendingUserStatusEventRepository {
+        @Override
+        public void save(PendingUserStatusEvent event) {
+            // no-op
+        }
+
+        @Override
+        public List<PendingUserStatusEvent> findByAuthUserId(UUID authUserId) {
+            return List.of();
+        }
+
+        @Override
+        public void deleteByAuthUserId(UUID authUserId) {
+            // no-op
         }
     }
 }

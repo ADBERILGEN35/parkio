@@ -1,8 +1,8 @@
 # Prometheus scrape configuration for the Parkio local stack.
 #
-# Service targets are resolved over the parkio-backend Docker network. They will
-# report "down" until a service adds the `micrometer-registry-prometheus`
-# dependency and exposes /actuator/prometheus — that is expected at scaffold stage.
+# Service targets are resolved over the parkio-backend Docker network. Every service
+# ships `micrometer-registry-prometheus` and exposes /actuator/prometheus (see
+# docs/architecture/observability-metrics.md for the metric catalogue).
 
 global:
   scrape_interval: 15s

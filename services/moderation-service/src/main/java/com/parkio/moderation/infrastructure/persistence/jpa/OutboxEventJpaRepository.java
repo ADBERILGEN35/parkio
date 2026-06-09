@@ -1,6 +1,7 @@
 package com.parkio.moderation.infrastructure.persistence.jpa;
 
 import com.parkio.moderation.infrastructure.persistence.entity.OutboxEventEntity;
+import java.time.Instant;
 import java.util.List;
 import java.util.UUID;
 import org.springframework.data.jpa.repository.JpaRepository;
@@ -22,4 +23,11 @@ public interface OutboxEventJpaRepository extends JpaRepository<OutboxEventEntit
             FOR UPDATE SKIP LOCKED
             """, nativeQuery = true)
     List<OutboxEventEntity> findUnpublishedBatchForUpdate(@Param("limit") int limit);
+
+    /** Backlog size for the {@code parkio.outbox.unpublished.count} gauge (cheap COUNT). */
+    long countByPublishedFalse();
+
+    /** Oldest unpublished row's creation time (gauge input); {@code null} when the backlog is empty. */
+    @Query(value = "SELECT MIN(created_at) FROM outbox_events WHERE published = false", nativeQuery = true)
+    Instant findOldestUnpublishedCreatedAt();
 }

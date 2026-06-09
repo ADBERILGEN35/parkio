@@ -123,11 +123,16 @@ management:
   endpoints:
     web:
       exposure:
-        include: health,info
+        # Probes + Prometheus scrape only — never sensitive endpoints (env, beans, ...).
+        include: health,info,prometheus
   endpoint:
     health:
       probes:
         enabled: true
+  metrics:
+    tags:
+      # Tag every metric with the service name (kept in sync with the scrape label).
+      application: ${spring.application.name}
 
 info:
   app:
@@ -138,6 +143,11 @@ parkio:
   security:
     jwt:
       issuer: ${PARKIO_JWT_ISSUER:parkio-auth}
+      # Expected aud claim — must match auth-service's PARKIO_JWT_AUDIENCE. The default
+      # is for local/dev; set it explicitly in production. Blank fails closed at startup.
+      audience: ${PARKIO_JWT_AUDIENCE:parkio-api}
+      # Tolerance (seconds) for exp/nbf checks to absorb clock drift between services.
+      clock-skew-seconds: ${PARKIO_JWT_CLOCK_SKEW_SECONDS:30}
       jwks-uri: ${PARKIO_AUTH_JWKS_URI:http://localhost:8081/api/v1/auth/.well-known/jwks.json}
       jwks-cache-ttl: ${PARKIO_AUTH_JWKS_CACHE_TTL:PT15M}
   gateway:

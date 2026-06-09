@@ -24,7 +24,8 @@ This service follows clean architecture. Source lives under
 
 The gateway is the **only public ingress** for backend APIs. It:
 
-- validates JWT access tokens at the edge (signature, issuer, expiry);
+- validates JWT access tokens at the edge (signature, issuer, audience, expiry
+  with configurable clock skew);
 - routes `/api/v1/**` requests to the owning downstream service;
 - **role-gates** privileged routes at the edge (see the role matrix above), rejecting
   unauthorized callers with a `403` before they reach any service;
@@ -152,8 +153,19 @@ reaches the downstream service.
   `PARKIO_AUTH_JWKS_URI` (defaulting to auth-service's JWKS endpoint). Keys are
   cached for `PARKIO_AUTH_JWKS_CACHE_TTL` (default `15m`); an unknown `kid`
   triggers one immediate JWKS refresh before rejection. The gateway validates
-  `alg=RS256`, `kid`, signature, issuer and expiry and never receives the private
-  signing key.
+  `alg=RS256`, `kid`, signature, issuer, audience and expiry and never receives
+  the private signing key. There is no HS256 fallback.
+- **Issuer vs audience.** `iss` (`PARKIO_JWT_ISSUER`, default `parkio-auth`)
+  states who signed the token; `aud` (`PARKIO_JWT_AUDIENCE`, default
+  `parkio-api`) states who it is intended for. The gateway rejects tokens whose
+  `aud` is missing or does not contain its configured value. The defaults are
+  for local/dev — production must set both env vars explicitly, with the same
+  audience on auth-service and gateway. Blank values fail closed at startup.
+- **Clock skew.** Time-based claim checks (`exp`, `nbf`) tolerate
+  `PARKIO_JWT_CLOCK_SKEW_SECONDS` (default `30`) of drift between auth-service
+  and gateway clocks: a token expired for less than the skew window is still
+  accepted; one expired beyond it is rejected, as is an `nbf` further in the
+  future than the skew. `iat` is informational and not independently validated.
 - **CORS** is configured via `parkio.gateway.cors.*` (origins empty by default →
   no cross-origin browser access until configured per environment). Lock origins
   down per environment (env var `PARKIO_CORS_ALLOWED_ORIGINS`).

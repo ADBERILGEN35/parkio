@@ -16,9 +16,10 @@ import java.util.UUID;
 import org.springframework.stereotype.Component;
 
 /**
- * Issues and verifies RS256 JWT access tokens. Claims: {@code sub} (user id),
- * {@code email}, {@code roles}, {@code status}, {@code iat}, {@code exp}.
- * Implements {@link AccessTokenIssuer}; the bearer filter uses {@link #parse}.
+ * Issues and verifies RS256 JWT access tokens. Claims: {@code iss}, {@code aud},
+ * {@code sub} (user id), {@code email}, {@code roles}, {@code status}, {@code iat},
+ * {@code exp}. Implements {@link AccessTokenIssuer}; the bearer filter uses
+ * {@link #parse}.
  */
 @Component
 public class JwtService implements AccessTokenIssuer {
@@ -29,12 +30,14 @@ public class JwtService implements AccessTokenIssuer {
 
     private final RsaKeyProvider keys;
     private final String issuer;
+    private final String audience;
     private final java.time.Duration accessTokenTtl;
     private final Clock clock;
 
     public JwtService(JwtProperties properties, RsaKeyProvider keys, Clock clock) {
         this.keys = keys;
         this.issuer = properties.getIssuer();
+        this.audience = properties.getAudience();
         this.accessTokenTtl = properties.getAccessTokenTtl();
         this.clock = clock;
     }
@@ -51,6 +54,7 @@ public class JwtService implements AccessTokenIssuer {
         String token = Jwts.builder()
                 .header().keyId(keys.keyId()).and()
                 .issuer(issuer)
+                .audience().add(audience).and()
                 .subject(user.id().toString())
                 .claim(CLAIM_EMAIL, user.email())
                 .claim(CLAIM_ROLES, roles)

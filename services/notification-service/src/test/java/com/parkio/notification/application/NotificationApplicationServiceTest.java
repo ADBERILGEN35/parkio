@@ -10,13 +10,17 @@ import com.parkio.notification.application.event.PointsEarnedEvent;
 import com.parkio.notification.application.event.UserLevelChangedEvent;
 import com.parkio.notification.application.port.DeviceTokenRepository;
 import com.parkio.notification.application.port.InboxEventRepository;
+import com.parkio.notification.application.port.NotificationDeliveryAttemptRepository;
 import com.parkio.notification.application.port.NotificationPreferenceRepository;
 import com.parkio.notification.application.port.NotificationRepository;
 import com.parkio.notification.application.port.NotificationTemplateRepository;
 import com.parkio.notification.application.port.OutboxEventAppender;
+import com.parkio.notification.domain.DeliveryStatus;
 import com.parkio.notification.domain.DevicePlatform;
 import com.parkio.notification.domain.DeviceToken;
 import com.parkio.notification.domain.Notification;
+import com.parkio.notification.domain.NotificationChannel;
+import com.parkio.notification.domain.NotificationDeliveryAttempt;
 import com.parkio.notification.domain.NotificationPreference;
 import com.parkio.notification.domain.NotificationStatus;
 import com.parkio.notification.domain.NotificationTemplate;
@@ -50,6 +54,7 @@ class NotificationApplicationServiceTest {
     private FakePreferenceRepository preferences;
     private FakeInboxRepository inbox;
     private FakeOutbox outbox;
+    private FakeDeliveryAttemptRepository deliveryAttempts;
     private NotificationApplicationService service;
 
     @BeforeEach
@@ -60,8 +65,12 @@ class NotificationApplicationServiceTest {
         preferences = new FakePreferenceRepository();
         inbox = new FakeInboxRepository();
         outbox = new FakeOutbox();
+        deliveryAttempts = new FakeDeliveryAttemptRepository();
+        Clock clock = Clock.fixed(NOW, ZoneOffset.UTC);
+        NotificationDeliveryService delivery =
+                new NotificationDeliveryService(preferences, deviceTokens, deliveryAttempts, clock);
         service = new NotificationApplicationService(notifications, deviceTokens, templates, preferences,
-                inbox, outbox, Clock.fixed(NOW, ZoneOffset.UTC));
+                inbox, outbox, delivery, clock);
     }
 
     @Test
@@ -138,6 +147,21 @@ class NotificationApplicationServiceTest {
                     assertThat(n.type()).isEqualTo(NotificationType.POINT_EARNED);
                     assertThat(n.body()).contains("20 points");
                 });
+    }
+
+    @Test
+    void notificationCreationEnqueuesPushAttemptWhenActiveTokenExists() {
+        UUID user = UUID.randomUUID();
+        service.registerDeviceToken(new RegisterDeviceTokenCommand(user, "token-abc", DevicePlatform.ANDROID));
+
+        service.handleUserLevelChanged(new UserLevelChangedEvent(UUID.randomUUID(), user, 1, 2, 100, NOW));
+
+        assertThat(notifications.findRecentByUserId(user, 10)).hasSize(1);
+        assertThat(deliveryAttempts.byId.values()).singleElement().satisfies(a -> {
+            assertThat(a.channel()).isEqualTo(NotificationChannel.PUSH);
+            assertThat(a.status()).isEqualTo(DeliveryStatus.PENDING);
+            assertThat(a.userId()).isEqualTo(user);
+        });
     }
 
     @Test
@@ -259,6 +283,38 @@ class NotificationApplicationServiceTest {
             return byId.values().stream()
                     .filter(t -> t.userId().equals(userId) && t.token().equals(token))
                     .findFirst();
+        }
+
+        @Override
+        public List<DeviceToken> findActiveByUserId(UUID userId) {
+            return byId.values().stream()
+                    .filter(t -> t.userId().equals(userId) && t.active())
+                    .toList();
+        }
+    }
+
+    private static final class FakeDeliveryAttemptRepository implements NotificationDeliveryAttemptRepository {
+        private final Map<UUID, NotificationDeliveryAttempt> byId = new HashMap<>();
+
+        @Override
+        public NotificationDeliveryAttempt save(NotificationDeliveryAttempt attempt) {
+            byId.put(attempt.id(), attempt);
+            return attempt;
+        }
+
+        @Override
+        public List<NotificationDeliveryAttempt> claimDue(Instant now, int limit) {
+            return byId.values().stream()
+                    .filter(a -> a.status() == DeliveryStatus.PENDING)
+                    .filter(a -> a.nextAttemptAt() != null && !a.nextAttemptAt().isAfter(now))
+                    .limit(limit)
+                    .toList();
+        }
+
+        @Override
+        public boolean existsByNotificationIdAndChannel(UUID notificationId, NotificationChannel channel) {
+            return byId.values().stream()
+                    .anyMatch(a -> a.notificationId().equals(notificationId) && a.channel() == channel);
         }
     }
 

@@ -23,6 +23,8 @@ class JwtTokenValidatorTest {
 
     private static final String KEY_ID = "test-key";
     private static final String ISSUER = "parkio-auth";
+    private static final String AUDIENCE = "parkio-api";
+    private static final long CLOCK_SKEW_SECONDS = 30;
     private static KeyPair signingKeys;
     private static KeyPair otherKeys;
 
@@ -54,6 +56,29 @@ class JwtTokenValidatorTest {
     }
 
     @Test
+    void rejectsTokenWithMissingAudience() {
+        JwtTokenValidator validator = validator(keyResolver(KEY_ID, signingKeys));
+        String token = tokenBuilderWithoutAudience(KEY_ID, ISSUER, signingKeys)
+                .subject(UUID.randomUUID().toString())
+                .compact();
+
+        assertThatThrownBy(() -> validator.validate(token).block())
+                .isInstanceOf(JwtException.class);
+    }
+
+    @Test
+    void rejectsTokenWithWrongAudience() {
+        JwtTokenValidator validator = validator(keyResolver(KEY_ID, signingKeys));
+        String token = tokenBuilderWithoutAudience(KEY_ID, ISSUER, signingKeys)
+                .audience().add("some-other-api").and()
+                .subject(UUID.randomUUID().toString())
+                .compact();
+
+        assertThatThrownBy(() -> validator.validate(token).block())
+                .isInstanceOf(JwtException.class);
+    }
+
+    @Test
     void rejectsExpiredToken() {
         JwtTokenValidator validator = validator(keyResolver(KEY_ID, signingKeys));
         Instant now = Instant.now();
@@ -61,6 +86,64 @@ class JwtTokenValidatorTest {
                 .subject(UUID.randomUUID().toString())
                 .issuedAt(Date.from(now.minus(2, ChronoUnit.HOURS)))
                 .expiration(Date.from(now.minus(1, ChronoUnit.HOURS)))
+                .compact();
+
+        assertThatThrownBy(() -> validator.validate(token).block())
+                .isInstanceOf(JwtException.class);
+    }
+
+    @Test
+    void acceptsTokenExpiredWithinClockSkew() {
+        JwtTokenValidator validator = validator(keyResolver(KEY_ID, signingKeys));
+        Instant now = Instant.now();
+        String token = tokenBuilder(KEY_ID, ISSUER, signingKeys)
+                .subject(UUID.randomUUID().toString())
+                .issuedAt(Date.from(now.minus(15, ChronoUnit.MINUTES)))
+                // Expired 10s ago — inside the 30s skew window.
+                .expiration(Date.from(now.minus(10, ChronoUnit.SECONDS)))
+                .compact();
+
+        AuthenticatedUser user = validator.validate(token).block();
+
+        assertThat(user).isNotNull();
+    }
+
+    @Test
+    void rejectsTokenExpiredBeyondClockSkew() {
+        JwtTokenValidator validator = validator(keyResolver(KEY_ID, signingKeys));
+        Instant now = Instant.now();
+        String token = tokenBuilder(KEY_ID, ISSUER, signingKeys)
+                .subject(UUID.randomUUID().toString())
+                .issuedAt(Date.from(now.minus(15, ChronoUnit.MINUTES)))
+                // Expired 90s ago — beyond the 30s skew window.
+                .expiration(Date.from(now.minus(90, ChronoUnit.SECONDS)))
+                .compact();
+
+        assertThatThrownBy(() -> validator.validate(token).block())
+                .isInstanceOf(JwtException.class);
+    }
+
+    @Test
+    void acceptsNotBeforeWithinClockSkew() {
+        JwtTokenValidator validator = validator(keyResolver(KEY_ID, signingKeys));
+        Instant now = Instant.now();
+        String token = tokenBuilder(KEY_ID, ISSUER, signingKeys)
+                .subject(UUID.randomUUID().toString())
+                .notBefore(Date.from(now.plus(10, ChronoUnit.SECONDS)))
+                .compact();
+
+        AuthenticatedUser user = validator.validate(token).block();
+
+        assertThat(user).isNotNull();
+    }
+
+    @Test
+    void rejectsNotBeforeBeyondClockSkew() {
+        JwtTokenValidator validator = validator(keyResolver(KEY_ID, signingKeys));
+        Instant now = Instant.now();
+        String token = tokenBuilder(KEY_ID, ISSUER, signingKeys)
+                .subject(UUID.randomUUID().toString())
+                .notBefore(Date.from(now.plus(5, ChronoUnit.MINUTES)))
                 .compact();
 
         assertThatThrownBy(() -> validator.validate(token).block())
@@ -110,6 +193,8 @@ class JwtTokenValidatorTest {
     private static JwtTokenValidator validator(JwksKeyResolver resolver) {
         JwtProperties properties = new JwtProperties();
         properties.setIssuer(ISSUER);
+        properties.setAudience(AUDIENCE);
+        properties.setClockSkewSeconds(CLOCK_SKEW_SECONDS);
         properties.setJwksUri("http://unused.test/jwks");
         return new JwtTokenValidator(
                 properties, resolver, new ObjectMapper().findAndRegisterModules());
@@ -123,6 +208,12 @@ class JwtTokenValidatorTest {
     }
 
     private static io.jsonwebtoken.JwtBuilder tokenBuilder(
+            String keyId, String issuer, KeyPair keyPair) {
+        return tokenBuilderWithoutAudience(keyId, issuer, keyPair)
+                .audience().add(AUDIENCE).and();
+    }
+
+    private static io.jsonwebtoken.JwtBuilder tokenBuilderWithoutAudience(
             String keyId, String issuer, KeyPair keyPair) {
         Instant now = Instant.now();
         return Jwts.builder()

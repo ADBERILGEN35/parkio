@@ -52,7 +52,7 @@ class MediaIdempotencyTest {
         reset(storage);
         when(storage.store(anyString(), any(byte[].class), anyString()))
                 .thenAnswer(invocation -> new MediaStoragePort.StoredObject(
-                        "test-bucket", invocation.getArgument(0), null));
+                        "test-bucket", invocation.getArgument(0)));
     }
 
     @Test

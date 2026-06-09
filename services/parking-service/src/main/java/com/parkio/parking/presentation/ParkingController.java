@@ -11,6 +11,7 @@ import com.parkio.parking.infrastructure.idempotency.IdempotentResponse;
 import com.parkio.parking.infrastructure.idempotency.RequestFingerprint;
 import com.parkio.parking.presentation.dto.CreateSpotRequest;
 import com.parkio.parking.presentation.dto.PublicSpotResponse;
+import com.parkio.parking.presentation.dto.SpotMediaAccessUrlResponse;
 import com.parkio.parking.presentation.dto.SpotResponse;
 import com.parkio.parking.presentation.dto.VerifySpotRequest;
 import jakarta.validation.Valid;
@@ -95,6 +96,18 @@ public class ParkingController {
                                       @PathVariable("spotId") UUID spotId) {
         UUID viewerUserId = requireUserId(userId);
         return PublicSpotResponse.from(parkingService.getSpotForViewer(spotId, viewerUserId));
+    }
+
+    /**
+     * Short-lived signed URL for the spot's photo, on demand (detail view) rather
+     * than in list responses — one signed URL per explicit request.
+     */
+    @GetMapping("/spots/{spotId}/media-access-url")
+    public SpotMediaAccessUrlResponse getSpotMediaAccessUrl(
+            @RequestHeader(value = USER_ID_HEADER, required = false) String userId,
+            @PathVariable("spotId") UUID spotId) {
+        UUID requesterUserId = requireUserId(userId);
+        return SpotMediaAccessUrlResponse.from(parkingService.getSpotMediaAccessUrl(spotId, requesterUserId));
     }
 
     @PostMapping("/spots/{spotId}/verify")

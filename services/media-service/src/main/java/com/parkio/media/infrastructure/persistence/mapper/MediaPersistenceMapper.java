@@ -16,14 +16,14 @@ public final class MediaPersistenceMapper {
 
     public static MediaFile toDomain(MediaFileEntity e) {
         return new MediaFile(e.getId(), e.getOwnerUserId(), e.getBucketName(), e.getObjectKey(),
-                e.getAccessUrl(), e.getContentType(), e.getFileSize(), e.getChecksum(),
+                e.getContentType(), e.getFileSize(), e.getChecksum(),
                 e.getPerceptualHash(), e.getStatus(), e.getCreatedAt(), e.getUpdatedAt(),
                 e.getDeletedAt(), e.getVersion());
     }
 
     public static MediaFileEntity toEntity(MediaFile m) {
         return new MediaFileEntity(m.id(), m.ownerUserId(), m.bucketName(), m.objectKey(),
-                m.accessUrl(), m.contentType(), m.fileSize(), m.checksum(), m.perceptualHash(),
+                m.contentType(), m.fileSize(), m.checksum(), m.perceptualHash(),
                 m.status(), m.createdAt(), m.updatedAt(), m.deletedAt(), m.version());
     }
 

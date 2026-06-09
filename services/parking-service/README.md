@@ -88,6 +88,68 @@ privacy-safe view that omits `ownerUserId`, `confidenceScore`, `verificationCoun
 and `filledReportCount`. Owners see those full fields only via
 `GET /my-spots` and `GET /my-spots/{id}`.
 
+## Spot photo access (parking-mediated signed URLs)
+
+media-service protects media as owner/moderator-only, so a normal user cannot ask
+it directly for another user's spot photo. parking-service mediates that access:
+it owns the visibility rules, and media-service trusts it via an internal,
+non-public endpoint.
+
+```
+GET /api/v1/parking/spots/{spotId}/media-access-url
+```
+
+Response:
+
+```json
+{
+  "spotId": "…",
+  "mediaId": "…",
+  "accessUrl": "https://…signed…",
+  "expiresAt": "2026-06-09T12:05:00Z"
+}
+```
+
+Authorization rules (evaluated before any media-service call):
+
+- The **owner** can always fetch their own spot's photo, even when the spot is no
+  longer visible.
+- Everyone else gets the photo only while the spot is **publicly visible** — the
+  same rule as nearby search: status `ACTIVE` or `VERIFIED`, `expiresAt` in the
+  future, and not `ILLEGAL_OR_RISKY`. `SUSPICIOUS`, `FILLED`, `EXPIRED` and
+  `REJECTED` spots are hidden.
+- Hidden/unknown spots answer `404 SPOT_NOT_FOUND` (never `403`), so spot ids
+  cannot be probed or enumerated.
+
+When the request is authorized, parking-service calls media-service's internal
+endpoint (`POST /internal/media/{mediaId}/access-url`) with the shared
+`X-Gateway-Auth` secret and the current `X-Correlation-Id`, and returns the
+short-lived signed URL it gets back. If media-service is unavailable or answers
+unexpectedly, the endpoint degrades to `503 MEDIA_ACCESS_UNAVAILABLE` (a deleted
+media maps to `404`). Storage internals (bucket, object key, checksum) never
+appear in any response.
+
+**Frontend flow for a spot photo:**
+
+1. `GET /api/v1/parking/spots/{spotId}` — spot detail contains `mediaId` only.
+2. `GET /api/v1/parking/spots/{spotId}/media-access-url` — returns the signed URL.
+3. Render the image from `accessUrl`.
+4. The URL expires at `expiresAt` (TTL configured in media-service,
+   `parkio.media.access-url-ttl`, default 5 minutes). After expiry, repeat step 2
+   — URLs are generated per request and never persisted.
+
+Signed URLs are intentionally **not** included in spot list/nearby responses:
+that would mint one signed URL per listed spot per search. Fetch them on demand
+from the detail view.
+
+Client configuration:
+
+| Property | Environment variable | Default |
+|----------|----------------------|---------|
+| `parkio.media.client.base-url` | `PARKIO_MEDIA_SERVICE_URI` | `http://localhost:8084` |
+| `parkio.media.client.connect-timeout` | `PARKIO_MEDIA_CLIENT_CONNECT_TIMEOUT` | `2s` |
+| `parkio.media.client.read-timeout` | `PARKIO_MEDIA_CLIENT_READ_TIMEOUT` | `5s` |
+
 ## HTTP idempotency
 
 These high-risk writes require an `Idempotency-Key` header:

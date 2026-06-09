@@ -1,5 +1,6 @@
 package com.parkio.media.infrastructure.config;
 
+import com.parkio.media.application.MediaAccessUrlPolicy;
 import com.parkio.media.application.MediaUploadConstraints;
 import io.minio.MinioClient;
 import java.time.Clock;
@@ -43,5 +44,10 @@ public class MediaInfrastructureConfig {
         return new MediaUploadConstraints(
                 Set.copyOf(properties.getAllowedContentTypes()),
                 properties.getMaxFileSize().toBytes());
+    }
+
+    @Bean
+    public MediaAccessUrlPolicy mediaAccessUrlPolicy(MediaProperties properties) {
+        return new MediaAccessUrlPolicy(properties.getAccessUrlTtl());
     }
 }

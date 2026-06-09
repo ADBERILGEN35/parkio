@@ -5,12 +5,14 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 import com.parkio.parking.application.command.CreateSpotCommand;
 import com.parkio.parking.application.command.SearchNearbyQuery;
+import com.parkio.parking.application.port.MediaAccessPort;
 import com.parkio.parking.application.port.OutboxEventAppender;
 import com.parkio.parking.application.port.ParkingSpotRepository;
 import com.parkio.parking.application.port.ParkingSpotSearchLogRepository;
 import com.parkio.parking.application.port.ParkingSpotStatusHistoryRepository;
 import com.parkio.parking.application.port.ParkingSpotVerificationRepository;
 import com.parkio.parking.application.port.ParkingSpotViewLogRepository;
+import com.parkio.parking.application.result.SpotMediaAccess;
 import com.parkio.parking.domain.LegalStatus;
 import com.parkio.parking.domain.ParkingContext;
 import com.parkio.parking.domain.ParkingSpot;
@@ -58,6 +60,7 @@ class ParkingApplicationServiceTest {
     private FakeViewLogRepository viewLogs;
     private FakeSearchLogRepository searchLogs;
     private FakeOutboxEventAppender outbox;
+    private FakeMediaAccessPort mediaAccess;
     private MutableClock clock;
     private ParkingApplicationService service;
 
@@ -69,9 +72,10 @@ class ParkingApplicationServiceTest {
         viewLogs = new FakeViewLogRepository();
         searchLogs = new FakeSearchLogRepository();
         outbox = new FakeOutboxEventAppender();
+        mediaAccess = new FakeMediaAccessPort();
         clock = new MutableClock(NOW);
         service = new ParkingApplicationService(spots, verifications, statusHistory, viewLogs, searchLogs,
-                outbox, new ParkingSearchSettings(1000, 10, 50000, 50), clock);
+                outbox, mediaAccess, new ParkingSearchSettings(1000, 10, 50000, 50), clock);
     }
 
     private CreateSpotCommand createCommand(UUID owner, LegalStatus legalStatus) {
@@ -342,6 +346,96 @@ class ParkingApplicationServiceTest {
                 .satisfies(s -> assertThat(s.radiusMeters()).isEqualTo(2000.0));
     }
 
+    // --- Spot media access URL (parking-mediated photo viewing) -----------
+
+    @Test
+    void visibleSpotReturnsSignedMediaUrlForAnyAuthenticatedUser() {
+        ParkingSpot spot = service.createSpot(createCommand(UUID.randomUUID(), LegalStatus.LEGAL));
+        UUID viewer = UUID.randomUUID();
+
+        SpotMediaAccess access = service.getSpotMediaAccessUrl(spot.id(), viewer);
+
+        assertThat(access.spotId()).isEqualTo(spot.id());
+        assertThat(access.mediaId()).isEqualTo(spot.mediaId());
+        assertThat(access.accessUrl()).startsWith("https://signed.example/");
+        assertThat(access.expiresAt()).isAfter(NOW);
+        assertThat(mediaAccess.lastRequesterUserId).isEqualTo(viewer);
+    }
+
+    @Test
+    void expiredSpotMediaAccessIsNotFoundForNonOwner() {
+        ParkingSpot spot = service.createSpot(createCommand(UUID.randomUUID(), LegalStatus.LEGAL));
+        clock.set(NOW.plus(11, ChronoUnit.MINUTES)); // past the 10-minute window
+
+        assertMediaAccessNotFound(spot.id(), UUID.randomUUID());
+    }
+
+    @Test
+    void filledAndRejectedSpotMediaAccessIsNotFoundForNonOwner() {
+        UUID owner = UUID.randomUUID();
+        Instant future = NOW.plus(5, ChronoUnit.MINUTES);
+        ParkingSpot filled = buildSpot(owner, ParkingSpotStatus.FILLED, future, LegalStatus.LEGAL);
+        ParkingSpot rejected = buildSpot(owner, ParkingSpotStatus.REJECTED, future, LegalStatus.LEGAL);
+        List.of(filled, rejected).forEach(spots::save);
+
+        assertMediaAccessNotFound(filled.id(), UUID.randomUUID());
+        assertMediaAccessNotFound(rejected.id(), UUID.randomUUID());
+    }
+
+    @Test
+    void illegalOrRiskySpotMediaAccessIsNotFoundForNonOwner() {
+        ParkingSpot illegal = buildSpot(UUID.randomUUID(), ParkingSpotStatus.ACTIVE,
+                NOW.plus(5, ChronoUnit.MINUTES), LegalStatus.ILLEGAL_OR_RISKY);
+        spots.save(illegal);
+
+        assertMediaAccessNotFound(illegal.id(), UUID.randomUUID());
+    }
+
+    @Test
+    void suspiciousSpotMediaAccessIsNotFoundForNonOwner() {
+        // SUSPICIOUS spots are hidden from search, so their photo stays hidden too.
+        ParkingSpot suspicious = buildSpot(UUID.randomUUID(), ParkingSpotStatus.SUSPICIOUS,
+                NOW.plus(5, ChronoUnit.MINUTES), LegalStatus.LEGAL);
+        spots.save(suspicious);
+
+        assertMediaAccessNotFound(suspicious.id(), UUID.randomUUID());
+    }
+
+    @Test
+    void ownerCanAccessOwnSpotMediaEvenWhenSpotIsNotVisible() {
+        UUID owner = UUID.randomUUID();
+        ParkingSpot expired = buildSpot(owner, ParkingSpotStatus.EXPIRED,
+                NOW.minus(1, ChronoUnit.MINUTES), LegalStatus.LEGAL);
+        spots.save(expired);
+
+        SpotMediaAccess access = service.getSpotMediaAccessUrl(expired.id(), owner);
+
+        assertThat(access.mediaId()).isEqualTo(expired.mediaId());
+        assertThat(access.accessUrl()).isNotBlank();
+    }
+
+    @Test
+    void unknownSpotMediaAccessIsNotFound() {
+        assertMediaAccessNotFound(UUID.randomUUID(), UUID.randomUUID());
+    }
+
+    @Test
+    void hiddenSpotMediaAccessNeverCallsMediaService() {
+        ParkingSpot rejected = buildSpot(UUID.randomUUID(), ParkingSpotStatus.REJECTED,
+                NOW.plus(5, ChronoUnit.MINUTES), LegalStatus.LEGAL);
+        spots.save(rejected);
+
+        assertMediaAccessNotFound(rejected.id(), UUID.randomUUID());
+        assertThat(mediaAccess.requestCount).isZero();
+    }
+
+    private void assertMediaAccessNotFound(UUID spotId, UUID requesterUserId) {
+        assertThatThrownBy(() -> service.getSpotMediaAccessUrl(spotId, requesterUserId))
+                .isInstanceOf(ParkingException.class)
+                .extracting(e -> ((ParkingException) e).errorCode())
+                .isEqualTo(ParkingErrorCode.SPOT_NOT_FOUND);
+    }
+
     private ParkingSpot buildSpot(UUID owner, ParkingSpotStatus status, Instant expiresAt, LegalStatus legalStatus) {
         return new ParkingSpot(UUID.randomUUID(), owner, UUID.randomUUID(), 41.0, 29.0, null, null, false,
                 Set.of(VehicleType.SEDAN), ParkingContext.STREET_PARKING, legalStatus, Set.of(),
@@ -431,6 +525,19 @@ class ParkingApplicationServiceTest {
         public ParkingSpotSearchLog save(ParkingSpotSearchLog searchLog) {
             all.add(searchLog);
             return searchLog;
+        }
+    }
+
+    private static final class FakeMediaAccessPort implements MediaAccessPort {
+        private UUID lastRequesterUserId;
+        private int requestCount;
+
+        @Override
+        public MediaAccessGrant requestAccessUrl(UUID mediaId, UUID requesterUserId) {
+            requestCount++;
+            lastRequesterUserId = requesterUserId;
+            return new MediaAccessGrant(mediaId, "https://signed.example/" + mediaId,
+                    NOW.plus(5, ChronoUnit.MINUTES));
         }
     }
 

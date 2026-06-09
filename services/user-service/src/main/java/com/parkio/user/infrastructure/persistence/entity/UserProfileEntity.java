@@ -39,6 +39,9 @@ public class UserProfileEntity {
     @Column(name = "status", nullable = false)
     private UserStatus status;
 
+    @Column(name = "last_status_event_at")
+    private Instant lastStatusEventAt;
+
     @Column(name = "created_at", nullable = false, updatable = false)
     private Instant createdAt;
 
@@ -57,6 +60,7 @@ public class UserProfileEntity {
                              String phoneNumber,
                              String city,
                              UserStatus status,
+                             Instant lastStatusEventAt,
                              Instant createdAt,
                              Long version) {
         this.id = id;
@@ -66,6 +70,7 @@ public class UserProfileEntity {
         this.phoneNumber = phoneNumber;
         this.city = city;
         this.status = status;
+        this.lastStatusEventAt = lastStatusEventAt;
         this.createdAt = createdAt;
         this.version = version;
     }
@@ -96,6 +101,10 @@ public class UserProfileEntity {
 
     public UserStatus getStatus() {
         return status;
+    }
+
+    public Instant getLastStatusEventAt() {
+        return lastStatusEventAt;
     }
 
     public Instant getCreatedAt() {

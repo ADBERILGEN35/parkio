@@ -1,0 +1,46 @@
+package com.parkio.media.infrastructure.metrics;
+
+import com.parkio.media.infrastructure.persistence.jpa.OutboxEventJpaRepository;
+import io.micrometer.core.instrument.Gauge;
+import io.micrometer.core.instrument.MeterRegistry;
+import java.time.Clock;
+import java.time.Duration;
+import java.time.Instant;
+import org.springframework.stereotype.Component;
+
+/**
+ * Outbox backlog gauges exported at {@code /actuator/prometheus} (media-service has no
+ * Kafka inbox, so no inbox gauge).
+ *
+ * <p>Each gauge issues one cheap COUNT/MIN query per scrape (15s locally), never on the
+ * request path. Alert on a growing {@code parkio.outbox.unpublished.count} or
+ * {@code parkio.outbox.oldest.unpublished.age.seconds}: it means the outbox relay is
+ * not draining to Kafka.
+ */
+@Component
+public class MessagingMetrics {
+
+    private final OutboxEventJpaRepository outbox;
+    private final Clock clock;
+
+    public MessagingMetrics(OutboxEventJpaRepository outbox, Clock clock, MeterRegistry registry) {
+        this.outbox = outbox;
+        this.clock = clock;
+        Gauge.builder("parkio.outbox.unpublished.count", this, m -> m.outbox.countByPublishedFalse())
+                .description("Outbox rows not yet published to Kafka")
+                .register(registry);
+        Gauge.builder("parkio.outbox.oldest.unpublished.age.seconds", this,
+                        MessagingMetrics::oldestUnpublishedAgeSeconds)
+                .description("Age of the oldest unpublished outbox row (0 when the backlog is empty)")
+                .baseUnit("seconds")
+                .register(registry);
+    }
+
+    double oldestUnpublishedAgeSeconds() {
+        Instant oldest = outbox.findOldestUnpublishedCreatedAt();
+        if (oldest == null) {
+            return 0.0;
+        }
+        return Math.max(0.0, Duration.between(oldest, clock.instant()).toMillis() / 1000.0);
+    }
+}

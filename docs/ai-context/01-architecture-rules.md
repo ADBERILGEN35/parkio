@@ -53,7 +53,9 @@ Source under `src/main/java/com/parkio/<service>` is split into:
 ## Configuration
 
 - Externalize config; never hardcode secrets. Use env vars / Spring config.
-- Each service exposes actuator `health` and `info` (already configured).
+- Each service exposes actuator `health`, `info` and `prometheus` (metrics scrape)
+  — never sensitive endpoints. Custom metrics live in `infrastructure/metrics`
+  (see `docs/architecture/observability-metrics.md`).
 - Build conventions are centralized in the `parkio.spring-service` convention
   plugin (`buildSrc`) and the version catalog (`gradle/libs.versions.toml`). Add
   shared dependency versions there, not ad hoc in service build files.

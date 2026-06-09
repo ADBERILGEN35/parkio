@@ -13,7 +13,7 @@ import org.springframework.kafka.config.TopicBuilder;
  * Declares the Kafka topics this service owns (single-writer ownership). A Spring Boot
  * {@code KafkaAdmin} creates any {@link NewTopic} beans on startup; creation is
  * idempotent. Topic naming, partitioning and retention follow
- * {@code docs/architecture/kafka-transport.md}. The relay/consumers are not built yet.
+ * {@code docs/architecture/kafka-transport.md}.
  *
  * <p>Replication factor is externalized ({@code parkio.kafka.replication-factor}, default
  * 1 for local/dev). Provisioning can be disabled via {@code parkio.kafka.provision-topics}.
@@ -23,6 +23,7 @@ import org.springframework.kafka.config.TopicBuilder;
 public class KafkaTopicsConfig {
 
     public static final String AUTH_USER = "parkio.auth.user";
+    public static final String DLT_AUTH = "parkio.dlt.auth";
 
     private final int replicas;
 
@@ -33,6 +34,16 @@ public class KafkaTopicsConfig {
     @Bean
     NewTopic authUserTopic() {
         return topic(AUTH_USER, 3, Duration.ofDays(7));
+    }
+
+    /**
+     * Dead-letter topic for this service's consumer (one DLT per consuming service,
+     * kafka-transport.md): poison records from {@code parkio.moderation.action} land
+     * here. 14d retention allows triage/redrive.
+     */
+    @Bean
+    NewTopic authDeadLetterTopic() {
+        return topic(DLT_AUTH, 3, Duration.ofDays(14));
     }
 
     private NewTopic topic(String name, int partitions, Duration retention) {

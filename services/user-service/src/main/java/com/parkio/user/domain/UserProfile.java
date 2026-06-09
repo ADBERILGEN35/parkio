@@ -22,6 +22,7 @@ public final class UserProfile {
     private String phoneNumber;
     private String city;
     private UserStatus status;
+    private Instant lastStatusEventAt;
     private final Instant createdAt;
     private final Long version;
 
@@ -32,6 +33,7 @@ public final class UserProfile {
                        String phoneNumber,
                        String city,
                        UserStatus status,
+                       Instant lastStatusEventAt,
                        Instant createdAt,
                        Long version) {
         this.id = Objects.requireNonNull(id, "id");
@@ -41,6 +43,7 @@ public final class UserProfile {
         this.phoneNumber = normalize(phoneNumber);
         this.city = normalize(city);
         this.status = Objects.requireNonNull(status, "status");
+        this.lastStatusEventAt = lastStatusEventAt;
         this.createdAt = Objects.requireNonNull(createdAt, "createdAt");
         this.version = version;
     }
@@ -60,6 +63,7 @@ public final class UserProfile {
                 phoneNumber,
                 city,
                 UserStatus.ACTIVE,
+                null,
                 now,
                 null);
     }
@@ -77,14 +81,37 @@ public final class UserProfile {
         }
     }
 
-    /** Marks the account suspended (moderator-driven; auth credentials are unaffected). */
-    public void suspend() {
-        this.status = UserStatus.SUSPENDED;
+    /**
+     * Marks the account suspended (moderator-driven; auth credentials are unaffected).
+     * Returns {@code false} when the event is stale (older than the last applied
+     * status event) and was ignored.
+     */
+    public boolean suspend(Instant occurredAt) {
+        return applyModerationStatus(UserStatus.SUSPENDED, occurredAt);
     }
 
-    /** Restores a suspended account to active (moderator-driven). */
-    public void restore() {
-        this.status = UserStatus.ACTIVE;
+    /**
+     * Restores a suspended account to active (moderator-driven). Returns
+     * {@code false} when the event is stale and was ignored.
+     */
+    public boolean restore(Instant occurredAt) {
+        return applyModerationStatus(UserStatus.ACTIVE, occurredAt);
+    }
+
+    /**
+     * Ordering guard for at-least-once, possibly out-of-order moderation events:
+     * a status event applies only when it is not older than the last applied one
+     * ({@code occurredAt >= lastStatusEventAt}), so a stale restore can never
+     * override a newer suspension (and vice versa).
+     */
+    private boolean applyModerationStatus(UserStatus target, Instant occurredAt) {
+        Objects.requireNonNull(occurredAt, "occurredAt");
+        if (lastStatusEventAt != null && occurredAt.isBefore(lastStatusEventAt)) {
+            return false;
+        }
+        this.status = target;
+        this.lastStatusEventAt = occurredAt;
+        return true;
     }
 
     private static String requireValidDisplayName(String displayName) {
@@ -131,6 +158,11 @@ public final class UserProfile {
 
     public UserStatus status() {
         return status;
+    }
+
+    /** When the last applied moderation status event occurred; null if none yet. */
+    public Instant lastStatusEventAt() {
+        return lastStatusEventAt;
     }
 
     public Instant createdAt() {

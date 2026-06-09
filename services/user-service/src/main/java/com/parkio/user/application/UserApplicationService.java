@@ -9,6 +9,7 @@ import com.parkio.user.application.event.UserRestoredEvent;
 import com.parkio.user.application.event.UserSuspendedEvent;
 import com.parkio.user.application.port.InboxEventRepository;
 import com.parkio.user.application.port.OutboxEventAppender;
+import com.parkio.user.application.port.PendingUserStatusEventRepository;
 import com.parkio.user.application.port.UserPreferenceRepository;
 import com.parkio.user.application.port.UserProfileRepository;
 import com.parkio.user.application.port.UserTrustProfileRepository;
@@ -16,8 +17,10 @@ import com.parkio.user.application.port.UserTrustScoreHistoryRepository;
 import com.parkio.user.application.port.UserVehicleProfileRepository;
 import com.parkio.user.application.result.AccountStatusView;
 import com.parkio.user.application.result.PublicProfileView;
+import com.parkio.user.domain.PendingUserStatusEvent;
 import com.parkio.user.domain.UserPreference;
 import com.parkio.user.domain.UserProfile;
+import com.parkio.user.domain.UserStatus;
 import com.parkio.user.domain.UserTrustProfile;
 import com.parkio.user.domain.UserTrustScoreHistory;
 import com.parkio.user.domain.UserVehicleProfile;
@@ -26,8 +29,11 @@ import com.parkio.user.domain.exception.UserErrorCode;
 import com.parkio.user.domain.exception.UserException;
 import java.time.Clock;
 import java.time.Instant;
+import java.util.Comparator;
 import java.util.Optional;
 import java.util.UUID;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -44,6 +50,8 @@ import org.springframework.transaction.annotation.Transactional;
 @Transactional
 public class UserApplicationService {
 
+    private static final Logger log = LoggerFactory.getLogger(UserApplicationService.class);
+
     private final UserProfileRepository profiles;
     private final UserPreferenceRepository preferences;
     private final UserVehicleProfileRepository vehicles;
@@ -51,6 +59,7 @@ public class UserApplicationService {
     private final UserTrustScoreHistoryRepository trustHistory;
     private final OutboxEventAppender outbox;
     private final InboxEventRepository inbox;
+    private final PendingUserStatusEventRepository pendingStatusEvents;
     private final Clock clock;
 
     public UserApplicationService(UserProfileRepository profiles,
@@ -60,6 +69,7 @@ public class UserApplicationService {
                                   UserTrustScoreHistoryRepository trustHistory,
                                   OutboxEventAppender outbox,
                                   InboxEventRepository inbox,
+                                  PendingUserStatusEventRepository pendingStatusEvents,
                                   Clock clock) {
         this.profiles = profiles;
         this.preferences = preferences;
@@ -68,13 +78,16 @@ public class UserApplicationService {
         this.trustHistory = trustHistory;
         this.outbox = outbox;
         this.inbox = inbox;
+        this.pendingStatusEvents = pendingStatusEvents;
         this.clock = clock;
     }
 
     /**
      * Creates a user profile plus its default preferences and trust projection,
      * recording an initial trust-history entry and an outbox event — all in one
-     * transaction.
+     * transaction. If moderation status events arrived before the profile existed,
+     * the latest pending one (by {@code occurredAt}) is applied so e.g. a profile
+     * provisioned after a suspension starts {@code SUSPENDED}, not {@code ACTIVE}.
      */
     public UserProfile createProfile(CreateProfileCommand command) {
         if (profiles.existsByAuthUserId(command.authUserId())) {
@@ -82,9 +95,11 @@ public class UserApplicationService {
         }
 
         Instant now = clock.instant();
-        UserProfile profile = profiles.save(UserProfile.create(
+        UserProfile profile = UserProfile.create(
                 command.authUserId(), command.email(), command.displayName(),
-                command.phoneNumber(), command.city(), now));
+                command.phoneNumber(), command.city(), now);
+        applyLatestPendingStatusEvent(profile);
+        profile = profiles.save(profile);
 
         preferences.save(UserPreference.createDefault(profile.id()));
         UserTrustProfile trust = trustProfiles.save(UserTrustProfile.createDefault(profile.id()));
@@ -117,32 +132,86 @@ public class UserApplicationService {
     /**
      * Idempotent handler for moderation's {@code UserSuspended}: flips the profile's
      * account status to {@code SUSPENDED}. Auth credentials are not touched here
-     * (ai-context/03). A no-op if the profile is unknown. Inbox-deduplicated.
+     * (ai-context/03). If the profile does not exist yet (the event raced ahead of
+     * {@code UserRegistered} provisioning), the event is parked in
+     * {@code pending_user_status_events} — never dropped — and applied when the
+     * profile is created. Stale (out-of-order) events are ignored via
+     * {@code occurredAt >= lastStatusEventAt}. Inbox-deduplicated; the pending row
+     * and the inbox record commit in the same transaction.
      */
     public void handleUserSuspended(UserSuspendedEvent event) {
         if (inbox.existsByEventId(event.eventId())) {
             return;
         }
-        profiles.findByAuthUserId(event.userId()).ifPresent(profile -> {
-            profile.suspend();
-            profiles.save(profile);
-        });
+        applyOrParkStatusEvent(event.eventId(), event.userId(), UserStatus.SUSPENDED,
+                event.occurredAt(), event.caseId());
         inbox.markProcessed(event.eventId(), UserSuspendedEvent.TYPE, clock.instant());
     }
 
     /**
      * Idempotent handler for moderation's {@code UserRestored}: flips the profile's
-     * account status back to {@code ACTIVE}. A no-op if the profile is unknown.
+     * account status back to {@code ACTIVE}. Same never-lose / ordering semantics as
+     * {@link #handleUserSuspended}.
      */
     public void handleUserRestored(UserRestoredEvent event) {
         if (inbox.existsByEventId(event.eventId())) {
             return;
         }
-        profiles.findByAuthUserId(event.userId()).ifPresent(profile -> {
-            profile.restore();
-            profiles.save(profile);
-        });
+        applyOrParkStatusEvent(event.eventId(), event.userId(), UserStatus.ACTIVE,
+                event.occurredAt(), event.caseId());
         inbox.markProcessed(event.eventId(), UserRestoredEvent.TYPE, clock.instant());
+    }
+
+    /**
+     * Applies a moderation status event to an existing profile (ordering-guarded), or
+     * parks it as a pending event when no profile exists yet so it survives until
+     * provisioning. Both paths run in the caller's transaction, so the inbox row is
+     * only committed together with the applied/parked state.
+     */
+    private void applyOrParkStatusEvent(UUID eventId, UUID authUserId, UserStatus targetStatus,
+                                        Instant occurredAt, UUID caseId) {
+        Optional<UserProfile> existing = profiles.findByAuthUserId(authUserId);
+        if (existing.isPresent()) {
+            UserProfile profile = existing.get();
+            boolean applied = targetStatus == UserStatus.SUSPENDED
+                    ? profile.suspend(occurredAt)
+                    : profile.restore(occurredAt);
+            if (applied) {
+                profiles.save(profile);
+            } else {
+                log.info("Ignoring stale {} status event {} for user {} (occurredAt {} < lastStatusEventAt {})",
+                        targetStatus, eventId, authUserId, occurredAt, profile.lastStatusEventAt());
+            }
+            return;
+        }
+        pendingStatusEvents.save(PendingUserStatusEvent.of(
+                eventId, authUserId, targetStatus, occurredAt, caseId, clock.instant()));
+        log.info("Parked pending {} status event {} for not-yet-provisioned user {}",
+                targetStatus, eventId, authUserId);
+    }
+
+    /**
+     * Applies the latest pending moderation status event (by {@code occurredAt}) to a
+     * profile being provisioned, then clears the user's pending rows. No-op when none
+     * are pending.
+     */
+    private void applyLatestPendingStatusEvent(UserProfile profile) {
+        var pending = pendingStatusEvents.findByAuthUserId(profile.authUserId());
+        if (pending.isEmpty()) {
+            return;
+        }
+        PendingUserStatusEvent latest = pending.stream()
+                .max(Comparator.comparing(PendingUserStatusEvent::occurredAt)
+                        .thenComparing(PendingUserStatusEvent::recordedAt))
+                .orElseThrow();
+        boolean applied = latest.targetStatus() == UserStatus.SUSPENDED
+                ? profile.suspend(latest.occurredAt())
+                : profile.restore(latest.occurredAt());
+        if (applied) {
+            log.info("Applied pending {} status event {} to newly provisioned user {}",
+                    latest.targetStatus(), latest.id(), profile.authUserId());
+        }
+        pendingStatusEvents.deleteByAuthUserId(profile.authUserId());
     }
 
     @Transactional(readOnly = true)

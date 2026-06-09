@@ -29,9 +29,6 @@ public class MediaFileEntity {
     @Column(name = "object_key", nullable = false, updatable = false)
     private String objectKey;
 
-    @Column(name = "access_url")
-    private String accessUrl;
-
     @Column(name = "content_type", nullable = false, updatable = false)
     private String contentType;
 
@@ -69,7 +66,6 @@ public class MediaFileEntity {
                            UUID ownerUserId,
                            String bucketName,
                            String objectKey,
-                           String accessUrl,
                            String contentType,
                            long fileSize,
                            String checksum,
@@ -83,7 +79,6 @@ public class MediaFileEntity {
         this.ownerUserId = ownerUserId;
         this.bucketName = bucketName;
         this.objectKey = objectKey;
-        this.accessUrl = accessUrl;
         this.contentType = contentType;
         this.fileSize = fileSize;
         this.checksum = checksum;
@@ -109,10 +104,6 @@ public class MediaFileEntity {
 
     public String getObjectKey() {
         return objectKey;
-    }
-
-    public String getAccessUrl() {
-        return accessUrl;
     }
 
     public String getContentType() {

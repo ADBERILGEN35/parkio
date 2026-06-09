@@ -9,6 +9,9 @@ import java.util.UUID;
  * object key, checksum (for duplicate detection) and lifecycle status. References
  * the uploading user only by {@code ownerUserId} — no cross-service link
  * (ai-context/03). Pure domain: no framework, JPA, storage or HTTP dependencies.
+ *
+ * <p>No access URL is ever persisted: signed GET URLs are short-lived and generated
+ * per authorized request by the application layer (ai-context/07).
  */
 public final class MediaFile {
 
@@ -16,7 +19,6 @@ public final class MediaFile {
     private final UUID ownerUserId;
     private final String bucketName;
     private final String objectKey;
-    private final String accessUrl;
     private final String contentType;
     private final long fileSize;
     private final String checksum;
@@ -31,7 +33,6 @@ public final class MediaFile {
                      UUID ownerUserId,
                      String bucketName,
                      String objectKey,
-                     String accessUrl,
                      String contentType,
                      long fileSize,
                      String checksum,
@@ -45,7 +46,6 @@ public final class MediaFile {
         this.ownerUserId = Objects.requireNonNull(ownerUserId, "ownerUserId");
         this.bucketName = Objects.requireNonNull(bucketName, "bucketName");
         this.objectKey = Objects.requireNonNull(objectKey, "objectKey");
-        this.accessUrl = accessUrl;
         this.contentType = Objects.requireNonNull(contentType, "contentType");
         if (fileSize <= 0) {
             throw new IllegalArgumentException("fileSize must be positive");
@@ -64,13 +64,12 @@ public final class MediaFile {
     public static MediaFile create(UUID ownerUserId,
                                    String bucketName,
                                    String objectKey,
-                                   String accessUrl,
                                    String contentType,
                                    long fileSize,
                                    String checksum,
                                    String perceptualHash,
                                    Instant now) {
-        return new MediaFile(UUID.randomUUID(), ownerUserId, bucketName, objectKey, accessUrl,
+        return new MediaFile(UUID.randomUUID(), ownerUserId, bucketName, objectKey,
                 contentType, fileSize, checksum, perceptualHash, MediaStatus.UPLOADED, now, now, null, null);
     }
 
@@ -115,10 +114,6 @@ public final class MediaFile {
 
     public String objectKey() {
         return objectKey;
-    }
-
-    public String accessUrl() {
-        return accessUrl;
     }
 
     public String contentType() {

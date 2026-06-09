@@ -108,6 +108,7 @@ public class GlobalExceptionHandler {
             case OWNER_CANNOT_VERIFY, OWNER_CANNOT_CLAIM -> HttpStatus.FORBIDDEN;
             case ALREADY_VERIFIED, SPOT_NOT_VERIFIABLE, SPOT_NOT_CLAIMABLE, SPOT_EXPIRED -> HttpStatus.CONFLICT;
             case MISSING_USER_ID -> HttpStatus.UNAUTHORIZED;
+            case MEDIA_ACCESS_UNAVAILABLE -> HttpStatus.SERVICE_UNAVAILABLE;
         };
     }
 }

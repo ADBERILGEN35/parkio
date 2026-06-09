@@ -1,5 +1,6 @@
 package com.parkio.parking.infrastructure.persistence.jpa;
 
+import com.parkio.parking.domain.ParkingSpotStatus;
 import com.parkio.parking.infrastructure.persistence.entity.ParkingSpotEntity;
 import java.time.Instant;
 import java.util.List;
@@ -11,6 +12,9 @@ import org.springframework.data.repository.query.Param;
 public interface ParkingSpotJpaRepository extends JpaRepository<ParkingSpotEntity, UUID> {
 
     List<ParkingSpotEntity> findByOwnerUserIdOrderByCreatedAtDesc(UUID ownerUserId);
+
+    /** Per-status spot count for the {@code parkio.parking.*.count} gauges (cheap COUNT). */
+    long countByStatus(ParkingSpotStatus status);
 
     @Query(value = """
             SELECT * FROM parking_spots

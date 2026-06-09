@@ -9,16 +9,22 @@ import com.parkio.media.domain.exception.MediaException;
 import com.parkio.media.infrastructure.idempotency.IdempotencyService;
 import com.parkio.media.infrastructure.idempotency.IdempotentResponse;
 import com.parkio.media.infrastructure.idempotency.RequestFingerprint;
+import com.parkio.media.infrastructure.metrics.MediaMetrics;
+import com.parkio.media.presentation.dto.MediaAccessUrlResponse;
 import com.parkio.media.presentation.dto.MediaMetadataResponse;
 import com.parkio.media.presentation.dto.UploadMediaResponse;
 import com.parkio.media.presentation.dto.ValidationResultResponse;
 import java.io.IOException;
 import java.io.UncheckedIOException;
 import java.net.URI;
+import java.util.Arrays;
 import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
+import java.util.Set;
 import java.util.UUID;
+import java.util.stream.Collectors;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.GetMapping;
@@ -36,24 +42,31 @@ import org.springframework.web.multipart.MultipartFile;
  *
  * <p>The authenticated user id is read from the {@code X-User-Id} header, which the
  * gateway strips from client input and re-injects after verifying the JWT. Requests
- * without a valid id fail closed.
+ * without a valid id fail closed. Roles come from the gateway-injected
+ * {@code X-User-Roles} header: media reads are owner-only unless the caller holds
+ * {@code MODERATOR} or {@code ADMIN}.
  */
 @RestController
 @RequestMapping("/api/v1/media")
 public class MediaController {
 
     private static final String USER_ID_HEADER = "X-User-Id";
+    private static final String ROLES_HEADER = "X-User-Roles";
+    private static final Set<String> MODERATOR_ROLES = Set.of("MODERATOR", "ADMIN");
 
     private final MediaApplicationService mediaService;
     private final IdempotencyService idempotencyService;
     private final ObjectMapper objectMapper;
+    private final MediaMetrics mediaMetrics;
 
     public MediaController(MediaApplicationService mediaService,
                            IdempotencyService idempotencyService,
-                           ObjectMapper objectMapper) {
+                           ObjectMapper objectMapper,
+                           MediaMetrics mediaMetrics) {
         this.mediaService = mediaService;
         this.idempotencyService = idempotencyService;
         this.objectMapper = objectMapper;
+        this.mediaMetrics = mediaMetrics;
     }
 
     @PostMapping("/upload")
@@ -65,21 +78,44 @@ public class MediaController {
         byte[] content = readBytes(file);
         String path = "/api/v1/media/upload";
         String fingerprint = RequestFingerprint.sha256(objectMapper, uploadFingerprint(path, file, content));
-        IdempotentResponse<UploadMediaResponse> response = idempotencyService.execute(
-                ownerUserId, "POST", path, idempotencyKey, fingerprint, UploadMediaResponse.class, () -> {
-                    UploadMediaCommand command = new UploadMediaCommand(
-                            ownerUserId, file.getContentType(), content);
-                    MediaUploadResult result = mediaService.upload(command);
-                    return IdempotentResponse.first(201, UploadMediaResponse.from(result));
-                });
+        IdempotentResponse<UploadMediaResponse> response;
+        try {
+            response = idempotencyService.execute(
+                    ownerUserId, "POST", path, idempotencyKey, fingerprint, UploadMediaResponse.class, () -> {
+                        UploadMediaCommand command = new UploadMediaCommand(
+                                ownerUserId, file.getContentType(), content);
+                        MediaUploadResult result = mediaService.upload(command);
+                        // Counted inside the supplier so idempotent replays are not re-counted.
+                        mediaMetrics.uploadAccepted();
+                        return IdempotentResponse.first(201, UploadMediaResponse.from(result));
+                    });
+        } catch (MediaException ex) {
+            mediaMetrics.uploadRejected();
+            throw ex;
+        }
         return ResponseEntity.status(response.statusCode())
                 .location(URI.create("/api/v1/media/" + response.body().mediaId()))
                 .body(response.body());
     }
 
+    /** Metadata — owner or moderator/admin only; others receive 404 (no id probing). */
     @GetMapping("/{mediaId}")
-    public MediaMetadataResponse getMetadata(@PathVariable("mediaId") UUID mediaId) {
-        return MediaMetadataResponse.from(mediaService.getMetadata(mediaId));
+    public MediaMetadataResponse getMetadata(
+            @RequestHeader(value = USER_ID_HEADER, required = false) String userId,
+            @RequestHeader(value = ROLES_HEADER, required = false) String roles,
+            @PathVariable("mediaId") UUID mediaId) {
+        return MediaMetadataResponse.from(
+                mediaService.getMetadata(mediaId, requireUserId(userId), hasModeratorRole(roles)));
+    }
+
+    /** Short-lived presigned GET URL — owner or moderator/admin only; never persisted. */
+    @GetMapping("/{mediaId}/access-url")
+    public MediaAccessUrlResponse getAccessUrl(
+            @RequestHeader(value = USER_ID_HEADER, required = false) String userId,
+            @RequestHeader(value = ROLES_HEADER, required = false) String roles,
+            @PathVariable("mediaId") UUID mediaId) {
+        return MediaAccessUrlResponse.from(
+                mediaService.createAccessUrl(mediaId, requireUserId(userId), hasModeratorRole(roles)));
     }
 
     @DeleteMapping("/{mediaId}")
@@ -89,9 +125,13 @@ public class MediaController {
         return ResponseEntity.noContent().build();
     }
 
+    /** Validation internals — owner or moderator/admin only; others receive 404. */
     @GetMapping("/{mediaId}/validation-results")
-    public List<ValidationResultResponse> getValidationResults(@PathVariable("mediaId") UUID mediaId) {
-        return mediaService.getValidationResults(mediaId).stream()
+    public List<ValidationResultResponse> getValidationResults(
+            @RequestHeader(value = USER_ID_HEADER, required = false) String userId,
+            @RequestHeader(value = ROLES_HEADER, required = false) String roles,
+            @PathVariable("mediaId") UUID mediaId) {
+        return mediaService.getValidationResults(mediaId, requireUserId(userId), hasModeratorRole(roles)).stream()
                 .map(ValidationResultResponse::from)
                 .toList();
     }
@@ -114,6 +154,19 @@ public class MediaController {
         } catch (IllegalArgumentException ex) {
             throw new MediaException(MediaErrorCode.MISSING_USER_ID, "Invalid authenticated user id.");
         }
+    }
+
+    /** True when the gateway-injected roles header contains MODERATOR or ADMIN. */
+    private static boolean hasModeratorRole(String rolesHeader) {
+        if (rolesHeader == null || rolesHeader.isBlank()) {
+            return false;
+        }
+        Set<String> roles = Arrays.stream(rolesHeader.split(","))
+                .map(String::trim)
+                .filter(s -> !s.isEmpty())
+                .map(s -> s.toUpperCase(Locale.ROOT))
+                .collect(Collectors.toSet());
+        return roles.stream().anyMatch(MODERATOR_ROLES::contains);
     }
 
     private static Map<String, Object> uploadFingerprint(

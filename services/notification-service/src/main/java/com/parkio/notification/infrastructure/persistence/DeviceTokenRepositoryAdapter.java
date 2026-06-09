@@ -4,6 +4,7 @@ import com.parkio.notification.application.port.DeviceTokenRepository;
 import com.parkio.notification.domain.DeviceToken;
 import com.parkio.notification.infrastructure.persistence.jpa.DeviceTokenJpaRepository;
 import com.parkio.notification.infrastructure.persistence.mapper.NotificationPersistenceMapper;
+import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
 import org.springframework.stereotype.Component;
@@ -31,5 +32,12 @@ public class DeviceTokenRepositoryAdapter implements DeviceTokenRepository {
     @Override
     public Optional<DeviceToken> findByUserIdAndToken(UUID userId, String token) {
         return jpa.findByUserIdAndToken(userId, token).map(NotificationPersistenceMapper::toDomain);
+    }
+
+    @Override
+    public List<DeviceToken> findActiveByUserId(UUID userId) {
+        return jpa.findByUserIdAndActiveTrue(userId).stream()
+                .map(NotificationPersistenceMapper::toDomain)
+                .toList();
     }
 }

@@ -4,8 +4,11 @@ import com.parkio.auth.application.command.LoginCommand;
 import com.parkio.auth.application.command.LogoutCommand;
 import com.parkio.auth.application.command.RefreshTokenCommand;
 import com.parkio.auth.application.command.RegisterCommand;
+import com.parkio.auth.application.event.UserRestoredEvent;
+import com.parkio.auth.application.event.UserSuspendedEvent;
 import com.parkio.auth.application.port.AccessTokenIssuer;
 import com.parkio.auth.application.port.AuthUserRepository;
+import com.parkio.auth.application.port.InboxEventRepository;
 import com.parkio.auth.application.port.OutboxEventAppender;
 import com.parkio.auth.application.port.PasswordHasher;
 import com.parkio.auth.application.port.RefreshTokenHasher;
@@ -52,6 +55,7 @@ public class AuthApplicationService {
     private final RoleRepository roles;
     private final RefreshTokenRepository refreshTokens;
     private final OutboxEventAppender outbox;
+    private final InboxEventRepository inbox;
     private final PasswordHasher passwordHasher;
     private final AccessTokenIssuer accessTokenIssuer;
     private final RefreshTokenHasher refreshTokenHasher;
@@ -63,6 +67,7 @@ public class AuthApplicationService {
                                   RoleRepository roles,
                                   RefreshTokenRepository refreshTokens,
                                   OutboxEventAppender outbox,
+                                  InboxEventRepository inbox,
                                   PasswordHasher passwordHasher,
                                   AccessTokenIssuer accessTokenIssuer,
                                   RefreshTokenHasher refreshTokenHasher,
@@ -73,6 +78,7 @@ public class AuthApplicationService {
         this.roles = roles;
         this.refreshTokens = refreshTokens;
         this.outbox = outbox;
+        this.inbox = inbox;
         this.passwordHasher = passwordHasher;
         this.accessTokenIssuer = accessTokenIssuer;
         this.refreshTokenHasher = refreshTokenHasher;
@@ -158,6 +164,62 @@ public class AuthApplicationService {
                 refreshTokens.save(token);
             }
         });
+    }
+
+    /**
+     * Idempotent handler for moderation's {@code UserSuspended} (consumed from
+     * {@code parkio.moderation.action}): marks the auth account {@code SUSPENDED} so
+     * login and refresh are rejected, and revokes every active refresh token across
+     * the user's families so existing sessions cannot mint new access tokens.
+     * Stale (out-of-order) events are ignored via {@code occurredAt >= statusChangedAt}.
+     * Inbox-deduplicated; the status change, the revocations and the inbox record
+     * commit in one transaction.
+     *
+     * <p>Auth-service is the registration source of truth, so an unknown {@code userId}
+     * cannot be a not-yet-provisioned account — it is logged and acked (no pending
+     * store needed here, unlike user-service profile provisioning).
+     */
+    public void handleUserSuspended(UserSuspendedEvent event) {
+        if (inbox.existsByEventId(event.eventId())) {
+            return;
+        }
+        authUsers.findById(event.userId()).ifPresentOrElse(user -> {
+            if (user.suspend(event.occurredAt())) {
+                authUsers.save(user);
+                int revoked = refreshTokens.revokeAllActiveForUser(
+                        user.id(), RefreshTokenRevocationReason.ADMIN_REVOKED, clock.instant());
+                log.info("User {} suspended by moderation event {}; activeRefreshTokensRevoked={}",
+                        user.id(), event.eventId(), revoked);
+            } else {
+                log.info("Ignoring stale UserSuspended event {} for user {} (occurredAt {} < statusChangedAt {})",
+                        event.eventId(), user.id(), event.occurredAt(), user.statusChangedAt());
+            }
+        }, () -> log.warn("UserSuspended event {} for unknown auth user {}; ignoring",
+                event.eventId(), event.userId()));
+        inbox.markProcessed(event.eventId(), UserSuspendedEvent.TYPE, clock.instant());
+    }
+
+    /**
+     * Idempotent handler for moderation's {@code UserRestored}: marks the auth account
+     * {@code ACTIVE} again so future logins succeed. Refresh tokens revoked during the
+     * suspension stay revoked — restoration never resurrects old sessions. Same
+     * ordering/idempotency semantics as {@link #handleUserSuspended}.
+     */
+    public void handleUserRestored(UserRestoredEvent event) {
+        if (inbox.existsByEventId(event.eventId())) {
+            return;
+        }
+        authUsers.findById(event.userId()).ifPresentOrElse(user -> {
+            if (user.restore(event.occurredAt())) {
+                authUsers.save(user);
+                log.info("User {} restored by moderation event {}", user.id(), event.eventId());
+            } else {
+                log.info("Ignoring stale UserRestored event {} for user {} (occurredAt {} < statusChangedAt {})",
+                        event.eventId(), user.id(), event.occurredAt(), user.statusChangedAt());
+            }
+        }, () -> log.warn("UserRestored event {} for unknown auth user {}; ignoring",
+                event.eventId(), event.userId()));
+        inbox.markProcessed(event.eventId(), UserRestoredEvent.TYPE, clock.instant());
     }
 
     @Transactional(readOnly = true)

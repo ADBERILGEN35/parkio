@@ -517,8 +517,34 @@ moderator actions to `parkio.moderation.action` (relay: `ModerationOutboxRelay`)
 
 > **Other moderation events** (`UserSuspended`, `UserRestored` on `…action`;
 > `ModerationCaseOpened/Resolved`, `AppealCreated/Resolved` on `…case`) are published by
-> the same relay and consumed by user/gamification/notification per
+> the same relay and consumed by user/auth/gamification/notification per
 > `kafka-transport.md`; their payloads are documented in code (`domain.event`).
+
+## UserSuspendedEvent / UserRestoredEvent
+
+- **Producer:** `moderation-service` (topic `parkio.moderation.action`,
+  `aggregateType=User`, `aggregateId=userId`).
+- **Consumers:** `user-service` (profile account status; events arriving before the
+  profile exists are parked in `pending_user_status_events` and applied at
+  provisioning), `auth-service` (AuthUser status — suspension blocks login/refresh and
+  revokes the user's active refresh tokens; restoration re-enables login without
+  resurrecting old tokens), `notification-service` (inform the user).
+- **Ordering:** consumers apply a status event only when
+  `occurredAt >= ` the last applied status event's `occurredAt`
+  (`user_profiles.last_status_event_at` / `auth_users.status_changed_at`), so a stale
+  out-of-order restore never overrides a newer suspension (and vice versa).
+
+### Payload schema (both events)
+
+| Field | Type | Required | Meaning |
+|-------|------|----------|---------|
+| `eventId` | UUID (string) | yes | Dedup key. |
+| `caseId` | UUID (string) | yes | The moderation case the decision came from (audit reference; payload carries no free-text `reason`). |
+| `userId` | UUID (string) | yes | The suspended/restored user (authUserId; partition key). |
+| `moderatorId` | UUID (string) | yes | The moderator who decided. |
+| `occurredAt` | timestamp (UTC) | yes | When the decision was made — drives consumer-side ordering. |
+
+- **Version:** 1. **Compatibility:** append-only.
 
 ---
 

@@ -17,7 +17,9 @@ How Parkio's asynchronous event backbone is wired. This complements
 > 5. `ai-validation-service` → `parkio.aivalidation.result` → `moderation-service`
 >    (`AiValidationCompleted`)
 > 6. `moderation-service` → `parkio.moderation.action` → **`user`** (UserSuspended/Restored
->    → account status), **`parking`** (authoritative spot rejection),
+>    → account status), **`auth`** (UserSuspended/Restored → AuthUser status: suspension
+>    blocks login/refresh and revokes active refresh tokens; restoration re-enables login),
+>    **`parking`** (authoritative spot rejection),
 >    **`gamification`** (ParkingSpotRejectedByModerator → owner penalty),
 >    **`notification`** (suspend/restore/spot-rejected notices); and
 >    `moderation-service` → `parkio.moderation.case` → **`notification`** (AppealResolved,
@@ -29,7 +31,8 @@ How Parkio's asynchronous event backbone is wired. This complements
 >   now relay; no relay remains outstanding.** `UserProfileCreated` currently has **no
 >   consumer** — it is published for completeness/future projections (it is not on any
 >   live end-to-end flow yet).
-> - **Consumers implemented:** `user` (`parkio.user`); `parking` (`parkio.parking`);
+> - **Consumers implemented:** `user` (`parkio.user`); `auth` (`parkio.auth`, consumes
+>   `parkio.moderation.action` for account-status sync); `parking` (`parkio.parking`);
 >   `gamification` (`parkio.gamification`);
 >   `notification`, `analytics`, `ai-validation`, `moderation` each run **multiple**
 >   `@KafkaListener`s under their one group across the topics they subscribe to. All use
@@ -99,6 +102,7 @@ redrive scoped to one service.
 
 | DLT | Owner (consumer) | Partitions | Retention |
 |-----|------------------|-----------:|-----------|
+| `parkio.dlt.auth` | auth | 3 | 14d |
 | `parkio.dlt.user` | user | 3 | 14d |
 | `parkio.dlt.parking` | parking | 3 | 14d |
 | `parkio.dlt.gamification` | gamification | 3 | 14d |
@@ -218,9 +222,9 @@ older replay.
 > The envelope is **not** a shared class — consistent with the no-shared-module rule it
 > is duplicated **locally** per service as `infrastructure.messaging.EventEnvelope`. It
 > now exists in the relays (`auth`, `parking`, `gamification`, `media`, `ai-validation`,
-> `moderation`) and the consumers (`user`, `gamification`, `notification`, `analytics`,
-> `ai-validation`, `moderation`); the remaining services add their own copy when their
-> relay/consumer is built. The relays map `outbox_events` columns → envelope (key = `aggregate_id`, dedup
+> `moderation`) and the consumers (`auth`, `user`, `gamification`, `notification`,
+> `analytics`, `ai-validation`, `moderation`); the remaining services add their own copy
+> when their relay/consumer is built. The relays map `outbox_events` columns → envelope (key = `aggregate_id`, dedup
 > key = `event_id`) and mirror the routing fields into Kafka headers.
 
 ## Implementation order
@@ -246,7 +250,13 @@ older replay.
    populates `ownerUserId` on `ParkingSpotRejectedByModerator` (stored on the case from the
    community illegal/risky verification path), so the gamification penalty / notification owner-warning are
    active when the owner is known.
-5. DLT redrive tooling, consumer-lag / outbox-lag metrics, replay/backfill runbooks.
+5. **(partially done)** Outbox-lag metrics are live: every outbox-owning service exports
+   `parkio.outbox.unpublished.count` / `parkio.outbox.oldest.unpublished.age.seconds`
+   (plus `parkio.inbox.processed.count` where an inbox exists) at `/actuator/prometheus`
+   — see `docs/architecture/observability-metrics.md`. Still open: DLT redrive tooling
+   and replay/backfill runbooks. **Consumer lag and DLT depth are monitored at the
+   broker level** (e.g. `kafka-consumer-groups.sh --describe`, Burrow, or a Kafka
+   exporter scraping the broker) — the apps deliberately do not duplicate them.
 6. Later: optional Debezium CDC relay; schema registry; Testcontainers integration tests
    for the live round-trips (currently unit-tested; see backlog below).
 

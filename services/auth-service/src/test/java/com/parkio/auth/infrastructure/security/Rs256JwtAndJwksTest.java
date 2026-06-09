@@ -48,6 +48,7 @@ class Rs256JwtAndJwksTest {
                 "rider@parkio.test",
                 "unused-hash",
                 com.parkio.auth.domain.AuthUserStatus.ACTIVE,
+                null,
                 Set.of(new Role(UUID.randomUUID(), RoleName.USER)),
                 Instant.parse("2026-06-09T00:00:00Z"),
                 null);
@@ -75,6 +76,7 @@ class Rs256JwtAndJwksTest {
         var claims = Jwts.parser()
                 .verifyWith(publicKey)
                 .requireIssuer("parkio-auth-test")
+                .requireAudience("parkio-api-test")
                 .build()
                 .parseSignedClaims(token)
                 .getPayload();
@@ -85,6 +87,7 @@ class Rs256JwtAndJwksTest {
         assertThat(claims.get("status", String.class)).isEqualTo("ACTIVE");
         assertThat(claims.getIssuedAt()).isNotNull();
         assertThat(claims.getExpiration()).isNotNull();
+        assertThat(claims.getAudience()).containsExactly("parkio-api-test");
     }
 
     private JsonNode decodeSegment(String token, int index) throws Exception {

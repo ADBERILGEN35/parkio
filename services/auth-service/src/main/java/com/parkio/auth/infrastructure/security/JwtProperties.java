@@ -23,6 +23,15 @@ public class JwtProperties {
 
     @NotBlank
     private String issuer;
+
+    /**
+     * {@code aud} claim stamped on every issued access token. The gateway rejects
+     * tokens whose audience does not match its own configured value
+     * ({@code PARKIO_JWT_AUDIENCE}); fail-closed at startup when blank.
+     */
+    @NotBlank
+    private String audience;
+
     private Duration accessTokenTtl;
     private Duration refreshTokenTtl;
 
@@ -56,6 +65,14 @@ public class JwtProperties {
 
     public void setIssuer(String issuer) {
         this.issuer = issuer;
+    }
+
+    public String getAudience() {
+        return audience;
+    }
+
+    public void setAudience(String audience) {
+        this.audience = audience;
     }
 
     public Duration getAccessTokenTtl() {

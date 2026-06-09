@@ -57,11 +57,16 @@ management:
   endpoints:
     web:
       exposure:
-        include: health,info
+        # Probes + Prometheus scrape only — never sensitive endpoints (env, beans, ...).
+        include: health,info,prometheus
   endpoint:
     health:
       probes:
         enabled: true
+  metrics:
+    tags:
+      # Tag every metric with the service name (kept in sync with the scrape label).
+      application: ${spring.application.name}
 
 info:
   app:
@@ -86,3 +91,22 @@ parkio:
     # configurable for production; 1 is the local/dev default (single-broker compose).
     provision-topics: true
     replication-factor: ${PARKIO_KAFKA_REPLICATION_FACTOR:1}
+  notification:
+    delivery:
+      push:
+        # Scheduled worker that drains PENDING push attempts. Enabled by default; the
+        # default 'noop' provider needs no Firebase/APNS credentials (local/dev/test).
+        enabled: ${PARKIO_PUSH_DELIVERY_ENABLED:true}
+        provider: ${PARKIO_PUSH_DELIVERY_PROVIDER:noop}        # noop | fcm-disabled
+        fixed-delay-ms: ${PARKIO_PUSH_DELIVERY_FIXED_DELAY_MS:30000}
+        batch-size: ${PARKIO_PUSH_DELIVERY_BATCH_SIZE:100}
+        max-attempts: ${PARKIO_PUSH_DELIVERY_MAX_ATTEMPTS:5}
+        # Base retry backoff; attempt n is retried no earlier than
+        # base-backoff-ms * 2^(n-1) after the failure (exponential).
+        base-backoff-ms: ${PARKIO_PUSH_DELIVERY_BASE_BACKOFF_MS:30000}
+        fcm:
+          # Real FCM is backlog: disabled by default; no credentials committed. These
+          # are placeholders for when the real adapter is implemented.
+          enabled: ${PARKIO_FCM_ENABLED:false}
+          project-id: ${PARKIO_FCM_PROJECT_ID:}
+          credentials-location: ${PARKIO_FCM_CREDENTIALS_LOCATION:}

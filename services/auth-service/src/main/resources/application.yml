@@ -59,11 +59,16 @@ management:
   endpoints:
     web:
       exposure:
-        include: health,info
+        # Probes + Prometheus scrape only — never sensitive endpoints (env, beans, ...).
+        include: health,info,prometheus
   endpoint:
     health:
       probes:
         enabled: true
+  metrics:
+    tags:
+      # Tag every metric with the service name (kept in sync with the scrape label).
+      application: ${spring.application.name}
 
 info:
   app:
@@ -91,6 +96,10 @@ parkio:
       key-id: ${PARKIO_JWT_KEY_ID:parkio-auth-rs256-1}
       generate-ephemeral-key: false
       issuer: ${PARKIO_JWT_ISSUER:parkio-auth}
+      # aud claim on issued access tokens; the gateway must be configured with the SAME
+      # value. The default is for local/dev — set PARKIO_JWT_AUDIENCE explicitly in
+      # production. Blank fails closed at startup.
+      audience: ${PARKIO_JWT_AUDIENCE:parkio-api}
       # ISO-8601 durations.
       access-token-ttl: ${PARKIO_JWT_ACCESS_TTL:PT15M}
       refresh-token-ttl: ${PARKIO_JWT_REFRESH_TTL:P30D}

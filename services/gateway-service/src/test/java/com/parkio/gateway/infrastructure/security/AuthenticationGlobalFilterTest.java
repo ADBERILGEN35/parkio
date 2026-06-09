@@ -33,6 +33,7 @@ class AuthenticationGlobalFilterTest {
 
     private static final String KEY_ID = "filter-test-key";
     private static final String ISSUER = "parkio-auth";
+    private static final String AUDIENCE = "parkio-api";
     private static KeyPair keyPair;
 
     @BeforeAll
@@ -116,6 +117,7 @@ class AuthenticationGlobalFilterTest {
     private static AuthenticationGlobalFilter filter() {
         JwtProperties properties = new JwtProperties();
         properties.setIssuer(ISSUER);
+        properties.setAudience(AUDIENCE);
         properties.setJwksUri("http://unused.test/jwks");
         RSAPublicKey publicKey = (RSAPublicKey) keyPair.getPublic();
         JwksKeyResolver resolver = keyId -> KEY_ID.equals(keyId)
@@ -136,6 +138,7 @@ class AuthenticationGlobalFilterTest {
         return Jwts.builder()
                 .header().keyId(KEY_ID).and()
                 .issuer(ISSUER)
+                .audience().add(AUDIENCE).and()
                 .subject(userId.toString())
                 .claim("email", email)
                 .claim("roles", roles)

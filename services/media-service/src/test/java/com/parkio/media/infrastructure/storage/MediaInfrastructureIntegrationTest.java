@@ -9,6 +9,11 @@ import io.minio.MakeBucketArgs;
 import io.minio.MinioClient;
 import io.minio.StatObjectArgs;
 import io.minio.messages.Item;
+import java.net.URI;
+import java.net.http.HttpClient;
+import java.net.http.HttpRequest;
+import java.net.http.HttpResponse;
+import java.time.Duration;
 import java.util.Base64;
 import java.util.UUID;
 import org.junit.jupiter.api.BeforeEach;
@@ -125,6 +130,27 @@ class MediaInfrastructureIntegrationTest {
         storage.delete(objectKey);
 
         assertThat(listObjectNames()).doesNotContain(objectKey);
+    }
+
+    @Test
+    void storageAdapterGeneratesWorkingPresignedGetUrl() throws Exception {
+        String objectKey = "integration/" + UUID.randomUUID() + ".png";
+        storage.store(objectKey, PNG, "image/png");
+
+        String url = storage.generatePresignedGetUrl(objectKey, Duration.ofMinutes(5));
+
+        // Signed query parameters present (GET-only, expiring signature).
+        assertThat(url).contains("X-Amz-Signature=");
+        assertThat(url).contains("X-Amz-Expires=300");
+
+        // The presigned URL serves the bytes without any credentials.
+        HttpResponse<byte[]> response = HttpClient.newHttpClient().send(
+                HttpRequest.newBuilder(URI.create(url)).GET().build(),
+                HttpResponse.BodyHandlers.ofByteArray());
+        assertThat(response.statusCode()).isEqualTo(200);
+        assertThat(response.body()).isEqualTo(PNG);
+
+        storage.delete(objectKey);
     }
 
     private java.util.List<String> listObjectNames() throws Exception {

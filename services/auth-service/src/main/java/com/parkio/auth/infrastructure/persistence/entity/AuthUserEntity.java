@@ -39,6 +39,9 @@ public class AuthUserEntity {
     @Column(name = "status", nullable = false)
     private AuthUserStatus status;
 
+    @Column(name = "status_changed_at")
+    private Instant statusChangedAt;
+
     @ManyToMany(fetch = FetchType.EAGER)
     @JoinTable(
             name = "auth_user_roles",
@@ -61,6 +64,7 @@ public class AuthUserEntity {
                           String email,
                           String passwordHash,
                           AuthUserStatus status,
+                          Instant statusChangedAt,
                           Set<RoleEntity> roles,
                           Instant createdAt,
                           Long version) {
@@ -68,6 +72,7 @@ public class AuthUserEntity {
         this.email = email;
         this.passwordHash = passwordHash;
         this.status = status;
+        this.statusChangedAt = statusChangedAt;
         this.roles = roles;
         this.createdAt = createdAt;
         this.version = version;
@@ -87,6 +92,10 @@ public class AuthUserEntity {
 
     public AuthUserStatus getStatus() {
         return status;
+    }
+
+    public Instant getStatusChangedAt() {
+        return statusChangedAt;
     }
 
     public Set<RoleEntity> getRoles() {

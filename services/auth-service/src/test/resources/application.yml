@@ -15,6 +15,17 @@ spring:
       hibernate.jdbc.time_zone: UTC
   flyway:
     enabled: false
+  kafka:
+    listener:
+      # No broker in tests: do not start listener containers (the @KafkaListener consumer).
+      auto-startup: false
+
+# Mirror production actuator exposure (this file shadows the main application.yml).
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info,prometheus
 
 parkio:
   lifecycle:
@@ -28,6 +39,7 @@ parkio:
       key-id: auth-test-key
       generate-ephemeral-key: true
       issuer: parkio-auth-test
+      audience: parkio-api-test
       access-token-ttl: PT15M
       refresh-token-ttl: P30D
   kafka:

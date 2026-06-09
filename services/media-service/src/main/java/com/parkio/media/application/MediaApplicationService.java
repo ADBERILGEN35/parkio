@@ -5,6 +5,7 @@ import com.parkio.media.application.port.MediaFileRepository;
 import com.parkio.media.application.port.MediaStoragePort;
 import com.parkio.media.application.port.MediaValidationResultRepository;
 import com.parkio.media.application.port.OutboxEventAppender;
+import com.parkio.media.application.result.MediaAccessUrl;
 import com.parkio.media.application.result.MediaUploadResult;
 import com.parkio.media.domain.MediaFile;
 import com.parkio.media.domain.MediaValidationOutcome;
@@ -27,11 +28,18 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 /**
- * Media use cases: validated upload (size / mime / duplicate), metadata retrieval,
- * ownership-checked soft delete, and validation-result reads. Depends only on
- * domain types and ports; storage, JPA and Kafka concerns sit behind the ports in
- * infrastructure (ai-context/01). This service owns media metadata only — never
- * parking or AI-validation logic (ai-context/03).
+ * Media use cases: validated upload (size / mime / duplicate), authorized metadata
+ * and validation-result reads, short-lived access-URL generation, and
+ * ownership-checked soft delete. Depends only on domain types and ports; storage,
+ * JPA and Kafka concerns sit behind the ports in infrastructure (ai-context/01).
+ * This service owns media metadata only — never parking or AI-validation logic
+ * (ai-context/03).
+ *
+ * <p><b>Access model:</b> media-service has no local knowledge of parking-spot
+ * visibility, so reads are restricted to the owner (or a moderator/admin). An
+ * unauthorized read is answered as NOT_FOUND so media ids cannot be enumerated.
+ * Public spot-photo viewing for non-owners must be mediated by parking-service
+ * later (documented limitation).
  */
 @Service
 @Transactional
@@ -50,6 +58,7 @@ public class MediaApplicationService {
     private final OutboxEventAppender outbox;
     private final MediaRejectionRecorder rejectionRecorder;
     private final MediaUploadConstraints constraints;
+    private final MediaAccessUrlPolicy accessUrlPolicy;
     private final Clock clock;
 
     public MediaApplicationService(MediaFileRepository mediaFiles,
@@ -58,6 +67,7 @@ public class MediaApplicationService {
                                    OutboxEventAppender outbox,
                                    MediaRejectionRecorder rejectionRecorder,
                                    MediaUploadConstraints constraints,
+                                   MediaAccessUrlPolicy accessUrlPolicy,
                                    Clock clock) {
         this.mediaFiles = mediaFiles;
         this.validationResults = validationResults;
@@ -65,6 +75,7 @@ public class MediaApplicationService {
         this.outbox = outbox;
         this.rejectionRecorder = rejectionRecorder;
         this.constraints = constraints;
+        this.accessUrlPolicy = accessUrlPolicy;
         this.clock = clock;
     }
 
@@ -115,7 +126,7 @@ public class MediaApplicationService {
         MediaStoragePort.StoredObject stored = storage.store(objectKey, content, contentType);
 
         MediaFile media = MediaFile.create(ownerUserId, stored.bucket(), stored.objectKey(),
-                stored.accessUrl(), contentType, content.length, checksum, null, now);
+                contentType, content.length, checksum, null, now);
         media.markValidated(now);
         media = mediaFiles.save(media);
 
@@ -127,9 +138,38 @@ public class MediaApplicationService {
         return MediaUploadResult.from(media);
     }
 
+    /** Metadata for the owner (or moderator/admin); unauthorized reads see NOT_FOUND. */
     @Transactional(readOnly = true)
-    public MediaFile getMetadata(UUID mediaId) {
-        return requireActiveMedia(mediaId);
+    public MediaFile getMetadata(UUID mediaId, UUID requesterUserId, boolean canModerate) {
+        return requireReadableMedia(mediaId, requesterUserId, canModerate);
+    }
+
+    /**
+     * Generates a short-lived presigned GET URL for the media object — owner or
+     * moderator/admin only. The URL is created per request and never persisted.
+     */
+    @Transactional(readOnly = true)
+    public MediaAccessUrl createAccessUrl(UUID mediaId, UUID requesterUserId, boolean canModerate) {
+        MediaFile media = requireReadableMedia(mediaId, requesterUserId, canModerate);
+        return accessUrlFor(media);
+    }
+
+    /**
+     * Internal-only variant without an ownership check: the caller is a trusted
+     * internal service (e.g. parking-service) that has already authorized the
+     * requester against its own domain rules (spot visibility). Reached only via
+     * {@code /internal/**}, which the gateway never routes and which still requires
+     * the shared {@code X-Gateway-Auth} secret.
+     */
+    @Transactional(readOnly = true)
+    public MediaAccessUrl createAccessUrlForInternalCaller(UUID mediaId) {
+        return accessUrlFor(requireActiveMedia(mediaId));
+    }
+
+    private MediaAccessUrl accessUrlFor(MediaFile media) {
+        Instant expiresAt = clock.instant().plus(accessUrlPolicy.ttl());
+        String url = storage.generatePresignedGetUrl(media.objectKey(), accessUrlPolicy.ttl());
+        return new MediaAccessUrl(media.id(), url, expiresAt);
     }
 
     /** Soft-deletes the media (owner only) and best-effort removes the stored object. */
@@ -151,9 +191,11 @@ public class MediaApplicationService {
         }
     }
 
+    /** Validation internals for the owner (or moderator/admin); others see NOT_FOUND. */
     @Transactional(readOnly = true)
-    public List<MediaValidationResult> getValidationResults(UUID mediaId) {
-        requireActiveMedia(mediaId);
+    public List<MediaValidationResult> getValidationResults(UUID mediaId, UUID requesterUserId,
+                                                            boolean canModerate) {
+        requireReadableMedia(mediaId, requesterUserId, canModerate);
         return validationResults.findByMediaId(mediaId);
     }
 
@@ -161,6 +203,18 @@ public class MediaApplicationService {
         MediaFile media = mediaFiles.findById(mediaId)
                 .orElseThrow(() -> new MediaException(MediaErrorCode.MEDIA_NOT_FOUND));
         if (media.isDeleted()) {
+            throw new MediaException(MediaErrorCode.MEDIA_NOT_FOUND);
+        }
+        return media;
+    }
+
+    /**
+     * Owner or moderator/admin only. Unauthorized requesters get NOT_FOUND (not
+     * FORBIDDEN) so media ids cannot be probed/enumerated (IDOR prevention).
+     */
+    private MediaFile requireReadableMedia(UUID mediaId, UUID requesterUserId, boolean canModerate) {
+        MediaFile media = requireActiveMedia(mediaId);
+        if (!media.isOwnedBy(requesterUserId) && !canModerate) {
             throw new MediaException(MediaErrorCode.MEDIA_NOT_FOUND);
         }
         return media;

@@ -57,11 +57,16 @@ management:
   endpoints:
     web:
       exposure:
-        include: health,info
+        # Probes + Prometheus scrape only — never sensitive endpoints (env, beans, ...).
+        include: health,info,prometheus
   endpoint:
     health:
       probes:
         enabled: true
+  metrics:
+    tags:
+      # Tag every metric with the service name (kept in sync with the scrape label).
+      application: ${spring.application.name}
 
 info:
   app:

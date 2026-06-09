@@ -2,9 +2,11 @@ package com.parkio.notification.infrastructure.persistence.mapper;
 
 import com.parkio.notification.domain.DeviceToken;
 import com.parkio.notification.domain.Notification;
+import com.parkio.notification.domain.NotificationDeliveryAttempt;
 import com.parkio.notification.domain.NotificationPreference;
 import com.parkio.notification.domain.NotificationTemplate;
 import com.parkio.notification.infrastructure.persistence.entity.DeviceTokenEntity;
+import com.parkio.notification.infrastructure.persistence.entity.NotificationDeliveryAttemptEntity;
 import com.parkio.notification.infrastructure.persistence.entity.NotificationEntity;
 import com.parkio.notification.infrastructure.persistence.entity.NotificationPreferenceEntity;
 import com.parkio.notification.infrastructure.persistence.entity.NotificationTemplateEntity;
@@ -50,5 +52,18 @@ public final class NotificationPersistenceMapper {
 
     public static NotificationTemplate toDomain(NotificationTemplateEntity e) {
         return new NotificationTemplate(e.getType(), e.getTitleTemplate(), e.getBodyTemplate());
+    }
+
+    public static NotificationDeliveryAttempt toDomain(NotificationDeliveryAttemptEntity e) {
+        return new NotificationDeliveryAttempt(e.getId(), e.getNotificationId(), e.getUserId(), e.getChannel(),
+                e.getDeviceTokenId(), e.getStatus(), e.getProviderMessageId(), e.getFailureReason(),
+                e.getAttemptCount(), e.getAttemptedAt(), e.getNextAttemptAt(), e.getCreatedAt(), e.getUpdatedAt(),
+                e.getVersion());
+    }
+
+    public static NotificationDeliveryAttemptEntity toEntity(NotificationDeliveryAttempt a) {
+        return new NotificationDeliveryAttemptEntity(a.id(), a.notificationId(), a.userId(), a.channel(),
+                a.deviceTokenId(), a.status(), a.providerMessageId(), a.failureReason(), a.attemptCount(),
+                a.attemptedAt(), a.nextAttemptAt(), a.createdAt(), a.updatedAt(), a.version());
     }
 }

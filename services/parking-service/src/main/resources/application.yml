@@ -59,11 +59,16 @@ management:
   endpoints:
     web:
       exposure:
-        include: health,info
+        # Probes + Prometheus scrape only — never sensitive endpoints (env, beans, ...).
+        include: health,info,prometheus
   endpoint:
     health:
       probes:
         enabled: true
+  metrics:
+    tags:
+      # Tag every metric with the service name (kept in sync with the scrape label).
+      application: ${spring.application.name}
 
 info:
   app:
@@ -89,6 +94,15 @@ parkio:
     # Shared secret required on every inbound request (X-Gateway-Auth) so only
     # gateway-originated traffic is accepted. No default → fail closed if unset.
     internal-secret: ${PARKIO_GATEWAY_INTERNAL_SECRET}
+  media:
+    client:
+      # Internal base URL of media-service, used to request short-lived signed
+      # photo URLs on behalf of authorized spot viewers. Calls carry the shared
+      # X-Gateway-Auth secret; timeouts are short so a media outage degrades to a
+      # fast 503 instead of stalling request threads.
+      base-url: ${PARKIO_MEDIA_SERVICE_URI:http://localhost:8084}
+      connect-timeout: ${PARKIO_MEDIA_CLIENT_CONNECT_TIMEOUT:2s}
+      read-timeout: ${PARKIO_MEDIA_CLIENT_READ_TIMEOUT:5s}
   parking:
     search:
       # Tunable nearby-search defaults and caps (ai-context/02). Client-supplied

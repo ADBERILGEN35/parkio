@@ -41,6 +41,29 @@ This service follows clean architecture. Source lives under
   reachable only on the internal network and must never be exposed publicly
   (ai-context/07).
 
+## Moderation account status (suspend / restore)
+
+user-service consumes `UserSuspended` / `UserRestored` from
+`parkio.moderation.action` (group `parkio.user`) and applies the result to
+`user_profiles.status`. Two production realities are handled explicitly:
+
+- **Events can arrive before the profile exists** (Kafka gives no cross-topic
+  ordering with `UserRegistered` on `parkio.auth.user`). Such events are **never
+  dropped**: they are parked in `pending_user_status_events` (keyed by the
+  moderation `eventId`) inside the same transaction that marks the inbox row
+  processed. When `UserRegistered` later provisions the profile, the **latest
+  pending event by `occurredAt`** is applied — a profile provisioned after a
+  suspension starts `SUSPENDED` — and the user's pending rows are removed.
+- **Events can arrive out of order.** `user_profiles.last_status_event_at`
+  records the `occurredAt` of the last applied status event; an event is applied
+  only when `occurredAt >= last_status_event_at`. A stale restore therefore never
+  overrides a newer suspension (and vice versa). Duplicates are deduplicated by
+  `eventId` via `inbox_events`.
+
+auth-service applies the same events to login/refresh independently (see its
+README); the gateway's per-request status check uses this service's
+`/internal/users/{authUserId}/status` endpoint.
+
 ## Run locally
 
 From the repository root:

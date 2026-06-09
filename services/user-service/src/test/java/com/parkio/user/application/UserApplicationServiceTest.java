@@ -12,6 +12,7 @@ import com.parkio.user.application.event.UserRestoredEvent;
 import com.parkio.user.application.event.UserSuspendedEvent;
 import com.parkio.user.application.port.InboxEventRepository;
 import com.parkio.user.application.port.OutboxEventAppender;
+import com.parkio.user.application.port.PendingUserStatusEventRepository;
 import com.parkio.user.application.port.UserPreferenceRepository;
 import com.parkio.user.application.port.UserProfileRepository;
 import com.parkio.user.application.port.UserTrustProfileRepository;
@@ -19,6 +20,7 @@ import com.parkio.user.application.port.UserTrustScoreHistoryRepository;
 import com.parkio.user.application.port.UserVehicleProfileRepository;
 import com.parkio.user.application.result.AccountStatusView;
 import com.parkio.user.application.result.PublicProfileView;
+import com.parkio.user.domain.PendingUserStatusEvent;
 import com.parkio.user.domain.TrustBand;
 import com.parkio.user.domain.UserPreference;
 import com.parkio.user.domain.UserProfile;
@@ -58,6 +60,7 @@ class UserApplicationServiceTest {
     private FakeUserTrustScoreHistoryRepository trustHistory;
     private FakeOutboxEventAppender outbox;
     private FakeInboxEventRepository inbox;
+    private FakePendingUserStatusEventRepository pendingStatusEvents;
     private UserApplicationService service;
 
     @BeforeEach
@@ -69,9 +72,10 @@ class UserApplicationServiceTest {
         trustHistory = new FakeUserTrustScoreHistoryRepository();
         outbox = new FakeOutboxEventAppender();
         inbox = new FakeInboxEventRepository();
+        pendingStatusEvents = new FakePendingUserStatusEventRepository();
         Clock clock = Clock.fixed(NOW, ZoneOffset.UTC);
         service = new UserApplicationService(profiles, preferences, vehicles, trustProfiles,
-                trustHistory, outbox, inbox, clock);
+                trustHistory, outbox, inbox, pendingStatusEvents, clock);
     }
 
     private CreateProfileCommand command(UUID authUserId) {
@@ -160,6 +164,105 @@ class UserApplicationServiceTest {
         UserRestoredEvent restore = new UserRestoredEvent(
                 UUID.randomUUID(), UUID.randomUUID(), authUserId, UUID.randomUUID(), NOW);
         service.handleUserRestored(restore);
+
+        assertThat(profiles.byId.get(profile.id()).status()).isEqualTo(UserStatus.ACTIVE);
+    }
+
+    @Test
+    void suspendBeforeRegistrationIsParkedAndAppliedDuringProvisioning() {
+        UUID authUserId = UUID.randomUUID();
+        UserSuspendedEvent suspend = new UserSuspendedEvent(
+                UUID.randomUUID(), UUID.randomUUID(), authUserId, UUID.randomUUID(), NOW.minusSeconds(60));
+
+        service.handleUserSuspended(suspend); // profile does not exist yet
+
+        assertThat(profiles.byId).isEmpty();
+        assertThat(pendingStatusEvents.byId).hasSize(1); // parked, not lost
+        assertThat(inbox.processed).containsKey(suspend.eventId());
+
+        service.handleUserRegistered(new UserRegisteredEvent(
+                UUID.randomUUID(), authUserId, "late@example.com", NOW));
+
+        UserProfile profile = profiles.findByAuthUserId(authUserId).orElseThrow();
+        assertThat(profile.status()).isEqualTo(UserStatus.SUSPENDED);
+        assertThat(profile.lastStatusEventAt()).isEqualTo(NOW.minusSeconds(60));
+        assertThat(pendingStatusEvents.byId).isEmpty(); // consumed
+        assertThat(service.getAccountStatus(authUserId).status()).isEqualTo(UserStatus.SUSPENDED);
+    }
+
+    @Test
+    void restoreBeforeRegistrationIsParkedAndAppliedDuringProvisioning() {
+        UUID authUserId = UUID.randomUUID();
+        service.handleUserSuspended(new UserSuspendedEvent(
+                UUID.randomUUID(), UUID.randomUUID(), authUserId, UUID.randomUUID(), NOW.minusSeconds(120)));
+        service.handleUserRestored(new UserRestoredEvent(
+                UUID.randomUUID(), UUID.randomUUID(), authUserId, UUID.randomUUID(), NOW.minusSeconds(60)));
+
+        service.handleUserRegistered(new UserRegisteredEvent(
+                UUID.randomUUID(), authUserId, "late@example.com", NOW));
+
+        // The latest pending event by occurredAt (the restore) wins.
+        UserProfile profile = profiles.findByAuthUserId(authUserId).orElseThrow();
+        assertThat(profile.status()).isEqualTo(UserStatus.ACTIVE);
+        assertThat(profile.lastStatusEventAt()).isEqualTo(NOW.minusSeconds(60));
+        assertThat(pendingStatusEvents.byId).isEmpty();
+    }
+
+    @Test
+    void latestPendingSuspensionWinsOverOlderRestoreDuringProvisioning() {
+        UUID authUserId = UUID.randomUUID();
+        // Out-of-order arrival: the newer suspension is consumed first.
+        service.handleUserSuspended(new UserSuspendedEvent(
+                UUID.randomUUID(), UUID.randomUUID(), authUserId, UUID.randomUUID(), NOW.minusSeconds(60)));
+        service.handleUserRestored(new UserRestoredEvent(
+                UUID.randomUUID(), UUID.randomUUID(), authUserId, UUID.randomUUID(), NOW.minusSeconds(120)));
+
+        service.handleUserRegistered(new UserRegisteredEvent(
+                UUID.randomUUID(), authUserId, "late@example.com", NOW));
+
+        assertThat(profiles.findByAuthUserId(authUserId).orElseThrow().status())
+                .isEqualTo(UserStatus.SUSPENDED);
+    }
+
+    @Test
+    void staleRestoreDoesNotOverrideNewerSuspension() {
+        UUID authUserId = UUID.randomUUID();
+        UserProfile profile = service.createProfile(command(authUserId));
+
+        service.handleUserSuspended(new UserSuspendedEvent(
+                UUID.randomUUID(), UUID.randomUUID(), authUserId, UUID.randomUUID(), NOW));
+        // An older restore delivered late (out of order) must not lift the suspension.
+        service.handleUserRestored(new UserRestoredEvent(
+                UUID.randomUUID(), UUID.randomUUID(), authUserId, UUID.randomUUID(), NOW.minusSeconds(300)));
+
+        assertThat(profiles.byId.get(profile.id()).status()).isEqualTo(UserStatus.SUSPENDED);
+        assertThat(profiles.byId.get(profile.id()).lastStatusEventAt()).isEqualTo(NOW);
+    }
+
+    @Test
+    void staleSuspendDoesNotOverrideNewerRestore() {
+        UUID authUserId = UUID.randomUUID();
+        UserProfile profile = service.createProfile(command(authUserId));
+
+        service.handleUserRestored(new UserRestoredEvent(
+                UUID.randomUUID(), UUID.randomUUID(), authUserId, UUID.randomUUID(), NOW));
+        service.handleUserSuspended(new UserSuspendedEvent(
+                UUID.randomUUID(), UUID.randomUUID(), authUserId, UUID.randomUUID(), NOW.minusSeconds(300)));
+
+        assertThat(profiles.byId.get(profile.id()).status()).isEqualTo(UserStatus.ACTIVE);
+    }
+
+    @Test
+    void duplicateStatusEventIsIdempotent() {
+        UUID authUserId = UUID.randomUUID();
+        UserProfile profile = service.createProfile(command(authUserId));
+        UserSuspendedEvent suspend = new UserSuspendedEvent(
+                UUID.randomUUID(), UUID.randomUUID(), authUserId, UUID.randomUUID(), NOW.minusSeconds(120));
+
+        service.handleUserSuspended(suspend);
+        service.handleUserRestored(new UserRestoredEvent(
+                UUID.randomUUID(), UUID.randomUUID(), authUserId, UUID.randomUUID(), NOW));
+        service.handleUserSuspended(suspend); // redelivery of the old suspend: inbox no-op
 
         assertThat(profiles.byId.get(profile.id()).status()).isEqualTo(UserStatus.ACTIVE);
     }
@@ -409,6 +512,28 @@ class UserApplicationServiceTest {
         @Override
         public void markProcessed(UUID eventId, String eventType, Instant processedAt) {
             processed.put(eventId, eventType);
+        }
+    }
+
+    private static final class FakePendingUserStatusEventRepository
+            implements PendingUserStatusEventRepository {
+        private final Map<UUID, PendingUserStatusEvent> byId = new HashMap<>();
+
+        @Override
+        public void save(PendingUserStatusEvent event) {
+            byId.put(event.id(), event);
+        }
+
+        @Override
+        public List<PendingUserStatusEvent> findByAuthUserId(UUID authUserId) {
+            return byId.values().stream()
+                    .filter(e -> e.authUserId().equals(authUserId))
+                    .toList();
+        }
+
+        @Override
+        public void deleteByAuthUserId(UUID authUserId) {
+            byId.values().removeIf(e -> e.authUserId().equals(authUserId));
         }
     }
 }

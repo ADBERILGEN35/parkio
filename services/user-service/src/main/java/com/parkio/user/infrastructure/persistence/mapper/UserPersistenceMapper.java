@@ -1,10 +1,12 @@
 package com.parkio.user.infrastructure.persistence.mapper;
 
+import com.parkio.user.domain.PendingUserStatusEvent;
 import com.parkio.user.domain.UserPreference;
 import com.parkio.user.domain.UserProfile;
 import com.parkio.user.domain.UserTrustProfile;
 import com.parkio.user.domain.UserTrustScoreHistory;
 import com.parkio.user.domain.UserVehicleProfile;
+import com.parkio.user.infrastructure.persistence.entity.PendingUserStatusEventEntity;
 import com.parkio.user.infrastructure.persistence.entity.UserPreferenceEntity;
 import com.parkio.user.infrastructure.persistence.entity.UserProfileEntity;
 import com.parkio.user.infrastructure.persistence.entity.UserTrustProfileEntity;
@@ -22,12 +24,24 @@ public final class UserPersistenceMapper {
 
     public static UserProfile toDomain(UserProfileEntity e) {
         return new UserProfile(e.getId(), e.getAuthUserId(), e.getEmail(), e.getDisplayName(),
-                e.getPhoneNumber(), e.getCity(), e.getStatus(), e.getCreatedAt(), e.getVersion());
+                e.getPhoneNumber(), e.getCity(), e.getStatus(), e.getLastStatusEventAt(),
+                e.getCreatedAt(), e.getVersion());
     }
 
     public static UserProfileEntity toEntity(UserProfile p) {
         return new UserProfileEntity(p.id(), p.authUserId(), p.email(), p.displayName(),
-                p.phoneNumber(), p.city(), p.status(), p.createdAt(), p.version());
+                p.phoneNumber(), p.city(), p.status(), p.lastStatusEventAt(),
+                p.createdAt(), p.version());
+    }
+
+    public static PendingUserStatusEvent toDomain(PendingUserStatusEventEntity e) {
+        return new PendingUserStatusEvent(e.getId(), e.getAuthUserId(), e.getTargetStatus(),
+                e.getOccurredAt(), e.getCaseId(), e.getRecordedAt());
+    }
+
+    public static PendingUserStatusEventEntity toEntity(PendingUserStatusEvent p) {
+        return new PendingUserStatusEventEntity(p.id(), p.authUserId(), p.targetStatus(),
+                p.occurredAt(), p.caseId(), p.recordedAt());
     }
 
     public static UserPreference toDomain(UserPreferenceEntity e) {

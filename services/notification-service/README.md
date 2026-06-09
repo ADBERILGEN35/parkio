@@ -60,16 +60,99 @@ copies** of the producers' payloads (contracts are duplicated, never shared):
 Content is rendered from seeded `notification_templates` (with a code fallback).
 Each created notification appends a `NotificationCreatedEvent` to the outbox.
 
-## Delivery (placeholder)
+## Delivery
 
-Real push/email is **not** implemented. In-app notifications are recorded as `SENT`;
-external channels (`PUSH`/`EMAIL`) would start `PENDING` for a future delivery relay.
+The service has a production-shaped **push delivery foundation**. It runs locally
+with no Firebase/APNS/SMTP credentials.
+
+### In-app vs push
+
+- **In-app**: every notification is stored and recorded as `SENT` immediately. The
+  `GET /api/v1/notifications/me` API serves these.
+- **Push**: when a notification is created, `NotificationDeliveryService` enqueues
+  delivery attempts in `notification_delivery_attempts`:
+  - push allowed + **active device token(s)** → one `PENDING` attempt per active
+    token (due immediately via `next_attempt_at`);
+  - push **explicitly enabled** + **no active token** → one `SKIPPED` attempt
+    (reason `NO_ACTIVE_DEVICE_TOKEN`) for auditability;
+  - push **explicitly disabled** → **no** attempt is created;
+  - **no preference row** (privacy-safe default) → push is allowed **only if the
+    user has an active device token**. Registering a device token is the explicit
+    opt-in signal (it requires OS-level push permission); with no preference and no
+    token, nothing is recorded.
+- **Email**: intentionally **not** implemented (see backlog).
+
+### Push preference default (product decision)
+
+Push is **disabled until an opt-in signal exists**: either an explicit
+`pushEnabled=true` preference or a registered active device token. An explicit
+preference always wins (disabled blocks delivery even with active tokens). The
+preferences API continues to report the all-channels-enabled defaults for users
+without a stored preference row; actual push delivery additionally requires the
+device-token opt-in above.
+
+Delivery attempts store only a `device_token_id` reference, a provider message id and
+a sanitised failure reason — **never** the raw token value (ai-context/07).
+
+### Delivery worker
+
+`PushDeliveryWorker` is a scheduled job that drains **due** `PENDING` push attempts
+(`status = PENDING` and `next_attempt_at <= now`), sends each via the configured
+`PushNotificationSender`, and marks the attempt `SENT` (with the provider message id)
+or records the failure. It is **disabled by default in tests**.
+
+**Cluster safety.** Each tick claims its batch with
+`SELECT … FOR UPDATE SKIP LOCKED` inside the tick's transaction, so multiple
+notification-service replicas can run the worker concurrently without ever sending
+the same attempt twice: rows claimed by one replica are invisible to the others
+until the batch commits. The pending queue is served by a **partial index**
+(`idx_nda_pending_next_attempt` on `next_attempt_at WHERE status = 'PENDING'`) that
+stays small as terminal rows accumulate.
+
+**Retry / backoff.** A failed send keeps the attempt `PENDING` and pushes
+`next_attempt_at` into the future with exponential backoff —
+`base-backoff-ms * 2^(attemptCount-1)` (30s, 60s, 120s, … by default) — until
+`max-attempts` (default **5**) is reached, at which point the attempt becomes
+`FAILED` (terminal). A failing attempt is recorded as state, never thrown, so one
+bad attempt cannot roll back the rest of the batch. Failure reasons are sanitised
+codes (e.g. `PROVIDER_ERROR`, `DEVICE_TOKEN_INACTIVE`) — never raw provider errors
+or token values.
+
+| Property | Env var | Default | Meaning |
+|----------|---------|---------|---------|
+| `parkio.notification.delivery.push.enabled` | `PARKIO_PUSH_DELIVERY_ENABLED` | `true` | Enable the worker |
+| `parkio.notification.delivery.push.provider` | `PARKIO_PUSH_DELIVERY_PROVIDER` | `noop` | `noop` or `fcm-disabled` |
+| `parkio.notification.delivery.push.fixed-delay-ms` | `PARKIO_PUSH_DELIVERY_FIXED_DELAY_MS` | `30000` | Worker tick delay |
+| `parkio.notification.delivery.push.batch-size` | `PARKIO_PUSH_DELIVERY_BATCH_SIZE` | `100` | Attempts per tick |
+| `parkio.notification.delivery.push.max-attempts` | `PARKIO_PUSH_DELIVERY_MAX_ATTEMPTS` | `5` | Attempts before `FAILED` |
+| `parkio.notification.delivery.push.base-backoff-ms` | `PARKIO_PUSH_DELIVERY_BASE_BACKOFF_MS` | `30000` | Base retry backoff (doubled per failure) |
+
+### Provider modes (local/dev)
+
+- **`noop`** (default): `NoopPushNotificationSender` "delivers" without contacting any
+  provider and returns a synthetic provider message id — attempts end up `SENT`. No
+  credentials required. This is the local/dev/test default.
+- **`fcm-disabled`**: `FcmPushNotificationSender` is a **placeholder** marking where the
+  real Firebase Cloud Messaging adapter will live. It performs no network call, needs no
+  credentials, and returns a sanitised `FCM_NOT_CONFIGURED` failure. Real FCM is backlog.
+
+### Required env vars for a real push provider (later)
+
+Real FCM is **not** wired yet. When it is implemented, configure (and inject as secrets —
+never commit them):
+
+| Property | Env var | Default | Meaning |
+|----------|---------|---------|---------|
+| `parkio.notification.delivery.push.fcm.enabled` | `PARKIO_FCM_ENABLED` | `false` | Enable real FCM |
+| `parkio.notification.delivery.push.fcm.project-id` | `PARKIO_FCM_PROJECT_ID` | _(empty)_ | Firebase project id |
+| `parkio.notification.delivery.push.fcm.credentials-location` | `PARKIO_FCM_CREDENTIALS_LOCATION` | _(empty)_ | Service-account credentials location |
 
 ## Backlog (not yet implemented)
 
+- **EMAIL delivery** (SMTP / provider): no attempts are created for the EMAIL channel
+  yet; preferences expose `emailEnabled` but it is unused at send time.
+- Real **Firebase/APNS** push (the `fcm-disabled` placeholder marks the seam).
 - Kafka consumer (upstream events) + outbox relay (publish to Kafka).
-- Real Firebase/APNS push and SMTP email delivery (+ honouring channel preferences
-  and active device tokens at send time).
 - **Nearby fan-out** for `ParkingSpotCreated` once location-based user targeting
   exists.
 

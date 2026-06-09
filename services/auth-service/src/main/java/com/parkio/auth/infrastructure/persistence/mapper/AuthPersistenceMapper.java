@@ -36,6 +36,7 @@ public final class AuthPersistenceMapper {
                 entity.getEmail(),
                 entity.getPasswordHash(),
                 entity.getStatus(),
+                entity.getStatusChangedAt(),
                 roles,
                 entity.getCreatedAt(),
                 entity.getVersion());
@@ -50,6 +51,7 @@ public final class AuthPersistenceMapper {
                 user.email(),
                 user.passwordHash(),
                 user.status(),
+                user.statusChangedAt(),
                 roles,
                 user.createdAt(),
                 user.version());

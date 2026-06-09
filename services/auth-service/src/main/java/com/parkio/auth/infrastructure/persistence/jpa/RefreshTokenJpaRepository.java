@@ -28,4 +28,19 @@ public interface RefreshTokenJpaRepository extends JpaRepository<RefreshTokenEnt
             @Param("tokenFamilyId") UUID tokenFamilyId,
             @Param("reason") RefreshTokenRevocationReason reason,
             @Param("revokedAt") Instant revokedAt);
+
+    @Modifying(flushAutomatically = true, clearAutomatically = true)
+    @Query("""
+            update RefreshTokenEntity token
+               set token.revoked = true,
+                   token.revokedReason = :reason,
+                   token.revokedAt = :revokedAt,
+                   token.version = token.version + 1
+             where token.userId = :userId
+               and token.revoked = false
+            """)
+    int revokeAllActiveForUser(
+            @Param("userId") UUID userId,
+            @Param("reason") RefreshTokenRevocationReason reason,
+            @Param("revokedAt") Instant revokedAt);
 }

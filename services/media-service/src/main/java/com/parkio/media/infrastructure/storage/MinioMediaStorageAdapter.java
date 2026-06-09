@@ -2,10 +2,14 @@ package com.parkio.media.infrastructure.storage;
 
 import com.parkio.media.application.port.MediaStoragePort;
 import com.parkio.media.infrastructure.config.MediaProperties;
+import io.minio.GetPresignedObjectUrlArgs;
 import io.minio.MinioClient;
 import io.minio.PutObjectArgs;
 import io.minio.RemoveObjectArgs;
+import io.minio.http.Method;
 import java.io.ByteArrayInputStream;
+import java.time.Duration;
+import java.util.concurrent.TimeUnit;
 import org.springframework.stereotype.Component;
 
 /**
@@ -36,8 +40,7 @@ public class MinioMediaStorageAdapter implements MediaStoragePort {
         } catch (Exception e) {
             throw new MediaStorageException("Failed to store object " + objectKey, e);
         }
-        // Signed/public access URLs are a later concern; metadata is served instead.
-        return new StoredObject(bucket, objectKey, null);
+        return new StoredObject(bucket, objectKey);
     }
 
     @Override
@@ -49,6 +52,24 @@ public class MinioMediaStorageAdapter implements MediaStoragePort {
                     .build());
         } catch (Exception e) {
             throw new MediaStorageException("Failed to remove object " + objectKey, e);
+        }
+    }
+
+    /**
+     * Presigned GET-only URL, signed locally with the configured credentials (no
+     * network call). Expires after {@code ttl}; never persisted by callers.
+     */
+    @Override
+    public String generatePresignedGetUrl(String objectKey, Duration ttl) {
+        try {
+            return client.getPresignedObjectUrl(GetPresignedObjectUrlArgs.builder()
+                    .method(Method.GET)
+                    .bucket(bucket)
+                    .object(objectKey)
+                    .expiry((int) ttl.toSeconds(), TimeUnit.SECONDS)
+                    .build());
+        } catch (Exception e) {
+            throw new MediaStorageException("Failed to presign GET URL for object " + objectKey, e);
         }
     }
 }

@@ -14,8 +14,11 @@ import reactor.core.publisher.Mono;
 
 /**
  * Verifies RS256 access tokens with auth-service public keys resolved from JWKS.
- * The untrusted JWT header is read only to select a key; signature, issuer and
- * expiry are then validated by JJWT.
+ * The untrusted JWT header is read only to select a key; signature, issuer,
+ * audience and expiry are then validated by JJWT. Time-based checks
+ * ({@code exp}/{@code nbf}) tolerate a small configurable clock skew
+ * ({@code parkio.security.jwt.clock-skew-seconds}) to absorb drift between
+ * auth-service and the gateway.
  */
 @Component
 public class JwtTokenValidator {
@@ -25,6 +28,8 @@ public class JwtTokenValidator {
     private static final String CLAIM_STATUS = "status";
 
     private final String issuer;
+    private final String audience;
+    private final long clockSkewSeconds;
     private final JwksKeyResolver keys;
     private final ObjectMapper objectMapper;
 
@@ -32,6 +37,8 @@ public class JwtTokenValidator {
                              JwksKeyResolver keys,
                              ObjectMapper objectMapper) {
         this.issuer = properties.getIssuer();
+        this.audience = properties.getAudience();
+        this.clockSkewSeconds = properties.getClockSkewSeconds();
         this.keys = keys;
         this.objectMapper = objectMapper;
     }
@@ -40,8 +47,8 @@ public class JwtTokenValidator {
      * Verifies the token and returns the authenticated identity.
      *
      * @throws JwtException if the token is missing required structure, has a bad
-     *                      signature, a wrong issuer, is expired, or is otherwise
-     *                      invalid.
+     *                      signature, a wrong issuer, a missing/wrong audience, is
+     *                      expired beyond the clock skew, or is otherwise invalid.
      */
     @SuppressWarnings("unchecked")
     public Mono<AuthenticatedUser> validate(String token) {
@@ -58,6 +65,8 @@ public class JwtTokenValidator {
         Jws<Claims> jws = Jwts.parser()
                 .verifyWith(publicKey)
                 .requireIssuer(issuer)
+                .requireAudience(audience)
+                .clockSkewSeconds(clockSkewSeconds)
                 .build()
                 .parseSignedClaims(token);
 

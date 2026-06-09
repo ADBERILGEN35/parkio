@@ -7,8 +7,11 @@ import com.parkio.auth.application.command.LoginCommand;
 import com.parkio.auth.application.command.LogoutCommand;
 import com.parkio.auth.application.command.RefreshTokenCommand;
 import com.parkio.auth.application.command.RegisterCommand;
+import com.parkio.auth.application.event.UserRestoredEvent;
+import com.parkio.auth.application.event.UserSuspendedEvent;
 import com.parkio.auth.application.port.AccessTokenIssuer;
 import com.parkio.auth.application.port.AuthUserRepository;
+import com.parkio.auth.application.port.InboxEventRepository;
 import com.parkio.auth.application.port.OutboxEventAppender;
 import com.parkio.auth.application.port.PasswordHasher;
 import com.parkio.auth.application.port.RefreshTokenHasher;
@@ -54,6 +57,7 @@ class AuthApplicationServiceTest {
     private FakeAuthUserRepository authUsers;
     private FakeRefreshTokenRepository refreshTokens;
     private FakeOutboxEventAppender outbox;
+    private FakeInboxEventRepository inbox;
     private FakePasswordHasher passwordHasher;
     private FakeRefreshTokenHasher refreshTokenHasher;
     private AuthApplicationService service;
@@ -63,13 +67,14 @@ class AuthApplicationServiceTest {
         authUsers = new FakeAuthUserRepository();
         refreshTokens = new FakeRefreshTokenRepository();
         outbox = new FakeOutboxEventAppender();
+        inbox = new FakeInboxEventRepository();
         passwordHasher = new FakePasswordHasher();
         refreshTokenHasher = new FakeRefreshTokenHasher();
         RoleRepository roles = name -> name == RoleName.USER ? Optional.of(USER_ROLE) : Optional.empty();
         AccessTokenIssuer accessTokenIssuer = user -> new IssuedAccessToken("access-" + user.id(), NOW.plusSeconds(900));
         SecureTokenGenerator tokenGenerator = new FakeSecureTokenGenerator();
         Clock clock = Clock.fixed(NOW, ZoneOffset.UTC);
-        service = new AuthApplicationService(authUsers, roles, refreshTokens, outbox, passwordHasher,
+        service = new AuthApplicationService(authUsers, roles, refreshTokens, outbox, inbox, passwordHasher,
                 accessTokenIssuer, refreshTokenHasher, tokenGenerator, clock, Duration.ofDays(30));
     }
 
@@ -141,7 +146,7 @@ class AuthApplicationServiceTest {
     @Test
     void loginRejectsInactiveUser() {
         AuthUser suspended = new AuthUser(UUID.randomUUID(), "banned@example.com",
-                passwordHasher.hash("password1"), AuthUserStatus.SUSPENDED, Set.of(USER_ROLE), NOW, 0L);
+                passwordHasher.hash("password1"), AuthUserStatus.SUSPENDED, null, Set.of(USER_ROLE), NOW, 0L);
         authUsers.save(suspended);
 
         assertThatThrownBy(() -> service.login(new LoginCommand("banned@example.com", "password1")))
@@ -210,7 +215,7 @@ class AuthApplicationServiceTest {
     void refreshRejectsExpiredToken() {
         UUID userId = UUID.randomUUID();
         authUsers.save(new AuthUser(userId, "user@example.com",
-                passwordHasher.hash("password1"), AuthUserStatus.ACTIVE, Set.of(USER_ROLE), NOW, 0L));
+                passwordHasher.hash("password1"), AuthUserStatus.ACTIVE, null, Set.of(USER_ROLE), NOW, 0L));
         RefreshToken expired =
                 RefreshToken.issueRoot(userId, refreshTokenHasher.hash("expired-token"), NOW.minusSeconds(1));
         RefreshToken activeSibling =
@@ -253,6 +258,132 @@ class AuthApplicationServiceTest {
     void logoutIsIdempotentForUnknownToken() {
         service.logout(new LogoutCommand("never-issued"));
         // No exception thrown.
+    }
+
+    // --- Moderation status sync (parkio.moderation.action) ---------------
+
+    @Test
+    void userSuspendedEventSetsStatusSuspendedAndRevokesActiveRefreshTokens() {
+        AuthResult session = service.register(new RegisterCommand("user@example.com", "password1"));
+        AuthResult secondSession = service.login(new LoginCommand("user@example.com", "password1"));
+        UUID userId = session.user().id();
+
+        UserSuspendedEvent suspend = suspendedEvent(userId, NOW);
+        service.handleUserSuspended(suspend);
+
+        assertThat(authUsers.findById(userId).orElseThrow().status()).isEqualTo(AuthUserStatus.SUSPENDED);
+        // Every active token across all of the user's families is revoked.
+        RefreshToken first = refreshTokens.findByTokenHash(
+                refreshTokenHasher.hash(session.refreshToken())).orElseThrow();
+        RefreshToken second = refreshTokens.findByTokenHash(
+                refreshTokenHasher.hash(secondSession.refreshToken())).orElseThrow();
+        assertThat(first.isRevoked()).isTrue();
+        assertThat(first.revokedReason()).isEqualTo(RefreshTokenRevocationReason.ADMIN_REVOKED);
+        assertThat(second.isRevoked()).isTrue();
+        assertThat(second.revokedReason()).isEqualTo(RefreshTokenRevocationReason.ADMIN_REVOKED);
+    }
+
+    @Test
+    void suspendedUserCannotLogin() {
+        AuthResult session = service.register(new RegisterCommand("user@example.com", "password1"));
+        service.handleUserSuspended(suspendedEvent(session.user().id(), NOW));
+
+        assertThatThrownBy(() -> service.login(new LoginCommand("user@example.com", "password1")))
+                .isInstanceOf(AuthException.class)
+                .extracting(e -> ((AuthException) e).errorCode())
+                .isEqualTo(AuthErrorCode.USER_NOT_ACTIVE);
+    }
+
+    @Test
+    void suspendedUserCannotRefresh() {
+        AuthResult session = service.register(new RegisterCommand("user@example.com", "password1"));
+        service.handleUserSuspended(suspendedEvent(session.user().id(), NOW));
+
+        // The token was revoked by the suspension, so refresh fails before the status
+        // check; even an unrevoked token would be rejected by ensureCanAuthenticate.
+        assertThatThrownBy(() -> service.refresh(new RefreshTokenCommand(session.refreshToken())))
+                .isInstanceOf(AuthException.class)
+                .extracting(e -> ((AuthException) e).errorCode())
+                .isEqualTo(AuthErrorCode.INVALID_REFRESH_TOKEN);
+    }
+
+    @Test
+    void suspendedUserCannotRefreshEvenWithSurvivingActiveToken() {
+        AuthResult session = service.register(new RegisterCommand("user@example.com", "password1"));
+        UUID userId = session.user().id();
+        service.handleUserSuspended(suspendedEvent(userId, NOW));
+
+        // Defence in depth: a token that somehow survived revocation still fails the
+        // account-status check on refresh.
+        RefreshToken surviving =
+                RefreshToken.issueRoot(userId, refreshTokenHasher.hash("surviving-token"), NOW.plusSeconds(3600));
+        refreshTokens.save(surviving);
+
+        assertThatThrownBy(() -> service.refresh(new RefreshTokenCommand("surviving-token")))
+                .isInstanceOf(AuthException.class)
+                .extracting(e -> ((AuthException) e).errorCode())
+                .isEqualTo(AuthErrorCode.USER_NOT_ACTIVE);
+    }
+
+    @Test
+    void userRestoredEventReactivatesLoginButDoesNotResurrectOldRefreshTokens() {
+        AuthResult session = service.register(new RegisterCommand("user@example.com", "password1"));
+        UUID userId = session.user().id();
+        service.handleUserSuspended(suspendedEvent(userId, NOW.minusSeconds(60)));
+
+        service.handleUserRestored(restoredEvent(userId, NOW));
+
+        assertThat(authUsers.findById(userId).orElseThrow().status()).isEqualTo(AuthUserStatus.ACTIVE);
+        // Login works again...
+        AuthResult fresh = service.login(new LoginCommand("user@example.com", "password1"));
+        assertThat(fresh.accessToken()).isNotBlank();
+        // ...but the pre-suspension refresh token stays revoked.
+        assertThatThrownBy(() -> service.refresh(new RefreshTokenCommand(session.refreshToken())))
+                .isInstanceOf(AuthException.class)
+                .extracting(e -> ((AuthException) e).errorCode())
+                .isEqualTo(AuthErrorCode.INVALID_REFRESH_TOKEN);
+    }
+
+    @Test
+    void staleRestoreDoesNotOverrideNewerSuspension() {
+        AuthResult session = service.register(new RegisterCommand("user@example.com", "password1"));
+        UUID userId = session.user().id();
+
+        service.handleUserSuspended(suspendedEvent(userId, NOW));
+        // An older restore delivered late (out of order) must not lift the suspension.
+        service.handleUserRestored(restoredEvent(userId, NOW.minusSeconds(300)));
+
+        assertThat(authUsers.findById(userId).orElseThrow().status()).isEqualTo(AuthUserStatus.SUSPENDED);
+    }
+
+    @Test
+    void duplicateModerationEventsAreIdempotent() {
+        AuthResult session = service.register(new RegisterCommand("user@example.com", "password1"));
+        UUID userId = session.user().id();
+        UserSuspendedEvent suspend = suspendedEvent(userId, NOW.minusSeconds(120));
+
+        service.handleUserSuspended(suspend);
+        service.handleUserRestored(restoredEvent(userId, NOW));
+        service.handleUserSuspended(suspend); // redelivery of the old suspend: inbox no-op
+
+        assertThat(authUsers.findById(userId).orElseThrow().status()).isEqualTo(AuthUserStatus.ACTIVE);
+    }
+
+    @Test
+    void moderationEventForUnknownUserIsIgnoredButMarkedProcessed() {
+        UserSuspendedEvent suspend = suspendedEvent(UUID.randomUUID(), NOW);
+
+        service.handleUserSuspended(suspend); // must not throw
+
+        assertThat(inbox.processed).containsKey(suspend.eventId());
+    }
+
+    private static UserSuspendedEvent suspendedEvent(UUID userId, Instant occurredAt) {
+        return new UserSuspendedEvent(UUID.randomUUID(), UUID.randomUUID(), userId, UUID.randomUUID(), occurredAt);
+    }
+
+    private static UserRestoredEvent restoredEvent(UUID userId, Instant occurredAt) {
+        return new UserRestoredEvent(UUID.randomUUID(), UUID.randomUUID(), userId, UUID.randomUUID(), occurredAt);
     }
 
     // --- Fakes -----------------------------------------------------------
@@ -310,6 +441,21 @@ class AuthApplicationServiceTest {
             }
             return revoked;
         }
+
+        @Override
+        public int revokeAllActiveForUser(
+                UUID userId,
+                RefreshTokenRevocationReason reason,
+                Instant revokedAt) {
+            int revoked = 0;
+            for (RefreshToken token : byHash.values()) {
+                if (token.userId().equals(userId) && !token.isRevoked()) {
+                    token.revoke(reason, revokedAt);
+                    revoked++;
+                }
+            }
+            return revoked;
+        }
     }
 
     private static final class FakeOutboxEventAppender implements OutboxEventAppender {
@@ -318,6 +464,20 @@ class AuthApplicationServiceTest {
         @Override
         public void append(UserRegisteredEvent event) {
             events.add(event);
+        }
+    }
+
+    private static final class FakeInboxEventRepository implements InboxEventRepository {
+        private final Map<UUID, String> processed = new HashMap<>();
+
+        @Override
+        public boolean existsByEventId(UUID eventId) {
+            return processed.containsKey(eventId);
+        }
+
+        @Override
+        public void markProcessed(UUID eventId, String eventType, Instant processedAt) {
+            processed.put(eventId, eventType);
         }
     }
 

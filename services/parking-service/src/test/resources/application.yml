@@ -29,6 +29,13 @@ parkio:
       inbox-enabled: false
   gateway:
     internal-secret: test-only-parkio-gateway-internal-secret-0123456789
+  media:
+    client:
+      # No media-service in tests: point at an unroutable local port; tests mock
+      # the MediaAccessPort or exercise failure mapping explicitly.
+      base-url: http://localhost:0
+      connect-timeout: 1s
+      read-timeout: 1s
   parking:
     search:
       default-radius-meters: 1000

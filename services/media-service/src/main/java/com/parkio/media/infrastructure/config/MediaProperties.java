@@ -1,16 +1,19 @@
 package com.parkio.media.infrastructure.config;
 
+import java.time.Duration;
 import java.util.ArrayList;
 import java.util.List;
 import org.springframework.boot.context.properties.ConfigurationProperties;
 import org.springframework.util.unit.DataSize;
 
-/** Binds {@code parkio.media.*}: upload limits and object-store connection. */
+/** Binds {@code parkio.media.*}: upload limits, access-URL TTL and object-store connection. */
 @ConfigurationProperties(prefix = "parkio.media")
 public class MediaProperties {
 
     private DataSize maxFileSize = DataSize.ofMegabytes(10);
     private List<String> allowedContentTypes = new ArrayList<>();
+    /** Lifetime of generated presigned GET URLs (short-lived by design). */
+    private Duration accessUrlTtl = Duration.ofMinutes(5);
     private Storage storage = new Storage();
 
     public DataSize getMaxFileSize() {
@@ -27,6 +30,14 @@ public class MediaProperties {
 
     public void setAllowedContentTypes(List<String> allowedContentTypes) {
         this.allowedContentTypes = allowedContentTypes;
+    }
+
+    public Duration getAccessUrlTtl() {
+        return accessUrlTtl;
+    }
+
+    public void setAccessUrlTtl(Duration accessUrlTtl) {
+        this.accessUrlTtl = accessUrlTtl;
     }
 
     public Storage getStorage() {

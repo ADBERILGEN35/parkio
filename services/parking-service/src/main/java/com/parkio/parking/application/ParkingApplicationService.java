@@ -2,12 +2,14 @@ package com.parkio.parking.application;
 
 import com.parkio.parking.application.command.CreateSpotCommand;
 import com.parkio.parking.application.command.SearchNearbyQuery;
+import com.parkio.parking.application.port.MediaAccessPort;
 import com.parkio.parking.application.port.OutboxEventAppender;
 import com.parkio.parking.application.port.ParkingSpotRepository;
 import com.parkio.parking.application.port.ParkingSpotSearchLogRepository;
 import com.parkio.parking.application.port.ParkingSpotStatusHistoryRepository;
 import com.parkio.parking.application.port.ParkingSpotVerificationRepository;
 import com.parkio.parking.application.port.ParkingSpotViewLogRepository;
+import com.parkio.parking.application.result.SpotMediaAccess;
 import com.parkio.parking.domain.ParkingSpot;
 import com.parkio.parking.domain.ParkingSpotSearchLog;
 import com.parkio.parking.domain.ParkingSpotStatus;
@@ -36,7 +38,8 @@ import org.springframework.transaction.annotation.Transactional;
  *
  * <p>This service owns the spot lifecycle only — never media storage, user
  * profiles, gamification or notifications (ai-context/03). It references media by
- * {@code mediaId} and never calls media-service in this foundation.
+ * {@code mediaId}; the single cross-service touchpoint is {@link MediaAccessPort},
+ * used to mediate signed photo URLs for spots the requester is allowed to see.
  */
 @Service
 @Transactional
@@ -48,6 +51,7 @@ public class ParkingApplicationService {
     private final ParkingSpotViewLogRepository viewLogs;
     private final ParkingSpotSearchLogRepository searchLogs;
     private final OutboxEventAppender outbox;
+    private final MediaAccessPort mediaAccess;
     private final ParkingSearchSettings searchSettings;
     private final Clock clock;
 
@@ -57,6 +61,7 @@ public class ParkingApplicationService {
                                      ParkingSpotViewLogRepository viewLogs,
                                      ParkingSpotSearchLogRepository searchLogs,
                                      OutboxEventAppender outbox,
+                                     MediaAccessPort mediaAccess,
                                      ParkingSearchSettings searchSettings,
                                      Clock clock) {
         this.spots = spots;
@@ -65,6 +70,7 @@ public class ParkingApplicationService {
         this.viewLogs = viewLogs;
         this.searchLogs = searchLogs;
         this.outbox = outbox;
+        this.mediaAccess = mediaAccess;
         this.searchSettings = searchSettings;
         this.clock = clock;
     }
@@ -89,6 +95,29 @@ public class ParkingApplicationService {
         expireIfElapsed(spot, clock.instant());
         viewLogs.save(ParkingSpotViewLog.record(spotId, viewerUserId, clock.instant()));
         return spot;
+    }
+
+    /**
+     * Issues a short-lived signed URL for the photo of a spot the requester may
+     * see. The owner can always access their own spot's photo; everyone else only
+     * while the spot is publicly visible (ACTIVE/VERIFIED, not expired, not
+     * illegal/risky — the same rule as nearby search). Hidden, rejected, filled or
+     * expired spots answer {@code SPOT_NOT_FOUND} (404) so spot ids cannot be
+     * probed/enumerated.
+     *
+     * <p>Read-only: visibility is evaluated against the clock without persisting a
+     * lazy expiry transition, keeping the transaction free of writes while the
+     * media-service call is in flight.
+     */
+    @Transactional(readOnly = true)
+    public SpotMediaAccess getSpotMediaAccessUrl(UUID spotId, UUID requesterUserId) {
+        ParkingSpot spot = requireSpot(spotId);
+        Instant now = clock.instant();
+        if (!spot.isOwnedBy(requesterUserId) && !spot.isVisibleForSearch(now)) {
+            throw new ParkingException(ParkingErrorCode.SPOT_NOT_FOUND);
+        }
+        MediaAccessPort.MediaAccessGrant grant = mediaAccess.requestAccessUrl(spot.mediaId(), requesterUserId);
+        return new SpotMediaAccess(spot.id(), grant.mediaId(), grant.accessUrl(), grant.expiresAt());
     }
 
     @Transactional(readOnly = true)

@@ -168,8 +168,13 @@ docker compose down -v    # stop and DELETE all volumes (fresh start)
 ## Metrics note
 
 Prometheus is preconfigured to scrape each service at `/actuator/prometheus`.
-Targets show as **down** until a service adds `micrometer-registry-prometheus` and
-exposes the endpoint — expected at the current scaffold stage.
+Every service ships `micrometer-registry-prometheus` and exposes the endpoint
+(only `health`/`info`/`prometheus` — never sensitive actuator endpoints), so all
+targets should report **up** once the stack is healthy. The custom metric
+catalogue (outbox/inbox backlog, notification delivery, parking lifecycle,
+auth login, media upload, gateway rate-limit counters) is documented in
+`docs/architecture/observability-metrics.md`. Kafka DLT depth and consumer lag
+are monitored at the broker level (see the same doc).
 
 ## Single-image builds
 
