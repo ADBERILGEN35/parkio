@@ -1,12 +1,12 @@
 import { zodResolver } from '@hookform/resolvers/zod';
 import { loginSchema, type LoginFormValues } from '@parkio/validation';
-import { Button, ErrorMessage, Input, Surface } from '@parkio/ui';
+import { Button, ErrorMessage, Icon, Input } from '@parkio/ui';
 import { useState } from 'react';
 import { useForm } from 'react-hook-form';
 import { Link, useNavigate } from 'react-router-dom';
 import { authApi } from '@/api';
 import { describeAuthError } from '@/api/error-messages';
-import { AuthBrand } from '@/pages/auth/AuthBrand';
+import { AuthDivider, AuthSplitLayout, GoogleButton } from '@/pages/auth/AuthSplitLayout';
 import { useAuthStore } from '@/auth/store';
 
 export function LoginPage() {
@@ -14,6 +14,7 @@ export function LoginPage() {
   const setSession = useAuthStore((s) => s.setSession);
   const [apiError, setApiError] = useState<string | null>(null);
   const [traceId, setTraceId] = useState<string | undefined>();
+  const [rememberMe, setRememberMe] = useState(true);
 
   const {
     register,
@@ -42,40 +43,59 @@ export function LoginPage() {
   });
 
   return (
-    <main className="flex min-h-screen flex-col items-center justify-center gap-lg bg-background px-md py-xl text-on-background">
-      <AuthBrand />
-      <Surface level="card" className="w-full max-w-md p-lg">
-        <h1 className="m-0 text-headline-md text-on-surface">Welcome back</h1>
-        <p className="m-0 mt-xs text-body-md text-on-surface-variant">
-          Sign in to find and share parking.
-        </p>
-        <form onSubmit={onSubmit} className="mt-lg flex flex-col gap-md">
-          <Input
-            label="Email"
-            type="email"
-            autoComplete="email"
-            error={errors.email?.message}
-            {...register('email')}
-          />
-          <Input
-            label="Password"
-            type="password"
-            autoComplete="current-password"
-            error={errors.password?.message}
-            {...register('password')}
-          />
-          {apiError ? <ErrorMessage message={apiError} traceId={traceId} /> : null}
-          <Button type="submit" disabled={isSubmitting} className="w-full">
-            {isSubmitting ? 'Signing in…' : 'Sign in'}
-          </Button>
-        </form>
-        <p className="m-0 mt-md text-body-md text-on-surface-variant">
-          No account?{' '}
-          <Link to="/register" className="font-semibold text-primary hover:underline">
-            Register
-          </Link>
-        </p>
-      </Surface>
-    </main>
+    <AuthSplitLayout title="Welcome back" subtitle="Sign in to find and share parking.">
+      <form onSubmit={onSubmit} className="flex flex-col gap-md">
+        <Input
+          label="Email"
+          type="email"
+          autoComplete="email"
+          error={errors.email?.message}
+          {...register('email')}
+        />
+        <Input
+          label="Password"
+          type="password"
+          autoComplete="current-password"
+          error={errors.password?.message}
+          {...register('password')}
+        />
+
+        <div className="flex items-center justify-between gap-sm">
+          <label className="flex cursor-pointer items-center gap-xs text-label-md text-on-surface-variant">
+            <input
+              type="checkbox"
+              checked={rememberMe}
+              onChange={(event) => setRememberMe(event.target.checked)}
+              className="h-4 w-4 rounded border-outline-variant text-primary focus:ring-primary"
+            />
+            Remember me
+          </label>
+          <button
+            type="button"
+            title="Password reset is coming soon"
+            className="text-label-md font-semibold text-primary hover:underline"
+          >
+            Forgot password?
+          </button>
+        </div>
+
+        {apiError ? <ErrorMessage message={apiError} traceId={traceId} /> : null}
+
+        <Button type="submit" disabled={isSubmitting} className="w-full">
+          {isSubmitting ? 'Signing in…' : 'Sign in'}
+          {isSubmitting ? null : <Icon name="arrow_forward" className="text-[18px] leading-none" />}
+        </Button>
+      </form>
+
+      <AuthDivider />
+      <GoogleButton label="Continue with Google" />
+
+      <p className="m-0 mt-md text-center text-body-md text-on-surface-variant">
+        No account?{' '}
+        <Link to="/register" className="font-semibold text-primary hover:underline">
+          Register
+        </Link>
+      </p>
+    </AuthSplitLayout>
   );
 }

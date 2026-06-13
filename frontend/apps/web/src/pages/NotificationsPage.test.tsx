@@ -52,23 +52,38 @@ describe('NotificationsPage', () => {
     signInAs(['USER']);
   });
 
-  it('renders the notification list with read/unread badges', async () => {
+  it('renders grouped notifications with a single mark-as-read action for the unread item', async () => {
     useNotificationHandlers(makeNotifications());
     renderWithProviders(<NotificationsPage />, { initialEntries: ['/notifications'] });
 
     expect(await screen.findByText('You earned points')).toBeInTheDocument();
     expect(screen.getByText('Welcome to Parkio')).toBeInTheDocument();
-    expect(screen.getAllByText('Unread')).toHaveLength(1);
-    expect(screen.getAllByText('Read')).toHaveLength(1);
+    // NEW / EARLIER group headers and the filter chips are present.
+    expect(screen.getByText('New')).toBeInTheDocument();
+    expect(screen.getByText('Earlier')).toBeInTheDocument();
+    expect(screen.getByText('All activity')).toBeInTheDocument();
+    // Only the one unread item exposes a mark-as-read action.
+    expect(screen.getAllByRole('button', { name: 'Mark as read' })).toHaveLength(1);
+  });
+
+  it('filters to unread-only via the Unread chip (frontend-only)', async () => {
+    useNotificationHandlers(makeNotifications());
+    renderWithProviders(<NotificationsPage />, { initialEntries: ['/notifications'] });
+    const user = userEvent.setup();
+
+    expect(await screen.findByText('Welcome to Parkio')).toBeInTheDocument();
+    await user.click(screen.getByRole('button', { name: /Unread/ }));
+
+    // The read notification is hidden; the unread one remains.
+    expect(screen.queryByText('Welcome to Parkio')).not.toBeInTheDocument();
+    expect(screen.getByText('You earned points')).toBeInTheDocument();
   });
 
   it('shows the empty state when there are no notifications', async () => {
     server.use(http.get(`${API_BASE}/notifications/me`, () => HttpResponse.json([])));
     renderWithProviders(<NotificationsPage />, { initialEntries: ['/notifications'] });
 
-    expect(
-      await screen.findByText(/No notifications yet/),
-    ).toBeInTheDocument();
+    expect(await screen.findByText(/No notifications yet/)).toBeInTheDocument();
   });
 
   it('marks a notification as read and refreshes the list', async () => {
@@ -78,9 +93,12 @@ describe('NotificationsPage', () => {
 
     await user.click(await screen.findByRole('button', { name: 'Mark as read' }));
 
-    // After PATCH + ['notifications'] invalidation the refetched list is all-read.
-    await waitFor(() => expect(screen.queryByText('Unread')).not.toBeInTheDocument());
-    expect(screen.getAllByText('Read')).toHaveLength(2);
-    expect(screen.queryByRole('button', { name: 'Mark as read' })).not.toBeInTheDocument();
+    // After PATCH + ['notifications'] invalidation the refetched list is all-read,
+    // so no item exposes a mark-as-read action any more.
+    await waitFor(() =>
+      expect(screen.queryByRole('button', { name: 'Mark as read' })).not.toBeInTheDocument(),
+    );
+    expect(screen.getByText('You earned points')).toBeInTheDocument();
+    expect(screen.getByText('Welcome to Parkio')).toBeInTheDocument();
   });
 });
