@@ -5,6 +5,8 @@ export * from './media';
 export * from './user';
 export * from './notification';
 export * from './gamification';
+export * from './moderation';
+export * from './analytics';
 
 export const PRIVILEGED_ROLES = ['MODERATOR', 'ADMIN'] as const;
 

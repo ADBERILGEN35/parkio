@@ -29,6 +29,7 @@ docker/
 | PostgreSQL (notification)| `parkio-postgres-notification`| 5437            | `notification-service` database           |
 | PostgreSQL (moderation)  | `parkio-postgres-moderation`  | 5438            | `moderation-service` database             |
 | PostgreSQL (analytics)   | `parkio-postgres-analytics`   | 5439            | `analytics-service` database              |
+| PostgreSQL (ai-validation)| `parkio-postgres-ai-validation`| 5440           | `ai-validation-service` database          |
 | Redis                    | `parkio-redis`                | 6379            | Cache, locks, idempotency, rate limiting  |
 | Kafka (KRaft)            | `parkio-kafka`                | 29092 (host)    | Async events; in-network listener `kafka:9092` |
 | MinIO                    | `parkio-minio`                | 9000 / 9001     | S3 API / web console                      |
@@ -37,8 +38,8 @@ docker/
 
 > **Database-per-service:** every service owns a *separate* PostgreSQL instance.
 > Services never share a database or read another service's tables
-> (`ai-context/01`, `ai-context/05`). `gateway-service` and `ai-validation-service`
-> own no database by design.
+> (`ai-context/01`, `ai-context/05`). `gateway-service` owns no database by design;
+> `ai-validation-service` owns one for its advisory results (Flyway + JPA).
 
 > **Kafka uses KRaft mode** (no Zookeeper) — the modern, single-process setup,
 > fewer containers to run locally.
@@ -98,6 +99,9 @@ into service code (`ai-context/01`):
 - `SPRING_DATASOURCE_URL` → `jdbc:postgresql://postgres-<svc>:5432/<db>` (own DB only)
 - `SPRING_KAFKA_BOOTSTRAP_SERVERS` → `kafka:9092`
 - `SPRING_DATA_REDIS_HOST` → `redis`
+- `parking-service` → `PARKIO_MEDIA_SERVICE_URI` (internal media-service client for signed
+  access URLs; defaults to `http://localhost:8084` for IDE dev, must be
+  `http://media-service:8084` in compose)
 - `media-service` storage → `PARKIO_MEDIA_STORAGE_ENDPOINT` / `PARKIO_MEDIA_BUCKET` /
   `PARKIO_MEDIA_STORAGE_ACCESS_KEY` / `PARKIO_MEDIA_STORAGE_SECRET_KEY` (names must match
   `parkio.media.*` in `application.yml`). The endpoint defaults to
@@ -105,6 +109,11 @@ into service code (`ai-context/01`):
   GET URLs and must be reachable from both the container and the browser — the in-cluster
   `minio:9000` is not browser-resolvable. (`media-service` maps `host.docker.internal` to
   the host gateway so it can reach MinIO's published port.)
+- `gateway-service` → `PARKIO_<SVC>_SERVICE_URI` (downstream route targets, e.g.
+  `http://user-service:8082`). These resolve the `${PARKIO_*_SERVICE_URI}` placeholders in
+  the gateway's `application.yml`; their dev defaults (`localhost:808x`) only work when the
+  gateway runs from the IDE. `PARKIO_USER_SERVICE_URI` also backs the per-request
+  account-status lookup, so without it every authenticated request fails closed.
 - `gateway-service` → `PARKIO_CORS_ALLOWED_ORIGINS` (browser CORS allow-list; defaults to
   the local Vite dev origin `http://localhost:5173`, never `*`)
 - `auth-service` → `PARKIO_JWT_PRIVATE_KEY_PEM` for RS256 signing

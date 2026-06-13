@@ -1,18 +1,38 @@
+/**
+ * Parkio V2 design tokens (see frontend/DESIGN_SYSTEM.md).
+ *
+ * @deprecated for new code — prefer Tailwind utility classes backed by the CSS
+ * variables in `apps/web/src/styles/index.css`. These constants remain only so
+ * existing inline-styled pages keep rendering consistently until they are
+ * migrated; the keys are stable, the values now follow the V2 palette.
+ */
 export const colors = {
-  primary: '#2563eb',
-  primaryHover: '#1d4ed8',
+  /** primary `#0050cb` */
+  primary: '#0050cb',
+  /** on-primary-fixed-variant — pressed/hover primary */
+  primaryHover: '#003fa4',
   onPrimary: '#ffffff',
-  background: '#f8fafc',
+  /** background / surface `#f8f9ff` */
+  background: '#f8f9ff',
+  /** surface-container-lowest — card surfaces */
   surface: '#ffffff',
-  border: '#e2e8f0',
-  text: '#0f172a',
-  textMuted: '#64748b',
-  error: '#dc2626',
-  errorBg: '#fef2f2',
-  warning: '#d97706',
-  success: '#16a34a',
+  /** outline-variant */
+  border: '#c2c6d8',
+  /** on-surface */
+  text: '#0b1c30',
+  /** on-surface-variant */
+  textMuted: '#424656',
+  /** error */
+  error: '#ba1a1a',
+  /** error-container */
+  errorBg: '#ffdad6',
+  /** tertiary (V2 warning/amber) */
+  warning: '#7f4f00',
+  /** secondary (V2 success/emerald) */
+  success: '#006c49',
 } as const;
 
+/** 4px-baseline spacing scale (xs 4 / sm 8 / md 16 / lg 24 / xl 32). */
 export const spacing = {
   xs: '0.25rem',
   sm: '0.5rem',
@@ -21,6 +41,7 @@ export const spacing = {
   xl: '2rem',
 } as const;
 
+/** Radius scale (DEFAULT 4 / lg 8 / xl 12 — `full` for pills). */
 export const radius = {
   sm: '0.25rem',
   md: '0.5rem',

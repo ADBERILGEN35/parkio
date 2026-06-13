@@ -1,28 +1,22 @@
 import type { HTMLAttributes, ReactNode } from 'react';
-import { colors, radius, spacing } from '../tokens';
+import { cn } from '../cn';
 
 export interface CardProps extends HTMLAttributes<HTMLDivElement> {
   title?: string;
   children: ReactNode;
 }
 
-export function Card({ title, children, style, ...props }: CardProps) {
+/** Level-1 surface: white card, ambient soft shadow, hairline border. */
+export function Card({ title, children, className, ...props }: CardProps) {
   return (
     <div
-      style={{
-        backgroundColor: colors.surface,
-        border: `1px solid ${colors.border}`,
-        borderRadius: radius.lg,
-        padding: spacing.lg,
-        ...style,
-      }}
+      className={cn(
+        'rounded-2xl border border-outline-variant/20 bg-surface-container-lowest p-lg shadow-soft',
+        className,
+      )}
       {...props}
     >
-      {title ? (
-        <h2 style={{ margin: `0 0 ${spacing.md}`, fontSize: '1.125rem', color: colors.text }}>
-          {title}
-        </h2>
-      ) : null}
+      {title ? <h2 className="m-0 mb-md text-title-lg text-on-surface">{title}</h2> : null}
       {children}
     </div>
   );

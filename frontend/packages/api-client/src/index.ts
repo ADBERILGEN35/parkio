@@ -10,6 +10,8 @@ export { createParkingApi, type ParkingApi } from './parking';
 export { createMediaApi, type MediaApi } from './media';
 export { createNotificationsApi, type NotificationsApi } from './notifications';
 export { createGamificationApi, type GamificationApi } from './gamification';
+export { createModerationApi, type ModerationApi } from './moderation';
+export { createAnalyticsApi, type AnalyticsApi } from './analytics';
 export {
   createIdempotencyKey,
   IDEMPOTENCY_HEADER,

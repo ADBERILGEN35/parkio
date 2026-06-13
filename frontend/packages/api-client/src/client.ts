@@ -88,7 +88,13 @@ export function createApiClient(options: ApiClientOptions): AxiosInstance {
         }
 
         if (newToken) {
-          original.headers.set('Authorization', `Bearer ${newToken}`);
+          // Sync storage before retry — the request interceptor always stamps
+          // Authorization from tokenStorage and would otherwise overwrite the
+          // fresh token with the stale one that triggered the 401.
+          const refreshToken = tokenStorage.getRefreshToken();
+          if (refreshToken) {
+            tokenStorage.setTokens({ accessToken: newToken, refreshToken });
+          }
           return client(original);
         }
 

@@ -1,8 +1,10 @@
 import {
+  createAnalyticsApi,
   createApiClient,
   createAuthApi,
   createGamificationApi,
   createMediaApi,
+  createModerationApi,
   createNotificationsApi,
   createParkingApi,
   createUsersApi,
@@ -27,6 +29,8 @@ export const parkingApi = createParkingApi(apiClient);
 export const mediaApi = createMediaApi(apiClient);
 export const notificationsApi = createNotificationsApi(apiClient);
 export const gamificationApi = createGamificationApi(apiClient);
+export const moderationApi = createModerationApi(apiClient);
+export const analyticsApi = createAnalyticsApi(apiClient);
 
 setRefreshHandler(async () => {
   const refreshToken = webTokenStorage.getRefreshToken();

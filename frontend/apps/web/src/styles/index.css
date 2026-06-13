@@ -1,0 +1,156 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/*
+ * Parkio V2 design tokens (light theme) — see frontend/DESIGN_SYSTEM.md §1.
+ *
+ * Values are RGB triplets so Tailwind can apply alpha modifiers
+ * (`bg-secondary/10`). Naming is dark-mode-ready: a future dark theme
+ * overrides these variables under `.dark` — no dark screens exist yet.
+ */
+@layer base {
+  :root {
+    /* Primary (Electric Blue) */
+    --color-primary: 0 80 203; /* #0050cb */
+    --color-on-primary: 255 255 255;
+    --color-primary-container: 0 102 255; /* #0066ff */
+    --color-on-primary-container: 248 247 255;
+    --color-primary-fixed: 218 225 255; /* #dae1ff */
+    --color-primary-fixed-dim: 179 197 255; /* #b3c5ff */
+    --color-on-primary-fixed: 0 24 73;
+    --color-on-primary-fixed-variant: 0 63 164; /* #003fa4 */
+    --color-inverse-primary: 179 197 255;
+    --color-surface-tint: 0 84 214; /* #0054d6 */
+
+    /* Secondary (Emerald — success / verified) */
+    --color-secondary: 0 108 73; /* #006c49 */
+    --color-on-secondary: 255 255 255;
+    --color-secondary-container: 108 248 187; /* #6cf8bb */
+    --color-on-secondary-container: 0 113 77;
+    --color-secondary-fixed: 111 251 190;
+    --color-secondary-fixed-dim: 78 222 163;
+    --color-on-secondary-fixed: 0 33 19;
+    --color-on-secondary-fixed-variant: 0 82 54;
+
+    /* Tertiary (Amber — warning / streaks) */
+    --color-tertiary: 127 79 0; /* #7f4f00 */
+    --color-on-tertiary: 255 255 255;
+    --color-tertiary-container: 160 101 0; /* #a06500 */
+    --color-on-tertiary-container: 255 247 241;
+    --color-tertiary-fixed: 255 221 184;
+    --color-tertiary-fixed-dim: 255 185 95;
+    --color-on-tertiary-fixed: 42 23 0;
+    --color-on-tertiary-fixed-variant: 101 62 0;
+
+    /* Error */
+    --color-error: 186 26 26; /* #ba1a1a */
+    --color-on-error: 255 255 255;
+    --color-error-container: 255 218 214; /* #ffdad6 */
+    --color-on-error-container: 147 0 10; /* #93000a */
+
+    /* Surfaces & neutrals */
+    --color-background: 248 249 255; /* #f8f9ff */
+    --color-on-background: 11 28 48; /* #0b1c30 */
+    --color-surface: 248 249 255;
+    --color-surface-bright: 248 249 255;
+    --color-surface-dim: 203 219 245; /* #cbdbf5 */
+    --color-surface-container-lowest: 255 255 255;
+    --color-surface-container-low: 239 244 255; /* #eff4ff */
+    --color-surface-container: 229 238 255; /* #e5eeff */
+    --color-surface-container-high: 220 233 255; /* #dce9ff */
+    --color-surface-container-highest: 211 228 254; /* #d3e4fe */
+    --color-surface-variant: 211 228 254;
+    --color-on-surface: 11 28 48;
+    --color-on-surface-variant: 66 70 86; /* #424656 */
+    --color-outline: 114 118 135; /* #727687 */
+    --color-outline-variant: 194 198 216; /* #c2c6d8 */
+    --color-inverse-surface: 33 49 69; /* #213145 */
+    --color-inverse-on-surface: 234 241 255; /* #eaf1ff */
+
+    /* Semantic aliases (requested shorthand roles) */
+    --color-success: var(--color-secondary);
+    --color-warning: var(--color-tertiary);
+    --color-muted: var(--color-on-surface-variant);
+    --color-text: var(--color-on-surface);
+    --color-border: var(--color-outline-variant);
+
+    /* Motion */
+    --ms-fast: 100ms;
+    --ms-std: 250ms;
+    --ms-fluid: 400ms;
+  }
+
+  body {
+    @apply bg-background font-sans text-body-md text-on-background antialiased;
+  }
+}
+
+@layer components {
+  /* Glassmorphism recipe — nav bars and panels floating over content/maps. */
+  .glass-panel {
+    background: rgb(var(--color-surface) / 0.7);
+    backdrop-filter: blur(20px);
+    -webkit-backdrop-filter: blur(20px);
+    border: 1px solid rgb(255 255 255 / 0.3);
+  }
+
+  /* Material Symbols defaults; add `.filled` for the active/filled state. */
+  .material-symbols-outlined {
+    font-variation-settings:
+      'FILL' 0,
+      'wght' 400,
+      'GRAD' 0,
+      'opsz' 24;
+  }
+  .material-symbols-outlined.filled {
+    font-variation-settings: 'FILL' 1;
+  }
+}
+
+@layer utilities {
+  .hide-scrollbar::-webkit-scrollbar {
+    display: none;
+  }
+  .hide-scrollbar {
+    -ms-overflow-style: none;
+    scrollbar-width: none;
+  }
+
+  .hover-lift {
+    transition: all var(--ms-std) cubic-bezier(0.34, 1.56, 0.64, 1);
+  }
+  .hover-lift:hover {
+    transform: translateY(-4px);
+    box-shadow: 0 12px 24px rgb(0 0 0 / 0.1);
+  }
+}
+
+/*
+ * Reduced-motion fallback (accessibility). Honors the OS "reduce motion"
+ * setting: near-instant transitions, no looping pulse/glow/float, no hover
+ * translate. Tailwind `motion-safe:` utilities (e.g. button press-scale)
+ * already opt out; this is the global safety net for everything else.
+ * The loading spinner is intentionally kept (calmer speed) so it still reads
+ * as "in progress".
+ */
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
+
+  .animate-spin {
+    animation-duration: 1.2s !important;
+    animation-iteration-count: infinite !important;
+  }
+
+  .hover-lift:hover {
+    transform: none !important;
+    box-shadow: 0 4px 20px rgb(0 0 0 / 0.05) !important;
+  }
+}

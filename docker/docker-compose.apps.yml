@@ -43,6 +43,21 @@ services:
       SPRING_DATA_REDIS_HOST: redis
       SPRING_DATA_REDIS_PORT: "6379"
       PARKIO_AUTH_JWKS_URI: http://auth-service:8081/api/v1/auth/.well-known/jwks.json
+      # Downstream route targets. The gateway resolves each ${PARKIO_*_SERVICE_URI}
+      # placeholder in application.yml; their defaults are localhost:808x (dev-from-IDE),
+      # which inside this container would point at the gateway itself. In the compose
+      # network they must be the service DNS names. PARKIO_USER_SERVICE_URI also backs
+      # the per-request account-status lookup (parkio.gateway.user-status.base-url), so
+      # without it every authenticated request fails closed.
+      PARKIO_AUTH_SERVICE_URI: http://auth-service:8081
+      PARKIO_USER_SERVICE_URI: http://user-service:8082
+      PARKIO_PARKING_SERVICE_URI: http://parking-service:8083
+      PARKIO_MEDIA_SERVICE_URI: http://media-service:8084
+      PARKIO_GAMIFICATION_SERVICE_URI: http://gamification-service:8085
+      PARKIO_NOTIFICATION_SERVICE_URI: http://notification-service:8086
+      PARKIO_MODERATION_SERVICE_URI: http://moderation-service:8087
+      PARKIO_AI_VALIDATION_SERVICE_URI: http://ai-validation-service:8088
+      PARKIO_ANALYTICS_SERVICE_URI: http://analytics-service:8089
       # Browser origins allowed to call the gateway. Explicit allow-list (never "*");
       # defaults to the local Vite dev server. Override per environment; production
       # must set its real web origin(s). Empty in application.yml = deny (safe default).
@@ -103,6 +118,9 @@ services:
       SPRING_DATASOURCE_PASSWORD: ${POSTGRES_PARKING_PASSWORD}
       SPRING_DATA_REDIS_HOST: redis
       SPRING_DATA_REDIS_PORT: "6379"
+      # Internal client for POST /internal/media/{id}/access-url (parkio.media.client.base-url).
+      # Defaults to localhost:8084 (IDE dev); inside compose must be the service DNS name.
+      PARKIO_MEDIA_SERVICE_URI: http://media-service:8084
     depends_on:
       <<: *datasource-depends
       postgres-parking:
@@ -201,7 +219,8 @@ services:
       postgres-moderation:
         condition: service_healthy
 
-  # Advisory only (ai-context/02): consumes/produces events, owns no database.
+  # Advisory only (ai-context/02): consumes/produces events. Owns its own database
+  # for advisory results (Flyway migrations + JPA entities), like the other services.
   ai-validation-service:
     <<: *app-common
     build:
@@ -210,8 +229,13 @@ services:
     ports: ["8088:8088"]
     environment:
       <<: *app-env-common
+      SPRING_DATASOURCE_URL: jdbc:postgresql://postgres-ai-validation:5432/${POSTGRES_AIVALIDATION_DB:-parkio_aivalidation}
+      SPRING_DATASOURCE_USERNAME: ${POSTGRES_AIVALIDATION_USER:-parkio_aivalidation}
+      SPRING_DATASOURCE_PASSWORD: ${POSTGRES_AIVALIDATION_PASSWORD}
     depends_on:
       <<: *datasource-depends
+      postgres-ai-validation:
+        condition: service_healthy
 
   analytics-service:
     <<: *app-common

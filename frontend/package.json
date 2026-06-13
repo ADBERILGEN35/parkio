@@ -6,7 +6,10 @@
     "dev": "pnpm --filter @parkio/web dev",
     "build": "pnpm -r build",
     "typecheck": "pnpm -r typecheck",
-    "lint": "pnpm -r lint"
+    "lint": "pnpm -r lint",
+    "test": "pnpm -r test",
+    "e2e": "pnpm --filter @parkio/web e2e",
+    "e2e:ui": "pnpm --filter @parkio/web e2e:ui"
   },
   "engines": {
     "node": ">=20"

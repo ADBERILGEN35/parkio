@@ -1,32 +1,38 @@
-import type { InputHTMLAttributes } from 'react';
-import { colors, radius, spacing } from '../tokens';
+import { forwardRef, type InputHTMLAttributes } from 'react';
+import { cn } from '../cn';
 
 export interface InputProps extends InputHTMLAttributes<HTMLInputElement> {
   label?: string;
   error?: string;
 }
 
-export function Input({ label, error, id, style, ...props }: InputProps) {
+/**
+ * V2 design-system text input: near-borderless field on a `surface` background
+ * with a soft shadow; focus swaps the hairline ring for a 2px primary ring.
+ */
+export const Input = forwardRef<HTMLInputElement, InputProps>(function Input(
+  { label, error, id, className, ...props },
+  ref,
+) {
   const inputId = id ?? label?.toLowerCase().replace(/\s+/g, '-');
   return (
-    <label style={{ display: 'flex', flexDirection: 'column', gap: spacing.xs }}>
+    <label className="flex flex-col gap-xs">
       {label ? (
-        <span style={{ fontSize: '0.875rem', fontWeight: 500, color: colors.text }}>{label}</span>
+        <span className="text-label-sm font-medium text-on-surface-variant">{label}</span>
       ) : null}
       <input
+        ref={ref}
         id={inputId}
-        style={{
-          padding: spacing.sm,
-          borderRadius: radius.md,
-          border: `1px solid ${error ? colors.error : colors.border}`,
-          fontSize: '1rem',
-          ...style,
-        }}
+        className={cn(
+          'w-full rounded-lg border-0 bg-surface px-md py-sm text-body-md text-on-surface shadow-sm',
+          'placeholder:text-outline transition-shadow duration-std',
+          'focus:outline-none focus:ring-2',
+          error ? 'ring-1 ring-error focus:ring-error' : 'ring-1 ring-outline-variant/40 focus:ring-primary',
+          className,
+        )}
         {...props}
       />
-      {error ? (
-        <span style={{ fontSize: '0.75rem', color: colors.error }}>{error}</span>
-      ) : null}
+      {error ? <span className="text-label-sm text-error">{error}</span> : null}
     </label>
   );
-}
+});

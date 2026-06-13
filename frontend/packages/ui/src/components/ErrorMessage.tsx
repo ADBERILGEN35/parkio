@@ -1,4 +1,4 @@
-import { colors, radius, spacing } from '../tokens';
+import { Icon } from './Icon';
 
 export interface ErrorMessageProps {
   message: string;
@@ -6,30 +6,19 @@ export interface ErrorMessageProps {
   code?: string;
 }
 
+/** Soft error panel: tinted error-container background, solid error accents. */
 export function ErrorMessage({ message, traceId, code }: ErrorMessageProps) {
   return (
     <div
       role="alert"
-      style={{
-        padding: spacing.md,
-        borderRadius: radius.md,
-        backgroundColor: colors.errorBg,
-        border: `1px solid ${colors.error}`,
-        color: colors.error,
-        fontSize: '0.875rem',
-      }}
+      className="flex gap-sm rounded-xl border border-error/30 bg-error-container/40 p-md text-body-md text-on-error-container"
     >
-      <p style={{ margin: 0 }}>{message}</p>
-      {code ? (
-        <p style={{ margin: `${spacing.xs} 0 0`, fontSize: '0.75rem', opacity: 0.85 }}>
-          Code: {code}
-        </p>
-      ) : null}
-      {traceId ? (
-        <p style={{ margin: `${spacing.xs} 0 0`, fontSize: '0.75rem', opacity: 0.85 }}>
-          Trace: {traceId}
-        </p>
-      ) : null}
+      <Icon name="error" className="text-[18px] leading-none text-error" />
+      <div className="min-w-0">
+        <p className="m-0">{message}</p>
+        {code ? <p className="m-0 mt-xs text-label-sm opacity-85">Code: {code}</p> : null}
+        {traceId ? <p className="m-0 mt-xs text-label-sm opacity-85">Trace: {traceId}</p> : null}
+      </div>
     </div>
   );
 }

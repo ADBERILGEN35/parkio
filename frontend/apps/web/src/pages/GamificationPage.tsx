@@ -1,79 +1,181 @@
-import type { LevelRule, PointTransactionEntry } from '@parkio/types';
-import { Card, LoadingState, PageShell, colors, radius, spacing } from '@parkio/ui';
+import type {
+  GamificationAccessPolicy,
+  LevelRule,
+  LevelStanding,
+  PointTransactionEntry,
+} from '@parkio/types';
+import {
+  Card,
+  EmptyState,
+  Icon,
+  LoadingState,
+  MetricCard,
+  PageShell,
+  SoftBadge,
+  cn,
+} from '@parkio/ui';
 import { useQuery } from '@tanstack/react-query';
 import { Link } from 'react-router-dom';
 import { gamificationApi } from '@/api';
-import { ApiErrorMessage } from '@/components/ApiErrorMessage';
+import { FriendlyApiErrorMessage } from '@/components/FriendlyApiErrorMessage';
 import { AppNav } from '@/components/AppNav';
-import { formatInstant } from '@/lib/format';
+import { formatRelativeAgo, humanizeEnum } from '@/lib/format';
 
 export function GamificationPage() {
   return (
     <PageShell title="Progress">
       <AppNav />
-      <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem', maxWidth: '40rem' }}>
-        <ProgressCard />
-        <LevelCard />
-        <AccessPolicyCard />
-        <PointsCard />
+      <div className="flex flex-col gap-lg">
+        <LevelHero />
+        <div className="grid grid-cols-1 gap-lg lg:grid-cols-2 lg:items-start">
+          <PointsCard />
+          <AccessPolicyCard />
+        </div>
         <LevelsCard />
       </div>
     </PageShell>
   );
 }
 
-function ProgressCard() {
-  const query = useQuery({ queryKey: ['progress'], queryFn: gamificationApi.getMyProgress });
-
-  return (
-    <Card title="Progress">
-      {query.isPending ? (
-        <LoadingState />
-      ) : query.isError ? (
-        <ApiErrorMessage error={query.error} />
-      ) : (
-        <>
-          <p style={{ margin: '0.25rem 0' }}>Total points: {query.data.totalPoints}</p>
-          <p style={{ margin: '0.25rem 0' }}>Current level: {query.data.currentLevel}</p>
-          <p style={{ margin: '0.25rem 0', color: colors.textMuted, fontSize: '0.875rem' }}>
-            Last updated: {formatInstant(query.data.updatedAt)}
-          </p>
-        </>
-      )}
-    </Card>
-  );
-}
-
-function LevelCard() {
+/** Level + progress hero, driven by `GET /gamification/me/level`. */
+function LevelHero() {
   const query = useQuery({ queryKey: ['level'], queryFn: gamificationApi.getMyLevel });
 
   return (
-    <Card title="Level standing">
+    <section className="rounded-2xl border border-outline-variant/20 bg-surface-container-lowest p-lg shadow-soft">
+      {query.isPending ? (
+        <LoadingState label="Loading your progress…" />
+      ) : query.isError ? (
+        <FriendlyApiErrorMessage error={query.error} />
+      ) : (
+        <LevelHeroContent level={query.data} />
+      )}
+    </section>
+  );
+}
+
+function LevelHeroContent({ level }: { level: LevelStanding }) {
+  const atMax = level.nextLevelMinPoints === null || level.pointsToNextLevel === null;
+
+  // Progress within the current level band (clamped 0–100).
+  const span = atMax ? 0 : (level.nextLevelMinPoints as number) - level.currentLevelMinPoints;
+  const earnedInBand = level.totalPoints - level.currentLevelMinPoints;
+  const pct = atMax || span <= 0 ? 100 : Math.min(100, Math.max(0, (earnedInBand / span) * 100));
+
+  return (
+    <div className="flex flex-col gap-md">
+      <div className="flex flex-wrap items-center gap-md">
+        <span className="flex h-16 w-16 shrink-0 items-center justify-center rounded-full bg-primary-container text-headline-md text-on-primary-container">
+          {level.currentLevel}
+        </span>
+        <div className="min-w-0 flex-1">
+          <p className="m-0 text-label-sm uppercase tracking-wider text-on-surface-variant">
+            Current level
+          </p>
+          <h2 className="m-0 text-headline-md text-on-surface">Level {level.currentLevel}</h2>
+          <p className="m-0 mt-xs text-body-md text-on-surface-variant">
+            {level.totalPoints} total points
+          </p>
+        </div>
+        {atMax ? (
+          <SoftBadge tone="success" icon="workspace_premium">
+            Max level reached
+          </SoftBadge>
+        ) : (
+          <SoftBadge tone="primary" icon="trending_up">
+            {level.pointsToNextLevel} pts to level {level.currentLevel + 1}
+          </SoftBadge>
+        )}
+      </div>
+
+      <div>
+        <div className="flex items-center justify-between text-label-sm text-on-surface-variant">
+          <span>Level {level.currentLevel}</span>
+          <span>{atMax ? 'Top level' : `Level ${level.currentLevel + 1}`}</span>
+        </div>
+        <div
+          className="mt-xs h-2 w-full overflow-hidden rounded-full bg-surface-container-high"
+          role="progressbar"
+          aria-valuenow={Math.round(pct)}
+          aria-valuemin={0}
+          aria-valuemax={100}
+        >
+          <div className="h-full rounded-full bg-primary" style={{ width: `${pct}%` }} />
+        </div>
+        <p className="m-0 mt-xs text-label-sm text-on-surface-variant">
+          {atMax
+            ? 'You are at the highest level.'
+            : `${level.totalPoints} / ${level.nextLevelMinPoints} points toward the next level.`}
+        </p>
+      </div>
+    </div>
+  );
+}
+
+/** Total points + recent ledger entries (`GET /gamification/me/points`). */
+function PointsCard() {
+  const query = useQuery({ queryKey: ['points'], queryFn: gamificationApi.getMyPoints });
+
+  return (
+    <Card title="Points">
       {query.isPending ? (
         <LoadingState />
       ) : query.isError ? (
-        <ApiErrorMessage error={query.error} />
+        <FriendlyApiErrorMessage error={query.error} />
       ) : (
-        <>
-          <p style={{ margin: '0.25rem 0' }}>
-            Level {query.data.currentLevel} (from {query.data.currentLevelMinPoints} points)
-          </p>
-          {query.data.nextLevelMinPoints === null ? (
-            <p style={{ margin: '0.25rem 0', color: colors.textMuted }}>
-              You are at the highest level.
+        <div className="flex flex-col gap-md">
+          <MetricCard label="Total points" value={query.data.totalPoints} icon="stars" />
+          <div>
+            <p className="m-0 mb-sm text-label-sm font-semibold uppercase tracking-wider text-on-surface-variant">
+              Recent activity
             </p>
-          ) : (
-            <p style={{ margin: '0.25rem 0' }}>
-              Next level at {query.data.nextLevelMinPoints} points —{' '}
-              {query.data.pointsToNextLevel} points to go.
-            </p>
-          )}
-        </>
+            {query.data.recentTransactions.length === 0 ? (
+              <EmptyState
+                icon="receipt_long"
+                title="No point activity yet"
+                description="Share or verify spots to start earning points."
+              />
+            ) : (
+              <ul className="m-0 flex list-none flex-col gap-sm p-0">
+                {query.data.recentTransactions.map((entry, index) => (
+                  <TransactionItem key={index} entry={entry} />
+                ))}
+              </ul>
+            )}
+          </div>
+        </div>
       )}
     </Card>
   );
 }
 
+function TransactionItem({ entry }: { entry: PointTransactionEntry }) {
+  const earned = entry.direction === 'EARNED';
+  return (
+    <li className="flex items-center justify-between gap-sm rounded-xl border border-outline-variant/40 bg-surface-container-low p-md">
+      <div className="min-w-0">
+        <p className="m-0 text-body-md text-on-surface">{humanizeEnum(entry.sourceType)}</p>
+        <p className="m-0 mt-xs text-label-sm text-on-surface-variant">
+          {formatRelativeAgo(entry.createdAt)}
+          {entry.relatedSpotId ? (
+            <>
+              {' · '}
+              <Link to={`/spots/${entry.relatedSpotId}`} className="text-primary hover:underline">
+                View spot
+              </Link>
+            </>
+          ) : null}
+        </p>
+      </div>
+      <SoftBadge tone={earned ? 'success' : 'danger'} icon={earned ? 'add' : 'remove'}>
+        {earned ? '+' : '−'}
+        {entry.points}
+      </SoftBadge>
+    </li>
+  );
+}
+
+/** Level-based access policy (`GET /gamification/me/access-policy`). */
 function AccessPolicyCard() {
   const query = useQuery({
     queryKey: ['access-policy'],
@@ -85,89 +187,76 @@ function AccessPolicyCard() {
       {query.isPending ? (
         <LoadingState />
       ) : query.isError ? (
-        <ApiErrorMessage error={query.error} />
+        <FriendlyApiErrorMessage error={query.error} />
       ) : (
-        <>
-          <p style={{ margin: '0.25rem 0' }}>Search radius: {query.data.searchRadiusMeters} m</p>
-          <p style={{ margin: '0.25rem 0' }}>Results per search: {query.data.resultLimit}</p>
-          <p style={{ margin: '0.25rem 0' }}>Daily view limit: {query.data.dailyViewLimit}</p>
-          <p style={{ margin: '0.25rem 0' }}>
-            Verified-spot priority: {query.data.verifiedSpotPriority ? 'yes' : 'no'}
-          </p>
-          <p style={{ margin: '0.25rem 0' }}>
-            Notification priority: {query.data.notificationPriority ? 'yes' : 'no'}
-          </p>
-        </>
+        <AccessPolicyContent policy={query.data} />
       )}
     </Card>
   );
 }
 
-function PointsCard() {
-  const query = useQuery({ queryKey: ['points'], queryFn: gamificationApi.getMyPoints });
-
+function AccessPolicyContent({ policy }: { policy: GamificationAccessPolicy }) {
   return (
-    <Card title="Points history">
-      {query.isPending ? (
-        <LoadingState />
-      ) : query.isError ? (
-        <ApiErrorMessage error={query.error} />
-      ) : query.data.recentTransactions.length === 0 ? (
-        <p style={{ margin: 0, color: colors.textMuted }}>
-          No point transactions yet — share or verify spots to earn points.
-        </p>
-      ) : (
-        <ul style={{ listStyle: 'none', margin: 0, padding: 0, display: 'flex', flexDirection: 'column', gap: spacing.sm }}>
-          {query.data.recentTransactions.map((entry, index) => (
-            <TransactionItem key={index} entry={entry} />
-          ))}
-        </ul>
-      )}
-    </Card>
-  );
-}
-
-function TransactionItem({ entry }: { entry: PointTransactionEntry }) {
-  const earned = entry.direction === 'EARNED';
-  return (
-    <li
-      style={{
-        padding: spacing.sm,
-        border: `1px solid ${colors.border}`,
-        borderRadius: radius.md,
-      }}
-    >
-      <span style={{ color: earned ? colors.success : colors.error }}>
-        {earned ? '+' : '−'}
-        {entry.points}
-      </span>{' '}
-      {entry.sourceType}
-      <p style={{ margin: `${spacing.xs} 0 0`, fontSize: '0.875rem', color: colors.textMuted }}>
-        {formatInstant(entry.createdAt)}
-        {entry.relatedSpotId ? (
-          <>
-            {' · '}
-            <Link to={`/spots/${entry.relatedSpotId}`}>View spot</Link>
-          </>
-        ) : null}
+    <div className="flex flex-col gap-md">
+      <p className="m-0 text-body-md text-on-surface-variant">
+        Perks unlocked by your current level ({policy.currentLevel}).
       </p>
-    </li>
+      <dl className="m-0 grid grid-cols-1 gap-sm sm:grid-cols-3">
+        <PolicyStat label="Search radius" value={`${policy.searchRadiusMeters} m`} icon="my_location" />
+        <PolicyStat label="Results / search" value={policy.resultLimit} icon="format_list_numbered" />
+        <PolicyStat label="Daily views" value={policy.dailyViewLimit} icon="visibility" />
+      </dl>
+      <div className="flex flex-wrap gap-sm">
+        <SoftBadge
+          tone={policy.verifiedSpotPriority ? 'success' : 'neutral'}
+          icon={policy.verifiedSpotPriority ? 'verified' : 'remove'}
+        >
+          Verified-spot priority
+        </SoftBadge>
+        <SoftBadge
+          tone={policy.notificationPriority ? 'success' : 'neutral'}
+          icon={policy.notificationPriority ? 'notifications_active' : 'remove'}
+        >
+          Notification priority
+        </SoftBadge>
+      </div>
+    </div>
   );
 }
 
+function PolicyStat({ label, value, icon }: { label: string; value: string | number; icon: string }) {
+  return (
+    <div className="rounded-xl border border-outline-variant/40 bg-surface-container-low p-md">
+      <dt className="m-0 flex items-center gap-xs text-label-sm text-on-surface-variant">
+        <Icon name={icon} className="text-[14px] leading-none" />
+        {label}
+      </dt>
+      <dd className="m-0 mt-xs text-title-lg text-on-surface">{value}</dd>
+    </div>
+  );
+}
+
+/** Full level roadmap (`GET /gamification/levels`) with the current level highlighted. */
 function LevelsCard() {
-  const query = useQuery({ queryKey: ['levels'], queryFn: gamificationApi.getLevels });
+  const levels = useQuery({ queryKey: ['levels'], queryFn: gamificationApi.getLevels });
+  const standing = useQuery({ queryKey: ['level'], queryFn: gamificationApi.getMyLevel });
 
   return (
-    <Card title="All levels">
-      {query.isPending ? (
+    <Card title="Level roadmap">
+      {levels.isPending ? (
         <LoadingState />
-      ) : query.isError ? (
-        <ApiErrorMessage error={query.error} />
+      ) : levels.isError ? (
+        <FriendlyApiErrorMessage error={levels.error} />
+      ) : levels.data.length === 0 ? (
+        <EmptyState icon="stairs" title="No levels defined" />
       ) : (
-        <ul style={{ listStyle: 'none', margin: 0, padding: 0, display: 'flex', flexDirection: 'column', gap: spacing.sm }}>
-          {query.data.map((rule) => (
-            <LevelRuleItem key={rule.level} rule={rule} />
+        <ul className="m-0 flex list-none flex-col gap-sm p-0">
+          {levels.data.map((rule) => (
+            <LevelRuleItem
+              key={rule.level}
+              rule={rule}
+              current={standing.data?.currentLevel === rule.level}
+            />
           ))}
         </ul>
       )}
@@ -175,21 +264,35 @@ function LevelsCard() {
   );
 }
 
-function LevelRuleItem({ rule }: { rule: LevelRule }) {
+function LevelRuleItem({ rule, current }: { rule: LevelRule; current: boolean }) {
   return (
     <li
-      style={{
-        padding: spacing.sm,
-        border: `1px solid ${colors.border}`,
-        borderRadius: radius.md,
-      }}
+      className={cn(
+        'rounded-xl border p-md transition-colors duration-std',
+        current
+          ? 'border-l-4 border-primary bg-primary/5'
+          : 'border-outline-variant/40 bg-surface-container-low',
+      )}
     >
-      <strong>Level {rule.level}</strong> — {rule.minPoints}
-      {rule.maxPoints === null ? '+ points' : `–${rule.maxPoints} points`}
-      <p style={{ margin: `${spacing.xs} 0 0`, fontSize: '0.875rem', color: colors.textMuted }}>
-        Radius {rule.searchRadiusMeters} m · {rule.resultLimit} results · {rule.dailyViewLimit}{' '}
+      <div className="flex items-center justify-between gap-sm">
+        <span className="flex items-center gap-sm text-body-md font-semibold text-on-surface">
+          <Icon name="military_tech" className="text-[18px] leading-none text-primary" />
+          Level {rule.level}
+          {current ? (
+            <SoftBadge tone="primary" icon="person">
+              You
+            </SoftBadge>
+          ) : null}
+        </span>
+        <span className="text-label-sm text-on-surface-variant">
+          {rule.minPoints}
+          {rule.maxPoints === null ? '+ pts' : `–${rule.maxPoints} pts`}
+        </span>
+      </div>
+      <p className="m-0 mt-xs text-label-sm text-on-surface-variant">
+        {rule.searchRadiusMeters} m radius · {rule.resultLimit} results · {rule.dailyViewLimit}{' '}
         views/day
-        {rule.verifiedSpotPriority ? ' · verified-spot priority' : ''}
+        {rule.verifiedSpotPriority ? ' · verified priority' : ''}
         {rule.notificationPriority ? ' · notification priority' : ''}
       </p>
     </li>

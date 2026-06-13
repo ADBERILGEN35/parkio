@@ -1,11 +1,26 @@
-import type { Spot } from '@parkio/types';
-import { Card, LoadingState, PageShell, colors, radius, spacing } from '@parkio/ui';
+import type { LegalStatus, Spot } from '@parkio/types';
+import {
+  Card,
+  EmptyState,
+  Icon,
+  LoadingState,
+  PageShell,
+  SoftBadge,
+  StatusBadge,
+  type BadgeTone,
+} from '@parkio/ui';
 import { useQuery } from '@tanstack/react-query';
 import { Link } from 'react-router-dom';
 import { parkingApi } from '@/api';
-import { ApiErrorMessage } from '@/components/ApiErrorMessage';
+import { FriendlyApiErrorMessage } from '@/components/FriendlyApiErrorMessage';
 import { AppNav } from '@/components/AppNav';
-import { formatInstant } from '@/lib/format';
+import { formatInstant, formatRemaining, humanizeEnum } from '@/lib/format';
+
+const LEGAL_STATUS_TONES: Record<LegalStatus, BadgeTone> = {
+  LEGAL: 'success',
+  UNCERTAIN: 'warning',
+  ILLEGAL_OR_RISKY: 'danger',
+};
 
 export function MySpotsPage() {
   const query = useQuery({ queryKey: ['parking', 'my-spots'], queryFn: parkingApi.getMySpots });
@@ -18,11 +33,24 @@ export function MySpotsPage() {
         {query.isPending ? (
           <LoadingState />
         ) : query.isError ? (
-          <ApiErrorMessage error={query.error} />
+          <FriendlyApiErrorMessage error={query.error} />
         ) : query.data.length === 0 ? (
-          <p style={{ margin: 0, color: colors.textMuted }}>You haven't shared any spots yet.</p>
+          <EmptyState
+            icon="local_parking"
+            title="No spots yet"
+            description="Spots you share will appear here, with their live status and verification activity."
+            action={
+              <Link
+                to="/upload"
+                className="inline-flex items-center gap-xs rounded-full bg-primary px-lg py-sm text-label-md text-on-primary no-underline shadow-sm transition-all duration-std hover:bg-primary/90"
+              >
+                <Icon name="add_a_photo" className="text-[16px] leading-none" />
+                Share your first spot
+              </Link>
+            }
+          />
         ) : (
-          <ul style={{ listStyle: 'none', margin: 0, padding: 0, display: 'flex', flexDirection: 'column', gap: spacing.sm }}>
+          <ul className="m-0 flex list-none flex-col gap-sm p-0">
             {query.data.map((spot) => (
               <MySpotItem key={spot.id} spot={spot} />
             ))}
@@ -35,20 +63,60 @@ export function MySpotsPage() {
 
 function MySpotItem({ spot }: { spot: Spot }) {
   return (
-    <li
-      style={{
-        padding: spacing.sm,
-        border: `1px solid ${colors.border}`,
-        borderRadius: radius.md,
-      }}
-    >
-      <Link to={`/spots/${spot.id}`}>{spot.addressText ?? `${spot.latitude}, ${spot.longitude}`}</Link>
-      <p style={{ margin: `${spacing.xs} 0 0`, fontSize: '0.875rem', color: colors.textMuted }}>
-        Status: {spot.status} · Expires: {formatInstant(spot.expiresAt)}
+    <li className="rounded-xl border border-outline-variant/40 bg-surface-container-low p-md transition-colors duration-std hover:border-primary/50">
+      <div className="flex items-start justify-between gap-sm">
+        <Link
+          to={`/spots/${spot.id}`}
+          className="min-w-0 break-words text-body-md font-semibold text-on-surface no-underline hover:text-primary hover:underline"
+        >
+          {spot.addressText ?? `${spot.latitude}, ${spot.longitude}`}
+        </Link>
+        <StatusBadge status={spot.status} className="shrink-0" />
+      </div>
+
+      <p className="m-0 mt-sm flex items-center gap-xs text-label-sm text-on-surface-variant">
+        <Icon name="schedule" className="text-[14px] leading-none" />
+        {formatRemaining(spot.expiresAt)} · expires {formatInstant(spot.expiresAt)}
       </p>
-      <p style={{ margin: `${spacing.xs} 0 0`, fontSize: '0.875rem', color: colors.textMuted }}>
-        Verifications: {spot.verificationCount} · Confidence: {spot.confidenceScore}
-      </p>
+
+      {spot.description ? (
+        <p className="m-0 mt-sm line-clamp-2 text-body-md text-on-surface-variant">
+          {spot.description}
+        </p>
+      ) : null}
+
+      <div className="mt-sm flex flex-wrap items-center gap-xs">
+        {spot.suitableVehicleTypes.map((type) => (
+          <span
+            key={type}
+            className="rounded-full bg-surface-container px-sm py-xs text-label-sm text-on-surface-variant"
+          >
+            {humanizeEnum(type)}
+          </span>
+        ))}
+        <span className="rounded-full bg-surface-container px-sm py-xs text-label-sm text-on-surface-variant">
+          {humanizeEnum(spot.parkingContext)}
+        </span>
+        <SoftBadge tone={LEGAL_STATUS_TONES[spot.legalStatus]}>
+          {humanizeEnum(spot.legalStatus)}
+        </SoftBadge>
+      </div>
+
+      {/* Owner-only signals returned by GET /parking/my-spots (SpotResponse). */}
+      <div className="mt-sm flex flex-wrap gap-md text-label-sm text-on-surface-variant">
+        <span className="flex items-center gap-xs">
+          <Icon name="verified" className="text-[14px] leading-none" />
+          {spot.verificationCount} verification{spot.verificationCount === 1 ? '' : 's'}
+        </span>
+        <span className="flex items-center gap-xs">
+          <Icon name="speed" className="text-[14px] leading-none" />
+          Confidence {spot.confidenceScore}
+        </span>
+        <span className="flex items-center gap-xs">
+          <Icon name="report" className="text-[14px] leading-none" />
+          {spot.filledReportCount} filled report{spot.filledReportCount === 1 ? '' : 's'}
+        </span>
+      </div>
     </li>
   );
 }

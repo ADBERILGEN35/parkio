@@ -2,6 +2,7 @@ package com.parkio.parking.infrastructure.idempotency;
 
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import java.sql.Timestamp;
 import java.time.Clock;
 import java.time.Duration;
 import java.time.Instant;
@@ -70,7 +71,7 @@ public class IdempotencyService {
             if (!existing.expiresAt().isAfter(now)) {
                 int deleted = jdbc.update(
                         "DELETE FROM idempotency_records WHERE id = ? AND expires_at <= ?",
-                        existing.id(), now);
+                        existing.id(), toTimestamp(now));
                 if (deleted == 1) {
                     continue;
                 }
@@ -101,6 +102,8 @@ public class IdempotencyService {
                       String fingerprint,
                       Instant createdAt,
                       Instant expiresAt) {
+        Timestamp created = toTimestamp(createdAt);
+        Timestamp expires = toTimestamp(expiresAt);
         if (postgresql) {
             return jdbc.update("""
                     INSERT INTO idempotency_records (
@@ -108,7 +111,7 @@ public class IdempotencyService {
                         request_fingerprint, status, created_at, expires_at
                     ) VALUES (?, ?, ?, ?, ?, ?, 'IN_PROGRESS', ?, ?)
                     ON CONFLICT (user_id, http_method, idempotency_key) DO NOTHING
-                    """, recordId, userId, method, path, key, fingerprint, createdAt, expiresAt);
+                    """, recordId, userId, method, path, key, fingerprint, created, expires);
         }
         return jdbc.update("""
                 INSERT INTO idempotency_records (
@@ -120,8 +123,12 @@ public class IdempotencyService {
                     SELECT 1 FROM idempotency_records
                      WHERE user_id = ? AND http_method = ? AND idempotency_key = ?
                  )
-                """, recordId, userId, method, path, key, fingerprint, createdAt, expiresAt,
+                """, recordId, userId, method, path, key, fingerprint, created, expires,
                 userId, method, key);
+    }
+
+    private static Timestamp toTimestamp(Instant instant) {
+        return Timestamp.from(instant);
     }
 
     private StoredRecord find(UUID userId, String method, String key) {

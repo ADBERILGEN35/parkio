@@ -1,6 +1,6 @@
 import { zodResolver } from '@hookform/resolvers/zod';
 import type { UserPreference } from '@parkio/types';
-import { Button, Card, Input, LoadingState } from '@parkio/ui';
+import { Button, Card, Icon, Input, LoadingState } from '@parkio/ui';
 import {
   PREFERRED_RADIUS_MAX_METERS,
   PREFERRED_RADIUS_MIN_METERS,
@@ -10,7 +10,7 @@ import {
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useForm } from 'react-hook-form';
 import { usersApi } from '@/api';
-import { ApiErrorMessage } from '@/components/ApiErrorMessage';
+import { FriendlyApiErrorMessage } from '@/components/FriendlyApiErrorMessage';
 
 export function PreferencesCard() {
   const query = useQuery({ queryKey: ['me', 'preferences'], queryFn: usersApi.getMyPreferences });
@@ -20,7 +20,7 @@ export function PreferencesCard() {
       {query.isPending ? (
         <LoadingState />
       ) : query.isError ? (
-        <ApiErrorMessage error={query.error} />
+        <FriendlyApiErrorMessage error={query.error} />
       ) : (
         <PreferencesForm preferences={query.data} />
       )}
@@ -38,6 +38,8 @@ function PreferencesForm({ preferences }: { preferences: UserPreference }) {
   const {
     register,
     handleSubmit,
+    watch,
+    setValue,
     formState: { errors },
   } = useForm<PreferencesUpdateFormValues>({
     resolver: zodResolver(preferencesUpdateSchema),
@@ -49,27 +51,71 @@ function PreferencesForm({ preferences }: { preferences: UserPreference }) {
 
   const onSubmit = handleSubmit((values) => mutation.mutate(values));
 
+  const radius = Number(watch('preferredRadiusMeters'));
+  const sliderValue = Number.isFinite(radius)
+    ? Math.min(PREFERRED_RADIUS_MAX_METERS, Math.max(PREFERRED_RADIUS_MIN_METERS, radius))
+    : PREFERRED_RADIUS_MIN_METERS;
+  const radiusLabel = Number.isFinite(radius)
+    ? radius >= 1000
+      ? `${(radius / 1000).toFixed(radius % 1000 === 0 ? 0 : 1)} km`
+      : `${radius} m`
+    : '—';
+
   return (
     <form onSubmit={onSubmit}>
-      <fieldset
-        disabled={mutation.isPending}
-        style={{ border: 'none', padding: 0, margin: 0, display: 'flex', flexDirection: 'column', gap: '1rem' }}
-      >
-        <Input
-          label="Preferred search radius (meters)"
-          type="number"
-          min={PREFERRED_RADIUS_MIN_METERS}
-          max={PREFERRED_RADIUS_MAX_METERS}
-          error={errors.preferredRadiusMeters?.message}
-          {...register('preferredRadiusMeters')}
-        />
-        <label style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', fontSize: '0.875rem' }}>
-          <input type="checkbox" {...register('notificationsEnabled')} />
+      <fieldset disabled={mutation.isPending} className="m-0 flex flex-col gap-md border-0 p-0">
+        <div className="flex flex-col gap-xs">
+          <div className="flex items-baseline justify-between gap-sm">
+            <span className="text-label-md font-semibold text-on-surface">
+              Preferred search radius
+            </span>
+            <span className="text-label-md font-semibold text-primary">{radiusLabel}</span>
+          </div>
+          <input
+            type="range"
+            min={PREFERRED_RADIUS_MIN_METERS}
+            max={PREFERRED_RADIUS_MAX_METERS}
+            step={100}
+            value={sliderValue}
+            onChange={(event) =>
+              setValue('preferredRadiusMeters', Number(event.target.value), {
+                shouldValidate: true,
+                shouldDirty: true,
+              })
+            }
+            className="w-full accent-primary"
+            aria-label="Preferred search radius slider"
+          />
+          <Input
+            label="Radius in meters"
+            type="number"
+            inputMode="numeric"
+            min={PREFERRED_RADIUS_MIN_METERS}
+            max={PREFERRED_RADIUS_MAX_METERS}
+            error={errors.preferredRadiusMeters?.message}
+            {...register('preferredRadiusMeters')}
+          />
+          <p className="m-0 text-label-sm text-on-surface-variant">
+            How far around you nearby search looks, between {PREFERRED_RADIUS_MIN_METERS} m and{' '}
+            {(PREFERRED_RADIUS_MAX_METERS / 1000).toFixed(0)} km.
+          </p>
+        </div>
+        <label className="flex items-center gap-sm text-body-md text-on-surface">
+          <input
+            type="checkbox"
+            className="h-4 w-4 rounded border-outline-variant text-primary focus:ring-primary"
+            {...register('notificationsEnabled')}
+          />
           Notifications enabled
         </label>
-        {mutation.isError ? <ApiErrorMessage error={mutation.error} /> : null}
-        {mutation.isSuccess ? <p style={{ margin: 0, fontSize: '0.875rem' }}>Saved.</p> : null}
-        <Button type="submit" disabled={mutation.isPending}>
+        {mutation.isError ? <FriendlyApiErrorMessage error={mutation.error} /> : null}
+        {mutation.isSuccess ? (
+          <p className="m-0 flex items-center gap-xs text-label-sm text-secondary">
+            <Icon name="check_circle" className="text-[14px] leading-none" />
+            Saved.
+          </p>
+        ) : null}
+        <Button type="submit" disabled={mutation.isPending} className="self-start">
           {mutation.isPending ? 'Saving…' : 'Save preferences'}
         </Button>
       </fieldset>

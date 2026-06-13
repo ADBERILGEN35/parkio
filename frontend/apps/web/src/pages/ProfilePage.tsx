@@ -1,47 +1,42 @@
-import { Button, Card, PageShell } from '@parkio/ui';
-import { useState } from 'react';
-import { useNavigate } from 'react-router-dom';
-import { performLogout } from '@/auth/logout';
-import { useAuthStore } from '@/auth/store';
+import { PageShell } from '@parkio/ui';
+import { Link } from 'react-router-dom';
 import { AppNav } from '@/components/AppNav';
+import { AccountCard } from './profile/AccountCard';
+import { ImpactHero } from './profile/ImpactHero';
 import { PreferencesCard } from './profile/PreferencesCard';
 import { ProfileDetailsCard } from './profile/ProfileDetailsCard';
-import { StatsCard } from './profile/StatsCard';
 import { VehicleCard } from './profile/VehicleCard';
 
+/**
+ * Profile / Impact Hub Beta (`/profile`). Impact-first layout: the hero (identity
+ * + trust/level/points stats) sits above the fold, with the editable forms and
+ * account settings below. On desktop the forms take the wider left column and
+ * account settings the right; on mobile everything stacks, stats first, sign-out
+ * last. All data and mutations are unchanged — only the presentation is new.
+ */
 export function ProfilePage() {
-  const navigate = useNavigate();
-  const user = useAuthStore((s) => s.user);
-  const roles = useAuthStore((s) => s.roles);
-  const status = useAuthStore((s) => s.status);
-  const [signingOut, setSigningOut] = useState(false);
-
-  const onSignOut = async () => {
-    setSigningOut(true);
-    try {
-      await performLogout();
-      navigate('/login', { replace: true });
-    } finally {
-      setSigningOut(false);
-    }
-  };
-
   return (
     <PageShell title="Profile">
       <AppNav />
-      <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem', maxWidth: '32rem' }}>
-        <Card title="Account">
-          <p style={{ margin: '0.25rem 0' }}>Email: {user?.email ?? '—'}</p>
-          <p style={{ margin: '0.25rem 0' }}>Status: {status ?? '—'}</p>
-          <p style={{ margin: '0.25rem 0' }}>Roles: {roles.join(', ') || '—'}</p>
-          <Button onClick={onSignOut} disabled={signingOut} style={{ marginTop: '1rem' }}>
-            {signingOut ? 'Signing out…' : 'Sign out'}
-          </Button>
-        </Card>
-        <ProfileDetailsCard />
-        <PreferencesCard />
-        <VehicleCard />
-        <StatsCard />
+      <div className="flex flex-col gap-lg">
+        <ImpactHero />
+
+        <div className="grid grid-cols-1 gap-lg lg:grid-cols-3 lg:items-start">
+          <div className="flex flex-col gap-lg lg:col-span-2">
+            <ProfileDetailsCard />
+            <PreferencesCard />
+            <VehicleCard />
+            <p className="m-0 text-label-sm text-on-surface-variant">
+              <Link to="/gamification" className="text-primary hover:underline">
+                View level progress and points history
+              </Link>
+            </p>
+          </div>
+
+          <aside className="flex flex-col gap-lg">
+            <AccountCard />
+          </aside>
+        </div>
       </div>
     </PageShell>
   );

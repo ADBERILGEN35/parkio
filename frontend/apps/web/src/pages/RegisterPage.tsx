@@ -1,16 +1,18 @@
 import { zodResolver } from '@hookform/resolvers/zod';
 import { registerSchema, type RegisterFormValues } from '@parkio/validation';
-import { Button, Card, ErrorMessage, Input, PageShell } from '@parkio/ui';
+import { Button, ErrorMessage, Input, Surface } from '@parkio/ui';
 import { useState } from 'react';
 import { useForm } from 'react-hook-form';
 import { Link, useNavigate } from 'react-router-dom';
 import { authApi } from '@/api';
 import { describeAuthError } from '@/api/error-messages';
+import { AuthBrand } from '@/pages/auth/AuthBrand';
 import { useAuthStore } from '@/auth/store';
 
 export function RegisterPage() {
   const navigate = useNavigate();
   const setSession = useAuthStore((s) => s.setSession);
+  const beginProvisioning = useAuthStore((s) => s.beginProvisioning);
   const [apiError, setApiError] = useState<string | null>(null);
   const [traceId, setTraceId] = useState<string | undefined>();
 
@@ -27,7 +29,11 @@ export function RegisterPage() {
     try {
       const result = await authApi.register(values);
       setSession(result.accessToken, result.refreshToken, result.user);
-      navigate('/map');
+      // The profile/status is provisioned asynchronously, so protected calls can
+      // briefly 403 ACCOUNT_NOT_ACTIVE. Enter the grace window and hand off to the
+      // preparing screen, which polls readiness before forwarding to /map.
+      beginProvisioning();
+      navigate('/preparing');
     } catch (error) {
       const friendly = describeAuthError(error, 'Registration failed. Please try again.');
       setApiError(friendly.message);
@@ -41,10 +47,21 @@ export function RegisterPage() {
   });
 
   return (
-    <PageShell title="Create account">
-      <Card title="Register">
-        <form onSubmit={onSubmit} style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
-          <Input label="Email" type="email" autoComplete="email" error={errors.email?.message} {...register('email')} />
+    <main className="flex min-h-screen flex-col items-center justify-center gap-lg bg-background px-md py-xl text-on-background">
+      <AuthBrand />
+      <Surface level="card" className="w-full max-w-md p-lg">
+        <h1 className="m-0 text-headline-md text-on-surface">Create your account</h1>
+        <p className="m-0 mt-xs text-body-md text-on-surface-variant">
+          Join the community and start sharing curb space.
+        </p>
+        <form onSubmit={onSubmit} className="mt-lg flex flex-col gap-md">
+          <Input
+            label="Email"
+            type="email"
+            autoComplete="email"
+            error={errors.email?.message}
+            {...register('email')}
+          />
           <Input
             label="Password"
             type="password"
@@ -53,14 +70,17 @@ export function RegisterPage() {
             {...register('password')}
           />
           {apiError ? <ErrorMessage message={apiError} traceId={traceId} /> : null}
-          <Button type="submit" disabled={isSubmitting}>
+          <Button type="submit" disabled={isSubmitting} className="w-full">
             {isSubmitting ? 'Creating…' : 'Create account'}
           </Button>
         </form>
-        <p style={{ marginTop: '1rem', fontSize: '0.875rem' }}>
-          Already have an account? <Link to="/login">Sign in</Link>
+        <p className="m-0 mt-md text-body-md text-on-surface-variant">
+          Already have an account?{' '}
+          <Link to="/login" className="font-semibold text-primary hover:underline">
+            Sign in
+          </Link>
         </p>
-      </Card>
-    </PageShell>
+      </Surface>
+    </main>
   );
 }
