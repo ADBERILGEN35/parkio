@@ -2,6 +2,7 @@ import { Suspense, lazy, type ReactElement } from 'react';
 import { Navigate, createBrowserRouter } from 'react-router-dom';
 import { ProtectedRoute } from '@/auth/ProtectedRoute';
 import { RoleRoute } from '@/auth/RoleRoute';
+import { AppShell } from '@/components/shell/AppShell';
 import { RouteFallback } from '@/components/RouteFallback';
 // Eager: entry/auth routes and the default landing map keep the first paint fast
 // without an extra chunk round-trip.
@@ -53,20 +54,25 @@ export const router = createBrowserRouter([
     element: <ProtectedRoute />,
     children: [
       { path: '/preparing', element: <AccountPreparingPage /> },
-      { path: '/map', element: <MapPage /> },
-      { path: '/spots/:spotId', element: lazyRoute(<SpotDetailPage />) },
-      { path: '/my-spots', element: lazyRoute(<MySpotsPage />) },
-      { path: '/upload', element: lazyRoute(<UploadPage />) },
-      { path: '/profile', element: lazyRoute(<ProfilePage />) },
-      { path: '/reports', element: lazyRoute(<ReportsPage />) },
-      { path: '/notifications', element: lazyRoute(<NotificationsPage />) },
-      { path: '/gamification', element: lazyRoute(<GamificationPage />) },
-      { path: '/leaderboard', element: lazyRoute(<LeaderboardPage />) },
       {
-        element: <RoleRoute requirePrivileged />,
+        element: <AppShell />,
         children: [
-          { path: '/moderation', element: lazyRoute(<ModerationPage />) },
-          { path: '/analytics', element: lazyRoute(<AnalyticsPage />) },
+          { path: '/map', element: <MapPage /> },
+          { path: '/spots/:spotId', element: lazyRoute(<SpotDetailPage />) },
+          { path: '/my-spots', element: lazyRoute(<MySpotsPage />) },
+          { path: '/upload', element: lazyRoute(<UploadPage />) },
+          { path: '/profile', element: lazyRoute(<ProfilePage />) },
+          { path: '/reports', element: lazyRoute(<ReportsPage />) },
+          { path: '/notifications', element: lazyRoute(<NotificationsPage />) },
+          { path: '/gamification', element: lazyRoute(<GamificationPage />) },
+          { path: '/leaderboard', element: lazyRoute(<LeaderboardPage />) },
+          {
+            element: <RoleRoute requirePrivileged />,
+            children: [
+              { path: '/moderation', element: lazyRoute(<ModerationPage />) },
+              { path: '/analytics', element: lazyRoute(<AnalyticsPage />) },
+            ],
+          },
         ],
       },
     ],

@@ -1,6 +1,5 @@
 import { PageShell } from '@parkio/ui';
 import { Link } from 'react-router-dom';
-import { AppNav } from '@/components/AppNav';
 import { AccountCard } from './profile/AccountCard';
 import { ImpactHero } from './profile/ImpactHero';
 import { PreferencesCard } from './profile/PreferencesCard';
@@ -17,7 +16,6 @@ import { VehicleCard } from './profile/VehicleCard';
 export function ProfilePage() {
   return (
     <PageShell title="Profile">
-      <AppNav />
       <div className="flex flex-col gap-lg">
         <ImpactHero />
 

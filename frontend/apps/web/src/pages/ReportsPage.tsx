@@ -19,7 +19,6 @@ import { useForm } from 'react-hook-form';
 import { Link } from 'react-router-dom';
 import { moderationApi } from '@/api';
 import { FriendlyApiErrorMessage } from '@/components/FriendlyApiErrorMessage';
-import { AppNav } from '@/components/AppNav';
 import { formatRelativeAgo, humanizeEnum } from '@/lib/format';
 
 const TEXTAREA_CLASS =
@@ -34,7 +33,6 @@ const APPEAL_STATUS_TONE: Record<AppealStatus, BadgeTone> = {
 export function ReportsPage() {
   return (
     <PageShell title="My reports">
-      <AppNav />
       <div className="grid grid-cols-1 gap-lg lg:grid-cols-3 lg:items-start">
         <div className="lg:col-span-2">
           <MyReportsCard />

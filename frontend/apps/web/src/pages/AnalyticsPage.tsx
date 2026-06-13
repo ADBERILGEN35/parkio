@@ -18,7 +18,6 @@ import { useForm } from 'react-hook-form';
 import { analyticsApi } from '@/api';
 import { useAuthStore } from '@/auth/store';
 import { FriendlyApiErrorMessage } from '@/components/FriendlyApiErrorMessage';
-import { AppNav } from '@/components/AppNav';
 import { humanizeEnum } from '@/lib/format';
 
 /**
@@ -29,7 +28,6 @@ import { humanizeEnum } from '@/lib/format';
 export function AnalyticsPage() {
   return (
     <PageShell title="Analytics">
-      <AppNav />
       <div className="flex flex-col gap-lg">
         <OverviewCard />
         <div className="grid grid-cols-1 gap-lg lg:grid-cols-2 lg:items-start">

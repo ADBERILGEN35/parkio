@@ -4,6 +4,7 @@ import { StatusBadge, cn, getSpotStatusVisual, getTrustFreshnessVisual } from '@
 import L from 'leaflet';
 import { CircleMarker, MapContainer, Marker, Popup, TileLayer, useMapEvents } from 'react-leaflet';
 import { Link } from 'react-router-dom';
+import { MapFloatingControls } from './MapFloatingControls';
 import { formatInstant, humanizeEnum } from '@/lib/format';
 import { DEFAULT_ZOOM, TILE_ATTRIBUTION, TILE_URL, type LatLng } from './mapConfig';
 import { Recenter } from './Recenter';
@@ -13,6 +14,9 @@ export interface NearbySpotsMapProps {
   spots: PublicSpot[];
   onPickCenter: (lat: number, lng: number) => void;
   height?: number | string;
+  onLocate?: () => void;
+  locating?: boolean;
+  showFloatingControls?: boolean;
 }
 
 function ClickToSetCenter({ onPickCenter }: { onPickCenter: (lat: number, lng: number) => void }) {
@@ -24,11 +28,6 @@ function ClickToSetCenter({ onPickCenter }: { onPickCenter: (lat: number, lng: n
   return null;
 }
 
-/**
- * Status-colored dot marker (design-system `getSpotStatusVisual` mapping).
- * Aging/stale records (per `updatedAt`) are dimmed — freshness-aware hierarchy
- * without inventing verification data the backend doesn't expose.
- */
 function spotMarkerIcon(spot: PublicSpot): L.DivIcon {
   const status = getSpotStatusVisual(spot.status);
   const { freshness } = getTrustFreshnessVisual(spot.updatedAt);
@@ -45,22 +44,29 @@ function spotMarkerIcon(spot: PublicSpot): L.DivIcon {
   });
 }
 
-/**
- * Interactive nearby-search map: shows the chosen search center, lets the user
- * click to move it, and renders each nearby spot as a status-colored marker
- * with a detail popup.
- */
-export function NearbySpotsMap({ center, spots, onPickCenter, height = 320 }: NearbySpotsMapProps) {
+export function NearbySpotsMap({
+  center,
+  spots,
+  onPickCenter,
+  height = 320,
+  onLocate,
+  locating = false,
+  showFloatingControls = false,
+}: NearbySpotsMapProps) {
   return (
     <MapContainer
       center={[center.lat, center.lng]}
       zoom={DEFAULT_ZOOM}
+      zoomControl={false}
       style={{ height, width: '100%' }}
+      className="h-full w-full"
     >
       <TileLayer url={TILE_URL} attribution={TILE_ATTRIBUTION} />
       <ClickToSetCenter onPickCenter={onPickCenter} />
       <Recenter lat={center.lat} lng={center.lng} />
-      {/* Search center — primary blue */}
+      {showFloatingControls && onLocate ? (
+        <MapFloatingControls onLocate={onLocate} locating={locating} sidebarOpen />
+      ) : null}
       <CircleMarker
         center={[center.lat, center.lng]}
         radius={8}

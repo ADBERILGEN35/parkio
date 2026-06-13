@@ -18,7 +18,6 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import type { ReactNode } from 'react';
 import { notificationsApi } from '@/api';
 import { FriendlyApiErrorMessage } from '@/components/FriendlyApiErrorMessage';
-import { AppNav } from '@/components/AppNav';
 import { formatInstant, formatRelativeAgo, humanizeEnum } from '@/lib/format';
 
 /** Type → icon + tone (NotificationType is backend-provided; no invented categories). */
@@ -42,8 +41,6 @@ export function NotificationsPage() {
 
   return (
     <PageShell title="Notifications">
-      <AppNav />
-
       {query.isPending ? (
         <Card title="Inbox">
           <LoadingState />

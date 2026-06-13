@@ -13,7 +13,6 @@ import { useQuery } from '@tanstack/react-query';
 import { Link } from 'react-router-dom';
 import { parkingApi } from '@/api';
 import { FriendlyApiErrorMessage } from '@/components/FriendlyApiErrorMessage';
-import { AppNav } from '@/components/AppNav';
 import { formatInstant, formatRemaining, humanizeEnum } from '@/lib/format';
 
 const LEGAL_STATUS_TONES: Record<LegalStatus, BadgeTone> = {
@@ -27,8 +26,6 @@ export function MySpotsPage() {
 
   return (
     <PageShell title="My spots">
-      <AppNav />
-
       <Card title="Spots I shared">
         {query.isPending ? (
           <LoadingState />

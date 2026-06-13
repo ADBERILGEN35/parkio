@@ -53,12 +53,37 @@ function imageFile(name = 'spot.jpg', type = 'image/jpeg', size = 1024) {
   return file;
 }
 
-async function fillValidForm(user: ReturnType<typeof userEvent.setup>) {
+type User = ReturnType<typeof userEvent.setup>;
+
+const clickNext = (user: User) => user.click(screen.getByRole('button', { name: 'Next' }));
+const clickBack = (user: User) => user.click(screen.getByRole('button', { name: 'Back' }));
+
+/** Step 1 → Step 2: choose a valid photo and advance to Location. */
+async function completePhotoStep(user: User, file = imageFile()) {
+  await user.upload(screen.getByLabelText('Spot photo'), file);
+  await clickNext(user);
+}
+
+/** Step 2 → Step 3: fill coordinates and advance to Details. */
+async function completeLocationStep(user: User) {
   await user.type(screen.getByLabelText('Latitude'), '41.01');
   await user.type(screen.getByLabelText('Longitude'), '29.02');
+  await clickNext(user);
+}
+
+/** Step 3 → Step 4: choose vehicle/context/legal and advance to Review. */
+async function completeDetailsStep(user: User) {
   await user.click(screen.getByText('Sedan'));
   await user.selectOptions(screen.getByLabelText('Parking context'), 'STREET_PARKING');
   await user.click(screen.getByText('Legal'));
+  await clickNext(user);
+}
+
+/** Drives Photo → Location → Details → Review, stopping on the Review step. */
+async function advanceToReview(user: User) {
+  await completePhotoStep(user);
+  await completeLocationStep(user);
+  await completeDetailsStep(user);
 }
 
 describe('UploadPage', () => {
@@ -72,7 +97,10 @@ describe('UploadPage', () => {
     renderUpload();
     const user = userEvent.setup();
 
-    await user.upload(screen.getByLabelText('Spot photo'), imageFile('big.jpg', 'image/jpeg', 11 * 1024 * 1024));
+    await user.upload(
+      screen.getByLabelText('Spot photo'),
+      imageFile('big.jpg', 'image/jpeg', 11 * 1024 * 1024),
+    );
 
     expect(await screen.findByText('Photo must be at most 10MB')).toBeInTheDocument();
   });
@@ -87,6 +115,63 @@ describe('UploadPage', () => {
     expect(
       await screen.findByText('Only JPEG, PNG and WebP images are allowed'),
     ).toBeInTheDocument();
+  });
+
+  it('requires a photo before advancing past the first step', async () => {
+    renderUpload();
+    const user = userEvent.setup();
+
+    await clickNext(user);
+
+    expect(await screen.findByText('Choose a photo to upload')).toBeInTheDocument();
+    // Still on the Photo step — navigation was blocked.
+    expect(screen.getByRole('heading', { name: '1. Photo' })).toBeInTheDocument();
+  });
+
+  it('moves forward and backward through the wizard steps', async () => {
+    renderUpload();
+    const user = userEvent.setup();
+
+    expect(screen.getByRole('heading', { name: '1. Photo' })).toBeInTheDocument();
+
+    await completePhotoStep(user);
+    expect(screen.getByRole('heading', { name: '2. Location' })).toBeInTheDocument();
+
+    await completeLocationStep(user);
+    expect(screen.getByRole('heading', { name: '3. Details' })).toBeInTheDocument();
+
+    await clickBack(user);
+    expect(screen.getByRole('heading', { name: '2. Location' })).toBeInTheDocument();
+
+    await clickBack(user);
+    expect(screen.getByRole('heading', { name: '1. Photo' })).toBeInTheDocument();
+  });
+
+  it('blocks advancing from Details until required fields are valid', async () => {
+    renderUpload();
+    const user = userEvent.setup();
+
+    await completePhotoStep(user);
+    await completeLocationStep(user);
+
+    // No vehicle type / context / legal status chosen yet.
+    await clickNext(user);
+
+    expect(await screen.findByText('Select at least one vehicle type')).toBeInTheDocument();
+    expect(screen.getByRole('heading', { name: '3. Details' })).toBeInTheDocument();
+  });
+
+  it('shows a read-only summary on the Review step', async () => {
+    renderUpload();
+    const user = userEvent.setup();
+
+    await advanceToReview(user);
+
+    expect(screen.getByRole('heading', { name: '4. Review' })).toBeInTheDocument();
+    expect(screen.getByText('41.010000, 29.020000')).toBeInTheDocument();
+    // Vehicle type + legal status surface as summary badges.
+    expect(screen.getByText('Street parking')).toBeInTheDocument();
+    expect(screen.getByText('spot.jpg')).toBeInTheDocument();
   });
 
   it('reuses the uploaded media when create fails, then succeeds without re-uploading', async () => {
@@ -116,14 +201,11 @@ describe('UploadPage', () => {
     renderUpload();
     const user = userEvent.setup();
 
-    await user.upload(screen.getByLabelText('Spot photo'), imageFile());
-    await fillValidForm(user);
+    await advanceToReview(user);
 
     // First attempt: upload succeeds, create fails — media is kept for retry.
     await user.click(screen.getByRole('button', { name: 'Upload & create spot' }));
-    expect(
-      await screen.findByText(/Your photo was uploaded successfully/),
-    ).toBeInTheDocument();
+    expect(await screen.findByText(/Your photo was uploaded successfully/)).toBeInTheDocument();
 
     // Second attempt: create succeeds, photo is reused (no second upload).
     await user.click(screen.getByRole('button', { name: 'Upload & create spot' }));
@@ -133,13 +215,70 @@ describe('UploadPage', () => {
     expect(createCalls).toBe(2);
   });
 
-  it('requires a photo before submitting', async () => {
+  it('clears the kept mediaId when the file is replaced, forcing a re-upload', async () => {
+    let uploadCalls = 0;
+    server.use(
+      http.post(`${API_BASE}/media/upload`, () => {
+        uploadCalls += 1;
+        return HttpResponse.json({
+          mediaId: createdSpot.mediaId,
+          status: 'READY',
+          contentType: 'image/jpeg',
+          fileSize: 1024,
+        });
+      }),
+      // Create always fails so the uploaded media would otherwise be reused.
+      http.post(`${API_BASE}/parking/spots`, () =>
+        HttpResponse.json(apiErrorBody('VALIDATION_ERROR', 'Create failed'), { status: 422 }),
+      ),
+    );
+
     renderUpload();
     const user = userEvent.setup();
 
-    await fillValidForm(user);
+    await advanceToReview(user);
+    await user.click(screen.getByRole('button', { name: 'Upload & create spot' }));
+    expect(await screen.findByText(/Your photo was uploaded successfully/)).toBeInTheDocument();
+    expect(uploadCalls).toBe(1);
+
+    // Back to the Photo step and replace the file — this must clear the kept media.
+    await clickBack(user);
+    await clickBack(user);
+    await clickBack(user);
+    expect(screen.getByRole('heading', { name: '1. Photo' })).toBeInTheDocument();
+    await user.upload(screen.getByLabelText('Spot photo'), imageFile('replacement.jpg'));
+
+    await clickNext(user);
+    await clickNext(user);
+    await clickNext(user);
+    await user.click(screen.getByRole('button', { name: 'Upload & create spot' }));
+    await screen.findAllByText(/Your photo was uploaded successfully/);
+
+    // The replacement file was uploaded again (mediaId was cleared).
+    expect(uploadCalls).toBe(2);
+  });
+
+  it('redirects to the new spot after a successful create', async () => {
+    server.use(
+      http.post(`${API_BASE}/media/upload`, () =>
+        HttpResponse.json({
+          mediaId: createdSpot.mediaId,
+          status: 'READY',
+          contentType: 'image/jpeg',
+          fileSize: 1024,
+        }),
+      ),
+      http.post(`${API_BASE}/parking/spots`, () => HttpResponse.json(createdSpot)),
+    );
+
+    renderUpload();
+    const user = userEvent.setup();
+
+    await advanceToReview(user);
     await user.click(screen.getByRole('button', { name: 'Upload & create spot' }));
 
-    expect(await screen.findByText('Choose a photo to upload')).toBeInTheDocument();
+    expect(await screen.findByRole('heading', { name: 'Spot created' })).toBeInTheDocument();
+    // The success panel redirects after a short delay.
+    expect(await screen.findByText('Spot detail', {}, { timeout: 3000 })).toBeInTheDocument();
   });
 });

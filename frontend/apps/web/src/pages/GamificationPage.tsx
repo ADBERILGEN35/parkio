@@ -18,13 +18,11 @@ import { useQuery } from '@tanstack/react-query';
 import { Link } from 'react-router-dom';
 import { gamificationApi } from '@/api';
 import { FriendlyApiErrorMessage } from '@/components/FriendlyApiErrorMessage';
-import { AppNav } from '@/components/AppNav';
 import { formatRelativeAgo, humanizeEnum } from '@/lib/format';
 
 export function GamificationPage() {
   return (
     <PageShell title="Progress">
-      <AppNav />
       <div className="flex flex-col gap-lg">
         <LevelHero />
         <div className="grid grid-cols-1 gap-lg lg:grid-cols-2 lg:items-start">

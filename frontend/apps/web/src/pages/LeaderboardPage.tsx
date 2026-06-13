@@ -12,8 +12,6 @@ import { useQuery } from '@tanstack/react-query';
 import { useState } from 'react';
 import { gamificationApi } from '@/api';
 import { FriendlyApiErrorMessage } from '@/components/FriendlyApiErrorMessage';
-import { AppNav } from '@/components/AppNav';
-
 const LIMIT_OPTIONS = [10, 20, 50, 100] as const;
 
 /** Medal classes for the top-3 ranks (one-off podium colours, design system §1.1). */
@@ -44,8 +42,6 @@ export function LeaderboardPage() {
 
   return (
     <PageShell title="Leaderboard">
-      <AppNav />
-
       <Card>
         <div className="mb-md flex flex-wrap items-center justify-between gap-sm">
           <h2 className="m-0 text-title-lg text-on-surface">Top contributors</h2>

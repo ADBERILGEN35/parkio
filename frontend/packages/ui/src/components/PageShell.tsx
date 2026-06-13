@@ -5,10 +5,15 @@ export interface PageShellProps {
   children: ReactNode;
 }
 
-/** Page canvas: design-system background, centered max-width column, page header. */
+/**
+ * Lightweight page content container: centered max-width column + page header.
+ * Renders a `<section>` (not `<main>`) because the app-level `<main>` landmark
+ * and scroll area are owned by AppShell; nesting a second `<main>` here would
+ * duplicate the landmark.
+ */
 export function PageShell({ title, children }: PageShellProps) {
   return (
-    <main className="min-h-screen bg-background px-md py-lg text-on-background md:px-xl">
+    <section className="bg-background px-md py-lg text-on-background md:px-xl">
       <div className="mx-auto w-full max-w-7xl">
         <header className="mb-lg">
           <h1 className="m-0 text-headline-lg-mobile text-on-surface md:text-headline-lg">
@@ -17,6 +22,6 @@ export function PageShell({ title, children }: PageShellProps) {
         </header>
         {children}
       </div>
-    </main>
+    </section>
   );
 }

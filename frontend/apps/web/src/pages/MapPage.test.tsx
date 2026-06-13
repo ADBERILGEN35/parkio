@@ -39,7 +39,7 @@ describe('MapPage', () => {
   beforeEach(() => {
     resetAuth();
     signInAs(['USER']);
-    // AppNav's unread badge fetches notifications on mount.
+    // Shell unread badge fetches notifications on mount when AppShell is rendered.
     server.use(http.get(`${API_BASE}/notifications/me`, () => HttpResponse.json([])));
   });
 
