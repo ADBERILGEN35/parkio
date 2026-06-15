@@ -17,17 +17,25 @@ public interface OutboxEventJpaRepository extends JpaRepository<OutboxEventEntit
      */
     @Query(value = """
             SELECT * FROM outbox_events
-            WHERE published = false
+            WHERE published = false AND dead_lettered = false
             ORDER BY created_at, id
             LIMIT :limit
             FOR UPDATE SKIP LOCKED
             """, nativeQuery = true)
     List<OutboxEventEntity> findUnpublishedBatchForUpdate(@Param("limit") int limit);
 
-    /** Backlog size for the {@code parkio.outbox.unpublished.count} gauge (cheap COUNT). */
-    long countByPublishedFalse();
+    /**
+     * Backlog size for the {@code parkio.outbox.unpublished.count} gauge (cheap COUNT).
+     * Excludes dead-lettered rows — those are no longer relayable and are tracked
+     * separately by {@code parkio.outbox.deadlettered.count}.
+     */
+    long countByPublishedFalseAndDeadLetteredFalse();
 
-    /** Oldest unpublished row's creation time (gauge input); {@code null} when the backlog is empty. */
-    @Query(value = "SELECT MIN(created_at) FROM outbox_events WHERE published = false", nativeQuery = true)
+    /** Dead-lettered (poison) rows awaiting inspection/redrive — {@code parkio.outbox.deadlettered.count}. */
+    long countByDeadLetteredTrue();
+
+    /** Oldest relayable row's creation time (gauge input); {@code null} when the backlog is empty. */
+    @Query(value = "SELECT MIN(created_at) FROM outbox_events WHERE published = false AND dead_lettered = false",
+            nativeQuery = true)
     Instant findOldestUnpublishedCreatedAt();
 }

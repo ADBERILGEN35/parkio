@@ -188,6 +188,74 @@ The canonical trace identifier is transported over HTTP as
    clear it afterward. Events emitted by a consumer therefore retain the
    originating trace through their own outbox write.
 
+## Outbox DLQ / poison-message handling (producer side)
+
+The relays must never let a single poison row block the rest of the outbox. Before this
+was added, `publishPending()` was one transaction over the whole batch and **any** publish
+failure (broker error *or* an unreadable JSON payload *or* an unroutable event type) threw
+and rolled back the entire batch — so one bad row stalled every later event forever
+(head-of-line blocking). The fix makes each row independent:
+
+- **Per-row isolation.** Each row is published in its own try/catch. A failure is recorded
+  on the row and the relay **continues** to the next row; only a thread interrupt aborts
+  the poll. Successful rows in the same batch still commit.
+- **Failure tracking columns** (added to every `outbox_events` table):
+  `failure_count` (int), `last_failure_reason` (text, bounded to 2000 chars),
+  `last_failed_at` (timestamptz), `dead_lettered` (boolean).
+- **Skip after N.** When `failure_count` reaches `parkio.kafka.relay.max-attempts`
+  (default **10**) the row is marked `dead_lettered = true`. Dead-lettered rows are
+  **retained in place** (never deleted, full payload intact) for inspection and manual
+  redrive, but are excluded from the claim query, so they can never be retried
+  automatically or block later events.
+- **Claim query** is now
+  `WHERE published = false AND dead_lettered = false ORDER BY created_at, id … FOR UPDATE
+  SKIP LOCKED`, backed by a partial index `idx_outbox_events_relayable`.
+- **Deterministic poison** (unreadable payload, no topic mapping) and **transient
+  failures** (broker down/timeout) both count toward `max-attempts`. This is intentional
+  for minimalism, with one operational caveat (below).
+- **No separate DLQ table.** A `dead_lettered` status column on `outbox_events` keeps the
+  poison row co-located with its payload/headers — the table *is* the DLQ.
+
+Metrics (see `observability-metrics.md`): gauge `parkio.outbox.deadlettered.count`
+(current poison depth — any non-zero value is actionable) plus counters
+`parkio.outbox.publish.failed` and `parkio.outbox.deadlettered`. The
+`parkio.outbox.unpublished.count` backlog gauge now **excludes** dead-lettered rows.
+
+Tunables (per service `application.yml`, all overridable by env):
+
+| Property | Default | Meaning |
+|----------|---------|---------|
+| `parkio.kafka.relay.max-attempts` | `10` | Failed publishes before a row is dead-lettered. |
+| `parkio.kafka.relay.batch-size` | `100` | Rows claimed per poll. |
+| `parkio.kafka.relay.poll-interval-ms` | `1000` | Relay poll interval. |
+| `parkio.kafka.relay.send-timeout-ms` | `10000` | Per-row broker ack wait. |
+
+> **Operational caveat (broker outage vs poison).** Because transient send failures also
+> increment `failure_count`, a broker outage lasting longer than ~`max-attempts` poll
+> cycles will dead-letter rows that *would* have succeeded. They are **not lost** — they
+> are retained and redrivable (`UPDATE outbox_events SET dead_lettered = false,
+> failure_count = 0 WHERE dead_lettered = true`). For a planned outage longer than the
+> window, set `parkio.kafka.relay.enabled=false` or raise `max-attempts` first.
+
+### Manual inspection / redrive (current limitation)
+
+There is **no automated redrive tooling yet**. Dead-lettered rows are inspected and
+redriven with SQL against the owning service's database:
+
+```sql
+-- Inspect poison rows
+SELECT id, event_type, failure_count, last_failed_at, last_failure_reason
+FROM outbox_events WHERE dead_lettered = true ORDER BY last_failed_at DESC;
+
+-- Redrive one row after fixing the root cause (relay re-claims it next poll)
+UPDATE outbox_events
+SET dead_lettered = false, failure_count = 0, last_failure_reason = NULL
+WHERE id = '<row-id>';
+```
+
+The consumer DLT side (`parkio.dlt.<service>`) is separate and is monitored/redriven at
+the broker level (see below).
+
 ## Outbox and inbox retention
 
 Every service that owns `outbox_events` or `inbox_events` runs a bounded,
@@ -236,7 +304,9 @@ older replay.
    `aggregate_id`, dedup key = `event_id`), publish with the idempotent producer, mark
    `published=true` only on ack. `ModerationOutboxRelay` routes by event type to
    `parkio.moderation.case` vs `parkio.moderation.action`. `UserOutboxRelay` publishes
-   `UserProfileCreated` → `parkio.user.profile`. **All producing relays are now done.**
+   `UserProfileCreated` → `parkio.user.profile`. **All producing relays are now done**,
+   and all isolate failures per-row with skip-after-N dead-lettering (see "Outbox DLQ /
+   poison-message handling").
 3. **(done for user + parking + gamification + notification + analytics + ai-validation + moderation)**
    **Consumer**: `@KafkaListener` → dispatch by `eventType` → existing `handleXxx` use case
    (inbox dedup by `eventId`) → manual ack; `DefaultErrorHandler` +
@@ -253,10 +323,15 @@ older replay.
 5. **(partially done)** Outbox-lag metrics are live: every outbox-owning service exports
    `parkio.outbox.unpublished.count` / `parkio.outbox.oldest.unpublished.age.seconds`
    (plus `parkio.inbox.processed.count` where an inbox exists) at `/actuator/prometheus`
-   — see `docs/architecture/observability-metrics.md`. Still open: DLT redrive tooling
-   and replay/backfill runbooks. **Consumer lag and DLT depth are monitored at the
-   broker level** (e.g. `kafka-consumer-groups.sh --describe`, Burrow, or a Kafka
-   exporter scraping the broker) — the apps deliberately do not duplicate them.
+   — see `docs/architecture/observability-metrics.md`. **(done)** Producer-side DLQ /
+   poison-message handling: all seven relays isolate failures per-row and dead-letter a
+   row after `parkio.kafka.relay.max-attempts`, exporting `parkio.outbox.deadlettered.count`
+   plus the `parkio.outbox.publish.failed` / `parkio.outbox.deadlettered` counters (see
+   "Outbox DLQ / poison-message handling" above). Still open: **automated** DLT/outbox
+   redrive tooling and replay/backfill runbooks (outbox redrive is manual SQL today).
+   **Consumer lag and DLT depth are monitored at the broker level** (e.g.
+   `kafka-consumer-groups.sh --describe`, Burrow, or a Kafka exporter scraping the
+   broker) — the apps deliberately do not duplicate them.
 6. Later: optional Debezium CDC relay; schema registry; Testcontainers integration tests
    for the live round-trips (currently unit-tested; see backlog below).
 
@@ -273,18 +348,27 @@ are tagged `integration`, so they are opt-in:
 | `ParkingOutboxRelayKafkaIT` | parking | Real `ParkingOutboxRelay` publishes `ParkingSpotCreated` to `parkio.parking.spot`, keyed by spot id, with headers. |
 | `GamificationKafkaIT` | gamification | (1) `ParkingSpotCreated` envelope → real `ParkingEventsKafkaConsumer` + real `GamificationApplicationService` (fakes) awards owner points **once** across a redelivery (inbox idempotency); (2) a malformed/poison record routed through the **real container factory's error handler** lands on `parkio.dlt.gamification` (DLT behaviour). |
 | `ParkingPostgisIntegrationTest` | parking | Starts PostGIS 16, runs every parking Flyway migration, validates the schema with Hibernate, verifies the PostGIS extension, location trigger and GiST index, and exercises radius/status/legal/expiry filtering plus nearest-first ordering through the production repository. |
-| `MediaInfrastructureIntegrationTest` | media | Starts PostgreSQL 16 and MinIO, runs every media Flyway migration with Hibernate validation, then uploads, stats and deletes a PNG through the production MinIO adapter. |
+| `OutboxDlqPostgisIntegrationTest` | parking | Starts PostGIS 16 and drives the real `ParkingOutboxRelay` (with a partly-failing Kafka producer) against the real schema: a poison row dead-letters after exhausting attempts, a later row still publishes, and the native claim query then skips both — proving the `dead_lettered` columns/migration and the `published = false AND dead_lettered = false` predicate that mocked unit tests can't exercise. |
+| `MediaInfrastructureIntegrationTest` | media | Starts PostgreSQL 16 and MinIO, runs every media Flyway migration with Hibernate validation, then uploads, stats and deletes a PNG through the production MinIO adapter, and verifies a working presigned GET URL on the public endpoint. |
 
 **How to run:** integration tests are tagged `@Tag("integration")` and `@Testcontainers(disabledWithoutDocker = true)`.
 - `./gradlew build` / `test` — **unit tests only** (the `integration` tag is excluded); no Docker required, always green.
 - `./gradlew integrationTest` — runs all tagged tests; **requires Docker**.
 - Service-specific runs are available with
-  `./gradlew :services:parking-service:integrationTest` and
-  `./gradlew :services:media-service:integrationTest`.
+  `./gradlew :services:parking-service:integrationTest`,
+  `./gradlew :services:media-service:integrationTest`, etc.
 - Images currently match local Compose: Kafka `confluentinc/cp-kafka:7.7.1`,
   PostGIS `postgis/postgis:16-3.4`, PostgreSQL `postgres:16-alpine`, and MinIO
   `minio/minio:RELEASE.2024-09-13T20-26-02Z`.
-- Without Docker, container tests are discovered and **skipped**, not failed.
+- **Docker handling:** without Docker, container suites are discovered and
+  **skipped** (not failed) — convenient locally. CI passes
+  `-Pparkio.integrationTest.requireDocker=true`, which makes the `integrationTest`
+  task **fail fast** if the daemon is unreachable, so a misconfigured runner can
+  never report a false-green by silently skipping every suite.
+- **CI:** these suites run in their own workflow
+  (`.github/workflows/backend-integration.yml`) — on PRs that touch
+  backend/build/docker paths, nightly, and on demand — not in the fast
+  `backend-ci.yml` PR gate. See the README's *Continuous integration* section.
 
 ### Remaining integration-test backlog
 - Consumer-side ITs for the other live flows: parking→{notification, analytics, ai-validation},

@@ -143,21 +143,15 @@ services:
       # NOTE: the property names MUST match media-service application.yml
       # (parkio.media.storage.* / parkio.media.bucket), i.e. the PARKIO_MEDIA_* env keys.
       #
-      # The endpoint is also the HOST embedded in presigned GET URLs (the MinIO SDK
-      # signs against the configured endpoint). It must therefore be reachable BOTH
-      # from this container (to PUT/stat objects) AND from the end-user's browser (to
-      # render the signed URL). host.docker.internal satisfies both on Docker Desktop
-      # and, via the extra_hosts host-gateway mapping below, on Linux — the host's
-      # published :9000 (see docker-compose.yml MINIO_API_PORT) is what both resolve to.
-      # Override PARKIO_MEDIA_STORAGE_ENDPOINT per environment; never hardcode prod URLs.
-      PARKIO_MEDIA_STORAGE_ENDPOINT: ${PARKIO_MEDIA_STORAGE_ENDPOINT:-http://host.docker.internal:9000}
+      # Split endpoints: internal SDK ops vs browser-facing presigned GET host.
+      # SigV4 signs the Host header — the presign host must match what the browser
+      # requests. Internal PUT/stat/DELETE use the in-cluster MinIO service name;
+      # presigned URLs embed localhost (or your public ingress) on the host port.
+      PARKIO_MEDIA_STORAGE_ENDPOINT: ${PARKIO_MEDIA_STORAGE_ENDPOINT:-http://minio:9000}
+      PARKIO_MEDIA_STORAGE_PUBLIC_ENDPOINT: ${PARKIO_MEDIA_STORAGE_PUBLIC_ENDPOINT:-http://localhost:9000}
       PARKIO_MEDIA_BUCKET: ${MINIO_BUCKET:-parkio-media}
       PARKIO_MEDIA_STORAGE_ACCESS_KEY: ${MINIO_ROOT_USER:-parkio}
       PARKIO_MEDIA_STORAGE_SECRET_KEY: ${MINIO_ROOT_PASSWORD}
-    extra_hosts:
-      # Makes host.docker.internal resolve to the Docker host on Linux too (native on
-      # Docker Desktop). Lets this container reach MinIO via the host's published port.
-      - "host.docker.internal:host-gateway"
     depends_on:
       <<: *datasource-depends
       postgres-media:

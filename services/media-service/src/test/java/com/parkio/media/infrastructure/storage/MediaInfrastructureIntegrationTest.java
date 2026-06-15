@@ -71,6 +71,8 @@ class MediaInfrastructureIntegrationTest {
         registry.add("parkio.media.storage.bucket", () -> BUCKET);
         registry.add("parkio.media.storage.endpoint",
                 () -> "http://" + MINIO.getHost() + ":" + MINIO.getMappedPort(9000));
+        registry.add("parkio.media.storage.public-endpoint",
+                () -> "http://localhost:" + MINIO.getMappedPort(9000));
         registry.add("parkio.media.storage.access-key", () -> ACCESS_KEY);
         registry.add("parkio.media.storage.secret-key", () -> SECRET_KEY);
         registry.add("parkio.media.storage.region", () -> "us-east-1");
@@ -139,6 +141,8 @@ class MediaInfrastructureIntegrationTest {
 
         String url = storage.generatePresignedGetUrl(objectKey, Duration.ofMinutes(5));
 
+        // Presigned URL uses the configured public endpoint host (not the internal one).
+        assertThat(url).startsWith("http://localhost:" + MINIO.getMappedPort(9000) + "/");
         // Signed query parameters present (GET-only, expiring signature).
         assertThat(url).contains("X-Amz-Signature=");
         assertThat(url).contains("X-Amz-Expires=300");

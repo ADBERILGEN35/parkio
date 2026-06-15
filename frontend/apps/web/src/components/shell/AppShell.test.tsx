@@ -49,6 +49,8 @@ describe('AppShell navigation', () => {
     const morePanel = document.getElementById('mobile-nav-more');
     expect(morePanel).not.toBeNull();
     expect(within(morePanel!).getByRole('link', { name: 'Notifications' })).toBeInTheDocument();
+    // Gamification is surfaced as "Impact" (not "Progress") in the nav.
+    expect(within(morePanel!).getByRole('link', { name: 'Impact' })).toBeInTheDocument();
     expect(within(morePanel!).queryByRole('link', { name: 'Moderation' })).not.toBeInTheDocument();
   });
 

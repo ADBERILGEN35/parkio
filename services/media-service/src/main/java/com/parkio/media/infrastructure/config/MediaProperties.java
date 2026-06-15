@@ -48,11 +48,19 @@ public class MediaProperties {
         this.storage = storage;
     }
 
-    /** S3-compatible object-store connection settings. Credentials are injected, never hardcoded. */
+    /**
+     * S3-compatible object-store connection settings. Credentials are injected, never
+     * hardcoded. {@link #endpoint} is used for in-process PUT/stat/DELETE; {@link
+     * #publicEndpoint} is the host embedded in presigned GET URLs and must match what
+     * the browser will request (SigV4 signs the {@code Host} header).
+     */
     public static class Storage {
 
         private String bucket;
+        /** Container/cluster-reachable endpoint for SDK object operations. */
         private String endpoint;
+        /** Browser-reachable endpoint for presigned GET URL generation. */
+        private String publicEndpoint;
         private String accessKey;
         private String secretKey;
         private String region;
@@ -71,6 +79,14 @@ public class MediaProperties {
 
         public void setEndpoint(String endpoint) {
             this.endpoint = endpoint;
+        }
+
+        public String getPublicEndpoint() {
+            return publicEndpoint;
+        }
+
+        public void setPublicEndpoint(String publicEndpoint) {
+            this.publicEndpoint = publicEndpoint;
         }
 
         public String getAccessKey() {

@@ -81,7 +81,8 @@ class AuthOutboxRelayKafkaIT {
             consumer.subscribe(List.of(TOPIC));
             consumer.poll(Duration.ofMillis(500)); // force assignment before publishing
 
-            new AuthOutboxRelay(repo, new KafkaTemplate<>(producerFactory), objectMapper, 100, 10_000L)
+            new AuthOutboxRelay(repo, new KafkaTemplate<>(producerFactory), objectMapper,
+                    new io.micrometer.core.instrument.simple.SimpleMeterRegistry(), 100, 10_000L, 10)
                     .publishPending();
 
             ConsumerRecord<String, String> record = pollOne(consumer);

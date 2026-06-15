@@ -1,9 +1,9 @@
 package com.parkio.moderation.infrastructure.messaging;
 
 import static org.assertj.core.api.Assertions.assertThat;
-import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
@@ -11,6 +11,7 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.datatype.jsr310.JavaTimeModule;
 import com.parkio.moderation.infrastructure.persistence.entity.OutboxEventEntity;
 import com.parkio.moderation.infrastructure.persistence.jpa.OutboxEventJpaRepository;
+import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
 import java.time.Instant;
 import java.util.List;
 import java.util.UUID;
@@ -21,7 +22,7 @@ import org.mockito.ArgumentCaptor;
 import org.springframework.kafka.core.KafkaTemplate;
 import org.springframework.kafka.support.SendResult;
 
-/** Unit tests for the moderation outbox relay: topic routing and publish-then-mark. */
+/** Unit tests for the moderation outbox relay: topic routing, publish-then-mark, DLQ. */
 class ModerationOutboxRelayTest {
 
     private static final Instant OCCURRED_AT = Instant.parse("2026-06-08T12:00:00Z");
@@ -30,7 +31,8 @@ class ModerationOutboxRelayTest {
     @SuppressWarnings("unchecked")
     private final KafkaTemplate<String, Object> kafkaTemplate = mock(KafkaTemplate.class);
     private final ObjectMapper objectMapper = new ObjectMapper().registerModule(new JavaTimeModule());
-    private final ModerationOutboxRelay relay = new ModerationOutboxRelay(outbox, kafkaTemplate, objectMapper, 100, 5000L);
+    private final ModerationOutboxRelay relay =
+            new ModerationOutboxRelay(outbox, kafkaTemplate, objectMapper, new SimpleMeterRegistry(), 100, 5000L, 3);
 
     private OutboxEventEntity row(String aggregateType, UUID aggregateId, String eventType) {
         String payload = "{\"eventId\":\"" + UUID.randomUUID() + "\",\"occurredAt\":\"2026-06-08T12:00:00Z\"}";
@@ -79,14 +81,65 @@ class ModerationOutboxRelayTest {
 
     @Test
     @SuppressWarnings("unchecked")
-    void leavesRowUnpublishedWhenSendFails() {
+    void recordsFailureWithoutThrowingWhenSendFails() {
         OutboxEventEntity r = row("ParkingSpot", UUID.randomUUID(), "ParkingSpotRejectedByModerator");
         when(outbox.findUnpublishedBatchForUpdate(100)).thenReturn(List.of(r));
         when(kafkaTemplate.send(any(ProducerRecord.class)))
                 .thenReturn(CompletableFuture.failedFuture(new RuntimeException("broker down")));
 
-        assertThatThrownBy(relay::publishPending).isInstanceOf(IllegalStateException.class);
+        relay.publishPending();
 
         assertThat(r.isPublished()).isFalse();
+        assertThat(r.getFailureCount()).isEqualTo(1);
+        assertThat(r.isDeadLettered()).isFalse();
+        assertThat(r.getLastFailureReason()).contains("broker down");
+    }
+
+    @Test
+    @SuppressWarnings("unchecked")
+    void continuesPublishingLaterRowsAfterOnePoisonRow() {
+        OutboxEventEntity poison = row("User", UUID.randomUUID(), "UserSuspended");
+        OutboxEventEntity healthy = row("ModerationCase", UUID.randomUUID(), "ModerationCaseResolved");
+        when(outbox.findUnpublishedBatchForUpdate(100)).thenReturn(List.of(poison, healthy));
+        when(kafkaTemplate.send(any(ProducerRecord.class)))
+                .thenReturn(CompletableFuture.failedFuture(new RuntimeException("broker down")))
+                .thenReturn(CompletableFuture.<SendResult<String, Object>>completedFuture(null));
+
+        relay.publishPending();
+
+        assertThat(poison.isPublished()).isFalse();
+        assertThat(healthy.isPublished()).isTrue();
+        verify(kafkaTemplate, times(2)).send(any(ProducerRecord.class));
+    }
+
+    @Test
+    @SuppressWarnings("unchecked")
+    void deadLettersRowAfterMaxAttempts() {
+        OutboxEventEntity r = row("User", UUID.randomUUID(), "UserSuspended");
+        when(outbox.findUnpublishedBatchForUpdate(100)).thenReturn(List.of(r));
+        when(kafkaTemplate.send(any(ProducerRecord.class)))
+                .thenReturn(CompletableFuture.failedFuture(new RuntimeException("broker down")));
+
+        relay.publishPending();
+        relay.publishPending();
+        assertThat(r.isDeadLettered()).isFalse();
+        relay.publishPending();
+
+        assertThat(r.getFailureCount()).isEqualTo(3);
+        assertThat(r.isDeadLettered()).isTrue();
+    }
+
+    @Test
+    void deadLettersUnroutableEventTypeAfterMaxAttempts() {
+        OutboxEventEntity r = row("ModerationCase", UUID.randomUUID(), "UnknownModerationEvent");
+        when(outbox.findUnpublishedBatchForUpdate(100)).thenReturn(List.of(r));
+
+        relay.publishPending();
+        relay.publishPending();
+        relay.publishPending();
+
+        assertThat(r.getFailureCount()).isEqualTo(3);
+        assertThat(r.isDeadLettered()).isTrue();
+        assertThat(r.getLastFailureReason()).contains("No topic mapping");
     }
 }

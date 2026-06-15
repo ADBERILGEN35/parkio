@@ -102,13 +102,13 @@ into service code (`ai-context/01`):
 - `parking-service` → `PARKIO_MEDIA_SERVICE_URI` (internal media-service client for signed
   access URLs; defaults to `http://localhost:8084` for IDE dev, must be
   `http://media-service:8084` in compose)
-- `media-service` storage → `PARKIO_MEDIA_STORAGE_ENDPOINT` / `PARKIO_MEDIA_BUCKET` /
-  `PARKIO_MEDIA_STORAGE_ACCESS_KEY` / `PARKIO_MEDIA_STORAGE_SECRET_KEY` (names must match
-  `parkio.media.*` in `application.yml`). The endpoint defaults to
-  `http://host.docker.internal:9000` because it is also the host embedded in presigned
-  GET URLs and must be reachable from both the container and the browser — the in-cluster
-  `minio:9000` is not browser-resolvable. (`media-service` maps `host.docker.internal` to
-  the host gateway so it can reach MinIO's published port.)
+- `media-service` storage → `PARKIO_MEDIA_STORAGE_ENDPOINT` (internal SDK ops, e.g.
+  `http://minio:9000` in compose) / `PARKIO_MEDIA_STORAGE_PUBLIC_ENDPOINT` (host
+  embedded in presigned GET URLs, e.g. `http://localhost:9000` for local beta) /
+  `PARKIO_MEDIA_BUCKET` / `PARKIO_MEDIA_STORAGE_ACCESS_KEY` /
+  `PARKIO_MEDIA_STORAGE_SECRET_KEY` (names must match `parkio.media.*` in
+  `application.yml`). SigV4 signs the `Host` header — presigned URLs must be
+  generated with the same host the browser will use.
 - `gateway-service` → `PARKIO_<SVC>_SERVICE_URI` (downstream route targets, e.g.
   `http://user-service:8082`). These resolve the `${PARKIO_*_SERVICE_URI}` placeholders in
   the gateway's `application.yml`; their dev defaults (`localhost:808x`) only work when the

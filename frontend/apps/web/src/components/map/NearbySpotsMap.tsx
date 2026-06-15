@@ -6,11 +6,12 @@ import { CircleMarker, MapContainer, Marker, Popup, TileLayer, useMapEvents } fr
 import { Link } from 'react-router-dom';
 import { MapFloatingControls } from './MapFloatingControls';
 import { formatInstant, humanizeEnum } from '@/lib/format';
-import { DEFAULT_ZOOM, TILE_ATTRIBUTION, TILE_URL, type LatLng } from './mapConfig';
+import { DEFAULT_MAP_ZOOM, TILE_ATTRIBUTION, TILE_URL, type LatLng } from './mapConfig';
 import { Recenter } from './Recenter';
 
 export interface NearbySpotsMapProps {
   center: LatLng;
+  zoom?: number;
   spots: PublicSpot[];
   onPickCenter: (lat: number, lng: number) => void;
   height?: number | string;
@@ -46,6 +47,7 @@ function spotMarkerIcon(spot: PublicSpot): L.DivIcon {
 
 export function NearbySpotsMap({
   center,
+  zoom = DEFAULT_MAP_ZOOM,
   spots,
   onPickCenter,
   height = 320,
@@ -56,14 +58,14 @@ export function NearbySpotsMap({
   return (
     <MapContainer
       center={[center.lat, center.lng]}
-      zoom={DEFAULT_ZOOM}
+      zoom={zoom}
       zoomControl={false}
       style={{ height, width: '100%' }}
       className="h-full w-full"
     >
       <TileLayer url={TILE_URL} attribution={TILE_ATTRIBUTION} />
       <ClickToSetCenter onPickCenter={onPickCenter} />
-      <Recenter lat={center.lat} lng={center.lng} />
+      <Recenter lat={center.lat} lng={center.lng} zoom={zoom} />
       {showFloatingControls && onLocate ? (
         <MapFloatingControls onLocate={onLocate} locating={locating} sidebarOpen />
       ) : null}

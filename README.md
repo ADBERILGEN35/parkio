@@ -98,20 +98,49 @@ never needs Docker. `integrationTest` runs the `@Tag("integration")`
 Testcontainers suites (PostgreSQL, Kafka, MinIO) and **requires a running Docker
 daemon**; it is deliberately not wired into `build`/`check`.
 
+Run the full integration suite, a single service's, or a single class with:
+
+```bash
+./gradlew integrationTest                              # all services (needs Docker)
+./gradlew :services:parking-service:integrationTest    # one service
+./gradlew :services:media-service:integrationTest --tests '*MediaInfrastructureIntegrationTest'
+```
+
+**Docker behaviour.** Each suite is `@Testcontainers(disabledWithoutDocker = true)`,
+so when no Docker daemon is reachable the tests are **skipped, not failed** —
+convenient for a quick local `integrationTest` without Docker. Add
+`-Pparkio.integrationTest.requireDocker=true` to instead **fail fast** when Docker
+is missing; CI uses this flag so a misconfigured runner can never report a
+false-green by silently skipping every suite.
+
 ## Continuous integration
 
-[`.github/workflows/backend-ci.yml`](.github/workflows/backend-ci.yml) is the
-backend quality gate:
+Two workflows split the backend quality gate so PR feedback stays fast while the
+slow, Docker-backed distributed-systems tests still run regularly.
 
-- **Every pull request and every push to `master`** runs `./gradlew --no-daemon
-  build` (compile + unit tests for all services) on `ubuntu-latest` with JDK 21
-  and a cached Gradle home. Test reports are uploaded as an artifact when the
-  build fails.
-- **Integration tests are opt-in**: trigger the workflow manually from the
-  Actions tab (*workflow_dispatch*) with the "run integration tests" input to
-  execute `./gradlew --no-daemon integrationTest`. This job needs a
-  Docker-enabled runner (`ubuntu-latest` ships one); PR builds intentionally do
-  not depend on it.
+**[`backend-ci.yml`](.github/workflows/backend-ci.yml) — the fast PR gate.**
+Every pull request and every push to `master` runs `./gradlew --no-daemon build`
+(compile + unit tests for all services) on `ubuntu-latest` with JDK 21 and a
+cached Gradle home. It excludes the `integration` tag, so it never needs Docker.
+Test reports are uploaded as an artifact when the build fails.
+
+**[`backend-integration.yml`](.github/workflows/backend-integration.yml) — the
+Testcontainers suite.** Runs `./gradlew --no-daemon integrationTest
+-Pparkio.integrationTest.requireDocker=true` (PostgreSQL/Kafka/MinIO via
+Testcontainers; `ubuntu-latest` ships Docker). It triggers:
+
+- **on pull requests that touch backend paths** — `services/**`, `buildSrc/**`,
+  `gradle/**`, `build.gradle*`, `settings.gradle*`, `gradle.properties`,
+  `docker/**`, and the workflow itself — so frontend-/docs-only PRs skip it and
+  stay fast;
+- **nightly** (`schedule`), to catch drift even on weeks with no backend PRs;
+- **on demand** from the Actions tab (`workflow_dispatch`).
+
+The `requireDocker` flag makes the run **fail fast** if a runner lacks Docker,
+rather than silently skipping every suite and reporting a false green. Both
+workflows use least-privilege `contents: read` permissions, depend on no secrets,
+and have job timeouts; integration runs are de-duplicated per ref via a
+`concurrency` group. Integration test reports are uploaded on failure.
 
 [`.github/dependabot.yml`](.github/dependabot.yml) raises conservative weekly
 update PRs for Gradle dependencies and the GitHub Actions used by CI.

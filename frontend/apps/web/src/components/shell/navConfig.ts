@@ -10,7 +10,7 @@ export const PRIMARY_NAV = [
 /** Secondary destinations — desktop top bar + mobile overflow menu. */
 export const SECONDARY_NAV = [
   { to: '/reports', label: 'My reports', icon: 'flag' },
-  { to: '/gamification', label: 'Progress', icon: 'military_tech' },
+  { to: '/gamification', label: 'Impact', icon: 'military_tech' },
   { to: '/notifications', label: 'Notifications', icon: 'notifications' },
 ] as const;
 

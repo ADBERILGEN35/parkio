@@ -6,7 +6,10 @@ import com.parkio.gamification.domain.event.GamificationEvent;
 import com.parkio.gamification.infrastructure.config.KafkaTopicsConfig;
 import com.parkio.gamification.infrastructure.persistence.entity.OutboxEventEntity;
 import com.parkio.gamification.infrastructure.persistence.jpa.OutboxEventJpaRepository;
+import io.micrometer.core.instrument.Counter;
+import io.micrometer.core.instrument.MeterRegistry;
 import java.nio.charset.StandardCharsets;
+import java.time.Instant;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.concurrent.TimeUnit;
@@ -45,17 +48,29 @@ public class GamificationOutboxRelay {
     private final ObjectMapper objectMapper;
     private final int batchSize;
     private final long sendTimeoutMs;
+    private final int maxAttempts;
+    private final Counter publishFailedCounter;
+    private final Counter deadLetteredCounter;
 
     public GamificationOutboxRelay(OutboxEventJpaRepository outbox,
                                    KafkaTemplate<String, Object> kafkaTemplate,
                                    ObjectMapper objectMapper,
+                                   MeterRegistry registry,
                                    @Value("${parkio.kafka.relay.batch-size:100}") int batchSize,
-                                   @Value("${parkio.kafka.relay.send-timeout-ms:10000}") long sendTimeoutMs) {
+                                   @Value("${parkio.kafka.relay.send-timeout-ms:10000}") long sendTimeoutMs,
+                                   @Value("${parkio.kafka.relay.max-attempts:10}") int maxAttempts) {
         this.outbox = outbox;
         this.kafkaTemplate = kafkaTemplate;
         this.objectMapper = objectMapper;
         this.batchSize = batchSize;
         this.sendTimeoutMs = sendTimeoutMs;
+        this.maxAttempts = maxAttempts;
+        this.publishFailedCounter = Counter.builder("parkio.outbox.publish.failed")
+                .description("Outbox publish attempts that failed (per-row, all causes)")
+                .register(registry);
+        this.deadLetteredCounter = Counter.builder("parkio.outbox.deadlettered")
+                .description("Outbox rows transitioned to dead-lettered after exhausting attempts")
+                .register(registry);
     }
 
     @Scheduled(fixedDelayString = "${parkio.kafka.relay.poll-interval-ms:1000}")
@@ -67,27 +82,50 @@ public class GamificationOutboxRelay {
         }
     }
 
+    /**
+     * Publishes one row in isolation. A failure is recorded on the row (failure_count,
+     * reason, timestamp) and, after {@code maxAttempts}, dead-letters it — the relay then
+     * skips it so a single poison row can never block later events. Only an interrupt
+     * propagates (it must abort the poll).
+     */
     private void publish(OutboxEventEntity row) {
-        String topic = topicFor(row.getAggregateType());
-        if (topic == null) {
-            log.warn("No topic mapping for outbox aggregate type {} (row {}); leaving unpublished",
-                    row.getAggregateType(), row.getId());
-            return;
-        }
-        EventEnvelope envelope = toEnvelope(row);
-        ProducerRecord<String, Object> record = new ProducerRecord<>(
-                topic, null, row.getAggregateId().toString(), envelope, headersFor(envelope));
         try {
+            String topic = topicFor(row.getAggregateType());
+            if (topic == null) {
+                // Unroutable row: deterministic poison, count it toward dead-lettering.
+                recordFailure(row, "No topic mapping for aggregate type " + row.getAggregateType());
+                return;
+            }
+            EventEnvelope envelope = toEnvelope(row);
+            ProducerRecord<String, Object> record = new ProducerRecord<>(
+                    topic, null, row.getAggregateId().toString(), envelope, headersFor(envelope));
             // Block on the broker ack so the row is marked published only on success.
             kafkaTemplate.send(record).get(sendTimeoutMs, TimeUnit.MILLISECONDS);
+            row.markPublished();
         } catch (InterruptedException e) {
             Thread.currentThread().interrupt();
             throw new IllegalStateException("Interrupted publishing outbox row " + row.getId(), e);
         } catch (Exception e) {
-            // Roll back the batch; rows stay unpublished and are retried next poll.
-            throw new IllegalStateException("Failed to publish outbox row " + row.getId(), e);
+            recordFailure(row, reasonOf(e));
         }
-        row.markPublished();
+    }
+
+    private void recordFailure(OutboxEventEntity row, String reason) {
+        publishFailedCounter.increment();
+        boolean deadLettered = row.recordPublishFailure(reason, Instant.now(), maxAttempts);
+        if (deadLettered) {
+            deadLetteredCounter.increment();
+            log.error("Outbox row {} dead-lettered after {} attempts (eventId={}, type={}): {}",
+                    row.getId(), row.getFailureCount(), row.getEventId(), row.getEventType(), reason);
+        } else {
+            log.warn("Outbox row {} publish attempt {} failed (eventId={}, type={}): {}",
+                    row.getId(), row.getFailureCount(), row.getEventId(), row.getEventType(), reason);
+        }
+    }
+
+    private static String reasonOf(Exception e) {
+        Throwable cause = e.getCause() != null ? e.getCause() : e;
+        return cause.getClass().getSimpleName() + ": " + cause.getMessage();
     }
 
     /** All gamification score events share one topic. */

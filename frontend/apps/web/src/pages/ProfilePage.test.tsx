@@ -40,7 +40,9 @@ function useProfileHandlers(vehicle: VehicleProfile = emptyVehicle) {
     http.patch(`${API_BASE}/users/me`, () => HttpResponse.json({ ...profile, city: 'Ankara' })),
     http.get(`${API_BASE}/users/me/stats`, () => HttpResponse.json(stats)),
     http.get(`${API_BASE}/users/me/preferences`, () => HttpResponse.json(preferences)),
+    http.patch(`${API_BASE}/users/me/preferences`, () => HttpResponse.json(preferences)),
     http.get(`${API_BASE}/users/me/vehicle`, () => HttpResponse.json(vehicle)),
+    http.put(`${API_BASE}/users/me/vehicle`, () => HttpResponse.json(vehicle)),
   );
 }
 
@@ -69,11 +71,52 @@ describe('ProfilePage', () => {
     expect(screen.getByText('Trusted')).toBeInTheDocument(); // trust band
   });
 
-  it('shows the vehicle empty state when no vehicle is configured', async () => {
+  it('shows the Profile & Account section by default', async () => {
     useProfileHandlers();
     renderProfile();
 
+    expect(await screen.findByLabelText('Display name')).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: /Sign out/ })).toBeInTheDocument();
+  });
+
+  it('switches visible sections when a section tab is selected', async () => {
+    useProfileHandlers();
+    renderProfile();
+    const user = userEvent.setup();
+
+    // Account section is active by default.
+    expect(await screen.findByLabelText('Display name')).toBeInTheDocument();
+
+    // Switch to Notifications — the radius control appears, the profile form goes away.
+    await user.click(screen.getByRole('tab', { name: 'Notifications' }));
+    expect(await screen.findByText('Preferred search radius')).toBeInTheDocument();
+    expect(screen.queryByLabelText('Display name')).not.toBeInTheDocument();
+
+    // Switch to Trust & Progress — the honest "no streaks" note appears.
+    await user.click(screen.getByRole('tab', { name: 'Trust & Progress' }));
+    expect(
+      await screen.findByText(/Streaks, achievements and activity heatmaps aren't available yet/),
+    ).toBeInTheDocument();
+  });
+
+  it('shows the vehicle empty state when no vehicle is configured', async () => {
+    useProfileHandlers();
+    renderProfile();
+    const user = userEvent.setup();
+
+    await user.click(await screen.findByRole('tab', { name: 'Vehicle' }));
+
     expect(await screen.findByText(/No vehicle configured yet/)).toBeInTheDocument();
+  });
+
+  it('shows the current vehicle when one is configured', async () => {
+    useProfileHandlers({ vehicleType: 'SUV', plate: '34ABC123' });
+    renderProfile();
+    const user = userEvent.setup();
+
+    await user.click(await screen.findByRole('tab', { name: 'Vehicle' }));
+
+    expect(await screen.findByText('34ABC123')).toBeInTheDocument();
   });
 
   it('shows a saved confirmation after a successful profile update', async () => {
@@ -85,6 +128,17 @@ describe('ProfilePage', () => {
     await user.clear(cityField);
     await user.type(cityField, 'Ankara');
     await user.click(screen.getByRole('button', { name: 'Save profile' }));
+
+    expect(await screen.findByText('Saved.')).toBeInTheDocument();
+  });
+
+  it('shows a saved confirmation after saving preferences', async () => {
+    useProfileHandlers();
+    renderProfile();
+    const user = userEvent.setup();
+
+    await user.click(screen.getByRole('tab', { name: 'Notifications' }));
+    await user.click(await screen.findByRole('button', { name: 'Save preferences' }));
 
     expect(await screen.findByText('Saved.')).toBeInTheDocument();
   });

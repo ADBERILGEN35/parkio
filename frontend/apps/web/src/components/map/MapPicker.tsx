@@ -1,6 +1,12 @@
 import './leafletSetup';
 import { MapContainer, Marker, TileLayer, useMapEvents } from 'react-leaflet';
-import { DEFAULT_CENTER, DEFAULT_ZOOM, TILE_ATTRIBUTION, TILE_URL, isValidLatLng } from './mapConfig';
+import {
+  DEFAULT_MAP_CENTER,
+  DEFAULT_ZOOM,
+  TILE_ATTRIBUTION,
+  TILE_URL,
+  isValidLatLng,
+} from './mapConfig';
 import { Recenter } from './Recenter';
 
 export interface MapPickerProps {
@@ -8,6 +14,8 @@ export interface MapPickerProps {
   longitude: number | null;
   onPick: (lat: number, lng: number) => void;
   height?: number;
+  /** Center shown before a point is picked. Defaults to the İzmir beta center. */
+  fallbackCenter?: { lat: number; lng: number };
 }
 
 function ClickToPick({ onPick }: { onPick: (lat: number, lng: number) => void }) {
@@ -20,11 +28,17 @@ function ClickToPick({ onPick }: { onPick: (lat: number, lng: number) => void })
 }
 
 /** Click-to-set location picker. The chosen point is shown as a draggable-free marker. */
-export function MapPicker({ latitude, longitude, onPick, height = 280 }: MapPickerProps) {
+export function MapPicker({
+  latitude,
+  longitude,
+  onPick,
+  height = 280,
+  fallbackCenter = DEFAULT_MAP_CENTER,
+}: MapPickerProps) {
   const hasMarker = isValidLatLng(latitude, longitude);
   const center: [number, number] = hasMarker
     ? [latitude as number, longitude as number]
-    : [DEFAULT_CENTER.lat, DEFAULT_CENTER.lng];
+    : [fallbackCenter.lat, fallbackCenter.lng];
 
   return (
     <MapContainer

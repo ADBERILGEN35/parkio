@@ -8,10 +8,43 @@ import { API_BASE, apiErrorBody, server } from '@/test/server';
 import { renderWithProviders, resetAuth, signInAs } from '@/test/utils';
 import { UploadPage } from './UploadPage';
 
-// Leaflet needs real DOM sizing/canvas that jsdom lacks; the picker is not under test here.
+// Leaflet can't render in jsdom; stub the picker with a button that simulates a
+// map click setting the location.
 vi.mock('@/components/map/MapPicker', () => ({
-  MapPicker: () => null,
+  MapPicker: ({ onPick }: { onPick: (lat: number, lng: number) => void }) => (
+    <button type="button" onClick={() => onPick(41.5, 29.5)}>
+      stub-pick-location
+    </button>
+  ),
 }));
+
+/** Default Nominatim base URL (no VITE override in the test env). */
+const NOMINATIM_URL = 'https://nominatim.openstreetmap.org/search';
+
+function nominatimItem(overrides: Record<string, unknown> = {}) {
+  return {
+    place_id: 11,
+    name: 'Vali Nevzat Ayaz Lisesi',
+    display_name: 'Vali Nevzat Ayaz Lisesi, Karşıyaka, İzmir',
+    lat: '38.46',
+    lon: '27.10',
+    address: { city: 'İzmir', city_district: 'Karşıyaka' },
+    ...overrides,
+  };
+}
+
+/** Two "vali" matches used to exercise the typeahead dropdown. */
+const valiItems = [
+  nominatimItem(),
+  nominatimItem({
+    place_id: 12,
+    name: 'Vali Konağı Caddesi',
+    display_name: 'Vali Konağı Caddesi, Konak, İzmir',
+    lat: '38.41',
+    lon: '27.13',
+    address: { city: 'İzmir', city_district: 'Konak' },
+  }),
+];
 
 const SPOT_ID = '0b8f6c3a-0000-0000-0000-000000000010';
 
@@ -64,8 +97,10 @@ async function completePhotoStep(user: User, file = imageFile()) {
   await clickNext(user);
 }
 
-/** Step 2 → Step 3: fill coordinates and advance to Details. */
+/** Step 2 → Step 3: fill coordinates (via the advanced disclosure) and advance. */
 async function completeLocationStep(user: User) {
+  // Latitude/Longitude live behind the "Advanced coordinates" disclosure.
+  await user.click(screen.getByText('Advanced coordinates'));
   await user.type(screen.getByLabelText('Latitude'), '41.01');
   await user.type(screen.getByLabelText('Longitude'), '29.02');
   await clickNext(user);
@@ -280,5 +315,76 @@ describe('UploadPage', () => {
     expect(await screen.findByRole('heading', { name: 'Spot created' })).toBeInTheDocument();
     // The success panel redirects after a short delay.
     expect(await screen.findByText('Spot detail', {}, { timeout: 3000 })).toBeInTheDocument();
+  });
+
+  it('shows typeahead suggestions when searching for a place on the Location step', async () => {
+    server.use(http.get(NOMINATIM_URL, () => HttpResponse.json(valiItems)));
+
+    renderUpload();
+    const user = userEvent.setup();
+
+    await completePhotoStep(user);
+    await user.type(screen.getByLabelText('Search location'), 'vali');
+
+    expect(await screen.findByText('Vali Nevzat Ayaz Lisesi')).toBeInTheDocument();
+    expect(screen.getByText('Vali Konağı Caddesi')).toBeInTheDocument();
+  });
+
+  it('fills coordinates and the empty address when a suggestion is selected', async () => {
+    server.use(http.get(NOMINATIM_URL, () => HttpResponse.json(valiItems)));
+
+    renderUpload();
+    const user = userEvent.setup();
+
+    await completePhotoStep(user);
+    await user.type(screen.getByLabelText('Search location'), 'vali');
+    await user.click(await screen.findByRole('button', { name: /Vali Nevzat Ayaz Lisesi/ }));
+
+    // Coordinates and the selected-location label reflect the chosen place.
+    expect(screen.getByText('38.460000, 27.100000')).toBeInTheDocument();
+    expect(screen.getByText(/Selected location: Karşıyaka, İzmir/)).toBeInTheDocument();
+    // The empty optional address is filled with the geocoded display name.
+    expect(screen.getByLabelText('Address (optional)')).toHaveValue(
+      'Vali Nevzat Ayaz Lisesi, Karşıyaka, İzmir',
+    );
+
+    // Selecting a place must not create a spot — still on the Location step.
+    expect(screen.getByRole('heading', { name: '2. Location' })).toBeInTheDocument();
+  });
+
+  it('does not overwrite an address the user already typed', async () => {
+    server.use(http.get(NOMINATIM_URL, () => HttpResponse.json(valiItems)));
+
+    renderUpload();
+    const user = userEvent.setup();
+
+    await completePhotoStep(user);
+    await user.type(screen.getByLabelText('Address (optional)'), 'My custom address');
+    await user.type(screen.getByLabelText('Search location'), 'vali');
+    await user.click(await screen.findByRole('button', { name: /Vali Nevzat Ayaz Lisesi/ }));
+
+    expect(screen.getByLabelText('Address (optional)')).toHaveValue('My custom address');
+  });
+
+  it('updates coordinates when a point is picked on the map', async () => {
+    renderUpload();
+    const user = userEvent.setup();
+
+    await completePhotoStep(user);
+    await user.click(screen.getByRole('button', { name: 'stub-pick-location' }));
+
+    expect(screen.getByText('41.500000, 29.500000')).toBeInTheDocument();
+    expect(screen.getByText(/Selected map point/)).toBeInTheDocument();
+  });
+
+  it('blocks advancing from Location until coordinates are set', async () => {
+    renderUpload();
+    const user = userEvent.setup();
+
+    await completePhotoStep(user);
+    await clickNext(user);
+
+    // Navigation was blocked — still on the Location step.
+    expect(screen.getByRole('heading', { name: '2. Location' })).toBeInTheDocument();
   });
 });

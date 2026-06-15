@@ -10,8 +10,8 @@ import {
   Icon,
   LoadingState,
   MetricCard,
-  PageShell,
   SoftBadge,
+  Surface,
   cn,
 } from '@parkio/ui';
 import { useQuery } from '@tanstack/react-query';
@@ -20,27 +20,51 @@ import { gamificationApi } from '@/api';
 import { FriendlyApiErrorMessage } from '@/components/FriendlyApiErrorMessage';
 import { formatRelativeAgo, humanizeEnum } from '@/lib/format';
 
+/**
+ * Your Impact (`/gamification`, labelled "Impact" in the nav). A user-facing
+ * impact/rewards view — a level/points hero, recent activity, current benefits
+ * and a level roadmap — composed of independent read-only queries via
+ * `gamificationApi` (one key per endpoint). Uses existing fields only: no
+ * streaks, achievements, heatmaps, rewards or level names are invented.
+ */
 export function GamificationPage() {
   return (
-    <PageShell title="Progress">
+    <div className="mx-auto w-full max-w-5xl px-md py-lg text-on-background md:px-xl">
+      <header className="mb-lg">
+        <p className="m-0 flex items-center gap-xs text-label-md font-semibold uppercase tracking-wider text-primary">
+          <Icon name="auto_awesome" className="text-[16px] leading-none" />
+          Community
+        </p>
+        <h1 className="m-0 mt-sm text-headline-lg-mobile text-on-surface md:text-headline-lg">
+          Your Impact
+        </h1>
+        <p className="m-0 mt-xs text-body-md text-on-surface-variant">
+          Track your contributions and unlock more ways to help the community.
+        </p>
+      </header>
+
       <div className="flex flex-col gap-lg">
         <LevelHero />
         <div className="grid grid-cols-1 gap-lg lg:grid-cols-2 lg:items-start">
-          <PointsCard />
-          <AccessPolicyCard />
+          <RecentActivityCard />
+          <BenefitsCard />
         </div>
         <LevelsCard />
       </div>
-    </PageShell>
+    </div>
   );
 }
+
+/* ------------------------------------------------------------------------- */
+/* Hero                                                                       */
+/* ------------------------------------------------------------------------- */
 
 /** Level + progress hero, driven by `GET /gamification/me/level`. */
 function LevelHero() {
   const query = useQuery({ queryKey: ['level'], queryFn: gamificationApi.getMyLevel });
 
   return (
-    <section className="rounded-2xl border border-outline-variant/20 bg-surface-container-lowest p-lg shadow-soft">
+    <Surface level="raised" className="rounded-3xl p-lg">
       {query.isPending ? (
         <LoadingState label="Loading your progress…" />
       ) : query.isError ? (
@@ -48,7 +72,7 @@ function LevelHero() {
       ) : (
         <LevelHeroContent level={query.data} />
       )}
-    </section>
+    </Surface>
   );
 }
 
@@ -61,7 +85,7 @@ function LevelHeroContent({ level }: { level: LevelStanding }) {
   const pct = atMax || span <= 0 ? 100 : Math.min(100, Math.max(0, (earnedInBand / span) * 100));
 
   return (
-    <div className="flex flex-col gap-md">
+    <div className="flex flex-col gap-lg">
       <div className="flex flex-wrap items-center gap-md">
         <span className="flex h-16 w-16 shrink-0 items-center justify-center rounded-full bg-primary-container text-headline-md text-on-primary-container">
           {level.currentLevel}
@@ -84,6 +108,16 @@ function LevelHeroContent({ level }: { level: LevelStanding }) {
             {level.pointsToNextLevel} pts to level {level.currentLevel + 1}
           </SoftBadge>
         )}
+      </div>
+
+      <div className="grid grid-cols-2 gap-md sm:grid-cols-3">
+        <MetricCard label="Total points" value={level.totalPoints} icon="stars" />
+        <MetricCard label="Current level" value={level.currentLevel} icon="military_tech" />
+        <MetricCard
+          label={atMax ? 'Status' : 'Points to next'}
+          value={atMax ? 'Top level' : (level.pointsToNextLevel as number)}
+          icon={atMax ? 'workspace_premium' : 'flag'}
+        />
       </div>
 
       <div>
@@ -110,38 +144,32 @@ function LevelHeroContent({ level }: { level: LevelStanding }) {
   );
 }
 
-/** Total points + recent ledger entries (`GET /gamification/me/points`). */
-function PointsCard() {
+/* ------------------------------------------------------------------------- */
+/* Recent activity                                                           */
+/* ------------------------------------------------------------------------- */
+
+/** Recent point history (`GET /gamification/me/points`). */
+function RecentActivityCard() {
   const query = useQuery({ queryKey: ['points'], queryFn: gamificationApi.getMyPoints });
 
   return (
-    <Card title="Points">
+    <Card title="Recent activity">
       {query.isPending ? (
         <LoadingState />
       ) : query.isError ? (
         <FriendlyApiErrorMessage error={query.error} />
+      ) : query.data.recentTransactions.length === 0 ? (
+        <EmptyState
+          icon="receipt_long"
+          title="No point activity yet"
+          description="Share or verify spots to start earning points."
+        />
       ) : (
-        <div className="flex flex-col gap-md">
-          <MetricCard label="Total points" value={query.data.totalPoints} icon="stars" />
-          <div>
-            <p className="m-0 mb-sm text-label-sm font-semibold uppercase tracking-wider text-on-surface-variant">
-              Recent activity
-            </p>
-            {query.data.recentTransactions.length === 0 ? (
-              <EmptyState
-                icon="receipt_long"
-                title="No point activity yet"
-                description="Share or verify spots to start earning points."
-              />
-            ) : (
-              <ul className="m-0 flex list-none flex-col gap-sm p-0">
-                {query.data.recentTransactions.map((entry, index) => (
-                  <TransactionItem key={index} entry={entry} />
-                ))}
-              </ul>
-            )}
-          </div>
-        </div>
+        <ul className="m-0 flex list-none flex-col gap-sm p-0">
+          {query.data.recentTransactions.map((entry, index) => (
+            <TransactionItem key={index} entry={entry} />
+          ))}
+        </ul>
       )}
     </Card>
   );
@@ -151,21 +179,31 @@ function TransactionItem({ entry }: { entry: PointTransactionEntry }) {
   const earned = entry.direction === 'EARNED';
   return (
     <li className="flex items-center justify-between gap-sm rounded-xl border border-outline-variant/40 bg-surface-container-low p-md">
-      <div className="min-w-0">
-        <p className="m-0 text-body-md text-on-surface">{humanizeEnum(entry.sourceType)}</p>
-        <p className="m-0 mt-xs text-label-sm text-on-surface-variant">
-          {formatRelativeAgo(entry.createdAt)}
-          {entry.relatedSpotId ? (
-            <>
-              {' · '}
-              <Link to={`/spots/${entry.relatedSpotId}`} className="text-primary hover:underline">
-                View spot
-              </Link>
-            </>
-          ) : null}
-        </p>
+      <div className="flex min-w-0 items-center gap-sm">
+        <span
+          className={cn(
+            'flex h-9 w-9 shrink-0 items-center justify-center rounded-full',
+            earned ? 'bg-secondary/10 text-secondary' : 'bg-error/10 text-error',
+          )}
+        >
+          <Icon name={earned ? 'add_circle' : 'remove_circle'} className="text-[20px] leading-none" />
+        </span>
+        <div className="min-w-0">
+          <p className="m-0 text-body-md text-on-surface">{humanizeEnum(entry.sourceType)}</p>
+          <p className="m-0 mt-xs text-label-sm text-on-surface-variant">
+            {formatRelativeAgo(entry.createdAt)}
+            {entry.relatedSpotId ? (
+              <>
+                {' · '}
+                <Link to={`/spots/${entry.relatedSpotId}`} className="text-primary hover:underline">
+                  View spot
+                </Link>
+              </>
+            ) : null}
+          </p>
+        </div>
       </div>
-      <SoftBadge tone={earned ? 'success' : 'danger'} icon={earned ? 'add' : 'remove'}>
+      <SoftBadge tone={earned ? 'success' : 'danger'}>
         {earned ? '+' : '−'}
         {entry.points}
       </SoftBadge>
@@ -173,47 +211,56 @@ function TransactionItem({ entry }: { entry: PointTransactionEntry }) {
   );
 }
 
-/** Level-based access policy (`GET /gamification/me/access-policy`). */
-function AccessPolicyCard() {
+/* ------------------------------------------------------------------------- */
+/* Current benefits                                                          */
+/* ------------------------------------------------------------------------- */
+
+/** Level-based perks (`GET /gamification/me/access-policy`), presented as benefits. */
+function BenefitsCard() {
   const query = useQuery({
     queryKey: ['access-policy'],
     queryFn: gamificationApi.getMyAccessPolicy,
   });
 
   return (
-    <Card title="Access policy">
+    <Card title="Your current benefits">
       {query.isPending ? (
         <LoadingState />
       ) : query.isError ? (
         <FriendlyApiErrorMessage error={query.error} />
       ) : (
-        <AccessPolicyContent policy={query.data} />
+        <BenefitsContent policy={query.data} />
       )}
     </Card>
   );
 }
 
-function AccessPolicyContent({ policy }: { policy: GamificationAccessPolicy }) {
+function BenefitsContent({ policy }: { policy: GamificationAccessPolicy }) {
   return (
     <div className="flex flex-col gap-md">
       <p className="m-0 text-body-md text-on-surface-variant">
-        Perks unlocked by your current level ({policy.currentLevel}).
+        Perks unlocked at level {policy.currentLevel}. Keep contributing to level up and unlock
+        more.
       </p>
       <dl className="m-0 grid grid-cols-1 gap-sm sm:grid-cols-3">
-        <PolicyStat label="Search radius" value={`${policy.searchRadiusMeters} m`} icon="my_location" />
-        <PolicyStat label="Results / search" value={policy.resultLimit} icon="format_list_numbered" />
-        <PolicyStat label="Daily views" value={policy.dailyViewLimit} icon="visibility" />
+        <BenefitStat
+          label="Search radius"
+          value={`${policy.searchRadiusMeters} m`}
+          icon="my_location"
+        />
+        <BenefitStat label="Results per search" value={policy.resultLimit} icon="format_list_numbered" />
+        <BenefitStat label="Daily views" value={policy.dailyViewLimit} icon="visibility" />
       </dl>
       <div className="flex flex-wrap gap-sm">
         <SoftBadge
           tone={policy.verifiedSpotPriority ? 'success' : 'neutral'}
-          icon={policy.verifiedSpotPriority ? 'verified' : 'remove'}
+          icon={policy.verifiedSpotPriority ? 'verified' : 'lock'}
         >
           Verified-spot priority
         </SoftBadge>
         <SoftBadge
           tone={policy.notificationPriority ? 'success' : 'neutral'}
-          icon={policy.notificationPriority ? 'notifications_active' : 'remove'}
+          icon={policy.notificationPriority ? 'notifications_active' : 'lock'}
         >
           Notification priority
         </SoftBadge>
@@ -222,7 +269,7 @@ function AccessPolicyContent({ policy }: { policy: GamificationAccessPolicy }) {
   );
 }
 
-function PolicyStat({ label, value, icon }: { label: string; value: string | number; icon: string }) {
+function BenefitStat({ label, value, icon }: { label: string; value: string | number; icon: string }) {
   return (
     <div className="rounded-xl border border-outline-variant/40 bg-surface-container-low p-md">
       <dt className="m-0 flex items-center gap-xs text-label-sm text-on-surface-variant">
@@ -234,10 +281,15 @@ function PolicyStat({ label, value, icon }: { label: string; value: string | num
   );
 }
 
+/* ------------------------------------------------------------------------- */
+/* Level roadmap                                                             */
+/* ------------------------------------------------------------------------- */
+
 /** Full level roadmap (`GET /gamification/levels`) with the current level highlighted. */
 function LevelsCard() {
   const levels = useQuery({ queryKey: ['levels'], queryFn: gamificationApi.getLevels });
   const standing = useQuery({ queryKey: ['level'], queryFn: gamificationApi.getMyLevel });
+  const currentLevel = standing.data?.currentLevel ?? null;
 
   return (
     <Card title="Level roadmap">
@@ -248,37 +300,57 @@ function LevelsCard() {
       ) : levels.data.length === 0 ? (
         <EmptyState icon="stairs" title="No levels defined" />
       ) : (
-        <ul className="m-0 flex list-none flex-col gap-sm p-0">
+        <ol className="m-0 flex list-none flex-col gap-sm p-0">
           {levels.data.map((rule) => (
             <LevelRuleItem
               key={rule.level}
               rule={rule}
-              current={standing.data?.currentLevel === rule.level}
+              current={currentLevel === rule.level}
+              completed={currentLevel !== null && rule.level < currentLevel}
             />
           ))}
-        </ul>
+        </ol>
       )}
     </Card>
   );
 }
 
-function LevelRuleItem({ rule, current }: { rule: LevelRule; current: boolean }) {
+function LevelRuleItem({
+  rule,
+  current,
+  completed,
+}: {
+  rule: LevelRule;
+  current: boolean;
+  completed: boolean;
+}) {
+  // Future (locked) levels are visually muted; completed levels get a subtle tick.
+  const locked = !current && !completed;
+  const statusIcon = current ? 'military_tech' : completed ? 'check_circle' : 'lock';
+  const statusTone = current ? 'text-primary' : completed ? 'text-secondary' : 'text-on-surface-variant';
+
   return (
     <li
       className={cn(
         'rounded-xl border p-md transition-colors duration-std',
         current
           ? 'border-l-4 border-primary bg-primary/5'
-          : 'border-outline-variant/40 bg-surface-container-low',
+          : completed
+            ? 'border-outline-variant/40 bg-surface-container-low'
+            : 'border-outline-variant/30 bg-surface-container-low opacity-70',
       )}
     >
       <div className="flex items-center justify-between gap-sm">
         <span className="flex items-center gap-sm text-body-md font-semibold text-on-surface">
-          <Icon name="military_tech" className="text-[18px] leading-none text-primary" />
+          <Icon name={statusIcon} className={cn('text-[18px] leading-none', statusTone)} />
           Level {rule.level}
           {current ? (
             <SoftBadge tone="primary" icon="person">
               You
+            </SoftBadge>
+          ) : locked ? (
+            <SoftBadge tone="neutral" icon="lock">
+              Locked
             </SoftBadge>
           ) : null}
         </span>

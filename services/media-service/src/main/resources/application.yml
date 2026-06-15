@@ -121,10 +121,13 @@ parkio:
     access-url-ttl: ${PARKIO_MEDIA_ACCESS_URL_TTL:5m}
     storage:
       bucket: ${PARKIO_MEDIA_BUCKET:parkio-media}
-      # S3-compatible endpoint (MinIO in local/dev). Credentials are injected;
+      # S3-compatible endpoints (MinIO in local/dev). Credentials are injected;
       # the defaults below are LOCAL DEV ONLY and must be overridden everywhere
       # else (ai-context/07).
+      # endpoint: SDK PUT/stat/DELETE (container-reachable in compose: minio:9000).
       endpoint: ${PARKIO_MEDIA_STORAGE_ENDPOINT:http://localhost:9000}
+      # public-endpoint: host embedded in presigned GET URLs (browser-reachable).
+      public-endpoint: ${PARKIO_MEDIA_STORAGE_PUBLIC_ENDPOINT:http://localhost:9000}
       access-key: ${PARKIO_MEDIA_STORAGE_ACCESS_KEY:minioadmin}
       secret-key: ${PARKIO_MEDIA_STORAGE_SECRET_KEY:minioadmin}
       region: ${PARKIO_MEDIA_STORAGE_REGION:us-east-1}

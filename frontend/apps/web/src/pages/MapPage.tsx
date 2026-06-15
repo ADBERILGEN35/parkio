@@ -16,13 +16,20 @@ import {
 import { nearbySearchSchema, type NearbySearchFormValues } from '@parkio/validation';
 import type { UseQueryResult } from '@tanstack/react-query';
 import { useQuery } from '@tanstack/react-query';
-import { Suspense, lazy, useState } from 'react';
+import { Suspense, lazy, useCallback, useEffect, useRef, useState } from 'react';
 import { useForm } from 'react-hook-form';
 import { Link } from 'react-router-dom';
 import { parkingApi } from '@/api';
 import { FriendlyApiErrorMessage } from '@/components/FriendlyApiErrorMessage';
-import { DEFAULT_CENTER, isValidLatLng } from '@/components/map/mapConfig';
+import {
+  DEFAULT_MAP_CENTER,
+  DEFAULT_MAP_ZOOM,
+  LOCATED_ZOOM,
+  isValidLatLng,
+} from '@/components/map/mapConfig';
+import { PlaceSearch } from '@/components/map/PlaceSearch';
 import { formatInstant, formatRelativeAgo, formatRemaining, humanizeEnum } from '@/lib/format';
+import { type GeocodeResult } from '@/lib/geocoding';
 
 const NearbySpotsMap = lazy(() =>
   import('@/components/map/NearbySpotsMap').then((m) => ({ default: m.NearbySpotsMap })),
@@ -30,16 +37,28 @@ const NearbySpotsMap = lazy(() =>
 
 type GeoStatus = 'idle' | 'locating' | 'error';
 
+/** Parse a watched coordinate field; blank/non-finite values yield NaN (no center). */
+function parseCoord(value: unknown): number {
+  if (value === '' || value === null || value === undefined) return Number.NaN;
+  const parsed = Number(value);
+  return Number.isFinite(parsed) ? parsed : Number.NaN;
+}
+
 /**
- * Map Experience V3 (`/map`): full-bleed map canvas with floating glass search
+ * Map Experience V3 (`/map`): full-bleed map canvas with a floating glass search
  * overlay, slide-in results sidebar, and floating map controls.
- * Search behavior (geolocation, manual lat/lng, click-to-set-center, nearby
- * query params) is unchanged.
+ *
+ * Primary search is address/place text → coordinates (forward geocoding via
+ * Nominatim); the resolved coordinates feed the unchanged
+ * `GET /parking/spots/nearby` call. Manual lat/lng (+ radius/limit),
+ * click-to-set-center, and "Use my location" remain as an advanced fallback.
  */
 export function MapPage() {
   const [params, setParams] = useState<NearbySearchParams | null>(null);
   const [geoStatus, setGeoStatus] = useState<GeoStatus>('idle');
   const [geoError, setGeoError] = useState<string | null>(null);
+  const [mapZoom, setMapZoom] = useState(DEFAULT_MAP_ZOOM);
+  const [centerLabel, setCenterLabel] = useState<string | null>(null);
 
   const search = useQuery({
     queryKey: ['parking', 'nearby', params],
@@ -57,40 +76,87 @@ export function MapPage() {
 
   const onSubmit = handleSubmit((values) => setParams(values));
 
-  const latValue = Number(watch('lat'));
-  const lngValue = Number(watch('lng'));
+  // Empty inputs must not read as 0,0 (Number('') === 0) — that opened the map
+  // on empty ocean off the African coast.
+  const latValue = parseCoord(watch('lat'));
+  const lngValue = parseCoord(watch('lng'));
   const hasCenter = isValidLatLng(latValue, lngValue);
-  const center = hasCenter ? { lat: latValue, lng: lngValue } : DEFAULT_CENTER;
+  // Never open on empty ocean: fall back to the İzmir beta center until the user
+  // locates/picks coordinates (this fallback is shown only — not auto-searched).
+  const center = hasCenter ? { lat: latValue, lng: lngValue } : DEFAULT_MAP_CENTER;
 
   const applyCoords = (lat: number, lng: number) => {
     setValue('lat', Number(lat.toFixed(6)), { shouldValidate: true });
     setValue('lng', Number(lng.toFixed(6)), { shouldValidate: true });
   };
 
-  const locate = () => {
-    if (!('geolocation' in navigator)) {
-      setGeoStatus('error');
-      setGeoError('Geolocation is not available in this browser. Enter coordinates manually.');
-      return;
-    }
-    setGeoStatus('locating');
-    setGeoError(null);
-    navigator.geolocation.getCurrentPosition(
-      (position) => {
-        applyCoords(position.coords.latitude, position.coords.longitude);
-        setGeoStatus('idle');
-      },
-      (error) => {
-        setGeoStatus('error');
-        setGeoError(
-          error.code === error.PERMISSION_DENIED
-            ? 'Location permission denied. Enter coordinates manually below.'
-            : 'Could not determine your location. Enter coordinates manually below.',
-        );
-      },
-      { enableHighAccuracy: false, timeout: 10_000 },
-    );
+  /** Center on a geocoded place and run the existing nearby search there. */
+  const selectPlace = (result: GeocodeResult) => {
+    applyCoords(result.lat, result.lng);
+    setMapZoom(LOCATED_ZOOM);
+    setCenterLabel(result.secondary || result.primary);
+    // Validate + submit reads lat/lng/radius/limit from the form (lat/lng just set).
+    void onSubmit();
   };
+
+  /** Map click / manual coordinate edits update the same center source of truth. */
+  const handlePickCenter = (lat: number, lng: number) => {
+    applyCoords(lat, lng);
+    setCenterLabel('selected map point');
+  };
+
+  /**
+   * Resolve the browser location. `autoSearch` is used by the on-mount attempt
+   * to immediately run a nearby search; the manual "Use my location" button
+   * only fills coordinates and lets the user press Search.
+   */
+  const runGeolocation = useCallback(
+    ({ autoSearch }: { autoSearch: boolean }) => {
+      const geolocation =
+        typeof navigator !== 'undefined' ? navigator.geolocation : undefined;
+      if (!geolocation) {
+        setGeoStatus('error');
+        setGeoError("Geolocation isn't available in this browser. You can search manually.");
+        return;
+      }
+      setGeoStatus('locating');
+      setGeoError(null);
+      geolocation.getCurrentPosition(
+        (position) => {
+          const lat = Number(position.coords.latitude.toFixed(6));
+          const lng = Number(position.coords.longitude.toFixed(6));
+          setValue('lat', lat, { shouldValidate: true });
+          setValue('lng', lng, { shouldValidate: true });
+          setMapZoom(LOCATED_ZOOM);
+          setCenterLabel('your current location');
+          setGeoStatus('idle');
+          if (autoSearch) {
+            setParams({ lat, lng });
+          }
+        },
+        (error) => {
+          setGeoStatus('error');
+          setGeoError(
+            error.code === error.PERMISSION_DENIED
+              ? 'Location permission was not granted. You can search manually.'
+              : "We couldn't determine your location. You can search manually.",
+          );
+        },
+        { enableHighAccuracy: false, timeout: 10_000 },
+      );
+    },
+    [setValue],
+  );
+
+  // Attempt geolocation exactly once per mount so the map opens on a useful view.
+  const autoLocatedRef = useRef(false);
+  useEffect(() => {
+    if (autoLocatedRef.current) return;
+    autoLocatedRef.current = true;
+    runGeolocation({ autoSearch: true });
+  }, [runGeolocation]);
+
+  const locate = () => runGeolocation({ autoSearch: false });
 
   return (
     <div className="fixed inset-x-0 bottom-16 top-16 z-0 overflow-hidden bg-background md:bottom-0">
@@ -99,8 +165,9 @@ export function MapPage() {
         <Suspense fallback={<LoadingState label="Loading map…" />}>
           <NearbySpotsMap
             center={center}
+            zoom={mapZoom}
             spots={search.data ?? []}
-            onPickCenter={applyCoords}
+            onPickCenter={handlePickCenter}
             height="100%"
             onLocate={locate}
             locating={geoStatus === 'locating'}
@@ -114,42 +181,85 @@ export function MapPage() {
         <div className="pointer-events-auto w-full max-w-md animate-fade-in-up glass-panel rounded-2xl p-md shadow-deep">
           <h2 className="m-0 text-title-lg text-on-surface">Find parking</h2>
           <p className="m-0 mt-xs text-label-sm text-on-surface-variant">
-            Click the map to set search center.
+            Search by address or place — or click the map to set the center.
           </p>
+
+          {centerLabel ? (
+            <p className="mt-sm flex items-center gap-xs text-label-sm font-medium text-on-surface">
+              <Icon name="location_on" className="text-[16px] leading-none text-primary" />
+              Searching near {centerLabel}
+            </p>
+          ) : null}
+
           {geoStatus === 'error' && geoError ? (
             <div className="mt-sm">
               <ErrorMessage message={geoError} />
             </div>
           ) : null}
-          <form onSubmit={onSubmit} className="mt-md">
-            <fieldset
-              disabled={search.isFetching}
-              className="m-0 flex flex-col gap-sm border-0 p-0"
-            >
-              <div className="grid grid-cols-2 gap-sm">
-                <Input label="Latitude" inputMode="decimal" error={errors.lat?.message} {...register('lat')} />
-                <Input label="Longitude" inputMode="decimal" error={errors.lng?.message} {...register('lng')} />
-              </div>
-              <div className="grid grid-cols-2 gap-sm">
-                <Input
-                  label="Radius (m, default 1000)"
-                  inputMode="numeric"
-                  error={errors.radius?.message}
-                  {...register('radius')}
-                />
-                <Input
-                  label="Limit (default 10)"
-                  inputMode="numeric"
-                  error={errors.limit?.message}
-                  {...register('limit')}
-                />
-              </div>
-              <Button type="submit" disabled={search.isFetching} className="w-full">
-                <Icon name="travel_explore" className="text-[16px] leading-none" />
-                {search.isFetching ? 'Searching…' : 'Search nearby'}
-              </Button>
-            </fieldset>
-          </form>
+
+          {/* Primary: address / place typeahead search */}
+          <div className="mt-md">
+            <PlaceSearch onSelect={selectPlace} />
+          </div>
+
+          <button
+            type="button"
+            onClick={locate}
+            disabled={geoStatus === 'locating'}
+            className="mt-sm inline-flex items-center gap-xs rounded-full bg-surface-container px-md py-xs text-label-sm font-medium text-on-surface transition-colors hover:bg-surface-container-high disabled:opacity-60"
+          >
+            <Icon name="my_location" className="text-[16px] leading-none" />
+            {geoStatus === 'locating' ? 'Locating…' : 'Use my location'}
+          </button>
+
+          {/* Advanced: manual coordinate fallback */}
+          <details className="mt-sm border-t border-outline-variant/30 pt-sm">
+            <summary className="cursor-pointer list-none text-label-sm font-semibold text-on-surface-variant marker:content-none">
+              <span className="inline-flex items-center gap-xs">
+                <Icon name="tune" className="text-[16px] leading-none" />
+                Advanced coordinates
+              </span>
+            </summary>
+            <form onSubmit={onSubmit} className="mt-sm">
+              <fieldset
+                disabled={search.isFetching}
+                className="m-0 flex flex-col gap-sm border-0 p-0"
+              >
+                <div className="grid grid-cols-2 gap-sm">
+                  <Input
+                    label="Latitude"
+                    inputMode="decimal"
+                    error={errors.lat?.message}
+                    {...register('lat')}
+                  />
+                  <Input
+                    label="Longitude"
+                    inputMode="decimal"
+                    error={errors.lng?.message}
+                    {...register('lng')}
+                  />
+                </div>
+                <div className="grid grid-cols-2 gap-sm">
+                  <Input
+                    label="Radius (m, default 1000)"
+                    inputMode="numeric"
+                    error={errors.radius?.message}
+                    {...register('radius')}
+                  />
+                  <Input
+                    label="Limit (default 10)"
+                    inputMode="numeric"
+                    error={errors.limit?.message}
+                    {...register('limit')}
+                  />
+                </div>
+                <Button type="submit" disabled={search.isFetching} className="w-full">
+                  <Icon name="travel_explore" className="text-[16px] leading-none" />
+                  {search.isFetching ? 'Searching…' : 'Search nearby'}
+                </Button>
+              </fieldset>
+            </form>
+          </details>
         </div>
       </div>
 
@@ -192,7 +302,7 @@ function ResultsPanel({
       <EmptyState
         icon="travel_explore"
         title="Search for nearby spots"
-        description="Use my location, click the map to set search center, or enter coordinates — then search."
+        description="Search an address or place, use your location, or click the map to set the center — then search."
       />
     );
   }

@@ -27,25 +27,29 @@ class MessagingMetricsTest {
 
     @Test
     void gaugesReflectRepositoryCounts() {
-        when(outbox.countByPublishedFalse()).thenReturn(4L);
+        when(outbox.countByPublishedFalseAndDeadLetteredFalse()).thenReturn(4L);
+        when(outbox.countByDeadLetteredTrue()).thenReturn(2L);
         when(outbox.findOldestUnpublishedCreatedAt()).thenReturn(NOW.minusSeconds(90));
         when(inbox.count()).thenReturn(12L);
 
         new MessagingMetrics(outbox, inbox, clock, registry);
 
         assertThat(registry.get("parkio.outbox.unpublished.count").gauge().value()).isEqualTo(4.0);
+        assertThat(registry.get("parkio.outbox.deadlettered.count").gauge().value()).isEqualTo(2.0);
         assertThat(registry.get("parkio.outbox.oldest.unpublished.age.seconds").gauge().value()).isEqualTo(90.0);
         assertThat(registry.get("parkio.inbox.processed.count").gauge().value()).isEqualTo(12.0);
     }
 
     @Test
     void emptyBacklogReportsZeroAge() {
-        when(outbox.countByPublishedFalse()).thenReturn(0L);
+        when(outbox.countByPublishedFalseAndDeadLetteredFalse()).thenReturn(0L);
+        when(outbox.countByDeadLetteredTrue()).thenReturn(0L);
         when(outbox.findOldestUnpublishedCreatedAt()).thenReturn(null);
 
         new MessagingMetrics(outbox, inbox, clock, registry);
 
         assertThat(registry.get("parkio.outbox.unpublished.count").gauge().value()).isZero();
+        assertThat(registry.get("parkio.outbox.deadlettered.count").gauge().value()).isZero();
         assertThat(registry.get("parkio.outbox.oldest.unpublished.age.seconds").gauge().value()).isZero();
     }
 }

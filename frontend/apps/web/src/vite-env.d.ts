@@ -4,6 +4,7 @@ interface ImportMetaEnv {
   readonly VITE_API_BASE_URL: string;
   readonly VITE_MAP_TILE_URL?: string;
   readonly VITE_MAP_TILE_ATTRIBUTION?: string;
+  readonly VITE_GEOCODING_BASE_URL?: string;
 }
 
 interface ImportMeta {

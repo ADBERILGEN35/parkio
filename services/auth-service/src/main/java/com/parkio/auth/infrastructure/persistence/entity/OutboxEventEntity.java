@@ -44,6 +44,28 @@ public class OutboxEventEntity {
     @Column(name = "published", nullable = false)
     private boolean published;
 
+    /** Number of failed publish attempts (DLQ tracking). */
+    @Column(name = "failure_count", nullable = false)
+    private int failureCount;
+
+    /** Short reason for the most recent publish failure (bounded). */
+    @Column(name = "last_failure_reason")
+    private String lastFailureReason;
+
+    /** When the most recent publish attempt failed. */
+    @Column(name = "last_failed_at")
+    private Instant lastFailedAt;
+
+    /**
+     * True once the row has failed {@code max-attempts} times: the relay skips it (so it
+     * never blocks later events) but the row is retained for inspection / manual redrive.
+     */
+    @Column(name = "dead_lettered", nullable = false)
+    private boolean deadLettered;
+
+    /** Upper bound on the stored failure reason so a stack trace can't bloat the row. */
+    private static final int MAX_REASON_LENGTH = 2000;
+
     protected OutboxEventEntity() {
         // for JPA
     }
@@ -102,8 +124,49 @@ public class OutboxEventEntity {
         return published;
     }
 
+    public int getFailureCount() {
+        return failureCount;
+    }
+
+    public String getLastFailureReason() {
+        return lastFailureReason;
+    }
+
+    public Instant getLastFailedAt() {
+        return lastFailedAt;
+    }
+
+    public boolean isDeadLettered() {
+        return deadLettered;
+    }
+
     /** Marks this row as published after a successful Kafka send (the outbox relay). */
     public void markPublished() {
         this.published = true;
+    }
+
+    /**
+     * Records a failed publish attempt. After {@code maxAttempts} failures the row is
+     * dead-lettered so the relay stops retrying it (it no longer blocks later events),
+     * while the row and its payload are retained for inspection / manual redrive.
+     *
+     * @return {@code true} if this call transitioned the row into the dead-lettered state.
+     */
+    public boolean recordPublishFailure(String reason, Instant failedAt, int maxAttempts) {
+        this.failureCount += 1;
+        this.lastFailureReason = truncate(reason);
+        this.lastFailedAt = failedAt;
+        if (!this.deadLettered && this.failureCount >= maxAttempts) {
+            this.deadLettered = true;
+            return true;
+        }
+        return false;
+    }
+
+    private static String truncate(String reason) {
+        if (reason == null) {
+            return null;
+        }
+        return reason.length() <= MAX_REASON_LENGTH ? reason : reason.substring(0, MAX_REASON_LENGTH);
     }
 }

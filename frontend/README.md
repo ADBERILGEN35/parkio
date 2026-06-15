@@ -177,7 +177,7 @@ work — this is a deliberately small, deterministic safety net for the main flo
 |------|-------|-------|
 | `packages/api-client` | `src/*.test.ts` | Authorization/`X-Correlation-Id` interceptors, 401 → single shared refresh → retry → hard logout, refresh-exempt auth paths, `toParkioError` mapping (401/403/`ACCOUNT_NOT_ACTIVE`/429/503/unknown), `Idempotency-Key` on create/verify/claim/upload |
 | `packages/validation` | `src/*.test.ts` | login/register, nearby-search boundaries (lat ±90, lng ±180, radius ≤ 50 000, limit 1–50), media type/size limits, create-spot vehicle/violation rules, profile/preferences/vehicle constraints |
-| `apps/web` | `src/**/*.test.tsx` | Login success (session + redirect) and 401 (friendly message + traceId), `ProtectedRoute`/`RoleRoute` guards, notifications list/empty/mark-as-read refetch, spot detail 404 / 409 `ALREADY_VERIFIED` / claim success, upload validation/media-reuse/create, profile stats + vehicle empty + update + logout, gamification level/points, leaderboard rows + my-rank + empty, moderation case queue/detail-assign/appeal-resolve controls, analytics overview KPIs + daily empty state + own-id-only 403 message, register success → preparing → /map and register → preparing (not suspended), post-register provisioning grace (retry on `ACCOUNT_NOT_ACTIVE`, timeout → retry/sign-out) + store guard (suspended only outside the grace window), my-spots empty/list, reports list + appeal form, AppNav mobile menu toggle + role-gated links |
+| `apps/web` | `src/**/*.test.tsx` | Login success (session + redirect) and 401 (friendly message + traceId), `ProtectedRoute`/`RoleRoute` guards, notifications list/empty/mark-as-read refetch, spot detail 404 / 409 `ALREADY_VERIFIED` / claim success, upload validation/media-reuse/create, profile stats + section-tab switching + vehicle empty/current + profile/preferences save + logout, gamification "Your Impact" header + level hero + recent activity/benefits + activity empty state + roadmap current-level highlight, leaderboard podium + public-profile enrichment/fallback + your-standing highlight + not-in-top-N + show-more + empty, moderation case queue/detail-assign/appeal-resolve controls, analytics overview KPIs + daily empty state + own-id-only 403 message, register extended-form validation (display name / password match / terms) + sends only email+password + captured name/phone PATCHed after provisioning + profile-save failure is non-fatal, register success → preparing → /map and register → preparing (not suspended), post-register provisioning grace (retry on `ACCOUNT_NOT_ACTIVE`, timeout → retry/sign-out) + store guard (suspended only outside the grace window), my-spots empty/list, reports list + appeal form, AppNav mobile menu toggle + role-gated links |
 | `apps/web` (E2E) | `e2e/smoke.spec.ts` | Playwright browser smoke: login → map nearby search → upload & create spot → redirect to spot detail (backend mocked via `page.route`, run with `pnpm e2e`) |
 
 Notes:
@@ -271,12 +271,34 @@ straight to `/map`:
 - The auth store enters a scoped `provisioning` grace window (`beginProvisioning()`), during
   which `markSuspended()` is a **no-op** — so `403 ACCOUNT_NOT_ACTIVE` does not flip the
   global suspended state.
-- `AccountPreparingPage` polls `/auth/me` once per second for ~12 s. On success it forwards
-  to `/map` and ends the grace window; on timeout it offers **Try again** and **Sign out**.
+- `AccountPreparingPage` polls `/auth/me` once per second for ~12 s. On success it persists
+  any registration-captured profile fields (see below) and forwards to `/map`, ending the
+  grace window; on timeout it offers **Try again** and **Sign out**.
 - The grace is **strictly scoped** to this flow: it is cleared on success, on sign-out, and
   on any `setSession`/`clearSession`. `ACCOUNT_NOT_ACTIVE` is **not** globally ignored — a
   genuinely suspended account hitting login/session still flips `suspended` and sees the
   **Account suspended** screen as before.
+
+### Extended registration profile capture (beta)
+
+`POST /auth/register` accepts **only** `email` + `password`, so that is all `RegisterPage`
+sends. To improve onboarding, the register form additionally collects **Full name**,
+**Phone number (optional)**, **Confirm password** and a **Terms** checkbox
+(`registerProfileSchema`: displayName 2–50, phone ≤32, passwords must match, terms required).
+
+- The extra fields are **never** sent to `/auth/register`. After registration succeeds they
+  are stashed in `sessionStorage` (`auth/pendingProfile.ts`) through the `/preparing` handoff.
+- Once provisioning completes, `AccountPreparingPage` shows **"Saving your profile details…"**
+  and persists them via `PATCH /users/me` (`displayName`, `phoneNumber`).
+- A failed profile save is **non-fatal**: the pending data is cleared and a soft
+  *"Your account is ready, but we couldn't save some profile details…"* notice is shown with a
+  **Continue to Parkio** button — the account still works and details can be edited later from
+  Profile.
+- Pending profile data is cleared on success, on the failure path, and on any
+  `clearSession()` (sign-out / session reset).
+- **Phone is captured only — it is NOT SMS-verified.** The helper copy ("We'll use this later
+  for account recovery and verification") does not imply verification. SMS verification is
+  future backend/provider work. The **Continue with Google** button remains visual-only.
 
 ### Other error statuses
 
@@ -284,26 +306,34 @@ straight to `/map`:
 - `429` — gateway rate limit; surfaced as a friendly "too many attempts" message.
 - `503 USER_STATUS_UNAVAILABLE` — transient; surfaced as "service unavailable, try again".
 
-## Profile / Impact Hub Beta
+## Profile — Settings & Preferences
 
-`/profile` uses the V2 design system (see `DESIGN_SYSTEM.md`) in an **impact-first**
-layout: an identity + stats hero above the fold, then the editable forms and account
-settings below. On desktop the forms occupy the wider left column and account settings the
-right; on mobile everything stacks (stats first, sign-out last, never visually dominant).
-Each section is backed by its own TanStack Query key and gateway endpoint (all via
-`usersApi` in `@parkio/api-client`) — data and mutations are unchanged from before; only the
-presentation is the "Beta" treatment.
+`/profile` uses the V2 design system (see `DESIGN_SYSTEM.md`) as a **Stitch-style
+Settings & Preferences** experience. A persistent **impact summary** (initials avatar,
+display name / email, status, roles + the four trust/level/points metrics) sits above a
+**section selector** that toggles between four areas. The selector is a sticky vertical
+rail on desktop (`col-span-3`) and a horizontal scrollable tab strip on mobile — it is
+**frontend-only** (`useState`, `role="tablist"`/`tab`/`tabpanel`); there are **no route
+changes**. Each section is backed by its own TanStack Query key and gateway endpoint (all
+via `usersApi` in `@parkio/api-client`); data and mutations are unchanged — only the
+presentation and section layout are new.
 
-| Section | Endpoints | Notes |
-|---------|-----------|-------|
-| Impact hero | `GET /users/me`, `GET /users/me/stats`, auth store | identity (display name, city, status, roles) + the four stat metrics |
-| Account | auth store + `GET /users/me` (best-effort `authUserId`) | email/status/roles; sign out |
-| Profile | `GET /users/me`, `PATCH /users/me` | `displayName` (2–50), `phoneNumber` (≤32), `city` (≤100) |
-| Preferences | `GET /users/me/preferences`, `PATCH /users/me/preferences` | `preferredRadiusMeters` (100–50000) via slider + number, `notificationsEnabled` |
-| Vehicle | `GET /users/me/vehicle`, `PUT /users/me/vehicle` | `vehicleType` (MOTORCYCLE/SMALL_CAR/SEDAN/SUV/VAN/TRUCK) selection cards, `plate` (≤16, private) |
+| Section (tab) | Endpoints | Notes |
+|---------------|-----------|-------|
+| Impact summary (always visible) | `GET /users/me`, `GET /users/me/stats`, auth store | initials avatar, display name (falls back to email prefix), city, status, roles + four stat metrics |
+| Profile & Account | `GET /users/me`, `PATCH /users/me`, auth store | editable `displayName` (2–50), `phoneNumber` (≤32), `city` (≤100); read-only email/status/roles; `authUserId` technical detail; sign out |
+| Vehicle | `GET /users/me/vehicle`, `PUT /users/me/vehicle` | `vehicleType` (MOTORCYCLE/SMALL_CAR/SEDAN/SUV/VAN/TRUCK) selection cards + `plate` (≤16, private); "None" + empty plate clears the vehicle (PUT replaces wholesale) |
+| Notifications | `GET /users/me/preferences`, `PATCH /users/me/preferences` | `preferredRadiusMeters` (100–50000) via slider + number, `notificationsEnabled` toggle |
+| Trust & Progress | `GET /users/me/stats` | read-only points/level/trust score/trust band + link to `/gamification` |
 
 `GET /users/{userId}/public-profile` is also available as `usersApi.getPublicProfile`
-(privacy-safe view, not used on `/profile` itself).
+(privacy-safe view, used by the leaderboard, not on `/profile` itself).
+
+**Backend limitations (intentionally not shown — nothing invented):** no profile photo /
+avatar image upload, no multiple vehicles, no privacy/security settings, no email editing or
+first/last-name split, and no streaks / achievements / activity heatmaps (an honest note is
+shown in Trust & Progress instead). Notifications is a single boolean — no push/email split is
+faked.
 
 ### Available stats (read-only)
 
@@ -370,9 +400,10 @@ The browsing flow uses an interactive map built on **Leaflet** + **React Leaflet
 `/map` implements the Stitch **Production Beta** map design (data-first, solid
 fills + 1px borders — no glassmorphism):
 
-- **Desktop:** map-dominant layout — a 372px result sidebar on the left
-  (search form, geolocation button, manual lat/lng + radius/limit inputs,
-  result count, spot cards) with the map filling the remaining width.
+- **Desktop:** map-dominant layout — a floating glass search overlay
+  (address/place search, *Use my location*, and an "Advanced coordinates"
+  disclosure with manual lat/lng + radius/limit) and a results panel
+  (result count, spot cards) over the map, which fills the viewport.
 - **Mobile:** the map renders first (≈45vh), with the search/results panel
   stacked below it; the manual coordinate fallback is always reachable.
 - **Result cards** show public fields only: status badge, trust freshness,
@@ -398,14 +429,64 @@ fills + 1px borders — no glassmorphism):
   - `SpotMap` — `/spots/:spotId`: read-only map with a single marker.
   - `mapConfig.ts` (tile URL/attribution, default center/zoom) and `leafletSetup.ts`
     (CSS import + bundler marker-icon fix) are shared by all three.
-- **Geolocation** — `/map` has a *Use my location* button that uses the browser
-  Geolocation API to center the map. It is **never required**: if permission is denied
-  or unavailable, a message is shown and the user falls back to clicking the map or
-  entering coordinates manually. The manual lat/lng inputs are always present.
-- **Manual coordinate fallback** — kept on both `/map` and `/upload`. On `/upload`,
-  editing a coordinate field *or* clicking the map sets `manualLocationEdited = true`.
-- **No geocoding yet** — there is no address → coordinates lookup; locations are set by
-  geolocation, map click, or manual entry only.
+- **Geolocation** — on mount `/map` attempts browser geolocation **once**. If the
+  user allows it, the map centers on their location and runs a nearby search; if it
+  is denied/unavailable/times out, the map falls back to the **İzmir** beta center
+  (`38.4237, 27.1428`, zoom 12) with a friendly inline message and **does not**
+  auto-search. A *Use my location* button repeats the lookup on demand (it only
+  fills the center; the user presses Search). It is **never required**.
+- **Location search (typeahead geocoding)** — the primary search box on **both
+  `/map` and `/upload`** accepts an **address, street, neighborhood, or place name**
+  (e.g. `155 Sokak`, `Bostanlı`, `Konak Pier`, `İzmir Katip Çelebi Üniversitesi`). As
+  the user types it shows a Google-Maps-style **autocomplete dropdown** of up to 5
+  candidates. The search control is a single shared component —
+  `apps/web/src/components/map/PlaceSearch.tsx` — wired to a callback so each page
+  reacts differently:
+  - **`/map`:** selecting a suggestion forward-geocodes to coordinates and runs the
+    existing `GET /parking/spots/nearby` call with the result — **no backend or
+    parking API change**. The resolved center is surfaced as *"Searching near Konak,
+    İzmir"* (or *"Searching near selected map point"* for coordinate/map-click
+    centers).
+  - **`/upload` (Step 2 — Location):** selecting a suggestion **fills the
+    latitude/longitude fields, centers the map picker, sets `manualLocationEdited =
+    true`, and fills the optional address only when it is empty** (the user's own
+    text is never overwritten). It surfaces *"Selected location: Konak, İzmir"* and
+    **does not create the spot** — publishing still happens from the Review step.
+    There is **no reverse geocoding**: clicking the map updates coordinates only and
+    shows *"Selected map point"*.
+  - **Typeahead behavior** (`apps/web/src/lib/usePlaceAutocomplete.ts`): suggestions
+    fire only at **≥ 3 characters** and are **debounced ~350 ms** so Nominatim is not
+    hit on every keystroke. Each row shows a primary label (short name) and a
+    secondary label (district/city, or the full display name). The dropdown is
+    keyboard accessible — **↑/↓** move the highlight, **Enter** selects the
+    highlighted item, **Esc** closes it, and mouse click selects. Dropdown states:
+    *Searching…* (loading), *No places found* (empty), *Could not load suggestions*
+    (error).
+  - **Stale-response safety:** a monotonic request-id guard ignores out-of-order
+    responses, so a slow earlier query can never overwrite a newer one.
+  - **Submit fallback:** pressing **Enter with nothing highlighted** (or the Search
+    button) runs an immediate geocode of the typed text; a single unambiguous match
+    is auto-selected.
+  - **Provider:** OpenStreetMap **Nominatim**, called directly from the browser via
+    `apps/web/src/lib/geocoding.ts`. Requests are biased to Turkey
+    (`countrycodes=tr`, `accept-language=tr`, `limit=5`). No API key is stored and no
+    paid provider is hardcoded.
+  - **Local-beta only:** Nominatim's public endpoint has a strict usage policy and
+    no SLA — the debounce + min-length gating keeps usage polite, but typeahead still
+    multiplies request volume. **For production, move geocoding behind the backend or
+    a provider with an SLA/key** and point `VITE_GEOCODING_BASE_URL` at it.
+  - **Errors are isolated:** a geocoding network/HTTP failure shows a friendly
+    suggestion error and never breaks the parking search, which keeps its own
+    `FriendlyApiErrorMessage` handling.
+- **Manual coordinate fallback** — kept on both `/map` and `/upload`, behind an
+  **"Advanced coordinates"** disclosure so address search is the primary UI. On
+  `/map` the raw **latitude/longitude (+ radius/limit)** inputs sit there;
+  click-to-set-center and *Use my location* still update the same center. On
+  `/upload`, the raw **latitude/longitude** inputs (and the *"I adjusted the location
+  manually"* checkbox) sit there too; editing a coordinate field *or* clicking the
+  map sets `manualLocationEdited = true`. The upload picker defaults to the İzmir beta
+  center (`38.4237, 27.1428`) so the map never opens on empty ocean; `/upload` does
+  **not** auto-prompt for browser geolocation.
 - **Bundle** — Leaflet is loaded in its own lazy chunk (the `/map` route is eager, so
   the map component is `React.lazy`-loaded) and is **not** part of the initial entry
   bundle. Leaflet's CSS is imported by the map components (browser build only — no SSR
@@ -417,6 +498,7 @@ fills + 1px borders — no glassmorphism):
 |----------|---------|-------------|
 | `VITE_MAP_TILE_URL` | OpenStreetMap tile URL | Tile template URL (`{s}/{z}/{x}/{y}`). |
 | `VITE_MAP_TILE_ATTRIBUTION` | OpenStreetMap attribution | Attribution HTML shown on the map. |
+| `VITE_GEOCODING_BASE_URL` | `https://nominatim.openstreetmap.org` | Forward-geocoding base URL for `/map` location search. Defaults to public Nominatim (local-beta only); point at the backend or an SLA provider for production. |
 
 Both are optional and default to OSM. **Future production consideration:** point these
 at a provider with an appropriate usage policy/key (e.g. MapTiler, Stadia, Mapbox) —
@@ -617,45 +699,71 @@ Behavior preserved:
   page. **No polling/websocket** — the count refreshes on navigation/reload and after
   mark-as-read. **No pagination, no push** (push delivery is a backend placeholder).
 
-## Gamification Beta
+## Gamification — Your Impact
 
-`/gamification` ("Progress" in the nav) uses the V2 design system: a level/progress hero
-above the fold, then points + access-policy cards, then the full level roadmap. Composed of
+`/gamification` (route unchanged; labelled **"Impact"** in the nav, previously "Progress")
+is a user-facing impact/rewards view: a **"Your Impact"** header, a level/points hero, a
+two-column **Recent activity** + **Your current benefits** grid, and a full **level roadmap**
+below. On mobile it stacks single-column (hero → activity → benefits → roadmap). Composed of
 independent read-only queries via `gamificationApi`, one query key per endpoint:
 
 | Section | Endpoint | Query key |
 |---------|----------|-----------|
-| Level hero (level + progress bar) | `GET /gamification/me/level` | `['level']` |
-| Points (total + recent activity) | `GET /gamification/me/points` | `['points']` |
-| Access policy | `GET /gamification/me/access-policy` | `['access-policy']` |
+| Hero (level + points + progress bar + metric tiles) | `GET /gamification/me/level` | `['level']` |
+| Recent activity (point history) | `GET /gamification/me/points` | `['points']` |
+| Your current benefits (access policy, re-labelled) | `GET /gamification/me/access-policy` | `['access-policy']` |
 | Level roadmap | `GET /gamification/levels` | `['levels']` |
 
-- The hero progress bar is computed from existing fields only
-  (`totalPoints`, `currentLevelMinPoints`, `nextLevelMinPoints`); at the top level
-  (`nextLevelMinPoints`/`pointsToNextLevel` are `null`) it shows a "Max level reached" state.
-- Points history lists the most recent 50 ledger entries (`sourceType`, `direction`
+- The hero shows current level, total points, points-to-next metric tiles and a progress bar
+  computed from existing fields only (`totalPoints`, `currentLevelMinPoints`,
+  `nextLevelMinPoints`); at the top level (`nextLevelMinPoints`/`pointsToNextLevel` are `null`)
+  it shows a "Max level reached" / "Top level" state.
+- **Your current benefits** presents the access policy in plain language (search radius,
+  results per search, daily views, verified-spot / notification priority) — no technical config
+  wording.
+- Recent activity lists the most recent 50 ledger entries (`sourceType`, `direction`
   `EARNED`/`DEDUCTED`, points, optional related spot link, timestamp) with an `EmptyState`
   when there are none.
-- The level roadmap highlights the user's current level (matched via `['level']`).
-- **No streaks, achievements, heatmaps or rewards** are shown — the backend exposes none of
-  these, so they are intentionally omitted (nothing invented). `GET /gamification/me/progress`
-  remains available (`['progress']`) and is reused by the leaderboard to find the caller's
-  rank.
+- The level roadmap highlights the current level (matched via `['level']`), shows completed
+  levels with a tick and mutes/locks future levels. Point ranges and per-level perks come from
+  `GET /gamification/levels` only.
+- **No streaks, achievements, heatmaps, rewards or level names** are shown — the backend
+  exposes none of these, so they are intentionally omitted (nothing invented).
+  `GET /gamification/me/progress` remains available (`['progress']`) and is reused by the
+  leaderboard to find the caller's rank.
 - The profile hub reuses the `GET /users/me/stats` projection for points/level/trust and
   links here — no duplicate gamification calls on `/profile`.
 
-## Leaderboard Beta
+## Leaderboard (Top Contributors — P1)
 
 `/leaderboard` calls `GET /gamification/leaderboard` (query key `['leaderboard', limit]`,
-backend default limit 20, max 100). The V2 redesign adds:
+backend default limit 20, max 100). The **Top Contributors** P1 pass renders:
 
-- A **Top N limit control** (10 / 20 / 50 / 100) that re-queries with the existing `limit`
-  param.
-- **Podium medals** for the top 3 ranks (gold/silver/bronze) and tonal rows otherwise.
-- The **caller's own rank**, surfaced by matching their `['progress']` `userId` against the
-  visible rows (the leaderboard response has no "is me" flag); their row is highlighted and a
-  "Your rank: #N" summary is shown when present.
+- A **podium** for the top 3 ranks (gold/silver/bronze medal discs, 1st centred/largest) and a
+  **ranking table** for ranks 4+.
+- **Public-profile enrichment** — each visible row is enriched with
+  `GET /users/{userId}/public-profile` (query key `['public-profile', userId]`, cached 5 min via
+  `useQueries`). When a `displayName` is present it is shown; otherwise the row falls back to a
+  shortened user id. `trustBand` (when present) renders as a `SoftBadge`. Profile fetches that
+  fail are tolerated per-row — the page keeps rendering with the id fallback.
+- An **initials avatar** derived from the resolved label (no avatar images — the backend exposes
+  none).
+- A **"Your standing"** card (rank / points / level) when the caller's `['progress']` `userId`
+  matches a visible row (the leaderboard response has no "is me" flag); their row is also
+  highlighted. When absent, an honest *"You are not in the current Top N yet"* note is shown — no
+  global rank is invented outside the fetched Top N.
+- A **"Show more"** button stepping the existing `limit` param `10 → 20 → 50 → 100` (not real
+  pagination), with a *"Showing top N"* caption.
 - `EmptyState` / `LoadingState` / `FriendlyApiErrorMessage` for the respective states.
+
+**Backend limitations (intentionally not shown — nothing invented):**
+
+- **No weekly / monthly / all-time periods** — the endpoint has no `period` param, so no
+  functional time-range tabs are offered. A note states lifetime points are used.
+- **No spots count, rank movement (▲/▼) or streaks** — not in any response.
+- **No community/leaderboard statistics** — not exposed.
+- **No real pagination** — only the `limit` param is used.
+- **No avatar images or trust scores beyond `trustBand`** — not exposed; initials/band only.
 
 **Backend limitation:** each row is `{ rank, userId, totalPoints, currentLevel }` — the
 response exposes **user ids only, no display names**, so the UI shows a shortened id (first 8
@@ -812,8 +920,11 @@ Surface `traceId` in error UI for support.
 
 ## Not implemented yet
 
-- Address geocoding (search by place name) — locations are set via geolocation, map
-  click, or manual coordinates only
+- Production-grade geocoding — both `/map` and `/upload` location search use the
+  shared browser-side Nominatim typeahead (local-beta only); production should move it
+  behind the backend or an SLA provider
+- Reverse geocoding — clicking the map (or entering coordinates) never resolves back
+  to an address; the address field is only ever filled from a chosen search suggestion
 - Production tile provider (defaults to OpenStreetMap; configurable via env)
 - Charting on the analytics dashboard (plain tables only)
 - Mobile app

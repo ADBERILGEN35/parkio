@@ -17,6 +17,18 @@ export const DEFAULT_CENTER = { lat: 41.0082, lng: 28.9784 } as const;
 
 export const DEFAULT_ZOOM = 13;
 
+/**
+ * Default beta fallback for the `/map` viewport (İzmir, Türkiye). Used when
+ * browser geolocation is denied/unavailable so the map never opens on empty
+ * ocean. We intentionally do NOT auto-search this fallback.
+ */
+export const DEFAULT_MAP_CENTER = { lat: 38.4237, lng: 27.1428 } as const;
+
+export const DEFAULT_MAP_ZOOM = 12;
+
+/** Closer zoom applied once the user's real location is found. */
+export const LOCATED_ZOOM = 15;
+
 /** Closer zoom for single-spot read-only maps. */
 export const DETAIL_ZOOM = 16;
 

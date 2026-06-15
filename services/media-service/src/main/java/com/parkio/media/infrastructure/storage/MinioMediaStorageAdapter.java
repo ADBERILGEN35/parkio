@@ -10,28 +10,37 @@ import io.minio.http.Method;
 import java.io.ByteArrayInputStream;
 import java.time.Duration;
 import java.util.concurrent.TimeUnit;
+import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.stereotype.Component;
 
 /**
  * Stores media bytes in an S3-compatible object store (MinIO) via the configured
  * bucket. Implements {@link MediaStoragePort}; the SDK stays confined to this
  * adapter so the application/domain never see it.
+ *
+ * <p>Object operations use the internal endpoint; presigned GET URLs are generated
+ * with the public endpoint so the signed {@code Host} matches the browser request.
  */
 @Component
 public class MinioMediaStorageAdapter implements MediaStoragePort {
 
-    private final MinioClient client;
+    private final MinioClient internalClient;
+    private final MinioClient presignClient;
     private final String bucket;
 
-    public MinioMediaStorageAdapter(MinioClient client, MediaProperties properties) {
-        this.client = client;
+    public MinioMediaStorageAdapter(
+            @Qualifier("internalMinioClient") MinioClient internalClient,
+            @Qualifier("presignMinioClient") MinioClient presignClient,
+            MediaProperties properties) {
+        this.internalClient = internalClient;
+        this.presignClient = presignClient;
         this.bucket = properties.getStorage().getBucket();
     }
 
     @Override
     public StoredObject store(String objectKey, byte[] content, String contentType) {
         try {
-            client.putObject(PutObjectArgs.builder()
+            internalClient.putObject(PutObjectArgs.builder()
                     .bucket(bucket)
                     .object(objectKey)
                     .stream(new ByteArrayInputStream(content), content.length, -1)
@@ -46,7 +55,7 @@ public class MinioMediaStorageAdapter implements MediaStoragePort {
     @Override
     public void delete(String objectKey) {
         try {
-            client.removeObject(RemoveObjectArgs.builder()
+            internalClient.removeObject(RemoveObjectArgs.builder()
                     .bucket(bucket)
                     .object(objectKey)
                     .build());
@@ -57,12 +66,14 @@ public class MinioMediaStorageAdapter implements MediaStoragePort {
 
     /**
      * Presigned GET-only URL, signed locally with the configured credentials (no
-     * network call). Expires after {@code ttl}; never persisted by callers.
+     * network call). Uses the public endpoint client so the embedded host matches
+     * what the browser will request. Expires after {@code ttl}; never persisted by
+     * callers.
      */
     @Override
     public String generatePresignedGetUrl(String objectKey, Duration ttl) {
         try {
-            return client.getPresignedObjectUrl(GetPresignedObjectUrlArgs.builder()
+            return presignClient.getPresignedObjectUrl(GetPresignedObjectUrlArgs.builder()
                     .method(Method.GET)
                     .bucket(bucket)
                     .object(objectKey)

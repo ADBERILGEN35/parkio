@@ -73,6 +73,13 @@ describe('GamificationPage', () => {
     signInAs(['USER']);
   });
 
+  it('renders the "Your Impact" page header', async () => {
+    useGamificationHandlers();
+    renderWithProviders(<GamificationPage />, { initialEntries: ['/gamification'] });
+
+    expect(await screen.findByRole('heading', { name: 'Your Impact' })).toBeInTheDocument();
+  });
+
   it('renders the level hero with current level and points-to-next', async () => {
     useGamificationHandlers();
     renderWithProviders(<GamificationPage />, { initialEntries: ['/gamification'] });
@@ -82,11 +89,33 @@ describe('GamificationPage', () => {
     expect(screen.getByRole('progressbar')).toBeInTheDocument();
   });
 
-  it('renders points history and access policy', async () => {
+  it('renders recent activity and current benefits', async () => {
     useGamificationHandlers();
     renderWithProviders(<GamificationPage />, { initialEntries: ['/gamification'] });
 
     expect(await screen.findByText('Parking verified')).toBeInTheDocument();
+    expect(screen.getByText('Your current benefits')).toBeInTheDocument();
     expect(screen.getByText('2000 m')).toBeInTheDocument();
+    expect(screen.getByText('Results per search')).toBeInTheDocument();
+  });
+
+  it('shows the empty state when there is no point activity', async () => {
+    useGamificationHandlers();
+    server.use(
+      http.get(`${API_BASE}/gamification/me/points`, () =>
+        HttpResponse.json({ ...points, recentTransactions: [] }),
+      ),
+    );
+    renderWithProviders(<GamificationPage />, { initialEntries: ['/gamification'] });
+
+    expect(await screen.findByText('No point activity yet')).toBeInTheDocument();
+  });
+
+  it('highlights the current level in the roadmap', async () => {
+    useGamificationHandlers();
+    renderWithProviders(<GamificationPage />, { initialEntries: ['/gamification'] });
+
+    // The roadmap marks the caller's current level (3) with a "You" badge.
+    expect(await screen.findByText('You')).toBeInTheDocument();
   });
 });

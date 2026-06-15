@@ -33,12 +33,21 @@ Prometheus rendering replaces dots with underscores and suffixes counters with
 
 | Metric | Type | Services | Meaning |
 |---|---|---|---|
-| `parkio.outbox.unpublished.count` | gauge | auth, user, parking, media, gamification, notification, moderation, ai-validation | Outbox rows with `published = false`. Sustained growth ⇒ the outbox relay is not draining to Kafka. |
-| `parkio.outbox.oldest.unpublished.age.seconds` | gauge | same | Age of the oldest unpublished row (0 when empty). Alert when it exceeds a few relay intervals. |
+| `parkio.outbox.unpublished.count` | gauge | auth, user, parking, media, gamification, notification, moderation, ai-validation | Relayable outbox rows (`published = false AND dead_lettered = false`). Sustained growth ⇒ the outbox relay is not draining to Kafka. Dead-lettered rows are **excluded** so a poison row doesn't masquerade as backlog. |
+| `parkio.outbox.oldest.unpublished.age.seconds` | gauge | same | Age of the oldest relayable row (0 when empty). Alert when it exceeds a few relay intervals. |
+| `parkio.outbox.deadlettered.count` | gauge | auth, user, parking, media, gamification, moderation, ai-validation | Dead-lettered (poison) outbox rows retained in-table for inspection/redrive. **Any non-zero value is actionable** — a publish has permanently failed `parkio.kafka.relay.max-attempts` times. |
+| `parkio.outbox.publish.failed` | counter | same as dead-lettered | Per-row publish attempts that failed (all causes: broker error, unreadable payload, no topic mapping). A rising rate signals broker/contract trouble before rows dead-letter. |
+| `parkio.outbox.deadlettered` | counter | same | Rows that crossed into the dead-lettered state. Pairs with the gauge: the counter is the rate of new poison rows, the gauge is the current depth. |
 | `parkio.inbox.processed.count` | gauge | auth, user, parking, gamification, notification, moderation, ai-validation, analytics | Inbox dedup rows currently retained. A flat line while events flow ⇒ the consumer stopped processing. Retention cleanup makes this dip periodically — that is expected. |
 
 Gauges are backed by one cheap COUNT/MIN repository query per scrape; they never run
-on a request path.
+on a request path. The two outbox counters are incremented in the relay (no extra
+query). The `parkio.outbox.publish.failed` / `parkio.outbox.deadlettered` counters
+render in Prometheus as `..._total` per the suffix rule above.
+
+> **notification-service** exports the outbox backlog gauges but has **no relay yet**,
+> so it does not emit the dead-letter gauge/counters. **analytics-service** has no
+> producer outbox, so it exports neither.
 
 ### Notification delivery (notification-service)
 

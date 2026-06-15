@@ -26,12 +26,16 @@ public class MessagingMetrics {
     public MessagingMetrics(OutboxEventJpaRepository outbox, Clock clock, MeterRegistry registry) {
         this.outbox = outbox;
         this.clock = clock;
-        Gauge.builder("parkio.outbox.unpublished.count", this, m -> m.outbox.countByPublishedFalse())
-                .description("Outbox rows not yet published to Kafka")
+        Gauge.builder("parkio.outbox.unpublished.count", this,
+                        m -> m.outbox.countByPublishedFalseAndDeadLetteredFalse())
+                .description("Relayable outbox rows not yet published to Kafka (excludes dead-lettered)")
+                .register(registry);
+        Gauge.builder("parkio.outbox.deadlettered.count", this, m -> m.outbox.countByDeadLetteredTrue())
+                .description("Dead-lettered (poison) outbox rows retained for inspection/redrive")
                 .register(registry);
         Gauge.builder("parkio.outbox.oldest.unpublished.age.seconds", this,
                         MessagingMetrics::oldestUnpublishedAgeSeconds)
-                .description("Age of the oldest unpublished outbox row (0 when the backlog is empty)")
+                .description("Age of the oldest relayable outbox row (0 when the backlog is empty)")
                 .baseUnit("seconds")
                 .register(registry);
     }

@@ -40,7 +40,9 @@ import { mediaApi, parkingApi } from '@/api';
 import { FriendlyApiErrorMessage } from '@/components/FriendlyApiErrorMessage';
 import { MapPicker } from '@/components/map/MapPicker';
 import { isValidLatLng } from '@/components/map/mapConfig';
+import { PlaceSearch } from '@/components/map/PlaceSearch';
 import { humanizeEnum } from '@/lib/format';
+import { type GeocodeResult } from '@/lib/geocoding';
 
 type SubmitPhase = 'idle' | 'uploading' | 'creating';
 
@@ -121,6 +123,8 @@ export function UploadPage() {
   const [phase, setPhase] = useState<SubmitPhase>('idle');
   const [submitError, setSubmitError] = useState<unknown>(null);
   const [createdSpot, setCreatedSpot] = useState<Spot | null>(null);
+  // Human-readable label for the current pin source (place name or map point).
+  const [locationLabel, setLocationLabel] = useState<string | null>(null);
 
   const {
     register,
@@ -156,6 +160,23 @@ export function UploadPage() {
     setValue('latitude', Number(lat.toFixed(6)), { shouldValidate: true });
     setValue('longitude', Number(lng.toFixed(6)), { shouldValidate: true });
     setValue('manualLocationEdited', true);
+    setLocationLabel('Selected map point');
+  };
+
+  /**
+   * Geocoded place chosen from the typeahead. Sets coordinates + marks a manual
+   * edit, and fills the optional address only when empty (no reverse geocoding —
+   * we never overwrite what the user typed). Does NOT submit/create anything.
+   */
+  const handleSelectPlace = (result: GeocodeResult) => {
+    setValue('latitude', Number(result.lat.toFixed(6)), { shouldValidate: true });
+    setValue('longitude', Number(result.lng.toFixed(6)), { shouldValidate: true });
+    setValue('manualLocationEdited', true);
+    if (!values.addressText || values.addressText.trim() === '') {
+      // addressText is capped at 512 chars by the schema.
+      setValue('addressText', result.displayName.slice(0, 512), { shouldValidate: true });
+    }
+    setLocationLabel(result.secondary || result.primary);
   };
 
   // Object-URL preview for the chosen file (guarded — jsdom lacks createObjectURL).
@@ -318,7 +339,9 @@ export function UploadPage() {
     <WizardContainer>
       <WizardHeader step={step} />
 
-      <form onSubmit={(event) => event.preventDefault()}>
+      {/* Not a <form>: steps submit via explicit buttons, and the Location step
+          embeds PlaceSearch's own <form> (nested forms are invalid HTML). */}
+      <div>
         <fieldset disabled={pending} className="m-0 border-0 p-0">
           {/* Step 1 — Photo */}
           <StepPanel active={step === STEP_PHOTO} title="1. Photo" description={STEP_META[0].description}>
@@ -434,12 +457,24 @@ export function UploadPage() {
           >
             <div className="flex flex-col gap-md">
               <p className="m-0 text-label-sm text-on-surface-variant">
-                Click the map to set location. Coordinates can also be entered manually. Address
-                geocoding is not available yet.
+                Search for an address or place, then fine-tune the pin by clicking the map. No
+                reverse geocoding — clicking the map updates coordinates only.
               </p>
+
+              {/* Primary: address / place typeahead search */}
+              <PlaceSearch onSelect={handleSelectPlace} />
+
+              {locationLabel ? (
+                <p className="m-0 flex items-center gap-xs text-label-sm font-medium text-on-surface">
+                  <Icon name="location_on" className="text-[16px] leading-none text-primary" />
+                  Selected location: {locationLabel}
+                </p>
+              ) : null}
+
               <div className="overflow-hidden rounded-2xl shadow-soft ring-1 ring-outline-variant/20">
                 <MapPicker latitude={pickerLat} longitude={pickerLng} onPick={handlePick} height={320} />
               </div>
+
               <div className="flex flex-wrap items-center gap-sm">
                 <span className="text-label-sm font-medium text-on-surface-variant">
                   Selected coordinates:
@@ -454,33 +489,46 @@ export function UploadPage() {
                   </SoftBadge>
                 )}
               </div>
-              <div className="grid grid-cols-1 gap-md sm:grid-cols-2">
-                <Input
-                  label="Latitude"
-                  inputMode="decimal"
-                  error={errors.latitude?.message}
-                  {...register('latitude', { onChange: markManual })}
-                />
-                <Input
-                  label="Longitude"
-                  inputMode="decimal"
-                  error={errors.longitude?.message}
-                  {...register('longitude', { onChange: markManual })}
-                />
-              </div>
+
               <Input
                 label="Address (optional)"
                 error={errors.addressText?.message}
                 {...register('addressText')}
               />
-              <label className="flex items-center gap-sm text-body-md text-on-surface">
-                <input
-                  type="checkbox"
-                  className="h-4 w-4 rounded border-outline-variant text-primary focus:ring-primary"
-                  {...register('manualLocationEdited')}
-                />
-                I adjusted the location manually
-              </label>
+
+              {/* Advanced: manual coordinate fallback for testers/developers */}
+              <details className="border-t border-outline-variant/30 pt-sm">
+                <summary className="cursor-pointer list-none text-label-sm font-semibold text-on-surface-variant marker:content-none">
+                  <span className="inline-flex items-center gap-xs">
+                    <Icon name="tune" className="text-[16px] leading-none" />
+                    Advanced coordinates
+                  </span>
+                </summary>
+                <div className="mt-sm flex flex-col gap-md">
+                  <div className="grid grid-cols-1 gap-md sm:grid-cols-2">
+                    <Input
+                      label="Latitude"
+                      inputMode="decimal"
+                      error={errors.latitude?.message}
+                      {...register('latitude', { onChange: markManual })}
+                    />
+                    <Input
+                      label="Longitude"
+                      inputMode="decimal"
+                      error={errors.longitude?.message}
+                      {...register('longitude', { onChange: markManual })}
+                    />
+                  </div>
+                  <label className="flex items-center gap-sm text-body-md text-on-surface">
+                    <input
+                      type="checkbox"
+                      className="h-4 w-4 rounded border-outline-variant text-primary focus:ring-primary"
+                      {...register('manualLocationEdited')}
+                    />
+                    I adjusted the location manually
+                  </label>
+                </div>
+              </details>
             </div>
           </StepPanel>
 
@@ -636,7 +684,7 @@ export function UploadPage() {
             )}
           </div>
         </fieldset>
-      </form>
+      </div>
     </WizardContainer>
   );
 }

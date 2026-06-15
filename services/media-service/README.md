@@ -144,10 +144,13 @@ duplicate. A Kafka publisher/relay is not implemented yet (ai-context/06).
 
 ## Configuration
 
-Object storage is configured via `parkio.media.storage.*` (`endpoint`, `bucket`,
-`access-key`, `secret-key`, `region`). Credentials are injected via environment
-variables; the defaults are **local-dev only** and must be overridden elsewhere
-(ai-context/07).
+Object storage is configured via `parkio.media.storage.*` (`endpoint` for internal SDK
+ops, `public-endpoint` for presigned GET URL host, `bucket`, `access-key`,
+`secret-key`, `region`). Credentials are injected via environment variables; the
+defaults are **local-dev only** and must be overridden elsewhere (ai-context/07).
+In Docker compose, use `PARKIO_MEDIA_STORAGE_ENDPOINT=http://minio:9000` and
+`PARKIO_MEDIA_STORAGE_PUBLIC_ENDPOINT=http://localhost:9000` so SigV4-signed URLs
+match the browser host.
 
 ## Run locally
 

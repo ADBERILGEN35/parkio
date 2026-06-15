@@ -1,11 +1,11 @@
 # Backend quality gate: every PR (and every push to master) must compile and
 # pass the unit-test suite (`./gradlew build` excludes the `integration` tag,
-# so this job never needs Docker).
+# so this job never needs Docker and stays fast).
 #
-# Testcontainers integration tests are a SEPARATE, manually triggered job
-# (workflow_dispatch) so PR builds stay fast and Docker-independent. The
-# `integration-test` job requires a Docker-enabled runner (ubuntu-latest
-# provides Docker out of the box).
+# Testcontainers integration tests live in a SEPARATE workflow
+# (`backend-integration.yml`): they run on PRs that touch backend/build/docker
+# paths, nightly, and on demand. Keeping them out of this gate keeps PR builds
+# fast and Docker-independent for docs-/frontend-only changes.
 
 name: Backend CI
 
@@ -14,11 +14,6 @@ on:
   push:
     branches: [master]
   workflow_dispatch:
-    inputs:
-      run-integration-tests:
-        description: "Also run Testcontainers integration tests (requires Docker)"
-        type: boolean
-        default: false
 
 permissions:
   contents: read
@@ -27,6 +22,7 @@ jobs:
   backend-build:
     name: Build & unit tests
     runs-on: ubuntu-latest
+    timeout-minutes: 30
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -49,41 +45,6 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: test-reports
-          path: |
-            **/build/reports/tests/**
-            **/build/test-results/**
-          retention-days: 7
-          if-no-files-found: ignore
-
-  # Opt-in only: run manually from the Actions tab. Not part of the PR gate by
-  # design — these tests spin up PostgreSQL/Kafka/MinIO containers and need a
-  # Docker-enabled runner.
-  integration-test:
-    name: Integration tests (Testcontainers, manual)
-    runs-on: ubuntu-latest
-    if: github.event_name == 'workflow_dispatch' && inputs.run-integration-tests
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v4
-
-      - name: Set up JDK 21
-        uses: actions/setup-java@v4
-        with:
-          distribution: temurin
-          java-version: "21"
-          cache: gradle
-
-      - name: Make Gradle wrapper executable
-        run: chmod +x gradlew
-
-      - name: Run Testcontainers integration tests
-        run: ./gradlew --no-daemon integrationTest
-
-      - name: Upload integration test reports on failure
-        if: failure()
-        uses: actions/upload-artifact@v4
-        with:
-          name: integration-test-reports
           path: |
             **/build/reports/tests/**
             **/build/test-results/**

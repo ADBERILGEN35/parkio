@@ -1,5 +1,6 @@
 import type { User } from '@parkio/types';
 import { create } from 'zustand';
+import { clearPendingProfile } from './pendingProfile';
 import { webTokenStorage } from './token-storage';
 
 export type AuthAccountStatus = 'ACTIVE' | 'SUSPENDED' | 'BANNED' | string;
@@ -55,6 +56,7 @@ export const useAuthStore = create<AuthState>((set) => ({
 
   clearSession() {
     webTokenStorage.clearTokens();
+    clearPendingProfile();
     set({
       accessToken: null,
       refreshToken: null,
