@@ -1,5 +1,6 @@
 import {
   AccountNotActiveError,
+  AccountNotVerifiedError,
   RateLimitError,
   UnauthorizedError,
   UserStatusUnavailableError,
@@ -20,6 +21,12 @@ export interface FriendlyError {
 export function describeAuthError(error: unknown, fallback: string): FriendlyError {
   if (error instanceof AccountNotActiveError) {
     return { message: 'Your account is suspended.', traceId: error.traceId || undefined };
+  }
+  if (error instanceof AccountNotVerifiedError) {
+    return {
+      message: 'Please verify your email before signing in.',
+      traceId: error.traceId || undefined,
+    };
   }
   if (error instanceof UnauthorizedError) {
     return { message: 'Invalid email or password.', traceId: error.traceId || undefined };

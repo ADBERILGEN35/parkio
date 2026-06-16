@@ -16,12 +16,34 @@ describe('loginSchema', () => {
 });
 
 describe('registerSchema', () => {
-  it('accepts a valid email and 8+ char password', () => {
-    expect(registerSchema.safeParse({ email: 'a@b.com', password: '12345678' }).success).toBe(true);
+  it('accepts a valid email and strong password', () => {
+    expect(registerSchema.safeParse({ email: 'a@b.com', password: 'SaferPass123' }).success).toBe(
+      true,
+    );
   });
 
-  it('rejects passwords shorter than 8 characters', () => {
-    expect(registerSchema.safeParse({ email: 'a@b.com', password: '1234567' }).success).toBe(false);
+  it('rejects passwords shorter than 12 characters', () => {
+    expect(registerSchema.safeParse({ email: 'a@b.com', password: 'Short123' }).success).toBe(
+      false,
+    );
+  });
+
+  it('rejects passwords missing required character classes', () => {
+    expect(registerSchema.safeParse({ email: 'a@b.com', password: 'lowercase1234' }).success).toBe(
+      false,
+    );
+    expect(registerSchema.safeParse({ email: 'a@b.com', password: 'UPPERCASE1234' }).success).toBe(
+      false,
+    );
+    expect(registerSchema.safeParse({ email: 'a@b.com', password: 'NoDigitsHere' }).success).toBe(
+      false,
+    );
+  });
+
+  it('rejects common weak passwords', () => {
+    expect(registerSchema.safeParse({ email: 'a@b.com', password: 'Password12345' }).success).toBe(
+      false,
+    );
   });
 
   it('rejects passwords longer than 100 characters', () => {
@@ -31,7 +53,9 @@ describe('registerSchema', () => {
   });
 
   it('rejects an invalid email', () => {
-    expect(registerSchema.safeParse({ email: 'nope', password: '12345678' }).success).toBe(false);
+    expect(registerSchema.safeParse({ email: 'nope', password: 'SaferPass123' }).success).toBe(
+      false,
+    );
   });
 });
 
@@ -40,8 +64,8 @@ describe('registerProfileSchema', () => {
     displayName: 'Ada Lovelace',
     email: 'a@b.com',
     phoneNumber: '',
-    password: '12345678',
-    confirmPassword: '12345678',
+    password: 'SaferPass123',
+    confirmPassword: 'SaferPass123',
     termsAccepted: true,
   };
 

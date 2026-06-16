@@ -7,11 +7,13 @@ import { Link, useNavigate } from 'react-router-dom';
 import { authApi } from '@/api';
 import { describeAuthError } from '@/api/error-messages';
 import { AuthDivider, AuthSplitLayout, GoogleButton } from '@/pages/auth/AuthSplitLayout';
+import { getPendingProfile } from '@/auth/pendingProfile';
 import { useAuthStore } from '@/auth/store';
 
 export function LoginPage() {
   const navigate = useNavigate();
   const setSession = useAuthStore((s) => s.setSession);
+  const beginProvisioning = useAuthStore((s) => s.beginProvisioning);
   const [apiError, setApiError] = useState<string | null>(null);
   const [traceId, setTraceId] = useState<string | undefined>();
   const [rememberMe, setRememberMe] = useState(true);
@@ -28,8 +30,16 @@ export function LoginPage() {
     setTraceId(undefined);
     try {
       const result = await authApi.login(values);
-      setSession(result.accessToken, result.refreshToken, result.user);
-      navigate('/map');
+      if (!result.accessToken) {
+        throw new Error('Login response did not include an access token.');
+      }
+      setSession(result.accessToken, result.user);
+      if (getPendingProfile()) {
+        beginProvisioning();
+        navigate('/preparing');
+      } else {
+        navigate('/map');
+      }
     } catch (error) {
       const friendly = describeAuthError(error, 'Login failed. Please try again.');
       setApiError(friendly.message);

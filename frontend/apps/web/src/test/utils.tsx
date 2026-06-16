@@ -36,6 +36,6 @@ export function signInAs(roles: string[]) {
     status: 'ACTIVE',
     roles,
   };
-  useAuthStore.getState().setSession('test-access-token', 'test-refresh-token', user);
+  useAuthStore.getState().setSession('test-access-token', user);
   return user;
 }

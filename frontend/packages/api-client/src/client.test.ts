@@ -50,7 +50,7 @@ describe('request interceptor', () => {
     );
 
     const { client, storage } = makeClient();
-    storage.setTokens({ accessToken: 'token-1', refreshToken: 'refresh-1' });
+    storage.setTokens({ accessToken: 'token-1' });
     await client.get('/ping');
 
     expect(authHeader).toBe('Bearer token-1');
@@ -89,6 +89,7 @@ describe('request interceptor', () => {
     expect(correlationIds[1]).toBeTruthy();
     expect(correlationIds[0]).not.toBe(correlationIds[1]);
   });
+
 });
 
 describe('401 refresh behavior', () => {
@@ -106,7 +107,7 @@ describe('401 refresh behavior', () => {
     );
 
     const { client, storage } = makeClient();
-    storage.setTokens({ accessToken: 'stale-token', refreshToken: 'refresh-1' });
+    storage.setTokens({ accessToken: 'stale-token' });
     const refresh = vi.fn(async () => 'fresh-token');
     setRefreshHandler(refresh);
 
@@ -130,7 +131,7 @@ describe('401 refresh behavior', () => {
     );
 
     const { client, storage } = makeClient();
-    storage.setTokens({ accessToken: 'stale-token', refreshToken: 'refresh-1' });
+    storage.setTokens({ accessToken: 'stale-token' });
     // Hold the refresh open until both requests have received their 401, so both
     // are forced to await the same in-flight promise.
     const refresh = vi.fn(async () => {
@@ -154,7 +155,7 @@ describe('401 refresh behavior', () => {
     );
 
     const { client, storage, onAuthFailure } = makeClient();
-    storage.setTokens({ accessToken: 'stale-token', refreshToken: 'refresh-1' });
+    storage.setTokens({ accessToken: 'stale-token' });
     setRefreshHandler(vi.fn(async () => null));
 
     await expect(client.get('/users/me')).rejects.toBeInstanceOf(UnauthorizedError);

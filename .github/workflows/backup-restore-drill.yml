@@ -1,0 +1,72 @@
+# Automated backup RESTORE DRILL. Proves — on real postgres/postgis images, with the
+# real backup + restore scripts — that a pg_dump is actually restorable and that data
+# (and parking's PostGIS extension / GiST index / location trigger) survive the
+# round-trip. This is the drill the production-readiness plan flagged as "pending";
+# wiring it into CI makes it repeatable instead of a one-off manual ritual.
+#
+# It brings up ONLY the database containers (no app JVMs, no Kafka/MinIO), so it is
+# lean and reliable. scripts/restore-drill.sh applies the real parking V*.sql migrations
+# when the schema is absent, so the dump contains the production PostGIS objects.
+#
+# When it runs:
+#  - schedule: weekly, so backups are continuously proven restorable.
+#  - pull_request: when the scripts, the compose stack, or the parking migrations change
+#    (those are exactly the things that can break restorability).
+#  - workflow_dispatch: on demand from the Actions tab.
+
+name: Backup restore drill
+
+on:
+  pull_request:
+    paths:
+      - "scripts/backup-databases.sh"
+      - "scripts/restore-database.sh"
+      - "scripts/verify-backup.sh"
+      - "scripts/restore-drill.sh"
+      - "docker/docker-compose.yml"
+      - "services/parking-service/src/main/resources/db/migration/**"
+      - ".github/workflows/backup-restore-drill.yml"
+  schedule:
+    # 04:23 UTC every Monday (off the hour to avoid the cron stampede).
+    - cron: "23 4 * * 1"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: backup-restore-drill-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  restore-drill:
+    name: Backup → restore → assert
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      # docker/.env.example ships usable local-dev passwords — fine for a throwaway
+      # CI database stack that is torn down (down -v) at the end.
+      - name: Create env file
+        run: cp docker/.env.example docker/.env
+
+      - name: Make scripts executable
+        run: chmod +x scripts/*.sh
+
+      # Bring up ONLY the postgres-* containers (no apps, no Kafka/MinIO). --wait blocks
+      # until every listed service reports healthy via its compose healthcheck.
+      - name: Start database stack
+        run: |
+          docker compose --env-file docker/.env -f docker/docker-compose.yml up -d --wait \
+            postgres-auth postgres-user postgres-parking postgres-media \
+            postgres-gamification postgres-notification postgres-moderation \
+            postgres-analytics postgres-ai-validation
+
+      - name: Run restore drill (all services)
+        run: PARKIO_ENV_FILE=docker/.env ./scripts/restore-drill.sh
+
+      - name: Tear down
+        if: always()
+        run: docker compose --env-file docker/.env -f docker/docker-compose.yml down -v

@@ -318,21 +318,38 @@ disposable `<db>_verify_<epoch>` database, asserts the schema came back, then dr
 PARKIO_ENV_FILE=docker/.env ./scripts/verify-backup.sh analytics /var/backups/parkio/<stamp>/analytics.sql.gz
 ```
 
-#### Restore-drill checklist (run monthly, and after any schema-heavy release)
+#### Restore drill — automated, one command
 
-> **Status:** the scripts' plumbing is validated (gzip + AES-256 round-trip, suffix decoding,
-> the safety prompt, and all failure paths). The **first live drill on the VPS is mandatory before
-> relying on backups** — it is the only thing that exercises the real Postgres schema apply
-> (especially PostGIS `parking`). Prerequisite: the Docker daemon and the `parkio-postgres-*`
-> containers must be running on the host.
+The full restore drill is now a single script, `scripts/restore-drill.sh`, and runs
+automatically in CI (`.github/workflows/backup-restore-drill.yml`, weekly + on demand). It
+seeds a uniquely-tagged canary row into every service DB, runs the real
+`backup-databases.sh`, runs `verify-backup.sh`, then restores each dump into its own
+disposable `*_drill_*` database and **asserts the canary survived the round-trip**. For
+`parking` it additionally asserts the real PostGIS objects restore — the `postgis`
+extension, the `idx_parking_spots_location` GiST index, the `trg_parking_spots_sync_location`
+trigger — and that a live spatial query still works. If `parking`'s schema is not already
+present (DB-only stack), the drill applies the real `V*.sql` migrations first so the dump
+contains the production objects. Live business data is never overwritten; the canary table
+is dropped afterwards.
 
-1. `./scripts/backup-databases.sh` — confirm all nine show `OK` and dump files are non-empty.
-2. `./scripts/verify-backup.sh parking <stamp>/parking.sql.gz` — PostGIS is the trickiest
-   (extension + GiST index + location trigger); a green parking restore is the strongest signal.
-3. Spot-check one more service (e.g. `auth`).
-4. If encrypted/offsite is configured, pull a dump back from `BACKUP_MC_DEST` and verify **that**
-   copy — proves the offsite path, not just the local file.
-5. Record the date + result; a backup you have never restored is not a backup.
+Prerequisite: the Docker daemon and the `parkio-postgres-*` containers must be running.
+
+```bash
+# All nine services (recommended):
+PARKIO_ENV_FILE=docker/.env ./scripts/restore-drill.sh
+
+# Just the PostGIS path (the trickiest — extension + GiST index + location trigger):
+PARKIO_ENV_FILE=docker/.env ./scripts/restore-drill.sh --service parking
+```
+
+Exit code `0` = every targeted dump restored with its canary (and parking's PostGIS
+objects) intact; non-zero = at least one service failed.
+
+**Run it on the target host before relying on backups, then monthly and after any
+schema-heavy release.** Additionally, if encrypted/offsite is configured, pull a dump
+back from `BACKUP_MC_DEST` and run `verify-backup.sh` against **that** copy — it proves
+the offsite path, not just the local file. Record the date + result: a backup you have
+never restored is not a backup.
 
 #### RPO / RTO (hosted beta)
 - **RPO ≈ 24h** with the nightly schedule (worst case: a full day of writes since the last dump).

@@ -16,5 +16,7 @@ public interface AuthUserRepository {
 
     Optional<AuthUser> findByEmail(String email);
 
+    Optional<AuthUser> findByEmailVerificationTokenHash(String tokenHash);
+
     boolean existsByEmail(String email);
 }

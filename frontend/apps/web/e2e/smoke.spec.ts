@@ -19,7 +19,6 @@ const authResponse = {
   accessToken: 'access-1',
   tokenType: 'Bearer',
   accessTokenExpiresAt: '2999-01-01T00:00:00Z',
-  refreshToken: 'refresh-1',
   refreshTokenExpiresAt: '2999-01-01T00:00:00Z',
   user,
 };

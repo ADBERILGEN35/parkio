@@ -55,6 +55,40 @@ stay clean.
 auth-service stores no profile data; a phone number is **not** collected or
 stored here (it belongs to user-service, per ai-context/03).
 
+Registration passwords must be 12-100 characters, include at least one lowercase
+letter, one uppercase letter and one digit, and must not match the service-local
+common-password deny-list. Symbols are allowed but not required. The policy is
+implemented in `PasswordPolicy` so future password-reset hooks can reuse the
+same server-side validation.
+
+## Login brute-force protection
+
+auth-service applies Redis-backed per-account protection keyed by normalized
+email. This complements the gateway's Redis token-bucket rate limits, which
+remain per authenticated user or anonymous client IP.
+
+Policy:
+
+- 5 failed attempts: lock the normalized-email key for 30 seconds.
+- 10 failed attempts: lock for 5 minutes.
+- 20 failed attempts: lock for 1 hour.
+- Successful login clears the failed-attempt counter and any lock key.
+
+The failed-attempt and lock keys live in Redis (`auth:login:failures:*`,
+`auth:login:lock:*`), so the policy works across multiple auth-service
+instances. Configure Redis with `SPRING_DATA_REDIS_HOST` and
+`SPRING_DATA_REDIS_PORT`; production Redis should use network isolation plus
+AUTH/TLS where the provider supports it.
+
+Wrong password, unknown email and locked-account responses all return the same
+generic `401 INVALID_CREDENTIALS` shape. This intentionally avoids revealing
+whether an email exists or whether the account key is locked. Internally, logs
+record lock events without raw email addresses, and Micrometer exposes:
+
+- `login_failures_total`
+- `login_lockouts_total`
+- `login_success_total`
+
 ## Local development
 
 Access tokens are signed with RS256. The private key has **no production
@@ -93,11 +127,12 @@ unaffected (opaque, validated against the database, not JWTs).
 ## Refresh tokens
 
 Refresh tokens are opaque 256-bit random values. Only their SHA-256 hash is
-persisted (`refresh_tokens.token_hash`); the raw value is returned to the client
-exactly once. On `POST /api/v1/auth/refresh-token` the presented token is
-**rotated**: the old row is revoked and a brand-new token is issued, atomically
-in one transaction. The replacement keeps the same `token_family_id` and points
-to its predecessor through `parent_token_id`.
+persisted (`refresh_tokens.token_hash`); the raw value is delivered only as an
+HttpOnly cookie and is never serialized in JSON. On
+`POST /api/v1/auth/refresh-token` the presented cookie token is **rotated**: the
+old row is revoked and a brand-new token is issued, atomically in one
+transaction. The replacement keeps the same `token_family_id` and points to its
+predecessor through `parent_token_id`.
 
 Presenting an unexpired token that was already revoked is treated as refresh-token
 reuse. auth-service marks the replayed token, revokes every active token in that
@@ -110,6 +145,61 @@ family revocation.
 Optimistic locking prevents two concurrent refreshes of the same token from
 creating two valid children. `logout` remains idempotent and revokes only the
 presented token with reason `LOGOUT`; there is no logout-all behavior.
+
+## Email verification lifecycle
+
+Public registration creates an auth user in `PENDING_VERIFICATION` with
+`email_verified=false`. The raw verification token is generated once, hashed with
+the same one-way token hasher used for refresh tokens, and only the hash plus
+expiry metadata are stored. Tokens expire after
+`parkio.security.email-verification.token-ttl` (24 hours by default).
+
+`POST /api/v1/auth/register` returns the existing auth response envelope, but for
+pending accounts the token fields are `null` and no refresh cookie is set. The
+user cannot log in until email verification succeeds; attempted login returns
+`403 ACCOUNT_NOT_VERIFIED` without issuing access or refresh tokens.
+
+`POST /api/v1/auth/verify-email` accepts the raw token, hashes it, checks the
+stored hash and expiry, then marks the account `ACTIVE` and verified. Repeating a
+valid verification for an already verified account is idempotent. Invalid or
+expired tokens return the safe `INVALID_VERIFICATION_TOKEN` error.
+
+`POST /api/v1/auth/resend-verification` accepts an email address and always
+returns `202 Accepted`. It is enumeration-safe: unknown, already verified and
+cooldown-limited requests are not distinguishable to the caller. For pending
+accounts outside the cooldown window, the old verification hash is replaced with
+a newly generated token hash.
+
+The default sender is a local/dev-safe logging implementation. It logs the raw
+verification link only when `parkio.security.email-verification.log-token=true`
+(enabled in dev/test, disabled by default). Hosted beta and production must keep
+token logging disabled and replace or wrap this sender with an SMTP/provider
+adapter before public registration is enabled.
+
+## Refresh-token transport and CSRF boundary
+
+The raw refresh token is still generated and rotated by the application service,
+but it is no longer serialized in JSON responses. The controller sets it as an
+HttpOnly `Secure` `SameSite=Strict` cookie named `parkio_refresh`, scoped to
+`/api/v1/auth/refresh-token` and `/api/v1/auth/logout`. Login/register/refresh
+responses for verified sessions return only the access token, expiry metadata and
+user/session shape. Registration for pending accounts returns no session tokens
+and does not set the refresh cookie.
+
+Refresh and logout read the token from the cookie, not the request body. Refresh
+rotation keeps the existing reuse-detection semantics: the presented token is
+revoked, the child token is issued, and both cookie paths receive the rotated
+value. Logout revokes the current cookie token and clears both cookie paths.
+
+Because refresh/logout use an ambient cookie, the presentation layer validates
+`Origin` or `Referer` against `parkio.security.refresh-cookie.allowed-origins`
+(wired from `PARKIO_CORS_ALLOWED_ORIGINS` in compose). Cross-site refresh/logout
+requests are rejected before the cookie token is used. SameSite=Strict and the
+narrow cookie paths are defense-in-depth, not the only CSRF control.
+
+Local development can set `PARKIO_REFRESH_COOKIE_SECURE=false` via the `dev`
+profile so browsers send the cookie over local HTTP. Hosted beta and production
+must keep `PARKIO_REFRESH_COOKIE_SECURE=true`.
 
 ## Moderation status sync (suspend / restore)
 
@@ -144,5 +234,3 @@ finished work. None is implemented yet.
 - **Global "log out everywhere".** Only single-token logout exists today; the bulk
   "revoke all tokens for user" operation exists internally (used by moderation
   suspension) but is not exposed as a user-facing endpoint.
-- **Login throttling / lockout.** No service-level rate limiting on failed
-  logins (gateway-level rate limiting is a separate concern).

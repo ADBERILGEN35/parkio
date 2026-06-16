@@ -170,7 +170,7 @@ parkio:
       allowed-origins: ${PARKIO_CORS_ALLOWED_ORIGINS:}
       allowed-methods: GET,POST,PUT,PATCH,DELETE,OPTIONS
       allowed-headers: "*"
-      allow-credentials: false
+      allow-credentials: ${PARKIO_CORS_ALLOW_CREDENTIALS:false}
       max-age: PT1H
     user-status:
       # Live account-status enforcement: after JWT validation the gateway checks the

@@ -1,0 +1,84 @@
+# --------------------------------------------------------------------------- #
+# Docker build-context hardening.                                             #
+#                                                                             #
+# Every backend service image builds from the REPO ROOT as context           #
+# (`context: ..` in docker/docker-compose.apps.yml; Dockerfiles do `COPY . .` #
+# then `./gradlew :services:<svc>:bootJar`). Without this file the context    #
+# would include real secrets (docker/.env), database dumps, the .git history, #
+# node_modules and build output — bloating images, slowing builds, and        #
+# risking secrets being baked into image layers.                              #
+#                                                                             #
+# RULE OF THUMB: exclude everything that is NOT a Gradle build input. The     #
+# backend build needs gradlew, the wrapper jar, *.gradle.kts, gradle.proper-  #
+# ties, buildSrc/, gradle/ and services/**/src — those are deliberately NOT   #
+# ignored below.                                                              #
+# --------------------------------------------------------------------------- #
+
+# ---- Secrets / environment (NEVER copy into an image) ----
+**/.env
+**/.env.*
+!**/.env.example
+!**/.env.*.example
+
+# ---- Database backups / dumps ----
+backups/
+**/backups/
+*.sql
+*.sql.gz
+*.sql.gz.enc
+
+# ---- Version control ----
+.git
+.gitignore
+.gitattributes
+
+# ---- Build output / Gradle caches (regenerated inside the build stage) ----
+.gradle/
+**/build/
+**/bin/
+buildSrc/build/
+buildSrc/.gradle/
+buildSrc/.kotlin/
+out/
+
+# ---- Node / frontend (built and shipped separately, not part of any JVM image) ----
+**/node_modules/
+frontend/
+**/dist/
+**/.vite/
+**/coverage/
+**/playwright-report/
+**/test-results/
+
+# ---- IDE / editor ----
+.idea/
+.vscode/
+*.iml
+*.ipr
+*.iws
+.settings/
+.classpath
+.project
+
+# ---- AI coding-tool local files (never part of a build) ----
+**/CLAUDE.md
+.claude/
+.claude-mem/
+.cursor/
+.cursorrules
+.aider*
+.codex*
+
+# ---- OS cruft ----
+.DS_Store
+Thumbs.db
+
+# ---- Docs & local-only infra assets (not needed to build a service jar) ----
+docs/
+**/*.md
+docker/data/
+infra/
+
+# ---- Logs / temp ----
+*.log
+hs_err_pid*

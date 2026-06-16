@@ -41,6 +41,11 @@ services:
       PARKIO_ACME_EMAIL: ${PARKIO_ACME_EMAIL:?set PARKIO_ACME_EMAIL in .env}
       # Public API hostname -> reverse-proxied to gateway-service:8080.
       PARKIO_DOMAIN: ${PARKIO_DOMAIN:?set PARKIO_DOMAIN in .env}
+      # Public SPA hostname -> reverse-proxied to the static web app upstream.
+      PARKIO_WEB_DOMAIN: ${PARKIO_WEB_DOMAIN:?set PARKIO_WEB_DOMAIN in .env}
+      PARKIO_WEB_UPSTREAM: ${PARKIO_WEB_UPSTREAM:?set PARKIO_WEB_UPSTREAM in .env}
+      # Extra connect-src origin for browser geocoding requests.
+      PARKIO_GEOCODING_CONNECT_SRC: ${PARKIO_GEOCODING_CONNECT_SRC:-https://nominatim.openstreetmap.org}
       # Public media hostname -> reverse-proxied to the PRIVATE MinIO (presigned GETs only).
       PARKIO_MEDIA_DOMAIN: ${PARKIO_MEDIA_DOMAIN:?set PARKIO_MEDIA_DOMAIN in .env}
       # Upload size cap for the API site (matches the media-service multipart limit).
@@ -82,6 +87,8 @@ services:
   # ------------------------------------------------------------------------- #
   auth-service:
     ports: !reset []
+    environment:
+      PARKIO_REFRESH_COOKIE_SECURE: "true"
   user-service:
     ports: !reset []
   parking-service:

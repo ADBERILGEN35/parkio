@@ -7,7 +7,6 @@ export type AuthAccountStatus = 'ACTIVE' | 'SUSPENDED' | 'BANNED' | string;
 
 interface AuthState {
   accessToken: string | null;
-  refreshToken: string | null;
   user: User | null;
   roles: string[];
   status: AuthAccountStatus | null;
@@ -21,7 +20,7 @@ interface AuthState {
    * `markSuspended()` is a no-op. The AccountPreparingPage owns this window.
    */
   provisioning: boolean;
-  setSession: (accessToken: string, refreshToken: string, user: User) => void;
+  setSession: (accessToken: string, user: User) => void;
   clearSession: () => void;
   setUser: (user: User) => void;
   markSuspended: () => void;
@@ -40,18 +39,17 @@ function deriveAuth(accessToken: string | null, user: User | null) {
 }
 
 export const useAuthStore = create<AuthState>((set) => ({
-  accessToken: webTokenStorage.getAccessToken(),
-  refreshToken: webTokenStorage.getRefreshToken(),
+  accessToken: null,
   user: null,
   roles: [],
   status: null,
-  isAuthenticated: Boolean(webTokenStorage.getAccessToken()),
+  isAuthenticated: false,
   suspended: false,
   provisioning: false,
 
-  setSession(accessToken, refreshToken, user) {
-    webTokenStorage.setTokens({ accessToken, refreshToken });
-    set({ refreshToken, suspended: false, provisioning: false, ...deriveAuth(accessToken, user) });
+  setSession(accessToken, user) {
+    webTokenStorage.setTokens({ accessToken });
+    set({ suspended: false, provisioning: false, ...deriveAuth(accessToken, user) });
   },
 
   clearSession() {
@@ -59,7 +57,6 @@ export const useAuthStore = create<AuthState>((set) => ({
     clearPendingProfile();
     set({
       accessToken: null,
-      refreshToken: null,
       user: null,
       roles: [],
       status: null,

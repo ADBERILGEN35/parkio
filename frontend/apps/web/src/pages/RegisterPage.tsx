@@ -1,5 +1,10 @@
 import { zodResolver } from '@hookform/resolvers/zod';
-import { registerProfileSchema, type RegisterProfileFormValues } from '@parkio/validation';
+import {
+  passwordRequirementState,
+  passwordRequirements,
+  registerProfileSchema,
+  type RegisterProfileFormValues,
+} from '@parkio/validation';
 import { Button, ErrorMessage, Icon, Input } from '@parkio/ui';
 import { useState } from 'react';
 import { useForm } from 'react-hook-form';
@@ -7,13 +12,10 @@ import { Link, useNavigate } from 'react-router-dom';
 import { authApi } from '@/api';
 import { describeAuthError } from '@/api/error-messages';
 import { AuthDivider, AuthSplitLayout, GoogleButton } from '@/pages/auth/AuthSplitLayout';
-import { useAuthStore } from '@/auth/store';
 import { setPendingProfile } from '@/auth/pendingProfile';
 
 export function RegisterPage() {
   const navigate = useNavigate();
-  const setSession = useAuthStore((s) => s.setSession);
-  const beginProvisioning = useAuthStore((s) => s.beginProvisioning);
   const [apiError, setApiError] = useState<string | null>(null);
   const [traceId, setTraceId] = useState<string | undefined>();
 
@@ -21,6 +23,7 @@ export function RegisterPage() {
     register,
     handleSubmit,
     setError,
+    watch,
     formState: { errors, isSubmitting },
   } = useForm<RegisterProfileFormValues>({
     resolver: zodResolver(registerProfileSchema),
@@ -33,25 +36,22 @@ export function RegisterPage() {
       termsAccepted: false,
     },
   });
+  const passwordValue = watch('password') ?? '';
+  const passwordState = passwordRequirementState(passwordValue);
 
   const onSubmit = handleSubmit(async (values) => {
     setApiError(null);
     setTraceId(undefined);
     try {
       // Only email + password are accepted by the backend register endpoint.
-      const result = await authApi.register({ email: values.email, password: values.password });
-      setSession(result.accessToken, result.refreshToken, result.user);
+      await authApi.register({ email: values.email, password: values.password });
       // Stash the captured profile fields; the preparing screen persists them via
       // PATCH /users/me once the profile has provisioned.
       setPendingProfile({
         displayName: values.displayName.trim(),
         phoneNumber: values.phoneNumber?.trim() || undefined,
       });
-      // The profile/status is provisioned asynchronously, so protected calls can
-      // briefly 403 ACCOUNT_NOT_ACTIVE. Enter the grace window and hand off to the
-      // preparing screen, which polls readiness before forwarding to /map.
-      beginProvisioning();
-      navigate('/preparing');
+      navigate(`/check-email?email=${encodeURIComponent(values.email.trim())}`);
     } catch (error) {
       const friendly = describeAuthError(error, 'Registration failed. Please try again.');
       setApiError(friendly.message);
@@ -102,6 +102,20 @@ export function RegisterPage() {
           error={errors.password?.message}
           {...register('password')}
         />
+        <ul className="m-0 grid list-none gap-1 p-0 text-label-sm text-on-surface-variant">
+          {passwordRequirements.map((requirement) => {
+            const met = passwordState[requirement.id];
+            return (
+              <li
+                key={requirement.id}
+                className={met ? 'text-success' : 'text-on-surface-variant'}
+                aria-live="polite"
+              >
+                {met ? 'Met:' : 'Needed:'} {requirement.label}
+              </li>
+            );
+          })}
+        </ul>
         <Input
           label="Confirm password"
           type="password"

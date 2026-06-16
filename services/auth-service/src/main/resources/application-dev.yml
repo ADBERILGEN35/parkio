@@ -1,7 +1,18 @@
 # Local-development profile. Generates an ephemeral RSA key on each startup.
 # Tokens become invalid when auth-service restarts, which is acceptable only for
 # local development. Production must supply PARKIO_JWT_PRIVATE_KEY_PEM.
+spring:
+  data:
+    redis:
+      host: ${SPRING_DATA_REDIS_HOST:localhost}
+      port: ${SPRING_DATA_REDIS_PORT:6379}
+
 parkio:
   security:
+    refresh-cookie:
+      # Local Vite runs over HTTP; production keeps PARKIO_REFRESH_COOKIE_SECURE=true.
+      secure: ${PARKIO_REFRESH_COOKIE_SECURE:false}
+    email-verification:
+      log-token: ${PARKIO_EMAIL_VERIFICATION_LOG_TOKEN:true}
     jwt:
       generate-ephemeral-key: true

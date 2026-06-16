@@ -1,0 +1,77 @@
+# Frontend quality gate. Mirrors backend-ci.yml's discipline (least-privilege
+# permissions, job timeout, fast feedback) for the pnpm workspace under
+# `frontend/`. Until this existed the SPA's typecheck, lint, unit tests and
+# production build were never gated in CI — regressions and broken builds could
+# merge undetected (production-readiness audit, item "Frontend CI").
+#
+# Scope: typecheck + lint + unit tests (vitest) + production build. Playwright
+# e2e is intentionally NOT in this fast gate (it needs browser binaries and a
+# running app); add a separate workflow for it when an environment exists.
+#
+# Path-filtered to frontend changes so backend-/docs-only PRs stay fast, the
+# mirror image of how backend-integration.yml filters to backend paths.
+
+name: Frontend CI
+
+on:
+  pull_request:
+    paths:
+      - "frontend/**"
+      - ".github/workflows/frontend-ci.yml"
+  push:
+    branches: [master]
+    paths:
+      - "frontend/**"
+      - ".github/workflows/frontend-ci.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+# A new push to a PR cancels the previous (still-running) run.
+concurrency:
+  group: frontend-ci-${{ github.ref }}
+  cancel-in-progress: true
+
+defaults:
+  run:
+    working-directory: frontend
+
+jobs:
+  frontend-build:
+    name: Typecheck, lint, test & build
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      # Installs the pnpm version pinned in frontend/package.json ("packageManager").
+      - name: Set up pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          package_json_file: frontend/package.json
+
+      - name: Set up Node.js 20
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: pnpm
+          cache-dependency-path: frontend/pnpm-lock.yaml
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      # `pnpm -r` runs each script only in the workspace packages that define it,
+      # so packages without a given script are skipped rather than failing.
+      - name: Typecheck
+        run: pnpm -r typecheck
+
+      - name: Lint
+        run: pnpm -r lint
+
+      - name: Unit tests
+        run: pnpm -r test
+
+      - name: Production build
+        run: pnpm -r build

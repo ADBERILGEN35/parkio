@@ -27,6 +27,13 @@ export class AccountNotActiveError extends ParkioApiError {
   }
 }
 
+export class AccountNotVerifiedError extends ParkioApiError {
+  constructor(body: ApiError) {
+    super(403, body);
+    this.name = 'AccountNotVerifiedError';
+  }
+}
+
 export class ForbiddenError extends ParkioApiError {
   constructor(body: ApiError) {
     super(403, body);
@@ -69,6 +76,9 @@ export function toParkioError(status: number, data: unknown): ParkioApiError {
   };
 
   if (status === 401) return new UnauthorizedError(body);
+  if (status === 403 && body.code === 'ACCOUNT_NOT_VERIFIED') {
+    return new AccountNotVerifiedError(body);
+  }
   if (status === 403 && body.code === 'ACCOUNT_NOT_ACTIVE') return new AccountNotActiveError(body);
   if (status === 403) return new ForbiddenError(body);
   if (status === 429) return new RateLimitError(body);

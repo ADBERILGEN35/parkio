@@ -4,9 +4,19 @@ import { screen } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { Route, Routes } from 'react-router-dom';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-import { API_BASE, apiErrorBody, server } from '@/test/server';
+import { mediaApi, parkingApi } from '@/api';
+import { API_BASE, server } from '@/test/server';
 import { renderWithProviders, resetAuth, signInAs } from '@/test/utils';
 import { UploadPage } from './UploadPage';
+
+vi.mock('@/api', () => ({
+  mediaApi: {
+    uploadMedia: vi.fn(),
+  },
+  parkingApi: {
+    createParkingSpot: vi.fn(),
+  },
+}));
 
 // Leaflet can't render in jsdom; stub the picker with a button that simulates a
 // map click setting the location.
@@ -123,6 +133,8 @@ async function advanceToReview(user: User) {
 
 describe('UploadPage', () => {
   beforeEach(() => {
+    vi.mocked(mediaApi.uploadMedia).mockReset();
+    vi.mocked(parkingApi.createParkingSpot).mockReset();
     resetAuth();
     signInAs(['USER']);
     server.use(http.get(`${API_BASE}/notifications/me`, () => HttpResponse.json([])));
@@ -210,28 +222,15 @@ describe('UploadPage', () => {
   });
 
   it('reuses the uploaded media when create fails, then succeeds without re-uploading', async () => {
-    let uploadCalls = 0;
-    let createCalls = 0;
-    server.use(
-      http.post(`${API_BASE}/media/upload`, () => {
-        uploadCalls += 1;
-        return HttpResponse.json({
+    vi.mocked(mediaApi.uploadMedia).mockResolvedValue({
           mediaId: createdSpot.mediaId,
           status: 'READY',
           contentType: 'image/jpeg',
           fileSize: 1024,
-        });
-      }),
-      http.post(`${API_BASE}/parking/spots`, () => {
-        createCalls += 1;
-        if (createCalls === 1) {
-          return HttpResponse.json(apiErrorBody('VALIDATION_ERROR', 'Create failed'), {
-            status: 422,
-          });
-        }
-        return HttpResponse.json(createdSpot);
-      }),
-    );
+    });
+    vi.mocked(parkingApi.createParkingSpot)
+      .mockRejectedValueOnce(new Error('Create failed'))
+      .mockResolvedValueOnce(createdSpot);
 
     renderUpload();
     const user = userEvent.setup();
@@ -246,27 +245,19 @@ describe('UploadPage', () => {
     await user.click(screen.getByRole('button', { name: 'Upload & create spot' }));
     expect(await screen.findByRole('heading', { name: 'Spot created' })).toBeInTheDocument();
 
-    expect(uploadCalls).toBe(1);
-    expect(createCalls).toBe(2);
+    expect(mediaApi.uploadMedia).toHaveBeenCalledTimes(1);
+    expect(parkingApi.createParkingSpot).toHaveBeenCalledTimes(2);
   });
 
   it('clears the kept mediaId when the file is replaced, forcing a re-upload', async () => {
-    let uploadCalls = 0;
-    server.use(
-      http.post(`${API_BASE}/media/upload`, () => {
-        uploadCalls += 1;
-        return HttpResponse.json({
+    vi.mocked(mediaApi.uploadMedia).mockResolvedValue({
           mediaId: createdSpot.mediaId,
           status: 'READY',
           contentType: 'image/jpeg',
           fileSize: 1024,
-        });
-      }),
-      // Create always fails so the uploaded media would otherwise be reused.
-      http.post(`${API_BASE}/parking/spots`, () =>
-        HttpResponse.json(apiErrorBody('VALIDATION_ERROR', 'Create failed'), { status: 422 }),
-      ),
-    );
+    });
+    // Create always fails so the uploaded media would otherwise be reused.
+    vi.mocked(parkingApi.createParkingSpot).mockRejectedValue(new Error('Create failed'));
 
     renderUpload();
     const user = userEvent.setup();
@@ -274,7 +265,7 @@ describe('UploadPage', () => {
     await advanceToReview(user);
     await user.click(screen.getByRole('button', { name: 'Upload & create spot' }));
     expect(await screen.findByText(/Your photo was uploaded successfully/)).toBeInTheDocument();
-    expect(uploadCalls).toBe(1);
+    expect(mediaApi.uploadMedia).toHaveBeenCalledTimes(1);
 
     // Back to the Photo step and replace the file — this must clear the kept media.
     await clickBack(user);
@@ -290,21 +281,17 @@ describe('UploadPage', () => {
     await screen.findAllByText(/Your photo was uploaded successfully/);
 
     // The replacement file was uploaded again (mediaId was cleared).
-    expect(uploadCalls).toBe(2);
+    expect(mediaApi.uploadMedia).toHaveBeenCalledTimes(2);
   });
 
   it('redirects to the new spot after a successful create', async () => {
-    server.use(
-      http.post(`${API_BASE}/media/upload`, () =>
-        HttpResponse.json({
+    vi.mocked(mediaApi.uploadMedia).mockResolvedValue({
           mediaId: createdSpot.mediaId,
           status: 'READY',
           contentType: 'image/jpeg',
           fileSize: 1024,
-        }),
-      ),
-      http.post(`${API_BASE}/parking/spots`, () => HttpResponse.json(createdSpot)),
-    );
+    });
+    vi.mocked(parkingApi.createParkingSpot).mockResolvedValue(createdSpot);
 
     renderUpload();
     const user = userEvent.setup();

@@ -8,21 +8,21 @@ import { getPendingProfile } from '@/auth/pendingProfile';
 import { API_BASE, apiErrorBody, server } from '@/test/server';
 import { renderWithProviders, resetAuth } from '@/test/utils';
 import { AccountPreparingPage } from './AccountPreparingPage';
+import { CheckEmailPage } from './CheckEmailPage';
 import { RegisterPage } from './RegisterPage';
 
 const newcomer = {
   id: '6f9619ff-8b86-4d01-b42d-00cf4fc964ff',
   email: 'newcomer@parkio.dev',
-  status: 'ACTIVE',
+  status: 'PENDING_VERIFICATION',
   roles: ['USER'],
 };
 
 const authResponse = {
-  accessToken: 'access-1',
+  accessToken: null,
   tokenType: 'Bearer',
-  accessTokenExpiresAt: '2026-06-11T11:00:00Z',
-  refreshToken: 'refresh-1',
-  refreshTokenExpiresAt: '2026-07-11T10:00:00Z',
+  accessTokenExpiresAt: null,
+  refreshTokenExpiresAt: null,
   user: newcomer,
 };
 
@@ -30,6 +30,7 @@ function renderRegister() {
   return renderWithProviders(
     <Routes>
       <Route path="/register" element={<RegisterPage />} />
+      <Route path="/check-email" element={<CheckEmailPage />} />
       <Route path="/preparing" element={<AccountPreparingPage />} />
       <Route path="/map" element={<div>Map page stub</div>} />
     </Routes>,
@@ -53,8 +54,8 @@ async function fillAndSubmit(overrides: FormOverrides = {}) {
     displayName: 'New Driver',
     email: 'newcomer@parkio.dev',
     phoneNumber: '',
-    password: 'password-1',
-    confirmPassword: 'password-1',
+    password: 'SaferPass123',
+    confirmPassword: 'SaferPass123',
     acceptTerms: true,
     ...overrides,
   };
@@ -103,9 +104,43 @@ describe('RegisterPage', () => {
       }),
     );
 
-    await fillAndSubmit({ confirmPassword: 'different-1' });
+    await fillAndSubmit({ confirmPassword: 'Different123' });
 
     expect(await screen.findByText('Passwords do not match')).toBeInTheDocument();
+    expect(registerCalls).toBe(0);
+  });
+
+  it('shows live password requirements', async () => {
+    renderRegister();
+    const user = userEvent.setup();
+
+    expect(screen.getByText('Needed: At least 12 characters')).toBeInTheDocument();
+    expect(screen.getByText('Needed: One lowercase letter')).toBeInTheDocument();
+    expect(screen.getByText('Needed: One uppercase letter')).toBeInTheDocument();
+    expect(screen.getByText('Needed: One number')).toBeInTheDocument();
+    expect(screen.getByText('Needed: Not a common password')).toBeInTheDocument();
+
+    await user.type(screen.getByLabelText('Password'), 'SaferPass123');
+
+    expect(screen.getByText('Met: At least 12 characters')).toBeInTheDocument();
+    expect(screen.getByText('Met: One lowercase letter')).toBeInTheDocument();
+    expect(screen.getByText('Met: One uppercase letter')).toBeInTheDocument();
+    expect(screen.getByText('Met: One number')).toBeInTheDocument();
+    expect(screen.getByText('Met: Not a common password')).toBeInTheDocument();
+  });
+
+  it('blocks weak passwords before calling register', async () => {
+    let registerCalls = 0;
+    server.use(
+      http.post(`${API_BASE}/auth/register`, () => {
+        registerCalls += 1;
+        return HttpResponse.json(authResponse);
+      }),
+    );
+
+    await fillAndSubmit({ password: 'password123', confirmPassword: 'password123' });
+
+    expect(await screen.findByText(/Password must be at least 12 characters/)).toBeInTheDocument();
     expect(registerCalls).toBe(0);
   });
 
@@ -131,8 +166,6 @@ describe('RegisterPage', () => {
         body = (await request.json()) as Record<string, unknown>;
         return HttpResponse.json(authResponse);
       }),
-      http.get(`${API_BASE}/auth/me`, () => HttpResponse.json(newcomer)),
-      http.patch(`${API_BASE}/users/me`, () => HttpResponse.json({})),
     );
 
     await fillAndSubmit({ displayName: 'New Driver', phoneNumber: '5551234567' });
@@ -140,44 +173,31 @@ describe('RegisterPage', () => {
     await waitFor(() => expect(body).not.toBeNull());
     expect(Object.keys(body!).sort()).toEqual(['email', 'password']);
     expect(body!.email).toBe('newcomer@parkio.dev');
+    expect(await screen.findByText('Check your email')).toBeInTheDocument();
+    expect(useAuthStore.getState().isAuthenticated).toBe(false);
   });
 
-  it('saves the captured display name and phone via PATCH after provisioning', async () => {
-    let patchBody: Record<string, unknown> | null = null;
+  it('saves the captured display name and phone for after email verification login', async () => {
     server.use(
       http.post(`${API_BASE}/auth/register`, () => HttpResponse.json(authResponse)),
-      http.get(`${API_BASE}/auth/me`, () => HttpResponse.json(newcomer)),
-      http.patch(`${API_BASE}/users/me`, async ({ request }) => {
-        patchBody = (await request.json()) as Record<string, unknown>;
-        return HttpResponse.json({});
-      }),
     );
 
     await fillAndSubmit({ displayName: 'New Driver', phoneNumber: '5551234567' });
 
-    expect(await screen.findByText('Map page stub')).toBeInTheDocument();
-    expect(patchBody).toEqual({ displayName: 'New Driver', phoneNumber: '5551234567' });
-    // Pending data is cleared once the flow completes.
-    expect(getPendingProfile()).toBeNull();
+    expect(await screen.findByText('Check your email')).toBeInTheDocument();
+    expect(getPendingProfile()).toEqual({ displayName: 'New Driver', phoneNumber: '5551234567' });
     expect(useAuthStore.getState().provisioning).toBe(false);
   });
 
-  it('does not block account creation when the profile update fails', async () => {
+  it('does not authenticate immediately after account creation', async () => {
     server.use(
       http.post(`${API_BASE}/auth/register`, () => HttpResponse.json(authResponse)),
-      http.get(`${API_BASE}/auth/me`, () => HttpResponse.json(newcomer)),
-      http.patch(`${API_BASE}/users/me`, () =>
-        HttpResponse.json(apiErrorBody('INTERNAL', 'boom', 'trace-patch'), { status: 500 }),
-      ),
     );
 
     await fillAndSubmit({ displayName: 'New Driver' });
 
-    // Soft warning instead of a hard failure; the session stays authenticated.
-    expect(await screen.findByText('Your account is ready')).toBeInTheDocument();
-    expect(useAuthStore.getState().isAuthenticated).toBe(true);
-    // Pending data is cleared even on the failure path.
-    expect(getPendingProfile()).toBeNull();
+    expect(await screen.findByText('Verify your address before signing in.')).toBeInTheDocument();
+    expect(useAuthStore.getState().isAuthenticated).toBe(false);
   });
 
   it('shows the backend error message with traceId on failure', async () => {
@@ -197,25 +217,22 @@ describe('RegisterPage', () => {
     expect(useAuthStore.getState().isAuthenticated).toBe(false);
   });
 
-  it('enters the preparing state (not suspended) while the profile provisions', async () => {
+  it('resends verification from the check-email screen', async () => {
+    let resendBody: Record<string, unknown> | null = null;
     server.use(
       http.post(`${API_BASE}/auth/register`, () => HttpResponse.json(authResponse)),
-      // Profile not provisioned yet — protected reads 403 ACCOUNT_NOT_ACTIVE.
-      http.get(`${API_BASE}/auth/me`, () =>
-        HttpResponse.json(
-          apiErrorBody('ACCOUNT_NOT_ACTIVE', 'Account is not active', 'trace-reg-prov'),
-          { status: 403 },
-        ),
-      ),
+      http.post(`${API_BASE}/auth/resend-verification`, async ({ request }) => {
+        resendBody = (await request.json()) as Record<string, unknown>;
+        return new HttpResponse(null, { status: 202 });
+      }),
     );
 
     await fillAndSubmit();
 
-    expect(await screen.findByText('Preparing your account')).toBeInTheDocument();
-    expect(screen.queryByText('Map page stub')).not.toBeInTheDocument();
-    const state = useAuthStore.getState();
-    expect(state.isAuthenticated).toBe(true);
-    expect(state.suspended).toBe(false);
-    expect(state.provisioning).toBe(true);
+    expect(await screen.findByText('Check your email')).toBeInTheDocument();
+    await userEvent.setup().click(screen.getByRole('button', { name: 'Resend verification' }));
+
+    await waitFor(() => expect(resendBody).toEqual({ email: 'newcomer@parkio.dev' }));
+    expect(screen.getByText('Verification email sent. Please check your inbox.')).toBeInTheDocument();
   });
 });

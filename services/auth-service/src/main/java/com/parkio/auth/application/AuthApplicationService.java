@@ -3,11 +3,14 @@ package com.parkio.auth.application;
 import com.parkio.auth.application.command.LoginCommand;
 import com.parkio.auth.application.command.LogoutCommand;
 import com.parkio.auth.application.command.RefreshTokenCommand;
+import com.parkio.auth.application.command.ResendVerificationCommand;
 import com.parkio.auth.application.command.RegisterCommand;
+import com.parkio.auth.application.command.VerifyEmailCommand;
 import com.parkio.auth.application.event.UserRestoredEvent;
 import com.parkio.auth.application.event.UserSuspendedEvent;
 import com.parkio.auth.application.port.AccessTokenIssuer;
 import com.parkio.auth.application.port.AuthUserRepository;
+import com.parkio.auth.application.port.EmailVerificationSender;
 import com.parkio.auth.application.port.InboxEventRepository;
 import com.parkio.auth.application.port.OutboxEventAppender;
 import com.parkio.auth.application.port.PasswordHasher;
@@ -17,6 +20,7 @@ import com.parkio.auth.application.port.RoleRepository;
 import com.parkio.auth.application.port.SecureTokenGenerator;
 import com.parkio.auth.application.result.AuthResult;
 import com.parkio.auth.application.result.IssuedAccessToken;
+import com.parkio.auth.application.result.RegisterResult;
 import com.parkio.auth.domain.AuthUser;
 import com.parkio.auth.domain.RefreshToken;
 import com.parkio.auth.domain.RefreshTokenRevocationReason;
@@ -25,6 +29,7 @@ import com.parkio.auth.domain.RoleName;
 import com.parkio.auth.domain.event.UserRegisteredEvent;
 import com.parkio.auth.domain.exception.AuthErrorCode;
 import com.parkio.auth.domain.exception.AuthException;
+import com.parkio.auth.domain.exception.LoginLockedException;
 import java.time.Clock;
 import java.time.Duration;
 import java.time.Instant;
@@ -60,8 +65,13 @@ public class AuthApplicationService {
     private final AccessTokenIssuer accessTokenIssuer;
     private final RefreshTokenHasher refreshTokenHasher;
     private final SecureTokenGenerator tokenGenerator;
+    private final LoginFailureTracker loginFailures;
+    private final VerificationResendLimiter verificationResendLimiter;
+    private final EmailVerificationSender emailVerificationSender;
+    private final PasswordPolicy passwordPolicy;
     private final Clock clock;
     private final Duration refreshTokenTtl;
+    private final Duration emailVerificationTtl;
 
     public AuthApplicationService(AuthUserRepository authUsers,
                                   RoleRepository roles,
@@ -72,8 +82,14 @@ public class AuthApplicationService {
                                   AccessTokenIssuer accessTokenIssuer,
                                   RefreshTokenHasher refreshTokenHasher,
                                   SecureTokenGenerator tokenGenerator,
+                                  LoginFailureTracker loginFailures,
+                                  VerificationResendLimiter verificationResendLimiter,
+                                  EmailVerificationSender emailVerificationSender,
+                                  PasswordPolicy passwordPolicy,
                                   Clock clock,
-                                  @Value("${parkio.security.jwt.refresh-token-ttl}") Duration refreshTokenTtl) {
+                                  @Value("${parkio.security.jwt.refresh-token-ttl}") Duration refreshTokenTtl,
+                                  @Value("${parkio.security.email-verification.token-ttl:PT24H}")
+                                          Duration emailVerificationTtl) {
         this.authUsers = authUsers;
         this.roles = roles;
         this.refreshTokens = refreshTokens;
@@ -83,12 +99,18 @@ public class AuthApplicationService {
         this.accessTokenIssuer = accessTokenIssuer;
         this.refreshTokenHasher = refreshTokenHasher;
         this.tokenGenerator = tokenGenerator;
+        this.loginFailures = loginFailures;
+        this.verificationResendLimiter = verificationResendLimiter;
+        this.emailVerificationSender = emailVerificationSender;
+        this.passwordPolicy = passwordPolicy;
         this.clock = clock;
         this.refreshTokenTtl = refreshTokenTtl;
+        this.emailVerificationTtl = emailVerificationTtl;
     }
 
-    public AuthResult register(RegisterCommand command) {
+    public RegisterResult register(RegisterCommand command) {
         String email = AuthUser.normalizeEmail(command.email());
+        passwordPolicy.validate(command.rawPassword());
 
         if (authUsers.existsByEmail(email)) {
             throw new AuthException(AuthErrorCode.EMAIL_ALREADY_EXISTS);
@@ -97,26 +119,87 @@ public class AuthApplicationService {
         Role userRole = roles.findByName(RoleName.USER)
                 .orElseThrow(() -> new IllegalStateException("USER role is not seeded"));
 
+        Instant now = clock.instant();
+        String rawVerificationToken = tokenGenerator.generate();
+        Instant verificationExpiresAt = now.plus(emailVerificationTtl);
         String passwordHash = passwordHasher.hash(command.rawPassword());
-        AuthUser user = AuthUser.register(email, passwordHash, Set.of(userRole), clock.instant());
+        AuthUser user = AuthUser.register(
+                email,
+                passwordHash,
+                refreshTokenHasher.hash(rawVerificationToken),
+                verificationExpiresAt,
+                now,
+                Set.of(userRole),
+                now);
         AuthUser saved = authUsers.save(user);
 
-        outbox.append(UserRegisteredEvent.of(saved.id(), saved.email(), clock.instant()));
+        outbox.append(UserRegisteredEvent.of(saved.id(), saved.email(), now));
+        emailVerificationSender.sendVerificationLink(saved.email(), rawVerificationToken);
 
-        return issueTokens(saved, null);
+        return new RegisterResult(saved, verificationExpiresAt);
     }
 
     public AuthResult login(LoginCommand command) {
         String email = AuthUser.normalizeEmail(command.email());
-        AuthUser user = authUsers.findByEmail(email)
-                .orElseThrow(() -> new AuthException(AuthErrorCode.INVALID_CREDENTIALS));
+        Instant now = clock.instant();
+        if (loginFailures.isLocked(email, now)) {
+            log.warn("Login blocked by account lockout; emailHash={}", Integer.toHexString(email.hashCode()));
+            throw new LoginLockedException();
+        }
 
-        if (!passwordHasher.matches(command.rawPassword(), user.passwordHash())) {
+        AuthUser user = authUsers.findByEmail(email).orElse(null);
+        if (user == null || !passwordHasher.matches(command.rawPassword(), user.passwordHash())) {
+            LoginFailureTracker.LoginFailureOutcome outcome = loginFailures.recordFailure(email, now);
+            if (outcome.lockoutApplied()) {
+                log.warn(
+                        "Login account lockout applied; emailHash={}, failures={}, lockedUntil={}",
+                        Integer.toHexString(email.hashCode()),
+                        outcome.failureCount(),
+                        outcome.lockedUntil());
+                throw new LoginLockedException();
+            }
             throw new AuthException(AuthErrorCode.INVALID_CREDENTIALS);
         }
         user.ensureCanAuthenticate();
+        loginFailures.reset(email);
 
         return issueTokens(user, null);
+    }
+
+    public AuthUser verifyEmail(VerifyEmailCommand command) {
+        String tokenHash = refreshTokenHasher.hash(command.rawToken());
+        AuthUser user = authUsers.findByEmailVerificationTokenHash(tokenHash)
+                .orElseThrow(() -> new AuthException(AuthErrorCode.INVALID_VERIFICATION_TOKEN));
+
+        Instant now = clock.instant();
+        if (user.emailVerified()) {
+            return user;
+        }
+        if (user.emailVerificationTokenExpired(now)) {
+            throw new AuthException(AuthErrorCode.INVALID_VERIFICATION_TOKEN);
+        }
+        user.verifyEmail(now);
+        return authUsers.save(user);
+    }
+
+    public void resendVerification(ResendVerificationCommand command) {
+        String email = AuthUser.normalizeEmail(command.email());
+        if (!verificationResendLimiter.tryAcquire(email)) {
+            log.info("Email verification resend suppressed by cooldown; emailHash={}",
+                    Integer.toHexString(email.hashCode()));
+            return;
+        }
+
+        authUsers.findByEmail(email)
+                .filter(user -> !user.emailVerified())
+                .ifPresent(user -> {
+                    Instant now = clock.instant();
+                    String rawVerificationToken = tokenGenerator.generate();
+                    Instant expiresAt = now.plus(emailVerificationTtl);
+                    user.issueEmailVerificationToken(refreshTokenHasher.hash(rawVerificationToken), expiresAt, now);
+                    AuthUser saved = authUsers.save(user);
+                    emailVerificationSender.sendVerificationLink(saved.email(), rawVerificationToken);
+                });
     }
 
     @Transactional(noRollbackFor = AuthException.class)

@@ -7,6 +7,8 @@ import com.parkio.auth.application.command.LoginCommand;
 import com.parkio.auth.application.command.LogoutCommand;
 import com.parkio.auth.application.command.RefreshTokenCommand;
 import com.parkio.auth.application.command.RegisterCommand;
+import com.parkio.auth.application.command.VerifyEmailCommand;
+import com.parkio.auth.application.port.EmailVerificationSender;
 import com.parkio.auth.application.event.UserRestoredEvent;
 import com.parkio.auth.application.event.UserSuspendedEvent;
 import com.parkio.auth.application.port.AccessTokenIssuer;
@@ -20,6 +22,7 @@ import com.parkio.auth.application.port.RoleRepository;
 import com.parkio.auth.application.port.SecureTokenGenerator;
 import com.parkio.auth.application.result.AuthResult;
 import com.parkio.auth.application.result.IssuedAccessToken;
+import com.parkio.auth.application.result.RegisterResult;
 import com.parkio.auth.domain.AuthUser;
 import com.parkio.auth.domain.AuthUserStatus;
 import com.parkio.auth.domain.RefreshToken;
@@ -32,6 +35,7 @@ import com.parkio.auth.domain.exception.AuthException;
 import java.time.Clock;
 import java.time.Duration;
 import java.time.Instant;
+import java.time.ZoneId;
 import java.time.ZoneOffset;
 import java.util.ArrayList;
 import java.util.HashMap;
@@ -51,6 +55,7 @@ import org.junit.jupiter.api.Test;
 class AuthApplicationServiceTest {
 
     private static final Instant NOW = Instant.parse("2026-06-06T12:00:00Z");
+    private static final String VALID_PASSWORD = "StrongerPass123";
     private static final Role USER_ROLE =
             new Role(UUID.fromString("00000000-0000-0000-0000-000000000001"), RoleName.USER);
 
@@ -60,6 +65,10 @@ class AuthApplicationServiceTest {
     private FakeInboxEventRepository inbox;
     private FakePasswordHasher passwordHasher;
     private FakeRefreshTokenHasher refreshTokenHasher;
+    private FakeLoginFailureTracker loginFailures;
+    private FakeVerificationResendLimiter verificationResendLimiter;
+    private FakeEmailVerificationSender emailVerificationSender;
+    private MutableClock clock;
     private AuthApplicationService service;
 
     @BeforeEach
@@ -70,34 +79,39 @@ class AuthApplicationServiceTest {
         inbox = new FakeInboxEventRepository();
         passwordHasher = new FakePasswordHasher();
         refreshTokenHasher = new FakeRefreshTokenHasher();
+        loginFailures = new FakeLoginFailureTracker();
+        verificationResendLimiter = new FakeVerificationResendLimiter();
+        emailVerificationSender = new FakeEmailVerificationSender();
         RoleRepository roles = name -> name == RoleName.USER ? Optional.of(USER_ROLE) : Optional.empty();
         AccessTokenIssuer accessTokenIssuer = user -> new IssuedAccessToken("access-" + user.id(), NOW.plusSeconds(900));
         SecureTokenGenerator tokenGenerator = new FakeSecureTokenGenerator();
-        Clock clock = Clock.fixed(NOW, ZoneOffset.UTC);
+        clock = new MutableClock(NOW);
         service = new AuthApplicationService(authUsers, roles, refreshTokens, outbox, inbox, passwordHasher,
-                accessTokenIssuer, refreshTokenHasher, tokenGenerator, clock, Duration.ofDays(30));
+                accessTokenIssuer, refreshTokenHasher, tokenGenerator, loginFailures, verificationResendLimiter,
+                emailVerificationSender, new PasswordPolicy(), clock, Duration.ofDays(30), Duration.ofHours(24));
     }
 
     @Test
-    void registerCreatesActiveUserWithTokensAndOutboxEvent() {
-        AuthResult result = service.register(new RegisterCommand("New.User@Example.com ", "password1"));
+    void registerCreatesPendingUserWithVerificationTokenAndOutboxEvent() {
+        RegisterResult result = service.register(new RegisterCommand("New.User@Example.com ", VALID_PASSWORD));
 
         assertThat(result.user().email()).isEqualTo("new.user@example.com");
-        assertThat(result.user().status()).isEqualTo(AuthUserStatus.ACTIVE);
-        assertThat(result.accessToken()).isEqualTo("access-" + result.user().id());
-        assertThat(result.refreshToken()).isNotBlank();
-        assertThat(result.refreshTokenExpiresAt()).isEqualTo(NOW.plus(Duration.ofDays(30)));
+        assertThat(result.user().status()).isEqualTo(AuthUserStatus.PENDING_VERIFICATION);
+        assertThat(result.user().emailVerified()).isFalse();
+        assertThat(result.user().emailVerificationTokenHash()).isNotBlank();
+        assertThat(result.verificationExpiresAt()).isEqualTo(NOW.plus(Duration.ofHours(24)));
         assertThat(authUsers.findByEmail("new.user@example.com")).isPresent();
-        assertThat(refreshTokens.findByTokenHash(refreshTokenHasher.hash(result.refreshToken()))).isPresent();
+        assertThat(refreshTokens.findByTokenHash(result.user().emailVerificationTokenHash())).isEmpty();
+        assertThat(emailVerificationSender.tokenFor("new.user@example.com")).isNotBlank();
         assertThat(outbox.events).singleElement()
                 .extracting(UserRegisteredEvent::email).isEqualTo("new.user@example.com");
     }
 
     @Test
     void registerRejectsDuplicateEmail() {
-        service.register(new RegisterCommand("dup@example.com", "password1"));
+        service.register(new RegisterCommand("dup@example.com", VALID_PASSWORD));
 
-        assertThatThrownBy(() -> service.register(new RegisterCommand("DUP@example.com", "password1")))
+        assertThatThrownBy(() -> service.register(new RegisterCommand("DUP@example.com", VALID_PASSWORD)))
                 .isInstanceOf(AuthException.class)
                 .extracting(e -> ((AuthException) e).errorCode())
                 .isEqualTo(AuthErrorCode.EMAIL_ALREADY_EXISTS);
@@ -105,16 +119,16 @@ class AuthApplicationServiceTest {
 
     @Test
     void registerAssignsUserRole() {
-        AuthResult result = service.register(new RegisterCommand("roles@example.com", "password1"));
+        RegisterResult result = service.register(new RegisterCommand("roles@example.com", VALID_PASSWORD));
 
         assertThat(result.user().roles()).extracting(r -> r.name().name()).containsExactly("USER");
     }
 
     @Test
     void loginSucceedsWithCorrectPassword() {
-        service.register(new RegisterCommand("user@example.com", "password1"));
+        registerVerified("user@example.com");
 
-        AuthResult result = service.login(new LoginCommand("USER@example.com", "password1"));
+        AuthResult result = service.login(new LoginCommand("USER@example.com", VALID_PASSWORD));
         RefreshToken token = refreshTokens.findByTokenHash(refreshTokenHasher.hash(result.refreshToken()))
                 .orElseThrow();
 
@@ -127,7 +141,7 @@ class AuthApplicationServiceTest {
 
     @Test
     void loginRejectsWrongPassword() {
-        service.register(new RegisterCommand("user@example.com", "password1"));
+        registerVerified("user@example.com");
 
         assertThatThrownBy(() -> service.login(new LoginCommand("user@example.com", "wrong-password")))
                 .isInstanceOf(AuthException.class)
@@ -137,19 +151,145 @@ class AuthApplicationServiceTest {
 
     @Test
     void loginRejectsUnknownEmail() {
-        assertThatThrownBy(() -> service.login(new LoginCommand("nobody@example.com", "password1")))
+        assertThatThrownBy(() -> service.login(new LoginCommand("nobody@example.com", VALID_PASSWORD)))
                 .isInstanceOf(AuthException.class)
                 .extracting(e -> ((AuthException) e).errorCode())
                 .isEqualTo(AuthErrorCode.INVALID_CREDENTIALS);
     }
 
     @Test
+    void loginLocksAccountAfterFiveFailuresWithGenericError() {
+        registerVerified("user@example.com");
+
+        for (int i = 0; i < 4; i++) {
+            assertThatThrownBy(() -> service.login(new LoginCommand("USER@example.com", "wrong-password")))
+                    .isInstanceOf(AuthException.class)
+                    .extracting(e -> ((AuthException) e).errorCode())
+                    .isEqualTo(AuthErrorCode.INVALID_CREDENTIALS);
+        }
+
+        assertThatThrownBy(() -> service.login(new LoginCommand("USER@example.com", "wrong-password")))
+                .isInstanceOf(AuthException.class)
+                .hasMessage(AuthErrorCode.INVALID_CREDENTIALS.defaultMessage())
+                .extracting(e -> ((AuthException) e).errorCode())
+                .isEqualTo(AuthErrorCode.INVALID_CREDENTIALS);
+        assertThat(loginFailures.isLocked("user@example.com", NOW)).isTrue();
+
+        assertThatThrownBy(() -> service.login(new LoginCommand("USER@example.com", VALID_PASSWORD)))
+                .isInstanceOf(AuthException.class)
+                .hasMessage(AuthErrorCode.INVALID_CREDENTIALS.defaultMessage())
+                .extracting(e -> ((AuthException) e).errorCode())
+                .isEqualTo(AuthErrorCode.INVALID_CREDENTIALS);
+    }
+
+    @Test
+    void loginLockExpires() {
+        registerVerified("user@example.com");
+        for (int i = 0; i < 5; i++) {
+            assertThatThrownBy(() -> service.login(new LoginCommand("user@example.com", "wrong-password")))
+                    .isInstanceOf(AuthException.class);
+        }
+
+        clock.advance(Duration.ofSeconds(31));
+
+        AuthResult result = service.login(new LoginCommand("user@example.com", VALID_PASSWORD));
+        assertThat(result.accessToken()).isNotBlank();
+    }
+
+    @Test
+    void successfulLoginResetsFailureCounter() {
+        registerVerified("user@example.com");
+        assertThatThrownBy(() -> service.login(new LoginCommand("user@example.com", "wrong-password")))
+                .isInstanceOf(AuthException.class);
+        assertThat(loginFailures.failureCount("user@example.com")).isEqualTo(1);
+
+        service.login(new LoginCommand("user@example.com", VALID_PASSWORD));
+
+        assertThat(loginFailures.failureCount("user@example.com")).isZero();
+    }
+
+    @Test
+    void registerRejectsWeakPasswordsAndAcceptsStrongPassword() {
+        assertThatThrownBy(() -> service.register(new RegisterCommand("weak@example.com", "password123")))
+                .isInstanceOf(AuthException.class)
+                .extracting(e -> ((AuthException) e).errorCode())
+                .isEqualTo(AuthErrorCode.WEAK_PASSWORD);
+
+        RegisterResult result = service.register(new RegisterCommand("strong@example.com", "SaferPass123"));
+
+        assertThat(result.user().email()).isEqualTo("strong@example.com");
+    }
+
+    @Test
+    void loginBeforeEmailVerificationIsBlockedWithoutIssuingTokens() {
+        service.register(new RegisterCommand("pending@example.com", VALID_PASSWORD));
+
+        assertThatThrownBy(() -> service.login(new LoginCommand("pending@example.com", VALID_PASSWORD)))
+                .isInstanceOf(AuthException.class)
+                .extracting(e -> ((AuthException) e).errorCode())
+                .isEqualTo(AuthErrorCode.ACCOUNT_NOT_VERIFIED);
+        assertThat(refreshTokens.findByTokenHash("access-anything")).isEmpty();
+    }
+
+    @Test
+    void verifyEmailActivatesAccountAndIsIdempotentForActiveAccount() {
+        service.register(new RegisterCommand("verify@example.com", VALID_PASSWORD));
+        String token = emailVerificationSender.tokenFor("verify@example.com");
+
+        AuthUser verified = service.verifyEmail(new VerifyEmailCommand(token));
+        AuthUser second = service.verifyEmail(new VerifyEmailCommand(token));
+
+        assertThat(verified.status()).isEqualTo(AuthUserStatus.ACTIVE);
+        assertThat(verified.emailVerified()).isTrue();
+        assertThat(second.status()).isEqualTo(AuthUserStatus.ACTIVE);
+        assertThat(service.login(new LoginCommand("verify@example.com", VALID_PASSWORD)).accessToken()).isNotBlank();
+    }
+
+    @Test
+    void verifyEmailRejectsInvalidAndExpiredTokens() {
+        service.register(new RegisterCommand("expired@example.com", VALID_PASSWORD));
+        String token = emailVerificationSender.tokenFor("expired@example.com");
+
+        assertThatThrownBy(() -> service.verifyEmail(new VerifyEmailCommand("not-real")))
+                .isInstanceOf(AuthException.class)
+                .extracting(e -> ((AuthException) e).errorCode())
+                .isEqualTo(AuthErrorCode.INVALID_VERIFICATION_TOKEN);
+
+        clock.advance(Duration.ofHours(25));
+        assertThatThrownBy(() -> service.verifyEmail(new VerifyEmailCommand(token)))
+                .isInstanceOf(AuthException.class)
+                .extracting(e -> ((AuthException) e).errorCode())
+                .isEqualTo(AuthErrorCode.INVALID_VERIFICATION_TOKEN);
+    }
+
+    @Test
+    void resendVerificationRotatesTokenAndIsEnumerationSafeWhenLimitedOrUnknown() {
+        service.register(new RegisterCommand("resend@example.com", VALID_PASSWORD));
+        String first = emailVerificationSender.tokenFor("resend@example.com");
+        verificationResendLimiter.allow("resend@example.com");
+
+        service.resendVerification(new com.parkio.auth.application.command.ResendVerificationCommand(
+                "resend@example.com"));
+        String second = emailVerificationSender.tokenFor("resend@example.com");
+
+        assertThat(second).isNotEqualTo(first);
+        verificationResendLimiter.deny("resend@example.com");
+        service.resendVerification(new com.parkio.auth.application.command.ResendVerificationCommand(
+                "resend@example.com"));
+        assertThat(emailVerificationSender.tokenFor("resend@example.com")).isEqualTo(second);
+
+        service.resendVerification(new com.parkio.auth.application.command.ResendVerificationCommand(
+                "unknown@example.com"));
+        // No exception and no observable unknown-email signal.
+    }
+
+    @Test
     void loginRejectsInactiveUser() {
         AuthUser suspended = new AuthUser(UUID.randomUUID(), "banned@example.com",
-                passwordHasher.hash("password1"), AuthUserStatus.SUSPENDED, null, Set.of(USER_ROLE), NOW, 0L);
+                passwordHasher.hash(VALID_PASSWORD), AuthUserStatus.SUSPENDED, null, Set.of(USER_ROLE), NOW, 0L);
         authUsers.save(suspended);
 
-        assertThatThrownBy(() -> service.login(new LoginCommand("banned@example.com", "password1")))
+        assertThatThrownBy(() -> service.login(new LoginCommand("banned@example.com", VALID_PASSWORD)))
                 .isInstanceOf(AuthException.class)
                 .extracting(e -> ((AuthException) e).errorCode())
                 .isEqualTo(AuthErrorCode.USER_NOT_ACTIVE);
@@ -157,7 +297,7 @@ class AuthApplicationServiceTest {
 
     @Test
     void refreshRotatesTokenAndRevokesOld() {
-        AuthResult initial = service.register(new RegisterCommand("user@example.com", "password1"));
+        AuthResult initial = registerVerifiedAndLogin("user@example.com");
         String oldHash = refreshTokenHasher.hash(initial.refreshToken());
         RefreshToken oldToken = refreshTokens.findByTokenHash(oldHash).orElseThrow();
 
@@ -178,7 +318,7 @@ class AuthApplicationServiceTest {
 
     @Test
     void rotatedTokenReuseRevokesActiveFamilyAndReturnsGenericError() {
-        AuthResult initial = service.register(new RegisterCommand("user@example.com", "password1"));
+        AuthResult initial = registerVerifiedAndLogin("user@example.com");
         AuthResult refreshed = service.refresh(new RefreshTokenCommand(initial.refreshToken()));
         String presentedToken = initial.refreshToken();
 
@@ -215,7 +355,7 @@ class AuthApplicationServiceTest {
     void refreshRejectsExpiredToken() {
         UUID userId = UUID.randomUUID();
         authUsers.save(new AuthUser(userId, "user@example.com",
-                passwordHasher.hash("password1"), AuthUserStatus.ACTIVE, null, Set.of(USER_ROLE), NOW, 0L));
+                passwordHasher.hash(VALID_PASSWORD), AuthUserStatus.ACTIVE, null, Set.of(USER_ROLE), NOW, 0L));
         RefreshToken expired =
                 RefreshToken.issueRoot(userId, refreshTokenHasher.hash("expired-token"), NOW.minusSeconds(1));
         RefreshToken activeSibling =
@@ -239,7 +379,7 @@ class AuthApplicationServiceTest {
 
     @Test
     void logoutRevokesToken() {
-        AuthResult initial = service.register(new RegisterCommand("user@example.com", "password1"));
+        AuthResult initial = registerVerifiedAndLogin("user@example.com");
 
         service.logout(new LogoutCommand(initial.refreshToken()));
 
@@ -264,8 +404,8 @@ class AuthApplicationServiceTest {
 
     @Test
     void userSuspendedEventSetsStatusSuspendedAndRevokesActiveRefreshTokens() {
-        AuthResult session = service.register(new RegisterCommand("user@example.com", "password1"));
-        AuthResult secondSession = service.login(new LoginCommand("user@example.com", "password1"));
+        AuthResult session = registerVerifiedAndLogin("user@example.com");
+        AuthResult secondSession = service.login(new LoginCommand("user@example.com", VALID_PASSWORD));
         UUID userId = session.user().id();
 
         UserSuspendedEvent suspend = suspendedEvent(userId, NOW);
@@ -285,10 +425,10 @@ class AuthApplicationServiceTest {
 
     @Test
     void suspendedUserCannotLogin() {
-        AuthResult session = service.register(new RegisterCommand("user@example.com", "password1"));
+        AuthResult session = registerVerifiedAndLogin("user@example.com");
         service.handleUserSuspended(suspendedEvent(session.user().id(), NOW));
 
-        assertThatThrownBy(() -> service.login(new LoginCommand("user@example.com", "password1")))
+        assertThatThrownBy(() -> service.login(new LoginCommand("user@example.com", VALID_PASSWORD)))
                 .isInstanceOf(AuthException.class)
                 .extracting(e -> ((AuthException) e).errorCode())
                 .isEqualTo(AuthErrorCode.USER_NOT_ACTIVE);
@@ -296,7 +436,7 @@ class AuthApplicationServiceTest {
 
     @Test
     void suspendedUserCannotRefresh() {
-        AuthResult session = service.register(new RegisterCommand("user@example.com", "password1"));
+        AuthResult session = registerVerifiedAndLogin("user@example.com");
         service.handleUserSuspended(suspendedEvent(session.user().id(), NOW));
 
         // The token was revoked by the suspension, so refresh fails before the status
@@ -309,7 +449,7 @@ class AuthApplicationServiceTest {
 
     @Test
     void suspendedUserCannotRefreshEvenWithSurvivingActiveToken() {
-        AuthResult session = service.register(new RegisterCommand("user@example.com", "password1"));
+        AuthResult session = registerVerifiedAndLogin("user@example.com");
         UUID userId = session.user().id();
         service.handleUserSuspended(suspendedEvent(userId, NOW));
 
@@ -327,7 +467,7 @@ class AuthApplicationServiceTest {
 
     @Test
     void userRestoredEventReactivatesLoginButDoesNotResurrectOldRefreshTokens() {
-        AuthResult session = service.register(new RegisterCommand("user@example.com", "password1"));
+        AuthResult session = registerVerifiedAndLogin("user@example.com");
         UUID userId = session.user().id();
         service.handleUserSuspended(suspendedEvent(userId, NOW.minusSeconds(60)));
 
@@ -335,7 +475,7 @@ class AuthApplicationServiceTest {
 
         assertThat(authUsers.findById(userId).orElseThrow().status()).isEqualTo(AuthUserStatus.ACTIVE);
         // Login works again...
-        AuthResult fresh = service.login(new LoginCommand("user@example.com", "password1"));
+        AuthResult fresh = service.login(new LoginCommand("user@example.com", VALID_PASSWORD));
         assertThat(fresh.accessToken()).isNotBlank();
         // ...but the pre-suspension refresh token stays revoked.
         assertThatThrownBy(() -> service.refresh(new RefreshTokenCommand(session.refreshToken())))
@@ -346,7 +486,7 @@ class AuthApplicationServiceTest {
 
     @Test
     void staleRestoreDoesNotOverrideNewerSuspension() {
-        AuthResult session = service.register(new RegisterCommand("user@example.com", "password1"));
+        AuthResult session = registerVerifiedAndLogin("user@example.com");
         UUID userId = session.user().id();
 
         service.handleUserSuspended(suspendedEvent(userId, NOW));
@@ -358,7 +498,7 @@ class AuthApplicationServiceTest {
 
     @Test
     void duplicateModerationEventsAreIdempotent() {
-        AuthResult session = service.register(new RegisterCommand("user@example.com", "password1"));
+        AuthResult session = registerVerifiedAndLogin("user@example.com");
         UUID userId = session.user().id();
         UserSuspendedEvent suspend = suspendedEvent(userId, NOW.minusSeconds(120));
 
@@ -386,6 +526,16 @@ class AuthApplicationServiceTest {
         return new UserRestoredEvent(UUID.randomUUID(), UUID.randomUUID(), userId, UUID.randomUUID(), occurredAt);
     }
 
+    private void registerVerified(String email) {
+        service.register(new RegisterCommand(email, VALID_PASSWORD));
+        service.verifyEmail(new VerifyEmailCommand(emailVerificationSender.tokenFor(email)));
+    }
+
+    private AuthResult registerVerifiedAndLogin(String email) {
+        registerVerified(email);
+        return service.login(new LoginCommand(email, VALID_PASSWORD));
+    }
+
     // --- Fakes -----------------------------------------------------------
 
     private static final class FakeAuthUserRepository implements AuthUserRepository {
@@ -405,6 +555,13 @@ class AuthApplicationServiceTest {
         @Override
         public Optional<AuthUser> findByEmail(String email) {
             return byId.values().stream().filter(u -> u.email().equals(email)).findFirst();
+        }
+
+        @Override
+        public Optional<AuthUser> findByEmailVerificationTokenHash(String tokenHash) {
+            return byId.values().stream()
+                    .filter(u -> tokenHash.equals(u.emailVerificationTokenHash()))
+                    .findFirst();
         }
 
         @Override
@@ -497,6 +654,116 @@ class AuthApplicationServiceTest {
         @Override
         public String hash(String rawToken) {
             return "rh:" + rawToken;
+        }
+    }
+
+    private static final class FakeEmailVerificationSender implements EmailVerificationSender {
+        private final Map<String, String> tokens = new HashMap<>();
+
+        @Override
+        public void sendVerificationLink(String email, String rawToken) {
+            tokens.put(email, rawToken);
+        }
+
+        String tokenFor(String email) {
+            return tokens.get(email);
+        }
+    }
+
+    private static final class FakeVerificationResendLimiter implements VerificationResendLimiter {
+        private final Map<String, Boolean> allowed = new HashMap<>();
+
+        @Override
+        public boolean tryAcquire(String normalizedEmail) {
+            return allowed.getOrDefault(normalizedEmail, true);
+        }
+
+        void allow(String email) {
+            allowed.put(email, true);
+        }
+
+        void deny(String email) {
+            allowed.put(email, false);
+        }
+    }
+
+    private static final class FakeLoginFailureTracker implements LoginFailureTracker {
+        private final Map<String, Long> failures = new HashMap<>();
+        private final Map<String, Instant> lockedUntil = new HashMap<>();
+
+        @Override
+        public boolean isLocked(String normalizedEmail, Instant now) {
+            Instant until = lockedUntil.get(normalizedEmail);
+            if (until == null) {
+                return false;
+            }
+            if (now.isBefore(until)) {
+                return true;
+            }
+            lockedUntil.remove(normalizedEmail);
+            return false;
+        }
+
+        @Override
+        public LoginFailureOutcome recordFailure(String normalizedEmail, Instant now) {
+            long count = failures.merge(normalizedEmail, 1L, Long::sum);
+            Duration lockDuration = lockDurationFor(count);
+            if (lockDuration.isZero()) {
+                return new LoginFailureOutcome(count, false, null);
+            }
+            Instant until = now.plus(lockDuration);
+            lockedUntil.put(normalizedEmail, until);
+            return new LoginFailureOutcome(count, true, until);
+        }
+
+        @Override
+        public void reset(String normalizedEmail) {
+            failures.remove(normalizedEmail);
+            lockedUntil.remove(normalizedEmail);
+        }
+
+        long failureCount(String normalizedEmail) {
+            return failures.getOrDefault(normalizedEmail, 0L);
+        }
+
+        private static Duration lockDurationFor(long failures) {
+            if (failures >= 20) {
+                return Duration.ofHours(1);
+            }
+            if (failures >= 10) {
+                return Duration.ofMinutes(5);
+            }
+            if (failures >= 5) {
+                return Duration.ofSeconds(30);
+            }
+            return Duration.ZERO;
+        }
+    }
+
+    private static final class MutableClock extends Clock {
+        private Instant instant;
+
+        private MutableClock(Instant instant) {
+            this.instant = instant;
+        }
+
+        void advance(Duration duration) {
+            this.instant = instant.plus(duration);
+        }
+
+        @Override
+        public ZoneId getZone() {
+            return ZoneOffset.UTC;
+        }
+
+        @Override
+        public Clock withZone(ZoneId zone) {
+            return this;
+        }
+
+        @Override
+        public Instant instant() {
+            return instant;
         }
     }
 

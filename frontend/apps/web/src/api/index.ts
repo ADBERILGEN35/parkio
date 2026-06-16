@@ -33,13 +33,13 @@ export const moderationApi = createModerationApi(apiClient);
 export const analyticsApi = createAnalyticsApi(apiClient);
 
 setRefreshHandler(async () => {
-  const refreshToken = webTokenStorage.getRefreshToken();
-  if (!refreshToken) return null;
-
   try {
-    const result = await authApi.refresh({ refreshToken });
-    useAuthStore.getState().setSession(result.accessToken, result.refreshToken, result.user);
-    return result.accessToken;
+  const result = await authApi.refresh();
+  if (!result.accessToken) {
+    throw new Error('Refresh response did not include an access token.');
+  }
+  useAuthStore.getState().setSession(result.accessToken, result.user);
+  return result.accessToken;
   } catch {
     useAuthStore.getState().clearSession();
     return null;

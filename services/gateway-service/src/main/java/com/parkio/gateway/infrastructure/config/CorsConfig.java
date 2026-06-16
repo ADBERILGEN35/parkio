@@ -16,6 +16,9 @@ public class CorsConfig {
     @Bean
     public CorsWebFilter corsWebFilter(CorsProperties properties) {
         CorsConfiguration config = new CorsConfiguration();
+        if (properties.isAllowCredentials() && properties.getAllowedOrigins().contains("*")) {
+            throw new IllegalStateException("CORS credentials cannot be enabled with wildcard origins");
+        }
         config.setAllowedOrigins(properties.getAllowedOrigins());
         config.setAllowedMethods(properties.getAllowedMethods());
         config.setAllowedHeaders(properties.getAllowedHeaders());

@@ -13,7 +13,7 @@ describe('auth store — provisioning grace vs. suspension', () => {
   beforeEach(() => useAuthStore.getState().clearSession());
 
   it('markSuspended marks suspended for a real (non-provisioning) session', () => {
-    useAuthStore.getState().setSession('access', 'refresh', user);
+    useAuthStore.getState().setSession('access', user);
 
     useAuthStore.getState().markSuspended();
 
@@ -21,7 +21,7 @@ describe('auth store — provisioning grace vs. suspension', () => {
   });
 
   it('markSuspended is a no-op during the provisioning grace window', () => {
-    useAuthStore.getState().setSession('access', 'refresh', user);
+    useAuthStore.getState().setSession('access', user);
     useAuthStore.getState().beginProvisioning();
 
     useAuthStore.getState().markSuspended();
@@ -32,7 +32,7 @@ describe('auth store — provisioning grace vs. suspension', () => {
   });
 
   it('marks suspended again once provisioning ends (no global masking)', () => {
-    useAuthStore.getState().setSession('access', 'refresh', user);
+    useAuthStore.getState().setSession('access', user);
     useAuthStore.getState().beginProvisioning();
     useAuthStore.getState().endProvisioning();
 
@@ -42,13 +42,21 @@ describe('auth store — provisioning grace vs. suspension', () => {
   });
 
   it('setSession clears any prior provisioning/suspended flags', () => {
-    useAuthStore.getState().setSession('access', 'refresh', user);
+    useAuthStore.getState().setSession('access', user);
     useAuthStore.getState().beginProvisioning();
 
-    useAuthStore.getState().setSession('access-2', 'refresh-2', user);
+    useAuthStore.getState().setSession('access-2', user);
 
     const state = useAuthStore.getState();
     expect(state.provisioning).toBe(false);
     expect(state.suspended).toBe(false);
+  });
+
+  it('does not persist tokens to localStorage', () => {
+    useAuthStore.getState().setSession('access', user);
+
+    expect(localStorage.getItem('parkio.accessToken')).toBeNull();
+    expect(localStorage.getItem('parkio.refreshToken')).toBeNull();
+    expect(useAuthStore.getState().accessToken).toBe('access');
   });
 });

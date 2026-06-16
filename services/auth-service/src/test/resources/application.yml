@@ -19,6 +19,10 @@ spring:
     listener:
       # No broker in tests: do not start listener containers (the @KafkaListener consumer).
       auto-startup: false
+  data:
+    redis:
+      host: localhost
+      port: 6379
 
 # Mirror production actuator exposure (this file shadows the main application.yml).
 management:
@@ -35,6 +39,10 @@ parkio:
   gateway:
     internal-secret: test-only-parkio-gateway-internal-secret-0123456789
   security:
+    refresh-cookie:
+      allowed-origins: http://localhost:5173
+    email-verification:
+      log-token: true
     jwt:
       key-id: auth-test-key
       generate-ephemeral-key: true

@@ -25,6 +25,7 @@ export {
 export {
   ParkioApiError,
   AccountNotActiveError,
+  AccountNotVerifiedError,
   ForbiddenError,
   RateLimitError,
   UserStatusUnavailableError,

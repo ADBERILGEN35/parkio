@@ -1,32 +1,34 @@
-import { AccountNotActiveError, UnauthorizedError } from '@parkio/api-client';
+import { AccountNotActiveError } from '@parkio/api-client';
 import { useEffect } from 'react';
 import { authApi } from '@/api';
 import { useAuthStore } from './store';
 
-/** Restores the user profile when a persisted access token exists (page refresh). */
+/** Restores a session after reload by using the HttpOnly refresh cookie. */
 export function AuthBootstrap() {
   const accessToken = useAuthStore((s) => s.accessToken);
   const user = useAuthStore((s) => s.user);
-  const setUser = useAuthStore((s) => s.setUser);
+  const setSession = useAuthStore((s) => s.setSession);
   const clearSession = useAuthStore((s) => s.clearSession);
 
   useEffect(() => {
-    if (!accessToken || user) return;
+    if (accessToken || user) return;
 
     authApi
-      .me()
-      .then(setUser)
+      .refresh()
+      .then((result) => {
+        if (!result.accessToken) {
+          throw new Error('Refresh response did not include an access token.');
+        }
+        setSession(result.accessToken, result.user);
+      })
       .catch((error: unknown) => {
         // The api-client already marked the store suspended; keep the session
         // so the suspended screen (with logout) is shown instead of /login.
         if (error instanceof AccountNotActiveError) return;
 
-        // A surfaced 401 means the silent refresh already ran and failed
-        // (or no refresh token exists) — hard logout. Transient failures
-        // (network, 5xx) keep the stored tokens for the next attempt.
-        if (error instanceof UnauthorizedError) clearSession();
+        clearSession();
       });
-  }, [accessToken, user, setUser, clearSession]);
+  }, [accessToken, user, setSession, clearSession]);
 
   return null;
 }

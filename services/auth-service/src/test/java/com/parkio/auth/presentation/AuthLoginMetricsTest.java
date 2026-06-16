@@ -14,6 +14,7 @@ import com.parkio.auth.domain.Role;
 import com.parkio.auth.domain.RoleName;
 import com.parkio.auth.domain.exception.AuthErrorCode;
 import com.parkio.auth.domain.exception.AuthException;
+import com.parkio.auth.domain.exception.LoginLockedException;
 import com.parkio.auth.infrastructure.metrics.AuthMetrics;
 import com.parkio.auth.presentation.dto.LoginRequest;
 import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
@@ -21,10 +22,11 @@ import java.time.Instant;
 import java.util.Set;
 import java.util.UUID;
 import org.junit.jupiter.api.Test;
+import org.springframework.mock.web.MockHttpServletRequest;
 
 /**
- * Verifies {@code parkio.auth.login.{success,failure}.count} increment on the login
- * path — counters only, no PII tags.
+ * Verifies login outcome counters increment on the login path — counters only,
+ * no PII tags.
  */
 class AuthLoginMetricsTest {
 
@@ -32,19 +34,28 @@ class AuthLoginMetricsTest {
 
     private final AuthApplicationService authService = mock(AuthApplicationService.class);
     private final SimpleMeterRegistry registry = new SimpleMeterRegistry();
-    private final AuthController controller = new AuthController(authService, new AuthMetrics(registry));
+    private final AuthController controller = new AuthController(
+            authService, new AuthMetrics(registry), refreshCookieProperties());
 
     @Test
     void successfulLoginIncrementsSuccessCounter() {
-        AuthUser user = AuthUser.register(
-                "user@parkio.app", "hash", Set.of(new Role(UUID.randomUUID(), RoleName.USER)), NOW);
+        AuthUser user = new AuthUser(
+                UUID.randomUUID(),
+                "user@parkio.app",
+                "hash",
+                com.parkio.auth.domain.AuthUserStatus.ACTIVE,
+                null,
+                Set.of(new Role(UUID.randomUUID(), RoleName.USER)),
+                NOW,
+                null);
         when(authService.login(any(LoginCommand.class))).thenReturn(
                 new AuthResult(user, "access", NOW.plusSeconds(900), "refresh", NOW.plusSeconds(86400)));
 
-        controller.login(new LoginRequest("user@parkio.app", "secret-password"));
+        controller.login(new LoginRequest("user@parkio.app", "secret-password"), new MockHttpServletRequest());
 
-        assertThat(registry.counter("parkio.auth.login.success.count").count()).isEqualTo(1.0);
-        assertThat(registry.counter("parkio.auth.login.failure.count").count()).isZero();
+        assertThat(registry.counter("login_success").count()).isEqualTo(1.0);
+        assertThat(registry.counter("login_failures").count()).isZero();
+        assertThat(registry.counter("login_lockouts").count()).isZero();
     }
 
     @Test
@@ -52,10 +63,32 @@ class AuthLoginMetricsTest {
         when(authService.login(any(LoginCommand.class)))
                 .thenThrow(new AuthException(AuthErrorCode.INVALID_CREDENTIALS));
 
-        assertThatThrownBy(() -> controller.login(new LoginRequest("user@parkio.app", "wrong")))
+        assertThatThrownBy(() -> controller.login(
+                        new LoginRequest("user@parkio.app", "wrong"), new MockHttpServletRequest()))
                 .isInstanceOf(AuthException.class);
 
-        assertThat(registry.counter("parkio.auth.login.failure.count").count()).isEqualTo(1.0);
-        assertThat(registry.counter("parkio.auth.login.success.count").count()).isZero();
+        assertThat(registry.counter("login_failures").count()).isEqualTo(1.0);
+        assertThat(registry.counter("login_success").count()).isZero();
+        assertThat(registry.counter("login_lockouts").count()).isZero();
+    }
+
+    @Test
+    void lockedLoginIncrementsFailureAndLockoutCounters() {
+        when(authService.login(any(LoginCommand.class))).thenThrow(new LoginLockedException());
+
+        assertThatThrownBy(() -> controller.login(
+                        new LoginRequest("user@parkio.app", "wrong"), new MockHttpServletRequest()))
+                .isInstanceOf(AuthException.class)
+                .hasMessage(AuthErrorCode.INVALID_CREDENTIALS.defaultMessage());
+
+        assertThat(registry.counter("login_failures").count()).isEqualTo(1.0);
+        assertThat(registry.counter("login_lockouts").count()).isEqualTo(1.0);
+        assertThat(registry.counter("login_success").count()).isZero();
+    }
+
+    private static RefreshCookieProperties refreshCookieProperties() {
+        RefreshCookieProperties properties = new RefreshCookieProperties();
+        properties.setAllowedOrigins(java.util.List.of("http://localhost:5173"));
+        return properties;
     }
 }

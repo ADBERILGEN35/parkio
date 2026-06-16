@@ -14,6 +14,10 @@
 - Refresh tokens are opaque, stored only as hashes, rotated on use, and linked
   into token families. Reuse of an unexpired revoked token revokes the active
   family while returning only generic `401 INVALID_REFRESH_TOKEN` to the client.
+- Public registration must not create a fully active session until email is
+  verified. Store only hashed verification tokens, expire them, keep resend
+  responses enumeration-safe, and never log raw verification links outside
+  explicitly guarded dev/test configuration.
 
 ## Secrets & config
 
@@ -40,6 +44,13 @@
 ## Abuse & rate limiting
 
 - Rate-limit at `gateway-service` (per user/IP) and protect write/claim endpoints.
+- Protect login in `auth-service` with Redis-backed per-account failed-attempt
+  counters keyed by normalized email. Wrong password, unknown email and lockout
+  responses must remain indistinguishable to avoid account enumeration.
+- Registration passwords must be at least 12 characters, include lowercase,
+  uppercase and a digit, and reject a maintainable common-password deny-list.
+- Email verification resend is abuse-sensitive; throttle it in shared storage
+  such as Redis rather than in-memory process state.
 - Idempotency keys prevent duplicate-submission abuse (see `04`/`06`).
 - Trust Score and moderation gate risky actions; suspended/banned users are blocked
   at auth/gateway.

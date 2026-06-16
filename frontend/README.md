@@ -215,29 +215,58 @@ If CORS errors appear, confirm this value is set in `docker/.env` and restart th
 
 All auth calls go through the gateway (`VITE_API_BASE_URL`, **required** — defaults to
 `http://localhost:8080/api/v1`): `POST /auth/register`, `POST /auth/login`,
+`POST /auth/verify-email`, `POST /auth/resend-verification`,
 `POST /auth/refresh-token`, `POST /auth/logout`, `GET /auth/me`.
 
 ### Auth flow
 
-- Login/register return `accessToken` + `refreshToken` + expiry timestamps + `user`
-  (`id`, `email`, `roles`, `status`). On success the app persists tokens, stores
-  user/roles/status in the auth store and redirects to `/map`.
-- Tokens persist in `localStorage` via `LocalStorageTokenStorage` (the only token
-  storage abstraction — tokens are never stored elsewhere).
+- Login for verified accounts returns `accessToken` + expiry timestamps + `user`
+  (`id`, `email`, `roles`, `status`). The refresh token is set by auth-service as
+  an HttpOnly `Secure` `SameSite=Strict` cookie and is not exposed to JavaScript.
+- Registration creates a `PENDING_VERIFICATION` account and returns the same
+  response envelope with `null` token fields. It does not authenticate the SPA or
+  set a refresh cookie. The user lands on `/check-email` and signs in only after
+  email verification succeeds.
+- The SPA keeps the access token in memory only via `MemoryOnlyTokenStorage`.
+  No access or refresh token is persisted in `localStorage`; `clearSession()` also
+  removes legacy `parkio.accessToken` / `parkio.refreshToken` keys from older builds.
 - The API client attaches `Authorization: Bearer <accessToken>` and a fresh `X-Correlation-Id` per request.
-- On app start (`AuthBootstrap`): if an access token exists, `GET /auth/me` restores the
-  profile. A `401` triggers one silent refresh (via the interceptor); if that refresh
-  fails, the session is cleared (hard logout). Transient failures (network, 5xx) keep
-  the stored tokens for the next attempt.
-- Logout calls `POST /auth/logout` with the stored refresh token (if present), then
-  **always** clears local auth state — even if the backend call fails — and lands on `/login`.
+- Cookie-backed auth calls use browser credentials (`withCredentials: true`). CORS
+  must allow credentials only for the trusted frontend origin; wildcard origins are
+  invalid for this flow.
+- On app start (`AuthBootstrap`): the app calls `POST /auth/refresh-token` with the
+  HttpOnly cookie. Success restores access-token memory state and the user profile;
+  failure clears local auth state.
+- Logout calls `POST /auth/logout` with the HttpOnly refresh cookie, then **always**
+  clears local auth state — even if the backend call fails — and lands on `/login`.
 - Roles/status come from the backend `user` object only; the JWT is never decoded client-side.
+- Registration shows live password guidance that mirrors auth-service policy:
+  12+ characters, lowercase, uppercase, digit and not an obvious common password.
+  Login failures and account lockouts use the same generic invalid-credentials
+  copy; the frontend does not expose lock state details. Login for an unverified
+  account shows the friendly `Please verify your email before signing in.` copy
+  and still does not store any token.
+
+### Email verification UX
+
+- `/check-email` is shown after registration and supports a resend action through
+  `POST /auth/resend-verification`. The response is intentionally generic so the
+  UI cannot reveal whether an email exists, is verified, or is rate-limited.
+- `/verify-email?token=...` submits the token to `POST /auth/verify-email` and
+  displays success or failure. A successful verification does not create a
+  browser session; the user signs in normally so auth-service can issue the
+  access token and HttpOnly refresh cookie.
+- Local development uses auth-service's guarded logging sender
+  (`parkio.security.email-verification.log-token=true`) to print verification
+  links. Hosted beta and production must use a real email provider or keep
+  registration closed to tester-controlled accounts.
 
 ### Refresh behavior
 
 - On a `401` from a protected request, the interceptor calls `POST /auth/refresh-token`
-  once (single in-flight refresh shared across concurrent 401s), stores the rotated
-  token pair and retries the original request once.
+  once (single in-flight refresh shared across concurrent 401s), stores the new
+  access token in memory and retries the original request once. The rotated refresh
+  token is delivered only as a replacement HttpOnly cookie.
 - 401s from `/auth/login`, `/auth/register`, `/auth/refresh-token` and `/auth/logout`
   never trigger a refresh (invalid credentials / invalid refresh token — retrying would loop).
 
@@ -247,8 +276,15 @@ The session is cleared (tokens removed, state reset) when:
 
 - the silent refresh fails for any reason — the backend rotates refresh tokens and
   revokes the whole family on reuse, so any refresh failure is unrecoverable;
-- `/auth/me` on app start returns `401` after the refresh attempt;
+- cookie-backed bootstrap refresh fails;
 - the user signs out.
+
+### Local dev cookie behavior
+
+Production uses `Secure` refresh cookies. The auth-service `dev` profile sets
+`PARKIO_REFRESH_COOKIE_SECURE=false` by default so the local Vite app can exercise
+the cookie flow over `http://localhost:5173`. Hosted beta and production must keep
+`PARKIO_REFRESH_COOKIE_SECURE=true`.
 
 ### Suspended accounts
 
@@ -257,16 +293,19 @@ The session is cleared (tokens removed, state reset) when:
 - No automatic retries are made; the only available action is sign out (which clears
   the suspended state and returns to `/login`).
 
-### Post-register provisioning grace
+### Post-verification provisioning grace
 
-The backend returns tokens and `status=ACTIVE` immediately on `POST /auth/register`, but
-the user-service profile/status is provisioned **asynchronously** (a Kafka `UserRegistered`
-event). For a few seconds afterwards a protected call can return `403 ACCOUNT_NOT_ACTIVE`
+The backend emits the user-service provisioning event when `POST /auth/register`
+creates the pending auth user, but the SPA has no session until the user verifies
+email and signs in. On the first successful login after a registration started in
+this browser, the app may still need to wait for user-service profile/status
+projection. For a few seconds a protected call can return `403 ACCOUNT_NOT_ACTIVE`
 even though the account is not actually suspended.
 
-To avoid flashing the **Account suspended** screen at brand-new users, register hands off
-to a short-lived **"Preparing your account"** screen (`/preparing`) instead of going
-straight to `/map`:
+To avoid flashing the **Account suspended** screen at newly verified users, the
+first verified login after local registration hands off to a short-lived
+**"Preparing your account"** screen (`/preparing`) instead of going straight to
+`/map`:
 
 - The auth store enters a scoped `provisioning` grace window (`beginProvisioning()`), during
   which `markSuspended()` is a **no-op** — so `403 ACCOUNT_NOT_ACTIVE` does not flip the
@@ -277,7 +316,8 @@ straight to `/map`:
 - The grace is **strictly scoped** to this flow: it is cleared on success, on sign-out, and
   on any `setSession`/`clearSession`. `ACCOUNT_NOT_ACTIVE` is **not** globally ignored — a
   genuinely suspended account hitting login/session still flips `suspended` and sees the
-  **Account suspended** screen as before.
+  **Account suspended** screen as before. `ACCOUNT_NOT_VERIFIED` is handled separately as
+  a sign-in guidance message, not as suspension.
 
 ### Extended registration profile capture (beta)
 
@@ -287,7 +327,8 @@ sends. To improve onboarding, the register form additionally collects **Full nam
 (`registerProfileSchema`: displayName 2–50, phone ≤32, passwords must match, terms required).
 
 - The extra fields are **never** sent to `/auth/register`. After registration succeeds they
-  are stashed in `sessionStorage` (`auth/pendingProfile.ts`) through the `/preparing` handoff.
+  are stashed in `sessionStorage` (`auth/pendingProfile.ts`) through the
+  `/check-email` and post-verification login handoff.
 - Once provisioning completes, `AccountPreparingPage` shows **"Saving your profile details…"**
   and persists them via `PATCH /users/me` (`displayName`, `phoneNumber`).
 - A failed profile save is **non-fatal**: the pending data is cleared and a soft

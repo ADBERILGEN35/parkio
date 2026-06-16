@@ -142,6 +142,21 @@ workflows use least-privilege `contents: read` permissions, depend on no secrets
 and have job timeouts; integration runs are de-duplicated per ref via a
 `concurrency` group. Integration test reports are uploaded on failure.
 
+**[`frontend-ci.yml`](.github/workflows/frontend-ci.yml) — the frontend gate.**
+On PRs/pushes that touch `frontend/**` it runs typecheck, lint, unit tests (vitest)
+and the production build across the pnpm workspace (least-privilege `contents: read`,
+20-min timeout, path-filtered so backend-/docs-only PRs skip it). Playwright e2e is
+intentionally excluded from this fast gate.
+
+**[`backup-restore-drill.yml`](.github/workflows/backup-restore-drill.yml) — the
+disaster-recovery drill.** Brings up the postgres/postgis containers and runs
+[`scripts/restore-drill.sh`](scripts/restore-drill.sh): seed canary → real backup →
+real restore → assert the data **and** parking's PostGIS objects (extension, GiST
+index, location trigger, live spatial query) survive the round-trip. Runs weekly, on
+demand, and on PRs that change the backup scripts, the compose stack, or the parking
+migrations. This makes "are our backups actually restorable?" a continuously-proven,
+repeatable fact instead of a one-off manual ritual.
+
 [`.github/dependabot.yml`](.github/dependabot.yml) raises conservative weekly
 update PRs for Gradle dependencies and the GitHub Actions used by CI.
 

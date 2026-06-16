@@ -6,11 +6,10 @@ export interface User {
 }
 
 export interface AuthResponse {
-  accessToken: string;
+  accessToken: string | null;
   tokenType: string;
-  accessTokenExpiresAt: string;
-  refreshToken: string;
-  refreshTokenExpiresAt: string;
+  accessTokenExpiresAt: string | null;
+  refreshTokenExpiresAt: string | null;
   user: User;
 }
 
@@ -24,10 +23,14 @@ export interface RegisterRequest {
   password: string;
 }
 
-export interface RefreshTokenRequest {
-  refreshToken: string;
+export interface VerifyEmailRequest {
+  token: string;
 }
 
-export interface LogoutRequest {
-  refreshToken: string;
+export interface ResendVerificationRequest {
+  email: string;
 }
+
+export type RefreshTokenRequest = Record<string, never>;
+
+export type LogoutRequest = Record<string, never>;

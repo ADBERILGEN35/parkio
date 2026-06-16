@@ -23,6 +23,11 @@ public final class AuthUser {
     private String passwordHash;
     private AuthUserStatus status;
     private Instant statusChangedAt;
+    private boolean emailVerified;
+    private Instant emailVerifiedAt;
+    private String emailVerificationTokenHash;
+    private Instant emailVerificationExpiresAt;
+    private Instant emailVerificationSentAt;
     private final Set<Role> roles;
     private final Instant createdAt;
     private final Long version;
@@ -32,6 +37,11 @@ public final class AuthUser {
                     String passwordHash,
                     AuthUserStatus status,
                     Instant statusChangedAt,
+                    boolean emailVerified,
+                    Instant emailVerifiedAt,
+                    String emailVerificationTokenHash,
+                    Instant emailVerificationExpiresAt,
+                    Instant emailVerificationSentAt,
                     Set<Role> roles,
                     Instant createdAt,
                     Long version) {
@@ -40,25 +50,62 @@ public final class AuthUser {
         this.passwordHash = Objects.requireNonNull(passwordHash, "passwordHash");
         this.status = Objects.requireNonNull(status, "status");
         this.statusChangedAt = statusChangedAt;
+        this.emailVerified = emailVerified;
+        this.emailVerifiedAt = emailVerifiedAt;
+        this.emailVerificationTokenHash = emailVerificationTokenHash;
+        this.emailVerificationExpiresAt = emailVerificationExpiresAt;
+        this.emailVerificationSentAt = emailVerificationSentAt;
         this.roles = new LinkedHashSet<>(Objects.requireNonNull(roles, "roles"));
         this.createdAt = Objects.requireNonNull(createdAt, "createdAt");
         this.version = version;
     }
 
+    public AuthUser(UUID id,
+                    String email,
+                    String passwordHash,
+                    AuthUserStatus status,
+                    Instant statusChangedAt,
+                    Set<Role> roles,
+                    Instant createdAt,
+                    Long version) {
+        this(
+                id,
+                email,
+                passwordHash,
+                status,
+                statusChangedAt,
+                status != AuthUserStatus.PENDING_VERIFICATION,
+                status != AuthUserStatus.PENDING_VERIFICATION ? createdAt : null,
+                null,
+                null,
+                null,
+                roles,
+                createdAt,
+                version);
+    }
+
     /**
-     * Registers a new, active account with the given (already hashed) password
-     * and initial roles. Email is normalised to lowercase.
+     * Registers a new account pending email verification. Email is normalised to
+     * lowercase.
      */
     public static AuthUser register(String email,
                                     String passwordHash,
+                                    String emailVerificationTokenHash,
+                                    Instant emailVerificationExpiresAt,
+                                    Instant emailVerificationSentAt,
                                     Set<Role> initialRoles,
                                     Instant now) {
         return new AuthUser(
                 UUID.randomUUID(),
                 normalizeEmail(email),
                 passwordHash,
-                AuthUserStatus.ACTIVE,
+                AuthUserStatus.PENDING_VERIFICATION,
                 null,
+                false,
+                null,
+                Objects.requireNonNull(emailVerificationTokenHash, "emailVerificationTokenHash"),
+                Objects.requireNonNull(emailVerificationExpiresAt, "emailVerificationExpiresAt"),
+                Objects.requireNonNull(emailVerificationSentAt, "emailVerificationSentAt"),
                 initialRoles,
                 now,
                 null);
@@ -66,9 +113,38 @@ public final class AuthUser {
 
     /** Guards authentication: the account must be allowed to authenticate. */
     public void ensureCanAuthenticate() {
+        if (status == AuthUserStatus.PENDING_VERIFICATION || !emailVerified) {
+            throw new AuthException(AuthErrorCode.ACCOUNT_NOT_VERIFIED);
+        }
         if (!status.canAuthenticate()) {
             throw new AuthException(AuthErrorCode.USER_NOT_ACTIVE);
         }
+    }
+
+    public void issueEmailVerificationToken(String tokenHash, Instant expiresAt, Instant sentAt) {
+        if (emailVerified) {
+            return;
+        }
+        this.emailVerificationTokenHash = Objects.requireNonNull(tokenHash, "tokenHash");
+        this.emailVerificationExpiresAt = Objects.requireNonNull(expiresAt, "expiresAt");
+        this.emailVerificationSentAt = Objects.requireNonNull(sentAt, "sentAt");
+    }
+
+    public boolean verifyEmail(Instant verifiedAt) {
+        Objects.requireNonNull(verifiedAt, "verifiedAt");
+        if (emailVerified) {
+            return false;
+        }
+        this.emailVerified = true;
+        this.emailVerifiedAt = verifiedAt;
+        if (status == AuthUserStatus.PENDING_VERIFICATION) {
+            this.status = AuthUserStatus.ACTIVE;
+        }
+        return true;
+    }
+
+    public boolean emailVerificationTokenExpired(Instant now) {
+        return emailVerificationExpiresAt == null || !emailVerificationExpiresAt.isAfter(now);
     }
 
     /**
@@ -121,6 +197,26 @@ public final class AuthUser {
 
     public AuthUserStatus status() {
         return status;
+    }
+
+    public boolean emailVerified() {
+        return emailVerified;
+    }
+
+    public Instant emailVerifiedAt() {
+        return emailVerifiedAt;
+    }
+
+    public String emailVerificationTokenHash() {
+        return emailVerificationTokenHash;
+    }
+
+    public Instant emailVerificationExpiresAt() {
+        return emailVerificationExpiresAt;
+    }
+
+    public Instant emailVerificationSentAt() {
+        return emailVerificationSentAt;
     }
 
     /** When the last applied moderation status event occurred; null if none yet. */

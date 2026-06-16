@@ -1,5 +1,60 @@
 import { z } from 'zod';
 
+export const weakPasswordDenyList = new Set([
+  'password',
+  'password1',
+  'password12',
+  'password123',
+  'password1234',
+  'password12345',
+  'qwerty',
+  'qwerty123',
+  'qwerty1234',
+  'admin',
+  'admin123',
+  'admin1234',
+  'letmein',
+  'welcome',
+  'welcome123',
+  '12345678',
+  '123456789',
+  '1234567890',
+  '11111111',
+  '00000000',
+]);
+
+export const passwordRequirements = [
+  { id: 'length', label: 'At least 12 characters' },
+  { id: 'lowercase', label: 'One lowercase letter' },
+  { id: 'uppercase', label: 'One uppercase letter' },
+  { id: 'digit', label: 'One number' },
+  { id: 'notCommon', label: 'Not a common password' },
+] as const;
+
+export function passwordRequirementState(password: string) {
+  const normalized = password.toLowerCase().replace(/[^a-z0-9]/g, '');
+  return {
+    length: password.length >= 12,
+    lowercase: /[a-z]/.test(password),
+    uppercase: /[A-Z]/.test(password),
+    digit: /\d/.test(password),
+    notCommon: password.length > 0 && !weakPasswordDenyList.has(normalized),
+  };
+}
+
+export function isStrongPassword(password: string) {
+  const state = passwordRequirementState(password);
+  return Object.values(state).every(Boolean);
+}
+
+const passwordSchema = z
+  .string()
+  .min(12, 'Password must be at least 12 characters')
+  .max(100)
+  .refine(isStrongPassword, {
+    message: 'Password must be at least 12 characters and include lowercase, uppercase, and a number',
+  });
+
 export const loginSchema = z.object({
   email: z.string().email('Enter a valid email'),
   password: z.string().min(1, 'Password is required'),
@@ -7,7 +62,7 @@ export const loginSchema = z.object({
 
 export const registerSchema = z.object({
   email: z.string().email('Enter a valid email').max(255),
-  password: z.string().min(8, 'Password must be at least 8 characters').max(100),
+  password: passwordSchema,
 });
 
 /**
@@ -30,7 +85,7 @@ export const registerProfileSchema = z
       .trim()
       .max(32, 'Phone number must be 32 characters or fewer')
       .optional(),
-    password: z.string().min(8, 'Password must be at least 8 characters').max(100),
+    password: passwordSchema,
     confirmPassword: z.string().min(1, 'Confirm your password'),
     termsAccepted: z.boolean().refine((value) => value === true, {
       message: 'You must accept the terms to continue',

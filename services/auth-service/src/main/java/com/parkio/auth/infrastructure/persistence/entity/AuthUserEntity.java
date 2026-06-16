@@ -42,6 +42,21 @@ public class AuthUserEntity {
     @Column(name = "status_changed_at")
     private Instant statusChangedAt;
 
+    @Column(name = "email_verified", nullable = false)
+    private boolean emailVerified;
+
+    @Column(name = "email_verified_at")
+    private Instant emailVerifiedAt;
+
+    @Column(name = "email_verification_token_hash", unique = true)
+    private String emailVerificationTokenHash;
+
+    @Column(name = "email_verification_expires_at")
+    private Instant emailVerificationExpiresAt;
+
+    @Column(name = "email_verification_sent_at")
+    private Instant emailVerificationSentAt;
+
     @ManyToMany(fetch = FetchType.EAGER)
     @JoinTable(
             name = "auth_user_roles",
@@ -65,6 +80,11 @@ public class AuthUserEntity {
                           String passwordHash,
                           AuthUserStatus status,
                           Instant statusChangedAt,
+                          boolean emailVerified,
+                          Instant emailVerifiedAt,
+                          String emailVerificationTokenHash,
+                          Instant emailVerificationExpiresAt,
+                          Instant emailVerificationSentAt,
                           Set<RoleEntity> roles,
                           Instant createdAt,
                           Long version) {
@@ -73,6 +93,11 @@ public class AuthUserEntity {
         this.passwordHash = passwordHash;
         this.status = status;
         this.statusChangedAt = statusChangedAt;
+        this.emailVerified = emailVerified;
+        this.emailVerifiedAt = emailVerifiedAt;
+        this.emailVerificationTokenHash = emailVerificationTokenHash;
+        this.emailVerificationExpiresAt = emailVerificationExpiresAt;
+        this.emailVerificationSentAt = emailVerificationSentAt;
         this.roles = roles;
         this.createdAt = createdAt;
         this.version = version;
@@ -96,6 +121,26 @@ public class AuthUserEntity {
 
     public Instant getStatusChangedAt() {
         return statusChangedAt;
+    }
+
+    public boolean isEmailVerified() {
+        return emailVerified;
+    }
+
+    public Instant getEmailVerifiedAt() {
+        return emailVerifiedAt;
+    }
+
+    public String getEmailVerificationTokenHash() {
+        return emailVerificationTokenHash;
+    }
+
+    public Instant getEmailVerificationExpiresAt() {
+        return emailVerificationExpiresAt;
+    }
+
+    public Instant getEmailVerificationSentAt() {
+        return emailVerificationSentAt;
     }
 
     public Set<RoleEntity> getRoles() {

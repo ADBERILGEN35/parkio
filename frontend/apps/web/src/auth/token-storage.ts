@@ -1,27 +1,22 @@
 import type { StoredTokens, TokenStorage } from '@parkio/api-client';
 
-const ACCESS_KEY = 'parkio.accessToken';
-const REFRESH_KEY = 'parkio.refreshToken';
+/** Web implementation — access token is memory-only; refresh token is an HttpOnly cookie. */
+export class MemoryOnlyTokenStorage implements TokenStorage {
+  private accessToken: string | null = null;
 
-/** Web implementation — persists tokens in localStorage. */
-export class LocalStorageTokenStorage implements TokenStorage {
   getAccessToken(): string | null {
-    return localStorage.getItem(ACCESS_KEY);
-  }
-
-  getRefreshToken(): string | null {
-    return localStorage.getItem(REFRESH_KEY);
+    return this.accessToken;
   }
 
   setTokens(tokens: StoredTokens): void {
-    localStorage.setItem(ACCESS_KEY, tokens.accessToken);
-    localStorage.setItem(REFRESH_KEY, tokens.refreshToken);
+    this.accessToken = tokens.accessToken;
   }
 
   clearTokens(): void {
-    localStorage.removeItem(ACCESS_KEY);
-    localStorage.removeItem(REFRESH_KEY);
+    this.accessToken = null;
+    localStorage.removeItem('parkio.accessToken');
+    localStorage.removeItem('parkio.refreshToken');
   }
 }
 
-export const webTokenStorage = new LocalStorageTokenStorage();
+export const webTokenStorage = new MemoryOnlyTokenStorage();

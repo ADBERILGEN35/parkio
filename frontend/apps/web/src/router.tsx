@@ -7,9 +7,11 @@ import { RouteFallback } from '@/components/RouteFallback';
 // Eager: entry/auth routes and the default landing map keep the first paint fast
 // without an extra chunk round-trip.
 import { AccountPreparingPage } from '@/pages/AccountPreparingPage';
+import { CheckEmailPage } from '@/pages/CheckEmailPage';
 import { LoginPage } from '@/pages/LoginPage';
 import { MapPage } from '@/pages/MapPage';
 import { RegisterPage } from '@/pages/RegisterPage';
+import { VerifyEmailPage } from '@/pages/VerifyEmailPage';
 
 // Lazy: secondary routes are split into their own chunks to shrink the initial bundle.
 const SpotDetailPage = lazy(() =>
@@ -50,6 +52,8 @@ export const router = createBrowserRouter([
   { path: '/', element: <Navigate to="/map" replace /> },
   { path: '/login', element: <LoginPage /> },
   { path: '/register', element: <RegisterPage /> },
+  { path: '/check-email', element: <CheckEmailPage /> },
+  { path: '/verify-email', element: <VerifyEmailPage /> },
   {
     element: <ProtectedRoute />,
     children: [

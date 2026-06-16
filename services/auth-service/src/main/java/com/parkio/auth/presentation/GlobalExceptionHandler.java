@@ -15,6 +15,7 @@ import org.springframework.orm.ObjectOptimisticLockingFailureException;
 import org.springframework.web.bind.MethodArgumentNotValidException;
 import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.RestControllerAdvice;
+import org.springframework.web.server.ResponseStatusException;
 
 /**
  * Maps domain {@link AuthException}s, validation failures and infrastructure
@@ -57,6 +58,15 @@ public class GlobalExceptionHandler {
         return ResponseEntity.badRequest().body(body);
     }
 
+    @ExceptionHandler(ResponseStatusException.class)
+    public ResponseEntity<ApiError> handleResponseStatus(ResponseStatusException ex) {
+        ApiError body = ApiError.of(
+                "FORBIDDEN",
+                ex.getReason() == null ? "Request is forbidden." : ex.getReason(),
+                clock.instant());
+        return ResponseEntity.status(ex.getStatusCode()).body(body);
+    }
+
     /**
      * Concurrent refresh of the same token loses its optimistic-lock race. Keep
      * the client-facing result indistinguishable from any other invalid refresh.
@@ -91,6 +101,9 @@ public class GlobalExceptionHandler {
         return switch (code) {
             case EMAIL_ALREADY_EXISTS -> HttpStatus.CONFLICT;
             case INVALID_CREDENTIALS, INVALID_REFRESH_TOKEN -> HttpStatus.UNAUTHORIZED;
+            case ACCOUNT_NOT_VERIFIED -> HttpStatus.FORBIDDEN;
+            case INVALID_VERIFICATION_TOKEN -> HttpStatus.BAD_REQUEST;
+            case WEAK_PASSWORD -> HttpStatus.BAD_REQUEST;
             case USER_NOT_ACTIVE -> HttpStatus.FORBIDDEN;
             case USER_NOT_FOUND -> HttpStatus.NOT_FOUND;
         };

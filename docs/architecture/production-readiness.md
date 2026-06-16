@@ -100,17 +100,22 @@ PostGIS is required by `parking-service`; everything else is plain Postgres 16.
   - Keep separate instances only where load profiles diverge sharply (e.g. analytics write-heavy).
 - **Backups + PITR.** Enable provider automated backups with **Point-In-Time Recovery** (WAL
   archiving), retention ≥ 7 days (beta) / ≥ 30 days (prod).
-  - **VPS beta interim — implemented; live drill pending.** `scripts/backup-databases.sh` (nightly
-    cron) dumps all nine service DBs (timestamped gzip; optional AES-256 + offsite via `mc`),
+  - **VPS beta interim — implemented; restore drill automated.** `scripts/backup-databases.sh`
+    (nightly cron) dumps all nine service DBs (timestamped gzip; optional AES-256 + offsite via `mc`),
     `scripts/restore-database.sh` performs a guarded single-DB restore, and
     `scripts/verify-backup.sh` proves a dump is restorable by restoring into a **disposable temp
-    database** (no live-data risk). The script **plumbing is validated** — argument/service
-    resolution, gzip + real AES-256 encrypt→decrypt round-trip, suffix-based decode dispatch, the
-    confirmation/`--yes` safety prompt, and every failure path (dump error, unknown service, missing
-    file, missing passphrase) all behave correctly. **Still required before relying on it:** run the
-    real restore drill on the VPS against live Docker + Postgres (the actual schema apply, including
-    the PostGIS `parking` DB — extension, GiST index, location trigger), which a Docker-less box
-    cannot exercise. Runbook + restore-drill checklist in `docker/README.md`.
+    database** (no live-data risk). The end-to-end **restore drill is now a single script**
+    (`scripts/restore-drill.sh`) **and runs in CI** (`.github/workflows/backup-restore-drill.yml`,
+    weekly + on PRs touching the backup scripts / compose / parking migrations + on demand): it
+    seeds a canary row into every service DB, runs the real backup, restores each dump into a
+    disposable `*_drill_*` DB, and **asserts the canary survives** — and for `parking` asserts the
+    real PostGIS objects restore (the `postgis` extension, the `idx_parking_spots_location` GiST
+    index, the `trg_parking_spots_sync_location` trigger) and that a live spatial query still works
+    (applying the real `V*.sql` migrations first when the schema is absent). This proves
+    restorability on real postgres/postgis images on every run. **Still recommended before relying
+    on it in production:** run the drill once **on the actual VPS host** against the live data path,
+    and verify a dump pulled back from the **offsite** copy (`BACKUP_MC_DEST`), not just the local
+    file. Runbook in `docker/README.md`.
   - **RPO/RTO (beta):** RPO ≈ 24h (nightly logical dumps; no point-in-time recovery between dumps —
     shorten the interval to reduce it); RTO ≈ minutes per DB. Managed PITR + Multi-AZ failover is
     still required for public production (logical dumps are a stop-gap, not HA).
@@ -234,8 +239,59 @@ Today: secrets live only in git-ignored `.env`. Good hygiene, but not a producti
   (comma-separated previous secrets) on the downstream services first so they accept old *or* new,
   flip the gateway to emit the new secret, then clear the accepted list. Comparisons are
   constant-time; a blank current secret still fails closed. Step-by-step runbook in `docker/README.md`.
-- **Headers.** Add standard security response headers at the proxy (HSTS, `X-Content-Type-Options`,
-  `Referrer-Policy`, a CSP for the SPA).
+- **Headers.** Hosted beta Caddy now sets SPA security headers including HSTS,
+  `Content-Security-Policy`, `X-Content-Type-Options`, `Referrer-Policy`, and a
+  conservative `Permissions-Policy`. Keep `connect-src` aligned with the API,
+  media and geocoding origins configured for the environment.
+
+## Auth token storage
+
+Sprint 1 hardening moves refresh tokens out of browser storage. auth-service
+sets the rotated refresh token as an HttpOnly `Secure` `SameSite=Strict` cookie
+scoped to the refresh/logout auth paths; the SPA stores only the short-lived
+access token in memory. Login/refresh JSON responses no longer expose the raw
+refresh token; registration for pending email verification does not issue a
+session. Refresh/logout additionally validate `Origin`/`Referer` against the
+trusted frontend origin allow-list before using the ambient cookie.
+
+## Auth brute-force and password hardening
+
+Sprint 2 adds auth-service account-level brute-force protection on top of the
+gateway's Redis token-bucket limits. Failed login attempts are tracked in Redis
+by normalized email so protection works across multiple auth-service instances:
+5 failures locks the account key for 30 seconds, 10 failures for 5 minutes, and
+20 failures for 1 hour. Successful login clears the account counter. Client
+responses for wrong password, unknown email and lockout stay the same generic
+`INVALID_CREDENTIALS` shape; logs and Micrometer counters distinguish failures
+and lockouts internally.
+
+Registration now enforces a 12-character minimum with at least one lowercase
+letter, one uppercase letter and one digit, plus a maintainable deny-list for
+obvious weak passwords such as `password123`, `qwerty123` and `admin123`.
+Symbols are allowed but not required. The frontend mirrors the same guidance
+with live validation feedback.
+
+## Auth email verification
+
+Sprint 3 changes public registration from immediate full activation to a
+verified-email lifecycle. auth-service creates new public accounts as
+`PENDING_VERIFICATION`, stores only a hash of the email verification token, and
+does not issue access/refresh tokens or a refresh cookie until the user verifies
+the email address. Login for pending accounts returns `403 ACCOUNT_NOT_VERIFIED`
+without minting a session. Verified accounts become `ACTIVE`; suspended accounts
+remain a separate moderation state and are not conflated with verification.
+
+Verification tokens expire after 24 hours by default. Resend is Redis-throttled,
+rotates the stored token hash for pending users, and returns the same accepted
+response for unknown, already verified, throttled and pending accounts so the
+endpoint cannot be used for account enumeration.
+
+The current sender is a local/dev-safe logging adapter. It logs raw links only
+when `parkio.security.email-verification.log-token=true` (dev/test), and token
+logging is disabled by default. Hosted beta can use the logged-link flow only for
+closed tester onboarding; public production requires an SMTP or transactional
+email provider adapter plus environment-specific sender configuration before
+open registration.
 
 ---
 
@@ -330,7 +386,7 @@ OIDC federation to the cloud provider where possible.
 | Public exposure | all service ports mapped | gateway-only; drop `8081–8089` | gateway-only; backends private | **Blocker** |
 | Secrets | git-ignored `.env` | unique strong values, off-repo | secrets manager + **rotation** *(zero-downtime rotation now implemented for JWT keys + gateway secret)* | High |
 | JWT/issuer/aud/CORS | dev defaults | set real values per env | set + verified; **key rotation runbook (done — `docker/README.md`)** | **Blocker** |
-| Postgres durability | single node, volume only | **automated backups + guarded restore/verify** *(scripts done & plumbing-validated — `scripts/backup-databases.sh` + `restore-database.sh` + `verify-backup.sh`; live VPS restore drill still pending)* | managed PITR + Multi-AZ failover | **Blocker** |
+| Postgres durability | single node, volume only | **automated backups + CI-proven restore drill** *(`scripts/backup-databases.sh` + `restore-database.sh` + `verify-backup.sh` + `restore-drill.sh`, the drill asserting data + parking PostGIS survive a real restore in `backup-restore-drill.yml`; run once on the VPS + verify the offsite copy before relying on it)* | managed PITR + Multi-AZ failover | **Blocker** |
 | Kafka durability | 1 broker, RF=1, ISR=1 | documented risk; backups of source-of-truth (outbox in DB) | managed RF≥3, `min.insync.replicas=2` | High (beta) / **Blocker** (prod) |
 | Object storage | single MinIO | private bucket + signed URLs (already) + backup | managed S3-compatible, versioning, lifecycle, CORS | High |
 | Redis | no auth/TLS | acceptable on private net | managed Redis + AUTH + TLS | Medium |
@@ -442,7 +498,9 @@ OIDC federation to the cloud provider where possible.
 2. ~~Add a hosted Compose overlay: no backend host ports, restart policy.~~ **Done** (`docker-compose.hosted-beta.yml`). Follow-up: add memory limits per service.
 3. ~~Add a TLS reverse proxy config for the gateway.~~ **Done** (`caddy/Caddyfile`).
 4. ~~Configure gateway forwarded-headers + trusted-proxy (config-only).~~ **Done** (framework strategy; see rate-limit caveat).
-5. Write the **DB backup + restore** scripts — **Done** (`backup-databases.sh` + `restore-database.sh` + `verify-backup.sh`, plumbing-validated); **run the live restore drill on the VPS** (pending).
+5. Write the **DB backup + restore** scripts and **restore drill** — **Done** (`backup-databases.sh` + `restore-database.sh` + `verify-backup.sh` + `restore-drill.sh`); the drill is **automated in CI** (`backup-restore-drill.yml`) and asserts data + parking PostGIS survive a real restore. Follow-up: run it once **on the VPS** and verify the **offsite** copy.
+5b. **Harden the Docker build context** — **Done** (`.dockerignore` at the repo root): every backend image builds from the repo root with `COPY . .`, so the ignore excludes `**/.env*`, `backups/`, `.git`, `node_modules`, `frontend/`, build output and docs — preventing secrets being baked into image layers and shrinking the context.
+5c. **Frontend CI gate** — **Done** (`frontend-ci.yml`): typecheck + lint + unit tests + production build for the pnpm workspace, path-filtered to `frontend/**`.
 6. Add a GitHub Actions **build-and-push** job (GHCR, `:sha` tags).
 7. ~~Add Prometheus alert rules for the beta alerts.~~ **Done** (`docker/prometheus/alerts.yml`:
    5 critical + 5 warning rules, wired via `rule_files`; hosted-beta Grafana dashboard bundled).

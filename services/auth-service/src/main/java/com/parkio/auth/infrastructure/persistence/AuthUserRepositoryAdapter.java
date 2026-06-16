@@ -36,6 +36,11 @@ public class AuthUserRepositoryAdapter implements AuthUserRepository {
     }
 
     @Override
+    public Optional<AuthUser> findByEmailVerificationTokenHash(String tokenHash) {
+        return jpa.findByEmailVerificationTokenHash(tokenHash).map(AuthPersistenceMapper::toDomain);
+    }
+
+    @Override
     public boolean existsByEmail(String email) {
         return jpa.existsByEmail(email);
     }
