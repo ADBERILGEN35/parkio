@@ -1,0 +1,199 @@
+{
+  "uid": "parkio-hosted-beta",
+  "title": "Parkio — Hosted Beta Overview",
+  "tags": ["parkio", "hosted-beta"],
+  "timezone": "browser",
+  "schemaVersion": 39,
+  "version": 1,
+  "refresh": "30s",
+  "time": { "from": "now-6h", "to": "now" },
+  "templating": { "list": [] },
+  "annotations": { "list": [] },
+  "panels": [
+    {
+      "id": 1,
+      "type": "stat",
+      "title": "Services down",
+      "gridPos": { "h": 5, "w": 6, "x": 0, "y": 0 },
+      "datasource": { "type": "prometheus", "uid": "parkio-prometheus" },
+      "options": { "reduceOptions": { "calcs": ["lastNotNull"] }, "colorMode": "background", "graphMode": "none" },
+      "fieldConfig": {
+        "defaults": {
+          "thresholds": { "mode": "absolute", "steps": [
+            { "color": "green", "value": null },
+            { "color": "red", "value": 1 }
+          ] }
+        },
+        "overrides": []
+      },
+      "targets": [
+        { "refId": "A", "datasource": { "type": "prometheus", "uid": "parkio-prometheus" }, "expr": "count(up{job=\"parkio-services\"} == 0)" }
+      ]
+    },
+    {
+      "id": 2,
+      "type": "stat",
+      "title": "Outbox dead-lettered (total)",
+      "gridPos": { "h": 5, "w": 6, "x": 6, "y": 0 },
+      "datasource": { "type": "prometheus", "uid": "parkio-prometheus" },
+      "options": { "reduceOptions": { "calcs": ["lastNotNull"] }, "colorMode": "background", "graphMode": "none" },
+      "fieldConfig": {
+        "defaults": {
+          "thresholds": { "mode": "absolute", "steps": [
+            { "color": "green", "value": null },
+            { "color": "red", "value": 1 }
+          ] }
+        },
+        "overrides": []
+      },
+      "targets": [
+        { "refId": "A", "datasource": { "type": "prometheus", "uid": "parkio-prometheus" }, "expr": "sum(parkio_outbox_deadlettered_count)" }
+      ]
+    },
+    {
+      "id": 3,
+      "type": "stat",
+      "title": "Oldest unpublished outbox age",
+      "gridPos": { "h": 5, "w": 6, "x": 12, "y": 0 },
+      "datasource": { "type": "prometheus", "uid": "parkio-prometheus" },
+      "options": { "reduceOptions": { "calcs": ["lastNotNull"] }, "colorMode": "background", "graphMode": "none" },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "s",
+          "thresholds": { "mode": "absolute", "steps": [
+            { "color": "green", "value": null },
+            { "color": "yellow", "value": 120 },
+            { "color": "red", "value": 300 }
+          ] }
+        },
+        "overrides": []
+      },
+      "targets": [
+        { "refId": "A", "datasource": { "type": "prometheus", "uid": "parkio-prometheus" }, "expr": "max(parkio_outbox_oldest_unpublished_age_seconds)" }
+      ]
+    },
+    {
+      "id": 4,
+      "type": "stat",
+      "title": "Gateway 429 rate (req/s)",
+      "gridPos": { "h": 5, "w": 6, "x": 18, "y": 0 },
+      "datasource": { "type": "prometheus", "uid": "parkio-prometheus" },
+      "options": { "reduceOptions": { "calcs": ["lastNotNull"] }, "colorMode": "background", "graphMode": "area" },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "reqps",
+          "thresholds": { "mode": "absolute", "steps": [
+            { "color": "green", "value": null },
+            { "color": "yellow", "value": 1 }
+          ] }
+        },
+        "overrides": []
+      },
+      "targets": [
+        { "refId": "A", "datasource": { "type": "prometheus", "uid": "parkio-prometheus" }, "expr": "sum(rate(parkio_gateway_rate_limit_rejected_count_total[5m]))" }
+      ]
+    },
+    {
+      "id": 5,
+      "type": "timeseries",
+      "title": "Service health (up)",
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 5 },
+      "datasource": { "type": "prometheus", "uid": "parkio-prometheus" },
+      "fieldConfig": { "defaults": { "min": 0, "max": 1, "custom": { "fillOpacity": 10 } }, "overrides": [] },
+      "targets": [
+        { "refId": "A", "datasource": { "type": "prometheus", "uid": "parkio-prometheus" }, "expr": "up{job=\"parkio-services\"}", "legendFormat": "{{service}}" }
+      ]
+    },
+    {
+      "id": 6,
+      "type": "timeseries",
+      "title": "Gateway 5xx ratio",
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 5 },
+      "datasource": { "type": "prometheus", "uid": "parkio-prometheus" },
+      "fieldConfig": { "defaults": { "unit": "percentunit", "min": 0, "custom": { "fillOpacity": 10 } }, "overrides": [] },
+      "targets": [
+        { "refId": "A", "datasource": { "type": "prometheus", "uid": "parkio-prometheus" }, "expr": "sum(rate(http_server_requests_seconds_count{service=\"gateway-service\",status=~\"5..\"}[5m])) / clamp_min(sum(rate(http_server_requests_seconds_count{service=\"gateway-service\"}[5m])), 1)", "legendFormat": "5xx ratio" }
+      ]
+    },
+    {
+      "id": 7,
+      "type": "timeseries",
+      "title": "Outbox dead-lettered by service",
+      "gridPos": { "h": 8, "w": 8, "x": 0, "y": 13 },
+      "datasource": { "type": "prometheus", "uid": "parkio-prometheus" },
+      "fieldConfig": { "defaults": { "min": 0, "custom": { "fillOpacity": 10 } }, "overrides": [] },
+      "targets": [
+        { "refId": "A", "datasource": { "type": "prometheus", "uid": "parkio-prometheus" }, "expr": "parkio_outbox_deadlettered_count", "legendFormat": "{{service}}" }
+      ]
+    },
+    {
+      "id": 8,
+      "type": "timeseries",
+      "title": "Outbox oldest unpublished age by service",
+      "gridPos": { "h": 8, "w": 8, "x": 8, "y": 13 },
+      "datasource": { "type": "prometheus", "uid": "parkio-prometheus" },
+      "fieldConfig": { "defaults": { "unit": "s", "min": 0, "custom": { "fillOpacity": 10 } }, "overrides": [] },
+      "targets": [
+        { "refId": "A", "datasource": { "type": "prometheus", "uid": "parkio-prometheus" }, "expr": "parkio_outbox_oldest_unpublished_age_seconds", "legendFormat": "{{service}}" }
+      ]
+    },
+    {
+      "id": 9,
+      "type": "timeseries",
+      "title": "Outbox unpublished backlog by service",
+      "gridPos": { "h": 8, "w": 8, "x": 16, "y": 13 },
+      "datasource": { "type": "prometheus", "uid": "parkio-prometheus" },
+      "fieldConfig": { "defaults": { "min": 0, "custom": { "fillOpacity": 10 } }, "overrides": [] },
+      "targets": [
+        { "refId": "A", "datasource": { "type": "prometheus", "uid": "parkio-prometheus" }, "expr": "parkio_outbox_unpublished_count", "legendFormat": "{{service}}" }
+      ]
+    },
+    {
+      "id": 10,
+      "type": "timeseries",
+      "title": "Auth logins (success vs failure /s)",
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 21 },
+      "datasource": { "type": "prometheus", "uid": "parkio-prometheus" },
+      "fieldConfig": { "defaults": { "unit": "reqps", "min": 0, "custom": { "fillOpacity": 10 } }, "overrides": [] },
+      "targets": [
+        { "refId": "A", "datasource": { "type": "prometheus", "uid": "parkio-prometheus" }, "expr": "sum(rate(parkio_auth_login_success_count_total[5m]))", "legendFormat": "success" },
+        { "refId": "B", "datasource": { "type": "prometheus", "uid": "parkio-prometheus" }, "expr": "sum(rate(parkio_auth_login_failure_count_total[5m]))", "legendFormat": "failure" }
+      ]
+    },
+    {
+      "id": 11,
+      "type": "timeseries",
+      "title": "Media uploads vs rejects (/s)",
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 21 },
+      "datasource": { "type": "prometheus", "uid": "parkio-prometheus" },
+      "fieldConfig": { "defaults": { "unit": "reqps", "min": 0, "custom": { "fillOpacity": 10 } }, "overrides": [] },
+      "targets": [
+        { "refId": "A", "datasource": { "type": "prometheus", "uid": "parkio-prometheus" }, "expr": "sum(rate(parkio_media_upload_count_total[5m]))", "legendFormat": "accepted" },
+        { "refId": "B", "datasource": { "type": "prometheus", "uid": "parkio-prometheus" }, "expr": "sum(rate(parkio_media_rejected_count_total[5m]))", "legendFormat": "rejected" }
+      ]
+    },
+    {
+      "id": 12,
+      "type": "timeseries",
+      "title": "JVM heap used / max by service",
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 29 },
+      "datasource": { "type": "prometheus", "uid": "parkio-prometheus" },
+      "fieldConfig": { "defaults": { "unit": "percentunit", "min": 0, "max": 1, "custom": { "fillOpacity": 10 } }, "overrides": [] },
+      "targets": [
+        { "refId": "A", "datasource": { "type": "prometheus", "uid": "parkio-prometheus" }, "expr": "sum by (service) (jvm_memory_used_bytes{area=\"heap\"}) / clamp_min(sum by (service) (jvm_memory_max_bytes{area=\"heap\"} > 0), 1)", "legendFormat": "{{service}}" }
+      ]
+    },
+    {
+      "id": 13,
+      "type": "timeseries",
+      "title": "DB pool — active & pending by service",
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 29 },
+      "datasource": { "type": "prometheus", "uid": "parkio-prometheus" },
+      "fieldConfig": { "defaults": { "min": 0, "custom": { "fillOpacity": 10 } }, "overrides": [] },
+      "targets": [
+        { "refId": "A", "datasource": { "type": "prometheus", "uid": "parkio-prometheus" }, "expr": "sum by (service) (hikaricp_connections_active)", "legendFormat": "{{service}} active" },
+        { "refId": "B", "datasource": { "type": "prometheus", "uid": "parkio-prometheus" }, "expr": "sum by (service) (hikaricp_connections_pending)", "legendFormat": "{{service}} pending" }
+      ]
+    }
+  ]
+}

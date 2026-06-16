@@ -1,0 +1,61 @@
+# Parkio hosted-beta TLS reverse proxy (Caddy v2).
+#
+# Caddy obtains and renews TLS certificates automatically via ACME (Let's Encrypt),
+# redirects HTTP->HTTPS, terminates TLS, and forwards X-Forwarded-For / X-Forwarded-Proto
+# / X-Forwarded-Host. It is the ONLY public entrypoint; everything else is private to the
+# Docker network. Hostnames and the ACME email come from the environment (set in .env and
+# injected by the hosted-beta compose overlay).
+#
+# DNS required (A/AAAA -> the VPS public IP):
+#   - {$PARKIO_DOMAIN}        (the API; -> gateway-service:8080)
+#   - {$PARKIO_MEDIA_DOMAIN}  (media; -> private MinIO, presigned GETs only)
+
+{
+	email {$PARKIO_ACME_EMAIL}
+	# To test against Let's Encrypt staging first (avoids prod rate limits), uncomment:
+	# acme_ca https://acme-staging-v02.api.letsencrypt.org/directory
+}
+
+# --------------------------------------------------------------------------- #
+# API — public entrypoint for the gateway. The gateway authenticates every     #
+# request, rate-limits, and injects trusted X-User-* headers.                  #
+# --------------------------------------------------------------------------- #
+{$PARKIO_DOMAIN} {
+	encode zstd gzip
+
+	# Allow image/multipart uploads (POST /api/v1/media/**). Caddy streams bodies; this is
+	# a sane cap aligned with the media-service multipart limit.
+	request_body {
+		max_size {$PARKIO_MAX_UPLOAD_SIZE:25MB}
+	}
+
+	# Baseline security headers (defense in depth; the SPA is hosted separately).
+	header {
+		Strict-Transport-Security "max-age=31536000; includeSubDomains"
+		X-Content-Type-Options "nosniff"
+		Referrer-Policy "strict-origin-when-cross-origin"
+		-Server
+	}
+
+	# Caddy preserves the client Host and sets X-Forwarded-For/Proto/Host by default.
+	reverse_proxy gateway-service:8080
+}
+
+# --------------------------------------------------------------------------- #
+# Media — public read host for presigned MinIO GET URLs. The bucket stays      #
+# PRIVATE; only time-limited SigV4 presigned URLs work. Caddy preserves the    #
+# Host header (default), which is required for SigV4 signature validation: the  #
+# media-service must sign URLs with PARKIO_MEDIA_STORAGE_PUBLIC_ENDPOINT set to #
+# https://{$PARKIO_MEDIA_DOMAIN} (the exact host the browser requests).         #
+# --------------------------------------------------------------------------- #
+{$PARKIO_MEDIA_DOMAIN} {
+	encode zstd gzip
+
+	header {
+		Strict-Transport-Security "max-age=31536000; includeSubDomains"
+		X-Content-Type-Options "nosniff"
+		-Server
+	}
+
+	reverse_proxy minio:9000
+}

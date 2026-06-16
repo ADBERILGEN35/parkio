@@ -98,6 +98,10 @@ parkio:
     # Shared secret required on every inbound request (X-Gateway-Auth) so only
     # gateway-originated traffic is accepted. No default â†’ fail closed if unset.
     internal-secret: ${PARKIO_GATEWAY_INTERNAL_SECRET}
+    # Optional comma-separated previous secrets also accepted during a rotation. The
+    # gateway always sends `internal-secret`; downstream accepts that plus these so the
+    # old and new secret overlap with no downtime. Empty when no rotation is in progress.
+    internal-accepted-secrets: ${PARKIO_GATEWAY_INTERNAL_ACCEPTED_SECRETS:}
   kafka:
     # Topic provisioning via NewTopic beans (KafkaTopicsConfig). Replication factor is
     # configurable for production; 1 is the local/dev default (single-broker compose).

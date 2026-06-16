@@ -158,6 +158,12 @@ parkio:
     # (fail closed, ai-context/07). Every downstream service must be configured with the
     # SAME secret. For local dev use the `dev` profile or export the env var.
     internal-secret: ${PARKIO_GATEWAY_INTERNAL_SECRET}
+    # Proxy-aware anonymous rate limiting. CIDRs/IPs of reverse proxies whose
+    # X-Forwarded-For may be trusted when deriving the client IP. EMPTY by default =
+    # trust nothing (key on the socket peer), so direct-to-gateway deployments are
+    # unaffected. NEVER include public ranges. Behind the hosted-beta Caddy proxy set
+    # PARKIO_TRUSTED_PROXIES to the Docker/proxy ranges (see docker/.env.hosted-beta.example).
+    trusted-proxies: ${PARKIO_TRUSTED_PROXIES:}
     cors:
       # Lock down to the real web/app origins in each environment. Empty by
       # default â†’ no cross-origin browser access is permitted (safe default).

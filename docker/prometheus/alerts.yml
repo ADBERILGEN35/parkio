@@ -1,0 +1,163 @@
+# Parkio — Prometheus alert rules (hosted-beta baseline).
+#
+# Thresholds are sized for a small, single-VPS beta (low traffic, RF=1 Kafka, single-node
+# DBs) — they detect production-impacting failure, not micro-optimisation. Tune per traffic.
+#
+# IMPORTANT: there is currently NO Alertmanager wired up (see docker/prometheus/prometheus.yml).
+# These rules evaluate and you can see firing alerts in the Prometheus UI
+# (Status -> Alerts / the /alerts page), but nothing is NOTIFIED (email/Slack/PagerDuty)
+# until an Alertmanager is added. See docs/architecture/observability-metrics.md.
+#
+# Metric catalogue: docs/architecture/observability-metrics.md. Counters render with a
+# `_total` suffix; dots become underscores (parkio.outbox.deadlettered.count ->
+# parkio_outbox_deadlettered_count).
+
+groups:
+  # ===================================================================== #
+  # CRITICAL — page-worthy: something is down or data delivery is failing. #
+  # ===================================================================== #
+  - name: parkio-critical
+    rules:
+      - alert: ServiceDown
+        # A scrape target has been unreachable for 2m (crash, OOM, deadlock, network).
+        expr: up{job="parkio-services"} == 0
+        for: 2m
+        labels:
+          severity: critical
+        annotations:
+          summary: "Service {{ $labels.service }} is down"
+          description: "Prometheus cannot scrape {{ $labels.service }} ({{ $labels.instance }}) for >2m. Check `docker compose ps` and the service logs."
+
+      - alert: GatewayHigh5xxRate
+        # >5% of edge responses are 5xx over 5m, sustained 10m. clamp_min avoids div-by-zero
+        # at low traffic (and keeps the ratio meaningless-but-safe when there are no requests).
+        expr: |
+          sum(rate(http_server_requests_seconds_count{service="gateway-service",status=~"5.."}[5m]))
+            / clamp_min(sum(rate(http_server_requests_seconds_count{service="gateway-service"}[5m])), 1)
+            > 0.05
+        for: 10m
+        labels:
+          severity: critical
+        annotations:
+          summary: "Gateway 5xx rate is high"
+          description: "More than 5% of gateway responses are 5xx over the last 5m. A downstream service is likely failing — check ServiceDown and per-service 5xx."
+
+      - alert: OutboxDeadlettered
+        # Any dead-lettered (poison) outbox row is actionable: a publish permanently failed
+        # parkio.kafka.relay.max-attempts times. See the runbook in observability-metrics.md.
+        expr: parkio_outbox_deadlettered_count > 0
+        for: 5m
+        labels:
+          severity: critical
+        annotations:
+          summary: "Dead-lettered outbox rows in {{ $labels.service }}"
+          description: "{{ $labels.service }} has {{ $value }} dead-lettered outbox row(s). Events are NOT being published. Follow the OutboxDeadlettered runbook (inspect failure_reason, fix, redrive)."
+
+      - alert: OutboxOldestUnpublishedTooOld
+        # The oldest relayable row is older than 5m -> the relay is not draining to Kafka
+        # (broker down/unreachable, relay stopped). Backlog count alone can be high under
+        # legitimate load, so age is the better "stuck" signal.
+        expr: parkio_outbox_oldest_unpublished_age_seconds > 300
+        for: 10m
+        labels:
+          severity: critical
+        annotations:
+          summary: "Outbox not draining in {{ $labels.service }}"
+          description: "Oldest unpublished outbox row in {{ $labels.service }} is {{ $value | humanizeDuration }} old. Check Kafka health and the relay logs."
+
+      - alert: DatabaseConnectionPoolExhausted
+        # Threads are blocked waiting for a HikariCP connection for 5m -> pool exhausted
+        # (slow queries, leak, or undersized pool). Gateway has no datasource (no series).
+        expr: hikaricp_connections_pending > 0
+        for: 5m
+        labels:
+          severity: critical
+        annotations:
+          summary: "DB pool exhausted in {{ $labels.service }} (pool {{ $labels.pool }})"
+          description: "{{ $value }} thread(s) waiting for a DB connection in {{ $labels.service }} for >5m. Check for slow queries / connection leaks or raise the pool size."
+
+  # ===================================================================== #
+  # WARNING — investigate soon; not necessarily an outage.                 #
+  # ===================================================================== #
+  - name: parkio-warning
+    rules:
+      - alert: HighJvmMemoryUsage
+        # Heap >90% for 10m. `> 0` filter drops pools that report max=-1 (undefined).
+        expr: |
+          sum by (service) (jvm_memory_used_bytes{area="heap"})
+            / clamp_min(sum by (service) (jvm_memory_max_bytes{area="heap"} > 0), 1)
+            > 0.9
+        for: 10m
+        labels:
+          severity: warning
+        annotations:
+          summary: "High heap usage in {{ $labels.service }}"
+          description: "{{ $labels.service }} heap is above 90% of max for >10m. Risk of GC thrash / OOM — review memory limits (JAVA_TOOL_OPTIONS MaxRAMPercentage) and load."
+
+      - alert: MediaUploadFailuresHigh
+        # >50% of upload attempts rejected over 15m -> client/integration breakage (some
+        # rejects are normal validation, a sustained majority is not).
+        expr: |
+          sum(rate(parkio_media_rejected_count_total[15m]))
+            / clamp_min(
+                sum(rate(parkio_media_rejected_count_total[15m]))
+                + sum(rate(parkio_media_upload_count_total[15m])), 1)
+            > 0.5
+        for: 15m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Most media uploads are being rejected"
+          description: "Over 50% of media upload attempts were rejected in the last 15m. Check validation rules, client behaviour, and media-service logs."
+
+      - alert: AuthLoginFailuresHigh
+        # Sustained high absolute login-failure rate (>0.2/s ~= 12/min) for 10m -> likely
+        # credential stuffing or a broken login path. Ratio-based would under-fire at the
+        # very low volumes typical of a closed beta, so this uses an absolute rate.
+        expr: sum(rate(parkio_auth_login_failure_count_total[5m])) > 0.2
+        for: 10m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Elevated login failures"
+          description: "Login failures exceed ~12/min over 10m. Possible credential stuffing or an auth outage — correlate with GatewayRateLimitSpike and auth-service logs."
+
+      - alert: GatewayRateLimitSpike
+        # >1/s (~60/min) requests rejected with 429 for 10m -> abuse or misconfigured limits.
+        expr: sum(rate(parkio_gateway_rate_limit_rejected_count_total[5m])) > 1
+        for: 10m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Gateway is rejecting many requests (429)"
+          description: "The edge rate limiter is rejecting >60 req/min over 10m. Investigate abuse, a noisy client, or limits that are too tight (PARKIO_RL_* envs)."
+
+      - alert: NotificationDeliveryFailuresHigh
+        # >50% of delivery attempts fail over 15m -> provider/credential/integration issue.
+        expr: |
+          sum(rate(parkio_notification_delivery_worker_failure_count_total[15m]))
+            / clamp_min(
+                sum(rate(parkio_notification_delivery_worker_failure_count_total[15m]))
+                + sum(rate(parkio_notification_delivery_worker_success_count_total[15m])), 1)
+            > 0.5
+        for: 15m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Notification delivery failure rate is high"
+          description: "Over 50% of notification delivery attempts failed in the last 15m. Check the delivery provider/credentials and notification-service logs."
+
+# ========================================================================= #
+# NOT ENABLED — required exporters are not part of the hosted-beta stack.    #
+# Documented here so the gap is explicit (see observability-metrics.md).     #
+#                                                                            #
+# KafkaConsumerLagHigh  — needs a Kafka exporter (kafka_consumergroup_lag);  #
+#   broker-level, not scraped today. Template:                               #
+#     expr: max by (consumergroup,topic) (kafka_consumergroup_lag) > 1000    #
+#     for: 10m  ; severity: critical                                         #
+#                                                                            #
+# DiskSpaceLow — needs node_exporter (node_filesystem_avail_bytes). Template:#
+#     expr: (node_filesystem_avail_bytes{mountpoint="/"}                     #
+#            / node_filesystem_size_bytes{mountpoint="/"}) < 0.10            #
+#     for: 10m  ; severity: critical                                         #
+# ========================================================================= #

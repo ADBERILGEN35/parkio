@@ -6,12 +6,19 @@ import com.parkio.auth.domain.AuthUser;
 import com.parkio.auth.domain.Role;
 import com.parkio.auth.shared.AuthPrincipal;
 import io.jsonwebtoken.Claims;
+import io.jsonwebtoken.Header;
+import io.jsonwebtoken.JwtException;
 import io.jsonwebtoken.Jws;
 import io.jsonwebtoken.Jwts;
+import io.jsonwebtoken.Locator;
+import io.jsonwebtoken.ProtectedHeader;
+import java.security.Key;
+import java.security.interfaces.RSAPublicKey;
 import java.time.Clock;
 import java.time.Instant;
 import java.util.Date;
 import java.util.List;
+import java.util.Map;
 import java.util.UUID;
 import org.springframework.stereotype.Component;
 
@@ -75,7 +82,7 @@ public class JwtService implements AccessTokenIssuer {
     @SuppressWarnings("unchecked")
     public AuthPrincipal parse(String token) {
         Jws<Claims> jws = Jwts.parser()
-                .verifyWith(keys.publicKey())
+                .keyLocator(verificationKeyLocator())
                 .requireIssuer(issuer)
                 .build()
                 .parseSignedClaims(token);
@@ -86,5 +93,28 @@ public class JwtService implements AccessTokenIssuer {
         List<String> roles = claims.get(CLAIM_ROLES, List.class);
         String status = claims.get(CLAIM_STATUS, String.class);
         return new AuthPrincipal(userId, email, roles == null ? List.of() : roles, status);
+    }
+
+    /**
+     * Selects the verification key by the token's {@code kid} from the active +
+     * previous (rotation) public keys. A token whose {@code kid} is unknown (or
+     * absent) is rejected — fail-closed, no silent fallback that could let an
+     * unverifiable token through.
+     */
+    private Locator<Key> verificationKeyLocator() {
+        Map<String, RSAPublicKey> verificationKeys = keys.verificationKeys();
+        return (Header header) -> {
+            String kid = header instanceof ProtectedHeader protectedHeader
+                    ? protectedHeader.getKeyId()
+                    : null;
+            if (kid == null) {
+                throw new JwtException("Access token is missing a key id (kid)");
+            }
+            RSAPublicKey key = verificationKeys.get(kid);
+            if (key == null) {
+                throw new JwtException("Unknown JWT key id");
+            }
+            return key;
+        };
     }
 }

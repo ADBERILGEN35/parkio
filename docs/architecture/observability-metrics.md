@@ -15,9 +15,11 @@ All metrics additionally carry an `application` tag
 `docker/prometheus/prometheus.yml` scrapes `/actuator/prometheus` from all ten
 services over the `parkio-backend` Docker network every 15s.
 
-- Prometheus UI: <http://localhost:9090> (Status → Targets shows per-service health)
-- Grafana: <http://localhost:3001> (Prometheus is provisioned as the default datasource;
-  build dashboards against the metric names below)
+- Prometheus UI: <http://localhost:9090> (Status → Targets shows per-service health;
+  `/alerts` shows alert-rule state)
+- Grafana: <http://localhost:3000> (`GRAFANA_PORT`, default 3000; Prometheus is the
+  provisioned default datasource and the "Parkio — Hosted Beta Overview" dashboard is
+  bundled — see Alerting & dashboards below)
 - Ad-hoc check: `curl http://localhost:8081/actuator/prometheus | grep parkio_`
 
 Spring Boot's built-in Micrometer bindings (JVM memory/GC, process CPU,
@@ -109,6 +111,103 @@ the apps just to count them would couple triage to runtime. Monitor at the broke
 
 Spring's Kafka client metrics (consumer fetch/commit rates) are exported per service
 via the automatic Micrometer binding and complement the broker-side view.
+
+## Alerting & dashboards
+
+### Alert rules
+
+`docker/prometheus/alerts.yml` defines the hosted-beta alert baseline (wired into
+`prometheus.yml` via `rule_files` and mounted at `/etc/prometheus/alerts.yml`). Thresholds
+are sized for a small single-VPS beta — tune as traffic grows.
+
+| Alert | Severity | Expr (summary) | Fires when |
+|---|---|---|---|
+| `ServiceDown` | critical | `up{job="parkio-services"} == 0` | a service is unscrapeable for 2m |
+| `GatewayHigh5xxRate` | critical | gateway 5xx / total > 0.05 | >5% edge 5xx over 5m, sustained 10m |
+| `OutboxDeadlettered` | critical | `parkio_outbox_deadlettered_count > 0` | any poison row persists ≥5m |
+| `OutboxOldestUnpublishedTooOld` | critical | `parkio_outbox_oldest_unpublished_age_seconds > 300` | oldest relayable row >5m old, for 10m |
+| `DatabaseConnectionPoolExhausted` | critical | `hikaricp_connections_pending > 0` | threads block on a DB connection for 5m |
+| `HighJvmMemoryUsage` | warning | heap used/max > 0.9 | heap >90% for 10m |
+| `MediaUploadFailuresHigh` | warning | rejects / attempts > 0.5 | >50% uploads rejected over 15m |
+| `AuthLoginFailuresHigh` | warning | `rate(login_failure) > 0.2/s` | ~>12 failed logins/min for 10m |
+| `GatewayRateLimitSpike` | warning | `rate(rate_limit_rejected) > 1/s` | >60 × 429/min for 10m |
+| `NotificationDeliveryFailuresHigh` | warning | worker failures / attempts > 0.5 | >50% deliveries fail over 15m |
+
+### Viewing alerts (no Alertmanager yet)
+
+There is **no Alertmanager** in the stack. Rules evaluate and firing alerts are visible in
+the **Prometheus UI → `/alerts`** (and via the `ALERTS` metric), but nothing is
+**notified** (no email/Slack/PagerDuty) until an Alertmanager is added. To enable
+notifications later: add an `alertmanager` service and uncomment the `alerting:` block in
+`prometheus.yml`. In hosted-beta both Prometheus (`:9090`) and Grafana (`:3000`) are bound
+to **loopback only** — reach them via SSH tunnel
+(`ssh -L 3000:localhost:3000 -L 9090:localhost:9090 user@vps`).
+
+### Grafana dashboard
+
+`docker/grafana/provisioning/dashboards/parkio-hosted-beta.json`
+("**Parkio — Hosted Beta Overview**", uid `parkio-hosted-beta`) is auto-provisioned and
+references the Prometheus datasource by stable uid `parkio-prometheus`. Panels: services
+down / outbox DLQ depth / oldest-unpublished age / gateway 429 (stat row), service health
+(`up`), gateway 5xx ratio, outbox dead-lettered + oldest-age + backlog by service, auth
+login success vs failure, media uploads vs rejects, JVM heap %, and DB pool active/pending.
+
+### Not yet scraped (known gaps)
+
+These alerts are **documented but not enabled** because the stack has no exporter for them
+(templates are kept, commented, at the bottom of `alerts.yml`):
+
+- **`KafkaConsumerLagHigh`** — broker-level. Needs a Kafka exporter exposing
+  `kafka_consumergroup_lag`. Until then, monitor lag manually
+  (`kafka-consumer-groups.sh --describe --all-groups`).
+- **`DiskSpaceLow`** — host-level. Needs `node_exporter` exposing
+  `node_filesystem_avail_bytes`. Until then, watch disk on the VPS manually (`df -h`).
+- **Kafka DLT depth** (`parkio.dlt.*` end offsets) — broker-level, same Kafka-exporter gap;
+  the app-side `OutboxDeadlettered` alert covers the *producer* poison path in the meantime.
+
+### Runbook — `OutboxDeadlettered`
+
+A dead-lettered row means the relay tried to publish an event
+`parkio.kafka.relay.max-attempts` times and gave up; the row is retained (`dead_lettered =
+true`) for inspection and is **excluded** from both the backlog gauge and the relay's claim
+query, so it will never publish on its own. Events are being lost for that aggregate until
+you act.
+
+1. **Identify the service** from the alert's `service` label, then inspect the rows
+   (`<svc>` = auth, parking, media, …; connect with `docker exec -it parkio-postgres-<svc>
+   psql -U parkio_<svc> -d parkio_<svc>`):
+
+   ```sql
+   SELECT id, aggregate_type, event_type, failure_count, last_failure_reason, last_failed_at
+   FROM outbox_events
+   WHERE dead_lettered = true
+   ORDER BY last_failed_at DESC;
+   ```
+
+2. **Diagnose `last_failure_reason`.** Common cases:
+   - *Broker unreachable / timeout* → Kafka was down; the fix is infrastructure, the payload
+     is fine → safe to redrive.
+   - *No topic mapping / serialization error* → a contract/code bug → fix the mapping or
+     payload handling and deploy **before** redriving, or the row will just re-fail.
+   - *Genuinely malformed/obsolete event* → may be correct to leave dead-lettered.
+
+3. **Redrive after the root cause is fixed** (resets the row so the relay re-claims it):
+
+   ```sql
+   UPDATE outbox_events
+   SET dead_lettered = false, published = false, failure_count = 0,
+       last_failure_reason = NULL, last_failed_at = NULL
+   WHERE dead_lettered = true AND id = '<row-id>';   -- redrive one row; omit `id` to redrive all
+   ```
+
+   The scheduled relay picks it up within one poll interval; the alert clears once
+   `parkio_outbox_deadlettered_count` returns to 0. Consumers are idempotent (inbox dedup),
+   so a redrive that double-delivers is safe.
+
+4. **When NOT to redrive:** the event is obsolete/superseded, the payload is irreparably
+   malformed, or the downstream contract no longer accepts it. In that case leave it
+   dead-lettered (or archive/delete the row deliberately) and record why — redriving would
+   only loop back into the DLQ.
 
 ## Adding a new metric
 

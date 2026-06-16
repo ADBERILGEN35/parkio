@@ -1,0 +1,145 @@
+# Parkio — HOSTED BETA overlay (single VPS).
+#
+# Hardens the local compose for a small, single-VPS hosted beta:
+#   * adds a Caddy TLS reverse proxy (automatic HTTPS via ACME) as the ONLY public entrypoint;
+#   * stops publishing every backend/data port to the host (gateway, services, DBs, Redis,
+#     Kafka, MinIO become private to the Docker network);
+#   * keeps Prometheus/Grafana bound to loopback only (admin access via SSH tunnel).
+#
+# Run WITH the base + apps files, last so it wins:
+#   docker compose -f docker-compose.yml -f docker-compose.apps.yml -f docker-compose.hosted-beta.yml up -d --build
+#
+# Port handling: Docker Compose CONCATENATES `ports:` across files, so an overlay cannot
+# remove a published port by re-declaring it. We use the Compose Spec override tags:
+#   `!reset []`          -> drop all published ports (service stays reachable in-network)
+#   `!override [ ... ]`  -> replace the published-port list entirely (loopback-only bind)
+# Both require Docker Compose v2.24.4+ (any recent Docker Desktop / Engine ships this).
+#
+# This is a BETA layout — NOT public-production. See docs/architecture/production-readiness.md
+# (single-broker Kafka RF=1, single-node DBs, backups required).
+
+name: parkio
+
+services:
+  # ------------------------------------------------------------------------- #
+  # Caddy — public TLS reverse proxy. The ONLY service that publishes ports.   #
+  # Automatic HTTPS (ACME), HTTP->HTTPS redirect, forwarded headers, HTTP/3.   #
+  # ------------------------------------------------------------------------- #
+  caddy:
+    image: ${CADDY_IMAGE:-caddy:2.8-alpine}
+    container_name: parkio-caddy
+    restart: unless-stopped
+    depends_on:
+      gateway-service:
+        condition: service_started
+    ports:
+      - "80:80"
+      - "443:443"
+      - "443:443/udp" # HTTP/3 (QUIC)
+    environment:
+      # ACME registration email (Let's Encrypt expiry/recovery notices).
+      PARKIO_ACME_EMAIL: ${PARKIO_ACME_EMAIL:?set PARKIO_ACME_EMAIL in .env}
+      # Public API hostname -> reverse-proxied to gateway-service:8080.
+      PARKIO_DOMAIN: ${PARKIO_DOMAIN:?set PARKIO_DOMAIN in .env}
+      # Public media hostname -> reverse-proxied to the PRIVATE MinIO (presigned GETs only).
+      PARKIO_MEDIA_DOMAIN: ${PARKIO_MEDIA_DOMAIN:?set PARKIO_MEDIA_DOMAIN in .env}
+      # Upload size cap for the API site (matches the media-service multipart limit).
+      PARKIO_MAX_UPLOAD_SIZE: ${PARKIO_MAX_UPLOAD_SIZE:-25MB}
+    volumes:
+      - ./caddy/Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy-data:/data # ACME certs/keys — MUST persist across restarts (rate limits!)
+      - caddy-config:/config
+    networks: [parkio-backend]
+    healthcheck:
+      # Caddy's admin API listens on loopback :2019; a 200 means the server is up.
+      # BusyBox-compatible flags only (-q/-O); avoids --spider/--tries.
+      test: ["CMD", "wget", "-q", "-O", "/dev/null", "http://localhost:2019/config/"]
+      interval: 30s
+      timeout: 5s
+      retries: 5
+      start_period: 15s
+
+  # ------------------------------------------------------------------------- #
+  # Edge app — keep it PRIVATE. Caddy reaches it as gateway-service:8080 over  #
+  # the Docker network; it must not be publicly reachable (otherwise X-User-*  #
+  # identity headers could be forged). Trust X-Forwarded-* only because the    #
+  # gateway is reachable solely from Caddy (see README trust model).          #
+  # ------------------------------------------------------------------------- #
+  gateway-service:
+    ports: !reset []
+    environment:
+      # Honor X-Forwarded-Proto/Host from Caddy so redirect/abs URLs and proto checks are
+      # correct behind TLS termination. WebFlux: `framework` registers ForwardedHeaderTransformer.
+      SERVER_FORWARD_HEADERS_STRATEGY: framework
+      # Proxy-aware anonymous rate limiting: the gateway trusts X-Forwarded-For ONLY when the
+      # socket peer is in these ranges (Caddy on the Docker bridge network). Defaults to the
+      # RFC1918/Docker ranges; override in .env if your network differs. NEVER add public ranges.
+      PARKIO_TRUSTED_PROXIES: ${PARKIO_TRUSTED_PROXIES:-172.16.0.0/12,10.0.0.0/8,127.0.0.1/32}
+
+  # ------------------------------------------------------------------------- #
+  # Backend services — drop all host port publishing (8081-8089). They remain  #
+  # reachable in-network via their service DNS names.                          #
+  # ------------------------------------------------------------------------- #
+  auth-service:
+    ports: !reset []
+  user-service:
+    ports: !reset []
+  parking-service:
+    ports: !reset []
+  media-service:
+    ports: !reset []
+  gamification-service:
+    ports: !reset []
+  notification-service:
+    ports: !reset []
+  moderation-service:
+    ports: !reset []
+  ai-validation-service:
+    ports: !reset []
+  analytics-service:
+    ports: !reset []
+
+  # ------------------------------------------------------------------------- #
+  # Data plane — never publicly published. Admin access via `docker exec` or a #
+  # temporary loopback bind + SSH tunnel (see README).                        #
+  # ------------------------------------------------------------------------- #
+  postgres-auth:
+    ports: !reset []
+  postgres-user:
+    ports: !reset []
+  postgres-parking:
+    ports: !reset []
+  postgres-media:
+    ports: !reset []
+  postgres-gamification:
+    ports: !reset []
+  postgres-notification:
+    ports: !reset []
+  postgres-moderation:
+    ports: !reset []
+  postgres-analytics:
+    ports: !reset []
+  postgres-ai-validation:
+    ports: !reset []
+  redis:
+    ports: !reset []
+  kafka:
+    ports: !reset []
+  minio:
+    # MinIO is private; the public media host is served via Caddy -> minio:9000 (presigned GETs).
+    ports: !reset []
+
+  # ------------------------------------------------------------------------- #
+  # Observability — loopback-only on the VPS. Reach via SSH local-forward:     #
+  #   ssh -L 3000:localhost:3000 -L 9090:localhost:9090 user@vps               #
+  # ------------------------------------------------------------------------- #
+  prometheus:
+    ports: !override ["127.0.0.1:${PROMETHEUS_PORT:-9090}:9090"]
+  grafana:
+    ports: !override ["127.0.0.1:${GRAFANA_PORT:-3000}:3000"]
+
+# Caddy state (issued certificates + config). Losing caddy-data forces re-issuance
+# and can hit ACME rate limits — keep this volume.
+volumes:
+  caddy-data:
+  caddy-config:

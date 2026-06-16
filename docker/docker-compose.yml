@@ -243,6 +243,7 @@ services:
     ports: ["${PROMETHEUS_PORT:-9090}:9090"]
     volumes:
       - ./prometheus/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - ./prometheus/alerts.yml:/etc/prometheus/alerts.yml:ro
       - prometheus-data:/prometheus
     # On both networks: backend to scrape services, observability to serve Grafana.
     networks: [parkio-backend, parkio-observability]

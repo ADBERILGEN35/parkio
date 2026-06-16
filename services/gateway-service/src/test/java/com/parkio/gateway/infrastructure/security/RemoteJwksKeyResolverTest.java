@@ -58,6 +58,46 @@ class RemoteJwksKeyResolverTest {
         assertThat(calls).hasValue(2);
     }
 
+    @Test
+    void resolvesBothKidsFromAMultiKeyJwksDuringRotation() throws Exception {
+        var generator = KeyPairGenerator.getInstance("RSA");
+        generator.initialize(2048);
+        RSAPublicKey current = (RSAPublicKey) generator.generateKeyPair().getPublic();
+        RSAPublicKey previous = (RSAPublicKey) generator.generateKeyPair().getPublic();
+        // JWKS exposes both the active and previous verification keys (rotation window).
+        String body = """
+                {"keys":[
+                  {"kty":"RSA","kid":"current","use":"sig","alg":"RS256","n":"%s","e":"%s"},
+                  {"kty":"RSA","kid":"previous","use":"sig","alg":"RS256","n":"%s","e":"%s"}
+                ]}
+                """.formatted(
+                base64Url(current.getModulus()), base64Url(current.getPublicExponent()),
+                base64Url(previous.getModulus()), base64Url(previous.getPublicExponent()));
+        AtomicInteger calls = new AtomicInteger();
+        WebClient.Builder builder = WebClient.builder().exchangeFunction(request -> {
+            calls.incrementAndGet();
+            return Mono.just(ClientResponse.create(HttpStatus.OK)
+                    .header("Content-Type", MediaType.APPLICATION_JSON_VALUE)
+                    .body(body)
+                    .build());
+        });
+
+        JwtProperties properties = new JwtProperties();
+        properties.setIssuer("parkio-auth");
+        properties.setJwksUri("http://auth.test/jwks");
+        properties.setJwksCacheTtl(Duration.ofMinutes(15));
+        RemoteJwksKeyResolver resolver = new RemoteJwksKeyResolver(
+                builder,
+                properties,
+                Clock.fixed(Instant.parse("2026-06-09T00:00:00Z"), ZoneOffset.UTC),
+                "internal-test-secret");
+
+        assertThat(resolver.resolve("current").block().getModulus()).isEqualTo(current.getModulus());
+        assertThat(resolver.resolve("previous").block().getModulus()).isEqualTo(previous.getModulus());
+        // Both kids served from a single fetched key set (one network call).
+        assertThat(calls).hasValue(1);
+    }
+
     private static String base64Url(BigInteger value) {
         byte[] bytes = value.toByteArray();
         int offset = bytes.length > 1 && bytes[0] == 0 ? 1 : 0;

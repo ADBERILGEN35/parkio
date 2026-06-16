@@ -172,6 +172,241 @@ default** — services fail to start without the secret. Actuator `health`/`info
 >   or `NodePort` for a backend service);
 > - keep databases, Redis, Kafka and MinIO internal-only as well.
 
+## Hosted beta (single VPS)
+
+The files above publish every port for local convenience. For a small **hosted** beta on
+one VPS, add the **`docker-compose.hosted-beta.yml`** overlay: it makes a **Caddy** TLS
+reverse proxy the only public entrypoint and stops publishing all other ports.
+
+> **Beta, not public production.** Single-broker Kafka (RF=1), single-node databases and
+> MinIO. Automated backups are **required** (below). See
+> [`../docs/architecture/production-readiness.md`](../docs/architecture/production-readiness.md)
+> for the path to public production.
+
+### What the overlay changes
+- **Caddy** (`caddy/Caddyfile`) publishes only **80/443** and auto-issues TLS via ACME.
+- **gateway-service** is no longer published; Caddy reaches it at `gateway-service:8080`
+  on the private network. It sets `SERVER_FORWARD_HEADERS_STRATEGY=framework` so the gateway
+  honors `X-Forwarded-Proto/Host` from Caddy.
+- **Backend services (8081–8089), all databases, Redis, Kafka, MinIO**: no published ports.
+- **Prometheus/Grafana**: bound to **127.0.0.1** only (SSH-tunnel to view).
+
+### Proxy & media strategy (chosen)
+- **Proxy: Caddy** — simplest path to automatic HTTPS, HTTP→HTTPS redirect, forwarded
+  headers and HTTP/3.
+- **Media: a dedicated media subdomain proxied to *private* MinIO.** The bucket stays
+  private; images are served only via time-limited **SigV4 presigned GET URLs**. Caddy
+  preserves the `Host` header (its default), which SigV4 validation requires — so
+  `PARKIO_MEDIA_STORAGE_PUBLIC_ENDPOINT` must equal `https://${PARKIO_MEDIA_DOMAIN}` (the exact
+  host the browser uses). Uploads go through the API (`/api/v1/media` → gateway →
+  media-service → MinIO over the private network), never directly to MinIO. `<img src>` loads
+  need no bucket CORS; only set MinIO bucket CORS if the SPA fetches media via JS.
+
+### Forwarded headers & proxy-aware rate limiting
+`SERVER_FORWARD_HEADERS_STRATEGY=framework` makes the gateway honor `X-Forwarded-Proto/Host`
+from Caddy (correct scheme/host behind TLS). This is safe **only because the gateway is
+reachable solely from Caddy** on the Docker network (it publishes no host port).
+
+WebFlux's forwarded-headers handling fixes scheme/host but **not** the socket peer, so the
+gateway derives the anonymous rate-limit client IP itself, in a **trusted-proxy-aware** way
+(`ClientIpResolver`):
+
+- It consults `X-Forwarded-For` **only** when the socket peer is in
+  **`PARKIO_TRUSTED_PROXIES`** (CIDRs/IPs). The hosted-beta overlay defaults this to the
+  Docker/RFC-1918 ranges (`172.16.0.0/12,10.0.0.0/8,127.0.0.1/32`), which is where Caddy
+  sits. A direct-to-gateway connection (untrusted peer) → the header is ignored.
+- The client is the **right-most non-proxy** hop in the chain, so a client-injected
+  left-most `X-Forwarded-For` value can never win (spoofing-resistant). Malformed/empty
+  values fall back to the socket peer (fails *closed*, never open).
+- Authenticated requests are still keyed by the trusted `X-User-Id` (unchanged).
+
+> **Never trust `X-Forwarded-For` globally.** Keep `PARKIO_TRUSTED_PROXIES` limited to your
+> actual proxy/Docker ranges; do **not** add public ranges. Leaving it empty (the default
+> outside hosted-beta) means the gateway trusts nothing and keys on the socket peer.
+
+Caddy needs no extra config here: by default it sets `X-Forwarded-For` to the real client and
+does not trust client-supplied values. Only add Caddy `trusted_proxies` if Caddy itself runs
+behind another load balancer (not the case for a single VPS).
+
+### DNS
+Point two records at the VPS public IP:
+- `PARKIO_DOMAIN` (e.g. `api.beta.example.com`) → gateway / API
+- `PARKIO_MEDIA_DOMAIN` (e.g. `media.beta.example.com`) → media (private MinIO via Caddy)
+
+The hosted frontend (SPA) is served separately; set `PARKIO_CORS_ALLOWED_ORIGINS` to its origin.
+
+### Firewall (VPS)
+Allow inbound **22** (SSH, ideally IP-restricted), **80**, **443** only; block everything
+else. Do **not** open 5432–5440, 6379, 29092, 9000/9001, 3000, 9090. Caddy needs port 80 for
+the ACME HTTP-01 challenge and the HTTP→HTTPS redirect.
+
+### First deploy
+
+```bash
+# on the VPS, in the repo's docker/ directory
+cp .env.hosted-beta.example .env
+# edit .env: PARKIO_DOMAIN, PARKIO_MEDIA_DOMAIN, PARKIO_ACME_EMAIL,
+# PARKIO_CORS_ALLOWED_ORIGINS, PARKIO_MEDIA_STORAGE_PUBLIC_ENDPOINT=https://<media domain>,
+# every CHANGE_ME password, KAFKA_CLUSTER_ID, and PARKIO_JWT_PRIVATE_KEY_PEM.
+
+# generate the RS256 key (PKCS#8) and fold it into .env as a quoted \n-escaped line:
+openssl genpkey -algorithm RSA -pkeyopt rsa_keygen_bits:2048 -out jwt_key.pem
+#   PARKIO_JWT_PRIVATE_KEY_PEM="$(awk 'BEGIN{ORS="\\n"}1' jwt_key.pem)"   then: rm jwt_key.pem
+
+docker compose -f docker-compose.yml -f docker-compose.apps.yml -f docker-compose.hosted-beta.yml up -d --build
+```
+
+### First-deploy checklist
+1. DNS resolves both hostnames to the VPS.
+2. Firewall: only 22/80/443 inbound.
+3. `.env` complete — no `CHANGE_ME`, JWT key set, CORS = real frontend origin, media public
+   endpoint = `https://${PARKIO_MEDIA_DOMAIN}`.
+4. `docker compose ... ps` → all healthy; `docker logs parkio-caddy` shows certificates obtained.
+   *(Tip: first run against the Let's Encrypt staging CA — commented in `caddy/Caddyfile` — to
+   avoid production rate limits, then switch back.)*
+5. `curl https://${PARKIO_DOMAIN}/actuator/health` → `{"status":"UP"}`.
+6. `curl https://${PARKIO_DOMAIN}/api/v1/auth/.well-known/jwks.json` → a `keys` array.
+7. From the SPA: register → login → upload a photo → confirm it renders from
+   `https://${PARKIO_MEDIA_DOMAIN}/...`.
+
+### Admin access (no public data ports)
+- DB shell: `docker exec -it parkio-postgres-auth psql -U parkio_auth -d parkio_auth`
+- Grafana/Prometheus (loopback only):
+  `ssh -L 3000:localhost:3000 -L 9090:localhost:9090 user@vps`, then open `http://localhost:3000`.
+
+### Backups & restore (required)
+
+Three scripts under `scripts/` cover the full lifecycle. They `docker exec` into each
+`parkio-postgres-*` container over its local socket (no DB password needed/logged) and cover
+all nine service databases: auth, user, parking, media, gamification, notification,
+moderation, analytics, ai-validation.
+
+```bash
+chmod +x scripts/backup-databases.sh scripts/restore-database.sh scripts/verify-backup.sh
+```
+
+**Back up** (timestamped, gzip; optional AES-256 + offsite upload):
+
+```bash
+PARKIO_ENV_FILE=docker/.env ./scripts/backup-databases.sh    # per-DB dumps -> $BACKUP_DIR/<UTC-stamp>/
+```
+
+Schedule nightly via cron on the VPS:
+
+```cron
+30 3 * * * cd /opt/parkio && PARKIO_ENV_FILE=docker/.env ./scripts/backup-databases.sh >> /var/log/parkio-backup.log 2>&1
+```
+
+Set `BACKUP_ENCRYPT_PASSPHRASE` (encrypt at rest, recommended before any offsite upload) and
+`BACKUP_MC_DEST` (an `mc` alias/bucket, e.g. `s3/parkio-backups`) in `.env` to encrypt and push
+dumps **off-box** — a backup that only lives on the same VPS does not survive losing the VPS.
+`BACKUP_RETENTION_DAYS` prunes old local backups.
+
+**Restore** one database (DESTRUCTIVE — dumps use `--clean --if-exists`, so the target is
+overwritten; requires typing the service name unless `--yes`):
+
+```bash
+PARKIO_ENV_FILE=docker/.env ./scripts/restore-database.sh auth /var/backups/parkio/<stamp>/auth.sql.gz
+# encrypted dump (.sql.gz.enc) needs BACKUP_ENCRYPT_PASSPHRASE in the env:
+PARKIO_ENV_FILE=docker/.env ./scripts/restore-database.sh media /var/backups/parkio/<stamp>/media.sql.gz.enc
+```
+
+**Verify** a dump is actually restorable WITHOUT touching live data — it restores into a
+disposable `<db>_verify_<epoch>` database, asserts the schema came back, then drops it:
+
+```bash
+PARKIO_ENV_FILE=docker/.env ./scripts/verify-backup.sh analytics /var/backups/parkio/<stamp>/analytics.sql.gz
+```
+
+#### Restore-drill checklist (run monthly, and after any schema-heavy release)
+
+> **Status:** the scripts' plumbing is validated (gzip + AES-256 round-trip, suffix decoding,
+> the safety prompt, and all failure paths). The **first live drill on the VPS is mandatory before
+> relying on backups** — it is the only thing that exercises the real Postgres schema apply
+> (especially PostGIS `parking`). Prerequisite: the Docker daemon and the `parkio-postgres-*`
+> containers must be running on the host.
+
+1. `./scripts/backup-databases.sh` — confirm all nine show `OK` and dump files are non-empty.
+2. `./scripts/verify-backup.sh parking <stamp>/parking.sql.gz` — PostGIS is the trickiest
+   (extension + GiST index + location trigger); a green parking restore is the strongest signal.
+3. Spot-check one more service (e.g. `auth`).
+4. If encrypted/offsite is configured, pull a dump back from `BACKUP_MC_DEST` and verify **that**
+   copy — proves the offsite path, not just the local file.
+5. Record the date + result; a backup you have never restored is not a backup.
+
+#### RPO / RTO (hosted beta)
+- **RPO ≈ 24h** with the nightly schedule (worst case: a full day of writes since the last dump).
+  Tighten by running the backup more often (e.g. every 6h) — these are logical dumps, not WAL, so
+  there is no point-in-time recovery between dumps.
+- **RTO ≈ minutes per database** (restore is a single gzip→psql stream; total depends on dump size
+  and how many services you restore).
+- True PITR + automatic failover requires **managed Postgres** and is a public-production blocker —
+  see `docs/architecture/production-readiness.md` §3.
+
+### Secret & key rotation (zero-downtime)
+
+Both rotations are designed so the old and new credential **overlap** — no coordinated
+restart, no logout storm. Never put a private key or secret in git; only edit `.env`.
+
+**JWT signing key (RS256).** auth-service signs with one active key but the gateway (and
+auth itself) verify by `kid` against every key in the JWKS, so old access tokens stay valid
+until they expire.
+
+1. Generate a new key + kid:
+   `openssl genpkey -algorithm RSA -pkeyopt rsa_keygen_bits:2048 -out new.pem`
+2. Export the **current** key's public PEM for the JWKS overlap:
+   `openssl pkey -in current.pem -pubout`
+3. In `.env`: set `PARKIO_JWT_ADDITIONAL_PUBLIC_KEYS_JSON` to a JSON array including the
+   **old** key `[{"kid":"<old-kid>","pem":"-----BEGIN PUBLIC KEY-----\n...\n-----END PUBLIC KEY-----"}]`,
+   then set `PARKIO_JWT_PRIVATE_KEY_PEM`/`PARKIO_JWT_KEY_ID` to the **new** key/kid.
+4. Redeploy auth-service. The gateway refreshes its JWKS cache within
+   `parkio.security.jwt.jwks-cache-ttl` (15m) — new tokens use the new kid; old tokens still
+   verify against the old public key.
+5. Wait at least one access-token TTL (`PARKIO_JWT_ACCESS_TTL`, ~15m) so all old tokens expire.
+6. Clear `PARKIO_JWT_ADDITIONAL_PUBLIC_KEYS_JSON` and redeploy auth-service. Done.
+
+**Gateway internal secret (`X-Gateway-Auth`).** The gateway sends one secret; downstream
+accepts a set (current + previous) during the window.
+
+1. In `.env`, add the **new** secret to every downstream service's accepted list:
+   `PARKIO_GATEWAY_INTERNAL_ACCEPTED_SECRETS=<new-secret>` (keep
+   `PARKIO_GATEWAY_INTERNAL_SECRET` as the old value for now), then redeploy the downstream
+   services. They now accept old **and** new.
+2. Flip `PARKIO_GATEWAY_INTERNAL_SECRET` to the **new** secret and redeploy the gateway. It now
+   sends the new secret, which downstream already accepts.
+3. After the rollout settles, set every service's `PARKIO_GATEWAY_INTERNAL_SECRET` to the new
+   value and clear `PARKIO_GATEWAY_INTERNAL_ACCEPTED_SECRETS`, then redeploy. The old secret is
+   retired.
+
+Both knobs default to empty (no rotation in progress). Comparisons are constant-time and
+secrets are never logged. A blank `PARKIO_GATEWAY_INTERNAL_SECRET` still fails closed.
+
+### Update / rollback / cleanup
+
+```bash
+# update to new code
+git pull && docker compose -f docker-compose.yml -f docker-compose.apps.yml -f docker-compose.hosted-beta.yml up -d --build
+# rollback: check out the previous known-good commit/tag, then re-run the same up --build
+# stop (keep data):
+docker compose -f docker-compose.yml -f docker-compose.apps.yml -f docker-compose.hosted-beta.yml down
+# wipe (DESTROYS data AND issued TLS certs):
+docker compose -f docker-compose.yml -f docker-compose.apps.yml -f docker-compose.hosted-beta.yml down -v
+```
+
+Image-tag-based rollback and CD arrive in Phase 2; this beta rebuilds from source.
+
+### Validate the merged config (no Docker daemon work)
+
+```bash
+docker compose -f docker-compose.yml -f docker-compose.apps.yml -f docker-compose.hosted-beta.yml config
+```
+
+### Caveats
+- **Single VPS — not public production.** One box = a single point of failure.
+- **Kafka RF=1** (one broker): un-consumed events are lost if the broker's disk is lost (the
+  Postgres outbox bounds this and consumers are idempotent). RF≥3 is a public-prod blocker.
+- **Single-node Postgres/MinIO**, no PITR/HA → **backups are mandatory** and must be test-restored.
+
 ## Persistence
 
 Each stateful component has a named volume (e.g. `postgres-parking-data`,

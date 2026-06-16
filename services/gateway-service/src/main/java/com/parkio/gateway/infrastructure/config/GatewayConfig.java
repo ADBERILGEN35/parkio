@@ -12,7 +12,12 @@ import org.springframework.context.annotation.Configuration;
  * beans. Keeping the {@link Clock} injectable keeps time deterministic in tests.
  */
 @Configuration
-@EnableConfigurationProperties({JwtProperties.class, CorsProperties.class, UserStatusProperties.class})
+@EnableConfigurationProperties({
+    JwtProperties.class,
+    CorsProperties.class,
+    UserStatusProperties.class,
+    TrustedProxyProperties.class
+})
 public class GatewayConfig {
 
     @Bean

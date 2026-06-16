@@ -9,9 +9,12 @@ import java.io.IOException;
 import java.nio.charset.StandardCharsets;
 import java.security.MessageDigest;
 import java.time.Instant;
+import java.util.ArrayList;
 import java.util.LinkedHashMap;
+import java.util.List;
 import java.util.Map;
 import org.slf4j.MDC;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.core.Ordered;
 import org.springframework.core.annotation.Order;
@@ -36,17 +39,38 @@ public class GatewayAuthFilter extends OncePerRequestFilter {
 
     private static final String GATEWAY_AUTH_HEADER = "X-Gateway-Auth";
 
-    private final byte[] expectedSecret;
+    private final List<byte[]> acceptedSecrets;
     private final ObjectMapper objectMapper;
 
+    @Autowired
     public GatewayAuthFilter(@Value("${parkio.gateway.internal-secret}") String internalSecret,
+                             @Value("${parkio.gateway.internal-accepted-secrets:}") String additionalAcceptedSecrets,
                              ObjectMapper objectMapper) {
         if (!StringUtils.hasText(internalSecret)) {
             throw new IllegalStateException(
                     "parkio.gateway.internal-secret (PARKIO_GATEWAY_INTERNAL_SECRET) must be configured");
         }
-        this.expectedSecret = internalSecret.getBytes(StandardCharsets.UTF_8);
+        this.acceptedSecrets = buildAcceptedSecrets(internalSecret, additionalAcceptedSecrets);
         this.objectMapper = objectMapper;
+    }
+
+    /** Test/convenience constructor: current secret only (no previous-secret rotation window). */
+    public GatewayAuthFilter(String internalSecret, ObjectMapper objectMapper) {
+        this(internalSecret, "", objectMapper);
+    }
+
+    private static List<byte[]> buildAcceptedSecrets(String current, String additionalCsv) {
+        List<byte[]> secrets = new ArrayList<>();
+        secrets.add(current.getBytes(StandardCharsets.UTF_8));
+        if (StringUtils.hasText(additionalCsv)) {
+            for (String candidate : additionalCsv.split(",")) {
+                String trimmed = candidate.trim();
+                if (!trimmed.isEmpty()) {
+                    secrets.add(trimmed.getBytes(StandardCharsets.UTF_8));
+                }
+            }
+        }
+        return List.copyOf(secrets);
     }
 
     @Override
@@ -69,8 +93,17 @@ public class GatewayAuthFilter extends OncePerRequestFilter {
     }
 
     private boolean matches(String provided) {
-        return provided != null
-                && MessageDigest.isEqual(provided.getBytes(StandardCharsets.UTF_8), expectedSecret);
+        if (provided == null) {
+            return false;
+        }
+        byte[] providedBytes = provided.getBytes(StandardCharsets.UTF_8);
+        boolean matched = false;
+        for (byte[] secret : acceptedSecrets) {
+            // Constant-time per candidate; OR-accumulate without early return so timing
+            // cannot reveal which secret (current vs previous) matched.
+            matched |= MessageDigest.isEqual(providedBytes, secret);
+        }
+        return matched;
     }
 
     private void writeUnauthorized(HttpServletResponse response) throws IOException {

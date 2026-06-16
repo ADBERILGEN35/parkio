@@ -100,12 +100,21 @@ parkio:
     # Shared secret required on every inbound request (X-Gateway-Auth) so only
     # gateway-originated traffic is accepted. No default â†’ fail closed if unset.
     internal-secret: ${PARKIO_GATEWAY_INTERNAL_SECRET}
+    # Optional comma-separated previous secrets also accepted during a rotation. The
+    # gateway always sends `internal-secret`; downstream accepts that plus these so the
+    # old and new secret overlap with no downtime. Empty when no rotation is in progress.
+    internal-accepted-secrets: ${PARKIO_GATEWAY_INTERNAL_ACCEPTED_SECRETS:}
   security:
     jwt:
       # PKCS#8 RSA private key. No default: production fails closed unless supplied.
       # The dev profile explicitly enables ephemeral key generation.
       private-key-pem: ${PARKIO_JWT_PRIVATE_KEY_PEM:}
       key-id: ${PARKIO_JWT_KEY_ID:parkio-auth-rs256-1}
+      # Optional: previous public verification keys to keep in the JWKS during a key
+      # rotation, as a JSON array of {kid, pem} (X.509/SPKI public-key PEM). Signing
+      # always uses the active key above; these only let old access tokens verify until
+      # they expire. Empty when no rotation is in progress.
+      additional-public-keys-json: ${PARKIO_JWT_ADDITIONAL_PUBLIC_KEYS_JSON:}
       generate-ephemeral-key: false
       issuer: ${PARKIO_JWT_ISSUER:parkio-auth}
       # aud claim on issued access tokens; the gateway must be configured with the SAME

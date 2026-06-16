@@ -35,6 +35,9 @@ Thumbs.db
 .env
 .env.*
 !.env.example
+# Committable env TEMPLATES only (no secrets): .env.example and .env.<variant>.example
+# (e.g. docker/.env.hosted-beta.example). Real .env / .env.<env> files stay ignored above.
+!.env.*.example
 *.local
 
 # Docker
@@ -57,6 +60,12 @@ CLAUDE.md
 .cursor-rules/
 .cursorrules
 .cursorignore
+
+# Database backups (never commit dumps; scripts/backup-databases.sh defaults to ./backups)
+/backups/
+backups/
+*.sql.gz
+*.sql.gz.enc
 
 # Aider
 .aider*

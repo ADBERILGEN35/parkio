@@ -19,6 +19,16 @@ public class JwtProperties {
     @NotBlank
     private String keyId = "parkio-auth-rs256-1";
 
+    /**
+     * Optional JSON array of <strong>previous</strong> public verification keys to keep in
+     * the JWKS during a key rotation, e.g.
+     * {@code [{"kid":"parkio-auth-rs256-1","pem":"-----BEGIN PUBLIC KEY-----\n...\n-----END PUBLIC KEY-----"}]}.
+     * Signing always uses the single active key ({@link #keyId}); these are exposed for
+     * verification only so access tokens issued by the old key stay valid until they expire.
+     * Empty by default (no rotation in progress). Env: {@code PARKIO_JWT_ADDITIONAL_PUBLIC_KEYS_JSON}.
+     */
+    private String additionalPublicKeysJson;
+
     private boolean generateEphemeralKey;
 
     @NotBlank
@@ -49,6 +59,14 @@ public class JwtProperties {
 
     public void setKeyId(String keyId) {
         this.keyId = keyId;
+    }
+
+    public String getAdditionalPublicKeysJson() {
+        return additionalPublicKeysJson;
+    }
+
+    public void setAdditionalPublicKeysJson(String additionalPublicKeysJson) {
+        this.additionalPublicKeysJson = additionalPublicKeysJson;
     }
 
     public boolean isGenerateEphemeralKey() {
