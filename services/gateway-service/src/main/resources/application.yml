@@ -170,7 +170,17 @@ parkio:
       allowed-origins: ${PARKIO_CORS_ALLOWED_ORIGINS:}
       allowed-methods: GET,POST,PUT,PATCH,DELETE,OPTIONS
       allowed-headers: "*"
-      allow-credentials: ${PARKIO_CORS_ALLOW_CREDENTIALS:false}
+      # Default ON because the SPA's only supported mode is credentialed CORS: it sends
+      # withCredentials on /auth/** so the HttpOnly refresh cookie flows, and browsers
+      # then require Access-Control-Allow-Credentials: true on EVERY response (including
+      # 4xx/5xx) or they block it as a CORS error. This is safe by construction: origins
+      # above are empty by default (deny-all) and are always an explicit allow-list, and
+      # CorsConfig fails fast on the dangerous wildcard("*")+credentials combination. A
+      # rare credential-less cross-origin consumer can still opt out with
+      # PARKIO_CORS_ALLOW_CREDENTIALS=false. NOTE: this must hold on the DEFAULT profile —
+      # the running gateway is not guaranteed to use the `dev` profile, so the default
+      # itself (not a profile/env override) has to be correct.
+      allow-credentials: ${PARKIO_CORS_ALLOW_CREDENTIALS:true}
       max-age: PT1H
     user-status:
       # Live account-status enforcement: after JWT validation the gateway checks the

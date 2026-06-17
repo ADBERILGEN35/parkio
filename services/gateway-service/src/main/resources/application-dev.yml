@@ -15,3 +15,12 @@ parkio:
     internal-secret: dev-only-parkio-gateway-internal-secret-change-me-0123456789
     cors:
       allowed-origins: http://localhost:3000,http://localhost:5173
+      # The SPA sends credentialed requests (withCredentials) so the HttpOnly refresh
+      # cookie is set/sent on /auth/** calls. Browsers require
+      # Access-Control-Allow-Credentials: true on those responses, alongside a non-
+      # wildcard Access-Control-Allow-Origin. Without this the browser blocks the login
+      # response as a CORS error even though the request reaches the gateway. The
+      # docker-compose overlay already sets PARKIO_CORS_ALLOW_CREDENTIALS=true; this
+      # mirrors it for the `dev` (gradlew bootRun) profile. Safe because origins above
+      # are an explicit allow-list (never "*"); CorsConfig still rejects wildcard+creds.
+      allow-credentials: true
