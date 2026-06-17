@@ -89,6 +89,8 @@ public class GlobalExceptionHandler {
             case EMPTY_FILE -> HttpStatus.BAD_REQUEST;
             case MISSING_USER_ID -> HttpStatus.UNAUTHORIZED;
             case NOT_MEDIA_OWNER -> HttpStatus.FORBIDDEN;
+            case MEDIA_INFECTED -> HttpStatus.UNPROCESSABLE_ENTITY;
+            case MEDIA_SCAN_UNAVAILABLE -> HttpStatus.SERVICE_UNAVAILABLE;
         };
     }
 }

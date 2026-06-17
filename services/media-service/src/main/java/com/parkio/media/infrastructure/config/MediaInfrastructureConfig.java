@@ -2,6 +2,9 @@ package com.parkio.media.infrastructure.config;
 
 import com.parkio.media.application.MediaAccessUrlPolicy;
 import com.parkio.media.application.MediaUploadConstraints;
+import com.parkio.media.application.port.MediaScanner;
+import com.parkio.media.infrastructure.scanner.ClamavMediaScanner;
+import com.parkio.media.infrastructure.scanner.NoOpMediaScanner;
 import io.minio.MinioClient;
 import java.time.Clock;
 import java.util.Set;
@@ -76,5 +79,21 @@ public class MediaInfrastructureConfig {
     @Bean
     public MediaAccessUrlPolicy mediaAccessUrlPolicy(MediaProperties properties) {
         return new MediaAccessUrlPolicy(properties.getAccessUrlTtl());
+    }
+
+    /**
+     * Real ClamAV scanner when {@code parkio.media.scanner.enabled=true} (default —
+     * production / hosted beta), or a pass-through scanner when disabled (local dev
+     * without a clamd container, and tests). Disabling is logged loudly by
+     * {@link NoOpMediaScanner}.
+     */
+    @Bean
+    public MediaScanner mediaScanner(MediaProperties properties) {
+        MediaProperties.Scanner scanner = properties.getScanner();
+        if (!scanner.isEnabled()) {
+            return new NoOpMediaScanner();
+        }
+        return new ClamavMediaScanner(scanner.getHost(), scanner.getPort(),
+                scanner.getConnectTimeout(), scanner.getReadTimeout());
     }
 }

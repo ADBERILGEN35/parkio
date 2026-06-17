@@ -60,7 +60,7 @@ public final class MediaFile {
         this.version = version;
     }
 
-    /** Creates a freshly-stored media file in {@link MediaStatus#UPLOADED}. */
+    /** Creates a freshly-stored media file in {@link MediaStatus#PENDING_SCAN}. */
     public static MediaFile create(UUID ownerUserId,
                                    String bucketName,
                                    String objectKey,
@@ -70,15 +70,19 @@ public final class MediaFile {
                                    String perceptualHash,
                                    Instant now) {
         return new MediaFile(UUID.randomUUID(), ownerUserId, bucketName, objectKey,
-                contentType, fileSize, checksum, perceptualHash, MediaStatus.UPLOADED, now, now, null, null);
+                contentType, fileSize, checksum, perceptualHash, MediaStatus.PENDING_SCAN, now, now, null, null);
     }
 
-    /** Marks the file as having passed synchronous validation. */
-    public void markValidated(Instant now) {
-        if (status != MediaStatus.UPLOADED) {
-            throw new IllegalStateException("Only UPLOADED media can be validated, was " + status);
+    /**
+     * Marks the file as having passed all upload checks <em>including</em> the malware
+     * scan, making it servable. Only a {@link MediaStatus#PENDING_SCAN} file can become
+     * READY.
+     */
+    public void markReady(Instant now) {
+        if (status != MediaStatus.PENDING_SCAN) {
+            throw new IllegalStateException("Only PENDING_SCAN media can become READY, was " + status);
         }
-        this.status = MediaStatus.VALIDATED;
+        this.status = MediaStatus.READY;
         this.updatedAt = now;
     }
 
@@ -94,6 +98,11 @@ public final class MediaFile {
 
     public boolean isDeleted() {
         return status == MediaStatus.DELETED;
+    }
+
+    /** True only when the media has passed every check (incl. the malware scan) and is servable. */
+    public boolean isReady() {
+        return status == MediaStatus.READY;
     }
 
     public boolean isOwnedBy(UUID userId) {

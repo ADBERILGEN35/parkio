@@ -135,6 +135,9 @@ services:
   minio:
     # MinIO is private; the public media host is served via Caddy -> minio:9000 (presigned GETs).
     ports: !reset []
+  clamav:
+    # Anti-malware daemon stays private; reachable only by media-service in-network.
+    ports: !reset []
 
   # ------------------------------------------------------------------------- #
   # Observability — loopback-only on the VPS. Reach via SSH local-forward:     #

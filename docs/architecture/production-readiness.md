@@ -187,6 +187,14 @@ endpoint/public-endpoint for SigV4-signed GET URLs.
 - **Backup/retention + versioning.** Enable **object versioning** (protects against accidental
   delete/overwrite) and, for prod, cross-region or provider backup per RPO. Restrict the access key to
   the single bucket (least privilege).
+- **Malware scan before serving (implemented).** Uploads are scanned by **ClamAV** (`clamd` over TCP)
+  *before* they are stored; media is `READY`/servable only after a clean scan, and the scan is
+  **fail-closed** (a scan that cannot complete → `503`, nothing stored; infected → `422`). Signed URLs
+  are issued only for `READY` media and `parking-service` refuses to attach non-`READY` media to a spot.
+  The hosted-beta compose adds a private `clamav` service; `media-service` depends on it being healthy.
+  **Known limitation:** this is malware scanning, **not** illegal/abusive-content (CSAM) detection —
+  for public production add a **managed AV / content-safety provider** and/or human moderation. EXIF
+  stripping / re-encoding is future hardening.
 
 ---
 

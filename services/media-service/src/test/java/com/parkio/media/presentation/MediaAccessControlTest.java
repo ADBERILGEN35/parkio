@@ -120,7 +120,8 @@ class MediaAccessControlTest {
 
         mockMvc.perform(authedGet("/api/v1/media/" + mediaId + "/validation-results", UUID.randomUUID(), "MODERATOR"))
                 .andExpect(status().isOk())
-                .andExpect(jsonPath("$.length()").value(3));
+                // FILE_SIZE, MIME_TYPE, DUPLICATE, MALWARE_SCAN
+                .andExpect(jsonPath("$.length()").value(4));
     }
 
     @Test

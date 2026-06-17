@@ -154,6 +154,13 @@ services:
       PARKIO_MEDIA_BUCKET: ${MINIO_BUCKET:-parkio-media}
       PARKIO_MEDIA_STORAGE_ACCESS_KEY: ${MINIO_ROOT_USER:-parkio}
       PARKIO_MEDIA_STORAGE_SECRET_KEY: ${MINIO_ROOT_PASSWORD}
+      # Anti-malware scan (ClamAV/clamd). Uploads fail closed (503) if clamd is
+      # unreachable, so this points at the clamav service on the private network.
+      PARKIO_MEDIA_SCANNER_ENABLED: ${PARKIO_MEDIA_SCANNER_ENABLED:-true}
+      PARKIO_MEDIA_SCANNER_HOST: ${PARKIO_MEDIA_SCANNER_HOST:-clamav}
+      PARKIO_MEDIA_SCANNER_PORT: ${PARKIO_MEDIA_SCANNER_PORT:-3310}
+      PARKIO_MEDIA_SCANNER_CONNECT_TIMEOUT: ${PARKIO_MEDIA_SCANNER_CONNECT_TIMEOUT:-2s}
+      PARKIO_MEDIA_SCANNER_READ_TIMEOUT: ${PARKIO_MEDIA_SCANNER_READ_TIMEOUT:-10s}
     depends_on:
       <<: *datasource-depends
       postgres-media:
@@ -162,6 +169,8 @@ services:
         condition: service_healthy
       minio-setup:
         condition: service_completed_successfully
+      clamav:
+        condition: service_healthy
 
   gamification-service:
     <<: *app-common

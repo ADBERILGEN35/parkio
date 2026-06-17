@@ -94,11 +94,13 @@ public class MediaController {
                                 ownerUserId, file.getContentType(), content);
                         MediaUploadResult result = mediaService.upload(command);
                         // Counted inside the supplier so idempotent replays are not re-counted.
+                        // A successful upload always passed the malware scan (scan-before-store).
                         mediaMetrics.uploadAccepted();
+                        mediaMetrics.scanClean();
                         return IdempotentResponse.first(201, UploadMediaResponse.from(result));
                     });
         } catch (MediaException ex) {
-            mediaMetrics.uploadRejected();
+            recordUploadFailureMetrics(ex);
             throw ex;
         }
         return ResponseEntity.status(response.statusCode())
@@ -150,6 +152,23 @@ public class MediaController {
         return mediaService.getValidationResults(mediaId, requireUserId(userId), hasModeratorRole(roles)).stream()
                 .map(ValidationResultResponse::from)
                 .toList();
+    }
+
+    /**
+     * Translates an upload failure into the right counters. A failed scan (503) is not a
+     * validation rejection, so it increments {@code media_scan_failed_total} only; an
+     * infected file (422) increments both the scan-rejected and overall-rejected
+     * counters; every other validation failure is a plain rejection.
+     */
+    private void recordUploadFailureMetrics(MediaException ex) {
+        switch (ex.errorCode()) {
+            case MEDIA_SCAN_UNAVAILABLE -> mediaMetrics.scanFailed();
+            case MEDIA_INFECTED -> {
+                mediaMetrics.scanRejected();
+                mediaMetrics.uploadRejected();
+            }
+            default -> mediaMetrics.uploadRejected();
+        }
     }
 
     private static byte[] readBytes(MultipartFile file) {

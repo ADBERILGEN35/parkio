@@ -5,6 +5,7 @@ import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.Mockito.reset;
 import static org.mockito.Mockito.when;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.multipart;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
@@ -113,6 +114,33 @@ class InternalMediaAccessTest {
     @Test
     void internalAccessUrlForUnknownMediaIsNotFound() throws Exception {
         mockMvc.perform(post("/internal/media/" + UUID.randomUUID() + "/access-url")
+                        .header("X-Gateway-Auth", GATEWAY_SECRET))
+                .andExpect(status().isNotFound())
+                .andExpect(jsonPath("$.code").value("MEDIA_NOT_FOUND"));
+    }
+
+    @Test
+    void internalStatusReturnsReadyForScannedMedia() throws Exception {
+        UUID owner = UUID.randomUUID();
+        String mediaId = upload(owner);
+
+        mockMvc.perform(get("/internal/media/" + mediaId + "/status")
+                        .header("X-Gateway-Auth", GATEWAY_SECRET))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.mediaId").value(mediaId))
+                .andExpect(jsonPath("$.status").value("READY"));
+    }
+
+    @Test
+    void internalStatusRequiresGatewayAuth() throws Exception {
+        mockMvc.perform(get("/internal/media/" + UUID.randomUUID() + "/status"))
+                .andExpect(status().isUnauthorized())
+                .andExpect(jsonPath("$.code").value("GATEWAY_AUTH_REQUIRED"));
+    }
+
+    @Test
+    void internalStatusForUnknownMediaIsNotFound() throws Exception {
+        mockMvc.perform(get("/internal/media/" + UUID.randomUUID() + "/status")
                         .header("X-Gateway-Auth", GATEWAY_SECRET))
                 .andExpect(status().isNotFound())
                 .andExpect(jsonPath("$.code").value("MEDIA_NOT_FOUND"));

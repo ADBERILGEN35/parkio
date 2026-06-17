@@ -123,6 +123,18 @@ parkio:
     # Lifetime of presigned GET URLs returned by /api/v1/media/{id}/access-url.
     # Short-lived by design; URLs are generated per request and never persisted.
     access-url-ttl: ${PARKIO_MEDIA_ACCESS_URL_TTL:5m}
+    # Anti-malware scan (ClamAV/clamd over TCP) run on the bytes BEFORE they are
+    # stored or made servable. Fail-closed: a scan that cannot be completed rejects
+    # the upload (503). Disable ONLY for local dev without a clamd container / tests
+    # (PARKIO_MEDIA_SCANNER_ENABLED=false) — never where real users are served.
+    # NB: this is malware scanning, NOT illegal/abusive-content moderation.
+    scanner:
+      enabled: ${PARKIO_MEDIA_SCANNER_ENABLED:true}
+      host: ${PARKIO_MEDIA_SCANNER_HOST:localhost}
+      port: ${PARKIO_MEDIA_SCANNER_PORT:3310}
+      connect-timeout: ${PARKIO_MEDIA_SCANNER_CONNECT_TIMEOUT:2s}
+      # Bounds how long an upload request waits on the scan before failing closed.
+      read-timeout: ${PARKIO_MEDIA_SCANNER_READ_TIMEOUT:10s}
     storage:
       bucket: ${PARKIO_MEDIA_BUCKET:parkio-media}
       # S3-compatible endpoints (MinIO in local/dev). Credentials are injected;

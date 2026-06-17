@@ -81,7 +81,8 @@ class MediaIdempotencyTest {
                 .andExpect(jsonPath("$.mediaId").value(mediaId));
 
         assertThat(count("media_files")).isEqualTo(1);
-        assertThat(count("media_validation_results")).isEqualTo(3);
+        // FILE_SIZE, MIME_TYPE, DUPLICATE, MALWARE_SCAN
+        assertThat(count("media_validation_results")).isEqualTo(4);
         assertThat(count("outbox_events")).isEqualTo(1);
         assertThat(count("idempotency_records")).isEqualTo(1);
         verify(storage, times(1)).store(anyString(), any(byte[].class), anyString());

@@ -11,5 +11,7 @@ public enum ParkingErrorCode {
     SPOT_NOT_CLAIMABLE,
     SPOT_EXPIRED,
     MISSING_USER_ID,
-    MEDIA_ACCESS_UNAVAILABLE
+    MEDIA_ACCESS_UNAVAILABLE,
+    /** The referenced media is missing or has not passed media-service safety checks (not READY). */
+    MEDIA_NOT_READY
 }

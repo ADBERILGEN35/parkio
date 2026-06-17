@@ -15,6 +15,7 @@ public class MediaProperties {
     /** Lifetime of generated presigned GET URLs (short-lived by design). */
     private Duration accessUrlTtl = Duration.ofMinutes(5);
     private Storage storage = new Storage();
+    private Scanner scanner = new Scanner();
 
     public DataSize getMaxFileSize() {
         return maxFileSize;
@@ -46,6 +47,74 @@ public class MediaProperties {
 
     public void setStorage(Storage storage) {
         this.storage = storage;
+    }
+
+    public Scanner getScanner() {
+        return scanner;
+    }
+
+    public void setScanner(Scanner scanner) {
+        this.scanner = scanner;
+    }
+
+    /**
+     * Anti-malware scanner (ClamAV/clamd over TCP) settings. When {@link #enabled} is
+     * false a pass-through scanner is wired instead (local dev / tests only) — see
+     * {@code MediaInfrastructureConfig}. Scanning is fail-closed: a scan that cannot be
+     * completed rejects the upload.
+     */
+    public static class Scanner {
+
+        /** Master switch. Must be true in any environment that serves real users. */
+        private boolean enabled = true;
+        /** clamd host (the ClamAV container/service). */
+        private String host = "localhost";
+        /** clamd TCP port (clamd default is 3310). */
+        private int port = 3310;
+        /** TCP connect timeout to clamd. */
+        private Duration connectTimeout = Duration.ofSeconds(2);
+        /** Read timeout for the scan reply; bounds how long an upload waits on the scan. */
+        private Duration readTimeout = Duration.ofSeconds(10);
+
+        public boolean isEnabled() {
+            return enabled;
+        }
+
+        public void setEnabled(boolean enabled) {
+            this.enabled = enabled;
+        }
+
+        public String getHost() {
+            return host;
+        }
+
+        public void setHost(String host) {
+            this.host = host;
+        }
+
+        public int getPort() {
+            return port;
+        }
+
+        public void setPort(int port) {
+            this.port = port;
+        }
+
+        public Duration getConnectTimeout() {
+            return connectTimeout;
+        }
+
+        public void setConnectTimeout(Duration connectTimeout) {
+            this.connectTimeout = connectTimeout;
+        }
+
+        public Duration getReadTimeout() {
+            return readTimeout;
+        }
+
+        public void setReadTimeout(Duration readTimeout) {
+            this.readTimeout = readTimeout;
+        }
     }
 
     /**

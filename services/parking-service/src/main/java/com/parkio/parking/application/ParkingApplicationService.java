@@ -3,6 +3,7 @@ package com.parkio.parking.application;
 import com.parkio.parking.application.command.CreateSpotCommand;
 import com.parkio.parking.application.command.SearchNearbyQuery;
 import com.parkio.parking.application.port.MediaAccessPort;
+import com.parkio.parking.application.port.MediaReadinessPort;
 import com.parkio.parking.application.port.OutboxEventAppender;
 import com.parkio.parking.application.port.ParkingSpotRepository;
 import com.parkio.parking.application.port.ParkingSpotSearchLogRepository;
@@ -52,6 +53,7 @@ public class ParkingApplicationService {
     private final ParkingSpotSearchLogRepository searchLogs;
     private final OutboxEventAppender outbox;
     private final MediaAccessPort mediaAccess;
+    private final MediaReadinessPort mediaReadiness;
     private final ParkingSearchSettings searchSettings;
     private final Clock clock;
 
@@ -62,6 +64,7 @@ public class ParkingApplicationService {
                                      ParkingSpotSearchLogRepository searchLogs,
                                      OutboxEventAppender outbox,
                                      MediaAccessPort mediaAccess,
+                                     MediaReadinessPort mediaReadiness,
                                      ParkingSearchSettings searchSettings,
                                      Clock clock) {
         this.spots = spots;
@@ -71,12 +74,20 @@ public class ParkingApplicationService {
         this.searchLogs = searchLogs;
         this.outbox = outbox;
         this.mediaAccess = mediaAccess;
+        this.mediaReadiness = mediaReadiness;
         this.searchSettings = searchSettings;
         this.clock = clock;
     }
 
-    /** Creates a spot. Rejects illegal/risky submissions — no spot is persisted. */
+    /**
+     * Creates a spot. The referenced media must already be {@code READY} in
+     * media-service (uploaded, scanned clean) — this is checked first and fails closed
+     * (no spot is persisted if the media is not ready or media-service is unreachable).
+     * Illegal/risky submissions are also rejected without persisting.
+     */
     public ParkingSpot createSpot(CreateSpotCommand command) {
+        // Reject before any write: don't let a spot reference unscanned/unsafe media.
+        mediaReadiness.ensureMediaReady(command.mediaId());
         Instant now = clock.instant();
         ParkingSpot spot = ParkingSpot.create(
                 command.ownerUserId(), command.mediaId(), command.latitude(), command.longitude(),

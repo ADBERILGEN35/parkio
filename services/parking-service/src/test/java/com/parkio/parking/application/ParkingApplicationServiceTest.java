@@ -6,6 +6,7 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import com.parkio.parking.application.command.CreateSpotCommand;
 import com.parkio.parking.application.command.SearchNearbyQuery;
 import com.parkio.parking.application.port.MediaAccessPort;
+import com.parkio.parking.application.port.MediaReadinessPort;
 import com.parkio.parking.application.port.OutboxEventAppender;
 import com.parkio.parking.application.port.ParkingSpotRepository;
 import com.parkio.parking.application.port.ParkingSpotSearchLogRepository;
@@ -61,6 +62,7 @@ class ParkingApplicationServiceTest {
     private FakeSearchLogRepository searchLogs;
     private FakeOutboxEventAppender outbox;
     private FakeMediaAccessPort mediaAccess;
+    private FakeMediaReadinessPort mediaReadiness;
     private MutableClock clock;
     private ParkingApplicationService service;
 
@@ -73,9 +75,10 @@ class ParkingApplicationServiceTest {
         searchLogs = new FakeSearchLogRepository();
         outbox = new FakeOutboxEventAppender();
         mediaAccess = new FakeMediaAccessPort();
+        mediaReadiness = new FakeMediaReadinessPort();
         clock = new MutableClock(NOW);
         service = new ParkingApplicationService(spots, verifications, statusHistory, viewLogs, searchLogs,
-                outbox, mediaAccess, new ParkingSearchSettings(1000, 10, 50000, 50), clock);
+                outbox, mediaAccess, mediaReadiness, new ParkingSearchSettings(1000, 10, 50000, 50), clock);
     }
 
     private CreateSpotCommand createCommand(UUID owner, LegalStatus legalStatus) {
@@ -105,6 +108,46 @@ class ParkingApplicationServiceTest {
                 .isInstanceOf(ParkingException.class)
                 .extracting(e -> ((ParkingException) e).errorCode())
                 .isEqualTo(ParkingErrorCode.ILLEGAL_SPOT_REJECTED);
+
+        assertThat(spots.byId).isEmpty();
+        assertThat(outbox.events).isEmpty();
+    }
+
+    @Test
+    void createSpotChecksReferencedMediaIsReady() {
+        UUID owner = UUID.randomUUID();
+        CreateSpotCommand command = createCommand(owner, LegalStatus.LEGAL);
+
+        service.createSpot(command);
+
+        assertThat(mediaReadiness.checkCount).isEqualTo(1);
+        assertThat(mediaReadiness.lastMediaId).isEqualTo(command.mediaId());
+    }
+
+    @Test
+    void rejectsSpotCreationWhenMediaNotReady() {
+        UUID owner = UUID.randomUUID();
+        mediaReadiness.toThrow = new ParkingException(ParkingErrorCode.MEDIA_NOT_READY);
+
+        assertThatThrownBy(() -> service.createSpot(createCommand(owner, LegalStatus.LEGAL)))
+                .isInstanceOf(ParkingException.class)
+                .extracting(e -> ((ParkingException) e).errorCode())
+                .isEqualTo(ParkingErrorCode.MEDIA_NOT_READY);
+
+        // Fail closed: no spot persisted, no event emitted.
+        assertThat(spots.byId).isEmpty();
+        assertThat(outbox.events).isEmpty();
+    }
+
+    @Test
+    void failsClosedWhenMediaServiceUnavailableDuringCreation() {
+        UUID owner = UUID.randomUUID();
+        mediaReadiness.toThrow = new ParkingException(ParkingErrorCode.MEDIA_ACCESS_UNAVAILABLE);
+
+        assertThatThrownBy(() -> service.createSpot(createCommand(owner, LegalStatus.LEGAL)))
+                .isInstanceOf(ParkingException.class)
+                .extracting(e -> ((ParkingException) e).errorCode())
+                .isEqualTo(ParkingErrorCode.MEDIA_ACCESS_UNAVAILABLE);
 
         assertThat(spots.byId).isEmpty();
         assertThat(outbox.events).isEmpty();
@@ -538,6 +581,21 @@ class ParkingApplicationServiceTest {
             lastRequesterUserId = requesterUserId;
             return new MediaAccessGrant(mediaId, "https://signed.example/" + mediaId,
                     NOW.plus(5, ChronoUnit.MINUTES));
+        }
+    }
+
+    private static final class FakeMediaReadinessPort implements MediaReadinessPort {
+        private int checkCount;
+        private UUID lastMediaId;
+        private ParkingException toThrow;
+
+        @Override
+        public void ensureMediaReady(UUID mediaId) {
+            checkCount++;
+            lastMediaId = mediaId;
+            if (toThrow != null) {
+                throw toThrow;
+            }
         }
     }
 

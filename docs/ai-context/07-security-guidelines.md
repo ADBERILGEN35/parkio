@@ -36,10 +36,21 @@
 
 ## Media security
 
-- Validate image content type and size; scan/limit uploads.
+- Validate image content type and size; confirm magic bytes match the declared type.
+- **Malware scan before serving (implemented).** `media-service` scans uploaded
+  bytes with ClamAV (`clamd` `INSTREAM` over TCP) **before** they are stored, and
+  media is only `READY`/servable after a clean scan. The scan is **fail-closed**: a
+  scan that cannot complete returns `503` and stores nothing; an infected file
+  returns `422`. Signed URLs are issued only for `READY` media, and `parking-service`
+  rejects spot creation that references non-`READY` media (also fail-closed).
 - Serve media via **time-limited signed URLs**; do not expose bucket internals.
 - Strip or normalize EXIF appropriately — but note that **GPS for a spot comes from
-  the app submission**, not implicitly trusted client EXIF.
+  the app submission**, not implicitly trusted client EXIF. *(EXIF stripping /
+  re-encoding is not yet implemented — future hardening.)*
+- **Limitation:** malware scanning is **not** illegal/abusive-content classification
+  (e.g. CSAM). That requires a managed content-safety provider and/or human
+  moderation; AI image validation stays **advisory** unless explicitly enforced.
+  Production should add a managed AV/content-safety provider.
 
 ## Abuse & rate limiting
 

@@ -12,6 +12,7 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.jayway.jsonpath.JsonPath;
 import com.parkio.parking.application.port.MediaAccessPort;
+import com.parkio.parking.application.port.MediaReadinessPort;
 import com.parkio.parking.domain.exception.ParkingErrorCode;
 import com.parkio.parking.domain.exception.ParkingException;
 import java.time.Instant;
@@ -54,6 +55,10 @@ class SpotMediaAccessUrlTest {
     @MockBean
     private MediaAccessPort mediaAccess;
 
+    // Spot creation now verifies media readiness; mocked here so the helper can seed spots.
+    @MockBean
+    private MediaReadinessPort mediaReadiness;
+
     @BeforeEach
     void setUp() {
         jdbc.update("DELETE FROM idempotency_records");
@@ -61,7 +66,7 @@ class SpotMediaAccessUrlTest {
         jdbc.update("DELETE FROM parking_spot_status_history");
         jdbc.update("DELETE FROM outbox_events");
         jdbc.update("DELETE FROM parking_spots");
-        reset(mediaAccess);
+        reset(mediaAccess, mediaReadiness);
         when(mediaAccess.requestAccessUrl(any(UUID.class), any(UUID.class)))
                 .thenAnswer(invocation -> new MediaAccessPort.MediaAccessGrant(
                         invocation.getArgument(0),

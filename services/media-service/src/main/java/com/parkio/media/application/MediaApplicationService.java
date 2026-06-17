@@ -2,12 +2,15 @@ package com.parkio.media.application;
 
 import com.parkio.media.application.command.UploadMediaCommand;
 import com.parkio.media.application.port.MediaFileRepository;
+import com.parkio.media.application.port.MediaScanner;
+import com.parkio.media.application.port.MediaScannerUnavailableException;
 import com.parkio.media.application.port.MediaStoragePort;
 import com.parkio.media.application.port.MediaValidationResultRepository;
 import com.parkio.media.application.port.OutboxEventAppender;
 import com.parkio.media.application.result.MediaAccessUrl;
 import com.parkio.media.application.result.MediaUploadResult;
 import com.parkio.media.domain.MediaFile;
+import com.parkio.media.domain.MediaStatus;
 import com.parkio.media.domain.MediaValidationOutcome;
 import com.parkio.media.domain.MediaValidationResult;
 import com.parkio.media.domain.MediaValidationType;
@@ -55,6 +58,7 @@ public class MediaApplicationService {
     private final MediaFileRepository mediaFiles;
     private final MediaValidationResultRepository validationResults;
     private final MediaStoragePort storage;
+    private final MediaScanner scanner;
     private final OutboxEventAppender outbox;
     private final MediaRejectionRecorder rejectionRecorder;
     private final MediaUploadConstraints constraints;
@@ -64,6 +68,7 @@ public class MediaApplicationService {
     public MediaApplicationService(MediaFileRepository mediaFiles,
                                    MediaValidationResultRepository validationResults,
                                    MediaStoragePort storage,
+                                   MediaScanner scanner,
                                    OutboxEventAppender outbox,
                                    MediaRejectionRecorder rejectionRecorder,
                                    MediaUploadConstraints constraints,
@@ -72,6 +77,7 @@ public class MediaApplicationService {
         this.mediaFiles = mediaFiles;
         this.validationResults = validationResults;
         this.storage = storage;
+        this.scanner = scanner;
         this.outbox = outbox;
         this.rejectionRecorder = rejectionRecorder;
         this.constraints = constraints;
@@ -80,10 +86,18 @@ public class MediaApplicationService {
     }
 
     /**
-     * Validates the upload (non-empty, allowed mime, within size limit, not a
-     * duplicate), stores the bytes under a generated key, and persists metadata,
-     * validation results and a {@code MediaUploaded} outbox event in one
-     * transaction. Rejections record a {@code MediaRejected} event and throw.
+     * Validates the upload (non-empty, allowed mime, magic-byte match, within size
+     * limit, not a duplicate), <b>scans the bytes for malware</b>, then stores them
+     * under a generated key and persists metadata, validation results and a
+     * {@code MediaUploaded} outbox event in one transaction. The media becomes
+     * {@link MediaStatus#READY} (servable) only after a clean scan.
+     *
+     * <p>The scan runs <em>before</em> anything is stored, so infected or unscanned
+     * bytes never reach object storage. An infected scan records a {@code MediaRejected}
+     * event and throws {@link MediaErrorCode#MEDIA_INFECTED} (422); a scan that cannot
+     * be completed throws {@link MediaErrorCode#MEDIA_SCAN_UNAVAILABLE} (503) — the
+     * upload fails closed and no media row is created. Other validation failures record
+     * a {@code MediaRejected} event and throw as before.
      */
     public MediaUploadResult upload(UploadMediaCommand command) {
         UUID ownerUserId = command.ownerUserId();
@@ -121,18 +135,38 @@ public class MediaApplicationService {
             throw new MediaException(MediaErrorCode.DUPLICATE_MEDIA, "This file has already been uploaded.");
         }
 
+        // Malware scan BEFORE storing: infected/unscanned bytes never reach storage.
+        // Fail-closed — a scan that cannot run rejects the upload (no media becomes READY).
+        MediaScanner.ScanReport scanReport;
+        try {
+            scanReport = scanner.scan(content);
+        } catch (MediaScannerUnavailableException ex) {
+            log.warn("Malware scan could not be completed; failing upload closed", ex);
+            reject(ownerUserId, MediaValidationType.MALWARE_SCAN, "Scan could not be completed", checksum);
+            throw new MediaException(MediaErrorCode.MEDIA_SCAN_UNAVAILABLE,
+                    "The file could not be scanned. Please try again.");
+        }
+        if (!scanReport.clean()) {
+            // The matched signature is recorded server-side for audit; never returned to the client.
+            reject(ownerUserId, MediaValidationType.MALWARE_SCAN,
+                    "Malware signature detected: " + scanReport.signature(), checksum);
+            throw new MediaException(MediaErrorCode.MEDIA_INFECTED,
+                    "This file failed a safety scan and was rejected.");
+        }
+
         Instant now = clock.instant();
         String objectKey = generateObjectKey(ownerUserId, contentType);
         MediaStoragePort.StoredObject stored = storage.store(objectKey, content, contentType);
 
         MediaFile media = MediaFile.create(ownerUserId, stored.bucket(), stored.objectKey(),
                 contentType, content.length, checksum, null, now);
-        media.markValidated(now);
+        media.markReady(now);
         media = mediaFiles.save(media);
 
         recordPassed(media.id(), MediaValidationType.FILE_SIZE, now);
         recordPassed(media.id(), MediaValidationType.MIME_TYPE, now);
         recordPassed(media.id(), MediaValidationType.DUPLICATE, now);
+        recordPassed(media.id(), MediaValidationType.MALWARE_SCAN, now);
 
         outbox.append(MediaUploadedEvent.of(media, now));
         return MediaUploadResult.from(media);
@@ -146,12 +180,13 @@ public class MediaApplicationService {
 
     /**
      * Generates a short-lived presigned GET URL for the media object — owner or
-     * moderator/admin only. The URL is created per request and never persisted.
+     * moderator/admin only, and only for {@link MediaStatus#READY} media. The URL is
+     * created per request and never persisted.
      */
     @Transactional(readOnly = true)
     public MediaAccessUrl createAccessUrl(UUID mediaId, UUID requesterUserId, boolean canModerate) {
         MediaFile media = requireReadableMedia(mediaId, requesterUserId, canModerate);
-        return accessUrlFor(media);
+        return accessUrlFor(requireReady(media));
     }
 
     /**
@@ -159,11 +194,23 @@ public class MediaApplicationService {
      * internal service (e.g. parking-service) that has already authorized the
      * requester against its own domain rules (spot visibility). Reached only via
      * {@code /internal/**}, which the gateway never routes and which still requires
-     * the shared {@code X-Gateway-Auth} secret.
+     * the shared {@code X-Gateway-Auth} secret. Non-{@code READY} media is treated as
+     * not found (no signed URL is ever issued for unscanned media).
      */
     @Transactional(readOnly = true)
     public MediaAccessUrl createAccessUrlForInternalCaller(UUID mediaId) {
-        return accessUrlFor(requireActiveMedia(mediaId));
+        return accessUrlFor(requireReady(requireActiveMedia(mediaId)));
+    }
+
+    /**
+     * Current lifecycle status of a media object, for a trusted internal caller
+     * (parking-service deciding whether a spot may reference it). Deleted/unknown
+     * media is {@code MEDIA_NOT_FOUND}; otherwise the live {@link MediaStatus} is
+     * returned so the caller can require {@code READY}.
+     */
+    @Transactional(readOnly = true)
+    public MediaStatus getStatusForInternalCaller(UUID mediaId) {
+        return requireActiveMedia(mediaId).status();
     }
 
     private MediaAccessUrl accessUrlFor(MediaFile media) {
@@ -203,6 +250,17 @@ public class MediaApplicationService {
         MediaFile media = mediaFiles.findById(mediaId)
                 .orElseThrow(() -> new MediaException(MediaErrorCode.MEDIA_NOT_FOUND));
         if (media.isDeleted()) {
+            throw new MediaException(MediaErrorCode.MEDIA_NOT_FOUND);
+        }
+        return media;
+    }
+
+    /**
+     * Guards the serving paths: a signed URL is issued only for {@code READY} media.
+     * Non-ready media is answered as NOT_FOUND so its existence/state cannot be probed.
+     */
+    private MediaFile requireReady(MediaFile media) {
+        if (!media.isReady()) {
             throw new MediaException(MediaErrorCode.MEDIA_NOT_FOUND);
         }
         return media;

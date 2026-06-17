@@ -37,7 +37,7 @@ injects a verified `X-User-Id` (and `X-User-Roles`). Requests without a valid
 
 | Method & path                                | Purpose                                              |
 |----------------------------------------------|------------------------------------------------------|
-| `POST /api/v1/media/upload`                  | Multipart `file` plus required `Idempotency-Key`. Validates mime/size, computes SHA-256, rejects duplicates (409), stores the object, returns `{ mediaId, status, contentType, fileSize }`. |
+| `POST /api/v1/media/upload`                  | Multipart `file` plus required `Idempotency-Key`. Validates mime/size/magic-bytes, computes SHA-256, rejects duplicates (409), **scans the bytes for malware**, then stores the object and returns `{ mediaId, status, contentType, fileSize }` with `status=READY`. Infected → `422 MEDIA_INFECTED`; scan unavailable → `503 MEDIA_SCAN_UNAVAILABLE` (fail-closed, nothing stored). |
 | `GET /api/v1/media/{mediaId}`                | Metadata — **owner or MODERATOR/ADMIN only**.        |
 | `GET /api/v1/media/{mediaId}/access-url`     | Short-lived presigned GET URL — **owner or MODERATOR/ADMIN only**. |
 | `DELETE /api/v1/media/{mediaId}`             | Soft-delete (**owner only**, `403` otherwise); best-effort object removal. |
@@ -116,7 +116,65 @@ internal endpoint. See the parking-service README for the full flow.
   files rejected.
 - Object keys are **generated** (`media/{ownerUserId}/{uuid}.{ext}`) — the original
   filename and any user-controlled path are never trusted.
+- Magic-byte detection confirms the bytes match the declared image type.
 - Duplicate checksum → `409`.
+- **Malware scan** (see below) — the final blocking check before storage.
+
+### Media lifecycle & malware scanning
+
+Uploaded images must pass a basic anti-malware scan before they can ever be
+served. The lifecycle status (`MediaStatus`) is:
+
+| Status         | Meaning                                                                 |
+|----------------|-------------------------------------------------------------------------|
+| `PENDING_SCAN` | Awaiting/undergoing the scan; **not** servable. Durable initial state for a future async pipeline; rarely observed committed under the synchronous flow. |
+| `READY`        | Passed every check **including** the malware scan; servable.            |
+| `REJECTED`     | Rejected by validation or the scan (audit only; not persisted as a row today). |
+| `DELETED`      | Soft-deleted; metadata retained, never served.                          |
+
+**Design: synchronous, scan-before-store.** The upload request scans the bytes
+in memory (ClamAV `INSTREAM` over TCP) *before* anything is written to object
+storage. A clean scan stores the object and persists the media directly as
+`READY`; the response carries `status=READY`. Because the scan precedes the
+write, infected or unscanned bytes never reach storage and there is no orphan to
+clean up.
+
+**Fail-closed.** If the scan cannot be completed (clamd unreachable, timeout,
+protocol/size error) the upload returns **`503 MEDIA_SCAN_UNAVAILABLE`** and no
+media row or object is created. An infected file returns **`422 MEDIA_INFECTED`**
+(the matched signature is logged for audit, never returned to the client). Media
+never becomes `READY` without a clean scan.
+
+**Serving gates (only `READY` media is servable):**
+
+- `GET /api/v1/media/{mediaId}/access-url` and the internal access-url endpoint
+  issue a signed URL **only** for `READY` media; non-ready media answers
+  `404 MEDIA_NOT_FOUND` (no state probing).
+- `GET /internal/media/{mediaId}/status` (internal, `X-Gateway-Auth` only) returns
+  `{ mediaId, status }` so **parking-service rejects spot creation that references
+  non-`READY` media** (parking maps it to `422 MEDIA_NOT_READY`, and a media-service
+  outage to `503` — also fail-closed).
+
+**Scanner configuration** (`parkio.media.scanner.*`, env in parentheses):
+
+| Property          | Env                                   | Default     | Notes                                  |
+|-------------------|---------------------------------------|-------------|----------------------------------------|
+| `enabled`         | `PARKIO_MEDIA_SCANNER_ENABLED`        | `true`      | `false` wires a **pass-through** scanner — local dev without clamd / tests only. **Never** disable where real users are served. |
+| `host`            | `PARKIO_MEDIA_SCANNER_HOST`           | `localhost` | clamd host (the `clamav` container in compose). |
+| `port`            | `PARKIO_MEDIA_SCANNER_PORT`           | `3310`      | clamd TCP port.                         |
+| `connect-timeout` | `PARKIO_MEDIA_SCANNER_CONNECT_TIMEOUT`| `2s`        | TCP connect timeout.                    |
+| `read-timeout`    | `PARKIO_MEDIA_SCANNER_READ_TIMEOUT`   | `10s`       | Bounds how long an upload waits on the scan before failing closed. |
+
+**Metrics** (at `/actuator/prometheus`): `media_scan_clean_total`,
+`media_scan_rejected_total`, `media_scan_failed_total` (counters), and
+`media_pending_scan_count` (gauge of rows in `PENDING_SCAN`; ~0 under the
+synchronous flow — exists to detect stuck rows / support a future async pipeline).
+
+> **Known limitation — this is malware scanning, not content moderation.** ClamAV
+> detects malware/abuse payloads; it does **not** classify illegal or abusive
+> imagery (e.g. CSAM). That still requires a dedicated provider and/or human
+> moderation. AI image validation remains **advisory** unless explicitly enforced.
+> EXIF stripping / re-encoding is **not** implemented yet (future hardening).
 
 ### HTTP idempotency
 
@@ -159,6 +217,18 @@ From the repository root:
 ```bash
 ./gradlew :services:media-service:bootRun
 ```
+
+The malware scanner is **enabled by default** and fails closed, so `bootRun`
+without a reachable clamd will reject uploads with `503`. For local dev either run
+the `clamav` compose service (`docker compose up clamav`) and point the scanner at
+it, or disable scanning explicitly:
+
+```bash
+PARKIO_MEDIA_SCANNER_ENABLED=false ./gradlew :services:media-service:bootRun
+```
+
+The H2-based test suite runs with the scanner disabled; scan behaviour is covered
+by unit tests with a fake scanner and by `MediaScanUploadTest` with a mocked one.
 
 ## Build & test
 

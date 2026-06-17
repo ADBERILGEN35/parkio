@@ -5,6 +5,8 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 import com.parkio.media.application.command.UploadMediaCommand;
 import com.parkio.media.application.port.MediaFileRepository;
+import com.parkio.media.application.port.MediaScanner;
+import com.parkio.media.application.port.MediaScannerUnavailableException;
 import com.parkio.media.application.port.MediaStoragePort;
 import com.parkio.media.application.port.MediaValidationResultRepository;
 import com.parkio.media.application.port.OutboxEventAppender;
@@ -47,6 +49,7 @@ class MediaApplicationServiceTest {
     private FakeMediaFileRepository mediaFiles;
     private FakeMediaValidationResultRepository validationResults;
     private FakeMediaStoragePort storage;
+    private FakeMediaScanner scanner;
     private FakeOutboxEventAppender outbox;
     private MediaApplicationService service;
 
@@ -55,11 +58,12 @@ class MediaApplicationServiceTest {
         mediaFiles = new FakeMediaFileRepository();
         validationResults = new FakeMediaValidationResultRepository();
         storage = new FakeMediaStoragePort();
+        scanner = new FakeMediaScanner();
         outbox = new FakeOutboxEventAppender();
         MediaUploadConstraints constraints = new MediaUploadConstraints(
                 Set.of("image/jpeg", "image/png", "image/webp"), MAX_SIZE);
         Clock clock = Clock.fixed(NOW, ZoneOffset.UTC);
-        service = new MediaApplicationService(mediaFiles, validationResults, storage, outbox,
+        service = new MediaApplicationService(mediaFiles, validationResults, storage, scanner, outbox,
                 new MediaRejectionRecorder(outbox), constraints,
                 new MediaAccessUrlPolicy(ACCESS_URL_TTL), clock);
     }
@@ -87,7 +91,7 @@ class MediaApplicationServiceTest {
 
         MediaUploadResult result = service.upload(jpeg(owner, new byte[]{1, 2, 3, 4}));
 
-        assertThat(result.status()).isEqualTo(MediaStatus.VALIDATED);
+        assertThat(result.status()).isEqualTo(MediaStatus.READY);
         assertThat(result.contentType()).isEqualTo("image/jpeg");
         assertThat(result.fileSize()).isEqualTo(JPEG_MAGIC.length + 4);
 
@@ -101,13 +105,15 @@ class MediaApplicationServiceTest {
         // Bytes landed in storage under the generated key.
         assertThat(storage.objects).containsKey(stored.objectKey());
 
-        // Synchronous validations are recorded as PASSED.
+        // Synchronous validations (incl. the malware scan) are recorded as PASSED.
         assertThat(validationResults.findByMediaId(result.mediaId()))
                 .extracting(MediaValidationResult::validationType)
                 .containsExactlyInAnyOrder(MediaValidationType.FILE_SIZE,
-                        MediaValidationType.MIME_TYPE, MediaValidationType.DUPLICATE);
+                        MediaValidationType.MIME_TYPE, MediaValidationType.DUPLICATE,
+                        MediaValidationType.MALWARE_SCAN);
         assertThat(validationResults.findByMediaId(result.mediaId()))
                 .allMatch(r -> r.result() == MediaValidationOutcome.PASSED);
+        assertThat(scanner.scanCount).isEqualTo(1);
 
         assertThat(outbox.events).singleElement().isInstanceOf(MediaUploadedEvent.class);
     }
@@ -119,7 +125,7 @@ class MediaApplicationServiceTest {
         MediaUploadResult result = service.upload(
                 new UploadMediaCommand(owner, "image/png", withMagic(PNG_MAGIC, new byte[]{1, 2})));
 
-        assertThat(result.status()).isEqualTo(MediaStatus.VALIDATED);
+        assertThat(result.status()).isEqualTo(MediaStatus.READY);
         assertThat(mediaFiles.findById(result.mediaId()).orElseThrow().objectKey()).endsWith(".png");
     }
 
@@ -130,7 +136,7 @@ class MediaApplicationServiceTest {
         MediaUploadResult result = service.upload(
                 new UploadMediaCommand(owner, "image/webp", withMagic(WEBP_MAGIC, new byte[]{1, 2})));
 
-        assertThat(result.status()).isEqualTo(MediaStatus.VALIDATED);
+        assertThat(result.status()).isEqualTo(MediaStatus.READY);
         assertThat(mediaFiles.findById(result.mediaId()).orElseThrow().objectKey()).endsWith(".webp");
     }
 
@@ -225,6 +231,38 @@ class MediaApplicationServiceTest {
     }
 
     @Test
+    void uploadRejectsInfectedFileWithoutStoring() {
+        UUID owner = UUID.randomUUID();
+        scanner.verdict = MediaScanner.ScanReport.ofInfected("Eicar-Test-Signature");
+
+        assertThatThrownBy(() -> service.upload(jpeg(owner, new byte[]{1, 2, 3, 4})))
+                .isInstanceOf(MediaException.class)
+                .extracting(e -> ((MediaException) e).errorCode())
+                .isEqualTo(MediaErrorCode.MEDIA_INFECTED);
+
+        // Infected bytes never reach storage and no media row is persisted.
+        assertThat(storage.objects).isEmpty();
+        assertThat(mediaFiles.byId).isEmpty();
+        assertRejectedEvent(MediaValidationType.MALWARE_SCAN);
+    }
+
+    @Test
+    void uploadFailsClosedWhenScannerUnavailable() {
+        UUID owner = UUID.randomUUID();
+        scanner.unavailable = true;
+
+        assertThatThrownBy(() -> service.upload(jpeg(owner, new byte[]{1, 2, 3, 4})))
+                .isInstanceOf(MediaException.class)
+                .extracting(e -> ((MediaException) e).errorCode())
+                .isEqualTo(MediaErrorCode.MEDIA_SCAN_UNAVAILABLE);
+
+        // Fail closed: nothing stored, nothing persisted — media never becomes READY.
+        assertThat(storage.objects).isEmpty();
+        assertThat(mediaFiles.byId).isEmpty();
+        assertRejectedEvent(MediaValidationType.MALWARE_SCAN);
+    }
+
+    @Test
     void ownerCanReadMetadata() {
         UUID owner = UUID.randomUUID();
         MediaUploadResult result = service.upload(jpeg(owner, new byte[]{1, 2, 3}));
@@ -281,6 +319,44 @@ class MediaApplicationServiceTest {
     }
 
     @Test
+    void accessUrlDeniedForNonReadyMedia() {
+        UUID owner = UUID.randomUUID();
+        // A media row that has not passed the scan yet (PENDING_SCAN), saved directly.
+        MediaFile pending = MediaFile.create(owner, "bucket", "media/" + owner + "/x.jpg",
+                "image/jpeg", 10, "checksum-pending", null, NOW);
+        mediaFiles.save(pending);
+
+        // Even the owner cannot get a signed URL until the media is READY; answered as NOT_FOUND.
+        assertThatThrownBy(() -> service.createAccessUrl(pending.id(), owner, false))
+                .isInstanceOf(MediaException.class)
+                .extracting(e -> ((MediaException) e).errorCode())
+                .isEqualTo(MediaErrorCode.MEDIA_NOT_FOUND);
+        // The internal (parking-mediated) path is also denied for non-READY media.
+        assertThatThrownBy(() -> service.createAccessUrlForInternalCaller(pending.id()))
+                .isInstanceOf(MediaException.class)
+                .extracting(e -> ((MediaException) e).errorCode())
+                .isEqualTo(MediaErrorCode.MEDIA_NOT_FOUND);
+        assertThat(storage.presignedKeys).isEmpty();
+    }
+
+    @Test
+    void internalStatusReportsLifecycleState() {
+        UUID owner = UUID.randomUUID();
+        MediaUploadResult ready = service.upload(jpeg(owner, new byte[]{1, 2, 3}));
+        assertThat(service.getStatusForInternalCaller(ready.mediaId())).isEqualTo(MediaStatus.READY);
+
+        MediaFile pending = MediaFile.create(owner, "bucket", "media/" + owner + "/y.jpg",
+                "image/jpeg", 10, "checksum-pending2", null, NOW);
+        mediaFiles.save(pending);
+        assertThat(service.getStatusForInternalCaller(pending.id())).isEqualTo(MediaStatus.PENDING_SCAN);
+
+        assertThatThrownBy(() -> service.getStatusForInternalCaller(UUID.randomUUID()))
+                .isInstanceOf(MediaException.class)
+                .extracting(e -> ((MediaException) e).errorCode())
+                .isEqualTo(MediaErrorCode.MEDIA_NOT_FOUND);
+    }
+
+    @Test
     void nonOwnerCannotObtainAccessUrl() {
         UUID owner = UUID.randomUUID();
         MediaUploadResult result = service.upload(jpeg(owner, new byte[]{1, 2, 3}));
@@ -333,7 +409,7 @@ class MediaApplicationServiceTest {
 
         List<MediaValidationResult> results = service.getValidationResults(result.mediaId(), owner, false);
 
-        assertThat(results).hasSize(3);
+        assertThat(results).hasSize(4);
         assertThat(results).allMatch(r -> r.result() == MediaValidationOutcome.PASSED);
     }
 
@@ -356,7 +432,7 @@ class MediaApplicationServiceTest {
         List<MediaValidationResult> results =
                 service.getValidationResults(result.mediaId(), UUID.randomUUID(), true);
 
-        assertThat(results).hasSize(3);
+        assertThat(results).hasSize(4);
     }
 
     private void assertRejectedEvent(MediaValidationType expectedType) {
@@ -423,6 +499,21 @@ class MediaApplicationServiceTest {
         public String generatePresignedGetUrl(String objectKey, Duration ttl) {
             presignedKeys.add(objectKey);
             return "https://signed.example/" + objectKey + "?ttl=" + ttl;
+        }
+    }
+
+    private static final class FakeMediaScanner implements MediaScanner {
+        private int scanCount;
+        private boolean unavailable;
+        private ScanReport verdict = ScanReport.ofClean();
+
+        @Override
+        public ScanReport scan(byte[] content) {
+            scanCount++;
+            if (unavailable) {
+                throw new MediaScannerUnavailableException("scanner down (test)");
+            }
+            return verdict;
         }
     }
 

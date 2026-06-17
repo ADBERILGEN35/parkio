@@ -230,6 +230,31 @@ services:
     restart: "no"
 
   # ------------------------------------------------------------------------- #
+  # ClamAV — anti-malware daemon (clamd over TCP) used by media-service to     #
+  # scan uploaded image bytes BEFORE they are stored or served. media-service  #
+  # fails closed if it cannot reach clamd, so it depends on this being healthy.#
+  # First start downloads the virus DB (freshclam) — allow a long start_period.#
+  # ------------------------------------------------------------------------- #
+  clamav:
+    image: ${CLAMAV_IMAGE:-clamav/clamav:1.4}
+    container_name: parkio-clamav
+    restart: unless-stopped
+    # clamd listens on 3310; exposed on the host for local dev only (the
+    # hosted-beta overlay removes this mapping — clamd stays on the private net).
+    ports:
+      - "${CLAMAV_PORT:-3310}:3310"
+    volumes: ["clamav-data:/var/lib/clamav"]
+    networks: [parkio-backend]
+    healthcheck:
+      # clamdcheck.sh PINGs clamd; only healthy once the DB is loaded and clamd is up.
+      test: ["CMD", "clamdcheck.sh"]
+      interval: 30s
+      timeout: 10s
+      retries: 10
+      # Virus-DB download + clamd load can take a couple of minutes on first boot.
+      start_period: 180s
+
+  # ------------------------------------------------------------------------- #
   # Observability — Prometheus scrapes service /actuator/prometheus; Grafana.  #
   # ------------------------------------------------------------------------- #
   prometheus:
@@ -293,6 +318,7 @@ volumes:
   redis-data:
   kafka-data:
   minio-data:
+  clamav-data:
   prometheus-data:
   grafana-data:
 

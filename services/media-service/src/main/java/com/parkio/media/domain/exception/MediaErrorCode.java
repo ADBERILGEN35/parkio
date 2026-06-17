@@ -8,5 +8,9 @@ public enum MediaErrorCode {
     FILE_TOO_LARGE,
     EMPTY_FILE,
     MISSING_USER_ID,
-    NOT_MEDIA_OWNER
+    NOT_MEDIA_OWNER,
+    /** The uploaded bytes failed the malware scan (mapped to 422). */
+    MEDIA_INFECTED,
+    /** The malware scan could not be completed; upload fails closed (mapped to 503). */
+    MEDIA_SCAN_UNAVAILABLE
 }
