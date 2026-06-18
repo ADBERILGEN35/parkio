@@ -13,5 +13,10 @@
   },
   "engines": {
     "node": ">=20"
+  },
+  "pnpm": {
+    "overrides": {
+      "form-data": "4.0.6"
+    }
   }
 }

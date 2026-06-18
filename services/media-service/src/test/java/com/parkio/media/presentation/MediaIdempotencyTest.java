@@ -12,6 +12,7 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
 import com.parkio.media.application.port.MediaStoragePort;
+import com.parkio.media.testsupport.TestImages;
 import java.util.UUID;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -30,9 +31,7 @@ class MediaIdempotencyTest {
 
     private static final String GATEWAY_SECRET =
             "test-only-parkio-gateway-internal-secret-0123456789";
-    private static final byte[] JPEG = {
-            (byte) 0xFF, (byte) 0xD8, (byte) 0xFF, 1, 2, 3, 4
-    };
+    private static final byte[] JPEG = TestImages.jpeg();
 
     @Autowired
     private MockMvc mockMvc;
@@ -96,9 +95,7 @@ class MediaIdempotencyTest {
         mockMvc.perform(uploadRequest(userId, key, "spot.jpg", JPEG))
                 .andExpect(status().isCreated());
 
-        byte[] different = {
-                (byte) 0xFF, (byte) 0xD8, (byte) 0xFF, 9, 8, 7
-        };
+        byte[] different = TestImages.jpeg(16, 16, 97);
         mockMvc.perform(uploadRequest(userId, key, "other.jpg", different))
                 .andExpect(status().isConflict())
                 .andExpect(jsonPath("$.code").value("IDEMPOTENCY_KEY_CONFLICT"));

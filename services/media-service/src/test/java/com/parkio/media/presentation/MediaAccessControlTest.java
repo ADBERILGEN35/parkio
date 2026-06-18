@@ -13,6 +13,7 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 
 import com.jayway.jsonpath.JsonPath;
 import com.parkio.media.application.port.MediaStoragePort;
+import com.parkio.media.testsupport.TestImages;
 import java.time.Duration;
 import java.util.UUID;
 import org.junit.jupiter.api.BeforeEach;
@@ -39,9 +40,7 @@ class MediaAccessControlTest {
 
     private static final String GATEWAY_SECRET =
             "test-only-parkio-gateway-internal-secret-0123456789";
-    private static final byte[] JPEG = {
-            (byte) 0xFF, (byte) 0xD8, (byte) 0xFF, 1, 2, 3, 4
-    };
+    private static final byte[] JPEG = TestImages.jpeg();
 
     @Autowired
     private MockMvc mockMvc;

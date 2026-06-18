@@ -22,17 +22,27 @@ import com.parkio.media.domain.event.MediaRejectedEvent;
 import com.parkio.media.domain.event.MediaUploadedEvent;
 import com.parkio.media.domain.exception.MediaErrorCode;
 import com.parkio.media.domain.exception.MediaException;
+import com.parkio.media.infrastructure.image.ImageIoImageNormalizer;
+import com.parkio.media.shared.Checksums;
+import java.awt.Color;
+import java.awt.Graphics2D;
+import java.awt.image.BufferedImage;
+import java.io.ByteArrayOutputStream;
+import java.io.IOException;
 import java.time.Clock;
 import java.time.Duration;
 import java.time.Instant;
 import java.time.ZoneOffset;
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
 import java.util.UUID;
+import java.util.zip.CRC32;
+import javax.imageio.ImageIO;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 
@@ -43,7 +53,7 @@ import org.junit.jupiter.api.Test;
 class MediaApplicationServiceTest {
 
     private static final Instant NOW = Instant.parse("2026-06-07T12:00:00Z");
-    private static final long MAX_SIZE = 1024;
+    private static final long MAX_SIZE = 1_000_000;
     private static final Duration ACCESS_URL_TTL = Duration.ofMinutes(5);
 
     private FakeMediaFileRepository mediaFiles;
@@ -61,9 +71,10 @@ class MediaApplicationServiceTest {
         scanner = new FakeMediaScanner();
         outbox = new FakeOutboxEventAppender();
         MediaUploadConstraints constraints = new MediaUploadConstraints(
-                Set.of("image/jpeg", "image/png", "image/webp"), MAX_SIZE);
+                Set.of("image/jpeg", "image/png", "image/webp"), MAX_SIZE, 1_000, 1_000, 1_000_000);
         Clock clock = Clock.fixed(NOW, ZoneOffset.UTC);
-        service = new MediaApplicationService(mediaFiles, validationResults, storage, scanner, outbox,
+        service = new MediaApplicationService(mediaFiles, validationResults, storage,
+                new ImageIoImageNormalizer(constraints), scanner, outbox,
                 new MediaRejectionRecorder(outbox), constraints,
                 new MediaAccessUrlPolicy(ACCESS_URL_TTL), clock);
     }
@@ -73,9 +84,9 @@ class MediaApplicationServiceTest {
     private static final byte[] WEBP_MAGIC =
             {'R', 'I', 'F', 'F', 0, 0, 0, 0, 'W', 'E', 'B', 'P'};
 
-    /** Builds a command whose bytes start with valid JPEG magic followed by {@code body}. */
+    /** Builds a command with a real JPEG image; {@code body} tweaks pixel color for duplicate tests. */
     private UploadMediaCommand jpeg(UUID owner, byte[] body) {
-        return new UploadMediaCommand(owner, "image/jpeg", withMagic(JPEG_MAGIC, body));
+        return new UploadMediaCommand(owner, "image/jpeg", jpegBytes(16, 16, Arrays.hashCode(body)));
     }
 
     private static byte[] withMagic(byte[] magic, byte[] body) {
@@ -93,7 +104,7 @@ class MediaApplicationServiceTest {
 
         assertThat(result.status()).isEqualTo(MediaStatus.READY);
         assertThat(result.contentType()).isEqualTo("image/jpeg");
-        assertThat(result.fileSize()).isEqualTo(JPEG_MAGIC.length + 4);
+        assertThat(result.fileSize()).isEqualTo(storage.objects.values().iterator().next().length);
 
         MediaFile stored = mediaFiles.findById(result.mediaId()).orElseThrow();
         assertThat(stored.ownerUserId()).isEqualTo(owner);
@@ -123,21 +134,25 @@ class MediaApplicationServiceTest {
         UUID owner = UUID.randomUUID();
 
         MediaUploadResult result = service.upload(
-                new UploadMediaCommand(owner, "image/png", withMagic(PNG_MAGIC, new byte[]{1, 2})));
+                new UploadMediaCommand(owner, "image/png", pngBytes(16, 16)));
 
         assertThat(result.status()).isEqualTo(MediaStatus.READY);
-        assertThat(mediaFiles.findById(result.mediaId()).orElseThrow().objectKey()).endsWith(".png");
+        assertThat(result.contentType()).isEqualTo("image/jpeg");
+        assertThat(mediaFiles.findById(result.mediaId()).orElseThrow().objectKey()).endsWith(".jpg");
     }
 
     @Test
-    void uploadAcceptsValidWebpByDetectedBytes() {
+    void uploadRejectsWebpWhenRuntimeReaderIsUnavailable() {
         UUID owner = UUID.randomUUID();
 
-        MediaUploadResult result = service.upload(
-                new UploadMediaCommand(owner, "image/webp", withMagic(WEBP_MAGIC, new byte[]{1, 2})));
+        assertThatThrownBy(() -> service.upload(
+                new UploadMediaCommand(owner, "image/webp", withMagic(WEBP_MAGIC, new byte[]{1, 2}))))
+                .isInstanceOf(MediaException.class)
+                .extracting(e -> ((MediaException) e).errorCode())
+                .isEqualTo(MediaErrorCode.INVALID_IMAGE);
 
-        assertThat(result.status()).isEqualTo(MediaStatus.READY);
-        assertThat(mediaFiles.findById(result.mediaId()).orElseThrow().objectKey()).endsWith(".webp");
+        assertThat(storage.objects).isEmpty();
+        assertRejectedEvent(MediaValidationType.MIME_TYPE);
     }
 
     @Test
@@ -161,7 +176,7 @@ class MediaApplicationServiceTest {
 
         // Declared PNG, but the bytes are JPEG → conflict → 415.
         assertThatThrownBy(() ->
-                service.upload(new UploadMediaCommand(owner, "image/png", withMagic(JPEG_MAGIC, new byte[]{9}))))
+                service.upload(new UploadMediaCommand(owner, "image/png", jpegBytes(16, 16, 9))))
                 .isInstanceOf(MediaException.class)
                 .extracting(e -> ((MediaException) e).errorCode())
                 .isEqualTo(MediaErrorCode.UNSUPPORTED_MEDIA_TYPE);
@@ -189,7 +204,8 @@ class MediaApplicationServiceTest {
     void uploadRejectsFileExceedingMaxSize() {
         UUID owner = UUID.randomUUID();
 
-        assertThatThrownBy(() -> service.upload(jpeg(owner, new byte[(int) MAX_SIZE + 1])))
+        assertThatThrownBy(() -> service.upload(
+                new UploadMediaCommand(owner, "image/jpeg", withMagic(JPEG_MAGIC, new byte[(int) MAX_SIZE + 1]))))
                 .isInstanceOf(MediaException.class)
                 .extracting(e -> ((MediaException) e).errorCode())
                 .isEqualTo(MediaErrorCode.FILE_TOO_LARGE);
@@ -228,6 +244,90 @@ class MediaApplicationServiceTest {
         // One uploaded event + one rejected (duplicate) event.
         assertThat(outbox.events).hasSize(2);
         assertRejectedEvent(MediaValidationType.DUPLICATE);
+    }
+
+    @Test
+    void uploadStripsJpegExifGpsMetadataAndStoresNormalizedBytesOnly() {
+        UUID owner = UUID.randomUUID();
+        byte[] original = jpegWithExifGpsMetadata();
+
+        MediaUploadResult result = service.upload(new UploadMediaCommand(owner, "image/jpeg", original));
+
+        MediaFile stored = mediaFiles.findById(result.mediaId()).orElseThrow();
+        byte[] storedBytes = storage.objects.get(stored.objectKey());
+        assertThat(asAscii(storedBytes)).doesNotContain("Exif", "GPS", "secret-device");
+        assertThat(storedBytes).isNotEqualTo(original);
+        assertThat(stored.contentType()).isEqualTo("image/jpeg");
+        assertThat(stored.fileSize()).isEqualTo(storedBytes.length);
+    }
+
+    @Test
+    void uploadStripsPngTextMetadataByReencodingToJpeg() {
+        UUID owner = UUID.randomUUID();
+        byte[] original = pngWithTextMetadata("GPS", "secret-location");
+
+        MediaUploadResult result = service.upload(new UploadMediaCommand(owner, "image/png", original));
+
+        MediaFile stored = mediaFiles.findById(result.mediaId()).orElseThrow();
+        byte[] storedBytes = storage.objects.get(stored.objectKey());
+        assertThat(asAscii(storedBytes)).doesNotContain("GPS", "secret-location");
+        assertThat(stored.contentType()).isEqualTo("image/jpeg");
+        assertThat(stored.objectKey()).endsWith(".jpg");
+    }
+
+    @Test
+    void uploadRejectsCorruptImageThatPassesMagicBytes() {
+        UUID owner = UUID.randomUUID();
+
+        assertThatThrownBy(() -> service.upload(
+                new UploadMediaCommand(owner, "image/jpeg", withMagic(JPEG_MAGIC, new byte[]{1, 2, 3, 4, 5}))))
+                .isInstanceOf(MediaException.class)
+                .extracting(e -> ((MediaException) e).errorCode())
+                .isEqualTo(MediaErrorCode.INVALID_IMAGE);
+
+        assertThat(mediaFiles.byId).isEmpty();
+        assertThat(storage.objects).isEmpty();
+        assertRejectedEvent(MediaValidationType.MIME_TYPE);
+    }
+
+    @Test
+    void uploadRejectsImageWithOversizedDimensions() {
+        UUID owner = UUID.randomUUID();
+
+        assertThatThrownBy(() -> service.upload(
+                new UploadMediaCommand(owner, "image/png", pngBytes(1_001, 20))))
+                .isInstanceOf(MediaException.class)
+                .extracting(e -> ((MediaException) e).errorCode())
+                .isEqualTo(MediaErrorCode.INVALID_IMAGE);
+
+        assertThat(mediaFiles.byId).isEmpty();
+        assertThat(storage.objects).isEmpty();
+        assertRejectedEvent(MediaValidationType.MIME_TYPE);
+    }
+
+    @Test
+    void checksumUsesNormalizedStoredBytes() {
+        UUID owner = UUID.randomUUID();
+        byte[] original = pngWithTextMetadata("GPS", "checksum-secret");
+
+        MediaUploadResult result = service.upload(new UploadMediaCommand(owner, "image/png", original));
+
+        MediaFile stored = mediaFiles.findById(result.mediaId()).orElseThrow();
+        byte[] storedBytes = storage.objects.get(stored.objectKey());
+        assertThat(stored.checksum()).isEqualTo(Checksums.sha256Hex(storedBytes));
+        assertThat(stored.checksum()).isNotEqualTo(Checksums.sha256Hex(original));
+    }
+
+    @Test
+    void malwareScanReceivesOriginalBytesBeforeNormalization() {
+        UUID owner = UUID.randomUUID();
+        byte[] original = pngWithTextMetadata("GPS", "scan-original");
+
+        MediaUploadResult result = service.upload(new UploadMediaCommand(owner, "image/png", original));
+
+        MediaFile stored = mediaFiles.findById(result.mediaId()).orElseThrow();
+        assertThat(scanner.lastContent).isEqualTo(original);
+        assertThat(storage.objects.get(stored.objectKey())).isNotEqualTo(original);
     }
 
     @Test
@@ -464,6 +564,91 @@ class MediaApplicationServiceTest {
                 .satisfies(e -> assertThat(((MediaRejectedEvent) e).validationType()).isEqualTo(expectedType));
     }
 
+    private static byte[] jpegBytes(int width, int height, int seed) {
+        return writeImage("jpeg", image(width, height, seed));
+    }
+
+    private static byte[] pngBytes(int width, int height) {
+        return writeImage("png", image(width, height, 17));
+    }
+
+    private static BufferedImage image(int width, int height, int seed) {
+        BufferedImage image = new BufferedImage(width, height, BufferedImage.TYPE_INT_RGB);
+        Graphics2D graphics = image.createGraphics();
+        try {
+            graphics.setColor(new Color(seed | 0xFF000000));
+            graphics.fillRect(0, 0, width, height);
+            graphics.setColor(Color.WHITE);
+            graphics.drawLine(0, 0, width - 1, height - 1);
+        } finally {
+            graphics.dispose();
+        }
+        return image;
+    }
+
+    private static byte[] writeImage(String format, BufferedImage image) {
+        try (ByteArrayOutputStream out = new ByteArrayOutputStream()) {
+            if (!ImageIO.write(image, format, out)) {
+                throw new IllegalStateException("No ImageIO writer for " + format);
+            }
+            return out.toByteArray();
+        } catch (IOException ex) {
+            throw new IllegalStateException(ex);
+        }
+    }
+
+    private static byte[] jpegWithExifGpsMetadata() {
+        byte[] jpeg = jpegBytes(16, 16, 42);
+        byte[] payload = "Exif\0\0GPS secret-device".getBytes(java.nio.charset.StandardCharsets.ISO_8859_1);
+        int segmentLength = payload.length + 2;
+        byte[] output = new byte[jpeg.length + payload.length + 4];
+        output[0] = (byte) 0xFF;
+        output[1] = (byte) 0xD8;
+        output[2] = (byte) 0xFF;
+        output[3] = (byte) 0xE1;
+        output[4] = (byte) ((segmentLength >>> 8) & 0xFF);
+        output[5] = (byte) (segmentLength & 0xFF);
+        System.arraycopy(payload, 0, output, 6, payload.length);
+        System.arraycopy(jpeg, 2, output, payload.length + 6, jpeg.length - 2);
+        return output;
+    }
+
+    private static byte[] pngWithTextMetadata(String keyword, String value) {
+        byte[] png = pngBytes(16, 16);
+        byte[] text = (keyword + '\0' + value).getBytes(java.nio.charset.StandardCharsets.ISO_8859_1);
+        byte[] chunk = pngChunk("tEXt", text);
+        byte[] output = new byte[png.length + chunk.length];
+        int insertAt = PNG_MAGIC.length + 25;
+        System.arraycopy(png, 0, output, 0, insertAt);
+        System.arraycopy(chunk, 0, output, insertAt, chunk.length);
+        System.arraycopy(png, insertAt, output, insertAt + chunk.length, png.length - insertAt);
+        return output;
+    }
+
+    private static byte[] pngChunk(String type, byte[] data) {
+        byte[] typeBytes = type.getBytes(java.nio.charset.StandardCharsets.ISO_8859_1);
+        ByteArrayOutputStream out = new ByteArrayOutputStream();
+        out.write((data.length >>> 24) & 0xFF);
+        out.write((data.length >>> 16) & 0xFF);
+        out.write((data.length >>> 8) & 0xFF);
+        out.write(data.length & 0xFF);
+        out.writeBytes(typeBytes);
+        out.writeBytes(data);
+        CRC32 crc = new CRC32();
+        crc.update(typeBytes);
+        crc.update(data);
+        long value = crc.getValue();
+        out.write((int) ((value >>> 24) & 0xFF));
+        out.write((int) ((value >>> 16) & 0xFF));
+        out.write((int) ((value >>> 8) & 0xFF));
+        out.write((int) (value & 0xFF));
+        return out.toByteArray();
+    }
+
+    private static String asAscii(byte[] bytes) {
+        return new String(bytes, java.nio.charset.StandardCharsets.ISO_8859_1);
+    }
+
     // --- Fakes -----------------------------------------------------------
 
     private static final class FakeMediaFileRepository implements MediaFileRepository {
@@ -533,11 +718,14 @@ class MediaApplicationServiceTest {
         @Override
         public ScanReport scan(byte[] content) {
             scanCount++;
+            lastContent = content;
             if (unavailable) {
                 throw new MediaScannerUnavailableException("scanner down (test)");
             }
             return verdict;
         }
+
+        private byte[] lastContent;
     }
 
     private static final class FakeOutboxEventAppender implements OutboxEventAppender {

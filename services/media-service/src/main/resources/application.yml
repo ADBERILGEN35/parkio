@@ -116,6 +116,9 @@ parkio:
   media:
     # Application-level upload constraints.
     max-file-size: 10MB
+    max-image-width: ${PARKIO_MEDIA_MAX_IMAGE_WIDTH:8000}
+    max-image-height: ${PARKIO_MEDIA_MAX_IMAGE_HEIGHT:8000}
+    max-image-pixels: ${PARKIO_MEDIA_MAX_IMAGE_PIXELS:40000000}
     allowed-content-types:
       - image/jpeg
       - image/png

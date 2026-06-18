@@ -1,0 +1,60 @@
+title = "Parkio gitleaks configuration"
+
+[extend]
+useDefault = true
+
+[[allowlists]]
+description = "Documented local-development environment placeholders"
+condition = "AND"
+regexTarget = "line"
+paths = [
+  '''^docker/\.env\.example$''',
+  '''^docker/\.env\.hosted-beta\.example$''',
+  '''^frontend/apps/web/\.env\.example$''',
+]
+regexes = [
+  '''(?i)CHANGE_ME_[A-Z0-9_ -]+''',
+  '''(?i)[a-z0-9_]+_local_dev_pw''',
+  '''local-dev-only-gateway-internal-secret-change-me''',
+  '''parkio-auth-rs256(-beta)?-[0-9]+''',
+  '''verify@(beta\.)?example\.com''',
+  '''support@(beta\.)?example\.com''',
+  '''https://(app|api|media)\.beta\.example\.com''',
+]
+
+[[allowlists]]
+description = "Test-only gateway/internal secrets and fake provider credentials"
+condition = "AND"
+regexTarget = "line"
+paths = [
+  '''^services/.*/src/test/.*$''',
+]
+regexes = [
+  '''test-only-parkio-gateway-internal-secret-0123456789''',
+  '''shared-internal-secret-value''',
+  '''test-internal-secret''',
+  '''parkio-test-secret''',
+  '''super-secret-device-token-value''',
+  '''re_test_secret_key''',
+  '''raw-verification-token''',
+  '''test-key-123''',
+]
+
+[[allowlists]]
+description = "Documentation-only examples, never deployable credentials"
+condition = "AND"
+regexTarget = "line"
+paths = [
+  '''^README\.md$''',
+  '''^docs/.*$''',
+  '''^docker/README\.md$''',
+  '''^docker/BETA_RUNBOOK\.md$''',
+]
+regexes = [
+  '''(?i)CHANGE_ME_[A-Z0-9_ -]+''',
+  '''(?i)[a-z0-9_]+_local_dev_pw''',
+  '''local-dev-only-gateway-internal-secret-change-me''',
+  '''test-only-parkio-gateway-internal-secret-0123456789''',
+  '''-----BEGIN PUBLIC KEY-----''',
+  '''MIIBI\.\.\.''',
+]

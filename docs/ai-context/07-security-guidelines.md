@@ -96,6 +96,14 @@ Privilege boundaries / enforcement notes:
 - **No secrets in code, configs, or git.** Inject via environment variables /
   secret manager. `.env` is git-ignored (`.env.example` only for documentation).
 - Separate config per environment; production secrets never in dev.
+- CI secret scanning is mandatory. `.gitleaks.toml` may allow only exact local-dev
+  placeholders, documentation examples, and test-only fake values. Do not add broad
+  path allowlists for env files or source trees.
+- If a real secret is committed, rotate/revoke it first and remove it from every
+  runtime environment. Do not "fix" the pipeline by allowlisting the leaked value.
+- Dependency and image vulnerability gates should start high-signal: fail on
+  HIGH/CRITICAL dependency vulnerabilities and CRITICAL container-image
+  vulnerabilities, then tighten as the baseline stays clean.
 
 ## Input & data protection
 
@@ -116,9 +124,13 @@ Privilege boundaries / enforcement notes:
   returns `422`. Signed URLs are issued only for `READY` media, and `parking-service`
   rejects spot creation that references non-`READY` media (also fail-closed).
 - Serve media via **time-limited signed URLs**; do not expose bucket internals.
-- Strip or normalize EXIF appropriately — but note that **GPS for a spot comes from
-  the app submission**, not implicitly trusted client EXIF. *(EXIF stripping /
-  re-encoding is not yet implemented — future hardening.)*
+- Strip and normalize EXIF before storage. `media-service` scans original upload
+  bytes first, then decodes and re-encodes accepted images to server-generated
+  JPEG bytes. Stored objects must not contain original EXIF/GPS/device metadata or
+  original untrusted image structure. **GPS for a spot comes from the app
+  submission**, not implicitly trusted client EXIF.
+- Bound decoded image dimensions and total pixels; corrupt images or images that
+  exceed configured limits fail closed and are not stored.
 - **Limitation:** malware scanning is **not** illegal/abusive-content classification
   (e.g. CSAM). That requires a managed content-safety provider and/or human
   moderation; AI image validation stays **advisory** unless explicitly enforced.

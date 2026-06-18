@@ -157,6 +157,35 @@ demand, and on PRs that change the backup scripts, the compose stack, or the par
 migrations. This makes "are our backups actually restorable?" a continuously-proven,
 repeatable fact instead of a one-off manual ritual.
 
+**[`security-ci.yml`](.github/workflows/security-ci.yml) — security scanning gates.**
+Runs on PRs, pushes to `master`, weekly, and on demand:
+
+- **gitleaks** secret scanning blocks detected secrets. The allowlist is deliberately
+  narrow and limited to documented local-dev placeholders and test-only fake secrets.
+- **CodeQL** analyzes Java/Kotlin and JavaScript/TypeScript and uploads SARIF.
+- **Trivy filesystem dependency scanning** covers Gradle/pnpm manifests and blocks
+  HIGH/CRITICAL library vulnerabilities.
+- **Trivy container image scanning** builds representative gateway/auth/media images,
+  reports HIGH/CRITICAL findings, and blocks CRITICAL image vulnerabilities.
+
+Handle false positives by first proving the value is fake, then adding the smallest
+possible allowlist entry in `.gitleaks.toml` or an equivalent scanner config. Never
+allowlist a real credential; rotate/revoke it, purge it from deploy environments, and
+then remove or rewrite the committed value.
+
+Local equivalents:
+
+```bash
+gitleaks detect --source . --config .gitleaks.toml --redact
+trivy fs --scanners vuln --vuln-type library --severity HIGH,CRITICAL --ignore-unfixed .
+docker build -f services/auth-service/Dockerfile -t parkio/auth-service:local-scan .
+trivy image --severity HIGH,CRITICAL --ignore-unfixed parkio/auth-service:local-scan
+cd frontend && pnpm audit --audit-level high
+```
+
+CodeQL local analysis is optional; use the GitHub workflow as the canonical SARIF
+producer unless you already have the CodeQL CLI installed.
+
 [`.github/dependabot.yml`](.github/dependabot.yml) raises conservative weekly
 update PRs for Gradle dependencies and the GitHub Actions used by CI.
 

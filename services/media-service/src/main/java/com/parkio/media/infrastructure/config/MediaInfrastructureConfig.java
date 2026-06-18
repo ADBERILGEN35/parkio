@@ -73,7 +73,10 @@ public class MediaInfrastructureConfig {
     public MediaUploadConstraints mediaUploadConstraints(MediaProperties properties) {
         return new MediaUploadConstraints(
                 Set.copyOf(properties.getAllowedContentTypes()),
-                properties.getMaxFileSize().toBytes());
+                properties.getMaxFileSize().toBytes(),
+                properties.getMaxImageWidth(),
+                properties.getMaxImageHeight(),
+                properties.getMaxImagePixels());
     }
 
     @Bean

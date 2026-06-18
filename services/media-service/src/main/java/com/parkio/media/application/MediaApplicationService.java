@@ -2,6 +2,8 @@ package com.parkio.media.application;
 
 import com.parkio.media.application.command.UploadMediaCommand;
 import com.parkio.media.application.port.MediaFileRepository;
+import com.parkio.media.application.port.ImageNormalizationException;
+import com.parkio.media.application.port.ImageNormalizer;
 import com.parkio.media.application.port.MediaScanner;
 import com.parkio.media.application.port.MediaScannerUnavailableException;
 import com.parkio.media.application.port.MediaStoragePort;
@@ -58,6 +60,7 @@ public class MediaApplicationService {
     private final MediaFileRepository mediaFiles;
     private final MediaValidationResultRepository validationResults;
     private final MediaStoragePort storage;
+    private final ImageNormalizer imageNormalizer;
     private final MediaScanner scanner;
     private final OutboxEventAppender outbox;
     private final MediaRejectionRecorder rejectionRecorder;
@@ -68,6 +71,7 @@ public class MediaApplicationService {
     public MediaApplicationService(MediaFileRepository mediaFiles,
                                    MediaValidationResultRepository validationResults,
                                    MediaStoragePort storage,
+                                   ImageNormalizer imageNormalizer,
                                    MediaScanner scanner,
                                    OutboxEventAppender outbox,
                                    MediaRejectionRecorder rejectionRecorder,
@@ -77,6 +81,7 @@ public class MediaApplicationService {
         this.mediaFiles = mediaFiles;
         this.validationResults = validationResults;
         this.storage = storage;
+        this.imageNormalizer = imageNormalizer;
         this.scanner = scanner;
         this.outbox = outbox;
         this.rejectionRecorder = rejectionRecorder;
@@ -129,12 +134,6 @@ public class MediaApplicationService {
                     "File content does not match the declared image type.");
         }
 
-        String checksum = Checksums.sha256Hex(content);
-        if (mediaFiles.existsByChecksum(checksum)) {
-            reject(ownerUserId, MediaValidationType.DUPLICATE, "Duplicate checksum", checksum);
-            throw new MediaException(MediaErrorCode.DUPLICATE_MEDIA, "This file has already been uploaded.");
-        }
-
         // Malware scan BEFORE storing: infected/unscanned bytes never reach storage.
         // Fail-closed — a scan that cannot run rejects the upload (no media becomes READY).
         MediaScanner.ScanReport scanReport;
@@ -142,24 +141,41 @@ public class MediaApplicationService {
             scanReport = scanner.scan(content);
         } catch (MediaScannerUnavailableException ex) {
             log.warn("Malware scan could not be completed; failing upload closed", ex);
-            reject(ownerUserId, MediaValidationType.MALWARE_SCAN, "Scan could not be completed", checksum);
+            reject(ownerUserId, MediaValidationType.MALWARE_SCAN, "Scan could not be completed", null);
             throw new MediaException(MediaErrorCode.MEDIA_SCAN_UNAVAILABLE,
                     "The file could not be scanned. Please try again.");
         }
         if (!scanReport.clean()) {
             // The matched signature is recorded server-side for audit; never returned to the client.
             reject(ownerUserId, MediaValidationType.MALWARE_SCAN,
-                    "Malware signature detected: " + scanReport.signature(), checksum);
+                    "Malware signature detected: " + scanReport.signature(), null);
             throw new MediaException(MediaErrorCode.MEDIA_INFECTED,
                     "This file failed a safety scan and was rejected.");
         }
 
+        ImageNormalizer.NormalizedImage normalized;
+        try {
+            normalized = imageNormalizer.normalize(content, detectedType);
+        } catch (ImageNormalizationException ex) {
+            reject(ownerUserId, MediaValidationType.MIME_TYPE, "Image could not be safely normalized", null);
+            throw new MediaException(MediaErrorCode.INVALID_IMAGE,
+                    "Uploaded image could not be decoded or exceeded safe dimensions.");
+        }
+
+        String normalizedContentType = normalized.contentType();
+        byte[] normalizedContent = normalized.content();
+        String checksum = Checksums.sha256Hex(normalizedContent);
+        if (mediaFiles.existsByChecksum(checksum)) {
+            reject(ownerUserId, MediaValidationType.DUPLICATE, "Duplicate normalized checksum", checksum);
+            throw new MediaException(MediaErrorCode.DUPLICATE_MEDIA, "This file has already been uploaded.");
+        }
+
         Instant now = clock.instant();
-        String objectKey = generateObjectKey(ownerUserId, contentType);
-        MediaStoragePort.StoredObject stored = storage.store(objectKey, content, contentType);
+        String objectKey = generateObjectKey(ownerUserId, normalizedContentType);
+        MediaStoragePort.StoredObject stored = storage.store(objectKey, normalizedContent, normalizedContentType);
 
         MediaFile media = MediaFile.create(ownerUserId, stored.bucket(), stored.objectKey(),
-                contentType, content.length, checksum, null, now);
+                normalizedContentType, normalizedContent.length, checksum, null, now);
         media.markReady(now);
         media = mediaFiles.save(media);
 

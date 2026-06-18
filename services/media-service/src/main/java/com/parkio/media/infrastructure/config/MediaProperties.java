@@ -11,6 +11,9 @@ import org.springframework.util.unit.DataSize;
 public class MediaProperties {
 
     private DataSize maxFileSize = DataSize.ofMegabytes(10);
+    private int maxImageWidth = 8000;
+    private int maxImageHeight = 8000;
+    private long maxImagePixels = 40_000_000L;
     private List<String> allowedContentTypes = new ArrayList<>();
     /** Lifetime of generated presigned GET URLs (short-lived by design). */
     private Duration accessUrlTtl = Duration.ofMinutes(5);
@@ -23,6 +26,30 @@ public class MediaProperties {
 
     public void setMaxFileSize(DataSize maxFileSize) {
         this.maxFileSize = maxFileSize;
+    }
+
+    public int getMaxImageWidth() {
+        return maxImageWidth;
+    }
+
+    public void setMaxImageWidth(int maxImageWidth) {
+        this.maxImageWidth = maxImageWidth;
+    }
+
+    public int getMaxImageHeight() {
+        return maxImageHeight;
+    }
+
+    public void setMaxImageHeight(int maxImageHeight) {
+        this.maxImageHeight = maxImageHeight;
+    }
+
+    public long getMaxImagePixels() {
+        return maxImagePixels;
+    }
+
+    public void setMaxImagePixels(long maxImagePixels) {
+        this.maxImagePixels = maxImagePixels;
     }
 
     public List<String> getAllowedContentTypes() {

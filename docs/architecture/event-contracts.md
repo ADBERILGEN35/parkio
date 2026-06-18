@@ -170,9 +170,9 @@ configured so the contracts above hold and evolve safely:
 | `ownerUserId` | UUID (string) | yes | Uploading user (authUserId). |
 | `bucketName` | string | yes | Storage bucket (internal). |
 | `objectKey` | string | yes | Generated storage object key (internal; never user-derived). |
-| `contentType` | string | yes | Validated MIME type (`image/jpeg`/`image/png`/`image/webp`). |
-| `fileSize` | integer | yes | Size in bytes (> 0). |
-| `checksum` | string | yes | SHA-256 hex of the content (duplicate-detection key). |
+| `contentType` | string | yes | Normalized stored MIME type. Uploads are currently re-encoded to `image/jpeg`. |
+| `fileSize` | integer | yes | Normalized stored size in bytes (> 0). |
+| `checksum` | string | yes | SHA-256 hex of the normalized stored content (duplicate-detection key). |
 | `occurredAt` | timestamp (UTC) | yes | When the upload was validated/stored. |
 
 - **Version:** 1.

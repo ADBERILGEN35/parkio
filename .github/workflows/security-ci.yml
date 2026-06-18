@@ -1,0 +1,182 @@
+# Practical security gates for Parkio. The policy is deliberately high-signal:
+# secrets always fail, CodeQL uploads SARIF, dependency scans fail on HIGH/CRITICAL,
+# and representative container images fail on CRITICAL only while the baseline matures.
+
+name: Security CI
+
+on:
+  pull_request:
+  push:
+    branches: [master]
+  schedule:
+    # Weekly drift check, early Monday UTC.
+    - cron: "23 3 * * 1"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  security-events: write
+  actions: read
+
+concurrency:
+  group: security-ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  secrets:
+    name: Secret scan
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Checkout full history
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Run gitleaks
+        uses: docker://zricethezav/gitleaks:v8.28.0
+        with:
+          args: >
+            git
+            --config /github/workspace/.gitleaks.toml
+            --redact
+            --report-format sarif
+            --report-path /github/workspace/gitleaks.sarif
+            --verbose
+            /github/workspace
+
+      - name: Upload gitleaks report artifact
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: gitleaks-sarif
+          path: gitleaks.sarif
+          if-no-files-found: ignore
+          retention-days: 14
+
+  codeql:
+    name: CodeQL (${{ matrix.language }})
+    runs-on: ubuntu-latest
+    timeout-minutes: 35
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - language: java-kotlin
+            build-mode: autobuild
+          - language: javascript-typescript
+            build-mode: none
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Initialize CodeQL
+        uses: github/codeql-action/init@v3
+        with:
+          languages: ${{ matrix.language }}
+          build-mode: ${{ matrix.build-mode }}
+
+      - name: Autobuild
+        if: matrix.build-mode == 'autobuild'
+        uses: github/codeql-action/autobuild@v3
+
+      - name: Analyze
+        uses: github/codeql-action/analyze@v3
+        with:
+          category: "/language:${{ matrix.language }}"
+
+  dependencies:
+    name: Dependency vulnerability scan
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Scan dependency manifests with Trivy
+        uses: aquasecurity/trivy-action@0.24.0
+        with:
+          scan-type: fs
+          scan-ref: .
+          scanners: vuln
+          vuln-type: library
+          severity: HIGH,CRITICAL
+          ignore-unfixed: true
+          format: sarif
+          output: trivy-dependencies.sarif
+          exit-code: "1"
+
+      - name: Upload dependency SARIF
+        if: always()
+        uses: github/codeql-action/upload-sarif@v3
+        with:
+          sarif_file: trivy-dependencies.sarif
+          category: trivy-dependencies
+
+      - name: Upload dependency report artifact
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: trivy-dependencies-sarif
+          path: trivy-dependencies.sarif
+          if-no-files-found: ignore
+          retention-days: 14
+
+  container-images:
+    name: Container scan (${{ matrix.service }})
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    strategy:
+      fail-fast: false
+      matrix:
+        service:
+          - gateway-service
+          - auth-service
+          - media-service
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Build service image
+        run: |
+          docker build \
+            -f services/${{ matrix.service }}/Dockerfile \
+            -t parkio/${{ matrix.service }}:security-ci \
+            .
+
+      - name: Scan image for high and critical findings
+        uses: aquasecurity/trivy-action@0.24.0
+        with:
+          image-ref: parkio/${{ matrix.service }}:security-ci
+          scanners: vuln
+          severity: HIGH,CRITICAL
+          ignore-unfixed: true
+          format: table
+          exit-code: "0"
+
+      - name: Block on critical image findings
+        uses: aquasecurity/trivy-action@0.24.0
+        with:
+          image-ref: parkio/${{ matrix.service }}:security-ci
+          scanners: vuln
+          severity: CRITICAL
+          ignore-unfixed: true
+          format: sarif
+          output: trivy-image-${{ matrix.service }}.sarif
+          exit-code: "1"
+
+      - name: Upload image SARIF
+        if: always()
+        uses: github/codeql-action/upload-sarif@v3
+        with:
+          sarif_file: trivy-image-${{ matrix.service }}.sarif
+          category: trivy-image-${{ matrix.service }}
+
+      - name: Upload image report artifact
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: trivy-image-${{ matrix.service }}-sarif
+          path: trivy-image-${{ matrix.service }}.sarif
+          if-no-files-found: ignore
+          retention-days: 14

@@ -196,9 +196,13 @@ endpoint/public-endpoint for SigV4-signed GET URLs.
   **fail-closed** (a scan that cannot complete → `503`, nothing stored; infected → `422`). Signed URLs
   are issued only for `READY` media and `parking-service` refuses to attach non-`READY` media to a spot.
   The hosted-beta compose adds a private `clamav` service; `media-service` depends on it being healthy.
+- **Image normalization before storage (implemented).** After a clean malware scan, uploads are decoded,
+  checked against configured width/height/pixel limits, and re-encoded to server-generated JPEG bytes.
+  The stored checksum, content type, object extension, and signed URL metadata all describe the
+  normalized bytes; original upload bytes and EXIF/GPS/device metadata are not stored. WebP input
+  requires a runtime ImageIO WebP reader and otherwise fails closed.
   **Known limitation:** this is malware scanning, **not** illegal/abusive-content (CSAM) detection —
-  for public production add a **managed AV / content-safety provider** and/or human moderation. EXIF
-  stripping / re-encoding is future hardening.
+  for public production add a **managed AV / content-safety provider** and/or human moderation.
 - **AI validation findings.** Treat advisory validation output as moderation data:
   read endpoints are `MODERATOR`/`ADMIN` only. Do not expose another user's media or
   parking validation findings to arbitrary authenticated users.
@@ -392,9 +396,33 @@ aggregation, and distributed tracing export.**
 
 ## 9. CI/CD
 
-Today: two GitHub Actions workflows — `backend-ci.yml` (build + unit tests, every PR) and
-`backend-integration.yml` (Testcontainers ITs on backend-path PRs + nightly). **No image build, no
-publish, no deploy.**
+Today: GitHub Actions covers the fast backend unit-test gate (`backend-ci.yml`), frontend gate
+(`frontend-ci.yml`), Docker-backed Testcontainers integration tests (`backend-integration.yml`),
+backup/restore drills (`backup-restore-drill.yml`), and security scanning (`security-ci.yml`).
+Security CI runs on PRs, pushes to `master`, weekly, and on demand:
+
+- **Secret scanning:** gitleaks with `.gitleaks.toml`, blocking all detected secrets except exact
+  documented local-dev placeholders and test-only fake values.
+- **SAST:** CodeQL for Java/Kotlin and JavaScript/TypeScript, uploading SARIF to GitHub code scanning.
+- **Dependency scanning:** Trivy filesystem scan over dependency manifests, blocking HIGH/CRITICAL
+  library vulnerabilities.
+- **Container scanning:** gateway/auth/media images are built and scanned with Trivy. HIGH findings are
+  reported; CRITICAL image vulnerabilities block CI.
+
+False positives must be handled narrowly. Prove the value is fake, then add the smallest exact
+allowlist/config entry. If a real secret is committed, rotate/revoke it and remove it from deployment
+environments; do not allowlist it. Local equivalents:
+
+```bash
+gitleaks detect --source . --config .gitleaks.toml --redact
+trivy fs --scanners vuln --vuln-type library --severity HIGH,CRITICAL --ignore-unfixed .
+docker build -f services/media-service/Dockerfile -t parkio/media-service:local-scan .
+trivy image --severity HIGH,CRITICAL --ignore-unfixed parkio/media-service:local-scan
+cd frontend && pnpm audit --audit-level high
+```
+
+Still missing for a full CD pipeline: publishing immutable images, staging deploys, smoke tests,
+protected-environment approvals, and production deploy/rollback automation.
 
 Proposed pipeline (no secrets in CI beyond a deploy token in protected environments):
 
