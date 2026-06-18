@@ -10,9 +10,10 @@ media bytes.
 
 ```
 docker/
-├── docker-compose.yml          # Infrastructure (databases, Redis, Kafka, MinIO, Prometheus, Grafana)
+├── docker-compose.yml          # Infrastructure (databases, Redis, Kafka, MinIO, observability)
 ├── docker-compose.apps.yml     # The 10 application services (overlay on the infra file)
 ├── .env.example                # Copy to .env and edit
+├── alertmanager/               # Alertmanager config + env-safe Slack renderer
 ├── prometheus/prometheus.yml   # Scrape config
 └── grafana/provisioning/       # Auto-provisioned datasource + dashboard provider
 ```
@@ -34,6 +35,7 @@ docker/
 | Kafka (KRaft)            | `parkio-kafka`                | 29092 (host)    | Async events; in-network listener `kafka:9092` |
 | MinIO                    | `parkio-minio`                | 9000 / 9001     | S3 API / web console                      |
 | Prometheus               | `parkio-prometheus`           | 9090            | Metrics scraping                          |
+| Alertmanager             | `parkio-alertmanager`         | 127.0.0.1:9093  | Alert grouping/routing                    |
 | Grafana                  | `parkio-grafana`              | 3000            | Dashboards                                |
 
 > **Database-per-service:** every service owns a *separate* PostgreSQL instance.
@@ -81,6 +83,7 @@ compiles the whole monorepo via the Gradle wrapper), so the first build is slow.
 |-----------------|----------------------------------|--------------------------------------|
 | MinIO console   | http://localhost:9001            | `MINIO_ROOT_USER` / `MINIO_ROOT_PASSWORD` |
 | Prometheus      | http://localhost:9090            | —                                    |
+| Alertmanager    | http://localhost:9093            | —                                    |
 | Grafana         | http://localhost:3000            | `GRAFANA_ADMIN_USER` / `GRAFANA_ADMIN_PASSWORD` |
 | Kafka (from host)| `localhost:29092`               | —                                    |
 | Kafka (in-net)  | `kafka:9092`                     | —                                    |
@@ -137,7 +140,7 @@ document the intended wiring without implying any business logic.
 Two dedicated bridge networks isolate planes:
 
 - `parkio-backend` — databases, Redis, Kafka, MinIO and the services.
-- `parkio-observability` — Prometheus and Grafana (Prometheus also joins
+- `parkio-observability` — Prometheus, Alertmanager and Grafana (Prometheus also joins
   `parkio-backend` so it can scrape service metrics).
 
 ## Ingress & exposure — the gateway is the only public entrypoint
@@ -189,7 +192,7 @@ reverse proxy the only public entrypoint and stops publishing all other ports.
   on the private network. It sets `SERVER_FORWARD_HEADERS_STRATEGY=framework` so the gateway
   honors `X-Forwarded-Proto/Host` from Caddy.
 - **Backend services (8081–8089), all databases, Redis, Kafka, MinIO**: no published ports.
-- **Prometheus/Grafana**: bound to **127.0.0.1** only (SSH-tunnel to view).
+- **Prometheus/Alertmanager/Grafana**: bound to **127.0.0.1** only (SSH-tunnel to view).
 
 ### Proxy & media strategy (chosen)
 - **Proxy: Caddy** — simplest path to automatic HTTPS, HTTP→HTTPS redirect, forwarded
@@ -237,8 +240,8 @@ The hosted frontend (SPA) is served separately; set `PARKIO_CORS_ALLOWED_ORIGINS
 
 ### Firewall (VPS)
 Allow inbound **22** (SSH, ideally IP-restricted), **80**, **443** only; block everything
-else. Do **not** open 5432–5440, 6379, 29092, 9000/9001, 3000, 9090. Caddy needs port 80 for
-the ACME HTTP-01 challenge and the HTTP→HTTPS redirect.
+else. Do **not** open 5432–5440, 6379, 29092, 9000/9001, 3000, 9090, or 9093. Caddy needs
+port 80 for the ACME HTTP-01 challenge and the HTTP→HTTPS redirect.
 
 ### First deploy
 
@@ -248,7 +251,8 @@ cp .env.hosted-beta.example .env
 # edit .env: PARKIO_DOMAIN, PARKIO_MEDIA_DOMAIN, PARKIO_ACME_EMAIL,
 # PARKIO_CORS_ALLOWED_ORIGINS, PARKIO_MEDIA_STORAGE_PUBLIC_ENDPOINT=https://<media domain>,
 # PARKIO_EMAIL_PROVIDER=resend, PARKIO_RESEND_API_KEY, PARKIO_EMAIL_FROM,
-# every CHANGE_ME password, KAFKA_CLUSTER_ID, and PARKIO_JWT_PRIVATE_KEY_PEM.
+# PARKIO_ALERT_SLACK_WEBHOOK_URL, every CHANGE_ME password, KAFKA_CLUSTER_ID,
+# and PARKIO_JWT_PRIVATE_KEY_PEM.
 
 # generate the RS256 key (PKCS#8) and fold it into .env as a quoted \n-escaped line:
 openssl genpkey -algorithm RSA -pkeyopt rsa_keygen_bits:2048 -out jwt_key.pem
@@ -261,7 +265,8 @@ docker compose -f docker-compose.yml -f docker-compose.apps.yml -f docker-compos
 1. DNS resolves both hostnames to the VPS.
 2. Firewall: only 22/80/443 inbound.
 3. `.env` complete — no `CHANGE_ME`, JWT key set, CORS = real frontend origin, media public
-   endpoint = `https://${PARKIO_MEDIA_DOMAIN}`, and Resend email variables set.
+   endpoint = `https://${PARKIO_MEDIA_DOMAIN}`, Resend email variables set, and
+   `PARKIO_ALERT_SLACK_WEBHOOK_URL` set for hosted-beta alert notifications.
 4. `docker compose ... ps` → all healthy; `docker logs parkio-caddy` shows certificates obtained.
    *(Tip: first run against the Let's Encrypt staging CA — commented in `caddy/Caddyfile` — to
    avoid production rate limits, then switch back.)*
@@ -285,10 +290,30 @@ PARKIO_PASSWORD_RESET_LOG_TOKEN=false
 If `PARKIO_EMAIL_PROVIDER=resend` is set without an API key or from address,
 auth-service fails startup. Do not enable raw-token logging outside local dev.
 
+### Alert notifications
+Prometheus routes firing rules to Alertmanager at `alertmanager:9093`. The committed
+`docker/alertmanager/alertmanager.yml` is a safe local no-op receiver: alerts are visible
+in Alertmanager, but no outbound notification is sent.
+
+Hosted beta should set Slack delivery in `.env`:
+
+```dotenv
+PARKIO_ALERT_SLACK_WEBHOOK_URL=https://hooks.slack.com/services/...
+PARKIO_ALERT_SLACK_CHANNEL="#parkio-alerts"
+PARKIO_ALERT_REPEAT_CRITICAL=1h
+PARKIO_ALERT_REPEAT_WARNING=4h
+```
+
+`render-config.sh` generates the runtime Alertmanager config inside the container, so the
+Slack webhook never appears in committed YAML. Critical alerts repeat every hour by
+default; warning alerts repeat every four hours. Alertmanager stays loopback-only on the
+VPS and is not routed by Caddy.
+
 ### Admin access (no public data ports)
 - DB shell: `docker exec -it parkio-postgres-auth psql -U parkio_auth -d parkio_auth`
-- Grafana/Prometheus (loopback only):
-  `ssh -L 3000:localhost:3000 -L 9090:localhost:9090 user@vps`, then open `http://localhost:3000`.
+- Grafana/Prometheus/Alertmanager (loopback only):
+  `ssh -L 3000:localhost:3000 -L 9090:localhost:9090 -L 9093:localhost:9093 user@vps`,
+  then open `http://localhost:3000`, `http://localhost:9090`, or `http://localhost:9093`.
 
 ### Backups & restore (required)
 

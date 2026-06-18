@@ -375,15 +375,18 @@ The frontend redirects to login after reset and never auto-logs the user in.
 
 ## 8. Observability
 
-Today: Prometheus scrapes `/actuator/prometheus`; Grafana datasource + dashboard provider are
-provisioned; rich custom metric catalogue exists. **Missing: alert rules, Alertmanager, log
-aggregation, and distributed tracing export.**
+Today: Prometheus scrapes `/actuator/prometheus`; alert rules route through Alertmanager;
+Grafana datasource + dashboard provider are provisioned; rich custom metric catalogue exists.
+**Missing: log aggregation, distributed tracing export, Kafka exporter, and node exporter.**
 
-- **Prometheus**: add `rule_files` + an **Alertmanager** target. Retention 15d locally is fine;
-  prod use managed (Grafana Cloud free tier / Amazon Managed Prometheus) or longer TSDB retention.
-- **Grafana dashboards**: commit JSON dashboards (currently only a provider is wired) for: outbox/inbox
-  backlog + dead-lettered, consumer lag, gateway 5xx + rate-limit rejections, auth login failures,
-  media upload failures, DB connections, JVM.
+- **Prometheus + Alertmanager**: Prometheus evaluates `docker/prometheus/alerts.yml` and sends
+  alerts to `alertmanager:9093`. Local/dev uses a no-op receiver. Hosted beta should set
+  `PARKIO_ALERT_SLACK_WEBHOOK_URL` so critical/warning alerts notify Slack. Prometheus,
+  Alertmanager, and Grafana are loopback-only in the hosted-beta overlay; access through an
+  SSH tunnel, not the public proxy.
+- **Grafana dashboards**: the hosted-beta overview dashboard is committed for service health,
+  outbox DLQ/age, gateway 5xx + rate-limit rejections, auth failures, media failures, DB
+  connections, and JVM. Add more dashboards as traffic patterns mature.
 - **Logs**: services log structured lines with `traceId` (MDC). Ship stdout to an aggregator
   (Grafana Loki — cheapest; or provider logs). Required for prod debugging across 10 services.
 - **Tracing / OpenTelemetry**: `traceId` exists in logs but there is **no span export**. Add the
@@ -611,10 +614,10 @@ OIDC federation to the cloud provider where possible.
 5b. **Harden the Docker build context** — **Done** (`.dockerignore` at the repo root): every backend image builds from the repo root with `COPY . .`, so the ignore excludes `**/.env*`, `backups/`, `.git`, `node_modules`, `frontend/`, build output and docs — preventing secrets being baked into image layers and shrinking the context.
 5c. **Frontend CI gate** — **Done** (`frontend-ci.yml`): typecheck + lint + unit tests + production build for the pnpm workspace, path-filtered to `frontend/**`.
 6. Add a GitHub Actions **build-and-push** job (GHCR, `:sha` tags).
-7. ~~Add Prometheus alert rules for the beta alerts.~~ **Done** (`docker/prometheus/alerts.yml`:
-   5 critical + 5 warning rules, wired via `rule_files`; hosted-beta Grafana dashboard bundled).
-   **Still TODO:** add an Alertmanager service for actual notifications (rules currently only
-   surface in the Prometheus `/alerts` UI), plus Kafka/node exporters for lag & disk alerts.
+7. ~~Add Prometheus alert rules and Alertmanager notifications for the beta alerts.~~ **Done**
+   (`docker/prometheus/alerts.yml` + `docker/alertmanager/`; 5 critical + 5 warning rules,
+   Slack receiver via `PARKIO_ALERT_SLACK_WEBHOOK_URL`, hosted-beta Grafana dashboard bundled).
+   **Still TODO:** Kafka/node exporters for lag and disk alerts.
 8. Decide and sign off the managed providers for Phase 2 (Postgres, Kafka, object storage).
 
 ### 11.5 Risks and tradeoffs

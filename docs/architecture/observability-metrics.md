@@ -17,6 +17,8 @@ services over the `parkio-backend` Docker network every 15s.
 
 - Prometheus UI: <http://localhost:9090> (Status → Targets shows per-service health;
   `/alerts` shows alert-rule state)
+- Alertmanager UI: <http://localhost:9093> (bound to loopback by default; hosted beta uses
+  an SSH tunnel)
 - Grafana: <http://localhost:3000> (`GRAFANA_PORT`, default 3000; Prometheus is the
   provisioned default datasource and the "Parkio — Hosted Beta Overview" dashboard is
   bundled — see Alerting & dashboards below)
@@ -133,15 +135,37 @@ are sized for a small single-VPS beta — tune as traffic grows.
 | `GatewayRateLimitSpike` | warning | `rate(rate_limit_rejected) > 1/s` | >60 × 429/min for 10m |
 | `NotificationDeliveryFailuresHigh` | warning | worker failures / attempts > 0.5 | >50% deliveries fail over 15m |
 
-### Viewing alerts (no Alertmanager yet)
+### Alertmanager routing
 
-There is **no Alertmanager** in the stack. Rules evaluate and firing alerts are visible in
-the **Prometheus UI → `/alerts`** (and via the `ALERTS` metric), but nothing is
-**notified** (no email/Slack/PagerDuty) until an Alertmanager is added. To enable
-notifications later: add an `alertmanager` service and uncomment the `alerting:` block in
-`prometheus.yml`. In hosted-beta both Prometheus (`:9090`) and Grafana (`:3000`) are bound
-to **loopback only** — reach them via SSH tunnel
-(`ssh -L 3000:localhost:3000 -L 9090:localhost:9090 user@vps`).
+Prometheus sends firing alerts to Alertmanager at `alertmanager:9093`. Alertmanager groups
+by `alertname`, `service`, and `severity`, waits 30s before the first notification, batches
+updates every 5m, and inhibits warning notifications when a matching critical alert is
+already firing for the same alert/service.
+
+Default local/dev behavior is a safe no-op receiver: alerts are visible in the Alertmanager
+UI but no outbound notification is sent. Hosted beta should set Slack delivery in
+`docker/.env`:
+
+```dotenv
+PARKIO_ALERT_SLACK_WEBHOOK_URL=https://hooks.slack.com/services/...
+PARKIO_ALERT_SLACK_CHANNEL="#parkio-alerts"
+PARKIO_ALERT_REPEAT_CRITICAL=1h
+PARKIO_ALERT_REPEAT_WARNING=4h
+```
+
+The Slack webhook is read from environment and rendered into a container-local runtime
+config by `docker/alertmanager/render-config.sh`; it is never committed to YAML. Critical
+alerts repeat every hour by default, warnings every four hours. In hosted beta Prometheus
+(`:9090`), Alertmanager (`:9093`), and Grafana (`:3000`) are bound to **loopback only** —
+reach them via SSH tunnel:
+
+```bash
+ssh -L 3000:localhost:3000 -L 9090:localhost:9090 -L 9093:localhost:9093 user@vps
+```
+
+To test routing without creating an outage, temporarily lower a warning threshold in a local
+branch or use Alertmanager's UI/API against the loopback tunnel. Do not expose Alertmanager
+through Caddy or a public firewall rule.
 
 ### Grafana dashboard
 
@@ -164,6 +188,22 @@ These alerts are **documented but not enabled** because the stack has no exporte
   `node_filesystem_avail_bytes`. Until then, watch disk on the VPS manually (`df -h`).
 - **Kafka DLT depth** (`parkio.dlt.*` end offsets) — broker-level, same Kafka-exporter gap;
   the app-side `OutboxDeadlettered` alert covers the *producer* poison path in the meantime.
+
+### Runbook — `ServiceDown`
+
+1. Confirm the target is down in Prometheus (`Status -> Targets`) and identify the
+   `service` label.
+2. On the VPS, run `docker compose ... ps` and inspect the container logs for that service.
+3. Check dependent infrastructure first: database, Redis, Kafka, MinIO or ClamAV health can
+   keep an app from becoming scrapeable.
+4. Restart only after capturing logs if the cause is not obvious.
+
+### Runbook — `GatewayHigh5xxRate`
+
+1. Check whether `ServiceDown` is firing; if yes, restore the unavailable downstream first.
+2. Inspect gateway logs for route/status patterns and correlate with per-service logs.
+3. Verify Caddy and gateway health, then check recent deploys or configuration changes.
+4. If the error is isolated to one route, roll back or disable the failing integration path.
 
 ### Runbook — `OutboxDeadlettered`
 
@@ -208,6 +248,28 @@ you act.
    malformed, or the downstream contract no longer accepts it. In that case leave it
    dead-lettered (or archive/delete the row deliberately) and record why — redriving would
    only loop back into the DLQ.
+
+### Runbook — `DatabaseConnectionPoolExhausted`
+
+1. Identify `service` and `pool` from the alert labels.
+2. Check service logs for slow queries, transaction timeouts, or connection leak warnings.
+3. Inspect PostgreSQL activity for long-running queries and blocked sessions.
+4. Treat pool-size increases as a temporary mitigation; fix the slow/leaking path first.
+
+### Runbook — `MediaUploadFailuresHigh`
+
+1. Confirm whether rejects are validation/malware/normalization failures or storage errors
+   from media-service logs.
+2. Check ClamAV health, MinIO health, bucket existence, and presigned endpoint configuration.
+3. If failures started after a frontend release, verify accepted MIME types and image limits.
+
+### Runbook — `AuthLoginFailuresHigh`
+
+1. Check auth-service logs and gateway rate-limit metrics for credential-stuffing patterns.
+2. Verify Redis is healthy; account/IP brute-force protection depends on it.
+3. Confirm Resend/email issues are not causing users to repeatedly fail verification/login.
+4. If traffic is abusive, tighten edge rate limits or temporarily block source ranges at the
+   VPS firewall/proxy.
 
 ## Adding a new metric
 

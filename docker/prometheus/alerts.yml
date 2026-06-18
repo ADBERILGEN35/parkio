@@ -3,10 +3,9 @@
 # Thresholds are sized for a small, single-VPS beta (low traffic, RF=1 Kafka, single-node
 # DBs) — they detect production-impacting failure, not micro-optimisation. Tune per traffic.
 #
-# IMPORTANT: there is currently NO Alertmanager wired up (see docker/prometheus/prometheus.yml).
-# These rules evaluate and you can see firing alerts in the Prometheus UI
-# (Status -> Alerts / the /alerts page), but nothing is NOTIFIED (email/Slack/PagerDuty)
-# until an Alertmanager is added. See docs/architecture/observability-metrics.md.
+# Prometheus routes firing alerts to Alertmanager (see docker/prometheus/prometheus.yml).
+# Hosted beta uses Alertmanager's no-op receiver unless PARKIO_ALERT_SLACK_WEBHOOK_URL
+# is configured in the environment.
 #
 # Metric catalogue: docs/architecture/observability-metrics.md. Counters render with a
 # `_total` suffix; dots become underscores (parkio.outbox.deadlettered.count ->
@@ -27,6 +26,7 @@ groups:
         annotations:
           summary: "Service {{ $labels.service }} is down"
           description: "Prometheus cannot scrape {{ $labels.service }} ({{ $labels.instance }}) for >2m. Check `docker compose ps` and the service logs."
+          runbook_url: "docs/architecture/observability-metrics.md#runbook--servicedown"
 
       - alert: GatewayHigh5xxRate
         # >5% of edge responses are 5xx over 5m, sustained 10m. clamp_min avoids div-by-zero
@@ -41,6 +41,7 @@ groups:
         annotations:
           summary: "Gateway 5xx rate is high"
           description: "More than 5% of gateway responses are 5xx over the last 5m. A downstream service is likely failing — check ServiceDown and per-service 5xx."
+          runbook_url: "docs/architecture/observability-metrics.md#runbook--gatewayhigh5xxrate"
 
       - alert: OutboxDeadlettered
         # Any dead-lettered (poison) outbox row is actionable: a publish permanently failed
@@ -52,6 +53,7 @@ groups:
         annotations:
           summary: "Dead-lettered outbox rows in {{ $labels.service }}"
           description: "{{ $labels.service }} has {{ $value }} dead-lettered outbox row(s). Events are NOT being published. Follow the OutboxDeadlettered runbook (inspect failure_reason, fix, redrive)."
+          runbook_url: "docs/architecture/observability-metrics.md#runbook--outboxdeadlettered"
 
       - alert: OutboxOldestUnpublishedTooOld
         # The oldest relayable row is older than 5m -> the relay is not draining to Kafka
@@ -75,6 +77,7 @@ groups:
         annotations:
           summary: "DB pool exhausted in {{ $labels.service }} (pool {{ $labels.pool }})"
           description: "{{ $value }} thread(s) waiting for a DB connection in {{ $labels.service }} for >5m. Check for slow queries / connection leaks or raise the pool size."
+          runbook_url: "docs/architecture/observability-metrics.md#runbook--databaseconnectionpoolexhausted"
 
   # ===================================================================== #
   # WARNING — investigate soon; not necessarily an outage.                 #
@@ -109,6 +112,7 @@ groups:
         annotations:
           summary: "Most media uploads are being rejected"
           description: "Over 50% of media upload attempts were rejected in the last 15m. Check validation rules, client behaviour, and media-service logs."
+          runbook_url: "docs/architecture/observability-metrics.md#runbook--mediauploadfailureshigh"
 
       - alert: AuthLoginFailuresHigh
         # Sustained high absolute login-failure rate (>0.2/s ~= 12/min) for 10m -> likely
@@ -121,6 +125,7 @@ groups:
         annotations:
           summary: "Elevated login failures"
           description: "Login failures exceed ~12/min over 10m. Possible credential stuffing or an auth outage — correlate with GatewayRateLimitSpike and auth-service logs."
+          runbook_url: "docs/architecture/observability-metrics.md#runbook--authloginfailureshigh"
 
       - alert: GatewayRateLimitSpike
         # >1/s (~60/min) requests rejected with 429 for 10m -> abuse or misconfigured limits.

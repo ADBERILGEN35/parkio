@@ -4,7 +4,7 @@
 #   * adds a Caddy TLS reverse proxy (automatic HTTPS via ACME) as the ONLY public entrypoint;
 #   * stops publishing every backend/data port to the host (gateway, services, DBs, Redis,
 #     Kafka, MinIO become private to the Docker network);
-#   * keeps Prometheus/Grafana bound to loopback only (admin access via SSH tunnel).
+#   * keeps Prometheus/Alertmanager/Grafana bound to loopback only (admin access via SSH tunnel).
 #
 # Run WITH the base + apps files, last so it wins:
 #   docker compose -f docker-compose.yml -f docker-compose.apps.yml -f docker-compose.hosted-beta.yml up -d --build
@@ -143,10 +143,12 @@ services:
 
   # ------------------------------------------------------------------------- #
   # Observability — loopback-only on the VPS. Reach via SSH local-forward:     #
-  #   ssh -L 3000:localhost:3000 -L 9090:localhost:9090 user@vps               #
+  #   ssh -L 3000:localhost:3000 -L 9090:localhost:9090 -L 9093:localhost:9093 user@vps
   # ------------------------------------------------------------------------- #
   prometheus:
     ports: !override ["127.0.0.1:${PROMETHEUS_PORT:-9090}:9090"]
+  alertmanager:
+    ports: !override ["127.0.0.1:${ALERTMANAGER_PORT:-9093}:9093"]
   grafana:
     ports: !override ["127.0.0.1:${GRAFANA_PORT:-3000}:3000"]
 

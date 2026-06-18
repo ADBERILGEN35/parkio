@@ -2,7 +2,7 @@
 #
 # Brings up every backing service the Parkio microservices need: one PostgreSQL
 # instance PER service (database-per-service, see docs/ai-context/05), Redis,
-# Kafka (KRaft mode — no Zookeeper), MinIO, Prometheus and Grafana.
+# Kafka (KRaft mode — no Zookeeper), MinIO, Prometheus, Alertmanager and Grafana.
 #
 # Run from this directory (docker/):
 #   cp .env.example .env
@@ -255,7 +255,8 @@ services:
       start_period: 180s
 
   # ------------------------------------------------------------------------- #
-  # Observability — Prometheus scrapes service /actuator/prometheus; Grafana.  #
+  # Observability — Prometheus scrapes metrics; Alertmanager routes alerts;   #
+  # Grafana displays dashboards.                                              #
   # ------------------------------------------------------------------------- #
   prometheus:
     image: ${PROMETHEUS_IMAGE:-prom/prometheus:v2.54.1}
@@ -274,6 +275,29 @@ services:
     networks: [parkio-backend, parkio-observability]
     healthcheck:
       test: ["CMD", "wget", "--quiet", "--tries=1", "--spider", "http://localhost:9090/-/healthy"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+
+  alertmanager:
+    image: ${ALERTMANAGER_IMAGE:-prom/alertmanager:v0.27.0}
+    container_name: parkio-alertmanager
+    restart: unless-stopped
+    environment:
+      PARKIO_ALERT_SLACK_WEBHOOK_URL: ${PARKIO_ALERT_SLACK_WEBHOOK_URL:-}
+      PARKIO_ALERT_SLACK_CHANNEL: "${PARKIO_ALERT_SLACK_CHANNEL:-#parkio-alerts}"
+      PARKIO_ALERT_REPEAT_CRITICAL: ${PARKIO_ALERT_REPEAT_CRITICAL:-1h}
+      PARKIO_ALERT_REPEAT_WARNING: ${PARKIO_ALERT_REPEAT_WARNING:-4h}
+    entrypoint: ["/bin/sh", "/etc/alertmanager/render-config.sh"]
+    ports: ["127.0.0.1:${ALERTMANAGER_PORT:-9093}:9093"]
+    volumes:
+      - ./alertmanager/alertmanager.yml:/etc/alertmanager/alertmanager.yml:ro
+      - ./alertmanager/render-config.sh:/etc/alertmanager/render-config.sh:ro
+      - alertmanager-data:/alertmanager
+    networks: [parkio-observability]
+    healthcheck:
+      test: ["CMD", "wget", "--quiet", "--tries=1", "--spider", "http://localhost:9093/-/healthy"]
       interval: 15s
       timeout: 5s
       retries: 5
@@ -320,6 +344,7 @@ volumes:
   minio-data:
   clamav-data:
   prometheus-data:
+  alertmanager-data:
   grafana-data:
 
 # --------------------------------------------------------------------------- #

@@ -12,17 +12,14 @@ global:
 
 # Alert rules (docker/prometheus/alerts.yml, mounted at /etc/prometheus/alerts.yml).
 # Absolute path: Prometheus resolves rule_files against its working directory, not the
-# config dir. Rules evaluate and show on the /alerts page even with no Alertmanager.
+# config dir. Rules evaluate and route through Alertmanager.
 rule_files:
   - /etc/prometheus/alerts.yml
 
-# Alertmanager is NOT deployed yet. Firing alerts are visible in the Prometheus UI but are
-# not routed/notified anywhere. To enable notifications later, add an alertmanager service
-# and uncomment:
-# alerting:
-#   alertmanagers:
-#     - static_configs:
-#         - targets: ["alertmanager:9093"]
+alerting:
+  alertmanagers:
+    - static_configs:
+        - targets: ["alertmanager:9093"]
 
 scrape_configs:
   - job_name: prometheus
