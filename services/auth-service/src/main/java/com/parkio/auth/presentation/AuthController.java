@@ -132,7 +132,7 @@ public class AuthController {
                                                HttpServletRequest httpRequest) {
         validateOriginIfPresent(httpRequest);
         authService.forgotPassword(new ForgotPasswordCommand(request.email()));
-        return ResponseEntity.accepted().build();
+        return ResponseEntity.ok().build();
     }
 
     @Operation(summary = "Reset password with a reset token")

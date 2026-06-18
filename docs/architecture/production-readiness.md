@@ -359,6 +359,18 @@ When Resend is selected, missing API key or from address fails startup. With the
 logging also fails startup. Delivery is observable through
 `email_sent_total`, `email_failed_total`, and `email_verification_sent_total`.
 
+## Auth password reset
+
+Password reset is implemented as an enumeration-safe credential-rotation flow.
+`POST /api/v1/auth/forgot-password` always returns `200 OK`; known verified active
+accounts receive a one-hour reset link and all other states get the same client
+response. Reset tokens are generated from 256 bits of randomness, stored only as
+SHA-256 hashes, invalidated when superseded, and single-use. `POST
+/api/v1/auth/reset-password` enforces the same password policy as registration,
+marks the reset token consumed, revokes every active refresh-token family, and
+bumps `session_epoch` so already-issued access tokens are rejected by the gateway.
+The frontend redirects to login after reset and never auto-logs the user in.
+
 ---
 
 ## 8. Observability

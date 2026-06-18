@@ -81,8 +81,8 @@ Privilege boundaries / enforcement notes:
   gateway checks the user's current epoch (internal auth-service endpoint, briefly
   cached) and rejects any token whose epoch is stale with `401 TOKEN_REVOKED`,
   failing **closed** (`503`) if the epoch cannot be confirmed. auth-service bumps the
-  epoch on refresh-token reuse detection, `logout-all` and suspension (and, later,
-  password reset/change-password), so those events invalidate already-issued access tokens within the
+  epoch on refresh-token reuse detection, `logout-all`, suspension, password reset
+  and change-password, so those events invalidate already-issued access tokens within the
   cache TTL instead of leaving them valid until expiry. The epoch comes only from the
   signed claim — never client input; a missing claim (legacy token) is treated as
   epoch 0. Single-device logout is intentionally per-device and does not bump the epoch.
@@ -90,6 +90,11 @@ Privilege boundaries / enforcement notes:
   verified. Store only hashed verification tokens, expire them, keep resend
   responses enumeration-safe, and never log raw verification links outside
   explicitly guarded dev/test configuration.
+- Password reset must be enumeration-safe: `forgot-password` returns the same
+  success response for known, unknown, unverified, inactive and cooldown-limited
+  accounts. Store only a SHA-256 hash of 256-bit random reset tokens, expire them
+  after 1 hour by default, consume them on use, and revoke every refresh family plus
+  bump `session_epoch` after a successful reset. Do not auto-login after reset.
 
 ## Secrets & config
 

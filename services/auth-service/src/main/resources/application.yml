@@ -147,7 +147,7 @@ parkio:
       url: ${PARKIO_EMAIL_VERIFICATION_URL:http://localhost:5173/verify-email}
       log-token: ${PARKIO_EMAIL_VERIFICATION_LOG_TOKEN:false}
     password-reset:
-      token-ttl: ${PARKIO_PASSWORD_RESET_TTL:PT30M}
+      token-ttl: ${PARKIO_PASSWORD_RESET_TTL:PT1H}
       request-cooldown: ${PARKIO_PASSWORD_RESET_REQUEST_COOLDOWN:PT5M}
       url: ${PARKIO_PASSWORD_RESET_URL:http://localhost:5173/reset-password}
       log-token: ${PARKIO_PASSWORD_RESET_LOG_TOKEN:false}

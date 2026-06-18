@@ -199,13 +199,13 @@ gateway-service README for the edge enforcement and fail-closed behavior.
 ## Account recovery and credential rotation
 
 `POST /api/v1/auth/forgot-password` accepts an email address and always returns
-`202 Accepted`. Unknown users, pending-verification users, inactive users and
+`200 OK`. Unknown users, pending-verification users, inactive users and
 cooldown-limited requests are indistinguishable to the caller. For verified active
 accounts outside the cooldown window, auth-service consumes any previous active
 reset tokens for that user, generates a new secure random token, stores only its
 one-way hash in `password_reset_tokens`, and sends the raw token through the
 password reset email sender. Reset tokens expire after
-`parkio.security.password-reset.token-ttl` (30 minutes by default). Request
+`parkio.security.password-reset.token-ttl` (1 hour by default). Request
 cooldown is Redis-backed through `parkio.security.password-reset.request-cooldown`
 (5 minutes by default), keyed by normalized email.
 

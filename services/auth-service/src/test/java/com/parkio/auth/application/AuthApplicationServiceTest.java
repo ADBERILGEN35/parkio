@@ -102,7 +102,7 @@ class AuthApplicationServiceTest {
                 passwordHasher, accessTokenIssuer, refreshTokenHasher, tokenGenerator, loginFailures,
                 verificationResendLimiter, passwordResetLimiter, emailVerificationSender, passwordResetEmailSender,
                 new PasswordPolicy(), clock, Duration.ofDays(30), Duration.ofDays(90), Duration.ofHours(24),
-                Duration.ofMinutes(30));
+                Duration.ofHours(1));
     }
 
     @Test
@@ -307,7 +307,8 @@ class AuthApplicationServiceTest {
         String rawToken = passwordResetEmailSender.tokenFor("reset@example.com");
         assertThat(rawToken).isNotBlank();
         assertThat(passwordResetTokens.findByTokenHash(rawToken)).isEmpty();
-        assertThat(passwordResetTokens.findByTokenHash(refreshTokenHasher.hash(rawToken))).isPresent();
+        assertThat(passwordResetTokens.findByTokenHash(refreshTokenHasher.hash(rawToken)))
+                .hasValueSatisfying(token -> assertThat(token.expiresAt()).isEqualTo(NOW.plus(Duration.ofHours(1))));
         assertThat(passwordResetEmailSender.sentEmails()).containsExactly("reset@example.com");
     }
 
@@ -367,7 +368,7 @@ class AuthApplicationServiceTest {
         service.forgotPassword(new ForgotPasswordCommand("reset@example.com"));
         String rawToken = passwordResetEmailSender.tokenFor("reset@example.com");
 
-        clock.advance(Duration.ofMinutes(31));
+        clock.advance(Duration.ofMinutes(61));
         assertThatThrownBy(() -> service.resetPassword(new ResetPasswordCommand(rawToken, "FreshStrong123")))
                 .isInstanceOf(AuthException.class)
                 .extracting(e -> ((AuthException) e).errorCode())

@@ -24,7 +24,7 @@ describe('ForgotPasswordPage', () => {
     server.use(
       http.post(`${API_BASE}/auth/forgot-password`, async ({ request }) => {
         requestedEmail = ((await request.json()) as { email: string }).email;
-        return new HttpResponse(null, { status: 202 });
+        return new HttpResponse(null, { status: 200 });
       }),
     );
 

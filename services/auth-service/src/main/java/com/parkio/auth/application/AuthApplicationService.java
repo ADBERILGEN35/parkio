@@ -106,7 +106,7 @@ public class AuthApplicationService {
                                           Duration refreshAbsoluteTtl,
                                   @Value("${parkio.security.email-verification.token-ttl:PT24H}")
                                           Duration emailVerificationTtl,
-                                  @Value("${parkio.security.password-reset.token-ttl:PT30M}")
+                                  @Value("${parkio.security.password-reset.token-ttl:PT1H}")
                                           Duration passwordResetTtl) {
         this.authUsers = authUsers;
         this.roles = roles;

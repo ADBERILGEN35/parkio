@@ -256,7 +256,7 @@ All auth calls go through the gateway (`VITE_API_BASE_URL`, **required** — def
 - `/forgot-password` posts the email to `POST /auth/forgot-password` and always
   shows the same success copy: "If an account exists, we sent password reset
   instructions." The UI must not reveal account existence, verification state or
-  cooldown state.
+  cooldown state. Reset links expire after 1 hour by default.
 - `/reset-password?token=...` posts `{ token, newPassword }` to
   `POST /auth/reset-password`. The page validates confirmation and shows the same
   password requirements as registration. Success clears any local session state

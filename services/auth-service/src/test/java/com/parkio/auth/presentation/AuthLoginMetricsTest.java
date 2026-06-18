@@ -4,9 +4,11 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 import com.parkio.auth.application.AuthApplicationService;
+import com.parkio.auth.application.command.ForgotPasswordCommand;
 import com.parkio.auth.application.command.LoginCommand;
 import com.parkio.auth.application.result.AuthResult;
 import com.parkio.auth.domain.AuthUser;
@@ -16,6 +18,7 @@ import com.parkio.auth.domain.exception.AuthErrorCode;
 import com.parkio.auth.domain.exception.AuthException;
 import com.parkio.auth.domain.exception.LoginLockedException;
 import com.parkio.auth.infrastructure.metrics.AuthMetrics;
+import com.parkio.auth.presentation.dto.ForgotPasswordRequest;
 import com.parkio.auth.presentation.dto.LoginRequest;
 import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
 import java.time.Instant;
@@ -84,6 +87,15 @@ class AuthLoginMetricsTest {
         assertThat(registry.counter("login_failures").count()).isEqualTo(1.0);
         assertThat(registry.counter("login_lockouts").count()).isEqualTo(1.0);
         assertThat(registry.counter("login_success").count()).isZero();
+    }
+
+    @Test
+    void forgotPasswordReturnsOkAndDelegatesWithoutLeakingAccountState() {
+        var response = controller.forgotPassword(
+                new ForgotPasswordRequest("User@Example.com"), new MockHttpServletRequest());
+
+        assertThat(response.getStatusCode().value()).isEqualTo(200);
+        verify(authService).forgotPassword(new ForgotPasswordCommand("User@Example.com"));
     }
 
     private static RefreshCookieProperties refreshCookieProperties() {
