@@ -157,9 +157,15 @@ public class ModerationApplicationService {
 
     /** Resolves a case, records the decision/violation, and emits the resulting events. */
     public ModerationCase resolveCase(ResolveCaseCommand command) {
+        ModerationAction action = command.action();
+        // Defense in depth: account sanctions / trust-score overrides are ADMIN-only,
+        // re-checked here independently of the presentation-layer gate. Fail closed.
+        if (action.requiresAdmin() && !command.callerIsAdmin()) {
+            throw new ModerationException(ModerationErrorCode.FORBIDDEN,
+                    "Admin role required to suspend, restore, or apply trust/score penalties.");
+        }
         ModerationCase moderationCase = requireCase(command.caseId());
         Instant now = clock.instant();
-        ModerationAction action = command.action();
 
         moderationCase.resolve(action, command.note(), now);
         cases.save(moderationCase);
@@ -193,12 +199,22 @@ public class ModerationApplicationService {
         return appeals.findRecent();
     }
 
-    /** Resolves an appeal; accepting a suspension appeal restores the user. */
-    public Appeal resolveAppeal(UUID appealId, UUID moderatorId, boolean accepted, String note) {
+    /**
+     * Resolves an appeal; accepting a suspension appeal restores the user. Reserved to
+     * ADMIN: resolving an appeal is the binding reversal of a moderation sanction and
+     * can restore a suspended account, so it is an account-level (ADMIN) action, not a
+     * moderator content decision. {@code callerIsAdmin} is re-checked here (defense in
+     * depth) so the rule holds even if a caller reaches the service directly. Fail closed.
+     */
+    public Appeal resolveAppeal(UUID appealId, UUID adminId, boolean accepted, String note, boolean callerIsAdmin) {
+        if (!callerIsAdmin) {
+            throw new ModerationException(ModerationErrorCode.FORBIDDEN,
+                    "Admin role required to resolve appeals.");
+        }
         Appeal appeal = appeals.findById(appealId)
                 .orElseThrow(() -> new ModerationException(ModerationErrorCode.APPEAL_NOT_FOUND));
         Instant now = clock.instant();
-        appeal.resolve(accepted, moderatorId, note, now);
+        appeal.resolve(accepted, adminId, note, now);
         appeals.save(appeal);
         outbox.append(AppealResolvedEvent.of(appeal, now));
 
@@ -207,7 +223,7 @@ public class ModerationApplicationService {
                     .filter(c -> c.targetType() == ModerationTargetType.USER
                             && c.resolutionAction() == ModerationAction.SUSPEND_USER)
                     .ifPresent(c -> outbox.append(
-                            UserRestoredEvent.of(c.id(), c.targetId(), moderatorId, now)));
+                            UserRestoredEvent.of(c.id(), c.targetId(), adminId, now)));
         }
         return appeal;
     }

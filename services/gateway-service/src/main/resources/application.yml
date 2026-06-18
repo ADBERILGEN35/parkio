@@ -191,3 +191,15 @@ parkio:
       base-url: ${PARKIO_USER_SERVICE_URI:http://localhost:8082}
       cache-ttl: ${PARKIO_USER_STATUS_CACHE_TTL:PT30S}
       request-timeout: ${PARKIO_USER_STATUS_TIMEOUT:PT2S}
+    session-epoch:
+      # Access-token revocation: after JWT validation the gateway compares the token's
+      # session_epoch claim with the caller's CURRENT epoch from auth-service. A bumped
+      # epoch (logout-all, refresh-token reuse detection, suspension) makes every
+      # already-issued access token stale within the cache TTL instead of lingering to
+      # its 15-minute expiry. Base URL matches the auth-service route target; results are
+      # cached briefly (this TTL is the revocation lag). If auth-service is unavailable
+      # the gateway fails closed (503 SESSION_EPOCH_UNAVAILABLE) rather than letting a
+      # possibly-revoked token through.
+      base-url: ${PARKIO_AUTH_SERVICE_URI:http://localhost:8081}
+      cache-ttl: ${PARKIO_SESSION_EPOCH_CACHE_TTL:PT30S}
+      request-timeout: ${PARKIO_SESSION_EPOCH_TIMEOUT:PT2S}

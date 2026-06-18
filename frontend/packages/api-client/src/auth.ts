@@ -1,9 +1,12 @@
 import type { AxiosInstance } from 'axios';
 import type {
   AuthResponse,
+  ChangePasswordRequest,
+  ForgotPasswordRequest,
   LoginRequest,
   RegisterRequest,
   ResendVerificationRequest,
+  ResetPasswordRequest,
   User,
   VerifyEmailRequest,
 } from '@parkio/types';
@@ -34,12 +37,30 @@ export function createAuthApi(client: AxiosInstance) {
         .then(() => undefined);
     },
 
+    logoutAll(): Promise<void> {
+      return client
+        .post<void>('/auth/logout-all', undefined, { withCredentials: true })
+        .then(() => undefined);
+    },
+
     verifyEmail(body: VerifyEmailRequest): Promise<User> {
       return client.post<User>('/auth/verify-email', body).then((r) => r.data);
     },
 
     resendVerification(body: ResendVerificationRequest): Promise<void> {
       return client.post<void>('/auth/resend-verification', body).then(() => undefined);
+    },
+
+    forgotPassword(body: ForgotPasswordRequest): Promise<void> {
+      return client.post<void>('/auth/forgot-password', body).then(() => undefined);
+    },
+
+    resetPassword(body: ResetPasswordRequest): Promise<void> {
+      return client.post<void>('/auth/reset-password', body, { withCredentials: true }).then(() => undefined);
+    },
+
+    changePassword(body: ChangePasswordRequest): Promise<void> {
+      return client.post<void>('/auth/change-password', body, { withCredentials: true }).then(() => undefined);
     },
 
     me(): Promise<User> {

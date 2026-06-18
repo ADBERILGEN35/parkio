@@ -32,9 +32,11 @@ to. `user_id` everywhere is the platform-wide authUserId. AI output (when it lan
 ## API
 
 All endpoints live under `/api/v1/moderation` and require the gateway-injected
-`X-User-Id` (fail closed `401` if absent/invalid). Moderator/admin endpoints
-additionally require a `MODERATOR` or `ADMIN` entry in the `X-User-Roles` header
-(comma-separated); otherwise `403`.
+`X-User-Id` (fail closed `401` if absent/invalid). Moderator endpoints additionally
+require a `MODERATOR` or `ADMIN` entry in the `X-User-Roles` header (comma-separated);
+otherwise `403`. **Account-level actions require `ADMIN`** (separation of duties): see
+the role matrix below. Authorization is enforced in the controller and re-checked in
+the application service (defense in depth, fail closed).
 
 ### User-facing
 
@@ -44,16 +46,26 @@ additionally require a `MODERATOR` or `ADMIN` entry in the `X-User-Roles` header
 | `GET /reports/me` | The caller's own reports |
 | `POST /appeals` | Appeal a resolved case that targeted the caller |
 
-### Moderator / admin
+### Moderator (`MODERATOR` or `ADMIN`)
 
 | Method & path | Purpose |
 |---------------|---------|
 | `GET /cases` (optional `?status=`) | List recent cases, or filter by status |
 | `GET /cases/{caseId}` | A single case |
 | `POST /cases/{caseId}/assign` | Claim the case (assigns it to the caller, → `IN_REVIEW`) |
-| `POST /cases/{caseId}/resolve` | Resolve with a decisive `action` (records a decision) |
-| `GET /appeals` | List recent appeals |
-| `POST /appeals/{appealId}/resolve` | Accept/reject an appeal |
+| `POST /cases/{caseId}/resolve` | Resolve with a **content** action (`APPROVE`/`REJECT`/`MARK_FILLED`/`MARK_RISKY`) |
+| `GET /appeals` | Read the appeal queue |
+
+### Admin only (`ADMIN`)
+
+| Method & path | Purpose |
+|---------------|---------|
+| `POST /cases/{caseId}/resolve` with `SUSPEND_USER` / `RESTORE_USER` / `REDUCE_TRUST` / `DEDUCT_POINTS` | Account sanctions and trust/score overrides — `403` for `MODERATOR` |
+| `POST /appeals/{appealId}/resolve` | Accept/reject an appeal (reverses sanctions / can restore a suspended account) |
+
+> Account state, trust and points are never mutated directly here — these actions emit
+> events for auth/user/gamification to react to. The ADMIN gate on `resolveCase` actions
+> and `resolveAppeal` is therefore the single chokepoint for all account-level effects.
 
 ### Rules
 

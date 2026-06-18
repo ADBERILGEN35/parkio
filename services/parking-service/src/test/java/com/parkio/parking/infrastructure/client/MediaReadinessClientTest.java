@@ -35,7 +35,7 @@ class MediaReadinessClientTest {
     private volatile int responseStatus = 200;
     private volatile String responseBody = "{}";
 
-    private record RecordedRequest(String path, String gatewayAuth, String correlationId) {
+    private record RecordedRequest(String path, String query, String gatewayAuth, String correlationId) {
     }
 
     @BeforeEach
@@ -44,6 +44,7 @@ class MediaReadinessClientTest {
         server.createContext("/", exchange -> {
             recorded.set(new RecordedRequest(
                     exchange.getRequestURI().getPath(),
+                    exchange.getRequestURI().getQuery(),
                     exchange.getRequestHeaders().getFirst("X-Gateway-Auth"),
                     exchange.getRequestHeaders().getFirst(CorrelationIdFilter.HEADER)));
             byte[] body = responseBody.getBytes(StandardCharsets.UTF_8);
@@ -71,13 +72,15 @@ class MediaReadinessClientTest {
     @Test
     void readyMediaPassesAndSendsGatewayAuthAndCorrelationId() {
         UUID mediaId = UUID.randomUUID();
-        responseBody = "{\"mediaId\":\"%s\",\"status\":\"READY\"}".formatted(mediaId);
+        UUID owner = UUID.randomUUID();
+        responseBody = "{\"mediaId\":\"%s\",\"status\":\"READY\",\"ownerUserId\":\"%s\"}".formatted(mediaId, owner);
         MDC.put(CorrelationIdFilter.MDC_KEY, "trace-xyz");
 
-        client().ensureMediaReady(mediaId);
+        client().ensureMediaReady(mediaId, owner);
 
         RecordedRequest request = recorded.get();
         assertThat(request.path()).isEqualTo("/internal/media/" + mediaId + "/status");
+        assertThat(request.query()).isEqualTo("ownerUserId=" + owner);
         assertThat(request.gatewayAuth()).isEqualTo(SECRET);
         assertThat(request.correlationId()).isEqualTo("trace-xyz");
     }
@@ -86,7 +89,7 @@ class MediaReadinessClientTest {
     void nonReadyStatusMapsToMediaNotReady() {
         responseBody = "{\"mediaId\":\"%s\",\"status\":\"PENDING_SCAN\"}".formatted(UUID.randomUUID());
 
-        assertThatThrownBy(() -> client().ensureMediaReady(UUID.randomUUID()))
+        assertThatThrownBy(() -> client().ensureMediaReady(UUID.randomUUID(), UUID.randomUUID()))
                 .isInstanceOf(ParkingException.class)
                 .extracting(e -> ((ParkingException) e).errorCode())
                 .isEqualTo(ParkingErrorCode.MEDIA_NOT_READY);
@@ -97,7 +100,7 @@ class MediaReadinessClientTest {
         responseStatus = 404;
         responseBody = "{\"code\":\"MEDIA_NOT_FOUND\"}";
 
-        assertThatThrownBy(() -> client().ensureMediaReady(UUID.randomUUID()))
+        assertThatThrownBy(() -> client().ensureMediaReady(UUID.randomUUID(), UUID.randomUUID()))
                 .isInstanceOf(ParkingException.class)
                 .extracting(e -> ((ParkingException) e).errorCode())
                 .isEqualTo(ParkingErrorCode.MEDIA_NOT_READY);
@@ -108,7 +111,7 @@ class MediaReadinessClientTest {
         responseStatus = 500;
         responseBody = "{\"code\":\"INTERNAL_ERROR\"}";
 
-        assertThatThrownBy(() -> client().ensureMediaReady(UUID.randomUUID()))
+        assertThatThrownBy(() -> client().ensureMediaReady(UUID.randomUUID(), UUID.randomUUID()))
                 .isInstanceOf(ParkingException.class)
                 .extracting(e -> ((ParkingException) e).errorCode())
                 .isEqualTo(ParkingErrorCode.MEDIA_ACCESS_UNAVAILABLE);
@@ -121,7 +124,7 @@ class MediaReadinessClientTest {
         MediaReadinessClient client = new MediaReadinessClient(RestClient.builder(),
                 "http://localhost:" + port, SECRET, Duration.ofMillis(250), Duration.ofMillis(250));
 
-        assertThatThrownBy(() -> client.ensureMediaReady(UUID.randomUUID()))
+        assertThatThrownBy(() -> client.ensureMediaReady(UUID.randomUUID(), UUID.randomUUID()))
                 .isInstanceOf(ParkingException.class)
                 .extracting(e -> ((ParkingException) e).errorCode())
                 .isEqualTo(ParkingErrorCode.MEDIA_ACCESS_UNAVAILABLE);

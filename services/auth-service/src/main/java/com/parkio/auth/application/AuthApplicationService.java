@@ -1,9 +1,12 @@
 package com.parkio.auth.application;
 
+import com.parkio.auth.application.command.ChangePasswordCommand;
+import com.parkio.auth.application.command.ForgotPasswordCommand;
 import com.parkio.auth.application.command.LoginCommand;
 import com.parkio.auth.application.command.LogoutCommand;
 import com.parkio.auth.application.command.RefreshTokenCommand;
 import com.parkio.auth.application.command.ResendVerificationCommand;
+import com.parkio.auth.application.command.ResetPasswordCommand;
 import com.parkio.auth.application.command.RegisterCommand;
 import com.parkio.auth.application.command.VerifyEmailCommand;
 import com.parkio.auth.application.event.UserRestoredEvent;
@@ -14,6 +17,8 @@ import com.parkio.auth.application.port.EmailVerificationSender;
 import com.parkio.auth.application.port.InboxEventRepository;
 import com.parkio.auth.application.port.OutboxEventAppender;
 import com.parkio.auth.application.port.PasswordHasher;
+import com.parkio.auth.application.port.PasswordResetEmailSender;
+import com.parkio.auth.application.port.PasswordResetRepository;
 import com.parkio.auth.application.port.RefreshTokenHasher;
 import com.parkio.auth.application.port.RefreshTokenRepository;
 import com.parkio.auth.application.port.RoleRepository;
@@ -22,6 +27,7 @@ import com.parkio.auth.application.result.AuthResult;
 import com.parkio.auth.application.result.IssuedAccessToken;
 import com.parkio.auth.application.result.RegisterResult;
 import com.parkio.auth.domain.AuthUser;
+import com.parkio.auth.domain.PasswordResetToken;
 import com.parkio.auth.domain.RefreshToken;
 import com.parkio.auth.domain.RefreshTokenRevocationReason;
 import com.parkio.auth.domain.Role;
@@ -59,6 +65,7 @@ public class AuthApplicationService {
     private final AuthUserRepository authUsers;
     private final RoleRepository roles;
     private final RefreshTokenRepository refreshTokens;
+    private final PasswordResetRepository passwordResetTokens;
     private final OutboxEventAppender outbox;
     private final InboxEventRepository inbox;
     private final PasswordHasher passwordHasher;
@@ -67,15 +74,20 @@ public class AuthApplicationService {
     private final SecureTokenGenerator tokenGenerator;
     private final LoginFailureTracker loginFailures;
     private final VerificationResendLimiter verificationResendLimiter;
+    private final PasswordResetLimiter passwordResetLimiter;
     private final EmailVerificationSender emailVerificationSender;
+    private final PasswordResetEmailSender passwordResetEmailSender;
     private final PasswordPolicy passwordPolicy;
     private final Clock clock;
     private final Duration refreshTokenTtl;
+    private final Duration refreshAbsoluteTtl;
     private final Duration emailVerificationTtl;
+    private final Duration passwordResetTtl;
 
     public AuthApplicationService(AuthUserRepository authUsers,
                                   RoleRepository roles,
                                   RefreshTokenRepository refreshTokens,
+                                  PasswordResetRepository passwordResetTokens,
                                   OutboxEventAppender outbox,
                                   InboxEventRepository inbox,
                                   PasswordHasher passwordHasher,
@@ -84,15 +96,22 @@ public class AuthApplicationService {
                                   SecureTokenGenerator tokenGenerator,
                                   LoginFailureTracker loginFailures,
                                   VerificationResendLimiter verificationResendLimiter,
+                                  PasswordResetLimiter passwordResetLimiter,
                                   EmailVerificationSender emailVerificationSender,
+                                  PasswordResetEmailSender passwordResetEmailSender,
                                   PasswordPolicy passwordPolicy,
                                   Clock clock,
                                   @Value("${parkio.security.jwt.refresh-token-ttl}") Duration refreshTokenTtl,
+                                  @Value("${parkio.security.jwt.refresh-absolute-ttl:P90D}")
+                                          Duration refreshAbsoluteTtl,
                                   @Value("${parkio.security.email-verification.token-ttl:PT24H}")
-                                          Duration emailVerificationTtl) {
+                                          Duration emailVerificationTtl,
+                                  @Value("${parkio.security.password-reset.token-ttl:PT30M}")
+                                          Duration passwordResetTtl) {
         this.authUsers = authUsers;
         this.roles = roles;
         this.refreshTokens = refreshTokens;
+        this.passwordResetTokens = passwordResetTokens;
         this.outbox = outbox;
         this.inbox = inbox;
         this.passwordHasher = passwordHasher;
@@ -101,11 +120,15 @@ public class AuthApplicationService {
         this.tokenGenerator = tokenGenerator;
         this.loginFailures = loginFailures;
         this.verificationResendLimiter = verificationResendLimiter;
+        this.passwordResetLimiter = passwordResetLimiter;
         this.emailVerificationSender = emailVerificationSender;
+        this.passwordResetEmailSender = passwordResetEmailSender;
         this.passwordPolicy = passwordPolicy;
         this.clock = clock;
         this.refreshTokenTtl = refreshTokenTtl;
+        this.refreshAbsoluteTtl = refreshAbsoluteTtl;
         this.emailVerificationTtl = emailVerificationTtl;
+        this.passwordResetTtl = passwordResetTtl;
     }
 
     public RegisterResult register(RegisterCommand command) {
@@ -202,6 +225,76 @@ public class AuthApplicationService {
                 });
     }
 
+    public void forgotPassword(ForgotPasswordCommand command) {
+        String email = AuthUser.normalizeEmail(command.email());
+        if (!passwordResetLimiter.tryAcquire(email)) {
+            log.info("Password reset request suppressed by cooldown; emailHash={}",
+                    Integer.toHexString(email.hashCode()));
+            return;
+        }
+
+        authUsers.findByEmail(email)
+                .filter(user -> user.emailVerified() && user.status().canAuthenticate())
+                .ifPresent(user -> {
+                    Instant now = clock.instant();
+                    passwordResetTokens.consumeActiveForUser(user.id(), now);
+                    String rawResetToken = tokenGenerator.generate();
+                    PasswordResetToken resetToken = PasswordResetToken.issue(
+                            user.id(),
+                            refreshTokenHasher.hash(rawResetToken),
+                            now.plus(passwordResetTtl),
+                            now);
+                    passwordResetTokens.save(resetToken);
+                    passwordResetEmailSender.sendResetLink(user.email(), rawResetToken);
+                });
+    }
+
+    public void resetPassword(ResetPasswordCommand command) {
+        passwordPolicy.validate(command.newPassword());
+        PasswordResetToken resetToken = passwordResetTokens.findByTokenHash(
+                        refreshTokenHasher.hash(command.rawToken()))
+                .orElseThrow(() -> new AuthException(AuthErrorCode.INVALID_RESET_TOKEN));
+        Instant now = clock.instant();
+        if (!resetToken.isActive(now)) {
+            throw new AuthException(AuthErrorCode.INVALID_RESET_TOKEN);
+        }
+
+        AuthUser user = authUsers.findById(resetToken.userId())
+                .orElseThrow(() -> new AuthException(AuthErrorCode.INVALID_RESET_TOKEN));
+        if (!user.emailVerified() || !user.status().canAuthenticate()) {
+            throw new AuthException(AuthErrorCode.INVALID_RESET_TOKEN);
+        }
+
+        user.changePassword(passwordHasher.hash(command.newPassword()));
+        long newEpoch = user.bumpSessionEpoch();
+        authUsers.save(user);
+        resetToken.consume(now);
+        passwordResetTokens.save(resetToken);
+        int revoked = refreshTokens.revokeAllActiveForUser(
+                user.id(), RefreshTokenRevocationReason.PASSWORD_CHANGED, now);
+        log.info("Password reset completed; userId={}, activeRefreshTokensRevoked={}, sessionEpoch={}",
+                user.id(), revoked, newEpoch);
+    }
+
+    public void changePassword(ChangePasswordCommand command) {
+        passwordPolicy.validate(command.newPassword());
+        AuthUser user = authUsers.findById(command.userId())
+                .orElseThrow(() -> new AuthException(AuthErrorCode.USER_NOT_FOUND));
+        user.ensureCanAuthenticate();
+        if (!passwordHasher.matches(command.currentPassword(), user.passwordHash())) {
+            throw new AuthException(AuthErrorCode.INVALID_CREDENTIALS);
+        }
+
+        Instant now = clock.instant();
+        user.changePassword(passwordHasher.hash(command.newPassword()));
+        long newEpoch = user.bumpSessionEpoch();
+        authUsers.save(user);
+        int revoked = refreshTokens.revokeAllActiveForUser(
+                user.id(), RefreshTokenRevocationReason.PASSWORD_CHANGED, now);
+        log.info("Password changed; userId={}, activeRefreshTokensRevoked={}, sessionEpoch={}",
+                user.id(), revoked, newEpoch);
+    }
+
     @Transactional(noRollbackFor = AuthException.class)
     public AuthResult refresh(RefreshTokenCommand command) {
         String tokenHash = refreshTokenHasher.hash(command.rawRefreshToken());
@@ -219,8 +312,34 @@ public class AuthApplicationService {
                     existing.tokenFamilyId(),
                     RefreshTokenRevocationReason.REUSE_DETECTED,
                     now);
-            log.warn(
-                    "Refresh token reuse detected; userId={}, tokenFamilyId={}, activeTokensRevoked={}",
+            // Reuse means the family is compromised: also bump the session epoch so any
+            // access token already minted from this session is rejected at the gateway
+            // within its cache TTL, not left valid until its 15-minute expiry. Committed
+            // despite the throw by noRollbackFor=AuthException. Tolerant of a missing user
+            // (keep the generic error) — the epoch bump is best-effort hardening.
+            authUsers.findById(existing.userId()).ifPresent(user -> {
+                long newEpoch = user.bumpSessionEpoch();
+                authUsers.save(user);
+                log.warn(
+                        "Refresh token reuse detected; userId={}, tokenFamilyId={}, activeTokensRevoked={}, "
+                                + "sessionEpoch={}",
+                        existing.userId(), existing.tokenFamilyId(), revokedCount, newEpoch);
+            });
+            throw new AuthException(AuthErrorCode.INVALID_REFRESH_TOKEN);
+        }
+        // Absolute session lifetime cap: the family has outlived its maximum age even
+        // though this (current, non-revoked) token's sliding TTL is still valid. This is
+        // a natural expiry, not reuse — revoke the remaining active family and reject with
+        // the SAME generic error so a client cannot distinguish absolute from sliding
+        // expiry. noRollbackFor=AuthException commits the revocation despite the throw.
+        if (existing.isFamilyAbsoluteLifetimeExceeded(now, refreshAbsoluteTtl)) {
+            int revokedCount = refreshTokens.revokeActiveFamily(
+                    existing.tokenFamilyId(),
+                    RefreshTokenRevocationReason.EXPIRED_CLEANUP,
+                    now);
+            log.info(
+                    "Refresh rejected: token family exceeded absolute session lifetime; "
+                            + "userId={}, tokenFamilyId={}, activeTokensRevoked={}",
                     existing.userId(),
                     existing.tokenFamilyId(),
                     revokedCount);
@@ -240,6 +359,10 @@ public class AuthApplicationService {
 
     public void logout(LogoutCommand command) {
         // Idempotent: revoking an unknown/already-revoked token is a no-op.
+        // Single-device logout: revokes only the presented refresh token and does NOT
+        // bump the session epoch, so this user's other devices keep working and their
+        // already-issued access tokens live out their short TTL. Use logoutAll to kill
+        // every session and invalidate access tokens immediately.
         String tokenHash = refreshTokenHasher.hash(command.rawRefreshToken());
         refreshTokens.findByTokenHash(tokenHash).ifPresent(token -> {
             if (!token.isRevoked()) {
@@ -247,6 +370,37 @@ public class AuthApplicationService {
                 refreshTokens.save(token);
             }
         });
+    }
+
+    /**
+     * Global "log out everywhere" for the authenticated user: revokes every active
+     * refresh token across all of the user's families and bumps the session epoch so
+     * all outstanding access tokens are rejected at the gateway within its cache TTL.
+     * Idempotent and safe to call repeatedly. The caller is identified by the validated
+     * access token (not the refresh cookie), so it works even without a refresh cookie.
+     */
+    public void logoutAll(UUID userId) {
+        AuthUser user = authUsers.findById(userId)
+                .orElseThrow(() -> new AuthException(AuthErrorCode.USER_NOT_FOUND));
+        Instant now = clock.instant();
+        int revoked = refreshTokens.revokeAllActiveForUser(
+                user.id(), RefreshTokenRevocationReason.LOGOUT, now);
+        long newEpoch = user.bumpSessionEpoch();
+        authUsers.save(user);
+        log.info("User {} logged out everywhere; activeRefreshTokensRevoked={}, sessionEpoch={}",
+                user.id(), revoked, newEpoch);
+    }
+
+    /**
+     * Current session epoch for a user, read by the gateway's per-request access-token
+     * revocation check via the internal endpoint. Throws {@link AuthException}
+     * ({@code USER_NOT_FOUND}) for an unknown id so the gateway can fail closed.
+     */
+    @Transactional(readOnly = true)
+    public long sessionEpoch(UUID userId) {
+        return authUsers.findById(userId)
+                .map(AuthUser::sessionEpoch)
+                .orElseThrow(() -> new AuthException(AuthErrorCode.USER_NOT_FOUND));
     }
 
     /**
@@ -268,11 +422,14 @@ public class AuthApplicationService {
         }
         authUsers.findById(event.userId()).ifPresentOrElse(user -> {
             if (user.suspend(event.occurredAt())) {
+                // Bump the session epoch in the same save so existing access tokens are
+                // rejected at the gateway right away, alongside revoking the refresh tokens.
+                user.bumpSessionEpoch();
                 authUsers.save(user);
                 int revoked = refreshTokens.revokeAllActiveForUser(
                         user.id(), RefreshTokenRevocationReason.ADMIN_REVOKED, clock.instant());
-                log.info("User {} suspended by moderation event {}; activeRefreshTokensRevoked={}",
-                        user.id(), event.eventId(), revoked);
+                log.info("User {} suspended by moderation event {}; activeRefreshTokensRevoked={}, sessionEpoch={}",
+                        user.id(), event.eventId(), revoked, user.sessionEpoch());
             } else {
                 log.info("Ignoring stale UserSuspended event {} for user {} (occurredAt {} < statusChangedAt {})",
                         event.eventId(), user.id(), event.occurredAt(), user.statusChangedAt());
@@ -315,10 +472,13 @@ public class AuthApplicationService {
         IssuedAccessToken access = accessTokenIssuer.issue(user);
 
         String rawRefreshToken = tokenGenerator.generate();
-        Instant refreshExpiresAt = clock.instant().plus(refreshTokenTtl);
+        Instant now = clock.instant();
+        Instant refreshExpiresAt = now.plus(refreshTokenTtl);
         String tokenHash = refreshTokenHasher.hash(rawRefreshToken);
+        // A login starts a new family (familyStartedAt = now); a rotation inherits the
+        // parent's familyStartedAt so the absolute lifetime is never extended.
         RefreshToken refreshToken = parent == null
-                ? RefreshToken.issueRoot(user.id(), tokenHash, refreshExpiresAt)
+                ? RefreshToken.issueRoot(user.id(), tokenHash, refreshExpiresAt, now)
                 : RefreshToken.issueChild(parent, tokenHash, refreshExpiresAt);
         refreshTokens.save(refreshToken);
 

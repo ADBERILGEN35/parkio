@@ -87,7 +87,7 @@ public class ParkingApplicationService {
      */
     public ParkingSpot createSpot(CreateSpotCommand command) {
         // Reject before any write: don't let a spot reference unscanned/unsafe media.
-        mediaReadiness.ensureMediaReady(command.mediaId());
+        mediaReadiness.ensureMediaReady(command.mediaId(), command.ownerUserId());
         Instant now = clock.instant();
         ParkingSpot spot = ParkingSpot.create(
                 command.ownerUserId(), command.mediaId(), command.latitude(), command.longitude(),
@@ -100,10 +100,14 @@ public class ParkingApplicationService {
         return saved;
     }
 
-    /** Opens a spot's public detail view, expiring it lazily and logging the view. */
-    public ParkingSpot getSpotForViewer(UUID spotId, UUID viewerUserId) {
+    /** Opens a spot detail view, hiding non-public spots from unrelated users. */
+    public ParkingSpot getSpotForViewer(UUID spotId, UUID viewerUserId, boolean canModerate) {
         ParkingSpot spot = requireSpot(spotId);
-        expireIfElapsed(spot, clock.instant());
+        Instant now = clock.instant();
+        expireIfElapsed(spot, now);
+        if (!spot.isOwnedBy(viewerUserId) && !canModerate && !spot.isVisibleForSearch(now)) {
+            throw new ParkingException(ParkingErrorCode.SPOT_NOT_FOUND);
+        }
         viewLogs.save(ParkingSpotViewLog.record(spotId, viewerUserId, clock.instant()));
         return spot;
     }

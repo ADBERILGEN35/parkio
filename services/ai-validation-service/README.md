@@ -52,15 +52,18 @@ status rule and event contract stay unchanged.
 
 ## API
 
-All endpoints are under `/api/v1/ai-validations`. Read endpoints expose advisory
-results. The manual endpoint requires the gateway-injected `X-User-Id` (fail closed
-`401`) and a `MODERATOR`/`ADMIN` entry in `X-User-Roles` (`403` otherwise).
+All endpoints are under `/api/v1/ai-validations`. Validation findings are advisory
+moderation data, so **all read endpoints and manual validation require
+`MODERATOR`/`ADMIN`**. The controller requires the gateway-injected `X-User-Id`
+(fail closed `401`) and a `MODERATOR`/`ADMIN` entry in `X-User-Roles` (`403`
+otherwise). Ordinary owners do not read validation findings through this service;
+user-facing photo/spot visibility stays in media-service and parking-service.
 
 | Method & path | Purpose |
 |---------------|---------|
-| `GET /{validationId}` | A single validation result (`404` if missing) |
-| `GET /media/{mediaId}` | Results for a media object (most recent first) |
-| `GET /parking/{parkingSpotId}` | Results for a parking spot (most recent first) |
+| `GET /{validationId}` | **MODERATOR/ADMIN** — a single validation result (`404` if missing) |
+| `GET /media/{mediaId}` | **MODERATOR/ADMIN** — results for a media object (most recent first) |
+| `GET /parking/{parkingSpotId}` | **MODERATOR/ADMIN** — results for a parking spot (most recent first) |
 | `POST /manual` | **MODERATOR/ADMIN** — run a manual placeholder validation for a `mediaId` (optional `parkingSpotId`) |
 
 ## Event handling (inbox)

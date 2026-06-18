@@ -1,5 +1,6 @@
 package com.parkio.gateway.infrastructure.config;
 
+import com.parkio.gateway.infrastructure.client.SessionEpochProperties;
 import com.parkio.gateway.infrastructure.client.UserStatusProperties;
 import com.parkio.gateway.infrastructure.security.JwtProperties;
 import java.time.Clock;
@@ -16,6 +17,7 @@ import org.springframework.context.annotation.Configuration;
     JwtProperties.class,
     CorsProperties.class,
     UserStatusProperties.class,
+    SessionEpochProperties.class,
     TrustedProxyProperties.class
 })
 public class GatewayConfig {

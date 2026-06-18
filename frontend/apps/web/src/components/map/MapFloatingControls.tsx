@@ -1,5 +1,5 @@
 import { Icon } from '@parkio/ui';
-import { useMap } from 'react-leaflet';
+import { useMap } from 'react-map-gl/maplibre';
 
 export interface MapFloatingControlsProps {
   onLocate: () => void;
@@ -10,14 +10,14 @@ export interface MapFloatingControlsProps {
 
 /**
  * Locate + zoom stack — DESIGN_SYSTEM §2.5 map controls.
- * Must render inside a react-leaflet MapContainer.
+ * Must render inside a react-map-gl `<Map>`.
  */
 export function MapFloatingControls({
   onLocate,
   locating,
   sidebarOpen = true,
 }: MapFloatingControlsProps) {
-  const map = useMap();
+  const { current: map } = useMap();
 
   return (
     <div
@@ -38,7 +38,7 @@ export function MapFloatingControls({
         <button
           type="button"
           aria-label="Zoom in"
-          onClick={() => map.zoomIn()}
+          onClick={() => map?.zoomIn()}
           className="flex h-10 w-10 items-center justify-center text-on-surface transition-colors hover:bg-surface-container motion-safe:active:scale-95"
         >
           <Icon name="add" className="text-[20px] leading-none" />
@@ -47,7 +47,7 @@ export function MapFloatingControls({
         <button
           type="button"
           aria-label="Zoom out"
-          onClick={() => map.zoomOut()}
+          onClick={() => map?.zoomOut()}
           className="flex h-10 w-10 items-center justify-center text-on-surface transition-colors hover:bg-surface-container motion-safe:active:scale-95"
         >
           <Icon name="remove" className="text-[20px] leading-none" />

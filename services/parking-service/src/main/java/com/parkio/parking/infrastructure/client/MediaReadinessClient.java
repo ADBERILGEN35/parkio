@@ -19,10 +19,11 @@ import org.springframework.web.client.RestClientResponseException;
 
 /**
  * Synchronous client for media-service's internal media-status endpoint
- * ({@code GET /internal/media/{mediaId}/status}), used at spot-creation time to ensure
- * the referenced media has passed media-service's safety checks (notably the malware
- * scan) before a spot may reference it. Kept separate from {@link MediaServiceClient}
- * so each cross-service capability is an independently mockable bean.
+ * ({@code GET /internal/media/{mediaId}/status?ownerUserId=...}), used at
+ * spot-creation time to ensure the referenced media is owned by the spot creator and
+ * has passed media-service's safety checks (notably the malware scan) before a spot
+ * may reference it. Kept separate from {@link MediaServiceClient} so each
+ * cross-service capability is an independently mockable bean.
  *
  * <p>Sends the shared {@code X-Gateway-Auth} secret and the bound
  * {@code X-Correlation-Id}. Fail-closed: a non-{@code READY} status or a 404 maps to
@@ -55,11 +56,14 @@ public class MediaReadinessClient implements MediaReadinessPort {
     }
 
     @Override
-    public void ensureMediaReady(UUID mediaId) {
+    public void ensureMediaReady(UUID mediaId, UUID ownerUserId) {
         MediaStatusResponse response;
         try {
             response = restClient.get()
-                    .uri("/internal/media/{mediaId}/status", mediaId)
+                    .uri(uriBuilder -> uriBuilder
+                            .path("/internal/media/{mediaId}/status")
+                            .queryParam("ownerUserId", ownerUserId)
+                            .build(mediaId))
                     .headers(headers -> {
                         String traceId = MDC.get(CorrelationIdFilter.MDC_KEY);
                         if (traceId != null && !traceId.isBlank()) {
@@ -70,7 +74,7 @@ public class MediaReadinessClient implements MediaReadinessPort {
                     .body(MediaStatusResponse.class);
         } catch (RestClientResponseException ex) {
             if (ex.getStatusCode().value() == HttpStatus.NOT_FOUND.value()) {
-                // Media missing/deleted — a spot may not reference it.
+                // Media missing/deleted/not owned by this user — a spot may not reference it.
                 throw notReady();
             }
             log.warn("media-service status call failed with status {}", ex.getStatusCode().value());
@@ -95,6 +99,6 @@ public class MediaReadinessClient implements MediaReadinessPort {
     }
 
     /** Local copy of media-service's internal status contract — never shared across services. */
-    record MediaStatusResponse(UUID mediaId, String status) {
+    record MediaStatusResponse(UUID mediaId, String status, UUID ownerUserId) {
     }
 }

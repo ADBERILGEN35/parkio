@@ -52,6 +52,9 @@ class Rs256JwtAndJwksTest {
                 Set.of(new Role(UUID.randomUUID(), RoleName.USER)),
                 Instant.parse("2026-06-09T00:00:00Z"),
                 null);
+        // Advance the session epoch so the claim assertion below is meaningful (not 0).
+        user.bumpSessionEpoch();
+        user.bumpSessionEpoch();
 
         String token = jwtService.issue(user).token();
         JsonNode header = decodeSegment(token, 0);
@@ -85,6 +88,7 @@ class Rs256JwtAndJwksTest {
         assertThat(claims.get("email", String.class)).isEqualTo(user.email());
         assertThat(claims.get("roles")).isEqualTo(java.util.List.of("USER"));
         assertThat(claims.get("status", String.class)).isEqualTo("ACTIVE");
+        assertThat(claims.get("session_epoch", Number.class).longValue()).isEqualTo(2L);
         assertThat(claims.getIssuedAt()).isNotNull();
         assertThat(claims.getExpiration()).isNotNull();
         assertThat(claims.getAudience()).containsExactly("parkio-api-test");

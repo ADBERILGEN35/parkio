@@ -26,6 +26,7 @@ public class JwtTokenValidator {
     private static final String CLAIM_EMAIL = "email";
     private static final String CLAIM_ROLES = "roles";
     private static final String CLAIM_STATUS = "status";
+    private static final String CLAIM_SESSION_EPOCH = "session_epoch";
 
     private final String issuer;
     private final String audience;
@@ -78,7 +79,12 @@ public class JwtTokenValidator {
         String email = claims.get(CLAIM_EMAIL, String.class);
         List<String> roles = claims.get(CLAIM_ROLES, List.class);
         String status = claims.get(CLAIM_STATUS, String.class);
-        return new AuthenticatedUser(userId, email, roles == null ? List.of() : List.copyOf(roles), status);
+        // Read as a Number (JJWT may deserialize an integral claim as Integer or Long) and
+        // normalise to Long; absent → null (legacy token, treated as epoch 0 downstream).
+        Object epochClaim = claims.get(CLAIM_SESSION_EPOCH);
+        Long sessionEpoch = epochClaim instanceof Number number ? number.longValue() : null;
+        return new AuthenticatedUser(
+                userId, email, roles == null ? List.of() : List.copyOf(roles), status, sessionEpoch);
     }
 
     private String requiredKeyId(String token) {

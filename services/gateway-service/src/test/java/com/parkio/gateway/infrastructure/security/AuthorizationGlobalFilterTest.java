@@ -19,7 +19,7 @@ import reactor.core.publisher.Mono;
 
 /**
  * Edge role-gating: privileged routes require MODERATOR/ADMIN; user-facing moderation
- * endpoints and read-only lookups admit any authenticated user. The filter reads the
+ * endpoints admit any authenticated user. The filter reads the
  * trusted {@code X-User-Roles} header injected by {@link AuthenticationGlobalFilter}.
  */
 class AuthorizationGlobalFilterTest {
@@ -41,9 +41,20 @@ class AuthorizationGlobalFilterTest {
     }
 
     @Test
-    void moderatorCanAccessAnalytics() {
+    void moderatorCannotAccessPlatformAnalytics() {
         CapturingChain chain = new CapturingChain();
         ServerWebExchange exchange = exchange(HttpMethod.GET, "/api/v1/analytics/overview", "USER,MODERATOR");
+
+        filter.filter(exchange, chain).block();
+
+        assertThat(chain.wasInvoked()).isFalse();
+        assertThat(exchange.getResponse().getStatusCode()).isEqualTo(HttpStatus.FORBIDDEN);
+    }
+
+    @Test
+    void adminCanAccessPlatformAnalytics() {
+        CapturingChain chain = new CapturingChain();
+        ServerWebExchange exchange = exchange(HttpMethod.GET, "/api/v1/analytics/daily", "ADMIN");
 
         filter.filter(exchange, chain).block();
 
@@ -51,9 +62,9 @@ class AuthorizationGlobalFilterTest {
     }
 
     @Test
-    void adminCanAccessAnalytics() {
+    void userCanReadTheirOwnAnalytics() {
         CapturingChain chain = new CapturingChain();
-        ServerWebExchange exchange = exchange(HttpMethod.GET, "/api/v1/analytics/daily", "ADMIN");
+        ServerWebExchange exchange = exchange(HttpMethod.GET, "/api/v1/analytics/users/abc", "USER");
 
         filter.filter(exchange, chain).block();
 
@@ -82,9 +93,20 @@ class AuthorizationGlobalFilterTest {
     }
 
     @Test
-    void readOnlyAiValidationLookupIsOpenToAuthenticatedUser() {
+    void normalUserCannotReadAiValidationLookup() {
         CapturingChain chain = new CapturingChain();
         ServerWebExchange exchange = exchange(HttpMethod.GET, "/api/v1/ai-validations/media/abc", "USER");
+
+        filter.filter(exchange, chain).block();
+
+        assertThat(chain.wasInvoked()).isFalse();
+        assertThat(exchange.getResponse().getStatusCode()).isEqualTo(HttpStatus.FORBIDDEN);
+    }
+
+    @Test
+    void moderatorCanReadAiValidationLookup() {
+        CapturingChain chain = new CapturingChain();
+        ServerWebExchange exchange = exchange(HttpMethod.GET, "/api/v1/ai-validations/media/abc", "MODERATOR");
 
         filter.filter(exchange, chain).block();
 

@@ -1,8 +1,17 @@
-import { Button, Card, Icon, SoftBadge } from '@parkio/ui';
+import { zodResolver } from '@hookform/resolvers/zod';
+import {
+  changePasswordSchema,
+  passwordRequirementState,
+  passwordRequirements,
+  type ChangePasswordFormValues,
+} from '@parkio/validation';
+import { Button, Card, Icon, Input, SoftBadge } from '@parkio/ui';
 import { useQuery } from '@tanstack/react-query';
 import { useState } from 'react';
+import { useForm } from 'react-hook-form';
 import { useNavigate } from 'react-router-dom';
-import { usersApi } from '@/api';
+import { authApi, usersApi } from '@/api';
+import { describeAuthError } from '@/api/error-messages';
 import { performLogout } from '@/auth/logout';
 import { useAuthStore } from '@/auth/store';
 import { humanizeEnum } from '@/lib/format';
@@ -19,10 +28,26 @@ export function AccountCard() {
   const user = useAuthStore((s) => s.user);
   const roles = useAuthStore((s) => s.roles);
   const status = useAuthStore((s) => s.status);
+  const clearSession = useAuthStore((s) => s.clearSession);
   const [signingOut, setSigningOut] = useState(false);
+  const [loggingOutAll, setLoggingOutAll] = useState(false);
+  const [passwordMessage, setPasswordMessage] = useState<string | null>(null);
+  const [passwordError, setPasswordError] = useState<string | null>(null);
 
   // Best-effort enrichment only — already cached by ImpactHero, never blocks sign-out.
   const profile = useQuery({ queryKey: ['me', 'profile'], queryFn: usersApi.getMyProfile });
+  const {
+    register,
+    handleSubmit,
+    reset,
+    watch,
+    formState: { errors, isSubmitting },
+  } = useForm<ChangePasswordFormValues>({
+    resolver: zodResolver(changePasswordSchema),
+    defaultValues: { currentPassword: '', password: '', confirmPassword: '' },
+  });
+  const passwordValue = watch('password') ?? '';
+  const passwordState = passwordRequirementState(passwordValue);
 
   const onSignOut = async () => {
     setSigningOut(true);
@@ -33,6 +58,40 @@ export function AccountCard() {
       setSigningOut(false);
     }
   };
+
+  const onLogoutAll = async () => {
+    if (!window.confirm('Log out of all devices? You will need to sign in again.')) {
+      return;
+    }
+    setLoggingOutAll(true);
+    try {
+      await authApi.logoutAll();
+    } catch {
+      // The local session is still cleared so this browser cannot keep using a stale token.
+    } finally {
+      clearSession();
+      setLoggingOutAll(false);
+      navigate('/login', { replace: true });
+    }
+  };
+
+  const onChangePassword = handleSubmit(async (values) => {
+    setPasswordError(null);
+    setPasswordMessage(null);
+    try {
+      await authApi.changePassword({
+        currentPassword: values.currentPassword,
+        newPassword: values.password,
+      });
+      reset();
+      setPasswordMessage('Password changed. Please sign in again.');
+      clearSession();
+      navigate('/login', { replace: true });
+    } catch (error) {
+      const friendly = describeAuthError(error, 'Password change failed. Please try again.');
+      setPasswordError(friendly.message);
+    }
+  });
 
   return (
     <Card title="Account">
@@ -75,10 +134,64 @@ export function AccountCard() {
       </dl>
 
       <div className="mt-lg border-t border-outline-variant/30 pt-md">
-        <Button type="button" variant="outline" onClick={onSignOut} disabled={signingOut}>
-          <Icon name="logout" className="text-[16px] leading-none" />
-          {signingOut ? 'Signing out…' : 'Sign out'}
-        </Button>
+        <form onSubmit={onChangePassword} className="mb-lg flex flex-col gap-sm">
+          <h3 className="m-0 text-title-md text-on-surface">Change password</h3>
+          <Input
+            label="Current password"
+            type="password"
+            autoComplete="current-password"
+            error={errors.currentPassword?.message}
+            {...register('currentPassword')}
+          />
+          <Input
+            label="New password"
+            type="password"
+            autoComplete="new-password"
+            error={errors.password?.message}
+            {...register('password')}
+          />
+          <ul className="m-0 grid list-none gap-1 p-0 text-label-sm text-on-surface-variant">
+            {passwordRequirements.map((requirement) => {
+              const met = passwordState[requirement.id];
+              return (
+                <li key={requirement.id} className={met ? 'text-success' : 'text-on-surface-variant'}>
+                  {met ? 'Met:' : 'Needed:'} {requirement.label}
+                </li>
+              );
+            })}
+          </ul>
+          <Input
+            label="Confirm new password"
+            type="password"
+            autoComplete="new-password"
+            error={errors.confirmPassword?.message}
+            {...register('confirmPassword')}
+          />
+          {passwordError ? <p className="m-0 text-label-sm text-error">{passwordError}</p> : null}
+          {passwordMessage ? <p className="m-0 text-label-sm text-success">{passwordMessage}</p> : null}
+          <div>
+            <Button type="submit" disabled={isSubmitting}>
+              <Icon name="lock_reset" className="text-[16px] leading-none" />
+              {isSubmitting ? 'Changing…' : 'Change password'}
+            </Button>
+          </div>
+        </form>
+
+        <div className="flex flex-wrap gap-sm">
+          <Button type="button" variant="outline" onClick={onSignOut} disabled={signingOut || loggingOutAll}>
+            <Icon name="logout" className="text-[16px] leading-none" />
+            {signingOut ? 'Signing out…' : 'Sign out'}
+          </Button>
+          <Button
+            type="button"
+            variant="destructive-soft"
+            onClick={onLogoutAll}
+            disabled={signingOut || loggingOutAll}
+          >
+            <Icon name="power_settings_new" className="text-[16px] leading-none" />
+            {loggingOutAll ? 'Logging out…' : 'Log out of all devices'}
+          </Button>
+        </div>
       </div>
     </Card>
   );

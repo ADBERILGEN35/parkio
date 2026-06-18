@@ -27,7 +27,7 @@ The codebase is unusually deployment-aware for its stage:
   and **replication factor externalized** (`parkio.kafka.replication-factor`, default 1).
 - **Edge security**: gateway-only ingress, Redis-backed per-tier **rate limiting**, **CORS allow-list**
   (empty default = deny), **RS256 + JWKS** validation, live **account-status** check (fail-closed 503),
-  `X-Gateway-Auth` internal secret backstop.
+  **session-epoch access-token revocation** (fail-closed 503), `X-Gateway-Auth` internal secret backstop.
 - **Actuator locked down** to `health,info,prometheus` only; Prometheus + Grafana provisioned;
   documented metric catalogue (`observability-metrics.md`).
 
@@ -180,6 +180,10 @@ endpoint/public-endpoint for SigV4-signed GET URLs.
   **presigned GET URLs**. Critical: SigV4 signs the `Host` header, so `PARKIO_MEDIA_STORAGE_PUBLIC_ENDPOINT`
   **must be the exact host the browser uses** (e.g. `https://media.parkio.app` or the R2/S3 public host).
   Get this wrong → broken images (this is already called out in the runbook/`.env.example`).
+  Spot photo access must remain parking-mediated: owners and staff may see their
+  own/hidden spots, but unrelated users receive signed URLs only for currently
+  public spots. Hidden/expired/rejected resources should return not-found semantics
+  rather than revealing existence.
 - **CORS** on the bucket: allow only the production web origin(s) for `GET` (and the upload method/path
   the client uses), not `*`.
 - **Lifecycle cleanup.** Add a lifecycle rule to expire orphaned/temp uploads and abort incomplete
@@ -195,6 +199,20 @@ endpoint/public-endpoint for SigV4-signed GET URLs.
   **Known limitation:** this is malware scanning, **not** illegal/abusive-content (CSAM) detection —
   for public production add a **managed AV / content-safety provider** and/or human moderation. EXIF
   stripping / re-encoding is future hardening.
+- **AI validation findings.** Treat advisory validation output as moderation data:
+  read endpoints are `MODERATOR`/`ADMIN` only. Do not expose another user's media or
+  parking validation findings to arbitrary authenticated users.
+- **RBAC — separation of duties (`MODERATOR` ≠ `ADMIN`).** Moderators handle *content*
+  (review spots/media, read AI findings, work the case queue, resolve cases with
+  content outcomes). Account-level and destructive actions are **`ADMIN`-only**:
+  suspend/restore accounts, trust/point overrides (`SUSPEND_USER`/`RESTORE_USER`/
+  `REDUCE_TRUST`/`DEDUCT_POINTS` on `resolveCase`), appeal resolution, platform
+  analytics, and role management. Enforced fail-closed at three layers (edge gateway →
+  controller → application service). Account effects have **no HTTP admin surface** —
+  they flow from moderation `resolveCase` actions over Kafka, so the action-level ADMIN
+  gate in moderation-service is the single chokepoint. Full matrix and boundaries:
+  `docs/ai-context/07-security-guidelines.md`. **Caveat:** role assignment is currently
+  DB-seeded (no admin role-management API yet); build it `ADMIN`-only when needed.
 
 ---
 
@@ -261,6 +279,32 @@ access token in memory. Login/refresh JSON responses no longer expose the raw
 refresh token; registration for pending email verification does not issue a
 session. Refresh/logout additionally validate `Origin`/`Referer` against the
 trusted frontend origin allow-list before using the ambient cookie.
+
+Refresh-token families are bounded by **two** limits: a *sliding* per-token TTL
+(`refresh-token-ttl`, default 30 days, reset on each rotation) and an *absolute*
+session lifetime cap (`refresh-absolute-ttl`, default 90 days) anchored at
+`family_started_at` and preserved across rotations. Once a family passes the absolute
+cap, refresh is rejected with the generic `INVALID_REFRESH_TOKEN` and the family is
+revoked (`EXPIRED_CLEANUP`) — so an active session cannot be rotated indefinitely and
+every login is forced to re-authenticate after the maximum session age. **Operational
+impact:** users are signed out and must log in again at most `refresh-absolute-ttl`
+after they first logged in, regardless of activity; tune the env var
+`PARKIO_JWT_REFRESH_ABSOLUTE_TTL` per environment (must be ≥ the sliding TTL).
+
+Stateless access tokens (RS256 JWTs, 15-minute TTL) are revoked early via a per-user
+**session epoch**. Every access token carries a `session_epoch` claim; after JWT
+validation the gateway compares it against the user's current epoch (read from an
+internal auth-service endpoint, cached ~30 s) and rejects a stale token with `401`
+(`TOKEN_REVOKED`), **failing closed** with `503` (`SESSION_EPOCH_UNAVAILABLE`) if the
+epoch can't be confirmed — consistent with the live account-status check. auth-service
+bumps the epoch on refresh-token reuse detection, `logout-all`
+(`POST /api/v1/auth/logout-all`), suspension, password reset and change-password. **Operational
+impact:** the **access-token revocation window** drops from the 15-minute token TTL to the
+epoch cache TTL (`PARKIO_SESSION_EPOCH_CACHE_TTL`, default `PT30S`); the gateway makes one
+extra cached internal call to auth-service per protected request, and if auth-service is
+unreachable protected requests fail closed (`503`) until it recovers. A missing claim
+(token issued before the feature shipped) is treated as epoch 0, so no users are forced
+out on deploy.
 
 ## Auth brute-force and password hardening
 

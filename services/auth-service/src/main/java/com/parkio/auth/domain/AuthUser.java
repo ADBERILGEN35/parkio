@@ -28,6 +28,7 @@ public final class AuthUser {
     private String emailVerificationTokenHash;
     private Instant emailVerificationExpiresAt;
     private Instant emailVerificationSentAt;
+    private long sessionEpoch;
     private final Set<Role> roles;
     private final Instant createdAt;
     private final Long version;
@@ -42,6 +43,7 @@ public final class AuthUser {
                     String emailVerificationTokenHash,
                     Instant emailVerificationExpiresAt,
                     Instant emailVerificationSentAt,
+                    long sessionEpoch,
                     Set<Role> roles,
                     Instant createdAt,
                     Long version) {
@@ -55,6 +57,7 @@ public final class AuthUser {
         this.emailVerificationTokenHash = emailVerificationTokenHash;
         this.emailVerificationExpiresAt = emailVerificationExpiresAt;
         this.emailVerificationSentAt = emailVerificationSentAt;
+        this.sessionEpoch = sessionEpoch;
         this.roles = new LinkedHashSet<>(Objects.requireNonNull(roles, "roles"));
         this.createdAt = Objects.requireNonNull(createdAt, "createdAt");
         this.version = version;
@@ -79,6 +82,7 @@ public final class AuthUser {
                 null,
                 null,
                 null,
+                0L,
                 roles,
                 createdAt,
                 version);
@@ -106,6 +110,7 @@ public final class AuthUser {
                 Objects.requireNonNull(emailVerificationTokenHash, "emailVerificationTokenHash"),
                 Objects.requireNonNull(emailVerificationExpiresAt, "emailVerificationExpiresAt"),
                 Objects.requireNonNull(emailVerificationSentAt, "emailVerificationSentAt"),
+                0L,
                 initialRoles,
                 now,
                 null);
@@ -147,6 +152,10 @@ public final class AuthUser {
         return emailVerificationExpiresAt == null || !emailVerificationExpiresAt.isAfter(now);
     }
 
+    public void changePassword(String passwordHash) {
+        this.passwordHash = Objects.requireNonNull(passwordHash, "passwordHash");
+    }
+
     /**
      * Suspends the account (moderation-driven). Returns {@code false} when the event
      * is stale — older than the last applied status event — and was ignored.
@@ -176,6 +185,19 @@ public final class AuthUser {
         this.status = target;
         this.statusChangedAt = occurredAt;
         return true;
+    }
+
+    /**
+     * Advances the session epoch (token version), invalidating every access token the
+     * user currently holds. Each issued access token carries the epoch as a claim; the
+     * gateway rejects any token whose epoch is below the user's current value. Bump on
+     * security-sensitive session invalidation — refresh-token reuse detection,
+     * logout-all, suspension, and (future) password reset — so a stolen or
+     * just-logged-out access token stops working within the gateway's short cache TTL
+     * instead of lingering until its 15-minute expiry. Returns the new epoch.
+     */
+    public long bumpSessionEpoch() {
+        return ++this.sessionEpoch;
     }
 
     public static String normalizeEmail(String email) {
@@ -222,6 +244,11 @@ public final class AuthUser {
     /** When the last applied moderation status event occurred; null if none yet. */
     public Instant statusChangedAt() {
         return statusChangedAt;
+    }
+
+    /** Current session epoch (token version); carried as a claim in issued access tokens. */
+    public long sessionEpoch() {
+        return sessionEpoch;
     }
 
     public Set<Role> roles() {

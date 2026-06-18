@@ -134,6 +134,20 @@ old row is revoked and a brand-new token is issued, atomically in one
 transaction. The replacement keeps the same `token_family_id` and points to its
 predecessor through `parent_token_id`.
 
+**Two expiry limits bound a session.** Each token carries a *sliding* per-token TTL
+(`parkio.security.jwt.refresh-token-ttl`, default **30 days**) — every rotation issues
+a fresh token valid that long from issue. On top of that, each family records when it
+started (`refresh_tokens.family_started_at`, preserved unchanged across rotations) and
+is subject to an *absolute* session lifetime cap
+(`parkio.security.jwt.refresh-absolute-ttl`, default **90 days**). Refresh is allowed
+only while `now <= family_started_at + refresh-absolute-ttl`. Past the cap, even a
+still-valid current token is rejected: the family's active tokens are revoked with
+reason `EXPIRED_CLEANUP` and the client receives the **same generic
+`401 INVALID_REFRESH_TOKEN`** as a sliding-expired token — a client cannot tell which
+limit it hit. This stops a single login from being silently rotated forever and forces
+a fresh authentication after the maximum session age. Absolute expiry is a *natural*
+expiry and never triggers reuse detection.
+
 Presenting an unexpired token that was already revoked is treated as refresh-token
 reuse. auth-service marks the replayed token, revokes every active token in that
 family with reason `REUSE_DETECTED`, and writes a security warning containing only
@@ -144,7 +158,83 @@ family revocation.
 
 Optimistic locking prevents two concurrent refreshes of the same token from
 creating two valid children. `logout` remains idempotent and revokes only the
-presented token with reason `LOGOUT`; there is no logout-all behavior.
+presented token with reason `LOGOUT` (per-device); `logout-all` (below) revokes
+every family and immediately invalidates outstanding access tokens.
+
+## Session epoch (access-token revocation)
+
+Access tokens are stateless RS256 JWTs valid until they expire (15 min by default), so
+without help a logout, logout-all, reuse detection or suspension would leave an
+already-issued access token usable for up to that window. Each `auth_users` row carries a
+`session_epoch` (a token version, default `0`), and every issued access token includes it
+as a `session_epoch` claim. The gateway compares the token's epoch against the user's
+current epoch and rejects a token whose epoch is stale, cutting the revocation lag from
+the 15-minute token TTL down to the gateway's short cache TTL (default 30 s).
+
+The epoch is **bumped** (incremented, same write/transaction as the related state change)
+on security-sensitive session invalidation:
+
+- **refresh-token reuse detection** — a compromised family also invalidates its
+  outstanding access tokens (in addition to revoking the refresh family);
+- **`logout-all`** — see below;
+- **suspension** (`UserSuspended`) — alongside revoking every refresh family;
+- **password reset/change** — every credential rotation revokes all refresh
+  families and invalidates outstanding access tokens.
+
+Single-device `logout` deliberately does **not** bump the epoch: revoking one device must
+not log the user out of their other devices. The bump is monotonic and never reset, so a
+restore after suspension does not resurrect old access tokens.
+
+`POST /api/v1/auth/logout-all` (authenticated; identified by the access token, not the
+refresh cookie) revokes every active refresh-token family for the caller with reason
+`LOGOUT`, bumps the session epoch, and clears both refresh cookie paths. It is idempotent.
+
+The gateway reads the current epoch from an **internal** endpoint,
+`GET /internal/auth/users/{userId}/session-epoch`, which returns only
+`{ userId, sessionEpoch }`. Like other `/internal/**` routes it is never routed publicly
+and is guarded by the `X-Gateway-Auth` shared secret (Spring Security permits
+`/internal/**` precisely because that filter already authenticates it). See the
+gateway-service README for the edge enforcement and fail-closed behavior.
+
+## Account recovery and credential rotation
+
+`POST /api/v1/auth/forgot-password` accepts an email address and always returns
+`202 Accepted`. Unknown users, pending-verification users, inactive users and
+cooldown-limited requests are indistinguishable to the caller. For verified active
+accounts outside the cooldown window, auth-service consumes any previous active
+reset tokens for that user, generates a new secure random token, stores only its
+one-way hash in `password_reset_tokens`, and sends the raw token through the
+password reset email sender. Reset tokens expire after
+`parkio.security.password-reset.token-ttl` (30 minutes by default). Request
+cooldown is Redis-backed through `parkio.security.password-reset.request-cooldown`
+(5 minutes by default), keyed by normalized email.
+
+`POST /api/v1/auth/reset-password` accepts the raw reset token and a new password.
+The token is hashed before lookup, must be unexpired and unused, and is marked
+consumed in the same credential-rotation flow. The existing `PasswordPolicy` is
+enforced, so reset cannot weaken registration rules. On success, auth-service
+updates the password hash, revokes every active refresh-token family with reason
+`PASSWORD_CHANGED`, bumps `session_epoch`, and clears refresh-cookie paths. Old
+access tokens are rejected by the gateway once its epoch cache refreshes. Reusing
+or presenting an expired reset token returns the generic `INVALID_RESET_TOKEN`;
+the raw token and hash are not included in responses or production logs.
+
+`POST /api/v1/auth/change-password` is authenticated. It verifies the current
+password, applies the same password policy to the new password, then performs the
+same session invalidation as reset-password: all refresh families are revoked,
+`session_epoch` is bumped, and refresh cookies are cleared. The current browser
+must sign in again after a successful change; this intentionally avoids leaving a
+possibly compromised current session alive.
+
+Pending-verification accounts do not receive reset emails and cannot complete
+password reset. They must finish email verification first or request a new
+verification link.
+
+The default password reset sender mirrors email verification: it logs only an
+email hash unless `parkio.security.password-reset.log-token=true` is explicitly
+enabled for local/dev/test. Hosted beta and production must keep token logging
+disabled and provide a real email provider before enabling self-service recovery
+for external users.
 
 ## Email verification lifecycle
 
@@ -231,6 +321,7 @@ prevents suspended users from obtaining new tokens at all.
 Known, intentionally-deferred gaps — documented so they are not mistaken for
 finished work. None is implemented yet.
 
-- **Global "log out everywhere".** Only single-token logout exists today; the bulk
-  "revoke all tokens for user" operation exists internally (used by moderation
-  suspension) but is not exposed as a user-facing endpoint.
+- ~~**Global "log out everywhere".**~~ **Done.** `POST /api/v1/auth/logout-all` revokes
+  every active refresh-token family for the caller and bumps the session epoch, so
+  outstanding access tokens are also invalidated at the gateway (see _Session epoch_
+  above). Single-device `logout` remains per-device by design.

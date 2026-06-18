@@ -51,16 +51,19 @@ Counts accumulate as `event_count`; `POINTS_EARNED` also accumulates points into
 
 ## API
 
-Aggregate endpoints are not user-specific; the personal endpoint reads the
-gateway-injected `X-User-Id` and only lets a user view their own analytics.
+Platform (aggregate) endpoints are **`ADMIN`-only** reporting (separation of duties —
+moderators have no access): they require `ADMIN` in the gateway-injected `X-User-Roles`
+header, enforced both at the gateway and re-checked in the controller (defense in depth,
+fail closed → `403`). The personal endpoint reads the gateway-injected `X-User-Id` and
+only lets a user view their own analytics.
 
-| Method & path | Purpose |
-|---------------|---------|
-| `GET /api/v1/analytics/overview` | Lifetime KPI totals |
-| `GET /api/v1/analytics/daily` | Daily time series (per metric) |
-| `GET /api/v1/analytics/users/{userId}` | A user's own metrics (`X-User-Id` must match; else `403`) |
-| `GET /api/v1/analytics/parking` | Parking funnel totals |
-| `GET /api/v1/analytics/metrics` | All metric totals |
+| Method & path | Access | Purpose |
+|---------------|--------|---------|
+| `GET /api/v1/analytics/overview` | `ADMIN` | Lifetime KPI totals |
+| `GET /api/v1/analytics/daily` | `ADMIN` | Daily time series (per metric) |
+| `GET /api/v1/analytics/users/{userId}` | owner | A user's own metrics (`X-User-Id` must match; else `403`) |
+| `GET /api/v1/analytics/parking` | `ADMIN` | Parking funnel totals |
+| `GET /api/v1/analytics/metrics` | `ADMIN` | All metric totals |
 
 `overview` reports `totalParkingCreated`, `totalParkingVerified`,
 `totalParkingClaimed`, `totalParkingRejected`, `totalPointsEarned`,

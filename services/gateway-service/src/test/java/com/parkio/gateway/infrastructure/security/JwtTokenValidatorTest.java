@@ -45,6 +45,7 @@ class JwtTokenValidatorTest {
                 .claim("email", "rider@parkio.test")
                 .claim("roles", List.of("USER", "ADMIN"))
                 .claim("status", "ACTIVE")
+                .claim("session_epoch", 7)
                 .compact();
 
         AuthenticatedUser user = validator.validate(token).block();
@@ -53,6 +54,20 @@ class JwtTokenValidatorTest {
         assertThat(user.email()).isEqualTo("rider@parkio.test");
         assertThat(user.roles()).containsExactly("USER", "ADMIN");
         assertThat(user.status()).isEqualTo("ACTIVE");
+        assertThat(user.sessionEpoch()).isEqualTo(7L);
+    }
+
+    @Test
+    void treatsMissingSessionEpochClaimAsNull() {
+        JwtTokenValidator validator = validator(keyResolver(KEY_ID, signingKeys));
+        String token = tokenBuilder(KEY_ID, ISSUER, signingKeys)
+                .subject(UUID.randomUUID().toString())
+                .compact();
+
+        AuthenticatedUser user = validator.validate(token).block();
+
+        // Legacy token (issued before epochs existed): null → edge treats it as epoch 0.
+        assertThat(user.sessionEpoch()).isNull();
     }
 
     @Test

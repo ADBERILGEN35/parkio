@@ -40,8 +40,11 @@ import org.springframework.web.bind.annotation.RestController;
  * response DTOs — JPA entities never cross this boundary.
  *
  * <p>Identity comes from the gateway-injected {@code X-User-Id} header; requests
- * without a valid id fail closed. Moderator/admin endpoints additionally require a
- * {@code MODERATOR} or {@code ADMIN} role in the {@code X-User-Roles} header.
+ * without a valid id fail closed. Moderator endpoints require a {@code MODERATOR} or
+ * {@code ADMIN} role in the {@code X-User-Roles} header. Account-level actions —
+ * resolving a case with a sanction/override ({@link ModerationAction#requiresAdmin()})
+ * and resolving appeals — additionally require {@code ADMIN}, enforcing separation of
+ * duties (ai-context/07). The application service re-checks these (defense in depth).
  */
 @Tag(name = "Moderation", description = "Reports, appeals and moderator case management")
 @StandardApiResponses
@@ -52,6 +55,7 @@ public class ModerationController {
     private static final String USER_ID_HEADER = "X-User-Id";
     private static final String ROLES_HEADER = "X-User-Roles";
     private static final Set<String> MODERATOR_ROLES = Set.of("MODERATOR", "ADMIN");
+    private static final String ADMIN_ROLE = "ADMIN";
 
     private final ModerationApplicationService moderationService;
 
@@ -144,8 +148,14 @@ public class ModerationController {
             @PathVariable("caseId") UUID caseId,
             @Valid @RequestBody ResolveCaseRequest request) {
         UUID moderatorId = requireModerator(userId, roles);
+        boolean isAdmin = hasAdminRole(roles);
+        // Account sanctions and trust/score overrides are ADMIN-only (separation of duties).
+        if (request.action().requiresAdmin() && !isAdmin) {
+            throw new ModerationException(ModerationErrorCode.FORBIDDEN,
+                    "Admin role required to suspend, restore, or apply trust/score penalties.");
+        }
         return CaseResponse.from(moderationService.resolveCase(
-                new ResolveCaseCommand(caseId, moderatorId, request.action(), request.note())));
+                new ResolveCaseCommand(caseId, moderatorId, request.action(), request.note(), isAdmin)));
     }
 
     @Operation(summary = "List appeals (moderator)")
@@ -160,7 +170,7 @@ public class ModerationController {
                 .toList();
     }
 
-    @Operation(summary = "Resolve appeal (moderator)")
+    @Operation(summary = "Resolve appeal (admin)")
     @SecurityRequirement(name = "bearerAuth")
     @PostMapping("/appeals/{appealId}/resolve")
     public AppealResponse resolveAppeal(
@@ -168,9 +178,11 @@ public class ModerationController {
             @RequestHeader(value = ROLES_HEADER, required = false) String roles,
             @PathVariable("appealId") UUID appealId,
             @Valid @RequestBody ResolveAppealRequest request) {
-        UUID moderatorId = requireModerator(userId, roles);
+        // Resolving an appeal reverses a moderation sanction (can restore a suspended
+        // account), so it is reserved to ADMIN — moderators may review the queue only.
+        UUID adminId = requireAdmin(userId, roles);
         return AppealResponse.from(
-                moderationService.resolveAppeal(appealId, moderatorId, request.accepted(), request.note()));
+                moderationService.resolveAppeal(appealId, adminId, request.accepted(), request.note(), true));
     }
 
     // --- Auth helpers ---
@@ -200,14 +212,33 @@ public class ModerationController {
     }
 
     private static boolean hasModeratorRole(String rolesHeader) {
-        if (rolesHeader == null || rolesHeader.isBlank()) {
-            return false;
+        return parseRoles(rolesHeader).stream().anyMatch(MODERATOR_ROLES::contains);
+    }
+
+    /**
+     * Requires a valid user id <em>and</em> the ADMIN role. Returns the admin's user id
+     * so callers can attribute the action.
+     */
+    private static UUID requireAdmin(String userIdHeader, String rolesHeader) {
+        UUID userId = requireUserId(userIdHeader);
+        if (!hasAdminRole(rolesHeader)) {
+            throw new ModerationException(ModerationErrorCode.FORBIDDEN, "Admin role required.");
         }
-        Set<String> roles = Arrays.stream(rolesHeader.split(","))
+        return userId;
+    }
+
+    private static boolean hasAdminRole(String rolesHeader) {
+        return parseRoles(rolesHeader).contains(ADMIN_ROLE);
+    }
+
+    private static Set<String> parseRoles(String rolesHeader) {
+        if (rolesHeader == null || rolesHeader.isBlank()) {
+            return Set.of();
+        }
+        return Arrays.stream(rolesHeader.split(","))
                 .map(String::trim)
                 .filter(s -> !s.isEmpty())
                 .map(s -> s.toUpperCase(java.util.Locale.ROOT))
                 .collect(Collectors.toSet());
-        return roles.stream().anyMatch(MODERATOR_ROLES::contains);
     }
 }

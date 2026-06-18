@@ -32,6 +32,9 @@ public class RefreshTokenEntity {
     @Column(name = "token_family_id", nullable = false, updatable = false)
     private UUID tokenFamilyId;
 
+    @Column(name = "family_started_at", nullable = false, updatable = false)
+    private Instant familyStartedAt;
+
     @Column(name = "parent_token_id", updatable = false)
     private UUID parentTokenId;
 
@@ -61,6 +64,7 @@ public class RefreshTokenEntity {
                               String tokenHash,
                               Instant expiresAt,
                               UUID tokenFamilyId,
+                              Instant familyStartedAt,
                               UUID parentTokenId,
                               boolean revoked,
                               boolean reusedDetected,
@@ -72,6 +76,7 @@ public class RefreshTokenEntity {
         this.tokenHash = tokenHash;
         this.expiresAt = expiresAt;
         this.tokenFamilyId = tokenFamilyId;
+        this.familyStartedAt = familyStartedAt;
         this.parentTokenId = parentTokenId;
         this.revoked = revoked;
         this.reusedDetected = reusedDetected;
@@ -94,6 +99,10 @@ public class RefreshTokenEntity {
 
     public Instant getExpiresAt() {
         return expiresAt;
+    }
+
+    public Instant getFamilyStartedAt() {
+        return familyStartedAt;
     }
 
     public UUID getTokenFamilyId() {

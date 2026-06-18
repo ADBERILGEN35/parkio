@@ -32,6 +32,14 @@ public final class GatewayHeaders {
     /** Exchange attribute key under which the resolved correlation id is stored. */
     public static final String CORRELATION_ID_ATTRIBUTE = "parkio.correlationId";
 
+    /**
+     * Exchange attribute key under which authentication stores the {@code session_epoch}
+     * claim from the validated access token (a {@link Long}, or absent for legacy tokens).
+     * The session-epoch filter reads it to compare against the user's current epoch. Kept
+     * as an exchange attribute, not a downstream header — only the gateway needs it.
+     */
+    public static final String TOKEN_SESSION_EPOCH_ATTRIBUTE = "parkio.tokenSessionEpoch";
+
     private GatewayHeaders() {
     }
 }

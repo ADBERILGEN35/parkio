@@ -6,6 +6,7 @@ import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.Mockito.reset;
 import static org.mockito.Mockito.when;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.delete;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.multipart;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
@@ -29,10 +30,11 @@ import org.springframework.test.web.servlet.MvcResult;
 
 /**
  * HTTP-contract tests for the service-to-service access-URL endpoint
- * ({@code POST /internal/media/{mediaId}/access-url}). The endpoint requires the
- * shared {@code X-Gateway-Auth} secret but performs no ownership check — the
- * calling service (parking-service) has already authorized the requester. The
- * gateway routes only {@code /api/v1/**}, so this path is never publicly reachable.
+ * ({@code POST /internal/media/{mediaId}/access-url}) and internal status endpoint.
+ * Both require the shared {@code X-Gateway-Auth} secret. The status endpoint can
+ * enforce owner binding before parking-service attaches media to a spot; the
+ * access-url endpoint remains visibility-authorized by parking-service because
+ * public spot viewers are intentionally not the media owner.
  */
 @SpringBootTest
 @AutoConfigureMockMvc
@@ -129,6 +131,48 @@ class InternalMediaAccessTest {
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.mediaId").value(mediaId))
                 .andExpect(jsonPath("$.status").value("READY"));
+    }
+
+    @Test
+    void internalStatusWithOwnerAcceptsOwnedMedia() throws Exception {
+        UUID owner = UUID.randomUUID();
+        String mediaId = upload(owner);
+
+        mockMvc.perform(get("/internal/media/" + mediaId + "/status")
+                        .header("X-Gateway-Auth", GATEWAY_SECRET)
+                        .param("ownerUserId", owner.toString()))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.mediaId").value(mediaId))
+                .andExpect(jsonPath("$.status").value("READY"))
+                .andExpect(jsonPath("$.ownerUserId").value(owner.toString()));
+    }
+
+    @Test
+    void internalStatusWithOwnerRejectsOtherUsersMedia() throws Exception {
+        UUID owner = UUID.randomUUID();
+        String mediaId = upload(owner);
+
+        mockMvc.perform(get("/internal/media/" + mediaId + "/status")
+                        .header("X-Gateway-Auth", GATEWAY_SECRET)
+                        .param("ownerUserId", UUID.randomUUID().toString()))
+                .andExpect(status().isNotFound())
+                .andExpect(jsonPath("$.code").value("MEDIA_NOT_FOUND"));
+    }
+
+    @Test
+    void internalStatusWithOwnerRejectsDeletedMedia() throws Exception {
+        UUID owner = UUID.randomUUID();
+        String mediaId = upload(owner);
+        mockMvc.perform(delete("/api/v1/media/" + mediaId)
+                        .header("X-Gateway-Auth", GATEWAY_SECRET)
+                        .header("X-User-Id", owner))
+                .andExpect(status().isNoContent());
+
+        mockMvc.perform(get("/internal/media/" + mediaId + "/status")
+                        .header("X-Gateway-Auth", GATEWAY_SECRET)
+                        .param("ownerUserId", owner.toString()))
+                .andExpect(status().isNotFound())
+                .andExpect(jsonPath("$.code").value("MEDIA_NOT_FOUND"));
     }
 
     @Test

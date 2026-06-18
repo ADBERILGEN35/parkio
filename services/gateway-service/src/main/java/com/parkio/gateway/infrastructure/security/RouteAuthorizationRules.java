@@ -18,16 +18,26 @@ import org.springframework.web.util.pattern.PathPatternParser;
  *
  * <p>Rules are evaluated in order; the <strong>first match wins</strong>. A matched
  * {@code AUTHENTICATED} rule short-circuits to "any authenticated user is allowed"
- * (used to carve out the user-facing moderation endpoints before the broad
- * moderator-only rule). A matched {@code REQUIRE_ROLES} rule demands at least one of
- * the listed roles. When no rule matches, the route is open to any authenticated
- * user (authentication having already been enforced upstream).
+ * (used to carve out the user-facing moderation endpoints and a user's own analytics
+ * before the broader role-gated rules). A matched {@code REQUIRE_ROLES} rule demands
+ * at least one of the listed roles. When no rule matches, the route is open to any
+ * authenticated user (authentication having already been enforced upstream).
+ *
+ * <p>Two privilege tiers (ai-context/07, separation of duties): {@link #PRIVILEGED_ROLES}
+ * ({@code MODERATOR}/{@code ADMIN}) for moderator surfaces (moderation queue, AI
+ * findings), and {@link #ADMIN_ONLY} for platform analytics. Account-level actions
+ * (suspend/restore/trust/score, appeal resolution) cannot be distinguished at the edge
+ * by URL alone, so they are gated ADMIN-only inside moderation-service; the edge keeps
+ * the coarse MODERATOR gate and downstream layers tighten it (defense in depth).
  */
 @Component
 public class RouteAuthorizationRules {
 
-    /** Roles permitted to reach privileged moderation/analytics/manual-AI surfaces. */
+    /** Roles permitted to reach moderator surfaces (moderation queue, AI findings). */
     static final Set<String> PRIVILEGED_ROLES = Set.of("MODERATOR", "ADMIN");
+
+    /** Admin-only surfaces (platform analytics, account-level operations). */
+    static final Set<String> ADMIN_ONLY = Set.of("ADMIN");
 
     private enum Type {
         /** Any authenticated user may pass (no role restriction). */
@@ -54,12 +64,19 @@ public class RouteAuthorizationRules {
                 new Rule(HttpMethod.GET, parser.parse("/api/v1/moderation/reports/me"), Type.AUTHENTICATED, Set.of()),
                 new Rule(HttpMethod.POST, parser.parse("/api/v1/moderation/appeals"), Type.AUTHENTICATED, Set.of()),
                 // Everything else under moderation (cases, appeal resolution, assignment).
+                // Account-level actions (suspend/restore/trust/score, appeal resolution)
+                // are further restricted to ADMIN inside moderation-service (the gateway
+                // cannot inspect the request body), so MODERATOR is allowed through here.
                 new Rule(null, parser.parse("/api/v1/moderation/**"), Type.REQUIRE_ROLES, PRIVILEGED_ROLES),
-                // Analytics is staff-only reporting.
-                new Rule(null, parser.parse("/api/v1/analytics/**"), Type.REQUIRE_ROLES, PRIVILEGED_ROLES),
-                // Manually forcing an AI validation is a moderator/admin action; the
-                // read-only ai-validation lookups fall through (authenticated user only).
-                new Rule(HttpMethod.POST, parser.parse("/api/v1/ai-validations/manual"), Type.REQUIRE_ROLES,
+                // A user may read their own analytics; this carve-out must precede the
+                // admin-only platform-analytics rule (first match wins). Ownership is
+                // enforced in analytics-service.
+                new Rule(HttpMethod.GET, parser.parse("/api/v1/analytics/users/**"), Type.AUTHENTICATED, Set.of()),
+                // Platform analytics is admin-only reporting (separation of duties).
+                new Rule(null, parser.parse("/api/v1/analytics/**"), Type.REQUIRE_ROLES, ADMIN_ONLY),
+                // AI validation findings are advisory/moderation data, so both reads
+                // and manual validation are limited to moderator/admin roles.
+                new Rule(null, parser.parse("/api/v1/ai-validations/**"), Type.REQUIRE_ROLES,
                         PRIVILEGED_ROLES));
     }
 

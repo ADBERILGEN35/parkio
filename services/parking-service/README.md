@@ -88,6 +88,13 @@ privacy-safe view that omits `ownerUserId`, `confidenceScore`, `verificationCoun
 and `filledReportCount`. Owners see those full fields only via
 `GET /my-spots` and `GET /my-spots/{id}`.
 
+Spot detail is visibility-gated server-side. The owner and `MODERATOR`/`ADMIN`
+callers may view any spot. Other authenticated users may view a spot only while it
+is publicly visible: status `ACTIVE` or `VERIFIED`, `expiresAt` in the future, and
+not `ILLEGAL_OR_RISKY`. Hidden, expired, filled, suspicious, rejected or unknown
+spots answer `404 SPOT_NOT_FOUND` so callers cannot distinguish "not found" from
+"not visible".
+
 ## Spot photo access (parking-mediated signed URLs)
 
 media-service protects media as owner/moderator-only, so a normal user cannot ask

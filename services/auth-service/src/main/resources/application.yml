@@ -127,7 +127,13 @@ parkio:
       audience: ${PARKIO_JWT_AUDIENCE:parkio-api}
       # ISO-8601 durations.
       access-token-ttl: ${PARKIO_JWT_ACCESS_TTL:PT15M}
+      # Sliding per-token TTL: each rotated refresh token is valid this long from issue.
       refresh-token-ttl: ${PARKIO_JWT_REFRESH_TTL:P30D}
+      # Absolute session lifetime cap: a refresh-token FAMILY (login session) may be
+      # rotated at most this long after it started, regardless of activity. Past it,
+      # refresh is rejected and the family is revoked, forcing a fresh login. Must be
+      # >= refresh-token-ttl to be meaningful.
+      refresh-absolute-ttl: ${PARKIO_JWT_REFRESH_ABSOLUTE_TTL:P90D}
     refresh-cookie:
       name: ${PARKIO_REFRESH_COOKIE_NAME:parkio_refresh}
       path: /api/v1/auth/refresh-token
@@ -140,6 +146,11 @@ parkio:
       resend-cooldown: ${PARKIO_EMAIL_VERIFICATION_RESEND_COOLDOWN:PT5M}
       url: ${PARKIO_EMAIL_VERIFICATION_URL:http://localhost:5173/verify-email}
       log-token: ${PARKIO_EMAIL_VERIFICATION_LOG_TOKEN:false}
+    password-reset:
+      token-ttl: ${PARKIO_PASSWORD_RESET_TTL:PT30M}
+      request-cooldown: ${PARKIO_PASSWORD_RESET_REQUEST_COOLDOWN:PT5M}
+      url: ${PARKIO_PASSWORD_RESET_URL:http://localhost:5173/reset-password}
+      log-token: ${PARKIO_PASSWORD_RESET_LOG_TOKEN:false}
   kafka:
     # Topic provisioning via NewTopic beans (KafkaTopicsConfig). Replication factor is
     # configurable for production; 1 is the local/dev default (single-broker compose).

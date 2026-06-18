@@ -12,6 +12,7 @@ import org.slf4j.LoggerFactory;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
+import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
@@ -22,10 +23,11 @@ import org.springframework.web.bind.annotation.RestController;
  * and the {@link com.parkio.media.infrastructure.web.GatewayAuthFilter} still
  * requires the shared {@code X-Gateway-Auth} secret on these paths.
  *
- * <p>No ownership check is performed here — the calling service (parking-service)
- * has already authorized the requester against its own rules (spot visibility).
- * The optional request body carries the requester id and purpose for audit logging
- * only; it never influences authorization.
+ * <p>The status endpoint can enforce owner binding for creation-time attachment
+ * checks. The access-url endpoint remains visibility-authorized by the calling
+ * service (parking-service), because public spot viewers are intentionally not the
+ * media owner. Its optional request body carries requester id and purpose for audit
+ * logging only.
  */
 @Hidden
 @RestController
@@ -57,7 +59,14 @@ public class InternalMediaController {
      * {@code 404 MEDIA_NOT_FOUND}.
      */
     @GetMapping("/{mediaId}/status")
-    public InternalMediaStatusResponse getStatus(@PathVariable("mediaId") UUID mediaId) {
+    public InternalMediaStatusResponse getStatus(@PathVariable("mediaId") UUID mediaId,
+                                                 @RequestParam(value = "ownerUserId", required = false)
+                                                 UUID ownerUserId) {
+        if (ownerUserId != null) {
+            return InternalMediaStatusResponse.of(mediaId,
+                    mediaService.getStatusForInternalAttachment(mediaId, ownerUserId),
+                    ownerUserId);
+        }
         return InternalMediaStatusResponse.of(mediaId, mediaService.getStatusForInternalCaller(mediaId));
     }
 }

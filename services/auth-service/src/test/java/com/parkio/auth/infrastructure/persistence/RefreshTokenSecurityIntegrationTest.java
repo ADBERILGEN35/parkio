@@ -231,7 +231,8 @@ class RefreshTokenSecurityIntegrationTest {
         RefreshToken saved = refreshTokens.save(RefreshToken.issueRoot(
                 UUID.randomUUID(),
                 "optimistic-" + UUID.randomUUID(),
-                Instant.parse("2026-07-09T00:00:00Z")));
+                Instant.parse("2026-07-09T00:00:00Z"),
+                Instant.parse("2026-06-09T00:00:00Z")));
         RefreshToken firstReader = refreshTokens.findByTokenHash(saved.tokenHash()).orElseThrow();
         RefreshToken secondReader = refreshTokens.findByTokenHash(saved.tokenHash()).orElseThrow();
         Instant revokedAt = Instant.parse("2026-06-09T00:00:00Z");

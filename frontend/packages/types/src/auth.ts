@@ -31,6 +31,20 @@ export interface ResendVerificationRequest {
   email: string;
 }
 
+export interface ForgotPasswordRequest {
+  email: string;
+}
+
+export interface ResetPasswordRequest {
+  token: string;
+  newPassword: string;
+}
+
+export interface ChangePasswordRequest {
+  currentPassword: string;
+  newPassword: string;
+}
+
 export type RefreshTokenRequest = Record<string, never>;
 
 export type LogoutRequest = Record<string, never>;

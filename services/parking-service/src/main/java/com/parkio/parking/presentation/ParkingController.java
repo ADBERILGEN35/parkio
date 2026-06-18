@@ -1,5 +1,6 @@
 package com.parkio.parking.presentation;
 
+import com.fasterxml.jackson.databind.ObjectMapper;
 import com.parkio.parking.application.ParkingApplicationService;
 import com.parkio.parking.application.command.CreateSpotCommand;
 import com.parkio.parking.application.command.SearchNearbyQuery;
@@ -19,12 +20,15 @@ import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.security.SecurityRequirement;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import jakarta.validation.Valid;
-import com.fasterxml.jackson.databind.ObjectMapper;
 import java.net.URI;
+import java.util.Arrays;
 import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
+import java.util.Set;
 import java.util.UUID;
+import java.util.stream.Collectors;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
@@ -50,6 +54,8 @@ import org.springframework.web.bind.annotation.RestController;
 public class ParkingController {
 
     private static final String USER_ID_HEADER = "X-User-Id";
+    private static final String ROLES_HEADER = "X-User-Roles";
+    private static final Set<String> MODERATOR_ROLES = Set.of("MODERATOR", "ADMIN");
 
     private final ParkingApplicationService parkingService;
     private final IdempotencyService idempotencyService;
@@ -105,9 +111,10 @@ public class ParkingController {
     @SecurityRequirement(name = "bearerAuth")
     @GetMapping("/spots/{spotId}")
     public PublicSpotResponse getSpot(@RequestHeader(value = USER_ID_HEADER, required = false) String userId,
+                                      @RequestHeader(value = ROLES_HEADER, required = false) String roles,
                                       @PathVariable("spotId") UUID spotId) {
         UUID viewerUserId = requireUserId(userId);
-        return PublicSpotResponse.from(parkingService.getSpotForViewer(spotId, viewerUserId));
+        return PublicSpotResponse.from(parkingService.getSpotForViewer(spotId, viewerUserId, hasModeratorRole(roles)));
     }
 
     /**
@@ -189,6 +196,19 @@ public class ParkingController {
         } catch (IllegalArgumentException ex) {
             throw new ParkingException(ParkingErrorCode.MISSING_USER_ID, "Invalid authenticated user id.");
         }
+    }
+
+    /** True when the gateway-injected roles header contains MODERATOR or ADMIN. */
+    private static boolean hasModeratorRole(String rolesHeader) {
+        if (rolesHeader == null || rolesHeader.isBlank()) {
+            return false;
+        }
+        Set<String> roles = Arrays.stream(rolesHeader.split(","))
+                .map(String::trim)
+                .filter(s -> !s.isEmpty())
+                .map(s -> s.toUpperCase(Locale.ROOT))
+                .collect(Collectors.toSet());
+        return roles.stream().anyMatch(MODERATOR_ROLES::contains);
     }
 
     private static Map<String, Object> createFingerprint(String path, CreateSpotRequest request) {

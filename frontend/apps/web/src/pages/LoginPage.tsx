@@ -80,13 +80,9 @@ export function LoginPage() {
             />
             Remember me
           </label>
-          <button
-            type="button"
-            title="Password reset is coming soon"
-            className="text-label-md font-semibold text-primary hover:underline"
-          >
+          <Link to="/forgot-password" className="text-label-md font-semibold text-primary hover:underline">
             Forgot password?
-          </button>
+          </Link>
         </div>
 
         {apiError ? <ErrorMessage message={apiError} traceId={traceId} /> : null}

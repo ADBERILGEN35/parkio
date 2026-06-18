@@ -122,6 +122,7 @@ class ParkingApplicationServiceTest {
 
         assertThat(mediaReadiness.checkCount).isEqualTo(1);
         assertThat(mediaReadiness.lastMediaId).isEqualTo(command.mediaId());
+        assertThat(mediaReadiness.lastOwnerUserId).isEqualTo(owner);
     }
 
     @Test
@@ -140,6 +141,21 @@ class ParkingApplicationServiceTest {
     }
 
     @Test
+    void rejectsSpotCreationWhenMediaBelongsToAnotherUser() {
+        UUID owner = UUID.randomUUID();
+        mediaReadiness.toThrow = new ParkingException(ParkingErrorCode.MEDIA_NOT_READY);
+
+        assertThatThrownBy(() -> service.createSpot(createCommand(owner, LegalStatus.LEGAL)))
+                .isInstanceOf(ParkingException.class)
+                .extracting(e -> ((ParkingException) e).errorCode())
+                .isEqualTo(ParkingErrorCode.MEDIA_NOT_READY);
+
+        assertThat(spots.byId).isEmpty();
+        assertThat(outbox.events).isEmpty();
+        assertThat(mediaReadiness.lastOwnerUserId).isEqualTo(owner);
+    }
+
+    @Test
     void failsClosedWhenMediaServiceUnavailableDuringCreation() {
         UUID owner = UUID.randomUUID();
         mediaReadiness.toThrow = new ParkingException(ParkingErrorCode.MEDIA_ACCESS_UNAVAILABLE);
@@ -151,6 +167,86 @@ class ParkingApplicationServiceTest {
 
         assertThat(spots.byId).isEmpty();
         assertThat(outbox.events).isEmpty();
+    }
+
+    @Test
+    void ownerCanReadHiddenSpotDetail() {
+        UUID owner = UUID.randomUUID();
+        ParkingSpot filled = buildSpot(owner, ParkingSpotStatus.FILLED, NOW.plus(5, ChronoUnit.MINUTES),
+                LegalStatus.LEGAL);
+        spots.save(filled);
+
+        ParkingSpot result = service.getSpotForViewer(filled.id(), owner, false);
+
+        assertThat(result.id()).isEqualTo(filled.id());
+        assertThat(viewLogs.all).singleElement()
+                .satisfies(log -> assertThat(log.viewerUserId()).isEqualTo(owner));
+    }
+
+    @Test
+    void moderatorCanReadHiddenSpotDetail() {
+        UUID moderator = UUID.randomUUID();
+        ParkingSpot filled = buildSpot(UUID.randomUUID(), ParkingSpotStatus.FILLED,
+                NOW.plus(5, ChronoUnit.MINUTES), LegalStatus.LEGAL);
+        spots.save(filled);
+
+        ParkingSpot result = service.getSpotForViewer(filled.id(), moderator, true);
+
+        assertThat(result.id()).isEqualTo(filled.id());
+    }
+
+    @Test
+    void adminCanReadHiddenSpotDetail() {
+        UUID admin = UUID.randomUUID();
+        ParkingSpot rejected = buildSpot(UUID.randomUUID(), ParkingSpotStatus.REJECTED,
+                NOW.plus(5, ChronoUnit.MINUTES), LegalStatus.LEGAL);
+        spots.save(rejected);
+
+        ParkingSpot result = service.getSpotForViewer(rejected.id(), admin, true);
+
+        assertThat(result.id()).isEqualTo(rejected.id());
+    }
+
+    @Test
+    void nonOwnerCanReadVisibleSpotDetail() {
+        ParkingSpot visible = buildSpot(UUID.randomUUID(), ParkingSpotStatus.ACTIVE,
+                NOW.plus(5, ChronoUnit.MINUTES), LegalStatus.LEGAL);
+        spots.save(visible);
+
+        ParkingSpot result = service.getSpotForViewer(visible.id(), UUID.randomUUID(), false);
+
+        assertThat(result.id()).isEqualTo(visible.id());
+    }
+
+    @Test
+    void nonOwnerCannotReadHiddenSpotDetail() {
+        ParkingSpot suspicious = buildSpot(UUID.randomUUID(), ParkingSpotStatus.SUSPICIOUS,
+                NOW.plus(5, ChronoUnit.MINUTES), LegalStatus.LEGAL);
+        spots.save(suspicious);
+
+        assertSpotDetailNotFound(suspicious.id(), UUID.randomUUID());
+        assertThat(viewLogs.all).isEmpty();
+    }
+
+    @Test
+    void nonOwnerCannotReadExpiredSpotDetail() {
+        ParkingSpot expired = buildSpot(UUID.randomUUID(), ParkingSpotStatus.ACTIVE,
+                NOW.minus(1, ChronoUnit.MINUTES), LegalStatus.LEGAL);
+        spots.save(expired);
+
+        assertSpotDetailNotFound(expired.id(), UUID.randomUUID());
+        assertThat(spots.byId.get(expired.id()).status()).isEqualTo(ParkingSpotStatus.EXPIRED);
+        assertThat(viewLogs.all).isEmpty();
+    }
+
+    @Test
+    void nonOwnerCannotReadRejectedSpotDetail() {
+        ParkingSpot rejected = buildSpot(UUID.randomUUID(), ParkingSpotStatus.REJECTED,
+                NOW.plus(5, ChronoUnit.MINUTES), LegalStatus.LEGAL);
+        spots.save(rejected);
+
+        assertSpotDetailNotFound(rejected.id(), UUID.randomUUID());
+        assertThat(viewLogs.all).isEmpty();
     }
 
     @Test
@@ -479,6 +575,13 @@ class ParkingApplicationServiceTest {
                 .isEqualTo(ParkingErrorCode.SPOT_NOT_FOUND);
     }
 
+    private void assertSpotDetailNotFound(UUID spotId, UUID viewerUserId) {
+        assertThatThrownBy(() -> service.getSpotForViewer(spotId, viewerUserId, false))
+                .isInstanceOf(ParkingException.class)
+                .extracting(e -> ((ParkingException) e).errorCode())
+                .isEqualTo(ParkingErrorCode.SPOT_NOT_FOUND);
+    }
+
     private ParkingSpot buildSpot(UUID owner, ParkingSpotStatus status, Instant expiresAt, LegalStatus legalStatus) {
         return new ParkingSpot(UUID.randomUUID(), owner, UUID.randomUUID(), 41.0, 29.0, null, null, false,
                 Set.of(VehicleType.SEDAN), ParkingContext.STREET_PARKING, legalStatus, Set.of(),
@@ -587,12 +690,14 @@ class ParkingApplicationServiceTest {
     private static final class FakeMediaReadinessPort implements MediaReadinessPort {
         private int checkCount;
         private UUID lastMediaId;
+        private UUID lastOwnerUserId;
         private ParkingException toThrow;
 
         @Override
-        public void ensureMediaReady(UUID mediaId) {
+        public void ensureMediaReady(UUID mediaId, UUID ownerUserId) {
             checkCount++;
             lastMediaId = mediaId;
+            lastOwnerUserId = ownerUserId;
             if (toThrow != null) {
                 throw toThrow;
             }

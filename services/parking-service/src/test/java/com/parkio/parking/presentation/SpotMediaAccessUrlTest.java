@@ -2,7 +2,10 @@ package com.parkio.parking.presentation;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.Mockito.doThrow;
+import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.reset;
+import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
@@ -144,6 +147,33 @@ class SpotMediaAccessUrlTest {
                         UUID.randomUUID()))
                 .andExpect(status().isServiceUnavailable())
                 .andExpect(jsonPath("$.code").value("MEDIA_ACCESS_UNAVAILABLE"));
+    }
+
+    @Test
+    void stolenMediaIdCannotCreateSpotOrReachSignedUrlPath() throws Exception {
+        UUID attacker = UUID.randomUUID();
+        UUID victimMediaId = UUID.randomUUID();
+        doThrow(new ParkingException(ParkingErrorCode.MEDIA_NOT_READY,
+                "The selected photo is not ready yet. Please wait for it to finish processing and try again."))
+                .when(mediaReadiness).ensureMediaReady(victimMediaId, attacker);
+
+        mockMvc.perform(authenticated(post("/api/v1/parking/spots"), attacker)
+                        .header("Idempotency-Key", UUID.randomUUID().toString())
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(Map.of(
+                                "mediaId", victimMediaId,
+                                "latitude", 41.0082,
+                                "longitude", 28.9784,
+                                "description", "stolen photo attempt",
+                                "manualLocationEdited", false,
+                                "suitableVehicleTypes", new String[]{"SEDAN"},
+                                "parkingContext", "STREET_PARKING",
+                                "legalStatus", "LEGAL",
+                                "violationReasons", new String[0]))))
+                .andExpect(status().isUnprocessableEntity())
+                .andExpect(jsonPath("$.code").value("MEDIA_NOT_READY"));
+
+        verify(mediaAccess, never()).requestAccessUrl(any(UUID.class), any(UUID.class));
     }
 
     @Test

@@ -1,0 +1,13 @@
+-- Session epoch (a.k.a. token version) for fast access-token revocation.
+--
+-- Access tokens are stateless RS256 JWTs valid until they expire (15m). To revoke
+-- already-issued access tokens within seconds of a security event (refresh-token
+-- reuse detection, logout-all, suspension, future password reset), every access
+-- token now carries the user's session epoch as a claim, and the gateway rejects a
+-- token whose epoch is older than the user's current epoch. Bumping this value
+-- therefore invalidates every outstanding access token for the user.
+--
+-- Existing rows default to 0; new users start at 0. Tokens issued before this column
+-- existed carry no epoch claim and are treated as epoch 0 (see gateway), so they keep
+-- working until the first epoch bump — no forced logout on deploy.
+ALTER TABLE auth_users ADD COLUMN session_epoch BIGINT NOT NULL DEFAULT 0;

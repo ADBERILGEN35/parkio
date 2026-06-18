@@ -1,10 +1,13 @@
 package com.parkio.auth.presentation;
 
 import com.parkio.auth.application.AuthApplicationService;
+import com.parkio.auth.application.command.ChangePasswordCommand;
+import com.parkio.auth.application.command.ForgotPasswordCommand;
 import com.parkio.auth.application.command.LoginCommand;
 import com.parkio.auth.application.command.LogoutCommand;
 import com.parkio.auth.application.command.RefreshTokenCommand;
 import com.parkio.auth.application.command.ResendVerificationCommand;
+import com.parkio.auth.application.command.ResetPasswordCommand;
 import com.parkio.auth.application.command.RegisterCommand;
 import com.parkio.auth.application.command.VerifyEmailCommand;
 import com.parkio.auth.application.result.AuthResult;
@@ -13,9 +16,12 @@ import com.parkio.auth.domain.AuthUser;
 import com.parkio.auth.domain.exception.LoginLockedException;
 import com.parkio.auth.infrastructure.metrics.AuthMetrics;
 import com.parkio.auth.presentation.dto.AuthResponse;
+import com.parkio.auth.presentation.dto.ChangePasswordRequest;
+import com.parkio.auth.presentation.dto.ForgotPasswordRequest;
 import com.parkio.auth.presentation.dto.LoginRequest;
 import com.parkio.auth.presentation.dto.RegisterRequest;
 import com.parkio.auth.presentation.dto.ResendVerificationRequest;
+import com.parkio.auth.presentation.dto.ResetPasswordRequest;
 import com.parkio.auth.presentation.dto.UserResponse;
 import com.parkio.auth.presentation.dto.VerifyEmailRequest;
 import com.parkio.auth.presentation.openapi.StandardApiResponses;
@@ -120,12 +126,61 @@ public class AuthController {
         return ResponseEntity.accepted().build();
     }
 
+    @Operation(summary = "Request password reset instructions")
+    @PostMapping("/forgot-password")
+    public ResponseEntity<Void> forgotPassword(@Valid @RequestBody ForgotPasswordRequest request,
+                                               HttpServletRequest httpRequest) {
+        validateOriginIfPresent(httpRequest);
+        authService.forgotPassword(new ForgotPasswordCommand(request.email()));
+        return ResponseEntity.accepted().build();
+    }
+
+    @Operation(summary = "Reset password with a reset token")
+    @PostMapping("/reset-password")
+    public ResponseEntity<Void> resetPassword(@Valid @RequestBody ResetPasswordRequest request,
+                                              HttpServletRequest httpRequest) {
+        validateOriginIfPresent(httpRequest);
+        authService.resetPassword(new ResetPasswordCommand(request.token(), request.newPassword()));
+        return ResponseEntity.noContent()
+                .header("Set-Cookie", expiredCookie(refreshCookie.getPath()).toString())
+                .header("Set-Cookie", expiredCookie(refreshCookie.getLogoutPath()).toString())
+                .build();
+    }
+
+    @Operation(summary = "Change the current user's password")
+    @SecurityRequirement(name = "bearerAuth")
+    @PostMapping("/change-password")
+    public ResponseEntity<Void> changePassword(@AuthenticationPrincipal AuthPrincipal principal,
+                                               @Valid @RequestBody ChangePasswordRequest request,
+                                               HttpServletRequest httpRequest) {
+        validateOriginIfPresent(httpRequest);
+        authService.changePassword(new ChangePasswordCommand(
+                principal.userId(), request.currentPassword(), request.newPassword()));
+        return ResponseEntity.noContent()
+                .header("Set-Cookie", expiredCookie(refreshCookie.getPath()).toString())
+                .header("Set-Cookie", expiredCookie(refreshCookie.getLogoutPath()).toString())
+                .build();
+    }
+
     @Operation(summary = "Revoke refresh token (logout)")
     @PostMapping("/logout")
     public ResponseEntity<Void> logout(HttpServletRequest request) {
         validateOrigin(request);
         String token = refreshTokenCookie(request);
         authService.logout(new LogoutCommand(token));
+        return ResponseEntity.noContent()
+                .header("Set-Cookie", expiredCookie(refreshCookie.getPath()).toString())
+                .header("Set-Cookie", expiredCookie(refreshCookie.getLogoutPath()).toString())
+                .build();
+    }
+
+    @Operation(summary = "Revoke all sessions (logout everywhere)")
+    @SecurityRequirement(name = "bearerAuth")
+    @PostMapping("/logout-all")
+    public ResponseEntity<Void> logoutAll(@AuthenticationPrincipal AuthPrincipal principal,
+                                          HttpServletRequest request) {
+        validateOrigin(request);
+        authService.logoutAll(principal.userId());
         return ResponseEntity.noContent()
                 .header("Set-Cookie", expiredCookie(refreshCookie.getPath()).toString())
                 .header("Set-Cookie", expiredCookie(refreshCookie.getLogoutPath()).toString())

@@ -44,6 +44,8 @@ services:
       # Public SPA hostname -> reverse-proxied to the static web app upstream.
       PARKIO_WEB_DOMAIN: ${PARKIO_WEB_DOMAIN:?set PARKIO_WEB_DOMAIN in .env}
       PARKIO_WEB_UPSTREAM: ${PARKIO_WEB_UPSTREAM:?set PARKIO_WEB_UPSTREAM in .env}
+      # Extra connect-src origin for browser map (vector tile) requests.
+      PARKIO_MAP_CONNECT_SRC: ${PARKIO_MAP_CONNECT_SRC:-https://api.maptiler.com}
       # Extra connect-src origin for browser geocoding requests.
       PARKIO_GEOCODING_CONNECT_SRC: ${PARKIO_GEOCODING_CONNECT_SRC:-https://nominatim.openstreetmap.org}
       # Public media hostname -> reverse-proxied to the PRIVATE MinIO (presigned GETs only).

@@ -216,7 +216,9 @@ If CORS errors appear, confirm this value is set in `docker/.env` and restart th
 All auth calls go through the gateway (`VITE_API_BASE_URL`, **required** — defaults to
 `http://localhost:8080/api/v1`): `POST /auth/register`, `POST /auth/login`,
 `POST /auth/verify-email`, `POST /auth/resend-verification`,
-`POST /auth/refresh-token`, `POST /auth/logout`, `GET /auth/me`.
+`POST /auth/forgot-password`, `POST /auth/reset-password`,
+`POST /auth/change-password`, `POST /auth/refresh-token`, `POST /auth/logout`,
+`POST /auth/logout-all`, `GET /auth/me`.
 
 ### Auth flow
 
@@ -239,6 +241,8 @@ All auth calls go through the gateway (`VITE_API_BASE_URL`, **required** — def
   failure clears local auth state.
 - Logout calls `POST /auth/logout` with the HttpOnly refresh cookie, then **always**
   clears local auth state — even if the backend call fails — and lands on `/login`.
+- Profile includes **Log out of all devices**, which calls `POST /auth/logout-all`
+  after confirmation, clears local auth state, and lands on `/login`.
 - Roles/status come from the backend `user` object only; the JWT is never decoded client-side.
 - Registration shows live password guidance that mirrors auth-service policy:
   12+ characters, lowercase, uppercase, digit and not an obvious common password.
@@ -246,6 +250,24 @@ All auth calls go through the gateway (`VITE_API_BASE_URL`, **required** — def
   copy; the frontend does not expose lock state details. Login for an unverified
   account shows the friendly `Please verify your email before signing in.` copy
   and still does not store any token.
+
+### Account recovery and password changes
+
+- `/forgot-password` posts the email to `POST /auth/forgot-password` and always
+  shows the same success copy: "If an account exists, we sent password reset
+  instructions." The UI must not reveal account existence, verification state or
+  cooldown state.
+- `/reset-password?token=...` posts `{ token, newPassword }` to
+  `POST /auth/reset-password`. The page validates confirmation and shows the same
+  password requirements as registration. Success clears any local session state
+  and redirects to `/login`.
+- The Profile / Account section includes a change-password form backed by
+  `POST /auth/change-password`. Success clears local session state and redirects
+  to `/login` because auth-service revokes all refresh-token families and bumps
+  the session epoch.
+- Local development can use auth-service's guarded reset-link logger
+  (`parkio.security.password-reset.log-token=true`). Hosted beta and production
+  need a real email provider; raw reset tokens must stay out of production logs.
 
 ### Email verification UX
 
@@ -468,8 +490,10 @@ fills + 1px borders — no glassmorphism):
     with popups (status, expiry, vehicle types, link to the spot).
   - `MapPicker` — `/upload`: click the map to drop a pin and set latitude/longitude.
   - `SpotMap` — `/spots/:spotId`: read-only map with a single marker.
-  - `mapConfig.ts` (tile URL/attribution, default center/zoom) and `leafletSetup.ts`
-    (CSS import + bundler marker-icon fix) are shared by all three.
+  - `mapConfig.ts` (centralized MapLibre style resolver — MapTiler vector tiles with an
+    OSM raster fallback — plus default center/zoom) and `maplibreSetup.ts` (MapLibre CSS
+    import) are shared by all three. The map stack is **MapLibre GL JS** via the thin
+    `react-map-gl/maplibre` binding (keeps markers/popups as idiomatic React).
 - **Geolocation** — on mount `/map` attempts browser geolocation **once**. If the
   user allows it, the map centers on their location and runs a nearby search; if it
   is denied/unavailable/times out, the map falls back to the **İzmir** beta center
@@ -535,15 +559,20 @@ fills + 1px borders — no glassmorphism):
 
 ### Map environment variables
 
+The map renders with **MapLibre GL JS**. The basemap is **MapTiler vector tiles** when a
+key is set, otherwise it falls back to **OpenStreetMap raster tiles** so the map always works.
+
 | Variable | Default | Description |
 |----------|---------|-------------|
-| `VITE_MAP_TILE_URL` | OpenStreetMap tile URL | Tile template URL (`{s}/{z}/{x}/{y}`). |
-| `VITE_MAP_TILE_ATTRIBUTION` | OpenStreetMap attribution | Attribution HTML shown on the map. |
+| `VITE_MAPTILER_KEY` | _(unset → OSM raster fallback)_ | MapTiler API key. Enables production-grade vector tiles (HiDPI/Retina, vector typography, dark-mode-ready). Free key at <https://cloud.maptiler.com/account/keys/>. Injected at build time — never commit it. |
+| `VITE_MAPTILER_STYLE` | `streets-v2` | MapTiler vector style id (e.g. `streets-v2-dark`). Prepared for style switching. |
+| `VITE_MAP_TILE_URL` | `https://tile.openstreetmap.org/{z}/{x}/{y}.png` | Raster fallback tile template (used **only** when no MapTiler key is set). `{s}` subdomains are expanded automatically. |
+| `VITE_MAP_TILE_ATTRIBUTION` | OpenStreetMap attribution | Raster fallback attribution HTML. |
 | `VITE_GEOCODING_BASE_URL` | `https://nominatim.openstreetmap.org` | Forward-geocoding base URL for `/map` location search. Defaults to public Nominatim (local-beta only); point at the backend or an SLA provider for production. |
 
-Both are optional and default to OSM. **Future production consideration:** point these
-at a provider with an appropriate usage policy/key (e.g. MapTiler, Stadia, Mapbox) —
-OSM's public tile servers are not intended for production traffic. Inject the values at
+All are optional. **Production:** set `VITE_MAPTILER_KEY` (OSM's public tile servers are
+not intended for production traffic) and allow the tile host in the SPA's CSP via
+`PARKIO_MAP_CONNECT_SRC` (Caddy; defaults to `https://api.maptiler.com`). Inject the key at
 build/deploy time; do not commit production keys.
 
 ### Spot Detail Beta (`/spots/:spotId` layout)

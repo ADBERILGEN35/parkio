@@ -35,6 +35,8 @@ public class PublicEndpoints {
                 new Rule(HttpMethod.POST, parser.parse("/api/v1/auth/login")),
                 new Rule(HttpMethod.POST, parser.parse("/api/v1/auth/verify-email")),
                 new Rule(HttpMethod.POST, parser.parse("/api/v1/auth/resend-verification")),
+                new Rule(HttpMethod.POST, parser.parse("/api/v1/auth/forgot-password")),
+                new Rule(HttpMethod.POST, parser.parse("/api/v1/auth/reset-password")),
                 new Rule(HttpMethod.POST, parser.parse("/api/v1/auth/refresh-token")),
                 new Rule(HttpMethod.POST, parser.parse("/api/v1/auth/logout")),
                 new Rule(HttpMethod.GET, parser.parse("/api/v1/auth/.well-known/jwks.json")),

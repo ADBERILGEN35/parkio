@@ -8,9 +8,11 @@ import { RouteFallback } from '@/components/RouteFallback';
 // without an extra chunk round-trip.
 import { AccountPreparingPage } from '@/pages/AccountPreparingPage';
 import { CheckEmailPage } from '@/pages/CheckEmailPage';
+import { ForgotPasswordPage } from '@/pages/ForgotPasswordPage';
 import { LoginPage } from '@/pages/LoginPage';
 import { MapPage } from '@/pages/MapPage';
 import { RegisterPage } from '@/pages/RegisterPage';
+import { ResetPasswordPage } from '@/pages/ResetPasswordPage';
 import { VerifyEmailPage } from '@/pages/VerifyEmailPage';
 
 // Lazy: secondary routes are split into their own chunks to shrink the initial bundle.
@@ -52,6 +54,8 @@ export const router = createBrowserRouter([
   { path: '/', element: <Navigate to="/map" replace /> },
   { path: '/login', element: <LoginPage /> },
   { path: '/register', element: <RegisterPage /> },
+  { path: '/forgot-password', element: <ForgotPasswordPage /> },
+  { path: '/reset-password', element: <ResetPasswordPage /> },
   { path: '/check-email', element: <CheckEmailPage /> },
   { path: '/verify-email', element: <VerifyEmailPage /> },
   {

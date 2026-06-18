@@ -357,6 +357,29 @@ class MediaApplicationServiceTest {
     }
 
     @Test
+    void internalAttachmentStatusRequiresOwnerAndPreservesLifecycleState() {
+        UUID owner = UUID.randomUUID();
+        MediaUploadResult ready = service.upload(jpeg(owner, new byte[]{1, 2, 3}));
+        assertThat(service.getStatusForInternalAttachment(ready.mediaId(), owner)).isEqualTo(MediaStatus.READY);
+
+        assertThatThrownBy(() -> service.getStatusForInternalAttachment(ready.mediaId(), UUID.randomUUID()))
+                .isInstanceOf(MediaException.class)
+                .extracting(e -> ((MediaException) e).errorCode())
+                .isEqualTo(MediaErrorCode.MEDIA_NOT_FOUND);
+
+        MediaFile pending = MediaFile.create(owner, "bucket", "media/" + owner + "/pending.jpg",
+                "image/jpeg", 10, "checksum-pending-owner", null, NOW);
+        mediaFiles.save(pending);
+        assertThat(service.getStatusForInternalAttachment(pending.id(), owner)).isEqualTo(MediaStatus.PENDING_SCAN);
+
+        service.delete(ready.mediaId(), owner);
+        assertThatThrownBy(() -> service.getStatusForInternalAttachment(ready.mediaId(), owner))
+                .isInstanceOf(MediaException.class)
+                .extracting(e -> ((MediaException) e).errorCode())
+                .isEqualTo(MediaErrorCode.MEDIA_NOT_FOUND);
+    }
+
+    @Test
     void nonOwnerCannotObtainAccessUrl() {
         UUID owner = UUID.randomUUID();
         MediaUploadResult result = service.upload(jpeg(owner, new byte[]{1, 2, 3}));

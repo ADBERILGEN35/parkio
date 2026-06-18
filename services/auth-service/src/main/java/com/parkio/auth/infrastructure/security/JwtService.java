@@ -34,6 +34,7 @@ public class JwtService implements AccessTokenIssuer {
     private static final String CLAIM_EMAIL = "email";
     private static final String CLAIM_ROLES = "roles";
     private static final String CLAIM_STATUS = "status";
+    private static final String CLAIM_SESSION_EPOCH = "session_epoch";
 
     private final RsaKeyProvider keys;
     private final String issuer;
@@ -66,6 +67,7 @@ public class JwtService implements AccessTokenIssuer {
                 .claim(CLAIM_EMAIL, user.email())
                 .claim(CLAIM_ROLES, roles)
                 .claim(CLAIM_STATUS, user.status().name())
+                .claim(CLAIM_SESSION_EPOCH, user.sessionEpoch())
                 .issuedAt(Date.from(issuedAt))
                 .expiration(Date.from(expiresAt))
                 .signWith(keys.privateKey(), Jwts.SIG.RS256)

@@ -1,10 +1,9 @@
-import './leafletSetup';
-import { MapContainer, Marker, TileLayer, useMapEvents } from 'react-leaflet';
+import './maplibreSetup';
+import Map, { Marker } from 'react-map-gl/maplibre';
 import {
   DEFAULT_MAP_CENTER,
   DEFAULT_ZOOM,
-  TILE_ATTRIBUTION,
-  TILE_URL,
+  getMapStyle,
   isValidLatLng,
 } from './mapConfig';
 import { Recenter } from './Recenter';
@@ -18,16 +17,7 @@ export interface MapPickerProps {
   fallbackCenter?: { lat: number; lng: number };
 }
 
-function ClickToPick({ onPick }: { onPick: (lat: number, lng: number) => void }) {
-  useMapEvents({
-    click(event) {
-      onPick(event.latlng.lat, event.latlng.lng);
-    },
-  });
-  return null;
-}
-
-/** Click-to-set location picker. The chosen point is shown as a draggable-free marker. */
+/** Click-to-set location picker. The chosen point is shown as a marker. */
 export function MapPicker({
   latitude,
   longitude,
@@ -36,24 +26,25 @@ export function MapPicker({
   fallbackCenter = DEFAULT_MAP_CENTER,
 }: MapPickerProps) {
   const hasMarker = isValidLatLng(latitude, longitude);
-  const center: [number, number] = hasMarker
-    ? [latitude as number, longitude as number]
-    : [fallbackCenter.lat, fallbackCenter.lng];
+  const center = hasMarker
+    ? { lat: latitude as number, lng: longitude as number }
+    : fallbackCenter;
 
   return (
-    <MapContainer
-      center={center}
-      zoom={DEFAULT_ZOOM}
+    <Map
+      initialViewState={{ longitude: center.lng, latitude: center.lat, zoom: DEFAULT_ZOOM }}
+      mapStyle={getMapStyle()}
+      dragRotate={false}
+      pitchWithRotate={false}
+      onClick={(event) => onPick(event.lngLat.lat, event.lngLat.lng)}
       style={{ height, width: '100%', borderRadius: '0.5rem' }}
     >
-      <TileLayer url={TILE_URL} attribution={TILE_ATTRIBUTION} />
-      <ClickToPick onPick={onPick} />
       {hasMarker ? (
         <>
-          <Marker position={center} />
-          <Recenter lat={center[0]} lng={center[1]} />
+          <Marker longitude={center.lng} latitude={center.lat} anchor="bottom" />
+          <Recenter lat={center.lat} lng={center.lng} />
         </>
       ) : null}
-    </MapContainer>
+    </Map>
   );
 }

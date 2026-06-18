@@ -52,22 +52,37 @@ public class AiValidationController {
     }
 
     @Operation(summary = "Get AI validation by id")
+    @SecurityRequirement(name = "bearerAuth")
     @GetMapping("/{validationId}")
-    public AiValidationResponse getById(@PathVariable("validationId") UUID validationId) {
+    public AiValidationResponse getById(
+            @RequestHeader(value = USER_ID_HEADER, required = false) String userId,
+            @RequestHeader(value = ROLES_HEADER, required = false) String roles,
+            @PathVariable("validationId") UUID validationId) {
+        requireModerator(userId, roles);
         return AiValidationResponse.from(validationService.getById(validationId));
     }
 
     @Operation(summary = "List AI validations for media")
+    @SecurityRequirement(name = "bearerAuth")
     @GetMapping("/media/{mediaId}")
-    public List<AiValidationResponse> getByMedia(@PathVariable("mediaId") UUID mediaId) {
+    public List<AiValidationResponse> getByMedia(
+            @RequestHeader(value = USER_ID_HEADER, required = false) String userId,
+            @RequestHeader(value = ROLES_HEADER, required = false) String roles,
+            @PathVariable("mediaId") UUID mediaId) {
+        requireModerator(userId, roles);
         return validationService.getByMediaId(mediaId).stream()
                 .map(AiValidationResponse::from)
                 .toList();
     }
 
     @Operation(summary = "List AI validations for parking spot")
+    @SecurityRequirement(name = "bearerAuth")
     @GetMapping("/parking/{parkingSpotId}")
-    public List<AiValidationResponse> getByParking(@PathVariable("parkingSpotId") UUID parkingSpotId) {
+    public List<AiValidationResponse> getByParking(
+            @RequestHeader(value = USER_ID_HEADER, required = false) String userId,
+            @RequestHeader(value = ROLES_HEADER, required = false) String roles,
+            @PathVariable("parkingSpotId") UUID parkingSpotId) {
+        requireModerator(userId, roles);
         return validationService.getByParkingSpotId(parkingSpotId).stream()
                 .map(AiValidationResponse::from)
                 .toList();

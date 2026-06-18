@@ -15,9 +15,9 @@ import java.util.UUID;
 public interface MediaReadinessPort {
 
     /**
-     * Ensures {@code mediaId} exists and is {@code READY}. Throws
+     * Ensures {@code mediaId} exists, is owned by {@code ownerUserId}, and is {@code READY}. Throws
      * {@code MEDIA_NOT_READY} (422) when the media is missing or not yet servable, and
      * {@code MEDIA_ACCESS_UNAVAILABLE} (503) when media-service cannot be reached.
      */
-    void ensureMediaReady(UUID mediaId);
+    void ensureMediaReady(UUID mediaId, UUID ownerUserId);
 }

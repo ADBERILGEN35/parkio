@@ -213,6 +213,17 @@ public class MediaApplicationService {
         return requireActiveMedia(mediaId).status();
     }
 
+    /**
+     * Current lifecycle status of a media object for a trusted internal caller that
+     * needs to bind the media to a user-owned resource. Unknown, deleted, or
+     * non-owned media is answered as {@code MEDIA_NOT_FOUND} so callers can fail
+     * closed without turning the endpoint into an ownership oracle.
+     */
+    @Transactional(readOnly = true)
+    public MediaStatus getStatusForInternalAttachment(UUID mediaId, UUID expectedOwnerUserId) {
+        return requireReadableMedia(mediaId, expectedOwnerUserId, false).status();
+    }
+
     private MediaAccessUrl accessUrlFor(MediaFile media) {
         Instant expiresAt = clock.instant().plus(accessUrlPolicy.ttl());
         String url = storage.generatePresignedGetUrl(media.objectKey(), accessUrlPolicy.ttl());

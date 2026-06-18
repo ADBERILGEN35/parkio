@@ -73,6 +73,13 @@ public class AuthenticationGlobalFilter implements GlobalFilter, Ordered {
                         builder.header(GatewayHeaders.USER_EMAIL, user.email());
                     }
                     builder.header(GatewayHeaders.USER_ROLES, String.join(",", user.roles()));
+                    // Stash the token's session epoch for the downstream revocation check.
+                    // An exchange attribute (not a header) keeps it gateway-only; mutated
+                    // exchanges share the attribute map, so the later filter still sees it.
+                    if (user.sessionEpoch() != null) {
+                        exchange.getAttributes()
+                                .put(GatewayHeaders.TOKEN_SESSION_EPOCH_ATTRIBUTE, user.sessionEpoch());
+                    }
                     return chain.filter(exchange.mutate().request(builder.build()).build());
                 })
                 .onErrorResume(ex -> errorWriter.write(

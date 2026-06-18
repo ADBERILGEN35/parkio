@@ -1,9 +1,11 @@
 package com.parkio.auth.infrastructure.persistence.mapper;
 
 import com.parkio.auth.domain.AuthUser;
+import com.parkio.auth.domain.PasswordResetToken;
 import com.parkio.auth.domain.RefreshToken;
 import com.parkio.auth.domain.Role;
 import com.parkio.auth.infrastructure.persistence.entity.AuthUserEntity;
+import com.parkio.auth.infrastructure.persistence.entity.PasswordResetTokenEntity;
 import com.parkio.auth.infrastructure.persistence.entity.RefreshTokenEntity;
 import com.parkio.auth.infrastructure.persistence.entity.RoleEntity;
 import java.util.LinkedHashSet;
@@ -42,6 +44,7 @@ public final class AuthPersistenceMapper {
                 entity.getEmailVerificationTokenHash(),
                 entity.getEmailVerificationExpiresAt(),
                 entity.getEmailVerificationSentAt(),
+                entity.getSessionEpoch(),
                 roles,
                 entity.getCreatedAt(),
                 entity.getVersion());
@@ -62,6 +65,7 @@ public final class AuthPersistenceMapper {
                 user.emailVerificationTokenHash(),
                 user.emailVerificationExpiresAt(),
                 user.emailVerificationSentAt(),
+                user.sessionEpoch(),
                 roles,
                 user.createdAt(),
                 user.version());
@@ -74,6 +78,7 @@ public final class AuthPersistenceMapper {
                 entity.getTokenHash(),
                 entity.getExpiresAt(),
                 entity.getTokenFamilyId(),
+                entity.getFamilyStartedAt(),
                 entity.getParentTokenId(),
                 entity.isRevoked(),
                 entity.isReusedDetected(),
@@ -89,11 +94,34 @@ public final class AuthPersistenceMapper {
                 token.tokenHash(),
                 token.expiresAt(),
                 token.tokenFamilyId(),
+                token.familyStartedAt(),
                 token.parentTokenId(),
                 token.isRevoked(),
                 token.isReusedDetected(),
                 token.revokedReason(),
                 token.revokedAt(),
+                token.version());
+    }
+
+    public static PasswordResetToken toDomain(PasswordResetTokenEntity entity) {
+        return new PasswordResetToken(
+                entity.getId(),
+                entity.getUserId(),
+                entity.getTokenHash(),
+                entity.getExpiresAt(),
+                entity.getConsumedAt(),
+                entity.getCreatedAt(),
+                entity.getVersion());
+    }
+
+    public static PasswordResetTokenEntity toEntity(PasswordResetToken token) {
+        return new PasswordResetTokenEntity(
+                token.id(),
+                token.userId(),
+                token.tokenHash(),
+                token.expiresAt(),
+                token.consumedAt(),
+                token.createdAt(),
                 token.version());
     }
 }

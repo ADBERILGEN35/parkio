@@ -153,7 +153,7 @@ class ModerationApplicationServiceTest {
         outbox.events.clear();
 
         ModerationCase resolved = service.resolveCase(
-                new ResolveCaseCommand(caseId, moderator, ModerationAction.REJECT, "confirmed"));
+                new ResolveCaseCommand(caseId, moderator, ModerationAction.REJECT, "confirmed", false));
 
         assertThat(resolved.status()).isEqualTo(ModerationStatus.RESOLVED);
         assertThat(resolved.resolutionAction()).isEqualTo(ModerationAction.REJECT);
@@ -174,7 +174,7 @@ class ModerationApplicationServiceTest {
         outbox.events.clear();
 
         service.resolveCase(new ResolveCaseCommand(opened.id(), UUID.randomUUID(),
-                ModerationAction.REJECT, "confirmed"));
+                ModerationAction.REJECT, "confirmed", false));
 
         com.parkio.moderation.domain.event.ParkingSpotRejectedByModeratorEvent emitted = outbox.events.stream()
                 .filter(e -> e instanceof com.parkio.moderation.domain.event.ParkingSpotRejectedByModeratorEvent)
@@ -191,7 +191,8 @@ class ModerationApplicationServiceTest {
         UUID caseId = openSeriousCase(ModerationTargetType.USER, targetUser);
         outbox.events.clear();
 
-        service.resolveCase(new ResolveCaseCommand(caseId, UUID.randomUUID(), ModerationAction.SUSPEND_USER, "abuse"));
+        service.resolveCase(new ResolveCaseCommand(caseId, UUID.randomUUID(), ModerationAction.SUSPEND_USER, "abuse",
+                true));
 
         assertThat(violations.saved).hasSize(1);
         assertThat(violations.saved.get(0).userId()).isEqualTo(targetUser);
@@ -203,7 +204,7 @@ class ModerationApplicationServiceTest {
     void userAppealsOwnResolvedCase() {
         UUID targetUser = UUID.randomUUID();
         UUID caseId = openSeriousCase(ModerationTargetType.USER, targetUser);
-        service.resolveCase(new ResolveCaseCommand(caseId, UUID.randomUUID(), ModerationAction.SUSPEND_USER, "x"));
+        service.resolveCase(new ResolveCaseCommand(caseId, UUID.randomUUID(), ModerationAction.SUSPEND_USER, "x", true));
         outbox.events.clear();
 
         Appeal appeal = service.createAppeal(targetUser, caseId, "please reconsider");
@@ -217,7 +218,7 @@ class ModerationApplicationServiceTest {
     void userCannotAppealUnrelatedCase() {
         UUID targetUser = UUID.randomUUID();
         UUID caseId = openSeriousCase(ModerationTargetType.USER, targetUser);
-        service.resolveCase(new ResolveCaseCommand(caseId, UUID.randomUUID(), ModerationAction.SUSPEND_USER, "x"));
+        service.resolveCase(new ResolveCaseCommand(caseId, UUID.randomUUID(), ModerationAction.SUSPEND_USER, "x", true));
 
         assertThatThrownBy(() -> service.createAppeal(UUID.randomUUID(), caseId, "not mine"))
                 .isInstanceOf(ModerationException.class)
@@ -240,11 +241,11 @@ class ModerationApplicationServiceTest {
     void moderatorResolvesAppealAndAcceptingSuspensionRestoresUser() {
         UUID targetUser = UUID.randomUUID();
         UUID caseId = openSeriousCase(ModerationTargetType.USER, targetUser);
-        service.resolveCase(new ResolveCaseCommand(caseId, UUID.randomUUID(), ModerationAction.SUSPEND_USER, "x"));
+        service.resolveCase(new ResolveCaseCommand(caseId, UUID.randomUUID(), ModerationAction.SUSPEND_USER, "x", true));
         Appeal appeal = service.createAppeal(targetUser, caseId, "please reconsider");
         outbox.events.clear();
 
-        Appeal resolved = service.resolveAppeal(appeal.id(), UUID.randomUUID(), true, "fair point");
+        Appeal resolved = service.resolveAppeal(appeal.id(), UUID.randomUUID(), true, "fair point", true);
 
         assertThat(resolved.isAccepted()).isTrue();
         assertThat(outbox.events).hasExactlyElementsOfTypes(
@@ -360,6 +361,65 @@ class ModerationApplicationServiceTest {
         service.handleAiValidationCompleted(event); // redelivery
 
         assertThat(cases.byId).hasSize(1);
+    }
+
+    // --- RBAC: admin-only actions are fail-closed at the service layer ------
+
+    @Test
+    void nonAdminCannotSuspendUserThroughResolveCase() {
+        UUID targetUser = UUID.randomUUID();
+        UUID caseId = openSeriousCase(ModerationTargetType.USER, targetUser);
+        outbox.events.clear();
+
+        assertThatThrownBy(() -> service.resolveCase(new ResolveCaseCommand(
+                caseId, UUID.randomUUID(), ModerationAction.SUSPEND_USER, "abuse", false)))
+                .isInstanceOf(ModerationException.class)
+                .extracting(e -> ((ModerationException) e).errorCode())
+                .isEqualTo(ModerationErrorCode.FORBIDDEN);
+        // Fail closed: nothing recorded or emitted.
+        assertThat(violations.saved).isEmpty();
+        assertThat(outbox.events).isEmpty();
+    }
+
+    @Test
+    void nonAdminCannotApplyTrustOrScorePenalties() {
+        UUID targetUser = UUID.randomUUID();
+        UUID caseId = openSeriousCase(ModerationTargetType.USER, targetUser);
+
+        assertThatThrownBy(() -> service.resolveCase(new ResolveCaseCommand(
+                caseId, UUID.randomUUID(), ModerationAction.REDUCE_TRUST, "x", false)))
+                .isInstanceOf(ModerationException.class)
+                .extracting(e -> ((ModerationException) e).errorCode())
+                .isEqualTo(ModerationErrorCode.FORBIDDEN);
+        assertThatThrownBy(() -> service.resolveCase(new ResolveCaseCommand(
+                caseId, UUID.randomUUID(), ModerationAction.DEDUCT_POINTS, "x", false)))
+                .isInstanceOf(ModerationException.class)
+                .extracting(e -> ((ModerationException) e).errorCode())
+                .isEqualTo(ModerationErrorCode.FORBIDDEN);
+    }
+
+    @Test
+    void nonAdminCannotResolveAppeals() {
+        UUID targetUser = UUID.randomUUID();
+        UUID caseId = openSeriousCase(ModerationTargetType.USER, targetUser);
+        service.resolveCase(new ResolveCaseCommand(caseId, UUID.randomUUID(), ModerationAction.SUSPEND_USER, "x", true));
+        Appeal appeal = service.createAppeal(targetUser, caseId, "please reconsider");
+
+        assertThatThrownBy(() -> service.resolveAppeal(appeal.id(), UUID.randomUUID(), true, "n", false))
+                .isInstanceOf(ModerationException.class)
+                .extracting(e -> ((ModerationException) e).errorCode())
+                .isEqualTo(ModerationErrorCode.FORBIDDEN);
+    }
+
+    @Test
+    void moderatorContentDecisionsRemainAllowedWithoutAdmin() {
+        UUID spot = UUID.randomUUID();
+        UUID caseId = openSeriousCase(ModerationTargetType.PARKING_SPOT, spot);
+
+        ModerationCase resolved = service.resolveCase(new ResolveCaseCommand(
+                caseId, UUID.randomUUID(), ModerationAction.REJECT, "confirmed", false));
+
+        assertThat(resolved.status()).isEqualTo(ModerationStatus.RESOLVED);
     }
 
     // --- helpers -----------------------------------------------------------

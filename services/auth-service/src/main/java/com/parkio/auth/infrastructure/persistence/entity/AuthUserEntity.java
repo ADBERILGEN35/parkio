@@ -57,6 +57,9 @@ public class AuthUserEntity {
     @Column(name = "email_verification_sent_at")
     private Instant emailVerificationSentAt;
 
+    @Column(name = "session_epoch", nullable = false)
+    private long sessionEpoch;
+
     @ManyToMany(fetch = FetchType.EAGER)
     @JoinTable(
             name = "auth_user_roles",
@@ -85,6 +88,7 @@ public class AuthUserEntity {
                           String emailVerificationTokenHash,
                           Instant emailVerificationExpiresAt,
                           Instant emailVerificationSentAt,
+                          long sessionEpoch,
                           Set<RoleEntity> roles,
                           Instant createdAt,
                           Long version) {
@@ -98,6 +102,7 @@ public class AuthUserEntity {
         this.emailVerificationTokenHash = emailVerificationTokenHash;
         this.emailVerificationExpiresAt = emailVerificationExpiresAt;
         this.emailVerificationSentAt = emailVerificationSentAt;
+        this.sessionEpoch = sessionEpoch;
         this.roles = roles;
         this.createdAt = createdAt;
         this.version = version;
@@ -141,6 +146,10 @@ public class AuthUserEntity {
 
     public Instant getEmailVerificationSentAt() {
         return emailVerificationSentAt;
+    }
+
+    public long getSessionEpoch() {
+        return sessionEpoch;
     }
 
     public Set<RoleEntity> getRoles() {

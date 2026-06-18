@@ -3,7 +3,7 @@ import { http, HttpResponse } from 'msw';
 import { screen } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { Route, Routes } from 'react-router-dom';
-import { beforeEach, describe, expect, it } from 'vitest';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { API_BASE, server } from '@/test/server';
 import { renderWithProviders, resetAuth, signInAs } from '@/test/utils';
 import { ProfilePage } from './ProfilePage';
@@ -148,5 +148,46 @@ describe('ProfilePage', () => {
     renderProfile();
 
     expect(await screen.findByRole('button', { name: /Sign out/ })).toBeInTheDocument();
+  });
+
+  it('logs out all devices after confirmation', async () => {
+    useProfileHandlers();
+    const confirm = vi.spyOn(window, 'confirm').mockReturnValue(true);
+    let called = false;
+    server.use(
+      http.post(`${API_BASE}/auth/logout-all`, () => {
+        called = true;
+        return new HttpResponse(null, { status: 204 });
+      }),
+    );
+    renderProfile();
+    const user = userEvent.setup();
+
+    await user.click(await screen.findByRole('button', { name: /Log out of all devices/ }));
+
+    expect(await screen.findByText('Login page')).toBeInTheDocument();
+    expect(called).toBe(true);
+    confirm.mockRestore();
+  });
+
+  it('changes password and redirects to login', async () => {
+    useProfileHandlers();
+    let body: { currentPassword: string; newPassword: string } | null = null;
+    server.use(
+      http.post(`${API_BASE}/auth/change-password`, async ({ request }) => {
+        body = (await request.json()) as { currentPassword: string; newPassword: string };
+        return new HttpResponse(null, { status: 204 });
+      }),
+    );
+    renderProfile();
+    const user = userEvent.setup();
+
+    await user.type(await screen.findByLabelText('Current password'), 'OldStrong123');
+    await user.type(screen.getByLabelText('New password'), 'FreshStrong123');
+    await user.type(screen.getByLabelText('Confirm new password'), 'FreshStrong123');
+    await user.click(screen.getByRole('button', { name: /Change password/ }));
+
+    expect(await screen.findByText('Login page')).toBeInTheDocument();
+    expect(body).toEqual({ currentPassword: 'OldStrong123', newPassword: 'FreshStrong123' });
   });
 });

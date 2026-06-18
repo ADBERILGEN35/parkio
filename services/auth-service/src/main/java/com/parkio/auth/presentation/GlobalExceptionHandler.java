@@ -102,7 +102,7 @@ public class GlobalExceptionHandler {
             case EMAIL_ALREADY_EXISTS -> HttpStatus.CONFLICT;
             case INVALID_CREDENTIALS, INVALID_REFRESH_TOKEN -> HttpStatus.UNAUTHORIZED;
             case ACCOUNT_NOT_VERIFIED -> HttpStatus.FORBIDDEN;
-            case INVALID_VERIFICATION_TOKEN -> HttpStatus.BAD_REQUEST;
+            case INVALID_VERIFICATION_TOKEN, INVALID_RESET_TOKEN -> HttpStatus.BAD_REQUEST;
             case WEAK_PASSWORD -> HttpStatus.BAD_REQUEST;
             case USER_NOT_ACTIVE -> HttpStatus.FORBIDDEN;
             case USER_NOT_FOUND -> HttpStatus.NOT_FOUND;

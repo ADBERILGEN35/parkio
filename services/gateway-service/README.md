@@ -100,6 +100,44 @@ env-overridable via `PARKIO_USER_SERVICE_URI`, `PARKIO_USER_STATUS_CACHE_TTL`,
 > introspection service — it answers one question ("is this account active right now?")
 > against the service that owns account status (user-service, ai-context/03).
 
+## Access-token revocation (session epoch)
+
+A valid JWT also stays valid until it expires (15m) even after the **session** behind it
+is invalidated — logout-all, refresh-token reuse detection, or suspension. Account-status
+enforcement (above) only catches `SUSPENDED`/`BANNED`; it does not revoke a still-`ACTIVE`
+user's other access tokens after a logout-all or a detected theft. The session-epoch check
+closes that gap and cuts the revocation lag from the token TTL down to a short cache TTL:
+
+1. Every access token carries a `session_epoch` claim — the user's epoch at issue time.
+2. After JWT validation, `AuthenticationGlobalFilter` stashes that claim as a trusted
+   exchange attribute (never read from the client).
+3. `SessionEpochGlobalFilter` calls auth-service
+   `GET /internal/auth/users/{userId}/session-epoch` (non-blocking `WebClient`,
+   `SessionEpochClient`) for the user's **current** epoch. That endpoint returns only
+   `{ userId, sessionEpoch }` and is **internal-only** (the gateway routes only
+   `/api/v1/**`, so `/internal/**` is never publicly reachable) and additionally guarded
+   by the `X-Gateway-Auth` shared secret.
+4. **Stale epoch → revoked.** If the token's epoch is **below** the current epoch the
+   request is rejected with `401` (`code: TOKEN_REVOKED`). auth-service bumps the epoch on
+   refresh-token reuse detection, logout-all and suspension, so all of that user's
+   outstanding access tokens stop working within the cache TTL.
+5. **Missing claim → epoch 0.** A legacy token issued before epochs existed has no claim;
+   it is treated as epoch 0, so it keeps working until the user's first epoch bump (no
+   forced logout on deploy). The epoch is never client-controlled — it comes from the
+   signed claim.
+6. **Fail closed.** If the current epoch cannot be determined (auth-service unreachable,
+   timeout, unknown user) the request is rejected with `503`
+   (`code: SESSION_EPOCH_UNAVAILABLE`) rather than let through — consistent with the
+   account-status check.
+7. **Brief cache.** Resolved epochs are cached in-memory for a small TTL (default `30s`,
+   `SessionEpochCache`); unavailable lookups are never cached. This TTL **is** the
+   access-token revocation window.
+
+Public auth routes and actuator carry no identity and are **never** epoch-checked. Config
+lives under `parkio.gateway.session-epoch.*` (`base-url`, `cache-ttl`, `request-timeout`;
+env-overridable via `PARKIO_AUTH_SERVICE_URI`, `PARKIO_SESSION_EPOCH_CACHE_TTL`,
+`PARKIO_SESSION_EPOCH_TIMEOUT`).
+
 ## Routes
 
 | Path prefix                 | Target                  | Access            |
@@ -111,16 +149,22 @@ env-overridable via `PARKIO_USER_SERVICE_URI`, `PARKIO_USER_STATUS_CACHE_TTL`,
 | `/api/v1/gamification/**`   | `gamification-service`  | authenticated     |
 | `/api/v1/notifications/**`  | `notification-service`  | authenticated     |
 | `/api/v1/moderation/**`     | `moderation-service`    | mixed²            |
-| `/api/v1/ai-validations/**` | `ai-validation-service` | mixed³            |
-| `/api/v1/analytics/**`      | `analytics-service`     | `MODERATOR`/`ADMIN` |
+| `/api/v1/ai-validations/**` | `ai-validation-service` | `MODERATOR`/`ADMIN`³ |
+| `/api/v1/analytics/**`      | `analytics-service`     | mixed⁴            |
 
 ¹ Public: `POST /api/v1/auth/register`, `login`, `refresh-token`, `logout`; and
 `GET /api/v1/auth/.well-known/jwks.json`. Any other auth path is protected.
 Actuator `health`/`info` are public.
 ² See the role matrix below: user-facing report/appeal endpoints need only an
-authenticated user; case/appeal management requires `MODERATOR`/`ADMIN`.
-³ Read-only lookups need an authenticated user; `POST /api/v1/ai-validations/manual`
-requires `MODERATOR`/`ADMIN`.
+authenticated user; case/appeal management requires `MODERATOR`/`ADMIN`. Account-level
+actions (suspend/restore/trust/score, appeal resolution) are further restricted to
+`ADMIN` inside moderation-service — the edge cannot see the request body, so downstream
+layers tighten the coarse `MODERATOR` edge gate (defense in depth).
+³ AI validation findings are advisory/moderation data; all reads and manual
+validation require `MODERATOR`/`ADMIN`.
+⁴ Platform analytics is `ADMIN`-only (separation of duties); a user's own analytics
+(`GET /api/v1/analytics/users/**`) is allowed for any authenticated user (ownership
+enforced in analytics-service).
 
 Downstream URIs are externalized (`PARKIO_<SERVICE>_SERVICE_URI`), defaulting to
 local dev ports.
@@ -137,11 +181,17 @@ depth, independent of each service's own per-endpoint checks. Rules are first-ma
 | `POST /api/v1/moderation/reports`      | any authenticated user   |
 | `GET  /api/v1/moderation/reports/me`   | any authenticated user   |
 | `POST /api/v1/moderation/appeals`      | any authenticated user   |
-| `*    /api/v1/moderation/**` (else)    | `MODERATOR` or `ADMIN`   |
-| `*    /api/v1/analytics/**`            | `MODERATOR` or `ADMIN`   |
-| `POST /api/v1/ai-validations/manual`   | `MODERATOR` or `ADMIN`   |
-| `GET  /api/v1/ai-validations/**` (else)| any authenticated user   |
+| `*    /api/v1/moderation/**` (else)    | `MODERATOR` or `ADMIN`⁵  |
+| `GET  /api/v1/analytics/users/**`      | any authenticated user (owner) |
+| `*    /api/v1/analytics/**` (else)     | `ADMIN`                  |
+| `*    /api/v1/ai-validations/**`       | `MODERATOR` or `ADMIN`   |
 | everything else                        | any authenticated user   |
+
+⁵ The coarse edge gate admits `MODERATOR`; account-level actions within moderation
+(`resolveCase` with `SUSPEND_USER`/`RESTORE_USER`/`REDUCE_TRUST`/`DEDUCT_POINTS`, and
+`resolveAppeal`) are gated `ADMIN`-only in moderation-service (controller + service),
+because the edge cannot authorize on the request body. This is intentional
+defense-in-depth, not a gap: no account-level effect is reachable by a `MODERATOR`.
 
 A request lacking the required role is rejected at the edge with a consistent `403`
 `ApiError` (`code: FORBIDDEN`) carrying the correlation id as `traceId`; it never

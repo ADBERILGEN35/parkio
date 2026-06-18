@@ -31,10 +31,18 @@ public class SecurityConfig {
                         .requestMatchers(HttpMethod.POST,
                                 "/api/v1/auth/register",
                                 "/api/v1/auth/login",
+                                "/api/v1/auth/verify-email",
+                                "/api/v1/auth/resend-verification",
+                                "/api/v1/auth/forgot-password",
+                                "/api/v1/auth/reset-password",
                                 "/api/v1/auth/refresh-token",
                                 "/api/v1/auth/logout").permitAll()
                         .requestMatchers(HttpMethod.GET,
                                 "/api/v1/auth/.well-known/jwks.json").permitAll()
+                        // Internal service-to-service endpoints (e.g. the gateway's session-epoch
+                        // check) carry no JWT; they are guarded by the X-Gateway-Auth shared
+                        // secret in GatewayAuthFilter and are not routed publicly.
+                        .requestMatchers("/internal/**").permitAll()
                         .requestMatchers("/actuator/**").permitAll()
                         .requestMatchers("/v3/api-docs/**", "/swagger-ui/**", "/swagger-ui.html").permitAll()
                         .anyRequest().authenticated())
