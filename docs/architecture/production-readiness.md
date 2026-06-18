@@ -421,6 +421,13 @@ Security CI runs on PRs, pushes to `master`, weekly, and on demand:
 - **Container scanning:** gateway/auth/media images are built and scanned with Trivy. HIGH findings are
   reported; CRITICAL image vulnerabilities block CI.
 
+CodeQL and Trivy SARIF upload require repository code scanning to be enabled:
+**GitHub repository Settings → Code security and analysis → Code scanning**. Enable
+CodeQL/code scanning there before treating `security-ci.yml` as a required check.
+Private repositories may need GitHub Advanced Security enabled at the repository or
+organization level. The workflow permissions are already least-privilege for this
+path: `contents: read`, `security-events: write`, and `actions: read`.
+
 False positives must be handled narrowly. Prove the value is fake, then add the smallest exact
 allowlist/config entry. If a real secret is committed, rotate/revoke it and remove it from deployment
 environments; do not allowlist it. Local equivalents:

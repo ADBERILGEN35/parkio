@@ -168,6 +168,13 @@ Runs on PRs, pushes to `master`, weekly, and on demand:
 - **Trivy container image scanning** builds representative gateway/auth/media images,
   reports HIGH/CRITICAL findings, and blocks CRITICAL image vulnerabilities.
 
+CodeQL and SARIF uploads require GitHub code scanning to be enabled for the
+repository. In GitHub, use **Settings → Code security and analysis → Code scanning**
+and enable CodeQL/code scanning. For private repositories this may require GitHub
+Advanced Security on the repository or organization. The workflow already grants
+`contents: read`, `security-events: write`, and `actions: read`; if the repository
+setting is disabled, CodeQL/SARIF upload will still fail until it is enabled.
+
 Handle false positives by first proving the value is fake, then adding the smallest
 possible allowlist entry in `.gitleaks.toml` or an equivalent scanner config. Never
 allowlist a real credential; rotate/revoke it, purge it from deploy environments, and

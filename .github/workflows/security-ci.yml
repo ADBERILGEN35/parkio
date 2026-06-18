@@ -71,17 +71,17 @@ jobs:
         uses: actions/checkout@v4
 
       - name: Initialize CodeQL
-        uses: github/codeql-action/init@v3
+        uses: github/codeql-action/init@v4
         with:
           languages: ${{ matrix.language }}
           build-mode: ${{ matrix.build-mode }}
 
       - name: Autobuild
         if: matrix.build-mode == 'autobuild'
-        uses: github/codeql-action/autobuild@v3
+        uses: github/codeql-action/autobuild@v4
 
       - name: Analyze
-        uses: github/codeql-action/analyze@v3
+        uses: github/codeql-action/analyze@v4
         with:
           category: "/language:${{ matrix.language }}"
 
@@ -94,7 +94,7 @@ jobs:
         uses: actions/checkout@v4
 
       - name: Scan dependency manifests with Trivy
-        uses: aquasecurity/trivy-action@0.24.0
+        uses: aquasecurity/trivy-action@v0.33.1
         with:
           scan-type: fs
           scan-ref: .
@@ -108,7 +108,7 @@ jobs:
 
       - name: Upload dependency SARIF
         if: always()
-        uses: github/codeql-action/upload-sarif@v3
+        uses: github/codeql-action/upload-sarif@v4
         with:
           sarif_file: trivy-dependencies.sarif
           category: trivy-dependencies
@@ -145,7 +145,7 @@ jobs:
             .
 
       - name: Scan image for high and critical findings
-        uses: aquasecurity/trivy-action@0.24.0
+        uses: aquasecurity/trivy-action@v0.33.1
         with:
           image-ref: parkio/${{ matrix.service }}:security-ci
           scanners: vuln
@@ -155,7 +155,7 @@ jobs:
           exit-code: "0"
 
       - name: Block on critical image findings
-        uses: aquasecurity/trivy-action@0.24.0
+        uses: aquasecurity/trivy-action@v0.33.1
         with:
           image-ref: parkio/${{ matrix.service }}:security-ci
           scanners: vuln
@@ -167,7 +167,7 @@ jobs:
 
       - name: Upload image SARIF
         if: always()
-        uses: github/codeql-action/upload-sarif@v3
+        uses: github/codeql-action/upload-sarif@v4
         with:
           sarif_file: trivy-image-${{ matrix.service }}.sarif
           category: trivy-image-${{ matrix.service }}
