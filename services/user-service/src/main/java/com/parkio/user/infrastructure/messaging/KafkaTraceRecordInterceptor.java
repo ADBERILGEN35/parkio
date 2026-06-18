@@ -27,21 +27,21 @@ public class KafkaTraceRecordInterceptor implements RecordInterceptor<String, St
             traceId = envelopeTraceId(record.value());
         }
         if (traceId == null || traceId.isBlank()) {
-            MDC.remove("traceId");
+            MDC.remove("correlationId");
         } else {
-            MDC.put("traceId", traceId);
+            MDC.put("correlationId", traceId);
         }
         return record;
     }
 
     @Override
     public void afterRecord(ConsumerRecord<String, String> record, Consumer<String, String> consumer) {
-        MDC.remove("traceId");
+        MDC.remove("correlationId");
     }
 
     @Override
     public void clearThreadState(Consumer<?, ?> consumer) {
-        MDC.remove("traceId");
+        MDC.remove("correlationId");
     }
 
     private static String headerTraceId(ConsumerRecord<String, String> record) {

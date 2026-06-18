@@ -30,11 +30,11 @@ class OutboxEventAppenderAdapterTest {
                 eventId, UUID.randomUUID(), UUID.randomUUID(), ParkingSpotStatus.EXPIRED,
                 Instant.parse("2026-06-08T12:00:00Z"));
 
-        MDC.put("traceId", "trace-outbox-123");
+        MDC.put("correlationId", "trace-outbox-123");
         try {
             adapter.append(event);
         } finally {
-            MDC.remove("traceId");
+            MDC.remove("correlationId");
         }
 
         ArgumentCaptor<OutboxEventEntity> captor = ArgumentCaptor.forClass(OutboxEventEntity.class);

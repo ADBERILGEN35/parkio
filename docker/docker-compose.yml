@@ -2,7 +2,8 @@
 #
 # Brings up every backing service the Parkio microservices need: one PostgreSQL
 # instance PER service (database-per-service, see docs/ai-context/05), Redis,
-# Kafka (KRaft mode — no Zookeeper), MinIO, Prometheus, Alertmanager and Grafana.
+# Kafka (KRaft mode — no Zookeeper), Kafka Exporter, MinIO, Prometheus,
+# Alertmanager, Loki, Promtail and Grafana.
 #
 # Run from this directory (docker/):
 #   cp .env.example .env
@@ -184,6 +185,21 @@ services:
       retries: 10
       start_period: 20s
 
+  kafka-exporter:
+    image: ${KAFKA_EXPORTER_IMAGE:-danielqsj/kafka-exporter:v1.8.0}
+    container_name: parkio-kafka-exporter
+    restart: unless-stopped
+    depends_on:
+      kafka:
+        condition: service_healthy
+    command:
+      - --kafka.server=kafka:9092
+      - --web.listen-address=:9308
+      - --topic.filter=^parkio\..*
+      - --group.filter=^.*-service
+    ports: ["127.0.0.1:${KAFKA_EXPORTER_PORT:-9308}:9308"]
+    networks: [parkio-backend, parkio-observability]
+
   # ------------------------------------------------------------------------- #
   # MinIO — S3-compatible object storage for media bytes (media-service only).#
   # ------------------------------------------------------------------------- #
@@ -256,7 +272,7 @@ services:
 
   # ------------------------------------------------------------------------- #
   # Observability — Prometheus scrapes metrics; Alertmanager routes alerts;   #
-  # Grafana displays dashboards.                                              #
+  # Loki stores logs; Promtail ships Docker logs; Grafana displays both.       #
   # ------------------------------------------------------------------------- #
   prometheus:
     image: ${PROMETHEUS_IMAGE:-prom/prometheus:v2.54.1}
@@ -266,6 +282,10 @@ services:
       - --config.file=/etc/prometheus/prometheus.yml
       - --storage.tsdb.path=/prometheus
       - --storage.tsdb.retention.time=15d
+      # Accept Tempo's metrics-generator remote_write (span + service-graph metrics that
+      # power Grafana's service dependency graph). Exemplar storage links metrics->traces.
+      - --web.enable-remote-write-receiver
+      - --enable-feature=exemplar-storage
     ports: ["${PROMETHEUS_PORT:-9090}:9090"]
     volumes:
       - ./prometheus/prometheus.yml:/etc/prometheus/prometheus.yml:ro
@@ -303,6 +323,76 @@ services:
       retries: 5
       start_period: 10s
 
+  loki:
+    image: ${LOKI_IMAGE:-grafana/loki:2.9.8}
+    container_name: parkio-loki
+    restart: unless-stopped
+    command:
+      - -config.file=/etc/loki/loki.yml
+      - -config.expand-env=true
+    environment:
+      PARKIO_LOKI_RETENTION_PERIOD: ${PARKIO_LOKI_RETENTION_PERIOD:-168h}
+    ports: ["127.0.0.1:${LOKI_PORT:-3100}:3100"]
+    volumes:
+      - ./loki/loki.yml:/etc/loki/loki.yml:ro
+      - loki-data:/loki
+    networks: [parkio-observability]
+    healthcheck:
+      test: ["CMD", "wget", "--quiet", "--tries=1", "--spider", "http://localhost:3100/ready"]
+      interval: 15s
+      timeout: 5s
+      retries: 10
+      start_period: 20s
+
+  promtail:
+    image: ${PROMTAIL_IMAGE:-grafana/promtail:2.9.8}
+    container_name: parkio-promtail
+    restart: unless-stopped
+    command:
+      - -config.file=/etc/promtail/promtail.yml
+      - -config.expand-env=true
+    environment:
+      PARKIO_ENVIRONMENT: ${PARKIO_ENVIRONMENT:-local}
+    depends_on:
+      loki:
+        condition: service_healthy
+    ports: ["127.0.0.1:${PROMTAIL_PORT:-9080}:9080"]
+    volumes:
+      - ./promtail/promtail.yml:/etc/promtail/promtail.yml:ro
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+      - promtail-positions:/tmp
+    networks: [parkio-observability]
+    healthcheck:
+      test: ["CMD", "wget", "--quiet", "--tries=1", "--spider", "http://localhost:9080/ready"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+
+  # Grafana Tempo — distributed-trace store. Receives OTLP spans from the services on the
+  # backend network; Grafana queries it on the observability network (same dual-network
+  # pattern as Prometheus). OTLP receivers (4317/4318) are NEVER published; the query/admin
+  # API (3200) is published loopback-only by the hosted-beta overlay. No healthcheck: the
+  # distroless Tempo image ships no shell/wget, so readiness is left to /ready probes in
+  # Grafana. The OTLP exporter in each service is fire-and-forget, so a late Tempo never
+  # blocks app startup.
+  tempo:
+    image: ${TEMPO_IMAGE:-grafana/tempo:2.6.1}
+    container_name: parkio-tempo
+    restart: unless-stopped
+    command:
+      - -config.file=/etc/tempo/tempo.yml
+      - -config.expand-env=true
+    environment:
+      PARKIO_TEMPO_RETENTION: ${PARKIO_TEMPO_RETENTION:-48h}
+    ports: ["127.0.0.1:${TEMPO_PORT:-3200}:3200"]
+    volumes:
+      - ./tempo/tempo.yml:/etc/tempo/tempo.yml:ro
+      - tempo-data:/var/tempo
+    # Both networks: backend to receive OTLP from services, observability to serve Grafana
+    # and to remote_write generated metrics to Prometheus.
+    networks: [parkio-backend, parkio-observability]
+
   grafana:
     image: ${GRAFANA_IMAGE:-grafana/grafana:11.2.0}
     container_name: parkio-grafana
@@ -310,6 +400,10 @@ services:
     depends_on:
       prometheus:
         condition: service_healthy
+      loki:
+        condition: service_healthy
+      tempo:
+        condition: service_started
     environment:
       GF_SECURITY_ADMIN_USER: ${GRAFANA_ADMIN_USER:-admin}
       GF_SECURITY_ADMIN_PASSWORD: ${GRAFANA_ADMIN_PASSWORD:?set GRAFANA_ADMIN_PASSWORD in .env}
@@ -345,6 +439,9 @@ volumes:
   clamav-data:
   prometheus-data:
   alertmanager-data:
+  loki-data:
+  promtail-positions:
+  tempo-data:
   grafana-data:
 
 # --------------------------------------------------------------------------- #

@@ -49,7 +49,7 @@ data, and secrets ("dev/prod parity").
 | **Infrastructure** | `docker-compose.yml` (+apps overlay) on a laptop | Same shape as prod, smaller (1 small VPS or small managed tier) | Managed data services + managed compute (see §2) |
 | **Data persistence** | Named Docker volumes; disposable | Managed (or VPS volumes) with **daily backups**; restorable, non-sensitive seed data | Managed Postgres **PITR**, Kafka **RF≥3**, S3 versioned; tested restores |
 | **Secrets** | git-ignored `.env`, local-dev values | Secrets manager (staging scope), unique values | Secrets manager (prod scope), unique values, **rotation** |
-| **Observability** | Prometheus + Grafana containers | Same + **Alertmanager** (test alerts) | Same + alerts wired to on-call + log aggregation + tracing |
+| **Observability** | Prometheus + Grafana + Loki containers | Same + **Alertmanager** + Loki/Promtail (test alerts/log search) | Same + alerts wired to on-call + log aggregation + tracing |
 | **Deployment** | `docker compose up` | CD auto-deploy on merge to `main` | CD with **manual approval** + rollback |
 | **TLS** | none (HTTP localhost) | real cert (staging subdomain) | real cert, HSTS |
 | **Ingress** | all ports exposed for convenience | gateway-only public; rest private | gateway-only public; rest private |
@@ -376,22 +376,46 @@ The frontend redirects to login after reset and never auto-logs the user in.
 ## 8. Observability
 
 Today: Prometheus scrapes `/actuator/prometheus`; alert rules route through Alertmanager;
-Grafana datasource + dashboard provider are provisioned; rich custom metric catalogue exists.
-**Missing: log aggregation, distributed tracing export, Kafka exporter, and node exporter.**
+Promtail ships Docker container logs to Loki; distributed tracing exports to Tempo; Grafana
+datasource + dashboard provider are provisioned; rich custom metric catalogue exists.
+**Missing: node exporter, async/Kafka trace propagation, and fully structured JSON application
+logs.**
 
 - **Prometheus + Alertmanager**: Prometheus evaluates `docker/prometheus/alerts.yml` and sends
   alerts to `alertmanager:9093`. Local/dev uses a no-op receiver. Hosted beta should set
   `PARKIO_ALERT_SLACK_WEBHOOK_URL` so critical/warning alerts notify Slack. Prometheus,
   Alertmanager, and Grafana are loopback-only in the hosted-beta overlay; access through an
   SSH tunnel, not the public proxy.
+- **Kafka exporter**: `parkio-kafka-exporter` scrapes the private broker at `kafka:9092`.
+  Prometheus alerts on exporter health, visible broker count, service consumer lag, sustained
+  lag, and retained `parkio.dlt.*` offset depth. DLT depth is broker-side retained offset depth,
+  not an application business counter.
 - **Grafana dashboards**: the hosted-beta overview dashboard is committed for service health,
   outbox DLQ/age, gateway 5xx + rate-limit rejections, auth failures, media failures, DB
   connections, and JVM. Add more dashboards as traffic patterns mature.
-- **Logs**: services log structured lines with `traceId` (MDC). Ship stdout to an aggregator
-  (Grafana Loki — cheapest; or provider logs). Required for prod debugging across 10 services.
-- **Tracing / OpenTelemetry**: `traceId` exists in logs but there is **no span export**. Add the
-  **OTel Java agent** (or Micrometer Tracing + OTLP exporter) → an OTel collector → Tempo/Jaeger.
-  High value across an event-driven system; can follow shortly after beta.
+- **Logs**: Promtail collects only Parkio Docker container stdout/stderr and sends it to Loki,
+  labeling streams by `service`, `container`, `compose_project`, and `environment`. Hosted
+  beta retention defaults to 7 days (`PARKIO_LOKI_RETENTION_PERIOD=168h`). Most services
+  include `traceId` in the text pattern; full JSON logging and field extraction remain a
+  follow-up.
+- **Tracing / OpenTelemetry** (implemented for beta): every service exports spans via Micrometer
+  Tracing → `micrometer-tracing-bridge-otel` → `opentelemetry-exporter-otlp` to **Tempo** over
+  OTLP/HTTP. Context propagates as W3C `traceparent` through the auto-configured HTTP clients, so
+  one trace spans the gateway and all downstream services. Grafana provisions the Tempo datasource
+  (trace search, latency waterfall, service-dependency graph via Tempo's metrics-generator →
+  Prometheus, and trace↔log correlation with Loki). Production hardening / follow-ups:
+  - **Sampling**: beta runs 100% (`PARKIO_TRACING_SAMPLING_PROBABILITY=1.0`). At production volume
+    drop to `0.05`–`0.20` to bound Tempo storage and exporter overhead; consider tail-based
+    sampling (via an OTel Collector) if you must keep all error/slow traces.
+  - **Tempo storage**: beta uses single-binary Tempo with a local block volume and `48h` retention
+    (`PARKIO_TEMPO_RETENTION`). For production move trace blocks to object storage (S3/GCS) and
+    size retention to need; the OTLP receivers must stay private (never publicly exposed).
+  - **Async / Kafka propagation**: the synchronous HTTP path is fully traced; trace context does
+    **not** yet cross the Kafka outbox boundary (the decoupled relay). The event envelope's
+    `correlationId` still stitches async flows. Follow-up: enable Spring Kafka observation and
+    carry `traceparent` through the outbox row to link producer and consumer spans.
+  - **JDBC spans**: `datasource-micrometer` (per-query DB spans) was intentionally omitted to keep
+    the beta minimal — add it if DB latency needs span-level attribution.
 - **Alerting — key alerts (wire to on-call for prod):**
 
   | Alert | Signal | Why |
@@ -504,8 +528,8 @@ OIDC federation to the cloud provider where possible.
 | Redis | no auth/TLS | acceptable on private net | managed Redis + AUTH + TLS | Medium |
 | Migrations in deploy | run on app boot | gated pre-deploy step | gated, backward-compatible (expand/contract) | High |
 | Observability: alerts | none | alert on dead-letter + service-down + 5xx | full alert set + on-call | High |
-| Tracing | traceId in logs only | optional | OTel spans → collector | Medium |
-| Log aggregation | stdout only | optional | centralized (Loki/provider) | High (prod) |
+| Tracing | OTel spans → Tempo (HTTP path, 100% sampling) | same + tuned sampling | + async/Kafka propagation, tail sampling, object-storage Tempo | Medium |
+| Log aggregation | Loki/Promtail in local compose | Loki/Promtail with 7-day retention | centralized logs + structured JSON + managed/provider retention | High (prod) |
 | CD pipeline | none (CI only) | manual deploy ok | build→stage→smoke→approve→prod + rollback | High (prod) |
 | `X-Forwarded-For` trust | not configured for proxy | configure forwarded-headers + trusted proxy | same, verified | **Blocker** (with proxy) |
 | Resource limits | none in compose | set memory limits per container | requests/limits + sized replicas | Medium |
@@ -576,7 +600,8 @@ OIDC federation to the cloud provider where possible.
 - Stand up **staging**; CD: build → deploy staging → run integration + smoke → manual approve.
 - Migrate Kafka to **managed RF≥3 / ISR=2** (`PARKIO_KAFKA_REPLICATION_FACTOR=3`), pre-create topics.
 - Move media to **managed S3-compatible** (R2/B2) with versioning + lifecycle + bucket CORS.
-- Centralized logs (Loki) + Grafana dashboards committed; consumer-lag + DLT-depth exporter.
+- ~~Centralized logs (Loki) + Grafana datasource committed.~~ **Done** for hosted beta.
+- ~~Consumer-lag + DLT-depth exporter.~~ **Done** for hosted beta. Follow-up: structured JSON logging.
 - Gate migrations as a pre-deploy step (backward-compatible/expand-contract policy).
 
 **Days 61–90 — Production hardening.**
@@ -617,7 +642,15 @@ OIDC federation to the cloud provider where possible.
 7. ~~Add Prometheus alert rules and Alertmanager notifications for the beta alerts.~~ **Done**
    (`docker/prometheus/alerts.yml` + `docker/alertmanager/`; 5 critical + 5 warning rules,
    Slack receiver via `PARKIO_ALERT_SLACK_WEBHOOK_URL`, hosted-beta Grafana dashboard bundled).
-   **Still TODO:** Kafka/node exporters for lag and disk alerts.
+   **Still TODO:** node exporter for disk alerts.
+7b. ~~Add centralized hosted-beta logs.~~ **Done** (`docker/loki/` + `docker/promtail/`):
+   Promtail collects Parkio Docker container logs into Loki, Grafana provisions a Loki
+   datasource, and hosted-beta retention defaults to 7 days. Follow-up: structured JSON logs
+   and distributed tracing.
+7c. ~~Add Kafka lag and DLT-depth observability.~~ **Done** (`parkio-kafka-exporter` +
+   Prometheus job `kafka-exporter`): service consumer lag and `parkio.dlt.*` retained offset
+   depth now alert through Alertmanager. Follow-up: managed Kafka broker metrics and node
+   exporter for host disk.
 8. Decide and sign off the managed providers for Phase 2 (Postgres, Kafka, object storage).
 
 ### 11.5 Risks and tradeoffs

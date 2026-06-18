@@ -79,6 +79,58 @@ groups:
           description: "{{ $value }} thread(s) waiting for a DB connection in {{ $labels.service }} for >5m. Check for slow queries / connection leaks or raise the pool size."
           runbook_url: "docs/architecture/observability-metrics.md#runbook--databaseconnectionpoolexhausted"
 
+      - alert: KafkaExporterDown
+        # Without the exporter, consumer lag and DLT depth are blind.
+        expr: up{job="kafka-exporter"} == 0
+        for: 2m
+        labels:
+          severity: critical
+        annotations:
+          summary: "Kafka exporter is down"
+          description: "Prometheus cannot scrape kafka-exporter for >2m. Kafka lag and DLT-depth alerts are unavailable until the exporter is restored."
+          runbook_url: "docs/architecture/observability-metrics.md#runbook--kafkaexporterdown"
+
+      - alert: KafkaBrokerUnavailable
+        # danielqsj/kafka-exporter exposes kafka_brokers as the broker count it can see.
+        expr: kafka_brokers < 1
+        for: 2m
+        labels:
+          severity: critical
+        annotations:
+          summary: "Kafka exporter sees no brokers"
+          description: "Kafka exporter is reachable but reports zero Kafka brokers. Check parkio-kafka health, listener config, and exporter broker address kafka:9092."
+          runbook_url: "docs/architecture/observability-metrics.md#runbook--kafkabrokerunavailable"
+
+      - alert: KafkaDltMessagesPresent
+        # DLT topics are delete-retention topics, so retained offset depth is a practical
+        # broker-side proxy for poison records awaiting inspection/redrive.
+        expr: |
+          sum by (topic) (
+            kafka_topic_partition_current_offset{topic=~"parkio\\.dlt\\..+"}
+              - kafka_topic_partition_oldest_offset{topic=~"parkio\\.dlt\\..+"}
+          ) > 0
+        for: 5m
+        labels:
+          severity: critical
+        annotations:
+          summary: "Kafka DLT topic {{ $labels.topic }} has retained messages"
+          description: "{{ $labels.topic }} has retained offset depth {{ $value }} for >5m. A consumer poison message was routed to its DLT; inspect and redrive or archive deliberately."
+          runbook_url: "docs/architecture/observability-metrics.md#runbook--kafkadltmessagespresent"
+
+      - alert: KafkaConsumerLagSustained
+        # Sustained high average lag indicates a stuck/underprovisioned consumer, not just a burst.
+        expr: |
+          max by (consumergroup, topic) (
+            avg_over_time(kafka_consumergroup_lag{consumergroup=~".*-service",topic=~"parkio\\..+"}[30m])
+          ) > 1000
+        for: 10m
+        labels:
+          severity: critical
+        annotations:
+          summary: "Kafka consumer lag sustained for {{ $labels.consumergroup }} on {{ $labels.topic }}"
+          description: "{{ $labels.consumergroup }} has averaged >1000 messages of lag on {{ $labels.topic }} for at least 30m. User-visible projections may be stale."
+          runbook_url: "docs/architecture/observability-metrics.md#runbook--kafkaconsumerlagsustained"
+
   # ===================================================================== #
   # WARNING — investigate soon; not necessarily an outage.                 #
   # ===================================================================== #
@@ -152,14 +204,23 @@ groups:
           summary: "Notification delivery failure rate is high"
           description: "Over 50% of notification delivery attempts failed in the last 15m. Check the delivery provider/credentials and notification-service logs."
 
+      - alert: KafkaConsumerLagHigh
+        # Beta-sized early warning. The sustained critical alert above handles longer outages.
+        expr: |
+          max by (consumergroup, topic) (
+            kafka_consumergroup_lag{consumergroup=~".*-service",topic=~"parkio\\..+"}
+          ) > 100
+        for: 10m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Kafka consumer lag is high for {{ $labels.consumergroup }} on {{ $labels.topic }}"
+          description: "{{ $labels.consumergroup }} has >100 messages of lag on {{ $labels.topic }} for >10m. Check the consumer logs before it becomes a sustained backlog."
+          runbook_url: "docs/architecture/observability-metrics.md#runbook--kafkaconsumerlaghigh"
+
 # ========================================================================= #
 # NOT ENABLED — required exporters are not part of the hosted-beta stack.    #
 # Documented here so the gap is explicit (see observability-metrics.md).     #
-#                                                                            #
-# KafkaConsumerLagHigh  — needs a Kafka exporter (kafka_consumergroup_lag);  #
-#   broker-level, not scraped today. Template:                               #
-#     expr: max by (consumergroup,topic) (kafka_consumergroup_lag) > 1000    #
-#     for: 10m  ; severity: critical                                         #
 #                                                                            #
 # DiskSpaceLow — needs node_exporter (node_filesystem_avail_bytes). Template:#
 #     expr: (node_filesystem_avail_bytes{mountpoint="/"}                     #

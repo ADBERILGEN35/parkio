@@ -4,7 +4,8 @@
 #   * adds a Caddy TLS reverse proxy (automatic HTTPS via ACME) as the ONLY public entrypoint;
 #   * stops publishing every backend/data port to the host (gateway, services, DBs, Redis,
 #     Kafka, MinIO become private to the Docker network);
-#   * keeps Prometheus/Alertmanager/Grafana bound to loopback only (admin access via SSH tunnel).
+#   * keeps Prometheus/Alertmanager/Loki/Promtail/Grafana bound to loopback only
+#     (admin access via SSH tunnel).
 #
 # Run WITH the base + apps files, last so it wins:
 #   docker compose -f docker-compose.yml -f docker-compose.apps.yml -f docker-compose.hosted-beta.yml up -d --build
@@ -134,6 +135,8 @@ services:
     ports: !reset []
   kafka:
     ports: !reset []
+  kafka-exporter:
+    ports: !override ["127.0.0.1:${KAFKA_EXPORTER_PORT:-9308}:9308"]
   minio:
     # MinIO is private; the public media host is served via Caddy -> minio:9000 (presigned GETs).
     ports: !reset []
@@ -143,12 +146,21 @@ services:
 
   # ------------------------------------------------------------------------- #
   # Observability — loopback-only on the VPS. Reach via SSH local-forward:     #
-  #   ssh -L 3000:localhost:3000 -L 9090:localhost:9090 -L 9093:localhost:9093 user@vps
+  #   ssh -L 3000:localhost:3000 -L 9090:localhost:9090 -L 9093:localhost:9093 \
+  #       -L 3100:localhost:3100 -L 3200:localhost:3200 -L 9308:localhost:9308 user@vps
+  # Tempo's OTLP receivers (4317/4318) are NEVER published — services reach them
+  # in-network only; only Tempo's read/query API (3200) is loopback-bound for admin.
   # ------------------------------------------------------------------------- #
   prometheus:
     ports: !override ["127.0.0.1:${PROMETHEUS_PORT:-9090}:9090"]
   alertmanager:
     ports: !override ["127.0.0.1:${ALERTMANAGER_PORT:-9093}:9093"]
+  loki:
+    ports: !override ["127.0.0.1:${LOKI_PORT:-3100}:3100"]
+  promtail:
+    ports: !override ["127.0.0.1:${PROMTAIL_PORT:-9080}:9080"]
+  tempo:
+    ports: !override ["127.0.0.1:${TEMPO_PORT:-3200}:3200"]
   grafana:
     ports: !override ["127.0.0.1:${GRAFANA_PORT:-3000}:3000"]
 

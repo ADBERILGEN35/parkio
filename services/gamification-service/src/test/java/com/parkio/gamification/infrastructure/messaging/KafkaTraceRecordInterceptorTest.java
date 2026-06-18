@@ -27,10 +27,10 @@ class KafkaTraceRecordInterceptorTest {
                 "traceId", "trace-kafka-header".getBytes(StandardCharsets.UTF_8)));
 
         interceptor.intercept(record, null);
-        assertThat(MDC.get("traceId")).isEqualTo("trace-kafka-header");
+        assertThat(MDC.get("correlationId")).isEqualTo("trace-kafka-header");
 
         interceptor.afterRecord(record, null);
-        assertThat(MDC.get("traceId")).isNull();
+        assertThat(MDC.get("correlationId")).isNull();
     }
 
     @Test
@@ -40,6 +40,6 @@ class KafkaTraceRecordInterceptorTest {
 
         interceptor.intercept(record, null);
 
-        assertThat(MDC.get("traceId")).isEqualTo("trace-envelope");
+        assertThat(MDC.get("correlationId")).isEqualTo("trace-envelope");
     }
 }

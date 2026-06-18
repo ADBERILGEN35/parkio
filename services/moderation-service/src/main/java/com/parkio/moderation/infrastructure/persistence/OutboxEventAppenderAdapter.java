@@ -37,7 +37,7 @@ public class OutboxEventAppenderAdapter implements OutboxEventAppender {
                 event.eventType(),
                 serialize(event),
                 event.occurredAt(),
-                MDC.get("traceId"),
+                MDC.get("correlationId"),
                 false);
         jpa.save(entity);
     }

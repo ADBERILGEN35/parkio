@@ -9,6 +9,9 @@ dependencies {
     implementation(libs.spring.boot.starter.actuator)
     // Prometheus metrics export: /actuator/prometheus (scraped by docker/prometheus).
     runtimeOnly(libs.micrometer.registry.prometheus)
+    // Distributed tracing: export OTLP spans to Tempo (Micrometer Observation -> OpenTelemetry).
+    implementation(libs.micrometer.tracing.bridge.otel)
+    runtimeOnly(libs.opentelemetry.exporter.otlp)
     // Reactive Redis backs the edge RequestRateLimiter (token bucket per user/IP).
     implementation(libs.spring.boot.starter.data.redis.reactive)
     // Bean Validation for @ConfigurationProperties (fail-closed JWT secret check).

@@ -22,6 +22,11 @@ x-app-common: &app-common
     SPRING_KAFKA_BOOTSTRAP_SERVERS: kafka:9092
     MANAGEMENT_ENDPOINTS_WEB_EXPOSURE_INCLUDE: health,info,prometheus
     JAVA_TOOL_OPTIONS: ${JAVA_TOOL_OPTIONS:--XX:MaxRAMPercentage=75.0}
+    # Distributed tracing -> Tempo (OTLP/HTTP). 100% sampling for the beta; tune via env.
+    # The OTLP receiver is private to the Docker network (tempo:4318, never published).
+    PARKIO_TRACING_ENABLED: ${PARKIO_TRACING_ENABLED:-true}
+    PARKIO_TRACING_SAMPLING_PROBABILITY: ${PARKIO_TRACING_SAMPLING_PROBABILITY:-1.0}
+    PARKIO_TRACING_OTLP_ENDPOINT: ${PARKIO_TRACING_OTLP_ENDPOINT:-http://tempo:4318/v1/traces}
     # Shared gateway-ingress secret. The gateway stamps it onto every routed request
     # as X-Gateway-Auth; every downstream service requires it. Same value everywhere.
     PARKIO_GATEWAY_INTERNAL_SECRET: ${PARKIO_GATEWAY_INTERNAL_SECRET}

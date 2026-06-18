@@ -49,3 +49,8 @@ scrape_configs:
         labels: { service: ai-validation-service }
       - targets: ["analytics-service:8089"]
         labels: { service: analytics-service }
+
+  - job_name: kafka-exporter
+    static_configs:
+      - targets: ["kafka-exporter:9308"]
+        labels: { service: kafka-exporter }

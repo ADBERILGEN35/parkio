@@ -29,7 +29,7 @@ public record ApiError(
     }
 
     private static String currentTraceId() {
-        String traceId = MDC.get("traceId");
+        String traceId = MDC.get("correlationId");
         return traceId == null || traceId.isBlank() ? "unknown" : traceId;
     }
 }

@@ -57,7 +57,7 @@ server:
 
 logging:
   pattern:
-    level: "%5p [traceId:%X{traceId:-unknown}]"
+    level: "%5p [${spring.application.name:-},traceId=%X{traceId:-},spanId=%X{spanId:-},correlationId=%X{correlationId:-}]"
 
 management:
   endpoints:
@@ -73,6 +73,16 @@ management:
     tags:
       # Tag every metric with the service name (kept in sync with the scrape label).
       application: ${spring.application.name}
+  tracing:
+    # 100% sampling for hosted-beta; tune down to 0.05-0.20 for production via env.
+    enabled: ${PARKIO_TRACING_ENABLED:true}
+    sampling:
+      probability: ${PARKIO_TRACING_SAMPLING_PROBABILITY:1.0}
+  otlp:
+    tracing:
+      # OTLP/HTTP span export to Tempo. The localhost default is for IDE-only dev; the
+      # docker-compose apps overlay sets this to http://tempo:4318/v1/traces.
+      endpoint: ${PARKIO_TRACING_OTLP_ENDPOINT:http://localhost:4318/v1/traces}
 
 
 springdoc:

@@ -19,9 +19,13 @@ services over the `parkio-backend` Docker network every 15s.
   `/alerts` shows alert-rule state)
 - Alertmanager UI: <http://localhost:9093> (bound to loopback by default; hosted beta uses
   an SSH tunnel)
+- Loki API: <http://localhost:3100> (bound to loopback; normal access is through Grafana)
+- Tempo API: <http://localhost:3200> (`TEMPO_PORT`, default 3200; bound to loopback — the
+  OTLP receivers on 4317/4318 are never published, access traces through Grafana)
 - Grafana: <http://localhost:3000> (`GRAFANA_PORT`, default 3000; Prometheus is the
-  provisioned default datasource and the "Parkio — Hosted Beta Overview" dashboard is
-  bundled — see Alerting & dashboards below)
+  provisioned default datasource, Loki is provisioned for logs, Tempo is provisioned for
+  traces, and the "Parkio — Hosted Beta Overview" dashboard is bundled — see Alerting &
+  dashboards below)
 - Ad-hoc check: `curl http://localhost:8081/actuator/prometheus | grep parkio_`
 
 Spring Boot's built-in Micrometer bindings (JVM memory/GC, process CPU,
@@ -99,20 +103,40 @@ No email, user id, or other PII is ever used as a tag.
 Spring Cloud Gateway's built-in `spring.cloud.gateway.requests` timer (per route/status)
 is also exported.
 
-## Kafka DLT and consumer lag — broker-level monitoring
+## Kafka DLT and consumer lag — Kafka exporter
 
-There is intentionally **no app-level `parkio.kafka.consumer.dlt.count`**: services
-publish poison messages to `parkio.dlt.<service>` and move on; consuming the DLTs from
-the apps just to count them would couple triage to runtime. Monitor at the broker:
+There is intentionally **no app-level `parkio.kafka.consumer.dlt.count`**: services publish
+poison messages to `parkio.dlt.<service>` and move on; consuming the DLTs from the apps just
+to count them would couple triage to runtime. Hosted beta monitors this at the broker via
+`parkio-kafka-exporter` (`danielqsj/kafka-exporter`), scraped by Prometheus as
+`job="kafka-exporter"`.
 
-- **DLT depth**: alert when any `parkio.dlt.*` topic's end offset grows (e.g.
-  `kafka-run-class.sh kafka.tools.GetOffsetShell --topic 'parkio.dlt.*'`, a Kafka
-  exporter, or Redpanda Console locally).
-- **Consumer lag**: `kafka-consumer-groups.sh --describe --all-groups`, Burrow, or the
-  Kafka exporter's `kafka_consumergroup_lag` metric.
+The exporter connects to the private broker at `kafka:9092`, filters to Parkio topics
+(`parkio.*`) and service consumer groups (`*-service`), and exposes:
 
-Spring's Kafka client metrics (consumer fetch/commit rates) are exported per service
-via the automatic Micrometer binding and complement the broker-side view.
+| Metric | Meaning |
+|---|---|
+| `kafka_consumergroup_lag` | Lag by consumer group, topic, and partition. |
+| `kafka_topic_partition_current_offset` | Topic partition high-water offset. |
+| `kafka_topic_partition_oldest_offset` | Oldest retained topic partition offset. |
+| `kafka_brokers` | Number of Kafka brokers visible to the exporter. |
+
+DLT topics follow the convention documented in `kafka-transport.md`: `parkio.dlt.<service>`.
+For delete-retention DLT topics, retained offset depth is calculated as
+`current_offset - oldest_offset`; this is the broker-side proxy for poison messages awaiting
+inspection/redrive. It is not an application business counter.
+
+Useful Grafana/Prometheus queries:
+
+```promql
+max by (consumergroup, topic) (kafka_consumergroup_lag{consumergroup=~".*-service",topic=~"parkio\\..+"})
+sum by (topic) (kafka_topic_partition_current_offset{topic=~"parkio\\.dlt\\..+"} - kafka_topic_partition_oldest_offset{topic=~"parkio\\.dlt\\..+"})
+up{job="kafka-exporter"}
+kafka_brokers
+```
+
+Spring's Kafka client metrics (consumer fetch/commit rates) are exported per service via the
+automatic Micrometer binding and complement the broker-side view.
 
 ## Alerting & dashboards
 
@@ -129,11 +153,16 @@ are sized for a small single-VPS beta — tune as traffic grows.
 | `OutboxDeadlettered` | critical | `parkio_outbox_deadlettered_count > 0` | any poison row persists ≥5m |
 | `OutboxOldestUnpublishedTooOld` | critical | `parkio_outbox_oldest_unpublished_age_seconds > 300` | oldest relayable row >5m old, for 10m |
 | `DatabaseConnectionPoolExhausted` | critical | `hikaricp_connections_pending > 0` | threads block on a DB connection for 5m |
+| `KafkaExporterDown` | critical | `up{job="kafka-exporter"} == 0` | Kafka exporter scrape is down for 2m |
+| `KafkaBrokerUnavailable` | critical | `kafka_brokers < 1` | exporter can scrape but sees no broker |
+| `KafkaDltMessagesPresent` | critical | DLT current offset - oldest offset > 0 | any `parkio.dlt.*` retained offset depth persists ≥5m |
+| `KafkaConsumerLagSustained` | critical | 30m avg lag > 1000 | sustained service consumer lag |
 | `HighJvmMemoryUsage` | warning | heap used/max > 0.9 | heap >90% for 10m |
 | `MediaUploadFailuresHigh` | warning | rejects / attempts > 0.5 | >50% uploads rejected over 15m |
 | `AuthLoginFailuresHigh` | warning | `rate(login_failure) > 0.2/s` | ~>12 failed logins/min for 10m |
 | `GatewayRateLimitSpike` | warning | `rate(rate_limit_rejected) > 1/s` | >60 × 429/min for 10m |
 | `NotificationDeliveryFailuresHigh` | warning | worker failures / attempts > 0.5 | >50% deliveries fail over 15m |
+| `KafkaConsumerLagHigh` | warning | lag > 100 | beta-sized early warning for consumer lag |
 
 ### Alertmanager routing
 
@@ -176,18 +205,145 @@ down / outbox DLQ depth / oldest-unpublished age / gateway 429 (stat row), servi
 (`up`), gateway 5xx ratio, outbox dead-lettered + oldest-age + backlog by service, auth
 login success vs failure, media uploads vs rejects, JVM heap %, and DB pool active/pending.
 
+## Centralized logs — Loki + Promtail
+
+Hosted beta collects container stdout/stderr through Promtail and stores it in Loki. Promtail
+uses Docker service discovery against `/var/run/docker.sock`, filters to the `parkio` Compose
+project, and labels log streams with:
+
+| Label | Source |
+|---|---|
+| `service` | Docker Compose service label |
+| `container` | Docker container name |
+| `compose_project` | Docker Compose project label (`parkio`) |
+| `environment` | `PARKIO_ENVIRONMENT` (`local` or `hosted-beta`) |
+
+Promtail does **not** mount host log directories and does **not** scrape `.env` files or other
+filesystem paths. Loki retention is controlled by `PARKIO_LOKI_RETENTION_PERIOD` and defaults
+to `168h` (7 days), which is intentionally beta-sized for a single VPS.
+
+Use Grafana **Explore -> Loki**. Sample LogQL:
+
+```logql
+# All gateway logs
+{service="gateway-service"}
+
+# Error-looking logs across Parkio
+{compose_project="parkio"} |~ "(?i)error|exception|failed"
+
+# Search by OpenTelemetry trace id (links across to Tempo via the derived field)
+{compose_project="parkio"} |= "traceId=4bf92f3577b34da6a3ce929d0e0e4736"
+
+# Search by the user-facing correlation id (echoed in API errors / X-Correlation-Id)
+{compose_project="parkio"} |= "correlationId=abc-123"
+
+# Service-specific logs
+{environment="hosted-beta", service="parking-service"}
+
+# Auth failures
+{service="auth-service"} |~ "(?i)login|authentication" |~ "(?i)fail|denied|locked"
+
+# Media upload failures
+{service="media-service"} |~ "(?i)upload|reject|malware|normalize|storage"
+```
+
+Every service log line carries two distinct identifiers (see
+`logging.pattern.level` in each `application.yml`):
+`[<service>,traceId=<otel-hex>,spanId=<otel-hex>,correlationId=<uuid>]`.
+
+- **`traceId`/`spanId`** are the OpenTelemetry ids owned by Micrometer tracing. The `traceId=`
+  token is what Grafana's Loki **derived field** matches to link a log line straight to its
+  trace in Tempo (Loki ↔ Tempo correlation).
+- **`correlationId`** is the user-facing request id the gateway generates/forwards as
+  `X-Correlation-Id`, echoes on responses, and surfaces in `ApiError.traceId`. It is the id a
+  user or support ticket will quote, and it also rides Kafka events for async flows.
+
+Full structured JSON logging is not complete yet; Promtail currently treats logs as Docker log
+lines with labels rather than parsing application fields. Follow-up: standardize JSON logs with
+safe fields (`traceId`, `spanId`, `correlationId`, `service`, request method/path/status, error
+code) and explicit redaction for tokens, passwords, API keys, MinIO credentials, DB passwords.
+
+## Distributed tracing — OpenTelemetry + Tempo
+
+Hosted beta runs end-to-end distributed tracing so a single request can be followed across
+every hop (Gateway → Auth/User/Parking/Media/Moderation/AI-Validation/Analytics/Notification/
+Gamification), with per-span latency, errors and retries.
+
+### Architecture
+
+```
+Spring services ──OTLP/HTTP(4318)──▶ Tempo ──remote_write──▶ Prometheus (service-graph metrics)
+   │  (Micrometer Observation                │
+   │   → micrometer-tracing-bridge-otel       └──────────────▶ trace blocks (local volume)
+   │   → opentelemetry-exporter-otlp)
+   └─ logs (traceId=…) ──▶ Promtail ──▶ Loki ◀──derived field──▶ Tempo (logs ↔ traces)
+                                          Grafana reads all three datasources
+```
+
+- **Instrumentation:** the smallest correct path on Spring Boot 3.4 — Spring already records
+  Micrometer **Observations** for incoming HTTP, `WebClient`/`RestClient`, etc. We add
+  `micrometer-tracing-bridge-otel` (turns those Observations into OpenTelemetry spans) and
+  `opentelemetry-exporter-otlp` (ships them). No custom spans, no second tracing stack. Both
+  versions come from the Spring Boot BOM, so there is exactly one, aligned tracer.
+- **Sampling:** `PARKIO_TRACING_SAMPLING_PROBABILITY` (default `1.0` = 100% for beta). Lower to
+  `0.05`–`0.20` in production. `PARKIO_TRACING_ENABLED` toggles the whole feature.
+- **Tempo:** single-binary, local block storage on the `tempo-data` volume, retention
+  `PARKIO_TEMPO_RETENTION` (default `48h`). Receives OTLP on 4317 (gRPC) / 4318 (HTTP),
+  serves queries on 3200. The metrics-generator (`service-graphs` + `span-metrics`)
+  remote-writes into Prometheus to power the service map.
+
+### Propagation model
+
+Trace context propagates over the wire as the **W3C `traceparent`** header, injected
+automatically because every internal HTTP client is built from the auto-configured
+`WebClient.Builder` / `RestClient.Builder` bean (gateway → user-status/session-epoch/JWKS,
+parking → media). So the same OTel `traceId` is shared by Gateway, Auth, User, Parking, Media,
+Moderation, AI-Validation, Analytics, Notification and Gamification on the synchronous path.
+
+This is **separate from** the existing `X-Correlation-Id` channel: the correlation UUID remains
+the user-facing request id (response header + `ApiError.traceId` + Kafka event envelope), now
+logged under `correlationId=`. The two coexist with no contract change.
+
+### Grafana workflows
+
+Use **Explore → Tempo**:
+
+- **Trace search:** query by service, span name, duration or status; or paste a `traceId`.
+- **Trace view:** the waterfall shows each service's span, latency contribution and errors.
+- **Service map / node graph:** the **Service Graph** tab renders the live dependency graph and
+  RED metrics from the generator's Prometheus metrics.
+- **Latency investigation:** sort spans by duration / filter `duration > Xms` to find the slow hop.
+- **Error investigation:** filter `status = error`; jump **trace → logs** (Tempo
+  `tracesToLogsV2` → Loki) to read that service's log lines for the trace.
+- **Logs → trace:** in **Explore → Loki**, the `traceId=` token in any log line is a clickable
+  link that opens the trace in Tempo (derived field).
+
+### Relationship between Prometheus, Loki and Tempo
+
+- **Prometheus** — aggregate metrics ("how many / how slow overall"); also stores Tempo's
+  service-graph/span metrics.
+- **Loki** — log lines ("what exactly happened"), labelled per service.
+- **Tempo** — per-request traces ("where did *this* request spend its time / fail").
+- They are stitched by shared ids: `traceId` links Loki ↔ Tempo; exemplars + the service-graph
+  metrics link Prometheus ↔ Tempo; `correlationId` ties async/Kafka flows and user reports.
+
+### Troubleshooting
+
+- **No traces in Tempo:** confirm `PARKIO_TRACING_ENABLED=true` and the service can reach
+  `tempo:4318`; check the service log for OTLP exporter errors; verify sampling probability > 0.
+- **Trace missing a hop:** that call likely doesn't use the auto-configured client builder, or a
+  custom thread/executor dropped the context — check the client construction.
+- **Service map empty:** the generator needs traffic *and* Prometheus' remote-write receiver
+  (`--web.enable-remote-write-receiver`); allow a few minutes after first traffic.
+- **Log line won't link to a trace:** confirm the log shows `traceId=<hex>` (not `unknown`) — an
+  unsampled or pre-context log line has no trace id.
+
 ### Not yet scraped (known gaps)
 
-These alerts are **documented but not enabled** because the stack has no exporter for them
-(templates are kept, commented, at the bottom of `alerts.yml`):
+These alerts are **documented but not enabled** because the stack has no exporter for them:
 
-- **`KafkaConsumerLagHigh`** — broker-level. Needs a Kafka exporter exposing
-  `kafka_consumergroup_lag`. Until then, monitor lag manually
-  (`kafka-consumer-groups.sh --describe --all-groups`).
 - **`DiskSpaceLow`** — host-level. Needs `node_exporter` exposing
   `node_filesystem_avail_bytes`. Until then, watch disk on the VPS manually (`df -h`).
-- **Kafka DLT depth** (`parkio.dlt.*` end offsets) — broker-level, same Kafka-exporter gap;
-  the app-side `OutboxDeadlettered` alert covers the *producer* poison path in the meantime.
 
 ### Runbook — `ServiceDown`
 
@@ -270,6 +426,48 @@ you act.
 3. Confirm Resend/email issues are not causing users to repeatedly fail verification/login.
 4. If traffic is abusive, tighten edge rate limits or temporarily block source ranges at the
    VPS firewall/proxy.
+
+### Runbook — `KafkaExporterDown`
+
+1. Check `docker compose ... ps kafka-exporter` and `docker logs parkio-kafka-exporter`.
+2. Confirm the exporter can reach the in-network broker address `kafka:9092`.
+3. Check the Kafka container health and the `parkio-backend` / `parkio-observability` networks.
+4. Until this clears, consumer-lag and DLT-depth alerts are blind.
+
+### Runbook — `KafkaBrokerUnavailable`
+
+1. Kafka exporter is scrapeable but reports `kafka_brokers < 1`; inspect `parkio-kafka` health.
+2. Verify Kafka listeners still advertise `PLAINTEXT://kafka:9092` for in-network clients.
+3. Check broker logs for startup, storage, or KRaft controller failures.
+4. If the broker was rebuilt, verify topics were recreated by service topic provisioning.
+
+### Runbook — `KafkaDltMessagesPresent`
+
+1. Identify the DLT topic from the alert label, e.g. `parkio.dlt.notification`.
+2. Inspect the owning consumer service logs around the first DLT timestamp and look for poison
+   record / deserialization / handler errors.
+3. Use broker tooling if available to inspect the DLT topic before deleting/redriving:
+   `kafka-console-consumer --bootstrap-server kafka:9092 --topic <topic> --from-beginning`.
+4. Redrive only after the consumer bug or data-contract issue is fixed. Otherwise archive/delete
+   deliberately and record why.
+
+### Runbook — `KafkaConsumerLagHigh`
+
+1. Identify `consumergroup` and `topic`; inspect that service's logs for handler failures,
+   retries, slow DB writes, or downstream outages.
+2. Compare with `KafkaDltMessagesPresent`: DLT records often explain lag clearing or poison flow.
+3. Check Kafka broker health and CPU/disk pressure on the VPS.
+4. If lag is transient and falling, watch; if it keeps growing, restart or scale the consumer
+   service after capturing logs.
+
+### Runbook — `KafkaConsumerLagSustained`
+
+1. Treat this as user-visible stale projections: the group has averaged >1000 lag for 30m.
+2. Follow `KafkaConsumerLagHigh`, then check whether the service is underprovisioned or blocked
+   on database/HTTP dependencies.
+3. If the consumer is healthy but traffic exceeds one instance's capacity, increase replicas in
+   the target platform. For single-VPS beta, consider temporarily reducing producers or disabling
+   non-critical write paths.
 
 ## Adding a new metric
 

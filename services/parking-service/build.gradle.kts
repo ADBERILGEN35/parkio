@@ -10,6 +10,9 @@ dependencies {
     implementation(libs.spring.boot.starter.actuator)
     // Prometheus metrics export: /actuator/prometheus (scraped by docker/prometheus).
     runtimeOnly(libs.micrometer.registry.prometheus)
+    // Distributed tracing: export OTLP spans to Tempo (Micrometer Observation -> OpenTelemetry).
+    implementation(libs.micrometer.tracing.bridge.otel)
+    runtimeOnly(libs.opentelemetry.exporter.otlp)
     implementation(libs.spring.boot.starter.validation)
     implementation(libs.spring.boot.starter.data.jpa)
 

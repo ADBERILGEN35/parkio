@@ -50,3 +50,8 @@ parkio:
       enabled: false
     relay:
       enabled: false
+
+# Tracing exports only at runtime; disabled in tests so no OTLP exporter starts.
+management:
+  tracing:
+    enabled: false

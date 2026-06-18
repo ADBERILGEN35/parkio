@@ -37,6 +37,14 @@ spring-kafka = { module = "org.springframework.kafka:spring-kafka" }
 # Spring Boot BOM. Added to every service that has the actuator starter.
 micrometer-registry-prometheus = { module = "io.micrometer:micrometer-registry-prometheus" }
 
+# Distributed tracing (OpenTelemetry via Micrometer Observation). Versions come from the
+# Spring Boot BOM (micrometer-tracing-bom + opentelemetry-bom) — no explicit pinning, so
+# there is a single, BOM-aligned tracing stack (no duplicate tracer). The bridge turns the
+# Observations Spring already records into OpenTelemetry spans; the OTLP exporter ships them
+# to Tempo. Added to every actuator-enabled service.
+micrometer-tracing-bridge-otel = { module = "io.micrometer:micrometer-tracing-bridge-otel" }
+opentelemetry-exporter-otlp = { module = "io.opentelemetry:opentelemetry-exporter-otlp" }
+
 # OpenAPI 3 docs + Swagger UI for REST services (Spring MVC only — not the gateway).
 springdoc-openapi-starter-webmvc-ui = { module = "org.springdoc:springdoc-openapi-starter-webmvc-ui", version.ref = "springdoc" }
 

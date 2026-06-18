@@ -30,6 +30,9 @@ management:
     web:
       exposure:
         include: health,info,prometheus
+  # Tracing exports only at runtime; off in tests so no OTLP exporter thread starts.
+  tracing:
+    enabled: false
 
 parkio:
   lifecycle:

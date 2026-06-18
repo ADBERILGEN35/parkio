@@ -14,6 +14,8 @@ docker/
 ├── docker-compose.apps.yml     # The 10 application services (overlay on the infra file)
 ├── .env.example                # Copy to .env and edit
 ├── alertmanager/               # Alertmanager config + env-safe Slack renderer
+├── loki/loki.yml               # Central log storage config
+├── promtail/promtail.yml       # Docker log collection config
 ├── prometheus/prometheus.yml   # Scrape config
 └── grafana/provisioning/       # Auto-provisioned datasource + dashboard provider
 ```
@@ -33,9 +35,12 @@ docker/
 | PostgreSQL (ai-validation)| `parkio-postgres-ai-validation`| 5440           | `ai-validation-service` database          |
 | Redis                    | `parkio-redis`                | 6379            | Cache, locks, idempotency, rate limiting  |
 | Kafka (KRaft)            | `parkio-kafka`                | 29092 (host)    | Async events; in-network listener `kafka:9092` |
+| Kafka Exporter           | `parkio-kafka-exporter`       | 127.0.0.1:9308  | Broker lag / DLT metrics                  |
 | MinIO                    | `parkio-minio`                | 9000 / 9001     | S3 API / web console                      |
 | Prometheus               | `parkio-prometheus`           | 9090            | Metrics scraping                          |
 | Alertmanager             | `parkio-alertmanager`         | 127.0.0.1:9093  | Alert grouping/routing                    |
+| Loki                     | `parkio-loki`                 | 127.0.0.1:3100  | Central log storage                       |
+| Promtail                 | `parkio-promtail`             | 127.0.0.1:9080  | Docker log shipping                       |
 | Grafana                  | `parkio-grafana`              | 3000            | Dashboards                                |
 
 > **Database-per-service:** every service owns a *separate* PostgreSQL instance.
@@ -84,7 +89,9 @@ compiles the whole monorepo via the Gradle wrapper), so the first build is slow.
 | MinIO console   | http://localhost:9001            | `MINIO_ROOT_USER` / `MINIO_ROOT_PASSWORD` |
 | Prometheus      | http://localhost:9090            | —                                    |
 | Alertmanager    | http://localhost:9093            | —                                    |
+| Loki            | http://localhost:3100            | —                                    |
 | Grafana         | http://localhost:3000            | `GRAFANA_ADMIN_USER` / `GRAFANA_ADMIN_PASSWORD` |
+| Kafka exporter  | http://localhost:9308/metrics    | —                                    |
 | Kafka (from host)| `localhost:29092`               | —                                    |
 | Kafka (in-net)  | `kafka:9092`                     | —                                    |
 
@@ -140,8 +147,8 @@ document the intended wiring without implying any business logic.
 Two dedicated bridge networks isolate planes:
 
 - `parkio-backend` — databases, Redis, Kafka, MinIO and the services.
-- `parkio-observability` — Prometheus, Alertmanager and Grafana (Prometheus also joins
-  `parkio-backend` so it can scrape service metrics).
+- `parkio-observability` — Prometheus, Alertmanager, Loki, Promtail and Grafana
+  (Prometheus also joins `parkio-backend` so it can scrape service metrics).
 
 ## Ingress & exposure — the gateway is the only public entrypoint
 
@@ -192,7 +199,8 @@ reverse proxy the only public entrypoint and stops publishing all other ports.
   on the private network. It sets `SERVER_FORWARD_HEADERS_STRATEGY=framework` so the gateway
   honors `X-Forwarded-Proto/Host` from Caddy.
 - **Backend services (8081–8089), all databases, Redis, Kafka, MinIO**: no published ports.
-- **Prometheus/Alertmanager/Grafana**: bound to **127.0.0.1** only (SSH-tunnel to view).
+- **Prometheus/Alertmanager/Loki/Promtail/Grafana**: bound to **127.0.0.1** only
+  (SSH-tunnel to view).
 
 ### Proxy & media strategy (chosen)
 - **Proxy: Caddy** — simplest path to automatic HTTPS, HTTP→HTTPS redirect, forwarded
@@ -240,8 +248,8 @@ The hosted frontend (SPA) is served separately; set `PARKIO_CORS_ALLOWED_ORIGINS
 
 ### Firewall (VPS)
 Allow inbound **22** (SSH, ideally IP-restricted), **80**, **443** only; block everything
-else. Do **not** open 5432–5440, 6379, 29092, 9000/9001, 3000, 9090, or 9093. Caddy needs
-port 80 for the ACME HTTP-01 challenge and the HTTP→HTTPS redirect.
+else. Do **not** open 5432–5440, 6379, 29092, 9308, 9000/9001, 3000, 9090, 9093, 3100,
+or 9080. Caddy needs port 80 for the ACME HTTP-01 challenge and the HTTP→HTTPS redirect.
 
 ### First deploy
 
@@ -309,11 +317,83 @@ Slack webhook never appears in committed YAML. Critical alerts repeat every hour
 default; warning alerts repeat every four hours. Alertmanager stays loopback-only on the
 VPS and is not routed by Caddy.
 
+### Kafka exporter
+`parkio-kafka-exporter` connects to the private broker at `kafka:9092` and exposes
+broker-level metrics for Prometheus:
+
+- `kafka_consumergroup_lag` for service consumer lag.
+- `kafka_topic_partition_current_offset` / `kafka_topic_partition_oldest_offset` for retained
+  DLT topic depth (`parkio.dlt.*`).
+- `kafka_brokers` for exporter-visible broker count.
+
+The exporter is filtered to Parkio topics (`parkio.*`) and service consumer groups
+(`*-service`). It is bound to `127.0.0.1:9308` for admin/debug only and is not routed by
+Caddy. Useful Prometheus/Grafana queries:
+
+```promql
+max by (consumergroup, topic) (kafka_consumergroup_lag{consumergroup=~".*-service",topic=~"parkio\\..+"})
+sum by (topic) (kafka_topic_partition_current_offset{topic=~"parkio\\.dlt\\..+"} - kafka_topic_partition_oldest_offset{topic=~"parkio\\.dlt\\..+"})
+up{job="kafka-exporter"}
+kafka_brokers
+```
+
+DLT topics follow `parkio.dlt.<service>`. The retained offset depth query is a practical
+broker-side proxy for poison messages waiting in delete-retention DLT topics; it is not a
+business-level count from the applications.
+
+### Centralized logs
+Promtail discovers Docker containers through the Docker socket and ships only containers
+whose Compose project label is `parkio`. It labels each stream with `service`, `container`,
+`compose_project`, and `environment`, then sends logs to Loki. It does not scrape host log
+directories, `.env` files, or arbitrary filesystem paths.
+
+Loki keeps logs for `PARKIO_LOKI_RETENTION_PERIOD` (`168h` / 7 days by default). This is
+beta-sized retention; increase it only with enough disk headroom in the `loki-data` volume.
+Grafana provisions the `Loki` datasource automatically, so use **Explore -> Loki** for logs.
+
+Useful LogQL queries:
+
+```logql
+{service="gateway-service"}
+{environment="hosted-beta", service="gateway-service"} |= "ERROR"
+{compose_project="parkio"} |= "traceId=4bf92f3577b34da6a3ce929d0e0e4736"
+{compose_project="parkio"} |= "correlationId=abc-123"
+{service="auth-service"} |= "login" |= "failure"
+{service="media-service"} |~ "upload|rejected|malware|normalization"
+```
+
+Every log line carries `[<service>,traceId=<otel-hex>,spanId=<otel-hex>,correlationId=<uuid>]`.
+`traceId`/`spanId` are the OpenTelemetry ids (the `traceId=` token links a log straight to its
+Tempo trace via a Grafana derived field); `correlationId` is the user-facing request id echoed in
+API errors and `X-Correlation-Id`. Full structured JSON logging is not complete yet. Do not log
+secrets: access/refresh tokens, verification/reset tokens, passwords, Resend keys, MinIO
+credentials, and DB passwords must stay out of application logs.
+
+### Distributed tracing (Tempo)
+Each service exports OpenTelemetry spans over OTLP/HTTP to **Tempo** (`tempo:4318`, never
+published), built the Spring-native way: Micrometer Observations → `micrometer-tracing-bridge-otel`
+→ `opentelemetry-exporter-otlp` (no second tracing stack). Trace context rides the W3C
+`traceparent` header injected by the auto-configured HTTP clients, so one trace spans the gateway
+and every downstream service it calls.
+
+- Sampling: `PARKIO_TRACING_SAMPLING_PROBABILITY` (default `1.0` = 100% for beta; lower to
+  `0.05`–`0.20` for production). `PARKIO_TRACING_ENABLED=false` turns tracing off.
+- Storage: local `tempo-data` volume, retention `PARKIO_TEMPO_RETENTION` (default `48h`).
+- Tempo's metrics-generator remote-writes service-graph/span metrics into Prometheus
+  (`--web.enable-remote-write-receiver`) to power Grafana's **Service Graph**.
+- View in **Grafana → Explore → Tempo**: search traces, read the latency waterfall, open the
+  service map, and jump trace↔logs (Tempo `tracesToLogsV2` ↔ Loki derived field). See
+  `docs/architecture/observability-metrics.md` for the full trace-lookup workflow and troubleshooting.
+
 ### Admin access (no public data ports)
 - DB shell: `docker exec -it parkio-postgres-auth psql -U parkio_auth -d parkio_auth`
-- Grafana/Prometheus/Alertmanager (loopback only):
-  `ssh -L 3000:localhost:3000 -L 9090:localhost:9090 -L 9093:localhost:9093 user@vps`,
-  then open `http://localhost:3000`, `http://localhost:9090`, or `http://localhost:9093`.
+- Grafana/Prometheus/Alertmanager/Loki/Tempo/Kafka exporter (loopback only):
+  `ssh -L 3000:localhost:3000 -L 9090:localhost:9090 -L 9093:localhost:9093 -L 3100:localhost:3100 -L 3200:localhost:3200 -L 9308:localhost:9308 user@vps`,
+  then open Grafana (`http://localhost:3000`) and use the provisioned Prometheus/Loki/Tempo
+  datasources. Alertmanager is at `http://localhost:9093`; direct Loki admin access is
+  `http://localhost:3100`, Tempo's query API is `http://localhost:3200`, and Kafka exporter
+  metrics are at `http://localhost:9308/metrics`. Tempo's OTLP receivers (4317/4318) are
+  never published — services reach them only in-network.
 
 ### Backups & restore (required)
 

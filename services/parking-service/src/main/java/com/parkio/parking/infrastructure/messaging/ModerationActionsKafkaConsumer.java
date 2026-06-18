@@ -64,7 +64,7 @@ public class ModerationActionsKafkaConsumer {
         String eventType = eventTypeHeader != null ? eventTypeHeader : envelope.eventType();
         String traceId = traceIdHeader != null ? traceIdHeader : envelope.traceId();
         if (traceId != null) {
-            MDC.put("traceId", traceId);
+            MDC.put("correlationId", traceId);
         }
         try {
             if (REJECTED_BY_MODERATOR.equals(eventType)) {
@@ -78,7 +78,7 @@ public class ModerationActionsKafkaConsumer {
             }
             ack.acknowledge();
         } finally {
-            MDC.remove("traceId");
+            MDC.remove("correlationId");
         }
     }
 

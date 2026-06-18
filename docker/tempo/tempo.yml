@@ -1,0 +1,63 @@
+# Grafana Tempo — single-binary distributed-trace store for Parkio.
+#
+# Receives OTLP spans from the Spring Boot services (Micrometer Observation ->
+# OpenTelemetry OTLP exporter), stores trace blocks on a local persistent volume, and
+# runs the metrics-generator so Grafana can draw the service dependency graph and RED
+# metrics (span-metrics + service-graph metrics are remote-written into Prometheus).
+#
+# NEVER public: the OTLP receivers (4317/4318) are only reachable on the internal Docker
+# networks, and the query/admin API (3200) is bound to loopback by the hosted-beta
+# overlay. Env placeholders are expanded by Tempo's `-config.expand-env=true` flag, so
+# values come from docker-compose (which supplies the defaults).
+
+stream_over_http_enabled: true
+
+server:
+  http_listen_port: 3200
+  # Non-default gRPC port: avoids colliding with Loki's 9095 if they ever share a host net.
+  grpc_listen_port: 9096
+
+distributor:
+  receivers:
+    otlp:
+      protocols:
+        grpc:
+          endpoint: 0.0.0.0:4317
+        http:
+          endpoint: 0.0.0.0:4318
+
+ingester:
+  max_block_duration: 5m
+
+compactor:
+  compaction:
+    # Trace retention. Hosted-beta default 48h; override via PARKIO_TEMPO_RETENTION.
+    block_retention: ${PARKIO_TEMPO_RETENTION}
+
+# Generates span metrics + service-graph metrics from incoming traces and remote-writes
+# them into Prometheus, which powers Grafana's Tempo "Service Graph" / node graph.
+metrics_generator:
+  registry:
+    external_labels:
+      source: tempo
+  storage:
+    path: /var/tempo/generator/wal
+    remote_write:
+      - url: http://prometheus:9090/api/v1/write
+        send_exemplars: true
+  traces_storage:
+    path: /var/tempo/generator/traces
+
+storage:
+  trace:
+    backend: local
+    wal:
+      path: /var/tempo/wal
+    local:
+      path: /var/tempo/blocks
+
+# Turn the metrics-generator processors on by default for every tenant.
+overrides:
+  defaults:
+    metrics_generator:
+      processors: [service-graphs, span-metrics]

@@ -36,3 +36,8 @@ parkio:
       push:
         # Delivery worker off by default in tests; exercised directly in worker tests.
         enabled: false
+
+# Tracing exports only at runtime; disabled in tests so no OTLP exporter starts.
+management:
+  tracing:
+    enabled: false

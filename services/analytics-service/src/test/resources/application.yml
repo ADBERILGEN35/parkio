@@ -30,3 +30,8 @@ parkio:
   kafka:
     # No broker in tests: skip topic provisioning so the context starts without Kafka.
     provision-topics: false
+
+# Tracing exports only at runtime; disabled in tests so no OTLP exporter starts.
+management:
+  tracing:
+    enabled: false

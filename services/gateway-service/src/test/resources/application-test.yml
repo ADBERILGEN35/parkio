@@ -12,3 +12,8 @@ parkio:
     internal-secret: test-only-parkio-gateway-internal-secret-0123456789
     cors:
       allowed-origins: http://localhost:3000
+
+# Tracing exports only at runtime; disabled in tests so no OTLP exporter starts.
+management:
+  tracing:
+    enabled: false

@@ -40,7 +40,7 @@ public class RestAuthenticationEntryPoint implements AuthenticationEntryPoint {
         Map<String, Object> body = new LinkedHashMap<>();
         body.put("code", "UNAUTHORIZED");
         body.put("message", "Authentication is required to access this resource.");
-        body.put("traceId", MDC.get("traceId"));
+        body.put("traceId", MDC.get("correlationId"));
         body.put("timestamp", clock.instant().toString());
 
         objectMapper.writeValue(response.getOutputStream(), body);
