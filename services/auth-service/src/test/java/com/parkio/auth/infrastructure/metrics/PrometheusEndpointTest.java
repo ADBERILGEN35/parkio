@@ -38,7 +38,10 @@ class PrometheusEndpointTest {
                 .andExpect(content().string(Matchers.containsString("parkio_inbox_processed_count")))
                 .andExpect(content().string(Matchers.containsString("login_success_total")))
                 .andExpect(content().string(Matchers.containsString("login_failures_total")))
-                .andExpect(content().string(Matchers.containsString("login_lockouts_total")));
+                .andExpect(content().string(Matchers.containsString("login_lockouts_total")))
+                .andExpect(content().string(Matchers.containsString("email_sent_total")))
+                .andExpect(content().string(Matchers.containsString("email_failed_total")))
+                .andExpect(content().string(Matchers.containsString("email_verification_sent_total")));
     }
 
     @Test

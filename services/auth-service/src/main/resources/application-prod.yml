@@ -1,0 +1,9 @@
+# Production profile: real transactional email is required.
+parkio:
+  email:
+    provider: ${PARKIO_EMAIL_PROVIDER:resend}
+  security:
+    email-verification:
+      log-token: false
+    password-reset:
+      log-token: false

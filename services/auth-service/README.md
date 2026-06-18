@@ -230,11 +230,11 @@ Pending-verification accounts do not receive reset emails and cannot complete
 password reset. They must finish email verification first or request a new
 verification link.
 
-The default password reset sender mirrors email verification: it logs only an
-email hash unless `parkio.security.password-reset.log-token=true` is explicitly
-enabled for local/dev/test. Hosted beta and production must keep token logging
-disabled and provide a real email provider before enabling self-service recovery
-for external users.
+Transactional email is provider-backed in hosted beta/production. Local/dev uses
+the logging fallback by default and logs only an email hash unless
+`parkio.security.password-reset.log-token=true` is explicitly enabled for local
+testing. Hosted beta and production must use `PARKIO_EMAIL_PROVIDER=resend`,
+`PARKIO_RESEND_API_KEY`, `PARKIO_EMAIL_FROM`, and keep raw-token logging disabled.
 
 ## Email verification lifecycle
 
@@ -260,11 +260,31 @@ cooldown-limited requests are not distinguishable to the caller. For pending
 accounts outside the cooldown window, the old verification hash is replaced with
 a newly generated token hash.
 
-The default sender is a local/dev-safe logging implementation. It logs the raw
-verification link only when `parkio.security.email-verification.log-token=true`
-(enabled in dev/test, disabled by default). Hosted beta and production must keep
-token logging disabled and replace or wrap this sender with an SMTP/provider
-adapter before public registration is enabled.
+The sender is selected by `parkio.email.provider`:
+
+- `logging` (default/local dev): logs only an email hash unless raw-token logging
+  is explicitly enabled for local testing.
+- `resend`: sends verification and reset emails through Resend via the existing
+  sender ports. Auth logic does not depend on a Resend SDK.
+
+Required hosted-beta/production variables:
+
+```dotenv
+PARKIO_EMAIL_PROVIDER=resend
+PARKIO_RESEND_API_KEY=...
+PARKIO_EMAIL_FROM="Parkio <verify@example.com>"
+PARKIO_EMAIL_REPLY_TO=support@example.com
+PARKIO_EMAIL_VERIFICATION_URL=https://app.example.com/verify-email
+PARKIO_PASSWORD_RESET_URL=https://app.example.com/reset-password
+PARKIO_EMAIL_VERIFICATION_LOG_TOKEN=false
+PARKIO_PASSWORD_RESET_LOG_TOKEN=false
+```
+
+With `PARKIO_EMAIL_PROVIDER=resend`, missing API key or from address fails
+startup. With the `prod` profile active, auth-service also fails startup if the
+logging provider is selected or raw-token logging is enabled. Delivery counters
+are exported at `/actuator/prometheus` as `email_sent_total`,
+`email_failed_total`, and `email_verification_sent_total`.
 
 ## Refresh-token transport and CSRF boundary
 

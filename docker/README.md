@@ -247,6 +247,7 @@ the ACME HTTP-01 challenge and the HTTP→HTTPS redirect.
 cp .env.hosted-beta.example .env
 # edit .env: PARKIO_DOMAIN, PARKIO_MEDIA_DOMAIN, PARKIO_ACME_EMAIL,
 # PARKIO_CORS_ALLOWED_ORIGINS, PARKIO_MEDIA_STORAGE_PUBLIC_ENDPOINT=https://<media domain>,
+# PARKIO_EMAIL_PROVIDER=resend, PARKIO_RESEND_API_KEY, PARKIO_EMAIL_FROM,
 # every CHANGE_ME password, KAFKA_CLUSTER_ID, and PARKIO_JWT_PRIVATE_KEY_PEM.
 
 # generate the RS256 key (PKCS#8) and fold it into .env as a quoted \n-escaped line:
@@ -260,7 +261,7 @@ docker compose -f docker-compose.yml -f docker-compose.apps.yml -f docker-compos
 1. DNS resolves both hostnames to the VPS.
 2. Firewall: only 22/80/443 inbound.
 3. `.env` complete — no `CHANGE_ME`, JWT key set, CORS = real frontend origin, media public
-   endpoint = `https://${PARKIO_MEDIA_DOMAIN}`.
+   endpoint = `https://${PARKIO_MEDIA_DOMAIN}`, and Resend email variables set.
 4. `docker compose ... ps` → all healthy; `docker logs parkio-caddy` shows certificates obtained.
    *(Tip: first run against the Let's Encrypt staging CA — commented in `caddy/Caddyfile` — to
    avoid production rate limits, then switch back.)*
@@ -268,6 +269,21 @@ docker compose -f docker-compose.yml -f docker-compose.apps.yml -f docker-compos
 6. `curl https://${PARKIO_DOMAIN}/api/v1/auth/.well-known/jwks.json` → a `keys` array.
 7. From the SPA: register → login → upload a photo → confirm it renders from
    `https://${PARKIO_MEDIA_DOMAIN}/...`.
+
+### Transactional email
+Hosted beta uses Resend for email verification and password reset delivery:
+
+```dotenv
+PARKIO_EMAIL_PROVIDER=resend
+PARKIO_RESEND_API_KEY=...
+PARKIO_EMAIL_FROM="Parkio <verify@beta.example.com>"
+PARKIO_EMAIL_REPLY_TO=support@beta.example.com
+PARKIO_EMAIL_VERIFICATION_LOG_TOKEN=false
+PARKIO_PASSWORD_RESET_LOG_TOKEN=false
+```
+
+If `PARKIO_EMAIL_PROVIDER=resend` is set without an API key or from address,
+auth-service fails startup. Do not enable raw-token logging outside local dev.
 
 ### Admin access (no public data ports)
 - DB shell: `docker exec -it parkio-postgres-auth psql -U parkio_auth -d parkio_auth`

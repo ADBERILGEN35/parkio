@@ -151,6 +151,15 @@ parkio:
       request-cooldown: ${PARKIO_PASSWORD_RESET_REQUEST_COOLDOWN:PT5M}
       url: ${PARKIO_PASSWORD_RESET_URL:http://localhost:5173/reset-password}
       log-token: ${PARKIO_PASSWORD_RESET_LOG_TOKEN:false}
+  email:
+    # Transactional email provider. Local/dev defaults to logging; hosted beta and
+    # production should set PARKIO_EMAIL_PROVIDER=resend (or use the prod profile).
+    provider: ${PARKIO_EMAIL_PROVIDER:logging}
+    from: ${PARKIO_EMAIL_FROM:}
+    reply-to: ${PARKIO_EMAIL_REPLY_TO:}
+    resend:
+      api-key: ${PARKIO_RESEND_API_KEY:}
+      base-url: ${PARKIO_RESEND_BASE_URL:https://api.resend.com}
   kafka:
     # Topic provisioning via NewTopic beans (KafkaTopicsConfig). Replication factor is
     # configurable for production; 1 is the local/dev default (single-broker compose).

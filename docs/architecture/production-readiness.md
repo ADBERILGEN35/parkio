@@ -338,12 +338,22 @@ rotates the stored token hash for pending users, and returns the same accepted
 response for unknown, already verified, throttled and pending accounts so the
 endpoint cannot be used for account enumeration.
 
-The current sender is a local/dev-safe logging adapter. It logs raw links only
-when `parkio.security.email-verification.log-token=true` (dev/test), and token
-logging is disabled by default. Hosted beta can use the logged-link flow only for
-closed tester onboarding; public production requires an SMTP or transactional
-email provider adapter plus environment-specific sender configuration before
-open registration.
+Transactional auth email now has provider wiring. Local/dev defaults to the
+logging adapter, which logs only email hashes unless raw-token logging is
+explicitly enabled for local testing. Hosted beta and production should use
+Resend:
+
+```dotenv
+PARKIO_EMAIL_PROVIDER=resend
+PARKIO_RESEND_API_KEY=...
+PARKIO_EMAIL_FROM="Parkio <verify@example.com>"
+PARKIO_EMAIL_REPLY_TO=support@example.com
+```
+
+When Resend is selected, missing API key or from address fails startup. With the
+`prod` profile active, selecting the logging provider or enabling raw-token email
+logging also fails startup. Delivery is observable through
+`email_sent_total`, `email_failed_total`, and `email_verification_sent_total`.
 
 ---
 
