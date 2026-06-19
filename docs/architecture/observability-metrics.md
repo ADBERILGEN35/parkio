@@ -138,6 +138,37 @@ kafka_brokers
 Spring's Kafka client metrics (consumer fetch/commit rates) are exported per service via the
 automatic Micrometer binding and complement the broker-side view.
 
+## Host metrics — Node exporter
+
+The hosted beta runs on a **single VPS**, so host-level saturation (disk, inodes, memory, CPU)
+is a direct production risk: a full disk stalls Postgres, the outbox relay, Loki and MinIO at
+once. `parkio-node-exporter` (`prom/node-exporter`) collects host metrics, scraped by
+Prometheus as `job="node-exporter"`.
+
+The exporter mounts host `/proc`, `/sys` and `/` **read-only** and reports filesystem paths
+through `--path.rootfs`, so mountpoints read as the host sees them (e.g. `mountpoint="/"`).
+Pseudo/overlay/bind mounts are dropped by the collector excludes so filesystem alerts track
+real host filesystems only. It is **never publicly exposed** — bound to `127.0.0.1:9100` for
+admin/debug and scraped in-network as `node-exporter:9100`.
+
+| Metric | Meaning |
+|---|---|
+| `node_filesystem_avail_bytes` / `node_filesystem_size_bytes` | Disk free / total per filesystem. |
+| `node_filesystem_files_free` / `node_filesystem_files` | Inodes free / total per filesystem. |
+| `node_filesystem_readonly` | `1` when a filesystem is mounted read-only (disk/IO failure). |
+| `node_memory_MemAvailable_bytes` / `node_memory_MemTotal_bytes` | Available (reclaim-aware) / total memory. |
+| `node_cpu_seconds_total` | Per-mode CPU seconds; non-idle gives usage. |
+
+Useful Grafana/Prometheus queries:
+
+```promql
+100 * node_filesystem_avail_bytes{fstype!~"tmpfs|overlay|squashfs"} / node_filesystem_size_bytes{fstype!~"tmpfs|overlay|squashfs"}
+100 * node_filesystem_files_free{fstype!~"tmpfs|overlay|squashfs"} / node_filesystem_files{fstype!~"tmpfs|overlay|squashfs"}
+100 * (1 - node_memory_MemAvailable_bytes / node_memory_MemTotal_bytes)
+100 * (1 - avg by (instance) (rate(node_cpu_seconds_total{mode="idle"}[5m])))
+up{job="node-exporter"}
+```
+
 ## Alerting & dashboards
 
 ### Alert rules
@@ -157,6 +188,17 @@ are sized for a small single-VPS beta — tune as traffic grows.
 | `KafkaBrokerUnavailable` | critical | `kafka_brokers < 1` | exporter can scrape but sees no broker |
 | `KafkaDltMessagesPresent` | critical | DLT current offset - oldest offset > 0 | any `parkio.dlt.*` retained offset depth persists ≥5m |
 | `KafkaConsumerLagSustained` | critical | 30m avg lag > 1000 | sustained service consumer lag |
+| `NodeExporterDown` | critical | `up{job="node-exporter"} == 0` | host metrics exporter unscrapeable for 2m |
+| `HostFilesystemReadOnly` | critical | `node_filesystem_readonly == 1` | a host filesystem flipped read-only for 2m |
+| `HostDiskSpaceCritical` | critical | disk free % < 10 | a real host filesystem under 10% free for 5m |
+| `HostDiskSpaceLow` | warning | disk free % < 20 | a real host filesystem under 20% free for 10m |
+| `HostDiskWillFillSoon` | warning | `predict_linear(...24h) < 0` | disk trending to full within 24h, for 30m |
+| `HostInodesCritical` | critical | inodes free % < 10 | a host filesystem under 10% inodes free for 5m |
+| `HostInodesLow` | warning | inodes free % < 20 | a host filesystem under 20% inodes free for 10m |
+| `HostHighMemoryUsageCritical` | critical | mem used % > 95 | host memory >95% for 5m (OOM-kill risk) |
+| `HostHighMemoryUsage` | warning | mem used % > 85 | host memory >85% for 10m |
+| `HostHighCpuUsageCritical` | critical | CPU used % > 95 | host CPU averaged >95% for 10m |
+| `HostHighCpuUsage` | warning | CPU used % > 85 | host CPU averaged >85% for 10m |
 | `HighJvmMemoryUsage` | warning | heap used/max > 0.9 | heap >90% for 10m |
 | `MediaUploadFailuresHigh` | warning | rejects / attempts > 0.5 | >50% uploads rejected over 15m |
 | `AuthLoginFailuresHigh` | warning | `rate(login_failure) > 0.2/s` | ~>12 failed logins/min for 10m |
@@ -204,6 +246,8 @@ references the Prometheus datasource by stable uid `parkio-prometheus`. Panels: 
 down / outbox DLQ depth / oldest-unpublished age / gateway 429 (stat row), service health
 (`up`), gateway 5xx ratio, outbox dead-lettered + oldest-age + backlog by service, auth
 login success vs failure, media uploads vs rejects, JVM heap %, and DB pool active/pending.
+A **Host (node-exporter)** row adds node-exporter up, host CPU/memory/disk-used stats, and
+per-mountpoint filesystem-free / disk-used / inode-usage time series.
 
 ## Centralized logs — Loki + Promtail
 
@@ -340,10 +384,10 @@ Use **Explore → Tempo**:
 
 ### Not yet scraped (known gaps)
 
-These alerts are **documented but not enabled** because the stack has no exporter for them:
-
-- **`DiskSpaceLow`** — host-level. Needs `node_exporter` exposing
-  `node_filesystem_avail_bytes`. Until then, watch disk on the VPS manually (`df -h`).
+Host-level metrics are now covered by `node-exporter` (see **Host metrics** above and the
+`Host*` / `NodeExporterDown` alerts). No alert in this baseline is currently disabled for a
+missing exporter. Remaining observability follow-ups (managed-broker metrics, async/Kafka
+trace propagation, full structured JSON logs) are tracked in `production-readiness.md` §8.
 
 ### Runbook — `ServiceDown`
 
@@ -468,6 +512,63 @@ you act.
 3. If the consumer is healthy but traffic exceeds one instance's capacity, increase replicas in
    the target platform. For single-VPS beta, consider temporarily reducing producers or disabling
    non-critical write paths.
+
+### Runbook — `NodeExporterDown`
+
+1. While this fires, every host disk/memory/CPU/inode alert is blind — treat as urgent.
+2. `docker compose ... ps node-exporter` and `docker logs parkio-node-exporter`. Common causes:
+   the container was stopped, or `/proc`//`/sys`//`/` bind mounts are unavailable.
+3. Verify the scrape: Prometheus `Status → Targets`, job `node-exporter` (`node-exporter:9100`).
+4. Until restored, inspect the host directly over SSH: `df -h`, `df -ih`, `free -h`, `docker stats`.
+
+### Runbook — `HostDiskSpaceLow`
+
+(also covers `HostDiskSpaceCritical` and `HostDiskWillFillSoon`) — a full disk stalls Postgres,
+the outbox relay, Loki and MinIO simultaneously, so act before the critical (<10%) threshold.
+
+1. Identify the filesystem from the `mountpoint` label, then on the VPS run
+   `df -h` and `du -xh --max-depth=1 /var/lib/docker | sort -h | tail`.
+2. Follow the **disk-cleanup runbook** in `docker/README.md` (Docker container logs → dangling
+   images/build cache → old images → Loki/Tempo retention → old backups already pushed off-box).
+3. **Do not** delete `*-data` volumes or run `docker compose down -v` to reclaim space — that
+   destroys databases, Kafka, MinIO objects and issued TLS certs.
+4. If the data is legitimately large, resize the VPS disk; tune `PARKIO_LOKI_RETENTION_PERIOD`
+   and `BACKUP_RETENTION_DAYS` down for a smaller steady-state footprint.
+
+### Runbook — `HostInodesLow`
+
+1. Bytes may be free but writes still fail — the filesystem is out of inodes (many small files).
+2. Find the offender: `df -ih`, then `for d in /var/log /tmp /var/lib/docker; do echo $d; find $d -xdev -type f | wc -l; done`.
+3. Usual causes: rotated/uncapped logs or a runaway temp dir. Apply the same Docker-log and image
+   prune steps as the disk runbook; cap container logs in `daemon.json` if not already.
+
+### Runbook — `HostHighMemoryUsage`
+
+(also `HostHighMemoryUsageCritical`) — 10 JVMs + Kafka + 9 Postgres on one VPS are memory-hungry.
+
+1. `docker stats --no-stream` and `free -h` to find the heaviest container(s).
+2. Check for a leak vs. legitimate load; correlate with `HighJvmMemoryUsage` per service.
+3. Lower per-JVM heap via `JAVA_TOOL_OPTIONS` `MaxRAMPercentage` and set container memory limits
+   so one service cannot starve the box. If it is sustained load, scale the VPS RAM.
+4. At critical (>95%) the kernel OOM killer may reap containers — `dmesg | grep -i oom` confirms.
+
+### Runbook — `HostHighCpuUsage`
+
+(also `HostHighCpuUsageCritical`) — sustained saturation risks request latency and probe failures.
+
+1. `docker stats --no-stream` to find the hot container; `top`/`htop` for host processes.
+2. Distinguish a burst (ClamAV scan, JVM warm-up, build) from sustained load. The alert already
+   requires 10m, so transient spikes are filtered out.
+3. If a single service is hot, check for a busy loop or runaway query; otherwise shed load or scale
+   the VPS vCPUs.
+
+### Runbook — `HostFilesystemReadOnly`
+
+1. A filesystem flipped read-only almost always means disk/IO failure or corruption — host writes
+   (DB, outbox, uploads, logs) are failing now. Treat as urgent.
+2. `dmesg | tail` for IO errors; check the VPS provider's disk health/console.
+3. Remount read-write only if the underlying error is understood (`mount -o remount,rw <mountpoint>`);
+   otherwise snapshot/restore on healthy storage. Restore from backups if data is corrupt.
 
 ## Adding a new metric
 

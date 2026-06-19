@@ -369,6 +369,33 @@ services:
       retries: 5
       start_period: 10s
 
+  # node-exporter — HOST-level metrics (CPU, memory, disk, filesystem, inodes) for the VPS
+  # the beta runs on. Mounts host /proc, /sys and / READ-ONLY and reports through
+  # --path.rootfs so filesystem mountpoints read as the host sees them (e.g. mountpoint="/").
+  # No public exposure: published loopback-only for admin/debug; Prometheus scrapes it
+  # in-network as node-exporter:9100. The image is a from-scratch binary (no shell/wget), so
+  # like Tempo it carries no container healthcheck — liveness is observed via up{job=...}.
+  node-exporter:
+    image: ${NODE_EXPORTER_IMAGE:-prom/node-exporter:v1.8.2}
+    container_name: parkio-node-exporter
+    restart: unless-stopped
+    # Host PID namespace lets the exporter see all host processes for accurate counts.
+    pid: host
+    command:
+      - --path.procfs=/host/proc
+      - --path.sysfs=/host/sys
+      - --path.rootfs=/host/root
+      # Drop pseudo/bind/overlay mounts so disk alerts track real host filesystems (e.g. "/").
+      - --collector.filesystem.mount-points-exclude=^/(host/(dev|proc|sys)|dev|proc|sys|run/.+|var/lib/docker/.+)($$|/)
+      - --collector.filesystem.fs-types-exclude=^(tmpfs|overlay|squashfs|fuse.*|autofs|devtmpfs|nsfs|cgroup.*|mqueue|proc|sysfs|tracefs|bpf|debugfs)$$
+    volumes:
+      - /proc:/host/proc:ro
+      - /sys:/host/sys:ro
+      - /:/host/root:ro,rslave
+    ports: ["127.0.0.1:${NODE_EXPORTER_PORT:-9100}:9100"]
+    # Observability network only: Prometheus scrapes it; it needs no backend/data access.
+    networks: [parkio-observability]
+
   # Grafana Tempo — distributed-trace store. Receives OTLP spans from the services on the
   # backend network; Grafana queries it on the observability network (same dual-network
   # pattern as Prometheus). OTLP receivers (4317/4318) are NEVER published; the query/admin

@@ -137,6 +137,10 @@ services:
     ports: !reset []
   kafka-exporter:
     ports: !override ["127.0.0.1:${KAFKA_EXPORTER_PORT:-9308}:9308"]
+  node-exporter:
+    # Host metrics exporter — never publicly published. Loopback bind for admin/debug only;
+    # Prometheus scrapes it in-network as node-exporter:9100.
+    ports: !override ["127.0.0.1:${NODE_EXPORTER_PORT:-9100}:9100"]
   minio:
     # MinIO is private; the public media host is served via Caddy -> minio:9000 (presigned GETs).
     ports: !reset []

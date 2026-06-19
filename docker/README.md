@@ -36,6 +36,7 @@ docker/
 | Redis                    | `parkio-redis`                | 6379            | Cache, locks, idempotency, rate limiting  |
 | Kafka (KRaft)            | `parkio-kafka`                | 29092 (host)    | Async events; in-network listener `kafka:9092` |
 | Kafka Exporter           | `parkio-kafka-exporter`       | 127.0.0.1:9308  | Broker lag / DLT metrics                  |
+| Node Exporter            | `parkio-node-exporter`        | 127.0.0.1:9100  | Host CPU/memory/disk/inode metrics        |
 | MinIO                    | `parkio-minio`                | 9000 / 9001     | S3 API / web console                      |
 | Prometheus               | `parkio-prometheus`           | 9090            | Metrics scraping                          |
 | Alertmanager             | `parkio-alertmanager`         | 127.0.0.1:9093  | Alert grouping/routing                    |
@@ -92,6 +93,7 @@ compiles the whole monorepo via the Gradle wrapper), so the first build is slow.
 | Loki            | http://localhost:3100            | —                                    |
 | Grafana         | http://localhost:3000            | `GRAFANA_ADMIN_USER` / `GRAFANA_ADMIN_PASSWORD` |
 | Kafka exporter  | http://localhost:9308/metrics    | —                                    |
+| Node exporter   | http://localhost:9100/metrics    | —                                    |
 | Kafka (from host)| `localhost:29092`               | —                                    |
 | Kafka (in-net)  | `kafka:9092`                     | —                                    |
 
@@ -341,6 +343,39 @@ DLT topics follow `parkio.dlt.<service>`. The retained offset depth query is a p
 broker-side proxy for poison messages waiting in delete-retention DLT topics; it is not a
 business-level count from the applications.
 
+### Host metrics (node exporter)
+The hosted beta runs on a **single VPS**, so disk/inode/memory/CPU exhaustion on the host is a
+direct production risk (a full disk stalls Postgres, the outbox, Loki and MinIO at once).
+`parkio-node-exporter` (`prom/node-exporter`) collects host-level metrics for Prometheus
+(`job="node-exporter"`):
+
+- `node_filesystem_avail_bytes` / `node_filesystem_size_bytes` — disk free/used per filesystem.
+- `node_filesystem_files_free` / `node_filesystem_files` — inode free/used per filesystem.
+- `node_filesystem_readonly` — `1` when a filesystem flipped read-only (disk/IO failure).
+- `node_memory_MemAvailable_bytes` / `node_memory_MemTotal_bytes` — real memory pressure.
+- `node_cpu_seconds_total` — per-mode CPU time (idle subtracted for usage).
+
+It mounts host `/proc`, `/sys` and `/` **read-only** and reports filesystem paths through
+`--path.rootfs` so mountpoints read as the host sees them (e.g. `/`). Pseudo, overlay and bind
+mounts are excluded by the collector flags so disk alerts track real host filesystems only. It
+is **never publicly exposed**: bound to `127.0.0.1:9100` for admin/debug, scraped in-network as
+`node-exporter:9100`, and not routed by Caddy. Useful Prometheus/Grafana queries:
+
+```promql
+# Disk free % by mountpoint (warn <20, critical <10)
+100 * node_filesystem_avail_bytes{fstype!~"tmpfs|overlay|squashfs"} / node_filesystem_size_bytes{fstype!~"tmpfs|overlay|squashfs"}
+# Memory used % (warn >85, critical >95)
+100 * (1 - node_memory_MemAvailable_bytes / node_memory_MemTotal_bytes)
+# CPU used % across cores (warn >85, critical >95)
+100 * (1 - avg by (instance) (rate(node_cpu_seconds_total{mode="idle"}[5m])))
+# Inode free % by mountpoint (warn <20, critical <10)
+100 * node_filesystem_files_free{fstype!~"tmpfs|overlay|squashfs"} / node_filesystem_files{fstype!~"tmpfs|overlay|squashfs"}
+up{job="node-exporter"}
+```
+
+These power the **Host (node-exporter)** row of the hosted-beta Grafana dashboard and the
+`Host*` / `NodeExporterDown` alerts (see `docs/architecture/observability-metrics.md`).
+
 ### Centralized logs
 Promtail discovers Docker containers through the Docker socket and ships only containers
 whose Compose project label is `parkio`. It labels each stream with `service`, `container`,
@@ -387,13 +422,14 @@ and every downstream service it calls.
 
 ### Admin access (no public data ports)
 - DB shell: `docker exec -it parkio-postgres-auth psql -U parkio_auth -d parkio_auth`
-- Grafana/Prometheus/Alertmanager/Loki/Tempo/Kafka exporter (loopback only):
-  `ssh -L 3000:localhost:3000 -L 9090:localhost:9090 -L 9093:localhost:9093 -L 3100:localhost:3100 -L 3200:localhost:3200 -L 9308:localhost:9308 user@vps`,
+- Grafana/Prometheus/Alertmanager/Loki/Tempo/Kafka exporter/Node exporter (loopback only):
+  `ssh -L 3000:localhost:3000 -L 9090:localhost:9090 -L 9093:localhost:9093 -L 3100:localhost:3100 -L 3200:localhost:3200 -L 9308:localhost:9308 -L 9100:localhost:9100 user@vps`,
   then open Grafana (`http://localhost:3000`) and use the provisioned Prometheus/Loki/Tempo
   datasources. Alertmanager is at `http://localhost:9093`; direct Loki admin access is
-  `http://localhost:3100`, Tempo's query API is `http://localhost:3200`, and Kafka exporter
-  metrics are at `http://localhost:9308/metrics`. Tempo's OTLP receivers (4317/4318) are
-  never published — services reach them only in-network.
+  `http://localhost:3100`, Tempo's query API is `http://localhost:3200`, Kafka exporter
+  metrics are at `http://localhost:9308/metrics`, and Node exporter (host) metrics are at
+  `http://localhost:9100/metrics`. Tempo's OTLP receivers (4317/4318) are never published —
+  services reach them only in-network.
 
 ### Backups & restore (required)
 
@@ -480,6 +516,64 @@ never restored is not a backup.
   and how many services you restore).
 - True PITR + automatic failover requires **managed Postgres** and is a public-production blocker —
   see `docs/architecture/production-readiness.md` §3.
+
+### Host health & VPS sizing
+
+The whole beta runs on one VPS, so **host resource exhaustion is a production risk** — a full
+disk stalls Postgres, the outbox relay, Loki and MinIO simultaneously. `parkio-node-exporter`
+feeds Prometheus the host metrics and the `Host*` / `NodeExporterDown` alerts fire before the
+box tips over (disk <20% warn / <10% critical, memory >85/95%, CPU >85/95%, inodes <20/10%).
+
+**Recommended sizing (single-VPS hosted beta):** 10 JVMs + Kafka + 9 Postgres + Redis + MinIO
++ ClamAV + the observability stack are memory-hungry.
+
+| Resource | Minimum | Comfortable | Notes |
+|---|---|---|---|
+| vCPU | 4 | 6–8 | ClamAV scans and JVM warm-up are bursty. |
+| RAM | 8 GB | 16 GB | 10 JVMs dominate; set `MaxRAMPercentage`/container limits. |
+| Disk | 60 GB SSD | 100–160 GB SSD | DB volumes + Kafka + Loki/Tempo + Docker images + backups. |
+| Swap | 2 GB | 2–4 GB | A safety margin against transient OOM, not a substitute for RAM. |
+
+Keep the root filesystem comfortably under 80% — Docker, logs and backups all grow on it.
+
+**Inspect host health quickly:**
+```bash
+df -h                       # disk free per filesystem
+df -ih                      # inode free per filesystem
+free -h                     # memory
+docker stats --no-stream    # per-container CPU/mem
+du -xh --max-depth=1 / | sort -h | tail   # biggest top-level dirs on the root fs
+```
+Or via Grafana (**Host (node-exporter)** dashboard row) over the SSH tunnel.
+
+#### Disk-cleanup runbook (when `HostDiskSpaceLow`/`Critical` fires)
+
+Work top-down; reclaim the cheap, safe space first. **Never** `docker compose down -v` or
+delete a `*-data` volume to free space — that destroys databases, Kafka, MinIO objects and
+issued TLS certs.
+
+1. **Find the consumer:** `du -xh --max-depth=1 /var/lib/docker | sort -h | tail` and
+   `docker system df -v` (shows images, containers, volumes, build cache by size).
+2. **Docker container logs** (often the largest offender). The repo caps them — confirm
+   `daemon.json` has `{"log-driver":"json-file","log-opts":{"max-size":"10m","max-file":"3"}}`
+   and restart Docker if it was missing. Truncate an existing oversized log only as a last
+   resort: `truncate -s 0 $(docker inspect --format='{{.LogPath}}' <container>)`.
+3. **Dangling images & build cache** (safe): `docker image prune -f` then
+   `docker builder prune -f`. Each `--build` redeploy leaves old layers behind.
+4. **Old images** (safe): `docker image prune -a -f` removes images not used by any container.
+   Re-pull/rebuild is the only cost.
+5. **Loki retention:** logs live in the `loki-data` volume. Lower `PARKIO_LOKI_RETENTION_PERIOD`
+   (default `168h`) and restart Loki to shrink it; Tempo similarly via `PARKIO_TEMPO_RETENTION`
+   (`48h`). Prometheus TSDB is capped at 15d (`--storage.tsdb.retention.time`).
+6. **Backup directories:** prune old local dumps in `$BACKUP_DIR` (`BACKUP_RETENTION_DAYS`
+   handles this automatically). Safe to delete **only** if the dumps are already pushed
+   off-box (`BACKUP_MC_DEST`) — never delete the only copy.
+7. **Volumes — caution:** `docker volume prune` removes volumes not attached to a container,
+   but Parkio's data volumes are referenced by the compose project; do **not** prune volumes to
+   reclaim space. Resize the disk instead if the data itself is legitimately large.
+
+If inodes are exhausted (`HostInodesLow`) rather than bytes, the culprit is many small files —
+usually rotated logs or a runaway temp directory; the same Docker-log and prune steps apply.
 
 ### Secret & key rotation (zero-downtime)
 

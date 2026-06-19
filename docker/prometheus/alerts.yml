@@ -218,12 +218,150 @@ groups:
           description: "{{ $labels.consumergroup }} has >100 messages of lag on {{ $labels.topic }} for >10m. Check the consumer logs before it becomes a sustained backlog."
           runbook_url: "docs/architecture/observability-metrics.md#runbook--kafkaconsumerlaghigh"
 
-# ========================================================================= #
-# NOT ENABLED — required exporters are not part of the hosted-beta stack.    #
-# Documented here so the gap is explicit (see observability-metrics.md).     #
-#                                                                            #
-# DiskSpaceLow — needs node_exporter (node_filesystem_avail_bytes). Template:#
-#     expr: (node_filesystem_avail_bytes{mountpoint="/"}                     #
-#            / node_filesystem_size_bytes{mountpoint="/"}) < 0.10            #
-#     for: 10m  ; severity: critical                                         #
-# ========================================================================= #
+  # ===================================================================== #
+  # HOST — single-VPS saturation/exhaustion (node_exporter, job=node-exporter). #
+  # The beta runs on one box, so disk/inode/memory/CPU pressure is a direct  #
+  # production risk. Filesystem rules target REAL host filesystems only      #
+  # (pseudo/overlay/bind mounts are dropped by node-exporter's collector     #
+  # excludes). See docs/architecture/observability-metrics.md for runbooks.  #
+  # ===================================================================== #
+  - name: parkio-host
+    rules:
+      - alert: NodeExporterDown
+        # Without node-exporter, all host disk/memory/CPU alerts below are blind.
+        expr: up{job="node-exporter"} == 0
+        for: 2m
+        labels:
+          severity: critical
+        annotations:
+          summary: "Host node-exporter is down"
+          description: "Prometheus cannot scrape node-exporter for >2m. Host disk/memory/CPU/inode alerts are unavailable until it is restored. Check `docker compose ps node-exporter`."
+          runbook_url: "docs/architecture/observability-metrics.md#runbook--nodeexporterdown"
+
+      - alert: HostFilesystemReadOnly
+        # A filesystem flipped read-only almost always means disk/IO failure or corruption —
+        # writes (DB, outbox, uploads, logs) are failing right now.
+        expr: node_filesystem_readonly{fstype!~"tmpfs|overlay|squashfs"} == 1
+        for: 2m
+        labels:
+          severity: critical
+        annotations:
+          summary: "Host filesystem {{ $labels.mountpoint }} is read-only"
+          description: "{{ $labels.mountpoint }} on {{ $labels.instance }} is mounted read-only. The disk is likely failing or was remounted ro after an error — host writes are failing. Investigate `dmesg`, disk health, and remount immediately."
+          runbook_url: "docs/architecture/observability-metrics.md#runbook--hostfilesystemreadonly"
+
+      - alert: HostDiskSpaceCritical
+        # <10% free on a real filesystem -> imminent write failures (Postgres, Loki, MinIO, logs).
+        expr: |
+          100 * node_filesystem_avail_bytes{fstype!~"tmpfs|overlay|squashfs"}
+            / node_filesystem_size_bytes{fstype!~"tmpfs|overlay|squashfs"} < 10
+        for: 5m
+        labels:
+          severity: critical
+        annotations:
+          summary: "Host disk almost full on {{ $labels.mountpoint }}"
+          description: "{{ $labels.mountpoint }} on {{ $labels.instance }} has only {{ $value | printf \"%.1f\" }}% free for >5m. Writes will start failing. Follow the disk-cleanup runbook (Docker logs, old images, Loki retention, backups)."
+          runbook_url: "docs/architecture/observability-metrics.md#runbook--hostdiskspacelow"
+
+      - alert: HostDiskSpaceLow
+        # <20% free -> act before it becomes critical. Sized for a small single-VPS beta.
+        expr: |
+          100 * node_filesystem_avail_bytes{fstype!~"tmpfs|overlay|squashfs"}
+            / node_filesystem_size_bytes{fstype!~"tmpfs|overlay|squashfs"} < 20
+        for: 10m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Host disk space low on {{ $labels.mountpoint }}"
+          description: "{{ $labels.mountpoint }} on {{ $labels.instance }} has {{ $value | printf \"%.1f\" }}% free for >10m. Plan cleanup or resize before it hits the 10% critical threshold."
+          runbook_url: "docs/architecture/observability-metrics.md#runbook--hostdiskspacelow"
+
+      - alert: HostDiskWillFillSoon
+        # Trend-based: project free bytes from the last 6h and warn if the fs would fill within
+        # 24h. Only fires while space is actually shrinking and not already critical, so it is
+        # an early heads-up that HostDiskSpaceLow has not necessarily crossed yet.
+        expr: |
+          predict_linear(node_filesystem_avail_bytes{fstype!~"tmpfs|overlay|squashfs"}[6h], 24 * 3600) < 0
+            and node_filesystem_readonly{fstype!~"tmpfs|overlay|squashfs"} == 0
+            and 100 * node_filesystem_avail_bytes{fstype!~"tmpfs|overlay|squashfs"}
+                  / node_filesystem_size_bytes{fstype!~"tmpfs|overlay|squashfs"} < 40
+        for: 30m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Host disk {{ $labels.mountpoint }} will fill within 24h"
+          description: "At the current growth rate {{ $labels.mountpoint }} on {{ $labels.instance }} is projected to run out of space within 24h. Find the growth source (Docker logs, Loki/Tempo data, backups, image bloat) before it fills."
+          runbook_url: "docs/architecture/observability-metrics.md#runbook--hostdiskspacelow"
+
+      - alert: HostInodesCritical
+        # Inode exhaustion fails writes even with bytes free (many small files: logs, caches).
+        expr: |
+          100 * node_filesystem_files_free{fstype!~"tmpfs|overlay|squashfs"}
+            / node_filesystem_files{fstype!~"tmpfs|overlay|squashfs"} < 10
+        for: 5m
+        labels:
+          severity: critical
+        annotations:
+          summary: "Host inodes almost exhausted on {{ $labels.mountpoint }}"
+          description: "{{ $labels.mountpoint }} on {{ $labels.instance }} has only {{ $value | printf \"%.1f\" }}% inodes free for >5m. Writes fail once inodes run out even with bytes free — hunt for directories with huge file counts (logs, tmp, caches)."
+          runbook_url: "docs/architecture/observability-metrics.md#runbook--hostinodeslow"
+
+      - alert: HostInodesLow
+        expr: |
+          100 * node_filesystem_files_free{fstype!~"tmpfs|overlay|squashfs"}
+            / node_filesystem_files{fstype!~"tmpfs|overlay|squashfs"} < 20
+        for: 10m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Host inodes low on {{ $labels.mountpoint }}"
+          description: "{{ $labels.mountpoint }} on {{ $labels.instance }} has {{ $value | printf \"%.1f\" }}% inodes free for >10m. Investigate large file-count directories before it reaches the 10% critical threshold."
+          runbook_url: "docs/architecture/observability-metrics.md#runbook--hostinodeslow"
+
+      - alert: HostHighMemoryUsageCritical
+        # MemAvailable accounts for reclaimable cache, so this is true memory pressure, not just
+        # page-cache usage. >95% sustained -> OOM-kill risk for the JVMs/databases.
+        expr: |
+          100 * (1 - node_memory_MemAvailable_bytes / node_memory_MemTotal_bytes) > 95
+        for: 5m
+        labels:
+          severity: critical
+        annotations:
+          summary: "Host memory critically high"
+          description: "Host memory usage on {{ $labels.instance }} is {{ $value | printf \"%.1f\" }}% (>95%) for >5m. The kernel OOM killer may start reaping containers (JVMs, Postgres). Check `docker stats`, container memory limits, and recent load."
+          runbook_url: "docs/architecture/observability-metrics.md#runbook--hosthighmemoryusage"
+
+      - alert: HostHighMemoryUsage
+        expr: |
+          100 * (1 - node_memory_MemAvailable_bytes / node_memory_MemTotal_bytes) > 85
+        for: 10m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Host memory usage high"
+          description: "Host memory usage on {{ $labels.instance }} is {{ $value | printf \"%.1f\" }}% (>85%) for >10m. 10 JVMs on one VPS are memory-hungry — review MaxRAMPercentage / container limits before it reaches the 95% critical threshold."
+          runbook_url: "docs/architecture/observability-metrics.md#runbook--hosthighmemoryusage"
+
+      - alert: HostHighCpuUsageCritical
+        # Non-idle CPU averaged across all cores. Sustained >95% means the box is saturated and
+        # request latency/health probes are at risk.
+        expr: |
+          100 * (1 - avg by (instance) (rate(node_cpu_seconds_total{mode="idle"}[5m]))) > 95
+        for: 10m
+        labels:
+          severity: critical
+        annotations:
+          summary: "Host CPU critically saturated"
+          description: "Host CPU on {{ $labels.instance }} has averaged {{ $value | printf \"%.1f\" }}% (>95%) for >10m. The VPS is saturated — expect latency and probe failures. Identify the hot container (`docker stats`) and scale or shed load."
+          runbook_url: "docs/architecture/observability-metrics.md#runbook--hosthighcpuusage"
+
+      - alert: HostHighCpuUsage
+        expr: |
+          100 * (1 - avg by (instance) (rate(node_cpu_seconds_total{mode="idle"}[5m]))) > 85
+        for: 10m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Host CPU usage high"
+          description: "Host CPU on {{ $labels.instance }} has averaged {{ $value | printf \"%.1f\" }}% (>85%) for >10m. Check which container is hot (`docker stats`) and whether it is load or a runaway process before it saturates."
+          runbook_url: "docs/architecture/observability-metrics.md#runbook--hosthighcpuusage"

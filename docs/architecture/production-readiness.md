@@ -376,10 +376,10 @@ The frontend redirects to login after reset and never auto-logs the user in.
 ## 8. Observability
 
 Today: Prometheus scrapes `/actuator/prometheus`; alert rules route through Alertmanager;
-Promtail ships Docker container logs to Loki; distributed tracing exports to Tempo; Grafana
-datasource + dashboard provider are provisioned; rich custom metric catalogue exists.
-**Missing: node exporter, async/Kafka trace propagation, and fully structured JSON application
-logs.**
+Promtail ships Docker container logs to Loki; distributed tracing exports to Tempo; node-exporter
+provides host metrics; Grafana datasource + dashboard provider are provisioned; rich custom
+metric catalogue exists. **Missing: async/Kafka trace propagation and fully structured JSON
+application logs.**
 
 - **Prometheus + Alertmanager**: Prometheus evaluates `docker/prometheus/alerts.yml` and sends
   alerts to `alertmanager:9093`. Local/dev uses a no-op receiver. Hosted beta should set
@@ -390,6 +390,12 @@ logs.**
   Prometheus alerts on exporter health, visible broker count, service consumer lag, sustained
   lag, and retained `parkio.dlt.*` offset depth. DLT depth is broker-side retained offset depth,
   not an application business counter.
+- **Node exporter (host metrics)**: `parkio-node-exporter` collects VPS disk/inode/memory/CPU
+  metrics (read-only host mounts, loopback-only bind, scraped in-network as `node-exporter:9100`).
+  Because the beta is a single box, host exhaustion is a production risk; Prometheus alerts on
+  disk free (<20% warn / <10% critical), inodes (<20/<10%), memory (>85/>95%), CPU (>85/>95%),
+  read-only filesystems, a 24h disk-fill projection, and exporter health. See the **disk-cleanup
+  runbook** and **VPS sizing** table in `docker/README.md`.
 - **Grafana dashboards**: the hosted-beta overview dashboard is committed for service health,
   outbox DLQ/age, gateway 5xx + rate-limit rejections, auth failures, media failures, DB
   connections, and JVM. Add more dashboards as traffic patterns mature.
@@ -430,6 +436,7 @@ logs.**
   | **DB connections near pool max** | Hikari active/max | Pool exhaustion / leak. |
   | **Kafka broker health / under-replicated partitions** | broker metrics | Cluster degradation (esp. with RF≥3). |
   | **Service down / probe failing** | `up == 0`, health | Liveness. |
+  | **Host disk/inode/memory/CPU** | node-exporter (`Host*` alerts) | Single-VPS saturation stalls every service at once. |
 
 ---
 
@@ -640,17 +647,20 @@ OIDC federation to the cloud provider where possible.
 5c. **Frontend CI gate** — **Done** (`frontend-ci.yml`): typecheck + lint + unit tests + production build for the pnpm workspace, path-filtered to `frontend/**`.
 6. Add a GitHub Actions **build-and-push** job (GHCR, `:sha` tags).
 7. ~~Add Prometheus alert rules and Alertmanager notifications for the beta alerts.~~ **Done**
-   (`docker/prometheus/alerts.yml` + `docker/alertmanager/`; 5 critical + 5 warning rules,
-   Slack receiver via `PARKIO_ALERT_SLACK_WEBHOOK_URL`, hosted-beta Grafana dashboard bundled).
-   **Still TODO:** node exporter for disk alerts.
+   (`docker/prometheus/alerts.yml` + `docker/alertmanager/`; Slack receiver via
+   `PARKIO_ALERT_SLACK_WEBHOOK_URL`, hosted-beta Grafana dashboard bundled).
 7b. ~~Add centralized hosted-beta logs.~~ **Done** (`docker/loki/` + `docker/promtail/`):
    Promtail collects Parkio Docker container logs into Loki, Grafana provisions a Loki
    datasource, and hosted-beta retention defaults to 7 days. Follow-up: structured JSON logs
    and distributed tracing.
 7c. ~~Add Kafka lag and DLT-depth observability.~~ **Done** (`parkio-kafka-exporter` +
    Prometheus job `kafka-exporter`): service consumer lag and `parkio.dlt.*` retained offset
-   depth now alert through Alertmanager. Follow-up: managed Kafka broker metrics and node
-   exporter for host disk.
+   depth now alert through Alertmanager. Follow-up: managed Kafka broker metrics.
+7d. ~~Add host-level observability for the single VPS.~~ **Done** (`parkio-node-exporter` +
+   Prometheus job `node-exporter`): host disk/inode/memory/CPU alerts (`Host*`,
+   `NodeExporterDown`), a Grafana **Host (node-exporter)** dashboard row, and a disk-cleanup
+   runbook + VPS sizing table in `docker/README.md`. Exporter is loopback-only, host mounts
+   read-only.
 8. Decide and sign off the managed providers for Phase 2 (Postgres, Kafka, object storage).
 
 ### 11.5 Risks and tradeoffs

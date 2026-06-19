@@ -54,3 +54,10 @@ scrape_configs:
     static_configs:
       - targets: ["kafka-exporter:9308"]
         labels: { service: kafka-exporter }
+
+  # node-exporter — host-level metrics (CPU/memory/disk/filesystem/inodes) for the single VPS.
+  # Scraped in-network; the exporter is never publicly exposed (loopback-only host bind).
+  - job_name: node-exporter
+    static_configs:
+      - targets: ["node-exporter:9100"]
+        labels: { service: node-exporter }
