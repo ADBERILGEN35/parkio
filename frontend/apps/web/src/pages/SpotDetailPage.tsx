@@ -33,6 +33,7 @@ import { moderationApi, parkingApi } from '@/api';
 import { FriendlyApiErrorMessage } from '@/components/FriendlyApiErrorMessage';
 import { SpotMap } from '@/components/map/SpotMap';
 import { formatInstant, formatRelativeAgo, formatRemaining, humanizeEnum } from '@/lib/format';
+import { showError, showSuccess } from '@/lib/toast';
 
 /** Owner-only metrics that may appear on SpotResponse but not PublicSpotResponse. */
 type OptionalSpotMetrics = Partial<
@@ -472,6 +473,10 @@ function PremiumActionCard({ spot }: { spot: PublicSpot }) {
     onSuccess: async () => {
       resetVerify();
       await invalidateSpotData();
+      showSuccess('Verification submitted.');
+    },
+    onError: (error) => {
+      showError(mapActionError(error as ParkioApiError) ?? 'Could not submit verification.');
     },
   });
 
@@ -480,6 +485,10 @@ function PremiumActionCard({ spot }: { spot: PublicSpot }) {
     onSuccess: async () => {
       setClaimed(true);
       await invalidateSpotData();
+      showSuccess('Spot claimed as filled.');
+    },
+    onError: (error) => {
+      showError(mapActionError(error as ParkioApiError) ?? 'Could not claim this spot.');
     },
   });
 
@@ -504,6 +513,10 @@ function PremiumActionCard({ spot }: { spot: PublicSpot }) {
     onSuccess: async () => {
       resetReport();
       await queryClient.invalidateQueries({ queryKey: ['reports'] });
+      showSuccess('Report submitted.');
+    },
+    onError: (error) => {
+      showError(mapReportError(error as ParkioApiError) ?? 'Could not submit report.');
     },
   });
 

@@ -43,6 +43,7 @@ import { isValidLatLng } from '@/components/map/mapConfig';
 import { PlaceSearch } from '@/components/map/PlaceSearch';
 import { humanizeEnum } from '@/lib/format';
 import { type GeocodeResult } from '@/lib/geocoding';
+import { showError, showSuccess } from '@/lib/toast';
 
 type SubmitPhase = 'idle' | 'uploading' | 'creating';
 
@@ -286,7 +287,9 @@ export function UploadPage() {
       }
       const check = mediaUploadSchema.safeParse({ file });
       if (!check.success) {
-        setFileError(check.error.issues[0]?.message ?? 'Invalid file');
+        const message = check.error.issues[0]?.message ?? 'Invalid file';
+        setFileError(message);
+        showError(message);
         setStep(STEP_PHOTO);
         return;
       }
@@ -298,6 +301,7 @@ export function UploadPage() {
         setPhase('uploading');
         media = await mediaApi.uploadMedia(file as File, createIdempotencyKey());
         setUploadedMedia(media);
+        showSuccess('Photo uploaded.');
       }
 
       setPhase('creating');
@@ -318,8 +322,10 @@ export function UploadPage() {
         createIdempotencyKey(),
       );
       setCreatedSpot(spot);
+      showSuccess('Spot created.');
     } catch (error) {
       setSubmitError(error);
+      showError('Could not create spot. Please review the details and try again.');
     } finally {
       setPhase('idle');
     }

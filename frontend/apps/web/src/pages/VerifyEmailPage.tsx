@@ -4,6 +4,7 @@ import { useNavigate, useSearchParams } from 'react-router-dom';
 import { authApi } from '@/api';
 import { describeAuthError } from '@/api/error-messages';
 import { AuthSplitLayout } from '@/pages/auth/AuthSplitLayout';
+import { showError, showSuccess } from '@/lib/toast';
 
 type VerifyState = 'verifying' | 'success' | 'error';
 
@@ -26,7 +27,10 @@ export function VerifyEmailPage() {
     authApi
       .verifyEmail({ token })
       .then(() => {
-        if (!cancelled) setState('success');
+        if (!cancelled) {
+          setState('success');
+          showSuccess('Email verified. You can sign in now.');
+        }
       })
       .catch((error) => {
         if (cancelled) return;
@@ -34,6 +38,7 @@ export function VerifyEmailPage() {
         setApiError(friendly.message);
         setTraceId(friendly.traceId);
         setState('error');
+        showError(friendly.message);
       });
 
     return () => {

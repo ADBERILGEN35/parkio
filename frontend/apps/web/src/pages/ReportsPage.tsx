@@ -20,6 +20,7 @@ import { Link } from 'react-router-dom';
 import { moderationApi } from '@/api';
 import { FriendlyApiErrorMessage } from '@/components/FriendlyApiErrorMessage';
 import { formatRelativeAgo, humanizeEnum } from '@/lib/format';
+import { showError, showSuccess } from '@/lib/toast';
 
 const TEXTAREA_CLASS =
   'w-full rounded-lg border-0 bg-surface px-md py-sm text-body-md text-on-surface shadow-sm ring-1 ring-outline-variant/40 placeholder:text-outline focus:outline-none focus:ring-2 focus:ring-primary';
@@ -152,7 +153,9 @@ function AppealCard() {
     onSuccess: (appeal) => {
       setCreatedAppeal(appeal);
       reset();
+      showSuccess('Appeal submitted.');
     },
+    onError: () => showError('Could not submit appeal.'),
   });
 
   const onSubmit = handleSubmit((values) => appealMutation.mutate(values));

@@ -13,6 +13,7 @@ import { authApi } from '@/api';
 import { describeAuthError } from '@/api/error-messages';
 import { AuthDivider, AuthSplitLayout, GoogleButton } from '@/pages/auth/AuthSplitLayout';
 import { setPendingProfile } from '@/auth/pendingProfile';
+import { showError, showSuccess } from '@/lib/toast';
 
 export function RegisterPage() {
   const navigate = useNavigate();
@@ -51,11 +52,13 @@ export function RegisterPage() {
         displayName: values.displayName.trim(),
         phoneNumber: values.phoneNumber?.trim() || undefined,
       });
+      showSuccess('Account created. Check your email to verify it.');
       navigate(`/check-email?email=${encodeURIComponent(values.email.trim())}`);
     } catch (error) {
       const friendly = describeAuthError(error, 'Registration failed. Please try again.');
       setApiError(friendly.message);
       setTraceId(friendly.traceId);
+      showError(friendly.message);
       friendly.fieldErrors?.forEach((fe) => {
         if (fe.field === 'email' || fe.field === 'password') {
           setError(fe.field, { message: fe.message });

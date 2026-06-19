@@ -1,8 +1,8 @@
 import type { StyleSpecification } from 'maplibre-gl';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
-// mapConfig reads import.meta.env at module-eval time, so each scenario stubs the
-// env and re-imports a fresh module instance.
+// mapConfig reads the validated app config at module-eval time, so each scenario
+// stubs env and re-imports a fresh module instance.
 async function loadMapConfig() {
   vi.resetModules();
   return import('./mapConfig');

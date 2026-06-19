@@ -7,6 +7,7 @@ import { Link } from 'react-router-dom';
 import { authApi } from '@/api';
 import { describeAuthError } from '@/api/error-messages';
 import { AuthSplitLayout } from '@/pages/auth/AuthSplitLayout';
+import { showError, showSuccess } from '@/lib/toast';
 
 const GENERIC_SUCCESS = 'If an account exists, we sent password reset instructions.';
 
@@ -28,10 +29,12 @@ export function ForgotPasswordPage() {
     try {
       await authApi.forgotPassword({ email: values.email });
       setMessage(GENERIC_SUCCESS);
+      showSuccess(GENERIC_SUCCESS);
     } catch (error) {
       const friendly = describeAuthError(error, 'We could not process the request. Please try again.');
       setApiError(friendly.message);
       setTraceId(friendly.traceId);
+      showError(friendly.message);
       friendly.fieldErrors?.forEach((fe) => {
         if (fe.field === 'email') {
           setError('email', { message: fe.message });

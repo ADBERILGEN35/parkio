@@ -9,6 +9,7 @@ import { describeAuthError } from '@/api/error-messages';
 import { AuthDivider, AuthSplitLayout, GoogleButton } from '@/pages/auth/AuthSplitLayout';
 import { getPendingProfile } from '@/auth/pendingProfile';
 import { useAuthStore } from '@/auth/store';
+import { showError, showSuccess } from '@/lib/toast';
 
 export function LoginPage() {
   const navigate = useNavigate();
@@ -34,6 +35,7 @@ export function LoginPage() {
         throw new Error('Login response did not include an access token.');
       }
       setSession(result.accessToken, result.user);
+      showSuccess('Signed in successfully.');
       if (getPendingProfile()) {
         beginProvisioning();
         navigate('/preparing');
@@ -44,6 +46,7 @@ export function LoginPage() {
       const friendly = describeAuthError(error, 'Login failed. Please try again.');
       setApiError(friendly.message);
       setTraceId(friendly.traceId);
+      showError(friendly.message);
       friendly.fieldErrors?.forEach((fe) => {
         if (fe.field === 'email' || fe.field === 'password') {
           setError(fe.field, { message: fe.message });

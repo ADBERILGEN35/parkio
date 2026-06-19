@@ -1,8 +1,8 @@
-import { DEFAULT_API_BASE_URL } from '@parkio/api-client';
 import { setupServer } from 'msw/node';
+import { frontendConfig } from '@/config/env';
 
-/** Mirrors the api singleton's base URL resolution (`apps/web/src/api/index.ts`). */
-export const API_BASE = import.meta.env.VITE_API_BASE_URL ?? DEFAULT_API_BASE_URL;
+/** Mirrors the api singleton's validated base URL resolution (`apps/web/src/api/index.ts`). */
+export const API_BASE = frontendConfig.apiBaseUrl;
 
 /** Shared MSW server — tests register handlers per test via `server.use(...)`. */
 export const server = setupServer();

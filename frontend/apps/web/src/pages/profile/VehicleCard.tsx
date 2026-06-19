@@ -7,6 +7,7 @@ import { useForm, type UseFormRegisterReturn } from 'react-hook-form';
 import { usersApi } from '@/api';
 import { FriendlyApiErrorMessage } from '@/components/FriendlyApiErrorMessage';
 import { humanizeEnum } from '@/lib/format';
+import { showError, showSuccess } from '@/lib/toast';
 
 const VEHICLE_ICONS: Record<VehicleType, string> = {
   MOTORCYCLE: 'two_wheeler',
@@ -37,7 +38,11 @@ function VehicleForm({ vehicle }: { vehicle: VehicleProfile }) {
   const queryClient = useQueryClient();
   const mutation = useMutation({
     mutationFn: usersApi.upsertMyVehicle,
-    onSuccess: () => queryClient.invalidateQueries({ queryKey: ['me', 'vehicle'] }),
+    onSuccess: () => {
+      showSuccess('Vehicle saved.');
+      void queryClient.invalidateQueries({ queryKey: ['me', 'vehicle'] });
+    },
+    onError: () => showError('Could not save vehicle.'),
   });
 
   const {

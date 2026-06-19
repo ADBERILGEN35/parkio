@@ -16,8 +16,10 @@ import {
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useState, type ReactNode } from 'react';
 import { notificationsApi } from '@/api';
+import { ComingSoonControl } from '@/components/ComingSoonControl';
 import { FriendlyApiErrorMessage } from '@/components/FriendlyApiErrorMessage';
 import { formatInstant, formatRelativeAgo, humanizeEnum } from '@/lib/format';
+import { showError, showSuccess } from '@/lib/toast';
 
 /** Type → icon + tone (NotificationType is backend-provided; no invented categories). */
 const TYPE_VISUALS: Record<NotificationType, { icon: string; tone: BadgeTone }> = {
@@ -83,14 +85,12 @@ export function NotificationsPage() {
          * Shown only when something is unread so it stays contextually honest.
          */}
         {query.data && query.data.some(isUnreadNotification) ? (
-          <button
-            type="button"
-            title="Mark notifications as read individually for now."
-            className="inline-flex items-center gap-xs rounded-full px-sm py-xs text-label-md font-semibold text-primary transition-colors duration-std hover:bg-primary/5"
+          <ComingSoonControl
+            icon="done_all"
+            explanation="Mark notifications as read individually until the bulk endpoint is available."
           >
-            <Icon name="done_all" className="text-[16px] leading-none" />
             Mark all as read
-          </button>
+          </ComingSoonControl>
         ) : null}
       </header>
 
@@ -222,7 +222,11 @@ function NotificationItem({ notification }: { notification: AppNotification }) {
 
   const markRead = useMutation({
     mutationFn: () => notificationsApi.markRead(notification.id),
-    onSuccess: () => queryClient.invalidateQueries({ queryKey: ['notifications'] }),
+    onSuccess: () => {
+      showSuccess('Notification marked as read.');
+      void queryClient.invalidateQueries({ queryKey: ['notifications'] });
+    },
+    onError: () => showError('Could not mark notification as read.'),
   });
 
   return (

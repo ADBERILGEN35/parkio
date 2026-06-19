@@ -9,13 +9,14 @@ import type { StyleSpecification } from 'maplibre-gl';
  * map instead of a blank canvas. No API key is ever hardcoded — the key is read
  * from the environment at build time and the fallback needs no key at all.
  */
+import { frontendConfig } from '@/config/env';
 
 /** MapTiler key, injected at build time. Empty/undefined ⇒ raster OSM fallback. */
-const MAPTILER_KEY = import.meta.env.VITE_MAPTILER_KEY?.trim() ?? '';
+const MAPTILER_KEY = frontendConfig.map.maptilerKey;
 
 /** Which MapTiler vector style to request. Kept configurable to prepare for
  * style switching / dark mode without code changes (e.g. `streets-v2-dark`). */
-const MAPTILER_STYLE = import.meta.env.VITE_MAPTILER_STYLE?.trim() || 'streets-v2';
+const MAPTILER_STYLE = frontendConfig.map.maptilerStyle;
 
 /** True when a MapTiler key is configured, i.e. vector tiles are available. */
 export const hasMapTilerKey = MAPTILER_KEY.length > 0;
@@ -32,12 +33,10 @@ function maptilerStyleUrl(style: string): string {
  * tile URLs below.
  */
 const RASTER_TILE_URL =
-  import.meta.env.VITE_MAP_TILE_URL ?? 'https://tile.openstreetmap.org/{z}/{x}/{y}.png';
+  frontendConfig.map.rasterTileUrl;
 
 /** OpenStreetMap attribution (overridable). Always shown for the raster fallback. */
-export const OSM_ATTRIBUTION =
-  import.meta.env.VITE_MAP_TILE_ATTRIBUTION ??
-  '© <a href="https://www.openstreetmap.org/copyright" target="_blank" rel="noopener">OpenStreetMap</a> contributors';
+export const OSM_ATTRIBUTION = frontendConfig.map.rasterAttribution;
 
 /** Expand a `{s}` subdomain template into one URL per subdomain (a/b/c). */
 function expandSubdomains(template: string): string[] {

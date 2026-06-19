@@ -8,13 +8,13 @@ import {
   createNotificationsApi,
   createParkingApi,
   createUsersApi,
-  DEFAULT_API_BASE_URL,
   setRefreshHandler,
 } from '@parkio/api-client';
 import { useAuthStore } from '@/auth/store';
 import { webTokenStorage } from '@/auth/token-storage';
+import { frontendConfig } from '@/config/env';
 
-const baseURL = import.meta.env.VITE_API_BASE_URL ?? DEFAULT_API_BASE_URL;
+const baseURL = frontendConfig.apiBaseUrl;
 
 export const apiClient = createApiClient({
   baseURL,
@@ -34,12 +34,12 @@ export const analyticsApi = createAnalyticsApi(apiClient);
 
 setRefreshHandler(async () => {
   try {
-  const result = await authApi.refresh();
-  if (!result.accessToken) {
-    throw new Error('Refresh response did not include an access token.');
-  }
-  useAuthStore.getState().setSession(result.accessToken, result.user);
-  return result.accessToken;
+    const result = await authApi.refresh();
+    if (!result.accessToken) {
+      throw new Error('Refresh response did not include an access token.');
+    }
+    useAuthStore.getState().setSession(result.accessToken, result.user);
+    return result.accessToken;
   } catch {
     useAuthStore.getState().clearSession();
     return null;

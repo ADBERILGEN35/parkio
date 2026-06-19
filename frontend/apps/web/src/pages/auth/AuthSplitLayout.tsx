@@ -150,11 +150,13 @@ export function GoogleButton({ label }: { label: string }) {
   return (
     <button
       type="button"
+      disabled
       title="Google sign-in is coming soon"
-      className="inline-flex w-full items-center justify-center gap-sm rounded-lg border border-outline-variant bg-surface px-lg py-sm text-label-md text-on-surface transition-all duration-std hover:bg-surface-container motion-safe:active:scale-95 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-2"
+      className="inline-flex w-full cursor-not-allowed items-center justify-center gap-sm rounded-lg border border-outline-variant bg-surface-container px-lg py-sm text-label-md text-on-surface-variant opacity-75"
     >
       <GoogleIcon />
       {label}
+      <span className="text-label-sm">(coming soon)</span>
     </button>
   );
 }

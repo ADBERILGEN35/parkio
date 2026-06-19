@@ -120,8 +120,8 @@ The UI honors the OS **"reduce motion"** preference:
 
 Stack: **Vitest** + **React Testing Library** + `@testing-library/user-event` +
 `@testing-library/jest-dom` + **MSW** for unit/component tests (gateway responses are
-mocked at the network layer — tests never hit a real backend), plus a single
-**Playwright** browser smoke test (see [E2E smoke test](#e2e-smoke-test)).
+mocked at the network layer — tests never hit a real backend), plus mocked
+**Playwright** browser critical-flow tests (see [E2E coverage](#e2e-coverage)).
 
 ### Installing test dependencies (Windows pnpm only)
 
@@ -142,21 +142,25 @@ pnpm --filter @parkio/api-client test      # one package
 pnpm --filter @parkio/web test:watch       # watch mode
 ```
 
-### E2E smoke test
+### E2E coverage
 
-A single **Playwright** smoke test (`apps/web/e2e/smoke.spec.ts`) exercises the
-core happy path end to end in a real browser:
+**Playwright** tests (`apps/web/e2e/smoke.spec.ts`) exercise critical flows in a
+real browser with deterministic network mocks:
 
-> `/login` → mocked login → `/map` → mocked nearby search (one spot) →
-> `/upload` → mocked media upload + create spot → redirect to `/spots/:id` →
-> spot detail renders from its mocked endpoints.
+- Auth: register → check email → verify email → login.
+- Auth: forgot password → reset password → login with the new password.
+- Parking: upload image → create spot → success redirect.
+- Parking: open spot details → claim spot.
+- Parking: verify spot and report spot.
+- Moderation: moderator login → open queue → assign/review/resolve a case.
 
 - **The backend is fully mocked** with Playwright `page.route` — no real services
   are contacted. `VITE_API_BASE_URL` is pointed at the dev-server origin so calls
   stay same-origin; map tiles and web fonts are aborted to keep the run offline
   and deterministic.
 - It runs against the Vite **dev server** (started automatically by Playwright's
-  `webServer`), Chromium only.
+  `webServer`) across desktop Chromium, iPhone 14, and a Pixel 8-sized mobile
+  Chromium project.
 - It is **not** part of `pnpm test` (so unit/CI runs need no browser binaries).
   Vitest is scoped to `src/**`, so it never picks up the `.spec.ts` in `e2e/`.
 
@@ -168,8 +172,8 @@ pnpm e2e                                    # headless smoke run (root)
 pnpm e2e:ui                                 # interactive UI mode (debugging)
 ```
 
-Full backend-integrated E2E (real gateway + services, more flows) remains future
-work — this is a deliberately small, deterministic safety net for the main flow.
+Full backend-integrated E2E (real gateway + services) remains future work — this
+suite is a deterministic release safety net for the frontend contract and UX.
 
 ### What is covered
 
@@ -177,8 +181,8 @@ work — this is a deliberately small, deterministic safety net for the main flo
 |------|-------|-------|
 | `packages/api-client` | `src/*.test.ts` | Authorization/`X-Correlation-Id` interceptors, 401 → single shared refresh → retry → hard logout, refresh-exempt auth paths, `toParkioError` mapping (401/403/`ACCOUNT_NOT_ACTIVE`/429/503/unknown), `Idempotency-Key` on create/verify/claim/upload |
 | `packages/validation` | `src/*.test.ts` | login/register, nearby-search boundaries (lat ±90, lng ±180, radius ≤ 50 000, limit 1–50), media type/size limits, create-spot vehicle/violation rules, profile/preferences/vehicle constraints |
-| `apps/web` | `src/**/*.test.tsx` | Login success (session + redirect) and 401 (friendly message + traceId), `ProtectedRoute`/`RoleRoute` guards, notifications list/empty/mark-as-read refetch, spot detail 404 / 409 `ALREADY_VERIFIED` / claim success, upload validation/media-reuse/create, profile stats + section-tab switching + vehicle empty/current + profile/preferences save + logout, gamification "Your Impact" header + level hero + recent activity/benefits + activity empty state + roadmap current-level highlight, leaderboard podium + public-profile enrichment/fallback + your-standing highlight + not-in-top-N + show-more + empty, moderation case queue/detail-assign/appeal-resolve controls, analytics overview KPIs + daily empty state + own-id-only 403 message, register extended-form validation (display name / password match / terms) + sends only email+password + captured name/phone PATCHed after provisioning + profile-save failure is non-fatal, register success → preparing → /map and register → preparing (not suspended), post-register provisioning grace (retry on `ACCOUNT_NOT_ACTIVE`, timeout → retry/sign-out) + store guard (suspended only outside the grace window), my-spots empty/list, reports list + appeal form, AppNav mobile menu toggle + role-gated links |
-| `apps/web` (E2E) | `e2e/smoke.spec.ts` | Playwright browser smoke: login → map nearby search → upload & create spot → redirect to spot detail (backend mocked via `page.route`, run with `pnpm e2e`) |
+| `apps/web` | `src/**/*.test.tsx` | Login success (session + redirect) and 401 (friendly message + traceId), `ProtectedRoute`/`RoleRoute` guards, route title/focus management, Sonner toast helpers/dedupe, jest-axe checks for login/register/map shell, notifications list/empty/mark-as-read refetch, spot detail 404 / 409 `ALREADY_VERIFIED` / claim success, upload validation/media-reuse/create, profile stats + section-tab switching + vehicle empty/current + profile/preferences save + logout, gamification "Your Impact" header + level hero + recent activity/benefits + activity empty state + roadmap current-level highlight, leaderboard podium + public-profile enrichment/fallback + your-standing highlight + not-in-top-N + show-more + empty, moderation case queue/detail-assign/appeal-resolve controls, analytics overview KPIs + daily empty state + own-id-only 403 message, register extended-form validation (display name / password match / terms) + sends only email+password + captured name/phone PATCHed after provisioning + profile-save failure is non-fatal, register success → preparing → /map and register → preparing (not suspended), post-register provisioning grace (retry on `ACCOUNT_NOT_ACTIVE`, timeout → retry/sign-out) + store guard (suspended only outside the grace window), my-spots empty/list, reports list + appeal form, AppNav mobile menu toggle + role-gated links |
+| `apps/web` (E2E) | `e2e/smoke.spec.ts` | Mocked Playwright critical flows for auth, parking, moderation, and mobile projects (desktop Chromium, iPhone 14, Pixel 8-sized Chromium). |
 
 Notes:
 
@@ -193,9 +197,14 @@ Notes:
 
 | Variable | Default | Description |
 |----------|---------|-------------|
-| `VITE_API_BASE_URL` | `http://localhost:8080/api/v1` | **Gateway-only** API base. Never point at service ports (8081–8089). |
+| `VITE_APP_ENV` | derived from Vite mode | `development`, `test`, `hosted-beta`, or `production`. `hosted-beta` and `production` are production-like and fail loudly on missing required config. |
+| `VITE_API_BASE_URL` | `http://localhost:8080/api/v1` in dev/test only | **Gateway-only** API base. Required in `hosted-beta`/`production`; never point at service ports (8081–8089). |
+| `VITE_FRONTEND_ERROR_REPORTING` | `disabled` | Client-side reporting adapter. `disabled` is a safe no-op; `console` logs sanitized diagnostics for hosted debugging until a provider adapter is added. |
 
 Set in `apps/web/.env` (not committed).
+
+`apps/web/src/config/env.ts` is the single source of truth for browser build-time
+configuration. Production-like builds must not silently fall back to localhost.
 
 ## Gateway-only rule
 
@@ -361,7 +370,51 @@ sends. To improve onboarding, the register form additionally collects **Full nam
   `clearSession()` (sign-out / session reset).
 - **Phone is captured only — it is NOT SMS-verified.** The helper copy ("We'll use this later
   for account recovery and verification") does not imply verification. SMS verification is
-  future backend/provider work. The **Continue with Google** button remains visual-only.
+  future backend/provider work. The **Continue with Google** button is disabled and labelled
+  **coming soon** until a real OAuth backend flow exists.
+
+## Frontend safety & client diagnostics
+
+- `App` is wrapped in a global React `ErrorBoundary`. Runtime render failures show a
+  Parkio-branded fallback with **Reload app**, **Go to login/map**, and a diagnostic id.
+  Production-like builds do not expose stack traces in the UI.
+- Lazy route chunk failures matching common browser/Vite messages trigger exactly one
+  `sessionStorage`-guarded reload (`parkio.chunk-reload-attempted`). If the reload does
+  not recover the app, the normal fallback renders instead of looping.
+- `initFrontendErrorReporting()`, `reportFrontendError(...)`, and
+  `reportFrontendMessage(...)` live in `apps/web/src/observability/errorReporting.ts`.
+  The default provider is a no-op; `VITE_FRONTEND_ERROR_REPORTING=console` emits sanitized
+  route/auth/browser diagnostics. The adapter deliberately redacts access/refresh/reset/
+  verification tokens, passwords, authorization values, secrets, and API keys.
+- Source maps are disabled by default. `apps/web/vite.config.ts` switches to hidden source
+  maps only when `VITE_FRONTEND_ERROR_REPORTING` is not `disabled`, so a future hosted
+  provider can symbolicate without publishing source maps to browsers.
+- Product controls that do not have backend support must be hidden or disabled with a
+  visible **coming soon** explanation. This currently applies to Google OAuth and bulk
+  notification **Mark all as read**.
+
+## UX feedback, accessibility, and errors
+
+- Toasts use **Sonner** through the app-level `AppToaster`. Call only the shared
+  helpers in `apps/web/src/lib/toast.ts`: `showSuccess`, `showError`, `showWarning`,
+  and `showInfo`. Helpers use stable ids (`kind:message`) so repeated submissions
+  update/dedupe instead of stacking excessive duplicate toasts.
+- Durable state still belongs inline. For example, a form may keep its success
+  panel or `traceId` alert while also emitting a toast for immediate feedback.
+- Route titles are centralized in `RouteAccessibility`: every route should resolve
+  to `Parkio — <Page>`. Add new routes there when adding route entries.
+- After route navigation, focus moves to `[data-route-focus]`, the first `h1`, or
+  the `main` landmark. New pages should render one meaningful `h1`; use
+  `data-route-focus` only when the heading is not the right focus target.
+- Landmark policy: authenticated pages render inside `AppShell` (`header`/`nav` +
+  app-level `main`); public auth pages render their own `main`. Avoid nested
+  `<main>` landmarks inside `PageShell` content.
+- Forms must use real labels, expose required/disabled states, and pass validation
+  messages through the shared `Input` primitive or a `role="alert"` error element.
+  Icon-only controls require `aria-label`.
+- API errors should render through `ApiErrorAlert`/`FriendlyApiErrorMessage` so
+  network/401/403/404/409/422/429/5xx states get consistent wording, code, and
+  `traceId` display.
 
 ### Other error statuses
 
@@ -552,10 +605,9 @@ fills + 1px borders — no glassmorphism):
   map sets `manualLocationEdited = true`. The upload picker defaults to the İzmir beta
   center (`38.4237, 27.1428`) so the map never opens on empty ocean; `/upload` does
   **not** auto-prompt for browser geolocation.
-- **Bundle** — Leaflet is loaded in its own lazy chunk (the `/map` route is eager, so
-  the map component is `React.lazy`-loaded) and is **not** part of the initial entry
-  bundle. Leaflet's CSS is imported by the map components (browser build only — no SSR
-  assumptions).
+- **Bundle** — MapLibre/react-map-gl are loaded through lazy map components and Vite
+  manual chunks (`maplibre`, `react-vendor`, `app-vendor`) so large map/vendor code stays
+  split from the entry bundle where possible.
 
 ### Map environment variables
 
@@ -564,14 +616,14 @@ key is set, otherwise it falls back to **OpenStreetMap raster tiles** so the map
 
 | Variable | Default | Description |
 |----------|---------|-------------|
-| `VITE_MAPTILER_KEY` | _(unset → OSM raster fallback)_ | MapTiler API key. Enables production-grade vector tiles (HiDPI/Retina, vector typography, dark-mode-ready). Free key at <https://cloud.maptiler.com/account/keys/>. Injected at build time — never commit it. |
+| `VITE_MAPTILER_KEY` | _(unset → OSM raster fallback in dev/test)_ | MapTiler API key. Enables production-grade vector tiles (HiDPI/Retina, vector typography, dark-mode-ready). Required in `hosted-beta`/`production`. Free key at <https://cloud.maptiler.com/account/keys/>. Injected at build time — never commit it. |
 | `VITE_MAPTILER_STYLE` | `streets-v2` | MapTiler vector style id (e.g. `streets-v2-dark`). Prepared for style switching. |
 | `VITE_MAP_TILE_URL` | `https://tile.openstreetmap.org/{z}/{x}/{y}.png` | Raster fallback tile template (used **only** when no MapTiler key is set). `{s}` subdomains are expanded automatically. |
 | `VITE_MAP_TILE_ATTRIBUTION` | OpenStreetMap attribution | Raster fallback attribution HTML. |
-| `VITE_GEOCODING_BASE_URL` | `https://nominatim.openstreetmap.org` | Forward-geocoding base URL for `/map` location search. Defaults to public Nominatim (local-beta only); point at the backend or an SLA provider for production. |
+| `VITE_GEOCODING_BASE_URL` | `https://nominatim.openstreetmap.org` in dev/test only | Forward-geocoding base URL for `/map` location search. Required in `hosted-beta`/`production`; point at the backend or an SLA provider for production. |
 
-All are optional. **Production:** set `VITE_MAPTILER_KEY` (OSM's public tile servers are
-not intended for production traffic) and allow the tile host in the SPA's CSP via
+MapTiler/geocoding are optional only in dev/test. **Production:** set `VITE_MAPTILER_KEY`
+(OSM's public tile servers are not intended for production traffic) and allow the tile host in the SPA's CSP via
 `PARKIO_MAP_CONNECT_SRC` (Caddy; defaults to `https://api.maptiler.com`). Inject the key at
 build/deploy time; do not commit production keys.
 
@@ -986,7 +1038,9 @@ All services return a uniform `ApiError`:
 }
 ```
 
-Surface `traceId` in error UI for support.
+Surface `traceId` in error UI for support. Use `ApiErrorAlert` or
+`FriendlyApiErrorMessage`; do not hand-roll API error panels unless a page needs
+additional local context.
 
 ## Not implemented yet
 
@@ -999,6 +1053,6 @@ Surface `traceId` in error UI for support.
 - Charting on the analytics dashboard (plain tables only)
 - Mobile app
 - Real push notifications (backend uses a placeholder; in-app only)
-- Full backend-integrated E2E — a single mocked Playwright smoke test exists
-  (`pnpm e2e`); broader flows against a real gateway/services are future work
+- Full backend-integrated E2E — mocked Playwright critical-flow coverage exists
+  (`pnpm e2e`); flows against a real gateway/services are future work
 - Dark mode (tokens/`darkMode: 'class'` are wired, but no dark screens exist yet)

@@ -15,6 +15,7 @@ import { describeAuthError } from '@/api/error-messages';
 import { performLogout } from '@/auth/logout';
 import { useAuthStore } from '@/auth/store';
 import { humanizeEnum } from '@/lib/format';
+import { showError, showSuccess, showWarning } from '@/lib/toast';
 import { accountStatusTone } from './accountVisuals';
 
 /**
@@ -53,6 +54,7 @@ export function AccountCard() {
     setSigningOut(true);
     try {
       await performLogout();
+      showSuccess('Signed out.');
       navigate('/login', { replace: true });
     } finally {
       setSigningOut(false);
@@ -67,6 +69,7 @@ export function AccountCard() {
     try {
       await authApi.logoutAll();
     } catch {
+      showWarning('Could not reach the server, but this browser was signed out.');
       // The local session is still cleared so this browser cannot keep using a stale token.
     } finally {
       clearSession();
@@ -85,11 +88,13 @@ export function AccountCard() {
       });
       reset();
       setPasswordMessage('Password changed. Please sign in again.');
+      showSuccess('Password changed. Please sign in again.');
       clearSession();
       navigate('/login', { replace: true });
     } catch (error) {
       const friendly = describeAuthError(error, 'Password change failed. Please try again.');
       setPasswordError(friendly.message);
+      showError(friendly.message);
     }
   });
 

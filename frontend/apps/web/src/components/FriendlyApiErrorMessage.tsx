@@ -1,12 +1,6 @@
-import { type ParkioApiError, isParkioApiError } from '@parkio/api-client';
-import { ErrorMessage } from '@parkio/ui';
+import { ApiErrorAlert, type ApiErrorMapper } from './ApiErrorAlert';
 
-/**
- * Maps a recognised {@link ParkioApiError} to user-friendly wording. Return
- * `null` to fall through to the raw backend message (still shown with its code
- * and traceId).
- */
-export type ApiErrorMapper = (error: ParkioApiError) => string | null;
+export type { ApiErrorMapper };
 
 export interface FriendlyApiErrorMessageProps {
   error: unknown;
@@ -26,15 +20,5 @@ export function FriendlyApiErrorMessage({
   mapper,
   fallback = 'Something went wrong. Please try again.',
 }: FriendlyApiErrorMessageProps) {
-  if (isParkioApiError(error)) {
-    const friendly = mapper ? mapper(error) : null;
-    return (
-      <ErrorMessage
-        message={friendly ?? error.message}
-        code={error.code}
-        traceId={error.traceId || undefined}
-      />
-    );
-  }
-  return <ErrorMessage message={fallback} />;
+  return <ApiErrorAlert error={error} mapper={mapper} fallback={fallback} />;
 }

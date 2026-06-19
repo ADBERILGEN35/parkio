@@ -1,4 +1,4 @@
-import { forwardRef, type InputHTMLAttributes } from 'react';
+import { forwardRef, useId, type InputHTMLAttributes } from 'react';
 import { cn } from '../cn';
 
 export interface InputProps extends InputHTMLAttributes<HTMLInputElement> {
@@ -14,7 +14,9 @@ export const Input = forwardRef<HTMLInputElement, InputProps>(function Input(
   { label, error, id, className, ...props },
   ref,
 ) {
-  const inputId = id ?? label?.toLowerCase().replace(/\s+/g, '-');
+  const generatedId = useId();
+  const inputId = id ?? label?.toLowerCase().replace(/\s+/g, '-') ?? generatedId;
+  const errorId = `${inputId}-error`;
   return (
     <label className="flex flex-col gap-xs">
       {label ? (
@@ -23,6 +25,8 @@ export const Input = forwardRef<HTMLInputElement, InputProps>(function Input(
       <input
         ref={ref}
         id={inputId}
+        aria-invalid={error ? true : undefined}
+        aria-describedby={error ? errorId : props['aria-describedby']}
         className={cn(
           'w-full rounded-lg border-0 bg-surface px-md py-sm text-body-md text-on-surface shadow-sm',
           'placeholder:text-outline transition-shadow duration-std',
@@ -32,7 +36,11 @@ export const Input = forwardRef<HTMLInputElement, InputProps>(function Input(
         )}
         {...props}
       />
-      {error ? <span className="text-label-sm text-error">{error}</span> : null}
+      {error ? (
+        <span id={errorId} role="alert" className="text-label-sm text-error">
+          {error}
+        </span>
+      ) : null}
     </label>
   );
 });

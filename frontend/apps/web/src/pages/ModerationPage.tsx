@@ -33,6 +33,7 @@ import { Link } from 'react-router-dom';
 import { moderationApi } from '@/api';
 import { FriendlyApiErrorMessage } from '@/components/FriendlyApiErrorMessage';
 import { formatInstant, formatRelativeAgo, humanizeEnum } from '@/lib/format';
+import { showError, showSuccess } from '@/lib/toast';
 
 const CASE_STATUS_TONE: Record<ModerationStatus, BadgeTone> = {
   OPEN: 'primary',
@@ -226,7 +227,11 @@ function CaseDetailCard({ caseId }: { caseId: string }) {
 
   const assignMutation = useMutation({
     mutationFn: () => moderationApi.assignModerationCase(caseId),
-    onSuccess: () => invalidateCases(),
+    onSuccess: () => {
+      showSuccess('Case assigned to you.');
+      void invalidateCases();
+    },
+    onError: () => showError('Could not assign case.'),
   });
 
   const {
@@ -248,7 +253,9 @@ function CaseDetailCard({ caseId }: { caseId: string }) {
     onSuccess: async () => {
       reset();
       await invalidateCases();
+      showSuccess('Case resolved.');
     },
+    onError: () => showError('Could not resolve case.'),
   });
 
   if (query.isPending) {
@@ -478,7 +485,11 @@ function ResolveAppealForm({ appealId }: { appealId: string }) {
         accepted: values.accepted,
         note: values.note === '' ? null : values.note,
       }),
-    onSuccess: () => queryClient.invalidateQueries({ queryKey: ['moderation', 'appeals'] }),
+    onSuccess: () => {
+      showSuccess('Appeal resolved.');
+      void queryClient.invalidateQueries({ queryKey: ['moderation', 'appeals'] });
+    },
+    onError: () => showError('Could not resolve appeal.'),
   });
 
   const onSubmit = handleSubmit((values) => resolveMutation.mutate(values));

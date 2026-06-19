@@ -13,6 +13,7 @@ import { authApi } from '@/api';
 import { describeAuthError } from '@/api/error-messages';
 import { useAuthStore } from '@/auth/store';
 import { AuthSplitLayout } from '@/pages/auth/AuthSplitLayout';
+import { showError, showSuccess } from '@/lib/toast';
 
 export function ResetPasswordPage() {
   const [searchParams] = useSearchParams();
@@ -38,6 +39,7 @@ export function ResetPasswordPage() {
   const onSubmit = handleSubmit(async (values) => {
     if (!token) {
       setApiError('Password reset link is missing a token.');
+      showError('Password reset link is missing a token.');
       return;
     }
     setApiError(null);
@@ -45,11 +47,13 @@ export function ResetPasswordPage() {
     try {
       await authApi.resetPassword({ token, newPassword: values.password });
       clearSession();
+      showSuccess('Password reset. Sign in with your new password.');
       navigate('/login?passwordReset=success', { replace: true });
     } catch (error) {
       const friendly = describeAuthError(error, 'Password reset failed. Request a new link and try again.');
       setApiError(friendly.message);
       setTraceId(friendly.traceId);
+      showError(friendly.message);
       friendly.fieldErrors?.forEach((fe) => {
         if (fe.field === 'newPassword' || fe.field === 'password') {
           setError('password', { message: fe.message });

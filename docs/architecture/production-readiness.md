@@ -28,6 +28,10 @@ The codebase is unusually deployment-aware for its stage:
 - **Edge security**: gateway-only ingress, Redis-backed per-tier **rate limiting**, **CORS allow-list**
   (empty default = deny), **RS256 + JWKS** validation, live **account-status** check (fail-closed 503),
   **session-epoch access-token revocation** (fail-closed 503), `X-Gateway-Auth` internal secret backstop.
+- **Frontend hosted-beta safety**: browser config is validated centrally, production-like
+  builds do not fall back to localhost, the SPA has a global React error boundary with
+  one-shot lazy chunk reload recovery, and client-side error reporting is provider-agnostic
+  with sensitive token/password/API-key redaction.
 - **Actuator locked down** to `health,info,prometheus` only; Prometheus + Grafana provisioned;
   documented metric catalogue (`observability-metrics.md`).
 

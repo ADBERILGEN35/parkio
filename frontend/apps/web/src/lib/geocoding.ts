@@ -11,11 +11,10 @@
  * an SLA/key and point `VITE_GEOCODING_BASE_URL` at it. No API key is stored
  * here and no paid provider is hardcoded.
  */
-
-const RAW_BASE_URL = import.meta.env.VITE_GEOCODING_BASE_URL ?? 'https://nominatim.openstreetmap.org';
+import { frontendConfig } from '@/config/env';
 
 /** Base URL without a trailing slash so `${base}/search` is always well-formed. */
-export const GEOCODING_BASE_URL = RAW_BASE_URL.replace(/\/+$/, '');
+export const GEOCODING_BASE_URL = frontendConfig.geocoding.baseUrl;
 
 /** Max results requested from / surfaced by the geocoder. */
 export const GEOCODING_RESULT_LIMIT = 5;

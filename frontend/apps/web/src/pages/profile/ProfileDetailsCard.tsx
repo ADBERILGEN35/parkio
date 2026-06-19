@@ -6,6 +6,7 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useForm } from 'react-hook-form';
 import { usersApi } from '@/api';
 import { FriendlyApiErrorMessage } from '@/components/FriendlyApiErrorMessage';
+import { showError, showSuccess } from '@/lib/toast';
 
 export function ProfileDetailsCard() {
   const query = useQuery({ queryKey: ['me', 'profile'], queryFn: usersApi.getMyProfile });
@@ -27,7 +28,11 @@ function ProfileForm({ profile }: { profile: Profile }) {
   const queryClient = useQueryClient();
   const mutation = useMutation({
     mutationFn: usersApi.updateMyProfile,
-    onSuccess: () => queryClient.invalidateQueries({ queryKey: ['me', 'profile'] }),
+    onSuccess: () => {
+      showSuccess('Profile saved.');
+      void queryClient.invalidateQueries({ queryKey: ['me', 'profile'] });
+    },
+    onError: () => showError('Could not save profile.'),
   });
 
   const {

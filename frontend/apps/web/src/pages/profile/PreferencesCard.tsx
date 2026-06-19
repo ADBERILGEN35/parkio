@@ -11,6 +11,7 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useForm } from 'react-hook-form';
 import { usersApi } from '@/api';
 import { FriendlyApiErrorMessage } from '@/components/FriendlyApiErrorMessage';
+import { showError, showSuccess } from '@/lib/toast';
 
 export function PreferencesCard() {
   const query = useQuery({ queryKey: ['me', 'preferences'], queryFn: usersApi.getMyPreferences });
@@ -32,7 +33,11 @@ function PreferencesForm({ preferences }: { preferences: UserPreference }) {
   const queryClient = useQueryClient();
   const mutation = useMutation({
     mutationFn: usersApi.updateMyPreferences,
-    onSuccess: () => queryClient.invalidateQueries({ queryKey: ['me', 'preferences'] }),
+    onSuccess: () => {
+      showSuccess('Preferences saved.');
+      void queryClient.invalidateQueries({ queryKey: ['me', 'preferences'] });
+    },
+    onError: () => showError('Could not save preferences.'),
   });
 
   const {

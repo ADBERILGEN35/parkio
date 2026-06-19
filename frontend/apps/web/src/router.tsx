@@ -2,6 +2,7 @@ import { Suspense, lazy, type ReactElement } from 'react';
 import { Navigate, createBrowserRouter } from 'react-router-dom';
 import { ProtectedRoute } from '@/auth/ProtectedRoute';
 import { RoleRoute } from '@/auth/RoleRoute';
+import { RouteAccessibility } from '@/components/RouteAccessibility';
 import { AppShell } from '@/components/shell/AppShell';
 import { RouteFallback } from '@/components/RouteFallback';
 // Eager: entry/auth routes and the default landing map keep the first paint fast
@@ -50,7 +51,9 @@ function lazyRoute(element: ReactElement): ReactElement {
   return <Suspense fallback={<RouteFallback />}>{element}</Suspense>;
 }
 
-export const router = createBrowserRouter([
+export const router = createBrowserRouter([{
+  element: <RouteAccessibility />,
+  children: [
   { path: '/', element: <Navigate to="/map" replace /> },
   { path: '/login', element: <LoginPage /> },
   { path: '/register', element: <RegisterPage /> },
@@ -86,4 +89,5 @@ export const router = createBrowserRouter([
     ],
   },
   { path: '*', element: <Navigate to="/map" replace /> },
-]);
+  ],
+}]);

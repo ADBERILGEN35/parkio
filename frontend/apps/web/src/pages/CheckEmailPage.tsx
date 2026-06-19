@@ -4,6 +4,7 @@ import { Link, useSearchParams } from 'react-router-dom';
 import { authApi } from '@/api';
 import { describeAuthError } from '@/api/error-messages';
 import { AuthSplitLayout } from '@/pages/auth/AuthSplitLayout';
+import { showError, showSuccess } from '@/lib/toast';
 
 export function CheckEmailPage() {
   const [searchParams] = useSearchParams();
@@ -22,10 +23,12 @@ export function CheckEmailPage() {
     try {
       await authApi.resendVerification({ email: email.trim() });
       setMessage('Verification email sent. Please check your inbox.');
+      showSuccess('Verification email sent. Please check your inbox.');
     } catch (error) {
       const friendly = describeAuthError(error, 'Could not resend verification email.');
       setApiError(friendly.message);
       setTraceId(friendly.traceId);
+      showError(friendly.message);
     } finally {
       setIsSubmitting(false);
     }
