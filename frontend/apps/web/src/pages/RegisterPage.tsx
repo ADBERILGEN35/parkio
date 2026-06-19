@@ -11,7 +11,7 @@ import { useForm } from 'react-hook-form';
 import { Link, useNavigate } from 'react-router-dom';
 import { authApi } from '@/api';
 import { describeAuthError } from '@/api/error-messages';
-import { AuthDivider, AuthSplitLayout, GoogleButton } from '@/pages/auth/AuthSplitLayout';
+import { AuthSplitLayout } from '@/pages/auth/AuthSplitLayout';
 import { setPendingProfile } from '@/auth/pendingProfile';
 import { showError, showSuccess } from '@/lib/toast';
 
@@ -158,9 +158,6 @@ export function RegisterPage() {
           {isSubmitting ? null : <Icon name="arrow_forward" className="text-[18px] leading-none" />}
         </Button>
       </form>
-
-      <AuthDivider />
-      <GoogleButton label="Continue with Google" />
 
       <p className="m-0 mt-md text-center text-body-md text-on-surface-variant">
         Already have an account?{' '}

@@ -13,22 +13,18 @@ vi.mock('react-map-gl/maplibre', () => ({
     children,
     longitude,
     latitude,
-    onClick,
   }: {
     children?: React.ReactNode;
     longitude: number;
     latitude: number;
-    onClick?: (e: { originalEvent: { stopPropagation: () => void } }) => void;
   }) => (
-    <button
-      type="button"
+    <div
       data-testid="marker"
       data-lng={longitude}
       data-lat={latitude}
-      onClick={() => onClick?.({ originalEvent: { stopPropagation: () => undefined } })}
     >
       {children}
-    </button>
+    </div>
   ),
   Popup: ({ children }: { children?: React.ReactNode }) => <div data-testid="popup">{children}</div>,
   useMap: () => ({ current: null }),
@@ -67,23 +63,34 @@ describe('NearbySpotsMap', () => {
     expect(screen.getAllByTestId('marker')).toHaveLength(3);
   });
 
-  it('opens a popup with the spot details and a "View spot" link on marker click', () => {
+  it('opens a premium popup with the spot details and CTA on marker click', () => {
     renderWithProviders(
       <NearbySpotsMap center={{ lat: 41, lng: 29 }} spots={spots} onPickCenter={() => undefined} />,
     );
 
     expect(screen.queryByTestId('popup')).not.toBeInTheDocument();
 
-    const firstMarker = screen
-      .getAllByTestId('marker')
-      .find((el) => el.getAttribute('data-lat') === '41.11');
-    expect(firstMarker).toBeDefined();
-    fireEvent.click(firstMarker as HTMLElement);
+    const firstMarker = screen.getByRole('button', { name: /first spot/i });
+    fireEvent.click(firstMarker);
 
     const popup = screen.getByTestId('popup');
     expect(popup).toHaveTextContent('First Spot');
-    const link = screen.getByRole('link', { name: 'View spot' });
+    expect(popup).toHaveTextContent('Street parking');
+    const link = screen.getByRole('link', { name: 'View spot details' });
     expect(link).toHaveAttribute('href', '/spots/spot-1');
+  });
+
+  it('marks the selected spot marker as active', () => {
+    renderWithProviders(
+      <NearbySpotsMap center={{ lat: 41, lng: 29 }} spots={spots} onPickCenter={() => undefined} />,
+    );
+
+    const firstMarker = screen.getByRole('button', { name: /first spot/i });
+    expect(firstMarker).toHaveAttribute('aria-pressed', 'false');
+
+    fireEvent.click(firstMarker);
+
+    expect(firstMarker).toHaveAttribute('aria-pressed', 'true');
   });
 
   it('does not set the search center when a spot marker is clicked', () => {
@@ -92,10 +99,7 @@ describe('NearbySpotsMap', () => {
       <NearbySpotsMap center={{ lat: 41, lng: 29 }} spots={spots} onPickCenter={onPickCenter} />,
     );
 
-    const marker = screen
-      .getAllByTestId('marker')
-      .find((el) => el.getAttribute('data-lat') === '41.22');
-    fireEvent.click(marker as HTMLElement);
+    fireEvent.click(screen.getByRole('button', { name: /second spot/i }));
 
     // Marker click opens the popup; it must not trigger the map's pick-center.
     expect(onPickCenter).not.toHaveBeenCalled();

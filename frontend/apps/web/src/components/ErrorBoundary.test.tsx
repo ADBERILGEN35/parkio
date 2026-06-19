@@ -95,4 +95,17 @@ describe('ErrorBoundary', () => {
     expect(screen.getByRole('heading', { name: /something went wrong/i })).toBeInTheDocument();
     location.restore();
   });
+
+  it('clears the chunk reload guard after a successful mount', () => {
+    sessionStorage.setItem(__privateErrorBoundary.CHUNK_RELOAD_KEY, '1');
+
+    render(
+      <ErrorBoundary>
+        <div>Healthy app</div>
+      </ErrorBoundary>,
+    );
+
+    expect(screen.getByText('Healthy app')).toBeInTheDocument();
+    expect(sessionStorage.getItem(__privateErrorBoundary.CHUNK_RELOAD_KEY)).toBeNull();
+  });
 });

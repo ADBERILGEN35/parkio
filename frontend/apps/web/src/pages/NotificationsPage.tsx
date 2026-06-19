@@ -1,38 +1,16 @@
+import { isUnreadNotification, type AppNotification } from '@parkio/types';
 import {
-  isUnreadNotification,
-  type AppNotification,
-  type NotificationType,
-} from '@parkio/types';
-import {
-  Button,
   EmptyState,
-  Icon,
-  LoadingState,
-  SoftBadge,
+  NotificationSkeleton,
   Surface,
   cn,
-  type BadgeTone,
 } from '@parkio/ui';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useState, type ReactNode } from 'react';
 import { notificationsApi } from '@/api';
-import { ComingSoonControl } from '@/components/ComingSoonControl';
 import { FriendlyApiErrorMessage } from '@/components/FriendlyApiErrorMessage';
-import { formatInstant, formatRelativeAgo, humanizeEnum } from '@/lib/format';
+import { MarkReadButton, NotificationItemCard } from '@/components/product/NotificationItemCard';
 import { showError, showSuccess } from '@/lib/toast';
-
-/** Type → icon + tone (NotificationType is backend-provided; no invented categories). */
-const TYPE_VISUALS: Record<NotificationType, { icon: string; tone: BadgeTone }> = {
-  NEARBY_PARKING: { icon: 'local_parking', tone: 'primary' },
-  LEVEL_UP: { icon: 'military_tech', tone: 'success' },
-  POINT_EARNED: { icon: 'stars', tone: 'success' },
-  WARNING: { icon: 'warning', tone: 'warning' },
-  SYSTEM: { icon: 'info', tone: 'neutral' },
-};
-
-function typeVisual(type: NotificationType) {
-  return TYPE_VISUALS[type] ?? { icon: 'notifications', tone: 'neutral' as BadgeTone };
-}
 
 /**
  * Filter chips are a frontend-only view over the already-fetched list — they
@@ -79,25 +57,10 @@ export function NotificationsPage() {
             Manage your alerts and activity updates.
           </p>
         </div>
-        {/*
-         * Visual-only: the notification-service exposes no bulk "mark all read"
-         * endpoint, so this is intentionally inert (mark items read individually).
-         * Shown only when something is unread so it stays contextually honest.
-         */}
-        {query.data && query.data.some(isUnreadNotification) ? (
-          <ComingSoonControl
-            icon="done_all"
-            explanation="Mark notifications as read individually until the bulk endpoint is available."
-          >
-            Mark all as read
-          </ComingSoonControl>
-        ) : null}
       </header>
 
       {query.isPending ? (
-        <Surface level="card" className="p-lg">
-          <LoadingState />
-        </Surface>
+        <NotificationSkeleton />
       ) : query.isError ? (
         <Surface level="card" className="p-lg">
           <FriendlyApiErrorMessage error={query.error} />
@@ -218,80 +181,27 @@ function Group({ label, count, children }: { label: string; count: number; child
 function NotificationItem({ notification }: { notification: AppNotification }) {
   const queryClient = useQueryClient();
   const unread = isUnreadNotification(notification);
-  const visual = typeVisual(notification.type);
 
   const markRead = useMutation({
     mutationFn: () => notificationsApi.markRead(notification.id),
-    onSuccess: () => {
+    onSuccess: (updated) => {
+      queryClient.setQueryData<AppNotification[]>(['notifications'], (current) =>
+        current?.map((item) => (item.id === updated.id ? updated : item)),
+      );
       showSuccess('Notification marked as read.');
-      void queryClient.invalidateQueries({ queryKey: ['notifications'] });
     },
     onError: () => showError('Could not mark notification as read.'),
   });
 
   return (
-    <li
-      className={cn(
-        'flex gap-sm rounded-xl p-sm transition-colors duration-std',
-        unread
-          ? 'border-l-4 border-primary bg-surface-container-lowest shadow-sm'
-          : 'bg-surface-container-low/50',
-      )}
-    >
-      <span
-        className={cn(
-          'mt-[2px] flex h-9 w-9 shrink-0 items-center justify-center rounded-full',
-          unread ? 'bg-primary/10 text-primary' : 'bg-surface-container-high text-on-surface-variant',
-        )}
-      >
-        <Icon name={visual.icon} className="text-[18px] leading-none" />
-      </span>
-
-      <div className="min-w-0 flex-1">
-        <div className="flex items-center gap-xs">
-          <strong
-            className={cn(
-              'min-w-0 flex-1 truncate text-body-md',
-              unread ? 'text-on-surface' : 'font-normal text-on-surface-variant',
-            )}
-          >
-            {notification.title}
-          </strong>
-          {unread ? <span className="h-2 w-2 shrink-0 rounded-full bg-primary" aria-hidden /> : null}
-        </div>
-
-        <p
-          className={cn(
-            'm-0 mt-[2px] text-body-md',
-            unread ? 'text-on-surface-variant' : 'text-on-surface-variant/80',
-          )}
-        >
-          {notification.body}
-        </p>
-
-        <div className="mt-xs flex flex-wrap items-center gap-x-sm gap-y-xs text-label-sm text-on-surface-variant">
-          <SoftBadge tone={visual.tone} icon={visual.icon}>
-            {humanizeEnum(notification.type)}
-          </SoftBadge>
-          <span>
-            {formatRelativeAgo(notification.createdAt)}
-            {notification.readAt ? ` · Read ${formatInstant(notification.readAt)}` : ''}
-          </span>
-        </div>
-
-        {unread ? (
-          <div className="mt-sm">
-            <Button variant="ghost" onClick={() => markRead.mutate()} disabled={markRead.isPending}>
-              {markRead.isPending ? 'Marking…' : 'Mark as read'}
-            </Button>
-          </div>
-        ) : null}
-        {markRead.isError ? (
-          <div className="mt-sm">
-            <FriendlyApiErrorMessage error={markRead.error} />
-          </div>
-        ) : null}
-      </div>
-    </li>
+    <NotificationItemCard
+      notification={notification}
+      action={
+        unread ? (
+          <MarkReadButton onClick={() => markRead.mutate()} pending={markRead.isPending} />
+        ) : null
+      }
+      error={markRead.isError ? <FriendlyApiErrorMessage error={markRead.error} /> : null}
+    />
   );
 }

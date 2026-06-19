@@ -73,3 +73,13 @@ describe('isValidLatLng', () => {
     expect(isValidLatLng(Number.NaN, 29)).toBe(false);
   });
 });
+
+describe('default map center', () => {
+  it('uses the shared İzmir hosted-beta fallback center for all map surfaces', async () => {
+    const { DEFAULT_MAP_CENTER, DEFAULT_MAP_ZOOM, DEFAULT_PICKER_ZOOM } = await loadMapConfig();
+
+    expect(DEFAULT_MAP_CENTER).toEqual({ lat: 38.4237, lng: 27.1428 });
+    expect(DEFAULT_MAP_ZOOM).toBe(12);
+    expect(DEFAULT_PICKER_ZOOM).toBe(13);
+  });
+});

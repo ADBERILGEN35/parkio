@@ -237,6 +237,21 @@ test('parking: upload image and create spot', async ({ page }) => {
   await expect(page).toHaveURL(new RegExp(`/spots/${SPOT_ID}$`));
 });
 
+test('map: search overlay and results sheet stay usable', async ({ page }) => {
+  await login(page);
+
+  await expect(page.getByRole('heading', { name: 'Find parking' })).toBeVisible();
+  await page.getByText('Advanced coordinates').click();
+  await page.getByLabel('Latitude').fill('41.01');
+  await page.getByLabel('Longitude').fill('28.97');
+  await page.getByRole('button', { name: 'Search nearby' }).click();
+
+  await expect(page.getByRole('complementary', { name: 'Search results' })).toBeVisible();
+  await expect(page.getByRole('heading', { name: '1 spot nearby' })).toBeVisible();
+  await expect(page.getByRole('link', { name: '12 Curb Lane' })).toBeVisible();
+  expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth + 1)).toBe(true);
+});
+
 test('parking: open spot details and claim spot', async ({ page }) => {
   await login(page);
   await spaGoto(page, `/spots/${SPOT_ID}`);

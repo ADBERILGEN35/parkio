@@ -1,8 +1,9 @@
-import { Card, Icon, LoadingState, MetricCard, SoftBadge } from '@parkio/ui';
+import { Icon, LoadingState, MetricCard, SoftBadge } from '@parkio/ui';
 import { useQuery } from '@tanstack/react-query';
 import { Link } from 'react-router-dom';
 import { usersApi } from '@/api';
 import { FriendlyApiErrorMessage } from '@/components/FriendlyApiErrorMessage';
+import { SettingsSectionCard } from '@/components/product/SettingsSectionCard';
 import { humanizeEnum } from '@/lib/format';
 import { trustBandTone } from './accountVisuals';
 
@@ -16,7 +17,11 @@ export function TrustProgressCard() {
   const stats = useQuery({ queryKey: ['me', 'stats'], queryFn: usersApi.getMyStats });
 
   return (
-    <Card title="Trust & progress">
+    <SettingsSectionCard
+      title="Trust & progress"
+      icon="verified_user"
+      description="Review the lifetime points, level, and trust signals currently exposed by the backend."
+    >
       {stats.isPending ? (
         <LoadingState label="Loading your progress…" />
       ) : stats.isError ? (
@@ -56,6 +61,6 @@ export function TrustProgressCard() {
           </p>
         </div>
       )}
-    </Card>
+    </SettingsSectionCard>
   );
 }

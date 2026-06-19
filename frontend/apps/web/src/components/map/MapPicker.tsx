@@ -2,7 +2,7 @@ import './maplibreSetup';
 import Map, { Marker } from 'react-map-gl/maplibre';
 import {
   DEFAULT_MAP_CENTER,
-  DEFAULT_ZOOM,
+  DEFAULT_PICKER_ZOOM,
   getMapStyle,
   isValidLatLng,
 } from './mapConfig';
@@ -32,7 +32,7 @@ export function MapPicker({
 
   return (
     <Map
-      initialViewState={{ longitude: center.lng, latitude: center.lat, zoom: DEFAULT_ZOOM }}
+      initialViewState={{ longitude: center.lng, latitude: center.lat, zoom: DEFAULT_PICKER_ZOOM }}
       mapStyle={getMapStyle()}
       dragRotate={false}
       pitchWithRotate={false}

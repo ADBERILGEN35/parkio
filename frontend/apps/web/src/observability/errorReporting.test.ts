@@ -28,7 +28,7 @@ describe('frontend error reporting', () => {
     window.history.pushState(
       null,
       '',
-      '/reset-password?resetToken=abc123&verification_token=verify-me&ok=yes',
+      '/reset-password?resetToken=abc123&verification_token=verify-me&token=bare-token&code=oauth-code&ok=yes',
     );
     const errorSpy = vi.spyOn(console, 'error').mockImplementation(() => undefined);
     const { reportFrontendError } = await loadReporting();
@@ -45,6 +45,8 @@ describe('frontend error reporting', () => {
     };
     expect(context.route).toContain('resetToken=%5BREDACTED%5D');
     expect(context.route).toContain('verification_token=%5BREDACTED%5D');
+    expect(context.route).toContain('token=%5BREDACTED%5D');
+    expect(context.route).toContain('code=%5BREDACTED%5D');
     expect(context.route).toContain('ok=yes');
     expect(context.accessToken).toBe('[REDACTED]');
     expect(context.formValues).toBe('[REDACTED]');

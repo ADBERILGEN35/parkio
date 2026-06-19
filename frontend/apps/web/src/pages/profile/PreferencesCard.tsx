@@ -1,6 +1,6 @@
 import { zodResolver } from '@hookform/resolvers/zod';
 import type { UserPreference } from '@parkio/types';
-import { Button, Card, Icon, Input, LoadingState } from '@parkio/ui';
+import { Button, Icon, Input, LoadingState } from '@parkio/ui';
 import {
   PREFERRED_RADIUS_MAX_METERS,
   PREFERRED_RADIUS_MIN_METERS,
@@ -11,13 +11,18 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useForm } from 'react-hook-form';
 import { usersApi } from '@/api';
 import { FriendlyApiErrorMessage } from '@/components/FriendlyApiErrorMessage';
+import { SettingsSectionCard } from '@/components/product/SettingsSectionCard';
 import { showError, showSuccess } from '@/lib/toast';
 
 export function PreferencesCard() {
   const query = useQuery({ queryKey: ['me', 'preferences'], queryFn: usersApi.getMyPreferences });
 
   return (
-    <Card title="Preferences">
+    <SettingsSectionCard
+      title="Preferences"
+      icon="notifications"
+      description="Tune nearby search radius and account notification preferences."
+    >
       {query.isPending ? (
         <LoadingState />
       ) : query.isError ? (
@@ -25,7 +30,7 @@ export function PreferencesCard() {
       ) : (
         <PreferencesForm preferences={query.data} />
       )}
-    </Card>
+    </SettingsSectionCard>
   );
 }
 
@@ -33,9 +38,9 @@ function PreferencesForm({ preferences }: { preferences: UserPreference }) {
   const queryClient = useQueryClient();
   const mutation = useMutation({
     mutationFn: usersApi.updateMyPreferences,
-    onSuccess: () => {
+    onSuccess: (preferences) => {
+      queryClient.setQueryData(['me', 'preferences'], preferences);
       showSuccess('Preferences saved.');
-      void queryClient.invalidateQueries({ queryKey: ['me', 'preferences'] });
     },
     onError: () => showError('Could not save preferences.'),
   });

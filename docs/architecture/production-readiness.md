@@ -31,7 +31,10 @@ The codebase is unusually deployment-aware for its stage:
 - **Frontend hosted-beta safety**: browser config is validated centrally, production-like
   builds do not fall back to localhost, the SPA has a global React error boundary with
   one-shot lazy chunk reload recovery, and client-side error reporting is provider-agnostic
-  with sensitive token/password/API-key redaction.
+  with sensitive token/password/API-key redaction. The hosted web app now also has an
+  installable PWA manifest, a minimal app-shell service worker, an accessible offline
+  banner, and a real 404 page; the service worker is explicitly network-only for
+  API/auth/token-bearing requests and does not cache map tiles or authenticated data.
 - **Actuator locked down** to `health,info,prometheus` only; Prometheus + Grafana provisioned;
   documented metric catalogue (`observability-metrics.md`).
 

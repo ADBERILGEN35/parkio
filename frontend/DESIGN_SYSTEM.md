@@ -574,50 +574,53 @@ Derived strictly from repetition across the 14 screens. Suggested location: `fro
 
 ### Domain — parking & map
 31. `SpotCard` — image header, trust-badge overlay, favorite, price, host footer
-32. `MapCanvas` — map container + overlay slots
-33. `PriceMarker` — pill marker w/ caret, active/pulse/role-icon states
-34. `DropPin` — teardrop pin (bounce) / draggable wizard pin w/ tooltip
-35. `MapControls` — locate button + zoom stack
-36. `MapSearchOverlay` — glass search strip
-37. `AttributeChip` — bordered icon chip (SUV Friendly, EV Nearby, 2hr Max)
-38. `SpotDetailPanel` — gallery, header (address/price/walk), attributes, contributor, timeline, sticky CTA footer
-39. `VerificationTimeline` + `TimelineItem`
-40. `ContributorSnippet` — avatar, rank badge, streak line
+32. `ProductCard` — shared app-level list/card surface; consistent padding, radius, hover/focus, selected state
+33. `SpotResultCard` — real `PublicSpot`/owner `Spot` fields only; map and my-spots row density
+34. `MapCanvas` — map container + overlay slots
+35. `PriceMarker` — pill marker w/ caret, active/pulse/role-icon states
+36. `DropPin` — teardrop pin (bounce) / draggable wizard pin w/ tooltip
+37. `MapControls` — locate button + zoom stack
+38. `MapSearchOverlay` — glass search strip
+39. `AttributeChip` — bordered icon chip (SUV Friendly, EV Nearby, 2hr Max)
+40. `SpotDetailPanel` — gallery, header (address/price/walk), attributes, contributor, timeline, sticky CTA footer
+41. `VerificationTimeline` + `TimelineItem`
+42. `ContributorSnippet` — avatar, rank badge, streak line
 
 ### Domain — gamification & community
-41. `KpiCard` (glass) + `TrendChip`
-42. `StatTile` (centered icon/number/caption)
-43. `XpProgressCard` — labeled gradient bar + remaining-XP caption
-44. `StreakCard` — orange gradient + week-day discs
-45. `CelebrationBanner` — gradient milestone banner
-46. `AchievementCard` (unlocked/locked)
-47. `LeaderboardPodium` (top-3, medal badges)
-48. `LeaderboardTable` (rank-delta arrows, trust badges, sticky "You" row)
-49. `ContributionHeatmap` (5-step primary-alpha cells + legend)
-50. `TrustScoreRing` (animated SVG ring)
-51. `BarChart` (revenue bars + tooltip + legend dots) — or themed Recharts wrapper
+43. `KpiCard` (glass) + `TrendChip`
+44. `StatTile` (centered icon/number/caption)
+45. `XpProgressCard` — labeled gradient bar + remaining-XP caption
+46. `StreakCard` — orange gradient + week-day discs
+47. `CelebrationBanner` — gradient milestone banner
+48. `AchievementCard` (unlocked/locked)
+49. `LeaderboardPodium` (top-3, medal badges)
+50. `LeaderboardRow` — rank, initial, public-profile label, points, level/trust badges
+51. `LeaderboardTable` (rank-delta arrows, trust badges, sticky "You" row)
+52. `ContributionHeatmap` (5-step primary-alpha cells + legend)
+53. `TrustScoreRing` (animated SVG ring)
+54. `BarChart` (revenue bars + tooltip + legend dots) — or themed Recharts wrapper
 
 ### Domain — notifications, moderation, settings
-52. `NotificationItem` (role-tinted disc, unread accent/dot) + `NotificationFilters`
-53. `CaseQueueItem` (status badge, excerpt, selected rail) + `CaseQueueList` w/ tabs
-54. `CaseDetailHeader` (eyebrow badge, case id, parties)
-55. `EvidenceCompare` (labeled photo frames, warning variant)
-56. `ResolutionActions` (dismiss / destructive-with-explanation / ghost)
-57. `SettingsSectionCard` (icon heading, divider, save footer)
-58. `SettingsAnchorNav`
-59. `NotificationPrefRow` (text block + Push/Email switches)
-60. `VehicleCard` + `PlateChip`
-61. `SecurityRow` (label/status/action)
+55. `NotificationItemCard` (role-tinted disc, unread accent/dot, timestamp/action slot) + `NotificationFilters`
+56. `CaseQueueItem` (status badge, excerpt, selected rail) + `CaseQueueList` w/ tabs
+57. `CaseDetailHeader` (eyebrow badge, case id, parties)
+58. `EvidenceCompare` (labeled photo frames, warning variant)
+59. `ResolutionActions` (dismiss / destructive-with-explanation / ghost)
+60. `SettingsSectionCard` (icon heading, description, content, optional action)
+61. `SettingsAnchorNav`
+62. `NotificationPrefRow` (text block + Push/Email switches)
+63. `VehicleCard` + `PlateChip`
+64. `SecurityRow` (label/status/action)
 
 ### Domain — forms & flows
-62. `StepWizard` — progress header, animated steps, Back/Next footer, success step
-63. `UploadDropzone` + `ThumbnailGrid`
-64. `SelectionCardGroup` (vehicle size single-choice cards)
-65. `PriceInput` (headline-size, `$` prefix)
-66. `PasswordInput` (visibility toggle, forgot-link slot)
-67. `OAuthButton` (Google)
-68. `FormDivider` ("or continue with")
-69. `TosCheckbox`
+65. `StepWizard` — progress header, animated steps, Back/Next footer, success step
+66. `UploadDropzone` + `ThumbnailGrid`
+67. `SelectionCardGroup` (vehicle size single-choice cards)
+68. `PriceInput` (headline-size, `$` prefix)
+69. `PasswordInput` (visibility toggle, forgot-link slot)
+70. `OAuthButton` (Google)
+71. `FormDivider` ("or continue with")
+72. `TosCheckbox`
 
 ---
 

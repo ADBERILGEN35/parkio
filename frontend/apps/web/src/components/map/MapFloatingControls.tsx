@@ -21,7 +21,7 @@ export function MapFloatingControls({
 
   return (
     <div
-      className={`pointer-events-none absolute z-[1000] flex flex-col gap-sm bottom-20 right-md md:bottom-md ${
+      className={`pointer-events-none absolute z-[1000] flex flex-col gap-sm bottom-[calc(4.75rem+env(safe-area-inset-bottom))] right-md md:bottom-md ${
         sidebarOpen ? 'md:right-[420px]' : 'md:right-md'
       }`}
     >

@@ -79,6 +79,15 @@
     --ms-fast: 100ms;
     --ms-std: 250ms;
     --ms-fluid: 400ms;
+
+    /* Skeleton shimmer highlight, token-backed and dark-mode overridable. */
+    --skeleton-highlight: var(--color-surface-container-lowest);
+    --skeleton-highlight-opacity: 0.55;
+  }
+
+  .dark {
+    --skeleton-highlight: var(--color-surface-container-highest);
+    --skeleton-highlight-opacity: 0.28;
   }
 
   body {
@@ -124,6 +133,58 @@
     transform: translateY(-4px);
     box-shadow: 0 12px 24px rgb(0 0 0 / 0.1);
   }
+
+  .parkio-map-popup .maplibregl-popup-content {
+    padding: 0;
+    border-radius: 1rem;
+    background: transparent;
+    box-shadow: none;
+  }
+
+  .parkio-map-popup .maplibregl-popup-tip {
+    border-top-color: rgb(var(--color-surface) / 0.95);
+    border-bottom-color: rgb(var(--color-surface) / 0.95);
+  }
+
+  .parkio-map-popup .maplibregl-popup-close-button {
+    right: 0.35rem;
+    top: 0.25rem;
+    min-height: 2rem;
+    min-width: 2rem;
+    border-radius: 999px;
+    color: rgb(var(--color-on-surface-variant));
+    font-size: 1.25rem;
+  }
+
+  .parkio-map-popup .maplibregl-popup-close-button:hover {
+    background: rgb(var(--color-surface-container) / 0.9);
+    color: rgb(var(--color-on-surface));
+  }
+
+  .skeleton-shimmer {
+    position: relative;
+    overflow: hidden;
+  }
+
+  .skeleton-shimmer::after {
+    position: absolute;
+    inset: 0;
+    content: '';
+    transform: translateX(-100%);
+    background: linear-gradient(
+      90deg,
+      transparent,
+      rgb(var(--skeleton-highlight) / var(--skeleton-highlight-opacity)),
+      transparent
+    );
+    animation: skeleton-shimmer 1.4s ease-in-out infinite;
+  }
+}
+
+@keyframes skeleton-shimmer {
+  100% {
+    transform: translateX(100%);
+  }
 }
 
 /*
@@ -152,5 +213,11 @@
   .hover-lift:hover {
     transform: none !important;
     box-shadow: 0 4px 20px rgb(0 0 0 / 0.05) !important;
+  }
+
+  .skeleton-shimmer::after {
+    animation: none !important;
+    transform: none !important;
+    opacity: 0;
   }
 }

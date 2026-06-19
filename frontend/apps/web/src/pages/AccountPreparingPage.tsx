@@ -1,5 +1,5 @@
 import { UnauthorizedError } from '@parkio/api-client';
-import { Button, Icon, Surface } from '@parkio/ui';
+import { Button, Icon, SkeletonBlock, Surface } from '@parkio/ui';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { authApi, usersApi } from '@/api';
@@ -167,10 +167,7 @@ export function AccountPreparingPage() {
           {timedOut ? (
             <Icon name="schedule" className="text-[32px] leading-none" />
           ) : (
-            <span
-              aria-hidden
-              className="inline-block h-8 w-8 animate-spin rounded-full border-2 border-outline-variant border-t-primary"
-            />
+            <SkeletonBlock className="h-8 w-8" rounded="full" />
           )}
         </span>
         <h1 className="m-0 text-headline-md text-on-surface">Preparing your account</h1>

@@ -12,6 +12,7 @@ export interface FrontendErrorContext {
 
 const SENSITIVE_KEY_PATTERN =
   /(access[_-]?token|refresh[_-]?token|reset[_-]?token|verification[_-]?token|password|api[_-]?key|secret|authorization)/i;
+const SENSITIVE_ROUTE_PARAM_PATTERN = /^(token|code)$/i;
 const RAW_VALUE_KEY_PATTERN = /^(form|formValues|rawFormValues|values|requestBody|body|payload)$/i;
 const REDACTED = '[REDACTED]';
 
@@ -21,7 +22,7 @@ function sanitizeUrl(rawUrl: string): string {
   try {
     const url = new URL(rawUrl, window.location.origin);
     for (const key of Array.from(url.searchParams.keys())) {
-      if (SENSITIVE_KEY_PATTERN.test(key)) {
+      if (SENSITIVE_KEY_PATTERN.test(key) || SENSITIVE_ROUTE_PARAM_PATTERN.test(key)) {
         url.searchParams.set(key, REDACTED);
       }
     }

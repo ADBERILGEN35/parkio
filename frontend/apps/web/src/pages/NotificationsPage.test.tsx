@@ -34,8 +34,12 @@ function makeNotifications(): AppNotification[] {
 
 /** Stateful handlers: PATCH mutates the list the next GET returns. */
 function useNotificationHandlers(notifications: AppNotification[]) {
+  let getCount = 0;
   server.use(
-    http.get(`${API_BASE}/notifications/me`, () => HttpResponse.json(notifications)),
+    http.get(`${API_BASE}/notifications/me`, () => {
+      getCount += 1;
+      return HttpResponse.json(notifications);
+    }),
     http.patch(`${API_BASE}/notifications/:id/read`, ({ params }) => {
       const target = notifications.find((n) => n.id === params.id);
       if (!target) return HttpResponse.json(null, { status: 404 });
@@ -44,6 +48,7 @@ function useNotificationHandlers(notifications: AppNotification[]) {
       return HttpResponse.json(target);
     }),
   );
+  return { getCount: () => getCount };
 }
 
 describe('NotificationsPage', () => {
@@ -86,19 +91,20 @@ describe('NotificationsPage', () => {
     expect(await screen.findByText(/No notifications yet/)).toBeInTheDocument();
   });
 
-  it('marks a notification as read and refreshes the list', async () => {
-    useNotificationHandlers(makeNotifications());
+  it('marks a notification as read and updates the cached list without a refetch', async () => {
+    const requests = useNotificationHandlers(makeNotifications());
     renderWithProviders(<NotificationsPage />, { initialEntries: ['/notifications'] });
     const user = userEvent.setup();
 
     await user.click(await screen.findByRole('button', { name: 'Mark as read' }));
 
-    // After PATCH + ['notifications'] invalidation the refetched list is all-read,
-    // so no item exposes a mark-as-read action any more.
+    // PATCH returns the updated notification, so the page can update
+    // ['notifications'] directly without another list request.
     await waitFor(() =>
       expect(screen.queryByRole('button', { name: 'Mark as read' })).not.toBeInTheDocument(),
     );
     expect(screen.getByText('You earned points')).toBeInTheDocument();
     expect(screen.getByText('Welcome to Parkio')).toBeInTheDocument();
+    expect(requests.getCount()).toBe(1);
   });
 });

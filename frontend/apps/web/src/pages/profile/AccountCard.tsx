@@ -5,7 +5,7 @@ import {
   passwordRequirements,
   type ChangePasswordFormValues,
 } from '@parkio/validation';
-import { Button, Card, Icon, Input, SoftBadge } from '@parkio/ui';
+import { Button, Icon, Input, SoftBadge } from '@parkio/ui';
 import { useQuery } from '@tanstack/react-query';
 import { useState } from 'react';
 import { useForm } from 'react-hook-form';
@@ -14,6 +14,7 @@ import { authApi, usersApi } from '@/api';
 import { describeAuthError } from '@/api/error-messages';
 import { performLogout } from '@/auth/logout';
 import { useAuthStore } from '@/auth/store';
+import { SettingsSectionCard } from '@/components/product/SettingsSectionCard';
 import { humanizeEnum } from '@/lib/format';
 import { showError, showSuccess, showWarning } from '@/lib/toast';
 import { accountStatusTone } from './accountVisuals';
@@ -99,7 +100,11 @@ export function AccountCard() {
   });
 
   return (
-    <Card title="Account">
+    <SettingsSectionCard
+      title="Account"
+      icon="manage_accounts"
+      description="Review account identity, password, and session controls."
+    >
       <dl className="m-0 flex flex-col gap-md">
         <Row label="Email" value={user?.email ?? profile.data?.email ?? '—'} />
         <div className="flex flex-col gap-xs">
@@ -140,7 +145,10 @@ export function AccountCard() {
 
       <div className="mt-lg border-t border-outline-variant/30 pt-md">
         <form onSubmit={onChangePassword} className="mb-lg flex flex-col gap-sm">
-          <h3 className="m-0 text-title-md text-on-surface">Change password</h3>
+          <h3 className="m-0 text-title-lg text-on-surface">Change password</h3>
+          <p className="m-0 text-label-sm text-on-surface-variant">
+            Updating your password signs this browser out after the server accepts the change.
+          </p>
           <Input
             label="Current password"
             type="password"
@@ -182,23 +190,33 @@ export function AccountCard() {
           </div>
         </form>
 
-        <div className="flex flex-wrap gap-sm">
-          <Button type="button" variant="outline" onClick={onSignOut} disabled={signingOut || loggingOutAll}>
-            <Icon name="logout" className="text-[16px] leading-none" />
-            {signingOut ? 'Signing out…' : 'Sign out'}
-          </Button>
-          <Button
-            type="button"
-            variant="destructive-soft"
-            onClick={onLogoutAll}
-            disabled={signingOut || loggingOutAll}
-          >
-            <Icon name="power_settings_new" className="text-[16px] leading-none" />
-            {loggingOutAll ? 'Logging out…' : 'Log out of all devices'}
-          </Button>
+        <div className="rounded-2xl bg-surface-container p-md">
+          <h3 className="m-0 flex items-center gap-xs text-title-lg text-on-surface">
+            <Icon name="shield_lock" className="text-[18px] leading-none text-primary" />
+            Session controls
+          </h3>
+          <p className="m-0 mt-xs text-label-sm text-on-surface-variant">
+            Sign out only this browser, or use the server-backed all-devices logout when you no
+            longer trust another session.
+          </p>
+          <div className="mt-md flex flex-wrap gap-sm">
+            <Button type="button" variant="outline" onClick={onSignOut} disabled={signingOut || loggingOutAll}>
+              <Icon name="logout" className="text-[16px] leading-none" />
+              {signingOut ? 'Signing out…' : 'Sign out'}
+            </Button>
+            <Button
+              type="button"
+              variant="destructive-soft"
+              onClick={onLogoutAll}
+              disabled={signingOut || loggingOutAll}
+            >
+              <Icon name="power_settings_new" className="text-[16px] leading-none" />
+              {loggingOutAll ? 'Logging out…' : 'Log out of all devices'}
+            </Button>
+          </div>
         </div>
       </div>
-    </Card>
+    </SettingsSectionCard>
   );
 }
 

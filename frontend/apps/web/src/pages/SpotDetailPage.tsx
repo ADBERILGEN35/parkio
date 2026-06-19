@@ -11,8 +11,9 @@ import {
   Button,
   EmptyState,
   Icon,
-  LoadingState,
+  SkeletonBlock,
   SoftBadge,
+  SpotDetailSkeleton,
   StatusBadge,
   Surface,
   cn,
@@ -80,9 +81,7 @@ export function SpotDetailPage() {
       </nav>
 
       {spotQuery.isPending ? (
-        <Surface level="raised" className="rounded-3xl p-xl">
-          <LoadingState label="Loading spot…" />
-        </Surface>
+        <SpotDetailSkeleton />
       ) : spotQuery.isError ? (
         <Surface level="raised" className="rounded-3xl p-xl">
           {isParkioApiError(spotQuery.error) && spotQuery.error.status === 404 ? (
@@ -255,8 +254,8 @@ function SpotPhotoHero({ spotId }: { spotId: string }) {
   return (
     <section className="overflow-hidden rounded-3xl shadow-deep ring-1 ring-outline-variant/10">
       {mediaQuery.isPending ? (
-        <div className="flex aspect-[4/3] items-center justify-center bg-surface-container-low md:aspect-[16/9]">
-          <LoadingState label="Loading photo…" />
+        <div className="aspect-[4/3] bg-surface-container-low md:aspect-[16/9]" role="status" aria-label="Loading photo">
+          <SkeletonBlock className="h-full w-full" rounded="sm" />
         </div>
       ) : mediaQuery.isError ? (
         <div className="flex aspect-[4/3] flex-col items-center justify-center gap-md bg-surface-container-low p-lg md:aspect-[16/9]">
@@ -453,12 +452,15 @@ function PremiumActionCard({ spot }: { spot: PublicSpot }) {
   const queryClient = useQueryClient();
   const [claimed, setClaimed] = useState(false);
 
-  const invalidateSpotData = () =>
-    Promise.all([
-      queryClient.invalidateQueries({ queryKey: ['parking', 'spot', spot.id] }),
-      queryClient.invalidateQueries({ queryKey: ['parking', 'nearby'] }),
-      queryClient.invalidateQueries({ queryKey: ['parking', 'my-spots'] }),
-    ]);
+  const applySpotUpdate = (updated: PublicSpot) => {
+    queryClient.setQueryData(['parking', 'spot', updated.id], updated);
+    queryClient.setQueriesData<PublicSpot[]>({ queryKey: ['parking', 'nearby'] }, (current) =>
+      current?.map((item) => (item.id === updated.id ? updated : item)),
+    );
+    queryClient.setQueryData<Spot[]>(['parking', 'my-spots'], (current) =>
+      current?.map((item) => (item.id === updated.id ? { ...item, ...updated } : item)),
+    );
+  };
 
   const {
     register: registerVerify,
@@ -470,9 +472,10 @@ function PremiumActionCard({ spot }: { spot: PublicSpot }) {
   const verifyMutation = useMutation({
     mutationFn: (values: VerifySpotFormValues) =>
       parkingApi.verifySpot(spot.id, { result: values.result }, createIdempotencyKey()),
-    onSuccess: async () => {
+    onSuccess: async (updated) => {
+      applySpotUpdate(updated);
       resetVerify();
-      await invalidateSpotData();
+      await queryClient.invalidateQueries({ queryKey: ['parking', 'my-spots'] });
       showSuccess('Verification submitted.');
     },
     onError: (error) => {
@@ -482,9 +485,10 @@ function PremiumActionCard({ spot }: { spot: PublicSpot }) {
 
   const claimMutation = useMutation({
     mutationFn: () => parkingApi.claimSpot(spot.id, createIdempotencyKey()),
-    onSuccess: async () => {
+    onSuccess: async (updated) => {
+      applySpotUpdate(updated);
       setClaimed(true);
-      await invalidateSpotData();
+      await queryClient.invalidateQueries({ queryKey: ['parking', 'my-spots'] });
       showSuccess('Spot claimed as filled.');
     },
     onError: (error) => {

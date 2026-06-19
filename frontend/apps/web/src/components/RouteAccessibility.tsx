@@ -24,7 +24,7 @@ const ROUTE_TITLES: Array<{ pattern: string; title: string }> = [
 
 function titleFor(pathname: string) {
   return ROUTE_TITLES.find((route) => matchPath({ path: route.pattern, end: true }, pathname))
-    ?.title ?? 'Parkio';
+    ?.title ?? 'Parkio — Not Found';
 }
 
 function focusRouteTarget() {

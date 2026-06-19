@@ -1,16 +1,16 @@
+import { SkeletonBlock } from './Skeleton';
+
 export interface LoadingStateProps {
   label?: string;
 }
 
-/** Inline loading row: spinner + muted label. */
+/** Inline loading placeholder: no spinner, no layout-jarring content swap. */
 export function LoadingState({ label = 'Loading…' }: LoadingStateProps) {
   return (
-    <p className="m-0 flex items-center gap-sm p-md text-body-md text-on-surface-variant">
-      <span
-        aria-hidden
-        className="inline-block h-4 w-4 animate-spin rounded-full border-2 border-outline-variant border-t-primary"
-      />
-      {label}
-    </p>
+    <div className="flex flex-col gap-sm p-md" role="status" aria-label={label}>
+      <span className="sr-only">{label}</span>
+      <SkeletonBlock className="h-4 w-40" rounded="full" />
+      <SkeletonBlock className="h-3 w-28" rounded="full" />
+    </div>
   );
 }

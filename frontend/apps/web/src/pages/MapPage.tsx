@@ -1,24 +1,20 @@
 import { zodResolver } from '@hookform/resolvers/zod';
-import type { LegalStatus, NearbySearchParams, PublicSpot } from '@parkio/types';
+import type { NearbySearchParams, PublicSpot } from '@parkio/types';
 import {
   Button,
   EmptyState,
   ErrorMessage,
   Icon,
   Input,
-  LoadingState,
-  SoftBadge,
-  StatusBadge,
+  MapSearchSkeleton,
+  SpotCardSkeleton,
   cn,
-  getTrustFreshnessVisual,
-  type BadgeTone,
 } from '@parkio/ui';
 import { nearbySearchSchema, type NearbySearchFormValues } from '@parkio/validation';
 import type { UseQueryResult } from '@tanstack/react-query';
 import { useQuery } from '@tanstack/react-query';
 import { Suspense, lazy, useCallback, useEffect, useRef, useState } from 'react';
 import { useForm } from 'react-hook-form';
-import { Link } from 'react-router-dom';
 import { parkingApi } from '@/api';
 import { FriendlyApiErrorMessage } from '@/components/FriendlyApiErrorMessage';
 import {
@@ -28,7 +24,7 @@ import {
   isValidLatLng,
 } from '@/components/map/mapConfig';
 import { PlaceSearch } from '@/components/map/PlaceSearch';
-import { formatInstant, formatRelativeAgo, formatRemaining, humanizeEnum } from '@/lib/format';
+import { SpotResultCard } from '@/components/product/SpotResultCard';
 import { type GeocodeResult } from '@/lib/geocoding';
 
 const NearbySpotsMap = lazy(() =>
@@ -162,7 +158,7 @@ export function MapPage() {
     <div className="fixed inset-x-0 bottom-16 top-16 z-0 overflow-hidden bg-background md:bottom-0">
       {/* Full-bleed map canvas */}
       <div className="absolute inset-0 z-0">
-        <Suspense fallback={<LoadingState label="Loading map…" />}>
+        <Suspense fallback={<MapSearchSkeleton />}>
           <NearbySpotsMap
             center={center}
             zoom={mapZoom}
@@ -177,8 +173,8 @@ export function MapPage() {
       </div>
 
       {/* Floating search overlay */}
-      <div className="pointer-events-none absolute inset-x-0 top-md z-[1100] flex justify-center px-md md:justify-start md:pl-lg">
-        <div className="pointer-events-auto w-full max-w-md animate-fade-in-up glass-panel rounded-2xl p-md shadow-deep">
+      <div className="pointer-events-none absolute inset-x-0 top-md z-[1100] flex justify-center px-sm md:justify-start md:px-md md:pl-lg">
+        <div className="pointer-events-auto w-full max-w-[min(28rem,calc(100vw-1rem))] animate-fade-in-up glass-panel rounded-2xl p-md shadow-deep">
           <h2 className="m-0 text-title-lg text-on-surface">Find parking</h2>
           <p className="m-0 mt-xs text-label-sm text-on-surface-variant">
             Search by address or place — or click the map to set the center.
@@ -268,7 +264,7 @@ export function MapPage() {
         aria-label="Search results"
         className={cn(
           'pointer-events-none absolute z-[1050] flex flex-col',
-          'inset-x-0 bottom-16 max-h-[50vh] md:bottom-0 md:left-auto md:right-0 md:top-0 md:max-h-none md:w-[400px]',
+          'inset-x-0 bottom-[calc(4rem+env(safe-area-inset-bottom))] max-h-[44dvh] md:bottom-0 md:left-auto md:right-0 md:top-0 md:max-h-none md:w-[400px]',
         )}
       >
         <div
@@ -307,7 +303,21 @@ function ResultsPanel({
     );
   }
   if (search.isPending) {
-    return <LoadingState label="Searching…" />;
+    return (
+      <>
+        <div>
+          <h2 className="m-0 text-title-lg text-on-surface">Searching nearby</h2>
+          <p className="m-0 mt-xs text-label-sm text-on-surface-variant">
+            Matching available spots around your selected center.
+          </p>
+        </div>
+        <div className="flex flex-col gap-sm" role="status" aria-label="Searching nearby spots">
+          <SpotCardSkeleton />
+          <SpotCardSkeleton />
+          <SpotCardSkeleton />
+        </div>
+      </>
+    );
   }
   if (search.isError) {
     return <FriendlyApiErrorMessage error={search.error} />;
@@ -342,59 +352,6 @@ function ResultsPanel({
   );
 }
 
-const LEGAL_STATUS_TONES: Record<LegalStatus, BadgeTone> = {
-  LEGAL: 'success',
-  UNCERTAIN: 'warning',
-  ILLEGAL_OR_RISKY: 'danger',
-};
-
 function NearbySpotCard({ spot }: { spot: PublicSpot }) {
-  const freshness = getTrustFreshnessVisual(spot.updatedAt);
-  return (
-    <li className="hover-lift rounded-[1.5rem] border border-surface-container-highest bg-surface-container-lowest p-md shadow-soft transition-shadow duration-std hover:shadow-deep">
-      <div className="flex items-start justify-between gap-sm">
-        <Link
-          to={`/spots/${spot.id}`}
-          className="min-w-0 break-words text-body-md font-semibold text-on-surface no-underline hover:text-primary hover:underline"
-        >
-          {spot.addressText ?? `${spot.latitude}, ${spot.longitude}`}
-        </Link>
-        <StatusBadge status={spot.status} className="shrink-0" />
-      </div>
-      <p
-        className={cn(
-          'm-0 mt-sm flex items-center gap-xs text-label-sm font-semibold',
-          freshness.className,
-        )}
-      >
-        <Icon name={freshness.icon} className="text-[14px] leading-none" />
-        {freshness.label} · updated {formatRelativeAgo(spot.updatedAt)}
-      </p>
-      <p className="m-0 mt-xs flex items-center gap-xs text-label-sm text-on-surface-variant">
-        <Icon name="schedule" className="text-[14px] leading-none" />
-        {formatRemaining(spot.expiresAt)} · expires {formatInstant(spot.expiresAt)}
-      </p>
-      {spot.description ? (
-        <p className="m-0 mt-sm line-clamp-2 text-body-md text-on-surface-variant">
-          {spot.description}
-        </p>
-      ) : null}
-      <div className="mt-sm flex flex-wrap items-center gap-xs">
-        {spot.suitableVehicleTypes.map((type) => (
-          <span
-            key={type}
-            className="rounded-full bg-surface-container px-sm py-xs text-label-sm text-on-surface-variant"
-          >
-            {humanizeEnum(type)}
-          </span>
-        ))}
-        <span className="rounded-full bg-surface-container px-sm py-xs text-label-sm text-on-surface-variant">
-          {humanizeEnum(spot.parkingContext)}
-        </span>
-        <SoftBadge tone={LEGAL_STATUS_TONES[spot.legalStatus]}>
-          {humanizeEnum(spot.legalStatus)}
-        </SoftBadge>
-      </div>
-    </li>
-  );
+  return <SpotResultCard spot={spot} />;
 }

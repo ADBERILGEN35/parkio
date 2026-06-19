@@ -20,19 +20,95 @@ export interface NearbySpotsMapProps {
   showFloatingControls?: boolean;
 }
 
-/** The colored status dot shown for each spot marker. */
-function SpotMarkerDot({ spot }: { spot: PublicSpot }) {
+/** Premium, status-aware marker shown for each real spot. */
+function SpotMarker({
+  spot,
+  selected,
+  onSelect,
+}: {
+  spot: PublicSpot;
+  selected: boolean;
+  onSelect: () => void;
+}) {
   const status = getSpotStatusVisual(spot.status);
   const { freshness } = getTrustFreshnessVisual(spot.updatedAt);
   const dimmed = freshness === 'aging' || freshness === 'stale';
+  const label = `${status.label} parking spot${spot.addressText ? ` near ${spot.addressText}` : ''}`;
+
   return (
-    <span
+    <button
+      type="button"
+      title={label}
+      aria-label={label}
+      aria-pressed={selected}
+      onClick={(event) => {
+        event.stopPropagation();
+        onSelect();
+      }}
       className={cn(
-        'block h-4 w-4 cursor-pointer rounded-full border-2 border-white shadow-md',
-        status.dotClassName,
-        dimmed && 'opacity-60',
+        'group relative flex h-10 w-10 items-center justify-center rounded-full border-2 border-white bg-surface-container-lowest shadow-lg transition-all duration-std focus:outline-none focus-visible:ring-4 focus-visible:ring-primary/30 motion-safe:hover:-translate-y-0.5',
+        selected && 'scale-110 shadow-xl ring-4 ring-primary/20',
+        dimmed && !selected && 'opacity-75',
       )}
-    />
+    >
+      {selected ? (
+        <span className={cn('absolute inset-0 rounded-full opacity-30 motion-safe:animate-ping', status.dotClassName)} />
+      ) : null}
+      <span
+        className={cn(
+          'relative flex h-6 w-6 items-center justify-center rounded-full text-[12px] font-black text-white shadow-sm transition-transform duration-std group-hover:scale-105',
+          status.dotClassName,
+        )}
+      >
+        P
+      </span>
+      <span className="sr-only">{freshness === 'fresh' ? 'Recently updated' : `Freshness ${freshness}`}</span>
+    </button>
+  );
+}
+
+function SpotPopup({ spot }: { spot: PublicSpot }) {
+  const freshness = getTrustFreshnessVisual(spot.updatedAt);
+  const address = spot.addressText ?? `${spot.latitude.toFixed(5)}, ${spot.longitude.toFixed(5)}`;
+
+  return (
+    <div className="flex min-w-[220px] max-w-[280px] flex-col gap-sm rounded-xl bg-surface/95 p-sm text-on-surface shadow-xl backdrop-blur-xl">
+      <div className="flex items-start justify-between gap-sm">
+        <div>
+          <p className="m-0 text-label-sm font-semibold uppercase tracking-wide text-primary">
+            Parking spot
+          </p>
+          <strong className="mt-1 block text-body-md">{address}</strong>
+        </div>
+        <StatusBadge status={spot.status} className="shrink-0" />
+      </div>
+
+      <div className="flex flex-wrap gap-xs">
+        <span className="rounded-full bg-surface-container px-sm py-1 text-label-sm text-on-surface-variant">
+          {freshness.label}
+        </span>
+        <span className="rounded-full bg-surface-container px-sm py-1 text-label-sm text-on-surface-variant">
+          {humanizeEnum(spot.parkingContext)}
+        </span>
+        <span className="rounded-full bg-surface-container px-sm py-1 text-label-sm text-on-surface-variant">
+          {humanizeEnum(spot.legalStatus)}
+        </span>
+      </div>
+
+      <div className="grid gap-1 text-label-sm text-on-surface-variant">
+        <span>Expires: {formatInstant(spot.expiresAt)}</span>
+        <span>
+          Vehicles: {spot.suitableVehicleTypes.map(humanizeEnum).join(', ') || 'Not specified'}
+        </span>
+      </div>
+
+      <Link
+        to={`/spots/${spot.id}`}
+        className="mt-xs inline-flex items-center justify-center rounded-full bg-primary px-md py-sm text-label-md font-semibold text-on-primary shadow-sm transition-colors hover:bg-primary-container focus:outline-none focus-visible:ring-4 focus-visible:ring-primary/30"
+      >
+        View spot details
+      </Link>
+    </div>
   );
 }
 
@@ -77,13 +153,12 @@ export function NearbySpotsMap({
           longitude={spot.longitude}
           latitude={spot.latitude}
           anchor="center"
-          onClick={(event) => {
-            // Keep the map's click-to-set-center from also firing.
-            event.originalEvent.stopPropagation();
-            setSelectedId(spot.id);
-          }}
         >
-          <SpotMarkerDot spot={spot} />
+          <SpotMarker
+            spot={spot}
+            selected={selectedId === spot.id}
+            onSelect={() => setSelectedId(spot.id)}
+          />
         </Marker>
       ))}
 
@@ -96,25 +171,9 @@ export function NearbySpotsMap({
           closeOnClick={false}
           onClose={() => setSelectedId(null)}
           maxWidth="none"
+          className="parkio-map-popup"
         >
-          <div className="flex min-w-[180px] flex-col gap-xs">
-            <strong className="text-body-md text-on-surface">
-              {selectedSpot.addressText ?? `${selectedSpot.latitude}, ${selectedSpot.longitude}`}
-            </strong>
-            <StatusBadge status={selectedSpot.status} className="w-fit" />
-            <span className="text-label-sm text-on-surface-variant">
-              Expires: {formatInstant(selectedSpot.expiresAt)}
-            </span>
-            <span className="text-label-sm text-on-surface-variant">
-              Vehicles: {selectedSpot.suitableVehicleTypes.map(humanizeEnum).join(', ') || '—'}
-            </span>
-            <Link
-              to={`/spots/${selectedSpot.id}`}
-              className="text-label-sm font-semibold text-primary"
-            >
-              View spot
-            </Link>
-          </div>
+          <SpotPopup spot={selectedSpot} />
         </Popup>
       ) : null}
     </Map>

@@ -1,4 +1,5 @@
 import { Suspense, lazy, type ReactElement } from 'react';
+import { ProfileSkeleton } from '@parkio/ui';
 import { Navigate, createBrowserRouter } from 'react-router-dom';
 import { ProtectedRoute } from '@/auth/ProtectedRoute';
 import { RoleRoute } from '@/auth/RoleRoute';
@@ -12,6 +13,7 @@ import { CheckEmailPage } from '@/pages/CheckEmailPage';
 import { ForgotPasswordPage } from '@/pages/ForgotPasswordPage';
 import { LoginPage } from '@/pages/LoginPage';
 import { MapPage } from '@/pages/MapPage';
+import { NotFoundPage } from '@/pages/NotFoundPage';
 import { RegisterPage } from '@/pages/RegisterPage';
 import { ResetPasswordPage } from '@/pages/ResetPasswordPage';
 import { VerifyEmailPage } from '@/pages/VerifyEmailPage';
@@ -51,6 +53,28 @@ function lazyRoute(element: ReactElement): ReactElement {
   return <Suspense fallback={<RouteFallback />}>{element}</Suspense>;
 }
 
+function profileRoute(element: ReactElement): ReactElement {
+  return (
+    <Suspense
+      fallback={
+        <div className="mx-auto w-full max-w-5xl px-md py-lg text-on-background md:px-xl">
+          <header className="mb-lg">
+            <p className="m-0 flex items-center gap-xs text-label-md font-semibold uppercase tracking-wider text-primary">
+              Account
+            </p>
+            <h1 className="m-0 mt-sm text-headline-lg-mobile text-on-surface md:text-headline-lg">
+              Settings &amp; Preferences
+            </h1>
+          </header>
+          <ProfileSkeleton />
+        </div>
+      }
+    >
+      {element}
+    </Suspense>
+  );
+}
+
 export const router = createBrowserRouter([{
   element: <RouteAccessibility />,
   children: [
@@ -72,7 +96,7 @@ export const router = createBrowserRouter([{
           { path: '/spots/:spotId', element: lazyRoute(<SpotDetailPage />) },
           { path: '/my-spots', element: lazyRoute(<MySpotsPage />) },
           { path: '/upload', element: lazyRoute(<UploadPage />) },
-          { path: '/profile', element: lazyRoute(<ProfilePage />) },
+          { path: '/profile', element: profileRoute(<ProfilePage />) },
           { path: '/reports', element: lazyRoute(<ReportsPage />) },
           { path: '/notifications', element: lazyRoute(<NotificationsPage />) },
           { path: '/gamification', element: lazyRoute(<GamificationPage />) },
@@ -88,6 +112,6 @@ export const router = createBrowserRouter([{
       },
     ],
   },
-  { path: '*', element: <Navigate to="/map" replace /> },
+  { path: '*', element: <NotFoundPage /> },
   ],
 }]);

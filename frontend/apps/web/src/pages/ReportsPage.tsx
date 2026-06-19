@@ -19,6 +19,8 @@ import { useForm } from 'react-hook-form';
 import { Link } from 'react-router-dom';
 import { moderationApi } from '@/api';
 import { FriendlyApiErrorMessage } from '@/components/FriendlyApiErrorMessage';
+import { ProductCard } from '@/components/product/ProductCard';
+import { SettingsSectionCard } from '@/components/product/SettingsSectionCard';
 import { formatRelativeAgo, humanizeEnum } from '@/lib/format';
 import { showError, showSuccess } from '@/lib/toast';
 
@@ -79,7 +81,7 @@ function MyReportsCard() {
 
 function ReportItem({ report }: { report: ModerationReport }) {
   return (
-    <li className="rounded-xl border border-outline-variant/40 bg-surface-container-low p-md">
+    <ProductCard as="li" className="rounded-xl">
       <div className="flex flex-wrap items-center gap-xs">
         <span className="text-body-md font-semibold text-on-surface">
           {humanizeEnum(report.reason)}
@@ -121,7 +123,7 @@ function ReportItem({ report }: { report: ModerationReport }) {
           Case: <span className="break-all font-mono">{report.caseId}</span>
         </p>
       ) : null}
-    </li>
+    </ProductCard>
   );
 }
 
@@ -161,7 +163,11 @@ function AppealCard() {
   const onSubmit = handleSubmit((values) => appealMutation.mutate(values));
 
   return (
-    <Card title="Appeal a moderation decision">
+    <SettingsSectionCard
+      title="Appeal a moderation decision"
+      icon="balance"
+      description="Appeal a resolved moderation case that targets your own account."
+    >
       <p className="m-0 mb-sm flex items-start gap-xs text-label-sm text-on-surface-variant">
         <Icon name="info" className="text-[14px] leading-none" />
         If a case against your account was resolved and you disagree, you can appeal it once.
@@ -205,7 +211,7 @@ function AppealCard() {
           </SoftBadge>
         </div>
       ) : null}
-    </Card>
+    </SettingsSectionCard>
   );
 }
 

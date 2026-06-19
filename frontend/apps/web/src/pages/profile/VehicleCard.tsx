@@ -1,11 +1,12 @@
 import { zodResolver } from '@hookform/resolvers/zod';
 import { VEHICLE_TYPES, type VehicleType, type VehicleProfile } from '@parkio/types';
-import { Button, Card, Icon, Input, LoadingState, SoftBadge, cn } from '@parkio/ui';
+import { Button, Icon, Input, LoadingState, SoftBadge, cn } from '@parkio/ui';
 import { vehicleUpsertSchema, type VehicleUpsertFormValues } from '@parkio/validation';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useForm, type UseFormRegisterReturn } from 'react-hook-form';
 import { usersApi } from '@/api';
 import { FriendlyApiErrorMessage } from '@/components/FriendlyApiErrorMessage';
+import { SettingsSectionCard } from '@/components/product/SettingsSectionCard';
 import { humanizeEnum } from '@/lib/format';
 import { showError, showSuccess } from '@/lib/toast';
 
@@ -22,7 +23,11 @@ export function VehicleCard() {
   const query = useQuery({ queryKey: ['me', 'vehicle'], queryFn: usersApi.getMyVehicle });
 
   return (
-    <Card title="Vehicle">
+    <SettingsSectionCard
+      title="Vehicle"
+      icon="directions_car"
+      description="Set the vehicle profile used to judge spot fit."
+    >
       {query.isPending ? (
         <LoadingState />
       ) : query.isError ? (
@@ -30,7 +35,7 @@ export function VehicleCard() {
       ) : (
         <VehicleForm vehicle={query.data} />
       )}
-    </Card>
+    </SettingsSectionCard>
   );
 }
 
@@ -38,9 +43,9 @@ function VehicleForm({ vehicle }: { vehicle: VehicleProfile }) {
   const queryClient = useQueryClient();
   const mutation = useMutation({
     mutationFn: usersApi.upsertMyVehicle,
-    onSuccess: () => {
+    onSuccess: (vehicle) => {
+      queryClient.setQueryData(['me', 'vehicle'], vehicle);
       showSuccess('Vehicle saved.');
-      void queryClient.invalidateQueries({ queryKey: ['me', 'vehicle'] });
     },
     onError: () => showError('Could not save vehicle.'),
   });

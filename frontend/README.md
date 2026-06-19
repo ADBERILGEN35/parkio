@@ -150,6 +150,7 @@ real browser with deterministic network mocks:
 - Auth: register → check email → verify email → login.
 - Auth: forgot password → reset password → login with the new password.
 - Parking: upload image → create spot → success redirect.
+- Map: search overlay → advanced coordinates → nearby results sheet.
 - Parking: open spot details → claim spot.
 - Parking: verify spot and report spot.
 - Moderation: moderator login → open queue → assign/review/resolve a case.
@@ -181,8 +182,8 @@ suite is a deterministic release safety net for the frontend contract and UX.
 |------|-------|-------|
 | `packages/api-client` | `src/*.test.ts` | Authorization/`X-Correlation-Id` interceptors, 401 → single shared refresh → retry → hard logout, refresh-exempt auth paths, `toParkioError` mapping (401/403/`ACCOUNT_NOT_ACTIVE`/429/503/unknown), `Idempotency-Key` on create/verify/claim/upload |
 | `packages/validation` | `src/*.test.ts` | login/register, nearby-search boundaries (lat ±90, lng ±180, radius ≤ 50 000, limit 1–50), media type/size limits, create-spot vehicle/violation rules, profile/preferences/vehicle constraints |
-| `apps/web` | `src/**/*.test.tsx` | Login success (session + redirect) and 401 (friendly message + traceId), `ProtectedRoute`/`RoleRoute` guards, route title/focus management, Sonner toast helpers/dedupe, jest-axe checks for login/register/map shell, notifications list/empty/mark-as-read refetch, spot detail 404 / 409 `ALREADY_VERIFIED` / claim success, upload validation/media-reuse/create, profile stats + section-tab switching + vehicle empty/current + profile/preferences save + logout, gamification "Your Impact" header + level hero + recent activity/benefits + activity empty state + roadmap current-level highlight, leaderboard podium + public-profile enrichment/fallback + your-standing highlight + not-in-top-N + show-more + empty, moderation case queue/detail-assign/appeal-resolve controls, analytics overview KPIs + daily empty state + own-id-only 403 message, register extended-form validation (display name / password match / terms) + sends only email+password + captured name/phone PATCHed after provisioning + profile-save failure is non-fatal, register success → preparing → /map and register → preparing (not suspended), post-register provisioning grace (retry on `ACCOUNT_NOT_ACTIVE`, timeout → retry/sign-out) + store guard (suspended only outside the grace window), my-spots empty/list, reports list + appeal form, AppNav mobile menu toggle + role-gated links |
-| `apps/web` (E2E) | `e2e/smoke.spec.ts` | Mocked Playwright critical flows for auth, parking, moderation, and mobile projects (desktop Chromium, iPhone 14, Pixel 8-sized Chromium). |
+| `apps/web` | `src/**/*.test.tsx` | Login success (session + redirect) and 401 (friendly message + traceId), `ProtectedRoute`/`RoleRoute` guards, route title/focus management, Sonner toast helpers/dedupe, jest-axe checks for login/register/map shell, PWA manifest/service-worker cache policy, offline banner, 404 CTA routing, notifications list/empty/mark-as-read cache update, spot detail 404 / 409 `ALREADY_VERIFIED` / claim success, upload validation/media-reuse/create, profile stats + section-tab switching + vehicle empty/current + profile/preferences save + logout, gamification "Your Impact" header + level hero + recent activity/benefits + activity empty state + roadmap current-level highlight, leaderboard podium + public-profile enrichment/fallback + your-standing highlight + not-in-top-N + show-more + empty, moderation case queue/detail-assign/appeal-resolve controls, analytics overview KPIs + daily empty state + own-id-only 403 message, register extended-form validation (display name / password match / terms) + sends only email+password + captured name/phone PATCHed after provisioning + profile-save failure is non-fatal, register success → preparing → /map and register → preparing (not suspended), post-register provisioning grace (retry on `ACCOUNT_NOT_ACTIVE`, timeout → retry/sign-out) + store guard (suspended only outside the grace window), my-spots empty/list, reports list + appeal form, AppNav mobile menu toggle + role-gated links |
+| `apps/web` (E2E) | `e2e/smoke.spec.ts` | Mocked Playwright critical flows for auth, map search/results, parking, moderation, and mobile projects (desktop Chromium, iPhone 14, Pixel 8-sized Chromium). |
 
 Notes:
 
@@ -415,6 +416,27 @@ sends. To improve onboarding, the register form additionally collects **Full nam
 - API errors should render through `ApiErrorAlert`/`FriendlyApiErrorMessage` so
   network/401/403/404/409/422/429/5xx states get consistent wording, code, and
   `traceId` display.
+- Unknown routes render a real 404 page. Anonymous users get a login CTA;
+  authenticated users get a map CTA. Do not silently redirect unknown paths.
+
+## PWA and offline behavior
+
+- `apps/web/public/manifest.webmanifest` makes the hosted web app installable
+  with standalone display, Parkio theme/background colors, and SVG app icons
+  including a maskable icon entry.
+- `apps/web/public/sw.js` is a minimal app-shell service worker registered only
+  in production builds. It precaches `/`, `/offline.html`, the manifest, and app
+  icons, then runtime-caches same-origin static Vite assets under `/assets/`.
+- The service worker must never cache authenticated API data: non-GET requests,
+  paths matching API/auth/login/logout/refresh/reset/verify, and requests with
+  an `Authorization` header are network-only. Map tiles and provider APIs are not
+  cached, so there is no fake offline map support.
+- Navigations that fail offline fall back to `offline.html`. In-app network loss
+  is surfaced by `OfflineBanner`, which listens to `navigator.onLine` and shows a
+  non-blocking accessible status message.
+- Update policy is conservative: the service worker claims clients after install
+  and clears old app-shell caches on activate. Bump `CACHE_NAME` when changing
+  cached shell assets or offline behavior.
 
 ### Other error statuses
 
@@ -473,11 +495,32 @@ the page; `/profile` does not duplicate those calls.
 - **PUT semantics (vehicle):** the vehicle is replaced wholesale; selecting the **None**
   type and clearing the plate removes the vehicle. An empty state is shown when no vehicle
   is configured (`GET /users/me/vehicle` returns `{ vehicleType: null, plate: null }`).
-- Successful mutations invalidate the section's query and show a "Saved." confirmation;
-  errors render the backend `ApiError` message with its `code` and `traceId`.
+- Successful profile, preferences, and vehicle mutations write the returned DTO into
+  the matching TanStack Query cache and show a "Saved." confirmation; errors render the
+  backend `ApiError` message with its `code` and `traceId`.
 - Auth concerns are not duplicated here: 401s go through the silent-refresh interceptor and
   `403 ACCOUNT_NOT_ACTIVE` flips the global suspended state. Sign-out reads identity from the
   auth session, so it never depends on a network call succeeding.
+
+### Product cards and mutation UX policy
+
+Product-level list rows use the app card components in `apps/web/src/components/product`:
+`ProductCard` for shared surfaces, `SpotResultCard` for map/my-spots rows,
+`NotificationItemCard` for notification rows, `LeaderboardRow` for leaderboard lists, and
+`SettingsSectionCard` for profile/settings panels. These components keep padding, radius,
+hover/focus, selected state, unread accents, and owner/public spot field boundaries consistent
+without changing backend contracts.
+
+Mutation UX follows three rules:
+
+- If the mutation response is the full DTO used by an existing query, write it with
+  `queryClient.setQueryData` (notifications mark-read, profile/preferences/vehicle updates,
+  and spot detail/nearby rows after verify or claim).
+- If related cached data may contain owner-only or aggregate fields not returned by the
+  mutation, update only the safe overlapping shape and keep invalidation for source-of-truth
+  refresh (for example `/my-spots` after spot verify/claim).
+- If the response does not include enough data, do not fake server state. Keep a disabled or
+  pending control state and invalidate the relevant query after success.
 
 ## Parking browsing flow
 
@@ -509,19 +552,22 @@ Behavior notes:
 
 ## Map integration
 
-The browsing flow uses an interactive map built on **Leaflet** + **React Leaflet**.
+The browsing flow uses an interactive map built on **MapLibre GL JS** through
+`react-map-gl/maplibre`.
 
 ### Map Experience Beta (`/map` layout)
 
-`/map` implements the Stitch **Production Beta** map design (data-first, solid
-fills + 1px borders — no glassmorphism):
+`/map` implements the Stitch **Production Beta** map design as the flagship
+product surface:
 
 - **Desktop:** map-dominant layout — a floating glass search overlay
   (address/place search, *Use my location*, and an "Advanced coordinates"
   disclosure with manual lat/lng + radius/limit) and a results panel
   (result count, spot cards) over the map, which fills the viewport.
-- **Mobile:** the map renders first (≈45vh), with the search/results panel
-  stacked below it; the manual coordinate fallback is always reachable.
+- **Mobile:** the map remains full-bleed behind a non-blocking search overlay and
+  an ergonomic bottom sheet. The sheet and floating controls account for the
+  fixed bottom nav and safe-area inset; the search overlay is constrained to fit
+  360 px wide screens.
 - **Result cards** show public fields only: status badge, trust freshness,
   remaining validity/expiry, description snippet, vehicle-type/context chips
   and a color-coded legal-status badge, linking to `/spots/:spotId`.
@@ -532,8 +578,13 @@ fills + 1px borders — no glassmorphism):
   aging 30–60 / stale 1 h+) is derived from the record's **`updatedAt`** — the
   backend does not expose a `lastVerifiedAt` yet, and the UI says so next to
   the result count. Aging/stale markers are dimmed on the map.
-- **Markers** are status-colored dots via the central `getSpotStatusVisual()`
-  mapping; popups show status, expiry, vehicle types and a detail link.
+- **Markers** use premium status-aware React controls via the central
+  `getSpotStatusVisual()` mapping. The selected marker gets `aria-pressed`, a
+  subtle pulse/glow, and stronger focus/hover treatment. Aging/stale markers are
+  visually dimmed.
+- **Popups** use Parkio surface styling instead of the stock MapLibre card. They
+  show only `PublicSpot` fields: address/coordinates, status, trust freshness,
+  parking context, legal status, expiry, vehicle chips, and a clear detail CTA.
 
 - **Tile provider** — defaults to **OpenStreetMap**, which is fine for local/dev. The
   provider is configurable via env so a production provider can be swapped in later
@@ -553,6 +604,9 @@ fills + 1px borders — no glassmorphism):
   (`38.4237, 27.1428`, zoom 12) with a friendly inline message and **does not**
   auto-search. A *Use my location* button repeats the lookup on demand (it only
   fills the center; the user presses Search). It is **never required**.
+- **Default center policy:** all map surfaces share the same explicit İzmir
+  hosted-beta fallback from `mapConfig.ts`; only zoom differs by surface. Keep
+  future city changes in that module instead of hardcoding per-page defaults.
 - **Location search (typeahead geocoding)** — the primary search box on **both
   `/map` and `/upload`** accepts an **address, street, neighborhood, or place name**
   (e.g. `155 Sokak`, `Bostanlı`, `Konak Pier`, `İzmir Katip Çelebi Üniversitesi`). As
@@ -608,6 +662,10 @@ fills + 1px borders — no glassmorphism):
 - **Bundle** — MapLibre/react-map-gl are loaded through lazy map components and Vite
   manual chunks (`maplibre`, `react-vendor`, `app-vendor`) so large map/vendor code stays
   split from the entry bundle where possible.
+- **Performance policy:** markers remain plain React markers while visible result
+  counts are beta-sized. Add clustering once typical visible result sets exceed
+  roughly 75 markers or map interaction shows measurable frame drops; do not add
+  clustering before the product needs it.
 
 ### Map environment variables
 

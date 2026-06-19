@@ -2,7 +2,7 @@ import { type LeaderboardEntry, type PublicProfile } from '@parkio/types';
 import {
   EmptyState,
   Icon,
-  LoadingState,
+  LeaderboardSkeleton,
   MetricCard,
   SoftBadge,
   Surface,
@@ -12,8 +12,7 @@ import { useQueries, useQuery } from '@tanstack/react-query';
 import { useState } from 'react';
 import { gamificationApi, usersApi } from '@/api';
 import { FriendlyApiErrorMessage } from '@/components/FriendlyApiErrorMessage';
-import { humanizeEnum } from '@/lib/format';
-import { trustBandTone } from './profile/accountVisuals';
+import { LeaderboardRow, initialsFor, labelFor } from '@/components/product/LeaderboardRow';
 
 /** "Show more" steps over the existing `limit` param (no real pagination). */
 const LIMIT_STEPS = [10, 20, 50, 100] as const;
@@ -31,24 +30,6 @@ const PODIUM_RING: Record<number, string> = {
   2: 'ring-2 ring-[#C0C0C0]',
   3: 'ring-2 ring-[#CD7F32]',
 };
-
-function shortId(userId: string): string {
-  return `${userId.slice(0, 8)}…`;
-}
-
-/** Resolved label for a row: the public display name, or a shortened id fallback. */
-function labelFor(userId: string, profile?: PublicProfile | null): string {
-  return profile?.displayName?.trim() || shortId(userId);
-}
-
-/** Initials for the avatar disc — derived from the resolved label, never invented. */
-function initialsFor(label: string): string {
-  const trimmed = label.trim();
-  if (!trimmed) return '?';
-  const parts = trimmed.split(/\s+/).filter(Boolean);
-  if (parts.length >= 2) return (parts[0]![0]! + parts[1]![0]!).toUpperCase();
-  return trimmed.slice(0, 2).toUpperCase();
-}
 
 /**
  * Leaderboard ("Top Contributors") — P1 Stitch fidelity pass.
@@ -113,7 +94,7 @@ export function LeaderboardPage() {
       </header>
 
       {query.isPending ? (
-        <LoadingState label="Loading the leaderboard…" />
+        <LeaderboardSkeleton />
       ) : query.isError ? (
         <FriendlyApiErrorMessage error={query.error} />
       ) : entries.length === 0 ? (
@@ -296,7 +277,7 @@ function RankingTable({
     <Surface level="card" className="overflow-hidden rounded-3xl">
       <ol className="m-0 flex list-none flex-col p-0">
         {rows.map((entry) => (
-          <RankingRow
+          <LeaderboardRow
             key={entry.userId}
             entry={entry}
             profile={profiles.get(entry.userId) ?? null}
@@ -305,53 +286,5 @@ function RankingTable({
         ))}
       </ol>
     </Surface>
-  );
-}
-
-function RankingRow({
-  entry,
-  profile,
-  isMe,
-}: {
-  entry: LeaderboardEntry;
-  profile: PublicProfile | null;
-  isMe: boolean;
-}) {
-  const label = labelFor(entry.userId, profile);
-  const band = profile?.trustBand?.trim() || null;
-
-  return (
-    <li
-      className={cn(
-        'flex items-center gap-md border-b border-outline-variant/20 px-md py-sm last:border-b-0 transition-colors duration-std',
-        isMe ? 'border-l-4 border-l-primary bg-primary/5' : 'hover:bg-surface-container-low',
-      )}
-    >
-      <span className="w-6 shrink-0 text-center text-body-md font-semibold text-on-surface-variant">
-        {entry.rank}
-      </span>
-
-      <span
-        className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-primary-container text-label-md font-bold text-on-primary-container"
-        aria-hidden
-      >
-        {initialsFor(label)}
-      </span>
-
-      <span className="min-w-0 flex-1 truncate text-body-md text-on-surface" title={label}>
-        {label}
-        {isMe ? <span className="ml-sm text-label-sm text-primary">(you)</span> : null}
-      </span>
-
-      {band ? (
-        <SoftBadge tone={trustBandTone(band)}>{humanizeEnum(band)}</SoftBadge>
-      ) : null}
-
-      <SoftBadge tone="neutral">Level {entry.currentLevel}</SoftBadge>
-
-      <span className="shrink-0 text-body-md font-semibold text-on-surface">
-        {entry.totalPoints} pts
-      </span>
-    </li>
   );
 }

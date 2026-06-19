@@ -124,12 +124,14 @@ describe('ProfilePage', () => {
     renderProfile();
     const user = userEvent.setup();
 
+    expect(await screen.findByText('Istanbul')).toBeInTheDocument();
     const cityField = await screen.findByLabelText('City');
     await user.clear(cityField);
     await user.type(cityField, 'Ankara');
     await user.click(screen.getByRole('button', { name: 'Save profile' }));
 
     expect(await screen.findByText('Saved.')).toBeInTheDocument();
+    expect(screen.getByText('Ankara')).toBeInTheDocument();
   });
 
   it('shows a saved confirmation after saving preferences', async () => {

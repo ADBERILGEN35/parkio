@@ -1,0 +1,5 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" role="img" aria-label="Parkio">
+  <rect width="512" height="512" fill="#0050cb"/>
+  <circle cx="256" cy="256" r="150" fill="#f8f9ff"/>
+  <path fill="#0050cb" d="M198 364V148h84c52 0 86 31 86 78s-34 78-86 78h-34v60h-50Zm50-105h29c25 0 40-13 40-33s-15-33-40-33h-29v66Z"/>
+</svg>

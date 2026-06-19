@@ -17,7 +17,6 @@ import {
   LoadingState,
   PageShell,
   SoftBadge,
-  cn,
   type BadgeTone,
 } from '@parkio/ui';
 import {
@@ -32,6 +31,7 @@ import { useForm } from 'react-hook-form';
 import { Link } from 'react-router-dom';
 import { moderationApi } from '@/api';
 import { FriendlyApiErrorMessage } from '@/components/FriendlyApiErrorMessage';
+import { ProductCardButton } from '@/components/product/ProductCard';
 import { formatInstant, formatRelativeAgo, humanizeEnum } from '@/lib/format';
 import { showError, showSuccess } from '@/lib/toast';
 
@@ -172,17 +172,10 @@ function CaseListItem({
 }) {
   return (
     <li>
-      <button
-        type="button"
+      <ProductCardButton
         onClick={onSelect}
-        aria-pressed={selected}
-        className={cn(
-          'flex w-full flex-col items-start gap-xs rounded-xl border p-md text-left transition-colors duration-std',
-          'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary',
-          selected
-            ? 'border-l-4 border-primary bg-primary/5'
-            : 'border-outline-variant/40 bg-surface-container-low hover:border-primary/40',
-        )}
+        selected={selected}
+        className="flex flex-col items-start gap-xs rounded-xl"
       >
         <div className="flex w-full flex-wrap items-center gap-xs">
           <span className="text-body-md font-semibold text-on-surface">
@@ -206,7 +199,7 @@ function CaseListItem({
         <span className="text-label-sm text-on-surface-variant">
           Opened {formatRelativeAgo(moderationCase.openedAt)}
         </span>
-      </button>
+      </ProductCardButton>
     </li>
   );
 }

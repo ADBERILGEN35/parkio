@@ -1,4 +1,4 @@
-import { Button, Icon, Input, cn } from '@parkio/ui';
+import { Button, Icon, Input, SkeletonBlock, cn } from '@parkio/ui';
 import {
   useEffect,
   useId,
@@ -182,10 +182,11 @@ function SuggestionsDropdown({
   return (
     <div className="absolute left-0 right-0 top-full z-[1200] mt-xs overflow-hidden rounded-xl border border-outline-variant/30 bg-surface shadow-deep">
       {status === 'loading' ? (
-        <p className="m-0 flex items-center gap-xs px-md py-sm text-label-sm text-on-surface-variant">
-          <Icon name="progress_activity" className="animate-spin text-[16px] leading-none" />
-          Searching…
-        </p>
+        <div className="flex flex-col gap-xs px-md py-sm" role="status" aria-label="Searching places">
+          <span className="sr-only">Searching…</span>
+          <SkeletonBlock className="h-4 w-2/3" rounded="full" />
+          <SkeletonBlock className="h-3 w-1/2" rounded="full" />
+        </div>
       ) : null}
       {status === 'error' ? (
         <p className="m-0 px-md py-sm text-label-sm text-error">Could not load suggestions</p>

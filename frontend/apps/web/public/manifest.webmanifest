@@ -1,0 +1,24 @@
+{
+  "name": "Parkio",
+  "short_name": "Parkio",
+  "description": "Find and share trusted parking spots.",
+  "start_url": "/",
+  "scope": "/",
+  "display": "standalone",
+  "background_color": "#f8f9ff",
+  "theme_color": "#0050cb",
+  "icons": [
+    {
+      "src": "/icons/parkio-icon.svg",
+      "sizes": "any",
+      "type": "image/svg+xml",
+      "purpose": "any"
+    },
+    {
+      "src": "/icons/parkio-maskable.svg",
+      "sizes": "any",
+      "type": "image/svg+xml",
+      "purpose": "maskable"
+    }
+  ]
+}

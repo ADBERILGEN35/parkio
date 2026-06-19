@@ -46,6 +46,12 @@ export class ErrorBoundary extends Component<ErrorBoundaryProps, ErrorBoundarySt
     };
   }
 
+  componentDidMount(): void {
+    if (!this.state.error) {
+      sessionStorage.removeItem(CHUNK_RELOAD_KEY);
+    }
+  }
+
   componentDidCatch(error: unknown, info: ErrorInfo): void {
     const traceId = this.state.traceId ?? crypto.randomUUID();
     const chunkError = isChunkLoadError(error);
@@ -89,10 +95,10 @@ export class ErrorBoundary extends Component<ErrorBoundaryProps, ErrorBoundarySt
     return (
       <main className="min-h-screen bg-background px-md py-xl text-on-background">
         <section className="mx-auto flex min-h-[70vh] max-w-xl flex-col justify-center">
-          <p className="m-0 text-label-lg font-semibold uppercase tracking-[0.08em] text-primary">
+          <p className="m-0 text-label-md font-semibold uppercase tracking-wider text-primary">
             Parkio
           </p>
-          <h1 className="m-0 mt-sm text-display-md-mobile text-on-surface md:text-display-md">
+          <h1 className="m-0 mt-sm text-headline-lg-mobile text-on-surface md:text-headline-lg">
             Something went wrong
           </h1>
           <p className="m-0 mt-md text-body-lg text-on-surface-variant">
@@ -114,7 +120,7 @@ export class ErrorBoundary extends Component<ErrorBoundaryProps, ErrorBoundarySt
             </div>
           ) : null}
           {!frontendConfig.isProductionLike ? (
-            <pre className="mt-lg max-h-56 overflow-auto rounded-lg bg-surface-container p-md text-body-sm text-on-surface">
+            <pre className="mt-lg max-h-56 overflow-auto rounded-lg bg-surface-container p-md text-label-sm text-on-surface">
               {this.state.error.stack ?? this.state.error.message}
             </pre>
           ) : null}

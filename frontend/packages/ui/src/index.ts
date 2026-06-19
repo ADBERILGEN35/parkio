@@ -10,6 +10,17 @@ export { ErrorMessage } from './components/ErrorMessage';
 export type { ErrorMessageProps } from './components/ErrorMessage';
 export { LoadingState } from './components/LoadingState';
 export type { LoadingStateProps } from './components/LoadingState';
+export {
+  LeaderboardSkeleton,
+  MapSearchSkeleton,
+  NotificationSkeleton,
+  ProfileSkeleton,
+  SkeletonBlock,
+  SkeletonText,
+  SpotCardSkeleton,
+  SpotDetailSkeleton,
+} from './components/Skeleton';
+export type { SkeletonBlockProps } from './components/Skeleton';
 export { Icon } from './components/Icon';
 export type { IconProps } from './components/Icon';
 export { IconButton } from './components/IconButton';
