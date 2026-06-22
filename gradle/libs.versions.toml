@@ -7,7 +7,7 @@ jjwt = "0.12.6"
 # MinIO client is not part of the Spring Boot BOM, so it needs an explicit version.
 minio = "8.6.0"
 # springdoc-openapi (OpenAPI 3 + Swagger UI for Spring MVC). Not in the Spring Boot BOM.
-springdoc = "2.8.17"
+springdoc = "3.0.3"
 
 [libraries]
 # Spring Boot starters. Concrete versions are supplied by the Spring Boot BOM,
