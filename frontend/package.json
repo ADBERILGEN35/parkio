@@ -9,7 +9,8 @@
     "lint": "pnpm -r lint",
     "test": "pnpm -r test",
     "e2e": "pnpm --filter @parkio/web e2e",
-    "e2e:ui": "pnpm --filter @parkio/web e2e:ui"
+    "e2e:ui": "pnpm --filter @parkio/web e2e:ui",
+    "e2e:real": "pnpm --filter @parkio/web e2e:real"
   },
   "engines": {
     "node": ">=20"

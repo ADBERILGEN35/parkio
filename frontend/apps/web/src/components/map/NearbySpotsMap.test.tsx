@@ -5,7 +5,7 @@ import { renderWithProviders } from '@/test/utils';
 import { NearbySpotsMap } from './NearbySpotsMap';
 
 // MapLibre/WebGL cannot run in jsdom. Stub react-map-gl with lightweight DOM so
-// the React-driven markers and popups can be asserted without a real GL canvas.
+// the React-driven markers can be asserted without a real GL canvas.
 vi.mock('react-map-gl/maplibre', () => ({
   __esModule: true,
   default: ({ children }: { children?: React.ReactNode }) => <div data-testid="map">{children}</div>,
@@ -18,19 +18,16 @@ vi.mock('react-map-gl/maplibre', () => ({
     longitude: number;
     latitude: number;
   }) => (
-    <div
-      data-testid="marker"
-      data-lng={longitude}
-      data-lat={latitude}
-    >
+    <div data-testid="marker" data-lng={longitude} data-lat={latitude}>
       {children}
     </div>
   ),
-  Popup: ({ children }: { children?: React.ReactNode }) => <div data-testid="popup">{children}</div>,
   useMap: () => ({ current: null }),
 }));
 
-function makeSpot(overrides: Partial<PublicSpot> & Pick<PublicSpot, 'id' | 'latitude' | 'longitude'>): PublicSpot {
+function makeSpot(
+  overrides: Partial<PublicSpot> & Pick<PublicSpot, 'id' | 'latitude' | 'longitude'>,
+): PublicSpot {
   return {
     mediaId: '0b8f6c3a-0000-0000-0000-000000000099',
     addressText: 'A Spot',
@@ -63,46 +60,58 @@ describe('NearbySpotsMap', () => {
     expect(screen.getAllByTestId('marker')).toHaveLength(3);
   });
 
-  it('opens a premium popup with the spot details and CTA on marker click', () => {
+  it('reports the chosen spot id when a marker is clicked (controlled selection)', () => {
+    const onSelectSpot = vi.fn();
     renderWithProviders(
-      <NearbySpotsMap center={{ lat: 41, lng: 29 }} spots={spots} onPickCenter={() => undefined} />,
+      <NearbySpotsMap
+        center={{ lat: 41, lng: 29 }}
+        spots={spots}
+        onPickCenter={() => undefined}
+        onSelectSpot={onSelectSpot}
+      />,
     );
 
-    expect(screen.queryByTestId('popup')).not.toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: /first spot/i }));
 
-    const firstMarker = screen.getByRole('button', { name: /first spot/i });
-    fireEvent.click(firstMarker);
-
-    const popup = screen.getByTestId('popup');
-    expect(popup).toHaveTextContent('First Spot');
-    expect(popup).toHaveTextContent('Street parking');
-    const link = screen.getByRole('link', { name: 'View spot details' });
-    expect(link).toHaveAttribute('href', '/spots/spot-1');
+    expect(onSelectSpot).toHaveBeenCalledWith('spot-1');
   });
 
-  it('marks the selected spot marker as active', () => {
+  it('marks the controlled selected marker as active', () => {
     renderWithProviders(
-      <NearbySpotsMap center={{ lat: 41, lng: 29 }} spots={spots} onPickCenter={() => undefined} />,
+      <NearbySpotsMap
+        center={{ lat: 41, lng: 29 }}
+        spots={spots}
+        onPickCenter={() => undefined}
+        selectedId="spot-1"
+      />,
     );
 
-    const firstMarker = screen.getByRole('button', { name: /first spot/i });
-    expect(firstMarker).toHaveAttribute('aria-pressed', 'false');
-
-    fireEvent.click(firstMarker);
-
-    expect(firstMarker).toHaveAttribute('aria-pressed', 'true');
+    expect(screen.getByRole('button', { name: /first spot/i })).toHaveAttribute(
+      'aria-pressed',
+      'true',
+    );
+    expect(screen.getByRole('button', { name: /second spot/i })).toHaveAttribute(
+      'aria-pressed',
+      'false',
+    );
   });
 
   it('does not set the search center when a spot marker is clicked', () => {
     const onPickCenter = vi.fn();
+    const onSelectSpot = vi.fn();
     renderWithProviders(
-      <NearbySpotsMap center={{ lat: 41, lng: 29 }} spots={spots} onPickCenter={onPickCenter} />,
+      <NearbySpotsMap
+        center={{ lat: 41, lng: 29 }}
+        spots={spots}
+        onPickCenter={onPickCenter}
+        onSelectSpot={onSelectSpot}
+      />,
     );
 
     fireEvent.click(screen.getByRole('button', { name: /second spot/i }));
 
-    // Marker click opens the popup; it must not trigger the map's pick-center.
+    // Marker click selects the spot; it must not trigger the map's pick-center.
     expect(onPickCenter).not.toHaveBeenCalled();
-    expect(screen.getByTestId('popup')).toHaveTextContent('Second Spot');
+    expect(onSelectSpot).toHaveBeenCalledWith('spot-2');
   });
 });

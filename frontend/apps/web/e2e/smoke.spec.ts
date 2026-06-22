@@ -106,6 +106,9 @@ async function installMockApi(page: Page) {
     }
     if (method === 'GET' && path === '/auth/me') return json(currentUser ?? user);
     if (method === 'GET' && path === '/notifications/me') return json([]);
+    if (method === 'GET' && path === '/users/me/vehicle') {
+      return json({ vehicleType: 'SEDAN', plate: '35PK123' });
+    }
     if (method === 'GET' && path === '/parking/spots/nearby') return json([publicSpot]);
     if (method === 'POST' && path === '/media/upload') {
       return json({ mediaId: MEDIA_ID, status: 'STORED' });
@@ -239,16 +242,67 @@ test('parking: upload image and create spot', async ({ page }) => {
 
 test('map: search overlay and results sheet stay usable', async ({ page }) => {
   await login(page);
+  const mobile = (page.viewportSize()?.width ?? 1024) < 768;
 
-  await expect(page.getByRole('heading', { name: 'Find parking' })).toBeVisible();
-  await page.getByText('Advanced coordinates').click();
+  await expect(page.getByLabel('Search location')).toBeVisible();
+  if (mobile) {
+    await expect(page.getByRole('button', { name: 'Filters and search options' })).toBeVisible();
+    await expect(page.getByRole('button', { name: /Search results, collapsed/ })).toBeVisible();
+    await page.getByRole('button', { name: 'Filters and search options' }).click();
+  } else {
+    await expect(page.getByRole('heading', { name: 'Find parking' })).toBeVisible();
+    await page.getByText('Advanced coordinates').click();
+  }
   await page.getByLabel('Latitude').fill('41.01');
   await page.getByLabel('Longitude').fill('28.97');
   await page.getByRole('button', { name: 'Search nearby' }).click();
 
   await expect(page.getByRole('complementary', { name: 'Search results' })).toBeVisible();
   await expect(page.getByRole('heading', { name: '1 spot nearby' })).toBeVisible();
-  await expect(page.getByRole('link', { name: '12 Curb Lane' })).toBeVisible();
+  if (mobile) {
+    await expect(page.getByRole('button', { name: /Search results, half/ })).toBeVisible();
+  }
+  await expect(page.getByRole('link', { name: '12 Curb Lane' })).toHaveAttribute(
+    'href',
+    `/spots/${SPOT_ID}`,
+  );
+  await page.getByRole('link', { name: 'View details' }).scrollIntoViewIfNeeded();
+  await expect(page.getByRole('link', { name: 'View details' })).toBeVisible();
+  await expect(page.getByText('Fits your Sedan')).toBeVisible();
+
+  if (mobile) {
+    const handle = page.getByRole('button', { name: /Search results, half/ });
+    const box = await handle.boundingBox();
+    expect(box).not.toBeNull();
+    if (box) {
+      await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2);
+      await page.mouse.down();
+      await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2 + 90, { steps: 8 });
+      await page.mouse.up();
+    }
+    await expect(page.getByRole('button', { name: /Search results, collapsed/ })).toBeVisible();
+    await page.getByRole('button', { name: /Search results, collapsed/ }).press('ArrowUp');
+    await expect(page.getByRole('button', { name: /Search results, half/ })).toBeVisible();
+
+    const layout = await page.evaluate(() => {
+      const sheet = document.querySelector('[aria-label="Search results"]');
+      const nav = document.querySelector('nav[aria-label="Primary"]');
+      const handle = sheet?.querySelector('button[aria-label^="Search results"]');
+      if (!sheet || !handle || !nav) return null;
+      const handleRect = handle.getBoundingClientRect();
+      const navRect = nav.getBoundingClientRect();
+      return {
+        handleBottom: handleRect.bottom,
+        navTop: navRect.top,
+      };
+    });
+    expect(layout).not.toBeNull();
+    expect(layout?.handleBottom).toBeLessThanOrEqual((layout?.navTop ?? 0) + 1);
+  }
+
+  await page.getByRole('button', { name: /Active parking spot near 12 Curb Lane/ }).click();
+  await expect(page.getByTestId('selected-spot-preview')).toBeVisible();
+  await expect(page.getByRole('link', { name: 'View spot details' })).toBeVisible();
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth + 1)).toBe(true);
 });
 

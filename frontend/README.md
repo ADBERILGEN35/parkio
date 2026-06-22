@@ -173,8 +173,162 @@ pnpm e2e                                    # headless smoke run (root)
 pnpm e2e:ui                                 # interactive UI mode (debugging)
 ```
 
-Full backend-integrated E2E (real gateway + services) remains future work — this
-suite is a deterministic release safety net for the frontend contract and UX.
+### Real-stack E2E
+
+Q5 adds a separate Playwright config and project for validating a real Parkio
+environment. It does **not** replace the mocked smoke suite above.
+
+- Config: `apps/web/playwright.real.config.ts`
+- Project: `real-e2e`
+- Specs: `apps/web/e2e-real/*.real.spec.ts`
+- Command: `pnpm e2e:real`
+- Gate: all real tests are skipped unless `PARKIO_REAL_E2E=true`.
+- Reporting: HTML report in `apps/web/playwright-report/real-e2e`, screenshots,
+  videos and `trace.zip` retained on failure under `apps/web/test-results`.
+
+#### Seeding test accounts
+
+Most real-stack scenarios need ACTIVE, email-verified accounts with specific roles.
+Production exposes no API to verify an email or elevate a role, so
+[`scripts/seed-real-e2e.sh`](../scripts/seed-real-e2e.sh) does that setup directly in the
+database (auth owns credentials/roles/verification, user owns the profile) via
+`docker exec psql`. It is **idempotent**: re-running never duplicates a user or role,
+always ensures `email_verified=TRUE` + `status=ACTIVE`, and sets the exact role set
+(`USER`, `USER+MODERATOR`, `USER+ADMIN`). The password is set on first creation and
+changed on re-run only with `--update-passwords`.
+
+Security: passwords are never printed and never passed on a command line — the value is
+read inside psql via `\getenv` from the container's inherited environment, and BCrypt
+hashing happens in-DB (pgcrypto `gen_salt('bf', 10)`, matching Spring's encoder). There is
+**no** seed HTTP endpoint; the script needs shell access to the box that already controls
+the data plane, so it adds no new attack surface. Use dedicated test emails (default
+domain `real-e2e.parkio.local`) — pointing the vars at a real account overwrites it.
+
+```bash
+# Local Docker (from repo root, with the stack already up):
+export PARKIO_REAL_USER_EMAIL=user@real-e2e.parkio.local
+export PARKIO_REAL_USER_PASSWORD='StrongParkio123'
+export PARKIO_REAL_MODERATOR_EMAIL=moderator@real-e2e.parkio.local
+export PARKIO_REAL_MODERATOR_PASSWORD='StrongParkio123'
+export PARKIO_REAL_ADMIN_EMAIL=admin@real-e2e.parkio.local
+export PARKIO_REAL_ADMIN_PASSWORD='StrongParkio123'
+PARKIO_ENV_FILE=docker/.env ./scripts/seed-real-e2e.sh            # --target local (default)
+
+# Hosted-beta: SSH to the VPS first, then run there (containers are not published):
+#   ssh deploy@beta-host && cd /opt/parkio
+#   export PARKIO_REAL_USER_EMAIL=... PARKIO_REAL_USER_PASSWORD=...
+#   PARKIO_ENV_FILE=docker/.env ./scripts/seed-real-e2e.sh --target hosted-beta
+```
+
+After a role change, sign out/in (or wait for the 15-minute access-token expiry) so the
+new roles are minted into a fresh JWT.
+
+Local Docker/localhost example:
+
+```bash
+# Terminal 1: backend stack (from repo root, requires Docker/WSL integration)
+docker compose -f docker/docker-compose.yml -f docker/docker-compose.apps.yml up -d --build
+
+# Terminal 2: seed the accounts (see "Seeding test accounts" above), then run the suite —
+# Playwright starts Vite itself against the real gateway:
+cd frontend
+PARKIO_REAL_E2E=true \
+PARKIO_REAL_E2E_START_WEB=true \
+PARKIO_REAL_BASE_URL=http://localhost:5173 \
+PARKIO_REAL_API_BASE_URL=http://localhost:8080/api/v1 \
+PARKIO_REAL_USER_EMAIL=user@real-e2e.parkio.local \
+PARKIO_REAL_USER_PASSWORD='StrongParkio123' \
+PARKIO_REAL_MODERATOR_EMAIL=moderator@real-e2e.parkio.local \
+PARKIO_REAL_MODERATOR_PASSWORD='StrongParkio123' \
+PARKIO_REAL_ADMIN_EMAIL=admin@real-e2e.parkio.local \
+PARKIO_REAL_ADMIN_PASSWORD='StrongParkio123' \
+pnpm e2e:real
+```
+
+After a run, optionally remove the generated data (spots/media/reports/notifications),
+scoped strictly to the seeded accounts and the test address marker:
+
+```bash
+# from repo root; add --accounts to also drop the seeded users, --dry-run to preview
+PARKIO_ENV_FILE=docker/.env \
+PARKIO_REAL_USER_EMAIL=user@real-e2e.parkio.local \
+PARKIO_REAL_MODERATOR_EMAIL=moderator@real-e2e.parkio.local \
+PARKIO_REAL_ADMIN_EMAIL=admin@real-e2e.parkio.local \
+./scripts/cleanup-real-e2e.sh
+```
+
+Hosted-beta example:
+
+```bash
+cd frontend
+PARKIO_REAL_E2E=true \
+PARKIO_REAL_BASE_URL=https://app.example.com \
+PARKIO_REAL_API_BASE_URL=https://api.example.com/api/v1 \
+PARKIO_REAL_USER_EMAIL=user@example.com \
+PARKIO_REAL_USER_PASSWORD='StrongParkio123' \
+PARKIO_REAL_MODERATOR_EMAIL=moderator@example.com \
+PARKIO_REAL_MODERATOR_PASSWORD='StrongParkio123' \
+PARKIO_REAL_ADMIN_EMAIL=admin@example.com \
+PARKIO_REAL_ADMIN_PASSWORD='StrongParkio123' \
+pnpm e2e:real
+```
+
+Environment variables:
+
+| Variable | Required | Purpose |
+| --- | --- | --- |
+| `PARKIO_REAL_E2E=true` | yes | Enables the real-stack suite. Without it, tests skip. |
+| `PARKIO_REAL_BASE_URL` | local default | Frontend URL under test. Defaults to `http://localhost:5173` to match the gateway's local CORS allow-list. |
+| `PARKIO_REAL_API_BASE_URL` | local default | Gateway API base. Defaults to `http://localhost:8080/api/v1`. |
+| `PARKIO_REAL_E2E_START_WEB=true` | local only | Lets Playwright start Vite with `VITE_API_BASE_URL` pointed at the real gateway. |
+| `PARKIO_REAL_USER_EMAIL/PASSWORD` | for auth/upload/map | ACTIVE USER account used for login, refresh, logout-all, upload and map validation. |
+| `PARKIO_REAL_MODERATOR_EMAIL/PASSWORD` | optional | Enables moderation queue access validation. |
+| `PARKIO_REAL_ADMIN_EMAIL/PASSWORD` | optional | Enables admin-only analytics validation. |
+| `PARKIO_REAL_E2E_VERIFICATION_TOKEN` | optional | Enables the real `/verify-email` UI assertion when a raw dev/test token is available. |
+| `PARKIO_REAL_REFRESH_COOKIE_NAME` | optional | Override refresh cookie name; defaults to `parkio_refresh`. |
+| `PARKIO_REAL_E2E_EMAIL_DOMAIN` | optional | Email domain for register/seed test accounts; defaults to `real-e2e.parkio.local`. |
+
+The `PARKIO_REAL_USER/MODERATOR/ADMIN_EMAIL` + `..._PASSWORD` pairs are consumed by both
+the suite (to log in) and `scripts/seed-real-e2e.sh` (to create the accounts), so the same
+exported values seed and then test. The MODERATOR/ADMIN tests skip when their credentials
+are absent, but a present-but-invalid credential fails the run rather than skipping.
+
+Real-stack scenarios currently cover:
+
+- Gateway public JWKS route.
+- Anonymous protected-route redirect.
+- Register → `/check-email` against the real gateway.
+- Optional email verification when a real token is supplied. Production/hosted beta
+  should not expose raw tokens; local dev can enable auth-service token logging.
+- Login, HttpOnly refresh cookie, no legacy localStorage tokens, refresh bootstrap
+  after reload, per-device logout and logout-all stale-session behavior.
+- Real image upload, malware-scan success path (`/media/upload` returns `READY`),
+  spot creation, map nearby search for that real spot, marker selection and detail
+  navigation.
+- USER denied from moderator UI; optional MODERATOR and ADMIN seeded-account checks.
+
+Troubleshooting:
+
+- If every test is skipped, `PARKIO_REAL_E2E` is not `true`.
+- Use `http://localhost:5173` for local real-stack runs. The gateway's local
+  credentials CORS allow-list expects that origin; `127.0.0.1:5173` is a
+  different browser origin.
+- If auth tests skip, provide `PARKIO_REAL_USER_EMAIL/PASSWORD` for an ACTIVE user — run
+  `scripts/seed-real-e2e.sh` to create one (see "Seeding test accounts").
+- If login fails for a provided account, the account is likely not ACTIVE/verified or the
+  password drifted; re-run the seed with `--update-passwords`.
+- If verification skips, provide a real `PARKIO_REAL_E2E_VERIFICATION_TOKEN`; this is
+  intentionally not discoverable from the browser in production. (Seeded accounts are
+  pre-verified, so this test is only about exercising the `/verify-email` UI.)
+- If upload fails with scanner errors, check `media-service` and `clamav` health.
+- If map returns no results, the upload scenario must pass first; the map test uses
+  the spot it just created rather than seeded/fake map data.
+- If moderator/admin tests skip, set `PARKIO_REAL_MODERATOR_EMAIL/PASSWORD` and
+  `PARKIO_REAL_ADMIN_EMAIL/PASSWORD` and run the seed script, then log out/in so new JWT
+  roles are minted.
+- If the seed script errors on `CREATE EXTENSION pgcrypto`, the DB role lacks superuser;
+  on the official `postgres` image `POSTGRES_USER` is a superuser, so check you are
+  pointing at the `parkio-postgres-auth` container.
 
 ### What is covered
 
@@ -562,22 +716,56 @@ product surface:
 
 - **Desktop:** map-dominant layout — a floating glass search overlay
   (address/place search, *Use my location*, and an "Advanced coordinates"
-  disclosure with manual lat/lng + radius/limit) and a results panel
-  (result count, spot cards) over the map, which fills the viewport.
-- **Mobile:** the map remains full-bleed behind a non-blocking search overlay and
-  an ergonomic bottom sheet. The sheet and floating controls account for the
-  fixed bottom nav and safe-area inset; the search overlay is constrained to fit
-  360 px wide screens.
-- **Result cards** show public fields only: status badge, trust freshness,
-  remaining validity/expiry, description snippet, vehicle-type/context chips
-  and a color-coded legal-status badge, linking to `/spots/:spotId`.
-  `PublicSpotResponse` exposes **no price, confidenceScore or
-  verificationCount** — those are owner-only (`SpotResponse`) or nonexistent,
-  so the cards/markers deliberately render none of them (no invented data).
+  disclosure with manual lat/lng + radius/limit) and a slide-in results sidebar
+  (result count, sort, filter chips, spot cards) over the map, which fills the
+  viewport.
+- **Mobile / tablet:** the map remains full-bleed behind a compact floating search
+  pill (search input, current-location button, and filter/options button). Manual
+  coordinate search, radius, limit, and the result-filter shortcut live behind the
+  secondary options panel so the first viewport stays map-first. Results use a
+  **draggable bottom sheet** (`components/map/BottomSheet.tsx`) with three snap
+  points — **collapsed** (default before search; map-first summary peek only),
+  **half** (automatic after search; list + map), and **expanded** (near-full
+  list). Selecting a marker/result preserves the current sheet state. The sheet is
+  drag- *and* keyboard-operated (the handle responds to ↑/↓/Home/End and
+  tap-to-cycle, with `aria-expanded`), and is safe-area aware. Drag updates
+  `transform` imperatively (no React state per pointer-move) so the map never
+  janks. Desktop sidebar vs. mobile sheet is chosen by a `useMediaQuery` hook so
+  the discovery panel renders exactly once. The sheet, preview card, and floating
+  controls all sit above the fixed bottom nav + safe-area inset; the layout is
+  verified at 360 / 390 / 430 px.
+- **Result cards** show public fields only: status badge, **real distance chip**
+  (great-circle from the search center to the spot — both real coordinates),
+  trust freshness, remaining validity/expiry, description snippet,
+  vehicle-type/context chips, a color-coded legal-status badge, a strong "View
+  details" CTA, and a "Show on map" select control. When the caller already has
+  a saved vehicle profile (`GET /users/me/vehicle`), the card also shows a
+  compatibility chip derived only from that `vehicleType` and the spot's
+  `suitableVehicleTypes` (including `ANY`). `PublicSpotResponse` exposes
+  **no price, confidenceScore or verificationCount** — those are owner-only
+  (`SpotResponse`) or nonexistent, so the cards/markers deliberately render none
+  of them (no invented data).
+- **Discovery (sort + filters), real-data only** — `lib/spotDiscovery.ts`:
+  - **Sort** maps each mode to a single real field: *Nearest* (computed distance,
+    offered only when a search center exists), *Newest* (`createdAt`), *Recently
+    updated* (`updatedAt`). There is **no fabricated ranking** (no best-match
+    score, popularity, or ETA).
+  - **Filters are client-side presentation only and clearly labelled as such.**
+    The `GET /parking/spots/nearby` endpoint accepts only `lat/lng/radius/limit`
+    (no server faceting), so the **status** chips and **Legal only** toggle narrow
+    the already-fetched result set in the browser; they never hit the backend.
+- **Selected-spot preview** (`SelectedSpotPreview.tsx`) — tapping a marker or a
+  card's "Show on map" raises a Google-Maps / Uber-style preview card (address,
+  status, distance, freshness, remaining validity, and a primary detail CTA).
+  Selection is shared state across the map, the preview, and the list, and
+  survives filter/sort changes. **Photo caveat:** `PublicSpot` exposes only a
+  private `mediaId` that needs a separate short-lived signed-URL fetch — there is
+  no thumbnail on the nearby payload — so the preview shows a status glyph rather
+  than fabricating an image.
 - **Trust freshness limitation:** freshness (fresh 0–10 min / recent 10–30 /
   aging 30–60 / stale 1 h+) is derived from the record's **`updatedAt`** — the
-  backend does not expose a `lastVerifiedAt` yet, and the UI says so next to
-  the result count. Aging/stale markers are dimmed on the map.
+  backend does not expose a `lastVerifiedAt` yet. Aging/stale markers are dimmed
+  on the map.
 - **Markers** use premium status-aware React controls via the central
   `getSpotStatusVisual()` mapping. The selected marker gets `aria-pressed`, a
   subtle pulse/glow, and stronger focus/hover treatment. Aging/stale markers are
@@ -616,9 +804,8 @@ product surface:
   reacts differently:
   - **`/map`:** selecting a suggestion forward-geocodes to coordinates and runs the
     existing `GET /parking/spots/nearby` call with the result — **no backend or
-    parking API change**. The resolved center is surfaced as *"Searching near Konak,
-    İzmir"* (or *"Searching near selected map point"* for coordinate/map-click
-    centers).
+    parking API change**. The resolved center is surfaced as *"Near Konak, İzmir"*
+    on mobile and *"Searching near Konak, İzmir"* on desktop.
   - **`/upload` (Step 2 — Location):** selecting a suggestion **fills the
     latitude/longitude fields, centers the map picker, sets `manualLocationEdited =
     true`, and fills the optional address only when it is empty** (the user's own

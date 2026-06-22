@@ -126,6 +126,25 @@ docker exec parkio-postgres-auth psql -U parkio_auth -d parkio_auth -c "INSERT I
 Use `ADMIN` instead of `MODERATOR` for admin. **Log out and back in** to get a token
 carrying the new role, then `/moderation` and `/analytics` open.
 
+### Scripted: seed full test accounts (USER / MODERATOR / ADMIN)
+
+For real-stack E2E (or just to get pre-verified elevated accounts), use the idempotent
+seed script instead of the manual SQL above. It creates ACTIVE, email-verified accounts
+with the exact role set, hashing the password in-DB (pgcrypto BCrypt) so it is never
+printed or passed on a command line:
+
+```bash
+export PARKIO_REAL_USER_EMAIL=user@real-e2e.parkio.local      PARKIO_REAL_USER_PASSWORD='StrongParkio123'
+export PARKIO_REAL_MODERATOR_EMAIL=moderator@real-e2e.parkio.local PARKIO_REAL_MODERATOR_PASSWORD='StrongParkio123'
+export PARKIO_REAL_ADMIN_EMAIL=admin@real-e2e.parkio.local    PARKIO_REAL_ADMIN_PASSWORD='StrongParkio123'
+PARKIO_ENV_FILE=docker/.env ./scripts/seed-real-e2e.sh --target hosted-beta
+```
+
+Re-run any time (idempotent); add `--update-passwords` to reset a password. Tidy up the
+data a run creates with `./scripts/cleanup-real-e2e.sh` (`--accounts` also drops the
+users). Both refuse `--target production` unless `PARKIO_CONFIRM_PRODUCTION=I_UNDERSTAND`.
+See `frontend/README.md` §"Real-stack E2E" for details.
+
 ---
 
 ## 6. Known caveats

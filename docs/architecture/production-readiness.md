@@ -223,7 +223,8 @@ endpoint/public-endpoint for SigV4-signed GET URLs.
   they flow from moderation `resolveCase` actions over Kafka, so the action-level ADMIN
   gate in moderation-service is the single chokepoint. Full matrix and boundaries:
   `docs/ai-context/07-security-guidelines.md`. **Caveat:** role assignment is currently
-  DB-seeded (no admin role-management API yet); build it `ADMIN`-only when needed.
+  DB-seeded (no admin role-management API yet — see `scripts/seed-real-e2e.sh` for the
+  idempotent DB seeding path); build an `ADMIN`-only management API when needed.
 
 ---
 
@@ -493,9 +494,23 @@ Proposed pipeline (no secrets in CI beyond a deploy token in protected environme
 3. **Deploy to staging.** Auto-deploy `:sha` to staging on merge. Run **migrations as a gated step**
    first.
 4. **Run integration + smoke tests against staging.** Reuse `./gradlew integrationTest` (already
-   CI-wired, Docker-required guard added) for component ITs; add a thin **post-deploy smoke test**
-   (the BETA runbook flow: health → JWKS → register → login → create spot → media render) as an
-   automated script hitting staging.
+   CI-wired, Docker-required guard added) for component ITs; run the frontend real-stack
+   Playwright suite (`frontend/apps/web/playwright.real.config.ts`, project `real-e2e`)
+   against the deployed frontend + gateway. This suite is manual-gated by
+   `.github/workflows/frontend-real-e2e.yml` (`workflow_dispatch`) and only runs when
+   `PARKIO_REAL_E2E=true`; normal PR CI intentionally keeps using mocked/unit checks.
+   It validates health/JWKS, protected-route redirects, register/check-email,
+   login + HttpOnly refresh-cookie bootstrap, logout/logout-all stale-session behavior,
+   real media upload (`READY` after malware scan), spot creation, map nearby search,
+   marker selection, spot detail, USER denial from moderator views, and optional
+   MODERATOR/ADMIN seeded-account access. Full coverage (auth/upload/map + role-gated
+   moderator/admin scenarios) requires ACTIVE, email-verified seeded accounts; these are
+   provisioned idempotently and without a public seed endpoint by
+   `scripts/seed-real-e2e.sh` (DB-only, `docker exec psql`, in-DB BCrypt). The workflow's
+   `local` mode boots the stack and runs that seed step; `hosted` mode expects the
+   accounts to already exist on the target. Generated data can be removed afterwards with
+   `scripts/cleanup-real-e2e.sh`. Both scripts refuse production unless explicitly
+   confirmed.
 5. **Manual approval → production.** Use a GitHub **Environment** with required reviewers; promote the
    *same* `:sha` image that passed staging (no rebuild).
 6. **Rollback.** Because images are immutable per sha and DBs are migrated forward-only, rollback =

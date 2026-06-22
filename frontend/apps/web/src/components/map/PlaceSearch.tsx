@@ -14,6 +14,8 @@ export interface PlaceSearchProps {
   /** Visible field label (also the accessible name). */
   label?: string;
   placeholder?: string;
+  /** Compact mobile chrome for map search pills. Keeps the same accessible name. */
+  compact?: boolean;
   /**
    * Called when the user commits a place — via a suggestion (click/keyboard) or a
    * single-match submit. The resolved `GeocodeResult` carries lat/lng + labels.
@@ -35,6 +37,7 @@ const DEFAULT_PLACEHOLDER = 'Search street, neighborhood, or place...';
 export function PlaceSearch({
   label = 'Search location',
   placeholder = DEFAULT_PLACEHOLDER,
+  compact = false,
   onSelect,
 }: PlaceSearchProps) {
   const listboxId = useId();
@@ -122,10 +125,10 @@ export function PlaceSearch({
 
   return (
     <form onSubmit={onSubmit} role="search" aria-label="Search by place">
-      <div className="flex items-end gap-sm">
+      <div className={cn('flex gap-sm', compact ? 'items-center' : 'items-end')}>
         <div className="relative min-w-0 flex-1">
           <Input
-            label={label}
+            label={compact ? undefined : label}
             type="search"
             autoComplete="off"
             placeholder={placeholder}
@@ -138,7 +141,13 @@ export function PlaceSearch({
             aria-expanded={showDropdown}
             aria-controls={listboxId}
             aria-autocomplete="list"
+            aria-label={compact ? label : undefined}
             aria-activedescendant={highlightedIndex >= 0 ? optionId(highlightedIndex) : undefined}
+            className={
+              compact
+                ? 'rounded-full bg-surface-container-lowest py-xs pl-md pr-sm shadow-none'
+                : undefined
+            }
           />
           {showDropdown ? (
             <SuggestionsDropdown
@@ -152,10 +161,12 @@ export function PlaceSearch({
             />
           ) : null}
         </div>
-        <Button type="submit" disabled={autocomplete.status === 'loading'} className="shrink-0">
-          <Icon name="search" className="text-[16px] leading-none" />
-          Search
-        </Button>
+        {compact ? null : (
+          <Button type="submit" disabled={autocomplete.status === 'loading'} className="shrink-0">
+            <Icon name="search" className="text-[16px] leading-none" />
+            Search
+          </Button>
+        )}
       </div>
     </form>
   );

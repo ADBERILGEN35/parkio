@@ -1,0 +1,165 @@
+name: Frontend Real Stack E2E
+
+# Manual-only. Two modes:
+#   * hosted — point the suite at an already-deployed frontend + gateway (staging/beta).
+#               Seeded accounts must already exist there (run scripts/seed-real-e2e.sh on
+#               the host, or supply pre-seeded credentials via the secrets below).
+#   * local  — build and boot the whole stack in the runner, seed the test accounts with
+#               scripts/seed-real-e2e.sh, and run the suite against localhost.
+#
+# Required GitHub secrets (Settings → Secrets and variables → Actions). The workflow only
+# references them via `env:` — secrets are NEVER echoed:
+#   PARKIO_REAL_USER_EMAIL / PARKIO_REAL_USER_PASSWORD            (required for auth/upload/map)
+#   PARKIO_REAL_MODERATOR_EMAIL / PARKIO_REAL_MODERATOR_PASSWORD  (optional; enables moderator test)
+#   PARKIO_REAL_ADMIN_EMAIL / PARKIO_REAL_ADMIN_PASSWORD          (optional; enables admin test)
+#   PARKIO_REAL_E2E_VERIFICATION_TOKEN                            (optional; enables /verify-email test)
+# Local mode additionally needs the DB/object-store passwords the compose stack requires,
+# provided as a single secret blob:
+#   PARKIO_LOCAL_ENV  — full contents of docker/.env (POSTGRES_*_PASSWORD, MINIO_*, etc.)
+
+on:
+  workflow_dispatch:
+    inputs:
+      mode:
+        description: "Where to run: hosted (deployed target) or local (boot + seed in CI)"
+        required: true
+        default: hosted
+        type: choice
+        options: [hosted, local]
+      base_url:
+        description: "hosted only — frontend URL, e.g. https://app.example.com"
+        required: false
+        type: string
+      api_base_url:
+        description: "hosted only — gateway API base, e.g. https://api.example.com/api/v1"
+        required: false
+        type: string
+      seed:
+        description: "local only — run scripts/seed-real-e2e.sh before the suite"
+        required: false
+        default: true
+        type: boolean
+
+permissions:
+  contents: read
+
+concurrency:
+  group: frontend-real-e2e-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  real-e2e:
+    name: Real stack Playwright (${{ inputs.mode }})
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Validate inputs
+        run: |
+          if [ "${{ inputs.mode }}" = "hosted" ]; then
+            if [ -z "${{ inputs.base_url }}" ] || [ -z "${{ inputs.api_base_url }}" ]; then
+              echo "::error::hosted mode requires base_url and api_base_url inputs."
+              exit 1
+            fi
+          fi
+
+      # --- local mode: bring up infra + apps and seed the test accounts ---------- #
+      - name: Write docker/.env (local mode)
+        if: inputs.mode == 'local'
+        env:
+          PARKIO_LOCAL_ENV: ${{ secrets.PARKIO_LOCAL_ENV }}
+        run: |
+          if [ -z "${PARKIO_LOCAL_ENV}" ]; then
+            echo "::error::local mode requires the PARKIO_LOCAL_ENV secret (contents of docker/.env)."
+            exit 1
+          fi
+          printf '%s' "${PARKIO_LOCAL_ENV}" > docker/.env
+
+      - name: Boot the stack (local mode)
+        if: inputs.mode == 'local'
+        run: |
+          docker compose -f docker/docker-compose.yml -f docker/docker-compose.apps.yml up -d --build
+          echo "Waiting for the gateway to answer..."
+          for i in $(seq 1 60); do
+            if curl -fsS http://localhost:8080/api/v1/auth/.well-known/jwks.json >/dev/null 2>&1; then
+              echo "gateway up"; break
+            fi
+            sleep 5
+          done
+
+      - name: Seed real-stack accounts (local mode)
+        if: inputs.mode == 'local' && inputs.seed
+        env:
+          PARKIO_ENV_FILE: docker/.env
+          PARKIO_REAL_USER_EMAIL: ${{ secrets.PARKIO_REAL_USER_EMAIL }}
+          PARKIO_REAL_USER_PASSWORD: ${{ secrets.PARKIO_REAL_USER_PASSWORD }}
+          PARKIO_REAL_MODERATOR_EMAIL: ${{ secrets.PARKIO_REAL_MODERATOR_EMAIL }}
+          PARKIO_REAL_MODERATOR_PASSWORD: ${{ secrets.PARKIO_REAL_MODERATOR_PASSWORD }}
+          PARKIO_REAL_ADMIN_EMAIL: ${{ secrets.PARKIO_REAL_ADMIN_EMAIL }}
+          PARKIO_REAL_ADMIN_PASSWORD: ${{ secrets.PARKIO_REAL_ADMIN_PASSWORD }}
+        run: ./scripts/seed-real-e2e.sh --target local --update-passwords
+
+      # --- frontend toolchain --------------------------------------------------- #
+      - name: Set up pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          package_json_file: frontend/package.json
+
+      - name: Set up Node.js 20
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: pnpm
+          cache-dependency-path: frontend/pnpm-lock.yaml
+
+      - name: Install dependencies
+        working-directory: frontend
+        run: pnpm install --frozen-lockfile
+
+      - name: Install Chromium
+        working-directory: frontend
+        run: pnpm --filter @parkio/web exec playwright install --with-deps chromium
+
+      - name: Run real-stack E2E
+        working-directory: frontend
+        env:
+          PARKIO_REAL_E2E: "true"
+          # hosted uses the supplied URLs; local starts Vite itself against the local gateway.
+          PARKIO_REAL_BASE_URL: ${{ inputs.mode == 'local' && 'http://localhost:5173' || inputs.base_url }}
+          PARKIO_REAL_API_BASE_URL: ${{ inputs.mode == 'local' && 'http://localhost:8080/api/v1' || inputs.api_base_url }}
+          PARKIO_REAL_E2E_START_WEB: ${{ inputs.mode == 'local' && 'true' || 'false' }}
+          PARKIO_REAL_USER_EMAIL: ${{ secrets.PARKIO_REAL_USER_EMAIL }}
+          PARKIO_REAL_USER_PASSWORD: ${{ secrets.PARKIO_REAL_USER_PASSWORD }}
+          PARKIO_REAL_MODERATOR_EMAIL: ${{ secrets.PARKIO_REAL_MODERATOR_EMAIL }}
+          PARKIO_REAL_MODERATOR_PASSWORD: ${{ secrets.PARKIO_REAL_MODERATOR_PASSWORD }}
+          PARKIO_REAL_ADMIN_EMAIL: ${{ secrets.PARKIO_REAL_ADMIN_EMAIL }}
+          PARKIO_REAL_ADMIN_PASSWORD: ${{ secrets.PARKIO_REAL_ADMIN_PASSWORD }}
+          PARKIO_REAL_E2E_VERIFICATION_TOKEN: ${{ secrets.PARKIO_REAL_E2E_VERIFICATION_TOKEN }}
+        run: pnpm e2e:real
+
+      - name: Dump stack logs on failure (local mode)
+        if: failure() && inputs.mode == 'local'
+        run: docker compose -f docker/docker-compose.yml -f docker/docker-compose.apps.yml logs --no-color --tail=200 > stack-logs.txt || true
+
+      - name: Upload stack logs
+        if: failure() && inputs.mode == 'local'
+        uses: actions/upload-artifact@v4
+        with:
+          name: frontend-real-e2e-stack-logs
+          path: stack-logs.txt
+
+      - name: Upload Playwright report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: frontend-real-e2e-report
+          path: frontend/apps/web/playwright-report/real-e2e
+
+      - name: Upload Playwright test results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: frontend-real-e2e-results
+          path: frontend/apps/web/test-results

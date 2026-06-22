@@ -21,7 +21,10 @@ export function MapFloatingControls({
 
   return (
     <div
-      className={`pointer-events-none absolute z-[1000] flex flex-col gap-sm bottom-[calc(4.75rem+env(safe-area-inset-bottom))] right-md md:bottom-md ${
+      // Mobile: sit just above the collapsed bottom-sheet peek (~7rem) so the
+      // recenter/zoom stack is never hidden behind the sheet. Desktop: bottom-md,
+      // shifted left to clear the results sidebar when open.
+      className={`pointer-events-none absolute z-[1055] flex flex-col gap-sm bottom-[7rem] right-md md:bottom-md ${
         sidebarOpen ? 'md:right-[420px]' : 'md:right-md'
       }`}
     >

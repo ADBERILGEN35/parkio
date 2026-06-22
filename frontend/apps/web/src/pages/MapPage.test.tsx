@@ -15,15 +15,24 @@ vi.mock('@/components/map/NearbySpotsMap', () => ({
   NearbySpotsMap: ({
     center,
     onPickCenter,
+    spots = [],
+    onSelectSpot,
   }: {
     center: { lat: number; lng: number };
     onPickCenter: (lat: number, lng: number) => void;
+    spots?: PublicSpot[];
+    onSelectSpot?: (id: string | null) => void;
   }) => (
     <div>
       <span data-testid="map-center">{`${center.lat},${center.lng}`}</span>
       <button type="button" onClick={() => onPickCenter(41.5, 29.5)}>
         stub-pick-center
       </button>
+      {spots[0] ? (
+        <button type="button" onClick={() => onSelectSpot?.(spots[0].id)}>
+          stub-select-first-spot
+        </button>
+      ) : null}
     </div>
   ),
 }));
@@ -71,6 +80,10 @@ const valiItems = [
 /** Real-timer wait used to let the typeahead debounce window elapse. */
 const wait = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
 
+async function openSearchOptions(user: ReturnType<typeof userEvent.setup>) {
+  await user.click(screen.getByRole('button', { name: 'Filters and search options' }));
+}
+
 const spot: PublicSpot = {
   id: '0b8f6c3a-0000-0000-0000-000000000010',
   mediaId: '0b8f6c3a-0000-0000-0000-000000000011',
@@ -95,6 +108,11 @@ describe('MapPage', () => {
     signInAs(['USER']);
     // Shell unread badge fetches notifications on mount when AppShell is rendered.
     server.use(http.get(`${API_BASE}/notifications/me`, () => HttpResponse.json([])));
+    server.use(
+      http.get(`${API_BASE}/users/me/vehicle`, () =>
+        HttpResponse.json({ vehicleType: 'SEDAN', plate: '35PK123' }),
+      ),
+    );
     // Default: geolocation unavailable so the map uses the İzmir fallback and
     // does not auto-search. Individual tests override this as needed.
     stubGeolocation(undefined);
@@ -116,7 +134,11 @@ describe('MapPage', () => {
     });
 
     renderWithProviders(<MapPage />);
+    const user = userEvent.setup();
 
+    // Coordinates are still synced, but Q4 keeps them behind the compact
+    // mobile search options panel.
+    await openSearchOptions(user);
     expect(await screen.findByDisplayValue('38.42')).toBeInTheDocument();
     expect(screen.getByLabelText('Longitude')).toHaveValue('27.14');
     // Search ran without the user pressing "Search nearby".
@@ -137,6 +159,8 @@ describe('MapPage', () => {
     ).toBeInTheDocument();
     // Fallback viewport remains and manual search is still available.
     expect(screen.getByTestId('map-center')).toHaveTextContent('38.4237,27.1428');
+    const user = userEvent.setup();
+    await openSearchOptions(user);
     expect(screen.getByRole('button', { name: 'Search nearby' })).toBeInTheDocument();
   });
 
@@ -145,6 +169,7 @@ describe('MapPage', () => {
     const user = userEvent.setup();
 
     await user.click(await screen.findByRole('button', { name: 'stub-pick-center' }));
+    await openSearchOptions(user);
 
     expect(screen.getByLabelText('Latitude')).toHaveValue('41.5');
     expect(screen.getByLabelText('Longitude')).toHaveValue('29.5');
@@ -159,11 +184,30 @@ describe('MapPage', () => {
     const user = userEvent.setup();
 
     await user.click(await screen.findByRole('button', { name: 'stub-pick-center' }));
+    await openSearchOptions(user);
     await user.click(screen.getByRole('button', { name: 'Search nearby' }));
 
     const cardLink = await screen.findByRole('link', { name: 'Stub Address 7' });
     expect(cardLink).toBeInTheDocument();
     expect(cardLink).toHaveAttribute('href', `/spots/${spot.id}`);
+  });
+
+  it('renders the mobile bottom sheet discovery surface with vehicle compatibility', async () => {
+    server.use(
+      http.get(`${API_BASE}/parking/spots/nearby`, () => HttpResponse.json([spot])),
+    );
+
+    renderWithProviders(<MapPage />);
+    const user = userEvent.setup();
+
+    await user.click(await screen.findByRole('button', { name: 'stub-pick-center' }));
+    expect(screen.getByRole('button', { name: /Search results, collapsed/ })).toBeInTheDocument();
+    await openSearchOptions(user);
+    await user.click(screen.getByRole('button', { name: 'Search nearby' }));
+
+    expect(await screen.findByRole('complementary', { name: 'Search results' })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: /Search results, half/ })).toBeInTheDocument();
+    expect(await screen.findByText('Fits your Sedan')).toBeInTheDocument();
   });
 
   it('shows an empty state when no spots are found', async () => {
@@ -173,9 +217,13 @@ describe('MapPage', () => {
     const user = userEvent.setup();
 
     await user.click(await screen.findByRole('button', { name: 'stub-pick-center' }));
+    await openSearchOptions(user);
     await user.click(screen.getByRole('button', { name: 'Search nearby' }));
 
-    expect(await screen.findByText('No spots nearby')).toBeInTheDocument();
+    // "No spots nearby" appears in both the bottom-sheet peek summary and the
+    // empty-state body, so assert the empty-state description is present too.
+    expect(await screen.findByText(/No spots found in this area/)).toBeInTheDocument();
+    expect(screen.getAllByText('No spots nearby').length).toBeGreaterThanOrEqual(1);
   });
 
   it('does not call geocoding for queries shorter than 3 characters', async () => {
@@ -253,7 +301,7 @@ describe('MapPage', () => {
     expect(cardLink).toHaveAttribute('href', `/spots/${spot.id}`);
     expect(nearbyUrl?.searchParams.get('lat')).toBe('38.46');
     expect(nearbyUrl?.searchParams.get('lng')).toBe('27.1');
-    expect(screen.getByText(/Searching near Karşıyaka, İzmir/)).toBeInTheDocument();
+    expect(screen.getByText(/Near Karşıyaka, İzmir/)).toBeInTheDocument();
   });
 
   it('supports keyboard navigation (ArrowDown + Enter selects a suggestion)', async () => {
@@ -350,7 +398,7 @@ describe('MapPage', () => {
     renderWithProviders(<MapPage />);
     const user = userEvent.setup();
 
-    await user.click(screen.getByText('Advanced coordinates'));
+    await openSearchOptions(user);
     await user.type(screen.getByLabelText('Latitude'), '41.0');
     await user.type(screen.getByLabelText('Longitude'), '29.0');
     await user.click(screen.getByRole('button', { name: 'Search nearby' }));
@@ -369,8 +417,26 @@ describe('MapPage', () => {
     const user = userEvent.setup();
 
     await user.click(await screen.findByRole('button', { name: 'Use my location' }));
+    await openSearchOptions(user);
 
     expect(screen.getByLabelText('Latitude')).toHaveValue('38.5');
     expect(screen.getByLabelText('Longitude')).toHaveValue('27.2');
+  });
+
+  it('preserves the current bottom sheet state when a marker is selected', async () => {
+    server.use(http.get(`${API_BASE}/parking/spots/nearby`, () => HttpResponse.json([spot])));
+
+    renderWithProviders(<MapPage />);
+    const user = userEvent.setup();
+
+    await user.click(await screen.findByRole('button', { name: 'stub-pick-center' }));
+    await openSearchOptions(user);
+    await user.click(screen.getByRole('button', { name: 'Search nearby' }));
+    expect(await screen.findByRole('button', { name: /Search results, half/ })).toBeInTheDocument();
+
+    await user.click(await screen.findByRole('button', { name: 'stub-select-first-spot' }));
+
+    expect(screen.getByTestId('selected-spot-preview')).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: /Search results, half/ })).toBeInTheDocument();
   });
 });

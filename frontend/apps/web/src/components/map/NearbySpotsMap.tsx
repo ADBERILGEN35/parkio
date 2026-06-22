@@ -1,11 +1,9 @@
 import './maplibreSetup';
 import type { PublicSpot } from '@parkio/types';
-import { StatusBadge, cn, getSpotStatusVisual, getTrustFreshnessVisual } from '@parkio/ui';
-import { useState } from 'react';
-import Map, { Marker, Popup } from 'react-map-gl/maplibre';
-import { Link } from 'react-router-dom';
+import { cn, getSpotStatusVisual, getTrustFreshnessVisual } from '@parkio/ui';
+import { memo, useMemo } from 'react';
+import Map, { Marker } from 'react-map-gl/maplibre';
 import { MapFloatingControls } from './MapFloatingControls';
-import { formatInstant, humanizeEnum } from '@/lib/format';
 import { DEFAULT_MAP_ZOOM, getMapStyle, type LatLng } from './mapConfig';
 import { Recenter } from './Recenter';
 
@@ -14,6 +12,10 @@ export interface NearbySpotsMapProps {
   zoom?: number;
   spots: PublicSpot[];
   onPickCenter: (lat: number, lng: number) => void;
+  /** Currently selected spot id (controlled — the preview card lives outside). */
+  selectedId?: string | null;
+  /** Selection changes (marker tap, or `null` when the map background is tapped). */
+  onSelectSpot?: (id: string | null) => void;
   height?: number | string;
   onLocate?: () => void;
   locating?: boolean;
@@ -21,7 +23,7 @@ export interface NearbySpotsMapProps {
 }
 
 /** Premium, status-aware marker shown for each real spot. */
-function SpotMarker({
+const SpotMarker = memo(function SpotMarker({
   spot,
   selected,
   onSelect,
@@ -65,65 +67,35 @@ function SpotMarker({
       <span className="sr-only">{freshness === 'fresh' ? 'Recently updated' : `Freshness ${freshness}`}</span>
     </button>
   );
-}
-
-function SpotPopup({ spot }: { spot: PublicSpot }) {
-  const freshness = getTrustFreshnessVisual(spot.updatedAt);
-  const address = spot.addressText ?? `${spot.latitude.toFixed(5)}, ${spot.longitude.toFixed(5)}`;
-
-  return (
-    <div className="flex min-w-[220px] max-w-[280px] flex-col gap-sm rounded-xl bg-surface/95 p-sm text-on-surface shadow-xl backdrop-blur-xl">
-      <div className="flex items-start justify-between gap-sm">
-        <div>
-          <p className="m-0 text-label-sm font-semibold uppercase tracking-wide text-primary">
-            Parking spot
-          </p>
-          <strong className="mt-1 block text-body-md">{address}</strong>
-        </div>
-        <StatusBadge status={spot.status} className="shrink-0" />
-      </div>
-
-      <div className="flex flex-wrap gap-xs">
-        <span className="rounded-full bg-surface-container px-sm py-1 text-label-sm text-on-surface-variant">
-          {freshness.label}
-        </span>
-        <span className="rounded-full bg-surface-container px-sm py-1 text-label-sm text-on-surface-variant">
-          {humanizeEnum(spot.parkingContext)}
-        </span>
-        <span className="rounded-full bg-surface-container px-sm py-1 text-label-sm text-on-surface-variant">
-          {humanizeEnum(spot.legalStatus)}
-        </span>
-      </div>
-
-      <div className="grid gap-1 text-label-sm text-on-surface-variant">
-        <span>Expires: {formatInstant(spot.expiresAt)}</span>
-        <span>
-          Vehicles: {spot.suitableVehicleTypes.map(humanizeEnum).join(', ') || 'Not specified'}
-        </span>
-      </div>
-
-      <Link
-        to={`/spots/${spot.id}`}
-        className="mt-xs inline-flex items-center justify-center rounded-full bg-primary px-md py-sm text-label-md font-semibold text-on-primary shadow-sm transition-colors hover:bg-primary-container focus:outline-none focus-visible:ring-4 focus-visible:ring-primary/30"
-      >
-        View spot details
-      </Link>
-    </div>
-  );
-}
+});
 
 export function NearbySpotsMap({
   center,
   zoom = DEFAULT_MAP_ZOOM,
   spots,
   onPickCenter,
+  selectedId = null,
+  onSelectSpot,
   height = 320,
   onLocate,
   locating = false,
   showFloatingControls = false,
 }: NearbySpotsMapProps) {
-  const [selectedId, setSelectedId] = useState<string | null>(null);
-  const selectedSpot = spots.find((spot) => spot.id === selectedId) ?? null;
+  // Markers only re-render when the spot set changes — selection styling is
+  // handled per-marker via the `selected` prop, so panning/dragging stays smooth.
+  const markers = useMemo(
+    () =>
+      spots.map((spot) => (
+        <Marker key={spot.id} longitude={spot.longitude} latitude={spot.latitude} anchor="center">
+          <SpotMarker
+            spot={spot}
+            selected={selectedId === spot.id}
+            onSelect={() => onSelectSpot?.(spot.id)}
+          />
+        </Marker>
+      )),
+    [spots, selectedId, onSelectSpot],
+  );
 
   return (
     <Map
@@ -132,7 +104,7 @@ export function NearbySpotsMap({
       dragRotate={false}
       pitchWithRotate={false}
       onClick={(event) => {
-        setSelectedId(null);
+        onSelectSpot?.(null);
         onPickCenter(event.lngLat.lat, event.lngLat.lng);
       }}
       style={{ height, width: '100%' }}
@@ -147,35 +119,7 @@ export function NearbySpotsMap({
         <span className="pointer-events-none block h-4 w-4 rounded-full border-2 border-white bg-primary/50 shadow-md" />
       </Marker>
 
-      {spots.map((spot) => (
-        <Marker
-          key={spot.id}
-          longitude={spot.longitude}
-          latitude={spot.latitude}
-          anchor="center"
-        >
-          <SpotMarker
-            spot={spot}
-            selected={selectedId === spot.id}
-            onSelect={() => setSelectedId(spot.id)}
-          />
-        </Marker>
-      ))}
-
-      {selectedSpot ? (
-        <Popup
-          longitude={selectedSpot.longitude}
-          latitude={selectedSpot.latitude}
-          anchor="bottom"
-          offset={12}
-          closeOnClick={false}
-          onClose={() => setSelectedId(null)}
-          maxWidth="none"
-          className="parkio-map-popup"
-        >
-          <SpotPopup spot={selectedSpot} />
-        </Popup>
-      ) : null}
+      {markers}
     </Map>
   );
 }

@@ -83,6 +83,21 @@ describe('product card components', () => {
     expect(screen.queryByText(/verifications/)).not.toBeInTheDocument();
   });
 
+  it('renders vehicle compatibility only from the saved vehicle profile and spot fit fields', () => {
+    renderWithProviders(
+      <div>
+        <SpotResultCard spot={publicSpot} userVehicleType="SEDAN" />
+        <SpotResultCard
+          spot={{ ...publicSpot, id: 'suv-only', addressText: 'SUV Bay', suitableVehicleTypes: ['SUV'] }}
+          userVehicleType="SEDAN"
+        />
+      </div>,
+    );
+
+    expect(screen.getByText('Fits your Sedan')).toBeInTheDocument();
+    expect(screen.getByText('Not listed for Sedan')).toBeInTheDocument();
+  });
+
   it('renders owner spot metrics only when requested and available', () => {
     renderWithProviders(<SpotResultCard spot={ownerSpot} showOwnerMetrics />);
 

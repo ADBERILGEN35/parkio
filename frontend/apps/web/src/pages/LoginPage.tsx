@@ -17,7 +17,6 @@ export function LoginPage() {
   const beginProvisioning = useAuthStore((s) => s.beginProvisioning);
   const [apiError, setApiError] = useState<string | null>(null);
   const [traceId, setTraceId] = useState<string | undefined>();
-  const [rememberMe, setRememberMe] = useState(true);
 
   const {
     register,
@@ -74,15 +73,9 @@ export function LoginPage() {
         />
 
         <div className="flex items-center justify-between gap-sm">
-          <label className="flex cursor-pointer items-center gap-xs text-label-md text-on-surface-variant">
-            <input
-              type="checkbox"
-              checked={rememberMe}
-              onChange={(event) => setRememberMe(event.target.checked)}
-              className="h-4 w-4 rounded border-outline-variant text-primary focus:ring-primary"
-            />
-            Remember me
-          </label>
+          <p className="m-0 text-label-md text-on-surface-variant">
+            Sessions stay active securely with an HttpOnly refresh cookie.
+          </p>
           <Link to="/forgot-password" className="text-label-md font-semibold text-primary hover:underline">
             Forgot password?
           </Link>

@@ -126,6 +126,15 @@
     scrollbar-width: none;
   }
 
+  /*
+   * Safe-area helpers (notches / home indicators). `pb-safe` keeps content clear
+   * of the iOS home indicator; the floating bottom sheet and tab bar both rely on
+   * it. The min() keeps a small baseline padding on devices without an inset.
+   */
+  .pb-safe {
+    padding-bottom: max(0.5rem, env(safe-area-inset-bottom));
+  }
+
   .hover-lift {
     transition: all var(--ms-std) cubic-bezier(0.34, 1.56, 0.64, 1);
   }

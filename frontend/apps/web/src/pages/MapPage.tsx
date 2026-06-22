@@ -1,22 +1,20 @@
 import { zodResolver } from '@hookform/resolvers/zod';
-import type { NearbySearchParams, PublicSpot } from '@parkio/types';
+import type { NearbySearchParams } from '@parkio/types';
 import {
   Button,
-  EmptyState,
   ErrorMessage,
   Icon,
   Input,
   MapSearchSkeleton,
-  SpotCardSkeleton,
-  cn,
 } from '@parkio/ui';
 import { nearbySearchSchema, type NearbySearchFormValues } from '@parkio/validation';
-import type { UseQueryResult } from '@tanstack/react-query';
 import { useQuery } from '@tanstack/react-query';
-import { Suspense, lazy, useCallback, useEffect, useRef, useState } from 'react';
+import { Suspense, lazy, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useForm } from 'react-hook-form';
-import { parkingApi } from '@/api';
-import { FriendlyApiErrorMessage } from '@/components/FriendlyApiErrorMessage';
+import { parkingApi, usersApi } from '@/api';
+import { useAuthStore } from '@/auth/store';
+import { BottomSheet, type SheetState } from '@/components/map/BottomSheet';
+import { DiscoveryResults } from '@/components/map/DiscoveryResults';
 import {
   DEFAULT_MAP_CENTER,
   DEFAULT_MAP_ZOOM,
@@ -24,8 +22,20 @@ import {
   isValidLatLng,
 } from '@/components/map/mapConfig';
 import { PlaceSearch } from '@/components/map/PlaceSearch';
-import { SpotResultCard } from '@/components/product/SpotResultCard';
+import { SelectedSpotPreview } from '@/components/map/SelectedSpotPreview';
 import { type GeocodeResult } from '@/lib/geocoding';
+import { DESKTOP_QUERY, useMediaQuery } from '@/lib/useMediaQuery';
+import {
+  EMPTY_FILTERS,
+  availableSorts,
+  availableStatuses as deriveStatuses,
+  defaultSort,
+  filterSpots,
+  sortSpots,
+  withDistance,
+  type SpotFilters,
+  type SpotSort,
+} from '@/lib/spotDiscovery';
 
 const NearbySpotsMap = lazy(() =>
   import('@/components/map/NearbySpotsMap').then((m) => ({ default: m.NearbySpotsMap })),
@@ -40,9 +50,24 @@ function parseCoord(value: unknown): number {
   return Number.isFinite(parsed) ? parsed : Number.NaN;
 }
 
+function optionalNumber(value: unknown): number | undefined {
+  if (value === '' || value === null || value === undefined) return undefined;
+  const parsed = Number(value);
+  return Number.isFinite(parsed) ? parsed : undefined;
+}
+
 /**
- * Map Experience V3 (`/map`): full-bleed map canvas with a floating glass search
- * overlay, slide-in results sidebar, and floating map controls.
+ * Map Experience V4 (`/map`): a map-first product. Full-bleed map canvas with a
+ * floating glass search overlay, floating map controls, and a discovery surface
+ * that adapts by viewport — a slide-in results sidebar on desktop (`md+`) and a
+ * draggable, snap-pointed {@link BottomSheet} on mobile/tablet.
+ *
+ * Selecting a marker (or a result's "Show on map") raises a Google-Maps-style
+ * {@link SelectedSpotPreview}; selection is shared state across the map, the
+ * preview, and the list. Discovery adds a result count, real-distance chips,
+ * status/vehicle chips, presentation filters, and sort — all derived only from
+ * fields the backend already returns (see `lib/spotDiscovery`); nothing about
+ * ETA/popularity/confidence is fabricated.
  *
  * Primary search is address/place text → coordinates (forward geocoding via
  * Nominatim); the resolved coordinates feed the unchanged
@@ -55,6 +80,17 @@ export function MapPage() {
   const [geoError, setGeoError] = useState<string | null>(null);
   const [mapZoom, setMapZoom] = useState(DEFAULT_MAP_ZOOM);
   const [centerLabel, setCenterLabel] = useState<string | null>(null);
+  const [advancedOpen, setAdvancedOpen] = useState(false);
+
+  // Discovery state (selection is shared by map markers, the preview card, and
+  // the result list; filters/sort are client-side presentation only).
+  const [selectedId, setSelectedId] = useState<string | null>(null);
+  const [filters, setFilters] = useState<SpotFilters>(EMPTY_FILTERS);
+  const [sort, setSort] = useState<SpotSort | null>(null);
+  const [sheetState, setSheetState] = useState<SheetState>('collapsed');
+
+  const isDesktop = useMediaQuery(DESKTOP_QUERY);
+  const isAuthenticated = useAuthStore((state) => state.isAuthenticated);
 
   const search = useQuery({
     queryKey: ['parking', 'nearby', params],
@@ -62,15 +98,67 @@ export function MapPage() {
     enabled: params !== null,
   });
 
+  const vehicleQuery = useQuery({
+    queryKey: ['me', 'vehicle'],
+    queryFn: usersApi.getMyVehicle,
+    enabled: isAuthenticated,
+  });
+
+  // Distance is computed from the *real* searched center; no center ⇒ no distance.
+  // Memoized so distance/sort recompute only when the data or center truly change.
+  const searchCenter = useMemo(
+    () => (params ? { lat: params.lat, lng: params.lng } : null),
+    [params],
+  );
+  const spotsWithDistance = useMemo(
+    () => withDistance(search.data ?? [], searchCenter),
+    [search.data, searchCenter],
+  );
+
+  const statuses = useMemo(() => deriveStatuses(spotsWithDistance), [spotsWithDistance]);
+  const hasSearchCenter = searchCenter !== null;
+  const sortOptions = useMemo(() => availableSorts(hasSearchCenter), [hasSearchCenter]);
+  const effectiveSort: SpotSort =
+    sort && sortOptions.includes(sort) ? sort : defaultSort(hasSearchCenter);
+
+  const visibleSpots = useMemo(
+    () => sortSpots(filterSpots(spotsWithDistance, filters), effectiveSort),
+    [spotsWithDistance, filters, effectiveSort],
+  );
+
+  // Selection is resolved from the *unfiltered* set so a selected spot survives
+  // filter/sort changes even if it is filtered out of the visible list.
+  const selectedSpot = useMemo(
+    () => spotsWithDistance.find((spot) => spot.id === selectedId) ?? null,
+    [spotsWithDistance, selectedId],
+  );
+
+  const selectSpot = useCallback(
+    (id: string | null) => {
+      setSelectedId(id);
+    },
+    [],
+  );
+
   const {
     register,
     handleSubmit,
     setValue,
     watch,
+    getValues,
     formState: { errors },
   } = useForm<NearbySearchFormValues>({ resolver: zodResolver(nearbySearchSchema) });
 
-  const onSubmit = handleSubmit((values) => setParams(values));
+  const runSearch = useCallback(
+    (values: NearbySearchParams) => {
+      setParams(values);
+      if (!isDesktop) setSheetState('half');
+      setAdvancedOpen(false);
+    },
+    [isDesktop],
+  );
+
+  const onSubmit = handleSubmit((values) => runSearch(values));
 
   // Empty inputs must not read as 0,0 (Number('') === 0) — that opened the map
   // on empty ocean off the African coast.
@@ -86,13 +174,20 @@ export function MapPage() {
     setValue('lng', Number(lng.toFixed(6)), { shouldValidate: true });
   };
 
+  const currentOptionalSearchFields = useCallback(() => {
+    const values = getValues();
+    return {
+      radius: optionalNumber(values.radius),
+      limit: optionalNumber(values.limit),
+    };
+  }, [getValues]);
+
   /** Center on a geocoded place and run the existing nearby search there. */
   const selectPlace = (result: GeocodeResult) => {
     applyCoords(result.lat, result.lng);
     setMapZoom(LOCATED_ZOOM);
     setCenterLabel(result.secondary || result.primary);
-    // Validate + submit reads lat/lng/radius/limit from the form (lat/lng just set).
-    void onSubmit();
+    runSearch({ lat: result.lat, lng: result.lng, ...currentOptionalSearchFields() });
   };
 
   /** Map click / manual coordinate edits update the same center source of truth. */
@@ -127,7 +222,7 @@ export function MapPage() {
           setCenterLabel('your current location');
           setGeoStatus('idle');
           if (autoSearch) {
-            setParams({ lat, lng });
+            runSearch({ lat, lng, ...currentOptionalSearchFields() });
           }
         },
         (error) => {
@@ -141,7 +236,7 @@ export function MapPage() {
         { enableHighAccuracy: false, timeout: 10_000 },
       );
     },
-    [setValue],
+    [currentOptionalSearchFields, runSearch, setValue],
   );
 
   // Attempt geolocation exactly once per mount so the map opens on a useful view.
@@ -154,6 +249,67 @@ export function MapPage() {
 
   const locate = () => runGeolocation({ autoSearch: false });
 
+  const discovery = (
+    <DiscoveryResults
+      search={search}
+      params={params}
+      spots={visibleSpots}
+      totalCount={spotsWithDistance.length}
+      filters={filters}
+      onFiltersChange={setFilters}
+      availableStatuses={statuses}
+      sort={effectiveSort}
+      onSortChange={setSort}
+      sortOptions={sortOptions}
+      selectedId={selectedId}
+      onSelect={selectSpot}
+      userVehicleType={vehicleQuery.data?.vehicleType ?? null}
+    />
+  );
+
+  const summaryText = resolveSummary(params, search, visibleSpots.length, spotsWithDistance.length);
+  const advancedForm = (
+    <form onSubmit={onSubmit}>
+      <fieldset
+        disabled={search.isFetching}
+        className="m-0 flex flex-col gap-sm border-0 p-0"
+      >
+        <div className="grid grid-cols-2 gap-sm">
+          <Input
+            label="Latitude"
+            inputMode="decimal"
+            error={errors.lat?.message}
+            {...register('lat')}
+          />
+          <Input
+            label="Longitude"
+            inputMode="decimal"
+            error={errors.lng?.message}
+            {...register('lng')}
+          />
+        </div>
+        <div className="grid grid-cols-2 gap-sm">
+          <Input
+            label="Radius (m, default 1000)"
+            inputMode="numeric"
+            error={errors.radius?.message}
+            {...register('radius')}
+          />
+          <Input
+            label="Limit (default 10)"
+            inputMode="numeric"
+            error={errors.limit?.message}
+            {...register('limit')}
+          />
+        </div>
+        <Button type="submit" disabled={search.isFetching} className="w-full">
+          <Icon name="travel_explore" className="text-[16px] leading-none" />
+          {search.isFetching ? 'Searching...' : 'Search nearby'}
+        </Button>
+      </fieldset>
+    </form>
+  );
+
   return (
     <div className="fixed inset-x-0 bottom-16 top-16 z-0 overflow-hidden bg-background md:bottom-0">
       {/* Full-bleed map canvas */}
@@ -164,6 +320,8 @@ export function MapPage() {
             zoom={mapZoom}
             spots={search.data ?? []}
             onPickCenter={handlePickCenter}
+            selectedId={selectedId}
+            onSelectSpot={selectSpot}
             height="100%"
             onLocate={locate}
             locating={geoStatus === 'locating'}
@@ -173,185 +331,186 @@ export function MapPage() {
       </div>
 
       {/* Floating search overlay */}
-      <div className="pointer-events-none absolute inset-x-0 top-md z-[1100] flex justify-center px-sm md:justify-start md:px-md md:pl-lg">
-        <div className="pointer-events-auto w-full max-w-[min(28rem,calc(100vw-1rem))] animate-fade-in-up glass-panel rounded-2xl p-md shadow-deep">
-          <h2 className="m-0 text-title-lg text-on-surface">Find parking</h2>
-          <p className="m-0 mt-xs text-label-sm text-on-surface-variant">
-            Search by address or place — or click the map to set the center.
-          </p>
+      {isDesktop ? (
+        <div className="pointer-events-none absolute inset-x-0 top-md z-[1100] flex justify-start px-md pl-lg">
+          <div className="pointer-events-auto w-full max-w-[min(28rem,calc(100vw-1rem))] animate-fade-in-up glass-panel rounded-2xl p-md shadow-deep">
+            <h2 className="m-0 text-title-lg text-on-surface">Find parking</h2>
+            <p className="m-0 mt-xs text-label-sm text-on-surface-variant">
+              Search by address or place, or click the map to set the center.
+            </p>
+
+            {centerLabel ? (
+              <p className="mt-sm flex items-center gap-xs text-label-sm font-medium text-on-surface">
+                <Icon name="location_on" className="text-[16px] leading-none text-primary" />
+                Searching near {centerLabel}
+              </p>
+            ) : null}
+
+            {geoStatus === 'error' && geoError ? (
+              <div className="mt-sm">
+                <ErrorMessage message={geoError} />
+              </div>
+            ) : null}
+
+            <div className="mt-md">
+              <PlaceSearch onSelect={selectPlace} />
+            </div>
+
+            <button
+              type="button"
+              onClick={locate}
+              disabled={geoStatus === 'locating'}
+              className="mt-sm inline-flex items-center gap-xs rounded-full bg-surface-container px-md py-xs text-label-sm font-medium text-on-surface transition-colors hover:bg-surface-container-high disabled:opacity-60"
+            >
+              <Icon name="my_location" className="text-[16px] leading-none" />
+              {geoStatus === 'locating' ? 'Locating...' : 'Use my location'}
+            </button>
+
+            <details className="mt-sm border-t border-outline-variant/30 pt-sm">
+              <summary className="cursor-pointer list-none text-label-sm font-semibold text-on-surface-variant marker:content-none">
+                <span className="inline-flex items-center gap-xs">
+                  <Icon name="tune" className="text-[16px] leading-none" />
+                  Advanced coordinates
+                </span>
+              </summary>
+              <div className="mt-sm">{advancedForm}</div>
+            </details>
+          </div>
+        </div>
+      ) : (
+        <div className="pointer-events-none absolute inset-x-0 top-sm z-[1100] px-sm">
+          <div className="pointer-events-auto mx-auto flex max-w-[430px] items-center gap-xs rounded-full border border-outline-variant/30 bg-surface/90 p-xs shadow-deep backdrop-blur-xl">
+            <div className="min-w-0 flex-1">
+              <PlaceSearch
+                compact
+                placeholder="Search Parkio"
+                onSelect={selectPlace}
+              />
+            </div>
+            <button
+              type="button"
+              aria-label="Use my location"
+              onClick={locate}
+              disabled={geoStatus === 'locating'}
+              className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-surface-container text-primary transition-colors hover:bg-surface-container-high focus:outline-none focus-visible:ring-2 focus-visible:ring-primary disabled:opacity-60"
+            >
+              <Icon name={geoStatus === 'locating' ? 'progress_activity' : 'my_location'} className="text-[20px] leading-none" />
+            </button>
+            <button
+              type="button"
+              aria-label="Filters and search options"
+              aria-expanded={advancedOpen}
+              onClick={() => {
+                setAdvancedOpen((open) => !open);
+                if (params) setSheetState('half');
+              }}
+              className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-surface-container text-on-surface transition-colors hover:bg-surface-container-high focus:outline-none focus-visible:ring-2 focus-visible:ring-primary"
+            >
+              <Icon name="tune" className="text-[20px] leading-none" />
+            </button>
+          </div>
 
           {centerLabel ? (
-            <p className="mt-sm flex items-center gap-xs text-label-sm font-medium text-on-surface">
-              <Icon name="location_on" className="text-[16px] leading-none text-primary" />
-              Searching near {centerLabel}
+            <p className="pointer-events-auto mx-auto mt-xs flex max-w-[430px] items-center gap-xs rounded-full bg-surface/85 px-md py-xs text-label-sm font-medium text-on-surface shadow-soft backdrop-blur-xl">
+              <Icon name="location_on" className="text-[14px] leading-none text-primary" />
+              <span className="truncate">Near {centerLabel}</span>
             </p>
           ) : null}
 
           {geoStatus === 'error' && geoError ? (
-            <div className="mt-sm">
+            <div className="pointer-events-auto mx-auto mt-xs max-w-[430px]">
               <ErrorMessage message={geoError} />
             </div>
           ) : null}
 
-          {/* Primary: address / place typeahead search */}
-          <div className="mt-md">
-            <PlaceSearch onSelect={selectPlace} />
-          </div>
-
-          <button
-            type="button"
-            onClick={locate}
-            disabled={geoStatus === 'locating'}
-            className="mt-sm inline-flex items-center gap-xs rounded-full bg-surface-container px-md py-xs text-label-sm font-medium text-on-surface transition-colors hover:bg-surface-container-high disabled:opacity-60"
-          >
-            <Icon name="my_location" className="text-[16px] leading-none" />
-            {geoStatus === 'locating' ? 'Locating…' : 'Use my location'}
-          </button>
-
-          {/* Advanced: manual coordinate fallback */}
-          <details className="mt-sm border-t border-outline-variant/30 pt-sm">
-            <summary className="cursor-pointer list-none text-label-sm font-semibold text-on-surface-variant marker:content-none">
-              <span className="inline-flex items-center gap-xs">
-                <Icon name="tune" className="text-[16px] leading-none" />
-                Advanced coordinates
-              </span>
-            </summary>
-            <form onSubmit={onSubmit} className="mt-sm">
-              <fieldset
-                disabled={search.isFetching}
-                className="m-0 flex flex-col gap-sm border-0 p-0"
+          {advancedOpen ? (
+            <div className="pointer-events-auto mx-auto mt-xs max-w-[430px] animate-fade-in-up rounded-2xl glass-panel p-md shadow-deep">
+              <div className="mb-sm flex items-start justify-between gap-sm">
+                <div>
+                  <h2 className="m-0 text-title-lg text-on-surface">Search options</h2>
+                  <p className="m-0 mt-xs text-label-sm text-on-surface-variant">
+                    Coordinate search and result filters use only current backend fields.
+                  </p>
+                </div>
+                <button
+                  type="button"
+                  aria-label="Close search options"
+                  onClick={() => setAdvancedOpen(false)}
+                  className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full text-on-surface-variant hover:bg-surface-container focus:outline-none focus-visible:ring-2 focus-visible:ring-primary"
+                >
+                  <Icon name="close" className="text-[18px] leading-none" />
+                </button>
+              </div>
+              <details open>
+                <summary className="cursor-pointer list-none text-label-sm font-semibold text-on-surface-variant marker:content-none">
+                  <span className="inline-flex items-center gap-xs">
+                    <Icon name="travel_explore" className="text-[16px] leading-none" />
+                    Advanced coordinates
+                  </span>
+                </summary>
+                <div className="mt-sm">{advancedForm}</div>
+              </details>
+              <button
+                type="button"
+                onClick={() => setSheetState('half')}
+                className="mt-sm inline-flex w-full items-center justify-center gap-xs rounded-full bg-surface-container px-md py-sm text-label-md font-semibold text-on-surface transition-colors hover:bg-surface-container-high focus:outline-none focus-visible:ring-2 focus-visible:ring-primary"
               >
-                <div className="grid grid-cols-2 gap-sm">
-                  <Input
-                    label="Latitude"
-                    inputMode="decimal"
-                    error={errors.lat?.message}
-                    {...register('lat')}
-                  />
-                  <Input
-                    label="Longitude"
-                    inputMode="decimal"
-                    error={errors.lng?.message}
-                    {...register('lng')}
-                  />
-                </div>
-                <div className="grid grid-cols-2 gap-sm">
-                  <Input
-                    label="Radius (m, default 1000)"
-                    inputMode="numeric"
-                    error={errors.radius?.message}
-                    {...register('radius')}
-                  />
-                  <Input
-                    label="Limit (default 10)"
-                    inputMode="numeric"
-                    error={errors.limit?.message}
-                    {...register('limit')}
-                  />
-                </div>
-                <Button type="submit" disabled={search.isFetching} className="w-full">
-                  <Icon name="travel_explore" className="text-[16px] leading-none" />
-                  {search.isFetching ? 'Searching…' : 'Search nearby'}
-                </Button>
-              </fieldset>
-            </form>
-          </details>
+                <Icon name="filter_alt" className="text-[16px] leading-none" />
+                Show result filters
+              </button>
+            </div>
+          ) : null}
         </div>
-      </div>
+      )}
 
-      {/* Floating results sidebar / mobile bottom sheet */}
-      <aside
-        aria-label="Search results"
-        className={cn(
-          'pointer-events-none absolute z-[1050] flex flex-col',
-          'inset-x-0 bottom-[calc(4rem+env(safe-area-inset-bottom))] max-h-[44dvh] md:bottom-0 md:left-auto md:right-0 md:top-0 md:max-h-none md:w-[400px]',
-        )}
-      >
-        <div
-          className={cn(
-            'pointer-events-auto flex h-full min-h-0 flex-col overflow-hidden glass-panel shadow-sheet-left',
-            'rounded-t-3xl md:animate-slide-in-right md:rounded-none md:rounded-l-[2rem]',
-          )}
-        >
-          <div
-            aria-hidden
-            className="mx-auto mt-sm h-1.5 w-12 shrink-0 rounded-full bg-outline-variant md:hidden"
-          />
-          <div className="flex min-h-0 flex-1 flex-col gap-sm overflow-y-auto p-md hide-scrollbar">
-            <ResultsPanel params={params} search={search} />
-          </div>
+      {/* Selected-spot preview (Google Maps / Uber style). Anchored above the
+          bottom-sheet peek on mobile; floats bottom-left over the map on desktop. */}
+      {selectedSpot ? (
+        <div className="pointer-events-none absolute inset-x-0 bottom-0 z-[1060] px-sm pb-sm md:inset-x-auto md:bottom-md md:left-md md:w-[360px] md:px-0 md:pb-0">
+          <SelectedSpotPreview spot={selectedSpot} onClose={() => selectSpot(null)} />
         </div>
-      </aside>
+      ) : null}
+
+      {/* Results — desktop sidebar vs mobile draggable bottom sheet. Exactly one
+          mounts (media-query driven) so the discovery panel renders once. */}
+      {isDesktop ? (
+        <aside
+          aria-label="Search results"
+          className="pointer-events-none absolute bottom-0 right-0 top-0 z-[1050] flex w-[400px] flex-col"
+        >
+          <div className="pointer-events-auto flex h-full min-h-0 flex-col gap-sm overflow-y-auto glass-panel p-md shadow-sheet-left animate-slide-in-right rounded-l-[2rem] hide-scrollbar">
+            {discovery}
+          </div>
+        </aside>
+      ) : (
+        <BottomSheet
+          state={sheetState}
+          onStateChange={setSheetState}
+          ariaLabel="Search results"
+          summary={
+            <span className="block truncate text-label-md font-semibold text-on-surface">
+              {summaryText}
+            </span>
+          }
+        >
+          {discovery}
+        </BottomSheet>
+      )}
     </div>
   );
 }
 
-function ResultsPanel({
-  params,
-  search,
-}: {
-  params: NearbySearchParams | null;
-  search: UseQueryResult<PublicSpot[], Error>;
-}) {
-  if (params === null) {
-    return (
-      <EmptyState
-        icon="travel_explore"
-        title="Search for nearby spots"
-        description="Search an address or place, use your location, or click the map to set the center — then search."
-      />
-    );
-  }
-  if (search.isPending) {
-    return (
-      <>
-        <div>
-          <h2 className="m-0 text-title-lg text-on-surface">Searching nearby</h2>
-          <p className="m-0 mt-xs text-label-sm text-on-surface-variant">
-            Matching available spots around your selected center.
-          </p>
-        </div>
-        <div className="flex flex-col gap-sm" role="status" aria-label="Searching nearby spots">
-          <SpotCardSkeleton />
-          <SpotCardSkeleton />
-          <SpotCardSkeleton />
-        </div>
-      </>
-    );
-  }
-  if (search.isError) {
-    return <FriendlyApiErrorMessage error={search.error} />;
-  }
-  if (!search.data || search.data.length === 0) {
-    return (
-      <EmptyState
-        icon="location_off"
-        title="No spots nearby"
-        description="No spots found in this area. Try a larger radius or a different search center."
-      />
-    );
-  }
-
-  return (
-    <>
-      <div>
-        <h2 className="m-0 text-title-lg text-on-surface">
-          {search.data.length} {search.data.length === 1 ? 'spot' : 'spots'} nearby
-        </h2>
-        <p className="m-0 mt-xs text-label-sm text-on-surface-variant">
-          Freshness reflects each record&apos;s last update — the backend doesn&apos;t expose
-          lastVerifiedAt yet.
-        </p>
-      </div>
-      <ul className="m-0 flex list-none flex-col gap-sm p-0">
-        {search.data.map((spot) => (
-          <NearbySpotCard key={spot.id} spot={spot} />
-        ))}
-      </ul>
-    </>
-  );
-}
-
-function NearbySpotCard({ spot }: { spot: PublicSpot }) {
-  return <SpotResultCard spot={spot} />;
+/** One-line summary for the collapsed bottom-sheet peek. */
+function resolveSummary(
+  params: NearbySearchParams | null,
+  search: { isPending: boolean; isError: boolean },
+  visible: number,
+  total: number,
+): string {
+  if (params === null) return 'Search for parking';
+  if (search.isPending) return 'Searching nearby…';
+  if (search.isError) return "Couldn't load results";
+  if (total === 0) return 'No spots nearby';
+  if (visible !== total) return `${visible} of ${total} spots`;
+  return `${total} ${total === 1 ? 'spot' : 'spots'} nearby`;
 }

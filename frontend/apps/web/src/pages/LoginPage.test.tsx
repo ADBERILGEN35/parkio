@@ -59,6 +59,13 @@ describe('LoginPage', () => {
     expect(localStorage.getItem('parkio.refreshToken')).toBeNull();
   });
 
+  it('does not render a no-op remember-me control', () => {
+    renderLogin();
+
+    expect(screen.queryByRole('checkbox', { name: /remember me/i })).not.toBeInTheDocument();
+    expect(screen.getByText(/HttpOnly refresh cookie/)).toBeInTheDocument();
+  });
+
   it('shows a friendly error with traceId on invalid credentials', async () => {
     server.use(
       http.post(`${API_BASE}/auth/login`, () =>
