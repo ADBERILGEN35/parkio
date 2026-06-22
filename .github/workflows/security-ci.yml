@@ -133,10 +133,11 @@ jobs:
       - name: Install Trivy CLI
         run: |
           set -euo pipefail
-          trivy_version="${TRIVY_VERSION#v}"
-          trivy_deb="trivy_${trivy_version}_Linux-64bit.deb"
-          curl -fsSLO "https://github.com/aquasecurity/trivy/releases/download/${TRIVY_VERSION}/${trivy_deb}"
-          sudo dpkg -i "${trivy_deb}"
+          echo "Installing Trivy ${TRIVY_VERSION}"
+          curl -sfL https://raw.githubusercontent.com/aquasecurity/trivy/main/contrib/install.sh \
+            | sh -s -- -b "$HOME/.local/bin" "$TRIVY_VERSION"
+          echo "$HOME/.local/bin" >> "$GITHUB_PATH"
+          echo "Installed Trivy version:"
           trivy --version
 
       - name: Generate dependency vulnerability report
@@ -237,10 +238,11 @@ jobs:
       - name: Install Trivy CLI
         run: |
           set -euo pipefail
-          trivy_version="${TRIVY_VERSION#v}"
-          trivy_deb="trivy_${trivy_version}_Linux-64bit.deb"
-          curl -fsSLO "https://github.com/aquasecurity/trivy/releases/download/${TRIVY_VERSION}/${trivy_deb}"
-          sudo dpkg -i "${trivy_deb}"
+          echo "Installing Trivy ${TRIVY_VERSION}"
+          curl -sfL https://raw.githubusercontent.com/aquasecurity/trivy/main/contrib/install.sh \
+            | sh -s -- -b "$HOME/.local/bin" "$TRIVY_VERSION"
+          echo "$HOME/.local/bin" >> "$GITHUB_PATH"
+          echo "Installed Trivy version:"
           trivy --version
 
       - name: Ensure gradlew executable
