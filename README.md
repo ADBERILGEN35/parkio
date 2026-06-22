@@ -170,10 +170,17 @@ Runs on PRs, pushes to `master`, weekly, and on demand:
   reports HIGH/CRITICAL findings, and blocks CRITICAL image vulnerabilities.
 
 All scan reports are uploaded as workflow artifacts on every run, independent of
-Code Scanning availability. Trivy runs through `aquasecurity/trivy-action@v0.36.0`
-with the scanner pinned to `v0.64.1` and the action-managed workspace cache
-(`.cache/trivy`) enabled, so scans do not drift to newer scanner releases
-unexpectedly.
+Code Scanning availability. Security CI installs the official Trivy CLI directly
+from the pinned `TRIVY_VERSION` release, prints `trivy --version`, and runs explicit
+`trivy fs` / `trivy image` commands so scanner failures have normal command logs.
+To update Trivy, change the top-level `TRIVY_VERSION` value in
+[`security-ci.yml`](.github/workflows/security-ci.yml) and rerun Security CI.
+
+Trivy database/cache state is restored with `actions/cache` at `.cache/trivy`.
+Dependency reports are uploaded as `trivy-dependencies-reports`
+(`trivy-dependencies.txt`, `trivy-dependencies.sarif`). Image reports are uploaded
+per service as `trivy-image-<service>-reports`
+(`trivy-image-<service>.txt`, `trivy-image-<service>.sarif`).
 
 **Personal-repo mode (today).** Code Scanning / GitHub Advanced Security is not
 available on this private repository, so CodeQL and Trivy SARIF uploads to the

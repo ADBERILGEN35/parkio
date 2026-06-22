@@ -122,21 +122,68 @@ jobs:
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Scan dependency manifests with Trivy
-        uses: aquasecurity/trivy-action@v0.36.0
+      - name: Cache Trivy database
+        uses: actions/cache@v4
         with:
-          version: ${{ env.TRIVY_VERSION }}
-          cache: true
-          cache-dir: ${{ env.TRIVY_CACHE_DIR }}
-          scan-type: fs
-          scan-ref: .
-          scanners: vuln
-          vuln-type: library
-          severity: HIGH,CRITICAL
-          ignore-unfixed: true
-          format: sarif
-          output: trivy-dependencies.sarif
-          exit-code: "1"
+          path: ${{ env.TRIVY_CACHE_DIR }}
+          key: trivy-db-${{ runner.os }}-${{ env.TRIVY_VERSION }}
+          restore-keys: |
+            trivy-db-${{ runner.os }}-
+
+      - name: Install Trivy CLI
+        run: |
+          set -euo pipefail
+          trivy_version="${TRIVY_VERSION#v}"
+          trivy_deb="trivy_${trivy_version}_Linux-64bit.deb"
+          curl -fsSLO "https://github.com/aquasecurity/trivy/releases/download/${TRIVY_VERSION}/${trivy_deb}"
+          sudo dpkg -i "${trivy_deb}"
+          trivy --version
+
+      - name: Generate dependency vulnerability report
+        run: |
+          set -euo pipefail
+          mkdir -p "$TRIVY_CACHE_DIR"
+          echo "Trivy version:"
+          trivy --version
+          echo "Scan target: ."
+          echo "Severity policy: report HIGH/CRITICAL fixable library vulnerabilities; do not fail this report step."
+          echo "Output: trivy-dependencies.txt"
+          trivy fs . \
+            --scanners vuln \
+            --vuln-type library \
+            --severity HIGH,CRITICAL \
+            --ignore-unfixed \
+            --format table \
+            --output trivy-dependencies.txt \
+            --exit-code 0 \
+            --cache-dir "$TRIVY_CACHE_DIR"
+
+      - name: Block on dependency vulnerabilities
+        run: |
+          set -euo pipefail
+          echo "Trivy version:"
+          trivy --version
+          echo "Scan target: ."
+          echo "Severity policy: block on HIGH/CRITICAL fixable library vulnerabilities."
+          echo "Output: trivy-dependencies.sarif"
+          trivy fs . \
+            --scanners vuln \
+            --vuln-type library \
+            --severity HIGH,CRITICAL \
+            --ignore-unfixed \
+            --format sarif \
+            --output trivy-dependencies.sarif \
+            --exit-code 1 \
+            --cache-dir "$TRIVY_CACHE_DIR"
+
+      - name: Show dependency report on failure
+        if: failure()
+        run: |
+          if [ -s trivy-dependencies.txt ]; then
+            cat trivy-dependencies.txt
+          else
+            echo "No dependency table report was generated. Check the preceding Trivy command output."
+          fi
 
       - name: Upload dependency SARIF to Code Scanning
         # Only when Code Scanning is available; harmless to skip otherwise.
@@ -150,8 +197,10 @@ jobs:
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: trivy-dependencies-sarif
-          path: trivy-dependencies.sarif
+          name: trivy-dependencies-reports
+          path: |
+            trivy-dependencies.txt
+            trivy-dependencies.sarif
           if-no-files-found: ignore
           retention-days: 14
 
@@ -177,6 +226,23 @@ jobs:
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
+      - name: Cache Trivy database
+        uses: actions/cache@v4
+        with:
+          path: ${{ env.TRIVY_CACHE_DIR }}
+          key: trivy-db-${{ runner.os }}-${{ env.TRIVY_VERSION }}
+          restore-keys: |
+            trivy-db-${{ runner.os }}-
+
+      - name: Install Trivy CLI
+        run: |
+          set -euo pipefail
+          trivy_version="${TRIVY_VERSION#v}"
+          trivy_deb="trivy_${trivy_version}_Linux-64bit.deb"
+          curl -fsSLO "https://github.com/aquasecurity/trivy/releases/download/${TRIVY_VERSION}/${trivy_deb}"
+          sudo dpkg -i "${trivy_deb}"
+          trivy --version
+
       - name: Ensure gradlew executable
         run: chmod +x gradlew
 
@@ -188,32 +254,51 @@ jobs:
             .
 
       - name: Scan image for high and critical findings
-        uses: aquasecurity/trivy-action@v0.36.0
-        with:
-          version: ${{ env.TRIVY_VERSION }}
-          cache: true
-          cache-dir: ${{ env.TRIVY_CACHE_DIR }}
-          image-ref: parkio/${{ matrix.service }}:security-ci
-          scanners: vuln
-          severity: HIGH,CRITICAL
-          ignore-unfixed: true
-          format: table
-          output: trivy-image-${{ matrix.service }}.txt
-          exit-code: "0"
+        run: |
+          set -euo pipefail
+          mkdir -p "$TRIVY_CACHE_DIR"
+          image_ref="parkio/${{ matrix.service }}:security-ci"
+          echo "Trivy version:"
+          trivy --version
+          echo "Scan target: ${image_ref}"
+          echo "Severity policy: report HIGH/CRITICAL image vulnerabilities; do not fail this report step."
+          echo "Output: trivy-image-${{ matrix.service }}.txt"
+          trivy image "${image_ref}" \
+            --scanners vuln \
+            --severity HIGH,CRITICAL \
+            --ignore-unfixed \
+            --format table \
+            --output trivy-image-${{ matrix.service }}.txt \
+            --exit-code 0 \
+            --cache-dir "$TRIVY_CACHE_DIR"
 
       - name: Block on critical image findings
-        uses: aquasecurity/trivy-action@v0.36.0
-        with:
-          version: ${{ env.TRIVY_VERSION }}
-          cache: true
-          cache-dir: ${{ env.TRIVY_CACHE_DIR }}
-          image-ref: parkio/${{ matrix.service }}:security-ci
-          scanners: vuln
-          severity: CRITICAL
-          ignore-unfixed: true
-          format: sarif
-          output: trivy-image-${{ matrix.service }}.sarif
-          exit-code: "1"
+        run: |
+          set -euo pipefail
+          image_ref="parkio/${{ matrix.service }}:security-ci"
+          echo "Trivy version:"
+          trivy --version
+          echo "Scan target: ${image_ref}"
+          echo "Severity policy: block on CRITICAL image vulnerabilities."
+          echo "Output: trivy-image-${{ matrix.service }}.sarif"
+          trivy image "${image_ref}" \
+            --scanners vuln \
+            --severity CRITICAL \
+            --ignore-unfixed \
+            --format sarif \
+            --output trivy-image-${{ matrix.service }}.sarif \
+            --exit-code 1 \
+            --cache-dir "$TRIVY_CACHE_DIR"
+
+      - name: Show image report on failure
+        if: failure()
+        run: |
+          report="trivy-image-${{ matrix.service }}.txt"
+          if [ -s "$report" ]; then
+            cat "$report"
+          else
+            echo "No image table report was generated. Check the preceding Trivy command output."
+          fi
 
       - name: Upload image SARIF to Code Scanning
         if: ${{ always() && vars.CODEQL_ENABLED == 'true' }}
