@@ -25,6 +25,37 @@ export function setRefreshHandler(handler: RefreshHandler | null): void {
 }
 
 /**
+ * Single-flight refresh coordinator shared by every caller — the 401 response
+ * interceptor, AuthBootstrap (post-reload session restore), and any manual
+ * refresh. While one POST /auth/refresh-token is in flight, all callers await
+ * the same promise, so the rotated HttpOnly refresh cookie is presented to the
+ * backend exactly once. Without this, two callers (e.g. React StrictMode's
+ * double-invoked bootstrap effect, two tabs, or a bootstrap racing a 401) would
+ * each replay the same cookie and the backend's reuse detection would revoke the
+ * whole token family. Resolves the new access token, or `null` when refresh is
+ * unavailable/failed. The in-flight promise is always cleared once settled so a
+ * later refresh starts a fresh request.
+ *
+ * Scope: per-tab (per module instance). Cross-tab session-clear is coordinated
+ * separately at the app layer via BroadcastChannel; access/refresh tokens are
+ * never shared through storage.
+ */
+export function refreshSession(): Promise<string | null> {
+  if (!refreshHandler) {
+    return Promise.resolve(null);
+  }
+  refreshPromise ??= refreshHandler().finally(() => {
+    refreshPromise = null;
+  });
+  return refreshPromise;
+}
+
+/** Diagnostics/tests: whether a shared refresh is currently in flight. */
+export function isRefreshInFlight(): boolean {
+  return refreshPromise !== null;
+}
+
+/**
  * 401s from these endpoints must never trigger a silent refresh: login/register
  * 401 means bad credentials, and refresh-token/logout 401 means the refresh
  * token itself is invalid (retrying would loop — or deadlock on the shared
@@ -79,10 +110,8 @@ export function createApiClient(options: ApiClientOptions): AxiosInstance {
 
         let newToken: string | null = null;
         try {
-          refreshPromise ??= refreshHandler().finally(() => {
-            refreshPromise = null;
-          });
-          newToken = await refreshPromise;
+          // Shared single-flight: concurrent 401s collapse into one refresh.
+          newToken = await refreshSession();
         } catch {
           newToken = null;
         }

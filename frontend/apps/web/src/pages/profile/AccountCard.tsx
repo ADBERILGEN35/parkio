@@ -12,6 +12,7 @@ import { useForm } from 'react-hook-form';
 import { useNavigate } from 'react-router-dom';
 import { authApi, usersApi } from '@/api';
 import { describeAuthError } from '@/api/error-messages';
+import { broadcastLogout } from '@/auth/crossTabSync';
 import { performLogout } from '@/auth/logout';
 import { useAuthStore } from '@/auth/store';
 import { SettingsSectionCard } from '@/components/product/SettingsSectionCard';
@@ -74,6 +75,7 @@ export function AccountCard() {
       // The local session is still cleared so this browser cannot keep using a stale token.
     } finally {
       clearSession();
+      broadcastLogout();
       setLoggingOutAll(false);
       navigate('/login', { replace: true });
     }

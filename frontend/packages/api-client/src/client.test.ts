@@ -1,7 +1,13 @@
 import { http, HttpResponse } from 'msw';
 import { setupServer } from 'msw/node';
 import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from 'vitest';
-import { createApiClient, DEFAULT_API_BASE_URL, setRefreshHandler } from './client';
+import {
+  createApiClient,
+  DEFAULT_API_BASE_URL,
+  isRefreshInFlight,
+  refreshSession,
+  setRefreshHandler,
+} from './client';
 import { CORRELATION_HEADER } from './correlation';
 import { UnauthorizedError } from './errors';
 import { MemoryTokenStorage } from './token-storage';
@@ -179,4 +185,63 @@ describe('401 refresh behavior', () => {
       expect(refresh).not.toHaveBeenCalled();
     },
   );
+});
+
+describe('refreshSession single-flight coordinator', () => {
+  it('resolves null when no handler is configured', async () => {
+    setRefreshHandler(null);
+    await expect(refreshSession()).resolves.toBeNull();
+    expect(isRefreshInFlight()).toBe(false);
+  });
+
+  it('collapses concurrent callers into one handler invocation', async () => {
+    let release: (token: string) => void = () => {};
+    const refresh = vi.fn(
+      () =>
+        new Promise<string>((resolve) => {
+          release = resolve;
+        }),
+    );
+    setRefreshHandler(refresh);
+
+    const a = refreshSession();
+    const b = refreshSession();
+    const c = refreshSession();
+    expect(isRefreshInFlight()).toBe(true);
+
+    release('shared-token');
+    await expect(Promise.all([a, b, c])).resolves.toEqual([
+      'shared-token',
+      'shared-token',
+      'shared-token',
+    ]);
+    expect(refresh).toHaveBeenCalledTimes(1);
+    // In-flight promise is cleared after settling.
+    expect(isRefreshInFlight()).toBe(false);
+  });
+
+  it('starts a fresh request once the previous one has settled', async () => {
+    const refresh = vi.fn(async () => 'token');
+    setRefreshHandler(refresh);
+
+    await refreshSession();
+    await refreshSession();
+
+    expect(refresh).toHaveBeenCalledTimes(2);
+  });
+
+  it('rejects all shared callers once and clears in-flight on handler failure', async () => {
+    const refresh = vi.fn(async () => {
+      throw new Error('refresh boom');
+    });
+    setRefreshHandler(refresh);
+
+    const a = refreshSession();
+    const b = refreshSession();
+
+    await expect(a).rejects.toThrow('refresh boom');
+    await expect(b).rejects.toThrow('refresh boom');
+    expect(refresh).toHaveBeenCalledTimes(1);
+    expect(isRefreshInFlight()).toBe(false);
+  });
 });

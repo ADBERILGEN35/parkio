@@ -465,8 +465,9 @@ Security CI runs on PRs, pushes to `master`, weekly, and on demand:
   reported; CRITICAL image vulnerabilities block CI.
 
 All scan reports are uploaded as workflow artifacts on every run. Trivy steps authenticate to
-`ghcr.io` with the workflow `GITHUB_TOKEN` and cache `~/.cache/trivy` to avoid anonymous
-vulnerability-DB rate limits (`TOOMANYREQUESTS`). A final `summary` job prints the policy and
+`ghcr.io` with the workflow `GITHUB_TOKEN`, pin the scanner to `v0.64.1`, and use Trivy
+Action's workspace cache at `.cache/trivy` to avoid anonymous vulnerability-DB rate limits
+(`TOOMANYREQUESTS`) and scanner-version drift. A final `summary` job prints the policy and
 per-gate result (including whether CodeQL ran or was skipped) to the run summary.
 
 **CodeQL gating — personal repo today, org/GHAS later.** Code Scanning (and, on private repos,

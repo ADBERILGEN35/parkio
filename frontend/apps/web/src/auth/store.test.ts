@@ -59,4 +59,46 @@ describe('auth store — provisioning grace vs. suspension', () => {
     expect(localStorage.getItem('parkio.refreshToken')).toBeNull();
     expect(useAuthStore.getState().accessToken).toBe('access');
   });
+
+  it('cleans up legacy localStorage tokens from older builds on clear', () => {
+    localStorage.setItem('parkio.accessToken', 'legacy-access');
+    localStorage.setItem('parkio.refreshToken', 'legacy-refresh');
+
+    useAuthStore.getState().clearSession();
+
+    expect(localStorage.getItem('parkio.accessToken')).toBeNull();
+    expect(localStorage.getItem('parkio.refreshToken')).toBeNull();
+  });
+});
+
+describe('auth store — bootstrap + session epoch', () => {
+  beforeEach(() => useAuthStore.getState().clearSession());
+
+  it('setSession and clearSession both end the bootstrap-pending state', () => {
+    useAuthStore.setState({ bootstrapPending: true });
+    useAuthStore.getState().setSession('access', user);
+    expect(useAuthStore.getState().bootstrapPending).toBe(false);
+
+    useAuthStore.setState({ bootstrapPending: true });
+    useAuthStore.getState().clearSession();
+    expect(useAuthStore.getState().bootstrapPending).toBe(false);
+  });
+
+  it('endBootstrap clears the bootstrap-pending flag without touching the session', () => {
+    useAuthStore.getState().setSession('access', user);
+    useAuthStore.setState({ bootstrapPending: true });
+
+    useAuthStore.getState().endBootstrap();
+
+    expect(useAuthStore.getState().bootstrapPending).toBe(false);
+    expect(useAuthStore.getState().isAuthenticated).toBe(true);
+  });
+
+  it('advances the session epoch on every clear (so in-flight refresh can detect logout)', () => {
+    const before = useAuthStore.getState().sessionEpoch;
+
+    useAuthStore.getState().clearSession();
+
+    expect(useAuthStore.getState().sessionEpoch).toBe(before + 1);
+  });
 });

@@ -20,12 +20,26 @@ interface AuthState {
    * `markSuspended()` is a no-op. The AccountPreparingPage owns this window.
    */
   provisioning: boolean;
+  /**
+   * True until the first post-reload refresh attempt (AuthBootstrap) settles.
+   * While set, route guards show a loader instead of bouncing to /login, so a
+   * valid session being restored from the HttpOnly cookie does not flash login.
+   */
+  bootstrapPending: boolean;
+  /**
+   * Monotonic counter bumped on every session teardown (clearSession/logout).
+   * An in-flight refresh captures it before its network call and refuses to
+   * apply a late success if it changed — so a logout during refresh cannot
+   * resurrect the session.
+   */
+  sessionEpoch: number;
   setSession: (accessToken: string, user: User) => void;
   clearSession: () => void;
   setUser: (user: User) => void;
   markSuspended: () => void;
   beginProvisioning: () => void;
   endProvisioning: () => void;
+  endBootstrap: () => void;
 }
 
 function deriveAuth(accessToken: string | null, user: User | null) {
@@ -46,16 +60,18 @@ export const useAuthStore = create<AuthState>((set) => ({
   isAuthenticated: false,
   suspended: false,
   provisioning: false,
+  bootstrapPending: true,
+  sessionEpoch: 0,
 
   setSession(accessToken, user) {
     webTokenStorage.setTokens({ accessToken });
-    set({ suspended: false, provisioning: false, ...deriveAuth(accessToken, user) });
+    set({ suspended: false, provisioning: false, bootstrapPending: false, ...deriveAuth(accessToken, user) });
   },
 
   clearSession() {
     webTokenStorage.clearTokens();
     clearPendingProfile();
-    set({
+    set((state) => ({
       accessToken: null,
       user: null,
       roles: [],
@@ -63,7 +79,9 @@ export const useAuthStore = create<AuthState>((set) => ({
       isAuthenticated: false,
       suspended: false,
       provisioning: false,
-    });
+      bootstrapPending: false,
+      sessionEpoch: state.sessionEpoch + 1,
+    }));
   },
 
   setUser(user) {
@@ -84,5 +102,9 @@ export const useAuthStore = create<AuthState>((set) => ({
 
   endProvisioning() {
     set({ provisioning: false });
+  },
+
+  endBootstrap() {
+    set({ bootstrapPending: false });
   },
 }));

@@ -1,10 +1,12 @@
 import { authApi } from '@/api';
 import { showWarning } from '@/lib/toast';
+import { broadcastLogout } from './crossTabSync';
 import { useAuthStore } from './store';
 
 /**
  * Revokes the cookie-backed refresh token server-side, then always clears local
- * auth state. Route guards redirect to /login once the session is gone.
+ * auth state and tells other tabs to sign out too. Route guards redirect to
+ * /login once the session is gone.
  */
 export async function performLogout(): Promise<void> {
   try {
@@ -14,4 +16,5 @@ export async function performLogout(): Promise<void> {
     // Local state is cleared regardless of backend logout outcome.
   }
   useAuthStore.getState().clearSession();
+  broadcastLogout();
 }

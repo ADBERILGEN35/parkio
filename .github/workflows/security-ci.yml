@@ -11,6 +11,10 @@
 #   variables -> Actions -> Variables) after enabling Code scanning.
 # Scan reports are always published as build artifacts regardless of that gate.
 
+env:
+  TRIVY_VERSION: v0.64.1
+  TRIVY_CACHE_DIR: ${{ github.workspace }}/.cache/trivy
+
 name: Security CI
 
 on:
@@ -118,15 +122,12 @@ jobs:
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Cache Trivy database
-        uses: actions/cache@v4
-        with:
-          path: ~/.cache/trivy
-          key: trivy-db-${{ runner.os }}
-
       - name: Scan dependency manifests with Trivy
-        uses: aquasecurity/trivy-action@v0.33.1
+        uses: aquasecurity/trivy-action@v0.36.0
         with:
+          version: ${{ env.TRIVY_VERSION }}
+          cache: true
+          cache-dir: ${{ env.TRIVY_CACHE_DIR }}
           scan-type: fs
           scan-ref: .
           scanners: vuln
@@ -176,11 +177,8 @@ jobs:
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Cache Trivy database
-        uses: actions/cache@v4
-        with:
-          path: ~/.cache/trivy
-          key: trivy-db-${{ runner.os }}
+      - name: Ensure gradlew executable
+        run: chmod +x gradlew
 
       - name: Build service image
         run: |
@@ -190,8 +188,11 @@ jobs:
             .
 
       - name: Scan image for high and critical findings
-        uses: aquasecurity/trivy-action@v0.33.1
+        uses: aquasecurity/trivy-action@v0.36.0
         with:
+          version: ${{ env.TRIVY_VERSION }}
+          cache: true
+          cache-dir: ${{ env.TRIVY_CACHE_DIR }}
           image-ref: parkio/${{ matrix.service }}:security-ci
           scanners: vuln
           severity: HIGH,CRITICAL
@@ -201,8 +202,11 @@ jobs:
           exit-code: "0"
 
       - name: Block on critical image findings
-        uses: aquasecurity/trivy-action@v0.33.1
+        uses: aquasecurity/trivy-action@v0.36.0
         with:
+          version: ${{ env.TRIVY_VERSION }}
+          cache: true
+          cache-dir: ${{ env.TRIVY_CACHE_DIR }}
           image-ref: parkio/${{ matrix.service }}:security-ci
           scanners: vuln
           severity: CRITICAL

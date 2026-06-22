@@ -397,17 +397,43 @@ All auth calls go through the gateway (`VITE_API_BASE_URL`, **required** — def
   No access or refresh token is persisted in `localStorage`; `clearSession()` also
   removes legacy `parkio.accessToken` / `parkio.refreshToken` keys from older builds.
 - The API client attaches `Authorization: Bearer <accessToken>` and a fresh `X-Correlation-Id` per request.
+- **Refresh is single-flight.** A shared coordinator (`refreshSession` in
+  `@parkio/api-client`) ensures only one `POST /auth/refresh-token` is in flight at
+  a time; all callers — `AuthBootstrap`, the API client's 401 retry interceptor, and
+  any manual refresh — await the same promise, then it is cleared once settled. This
+  is essential because refresh tokens are rotated and reuse-detected server-side:
+  replaying the same rotated cookie (e.g. React StrictMode invoking the bootstrap
+  effect twice, two tabs, a bootstrap racing a 401, or network retries) would revoke
+  the whole token family. Do not bypass the coordinator by calling `authApi.refresh()`
+  directly.
+- A logout (or session clear) that happens while a refresh is in flight will **not**
+  be resurrected by the refresh's late success — the store tracks a `sessionEpoch`
+  that the handler re-checks before applying a restored session.
 - Cookie-backed auth calls use browser credentials (`withCredentials: true`). CORS
   must allow credentials only for the trusted frontend origin; wildcard origins are
   invalid for this flow.
 - On app start (`AuthBootstrap`): the app calls `POST /auth/refresh-token` with the
-  HttpOnly cookie. Success restores access-token memory state and the user profile;
-  failure clears local auth state.
+  HttpOnly cookie **through the single-flight coordinator**. Success restores
+  access-token memory state and the user profile; failure clears local auth state.
+  While this first refresh is pending, `ProtectedRoute` shows a loader instead of
+  redirecting, so a session being restored from the cookie does not flash `/login`.
 - Logout calls `POST /auth/logout` with the HttpOnly refresh cookie, then **always**
   clears local auth state — even if the backend call fails — and lands on `/login`.
+- **Multi-tab:** single-flight refresh is **per-tab** (it cannot stop a second tab
+  from presenting the cookie). Logout is coordinated across tabs via a
+  `BroadcastChannel` (`parkio.auth`): signing out in one tab clears the in-memory
+  session in the others. Only a "logged out" signal crosses tabs — never an access
+  or refresh token. Tabs still refresh independently; rapid simultaneous refreshes
+  in *different* tabs remain a (rare) possibility the backend rotation tolerates per
+  request.
 - Profile includes **Log out of all devices**, which calls `POST /auth/logout-all`
   after confirmation, clears local auth state, and lands on `/login`.
 - Roles/status come from the backend `user` object only; the JWT is never decoded client-side.
+- **Real-stack E2E:** the `e2e-real` suite (`PARKIO_REAL_E2E=true pnpm e2e:real`) exercises
+  this flow against live services, including post-reload refresh bootstrap. With
+  single-flight in place, the bootstrap reload no longer trips backend refresh-token
+  reuse detection, the refresh cookie stays HttpOnly, and no access/refresh token
+  appears in `localStorage`.
 - Registration shows live password guidance that mirrors auth-service policy:
   12+ characters, lowercase, uppercase, digit and not an obvious common password.
   Login failures and account lockouts use the same generic invalid-credentials

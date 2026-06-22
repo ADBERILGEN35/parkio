@@ -170,7 +170,10 @@ Runs on PRs, pushes to `master`, weekly, and on demand:
   reports HIGH/CRITICAL findings, and blocks CRITICAL image vulnerabilities.
 
 All scan reports are uploaded as workflow artifacts on every run, independent of
-Code Scanning availability.
+Code Scanning availability. Trivy runs through `aquasecurity/trivy-action@v0.36.0`
+with the scanner pinned to `v0.64.1` and the action-managed workspace cache
+(`.cache/trivy`) enabled, so scans do not drift to newer scanner releases
+unexpectedly.
 
 **Personal-repo mode (today).** Code Scanning / GitHub Advanced Security is not
 available on this private repository, so CodeQL and Trivy SARIF uploads to the
