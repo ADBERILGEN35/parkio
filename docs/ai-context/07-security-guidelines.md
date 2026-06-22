@@ -116,8 +116,9 @@ Privilege boundaries / enforcement notes:
   an organization (or GHAS is enabled) and Code scanning is turned on, set
   `CODEQL_ENABLED=true` to activate CodeQL and SARIF upload — no workflow edits
   needed. Do not delete CodeQL to make CI green; gate it.
-- Keep Trivy scanner versions pinned in CI and use direct Trivy CLI commands with
-  the workspace cache. Do not leave Security CI on wrapper/action defaults.
+- Keep Trivy scanner versions pinned in CI with the official Trivy Docker image
+  and the workspace cache. Do not install Trivy on the runner or use wrapper/action
+  defaults.
 
 ## Input & data protection
 

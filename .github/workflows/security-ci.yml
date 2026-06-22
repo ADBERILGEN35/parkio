@@ -12,7 +12,7 @@
 # Scan reports are always published as build artifacts regardless of that gate.
 
 env:
-  TRIVY_VERSION: v0.64.1
+  TRIVY_IMAGE: aquasec/trivy:0.64.1
   TRIVY_CACHE_DIR: ${{ github.workspace }}/.cache/trivy
 
 name: Security CI
@@ -126,30 +126,36 @@ jobs:
         uses: actions/cache@v4
         with:
           path: ${{ env.TRIVY_CACHE_DIR }}
-          key: trivy-db-${{ runner.os }}-${{ env.TRIVY_VERSION }}
+          key: trivy-db-${{ runner.os }}-${{ env.TRIVY_IMAGE }}
           restore-keys: |
             trivy-db-${{ runner.os }}-
 
-      - name: Install Trivy CLI
+      - name: Show Trivy Docker image version
         run: |
           set -euo pipefail
-          echo "Installing Trivy ${TRIVY_VERSION}"
-          curl -sfL https://raw.githubusercontent.com/aquasecurity/trivy/main/contrib/install.sh \
-            | sh -s -- -b "$HOME/.local/bin" "$TRIVY_VERSION"
-          echo "$HOME/.local/bin" >> "$GITHUB_PATH"
-          echo "Installed Trivy version:"
-          trivy --version
+          mkdir -p "$TRIVY_CACHE_DIR"
+          echo "Docker version:"
+          docker version
+          echo "Selected Trivy image: ${TRIVY_IMAGE}"
+          docker run --rm "${TRIVY_IMAGE}" --version
 
       - name: Generate dependency vulnerability report
         run: |
           set -euo pipefail
           mkdir -p "$TRIVY_CACHE_DIR"
-          echo "Trivy version:"
-          trivy --version
+          echo "Docker version:"
+          docker version
+          echo "Selected Trivy image: ${TRIVY_IMAGE}"
+          docker run --rm "${TRIVY_IMAGE}" --version
           echo "Scan target: ."
           echo "Severity policy: report HIGH/CRITICAL fixable library vulnerabilities; do not fail this report step."
           echo "Output: trivy-dependencies.txt"
-          trivy fs . \
+          docker run --rm \
+            -v "${GITHUB_WORKSPACE}:/work" \
+            -v "${TRIVY_CACHE_DIR}:/root/.cache/trivy" \
+            -w /work \
+            "${TRIVY_IMAGE}" \
+            fs . \
             --scanners vuln \
             --vuln-type library \
             --severity HIGH,CRITICAL \
@@ -157,17 +163,24 @@ jobs:
             --format table \
             --output trivy-dependencies.txt \
             --exit-code 0 \
-            --cache-dir "$TRIVY_CACHE_DIR"
+            --cache-dir /root/.cache/trivy
 
       - name: Block on dependency vulnerabilities
         run: |
           set -euo pipefail
-          echo "Trivy version:"
-          trivy --version
+          echo "Docker version:"
+          docker version
+          echo "Selected Trivy image: ${TRIVY_IMAGE}"
+          docker run --rm "${TRIVY_IMAGE}" --version
           echo "Scan target: ."
           echo "Severity policy: block on HIGH/CRITICAL fixable library vulnerabilities."
           echo "Output: trivy-dependencies.sarif"
-          trivy fs . \
+          docker run --rm \
+            -v "${GITHUB_WORKSPACE}:/work" \
+            -v "${TRIVY_CACHE_DIR}:/root/.cache/trivy" \
+            -w /work \
+            "${TRIVY_IMAGE}" \
+            fs . \
             --scanners vuln \
             --vuln-type library \
             --severity HIGH,CRITICAL \
@@ -175,7 +188,7 @@ jobs:
             --format sarif \
             --output trivy-dependencies.sarif \
             --exit-code 1 \
-            --cache-dir "$TRIVY_CACHE_DIR"
+            --cache-dir /root/.cache/trivy
 
       - name: Show dependency report on failure
         if: failure()
@@ -231,19 +244,18 @@ jobs:
         uses: actions/cache@v4
         with:
           path: ${{ env.TRIVY_CACHE_DIR }}
-          key: trivy-db-${{ runner.os }}-${{ env.TRIVY_VERSION }}
+          key: trivy-db-${{ runner.os }}-${{ env.TRIVY_IMAGE }}
           restore-keys: |
             trivy-db-${{ runner.os }}-
 
-      - name: Install Trivy CLI
+      - name: Show Trivy Docker image version
         run: |
           set -euo pipefail
-          echo "Installing Trivy ${TRIVY_VERSION}"
-          curl -sfL https://raw.githubusercontent.com/aquasecurity/trivy/main/contrib/install.sh \
-            | sh -s -- -b "$HOME/.local/bin" "$TRIVY_VERSION"
-          echo "$HOME/.local/bin" >> "$GITHUB_PATH"
-          echo "Installed Trivy version:"
-          trivy --version
+          mkdir -p "$TRIVY_CACHE_DIR"
+          echo "Docker version:"
+          docker version
+          echo "Selected Trivy image: ${TRIVY_IMAGE}"
+          docker run --rm "${TRIVY_IMAGE}" --version
 
       - name: Ensure gradlew executable
         run: chmod +x gradlew
@@ -260,37 +272,53 @@ jobs:
           set -euo pipefail
           mkdir -p "$TRIVY_CACHE_DIR"
           image_ref="parkio/${{ matrix.service }}:security-ci"
-          echo "Trivy version:"
-          trivy --version
+          echo "Docker version:"
+          docker version
+          echo "Selected Trivy image: ${TRIVY_IMAGE}"
+          docker run --rm "${TRIVY_IMAGE}" --version
           echo "Scan target: ${image_ref}"
           echo "Severity policy: report HIGH/CRITICAL image vulnerabilities; do not fail this report step."
           echo "Output: trivy-image-${{ matrix.service }}.txt"
-          trivy image "${image_ref}" \
+          docker run --rm \
+            -v /var/run/docker.sock:/var/run/docker.sock \
+            -v "${TRIVY_CACHE_DIR}:/root/.cache/trivy" \
+            -v "${GITHUB_WORKSPACE}:/work" \
+            -w /work \
+            "${TRIVY_IMAGE}" \
+            image "${image_ref}" \
             --scanners vuln \
             --severity HIGH,CRITICAL \
             --ignore-unfixed \
             --format table \
             --output trivy-image-${{ matrix.service }}.txt \
             --exit-code 0 \
-            --cache-dir "$TRIVY_CACHE_DIR"
+            --cache-dir /root/.cache/trivy
 
       - name: Block on critical image findings
         run: |
           set -euo pipefail
           image_ref="parkio/${{ matrix.service }}:security-ci"
-          echo "Trivy version:"
-          trivy --version
+          echo "Docker version:"
+          docker version
+          echo "Selected Trivy image: ${TRIVY_IMAGE}"
+          docker run --rm "${TRIVY_IMAGE}" --version
           echo "Scan target: ${image_ref}"
           echo "Severity policy: block on CRITICAL image vulnerabilities."
           echo "Output: trivy-image-${{ matrix.service }}.sarif"
-          trivy image "${image_ref}" \
+          docker run --rm \
+            -v /var/run/docker.sock:/var/run/docker.sock \
+            -v "${TRIVY_CACHE_DIR}:/root/.cache/trivy" \
+            -v "${GITHUB_WORKSPACE}:/work" \
+            -w /work \
+            "${TRIVY_IMAGE}" \
+            image "${image_ref}" \
             --scanners vuln \
             --severity CRITICAL \
             --ignore-unfixed \
             --format sarif \
             --output trivy-image-${{ matrix.service }}.sarif \
             --exit-code 1 \
-            --cache-dir "$TRIVY_CACHE_DIR"
+            --cache-dir /root/.cache/trivy
 
       - name: Show image report on failure
         if: failure()

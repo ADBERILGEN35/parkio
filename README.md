@@ -170,10 +170,10 @@ Runs on PRs, pushes to `master`, weekly, and on demand:
   reports HIGH/CRITICAL findings, and blocks CRITICAL image vulnerabilities.
 
 All scan reports are uploaded as workflow artifacts on every run, independent of
-Code Scanning availability. Security CI installs the official Trivy CLI directly
-from the pinned `TRIVY_VERSION` release, prints `trivy --version`, and runs explicit
-`trivy fs` / `trivy image` commands so scanner failures have normal command logs.
-To update Trivy, change the top-level `TRIVY_VERSION` value in
+Code Scanning availability. Security CI runs the official pinned Trivy Docker image
+(`TRIVY_IMAGE`) and does not install Trivy on the GitHub runner. The workflow prints
+`docker version`, the selected image, and `docker run --rm "$TRIVY_IMAGE" --version`
+before scanning. To update Trivy, change the top-level `TRIVY_IMAGE` value in
 [`security-ci.yml`](.github/workflows/security-ci.yml) and rerun Security CI.
 
 Trivy database/cache state is restored with `actions/cache` at `.cache/trivy`.
