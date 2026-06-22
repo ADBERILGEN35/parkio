@@ -109,6 +109,13 @@ Privilege boundaries / enforcement notes:
 - Dependency and image vulnerability gates should start high-signal: fail on
   HIGH/CRITICAL dependency vulnerabilities and CRITICAL container-image
   vulnerabilities, then tighten as the baseline stays clean.
+- CodeQL (SAST) and Trivy SARIF upload to GitHub Code Scanning are gated behind
+  the `CODEQL_ENABLED` repository variable. On the current personal/private repo
+  Code Scanning / GHAS is unavailable, so the gate stays off: the CodeQL job is
+  skipped and scan results are kept as workflow artifacts. After the repo moves to
+  an organization (or GHAS is enabled) and Code scanning is turned on, set
+  `CODEQL_ENABLED=true` to activate CodeQL and SARIF upload — no workflow edits
+  needed. Do not delete CodeQL to make CI green; gate it.
 
 ## Input & data protection
 

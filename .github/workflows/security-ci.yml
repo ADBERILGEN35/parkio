@@ -1,6 +1,15 @@
 # Practical security gates for Parkio. The policy is deliberately high-signal:
-# secrets always fail, CodeQL uploads SARIF, dependency scans fail on HIGH/CRITICAL,
-# and representative container images fail on CRITICAL only while the baseline matures.
+# secrets always fail, dependency scans fail on HIGH/CRITICAL, and representative
+# container images fail on CRITICAL only while the baseline matures.
+#
+# CodeQL and Trivy SARIF upload publish to GitHub Code Scanning, which requires
+# Code scanning (and, on private repos, GitHub Advanced Security) to be enabled.
+# Those parts are gated behind the repository variable CODEQL_ENABLED so this
+# workflow passes on a personal/private repo today and lights CodeQL up later,
+# without code changes, once the repo moves to an org/GHAS:
+#   set repository variable CODEQL_ENABLED=true (Settings -> Secrets and
+#   variables -> Actions -> Variables) after enabling Code scanning.
+# Scan reports are always published as build artifacts regardless of that gate.
 
 name: Security CI
 
@@ -13,6 +22,9 @@ on:
     - cron: "23 3 * * 1"
   workflow_dispatch:
 
+# Least-privilege for the Code Scanning path. security-events: write is only
+# consumed by the SARIF-upload steps, which are themselves gated on
+# CODEQL_ENABLED; it is harmless (unused) while the gate is off.
 permissions:
   contents: read
   security-events: write
@@ -56,6 +68,10 @@ jobs:
 
   codeql:
     name: CodeQL (${{ matrix.language }})
+    # Gated: runs only once Code scanning / GHAS is available and the repo
+    # variable CODEQL_ENABLED is set to "true". Otherwise the job is skipped
+    # cleanly (green) and the summary job reports it as skipped.
+    if: ${{ vars.CODEQL_ENABLED == 'true' }}
     runs-on: ubuntu-latest
     timeout-minutes: 35
     strategy:
@@ -93,6 +109,21 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
+      # Authenticated ghcr pull avoids anonymous trivy-db rate limits
+      # (TOOMANYREQUESTS) when fetching the vulnerability database.
+      - name: Log in to ghcr.io
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Cache Trivy database
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/trivy
+          key: trivy-db-${{ runner.os }}
+
       - name: Scan dependency manifests with Trivy
         uses: aquasecurity/trivy-action@v0.33.1
         with:
@@ -106,8 +137,9 @@ jobs:
           output: trivy-dependencies.sarif
           exit-code: "1"
 
-      - name: Upload dependency SARIF
-        if: always()
+      - name: Upload dependency SARIF to Code Scanning
+        # Only when Code Scanning is available; harmless to skip otherwise.
+        if: ${{ always() && vars.CODEQL_ENABLED == 'true' }}
         uses: github/codeql-action/upload-sarif@v4
         with:
           sarif_file: trivy-dependencies.sarif
@@ -137,6 +169,19 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
+      - name: Log in to ghcr.io
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Cache Trivy database
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/trivy
+          key: trivy-db-${{ runner.os }}
+
       - name: Build service image
         run: |
           docker build \
@@ -152,6 +197,7 @@ jobs:
           severity: HIGH,CRITICAL
           ignore-unfixed: true
           format: table
+          output: trivy-image-${{ matrix.service }}.txt
           exit-code: "0"
 
       - name: Block on critical image findings
@@ -165,18 +211,78 @@ jobs:
           output: trivy-image-${{ matrix.service }}.sarif
           exit-code: "1"
 
-      - name: Upload image SARIF
-        if: always()
+      - name: Upload image SARIF to Code Scanning
+        if: ${{ always() && vars.CODEQL_ENABLED == 'true' }}
         uses: github/codeql-action/upload-sarif@v4
         with:
           sarif_file: trivy-image-${{ matrix.service }}.sarif
           category: trivy-image-${{ matrix.service }}
 
-      - name: Upload image report artifact
+      - name: Upload image report artifacts
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: trivy-image-${{ matrix.service }}-sarif
-          path: trivy-image-${{ matrix.service }}.sarif
+          name: trivy-image-${{ matrix.service }}-reports
+          path: |
+            trivy-image-${{ matrix.service }}.txt
+            trivy-image-${{ matrix.service }}.sarif
           if-no-files-found: ignore
           retention-days: 14
+
+  summary:
+    name: Security CI summary
+    runs-on: ubuntu-latest
+    if: always()
+    needs: [secrets, codeql, dependencies, container-images]
+    steps:
+      - name: Write summary
+        env:
+          SECRETS_RESULT: ${{ needs.secrets.result }}
+          CODEQL_RESULT: ${{ needs.codeql.result }}
+          DEPENDENCIES_RESULT: ${{ needs.dependencies.result }}
+          CONTAINER_RESULT: ${{ needs.container-images.result }}
+          CODEQL_ENABLED: ${{ vars.CODEQL_ENABLED }}
+        run: |
+          if [ "${CODEQL_ENABLED}" = "true" ]; then
+            codeql_line="**enabled** (result: ${CODEQL_RESULT}) — SARIF uploaded to Code Scanning"
+          else
+            codeql_line="**skipped** (CODEQL_ENABLED is not \"true\"; Code Scanning unavailable on this repo)"
+          fi
+
+          {
+            echo "## Security CI summary"
+            echo ""
+            echo "| Gate | Policy | Result |"
+            echo "| --- | --- | --- |"
+            echo "| Secret scan (gitleaks) | blocking — fails on any detected secret | ${SECRETS_RESULT} |"
+            echo "| Trivy dependency scan | blocking — fails on HIGH/CRITICAL fixable library vulns | ${DEPENDENCIES_RESULT} |"
+            echo "| Trivy container scan | reporting HIGH/CRITICAL; blocking on CRITICAL image vulns | ${CONTAINER_RESULT} |"
+            echo "| CodeQL (SAST) | ${codeql_line} |  |"
+            echo ""
+            echo "All scan reports are published as workflow artifacts regardless of CodeQL state."
+            echo ""
+            echo "### How to enable CodeQL"
+            echo "1. Move the repo to an organization, or enable GitHub Advanced Security on it."
+            echo "2. Enable **Settings -> Code security and analysis -> Code scanning**."
+            echo "3. Add repository variable **CODEQL_ENABLED=true** (Settings -> Secrets and variables -> Actions -> Variables)."
+            echo "4. Re-run Security CI."
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Fail summary if a required gate failed
+        env:
+          SECRETS_RESULT: ${{ needs.secrets.result }}
+          CODEQL_RESULT: ${{ needs.codeql.result }}
+          DEPENDENCIES_RESULT: ${{ needs.dependencies.result }}
+          CONTAINER_RESULT: ${{ needs.container-images.result }}
+        run: |
+          # codeql may legitimately be "skipped" (gate off) — that is not a failure.
+          fail=0
+          for r in "$SECRETS_RESULT" "$DEPENDENCIES_RESULT" "$CONTAINER_RESULT"; do
+            if [ "$r" != "success" ]; then fail=1; fi
+          done
+          if [ "$CODEQL_RESULT" = "failure" ]; then fail=1; fi
+          if [ "$fail" -eq 1 ]; then
+            echo "::error::One or more Security CI gates failed. See the job summary."
+            exit 1
+          fi
+          echo "All required Security CI gates passed."

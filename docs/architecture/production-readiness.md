@@ -457,18 +457,34 @@ Security CI runs on PRs, pushes to `master`, weekly, and on demand:
 
 - **Secret scanning:** gitleaks with `.gitleaks.toml`, blocking all detected secrets except exact
   documented local-dev placeholders and test-only fake values.
-- **SAST:** CodeQL for Java/Kotlin and JavaScript/TypeScript, uploading SARIF to GitHub code scanning.
+- **SAST:** CodeQL for Java/Kotlin and JavaScript/TypeScript, uploading SARIF to GitHub code scanning
+  (gated behind the `CODEQL_ENABLED` repository variable — see below).
 - **Dependency scanning:** Trivy filesystem scan over dependency manifests, blocking HIGH/CRITICAL
   library vulnerabilities.
 - **Container scanning:** gateway/auth/media images are built and scanned with Trivy. HIGH findings are
   reported; CRITICAL image vulnerabilities block CI.
 
-CodeQL and Trivy SARIF upload require repository code scanning to be enabled:
-**GitHub repository Settings → Code security and analysis → Code scanning**. Enable
-CodeQL/code scanning there before treating `security-ci.yml` as a required check.
-Private repositories may need GitHub Advanced Security enabled at the repository or
-organization level. The workflow permissions are already least-privilege for this
-path: `contents: read`, `security-events: write`, and `actions: read`.
+All scan reports are uploaded as workflow artifacts on every run. Trivy steps authenticate to
+`ghcr.io` with the workflow `GITHUB_TOKEN` and cache `~/.cache/trivy` to avoid anonymous
+vulnerability-DB rate limits (`TOOMANYREQUESTS`). A final `summary` job prints the policy and
+per-gate result (including whether CodeQL ran or was skipped) to the run summary.
+
+**CodeQL gating — personal repo today, org/GHAS later.** Code Scanning (and, on private repos,
+GitHub Advanced Security) is required for CodeQL and Trivy SARIF upload. This is currently
+unavailable, so those parts are gated behind the repository variable `CODEQL_ENABLED`:
+
+- **Personal-repo mode (today):** `CODEQL_ENABLED` unset/not `"true"` → the CodeQL job is skipped
+  cleanly and SARIF-upload steps are bypassed. Security CI passes; reports remain available as
+  artifacts.
+- **Organization / GHAS mode (later):** to enable CodeQL with no workflow edits —
+  1. Move the repo to an organization or enable GitHub Advanced Security on it.
+  2. Enable **Settings → Code security and analysis → Code scanning**.
+  3. Add repository variable **`CODEQL_ENABLED=true`** (**Settings → Secrets and variables →
+     Actions → Variables**).
+  4. Re-run Security CI.
+
+The workflow permissions are already least-privilege for this path: `contents: read`,
+`security-events: write` (consumed only by the gated SARIF uploads), and `actions: read`.
 
 False positives must be handled narrowly. Prove the value is fake, then add the smallest exact
 allowlist/config entry. If a real secret is committed, rotate/revoke it and remove it from deployment

@@ -162,18 +162,35 @@ Runs on PRs, pushes to `master`, weekly, and on demand:
 
 - **gitleaks** secret scanning blocks detected secrets. The allowlist is deliberately
   narrow and limited to documented local-dev placeholders and test-only fake secrets.
-- **CodeQL** analyzes Java/Kotlin and JavaScript/TypeScript and uploads SARIF.
+- **CodeQL** analyzes Java/Kotlin and JavaScript/TypeScript and uploads SARIF —
+  gated behind the `CODEQL_ENABLED` repository variable (see below).
 - **Trivy filesystem dependency scanning** covers Gradle/pnpm manifests and blocks
   HIGH/CRITICAL library vulnerabilities.
 - **Trivy container image scanning** builds representative gateway/auth/media images,
   reports HIGH/CRITICAL findings, and blocks CRITICAL image vulnerabilities.
 
-CodeQL and SARIF uploads require GitHub code scanning to be enabled for the
-repository. In GitHub, use **Settings → Code security and analysis → Code scanning**
-and enable CodeQL/code scanning. For private repositories this may require GitHub
-Advanced Security on the repository or organization. The workflow already grants
-`contents: read`, `security-events: write`, and `actions: read`; if the repository
-setting is disabled, CodeQL/SARIF upload will still fail until it is enabled.
+All scan reports are uploaded as workflow artifacts on every run, independent of
+Code Scanning availability.
+
+**Personal-repo mode (today).** Code Scanning / GitHub Advanced Security is not
+available on this private repository, so CodeQL and Trivy SARIF uploads to the
+Security tab are turned off. The workflow detects this through the repository
+variable `CODEQL_ENABLED`: while it is unset (or not `"true"`), the CodeQL job is
+skipped cleanly and the SARIF-upload steps are bypassed, so Security CI is green.
+
+**Organization / GHAS mode (later).** Once the repo moves to an organization (or
+GHAS is enabled) and Code scanning is turned on, flip the gate — no workflow edits
+needed:
+
+1. Move the repo to an organization or enable GitHub Advanced Security on it.
+2. Enable **Settings → Code security and analysis → Code scanning**.
+3. Add repository variable **`CODEQL_ENABLED=true`** under
+   **Settings → Secrets and variables → Actions → Variables**.
+4. Re-run Security CI.
+
+The workflow already grants `contents: read`, `security-events: write`, and
+`actions: read`; `security-events: write` is consumed only by the gated SARIF
+uploads and is harmless while the gate is off.
 
 Handle false positives by first proving the value is fake, then adding the smallest
 possible allowlist entry in `.gitleaks.toml` or an equivalent scanner config. Never
