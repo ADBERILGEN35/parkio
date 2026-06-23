@@ -1,6 +1,16 @@
 # Conservative weekly dependency updates for the Gradle build (version catalog
 # + wrapper) and the GitHub Actions used by CI. Low PR limits keep the noise
 # down; security updates are always raised regardless of these schedules.
+#
+# Dependency-line policy
+# ----------------------
+# This platform is intentionally pinned to the Spring Boot 3.x / Spring Cloud
+# 2025.0.x line (master is green on Spring Boot 3.5.15, Spring Cloud 2025.0.3,
+# MinIO 8.6.0, springdoc 2.8.17). A few libraries publish *major* releases that
+# are NOT drop-in upgrades on this line and require dedicated migration work, so
+# their major bumps are ignored below. Patch and minor updates — including
+# in-line security fixes — are still raised normally. Removing an `ignore` entry
+# is the explicit signal that the corresponding migration has been scheduled.
 version: 2
 
 updates:
@@ -11,6 +21,24 @@ updates:
     open-pull-requests-limit: 5
     labels:
       - dependencies
+    # Block only `semver-major` for these two libraries; patch/minor (and
+    # security patches within the current major) continue to flow. This keeps
+    # Dependabot useful without proposing upgrades that break the build.
+    ignore:
+      # MinIO 9.x removed `io.minio.http.Method` and changed the
+      # `PutObjectArgs.stream(...)` signature (objectSize became a boxed Long),
+      # which breaks MinioMediaStorageAdapter at compile time. Adopting 9.x
+      # requires an explicit media storage adapter migration — not a Dependabot
+      # bump. See README "Dependency-line policy".
+      - dependency-name: "io.minio:minio"
+        update-types: ["version-update:semver-major"]
+      # springdoc-openapi 3.x targets Spring Framework 7 / Spring Boot 4. On
+      # Spring Boot 3.5.x it fails servlet context initialization
+      # (NoClassDefFoundError: ServletWebServerApplicationContextFactory ->
+      # contextLoads failures). It belongs to the Spring Boot 4 migration path,
+      # not this line. See README "Dependency-line policy".
+      - dependency-name: "org.springdoc:springdoc-openapi-starter-webmvc-ui"
+        update-types: ["version-update:semver-major"]
 
   - package-ecosystem: github-actions
     directory: "/"

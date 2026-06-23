@@ -223,6 +223,28 @@ producer unless you already have the CodeQL CLI installed.
 [`.github/dependabot.yml`](.github/dependabot.yml) raises conservative weekly
 update PRs for Gradle dependencies and the GitHub Actions used by CI.
 
+### Dependency-line policy
+
+The platform is intentionally pinned to the **Spring Boot 3.x / Spring Cloud
+2025.0.x** line. Master is green on Spring Boot 3.5.15, Spring Cloud 2025.0.3,
+MinIO 8.6.0 and springdoc 2.8.17, and patch/minor Dependabot updates are
+expected to stay on that line. Two libraries publish **major** releases that are
+not drop-in upgrades here, so their major bumps are ignored in
+[`dependabot.yml`](.github/dependabot.yml) (patch/minor and in-line security
+fixes are still raised):
+
+| Dependency | Ignored | Why |
+| --- | --- | --- |
+| `io.minio:minio` | `>= 9.0.0` | MinIO 9.x removed `io.minio.http.Method` and changed `PutObjectArgs.stream(...)` (objectSize → boxed `Long`), breaking `MinioMediaStorageAdapter` at compile time. Needs a deliberate storage-adapter migration. |
+| `org.springdoc:springdoc-openapi-starter-webmvc-ui` | `>= 3.0.0` | springdoc 3.x targets Spring Framework 7 / Spring Boot 4; on Boot 3.5.x it fails servlet context init (`NoClassDefFoundError: ServletWebServerApplicationContextFactory` → `contextLoads` failures). Belongs to the Boot 4 migration. |
+
+**When the Spring Boot 4 / Spring Framework 7 migration starts:** bump the Boot
+and Spring Cloud BOMs first, then remove the matching `ignore` entry in
+`dependabot.yml` (or raise the bump manually) — springdoc 3.x and MinIO 9.x are
+adopted *as part of* that migration, with the `MinioMediaStorageAdapter` API
+rewrite, not before it. Removing an `ignore` entry is the explicit signal that
+its migration has been scheduled.
+
 ## Line-ending policy
 
 [`.gitattributes`](.gitattributes) normalizes line endings so Windows/WSL
