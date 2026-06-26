@@ -65,7 +65,7 @@ jobs:
           cat provenance.json
 
       - name: Upload provenance manifest
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: provenance-manifest
           path: provenance.json
@@ -105,7 +105,7 @@ jobs:
           echo "Collected:"; ls -1 sbom/backend
 
       - name: Upload backend SBOMs
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: sbom-backend
           path: sbom/backend/*.cdx.json
@@ -148,7 +148,7 @@ jobs:
           echo "Components:"; grep -c '"bom-ref"' sbom/frontend.cdx.json || true
 
       - name: Upload frontend SBOM
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: sbom-frontend
           path: sbom/frontend.cdx.json
