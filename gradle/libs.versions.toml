@@ -10,7 +10,7 @@ minio = "8.6.0"
 springdoc = "2.8.17"
 # Resilience4j (circuit breaker / bulkhead / rate limiter). Not in the Spring Boot BOM,
 # so it needs an explicit version; 2.3.x targets the Spring Boot 3.4+/3.5 line.
-resilience4j = "2.3.0"
+resilience4j = "2.4.0"
 kafkaClients = "3.9.2"
 
 [libraries]
