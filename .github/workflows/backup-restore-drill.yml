@@ -45,7 +45,7 @@ jobs:
     timeout-minutes: 25
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
 
       # docker/.env.example ships usable local-dev passwords — fine for a throwaway
       # CI database stack that is torn down (down -v) at the end.
