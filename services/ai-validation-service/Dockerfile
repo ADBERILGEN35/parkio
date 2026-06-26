@@ -1,14 +1,14 @@
 # syntax=docker/dockerfile:1
 
 # ---- build stage ----
-FROM eclipse-temurin:21-jdk AS build
+FROM eclipse-temurin:25-jdk AS build
 WORKDIR /workspace
 COPY . .
 RUN chmod +x ./gradlew
 RUN ./gradlew :services:ai-validation-service:bootJar --no-daemon
 
 # ---- runtime stage ----
-FROM eclipse-temurin:21-jre AS runtime
+FROM eclipse-temurin:25-jre AS runtime
 WORKDIR /app
 
 # curl is the ONLY added runtime package: the HEALTHCHECK below (and the compose apps
