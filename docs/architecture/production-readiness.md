@@ -696,6 +696,9 @@ OIDC federation to the cloud provider where possible.
 >   anonymous (login/register) rate limiting keys on the real client IP behind Caddy — only when the
 >   socket peer is a configured trusted proxy, and spoofing-resistant (right-most non-proxy hop).
 > - `docker/.env.hosted-beta.example` — complete env template (domains, TLS, CORS, public media endpoint).
+> - `.github/workflows/runtime-validation.yml` — on-demand/weekly CI runtime validation
+>   for the hosted-beta Compose stack on a Docker-capable GitHub Linux runner. See
+>   `docs/operations/runtime-validation.md`.
 > - `scripts/backup-databases.sh` — nightly per-DB `pg_dump` with optional encryption + off-box upload,
 >   retention pruning, plus `restore-database.sh` (guarded single-DB restore) and `verify-backup.sh`
 >   (restore into a disposable temp DB). Plumbing validated; **still TODO: run the live restore drill

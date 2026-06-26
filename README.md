@@ -196,6 +196,14 @@ Dependency reports are uploaded as `trivy-dependencies-reports`
 per service as `trivy-image-<service>-reports`
 (`trivy-image-<service>.txt`, `trivy-image-<service>.sarif`).
 
+**[`runtime-validation.yml`](.github/workflows/runtime-validation.yml) — full runtime
+validation.** Builds and starts the hosted-beta Docker Compose stack on a
+GitHub-hosted Linux runner, waits for required healthchecks, verifies gateway and
+direct-service security responses, checks app resource limits, restarts
+`analytics-service`, and smoke-tests the observability endpoints. It uses a
+throwaway env generated from `docker/.env.hosted-beta.example`; no real secrets
+are required. See [`docs/operations/runtime-validation.md`](docs/operations/runtime-validation.md).
+
 **Personal-repo mode (today).** Code Scanning / GitHub Advanced Security is not
 available on this private repository, so CodeQL and Trivy SARIF uploads to the
 Security tab are turned off. The workflow detects this through the repository

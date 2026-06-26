@@ -1,0 +1,318 @@
+name: Runtime validation
+
+on:
+  workflow_dispatch:
+  pull_request:
+    paths:
+      - "docker/**"
+      - "services/**/Dockerfile"
+      - "services/**/src/main/resources/application*.yml"
+      - ".github/workflows/runtime-validation.yml"
+  schedule:
+    # Weekly runtime drift check, after the security and backup jobs.
+    - cron: "41 5 * * 1"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: runtime-validation-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  COMPOSE_ENV_FILE: docker/.env.runtime-validation
+  COMPOSE_FILES: >-
+    -f docker/docker-compose.yml
+    -f docker/docker-compose.apps.yml
+    -f docker/docker-compose.hosted-beta.yml
+
+jobs:
+  runtime-validation:
+    name: Full Docker Compose runtime validation
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up JDK 21
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "21"
+          cache: gradle
+
+      - name: Set up pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          package_json_file: frontend/package.json
+
+      - name: Set up Node.js 20
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: pnpm
+          cache-dependency-path: frontend/pnpm-lock.yaml
+
+      - name: Make Gradle wrapper executable
+        run: chmod +x gradlew
+
+      - name: Backend clean build
+        run: ./gradlew --no-daemon clean build
+
+      - name: Backend integration tests
+        run: ./gradlew --no-daemon integrationTest -Pparkio.integrationTest.requireDocker=true
+
+      - name: Frontend dependency install
+        working-directory: frontend
+        run: pnpm install --frozen-lockfile
+
+      - name: Frontend build smoke
+        working-directory: frontend
+        run: |
+          pnpm -r typecheck
+          pnpm -r lint
+          pnpm -r test
+          pnpm -r build
+
+      - name: Prepare CI-only hosted-beta env
+        run: |
+          set -euo pipefail
+          cp docker/.env.hosted-beta.example "$COMPOSE_ENV_FILE"
+
+          openssl genpkey -algorithm RSA -pkeyopt rsa_keygen_bits:2048 -out /tmp/parkio-runtime-jwt.pem
+          python3 - <<'PY'
+          from pathlib import Path
+
+          env_path = Path("docker/.env.runtime-validation")
+          values = {}
+          for line in env_path.read_text().splitlines():
+              if not line or line.lstrip().startswith("#") or "=" not in line:
+                  continue
+              key, value = line.split("=", 1)
+              values[key] = value
+
+          pem = Path("/tmp/parkio-runtime-jwt.pem").read_text().strip().replace("\n", "\\n")
+          overrides = {
+              "PARKIO_DOMAIN": "api.runtime-validation.localhost",
+              "PARKIO_WEB_DOMAIN": "app.runtime-validation.localhost",
+              "PARKIO_WEB_UPSTREAM": "gateway-service:8080",
+              "PARKIO_MEDIA_DOMAIN": "media.runtime-validation.localhost",
+              "PARKIO_ACME_EMAIL": "ops@example.invalid",
+              "PARKIO_CORS_ALLOWED_ORIGINS": "https://app.runtime-validation.localhost",
+              "PARKIO_JWT_PRIVATE_KEY_PEM": f'"{pem}"',
+              "PARKIO_GATEWAY_INTERNAL_SECRET": "runtime-validation-gateway-secret",
+              "PARKIO_EMAIL_PROVIDER": "logging",
+              "PARKIO_RESEND_API_KEY": "",
+              "KAFKA_CLUSTER_ID": "MkU3OEVBNTcwNTJENDM2Qk",
+              "MINIO_ROOT_PASSWORD": "runtime-validation-minio-password",
+              "PARKIO_MEDIA_STORAGE_PUBLIC_ENDPOINT": "https://media.runtime-validation.localhost",
+              "PARKIO_ALERT_SLACK_WEBHOOK_URL": "",
+              "GRAFANA_ADMIN_PASSWORD": "runtime-validation-grafana-password",
+          }
+
+          lines = []
+          seen = set()
+          for line in env_path.read_text().splitlines():
+              if not line or line.lstrip().startswith("#") or "=" not in line:
+                  lines.append(line)
+                  continue
+              key, _ = line.split("=", 1)
+              if key in overrides:
+                  lines.append(f"{key}={overrides[key]}")
+                  seen.add(key)
+              else:
+                  lines.append(line)
+          for key, value in overrides.items():
+              if key not in seen and key not in values:
+                  lines.append(f"{key}={value}")
+          env_path.write_text("\n".join(lines) + "\n")
+          PY
+
+      - name: Render compose config
+        run: |
+          set -euo pipefail
+          docker compose --env-file "$COMPOSE_ENV_FILE" $COMPOSE_FILES config > runtime-compose-config.yml
+          docker compose --env-file "$COMPOSE_ENV_FILE" $COMPOSE_FILES config --quiet
+
+      - name: Build and start full stack
+        run: docker compose --env-file "$COMPOSE_ENV_FILE" $COMPOSE_FILES up -d --build
+
+      - name: Wait for required healthchecks
+        run: |
+          set -euo pipefail
+          mkdir -p runtime-validation-artifacts
+          required=(
+            kafka redis minio clamav caddy
+            postgres-auth postgres-user postgres-parking postgres-media postgres-gamification
+            postgres-notification postgres-moderation postgres-analytics postgres-ai-validation
+            gateway-service auth-service user-service parking-service media-service
+            gamification-service notification-service moderation-service ai-validation-service analytics-service
+            prometheus grafana loki promtail alertmanager
+          )
+
+          wait_service() {
+            local svc="$1"
+            local cid status
+            cid="$(docker compose --env-file "$COMPOSE_ENV_FILE" $COMPOSE_FILES ps -q "$svc")"
+            if [ -z "$cid" ]; then
+              echo "::error::$svc has no container id"
+              return 1
+            fi
+            status="$(docker inspect -f '{{if .State.Health}}{{.State.Health.Status}}{{else}}{{.State.Status}}{{end}}' "$cid")"
+            printf '%s\t%s\n' "$svc" "$status" | tee -a runtime-validation-artifacts/health.tsv
+            [ "$status" = "healthy" ]
+          }
+
+          deadline=$((SECONDS + 900))
+          while true; do
+            : > runtime-validation-artifacts/health.tsv
+            failed=0
+            for svc in "${required[@]}"; do
+              if ! wait_service "$svc"; then
+                failed=1
+              fi
+            done
+            if [ "$failed" -eq 0 ]; then
+              echo "All required healthchecks are healthy."
+              break
+            fi
+            if [ "$SECONDS" -ge "$deadline" ]; then
+              echo "::error::Timed out waiting for required containers to become healthy."
+              docker compose --env-file "$COMPOSE_ENV_FILE" $COMPOSE_FILES ps
+              exit 1
+            fi
+            sleep 15
+          done
+
+      - name: Verify app readiness and gateway/security responses
+        run: |
+          set -euo pipefail
+          mkdir -p runtime-validation-artifacts
+
+          declare -A ports=(
+            [gateway-service]=8080
+            [auth-service]=8081
+            [user-service]=8082
+            [parking-service]=8083
+            [media-service]=8084
+            [gamification-service]=8085
+            [notification-service]=8086
+            [moderation-service]=8087
+            [ai-validation-service]=8088
+            [analytics-service]=8089
+          )
+
+          for svc in "${!ports[@]}"; do
+            port="${ports[$svc]}"
+            docker compose --env-file "$COMPOSE_ENV_FILE" $COMPOSE_FILES exec -T "$svc" \
+              curl -fsS "http://localhost:${port}/actuator/health/readiness" \
+              | tee "runtime-validation-artifacts/${svc}-readiness.json"
+          done
+
+          docker compose --env-file "$COMPOSE_ENV_FILE" $COMPOSE_FILES exec -T gateway-service \
+            curl -fsS http://localhost:8080/api/v1/auth/.well-known/jwks.json \
+            | tee runtime-validation-artifacts/gateway-jwks.json
+
+          status="$(docker compose --env-file "$COMPOSE_ENV_FILE" $COMPOSE_FILES exec -T gateway-service \
+            curl -sS -o runtime-validation-artifacts/gateway-protected-401.json -w '%{http_code}' \
+            'http://localhost:8080/api/v1/parking/spots/nearby?latitude=41.0&longitude=29.0&radiusMeters=1000')"
+          test "$status" = "401"
+
+          status="$(docker compose --env-file "$COMPOSE_ENV_FILE" $COMPOSE_FILES exec -T gateway-service \
+            curl -sS -o runtime-validation-artifacts/gateway-geocoding-401.json -w '%{http_code}' \
+            'http://localhost:8080/api/v1/parking/geocode/reverse?latitude=41.0&longitude=29.0')"
+          test "$status" = "401"
+
+          status="$(docker compose --env-file "$COMPOSE_ENV_FILE" $COMPOSE_FILES exec -T parking-service \
+            curl -sS -o runtime-validation-artifacts/direct-parking-gateway-auth-required.json -w '%{http_code}' \
+            'http://localhost:8083/api/v1/parking/spots/nearby?latitude=41.0&longitude=29.0&radiusMeters=1000')"
+          test "$status" = "401"
+          grep -q "GATEWAY_AUTH_REQUIRED" runtime-validation-artifacts/direct-parking-gateway-auth-required.json
+
+      - name: Validate runtime resource limits
+        run: |
+          set -euo pipefail
+          app_services=(
+            gateway-service auth-service user-service parking-service media-service
+            gamification-service notification-service moderation-service ai-validation-service analytics-service
+          )
+          : > runtime-validation-artifacts/resource-limits.tsv
+          for svc in "${app_services[@]}"; do
+            cid="$(docker compose --env-file "$COMPOSE_ENV_FILE" $COMPOSE_FILES ps -q "$svc")"
+            read -r memory nano_cpus cpu_quota cpu_period pids_limit < <(
+              docker inspect -f '{{.HostConfig.Memory}} {{.HostConfig.NanoCpus}} {{.HostConfig.CpuQuota}} {{.HostConfig.CpuPeriod}} {{.HostConfig.PidsLimit}}' "$cid"
+            )
+            printf '%s\tmemory=%s\tnano_cpus=%s\tcpu_quota=%s\tcpu_period=%s\tpids_limit=%s\n' \
+              "$svc" "$memory" "$nano_cpus" "$cpu_quota" "$cpu_period" "$pids_limit" \
+              | tee -a runtime-validation-artifacts/resource-limits.tsv
+            test "$memory" -gt 0
+            test "$pids_limit" -gt 0
+            if [ "$nano_cpus" -le 0 ]; then
+              test "$cpu_quota" -gt 0
+              test "$cpu_period" -gt 0
+            fi
+          done
+
+      - name: Restart validation for analytics-service
+        run: |
+          set -euo pipefail
+          docker compose --env-file "$COMPOSE_ENV_FILE" $COMPOSE_FILES restart analytics-service
+          deadline=$((SECONDS + 240))
+          while true; do
+            cid="$(docker compose --env-file "$COMPOSE_ENV_FILE" $COMPOSE_FILES ps -q analytics-service)"
+            status="$(docker inspect -f '{{if .State.Health}}{{.State.Health.Status}}{{else}}{{.State.Status}}{{end}}' "$cid")"
+            echo "analytics-service status=$status"
+            if [ "$status" = "healthy" ]; then
+              break
+            fi
+            if [ "$SECONDS" -ge "$deadline" ]; then
+              echo "::error::analytics-service did not recover to healthy after restart."
+              exit 1
+            fi
+            sleep 10
+          done
+
+      - name: Observability smoke checks
+        run: |
+          set -euo pipefail
+          curl -fsS http://127.0.0.1:9090/-/ready | tee runtime-validation-artifacts/prometheus-ready.txt
+          curl -fsS http://127.0.0.1:3000/api/health | tee runtime-validation-artifacts/grafana-health.json
+          curl -fsS http://127.0.0.1:3100/ready | tee runtime-validation-artifacts/loki-ready.txt
+          curl -fsS http://127.0.0.1:9093/-/ready | tee runtime-validation-artifacts/alertmanager-ready.txt
+          curl -fsS http://127.0.0.1:9308/metrics -o runtime-validation-artifacts/kafka-exporter-metrics.txt
+          head -50 runtime-validation-artifacts/kafka-exporter-metrics.txt
+          curl -fsS http://127.0.0.1:9100/metrics -o runtime-validation-artifacts/node-exporter-metrics.txt
+          head -50 runtime-validation-artifacts/node-exporter-metrics.txt
+          if curl -fsS http://127.0.0.1:3200/ready -o runtime-validation-artifacts/tempo-ready.txt; then
+            cat runtime-validation-artifacts/tempo-ready.txt
+          else
+            curl -fsS http://127.0.0.1:3200/status -o runtime-validation-artifacts/tempo-ready.txt
+            cat runtime-validation-artifacts/tempo-ready.txt
+          fi
+
+      - name: Collect runtime artifacts
+        if: always()
+        run: |
+          set +e
+          mkdir -p runtime-validation-artifacts/logs
+          docker compose --env-file "$COMPOSE_ENV_FILE" $COMPOSE_FILES config > runtime-validation-artifacts/compose-config.yml
+          docker compose --env-file "$COMPOSE_ENV_FILE" $COMPOSE_FILES ps > runtime-validation-artifacts/compose-ps.txt
+          docker compose --env-file "$COMPOSE_ENV_FILE" $COMPOSE_FILES ps --format json > runtime-validation-artifacts/compose-ps.json
+          for svc in $(docker compose --env-file "$COMPOSE_ENV_FILE" $COMPOSE_FILES config --services); do
+            docker compose --env-file "$COMPOSE_ENV_FILE" $COMPOSE_FILES logs --no-color --timestamps "$svc" \
+              > "runtime-validation-artifacts/logs/${svc}.log" 2>&1
+          done
+
+      - name: Upload runtime artifacts on failure
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: runtime-validation-artifacts
+          path: runtime-validation-artifacts/**
+          retention-days: 14
+          if-no-files-found: ignore
+
+      - name: Tear down stack
+        if: always()
+        run: docker compose --env-file "$COMPOSE_ENV_FILE" $COMPOSE_FILES down -v --remove-orphans
