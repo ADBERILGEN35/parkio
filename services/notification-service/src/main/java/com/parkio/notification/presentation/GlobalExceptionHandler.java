@@ -2,7 +2,7 @@ package com.parkio.notification.presentation;
 
 import com.parkio.notification.domain.exception.NotificationErrorCode;
 import com.parkio.notification.domain.exception.NotificationException;
-import com.parkio.notification.presentation.dto.ApiError;
+import com.parkio.platform.api.ApiError;
 import java.time.Clock;
 import java.util.List;
 import org.slf4j.Logger;

@@ -2,7 +2,7 @@ package com.parkio.user.presentation;
 
 import com.parkio.user.domain.exception.UserErrorCode;
 import com.parkio.user.domain.exception.UserException;
-import com.parkio.user.presentation.dto.ApiError;
+import com.parkio.platform.api.ApiError;
 import java.time.Clock;
 import java.util.List;
 import org.slf4j.Logger;

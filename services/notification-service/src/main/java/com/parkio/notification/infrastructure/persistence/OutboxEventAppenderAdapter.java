@@ -7,7 +7,7 @@ import com.parkio.notification.domain.event.NotificationCreatedEvent;
 import com.parkio.notification.infrastructure.persistence.entity.OutboxEventEntity;
 import com.parkio.notification.infrastructure.persistence.jpa.OutboxEventJpaRepository;
 import java.util.UUID;
-import com.parkio.notification.infrastructure.tracing.KafkaTraceContextSupport;
+import com.parkio.platform.tracing.KafkaTraceContextSupport;
 import org.springframework.stereotype.Component;
 
 /**

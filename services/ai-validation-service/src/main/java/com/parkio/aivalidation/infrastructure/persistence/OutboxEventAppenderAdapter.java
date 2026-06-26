@@ -7,7 +7,7 @@ import com.parkio.aivalidation.domain.event.AiValidationCompletedEvent;
 import com.parkio.aivalidation.infrastructure.persistence.entity.OutboxEventEntity;
 import com.parkio.aivalidation.infrastructure.persistence.jpa.OutboxEventJpaRepository;
 import java.util.UUID;
-import com.parkio.aivalidation.infrastructure.tracing.KafkaTraceContextSupport;
+import com.parkio.platform.tracing.KafkaTraceContextSupport;
 import org.springframework.stereotype.Component;
 
 /**

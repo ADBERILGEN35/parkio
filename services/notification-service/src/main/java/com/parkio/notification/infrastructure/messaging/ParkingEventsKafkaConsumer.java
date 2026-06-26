@@ -1,5 +1,7 @@
 package com.parkio.notification.infrastructure.messaging;
 
+import com.parkio.platform.messaging.EventEnvelope;
+
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.parkio.notification.application.NotificationApplicationService;
 import com.parkio.notification.application.event.ParkingSpotCreatedEvent;

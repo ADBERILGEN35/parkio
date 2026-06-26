@@ -2,7 +2,7 @@ package com.parkio.auth.presentation;
 
 import com.parkio.auth.domain.exception.AuthErrorCode;
 import com.parkio.auth.domain.exception.AuthException;
-import com.parkio.auth.presentation.dto.ApiError;
+import com.parkio.platform.api.ApiError;
 import java.time.Clock;
 import java.util.List;
 import org.slf4j.Logger;

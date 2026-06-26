@@ -1,5 +1,7 @@
 package com.parkio.parking.infrastructure.messaging;
 
+import com.parkio.platform.messaging.EventEnvelope;
+
 import static org.assertj.core.api.Assertions.assertThat;
 
 import com.fasterxml.jackson.databind.json.JsonMapper;

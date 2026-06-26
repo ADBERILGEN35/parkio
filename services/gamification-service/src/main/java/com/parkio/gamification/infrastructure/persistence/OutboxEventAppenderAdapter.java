@@ -7,7 +7,7 @@ import com.parkio.gamification.domain.event.GamificationEvent;
 import com.parkio.gamification.infrastructure.persistence.entity.OutboxEventEntity;
 import com.parkio.gamification.infrastructure.persistence.jpa.OutboxEventJpaRepository;
 import java.util.UUID;
-import com.parkio.gamification.infrastructure.tracing.KafkaTraceContextSupport;
+import com.parkio.platform.tracing.KafkaTraceContextSupport;
 import org.springframework.stereotype.Component;
 
 /**

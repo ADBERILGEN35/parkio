@@ -55,6 +55,9 @@ Privilege boundaries / enforcement notes:
   (`RouteAuthorizationRules`) are necessary but **not sufficient**: every privileged
   controller re-checks the gateway-injected `X-User-Roles`, and account-level rules are
   re-checked again in the application service. A missing/blank roles header denies.
+- Shared constants in `platform/parkio-platform` are transport names only. They
+  do not make authorization decisions. Gateway and service filters must continue
+  to strip, inject, verify, and authorize according to their own security rules.
 - **Account-level effects have no HTTP admin surface.** Suspend/restore, trust and
   point changes are *not* their own endpoints — they originate from moderation
   `resolveCase` actions and propagate via Kafka to auth/user/gamification. The single
@@ -181,6 +184,11 @@ Privilege boundaries / enforcement notes:
 
 - Log security-relevant events (auth failures, moderation actions) with `traceId`;
   **never log secrets, tokens, or full PII**.
+- Cross-service infrastructure helpers may be shared only when they preserve
+  fail-closed behavior and do not hide service-specific authorization decisions.
+  Do not move gateway auth filters, route authorization, token validation, or
+  object-level access rules into the platform module without a dedicated security
+  design review.
 - Keep dependencies patched (managed via the version catalog / BOM).
 - Fail closed: on auth/permission uncertainty, deny.
 

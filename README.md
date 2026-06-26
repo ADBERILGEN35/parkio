@@ -21,6 +21,8 @@ parkio/
 ├── gradle/
 │   └── libs.versions.toml    # Version catalog (single source of versions)
 ├── buildSrc/                 # `parkio.spring-service` convention plugin
+├── platform/
+│   └── parkio-platform/      # Shared infrastructure-only helpers; no domain models
 ├── services/                 # The microservices (one Gradle module each)
 │   ├── gateway-service/      # API gateway / edge routing        (:8080)
 │   ├── auth-service/         # Authentication & authorization    (:8081)
@@ -46,6 +48,11 @@ parkio/
   owns its data and exposes contracts at its boundary only. The `shared` package
   inside a service is for *intra-service* cross-cutting helpers, not cross-service
   reuse.
+- **Shared platform infrastructure is allowed.** `platform/parkio-platform`
+  contains boring service-agnostic plumbing only: header/MDC constants, the Kafka
+  transport envelope, the standard API error envelope, and trace propagation
+  helpers. It must never contain aggregate roots, business use cases, repository
+  entities, service DTOs, or event payload models.
 - **Clean architecture per service.** Each service's source under
   `src/main/java/com/parkio/<service>` is split into:
 
@@ -66,7 +73,9 @@ parkio/
 Shared build logic lives in [`buildSrc`](buildSrc) as the precompiled
 `parkio.spring-service` convention plugin. It applies the Java 21 toolchain, the
 Spring Boot and dependency-management plugins, imports the Spring Cloud BOM and
-configures JUnit 5. Versions are centralised in
+configures JUnit 5. It also adds the infrastructure-only
+[`platform/parkio-platform`](platform/parkio-platform) dependency to service
+modules. Versions are centralised in
 [`gradle/libs.versions.toml`](gradle/libs.versions.toml) and
 [`gradle.properties`](gradle.properties).
 

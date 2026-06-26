@@ -1,5 +1,7 @@
 package com.parkio.parking.infrastructure.messaging;
 
+import com.parkio.platform.messaging.EventEnvelope;
+
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.parkio.parking.application.ParkingApplicationService;
 import java.sql.Timestamp;

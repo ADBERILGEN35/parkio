@@ -2,7 +2,7 @@ package com.parkio.gamification.presentation;
 
 import com.parkio.gamification.domain.exception.GamificationErrorCode;
 import com.parkio.gamification.domain.exception.GamificationException;
-import com.parkio.gamification.presentation.dto.ApiError;
+import com.parkio.platform.api.ApiError;
 import java.time.Clock;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;

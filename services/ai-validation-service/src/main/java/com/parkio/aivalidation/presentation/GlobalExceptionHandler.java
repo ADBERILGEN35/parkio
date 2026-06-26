@@ -2,7 +2,7 @@ package com.parkio.aivalidation.presentation;
 
 import com.parkio.aivalidation.domain.exception.AiValidationErrorCode;
 import com.parkio.aivalidation.domain.exception.AiValidationException;
-import com.parkio.aivalidation.presentation.dto.ApiError;
+import com.parkio.platform.api.ApiError;
 import java.time.Clock;
 import java.util.List;
 import org.slf4j.Logger;

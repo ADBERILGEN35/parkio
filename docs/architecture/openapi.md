@@ -37,7 +37,8 @@ in the public OpenAPI document. Actuator endpoints are excluded
 
 ## Error shape
 
-All documented error responses use the service-local `ApiError` schema:
+All documented downstream service error responses use the shared
+`com.parkio.platform.api.ApiError` infrastructure schema:
 
 ```json
 {

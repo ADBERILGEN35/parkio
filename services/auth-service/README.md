@@ -314,9 +314,9 @@ must keep `PARKIO_REFRESH_COOKIE_SECURE=true`.
 ## Moderation status sync (suspend / restore)
 
 auth-service consumes `UserSuspended` / `UserRestored` from
-`parkio.moderation.action` (group `parkio.auth`, local DTOs — no shared models,
-inbox idempotency by `eventId`, manual ack after the transaction commits, poison
-records → `parkio.dlt.auth`):
+`parkio.moderation.action` (group `parkio.auth`, local payload DTOs — no shared
+domain/event-payload models, inbox idempotency by `eventId`, manual ack after
+the transaction commits, poison records → `parkio.dlt.auth`):
 
 - **`UserSuspended`** sets `auth_users.status = SUSPENDED` and revokes **every
   active refresh token across all of the user's families** with reason

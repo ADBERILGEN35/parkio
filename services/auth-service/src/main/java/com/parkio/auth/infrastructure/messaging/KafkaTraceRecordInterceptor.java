@@ -1,7 +1,7 @@
 package com.parkio.auth.infrastructure.messaging;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
-import com.parkio.auth.infrastructure.tracing.KafkaTraceContextSupport;
+import com.parkio.platform.tracing.KafkaTraceContextSupport;
 import io.micrometer.core.instrument.Counter;
 import io.micrometer.core.instrument.MeterRegistry;
 import org.apache.kafka.clients.consumer.Consumer;

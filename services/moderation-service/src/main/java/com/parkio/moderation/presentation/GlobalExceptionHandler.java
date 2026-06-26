@@ -2,7 +2,7 @@ package com.parkio.moderation.presentation;
 
 import com.parkio.moderation.domain.exception.ModerationErrorCode;
 import com.parkio.moderation.domain.exception.ModerationException;
-import com.parkio.moderation.presentation.dto.ApiError;
+import com.parkio.platform.api.ApiError;
 import java.time.Clock;
 import java.util.List;
 import org.slf4j.Logger;

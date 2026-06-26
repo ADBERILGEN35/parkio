@@ -42,6 +42,20 @@ See [`02-domain-rules.md`](02-domain-rules.md) for exact rules.
 | `ai-validation-service` | 8088 | AI-assisted **advisory** validation of submissions. |
 | `analytics-service`     | 8089 | Event ingestion and analytics aggregation.          |
 
+## Shared infrastructure module
+
+`platform/parkio-platform` is a plain Java 21 library used by backend services
+for infrastructure plumbing only. It currently owns shared header/MDC constants,
+the Kafka `EventEnvelope` transport record, the standard `ApiError` envelope, and
+Kafka trace-context helpers. It is intentionally not a Spring Boot
+auto-configuration starter.
+
+The platform module must stay service-agnostic. It may contain constants,
+transport envelopes, tracing helpers, metrics-name helpers, and test fixtures.
+It must not contain aggregate roots, business use cases, repository entities,
+service-specific request/response DTOs, service-specific event payloads, or
+authorization decisions.
+
 ## Tech stack
 
 - **Backend:** Java 21, Spring Boot 3.5.x, Spring Cloud, Gradle Kotlin DSL.

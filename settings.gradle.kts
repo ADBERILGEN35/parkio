@@ -9,6 +9,7 @@ dependencyResolutionManagement {
 // Each backend service is an independently runnable Gradle module.
 // No shared domain modules are declared on purpose: services do not share models.
 include(
+    "platform:parkio-platform",
     "services:gateway-service",
     "services:auth-service",
     "services:user-service",

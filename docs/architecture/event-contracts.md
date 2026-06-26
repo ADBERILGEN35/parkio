@@ -7,9 +7,14 @@ and [`kafka-transport.md`](kafka-transport.md) (topic map, partitioning, retenti
 and producer/consumer config); where this file and code disagree, the code is
 authoritative and this file must be updated in the same change.
 
-> Per ai-context/01 and /03, events are **never** a shared library. Each consumer
-> **duplicates** the payload contract locally as its own DTO. This registry is
-> documentation, not a shared model — copy the schema, don't import it.
+> Per ai-context/01 and /03, event **payloads** are never a shared library. Each
+> consumer duplicates the payload contract locally as its own DTO. This registry
+> is documentation for payload models — copy the schema, don't import it.
+>
+> The transport envelope is different: the service-agnostic Kafka
+> `EventEnvelope` lives in `platform/parkio-platform` so compatibility
+> annotations and wire names cannot drift between services. Its `payload` remains
+> an opaque `JsonNode`; domain event payloads are still service-owned.
 
 ## Transport & delivery
 
@@ -33,6 +38,11 @@ separate from the JSON `payload`:
 | `eventType` | The event name (e.g. `ParkingSpotCreated`). |
 | `occurredAt` | When the event occurred (UTC). |
 | `payload` | The JSON document described in each event's **Payload schema** below. |
+
+Kafka records use the shared `com.parkio.platform.messaging.EventEnvelope`
+transport record with top-level JSON fields `eventId`, `eventType`,
+`aggregateType`, `aggregateId`, `occurredAt`, `version`, `traceId`, and
+`payload`. The record ignores unknown future envelope fields.
 
 > The outbox row's primary key `id` is a **separate** random row id, **not** the event's
 > `eventId`. The `eventId` is also stored in its own `event_id` column (added across all

@@ -1,5 +1,7 @@
 package com.parkio.aivalidation.infrastructure.messaging;
 
+import com.parkio.platform.messaging.EventEnvelope;
+
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.parkio.aivalidation.application.AiValidationApplicationService;
 import com.parkio.aivalidation.application.event.MediaUploadedEvent;

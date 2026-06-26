@@ -1,5 +1,7 @@
 package com.parkio.moderation.infrastructure.messaging;
 
+import com.parkio.platform.messaging.EventEnvelope;
+
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.parkio.moderation.application.ModerationApplicationService;
 import com.parkio.moderation.application.event.AiValidationCompletedEvent;

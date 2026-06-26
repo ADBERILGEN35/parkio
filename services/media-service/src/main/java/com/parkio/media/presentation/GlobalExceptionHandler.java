@@ -3,7 +3,7 @@ package com.parkio.media.presentation;
 import com.parkio.media.domain.exception.MediaErrorCode;
 import com.parkio.media.domain.exception.MediaException;
 import com.parkio.media.infrastructure.idempotency.IdempotencyException;
-import com.parkio.media.presentation.dto.ApiError;
+import com.parkio.platform.api.ApiError;
 import java.time.Clock;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;

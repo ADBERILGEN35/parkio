@@ -7,7 +7,7 @@ import com.parkio.parking.domain.event.ParkingEvent;
 import com.parkio.parking.infrastructure.persistence.entity.OutboxEventEntity;
 import com.parkio.parking.infrastructure.persistence.jpa.OutboxEventJpaRepository;
 import java.util.UUID;
-import com.parkio.parking.infrastructure.tracing.KafkaTraceContextSupport;
+import com.parkio.platform.tracing.KafkaTraceContextSupport;
 import org.springframework.stereotype.Component;
 
 /**

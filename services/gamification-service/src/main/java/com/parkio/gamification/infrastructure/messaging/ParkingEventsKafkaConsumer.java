@@ -1,5 +1,7 @@
 package com.parkio.gamification.infrastructure.messaging;
 
+import com.parkio.platform.messaging.EventEnvelope;
+
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.parkio.gamification.application.GamificationApplicationService;
 import com.parkio.gamification.application.event.ParkingSpotClaimedEvent;

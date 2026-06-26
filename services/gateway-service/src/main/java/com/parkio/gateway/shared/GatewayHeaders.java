@@ -1,5 +1,7 @@
 package com.parkio.gateway.shared;
 
+import com.parkio.platform.http.PlatformHeaders;
+
 /**
  * Header names exchanged at the edge.
  *
@@ -12,11 +14,11 @@ package com.parkio.gateway.shared;
 public final class GatewayHeaders {
 
     /** Verified user id (JWT {@code sub}). */
-    public static final String USER_ID = "X-User-Id";
+    public static final String USER_ID = PlatformHeaders.USER_ID;
     /** Verified user email (JWT {@code email}). */
-    public static final String USER_EMAIL = "X-User-Email";
+    public static final String USER_EMAIL = PlatformHeaders.USER_EMAIL;
     /** Verified roles, comma-separated (JWT {@code roles}). */
-    public static final String USER_ROLES = "X-User-Roles";
+    public static final String USER_ROLES = PlatformHeaders.USER_ROLES;
 
     /**
      * Shared-secret header proving a request originated from this gateway. The gateway
@@ -24,13 +26,13 @@ public final class GatewayHeaders {
      * request; downstream services reject requests that lack the correct value, so a
      * directly-reachable service cannot be called without going through the gateway.
      */
-    public static final String GATEWAY_AUTH = "X-Gateway-Auth";
+    public static final String GATEWAY_AUTH = PlatformHeaders.GATEWAY_AUTH;
 
     /** Request correlation id, forwarded or generated at the edge. */
-    public static final String CORRELATION_ID = "X-Correlation-Id";
+    public static final String CORRELATION_ID = PlatformHeaders.CORRELATION_ID;
 
     /** Exchange attribute key under which the resolved correlation id is stored. */
-    public static final String CORRELATION_ID_ATTRIBUTE = "parkio.correlationId";
+    public static final String CORRELATION_ID_ATTRIBUTE = PlatformHeaders.CORRELATION_ID_ATTRIBUTE;
 
     /**
      * Exchange attribute key under which authentication stores the {@code session_epoch}
@@ -38,7 +40,7 @@ public final class GatewayHeaders {
      * The session-epoch filter reads it to compare against the user's current epoch. Kept
      * as an exchange attribute, not a downstream header — only the gateway needs it.
      */
-    public static final String TOKEN_SESSION_EPOCH_ATTRIBUTE = "parkio.tokenSessionEpoch";
+    public static final String TOKEN_SESSION_EPOCH_ATTRIBUTE = PlatformHeaders.TOKEN_SESSION_EPOCH_ATTRIBUTE;
 
     private GatewayHeaders() {
     }

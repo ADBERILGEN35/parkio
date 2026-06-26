@@ -1,5 +1,7 @@
 package com.parkio.auth.infrastructure.messaging;
 
+import com.parkio.platform.messaging.EventEnvelope;
+
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.parkio.auth.application.AuthApplicationService;
 import com.parkio.auth.application.event.UserRestoredEvent;

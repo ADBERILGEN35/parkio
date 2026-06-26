@@ -3,7 +3,7 @@ package com.parkio.parking.presentation;
 import com.parkio.parking.domain.exception.ParkingErrorCode;
 import com.parkio.parking.domain.exception.ParkingException;
 import com.parkio.parking.infrastructure.idempotency.IdempotencyException;
-import com.parkio.parking.presentation.dto.ApiError;
+import com.parkio.platform.api.ApiError;
 import java.time.Clock;
 import java.util.List;
 import org.slf4j.Logger;

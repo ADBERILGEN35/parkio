@@ -1,6 +1,6 @@
 package com.parkio.notification.presentation.openapi;
 
-import com.parkio.notification.presentation.dto.ApiError;
+import com.parkio.platform.api.ApiError;
 import io.swagger.v3.oas.annotations.media.Content;
 import io.swagger.v3.oas.annotations.media.Schema;
 import io.swagger.v3.oas.annotations.responses.ApiResponse;

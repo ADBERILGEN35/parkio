@@ -34,6 +34,10 @@ dependencyManagement {
     }
 }
 
+dependencies {
+    "implementation"(project(":platform:parkio-platform"))
+}
+
 // Default `test` (and therefore `check`/`build`) runs unit tests only and excludes the
 // `integration` tag, so the standard build never requires Docker.
 tasks.named<Test>("test") {

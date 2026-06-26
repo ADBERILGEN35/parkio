@@ -2,7 +2,7 @@ package com.parkio.analytics.presentation;
 
 import com.parkio.analytics.domain.exception.AnalyticsErrorCode;
 import com.parkio.analytics.domain.exception.AnalyticsException;
-import com.parkio.analytics.presentation.dto.ApiError;
+import com.parkio.platform.api.ApiError;
 import java.time.Clock;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;

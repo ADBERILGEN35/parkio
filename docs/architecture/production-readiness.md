@@ -37,6 +37,11 @@ The codebase is unusually deployment-aware for its stage:
   API/auth/token-bearing requests and does not cache map tiles or authenticated data.
 - **Actuator locked down** to `health,info,prometheus` only; Prometheus + Grafana provisioned;
   documented metric catalogue (`observability-metrics.md`).
+- **Shared infrastructure extracted without shared domain.** `platform/parkio-platform`
+  centralizes service-agnostic transport/error/tracing helpers (`EventEnvelope`, `ApiError`,
+  header/MDC constants, Kafka trace helpers) so compatibility annotations and wire names do not
+  drift. Domain event payloads, service DTOs, repositories, entities, authorization rules, and
+  business use cases remain service-owned.
 
 ### The deployment-layer gap in one sentence
 

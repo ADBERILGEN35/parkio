@@ -1,5 +1,7 @@
 package com.parkio.user.infrastructure.messaging;
 
+import com.parkio.platform.messaging.EventEnvelope;
+
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.parkio.user.application.UserApplicationService;
 import com.parkio.user.application.event.UserRegisteredEvent;

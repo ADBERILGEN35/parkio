@@ -147,11 +147,10 @@ Consumers (and the outbox serializer) **must** be configured so contracts evolve
   (`WRITE_DATES_AS_TIMESTAMPS = false`) for `Instant`/`occurredAt`.
 - **Enums as strings** — read enum fields as `String` so unknown future values are safe.
 - Unknown future fields are ignored, never rejected.
-- Every local `EventEnvelope` record copy must be annotated with
-  `@JsonIgnoreProperties(ignoreUnknown = true)`. The duplication is intentional
-  until a future platform starter/shared event-contract module is introduced;
-  do not change the wire shape or add a shared module as a compatibility-only
-  fix.
+- The shared `com.parkio.platform.messaging.EventEnvelope` transport record is
+  annotated with `@JsonIgnoreProperties(ignoreUnknown = true)`. Payload DTOs stay
+  service-local and must also ignore unknown fields where they deserialize
+  external event payloads.
 
 ## Transport envelope (canonical shape)
 
@@ -310,13 +309,11 @@ retention must therefore exceed Kafka retention plus the expected DLT redrive,
 replay, and backfill window; temporarily extend or disable cleanup before an
 older replay.
 
-> The envelope is **not** a shared class — consistent with the no-shared-module rule it
-> is duplicated **locally** per service as `infrastructure.messaging.EventEnvelope`. It
-> now exists in the relays (`auth`, `parking`, `gamification`, `media`, `ai-validation`,
-> `moderation`) and the consumers (`auth`, `user`, `gamification`, `notification`,
-> `analytics`, `ai-validation`, `moderation`); the remaining services add their own copy
-> when their relay/consumer is built. The relays map `outbox_events` columns → envelope (key = `aggregate_id`, dedup
-> key = `event_id`) and mirror the routing fields into Kafka headers.
+> The envelope is a shared **infrastructure** class in
+> `platform/parkio-platform`, not a shared domain/event-payload model. The relays
+> map `outbox_events` columns → envelope (key = `aggregate_id`, dedup key =
+> `event_id`) and mirror the routing fields into Kafka headers. Payload DTOs
+> remain service-local.
 
 ## Implementation order
 

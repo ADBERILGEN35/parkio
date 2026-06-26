@@ -1,5 +1,7 @@
 package com.parkio.analytics.infrastructure.messaging;
 
+import com.parkio.platform.messaging.EventEnvelope;
+
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.parkio.analytics.application.AnalyticsApplicationService;
 import com.parkio.analytics.application.event.ParkingSpotClaimedEvent;
