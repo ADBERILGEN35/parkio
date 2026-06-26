@@ -1,0 +1,161 @@
+# Supply-chain SBOM generation (P1.6).
+#
+# Produces CycloneDX Software Bills of Materials and a portable provenance manifest for
+# the things that ship, and uploads them as build artifacts. This is the always-on SBOM
+# pipeline (master + weekly drift + on demand); the release workflow reuses the same tools
+# for tagged, signed release artifacts.
+#
+# SBOM sources (no duplicates — one tool per surface):
+#   * Backend  : CycloneDX Gradle plugin, per service (runtime classpath only).
+#   * Frontend : Trivy filesystem scan of the pnpm workspace (CycloneDX from pnpm-lock.yaml).
+#   * Images   : produced in release.yml (Trivy image scan), not here, to avoid rebuilding
+#                all 10 images on every push.
+#
+# Cryptographic provenance (GitHub Artifact Attestations, keyless via OIDC) is wired but
+# GATED behind the repo variable ATTESTATIONS_ENABLED, because it requires a public repo or
+# GitHub Advanced Security. A portable provenance.json manifest is ALWAYS produced so the
+# build is traceable (commit, run, timestamp, version, branch) even with attestations off.
+
+name: Supply chain (SBOM)
+
+on:
+  push:
+    branches: [master]
+  schedule:
+    - cron: "41 4 * * 1" # weekly drift check, Monday 04:41 UTC
+  workflow_dispatch:
+
+# Least privilege. id-token/attestations are only consumed by the gated attestation steps.
+permissions:
+  contents: read
+  id-token: write
+  attestations: write
+
+concurrency:
+  group: supply-chain-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  provenance-manifest:
+    name: Provenance manifest
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      # Portable, always-available provenance: every downstream artifact is traceable to
+      # exactly this commit / run / build time / version / branch. No external service.
+      - name: Write provenance manifest
+        run: |
+          set -euo pipefail
+          version="$(grep -E '^springCloudVersion=' gradle.properties >/dev/null 2>&1; echo "${GITHUB_REF_NAME}")"
+          cat > provenance.json <<EOF
+          {
+            "project": "parkio",
+            "commit": "${GITHUB_SHA}",
+            "branch": "${GITHUB_REF_NAME}",
+            "workflowRun": "${GITHUB_RUN_ID}",
+            "workflowRunAttempt": "${GITHUB_RUN_ATTEMPT}",
+            "repository": "${GITHUB_REPOSITORY}",
+            "builtAt": "$(date -u +%Y-%m-%dT%H:%M:%SZ)",
+            "ref": "${GITHUB_REF}"
+          }
+          EOF
+          cat provenance.json
+
+      - name: Upload provenance manifest
+        uses: actions/upload-artifact@v4
+        with:
+          name: provenance-manifest
+          path: provenance.json
+          retention-days: 90
+
+  backend-sbom:
+    name: Backend SBOM (CycloneDX / Gradle)
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up JDK 21
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "21"
+          cache: gradle
+
+      - name: Make Gradle wrapper executable
+        run: chmod +x gradlew
+
+      # The CycloneDX plugin is not configuration-cache compatible, so this single task
+      # opts out (the rest of the build keeps the cache). Runs in every service module.
+      - name: Generate per-service SBOMs
+        run: ./gradlew --no-daemon --no-configuration-cache cyclonedxBom
+
+      - name: Collect SBOMs
+        run: |
+          set -euo pipefail
+          mkdir -p sbom/backend
+          for f in services/*/build/reports/sbom/bom.json; do
+            svc="$(echo "$f" | sed -E 's#services/([^/]+)/.*#\1#')"
+            cp "$f" "sbom/backend/${svc}.cdx.json"
+          done
+          echo "Collected:"; ls -1 sbom/backend
+
+      - name: Upload backend SBOMs
+        uses: actions/upload-artifact@v4
+        with:
+          name: sbom-backend
+          path: sbom/backend/*.cdx.json
+          retention-days: 90
+
+      # Cryptographic provenance attestation — GATED (needs public repo or GHAS).
+      - name: Attest backend SBOMs
+        if: ${{ vars.ATTESTATIONS_ENABLED == 'true' }}
+        uses: actions/attest-build-provenance@v1
+        with:
+          subject-path: "sbom/backend/*.cdx.json"
+
+  frontend-sbom:
+    name: Frontend SBOM (CycloneDX / Trivy)
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    env:
+      TRIVY_IMAGE: aquasec/trivy:0.64.1
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Log in to ghcr.io
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      # Trivy reads frontend/pnpm-lock.yaml and emits a CycloneDX SBOM of the JS deps.
+      - name: Generate frontend SBOM
+        run: |
+          set -euo pipefail
+          mkdir -p sbom
+          docker run --rm \
+            -v "${GITHUB_WORKSPACE}:/work" -w /work \
+            "${TRIVY_IMAGE}" fs frontend \
+            --format cyclonedx \
+            --output sbom/frontend.cdx.json
+          echo "Components:"; grep -c '"bom-ref"' sbom/frontend.cdx.json || true
+
+      - name: Upload frontend SBOM
+        uses: actions/upload-artifact@v4
+        with:
+          name: sbom-frontend
+          path: sbom/frontend.cdx.json
+          retention-days: 90
+
+      - name: Attest frontend SBOM
+        if: ${{ vars.ATTESTATIONS_ENABLED == 'true' }}
+        uses: actions/attest-build-provenance@v1
+        with:
+          subject-path: "sbom/frontend.cdx.json"

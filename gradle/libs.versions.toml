@@ -12,6 +12,9 @@ springdoc = "2.8.17"
 # so it needs an explicit version; 2.3.x targets the Spring Boot 3.4+/3.5 line.
 resilience4j = "2.3.0"
 kafkaClients = "3.9.2"
+# CycloneDX Gradle plugin — generates a per-service CycloneDX SBOM (build/reports/bom.json).
+# Applied by the convention plugin; consumed by buildSrc. Not part of any BOM.
+cyclonedx = "1.10.0"
 
 [libraries]
 # Spring Boot starters. Concrete versions are supplied by the Spring Boot BOM,

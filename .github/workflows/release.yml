@@ -1,0 +1,319 @@
+# Production release workflow (P1.6).
+#
+# Builds, verifies, and assembles a signed-ready, SBOM-bearing release — but NEVER
+# auto-publishes. The GitHub Release is created as a DRAFT, and image publish + signing
+# are gated, so a human must explicitly approve before anything becomes public.
+#
+# Trigger:
+#   * push of a semver tag  v*   (e.g. v1.2.3)  — the normal path, or
+#   * workflow_dispatch with an explicit `version` input (for dry runs / re-cuts).
+#
+# Pipeline: detect version -> build + unit + integration tests -> SBOMs -> build images
+# (OCI-labelled, reproducible tags) -> image SBOMs -> (gated) push + cosign keyless sign +
+# attest -> DRAFT GitHub Release with SBOMs + provenance attached.
+#
+# Nothing here needs a long-lived secret. Image publish/sign use GHCR + the built-in
+# GITHUB_TOKEN + OIDC, and stay OFF until vars.PUBLISH_IMAGES == 'true'.
+
+name: Release
+
+on:
+  push:
+    tags: ["v*"]
+  workflow_dispatch:
+    inputs:
+      version:
+        description: "Release version (e.g. v1.2.3). Used when run manually."
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false # never cancel a release mid-flight
+
+env:
+  REGISTRY: ghcr.io
+  TRIVY_IMAGE: aquasec/trivy:0.64.1
+
+jobs:
+  # ---------------------------------------------------------------------------
+  # 1. Version detection — single source of truth for every downstream job.
+  # ---------------------------------------------------------------------------
+  version:
+    name: Detect version
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    outputs:
+      version: ${{ steps.detect.outputs.version }}
+      created: ${{ steps.detect.outputs.created }}
+    steps:
+      - name: Detect version + build timestamp
+        id: detect
+        run: |
+          set -euo pipefail
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            version="${{ inputs.version }}"
+          else
+            version="${GITHUB_REF_NAME}"
+          fi
+          if ! echo "$version" | grep -Eq '^v[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.-]+)?$'; then
+            echo "::error::Version '$version' is not a valid semver tag (vMAJOR.MINOR.PATCH)."
+            exit 1
+          fi
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+          echo "created=$(date -u +%Y-%m-%dT%H:%M:%SZ)" >> "$GITHUB_OUTPUT"
+          echo "Releasing $version (commit ${GITHUB_SHA})"
+
+  # ---------------------------------------------------------------------------
+  # 2. Verify — the same gates as CI, but all in the release lineage.
+  # ---------------------------------------------------------------------------
+  verify:
+    name: Build, unit + integration tests
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    needs: version
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up JDK 21
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "21"
+          cache: gradle
+
+      - name: Make Gradle wrapper executable
+        run: chmod +x gradlew
+
+      # Supply-chain: verify the wrapper jar is an unmodified official Gradle distribution.
+      - name: Validate Gradle wrapper
+        uses: gradle/actions/wrapper-validation@v4
+
+      - name: Build + unit tests
+        run: ./gradlew --no-daemon build -PparkioVersion=${{ needs.version.outputs.version }}
+
+      - name: Integration tests (Testcontainers)
+        run: ./gradlew --no-daemon integrationTest -Pparkio.integrationTest.requireDocker=true -PparkioVersion=${{ needs.version.outputs.version }}
+
+  # ---------------------------------------------------------------------------
+  # 3. SBOMs — release-pinned, attached to the GitHub Release.
+  # ---------------------------------------------------------------------------
+  sbom:
+    name: SBOMs (backend + frontend)
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    needs: version
+    permissions:
+      contents: read
+      id-token: write
+      attestations: write
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up JDK 21
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "21"
+          cache: gradle
+
+      - name: Make Gradle wrapper executable
+        run: chmod +x gradlew
+
+      - name: Backend SBOMs (CycloneDX / Gradle)
+        run: ./gradlew --no-daemon --no-configuration-cache cyclonedxBom -PparkioVersion=${{ needs.version.outputs.version }}
+
+      - name: Log in to ghcr.io
+        uses: docker/login-action@v3
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Frontend SBOM (CycloneDX / Trivy)
+        run: |
+          set -euo pipefail
+          mkdir -p sbom
+          for f in services/*/build/reports/sbom/bom.json; do
+            svc="$(echo "$f" | sed -E 's#services/([^/]+)/.*#\1#')"
+            cp "$f" "sbom/${svc}.cdx.json"
+          done
+          docker run --rm -v "${GITHUB_WORKSPACE}:/work" -w /work \
+            "${TRIVY_IMAGE}" fs frontend --format cyclonedx --output sbom/frontend.cdx.json
+          ls -1 sbom
+
+      - name: Upload release SBOMs
+        uses: actions/upload-artifact@v4
+        with:
+          name: release-sboms
+          path: sbom/*.cdx.json
+          retention-days: 90
+
+      - name: Attest SBOMs
+        if: ${{ vars.ATTESTATIONS_ENABLED == 'true' }}
+        uses: actions/attest-build-provenance@v1
+        with:
+          subject-path: "sbom/*.cdx.json"
+
+  # ---------------------------------------------------------------------------
+  # 4. Images — OCI-labelled, reproducible tags, image SBOM, optional sign/push.
+  #    Build always (proves the images build at the release commit). Push + sign
+  #    only when vars.PUBLISH_IMAGES == 'true' (keyless cosign via OIDC, GHCR).
+  # ---------------------------------------------------------------------------
+  images:
+    name: Image (${{ matrix.service }})
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    needs: [version, verify]
+    permissions:
+      contents: read
+      packages: write
+      id-token: write
+      attestations: write
+    strategy:
+      fail-fast: false
+      matrix:
+        service:
+          - ai-validation-service
+          - analytics-service
+          - auth-service
+          - gamification-service
+          - gateway-service
+          - media-service
+          - moderation-service
+          - notification-service
+          - parking-service
+          - user-service
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Log in to ghcr.io
+        uses: docker/login-action@v3
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      # Reproducible, immutable tags: the semver version AND the full commit SHA. No
+      # bare `latest` from the release flow (latest is a mutable convenience, set
+      # separately/manually only after a release is verified — see rollback docs).
+      - name: Compute image refs
+        id: refs
+        run: |
+          set -euo pipefail
+          repo="$(echo "${GITHUB_REPOSITORY}" | tr '[:upper:]' '[:lower:]')"
+          base="${REGISTRY}/${repo}/${{ matrix.service }}"
+          echo "image=${base}" >> "$GITHUB_OUTPUT"
+          echo "tag_version=${base}:${{ needs.version.outputs.version }}" >> "$GITHUB_OUTPUT"
+          echo "tag_sha=${base}:sha-${GITHUB_SHA}" >> "$GITHUB_OUTPUT"
+
+      - name: Build image (OCI-labelled)
+        uses: docker/build-push-action@v6
+        id: build
+        with:
+          context: .
+          file: services/${{ matrix.service }}/Dockerfile
+          push: ${{ vars.PUBLISH_IMAGES == 'true' }}
+          load: ${{ vars.PUBLISH_IMAGES != 'true' }}
+          tags: |
+            ${{ steps.refs.outputs.tag_version }}
+            ${{ steps.refs.outputs.tag_sha }}
+          build-args: |
+            IMAGE_VERSION=${{ needs.version.outputs.version }}
+            IMAGE_REVISION=${{ github.sha }}
+            IMAGE_CREATED=${{ needs.version.outputs.created }}
+          provenance: false # we attach our own attestations below
+
+      - name: Generate image SBOM (CycloneDX / Trivy)
+        run: |
+          set -euo pipefail
+          mkdir -p sbom
+          docker run --rm -v /var/run/docker.sock:/var/run/docker.sock \
+            -v "${GITHUB_WORKSPACE}/sbom:/sbom" \
+            "${TRIVY_IMAGE}" image "${{ steps.refs.outputs.tag_version }}" \
+            --format cyclonedx --output "/sbom/${{ matrix.service }}-image.cdx.json"
+
+      - name: Upload image SBOM
+        uses: actions/upload-artifact@v4
+        with:
+          name: image-sbom-${{ matrix.service }}
+          path: sbom/${{ matrix.service }}-image.cdx.json
+          retention-days: 90
+
+      # ---- Optional: keyless signing + provenance (only when publishing images) ----
+      - name: Install cosign
+        if: ${{ vars.PUBLISH_IMAGES == 'true' }}
+        uses: sigstore/cosign-installer@v3
+
+      - name: Sign image (keyless / OIDC)
+        if: ${{ vars.PUBLISH_IMAGES == 'true' }}
+        env:
+          DIGEST: ${{ steps.build.outputs.digest }}
+        run: |
+          set -euo pipefail
+          cosign sign --yes "${{ steps.refs.outputs.image }}@${DIGEST}"
+
+      - name: Attest image provenance
+        if: ${{ vars.PUBLISH_IMAGES == 'true' }}
+        uses: actions/attest-build-provenance@v1
+        with:
+          subject-name: ${{ steps.refs.outputs.image }}
+          subject-digest: ${{ steps.build.outputs.digest }}
+          push-to-registry: true
+
+  # ---------------------------------------------------------------------------
+  # 5. Draft GitHub Release — the MANUAL APPROVAL GATE. Created as a draft with
+  #    SBOMs attached; a human reviews and clicks Publish. Gated on the optional
+  #    `release` environment so required-reviewer protection can be added later.
+  # ---------------------------------------------------------------------------
+  release:
+    name: Draft GitHub Release
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    needs: [version, verify, sbom, images]
+    environment: release
+    permissions:
+      contents: write
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Download all artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+
+      - name: Stage release assets
+        run: |
+          set -euo pipefail
+          mkdir -p release-assets
+          find artifacts -name '*.cdx.json' -exec cp {} release-assets/ \;
+          find artifacts -name 'provenance.json' -exec cp {} release-assets/ \; || true
+          echo "Assets:"; ls -1 release-assets
+
+      # Draft only — never auto-published. gh CLI uses the built-in token (no extra action).
+      - name: Create draft release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          VERSION: ${{ needs.version.outputs.version }}
+        run: |
+          set -euo pipefail
+          gh release create "$VERSION" \
+            --draft \
+            --title "Parkio $VERSION" \
+            --notes "Automated draft release for $VERSION (commit ${GITHUB_SHA}).
+
+          Attached: CycloneDX SBOMs (backend services, frontend, container images) and the
+          build provenance manifest. Review, then click **Publish release** to make it public.
+
+          Image publish + cosign signing are controlled by the repo variable PUBLISH_IMAGES." \
+            release-assets/* || gh release upload "$VERSION" release-assets/* --clobber

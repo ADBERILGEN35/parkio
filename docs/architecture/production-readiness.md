@@ -479,6 +479,12 @@ Security CI runs on PRs, pushes to `master`, weekly, and on demand:
 - **Container scanning:** every runtime service image with a Dockerfile is built and scanned with
   Trivy. HIGH findings are reported; CRITICAL image vulnerabilities block CI.
 
+> **Supply-chain & release integrity (P1.6 — done).** SBOMs (CycloneDX, per service + frontend +
+> images), a portable provenance manifest, gated keyless attestations, OCI-labelled reproducible
+> images, Gradle wrapper validation, reproducible bootJars, and a tag-driven **draft** release
+> workflow with optional Cosign signing. The release never auto-publishes (manual approval gate).
+> Details: **[`docs/operations/supply-chain-security.md`](../operations/supply-chain-security.md)**.
+
 All scan reports are uploaded as workflow artifacts on every run. Trivy steps authenticate to
 `ghcr.io` with the workflow `GITHUB_TOKEN`, run the official pinned Trivy Docker image
 (`TRIVY_IMAGE`), and cache `.cache/trivy` with `actions/cache` to avoid anonymous vulnerability-DB

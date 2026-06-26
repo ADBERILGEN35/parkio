@@ -18,6 +18,11 @@ on:
 permissions:
   contents: read
 
+# A new push to a PR cancels the previous (still-running) run — mirrors the other gates.
+concurrency:
+  group: backend-ci-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
   backend-build:
     name: Build & unit tests
@@ -33,6 +38,11 @@ jobs:
           distribution: temurin
           java-version: "21"
           cache: gradle
+
+      # Supply-chain: fail the build if the committed Gradle wrapper jar is not an
+      # unmodified official Gradle distribution (cheap, runs on every PR).
+      - name: Validate Gradle wrapper
+        uses: gradle/actions/wrapper-validation@v4
 
       - name: Make Gradle wrapper executable
         run: chmod +x gradlew

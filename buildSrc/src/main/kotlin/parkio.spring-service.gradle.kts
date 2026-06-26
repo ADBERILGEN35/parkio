@@ -11,10 +11,15 @@ plugins {
     java
     id("org.springframework.boot")
     id("io.spring.dependency-management")
+    // Supply chain: emit a CycloneDX SBOM of the service's resolved runtime classpath.
+    id("org.cyclonedx.bom")
 }
 
 group = "com.parkio"
-version = "0.0.1-SNAPSHOT"
+// Release version is injected by CI (`-Pversion=…` / the release workflow); the
+// SNAPSHOT default keeps local/dev builds and the SBOM componentVersion honest.
+version = (project.findProperty("parkioVersion") as String?)?.takeIf { it.isNotBlank() }
+    ?: "0.0.1-SNAPSHOT"
 
 java {
     toolchain {
@@ -36,6 +41,29 @@ dependencyManagement {
 
 dependencies {
     "implementation"(project(":platform:parkio-platform"))
+}
+
+// Reproducible archives: zero embedded timestamps and use a stable file order so the
+// bootJar is byte-for-byte deterministic given the same inputs (supply-chain integrity).
+tasks.withType<AbstractArchiveTask>().configureEach {
+    isPreserveFileTimestamps = false
+    isReproducibleFileOrder = true
+}
+
+// CycloneDX SBOM: deterministic, single-format (JSON) bill of materials of the service's
+// RUNTIME classpath only — the dependency set that actually ships in the bootJar / image.
+// Produced on demand by `:services:<svc>:cyclonedxBom` (the release workflow collects them);
+// deliberately NOT wired into `build`, so normal CI stays fast and Docker-free. One file per
+// service, no XML+JSON duplication.
+tasks.named<org.cyclonedx.gradle.CycloneDxTask>("cyclonedxBom") {
+    setIncludeConfigs(listOf("runtimeClasspath"))
+    setProjectType("application")
+    setSchemaVersion("1.5")
+    setDestination(layout.buildDirectory.dir("reports/sbom").get().asFile)
+    setOutputName("bom")
+    setOutputFormat("json")
+    setIncludeBomSerialNumber(true)
+    setIncludeLicenseText(false)
 }
 
 // Default `test` (and therefore `check`/`build`) runs unit tests only and excludes the

@@ -12,4 +12,7 @@ dependencies {
     // can apply them by id. Versions are single-sourced from the version catalog.
     implementation("org.springframework.boot:spring-boot-gradle-plugin:${libs.versions.springBoot.get()}")
     implementation("io.spring.gradle:dependency-management-plugin:${libs.versions.springDependencyManagement.get()}")
+    // CycloneDX SBOM plugin, so the convention plugin can apply `org.cyclonedx.bom` by id
+    // and every service emits a CycloneDX SBOM of its resolved runtime dependencies.
+    implementation("org.cyclonedx:cyclonedx-gradle-plugin:${libs.versions.cyclonedx.get()}")
 }

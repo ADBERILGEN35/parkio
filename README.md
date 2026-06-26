@@ -253,6 +253,19 @@ commit-SHA pinning remains a production hardening follow-up: pin critical
 actions only after verifying the exact upstream SHAs and update flow, rather
 than mass-changing CI blindly.
 
+### Supply chain & releases
+
+Build integrity, SBOMs, provenance and release signing are documented in
+[`docs/operations/supply-chain-security.md`](docs/operations/supply-chain-security.md).
+In short: each service emits a **CycloneDX SBOM** (CycloneDX Gradle plugin) and the
+frontend/images are billed via Trivy; the [`supply-chain.yml`](.github/workflows/supply-chain.yml)
+workflow publishes SBOMs + a portable provenance manifest; the
+[`release.yml`](.github/workflows/release.yml) workflow detects a semver tag, runs the
+full test + integration + SBOM + OCI-labelled image build, optionally cosign-signs
+(keyless OIDC, gated), and creates a **draft** GitHub Release (manual publish = the
+approval gate). The Gradle wrapper jar is integrity-checked on every backend PR and
+bootJars are built reproducibly (zeroed timestamps, stable order).
+
 ### Dependency-line policy
 
 The platform is intentionally pinned to the **Spring Boot 3.x / Spring Cloud
