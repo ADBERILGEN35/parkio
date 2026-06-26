@@ -110,6 +110,10 @@ async function installMockApi(page: Page) {
       return json({ vehicleType: 'SEDAN', plate: '35PK123' });
     }
     if (method === 'GET' && path === '/parking/spots/nearby') return json([publicSpot]);
+    // Forward geocoding is now proxied through the gateway (ADR-014); the browser no
+    // longer calls Nominatim. These flows drive the map via manual coordinates, so an
+    // empty result set is sufficient to keep the typeahead a no-op.
+    if (method === 'GET' && path === '/geocoding/search') return json({ results: [] });
     if (method === 'POST' && path === '/media/upload') {
       return json({ mediaId: MEDIA_ID, status: 'STORED' });
     }
@@ -304,6 +308,26 @@ test('map: search overlay and results sheet stay usable', async ({ page }) => {
   await expect(page.getByTestId('selected-spot-preview')).toBeVisible();
   await expect(page.getByRole('link', { name: 'View spot details' })).toBeVisible();
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth + 1)).toBe(true);
+
+  if (mobile) {
+    // Phase A1 guarantee: selecting a spot drops the sheet to its peek, and the
+    // preview is anchored *above* that peek — so the preview must never cover the
+    // drag handle (its bottom edge sits at or above the handle's top edge). Poll so
+    // the measurement lands after the sheet's snap transition settles, not mid-flight.
+    await expect(page.getByRole('button', { name: /Search results, collapsed/ })).toBeVisible();
+    await expect
+      .poll(async () =>
+        page.evaluate(() => {
+          const preview = document.querySelector('[data-testid="selected-spot-preview"]');
+          const handle = document.querySelector(
+            '[aria-label="Search results"] button[aria-label^="Search results"]',
+          );
+          if (!preview || !handle) return Number.POSITIVE_INFINITY;
+          return preview.getBoundingClientRect().bottom - handle.getBoundingClientRect().top;
+        }),
+      )
+      .toBeLessThanOrEqual(1);
+  }
 });
 
 test('parking: open spot details and claim spot', async ({ page }) => {
@@ -311,7 +335,11 @@ test('parking: open spot details and claim spot', async ({ page }) => {
   await spaGoto(page, `/spots/${SPOT_ID}`);
 
   await expect(page.getByRole('heading', { name: '12 Curb Lane' })).toBeVisible();
+  // Claiming is irreversible (marks the spot filled for everyone) so it requires
+  // an explicit confirm before the request fires.
   await page.getByRole('button', { name: 'Claim this spot' }).click();
+  await expect(page.getByText(/can't be undone/i)).toBeVisible();
+  await page.getByRole('button', { name: 'Yes, mark as filled' }).click();
   await expect(page.getByRole('main').getByText(/Spot claimed/)).toBeVisible();
 });
 

@@ -226,9 +226,16 @@ jobs:
       fail-fast: false
       matrix:
         service:
-          - gateway-service
+          - ai-validation-service
+          - analytics-service
           - auth-service
+          - gamification-service
+          - gateway-service
           - media-service
+          - moderation-service
+          - notification-service
+          - parking-service
+          - user-service
     steps:
       - name: Checkout
         uses: actions/checkout@v4

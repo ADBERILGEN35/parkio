@@ -4,6 +4,7 @@ import {
   createApiClient,
   createAuthApi,
   createGamificationApi,
+  createGeocodingApi,
   createMediaApi,
   createModerationApi,
   createNotificationsApi,
@@ -32,6 +33,7 @@ export const notificationsApi = createNotificationsApi(apiClient);
 export const gamificationApi = createGamificationApi(apiClient);
 export const moderationApi = createModerationApi(apiClient);
 export const analyticsApi = createAnalyticsApi(apiClient);
+export const geocodingApi = createGeocodingApi(apiClient);
 
 // Single source of truth for the refresh network call and the resulting session
 // mutation. The shared single-flight coordinator (refreshSession) guarantees this

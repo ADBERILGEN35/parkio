@@ -102,15 +102,13 @@ copies** of producers' payloads (contracts are duplicated, never shared):
 - Legacy `ParkingSpotRejected` → opens the same case for already-published records
 - `MediaRejected` → opens a `MEDIA` case for `IMAGE_SAFETY` (→ `FAKE_PHOTO`) or
   `PARKING_RELEVANCE` (→ `NOT_A_PARKING_SPOT`); other media rejections are ignored
-- `AiValidationCompleted` (**placeholder** — ai-validation-service not built yet): a
-  not-a-parking-spot verdict opens a `PARKING_SPOT` case (`NOT_A_PARKING_SPOT`)
+- `AiValidationCompleted`: a not-a-parking-spot verdict opens a `PARKING_SPOT`
+  case (`NOT_A_PARKING_SPOT`)
 
 Handlers open a case only if no active one already exists for the target.
 
 ## Backlog (not yet implemented)
 
-- Reconcile the **placeholder** `AiValidationCompleted` shape with ai-validation-service
-  and register it in `event-contracts.md` when that service lands.
 - Threshold-based case opening for accumulated non-serious reports.
 - Spot-owner appeals (moderation does not currently resolve a spot → owner mapping).
 

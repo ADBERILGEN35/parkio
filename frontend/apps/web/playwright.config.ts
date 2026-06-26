@@ -30,6 +30,19 @@ export default defineConfig({
   projects: [
     { name: 'chromium', use: { ...devices['Desktop Chrome'] } },
     {
+      // Smallest mainstream Android width (360×800 — Galaxy A-series / many budget
+      // phones). The tightest layout we support: validates no horizontal overflow,
+      // no clipped CTAs, no chip wrapping, and that the preview clears the sheet.
+      name: 'galaxy-360',
+      use: {
+        ...devices['Pixel 7'],
+        viewport: { width: 360, height: 800 },
+        deviceScaleFactor: 3,
+        isMobile: true,
+        hasTouch: true,
+      },
+    },
+    {
       name: 'iphone-14',
       use: {
         ...devices['Desktop Chrome'],

@@ -1,4 +1,4 @@
-import type { PublicSpot } from '@parkio/types';
+import type { GeocodeResult, PublicSpot } from '@parkio/types';
 import { fireEvent, screen } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { http, HttpResponse, delay } from 'msw';
@@ -42,38 +42,39 @@ function stubGeolocation(value: Partial<Geolocation> | undefined) {
   Object.defineProperty(navigator, 'geolocation', { configurable: true, value });
 }
 
-/** Default Nominatim base URL (no VITE override in the test env). */
-const NOMINATIM_URL = 'https://nominatim.openstreetmap.org/search';
+/** Backend geocoding endpoint — the browser no longer calls Nominatim directly (ADR-014). */
+const GEOCODING_URL = `${API_BASE}/geocoding/search`;
 
-function nominatimItem(overrides: Record<string, unknown> = {}) {
+/** Already-mapped GeocodeResult, as the backend now returns it (server-side mapping). */
+function geocodeResult(overrides: Partial<GeocodeResult> = {}): GeocodeResult {
   return {
-    place_id: 1,
-    display_name: 'Konak Pier, Konak, İzmir, Türkiye',
-    name: 'Konak Pier',
-    lat: '38.42',
-    lon: '27.14',
-    address: { city: 'İzmir', city_district: 'Konak' },
+    id: '1',
+    displayName: 'Konak Pier, Konak, İzmir, Türkiye',
+    primary: 'Konak Pier',
+    secondary: 'Konak, İzmir',
+    lat: 38.42,
+    lng: 27.14,
     ...overrides,
   };
 }
 
 /** Two "vali" matches used to exercise the typeahead dropdown. */
-const valiItems = [
-  nominatimItem({
-    place_id: 11,
-    name: 'Vali Nevzat Ayaz Lisesi',
-    display_name: 'Vali Nevzat Ayaz Lisesi, Karşıyaka, İzmir',
-    lat: '38.46',
-    lon: '27.10',
-    address: { city: 'İzmir', city_district: 'Karşıyaka' },
+const valiItems: GeocodeResult[] = [
+  geocodeResult({
+    id: '11',
+    primary: 'Vali Nevzat Ayaz Lisesi',
+    secondary: 'Karşıyaka, İzmir',
+    displayName: 'Vali Nevzat Ayaz Lisesi, Karşıyaka, İzmir',
+    lat: 38.46,
+    lng: 27.1,
   }),
-  nominatimItem({
-    place_id: 12,
-    name: 'Vali Konağı Caddesi',
-    display_name: 'Vali Konağı Caddesi, Konak, İzmir',
-    lat: '38.41',
-    lon: '27.13',
-    address: { city: 'İzmir', city_district: 'Konak' },
+  geocodeResult({
+    id: '12',
+    primary: 'Vali Konağı Caddesi',
+    secondary: 'Konak, İzmir',
+    displayName: 'Vali Konağı Caddesi, Konak, İzmir',
+    lat: 38.41,
+    lng: 27.13,
   }),
 ];
 
@@ -229,9 +230,9 @@ describe('MapPage', () => {
   it('does not call geocoding for queries shorter than 3 characters', async () => {
     let geocodeCalls = 0;
     server.use(
-      http.get(NOMINATIM_URL, () => {
+      http.get(GEOCODING_URL, () => {
         geocodeCalls += 1;
-        return HttpResponse.json(valiItems);
+        return HttpResponse.json({ results: valiItems });
       }),
     );
 
@@ -246,7 +247,7 @@ describe('MapPage', () => {
   });
 
   it('shows debounced typeahead suggestions after typing 3+ characters', async () => {
-    server.use(http.get(NOMINATIM_URL, () => HttpResponse.json(valiItems)));
+    server.use(http.get(GEOCODING_URL, () => HttpResponse.json({ results: valiItems })));
 
     renderWithProviders(<MapPage />);
     const user = userEvent.setup();
@@ -260,7 +261,7 @@ describe('MapPage', () => {
   });
 
   it('shows "No places found" when the typeahead returns nothing', async () => {
-    server.use(http.get(NOMINATIM_URL, () => HttpResponse.json([])));
+    server.use(http.get(GEOCODING_URL, () => HttpResponse.json({ results: [] })));
 
     renderWithProviders(<MapPage />);
     const user = userEvent.setup();
@@ -271,7 +272,7 @@ describe('MapPage', () => {
   });
 
   it('shows a friendly error when typeahead geocoding fails', async () => {
-    server.use(http.get(NOMINATIM_URL, () => HttpResponse.error()));
+    server.use(http.get(GEOCODING_URL, () => HttpResponse.error()));
 
     renderWithProviders(<MapPage />);
     const user = userEvent.setup();
@@ -284,7 +285,7 @@ describe('MapPage', () => {
   it('selecting a suggestion runs the parking nearby search at its coordinates', async () => {
     let nearbyUrl: URL | null = null;
     server.use(
-      http.get(NOMINATIM_URL, () => HttpResponse.json(valiItems)),
+      http.get(GEOCODING_URL, () => HttpResponse.json({ results: valiItems })),
       http.get(`${API_BASE}/parking/spots/nearby`, ({ request }) => {
         nearbyUrl = new URL(request.url);
         return HttpResponse.json([spot]);
@@ -307,7 +308,7 @@ describe('MapPage', () => {
   it('supports keyboard navigation (ArrowDown + Enter selects a suggestion)', async () => {
     let nearbyUrl: URL | null = null;
     server.use(
-      http.get(NOMINATIM_URL, () => HttpResponse.json(valiItems)),
+      http.get(GEOCODING_URL, () => HttpResponse.json({ results: valiItems })),
       http.get(`${API_BASE}/parking/spots/nearby`, ({ request }) => {
         nearbyUrl = new URL(request.url);
         return HttpResponse.json([spot]);
@@ -328,7 +329,7 @@ describe('MapPage', () => {
   });
 
   it('closes the suggestions dropdown on Escape', async () => {
-    server.use(http.get(NOMINATIM_URL, () => HttpResponse.json(valiItems)));
+    server.use(http.get(GEOCODING_URL, () => HttpResponse.json({ results: valiItems })));
 
     renderWithProviders(<MapPage />);
     const user = userEvent.setup();
@@ -343,13 +344,13 @@ describe('MapPage', () => {
 
   it('ignores stale typeahead responses when the query changes', async () => {
     server.use(
-      http.get(NOMINATIM_URL, async ({ request }) => {
+      http.get(GEOCODING_URL, async ({ request }) => {
         const q = new URL(request.url).searchParams.get('q');
         if (q === 'vali') {
           await delay(400);
-          return HttpResponse.json([nominatimItem({ place_id: 99, name: 'Stale Vali Result' })]);
+          return HttpResponse.json({ results: [geocodeResult({ id: '99', primary: 'Stale Vali Result' })] });
         }
-        return HttpResponse.json([nominatimItem({ place_id: 100, name: 'Fresh Valide Result' })]);
+        return HttpResponse.json({ results: [geocodeResult({ id: '100', primary: 'Fresh Valide Result' })] });
       }),
     );
 
@@ -371,7 +372,7 @@ describe('MapPage', () => {
   it('runs geocode-on-submit when Enter is pressed with no suggestion highlighted', async () => {
     let nearbyUrl: URL | null = null;
     server.use(
-      http.get(NOMINATIM_URL, () => HttpResponse.json([nominatimItem()])),
+      http.get(GEOCODING_URL, () => HttpResponse.json({ results: [geocodeResult()] })),
       http.get(`${API_BASE}/parking/spots/nearby`, ({ request }) => {
         nearbyUrl = new URL(request.url);
         return HttpResponse.json([spot]);
@@ -423,7 +424,10 @@ describe('MapPage', () => {
     expect(screen.getByLabelText('Longitude')).toHaveValue('27.2');
   });
 
-  it('preserves the current bottom sheet state when a marker is selected', async () => {
+  it('collapses the sheet to its peek so the preview never obscures it (mobile)', async () => {
+    // On mobile the selected-spot preview and the results sheet share the bottom
+    // band. Selecting a marker drops the sheet to its always-visible peek so the
+    // two never overlap and the drag handle stays reachable just below the preview.
     server.use(http.get(`${API_BASE}/parking/spots/nearby`, () => HttpResponse.json([spot])));
 
     renderWithProviders(<MapPage />);
@@ -436,7 +440,28 @@ describe('MapPage', () => {
 
     await user.click(await screen.findByRole('button', { name: 'stub-select-first-spot' }));
 
+    // Preview is shown, and the sheet has collapsed to its peek (handle still present).
     expect(screen.getByTestId('selected-spot-preview')).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: /Search results, collapsed/ })).toBeInTheDocument();
+  });
+
+  it('hides the preview once the user expands the sheet to browse results (mobile)', async () => {
+    // If the user deliberately raises the sheet (collapsed → half) to scan the
+    // list, the preview must yield the bottom band rather than cover the results.
+    server.use(http.get(`${API_BASE}/parking/spots/nearby`, () => HttpResponse.json([spot])));
+
+    renderWithProviders(<MapPage />);
+    const user = userEvent.setup();
+
+    await user.click(await screen.findByRole('button', { name: 'stub-pick-center' }));
+    await openSearchOptions(user);
+    await user.click(screen.getByRole('button', { name: 'Search nearby' }));
+    await user.click(await screen.findByRole('button', { name: 'stub-select-first-spot' }));
+    expect(screen.getByTestId('selected-spot-preview')).toBeInTheDocument();
+
+    // Tapping the handle cycles collapsed → half; the preview steps aside.
+    await user.click(screen.getByRole('button', { name: /Search results, collapsed/ }));
+    expect(screen.queryByTestId('selected-spot-preview')).not.toBeInTheDocument();
     expect(screen.getByRole('button', { name: /Search results, half/ })).toBeInTheDocument();
   });
 });

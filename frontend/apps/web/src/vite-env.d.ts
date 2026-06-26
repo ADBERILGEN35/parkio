@@ -11,7 +11,6 @@ interface ImportMetaEnv {
   readonly VITE_MAP_TILE_URL?: string;
   /** Raster fallback attribution HTML (used only when no MapTiler key is set). */
   readonly VITE_MAP_TILE_ATTRIBUTION?: string;
-  readonly VITE_GEOCODING_BASE_URL?: string;
   readonly VITE_FRONTEND_ERROR_REPORTING?: 'disabled' | 'console';
 }
 

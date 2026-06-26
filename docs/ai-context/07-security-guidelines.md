@@ -119,6 +119,13 @@ Privilege boundaries / enforcement notes:
 - Keep Trivy scanner versions pinned in CI with the official Trivy Docker image
   and the workspace cache. Do not install Trivy on the runner or use wrapper/action
   defaults.
+- Security CI image scanning must cover every runtime service Dockerfile. Keep
+  `.github/workflows/security-ci.yml`'s image matrix aligned with the service
+  Dockerfiles under `services/*/Dockerfile`.
+- Dependabot must cover Gradle, the pnpm frontend workspace, GitHub Actions and
+  Docker images. GitHub Actions currently use mutable major tags and rely on
+  Dependabot for update PRs; full commit-SHA pinning is a production hardening
+  follow-up requiring verified SHAs.
 
 ## Input & data protection
 

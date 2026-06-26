@@ -53,7 +53,7 @@ export function SelectedSpotPreview({ spot, onClose, className }: SelectedSpotPr
               icon="close"
               variant="ghost"
               onClick={onClose}
-              className="-mr-2 -mt-2 h-8 w-8 shrink-0"
+              className="-mr-2 -mt-2 h-11 w-11 shrink-0"
             />
           </div>
 

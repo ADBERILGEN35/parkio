@@ -33,7 +33,7 @@ export function MapFloatingControls({
         aria-label="Use my location"
         disabled={locating}
         onClick={onLocate}
-        className="pointer-events-auto flex h-10 w-10 items-center justify-center rounded-full bg-surface-container-lowest text-on-surface shadow-lg transition-all duration-std hover:bg-surface-container motion-safe:active:scale-95 disabled:opacity-60"
+        className="pointer-events-auto flex h-11 w-11 items-center justify-center rounded-full bg-surface-container-lowest text-on-surface shadow-lg transition-all duration-std hover:bg-surface-container motion-safe:active:scale-95 disabled:opacity-60"
       >
         <Icon name="my_location" className="text-[20px] leading-none text-primary" />
       </button>
@@ -42,7 +42,7 @@ export function MapFloatingControls({
           type="button"
           aria-label="Zoom in"
           onClick={() => map?.zoomIn()}
-          className="flex h-10 w-10 items-center justify-center text-on-surface transition-colors hover:bg-surface-container motion-safe:active:scale-95"
+          className="flex h-11 w-11 items-center justify-center text-on-surface transition-colors hover:bg-surface-container motion-safe:active:scale-95"
         >
           <Icon name="add" className="text-[20px] leading-none" />
         </button>
@@ -51,7 +51,7 @@ export function MapFloatingControls({
           type="button"
           aria-label="Zoom out"
           onClick={() => map?.zoomOut()}
-          className="flex h-10 w-10 items-center justify-center text-on-surface transition-colors hover:bg-surface-container motion-safe:active:scale-95"
+          className="flex h-11 w-11 items-center justify-center text-on-surface transition-colors hover:bg-surface-container motion-safe:active:scale-95"
         >
           <Icon name="remove" className="text-[20px] leading-none" />
         </button>

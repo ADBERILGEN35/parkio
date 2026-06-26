@@ -99,7 +99,7 @@ describe('SpotDetailPage', () => {
     expect(screen.getByText('Code: ALREADY_VERIFIED')).toBeInTheDocument();
   });
 
-  it('shows the claim success message after a successful claim', async () => {
+  it('requires confirmation before an irreversible claim, then shows success', async () => {
     useSpotHandlers();
     server.use(
       http.post(`${API_BASE}/parking/spots/${SPOT_ID}/claim`, () =>
@@ -110,11 +110,35 @@ describe('SpotDetailPage', () => {
     renderSpotDetail();
     const user = userEvent.setup();
 
+    // First tap only reveals the confirmation — no request fires yet.
     await user.click(await screen.findByRole('button', { name: 'Claim this spot' }));
+    expect(await screen.findByText(/can't be undone/i)).toBeInTheDocument();
 
+    await user.click(screen.getByRole('button', { name: 'Yes, mark as filled' }));
     expect(
       await screen.findByText('Spot claimed — it is now marked as filled.'),
     ).toBeInTheDocument();
+  });
+
+  it('lets the user cancel an unintended claim without firing a request', async () => {
+    useSpotHandlers();
+    let claimCalls = 0;
+    server.use(
+      http.post(`${API_BASE}/parking/spots/${SPOT_ID}/claim`, () => {
+        claimCalls += 1;
+        return HttpResponse.json({ ...spot, status: 'FILLED' });
+      }),
+    );
+
+    renderSpotDetail();
+    const user = userEvent.setup();
+
+    await user.click(await screen.findByRole('button', { name: 'Claim this spot' }));
+    await user.click(await screen.findByRole('button', { name: 'Cancel' }));
+
+    // Back to the initial affordance, and the claim endpoint was never called.
+    expect(screen.getByRole('button', { name: 'Claim this spot' })).toBeInTheDocument();
+    expect(claimCalls).toBe(0);
   });
 
   it('keeps spot details visible when the photo is unavailable', async () => {

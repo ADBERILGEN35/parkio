@@ -1,11 +1,15 @@
 # Parkio
 
-Parkio is a Java 21 / Spring Boot 3 microservice platform, organised as a Gradle
+Parkio is a Java 21 / Spring Boot 3.5.x microservice platform, organised as a Gradle
 (Kotlin DSL) monorepo. Each backend capability is an **independently runnable**
 Spring Boot service with its own build, Dockerfile and bounded context.
 
-> **Status:** scaffolding only. Project structure, build wiring and base Spring
-> Boot applications exist; business logic is intentionally not implemented yet.
+> **Status:** hosted-beta / closed-beta candidate. Parkio has real backend
+> domain logic, browser auth/session hardening, media upload and scanning,
+> moderation, gamification, observability, a React frontend, CI, and real-stack
+> E2E wiring. It is **not full production-ready yet**; production still requires
+> operational hardening, managed/HA data services, rollout automation and live
+> readiness verification.
 
 ## Repository layout
 
@@ -166,8 +170,9 @@ Runs on PRs, pushes to `master`, weekly, and on demand:
   gated behind the `CODEQL_ENABLED` repository variable (see below).
 - **Trivy filesystem dependency scanning** covers Gradle/pnpm manifests and blocks
   HIGH/CRITICAL library vulnerabilities.
-- **Trivy container image scanning** builds representative gateway/auth/media images,
-  reports HIGH/CRITICAL findings, and blocks CRITICAL image vulnerabilities.
+- **Trivy container image scanning** builds every runtime service image with a
+  Dockerfile, reports HIGH/CRITICAL findings, and blocks CRITICAL image
+  vulnerabilities.
 
 All scan reports are uploaded as workflow artifacts on every run, independent of
 Code Scanning availability. Security CI runs the official pinned Trivy Docker image
@@ -221,7 +226,15 @@ CodeQL local analysis is optional; use the GitHub workflow as the canonical SARI
 producer unless you already have the CodeQL CLI installed.
 
 [`.github/dependabot.yml`](.github/dependabot.yml) raises conservative weekly
-update PRs for Gradle dependencies and the GitHub Actions used by CI.
+update PRs for Gradle dependencies, the pnpm frontend workspace, GitHub Actions,
+service Dockerfile base images and Docker stack images.
+
+GitHub Actions currently use mutable major tags such as `actions/checkout@v4`
+and `actions/setup-java@v4`. That is an accepted short-term tradeoff for this
+hosted-beta line because Dependabot monitors GitHub Actions weekly. Full
+commit-SHA pinning remains a production hardening follow-up: pin critical
+actions only after verifying the exact upstream SHAs and update flow, rather
+than mass-changing CI blindly.
 
 ### Dependency-line policy
 

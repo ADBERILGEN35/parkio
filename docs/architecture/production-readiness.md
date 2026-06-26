@@ -461,8 +461,8 @@ Security CI runs on PRs, pushes to `master`, weekly, and on demand:
   (gated behind the `CODEQL_ENABLED` repository variable — see below).
 - **Dependency scanning:** Trivy filesystem scan over dependency manifests, blocking HIGH/CRITICAL
   library vulnerabilities.
-- **Container scanning:** gateway/auth/media images are built and scanned with Trivy. HIGH findings are
-  reported; CRITICAL image vulnerabilities block CI.
+- **Container scanning:** every runtime service image with a Dockerfile is built and scanned with
+  Trivy. HIGH findings are reported; CRITICAL image vulnerabilities block CI.
 
 All scan reports are uploaded as workflow artifacts on every run. Trivy steps authenticate to
 `ghcr.io` with the workflow `GITHUB_TOKEN`, run the official pinned Trivy Docker image
@@ -472,6 +472,12 @@ runner. To update Trivy, change `TRIVY_IMAGE` in `.github/workflows/security-ci.
 Security CI. Dependency artifacts are uploaded as `trivy-dependencies-reports`; image artifacts
 are uploaded per service as `trivy-image-<service>-reports`. A final `summary` job prints the
 policy and per-gate result (including whether CodeQL ran or was skipped) to the run summary.
+
+Dependabot monitors Gradle, the pnpm frontend workspace, GitHub Actions, service Dockerfiles and
+the Docker stack directory. GitHub Actions currently remain on mutable major tags (`@v4`, `@v3`)
+as a hosted-beta tradeoff; Dependabot raises weekly action updates. Full commit-SHA pinning is a
+production hardening follow-up and should be done with verified upstream SHAs rather than a blind
+mass rewrite.
 
 **CodeQL gating — personal repo today, org/GHAS later.** Code Scanning (and, on private repos,
 GitHub Advanced Security) is required for CodeQL and Trivy SARIF upload. This is currently

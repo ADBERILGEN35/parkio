@@ -1,6 +1,7 @@
 # Conservative weekly dependency updates for the Gradle build (version catalog
-# + wrapper) and the GitHub Actions used by CI. Low PR limits keep the noise
-# down; security updates are always raised regardless of these schedules.
+# + wrapper), the pnpm frontend workspace, Docker base images and GitHub Actions
+# used by CI. Low PR limits keep the noise down; security updates are always
+# raised regardless of these schedules.
 #
 # Dependency-line policy
 # ----------------------
@@ -47,3 +48,104 @@ updates:
     open-pull-requests-limit: 3
     labels:
       - dependencies
+
+  - package-ecosystem: npm
+    directory: "/frontend"
+    schedule:
+      interval: weekly
+    open-pull-requests-limit: 5
+    labels:
+      - dependencies
+      - frontend
+
+  # Docker ecosystem entries are per directory, so every runtime service
+  # Dockerfile is listed explicitly. Keep this list aligned with
+  # `.github/workflows/security-ci.yml`'s image scan matrix.
+  - package-ecosystem: docker
+    directory: "/services/ai-validation-service"
+    schedule:
+      interval: weekly
+    open-pull-requests-limit: 2
+    labels:
+      - dependencies
+      - docker
+  - package-ecosystem: docker
+    directory: "/services/analytics-service"
+    schedule:
+      interval: weekly
+    open-pull-requests-limit: 2
+    labels:
+      - dependencies
+      - docker
+  - package-ecosystem: docker
+    directory: "/services/auth-service"
+    schedule:
+      interval: weekly
+    open-pull-requests-limit: 2
+    labels:
+      - dependencies
+      - docker
+  - package-ecosystem: docker
+    directory: "/services/gamification-service"
+    schedule:
+      interval: weekly
+    open-pull-requests-limit: 2
+    labels:
+      - dependencies
+      - docker
+  - package-ecosystem: docker
+    directory: "/services/gateway-service"
+    schedule:
+      interval: weekly
+    open-pull-requests-limit: 2
+    labels:
+      - dependencies
+      - docker
+  - package-ecosystem: docker
+    directory: "/services/media-service"
+    schedule:
+      interval: weekly
+    open-pull-requests-limit: 2
+    labels:
+      - dependencies
+      - docker
+  - package-ecosystem: docker
+    directory: "/services/moderation-service"
+    schedule:
+      interval: weekly
+    open-pull-requests-limit: 2
+    labels:
+      - dependencies
+      - docker
+  - package-ecosystem: docker
+    directory: "/services/notification-service"
+    schedule:
+      interval: weekly
+    open-pull-requests-limit: 2
+    labels:
+      - dependencies
+      - docker
+  - package-ecosystem: docker
+    directory: "/services/parking-service"
+    schedule:
+      interval: weekly
+    open-pull-requests-limit: 2
+    labels:
+      - dependencies
+      - docker
+  - package-ecosystem: docker
+    directory: "/services/user-service"
+    schedule:
+      interval: weekly
+    open-pull-requests-limit: 2
+    labels:
+      - dependencies
+      - docker
+  - package-ecosystem: docker
+    directory: "/docker"
+    schedule:
+      interval: weekly
+    open-pull-requests-limit: 3
+    labels:
+      - dependencies
+      - docker

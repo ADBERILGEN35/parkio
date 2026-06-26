@@ -451,6 +451,9 @@ const TERMINAL_STATUSES: ReadonlyArray<PublicSpot['status']> = ['FILLED', 'EXPIR
 function PremiumActionCard({ spot }: { spot: PublicSpot }) {
   const queryClient = useQueryClient();
   const [claimed, setClaimed] = useState(false);
+  // Claiming flips the spot to FILLED for *every* user and can't be undone, so we
+  // gate it behind an explicit in-place confirmation rather than a single tap.
+  const [confirmingClaim, setConfirmingClaim] = useState(false);
 
   const applySpotUpdate = (updated: PublicSpot) => {
     queryClient.setQueryData(['parking', 'spot', updated.id], updated);
@@ -589,22 +592,49 @@ function PremiumActionCard({ spot }: { spot: PublicSpot }) {
         <p className="m-0 text-label-sm text-on-surface-variant">
           Parked here? Claiming marks the spot as filled for everyone.
         </p>
-        <Button
-          variant="secondary"
-          onClick={() => claimMutation.mutate()}
-          disabled={disabled || claimed}
-          className="w-full"
-        >
-          {claimMutation.isPending ? 'Claiming…' : 'Claim this spot'}
-        </Button>
-        {claimMutation.isError ? (
-          <FriendlyApiErrorMessage error={claimMutation.error} mapper={mapActionError} />
-        ) : null}
         {claimed ? (
           <p className="m-0 flex items-center gap-xs text-body-md font-medium text-secondary">
             <Icon name="check_circle" className="text-[16px] leading-none" />
             Spot claimed — it is now marked as filled.
           </p>
+        ) : confirmingClaim ? (
+          // Explicit confirmation for an irreversible, everyone-visible change.
+          <div className="flex flex-col gap-sm rounded-2xl bg-surface-container-low p-md">
+            <p className="m-0 flex items-start gap-xs text-label-sm font-medium text-on-surface">
+              <Icon name="warning" className="text-[16px] leading-none text-tertiary" />
+              This marks the spot filled for everyone and can&apos;t be undone. Continue?
+            </p>
+            <div className="flex gap-sm">
+              <Button
+                variant="secondary"
+                onClick={() => claimMutation.mutate()}
+                disabled={disabled}
+                className="flex-1"
+              >
+                {claimMutation.isPending ? 'Claiming…' : 'Yes, mark as filled'}
+              </Button>
+              <Button
+                variant="ghost"
+                onClick={() => setConfirmingClaim(false)}
+                disabled={claimMutation.isPending}
+                className="flex-1"
+              >
+                Cancel
+              </Button>
+            </div>
+          </div>
+        ) : (
+          <Button
+            variant="secondary"
+            onClick={() => setConfirmingClaim(true)}
+            disabled={disabled}
+            className="w-full"
+          >
+            Claim this spot
+          </Button>
+        )}
+        {claimMutation.isError ? (
+          <FriendlyApiErrorMessage error={claimMutation.error} mapper={mapActionError} />
         ) : null}
       </div>
 

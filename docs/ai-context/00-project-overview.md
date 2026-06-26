@@ -1,6 +1,7 @@
 # 00 — Project Overview
 
-Parkio is a **production-grade, microservice-first parking spot sharing platform**.
+Parkio is a **microservice-first parking spot sharing platform** currently aimed
+at a hosted-beta / closed-beta release.
 
 ## Core concept
 
@@ -43,15 +44,28 @@ See [`02-domain-rules.md`](02-domain-rules.md) for exact rules.
 
 ## Tech stack
 
-- **Backend:** Java 21, Spring Boot 3, Spring Cloud, Gradle Kotlin DSL.
+- **Backend:** Java 21, Spring Boot 3.5.x, Spring Cloud, Gradle Kotlin DSL.
 - **Data:** PostgreSQL + PostGIS (geospatial), Redis (cache/locks/idempotency).
 - **Messaging:** Kafka (asynchronous events).
 - **Object storage:** MinIO / S3 (media).
-- **Delivery:** Docker.
-- **Clients:** React (web), React Native Expo (mobile).
+- **Delivery:** Docker / Compose for local and hosted-beta environments.
+- **Clients:** React web app with responsive/mobile UX. Native mobile is not the
+  current implemented client surface.
 
 ## Current state
 
-Scaffolding only: module structure, build wiring, base Spring Boot apps, empty
-clean-architecture packages. **Business logic is not implemented yet.** These docs
-define the rules for implementing it.
+This repository is **not scaffolding-only**. It contains real domain logic,
+REST APIs, Kafka/outbox/inbox flows, Flyway schemas, security/session handling,
+media upload and malware scanning, moderation, gamification, notification,
+analytics, observability, frontend UX, CI, security scanning, and real-stack E2E
+wiring.
+
+Treat the current target as **hosted-beta / closed-beta candidate**, not full
+production-ready. Production still needs operational hardening such as managed
+or highly available data services, release automation, full production
+observability validation, incident/runbook maturity, and live readiness drills.
+
+When modifying code, do **not** assume a service is empty or safe to overwrite.
+Read the relevant service README, `docs/architecture/*`, and the service's
+existing tests before editing. Preserve existing security/session/media/outbox
+patterns unless the task explicitly asks to change them.

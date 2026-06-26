@@ -7,9 +7,13 @@ Read this **before** writing any code in Parkio.
 1. **Read `/docs/ai-context` first** — at minimum `00`, `01`, the rule files
    relevant to your task (`03` boundaries, plus the API/DB/event/security file that
    applies), and this file.
-2. Identify the **single service** you are changing. Confirm the change belongs to
+2. Do **not** assume services are empty scaffolding. Parkio has real
+   implementation, tests, schemas, security/session/media/outbox behavior and
+   frontend flows. Read the target service README plus relevant
+   `docs/architecture/*` files before modifying code.
+3. Identify the **single service** you are changing. Confirm the change belongs to
    that service's bounded context (`03-service-boundaries.md`).
-3. If the task is ambiguous or seems to require crossing a boundary, **ask** rather
+4. If the task is ambiguous or seems to require crossing a boundary, **ask** rather
    than guess.
 
 ## While coding
@@ -25,6 +29,9 @@ Read this **before** writing any code in Parkio.
   abstractions, no patterns the task doesn't need. Match existing style.
 - Use existing build wiring (convention plugin + version catalog); add new
   dependencies there, not ad hoc.
+- Preserve established security/session/media/outbox patterns unless the task
+  explicitly asks to change them. Never overwrite real implementation with
+  placeholder scaffolding.
 
 ## Reliability & correctness
 

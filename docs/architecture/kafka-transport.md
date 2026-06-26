@@ -147,6 +147,11 @@ Consumers (and the outbox serializer) **must** be configured so contracts evolve
   (`WRITE_DATES_AS_TIMESTAMPS = false`) for `Instant`/`occurredAt`.
 - **Enums as strings** — read enum fields as `String` so unknown future values are safe.
 - Unknown future fields are ignored, never rejected.
+- Every local `EventEnvelope` record copy must be annotated with
+  `@JsonIgnoreProperties(ignoreUnknown = true)`. The duplication is intentional
+  until a future platform starter/shared event-contract module is introduced;
+  do not change the wire shape or add a shared module as a compatibility-only
+  fix.
 
 ## Transport envelope (canonical shape)
 
@@ -196,9 +201,16 @@ failure (broker error *or* an unreadable JSON payload *or* an unroutable event t
 and rolled back the entire batch — so one bad row stalled every later event forever
 (head-of-line blocking). The fix makes each row independent:
 
-- **Per-row isolation.** Each row is published in its own try/catch. A failure is recorded
-  on the row and the relay **continues** to the next row; only a thread interrupt aborts
-  the poll. Successful rows in the same batch still commit.
+- **Per-row isolation.** Each row's ack is awaited in its own try/catch. A failure is
+  recorded on the row and the relay **continues** to the next row; only a thread interrupt
+  aborts the poll. Successful rows in the same batch still commit.
+- **Pipelined dispatch (no per-row blocking).** `publishPending()` first dispatches *all*
+  sends in the batch (`kafkaTemplate.send(...)`, no per-row `.get()`), then awaits the acks
+  together under a single `send-timeout-ms` deadline. The batch settles in roughly **one**
+  broker round-trip instead of `batch-size` serial ones, so the relay transaction (and its
+  `FOR UPDATE` row locks + pooled connection) is held only briefly — Kafka network I/O never
+  extends the transaction across more than that single await. The business transaction that
+  wrote the row already committed independently, so business latency is unaffected regardless.
 - **Failure tracking columns** (added to every `outbox_events` table):
   `failure_count` (int), `last_failure_reason` (text, bounded to 2000 chars),
   `last_failed_at` (timestamptz), `dead_lettered` (boolean).
@@ -220,6 +232,10 @@ Metrics (see `observability-metrics.md`): gauge `parkio.outbox.deadlettered.coun
 (current poison depth — any non-zero value is actionable) plus counters
 `parkio.outbox.publish.failed` and `parkio.outbox.deadlettered`. The
 `parkio.outbox.unpublished.count` backlog gauge now **excludes** dead-lettered rows.
+The relay also exports `parkio.outbox.publish.success` (counter), `parkio.outbox.publish.duration`
+(timer: per-row dispatch→ack latency) and `parkio.outbox.batch.size` (summary: rows claimed
+per poll) for throughput/latency tracking. A sustained `parkio.outbox.publish.failed` rate
+trips the `OutboxPublishFailuresElevated` warning alert before rows dead-letter.
 
 Tunables (per service `application.yml`, all overridable by env):
 
@@ -228,7 +244,7 @@ Tunables (per service `application.yml`, all overridable by env):
 | `parkio.kafka.relay.max-attempts` | `10` | Failed publishes before a row is dead-lettered. |
 | `parkio.kafka.relay.batch-size` | `100` | Rows claimed per poll. |
 | `parkio.kafka.relay.poll-interval-ms` | `1000` | Relay poll interval. |
-| `parkio.kafka.relay.send-timeout-ms` | `10000` | Per-row broker ack wait. |
+| `parkio.kafka.relay.send-timeout-ms` | `10000` | Shared deadline for awaiting a batch's broker acks (sends are pipelined, not serial). |
 
 > **Operational caveat (broker outage vs poison).** Because transient send failures also
 > increment `failure_count`, a broker outage lasting longer than ~`max-attempts` poll

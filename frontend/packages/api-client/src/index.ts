@@ -14,6 +14,7 @@ export { createNotificationsApi, type NotificationsApi } from './notifications';
 export { createGamificationApi, type GamificationApi } from './gamification';
 export { createModerationApi, type ModerationApi } from './moderation';
 export { createAnalyticsApi, type AnalyticsApi } from './analytics';
+export { createGeocodingApi, type GeocodingApi } from './geocoding';
 export {
   createIdempotencyKey,
   IDEMPOTENCY_HEADER,

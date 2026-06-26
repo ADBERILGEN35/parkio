@@ -443,8 +443,9 @@ export function UploadPage() {
                 </div>
               )}
 
-              <p className="m-0 text-label-sm text-on-surface-variant">
-                The photo&apos;s signed viewing URL is generated later, on the spot detail page.
+              <p className="m-0 flex items-center gap-xs text-label-sm text-on-surface-variant">
+                <Icon name="lock" className="text-[14px] leading-none" />
+                Your photo stays private — it&apos;s only shown on the spot&apos;s page.
               </p>
               {fileError ? (
                 <p className="m-0 flex items-center gap-xs text-label-sm text-error">
@@ -681,6 +682,12 @@ export function UploadPage() {
               </Button>
             ) : (
               <Button type="button" onClick={() => void submitCreate()} disabled={pending}>
+                {pending ? (
+                  <Icon
+                    name="progress_activity"
+                    className="text-[16px] leading-none motion-safe:animate-spin"
+                  />
+                ) : null}
                 {phase === 'uploading'
                   ? 'Uploading photo…'
                   : phase === 'creating'

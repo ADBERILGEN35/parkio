@@ -149,6 +149,20 @@ groups:
           summary: "High heap usage in {{ $labels.service }}"
           description: "{{ $labels.service }} heap is above 90% of max for >10m. Risk of GC thrash / OOM — review memory limits (JAVA_TOOL_OPTIONS MaxRAMPercentage) and load."
 
+      - alert: OutboxPublishFailuresElevated
+        # The relay is failing to publish rows (transient broker/network errors) well before
+        # they exhaust parkio.kafka.relay.max-attempts and dead-letter. A sustained failure
+        # rate means delivery is degraded even if no row has hit the DLQ yet — an early signal
+        # that pairs with the critical OutboxDeadlettered (which only fires post-DLQ).
+        expr: sum by (service) (rate(parkio_outbox_publish_failed_total[5m])) > 0.1
+        for: 10m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Outbox publish failures elevated in {{ $labels.service }}"
+          description: "{{ $labels.service }} outbox relay is failing to publish (~{{ $value | humanize }}/s over 5m). Rows are being retried; check Kafka health and relay logs before they dead-letter."
+          runbook_url: "docs/architecture/observability-metrics.md#runbook--outboxdeadlettered"
+
       - alert: MediaUploadFailuresHigh
         # >50% of upload attempts rejected over 15m -> client/integration breakage (some
         # rejects are normal validation, a sustained majority is not).

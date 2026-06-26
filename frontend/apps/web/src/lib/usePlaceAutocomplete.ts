@@ -4,8 +4,12 @@ import { geocodePlaces, type GeocodeResult } from './geocoding';
 /** Minimum characters before typeahead fires (avoids noisy 1–2 char lookups). */
 export const AUTOCOMPLETE_MIN_CHARS = 3;
 
-/** Debounce window for typeahead requests — keeps Nominatim usage polite. */
+/** Debounce window for typeahead requests — keeps backend/provider usage polite. */
 export const AUTOCOMPLETE_DEBOUNCE_MS = 350;
+
+/** One fast retry smooths over transient gateway/network failures without hiding real outages. */
+const AUTOCOMPLETE_RETRY_ATTEMPTS = 1;
+const AUTOCOMPLETE_RETRY_DELAY_MS = 150;
 
 export type AutocompleteStatus = 'idle' | 'loading' | 'success' | 'error';
 
@@ -21,27 +25,22 @@ export interface PlaceAutocomplete {
 }
 
 /**
- * Typeahead place search over the Nominatim geocoder.
+ * Typeahead place search over Parkio's backend geocoding endpoint.
  *
  * Responsibilities:
  * - Debounce keystrokes ({@link AUTOCOMPLETE_DEBOUNCE_MS}) and only fire at/above
  *   {@link AUTOCOMPLETE_MIN_CHARS}.
- * - Ignore stale responses so a slow earlier query never overwrites a newer one.
- *
- * Staleness is enforced with a monotonic request id rather than an
- * `AbortController`: aborting the underlying `fetch` is unnecessary for this
- * local-beta typeahead, and a plain id guard avoids the cross-realm
- * `AbortSignal` mismatch in the jsdom + undici test environment. The dropped
- * response is simply not applied.
- *
- * Local-beta only: production should move geocoding behind the backend / an SLA
- * provider (see `geocoding.ts`).
+ * - Cancel pending debounce timers and in-flight requests when the query changes,
+ *   a suggestion is selected, Escape closes the menu, or the component unmounts.
+ * - Ignore stale responses so a slow earlier request never overwrites a newer one.
+ * - Retry one transient failure; aborts are treated as cancellation, not errors.
  */
 export function usePlaceAutocomplete(): PlaceAutocomplete {
   const [status, setStatus] = useState<AutocompleteStatus>('idle');
   const [results, setResults] = useState<GeocodeResult[]>([]);
 
   const debounceRef = useRef<ReturnType<typeof setTimeout>>();
+  const abortRef = useRef<AbortController | null>(null);
   const requestIdRef = useRef(0);
 
   const cancelPending = useCallback(() => {
@@ -49,7 +48,9 @@ export function usePlaceAutocomplete(): PlaceAutocomplete {
       clearTimeout(debounceRef.current);
       debounceRef.current = undefined;
     }
-    // Invalidate any in-flight request so its late response is ignored.
+    abortRef.current?.abort();
+    abortRef.current = null;
+    // Invalidate any in-flight request in case a transport ignores abort.
     requestIdRef.current += 1;
   }, []);
 
@@ -61,16 +62,23 @@ export function usePlaceAutocomplete(): PlaceAutocomplete {
 
   const runRequest = useCallback((query: string): Promise<GeocodeResult[]> => {
     const requestId = (requestIdRef.current += 1);
+    const controller = new AbortController();
+    abortRef.current = controller;
+
     setStatus('loading');
-    return geocodePlaces(query)
+
+    return geocodePlacesWithRetry(query, controller.signal)
       .then((places) => {
         if (requestId !== requestIdRef.current) return [];
+        abortRef.current = null;
         setResults(places);
         setStatus('success');
         return places;
       })
-      .catch(() => {
+      .catch((error: unknown) => {
         if (requestId !== requestIdRef.current) return [];
+        abortRef.current = null;
+        if (isAbortError(error)) return [];
         setResults([]);
         setStatus('error');
         return [];
@@ -111,9 +119,61 @@ export function usePlaceAutocomplete(): PlaceAutocomplete {
 
   useEffect(() => {
     return () => {
-      if (debounceRef.current) clearTimeout(debounceRef.current);
+      cancelPending();
     };
-  }, []);
+  }, [cancelPending]);
 
   return { status, results, suggest, flush, clear };
+}
+
+async function geocodePlacesWithRetry(query: string, signal: AbortSignal): Promise<GeocodeResult[]> {
+  let lastError: unknown;
+
+  for (let attempt = 0; attempt <= AUTOCOMPLETE_RETRY_ATTEMPTS; attempt += 1) {
+    try {
+      return await geocodePlaces(query, signal);
+    } catch (error) {
+      if (isAbortError(error) || signal.aborted) throw error;
+      lastError = error;
+      if (attempt < AUTOCOMPLETE_RETRY_ATTEMPTS) {
+        await abortableDelay(AUTOCOMPLETE_RETRY_DELAY_MS, signal);
+      }
+    }
+  }
+
+  throw lastError;
+}
+
+function abortableDelay(ms: number, signal: AbortSignal): Promise<void> {
+  if (signal.aborted) return Promise.reject(createAbortError());
+
+  return new Promise((resolve, reject) => {
+    const timer = setTimeout(resolve, ms);
+    signal.addEventListener(
+      'abort',
+      () => {
+        clearTimeout(timer);
+        reject(createAbortError());
+      },
+      { once: true },
+    );
+  });
+}
+
+function createAbortError(): DOMException | Error {
+  if (typeof DOMException !== 'undefined') {
+    return new DOMException('The operation was aborted.', 'AbortError');
+  }
+  const error = new Error('The operation was aborted.');
+  error.name = 'AbortError';
+  return error;
+}
+
+function isAbortError(error: unknown): boolean {
+  if (!(error instanceof Error)) return false;
+  return (
+    error.name === 'AbortError' ||
+    error.name === 'CanceledError' ||
+    ('code' in error && error.code === 'ERR_CANCELED')
+  );
 }

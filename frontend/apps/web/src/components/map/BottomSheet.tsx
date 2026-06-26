@@ -15,8 +15,12 @@ export type SheetState = 'collapsed' | 'half' | 'expanded';
 
 const ORDER: SheetState[] = ['collapsed', 'half', 'expanded'];
 
-/** Always-visible peek (drag handle + summary), in px. */
-const COLLAPSED_PEEK = 88;
+/**
+ * Always-visible peek (drag handle + summary), in px. Exported so map overlays
+ * (e.g. the selected-spot preview) can anchor just above the peek instead of
+ * hardcoding a magic offset that drifts when the peek height changes.
+ */
+export const COLLAPSED_PEEK = 88;
 /** Viewport-based revealed height for the half state. */
 const HALF_VIEWPORT_FRACTION = 0.48;
 /** Drag distance (px) past which a flick advances one snap point. */
@@ -24,6 +28,20 @@ const FLICK_THRESHOLD = 44;
 /** Pointer travel (px) that counts as a drag rather than a tap. */
 const TAP_SLOP = 6;
 const SHEET_TRANSITION = 'transform 280ms cubic-bezier(0.32, 0.72, 0, 1)';
+
+/**
+ * Honor `prefers-reduced-motion`. The global stylesheet already forces tiny
+ * transition durations, but the sheet drives `transform` transitions via inline
+ * style, so we resolve the snap transition to `none` up front too — no animated
+ * slide for users who opted out. SSR/jsdom safe.
+ */
+function prefersReducedMotion(): boolean {
+  return (
+    typeof window !== 'undefined' &&
+    typeof window.matchMedia === 'function' &&
+    window.matchMedia('(prefers-reduced-motion: reduce)').matches
+  );
+}
 
 export interface BottomSheetProps {
   state: SheetState;
@@ -65,6 +83,8 @@ export function BottomSheet({
   const movedRef = useRef(false);
   const startYRef = useRef(0);
   const baseTranslateRef = useRef(0);
+  // Resolved once per render; reduced-motion users get an instant snap, not a slide.
+  const sheetTransition = prefersReducedMotion() ? 'none' : SHEET_TRANSITION;
 
   useLayoutEffect(() => {
     const node = sheetRef.current;
@@ -185,7 +205,7 @@ export function BottomSheet({
     if (!node) return;
     const dy = event.clientY - startYRef.current;
     const target = resolveSnap(state, dy);
-    node.style.transition = SHEET_TRANSITION;
+    node.style.transition = sheetTransition;
     node.style.transform = `translateY(${offsetFor(target)}px)`;
     event.currentTarget.releasePointerCapture?.(event.pointerId);
     goTo(target);
@@ -203,7 +223,7 @@ export function BottomSheet({
       style={{
         height: 'min(88dvh, 100%)',
         transform: `translateY(${offsetFor(state)}px)`,
-        transition: SHEET_TRANSITION,
+        transition: sheetTransition,
       }}
     >
       <button

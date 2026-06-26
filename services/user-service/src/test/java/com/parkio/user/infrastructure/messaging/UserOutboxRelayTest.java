@@ -134,6 +134,23 @@ class UserOutboxRelayTest {
         assertThat(row.isDeadLettered()).isTrue();
     }
 
+    @Test
+    @SuppressWarnings("unchecked")
+    void publishesEveryPendingRowInOnePoll() {
+        OutboxEventEntity a = profileCreatedRow(UUID.randomUUID(), UUID.randomUUID(), UUID.randomUUID());
+        OutboxEventEntity b = profileCreatedRow(UUID.randomUUID(), UUID.randomUUID(), UUID.randomUUID());
+        when(outbox.findUnpublishedBatchForUpdate(100)).thenReturn(List.of(a, b));
+        when(kafkaTemplate.send(any(ProducerRecord.class)))
+                .thenReturn(CompletableFuture.<SendResult<String, Object>>completedFuture(null));
+
+        relay.publishPending();
+
+        // One poll drains the whole claimed batch; sends are dispatched (pipelined) then awaited.
+        verify(kafkaTemplate, times(2)).send(any(ProducerRecord.class));
+        assertThat(a.isPublished()).isTrue();
+        assertThat(b.isPublished()).isTrue();
+    }
+
     private static String headerValue(ProducerRecord<String, Object> record, String key) {
         Header header = record.headers().lastHeader(key);
         return header == null ? null : new String(header.value(), StandardCharsets.UTF_8);

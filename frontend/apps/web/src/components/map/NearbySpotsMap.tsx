@@ -1,7 +1,7 @@
 import './maplibreSetup';
 import type { PublicSpot } from '@parkio/types';
 import { cn, getSpotStatusVisual, getTrustFreshnessVisual } from '@parkio/ui';
-import { memo, useMemo } from 'react';
+import { memo, useCallback, useMemo } from 'react';
 import Map, { Marker } from 'react-map-gl/maplibre';
 import { MapFloatingControls } from './MapFloatingControls';
 import { DEFAULT_MAP_ZOOM, getMapStyle, type LatLng } from './mapConfig';
@@ -30,7 +30,8 @@ const SpotMarker = memo(function SpotMarker({
 }: {
   spot: PublicSpot;
   selected: boolean;
-  onSelect: () => void;
+  /** Stable across renders so `memo` skips unaffected markers on selection. */
+  onSelect: (id: string) => void;
 }) {
   const status = getSpotStatusVisual(spot.status);
   const { freshness } = getTrustFreshnessVisual(spot.updatedAt);
@@ -45,7 +46,7 @@ const SpotMarker = memo(function SpotMarker({
       aria-pressed={selected}
       onClick={(event) => {
         event.stopPropagation();
-        onSelect();
+        onSelect(spot.id);
       }}
       className={cn(
         'group relative flex h-10 w-10 items-center justify-center rounded-full border-2 border-white bg-surface-container-lowest shadow-lg transition-all duration-std focus:outline-none focus-visible:ring-4 focus-visible:ring-primary/30 motion-safe:hover:-translate-y-0.5',
@@ -81,20 +82,21 @@ export function NearbySpotsMap({
   locating = false,
   showFloatingControls = false,
 }: NearbySpotsMapProps) {
-  // Markers only re-render when the spot set changes — selection styling is
-  // handled per-marker via the `selected` prop, so panning/dragging stays smooth.
+  // Stable selection handler: passed by reference to every marker so the memoized
+  // `SpotMarker` only re-renders when *its own* `selected` flag flips. Selecting a
+  // spot therefore re-renders two markers (the old + new selection), not all N.
+  const handleSelect = useCallback((id: string) => onSelectSpot?.(id), [onSelectSpot]);
+
+  // Marker geometry/labels change only with the spot set; `selected` styling is a
+  // cheap per-marker prop. Panning/dragging never rebuilds this list.
   const markers = useMemo(
     () =>
       spots.map((spot) => (
         <Marker key={spot.id} longitude={spot.longitude} latitude={spot.latitude} anchor="center">
-          <SpotMarker
-            spot={spot}
-            selected={selectedId === spot.id}
-            onSelect={() => onSelectSpot?.(spot.id)}
-          />
+          <SpotMarker spot={spot} selected={selectedId === spot.id} onSelect={handleSelect} />
         </Marker>
       )),
-    [spots, selectedId, onSelectSpot],
+    [spots, selectedId, handleSelect],
   );
 
   return (

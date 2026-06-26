@@ -53,6 +53,20 @@
                 key-resolver: "#{@userOrIpKeyResolver}"
                 redis-rate-limiter.replenishRate: ${PARKIO_RL_PARKING_REPLENISH:10}
                 redis-rate-limiter.burstCapacity: ${PARKIO_RL_PARKING_BURST:20}
+        # --- Geocoding (place text -> coordinates): typeahead-friendly limit ------
+        # Implemented inside parking-service (ADR-014) but routed on its own path so it
+        # carries a DEDICATED rate-limit tier, independent of the parking create/verify
+        # budget. Authenticated like every non-auth route (not on the public allow-list).
+        - id: geocoding-service
+          uri: ${PARKIO_PARKING_SERVICE_URI:http://localhost:8083}
+          predicates:
+            - Path=/api/v1/geocoding/**
+          filters:
+            - name: RequestRateLimiter
+              args:
+                key-resolver: "#{@userOrIpKeyResolver}"
+                redis-rate-limiter.replenishRate: ${PARKIO_RL_GEOCODING_REPLENISH:5}
+                redis-rate-limiter.burstCapacity: ${PARKIO_RL_GEOCODING_BURST:10}
         # --- Media upload: stricter limit ----------------------------------------
         - id: media-service
           uri: ${PARKIO_MEDIA_SERVICE_URI:http://localhost:8084}

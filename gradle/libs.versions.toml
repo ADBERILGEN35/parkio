@@ -8,6 +8,9 @@ jjwt = "0.12.6"
 minio = "8.6.0"
 # springdoc-openapi (OpenAPI 3 + Swagger UI for Spring MVC). Not in the Spring Boot BOM.
 springdoc = "2.8.17"
+# Resilience4j (circuit breaker / bulkhead / rate limiter). Not in the Spring Boot BOM,
+# so it needs an explicit version; 2.3.x targets the Spring Boot 3.4+/3.5 line.
+resilience4j = "2.3.0"
 
 [libraries]
 # Spring Boot starters. Concrete versions are supplied by the Spring Boot BOM,
@@ -47,6 +50,15 @@ opentelemetry-exporter-otlp = { module = "io.opentelemetry:opentelemetry-exporte
 
 # OpenAPI 3 docs + Swagger UI for REST services (Spring MVC only — not the gateway).
 springdoc-openapi-starter-webmvc-ui = { module = "org.springdoc:springdoc-openapi-starter-webmvc-ui", version.ref = "springdoc" }
+
+# AOP starter — required for Resilience4j's annotation aspects (@CircuitBreaker, @Bulkhead,
+# @RateLimiter). Version from the Spring Boot BOM.
+spring-boot-starter-aop = { module = "org.springframework.boot:spring-boot-starter-aop" }
+
+# Resilience4j Spring Boot 3 integration: circuit breaker, bulkhead and rate limiter as
+# annotations configured under `resilience4j.*`. Added per-service where an outbound
+# third-party dependency needs isolation (e.g. parking-service's geocoding provider).
+resilience4j-spring-boot3 = { module = "io.github.resilience4j:resilience4j-spring-boot3", version.ref = "resilience4j" }
 
 # Persistence (versions from the Spring Boot BOM).
 postgresql = { module = "org.postgresql:postgresql" }

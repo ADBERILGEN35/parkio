@@ -13,7 +13,7 @@ import org.springframework.scheduling.annotation.EnableScheduling;
  * stays free of Spring config types), and scheduling for the outbox relay poller.
  */
 @Configuration
-@EnableConfigurationProperties(ParkingProperties.class)
+@EnableConfigurationProperties({ParkingProperties.class, GeocodingProperties.class})
 @EnableScheduling
 public class ParkingInfrastructureConfig {
 

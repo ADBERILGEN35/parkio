@@ -1,6 +1,13 @@
 ﻿spring:
   application:
     name: parking-service
+  data:
+    # Redis backs the best-effort forward-geocoding cache. In docker-compose this
+    # resolves to the `redis` service; locally it defaults to localhost:6379. The
+    # cache adapter degrades to a miss if Redis is unreachable (no hard dependency).
+    redis:
+      host: ${SPRING_DATA_REDIS_HOST:localhost}
+      port: ${SPRING_DATA_REDIS_PORT:6379}
   kafka:
     # Broker is externalized; local/dev default targets the docker-compose host listener.
     bootstrap-servers: ${PARKIO_KAFKA_BOOTSTRAP_SERVERS:localhost:29092}
@@ -129,6 +136,23 @@ parkio:
       base-url: ${PARKIO_MEDIA_SERVICE_URI:http://localhost:8084}
       connect-timeout: ${PARKIO_MEDIA_CLIENT_CONNECT_TIMEOUT:2s}
       read-timeout: ${PARKIO_MEDIA_CLIENT_READ_TIMEOUT:5s}
+  geocoding:
+    # Forward geocoding (place text -> coordinates) for the /map search, proxied
+    # through this service instead of called directly from the browser (ADR-014).
+    provider:
+      # Default is the public OpenStreetMap Nominatim endpoint (hosted-beta). Point
+      # this at an SLA-backed provider for production; the adapter is swappable.
+      base-url: ${PARKIO_GEOCODING_BASE_URL:https://nominatim.openstreetmap.org}
+      # Nominatim's usage policy requires a descriptive User-Agent identifying the app.
+      user-agent: ${PARKIO_GEOCODING_USER_AGENT:Parkio/1.0 (+https://parkio.app)}
+      country-codes: ${PARKIO_GEOCODING_COUNTRY_CODES:tr}
+      language: ${PARKIO_GEOCODING_LANGUAGE:tr}
+      # Short timeouts: a slow provider degrades to "no suggestions" fast, never stalls.
+      connect-timeout: ${PARKIO_GEOCODING_CONNECT_TIMEOUT:1s}
+      read-timeout: ${PARKIO_GEOCODING_READ_TIMEOUT:3s}
+    cache:
+      positive-ttl: ${PARKIO_GEOCODING_CACHE_POSITIVE_TTL:24h}
+      negative-ttl: ${PARKIO_GEOCODING_CACHE_NEGATIVE_TTL:5m}
   parking:
     search:
       # Tunable nearby-search defaults and caps (ai-context/02). Client-supplied
@@ -151,3 +175,35 @@ parkio:
       poll-interval-ms: 1000
       batch-size: 100
       send-timeout-ms: 10000
+
+# Resilience for the outbound geocoding provider call (instance: geocoding). Isolates a
+# third-party dependency so its slowness/outage can never destabilise parking-service:
+# the rate limiter respects the provider's usage policy, the bulkhead caps concurrency,
+# and the circuit breaker short-circuits sustained failures. Health indicators are off so
+# a degraded geocoder (non-critical) never flips the service health to DOWN.
+resilience4j:
+  circuitbreaker:
+    instances:
+      geocoding:
+        register-health-indicator: false
+        sliding-window-type: COUNT_BASED
+        sliding-window-size: 10
+        minimum-number-of-calls: 5
+        failure-rate-threshold: 50
+        wait-duration-in-open-state: 30s
+        permitted-number-of-calls-in-half-open-state: 2
+  bulkhead:
+    instances:
+      geocoding:
+        # Max concurrent provider calls; extra callers fail fast and degrade to empty.
+        max-concurrent-calls: ${PARKIO_GEOCODING_BULKHEAD_MAX_CONCURRENT:4}
+        max-wait-duration: 0
+  ratelimiter:
+    instances:
+      geocoding:
+        # Outbound cap honoring Nominatim's ≤1 request/second policy. A short wait
+        # smooths bursts; beyond it the call degrades rather than queueing threads.
+        register-health-indicator: false
+        limit-for-period: ${PARKIO_GEOCODING_RL_LIMIT_FOR_PERIOD:1}
+        limit-refresh-period: ${PARKIO_GEOCODING_RL_REFRESH_PERIOD:1s}
+        timeout-duration: ${PARKIO_GEOCODING_RL_TIMEOUT:500ms}

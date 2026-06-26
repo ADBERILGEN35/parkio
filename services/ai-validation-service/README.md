@@ -81,7 +81,6 @@ Each completed validation appends an `AiValidationCompletedEvent` to the outbox
 
 ## Backlog (not yet implemented)
 
-- Kafka consumer (to invoke the inbox handlers) + outbox relay (publish to Kafka).
 - **Real AI/vision model integration** behind a port + infrastructure adapter
   (the deterministic placeholder is for the foundation only).
 - Environment-tunable status thresholds (currently placeholder defaults in

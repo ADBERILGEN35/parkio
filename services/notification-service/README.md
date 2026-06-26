@@ -152,7 +152,8 @@ never commit them):
 - **EMAIL delivery** (SMTP / provider): no attempts are created for the EMAIL channel
   yet; preferences expose `emailEnabled` but it is unused at send time.
 - Real **Firebase/APNS** push (the `fcm-disabled` placeholder marks the seam).
-- Kafka consumer (upstream events) + outbox relay (publish to Kafka).
+- Outbox relay for `NotificationCreatedEvent`; upstream Kafka consumers are
+  implemented for parking, moderation and gamification events.
 - **Nearby fan-out** for `ParkingSpotCreated` once location-based user targeting
   exists.
 

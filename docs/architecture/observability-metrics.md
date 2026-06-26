@@ -46,12 +46,17 @@ Prometheus rendering replaces dots with underscores and suffixes counters with
 | `parkio.outbox.deadlettered.count` | gauge | auth, user, parking, media, gamification, moderation, ai-validation | Dead-lettered (poison) outbox rows retained in-table for inspection/redrive. **Any non-zero value is actionable** — a publish has permanently failed `parkio.kafka.relay.max-attempts` times. |
 | `parkio.outbox.publish.failed` | counter | same as dead-lettered | Per-row publish attempts that failed (all causes: broker error, unreadable payload, no topic mapping). A rising rate signals broker/contract trouble before rows dead-letter. |
 | `parkio.outbox.deadlettered` | counter | same | Rows that crossed into the dead-lettered state. Pairs with the gauge: the counter is the rate of new poison rows, the gauge is the current depth. |
+| `parkio.outbox.publish.success` | counter | same as dead-lettered | Per-row publishes that were broker-acked. Together with `parkio.outbox.publish.failed` gives the relay's publish success ratio. |
+| `parkio.outbox.publish.duration` | timer | same | Latency from relay dispatch to broker ack, per published row. Because sends are pipelined within a poll, this approximates per-row broker round-trip, not the serial sum. |
+| `parkio.outbox.batch.size` | summary | same | Outbox rows claimed per relay poll (`FOR UPDATE SKIP LOCKED` batch). Sustained values at the configured batch ceiling ⇒ the relay is saturated and backlog will grow. |
 | `parkio.inbox.processed.count` | gauge | auth, user, parking, gamification, notification, moderation, ai-validation, analytics | Inbox dedup rows currently retained. A flat line while events flow ⇒ the consumer stopped processing. Retention cleanup makes this dip periodically — that is expected. |
 
 Gauges are backed by one cheap COUNT/MIN repository query per scrape; they never run
 on a request path. The two outbox counters are incremented in the relay (no extra
-query). The `parkio.outbox.publish.failed` / `parkio.outbox.deadlettered` counters
-render in Prometheus as `..._total` per the suffix rule above.
+query). The `parkio.outbox.publish.success` / `parkio.outbox.publish.failed` /
+`parkio.outbox.deadlettered` counters render in Prometheus as `..._total` per the
+suffix rule above; `parkio.outbox.publish.duration` and `parkio.outbox.batch.size`
+are recorded once per published row / per poll in the relay (no extra query).
 
 > **notification-service** exports the outbox backlog gauges but has **no relay yet**,
 > so it does not emit the dead-letter gauge/counters. **analytics-service** has no
@@ -183,6 +188,7 @@ are sized for a small single-VPS beta — tune as traffic grows.
 | `GatewayHigh5xxRate` | critical | gateway 5xx / total > 0.05 | >5% edge 5xx over 5m, sustained 10m |
 | `OutboxDeadlettered` | critical | `parkio_outbox_deadlettered_count > 0` | any poison row persists ≥5m |
 | `OutboxOldestUnpublishedTooOld` | critical | `parkio_outbox_oldest_unpublished_age_seconds > 300` | oldest relayable row >5m old, for 10m |
+| `OutboxPublishFailuresElevated` | warning | `rate(parkio_outbox_publish_failed_total[5m]) > 0.1` per service | publish failures sustained >0.1/s for 10m (broker/contract trouble before rows dead-letter) |
 | `DatabaseConnectionPoolExhausted` | critical | `hikaricp_connections_pending > 0` | threads block on a DB connection for 5m |
 | `KafkaExporterDown` | critical | `up{job="kafka-exporter"} == 0` | Kafka exporter scrape is down for 2m |
 | `KafkaBrokerUnavailable` | critical | `kafka_brokers < 1` | exporter can scrape but sees no broker |

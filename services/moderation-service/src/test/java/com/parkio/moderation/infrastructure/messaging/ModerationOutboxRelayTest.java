@@ -142,4 +142,20 @@ class ModerationOutboxRelayTest {
         assertThat(r.isDeadLettered()).isTrue();
         assertThat(r.getLastFailureReason()).contains("No topic mapping");
     }
+
+    @Test
+    @SuppressWarnings("unchecked")
+    void publishesEveryPendingRowInOnePoll() {
+        OutboxEventEntity caseEvent = row("ModerationCase", UUID.randomUUID(), "ModerationCaseResolved");
+        OutboxEventEntity actionEvent = row("User", UUID.randomUUID(), "UserSuspended");
+        when(outbox.findUnpublishedBatchForUpdate(100)).thenReturn(List.of(caseEvent, actionEvent));
+        stubSuccessfulSend();
+
+        relay.publishPending();
+
+        // One poll drains the whole claimed batch across both topics (pipelined dispatch).
+        verify(kafkaTemplate, times(2)).send(any(ProducerRecord.class));
+        assertThat(caseEvent.isPublished()).isTrue();
+        assertThat(actionEvent.isPublished()).isTrue();
+    }
 }

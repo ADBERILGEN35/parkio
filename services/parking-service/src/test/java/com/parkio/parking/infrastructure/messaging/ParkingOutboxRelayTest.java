@@ -139,6 +139,63 @@ class ParkingOutboxRelayTest {
         assertThat(row.isPublished()).isFalse();
     }
 
+    @Test
+    @SuppressWarnings("unchecked")
+    void publishesEveryPendingRowInOnePoll() {
+        OutboxEventEntity a = spotCreatedRow(UUID.randomUUID(), UUID.randomUUID(), UUID.randomUUID());
+        OutboxEventEntity b = spotCreatedRow(UUID.randomUUID(), UUID.randomUUID(), UUID.randomUUID());
+        OutboxEventEntity c = spotCreatedRow(UUID.randomUUID(), UUID.randomUUID(), UUID.randomUUID());
+        when(outbox.findUnpublishedBatchForUpdate(100)).thenReturn(List.of(a, b, c));
+        when(kafkaTemplate.send(any(ProducerRecord.class)))
+                .thenReturn(CompletableFuture.<SendResult<String, Object>>completedFuture(null));
+
+        relay.publishPending();
+
+        // One poll drains the whole claimed batch; all sends are dispatched (pipelined).
+        verify(kafkaTemplate, times(3)).send(any(ProducerRecord.class));
+        assertThat(a.isPublished()).isTrue();
+        assertThat(b.isPublished()).isTrue();
+        assertThat(c.isPublished()).isTrue();
+    }
+
+    @Test
+    @SuppressWarnings("unchecked")
+    void dispatchesSendsInClaimOrder() {
+        OutboxEventEntity first = spotCreatedRow(UUID.randomUUID(), UUID.randomUUID(), UUID.randomUUID());
+        OutboxEventEntity second = spotCreatedRow(UUID.randomUUID(), UUID.randomUUID(), UUID.randomUUID());
+        // Repository returns rows oldest-first (created_at, id); the relay must preserve that order.
+        when(outbox.findUnpublishedBatchForUpdate(100)).thenReturn(List.of(first, second));
+        when(kafkaTemplate.send(any(ProducerRecord.class)))
+                .thenReturn(CompletableFuture.<SendResult<String, Object>>completedFuture(null));
+
+        relay.publishPending();
+
+        ArgumentCaptor<ProducerRecord<String, Object>> captor = ArgumentCaptor.forClass(ProducerRecord.class);
+        verify(kafkaTemplate, times(2)).send(captor.capture());
+        List<ProducerRecord<String, Object>> sent = captor.getAllValues();
+        assertThat(sent.get(0).key()).isEqualTo(first.getAggregateId().toString());
+        assertThat(sent.get(1).key()).isEqualTo(second.getAggregateId().toString());
+    }
+
+    @Test
+    @SuppressWarnings("unchecked")
+    void recordsSuccessDurationAndBatchSizeMetrics() {
+        SimpleMeterRegistry registry = new SimpleMeterRegistry();
+        ParkingOutboxRelay metered =
+                new ParkingOutboxRelay(outbox, kafkaTemplate, objectMapper, registry, 100, 5000L, 3);
+        OutboxEventEntity a = spotCreatedRow(UUID.randomUUID(), UUID.randomUUID(), UUID.randomUUID());
+        OutboxEventEntity b = spotCreatedRow(UUID.randomUUID(), UUID.randomUUID(), UUID.randomUUID());
+        when(outbox.findUnpublishedBatchForUpdate(100)).thenReturn(List.of(a, b));
+        when(kafkaTemplate.send(any(ProducerRecord.class)))
+                .thenReturn(CompletableFuture.<SendResult<String, Object>>completedFuture(null));
+
+        metered.publishPending();
+
+        assertThat(registry.get("parkio.outbox.publish.success").counter().count()).isEqualTo(2.0);
+        assertThat(registry.get("parkio.outbox.publish.duration").timer().count()).isEqualTo(2L);
+        assertThat(registry.get("parkio.outbox.batch.size").summary().totalAmount()).isEqualTo(2.0);
+    }
+
     private static String headerValue(ProducerRecord<String, Object> record, String key) {
         Header header = record.headers().lastHeader(key);
         return header == null ? null : new String(header.value(), StandardCharsets.UTF_8);

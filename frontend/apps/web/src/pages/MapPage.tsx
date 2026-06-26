@@ -8,12 +8,12 @@ import {
   MapSearchSkeleton,
 } from '@parkio/ui';
 import { nearbySearchSchema, type NearbySearchFormValues } from '@parkio/validation';
-import { useQuery } from '@tanstack/react-query';
+import { keepPreviousData, useQuery } from '@tanstack/react-query';
 import { Suspense, lazy, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useForm } from 'react-hook-form';
 import { parkingApi, usersApi } from '@/api';
 import { useAuthStore } from '@/auth/store';
-import { BottomSheet, type SheetState } from '@/components/map/BottomSheet';
+import { BottomSheet, COLLAPSED_PEEK, type SheetState } from '@/components/map/BottomSheet';
 import { DiscoveryResults } from '@/components/map/DiscoveryResults';
 import {
   DEFAULT_MAP_CENTER,
@@ -96,12 +96,23 @@ export function MapPage() {
     queryKey: ['parking', 'nearby', params],
     queryFn: () => parkingApi.getNearbySpots(params as NearbySearchParams),
     enabled: params !== null,
+    // Keep the prior results and markers on screen while a re-search (new center,
+    // radius, or "use my location") loads, instead of flashing back to the
+    // skeleton — the map stays populated and feels instant. The first-ever search
+    // still shows the skeleton (no previous data to hold).
+    placeholderData: keepPreviousData,
+    // Results are spatial snapshots; treat them as fresh for 30s so remounting the
+    // route or refocusing the tab doesn't refetch an identical query.
+    staleTime: 30_000,
   });
 
   const vehicleQuery = useQuery({
     queryKey: ['me', 'vehicle'],
     queryFn: usersApi.getMyVehicle,
     enabled: isAuthenticated,
+    // The signed-in user's vehicle changes rarely; cache it across the session to
+    // avoid refetching on every map mount (it only gates the "Fits your X" hint).
+    staleTime: 5 * 60_000,
   });
 
   // Distance is computed from the *real* searched center; no center ⇒ no distance.
@@ -136,8 +147,12 @@ export function MapPage() {
   const selectSpot = useCallback(
     (id: string | null) => {
       setSelectedId(id);
+      // On mobile the preview owns the bottom band; drop the sheet to its peek so
+      // the two never fight for the same space (and the sheet handle stays visible
+      // just below the preview). Desktop has dedicated space for both.
+      if (id !== null && !isDesktop) setSheetState('collapsed');
     },
-    [],
+    [isDesktop],
   );
 
   const {
@@ -325,7 +340,7 @@ export function MapPage() {
             height="100%"
             onLocate={locate}
             locating={geoStatus === 'locating'}
-            showFloatingControls
+            showFloatingControls={isDesktop || selectedId === null}
           />
         </Suspense>
       </div>
@@ -392,7 +407,7 @@ export function MapPage() {
               aria-label="Use my location"
               onClick={locate}
               disabled={geoStatus === 'locating'}
-              className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-surface-container text-primary transition-colors hover:bg-surface-container-high focus:outline-none focus-visible:ring-2 focus-visible:ring-primary disabled:opacity-60"
+              className="flex h-11 w-11 shrink-0 items-center justify-center rounded-full bg-surface-container text-primary transition-colors hover:bg-surface-container-high focus:outline-none focus-visible:ring-2 focus-visible:ring-primary disabled:opacity-60"
             >
               <Icon name={geoStatus === 'locating' ? 'progress_activity' : 'my_location'} className="text-[20px] leading-none" />
             </button>
@@ -404,7 +419,7 @@ export function MapPage() {
                 setAdvancedOpen((open) => !open);
                 if (params) setSheetState('half');
               }}
-              className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-surface-container text-on-surface transition-colors hover:bg-surface-container-high focus:outline-none focus-visible:ring-2 focus-visible:ring-primary"
+              className="flex h-11 w-11 shrink-0 items-center justify-center rounded-full bg-surface-container text-on-surface transition-colors hover:bg-surface-container-high focus:outline-none focus-visible:ring-2 focus-visible:ring-primary"
             >
               <Icon name="tune" className="text-[20px] leading-none" />
             </button>
@@ -436,7 +451,7 @@ export function MapPage() {
                   type="button"
                   aria-label="Close search options"
                   onClick={() => setAdvancedOpen(false)}
-                  className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full text-on-surface-variant hover:bg-surface-container focus:outline-none focus-visible:ring-2 focus-visible:ring-primary"
+                  className="-mr-xs -mt-xs flex h-11 w-11 shrink-0 items-center justify-center rounded-full text-on-surface-variant hover:bg-surface-container focus:outline-none focus-visible:ring-2 focus-visible:ring-primary"
                 >
                   <Icon name="close" className="text-[18px] leading-none" />
                 </button>
@@ -450,25 +465,55 @@ export function MapPage() {
                 </summary>
                 <div className="mt-sm">{advancedForm}</div>
               </details>
-              <button
-                type="button"
-                onClick={() => setSheetState('half')}
-                className="mt-sm inline-flex w-full items-center justify-center gap-xs rounded-full bg-surface-container px-md py-sm text-label-md font-semibold text-on-surface transition-colors hover:bg-surface-container-high focus:outline-none focus-visible:ring-2 focus-visible:ring-primary"
-              >
-                <Icon name="filter_alt" className="text-[16px] leading-none" />
-                Show result filters
-              </button>
+              {spotsWithDistance.length > 0 ? (
+                <button
+                  type="button"
+                  onClick={() => {
+                    setSheetState('half');
+                    setAdvancedOpen(false);
+                  }}
+                  className="mt-sm inline-flex w-full items-center justify-center gap-xs rounded-full bg-surface-container px-md py-sm text-label-md font-semibold text-on-surface transition-colors hover:bg-surface-container-high focus:outline-none focus-visible:ring-2 focus-visible:ring-primary"
+                >
+                  <Icon name="filter_alt" className="text-[16px] leading-none" />
+                  Show {spotsWithDistance.length} result
+                  {spotsWithDistance.length === 1 ? '' : 's'} &amp; filters
+                </button>
+              ) : (
+                // No results yet ⇒ filters would be a dead-end. Point back at search
+                // instead of offering a control that opens an empty filter list.
+                <p className="mt-sm flex items-center gap-xs rounded-2xl bg-surface-container px-md py-sm text-label-sm text-on-surface-variant">
+                  <Icon name="search" className="text-[16px] leading-none text-primary" />
+                  {params
+                    ? 'No spots matched here yet — try a wider radius or a new place above.'
+                    : 'Search a place above to see parking and result filters.'}
+                </p>
+              )}
             </div>
           ) : null}
         </div>
       )}
 
-      {/* Selected-spot preview (Google Maps / Uber style). Anchored above the
-          bottom-sheet peek on mobile; floats bottom-left over the map on desktop. */}
+      {/* Selected-spot preview (Google Maps / Uber style).
+          Desktop: floats bottom-left over the map, clear of the right-hand results
+          sidebar. Mobile: anchored just above the bottom-sheet peek — and only while
+          the sheet is collapsed, so an expanded/half sheet (which the user opened to
+          browse results) is never obscured by the preview. selectSpot() collapses the
+          sheet on selection, so the preview is visible by default. The offset is
+          derived from the exported COLLAPSED_PEEK + the device safe-area inset rather
+          than a hardcoded magic number, so it tracks the real peek height. */}
       {selectedSpot ? (
-        <div className="pointer-events-none absolute inset-x-0 bottom-0 z-[1060] px-sm pb-sm md:inset-x-auto md:bottom-md md:left-md md:w-[360px] md:px-0 md:pb-0">
-          <SelectedSpotPreview spot={selectedSpot} onClose={() => selectSpot(null)} />
-        </div>
+        isDesktop ? (
+          <div className="pointer-events-none absolute bottom-md left-md z-[1060] w-[360px]">
+            <SelectedSpotPreview spot={selectedSpot} onClose={() => selectSpot(null)} />
+          </div>
+        ) : sheetState === 'collapsed' ? (
+          <div
+            className="pointer-events-none absolute inset-x-0 z-[1060] px-sm"
+            style={{ bottom: `calc(${COLLAPSED_PEEK}px + env(safe-area-inset-bottom) + 0.5rem)` }}
+          >
+            <SelectedSpotPreview spot={selectedSpot} onClose={() => selectSpot(null)} />
+          </div>
+        ) : null
       ) : null}
 
       {/* Results — desktop sidebar vs mobile draggable bottom sheet. Exactly one

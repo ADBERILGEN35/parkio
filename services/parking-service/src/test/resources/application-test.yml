@@ -1,0 +1,8 @@
+# Test profile. The forward-geocoding cache uses Redis, but no Redis runs during the
+# (non-integration) unit/context tests, so disable its health indicator to keep
+# /actuator/health UP. The cache adapter is best-effort and degrades to a miss anyway;
+# geocoding collaborators are mocked in the focused tests.
+management:
+  health:
+    redis:
+      enabled: false

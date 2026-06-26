@@ -1,4 +1,4 @@
-import type { Spot } from '@parkio/types';
+import type { GeocodeResult, Spot } from '@parkio/types';
 import { http, HttpResponse } from 'msw';
 import { screen } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
@@ -9,14 +9,18 @@ import { API_BASE, server } from '@/test/server';
 import { renderWithProviders, resetAuth, signInAs } from '@/test/utils';
 import { UploadPage } from './UploadPage';
 
-vi.mock('@/api', () => ({
-  mediaApi: {
-    uploadMedia: vi.fn(),
-  },
-  parkingApi: {
-    createParkingSpot: vi.fn(),
-  },
-}));
+vi.mock('@/api', async (importActual) => {
+  const actual = await importActual<typeof import('@/api')>();
+  return {
+    ...actual,
+    mediaApi: {
+      uploadMedia: vi.fn(),
+    },
+    parkingApi: {
+      createParkingSpot: vi.fn(),
+    },
+  };
+});
 
 // Leaflet can't render in jsdom; stub the picker with a button that simulates a
 // map click setting the location.
@@ -28,31 +32,32 @@ vi.mock('@/components/map/MapPicker', () => ({
   ),
 }));
 
-/** Default Nominatim base URL (no VITE override in the test env). */
-const NOMINATIM_URL = 'https://nominatim.openstreetmap.org/search';
+/** Backend geocoding endpoint — the browser no longer calls Nominatim directly (ADR-014). */
+const GEOCODING_URL = `${API_BASE}/geocoding/search`;
 
-function nominatimItem(overrides: Record<string, unknown> = {}) {
+/** Already-mapped GeocodeResult, as the backend now returns it (server-side mapping). */
+function geocodeResult(overrides: Partial<GeocodeResult> = {}): GeocodeResult {
   return {
-    place_id: 11,
-    name: 'Vali Nevzat Ayaz Lisesi',
-    display_name: 'Vali Nevzat Ayaz Lisesi, Karşıyaka, İzmir',
-    lat: '38.46',
-    lon: '27.10',
-    address: { city: 'İzmir', city_district: 'Karşıyaka' },
+    id: '11',
+    displayName: 'Vali Nevzat Ayaz Lisesi, Karşıyaka, İzmir',
+    primary: 'Vali Nevzat Ayaz Lisesi',
+    secondary: 'Karşıyaka, İzmir',
+    lat: 38.46,
+    lng: 27.1,
     ...overrides,
   };
 }
 
 /** Two "vali" matches used to exercise the typeahead dropdown. */
-const valiItems = [
-  nominatimItem(),
-  nominatimItem({
-    place_id: 12,
-    name: 'Vali Konağı Caddesi',
-    display_name: 'Vali Konağı Caddesi, Konak, İzmir',
-    lat: '38.41',
-    lon: '27.13',
-    address: { city: 'İzmir', city_district: 'Konak' },
+const valiItems: GeocodeResult[] = [
+  geocodeResult(),
+  geocodeResult({
+    id: '12',
+    primary: 'Vali Konağı Caddesi',
+    secondary: 'Konak, İzmir',
+    displayName: 'Vali Konağı Caddesi, Konak, İzmir',
+    lat: 38.41,
+    lng: 27.13,
   }),
 ];
 
@@ -305,7 +310,7 @@ describe('UploadPage', () => {
   });
 
   it('shows typeahead suggestions when searching for a place on the Location step', async () => {
-    server.use(http.get(NOMINATIM_URL, () => HttpResponse.json(valiItems)));
+    server.use(http.get(GEOCODING_URL, () => HttpResponse.json({ results: valiItems })));
 
     renderUpload();
     const user = userEvent.setup();
@@ -318,7 +323,7 @@ describe('UploadPage', () => {
   });
 
   it('fills coordinates and the empty address when a suggestion is selected', async () => {
-    server.use(http.get(NOMINATIM_URL, () => HttpResponse.json(valiItems)));
+    server.use(http.get(GEOCODING_URL, () => HttpResponse.json({ results: valiItems })));
 
     renderUpload();
     const user = userEvent.setup();
@@ -340,7 +345,7 @@ describe('UploadPage', () => {
   });
 
   it('does not overwrite an address the user already typed', async () => {
-    server.use(http.get(NOMINATIM_URL, () => HttpResponse.json(valiItems)));
+    server.use(http.get(GEOCODING_URL, () => HttpResponse.json({ results: valiItems })));
 
     renderUpload();
     const user = userEvent.setup();

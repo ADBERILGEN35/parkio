@@ -222,7 +222,9 @@ unexpectedly still marked in progress, the service returns
 
 `MediaUploadedEvent` is written to the outbox in the same transaction as a successful
 upload; `MediaRejectedEvent` is recorded (in its own transaction) on rejection or
-duplicate. A Kafka publisher/relay is not implemented yet (ai-context/06).
+duplicate. `MediaOutboxRelay` publishes relayable rows to Kafka using the local
+transport `EventEnvelope`; consumers must ignore unknown envelope fields for
+forward compatibility.
 
 ## Configuration
 

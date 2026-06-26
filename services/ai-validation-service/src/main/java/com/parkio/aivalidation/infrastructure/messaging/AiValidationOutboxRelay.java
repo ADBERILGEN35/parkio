@@ -7,11 +7,14 @@ import com.parkio.aivalidation.infrastructure.config.KafkaTopicsConfig;
 import com.parkio.aivalidation.infrastructure.persistence.entity.OutboxEventEntity;
 import com.parkio.aivalidation.infrastructure.persistence.jpa.OutboxEventJpaRepository;
 import io.micrometer.core.instrument.Counter;
+import io.micrometer.core.instrument.DistributionSummary;
 import io.micrometer.core.instrument.MeterRegistry;
+import io.micrometer.core.instrument.Timer;
 import java.nio.charset.StandardCharsets;
 import java.time.Instant;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.TimeUnit;
 import org.apache.kafka.clients.producer.ProducerRecord;
 import org.apache.kafka.common.header.Header;
@@ -21,6 +24,7 @@ import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.kafka.core.KafkaTemplate;
+import org.springframework.kafka.support.SendResult;
 import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Component;
 import org.springframework.transaction.annotation.Transactional;
@@ -51,6 +55,9 @@ public class AiValidationOutboxRelay {
     private final int maxAttempts;
     private final Counter publishFailedCounter;
     private final Counter deadLetteredCounter;
+    private final Counter publishSuccessCounter;
+    private final Timer publishTimer;
+    private final DistributionSummary batchSizeSummary;
 
     public AiValidationOutboxRelay(OutboxEventJpaRepository outbox,
                                    KafkaTemplate<String, Object> kafkaTemplate,
@@ -71,43 +78,66 @@ public class AiValidationOutboxRelay {
         this.deadLetteredCounter = Counter.builder("parkio.outbox.deadlettered")
                 .description("Outbox rows transitioned to dead-lettered after exhausting attempts")
                 .register(registry);
+        this.publishSuccessCounter = Counter.builder("parkio.outbox.publish.success")
+                .description("Outbox rows successfully published to Kafka (broker-acked)")
+                .register(registry);
+        this.publishTimer = Timer.builder("parkio.outbox.publish.duration")
+                .description("Latency from relay dispatch to broker ack, per published row")
+                .register(registry);
+        this.batchSizeSummary = DistributionSummary.builder("parkio.outbox.batch.size")
+                .description("Outbox rows claimed per relay poll")
+                .register(registry);
     }
 
     @Scheduled(fixedDelayString = "${parkio.kafka.relay.poll-interval-ms:1000}")
     @Transactional
     public void publishPending() {
         List<OutboxEventEntity> batch = outbox.findUnpublishedBatchForUpdate(batchSize);
-        for (OutboxEventEntity row : batch) {
-            publish(row);
+        if (batch.isEmpty()) {
+            return;
         }
-    }
-
-    /**
-     * Publishes one row in isolation. A failure is recorded on the row (failure_count,
-     * reason, timestamp) and, after {@code maxAttempts}, dead-letters it — the relay then
-     * skips it so a single poison row can never block later events. Only an interrupt
-     * propagates (it must abort the poll).
-     */
-    private void publish(OutboxEventEntity row) {
-        try {
+        batchSizeSummary.record(batch.size());
+        // Phase 1 — dispatch every send up front so the broker round-trips pipeline instead of
+        // running one at a time. Unroutable (poison) rows are failed without a send.
+        List<InFlight> inFlight = new ArrayList<>(batch.size());
+        for (OutboxEventEntity row : batch) {
             String topic = topicFor(row.getAggregateType());
             if (topic == null) {
                 // Unroutable row: deterministic poison, count it toward dead-lettering.
                 recordFailure(row, "No topic mapping for aggregate type " + row.getAggregateType());
-                return;
+                continue;
             }
             EventEnvelope envelope = toEnvelope(row);
             ProducerRecord<String, Object> record = new ProducerRecord<>(
                     topic, null, row.getAggregateId().toString(), envelope, headersFor(envelope));
-            // Block on the broker ack so the row is marked published only on success.
-            kafkaTemplate.send(record).get(sendTimeoutMs, TimeUnit.MILLISECONDS);
-            row.markPublished();
-        } catch (InterruptedException e) {
-            Thread.currentThread().interrupt();
-            throw new IllegalStateException("Interrupted publishing outbox row " + row.getId(), e);
-        } catch (Exception e) {
-            recordFailure(row, reasonOf(e));
+            inFlight.add(new InFlight(row, System.nanoTime(), kafkaTemplate.send(record)));
         }
+        // Phase 2 — await the already-dispatched acks within a single shared deadline. Because
+        // the sends were fired together, the whole batch settles in ~one round-trip, so the
+        // transaction (and its FOR UPDATE row locks) is held only briefly — never extended
+        // across batchSize serial network calls. A row is marked published only after its broker
+        // ack; a failed/timed-out row stays unpublished and is retried next poll, and consumers
+        // dedupe by eventId (at-least-once). A single poison row never blocks the others.
+        long deadlineNanos = System.nanoTime() + TimeUnit.MILLISECONDS.toNanos(sendTimeoutMs);
+        for (InFlight f : inFlight) {
+            try {
+                long remainingNanos = Math.max(0L, deadlineNanos - System.nanoTime());
+                f.future().get(remainingNanos, TimeUnit.NANOSECONDS);
+                f.row().markPublished();
+                publishSuccessCounter.increment();
+                publishTimer.record(System.nanoTime() - f.startedNanos(), TimeUnit.NANOSECONDS);
+            } catch (InterruptedException e) {
+                Thread.currentThread().interrupt();
+                throw new IllegalStateException("Interrupted publishing outbox row " + f.row().getId(), e);
+            } catch (Exception e) {
+                recordFailure(f.row(), reasonOf(e));
+            }
+        }
+    }
+
+    /** A dispatched send awaiting its broker ack, paired with its row and dispatch time. */
+    private record InFlight(OutboxEventEntity row, long startedNanos,
+                            CompletableFuture<SendResult<String, Object>> future) {
     }
 
     private void recordFailure(OutboxEventEntity row, String reason) {

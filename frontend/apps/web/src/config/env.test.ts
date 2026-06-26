@@ -18,7 +18,6 @@ describe('createFrontendConfig', () => {
 
     expect(config.appEnv).toBe('development');
     expect(config.apiBaseUrl).toBe('http://localhost:8080/api/v1');
-    expect(config.geocoding.baseUrl).toBe('https://nominatim.openstreetmap.org');
     expect(config.map.maptilerKey).toBe('');
   });
 
@@ -51,7 +50,7 @@ describe('createFrontendConfig', () => {
     });
   });
 
-  it('requires production MapTiler and geocoding configuration', () => {
+  it('requires production MapTiler configuration', () => {
     expect(() =>
       createFrontendConfig(
         env({

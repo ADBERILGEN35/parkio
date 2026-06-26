@@ -32,7 +32,7 @@ const DEFAULT_PLACEHOLDER = 'Search street, neighborhood, or place...';
  * dropdown open/highlight state, keyboard navigation, and a submit fallback. It is
  * purely a *search* control: it never sets coordinates itself — the consumer reacts
  * to {@link PlaceSearchProps.onSelect} (e.g. center a map, fill lat/lng). Geocoding
- * is browser-side Nominatim (local-beta only); see `lib/geocoding.ts`.
+ * is proxied through Parkio's backend; see `lib/geocoding.ts`.
  */
 export function PlaceSearch({
   label = 'Search location',

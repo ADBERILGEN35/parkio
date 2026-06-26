@@ -4,7 +4,6 @@ export type AppEnvironment = 'development' | 'test' | 'hosted-beta' | 'productio
 export type FrontendErrorReportingProvider = 'disabled' | 'console';
 
 const LOCAL_API_BASE_URL = 'http://localhost:8080/api/v1';
-const LOCAL_GEOCODING_BASE_URL = 'https://nominatim.openstreetmap.org';
 const LOCAL_MAP_TILE_URL = 'https://tile.openstreetmap.org/{z}/{x}/{y}.png';
 const LOCAL_MAP_TILE_ATTRIBUTION =
   '© <a href="https://www.openstreetmap.org/copyright" target="_blank" rel="noopener">OpenStreetMap</a> contributors';
@@ -27,7 +26,6 @@ const rawEnvSchema = z.object({
   VITE_MAPTILER_STYLE: optionalNonEmpty,
   VITE_MAP_TILE_URL: optionalNonEmpty,
   VITE_MAP_TILE_ATTRIBUTION: optionalNonEmpty,
-  VITE_GEOCODING_BASE_URL: optionalUrl,
   VITE_FRONTEND_ERROR_REPORTING: z.enum(['disabled', 'console']).optional(),
 });
 
@@ -40,9 +38,6 @@ export interface FrontendConfig {
     maptilerStyle: string;
     rasterTileUrl: string;
     rasterAttribution: string;
-  };
-  geocoding: {
-    baseUrl: string;
   };
   errorReporting: {
     provider: FrontendErrorReportingProvider;
@@ -69,16 +64,11 @@ export function createFrontendConfig(env: ImportMetaEnv): FrontendConfig {
   const isProductionLike = appEnv === 'production' || appEnv === 'hosted-beta';
 
   const apiBaseUrl = raw.VITE_API_BASE_URL ?? (isProductionLike ? undefined : LOCAL_API_BASE_URL);
-  const geocodingBaseUrl =
-    raw.VITE_GEOCODING_BASE_URL ?? (isProductionLike ? undefined : LOCAL_GEOCODING_BASE_URL);
 
   if (!apiBaseUrl) {
     throw new Error(`VITE_API_BASE_URL is required when VITE_APP_ENV=${appEnv}.`);
   }
   const maptilerKey = requireInProductionLike(raw.VITE_MAPTILER_KEY, 'VITE_MAPTILER_KEY', appEnv);
-  if (!geocodingBaseUrl) {
-    throw new Error(`VITE_GEOCODING_BASE_URL is required when VITE_APP_ENV=${appEnv}.`);
-  }
 
   return {
     appEnv,
@@ -89,9 +79,6 @@ export function createFrontendConfig(env: ImportMetaEnv): FrontendConfig {
       maptilerStyle: raw.VITE_MAPTILER_STYLE ?? 'streets-v2',
       rasterTileUrl: raw.VITE_MAP_TILE_URL ?? LOCAL_MAP_TILE_URL,
       rasterAttribution: raw.VITE_MAP_TILE_ATTRIBUTION ?? LOCAL_MAP_TILE_ATTRIBUTION,
-    },
-    geocoding: {
-      baseUrl: geocodingBaseUrl.replace(/\/+$/, ''),
     },
     errorReporting: {
       provider: raw.VITE_FRONTEND_ERROR_REPORTING ?? 'disabled',
