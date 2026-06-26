@@ -1,11 +1,11 @@
 package com.parkio.auth.infrastructure.messaging;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
-import java.nio.charset.StandardCharsets;
+import com.parkio.auth.infrastructure.tracing.KafkaTraceContextSupport;
+import io.micrometer.core.instrument.Counter;
+import io.micrometer.core.instrument.MeterRegistry;
 import org.apache.kafka.clients.consumer.Consumer;
 import org.apache.kafka.clients.consumer.ConsumerRecord;
-import org.apache.kafka.common.header.Header;
-import org.slf4j.MDC;
 import org.springframework.kafka.listener.RecordInterceptor;
 import org.springframework.stereotype.Component;
 
@@ -17,40 +17,34 @@ import org.springframework.stereotype.Component;
 public class KafkaTraceRecordInterceptor implements RecordInterceptor<String, String> {
 
     private final ObjectMapper objectMapper;
+    private final Counter missingTraceContextCounter;
 
-    public KafkaTraceRecordInterceptor(ObjectMapper objectMapper) {
+    public KafkaTraceRecordInterceptor(ObjectMapper objectMapper, MeterRegistry registry) {
         this.objectMapper = objectMapper;
+        this.missingTraceContextCounter = Counter.builder("parkio.kafka.trace.propagation.missing")
+                .description("Kafka records consumed without W3C traceparent propagation headers")
+                .register(registry);
     }
 
     @Override
     public ConsumerRecord<String, String> intercept(
             ConsumerRecord<String, String> record,
             Consumer<String, String> consumer) {
-        String traceId = headerTraceId(record);
-        if (traceId == null) {
-            traceId = envelopeTraceId(record.value());
+        if (!KafkaTraceContextSupport.hasTraceparent(record.headers())) {
+            missingTraceContextCounter.increment();
         }
-        if (traceId == null || traceId.isBlank()) {
-            MDC.remove("correlationId");
-        } else {
-            MDC.put("correlationId", traceId);
-        }
+        KafkaTraceContextSupport.putCorrelationAndEventMdc(record.headers(), envelopeTraceId(record.value()));
         return record;
     }
 
     @Override
     public void afterRecord(ConsumerRecord<String, String> record, Consumer<String, String> consumer) {
-        MDC.remove("correlationId");
+        KafkaTraceContextSupport.clearMessagingMdc();
     }
 
     @Override
     public void clearThreadState(Consumer<?, ?> consumer) {
-        MDC.remove("correlationId");
-    }
-
-    private static String headerTraceId(ConsumerRecord<String, String> record) {
-        Header header = record.headers().lastHeader("traceId");
-        return header == null ? null : new String(header.value(), StandardCharsets.UTF_8);
+        KafkaTraceContextSupport.clearMessagingMdc();
     }
 
     private String envelopeTraceId(String value) {

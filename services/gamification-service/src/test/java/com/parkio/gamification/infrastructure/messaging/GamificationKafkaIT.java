@@ -141,7 +141,7 @@ class GamificationKafkaIT {
                 config.parkingEventsKafkaListenerContainerFactory(
                         config.parkingEventsConsumerFactory(),
                         dltKafkaTemplate(),
-                        new KafkaTraceRecordInterceptor(objectMapper));
+                        new KafkaTraceRecordInterceptor(objectMapper, new io.micrometer.core.instrument.simple.SimpleMeterRegistry()));
         ConcurrentMessageListenerContainer<String, String> container = factory.createContainer(TOPIC);
         container.getContainerProperties().setGroupId("parkio.gamification-dlt-it");
         container.getContainerProperties().setMessageListener(

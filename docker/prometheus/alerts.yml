@@ -117,6 +117,18 @@ groups:
           description: "{{ $labels.topic }} has retained offset depth {{ $value }} for >5m. A consumer poison message was routed to its DLT; inspect and redrive or archive deliberately."
           runbook_url: "docs/architecture/observability-metrics.md#runbook--kafkadltmessagespresent"
 
+      - alert: OutboxDeadletterAgeHigh
+        # A dead-letter row that remains open for hours means inspection/redrive/acknowledgment
+        # did not happen. Acknowledged rows are excluded from this metric.
+        expr: parkio_outbox_deadlettered_oldest_age_seconds > 21600
+        for: 15m
+        labels:
+          severity: critical
+        annotations:
+          summary: "Old outbox dead-letter in {{ $labels.service }}"
+          description: "The oldest open dead-lettered outbox row in {{ $labels.service }} is {{ $value | humanizeDuration }} old. Inspect with scripts/outbox-deadletter-recovery.sh and retry or acknowledge deliberately."
+          runbook_url: "docs/operations/dlq-redrive-runbook.md"
+
       - alert: KafkaConsumerLagSustained
         # Sustained high average lag indicates a stuck/underprovisioned consumer, not just a burst.
         expr: |
@@ -162,6 +174,20 @@ groups:
           summary: "Outbox publish failures elevated in {{ $labels.service }}"
           description: "{{ $labels.service }} outbox relay is failing to publish (~{{ $value | humanize }}/s over 5m). Rows are being retried; check Kafka health and relay logs before they dead-letter."
           runbook_url: "docs/architecture/observability-metrics.md#runbook--outboxdeadlettered"
+
+      - alert: OutboxRedriveStillDeadlettered
+        # If operators retried rows but open dead-letters remain, the fix did not work or
+        # another poison row appeared. This catches repeated/manual recovery failures.
+        expr: |
+          increase(parkio_outbox_recovery_retry_count[1h]) > 0
+            and on (service) parkio_outbox_deadlettered_count > 0
+        for: 15m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Outbox redrive did not clear dead-letters in {{ $labels.service }}"
+          description: "{{ $labels.service }} recorded retry actions in the last hour but still has open dead-lettered rows. Stop repeated retries; inspect the failure reason and escalate to a code/config fix if unchanged."
+          runbook_url: "docs/operations/dlq-redrive-runbook.md"
 
       - alert: MediaUploadFailuresHigh
         # >50% of upload attempts rejected over 15m -> client/integration breakage (some

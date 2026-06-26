@@ -173,25 +173,32 @@ business event is the opaque `payload`):
 
 ## Correlation and trace propagation
 
-The canonical trace identifier is transported over HTTP as
-`X-Correlation-Id` and represented in JSON/logging as `traceId`.
+Parkio carries two related identifiers:
+
+- OpenTelemetry trace context uses standard W3C propagation: `traceparent`, optional
+  `tracestate`, and optional `baggage`.
+- `X-Correlation-Id` remains the support-facing request id and is represented in API errors,
+  event envelopes and legacy Kafka headers as `traceId`.
 
 1. `gateway-service` forwards a client-supplied `X-Correlation-Id` or generates a
    UUID, then echoes it on the HTTP response.
-2. Every downstream HTTP service puts that value into MDC as `traceId` for the
-   request lifetime. If called without the header, the service generates a UUID.
+2. Every downstream HTTP service puts that value into MDC as `correlationId` for the
+   request lifetime. If called without the header, the service generates a UUID. Micrometer
+   tracing separately puts the OTel `traceId` and `spanId` into MDC.
 3. Every `ApiError` contains `code`, `message`, `traceId`, `timestamp`, and
    optional `fieldErrors`. Clients should report the `traceId` when contacting
    support.
-4. Transactional outbox appenders copy the current MDC value into nullable
-   `outbox_events.trace_id`. Existing/background rows may have no trace.
-5. Relays copy the stored value into the envelope `traceId` and the Kafka
-   `traceId` header. When absent, the header is omitted and the envelope field is
-   null.
-6. Consumer record interceptors prefer the Kafka header, fall back to the
-   envelope field, put the value into MDC while the listener runs, and always
-   clear it afterward. Events emitted by a consumer therefore retain the
-   originating trace through their own outbox write.
+4. Transactional outbox appenders capture the current W3C carrier into nullable
+   `outbox_events.trace_id` when a span is active. They also retain the current `correlationId`.
+   Existing/background rows may contain only the legacy correlation id or no trace value.
+5. Relays restore the stored W3C context before calling `KafkaTemplate.send(...)`, publish
+   `traceparent`, `tracestate` and `baggage` Kafka headers, and copy the correlation id into the
+   envelope `traceId` plus legacy Kafka `traceId` header. When absent, the legacy header is
+   omitted and the envelope field is null.
+6. Spring Kafka observation extracts W3C headers for listener spans. Consumer record interceptors
+   only populate MDC with `correlationId` and `eventId` while the listener runs, then clear them.
+   Events emitted by a consumer therefore retain the originating trace through their own outbox
+   write.
 
 ## Outbox DLQ / poison-message handling (producer side)
 

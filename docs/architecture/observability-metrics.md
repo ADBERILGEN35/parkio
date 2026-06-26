@@ -43,12 +43,16 @@ Prometheus rendering replaces dots with underscores and suffixes counters with
 |---|---|---|---|
 | `parkio.outbox.unpublished.count` | gauge | auth, user, parking, media, gamification, notification, moderation, ai-validation | Relayable outbox rows (`published = false AND dead_lettered = false`). Sustained growth ⇒ the outbox relay is not draining to Kafka. Dead-lettered rows are **excluded** so a poison row doesn't masquerade as backlog. |
 | `parkio.outbox.oldest.unpublished.age.seconds` | gauge | same | Age of the oldest relayable row (0 when empty). Alert when it exceeds a few relay intervals. |
-| `parkio.outbox.deadlettered.count` | gauge | auth, user, parking, media, gamification, moderation, ai-validation | Dead-lettered (poison) outbox rows retained in-table for inspection/redrive. **Any non-zero value is actionable** — a publish has permanently failed `parkio.kafka.relay.max-attempts` times. |
+| `parkio.outbox.deadlettered.count` | gauge | auth, user, parking, media, gamification, moderation, ai-validation | Open dead-lettered (poison) outbox rows retained in-table for inspection/redrive. Acknowledged/suppressed rows are excluded so alerts stop after deliberate operator action. |
+| `parkio.outbox.deadlettered.acknowledged.count` | gauge | same | Dead-lettered rows intentionally acknowledged/suppressed by an operator and retained for audit. |
+| `parkio.outbox.deadlettered.oldest.age.seconds` | gauge | same | Age of the oldest open dead-lettered row. A high value means recovery did not happen or did not work. |
 | `parkio.outbox.publish.failed` | counter | same as dead-lettered | Per-row publish attempts that failed (all causes: broker error, unreadable payload, no topic mapping). A rising rate signals broker/contract trouble before rows dead-letter. |
 | `parkio.outbox.deadlettered` | counter | same | Rows that crossed into the dead-lettered state. Pairs with the gauge: the counter is the rate of new poison rows, the gauge is the current depth. |
 | `parkio.outbox.publish.success` | counter | same as dead-lettered | Per-row publishes that were broker-acked. Together with `parkio.outbox.publish.failed` gives the relay's publish success ratio. |
 | `parkio.outbox.publish.duration` | timer | same | Latency from relay dispatch to broker ack, per published row. Because sends are pipelined within a poll, this approximates per-row broker round-trip, not the serial sum. |
 | `parkio.outbox.batch.size` | summary | same | Outbox rows claimed per relay poll (`FOR UPDATE SKIP LOCKED` batch). Sustained values at the configured batch ceiling ⇒ the relay is saturated and backlog will grow. |
+| `parkio.outbox.recovery.retry.count` | gauge | same as dead-lettered | Durable count of operator retry actions recorded in `outbox_recovery_audit`. Use with open dead-letter count to detect failed redrive attempts. |
+| `parkio.outbox.recovery.acknowledged.count` | gauge | same as dead-lettered | Durable count of operator acknowledge/suppress actions recorded in `outbox_recovery_audit`. |
 | `parkio.inbox.processed.count` | gauge | auth, user, parking, gamification, notification, moderation, ai-validation, analytics | Inbox dedup rows currently retained. A flat line while events flow ⇒ the consumer stopped processing. Retention cleanup makes this dip periodically — that is expected. |
 
 Gauges are backed by one cheap COUNT/MIN repository query per scrape; they never run
@@ -187,8 +191,10 @@ are sized for a small single-VPS beta — tune as traffic grows.
 | `ServiceDown` | critical | `up{job="parkio-services"} == 0` | a service is unscrapeable for 2m |
 | `GatewayHigh5xxRate` | critical | gateway 5xx / total > 0.05 | >5% edge 5xx over 5m, sustained 10m |
 | `OutboxDeadlettered` | critical | `parkio_outbox_deadlettered_count > 0` | any poison row persists ≥5m |
+| `OutboxDeadletterAgeHigh` | critical | `parkio_outbox_deadlettered_oldest_age_seconds > 21600` | oldest open poison row older than 6h |
 | `OutboxOldestUnpublishedTooOld` | critical | `parkio_outbox_oldest_unpublished_age_seconds > 300` | oldest relayable row >5m old, for 10m |
 | `OutboxPublishFailuresElevated` | warning | `rate(parkio_outbox_publish_failed_total[5m]) > 0.1` per service | publish failures sustained >0.1/s for 10m (broker/contract trouble before rows dead-letter) |
+| `OutboxRedriveStillDeadlettered` | warning | retry audit increased and open dead-letter count remains >0 | retry action recorded but dead-letter rows remain |
 | `DatabaseConnectionPoolExhausted` | critical | `hikaricp_connections_pending > 0` | threads block on a DB connection for 5m |
 | `KafkaExporterDown` | critical | `up{job="kafka-exporter"} == 0` | Kafka exporter scrape is down for 2m |
 | `KafkaBrokerUnavailable` | critical | `kafka_brokers < 1` | exporter can scrape but sees no broker |
@@ -299,7 +305,7 @@ Use Grafana **Explore -> Loki**. Sample LogQL:
 
 Every service log line carries two distinct identifiers (see
 `logging.pattern.level` in each `application.yml`):
-`[<service>,traceId=<otel-hex>,spanId=<otel-hex>,correlationId=<uuid>]`.
+`[<service>,traceId=<otel-hex>,spanId=<otel-hex>,correlationId=<uuid>,eventId=<uuid>]`.
 
 - **`traceId`/`spanId`** are the OpenTelemetry ids owned by Micrometer tracing. The `traceId=`
   token is what Grafana's Loki **derived field** matches to link a log line straight to its
@@ -307,6 +313,8 @@ Every service log line carries two distinct identifiers (see
 - **`correlationId`** is the user-facing request id the gateway generates/forwards as
   `X-Correlation-Id`, echoes on responses, and surfaces in `ApiError.traceId`. It is the id a
   user or support ticket will quote, and it also rides Kafka events for async flows.
+- **`eventId`** is present while Kafka listener code handles an event. It is the inbox/outbox
+  deduplication key and lets logs line up with the Kafka envelope without replacing the OTel ids.
 
 Full structured JSON logging is not complete yet; Promtail currently treats logs as Docker log
 lines with labels rather than parsing application fields. Follow-up: standardize JSON logs with
@@ -344,11 +352,19 @@ Spring services ──OTLP/HTTP(4318)──▶ Tempo ──remote_write──▶
 
 ### Propagation model
 
-Trace context propagates over the wire as the **W3C `traceparent`** header, injected
-automatically because every internal HTTP client is built from the auto-configured
+Trace context propagates over the wire as the **W3C `traceparent`** header. It is injected
+automatically for internal HTTP clients because they are built from the auto-configured
 `WebClient.Builder` / `RestClient.Builder` bean (gateway → user-status/session-epoch/JWKS,
 parking → media). So the same OTel `traceId` is shared by Gateway, Auth, User, Parking, Media,
 Moderation, AI-Validation, Analytics, Notification and Gamification on the synchronous path.
+
+Kafka propagation uses the same W3C model. Spring Kafka observation is enabled for producer
+templates and the service-local listener container factories, so producer and consumer spans are
+created by Micrometer Observation rather than custom code. Transactional outbox appenders capture
+the current OpenTelemetry carrier into the existing nullable `outbox_events.trace_id` storage slot;
+relays re-enter that context before `KafkaTemplate.send(...)` and publish `traceparent`,
+`tracestate` and `baggage` Kafka headers. The event envelope's `traceId` and the legacy `traceId`
+Kafka header continue to carry the support-facing `correlationId`, preserving the wire contract.
 
 This is **separate from** the existing `X-Correlation-Id` channel: the correlation UUID remains
 the user-facing request id (response header + `ApiError.traceId` + Kafka event envelope), now
@@ -382,7 +398,9 @@ Use **Explore → Tempo**:
 - **No traces in Tempo:** confirm `PARKIO_TRACING_ENABLED=true` and the service can reach
   `tempo:4318`; check the service log for OTLP exporter errors; verify sampling probability > 0.
 - **Trace missing a hop:** that call likely doesn't use the auto-configured client builder, or a
-  custom thread/executor dropped the context — check the client construction.
+  custom thread/executor dropped the context — check the client construction. For Kafka, verify
+  that the record has a `traceparent` header and that `parkio.kafka.trace.propagation.missing`
+  is not increasing unexpectedly.
 - **Service map empty:** the generator needs traffic *and* Prometheus' remote-write receiver
   (`--web.enable-remote-write-receiver`); allow a few minutes after first traffic.
 - **Log line won't link to a trace:** confirm the log shows `traceId=<hex>` (not `unknown`) — an
@@ -419,14 +437,20 @@ true`) for inspection and is **excluded** from both the backlog gauge and the re
 query, so it will never publish on its own. Events are being lost for that aggregate until
 you act.
 
-1. **Identify the service** from the alert's `service` label, then inspect the rows
-   (`<svc>` = auth, parking, media, …; connect with `docker exec -it parkio-postgres-<svc>
-   psql -U parkio_<svc> -d parkio_<svc>`):
+1. **Identify the service** from the alert's `service` label, then inspect open rows with the
+   private operator tool:
+
+   ```bash
+   PARKIO_ENV_FILE=docker/.env PARKIO_OPERATOR=<name> \
+     scripts/outbox-deadletter-recovery.sh list --service parking
+   ```
+
+   Direct SQL equivalent:
 
    ```sql
    SELECT id, aggregate_type, event_type, failure_count, last_failure_reason, last_failed_at
    FROM outbox_events
-   WHERE dead_lettered = true
+   WHERE dead_lettered = true AND acknowledged_deadletter = false
    ORDER BY last_failed_at DESC;
    ```
 
@@ -439,11 +463,9 @@ you act.
 
 3. **Redrive after the root cause is fixed** (resets the row so the relay re-claims it):
 
-   ```sql
-   UPDATE outbox_events
-   SET dead_lettered = false, published = false, failure_count = 0,
-       last_failure_reason = NULL, last_failed_at = NULL
-   WHERE dead_lettered = true AND id = '<row-id>';   -- redrive one row; omit `id` to redrive all
+   ```bash
+   PARKIO_OPERATOR=<name> scripts/outbox-deadletter-recovery.sh retry \
+     --service parking --id <row-id> --reason "broker fixed" --yes
    ```
 
    The scheduled relay picks it up within one poll interval; the alert clears once
@@ -451,9 +473,16 @@ you act.
    so a redrive that double-delivers is safe.
 
 4. **When NOT to redrive:** the event is obsolete/superseded, the payload is irreparably
-   malformed, or the downstream contract no longer accepts it. In that case leave it
-   dead-lettered (or archive/delete the row deliberately) and record why — redriving would
-   only loop back into the DLQ.
+   malformed, or the downstream contract no longer accepts it. Acknowledge it so it remains
+   retained but stops paging:
+
+   ```bash
+   PARKIO_OPERATOR=<name> scripts/outbox-deadletter-recovery.sh acknowledge \
+     --service parking --id <row-id> \
+     --reason "obsolete; superseded by incident INC-123 correction" --yes
+   ```
+
+   The audit table records the operator, reason and previous state.
 
 ### Runbook — `DatabaseConnectionPoolExhausted`
 
@@ -496,10 +525,30 @@ you act.
 1. Identify the DLT topic from the alert label, e.g. `parkio.dlt.notification`.
 2. Inspect the owning consumer service logs around the first DLT timestamp and look for poison
    record / deserialization / handler errors.
-3. Use broker tooling if available to inspect the DLT topic before deleting/redriving:
-   `kafka-console-consumer --bootstrap-server kafka:9092 --topic <topic> --from-beginning`.
-4. Redrive only after the consumer bug or data-contract issue is fixed. Otherwise archive/delete
-   deliberately and record why.
+3. Dry-run the DLT redrive tool before any replay:
+
+   ```bash
+   scripts/kafka-dlt-redrive.sh \
+     --bootstrap-servers localhost:29092 \
+     --source-topic parkio.dlt.notification \
+     --target-topic <original-topic> \
+     --max-records 10
+   ```
+
+4. Redrive only after the consumer bug or data-contract issue is fixed:
+
+   ```bash
+   PARKIO_OPERATOR=<name> scripts/kafka-dlt-redrive.sh \
+     --execute \
+     --bootstrap-servers localhost:29092 \
+     --source-topic parkio.dlt.notification \
+     --target-topic <original-topic> \
+     --max-records 10 \
+     --reason "consumer fixed"
+   ```
+
+   The tool preserves original headers and adds `parkio-redrive-*` audit headers. Otherwise leave
+   the DLT retained and escalate; do not blindly replay poison records.
 
 ### Runbook — `KafkaConsumerLagHigh`
 

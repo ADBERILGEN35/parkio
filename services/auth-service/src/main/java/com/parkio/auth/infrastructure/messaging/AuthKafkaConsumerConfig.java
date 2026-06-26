@@ -64,6 +64,7 @@ public class AuthKafkaConsumerConfig {
         factory.setAutoStartup(autoStartup);
         factory.setRecordInterceptor(traceInterceptor);
         factory.getContainerProperties().setAckMode(AckMode.MANUAL);
+        factory.getContainerProperties().setObservationEnabled(true);
 
         // Retry transient failures a few times, then route poison messages to the DLT
         // (partition -1 lets the broker choose). Never blocks the partition forever.

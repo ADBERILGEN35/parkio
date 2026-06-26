@@ -10,6 +10,8 @@ import io.micrometer.core.instrument.Counter;
 import io.micrometer.core.instrument.DistributionSummary;
 import io.micrometer.core.instrument.MeterRegistry;
 import io.micrometer.core.instrument.Timer;
+import io.opentelemetry.context.Context;
+import io.opentelemetry.context.Scope;
 import java.nio.charset.StandardCharsets;
 import java.time.Instant;
 import java.util.ArrayList;
@@ -25,6 +27,7 @@ import org.springframework.beans.factory.annotation.Value;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.kafka.core.KafkaTemplate;
 import org.springframework.kafka.support.SendResult;
+import com.parkio.user.infrastructure.tracing.KafkaTraceContextSupport;
 import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Component;
 import org.springframework.transaction.annotation.Transactional;
@@ -108,8 +111,11 @@ public class UserOutboxRelay {
             }
             EventEnvelope envelope = toEnvelope(row);
             ProducerRecord<String, Object> record = new ProducerRecord<>(
-                    topic, null, row.getAggregateId().toString(), envelope, headersFor(envelope));
-            inFlight.add(new InFlight(row, System.nanoTime(), kafkaTemplate.send(record)));
+                    topic, null, row.getAggregateId().toString(), envelope, headersFor(envelope, row.getTraceId()));
+            Context publishContext = KafkaTraceContextSupport.extractedContext(row.getTraceId());
+            try (Scope ignored = publishContext.makeCurrent()) {
+                inFlight.add(new InFlight(row, System.nanoTime(), kafkaTemplate.send(record)));
+            }
         }
         // Phase 2 — await the already-dispatched acks within a single shared deadline. Because
         // the sends were fired together, the whole batch settles in ~one round-trip, so the
@@ -170,7 +176,7 @@ public class UserOutboxRelay {
                 row.getAggregateId(),
                 row.getOccurredAt(),
                 EventEnvelope.CURRENT_VERSION,
-                row.getTraceId(),
+                KafkaTraceContextSupport.correlationId(row.getTraceId()),
                 readPayload(row));
     }
 
@@ -182,7 +188,7 @@ public class UserOutboxRelay {
         }
     }
 
-    private static List<Header> headersFor(EventEnvelope e) {
+    private static List<Header> headersFor(EventEnvelope e, String storedTraceContext) {
         List<Header> headers = new ArrayList<>();
         headers.add(header("eventId", e.eventId().toString()));
         headers.add(header("eventType", e.eventType()));
@@ -193,6 +199,7 @@ public class UserOutboxRelay {
         if (e.traceId() != null) {
             headers.add(header("traceId", e.traceId()));
         }
+        KafkaTraceContextSupport.addPropagationHeaders(headers, storedTraceContext);
         return headers;
     }
 

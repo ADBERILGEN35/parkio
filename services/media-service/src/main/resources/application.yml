@@ -4,6 +4,10 @@
   kafka:
     # Broker is externalized; local/dev default targets the docker-compose host listener.
     bootstrap-servers: ${PARKIO_KAFKA_BOOTSTRAP_SERVERS:localhost:29092}
+    template:
+      observation-enabled: true
+    listener:
+      observation-enabled: true
     producer:
       acks: all
       key-serializer: org.apache.kafka.common.serialization.StringSerializer
@@ -60,7 +64,7 @@ server:
 
 logging:
   pattern:
-    level: "%5p [${spring.application.name:-},traceId=%X{traceId:-},spanId=%X{spanId:-},correlationId=%X{correlationId:-}]"
+    level: "%5p [${spring.application.name:-},traceId=%X{traceId:-},spanId=%X{spanId:-},correlationId=%X{correlationId:-},eventId=%X{eventId:-}]"
 
 management:
   endpoints:

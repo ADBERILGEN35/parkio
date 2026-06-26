@@ -19,4 +19,5 @@ include(
     "services:moderation-service",
     "services:ai-validation-service",
     "services:analytics-service",
+    "tools:dlt-redrive",
 )

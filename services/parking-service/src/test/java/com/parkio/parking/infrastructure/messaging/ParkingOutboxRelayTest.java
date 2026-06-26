@@ -89,6 +89,39 @@ class ParkingOutboxRelayTest {
 
     @Test
     @SuppressWarnings("unchecked")
+    void publishesStoredW3cTraceContextAsKafkaHeadersWithoutChangingEnvelopeTraceId() {
+        UUID eventId = UUID.randomUUID();
+        UUID spotId = UUID.randomUUID();
+        UUID ownerId = UUID.randomUUID();
+        String storedTraceContext = String.join("\n",
+                "traceparent=00-4bf92f3577b34da6a3ce929d0e0e4736-00f067aa0ba902b7-01",
+                "tracestate=vendor=value",
+                "baggage=tenant=parkio",
+                "correlationId=correlation-123");
+        OutboxEventEntity row = spotCreatedRow(eventId, spotId, ownerId);
+        row = new OutboxEventEntity(row.getId(), row.getEventId(), row.getAggregateType(), row.getAggregateId(),
+                row.getEventType(), row.getPayload(), row.getOccurredAt(), storedTraceContext, false);
+        when(outbox.findUnpublishedBatchForUpdate(100)).thenReturn(List.of(row));
+        when(kafkaTemplate.send(any(ProducerRecord.class)))
+                .thenReturn(CompletableFuture.<SendResult<String, Object>>completedFuture(null));
+
+        relay.publishPending();
+
+        ArgumentCaptor<ProducerRecord<String, Object>> captor = ArgumentCaptor.forClass(ProducerRecord.class);
+        verify(kafkaTemplate).send(captor.capture());
+        ProducerRecord<String, Object> sent = captor.getValue();
+        EventEnvelope envelope = (EventEnvelope) sent.value();
+
+        assertThat(envelope.traceId()).isEqualTo("correlation-123");
+        assertThat(headerValue(sent, "traceId")).isEqualTo("correlation-123");
+        assertThat(headerValue(sent, "traceparent"))
+                .isEqualTo("00-4bf92f3577b34da6a3ce929d0e0e4736-00f067aa0ba902b7-01");
+        assertThat(headerValue(sent, "tracestate")).isEqualTo("vendor=value");
+        assertThat(headerValue(sent, "baggage")).isEqualTo("tenant=parkio");
+    }
+
+    @Test
+    @SuppressWarnings("unchecked")
     void recordsFailureWithoutThrowingWhenSendFails() {
         OutboxEventEntity row = spotCreatedRow(UUID.randomUUID(), UUID.randomUUID(), UUID.randomUUID());
         when(outbox.findUnpublishedBatchForUpdate(100)).thenReturn(List.of(row));

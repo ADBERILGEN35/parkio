@@ -64,6 +64,7 @@ public class AiValidationKafkaConsumerConfig {
         factory.setAutoStartup(autoStartup);
         factory.setRecordInterceptor(traceInterceptor);
         factory.getContainerProperties().setAckMode(AckMode.MANUAL);
+        factory.getContainerProperties().setObservationEnabled(true);
 
         DeadLetterPublishingRecoverer recoverer = new DeadLetterPublishingRecoverer(
                 kafkaTemplate, (record, ex) -> new TopicPartition(DLT_AIVALIDATION, -1));

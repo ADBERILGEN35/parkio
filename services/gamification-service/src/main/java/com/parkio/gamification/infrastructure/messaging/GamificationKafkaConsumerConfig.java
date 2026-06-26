@@ -64,6 +64,7 @@ public class GamificationKafkaConsumerConfig {
         factory.setAutoStartup(autoStartup);
         factory.setRecordInterceptor(traceInterceptor);
         factory.getContainerProperties().setAckMode(AckMode.MANUAL);
+        factory.getContainerProperties().setObservationEnabled(true);
 
         DeadLetterPublishingRecoverer recoverer = new DeadLetterPublishingRecoverer(
                 kafkaTemplate, (record, ex) -> new TopicPartition(DLT_GAMIFICATION, -1));

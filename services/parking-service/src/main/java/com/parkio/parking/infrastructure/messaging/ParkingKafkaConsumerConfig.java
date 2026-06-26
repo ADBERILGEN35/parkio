@@ -47,12 +47,15 @@ public class ParkingKafkaConsumerConfig {
     @Bean
     ConcurrentKafkaListenerContainerFactory<String, String> parkingKafkaListenerContainerFactory(
             ConsumerFactory<String, String> parkingConsumerFactory,
-            KafkaTemplate<Object, Object> kafkaTemplate) {
+            KafkaTemplate<Object, Object> kafkaTemplate,
+            KafkaTraceRecordInterceptor traceInterceptor) {
         ConcurrentKafkaListenerContainerFactory<String, String> factory =
                 new ConcurrentKafkaListenerContainerFactory<>();
         factory.setConsumerFactory(parkingConsumerFactory);
         factory.setAutoStartup(autoStartup);
+        factory.setRecordInterceptor(traceInterceptor);
         factory.getContainerProperties().setAckMode(AckMode.MANUAL);
+        factory.getContainerProperties().setObservationEnabled(true);
         DeadLetterPublishingRecoverer recoverer = new DeadLetterPublishingRecoverer(
                 kafkaTemplate, (record, ex) -> new TopicPartition(DLT_PARKING, -1));
         factory.setCommonErrorHandler(

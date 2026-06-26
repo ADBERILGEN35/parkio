@@ -414,20 +414,22 @@ application logs.**
   follow-up.
 - **Tracing / OpenTelemetry** (implemented for beta): every service exports spans via Micrometer
   Tracing → `micrometer-tracing-bridge-otel` → `opentelemetry-exporter-otlp` to **Tempo** over
-  OTLP/HTTP. Context propagates as W3C `traceparent` through the auto-configured HTTP clients, so
-  one trace spans the gateway and all downstream services. Grafana provisions the Tempo datasource
-  (trace search, latency waterfall, service-dependency graph via Tempo's metrics-generator →
-  Prometheus, and trace↔log correlation with Loki). Production hardening / follow-ups:
+  OTLP/HTTP. Context propagates as W3C `traceparent` through auto-configured HTTP clients and
+  Spring Kafka observation (`traceparent`, `tracestate`, `baggage` headers), so one trace can span
+  the gateway, downstream services, outbox relay sends and Kafka consumers. Grafana provisions the
+  Tempo datasource (trace search, latency waterfall, service-dependency graph via Tempo's
+  metrics-generator → Prometheus, and trace↔log correlation with Loki). Production hardening /
+  follow-ups:
   - **Sampling**: beta runs 100% (`PARKIO_TRACING_SAMPLING_PROBABILITY=1.0`). At production volume
     drop to `0.05`–`0.20` to bound Tempo storage and exporter overhead; consider tail-based
     sampling (via an OTel Collector) if you must keep all error/slow traces.
   - **Tempo storage**: beta uses single-binary Tempo with a local block volume and `48h` retention
     (`PARKIO_TEMPO_RETENTION`). For production move trace blocks to object storage (S3/GCS) and
     size retention to need; the OTLP receivers must stay private (never publicly exposed).
-  - **Async / Kafka propagation**: the synchronous HTTP path is fully traced; trace context does
-    **not** yet cross the Kafka outbox boundary (the decoupled relay). The event envelope's
-    `correlationId` still stitches async flows. Follow-up: enable Spring Kafka observation and
-    carry `traceparent` through the outbox row to link producer and consumer spans.
+  - **Async / Kafka propagation**: Spring Kafka observation creates producer/consumer spans. Outbox
+    appenders store the current W3C carrier in the existing nullable outbox trace slot, and relays
+    publish it as Kafka headers while preserving the event envelope's legacy support-facing
+    `traceId`/correlation id.
   - **JDBC spans**: `datasource-micrometer` (per-query DB spans) was intentionally omitted to keep
     the beta minimal — add it if DB latency needs span-level attribution.
 - **Alerting — key alerts (wire to on-call for prod):**

@@ -38,9 +38,12 @@ Asynchronous side effects flow through **Kafka**. Events keep services decoupled
   don't repurpose or remove fields). Breaking change → new event type/version.
 - Payloads carry **IDs and the minimum data** needed — not another service's full
   domain model.
-- Producers persist the current MDC `traceId` in the outbox and mirror it into
-  the Kafka envelope/header. Consumers restore it into MDC for handler execution
-  and clear it afterward.
+- Producers persist the current W3C trace context in the outbox when available and
+  mirror it into Kafka `traceparent` / `tracestate` / `baggage` headers. The
+  existing support-facing correlation id still appears as envelope/header
+  `traceId`. Consumers restore `correlationId` and `eventId` into MDC for handler
+  execution and clear them afterward; Spring Kafka observation restores the OTel
+  trace context.
 
 ## Reliability (required for production paths)
 

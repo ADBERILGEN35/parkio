@@ -408,8 +408,9 @@ credentials, and DB passwords must stay out of application logs.
 Each service exports OpenTelemetry spans over OTLP/HTTP to **Tempo** (`tempo:4318`, never
 published), built the Spring-native way: Micrometer Observations → `micrometer-tracing-bridge-otel`
 → `opentelemetry-exporter-otlp` (no second tracing stack). Trace context rides the W3C
-`traceparent` header injected by the auto-configured HTTP clients, so one trace spans the gateway
-and every downstream service it calls.
+`traceparent` header injected by the auto-configured HTTP clients and by Spring Kafka observation.
+Outbox relays preserve W3C context through Kafka headers (`traceparent`, `tracestate`, `baggage`),
+so one trace can span the gateway, downstream services, Kafka producer sends and Kafka consumers.
 
 - Sampling: `PARKIO_TRACING_SAMPLING_PROBABILITY` (default `1.0` = 100% for beta; lower to
   `0.05`–`0.20` for production). `PARKIO_TRACING_ENABLED=false` turns tracing off.

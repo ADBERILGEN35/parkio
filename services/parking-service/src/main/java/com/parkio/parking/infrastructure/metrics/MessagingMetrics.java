@@ -37,7 +37,24 @@ public class MessagingMetrics {
                 .description("Relayable outbox rows not yet published to Kafka (excludes dead-lettered)")
                 .register(registry);
         Gauge.builder("parkio.outbox.deadlettered.count", this, m -> m.outbox.countByDeadLetteredTrue())
-                .description("Dead-lettered (poison) outbox rows retained for inspection/redrive")
+                .description("Open dead-lettered outbox rows awaiting operator inspection/redrive")
+                .register(registry);
+        Gauge.builder("parkio.outbox.deadlettered.acknowledged.count", this,
+                        m -> m.outbox.countAcknowledgedDeadletters())
+                .description("Dead-lettered outbox rows intentionally acknowledged/suppressed by an operator")
+                .register(registry);
+        Gauge.builder("parkio.outbox.deadlettered.oldest.age.seconds", this,
+                        MessagingMetrics::oldestOpenDeadletterAgeSeconds)
+                .description("Age of the oldest open dead-lettered outbox row (0 when none are open)")
+                .baseUnit("seconds")
+                .register(registry);
+        Gauge.builder("parkio.outbox.recovery.retry.count", this,
+                        m -> m.outbox.countRecoveryAuditByAction("RETRY"))
+                .description("Outbox dead-letter retry actions recorded by operators")
+                .register(registry);
+        Gauge.builder("parkio.outbox.recovery.acknowledged.count", this,
+                        m -> m.outbox.countRecoveryAuditByAction("ACKNOWLEDGE"))
+                .description("Outbox dead-letter acknowledge actions recorded by operators")
                 .register(registry);
         Gauge.builder("parkio.outbox.oldest.unpublished.age.seconds", this,
                         MessagingMetrics::oldestUnpublishedAgeSeconds)
@@ -50,7 +67,14 @@ public class MessagingMetrics {
     }
 
     double oldestUnpublishedAgeSeconds() {
-        Instant oldest = outbox.findOldestUnpublishedCreatedAt();
+        return ageSeconds(outbox.findOldestUnpublishedCreatedAt());
+    }
+
+    double oldestOpenDeadletterAgeSeconds() {
+        return ageSeconds(outbox.findOldestOpenDeadletterCreatedAt());
+    }
+
+    private double ageSeconds(Instant oldest) {
         if (oldest == null) {
             return 0.0;
         }

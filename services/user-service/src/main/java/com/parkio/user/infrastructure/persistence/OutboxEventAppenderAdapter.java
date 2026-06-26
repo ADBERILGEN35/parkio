@@ -7,7 +7,7 @@ import com.parkio.user.domain.event.UserProfileCreatedEvent;
 import com.parkio.user.infrastructure.persistence.entity.OutboxEventEntity;
 import com.parkio.user.infrastructure.persistence.jpa.OutboxEventJpaRepository;
 import java.util.UUID;
-import org.slf4j.MDC;
+import com.parkio.user.infrastructure.tracing.KafkaTraceContextSupport;
 import org.springframework.stereotype.Component;
 
 /**
@@ -37,7 +37,7 @@ public class OutboxEventAppenderAdapter implements OutboxEventAppender {
                 UserProfileCreatedEvent.TYPE,
                 serialize(event),
                 event.occurredAt(),
-                MDC.get("correlationId"),
+                KafkaTraceContextSupport.currentOutboxTraceContext(),
                 false);
         jpa.save(entity);
     }

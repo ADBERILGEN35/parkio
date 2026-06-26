@@ -11,6 +11,7 @@ springdoc = "2.8.17"
 # Resilience4j (circuit breaker / bulkhead / rate limiter). Not in the Spring Boot BOM,
 # so it needs an explicit version; 2.3.x targets the Spring Boot 3.4+/3.5 line.
 resilience4j = "2.3.0"
+kafkaClients = "3.9.2"
 
 [libraries]
 # Spring Boot starters. Concrete versions are supplied by the Spring Boot BOM,
@@ -35,6 +36,7 @@ spring-boot-starter-data-redis-reactive = { module = "org.springframework.boot:s
 # Kafka (asynchronous event transport). Version is supplied by the Spring Boot BOM.
 # Added per-service to publishers/consumers only — gateway-service does not use it.
 spring-kafka = { module = "org.springframework.kafka:spring-kafka" }
+kafka-clients = { module = "org.apache.kafka:kafka-clients", version.ref = "kafkaClients" }
 
 # Prometheus metrics export (actuator /actuator/prometheus). Version from the
 # Spring Boot BOM. Added to every service that has the actuator starter.
