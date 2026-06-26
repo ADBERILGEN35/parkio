@@ -82,7 +82,17 @@ docker compose -f docker-compose.yml -f docker-compose.apps.yml up -d --build
 docker compose -f docker-compose.yml -f docker-compose.apps.yml ps
 ```
 
-Give Spring ~30-60 s after the containers report "Up" before hitting the API.
+Give Spring ~30-60 s after the containers report "Up" before hitting the API. App
+containers now carry an Actuator **readiness** healthcheck, so `docker compose ps` shows
+`(healthy)` only once a service is actually accepting traffic — wait for that, not just
+"Up". The gateway intentionally starts after auth/user become healthy.
+
+> **Deploying to a real VPS (hosted beta)?** Add the third overlay last:
+> `-f docker-compose.hosted-beta.yml`. It adds the Caddy TLS proxy, makes everything but
+> Caddy private, and applies per-container memory/CPU/PID **ceilings**. Host sizing,
+> the resource table, the JVM memory model and graceful-shutdown behaviour are in
+> [`docs/operations/runtime-sizing.md`](../docs/operations/runtime-sizing.md) — budget
+> **8 vCPU / 24 GB RAM** (16 GB minimum with observability off-box).
 
 ### Frontend (separate terminal)
 

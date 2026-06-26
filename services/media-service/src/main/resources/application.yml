@@ -61,6 +61,9 @@
 
 server:
   port: ${SERVER_PORT:8084}
+  # Graceful shutdown: on SIGTERM stop accepting new requests and let in-flight
+  # ones drain (spring.lifecycle.timeout-per-shutdown-phase, 30s) before the JVM exits.
+  shutdown: graceful
 
 logging:
   pattern:

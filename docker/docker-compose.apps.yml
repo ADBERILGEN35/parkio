@@ -9,19 +9,77 @@
 # ai-context/01 & /05). Connection settings are injected as environment
 # variables (ai-context/01: externalized config). These vars are inert until a
 # service adds the matching Spring starter — no business logic is implied here.
+#
+# RUNTIME HARDENING (P1.5): this overlay applies the cross-cutting runtime safety
+# that is correct in EVERY environment — JVM container-awareness + fail-fast on OOM,
+# Actuator-readiness healthchecks (so dependents start in order), log rotation,
+# graceful-shutdown grace period, and baseline container hardening. Per-VPS resource
+# CEILINGS (mem_limit/cpus/pids_limit) live in docker-compose.hosted-beta.yml because
+# they are sized for a specific host; see docs/operations/runtime-sizing.md.
 
 name: parkio
 
 # --------------------------------------------------------------------------- #
 # Reusable fragments                                                          #
 # --------------------------------------------------------------------------- #
+
+# Bounded container logs. Docker's json-file driver is UNBOUNDED by default, so a
+# chatty or looping service can fill the host disk. Cap each container at 50 MB of
+# logs (5 × 10 MB, rotated). Promtail still ships everything to Loki for retention.
+x-logging: &default-logging
+  driver: json-file
+  options:
+    max-size: "10m"
+    max-file: "5"
+
+# Container HEALTHCHECK defaults shared by every app service. The per-service `test`
+# differs only by port (each service's Actuator is on its own server port). We probe
+# READINESS (not liveness): a service counts as healthy for its dependents only once
+# Flyway has migrated, the datasource pool is up and Kafka admin has connected — so
+# `depends_on: condition: service_healthy` gates the startup graph on real readiness.
+# Failures during start_period do not count, which absorbs JVM + migration warmup.
+x-app-healthcheck: &app-healthcheck
+  interval: 15s
+  timeout: 5s
+  retries: 5
+  start_period: 60s
+
 x-app-common: &app-common
   restart: unless-stopped
   networks: [parkio-backend]
+  logging: *default-logging
+  # Give Spring's graceful shutdown room to drain in-flight work on SIGTERM before
+  # Docker escalates to SIGKILL. Must exceed spring.lifecycle.timeout-per-shutdown-phase
+  # (30s, set below) so the JVM exits cleanly rather than being killed mid-request.
+  stop_grace_period: 45s
+  # Baseline container hardening (defense in depth; images already run as non-root uid
+  # 10001). no-new-privileges blocks setuid escalation; an HTTP/JVM service needs no
+  # Linux capabilities, so drop them all. Stronger read-only-rootfs is tracked as a
+  # follow-up (needs live multipart-upload validation — see runtime-sizing.md).
+  security_opt:
+    - no-new-privileges:true
+  cap_drop:
+    - ALL
+  # Cap the process/thread count so a thread leak or fork loop cannot exhaust host PIDs.
+  pids_limit: 512
   environment: &app-env-common
     SPRING_KAFKA_BOOTSTRAP_SERVERS: kafka:9092
     MANAGEMENT_ENDPOINTS_WEB_EXPOSURE_INCLUDE: health,info,prometheus
-    JAVA_TOOL_OPTIONS: ${JAVA_TOOL_OPTIONS:--XX:MaxRAMPercentage=75.0}
+    # JVM runtime safety:
+    #  - MaxRAMPercentage=65 sizes the heap to 65% of the CONTAINER limit (set in the
+    #    hosted-beta overlay), leaving headroom for metaspace, thread stacks, code cache
+    #    and direct buffers so the kernel does not cgroup-OOM-kill the container. Without
+    #    a mem_limit (local base+apps only) it reads host RAM — set a limit in production.
+    #  - InitialRAMPercentage=40 commits a sensible starting heap to cut resize churn.
+    #  - MaxMetaspaceSize caps a notorious native-OOM source (classloader leaks).
+    #  - ExitOnOutOfMemoryError turns a heap OOM into a fast exit so `restart` recycles the
+    #    container instead of letting it GC-thrash forever (paired with the HighJvmMemoryUsage
+    #    alert in prometheus/alerts.yml).
+    JAVA_TOOL_OPTIONS: ${JAVA_TOOL_OPTIONS:--XX:MaxRAMPercentage=65.0 -XX:InitialRAMPercentage=40.0 -XX:MaxMetaspaceSize=192m -XX:+UseG1GC -XX:+ExitOnOutOfMemoryError}
+    # Spring graceful shutdown drain budget (server.shutdown: graceful is set in each
+    # service's application.yml). Centralized here via relaxed binding so it stays in
+    # lockstep with stop_grace_period above.
+    SPRING_LIFECYCLE_TIMEOUT_PER_SHUTDOWN_PHASE: ${SPRING_LIFECYCLE_TIMEOUT_PER_SHUTDOWN_PHASE:-30s}
     # Distributed tracing -> Tempo (OTLP/HTTP). 100% sampling for the beta; tune via env.
     # The OTLP receiver is private to the Docker network (tempo:4318, never published).
     PARKIO_TRACING_ENABLED: ${PARKIO_TRACING_ENABLED:-true}
@@ -68,8 +126,18 @@ services:
       # must set its real web origin(s). Empty in application.yml = deny (safe default).
       PARKIO_CORS_ALLOWED_ORIGINS: ${PARKIO_CORS_ALLOWED_ORIGINS:-http://localhost:5173}
       PARKIO_CORS_ALLOW_CREDENTIALS: ${PARKIO_CORS_ALLOW_CREDENTIALS:-true}
+    healthcheck:
+      <<: *app-healthcheck
+      test: ["CMD", "curl", "-fsS", "http://localhost:8080/actuator/health/readiness"]
+    # The edge serves authenticated traffic only once auth (JWKS) and user (account
+    # status) are ready; ordering here removes the startup window of fail-closed 503s.
+    # Both deps fail closed at runtime too, so this is ordering, not a hard coupling.
     depends_on:
       redis:
+        condition: service_healthy
+      auth-service:
+        condition: service_healthy
+      user-service:
         condition: service_healthy
 
   auth-service:
@@ -93,6 +161,9 @@ services:
       PARKIO_RESEND_API_KEY: ${PARKIO_RESEND_API_KEY:-}
       PARKIO_EMAIL_FROM: ${PARKIO_EMAIL_FROM:-}
       PARKIO_EMAIL_REPLY_TO: ${PARKIO_EMAIL_REPLY_TO:-}
+    healthcheck:
+      <<: *app-healthcheck
+      test: ["CMD", "curl", "-fsS", "http://localhost:8081/actuator/health/readiness"]
     depends_on:
       <<: *datasource-depends
       postgres-auth:
@@ -111,6 +182,9 @@ services:
       SPRING_DATASOURCE_URL: jdbc:postgresql://postgres-user:5432/${POSTGRES_USER_DB:-parkio_user}
       SPRING_DATASOURCE_USERNAME: ${POSTGRES_USER_USER:-parkio_user}
       SPRING_DATASOURCE_PASSWORD: ${POSTGRES_USER_PASSWORD}
+    healthcheck:
+      <<: *app-healthcheck
+      test: ["CMD", "curl", "-fsS", "http://localhost:8082/actuator/health/readiness"]
     depends_on:
       <<: *datasource-depends
       postgres-user:
@@ -132,6 +206,9 @@ services:
       # Internal client for POST /internal/media/{id}/access-url (parkio.media.client.base-url).
       # Defaults to localhost:8084 (IDE dev); inside compose must be the service DNS name.
       PARKIO_MEDIA_SERVICE_URI: http://media-service:8084
+    healthcheck:
+      <<: *app-healthcheck
+      test: ["CMD", "curl", "-fsS", "http://localhost:8083/actuator/health/readiness"]
     depends_on:
       <<: *datasource-depends
       postgres-parking:
@@ -170,6 +247,9 @@ services:
       PARKIO_MEDIA_SCANNER_PORT: ${PARKIO_MEDIA_SCANNER_PORT:-3310}
       PARKIO_MEDIA_SCANNER_CONNECT_TIMEOUT: ${PARKIO_MEDIA_SCANNER_CONNECT_TIMEOUT:-2s}
       PARKIO_MEDIA_SCANNER_READ_TIMEOUT: ${PARKIO_MEDIA_SCANNER_READ_TIMEOUT:-10s}
+    healthcheck:
+      <<: *app-healthcheck
+      test: ["CMD", "curl", "-fsS", "http://localhost:8084/actuator/health/readiness"]
     depends_on:
       <<: *datasource-depends
       postgres-media:
@@ -194,6 +274,9 @@ services:
       SPRING_DATASOURCE_PASSWORD: ${POSTGRES_GAMIFICATION_PASSWORD}
       SPRING_DATA_REDIS_HOST: redis
       SPRING_DATA_REDIS_PORT: "6379"
+    healthcheck:
+      <<: *app-healthcheck
+      test: ["CMD", "curl", "-fsS", "http://localhost:8085/actuator/health/readiness"]
     depends_on:
       <<: *datasource-depends
       postgres-gamification:
@@ -212,6 +295,9 @@ services:
       SPRING_DATASOURCE_URL: jdbc:postgresql://postgres-notification:5432/${POSTGRES_NOTIFICATION_DB:-parkio_notification}
       SPRING_DATASOURCE_USERNAME: ${POSTGRES_NOTIFICATION_USER:-parkio_notification}
       SPRING_DATASOURCE_PASSWORD: ${POSTGRES_NOTIFICATION_PASSWORD}
+    healthcheck:
+      <<: *app-healthcheck
+      test: ["CMD", "curl", "-fsS", "http://localhost:8086/actuator/health/readiness"]
     depends_on:
       <<: *datasource-depends
       postgres-notification:
@@ -228,6 +314,9 @@ services:
       SPRING_DATASOURCE_URL: jdbc:postgresql://postgres-moderation:5432/${POSTGRES_MODERATION_DB:-parkio_moderation}
       SPRING_DATASOURCE_USERNAME: ${POSTGRES_MODERATION_USER:-parkio_moderation}
       SPRING_DATASOURCE_PASSWORD: ${POSTGRES_MODERATION_PASSWORD}
+    healthcheck:
+      <<: *app-healthcheck
+      test: ["CMD", "curl", "-fsS", "http://localhost:8087/actuator/health/readiness"]
     depends_on:
       <<: *datasource-depends
       postgres-moderation:
@@ -246,6 +335,9 @@ services:
       SPRING_DATASOURCE_URL: jdbc:postgresql://postgres-ai-validation:5432/${POSTGRES_AIVALIDATION_DB:-parkio_aivalidation}
       SPRING_DATASOURCE_USERNAME: ${POSTGRES_AIVALIDATION_USER:-parkio_aivalidation}
       SPRING_DATASOURCE_PASSWORD: ${POSTGRES_AIVALIDATION_PASSWORD}
+    healthcheck:
+      <<: *app-healthcheck
+      test: ["CMD", "curl", "-fsS", "http://localhost:8088/actuator/health/readiness"]
     depends_on:
       <<: *datasource-depends
       postgres-ai-validation:
@@ -262,6 +354,9 @@ services:
       SPRING_DATASOURCE_URL: jdbc:postgresql://postgres-analytics:5432/${POSTGRES_ANALYTICS_DB:-parkio_analytics}
       SPRING_DATASOURCE_USERNAME: ${POSTGRES_ANALYTICS_USER:-parkio_analytics}
       SPRING_DATASOURCE_PASSWORD: ${POSTGRES_ANALYTICS_PASSWORD}
+    healthcheck:
+      <<: *app-healthcheck
+      test: ["CMD", "curl", "-fsS", "http://localhost:8089/actuator/health/readiness"]
     depends_on:
       <<: *datasource-depends
       postgres-analytics:

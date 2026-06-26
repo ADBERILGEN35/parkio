@@ -5,7 +5,10 @@
 #   * stops publishing every backend/data port to the host (gateway, services, DBs, Redis,
 #     Kafka, MinIO become private to the Docker network);
 #   * keeps Prometheus/Alertmanager/Loki/Promtail/Grafana bound to loopback only
-#     (admin access via SSH tunnel).
+#     (admin access via SSH tunnel);
+#   * applies per-container RESOURCE CEILINGS (mem_limit/cpus/pids_limit) so no single
+#     workload can starve the host — the runtime-governance half of P1.5. The cross-cutting
+#     JVM/healthcheck/shutdown hardening lives in docker-compose.apps.yml.
 #
 # Run WITH the base + apps files, last so it wins:
 #   docker compose -f docker-compose.yml -f docker-compose.apps.yml -f docker-compose.hosted-beta.yml up -d --build
@@ -15,6 +18,16 @@
 #   `!reset []`          -> drop all published ports (service stays reachable in-network)
 #   `!override [ ... ]`  -> replace the published-port list entirely (loopback-only bind)
 # Both require Docker Compose v2.24.4+ (any recent Docker Desktop / Engine ships this).
+#
+# RESOURCE SIZING — these are CEILINGS (safety caps), not reservations; steady-state usage
+# is far lower. The sum is sized to fit comfortably on the recommended host with headroom
+# for the OS and filesystem cache. Every value and the target VPS spec are derived in
+# docs/operations/runtime-sizing.md. mem_limit is a hard cgroup cap: a JVM that exceeds it
+# is OOM-killed by the kernel, which is why JAVA_TOOL_OPTIONS (apps overlay) keeps the heap
+# at 65% of the limit and fails fast on heap OOM.
+#
+# Recommended host: 8 vCPU / 24 GB RAM (all-in-one). Minimum: 8 vCPU / 16 GB with the
+# observability plane moved off-box (see runtime-sizing.md). Total mem ceilings ≈ 15.8 GB.
 #
 # This is a BETA layout — NOT public-production. See docs/architecture/production-readiness.md
 # (single-broker Kafka RF=1, single-node DBs, backups required).
@@ -30,6 +43,15 @@ services:
     image: ${CADDY_IMAGE:-caddy:2.8-alpine}
     container_name: parkio-caddy
     restart: unless-stopped
+    mem_limit: 256m
+    cpus: "0.5"
+    pids_limit: 128
+    stop_grace_period: 20s
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "5"
     depends_on:
       gateway-service:
         condition: service_started
@@ -74,6 +96,8 @@ services:
   # ------------------------------------------------------------------------- #
   gateway-service:
     ports: !reset []
+    mem_limit: 640m
+    cpus: "1.5"
     environment:
       # Honor X-Forwarded-Proto/Host from Caddy so redirect/abs URLs and proto checks are
       # correct behind TLS termination. WebFlux: `framework` registers ForwardedHeaderTransformer.
@@ -85,67 +109,154 @@ services:
 
   # ------------------------------------------------------------------------- #
   # Backend services — drop all host port publishing (8081-8089). They remain  #
-  # reachable in-network via their service DNS names.                          #
+  # reachable in-network via their service DNS names. mem_limit/cpus per       #
+  # docs/operations/runtime-sizing.md (heavy: auth/parking/media at 768m).     #
   # ------------------------------------------------------------------------- #
   auth-service:
     ports: !reset []
+    mem_limit: 768m
+    cpus: "1.5"
     environment:
       PARKIO_REFRESH_COOKIE_SECURE: "true"
   user-service:
     ports: !reset []
+    mem_limit: 640m
+    cpus: "1.0"
   parking-service:
     ports: !reset []
+    mem_limit: 768m
+    cpus: "1.5"
   media-service:
     ports: !reset []
+    mem_limit: 768m
+    cpus: "1.5"
   gamification-service:
     ports: !reset []
+    mem_limit: 640m
+    cpus: "1.0"
   notification-service:
     ports: !reset []
+    mem_limit: 640m
+    cpus: "1.0"
   moderation-service:
     ports: !reset []
+    mem_limit: 640m
+    cpus: "1.0"
   ai-validation-service:
     ports: !reset []
+    mem_limit: 640m
+    cpus: "1.0"
   analytics-service:
     ports: !reset []
+    mem_limit: 640m
+    cpus: "1.0"
 
   # ------------------------------------------------------------------------- #
   # Data plane — never publicly published. Admin access via `docker exec` or a #
-  # temporary loopback bind + SSH tunnel (see README).                        #
+  # temporary loopback bind + SSH tunnel (see README). Postgres gets a 60s     #
+  # stop_grace_period so a clean shutdown checkpoint completes before SIGKILL. #
   # ------------------------------------------------------------------------- #
   postgres-auth:
     ports: !reset []
+    mem_limit: 320m
+    cpus: "1.0"
+    pids_limit: 256
+    stop_grace_period: 60s
   postgres-user:
     ports: !reset []
+    mem_limit: 256m
+    cpus: "0.5"
+    pids_limit: 256
+    stop_grace_period: 60s
   postgres-parking:
     ports: !reset []
+    mem_limit: 384m
+    cpus: "1.0"
+    pids_limit: 256
+    stop_grace_period: 60s
   postgres-media:
     ports: !reset []
+    mem_limit: 256m
+    cpus: "0.5"
+    pids_limit: 256
+    stop_grace_period: 60s
   postgres-gamification:
     ports: !reset []
+    mem_limit: 256m
+    cpus: "0.5"
+    pids_limit: 256
+    stop_grace_period: 60s
   postgres-notification:
     ports: !reset []
+    mem_limit: 256m
+    cpus: "0.5"
+    pids_limit: 256
+    stop_grace_period: 60s
   postgres-moderation:
     ports: !reset []
+    mem_limit: 256m
+    cpus: "0.5"
+    pids_limit: 256
+    stop_grace_period: 60s
   postgres-analytics:
     ports: !reset []
+    mem_limit: 320m
+    cpus: "0.75"
+    pids_limit: 256
+    stop_grace_period: 60s
   postgres-ai-validation:
     ports: !reset []
+    mem_limit: 256m
+    cpus: "0.5"
+    pids_limit: 256
+    stop_grace_period: 60s
   redis:
     ports: !reset []
+    mem_limit: 384m
+    cpus: "0.5"
+    pids_limit: 128
+    stop_grace_period: 30s
   kafka:
     ports: !reset []
+    mem_limit: 1280m
+    cpus: "2.0"
+    pids_limit: 512
+    # KRaft commit-log flush + clean controller shutdown need headroom before SIGKILL.
+    stop_grace_period: 60s
+    environment:
+      # Pin the broker heap well under mem_limit so the rest is page cache / direct buffers
+      # (Kafka relies heavily on the OS page cache; do not give the JVM the whole limit).
+      KAFKA_HEAP_OPTS: ${KAFKA_HEAP_OPTS:--Xms768m -Xmx768m}
+      # Bound on-disk log growth so a quiet consumer cannot let segments fill the host disk.
+      # Outbox is the durable source of truth; 7 days of topic retention is ample for replay.
+      KAFKA_LOG_RETENTION_HOURS: ${KAFKA_LOG_RETENTION_HOURS:-168}
+      KAFKA_LOG_RETENTION_BYTES: ${KAFKA_LOG_RETENTION_BYTES:-2147483648}
+      KAFKA_LOG_SEGMENT_BYTES: ${KAFKA_LOG_SEGMENT_BYTES:-268435456}
   kafka-exporter:
     ports: !override ["127.0.0.1:${KAFKA_EXPORTER_PORT:-9308}:9308"]
+    mem_limit: 128m
+    cpus: "0.25"
+    pids_limit: 128
   node-exporter:
     # Host metrics exporter — never publicly published. Loopback bind for admin/debug only;
     # Prometheus scrapes it in-network as node-exporter:9100.
     ports: !override ["127.0.0.1:${NODE_EXPORTER_PORT:-9100}:9100"]
+    mem_limit: 64m
+    cpus: "0.25"
   minio:
     # MinIO is private; the public media host is served via Caddy -> minio:9000 (presigned GETs).
     ports: !reset []
+    mem_limit: 512m
+    cpus: "1.0"
+    pids_limit: 256
+    stop_grace_period: 30s
   clamav:
     # Anti-malware daemon stays private; reachable only by media-service in-network.
+    # ClamAV loads the full signature DB into RAM (~1.3 GB) — the dominant single consumer.
     ports: !reset []
+    mem_limit: 1536m
+    cpus: "2.0"
+    pids_limit: 256
 
   # ------------------------------------------------------------------------- #
   # Observability — loopback-only on the VPS. Reach via SSH local-forward:     #
@@ -156,16 +267,33 @@ services:
   # ------------------------------------------------------------------------- #
   prometheus:
     ports: !override ["127.0.0.1:${PROMETHEUS_PORT:-9090}:9090"]
+    mem_limit: 1024m
+    cpus: "1.0"
+    pids_limit: 256
+    stop_grace_period: 30s
   alertmanager:
     ports: !override ["127.0.0.1:${ALERTMANAGER_PORT:-9093}:9093"]
+    mem_limit: 128m
+    cpus: "0.25"
   loki:
     ports: !override ["127.0.0.1:${LOKI_PORT:-3100}:3100"]
+    mem_limit: 512m
+    cpus: "1.0"
+    pids_limit: 256
+    stop_grace_period: 30s
   promtail:
     ports: !override ["127.0.0.1:${PROMTAIL_PORT:-9080}:9080"]
+    mem_limit: 128m
+    cpus: "0.5"
   tempo:
     ports: !override ["127.0.0.1:${TEMPO_PORT:-3200}:3200"]
+    mem_limit: 512m
+    cpus: "1.0"
+    pids_limit: 256
   grafana:
     ports: !override ["127.0.0.1:${GRAFANA_PORT:-3000}:3000"]
+    mem_limit: 384m
+    cpus: "0.5"
 
 # Caddy state (issued certificates + config). Losing caddy-data forces re-issuance
 # and can hit ACME rate limits — keep this volume.

@@ -81,6 +81,14 @@ required variable (no values). Production must set, at minimum: `PARKIO_JWT_PRIV
 Prometheus + Grafana. Each JVM is ~0.3–0.5 GB. This is a *heavy* topology for an early product —
 the dominant decision driver.
 
+> **Runtime hardening (P1.5 — done).** The single-host runtime is now resource-governed and
+> operationally safe: per-container `mem_limit`/`cpus`/`pids_limit` ceilings, JVM heap pinned
+> to 65 % of each container limit with `ExitOnOutOfMemoryError`, Actuator-readiness
+> healthchecks with startup ordering, Spring graceful shutdown + `stop_grace_period`, and
+> bounded container-log rotation. Full sizing math, the resource table, the health model and
+> the remaining runtime risks live in **[`docs/operations/runtime-sizing.md`](../operations/runtime-sizing.md)**.
+> Recommended host: **8 vCPU / 24 GB** (minimum 16 GB with observability off-box).
+
 | Option | Pros | Cons | Verdict for Parkio now |
 |--------|------|------|------------------------|
 | **A. Docker Compose on a VPS** | Cheapest; you already have the compose files; one box to reason about; fast to ship | Single point of failure; manual scaling; you operate Kafka/Postgres/MinIO yourself; restarts = downtime | **Best for hosted beta.** Lowest cost & complexity. |
@@ -727,8 +735,10 @@ OIDC federation to the cloud provider where possible.
 - **Shared managed Postgres cluster for 9 logical DBs.** Saves cost but is a shared failure domain and
   shared connection budget. *Mitigation:* separate roles/DBs (isolation preserved), PgBouncer, and
   split out hot DBs (parking/analytics) if load demands.
-- **10 JVMs are memory-hungry.** Beta on one VPS may be RAM-bound. *Mitigation:* `MaxRAMPercentage`
-  is already set; set container memory limits; scale the box or move to Option B sooner if needed.
+- **10 JVMs are memory-hungry.** Beta on one VPS may be RAM-bound. *Mitigated (P1.5):* per-container
+  `mem_limit` ceilings are now set with heap pinned to 65 % of each limit and `ExitOnOutOfMemoryError`;
+  total ceilings ≈ 15.8 GB → 24 GB host recommended (16 GB minimum). See
+  [`runtime-sizing.md`](../operations/runtime-sizing.md). Scale the box or move to Option B if load grows.
 - **`X-Forwarded-For` spoofing** if the proxy hop isn't locked down → bypassed rate limits / poisoned
   logs. *Mitigation:* explicit trusted-proxy config (a blocker, listed above).
 - **MinIO single-node** has no redundancy. *Mitigation:* move to managed S3-compatible before public prod.

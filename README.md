@@ -297,6 +297,12 @@ See [`docker/`](docker) for a local Compose stack:
 docker compose -f docker/docker-compose.yml up --build
 ```
 
+The runtime is production-hardened for a single VPS: per-container resource ceilings,
+JVM heap pinned to its container limit with fail-fast on OOM, Actuator-readiness
+healthchecks with startup ordering, graceful shutdown, and bounded log rotation. Host
+sizing and the full resource model are documented in
+[`docs/operations/runtime-sizing.md`](docs/operations/runtime-sizing.md).
+
 ## Documentation & AI-tool hygiene
 
 **Project documentation is versioned.** The canonical docs live under

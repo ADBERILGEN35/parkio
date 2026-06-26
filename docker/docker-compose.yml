@@ -19,9 +19,20 @@ name: parkio
 # --------------------------------------------------------------------------- #
 # Reusable fragments                                                          #
 # --------------------------------------------------------------------------- #
+
+# Bounded container logs. Docker's json-file driver is UNBOUNDED by default, so any
+# long-running container can silently fill the host disk. Cap each at 50 MB (5 × 10 MB,
+# rotated). Promtail still ships everything to Loki, which owns durable retention.
+x-logging: &default-logging
+  driver: json-file
+  options:
+    max-size: "10m"
+    max-file: "5"
+
 x-postgres-common: &postgres-common
   image: ${POSTGRES_IMAGE:-postgres:16-alpine}
   restart: unless-stopped
+  logging: *default-logging
   networks: [parkio-backend]
   # POSTGRES_USER / POSTGRES_DB are resolved inside the container, hence $$.
   healthcheck:
@@ -138,6 +149,7 @@ services:
     image: ${REDIS_IMAGE:-redis:7-alpine}
     container_name: parkio-redis
     restart: unless-stopped
+    logging: *default-logging
     command: ["redis-server", "--appendonly", "yes"]
     ports: ["${REDIS_PORT:-6379}:6379"]
     volumes: ["redis-data:/data"]
@@ -157,6 +169,7 @@ services:
     image: ${KAFKA_IMAGE:-confluentinc/cp-kafka:7.7.1}
     container_name: parkio-kafka
     restart: unless-stopped
+    logging: *default-logging
     ports:
       - "${KAFKA_EXTERNAL_PORT:-29092}:29092"
     environment:
@@ -189,6 +202,7 @@ services:
     image: ${KAFKA_EXPORTER_IMAGE:-danielqsj/kafka-exporter:v1.8.0}
     container_name: parkio-kafka-exporter
     restart: unless-stopped
+    logging: *default-logging
     depends_on:
       kafka:
         condition: service_healthy
@@ -207,6 +221,7 @@ services:
     image: ${MINIO_IMAGE:-minio/minio:RELEASE.2024-09-13T20-26-02Z}
     container_name: parkio-minio
     restart: unless-stopped
+    logging: *default-logging
     command: ["server", "/data", "--console-address", ":9001"]
     environment:
       MINIO_ROOT_USER: ${MINIO_ROOT_USER:-parkio}
@@ -255,6 +270,7 @@ services:
     image: ${CLAMAV_IMAGE:-clamav/clamav:1.4}
     container_name: parkio-clamav
     restart: unless-stopped
+    logging: *default-logging
     # clamd listens on 3310; exposed on the host for local dev only (the
     # hosted-beta overlay removes this mapping — clamd stays on the private net).
     ports:
@@ -278,6 +294,7 @@ services:
     image: ${PROMETHEUS_IMAGE:-prom/prometheus:v2.54.1}
     container_name: parkio-prometheus
     restart: unless-stopped
+    logging: *default-logging
     command:
       - --config.file=/etc/prometheus/prometheus.yml
       - --storage.tsdb.path=/prometheus
@@ -304,6 +321,7 @@ services:
     image: ${ALERTMANAGER_IMAGE:-prom/alertmanager:v0.27.0}
     container_name: parkio-alertmanager
     restart: unless-stopped
+    logging: *default-logging
     environment:
       PARKIO_ALERT_SLACK_WEBHOOK_URL: ${PARKIO_ALERT_SLACK_WEBHOOK_URL:-}
       PARKIO_ALERT_SLACK_CHANNEL: "${PARKIO_ALERT_SLACK_CHANNEL:-#parkio-alerts}"
@@ -327,6 +345,7 @@ services:
     image: ${LOKI_IMAGE:-grafana/loki:2.9.8}
     container_name: parkio-loki
     restart: unless-stopped
+    logging: *default-logging
     command:
       - -config.file=/etc/loki/loki.yml
       - -config.expand-env=true
@@ -348,6 +367,7 @@ services:
     image: ${PROMTAIL_IMAGE:-grafana/promtail:2.9.8}
     container_name: parkio-promtail
     restart: unless-stopped
+    logging: *default-logging
     command:
       - -config.file=/etc/promtail/promtail.yml
       - -config.expand-env=true
@@ -379,6 +399,7 @@ services:
     image: ${NODE_EXPORTER_IMAGE:-prom/node-exporter:v1.8.2}
     container_name: parkio-node-exporter
     restart: unless-stopped
+    logging: *default-logging
     # Host PID namespace lets the exporter see all host processes for accurate counts.
     pid: host
     command:
@@ -407,6 +428,7 @@ services:
     image: ${TEMPO_IMAGE:-grafana/tempo:2.6.1}
     container_name: parkio-tempo
     restart: unless-stopped
+    logging: *default-logging
     command:
       - -config.file=/etc/tempo/tempo.yml
       - -config.expand-env=true
@@ -424,6 +446,7 @@ services:
     image: ${GRAFANA_IMAGE:-grafana/grafana:11.2.0}
     container_name: parkio-grafana
     restart: unless-stopped
+    logging: *default-logging
     depends_on:
       prometheus:
         condition: service_healthy
