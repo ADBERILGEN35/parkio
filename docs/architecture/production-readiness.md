@@ -757,3 +757,47 @@ OIDC federation to the cloud provider where possible.
 - **Operational complexity is real.** Even the beta requires someone to own backups, TLS renewal
   (automated via ACME), and alert response. Be honest: there is no zero-ops path for a 10-service
   event-driven system — the plan minimizes, not eliminates, that burden.
+
+### 11.6 Smart Return privacy note
+
+Smart Return V1 is opt-in only. `user-service` owns the saved home area and current-day
+return plan; `notification-service` only claims due checks and does not persist home
+coordinates. V1 does not perform continuous GPS tracking, background location collection,
+or ML/routine inference. Home coordinates are sensitive personal data: do not log them,
+do not send them to analytics, and do not expose them in notification copy.
+
+Return checks use a retryable claim model: due work moves to
+`RETURN_CHECK_IN_PROGRESS` with `today_return_check_claimed_at` and
+`today_return_check_claim_expires_at`. The scheduler completes the check only after the
+parking-search/notification decision is persisted. Expired in-progress claims can be
+retried, while completed checks and sent notifications remain single-day idempotency
+guards.
+
+The V1 scheduler uses the configured `PARKIO_SMART_RETURN_SCHEDULER_ZONE` (default:
+`Europe/Istanbul`) for the morning prompt. Per-user timezone support is intentionally a
+future enhancement. Production follow-up: add field-level encryption for exact home
+coordinates before broad public launch if the deployment does not already provide
+equivalent database encryption controls.
+
+#### Smart Return real-stack smoke procedure
+
+Run this before enabling Smart Return outside local/dev:
+
+1. Start the full Docker stack and confirm gateway, user-service, parking-service,
+   notification-service, PostgreSQL, Redis, Kafka, and Prometheus are healthy.
+2. Create a test user through the gateway and authenticate normally.
+3. Enable Smart Return through `/api/v1/users/me/smart-return/settings` with a saved
+   home area and notifications enabled.
+4. Answer the same-day prompt with `left-by-car` and an expected return time near enough
+   that `expected_return_at - reminder_lead_minutes` is due.
+5. Trigger or wait for the notification-service return-check scheduler.
+6. Verify `parking-service` is called for real nearby availability; do not seed fake
+   availability unless the test environment explicitly creates real test spots through
+   the normal parking APIs.
+7. Verify exactly one Smart Return notification row/event is created when spots exist,
+   no notification is created when no reliable spots exist, and expired
+   `RETURN_CHECK_IN_PROGRESS` claims retry only after `today_return_check_claim_expires_at`.
+8. Restart notification-service during an in-progress claim and verify the expired claim
+   retries and then completes without duplicates.
+9. Inspect service logs and metrics: trace/correlation ids should be present, exact home
+   coordinates must not appear in logs, metrics, analytics, or notification payloads.

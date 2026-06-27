@@ -1,8 +1,10 @@
 package com.parkio.user.presentation;
 
 import com.parkio.user.application.UserApplicationService;
+import com.parkio.user.application.command.SmartReturnReturnTimeCommand;
 import com.parkio.user.application.command.UpdatePreferencesCommand;
 import com.parkio.user.application.command.UpdateProfileCommand;
+import com.parkio.user.application.command.UpdateSmartReturnSettingsCommand;
 import com.parkio.user.application.command.UpsertVehicleCommand;
 import com.parkio.user.domain.exception.UserErrorCode;
 import com.parkio.user.domain.exception.UserException;
@@ -10,6 +12,9 @@ import com.parkio.user.presentation.dto.PreferencesRequest;
 import com.parkio.user.presentation.dto.PreferencesResponse;
 import com.parkio.user.presentation.dto.ProfileResponse;
 import com.parkio.user.presentation.dto.PublicProfileResponse;
+import com.parkio.user.presentation.dto.SmartReturnSettingsRequest;
+import com.parkio.user.presentation.dto.SmartReturnSettingsResponse;
+import com.parkio.user.presentation.dto.SmartReturnTodayRequest;
 import com.parkio.user.presentation.dto.StatsResponse;
 import com.parkio.user.presentation.dto.UpdateProfileRequest;
 import com.parkio.user.presentation.dto.VehicleRequest;
@@ -23,6 +28,7 @@ import java.util.UUID;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PatchMapping;
 import org.springframework.web.bind.annotation.PathVariable;
+import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.PutMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestHeader;
@@ -84,6 +90,62 @@ public class UserController {
         UpdatePreferencesCommand command =
                 new UpdatePreferencesCommand(request.preferredRadiusMeters(), request.notificationsEnabled());
         return PreferencesResponse.from(userService.updateMyPreferences(requireUserId(userId), command));
+    }
+
+    @Operation(summary = "Get Smart Return settings")
+    @SecurityRequirement(name = "bearerAuth")
+    @GetMapping("/me/smart-return")
+    public SmartReturnSettingsResponse getSmartReturn(
+            @RequestHeader(value = USER_ID_HEADER, required = false) String userId) {
+        return SmartReturnSettingsResponse.from(userService.getMySmartReturn(requireUserId(userId)));
+    }
+
+    @Operation(summary = "Update Smart Return settings")
+    @SecurityRequirement(name = "bearerAuth")
+    @PutMapping("/me/smart-return/settings")
+    public SmartReturnSettingsResponse updateSmartReturnSettings(
+            @RequestHeader(value = USER_ID_HEADER, required = false) String userId,
+            @Valid @RequestBody SmartReturnSettingsRequest request) {
+        UpdateSmartReturnSettingsCommand command = new UpdateSmartReturnSettingsCommand(
+                request.enabled(), request.homeLatitude(), request.homeLongitude(), request.homeLabel(),
+                request.defaultReturnTime(), request.reminderLeadMinutes());
+        return SmartReturnSettingsResponse.from(userService.updateMySmartReturnSettings(requireUserId(userId), command));
+    }
+
+    @Operation(summary = "Answer Smart Return prompt: left by car")
+    @SecurityRequirement(name = "bearerAuth")
+    @PostMapping("/me/smart-return/today/left-by-car")
+    public SmartReturnSettingsResponse leftByCar(
+            @RequestHeader(value = USER_ID_HEADER, required = false) String userId,
+            @Valid @RequestBody SmartReturnTodayRequest request) {
+        return SmartReturnSettingsResponse.from(userService.markSmartReturnLeftByCar(
+                requireUserId(userId), new SmartReturnReturnTimeCommand(request.expectedReturnAt())));
+    }
+
+    @Operation(summary = "Answer Smart Return prompt: not by car")
+    @SecurityRequirement(name = "bearerAuth")
+    @PostMapping("/me/smart-return/today/not-by-car")
+    public SmartReturnSettingsResponse notByCar(
+            @RequestHeader(value = USER_ID_HEADER, required = false) String userId) {
+        return SmartReturnSettingsResponse.from(userService.markSmartReturnNotByCar(requireUserId(userId)));
+    }
+
+    @Operation(summary = "Edit today's Smart Return expected return time")
+    @SecurityRequirement(name = "bearerAuth")
+    @PutMapping("/me/smart-return/today/return-time")
+    public SmartReturnSettingsResponse updateReturnTime(
+            @RequestHeader(value = USER_ID_HEADER, required = false) String userId,
+            @Valid @RequestBody SmartReturnTodayRequest request) {
+        return SmartReturnSettingsResponse.from(userService.updateSmartReturnTime(
+                requireUserId(userId), new SmartReturnReturnTimeCommand(request.expectedReturnAt())));
+    }
+
+    @Operation(summary = "Cancel today's Smart Return reminder")
+    @SecurityRequirement(name = "bearerAuth")
+    @PostMapping("/me/smart-return/today/cancel")
+    public SmartReturnSettingsResponse cancelSmartReturnToday(
+            @RequestHeader(value = USER_ID_HEADER, required = false) String userId) {
+        return SmartReturnSettingsResponse.from(userService.cancelSmartReturnToday(requireUserId(userId)));
     }
 
     @Operation(summary = "Get current user vehicle")

@@ -9,6 +9,8 @@ public interface UserProfileRepository {
 
     UserProfile save(UserProfile profile);
 
+    Optional<UserProfile> findById(UUID id);
+
     Optional<UserProfile> findByAuthUserId(UUID authUserId);
 
     boolean existsByAuthUserId(UUID authUserId);

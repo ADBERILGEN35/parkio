@@ -5,6 +5,7 @@ import { ImpactHero } from './profile/ImpactHero';
 import { PreferencesCard } from './profile/PreferencesCard';
 import { ProfileDetailsCard } from './profile/ProfileDetailsCard';
 import { SettingsNav, type SettingsSection } from './profile/SettingsNav';
+import { SmartReturnCard } from './profile/SmartReturnCard';
 import { TrustProgressCard } from './profile/TrustProgressCard';
 import { VehicleCard } from './profile/VehicleCard';
 
@@ -12,6 +13,7 @@ const SECTIONS = [
   { id: 'account', label: 'Profile & Account', icon: 'person' },
   { id: 'vehicle', label: 'Vehicle', icon: 'directions_car' },
   { id: 'notifications', label: 'Notifications', icon: 'notifications' },
+  { id: 'smart-return', label: 'Smart Return', icon: 'home_pin' },
   { id: 'trust', label: 'Trust & Progress', icon: 'verified_user' },
 ] as const satisfies readonly SettingsSection[];
 
@@ -59,6 +61,7 @@ export function ProfilePage() {
           ) : null}
           {section === 'vehicle' ? <VehicleCard /> : null}
           {section === 'notifications' ? <PreferencesCard /> : null}
+          {section === 'smart-return' ? <SmartReturnCard /> : null}
           {section === 'trust' ? <TrustProgressCard /> : null}
         </div>
       </div>

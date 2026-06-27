@@ -9,6 +9,7 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.SerializationFeature;
 import com.fasterxml.jackson.databind.json.JsonMapper;
 import com.fasterxml.jackson.datatype.jsr310.JavaTimeModule;
+import com.parkio.user.application.SmartReturnMetrics;
 import com.parkio.user.application.UserApplicationService;
 import com.parkio.user.application.event.UserRegisteredEvent;
 import com.parkio.user.application.port.InboxEventRepository;
@@ -26,6 +27,7 @@ import com.parkio.user.domain.UserTrustProfile;
 import com.parkio.user.domain.UserTrustScoreHistory;
 import com.parkio.user.domain.UserVehicleProfile;
 import com.parkio.user.domain.event.UserProfileCreatedEvent;
+import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
 import java.time.Clock;
 import java.time.Duration;
 import java.time.Instant;
@@ -91,7 +93,7 @@ class UserRegisteredConsumerKafkaIT {
                 new FakeUserTrustProfileRepository(), new FakeUserTrustScoreHistoryRepository(),
                 new FakeOutboxEventAppender(), new FakeInboxEventRepository(),
                 new FakePendingUserStatusEventRepository(),
-                Clock.fixed(occurredAt, ZoneOffset.UTC));
+                Clock.fixed(occurredAt, ZoneOffset.UTC), new SmartReturnMetrics(new SimpleMeterRegistry()));
         UserRegisteredKafkaConsumer consumer = new UserRegisteredKafkaConsumer(userService, objectMapper);
 
         produceEnvelope(eventId, userId, "rider@parkio.example", occurredAt);
@@ -164,6 +166,11 @@ class UserRegisteredConsumerKafkaIT {
         }
 
         @Override
+        public Optional<UserProfile> findById(UUID id) {
+            return Optional.ofNullable(byId.get(id));
+        }
+
+        @Override
         public Optional<UserProfile> findByAuthUserId(UUID authUserId) {
             return byId.values().stream().filter(p -> p.authUserId().equals(authUserId)).findFirst();
         }
@@ -183,6 +190,16 @@ class UserRegisteredConsumerKafkaIT {
         @Override
         public Optional<UserPreference> findByUserProfileId(UUID userProfileId) {
             return Optional.empty();
+        }
+
+        @Override
+        public List<UserPreference> claimDueSmartReturnPrompts(java.time.LocalDate promptDate, int limit) {
+            return List.of();
+        }
+
+        @Override
+        public List<UserPreference> claimDueSmartReturnChecks(Instant now, int limit) {
+            return List.of();
         }
     }
 

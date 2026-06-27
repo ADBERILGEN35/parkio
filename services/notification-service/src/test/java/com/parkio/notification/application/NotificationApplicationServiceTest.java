@@ -239,6 +239,35 @@ class NotificationApplicationServiceTest {
         assertThat(preferences.byUser).containsKey(user);
     }
 
+    @Test
+    void createsSmartReturnPromptNotification() {
+        UUID user = UUID.randomUUID();
+
+        service.createSmartReturnPrompt(user);
+
+        assertThat(notifications.findRecentByUserId(user, 10)).singleElement()
+                .satisfies(n -> {
+                    assertThat(n.type()).isEqualTo(NotificationType.SMART_RETURN_PROMPT);
+                    assertThat(n.title()).contains("driving today");
+                    assertThat(n.body()).contains("parking check");
+                });
+    }
+
+    @Test
+    void createsSmartReturnAvailabilityNotificationWithoutHomeAddress() {
+        UUID user = UUID.randomUUID();
+
+        service.createSmartReturnParkingAvailable(user, "Exact Home Street 1");
+
+        assertThat(notifications.findRecentByUserId(user, 10)).singleElement()
+                .satisfies(n -> {
+                    assertThat(n.type()).isEqualTo(NotificationType.SMART_RETURN_AVAILABLE);
+                    assertThat(n.body()).contains("saved home area");
+                    assertThat(n.body()).doesNotContain("Exact Home Street 1");
+                    assertThat(n.body()).doesNotContain("38.4237");
+                });
+    }
+
     // --- Fakes -----------------------------------------------------------
 
     private static final class FakeNotificationRepository implements NotificationRepository {
@@ -330,6 +359,12 @@ class NotificationApplicationServiceTest {
                             "You earned {points} points. Total: {totalPoints}."));
             byType.put(NotificationType.WARNING,
                     new NotificationTemplate(NotificationType.WARNING, "Heads up", "{message}"));
+            byType.put(NotificationType.SMART_RETURN_PROMPT,
+                    new NotificationTemplate(NotificationType.SMART_RETURN_PROMPT, "Are you driving today?",
+                            "Tell Parkio if you want a parking check before you return."));
+            byType.put(NotificationType.SMART_RETURN_AVAILABLE,
+                    new NotificationTemplate(NotificationType.SMART_RETURN_AVAILABLE, "Parking may be available",
+                            "{message}"));
         }
 
         @Override

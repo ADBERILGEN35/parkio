@@ -1295,6 +1295,16 @@ and maps the 403 to a friendly message with `code`/`traceId`.
 
 The gateway also enforces privileged routes at the edge; the app's `RoleRoute` mirrors this for UX.
 
+## Smart Return
+
+`/profile` includes Smart Return settings. V1 is explicit opt-in: the user saves a home
+area, enables Smart Return, answers whether they are driving today, and sets an expected
+return time. The frontend does not request continuous background location and does not
+infer routines. It sends only the saved home area chosen by the user and today's expected
+return time to `user-service`; parking suggestions come from the existing real nearby
+parking search, never mocked availability. Return notifications intentionally use generic
+saved-home-area copy rather than exact street/home addresses.
+
 ## Error shape
 
 All services return a uniform `ApiError`:

@@ -41,6 +41,40 @@ export interface UpdatePreferenceRequest {
   notificationsEnabled?: boolean;
 }
 
+export type SmartReturnTodayStatus =
+  | 'UNKNOWN'
+  | 'LEFT_BY_CAR'
+  | 'RETURN_CHECK_IN_PROGRESS'
+  | 'NOT_BY_CAR'
+  | 'CANCELLED';
+
+export interface SmartReturnSettings {
+  enabled: boolean;
+  homeLatitude: number | null;
+  homeLongitude: number | null;
+  homeLabel: string | null;
+  defaultReturnTime: string | null;
+  reminderLeadMinutes: number;
+  lastPromptDate: string | null;
+  todayStatus: SmartReturnTodayStatus;
+  todayExpectedReturnAt: string | null;
+  todayReturnCheckCompletedAt: string | null;
+  todayNotificationSentAt: string | null;
+}
+
+export interface UpdateSmartReturnSettingsRequest {
+  enabled?: boolean;
+  homeLatitude?: number | null;
+  homeLongitude?: number | null;
+  homeLabel?: string | null;
+  defaultReturnTime?: string | null;
+  reminderLeadMinutes?: number;
+}
+
+export interface SmartReturnTodayRequest {
+  expectedReturnAt: string;
+}
+
 /** `GET /users/me/vehicle` — mirrors `VehicleResponse`. Null fields mean no vehicle is set. */
 export interface VehicleProfile {
   vehicleType: VehicleType | null;

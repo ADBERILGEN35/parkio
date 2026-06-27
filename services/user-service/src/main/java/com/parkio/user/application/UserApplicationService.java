@@ -1,8 +1,10 @@
 package com.parkio.user.application;
 
 import com.parkio.user.application.command.CreateProfileCommand;
+import com.parkio.user.application.command.SmartReturnReturnTimeCommand;
 import com.parkio.user.application.command.UpdatePreferencesCommand;
 import com.parkio.user.application.command.UpdateProfileCommand;
+import com.parkio.user.application.command.UpdateSmartReturnSettingsCommand;
 import com.parkio.user.application.command.UpsertVehicleCommand;
 import com.parkio.user.application.event.UserRegisteredEvent;
 import com.parkio.user.application.event.UserRestoredEvent;
@@ -17,7 +19,10 @@ import com.parkio.user.application.port.UserTrustScoreHistoryRepository;
 import com.parkio.user.application.port.UserVehicleProfileRepository;
 import com.parkio.user.application.result.AccountStatusView;
 import com.parkio.user.application.result.PublicProfileView;
+import com.parkio.user.application.result.SmartReturnCheckCandidate;
+import com.parkio.user.application.result.SmartReturnPromptCandidate;
 import com.parkio.user.domain.PendingUserStatusEvent;
+import com.parkio.user.domain.SmartReturnTodayStatus;
 import com.parkio.user.domain.UserPreference;
 import com.parkio.user.domain.UserProfile;
 import com.parkio.user.domain.UserStatus;
@@ -29,7 +34,9 @@ import com.parkio.user.domain.exception.UserErrorCode;
 import com.parkio.user.domain.exception.UserException;
 import java.time.Clock;
 import java.time.Instant;
+import java.time.LocalDate;
 import java.util.Comparator;
+import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
 import org.slf4j.Logger;
@@ -51,6 +58,7 @@ import org.springframework.transaction.annotation.Transactional;
 public class UserApplicationService {
 
     private static final Logger log = LoggerFactory.getLogger(UserApplicationService.class);
+    private static final long SMART_RETURN_CLAIM_TTL_SECONDS = 300;
 
     private final UserProfileRepository profiles;
     private final UserPreferenceRepository preferences;
@@ -61,6 +69,7 @@ public class UserApplicationService {
     private final InboxEventRepository inbox;
     private final PendingUserStatusEventRepository pendingStatusEvents;
     private final Clock clock;
+    private final SmartReturnMetrics smartReturnMetrics;
 
     public UserApplicationService(UserProfileRepository profiles,
                                   UserPreferenceRepository preferences,
@@ -70,7 +79,8 @@ public class UserApplicationService {
                                   OutboxEventAppender outbox,
                                   InboxEventRepository inbox,
                                   PendingUserStatusEventRepository pendingStatusEvents,
-                                  Clock clock) {
+                                  Clock clock,
+                                  SmartReturnMetrics smartReturnMetrics) {
         this.profiles = profiles;
         this.preferences = preferences;
         this.vehicles = vehicles;
@@ -80,6 +90,7 @@ public class UserApplicationService {
         this.inbox = inbox;
         this.pendingStatusEvents = pendingStatusEvents;
         this.clock = clock;
+        this.smartReturnMetrics = smartReturnMetrics;
     }
 
     /**
@@ -247,6 +258,92 @@ public class UserApplicationService {
         return preferences.save(preference);
     }
 
+    @Transactional(readOnly = true)
+    public UserPreference getMySmartReturn(UUID authUserId) {
+        return requirePreferences(requireProfile(authUserId).id());
+    }
+
+    public UserPreference updateMySmartReturnSettings(UUID authUserId, UpdateSmartReturnSettingsCommand command) {
+        UserPreference preference = requirePreferences(requireProfile(authUserId).id());
+        boolean wasEnabled = preference.smartReturnEnabled();
+        preference.updateSmartReturnSettings(command.enabled(), command.homeLatitude(), command.homeLongitude(),
+                command.homeLabel(), command.defaultReturnTime(), command.reminderLeadMinutes());
+        if (!wasEnabled && preference.smartReturnEnabled()) {
+            smartReturnMetrics.recordEnabled();
+        }
+        return preferences.save(preference);
+    }
+
+    public UserPreference markSmartReturnLeftByCar(UUID authUserId, SmartReturnReturnTimeCommand command) {
+        UserPreference preference = requirePreferences(requireProfile(authUserId).id());
+        preference.answerLeftByCar(command.expectedReturnAt(), clock.instant());
+        smartReturnMetrics.recordPromptAnswer("left_by_car");
+        return preferences.save(preference);
+    }
+
+    public UserPreference markSmartReturnNotByCar(UUID authUserId) {
+        UserPreference preference = requirePreferences(requireProfile(authUserId).id());
+        preference.answerNotByCar();
+        smartReturnMetrics.recordPromptAnswer("not_by_car");
+        return preferences.save(preference);
+    }
+
+    public UserPreference updateSmartReturnTime(UUID authUserId, SmartReturnReturnTimeCommand command) {
+        UserPreference preference = requirePreferences(requireProfile(authUserId).id());
+        preference.editReturnTime(command.expectedReturnAt(), clock.instant());
+        return preferences.save(preference);
+    }
+
+    public UserPreference cancelSmartReturnToday(UUID authUserId) {
+        UserPreference preference = requirePreferences(requireProfile(authUserId).id());
+        preference.cancelToday();
+        smartReturnMetrics.recordPromptAnswer("cancelled");
+        return preferences.save(preference);
+    }
+
+    public List<SmartReturnPromptCandidate> claimDueSmartReturnPrompts(LocalDate promptDate, int limit) {
+        if (limit < 1 || limit > 500) {
+            throw new IllegalArgumentException("limit must be between 1 and 500");
+        }
+        return preferences.claimDueSmartReturnPrompts(promptDate, limit).stream()
+                .map(preference -> {
+                    preference.markPromptSent(promptDate);
+                    UserPreference saved = preferences.save(preference);
+                    return new SmartReturnPromptCandidate(requireProfileById(saved.userProfileId()).authUserId());
+                })
+                .toList();
+    }
+
+    public List<SmartReturnCheckCandidate> claimDueSmartReturnChecks(Instant now, int limit) {
+        if (limit < 1 || limit > 500) {
+            throw new IllegalArgumentException("limit must be between 1 and 500");
+        }
+        return preferences.claimDueSmartReturnChecks(now, limit).stream()
+                .map(preference -> {
+                    boolean claimRetried =
+                            preference.smartReturnTodayStatus() == SmartReturnTodayStatus.RETURN_CHECK_IN_PROGRESS;
+                    preference.claimReturnCheck(now, now.plusSeconds(SMART_RETURN_CLAIM_TTL_SECONDS));
+                    UserPreference saved = preferences.save(preference);
+                    UserProfile profile = requireProfileById(saved.userProfileId());
+                    return new SmartReturnCheckCandidate(profile.authUserId(), saved.homeLatitude(),
+                            saved.homeLongitude(), saved.homeLabel(), saved.preferredRadiusMeters(),
+                            saved.todayExpectedReturnAt(), claimRetried);
+                })
+                .toList();
+    }
+
+    public void markSmartReturnNotificationSent(UUID authUserId, Instant sentAt) {
+        UserPreference preference = requirePreferences(requireProfile(authUserId).id());
+        preference.completeReturnCheck(true, sentAt);
+        preferences.save(preference);
+    }
+
+    public void completeSmartReturnCheck(UUID authUserId, boolean notificationSent, Instant completedAt) {
+        UserPreference preference = requirePreferences(requireProfile(authUserId).id());
+        preference.completeReturnCheck(notificationSent, completedAt);
+        preferences.save(preference);
+    }
+
     /** The vehicle profile is optional; absence is a valid (empty) result. */
     @Transactional(readOnly = true)
     public Optional<UserVehicleProfile> getMyVehicle(UUID authUserId) {
@@ -282,6 +379,11 @@ public class UserApplicationService {
 
     private UserProfile requireProfile(UUID authUserId) {
         return profiles.findByAuthUserId(authUserId)
+                .orElseThrow(() -> new UserException(UserErrorCode.PROFILE_NOT_FOUND));
+    }
+
+    private UserProfile requireProfileById(UUID profileId) {
+        return profiles.findById(profileId)
                 .orElseThrow(() -> new UserException(UserErrorCode.PROFILE_NOT_FOUND));
     }
 

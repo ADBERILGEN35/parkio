@@ -2,8 +2,11 @@ import type { AxiosInstance } from 'axios';
 import type {
   Profile,
   PublicProfile,
+  SmartReturnSettings,
+  SmartReturnTodayRequest,
   UpdatePreferenceRequest,
   UpdateProfileRequest,
+  UpdateSmartReturnSettingsRequest,
   UpsertVehicleRequest,
   UserPreference,
   UserStats,
@@ -26,6 +29,30 @@ export function createUsersApi(client: AxiosInstance) {
 
     updateMyPreferences(body: UpdatePreferenceRequest): Promise<UserPreference> {
       return client.patch<UserPreference>('/users/me/preferences', body).then((r) => r.data);
+    },
+
+    getSmartReturn(): Promise<SmartReturnSettings> {
+      return client.get<SmartReturnSettings>('/users/me/smart-return').then((r) => r.data);
+    },
+
+    updateSmartReturnSettings(body: UpdateSmartReturnSettingsRequest): Promise<SmartReturnSettings> {
+      return client.put<SmartReturnSettings>('/users/me/smart-return/settings', body).then((r) => r.data);
+    },
+
+    smartReturnLeftByCar(body: SmartReturnTodayRequest): Promise<SmartReturnSettings> {
+      return client.post<SmartReturnSettings>('/users/me/smart-return/today/left-by-car', body).then((r) => r.data);
+    },
+
+    smartReturnNotByCar(): Promise<SmartReturnSettings> {
+      return client.post<SmartReturnSettings>('/users/me/smart-return/today/not-by-car').then((r) => r.data);
+    },
+
+    updateSmartReturnTime(body: SmartReturnTodayRequest): Promise<SmartReturnSettings> {
+      return client.put<SmartReturnSettings>('/users/me/smart-return/today/return-time', body).then((r) => r.data);
+    },
+
+    cancelSmartReturnToday(): Promise<SmartReturnSettings> {
+      return client.post<SmartReturnSettings>('/users/me/smart-return/today/cancel').then((r) => r.data);
     },
 
     getMyVehicle(): Promise<VehicleProfile> {

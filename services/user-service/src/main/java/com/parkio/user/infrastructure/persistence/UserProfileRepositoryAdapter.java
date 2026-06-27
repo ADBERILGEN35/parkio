@@ -24,6 +24,11 @@ public class UserProfileRepositoryAdapter implements UserProfileRepository {
     }
 
     @Override
+    public Optional<UserProfile> findById(UUID id) {
+        return jpa.findById(id).map(UserPersistenceMapper::toDomain);
+    }
+
+    @Override
     public Optional<UserProfile> findByAuthUserId(UUID authUserId) {
         return jpa.findByAuthUserId(authUserId).map(UserPersistenceMapper::toDomain);
     }

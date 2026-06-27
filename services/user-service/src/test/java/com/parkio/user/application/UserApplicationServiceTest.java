@@ -4,8 +4,10 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 import com.parkio.user.application.command.CreateProfileCommand;
+import com.parkio.user.application.command.SmartReturnReturnTimeCommand;
 import com.parkio.user.application.command.UpdatePreferencesCommand;
 import com.parkio.user.application.command.UpdateProfileCommand;
+import com.parkio.user.application.command.UpdateSmartReturnSettingsCommand;
 import com.parkio.user.application.command.UpsertVehicleCommand;
 import com.parkio.user.application.event.UserRegisteredEvent;
 import com.parkio.user.application.event.UserRestoredEvent;
@@ -21,6 +23,7 @@ import com.parkio.user.application.port.UserVehicleProfileRepository;
 import com.parkio.user.application.result.AccountStatusView;
 import com.parkio.user.application.result.PublicProfileView;
 import com.parkio.user.domain.PendingUserStatusEvent;
+import com.parkio.user.domain.SmartReturnTodayStatus;
 import com.parkio.user.domain.TrustBand;
 import com.parkio.user.domain.UserPreference;
 import com.parkio.user.domain.UserProfile;
@@ -32,9 +35,12 @@ import com.parkio.user.domain.VehicleType;
 import com.parkio.user.domain.event.UserProfileCreatedEvent;
 import com.parkio.user.domain.exception.UserErrorCode;
 import com.parkio.user.domain.exception.UserException;
+import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
 import java.lang.reflect.RecordComponent;
 import java.time.Clock;
 import java.time.Instant;
+import java.time.LocalDate;
+import java.time.LocalTime;
 import java.time.ZoneOffset;
 import java.util.ArrayList;
 import java.util.HashMap;
@@ -61,6 +67,7 @@ class UserApplicationServiceTest {
     private FakeOutboxEventAppender outbox;
     private FakeInboxEventRepository inbox;
     private FakePendingUserStatusEventRepository pendingStatusEvents;
+    private SimpleMeterRegistry meterRegistry;
     private UserApplicationService service;
 
     @BeforeEach
@@ -73,9 +80,10 @@ class UserApplicationServiceTest {
         outbox = new FakeOutboxEventAppender();
         inbox = new FakeInboxEventRepository();
         pendingStatusEvents = new FakePendingUserStatusEventRepository();
+        meterRegistry = new SimpleMeterRegistry();
         Clock clock = Clock.fixed(NOW, ZoneOffset.UTC);
         service = new UserApplicationService(profiles, preferences, vehicles, trustProfiles,
-                trustHistory, outbox, inbox, pendingStatusEvents, clock);
+                trustHistory, outbox, inbox, pendingStatusEvents, clock, new SmartReturnMetrics(meterRegistry));
     }
 
     private CreateProfileCommand command(UUID authUserId) {
@@ -340,6 +348,175 @@ class UserApplicationServiceTest {
     }
 
     @Test
+    void smartReturnSettingsRequireHomeBeforeEnable() {
+        UUID authUserId = UUID.randomUUID();
+        service.createProfile(command(authUserId));
+
+        assertThatThrownBy(() -> service.updateMySmartReturnSettings(authUserId,
+                new UpdateSmartReturnSettingsCommand(true, null, null, null, LocalTime.of(18, 30), 15)))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessageContaining("Home location");
+    }
+
+    @Test
+    void smartReturnTodayFlowStoresOnlyCurrentPlanState() {
+        UUID authUserId = UUID.randomUUID();
+        service.createProfile(command(authUserId));
+        service.updateMySmartReturnSettings(authUserId,
+                new UpdateSmartReturnSettingsCommand(true, 38.4237, 27.1428,
+                        "Konak", LocalTime.of(18, 30), 15));
+
+        UserPreference leftByCar = service.markSmartReturnLeftByCar(authUserId,
+                new SmartReturnReturnTimeCommand(NOW.plusSeconds(3600)));
+
+        assertThat(leftByCar.smartReturnTodayStatus()).isEqualTo(com.parkio.user.domain.SmartReturnTodayStatus.LEFT_BY_CAR);
+        assertThat(leftByCar.todayExpectedReturnAt()).isEqualTo(NOW.plusSeconds(3600));
+
+        UserPreference cancelled = service.cancelSmartReturnToday(authUserId);
+        assertThat(cancelled.smartReturnTodayStatus()).isEqualTo(com.parkio.user.domain.SmartReturnTodayStatus.CANCELLED);
+        assertThat(cancelled.todayExpectedReturnAt()).isNull();
+        assertThat(meterRegistry.counter("parkio.smart_return.morning_prompt_answers_total",
+                "answer", "left_by_car").count()).isEqualTo(1.0);
+        assertThat(meterRegistry.counter("parkio.smart_return.morning_prompt_answers_total",
+                "answer", "cancelled").count()).isEqualTo(1.0);
+    }
+
+    @Test
+    void smartReturnPromptClaimMarksPromptDateAndPreventsDuplicatePrompt() {
+        UUID authUserId = UUID.randomUUID();
+        service.createProfile(command(authUserId));
+        service.updateMySmartReturnSettings(authUserId,
+                new UpdateSmartReturnSettingsCommand(true, 38.4237, 27.1428,
+                        "Konak", LocalTime.of(18, 30), 15));
+        LocalDate promptDate = LocalDate.of(2026, 6, 6);
+
+        assertThat(service.claimDueSmartReturnPrompts(promptDate, 10))
+                .singleElement()
+                .satisfies(c -> assertThat(c.userId()).isEqualTo(authUserId));
+        assertThat(service.claimDueSmartReturnPrompts(promptDate, 10)).isEmpty();
+    }
+
+    @Test
+    void smartReturnReturnCheckClaimMarksInProgressWithoutCompleting() {
+        UUID authUserId = UUID.randomUUID();
+        service.createProfile(command(authUserId));
+        service.updateMySmartReturnSettings(authUserId,
+                new UpdateSmartReturnSettingsCommand(true, 38.4237, 27.1428,
+                        "Konak", LocalTime.of(18, 30), 15));
+        service.markSmartReturnLeftByCar(authUserId, new SmartReturnReturnTimeCommand(NOW.plusSeconds(60)));
+
+        assertThat(service.claimDueSmartReturnChecks(NOW, 10))
+                .singleElement()
+                .satisfies(c -> {
+                    assertThat(c.userId()).isEqualTo(authUserId);
+                    assertThat(c.homeLatitude()).isEqualTo(38.4237);
+                    assertThat(c.homeLongitude()).isEqualTo(27.1428);
+                    assertThat(c.claimRetried()).isFalse();
+                });
+        assertThat(service.claimDueSmartReturnChecks(NOW, 10)).isEmpty();
+        UserPreference claimed = service.getMySmartReturn(authUserId);
+        assertThat(claimed.smartReturnTodayStatus()).isEqualTo(SmartReturnTodayStatus.RETURN_CHECK_IN_PROGRESS);
+        assertThat(claimed.todayReturnCheckClaimedAt()).isEqualTo(NOW);
+        assertThat(claimed.todayReturnCheckClaimExpiresAt()).isEqualTo(NOW.plusSeconds(300));
+        assertThat(claimed.todayReturnCheckCompletedAt()).isNull();
+    }
+
+    @Test
+    void smartReturnExpiredClaimRetriesAfterCrashBeforeParkingSearch() {
+        UUID authUserId = UUID.randomUUID();
+        service.createProfile(command(authUserId));
+        service.updateMySmartReturnSettings(authUserId,
+                new UpdateSmartReturnSettingsCommand(true, 38.4237, 27.1428,
+                        "Konak", LocalTime.of(18, 30), 15));
+        service.markSmartReturnLeftByCar(authUserId, new SmartReturnReturnTimeCommand(NOW.plusSeconds(60)));
+
+        assertThat(service.claimDueSmartReturnChecks(NOW, 10)).hasSize(1);
+        assertThat(service.claimDueSmartReturnChecks(NOW.plusSeconds(299), 10)).isEmpty();
+        assertThat(service.claimDueSmartReturnChecks(NOW.plusSeconds(301), 10))
+                .singleElement()
+                .satisfies(c -> assertThat(c.claimRetried()).isTrue());
+    }
+
+    @Test
+    void smartReturnDuplicateSchedulerExecutionDoesNotDoubleClaimBeforeExpiry() {
+        UUID authUserId = UUID.randomUUID();
+        service.createProfile(command(authUserId));
+        service.updateMySmartReturnSettings(authUserId,
+                new UpdateSmartReturnSettingsCommand(true, 38.4237, 27.1428,
+                        "Konak", LocalTime.of(18, 30), 15));
+        service.markSmartReturnLeftByCar(authUserId, new SmartReturnReturnTimeCommand(NOW.plusSeconds(60)));
+
+        assertThat(service.claimDueSmartReturnChecks(NOW, 10)).hasSize(1);
+        assertThat(service.claimDueSmartReturnChecks(NOW, 10)).isEmpty();
+    }
+
+    @Test
+    void smartReturnNotificationCompletionSendsOnceAndPreventsRetry() {
+        UUID authUserId = UUID.randomUUID();
+        service.createProfile(command(authUserId));
+        service.updateMySmartReturnSettings(authUserId,
+                new UpdateSmartReturnSettingsCommand(true, 38.4237, 27.1428,
+                        "Konak", LocalTime.of(18, 30), 15));
+        service.markSmartReturnLeftByCar(authUserId, new SmartReturnReturnTimeCommand(NOW.plusSeconds(60)));
+
+        service.claimDueSmartReturnChecks(NOW, 10);
+        service.completeSmartReturnCheck(authUserId, true, NOW.plusSeconds(5));
+
+        UserPreference completed = service.getMySmartReturn(authUserId);
+        assertThat(completed.todayNotificationSentAt()).isEqualTo(NOW.plusSeconds(5));
+        assertThat(completed.todayReturnCheckCompletedAt()).isEqualTo(NOW.plusSeconds(5));
+        assertThat(service.claimDueSmartReturnChecks(NOW.plusSeconds(301), 10)).isEmpty();
+    }
+
+    @Test
+    void smartReturnNoSpotsCompletionPreventsRetryWithoutNotificationTimestamp() {
+        UUID authUserId = UUID.randomUUID();
+        service.createProfile(command(authUserId));
+        service.updateMySmartReturnSettings(authUserId,
+                new UpdateSmartReturnSettingsCommand(true, 38.4237, 27.1428,
+                        "Konak", LocalTime.of(18, 30), 15));
+        service.markSmartReturnLeftByCar(authUserId, new SmartReturnReturnTimeCommand(NOW.plusSeconds(60)));
+
+        service.claimDueSmartReturnChecks(NOW, 10);
+        service.completeSmartReturnCheck(authUserId, false, NOW.plusSeconds(5));
+
+        UserPreference completed = service.getMySmartReturn(authUserId);
+        assertThat(completed.todayNotificationSentAt()).isNull();
+        assertThat(completed.todayReturnCheckCompletedAt()).isEqualTo(NOW.plusSeconds(5));
+        assertThat(service.claimDueSmartReturnChecks(NOW.plusSeconds(301), 10)).isEmpty();
+    }
+
+    @Test
+    void smartReturnCancellationPreventsRetryOfInProgressClaim() {
+        UUID authUserId = UUID.randomUUID();
+        service.createProfile(command(authUserId));
+        service.updateMySmartReturnSettings(authUserId,
+                new UpdateSmartReturnSettingsCommand(true, 38.4237, 27.1428,
+                        "Konak", LocalTime.of(18, 30), 15));
+        service.markSmartReturnLeftByCar(authUserId, new SmartReturnReturnTimeCommand(NOW.plusSeconds(60)));
+
+        service.claimDueSmartReturnChecks(NOW, 10);
+        service.cancelSmartReturnToday(authUserId);
+
+        assertThat(service.claimDueSmartReturnChecks(NOW.plusSeconds(301), 10)).isEmpty();
+    }
+
+    @Test
+    void smartReturnDisabledFeaturePreventsScheduling() {
+        UUID authUserId = UUID.randomUUID();
+        service.createProfile(command(authUserId));
+        service.updateMySmartReturnSettings(authUserId,
+                new UpdateSmartReturnSettingsCommand(true, 38.4237, 27.1428,
+                        "Konak", LocalTime.of(18, 30), 15));
+        service.markSmartReturnLeftByCar(authUserId, new SmartReturnReturnTimeCommand(NOW.plusSeconds(60)));
+        service.updateMySmartReturnSettings(authUserId,
+                new UpdateSmartReturnSettingsCommand(false, null, null, null, null, null));
+
+        assertThat(service.claimDueSmartReturnPrompts(LocalDate.of(2026, 6, 6), 10)).isEmpty();
+        assertThat(service.claimDueSmartReturnChecks(NOW, 10)).isEmpty();
+    }
+
+    @Test
     void vehicleProfileIsEmptyUntilSetThenUpserted() {
         UUID authUserId = UUID.randomUUID();
         service.createProfile(command(authUserId));
@@ -427,6 +604,11 @@ class UserApplicationServiceTest {
         }
 
         @Override
+        public Optional<UserProfile> findById(UUID id) {
+            return Optional.ofNullable(byId.get(id));
+        }
+
+        @Override
         public Optional<UserProfile> findByAuthUserId(UUID authUserId) {
             return byId.values().stream().filter(p -> p.authUserId().equals(authUserId)).findFirst();
         }
@@ -449,6 +631,33 @@ class UserApplicationServiceTest {
         @Override
         public Optional<UserPreference> findByUserProfileId(UUID userProfileId) {
             return Optional.ofNullable(byProfile.get(userProfileId));
+        }
+
+        @Override
+        public List<UserPreference> claimDueSmartReturnPrompts(java.time.LocalDate promptDate, int limit) {
+            return byProfile.values().stream()
+                    .filter(p -> p.smartReturnEnabled() && p.notificationsEnabled() && p.hasHomeLocation())
+                    .filter(p -> p.lastSmartReturnPromptDate() == null
+                            || !p.lastSmartReturnPromptDate().equals(promptDate))
+                    .limit(limit)
+                    .toList();
+        }
+
+        @Override
+        public List<UserPreference> claimDueSmartReturnChecks(Instant now, int limit) {
+            return byProfile.values().stream()
+                    .filter(p -> p.smartReturnEnabled() && p.notificationsEnabled() && p.hasHomeLocation())
+                    .filter(p -> p.smartReturnTodayStatus() == SmartReturnTodayStatus.LEFT_BY_CAR
+                            || (p.smartReturnTodayStatus() == SmartReturnTodayStatus.RETURN_CHECK_IN_PROGRESS
+                            && p.todayReturnCheckClaimExpiresAt() != null
+                            && !p.todayReturnCheckClaimExpiresAt().isAfter(now)))
+                    .filter(p -> p.todayExpectedReturnAt() != null)
+                    .filter(p -> p.todayReturnCheckCompletedAt() == null)
+                    .filter(p -> !p.todayExpectedReturnAt()
+                            .minusSeconds((long) p.reminderLeadMinutes() * 60)
+                            .isAfter(now))
+                    .limit(limit)
+                    .toList();
         }
     }
 

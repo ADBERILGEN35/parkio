@@ -1,11 +1,18 @@
 package com.parkio.user.presentation;
 
 import com.parkio.user.application.UserApplicationService;
+import com.parkio.user.presentation.dto.SmartReturnCheckCandidateResponse;
+import com.parkio.user.presentation.dto.SmartReturnPromptCandidateResponse;
 import com.parkio.user.presentation.dto.UserStatusResponse;
+import java.time.Instant;
+import java.time.LocalDate;
+import java.util.List;
 import java.util.UUID;
 import io.swagger.v3.oas.annotations.Hidden;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
+import org.springframework.web.bind.annotation.PostMapping;
+import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
 
@@ -35,5 +42,36 @@ public class InternalUserController {
     @GetMapping("/{authUserId}/status")
     public UserStatusResponse getStatus(@PathVariable("authUserId") UUID authUserId) {
         return UserStatusResponse.from(userService.getAccountStatus(authUserId));
+    }
+
+    @PostMapping("/smart-return/due-prompts")
+    public List<SmartReturnPromptCandidateResponse> claimDueSmartReturnPrompts(
+            @RequestParam("promptDate") LocalDate promptDate,
+            @RequestParam(value = "limit", defaultValue = "100") int limit) {
+        return userService.claimDueSmartReturnPrompts(promptDate, limit).stream()
+                .map(SmartReturnPromptCandidateResponse::from)
+                .toList();
+    }
+
+    @PostMapping("/smart-return/due-return-checks")
+    public List<SmartReturnCheckCandidateResponse> claimDueSmartReturnChecks(
+            @RequestParam("now") Instant now,
+            @RequestParam(value = "limit", defaultValue = "100") int limit) {
+        return userService.claimDueSmartReturnChecks(now, limit).stream()
+                .map(SmartReturnCheckCandidateResponse::from)
+                .toList();
+    }
+
+    @PostMapping("/smart-return/{authUserId}/notification-sent")
+    public void markSmartReturnNotificationSent(@PathVariable("authUserId") UUID authUserId,
+                                                @RequestParam("sentAt") Instant sentAt) {
+        userService.markSmartReturnNotificationSent(authUserId, sentAt);
+    }
+
+    @PostMapping("/smart-return/{authUserId}/return-check-completed")
+    public void completeSmartReturnCheck(@PathVariable("authUserId") UUID authUserId,
+                                         @RequestParam("notificationSent") boolean notificationSent,
+                                         @RequestParam("completedAt") Instant completedAt) {
+        userService.completeSmartReturnCheck(authUserId, notificationSent, completedAt);
     }
 }

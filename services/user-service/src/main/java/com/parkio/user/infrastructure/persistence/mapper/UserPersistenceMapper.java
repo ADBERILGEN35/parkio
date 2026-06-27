@@ -46,12 +46,21 @@ public final class UserPersistenceMapper {
 
     public static UserPreference toDomain(UserPreferenceEntity e) {
         return new UserPreference(e.getId(), e.getUserProfileId(), e.getPreferredRadiusMeters(),
-                e.isNotificationsEnabled(), e.getVersion());
+                e.isNotificationsEnabled(), e.isSmartReturnEnabled(), e.getHomeLatitude(), e.getHomeLongitude(),
+                e.getHomeLabel(), e.getDefaultReturnTime(), e.getReminderLeadMinutes(),
+                e.getLastSmartReturnPromptDate(), e.getSmartReturnTodayStatus(),
+                e.getTodayExpectedReturnAt(), e.getTodayReturnCheckClaimedAt(),
+                e.getTodayReturnCheckClaimExpiresAt(), e.getTodayReturnCheckCompletedAt(),
+                e.getTodayNotificationSentAt(), e.getVersion());
     }
 
     public static UserPreferenceEntity toEntity(UserPreference p) {
         return new UserPreferenceEntity(p.id(), p.userProfileId(), p.preferredRadiusMeters(),
-                p.notificationsEnabled(), p.version());
+                p.notificationsEnabled(), p.smartReturnEnabled(), p.homeLatitude(), p.homeLongitude(),
+                p.homeLabel(), p.defaultReturnTime(), p.reminderLeadMinutes(),
+                p.lastSmartReturnPromptDate(), p.smartReturnTodayStatus(), p.todayExpectedReturnAt(),
+                p.todayReturnCheckClaimedAt(), p.todayReturnCheckClaimExpiresAt(),
+                p.todayReturnCheckCompletedAt(), p.todayNotificationSentAt(), p.version());
     }
 
     public static UserVehicleProfile toDomain(UserVehicleProfileEntity e) {

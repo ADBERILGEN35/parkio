@@ -1,4 +1,4 @@
-import type { Profile, UserPreference, UserStats, VehicleProfile } from '@parkio/types';
+import type { Profile, SmartReturnSettings, UserPreference, UserStats, VehicleProfile } from '@parkio/types';
 import { http, HttpResponse } from 'msw';
 import { screen } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
@@ -31,6 +31,20 @@ const preferences: UserPreference = {
   notificationsEnabled: true,
 };
 
+const smartReturn: SmartReturnSettings = {
+  enabled: false,
+  homeLatitude: null,
+  homeLongitude: null,
+  homeLabel: null,
+  defaultReturnTime: '18:30',
+  reminderLeadMinutes: 15,
+  lastPromptDate: null,
+  todayStatus: 'UNKNOWN',
+  todayExpectedReturnAt: null,
+  todayReturnCheckCompletedAt: null,
+  todayNotificationSentAt: null,
+};
+
 const emptyVehicle: VehicleProfile = { vehicleType: null, plate: null };
 
 function useProfileHandlers(vehicle: VehicleProfile = emptyVehicle) {
@@ -41,6 +55,26 @@ function useProfileHandlers(vehicle: VehicleProfile = emptyVehicle) {
     http.get(`${API_BASE}/users/me/stats`, () => HttpResponse.json(stats)),
     http.get(`${API_BASE}/users/me/preferences`, () => HttpResponse.json(preferences)),
     http.patch(`${API_BASE}/users/me/preferences`, () => HttpResponse.json(preferences)),
+    http.get(`${API_BASE}/users/me/smart-return`, () => HttpResponse.json(smartReturn)),
+    http.put(`${API_BASE}/users/me/smart-return/settings`, async ({ request }) => {
+      const body = (await request.json()) as Partial<SmartReturnSettings>;
+      return HttpResponse.json({ ...smartReturn, ...body });
+    }),
+    http.post(`${API_BASE}/users/me/smart-return/today/left-by-car`, async ({ request }) => {
+      const body = (await request.json()) as { expectedReturnAt: string };
+      return HttpResponse.json({
+        ...smartReturn,
+        enabled: true,
+        todayStatus: 'LEFT_BY_CAR',
+        todayExpectedReturnAt: body.expectedReturnAt,
+      });
+    }),
+    http.post(`${API_BASE}/users/me/smart-return/today/not-by-car`, () =>
+      HttpResponse.json({ ...smartReturn, todayStatus: 'NOT_BY_CAR' }),
+    ),
+    http.post(`${API_BASE}/users/me/smart-return/today/cancel`, () =>
+      HttpResponse.json({ ...smartReturn, todayStatus: 'CANCELLED' }),
+    ),
     http.get(`${API_BASE}/users/me/vehicle`, () => HttpResponse.json(vehicle)),
     http.put(`${API_BASE}/users/me/vehicle`, () => HttpResponse.json(vehicle)),
   );
@@ -97,6 +131,9 @@ describe('ProfilePage', () => {
     expect(
       await screen.findByText(/Streaks, achievements and activity heatmaps aren't available yet/),
     ).toBeInTheDocument();
+
+    await user.click(screen.getByRole('tab', { name: 'Smart Return' }));
+    expect(await screen.findByText('Private by design')).toBeInTheDocument();
   });
 
   it('shows the vehicle empty state when no vehicle is configured', async () => {
@@ -143,6 +180,26 @@ describe('ProfilePage', () => {
     await user.click(await screen.findByRole('button', { name: 'Save preferences' }));
 
     expect(await screen.findByText('Saved.')).toBeInTheDocument();
+  });
+
+  it('saves Smart Return settings with a home area and schedules today', async () => {
+    useProfileHandlers();
+    renderProfile();
+    const user = userEvent.setup();
+
+    await user.click(screen.getByRole('tab', { name: 'Smart Return' }));
+    await user.click(await screen.findByLabelText('Enable Smart Return'));
+    await user.clear(screen.getByLabelText('Home latitude'));
+    await user.type(screen.getByLabelText('Home latitude'), '38.4237');
+    await user.clear(screen.getByLabelText('Home longitude'));
+    await user.type(screen.getByLabelText('Home longitude'), '27.1428');
+    await user.type(screen.getByLabelText('Home label'), 'Konak');
+    await user.click(screen.getByRole('button', { name: 'Save Smart Return' }));
+
+    expect(await screen.findByText(/Saved area: Konak/)).toBeInTheDocument();
+
+    expect(screen.getByRole('button', { name: 'Driving today' })).toBeEnabled();
+    expect(screen.getByRole('button', { name: 'Not by car' })).toBeEnabled();
   });
 
   it('renders a sign out button', async () => {

@@ -237,6 +237,16 @@ public class NotificationApplicationService {
         return preferences.save(preference);
     }
 
+    public Notification createSmartReturnPrompt(UUID userId) {
+        return createInAppNotification(userId, NotificationType.SMART_RETURN_PROMPT,
+                Map.of("message", "Are you driving today?"));
+    }
+
+    public Notification createSmartReturnParkingAvailable(UUID userId, String areaLabel) {
+        return createInAppNotification(userId, NotificationType.SMART_RETURN_AVAILABLE,
+                Map.of("message", "Parking near your saved home area may be available now."));
+    }
+
     // --- Internals ---
 
     private Notification createInAppNotification(UUID userId, NotificationType type, Map<String, String> variables) {
@@ -253,7 +263,15 @@ public class NotificationApplicationService {
 
     private static NotificationTemplate.RenderedContent fallbackContent(NotificationType type) {
         return new NotificationTemplate.RenderedContent("Notification",
-                "You have a new " + type.name().toLowerCase().replace('_', ' ') + " notification.");
+                fallbackBody(type));
+    }
+
+    private static String fallbackBody(NotificationType type) {
+        return switch (type) {
+            case SMART_RETURN_PROMPT -> "Are you driving today?";
+            case SMART_RETURN_AVAILABLE -> "Parking near your saved home area may be available now.";
+            default -> "You have a new " + type.name().toLowerCase().replace('_', ' ') + " notification.";
+        };
     }
 
     private boolean alreadyProcessed(UUID eventId) {
