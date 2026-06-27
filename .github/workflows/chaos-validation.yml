@@ -1,0 +1,133 @@
+name: Chaos validation
+
+on:
+  workflow_dispatch:
+  pull_request:
+    paths:
+      - "docker/**"
+      - "scripts/chaos-compose-validation.sh"
+      - "services/**/Dockerfile"
+      - "services/**/src/main/resources/application*.yml"
+      - ".github/workflows/chaos-validation.yml"
+  schedule:
+    # Weekly recovery drift check, staggered after runtime validation.
+    - cron: "17 6 * * 1"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: chaos-validation-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  COMPOSE_ENV_FILE: docker/.env.runtime-validation
+  COMPOSE_FILES: >-
+    -f docker/docker-compose.yml
+    -f docker/docker-compose.apps.yml
+    -f docker/docker-compose.hosted-beta.yml
+
+jobs:
+  chaos-validation:
+    name: Compose dependency recovery drill
+    runs-on: ubuntu-latest
+    timeout-minutes: 75
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Prepare CI-only hosted-beta env
+        run: |
+          set -euo pipefail
+          cp docker/.env.hosted-beta.example "$COMPOSE_ENV_FILE"
+
+          openssl genpkey -algorithm RSA -pkeyopt rsa_keygen_bits:2048 -out /tmp/parkio-runtime-jwt.pem
+          python3 - <<'PY'
+          from pathlib import Path
+
+          env_path = Path("docker/.env.runtime-validation")
+          values = {}
+          for line in env_path.read_text().splitlines():
+              if not line or line.lstrip().startswith("#") or "=" not in line:
+                  continue
+              key, value = line.split("=", 1)
+              values[key] = value
+
+          pem = Path("/tmp/parkio-runtime-jwt.pem").read_text().strip().replace("\n", "\\n")
+          overrides = {
+              "PARKIO_DOMAIN": "api.chaos-validation.localhost",
+              "PARKIO_WEB_DOMAIN": "app.chaos-validation.localhost",
+              "PARKIO_WEB_UPSTREAM": "gateway-service:8080",
+              "PARKIO_MEDIA_DOMAIN": "media.chaos-validation.localhost",
+              "PARKIO_ACME_EMAIL": "ops@example.invalid",
+              "PARKIO_CORS_ALLOWED_ORIGINS": "https://app.chaos-validation.localhost",
+              "PARKIO_JWT_PRIVATE_KEY_PEM": f'"{pem}"',
+              "PARKIO_GATEWAY_INTERNAL_SECRET": "chaos-validation-gateway-secret",
+              "PARKIO_EMAIL_PROVIDER": "logging",
+              "PARKIO_RESEND_API_KEY": "",
+              "KAFKA_CLUSTER_ID": "MkU3OEVBNTcwNTJENDM2Qk",
+              "MINIO_ROOT_PASSWORD": "chaos-validation-minio-password",
+              "PARKIO_MEDIA_STORAGE_PUBLIC_ENDPOINT": "https://media.chaos-validation.localhost",
+              "PARKIO_ALERT_SLACK_WEBHOOK_URL": "",
+              "GRAFANA_ADMIN_PASSWORD": "chaos-validation-grafana-password",
+          }
+
+          lines = []
+          seen = set()
+          for line in env_path.read_text().splitlines():
+              if not line or line.lstrip().startswith("#") or "=" not in line:
+                  lines.append(line)
+                  continue
+              key, _ = line.split("=", 1)
+              if key in overrides:
+                  lines.append(f"{key}={overrides[key]}")
+                  seen.add(key)
+              else:
+                  lines.append(line)
+          for key, value in overrides.items():
+              if key not in seen and key not in values:
+                  lines.append(f"{key}={value}")
+          env_path.write_text("\n".join(lines) + "\n")
+          PY
+
+      - name: Render compose config
+        run: |
+          set -euo pipefail
+          docker compose --env-file "$COMPOSE_ENV_FILE" $COMPOSE_FILES config > chaos-compose-config.yml
+          docker compose --env-file "$COMPOSE_ENV_FILE" $COMPOSE_FILES config --quiet
+
+      - name: Build and start stack
+        run: docker compose --env-file "$COMPOSE_ENV_FILE" $COMPOSE_FILES up -d --build
+
+      - name: Run chaos validation
+        run: |
+          PARKIO_CHAOS_CONFIRM=local-or-ci \
+            ./scripts/chaos-compose-validation.sh \
+            --env-file "$COMPOSE_ENV_FILE" \
+            --artifact-dir chaos-validation-artifacts
+
+      - name: Collect compose artifacts
+        if: always()
+        run: |
+          set +e
+          mkdir -p chaos-validation-artifacts/logs
+          docker compose --env-file "$COMPOSE_ENV_FILE" $COMPOSE_FILES config > chaos-validation-artifacts/compose-config-final.yml
+          docker compose --env-file "$COMPOSE_ENV_FILE" $COMPOSE_FILES ps > chaos-validation-artifacts/compose-ps-final.txt
+          docker compose --env-file "$COMPOSE_ENV_FILE" $COMPOSE_FILES ps --format json > chaos-validation-artifacts/compose-ps-final.json
+          for svc in $(docker compose --env-file "$COMPOSE_ENV_FILE" $COMPOSE_FILES config --services); do
+            docker compose --env-file "$COMPOSE_ENV_FILE" $COMPOSE_FILES logs --no-color --timestamps "$svc" \
+              > "chaos-validation-artifacts/logs/final-${svc}.log" 2>&1
+          done
+
+      - name: Upload chaos artifacts on failure
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: chaos-validation-artifacts
+          path: chaos-validation-artifacts/**
+          retention-days: 14
+          if-no-files-found: ignore
+
+      - name: Tear down stack
+        if: always()
+        run: docker compose --env-file "$COMPOSE_ENV_FILE" $COMPOSE_FILES down -v --remove-orphans

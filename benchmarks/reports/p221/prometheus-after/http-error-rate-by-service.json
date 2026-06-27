@@ -1,0 +1,1 @@
+{"status":"success","data":{"resultType":"vector","result":[{"metric":{"service":"gateway-service","status":"503"},"value":[1782562220.884,"0"]}]}}

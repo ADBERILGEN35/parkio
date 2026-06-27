@@ -1,0 +1,1 @@
+{"status":"success","data":{"resultType":"vector","result":[{"metric":{"status":"200"},"value":[1782562877.949,"398.1541636412275"]},{"metric":{"status":"400"},"value":[1782562877.949,"0"]},{"metric":{"status":"403"},"value":[1782562877.949,"0"]},{"metric":{"status":"429"},"value":[1782562877.949,"0"]},{"metric":{"status":"503"},"value":[1782562877.949,"0"]}]}}

@@ -8,6 +8,7 @@ import org.springframework.context.annotation.Configuration;
 import org.springframework.core.env.Environment;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.MediaType;
+import org.springframework.http.client.SimpleClientHttpRequestFactory;
 import org.springframework.util.StringUtils;
 import org.springframework.web.client.RestClient;
 
@@ -54,9 +55,14 @@ public class EmailDeliveryConfig {
 
     @Bean
     RestClient resendRestClient(RestClient.Builder builder) {
+        TransactionalEmailProperties.Resend resend = properties.getResend();
+        SimpleClientHttpRequestFactory requestFactory = new SimpleClientHttpRequestFactory();
+        requestFactory.setConnectTimeout(resend.getConnectTimeout());
+        requestFactory.setReadTimeout(resend.getReadTimeout());
         return builder
-                .baseUrl(properties.getResend().getBaseUrl())
-                .defaultHeader(HttpHeaders.AUTHORIZATION, "Bearer " + properties.getResend().getApiKey())
+                .baseUrl(resend.getBaseUrl())
+                .requestFactory(requestFactory)
+                .defaultHeader(HttpHeaders.AUTHORIZATION, "Bearer " + resend.getApiKey())
                 .defaultHeader(HttpHeaders.CONTENT_TYPE, MediaType.APPLICATION_JSON_VALUE)
                 .build();
     }

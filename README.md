@@ -204,6 +204,20 @@ direct-service security responses, checks app resource limits, restarts
 throwaway env generated from `docker/.env.hosted-beta.example`; no real secrets
 are required. See [`docs/operations/runtime-validation.md`](docs/operations/runtime-validation.md).
 
+**[`chaos-validation.yml`](.github/workflows/chaos-validation.yml) — Compose recovery
+drill.** Starts the hosted-beta stack on a Docker-capable GitHub runner, then runs
+[`scripts/chaos-compose-validation.sh`](scripts/chaos-compose-validation.sh) to
+stop/restart Kafka, Redis, representative Postgres, MinIO, gateway,
+notification-service, and analytics-service one at a time. See
+[`docs/operations/reliability-guide.md`](docs/operations/reliability-guide.md).
+
+**[`performance-smoke.yml`](.github/workflows/performance-smoke.yml) — k6 runtime
+performance smoke.** Starts the local Compose stack on a Docker-capable GitHub
+runner, seeds a non-production USER account, runs the k6 HTTP harness at a small
+load, and uploads k6, Prometheus and Compose diagnostics. It is a regression
+guard, not a capacity claim. See
+[`docs/operations/performance-capacity.md`](docs/operations/performance-capacity.md).
+
 **Personal-repo mode (today).** Code Scanning / GitHub Advanced Security is not
 available on this private repository, so CodeQL and Trivy SARIF uploads to the
 Security tab are turned off. The workflow detects this through the repository

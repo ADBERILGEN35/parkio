@@ -705,6 +705,9 @@ OIDC federation to the cloud provider where possible.
 > - `.github/workflows/runtime-validation.yml` — on-demand/weekly CI runtime validation
 >   for the hosted-beta Compose stack on a Docker-capable GitHub Linux runner. See
 >   `docs/operations/runtime-validation.md`.
+> - `.github/workflows/chaos-validation.yml` + `scripts/chaos-compose-validation.sh` —
+>   guarded Docker Compose recovery drill for Kafka, Redis, representative Postgres,
+>   MinIO, gateway and low-risk app restarts. See `docs/operations/reliability-guide.md`.
 > - `scripts/backup-databases.sh` — nightly per-DB `pg_dump` with optional encryption + off-box upload,
 >   retention pruning, plus `restore-database.sh` (guarded single-DB restore) and `verify-backup.sh`
 >   (restore into a disposable temp DB). Plumbing validated; **still TODO: run the live restore drill

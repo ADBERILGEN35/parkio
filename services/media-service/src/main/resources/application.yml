@@ -14,6 +14,9 @@
       value-serializer: org.springframework.kafka.support.serializer.JsonSerializer
       properties:
         enable.idempotence: true
+        delivery.timeout.ms: ${SPRING_KAFKA_PRODUCER_DELIVERY_TIMEOUT_MS:30000}
+        request.timeout.ms: ${SPRING_KAFKA_PRODUCER_REQUEST_TIMEOUT_MS:10000}
+        max.block.ms: ${SPRING_KAFKA_PRODUCER_MAX_BLOCK_MS:5000}
         # Envelope is self-describing; consumers read it as JSON, so no type headers.
         spring.json.add.type.headers: false
     consumer:
@@ -24,6 +27,12 @@
       value-deserializer: org.springframework.kafka.support.serializer.ErrorHandlingDeserializer
       properties:
         spring.deserializer.value.delegate.class: org.springframework.kafka.support.serializer.JsonDeserializer
+        request.timeout.ms: ${SPRING_KAFKA_CONSUMER_REQUEST_TIMEOUT_MS:10000}
+        default.api.timeout.ms: ${SPRING_KAFKA_CONSUMER_DEFAULT_API_TIMEOUT_MS:10000}
+        max.poll.records: ${SPRING_KAFKA_CONSUMER_MAX_POLL_RECORDS:100}
+        max.poll.interval.ms: ${SPRING_KAFKA_CONSUMER_MAX_POLL_INTERVAL_MS:300000}
+        session.timeout.ms: ${SPRING_KAFKA_CONSUMER_SESSION_TIMEOUT_MS:10000}
+        heartbeat.interval.ms: ${SPRING_KAFKA_CONSUMER_HEARTBEAT_INTERVAL_MS:3000}
         spring.json.trusted.packages: "com.parkio.*"
         spring.json.use.type.headers: false
     listener:
@@ -41,6 +50,13 @@
     url: ${SPRING_DATASOURCE_URL:jdbc:postgresql://localhost:5432/parkio_media}
     username: ${SPRING_DATASOURCE_USERNAME:parkio_media}
     password: ${SPRING_DATASOURCE_PASSWORD:media_local_dev_pw}
+    hikari:
+      maximum-pool-size: ${SPRING_DATASOURCE_HIKARI_MAXIMUM_POOL_SIZE:8}
+      minimum-idle: ${SPRING_DATASOURCE_HIKARI_MINIMUM_IDLE:2}
+      connection-timeout: ${SPRING_DATASOURCE_HIKARI_CONNECTION_TIMEOUT:2000}
+      validation-timeout: ${SPRING_DATASOURCE_HIKARI_VALIDATION_TIMEOUT:1000}
+      idle-timeout: ${SPRING_DATASOURCE_HIKARI_IDLE_TIMEOUT:600000}
+      max-lifetime: ${SPRING_DATASOURCE_HIKARI_MAX_LIFETIME:1800000}
   jpa:
     open-in-view: false
     hibernate:
@@ -167,6 +183,10 @@ parkio:
       access-key: ${PARKIO_MEDIA_STORAGE_ACCESS_KEY:minioadmin}
       secret-key: ${PARKIO_MEDIA_STORAGE_SECRET_KEY:minioadmin}
       region: ${PARKIO_MEDIA_STORAGE_REGION:us-east-1}
+      connect-timeout: ${PARKIO_MEDIA_STORAGE_CONNECT_TIMEOUT:2s}
+      read-timeout: ${PARKIO_MEDIA_STORAGE_READ_TIMEOUT:10s}
+      write-timeout: ${PARKIO_MEDIA_STORAGE_WRITE_TIMEOUT:10s}
+      call-timeout: ${PARKIO_MEDIA_STORAGE_CALL_TIMEOUT:15s}
   kafka:
     # Topic provisioning via NewTopic beans (KafkaTopicsConfig). Replication factor is
     # configurable for production; 1 is the local/dev default (single-broker compose).

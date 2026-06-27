@@ -1,0 +1,327 @@
+{
+    "root_group": {
+        "name": "",
+        "path": "",
+        "id": "d41d8cd98f00b204e9800998ecf8427e",
+        "groups": {
+            "setup": {
+                "id": "5c0f8025f7e0b6654089e5b00e950f1a",
+                "groups": {},
+                "checks": {
+                        "login status 200": {
+                            "path": "::setup::login status 200",
+                            "id": "17a4a3f3d5dbad586fefc48e40f4a9ab",
+                            "passes": 1,
+                            "fails": 0,
+                            "name": "login status 200"
+                        },
+                        "login returns access token": {
+                            "name": "login returns access token",
+                            "path": "::setup::login returns access token",
+                            "id": "a8d617b206e48dce0a3283066f41d213",
+                            "passes": 1,
+                            "fails": 0
+                        }
+                    },
+                "name": "setup",
+                "path": "::setup"
+            },
+            "profile": {
+                "name": "profile",
+                "path": "::profile",
+                "id": "3910467d3a5a4c38ae1745ce5750ae19",
+                "groups": {},
+                "checks": {
+                        "status is 200": {
+                            "name": "status is 200",
+                            "path": "::profile::status is 200",
+                            "id": "14d54373db7f210bb88e822e6f44d642",
+                            "passes": 11917,
+                            "fails": 1207307
+                        },
+                        "status is 200 or 404": {
+                            "fails": 303334,
+                            "name": "status is 200 or 404",
+                            "path": "::profile::status is 200 or 404",
+                            "id": "6e1cc0d98f3cf39397f69f6d4a6c64e1",
+                            "passes": 1472
+                        }
+                    }
+            },
+            "discovery": {
+                "name": "discovery",
+                "path": "::discovery",
+                "id": "e88b3e719552f7bba694081214717f7a",
+                "groups": {},
+                "checks": {
+                        "status is 200": {
+                            "path": "::discovery::status is 200",
+                            "id": "dce4742ac358d77257c2354ad30a1802",
+                            "passes": 2257,
+                            "fails": 304052,
+                            "name": "status is 200"
+                        }
+                    }
+            },
+            "moderation and analytics reads": {
+                "path": "::moderation and analytics reads",
+                "id": "b19070eb2b288382287ced6316de0ca3",
+                "groups": {},
+                "checks": {
+                        "status is 200": {
+                            "name": "status is 200",
+                            "path": "::moderation and analytics reads::status is 200",
+                            "id": "cd45bd89398944b7c8b4261c7efcaa26",
+                            "passes": 3006,
+                            "fails": 0
+                        }
+                    },
+                "name": "moderation and analytics reads"
+            }
+        },
+        "checks": {
+            "login status 200": {
+                "name": "login status 200",
+                "path": "::login status 200",
+                "id": "a9f04e9f501317c68a9f824e04811bea",
+                "passes": 241,
+                "fails": 720
+            },
+            "login returns access token": {
+                "passes": 241,
+                "fails": 720,
+                "name": "login returns access token",
+                "path": "::login returns access token",
+                "id": "6293b1160fa705bac3d194d14543619f"
+            },
+            "status is 200": {
+                "name": "status is 200",
+                "path": "::status is 200",
+                "id": "6210a8cd14cd70477eba5c5e4cb3fb5f",
+                "passes": 0,
+                "fails": 241
+            }
+        }
+    },
+    "metrics": {
+        "checks": {
+            "passes": 19136,
+            "fails": 1816374,
+            "value": 0.010425440340831704
+        },
+        "iterations": {
+            "count": 305767,
+            "rate": 2038.2734247311878
+        },
+        "http_req_receiving": {
+            "p(90)": 0.03751,
+            "p(95)": 0.044927,
+            "p(99)": 0.0997254799999995,
+            "max": 30.409589,
+            "min": 0.003263,
+            "avg": 0.025472417136794618,
+            "med": 0.019828
+        },
+        "parkio_nearby_latency": {
+            "p(90)": 11.2948675,
+            "p(95)": 13.30236775,
+            "p(99)": 18.100944100000028,
+            "max": 51.196429,
+            "min": 0.013275,
+            "avg": 6.1686715194846515,
+            "med": 5.598693,
+            "thresholds": {
+                "p(95)<1500": false
+            }
+        },
+        "data_received": {
+            "count": 593426964,
+            "rate": 3955843.53524125
+        },
+        "http_req_failed": {
+            "passes": 1815895,
+            "fails": 18894,
+            "thresholds": {
+                "rate<0.05": true
+            },
+            "value": 0.9897023581458141
+        },
+        "parkio_login_latency": {
+            "min": 0.649646,
+            "avg": 23.655044596673584,
+            "med": 8.986041,
+            "p(90)": 74.017027,
+            "p(95)": 78.98503989999999,
+            "p(99)": 90.31867068,
+            "max": 98.083896,
+            "thresholds": {
+                "p(95)<2000": false
+            }
+        },
+        "http_req_connecting": {
+            "p(99)": 0,
+            "max": 3.396341,
+            "min": 0,
+            "avg": 0.00000937282597617492,
+            "med": 0,
+            "p(90)": 0,
+            "p(95)": 0
+        },
+        "vus_max": {
+            "value": 104,
+            "min": 104,
+            "max": 104
+        },
+        "parkio_profile_latency": {
+            "max": 61.462447,
+            "min": 0.010623,
+            "avg": 6.30647645797167,
+            "med": 5.722433499999999,
+            "p(90)": 11.570345500000006,
+            "p(95)": 13.637650300000004,
+            "p(99)": 18.260532509999994,
+            "thresholds": {
+                "p(95)<1000": false
+            }
+        },
+        "http_req_tls_handshaking": {
+            "min": 0,
+            "avg": 0,
+            "med": 0,
+            "p(90)": 0,
+            "p(95)": 0,
+            "p(99)": 0,
+            "max": 0
+        },
+        "parkio_business_error_rate": {
+            "passes": 1815654,
+            "fails": 18894,
+            "thresholds": {
+                "rate<0.05": true
+            },
+            "value": 0.9897010053702602
+        },
+        "iteration_duration": {
+            "p(95)": 64.03534870000001,
+            "p(99)": 80.10539826000026,
+            "max": 1179.880975,
+            "min": 0.769093,
+            "avg": 43.28401689063465,
+            "med": 37.925226,
+            "p(90)": 58.073462400000004
+        },
+        "parkio_refresh_latency": {
+            "p(99)": 34.46254279999999,
+            "max": 40.412616,
+            "min": 1.354046,
+            "avg": 13.997630630705391,
+            "med": 13.999203,
+            "p(90)": 21.919394,
+            "p(95)": 24.507972,
+            "thresholds": {
+                "p(95)<1000": false
+            }
+        },
+        "http_req_waiting": {
+            "min": 0,
+            "avg": 6.279183984730038,
+            "med": 5.679436,
+            "p(90)": 11.5305032,
+            "p(95)": 13.620354799999982,
+            "p(99)": 18.414505679999987,
+            "max": 96.378104
+        },
+        "data_sent": {
+            "count": 1501696802,
+            "rate": 10010461.179657754
+        },
+        "group_duration": {
+            "p(90)": 43.085997,
+            "p(95)": 48.942644299999984,
+            "p(99)": 59.873706399999996,
+            "max": 133.115195,
+            "min": 0.499584,
+            "avg": 19.13320659436767,
+            "med": 12.533508
+        },
+        "parkio_moderation_latency": {
+            "min": 1.594272,
+            "avg": 15.865411477045923,
+            "med": 15.338386,
+            "p(90)": 25.842857799999997,
+            "p(95)": 30.231445599999983,
+            "p(99)": 38.68445228000001,
+            "max": 48.961361
+        },
+        "http_req_duration{expected_response:true}": {
+            "p(95)": 27.771751099999953,
+            "p(99)": 64.04430786999995,
+            "max": 98.083896,
+            "min": 1.298218,
+            "avg": 14.186468503122677,
+            "med": 12.874750500000001,
+            "p(90)": 23.848874900000006
+        },
+        "http_req_sending": {
+            "min": 0.001295,
+            "avg": 0.008033193504539007,
+            "med": 0.006863,
+            "p(90)": 0.008822,
+            "p(95)": 0.00981,
+            "p(99)": 0.033192,
+            "max": 8.337736
+        },
+        "parkio_geocoding_latency": {
+            "max": 42.503642,
+            "min": 0.67405,
+            "avg": 9.592431190951423,
+            "med": 8.360474,
+            "p(90)": 18.4018268,
+            "p(95)": 21.83476249999999,
+            "p(99)": 29.5309444,
+            "thresholds": {
+                "p(95)<2500": false
+            }
+        },
+        "http_req_blocked": {
+            "p(99)": 0.004623,
+            "max": 3.560387,
+            "min": 0.000354,
+            "avg": 0.0025014150646207388,
+            "med": 0.002329,
+            "p(90)": 0.003073,
+            "p(95)": 0.00333
+        },
+        "vus": {
+            "value": 7,
+            "min": 5,
+            "max": 100
+        },
+        "http_reqs": {
+            "count": 1834789,
+            "rate": 12230.887109103047
+        },
+        "http_req_duration": {
+            "max": 98.083896,
+            "min": 0.010623,
+            "avg": 6.312689595372167,
+            "med": 5.710751,
+            "p(90)": 11.5666268,
+            "p(95)": 13.659758799999999,
+            "p(99)": 18.478111919999957
+        },
+        "parkio_analytics_latency": {
+            "min": 1.660657,
+            "avg": 16.0265674264804,
+            "med": 15.574102,
+            "p(90)": 26.5324636,
+            "p(95)": 30.0254431,
+            "p(99)": 37.19765414,
+            "max": 55.416454
+        }
+    },
+    "setup_data": {
+        "accessToken": "eyJraWQiOiJwYXJraW8tYXV0aC1yczI1Ni0xIiwiYWxnIjoiUlMyNTYifQ.eyJpc3MiOiJwYXJraW8tYXV0aCIsImF1ZCI6WyJwYXJraW8tYXBpIl0sInN1YiI6ImYzMmIyOGEwLTk2ZTctNDcxMC1iYWMyLTYwZGMzN2M0N2JlNCIsImVtYWlsIjoidXNlckByZWFsLWUyZS5wYXJraW8ubG9jYWwiLCJyb2xlcyI6WyJVU0VSIl0sInN0YXR1cyI6IkFDVElWRSIsInNlc3Npb25fZXBvY2giOjQsImlhdCI6MTc4MjU2MjA3MCwiZXhwIjoxNzgyNTYyOTcwfQ.FRSOXoD13qI3d7fyCu0WgimzJH1BafWWl2stp4cy1PArwpRsyFHQPqc2CD3g4BQLGKQF0Dkg1ooYRuWybON_ZHy5CcJ0daNhTzlogLKFisyLx_NLHkPNy-UqVSR0L6FDLNlZmvA9y2Jsq3bzUvVAHgQzEFOuHP6lWDcgK0YCPcRXYpZzIVQKvEoaeDKP1K5Ew0jUhnPPTAULL9bIYNixRzDvB-c2SWzLvPYVd0TRMeS6jqTh3tUV-AiY9iLmU01cyOUbCxtxy-DT5JvPGVv1Bo9Kq3kPigVl25FJ5pk7g4ydmhNUfDSYVj1QaT0IpoOD5rCcmG3d_3K4y0Yo_mdfUQ",
+        "userId": "f32b28a0-96e7-4710-bac2-60dc37c47be4"
+    }
+}

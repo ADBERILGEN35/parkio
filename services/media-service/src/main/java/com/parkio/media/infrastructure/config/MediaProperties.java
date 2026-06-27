@@ -160,6 +160,14 @@ public class MediaProperties {
         private String accessKey;
         private String secretKey;
         private String region;
+        /** TCP connect timeout for MinIO/S3-compatible SDK calls. */
+        private Duration connectTimeout = Duration.ofSeconds(2);
+        /** Read timeout for MinIO/S3-compatible SDK responses. */
+        private Duration readTimeout = Duration.ofSeconds(10);
+        /** Write timeout for MinIO/S3-compatible SDK uploads/deletes. */
+        private Duration writeTimeout = Duration.ofSeconds(10);
+        /** End-to-end per-call timeout for MinIO/S3-compatible SDK operations. */
+        private Duration callTimeout = Duration.ofSeconds(15);
 
         public String getBucket() {
             return bucket;
@@ -207,6 +215,38 @@ public class MediaProperties {
 
         public void setRegion(String region) {
             this.region = region;
+        }
+
+        public Duration getConnectTimeout() {
+            return connectTimeout;
+        }
+
+        public void setConnectTimeout(Duration connectTimeout) {
+            this.connectTimeout = connectTimeout;
+        }
+
+        public Duration getReadTimeout() {
+            return readTimeout;
+        }
+
+        public void setReadTimeout(Duration readTimeout) {
+            this.readTimeout = readTimeout;
+        }
+
+        public Duration getWriteTimeout() {
+            return writeTimeout;
+        }
+
+        public void setWriteTimeout(Duration writeTimeout) {
+            this.writeTimeout = writeTimeout;
+        }
+
+        public Duration getCallTimeout() {
+            return callTimeout;
+        }
+
+        public void setCallTimeout(Duration callTimeout) {
+            this.callTimeout = callTimeout;
         }
     }
 }

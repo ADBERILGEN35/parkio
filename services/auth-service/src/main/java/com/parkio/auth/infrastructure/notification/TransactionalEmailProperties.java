@@ -1,5 +1,6 @@
 package com.parkio.auth.infrastructure.notification;
 
+import java.time.Duration;
 import org.springframework.boot.context.properties.ConfigurationProperties;
 
 /** Transactional email provider settings for verification and account recovery. */
@@ -52,6 +53,8 @@ public class TransactionalEmailProperties {
 
         private String apiKey;
         private String baseUrl = "https://api.resend.com";
+        private Duration connectTimeout = Duration.ofSeconds(2);
+        private Duration readTimeout = Duration.ofSeconds(5);
 
         public String getApiKey() {
             return apiKey;
@@ -67,6 +70,22 @@ public class TransactionalEmailProperties {
 
         public void setBaseUrl(String baseUrl) {
             this.baseUrl = baseUrl;
+        }
+
+        public Duration getConnectTimeout() {
+            return connectTimeout;
+        }
+
+        public void setConnectTimeout(Duration connectTimeout) {
+            this.connectTimeout = connectTimeout;
+        }
+
+        public Duration getReadTimeout() {
+            return readTimeout;
+        }
+
+        public void setReadTimeout(Duration readTimeout) {
+            this.readTimeout = readTimeout;
         }
     }
 }

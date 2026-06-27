@@ -1,0 +1,189 @@
+name: Performance smoke
+
+on:
+  workflow_dispatch:
+  pull_request:
+    paths:
+      - "benchmarks/**"
+      - "docker/**"
+      - "services/**/Dockerfile"
+      - "services/**/src/main/resources/application*.yml"
+      - ".github/workflows/performance-smoke.yml"
+  schedule:
+    - cron: "17 6 * * 2"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: performance-smoke-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  COMPOSE_ENV_FILE: docker/.env.performance-smoke
+  COMPOSE_FILES: >-
+    -f docker/docker-compose.yml
+    -f docker/docker-compose.apps.yml
+
+jobs:
+  performance-smoke:
+    name: k6 smoke against Docker Compose
+    runs-on: ubuntu-latest
+    timeout-minutes: 75
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Prepare CI-only env
+        run: |
+          set -euo pipefail
+          cp docker/.env.hosted-beta.example "$COMPOSE_ENV_FILE"
+
+          openssl genpkey -algorithm RSA -pkeyopt rsa_keygen_bits:2048 -out /tmp/parkio-performance-jwt.pem
+          python3 - <<'PY'
+          from pathlib import Path
+
+          env_path = Path("docker/.env.performance-smoke")
+          pem = Path("/tmp/parkio-performance-jwt.pem").read_text().strip().replace("\n", "\\n")
+          overrides = {
+              "PARKIO_DOMAIN": "api.performance-smoke.localhost",
+              "PARKIO_WEB_DOMAIN": "app.performance-smoke.localhost",
+              "PARKIO_WEB_UPSTREAM": "gateway-service:8080",
+              "PARKIO_MEDIA_DOMAIN": "media.performance-smoke.localhost",
+              "PARKIO_ACME_EMAIL": "ops@example.invalid",
+              "PARKIO_CORS_ALLOWED_ORIGINS": "http://localhost:5173",
+              "PARKIO_JWT_PRIVATE_KEY_PEM": f'"{pem}"',
+              "PARKIO_GATEWAY_INTERNAL_SECRET": "performance-smoke-gateway-secret",
+              "PARKIO_EMAIL_PROVIDER": "logging",
+              "PARKIO_RESEND_API_KEY": "",
+              "KAFKA_CLUSTER_ID": "MkU3OEVBNTcwNTJENDM2Qk",
+              "MINIO_ROOT_PASSWORD": "performance-smoke-minio-password",
+              "PARKIO_MEDIA_STORAGE_PUBLIC_ENDPOINT": "http://localhost:9000",
+              "PARKIO_ALERT_SLACK_WEBHOOK_URL": "",
+              "GRAFANA_ADMIN_PASSWORD": "performance-smoke-grafana-password",
+          }
+
+          lines = []
+          seen = set()
+          for line in env_path.read_text().splitlines():
+              if not line or line.lstrip().startswith("#") or "=" not in line:
+                  lines.append(line)
+                  continue
+              key, _ = line.split("=", 1)
+              if key in overrides:
+                  lines.append(f"{key}={overrides[key]}")
+                  seen.add(key)
+              else:
+                  lines.append(line)
+          for key, value in overrides.items():
+              if key not in seen:
+                  lines.append(f"{key}={value}")
+          env_path.write_text("\n".join(lines) + "\n")
+          PY
+
+      - name: Render compose config
+        run: |
+          set -euo pipefail
+          mkdir -p benchmarks/reports
+          docker compose --env-file "$COMPOSE_ENV_FILE" $COMPOSE_FILES config > benchmarks/reports/performance-compose-config.yml
+          docker compose --env-file "$COMPOSE_ENV_FILE" $COMPOSE_FILES config --quiet
+
+      - name: Build and start stack
+        run: docker compose --env-file "$COMPOSE_ENV_FILE" $COMPOSE_FILES up -d --build
+
+      - name: Wait for healthchecks
+        run: |
+          set -euo pipefail
+          required=(
+            kafka redis minio clamav
+            postgres-auth postgres-user postgres-parking postgres-media postgres-gamification
+            postgres-notification postgres-moderation postgres-analytics postgres-ai-validation
+            gateway-service auth-service user-service parking-service media-service
+            gamification-service notification-service moderation-service ai-validation-service analytics-service
+            prometheus grafana loki promtail alertmanager
+          )
+
+          deadline=$((SECONDS + 900))
+          while true; do
+            : > benchmarks/reports/performance-health.tsv
+            failed=0
+            for svc in "${required[@]}"; do
+              cid="$(docker compose --env-file "$COMPOSE_ENV_FILE" $COMPOSE_FILES ps -q "$svc")"
+              if [ -z "$cid" ]; then
+                printf '%s\tmissing\n' "$svc" | tee -a benchmarks/reports/performance-health.tsv
+                failed=1
+                continue
+              fi
+              status="$(docker inspect -f '{{if .State.Health}}{{.State.Health.Status}}{{else}}{{.State.Status}}{{end}}' "$cid")"
+              printf '%s\t%s\n' "$svc" "$status" | tee -a benchmarks/reports/performance-health.tsv
+              if [ "$status" != "healthy" ]; then
+                failed=1
+              fi
+            done
+            if [ "$failed" -eq 0 ]; then
+              break
+            fi
+            if [ "$SECONDS" -ge "$deadline" ]; then
+              docker compose --env-file "$COMPOSE_ENV_FILE" $COMPOSE_FILES ps > benchmarks/reports/performance-compose-ps.txt || true
+              exit 1
+            fi
+            sleep 15
+          done
+
+      - name: Seed performance user
+        env:
+          PARKIO_ENV_FILE: docker/.env.performance-smoke
+          PARKIO_REAL_USER_EMAIL: user@performance-smoke.parkio.local
+          PARKIO_REAL_USER_PASSWORD: StrongParkio123
+        run: ./scripts/seed-real-e2e.sh --target local
+
+      - name: Run k6 smoke
+        env:
+          PARKIO_BASE_URL: http://127.0.0.1:8080
+          PARKIO_K6_EMAIL: user@performance-smoke.parkio.local
+          PARKIO_K6_PASSWORD: StrongParkio123
+          PARKIO_K6_VUS: "3"
+          PARKIO_K6_DURATION: "45s"
+          PARKIO_K6_AUTH_RATE: "1"
+        run: |
+          set -euo pipefail
+          docker run --rm --network host \
+            -v "$PWD/benchmarks:/benchmarks" \
+            -e PARKIO_BASE_URL \
+            -e PARKIO_K6_EMAIL \
+            -e PARKIO_K6_PASSWORD \
+            -e PARKIO_K6_VUS \
+            -e PARKIO_K6_DURATION \
+            -e PARKIO_K6_AUTH_RATE \
+            grafana/k6:0.53.0 run \
+              --summary-export /benchmarks/reports/http-load-summary.json \
+              /benchmarks/k6/http-load.js
+
+      - name: Collect Prometheus baseline
+        if: always()
+        env:
+          PROMETHEUS_URL: http://127.0.0.1:9090
+        run: bash benchmarks/scripts/collect-prometheus-baseline.sh benchmarks/reports/prometheus-baseline || true
+
+      - name: Capture diagnostics
+        if: always()
+        run: |
+          set +e
+          docker compose --env-file "$COMPOSE_ENV_FILE" $COMPOSE_FILES ps > benchmarks/reports/performance-compose-ps.txt
+          mkdir -p benchmarks/reports/container-logs
+          for cid in $(docker compose --env-file "$COMPOSE_ENV_FILE" $COMPOSE_FILES ps -q); do
+            name="$(docker inspect -f '{{.Name}}' "$cid" | sed 's#^/##')"
+            docker logs "$cid" > "benchmarks/reports/container-logs/${name}.log" 2>&1
+          done
+
+      - name: Upload performance artifacts
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: performance-smoke-artifacts
+          path: benchmarks/reports
+          if-no-files-found: ignore
+
+      - name: Tear down stack
+        if: always()
+        run: docker compose --env-file "$COMPOSE_ENV_FILE" $COMPOSE_FILES down -v

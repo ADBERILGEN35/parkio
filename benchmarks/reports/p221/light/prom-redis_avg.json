@@ -1,0 +1,1 @@
+{"status":"success","data":{"resultType":"vector","result":[{"metric":{"service":"gateway-service"},"value":[1782561797.491,"0.00019096451224511813"]},{"metric":{"service":"auth-service"},"value":[1782561797.491,"0.00020104389047619043"]},{"metric":{"service":"parking-service"},"value":[1782561797.491,"0.0001981324019047619"]}]}}

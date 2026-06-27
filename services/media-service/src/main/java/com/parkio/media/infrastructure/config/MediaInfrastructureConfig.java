@@ -8,6 +8,7 @@ import com.parkio.media.infrastructure.scanner.NoOpMediaScanner;
 import io.minio.MinioClient;
 import java.time.Clock;
 import java.util.Set;
+import okhttp3.OkHttpClient;
 import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.boot.context.properties.EnableConfigurationProperties;
 import org.springframework.context.annotation.Bean;
@@ -62,11 +63,21 @@ public class MediaInfrastructureConfig {
     private static MinioClient buildMinioClient(String endpoint, MediaProperties.Storage storage) {
         MinioClient.Builder builder = MinioClient.builder()
                 .endpoint(endpoint)
-                .credentials(storage.getAccessKey(), storage.getSecretKey());
+                .credentials(storage.getAccessKey(), storage.getSecretKey())
+                .httpClient(minioHttpClient(storage));
         if (StringUtils.hasText(storage.getRegion())) {
             builder.region(storage.getRegion());
         }
         return builder.build();
+    }
+
+    private static OkHttpClient minioHttpClient(MediaProperties.Storage storage) {
+        return new OkHttpClient.Builder()
+                .connectTimeout(storage.getConnectTimeout())
+                .readTimeout(storage.getReadTimeout())
+                .writeTimeout(storage.getWriteTimeout())
+                .callTimeout(storage.getCallTimeout())
+                .build();
     }
 
     @Bean
