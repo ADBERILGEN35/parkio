@@ -32,7 +32,7 @@ class SmartReturnSchedulerTest {
         notifications = mock(NotificationApplicationService.class);
         scheduler = new SmartReturnScheduler(users, parking, notifications,
                 Clock.fixed(NOW, ZoneOffset.UTC), new SimpleMeterRegistry(),
-                true, "UTC", 100);
+                true, true, "UTC", 100);
     }
 
     @Test
@@ -44,6 +44,19 @@ class SmartReturnSchedulerTest {
         scheduler.sendMorningPrompts();
 
         verify(notifications).createSmartReturnPrompt(user);
+    }
+
+    @Test
+    void featureFlagOffPreventsSchedulerWork() {
+        SmartReturnScheduler disabled = new SmartReturnScheduler(users, parking, notifications,
+                Clock.fixed(NOW, ZoneOffset.UTC), new SimpleMeterRegistry(),
+                false, true, "UTC", 100);
+
+        disabled.sendMorningPrompts();
+        disabled.runReturnChecks();
+
+        verify(users, never()).claimDuePrompts(LocalDate.of(2026, 6, 6), 100);
+        verify(users, never()).claimDueReturnChecks(NOW, 100);
     }
 
     @Test

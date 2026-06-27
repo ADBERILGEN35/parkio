@@ -27,6 +27,7 @@ const rawEnvSchema = z.object({
   VITE_MAP_TILE_URL: optionalNonEmpty,
   VITE_MAP_TILE_ATTRIBUTION: optionalNonEmpty,
   VITE_FRONTEND_ERROR_REPORTING: z.enum(['disabled', 'console']).optional(),
+  VITE_SMART_RETURN_ENABLED: z.enum(['true', 'false']).optional(),
 });
 
 export interface FrontendConfig {
@@ -41,6 +42,9 @@ export interface FrontendConfig {
   };
   errorReporting: {
     provider: FrontendErrorReportingProvider;
+  };
+  features: {
+    smartReturn: boolean;
   };
 }
 
@@ -82,6 +86,11 @@ export function createFrontendConfig(env: ImportMetaEnv): FrontendConfig {
     },
     errorReporting: {
       provider: raw.VITE_FRONTEND_ERROR_REPORTING ?? 'disabled',
+    },
+    features: {
+      smartReturn: raw.VITE_SMART_RETURN_ENABLED === undefined
+        ? !isProductionLike
+        : raw.VITE_SMART_RETURN_ENABLED === 'true',
     },
   };
 }

@@ -12,6 +12,7 @@ interface ImportMetaEnv {
   /** Raster fallback attribution HTML (used only when no MapTiler key is set). */
   readonly VITE_MAP_TILE_ATTRIBUTION?: string;
   readonly VITE_FRONTEND_ERROR_REPORTING?: 'disabled' | 'console';
+  readonly VITE_SMART_RETURN_ENABLED?: 'true' | 'false';
 }
 
 interface ImportMeta {

@@ -34,7 +34,7 @@ class InternalUserControllerTest {
     @BeforeEach
     void setUp() {
         Clock clock = Clock.fixed(Instant.parse("2026-06-09T00:00:00Z"), ZoneOffset.UTC);
-        mvc = MockMvcBuilders.standaloneSetup(new InternalUserController(userService))
+        mvc = MockMvcBuilders.standaloneSetup(new InternalUserController(userService, false))
                 .setControllerAdvice(new GlobalExceptionHandler(clock))
                 .build();
     }

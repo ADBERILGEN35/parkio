@@ -766,6 +766,11 @@ coordinates. V1 does not perform continuous GPS tracking, background location co
 or ML/routine inference. Home coordinates are sensitive personal data: do not log them,
 do not send them to analytics, and do not expose them in notification copy.
 
+Smart Return is release-gated. Public user APIs and internal scheduler claim/complete
+APIs return `SMART_RETURN_DISABLED` (404) unless `PARKIO_SMART_RETURN_ENABLED=true`.
+The scheduler also requires `PARKIO_SMART_RETURN_SCHEDULER_ENABLED=true`, and the SPA
+does not render the profile UI unless it is built with `VITE_SMART_RETURN_ENABLED=true`.
+
 Return checks use a retryable claim model: due work moves to
 `RETURN_CHECK_IN_PROGRESS` with `today_return_check_claimed_at` and
 `today_return_check_claim_expires_at`. The scheduler completes the check only after the
@@ -781,7 +786,7 @@ equivalent database encryption controls.
 
 #### Smart Return real-stack smoke procedure
 
-Run this before enabling Smart Return outside local/dev:
+Run this before enabling Smart Return for a hosted-beta cohort:
 
 1. Start the full Docker stack and confirm gateway, user-service, parking-service,
    notification-service, PostgreSQL, Redis, Kafka, and Prometheus are healthy.
@@ -801,3 +806,8 @@ Run this before enabling Smart Return outside local/dev:
    retries and then completes without duplicates.
 9. Inspect service logs and metrics: trace/correlation ids should be present, exact home
    coordinates must not appear in logs, metrics, analytics, or notification payloads.
+
+The scripted version is `scripts/smart-return-smoke.sh`. It uses normal gateway APIs,
+requires an existing real nearby spot, waits for the scheduler, verifies exactly one
+`SMART_RETURN_AVAILABLE` notification row, checks for duplicate notification rows, and
+greps service logs for the exact smoke coordinates.

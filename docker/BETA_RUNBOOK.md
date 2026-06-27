@@ -124,7 +124,58 @@ above is the canonical tester checklist.
 
 ---
 
-## 5. Grant a MODERATOR / ADMIN role
+## 5. Smart Return controlled-beta gate
+
+Smart Return V1 is hidden and disabled unless all release gates are enabled:
+
+- backend API: `PARKIO_SMART_RETURN_ENABLED=true`
+- notification scheduler: `PARKIO_SMART_RETURN_SCHEDULER_ENABLED=true`
+- web UI build: `VITE_SMART_RETURN_ENABLED=true`
+
+For hosted beta these are present in `docker/.env.hosted-beta.example`; keep them off
+for general local beta unless explicitly validating Smart Return.
+
+### Real-stack Smart Return smoke
+
+Prerequisites:
+
+1. Full app stack is healthy.
+2. `PARKIO_SMART_RETURN_ENABLED=true` and
+   `PARKIO_SMART_RETURN_SCHEDULER_ENABLED=true` are set before starting
+   `user-service` and `notification-service`.
+3. The frontend was built with `VITE_SMART_RETURN_ENABLED=true`.
+4. A real, normal parking spot exists near the chosen home coordinates. Do not fake
+   availability for this smoke.
+5. You have a bearer token and auth user id for an ACTIVE test user.
+
+Run:
+
+```bash
+export SMART_RETURN_SMOKE_TOKEN='eyJ...'
+export SMART_RETURN_SMOKE_USER_ID='00000000-0000-0000-0000-000000000000'
+export SMART_RETURN_HOME_LAT=38.4237
+export SMART_RETURN_HOME_LNG=27.1428
+export SMART_RETURN_HOME_LABEL='Smart Return smoke area'
+PARKIO_ENV_FILE=docker/.env ./scripts/smart-return-smoke.sh
+```
+
+The script verifies:
+
+- Smart Return API is reachable through the gateway.
+- Existing real nearby parking availability is returned.
+- Smart Return can be enabled with a saved home area.
+- `left-by-car` stores a due return time.
+- notification-service scheduler creates exactly one `SMART_RETURN_AVAILABLE`
+  notification row.
+- no duplicate notification appears after another scheduler interval.
+- service logs do not contain the exact home latitude and longitude.
+
+If the script fails because no nearby spots exist, create a real test spot through the
+normal upload/create flow first, then rerun the smoke.
+
+---
+
+## 6. Grant a MODERATOR / ADMIN role
 
 There is no UI to elevate roles. After the user has registered, grant via SQL
 (emails are stored **lowercased**):
@@ -157,7 +208,7 @@ See `frontend/README.md` §"Real-stack E2E" for details.
 
 ---
 
-## 6. Known caveats
+## 7. Known caveats
 
 - **Provisioning delay:** immediately after register, `/auth/me` and other calls may
   return `ACCOUNT_NOT_ACTIVE`/404 for 1-5 s until the `UserRegistered` event is

@@ -160,8 +160,9 @@ parkio:
           project-id: ${PARKIO_FCM_PROJECT_ID:}
           credentials-location: ${PARKIO_FCM_CREDENTIALS_LOCATION:}
   smart-return:
+    enabled: ${PARKIO_SMART_RETURN_ENABLED:false}
     scheduler:
-      enabled: ${PARKIO_SMART_RETURN_SCHEDULER_ENABLED:true}
+      enabled: ${PARKIO_SMART_RETURN_SCHEDULER_ENABLED:false}
       zone: ${PARKIO_SMART_RETURN_SCHEDULER_ZONE:Europe/Istanbul}
       batch-size: ${PARKIO_SMART_RETURN_SCHEDULER_BATCH_SIZE:100}
       morning-prompt-cron: ${PARKIO_SMART_RETURN_MORNING_PROMPT_CRON:0 0 8 * * *}

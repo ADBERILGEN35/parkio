@@ -355,6 +355,7 @@ Notes:
 | `VITE_APP_ENV` | derived from Vite mode | `development`, `test`, `hosted-beta`, or `production`. `hosted-beta` and `production` are production-like and fail loudly on missing required config. |
 | `VITE_API_BASE_URL` | `http://localhost:8080/api/v1` in dev/test only | **Gateway-only** API base. Required in `hosted-beta`/`production`; never point at service ports (8081–8089). |
 | `VITE_FRONTEND_ERROR_REPORTING` | `disabled` | Client-side reporting adapter. `disabled` is a safe no-op; `console` logs sanitized diagnostics for hosted debugging until a provider adapter is added. |
+| `VITE_SMART_RETURN_ENABLED` | `true` in dev/test, `false` in hosted-beta/production unless set | Build-time Smart Return UI gate. Set to `true` only for the controlled beta cohort. |
 
 Set in `apps/web/.env` (not committed).
 
@@ -1304,6 +1305,11 @@ infer routines. It sends only the saved home area chosen by the user and today's
 return time to `user-service`; parking suggestions come from the existing real nearby
 parking search, never mocked availability. Return notifications intentionally use generic
 saved-home-area copy rather than exact street/home addresses.
+
+Smart Return is release-gated. In hosted-beta/production, set
+`VITE_SMART_RETURN_ENABLED=true` at web build time and set the backend
+`PARKIO_SMART_RETURN_ENABLED=true` / `PARKIO_SMART_RETURN_SCHEDULER_ENABLED=true`
+runtime flags only after the controlled-beta smoke procedure passes.
 
 ## Error shape
 

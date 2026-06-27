@@ -8,7 +8,8 @@ package com.parkio.user.domain.exception;
 public enum UserErrorCode {
     PROFILE_NOT_FOUND("User profile not found."),
     PROFILE_ALREADY_EXISTS("A profile already exists for this user."),
-    MISSING_USER_ID("Authenticated user id (X-User-Id) is required.");
+    MISSING_USER_ID("Authenticated user id (X-User-Id) is required."),
+    SMART_RETURN_DISABLED("Smart Return is not enabled in this environment.");
 
     private final String defaultMessage;
 

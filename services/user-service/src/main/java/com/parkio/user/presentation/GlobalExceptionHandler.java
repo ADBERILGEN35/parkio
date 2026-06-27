@@ -83,6 +83,7 @@ public class GlobalExceptionHandler {
             case PROFILE_NOT_FOUND -> HttpStatus.NOT_FOUND;
             case PROFILE_ALREADY_EXISTS -> HttpStatus.CONFLICT;
             case MISSING_USER_ID -> HttpStatus.UNAUTHORIZED;
+            case SMART_RETURN_DISABLED -> HttpStatus.NOT_FOUND;
         };
     }
 }

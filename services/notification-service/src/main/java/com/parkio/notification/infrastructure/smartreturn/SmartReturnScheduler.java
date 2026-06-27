@@ -44,14 +44,15 @@ public class SmartReturnScheduler {
             NotificationApplicationService notifications,
             Clock clock,
             MeterRegistry registry,
-            @Value("${parkio.smart-return.scheduler.enabled:true}") boolean enabled,
+            @Value("${parkio.smart-return.enabled:false}") boolean featureEnabled,
+            @Value("${parkio.smart-return.scheduler.enabled:false}") boolean schedulerEnabled,
             @Value("${parkio.smart-return.scheduler.zone:Europe/Istanbul}") String zone,
             @Value("${parkio.smart-return.scheduler.batch-size:100}") int batchSize) {
         this.userClient = userClient;
         this.parkingClient = parkingClient;
         this.notifications = notifications;
         this.clock = clock;
-        this.enabled = enabled;
+        this.enabled = featureEnabled && schedulerEnabled;
         this.promptZone = ZoneId.of(zone);
         this.batchSize = batchSize;
         this.promptsSent = Counter.builder("parkio.smart_return.morning_prompts_sent_total").register(registry);

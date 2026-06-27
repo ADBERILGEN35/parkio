@@ -19,6 +19,7 @@ describe('createFrontendConfig', () => {
     expect(config.appEnv).toBe('development');
     expect(config.apiBaseUrl).toBe('http://localhost:8080/api/v1');
     expect(config.map.maptilerKey).toBe('');
+    expect(config.features.smartReturn).toBe(true);
   });
 
   it('fails production when VITE_API_BASE_URL is missing', () => {
@@ -59,5 +60,29 @@ describe('createFrontendConfig', () => {
         }),
       ),
     ).toThrow('VITE_MAPTILER_KEY is required');
+  });
+
+  it('keeps Smart Return disabled in hosted-beta unless explicitly enabled', () => {
+    const config = createFrontendConfig(
+      env({
+        VITE_APP_ENV: 'hosted-beta',
+        VITE_API_BASE_URL: 'https://api.parkio.example/api/v1',
+        VITE_MAPTILER_KEY: 'map-key',
+      }),
+    );
+
+    expect(config.features.smartReturn).toBe(false);
+  });
+
+  it('enables Smart Return when the frontend flag is true', () => {
+    const config = createFrontendConfig(env({ VITE_SMART_RETURN_ENABLED: 'true' }));
+
+    expect(config.features.smartReturn).toBe(true);
+  });
+
+  it('disables Smart Return when the frontend flag is false', () => {
+    const config = createFrontendConfig(env({ VITE_SMART_RETURN_ENABLED: 'false' }));
+
+    expect(config.features.smartReturn).toBe(false);
   });
 });

@@ -1,6 +1,8 @@
 package com.parkio.user.presentation;
 
 import com.parkio.user.application.UserApplicationService;
+import com.parkio.user.domain.exception.UserErrorCode;
+import com.parkio.user.domain.exception.UserException;
 import com.parkio.user.presentation.dto.SmartReturnCheckCandidateResponse;
 import com.parkio.user.presentation.dto.SmartReturnPromptCandidateResponse;
 import com.parkio.user.presentation.dto.UserStatusResponse;
@@ -9,6 +11,7 @@ import java.time.LocalDate;
 import java.util.List;
 import java.util.UUID;
 import io.swagger.v3.oas.annotations.Hidden;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
@@ -34,9 +37,12 @@ import org.springframework.web.bind.annotation.RestController;
 public class InternalUserController {
 
     private final UserApplicationService userService;
+    private final boolean smartReturnEnabled;
 
-    public InternalUserController(UserApplicationService userService) {
+    public InternalUserController(UserApplicationService userService,
+                                  @Value("${parkio.smart-return.enabled:false}") boolean smartReturnEnabled) {
         this.userService = userService;
+        this.smartReturnEnabled = smartReturnEnabled;
     }
 
     @GetMapping("/{authUserId}/status")
@@ -48,6 +54,7 @@ public class InternalUserController {
     public List<SmartReturnPromptCandidateResponse> claimDueSmartReturnPrompts(
             @RequestParam("promptDate") LocalDate promptDate,
             @RequestParam(value = "limit", defaultValue = "100") int limit) {
+        requireSmartReturnEnabled();
         return userService.claimDueSmartReturnPrompts(promptDate, limit).stream()
                 .map(SmartReturnPromptCandidateResponse::from)
                 .toList();
@@ -57,6 +64,7 @@ public class InternalUserController {
     public List<SmartReturnCheckCandidateResponse> claimDueSmartReturnChecks(
             @RequestParam("now") Instant now,
             @RequestParam(value = "limit", defaultValue = "100") int limit) {
+        requireSmartReturnEnabled();
         return userService.claimDueSmartReturnChecks(now, limit).stream()
                 .map(SmartReturnCheckCandidateResponse::from)
                 .toList();
@@ -65,6 +73,7 @@ public class InternalUserController {
     @PostMapping("/smart-return/{authUserId}/notification-sent")
     public void markSmartReturnNotificationSent(@PathVariable("authUserId") UUID authUserId,
                                                 @RequestParam("sentAt") Instant sentAt) {
+        requireSmartReturnEnabled();
         userService.markSmartReturnNotificationSent(authUserId, sentAt);
     }
 
@@ -72,6 +81,13 @@ public class InternalUserController {
     public void completeSmartReturnCheck(@PathVariable("authUserId") UUID authUserId,
                                          @RequestParam("notificationSent") boolean notificationSent,
                                          @RequestParam("completedAt") Instant completedAt) {
+        requireSmartReturnEnabled();
         userService.completeSmartReturnCheck(authUserId, notificationSent, completedAt);
+    }
+
+    private void requireSmartReturnEnabled() {
+        if (!smartReturnEnabled) {
+            throw new UserException(UserErrorCode.SMART_RETURN_DISABLED);
+        }
     }
 }

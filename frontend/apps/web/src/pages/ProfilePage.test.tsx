@@ -80,10 +80,10 @@ function useProfileHandlers(vehicle: VehicleProfile = emptyVehicle) {
   );
 }
 
-function renderProfile() {
+function renderProfile(props: { smartReturnEnabled?: boolean } = {}) {
   return renderWithProviders(
     <Routes>
-      <Route path="/profile" element={<ProfilePage />} />
+      <Route path="/profile" element={<ProfilePage {...props} />} />
       <Route path="/login" element={<div>Login page</div>} />
     </Routes>,
     { initialEntries: ['/profile'] },
@@ -200,6 +200,14 @@ describe('ProfilePage', () => {
 
     expect(screen.getByRole('button', { name: 'Driving today' })).toBeEnabled();
     expect(screen.getByRole('button', { name: 'Not by car' })).toBeEnabled();
+  });
+
+  it('hides Smart Return when the feature flag is off', async () => {
+    useProfileHandlers();
+    renderProfile({ smartReturnEnabled: false });
+
+    expect(await screen.findByLabelText('Display name')).toBeInTheDocument();
+    expect(screen.queryByRole('tab', { name: 'Smart Return' })).not.toBeInTheDocument();
   });
 
   it('renders a sign out button', async () => {

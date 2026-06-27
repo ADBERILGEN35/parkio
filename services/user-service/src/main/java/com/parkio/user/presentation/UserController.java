@@ -25,6 +25,7 @@ import io.swagger.v3.oas.annotations.security.SecurityRequirement;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import jakarta.validation.Valid;
 import java.util.UUID;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PatchMapping;
 import org.springframework.web.bind.annotation.PathVariable;
@@ -52,9 +53,12 @@ public class UserController {
     private static final String USER_ID_HEADER = "X-User-Id";
 
     private final UserApplicationService userService;
+    private final boolean smartReturnEnabled;
 
-    public UserController(UserApplicationService userService) {
+    public UserController(UserApplicationService userService,
+                          @Value("${parkio.smart-return.enabled:false}") boolean smartReturnEnabled) {
         this.userService = userService;
+        this.smartReturnEnabled = smartReturnEnabled;
     }
 
     @Operation(summary = "Get current user profile")
@@ -97,6 +101,7 @@ public class UserController {
     @GetMapping("/me/smart-return")
     public SmartReturnSettingsResponse getSmartReturn(
             @RequestHeader(value = USER_ID_HEADER, required = false) String userId) {
+        requireSmartReturnEnabled();
         return SmartReturnSettingsResponse.from(userService.getMySmartReturn(requireUserId(userId)));
     }
 
@@ -106,6 +111,7 @@ public class UserController {
     public SmartReturnSettingsResponse updateSmartReturnSettings(
             @RequestHeader(value = USER_ID_HEADER, required = false) String userId,
             @Valid @RequestBody SmartReturnSettingsRequest request) {
+        requireSmartReturnEnabled();
         UpdateSmartReturnSettingsCommand command = new UpdateSmartReturnSettingsCommand(
                 request.enabled(), request.homeLatitude(), request.homeLongitude(), request.homeLabel(),
                 request.defaultReturnTime(), request.reminderLeadMinutes());
@@ -118,6 +124,7 @@ public class UserController {
     public SmartReturnSettingsResponse leftByCar(
             @RequestHeader(value = USER_ID_HEADER, required = false) String userId,
             @Valid @RequestBody SmartReturnTodayRequest request) {
+        requireSmartReturnEnabled();
         return SmartReturnSettingsResponse.from(userService.markSmartReturnLeftByCar(
                 requireUserId(userId), new SmartReturnReturnTimeCommand(request.expectedReturnAt())));
     }
@@ -127,6 +134,7 @@ public class UserController {
     @PostMapping("/me/smart-return/today/not-by-car")
     public SmartReturnSettingsResponse notByCar(
             @RequestHeader(value = USER_ID_HEADER, required = false) String userId) {
+        requireSmartReturnEnabled();
         return SmartReturnSettingsResponse.from(userService.markSmartReturnNotByCar(requireUserId(userId)));
     }
 
@@ -136,6 +144,7 @@ public class UserController {
     public SmartReturnSettingsResponse updateReturnTime(
             @RequestHeader(value = USER_ID_HEADER, required = false) String userId,
             @Valid @RequestBody SmartReturnTodayRequest request) {
+        requireSmartReturnEnabled();
         return SmartReturnSettingsResponse.from(userService.updateSmartReturnTime(
                 requireUserId(userId), new SmartReturnReturnTimeCommand(request.expectedReturnAt())));
     }
@@ -145,6 +154,7 @@ public class UserController {
     @PostMapping("/me/smart-return/today/cancel")
     public SmartReturnSettingsResponse cancelSmartReturnToday(
             @RequestHeader(value = USER_ID_HEADER, required = false) String userId) {
+        requireSmartReturnEnabled();
         return SmartReturnSettingsResponse.from(userService.cancelSmartReturnToday(requireUserId(userId)));
     }
 
@@ -193,6 +203,12 @@ public class UserController {
             return UUID.fromString(headerValue.trim());
         } catch (IllegalArgumentException ex) {
             throw new UserException(UserErrorCode.MISSING_USER_ID);
+        }
+    }
+
+    private void requireSmartReturnEnabled() {
+        if (!smartReturnEnabled) {
+            throw new UserException(UserErrorCode.SMART_RETURN_DISABLED);
         }
     }
 }

@@ -1,5 +1,6 @@
 import { Icon } from '@parkio/ui';
 import { useState } from 'react';
+import { frontendConfig } from '@/config/env';
 import { AccountCard } from './profile/AccountCard';
 import { ImpactHero } from './profile/ImpactHero';
 import { PreferencesCard } from './profile/PreferencesCard';
@@ -9,15 +10,36 @@ import { SmartReturnCard } from './profile/SmartReturnCard';
 import { TrustProgressCard } from './profile/TrustProgressCard';
 import { VehicleCard } from './profile/VehicleCard';
 
-const SECTIONS = [
+const BASE_SECTIONS = [
   { id: 'account', label: 'Profile & Account', icon: 'person' },
   { id: 'vehicle', label: 'Vehicle', icon: 'directions_car' },
   { id: 'notifications', label: 'Notifications', icon: 'notifications' },
-  { id: 'smart-return', label: 'Smart Return', icon: 'home_pin' },
   { id: 'trust', label: 'Trust & Progress', icon: 'verified_user' },
 ] as const satisfies readonly SettingsSection[];
 
-type SectionId = (typeof SECTIONS)[number]['id'];
+const SMART_RETURN_SECTION = {
+  id: 'smart-return',
+  label: 'Smart Return',
+  icon: 'home_pin',
+} as const satisfies SettingsSection;
+
+const SECTIONS_WITH_SMART_RETURN = [
+  BASE_SECTIONS[0],
+  BASE_SECTIONS[1],
+  BASE_SECTIONS[2],
+  SMART_RETURN_SECTION,
+  BASE_SECTIONS[3],
+] as const satisfies readonly SettingsSection[];
+
+type SectionId = (typeof BASE_SECTIONS)[number]['id'] | typeof SMART_RETURN_SECTION.id;
+
+export interface ProfilePageProps {
+  smartReturnEnabled?: boolean;
+}
+
+function resolveSections(smartReturnEnabled: boolean): readonly SettingsSection[] {
+  return smartReturnEnabled ? SECTIONS_WITH_SMART_RETURN : BASE_SECTIONS;
+}
 
 /**
  * Profile — Settings & Preferences (`/profile`). A Stitch-style settings layout:
@@ -27,7 +49,8 @@ type SectionId = (typeof SECTIONS)[number]['id'];
  * mutations are unchanged — only existing backend fields are used and the section
  * tabs are frontend-only (no route changes).
  */
-export function ProfilePage() {
+export function ProfilePage({ smartReturnEnabled = frontendConfig.features.smartReturn }: ProfilePageProps) {
+  const sections = resolveSections(smartReturnEnabled);
   const [section, setSection] = useState<SectionId>('account');
 
   return (
@@ -49,7 +72,7 @@ export function ProfilePage() {
 
       <div className="mt-lg grid grid-cols-1 gap-lg lg:grid-cols-12 lg:items-start">
         <div className="lg:col-span-3">
-          <SettingsNav sections={SECTIONS} active={section} onSelect={(id) => setSection(id as SectionId)} />
+          <SettingsNav sections={sections} active={section} onSelect={(id) => setSection(id as SectionId)} />
         </div>
 
         <div role="tabpanel" className="flex flex-col gap-lg lg:col-span-9">
@@ -61,7 +84,7 @@ export function ProfilePage() {
           ) : null}
           {section === 'vehicle' ? <VehicleCard /> : null}
           {section === 'notifications' ? <PreferencesCard /> : null}
-          {section === 'smart-return' ? <SmartReturnCard /> : null}
+          {section === 'smart-return' && smartReturnEnabled ? <SmartReturnCard /> : null}
           {section === 'trust' ? <TrustProgressCard /> : null}
         </div>
       </div>

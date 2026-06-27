@@ -119,6 +119,8 @@ info:
     description: Parkio user-service
 
 parkio:
+  smart-return:
+    enabled: ${PARKIO_SMART_RETURN_ENABLED:false}
   openapi:
     enabled: ${PARKIO_OPENAPI_ENABLED:true}
   lifecycle:
