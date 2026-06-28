@@ -437,6 +437,22 @@ class UserApplicationServiceTest {
     }
 
     @Test
+    void smartReturnReturnCheckBecomesDueAtExpectedReturnMinusLeadMinutes() {
+        UUID authUserId = UUID.randomUUID();
+        service.createProfile(command(authUserId));
+        service.updateMySmartReturnSettings(authUserId,
+                new UpdateSmartReturnSettingsCommand(true, 38.4237, 27.1428,
+                        "Konak", LocalTime.of(18, 30), 15));
+        Instant expectedReturnAt = NOW.plusSeconds(3600);
+        service.markSmartReturnLeftByCar(authUserId, new SmartReturnReturnTimeCommand(expectedReturnAt));
+
+        assertThat(service.claimDueSmartReturnChecks(expectedReturnAt.minusSeconds(901), 10)).isEmpty();
+        assertThat(service.claimDueSmartReturnChecks(expectedReturnAt.minusSeconds(900), 10))
+                .singleElement()
+                .satisfies(c -> assertThat(c.expectedReturnAt()).isEqualTo(expectedReturnAt));
+    }
+
+    @Test
     void smartReturnExpiredClaimRetriesAfterCrashBeforeParkingSearch() {
         UUID authUserId = UUID.randomUUID();
         service.createProfile(command(authUserId));

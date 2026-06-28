@@ -1,6 +1,9 @@
 package com.parkio.notification.domain;
 
 import java.time.Instant;
+import java.util.Collections;
+import java.util.LinkedHashMap;
+import java.util.Map;
 import java.util.Objects;
 import java.util.UUID;
 
@@ -21,6 +24,7 @@ public final class Notification {
     private final NotificationChannel channel;
     private final String title;
     private final String body;
+    private final Map<String, String> metadata;
     private NotificationStatus status;
     private final Instant createdAt;
     private Instant readAt;
@@ -29,12 +33,20 @@ public final class Notification {
     public Notification(UUID id, UUID userId, NotificationType type, NotificationChannel channel,
                         String title, String body, NotificationStatus status, Instant createdAt,
                         Instant readAt, Long version) {
+        this(id, userId, type, channel, title, body, Map.of(), status, createdAt, readAt, version);
+    }
+
+    public Notification(UUID id, UUID userId, NotificationType type, NotificationChannel channel,
+                        String title, String body, Map<String, String> metadata, NotificationStatus status,
+                        Instant createdAt, Instant readAt, Long version) {
         this.id = Objects.requireNonNull(id, "id");
         this.userId = Objects.requireNonNull(userId, "userId");
         this.type = Objects.requireNonNull(type, "type");
         this.channel = Objects.requireNonNull(channel, "channel");
         this.title = Objects.requireNonNull(title, "title");
         this.body = Objects.requireNonNull(body, "body");
+        this.metadata = Collections.unmodifiableMap(new LinkedHashMap<>(
+                Objects.requireNonNullElse(metadata, Map.of())));
         this.status = Objects.requireNonNull(status, "status");
         this.createdAt = Objects.requireNonNull(createdAt, "createdAt");
         this.readAt = readAt;
@@ -44,10 +56,17 @@ public final class Notification {
     /** Creates a notification with the channel-appropriate initial delivery status. */
     public static Notification create(UUID userId, NotificationType type, NotificationChannel channel,
                                       String title, String body, Instant now) {
+        return create(userId, type, channel, title, body, Map.of(), now);
+    }
+
+    /** Creates a notification with privacy-safe metadata for frontend actions. */
+    public static Notification create(UUID userId, NotificationType type, NotificationChannel channel,
+                                      String title, String body, Map<String, String> metadata, Instant now) {
         NotificationStatus initial = channel == NotificationChannel.IN_APP
                 ? NotificationStatus.SENT
                 : NotificationStatus.PENDING;
-        return new Notification(UUID.randomUUID(), userId, type, channel, title, body, initial, now, null, null);
+        return new Notification(UUID.randomUUID(), userId, type, channel, title, body, metadata, initial, now, null,
+                null);
     }
 
     /** Marks the notification read (idempotent). */
@@ -85,6 +104,10 @@ public final class Notification {
 
     public String body() {
         return body;
+    }
+
+    public Map<String, String> metadata() {
+        return metadata;
     }
 
     public NotificationStatus status() {

@@ -2,6 +2,7 @@ import type { AppNotification } from '@parkio/types';
 import { http, HttpResponse } from 'msw';
 import { screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
+import { Route, Routes, useLocation } from 'react-router-dom';
 import { beforeEach, describe, expect, it } from 'vitest';
 import { API_BASE, server } from '@/test/server';
 import { renderWithProviders, resetAuth, signInAs } from '@/test/utils';
@@ -51,6 +52,22 @@ function useNotificationHandlers(notifications: AppNotification[]) {
   return { getCount: () => getCount };
 }
 
+function renderNotifications(initialEntries = ['/notifications']) {
+  return renderWithProviders(
+    <Routes>
+      <Route path="/notifications" element={<NotificationsPage />} />
+      <Route path="/profile" element={<LocationProbe label="profile" />} />
+      <Route path="/map" element={<LocationProbe label="map" />} />
+    </Routes>,
+    { initialEntries },
+  );
+}
+
+function LocationProbe({ label }: { label: string }) {
+  const location = useLocation();
+  return <div>{`${label}:${location.pathname}${location.search}`}</div>;
+}
+
 describe('NotificationsPage', () => {
   beforeEach(() => {
     resetAuth();
@@ -59,7 +76,7 @@ describe('NotificationsPage', () => {
 
   it('renders grouped notifications with a single mark-as-read action for the unread item', async () => {
     useNotificationHandlers(makeNotifications());
-    renderWithProviders(<NotificationsPage />, { initialEntries: ['/notifications'] });
+    renderNotifications();
 
     expect(await screen.findByText('You earned points')).toBeInTheDocument();
     expect(screen.getByText('Welcome to Parkio')).toBeInTheDocument();
@@ -73,7 +90,7 @@ describe('NotificationsPage', () => {
 
   it('filters to unread-only via the Unread chip (frontend-only)', async () => {
     useNotificationHandlers(makeNotifications());
-    renderWithProviders(<NotificationsPage />, { initialEntries: ['/notifications'] });
+    renderNotifications();
     const user = userEvent.setup();
 
     expect(await screen.findByText('Welcome to Parkio')).toBeInTheDocument();
@@ -86,14 +103,14 @@ describe('NotificationsPage', () => {
 
   it('shows the empty state when there are no notifications', async () => {
     server.use(http.get(`${API_BASE}/notifications/me`, () => HttpResponse.json([])));
-    renderWithProviders(<NotificationsPage />, { initialEntries: ['/notifications'] });
+    renderNotifications();
 
     expect(await screen.findByText(/No notifications yet/)).toBeInTheDocument();
   });
 
   it('marks a notification as read and updates the cached list without a refetch', async () => {
     const requests = useNotificationHandlers(makeNotifications());
-    renderWithProviders(<NotificationsPage />, { initialEntries: ['/notifications'] });
+    renderNotifications();
     const user = userEvent.setup();
 
     await user.click(await screen.findByRole('button', { name: 'Mark as read' }));
@@ -106,5 +123,49 @@ describe('NotificationsPage', () => {
     expect(screen.getByText('You earned points')).toBeInTheDocument();
     expect(screen.getByText('Welcome to Parkio')).toBeInTheDocument();
     expect(requests.getCount()).toBe(1);
+  });
+
+  it('opens the Smart Return today flow from a prompt CTA', async () => {
+    useNotificationHandlers([
+      {
+        id: 'smart-prompt',
+        type: 'SMART_RETURN_PROMPT',
+        channel: 'IN_APP',
+        title: 'Are you driving today?',
+        body: 'Answer to schedule a parking check.',
+        metadata: { action: 'SMART_RETURN_TODAY', deeplink: '/profile?section=smart-return' },
+        status: 'SENT',
+        createdAt: '2026-06-11T09:00:00Z',
+        readAt: null,
+      },
+    ]);
+    renderNotifications();
+    const user = userEvent.setup();
+
+    await user.click(await screen.findByRole('button', { name: 'Answer' }));
+
+    expect(screen.getByText('profile:/profile?section=smart-return')).toBeInTheDocument();
+  });
+
+  it('opens the Smart Return map view from an availability CTA', async () => {
+    useNotificationHandlers([
+      {
+        id: 'smart-available',
+        type: 'SMART_RETURN_AVAILABLE',
+        channel: 'IN_APP',
+        title: 'Parking near home',
+        body: 'Parking near your saved home area may be available now.',
+        metadata: { action: 'SMART_RETURN_MAP', deeplink: '/map?smartReturn=1' },
+        status: 'SENT',
+        createdAt: '2026-06-11T09:00:00Z',
+        readAt: null,
+      },
+    ]);
+    renderNotifications();
+    const user = userEvent.setup();
+
+    await user.click(await screen.findByRole('button', { name: 'Open map' }));
+
+    expect(screen.getByText('map:/map?smartReturn=1')).toBeInTheDocument();
   });
 });

@@ -1,5 +1,6 @@
 package com.parkio.parking.infrastructure.lifecycle;
 
+import java.sql.Timestamp;
 import java.time.Clock;
 import java.time.Duration;
 import java.time.Instant;
@@ -58,7 +59,7 @@ public class RetentionCleanupJob {
                     ORDER BY created_at
                     LIMIT ?
                 )
-                """, cutoff, batchSize);
+                """, Timestamp.from(cutoff), batchSize);
     }
 
     public int cleanupInbox() {
@@ -74,6 +75,6 @@ public class RetentionCleanupJob {
                     ORDER BY processed_at
                     LIMIT ?
                 )
-                """, cutoff, batchSize);
+                """, Timestamp.from(cutoff), batchSize);
     }
 }

@@ -39,6 +39,9 @@ public class NotificationEntity {
     @Column(name = "body", nullable = false, updatable = false)
     private String body;
 
+    @Column(name = "metadata", nullable = false, updatable = false)
+    private String metadata;
+
     @Enumerated(EnumType.STRING)
     @Column(name = "status", nullable = false)
     private NotificationStatus status;
@@ -60,12 +63,19 @@ public class NotificationEntity {
     public NotificationEntity(UUID id, UUID userId, NotificationType type, NotificationChannel channel,
                               String title, String body, NotificationStatus status, Instant createdAt,
                               Instant readAt, Long version) {
+        this(id, userId, type, channel, title, body, "{}", status, createdAt, readAt, version);
+    }
+
+    public NotificationEntity(UUID id, UUID userId, NotificationType type, NotificationChannel channel,
+                              String title, String body, String metadata, NotificationStatus status,
+                              Instant createdAt, Instant readAt, Long version) {
         this.id = id;
         this.userId = userId;
         this.type = type;
         this.channel = channel;
         this.title = title;
         this.body = body;
+        this.metadata = metadata == null || metadata.isBlank() ? "{}" : metadata;
         this.status = status;
         this.createdAt = createdAt;
         this.readAt = readAt;
@@ -94,6 +104,10 @@ public class NotificationEntity {
 
     public String getBody() {
         return body;
+    }
+
+    public String getMetadata() {
+        return metadata;
     }
 
     public NotificationStatus getStatus() {

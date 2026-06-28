@@ -1,5 +1,6 @@
 import { Icon } from '@parkio/ui';
 import { useState } from 'react';
+import { useSearchParams } from 'react-router-dom';
 import { frontendConfig } from '@/config/env';
 import { AccountCard } from './profile/AccountCard';
 import { ImpactHero } from './profile/ImpactHero';
@@ -51,7 +52,11 @@ function resolveSections(smartReturnEnabled: boolean): readonly SettingsSection[
  */
 export function ProfilePage({ smartReturnEnabled = frontendConfig.features.smartReturn }: ProfilePageProps) {
   const sections = resolveSections(smartReturnEnabled);
-  const [section, setSection] = useState<SectionId>('account');
+  const [searchParams] = useSearchParams();
+  const requestedSection = searchParams.get('section');
+  const initialSection: SectionId =
+    smartReturnEnabled && requestedSection === 'smart-return' ? 'smart-return' : 'account';
+  const [section, setSection] = useState<SectionId>(initialSection);
 
   return (
     <div className="mx-auto w-full max-w-5xl px-md py-lg text-on-background md:px-xl">

@@ -11,6 +11,7 @@ import { nearbySearchSchema, type NearbySearchFormValues } from '@parkio/validat
 import { keepPreviousData, useQuery } from '@tanstack/react-query';
 import { Suspense, lazy, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useForm } from 'react-hook-form';
+import { useSearchParams } from 'react-router-dom';
 import { parkingApi, usersApi } from '@/api';
 import { useAuthStore } from '@/auth/store';
 import { BottomSheet, COLLAPSED_PEEK, type SheetState } from '@/components/map/BottomSheet';
@@ -75,6 +76,8 @@ function optionalNumber(value: unknown): number | undefined {
  * click-to-set-center, and "Use my location" remain as an advanced fallback.
  */
 export function MapPage() {
+  const [searchParams] = useSearchParams();
+  const smartReturnMode = searchParams.get('smartReturn') === '1';
   const [params, setParams] = useState<NearbySearchParams | null>(null);
   const [geoStatus, setGeoStatus] = useState<GeoStatus>('idle');
   const [geoError, setGeoError] = useState<string | null>(null);
@@ -113,6 +116,13 @@ export function MapPage() {
     // The signed-in user's vehicle changes rarely; cache it across the session to
     // avoid refetching on every map mount (it only gates the "Fits your X" hint).
     staleTime: 5 * 60_000,
+  });
+
+  const smartReturnQuery = useQuery({
+    queryKey: ['me', 'smart-return'],
+    queryFn: usersApi.getSmartReturn,
+    enabled: isAuthenticated && smartReturnMode,
+    staleTime: 30_000,
   });
 
   // Distance is computed from the *real* searched center; no center ⇒ no distance.
@@ -184,10 +194,10 @@ export function MapPage() {
   // locates/picks coordinates (this fallback is shown only — not auto-searched).
   const center = hasCenter ? { lat: latValue, lng: lngValue } : DEFAULT_MAP_CENTER;
 
-  const applyCoords = (lat: number, lng: number) => {
+  const applyCoords = useCallback((lat: number, lng: number) => {
     setValue('lat', Number(lat.toFixed(6)), { shouldValidate: true });
     setValue('lng', Number(lng.toFixed(6)), { shouldValidate: true });
-  };
+  }, [setValue]);
 
   const currentOptionalSearchFields = useCallback(() => {
     const values = getValues();
@@ -257,10 +267,23 @@ export function MapPage() {
   // Attempt geolocation exactly once per mount so the map opens on a useful view.
   const autoLocatedRef = useRef(false);
   useEffect(() => {
+    if (smartReturnMode) return;
     if (autoLocatedRef.current) return;
     autoLocatedRef.current = true;
     runGeolocation({ autoSearch: true });
-  }, [runGeolocation]);
+  }, [runGeolocation, smartReturnMode]);
+
+  useEffect(() => {
+    if (!smartReturnMode || !smartReturnQuery.data) return;
+    const settings = smartReturnQuery.data;
+    if (settings.homeLatitude === null || settings.homeLongitude === null) return;
+    const lat = settings.homeLatitude;
+    const lng = settings.homeLongitude;
+    applyCoords(lat, lng);
+    setMapZoom(LOCATED_ZOOM);
+    setCenterLabel('your saved home area');
+    runSearch({ lat, lng, radius: 1000 });
+  }, [applyCoords, runSearch, smartReturnMode, smartReturnQuery.data]);
 
   const locate = () => runGeolocation({ autoSearch: false });
 
@@ -361,6 +384,13 @@ export function MapPage() {
               </p>
             ) : null}
 
+            {smartReturnMode ? (
+              <p className="m-0 mt-sm flex items-center gap-xs rounded-2xl bg-primary/10 px-md py-sm text-label-sm font-medium text-primary">
+                <Icon name="home_pin" className="text-[16px] leading-none" />
+                Smart Return is checking near your saved home area.
+              </p>
+            ) : null}
+
             {geoStatus === 'error' && geoError ? (
               <div className="mt-sm">
                 <ErrorMessage message={geoError} />
@@ -429,6 +459,13 @@ export function MapPage() {
             <p className="pointer-events-auto mx-auto mt-xs flex max-w-[430px] items-center gap-xs rounded-full bg-surface/85 px-md py-xs text-label-sm font-medium text-on-surface shadow-soft backdrop-blur-xl">
               <Icon name="location_on" className="text-[14px] leading-none text-primary" />
               <span className="truncate">Near {centerLabel}</span>
+            </p>
+          ) : null}
+
+          {smartReturnMode ? (
+            <p className="pointer-events-auto mx-auto mt-xs flex max-w-[430px] items-center gap-xs rounded-full bg-primary/10 px-md py-xs text-label-sm font-medium text-primary shadow-soft backdrop-blur-xl">
+              <Icon name="home_pin" className="text-[14px] leading-none" />
+              <span className="truncate">Smart Return home area</span>
             </p>
           ) : null}
 

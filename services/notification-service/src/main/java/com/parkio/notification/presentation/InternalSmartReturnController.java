@@ -1,6 +1,7 @@
 package com.parkio.notification.presentation;
 
 import com.parkio.notification.infrastructure.smartreturn.SmartReturnScheduler;
+import com.parkio.notification.infrastructure.smartreturn.SmartReturnSchedulerTickSummary;
 import io.swagger.v3.oas.annotations.Hidden;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.http.ResponseEntity;
@@ -21,14 +22,12 @@ public class InternalSmartReturnController {
     }
 
     @PostMapping("/trigger-morning-prompt")
-    public ResponseEntity<Void> triggerMorningPrompt() {
-        scheduler.sendMorningPrompts();
-        return ResponseEntity.accepted().build();
+    public ResponseEntity<SmartReturnSchedulerTickSummary> triggerMorningPrompt() {
+        return ResponseEntity.accepted().body(scheduler.sendMorningPrompts());
     }
 
     @PostMapping("/trigger-return-check")
-    public ResponseEntity<Void> triggerReturnCheck() {
-        scheduler.runReturnChecks();
-        return ResponseEntity.accepted().build();
+    public ResponseEntity<SmartReturnSchedulerTickSummary> triggerReturnCheck() {
+        return ResponseEntity.accepted().body(scheduler.runReturnChecks());
     }
 }

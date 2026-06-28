@@ -5,6 +5,8 @@ export const NOTIFICATION_TYPES = [
   'POINT_EARNED',
   'WARNING',
   'SYSTEM',
+  'SMART_RETURN_PROMPT',
+  'SMART_RETURN_AVAILABLE',
 ] as const;
 
 export type NotificationType = (typeof NOTIFICATION_TYPES)[number];
@@ -29,6 +31,7 @@ export interface AppNotification {
   channel: NotificationChannel;
   title: string;
   body: string;
+  metadata?: Record<string, string>;
   status: NotificationStatus;
   createdAt: string;
   readAt: string | null;

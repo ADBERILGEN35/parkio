@@ -7,7 +7,7 @@ import type {
   VehicleProfile,
 } from '@parkio/types';
 import { http, HttpResponse } from 'msw';
-import { screen } from '@testing-library/react';
+import { screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { Route, Routes } from 'react-router-dom';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
@@ -67,7 +67,7 @@ function geocodeResult(overrides: Partial<GeocodeResult> = {}): GeocodeResult {
   };
 }
 
-function useProfileHandlers(vehicle: VehicleProfile = emptyVehicle) {
+function useProfileHandlers(vehicle: VehicleProfile = emptyVehicle, smartReturnSettings: SmartReturnSettings = smartReturn) {
   server.use(
     http.get(`${API_BASE}/notifications/me`, () => HttpResponse.json([])),
     http.get(`${API_BASE}/users/me`, () => HttpResponse.json(profile)),
@@ -75,38 +75,46 @@ function useProfileHandlers(vehicle: VehicleProfile = emptyVehicle) {
     http.get(`${API_BASE}/users/me/stats`, () => HttpResponse.json(stats)),
     http.get(`${API_BASE}/users/me/preferences`, () => HttpResponse.json(preferences)),
     http.patch(`${API_BASE}/users/me/preferences`, () => HttpResponse.json(preferences)),
-    http.get(`${API_BASE}/users/me/smart-return`, () => HttpResponse.json(smartReturn)),
+    http.get(`${API_BASE}/users/me/smart-return`, () => HttpResponse.json(smartReturnSettings)),
     http.put(`${API_BASE}/users/me/smart-return/settings`, async ({ request }) => {
       const body = (await request.json()) as Partial<SmartReturnSettings>;
-      return HttpResponse.json({ ...smartReturn, ...body });
+      return HttpResponse.json({ ...smartReturnSettings, ...body });
     }),
     http.post(`${API_BASE}/users/me/smart-return/today/left-by-car`, async ({ request }) => {
       const body = (await request.json()) as { expectedReturnAt: string };
       return HttpResponse.json({
-        ...smartReturn,
+        ...smartReturnSettings,
         enabled: true,
         todayStatus: 'LEFT_BY_CAR',
         todayExpectedReturnAt: body.expectedReturnAt,
       });
     }),
     http.post(`${API_BASE}/users/me/smart-return/today/not-by-car`, () =>
-      HttpResponse.json({ ...smartReturn, todayStatus: 'NOT_BY_CAR' }),
+      HttpResponse.json({ ...smartReturnSettings, todayStatus: 'NOT_BY_CAR' }),
     ),
     http.post(`${API_BASE}/users/me/smart-return/today/cancel`, () =>
-      HttpResponse.json({ ...smartReturn, todayStatus: 'CANCELLED' }),
+      HttpResponse.json({ ...smartReturnSettings, todayStatus: 'CANCELLED' }),
     ),
     http.get(`${API_BASE}/users/me/vehicle`, () => HttpResponse.json(vehicle)),
     http.put(`${API_BASE}/users/me/vehicle`, () => HttpResponse.json(vehicle)),
   );
 }
 
-function renderProfile(props: { smartReturnEnabled?: boolean } = {}) {
+const enabledSmartReturn: SmartReturnSettings = {
+  ...smartReturn,
+  enabled: true,
+  homeLatitude: 38.4237,
+  homeLongitude: 27.1428,
+  homeLabel: 'Konak',
+};
+
+function renderProfile(props: { smartReturnEnabled?: boolean; initialEntries?: string[] } = {}) {
   return renderWithProviders(
     <Routes>
       <Route path="/profile" element={<ProfilePage {...props} />} />
       <Route path="/login" element={<div>Login page</div>} />
     </Routes>,
-    { initialEntries: ['/profile'] },
+    { initialEntries: props.initialEntries ?? ['/profile'] },
   );
 }
 
@@ -218,8 +226,79 @@ describe('ProfilePage', () => {
 
     expect(await screen.findByText(/Saved area: Konak/)).toBeInTheDocument();
 
-    expect(screen.getByRole('button', { name: 'Driving today' })).toBeEnabled();
+    expect(screen.getByRole('button', { name: 'Yes, driving' })).toBeEnabled();
     expect(screen.getByRole('button', { name: 'Not by car' })).toBeEnabled();
+  });
+
+  it('opens Smart Return directly from the notification deeplink', async () => {
+    useProfileHandlers();
+    renderProfile({ initialEntries: ['/profile?section=smart-return'] });
+
+    expect(await screen.findByText('Private by design')).toBeInTheDocument();
+    expect(screen.getByText('Are you driving today?')).toBeInTheDocument();
+  });
+
+  it('driving today opens the return time flow and saving updates the current plan', async () => {
+    useProfileHandlers(emptyVehicle, enabledSmartReturn);
+    renderProfile();
+    const user = userEvent.setup();
+
+    await user.click(screen.getByRole('tab', { name: 'Smart Return' }));
+    await user.click(await screen.findByRole('button', { name: 'Yes, driving' }));
+    expect(screen.getByLabelText('Expected return time')).toBeInTheDocument();
+    await user.clear(screen.getByLabelText('Expected return time'));
+    await user.type(screen.getByLabelText('Expected return time'), '23:30');
+    await user.click(screen.getByRole('button', { name: 'Save return time' }));
+
+    expect(await screen.findByText(/We’ll check near your home at/)).toBeInTheDocument();
+  });
+
+  it('not-by-car updates the Smart Return today state', async () => {
+    useProfileHandlers(emptyVehicle, enabledSmartReturn);
+    renderProfile();
+    const user = userEvent.setup();
+
+    await user.click(screen.getByRole('tab', { name: 'Smart Return' }));
+    await user.click(await screen.findByRole('button', { name: 'Not by car' }));
+
+    expect(await screen.findByText('Smart Return is off for today.')).toBeInTheDocument();
+  });
+
+  it('cancel today clears the current Smart Return plan', async () => {
+    server.use(
+      http.get(`${API_BASE}/notifications/me`, () => HttpResponse.json([])),
+      http.get(`${API_BASE}/users/me`, () => HttpResponse.json(profile)),
+      http.get(`${API_BASE}/users/me/stats`, () => HttpResponse.json(stats)),
+      http.get(`${API_BASE}/users/me/preferences`, () => HttpResponse.json(preferences)),
+      http.get(`${API_BASE}/users/me/smart-return`, () =>
+        HttpResponse.json({
+          ...smartReturn,
+          enabled: true,
+          homeLatitude: 38.4237,
+          homeLongitude: 27.1428,
+          todayStatus: 'LEFT_BY_CAR',
+          todayExpectedReturnAt: '2026-06-28T20:00:00Z',
+        }),
+      ),
+      http.post(`${API_BASE}/users/me/smart-return/today/cancel`, () =>
+        HttpResponse.json({
+          ...smartReturn,
+          enabled: true,
+          homeLatitude: 38.4237,
+          homeLongitude: 27.1428,
+          todayStatus: 'CANCELLED',
+          todayExpectedReturnAt: null,
+        }),
+      ),
+      http.get(`${API_BASE}/users/me/vehicle`, () => HttpResponse.json(emptyVehicle)),
+    );
+    renderProfile();
+    const user = userEvent.setup();
+
+    await user.click(screen.getByRole('tab', { name: 'Smart Return' }));
+    await user.click(await screen.findByRole('button', { name: 'Cancel today' }));
+
+    await waitFor(() => expect(screen.queryByText(/We’ll check near your home at/)).not.toBeInTheDocument());
   });
 
   it('selects a Smart Return home area from geocoding suggestions', async () => {
@@ -281,7 +360,7 @@ describe('ProfilePage', () => {
   });
 
   it('keeps the Smart Return today prompt usable at 360px width', async () => {
-    useProfileHandlers();
+    useProfileHandlers(emptyVehicle, enabledSmartReturn);
     window.innerWidth = 360;
     window.dispatchEvent(new Event('resize'));
     renderProfile();
@@ -290,9 +369,10 @@ describe('ProfilePage', () => {
     await user.click(screen.getByRole('tab', { name: 'Smart Return' }));
 
     expect(await screen.findByText('Are you driving today?')).toBeInTheDocument();
-    expect(screen.getByLabelText('Expected return time')).toBeInTheDocument();
-    expect(screen.getByRole('button', { name: 'Driving today' })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Yes, driving' })).toBeInTheDocument();
     expect(screen.getByRole('button', { name: 'Not by car' })).toBeInTheDocument();
+    await user.click(screen.getByRole('button', { name: 'Yes, driving' }));
+    expect(screen.getByLabelText('Expected return time')).toBeInTheDocument();
   });
 
   it('hides Smart Return when the feature flag is off', async () => {

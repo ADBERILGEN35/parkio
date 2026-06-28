@@ -1,5 +1,6 @@
 package com.parkio.user.infrastructure.lifecycle;
 
+import java.sql.Timestamp;
 import java.time.Clock;
 import java.time.Duration;
 import java.time.Instant;
@@ -51,7 +52,7 @@ public class RetentionCleanupJob {
                     WHERE published = true AND created_at < ?
                     ORDER BY created_at LIMIT ?
                 )
-                """, cutoff, batchSize);
+                """, Timestamp.from(cutoff), batchSize);
     }
 
     public int cleanupInbox() {
@@ -63,6 +64,6 @@ public class RetentionCleanupJob {
                     WHERE processed_at < ?
                     ORDER BY processed_at LIMIT ?
                 )
-                """, cutoff, batchSize);
+                """, Timestamp.from(cutoff), batchSize);
     }
 }

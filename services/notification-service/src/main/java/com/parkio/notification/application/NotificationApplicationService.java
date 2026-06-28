@@ -239,23 +239,30 @@ public class NotificationApplicationService {
 
     public Notification createSmartReturnPrompt(UUID userId) {
         return createInAppNotification(userId, NotificationType.SMART_RETURN_PROMPT,
-                Map.of("message", "Are you driving today?"));
+                Map.of("message", "Are you driving today?"),
+                Map.of("action", "SMART_RETURN_TODAY", "deeplink", "/profile?section=smart-return"));
     }
 
     public Notification createSmartReturnParkingAvailable(UUID userId, String areaLabel) {
         return createInAppNotification(userId, NotificationType.SMART_RETURN_AVAILABLE,
-                Map.of("message", "Parking near your saved home area may be available now."));
+                Map.of("message", "Parking near your saved home area may be available now."),
+                Map.of("action", "SMART_RETURN_MAP", "deeplink", "/map?smartReturn=1"));
     }
 
     // --- Internals ---
 
     private Notification createInAppNotification(UUID userId, NotificationType type, Map<String, String> variables) {
+        return createInAppNotification(userId, type, variables, Map.of());
+    }
+
+    private Notification createInAppNotification(UUID userId, NotificationType type, Map<String, String> variables,
+                                                Map<String, String> metadata) {
         Instant now = clock.instant();
         NotificationTemplate.RenderedContent content = templates.findByType(type)
                 .map(template -> template.render(variables))
                 .orElseGet(() -> fallbackContent(type));
         Notification notification = notifications.save(Notification.create(
-                userId, type, NotificationChannel.IN_APP, content.title(), content.body(), now));
+                userId, type, NotificationChannel.IN_APP, content.title(), content.body(), metadata, now));
         outbox.append(NotificationCreatedEvent.of(notification, now));
         delivery.enqueuePushDelivery(notification);
         return notification;

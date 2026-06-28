@@ -1,4 +1,4 @@
-import type { GeocodeResult, PublicSpot } from '@parkio/types';
+import type { GeocodeResult, PublicSpot, SmartReturnSettings } from '@parkio/types';
 import { fireEvent, screen } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { http, HttpResponse, delay } from 'msw';
@@ -103,6 +103,20 @@ const spot: PublicSpot = {
   updatedAt: '2026-06-11T09:00:00Z',
 };
 
+const smartReturnSettings: SmartReturnSettings = {
+  enabled: true,
+  homeLatitude: 38.4237,
+  homeLongitude: 27.1428,
+  homeLabel: 'Konak',
+  defaultReturnTime: '18:30',
+  reminderLeadMinutes: 15,
+  lastPromptDate: '2026-06-28',
+  todayStatus: 'LEFT_BY_CAR',
+  todayExpectedReturnAt: '2026-06-28T19:00:00Z',
+  todayReturnCheckCompletedAt: null,
+  todayNotificationSentAt: null,
+};
+
 describe('MapPage', () => {
   beforeEach(() => {
     resetAuth();
@@ -145,6 +159,32 @@ describe('MapPage', () => {
     // Search ran without the user pressing "Search nearby".
     const cardLink = await screen.findByRole('link', { name: 'Stub Address 7' });
     expect(cardLink).toHaveAttribute('href', `/spots/${spot.id}`);
+  });
+
+  it('opens Smart Return map view from the current user saved home area without geolocation', async () => {
+    let geolocationCalled = false;
+    let nearbyUrl: URL | null = null;
+    stubGeolocation({
+      getCurrentPosition: () => {
+        geolocationCalled = true;
+      },
+    });
+    server.use(
+      http.get(`${API_BASE}/users/me/smart-return`, () => HttpResponse.json(smartReturnSettings)),
+      http.get(`${API_BASE}/parking/spots/nearby`, ({ request }) => {
+        nearbyUrl = new URL(request.url);
+        return HttpResponse.json([spot]);
+      }),
+    );
+
+    renderWithProviders(<MapPage />, { initialEntries: ['/map?smartReturn=1'] });
+
+    expect(await screen.findByText('Smart Return home area')).toBeInTheDocument();
+    expect(await screen.findByRole('link', { name: 'Stub Address 7' })).toBeInTheDocument();
+    expect(screen.getByTestId('map-center')).toHaveTextContent('38.4237,27.1428');
+    expect(nearbyUrl?.searchParams.get('lat')).toBe('38.4237');
+    expect(nearbyUrl?.searchParams.get('lng')).toBe('27.1428');
+    expect(geolocationCalled).toBe(false);
   });
 
   it('shows a friendly message and keeps manual search when geolocation is denied', async () => {

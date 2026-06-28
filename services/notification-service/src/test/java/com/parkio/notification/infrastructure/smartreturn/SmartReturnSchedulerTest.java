@@ -1,5 +1,6 @@
 package com.parkio.notification.infrastructure.smartreturn;
 
+import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
@@ -43,8 +44,12 @@ class SmartReturnSchedulerTest {
         when(users.claimDuePrompts(LocalDate.of(2026, 6, 6), 100))
                 .thenReturn(List.of(new SmartReturnUserClient.PromptCandidate(user)));
 
-        scheduler.sendMorningPrompts();
+        SmartReturnSchedulerTickSummary summary = scheduler.sendMorningPrompts();
 
+        assertThat(summary.enabled()).isTrue();
+        assertThat(summary.eligibleUsers()).isEqualTo(1);
+        assertThat(summary.promptedUsers()).isEqualTo(1);
+        assertThat(summary.notificationsCreated()).isEqualTo(1);
         verify(notifications).createSmartReturnPrompt(user);
     }
 
@@ -52,8 +57,11 @@ class SmartReturnSchedulerTest {
     void morningPromptWithNoClaimedCandidatesSendsNothing() {
         when(users.claimDuePrompts(LocalDate.of(2026, 6, 6), 100)).thenReturn(List.of());
 
-        scheduler.sendMorningPrompts();
+        SmartReturnSchedulerTickSummary summary = scheduler.sendMorningPrompts();
 
+        assertThat(summary.enabled()).isTrue();
+        assertThat(summary.eligibleUsers()).isZero();
+        assertThat(summary.notificationsCreated()).isZero();
         verify(notifications, never()).createSmartReturnPrompt(any());
     }
 
@@ -63,9 +71,11 @@ class SmartReturnSchedulerTest {
                 Clock.fixed(NOW, ZoneOffset.UTC), new SimpleMeterRegistry(),
                 false, true, "UTC", 100);
 
-        disabled.sendMorningPrompts();
-        disabled.runReturnChecks();
+        SmartReturnSchedulerTickSummary morningSummary = disabled.sendMorningPrompts();
+        SmartReturnSchedulerTickSummary returnSummary = disabled.runReturnChecks();
 
+        assertThat(morningSummary.enabled()).isFalse();
+        assertThat(returnSummary.enabled()).isFalse();
         verify(users, never()).claimDuePrompts(LocalDate.of(2026, 6, 6), 100);
         verify(users, never()).claimDueReturnChecks(NOW, 100);
     }
@@ -77,10 +87,25 @@ class SmartReturnSchedulerTest {
         when(users.claimDueReturnChecks(NOW, 100)).thenReturn(List.of(candidate));
         when(parking.searchNearby(user, 38.4237, 27.1428, 1000, 5)).thenReturn(List.of());
 
-        scheduler.runReturnChecks();
+        SmartReturnSchedulerTickSummary summary = scheduler.runReturnChecks();
 
+        assertThat(summary.enabled()).isTrue();
+        assertThat(summary.eligibleUsers()).isEqualTo(1);
+        assertThat(summary.returnChecksClaimed()).isEqualTo(1);
+        assertThat(summary.noSpots()).isEqualTo(1);
+        assertThat(summary.notificationsCreated()).isZero();
         verify(notifications, never()).createSmartReturnParkingAvailable(user, "Konak");
         verify(users).completeReturnCheck(user, false, NOW);
+    }
+
+    @Test
+    void returnCheckUsesExpectedReturnAtMinusLeadMinutesClaimFromUserService() {
+        when(users.claimDueReturnChecks(NOW, 100)).thenReturn(List.of());
+
+        scheduler.runReturnChecks();
+
+        verify(users).claimDueReturnChecks(NOW, 100);
+        verifyNoAvailabilityNotification();
     }
 
     @Test
@@ -92,10 +117,20 @@ class SmartReturnSchedulerTest {
                 .thenReturn(List.of(new SmartReturnParkingClient.NearbySpot(
                         UUID.randomUUID(), "Konak", "AVAILABLE", NOW.plusSeconds(900))));
 
-        scheduler.runReturnChecks();
+        SmartReturnSchedulerTickSummary summary = scheduler.runReturnChecks();
 
+        assertThat(summary.enabled()).isTrue();
+        assertThat(summary.eligibleUsers()).isEqualTo(1);
+        assertThat(summary.returnChecksClaimed()).isEqualTo(1);
+        assertThat(summary.claimRetries()).isEqualTo(1);
+        assertThat(summary.noSpots()).isZero();
+        assertThat(summary.notificationsCreated()).isEqualTo(1);
         verify(notifications).createSmartReturnParkingAvailable(user, "Konak");
         verify(users).completeReturnCheck(user, true, NOW);
+    }
+
+    private void verifyNoAvailabilityNotification() {
+        verify(notifications, never()).createSmartReturnParkingAvailable(any(), any());
     }
 
     @Test

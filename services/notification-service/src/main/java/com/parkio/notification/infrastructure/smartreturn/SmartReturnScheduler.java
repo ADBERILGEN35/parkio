@@ -65,55 +65,86 @@ public class SmartReturnScheduler {
 
     @Scheduled(cron = "${parkio.smart-return.scheduler.morning-prompt-cron:0 0 8 * * *}",
             zone = "${parkio.smart-return.scheduler.zone:Europe/Istanbul}")
-    public void sendMorningPrompts() {
+    public SmartReturnSchedulerTickSummary sendMorningPrompts() {
         if (!enabled) {
-            return;
+            SmartReturnSchedulerTickSummary summary = SmartReturnSchedulerTickSummary.disabled();
+            log.info("Smart Return morning prompt tick skipped: {}", summary);
+            return summary;
         }
         try {
             LocalDate promptDate = LocalDate.now(clock.withZone(promptZone));
-            for (SmartReturnUserClient.PromptCandidate candidate :
-                    userClient.claimDuePrompts(promptDate, batchSize)) {
+            List<SmartReturnUserClient.PromptCandidate> candidates = userClient.claimDuePrompts(promptDate, batchSize);
+            int notificationsCreated = 0;
+            for (SmartReturnUserClient.PromptCandidate candidate : candidates) {
                 notifications.createSmartReturnPrompt(candidate.userId());
+                notificationsCreated++;
                 promptsSent.increment();
             }
+            SmartReturnSchedulerTickSummary summary = new SmartReturnSchedulerTickSummary(
+                    true, candidates.size(), candidates.size(), 0, 0, 0, notificationsCreated, 0);
+            log.info("Smart Return morning prompt tick completed: {}", summary);
+            return summary;
         } catch (RuntimeException ex) {
             failures.increment();
             log.warn("Smart Return morning prompt tick failed", ex);
+            return new SmartReturnSchedulerTickSummary(true, 0, 0, 0, 0, 0, 0, 1);
         }
     }
 
     @Scheduled(fixedDelayString = "${parkio.smart-return.scheduler.return-check-fixed-delay-ms:60000}")
-    public void runReturnChecks() {
+    public SmartReturnSchedulerTickSummary runReturnChecks() {
         if (!enabled) {
-            return;
+            SmartReturnSchedulerTickSummary summary = SmartReturnSchedulerTickSummary.disabled();
+            log.info("Smart Return return-check tick skipped: {}", summary);
+            return summary;
         }
         Instant now = clock.instant();
         try {
             List<SmartReturnUserClient.ReturnCheckCandidate> due = userClient.claimDueReturnChecks(now, batchSize);
+            int claimRetryCount = 0;
+            int noSpotCount = 0;
+            int notificationCount = 0;
             for (SmartReturnUserClient.ReturnCheckCandidate candidate : due) {
                 checksStarted.increment();
                 if (candidate.claimRetried()) {
+                    claimRetryCount++;
                     claimsRetried.increment();
                 }
-                handleReturnCheck(candidate, now);
+                ReturnCheckResult result = handleReturnCheck(candidate, now);
+                if (result == ReturnCheckResult.NO_SPOTS) {
+                    noSpotCount++;
+                } else {
+                    notificationCount++;
+                }
             }
+            SmartReturnSchedulerTickSummary summary = new SmartReturnSchedulerTickSummary(
+                    true, due.size(), 0, due.size(), claimRetryCount, noSpotCount, notificationCount, 0);
+            log.info("Smart Return return-check tick completed: {}", summary);
+            return summary;
         } catch (RuntimeException ex) {
             failures.increment();
             log.warn("Smart Return return-check tick failed", ex);
+            return new SmartReturnSchedulerTickSummary(true, 0, 0, 0, 0, 0, 0, 1);
         }
     }
 
-    private void handleReturnCheck(SmartReturnUserClient.ReturnCheckCandidate candidate, Instant now) {
+    private ReturnCheckResult handleReturnCheck(SmartReturnUserClient.ReturnCheckCandidate candidate, Instant now) {
         List<SmartReturnParkingClient.NearbySpot> spots = parkingClient.searchNearby(
                 candidate.userId(), candidate.homeLatitude(), candidate.homeLongitude(), candidate.radiusMeters(), 5);
         if (spots.isEmpty()) {
             userClient.completeReturnCheck(candidate.userId(), false, now);
             noSpots.increment();
-            return;
+            return ReturnCheckResult.NO_SPOTS;
         }
         String label = spots.get(0).addressText();
         notifications.createSmartReturnParkingAvailable(candidate.userId(), label);
         userClient.completeReturnCheck(candidate.userId(), true, now);
         notificationsSent.increment();
+        return ReturnCheckResult.NOTIFICATION_CREATED;
+    }
+
+    private enum ReturnCheckResult {
+        NO_SPOTS,
+        NOTIFICATION_CREATED
     }
 }

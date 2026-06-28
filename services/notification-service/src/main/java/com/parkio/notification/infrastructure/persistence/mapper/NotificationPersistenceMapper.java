@@ -1,5 +1,8 @@
 package com.parkio.notification.infrastructure.persistence.mapper;
 
+import com.fasterxml.jackson.core.JsonProcessingException;
+import com.fasterxml.jackson.core.type.TypeReference;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import com.parkio.notification.domain.DeviceToken;
 import com.parkio.notification.domain.Notification;
 import com.parkio.notification.domain.NotificationDeliveryAttempt;
@@ -10,6 +13,7 @@ import com.parkio.notification.infrastructure.persistence.entity.NotificationDel
 import com.parkio.notification.infrastructure.persistence.entity.NotificationEntity;
 import com.parkio.notification.infrastructure.persistence.entity.NotificationPreferenceEntity;
 import com.parkio.notification.infrastructure.persistence.entity.NotificationTemplateEntity;
+import java.util.Map;
 
 /**
  * Translates between domain models and JPA entities, keeping adapters thin and the
@@ -17,17 +21,22 @@ import com.parkio.notification.infrastructure.persistence.entity.NotificationTem
  */
 public final class NotificationPersistenceMapper {
 
+    private static final ObjectMapper OBJECT_MAPPER = new ObjectMapper();
+    private static final TypeReference<Map<String, String>> STRING_MAP = new TypeReference<>() {
+    };
+
     private NotificationPersistenceMapper() {
     }
 
     public static Notification toDomain(NotificationEntity e) {
         return new Notification(e.getId(), e.getUserId(), e.getType(), e.getChannel(), e.getTitle(),
-                e.getBody(), e.getStatus(), e.getCreatedAt(), e.getReadAt(), e.getVersion());
+                e.getBody(), readMetadata(e.getMetadata()), e.getStatus(), e.getCreatedAt(), e.getReadAt(),
+                e.getVersion());
     }
 
     public static NotificationEntity toEntity(Notification n) {
         return new NotificationEntity(n.id(), n.userId(), n.type(), n.channel(), n.title(), n.body(),
-                n.status(), n.createdAt(), n.readAt(), n.version());
+                writeMetadata(n.metadata()), n.status(), n.createdAt(), n.readAt(), n.version());
     }
 
     public static DeviceToken toDomain(DeviceTokenEntity e) {
@@ -65,5 +74,24 @@ public final class NotificationPersistenceMapper {
         return new NotificationDeliveryAttemptEntity(a.id(), a.notificationId(), a.userId(), a.channel(),
                 a.deviceTokenId(), a.status(), a.providerMessageId(), a.failureReason(), a.attemptCount(),
                 a.attemptedAt(), a.nextAttemptAt(), a.createdAt(), a.updatedAt(), a.version());
+    }
+
+    private static Map<String, String> readMetadata(String raw) {
+        if (raw == null || raw.isBlank()) {
+            return Map.of();
+        }
+        try {
+            return OBJECT_MAPPER.readValue(raw, STRING_MAP);
+        } catch (JsonProcessingException e) {
+            throw new IllegalStateException("Failed to deserialize notification metadata", e);
+        }
+    }
+
+    private static String writeMetadata(Map<String, String> metadata) {
+        try {
+            return OBJECT_MAPPER.writeValueAsString(metadata == null ? Map.of() : metadata);
+        } catch (JsonProcessingException e) {
+            throw new IllegalStateException("Failed to serialize notification metadata", e);
+        }
     }
 }

@@ -250,6 +250,8 @@ class NotificationApplicationServiceTest {
                     assertThat(n.type()).isEqualTo(NotificationType.SMART_RETURN_PROMPT);
                     assertThat(n.title()).contains("driving today");
                     assertThat(n.body()).contains("parking check");
+                    assertThat(n.metadata()).containsEntry("action", "SMART_RETURN_TODAY")
+                            .containsEntry("deeplink", "/profile?section=smart-return");
                 });
     }
 
@@ -265,6 +267,9 @@ class NotificationApplicationServiceTest {
                     assertThat(n.body()).contains("saved home area");
                     assertThat(n.body()).doesNotContain("Exact Home Street 1");
                     assertThat(n.body()).doesNotContain("38.4237");
+                    assertThat(n.metadata()).containsEntry("action", "SMART_RETURN_MAP")
+                            .containsEntry("deeplink", "/map?smartReturn=1");
+                    assertThat(n.metadata().values()).noneMatch(value -> value.contains("Exact Home Street 1"));
                 });
     }
 

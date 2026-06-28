@@ -10,6 +10,7 @@ import {
   type SmartReturnTodayFormValues,
 } from '@parkio/validation';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import { useEffect, useState } from 'react';
 import { useForm } from 'react-hook-form';
 import { usersApi } from '@/api';
 import { FriendlyApiErrorMessage } from '@/components/FriendlyApiErrorMessage';
@@ -186,10 +187,12 @@ function SmartReturnSettingsForm({ settings }: { settings: SmartReturnSettings }
 
 function TodayPlan({ settings }: { settings: SmartReturnSettings }) {
   const queryClient = useQueryClient();
+  const [timeSelectorOpen, setTimeSelectorOpen] = useState(settings.todayStatus === 'LEFT_BY_CAR');
   const todayMutation = useMutation({
     mutationFn: usersApi.smartReturnLeftByCar,
     onSuccess: (next) => {
       queryClient.setQueryData(['me', 'smart-return'], next);
+      setTimeSelectorOpen(false);
       showSuccess('Return reminder scheduled.');
     },
     onError: () => showError('Could not schedule Smart Return.'),
@@ -198,6 +201,7 @@ function TodayPlan({ settings }: { settings: SmartReturnSettings }) {
     mutationFn: usersApi.smartReturnNotByCar,
     onSuccess: (next) => {
       queryClient.setQueryData(['me', 'smart-return'], next);
+      setTimeSelectorOpen(false);
       showSuccess('Smart Return skipped for today.');
     },
     onError: () => showError('Could not update today’s plan.'),
@@ -206,6 +210,7 @@ function TodayPlan({ settings }: { settings: SmartReturnSettings }) {
     mutationFn: usersApi.cancelSmartReturnToday,
     onSuccess: (next) => {
       queryClient.setQueryData(['me', 'smart-return'], next);
+      setTimeSelectorOpen(false);
       showSuccess('Today’s reminder cancelled.');
     },
     onError: () => showError('Could not cancel today’s reminder.'),
@@ -214,11 +219,16 @@ function TodayPlan({ settings }: { settings: SmartReturnSettings }) {
   const {
     register,
     handleSubmit,
+    reset,
     formState: { errors },
   } = useForm<SmartReturnTodayFormValues>({
     resolver: zodResolver(smartReturnTodaySchema),
-    defaultValues: { returnTime: settings.defaultReturnTime ?? '18:30' },
+    defaultValues: { returnTime: returnTimeValue(settings) },
   });
+
+  useEffect(() => {
+    reset({ returnTime: returnTimeValue(settings) });
+  }, [reset, settings]);
 
   const onSubmit = handleSubmit((values) => {
     const expectedReturnAt = todayAt(values.returnTime);
@@ -230,9 +240,13 @@ function TodayPlan({ settings }: { settings: SmartReturnSettings }) {
   });
 
   const disabled = !settings.enabled || settings.homeLatitude === null || settings.homeLongitude === null;
+  const busy = todayMutation.isPending || notByCar.isPending || cancel.isPending;
+  const currentCheckTime = settings.todayExpectedReturnAt
+    ? formatCheckTime(settings.todayExpectedReturnAt, settings.reminderLeadMinutes)
+    : null;
 
   return (
-    <section className="flex flex-col gap-md rounded-lg border border-outline-variant/40 p-md">
+    <section className="flex flex-col gap-md rounded-lg border border-outline-variant/40 p-md" aria-label="Smart Return today flow">
       <div className="flex flex-wrap items-center justify-between gap-sm">
         <div>
           <h3 className="m-0 text-title-md text-on-surface">Today</h3>
@@ -241,37 +255,61 @@ function TodayPlan({ settings }: { settings: SmartReturnSettings }) {
         <StatusBadge status={settings.todayStatus.replaceAll('_', ' ')} />
       </div>
 
-      <form onSubmit={onSubmit} className="flex flex-col gap-sm sm:flex-row sm:items-end">
-        <Input
-          label="Expected return time"
-          type="time"
-          disabled={disabled || todayMutation.isPending}
-          error={errors.returnTime?.message}
-          {...register('returnTime')}
-        />
-        <Button type="submit" disabled={disabled || todayMutation.isPending} className="min-h-11">
+      <div className="grid grid-cols-1 gap-sm sm:grid-cols-2">
+        <Button
+          type="button"
+          disabled={disabled || busy}
+          className="min-h-11 w-full"
+          onClick={() => setTimeSelectorOpen(true)}
+        >
           <Icon name="directions_car" className="text-[16px] leading-none" />
-          Driving today
+          Yes, driving
         </Button>
-      </form>
-
-      <div className="flex flex-wrap gap-sm">
-        <Button variant="secondary" disabled={disabled || notByCar.isPending} onClick={() => notByCar.mutate()}>
+        <Button variant="secondary" disabled={disabled || busy} onClick={() => notByCar.mutate()} className="min-h-11 w-full">
           Not by car
         </Button>
+      </div>
+
+      {timeSelectorOpen ? (
+        <form onSubmit={onSubmit} className="grid grid-cols-1 gap-sm sm:grid-cols-[minmax(0,1fr)_auto] sm:items-end">
+          <Input
+            label="Expected return time"
+            type="time"
+            disabled={disabled || todayMutation.isPending}
+            error={errors.returnTime?.message}
+            {...register('returnTime')}
+          />
+          <Button type="submit" disabled={disabled || todayMutation.isPending} className="min-h-11 w-full sm:w-auto">
+            {todayMutation.isPending ? 'Saving...' : 'Save return time'}
+          </Button>
+        </form>
+      ) : null}
+
+      <div className="flex flex-wrap gap-sm">
+        {settings.todayStatus === 'LEFT_BY_CAR' ? (
+          <Button variant="secondary" disabled={busy} onClick={() => setTimeSelectorOpen(true)}>
+            Edit return time
+          </Button>
+        ) : null}
         <Button
           variant="outline"
-          disabled={settings.todayStatus !== 'LEFT_BY_CAR' || cancel.isPending}
+          disabled={!['LEFT_BY_CAR', 'RETURN_CHECK_IN_PROGRESS'].includes(settings.todayStatus) || cancel.isPending}
           onClick={() => cancel.mutate()}
         >
           Cancel today
         </Button>
       </div>
 
-      {settings.todayExpectedReturnAt ? (
+      {currentCheckTime ? (
         <p className="m-0 text-label-sm text-on-surface-variant">
-          Current return plan: {new Date(settings.todayExpectedReturnAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+          We’ll check near your home at {currentCheckTime}.
         </p>
+      ) : null}
+      {settings.todayStatus === 'NOT_BY_CAR' ? (
+        <p className="m-0 text-label-sm text-on-surface-variant">Smart Return is off for today.</p>
+      ) : null}
+      {todayMutation.isError || notByCar.isError || cancel.isError ? (
+        <FriendlyApiErrorMessage error={todayMutation.error ?? notByCar.error ?? cancel.error} />
       ) : null}
       {disabled ? (
         <p className="m-0 text-label-sm text-on-surface-variant">
@@ -280,6 +318,23 @@ function TodayPlan({ settings }: { settings: SmartReturnSettings }) {
       ) : null}
     </section>
   );
+}
+
+function returnTimeValue(settings: SmartReturnSettings): string {
+  if (settings.todayExpectedReturnAt) {
+    return toTimeInputValue(new Date(settings.todayExpectedReturnAt));
+  }
+  return settings.defaultReturnTime ?? '18:30';
+}
+
+function formatCheckTime(expectedReturnAt: string, leadMinutes: number): string {
+  const checkAt = new Date(expectedReturnAt);
+  checkAt.setMinutes(checkAt.getMinutes() - leadMinutes);
+  return checkAt.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+}
+
+function toTimeInputValue(date: Date): string {
+  return `${String(date.getHours()).padStart(2, '0')}:${String(date.getMinutes()).padStart(2, '0')}`;
 }
 
 function todayAt(time: string): Date | null {

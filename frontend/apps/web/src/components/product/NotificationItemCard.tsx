@@ -9,6 +9,8 @@ export const NOTIFICATION_TYPE_VISUALS: Record<NotificationType, { icon: string;
   POINT_EARNED: { icon: 'stars', tone: 'success' },
   WARNING: { icon: 'warning', tone: 'warning' },
   SYSTEM: { icon: 'info', tone: 'neutral' },
+  SMART_RETURN_PROMPT: { icon: 'directions_car', tone: 'primary' },
+  SMART_RETURN_AVAILABLE: { icon: 'home_pin', tone: 'success' },
 };
 
 function typeVisual(type: NotificationType) {
