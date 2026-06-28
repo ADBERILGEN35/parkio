@@ -1,6 +1,7 @@
 package com.parkio.user.infrastructure.persistence.mapper;
 
 import com.parkio.user.domain.PendingUserStatusEvent;
+import com.parkio.user.domain.SmartReturnTodayStatus;
 import com.parkio.user.domain.UserPreference;
 import com.parkio.user.domain.UserProfile;
 import com.parkio.user.domain.UserTrustProfile;
@@ -46,9 +47,13 @@ public final class UserPersistenceMapper {
 
     public static UserPreference toDomain(UserPreferenceEntity e) {
         return new UserPreference(e.getId(), e.getUserProfileId(), e.getPreferredRadiusMeters(),
-                e.isNotificationsEnabled(), e.isSmartReturnEnabled(), e.getHomeLatitude(), e.getHomeLongitude(),
-                e.getHomeLabel(), e.getDefaultReturnTime(), e.getReminderLeadMinutes(),
-                e.getLastSmartReturnPromptDate(), e.getSmartReturnTodayStatus(),
+                e.isNotificationsEnabled(), Boolean.TRUE.equals(e.getSmartReturnEnabled()),
+                e.getHomeLatitude(), e.getHomeLongitude(), e.getHomeLabel(), e.getDefaultReturnTime(),
+                e.getReminderLeadMinutes() == null
+                        ? UserPreference.DEFAULT_SMART_RETURN_LEAD_MINUTES
+                        : e.getReminderLeadMinutes(),
+                e.getLastSmartReturnPromptDate(),
+                e.getSmartReturnTodayStatus() == null ? SmartReturnTodayStatus.UNKNOWN : e.getSmartReturnTodayStatus(),
                 e.getTodayExpectedReturnAt(), e.getTodayReturnCheckClaimedAt(),
                 e.getTodayReturnCheckClaimExpiresAt(), e.getTodayReturnCheckCompletedAt(),
                 e.getTodayNotificationSentAt(), e.getVersion());

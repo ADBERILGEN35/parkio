@@ -298,6 +298,9 @@ services:
       SPRING_DATASOURCE_PASSWORD: ${POSTGRES_NOTIFICATION_PASSWORD}
       PARKIO_SMART_RETURN_ENABLED: ${PARKIO_SMART_RETURN_ENABLED:-false}
       PARKIO_SMART_RETURN_SCHEDULER_ENABLED: ${PARKIO_SMART_RETURN_SCHEDULER_ENABLED:-false}
+      PARKIO_SMART_RETURN_TEST_HOOKS_ENABLED: ${PARKIO_SMART_RETURN_TEST_HOOKS_ENABLED:-false}
+      PARKIO_USER_SERVICE_URI: http://user-service:8082
+      PARKIO_PARKING_SERVICE_URI: http://parking-service:8083
     healthcheck:
       <<: *app-healthcheck
       test: ["CMD", "curl", "-fsS", "http://localhost:8086/actuator/health/readiness"]

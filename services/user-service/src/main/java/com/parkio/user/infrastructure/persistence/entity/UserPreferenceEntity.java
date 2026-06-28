@@ -32,7 +32,7 @@ public class UserPreferenceEntity {
     private boolean notificationsEnabled;
 
     @Column(name = "smart_return_enabled", nullable = false)
-    private boolean smartReturnEnabled;
+    private Boolean smartReturnEnabled;
 
     @Column(name = "home_latitude")
     private Double homeLatitude;
@@ -47,7 +47,7 @@ public class UserPreferenceEntity {
     private LocalTime defaultReturnTime;
 
     @Column(name = "reminder_lead_minutes", nullable = false)
-    private int reminderLeadMinutes;
+    private Integer reminderLeadMinutes;
 
     @Column(name = "last_smart_return_prompt_date")
     private LocalDate lastSmartReturnPromptDate;
@@ -83,12 +83,12 @@ public class UserPreferenceEntity {
                                 UUID userProfileId,
                                 int preferredRadiusMeters,
                                 boolean notificationsEnabled,
-                                boolean smartReturnEnabled,
+                                Boolean smartReturnEnabled,
                                 Double homeLatitude,
                                 Double homeLongitude,
                                 String homeLabel,
                                 LocalTime defaultReturnTime,
-                                int reminderLeadMinutes,
+                                Integer reminderLeadMinutes,
                                 LocalDate lastSmartReturnPromptDate,
                                 SmartReturnTodayStatus smartReturnTodayStatus,
                                 Instant todayExpectedReturnAt,
@@ -133,7 +133,7 @@ public class UserPreferenceEntity {
         return notificationsEnabled;
     }
 
-    public boolean isSmartReturnEnabled() {
+    public Boolean getSmartReturnEnabled() {
         return smartReturnEnabled;
     }
 
@@ -153,7 +153,7 @@ public class UserPreferenceEntity {
         return defaultReturnTime;
     }
 
-    public int getReminderLeadMinutes() {
+    public Integer getReminderLeadMinutes() {
         return reminderLeadMinutes;
     }
 

@@ -8,6 +8,7 @@
       observation-enabled: true
     listener:
       observation-enabled: true
+      ack-mode: manual
     producer:
       acks: all
       key-serializer: org.apache.kafka.common.serialization.StringSerializer
@@ -33,8 +34,6 @@
         heartbeat.interval.ms: ${SPRING_KAFKA_CONSUMER_HEARTBEAT_INTERVAL_MS:3000}
         spring.json.trusted.packages: "com.parkio.*"
         spring.json.use.type.headers: false
-    listener:
-      ack-mode: manual
     admin:
       # Missing broker at startup must not fail the context.
       fail-fast: false
@@ -163,6 +162,8 @@ parkio:
     enabled: ${PARKIO_SMART_RETURN_ENABLED:false}
     scheduler:
       enabled: ${PARKIO_SMART_RETURN_SCHEDULER_ENABLED:false}
+      test-hooks:
+        enabled: ${PARKIO_SMART_RETURN_TEST_HOOKS_ENABLED:false}
       zone: ${PARKIO_SMART_RETURN_SCHEDULER_ZONE:Europe/Istanbul}
       batch-size: ${PARKIO_SMART_RETURN_SCHEDULER_BATCH_SIZE:100}
       morning-prompt-cron: ${PARKIO_SMART_RETURN_MORNING_PROMPT_CRON:0 0 8 * * *}

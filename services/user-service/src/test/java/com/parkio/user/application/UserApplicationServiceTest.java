@@ -397,6 +397,21 @@ class UserApplicationServiceTest {
     }
 
     @Test
+    void smartReturnPromptClaimRequiresHomeLocationAndNotifications() {
+        UUID noHomeUser = UUID.randomUUID();
+        service.createProfile(command(noHomeUser));
+
+        UUID notificationsOffUser = UUID.randomUUID();
+        service.createProfile(command(notificationsOffUser));
+        service.updateMySmartReturnSettings(notificationsOffUser,
+                new UpdateSmartReturnSettingsCommand(true, 38.4237, 27.1428,
+                        "Konak", LocalTime.of(18, 30), 15));
+        service.updateMyPreferences(notificationsOffUser, new UpdatePreferencesCommand(null, false));
+
+        assertThat(service.claimDueSmartReturnPrompts(LocalDate.of(2026, 6, 6), 10)).isEmpty();
+    }
+
+    @Test
     void smartReturnReturnCheckClaimMarksInProgressWithoutCompleting() {
         UUID authUserId = UUID.randomUUID();
         service.createProfile(command(authUserId));

@@ -1,4 +1,11 @@
-import type { Profile, SmartReturnSettings, UserPreference, UserStats, VehicleProfile } from '@parkio/types';
+import type {
+  GeocodeResult,
+  Profile,
+  SmartReturnSettings,
+  UserPreference,
+  UserStats,
+  VehicleProfile,
+} from '@parkio/types';
 import { http, HttpResponse } from 'msw';
 import { screen } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
@@ -46,6 +53,19 @@ const smartReturn: SmartReturnSettings = {
 };
 
 const emptyVehicle: VehicleProfile = { vehicleType: null, plate: null };
+const GEOCODING_URL = `${API_BASE}/geocoding/search`;
+
+function geocodeResult(overrides: Partial<GeocodeResult> = {}): GeocodeResult {
+  return {
+    id: 'konak-1',
+    displayName: 'Konak, İzmir, Ege Bölgesi, Türkiye',
+    primary: 'Konak',
+    secondary: 'İzmir',
+    lat: 38.4187168,
+    lng: 27.1282675,
+    ...overrides,
+  };
+}
 
 function useProfileHandlers(vehicle: VehicleProfile = emptyVehicle) {
   server.use(
@@ -200,6 +220,79 @@ describe('ProfilePage', () => {
 
     expect(screen.getByRole('button', { name: 'Driving today' })).toBeEnabled();
     expect(screen.getByRole('button', { name: 'Not by car' })).toBeEnabled();
+  });
+
+  it('selects a Smart Return home area from geocoding suggestions', async () => {
+    useProfileHandlers();
+    server.use(
+      http.get(GEOCODING_URL, () =>
+        HttpResponse.json({
+          results: [
+            geocodeResult({ id: 'konak', primary: 'Konak', secondary: 'İzmir', lat: 38.4187, lng: 27.1283 }),
+            geocodeResult({ id: 'alsancak', primary: 'Alsancak', secondary: 'Konak, İzmir', lat: 38.438, lng: 27.141 }),
+            geocodeResult({ id: 'karsiyaka', primary: 'Karşıyaka', secondary: 'İzmir', lat: 38.462, lng: 27.114 }),
+            geocodeResult({
+              id: 'vali-nevzat',
+              primary: 'Vali Nevzat Ayaz Lisesi',
+              secondary: 'Karşıyaka, İzmir',
+              lat: 38.461,
+              lng: 27.102,
+            }),
+          ],
+        }),
+      ),
+    );
+    renderProfile();
+    const user = userEvent.setup();
+
+    await user.click(screen.getByRole('tab', { name: 'Smart Return' }));
+    await user.type(await screen.findByLabelText('Saved home area'), 'Konak');
+    const options = await screen.findAllByRole('button', { name: /Konak/ });
+    await user.click(options[0]);
+
+    expect(screen.getByLabelText('Home latitude')).toHaveValue(38.4187);
+    expect(screen.getByLabelText('Home longitude')).toHaveValue(27.1283);
+    expect(screen.getByLabelText('Home label')).toHaveValue('İzmir');
+  });
+
+  it('shows an empty Smart Return home search state without treating it as an error', async () => {
+    useProfileHandlers();
+    server.use(http.get(GEOCODING_URL, () => HttpResponse.json({ results: [] })));
+    renderProfile();
+    const user = userEvent.setup();
+
+    await user.click(screen.getByRole('tab', { name: 'Smart Return' }));
+    await user.type(await screen.findByLabelText('Saved home area'), 'zzqqww');
+
+    expect(await screen.findByText('No places found')).toBeInTheDocument();
+    expect(screen.queryByText('Could not load suggestions')).not.toBeInTheDocument();
+  });
+
+  it('shows an error only when Smart Return home search fails', async () => {
+    useProfileHandlers();
+    server.use(http.get(GEOCODING_URL, () => new HttpResponse(null, { status: 500 })));
+    renderProfile();
+    const user = userEvent.setup();
+
+    await user.click(screen.getByRole('tab', { name: 'Smart Return' }));
+    await user.type(await screen.findByLabelText('Saved home area'), 'Konak');
+
+    expect(await screen.findByText('Could not load suggestions')).toBeInTheDocument();
+  });
+
+  it('keeps the Smart Return today prompt usable at 360px width', async () => {
+    useProfileHandlers();
+    window.innerWidth = 360;
+    window.dispatchEvent(new Event('resize'));
+    renderProfile();
+    const user = userEvent.setup();
+
+    await user.click(screen.getByRole('tab', { name: 'Smart Return' }));
+
+    expect(await screen.findByText('Are you driving today?')).toBeInTheDocument();
+    expect(screen.getByLabelText('Expected return time')).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Driving today' })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Not by car' })).toBeInTheDocument();
   });
 
   it('hides Smart Return when the feature flag is off', async () => {

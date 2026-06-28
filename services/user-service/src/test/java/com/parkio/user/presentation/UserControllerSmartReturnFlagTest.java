@@ -43,7 +43,9 @@ class UserControllerSmartReturnFlagTest {
         mvc(userService, true)
                 .perform(get("/api/v1/users/me/smart-return").header(USER_ID_HEADER, USER_ID))
                 .andExpect(status().isOk())
-                .andExpect(jsonPath("$.enabled").value(false));
+                .andExpect(jsonPath("$.enabled").value(false))
+                .andExpect(jsonPath("$.reminderLeadMinutes").value(UserPreference.DEFAULT_SMART_RETURN_LEAD_MINUTES))
+                .andExpect(jsonPath("$.todayStatus").value("UNKNOWN"));
 
         verify(userService).getMySmartReturn(USER_ID);
     }

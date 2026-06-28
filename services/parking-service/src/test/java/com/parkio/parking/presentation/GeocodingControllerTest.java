@@ -15,6 +15,8 @@ import java.util.List;
 import java.util.UUID;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.ValueSource;
 import org.mockito.Mockito;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.setup.MockMvcBuilders;
@@ -54,6 +56,18 @@ class GeocodingControllerTest {
                 .andExpect(jsonPath("$.results[0].secondary").value("Konak, İzmir"))
                 .andExpect(jsonPath("$.results[0].lat").value(38.42))
                 .andExpect(jsonPath("$.results[0].lng").value(27.14));
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings = {"Konak", "Alsancak", "Karşıyaka", "Vali Nevzat Ayaz Lisesi"})
+    void commonTurkishPlaceQueriesReturnOkWhenProviderHasResults(String query) throws Exception {
+        when(service.search(any(), any())).thenReturn(List.of(
+                new GeocodeResult("tr-1", query + ", İzmir", query, "İzmir", 38.42, 27.14)));
+
+        mockMvc.perform(get("/api/v1/geocoding/search").param("q", query).header("X-User-Id", USER_ID))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.results.length()").value(1))
+                .andExpect(jsonPath("$.results[0].primary").value(query));
     }
 
     @Test
