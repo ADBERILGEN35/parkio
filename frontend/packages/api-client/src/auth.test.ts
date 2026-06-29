@@ -43,4 +43,25 @@ describe('auth api credentials', () => {
       email: 'user@example.com',
     });
   });
+
+  it('sends mobile refresh tokens in refresh/logout request bodies when provided', async () => {
+    const client = fakeClient();
+    const auth = createAuthApi(client);
+
+    await auth.refresh('mobile-refresh-token');
+    await auth.logout('mobile-refresh-token');
+
+    expect(client.post).toHaveBeenNthCalledWith(
+      1,
+      '/auth/refresh-token',
+      { refreshToken: 'mobile-refresh-token' },
+      { withCredentials: true },
+    );
+    expect(client.post).toHaveBeenNthCalledWith(
+      2,
+      '/auth/logout',
+      { refreshToken: 'mobile-refresh-token' },
+      { withCredentials: true },
+    );
+  });
 });

@@ -19,6 +19,7 @@ import com.parkio.auth.presentation.dto.AuthResponse;
 import com.parkio.auth.presentation.dto.ChangePasswordRequest;
 import com.parkio.auth.presentation.dto.ForgotPasswordRequest;
 import com.parkio.auth.presentation.dto.LoginRequest;
+import com.parkio.auth.presentation.dto.MobileTokenRequest;
 import com.parkio.auth.presentation.dto.RegisterRequest;
 import com.parkio.auth.presentation.dto.ResendVerificationRequest;
 import com.parkio.auth.presentation.dto.ResetPasswordRequest;
@@ -96,15 +97,29 @@ public class AuthController {
             throw ex;
         }
         authMetrics.loginSucceeded();
+        if (isMobileClient(httpRequest)) {
+            // Native client: refresh token returned in the body for SecureStore; no cookie.
+            return ResponseEntity.ok(AuthResponse.fromMobile(result));
+        }
         return withRefreshCookie(ResponseEntity.ok(), result).body(AuthResponse.from(result));
     }
 
     @Operation(summary = "Rotate refresh token")
     @PostMapping("/refresh-token")
-    public ResponseEntity<AuthResponse> refresh(HttpServletRequest request) {
-        validateOrigin(request);
-        String token = refreshTokenCookie(request);
+    public ResponseEntity<AuthResponse> refresh(HttpServletRequest request,
+                                                @RequestBody(required = false) MobileTokenRequest body) {
+        boolean mobile = isMobileClient(request);
+        // Origin enforcement is a CSRF guard for the browser cookie transport. Native
+        // clients carry no ambient cookie and no Origin header, and present the refresh
+        // token explicitly in the body, so the guard does not apply to them.
+        if (!mobile) {
+            validateOrigin(request);
+        }
+        String token = mobile ? mobileRefreshToken(body) : refreshTokenCookie(request);
         AuthResult result = authService.refresh(new RefreshTokenCommand(token));
+        if (mobile) {
+            return ResponseEntity.ok(AuthResponse.fromMobile(result));
+        }
         return withRefreshCookie(ResponseEntity.ok(), result).body(AuthResponse.from(result));
     }
 
@@ -164,10 +179,18 @@ public class AuthController {
 
     @Operation(summary = "Revoke refresh token (logout)")
     @PostMapping("/logout")
-    public ResponseEntity<Void> logout(HttpServletRequest request) {
-        validateOrigin(request);
-        String token = refreshTokenCookie(request);
+    public ResponseEntity<Void> logout(HttpServletRequest request,
+                                       @RequestBody(required = false) MobileTokenRequest body) {
+        boolean mobile = isMobileClient(request);
+        if (!mobile) {
+            validateOrigin(request);
+        }
+        String token = mobile ? mobileRefreshToken(body) : refreshTokenCookie(request);
         authService.logout(new LogoutCommand(token));
+        if (mobile) {
+            // Nothing to clear on native — there is no cookie.
+            return ResponseEntity.noContent().build();
+        }
         return ResponseEntity.noContent()
                 .header("Set-Cookie", expiredCookie(refreshCookie.getPath()).toString())
                 .header("Set-Cookie", expiredCookie(refreshCookie.getLogoutPath()).toString())
@@ -179,8 +202,14 @@ public class AuthController {
     @PostMapping("/logout-all")
     public ResponseEntity<Void> logoutAll(@AuthenticationPrincipal AuthPrincipal principal,
                                           HttpServletRequest request) {
-        validateOrigin(request);
+        boolean mobile = isMobileClient(request);
+        if (!mobile) {
+            validateOrigin(request);
+        }
         authService.logoutAll(principal.userId());
+        if (mobile) {
+            return ResponseEntity.noContent().build();
+        }
         return ResponseEntity.noContent()
                 .header("Set-Cookie", expiredCookie(refreshCookie.getPath()).toString())
                 .header("Set-Cookie", expiredCookie(refreshCookie.getLogoutPath()).toString())
@@ -235,6 +264,25 @@ public class AuthController {
                 .filter(value -> value != null && !value.isBlank())
                 .findFirst()
                 .orElseThrow(this::invalidRefreshToken);
+    }
+
+    /**
+     * Whether the request comes from the native mobile app, signalled by the
+     * {@code X-Parkio-Client: mobile} header without browser Origin/Referer
+     * metadata. This keeps browser contexts on the cookie transport even if a
+     * script accidentally sends the mobile header.
+     */
+    private boolean isMobileClient(HttpServletRequest request) {
+        return "mobile".equalsIgnoreCase(request.getHeader("X-Parkio-Client"))
+                && request.getHeader("Origin") == null
+                && request.getHeader("Referer") == null;
+    }
+
+    private String mobileRefreshToken(MobileTokenRequest body) {
+        if (body == null || body.refreshToken() == null || body.refreshToken().isBlank()) {
+            throw invalidRefreshToken();
+        }
+        return body.refreshToken();
     }
 
     private RuntimeException invalidRefreshToken() {

@@ -12,6 +12,12 @@ export interface ApiClientOptions {
   onAuthFailure?: () => void;
   /** Called on any 403 ACCOUNT_NOT_ACTIVE — app should enter the suspended state. */
   onAccountNotActive?: () => void;
+  /**
+   * Static headers stamped on every request. The native app uses this to send
+   * `X-Parkio-Client: mobile`, which switches the backend to the body-based
+   * refresh-token transport. Web omits it and keeps the cookie flow.
+   */
+  defaultHeaders?: Record<string, string>;
 }
 
 type RefreshHandler = () => Promise<string | null>;
@@ -68,12 +74,12 @@ function isRefreshExempt(url: string | undefined): boolean {
 }
 
 export function createApiClient(options: ApiClientOptions): AxiosInstance {
-  const { tokenStorage, onAuthFailure, onAccountNotActive } = options;
+  const { tokenStorage, onAuthFailure, onAccountNotActive, defaultHeaders } = options;
   const baseURL = options.baseURL ?? DEFAULT_API_BASE_URL;
 
   const client = axios.create({
     baseURL,
-    headers: { 'Content-Type': 'application/json' },
+    headers: { 'Content-Type': 'application/json', ...defaultHeaders },
     timeout: 30_000,
   });
 

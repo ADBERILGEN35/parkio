@@ -9,6 +9,12 @@ client, and validation schemas are never duplicated between web and mobile.
 > storage, navigation, error/offline handling, env strategy, CI and EAS config.
 > Map, Upload, Camera, Smart Return UI, Push and Location are **placeholders only**.
 
+M1.5 hardens native authentication: mobile requests send
+`X-Parkio-Client: mobile`, receive the refresh token in the login/refresh response
+body, persist access + refresh tokens only in `expo-secure-store`, rotate on
+refresh, and send the current refresh token in the logout body. Web remains on the
+HttpOnly refresh-cookie flow.
+
 ## Stack
 
 - Expo SDK 56 · React Native · TypeScript
@@ -57,6 +63,18 @@ matching EAS build profile in `eas.json`. No secrets are committed.
 See [`docs/mobile-architecture.md`](../../../docs/mobile-architecture.md) for the
 full architecture: folder structure, navigation, shared packages, the
 authentication & token-refresh flow, the environment strategy, and the M2+ roadmap.
+
+## Runtime auth checklist
+
+Do not mark runtime proof complete unless this has been run on an Android emulator,
+iOS simulator, or physical device:
+
+- Fresh install opens the login route.
+- Login reaches the Home tab and stores tokens in SecureStore.
+- Killing and reopening the app restores the session through refresh rotation.
+- A stale access token produces one refresh and one retry.
+- Logout clears local tokens and reopens to login.
+- Logout-all clears local tokens and stale refresh tokens cannot restore.
 
 ## Building APKs (EAS)
 

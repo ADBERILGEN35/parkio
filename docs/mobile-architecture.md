@@ -14,7 +14,8 @@ not a WebView wrapper, and shares its domain layer with the web app.
 - **Single, predictable session lifecycle** with secure token storage.
 - **Platform seams are injected, not forked** — the shared api-client is
   configured with mobile implementations of its abstractions.
-- Backend and web frontend are **not modified**.
+- Web behavior stays cookie-backed; native mobile opts into a SecureStore refresh
+  flow with `X-Parkio-Client: mobile`.
 
 ---
 
@@ -94,20 +95,25 @@ so behaviour is consistent across platforms.
 ### Cold start (session restore)
 ```
 app/_layout.tsx  ── bootstrapSession()
-   1. tokenStorage.hydrate()      # load access token from keystore → memory
+   1. tokenStorage.hydrate()      # load access + refresh token from keystore
    2. refreshSession()            # single-flight POST /auth/refresh-token
-        success → setTokens + setSession (user is authenticated)
-        failure → clearSession    # back to login
+        success -> rotate tokens + setSession (user is authenticated)
+        failure -> clear keystore + state (back to login)
    3. endBootstrap()              # splash hides; index/guards decide route
 ```
 
 ### Sign in / sign up
 ```
-signIn(credentials) → authApi.login → applyAuthResult(accessToken, user)
-   tokenStorage.setTokens(...)            # memory + keystore
+signIn(credentials) -> authApi.login with X-Parkio-Client: mobile
+   backend returns accessToken + refreshToken in the body
+   tokenStorage.setTokens(...)            # memory + SecureStore
    secureStore.saveSession({ userId })
    authStore.setSession(user)             # UI flips to authenticated
 ```
+
+Registration returns a pending-verification response and does not authenticate the
+user. The app clears any local session state and returns the user to login after
+account creation.
 
 ### 401 handling & auto-refresh (in `@parkio/api-client`)
 - A 401 on a non-exempt request triggers **one** refresh via the shared
@@ -121,8 +127,11 @@ signIn(credentials) → authApi.login → applyAuthResult(accessToken, user)
   success can't resurrect a session the user just logged out of.
 
 ### Logout / Logout all
-`signOut` / `signOutAll` call the backend best-effort, then always clear the
-keystore and in-memory session locally; the `(main)` guard redirects to login.
+`signOut` sends the current SecureStore refresh token in the logout body so the
+backend revokes exactly that mobile session. `signOutAll` uses the bearer access
+token to revoke every server-side refresh session for the user. Both calls are
+best-effort locally: the keystore and in-memory session are always cleared, and
+the `(main)` guard redirects to login.
 
 ---
 
@@ -134,23 +143,23 @@ sensitive values are persisted — never AsyncStorage.
 | Key | Value | Notes |
 | --- | --- | --- |
 | `parkio.accessToken` | JWT access token | Mirrored from the in-memory cache on every write. |
-| `parkio.refreshToken` | refresh token slot | Reserved (see below). |
+| `parkio.refreshToken` | opaque refresh token | Present only for native mobile; rotated on refresh. |
 | `parkio.userId` | user id | For optimistic restore / diagnostics. |
 
 **The synchronous/asynchronous bridge.** The shared api-client reads the access
 token *synchronously* in its request interceptor, but the keystore is *async*.
 `SecureTokenStorage` (`src/services/tokenStorage.ts`) solves this by keeping the
-access token in memory as the synchronous source of truth and mirroring every
-write to the keystore; `hydrate()` reloads it on cold start.
+access and refresh tokens in memory as the synchronous source of truth and
+mirroring every write to the keystore; `hydrate()` reloads both on cold start.
 
-**Refresh token reality (important).** The unmodified backend issues the refresh
-token as an **HttpOnly cookie** (the auth endpoints use `withCredentials`) and does
-*not* return it in the response body. On native, that cookie is managed by the
-platform networking layer and replayed on `POST /auth/refresh-token`. The
-`parkio.refreshToken` keystore slot and the `secureStore` API are therefore wired
-and ready, but in M1 the refresh token is not readable from JS. This is a
-deliberate consequence of "do not modify the backend." See the roadmap (§9) for the
-M2 task to negotiate a mobile-friendly bearer-refresh path.
+**Refresh transport.** Web clients continue to receive the raw refresh token only
+as an HttpOnly cookie and never see it in JavaScript. Native mobile sends
+`X-Parkio-Client: mobile` without browser `Origin`/`Referer` headers, receives
+the refresh token in the JSON login/refresh body, stores it only in SecureStore
+plus memory, and replays it in the refresh/logout body. Browser-like requests
+stay on the cookie flow even if they accidentally send the mobile header. The
+backend still rotates refresh tokens on every successful refresh and reuse
+detection remains server-side.
 
 ---
 
@@ -211,8 +220,6 @@ No release binary is built or published in this sprint — only configured.
 - **M2 — Upload & camera:** spot capture wizard (reusing `mediaApi`/`parkingApi`).
 - **M2 — Push notifications:** finish `services/pushNotifications.ts` (permissions,
   Expo push token, register with notification-service, handlers + deep-link routing).
-- **M2 — Token flow hardening:** negotiate a mobile bearer-refresh contract so the
-  refresh token can live in the keystore end-to-end (removes cookie reliance).
 - **M3 — Smart Return mobile UI**, location services, background checks.
 - **Detox E2E** (see `e2e/README.md`) and a dedicated device-CI workflow.
 - **Dark mode** finalisation + in-app theme override.

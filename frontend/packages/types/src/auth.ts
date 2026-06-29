@@ -10,6 +10,12 @@ export interface AuthResponse {
   tokenType: string;
   accessTokenExpiresAt: string | null;
   refreshTokenExpiresAt: string | null;
+  /**
+   * Raw refresh token. Present ONLY for native mobile clients (requests sent with
+   * the `X-Parkio-Client: mobile` header); the backend omits this field entirely
+   * for web responses, where the refresh token is carried by an HttpOnly cookie.
+   */
+  refreshToken?: string | null;
   user: User;
 }
 

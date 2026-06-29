@@ -127,12 +127,15 @@ unaffected (opaque, validated against the database, not JWTs).
 ## Refresh tokens
 
 Refresh tokens are opaque 256-bit random values. Only their SHA-256 hash is
-persisted (`refresh_tokens.token_hash`); the raw value is delivered only as an
-HttpOnly cookie and is never serialized in JSON. On
-`POST /api/v1/auth/refresh-token` the presented cookie token is **rotated**: the
-old row is revoked and a brand-new token is issued, atomically in one
-transaction. The replacement keeps the same `token_family_id` and points to its
-predecessor through `parent_token_id`.
+persisted (`refresh_tokens.token_hash`). Web clients receive the raw value only
+as an HttpOnly cookie and never in JSON. Native mobile clients opt in with
+`X-Parkio-Client: mobile` on requests that do not carry browser `Origin` or
+`Referer` headers; for those requests only, login/refresh responses carry the raw
+refresh token in the JSON body so the app can store it in SecureStore and send it
+back in refresh/logout bodies. On `POST /api/v1/auth/refresh-token` the
+presented token is **rotated**: the old row is revoked and a brand-new token is
+issued, atomically in one transaction. The replacement keeps the same
+`token_family_id` and points to its predecessor through `parent_token_id`.
 
 **Two expiry limits bound a session.** Each token carries a *sliding* per-token TTL
 (`parkio.security.jwt.refresh-token-ttl`, default **30 days**) — every rotation issues
@@ -186,8 +189,8 @@ not log the user out of their other devices. The bump is monotonic and never res
 restore after suspension does not resurrect old access tokens.
 
 `POST /api/v1/auth/logout-all` (authenticated; identified by the access token, not the
-refresh cookie) revokes every active refresh-token family for the caller with reason
-`LOGOUT`, bumps the session epoch, and clears both refresh cookie paths. It is idempotent.
+refresh cookie/body token) revokes every active refresh-token family for the caller with reason
+`LOGOUT`, bumps the session epoch, and clears both refresh cookie paths for web. It is idempotent.
 
 The gateway reads the current epoch from an **internal** endpoint,
 `GET /internal/auth/users/{userId}/session-epoch`, which returns only
@@ -288,24 +291,28 @@ are exported at `/actuator/prometheus` as `email_sent_total`,
 
 ## Refresh-token transport and CSRF boundary
 
-The raw refresh token is still generated and rotated by the application service,
-but it is no longer serialized in JSON responses. The controller sets it as an
-HttpOnly `Secure` `SameSite=Strict` cookie named `parkio_refresh`, scoped to
-`/api/v1/auth/refresh-token` and `/api/v1/auth/logout`. Login/register/refresh
-responses for verified sessions return only the access token, expiry metadata and
-user/session shape. Registration for pending accounts returns no session tokens
-and does not set the refresh cookie.
+The raw refresh token is generated and rotated by the application service. For
+web requests, the controller sets it as an HttpOnly `Secure` `SameSite=Strict`
+cookie named `parkio_refresh`, scoped to `/api/v1/auth/refresh-token` and
+`/api/v1/auth/logout`; web JSON responses return only the access token, expiry
+metadata and user/session shape. Registration for pending accounts returns no
+session tokens and does not set the refresh cookie.
 
-Refresh and logout read the token from the cookie, not the request body. Refresh
-rotation keeps the existing reuse-detection semantics: the presented token is
-revoked, the child token is issued, and both cookie paths receive the rotated
-value. Logout revokes the current cookie token and clears both cookie paths.
+For native mobile requests (`X-Parkio-Client: mobile` with no browser
+`Origin`/`Referer`), the controller does not set refresh cookies. Login and
+refresh include the raw refresh token in the JSON body, and refresh/logout read
+the presented token from the JSON body. Refresh rotation keeps the same
+reuse-detection semantics: the presented token is revoked and the child token is
+issued. Logout revokes the current body token.
 
-Because refresh/logout use an ambient cookie, the presentation layer validates
-`Origin` or `Referer` against `parkio.security.refresh-cookie.allowed-origins`
-(wired from `PARKIO_CORS_ALLOWED_ORIGINS` in compose). Cross-site refresh/logout
-requests are rejected before the cookie token is used. SameSite=Strict and the
-narrow cookie paths are defense-in-depth, not the only CSRF control.
+Because web refresh/logout use an ambient cookie, the presentation layer
+validates `Origin` or `Referer` against
+`parkio.security.refresh-cookie.allowed-origins` (wired from
+`PARKIO_CORS_ALLOWED_ORIGINS` in compose). Cross-site refresh/logout requests are
+rejected before the cookie token is used. SameSite=Strict and the narrow cookie
+paths are defense-in-depth, not the only CSRF control. Native mobile does not use
+ambient cookies; it must explicitly opt in with `X-Parkio-Client: mobile`, send
+no browser `Origin`/`Referer`, and present the refresh token in the request body.
 
 Local development can set `PARKIO_REFRESH_COOKIE_SECURE=false` via the `dev`
 profile so browsers send the cookie over local HTTP. Hosted beta and production

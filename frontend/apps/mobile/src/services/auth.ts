@@ -1,5 +1,5 @@
 import { refreshSession } from '@parkio/api-client';
-import type { LoginRequest, RegisterRequest } from '@parkio/types';
+import type { AuthResponse, LoginRequest, RegisterRequest } from '@parkio/types';
 import { useAuthStore } from '@/state/authStore';
 import { authApi } from './api';
 import { secureStore } from './secureStore';
@@ -11,29 +11,37 @@ import { tokenStorage } from './tokenStorage';
  * there is a single, predictable session lifecycle.
  */
 
-function applyAuthResult(accessToken: string | null, user: { id: string }) {
-  if (!accessToken) {
+function applyAuthResult(result: AuthResponse) {
+  if (!result.accessToken) {
     throw new Error('Authentication response did not include an access token.');
   }
-  tokenStorage.setTokens({ accessToken });
-  void secureStore.saveSession({ accessToken, userId: user.id });
+  if (!result.refreshToken) {
+    throw new Error('Mobile authentication response did not include a refresh token.');
+  }
+  tokenStorage.setTokens({ accessToken: result.accessToken, refreshToken: result.refreshToken });
+  void secureStore.saveSession({
+    accessToken: result.accessToken,
+    refreshToken: result.refreshToken,
+    userId: result.user.id,
+  });
 }
 
 export async function signIn(credentials: LoginRequest): Promise<void> {
   const result = await authApi.login(credentials);
-  applyAuthResult(result.accessToken, result.user);
+  applyAuthResult(result);
   useAuthStore.getState().setSession(result.user);
 }
 
 export async function signUp(payload: RegisterRequest): Promise<void> {
-  const result = await authApi.register(payload);
-  applyAuthResult(result.accessToken, result.user);
-  useAuthStore.getState().setSession(result.user);
+  await authApi.register(payload);
+  tokenStorage.clearTokens();
+  useAuthStore.getState().clearSession();
 }
 
 export async function signOut(): Promise<void> {
+  const refreshToken = tokenStorage.getRefreshToken();
   try {
-    await authApi.logout();
+    await authApi.logout(refreshToken ?? undefined);
   } catch {
     // Best-effort server revocation; the local session is cleared regardless.
   } finally {
@@ -74,7 +82,12 @@ export async function bootstrapSession(): Promise<void> {
   const store = useAuthStore.getState();
   try {
     await tokenStorage.hydrate();
-    await refreshSession();
+    const accessToken = await refreshSession();
+    if (!accessToken) {
+      await finishLocalLogout();
+    }
+  } catch {
+    await finishLocalLogout();
   } finally {
     store.endBootstrap();
   }

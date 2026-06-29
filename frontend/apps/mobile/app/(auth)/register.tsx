@@ -35,7 +35,7 @@ export default function RegisterScreen() {
     setSubmitting(true);
     try {
       await register(values);
-      router.replace('/(main)/(tabs)/home');
+      router.replace('/(auth)/login');
     } catch (error) {
       toast.showError(toUserMessage(error));
     } finally {

@@ -25,15 +25,22 @@ export function createAuthApi(client: AxiosInstance) {
         .then((r) => r.data);
     },
 
-    refresh(): Promise<AuthResponse> {
+    /**
+     * Rotate the refresh token. Web sends no body and relies on the HttpOnly
+     * refresh cookie. Native mobile passes its stored refresh token, which the
+     * backend reads from the body when the `X-Parkio-Client: mobile` header is set.
+     */
+    refresh(refreshToken?: string): Promise<AuthResponse> {
+      const body = refreshToken ? { refreshToken } : undefined;
       return client
-        .post<AuthResponse>('/auth/refresh-token', undefined, { withCredentials: true })
+        .post<AuthResponse>('/auth/refresh-token', body, { withCredentials: true })
         .then((r) => r.data);
     },
 
-    logout(): Promise<void> {
+    logout(refreshToken?: string): Promise<void> {
+      const body = refreshToken ? { refreshToken } : undefined;
       return client
-        .post<void>('/auth/logout', undefined, { withCredentials: true })
+        .post<void>('/auth/logout', body, { withCredentials: true })
         .then(() => undefined);
     },
 
