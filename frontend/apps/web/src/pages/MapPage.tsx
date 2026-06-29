@@ -84,6 +84,7 @@ export function MapPage() {
   const [mapZoom, setMapZoom] = useState(DEFAULT_MAP_ZOOM);
   const [centerLabel, setCenterLabel] = useState<string | null>(null);
   const [advancedOpen, setAdvancedOpen] = useState(false);
+  const [smartReturnBannerOpen, setSmartReturnBannerOpen] = useState(true);
 
   // Discovery state (selection is shared by map markers, the preview card, and
   // the result list; filters/sort are client-side presentation only).
@@ -384,11 +385,19 @@ export function MapPage() {
               </p>
             ) : null}
 
-            {smartReturnMode ? (
-              <p className="m-0 mt-sm flex items-center gap-xs rounded-2xl bg-primary/10 px-md py-sm text-label-sm font-medium text-primary">
+            {smartReturnMode && smartReturnBannerOpen ? (
+              <div className="m-0 mt-sm flex items-center gap-xs rounded-2xl bg-primary/10 px-md py-sm text-label-sm font-medium text-primary">
                 <Icon name="home_pin" className="text-[16px] leading-none" />
-                Smart Return is checking near your saved home area.
-              </p>
+                <span className="flex-1">Showing parking near your saved home.</span>
+                <button
+                  type="button"
+                  aria-label="Dismiss Smart Return notice"
+                  onClick={() => setSmartReturnBannerOpen(false)}
+                  className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full text-primary hover:bg-primary/10 focus:outline-none focus-visible:ring-2 focus-visible:ring-primary"
+                >
+                  <Icon name="close" className="text-[16px] leading-none" />
+                </button>
+              </div>
             ) : null}
 
             {geoStatus === 'error' && geoError ? (
@@ -462,11 +471,19 @@ export function MapPage() {
             </p>
           ) : null}
 
-          {smartReturnMode ? (
-            <p className="pointer-events-auto mx-auto mt-xs flex max-w-[430px] items-center gap-xs rounded-full bg-primary/10 px-md py-xs text-label-sm font-medium text-primary shadow-soft backdrop-blur-xl">
+          {smartReturnMode && smartReturnBannerOpen ? (
+            <div className="pointer-events-auto mx-auto mt-xs flex max-w-[430px] items-center gap-xs rounded-full bg-primary/10 px-md py-xs text-label-sm font-medium text-primary shadow-soft backdrop-blur-xl">
               <Icon name="home_pin" className="text-[14px] leading-none" />
-              <span className="truncate">Smart Return home area</span>
-            </p>
+              <span className="flex-1 truncate">Showing parking near your saved home.</span>
+              <button
+                type="button"
+                aria-label="Dismiss Smart Return notice"
+                onClick={() => setSmartReturnBannerOpen(false)}
+                className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full text-primary hover:bg-primary/15 focus:outline-none focus-visible:ring-2 focus-visible:ring-primary"
+              >
+                <Icon name="close" className="text-[14px] leading-none" />
+              </button>
+            </div>
           ) : null}
 
           {geoStatus === 'error' && geoError ? (

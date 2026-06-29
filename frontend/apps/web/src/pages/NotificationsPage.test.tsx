@@ -142,7 +142,7 @@ describe('NotificationsPage', () => {
     renderNotifications();
     const user = userEvent.setup();
 
-    await user.click(await screen.findByRole('button', { name: 'Answer' }));
+    await user.click(await screen.findByRole('button', { name: "Set today's return" }));
 
     expect(screen.getByText('profile:/profile?section=smart-return')).toBeInTheDocument();
   });

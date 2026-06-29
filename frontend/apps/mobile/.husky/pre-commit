@@ -1,0 +1,11 @@
+#!/usr/bin/env sh
+# Pre-commit hook for the Parkio mobile app.
+#
+# This repo is a polyglot monorepo, so husky is NOT auto-installed at the git root
+# (that would hijack hooks for unrelated teams). Enable it once, locally, with:
+#
+#   git config core.hooksPath frontend/apps/mobile/.husky
+#
+# The hook runs lint-staged against staged files in the mobile app only.
+cd "$(git rev-parse --show-toplevel)/frontend/apps/mobile" || exit 1
+pnpm exec lint-staged

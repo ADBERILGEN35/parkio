@@ -179,7 +179,7 @@ describe('MapPage', () => {
 
     renderWithProviders(<MapPage />, { initialEntries: ['/map?smartReturn=1'] });
 
-    expect(await screen.findByText('Smart Return home area')).toBeInTheDocument();
+    expect(await screen.findByText('Showing parking near your saved home.')).toBeInTheDocument();
     expect(await screen.findByRole('link', { name: 'Stub Address 7' })).toBeInTheDocument();
     expect(screen.getByTestId('map-center')).toHaveTextContent('38.4237,27.1428');
     expect(nearbyUrl?.searchParams.get('lat')).toBe('38.4237');

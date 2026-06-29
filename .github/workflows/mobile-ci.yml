@@ -1,0 +1,74 @@
+# Mobile quality gate for the Expo / React Native app under `frontend/apps/mobile`.
+# Mirrors frontend-ci.yml's discipline (least-privilege permissions, job timeout,
+# pnpm workspace install) but targets the mobile app and adds `expo-doctor`.
+#
+# Scope: typecheck + lint + unit tests (jest-expo) + expo doctor. Release APK/AAB
+# builds are intentionally NOT here — they run via EAS (see frontend/apps/mobile/eas.json),
+# gated behind their own workflow once signing credentials exist.
+#
+# Path-filtered to mobile + shared-package changes so unrelated PRs stay fast.
+
+name: Mobile CI
+
+on:
+  pull_request:
+    paths:
+      - "frontend/apps/mobile/**"
+      - "frontend/packages/**"
+      - ".github/workflows/mobile-ci.yml"
+  push:
+    branches: [master]
+    paths:
+      - "frontend/apps/mobile/**"
+      - "frontend/packages/**"
+      - ".github/workflows/mobile-ci.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: mobile-ci-${{ github.ref }}
+  cancel-in-progress: true
+
+defaults:
+  run:
+    working-directory: frontend
+
+jobs:
+  mobile-checks:
+    name: Typecheck, lint, test & expo doctor
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          package_json_file: frontend/package.json
+
+      - name: Set up Node.js 20
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: pnpm
+          cache-dependency-path: frontend/pnpm-lock.yaml
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Typecheck
+        run: pnpm --filter @parkio/mobile typecheck
+
+      - name: Lint
+        run: pnpm --filter @parkio/mobile lint
+
+      - name: Unit tests
+        run: pnpm --filter @parkio/mobile test -- --ci
+
+      # Validates the Expo project config & native dependency versions. Does NOT
+      # build a binary.
+      - name: Expo doctor
+        run: pnpm --filter @parkio/mobile exec expo-doctor

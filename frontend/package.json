@@ -10,7 +10,12 @@
     "test": "pnpm -r test",
     "e2e": "pnpm --filter @parkio/web e2e",
     "e2e:ui": "pnpm --filter @parkio/web e2e:ui",
-    "e2e:real": "pnpm --filter @parkio/web e2e:real"
+    "e2e:real": "pnpm --filter @parkio/web e2e:real",
+    "mobile": "pnpm --filter @parkio/mobile start",
+    "mobile:typecheck": "pnpm --filter @parkio/mobile typecheck",
+    "mobile:lint": "pnpm --filter @parkio/mobile lint",
+    "mobile:test": "pnpm --filter @parkio/mobile test",
+    "mobile:doctor": "pnpm --filter @parkio/mobile run doctor"
   },
   "engines": {
     "node": ">=20"

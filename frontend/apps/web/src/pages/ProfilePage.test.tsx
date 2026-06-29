@@ -7,7 +7,7 @@ import type {
   VehicleProfile,
 } from '@parkio/types';
 import { http, HttpResponse } from 'msw';
-import { screen, waitFor } from '@testing-library/react';
+import { screen } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { Route, Routes } from 'react-router-dom';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
@@ -212,29 +212,31 @@ describe('ProfilePage', () => {
 
   it('saves Smart Return settings with a home area and schedules today', async () => {
     useProfileHandlers();
+    server.use(
+      http.get(GEOCODING_URL, () =>
+        HttpResponse.json({
+          results: [geocodeResult({ id: 'konak', primary: 'Konak', secondary: 'İzmir', lat: 38.4187, lng: 27.1283 })],
+        }),
+      ),
+    );
     renderProfile();
     const user = userEvent.setup();
 
     await user.click(screen.getByRole('tab', { name: 'Smart Return' }));
-    await user.click(await screen.findByLabelText('Enable Smart Return'));
-    await user.clear(screen.getByLabelText('Home latitude'));
-    await user.type(screen.getByLabelText('Home latitude'), '38.4237');
-    await user.clear(screen.getByLabelText('Home longitude'));
-    await user.type(screen.getByLabelText('Home longitude'), '27.1428');
-    await user.type(screen.getByLabelText('Home label'), 'Konak');
-    await user.click(screen.getByRole('button', { name: 'Save Smart Return' }));
+    await user.click(await screen.findByRole('button', { name: /Enable Smart Return/ }));
+    await user.type(await screen.findByLabelText('Home area'), 'Konak');
+    await user.click(await screen.findByRole('button', { name: /Konak/ }));
+    await user.click(screen.getByRole('button', { name: 'Turn on Smart Return' }));
 
-    expect(await screen.findByText(/Saved area: Konak/)).toBeInTheDocument();
-
-    expect(screen.getByRole('button', { name: 'Yes, driving' })).toBeEnabled();
+    expect(await screen.findByRole('button', { name: 'Yes, driving' })).toBeEnabled();
     expect(screen.getByRole('button', { name: 'Not by car' })).toBeEnabled();
   });
 
   it('opens Smart Return directly from the notification deeplink', async () => {
-    useProfileHandlers();
+    useProfileHandlers(emptyVehicle, enabledSmartReturn);
     renderProfile({ initialEntries: ['/profile?section=smart-return'] });
 
-    expect(await screen.findByText('Private by design')).toBeInTheDocument();
+    expect(await screen.findByRole('heading', { name: 'Today' })).toBeInTheDocument();
     expect(screen.getByText('Are you driving today?')).toBeInTheDocument();
   });
 
@@ -248,9 +250,9 @@ describe('ProfilePage', () => {
     expect(screen.getByLabelText('Expected return time')).toBeInTheDocument();
     await user.clear(screen.getByLabelText('Expected return time'));
     await user.type(screen.getByLabelText('Expected return time'), '23:30');
-    await user.click(screen.getByRole('button', { name: 'Save return time' }));
+    await user.click(screen.getByRole('button', { name: "Save today's plan" }));
 
-    expect(await screen.findByText(/We’ll check near your home at/)).toBeInTheDocument();
+    expect(await screen.findByText(/Smart Return is active/)).toBeInTheDocument();
   });
 
   it('not-by-car updates the Smart Return today state', async () => {
@@ -261,7 +263,7 @@ describe('ProfilePage', () => {
     await user.click(screen.getByRole('tab', { name: 'Smart Return' }));
     await user.click(await screen.findByRole('button', { name: 'Not by car' }));
 
-    expect(await screen.findByText('Smart Return is off for today.')).toBeInTheDocument();
+    expect(await screen.findByText('No Smart Return scheduled today.')).toBeInTheDocument();
   });
 
   it('cancel today clears the current Smart Return plan', async () => {
@@ -296,9 +298,10 @@ describe('ProfilePage', () => {
     const user = userEvent.setup();
 
     await user.click(screen.getByRole('tab', { name: 'Smart Return' }));
-    await user.click(await screen.findByRole('button', { name: 'Cancel today' }));
+    await user.click(await screen.findByRole('button', { name: 'Cancel' }));
 
-    await waitFor(() => expect(screen.queryByText(/We’ll check near your home at/)).not.toBeInTheDocument());
+    expect(await screen.findByText('Are you driving today?')).toBeInTheDocument();
+    expect(screen.queryByText(/Smart Return is active/)).not.toBeInTheDocument();
   });
 
   it('selects a Smart Return home area from geocoding suggestions', async () => {
@@ -325,13 +328,15 @@ describe('ProfilePage', () => {
     const user = userEvent.setup();
 
     await user.click(screen.getByRole('tab', { name: 'Smart Return' }));
-    await user.type(await screen.findByLabelText('Saved home area'), 'Konak');
+    await user.click(await screen.findByRole('button', { name: /Enable Smart Return/ }));
+    await user.type(await screen.findByLabelText('Home area'), 'Konak');
     const options = await screen.findAllByRole('button', { name: /Konak/ });
     await user.click(options[0]);
 
-    expect(screen.getByLabelText('Home latitude')).toHaveValue(38.4187);
-    expect(screen.getByLabelText('Home longitude')).toHaveValue(27.1283);
-    expect(screen.getByLabelText('Home label')).toHaveValue('İzmir');
+    // No raw coordinates are ever shown — only a friendly saved-area chip.
+    expect(await screen.findByText('İzmir')).toBeInTheDocument();
+    expect(screen.getByText('Saved')).toBeInTheDocument();
+    expect(screen.queryByLabelText('Home latitude')).not.toBeInTheDocument();
   });
 
   it('shows an empty Smart Return home search state without treating it as an error', async () => {
@@ -341,7 +346,8 @@ describe('ProfilePage', () => {
     const user = userEvent.setup();
 
     await user.click(screen.getByRole('tab', { name: 'Smart Return' }));
-    await user.type(await screen.findByLabelText('Saved home area'), 'zzqqww');
+    await user.click(await screen.findByRole('button', { name: /Enable Smart Return/ }));
+    await user.type(await screen.findByLabelText('Home area'), 'zzqqww');
 
     expect(await screen.findByText('No places found')).toBeInTheDocument();
     expect(screen.queryByText('Could not load suggestions')).not.toBeInTheDocument();
@@ -354,7 +360,8 @@ describe('ProfilePage', () => {
     const user = userEvent.setup();
 
     await user.click(screen.getByRole('tab', { name: 'Smart Return' }));
-    await user.type(await screen.findByLabelText('Saved home area'), 'Konak');
+    await user.click(await screen.findByRole('button', { name: /Enable Smart Return/ }));
+    await user.type(await screen.findByLabelText('Home area'), 'Konak');
 
     expect(await screen.findByText('Could not load suggestions')).toBeInTheDocument();
   });

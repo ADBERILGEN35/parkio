@@ -1,0 +1,36 @@
+# Expo / RN
+.expo/
+dist/
+web-build/
+expo-env.d.ts
+*.orig.*
+
+# Native
+/android
+/ios
+*.apk
+*.aab
+*.ipa
+
+# Dependencies
+node_modules/
+
+# Testing
+coverage/
+
+# Env files — never commit real secrets or environment-specific values.
+# Example templates (.env.*.example) ARE committed; real env files are not.
+.env
+.env.local
+.env.beta
+.env.production
+.env*.local
+
+# Logs / OS
+*.log
+.DS_Store
+
+# EAS local credentials
+credentials.json
+google-services.json
+GoogleService-Info.plist

@@ -89,7 +89,9 @@ export function ProfilePage({ smartReturnEnabled = frontendConfig.features.smart
           ) : null}
           {section === 'vehicle' ? <VehicleCard /> : null}
           {section === 'notifications' ? <PreferencesCard /> : null}
-          {section === 'smart-return' && smartReturnEnabled ? <SmartReturnCard /> : null}
+          {section === 'smart-return' && smartReturnEnabled ? (
+            <SmartReturnCard autoFocusToday={requestedSection === 'smart-return'} />
+          ) : null}
           {section === 'trust' ? <TrustProgressCard /> : null}
         </div>
       </div>

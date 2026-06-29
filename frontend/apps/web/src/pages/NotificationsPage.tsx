@@ -1,6 +1,7 @@
 import { isUnreadNotification, type AppNotification } from '@parkio/types';
 import {
   EmptyState,
+  Icon,
   NotificationSkeleton,
   Surface,
   cn,
@@ -220,9 +221,10 @@ function smartReturnNotificationAction(notification: AppNotification, navigate: 
       <button
         type="button"
         onClick={() => navigate(notification.metadata?.deeplink ?? '/profile?section=smart-return')}
-        className="inline-flex min-h-11 items-center justify-center gap-xs rounded-full bg-primary px-md py-sm text-label-md font-semibold text-on-primary transition-colors hover:bg-primary/90 focus:outline-none focus-visible:ring-2 focus-visible:ring-primary"
+        className="inline-flex min-h-11 w-full items-center justify-center gap-xs rounded-full bg-primary px-lg py-sm text-label-md font-semibold text-on-primary transition-colors hover:bg-primary/90 focus:outline-none focus-visible:ring-2 focus-visible:ring-primary sm:w-auto"
       >
-        Answer
+        <Icon name="directions_car" className="text-[18px] leading-none" />
+        Set today's return
       </button>
     );
   }
@@ -231,8 +233,9 @@ function smartReturnNotificationAction(notification: AppNotification, navigate: 
       <button
         type="button"
         onClick={() => navigate(notification.metadata?.deeplink ?? '/map?smartReturn=1')}
-        className="inline-flex min-h-11 items-center justify-center gap-xs rounded-full bg-primary px-md py-sm text-label-md font-semibold text-on-primary transition-colors hover:bg-primary/90 focus:outline-none focus-visible:ring-2 focus-visible:ring-primary"
+        className="inline-flex min-h-11 w-full items-center justify-center gap-xs rounded-full bg-primary px-lg py-sm text-label-md font-semibold text-on-primary transition-colors hover:bg-primary/90 focus:outline-none focus-visible:ring-2 focus-visible:ring-primary sm:w-auto"
       >
+        <Icon name="map" className="text-[18px] leading-none" />
         Open map
       </button>
     );
