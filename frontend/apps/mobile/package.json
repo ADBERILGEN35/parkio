@@ -24,7 +24,7 @@
     "@parkio/types": "workspace:*",
     "@parkio/validation": "workspace:*",
     "@react-native-community/netinfo": "12.0.1",
-    "@tanstack/react-query": "^5.62.8",
+    "@tanstack/react-query": "^5.101.2",
     "expo": "~56.0.12",
     "expo-camera": "~56.0.8",
     "expo-constants": "~56.0.18",
