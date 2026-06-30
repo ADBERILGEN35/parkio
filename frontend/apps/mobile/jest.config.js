@@ -23,6 +23,9 @@ const transformAllowList = [
 module.exports = {
   preset: 'jest-expo',
   setupFilesAfterEnv: ['<rootDir>/jest.setup.ts'],
+  // Only treat *.test.ts(x) as suites so co-located test helpers/fixtures inside
+  // `__tests__` directories aren't mistaken for (empty) test files.
+  testMatch: ['**/*.test.{ts,tsx}'],
   moduleNameMapper: {
     '^@/(.*)$': '<rootDir>/src/$1',
   },

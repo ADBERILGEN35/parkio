@@ -19,14 +19,15 @@ frontend/
 ## Prerequisites
 
 - Node.js ≥ 20
-- pnpm 9 (`corepack enable` recommended)
+- pnpm 9.15.0 via Corepack (`corepack enable` recommended; `corepack pnpm -v`
+  should print `9.15.0`)
 - Parkio backend running locally (gateway on port **8080**)
 
 ## Install
 
 ```bash
 cd frontend
-pnpm install
+corepack pnpm install
 ```
 
 Copy the web app env template:
@@ -133,6 +134,28 @@ so from a **Windows** shell in `frontend/` simply run:
 ```powershell
 pnpm install
 ```
+
+Prefer the project-pinned pnpm through Corepack:
+
+```powershell
+corepack pnpm install --frozen-lockfile
+```
+
+A global pnpm 11 install can leave a mismatched Windows `node_modules` layout for
+optional native packages. Symptoms include Jest failing before tests execute with
+`string-length` / `charRegex is not a function`, Vitest/Rollup failing to load
+`@rollup/rollup-win32-x64-msvc`, or ESLint failing to load the `unrs-resolver`
+native binding. The recovery is:
+
+```powershell
+cd frontend
+$env:CI = 'true'
+corepack pnpm install --frozen-lockfile
+```
+
+This recreates `node_modules` and installs the platform-specific optional
+dependencies already recorded in `pnpm-lock.yaml`; no lockfile deletion or package
+upgrade is required.
 
 ### Running
 

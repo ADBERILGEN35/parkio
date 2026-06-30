@@ -71,8 +71,20 @@ export default function ProfileScreen() {
 
       <View style={styles.section}>
         <AppText variant="heading">Account</AppText>
-        <Button label="Log out" variant="secondary" onPress={() => void runLogout(logout)} loading={busy} />
-        <Button label="Log out of all devices" variant="ghost" onPress={confirmLogoutAll} disabled={busy} />
+        <Button
+          label="Log out"
+          testID="profile.logout"
+          variant="secondary"
+          onPress={() => void runLogout(logout)}
+          loading={busy}
+        />
+        <Button
+          label="Log out of all devices"
+          testID="profile.logoutAll"
+          variant="ghost"
+          onPress={confirmLogoutAll}
+          disabled={busy}
+        />
       </View>
 
       <AppText variant="caption" tone="muted">

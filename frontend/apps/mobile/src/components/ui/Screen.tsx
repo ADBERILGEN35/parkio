@@ -12,6 +12,7 @@ export interface ScreenProps {
   contentStyle?: ViewStyle;
   /** Remove the default horizontal/vertical padding. */
   padded?: boolean;
+  testID?: string;
 }
 
 /**
@@ -24,6 +25,7 @@ export function Screen({
   edges = ['top', 'left', 'right'],
   contentStyle,
   padded = true,
+  testID,
 }: ScreenProps) {
   const theme = useTheme();
   const padding = padded
@@ -31,12 +33,12 @@ export function Screen({
     : undefined;
 
   return (
-    <SafeAreaView style={[styles.flex, { backgroundColor: theme.colors.background }]} edges={edges}>
+    <SafeAreaView testID={testID} style={[styles.flex, { backgroundColor: theme.colors.background }]} edges={edges}>
       {scroll ? (
         <ScrollView
           style={styles.flex}
           contentContainerStyle={[styles.grow, padding, contentStyle]}
-          keyboardShouldPersistTaps="handled"
+          keyboardShouldPersistTaps="always"
           showsVerticalScrollIndicator={false}
         >
           {children}

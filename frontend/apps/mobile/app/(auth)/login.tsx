@@ -48,6 +48,7 @@ export default function LoginScreen() {
           control={control}
           name="email"
           label="Email"
+          testID="login.email"
           autoCapitalize="none"
           autoComplete="email"
           keyboardType="email-address"
@@ -58,9 +59,12 @@ export default function LoginScreen() {
           control={control}
           name="password"
           label="Password"
+          testID="login.password"
           secureTextEntry
           autoComplete="current-password"
           textContentType="password"
+          returnKeyType="done"
+          onSubmitEditing={onSubmit}
           placeholder="Your password"
         />
 
@@ -70,7 +74,7 @@ export default function LoginScreen() {
           </AppText>
         </Link>
 
-        <Button label="Sign in" onPress={onSubmit} loading={submitting} />
+        <Button label="Sign in" testID="login.submit" onPress={onSubmit} loading={submitting} />
       </View>
 
       <View style={styles.footer}>

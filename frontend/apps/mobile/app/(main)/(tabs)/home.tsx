@@ -17,7 +17,7 @@ export default function HomeScreen() {
   const error = profileQuery.isError || statsQuery.isError;
 
   return (
-    <Screen contentStyle={styles.content}>
+    <Screen testID="home.screen" contentStyle={styles.content}>
       <View style={styles.header}>
         <AppText variant="caption" tone="muted">
           Welcome back

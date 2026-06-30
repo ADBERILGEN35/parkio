@@ -9,7 +9,7 @@ export {
 export { createAuthApi, type AuthApi } from './auth';
 export { createUsersApi, type UsersApi } from './users';
 export { createParkingApi, type ParkingApi } from './parking';
-export { createMediaApi, type MediaApi } from './media';
+export { createMediaApi, type MediaApi, type MediaFilePart, type UploadMediaOptions } from './media';
 export { createNotificationsApi, type NotificationsApi } from './notifications';
 export { createGamificationApi, type GamificationApi } from './gamification';
 export { createModerationApi, type ModerationApi } from './moderation';

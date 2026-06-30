@@ -1,10 +1,10 @@
-import { ActivityIndicator, Pressable, StyleSheet, View, type PressableProps } from 'react-native';
+import { ActivityIndicator, StyleSheet, TouchableOpacity, View, type TouchableOpacityProps } from 'react-native';
 import { MIN_TOUCH_TARGET, useTheme } from '@/theme';
 import { AppText } from './AppText';
 
 type Variant = 'primary' | 'secondary' | 'ghost' | 'danger';
 
-export interface ButtonProps extends Omit<PressableProps, 'children' | 'style'> {
+export interface ButtonProps extends Omit<TouchableOpacityProps, 'children' | 'style'> {
   label: string;
   variant?: Variant;
   loading?: boolean;
@@ -31,21 +31,22 @@ export function Button({
   const isDisabled = disabled || loading;
 
   const palette = {
-    primary: { bg: theme.colors.primary, pressed: theme.colors.primaryPressed, fg: theme.colors.onPrimary, border: 'transparent' },
-    secondary: { bg: theme.colors.surfaceMuted, pressed: theme.colors.border, fg: theme.colors.text, border: 'transparent' },
-    ghost: { bg: 'transparent', pressed: theme.colors.surfaceMuted, fg: theme.colors.primary, border: 'transparent' },
-    danger: { bg: theme.colors.danger, pressed: theme.colors.danger, fg: theme.colors.textInverse, border: 'transparent' },
+    primary: { bg: theme.colors.primary, fg: theme.colors.onPrimary, border: 'transparent' },
+    secondary: { bg: theme.colors.surfaceMuted, fg: theme.colors.text, border: 'transparent' },
+    ghost: { bg: 'transparent', fg: theme.colors.primary, border: 'transparent' },
+    danger: { bg: theme.colors.danger, fg: theme.colors.textInverse, border: 'transparent' },
   }[variant];
 
   return (
-    <Pressable
+    <TouchableOpacity
       accessibilityRole="button"
       accessibilityState={{ disabled: isDisabled, busy: loading }}
       disabled={isDisabled}
-      style={({ pressed }) => [
+      activeOpacity={0.82}
+      style={[
         styles.base,
         {
-          backgroundColor: pressed && !isDisabled ? palette.pressed : palette.bg,
+          backgroundColor: palette.bg,
           borderColor: palette.border,
           borderRadius: theme.radius.lg,
           opacity: isDisabled ? 0.55 : 1,
@@ -65,7 +66,7 @@ export function Button({
           </AppText>
         </View>
       )}
-    </Pressable>
+    </TouchableOpacity>
   );
 }
 

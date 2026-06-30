@@ -11,9 +11,9 @@ import { IDEMPOTENCY_HEADER } from './idempotency';
 
 export function createParkingApi(client: AxiosInstance) {
   return {
-    getNearbySpots(params: NearbySearchParams): Promise<PublicSpot[]> {
+    getNearbySpots(params: NearbySearchParams, signal?: AbortSignal): Promise<PublicSpot[]> {
       return client
-        .get<PublicSpot[]>('/parking/spots/nearby', { params })
+        .get<PublicSpot[]>('/parking/spots/nearby', { params, signal })
         .then((r) => r.data);
     },
 

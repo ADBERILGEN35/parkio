@@ -8,8 +8,23 @@ import type { StyleSpecification } from 'maplibre-gl';
  * raster tiles so local/dev (and any environment without a key) keeps a working
  * map instead of a blank canvas. No API key is ever hardcoded — the key is read
  * from the environment at build time and the fallback needs no key at all.
+ *
+ * Coordinate types, default centers/zooms and the key-free raster style builder
+ * are shared with mobile via {@link @parkio/geo}; only the web-specific MapTiler
+ * env wiring lives here.
  */
+import { buildRasterStyle } from '@parkio/geo';
 import { frontendConfig } from '@/config/env';
+
+export {
+  type LatLng,
+  isValidLatLng,
+  DEFAULT_MAP_CENTER,
+  DEFAULT_MAP_ZOOM,
+  DEFAULT_PICKER_ZOOM,
+  LOCATED_ZOOM,
+  DETAIL_ZOOM,
+} from '@parkio/geo';
 
 /** MapTiler key, injected at build time. Empty/undefined ⇒ raster OSM fallback. */
 const MAPTILER_KEY = frontendConfig.map.maptilerKey;
@@ -26,85 +41,24 @@ function maptilerStyleUrl(style: string): string {
   return `https://api.maptiler.com/maps/${style}/style.json?key=${MAPTILER_KEY}`;
 }
 
-/**
- * Raster fallback tile template. Defaults to OpenStreetMap's standard endpoint
- * and can be overridden via {@link VITE_MAP_TILE_URL}. MapLibre raster sources do
- * not understand Leaflet's `{s}` subdomain token, so it is expanded to explicit
- * tile URLs below.
- */
-const RASTER_TILE_URL =
-  frontendConfig.map.rasterTileUrl;
-
 /** OpenStreetMap attribution (overridable). Always shown for the raster fallback. */
 export const OSM_ATTRIBUTION = frontendConfig.map.rasterAttribution;
-
-/** Expand a `{s}` subdomain template into one URL per subdomain (a/b/c). */
-function expandSubdomains(template: string): string[] {
-  if (!template.includes('{s}')) return [template];
-  return ['a', 'b', 'c'].map((sub) => template.replace('{s}', sub));
-}
-
-/** A self-contained MapLibre raster style built from OSM tiles (no key required). */
-function rasterFallbackStyle(): StyleSpecification {
-  return {
-    version: 8,
-    sources: {
-      'osm-raster': {
-        type: 'raster',
-        tiles: expandSubdomains(RASTER_TILE_URL),
-        tileSize: 256,
-        attribution: OSM_ATTRIBUTION,
-        maxzoom: 19,
-      },
-    },
-    layers: [{ id: 'osm-raster', type: 'raster', source: 'osm-raster' }],
-  };
-}
 
 /**
  * Resolve the MapLibre `mapStyle` for the current environment.
  *
  * - With a MapTiler key → the MapTiler vector style URL (HiDPI/Retina, vector
  *   typography, dark-mode-ready). MapTiler + OSM attribution come from the style.
- * - Without a key → an OpenStreetMap raster style with explicit attribution.
+ * - Without a key → the shared OpenStreetMap raster style (`@parkio/geo`) with
+ *   the configured tile endpoint and explicit attribution.
  *
  * @param style Optional MapTiler style id override (prepared for style switching).
  */
 export function getMapStyle(style: string = MAPTILER_STYLE): string | StyleSpecification {
-  return hasMapTilerKey ? maptilerStyleUrl(style) : rasterFallbackStyle();
-}
-
-/**
- * Single product fallback center (İzmir, Türkiye).
- *
- * İzmir is the current hosted-beta geography, so every map surface starts from
- * the same real city when browser geolocation is denied/unavailable. We
- * intentionally do NOT auto-search this fallback.
- */
-export const DEFAULT_MAP_CENTER = { lat: 38.4237, lng: 27.1428 } as const;
-
-export const DEFAULT_MAP_ZOOM = 12;
-
-/** Slightly closer zoom for click-to-place pickers. */
-export const DEFAULT_PICKER_ZOOM = 13;
-
-/** Closer zoom applied once the user's real location is found. */
-export const LOCATED_ZOOM = 15;
-
-/** Closer zoom for single-spot read-only maps. */
-export const DETAIL_ZOOM = 16;
-
-export interface LatLng {
-  lat: number;
-  lng: number;
-}
-
-/** True only for a finite, complete coordinate pair. */
-export function isValidLatLng(lat: number | null | undefined, lng: number | null | undefined): boolean {
-  return (
-    typeof lat === 'number' &&
-    typeof lng === 'number' &&
-    Number.isFinite(lat) &&
-    Number.isFinite(lng)
-  );
+  if (hasMapTilerKey) return maptilerStyleUrl(style);
+  // The geo raster style is structurally a MapLibre StyleSpecification.
+  return buildRasterStyle({
+    tileUrl: frontendConfig.map.rasterTileUrl,
+    attribution: OSM_ATTRIBUTION,
+  }) as unknown as StyleSpecification;
 }

@@ -28,6 +28,21 @@
       "expo-router",
       "expo-secure-store",
       [
+        "expo-camera",
+        {
+          "cameraPermission": "Allow Parkio to use your camera to capture parking spot photos.",
+          "recordAudioAndroid": false
+        }
+      ],
+      [
+        "expo-image-picker",
+        {
+          "photosPermission": "Allow Parkio to access your photos so you can choose a parking spot image.",
+          "cameraPermission": "Allow Parkio to use your camera to capture parking spot photos.",
+          "microphonePermission": false
+        }
+      ],
+      [
         "expo-splash-screen",
         {
           "image": "./assets/images/splash-icon.png",
@@ -41,6 +56,14 @@
         {
           "icon": "./assets/images/icon.png",
           "color": "#0050CB"
+        }
+      ],
+      [
+        "expo-location",
+        {
+          "locationAlwaysAndWhenInUsePermission": "Allow Parkio to use your location to show parking spots near you.",
+          "locationWhenInUsePermission": "Allow Parkio to use your location to show parking spots near you.",
+          "isAndroidForegroundServiceEnabled": false
         }
       ]
     ],
