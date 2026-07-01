@@ -32,7 +32,13 @@ export function AppText({ variant = 'body', tone = 'default', style, ...props }:
     <Text
       allowFontScaling
       style={[
-        { fontSize: typeStyle.fontSize, lineHeight: typeStyle.lineHeight, fontWeight: typeStyle.fontWeight, color },
+        {
+          fontSize: typeStyle.fontSize,
+          lineHeight: typeStyle.lineHeight,
+          fontWeight: typeStyle.fontWeight,
+          letterSpacing: 'letterSpacing' in typeStyle ? typeStyle.letterSpacing : undefined,
+          color,
+        },
         style,
       ]}
       {...props}

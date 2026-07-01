@@ -1,5 +1,5 @@
 import { Stack, useRouter } from 'expo-router';
-import { useCallback, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { Linking, StyleSheet, View } from 'react-native';
 import { AppText, Button, Screen, StateView } from '@/components/ui';
 import { CameraCapture } from '@/features/media/components/CameraCapture';
@@ -10,6 +10,7 @@ import { useMediaSource } from '@/features/media/hooks/useMediaSource';
 import { useMediaUpload } from '@/features/media/hooks/useMediaUpload';
 import { validateLocalAsset } from '@/features/media/lib/validation';
 import type { LocalAsset, MediaSource } from '@/features/media/types';
+import { useSpotCreationDraftStore } from '@/features/spot-create/state/spotCreationDraftStore';
 import { useOnlineStatus } from '@/hooks/useOnlineStatus';
 
 type Step = 'source' | 'camera' | 'preview' | 'uploading' | 'complete';
@@ -37,6 +38,7 @@ export default function UploadScreen() {
     pickFromLibrary,
   } = useMediaSource();
   const upload = useMediaUpload();
+  const startSpotDraft = useSpotCreationDraftStore((state) => state.startFromUpload);
   const [step, setStep] = useState<Step>('source');
   const [asset, setAsset] = useState<LocalAsset | null>(null);
   const [assetError, setAssetError] = useState<string | null>(null);
@@ -125,6 +127,14 @@ export default function UploadScreen() {
 
   const cancelled = upload.phase === 'cancelled';
   const uploadedMedia = upload.phase === 'success' ? upload.response : undefined;
+  const navigatedMediaIdRef = useRef<string | null>(null);
+
+  useEffect(() => {
+    if (!uploadedMedia || !asset || navigatedMediaIdRef.current === uploadedMedia.mediaId) return;
+    navigatedMediaIdRef.current = uploadedMedia.mediaId;
+    startSpotDraft(uploadedMedia, asset.uri);
+    router.replace('/(main)/spot-create');
+  }, [asset, router, startSpotDraft, uploadedMedia]);
 
   return (
     <>

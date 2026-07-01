@@ -12,8 +12,9 @@ export interface SmartReturnBannerProps {
 
 /**
  * Contextual banner shown when the map is opened from a Smart Return entry point
- * (`/map?smartReturn=1`). Signals that the view was auto-centered near home and a
- * nearby search was run automatically.
+ * (`/map?smartReturn=1`). Mirrors the web mobile pill (rounded-full, primary-tinted,
+ * one-line copy + dismiss); the web's translucent blur becomes the solid tonal
+ * surface since native WebView overlays can't backdrop-blur the map.
  */
 function SmartReturnBannerImpl({ visible, topOffset, onDismiss }: SmartReturnBannerProps) {
   const theme = useTheme();
@@ -22,33 +23,27 @@ function SmartReturnBannerImpl({ visible, topOffset, onDismiss }: SmartReturnBan
     <View style={[styles.wrap, { top: topOffset }]} pointerEvents="box-none">
       <View
         accessibilityRole="summary"
-        accessibilityLabel="Smart Return: showing parking near your home"
+        accessibilityLabel="Smart Return: showing parking near your saved home"
         style={[
-          styles.banner,
+          styles.pill,
           {
-            backgroundColor: theme.colors.primarySoft,
-            borderColor: theme.colors.primary,
-            borderRadius: theme.radius.lg,
+            backgroundColor: theme.colors.surfaceMuted,
+            borderRadius: theme.radius.full,
             ...theme.elevation.card,
           },
         ]}
       >
-        <Ionicons name="home" size={18} color={theme.colors.primary} />
-        <View style={styles.text}>
-          <AppText variant="label" tone="primary">
-            Smart Return
-          </AppText>
-          <AppText variant="caption" tone="muted">
-            Showing available parking near your home.
-          </AppText>
-        </View>
+        <Ionicons name="home" size={14} color={theme.colors.primary} />
+        <AppText variant="label" tone="primary" numberOfLines={1} style={styles.text}>
+          Showing parking near your saved home.
+        </AppText>
         <Pressable
           accessibilityRole="button"
-          accessibilityLabel="Dismiss Smart Return banner"
+          accessibilityLabel="Dismiss Smart Return notice"
           hitSlop={HIT_SLOP}
           onPress={onDismiss}
         >
-          <Ionicons name="close" size={20} color={theme.colors.textMuted} />
+          <Ionicons name="close" size={16} color={theme.colors.primary} />
         </Pressable>
       </View>
     </View>
@@ -56,15 +51,16 @@ function SmartReturnBannerImpl({ visible, topOffset, onDismiss }: SmartReturnBan
 }
 
 const styles = StyleSheet.create({
-  wrap: { position: 'absolute', left: 12, right: 12 },
-  banner: {
+  wrap: { position: 'absolute', left: 12, right: 12, alignItems: 'center' },
+  pill: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 12,
-    padding: 12,
-    borderWidth: 1,
+    gap: 8,
+    paddingHorizontal: 16,
+    paddingVertical: 10,
+    maxWidth: 430,
   },
-  text: { flex: 1, gap: 2 },
+  text: { flexShrink: 1 },
 });
 
 export const SmartReturnBanner = memo(SmartReturnBannerImpl);

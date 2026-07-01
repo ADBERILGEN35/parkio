@@ -28,8 +28,9 @@ export function Screen({
   testID,
 }: ScreenProps) {
   const theme = useTheme();
+  // Web container-margin (20px) sides, gutter-sized (16px) vertical rhythm.
   const padding = padded
-    ? { paddingHorizontal: theme.spacing.lg, paddingVertical: theme.spacing.lg }
+    ? { paddingHorizontal: theme.spacing.gutter, paddingVertical: theme.spacing.md }
     : undefined;
 
   return (

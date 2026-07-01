@@ -51,6 +51,7 @@ export type MapOutboundMessage =
   | { type: 'error'; reason: string }
   | { type: 'region'; center: LatLng; zoom: number; bounds: MapBounds }
   | { type: 'spotPress'; spotId: string }
+  | { type: 'draftMarkerChange'; center: LatLng }
   | { type: 'mapPress' }
   | ({ type: 'telemetry' } & MapTelemetry)
   // The WebView posts RAW frame intervals; React Native computes the stats with
@@ -63,6 +64,8 @@ export interface MapSurfaceHandle {
   setCamera(center: LatLng, zoom?: number, animate?: boolean): void;
   /** Fit the viewport to bounds with padding (px). */
   fitBounds(bounds: MapBounds, padding?: number): void;
+  /** Show/move/remove the draggable spot-creation marker. */
+  setDraftMarker(center: LatLng | null): void;
   /** Start/stop the once-per-second telemetry stream (dev/bench only). */
   setTelemetry(enabled: boolean): void;
   /** Run the scripted pan benchmark; result arrives via `onBench`. */

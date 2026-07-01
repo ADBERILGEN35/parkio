@@ -138,7 +138,7 @@ const styles = StyleSheet.create({
   headerRow: { flexDirection: 'row', gap: 8, flexWrap: 'wrap' },
   metaRow: { gap: 8 },
   meta: { flexDirection: 'row', alignItems: 'center', gap: 8 },
-  photo: { width: '100%', height: 160, borderRadius: 14 },
+  photo: { width: '100%', height: 160, borderRadius: 12 },
 });
 
 export const SpotSheet = memo(SpotSheetImpl);

@@ -33,8 +33,7 @@ function MapControlsImpl({ bottomOffset, onRecenter, following, locating }: MapC
           styles.fab,
           {
             backgroundColor: pressed ? theme.colors.surfaceMuted : theme.colors.surface,
-            borderColor: theme.colors.border,
-            borderRadius: theme.radius.lg,
+            borderRadius: theme.radius.full,
             ...theme.elevation.floating,
           },
         ]}
@@ -60,7 +59,6 @@ const styles = StyleSheet.create({
     height: MIN_TOUCH_TARGET,
     alignItems: 'center',
     justifyContent: 'center',
-    borderWidth: 1,
   },
 });
 

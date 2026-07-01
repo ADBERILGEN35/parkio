@@ -22,10 +22,12 @@ export interface MapSurfaceProps {
   spots: PublicSpot[];
   selectedSpotId: string | null;
   userLocation: LatLng | null;
+  draftMarker?: LatLng | null;
   onReady?: () => void;
   onError?: (reason: string) => void;
   onRegionChange?: (region: MapRegion) => void;
   onSpotPress?: (spotId: string) => void;
+  onDraftMarkerChange?: (center: LatLng) => void;
   onMapPress?: () => void;
   /** Dev/bench: per-second bridge + render counters (only fires once enabled). */
   onTelemetry?: (telemetry: MapTelemetry) => void;
@@ -54,10 +56,12 @@ function MapSurfaceImpl(
     spots,
     selectedSpotId,
     userLocation,
+    draftMarker = null,
     onReady,
     onError,
     onRegionChange,
     onSpotPress,
+    onDraftMarkerChange,
     onMapPress,
     onTelemetry,
     onBench,
@@ -74,6 +78,7 @@ function MapSurfaceImpl(
   // so we skip the injection when the serialized payload hasn't changed.
   const lastSpotsRef = useRef<string | null>(null);
   const lastUserRef = useRef<string | null>(null);
+  const lastDraftMarkerRef = useRef<string | null>(null);
 
   const colors = useMemo<MapHtmlColors>(
     () => ({
@@ -145,6 +150,13 @@ function MapSurfaceImpl(
     enqueue(`window.__parkio && window.__parkio.setUserLocation(${loc})`);
   }, [enqueue, userLocation]);
 
+  const pushDraftMarker = useCallback(() => {
+    const loc = draftMarker ? JSON.stringify(draftMarker) : 'null';
+    if (loc === lastDraftMarkerRef.current) return;
+    lastDraftMarkerRef.current = loc;
+    enqueue(`window.__parkio && window.__parkio.setDraftMarker(${loc})`);
+  }, [draftMarker, enqueue]);
+
   useEffect(() => {
     disposedRef.current = false;
     const webView = webRef.current;
@@ -154,6 +166,7 @@ function MapSurfaceImpl(
       pendingCommandsRef.current = [];
       lastSpotsRef.current = null;
       lastUserRef.current = null;
+      lastDraftMarkerRef.current = null;
       webView?.injectJavaScript('window.__parkio && window.__parkio.dispose && window.__parkio.dispose(); true;');
     };
   }, []);
@@ -165,6 +178,9 @@ function MapSurfaceImpl(
   useEffect(() => {
     if (readyRef.current) pushUser();
   }, [pushUser]);
+  useEffect(() => {
+    if (readyRef.current) pushDraftMarker();
+  }, [pushDraftMarker]);
 
   useImperativeHandle(
     ref,
@@ -179,6 +195,9 @@ function MapSurfaceImpl(
         enqueue(
           `window.__parkio && window.__parkio.fitBounds(${JSON.stringify(bounds)}, ${padding ?? 64})`,
         );
+      },
+      setDraftMarker: (center: LatLng | null) => {
+        enqueue(`window.__parkio && window.__parkio.setDraftMarker(${center ? JSON.stringify(center) : 'null'})`);
       },
       setTelemetry: (enabled: boolean) => {
         enqueue(`window.__parkio && window.__parkio.setTelemetry(${enabled ? 'true' : 'false'})`);
@@ -205,8 +224,10 @@ function MapSurfaceImpl(
         // the initial spots/user push always lands.
         lastSpotsRef.current = null;
         lastUserRef.current = null;
+        lastDraftMarkerRef.current = null;
         pushSpots();
         pushUser();
+        pushDraftMarker();
         flushPendingCommands();
         onReady?.();
         break;
@@ -234,6 +255,9 @@ function MapSurfaceImpl(
         break;
       case 'spotPress':
         onSpotPress?.(msg.spotId);
+        break;
+      case 'draftMarkerChange':
+        onDraftMarkerChange?.(msg.center);
         break;
       case 'mapPress':
         onMapPress?.();

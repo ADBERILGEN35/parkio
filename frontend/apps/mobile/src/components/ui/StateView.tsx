@@ -25,14 +25,14 @@ export function StateView({ title, description, glyph = '✦', actionLabel, onAc
       <View
         style={[
           styles.disc,
-          { backgroundColor: theme.colors.primarySoft, borderRadius: theme.radius.full },
+          { backgroundColor: theme.colors.skeleton, borderRadius: theme.radius.full },
         ]}
       >
-        <AppText variant="title" tone="primary">
+        <AppText variant="display" tone="primary">
           {glyph}
         </AppText>
       </View>
-      <AppText variant="heading" style={styles.title}>
+      <AppText variant="title" style={styles.title}>
         {title}
       </AppText>
       {description ? (
@@ -52,7 +52,7 @@ export function StateView({ title, description, glyph = '✦', actionLabel, onAc
 
 const styles = StyleSheet.create({
   container: { flex: 1, alignItems: 'center', justifyContent: 'center', padding: 24, gap: 8 },
-  disc: { width: 72, height: 72, alignItems: 'center', justifyContent: 'center', marginBottom: 8 },
+  disc: { width: 96, height: 96, alignItems: 'center', justifyContent: 'center', marginBottom: 16 },
   title: { textAlign: 'center' },
   description: { textAlign: 'center', maxWidth: 320 },
   action: { marginTop: 16 },

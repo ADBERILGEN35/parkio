@@ -241,6 +241,19 @@ export function buildMapHtml(options: MapHtmlOptions): string {
           }
         });
 
+        map.addSource('draft-marker', { type: 'geojson', data: emptyFC() });
+        map.addLayer({
+          id: 'draft-marker-halo', type: 'circle', source: 'draft-marker',
+          paint: { 'circle-radius': 24, 'circle-color': COLORS.primary, 'circle-opacity': 0.18 }
+        });
+        map.addLayer({
+          id: 'draft-marker-dot', type: 'circle', source: 'draft-marker',
+          paint: {
+            'circle-radius': 12, 'circle-color': COLORS.primary,
+            'circle-stroke-width': 3, 'circle-stroke-color': COLORS.onPrimary
+          }
+        });
+
         map.on('click', 'clusters', function (e) {
           var f = e.features[0];
           map.getSource('spots').getClusterExpansionZoom(f.properties.cluster_id).then(function (z) {
@@ -261,6 +274,48 @@ export function buildMapHtml(options: MapHtmlOptions): string {
         map.on('mouseleave', 'clusters', setCursor(''));
         map.on('mouseenter', 'spot-points', setCursor('pointer'));
         map.on('mouseleave', 'spot-points', setCursor(''));
+        map.on('mouseenter', 'draft-marker-dot', setCursor('grab'));
+        map.on('mouseleave', 'draft-marker-dot', setCursor(''));
+
+        var draggingDraft = false;
+        function setDraftMarker(center) {
+          var s = map && map.getSource('draft-marker'); if (!s) return;
+          s.setData(center ? { type: 'FeatureCollection', features: [
+            { type: 'Feature', geometry: { type: 'Point', coordinates: [center.lng, center.lat] }, properties: {} }
+          ] } : emptyFC());
+        }
+        function postDraftMarker(center) {
+          post({ type: 'draftMarkerChange', center: { lat: center.lat, lng: center.lng } });
+        }
+        map.on('mousedown', 'draft-marker-dot', function (e) {
+          if (!e.features || !e.features.length) return;
+          e.preventDefault();
+          draggingDraft = true;
+          map.dragPan.disable();
+          map.getCanvas().style.cursor = 'grabbing';
+        });
+        map.on('touchstart', 'draft-marker-dot', function (e) {
+          if (!e.features || !e.features.length) return;
+          draggingDraft = true;
+          map.dragPan.disable();
+        });
+        map.on('mousemove', function (e) {
+          if (!draggingDraft) return;
+          setDraftMarker(e.lngLat);
+        });
+        map.on('touchmove', function (e) {
+          if (!draggingDraft || !e.lngLat) return;
+          setDraftMarker(e.lngLat);
+        });
+        function stopDraftDrag(e) {
+          if (!draggingDraft) return;
+          draggingDraft = false;
+          map.dragPan.enable();
+          map.getCanvas().style.cursor = '';
+          if (e && e.lngLat) postDraftMarker(e.lngLat);
+        }
+        map.on('mouseup', stopDraftDrag);
+        map.on('touchend', stopDraftDrag);
 
         // Region is emitted only on moveend (never per-frame during the pan),
         // and an unchanged-guard drops jitter where the camera settles back on
@@ -286,6 +341,13 @@ export function buildMapHtml(options: MapHtmlOptions): string {
         setUserLocation: function (loc) {
           tel.injected++;
           var s = map && map.getSource('user'); if (!s) return;
+          s.setData(loc ? { type: 'FeatureCollection', features: [
+            { type: 'Feature', geometry: { type: 'Point', coordinates: [loc.lng, loc.lat] }, properties: {} }
+          ] } : emptyFC());
+        },
+        setDraftMarker: function (loc) {
+          tel.injected++;
+          var s = map && map.getSource('draft-marker'); if (!s) return;
           s.setData(loc ? { type: 'FeatureCollection', features: [
             { type: 'Feature', geometry: { type: 'Point', coordinates: [loc.lng, loc.lat] }, properties: {} }
           ] } : emptyFC());

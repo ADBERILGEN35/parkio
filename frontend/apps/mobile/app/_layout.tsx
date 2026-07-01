@@ -36,12 +36,13 @@ function RootNavigator() {
   return (
     <>
       <StatusBar style="auto" />
-      <OfflineBanner />
       <Stack screenOptions={{ headerShown: false }}>
         <Stack.Screen name="index" />
         <Stack.Screen name="(auth)" />
         <Stack.Screen name="(main)" />
       </Stack>
+      {/* Floating overlay pill — rendered after the Stack so it paints on top. */}
+      <OfflineBanner />
     </>
   );
 }

@@ -50,7 +50,7 @@ function MapSearchBarImpl({ topOffset, onSelectPlace }: MapSearchBarProps) {
           {
             backgroundColor: theme.colors.surface,
             borderColor: focused ? theme.colors.primary : theme.colors.border,
-            borderRadius: theme.radius.lg,
+            borderRadius: theme.radius.full,
             ...theme.elevation.floating,
           },
         ]}

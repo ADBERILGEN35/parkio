@@ -30,11 +30,14 @@ export function Button({
   const theme = useTheme();
   const isDisabled = disabled || loading;
 
+  // Web design-system button recipes: full pills, solid primary/danger carry a
+  // soft shadow, secondary is the tonal surface-container pill, ghost is
+  // text-only in on-surface-variant.
   const palette = {
-    primary: { bg: theme.colors.primary, fg: theme.colors.onPrimary, border: 'transparent' },
-    secondary: { bg: theme.colors.surfaceMuted, fg: theme.colors.text, border: 'transparent' },
-    ghost: { bg: 'transparent', fg: theme.colors.primary, border: 'transparent' },
-    danger: { bg: theme.colors.danger, fg: theme.colors.textInverse, border: 'transparent' },
+    primary: { bg: theme.colors.primary, fg: theme.colors.onPrimary, border: 'transparent', shadow: true },
+    secondary: { bg: theme.colors.surfaceMuted, fg: theme.colors.text, border: 'transparent', shadow: false },
+    ghost: { bg: 'transparent', fg: theme.colors.textMuted, border: 'transparent', shadow: false },
+    danger: { bg: theme.colors.danger, fg: theme.colors.onPrimary, border: 'transparent', shadow: true },
   }[variant];
 
   return (
@@ -48,11 +51,12 @@ export function Button({
         {
           backgroundColor: palette.bg,
           borderColor: palette.border,
-          borderRadius: theme.radius.lg,
-          opacity: isDisabled ? 0.55 : 1,
+          borderRadius: theme.radius.full,
+          opacity: isDisabled ? 0.6 : 1,
           alignSelf: fullWidth ? 'stretch' : 'flex-start',
-          paddingHorizontal: theme.spacing.xl,
+          paddingHorizontal: theme.spacing.lg,
         },
+        palette.shadow && !isDisabled ? theme.elevation.card : null,
       ]}
       {...props}
     >

@@ -33,7 +33,7 @@ export function Skeleton({ width = '100%', height = 16, radius, style }: Skeleto
         {
           width,
           height,
-          borderRadius: radius ?? theme.radius.sm,
+          borderRadius: radius ?? theme.radius.full,
           backgroundColor: theme.colors.skeleton,
           opacity: pulse,
         },
@@ -61,5 +61,5 @@ export function SkeletonCard() {
 }
 
 const styles = StyleSheet.create({
-  card: { borderWidth: 1, padding: 16, gap: 10 },
+  card: { borderWidth: 1, padding: 20, gap: 10 },
 });

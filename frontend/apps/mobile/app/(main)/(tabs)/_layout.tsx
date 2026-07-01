@@ -3,8 +3,9 @@ import { Tabs } from 'expo-router';
 import { useTheme } from '@/theme';
 
 /**
- * Bottom tab bar — the primary navigation after sign-in. Themed to match the
- * design tokens; labels + icons keep targets comfortable and screen-reader friendly.
+ * Bottom tab bar — the primary navigation after sign-in. Mirrors the web
+ * MobileNav chrome: near-white translucent bar, hairline top border, primary
+ * active tint over on-surface-variant inactive, label-sm captions.
  */
 export default function TabsLayout() {
   const theme = useTheme();
@@ -16,10 +17,10 @@ export default function TabsLayout() {
         tabBarActiveTintColor: theme.colors.primary,
         tabBarInactiveTintColor: theme.colors.textMuted,
         tabBarStyle: {
-          backgroundColor: theme.colors.surface,
+          backgroundColor: theme.scheme === 'dark' ? theme.colors.surface : 'rgba(248, 249, 255, 0.94)',
           borderTopColor: theme.colors.border,
         },
-        tabBarLabelStyle: { fontSize: 12, fontWeight: '600' },
+        tabBarLabelStyle: { fontSize: 11, fontWeight: '500' },
       }}
     >
       <Tabs.Screen
