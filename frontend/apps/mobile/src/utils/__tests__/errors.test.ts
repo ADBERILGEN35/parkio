@@ -26,6 +26,14 @@ describe('toUserMessage', () => {
     expect(toUserMessage(apiError(429))).toMatch(/too many/i);
   });
 
+  it('maps 413 to a photo-too-large message', () => {
+    expect(toUserMessage(apiError(413))).toMatch(/too large/i);
+  });
+
+  it('maps 415 to an unsupported-format message', () => {
+    expect(toUserMessage(apiError(415))).toMatch(/format/i);
+  });
+
   it('surfaces the first field error for 400s', () => {
     const msg = toUserMessage(apiError(400, { fieldErrors: { email: ['Email already in use'] } }));
     expect(msg).toBe('Email already in use');

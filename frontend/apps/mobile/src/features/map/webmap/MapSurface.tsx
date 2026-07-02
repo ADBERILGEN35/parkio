@@ -25,6 +25,8 @@ export interface MapSurfaceProps {
   draftMarker?: LatLng | null;
   onReady?: () => void;
   onError?: (reason: string) => void;
+  /** Fires once per pan gesture or camera animation, before the region settles. */
+  onMoveStart?: () => void;
   onRegionChange?: (region: MapRegion) => void;
   onSpotPress?: (spotId: string) => void;
   onDraftMarkerChange?: (center: LatLng) => void;
@@ -59,6 +61,7 @@ function MapSurfaceImpl(
     draftMarker = null,
     onReady,
     onError,
+    onMoveStart,
     onRegionChange,
     onSpotPress,
     onDraftMarkerChange,
@@ -233,6 +236,9 @@ function MapSurfaceImpl(
         break;
       case 'error':
         onError?.(msg.reason);
+        break;
+      case 'movestart':
+        onMoveStart?.();
         break;
       case 'telemetry':
         onTelemetry?.({

@@ -1,22 +1,39 @@
+import { Ionicons } from '@expo/vector-icons';
 import { Stack, useRouter } from 'expo-router';
-import { useCallback, useEffect, useRef } from 'react';
-import { Image, KeyboardAvoidingView, Platform, Pressable, StyleSheet, TextInput, View } from 'react-native';
+import { useCallback, useEffect, useRef, useState } from 'react';
+import {
+  ActivityIndicator,
+  Image,
+  KeyboardAvoidingView,
+  Platform,
+  Pressable,
+  StyleSheet,
+  TextInput,
+  View,
+  useWindowDimensions,
+} from 'react-native';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import type { LatLng } from '@parkio/geo';
 import { PARKING_CONTEXTS, SPOT_VEHICLE_TYPES, type ParkingContext, type SpotVehicleType } from '@parkio/types';
 import { AppText, Button, Screen, StateView } from '@/components/ui';
+import { MapControls } from '@/features/map/components/MapControls';
+import { MapSearchBar } from '@/features/map/components/MapSearchBar';
 import { MapSurface } from '@/features/map/webmap/MapSurface';
+import type { MapRegion, MapSurfaceHandle } from '@/features/map/webmap/types';
+import { CenterPinOverlay } from '@/features/spot-create/components/CenterPinOverlay';
+import { GpsStatusPill } from '@/features/spot-create/components/GpsStatusPill';
+import { SelectedLocationCard } from '@/features/spot-create/components/SelectedLocationCard';
 import { useCreateSpotSubmit } from '@/features/spot-create/hooks/useCreateSpotSubmit';
+import { useSelectedPlace } from '@/features/spot-create/hooks/useSelectedPlace';
 import { useSpotCreationLocation } from '@/features/spot-create/hooks/useSpotCreationLocation';
-import {
-  WARNING_GPS_ACCURACY_METERS,
-  formatAccuracy,
-  isGpsAccuracyAcceptable,
-} from '@/features/spot-create/lib/locationAccuracy';
+import { isGpsAccuracyAcceptable } from '@/features/spot-create/lib/locationAccuracy';
 import { useSpotCreationDraftStore } from '@/features/spot-create/state/spotCreationDraftStore';
-import { MIN_TOUCH_TARGET, useTheme } from '@/theme';
+import { HIT_SLOP, MIN_TOUCH_TARGET, useTheme } from '@/theme';
 
 const DEFAULT_CENTER: LatLng = { lat: 41.0082, lng: 28.9784 };
-const MARKER_NUDGE_DEGREES = 0.00004;
+const PICK_ZOOM = 18;
+/** Coordinates closer than ~0.1 m are the same pin — drop no-op region echoes. */
+const SAME_COORD_EPSILON = 1e-6;
 
 const VEHICLE_LABELS: Record<SpotVehicleType, string> = {
   ANY: 'Any',
@@ -37,58 +54,92 @@ const PARKING_LABELS: Record<ParkingContext, string> = {
   UNKNOWN: 'Unsure',
 };
 
+function sameCoord(a: LatLng | null, b: LatLng | null): boolean {
+  return (
+    !!a && !!b && Math.abs(a.lat - b.lat) < SAME_COORD_EPSILON && Math.abs(a.lng - b.lng) < SAME_COORD_EPSILON
+  );
+}
+
+/**
+ * Spot Creation, map-first. The location is picked Uber/Airbnb-style: a fixed
+ * native pin marks the map center and the map moves underneath it — every
+ * `moveend` becomes the new draft location, so the whole map is the touch
+ * target (no fiddly marker dragging, no debug nudge buttons). GPS, search and
+ * recenter all animate the camera; the pin lifts while the camera moves and
+ * drops on settle. Draft state, submit flow and GPS gating are unchanged.
+ */
 export default function SpotCreateScreen() {
   const router = useRouter();
   const theme = useTheme();
+  const insets = useSafeAreaInsets();
+  const { height: windowHeight } = useWindowDimensions();
   const draft = useSpotCreationDraftStore((state) => state.draft);
   const patchDraft = useSpotCreationDraftStore((state) => state.patchDraft);
   const clearDraft = useSpotCreationDraftStore((state) => state.clearDraft);
   const location = useSpotCreationLocation();
   const submit = useCreateSpotSubmit();
+
+  const mapRef = useRef<MapSurfaceHandle>(null);
   const requestedLocationRef = useRef(false);
+  // Set right before a programmatic camera move (GPS recenter / search select);
+  // the matching region event is then a settle echo, not a user edit.
+  const pendingCameraMoveRef = useRef(false);
+  const [pinLifted, setPinLifted] = useState(false);
+  // While a finger is on the map, the outer ScrollView must not steal the pan.
+  const [mapInteracting, setMapInteracting] = useState(false);
+  const [mapReady, setMapReady] = useState(false);
+  const [mapError, setMapError] = useState<string | null>(null);
+  const [mapKey, setMapKey] = useState(0);
+
   const draftLocation = draft?.location ?? null;
+  const selectedPlace = useSelectedPlace(draftLocation);
+
+  const acquireGps = useCallback(() => {
+    void location.acquire().then((fix) => {
+      if (!fix) return;
+      patchDraft({
+        location: fix.center,
+        gpsAccuracyMeters: fix.accuracyMeters,
+        manualLocationEdited: false,
+      });
+      pendingCameraMoveRef.current = true;
+      mapRef.current?.setCamera(fix.center, PICK_ZOOM, true);
+    });
+  }, [location, patchDraft]);
 
   useEffect(() => {
     if (!draft || draft.location || requestedLocationRef.current) return;
     requestedLocationRef.current = true;
-    void location.acquire().then((fix) => {
-      if (!fix) return;
-      patchDraft({
-        location: fix.center,
-        gpsAccuracyMeters: fix.accuracyMeters,
-        manualLocationEdited: false,
-      });
-    });
-  }, [draft, location, patchDraft]);
+    acquireGps();
+  }, [acquireGps, draft]);
 
-  const retryLocation = useCallback(() => {
-    void location.acquire().then((fix) => {
-      if (!fix) return;
-      patchDraft({
-        location: fix.center,
-        gpsAccuracyMeters: fix.accuracyMeters,
-        manualLocationEdited: false,
-      });
-    });
-  }, [location, patchDraft]);
+  const handleRegionChange = useCallback(
+    (region: MapRegion) => {
+      setPinLifted(false);
+      const wasProgrammatic = pendingCameraMoveRef.current;
+      pendingCameraMoveRef.current = false;
+      if (wasProgrammatic) return; // settle echo of GPS/search camera move — already patched
+      if (sameCoord(region.center, draftLocation)) return;
+      patchDraft({ location: region.center, manualLocationEdited: true });
+    },
+    [draftLocation, patchDraft],
+  );
 
-  const moveMarker = useCallback(
-    (center: LatLng) => {
+  const handleSelectPlace = useCallback(
+    (place: { primary: string; lat: number; lng: number }) => {
+      const center = { lat: place.lat, lng: place.lng };
       patchDraft({ location: center, manualLocationEdited: true });
+      pendingCameraMoveRef.current = true;
+      mapRef.current?.setCamera(center, PICK_ZOOM, true);
     },
     [patchDraft],
   );
 
-  const nudgeMarker = useCallback(
-    (delta: Partial<LatLng>) => {
-      if (!draftLocation) return;
-      moveMarker({
-        lat: draftLocation.lat + (delta.lat ?? 0),
-        lng: draftLocation.lng + (delta.lng ?? 0),
-      });
-    },
-    [draftLocation, moveMarker],
-  );
+  const retryMap = useCallback(() => {
+    setMapError(null);
+    setMapReady(false);
+    setMapKey((key) => key + 1);
+  }, []);
 
   if (submit.isSuccess && submit.data) {
     return (
@@ -112,7 +163,7 @@ export default function SpotCreateScreen() {
   if (!draft) {
     return (
       <>
-        <Stack.Screen options={{ title: 'Create spot' }} />
+        <Stack.Screen options={{ title: 'Share spot' }} />
         <Screen>
           <StateView
             glyph="!"
@@ -126,95 +177,117 @@ export default function SpotCreateScreen() {
     );
   }
 
+  const locating = location.status === 'prompting' || location.status === 'locating';
   const locationReady = draft.location && isGpsAccuracyAcceptable(draft.gpsAccuracyMeters);
   const canSubmit = Boolean(locationReady) && !submit.isPending;
-  const showLowAccuracy =
-    draft.gpsAccuracyMeters !== null && draft.gpsAccuracyMeters > WARNING_GPS_ACCURACY_METERS;
+  const mapHeight = Math.min(Math.max(windowHeight * 0.42, 300), 440);
 
   return (
     <>
       <Stack.Screen
         options={{
-          title: 'Create spot',
-          headerBackTitle: 'Upload',
+          title: 'Share spot',
+          headerBackTitle: 'Photo',
         }}
       />
       <KeyboardAvoidingView style={styles.flex} behavior={Platform.OS === 'ios' ? 'padding' : undefined}>
-        <Screen contentStyle={styles.content} testID="spot-create-screen">
-          <View style={styles.header}>
-            <AppText variant="title">Place the spot</AppText>
-            <AppText variant="body" tone="muted">
-              Confirm the GPS fix, adjust the marker, then describe what fits here.
-            </AppText>
-          </View>
-
-          <View style={[styles.previewFrame, { borderColor: theme.colors.border }]}>
-            <Image source={{ uri: draft.previewUri }} style={styles.previewImage} resizeMode="cover" />
-          </View>
-
-          <View style={styles.section}>
-            <View style={styles.sectionHeader}>
-              <AppText variant="subtitle">GPS location</AppText>
-              <AppText variant="caption" tone={locationReady ? 'success' : 'danger'}>
-                {formatAccuracy(draft.gpsAccuracyMeters)}
+        <Screen contentStyle={styles.content} scrollEnabled={!mapInteracting} testID="spot-create-screen">
+          <View style={[styles.previewFrame, { borderColor: theme.colors.border, borderRadius: theme.radius.lg }]}>
+            <Image
+              source={{ uri: draft.previewUri }}
+              style={styles.previewImage}
+              resizeMode="cover"
+              accessibilityLabel="Photo of the parking spot"
+            />
+            <Pressable
+              accessibilityRole="button"
+              accessibilityLabel="Change photo"
+              hitSlop={HIT_SLOP}
+              onPress={() => router.replace('/(main)/upload')}
+              style={({ pressed }) => [
+                styles.changePhoto,
+                {
+                  backgroundColor: pressed ? theme.colors.surfaceMuted : theme.colors.surface,
+                  borderRadius: theme.radius.full,
+                  ...theme.elevation.card,
+                },
+              ]}
+            >
+              <Ionicons name="camera-outline" size={16} color={theme.colors.primary} />
+              <AppText variant="label" tone="primary">
+                Change photo
               </AppText>
-            </View>
-            {location.status === 'prompting' || location.status === 'locating' ? (
-              <AppText variant="callout" tone="muted" accessibilityRole="alert">
-                Reading current GPS location…
-              </AppText>
-            ) : null}
-            {location.status === 'denied' || location.status === 'blocked' ? (
-              <View style={[styles.alertBox, { backgroundColor: theme.colors.dangerSoft }]}>
-                <AppText variant="callout" tone="danger" accessibilityRole="alert">
-                  Location permission is required to create a spot.
-                </AppText>
-                <Button
-                  label={location.status === 'blocked' ? 'Open Settings' : 'Retry location'}
-                  variant="secondary"
-                  onPress={location.status === 'blocked' ? location.openSettings : retryLocation}
-                />
-              </View>
-            ) : null}
-            {location.status === 'unavailable' || location.error ? (
-              <View style={[styles.alertBox, { backgroundColor: theme.colors.dangerSoft }]}>
-                <AppText variant="callout" tone="danger" accessibilityRole="alert">
-                  {location.error ?? 'GPS is unavailable. Try again.'}
-                </AppText>
-                <Button label="Retry GPS" variant="secondary" onPress={retryLocation} />
-              </View>
-            ) : null}
-            {showLowAccuracy ? (
-              <View style={[styles.alertBox, { backgroundColor: theme.colors.warningSoft }]}>
-                <AppText variant="callout" tone={locationReady ? 'default' : 'danger'} accessibilityRole="alert">
-                  {locationReady
-                    ? 'Accuracy is usable, but a better fix helps drivers find the spot faster.'
-                    : 'GPS accuracy is too low to submit. Move outside or retry before publishing.'}
-                </AppText>
-                <Button label="Refresh GPS" variant="secondary" onPress={retryLocation} />
-              </View>
-            ) : null}
+            </Pressable>
           </View>
 
-          <View style={[styles.mapShell, { borderColor: theme.colors.border }]}>
+          <View
+            style={[
+              styles.mapCard,
+              { height: mapHeight, borderColor: theme.colors.border, borderRadius: theme.radius.xl },
+            ]}
+            onTouchStart={() => setMapInteracting(true)}
+            onTouchEnd={() => setMapInteracting(false)}
+            onTouchCancel={() => setMapInteracting(false)}
+          >
             <MapSurface
+              key={mapKey}
+              ref={mapRef}
               initialCenter={draft.location ?? DEFAULT_CENTER}
-              initialZoom={17}
+              initialZoom={PICK_ZOOM}
               spots={[]}
               selectedSpotId={null}
-              userLocation={draft.location}
-              draftMarker={draft.location}
-              onDraftMarkerChange={moveMarker}
+              userLocation={null}
+              onReady={() => setMapReady(true)}
+              onError={(reason) => setMapError(reason)}
+              onMoveStart={() => setPinLifted(true)}
+              onRegionChange={handleRegionChange}
               clusterSpots={false}
             />
+            <CenterPinOverlay lifted={pinLifted} />
+            <MapSearchBar topOffset={12} onSelectPlace={handleSelectPlace} />
+            <MapControls
+              bottomOffset={16}
+              onRecenter={acquireGps}
+              following={Boolean(draft.location) && !draft.manualLocationEdited}
+              locating={locating}
+            />
+            {!mapReady && !mapError ? (
+              <View style={[styles.mapOverlay, { backgroundColor: theme.colors.surfaceMuted }]}>
+                <ActivityIndicator color={theme.colors.primary} />
+                <AppText variant="callout" tone="muted">
+                  Loading map…
+                </AppText>
+              </View>
+            ) : null}
+            {mapError ? (
+              <View style={[styles.mapOverlay, { backgroundColor: theme.colors.surfaceMuted }]}>
+                <AppText variant="subtitle">Map failed to load</AppText>
+                <AppText variant="caption" tone="muted">
+                  Check your connection and try again.
+                </AppText>
+                <Button label="Retry map" variant="secondary" onPress={retryMap} />
+              </View>
+            ) : null}
           </View>
-          <View style={styles.nudgeGrid} accessibilityLabel="Fine adjust marker">
-            <Button label="Up" variant="secondary" onPress={() => nudgeMarker({ lat: MARKER_NUDGE_DEGREES })} />
-            <View style={styles.nudgeRow}>
-              <Button label="Left" variant="secondary" onPress={() => nudgeMarker({ lng: -MARKER_NUDGE_DEGREES })} />
-              <Button label="Right" variant="secondary" onPress={() => nudgeMarker({ lng: MARKER_NUDGE_DEGREES })} />
-            </View>
-            <Button label="Down" variant="secondary" onPress={() => nudgeMarker({ lat: -MARKER_NUDGE_DEGREES })} />
+
+          <View
+            style={[
+              styles.locationCard,
+              { backgroundColor: theme.colors.surface, borderColor: theme.colors.border, borderRadius: theme.radius.lg },
+            ]}
+          >
+            <GpsStatusPill
+              status={location.status}
+              accuracyMeters={draft.gpsAccuracyMeters}
+              onRetry={acquireGps}
+              onOpenSettings={location.openSettings}
+            />
+            <View style={[styles.divider, { backgroundColor: theme.colors.border }]} />
+            <SelectedLocationCard
+              place={selectedPlace.place}
+              isResolving={selectedPlace.isResolving}
+              isUnresolved={selectedPlace.isUnresolved}
+            />
           </View>
 
           <ChoiceGroup
@@ -237,39 +310,35 @@ export default function SpotCreateScreen() {
             <AppText variant="subtitle">Note</AppText>
             <NativeNoteInput value={draft.note} onChange={(note) => patchDraft({ note })} />
           </View>
+        </Screen>
 
+        <View
+          style={[
+            styles.footer,
+            {
+              backgroundColor: theme.colors.surface,
+              borderTopColor: theme.colors.border,
+              paddingBottom: Math.max(insets.bottom, 12),
+              paddingHorizontal: theme.spacing.gutter,
+            },
+          ]}
+        >
           {submit.errorMessage ? (
             <AppText variant="callout" tone="danger" accessibilityRole="alert">
               {submit.errorMessage}
             </AppText>
           ) : null}
-
-          {submit.isPending ? (
-            <View style={[styles.alertBox, { backgroundColor: theme.colors.primarySoft }]}>
-              <AppText variant="callout" tone="primary" accessibilityRole="alert">
-                Publishing spot…
-              </AppText>
-            </View>
-          ) : null}
-
-          <View style={styles.actions}>
-            <Button
-              label="Submit spot"
-              onPress={() => submit.mutate()}
-              loading={submit.isPending}
-              disabled={!canSubmit}
-            />
-            <Button
-              label="Discard draft"
-              variant="ghost"
-              onPress={() => {
-                clearDraft();
-                router.replace('/(main)/upload');
-              }}
-              disabled={submit.isPending}
-            />
-          </View>
-        </Screen>
+          <Button label="Share spot" onPress={() => submit.mutate()} loading={submit.isPending} disabled={!canSubmit} />
+          <Button
+            label="Discard draft"
+            variant="ghost"
+            onPress={() => {
+              clearDraft();
+              router.replace('/(main)/upload');
+            }}
+            disabled={submit.isPending}
+          />
+        </View>
       </KeyboardAvoidingView>
     </>
   );
@@ -347,28 +416,45 @@ function NativeNoteInput({ value, onChange }: { value: string; onChange: (value:
 
 const styles = StyleSheet.create({
   flex: { flex: 1 },
-  content: { gap: 18, paddingBottom: 28 },
-  header: { gap: 6 },
+  content: { gap: 16, paddingBottom: 24 },
   previewFrame: {
-    height: 180,
+    height: 120,
     borderWidth: 1,
-    borderRadius: 12,
     overflow: 'hidden',
     backgroundColor: '#000',
   },
   previewImage: { width: '100%', height: '100%' },
-  section: { gap: 10 },
-  sectionHeader: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: 12 },
-  alertBox: { gap: 10, borderRadius: 12, padding: 12 },
-  mapShell: {
-    height: 260,
-    minHeight: 220,
+  changePhoto: {
+    position: 'absolute',
+    right: 10,
+    bottom: 10,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+  },
+  mapCard: {
     borderWidth: 1,
-    borderRadius: 12,
     overflow: 'hidden',
   },
-  nudgeGrid: { gap: 8 },
-  nudgeRow: { flexDirection: 'row', gap: 8 },
+  mapOverlay: {
+    position: 'absolute',
+    top: 0,
+    right: 0,
+    bottom: 0,
+    left: 0,
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 8,
+  },
+  locationCard: {
+    borderWidth: 1,
+    padding: 14,
+    gap: 12,
+  },
+  divider: { height: StyleSheet.hairlineWidth, alignSelf: 'stretch' },
+  section: { gap: 10 },
   choiceWrap: { flexDirection: 'row', flexWrap: 'wrap', gap: 8 },
   choice: {
     borderWidth: 1,
@@ -385,5 +471,9 @@ const styles = StyleSheet.create({
     fontSize: 15,
     textAlignVertical: 'top',
   },
-  actions: { gap: 10 },
+  footer: {
+    borderTopWidth: StyleSheet.hairlineWidth,
+    paddingTop: 12,
+    gap: 8,
+  },
 });

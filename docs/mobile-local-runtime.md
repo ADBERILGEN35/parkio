@@ -104,6 +104,9 @@ Open Expo Go on the emulator with:
 - If Expo Go shows `Cannot connect to Expo CLI`, restore emulator networking and reopen `exp://10.0.2.2:8090`.
 - Do not use airplane mode to test upload retry in Expo Go: it can break the Expo dev-session transport before the app can render its own offline retry UI. Use a dev build for full offline/background upload validation if this scenario must be proven natively.
 - If Docker rebuild downloads Gradle and times out, do not rebuild for mobile runtime validation unless code changed. Use existing images and `up -d`.
+- If Metro crashes with `EACCES: permission denied, lstat ... node_modules/.pnpm/...`, a WSL-side `pnpm install` left Linux-style symlinks that Windows cannot read. Fix: re-run `corepack pnpm install --frozen-lockfile` from Windows PowerShell, and delete any stray `apps/mobile/node_modules/.pnpm` directory (the workspace store belongs only at `frontend/node_modules/.pnpm`). The reverse also holds: after a Windows install, `eslint` fails under WSL with `Cannot find native binding` — run lint/test from the same OS that ran the install.
+- If `corepack pnpm exec expo` fails in PowerShell with `'sh' is not recognized`, the `.bin` shims are POSIX-only. Start Metro directly: `node node_modules\expo\bin\cli start --host lan --port 8090 --clear` from `apps/mobile`.
+- `adb emu network speed gsm` does not throttle uploads to `10.0.2.2` on this AVD (applies to neither the WiFi nor the virtio cellular transport in practice). Slow-network upload scenarios (visible progress, mid-upload cancel) cannot be reproduced against the local stack; cover them with unit tests or a dev build against a remote host.
 
 ## Verification commands
 

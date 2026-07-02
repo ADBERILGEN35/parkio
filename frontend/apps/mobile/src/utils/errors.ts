@@ -31,6 +31,10 @@ function messageForApiError(error: ParkioApiError): string {
       return 'We couldn’t find what you were looking for.';
     case 409:
       return error.message || 'That conflicts with something that already exists.';
+    case 413:
+      return 'That photo is too large to upload. Try a smaller one.';
+    case 415:
+      return 'That image format isn’t supported. Use a JPEG, PNG, or WebP photo.';
     case 429:
       return 'Too many attempts. Please wait a moment and try again.';
     default:

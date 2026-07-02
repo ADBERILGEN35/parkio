@@ -317,6 +317,12 @@ export function buildMapHtml(options: MapHtmlOptions): string {
         map.on('mouseup', stopDraftDrag);
         map.on('touchend', stopDraftDrag);
 
+        // One movestart per gesture/animation so RN can play a "pin lift"
+        // affordance; the settle arrives with the region message below.
+        map.on('movestart', function () {
+          post({ type: 'movestart' });
+        });
+
         // Region is emitted only on moveend (never per-frame during the pan),
         // and an unchanged-guard drops jitter where the camera settles back on
         // the same center/zoom, so RN never re-renders for a no-op move.

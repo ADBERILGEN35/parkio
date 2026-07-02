@@ -7,6 +7,12 @@ export interface ScreenProps {
   children: ReactNode;
   /** Wrap content in a ScrollView (default true). Set false for full-bleed screens. */
   scroll?: boolean;
+  /**
+   * Temporarily lock scrolling (default true = scrollable). Screens embedding a
+   * gesture surface (e.g. a map) flip this off while the surface is touched so
+   * the outer ScrollView doesn't steal vertical pans.
+   */
+  scrollEnabled?: boolean;
   /** Safe-area edges to pad. Defaults to all but bottom (tab bar owns the bottom). */
   edges?: Edge[];
   contentStyle?: ViewStyle;
@@ -22,6 +28,7 @@ export interface ScreenProps {
 export function Screen({
   children,
   scroll = true,
+  scrollEnabled = true,
   edges = ['top', 'left', 'right'],
   contentStyle,
   padded = true,
@@ -41,6 +48,7 @@ export function Screen({
           contentContainerStyle={[styles.grow, padding, contentStyle]}
           keyboardShouldPersistTaps="always"
           showsVerticalScrollIndicator={false}
+          scrollEnabled={scrollEnabled}
         >
           {children}
         </ScrollView>

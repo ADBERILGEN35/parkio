@@ -1,6 +1,7 @@
 import type { LatLng } from '@parkio/geo';
 import type { ParkingContext, SpotVehicleType, UploadMediaResponse } from '@parkio/types';
 import { create } from 'zustand';
+import { deleteTempFile } from '@/features/media/lib/fileSystem';
 
 export interface SpotCreationDraft {
   media: UploadMediaResponse;
@@ -34,22 +35,36 @@ const DEFAULT_DRAFT_FIELDS = {
 export const useSpotCreationDraftStore = create<SpotCreationDraftState>((set) => ({
   draft: null,
   startFromUpload: (media, previewUri) =>
-    set((state) => ({
-      draft: state.draft
-        ? {
-            ...state.draft,
-            media,
-            previewUri,
-          }
-        : {
-            media,
-            previewUri,
-            ...DEFAULT_DRAFT_FIELDS,
-          },
-    })),
+    set((state) => {
+      // The draft owns its preview file (handed off by the upload flow). When a
+      // new upload replaces the draft, the superseded preview would otherwise
+      // be orphaned in the cache — delete it here, best-effort.
+      if (state.draft && state.draft.previewUri !== previewUri) {
+        deleteTempFile(state.draft.previewUri);
+      }
+      return {
+        draft: state.draft
+          ? {
+              ...state.draft,
+              media,
+              previewUri,
+            }
+          : {
+              media,
+              previewUri,
+              ...DEFAULT_DRAFT_FIELDS,
+            },
+      };
+    }),
   patchDraft: (patch) =>
     set((state) => ({
       draft: state.draft ? { ...state.draft, ...patch } : null,
     })),
-  clearDraft: () => set({ draft: null }),
+  clearDraft: () =>
+    set((state) => {
+      // Terminal for the flow (submitted or abandoned) — the preview file is
+      // no longer reachable by any screen, so clean it up.
+      deleteTempFile(state.draft?.previewUri);
+      return { draft: null };
+    }),
 }));

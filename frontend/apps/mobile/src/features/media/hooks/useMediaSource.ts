@@ -10,6 +10,9 @@ function toLocalAsset(asset: ImagePicker.ImagePickerAsset): LocalAsset {
     height: asset.height,
     fileSize: asset.fileSize,
     mimeType: asset.mimeType,
+    // The picker hands back a *copy* in the app cache (not the original photo),
+    // so it is ours to delete once the flow no longer needs it.
+    temporary: true,
   };
 }
 

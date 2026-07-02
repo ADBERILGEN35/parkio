@@ -6,6 +6,15 @@ describe('validateLocalAsset', () => {
     expect(validateLocalAsset({ uri: 'file:///capture.jpg', width: 1200, height: 900 })).toEqual({ ok: true });
   });
 
+  it('accepts HEIC/HEIF sources because preparation re-encodes them to JPEG', () => {
+    expect(
+      validateLocalAsset({ uri: 'file:///photo.heic', width: 4032, height: 3024, mimeType: 'image/heic' }),
+    ).toEqual({ ok: true });
+    expect(
+      validateLocalAsset({ uri: 'file:///photo.heif', width: 4032, height: 3024, mimeType: 'image/HEIF' }),
+    ).toEqual({ ok: true });
+  });
+
   it('rejects explicit unsupported source mime types before upload', () => {
     expect(
       validateLocalAsset({

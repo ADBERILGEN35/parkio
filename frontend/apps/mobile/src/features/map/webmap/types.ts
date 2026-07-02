@@ -49,6 +49,7 @@ export interface MapBenchResult {
 export type MapOutboundMessage =
   | { type: 'ready' }
   | { type: 'error'; reason: string }
+  | { type: 'movestart' }
   | { type: 'region'; center: LatLng; zoom: number; bounds: MapBounds }
   | { type: 'spotPress'; spotId: string }
   | { type: 'draftMarkerChange'; center: LatLng }

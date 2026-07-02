@@ -44,6 +44,10 @@ export function createMediaApi(client: AxiosInstance) {
           },
           signal: options?.signal,
           onUploadProgress: options?.onUploadProgress,
+          // Multipart uploads of multi-MB photos on slow cellular links can
+          // legitimately outlive the client's default 30s timeout — give them
+          // their own budget instead of failing a healthy transfer mid-flight.
+          timeout: 120_000,
         })
         .then((r) => r.data);
     },

@@ -21,6 +21,13 @@ function reject(reason: MediaRejectionReason): MediaValidation {
 }
 
 /**
+ * Source formats the backend doesn't accept but the device can decode —
+ * preparation re-encodes them to JPEG, so rejecting them here would dead-end
+ * perfectly usable photos (iOS gallery images are HEIC by default).
+ */
+const RECODED_SOURCE_TYPES: string[] = ['image/heic', 'image/heif'];
+
+/**
  * Pre-flight check on a freshly-acquired asset, mirroring the backend's
  * constraints. Most assets pass straight through; preparation
  * ({@link prepareImage}) then guarantees the uploaded bytes are within limits.
@@ -29,12 +36,19 @@ function reject(reason: MediaRejectionReason): MediaValidation {
  *
  * Type is only rejected when the source explicitly reports an unsupported mime —
  * a missing mime is tolerated because we always re-encode to JPEG before upload.
+ * HEIC/HEIF sources (typical iOS gallery photos) are likewise accepted: the
+ * backend never sees them, since preparation re-encodes everything to JPEG.
  */
 export function validateLocalAsset(asset: LocalAsset): MediaValidation {
   if (asset.fileSize != null && asset.fileSize <= 0) {
     return reject('empty');
   }
-  if (asset.mimeType && !ALLOWED_CONTENT_TYPES.includes(asset.mimeType as (typeof ALLOWED_CONTENT_TYPES)[number])) {
+  const mime = asset.mimeType?.toLowerCase();
+  if (
+    mime &&
+    !ALLOWED_CONTENT_TYPES.includes(mime as (typeof ALLOWED_CONTENT_TYPES)[number]) &&
+    !RECODED_SOURCE_TYPES.includes(mime)
+  ) {
     return reject('unsupported-type');
   }
   if (asset.width > 0 && asset.height > 0 && asset.width * asset.height > MAX_IMAGE_PIXELS) {

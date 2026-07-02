@@ -136,6 +136,18 @@ export default function UploadScreen() {
     router.replace('/(main)/spot-create');
   }, [asset, router, startSpotDraft, uploadedMedia]);
 
+  // When connectivity returns after a failed upload, retry automatically —
+  // safe because retry reuses the same idempotency key and prepared bytes.
+  // A *cancelled* upload is left alone: resuming it is the user's call.
+  const prevOnlineRef = useRef(online);
+  useEffect(() => {
+    const cameBackOnline = prevOnlineRef.current === false && online === true;
+    prevOnlineRef.current = online;
+    if (cameBackOnline && upload.phase === 'error') {
+      retryUpload();
+    }
+  }, [online, retryUpload, upload.phase]);
+
   return (
     <>
       <Stack.Screen
