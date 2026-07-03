@@ -1,4 +1,5 @@
-import { createContext, useCallback, useContext, useEffect, useRef, useState, type ReactNode } from 'react';
+import { Ionicons } from '@expo/vector-icons';
+import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import { Animated, StyleSheet } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { AppText } from '@/components/ui/AppText';
@@ -49,11 +50,16 @@ export function ToastProvider({ children }: { children: ReactNode }) {
 
   useEffect(() => () => void (timer.current && clearTimeout(timer.current)), []);
 
-  const api: ToastApi = {
-    showToast,
-    showError: (message) => showToast(message, 'error'),
-    showSuccess: (message) => showToast(message, 'success'),
-  };
+  // Stable across renders so every consumer of the context doesn't re-render
+  // whenever a toast shows or hides.
+  const api: ToastApi = useMemo(
+    () => ({
+      showToast,
+      showError: (message) => showToast(message, 'error'),
+      showSuccess: (message) => showToast(message, 'success'),
+    }),
+    [showToast],
+  );
 
   return (
     <ToastContext.Provider value={api}>
@@ -62,6 +68,12 @@ export function ToastProvider({ children }: { children: ReactNode }) {
     </ToastContext.Provider>
   );
 }
+
+const TONE_ICONS = {
+  error: 'alert-circle',
+  success: 'checkmark-circle',
+  info: 'information-circle',
+} as const;
 
 function ToastView({ toast, opacity }: { toast: ToastState; opacity: Animated.Value }) {
   const theme = useTheme();
@@ -91,7 +103,8 @@ function ToastView({ toast, opacity }: { toast: ToastState; opacity: Animated.Va
         theme.elevation.floating,
       ]}
     >
-      <AppText variant="callout" style={{ color: theme.colors.textInverse }}>
+      <Ionicons name={TONE_ICONS[toast.tone]} size={18} color={theme.colors.textInverse} />
+      <AppText variant="callout" style={[styles.message, { color: theme.colors.textInverse }]}>
         {toast.message}
       </AppText>
     </Animated.View>
@@ -103,8 +116,12 @@ const styles = StyleSheet.create({
     position: 'absolute',
     left: 16,
     right: 16,
+    flexDirection: 'row',
     alignItems: 'center',
+    justifyContent: 'center',
+    gap: 8,
   },
+  message: { flexShrink: 1, textAlign: 'center' },
 });
 
 export function useToast(): ToastApi {

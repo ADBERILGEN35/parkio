@@ -10,14 +10,17 @@
     "assetBundlePatterns": ["**/*"],
     "ios": {
       "supportsTablet": true,
-      "bundleIdentifier": "dev.parkio.app"
+      "bundleIdentifier": "dev.parkio.app",
+      "buildNumber": "1"
     },
     "android": {
       "package": "dev.parkio.app",
+      "versionCode": 1,
       "adaptiveIcon": {
         "foregroundImage": "./assets/images/adaptive-icon.png",
         "backgroundColor": "#0A2540"
-      }
+      },
+      "blockedPermissions": ["android.permission.RECORD_AUDIO"]
     },
     "web": {
       "bundler": "metro",

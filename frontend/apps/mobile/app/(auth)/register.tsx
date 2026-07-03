@@ -14,6 +14,7 @@ import { AppText } from '@/components/ui/AppText';
 import { FormTextField } from '@/components/forms/FormTextField';
 import { useAuth } from '@/hooks/useAuth';
 import { useToast } from '@/providers/ToastProvider';
+import { track } from '@/services/analytics';
 import { toUserMessage } from '@/utils/errors';
 
 export default function RegisterScreen() {
@@ -35,6 +36,7 @@ export default function RegisterScreen() {
     setSubmitting(true);
     try {
       await register(values);
+      track('sign_up');
       router.replace('/(auth)/login');
     } catch (error) {
       toast.showError(toUserMessage(error));
@@ -102,7 +104,7 @@ export default function RegisterScreen() {
 }
 
 const styles = StyleSheet.create({
-  content: { justifyContent: 'center', gap: 28 },
+  content: { justifyContent: 'center', gap: 32 },
   header: { gap: 8 },
   form: { gap: 16 },
   requirements: { gap: 4 },

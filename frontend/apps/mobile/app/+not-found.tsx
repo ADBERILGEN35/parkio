@@ -1,23 +1,19 @@
-import { Link, Stack } from 'expo-router';
+import { Stack, useRouter } from 'expo-router';
 import { Screen, StateView } from '@/components/ui';
-import { AppText } from '@/components/ui/AppText';
 
 export default function NotFound() {
+  const router = useRouter();
   return (
     <>
       <Stack.Screen options={{ title: 'Not found' }} />
       <Screen scroll={false}>
         <StateView
-          glyph="🧭"
+          icon="compass-outline"
           title="This screen doesn’t exist"
           description="The page you’re looking for isn’t here."
-        >
-          <Link href="/" style={{ marginTop: 16 }}>
-            <AppText variant="label" tone="primary">
-              Go to home
-            </AppText>
-          </Link>
-        </StateView>
+          actionLabel="Go to home"
+          onAction={() => router.replace('/')}
+        />
       </Screen>
     </>
   );

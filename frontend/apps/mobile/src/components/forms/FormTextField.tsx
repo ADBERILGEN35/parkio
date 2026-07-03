@@ -1,7 +1,8 @@
+import { Ionicons } from '@expo/vector-icons';
 import { useState } from 'react';
 import { useController, type Control, type FieldValues, type Path } from 'react-hook-form';
-import { StyleSheet, TextInput, View, type TextInputProps } from 'react-native';
-import { MIN_TOUCH_TARGET, useTheme } from '@/theme';
+import { Pressable, StyleSheet, TextInput, View, type TextInputProps } from 'react-native';
+import { HIT_SLOP, MIN_TOUCH_TARGET, useTheme } from '@/theme';
 import { AppText } from '@/components/ui/AppText';
 
 export interface FormTextFieldProps<T extends FieldValues> extends Omit<TextInputProps, 'value' | 'onChangeText'> {
@@ -26,12 +27,16 @@ export function FormTextField<T extends FieldValues>({
   label,
   hint,
   onFocus,
+  secureTextEntry,
   ...inputProps
 }: FormTextFieldProps<T>) {
   const theme = useTheme();
   const { field, fieldState } = useController({ control, name });
   const error = fieldState.error?.message;
   const [focused, setFocused] = useState(false);
+  // Secure fields get the standard visibility toggle (eye icon).
+  const [revealed, setRevealed] = useState(false);
+  const secure = Boolean(secureTextEntry);
 
   const borderColor = error
     ? theme.colors.danger
@@ -44,34 +49,53 @@ export function FormTextField<T extends FieldValues>({
       <AppText variant="caption" tone="muted" style={styles.label}>
         {label}
       </AppText>
-      <TextInput
-        accessibilityLabel={label}
-        accessibilityHint={error ? undefined : hint}
-        value={field.value ?? ''}
-        onChangeText={field.onChange}
-        onFocus={(event) => {
-          setFocused(true);
-          onFocus?.(event);
-        }}
-        onBlur={() => {
-          setFocused(false);
-          field.onBlur();
-        }}
-        placeholderTextColor={theme.colors.textMuted}
-        style={[
-          styles.input,
-          {
-            minHeight: MIN_TOUCH_TARGET,
-            color: theme.colors.text,
-            backgroundColor: theme.colors.surface,
-            borderColor,
-            borderRadius: theme.radius.md,
-            paddingHorizontal: theme.spacing.md,
-          },
-          theme.elevation.card,
-        ]}
-        {...inputProps}
-      />
+      <View>
+        <TextInput
+          accessibilityLabel={label}
+          accessibilityHint={error ? undefined : hint}
+          value={field.value ?? ''}
+          onChangeText={field.onChange}
+          onFocus={(event) => {
+            setFocused(true);
+            onFocus?.(event);
+          }}
+          onBlur={() => {
+            setFocused(false);
+            field.onBlur();
+          }}
+          secureTextEntry={secure && !revealed}
+          placeholderTextColor={theme.colors.textMuted}
+          style={[
+            styles.input,
+            {
+              minHeight: MIN_TOUCH_TARGET,
+              color: theme.colors.text,
+              backgroundColor: theme.colors.surface,
+              borderColor,
+              borderRadius: theme.radius.md,
+              paddingHorizontal: theme.spacing.md,
+              paddingRight: secure ? 44 : theme.spacing.md,
+            },
+            theme.elevation.card,
+          ]}
+          {...inputProps}
+        />
+        {secure ? (
+          <Pressable
+            accessibilityRole="button"
+            accessibilityLabel={revealed ? 'Hide password' : 'Show password'}
+            hitSlop={HIT_SLOP}
+            onPress={() => setRevealed((v) => !v)}
+            style={styles.reveal}
+          >
+            <Ionicons
+              name={revealed ? 'eye-off-outline' : 'eye-outline'}
+              size={20}
+              color={theme.colors.textMuted}
+            />
+          </Pressable>
+        ) : null}
+      </View>
       {error ? (
         <AppText variant="caption" tone="danger" accessibilityRole="alert" style={styles.error}>
           {error}
@@ -85,5 +109,12 @@ const styles = StyleSheet.create({
   group: { gap: 6 },
   label: {},
   input: { borderWidth: 1, fontSize: 15 },
+  reveal: {
+    position: 'absolute',
+    right: 12,
+    top: 0,
+    bottom: 0,
+    justifyContent: 'center',
+  },
   error: {},
 });

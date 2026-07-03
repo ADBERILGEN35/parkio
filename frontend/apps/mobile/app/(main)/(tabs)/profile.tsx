@@ -44,13 +44,14 @@ export default function ProfileScreen() {
 
       {profileQuery.isPending ? (
         <Card>
-          <Skeleton width="50%" height={20} />
-          <View style={{ height: 10 }} />
-          <Skeleton width="70%" height={14} />
+          <View style={styles.skeletonRows}>
+            <Skeleton width="50%" height={20} />
+            <Skeleton width="70%" height={14} />
+          </View>
         </Card>
       ) : profileQuery.isError ? (
         <StateView
-          glyph="⚠️"
+          icon="alert-circle-outline"
           title="Couldn’t load your profile"
           actionLabel="Retry"
           onAction={() => void profileQuery.refetch()}
@@ -97,4 +98,5 @@ export default function ProfileScreen() {
 const styles = StyleSheet.create({
   content: { gap: 24 },
   section: { gap: 12 },
+  skeletonRows: { gap: 10 },
 });

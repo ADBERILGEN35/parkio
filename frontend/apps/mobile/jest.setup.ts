@@ -23,3 +23,15 @@ jest.mock('@react-native-community/netinfo', () => ({
   addEventListener: jest.fn(() => jest.fn()),
   fetch: jest.fn(async () => ({ isConnected: true, isInternetReachable: true })),
 }));
+
+// @expo/vector-icons loads its font asynchronously inside the Icon component;
+// that setState lands after test teardown, producing act() warnings and a
+// silent unhandled rejection that fails the run with every test green. Replace
+// it with a synchronous Text stub (icon name as content).
+jest.mock('@expo/vector-icons', () => {
+  const React = require('react');
+  const { Text } = require('react-native');
+  const Icon = ({ name, ...props }: { name: string }) => React.createElement(Text, props, String(name));
+  (Icon as { glyphMap?: Record<string, number> }).glyphMap = {};
+  return { Ionicons: Icon };
+});

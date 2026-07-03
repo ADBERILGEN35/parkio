@@ -1,5 +1,6 @@
 import { Ionicons } from '@expo/vector-icons';
 import { useQuery } from '@tanstack/react-query';
+import { memo } from 'react';
 import { FlatList, RefreshControl, StyleSheet, View } from 'react-native';
 import { formatRelativeTime } from '@parkio/geo';
 import {
@@ -36,6 +37,7 @@ function humanizeType(value: string): string {
 }
 
 export default function NotificationsScreen() {
+  const theme = useTheme();
   const query = useQuery<AppNotification[]>({
     queryKey: ['notifications'],
     queryFn: notificationsApi.getMyNotifications,
@@ -58,7 +60,7 @@ export default function NotificationsScreen() {
     return (
       <Screen scroll={false}>
         <StateView
-          glyph="⚠️"
+          icon="cloud-offline-outline"
           title="Couldn’t load notifications"
           description="Check your connection and try again."
           actionLabel="Retry"
@@ -74,7 +76,7 @@ export default function NotificationsScreen() {
     return (
       <Screen scroll={false}>
         <StateView
-          glyph="🔔"
+          icon="notifications-outline"
           title="No notifications yet"
           description="Activity on your spots and points will show up here."
         />
@@ -93,10 +95,14 @@ export default function NotificationsScreen() {
             Notifications
           </AppText>
         }
-        ItemSeparatorComponent={() => <View style={styles.separator} />}
         renderItem={({ item }) => <NotificationRow notification={item} />}
         refreshControl={
-          <RefreshControl refreshing={query.isFetching} onRefresh={() => void query.refetch()} />
+          <RefreshControl
+            refreshing={query.isFetching}
+            onRefresh={() => void query.refetch()}
+            colors={[theme.colors.primary]}
+            tintColor={theme.colors.primary}
+          />
         }
       />
     </Screen>
@@ -107,9 +113,10 @@ export default function NotificationsScreen() {
  * Web NotificationItemCard, translated: unread rows are white cards with a
  * 4px primary left accent and soft shadow; read rows sit on a faint tonal
  * surface. Leading icon disc, type soft-badge, and relative timestamp match
- * the web layout.
+ * the web layout. Memoized — rows are static once fetched, so pull-to-refresh
+ * re-renders only rows whose data actually changed.
  */
-function NotificationRow({ notification }: { notification: AppNotification }) {
+const NotificationRow = memo(function NotificationRow({ notification }: { notification: AppNotification }) {
   const theme = useTheme();
   const unread = isUnreadNotification(notification);
   const visual = typeVisual(notification.type);
@@ -176,14 +183,13 @@ function NotificationRow({ notification }: { notification: AppNotification }) {
       </View>
     </View>
   );
-}
+});
 
 const styles = StyleSheet.create({
   content: { gap: 16 },
   list: { gap: 12 },
   listContent: { paddingHorizontal: 20, paddingVertical: 16, gap: 12 },
   heading: { marginBottom: 4 },
-  separator: { height: 12 },
   row: { flexDirection: 'row', gap: 10, padding: 12 },
   iconDisc: { width: 36, height: 36, alignItems: 'center', justifyContent: 'center', marginTop: 2 },
   body: { flex: 1, gap: 4 },

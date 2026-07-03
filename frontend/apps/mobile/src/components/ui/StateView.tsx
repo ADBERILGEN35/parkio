@@ -1,3 +1,4 @@
+import { Ionicons } from '@expo/vector-icons';
 import type { ReactNode } from 'react';
 import { StyleSheet, View } from 'react-native';
 import { useTheme } from '@/theme';
@@ -7,7 +8,9 @@ import { Button } from './Button';
 export interface StateViewProps {
   title: string;
   description?: string;
-  /** Emoji or icon glyph shown in the disc. Kept simple (no icon font dep yet). */
+  /** Themed Ionicon shown in the disc — the standard for empty/error states. */
+  icon?: keyof typeof Ionicons.glyphMap;
+  /** Legacy emoji/text glyph; prefer `icon` (tintable, platform-consistent). */
   glyph?: string;
   actionLabel?: string;
   onAction?: () => void;
@@ -18,7 +21,7 @@ export interface StateViewProps {
  * Shared centered state: used for empty states, error+retry, and "nothing here
  * yet" screens. Keeps copy human and offers a single clear action.
  */
-export function StateView({ title, description, glyph = '✦', actionLabel, onAction, children }: StateViewProps) {
+export function StateView({ title, description, icon, glyph = '✦', actionLabel, onAction, children }: StateViewProps) {
   const theme = useTheme();
   return (
     <View style={styles.container} accessible accessibilityRole="summary">
@@ -28,9 +31,13 @@ export function StateView({ title, description, glyph = '✦', actionLabel, onAc
           { backgroundColor: theme.colors.skeleton, borderRadius: theme.radius.full },
         ]}
       >
-        <AppText variant="display" tone="primary">
-          {glyph}
-        </AppText>
+        {icon ? (
+          <Ionicons name={icon} size={40} color={theme.colors.primary} />
+        ) : (
+          <AppText variant="display" tone="primary">
+            {glyph}
+          </AppText>
+        )}
       </View>
       <AppText variant="title" style={styles.title}>
         {title}

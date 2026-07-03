@@ -167,7 +167,7 @@ export default function UploadScreen() {
         <Screen scroll={false} contentStyle={styles.screen} testID="mobile-upload-screen">
           {uploadedMedia ? (
             <StateView
-              glyph="✓"
+              icon="checkmark-circle-outline"
               title="Photo uploaded"
               description={`Media is ready for Spot Creation. ${uploadedMedia.status} · ${formatBytes(
                 uploadedMedia.fileSize,
@@ -179,7 +179,7 @@ export default function UploadScreen() {
             </StateView>
           ) : cancelled ? (
             <StateView
-              glyph="!"
+              icon="pause-circle-outline"
               title="Upload cancelled"
               description="The photo is still prepared on this screen. Retry when ready, or choose another image."
             >

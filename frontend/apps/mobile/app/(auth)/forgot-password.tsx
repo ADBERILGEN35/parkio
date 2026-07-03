@@ -73,7 +73,7 @@ export default function ForgotPasswordScreen() {
 }
 
 const styles = StyleSheet.create({
-  content: { justifyContent: 'center', gap: 28 },
+  content: { justifyContent: 'center', gap: 32 },
   header: { gap: 8 },
   form: { gap: 16 },
 });

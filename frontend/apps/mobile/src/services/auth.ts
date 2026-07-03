@@ -2,6 +2,7 @@ import { refreshSession } from '@parkio/api-client';
 import type { AuthResponse, LoginRequest, RegisterRequest } from '@parkio/types';
 import { useAuthStore } from '@/state/authStore';
 import { authApi } from './api';
+import { unregisterPushToken } from './pushNotifications';
 import { secureStore } from './secureStore';
 import { tokenStorage } from './tokenStorage';
 
@@ -40,6 +41,8 @@ export async function signUp(payload: RegisterRequest): Promise<void> {
 
 export async function signOut(): Promise<void> {
   const refreshToken = tokenStorage.getRefreshToken();
+  // Stop pushes to this device first, while the session can still authorize it.
+  await unregisterPushToken();
   try {
     await authApi.logout(refreshToken ?? undefined);
   } catch {
@@ -50,6 +53,7 @@ export async function signOut(): Promise<void> {
 }
 
 export async function signOutAll(): Promise<void> {
+  await unregisterPushToken();
   try {
     await authApi.logoutAll();
   } catch {

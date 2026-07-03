@@ -3,6 +3,7 @@ import { View } from 'react-native';
 import { lightTheme } from '@/theme';
 import { AppText } from '@/components/ui/AppText';
 import { Button } from '@/components/ui/Button';
+import { recordError } from '@/services/crashReporting';
 
 interface Props {
   children: ReactNode;
@@ -25,10 +26,7 @@ export class ErrorBoundary extends Component<Props, State> {
   }
 
   componentDidCatch(error: Error, info: ErrorInfo): void {
-    // M2+: forward to a crash-reporting sink (e.g. Sentry). Console for now.
-    if (__DEV__) {
-      console.error('[ErrorBoundary]', error, info.componentStack);
-    }
+    recordError(error, `error-boundary: ${info.componentStack?.slice(0, 200) ?? ''}`);
   }
 
   private reset = () => this.setState({ error: null });

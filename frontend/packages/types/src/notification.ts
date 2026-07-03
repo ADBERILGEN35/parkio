@@ -44,3 +44,15 @@ export type NotificationResponse = AppNotification;
 export function isUnreadNotification(notification: AppNotification): boolean {
   return notification.status !== 'READ';
 }
+
+/** Push platforms accepted by `POST /notifications/device-token` — mirrors `DevicePlatform`. */
+export const DEVICE_PLATFORMS = ['IOS', 'ANDROID', 'WEB'] as const;
+export type DevicePlatform = (typeof DEVICE_PLATFORMS)[number];
+
+/** A registered push device token — mirrors `DeviceTokenResponse`. */
+export interface DeviceToken {
+  id: string;
+  platform: string;
+  active: boolean;
+  createdAt: string;
+}

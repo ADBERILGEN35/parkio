@@ -9,6 +9,7 @@ import { AppText } from '@/components/ui/AppText';
 import { FormTextField } from '@/components/forms/FormTextField';
 import { useAuth } from '@/hooks/useAuth';
 import { useToast } from '@/providers/ToastProvider';
+import { track } from '@/services/analytics';
 import { toUserMessage } from '@/utils/errors';
 
 export default function LoginScreen() {
@@ -26,6 +27,7 @@ export default function LoginScreen() {
     setSubmitting(true);
     try {
       await login(values);
+      track('login');
       router.replace('/(main)/(tabs)/home');
     } catch (error) {
       toast.showError(toUserMessage(error));

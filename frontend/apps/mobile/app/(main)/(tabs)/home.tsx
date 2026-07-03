@@ -32,7 +32,7 @@ export default function HomeScreen() {
         </View>
       ) : error ? (
         <StateView
-          glyph="⚠️"
+          icon="alert-circle-outline"
           title="Couldn’t load your dashboard"
           description="Check your connection and try again."
           actionLabel="Retry"
@@ -121,12 +121,14 @@ function QuickAction({
       accessibilityRole="button"
       accessibilityLabel={label}
       onPress={onPress}
+      android_ripple={{ color: theme.colors.primarySoft, foreground: true }}
       style={({ pressed }) => [
         styles.action,
         {
           backgroundColor: pressed ? theme.colors.surfaceMuted : theme.colors.surface,
           borderColor: theme.colors.border,
           borderRadius: theme.radius.xl,
+          overflow: 'hidden',
         },
       ]}
     >

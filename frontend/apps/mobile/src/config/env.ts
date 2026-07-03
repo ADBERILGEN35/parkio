@@ -30,7 +30,7 @@ export interface MobileConfig {
   };
 }
 
-export function createMobileConfig(env: NodeJS.ProcessEnv): MobileConfig {
+export function createMobileConfig(env: Record<string, string | undefined>): MobileConfig {
   const raw = rawSchema.parse({
     EXPO_PUBLIC_APP_ENV: env.EXPO_PUBLIC_APP_ENV,
     EXPO_PUBLIC_API_BASE_URL: env.EXPO_PUBLIC_API_BASE_URL,
@@ -58,4 +58,11 @@ export function createMobileConfig(env: NodeJS.ProcessEnv): MobileConfig {
   };
 }
 
-export const appConfig = createMobileConfig(process.env);
+// Static `process.env.EXPO_PUBLIC_*` member expressions are required here:
+// babel-preset-expo inlines only these at bundle time; dynamic access (passing
+// `process.env` itself) reads as undefined in release builds.
+export const appConfig = createMobileConfig({
+  EXPO_PUBLIC_APP_ENV: process.env.EXPO_PUBLIC_APP_ENV,
+  EXPO_PUBLIC_API_BASE_URL: process.env.EXPO_PUBLIC_API_BASE_URL,
+  EXPO_PUBLIC_SMART_RETURN_ENABLED: process.env.EXPO_PUBLIC_SMART_RETURN_ENABLED,
+});

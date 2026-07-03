@@ -2,6 +2,7 @@ import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { createIdempotencyKey, isParkioApiError } from '@parkio/api-client';
 import type { Spot } from '@parkio/types';
 import { parkingApi } from '@/services/api';
+import { track } from '@/services/analytics';
 import { toUserMessage } from '@/utils/errors';
 import { buildCreateSpotRequest } from '../lib/createSpotRequest';
 import { useSpotCreationDraftStore } from '../state/spotCreationDraftStore';
@@ -36,6 +37,7 @@ export function useCreateSpotSubmit() {
     },
     retry: (failureCount, error) => failureCount < 2 && isTransientFailure(error),
     onSuccess: (spot) => {
+      track('spot_created');
       clearDraft();
       queryClient.setQueryData(['parking', 'spot', spot.id], spot);
       void queryClient.invalidateQueries({ queryKey: ['parking', 'nearby'] });

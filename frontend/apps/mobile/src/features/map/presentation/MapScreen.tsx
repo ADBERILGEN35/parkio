@@ -1,7 +1,7 @@
 import { Ionicons } from '@expo/vector-icons';
 import { useLocalSearchParams } from 'expo-router';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { ActivityIndicator, StyleSheet, useWindowDimensions, View } from 'react-native';
+import { ActivityIndicator, Pressable, StyleSheet, useWindowDimensions, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import {
   DEFAULT_MAP_CENTER,
@@ -276,14 +276,15 @@ function DiscoveryStatus({
 
   return (
     <View style={[statusStyles.wrap, { bottom: bottomOffset }]} pointerEvents="box-none">
-      <View
+      <Pressable
         accessibilityRole={action ? 'button' : 'summary'}
         accessibilityLabel={text}
-        onTouchEnd={action ?? undefined}
-        style={[
+        disabled={!action}
+        onPress={action ?? undefined}
+        style={({ pressed }) => [
           statusStyles.pill,
           {
-            backgroundColor: theme.colors.surface,
+            backgroundColor: pressed && action ? theme.colors.surfaceMuted : theme.colors.surface,
             borderColor: theme.colors.border,
             borderRadius: theme.radius.full,
             ...theme.elevation.floating,
@@ -297,7 +298,7 @@ function DiscoveryStatus({
             {'  '}Retry
           </AppText>
         ) : null}
-      </View>
+      </Pressable>
     </View>
   );
 }

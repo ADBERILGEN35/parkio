@@ -2,6 +2,7 @@ import { createIdempotencyKey, type MediaFilePart } from '@parkio/api-client';
 import type { UploadMediaResponse } from '@parkio/types';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { toUserMessage } from '@/utils/errors';
+import { track } from '@/services/analytics';
 import { mediaApi } from '@/services/media';
 import { deleteTempFiles } from '../lib/fileSystem';
 import { prepareImage } from '../lib/prepareImage';
@@ -154,6 +155,7 @@ export function useMediaUpload(): UseMediaUpload {
       setResponse(result);
       setProgress(1);
       setPhase('success');
+      track('upload_completed');
       // Success is terminal for the *prepared* temp files. The source asset is
       // NOT deleted here: its uri becomes the spot-creation draft preview and
       // the draft flow deletes it when the draft is cleared.
@@ -179,6 +181,7 @@ export function useMediaUpload(): UseMediaUpload {
       // A tap that races an in-flight pipeline is dropped, not queued — the
       // first pipeline keeps running and the UI keeps reflecting it.
       if (inFlightRef.current) return;
+      track('upload_started');
       cancelRequestedRef.current = false;
       handedOffRef.current = false;
       idempotencyKeyRef.current = createIdempotencyKey();
@@ -198,6 +201,7 @@ export function useMediaUpload(): UseMediaUpload {
   }, [run]);
 
   const cancel = useCallback(() => {
+    track('upload_cancelled');
     cancelRequestedRef.current = true;
     abortRef.current?.abort();
   }, []);

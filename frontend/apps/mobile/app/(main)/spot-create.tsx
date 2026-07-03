@@ -147,7 +147,7 @@ export default function SpotCreateScreen() {
         <Stack.Screen options={{ title: 'Spot created' }} />
         <Screen>
           <StateView
-            glyph="✓"
+            icon="checkmark-circle-outline"
             title="Spot is live"
             description="Your spot was submitted and will appear in the map flow for nearby drivers."
             actionLabel="View map"
@@ -166,7 +166,7 @@ export default function SpotCreateScreen() {
         <Stack.Screen options={{ title: 'Share spot' }} />
         <Screen>
           <StateView
-            glyph="!"
+            icon="image-outline"
             title="Upload a photo first"
             description="Spot Creation starts after a successful parking photo upload."
             actionLabel="Upload photo"

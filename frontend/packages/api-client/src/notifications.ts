@@ -1,5 +1,5 @@
 import type { AxiosInstance } from 'axios';
-import type { AppNotification } from '@parkio/types';
+import type { AppNotification, DevicePlatform, DeviceToken } from '@parkio/types';
 
 export function createNotificationsApi(client: AxiosInstance) {
   return {
@@ -13,6 +13,18 @@ export function createNotificationsApi(client: AxiosInstance) {
       return client
         .patch<AppNotification>(`/notifications/${notificationId}/read`)
         .then((r) => r.data);
+    },
+
+    /** Register this device's push token (`POST /notifications/device-token`). */
+    registerDeviceToken(token: string, platform: DevicePlatform): Promise<DeviceToken> {
+      return client
+        .post<DeviceToken>('/notifications/device-token', { token, platform })
+        .then((r) => r.data);
+    },
+
+    /** Deactivate a previously registered push token (e.g. on logout). */
+    deactivateDeviceToken(tokenId: string): Promise<void> {
+      return client.delete(`/notifications/device-token/${tokenId}`).then(() => undefined);
     },
   };
 }

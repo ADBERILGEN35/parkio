@@ -10,9 +10,16 @@ describe('generateBenchSpots', () => {
   });
 
   it('is deterministic for a given seed', () => {
-    const a = generateBenchSpots({ center, count: 50, seed: 42 });
-    const b = generateBenchSpots({ center, count: 50, seed: 42 });
-    expect(a).toEqual(b);
+    // generateBenchSpots stamps createdAt/expiresAt from the real clock; pin it
+    // so the two calls cannot straddle a millisecond boundary.
+    const nowSpy = jest.spyOn(Date, 'now').mockReturnValue(1_750_000_000_000);
+    try {
+      const a = generateBenchSpots({ center, count: 50, seed: 42 });
+      const b = generateBenchSpots({ center, count: 50, seed: 42 });
+      expect(a).toEqual(b);
+    } finally {
+      nowSpy.mockRestore();
+    }
   });
 
   it('varies with the seed', () => {
