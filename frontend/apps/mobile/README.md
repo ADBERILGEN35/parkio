@@ -5,11 +5,11 @@ WebView wrapper — that reuses the monorepo's shared, framework-agnostic packag
 (`@parkio/types`, `@parkio/api-client`, `@parkio/validation`) so DTOs, the HTTP
 client, and validation schemas are never duplicated between web and mobile.
 
-> Sprint M0 + M1 scope: app architecture, theming, authentication, secure token
-> storage, navigation, error/offline handling, env strategy, CI and EAS config.
-> M2 adds Map & Discovery. M3.1 adds native camera/gallery media acquisition and
-> media upload preparation. Smart Return UI, Push, and Spot Creation remain later
-> mobile work.
+> Implemented through M5: architecture, theming, authentication + secure token
+> storage, navigation, error/offline handling, env strategy, Map & Discovery,
+> camera/gallery media acquisition + upload, Spot Creation, Smart Return, push
+> notification registration/routing (remote delivery pends FCM credentials),
+> and the Android release pipeline (see `docs/beta/mobile-release.md`).
 
 M1.5 hardens native authentication: mobile requests send
 `X-Parkio-Client: mobile`, receive the refresh token in the login/refresh response
@@ -22,7 +22,7 @@ HttpOnly refresh-cookie flow.
 - Expo SDK 56 · React Native · TypeScript
 - Expo Router (file-based navigation + deep links)
 - TanStack Query (server state) · React Hook Form + Zod (forms)
-- expo-secure-store (tokens) · expo-notifications (prepared, not wired)
+- expo-secure-store (tokens) · expo-notifications (registration + tap routing wired; remote delivery pends FCM)
 - Jest + React Native Testing Library
 
 ## Getting started

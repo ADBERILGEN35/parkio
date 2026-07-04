@@ -17,7 +17,7 @@ node node_modules\expo\bin\cli prebuild --platform android --no-install
 | Artifact | Command (from `apps/mobile/android`) | Env | Notes |
 |---|---|---|---|
 | Development build (Metro-attached) | `.\gradlew.bat assembleDebug` | `.env.local` | Debug-signed; loads JS from Metro; replaces Expo Go |
-| Internal validation APK | `.\gradlew.bat assembleRelease` (`NODE_ENV=production`) with `.env.production` = dev values (`http://10.0.2.2:8080/api/v1`) | local | Requires the temporary `android:usesCleartextTraffic="true"` on the main `<application>` (http). **Never ship this variant.** |
+| Internal validation APK | `.\gradlew.bat assembleRelease` (`NODE_ENV=production`) with `.env.production` = dev values (`http://10.0.2.2:8080/api/v1`) | local | Requires the temporary `android:usesCleartextTraffic="true"` on the main `<application>` (http). **Never ship this variant — and revert the manifest patch immediately after building** (`android/` is gitignored, so a stale patch survives silently). `pnpm verify:artifact` (below) fails any hosted-beta/production artifact that still carries it. |
 | Preview APK (beta testers) | same, `.env.production` = `EXPO_PUBLIC_APP_ENV=hosted-beta`, `EXPO_PUBLIC_API_BASE_URL=https://beta-api.parkio.dev/api/v1` | hosted-beta | No cleartext patch — https only |
 | Release AAB (Play upload) | `.\gradlew.bat bundleRelease` (`NODE_ENV=production`), `.env.production` = production values | production | Output: `android/app/build/outputs/bundle/release/app-release.aab` |
 
@@ -43,8 +43,36 @@ node node_modules\expo\bin\cli prebuild --platform android --no-install
    keeps mirrors rebuildable). Never redirect `buildDir` — it breaks autolinking.
 
 EAS cloud builds: `eas.json` defines matching `development` / `preview` /
-`production` profiles. Running them needs `eas login` and a real `extra.eas.projectId`
-in `app.json` (currently a placeholder) — owner action.
+`production` profiles (each pins `EXPO_PUBLIC_APP_ENV`, `EXPO_PUBLIC_API_BASE_URL`
+**and** `EXPO_PUBLIC_SMART_RETURN_ENABLED` explicitly — no implicit defaults).
+Running them needs `eas login` and a real `extra.eas.projectId` in `app.json`
+(currently a placeholder) — owner action.
+
+## Artifact integrity gate (R2)
+
+Before distributing any artifact, verify what was actually baked:
+
+```powershell
+cd C:\Users\ADBERILGEN\Documents\parkio\frontend\apps\mobile
+node scripts\verify-release-artifact.mjs <artifact.apk|.aab> production|hosted-beta|development-validation
+```
+
+Checks (pure Node, no SDK tooling needed): the JS bundle bakes the intended
+environment's API URL and not another environment's; the manifest has no
+cleartext-traffic attribute and no `debuggable`; `SYSTEM_ALERT_WINDOW` is
+stripped. Exit code is non-zero on any failure, so it can gate a script.
+
+**Android hardening baked into `app.json` (R2):**
+
+- `SYSTEM_ALERT_WINDOW` is in `android.blockedPermissions` — it no longer ships
+  in release artifacts (debug/dev-client manifests re-add it for the dev menu).
+- `plugins/withAndroidAllowBackupFalse.js` (local config plugin, no dependency)
+  sets `android:allowBackup="false"` at prebuild.
+
+Both take effect via `expo prebuild`; the current checked-out `android/` tree has
+been patched to match, but any *regenerated* tree gets them from `app.json`.
+The M5 artifacts in `dist-m5/` predate this and still carry `SYSTEM_ALERT_WINDOW`
+— rebuild before Play upload.
 
 ## Signing
 

@@ -5,12 +5,16 @@ import com.parkio.gamification.domain.LevelRule;
 import com.parkio.gamification.domain.PenaltyRule;
 import com.parkio.gamification.domain.PointTransaction;
 import com.parkio.gamification.domain.RewardRule;
+import com.parkio.gamification.domain.TrustRule;
+import com.parkio.gamification.domain.TrustScore;
 import com.parkio.gamification.domain.UserLevelProgress;
 import com.parkio.gamification.infrastructure.persistence.entity.ContributionSnapshotEntity;
 import com.parkio.gamification.infrastructure.persistence.entity.LevelRuleEntity;
 import com.parkio.gamification.infrastructure.persistence.entity.PenaltyRuleEntity;
 import com.parkio.gamification.infrastructure.persistence.entity.PointTransactionEntity;
 import com.parkio.gamification.infrastructure.persistence.entity.RewardRuleEntity;
+import com.parkio.gamification.infrastructure.persistence.entity.TrustRuleEntity;
+import com.parkio.gamification.infrastructure.persistence.entity.TrustScoreEntity;
 import com.parkio.gamification.infrastructure.persistence.entity.UserLevelProgressEntity;
 
 /**
@@ -53,6 +57,18 @@ public final class GamificationPersistenceMapper {
 
     public static PenaltyRule toDomain(PenaltyRuleEntity e) {
         return new PenaltyRule(e.getRuleKey(), e.getSourceType(), e.getPoints(), e.getDescription());
+    }
+
+    public static TrustRule toDomain(TrustRuleEntity e) {
+        return new TrustRule(e.getRuleKey(), e.getDelta(), e.getDescription());
+    }
+
+    public static TrustScore toDomain(TrustScoreEntity e) {
+        return new TrustScore(e.getUserId(), e.getScore(), e.getCreatedAt(), e.getUpdatedAt(), e.getVersion());
+    }
+
+    public static TrustScoreEntity toEntity(TrustScore s) {
+        return new TrustScoreEntity(s.userId(), s.score(), s.createdAt(), s.updatedAt(), s.version());
     }
 
     public static ContributionSnapshotEntity toEntity(ContributionSnapshot s) {

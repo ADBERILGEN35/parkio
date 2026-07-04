@@ -1,6 +1,7 @@
 import type { AppNotification, PublicSpot, Spot } from '@parkio/types';
 import { render, screen } from '@testing-library/react';
 import { describe, expect, it } from 'vitest';
+import { formatInstant } from '@/lib/format';
 import { renderWithProviders } from '@/test/utils';
 import { NotificationItemCard, MarkReadButton } from './NotificationItemCard';
 import { ProductCard, ProductCardButton } from './ProductCard';
@@ -118,7 +119,10 @@ describe('product card components', () => {
 
     expect(screen.getByText('You earned points').closest('li')).toHaveClass('border-l-4');
     expect(screen.getByRole('button', { name: 'Mark as read' })).toBeEnabled();
-    expect(screen.getByText('Welcome to Parkio').closest('li')).not.toHaveClass('border-l-4');
-    expect(screen.getByText(/Read 6\/11\/2026/)).toBeInTheDocument();
+    const readRow = screen.getByText('Welcome to Parkio').closest('li');
+    expect(readRow).not.toHaveClass('border-l-4');
+    // formatInstant uses toLocaleString(); assert via the same helper so the
+    // expectation is stable across CI and developer locales/timezones.
+    expect(readRow).toHaveTextContent(`Read ${formatInstant(readNotification.readAt!)}`);
   });
 });

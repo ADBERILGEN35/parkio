@@ -34,6 +34,7 @@ import {
   type DragEvent,
   type ReactNode,
 } from 'react';
+import { useQueryClient } from '@tanstack/react-query';
 import { useForm, type UseFormRegisterReturn } from 'react-hook-form';
 import { Link, useNavigate } from 'react-router-dom';
 import { mediaApi, parkingApi } from '@/api';
@@ -42,6 +43,7 @@ import { MapPicker } from '@/components/map/MapPicker';
 import { isValidLatLng } from '@/components/map/mapConfig';
 import { PlaceSearch } from '@/components/map/PlaceSearch';
 import { humanizeEnum } from '@/lib/format';
+import { invalidateGamificationQueries } from '@/lib/gamificationCache';
 import { type GeocodeResult } from '@/lib/geocoding';
 import { showError, showSuccess } from '@/lib/toast';
 
@@ -111,6 +113,7 @@ function formatFileSize(bytes: number): string {
  */
 export function UploadPage() {
   const navigate = useNavigate();
+  const queryClient = useQueryClient();
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   const [step, setStep] = useState(STEP_PHOTO);
@@ -322,6 +325,11 @@ export function UploadPage() {
         createIdempotencyKey(),
       );
       setCreatedSpot(spot);
+      // The new spot must show up in My Spots / Nearby, and the upload reward
+      // (points/trust, async via events) must not leave stale derived views.
+      await queryClient.invalidateQueries({ queryKey: ['parking', 'my-spots'] });
+      await queryClient.invalidateQueries({ queryKey: ['parking', 'nearby'] });
+      await invalidateGamificationQueries(queryClient);
       showSuccess('Spot created.');
     } catch (error) {
       setSubmitError(error);

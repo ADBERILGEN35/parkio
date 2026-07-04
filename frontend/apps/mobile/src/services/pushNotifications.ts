@@ -1,4 +1,4 @@
-import * as Notifications from 'expo-notifications';
+import type * as NotificationsTypes from 'expo-notifications';
 import { Platform } from 'react-native';
 import { notificationsApi } from '@/services/api';
 import { recordError } from '@/services/crashReporting';
@@ -17,6 +17,24 @@ import { track } from '@/services/analytics';
  * logs why. Local notifications and tap routing work everywhere.
  */
 
+/**
+ * `expo-notifications` THROWS at import time inside Expo Go on Android (its
+ * remote-push module was removed in SDK 53), and this file sits in the import
+ * chain of the root layout — an eager import would keep the whole app from
+ * booting in Expo Go. Load it lazily and treat "unavailable" as push-disabled.
+ */
+const Notifications: typeof NotificationsTypes | null = (() => {
+  try {
+    // eslint-disable-next-line @typescript-eslint/no-require-imports
+    return require('expo-notifications') as typeof NotificationsTypes;
+  } catch (error) {
+    if (__DEV__) {
+      console.info('[push] expo-notifications unavailable in this runtime (Expo Go has no FCM):', error);
+    }
+    return null;
+  }
+})();
+
 export interface PushRegistration {
   token: string;
   platform: 'ios' | 'android';
@@ -25,10 +43,11 @@ export interface PushRegistration {
 }
 
 let registration: PushRegistration | null = null;
-let tokenRefreshSubscription: Notifications.EventSubscription | null = null;
+let tokenRefreshSubscription: NotificationsTypes.EventSubscription | null = null;
 
 /** Show remote/local notifications while the app is foregrounded (banner, no sound). */
 export function configureForegroundHandling(): void {
+  if (!Notifications) return;
   Notifications.setNotificationHandler({
     handleNotification: async () => ({
       shouldShowBanner: true,
@@ -53,6 +72,7 @@ async function registerTokenWithBackend(token: string): Promise<string | null> {
 }
 
 export async function registerForPushNotifications(): Promise<PushRegistration | null> {
+  if (!Notifications) return null;
   if (registration) return registration;
   try {
     const permission = await Notifications.requestPermissionsAsync();
@@ -113,7 +133,7 @@ const ALLOWED_ROUTES = [
 
 export type NotificationRoute = (typeof ALLOWED_ROUTES)[number];
 
-function routeFromResponse(response: Notifications.NotificationResponse): NotificationRoute | null {
+function routeFromResponse(response: NotificationsTypes.NotificationResponse): NotificationRoute | null {
   const data = response.notification.request.content.data as { route?: unknown } | undefined;
   const route = typeof data?.route === 'string' ? data.route : null;
   return (ALLOWED_ROUTES as readonly string[]).includes(route ?? '')
@@ -128,7 +148,8 @@ function routeFromResponse(response: Notifications.NotificationResponse): Notifi
  * route land on the Notifications tab.
  */
 export function addNotificationTapListener(onRoute: (route: NotificationRoute) => void): () => void {
-  const handle = (response: Notifications.NotificationResponse) => {
+  if (!Notifications) return () => {};
+  const handle = (response: NotificationsTypes.NotificationResponse) => {
     track('notification_opened');
     onRoute(routeFromResponse(response) ?? '/(main)/(tabs)/notifications');
   };

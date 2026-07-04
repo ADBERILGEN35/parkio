@@ -2,6 +2,7 @@ package com.parkio.gamification.application;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
+import com.parkio.gamification.application.event.ModerationCaseResolvedEvent;
 import com.parkio.gamification.application.event.ParkingSpotClaimedEvent;
 import com.parkio.gamification.application.event.ParkingSpotCreatedEvent;
 import com.parkio.gamification.application.event.ParkingSpotRejectedByModeratorEvent;
@@ -13,6 +14,8 @@ import com.parkio.gamification.application.port.OutboxEventAppender;
 import com.parkio.gamification.application.port.PenaltyRuleRepository;
 import com.parkio.gamification.application.port.PointTransactionRepository;
 import com.parkio.gamification.application.port.RewardRuleRepository;
+import com.parkio.gamification.application.port.TrustRuleRepository;
+import com.parkio.gamification.application.port.TrustScoreRepository;
 import com.parkio.gamification.application.port.UserLevelProgressRepository;
 import com.parkio.gamification.domain.AccessPolicy;
 import com.parkio.gamification.domain.ContributionSnapshot;
@@ -21,8 +24,11 @@ import com.parkio.gamification.domain.PenaltyRule;
 import com.parkio.gamification.domain.PointSourceType;
 import com.parkio.gamification.domain.PointTransaction;
 import com.parkio.gamification.domain.RewardRule;
+import com.parkio.gamification.domain.TrustRule;
+import com.parkio.gamification.domain.TrustScore;
 import com.parkio.gamification.domain.UserLevelProgress;
 import com.parkio.gamification.domain.event.GamificationEvent;
+import com.parkio.gamification.domain.event.TrustScoreUpdatedEvent;
 import com.parkio.gamification.domain.event.UserLevelChangedEvent;
 import java.time.Clock;
 import java.time.Instant;
@@ -50,6 +56,8 @@ class GamificationApplicationServiceTest {
     private FakeLevelRuleRepository levelRules;
     private FakeRewardRuleRepository rewardRules;
     private FakePenaltyRuleRepository penaltyRules;
+    private FakeTrustScoreRepository trustScores;
+    private FakeTrustRuleRepository trustRules;
     private FakeContributionSnapshotRepository snapshots;
     private FakeInboxRepository inbox;
     private FakeOutbox outbox;
@@ -62,12 +70,14 @@ class GamificationApplicationServiceTest {
         levelRules = new FakeLevelRuleRepository();
         rewardRules = new FakeRewardRuleRepository();
         penaltyRules = new FakePenaltyRuleRepository();
+        trustScores = new FakeTrustScoreRepository();
+        trustRules = new FakeTrustRuleRepository();
         snapshots = new FakeContributionSnapshotRepository();
         inbox = new FakeInboxRepository();
         outbox = new FakeOutbox();
         service = new GamificationApplicationService(progress, transactions, levelRules, rewardRules,
-                penaltyRules, snapshots, inbox, outbox, new LeaderboardSettings(20, 100),
-                Clock.fixed(NOW, ZoneOffset.UTC));
+                penaltyRules, trustScores, trustRules, snapshots, inbox, outbox,
+                new LeaderboardSettings(20, 100), Clock.fixed(NOW, ZoneOffset.UTC));
     }
 
     @Test
@@ -209,6 +219,84 @@ class GamificationApplicationServiceTest {
         assertThat(policy.verifiedSpotPriority()).isTrue();
     }
 
+    @Test
+    void moderatorRejectionReducesOwnerTrustAndEmitsEvent() {
+        UUID owner = UUID.randomUUID();
+        service.handleParkingSpotRejectedByModerator(new ParkingSpotRejectedByModeratorEvent(
+                UUID.randomUUID(), UUID.randomUUID(), owner, UUID.randomUUID(), UUID.randomUUID(),
+                "ILLEGAL_OR_RISKY", NOW));
+
+        assertThat(trustScores.byUser.get(owner).score()).isEqualTo(90); // 100 - 10
+        List<GamificationEvent> updates = outbox.eventsOfType("TrustScoreUpdated");
+        assertThat(updates).hasSize(1);
+        TrustScoreUpdatedEvent update = (TrustScoreUpdatedEvent) updates.get(0);
+        assertThat(update.previousScore()).isEqualTo(100);
+        assertThat(update.newScore()).isEqualTo(90);
+        assertThat(update.reason()).isEqualTo(TrustRuleKeys.SPOT_REJECTED_OWNER);
+    }
+
+    @Test
+    void trustGainClampedAtMaxEmitsNoEvent() {
+        UUID owner = UUID.randomUUID();
+        // Default score is already 100, so a +1 claim gain is fully absorbed by the clamp.
+        service.handleParkingSpotClaimed(new ParkingSpotClaimedEvent(
+                UUID.randomUUID(), UUID.randomUUID(), owner, UUID.randomUUID(), NOW));
+
+        assertThat(trustScores.byUser).doesNotContainKey(owner);
+        assertThat(outbox.eventsOfType("TrustScoreUpdated")).isEmpty();
+    }
+
+    @Test
+    void trustRecoversAfterLoss() {
+        UUID owner = UUID.randomUUID();
+        service.handleParkingSpotRejectedByModerator(new ParkingSpotRejectedByModeratorEvent(
+                UUID.randomUUID(), UUID.randomUUID(), owner, UUID.randomUUID(), UUID.randomUUID(),
+                "ILLEGAL_OR_RISKY", NOW)); // 100 -> 90
+        service.handleParkingSpotClaimed(new ParkingSpotClaimedEvent(
+                UUID.randomUUID(), UUID.randomUUID(), owner, UUID.randomUUID(), NOW)); // +1 -> 91
+
+        assertThat(trustScores.byUser.get(owner).score()).isEqualTo(91);
+        assertThat(outbox.eventsOfType("TrustScoreUpdated")).hasSize(2);
+    }
+
+    @Test
+    void moderationReduceTrustAppliesAdminPenaltyOnce() {
+        UUID target = UUID.randomUUID();
+        ModerationCaseResolvedEvent event = new ModerationCaseResolvedEvent(
+                UUID.randomUUID(), UUID.randomUUID(), "USER", target, "REDUCE_TRUST",
+                "ABUSE_REPORT", UUID.randomUUID(), NOW);
+
+        service.handleModerationCaseResolved(event);
+        service.handleModerationCaseResolved(event); // redelivery — inbox no-op
+
+        assertThat(trustScores.byUser.get(target).score()).isEqualTo(85); // 100 - 15
+        assertThat(outbox.eventsOfType("TrustScoreUpdated")).hasSize(1);
+    }
+
+    @Test
+    void moderationDeductPointsAppliesReasonMappedPenalty() {
+        UUID target = UUID.randomUUID();
+        service.handleParkingSpotClaimed(new ParkingSpotClaimedEvent(
+                UUID.randomUUID(), UUID.randomUUID(), target, UUID.randomUUID(), NOW)); // owner +30
+
+        service.handleModerationCaseResolved(new ModerationCaseResolvedEvent(
+                UUID.randomUUID(), UUID.randomUUID(), "USER", target, "DEDUCT_POINTS",
+                "SPAM_BEHAVIOR", UUID.randomUUID(), NOW)); // PENALTY_SPAM = 15
+
+        assertThat(progress.byUser.get(target).totalPoints()).isEqualTo(15); // 30 - 15
+    }
+
+    @Test
+    void moderationCaseForSpotTargetIsIgnored() {
+        UUID target = UUID.randomUUID();
+        service.handleModerationCaseResolved(new ModerationCaseResolvedEvent(
+                UUID.randomUUID(), UUID.randomUUID(), "PARKING_SPOT", target, "REDUCE_TRUST",
+                "FAKE_PHOTO", UUID.randomUUID(), NOW));
+
+        assertThat(trustScores.byUser).isEmpty();
+        assertThat(transactions.all).isEmpty();
+    }
+
     // --- Fakes -----------------------------------------------------------
 
     private static final class FakeProgressRepository implements UserLevelProgressRepository {
@@ -288,10 +376,44 @@ class GamificationApplicationServiceTest {
 
         FakePenaltyRuleRepository() {
             byKey.put("PARKING_REJECTED_OWNER", new PenaltyRule("PARKING_REJECTED_OWNER", PointSourceType.PENALTY_ILLEGAL_RISK, 25, null));
+            byKey.put("PENALTY_FAKE", new PenaltyRule("PENALTY_FAKE", PointSourceType.PENALTY_FAKE, 25, null));
+            byKey.put("PENALTY_SPAM", new PenaltyRule("PENALTY_SPAM", PointSourceType.PENALTY_SPAM, 15, null));
         }
 
         @Override
         public Optional<PenaltyRule> findByRuleKey(String ruleKey) {
+            return Optional.ofNullable(byKey.get(ruleKey));
+        }
+    }
+
+    private static final class FakeTrustScoreRepository implements TrustScoreRepository {
+        private final Map<UUID, TrustScore> byUser = new HashMap<>();
+
+        @Override
+        public TrustScore save(TrustScore trustScore) {
+            byUser.put(trustScore.userId(), trustScore);
+            return trustScore;
+        }
+
+        @Override
+        public Optional<TrustScore> findByUserId(UUID userId) {
+            return Optional.ofNullable(byUser.get(userId));
+        }
+    }
+
+    private static final class FakeTrustRuleRepository implements TrustRuleRepository {
+        private final Map<String, TrustRule> byKey = new HashMap<>();
+
+        FakeTrustRuleRepository() {
+            // Mirrors the V14 seed data.
+            byKey.put("TRUST_SPOT_VERIFIED_OWNER", new TrustRule("TRUST_SPOT_VERIFIED_OWNER", 2, null));
+            byKey.put("TRUST_SPOT_CLAIMED_OWNER", new TrustRule("TRUST_SPOT_CLAIMED_OWNER", 1, null));
+            byKey.put("TRUST_SPOT_REJECTED_OWNER", new TrustRule("TRUST_SPOT_REJECTED_OWNER", -10, null));
+            byKey.put("TRUST_MODERATION_PENALTY", new TrustRule("TRUST_MODERATION_PENALTY", -15, null));
+        }
+
+        @Override
+        public Optional<TrustRule> findByRuleKey(String ruleKey) {
             return Optional.ofNullable(byKey.get(ruleKey));
         }
     }

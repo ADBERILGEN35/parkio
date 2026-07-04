@@ -39,7 +39,7 @@ export function usePlaceAutocomplete(): PlaceAutocomplete {
   const [status, setStatus] = useState<AutocompleteStatus>('idle');
   const [results, setResults] = useState<GeocodeResult[]>([]);
 
-  const debounceRef = useRef<ReturnType<typeof setTimeout>>();
+  const debounceRef = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
   const abortRef = useRef<AbortController | null>(null);
   const requestIdRef = useRef(0);
 

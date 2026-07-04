@@ -4,6 +4,7 @@ import type { Spot } from '@parkio/types';
 import { parkingApi } from '@/services/api';
 import { track } from '@/services/analytics';
 import { toUserMessage } from '@/utils/errors';
+import { invalidateGamificationQueries } from '@/lib/gamificationCache';
 import { buildCreateSpotRequest } from '../lib/createSpotRequest';
 import { useSpotCreationDraftStore } from '../state/spotCreationDraftStore';
 
@@ -42,6 +43,7 @@ export function useCreateSpotSubmit() {
       queryClient.setQueryData(['parking', 'spot', spot.id], spot);
       void queryClient.invalidateQueries({ queryKey: ['parking', 'nearby'] });
       void queryClient.invalidateQueries({ queryKey: ['parking', 'my-spots'] });
+      void invalidateGamificationQueries(queryClient);
     },
   });
 

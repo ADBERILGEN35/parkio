@@ -7,6 +7,7 @@ import com.parkio.notification.application.command.RegisterDeviceTokenCommand;
 import com.parkio.notification.application.command.UpdatePreferencesCommand;
 import com.parkio.notification.application.event.ParkingSpotRejectedByModeratorEvent;
 import com.parkio.notification.application.event.PointsEarnedEvent;
+import com.parkio.notification.application.event.TrustScoreUpdatedEvent;
 import com.parkio.notification.application.event.UserLevelChangedEvent;
 import com.parkio.notification.application.port.DeviceTokenRepository;
 import com.parkio.notification.application.port.InboxEventRepository;
@@ -146,6 +147,21 @@ class NotificationApplicationServiceTest {
                 .satisfies(n -> {
                     assertThat(n.type()).isEqualTo(NotificationType.POINT_EARNED);
                     assertThat(n.body()).contains("20 points");
+                });
+    }
+
+    @Test
+    void trustScoreUpdatedEventCreatesSystemNotification() {
+        UUID user = UUID.randomUUID();
+
+        service.handleTrustScoreUpdated(new TrustScoreUpdatedEvent(
+                UUID.randomUUID(), user, 100, 85, "MODERATION_PENALTY", UUID.randomUUID(), NOW));
+
+        assertThat(notifications.findRecentByUserId(user, 10)).singleElement()
+                .satisfies(n -> {
+                    assertThat(n.type()).isEqualTo(NotificationType.WARNING);
+                    assertThat(n.body()).contains("100");
+                    assertThat(n.body()).contains("85");
                 });
     }
 

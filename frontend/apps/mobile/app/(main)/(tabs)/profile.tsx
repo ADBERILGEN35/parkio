@@ -1,12 +1,16 @@
+import { Ionicons } from '@expo/vector-icons';
 import { useQuery } from '@tanstack/react-query';
+import { useRouter } from 'expo-router';
 import { useState } from 'react';
-import { Alert, StyleSheet, View } from 'react-native';
+import { Alert, Pressable, StyleSheet, View } from 'react-native';
 import type { Profile } from '@parkio/types';
 import { Button, Card, Screen, Skeleton, StateView } from '@/components/ui';
 import { AppText } from '@/components/ui/AppText';
+import { appConfig } from '@/config/env';
 import { useAuth } from '@/hooks/useAuth';
 import { usersApi } from '@/services/api';
 import { useToast } from '@/providers/ToastProvider';
+import { useTheme } from '@/theme';
 import { toUserMessage } from '@/utils/errors';
 
 export default function ProfileScreen() {
@@ -70,6 +74,13 @@ export default function ProfileScreen() {
         </Card>
       )}
 
+      {appConfig.features.smartReturn ? (
+        <View style={styles.section}>
+          <AppText variant="heading">Parking</AppText>
+          <SmartReturnRow />
+        </View>
+      ) : null}
+
       <View style={styles.section}>
         <AppText variant="heading">Account</AppText>
         <Button
@@ -95,8 +106,42 @@ export default function ProfileScreen() {
   );
 }
 
+/** Entry point to the Smart Return screen — the web profile's Smart Return section. */
+function SmartReturnRow() {
+  const theme = useTheme();
+  const router = useRouter();
+  return (
+    <Card padded={false}>
+      <Pressable
+        accessibilityRole="button"
+        accessibilityLabel="Smart Return"
+        testID="profile.smartReturn"
+        onPress={() => router.push('/(main)/smart-return')}
+        style={({ pressed }) => [
+          styles.linkRow,
+          { backgroundColor: pressed ? theme.colors.surfaceMuted : 'transparent', borderRadius: theme.radius.xl },
+        ]}
+      >
+        <View style={[styles.linkDisc, { backgroundColor: theme.colors.primarySoft, borderRadius: theme.radius.full }]}>
+          <Ionicons name="home" size={18} color={theme.colors.primary} />
+        </View>
+        <View style={styles.linkText}>
+          <AppText variant="subtitle">Smart Return</AppText>
+          <AppText variant="caption" tone="muted">
+            One parking check near home, right before you head back.
+          </AppText>
+        </View>
+        <Ionicons name="chevron-forward" size={18} color={theme.colors.textMuted} />
+      </Pressable>
+    </Card>
+  );
+}
+
 const styles = StyleSheet.create({
   content: { gap: 24 },
   section: { gap: 12 },
   skeletonRows: { gap: 10 },
+  linkRow: { flexDirection: 'row', alignItems: 'center', gap: 12, padding: 14, minHeight: 44 },
+  linkDisc: { width: 36, height: 36, alignItems: 'center', justifyContent: 'center' },
+  linkText: { flex: 1, gap: 2 },
 });

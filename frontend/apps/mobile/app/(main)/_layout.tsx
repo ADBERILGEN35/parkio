@@ -5,8 +5,8 @@ import { useTheme } from '@/theme';
 /**
  * Protected area guard. Any deep link into a `(main)` route while signed out is
  * redirected to login; while bootstrap is pending we render nothing (root index
- * owns the splash). Placeholder feature routes (upload/map/smart-return) live
- * here as modal-capable stack screens above the tabs.
+ * owns the splash). Feature routes (upload/map/smart-return) live here as
+ * modal-capable stack screens above the tabs.
  */
 export default function MainLayout() {
   const bootstrapPending = useAuthStore((s) => s.bootstrapPending);

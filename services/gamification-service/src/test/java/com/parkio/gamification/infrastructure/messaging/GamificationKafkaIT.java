@@ -18,6 +18,8 @@ import com.parkio.gamification.application.port.OutboxEventAppender;
 import com.parkio.gamification.application.port.PenaltyRuleRepository;
 import com.parkio.gamification.application.port.PointTransactionRepository;
 import com.parkio.gamification.application.port.RewardRuleRepository;
+import com.parkio.gamification.application.port.TrustRuleRepository;
+import com.parkio.gamification.application.port.TrustScoreRepository;
 import com.parkio.gamification.application.port.UserLevelProgressRepository;
 import com.parkio.gamification.domain.ContributionSnapshot;
 import com.parkio.gamification.domain.LevelRule;
@@ -25,6 +27,8 @@ import com.parkio.gamification.domain.PenaltyRule;
 import com.parkio.gamification.domain.PointSourceType;
 import com.parkio.gamification.domain.PointTransaction;
 import com.parkio.gamification.domain.RewardRule;
+import com.parkio.gamification.domain.TrustRule;
+import com.parkio.gamification.domain.TrustScore;
 import com.parkio.gamification.domain.UserLevelProgress;
 import com.parkio.gamification.domain.event.GamificationEvent;
 import java.nio.charset.StandardCharsets;
@@ -104,9 +108,9 @@ class GamificationKafkaIT {
         FakeTransactionRepository transactions = new FakeTransactionRepository();
         GamificationApplicationService gamification = new GamificationApplicationService(
                 progress, transactions, new FakeLevelRuleRepository(), new FakeRewardRuleRepository(),
-                new FakePenaltyRuleRepository(), new FakeContributionSnapshotRepository(),
-                new FakeInboxRepository(), new FakeOutbox(), new LeaderboardSettings(20, 100),
-                Clock.fixed(occurredAt, ZoneOffset.UTC));
+                new FakePenaltyRuleRepository(), new FakeTrustScoreRepository(), new FakeTrustRuleRepository(),
+                new FakeContributionSnapshotRepository(), new FakeInboxRepository(), new FakeOutbox(),
+                new LeaderboardSettings(20, 100), Clock.fixed(occurredAt, ZoneOffset.UTC));
         ParkingEventsKafkaConsumer consumer = new ParkingEventsKafkaConsumer(gamification, objectMapper);
 
         String payload = objectMapper.writeValueAsString(
@@ -293,6 +297,28 @@ class GamificationKafkaIT {
     private static final class FakePenaltyRuleRepository implements PenaltyRuleRepository {
         @Override
         public Optional<PenaltyRule> findByRuleKey(String ruleKey) {
+            return Optional.empty();
+        }
+    }
+
+    private static final class FakeTrustScoreRepository implements TrustScoreRepository {
+        private final Map<UUID, TrustScore> byUser = new HashMap<>();
+
+        @Override
+        public TrustScore save(TrustScore trustScore) {
+            byUser.put(trustScore.userId(), trustScore);
+            return trustScore;
+        }
+
+        @Override
+        public Optional<TrustScore> findByUserId(UUID userId) {
+            return Optional.ofNullable(byUser.get(userId));
+        }
+    }
+
+    private static final class FakeTrustRuleRepository implements TrustRuleRepository {
+        @Override
+        public Optional<TrustRule> findByRuleKey(String ruleKey) {
             return Optional.empty();
         }
     }

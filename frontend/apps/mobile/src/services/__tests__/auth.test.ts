@@ -117,6 +117,17 @@ describe('mobile auth service', () => {
     expect(useAuthStore.getState().bootstrapPending).toBe(false);
   });
 
+  it('ends bootstrap cleanly when no tokens are persisted', async () => {
+    jest.mocked(refreshSession).mockResolvedValue(null);
+
+    await expect(bootstrapSession()).resolves.toBeUndefined();
+
+    expect(tokenStorage.getAccessToken()).toBeNull();
+    expect(tokenStorage.getRefreshToken()).toBeNull();
+    expect(useAuthStore.getState().isAuthenticated).toBe(false);
+    expect(useAuthStore.getState().bootstrapPending).toBe(false);
+  });
+
   it('does not authenticate immediately after register because backend requires verification', async () => {
     jest.mocked(authApi.register).mockResolvedValue({ ...authResponse, accessToken: null, refreshToken: null });
 

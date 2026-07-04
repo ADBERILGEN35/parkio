@@ -1,14 +1,15 @@
 import { Ionicons } from '@expo/vector-icons';
-import { useQuery } from '@tanstack/react-query';
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import { useRouter } from 'expo-router';
 import { memo } from 'react';
-import { FlatList, RefreshControl, StyleSheet, View } from 'react-native';
+import { FlatList, Pressable, RefreshControl, StyleSheet, View } from 'react-native';
 import { formatRelativeTime } from '@parkio/geo';
 import {
   isUnreadNotification,
   type AppNotification,
   type NotificationType,
 } from '@parkio/types';
-import { Badge, Screen, SkeletonCard, StateView, type BadgeTone } from '@/components/ui';
+import { Badge, Button, Screen, SkeletonCard, StateView, type BadgeTone } from '@/components/ui';
 import { AppText } from '@/components/ui/AppText';
 import { notificationsApi } from '@/services/api';
 import { useTheme } from '@/theme';
@@ -118,8 +119,20 @@ export default function NotificationsScreen() {
  */
 const NotificationRow = memo(function NotificationRow({ notification }: { notification: AppNotification }) {
   const theme = useTheme();
+  const queryClient = useQueryClient();
   const unread = isUnreadNotification(notification);
   const visual = typeVisual(notification.type);
+
+  // Mirrors the web MarkReadButton: PATCH /notifications/{id}/read (idempotent),
+  // then patch the row in the cached list so the unread state clears in place.
+  const markRead = useMutation({
+    mutationFn: () => notificationsApi.markRead(notification.id),
+    onSuccess: (updated) => {
+      queryClient.setQueryData<AppNotification[]>(['notifications'], (current) =>
+        current?.map((item) => (item.id === updated.id ? updated : item)),
+      );
+    },
+  });
 
   return (
     <View
@@ -179,11 +192,70 @@ const NotificationRow = memo(function NotificationRow({ notification }: { notifi
           <AppText variant="caption" tone="muted">
             {formatRelativeTime(notification.createdAt)}
           </AppText>
+          {unread ? (
+            <Pressable
+              testID={`notifications.markRead.${notification.id}`}
+              accessibilityRole="button"
+              accessibilityLabel="Mark as read"
+              disabled={markRead.isPending}
+              onPress={() => markRead.mutate()}
+              style={styles.markReadButton}
+            >
+              <AppText variant="caption" style={{ color: theme.colors.primary, fontWeight: '600' }}>
+                {markRead.isPending ? 'Marking…' : 'Mark as read'}
+              </AppText>
+            </Pressable>
+          ) : null}
         </View>
+
+        {markRead.isError ? (
+          <AppText variant="caption" style={{ color: theme.colors.danger }}>
+            Could not mark as read. Try again.
+          </AppText>
+        ) : null}
+
+        <SmartReturnCta type={notification.type} />
       </View>
     </View>
   );
 });
+
+/**
+ * Web `smartReturnNotificationAction`, translated to native navigation: the
+ * prompt opens the Smart Return Today flow; the availability alert opens the
+ * map in Smart Return mode. Backend `metadata.deeplink` values are web paths,
+ * so the type — part of the stable contract — drives routing instead.
+ */
+function SmartReturnCta({ type }: { type: NotificationType }) {
+  const theme = useTheme();
+  const router = useRouter();
+
+  if (type === 'SMART_RETURN_PROMPT') {
+    return (
+      <View style={styles.ctaRow}>
+        <Button
+          label="Set today's return"
+          testID="notifications.smartReturn.prompt"
+          leading={<Ionicons name="car" size={16} color={theme.colors.onPrimary} />}
+          onPress={() => router.push('/(main)/smart-return')}
+        />
+      </View>
+    );
+  }
+  if (type === 'SMART_RETURN_AVAILABLE') {
+    return (
+      <View style={styles.ctaRow}>
+        <Button
+          label="Open map"
+          testID="notifications.smartReturn.available"
+          leading={<Ionicons name="map-outline" size={16} color={theme.colors.onPrimary} />}
+          onPress={() => router.push({ pathname: '/(main)/map', params: { smartReturn: '1' } })}
+        />
+      </View>
+    );
+  }
+  return null;
+}
 
 const styles = StyleSheet.create({
   content: { gap: 16 },
@@ -197,5 +269,7 @@ const styles = StyleSheet.create({
   titleUnread: { fontWeight: '600' },
   unreadDot: { width: 8, height: 8, borderRadius: 999 },
   metaRow: { flexDirection: 'row', alignItems: 'center', gap: 8, marginTop: 2, flexWrap: 'wrap' },
+  markReadButton: { marginLeft: 'auto', paddingVertical: 2, paddingHorizontal: 4 },
+  ctaRow: { marginTop: 8 },
   flex: { flex: 1 },
 });

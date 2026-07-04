@@ -6,6 +6,7 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import com.parkio.notification.application.NotificationApplicationService;
 import com.parkio.notification.application.event.PointsDeductedEvent;
 import com.parkio.notification.application.event.PointsEarnedEvent;
+import com.parkio.notification.application.event.TrustScoreUpdatedEvent;
 import com.parkio.notification.application.event.UserLevelChangedEvent;
 import org.apache.kafka.clients.consumer.ConsumerRecord;
 import org.slf4j.Logger;
@@ -34,6 +35,7 @@ public class GamificationScoreKafkaConsumer {
     private static final String POINTS_EARNED = "PointsEarned";
     private static final String POINTS_DEDUCTED = "PointsDeducted";
     private static final String USER_LEVEL_CHANGED = "UserLevelChanged";
+    private static final String TRUST_SCORE_UPDATED = "TrustScoreUpdated";
 
     private static final Logger log = LoggerFactory.getLogger(GamificationScoreKafkaConsumer.class);
 
@@ -63,6 +65,8 @@ public class GamificationScoreKafkaConsumer {
                     payload(envelope, PointsDeductedEvent.class));
             case USER_LEVEL_CHANGED -> notificationService.handleUserLevelChanged(
                     payload(envelope, UserLevelChangedEvent.class));
+            case TRUST_SCORE_UPDATED -> notificationService.handleTrustScoreUpdated(
+                    payload(envelope, TrustScoreUpdatedEvent.class));
             default -> log.debug("Ignoring unsupported event type {} on {}", eventType, GAMIFICATION_SCORE_TOPIC);
         }
         ack.acknowledge();

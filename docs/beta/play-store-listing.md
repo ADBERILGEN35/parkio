@@ -46,9 +46,16 @@ No background location. No contacts, SMS, call log, or storage-wide access.
 
 ## Store assets checklist
 
-- [x] App icon 512×512 (`assets/images/icon.png` source)
-- [x] Adaptive icon foreground + brand background `#0A2540`
-- [x] Splash screen (brand navy, centered logomark)
+- [ ] App icon 512×512 — **placeholder**: `assets/images/icon.png` is a solid
+      brand-blue square with no logomark. Needs final artwork before Play upload.
+- [ ] Adaptive icon foreground — **placeholder** (solid square, no alpha); needs
+      a transparent-background foreground PNG. Background `#0A2540` is set.
+- [ ] Splash screen — brand navy background is wired; the centered image
+      (`splash-icon.png`) is the same placeholder square, needs the logomark.
+- [ ] Android notification small icon — `expo-notifications` currently points at
+      the full-color placeholder; Android requires a **white-on-transparent**
+      PNG or the status-bar icon renders as a solid square. Supply a monochrome
+      icon and update the `expo-notifications` plugin `icon` in `app.json`.
 - [ ] Feature graphic 1024×500 — **needs design artwork**
 - [ ] ≥2 phone screenshots from a physical device (emulator evidence exists; Play prefers real captures)
 - [ ] Hosted privacy-policy URL (draft below)

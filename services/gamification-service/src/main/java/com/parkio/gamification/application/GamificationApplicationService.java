@@ -1,5 +1,6 @@
 package com.parkio.gamification.application;
 
+import com.parkio.gamification.application.event.ModerationCaseResolvedEvent;
 import com.parkio.gamification.application.event.ParkingSpotClaimedEvent;
 import com.parkio.gamification.application.event.ParkingSpotCreatedEvent;
 import com.parkio.gamification.application.event.ParkingSpotRejectedByModeratorEvent;
@@ -11,6 +12,8 @@ import com.parkio.gamification.application.port.OutboxEventAppender;
 import com.parkio.gamification.application.port.PenaltyRuleRepository;
 import com.parkio.gamification.application.port.PointTransactionRepository;
 import com.parkio.gamification.application.port.RewardRuleRepository;
+import com.parkio.gamification.application.port.TrustRuleRepository;
+import com.parkio.gamification.application.port.TrustScoreRepository;
 import com.parkio.gamification.application.port.UserLevelProgressRepository;
 import com.parkio.gamification.application.result.LevelView;
 import com.parkio.gamification.domain.AccessPolicy;
@@ -22,10 +25,13 @@ import com.parkio.gamification.domain.PointDirection;
 import com.parkio.gamification.domain.PointSourceType;
 import com.parkio.gamification.domain.PointTransaction;
 import com.parkio.gamification.domain.RewardRule;
+import com.parkio.gamification.domain.TrustRule;
+import com.parkio.gamification.domain.TrustScore;
 import com.parkio.gamification.domain.UserLevelProgress;
 import com.parkio.gamification.domain.event.ContributionScoreUpdatedEvent;
 import com.parkio.gamification.domain.event.PointsDeductedEvent;
 import com.parkio.gamification.domain.event.PointsEarnedEvent;
+import com.parkio.gamification.domain.event.TrustScoreUpdatedEvent;
 import com.parkio.gamification.domain.event.UserLevelChangedEvent;
 import com.parkio.gamification.domain.exception.GamificationErrorCode;
 import com.parkio.gamification.domain.exception.GamificationException;
@@ -55,6 +61,8 @@ public class GamificationApplicationService {
     private final LevelRuleRepository levelRules;
     private final RewardRuleRepository rewardRules;
     private final PenaltyRuleRepository penaltyRules;
+    private final TrustScoreRepository trustScores;
+    private final TrustRuleRepository trustRules;
     private final ContributionSnapshotRepository contributionSnapshots;
     private final InboxEventRepository inbox;
     private final OutboxEventAppender outbox;
@@ -66,6 +74,8 @@ public class GamificationApplicationService {
                                           LevelRuleRepository levelRules,
                                           RewardRuleRepository rewardRules,
                                           PenaltyRuleRepository penaltyRules,
+                                          TrustScoreRepository trustScores,
+                                          TrustRuleRepository trustRules,
                                           ContributionSnapshotRepository contributionSnapshots,
                                           InboxEventRepository inbox,
                                           OutboxEventAppender outbox,
@@ -76,6 +86,8 @@ public class GamificationApplicationService {
         this.levelRules = levelRules;
         this.rewardRules = rewardRules;
         this.penaltyRules = penaltyRules;
+        this.trustScores = trustScores;
+        this.trustRules = trustRules;
         this.contributionSnapshots = contributionSnapshots;
         this.inbox = inbox;
         this.outbox = outbox;
@@ -96,7 +108,7 @@ public class GamificationApplicationService {
         markProcessed(event.eventId(), "ParkingSpotCreated");
     }
 
-    /** Owner + verifier rewards when a spot is confirmed available. */
+    /** Owner + verifier rewards (and an owner trust gain) when a spot is confirmed available. */
     public void handleParkingSpotVerified(ParkingSpotVerifiedEvent event) {
         if (alreadyProcessed(event.eventId())) {
             return;
@@ -106,11 +118,12 @@ public class GamificationApplicationService {
                     reward(RewardRuleKeys.VERIFIED_OWNER), event.eventId(), event.parkingSpotId());
             award(event.actorUserId(), transactionKey(event.eventId(), RewardRuleKeys.VERIFIED_VERIFIER),
                     reward(RewardRuleKeys.VERIFIED_VERIFIER), event.eventId(), event.parkingSpotId());
+            applyTrust(event.ownerUserId(), TrustRuleKeys.SPOT_VERIFIED_OWNER, event.eventId());
         }
         markProcessed(event.eventId(), "ParkingSpotVerified");
     }
 
-    /** Owner + claimer rewards when a spot is successfully claimed. */
+    /** Owner + claimer rewards (and an owner trust gain) when a spot is successfully claimed. */
     public void handleParkingSpotClaimed(ParkingSpotClaimedEvent event) {
         if (alreadyProcessed(event.eventId())) {
             return;
@@ -119,15 +132,16 @@ public class GamificationApplicationService {
                 reward(RewardRuleKeys.CLAIMED_OWNER), event.eventId(), event.parkingSpotId());
         award(event.actorUserId(), transactionKey(event.eventId(), RewardRuleKeys.CLAIMED_CLAIMER),
                 reward(RewardRuleKeys.CLAIMED_CLAIMER), event.eventId(), event.parkingSpotId());
+        applyTrust(event.ownerUserId(), TrustRuleKeys.SPOT_CLAIMED_OWNER, event.eventId());
         markProcessed(event.eventId(), "ParkingSpotClaimed");
     }
 
     /**
-     * Owner penalty when a moderator rejects a spot. Reuses the existing
-     * {@code PARKING_REJECTED_OWNER} penalty rule. The penalty is applied only when the
-     * event carries the spot owner; moderation does not populate it yet, so this is a
-     * no-op until then (still inbox-deduplicated). Idempotent twice over: inbox by
-     * {@code eventId} and the points transaction key.
+     * Owner point + trust penalties when a moderator rejects a spot. Reuses the existing
+     * {@code PARKING_REJECTED_OWNER} penalty rule plus the {@code TRUST_SPOT_REJECTED_OWNER}
+     * trust rule. The penalties apply only when the event carries the spot owner (still
+     * inbox-deduplicated otherwise). Idempotent twice over: inbox by {@code eventId} and
+     * the points transaction key.
      */
     public void handleParkingSpotRejectedByModerator(ParkingSpotRejectedByModeratorEvent event) {
         if (alreadyProcessed(event.eventId())) {
@@ -137,8 +151,32 @@ public class GamificationApplicationService {
             PenaltyRule rule = penalty(RewardRuleKeys.REJECTED_OWNER);
             deduct(event.ownerUserId(), transactionKey(event.eventId(), RewardRuleKeys.REJECTED_OWNER),
                     rule, event.eventId(), event.parkingSpotId());
+            applyTrust(event.ownerUserId(), TrustRuleKeys.SPOT_REJECTED_OWNER, event.eventId());
         }
         markProcessed(event.eventId(), "ParkingSpotRejectedByModerator");
+    }
+
+    /**
+     * Admin trust/point penalties decided by moderation on a USER-targeted case
+     * (ai-context/02: moderation decides, gamification computes). {@code REDUCE_TRUST}
+     * applies the seeded {@code TRUST_MODERATION_PENALTY} trust rule; {@code DEDUCT_POINTS}
+     * applies the seeded fake/spam penalty selected by the case reason. Other actions
+     * (SUSPEND_USER, REJECT, ...) are handled elsewhere and only marked processed here.
+     */
+    public void handleModerationCaseResolved(ModerationCaseResolvedEvent event) {
+        if (alreadyProcessed(event.eventId())) {
+            return;
+        }
+        if (event.targetsUser()) {
+            if (ModerationCaseResolvedEvent.ACTION_REDUCE_TRUST.equals(event.action())) {
+                applyTrust(event.targetId(), TrustRuleKeys.MODERATION_PENALTY, event.eventId());
+            } else if (ModerationCaseResolvedEvent.ACTION_DEDUCT_POINTS.equals(event.action())) {
+                String ruleKey = penaltyRuleKeyFor(event.reason());
+                deduct(event.targetId(), transactionKey(event.eventId(), ruleKey),
+                        penalty(ruleKey), event.eventId(), null);
+            }
+        }
+        markProcessed(event.eventId(), "ModerationCaseResolved");
     }
 
     // --- Queries ---
@@ -236,6 +274,37 @@ public class GamificationApplicationService {
         // Simplified contribution score (lifetime points) until a decay job lands.
         contributionSnapshots.save(ContributionSnapshot.capture(userId, saved.totalPoints(), now));
         outbox.append(ContributionScoreUpdatedEvent.of(userId, saved.totalPoints(), now));
+    }
+
+    /**
+     * Applies a seeded trust rule to the user's trust score (created lazily at the
+     * initial 100). Clamped no-ops (e.g. a gain at 100) neither persist nor emit; real
+     * changes save the aggregate and append a {@code TrustScoreUpdated} outbox event in
+     * the caller's transaction. Idempotency comes from the caller's inbox dedup.
+     */
+    private void applyTrust(UUID userId, String ruleKey, UUID relatedEventId) {
+        if (userId == null) {
+            return;
+        }
+        TrustRule rule = trustRules.findByRuleKey(ruleKey)
+                .orElseThrow(() -> new GamificationException(GamificationErrorCode.RULE_NOT_CONFIGURED,
+                        "Missing trust rule: " + ruleKey));
+        Instant now = clock.instant();
+        TrustScore trust = trustScores.findByUserId(userId)
+                .orElseGet(() -> TrustScore.createDefault(userId, now));
+        int previousScore = trust.score();
+        if (trust.apply(rule.delta(), now)) {
+            TrustScore saved = trustScores.save(trust);
+            outbox.append(TrustScoreUpdatedEvent.of(userId, previousScore, saved.score(),
+                    ruleKey, relatedEventId, now));
+        }
+    }
+
+    /** Maps a moderation case reason to the seeded DEDUCT_POINTS penalty rule. */
+    private static String penaltyRuleKeyFor(String reason) {
+        return "FAKE_PHOTO".equals(reason) || "OLD_PHOTO".equals(reason) || "DUPLICATE_PHOTO".equals(reason)
+                ? PenaltyRuleKeys.FAKE
+                : PenaltyRuleKeys.SPAM;
     }
 
     private UserLevelProgress loadProgressOrDefault(UUID userId) {

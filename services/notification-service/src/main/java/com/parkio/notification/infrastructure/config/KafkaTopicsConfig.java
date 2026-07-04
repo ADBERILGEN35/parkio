@@ -14,7 +14,7 @@ import org.springframework.kafka.config.TopicBuilder;
  * dead-letter topic (one DLT per consuming service). A Spring Boot {@code KafkaAdmin}
  * creates any {@link NewTopic} beans on startup; creation is idempotent. Naming,
  * partitioning and retention follow {@code docs/architecture/kafka-transport.md}. The
- * relay/consumers are not built yet.
+ * The relay/consumers are not built yet.
  *
  * <p>Replication factor is externalized ({@code parkio.kafka.replication-factor}, default
  * 1 for local/dev). Provisioning can be disabled via {@code parkio.kafka.provision-topics}.

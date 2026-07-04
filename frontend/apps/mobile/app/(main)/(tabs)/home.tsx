@@ -3,7 +3,7 @@ import { useQuery } from '@tanstack/react-query';
 import { useRouter } from 'expo-router';
 import { Pressable, StyleSheet, View } from 'react-native';
 import type { Profile, UserStats } from '@parkio/types';
-import { Badge, Card, Screen, SkeletonCard, StateView } from '@/components/ui';
+import { Badge, Card, Screen, SkeletonCard, StateView, type BadgeTone } from '@/components/ui';
 import { AppText } from '@/components/ui/AppText';
 import { appConfig } from '@/config/env';
 import { usersApi } from '@/services/api';
@@ -68,7 +68,7 @@ function StatsRow({ stats }: { stats: UserStats | undefined }) {
         <Stat value={String(stats.currentLevel)} label="Level" />
         <Stat value={String(stats.trustScore)} label="Trust" />
       </View>
-      <Badge label={humanize(stats.trustBand)} tone="success" />
+      <Badge label={humanize(stats.trustBand)} tone={trustBandTone(stats.trustBand)} />
     </Card>
   );
 }
@@ -144,6 +144,21 @@ function humanize(value: string): string {
     .split('_')
     .map((w) => w.charAt(0).toUpperCase() + w.slice(1))
     .join(' ');
+}
+
+function trustBandTone(band?: string | null): BadgeTone {
+  switch ((band ?? '').toUpperCase()) {
+    case 'HIGH_TRUST':
+      return 'success';
+    case 'MEDIUM_TRUST':
+      return 'primary';
+    case 'LOW_TRUST':
+      return 'warning';
+    case 'UNTRUSTED':
+      return 'danger';
+    default:
+      return 'neutral';
+  }
 }
 
 const styles = StyleSheet.create({

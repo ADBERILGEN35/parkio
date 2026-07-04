@@ -1,5 +1,6 @@
 import { useQuery } from '@tanstack/react-query';
 import { isValidLatLng, type LatLng } from '@parkio/geo';
+import { SMART_RETURN_QUERY_KEY } from '@/features/smart-return/hooks/useSmartReturnSettings';
 import { usersApi } from '@/services/api';
 
 export interface SmartReturnHome {
@@ -15,7 +16,7 @@ export interface SmartReturnHome {
  */
 export function useSmartReturnHome(enabled: boolean): SmartReturnHome {
   const query = useQuery({
-    queryKey: ['users', 'smart-return'],
+    queryKey: SMART_RETURN_QUERY_KEY,
     enabled,
     queryFn: () => usersApi.getSmartReturn(),
     staleTime: 5 * 60_000,

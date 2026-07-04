@@ -34,6 +34,7 @@ import { moderationApi, parkingApi } from '@/api';
 import { FriendlyApiErrorMessage } from '@/components/FriendlyApiErrorMessage';
 import { SpotMap } from '@/components/map/SpotMap';
 import { formatInstant, formatRelativeAgo, formatRemaining, humanizeEnum } from '@/lib/format';
+import { invalidateGamificationQueries } from '@/lib/gamificationCache';
 import { showError, showSuccess } from '@/lib/toast';
 
 /** Owner-only metrics that may appear on SpotResponse but not PublicSpotResponse. */
@@ -479,6 +480,8 @@ function PremiumActionCard({ spot }: { spot: PublicSpot }) {
       applySpotUpdate(updated);
       resetVerify();
       await queryClient.invalidateQueries({ queryKey: ['parking', 'my-spots'] });
+      // Verification awards points/trust asynchronously; mark derived views stale.
+      await invalidateGamificationQueries(queryClient);
       showSuccess('Verification submitted.');
     },
     onError: (error) => {
@@ -492,6 +495,8 @@ function PremiumActionCard({ spot }: { spot: PublicSpot }) {
       applySpotUpdate(updated);
       setClaimed(true);
       await queryClient.invalidateQueries({ queryKey: ['parking', 'my-spots'] });
+      // Claiming awards points/trust asynchronously; mark derived views stale.
+      await invalidateGamificationQueries(queryClient);
       showSuccess('Spot claimed as filled.');
     },
     onError: (error) => {

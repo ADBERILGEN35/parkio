@@ -9,6 +9,7 @@ import com.parkio.notification.application.event.ParkingSpotRejectedByModeratorE
 import com.parkio.notification.application.event.ParkingSpotRejectedEvent;
 import com.parkio.notification.application.event.PointsDeductedEvent;
 import com.parkio.notification.application.event.PointsEarnedEvent;
+import com.parkio.notification.application.event.TrustScoreUpdatedEvent;
 import com.parkio.notification.application.event.UserLevelChangedEvent;
 import com.parkio.notification.application.event.UserRestoredEvent;
 import com.parkio.notification.application.event.UserSuspendedEvent;
@@ -119,6 +120,17 @@ public class NotificationApplicationService {
         createInAppNotification(event.userId(), NotificationType.WARNING,
                 Map.of("message", "You lost " + event.points() + " points (penalty)."));
         markProcessed(event.eventId(), "PointsDeducted");
+    }
+
+    public void handleTrustScoreUpdated(TrustScoreUpdatedEvent event) {
+        if (alreadyProcessed(event.eventId())) {
+            return;
+        }
+        String direction = event.newScore() >= event.previousScore() ? "increased" : "decreased";
+        createInAppNotification(event.userId(), NotificationType.WARNING,
+                Map.of("message", "Your trust score " + direction + " from "
+                        + event.previousScore() + " to " + event.newScore() + "."));
+        markProcessed(event.eventId(), "TrustScoreUpdated");
     }
 
     public void handleParkingSpotRejected(ParkingSpotRejectedEvent event) {

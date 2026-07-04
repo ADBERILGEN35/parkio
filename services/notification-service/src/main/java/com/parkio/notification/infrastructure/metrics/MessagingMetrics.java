@@ -29,7 +29,7 @@ public class MessagingMetrics {
         this.outbox = outbox;
         this.inbox = inbox;
         this.clock = clock;
-        Gauge.builder("parkio.outbox.unpublished.count", this, m -> m.outbox.countByPublishedFalse())
+        Gauge.builder("parkio.outbox.unpublished.count", this, m -> m.outbox.countByPublishedFalseAndDeadLetteredFalse())
                 .description("Outbox rows not yet published to Kafka")
                 .register(registry);
         Gauge.builder("parkio.outbox.oldest.unpublished.age.seconds", this,

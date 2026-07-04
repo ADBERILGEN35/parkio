@@ -92,6 +92,25 @@ class GamificationScoreKafkaConsumerTest {
         verify(ack).acknowledge();
     }
 
+    @Test
+    void dispatchesTrustScoreUpdatedToHandlerAndAcks() throws Exception {
+        UUID eventId = UUID.randomUUID();
+        UUID userId = UUID.randomUUID();
+        ObjectNode payload = objectMapper.createObjectNode();
+        payload.put("eventId", eventId.toString());
+        payload.put("userId", userId.toString());
+        payload.put("previousScore", 100);
+        payload.put("newScore", 85);
+        payload.put("reason", "MODERATION_PENALTY");
+        payload.put("relatedEventId", UUID.randomUUID().toString());
+        payload.put("occurredAt", "2026-06-08T12:00:00Z");
+
+        consumer.onMessage(record(eventId, userId, "TrustScoreUpdated", payload), "TrustScoreUpdated", ack);
+
+        verify(service).handleTrustScoreUpdated(any());
+        verify(ack).acknowledge();
+    }
+
     private ConsumerRecord<String, String> record(UUID eventId, UUID userId, String eventType, ObjectNode payload)
             throws Exception {
         ObjectNode envelope = objectMapper.createObjectNode();

@@ -623,6 +623,63 @@ class UserApplicationServiceTest {
                 .isEqualTo(UserErrorCode.PROFILE_NOT_FOUND);
     }
 
+    @Test
+    void handlePointsEarnedProjectsTotalPointsIntoStats() {
+        UUID authUserId = UUID.randomUUID();
+        service.createProfile(command(authUserId));
+        UUID eventId = UUID.randomUUID();
+
+        service.handlePointsEarned(new com.parkio.user.application.event.PointsEarnedEvent(
+                eventId, authUserId, 25, "PARKING_CREATED", 125, UUID.randomUUID(), NOW));
+
+        UserTrustProfile stats = service.getMyStats(authUserId);
+        assertThat(stats.totalPoints()).isEqualTo(125);
+    }
+
+    @Test
+    void handlePointsEarnedIsIdempotent() {
+        UUID authUserId = UUID.randomUUID();
+        service.createProfile(command(authUserId));
+        var event = new com.parkio.user.application.event.PointsEarnedEvent(
+                UUID.randomUUID(), authUserId, 25, "PARKING_CREATED", 125, UUID.randomUUID(), NOW);
+
+        service.handlePointsEarned(event);
+        service.handlePointsEarned(event);
+
+        assertThat(service.getMyStats(authUserId).totalPoints()).isEqualTo(125);
+    }
+
+    @Test
+    void handleUserLevelChangedProjectsLevelAndPoints() {
+        UUID authUserId = UUID.randomUUID();
+        service.createProfile(command(authUserId));
+
+        service.handleUserLevelChanged(new com.parkio.user.application.event.UserLevelChangedEvent(
+                UUID.randomUUID(), authUserId, 1, 3, 320, NOW));
+
+        UserTrustProfile stats = service.getMyStats(authUserId);
+        assertThat(stats.currentLevel()).isEqualTo(3);
+        assertThat(stats.totalPoints()).isEqualTo(320);
+    }
+
+    @Test
+    void handleTrustScoreUpdatedProjectsScoreAndRecordsHistory() {
+        UUID authUserId = UUID.randomUUID();
+        service.createProfile(command(authUserId));
+
+        service.handleTrustScoreUpdated(new com.parkio.user.application.event.TrustScoreUpdatedEvent(
+                UUID.randomUUID(), authUserId, 100, 60, "MODERATION_PENALTY", UUID.randomUUID(), NOW));
+
+        UserTrustProfile stats = service.getMyStats(authUserId);
+        assertThat(stats.trustScore()).isEqualTo(60);
+        assertThat(stats.trustBand()).isEqualTo(TrustBand.MEDIUM_TRUST);
+        assertThat(trustHistory.entries()).anySatisfy(h -> {
+            assertThat(h.previousScore()).isEqualTo(100);
+            assertThat(h.newScore()).isEqualTo(60);
+            assertThat(h.reason()).isEqualTo("MODERATION_PENALTY");
+        });
+    }
+
     // --- Fakes -----------------------------------------------------------
 
     private static final class FakeUserProfileRepository implements UserProfileRepository {
@@ -729,6 +786,10 @@ class UserApplicationServiceTest {
         public UserTrustScoreHistory save(UserTrustScoreHistory history) {
             entries.add(history);
             return history;
+        }
+
+        List<UserTrustScoreHistory> entries() {
+            return List.copyOf(entries);
         }
     }
 

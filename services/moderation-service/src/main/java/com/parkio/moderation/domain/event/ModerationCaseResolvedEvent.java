@@ -5,8 +5,11 @@ import java.time.Instant;
 import java.util.UUID;
 
 /**
- * Emitted when a case is resolved. Carries {@code targetType}/{@code targetId} and
- * the {@code action} so consumers (gamification, user, parking) can react.
+ * Emitted when a case is resolved. Carries {@code targetType}/{@code targetId}, the
+ * {@code action} and the case {@code reason} so consumers (gamification, user,
+ * parking, notification) can react — gamification uses {@code action}+{@code reason}
+ * to apply the admin REDUCE_TRUST / DEDUCT_POINTS penalties. {@code reason} is an
+ * additive field (event-contracts.md rule 2); older consumers ignore it.
  */
 public record ModerationCaseResolvedEvent(
         UUID eventId,
@@ -14,6 +17,7 @@ public record ModerationCaseResolvedEvent(
         String targetType,
         UUID targetId,
         String action,
+        String reason,
         UUID moderatorId,
         Instant occurredAt) implements ModerationEvent {
 
@@ -23,7 +27,8 @@ public record ModerationCaseResolvedEvent(
     public static ModerationCaseResolvedEvent of(ModerationCase moderationCase, UUID moderatorId, Instant occurredAt) {
         return new ModerationCaseResolvedEvent(UUID.randomUUID(), moderationCase.id(),
                 moderationCase.targetType().name(), moderationCase.targetId(),
-                moderationCase.resolutionAction().name(), moderatorId, occurredAt);
+                moderationCase.resolutionAction().name(), moderationCase.reason().name(),
+                moderatorId, occurredAt);
     }
 
     @Override

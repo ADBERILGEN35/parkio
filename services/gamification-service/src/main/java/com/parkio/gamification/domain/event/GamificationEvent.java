@@ -13,7 +13,8 @@ public sealed interface GamificationEvent permits
         PointsEarnedEvent,
         PointsDeductedEvent,
         UserLevelChangedEvent,
-        ContributionScoreUpdatedEvent {
+        ContributionScoreUpdatedEvent,
+        TrustScoreUpdatedEvent {
 
     String AGGREGATE_TYPE = "GamificationUser";
 
