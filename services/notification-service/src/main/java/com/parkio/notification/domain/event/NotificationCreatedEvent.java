@@ -5,9 +5,9 @@ import java.time.Instant;
 import java.util.UUID;
 
 /**
- * Emitted when a notification is created. Written to the transactional outbox; a
- * relay (not implemented yet) will publish it. Carries only IDs and type/channel —
- * not the rendered content (ai-context/06).
+ * Emitted when a notification is created. Written to the transactional outbox;
+ * {@code NotificationOutboxRelay} publishes it to Kafka. Carries only IDs and
+ * type/channel — not the rendered content (ai-context/06).
  */
 public record NotificationCreatedEvent(
         UUID eventId,

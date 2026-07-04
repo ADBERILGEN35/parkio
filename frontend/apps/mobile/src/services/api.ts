@@ -2,8 +2,10 @@ import {
   AccountNotActiveError,
   createApiClient,
   createAuthApi,
+  createAnalyticsApi,
   createGamificationApi,
   createGeocodingApi,
+  createModerationApi,
   createNotificationsApi,
   createParkingApi,
   createUsersApi,
@@ -40,6 +42,8 @@ export const parkingApi = createParkingApi(apiClient);
 export const notificationsApi = createNotificationsApi(apiClient);
 export const gamificationApi = createGamificationApi(apiClient);
 export const geocodingApi = createGeocodingApi(apiClient);
+export const moderationApi = createModerationApi(apiClient);
+export const analyticsApi = createAnalyticsApi(apiClient);
 
 /**
  * Wire the single-flight refresh implementation into the shared client.

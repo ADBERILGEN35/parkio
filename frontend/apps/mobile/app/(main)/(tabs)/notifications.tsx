@@ -214,19 +214,18 @@ const NotificationRow = memo(function NotificationRow({ notification }: { notifi
           </AppText>
         ) : null}
 
-        <SmartReturnCta type={notification.type} />
+        <NotificationCta type={notification.type} />
       </View>
     </View>
   );
 });
 
 /**
- * Web `smartReturnNotificationAction`, translated to native navigation: the
- * prompt opens the Smart Return Today flow; the availability alert opens the
- * map in Smart Return mode. Backend `metadata.deeplink` values are web paths,
- * so the type — part of the stable contract — drives routing instead.
+ * Type-driven CTAs matching web notification interactions. Backend
+ * `metadata.deeplink` values are web paths, so the stable notification type
+ * drives native routing.
  */
-function SmartReturnCta({ type }: { type: NotificationType }) {
+function NotificationCta({ type }: { type: NotificationType }) {
   const theme = useTheme();
   const router = useRouter();
 
@@ -250,6 +249,30 @@ function SmartReturnCta({ type }: { type: NotificationType }) {
           testID="notifications.smartReturn.available"
           leading={<Ionicons name="map-outline" size={16} color={theme.colors.onPrimary} />}
           onPress={() => router.push({ pathname: '/(main)/map', params: { smartReturn: '1' } })}
+        />
+      </View>
+    );
+  }
+  if (type === 'POINT_EARNED' || type === 'LEVEL_UP') {
+    return (
+      <View style={styles.ctaRow}>
+        <Button
+          label="View impact"
+          testID="notifications.impact"
+          variant="secondary"
+          onPress={() => router.push('/(main)/impact')}
+        />
+      </View>
+    );
+  }
+  if (type === 'WARNING') {
+    return (
+      <View style={styles.ctaRow}>
+        <Button
+          label="View reports"
+          testID="notifications.reports"
+          variant="secondary"
+          onPress={() => router.push('/(main)/reports')}
         />
       </View>
     );

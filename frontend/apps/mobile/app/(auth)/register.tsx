@@ -37,7 +37,10 @@ export default function RegisterScreen() {
     try {
       await register(values);
       track('sign_up');
-      router.replace('/(auth)/login');
+      router.replace({
+        pathname: '/(auth)/check-email',
+        params: { email: values.email },
+      });
     } catch (error) {
       toast.showError(toUserMessage(error));
     } finally {

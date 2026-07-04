@@ -100,9 +100,12 @@ physical Android device with Expo Go:
 3. Create a Pixel API emulator in Android Studio Device Manager and start it, or
    connect a physical Android device with USB debugging enabled.
 4. Confirm `adb devices` lists exactly one target.
-5. Keep `apps/mobile/.env.local` pointed at `http://10.0.2.2:8080/api/v1` for
-   the Android emulator. For a physical device, replace `10.0.2.2` with the
-   host machine LAN IP.
+5. Keep `apps/mobile/.env.local` pointed at the host gateway. On many Linux/macOS
+   setups the Android emulator reaches the host via `http://10.0.2.2:8080/api/v1`.
+   On Windows with Docker Desktop, `10.0.2.2` often cannot reach published ports —
+   use the host LAN IP instead (for example `http://192.168.x.x:8080/api/v1`).
+   Confirm from the emulator browser: open `/actuator/health` and expect
+   `{"status":"UP",...}`. For a physical device, always use the host LAN IP.
 6. From `frontend/`, run `corepack pnpm --filter @parkio/mobile start`, then
    press `a` for the emulator or scan the QR code with Expo Go on a physical
    device.

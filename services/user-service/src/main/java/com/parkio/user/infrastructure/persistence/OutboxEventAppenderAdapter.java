@@ -13,8 +13,8 @@ import org.springframework.stereotype.Component;
 /**
  * Writes domain events into the transactional outbox. Because the surrounding
  * use case is {@code @Transactional}, this insert commits atomically with the
- * profile creation (ai-context/06). A separate relay (not implemented yet) will
- * publish unpublished rows to Kafka.
+ * profile creation (ai-context/06). {@code UserOutboxRelay} publishes unpublished
+ * rows to Kafka.
  */
 @Component
 public class OutboxEventAppenderAdapter implements OutboxEventAppender {

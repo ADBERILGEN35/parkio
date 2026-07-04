@@ -5,8 +5,7 @@ import { useTheme } from '@/theme';
 /**
  * Protected area guard. Any deep link into a `(main)` route while signed out is
  * redirected to login; while bootstrap is pending we render nothing (root index
- * owns the splash). Feature routes (upload/map/smart-return) live here as
- * modal-capable stack screens above the tabs.
+ * owns the splash). Feature routes live here as stack screens above the tabs.
  */
 export default function MainLayout() {
   const bootstrapPending = useAuthStore((s) => s.bootstrapPending);
@@ -20,7 +19,6 @@ export default function MainLayout() {
     <Stack
       screenOptions={{
         headerShown: false,
-        // Web-matched header chrome for the routes that opt back in.
         headerStyle: { backgroundColor: theme.colors.background },
         headerTintColor: theme.colors.text,
         headerTitleStyle: { fontSize: 16, fontWeight: '600', color: theme.colors.text },
@@ -32,6 +30,17 @@ export default function MainLayout() {
       <Stack.Screen name="upload" options={{ presentation: 'modal' }} />
       <Stack.Screen name="map" />
       <Stack.Screen name="smart-return" />
+      <Stack.Screen name="my-spots" />
+      <Stack.Screen name="leaderboard" />
+      <Stack.Screen name="impact" />
+      <Stack.Screen name="spots/[id]" />
+      <Stack.Screen name="reports" />
+      <Stack.Screen name="moderation" />
+      <Stack.Screen name="analytics" />
+      <Stack.Screen name="profile-edit" />
+      <Stack.Screen name="vehicle" />
+      <Stack.Screen name="preferences" />
+      <Stack.Screen name="change-password" />
     </Stack>
   );
 }

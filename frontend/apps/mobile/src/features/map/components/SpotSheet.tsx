@@ -1,5 +1,6 @@
 import { Ionicons } from '@expo/vector-icons';
 import BottomSheet, { BottomSheetView } from '@gorhom/bottom-sheet';
+import { useRouter } from 'expo-router';
 import { memo, useCallback, useEffect, useMemo, useRef } from 'react';
 import { Image, Linking, Platform, StyleSheet, View } from 'react-native';
 import { formatDistance, formatRelativeTime, presentSpot, type SpotWithDistance } from '@parkio/geo';
@@ -41,6 +42,7 @@ function openDirections(spot: SpotWithDistance) {
  */
 function SpotSheetImpl({ spot, onClose }: SpotSheetProps) {
   const theme = useTheme();
+  const router = useRouter();
   const sheetRef = useRef<BottomSheet>(null);
   const snapPoints = useMemo(() => ['32%', '70%'], []);
   const photo = useSpotPhoto(spot?.id ?? null);
@@ -108,9 +110,15 @@ function SpotSheetImpl({ spot, onClose }: SpotSheetProps) {
             ) : null}
 
             <Button
+              label="View details"
+              testID="map.spot.details"
+              onPress={() => router.push(`/(main)/spots/${spot.id}`)}
+            />
+            <Button
               label="Get directions"
               testID="map.spot.directions"
-              leading={<Ionicons name="navigate" size={18} color={theme.colors.onPrimary} />}
+              variant="secondary"
+              leading={<Ionicons name="navigate" size={18} color={theme.colors.text} />}
               onPress={() => openDirections(spot)}
             />
           </View>

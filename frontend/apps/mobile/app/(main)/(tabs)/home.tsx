@@ -89,6 +89,9 @@ function QuickActions() {
   const actions = [
     { icon: 'map-outline' as const, label: 'Find parking', href: '/(main)/map' as const },
     { icon: 'add-circle-outline' as const, label: 'Share a spot', href: '/(main)/upload' as const },
+    { icon: 'list-outline' as const, label: 'My spots', href: '/(main)/my-spots' as const },
+    { icon: 'trophy-outline' as const, label: 'Leaderboard', href: '/(main)/leaderboard' as const },
+    { icon: 'star-outline' as const, label: 'Your Impact', href: '/(main)/impact' as const },
     ...(appConfig.features.smartReturn
       ? [{ icon: 'home-outline' as const, label: 'Smart Return', href: '/(main)/smart-return' as const }]
       : []),

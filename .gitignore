@@ -79,3 +79,10 @@ backups/
 # Note: /docs and /docs/ai-context stay versioned — none of the patterns above
 # match them (they have no leading dot, and the only CLAUDE.md inside them is a
 # tool-generated stub that SHOULD be ignored). Project docs are *.md files there.
+
+# Deploy manifests (local/VPS); keep directory via .gitkeep
+deploy-artifacts/*
+!deploy-artifacts/.gitkeep
+
+# Local operator tools (e.g. portable jq)
+.tools/

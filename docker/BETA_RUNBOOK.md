@@ -78,6 +78,8 @@ docker compose up -d
 docker compose ps          # wait until all show "healthy"
 
 # Application services + gateway (first build ~5-6 min — it compiles 10 services)
+# Prefer --build so jars never lag git. For SHA-tagged deploy/rollback on a VPS, use
+# ../scripts/deploy-hosted-beta.sh (see docs/beta/deploy-runbook.md).
 docker compose -f docker-compose.yml -f docker-compose.apps.yml up -d --build
 docker compose -f docker-compose.yml -f docker-compose.apps.yml ps
 ```

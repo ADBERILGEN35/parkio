@@ -5,6 +5,11 @@ import { renderWithProviders } from '@/test/renderWithProviders';
 import { SpotSheet } from '../SpotSheet';
 import { makeSpot } from '../../__tests__/fixtures';
 
+const mockPush = jest.fn();
+jest.mock('expo-router', () => ({
+  useRouter: () => ({ push: mockPush }),
+}));
+
 // @gorhom/bottom-sheet depends on reanimated/gesture-handler native runtimes that
 // aren't present under jest; replace it with passthrough views so we can assert on
 // the *content* the sheet renders (its imperative open/close is exercised at runtime).

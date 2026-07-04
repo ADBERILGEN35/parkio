@@ -73,6 +73,23 @@ export async function requestPasswordReset(email: string): Promise<void> {
   await authApi.forgotPassword({ email });
 }
 
+export async function resetPassword(token: string, newPassword: string): Promise<void> {
+  await authApi.resetPassword({ token, newPassword });
+  await finishLocalLogout();
+}
+
+export async function verifyEmail(token: string): Promise<void> {
+  await authApi.verifyEmail({ token });
+}
+
+export async function resendVerification(email: string): Promise<void> {
+  await authApi.resendVerification({ email });
+}
+
+export async function changePassword(currentPassword: string, newPassword: string): Promise<void> {
+  await authApi.changePassword({ currentPassword, newPassword });
+}
+
 /**
  * Cold-start session restore.
  *

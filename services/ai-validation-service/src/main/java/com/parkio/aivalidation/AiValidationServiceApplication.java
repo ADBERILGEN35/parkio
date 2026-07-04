@@ -6,9 +6,9 @@ import org.springframework.boot.autoconfigure.SpringBootApplication;
 /**
  * Entry point for the Parkio ai-validation-service.
  *
- * <p>Business logic is intentionally not implemented yet. The package layout
- * follows clean architecture: {@code domain}, {@code application},
- * {@code infrastructure}, {@code presentation} and {@code shared}.
+ * <p>Runs advisory media/spot validation via a deterministic placeholder validator
+ * (no external model). Package layout follows clean architecture: {@code domain},
+ * {@code application}, {@code infrastructure}, {@code presentation} and {@code shared}.
  */
 @SpringBootApplication
 public class AiValidationServiceApplication {

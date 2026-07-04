@@ -5,6 +5,10 @@ Developer and CI helper scripts.
 | Script                | Purpose                                             |
 |-----------------------|-----------------------------------------------------|
 | `build-all.sh`        | Build and test every service via the Gradle wrapper.|
+| `deploy-hosted-beta.sh` | Build SHA-tagged images from current commit, deploy, smoke, write manifest. |
+| `rollback-hosted-beta.sh` | Restore a previous SHA-tagged image set from a deploy manifest. |
+| `smoke-hosted-beta.sh` | Gateway/auth/parking/notifications/gamification smoke (no fakes). |
+| `lib/deploy-common.sh` | Shared helpers for deploy/rollback (sourced, not run directly). |
 | `run-service.sh`      | Run a single service locally (`run-service.sh auth-service`). |
 | `backup-databases.sh` | Dump every service DB (`pg_dump` via `docker exec`); optional AES-256 + offsite upload. |
 | `restore-database.sh` | Restore ONE service DB from a dump (destructive; guarded by a confirmation prompt). |

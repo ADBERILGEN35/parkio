@@ -13,7 +13,7 @@ import org.springframework.stereotype.Component;
 /**
  * Writes moderation events into the transactional outbox. Because the surrounding use
  * case is transactional, this insert commits atomically with the state change
- * (ai-context/06). A separate relay (not implemented yet) will publish unpublished
+ * (ai-context/06). {@code ModerationOutboxRelay} publishes unpublished
  * rows to Kafka.
  */
 @Component

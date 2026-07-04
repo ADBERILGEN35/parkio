@@ -161,6 +161,10 @@ services:
       PARKIO_RESEND_API_KEY: ${PARKIO_RESEND_API_KEY:-}
       PARKIO_EMAIL_FROM: ${PARKIO_EMAIL_FROM:-}
       PARKIO_EMAIL_REPLY_TO: ${PARKIO_EMAIL_REPLY_TO:-}
+      # Local/dev only: logging sender prints verification/reset tokens when true.
+      # Hosted/production must keep these false (see docker/.env.hosted-beta.example).
+      PARKIO_EMAIL_VERIFICATION_LOG_TOKEN: ${PARKIO_EMAIL_VERIFICATION_LOG_TOKEN:-false}
+      PARKIO_PASSWORD_RESET_LOG_TOKEN: ${PARKIO_PASSWORD_RESET_LOG_TOKEN:-false}
     healthcheck:
       <<: *app-healthcheck
       test: ["CMD", "curl", "-fsS", "http://localhost:8081/actuator/health/readiness"]

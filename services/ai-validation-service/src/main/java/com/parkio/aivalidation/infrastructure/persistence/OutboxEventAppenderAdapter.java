@@ -13,7 +13,7 @@ import org.springframework.stereotype.Component;
 /**
  * Writes the advisory completion event into the transactional outbox. Because the
  * surrounding use case is transactional, this insert commits atomically with the
- * result (ai-context/06). A separate relay (not implemented yet) will publish
+ * result (ai-context/06). {@code AiValidationOutboxRelay} publishes
  * unpublished rows to Kafka.
  */
 @Component

@@ -1,0 +1,220 @@
+# Hosted-beta deploy / rollback foundation (R5.1).
+#
+# Always builds images from the workflow commit (sha-<gitsha>). Deploy and rollback
+# are workflow_dispatch only — nothing auto-deploys to a VPS.
+#
+# Jobs:
+#   build-images  — build + tag all app images, write deploy manifest artifact
+#   deploy        — optional; needs self-hosted runner labeled parkio-beta
+#                   (not required for local script use)
+#   rollback      — optional; requires manifest under deploy-artifacts/
+#
+# Local operators should prefer:
+#   PARKIO_ENV_FILE=docker/.env ./scripts/deploy-hosted-beta.sh
+#   PARKIO_ENV_FILE=docker/.env ./scripts/rollback-hosted-beta.sh --manifest deploy-artifacts/....json
+
+name: Hosted-beta deploy
+
+on:
+  workflow_dispatch:
+    inputs:
+      action:
+        description: "build | deploy | rollback"
+        required: true
+        type: choice
+        options:
+          - build
+          - deploy
+          - rollback
+        default: build
+      manifest_artifact:
+        description: "For rollback: name of a prior workflow artifact containing manifest JSON (optional)"
+        required: false
+        type: string
+      allow_dirty:
+        description: "Unused in CI (checkout is always clean). Reserved for documentation parity."
+        required: false
+        type: boolean
+        default: false
+
+permissions:
+  contents: read
+  packages: write
+
+concurrency:
+  group: hosted-beta-deploy
+  cancel-in-progress: false
+
+env:
+  REGISTRY: ghcr.io
+
+jobs:
+  build-images:
+    name: Build images + manifest
+    if: ${{ github.event.inputs.action == 'build' || github.event.inputs.action == 'deploy' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    outputs:
+      git_sha: ${{ steps.meta.outputs.git_sha }}
+      image_tag: ${{ steps.meta.outputs.image_tag }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Meta
+        id: meta
+        run: |
+          set -euo pipefail
+          sha="${GITHUB_SHA}"
+          tag="sha-${sha}"
+          created="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+          echo "git_sha=$sha" >> "$GITHUB_OUTPUT"
+          echo "image_tag=$tag" >> "$GITHUB_OUTPUT"
+          echo "created=$created" >> "$GITHUB_OUTPUT"
+          echo "Building $tag at $created"
+
+      - name: Install jq
+        run: sudo apt-get update && sudo apt-get install -y jq
+
+      - name: Dry-run deploy script (manifest + compose config)
+        env:
+          PARKIO_IMAGE_TAG: ${{ steps.meta.outputs.image_tag }}
+          PARKIO_GIT_SHA: ${{ steps.meta.outputs.git_sha }}
+          PARKIO_IMAGE_CREATED: ${{ steps.meta.outputs.created }}
+        run: |
+          set -euo pipefail
+          chmod +x scripts/deploy-hosted-beta.sh scripts/rollback-hosted-beta.sh scripts/smoke-hosted-beta.sh
+          # Example env is enough for dry-run manifest + compose config (no production secrets).
+          cp docker/.env.example docker/.env.ci-deploy
+          PARKIO_ENV_FILE=docker/.env.ci-deploy \
+            PARKIO_DEPLOY_ARTIFACT_DIR=deploy-artifacts \
+            PARKIO_DEPLOY_OPERATOR=github-actions \
+            ./scripts/deploy-hosted-beta.sh --dry-run --no-hosted-beta-overlay --allow-dirty
+
+      - name: Build all service images (current commit)
+        env:
+          PARKIO_IMAGE_TAG: ${{ steps.meta.outputs.image_tag }}
+          PARKIO_GIT_SHA: ${{ steps.meta.outputs.git_sha }}
+          PARKIO_IMAGE_CREATED: ${{ steps.meta.outputs.created }}
+        run: |
+          set -euo pipefail
+          # Example env is enough for image *build*; runtime deploy needs real secrets on the runner.
+          export PARKIO_IMAGE_TAG PARKIO_GIT_SHA PARKIO_IMAGE_CREATED
+          docker compose \
+            -f docker/docker-compose.yml \
+            -f docker/docker-compose.apps.yml \
+            -f docker/docker-compose.images.yml \
+            --env-file docker/.env.ci-deploy \
+            build
+
+      - name: Tag beta-latest
+        env:
+          PARKIO_IMAGE_TAG: ${{ steps.meta.outputs.image_tag }}
+        run: |
+          set -euo pipefail
+          for svc in gateway-service auth-service user-service parking-service media-service \
+            gamification-service notification-service moderation-service ai-validation-service analytics-service; do
+            docker tag "parkio/${svc}:${PARKIO_IMAGE_TAG}" "parkio/${svc}:beta-latest"
+          done
+
+      - name: Upload deploy manifest artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: deploy-manifest-${{ steps.meta.outputs.git_sha }}
+          path: |
+            deploy-artifacts/
+          retention-days: 90
+
+      - name: Optional push to GHCR
+        if: ${{ vars.PUBLISH_IMAGES == 'true' }}
+        uses: docker/login-action@v3
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Push images
+        if: ${{ vars.PUBLISH_IMAGES == 'true' }}
+        env:
+          PARKIO_IMAGE_TAG: ${{ steps.meta.outputs.image_tag }}
+        run: |
+          set -euo pipefail
+          repo="$(echo "${GITHUB_REPOSITORY}" | tr '[:upper:]' '[:lower:]')"
+          for svc in gateway-service auth-service user-service parking-service media-service \
+            gamification-service notification-service moderation-service ai-validation-service analytics-service; do
+            src="parkio/${svc}:${PARKIO_IMAGE_TAG}"
+            dst="${REGISTRY}/${repo}/${svc}:${PARKIO_IMAGE_TAG}"
+            dst_beta="${REGISTRY}/${repo}/${svc}:beta-latest"
+            docker tag "$src" "$dst"
+            docker tag "$src" "$dst_beta"
+            docker push "$dst"
+            docker push "$dst_beta"
+          done
+
+  deploy:
+    name: Deploy (self-hosted beta)
+    if: ${{ github.event.inputs.action == 'deploy' }}
+    needs: build-images
+    runs-on: [self-hosted, parkio-beta]
+    timeout-minutes: 90
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Deploy current commit
+        env:
+          PARKIO_ENV_FILE: docker/.env
+          PARKIO_DEPLOY_OPERATOR: github-actions
+          PARKIO_GATEWAY_URL: http://127.0.0.1:8080
+          PARKIO_SMOKE_EXPECT_DIRECT_BLOCKED: "1"
+        run: |
+          set -euo pipefail
+          chmod +x scripts/deploy-hosted-beta.sh scripts/smoke-hosted-beta.sh
+          if [ ! -f "$PARKIO_ENV_FILE" ]; then
+            echo "ERROR: env file $PARKIO_ENV_FILE not found on runner."
+            echo "Place a real docker/.env on the parkio-beta runner (never commit secrets)."
+            exit 2
+          fi
+          ./scripts/deploy-hosted-beta.sh
+
+      - name: Upload post-deploy manifest
+        uses: actions/upload-artifact@v4
+        with:
+          name: deploy-manifest-live-${{ needs.build-images.outputs.git_sha }}
+          path: deploy-artifacts/
+          retention-days: 90
+
+  rollback:
+    name: Rollback (self-hosted beta)
+    if: ${{ github.event.inputs.action == 'rollback' }}
+    runs-on: [self-hosted, parkio-beta]
+    timeout-minutes: 60
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Download manifest artifact
+        if: ${{ github.event.inputs.manifest_artifact != '' }}
+        uses: actions/download-artifact@v4
+        with:
+          name: ${{ github.event.inputs.manifest_artifact }}
+          path: deploy-artifacts/
+
+      - name: Rollback
+        env:
+          PARKIO_ENV_FILE: docker/.env
+          PARKIO_DEPLOY_OPERATOR: github-actions
+          PARKIO_GATEWAY_URL: http://127.0.0.1:8080
+          PARKIO_SMOKE_EXPECT_DIRECT_BLOCKED: "1"
+        run: |
+          set -euo pipefail
+          chmod +x scripts/rollback-hosted-beta.sh scripts/smoke-hosted-beta.sh
+          manifest="$(ls -1 deploy-artifacts/deploy-*.json deploy-artifacts/current.json 2>/dev/null | head -1 || true)"
+          if [ -z "$manifest" ]; then
+            echo "ERROR: no manifest found under deploy-artifacts/"
+            exit 2
+          fi
+          ./scripts/rollback-hosted-beta.sh --manifest "$manifest"

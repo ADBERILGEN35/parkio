@@ -1,22 +1,22 @@
-import { Ionicons } from '@expo/vector-icons';
 import { useQuery } from '@tanstack/react-query';
 import { useRouter } from 'expo-router';
 import { useState } from 'react';
-import { Alert, Pressable, StyleSheet, View } from 'react-native';
+import { Alert, StyleSheet, View } from 'react-native';
 import type { Profile } from '@parkio/types';
-import { Button, Card, Screen, Skeleton, StateView } from '@/components/ui';
+import { Button, Card, LinkRow, Screen, Skeleton, StateView } from '@/components/ui';
 import { AppText } from '@/components/ui/AppText';
 import { appConfig } from '@/config/env';
 import { useAuth } from '@/hooks/useAuth';
 import { usersApi } from '@/services/api';
 import { useToast } from '@/providers/ToastProvider';
-import { useTheme } from '@/theme';
 import { toUserMessage } from '@/utils/errors';
 
 export default function ProfileScreen() {
-  const { user, logout, logoutAll } = useAuth();
+  const { user, roles, logout, logoutAll } = useAuth();
+  const router = useRouter();
   const toast = useToast();
   const [busy, setBusy] = useState(false);
+  const isStaff = roles.includes('MODERATOR') || roles.includes('ADMIN');
 
   const profileQuery = useQuery<Profile>({ queryKey: ['me', 'profile'], queryFn: usersApi.getMyProfile });
 
@@ -35,7 +35,6 @@ export default function ProfileScreen() {
     setBusy(true);
     try {
       await action();
-      // The (main) guard redirects to /login once the session clears.
     } catch (error) {
       toast.showError(toUserMessage(error));
       setBusy(false);
@@ -74,15 +73,103 @@ export default function ProfileScreen() {
         </Card>
       )}
 
+      <View style={styles.section}>
+        <AppText variant="heading">Account</AppText>
+        <LinkRow
+          icon="person-outline"
+          title="Edit profile"
+          description="Display name, phone, and city"
+          testID="profile.edit"
+          onPress={() => router.push('/(main)/profile-edit')}
+        />
+        <LinkRow
+          icon="car-outline"
+          title="Vehicle"
+          description="Vehicle type and plate"
+          testID="profile.vehicle"
+          onPress={() => router.push('/(main)/vehicle')}
+        />
+        <LinkRow
+          icon="options-outline"
+          title="Preferences"
+          description="Search radius and notifications"
+          testID="profile.preferences"
+          onPress={() => router.push('/(main)/preferences')}
+        />
+        <LinkRow
+          icon="key-outline"
+          title="Change password"
+          testID="profile.changePassword"
+          onPress={() => router.push('/(main)/change-password')}
+        />
+      </View>
+
+      <View style={styles.section}>
+        <AppText variant="heading">Activity</AppText>
+        <LinkRow
+          icon="map-outline"
+          title="My spots"
+          description="Spots you shared"
+          testID="profile.mySpots"
+          onPress={() => router.push('/(main)/my-spots')}
+        />
+        <LinkRow
+          icon="trophy-outline"
+          title="Leaderboard"
+          description="Top contributors"
+          testID="profile.leaderboard"
+          onPress={() => router.push('/(main)/leaderboard')}
+        />
+        <LinkRow
+          icon="star-outline"
+          title="Your Impact"
+          description="Points, levels, and activity history"
+          testID="profile.impact"
+          onPress={() => router.push('/(main)/impact')}
+        />
+        <LinkRow
+          icon="flag-outline"
+          title="My reports"
+          description="Reports and appeals"
+          testID="profile.reports"
+          onPress={() => router.push('/(main)/reports')}
+        />
+      </View>
+
       {appConfig.features.smartReturn ? (
         <View style={styles.section}>
           <AppText variant="heading">Parking</AppText>
-          <SmartReturnRow />
+          <LinkRow
+            icon="home-outline"
+            title="Smart Return"
+            description="One parking check near home, right before you head back."
+            testID="profile.smartReturn"
+            onPress={() => router.push('/(main)/smart-return')}
+          />
+        </View>
+      ) : null}
+
+      {isStaff ? (
+        <View style={styles.section}>
+          <AppText variant="heading">Staff</AppText>
+          <LinkRow
+            icon="shield-checkmark-outline"
+            title="Moderation"
+            description="Review cases and appeals"
+            testID="profile.moderation"
+            onPress={() => router.push('/(main)/moderation')}
+          />
+          <LinkRow
+            icon="stats-chart-outline"
+            title="Analytics"
+            description="Platform KPIs and metrics"
+            testID="profile.analytics"
+            onPress={() => router.push('/(main)/analytics')}
+          />
         </View>
       ) : null}
 
       <View style={styles.section}>
-        <AppText variant="heading">Account</AppText>
         <Button
           label="Log out"
           testID="profile.logout"
@@ -106,42 +193,8 @@ export default function ProfileScreen() {
   );
 }
 
-/** Entry point to the Smart Return screen — the web profile's Smart Return section. */
-function SmartReturnRow() {
-  const theme = useTheme();
-  const router = useRouter();
-  return (
-    <Card padded={false}>
-      <Pressable
-        accessibilityRole="button"
-        accessibilityLabel="Smart Return"
-        testID="profile.smartReturn"
-        onPress={() => router.push('/(main)/smart-return')}
-        style={({ pressed }) => [
-          styles.linkRow,
-          { backgroundColor: pressed ? theme.colors.surfaceMuted : 'transparent', borderRadius: theme.radius.xl },
-        ]}
-      >
-        <View style={[styles.linkDisc, { backgroundColor: theme.colors.primarySoft, borderRadius: theme.radius.full }]}>
-          <Ionicons name="home" size={18} color={theme.colors.primary} />
-        </View>
-        <View style={styles.linkText}>
-          <AppText variant="subtitle">Smart Return</AppText>
-          <AppText variant="caption" tone="muted">
-            One parking check near home, right before you head back.
-          </AppText>
-        </View>
-        <Ionicons name="chevron-forward" size={18} color={theme.colors.textMuted} />
-      </Pressable>
-    </Card>
-  );
-}
-
 const styles = StyleSheet.create({
   content: { gap: 24 },
   section: { gap: 12 },
   skeletonRows: { gap: 10 },
-  linkRow: { flexDirection: 'row', alignItems: 'center', gap: 12, padding: 14, minHeight: 44 },
-  linkDisc: { width: 36, height: 36, alignItems: 'center', justifyContent: 'center' },
-  linkText: { flex: 1, gap: 2 },
 });

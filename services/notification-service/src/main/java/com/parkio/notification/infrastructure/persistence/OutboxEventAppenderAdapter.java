@@ -13,8 +13,7 @@ import org.springframework.stereotype.Component;
 /**
  * Writes notification events into the transactional outbox. Because the surrounding
  * use case is transactional, this insert commits atomically with the state change
- * (ai-context/06). A separate relay (not implemented yet) will publish unpublished
- * rows to Kafka.
+ * (ai-context/06). {@code NotificationOutboxRelay} publishes unpublished rows to Kafka.
  */
 @Component
 public class OutboxEventAppenderAdapter implements OutboxEventAppender {

@@ -10,7 +10,11 @@ import type { QueryClient } from '@tanstack/react-query';
 export function invalidateGamificationQueries(queryClient: QueryClient): Promise<void> {
   return Promise.all([
     queryClient.invalidateQueries({ queryKey: ['me', 'stats'] }),
-    
+    queryClient.invalidateQueries({ queryKey: ['points'] }),
+    queryClient.invalidateQueries({ queryKey: ['level'] }),
+    queryClient.invalidateQueries({ queryKey: ['progress'] }),
+    queryClient.invalidateQueries({ queryKey: ['access-policy'] }),
+    queryClient.invalidateQueries({ queryKey: ['leaderboard'] }),
     queryClient.invalidateQueries({ queryKey: ['notifications'] }),
   ]).then(() => undefined);
 }

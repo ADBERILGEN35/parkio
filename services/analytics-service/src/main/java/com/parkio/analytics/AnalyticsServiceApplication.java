@@ -6,8 +6,8 @@ import org.springframework.boot.autoconfigure.SpringBootApplication;
 /**
  * Entry point for the Parkio analytics-service.
  *
- * <p>Business logic is intentionally not implemented yet. The package layout
- * follows clean architecture: {@code domain}, {@code application},
+ * <p>Projects parking, gamification, and notification metrics for staff dashboards.
+ * Package layout follows clean architecture: {@code domain}, {@code application},
  * {@code infrastructure}, {@code presentation} and {@code shared}.
  */
 @SpringBootApplication

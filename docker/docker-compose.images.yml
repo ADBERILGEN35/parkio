@@ -1,0 +1,78 @@
+# Parkio — immutable image tags for hosted-beta deploy / rollback.
+#
+# Always use WITH the base + apps overlays (and hosted-beta when on a VPS):
+#
+#   export PARKIO_IMAGE_TAG=sha-$(git rev-parse HEAD)
+#   export PARKIO_GIT_SHA=$(git rev-parse HEAD)
+#   export PARKIO_IMAGE_CREATED=$(date -u +%Y-%m-%dT%H:%M:%SZ)
+#   docker compose -f docker/docker-compose.yml \
+#     -f docker/docker-compose.apps.yml \
+#     -f docker/docker-compose.images.yml \
+#     -f docker/docker-compose.hosted-beta.yml \
+#     --env-file docker/.env \
+#     up -d --build
+#
+# Deploy builds and tags images as parkio/<service>:${PARKIO_IMAGE_TAG}.
+# Rollback sets PARKIO_IMAGE_TAG to a previous sha and runs `up -d` WITHOUT --build
+# so Compose uses the already-built local (or pulled) images.
+#
+# OCI labels (revision/version/created) are baked by each service Dockerfile via
+# IMAGE_* build-args (see services/*/Dockerfile).
+
+name: parkio
+
+x-image-build-args: &image-build-args
+  IMAGE_VERSION: ${PARKIO_IMAGE_VERSION:-0.0.1-SNAPSHOT}
+  IMAGE_REVISION: ${PARKIO_GIT_SHA:-unknown}
+  IMAGE_CREATED: ${PARKIO_IMAGE_CREATED:-}
+
+services:
+  gateway-service:
+    image: parkio/gateway-service:${PARKIO_IMAGE_TAG:?PARKIO_IMAGE_TAG is required}
+    build:
+      args: *image-build-args
+
+  auth-service:
+    image: parkio/auth-service:${PARKIO_IMAGE_TAG:?PARKIO_IMAGE_TAG is required}
+    build:
+      args: *image-build-args
+
+  user-service:
+    image: parkio/user-service:${PARKIO_IMAGE_TAG:?PARKIO_IMAGE_TAG is required}
+    build:
+      args: *image-build-args
+
+  parking-service:
+    image: parkio/parking-service:${PARKIO_IMAGE_TAG:?PARKIO_IMAGE_TAG is required}
+    build:
+      args: *image-build-args
+
+  media-service:
+    image: parkio/media-service:${PARKIO_IMAGE_TAG:?PARKIO_IMAGE_TAG is required}
+    build:
+      args: *image-build-args
+
+  gamification-service:
+    image: parkio/gamification-service:${PARKIO_IMAGE_TAG:?PARKIO_IMAGE_TAG is required}
+    build:
+      args: *image-build-args
+
+  notification-service:
+    image: parkio/notification-service:${PARKIO_IMAGE_TAG:?PARKIO_IMAGE_TAG is required}
+    build:
+      args: *image-build-args
+
+  moderation-service:
+    image: parkio/moderation-service:${PARKIO_IMAGE_TAG:?PARKIO_IMAGE_TAG is required}
+    build:
+      args: *image-build-args
+
+  ai-validation-service:
+    image: parkio/ai-validation-service:${PARKIO_IMAGE_TAG:?PARKIO_IMAGE_TAG is required}
+    build:
+      args: *image-build-args
+
+  analytics-service:
+    image: parkio/analytics-service:${PARKIO_IMAGE_TAG:?PARKIO_IMAGE_TAG is required}
+    build:
+      args: *image-build-args

@@ -129,6 +129,12 @@ const ALLOWED_ROUTES = [
   '/(main)/map',
   '/(main)/upload',
   '/(main)/smart-return',
+  '/(main)/my-spots',
+  '/(main)/leaderboard',
+  '/(main)/impact',
+  '/(main)/reports',
+  '/(main)/moderation',
+  '/(main)/profile-edit',
 ] as const;
 
 export type NotificationRoute = (typeof ALLOWED_ROUTES)[number];

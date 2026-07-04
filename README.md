@@ -196,6 +196,15 @@ Dependency reports are uploaded as `trivy-dependencies-reports`
 per service as `trivy-image-<service>-reports`
 (`trivy-image-<service>.txt`, `trivy-image-<service>.sarif`).
 
+**[`hosted-beta-deploy.yml`](.github/workflows/hosted-beta-deploy.yml) — deploy /
+rollback foundation.** Builds SHA-tagged images (`parkio/<service>:sha-<gitsha>`),
+writes a deploy manifest artifact, and optionally deploys or rolls back on a
+self-hosted `parkio-beta` runner (`workflow_dispatch` only). Operators can run the
+same flow locally with [`scripts/deploy-hosted-beta.sh`](scripts/deploy-hosted-beta.sh)
+and [`scripts/rollback-hosted-beta.sh`](scripts/rollback-hosted-beta.sh). See
+[`docs/beta/deploy-runbook.md`](docs/beta/deploy-runbook.md) and
+[`docs/beta/rollback-runbook.md`](docs/beta/rollback-runbook.md).
+
 **[`runtime-validation.yml`](.github/workflows/runtime-validation.yml) — full runtime
 validation.** Builds and starts the hosted-beta Docker Compose stack on a
 GitHub-hosted Linux runner, waits for required healthchecks, verifies gateway and
