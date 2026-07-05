@@ -1,5 +1,10 @@
 import * as Notifications from 'expo-notifications';
-import { addNotificationTapListener } from '../pushNotifications';
+import {
+  addNotificationTapListener,
+  guardNotificationRoute,
+  registerForPushNotifications,
+  unregisterPushToken,
+} from '../pushNotifications';
 
 jest.mock('expo-notifications', () => ({
   setNotificationHandler: jest.fn(),
@@ -14,12 +19,17 @@ jest.mock('@/services/api', () => ({
   notificationsApi: { registerDeviceToken: jest.fn(), deactivateDeviceToken: jest.fn() },
 }));
 
+import { notificationsApi } from '@/services/api';
+
 function responseWithData(data: unknown) {
   return { notification: { request: { content: { data } } } } as Notifications.NotificationResponse;
 }
 
 describe('addNotificationTapListener', () => {
-  beforeEach(() => jest.clearAllMocks());
+  beforeEach(async () => {
+    jest.clearAllMocks();
+    await unregisterPushToken();
+  });
 
   it('routes taps to the allow-listed route from the payload', async () => {
     const onRoute = jest.fn();
@@ -63,5 +73,22 @@ describe('addNotificationTapListener', () => {
     const unsubscribe = addNotificationTapListener(jest.fn());
     unsubscribe();
     expect(remove).toHaveBeenCalled();
+  });
+
+  it('blocks staff routes for non-privileged users', () => {
+    expect(guardNotificationRoute('/(main)/moderation', ['USER'])).toBe('/(main)/(tabs)/notifications');
+    expect(guardNotificationRoute('/(main)/moderation', ['MODERATOR'])).toBe('/(main)/moderation');
+  });
+
+  it('deactivates backend token on logout without logging token values', async () => {
+    jest.mocked(Notifications.requestPermissionsAsync).mockResolvedValue({ granted: true } as never);
+    jest.mocked(Notifications.getExpoPushTokenAsync).mockResolvedValue({ data: 'ExponentPushToken[secret]' } as never);
+    jest.mocked(notificationsApi.registerDeviceToken).mockResolvedValue({ id: 'token-id-1' } as never);
+    jest.mocked(notificationsApi.deactivateDeviceToken).mockResolvedValue(undefined as never);
+
+    await registerForPushNotifications();
+    await unregisterPushToken();
+
+    expect(notificationsApi.deactivateDeviceToken).toHaveBeenCalledWith('token-id-1');
   });
 });

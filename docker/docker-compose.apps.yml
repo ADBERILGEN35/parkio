@@ -88,6 +88,11 @@ x-app-common: &app-common
     # Shared gateway-ingress secret. The gateway stamps it onto every routed request
     # as X-Gateway-Auth; every downstream service requires it. Same value everywhere.
     PARKIO_GATEWAY_INTERNAL_SECRET: ${PARKIO_GATEWAY_INTERNAL_SECRET}
+    # During gateway-secret rotation, downstream services accept the current secret plus
+    # any comma-separated previous values listed here. Leave blank when not rotating.
+    PARKIO_GATEWAY_INTERNAL_ACCEPTED_SECRETS: ${PARKIO_GATEWAY_INTERNAL_ACCEPTED_SECRETS:-}
+    # OpenAPI/Swagger UI. Default true for local dev; set false on hosted-beta/production.
+    PARKIO_OPENAPI_ENABLED: ${PARKIO_OPENAPI_ENABLED:-true}
 
 x-datasource-depends: &datasource-depends
   kafka:
@@ -127,6 +132,8 @@ services:
       # must set its real web origin(s). Empty in application.yml = deny (safe default).
       PARKIO_CORS_ALLOWED_ORIGINS: ${PARKIO_CORS_ALLOWED_ORIGINS:-http://localhost:5173}
       PARKIO_CORS_ALLOW_CREDENTIALS: ${PARKIO_CORS_ALLOW_CREDENTIALS:-true}
+      PARKIO_JWT_AUDIENCE: ${PARKIO_JWT_AUDIENCE:-parkio-api}
+      PARKIO_JWT_CLOCK_SKEW_SECONDS: ${PARKIO_JWT_CLOCK_SKEW_SECONDS:-30}
     healthcheck:
       <<: *app-healthcheck
       test: ["CMD", "curl", "-fsS", "http://localhost:8080/actuator/health/readiness"]
@@ -158,6 +165,8 @@ services:
       PARKIO_JWT_PRIVATE_KEY_PEM: ${PARKIO_JWT_PRIVATE_KEY_PEM}
       PARKIO_JWT_KEY_ID: ${PARKIO_JWT_KEY_ID:-parkio-auth-rs256-1}
       PARKIO_JWT_ISSUER: ${PARKIO_JWT_ISSUER:-parkio-auth}
+      PARKIO_JWT_AUDIENCE: ${PARKIO_JWT_AUDIENCE:-parkio-api}
+      PARKIO_JWT_ADDITIONAL_PUBLIC_KEYS_JSON: ${PARKIO_JWT_ADDITIONAL_PUBLIC_KEYS_JSON:-}
       PARKIO_CORS_ALLOWED_ORIGINS: ${PARKIO_CORS_ALLOWED_ORIGINS:-http://localhost:5173}
       PARKIO_EMAIL_PROVIDER: ${PARKIO_EMAIL_PROVIDER:-logging}
       PARKIO_RESEND_API_KEY: ${PARKIO_RESEND_API_KEY:-}
@@ -309,6 +318,8 @@ services:
       PARKIO_SMART_RETURN_TEST_HOOKS_ENABLED: ${PARKIO_SMART_RETURN_TEST_HOOKS_ENABLED:-false}
       PARKIO_USER_SERVICE_URI: http://user-service:8082
       PARKIO_PARKING_SERVICE_URI: http://parking-service:8083
+      PARKIO_PUSH_DELIVERY_PROVIDER: ${PARKIO_PUSH_DELIVERY_PROVIDER:-noop}
+      PARKIO_EXPO_ACCESS_TOKEN: ${PARKIO_EXPO_ACCESS_TOKEN:-}
     healthcheck:
       <<: *app-healthcheck
       test: ["CMD", "curl", "-fsS", "http://localhost:8086/actuator/health/readiness"]

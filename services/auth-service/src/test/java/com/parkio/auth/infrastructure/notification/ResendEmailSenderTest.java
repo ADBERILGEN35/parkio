@@ -58,7 +58,9 @@ class ResendEmailSenderTest {
                 .andExpect(jsonPath("$.to[0]").value("user@example.com"))
                 .andExpect(jsonPath("$.reply_to").value("support@example.com"))
                 .andExpect(jsonPath("$.subject").value("Verify your Parkio email"))
-                .andExpect(jsonPath("$.text").value(org.hamcrest.Matchers.containsString(TOKEN)))
+                .andExpect(jsonPath("$.text").value(org.hamcrest.Matchers.containsString("verify-email?token=")))
+                .andExpect(jsonPath("$.text").value(org.hamcrest.Matchers.not(org.hamcrest.Matchers.containsString(
+                        "\n\nVerification token:\n" + TOKEN))))
                 .andRespond(withSuccess("{\"id\":\"email_123\"}", MediaType.APPLICATION_JSON));
 
         sender.sendVerificationLink("user@example.com", TOKEN);

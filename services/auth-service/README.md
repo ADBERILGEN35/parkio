@@ -284,10 +284,19 @@ PARKIO_PASSWORD_RESET_LOG_TOKEN=false
 ```
 
 With `PARKIO_EMAIL_PROVIDER=resend`, missing API key or from address fails
-startup. With the `prod` profile active, auth-service also fails startup if the
+startup. With the `prod` or `hosted-beta` profile active, auth-service also fails startup if the
 logging provider is selected or raw-token logging is enabled. Delivery counters
 are exported at `/actuator/prometheus` as `email_sent_total`,
 `email_failed_total`, and `email_verification_sent_total`.
+
+**Retry / outbox plan (R5.4):** Auth sends transactional email synchronously inside
+the request thread today. That is acceptable for low-volume verification and reset
+flows because failures surface to the caller and Resend retries are idempotent at the
+HTTP layer. If delivery volume or reliability requirements grow, introduce an
+`email_outbox` table (same pattern as notification-service push attempts): persist the
+template + recipient hash + idempotency key, drain with a scheduled worker, exponential
+backoff, and DLQ after `max-attempts`. Until then, monitor `email_failed_total` and
+alert on sustained failures.
 
 ## Refresh-token transport and CSRF boundary
 

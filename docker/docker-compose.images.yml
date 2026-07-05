@@ -76,3 +76,17 @@ services:
     image: parkio/analytics-service:${PARKIO_IMAGE_TAG:?PARKIO_IMAGE_TAG is required}
     build:
       args: *image-build-args
+
+  web:
+    image: parkio/web:${PARKIO_IMAGE_TAG:?PARKIO_IMAGE_TAG is required}
+    build:
+      args:
+        IMAGE_VERSION: ${PARKIO_IMAGE_VERSION:-0.0.1-SNAPSHOT}
+        IMAGE_REVISION: ${PARKIO_GIT_SHA:-unknown}
+        IMAGE_CREATED: ${PARKIO_IMAGE_CREATED:-}
+        VITE_API_BASE_URL: ${VITE_API_BASE_URL:?set VITE_API_BASE_URL in .env}
+        VITE_APP_ENV: ${VITE_APP_ENV:-hosted-beta}
+        VITE_SMART_RETURN_ENABLED: ${VITE_SMART_RETURN_ENABLED:-true}
+        VITE_MAPTILER_KEY: ${VITE_MAPTILER_KEY:-}
+        VITE_MAPTILER_STYLE: ${VITE_MAPTILER_STYLE:-streets-v2}
+        VITE_FRONTEND_ERROR_REPORTING: ${VITE_FRONTEND_ERROR_REPORTING:-disabled}

@@ -70,7 +70,9 @@ public class EmailDeliveryConfig {
     private boolean isProductionProfile() {
         return Arrays.stream(environment.getActiveProfiles())
                 .map(profile -> profile.toLowerCase(java.util.Locale.ROOT))
-                .anyMatch(profile -> profile.equals("prod") || profile.equals("production"));
+                .anyMatch(profile -> profile.equals("prod")
+                        || profile.equals("production")
+                        || profile.equals("hosted-beta"));
     }
 
     private static void requireText(String value, String envName) {

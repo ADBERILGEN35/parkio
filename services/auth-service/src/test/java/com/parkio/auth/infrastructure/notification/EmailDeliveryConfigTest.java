@@ -48,6 +48,14 @@ class EmailDeliveryConfigTest {
     }
 
     @Test
+    void hostedBetaProfileRequiresResendProvider() {
+        runner.withPropertyValues(
+                        "spring.profiles.active=hosted-beta",
+                        "parkio.email.provider=logging")
+                .run(context -> assertThat(context).hasFailed());
+    }
+
+    @Test
     void resendProviderStartsWhenRequiredConfigurationIsPresent() {
         runner.withPropertyValues(
                         "parkio.email.provider=resend",

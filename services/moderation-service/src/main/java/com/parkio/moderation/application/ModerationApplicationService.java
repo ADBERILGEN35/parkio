@@ -158,6 +158,10 @@ public class ModerationApplicationService {
     /** Resolves a case, records the decision/violation, and emits the resulting events. */
     public ModerationCase resolveCase(ResolveCaseCommand command) {
         ModerationAction action = command.action();
+        if (action == ModerationAction.MARK_FILLED) {
+            throw new ModerationException(ModerationErrorCode.INVALID_CASE_STATE,
+                    "MARK_FILLED is not supported; use community verification or claim flows instead.");
+        }
         // Defense in depth: account sanctions / trust-score overrides are ADMIN-only,
         // re-checked here independently of the presentation-layer gate. Fail closed.
         if (action.requiresAdmin() && !command.callerIsAdmin()) {

@@ -1,4 +1,5 @@
 import type * as NotificationsTypes from 'expo-notifications';
+import { hasPrivilegedRole } from '@parkio/types';
 import { Platform } from 'react-native';
 import { notificationsApi } from '@/services/api';
 import { recordError } from '@/services/crashReporting';
@@ -56,6 +57,12 @@ export function configureForegroundHandling(): void {
       shouldSetBadge: false,
     }),
   });
+  if (Platform.OS === 'android') {
+    void Notifications.setNotificationChannelAsync('default', {
+      name: 'Parkio',
+      importance: Notifications.AndroidImportance.DEFAULT,
+    });
+  }
 }
 
 async function registerTokenWithBackend(token: string): Promise<string | null> {
@@ -137,7 +144,17 @@ const ALLOWED_ROUTES = [
   '/(main)/profile-edit',
 ] as const;
 
+const STAFF_ROUTES = new Set<string>(['/(main)/moderation']);
+
 export type NotificationRoute = (typeof ALLOWED_ROUTES)[number];
+
+/** Staff-only routes require a privileged role; others fall back to notifications. */
+export function guardNotificationRoute(route: NotificationRoute, roles: string[]): NotificationRoute {
+  if (STAFF_ROUTES.has(route) && !hasPrivilegedRole(roles)) {
+    return '/(main)/(tabs)/notifications';
+  }
+  return route;
+}
 
 function routeFromResponse(response: NotificationsTypes.NotificationResponse): NotificationRoute | null {
   const data = response.notification.request.content.data as { route?: unknown } | undefined;

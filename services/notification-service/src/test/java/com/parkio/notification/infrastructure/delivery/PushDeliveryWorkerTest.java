@@ -172,6 +172,30 @@ class PushDeliveryWorkerTest {
     }
 
     @Test
+    void invalidDeviceTokenDeactivatesToken() {
+        UUID user = UUID.randomUUID();
+        DeviceToken token = persistToken(user);
+        Notification notification = notifications.save(Notification.create(
+                user,
+                NotificationType.LEVEL_UP,
+                NotificationChannel.IN_APP,
+                "Level up!",
+                "You reached level 2.",
+                Map.of("deeplink", "/gamification"),
+                NOW));
+        NotificationDeliveryAttempt attempt = attempts.save(NotificationDeliveryAttempt.pending(
+                notification.id(), user, NotificationChannel.PUSH, token.id(), NOW));
+        PushDeliveryWorker worker = worker(
+                message -> PushSendResult.failed(ExpoPushNotificationSender.FAILURE_INVALID_DEVICE_TOKEN), 1);
+
+        worker.processPendingBatch();
+
+        assertThat(deviceTokens.findById(token.id())).get().satisfies(saved -> assertThat(saved.active()).isFalse());
+        assertThat(attempts.byId.get(attempt.id()).failureReason())
+                .isEqualTo(ExpoPushNotificationSender.FAILURE_INVALID_DEVICE_TOKEN);
+    }
+
+    @Test
     void inactiveTokenFailsAttempt() {
         UUID user = UUID.randomUUID();
         DeviceToken token = DeviceToken.register(user, SECRET_TOKEN, DevicePlatform.ANDROID, NOW);

@@ -250,6 +250,18 @@ class ParkingApplicationServiceTest {
     }
 
     @Test
+    void nonOwnerCannotVerifyHiddenSuspiciousSpotAsAvailable() {
+        ParkingSpot suspicious = buildSpot(UUID.randomUUID(), ParkingSpotStatus.SUSPICIOUS,
+                NOW.plus(5, ChronoUnit.MINUTES), LegalStatus.LEGAL);
+        spots.save(suspicious);
+
+        assertThatThrownBy(() -> service.verifySpot(suspicious.id(), UUID.randomUUID(), VerificationResult.AVAILABLE))
+                .isInstanceOf(ParkingException.class)
+                .extracting(e -> ((ParkingException) e).errorCode())
+                .isEqualTo(ParkingErrorCode.SPOT_NOT_FOUND);
+    }
+
+    @Test
     void ownerCannotVerifyOwnSpot() {
         UUID owner = UUID.randomUUID();
         ParkingSpot spot = service.createSpot(createCommand(owner, LegalStatus.LEGAL));

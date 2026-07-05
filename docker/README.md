@@ -242,41 +242,51 @@ does not trust client-supplied values. Only add Caddy `trusted_proxies` if Caddy
 behind another load balancer (not the case for a single VPS).
 
 ### DNS
-Point two records at the VPS public IP:
+Point **three** records at the VPS public IP:
+- `PARKIO_WEB_DOMAIN` (e.g. `app.beta.example.com`) → SPA (`web` container via Caddy)
 - `PARKIO_DOMAIN` (e.g. `api.beta.example.com`) → gateway / API
 - `PARKIO_MEDIA_DOMAIN` (e.g. `media.beta.example.com`) → media (private MinIO via Caddy)
 
-The hosted frontend (SPA) is served separately; set `PARKIO_CORS_ALLOWED_ORIGINS` to its origin.
+Set `PARKIO_CORS_ALLOWED_ORIGINS` to the SPA origin (`https://${PARKIO_WEB_DOMAIN}`).
+Build-time `VITE_API_BASE_URL` must be `https://${PARKIO_DOMAIN}/api/v1`.
 
-### Firewall (VPS)
-Allow inbound **22** (SSH, ideally IP-restricted), **80**, **443** only; block everything
-else. Do **not** open 5432–5440, 6379, 29092, 9308, 9000/9001, 3000, 9090, 9093, 3100,
-or 9080. Caddy needs port 80 for the ACME HTTP-01 challenge and the HTTP→HTTPS redirect.
+### Web SPA container
+The hosted-beta overlay adds a **`web`** service: nginx serving the Vite production build
+(`frontend/apps/web/Dockerfile`). Caddy reverse-proxies `PARKIO_WEB_DOMAIN` to `web:80`.
+Rebuild the `web` image whenever `VITE_*` build args change.
 
 ### First deploy
 
+Prefer the deploy script (pins image tags, smoke tests, manifest):
+
 ```bash
-# on the VPS, in the repo's docker/ directory
-cp .env.hosted-beta.example .env
-# edit .env: PARKIO_DOMAIN, PARKIO_MEDIA_DOMAIN, PARKIO_ACME_EMAIL,
-# PARKIO_CORS_ALLOWED_ORIGINS, PARKIO_MEDIA_STORAGE_PUBLIC_ENDPOINT=https://<media domain>,
-# PARKIO_EMAIL_PROVIDER=resend, PARKIO_RESEND_API_KEY, PARKIO_EMAIL_FROM,
-# PARKIO_ALERT_SLACK_WEBHOOK_URL, every CHANGE_ME password, KAFKA_CLUSTER_ID,
-# and PARKIO_JWT_PRIVATE_KEY_PEM.
+# on the VPS, from the repo root
+cp docker/.env.hosted-beta.example docker/.env
+# edit .env — see docs/operations/vps-hosted-beta-checklist.md
 
-# generate the RS256 key (PKCS#8) and fold it into .env as a quoted \n-escaped line:
-openssl genpkey -algorithm RSA -pkeyopt rsa_keygen_bits:2048 -out jwt_key.pem
-#   PARKIO_JWT_PRIVATE_KEY_PEM="$(awk 'BEGIN{ORS="\\n"}1' jwt_key.pem)"   then: rm jwt_key.pem
+PARKIO_ENV_FILE=docker/.env ./scripts/deploy-hosted-beta.sh
+```
 
-docker compose -f docker-compose.yml -f docker-compose.apps.yml -f docker-compose.hosted-beta.yml up -d --build
+Manual equivalent (four compose files):
+
+```bash
+docker compose -f docker-compose.yml -f docker-compose.apps.yml \
+  -f docker-compose.images.yml -f docker-compose.hosted-beta.yml up -d --build
+```
+
+Static validation without starting containers:
+
+```bash
+./scripts/validate-hosted-beta-compose.sh
 ```
 
 ### First-deploy checklist
-1. DNS resolves both hostnames to the VPS.
+1. DNS resolves all three hostnames to the VPS.
 2. Firewall: only 22/80/443 inbound.
-3. `.env` complete — no `CHANGE_ME`, JWT key set, CORS = real frontend origin, media public
-   endpoint = `https://${PARKIO_MEDIA_DOMAIN}`, Resend email variables set, and
-   `PARKIO_ALERT_SLACK_WEBHOOK_URL` set for hosted-beta alert notifications.
+3. `.env` complete — no `CHANGE_ME`, JWT key set, CORS = real SPA origin,
+   `VITE_API_BASE_URL` matches API domain, media public endpoint =
+   `https://${PARKIO_MEDIA_DOMAIN}`, Resend + Expo + OpenAPI disabled vars set, and
+   `PARKIO_ALERT_SLACK_WEBHOOK_URL` set.
 4. `docker compose ... ps` → all healthy; `docker logs parkio-caddy` shows certificates obtained.
    *(Tip: first run against the Let's Encrypt staging CA — commented in `caddy/Caddyfile` — to
    avoid production rate limits, then switch back.)*

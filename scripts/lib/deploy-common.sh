@@ -13,6 +13,7 @@ PARKIO_APP_SERVICES=(
   moderation-service
   ai-validation-service
   analytics-service
+  web
 )
 
 PARKIO_REQUIRED_HEALTHY=(
@@ -21,6 +22,7 @@ PARKIO_REQUIRED_HEALTHY=(
   postgres-notification postgres-moderation postgres-analytics postgres-ai-validation
   gateway-service auth-service user-service parking-service media-service
   gamification-service notification-service moderation-service ai-validation-service analytics-service
+  web
 )
 
 parkio_repo_root() {

@@ -6,6 +6,7 @@ import com.parkio.notification.application.port.NotificationRepository;
 import com.parkio.notification.application.port.PushMessage;
 import com.parkio.notification.application.port.PushNotificationSender;
 import com.parkio.notification.application.port.PushSendResult;
+import com.parkio.notification.domain.DeliveryStatus;
 import com.parkio.notification.domain.DeviceToken;
 import com.parkio.notification.domain.Notification;
 import com.parkio.notification.domain.NotificationDeliveryAttempt;
@@ -62,6 +63,7 @@ public class PushDeliveryWorker {
     private final Duration baseBackoff;
     private final Counter workerSuccess;
     private final Counter workerFailure;
+    private final Counter deliveryRetry;
 
     public PushDeliveryWorker(
             NotificationDeliveryAttemptRepository attempts,
@@ -88,6 +90,9 @@ public class PushDeliveryWorker {
                 .register(meterRegistry);
         this.workerFailure = Counter.builder("parkio.notification.delivery.worker.failure.count")
                 .description("Push delivery attempts that failed a send (retried or terminal)")
+                .register(meterRegistry);
+        this.deliveryRetry = Counter.builder("parkio.notification.delivery.retry.count")
+                .description("Push delivery attempts scheduled for retry after a transient failure")
                 .register(meterRegistry);
     }
 
@@ -143,10 +148,15 @@ public class PushDeliveryWorker {
         Notification n = notification.get();
         PushSendResult result;
         try {
-            result = sender.send(new PushMessage(target.token(), target.platform(), n.title(), n.body()));
+            result = sender.send(new PushMessage(
+                    target.token(),
+                    target.platform(),
+                    n.title(),
+                    n.body(),
+                    NotificationPushPayloadBuilder.build(n)));
         } catch (RuntimeException ex) {
             log.warn("Push sender threw for attempt {}", attempt.id(), ex);
-            fail(attempt, REASON_PROVIDER_ERROR);
+            fail(attempt, REASON_PROVIDER_ERROR, null);
             return;
         }
         if (result.delivered()) {
@@ -155,15 +165,28 @@ public class PushDeliveryWorker {
             workerSuccess.increment();
             log.debug("Push attempt {} delivered (providerMessageId={})", attempt.id(), result.providerMessageId());
         } else {
-            fail(attempt, result.failureReason());
+            fail(attempt, result.failureReason(), target);
         }
     }
 
-    private void fail(NotificationDeliveryAttempt attempt, String reason) {
+    private void fail(NotificationDeliveryAttempt attempt, String reason, DeviceToken deviceToken) {
+        if (ExpoPushNotificationSender.FAILURE_INVALID_DEVICE_TOKEN.equals(reason) && deviceToken != null) {
+            deviceToken.deactivate(clock.instant());
+            deviceTokens.save(deviceToken);
+            log.info("Deactivated invalid device token id={}", deviceToken.id());
+        }
+        boolean willRetry = attempt.attemptCount() + 1 < maxAttempts;
         attempt.recordFailure(reason, maxAttempts, baseBackoff, clock.instant());
         attempts.save(attempt);
         workerFailure.increment();
+        if (willRetry && attempt.status() == DeliveryStatus.PENDING) {
+            deliveryRetry.increment();
+        }
         log.debug("Push attempt {} failed (reason={}, attemptCount={}, status={}, nextAttemptAt={})",
                 attempt.id(), reason, attempt.attemptCount(), attempt.status(), attempt.nextAttemptAt());
+    }
+
+    private void fail(NotificationDeliveryAttempt attempt, String reason) {
+        fail(attempt, reason, null);
     }
 }

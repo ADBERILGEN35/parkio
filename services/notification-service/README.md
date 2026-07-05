@@ -121,7 +121,7 @@ or token values.
 | Property | Env var | Default | Meaning |
 |----------|---------|---------|---------|
 | `parkio.notification.delivery.push.enabled` | `PARKIO_PUSH_DELIVERY_ENABLED` | `true` | Enable the worker |
-| `parkio.notification.delivery.push.provider` | `PARKIO_PUSH_DELIVERY_PROVIDER` | `noop` | `noop` or `fcm-disabled` |
+| `parkio.notification.delivery.push.provider` | `PARKIO_PUSH_DELIVERY_PROVIDER` | `noop` | `noop`, `expo`, or `fcm-disabled` |
 | `parkio.notification.delivery.push.fixed-delay-ms` | `PARKIO_PUSH_DELIVERY_FIXED_DELAY_MS` | `30000` | Worker tick delay |
 | `parkio.notification.delivery.push.batch-size` | `PARKIO_PUSH_DELIVERY_BATCH_SIZE` | `100` | Attempts per tick |
 | `parkio.notification.delivery.push.max-attempts` | `PARKIO_PUSH_DELIVERY_MAX_ATTEMPTS` | `5` | Attempts before `FAILED` |
@@ -132,11 +132,25 @@ or token values.
 - **`noop`** (default): `NoopPushNotificationSender` "delivers" without contacting any
   provider and returns a synthetic provider message id — attempts end up `SENT`. No
   credentials required. This is the local/dev/test default.
+- **`expo`**: `ExpoPushNotificationSender` delivers to Expo push tokens via the Expo Push
+  API. Requires `PARKIO_EXPO_ACCESS_TOKEN`. Invalid tokens (`DeviceNotRegistered`) are
+  deactivated automatically.
 - **`fcm-disabled`**: `FcmPushNotificationSender` is a **placeholder** marking where the
   real Firebase Cloud Messaging adapter will live. It performs no network call, needs no
   credentials, and returns a sanitised `FCM_NOT_CONFIGURED` failure. Real FCM is backlog.
 
-### Required env vars for a real push provider (later)
+### Required env vars for Expo push (hosted beta / production mobile)
+
+| Property | Env var | Default | Meaning |
+|----------|---------|---------|---------|
+| `parkio.notification.delivery.push.expo.access-token` | `PARKIO_EXPO_ACCESS_TOKEN` | _(empty)_ | Expo access token |
+| `parkio.notification.delivery.push.expo.base-url` | `PARKIO_EXPO_PUSH_BASE_URL` | `https://exp.host/--/api/v2` | Expo Push API base |
+| `parkio.notification.delivery.push.expo.android-channel-id` | `PARKIO_EXPO_ANDROID_CHANNEL_ID` | `default` | Android notification channel |
+
+Push metrics: `parkio.notification.push.{sent,failed,invalid_token,provider_unavailable}.count`,
+`parkio.notification.delivery.retry.count`, `parkio.notification.delivery.worker.*`.
+
+### Required env vars for a real FCM provider (later)
 
 Real FCM is **not** wired yet. When it is implemented, configure (and inject as secrets —
 never commit them):
@@ -151,7 +165,7 @@ never commit them):
 
 - **EMAIL delivery** (SMTP / provider): no attempts are created for the EMAIL channel
   yet; preferences expose `emailEnabled` but it is unused at send time.
-- Real **Firebase/APNS** push (the `fcm-disabled` placeholder marks the seam).
+- Real **Firebase/APNS** direct push (the `fcm-disabled` placeholder marks the seam; mobile uses Expo Push today).
 - Outbox relay for `NotificationCreatedEvent`; upstream Kafka consumers are
   implemented for parking, moderation and gamification events.
 - **Nearby fan-out** for `ParkingSpotCreated` once location-based user targeting

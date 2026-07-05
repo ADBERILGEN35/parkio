@@ -49,22 +49,23 @@ public class ResendEmailSender implements EmailVerificationSender, PasswordReset
         String link = appendToken(verificationUrl, rawToken);
         String subject = "Verify your Parkio email";
         String text = """
-                Verify your Parkio email:
+                Welcome to Parkio!
 
-                %s
+                Tap the link below to verify your email address. This link expires soon for your security.
 
-                Verification token:
                 %s
 
                 If you did not create a Parkio account, you can ignore this email.
-                """.formatted(link, rawToken);
+                """.formatted(link);
         String html = """
-                <p>Verify your Parkio email:</p>
-                <p><a href="%s">Verify email</a></p>
-                <p>Verification token:</p>
-                <p><code>%s</code></p>
-                <p>If you did not create a Parkio account, you can ignore this email.</p>
-                """.formatted(escapeHtml(link), escapeHtml(rawToken));
+                <div style="font-family:Inter,Segoe UI,sans-serif;line-height:1.5;color:#1a1c1e;max-width:560px">
+                  <h1 style="font-size:20px;margin:0 0 12px">Verify your Parkio email</h1>
+                  <p style="margin:0 0 16px">Welcome to Parkio. Tap the button below to verify your email address. This link expires soon for your security.</p>
+                  <p style="margin:0 0 20px"><a href="%s" style="display:inline-block;background:#0061a4;color:#ffffff;text-decoration:none;padding:12px 20px;border-radius:999px;font-weight:600">Verify email</a></p>
+                  <p style="margin:0;font-size:13px;color:#5c5f66">If the button does not work, copy and paste this link into your browser:<br><a href="%s">%s</a></p>
+                  <p style="margin:20px 0 0;font-size:13px;color:#5c5f66">If you did not create a Parkio account, you can ignore this email.</p>
+                </div>
+                """.formatted(escapeHtml(link), escapeHtml(link), escapeHtml(link));
         send("email_verification", recipientEmail, subject, text, html);
         metrics.verificationSent();
     }
@@ -74,22 +75,23 @@ public class ResendEmailSender implements EmailVerificationSender, PasswordReset
         String link = appendToken(resetUrl, rawToken);
         String subject = "Reset your Parkio password";
         String text = """
-                Reset your Parkio password:
+                We received a request to reset your Parkio password.
 
-                %s
+                Tap the link below to choose a new password. This link expires soon for your security.
 
-                Password reset token:
                 %s
 
                 If you did not request a password reset, you can ignore this email.
-                """.formatted(link, rawToken);
+                """.formatted(link);
         String html = """
-                <p>Reset your Parkio password:</p>
-                <p><a href="%s">Reset password</a></p>
-                <p>Password reset token:</p>
-                <p><code>%s</code></p>
-                <p>If you did not request a password reset, you can ignore this email.</p>
-                """.formatted(escapeHtml(link), escapeHtml(rawToken));
+                <div style="font-family:Inter,Segoe UI,sans-serif;line-height:1.5;color:#1a1c1e;max-width:560px">
+                  <h1 style="font-size:20px;margin:0 0 12px">Reset your Parkio password</h1>
+                  <p style="margin:0 0 16px">We received a request to reset your password. Tap the button below to choose a new one. This link expires soon for your security.</p>
+                  <p style="margin:0 0 20px"><a href="%s" style="display:inline-block;background:#0061a4;color:#ffffff;text-decoration:none;padding:12px 20px;border-radius:999px;font-weight:600">Reset password</a></p>
+                  <p style="margin:0;font-size:13px;color:#5c5f66">If the button does not work, copy and paste this link into your browser:<br><a href="%s">%s</a></p>
+                  <p style="margin:20px 0 0;font-size:13px;color:#5c5f66">If you did not request a password reset, you can ignore this email.</p>
+                </div>
+                """.formatted(escapeHtml(link), escapeHtml(link), escapeHtml(link));
         send("password_reset", recipientEmail, subject, text, html);
     }
 

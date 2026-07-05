@@ -98,7 +98,8 @@ public class NotificationApplicationService {
             return;
         }
         createInAppNotification(event.userId(), NotificationType.LEVEL_UP,
-                Map.of("level", Integer.toString(event.newLevel())));
+                Map.of("level", Integer.toString(event.newLevel())),
+                Map.of("deeplink", "/gamification"));
     }
 
     public void handlePointsEarned(PointsEarnedEvent event) {
@@ -107,7 +108,8 @@ public class NotificationApplicationService {
         }
         createInAppNotification(event.userId(), NotificationType.POINT_EARNED,
                 Map.of("points", Long.toString(event.points()),
-                        "totalPoints", Long.toString(event.totalPoints())));
+                        "totalPoints", Long.toString(event.totalPoints())),
+                Map.of("deeplink", "/gamification"));
     }
 
     public void handlePointsDeducted(PointsDeductedEvent event) {
@@ -115,7 +117,8 @@ public class NotificationApplicationService {
             return;
         }
         createInAppNotification(event.userId(), NotificationType.WARNING,
-                Map.of("message", "You lost " + event.points() + " points (penalty)."));
+                Map.of("message", "You lost " + event.points() + " points (penalty)."),
+                Map.of("deeplink", "/reports"));
     }
 
     public void handleTrustScoreUpdated(TrustScoreUpdatedEvent event) {
@@ -125,7 +128,8 @@ public class NotificationApplicationService {
         String direction = event.newScore() >= event.previousScore() ? "increased" : "decreased";
         createInAppNotification(event.userId(), NotificationType.WARNING,
                 Map.of("message", "Your trust score " + direction + " from "
-                        + event.previousScore() + " to " + event.newScore() + "."));
+                        + event.previousScore() + " to " + event.newScore() + "."),
+                Map.of("deeplink", "/profile"));
     }
 
     public void handleParkingSpotRejected(ParkingSpotRejectedEvent event) {
@@ -133,7 +137,8 @@ public class NotificationApplicationService {
             return;
         }
         createInAppNotification(event.ownerUserId(), NotificationType.WARNING,
-                Map.of("message", "Your parking spot was rejected as illegal or risky."));
+                Map.of("message", "Your parking spot was rejected as illegal or risky."),
+                Map.of("deeplink", "/my-spots"));
     }
 
     // --- Moderation action events (parkio.moderation.action) ---
@@ -143,7 +148,8 @@ public class NotificationApplicationService {
             return;
         }
         createInAppNotification(event.userId(), NotificationType.WARNING,
-                Map.of("message", "Your account has been suspended by moderation."));
+                Map.of("message", "Your account has been suspended by moderation."),
+                Map.of("deeplink", "/reports"));
     }
 
     public void handleUserRestored(UserRestoredEvent event) {
@@ -151,7 +157,8 @@ public class NotificationApplicationService {
             return;
         }
         createInAppNotification(event.userId(), NotificationType.SYSTEM,
-                Map.of("message", "Your account has been restored."));
+                Map.of("message", "Your account has been restored."),
+                Map.of("deeplink", "/profile"));
     }
 
     /** Notifies the spot owner of a moderator rejection — only when the owner is known. */
@@ -161,7 +168,8 @@ public class NotificationApplicationService {
         }
         if (event.ownerUserId() != null) {
             createInAppNotification(event.ownerUserId(), NotificationType.WARNING,
-                    Map.of("message", "Your parking spot was rejected by a moderator."));
+                    Map.of("message", "Your parking spot was rejected by a moderator."),
+                    Map.of("deeplink", "/my-spots"));
         }
     }
 
@@ -173,7 +181,8 @@ public class NotificationApplicationService {
         }
         String outcome = event.accepted() ? "accepted" : "rejected";
         createInAppNotification(event.userId(), NotificationType.SYSTEM,
-                Map.of("message", "Your appeal was " + outcome + "."));
+                Map.of("message", "Your appeal was " + outcome + "."),
+                Map.of("deeplink", "/reports"));
     }
 
     /** Notifies the affected user when a USER-targeted case is resolved; otherwise a no-op. */
@@ -183,7 +192,8 @@ public class NotificationApplicationService {
         }
         if (ModerationCaseResolvedEvent.TARGET_TYPE_USER.equals(event.targetType()) && event.targetId() != null) {
             createInAppNotification(event.targetId(), NotificationType.SYSTEM,
-                    Map.of("message", "A moderation case about your account was resolved."));
+                    Map.of("message", "A moderation case about your account was resolved."),
+                    Map.of("deeplink", "/reports"));
         }
     }
 

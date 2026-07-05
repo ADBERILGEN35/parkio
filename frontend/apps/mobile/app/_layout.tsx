@@ -11,6 +11,7 @@ import { installCrashReporting } from '@/services/crashReporting';
 import {
   addNotificationTapListener,
   configureForegroundHandling,
+  guardNotificationRoute,
   registerForPushNotifications,
 } from '@/services/pushNotifications';
 import { useAuthStore } from '@/state/authStore';
@@ -35,6 +36,7 @@ function RootNavigator() {
   const router = useRouter();
   const bootstrapPending = useAuthStore((s) => s.bootstrapPending);
   const authenticated = useAuthStore((s) => s.user !== null);
+  const roles = useAuthStore((s) => s.roles);
 
   useEffect(() => {
     void bootstrapSession();
@@ -56,7 +58,10 @@ function RootNavigator() {
 
   // Notification taps (including the one that cold-started the app) deep-link
   // into an allow-listed route.
-  useEffect(() => addNotificationTapListener((route) => router.push(route)), [router]);
+  useEffect(
+    () => addNotificationTapListener((route) => router.push(guardNotificationRoute(route, roles))),
+    [router, roles],
+  );
 
   return (
     <>

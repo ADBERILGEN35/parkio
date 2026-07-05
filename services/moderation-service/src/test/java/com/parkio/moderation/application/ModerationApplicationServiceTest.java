@@ -366,6 +366,17 @@ class ModerationApplicationServiceTest {
     // --- RBAC: admin-only actions are fail-closed at the service layer ------
 
     @Test
+    void markFilledActionIsRejected() {
+        UUID caseId = openSeriousCase(ModerationTargetType.PARKING_SPOT, UUID.randomUUID());
+
+        assertThatThrownBy(() -> service.resolveCase(new ResolveCaseCommand(
+                caseId, UUID.randomUUID(), ModerationAction.MARK_FILLED, "filled", true)))
+                .isInstanceOf(ModerationException.class)
+                .extracting(e -> ((ModerationException) e).errorCode())
+                .isEqualTo(ModerationErrorCode.INVALID_CASE_STATE);
+    }
+
+    @Test
     void nonAdminCannotSuspendUserThroughResolveCase() {
         UUID targetUser = UUID.randomUUID();
         UUID caseId = openSeriousCase(ModerationTargetType.USER, targetUser);

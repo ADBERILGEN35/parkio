@@ -164,6 +164,11 @@ public class ParkingApplicationService {
         if (verifications.existsBySpotIdAndVerifierUserId(spotId, verifierUserId)) {
             throw new ParkingException(ParkingErrorCode.ALREADY_VERIFIED, "You have already verified this spot.");
         }
+        if (result == VerificationResult.AVAILABLE && !spot.isVisibleForSearch(now)) {
+            // Align mutations with read visibility: hidden SUSPICIOUS/terminal spots cannot be
+            // rehabilitated by users who cannot see them (prevents UUID probing).
+            throw new ParkingException(ParkingErrorCode.SPOT_NOT_FOUND);
+        }
 
         ParkingSpotStatus previous = spot.status();
         spot.verify(verifierUserId, result, now);

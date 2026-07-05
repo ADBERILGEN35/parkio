@@ -145,13 +145,18 @@ parkio:
         # Scheduled worker that drains PENDING push attempts. Enabled by default; the
         # default 'noop' provider needs no Firebase/APNS credentials (local/dev/test).
         enabled: ${PARKIO_PUSH_DELIVERY_ENABLED:true}
-        provider: ${PARKIO_PUSH_DELIVERY_PROVIDER:noop}        # noop | fcm-disabled
+        provider: ${PARKIO_PUSH_DELIVERY_PROVIDER:noop}        # noop | expo | fcm-disabled
         fixed-delay-ms: ${PARKIO_PUSH_DELIVERY_FIXED_DELAY_MS:30000}
         batch-size: ${PARKIO_PUSH_DELIVERY_BATCH_SIZE:100}
         max-attempts: ${PARKIO_PUSH_DELIVERY_MAX_ATTEMPTS:5}
         # Base retry backoff; attempt n is retried no earlier than
         # base-backoff-ms * 2^(n-1) after the failure (exponential).
         base-backoff-ms: ${PARKIO_PUSH_DELIVERY_BASE_BACKOFF_MS:30000}
+        expo:
+          # Expo Push API (mobile ExponentPushToken[...]). Requires provider=expo.
+          access-token: ${PARKIO_EXPO_ACCESS_TOKEN:}
+          base-url: ${PARKIO_EXPO_PUSH_BASE_URL:https://exp.host/--/api/v2}
+          android-channel-id: ${PARKIO_EXPO_ANDROID_CHANNEL_ID:default}
         fcm:
           # Real FCM is backlog: disabled by default; no credentials committed. These
           # are placeholders for when the real adapter is implemented.

@@ -36,6 +36,40 @@ name: parkio
 
 services:
   # ------------------------------------------------------------------------- #
+  # Web SPA — static Vite build served by nginx. Caddy reverse-proxies the    #
+  # public PARKIO_WEB_DOMAIN here. Build args bake VITE_* at image build time. #
+  # ------------------------------------------------------------------------- #
+  web:
+    build:
+      context: ..
+      dockerfile: frontend/apps/web/Dockerfile
+      args:
+        VITE_API_BASE_URL: ${VITE_API_BASE_URL:?set VITE_API_BASE_URL in .env}
+        VITE_APP_ENV: ${VITE_APP_ENV:-hosted-beta}
+        VITE_SMART_RETURN_ENABLED: ${VITE_SMART_RETURN_ENABLED:-true}
+        VITE_MAPTILER_KEY: ${VITE_MAPTILER_KEY:-}
+        VITE_MAPTILER_STYLE: ${VITE_MAPTILER_STYLE:-streets-v2}
+        VITE_FRONTEND_ERROR_REPORTING: ${VITE_FRONTEND_ERROR_REPORTING:-disabled}
+    image: parkio/web:${PARKIO_IMAGE_TAG:-local}
+    container_name: parkio-web
+    restart: unless-stopped
+    mem_limit: 128m
+    cpus: "0.25"
+    pids_limit: 128
+    networks: [parkio-backend]
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "5"
+    healthcheck:
+      test: ["CMD", "wget", "-q", "-O", "/dev/null", "http://localhost:80/"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+
+  # ------------------------------------------------------------------------- #
   # Caddy — public TLS reverse proxy. The ONLY service that publishes ports.   #
   # Automatic HTTPS (ACME), HTTP->HTTPS redirect, forwarded headers, HTTP/3.   #
   # ------------------------------------------------------------------------- #
@@ -53,6 +87,8 @@ services:
         max-size: "10m"
         max-file: "5"
     depends_on:
+      web:
+        condition: service_healthy
       gateway-service:
         condition: service_started
     ports:

@@ -13,6 +13,8 @@ import { notificationsApi } from '@/api';
 import { FriendlyApiErrorMessage } from '@/components/FriendlyApiErrorMessage';
 import { MarkReadButton, NotificationItemCard } from '@/components/product/NotificationItemCard';
 import { showError, showSuccess } from '@/lib/toast';
+import { resolveNotificationNavigation } from '@/lib/notificationDeepLinks';
+import { useAuthStore } from '@/auth/store';
 
 /**
  * Filter chips are a frontend-only view over the already-fetched list — they
@@ -183,6 +185,7 @@ function Group({ label, count, children }: { label: string; count: number; child
 function NotificationItem({ notification }: { notification: AppNotification }) {
   const queryClient = useQueryClient();
   const navigate = useNavigate();
+  const roles = useAuthStore((s) => s.roles);
   const unread = isUnreadNotification(notification);
 
   const markRead = useMutation({
@@ -196,7 +199,7 @@ function NotificationItem({ notification }: { notification: AppNotification }) {
     onError: () => showError('Could not mark notification as read.'),
   });
 
-  const smartReturnAction = smartReturnNotificationAction(notification, navigate);
+  const smartReturnAction = smartReturnNotificationAction(notification, navigate, roles);
   const action = smartReturnAction || unread ? (
     <div className="flex flex-wrap gap-sm">
       {smartReturnAction}
@@ -215,12 +218,16 @@ function NotificationItem({ notification }: { notification: AppNotification }) {
   );
 }
 
-function smartReturnNotificationAction(notification: AppNotification, navigate: (to: string) => void): ReactNode {
+function smartReturnNotificationAction(
+  notification: AppNotification,
+  navigate: (to: string) => void,
+  roles: string[],
+): ReactNode {
   if (notification.type === 'SMART_RETURN_PROMPT') {
     return (
       <button
         type="button"
-        onClick={() => navigate(notification.metadata?.deeplink ?? '/profile?section=smart-return')}
+        onClick={() => navigate(resolveNotificationNavigation(notification.metadata?.deeplink, notification.type, roles))}
         className="inline-flex min-h-11 w-full items-center justify-center gap-xs rounded-full bg-primary px-lg py-sm text-label-md font-semibold text-on-primary transition-colors hover:bg-primary/90 focus:outline-none focus-visible:ring-2 focus-visible:ring-primary sm:w-auto"
       >
         <Icon name="directions_car" className="text-[18px] leading-none" />
@@ -232,7 +239,7 @@ function smartReturnNotificationAction(notification: AppNotification, navigate: 
     return (
       <button
         type="button"
-        onClick={() => navigate(notification.metadata?.deeplink ?? '/map?smartReturn=1')}
+        onClick={() => navigate(resolveNotificationNavigation(notification.metadata?.deeplink, notification.type, roles))}
         className="inline-flex min-h-11 w-full items-center justify-center gap-xs rounded-full bg-primary px-lg py-sm text-label-md font-semibold text-on-primary transition-colors hover:bg-primary/90 focus:outline-none focus-visible:ring-2 focus-visible:ring-primary sm:w-auto"
       >
         <Icon name="map" className="text-[18px] leading-none" />
