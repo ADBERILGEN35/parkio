@@ -15,6 +15,7 @@ import {
   registerForPushNotifications,
 } from '@/services/pushNotifications';
 import { useAuthStore } from '@/state/authStore';
+import { useSpotCreationDraftStore } from '@/features/spot-create/state/spotCreationDraftStore';
 
 // Crash handlers must exist before the first render can throw.
 installCrashReporting();
@@ -40,6 +41,7 @@ function RootNavigator() {
 
   useEffect(() => {
     void bootstrapSession();
+    void useSpotCreationDraftStore.getState().hydrateDraft();
   }, []);
 
   useEffect(() => {

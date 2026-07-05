@@ -274,7 +274,6 @@ function SpotPhotoHero({ spotId }: { spotId: string }) {
               </Button>
             }
           />
-          <FriendlyApiErrorMessage error={mediaQuery.error} />
         </div>
       ) : (
         <>
@@ -587,7 +586,7 @@ function PremiumActionCard({ spot }: { spot: PublicSpot }) {
       {verifyMutation.isSuccess ? (
         <p className="m-0 mt-sm flex items-center gap-xs text-body-md font-medium text-secondary">
           <Icon name="check_circle" className="text-[16px] leading-none" />
-          Thanks — your report was recorded.
+          Thanks — your verification was recorded.
         </p>
       ) : null}
 

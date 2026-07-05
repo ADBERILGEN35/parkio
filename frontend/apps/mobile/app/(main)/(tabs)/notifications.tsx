@@ -12,7 +12,7 @@ import {
 import { Badge, Button, Screen, SkeletonCard, StateView, type BadgeTone } from '@/components/ui';
 import { AppText } from '@/components/ui/AppText';
 import { notificationsApi } from '@/services/api';
-import { useTheme } from '@/theme';
+import { useTheme, MIN_TOUCH_TARGET } from '@/theme';
 
 /** Per-type icon + badge tone — mirrors the web NOTIFICATION_TYPE_VISUALS. */
 const TYPE_VISUALS: Record<NotificationType, { icon: keyof typeof Ionicons.glyphMap; tone: BadgeTone }> = {
@@ -229,6 +229,18 @@ function NotificationCta({ type }: { type: NotificationType }) {
   const theme = useTheme();
   const router = useRouter();
 
+  if (type === 'NEARBY_PARKING') {
+    return (
+      <View style={styles.ctaRow}>
+        <Button
+          label="View map"
+          testID="notifications.nearbyParking"
+          leading={<Ionicons name="map-outline" size={16} color={theme.colors.onPrimary} />}
+          onPress={() => router.push('/(main)/map')}
+        />
+      </View>
+    );
+  }
   if (type === 'SMART_RETURN_PROMPT') {
     return (
       <View style={styles.ctaRow}>
@@ -292,7 +304,7 @@ const styles = StyleSheet.create({
   titleUnread: { fontWeight: '600' },
   unreadDot: { width: 8, height: 8, borderRadius: 999 },
   metaRow: { flexDirection: 'row', alignItems: 'center', gap: 8, marginTop: 2, flexWrap: 'wrap' },
-  markReadButton: { marginLeft: 'auto', paddingVertical: 2, paddingHorizontal: 4 },
+  markReadButton: { marginLeft: 'auto', minHeight: MIN_TOUCH_TARGET, justifyContent: 'center', paddingHorizontal: 8 },
   ctaRow: { marginTop: 8 },
   flex: { flex: 1 },
 });

@@ -53,7 +53,10 @@ export function VerifyEmailPage() {
     >
       <div className="flex flex-col gap-md">
         {state === 'verifying' ? (
-          <p className="m-0 text-body-md text-on-surface-variant">Verifying your email…</p>
+          <p className="m-0 flex items-center gap-sm text-body-md text-on-surface-variant" role="status" aria-live="polite">
+            <Icon name="progress_activity" className="animate-spin text-[18px] leading-none text-primary" />
+            Verifying your email…
+          </p>
         ) : null}
         {state === 'success' ? (
           <>

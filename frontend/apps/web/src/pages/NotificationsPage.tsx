@@ -111,7 +111,7 @@ function NotificationsBoard({ notifications }: { notifications: AppNotification[
               aria-pressed={selected}
               onClick={() => setFilter(option.id)}
               className={cn(
-                'inline-flex shrink-0 items-center gap-xs rounded-full px-md py-1.5 text-label-md transition-colors duration-std',
+                'inline-flex shrink-0 items-center gap-xs rounded-full px-md py-2.5 min-h-11 text-label-md transition-colors duration-std',
                 'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary',
                 selected
                   ? 'border border-primary/20 bg-primary/10 text-primary'

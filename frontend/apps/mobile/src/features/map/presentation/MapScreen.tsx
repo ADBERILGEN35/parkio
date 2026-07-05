@@ -1,5 +1,6 @@
 import { Ionicons } from '@expo/vector-icons';
 import { useLocalSearchParams } from 'expo-router';
+import { useRouter } from 'expo-router';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { ActivityIndicator, Pressable, StyleSheet, useWindowDimensions, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
@@ -38,6 +39,7 @@ const SEARCH_AREA_THRESHOLD_M = Math.max(350, DEFAULT_NEARBY_RADIUS_M * 0.4);
  */
 export function MapScreen() {
   const theme = useTheme();
+  const router = useRouter();
   const insets = useSafeAreaInsets();
   const { height: screenH } = useWindowDimensions();
   const online = useOnlineStatus();
@@ -139,6 +141,15 @@ export function MapScreen() {
   const showSearchThisArea =
     mapReady && searchCenter !== null && movedDistance > SEARCH_AREA_THRESHOLD_M;
 
+  const showSmartReturnReadyBanner =
+    isSmartReturn && smartBannerVisible && !selectedSpot && Boolean(smartHome.home);
+  const showSmartReturnSetupNotice =
+    isSmartReturn &&
+    smartBannerVisible &&
+    !selectedSpot &&
+    !smartHome.isLoading &&
+    !smartHome.home;
+
   // Layout offsets (a native header is shown by the route).
   const topBase = 10;
   const sheetPeek = Math.round(screenH * 0.32);
@@ -171,13 +182,38 @@ export function MapScreen() {
       <MapSearchBar topOffset={topBase} onSelectPlace={onSelectPlace} />
 
       <SmartReturnBanner
-        visible={smartBannerVisible && !selectedSpot}
+        visible={showSmartReturnReadyBanner}
         topOffset={topBase + 64}
         onDismiss={() => setSmartBannerVisible(false)}
       />
 
+      {showSmartReturnSetupNotice ? (
+        <View style={[styles.setupNotice, { top: topBase + 64 }]} pointerEvents="box-none">
+          <View
+            style={[
+              styles.setupCard,
+              { backgroundColor: theme.colors.surfaceMuted, borderRadius: theme.radius.lg, ...theme.elevation.card },
+            ]}
+          >
+            <AppText variant="body">
+              Set up Smart Return in Profile to search near your saved home.
+            </AppText>
+            <Pressable
+              accessibilityRole="button"
+              accessibilityLabel="Open Smart Return settings"
+              onPress={() => router.push('/(main)/smart-return')}
+              style={styles.setupLink}
+            >
+              <AppText variant="label" tone="primary">
+                Open Smart Return settings
+              </AppText>
+            </Pressable>
+          </View>
+        </View>
+      ) : null}
+
       <SearchThisAreaButton
-        visible={showSearchThisArea && !smartBannerVisible}
+        visible={showSearchThisArea && !showSmartReturnReadyBanner && !showSmartReturnSetupNotice}
         loading={nearby.isFetching}
         topOffset={topBase + 64}
         onPress={onSearchThisArea}
@@ -323,6 +359,9 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     gap: 12,
   },
+  setupNotice: { position: 'absolute', left: 12, right: 12, alignItems: 'center' },
+  setupCard: { maxWidth: 430, width: '100%', paddingHorizontal: 16, paddingVertical: 12, gap: 8 },
+  setupLink: { alignSelf: 'flex-start', paddingVertical: 4 },
 });
 
 const statusStyles = StyleSheet.create({

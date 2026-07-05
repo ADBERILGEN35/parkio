@@ -11,7 +11,7 @@ import { nearbySearchSchema, type NearbySearchFormValues } from '@parkio/validat
 import { keepPreviousData, useQuery } from '@tanstack/react-query';
 import { Suspense, lazy, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useForm } from 'react-hook-form';
-import { useSearchParams } from 'react-router-dom';
+import { Link, useSearchParams } from 'react-router-dom';
 import { parkingApi, usersApi } from '@/api';
 import { useAuthStore } from '@/auth/store';
 import { BottomSheet, COLLAPSED_PEEK, type SheetState } from '@/components/map/BottomSheet';
@@ -125,6 +125,16 @@ export function MapPage() {
     enabled: isAuthenticated && smartReturnMode,
     staleTime: 30_000,
   });
+
+  const smartReturnHomeConfigured =
+    smartReturnQuery.data?.homeLatitude != null && smartReturnQuery.data?.homeLongitude != null;
+  const showSmartReturnReadyBanner =
+    smartReturnMode && smartReturnBannerOpen && smartReturnHomeConfigured;
+  const showSmartReturnSetupNotice =
+    smartReturnMode &&
+    smartReturnBannerOpen &&
+    smartReturnQuery.isSuccess &&
+    !smartReturnHomeConfigured;
 
   // Distance is computed from the *real* searched center; no center ⇒ no distance.
   // Memoized so distance/sort recompute only when the data or center truly change.
@@ -385,7 +395,7 @@ export function MapPage() {
               </p>
             ) : null}
 
-            {smartReturnMode && smartReturnBannerOpen ? (
+            {showSmartReturnReadyBanner ? (
               <div className="m-0 mt-sm flex items-center gap-xs rounded-2xl bg-primary/10 px-md py-sm text-label-sm font-medium text-primary">
                 <Icon name="home_pin" className="text-[16px] leading-none" />
                 <span className="flex-1">Showing parking near your saved home.</span>
@@ -393,10 +403,19 @@ export function MapPage() {
                   type="button"
                   aria-label="Dismiss Smart Return notice"
                   onClick={() => setSmartReturnBannerOpen(false)}
-                  className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full text-primary hover:bg-primary/10 focus:outline-none focus-visible:ring-2 focus-visible:ring-primary"
+                  className="flex h-11 w-11 shrink-0 items-center justify-center rounded-full text-primary hover:bg-primary/10 focus:outline-none focus-visible:ring-2 focus-visible:ring-primary"
                 >
                   <Icon name="close" className="text-[16px] leading-none" />
                 </button>
+              </div>
+            ) : null}
+
+            {showSmartReturnSetupNotice ? (
+              <div className="m-0 mt-sm flex flex-col gap-xs rounded-2xl bg-surface-container px-md py-sm text-label-sm text-on-surface">
+                <span>Set up Smart Return in Profile to search near your saved home.</span>
+                <Link to="/profile?section=smart-return" className="font-semibold text-primary hover:underline">
+                  Open Smart Return settings
+                </Link>
               </div>
             ) : null}
 
@@ -471,7 +490,7 @@ export function MapPage() {
             </p>
           ) : null}
 
-          {smartReturnMode && smartReturnBannerOpen ? (
+          {showSmartReturnReadyBanner ? (
             <div className="pointer-events-auto mx-auto mt-xs flex max-w-[430px] items-center gap-xs rounded-full bg-primary/10 px-md py-xs text-label-sm font-medium text-primary shadow-soft backdrop-blur-xl">
               <Icon name="home_pin" className="text-[14px] leading-none" />
               <span className="flex-1 truncate">Showing parking near your saved home.</span>
@@ -479,10 +498,19 @@ export function MapPage() {
                 type="button"
                 aria-label="Dismiss Smart Return notice"
                 onClick={() => setSmartReturnBannerOpen(false)}
-                className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full text-primary hover:bg-primary/15 focus:outline-none focus-visible:ring-2 focus-visible:ring-primary"
+                className="flex h-11 w-11 shrink-0 items-center justify-center rounded-full text-primary hover:bg-primary/15 focus:outline-none focus-visible:ring-2 focus-visible:ring-primary"
               >
                 <Icon name="close" className="text-[14px] leading-none" />
               </button>
+            </div>
+          ) : null}
+
+          {showSmartReturnSetupNotice ? (
+            <div className="pointer-events-auto mx-auto mt-xs max-w-[430px] rounded-2xl bg-surface/90 px-md py-sm text-label-sm text-on-surface shadow-soft backdrop-blur-xl">
+              <p className="m-0">Set up Smart Return in Profile to search near your saved home.</p>
+              <Link to="/profile?section=smart-return" className="mt-xs inline-block font-semibold text-primary">
+                Open Smart Return settings
+              </Link>
             </div>
           ) : null}
 

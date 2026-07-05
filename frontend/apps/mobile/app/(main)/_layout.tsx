@@ -1,3 +1,4 @@
+import { ActivityIndicator, StyleSheet, View } from 'react-native';
 import { Redirect, Stack } from 'expo-router';
 import { useAuthStore } from '@/state/authStore';
 import { useTheme } from '@/theme';
@@ -12,7 +13,13 @@ export default function MainLayout() {
   const isAuthenticated = useAuthStore((s) => s.isAuthenticated);
   const theme = useTheme();
 
-  if (bootstrapPending) return null;
+  if (bootstrapPending) {
+    return (
+      <View style={[styles.center, { backgroundColor: theme.colors.background }]}>
+        <ActivityIndicator color={theme.colors.primary} />
+      </View>
+    );
+  }
   if (!isAuthenticated) return <Redirect href="/(auth)/login" />;
 
   return (
@@ -44,3 +51,7 @@ export default function MainLayout() {
     </Stack>
   );
 }
+
+const styles = StyleSheet.create({
+  center: { flex: 1, alignItems: 'center', justifyContent: 'center' },
+});

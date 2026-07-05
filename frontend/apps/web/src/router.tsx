@@ -17,6 +17,7 @@ import { NotFoundPage } from '@/pages/NotFoundPage';
 import { RegisterPage } from '@/pages/RegisterPage';
 import { ResetPasswordPage } from '@/pages/ResetPasswordPage';
 import { VerifyEmailPage } from '@/pages/VerifyEmailPage';
+import { PrivacyPage, TermsPage } from '@/pages/LegalPage';
 
 // Lazy: secondary routes are split into their own chunks to shrink the initial bundle.
 const SpotDetailPage = lazy(() =>
@@ -85,6 +86,8 @@ export const router = createBrowserRouter([{
   { path: '/reset-password', element: <ResetPasswordPage /> },
   { path: '/check-email', element: <CheckEmailPage /> },
   { path: '/verify-email', element: <VerifyEmailPage /> },
+  { path: '/terms', element: <TermsPage /> },
+  { path: '/privacy', element: <PrivacyPage /> },
   {
     element: <ProtectedRoute />,
     children: [

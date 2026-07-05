@@ -178,7 +178,8 @@ export default function SpotCreateScreen() {
   }
 
   const locating = location.status === 'prompting' || location.status === 'locating';
-  const locationReady = draft.location && isGpsAccuracyAcceptable(draft.gpsAccuracyMeters);
+  const locationReady =
+    draft.location && (draft.manualLocationEdited || isGpsAccuracyAcceptable(draft.gpsAccuracyMeters));
   const canSubmit = Boolean(locationReady) && !submit.isPending;
   const mapHeight = Math.min(Math.max(windowHeight * 0.42, 300), 440);
 

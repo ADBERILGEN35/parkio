@@ -36,7 +36,13 @@ export function CheckEmailPage() {
 
   return (
     <AuthSplitLayout title="Check your email" subtitle="Verify your address before signing in.">
-      <div className="flex flex-col gap-md">
+      <form
+        className="flex flex-col gap-md"
+        onSubmit={(event) => {
+          event.preventDefault();
+          void resend();
+        }}
+      >
         <p className="m-0 text-body-md text-on-surface-variant">
           We sent a verification link to your email address. Open it to activate your Parkio
           account.
@@ -50,7 +56,7 @@ export function CheckEmailPage() {
         />
         {message ? <p className="m-0 text-body-md text-success">{message}</p> : null}
         {apiError ? <ErrorMessage message={apiError} traceId={traceId} /> : null}
-        <Button type="button" disabled={isSubmitting || !email.trim()} onClick={resend} className="w-full">
+        <Button type="submit" disabled={isSubmitting || !email.trim()} className="w-full">
           {isSubmitting ? 'Sending…' : 'Resend verification'}
           {isSubmitting ? null : <Icon name="send" className="text-[18px] leading-none" />}
         </Button>
@@ -60,7 +66,7 @@ export function CheckEmailPage() {
             Sign in
           </Link>
         </p>
-      </div>
+      </form>
     </AuthSplitLayout>
   );
 }

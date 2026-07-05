@@ -4,6 +4,13 @@ import { useSpotCreationDraftStore } from '../spotCreationDraftStore';
 
 jest.mock('@/features/media/lib/fileSystem', () => ({
   deleteTempFile: jest.fn(),
+  getFileSize: jest.fn(() => 1024),
+}));
+
+jest.mock('../../lib/spotCreationDraftPersistence', () => ({
+  loadPersistedSpotCreationDraft: jest.fn(async () => null),
+  persistSpotCreationDraft: jest.fn(async () => undefined),
+  clearPersistedSpotCreationDraft: jest.fn(async () => undefined),
 }));
 
 function media(id: string): UploadMediaResponse {

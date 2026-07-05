@@ -419,6 +419,7 @@ export function UploadPage() {
                 <div
                   role="button"
                   tabIndex={0}
+                  aria-label="Upload spot photo"
                   onClick={() => fileInputRef.current?.click()}
                   onKeyDown={(event) => {
                     if (event.key === 'Enter' || event.key === ' ') {

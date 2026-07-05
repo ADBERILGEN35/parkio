@@ -2,6 +2,11 @@ import type { LatLng } from '@parkio/geo';
 import type { ParkingContext, SpotVehicleType, UploadMediaResponse } from '@parkio/types';
 import { create } from 'zustand';
 import { deleteTempFile } from '@/features/media/lib/fileSystem';
+import {
+  clearPersistedSpotCreationDraft,
+  loadPersistedSpotCreationDraft,
+  persistSpotCreationDraft,
+} from '../lib/spotCreationDraftPersistence';
 
 export interface SpotCreationDraft {
   media: UploadMediaResponse;
@@ -17,6 +22,7 @@ export interface SpotCreationDraft {
 
 interface SpotCreationDraftState {
   draft: SpotCreationDraft | null;
+  hydrateDraft: () => Promise<void>;
   startFromUpload: (media: UploadMediaResponse, previewUri: string) => void;
   patchDraft: (patch: Partial<SpotCreationDraft>) => void;
   clearDraft: () => void;
@@ -34,6 +40,12 @@ const DEFAULT_DRAFT_FIELDS = {
 
 export const useSpotCreationDraftStore = create<SpotCreationDraftState>((set) => ({
   draft: null,
+  hydrateDraft: async () => {
+    const restored = await loadPersistedSpotCreationDraft();
+    if (restored) {
+      set({ draft: restored });
+    }
+  },
   startFromUpload: (media, previewUri) =>
     set((state) => {
       // The draft owns its preview file (handed off by the upload flow). When a
@@ -62,9 +74,17 @@ export const useSpotCreationDraftStore = create<SpotCreationDraftState>((set) =>
     })),
   clearDraft: () =>
     set((state) => {
-      // Terminal for the flow (submitted or abandoned) — the preview file is
-      // no longer reachable by any screen, so clean it up.
       deleteTempFile(state.draft?.previewUri);
+      void clearPersistedSpotCreationDraft();
       return { draft: null };
     }),
 }));
+
+useSpotCreationDraftStore.subscribe((state, prev) => {
+  if (state.draft === prev.draft) return;
+  if (state.draft) {
+    void persistSpotCreationDraft(state.draft);
+  } else {
+    void clearPersistedSpotCreationDraft();
+  }
+});

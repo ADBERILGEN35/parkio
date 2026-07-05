@@ -3,7 +3,7 @@ import { loginSchema, type LoginFormValues } from '@parkio/validation';
 import { Button, ErrorMessage, Icon, Input } from '@parkio/ui';
 import { useState } from 'react';
 import { useForm } from 'react-hook-form';
-import { Link, useNavigate } from 'react-router-dom';
+import { Link, useNavigate, useSearchParams } from 'react-router-dom';
 import { authApi } from '@/api';
 import { describeAuthError } from '@/api/error-messages';
 import { AuthSplitLayout } from '@/pages/auth/AuthSplitLayout';
@@ -13,6 +13,8 @@ import { showError, showSuccess } from '@/lib/toast';
 
 export function LoginPage() {
   const navigate = useNavigate();
+  const [searchParams] = useSearchParams();
+  const passwordResetSuccess = searchParams.get('passwordReset') === 'success';
   const setSession = useAuthStore((s) => s.setSession);
   const beginProvisioning = useAuthStore((s) => s.beginProvisioning);
   const [apiError, setApiError] = useState<string | null>(null);
@@ -56,6 +58,11 @@ export function LoginPage() {
 
   return (
     <AuthSplitLayout title="Welcome back" subtitle="Sign in to find and share parking.">
+      {passwordResetSuccess ? (
+        <p className="mb-md rounded-2xl bg-success/10 px-md py-sm text-body-md text-success" role="status">
+          Your password was reset. Sign in with your new password.
+        </p>
+      ) : null}
       <form onSubmit={onSubmit} className="flex flex-col gap-md">
         <Input
           label="Email"

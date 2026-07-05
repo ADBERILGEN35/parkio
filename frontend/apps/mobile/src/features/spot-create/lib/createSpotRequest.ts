@@ -11,7 +11,7 @@ export interface BuildCreateSpotResult {
 export function buildCreateSpotRequest(draft: SpotCreationDraft | null): BuildCreateSpotResult {
   if (!draft) return { error: 'Upload a photo before creating a spot.' };
   if (!draft.location) return { error: 'GPS location is required.' };
-  if (!isGpsAccuracyAcceptable(draft.gpsAccuracyMeters)) {
+  if (!draft.manualLocationEdited && !isGpsAccuracyAcceptable(draft.gpsAccuracyMeters)) {
     return { error: 'GPS accuracy is too low. Refresh location or move the marker after a better fix.' };
   }
 

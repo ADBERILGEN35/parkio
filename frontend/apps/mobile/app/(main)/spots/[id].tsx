@@ -15,7 +15,7 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { Stack, useLocalSearchParams } from 'expo-router';
 import { useState } from 'react';
 import { useForm } from 'react-hook-form';
-import { Alert, Image, Linking, StyleSheet, View } from 'react-native';
+import { Alert, ActivityIndicator, Image, Linking, StyleSheet, View } from 'react-native';
 import { Badge, Button, Card, Screen, SkeletonCard, StateView } from '@/components/ui';
 import { AppText } from '@/components/ui/AppText';
 import { FormSelect } from '@/components/forms/FormSelect';
@@ -23,12 +23,14 @@ import { FormTextField } from '@/components/forms/FormTextField';
 import { invalidateGamificationQueries } from '@/lib/gamificationCache';
 import { useToast } from '@/providers/ToastProvider';
 import { moderationApi, parkingApi } from '@/services/api';
+import { useTheme } from '@/theme';
 import { humanizeEnum } from '@/utils/format';
 import { toUserMessage } from '@/utils/errors';
 
 const TERMINAL_STATUSES = ['FILLED', 'EXPIRED', 'REJECTED'];
 
 export default function SpotDetailScreen() {
+  const theme = useTheme();
   const params = useLocalSearchParams<{ id: string }>();
   const spotId = typeof params.id === 'string' ? params.id : '';
 
@@ -62,13 +64,27 @@ export default function SpotDetailScreen() {
         ) : (
           <>
             <Card>
-              {photoQuery.data?.accessUrl ? (
+              {photoQuery.isPending ? (
+                <View style={[styles.photo, styles.photoPlaceholder, { backgroundColor: theme.colors.surfaceMuted }]}>
+                  <ActivityIndicator accessibilityLabel="Loading spot photo" />
+                </View>
+              ) : photoQuery.isError ? (
+                <StateView
+                  icon="image-outline"
+                  title="Photo unavailable"
+                  description="We couldn't load the spot photo."
+                  actionLabel="Retry"
+                  onAction={() => void photoQuery.refetch()}
+                />
+              ) : photoQuery.data?.accessUrl ? (
                 <Image
                   source={{ uri: photoQuery.data.accessUrl }}
                   style={styles.photo}
                   accessibilityLabel="Spot photo"
                 />
-              ) : null}
+              ) : (
+                <StateView icon="image-outline" title="No photo for this spot" />
+              )}
               <AppText variant="heading">{spotQuery.data.addressText ?? 'Parking spot'}</AppText>
               <View style={styles.meta}>
                 <Badge label={humanizeEnum(spotQuery.data.status)} tone="neutral" />
@@ -253,6 +269,7 @@ function SpotActions({ spot }: { spot: PublicSpot }) {
 const styles = StyleSheet.create({
   content: { gap: 16 },
   photo: { width: '100%', height: 200, borderRadius: 12, marginBottom: 12 },
+  photoPlaceholder: { alignItems: 'center', justifyContent: 'center' },
   meta: { flexDirection: 'row', flexWrap: 'wrap', gap: 8, marginVertical: 8 },
   section: { gap: 12, marginTop: 16 },
 });

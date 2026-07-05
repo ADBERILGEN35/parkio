@@ -51,6 +51,12 @@ describe('buildCreateSpotRequest', () => {
     expect(buildCreateSpotRequest(draft({ location: null })).error).toMatch(/gps location/i);
   });
 
+  it('allows submit when the user manually placed the pin despite poor GPS accuracy', () => {
+    expect(
+      buildCreateSpotRequest(draft({ gpsAccuracyMeters: 120, manualLocationEdited: true })).error,
+    ).toBeUndefined();
+  });
+
   it('blocks submit when GPS accuracy is too low', () => {
     expect(buildCreateSpotRequest(draft({ gpsAccuracyMeters: 120 })).error).toMatch(/accuracy/i);
   });

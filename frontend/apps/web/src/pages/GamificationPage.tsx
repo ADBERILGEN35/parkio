@@ -128,6 +128,7 @@ function LevelHeroContent({ level }: { level: LevelStanding }) {
         <div
           className="mt-xs h-2 w-full overflow-hidden rounded-full bg-surface-container-high"
           role="progressbar"
+          aria-label="Level progress"
           aria-valuenow={Math.round(pct)}
           aria-valuemin={0}
           aria-valuemax={100}
