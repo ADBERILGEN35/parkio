@@ -61,3 +61,78 @@ scrape_configs:
     static_configs:
       - targets: ["node-exporter:9100"]
         labels: { service: node-exporter }
+
+  # Infra probes via blackbox-exporter (MinIO, Redis, ClamAV, Postgres TCP).
+  - job_name: blackbox-infra
+    metrics_path: /probe
+    params:
+      module: [http_2xx]
+    static_configs:
+      - targets:
+          - http://minio:9000/minio/health/live
+        labels:
+          component: minio
+    relabel_configs:
+      - source_labels: [__address__]
+        target_label: __param_target
+      - source_labels: [__param_target]
+        target_label: instance
+      - target_label: __address__
+        replacement: blackbox-exporter:9115
+
+  - job_name: blackbox-tcp
+    metrics_path: /probe
+    params:
+      module: [tcp_connect]
+    static_configs:
+      - targets:
+          - redis:6379
+        labels:
+          component: redis
+      - targets:
+          - clamav:3310
+        labels:
+          component: clamav
+      - targets:
+          - postgres-auth:5432
+        labels:
+          component: postgres-auth
+      - targets:
+          - postgres-user:5432
+        labels:
+          component: postgres-user
+      - targets:
+          - postgres-parking:5432
+        labels:
+          component: postgres-parking
+      - targets:
+          - postgres-media:5432
+        labels:
+          component: postgres-media
+      - targets:
+          - postgres-gamification:5432
+        labels:
+          component: postgres-gamification
+      - targets:
+          - postgres-notification:5432
+        labels:
+          component: postgres-notification
+      - targets:
+          - postgres-moderation:5432
+        labels:
+          component: postgres-moderation
+      - targets:
+          - postgres-analytics:5432
+        labels:
+          component: postgres-analytics
+      - targets:
+          - postgres-ai-validation:5432
+        labels:
+          component: postgres-ai-validation
+    relabel_configs:
+      - source_labels: [__address__]
+        target_label: __param_target
+      - source_labels: [__param_target]
+        target_label: instance
+      - target_label: __address__
+        replacement: blackbox-exporter:9115

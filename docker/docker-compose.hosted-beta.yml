@@ -243,6 +243,10 @@ services:
     ports: !override ["127.0.0.1:${NODE_EXPORTER_PORT:-9100}:9100"]
     mem_limit: 64m
     cpus: "0.25"
+  blackbox-exporter:
+    ports: !override ["127.0.0.1:${BLACKBOX_EXPORTER_PORT:-9115}:9115"]
+    mem_limit: 64m
+    cpus: "0.25"
   minio:
     # MinIO is private; the public media host is served via Caddy -> minio:9000 (presigned GETs).
     ports: !reset []

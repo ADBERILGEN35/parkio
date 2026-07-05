@@ -146,7 +146,7 @@ public class AnalyticsApplicationService {
      */
     private void ingest(UUID sourceEventId, AnalyticsMetricType metricType, UUID userId,
                         UUID relatedEntityId, long value, Instant occurredAt, String eventType) {
-        if (inbox.existsByEventId(sourceEventId)) {
+        if (!inbox.tryClaim(sourceEventId, eventType, clock.instant())) {
             return;
         }
         Instant now = clock.instant();
@@ -173,8 +173,6 @@ public class AnalyticsApplicationService {
             parking.increment(1, value, now);
             parkingSnapshots.save(parking);
         }
-
-        inbox.markProcessed(sourceEventId, eventType, now);
     }
 
     /** Lifetime totals per metric type (zero-filled), aggregated from daily snapshots. */

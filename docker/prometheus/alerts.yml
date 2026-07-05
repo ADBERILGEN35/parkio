@@ -141,7 +141,102 @@ groups:
         annotations:
           summary: "Kafka consumer lag sustained for {{ $labels.consumergroup }} on {{ $labels.topic }}"
           description: "{{ $labels.consumergroup }} has averaged >1000 messages of lag on {{ $labels.topic }} for at least 30m. User-visible projections may be stale."
-          runbook_url: "docs/architecture/observability-metrics.md#runbook--kafkaconsumerlagsustained"
+          runbook_url: "docs/operations/alert-response-runbook.md#kafkaconsumerlagsustained"
+
+      - alert: GatewayDown
+        expr: up{job="parkio-services",service="gateway-service"} == 0
+        for: 2m
+        labels:
+          severity: critical
+        annotations:
+          summary: "Gateway is down"
+          description: "Prometheus cannot scrape gateway-service for >2m. The API edge is unreachable."
+          runbook_url: "docs/operations/alert-response-runbook.md#gatewaydown"
+
+      - alert: CoreServiceDown
+        expr: up{job="parkio-services",service=~"auth-service|user-service|parking-service|media-service|notification-service|gamification-service"} == 0
+        for: 2m
+        labels:
+          severity: critical
+        annotations:
+          summary: "Core service {{ $labels.service }} is down"
+          description: "{{ $labels.service }} is unreachable for >2m. Check docker compose ps and service logs."
+          runbook_url: "docs/operations/alert-response-runbook.md#coreservicedown"
+
+      - alert: GatewayHighLatencyP95
+        expr: |
+          histogram_quantile(0.95,
+            sum by (le) (rate(http_server_requests_seconds_bucket{service="gateway-service"}[5m]))
+          ) > 2
+        for: 10m
+        labels:
+          severity: critical
+        annotations:
+          summary: "Gateway p95 latency is high"
+          description: "Gateway p95 request latency exceeds 2s for >10m. Check downstream services and host saturation."
+          runbook_url: "docs/operations/alert-response-runbook.md#gatewayhighlatencyp95"
+
+      - alert: OutboxUnpublishedBacklogHigh
+        expr: parkio_outbox_unpublished_count > 500
+        for: 15m
+        labels:
+          severity: critical
+        annotations:
+          summary: "Outbox backlog high in {{ $labels.service }}"
+          description: "{{ $labels.service }} has {{ $value }} unpublished outbox rows for >15m. Delivery is falling behind."
+          runbook_url: "docs/operations/alert-response-runbook.md#outboxbacklog"
+
+      - alert: MinIODown
+        expr: probe_success{component="minio"} == 0
+        for: 2m
+        labels:
+          severity: critical
+        annotations:
+          summary: "MinIO is down"
+          description: "Blackbox probe to MinIO health endpoint failed for >2m. Media uploads and presigned GETs will fail."
+          runbook_url: "docs/operations/alert-response-runbook.md#miniodown"
+
+      - alert: RedisDown
+        expr: probe_success{component="redis"} == 0
+        for: 2m
+        labels:
+          severity: critical
+        annotations:
+          summary: "Redis is down"
+          description: "TCP probe to redis:6379 failed for >2m. Rate limiting and caches may be impaired."
+          runbook_url: "docs/operations/alert-response-runbook.md#redisdown"
+
+      - alert: ClamAVDown
+        expr: probe_success{component="clamav"} == 0
+        for: 5m
+        labels:
+          severity: critical
+        annotations:
+          summary: "ClamAV is down"
+          description: "TCP probe to clamav:3310 failed for >5m. media-service fails closed on uploads."
+          runbook_url: "docs/operations/alert-response-runbook.md#clamavdown"
+
+      - alert: PostgresDown
+        expr: probe_success{component=~"postgres-.*"} == 0
+        for: 2m
+        labels:
+          severity: critical
+        annotations:
+          summary: "Postgres {{ $labels.component }} is down"
+          description: "TCP probe to {{ $labels.component }}:5432 failed for >2m."
+          runbook_url: "docs/operations/alert-response-runbook.md#postgresdown"
+
+      - alert: BackupFailedOrStale
+        expr: |
+          parkio_backup_last_success{scope="hosted-beta"} == 0
+            or (time() - parkio_backup_last_timestamp_seconds{scope="hosted-beta"}) > 90000
+        for: 1h
+        labels:
+          severity: critical
+        annotations:
+          summary: "Hosted-beta backup failed or is stale"
+          description: "Last successful hosted-beta backup is missing or older than ~25h. Run scripts/backup-hosted-beta.sh and inspect backup-artifacts/."
+          runbook_url: "docs/operations/backup-runbook.md#failed-backups"
 
   # ===================================================================== #
   # WARNING — investigate soon; not necessarily an outage.                 #
@@ -256,7 +351,56 @@ groups:
         annotations:
           summary: "Kafka consumer lag is high for {{ $labels.consumergroup }} on {{ $labels.topic }}"
           description: "{{ $labels.consumergroup }} has >100 messages of lag on {{ $labels.topic }} for >10m. Check the consumer logs before it becomes a sustained backlog."
-          runbook_url: "docs/architecture/observability-metrics.md#runbook--kafkaconsumerlaghigh"
+          runbook_url: "docs/operations/alert-response-runbook.md#kafkaconsumerlaghigh"
+
+      - alert: Gateway5xxElevated
+        expr: |
+          sum(rate(http_server_requests_seconds_count{service="gateway-service",status=~"5.."}[5m]))
+            / clamp_min(sum(rate(http_server_requests_seconds_count{service="gateway-service"}[5m])), 1)
+            > 0.01
+        for: 10m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Gateway 5xx rate elevated"
+          description: "More than 1% of gateway responses are 5xx over 5m for >10m."
+          runbook_url: "docs/operations/alert-response-runbook.md#gateway5xx"
+
+      - alert: GatewayLatencyP95High
+        expr: |
+          histogram_quantile(0.95,
+            sum by (le) (rate(http_server_requests_seconds_bucket{service="gateway-service"}[5m]))
+          ) > 1
+        for: 10m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Gateway p95 latency elevated"
+          description: "Gateway p95 latency exceeds 1s for >10m."
+          runbook_url: "docs/operations/alert-response-runbook.md#gatewayhighlatencyp95"
+
+      - alert: OutboxDeadletterGrowing
+        expr: increase(parkio_outbox_deadlettered_count[1h]) > 0
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Outbox dead-letters growing in {{ $labels.service }}"
+          description: "Dead-letter count increased in the last hour for {{ $labels.service }}."
+          runbook_url: "docs/operations/dlq-redrive-runbook.md"
+
+      - alert: KafkaDltGrowing
+        expr: |
+          sum by (topic) (
+            increase(kafka_topic_partition_current_offset{topic=~"parkio\\.dlt\\..+"}[1h])
+          ) > 0
+        for: 10m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Kafka DLT topic {{ $labels.topic }} is growing"
+          description: "DLT offset depth increased in the last hour on {{ $labels.topic }}."
+          runbook_url: "docs/operations/dlq-redrive-runbook.md"
 
   # ===================================================================== #
   # HOST — single-VPS saturation/exhaustion (node_exporter, job=node-exporter). #

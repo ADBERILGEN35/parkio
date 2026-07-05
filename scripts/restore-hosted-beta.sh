@@ -1,0 +1,142 @@
+#!/usr/bin/env bash
+#
+# Parkio - restore hosted-beta backups from a manifest produced by backup-hosted-beta.sh.
+#
+# Usage:
+#   PARKIO_ENV_FILE=docker/.env ./scripts/restore-hosted-beta.sh --manifest backup-artifacts/backup-....json
+#   PARKIO_ENV_FILE=docker/.env ./scripts/restore-hosted-beta.sh --manifest ... --dry-run
+#   PARKIO_ENV_FILE=docker/.env ./scripts/restore-hosted-beta.sh --manifest ... --yes --only minio
+#
+set -euo pipefail
+
+ROOT="$(cd "$(dirname "$0")/.." && pwd)"
+# shellcheck source=lib/backup-common.sh
+source "$ROOT/scripts/lib/backup-common.sh"
+
+ENV_FILE="${PARKIO_ENV_FILE:-}"
+MANIFEST=""
+DRY_RUN=0
+ASSUME_YES="no"
+ONLY=""
+
+while [ "$#" -gt 0 ]; do
+  case "$1" in
+    --manifest) MANIFEST="${2:-}"; shift 2 ;;
+    --env-file) ENV_FILE="${2:-}"; shift 2 ;;
+    --dry-run) DRY_RUN=1; shift ;;
+    --yes) ASSUME_YES="yes"; shift ;;
+    --only) ONLY="${2:-}"; shift 2 ;;
+    -h|--help) sed -n '2,16p' "$0"; exit 0 ;;
+    *) echo "ERROR: unknown argument '$1'" >&2; exit 2 ;;
+  esac
+done
+
+if [ -z "${MANIFEST}" ] || [ ! -f "${MANIFEST}" ]; then
+  echo "ERROR: --manifest <path> is required and must exist." >&2
+  exit 2
+fi
+
+parkio_backup_load_env "${ENV_FILE}"
+
+DEST_DIR="$(jq -r .destination "${MANIFEST}")"
+BUCKET="$(jq -r .minio.bucket "${MANIFEST}")"
+GIT_SHA="$(jq -r .gitSha "${MANIFEST}")"
+STAMP="$(jq -r .timestamp "${MANIFEST}")"
+
+echo "=== Parkio hosted-beta restore ==="
+echo "manifest=${MANIFEST}"
+echo "destination=${DEST_DIR}"
+echo "gitSha=${GIT_SHA}"
+echo "stamp=${STAMP}"
+echo "dryRun=${DRY_RUN}"
+echo "only=${ONLY:-all}"
+
+if [ ! -d "${DEST_DIR}" ]; then
+  if [ "$DRY_RUN" -eq 1 ]; then
+    echo "WARN: backup destination ${DEST_DIR} not found (dry-run continues)."
+  else
+    echo "ERROR: backup destination not found: ${DEST_DIR}" >&2
+    exit 2
+  fi
+fi
+
+restore_databases() {
+  local svc dump
+  while IFS= read -r svc; do
+    [ -z "${svc}" ] && continue
+    svc="${svc//$'\r'/}"
+    if [ "$DRY_RUN" -eq 1 ]; then
+      echo "DRY-RUN: would restore ${svc}"
+      continue
+    fi
+    dump=""
+    for candidate in "${DEST_DIR}/${svc}.sql.gz.enc" "${DEST_DIR}/${svc}.sql.gz" "${DEST_DIR}/${svc}.sql"; do
+      if [ -f "${candidate}" ]; then dump="${candidate}"; break; fi
+    done
+    if [ -z "${dump}" ]; then
+      echo "ERROR: no dump for service '${svc}' under ${DEST_DIR}" >&2
+      return 1
+    fi
+    echo "Restoring database '${svc}' from ${dump} ..."
+    local args=(--yes)
+    if [ -n "${ENV_FILE}" ]; then args+=(--env-file "${ENV_FILE}"); fi
+    "${ROOT}/scripts/restore-database.sh" "${svc}" "${dump}" "${args[@]}"
+  done < <(jq -r '.databases[]' "${MANIFEST}")
+}
+
+restore_minio() {
+  local mirror_src="${DEST_DIR}/minio/${BUCKET}"
+  if [ "$DRY_RUN" -eq 1 ]; then
+    echo "DRY-RUN: would mirror ${mirror_src} -> local/${BUCKET}"
+    return 0
+  fi
+  if [ ! -d "${mirror_src}" ]; then
+    echo "ERROR: MinIO mirror not found: ${mirror_src}" >&2
+    return 1
+  fi
+  local network mc_image
+  network="$(parkio_backup_backend_network parkio-minio)"
+  mc_image="${MINIO_MC_IMAGE:-minio/mc:RELEASE.2024-09-16T17-43-14Z}"
+  docker run --rm \
+    --network "${network}" \
+    -v "${mirror_src}:/restore:ro" \
+    -e "MINIO_ROOT_USER=${MINIO_ROOT_USER:-minioadmin}" \
+    -e "MINIO_ROOT_PASSWORD=${MINIO_ROOT_PASSWORD:?set MINIO_ROOT_PASSWORD}" \
+    -e "BUCKET=${BUCKET}" \
+    "${mc_image}" \
+    /bin/sh -c '
+      set -eu
+      mc alias set local http://minio:9000 "$MINIO_ROOT_USER" "$MINIO_ROOT_PASSWORD"
+      mc mirror --overwrite /restore "local/${BUCKET}"
+    '
+  echo "MinIO restore completed from ${mirror_src}"
+}
+
+if [ "${ASSUME_YES}" != "yes" ] && [ "$DRY_RUN" -ne 1 ]; then
+  echo "*** DESTRUCTIVE: this overwrites live databases and MinIO objects. ***"
+  printf "Type RESTORE to proceed: "
+  read -r reply
+  if [ "${reply}" != "RESTORE" ]; then
+    echo "Aborted." >&2
+    exit 1
+  fi
+fi
+
+case "${ONLY}" in
+  ""|all)
+    restore_databases
+    restore_minio
+    ;;
+  databases|db)
+    restore_databases
+    ;;
+  minio)
+    restore_minio
+    ;;
+  *)
+    echo "ERROR: --only must be all, databases, or minio" >&2
+    exit 2
+    ;;
+esac
+
+echo "Restore completed."

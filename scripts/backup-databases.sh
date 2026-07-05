@@ -49,7 +49,7 @@ ENCRYPT_PASSPHRASE="${BACKUP_ENCRYPT_PASSPHRASE:-}"
 MC_DEST="${BACKUP_MC_DEST:-}"
 
 STAMP="$(date -u +%Y-%m-%dT%H-%M-%SZ)"
-DEST_DIR="${BACKUP_DIR}/${STAMP}"
+DEST_DIR="${BACKUP_DEST_DIR:-${BACKUP_DIR}/${STAMP}}"
 mkdir -p "${DEST_DIR}"
 
 # service:container:user:db  (defaults match docker/.env.example)

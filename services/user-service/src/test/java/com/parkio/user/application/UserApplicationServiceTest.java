@@ -143,14 +143,14 @@ class UserApplicationServiceTest {
         UserProfile profile = profiles.findByAuthUserId(authUserId).orElseThrow();
         assertThat(profile.displayName()).isEqualTo("john.doe");
         assertThat(profile.status()).isEqualTo(UserStatus.ACTIVE);
-        assertThat(inbox.processed).containsKey(event.eventId());
+        assertThat(inbox.claimed).contains(event.eventId());
     }
 
     @Test
     void handleUserRegisteredSkipsWhenEventAlreadyInInbox() {
         UUID authUserId = UUID.randomUUID();
         UserRegisteredEvent event = new UserRegisteredEvent(UUID.randomUUID(), authUserId, "jane@example.com", NOW);
-        inbox.markProcessed(event.eventId(), UserRegisteredEvent.TYPE, NOW); // already processed
+        inbox.tryClaim(event.eventId(), UserRegisteredEvent.TYPE, NOW); // already processed
 
         service.handleUserRegistered(event);
 
@@ -186,7 +186,7 @@ class UserApplicationServiceTest {
 
         assertThat(profiles.byId).isEmpty();
         assertThat(pendingStatusEvents.byId).hasSize(1); // parked, not lost
-        assertThat(inbox.processed).containsKey(suspend.eventId());
+        assertThat(inbox.claimed).contains(suspend.eventId());
 
         service.handleUserRegistered(new UserRegisteredEvent(
                 UUID.randomUUID(), authUserId, "late@example.com", NOW));
@@ -803,16 +803,11 @@ class UserApplicationServiceTest {
     }
 
     private static final class FakeInboxEventRepository implements InboxEventRepository {
-        private final Map<UUID, String> processed = new HashMap<>();
+        private final java.util.Set<UUID> claimed = java.util.concurrent.ConcurrentHashMap.newKeySet();
 
         @Override
-        public boolean existsByEventId(UUID eventId) {
-            return processed.containsKey(eventId);
-        }
-
-        @Override
-        public void markProcessed(UUID eventId, String eventType, Instant processedAt) {
-            processed.put(eventId, eventType);
+        public boolean tryClaim(UUID eventId, String eventType, Instant processedAt) {
+            return claimed.add(eventId);
         }
     }
 

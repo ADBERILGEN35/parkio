@@ -16,6 +16,8 @@
     "e2e:real": "playwright test -c playwright.real.config.ts"
   },
   "dependencies": {
+    "@fontsource-variable/inter": "^5.2.5",
+    "@fontsource/material-symbols-outlined": "^5.2.5",
     "@hookform/resolvers": "^3.9.1",
     "@parkio/api-client": "workspace:*",
     "@parkio/geo": "workspace:*",

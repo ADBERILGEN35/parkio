@@ -84,5 +84,12 @@ backups/
 deploy-artifacts/*
 !deploy-artifacts/.gitkeep
 
+backup-artifacts/*
+!backup-artifacts/.gitkeep
+
 # Local operator tools (e.g. portable jq)
 .tools/
+
+# Prometheus textfile metrics (written by backup jobs)
+docker/prometheus/textfile/*.prom
+!docker/prometheus/textfile/.gitkeep

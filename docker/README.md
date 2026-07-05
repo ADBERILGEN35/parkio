@@ -305,11 +305,17 @@ Prometheus routes firing rules to Alertmanager at `alertmanager:9093`. The commi
 `docker/alertmanager/alertmanager.yml` is a safe local no-op receiver: alerts are visible
 in Alertmanager, but no outbound notification is sent.
 
-Hosted beta should set Slack delivery in `.env`:
+Hosted beta should set Slack **or** a generic webhook in `.env` (never commit secrets):
 
 ```dotenv
+# Option A — Slack incoming webhook
 PARKIO_ALERT_SLACK_WEBHOOK_URL=https://hooks.slack.com/services/...
 PARKIO_ALERT_SLACK_CHANNEL="#parkio-alerts"
+
+# Option B — generic HTTPS webhook (PagerDuty, Opsgenie, custom)
+PARKIO_ALERT_WEBHOOK_URL=https://events.example.com/alert
+PARKIO_ALERT_WEBHOOK_SECRET=optional-shared-secret
+
 PARKIO_ALERT_REPEAT_CRITICAL=1h
 PARKIO_ALERT_REPEAT_WARNING=4h
 ```
@@ -434,25 +440,45 @@ so one trace can span the gateway, downstream services, Kafka producer sends and
 
 ### Backups & restore (required)
 
-Three scripts under `scripts/` cover the full lifecycle. They `docker exec` into each
+Hosted-beta uses `scripts/backup-hosted-beta.sh` to orchestrate Postgres dumps, MinIO
+mirror, a JSON manifest (`backup-artifacts/backup-<stamp>.json`), and Prometheus textfile
+metrics (`parkio_backup_*`). Restore with `scripts/restore-hosted-beta.sh --manifest …`.
+
+Three lower-level scripts under `scripts/` cover the full lifecycle. They `docker exec` into each
 `parkio-postgres-*` container over its local socket (no DB password needed/logged) and cover
 all nine service databases: auth, user, parking, media, gamification, notification,
 moderation, analytics, ai-validation.
 
 ```bash
-chmod +x scripts/backup-databases.sh scripts/restore-database.sh scripts/verify-backup.sh
+chmod +x scripts/backup-databases.sh scripts/backup-minio.sh scripts/backup-hosted-beta.sh \
+  scripts/restore-hosted-beta.sh scripts/restore-database.sh scripts/verify-backup.sh
 ```
 
-**Back up** (timestamped, gzip; optional AES-256 + offsite upload):
+**Hosted-beta backup** (recommended — DB + MinIO + manifest + metrics):
 
 ```bash
-PARKIO_ENV_FILE=docker/.env ./scripts/backup-databases.sh    # per-DB dumps -> $BACKUP_DIR/<UTC-stamp>/
+PARKIO_ENV_FILE=docker/.env ./scripts/backup-hosted-beta.sh
+# dry-run (manifest only, no docker):
+PARKIO_ENV_FILE=docker/.env ./scripts/backup-hosted-beta.sh --dry-run
 ```
 
 Schedule nightly via cron on the VPS:
 
 ```cron
-30 3 * * * cd /opt/parkio && PARKIO_ENV_FILE=docker/.env ./scripts/backup-databases.sh >> /var/log/parkio-backup.log 2>&1
+30 3 * * * cd /opt/parkio && PARKIO_ENV_FILE=docker/.env ./scripts/backup-hosted-beta.sh >> /var/log/parkio-backup.log 2>&1
+```
+
+**Back up databases only** (timestamped, gzip; optional AES-256 + offsite upload):
+
+```bash
+PARKIO_ENV_FILE=docker/.env ./scripts/backup-databases.sh    # per-DB dumps -> $BACKUP_DIR/<UTC-stamp>/
+```
+
+**Restore from manifest** (databases and/or MinIO; use `--dry-run` first):
+
+```bash
+PARKIO_ENV_FILE=docker/.env ./scripts/restore-hosted-beta.sh --manifest backup-artifacts/backup-<stamp>.json --dry-run
+PARKIO_ENV_FILE=docker/.env ./scripts/restore-hosted-beta.sh --manifest backup-artifacts/backup-<stamp>.json --yes
 ```
 
 Set `BACKUP_ENCRYPT_PASSPHRASE` (encrypt at rest, recommended before any offsite upload) and

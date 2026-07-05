@@ -417,7 +417,7 @@ public class AuthApplicationService {
      * store needed here, unlike user-service profile provisioning).
      */
     public void handleUserSuspended(UserSuspendedEvent event) {
-        if (inbox.existsByEventId(event.eventId())) {
+        if (!claimEvent(event.eventId(), UserSuspendedEvent.TYPE)) {
             return;
         }
         authUsers.findById(event.userId()).ifPresentOrElse(user -> {
@@ -436,7 +436,6 @@ public class AuthApplicationService {
             }
         }, () -> log.warn("UserSuspended event {} for unknown auth user {}; ignoring",
                 event.eventId(), event.userId()));
-        inbox.markProcessed(event.eventId(), UserSuspendedEvent.TYPE, clock.instant());
     }
 
     /**
@@ -446,7 +445,7 @@ public class AuthApplicationService {
      * ordering/idempotency semantics as {@link #handleUserSuspended}.
      */
     public void handleUserRestored(UserRestoredEvent event) {
-        if (inbox.existsByEventId(event.eventId())) {
+        if (!claimEvent(event.eventId(), UserRestoredEvent.TYPE)) {
             return;
         }
         authUsers.findById(event.userId()).ifPresentOrElse(user -> {
@@ -459,7 +458,10 @@ public class AuthApplicationService {
             }
         }, () -> log.warn("UserRestored event {} for unknown auth user {}; ignoring",
                 event.eventId(), event.userId()));
-        inbox.markProcessed(event.eventId(), UserRestoredEvent.TYPE, clock.instant());
+    }
+
+    private boolean claimEvent(UUID eventId, String eventType) {
+        return inbox.tryClaim(eventId, eventType, clock.instant());
     }
 
     @Transactional(readOnly = true)

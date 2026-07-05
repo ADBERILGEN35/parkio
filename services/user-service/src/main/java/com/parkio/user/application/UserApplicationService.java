@@ -134,14 +134,13 @@ public class UserApplicationService {
      * together. Invoked by the Kafka consumer in {@code infrastructure.messaging}.
      */
     public void handleUserRegistered(UserRegisteredEvent event) {
-        if (inbox.existsByEventId(event.eventId())) {
+        if (!claimEvent(event.eventId(), UserRegisteredEvent.TYPE)) {
             return; // already processed; skip redelivery
         }
         if (!profiles.existsByAuthUserId(event.userId())) {
             String displayName = deriveDisplayName(event.email());
             createProfile(new CreateProfileCommand(event.userId(), event.email(), displayName, null, null));
         }
-        inbox.markProcessed(event.eventId(), UserRegisteredEvent.TYPE, clock.instant());
     }
 
     /**
@@ -155,12 +154,11 @@ public class UserApplicationService {
      * and the inbox record commit in the same transaction.
      */
     public void handleUserSuspended(UserSuspendedEvent event) {
-        if (inbox.existsByEventId(event.eventId())) {
+        if (!claimEvent(event.eventId(), UserSuspendedEvent.TYPE)) {
             return;
         }
         applyOrParkStatusEvent(event.eventId(), event.userId(), UserStatus.SUSPENDED,
                 event.occurredAt(), event.caseId());
-        inbox.markProcessed(event.eventId(), UserSuspendedEvent.TYPE, clock.instant());
     }
 
     /**
@@ -169,12 +167,11 @@ public class UserApplicationService {
      * {@link #handleUserSuspended}.
      */
     public void handleUserRestored(UserRestoredEvent event) {
-        if (inbox.existsByEventId(event.eventId())) {
+        if (!claimEvent(event.eventId(), UserRestoredEvent.TYPE)) {
             return;
         }
         applyOrParkStatusEvent(event.eventId(), event.userId(), UserStatus.ACTIVE,
                 event.occurredAt(), event.caseId());
-        inbox.markProcessed(event.eventId(), UserRestoredEvent.TYPE, clock.instant());
     }
 
     /**
@@ -185,20 +182,18 @@ public class UserApplicationService {
      * logged and skipped — the snapshot on the next points event self-heals it.
      */
     public void handlePointsEarned(PointsEarnedEvent event) {
-        if (inbox.existsByEventId(event.eventId())) {
+        if (!claimEvent(event.eventId(), PointsEarnedEvent.TYPE)) {
             return;
         }
         projectTotalPoints(event.userId(), event.totalPoints(), event.eventId());
-        inbox.markProcessed(event.eventId(), PointsEarnedEvent.TYPE, clock.instant());
     }
 
     /** Idempotent handler for gamification's {@code PointsDeducted}; see {@link #handlePointsEarned}. */
     public void handlePointsDeducted(PointsDeductedEvent event) {
-        if (inbox.existsByEventId(event.eventId())) {
+        if (!claimEvent(event.eventId(), PointsDeductedEvent.TYPE)) {
             return;
         }
         projectTotalPoints(event.userId(), event.totalPoints(), event.eventId());
-        inbox.markProcessed(event.eventId(), PointsDeductedEvent.TYPE, clock.instant());
     }
 
     /**
@@ -206,14 +201,13 @@ public class UserApplicationService {
      * new level (and its points snapshot) into the trust projection.
      */
     public void handleUserLevelChanged(UserLevelChangedEvent event) {
-        if (inbox.existsByEventId(event.eventId())) {
+        if (!claimEvent(event.eventId(), UserLevelChangedEvent.TYPE)) {
             return;
         }
         trustProfileFor(event.userId(), event.eventId()).ifPresent(trust -> {
             trust.projectLevel(event.newLevel(), event.totalPoints());
             trustProfiles.save(trust);
         });
-        inbox.markProcessed(event.eventId(), UserLevelChangedEvent.TYPE, clock.instant());
     }
 
     /**
@@ -222,7 +216,7 @@ public class UserApplicationService {
      * {@code user_trust_score_history} with the gamification rule key as reason.
      */
     public void handleTrustScoreUpdated(TrustScoreUpdatedEvent event) {
-        if (inbox.existsByEventId(event.eventId())) {
+        if (!claimEvent(event.eventId(), TrustScoreUpdatedEvent.TYPE)) {
             return;
         }
         trustProfileFor(event.userId(), event.eventId()).ifPresent(trust -> {
@@ -232,7 +226,10 @@ public class UserApplicationService {
                     trust.userProfileId(), event.previousScore(), event.newScore(),
                     event.reason(), event.occurredAt()));
         });
-        inbox.markProcessed(event.eventId(), TrustScoreUpdatedEvent.TYPE, clock.instant());
+    }
+
+    private boolean claimEvent(UUID eventId, String eventType) {
+        return inbox.tryClaim(eventId, eventType, clock.instant());
     }
 
     private void projectTotalPoints(UUID authUserId, long totalPoints, UUID eventId) {

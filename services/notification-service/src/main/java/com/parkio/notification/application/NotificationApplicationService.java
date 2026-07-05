@@ -86,116 +86,105 @@ public class NotificationApplicationService {
      * inbox stays consistent.
      */
     public void handleParkingSpotCreated(ParkingSpotCreatedEvent event) {
-        if (alreadyProcessed(event.eventId())) {
+        if (!claimEvent(event.eventId(), "ParkingSpotCreated")) {
             return;
         }
         // TODO(backlog): fan out NEARBY_PARKING notifications to nearby users once
         // location-based user targeting exists. No notification is created for now.
-        markProcessed(event.eventId(), "ParkingSpotCreated");
     }
 
     public void handleUserLevelChanged(UserLevelChangedEvent event) {
-        if (alreadyProcessed(event.eventId())) {
+        if (!claimEvent(event.eventId(), "UserLevelChanged")) {
             return;
         }
         createInAppNotification(event.userId(), NotificationType.LEVEL_UP,
                 Map.of("level", Integer.toString(event.newLevel())));
-        markProcessed(event.eventId(), "UserLevelChanged");
     }
 
     public void handlePointsEarned(PointsEarnedEvent event) {
-        if (alreadyProcessed(event.eventId())) {
+        if (!claimEvent(event.eventId(), "PointsEarned")) {
             return;
         }
         createInAppNotification(event.userId(), NotificationType.POINT_EARNED,
                 Map.of("points", Long.toString(event.points()),
                         "totalPoints", Long.toString(event.totalPoints())));
-        markProcessed(event.eventId(), "PointsEarned");
     }
 
     public void handlePointsDeducted(PointsDeductedEvent event) {
-        if (alreadyProcessed(event.eventId())) {
+        if (!claimEvent(event.eventId(), "PointsDeducted")) {
             return;
         }
         createInAppNotification(event.userId(), NotificationType.WARNING,
                 Map.of("message", "You lost " + event.points() + " points (penalty)."));
-        markProcessed(event.eventId(), "PointsDeducted");
     }
 
     public void handleTrustScoreUpdated(TrustScoreUpdatedEvent event) {
-        if (alreadyProcessed(event.eventId())) {
+        if (!claimEvent(event.eventId(), "TrustScoreUpdated")) {
             return;
         }
         String direction = event.newScore() >= event.previousScore() ? "increased" : "decreased";
         createInAppNotification(event.userId(), NotificationType.WARNING,
                 Map.of("message", "Your trust score " + direction + " from "
                         + event.previousScore() + " to " + event.newScore() + "."));
-        markProcessed(event.eventId(), "TrustScoreUpdated");
     }
 
     public void handleParkingSpotRejected(ParkingSpotRejectedEvent event) {
-        if (alreadyProcessed(event.eventId())) {
+        if (!claimEvent(event.eventId(), "ParkingSpotRejected")) {
             return;
         }
         createInAppNotification(event.ownerUserId(), NotificationType.WARNING,
                 Map.of("message", "Your parking spot was rejected as illegal or risky."));
-        markProcessed(event.eventId(), "ParkingSpotRejected");
     }
 
     // --- Moderation action events (parkio.moderation.action) ---
 
     public void handleUserSuspended(UserSuspendedEvent event) {
-        if (alreadyProcessed(event.eventId())) {
+        if (!claimEvent(event.eventId(), "UserSuspended")) {
             return;
         }
         createInAppNotification(event.userId(), NotificationType.WARNING,
                 Map.of("message", "Your account has been suspended by moderation."));
-        markProcessed(event.eventId(), "UserSuspended");
     }
 
     public void handleUserRestored(UserRestoredEvent event) {
-        if (alreadyProcessed(event.eventId())) {
+        if (!claimEvent(event.eventId(), "UserRestored")) {
             return;
         }
         createInAppNotification(event.userId(), NotificationType.SYSTEM,
                 Map.of("message", "Your account has been restored."));
-        markProcessed(event.eventId(), "UserRestored");
     }
 
     /** Notifies the spot owner of a moderator rejection — only when the owner is known. */
     public void handleParkingSpotRejectedByModerator(ParkingSpotRejectedByModeratorEvent event) {
-        if (alreadyProcessed(event.eventId())) {
+        if (!claimEvent(event.eventId(), "ParkingSpotRejectedByModerator")) {
             return;
         }
         if (event.ownerUserId() != null) {
             createInAppNotification(event.ownerUserId(), NotificationType.WARNING,
                     Map.of("message", "Your parking spot was rejected by a moderator."));
         }
-        markProcessed(event.eventId(), "ParkingSpotRejectedByModerator");
     }
 
     // --- Moderation case events (parkio.moderation.case) ---
 
     public void handleAppealResolved(AppealResolvedEvent event) {
-        if (alreadyProcessed(event.eventId())) {
+        if (!claimEvent(event.eventId(), "AppealResolved")) {
             return;
         }
         String outcome = event.accepted() ? "accepted" : "rejected";
         createInAppNotification(event.userId(), NotificationType.SYSTEM,
                 Map.of("message", "Your appeal was " + outcome + "."));
-        markProcessed(event.eventId(), "AppealResolved");
     }
 
     /** Notifies the affected user when a USER-targeted case is resolved; otherwise a no-op. */
     public void handleModerationCaseResolved(ModerationCaseResolvedEvent event) {
-        if (alreadyProcessed(event.eventId())) {
+        if (!claimEvent(event.eventId(), "ModerationCaseResolved")) {
             return;
         }
         if (ModerationCaseResolvedEvent.TARGET_TYPE_USER.equals(event.targetType()) && event.targetId() != null) {
             createInAppNotification(event.targetId(), NotificationType.SYSTEM,
                     Map.of("message", "A moderation case about your account was resolved."));
         }
-        markProcessed(event.eventId(), "ModerationCaseResolved");
     }
 
     // --- Queries / commands ---
@@ -293,11 +282,7 @@ public class NotificationApplicationService {
         };
     }
 
-    private boolean alreadyProcessed(UUID eventId) {
-        return inbox.existsByEventId(eventId);
-    }
-
-    private void markProcessed(UUID eventId, String eventType) {
-        inbox.markProcessed(eventId, eventType, clock.instant());
+    private boolean claimEvent(UUID eventId, String eventType) {
+        return inbox.tryClaim(eventId, eventType, clock.instant());
     }
 }

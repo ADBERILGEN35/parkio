@@ -232,31 +232,29 @@ public class ModerationApplicationService {
 
     /** A community-rejected spot opens a case for moderator review/audit. */
     public void handleParkingSpotRejected(ParkingSpotRejectedEvent event) {
-        if (alreadyProcessed(event.eventId())) {
+        if (!claimEvent(event.eventId(), "ParkingSpotRejected")) {
             return;
         }
         // The community rejection carries the spot owner — record it so a later
         // moderator rejection can penalise/notify the owner.
         openCaseIfAbsent(ModerationTargetType.PARKING_SPOT, event.parkingSpotId(), event.ownerUserId(),
                 ModerationReason.ILLEGAL_OR_RISKY);
-        markProcessed(event.eventId(), "ParkingSpotRejected");
     }
 
     /** An unconfirmed illegal/risky verification opens a case without penalising the owner. */
     public void handleParkingSpotVerified(ParkingSpotVerifiedEvent event) {
-        if (alreadyProcessed(event.eventId())) {
+        if (!claimEvent(event.eventId(), "ParkingSpotVerified")) {
             return;
         }
         if (event.isIllegalOrRisky()) {
             openCaseIfAbsent(ModerationTargetType.PARKING_SPOT, event.parkingSpotId(),
                     event.ownerUserId(), ModerationReason.ILLEGAL_OR_RISKY);
         }
-        markProcessed(event.eventId(), "ParkingSpotVerified");
     }
 
     /** Only content-safety/relevance media rejections are moderation-worthy. */
     public void handleMediaRejected(MediaRejectedEvent event) {
-        if (alreadyProcessed(event.eventId())) {
+        if (!claimEvent(event.eventId(), "MediaRejected")) {
             return;
         }
         ModerationReason reason = switch (event.validationType() == null ? "" : event.validationType()) {
@@ -267,7 +265,6 @@ public class ModerationApplicationService {
         if (reason != null) {
             openCaseIfAbsent(ModerationTargetType.MEDIA, event.mediaId(), null, reason);
         }
-        markProcessed(event.eventId(), "MediaRejected");
     }
 
     /**
@@ -278,7 +275,7 @@ public class ModerationApplicationService {
      * known, otherwise the media object (a standalone media validation has no spot).
      */
     public void handleAiValidationCompleted(AiValidationCompletedEvent event) {
-        if (alreadyProcessed(event.eventId())) {
+        if (!claimEvent(event.eventId(), "AiValidationCompleted")) {
             return;
         }
         aiValidationCase(event).ifPresent(decision -> {
@@ -290,7 +287,6 @@ public class ModerationApplicationService {
                         null, decision.reason(), decision.severity());
             }
         });
-        markProcessed(event.eventId(), "AiValidationCompleted");
     }
 
     // --- Internals ---
@@ -362,11 +358,7 @@ public class ModerationApplicationService {
                 .orElseThrow(() -> new ModerationException(ModerationErrorCode.CASE_NOT_FOUND));
     }
 
-    private boolean alreadyProcessed(UUID eventId) {
-        return inbox.existsByEventId(eventId);
-    }
-
-    private void markProcessed(UUID eventId, String eventType) {
-        inbox.markProcessed(eventId, eventType, clock.instant());
+    private boolean claimEvent(UUID eventId, String eventType) {
+        return inbox.tryClaim(eventId, eventType, clock.instant());
     }
 }

@@ -52,20 +52,18 @@ public class AiValidationApplicationService {
 
     /** A newly uploaded media object is analysed for an advisory result. */
     public void handleMediaUploaded(MediaUploadedEvent event) {
-        if (alreadyProcessed(event.eventId())) {
+        if (!claimEvent(event.eventId(), "MediaUploaded")) {
             return;
         }
         runValidation(event.mediaId(), null, null);
-        markProcessed(event.eventId(), "MediaUploaded");
     }
 
     /** A newly created spot's photo is analysed; the result is linked to the spot. */
     public void handleParkingSpotCreated(ParkingSpotCreatedEvent event) {
-        if (alreadyProcessed(event.eventId())) {
+        if (!claimEvent(event.eventId(), "ParkingSpotCreated")) {
             return;
         }
         runValidation(event.mediaId(), event.parkingSpotId(), null);
-        markProcessed(event.eventId(), "ParkingSpotCreated");
     }
 
     // --- Manual (moderator/admin) use case ---
@@ -100,11 +98,7 @@ public class AiValidationApplicationService {
         return result;
     }
 
-    private boolean alreadyProcessed(UUID eventId) {
-        return inbox.existsByEventId(eventId);
-    }
-
-    private void markProcessed(UUID eventId, String eventType) {
-        inbox.markProcessed(eventId, eventType, clock.instant());
+    private boolean claimEvent(UUID eventId, String eventType) {
+        return inbox.tryClaim(eventId, eventType, clock.instant());
     }
 }

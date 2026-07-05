@@ -20,6 +20,10 @@ on:
   pull_request:
     paths:
       - "scripts/backup-databases.sh"
+      - "scripts/backup-minio.sh"
+      - "scripts/backup-hosted-beta.sh"
+      - "scripts/restore-hosted-beta.sh"
+      - "scripts/lib/backup-common.sh"
       - "scripts/restore-database.sh"
       - "scripts/verify-backup.sh"
       - "scripts/restore-drill.sh"

@@ -41,7 +41,7 @@ public class RateLimitMetricsGlobalFilter implements GlobalFilter, Ordered {
 
     @Override
     public int getOrder() {
-        // After CorrelationId (HIGHEST_PRECEDENCE), before gateway-auth header (+5).
-        return Ordered.HIGHEST_PRECEDENCE + 1;
+        // After CorrelationId (+0) and path canonicalization (+1), before gateway-auth header (+5).
+        return Ordered.HIGHEST_PRECEDENCE + 2;
     }
 }

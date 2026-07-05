@@ -1,3 +1,6 @@
+@import '@fontsource-variable/inter/wght.css';
+@import '@fontsource/material-symbols-outlined/400.css';
+
 @tailwind base;
 @tailwind components;
 @tailwind utilities;
@@ -106,6 +109,7 @@
 
   /* Material Symbols defaults; add `.filled` for the active/filled state. */
   .material-symbols-outlined {
+    font-family: 'Material Symbols Outlined';
     font-variation-settings:
       'FILL' 0,
       'wght' 400,

@@ -3,13 +3,12 @@ package com.parkio.notification.application.port;
 import java.time.Instant;
 import java.util.UUID;
 
-/**
- * Inbox port for idempotent event consumption (ai-context/06). A processed event id
- * is recorded so redeliveries are skipped.
- */
+/** Processed-message dedupe store (inbox pattern). */
 public interface InboxEventRepository {
 
-    boolean existsByEventId(UUID eventId);
-
-    void markProcessed(UUID eventId, String eventType, Instant processedAt);
+    /**
+     * Atomically claims an event for processing. Returns {@code true} when this caller
+     * inserted the inbox row; {@code false} when another consumer already claimed it.
+     */
+    boolean tryClaim(UUID eventId, String eventType, Instant processedAt);
 }

@@ -99,18 +99,17 @@ public class GamificationApplicationService {
 
     /** Owner reward for submitting a spot. */
     public void handleParkingSpotCreated(ParkingSpotCreatedEvent event) {
-        if (alreadyProcessed(event.eventId())) {
+        if (!claimEvent(event.eventId(), "ParkingSpotCreated")) {
             return;
         }
         RewardRule rule = reward(RewardRuleKeys.UPLOAD_OWNER);
         award(event.ownerUserId(), transactionKey(event.eventId(), RewardRuleKeys.UPLOAD_OWNER),
                 rule, event.eventId(), event.parkingSpotId());
-        markProcessed(event.eventId(), "ParkingSpotCreated");
     }
 
     /** Owner + verifier rewards (and an owner trust gain) when a spot is confirmed available. */
     public void handleParkingSpotVerified(ParkingSpotVerifiedEvent event) {
-        if (alreadyProcessed(event.eventId())) {
+        if (!claimEvent(event.eventId(), "ParkingSpotVerified")) {
             return;
         }
         if (event.isAvailable()) {
@@ -120,12 +119,11 @@ public class GamificationApplicationService {
                     reward(RewardRuleKeys.VERIFIED_VERIFIER), event.eventId(), event.parkingSpotId());
             applyTrust(event.ownerUserId(), TrustRuleKeys.SPOT_VERIFIED_OWNER, event.eventId());
         }
-        markProcessed(event.eventId(), "ParkingSpotVerified");
     }
 
     /** Owner + claimer rewards (and an owner trust gain) when a spot is successfully claimed. */
     public void handleParkingSpotClaimed(ParkingSpotClaimedEvent event) {
-        if (alreadyProcessed(event.eventId())) {
+        if (!claimEvent(event.eventId(), "ParkingSpotClaimed")) {
             return;
         }
         award(event.ownerUserId(), transactionKey(event.eventId(), RewardRuleKeys.CLAIMED_OWNER),
@@ -133,7 +131,6 @@ public class GamificationApplicationService {
         award(event.actorUserId(), transactionKey(event.eventId(), RewardRuleKeys.CLAIMED_CLAIMER),
                 reward(RewardRuleKeys.CLAIMED_CLAIMER), event.eventId(), event.parkingSpotId());
         applyTrust(event.ownerUserId(), TrustRuleKeys.SPOT_CLAIMED_OWNER, event.eventId());
-        markProcessed(event.eventId(), "ParkingSpotClaimed");
     }
 
     /**
@@ -144,7 +141,7 @@ public class GamificationApplicationService {
      * the points transaction key.
      */
     public void handleParkingSpotRejectedByModerator(ParkingSpotRejectedByModeratorEvent event) {
-        if (alreadyProcessed(event.eventId())) {
+        if (!claimEvent(event.eventId(), "ParkingSpotRejectedByModerator")) {
             return;
         }
         if (event.ownerUserId() != null) {
@@ -153,7 +150,6 @@ public class GamificationApplicationService {
                     rule, event.eventId(), event.parkingSpotId());
             applyTrust(event.ownerUserId(), TrustRuleKeys.SPOT_REJECTED_OWNER, event.eventId());
         }
-        markProcessed(event.eventId(), "ParkingSpotRejectedByModerator");
     }
 
     /**
@@ -164,7 +160,7 @@ public class GamificationApplicationService {
      * (SUSPEND_USER, REJECT, ...) are handled elsewhere and only marked processed here.
      */
     public void handleModerationCaseResolved(ModerationCaseResolvedEvent event) {
-        if (alreadyProcessed(event.eventId())) {
+        if (!claimEvent(event.eventId(), "ModerationCaseResolved")) {
             return;
         }
         if (event.targetsUser()) {
@@ -176,7 +172,6 @@ public class GamificationApplicationService {
                         penalty(ruleKey), event.eventId(), null);
             }
         }
-        markProcessed(event.eventId(), "ModerationCaseResolved");
     }
 
     // --- Queries ---
@@ -316,12 +311,8 @@ public class GamificationApplicationService {
         return new LevelRuleSet(levelRules.findAll());
     }
 
-    private boolean alreadyProcessed(UUID eventId) {
-        return inbox.existsByEventId(eventId);
-    }
-
-    private void markProcessed(UUID eventId, String eventType) {
-        inbox.markProcessed(eventId, eventType, clock.instant());
+    private boolean claimEvent(UUID eventId, String eventType) {
+        return inbox.tryClaim(eventId, eventType, clock.instant());
     }
 
     private RewardRule reward(String ruleKey) {

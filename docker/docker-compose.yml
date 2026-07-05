@@ -150,12 +150,26 @@ services:
     container_name: parkio-redis
     restart: unless-stopped
     logging: *default-logging
-    command: ["redis-server", "--appendonly", "yes"]
+    environment:
+      REDIS_PASSWORD: ${REDIS_PASSWORD:-}
+    command:
+      - /bin/sh
+      - -c
+      - |
+        if [ -n "$$REDIS_PASSWORD" ]; then
+          exec redis-server --appendonly yes --requirepass "$$REDIS_PASSWORD"
+        else
+          exec redis-server --appendonly yes
+        fi
     ports: ["${REDIS_PORT:-6379}:6379"]
     volumes: ["redis-data:/data"]
     networks: [parkio-backend]
     healthcheck:
-      test: ["CMD", "redis-cli", "ping"]
+      test:
+        [
+          "CMD-SHELL",
+          'if [ -n "$REDIS_PASSWORD" ]; then redis-cli -a "$REDIS_PASSWORD" ping | grep -q PONG; else redis-cli ping | grep -q PONG; fi',
+        ]
       interval: 10s
       timeout: 3s
       retries: 5
@@ -212,6 +226,20 @@ services:
       - --topic.filter=^parkio\..*
       - --group.filter=^.*-service
     ports: ["127.0.0.1:${KAFKA_EXPORTER_PORT:-9308}:9308"]
+    networks: [parkio-backend, parkio-observability]
+
+  # blackbox-exporter — HTTP/TCP probes for infra that does not expose Prometheus metrics.
+  # Prometheus scrapes /probe; targets are on the backend network (MinIO, Redis, ClamAV, Postgres).
+  blackbox-exporter:
+    image: ${BLACKBOX_EXPORTER_IMAGE:-prom/blackbox-exporter:v0.25.0}
+    container_name: parkio-blackbox-exporter
+    restart: unless-stopped
+    logging: *default-logging
+    command:
+      - --config.file=/etc/blackbox/blackbox.yml
+    volumes:
+      - ./blackbox/blackbox.yml:/etc/blackbox/blackbox.yml:ro
+    ports: ["127.0.0.1:${BLACKBOX_EXPORTER_PORT:-9115}:9115"]
     networks: [parkio-backend, parkio-observability]
 
   # ------------------------------------------------------------------------- #
@@ -406,6 +434,7 @@ services:
       - --path.procfs=/host/proc
       - --path.sysfs=/host/sys
       - --path.rootfs=/host/root
+      - --collector.textfile.directory=/textfile-collector
       # Drop pseudo/bind/overlay mounts so disk alerts track real host filesystems (e.g. "/").
       - --collector.filesystem.mount-points-exclude=^/(host/(dev|proc|sys)|dev|proc|sys|run/.+|var/lib/docker/.+)($$|/)
       - --collector.filesystem.fs-types-exclude=^(tmpfs|overlay|squashfs|fuse.*|autofs|devtmpfs|nsfs|cgroup.*|mqueue|proc|sysfs|tracefs|bpf|debugfs)$$
@@ -413,6 +442,7 @@ services:
       - /proc:/host/proc:ro
       - /sys:/host/sys:ro
       - /:/host/root:ro,rslave
+      - ./prometheus/textfile:/textfile-collector
     ports: ["127.0.0.1:${NODE_EXPORTER_PORT:-9100}:9100"]
     # Observability network only: Prometheus scrapes it; it needs no backend/data access.
     networks: [parkio-observability]

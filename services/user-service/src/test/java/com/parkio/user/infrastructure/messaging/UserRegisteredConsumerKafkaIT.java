@@ -242,16 +242,11 @@ class UserRegisteredConsumerKafkaIT {
     }
 
     private static final class FakeInboxEventRepository implements InboxEventRepository {
-        private final List<UUID> processed = new ArrayList<>();
+        private final java.util.Set<UUID> claimed = java.util.concurrent.ConcurrentHashMap.newKeySet();
 
         @Override
-        public boolean existsByEventId(UUID eventId) {
-            return processed.contains(eventId);
-        }
-
-        @Override
-        public void markProcessed(UUID eventId, String eventType, Instant processedAt) {
-            processed.add(eventId);
+        public boolean tryClaim(UUID eventId, String eventType, Instant processedAt) {
+            return claimed.add(eventId);
         }
     }
 

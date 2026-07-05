@@ -804,7 +804,7 @@ class AuthApplicationServiceTest {
 
         service.handleUserSuspended(suspend); // must not throw
 
-        assertThat(inbox.processed).containsKey(suspend.eventId());
+        assertThat(inbox.claimed).contains(suspend.eventId());
     }
 
     private static UserSuspendedEvent suspendedEvent(UUID userId, Instant occurredAt) {
@@ -941,16 +941,11 @@ class AuthApplicationServiceTest {
     }
 
     private static final class FakeInboxEventRepository implements InboxEventRepository {
-        private final Map<UUID, String> processed = new HashMap<>();
+        private final java.util.Set<UUID> claimed = java.util.concurrent.ConcurrentHashMap.newKeySet();
 
         @Override
-        public boolean existsByEventId(UUID eventId) {
-            return processed.containsKey(eventId);
-        }
-
-        @Override
-        public void markProcessed(UUID eventId, String eventType, Instant processedAt) {
-            processed.put(eventId, eventType);
+        public boolean tryClaim(UUID eventId, String eventType, Instant processedAt) {
+            return claimed.add(eventId);
         }
     }
 

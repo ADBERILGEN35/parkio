@@ -170,6 +170,11 @@ demand, and on PRs that change the backup scripts, the compose stack, or the par
 migrations. This makes "are our backups actually restorable?" a continuously-proven,
 repeatable fact instead of a one-off manual ritual.
 
+**[`observability-validation.yml`](.github/workflows/observability-validation.yml) — the
+observability gate.** Validates Prometheus config/rules (`promtool`), Alertmanager render
+(`amtool`), compose config, backup/restore dry-runs, and shell syntax on PRs that touch
+`docker/prometheus/**`, `docker/alertmanager/**`, backup scripts, or the workflow itself.
+
 **[`security-ci.yml`](.github/workflows/security-ci.yml) — security scanning gates.**
 Runs on PRs, pushes to `master`, weekly, and on demand:
 

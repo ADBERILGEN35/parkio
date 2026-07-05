@@ -11,6 +11,11 @@ Developer and CI helper scripts.
 | `lib/deploy-common.sh` | Shared helpers for deploy/rollback (sourced, not run directly). |
 | `run-service.sh`      | Run a single service locally (`run-service.sh auth-service`). |
 | `backup-databases.sh` | Dump every service DB (`pg_dump` via `docker exec`); optional AES-256 + offsite upload. |
+| `backup-minio.sh` | Mirror the MinIO media bucket via `mc`. |
+| `backup-hosted-beta.sh` | Orchestrate DB + MinIO backup, manifest, and Prometheus metrics. |
+| `restore-hosted-beta.sh` | Restore from a backup manifest (databases and/or MinIO). |
+| `verify-security-boundaries.sh` | Gateway path-traversal probes + compose render (see `docs/operations/security-boundaries.md`). |
+| `lib/backup-common.sh` | Shared backup helpers (sourced, not run directly). |
 | `restore-database.sh` | Restore ONE service DB from a dump (destructive; guarded by a confirmation prompt). |
 | `verify-backup.sh`    | Prove a dump restores cleanly into a disposable temp DB (live data untouched). |
 | `restore-drill.sh`    | End-to-end restore drill: seed canary → backup → restore → assert data **and** parking's PostGIS objects survive. Runs in CI (`backup-restore-drill.yml`). |
