@@ -1,12 +1,20 @@
 # docs
 
-Architecture and design documentation for Parkio.
+Architecture, operations, certification, and release documentation for Parkio.
 
-Suggested contents as the platform grows:
+## Layout
 
-- `architecture/` — system context, container diagrams, ADRs (architecture
-  decision records).
-- `services/` — per-service contracts, API specs (OpenAPI) and event schemas.
-- `runbooks/` — operational runbooks.
+| Path | Contents |
+|------|----------|
+| [`ai-context/`](ai-context/) | Contributor rules — architecture, security, service boundaries |
+| [`architecture/`](architecture/) | System context, production-readiness plan |
+| [`beta/`](beta/) | Hosted-beta deploy and mobile release runbooks |
+| [`operations/`](operations/) | VPS checklist, backups, DR, supply chain, runtime sizing |
+| [`certification/`](certification/) | Frontend certification reports (F2, FFINAL) |
+| [`releases/`](releases/) | RC1 release notes, checklist, known issues, readiness |
 
-Keep service contracts here rather than sharing code between services.
+Service contracts (OpenAPI, event schemas) belong in documentation — **not** as shared code between microservices.
+
+## Release candidate
+
+Current target: **v1.0.0-rc1** — see [`releases/RC1-READINESS.md`](releases/RC1-READINESS.md).

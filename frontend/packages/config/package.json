@@ -1,6 +1,6 @@
 {
   "name": "@parkio/config",
-  "version": "0.0.0",
+  "version": "1.0.0-rc1",
   "private": true,
   "type": "module",
   "files": ["tsconfig.base.json", "tsconfig.react.json", "eslint.config.js"],

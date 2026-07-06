@@ -4,12 +4,11 @@ Parkio is a Java 21 / Spring Boot 3.5.x microservice platform, organised as a Gr
 (Kotlin DSL) monorepo. Each backend capability is an **independently runnable**
 Spring Boot service with its own build, Dockerfile and bounded context.
 
-> **Status:** hosted-beta / closed-beta candidate. Parkio has real backend
+> **Status:** **v1.0.0-rc1** hosted-beta release candidate. Parkio has real backend
 > domain logic, browser auth/session hardening, media upload and scanning,
 > moderation, gamification, observability, a React frontend, CI, and real-stack
-> E2E wiring. It is **not full production-ready yet**; production still requires
-> operational hardening, managed/HA data services, rollout automation and live
-> readiness verification.
+> E2E wiring. **Hosted beta: GO** (operator checklist). **Public production: NO GO**
+> until platform blockers close — see [`docs/releases/RC1-READINESS.md`](docs/releases/RC1-READINESS.md).
 
 ## Repository layout
 
@@ -34,10 +33,13 @@ parkio/
 │   ├── moderation-service/   # Content moderation                (:8087)
 │   ├── ai-validation-service/# AI-assisted validation            (:8088)
 │   └── analytics-service/    # Event ingestion & analytics       (:8089)
-├── docs/                     # Architecture & design documentation
-├── infra/                    # Infrastructure-as-code (k8s, terraform, …)
+├── frontend/                 # pnpm monorepo — web SPA, mobile app, shared packages
+├── benchmarks/               # k6 load tests and reports
+├── tools/                    # Operational tools (e.g. DLT redrive)
+├── docs/                     # Architecture, operations, certification, releases
+├── infra/                    # Infrastructure-as-code (placeholder for beta)
 ├── docker/                   # Local compose stack & container assets
-└── scripts/                  # Developer & CI helper scripts
+└── scripts/                  # Developer, deploy & preflight scripts
 ```
 
 ## Architecture principles
@@ -340,17 +342,37 @@ Fresh checkouts need no manual steps — `gradlew.bat` materializes as CRLF and
 ## Running with Docker
 
 Each service ships a multi-stage [`Dockerfile`](services/auth-service/Dockerfile).
-See [`docker/`](docker) for a local Compose stack:
+See [`docker/README.md`](docker/README.md) for the **full application stack**
+(infra + services + web). The infra-only compose file is for partial local dev:
 
 ```bash
 docker compose -f docker/docker-compose.yml up --build
 ```
+
+For hosted beta, use the overlays and runbooks in [`docs/beta/`](docs/beta/) and
+run `scripts/preflight-hosted-beta.sh` before deploy.
 
 The runtime is production-hardened for a single VPS: per-container resource ceilings,
 JVM heap pinned to its container limit with fail-fast on OOM, Actuator-readiness
 healthchecks with startup ordering, graceful shutdown, and bounded log rotation. Host
 sizing and the full resource model are documented in
 [`docs/operations/runtime-sizing.md`](docs/operations/runtime-sizing.md).
+
+## Release & certification
+
+| Document | Purpose |
+|----------|---------|
+| [`CHANGELOG.md`](CHANGELOG.md) | Version history (Keep a Changelog) |
+| [`docs/releases/RC1-RELEASE-NOTES.md`](docs/releases/RC1-RELEASE-NOTES.md) | v1.0.0-rc1 release notes |
+| [`docs/releases/RC1-CHECKLIST.md`](docs/releases/RC1-CHECKLIST.md) | Pre-tag checklist |
+| [`docs/releases/KNOWN-ISSUES.md`](docs/releases/KNOWN-ISSUES.md) | Verified limitations |
+| [`docs/releases/RC1-READINESS.md`](docs/releases/RC1-READINESS.md) | GO / NO GO decision |
+| [`docs/certification/`](docs/certification/) | Frontend certification reports |
+| [`SECURITY.md`](SECURITY.md) | Vulnerability reporting |
+| [`CONTRIBUTING.md`](CONTRIBUTING.md) | Contribution guide |
+| [`SUPPORT.md`](SUPPORT.md) | Operator troubleshooting |
+
+Tag releases with semver `v*` (e.g. `v1.0.0-rc1`). The [`release.yml`](.github/workflows/release.yml) workflow builds, tests, generates SBOMs, and creates a **draft** GitHub Release.
 
 ## Documentation & AI-tool hygiene
 
