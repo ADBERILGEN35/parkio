@@ -3,7 +3,7 @@
 **Release candidate:** `v1.0.0-rc1`  
 **Date:** 2026-07-06  
 **Track:** Hosted beta (closed / operator-run)  
-**Commit baseline:** `ff602af` + RC1 documentation pack
+**Commit baseline:** `4cb7ed187d898e62934c3619c6862e7f5b51180a` (tag `v1.0.0-rc1`)
 
 ---
 
@@ -65,26 +65,16 @@ See [`docs/architecture/production-readiness.md`](../architecture/production-rea
 
 ## Certification summary
 
-### Backend (program complete — reports in sprint history)
-
-| Sprint | Area |
-|--------|------|
-| R-001 | Media |
-| R-002 | Notifications |
-| R-003 | Smart Return |
-| R-004 | Authentication & session |
-| R5 | Deployment / security / observability |
-| R6 | Infrastructure / product quality |
-| Final | Production certification |
-
-### Frontend (repository artifacts)
+### Certification (repository artifacts — RC1.3)
 
 | Document | Status |
 |----------|--------|
-| [`FINAL-FRONTEND-CERTIFICATION.md`](../certification/FINAL-FRONTEND-CERTIFICATION.md) | **GO** hosted beta (web); mobile with operator caveat |
-| [`F2-FRONTEND-RUNTIME-CERTIFICATION.md`](../certification/F2-FRONTEND-RUNTIME-CERTIFICATION.md) | Web runtime matrix |
+| [`FINAL-PRODUCTION-CERTIFICATION.md`](../certification/FINAL-PRODUCTION-CERTIFICATION.md) | **Authoritative** project certification |
+| [`FINAL-BACKEND-CERTIFICATION.md`](../certification/FINAL-BACKEND-CERTIFICATION.md) | Backend **GO** hosted beta |
+| [`FINAL-FRONTEND-CERTIFICATION.md`](../certification/FINAL-FRONTEND-CERTIFICATION.md) | Frontend **GO** (web); mobile operator caveat |
+| [`F2-FRONTEND-RUNTIME-CERTIFICATION.md`](../certification/F2-FRONTEND-RUNTIME-CERTIFICATION.md) | Historical web runtime matrix |
 
-**FFINAL score:** 86/100 — public production **NO GO**.
+**Scores:** Backend 87/100 · Frontend 86/100 · Overall 84/100 — public production **NO GO**.
 
 ---
 
@@ -171,5 +161,8 @@ The [`release.yml`](../../.github/workflows/release.yml) workflow (when enabled)
 
 - [RC1 readiness decision](RC1-READINESS.md)
 - [RC1 checklist](RC1-CHECKLIST.md)
+- [FINAL Production Certification](../certification/FINAL-PRODUCTION-CERTIFICATION.md)
+- [FINAL Backend Certification](../certification/FINAL-BACKEND-CERTIFICATION.md)
+- [FINAL Frontend Certification](../certification/FINAL-FRONTEND-CERTIFICATION.md)
 - [Support / troubleshooting](../../SUPPORT.md)
 - [Security policy](../../SECURITY.md)

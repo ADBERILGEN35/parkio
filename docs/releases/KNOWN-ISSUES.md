@@ -11,7 +11,7 @@ Verified findings only. No speculative defects.
 | HB-01 | **Mobile device runtime smoke not executed** on FFINAL (emulator present; dev client session not recorded) | Mobile beta widened without fresh device proof | Run dev-client login + upload smoke on physical device before broad mobile beta ([`docs/beta/mobile-release.md`](../beta/mobile-release.md)) |
 | HB-02 | **Single-node data plane** in default Compose overlay (Postgres, Kafka, MinIO, Redis) | No HA; node loss = outage | Accept for closed beta; monitor disk; follow backup runbook |
 | HB-03 | **`infra/` IaC is placeholder** | No Terraform/K8s automation in repo | Use `docker/` + operator scripts for beta |
-| HB-04 | **Gradle/npm dev version labels** (`0.0.1-SNAPSHOT`, `0.0.0`) until tag build | Cosmetic in dev; release workflow passes `-PparkioVersion` from tag | Set `PARKIO_IMAGE_VERSION=v1.0.0-rc1` when deploying tagged images |
+| HB-04 | **Gradle/Docker dev version labels** (`0.0.1-SNAPSHOT` default) | Cosmetic in dev; release uses tag override | Set `PARKIO_IMAGE_VERSION=v1.0.0-rc1` and `-PparkioVersion` at release build |
 | HB-05 | **Web profile / Smart Return / legal pages** not re-run on FFINAL real-stack smoke | Gaps in runtime proof, not proven bugs | Spot-check manually during beta; file issues if found |
 | HB-06 | **Expo Go limitations** for push notifications | Push may not work in Expo Go | Use dev client or release APK for push testing |
 
@@ -28,7 +28,7 @@ Verified findings only. No speculative defects.
 | PP-05 | **No on-call / alerting production runbook** | Incidents undetected | Partial — Alertmanager wired; on-call process operator-defined |
 | PP-06 | **No load / security pen test at production scale** | Unknown capacity / vuln surface | **NO GO** |
 
-Source: [`docs/architecture/production-readiness.md`](../architecture/production-readiness.md), FFINAL certification.
+Source: [`docs/architecture/production-readiness.md`](../architecture/production-readiness.md), [`FINAL-PRODUCTION-CERTIFICATION.md`](../certification/FINAL-PRODUCTION-CERTIFICATION.md).
 
 ---
 
@@ -42,6 +42,19 @@ Source: [`docs/architecture/production-readiness.md`](../architecture/production
 | OP-04 | **CORS empty = deny** | SPA login fails if origins not set | Set `PARKIO_CORS_ALLOWED_ORIGINS` |
 | OP-05 | **Media public endpoint must match browser URL** | 403 on image display | Align `PARKIO_MEDIA_STORAGE_PUBLIC_ENDPOINT` |
 | OP-06 | **Backup restore not automated in CI** | Untested restore = data risk | Execute [`backup-runbook.md`](../operations/backup-runbook.md) drill |
+
+---
+
+## Open source publication
+
+| ID | Issue | Impact | Mitigation |
+|----|-------|--------|------------|
+| OSS-01 | **No `LICENSE`** | Blocks OSS distribution | Maintainer must select and add license |
+| OSS-02 | **No `NOTICE`** | Attribution unclear for third parties | Add if required by chosen license |
+| OSS-03 | **No `CODEOWNERS`** | Review routing undefined | Add for public collaboration |
+| OSS-04 | **No `CODE_OF_CONDUCT.md`** | Community norms undefined | Add before public contribution intake |
+
+**Open source publication remains NO GO** until OSS-01 is resolved.
 
 ---
 

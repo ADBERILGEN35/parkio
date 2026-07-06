@@ -2,8 +2,10 @@
 
 **Date:** 2026-07-06  
 **Sprint:** FFINAL — Frontend Final Production Certification  
-**Repository commit reviewed:** `ff602af` (master, ahead of origin)  
+**Repository commit reviewed:** `4cb7ed1` (tag `v1.0.0-rc1`)  
 **Method:** Repository code review, automated verification gates, secret scanning, and **short real-stack web smoke** against the live Docker gateway (`localhost:8080`) and production web preview (`localhost:5173`). No fabricated runtime evidence.
+
+**Related:** [`FINAL-BACKEND-CERTIFICATION.md`](FINAL-BACKEND-CERTIFICATION.md) · [`FINAL-PRODUCTION-CERTIFICATION.md`](FINAL-PRODUCTION-CERTIFICATION.md)
 
 **Prior sprints incorporated:** F1 (static audit), F2 (web runtime), F3 (mobile runtime findings), F3.1 (home session consistency), F3.2 (mobile analytics RBAC), F3.3 (web analytics RBAC), F3.4 (upload race investigation — closed non-actionable).
 
@@ -280,4 +282,4 @@ corepack pnpm --filter @parkio/mobile run doctor   PASS (21/21)
 
 ---
 
-*This document is the authoritative frontend certification report for the Parkio hosted-beta program. Repository code and FFINAL gate output are the source of truth.*
+*This document is the authoritative frontend certification report for Parkio v1.0.0-rc1. See also [`FINAL-BACKEND-CERTIFICATION.md`](FINAL-BACKEND-CERTIFICATION.md) and [`FINAL-PRODUCTION-CERTIFICATION.md`](FINAL-PRODUCTION-CERTIFICATION.md).*

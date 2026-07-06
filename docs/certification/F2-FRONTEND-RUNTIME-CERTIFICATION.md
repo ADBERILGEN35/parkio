@@ -52,45 +52,9 @@ All scenarios **NOT EXECUTED** (no adb device).
 
 ---
 
-## 5. Authentication Runtime
+## 5–11. Runtime areas
 
-FULLY CERTIFIED for exercised paths (login, logout, logout-all, HttpOnly refresh, no localStorage tokens).
-
----
-
-## 6. Upload Runtime
-
-PARTIALLY CERTIFIED (real upload, ClamAV READY, spot create; INVALID_IMAGE and PUBLIC_MEDIA_URL enforcement correct).
-
----
-
-## 7. Notification Runtime
-
-PARTIALLY CERTIFIED (inbox, filters, SR deeplink, no coordinates in text).
-
----
-
-## 8. Smart Return Runtime
-
-PARTIALLY CERTIFIED (notification deeplink only).
-
----
-
-## 9. Security Runtime
-
-PARTIALLY CERTIFIED (token storage, RBAC, upload fail-closed). CSP/open redirect NOT EXECUTED.
-
----
-
-## 10. Accessibility Runtime
-
-PARTIALLY CERTIFIED (labels/headings in E2E). Full keyboard/screen reader NOT EXECUTED.
-
----
-
-## 11. Performance Runtime
-
-PARTIALLY CERTIFIED (build PASS; map library >823KB chunk warning). Timed metrics NOT EXECUTED.
+Authentication, upload, notifications, Smart Return, security, accessibility, and performance runtime areas are **PARTIALLY CERTIFIED** or **NOT EXECUTED** as detailed in FFINAL. See [`FINAL-FRONTEND-CERTIFICATION.md`](FINAL-FRONTEND-CERTIFICATION.md).
 
 ---
 
@@ -106,37 +70,21 @@ E2E harness only (F2-E2E-1.5, F2-OPS-1 CORS origin). No P0/P1 product defects.
 
 ---
 
-## 14. Files Changed
+## 14–16. Files, tests, evidence
 
-E2E spec + optional fixtures + this report. No product code.
-
----
-
-## 15. Tests Added
-
-None (E2E harness corrections only).
-
----
-
-## 16. Runtime Evidence
-
-`.codex/f2-frontend-runtime/playwright-real-e2e-final.log`, `runtime-evidence.txt`, `environment.txt`, gateway logs.
+E2E spec + optional fixtures + this report. No product code. Evidence under `.codex/f2-frontend-runtime/`.
 
 ---
 
 ## 17. Verification Gates
 
-All PASS: gradle clean build, integrationTest, pnpm install/typecheck/lint/test/build, mobile doctor 21/21, e2e-real 11/11.
+All PASS at F2 sprint: gradle clean build, integrationTest, pnpm install/typecheck/lint/test/build, mobile doctor 21/21, e2e-real 11/11.
 
 ---
 
-## 18. Remaining Gaps
+## 18–19. Gaps and decision
 
 Mobile device runtime; web profile/password/offline; push; full a11y/security/performance runtime.
-
----
-
-## 19. Certification Decision
 
 | Layer | Status |
 |-------|--------|
@@ -144,4 +92,4 @@ Mobile device runtime; web profile/password/offline; push; full a11y/security/pe
 | Mobile runtime | NOT CERTIFIED |
 | Verification gates | FULLY CERTIFIED |
 
-Superseded for final decision by [`FINAL-FRONTEND-CERTIFICATION.md`](FINAL-FRONTEND-CERTIFICATION.md).
+Superseded for final decision by [`FINAL-FRONTEND-CERTIFICATION.md`](FINAL-FRONTEND-CERTIFICATION.md) and [`FINAL-PRODUCTION-CERTIFICATION.md`](FINAL-PRODUCTION-CERTIFICATION.md).

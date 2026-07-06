@@ -367,7 +367,9 @@ sizing and the full resource model are documented in
 | [`docs/releases/RC1-CHECKLIST.md`](docs/releases/RC1-CHECKLIST.md) | Pre-tag checklist |
 | [`docs/releases/KNOWN-ISSUES.md`](docs/releases/KNOWN-ISSUES.md) | Verified limitations |
 | [`docs/releases/RC1-READINESS.md`](docs/releases/RC1-READINESS.md) | GO / NO GO decision |
-| [`docs/certification/`](docs/certification/) | Frontend certification reports |
+| [`docs/certification/FINAL-PRODUCTION-CERTIFICATION.md`](docs/certification/FINAL-PRODUCTION-CERTIFICATION.md) | Authoritative project certification |
+| [`docs/certification/FINAL-BACKEND-CERTIFICATION.md`](docs/certification/FINAL-BACKEND-CERTIFICATION.md) | Backend certification (R-001–R6) |
+| [`docs/certification/FINAL-FRONTEND-CERTIFICATION.md`](docs/certification/FINAL-FRONTEND-CERTIFICATION.md) | Frontend certification (F1–FFINAL) |
 | [`SECURITY.md`](SECURITY.md) | Vulnerability reporting |
 | [`CONTRIBUTING.md`](CONTRIBUTING.md) | Contribution guide |
 | [`SUPPORT.md`](SUPPORT.md) | Operator troubleshooting |

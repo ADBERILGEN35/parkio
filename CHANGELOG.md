@@ -15,7 +15,7 @@ First **hosted-beta release candidate**. Application layer certified; public pro
 - **Hosted beta:** Docker Compose overlays, Caddy TLS, preflight/deploy scripts, operator runbooks (`docs/beta/`, `docs/operations/`).
 - **Observability:** Prometheus, Grafana dashboards, Loki, Alertmanager wiring, documented metrics catalogue.
 - **Supply chain:** CycloneDX SBOMs, Trivy scanning, gitleaks, Dependabot, draft GitHub Release workflow (`.github/workflows/release.yml`).
-- **Certification:** Frontend final certification report (`docs/certification/FINAL-FRONTEND-CERTIFICATION.md`).
+- **Certification:** Backend, frontend, and production certification reports (`docs/certification/FINAL-*.md`).
 - **Release engineering:** `CHANGELOG.md`, `SECURITY.md`, `CONTRIBUTING.md`, `SUPPORT.md`, `docs/releases/*` RC1 pack.
 
 ### Backend — Authentication & session (R-004)
@@ -64,6 +64,11 @@ First **hosted-beta release candidate**. Application layer certified; public pro
 - MinIO media storage adapter compatibility (Boot 3.5 / MinIO 8.x line).
 - Mobile SecureStore web compatibility; Expo Go notification guards.
 
+### Changed (RC1.3 documentation)
+
+- Added [`FINAL-BACKEND-CERTIFICATION.md`](docs/certification/FINAL-BACKEND-CERTIFICATION.md) and [`FINAL-PRODUCTION-CERTIFICATION.md`](docs/certification/FINAL-PRODUCTION-CERTIFICATION.md).
+- Aligned release docs to commit `4cb7ed1` and tag `v1.0.0-rc1`; fixed GitHub release URL.
+
 ### Known limitations (RC1)
 
 - No `LICENSE` file — required before public open-source distribution.
@@ -71,4 +76,4 @@ First **hosted-beta release candidate**. Application layer certified; public pro
 - Mobile runtime smoke not re-executed on device for FFINAL.
 - Public production: HA data plane, secrets manager, CD rollback, on-call — not complete.
 
-[1.0.0-rc1]: https://github.com/parkio/parkio/releases/tag/v1.0.0-rc1
+[1.0.0-rc1]: https://github.com/ADBERILGEN35/parkio/releases/tag/v1.0.0-rc1
