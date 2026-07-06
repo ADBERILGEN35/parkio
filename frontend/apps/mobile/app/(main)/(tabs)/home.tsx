@@ -7,13 +7,20 @@ import { Badge, Card, Screen, SkeletonCard, StateView, type BadgeTone } from '@/
 import { AppText } from '@/components/ui/AppText';
 import { appConfig } from '@/config/env';
 import { usersApi } from '@/services/api';
+import { useAuthStore } from '@/state/authStore';
 import { MIN_TOUCH_TARGET, useTheme } from '@/theme';
 
 export default function HomeScreen() {
+  const authUserId = useAuthStore((s) => s.user?.id ?? null);
   const profileQuery = useQuery<Profile>({ queryKey: ['me', 'profile'], queryFn: usersApi.getMyProfile });
   const statsQuery = useQuery<UserStats>({ queryKey: ['me', 'stats'], queryFn: usersApi.getMyStats });
+  const sessionProfile =
+    profileQuery.data && authUserId && profileQuery.data.authUserId === authUserId
+      ? profileQuery.data
+      : undefined;
 
-  const loading = profileQuery.isPending || statsQuery.isPending;
+  const profilePending = profileQuery.isPending || Boolean(profileQuery.data && !sessionProfile);
+  const loading = profilePending || statsQuery.isPending;
   const error = profileQuery.isError || statsQuery.isError;
 
   return (
@@ -22,7 +29,7 @@ export default function HomeScreen() {
         <AppText variant="caption" tone="muted">
           Welcome back
         </AppText>
-        <AppText variant="title">{greetingName(profileQuery.data)}</AppText>
+        <AppText variant="title">{greetingName(sessionProfile)}</AppText>
       </View>
 
       {loading ? (

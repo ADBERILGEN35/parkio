@@ -4,6 +4,7 @@ import com.parkio.notification.domain.Notification;
 import com.parkio.notification.domain.NotificationType;
 import java.util.LinkedHashMap;
 import java.util.Map;
+import java.util.regex.Pattern;
 
 /** Maps in-app notification metadata to provider-safe push data (route + deeplink). */
 public final class NotificationPushPayloadBuilder {
@@ -11,6 +12,7 @@ public final class NotificationPushPayloadBuilder {
     static final String DATA_ROUTE = "route";
     static final String DATA_DEEPLINK = "deeplink";
     static final String DATA_NOTIFICATION_TYPE = "notificationType";
+    private static final Pattern SPOT_DEEPLINK = Pattern.compile("^/spots/([0-9a-fA-F-]{36})$");
 
     private NotificationPushPayloadBuilder() {
     }
@@ -55,10 +57,12 @@ public final class NotificationPushPayloadBuilder {
             case "/moderation" -> "/(main)/moderation";
             case "/my-spots" -> "/(main)/my-spots";
             case "/upload" -> "/(main)/upload";
-            case "/gamification", "/leaderboard" -> "/(main)/leaderboard";
+            case "/gamification" -> "/(main)/impact";
+            case "/leaderboard" -> "/(main)/leaderboard";
             default -> {
-                if (deeplink.startsWith("/spots/")) {
-                    yield null;
+                var spotMatcher = SPOT_DEEPLINK.matcher(path);
+                if (spotMatcher.matches()) {
+                    yield "/(main)/spots/" + spotMatcher.group(1);
                 }
                 if (deeplink.contains("smart-return")) {
                     yield "/(main)/smart-return";

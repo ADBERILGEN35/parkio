@@ -16,3 +16,7 @@ export type PrivilegedRole = (typeof PRIVILEGED_ROLES)[number];
 export function hasPrivilegedRole(roles: string[]): boolean {
   return roles.some((role) => PRIVILEGED_ROLES.includes(role as PrivilegedRole));
 }
+
+export function hasAdminRole(roles: string[]): boolean {
+  return roles.includes('ADMIN');
+}

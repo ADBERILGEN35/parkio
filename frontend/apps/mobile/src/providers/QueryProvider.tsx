@@ -6,6 +6,7 @@ import {
 import { focusManager, QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { useEffect, useState, type ReactNode } from 'react';
 import { AppState, type AppStateStatus } from 'react-native';
+import { SessionQueryCacheSync } from './SessionQueryCacheSync';
 
 /**
  * TanStack Query provider with mobile-appropriate defaults.
@@ -52,5 +53,10 @@ export function QueryProvider({ children }: { children: ReactNode }) {
     return () => subscription.remove();
   }, []);
 
-  return <QueryClientProvider client={client}>{children}</QueryClientProvider>;
+  return (
+    <QueryClientProvider client={client}>
+      <SessionQueryCacheSync client={client} />
+      {children}
+    </QueryClientProvider>
+  );
 }

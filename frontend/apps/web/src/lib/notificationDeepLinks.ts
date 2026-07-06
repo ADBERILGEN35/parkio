@@ -1,4 +1,4 @@
-import { hasPrivilegedRole, type NotificationType } from '@parkio/types';
+import { hasAdminRole, hasPrivilegedRole, type NotificationType } from '@parkio/types';
 
 /** Web paths a notification may navigate to. Unknown paths fail closed to /notifications. */
 export const ALLOWED_NOTIFICATION_PATHS = [
@@ -14,7 +14,8 @@ export const ALLOWED_NOTIFICATION_PATHS = [
   '/analytics',
 ] as const;
 
-const STAFF_ONLY_PATHS = new Set<string>(['/moderation', '/analytics']);
+const MODERATOR_ONLY_PATHS = new Set<string>(['/moderation']);
+const ADMIN_ONLY_PATHS = new Set<string>(['/analytics']);
 
 const SPOT_PATH = /^\/spots\/[0-9a-f-]{36}$/i;
 
@@ -37,7 +38,11 @@ export function isAllowedNotificationPath(path: string): boolean {
 }
 
 export function isStaffOnlyNotificationPath(path: string): boolean {
-  return STAFF_ONLY_PATHS.has(path);
+  return MODERATOR_ONLY_PATHS.has(path) || ADMIN_ONLY_PATHS.has(path);
+}
+
+export function isAdminOnlyNotificationPath(path: string): boolean {
+  return ADMIN_ONLY_PATHS.has(path);
 }
 
 /** Resolves a safe in-app path for a notification tap. */
@@ -51,7 +56,10 @@ export function resolveNotificationNavigation(
     if (!isAllowedNotificationPath(path)) {
       return '/notifications';
     }
-    if (isStaffOnlyNotificationPath(path) && !hasPrivilegedRole(roles)) {
+    if (MODERATOR_ONLY_PATHS.has(path) && !hasPrivilegedRole(roles)) {
+      return '/notifications';
+    }
+    if (ADMIN_ONLY_PATHS.has(path) && !hasAdminRole(roles)) {
       return '/notifications';
     }
     return deeplink.startsWith('/') ? deeplink : '/notifications';

@@ -138,7 +138,7 @@ public class NotificationApplicationService {
         }
         createInAppNotification(event.ownerUserId(), NotificationType.WARNING,
                 Map.of("message", "Your parking spot was rejected as illegal or risky."),
-                Map.of("deeplink", "/my-spots"));
+                Map.of("deeplink", spotDeeplink(event.parkingSpotId())));
     }
 
     // --- Moderation action events (parkio.moderation.action) ---
@@ -169,7 +169,7 @@ public class NotificationApplicationService {
         if (event.ownerUserId() != null) {
             createInAppNotification(event.ownerUserId(), NotificationType.WARNING,
                     Map.of("message", "Your parking spot was rejected by a moderator."),
-                    Map.of("deeplink", "/my-spots"));
+                    Map.of("deeplink", spotDeeplink(event.parkingSpotId())));
         }
     }
 
@@ -294,5 +294,9 @@ public class NotificationApplicationService {
 
     private boolean claimEvent(UUID eventId, String eventType) {
         return inbox.tryClaim(eventId, eventType, clock.instant());
+    }
+
+    private static String spotDeeplink(UUID parkingSpotId) {
+        return parkingSpotId == null ? "/my-spots" : "/spots/" + parkingSpotId;
     }
 }

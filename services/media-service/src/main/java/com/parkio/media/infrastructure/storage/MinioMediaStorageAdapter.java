@@ -47,7 +47,7 @@ public class MinioMediaStorageAdapter implements MediaStoragePort {
                     .contentType(contentType)
                     .build());
         } catch (Exception e) {
-            throw new MediaStorageException("Failed to store object " + objectKey, e);
+            throw new MediaStorageException("Failed to store media object", e);
         }
         return new StoredObject(bucket, objectKey);
     }
@@ -60,7 +60,7 @@ public class MinioMediaStorageAdapter implements MediaStoragePort {
                     .object(objectKey)
                     .build());
         } catch (Exception e) {
-            throw new MediaStorageException("Failed to remove object " + objectKey, e);
+            throw new MediaStorageException("Failed to remove media object", e);
         }
     }
 
@@ -80,7 +80,7 @@ public class MinioMediaStorageAdapter implements MediaStoragePort {
                     .expiry((int) ttl.toSeconds(), TimeUnit.SECONDS)
                     .build());
         } catch (Exception e) {
-            throw new MediaStorageException("Failed to presign GET URL for object " + objectKey, e);
+            throw new MediaStorageException("Failed to presign media object", e);
         }
     }
 }

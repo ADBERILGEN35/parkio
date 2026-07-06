@@ -68,7 +68,7 @@ describe('createSpotFormSchema', () => {
     );
   });
 
-  it('requires a violation reason when legalStatus is ILLEGAL_OR_RISKY', () => {
+  it('rejects illegal/risky spot creation before the known backend rejection path', () => {
     expect(
       createSpotFormSchema.safeParse({ ...valid, legalStatus: 'ILLEGAL_OR_RISKY' }).success,
     ).toBe(false);
@@ -78,7 +78,7 @@ describe('createSpotFormSchema', () => {
         legalStatus: 'ILLEGAL_OR_RISKY',
         violationReasons: ['NO_PARKING_SIGN'],
       }).success,
-    ).toBe(true);
+    ).toBe(false);
   });
 
   it('does not require violation reasons for legal spots', () => {

@@ -6,6 +6,7 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import com.parkio.notification.application.command.RegisterDeviceTokenCommand;
 import com.parkio.notification.application.command.UpdatePreferencesCommand;
 import com.parkio.notification.application.event.ParkingSpotRejectedByModeratorEvent;
+import com.parkio.notification.application.event.ParkingSpotRejectedEvent;
 import com.parkio.notification.application.event.PointsEarnedEvent;
 import com.parkio.notification.application.event.TrustScoreUpdatedEvent;
 import com.parkio.notification.application.event.UserLevelChangedEvent;
@@ -194,13 +195,17 @@ class NotificationApplicationServiceTest {
     @Test
     void moderatorRejectionWarnsOwnerWhenOwnerKnown() {
         UUID owner = UUID.randomUUID();
+        UUID spotId = UUID.randomUUID();
 
         service.handleParkingSpotRejectedByModerator(new ParkingSpotRejectedByModeratorEvent(
-                UUID.randomUUID(), UUID.randomUUID(), owner, UUID.randomUUID(), UUID.randomUUID(),
+                UUID.randomUUID(), spotId, owner, UUID.randomUUID(), UUID.randomUUID(),
                 "ILLEGAL_OR_RISKY", NOW));
 
         assertThat(notifications.findRecentByUserId(owner, 10)).singleElement()
-                .satisfies(n -> assertThat(n.type()).isEqualTo(NotificationType.WARNING));
+                .satisfies(n -> {
+                    assertThat(n.type()).isEqualTo(NotificationType.WARNING);
+                    assertThat(n.metadata()).containsEntry("deeplink", "/spots/" + spotId);
+                });
     }
 
     @Test
@@ -210,6 +215,21 @@ class NotificationApplicationServiceTest {
                 "ILLEGAL_OR_RISKY", NOW));
 
         assertThat(notifications.byId).isEmpty();
+    }
+
+    @Test
+    void parkingSpotRejectedWarnsOwnerWithSpotDeeplink() {
+        UUID owner = UUID.randomUUID();
+        UUID spotId = UUID.randomUUID();
+
+        service.handleParkingSpotRejected(new ParkingSpotRejectedEvent(
+                UUID.randomUUID(), spotId, owner, UUID.randomUUID(), "ILLEGAL_OR_RISKY", NOW));
+
+        assertThat(notifications.findRecentByUserId(owner, 10)).singleElement()
+                .satisfies(n -> {
+                    assertThat(n.type()).isEqualTo(NotificationType.WARNING);
+                    assertThat(n.metadata()).containsEntry("deeplink", "/spots/" + spotId);
+                });
     }
 
     @Test

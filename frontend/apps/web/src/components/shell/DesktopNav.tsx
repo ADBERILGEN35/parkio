@@ -1,15 +1,14 @@
-import { hasPrivilegedRole } from '@parkio/types';
 import { Icon, cn } from '@parkio/ui';
 import type { ReactNode } from 'react';
 import { Link, NavLink } from 'react-router-dom';
 import { useAuthStore } from '@/auth/store';
-import { PRIVILEGED_NAV, PRIMARY_NAV, SECONDARY_NAV } from './navConfig';
+import { getStaffNavItems, PRIMARY_NAV, SECONDARY_NAV } from './navConfig';
 import { UnreadBadge } from './UnreadBadge';
 
 /** Fixed top glass bar — DESIGN_SYSTEM §2.1 TopNavBar (desktop). */
 export function DesktopNav() {
   const roles = useAuthStore((s) => s.roles);
-  const privileged = hasPrivilegedRole(roles);
+  const staffNav = getStaffNavItems(roles);
 
   return (
     <header className="fixed inset-x-0 top-0 z-50 hidden h-16 border-b border-outline-variant/20 bg-surface/70 shadow-sm backdrop-blur-xl md:block">
@@ -37,13 +36,11 @@ export function DesktopNav() {
               {item.to === '/notifications' ? <UnreadBadge /> : null}
             </DesktopNavLink>
           ))}
-          {privileged
-            ? PRIVILEGED_NAV.map((item) => (
-                <DesktopNavLink key={item.to} to={item.to}>
-                  {item.label}
-                </DesktopNavLink>
-              ))
-            : null}
+          {staffNav.map((item) => (
+            <DesktopNavLink key={item.to} to={item.to}>
+              {item.label}
+            </DesktopNavLink>
+          ))}
         </nav>
 
         <div className="ml-auto flex shrink-0 items-center gap-sm">

@@ -3,6 +3,7 @@ import { useRouter } from 'expo-router';
 import { useState } from 'react';
 import { Alert, StyleSheet, View } from 'react-native';
 import type { Profile } from '@parkio/types';
+import { hasAdminRole, hasPrivilegedRole } from '@parkio/types';
 import { Button, Card, LinkRow, Screen, Skeleton, StateView } from '@/components/ui';
 import { AppText } from '@/components/ui/AppText';
 import { appConfig } from '@/config/env';
@@ -16,7 +17,8 @@ export default function ProfileScreen() {
   const router = useRouter();
   const toast = useToast();
   const [busy, setBusy] = useState(false);
-  const isStaff = roles.includes('MODERATOR') || roles.includes('ADMIN');
+  const showModeration = hasPrivilegedRole(roles);
+  const showAnalytics = hasAdminRole(roles);
 
   const profileQuery = useQuery<Profile>({ queryKey: ['me', 'profile'], queryFn: usersApi.getMyProfile });
 
@@ -149,23 +151,27 @@ export default function ProfileScreen() {
         </View>
       ) : null}
 
-      {isStaff ? (
+      {showModeration || showAnalytics ? (
         <View style={styles.section}>
           <AppText variant="heading">Staff</AppText>
-          <LinkRow
-            icon="shield-checkmark-outline"
-            title="Moderation"
-            description="Review cases and appeals"
-            testID="profile.moderation"
-            onPress={() => router.push('/(main)/moderation')}
-          />
-          <LinkRow
-            icon="stats-chart-outline"
-            title="Analytics"
-            description="Platform KPIs and metrics"
-            testID="profile.analytics"
-            onPress={() => router.push('/(main)/analytics')}
-          />
+          {showModeration ? (
+            <LinkRow
+              icon="shield-checkmark-outline"
+              title="Moderation"
+              description="Review cases and appeals"
+              testID="profile.moderation"
+              onPress={() => router.push('/(main)/moderation')}
+            />
+          ) : null}
+          {showAnalytics ? (
+            <LinkRow
+              icon="stats-chart-outline"
+              title="Analytics"
+              description="Platform KPIs and metrics"
+              testID="profile.analytics"
+              onPress={() => router.push('/(main)/analytics')}
+            />
+          ) : null}
         </View>
       ) : null}
 

@@ -66,5 +66,46 @@ describe('AppShell navigation', () => {
     const morePanel = document.getElementById('mobile-nav-more');
     expect(morePanel).not.toBeNull();
     expect(within(morePanel!).getByRole('link', { name: 'Moderation' })).toBeInTheDocument();
+    expect(within(morePanel!).queryByRole('link', { name: 'Analytics' })).not.toBeInTheDocument();
+  });
+
+  it('shows moderation and analytics in the mobile overflow menu for admins', async () => {
+    useNavHandlers();
+    resetAuth();
+    signInAs(['ADMIN']);
+    renderShell();
+    const user = userEvent.setup();
+
+    await user.click(screen.getByRole('button', { name: 'More' }));
+
+    const morePanel = document.getElementById('mobile-nav-more');
+    expect(morePanel).not.toBeNull();
+    expect(within(morePanel!).getByRole('link', { name: 'Moderation' })).toBeInTheDocument();
+    expect(within(morePanel!).getByRole('link', { name: 'Analytics' })).toBeInTheDocument();
+  });
+
+  it('shows analytics in desktop navigation for admins only', () => {
+    useNavHandlers();
+    resetAuth();
+    signInAs(['ADMIN']);
+    renderShell();
+
+    const home = screen.getByRole('link', { name: 'Parkio home' });
+    const desktopHeader = home.closest('header');
+    expect(desktopHeader).not.toBeNull();
+    expect(within(desktopHeader!).getByRole('link', { name: 'Analytics' })).toBeInTheDocument();
+  });
+
+  it('hides analytics in desktop navigation for moderators', () => {
+    useNavHandlers();
+    resetAuth();
+    signInAs(['MODERATOR']);
+    renderShell();
+
+    const home = screen.getByRole('link', { name: 'Parkio home' });
+    const desktopHeader = home.closest('header');
+    expect(desktopHeader).not.toBeNull();
+    expect(within(desktopHeader!).getByRole('link', { name: 'Moderation' })).toBeInTheDocument();
+    expect(within(desktopHeader!).queryByRole('link', { name: 'Analytics' })).not.toBeInTheDocument();
   });
 });

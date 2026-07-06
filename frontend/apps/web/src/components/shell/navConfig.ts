@@ -1,3 +1,5 @@
+import { hasAdminRole, hasPrivilegedRole } from '@parkio/types';
+
 /** Primary destinations — surfaced in the mobile bottom bar (DESIGN_SYSTEM §2.1). */
 export const PRIMARY_NAV = [
   { to: '/map', label: 'Map', icon: 'map' },
@@ -14,7 +16,18 @@ export const SECONDARY_NAV = [
   { to: '/notifications', label: 'Notifications', icon: 'notifications' },
 ] as const;
 
-export const PRIVILEGED_NAV = [
-  { to: '/moderation', label: 'Moderation', icon: 'gavel' },
-  { to: '/analytics', label: 'Analytics', icon: 'insights' },
-] as const;
+export const MODERATOR_NAV = [{ to: '/moderation', label: 'Moderation', icon: 'gavel' }] as const;
+
+export const ADMIN_NAV = [{ to: '/analytics', label: 'Analytics', icon: 'insights' }] as const;
+
+/** Staff destinations visible for the caller's roles (moderation vs platform analytics). */
+export function getStaffNavItems(roles: string[]) {
+  const items = [];
+  if (hasPrivilegedRole(roles)) {
+    items.push(...MODERATOR_NAV);
+  }
+  if (hasAdminRole(roles)) {
+    items.push(...ADMIN_NAV);
+  }
+  return items;
+}

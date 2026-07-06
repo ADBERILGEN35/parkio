@@ -14,6 +14,8 @@ function renderGuardedApp(initialEntry: string) {
         <Route path="/map" element={<div>Map page stub</div>} />
         <Route element={<RoleRoute requirePrivileged />}>
           <Route path="/moderation" element={<div>Moderation dashboard stub</div>} />
+        </Route>
+        <Route element={<RoleRoute requireAdmin />}>
           <Route path="/analytics" element={<div>Analytics dashboard stub</div>} />
         </Route>
       </Route>
@@ -32,21 +34,40 @@ describe('route guards', () => {
   });
 
   it.each(['/moderation', '/analytics'])(
-    'blocks non-privileged users from %s',
+    'blocks ordinary users from %s',
     (path) => {
       signInAs(['USER']);
       renderGuardedApp(path);
-      expect(
-        screen.getByText('This area requires a moderator or admin role.'),
-      ).toBeInTheDocument();
       expect(screen.queryByText(/dashboard stub/)).not.toBeInTheDocument();
     },
   );
+
+  it('shows moderator messaging when a user is denied moderation', () => {
+    signInAs(['USER']);
+    renderGuardedApp('/moderation');
+    expect(
+      screen.getByText('This area requires a moderator or admin role.'),
+    ).toBeInTheDocument();
+  });
+
+  it('shows admin messaging when a moderator is denied analytics', () => {
+    signInAs(['MODERATOR']);
+    renderGuardedApp('/analytics');
+    expect(screen.getByText('This area requires an admin role.')).toBeInTheDocument();
+    expect(screen.queryByText('Analytics dashboard stub')).not.toBeInTheDocument();
+  });
 
   it('lets a MODERATOR access /moderation', () => {
     signInAs(['MODERATOR']);
     renderGuardedApp('/moderation');
     expect(screen.getByText('Moderation dashboard stub')).toBeInTheDocument();
+  });
+
+  it('blocks a MODERATOR from /analytics', () => {
+    signInAs(['MODERATOR']);
+    renderGuardedApp('/analytics');
+    expect(screen.getByText('This area requires an admin role.')).toBeInTheDocument();
+    expect(screen.queryByText('Analytics dashboard stub')).not.toBeInTheDocument();
   });
 
   it('lets an ADMIN access /analytics', () => {

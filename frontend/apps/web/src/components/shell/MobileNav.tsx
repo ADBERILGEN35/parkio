@@ -1,15 +1,14 @@
-import { hasPrivilegedRole } from '@parkio/types';
 import { Icon, cn } from '@parkio/ui';
 import { useState, type ReactNode } from 'react';
 import { Link, NavLink } from 'react-router-dom';
 import { useAuthStore } from '@/auth/store';
-import { PRIVILEGED_NAV, PRIMARY_NAV, SECONDARY_NAV } from './navConfig';
+import { getStaffNavItems, PRIMARY_NAV, SECONDARY_NAV } from './navConfig';
 import { UnreadBadge } from './UnreadBadge';
 
 /** Fixed bottom tab bar — DESIGN_SYSTEM §2.1 BottomNavBar (mobile). */
 export function MobileNav() {
   const roles = useAuthStore((s) => s.roles);
-  const privileged = hasPrivilegedRole(roles);
+  const staffNav = getStaffNavItems(roles);
   const [moreOpen, setMoreOpen] = useState(false);
 
   return (
@@ -38,18 +37,16 @@ export function MobileNav() {
                 {item.to === '/notifications' ? <UnreadBadge className="ml-auto" /> : null}
               </MoreLink>
             ))}
-            {privileged
-              ? PRIVILEGED_NAV.map((item) => (
-                  <MoreLink
-                    key={item.to}
-                    to={item.to}
-                    icon={item.icon}
-                    onNavigate={() => setMoreOpen(false)}
-                  >
-                    {item.label}
-                  </MoreLink>
-                ))
-              : null}
+            {staffNav.map((item) => (
+              <MoreLink
+                key={item.to}
+                to={item.to}
+                icon={item.icon}
+                onNavigate={() => setMoreOpen(false)}
+              >
+                {item.label}
+              </MoreLink>
+            ))}
           </div>
         </div>
       ) : null}

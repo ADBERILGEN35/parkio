@@ -2,6 +2,7 @@ import { zodResolver } from '@hookform/resolvers/zod';
 import {
   MODERATION_ACTIONS,
   MODERATION_STATUSES,
+  hasPrivilegedRole,
   type ModerationAppeal,
   type ModerationCase,
   type ModerationStatus,
@@ -23,11 +24,32 @@ import { FormSelect } from '@/components/forms/FormSelect';
 import { FormTextField } from '@/components/forms/FormTextField';
 import { useToast } from '@/providers/ToastProvider';
 import { moderationApi } from '@/services/api';
+import { useAuthStore } from '@/state/authStore';
 import { formatRelativeAgo, humanizeEnum } from '@/utils/format';
 import { toUserMessage } from '@/utils/errors';
 import { useTheme } from '@/theme';
 
 export default function ModerationScreen() {
+  const roles = useAuthStore((s) => s.roles);
+  if (!hasPrivilegedRole(roles)) {
+    return (
+      <>
+        <Stack.Screen options={{ headerShown: true, title: 'Access denied' }} />
+        <Screen contentStyle={styles.content} edges={['left', 'right', 'bottom']}>
+          <StateView
+            icon="lock-closed-outline"
+            title="Access denied"
+            description="This area requires a moderator or admin role."
+          />
+        </Screen>
+      </>
+    );
+  }
+
+  return <ModerationContent />;
+}
+
+function ModerationContent() {
   const [selectedCaseId, setSelectedCaseId] = useState<string | null>(null);
   const [statusFilter, setStatusFilter] = useState<ModerationStatus | ''>('');
 

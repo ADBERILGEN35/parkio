@@ -1,5 +1,5 @@
 import type * as NotificationsTypes from 'expo-notifications';
-import { hasPrivilegedRole } from '@parkio/types';
+import { hasAdminRole, hasPrivilegedRole } from '@parkio/types';
 import { Platform } from 'react-native';
 import { notificationsApi } from '@/services/api';
 import { recordError } from '@/services/crashReporting';
@@ -141,16 +141,21 @@ const ALLOWED_ROUTES = [
   '/(main)/impact',
   '/(main)/reports',
   '/(main)/moderation',
+  '/(main)/analytics',
   '/(main)/profile-edit',
 ] as const;
 
-const STAFF_ROUTES = new Set<string>(['/(main)/moderation']);
+const MODERATOR_ROUTES = new Set<string>(['/(main)/moderation']);
+const ADMIN_ONLY_ROUTES = new Set<string>(['/(main)/analytics']);
 
 export type NotificationRoute = (typeof ALLOWED_ROUTES)[number];
 
-/** Staff-only routes require a privileged role; others fall back to notifications. */
+/** Staff routes require the same roles as the gateway (moderation vs platform analytics). */
 export function guardNotificationRoute(route: NotificationRoute, roles: string[]): NotificationRoute {
-  if (STAFF_ROUTES.has(route) && !hasPrivilegedRole(roles)) {
+  if (MODERATOR_ROUTES.has(route) && !hasPrivilegedRole(roles)) {
+    return '/(main)/(tabs)/notifications';
+  }
+  if (ADMIN_ONLY_ROUTES.has(route) && !hasAdminRole(roles)) {
     return '/(main)/(tabs)/notifications';
   }
   return route;

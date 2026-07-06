@@ -51,6 +51,19 @@ if [ ! -f "$ENV_FILE" ]; then
   exit 2
 fi
 
+# R-005: secret/configuration preflight — refuse to build/deploy on placeholder
+# secrets, local-dev leakage, non-HTTPS domains or unsafe toggles. Compose render
+# is skipped here because this script renders the full config itself below.
+if [ "$USE_HOSTED_BETA" -eq 1 ]; then
+  echo "Running secret/configuration preflight (R-005)..."
+  if ! "$ROOT/scripts/preflight-hosted-beta.sh" --env-file "$ENV_FILE" --skip-compose; then
+    echo "ERROR: preflight failed — deployment aborted before build. Fix the FAIL lines above." >&2
+    exit 3
+  fi
+else
+  echo "WARN: --no-hosted-beta-overlay set — skipping hosted-beta preflight (local/dev deploy)." >&2
+fi
+
 if parkio_git_is_dirty && [ "$ALLOW_DIRTY" -ne 1 ]; then
   echo "ERROR: working tree is dirty. Commit/stash changes, or pass --allow-dirty." >&2
   git status --short >&2

@@ -93,26 +93,26 @@ const createSpotFields = z.object({
   violationReasons: z.array(z.enum(VIOLATION_REASONS)),
 });
 
-function requireViolationReasonsWhenIllegal(
+function rejectIllegalSpotCreation(
   values: { legalStatus?: string; violationReasons: string[] },
   ctx: z.RefinementCtx,
 ) {
-  if (values.legalStatus === 'ILLEGAL_OR_RISKY' && values.violationReasons.length === 0) {
+  if (values.legalStatus === 'ILLEGAL_OR_RISKY') {
     ctx.addIssue({
       code: z.ZodIssueCode.custom,
-      path: ['violationReasons'],
-      message: 'Select at least one violation reason for an illegal/risky spot',
+      path: ['legalStatus'],
+      message: 'Spots marked illegal/risky cannot be created',
     });
   }
 }
 
 /** Create-spot form (mediaId comes from the upload step, not the form). */
-export const createSpotFormSchema = createSpotFields.superRefine(requireViolationReasonsWhenIllegal);
+export const createSpotFormSchema = createSpotFields.superRefine(rejectIllegalSpotCreation);
 
 /** Full request shape — form fields plus the uploaded mediaId. */
 export const createParkingSpotSchema = createSpotFields
   .extend({ mediaId: z.string().uuid('mediaId must be a UUID') })
-  .superRefine(requireViolationReasonsWhenIllegal);
+  .superRefine(rejectIllegalSpotCreation);
 
 export type CreateSpotFormValues = z.infer<typeof createSpotFormSchema>;
 export type CreateParkingSpotFormValues = z.infer<typeof createParkingSpotSchema>;

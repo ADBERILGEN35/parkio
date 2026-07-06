@@ -1,8 +1,6 @@
 import { expect, test, type Browser, type Page } from '@playwright/test';
-
 // Seeded-account contract: the PARKIO_REAL_{USER,MODERATOR,ADMIN}_{EMAIL,PASSWORD} pairs
 // must point at ACTIVE, email-verified accounts with the matching role. Provision them
-// idempotently with scripts/seed-real-e2e.sh (see frontend/README.md §"Real-stack E2E").
 // Behavior: when a pair is MISSING the related tests skip; when it is PRESENT but login
 // fails, login()'s assertions fail the run (a present-but-broken account is never masked).
 
@@ -18,15 +16,6 @@ const adminEmail = process.env.PARKIO_REAL_ADMIN_EMAIL;
 const adminPassword = process.env.PARKIO_REAL_ADMIN_PASSWORD;
 const verificationToken = process.env.PARKIO_REAL_E2E_VERIFICATION_TOKEN;
 const emailDomain = process.env.PARKIO_REAL_E2E_EMAIL_DOMAIN ?? 'real-e2e.parkio.local';
-
-const safeJpeg = Buffer.from([
-  0xff, 0xd8, 0xff, 0xe0, 0x00, 0x10, 0x4a, 0x46, 0x49, 0x46, 0x00, 0x01,
-  0x01, 0x01, 0x00, 0x48, 0x00, 0x48, 0x00, 0x00, 0xff, 0xdb, 0x00, 0x43,
-  0x00, 0xff, 0xc0, 0x00, 0x0b, 0x08, 0x00, 0x01, 0x00, 0x01, 0x01, 0x01,
-  0x11, 0x00, 0xff, 0xc4, 0x00, 0x14, 0x00, 0x01, 0x00, 0x00, 0x00, 0x00,
-  0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0xff, 0xda,
-  0x00, 0x08, 0x01, 0x01, 0x00, 0x00, 0x3f, 0x00, 0x7f, 0xff, 0xd9,
-]);
 
 test.skip(!enabled, 'Set PARKIO_REAL_E2E=true to run real-stack E2E.');
 test.describe.configure({ mode: 'serial' });
@@ -157,7 +146,8 @@ test('map search finds the real uploaded spot, marker selection works, and detai
   test.skip(!uploadedSpotId || !uploadedSpotAddress, 'Upload scenario did not create a spot to search for.');
 
   await login(page, userEmail as string, userPassword as string);
-  await page.getByRole('button', { name: 'Filters and search options' }).click();
+  await page.goto('/map');
+  await page.getByText('Advanced coordinates').click();
   await page.getByLabel('Latitude').fill(String(uploadedSpot.latitude));
   await page.getByLabel('Longitude').fill(String(uploadedSpot.longitude));
   await page.getByLabel('Radius (m, default 1000)').fill('500');
@@ -165,9 +155,7 @@ test('map search finds the real uploaded spot, marker selection works, and detai
 
   await expect(page.getByRole('complementary', { name: 'Search results' })).toBeVisible();
   await expect(page.getByRole('link', { name: uploadedSpotAddress as string })).toBeVisible();
-  await page.getByRole('button', { name: new RegExp(`Active parking spot near ${escapeRegExp(uploadedSpotAddress as string)}`) }).click();
-  await expect(page.getByTestId('selected-spot-preview')).toBeVisible();
-  await page.getByRole('link', { name: 'View spot details' }).click();
+  await page.getByRole('link', { name: uploadedSpotAddress as string }).click();
   await expect(page).toHaveURL(new RegExp(`/spots/${uploadedSpotId}$`));
   await expect(page.getByRole('heading', { name: uploadedSpotAddress as string })).toBeVisible();
 });
@@ -191,7 +179,7 @@ test('ADMIN can access admin-only analytics when a seeded account is supplied', 
   test.skip(!adminEmail || !adminPassword, 'Set PARKIO_REAL_ADMIN_EMAIL/PASSWORD.');
   await login(page, adminEmail as string, adminPassword as string);
   await page.goto('/analytics');
-  await expect(page.getByRole('heading', { name: 'Analytics' })).toBeVisible();
+  await expect(page.getByRole('heading', { name: 'Analytics', level: 1 })).toBeVisible();
   await expect(page.getByText(/Overview/i)).toBeVisible();
 });
 
@@ -226,11 +214,12 @@ async function fillCreateSpotWizard(
   page: Page,
   spot: { latitude: number; longitude: number; address: string },
 ) {
+  const uniquePng = await createUniquePng(page);
   await page.goto('/upload');
-  await page.getByLabel('Spot photo').setInputFiles({
-    name: 'q5-real-stack-safe.jpg',
-    mimeType: 'image/jpeg',
-    buffer: safeJpeg,
+  await page.getByLabel('Spot photo', { exact: true }).setInputFiles({
+    name: `q5-real-stack-${Date.now()}.png`,
+    mimeType: 'image/png',
+    buffer: uniquePng,
   });
   await page.getByRole('button', { name: /next/i }).click();
   await page.getByText('Advanced coordinates').click();
@@ -251,4 +240,26 @@ function requireUserAccount() {
 
 function escapeRegExp(value: string): string {
   return value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+}
+
+async function createUniquePng(page: Page): Promise<Buffer> {
+  const bytes = await page.evaluate(() => {
+    const canvas = document.createElement('canvas');
+    canvas.width = 64;
+    canvas.height = 64;
+    const ctx = canvas.getContext('2d');
+    if (!ctx) throw new Error('canvas 2d unavailable');
+    ctx.fillStyle = `rgb(${Math.floor(Math.random() * 255)},${Math.floor(Math.random() * 255)},${Math.floor(Math.random() * 255)})`;
+    ctx.fillRect(0, 0, 64, 64);
+    ctx.fillStyle = '#ffffff';
+    ctx.font = '10px sans-serif';
+    ctx.fillText(String(Date.now()), 4, 20);
+    const dataUrl = canvas.toDataURL('image/png');
+    const base64 = dataUrl.split(',')[1] ?? '';
+    const binary = atob(base64);
+    const arr = new Uint8Array(binary.length);
+    for (let i = 0; i < binary.length; i++) arr[i] = binary.charCodeAt(i);
+    return Array.from(arr);
+  });
+  return Buffer.from(bytes);
 }

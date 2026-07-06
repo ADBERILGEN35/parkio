@@ -36,22 +36,41 @@ Replace every `CHANGE_ME`. Store a copy in a secrets manager. Required:
 - JWT key, gateway secret, nine DB passwords, Redis, MinIO, Kafka cluster ID
 - Resend API key, Expo access token, Slack webhook, Grafana password
 - Domains, CORS, `VITE_API_BASE_URL`, `PARKIO_MEDIA_STORAGE_PUBLIC_ENDPOINT`
+- Explicit `PARKIO_OPENAPI_ENABLED=false`, `PARKIO_EMAIL_PROVIDER=resend`,
+  `PARKIO_PUSH_DELIVERY_PROVIDER=expo`, `PARKIO_ENVIRONMENT=hosted-beta`
+  (the compose defaults for these are unsafe for a hosted environment)
 
-Validate compose:
+## 5b. Preflight (R-005)
+
+Run the secret/configuration preflight — it validates all of the above plus
+domain/URL hygiene and safety toggles, then renders the compose config
+(`validate-hosted-beta-compose.sh`):
 
 ```bash
-export PARKIO_IMAGE_TAG=sha-test PARKIO_GIT_SHA=test
-export VITE_API_BASE_URL=https://api.beta.example.com/api/v1
-docker compose -f docker-compose.yml -f docker-compose.apps.yml \
-  -f docker-compose.images.yml -f docker-compose.hosted-beta.yml \
-  --env-file .env config --quiet
+cd /opt/parkio && PARKIO_ENV_FILE=docker/.env ./scripts/preflight-hosted-beta.sh
 ```
+
+Output is grouped (`Secrets`, `Domains & URLs`, `Providers`, `Deployment
+safety`, `Compose`); every `FAIL` line names the variable, the problem and a
+`fix:` command. Exit 0 = safe to deploy. The deploy script runs this
+automatically and refuses to build if it fails, so a placeholder or local-dev
+value can never reach the VPS stack. Rules, required formats and fixes:
+`docs/beta/deploy-runbook.md` → "Secret & configuration preflight".
+
+Intentional deviations (each surfaces as a WARN):
+
+- `PARKIO_PREFLIGHT_ALLOW_PROVIDER_OVERRIDE=1` — non-default (but real)
+  email/push provider; document why in the deploy notes.
+- `PARKIO_PREFLIGHT_ALLOW_NO_ALERT_WEBHOOK=1` — run alert-silent
+  (Alertmanager via SSH tunnel only).
 
 ## 6. Deploy
 
 ```bash
 cd /opt/parkio && PARKIO_ENV_FILE=docker/.env ./scripts/deploy-hosted-beta.sh
 ```
+
+The deploy aborts with exit 3 before building any image if the preflight fails.
 
 ## 7. TLS
 

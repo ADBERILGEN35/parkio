@@ -106,10 +106,11 @@ export const router = createBrowserRouter([{
           { path: '/leaderboard', element: lazyRoute(<LeaderboardPage />) },
           {
             element: <RoleRoute requirePrivileged />,
-            children: [
-              { path: '/moderation', element: lazyRoute(<ModerationPage />) },
-              { path: '/analytics', element: lazyRoute(<AnalyticsPage />) },
-            ],
+            children: [{ path: '/moderation', element: lazyRoute(<ModerationPage />) }],
+          },
+          {
+            element: <RoleRoute requireAdmin />,
+            children: [{ path: '/analytics', element: lazyRoute(<AnalyticsPage />) }],
           },
         ],
       },

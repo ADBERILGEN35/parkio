@@ -75,9 +75,13 @@ describe('addNotificationTapListener', () => {
     expect(remove).toHaveBeenCalled();
   });
 
-  it('blocks staff routes for non-privileged users', () => {
+  it('blocks staff routes based on gateway-aligned roles', () => {
     expect(guardNotificationRoute('/(main)/moderation', ['USER'])).toBe('/(main)/(tabs)/notifications');
     expect(guardNotificationRoute('/(main)/moderation', ['MODERATOR'])).toBe('/(main)/moderation');
+    expect(guardNotificationRoute('/(main)/moderation', ['ADMIN'])).toBe('/(main)/moderation');
+    expect(guardNotificationRoute('/(main)/analytics', ['USER'])).toBe('/(main)/(tabs)/notifications');
+    expect(guardNotificationRoute('/(main)/analytics', ['MODERATOR'])).toBe('/(main)/(tabs)/notifications');
+    expect(guardNotificationRoute('/(main)/analytics', ['ADMIN'])).toBe('/(main)/analytics');
   });
 
   it('deactivates backend token on logout without logging token values', async () => {

@@ -21,7 +21,7 @@ import { FriendlyApiErrorMessage } from '@/components/FriendlyApiErrorMessage';
 import { humanizeEnum } from '@/lib/format';
 
 /**
- * Staff analytics dashboard (MODERATOR/ADMIN via RoleRoute + gateway). KPI cards
+ * Platform analytics dashboard (ADMIN via RoleRoute + gateway). KPI cards
  * plus plain tables — no chart library yet. None of the analytics endpoints take
  * query parameters, so there is nothing to filter client-side.
  */

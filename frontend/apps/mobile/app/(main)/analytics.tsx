@@ -1,12 +1,34 @@
+import { hasAdminRole } from '@parkio/types';
 import { useQuery } from '@tanstack/react-query';
 import { Stack } from 'expo-router';
 import { StyleSheet, View } from 'react-native';
 import { Card, Screen, SkeletonCard, StateView } from '@/components/ui';
 import { AppText } from '@/components/ui/AppText';
 import { analyticsApi } from '@/services/api';
+import { useAuthStore } from '@/state/authStore';
 import { humanizeEnum } from '@/utils/format';
 
 export default function AnalyticsScreen() {
+  const roles = useAuthStore((s) => s.roles);
+  if (!hasAdminRole(roles)) {
+    return (
+      <>
+        <Stack.Screen options={{ headerShown: true, title: 'Access denied' }} />
+        <Screen contentStyle={styles.content} edges={['left', 'right', 'bottom']}>
+          <StateView
+            icon="lock-closed-outline"
+            title="Access denied"
+            description="This area requires an admin role."
+          />
+        </Screen>
+      </>
+    );
+  }
+
+  return <AnalyticsContent />;
+}
+
+function AnalyticsContent() {
   return (
     <>
       <Stack.Screen options={{ headerShown: true, title: 'Analytics' }} />
