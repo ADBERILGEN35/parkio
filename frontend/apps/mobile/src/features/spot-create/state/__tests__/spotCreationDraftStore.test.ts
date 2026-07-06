@@ -1,6 +1,7 @@
 import type { UploadMediaResponse } from '@parkio/types';
 import { deleteTempFile } from '@/features/media/lib/fileSystem';
-import { useSpotCreationDraftStore } from '../spotCreationDraftStore';
+import { loadPersistedSpotCreationDraft } from '../../lib/spotCreationDraftPersistence';
+import { useSpotCreationDraftStore, type SpotCreationDraft } from '../spotCreationDraftStore';
 
 jest.mock('@/features/media/lib/fileSystem', () => ({
   deleteTempFile: jest.fn(),
@@ -50,5 +51,49 @@ describe('spotCreationDraftStore preview lifecycle', () => {
     startFromUpload(media('m1-retry'), 'file:///preview-1.jpg');
 
     expect(deleteTempFile).not.toHaveBeenCalled();
+  });
+});
+
+describe('spotCreationDraftStore hydration', () => {
+  const persistedDraft: SpotCreationDraft = {
+    media: media('persisted'),
+    previewUri: 'file:///persisted-preview.jpg',
+    location: null,
+    gpsAccuracyMeters: null,
+    manualLocationEdited: false,
+    vehicleType: 'ANY',
+    parkingContext: 'STREET_PARKING',
+    note: '',
+    submitIdempotencyKey: null,
+  };
+
+  beforeEach(() => {
+    jest.clearAllMocks();
+    useSpotCreationDraftStore.setState({ draft: null });
+  });
+
+  it('restores a persisted draft after process death', async () => {
+    jest.mocked(loadPersistedSpotCreationDraft).mockResolvedValue(persistedDraft);
+
+    await useSpotCreationDraftStore.getState().hydrateDraft();
+
+    expect(useSpotCreationDraftStore.getState().draft?.media.mediaId).toBe('persisted');
+  });
+
+  it('does not overwrite a draft the user started while hydration was in flight', async () => {
+    let resolveLoad: (draft: SpotCreationDraft) => void = () => {};
+    jest.mocked(loadPersistedSpotCreationDraft).mockReturnValue(
+      new Promise((resolve) => {
+        resolveLoad = resolve;
+      }),
+    );
+
+    const hydration = useSpotCreationDraftStore.getState().hydrateDraft();
+    // User starts a fresh upload before the slow keystore read settles.
+    useSpotCreationDraftStore.getState().startFromUpload(media('fresh'), 'file:///fresh.jpg');
+    resolveLoad(persistedDraft);
+    await hydration;
+
+    expect(useSpotCreationDraftStore.getState().draft?.media.mediaId).toBe('fresh');
   });
 });

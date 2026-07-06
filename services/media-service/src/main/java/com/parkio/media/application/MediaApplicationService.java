@@ -27,10 +27,15 @@ import java.time.Instant;
 import java.util.List;
 import java.util.Map;
 import java.util.UUID;
+import java.util.concurrent.atomic.AtomicBoolean;
+import io.micrometer.core.instrument.Counter;
+import io.micrometer.core.instrument.MeterRegistry;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.transaction.support.TransactionSynchronization;
+import org.springframework.transaction.support.TransactionSynchronizationManager;
 
 /**
  * Media use cases: validated upload (size / mime / duplicate), authorized metadata
@@ -67,6 +72,8 @@ public class MediaApplicationService {
     private final MediaUploadConstraints constraints;
     private final MediaAccessUrlPolicy accessUrlPolicy;
     private final Clock clock;
+    private final Counter orphanCleanupAttempts;
+    private final Counter orphanCleanupFailures;
 
     public MediaApplicationService(MediaFileRepository mediaFiles,
                                    MediaValidationResultRepository validationResults,
@@ -77,7 +84,8 @@ public class MediaApplicationService {
                                    MediaRejectionRecorder rejectionRecorder,
                                    MediaUploadConstraints constraints,
                                    MediaAccessUrlPolicy accessUrlPolicy,
-                                   Clock clock) {
+                                   Clock clock,
+                                   MeterRegistry meterRegistry) {
         this.mediaFiles = mediaFiles;
         this.validationResults = validationResults;
         this.storage = storage;
@@ -88,6 +96,12 @@ public class MediaApplicationService {
         this.constraints = constraints;
         this.accessUrlPolicy = accessUrlPolicy;
         this.clock = clock;
+        this.orphanCleanupAttempts = Counter.builder("parkio.media.upload.orphan_cleanup_attempts")
+                .description("Upload-stored objects removed after downstream DB/outbox transaction failure")
+                .register(meterRegistry);
+        this.orphanCleanupFailures = Counter.builder("parkio.media.upload.orphan_cleanup_failures")
+                .description("Upload-stored object cleanup attempts that failed")
+                .register(meterRegistry);
     }
 
     /**
@@ -173,19 +187,29 @@ public class MediaApplicationService {
         Instant now = clock.instant();
         String objectKey = generateObjectKey(ownerUserId, normalizedContentType);
         MediaStoragePort.StoredObject stored = storage.store(objectKey, normalizedContent, normalizedContentType);
+        StoredUploadCleanup cleanup = new StoredUploadCleanup(stored.objectKey());
+        boolean cleanupManagedByTransaction = registerRollbackCleanup(cleanup);
 
-        MediaFile media = MediaFile.create(ownerUserId, stored.bucket(), stored.objectKey(),
-                normalizedContentType, normalizedContent.length, checksum, null, now);
-        media.markReady(now);
-        media = mediaFiles.save(media);
+        try {
+            MediaFile media = MediaFile.create(ownerUserId, stored.bucket(), stored.objectKey(),
+                    normalizedContentType, normalizedContent.length, checksum, null, now);
+            cleanup.mediaId = media.id();
+            media.markReady(now);
+            media = mediaFiles.save(media);
 
-        recordPassed(media.id(), MediaValidationType.FILE_SIZE, now);
-        recordPassed(media.id(), MediaValidationType.MIME_TYPE, now);
-        recordPassed(media.id(), MediaValidationType.DUPLICATE, now);
-        recordPassed(media.id(), MediaValidationType.MALWARE_SCAN, now);
+            recordPassed(media.id(), MediaValidationType.FILE_SIZE, now);
+            recordPassed(media.id(), MediaValidationType.MIME_TYPE, now);
+            recordPassed(media.id(), MediaValidationType.DUPLICATE, now);
+            recordPassed(media.id(), MediaValidationType.MALWARE_SCAN, now);
 
-        outbox.append(MediaUploadedEvent.of(media, now));
-        return MediaUploadResult.from(media);
+            outbox.append(MediaUploadedEvent.of(media, now));
+            return MediaUploadResult.from(media);
+        } catch (RuntimeException ex) {
+            if (!cleanupManagedByTransaction) {
+                cleanupStoredObject(cleanup);
+            }
+            throw ex;
+        }
     }
 
     /** Metadata for the owner (or moderator/admin); unauthorized reads see NOT_FOUND. */
@@ -315,9 +339,56 @@ public class MediaApplicationService {
         rejectionRecorder.record(MediaRejectedEvent.of(ownerUserId, type, reason, checksum, clock.instant()));
     }
 
+    private boolean registerRollbackCleanup(StoredUploadCleanup cleanup) {
+        if (!TransactionSynchronizationManager.isSynchronizationActive()) {
+            return false;
+        }
+        TransactionSynchronizationManager.registerSynchronization(new TransactionSynchronization() {
+            @Override
+            public void afterCompletion(int status) {
+                if (status != STATUS_COMMITTED) {
+                    cleanupStoredObject(cleanup);
+                }
+            }
+        });
+        return true;
+    }
+
+    private void cleanupStoredObject(StoredUploadCleanup cleanup) {
+        if (!cleanup.markCleanupStarted()) {
+            return;
+        }
+        orphanCleanupAttempts.increment();
+        try {
+            storage.delete(cleanup.objectKey);
+        } catch (RuntimeException cleanupFailure) {
+            orphanCleanupFailures.increment();
+            log.warn("Failed to remove stored object after upload transaction failure (mediaId={}, reason={})",
+                    cleanup.safeMediaId(), cleanupFailure.getClass().getSimpleName());
+        }
+    }
+
     private static String generateObjectKey(UUID ownerUserId, String contentType) {
         String extension = EXTENSION_BY_CONTENT_TYPE.getOrDefault(contentType, "");
         // Owner id (a UUID) namespaces the key; the filename is never user-derived.
         return "media/" + ownerUserId + "/" + UUID.randomUUID() + extension;
+    }
+
+    private static final class StoredUploadCleanup {
+        private final String objectKey;
+        private final AtomicBoolean cleanupStarted = new AtomicBoolean(false);
+        private UUID mediaId;
+
+        private StoredUploadCleanup(String objectKey) {
+            this.objectKey = objectKey;
+        }
+
+        private boolean markCleanupStarted() {
+            return cleanupStarted.compareAndSet(false, true);
+        }
+
+        private String safeMediaId() {
+            return mediaId == null ? "unassigned" : mediaId.toString();
+        }
     }
 }

@@ -65,13 +65,14 @@ public class ExpoPushNotificationSender implements PushNotificationSender {
                 metrics.sent();
                 return PushSendResult.sent(ticket.id() == null ? "expo-ok" : ticket.id());
             }
-            String error = ticket.message() == null ? "UNKNOWN" : ticket.message();
-            if (isInvalidToken(error)) {
+            if (isInvalidToken(ticket)) {
                 metrics.invalidToken();
                 return PushSendResult.failed(FAILURE_INVALID_DEVICE_TOKEN);
             }
             metrics.failed();
-            log.warn("Expo push ticket error: {}", error);
+            // Log only the machine-readable code: ticket.message() is free text that
+            // embeds the device token ("ExponentPushToken[...] is not a registered...").
+            log.warn("Expo push ticket error: {}", errorCode(ticket) == null ? "UNKNOWN" : errorCode(ticket));
             return PushSendResult.failed(FAILURE_PROVIDER_REJECTED);
         } catch (ExpoPushException ex) {
             metrics.providerUnavailable();
@@ -84,9 +85,27 @@ public class ExpoPushNotificationSender implements PushNotificationSender {
         }
     }
 
-    private static boolean isInvalidToken(String message) {
-        return "DeviceNotRegistered".equalsIgnoreCase(message)
-                || "InvalidCredentials".equalsIgnoreCase(message);
+    /**
+     * The Expo Push API reports the machine-readable error code in
+     * {@code details.error} (e.g. {@code DeviceNotRegistered}); {@code message} is
+     * human-readable prose. The prose is still checked as a fallback for older
+     * response shapes.
+     */
+    private static boolean isInvalidToken(ExpoTicket ticket) {
+        return isInvalidTokenCode(errorCode(ticket)) || isInvalidTokenCode(ticket.message());
+    }
+
+    private static String errorCode(ExpoTicket ticket) {
+        if (ticket.details() == null) {
+            return null;
+        }
+        Object code = ticket.details().get("error");
+        return code == null ? null : code.toString();
+    }
+
+    private static boolean isInvalidTokenCode(String value) {
+        return "DeviceNotRegistered".equalsIgnoreCase(value)
+                || "InvalidCredentials".equalsIgnoreCase(value);
     }
 
     private record ExpoPushRequest(

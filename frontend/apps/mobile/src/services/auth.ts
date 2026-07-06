@@ -95,20 +95,23 @@ export async function changePassword(currentPassword: string, newPassword: strin
  *
  * 1. Hydrate the access token from the keystore so the UI can render optimistically.
  * 2. Attempt a single-flight refresh (rotating refresh cookie / token) to obtain a
- *    fresh access token and the canonical user. On success the session is live;
- *    on failure the session is cleared. Either way bootstrap ends so route guards
- *    can stop showing the splash and decide between app and login.
+ *    fresh access token and the canonical user. On success the session is live.
+ *    On failure the refresh handler has already decided the tokens' fate: cleared
+ *    on a definitive 401 (invalid/revoked), KEPT on transient failures (offline
+ *    cold start, backend 5xx) so the session can still be restored later — the
+ *    keystore must not be wiped here or a flaky network signs the user out for
+ *    good. Either way bootstrap ends so route guards can stop showing the splash
+ *    and decide between app and login.
  */
 export async function bootstrapSession(): Promise<void> {
   const store = useAuthStore.getState();
   try {
     await tokenStorage.hydrate();
-    const accessToken = await refreshSession();
-    if (!accessToken) {
-      await finishLocalLogout();
-    }
+    await refreshSession();
   } catch {
-    await finishLocalLogout();
+    // refreshSession resolves null on failure rather than rejecting; a throw here
+    // means something before the refresh broke (e.g. keystore hydration) — leave
+    // persisted state untouched and land on the login screen.
   } finally {
     store.endBootstrap();
   }

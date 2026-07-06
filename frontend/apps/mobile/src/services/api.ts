@@ -1,5 +1,5 @@
 import {
-  AccountNotActiveError,
+  UnauthorizedError,
   createApiClient,
   createAuthApi,
   createAnalyticsApi,
@@ -78,10 +78,13 @@ setRefreshHandler(async () => {
     useAuthStore.getState().setSession(result.user);
     return result.accessToken;
   } catch (error) {
-    // A suspended account keeps its session so the suspended screen can show;
-    // any other failure is a real auth failure → drop the (now rotated/invalid)
-    // refresh token so it is never replayed and tripped as reuse.
-    if (!(error instanceof AccountNotActiveError)) {
+    // A suspended account keeps its session so the suspended screen can show.
+    // A definitive 401 means the refresh token itself is invalid/revoked → drop
+    // it so it is never replayed and tripped as reuse. Anything else (device
+    // offline, DNS failure, timeout, backend 5xx) is transient: the stored
+    // refresh token is still valid server-side and MUST survive, otherwise an
+    // offline cold start permanently signs the user out.
+    if (error instanceof UnauthorizedError) {
       tokenStorage.clearTokens();
       useAuthStore.getState().clearSession();
     }

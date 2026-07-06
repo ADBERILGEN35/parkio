@@ -42,9 +42,13 @@ export const useSpotCreationDraftStore = create<SpotCreationDraftState>((set) =>
   draft: null,
   hydrateDraft: async () => {
     const restored = await loadPersistedSpotCreationDraft();
-    if (restored) {
-      set({ draft: restored });
+    if (!restored) {
+      return;
     }
+    // The keystore read is async: if the user already started a fresh draft
+    // while it was in flight, that live draft wins — never overwrite it with
+    // the stale persisted one (which the subscriber below has also replaced).
+    set((state) => (state.draft ? state : { draft: restored }));
   },
   startFromUpload: (media, previewUri) =>
     set((state) => {

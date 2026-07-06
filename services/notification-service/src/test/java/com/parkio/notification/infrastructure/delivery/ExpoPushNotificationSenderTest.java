@@ -59,6 +59,25 @@ class ExpoPushNotificationSenderTest {
 
     @Test
     void invalidTokenReturnsFailureReasonForCleanup() {
+        // Real Expo ticket shape: the machine-readable code lives in details.error,
+        // while message is prose that embeds the device token.
+        server.expect(requestTo("https://exp.host/--/api/v2/push/send"))
+                .andRespond(withSuccess(
+                        "{\"data\":[{\"status\":\"error\",\"message\":\"\\\"" + SECRET_TOKEN
+                                + "\\\" is not a registered push notification recipient\","
+                                + "\"details\":{\"error\":\"DeviceNotRegistered\"}}]}",
+                        MediaType.APPLICATION_JSON));
+
+        PushSendResult result = sender.send(new PushMessage(
+                SECRET_TOKEN, DevicePlatform.IOS, "Title", "Body"));
+
+        assertThat(result.delivered()).isFalse();
+        assertThat(result.failureReason()).isEqualTo(ExpoPushNotificationSender.FAILURE_INVALID_DEVICE_TOKEN);
+        assertThat(registry.counter("parkio.notification.push.invalid_token.count").count()).isEqualTo(1.0);
+    }
+
+    @Test
+    void invalidTokenCodeInMessageOnlyIsStillRecognised() {
         server.expect(requestTo("https://exp.host/--/api/v2/push/send"))
                 .andRespond(withSuccess(
                         "{\"data\":[{\"status\":\"error\",\"message\":\"DeviceNotRegistered\"}]}",
@@ -69,6 +88,21 @@ class ExpoPushNotificationSenderTest {
 
         assertThat(result.delivered()).isFalse();
         assertThat(result.failureReason()).isEqualTo(ExpoPushNotificationSender.FAILURE_INVALID_DEVICE_TOKEN);
-        assertThat(registry.counter("parkio.notification.push.invalid_token.count").count()).isEqualTo(1.0);
+    }
+
+    @Test
+    void otherTicketErrorsAreProviderRejected() {
+        server.expect(requestTo("https://exp.host/--/api/v2/push/send"))
+                .andRespond(withSuccess(
+                        "{\"data\":[{\"status\":\"error\",\"message\":\"rate limited\","
+                                + "\"details\":{\"error\":\"MessageRateExceeded\"}}]}",
+                        MediaType.APPLICATION_JSON));
+
+        PushSendResult result = sender.send(new PushMessage(
+                SECRET_TOKEN, DevicePlatform.ANDROID, "Title", "Body"));
+
+        assertThat(result.delivered()).isFalse();
+        assertThat(result.failureReason()).isEqualTo(ExpoPushNotificationSender.FAILURE_PROVIDER_REJECTED);
+        assertThat(registry.counter("parkio.notification.push.failed.count").count()).isEqualTo(1.0);
     }
 }

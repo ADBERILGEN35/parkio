@@ -34,6 +34,36 @@ application runtime YAML, or the workflow itself.
 - Observability smoke endpoints:
   Prometheus, Grafana, Loki, Tempo, Alertmanager, Kafka exporter, and node exporter.
 
+## Media Upload Storage Consistency Checklist
+
+Use a Docker-enabled environment with media-service, PostgreSQL and MinIO running.
+This checklist validates the upload compensation path added for storage/DB
+consistency; it is not proven by static review alone.
+
+1. Simulate a media metadata repository failure after `storage.store(...)`
+   succeeds.
+   - Expected: the request fails with the original application/storage-safe error.
+   - Expected: the just-written MinIO object is removed.
+   - Expected: `parkio.media.upload.orphan_cleanup_attempts` increments.
+2. Simulate an outbox insert/append failure after `storage.store(...)` succeeds.
+   - Expected: the request fails with the original outbox/DB error.
+   - Expected: the just-written MinIO object is removed.
+   - Expected: no `MediaUploaded` event is published for the failed upload.
+3. Simulate a cleanup delete failure after the post-store DB/outbox failure.
+   - Expected: the original upload failure still wins.
+   - Expected: the warning log contains the generated `mediaId` and safe cleanup
+     failure class only, not bucket, object key, owner id or filename.
+   - Expected: `parkio.media.upload.orphan_cleanup_attempts` and
+     `parkio.media.upload.orphan_cleanup_failures` both increment.
+4. Simulate a transaction rollback or commit failure after the service method
+   body completes.
+   - Expected: the transaction synchronization deletes the stored object on
+     non-committed completion.
+5. Run a successful upload.
+   - Expected: upload response and media metadata are unchanged.
+   - Expected: MinIO object remains present and the cleanup counters do not
+     increment.
+
 ## CI Environment
 
 The workflow copies `docker/.env.hosted-beta.example` to

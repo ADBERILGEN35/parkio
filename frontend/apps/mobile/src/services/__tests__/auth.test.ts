@@ -102,17 +102,21 @@ describe('mobile auth service', () => {
     expect(useAuthStore.getState().isAuthenticated).toBe(false);
   });
 
-  it('clears stale hydrated tokens when bootstrap refresh cannot restore a session', async () => {
-    await SecureStore.setItemAsync('parkio.accessToken', 'stale-access');
-    await SecureStore.setItemAsync('parkio.refreshToken', 'stale-refresh');
+  it('keeps persisted tokens when bootstrap refresh fails transiently (offline cold start)', async () => {
+    // The refresh handler owns token clearing: it wipes the keystore on a
+    // definitive 401 and keeps it on transient failures. When it resolves null
+    // (as mocked here), bootstrap itself must NOT wipe the keystore — otherwise
+    // opening the app without network would permanently sign the user out.
+    await SecureStore.setItemAsync('parkio.accessToken', 'stored-access');
+    await SecureStore.setItemAsync('parkio.refreshToken', 'stored-refresh');
     jest.mocked(refreshSession).mockResolvedValue(null);
 
     await bootstrapSession();
     await flush();
 
     expect(refreshSession).toHaveBeenCalledTimes(1);
-    expect(tokenStorage.getAccessToken()).toBeNull();
-    expect(tokenStorage.getRefreshToken()).toBeNull();
+    await expect(SecureStore.getItemAsync('parkio.accessToken')).resolves.toBe('stored-access');
+    await expect(SecureStore.getItemAsync('parkio.refreshToken')).resolves.toBe('stored-refresh');
     expect(useAuthStore.getState().isAuthenticated).toBe(false);
     expect(useAuthStore.getState().bootstrapPending).toBe(false);
   });

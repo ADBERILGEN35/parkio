@@ -24,6 +24,7 @@ import com.parkio.media.domain.exception.MediaErrorCode;
 import com.parkio.media.domain.exception.MediaException;
 import com.parkio.media.infrastructure.image.ImageIoImageNormalizer;
 import com.parkio.media.shared.Checksums;
+import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
 import java.awt.Color;
 import java.awt.Graphics2D;
 import java.awt.image.BufferedImage;
@@ -45,6 +46,8 @@ import java.util.zip.CRC32;
 import javax.imageio.ImageIO;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import org.springframework.transaction.support.TransactionSynchronization;
+import org.springframework.transaction.support.TransactionSynchronizationManager;
 
 /**
  * Behavioural unit tests for {@link MediaApplicationService} using in-memory fake
@@ -61,6 +64,7 @@ class MediaApplicationServiceTest {
     private FakeMediaStoragePort storage;
     private FakeMediaScanner scanner;
     private FakeOutboxEventAppender outbox;
+    private SimpleMeterRegistry meterRegistry;
     private MediaApplicationService service;
 
     @BeforeEach
@@ -70,13 +74,14 @@ class MediaApplicationServiceTest {
         storage = new FakeMediaStoragePort();
         scanner = new FakeMediaScanner();
         outbox = new FakeOutboxEventAppender();
+        meterRegistry = new SimpleMeterRegistry();
         MediaUploadConstraints constraints = new MediaUploadConstraints(
                 Set.of("image/jpeg", "image/png", "image/webp"), MAX_SIZE, 1_000, 1_000, 1_000_000);
         Clock clock = Clock.fixed(NOW, ZoneOffset.UTC);
         service = new MediaApplicationService(mediaFiles, validationResults, storage,
                 new ImageIoImageNormalizer(constraints), scanner, outbox,
                 new MediaRejectionRecorder(outbox), constraints,
-                new MediaAccessUrlPolicy(ACCESS_URL_TTL), clock);
+                new MediaAccessUrlPolicy(ACCESS_URL_TTL), clock, meterRegistry);
     }
 
     private static final byte[] JPEG_MAGIC = {(byte) 0xFF, (byte) 0xD8, (byte) 0xFF};
@@ -127,6 +132,104 @@ class MediaApplicationServiceTest {
         assertThat(scanner.scanCount).isEqualTo(1);
 
         assertThat(outbox.events).singleElement().isInstanceOf(MediaUploadedEvent.class);
+        assertThat(storage.deleteAttempts).isZero();
+        assertThat(cleanupAttempts()).isZero();
+        assertThat(cleanupFailures()).isZero();
+    }
+
+    @Test
+    void uploadCleansStoredObjectWhenMediaSaveFailsAfterStorageSucceeds() {
+        UUID owner = UUID.randomUUID();
+        mediaFiles.saveFailure = new IllegalStateException("database save failed");
+
+        assertThatThrownBy(() -> service.upload(jpeg(owner, new byte[]{7, 7, 7})))
+                .isSameAs(mediaFiles.saveFailure);
+
+        assertThat(storage.objects).isEmpty();
+        assertThat(storage.deleteAttempts).isEqualTo(1);
+        assertThat(cleanupAttempts()).isEqualTo(1.0);
+        assertThat(cleanupFailures()).isZero();
+    }
+
+    @Test
+    void uploadCleansStoredObjectWhenValidationSaveFailsAfterStorageSucceeds() {
+        UUID owner = UUID.randomUUID();
+        validationResults.saveFailure = new IllegalStateException("validation save failed");
+
+        assertThatThrownBy(() -> service.upload(jpeg(owner, new byte[]{8, 8, 8})))
+                .isSameAs(validationResults.saveFailure);
+
+        assertThat(storage.objects).isEmpty();
+        assertThat(storage.deleteAttempts).isEqualTo(1);
+        assertThat(cleanupAttempts()).isEqualTo(1.0);
+        assertThat(cleanupFailures()).isZero();
+    }
+
+    @Test
+    void uploadCleansStoredObjectWhenOutboxAppendFailsAfterStorageSucceeds() {
+        UUID owner = UUID.randomUUID();
+        outbox.appendFailure = new IllegalStateException("outbox append failed");
+
+        assertThatThrownBy(() -> service.upload(jpeg(owner, new byte[]{9, 9, 9})))
+                .isSameAs(outbox.appendFailure);
+
+        assertThat(storage.objects).isEmpty();
+        assertThat(storage.deleteAttempts).isEqualTo(1);
+        assertThat(cleanupAttempts()).isEqualTo(1.0);
+        assertThat(cleanupFailures()).isZero();
+    }
+
+    @Test
+    void cleanupDeleteFailureDoesNotMaskOriginalUploadFailure() {
+        UUID owner = UUID.randomUUID();
+        outbox.appendFailure = new IllegalStateException("outbox append failed");
+        storage.deleteFailure = new IllegalStateException("delete failed with object key hidden from logs");
+
+        assertThatThrownBy(() -> service.upload(jpeg(owner, new byte[]{10, 10, 10})))
+                .isSameAs(outbox.appendFailure);
+
+        assertThat(storage.objects).hasSize(1);
+        assertThat(storage.deleteAttempts).isEqualTo(1);
+        assertThat(cleanupAttempts()).isEqualTo(1.0);
+        assertThat(cleanupFailures()).isEqualTo(1.0);
+    }
+
+    @Test
+    void storageFailureBeforeDatabaseWorkDoesNotAttemptCleanupDelete() {
+        UUID owner = UUID.randomUUID();
+        storage.storeFailure = new IllegalStateException("storage down");
+
+        assertThatThrownBy(() -> service.upload(jpeg(owner, new byte[]{11, 11, 11})))
+                .isSameAs(storage.storeFailure);
+
+        assertThat(mediaFiles.byId).isEmpty();
+        assertThat(storage.objects).isEmpty();
+        assertThat(storage.deleteAttempts).isZero();
+        assertThat(cleanupAttempts()).isZero();
+        assertThat(cleanupFailures()).isZero();
+    }
+
+    @Test
+    void transactionRollbackAfterSuccessfulUploadDeletesStoredObject() {
+        UUID owner = UUID.randomUUID();
+        TransactionSynchronizationManager.initSynchronization();
+        try {
+            MediaUploadResult result = service.upload(jpeg(owner, new byte[]{12, 12, 12}));
+            MediaFile media = mediaFiles.findById(result.mediaId()).orElseThrow();
+
+            assertThat(storage.objects).containsKey(media.objectKey());
+            assertThat(TransactionSynchronizationManager.getSynchronizations()).hasSize(1);
+
+            TransactionSynchronizationManager.getSynchronizations()
+                    .forEach(sync -> sync.afterCompletion(TransactionSynchronization.STATUS_ROLLED_BACK));
+
+            assertThat(storage.objects).doesNotContainKey(media.objectKey());
+            assertThat(storage.deleteAttempts).isEqualTo(1);
+            assertThat(cleanupAttempts()).isEqualTo(1.0);
+            assertThat(cleanupFailures()).isZero();
+        } finally {
+            TransactionSynchronizationManager.clearSynchronization();
+        }
     }
 
     @Test
@@ -342,6 +445,7 @@ class MediaApplicationServiceTest {
 
         // Infected bytes never reach storage and no media row is persisted.
         assertThat(storage.objects).isEmpty();
+        assertThat(storage.deleteAttempts).isZero();
         assertThat(mediaFiles.byId).isEmpty();
         assertRejectedEvent(MediaValidationType.MALWARE_SCAN);
     }
@@ -358,6 +462,7 @@ class MediaApplicationServiceTest {
 
         // Fail closed: nothing stored, nothing persisted — media never becomes READY.
         assertThat(storage.objects).isEmpty();
+        assertThat(storage.deleteAttempts).isZero();
         assertThat(mediaFiles.byId).isEmpty();
         assertRejectedEvent(MediaValidationType.MALWARE_SCAN);
     }
@@ -564,6 +669,14 @@ class MediaApplicationServiceTest {
                 .satisfies(e -> assertThat(((MediaRejectedEvent) e).validationType()).isEqualTo(expectedType));
     }
 
+    private double cleanupAttempts() {
+        return meterRegistry.get("parkio.media.upload.orphan_cleanup_attempts").counter().count();
+    }
+
+    private double cleanupFailures() {
+        return meterRegistry.get("parkio.media.upload.orphan_cleanup_failures").counter().count();
+    }
+
     private static byte[] jpegBytes(int width, int height, int seed) {
         return writeImage("jpeg", image(width, height, seed));
     }
@@ -653,9 +766,13 @@ class MediaApplicationServiceTest {
 
     private static final class FakeMediaFileRepository implements MediaFileRepository {
         private final Map<UUID, MediaFile> byId = new HashMap<>();
+        private RuntimeException saveFailure;
 
         @Override
         public MediaFile save(MediaFile media) {
+            if (saveFailure != null) {
+                throw saveFailure;
+            }
             byId.put(media.id(), media);
             return media;
         }
@@ -673,9 +790,13 @@ class MediaApplicationServiceTest {
 
     private static final class FakeMediaValidationResultRepository implements MediaValidationResultRepository {
         private final List<MediaValidationResult> all = new ArrayList<>();
+        private RuntimeException saveFailure;
 
         @Override
         public MediaValidationResult save(MediaValidationResult result) {
+            if (saveFailure != null) {
+                throw saveFailure;
+            }
             all.add(result);
             return result;
         }
@@ -690,15 +811,25 @@ class MediaApplicationServiceTest {
         private final Map<String, byte[]> objects = new HashMap<>();
         private final List<String> deleted = new ArrayList<>();
         private final List<String> presignedKeys = new ArrayList<>();
+        private RuntimeException storeFailure;
+        private RuntimeException deleteFailure;
+        private int deleteAttempts;
 
         @Override
         public StoredObject store(String objectKey, byte[] content, String contentType) {
+            if (storeFailure != null) {
+                throw storeFailure;
+            }
             objects.put(objectKey, content);
             return new StoredObject("test-bucket", objectKey);
         }
 
         @Override
         public void delete(String objectKey) {
+            deleteAttempts++;
+            if (deleteFailure != null) {
+                throw deleteFailure;
+            }
             objects.remove(objectKey);
             deleted.add(objectKey);
         }
@@ -730,9 +861,13 @@ class MediaApplicationServiceTest {
 
     private static final class FakeOutboxEventAppender implements OutboxEventAppender {
         private final List<MediaEvent> events = new ArrayList<>();
+        private RuntimeException appendFailure;
 
         @Override
         public void append(MediaEvent event) {
+            if (appendFailure != null) {
+                throw appendFailure;
+            }
             events.add(event);
         }
     }
