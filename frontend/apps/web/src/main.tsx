@@ -1,15 +1,35 @@
 import { StrictMode } from 'react';
 import { createRoot } from 'react-dom/client';
-import { App } from './App';
-import { initFrontendErrorReporting } from './observability/errorReporting';
-import { registerServiceWorker } from './pwa/registerServiceWorker';
-import './styles/index.css';
 
-initFrontendErrorReporting();
-registerServiceWorker();
+async function bootstrap() {
+  const root = createRoot(document.getElementById('root')!);
 
-createRoot(document.getElementById('root')!).render(
-  <StrictMode>
-    <App />
-  </StrictMode>,
-);
+  if (window.location.pathname === '/') {
+    const { LandingApp } = await import('./landing/LandingApp');
+    root.render(
+      <StrictMode>
+        <LandingApp />
+      </StrictMode>,
+    );
+    return;
+  }
+
+  await import('./styles/index.css');
+
+  const [{ App }, { initFrontendErrorReporting }, { registerServiceWorker }] = await Promise.all([
+    import('./App'),
+    import('./observability/errorReporting'),
+    import('./pwa/registerServiceWorker'),
+  ]);
+
+  initFrontendErrorReporting();
+  registerServiceWorker();
+
+  root.render(
+    <StrictMode>
+      <App />
+    </StrictMode>,
+  );
+}
+
+void bootstrap();

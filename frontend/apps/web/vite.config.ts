@@ -20,10 +20,14 @@ export default defineConfig({
   },
   build: {
     sourcemap,
+    modulePreload: false,
     chunkSizeWarningLimit: 650,
     rollupOptions: {
       output: {
         manualChunks(id) {
+          if (id.includes('vite/preload-helper')) {
+            return 'vite-preload';
+          }
           if (id.includes('node_modules/maplibre-gl') || id.includes('node_modules/react-map-gl')) {
             return 'maplibre';
           }

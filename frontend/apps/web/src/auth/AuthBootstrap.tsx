@@ -3,6 +3,18 @@ import { useEffect } from 'react';
 import { initCrossTabAuth } from './crossTabSync';
 import { useAuthStore } from './store';
 
+const PUBLIC_BOOTSTRAP_SKIP_PATHS = new Set([
+  '/',
+  '/login',
+  '/register',
+  '/forgot-password',
+  '/reset-password',
+  '/check-email',
+  '/verify-email',
+  '/terms',
+  '/privacy',
+]);
+
 /**
  * Restores a session after reload using the HttpOnly refresh cookie, through the
  * shared single-flight refresh coordinator.
@@ -25,6 +37,11 @@ export function AuthBootstrap() {
 
   useEffect(() => {
     if (hasSession) {
+      endBootstrap();
+      return;
+    }
+
+    if (PUBLIC_BOOTSTRAP_SKIP_PATHS.has(window.location.pathname)) {
       endBootstrap();
       return;
     }

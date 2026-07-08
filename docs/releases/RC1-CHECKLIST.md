@@ -14,8 +14,9 @@
 - [x] `docs/certification/FINAL-PRODUCTION-CERTIFICATION.md` committed (RC1.3)
 - [x] No real secrets in tree (preflight fixtures use placeholders)
 - [x] Preflight fixtures use non-secret placeholder URLs only
-- [ ] **LICENSE** — maintainer decision (required for public OSS)
-- [ ] **NOTICE / CODEOWNERS / CODE_OF_CONDUCT** — optional; recommended for OSS
+- [ ] **Final LICENSE text** — maintainer decision (required for public OSS)
+- [ ] **NOTICE** — add if required by chosen license
+- [x] **CODEOWNERS / CODE_OF_CONDUCT** — added after RC1 for community health
 
 ---
 

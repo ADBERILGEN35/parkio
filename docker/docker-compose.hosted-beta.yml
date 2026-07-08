@@ -198,6 +198,12 @@ services:
     cpus: "1.0"
     pids_limit: 256
     stop_grace_period: 60s
+  postgres-gateway:
+    ports: !reset []
+    mem_limit: 256m
+    cpus: "0.5"
+    pids_limit: 256
+    stop_grace_period: 60s
   postgres-user:
     ports: !reset []
     mem_limit: 256m

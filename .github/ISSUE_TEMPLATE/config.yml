@@ -1,0 +1,8 @@
+blank_issues_enabled: false
+contact_links:
+  - name: Security vulnerability
+    url: https://github.com/ADBERILGEN35/parkio/security/advisories/new
+    about: Report vulnerabilities privately. Do not open public security issues.
+  - name: Support guide
+    url: https://github.com/ADBERILGEN35/parkio/blob/main/SUPPORT.md
+    about: Read support expectations and troubleshooting guidance.

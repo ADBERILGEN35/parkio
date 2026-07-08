@@ -99,7 +99,7 @@ x-datasource-depends: &datasource-depends
     condition: service_healthy
 
 services:
-  # Edge — no database, uses Redis for rate limiting. Routes to the rest.
+  # Edge — owns the narrow public waitlist table; uses Redis for rate limiting.
   gateway-service:
     <<: *app-common
     build:
@@ -111,6 +111,10 @@ services:
       SPRING_DATA_REDIS_HOST: redis
       SPRING_DATA_REDIS_PORT: "6379"
       SPRING_DATA_REDIS_PASSWORD: ${REDIS_PASSWORD:-}
+      SPRING_DATASOURCE_URL: jdbc:postgresql://postgres-gateway:5432/${POSTGRES_GATEWAY_DB:-parkio_gateway}
+      SPRING_DATASOURCE_USERNAME: ${POSTGRES_GATEWAY_USER:-parkio_gateway}
+      SPRING_DATASOURCE_PASSWORD: ${POSTGRES_GATEWAY_PASSWORD}
+      PARKIO_WAITLIST_HASH_SECRET: ${PARKIO_WAITLIST_HASH_SECRET}
       PARKIO_AUTH_JWKS_URI: http://auth-service:8081/api/v1/auth/.well-known/jwks.json
       # Downstream route targets. The gateway resolves each ${PARKIO_*_SERVICE_URI}
       # placeholder in application.yml; their defaults are localhost:808x (dev-from-IDE),
@@ -142,6 +146,8 @@ services:
     # Both deps fail closed at runtime too, so this is ordering, not a hard coupling.
     depends_on:
       redis:
+        condition: service_healthy
+      postgres-gateway:
         condition: service_healthy
       auth-service:
         condition: service_healthy

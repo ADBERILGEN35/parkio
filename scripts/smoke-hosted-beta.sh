@@ -3,7 +3,7 @@
 # Parkio — hosted-beta smoke checks against a running gateway.
 #
 # Usage:
-#   PARKIO_GATEWAY_URL=http://127.0.0.1:8080 ./scripts/smoke-hosted-beta.sh
+#   PARKIO_GATEWAY_URL=https://api.beta.example.com ./scripts/smoke-hosted-beta.sh
 #
 # Optional credentials (seeded accounts recommended):
 #   PARKIO_REAL_USER_EMAIL / PARKIO_REAL_USER_PASSWORD

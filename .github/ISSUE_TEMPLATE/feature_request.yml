@@ -1,0 +1,51 @@
+name: Feature request
+description: Propose a scoped improvement without changing project status claims.
+title: "feat: "
+labels:
+  - enhancement
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Parkio is in hosted-beta preparation. New features should be scoped and tied to the current roadmap.
+  - type: textarea
+    id: problem
+    attributes:
+      label: Problem
+      description: What user, operator, or developer problem should this solve?
+    validations:
+      required: true
+  - type: textarea
+    id: proposal
+    attributes:
+      label: Proposed solution
+      description: Keep the proposal concrete and bounded.
+    validations:
+      required: true
+  - type: dropdown
+    id: area
+    attributes:
+      label: Area
+      options:
+        - Parking experience
+        - Trust/moderation
+        - Waitlist/beta operations
+        - Developer experience
+        - Observability/operations
+        - Documentation
+        - Other
+    validations:
+      required: true
+  - type: textarea
+    id: constraints
+    attributes:
+      label: Constraints and risks
+      description: APIs, privacy, service boundaries, migration risk, or operational impact.
+    validations:
+      required: false
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: Alternatives considered
+    validations:
+      required: false

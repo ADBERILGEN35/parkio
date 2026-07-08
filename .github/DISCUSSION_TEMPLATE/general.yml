@@ -1,0 +1,35 @@
+title: "Discussion: "
+labels:
+  - discussion
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Use discussions for open-ended questions, roadmap context, evaluation notes, and contributor coordination. Use issues for reproducible bugs or scoped work.
+  - type: textarea
+    id: context
+    attributes:
+      label: Context
+      description: What are you trying to understand or decide?
+    validations:
+      required: true
+  - type: dropdown
+    id: area
+    attributes:
+      label: Area
+      options:
+        - Product
+        - Architecture
+        - Hosted beta
+        - Developer experience
+        - Documentation
+        - Startup/accelerator review
+        - Other
+    validations:
+      required: true
+  - type: textarea
+    id: references
+    attributes:
+      label: Related docs or links
+    validations:
+      required: false

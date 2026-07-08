@@ -1,40 +1,76 @@
 # Security Policy
 
-## Supported versions
+Parkio is preparing for hosted beta. This policy explains how to report security
+issues and what parts of the repository are currently supported.
+
+## Supported Versions
 
 | Version | Supported |
 |---------|-----------|
-| `1.0.0-rc1` | Yes — hosted beta / release candidate |
+| `v1.0.0-rc1` | Yes - hosted-beta release candidate |
 | `< 1.0.0-rc1` | No |
 
-## Reporting a vulnerability
+Public production is not supported by this release line. See
+[Known Issues](docs/releases/KNOWN-ISSUES.md) for current production blockers.
+
+## Reporting a Vulnerability
 
 **Do not** open public GitHub issues for security vulnerabilities.
 
-Email the maintainers with:
+Use GitHub private vulnerability reporting if it is enabled for the repository.
+If it is not enabled, contact the repository owner privately through their GitHub
+profile before sharing exploit details in a public channel.
 
-- A clear description of the issue and impact
-- Steps to reproduce (proof of concept if available)
-- Affected component (gateway, auth, web, mobile, infrastructure)
-- Your contact details for follow-up
+Include:
 
-We aim to acknowledge reports within **5 business days** and provide a remediation timeline for confirmed issues affecting hosted beta deployments.
+- A clear description of the issue and potential impact.
+- Steps to reproduce, including proof of concept when safe to share privately.
+- Affected component: gateway, auth, service, web, mobile, Docker, CI, or docs.
+- Whether the issue affects local development, hosted beta, or both.
+- Any logs, screenshots, or traces with secrets and personal data redacted.
 
-## Security architecture (summary)
+The maintainer aims to acknowledge security reports within 5 business days.
+Remediation timelines depend on severity, exploitability, and whether a hosted
+beta deployment is affected. Parkio does not currently operate a paid bug bounty.
 
-Parkio enforces security at multiple layers:
+## Security Architecture Summary
 
-- **Edge:** Spring Cloud Gateway — RS256 JWT validation via JWKS, role-based route rules, rate limiting, CORS allow-list, internal `X-Gateway-Auth` secret
-- **Auth:** Opaque refresh tokens (hashed at rest), rotation, family revocation, session epoch for access-token invalidation
-- **Services:** Defense-in-depth RBAC re-checked in controllers and application services
-- **Media:** ClamAV scanning, presigned URLs, upload size/type limits
-- **Frontend:** HttpOnly refresh cookies (web), SecureStore (mobile), CSP/security headers (nginx), no tokens in localStorage
-- **Supply chain:** gitleaks, Trivy, CycloneDX SBOMs, Dependabot (see `docs/operations/supply-chain-security.md`)
+Parkio uses defense in depth across the application and operator surface:
 
-Full guidelines: [`docs/ai-context/07-security-guidelines.md`](docs/ai-context/07-security-guidelines.md)
+- **Edge:** Spring Cloud Gateway, RS256 JWT validation, JWKS, route rules,
+  rate limiting, CORS allow-list, and internal gateway secret.
+- **Auth:** Opaque refresh tokens hashed at rest, rotation, family revocation,
+  and session epoch invalidation.
+- **Services:** Defense-in-depth authorization checks inside controllers and
+  application services.
+- **Media:** Presigned upload flow, ClamAV scanning, file type/size limits, and
+  signed access URLs.
+- **Frontend:** HttpOnly refresh cookies for web, SecureStore for mobile,
+  security headers, and no access tokens in localStorage.
+- **Supply chain:** gitleaks, Trivy, CycloneDX SBOMs, Dependabot, and CI gates.
 
-## Secret handling
+Useful references:
 
-- Never commit real secrets. Preflight (`scripts/preflight-hosted-beta.sh`) blocks `CHANGE_ME` placeholders in production env files.
+- [Security Guidelines](docs/ai-context/07-security-guidelines.md)
+- [Security Boundaries](docs/operations/security-boundaries.md)
+- [Supply Chain Security](docs/operations/supply-chain-security.md)
+- [Production Readiness](docs/architecture/production-readiness.md)
+
+## Secret Handling
+
+- Never commit real secrets, tokens, private keys, production env files, or raw
+  user data.
+- `scripts/preflight-hosted-beta.sh` blocks known placeholder values in hosted
+  beta env files.
 - Fixture files under `scripts/preflight-fixtures/` use fabricated values only.
-- Rotate JWT keys, gateway secrets, and database passwords per environment.
+- JWT keys, gateway secrets, database passwords, Redis credentials, and object
+  storage credentials must be unique per environment and rotated when exposed.
+
+## Out of Scope for This Policy
+
+Use normal issues or support channels for:
+
+- Documentation typos.
+- Feature requests.
+- Local setup help without a security impact.
+- Reports that require access to systems not operated by the maintainer.

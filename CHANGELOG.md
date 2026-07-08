@@ -5,6 +5,25 @@ All notable changes to Parkio are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Added
+
+- Repository presentation refresh for startup, due-diligence, and contributor
+  review.
+- Community health files: license-status notice, code of conduct, CODEOWNERS,
+  issue templates, pull request template, and discussion guidance.
+- Architecture entry-point documentation at `docs/architecture/README.md`.
+
+### Changed
+
+- Reworked `README.md` into a concise first-impression guide with status,
+  architecture, quick start, roadmap, docs index, security, and license notes.
+- Replaced malformed contribution guidance with a clean contributor onboarding
+  guide.
+- Clarified support and security policy language for hosted-beta preparation.
+- Expanded `docs/README.md` into a repository navigation index.
+
 ## [1.0.0-rc1] - 2026-07-06
 
 First **hosted-beta release candidate**. Application layer certified; public production remains **NO GO** until platform/operations blockers close (see `docs/architecture/production-readiness.md`).
@@ -69,9 +88,10 @@ First **hosted-beta release candidate**. Application layer certified; public pro
 - Added [`FINAL-BACKEND-CERTIFICATION.md`](docs/certification/FINAL-BACKEND-CERTIFICATION.md) and [`FINAL-PRODUCTION-CERTIFICATION.md`](docs/certification/FINAL-PRODUCTION-CERTIFICATION.md).
 - Aligned release docs to commit `4cb7ed1` and tag `v1.0.0-rc1`; fixed GitHub release URL.
 
-### Known limitations (RC1)
+### Known Limitations (RC1)
 
-- No `LICENSE` file — required before public open-source distribution.
+- No final open-source license selected yet; the repository now includes a
+  license-status placeholder and remains source-visible for evaluation only.
 - Gradle/npm default dev versions (`0.0.1-SNAPSHOT` / `0.0.0`) overridden at release tag via `-PparkioVersion` and image tags.
 - Mobile runtime smoke not re-executed on device for FFINAL.
 - Public production: HA data plane, secrets manager, CD rollback, on-call — not complete.

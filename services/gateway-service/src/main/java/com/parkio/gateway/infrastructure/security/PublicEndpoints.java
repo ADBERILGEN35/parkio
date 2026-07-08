@@ -40,6 +40,7 @@ public class PublicEndpoints {
                 new Rule(HttpMethod.POST, parser.parse("/api/v1/auth/refresh-token")),
                 new Rule(HttpMethod.POST, parser.parse("/api/v1/auth/logout")),
                 new Rule(HttpMethod.GET, parser.parse("/api/v1/auth/.well-known/jwks.json")),
+                new Rule(HttpMethod.POST, parser.parse("/api/v1/waitlist")),
                 new Rule(null, parser.parse("/actuator/health/**")),
                 new Rule(null, parser.parse("/actuator/info")));
     }

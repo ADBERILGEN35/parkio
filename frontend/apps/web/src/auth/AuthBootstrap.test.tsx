@@ -6,6 +6,7 @@ import { AuthBootstrap } from './AuthBootstrap';
 import { useAuthStore } from './store';
 
 function resetStore(overrides: Partial<ReturnType<typeof useAuthStore.getState>> = {}) {
+  window.history.pushState({}, '', '/map');
   useAuthStore.setState({
     accessToken: null,
     user: null,
@@ -41,6 +42,22 @@ describe('AuthBootstrap', () => {
 
   it('does not refresh when a session already exists', async () => {
     resetStore({ accessToken: 'existing', isAuthenticated: true });
+    const refresh = vi.fn(async () => 'unexpected');
+    setRefreshHandler(refresh);
+
+    render(
+      <StrictMode>
+        <AuthBootstrap />
+      </StrictMode>,
+    );
+
+    await waitFor(() => expect(useAuthStore.getState().bootstrapPending).toBe(false));
+    expect(refresh).not.toHaveBeenCalled();
+  });
+
+  it('does not refresh on public-only routes', async () => {
+    resetStore();
+    window.history.pushState({}, '', '/');
     const refresh = vi.fn(async () => 'unexpected');
     setRefreshHandler(refresh);
 

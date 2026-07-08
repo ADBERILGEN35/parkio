@@ -115,7 +115,8 @@ From the **repository root**:
 ```bash
 # Clean tree required unless you intentionally override
 PARKIO_ENV_FILE=docker/.env \
-PARKIO_GATEWAY_URL=http://127.0.0.1:8080 \
+PARKIO_GATEWAY_URL=https://<PARKIO_DOMAIN> \
+PARKIO_SMOKE_EXPECT_DIRECT_BLOCKED=1 \
 ./scripts/deploy-hosted-beta.sh
 ```
 
@@ -183,4 +184,5 @@ Local operators do not need GitHub secrets; use the scripts directly on the VPS.
 
 - [Rollback runbook](./rollback-runbook.md)
 - [Beta runbook (local)](../../docker/BETA_RUNBOOK.md)
+- [Hosted Beta Runbook](../../HOSTED-BETA-RUNBOOK.md)
 - [Supply-chain security](../operations/supply-chain-security.md)

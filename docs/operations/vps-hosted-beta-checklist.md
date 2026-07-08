@@ -1,7 +1,8 @@
 # VPS hosted-beta deployment checklist (R6.1)
 
-Operator checklist for a **clean Ubuntu 22.04/24.04 VPS**. See also `docker/README.md`
-and `docs/beta/deploy-runbook.md`.
+Operator checklist for a **clean Ubuntu 22.04/24.04 VPS**. The canonical
+single-path operator guide is [`../../HOSTED-BETA-RUNBOOK.md`](../../HOSTED-BETA-RUNBOOK.md).
+Use this file as supporting detail.
 
 ## 1. VPS
 
@@ -55,7 +56,7 @@ safety`, `Compose`); every `FAIL` line names the variable, the problem and a
 `fix:` command. Exit 0 = safe to deploy. The deploy script runs this
 automatically and refuses to build if it fails, so a placeholder or local-dev
 value can never reach the VPS stack. Rules, required formats and fixes:
-`docs/beta/deploy-runbook.md` → "Secret & configuration preflight".
+`../../HOSTED-BETA-RUNBOOK.md` -> "Preflight Checklist".
 
 Intentional deviations (each surfaces as a WARN):
 

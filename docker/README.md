@@ -25,6 +25,7 @@ docker/
 | Component                | Container                     | Host port(s)    | Purpose                                   |
 |--------------------------|-------------------------------|-----------------|-------------------------------------------|
 | PostgreSQL (auth)        | `parkio-postgres-auth`        | 5432            | `auth-service` database                   |
+| PostgreSQL (gateway)     | `parkio-postgres-gateway`     | 5441            | `gateway-service` waitlist database       |
 | PostgreSQL (user)        | `parkio-postgres-user`        | 5433            | `user-service` database                   |
 | PostgreSQL **+ PostGIS** | `parkio-postgres-parking`     | 5434            | `parking-service` database (geospatial)   |
 | PostgreSQL (media)       | `parkio-postgres-media`       | 5435            | `media-service` database                  |
@@ -46,8 +47,9 @@ docker/
 
 > **Database-per-service:** every service owns a *separate* PostgreSQL instance.
 > Services never share a database or read another service's tables
-> (`ai-context/01`, `ai-context/05`). `gateway-service` owns no database by design;
-> `ai-validation-service` owns one for its advisory results (Flyway + JPA).
+> (`ai-context/01`, `ai-context/05`). `gateway-service` owns only the narrow public
+> waitlist intake table; `ai-validation-service` owns one for its advisory results
+> (Flyway + JPA).
 
 > **Kafka uses KRaft mode** (no Zookeeper) — the modern, single-process setup,
 > fewer containers to run locally.
@@ -262,7 +264,7 @@ Prefer the deploy script (pins image tags, smoke tests, manifest):
 ```bash
 # on the VPS, from the repo root
 cp docker/.env.hosted-beta.example docker/.env
-# edit .env — see docs/operations/vps-hosted-beta-checklist.md
+# edit .env — see HOSTED-BETA-RUNBOOK.md
 
 PARKIO_ENV_FILE=docker/.env ./scripts/deploy-hosted-beta.sh
 ```

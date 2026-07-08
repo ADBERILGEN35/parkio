@@ -14,6 +14,10 @@ dependencies {
     runtimeOnly(libs.opentelemetry.exporter.otlp)
     // Reactive Redis backs the edge RequestRateLimiter (token bucket per user/IP).
     implementation(libs.spring.boot.starter.data.redis.reactive)
+    // Minimal waitlist persistence uses Flyway-owned schema and JdbcTemplate.
+    implementation(libs.spring.boot.starter.jdbc)
+    implementation(libs.flyway.core)
+    implementation(libs.flyway.database.postgresql)
     // Bean Validation for @ConfigurationProperties (fail-closed JWT secret check).
     implementation(libs.spring.boot.starter.validation)
 
@@ -21,7 +25,9 @@ dependencies {
     implementation(libs.jjwt.api)
     runtimeOnly(libs.jjwt.impl)
     runtimeOnly(libs.jjwt.jackson)
+    runtimeOnly(libs.postgresql)
 
     testImplementation(libs.spring.boot.starter.test)
+    testRuntimeOnly(libs.h2)
     testRuntimeOnly(libs.junit.platform.launcher)
 }

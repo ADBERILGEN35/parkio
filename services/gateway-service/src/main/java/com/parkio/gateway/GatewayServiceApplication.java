@@ -2,6 +2,7 @@ package com.parkio.gateway;
 
 import org.springframework.boot.SpringApplication;
 import org.springframework.boot.autoconfigure.SpringBootApplication;
+import org.springframework.boot.context.properties.ConfigurationPropertiesScan;
 
 /**
  * Entry point for the Parkio gateway-service.
@@ -11,6 +12,7 @@ import org.springframework.boot.autoconfigure.SpringBootApplication;
  * {@code infrastructure}, {@code presentation} and {@code shared}.
  */
 @SpringBootApplication
+@ConfigurationPropertiesScan
 public class GatewayServiceApplication {
 
     public static void main(String[] args) {

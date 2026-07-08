@@ -170,7 +170,8 @@ Run on the dev box (WSL); see the sprint report for full output.
 ## 9. Remaining gaps / next steps
 
 - Pin GitHub Actions to commit SHAs (Dependabot can maintain digests).
-- Add a `LICENSE` file → populate `org.opencontainers.image.licenses`.
+- Select the final open-source license, replace the license-status placeholder,
+  and populate `org.opencontainers.image.licenses`.
 - Enable `ATTESTATIONS_ENABLED` and `PUBLISH_IMAGES` once the repo is on an org/GHAS + GHCR.
 - Add a deploy log + (later) automated rollback in the CD layer (out of scope here — no
   Kubernetes/Helm/ArgoCD per constraints).

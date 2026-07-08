@@ -133,10 +133,10 @@ See [`KNOWN-ISSUES.md`](../releases/KNOWN-ISSUES.md).
 
 | ID | Blocker |
 |----|---------|
-| OSS-01 | No `LICENSE` |
+| OSS-01 | No final open-source license text |
 | OSS-02 | No `NOTICE` |
-| OSS-03 | No `CODEOWNERS` |
-| OSS-04 | No `CODE_OF_CONDUCT.md` |
+| OSS-03 | `CODEOWNERS` was added after RC1 |
+| OSS-04 | `CODE_OF_CONDUCT.md` was added after RC1 |
 
 ---
 
@@ -175,7 +175,7 @@ See [`KNOWN-ISSUES.md`](../releases/KNOWN-ISSUES.md).
 | **Monitoring** | CONDITIONAL | Stack provisioned; on-call process operator-defined |
 | **Hosted beta** | READY | GO with operator caveats |
 | **Public production** | NOT READY | NO GO |
-| **Open source** | NOT READY | No LICENSE |
+| **Open source** | NOT READY | Final license still not selected |
 
 ---
 
@@ -186,7 +186,7 @@ See [`KNOWN-ISSUES.md`](../releases/KNOWN-ISSUES.md).
 | **Ready to push RC tag?** | **YES** — tag exists locally; push is operator action |
 | **Ready for hosted beta?** | **YES** — with VPS checklist + preflight + mobile caveat |
 | **Ready for public production?** | **NO** |
-| **Ready for open-source publication?** | **NO** — LICENSE and community files missing |
+| **Ready for open-source publication?** | **NO** — final license still not selected |
 
 ---
 

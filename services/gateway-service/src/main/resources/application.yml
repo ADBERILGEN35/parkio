@@ -9,6 +9,20 @@
       port: ${SPRING_DATA_REDIS_PORT:6379}
       password: ${SPRING_DATA_REDIS_PASSWORD:${REDIS_PASSWORD:}}
       timeout: ${SPRING_DATA_REDIS_TIMEOUT:2s}
+  datasource:
+    url: ${SPRING_DATASOURCE_URL:jdbc:postgresql://localhost:5441/parkio_gateway}
+    username: ${SPRING_DATASOURCE_USERNAME:parkio_gateway}
+    password: ${SPRING_DATASOURCE_PASSWORD:gateway_local_dev_pw}
+    hikari:
+      maximum-pool-size: ${SPRING_DATASOURCE_HIKARI_MAXIMUM_POOL_SIZE:4}
+      minimum-idle: ${SPRING_DATASOURCE_HIKARI_MINIMUM_IDLE:1}
+      connection-timeout: ${SPRING_DATASOURCE_HIKARI_CONNECTION_TIMEOUT:2000}
+      validation-timeout: ${SPRING_DATASOURCE_HIKARI_VALIDATION_TIMEOUT:1000}
+      idle-timeout: ${SPRING_DATASOURCE_HIKARI_IDLE_TIMEOUT:600000}
+      max-lifetime: ${SPRING_DATASOURCE_HIKARI_MAX_LIFETIME:1800000}
+  flyway:
+    enabled: true
+    locations: classpath:db/migration
   cloud:
     gateway:
       # Downstream URIs are externalized; defaults target local dev ports. In a
@@ -239,3 +253,11 @@ parkio:
       base-url: ${PARKIO_AUTH_SERVICE_URI:http://localhost:8081}
       cache-ttl: ${PARKIO_SESSION_EPOCH_CACHE_TTL:PT30S}
       request-timeout: ${PARKIO_SESSION_EPOCH_TIMEOUT:PT2S}
+  waitlist:
+    hash-secret: ${PARKIO_WAITLIST_HASH_SECRET:${PARKIO_GATEWAY_INTERNAL_SECRET:}}
+    ip-rate-limit:
+      max-attempts: ${PARKIO_WAITLIST_IP_RATE_LIMIT_MAX:10}
+      window: ${PARKIO_WAITLIST_IP_RATE_LIMIT_WINDOW:PT1H}
+    email-rate-limit:
+      max-attempts: ${PARKIO_WAITLIST_EMAIL_RATE_LIMIT_MAX:3}
+      window: ${PARKIO_WAITLIST_EMAIL_RATE_LIMIT_WINDOW:PT1H}

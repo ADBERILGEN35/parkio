@@ -1,6 +1,6 @@
 import { Suspense, lazy, type ReactElement } from 'react';
 import { ProfileSkeleton } from '@parkio/ui';
-import { Navigate, createBrowserRouter } from 'react-router-dom';
+import { createBrowserRouter } from 'react-router-dom';
 import { ProtectedRoute } from '@/auth/ProtectedRoute';
 import { RoleRoute } from '@/auth/RoleRoute';
 import { RouteAccessibility } from '@/components/RouteAccessibility';
@@ -11,8 +11,8 @@ import { RouteFallback } from '@/components/RouteFallback';
 import { AccountPreparingPage } from '@/pages/AccountPreparingPage';
 import { CheckEmailPage } from '@/pages/CheckEmailPage';
 import { ForgotPasswordPage } from '@/pages/ForgotPasswordPage';
+import { LandingPage } from '@/pages/LandingPage';
 import { LoginPage } from '@/pages/LoginPage';
-import { MapPage } from '@/pages/MapPage';
 import { NotFoundPage } from '@/pages/NotFoundPage';
 import { RegisterPage } from '@/pages/RegisterPage';
 import { ResetPasswordPage } from '@/pages/ResetPasswordPage';
@@ -27,6 +27,7 @@ const MySpotsPage = lazy(() =>
   import('@/pages/MySpotsPage').then((m) => ({ default: m.MySpotsPage })),
 );
 const UploadPage = lazy(() => import('@/pages/UploadPage').then((m) => ({ default: m.UploadPage })));
+const MapPage = lazy(() => import('@/pages/MapPage').then((m) => ({ default: m.MapPage })));
 const ProfilePage = lazy(() =>
   import('@/pages/ProfilePage').then((m) => ({ default: m.ProfilePage })),
 );
@@ -79,7 +80,7 @@ function profileRoute(element: ReactElement): ReactElement {
 export const router = createBrowserRouter([{
   element: <RouteAccessibility />,
   children: [
-  { path: '/', element: <Navigate to="/map" replace /> },
+  { path: '/', element: <LandingPage /> },
   { path: '/login', element: <LoginPage /> },
   { path: '/register', element: <RegisterPage /> },
   { path: '/forgot-password', element: <ForgotPasswordPage /> },
@@ -95,7 +96,7 @@ export const router = createBrowserRouter([{
       {
         element: <AppShell />,
         children: [
-          { path: '/map', element: <MapPage /> },
+          { path: '/map', element: lazyRoute(<MapPage />) },
           { path: '/spots/:spotId', element: lazyRoute(<SpotDetailPage />) },
           { path: '/my-spots', element: lazyRoute(<MySpotsPage />) },
           { path: '/upload', element: lazyRoute(<UploadPage />) },

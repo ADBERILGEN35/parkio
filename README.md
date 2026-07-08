@@ -1,426 +1,317 @@
 # Parkio
 
-Parkio is a Java 21 / Spring Boot 3.5.x microservice platform, organised as a Gradle
-(Kotlin DSL) monorepo. Each backend capability is an **independently runnable**
-Spring Boot service with its own build, Dockerfile and bounded context.
+> Community-powered parking intelligence for drivers who need fresh, trustworthy
+> parking availability signals.
 
-> **Status:** **v1.0.0-rc1** hosted-beta release candidate. Parkio has real backend
-> domain logic, browser auth/session hardening, media upload and scanning,
-> moderation, gamification, observability, a React frontend, CI, and real-stack
-> E2E wiring. **Hosted beta: GO** (operator checklist). **Public production: NO GO**
-> until platform blockers close — see [`docs/releases/RC1-READINESS.md`](docs/releases/RC1-READINESS.md).
+[![Backend CI](https://github.com/ADBERILGEN35/parkio/actions/workflows/backend-ci.yml/badge.svg)](https://github.com/ADBERILGEN35/parkio/actions/workflows/backend-ci.yml)
+[![Frontend CI](https://github.com/ADBERILGEN35/parkio/actions/workflows/frontend-ci.yml/badge.svg)](https://github.com/ADBERILGEN35/parkio/actions/workflows/frontend-ci.yml)
+[![Security CI](https://github.com/ADBERILGEN35/parkio/actions/workflows/security-ci.yml/badge.svg)](https://github.com/ADBERILGEN35/parkio/actions/workflows/security-ci.yml)
+[![Supply chain](https://github.com/ADBERILGEN35/parkio/actions/workflows/supply-chain.yml/badge.svg)](https://github.com/ADBERILGEN35/parkio/actions/workflows/supply-chain.yml)
 
-## Repository layout
+Parkio helps drivers find, share, verify, and manage real-world parking
+availability through a community-powered, privacy-conscious platform. A driver
+can share a spot with photo/context, nearby drivers can verify, claim, or report
+it, and Parkio uses trust signals, moderation, notifications, and optional Smart
+Return workflows to keep the signal useful.
 
-```
-parkio/
-├── build.gradle.kts          # Root aggregator (no production code)
-├── settings.gradle.kts       # Declares all service modules
-├── gradle.properties         # Shared build + Spring Cloud BOM version
-├── gradle/
-│   └── libs.versions.toml    # Version catalog (single source of versions)
-├── buildSrc/                 # `parkio.spring-service` convention plugin
-├── platform/
-│   └── parkio-platform/      # Shared infrastructure-only helpers; no domain models
-├── services/                 # The microservices (one Gradle module each)
-│   ├── gateway-service/      # API gateway / edge routing        (:8080)
-│   ├── auth-service/         # Authentication & authorization    (:8081)
-│   ├── user-service/         # User profiles & accounts          (:8082)
-│   ├── parking-service/      # Parking spots & reservations      (:8083)
-│   ├── media-service/        # Media upload & serving            (:8084)
-│   ├── gamification-service/ # Points, badges, leaderboards      (:8085)
-│   ├── notification-service/ # Notifications                     (:8086)
-│   ├── moderation-service/   # Content moderation                (:8087)
-│   ├── ai-validation-service/# AI-assisted validation            (:8088)
-│   └── analytics-service/    # Event ingestion & analytics       (:8089)
-├── frontend/                 # pnpm monorepo — web SPA, mobile app, shared packages
-├── benchmarks/               # k6 load tests and reports
-├── tools/                    # Operational tools (e.g. DLT redrive)
-├── docs/                     # Architecture, operations, certification, releases
-├── infra/                    # Infrastructure-as-code (placeholder for beta)
-├── docker/                   # Local compose stack & container assets
-└── scripts/                  # Developer, deploy & preflight scripts
-```
+This repository is a Java 21 / Spring Boot microservices monorepo with a React
+web app, Expo mobile app, PostgreSQL/PostGIS, Kafka, Redis, MinIO-compatible
+media storage, observability, CI, runbooks, certification reports, startup docs,
+and a public landing/waitlist path.
 
-## Architecture principles
+## Current Status
 
-- **Microservices, not a modular monolith.** Every service builds, runs, deploys
-  and scales on its own.
-- **No shared domain.** Services never import each other's models. Each service
-  owns its data and exposes contracts at its boundary only. The `shared` package
-  inside a service is for *intra-service* cross-cutting helpers, not cross-service
-  reuse.
-- **Shared platform infrastructure is allowed.** `platform/parkio-platform`
-  contains boring service-agnostic plumbing only: header/MDC constants, the Kafka
-  transport envelope, the standard API error envelope, and trace propagation
-  helpers. It must never contain aggregate roots, business use cases, repository
-  entities, service DTOs, or event payload models.
-- **Clean architecture per service.** Each service's source under
-  `src/main/java/com/parkio/<service>` is split into:
+| Track | Status |
+|-------|--------|
+| Release line | `v1.0.0-rc1` hosted-beta release candidate |
+| Application layer | Certified for hosted-beta preparation |
+| Public landing | Static `parkio.dev` landing page is public-ready |
+| Waitlist | Minimal public intake implemented; requires hosted env/database/Redis |
+| Hosted beta | Preparation complete; live deployment must still be operator-verified |
+| Public production | Not ready; see [Known Issues](docs/releases/KNOWN-ISSUES.md) |
+| Open-source license | Not selected yet; see [License](#license) |
 
-  | Layer            | Responsibility                                                     |
-  |------------------|--------------------------------------------------------------------|
-  | `domain`         | Enterprise rules: entities, value objects, domain ports.           |
-  | `application`    | Use cases that orchestrate the domain.                             |
-  | `infrastructure` | Outbound adapters: persistence, messaging, external clients.       |
-  | `presentation`   | Inbound adapters: REST controllers, request/response models.       |
-  | `shared`         | Cross-cutting helpers scoped to this service only.                 |
+Parkio does **not** currently claim active users, revenue, funding,
+partnerships, awards, production HA, or a live public beta.
 
-- **Spring Cloud compatible.** The gateway uses Spring Cloud Gateway and the
-  Spring Cloud BOM is imported for every service, ready for config, discovery
-  and resilience starters.
+## Preview
 
-## Build conventions
+The web landing experience is implemented in
+[`frontend/apps/web`](frontend/apps/web/) and public assets live under
+[`frontend/apps/web/public`](frontend/apps/web/public/).
 
-Shared build logic lives in [`buildSrc`](buildSrc) as the precompiled
-`parkio.spring-service` convention plugin. It applies the Java 21 toolchain, the
-Spring Boot and dependency-management plugins, imports the Spring Cloud BOM and
-configures JUnit 5. It also adds the infrastructure-only
-[`platform/parkio-platform`](platform/parkio-platform) dependency to service
-modules. Versions are centralised in
-[`gradle/libs.versions.toml`](gradle/libs.versions.toml) and
-[`gradle.properties`](gradle.properties).
+![Parkio social preview](frontend/apps/web/public/og-parkio.png)
 
-A service `build.gradle.kts` therefore stays tiny:
+## Why Parkio Exists
 
-```kotlin
-plugins {
-    id("parkio.spring-service")
-}
+Parking decisions are still made with stale guesses: a spot may be available,
+blocked, illegal, risky, too far away, or already taken. Parkio treats parking as
+a local intelligence problem:
 
-dependencies {
-    implementation(libs.spring.boot.starter.web)
-    // …
-}
+- Fresh observations are more useful than static maps.
+- Trust and verification matter more than one-off submissions.
+- Privacy-sensitive location behavior must be explained and minimized.
+- Hosted beta should prove real usage before public production claims.
+
+## Architecture Overview
+
+Parkio uses gateway-only ingress and independently deployable services. Each
+service owns its own database/schema and communicates through HTTP APIs or Kafka
+events. There are no shared domain models between services.
+
+```text
+Web / Mobile
+    |
+    v
+Spring Cloud Gateway
+    |
+    +-- auth-service              PostgreSQL
+    +-- user-service              PostgreSQL
+    +-- parking-service           PostgreSQL + PostGIS
+    +-- media-service             PostgreSQL + MinIO + ClamAV
+    +-- gamification-service      PostgreSQL
+    +-- notification-service      PostgreSQL
+    +-- moderation-service        PostgreSQL
+    +-- ai-validation-service     PostgreSQL
+    +-- analytics-service         PostgreSQL
+    |
+    +-- Kafka events / DLTs
+    +-- Redis rate limits / caches
+    +-- Prometheus, Grafana, Loki, Alertmanager
 ```
 
-## Common commands
+Start with [Architecture Overview](docs/architecture/README.md), then read
+[Service Boundaries](docs/ai-context/03-service-boundaries.md),
+[Security Guidelines](docs/ai-context/07-security-guidelines.md), and
+[Production Readiness](docs/architecture/production-readiness.md).
 
-| Command                                              | Description                          |
-|------------------------------------------------------|--------------------------------------|
-| `./gradlew build`                                    | Build & unit-test every service.     |
-| `./gradlew integrationTest`                          | Testcontainers tests (needs Docker). |
-| `./gradlew :services:<service>:bootRun`              | Run a single service locally.        |
-| `./gradlew :services:<service>:test`                 | Test a single service.               |
-| `./gradlew :services:<service>:bootJar`              | Produce a runnable jar.              |
-| `./gradlew printServices`                            | List the service module paths.       |
+## Features
 
-Requires JDK 21 (the Gradle toolchain will resolve it). No local Gradle install
-is needed — use the bundled wrapper (`./gradlew`).
+Implemented or documented in the current release line:
 
-`build` runs unit tests only (the `integration` JUnit tag is excluded), so it
-never needs Docker. `integrationTest` runs the `@Tag("integration")`
-Testcontainers suites (PostgreSQL, Kafka, MinIO) and **requires a running Docker
-daemon**; it is deliberately not wired into `build`/`check`.
+- Parking spot creation with media references and location context.
+- Nearby parking discovery with PostGIS-backed search.
+- Spot verification, claim, report, and moderation flows.
+- Media upload pipeline with malware scanning and signed access URLs.
+- Auth with RS256/JWKS, refresh-token rotation, session epoch, and web/mobile
+  token transport separation.
+- Gamification, trust/score foundations, notifications, and Smart Return beta
+  workflows.
+- Public landing page, waitlist intake, and hosted-beta legal placeholders.
+- Docker Compose local/hosted-beta topology and operator scripts.
+- Prometheus/Grafana/Loki/Alertmanager observability assets.
+- CI for backend, frontend, mobile, security, supply chain, runtime validation,
+  backup/restore, and performance smoke.
 
-Run the full integration suite, a single service's, or a single class with:
+## Tech Stack
+
+| Layer | Stack |
+|-------|-------|
+| Backend | Java 21, Spring Boot 3.5.x, Spring Cloud Gateway |
+| Data | PostgreSQL, PostGIS, Flyway, Redis |
+| Messaging | Kafka, transactional outbox/inbox, DLTs |
+| Media | MinIO/S3-compatible storage, ClamAV scanning |
+| Web | React, Vite, TypeScript, Tailwind, Playwright |
+| Mobile | Expo, React Native, TypeScript |
+| Tooling | Gradle Kotlin DSL, pnpm workspace, Docker Compose |
+| Observability | Prometheus, Grafana, Loki, Alertmanager, OpenTelemetry |
+| Security/Supply chain | gitleaks, Trivy, CodeQL gate, Dependabot, SBOMs |
+
+## Repository Structure
+
+| Path | Purpose |
+|------|---------|
+| [`services/`](services/) | Spring Boot microservices |
+| [`frontend/`](frontend/) | Web app, mobile app, shared TypeScript packages |
+| [`docker/`](docker/) | Local and hosted-beta Compose stack |
+| [`scripts/`](scripts/) | Developer, deploy, preflight, backup, smoke scripts |
+| [`docs/`](docs/) | Architecture, operations, release, startup, brand docs |
+| [`docs/startup/`](docs/startup/) | Accelerator/investor/startup narrative package |
+| [`docs/brand/`](docs/brand/) | Brand, voice, visual identity, copy guidance |
+| [`docs/design/`](docs/design/) | Landing page, waitlist, CTA, SEO, flow specs |
+| [`docs/certification/`](docs/certification/) | Certification reports and readiness decisions |
+| [`benchmarks/`](benchmarks/) | k6 smoke/load harness |
+| [`tools/`](tools/) | Operational utilities such as DLT redrive |
+| [`platform/`](platform/) | Service-agnostic infrastructure helpers only |
+
+## Quick Start
+
+### Prerequisites
+
+- JDK 21
+- Docker Desktop or Docker Engine with Compose v2
+- Node.js 20+ and Corepack
+- pnpm version pinned by [`frontend/package.json`](frontend/package.json)
+
+### Backend Build
 
 ```bash
-./gradlew integrationTest                              # all services (needs Docker)
-./gradlew :services:parking-service:integrationTest    # one service
-./gradlew :services:media-service:integrationTest --tests '*MediaInfrastructureIntegrationTest'
+./gradlew build
+./gradlew integrationTest
 ```
 
-**Docker behaviour.** Each suite is `@Testcontainers(disabledWithoutDocker = true)`,
-so when no Docker daemon is reachable the tests are **skipped, not failed** —
-convenient for a quick local `integrationTest` without Docker. Add
-`-Pparkio.integrationTest.requireDocker=true` to instead **fail fast** when Docker
-is missing; CI uses this flag so a misconfigured runner can never report a
-false-green by silently skipping every suite.
+`build` runs unit tests and does not require Docker. `integrationTest` runs
+Testcontainers suites; add `-Pparkio.integrationTest.requireDocker=true` when a
+Docker-backed run must fail instead of skip.
 
-## Continuous integration
-
-Two workflows split the backend quality gate so PR feedback stays fast while the
-slow, Docker-backed distributed-systems tests still run regularly.
-
-**[`backend-ci.yml`](.github/workflows/backend-ci.yml) — the fast PR gate.**
-Every pull request and every push to `master` runs `./gradlew --no-daemon build`
-(compile + unit tests for all services) on `ubuntu-latest` with JDK 21 and a
-cached Gradle home. It excludes the `integration` tag, so it never needs Docker.
-Test reports are uploaded as an artifact when the build fails.
-
-**[`backend-integration.yml`](.github/workflows/backend-integration.yml) — the
-Testcontainers suite.** Runs `./gradlew --no-daemon integrationTest
--Pparkio.integrationTest.requireDocker=true` (PostgreSQL/Kafka/MinIO via
-Testcontainers; `ubuntu-latest` ships Docker). It triggers:
-
-- **on pull requests that touch backend paths** — `services/**`, `buildSrc/**`,
-  `gradle/**`, `build.gradle*`, `settings.gradle*`, `gradle.properties`,
-  `docker/**`, and the workflow itself — so frontend-/docs-only PRs skip it and
-  stay fast;
-- **nightly** (`schedule`), to catch drift even on weeks with no backend PRs;
-- **on demand** from the Actions tab (`workflow_dispatch`).
-
-The `requireDocker` flag makes the run **fail fast** if a runner lacks Docker,
-rather than silently skipping every suite and reporting a false green. Both
-workflows use least-privilege `contents: read` permissions, depend on no secrets,
-and have job timeouts; integration runs are de-duplicated per ref via a
-`concurrency` group. Integration test reports are uploaded on failure.
-
-**[`frontend-ci.yml`](.github/workflows/frontend-ci.yml) — the frontend gate.**
-On PRs/pushes that touch `frontend/**` it runs typecheck, lint, unit tests (vitest)
-and the production build across the pnpm workspace (least-privilege `contents: read`,
-20-min timeout, path-filtered so backend-/docs-only PRs skip it). Playwright e2e is
-intentionally excluded from this fast gate.
-
-**[`backup-restore-drill.yml`](.github/workflows/backup-restore-drill.yml) — the
-disaster-recovery drill.** Brings up the postgres/postgis containers and runs
-[`scripts/restore-drill.sh`](scripts/restore-drill.sh): seed canary → real backup →
-real restore → assert the data **and** parking's PostGIS objects (extension, GiST
-index, location trigger, live spatial query) survive the round-trip. Runs weekly, on
-demand, and on PRs that change the backup scripts, the compose stack, or the parking
-migrations. This makes "are our backups actually restorable?" a continuously-proven,
-repeatable fact instead of a one-off manual ritual.
-
-**[`observability-validation.yml`](.github/workflows/observability-validation.yml) — the
-observability gate.** Validates Prometheus config/rules (`promtool`), Alertmanager render
-(`amtool`), compose config, backup/restore dry-runs, and shell syntax on PRs that touch
-`docker/prometheus/**`, `docker/alertmanager/**`, backup scripts, or the workflow itself.
-
-**[`security-ci.yml`](.github/workflows/security-ci.yml) — security scanning gates.**
-Runs on PRs, pushes to `master`, weekly, and on demand:
-
-- **gitleaks** secret scanning blocks detected secrets. The allowlist is deliberately
-  narrow and limited to documented local-dev placeholders and test-only fake secrets.
-- **CodeQL** analyzes Java/Kotlin and JavaScript/TypeScript and uploads SARIF —
-  gated behind the `CODEQL_ENABLED` repository variable (see below).
-- **Trivy filesystem dependency scanning** covers Gradle/pnpm manifests and blocks
-  HIGH/CRITICAL library vulnerabilities.
-- **Trivy container image scanning** builds every runtime service image with a
-  Dockerfile, reports HIGH/CRITICAL findings, and blocks CRITICAL image
-  vulnerabilities.
-
-All scan reports are uploaded as workflow artifacts on every run, independent of
-Code Scanning availability. Security CI runs the official pinned Trivy Docker image
-(`TRIVY_IMAGE`) and does not install Trivy on the GitHub runner. The workflow prints
-`docker version`, the selected image, and `docker run --rm "$TRIVY_IMAGE" --version`
-before scanning. To update Trivy, change the top-level `TRIVY_IMAGE` value in
-[`security-ci.yml`](.github/workflows/security-ci.yml) and rerun Security CI.
-
-Trivy database/cache state is restored with `actions/cache` at `.cache/trivy`.
-Dependency reports are uploaded as `trivy-dependencies-reports`
-(`trivy-dependencies.txt`, `trivy-dependencies.sarif`). Image reports are uploaded
-per service as `trivy-image-<service>-reports`
-(`trivy-image-<service>.txt`, `trivy-image-<service>.sarif`).
-
-**[`hosted-beta-deploy.yml`](.github/workflows/hosted-beta-deploy.yml) — deploy /
-rollback foundation.** Builds SHA-tagged images (`parkio/<service>:sha-<gitsha>`),
-writes a deploy manifest artifact, and optionally deploys or rolls back on a
-self-hosted `parkio-beta` runner (`workflow_dispatch` only). Operators can run the
-same flow locally with [`scripts/deploy-hosted-beta.sh`](scripts/deploy-hosted-beta.sh)
-and [`scripts/rollback-hosted-beta.sh`](scripts/rollback-hosted-beta.sh). See
-[`docs/beta/deploy-runbook.md`](docs/beta/deploy-runbook.md) and
-[`docs/beta/rollback-runbook.md`](docs/beta/rollback-runbook.md).
-
-**[`runtime-validation.yml`](.github/workflows/runtime-validation.yml) — full runtime
-validation.** Builds and starts the hosted-beta Docker Compose stack on a
-GitHub-hosted Linux runner, waits for required healthchecks, verifies gateway and
-direct-service security responses, checks app resource limits, restarts
-`analytics-service`, and smoke-tests the observability endpoints. It uses a
-throwaway env generated from `docker/.env.hosted-beta.example`; no real secrets
-are required. See [`docs/operations/runtime-validation.md`](docs/operations/runtime-validation.md).
-
-**[`chaos-validation.yml`](.github/workflows/chaos-validation.yml) — Compose recovery
-drill.** Starts the hosted-beta stack on a Docker-capable GitHub runner, then runs
-[`scripts/chaos-compose-validation.sh`](scripts/chaos-compose-validation.sh) to
-stop/restart Kafka, Redis, representative Postgres, MinIO, gateway,
-notification-service, and analytics-service one at a time. See
-[`docs/operations/reliability-guide.md`](docs/operations/reliability-guide.md).
-
-**[`performance-smoke.yml`](.github/workflows/performance-smoke.yml) — k6 runtime
-performance smoke.** Starts the local Compose stack on a Docker-capable GitHub
-runner, seeds a non-production USER account, runs the k6 HTTP harness at a small
-load, and uploads k6, Prometheus and Compose diagnostics. It is a regression
-guard, not a capacity claim. See
-[`docs/operations/performance-capacity.md`](docs/operations/performance-capacity.md).
-
-**Personal-repo mode (today).** Code Scanning / GitHub Advanced Security is not
-available on this private repository, so CodeQL and Trivy SARIF uploads to the
-Security tab are turned off. The workflow detects this through the repository
-variable `CODEQL_ENABLED`: while it is unset (or not `"true"`), the CodeQL job is
-skipped cleanly and the SARIF-upload steps are bypassed, so Security CI is green.
-
-**Organization / GHAS mode (later).** Once the repo moves to an organization (or
-GHAS is enabled) and Code scanning is turned on, flip the gate — no workflow edits
-needed:
-
-1. Move the repo to an organization or enable GitHub Advanced Security on it.
-2. Enable **Settings → Code security and analysis → Code scanning**.
-3. Add repository variable **`CODEQL_ENABLED=true`** under
-   **Settings → Secrets and variables → Actions → Variables**.
-4. Re-run Security CI.
-
-The workflow already grants `contents: read`, `security-events: write`, and
-`actions: read`; `security-events: write` is consumed only by the gated SARIF
-uploads and is harmless while the gate is off.
-
-Handle false positives by first proving the value is fake, then adding the smallest
-possible allowlist entry in `.gitleaks.toml` or an equivalent scanner config. Never
-allowlist a real credential; rotate/revoke it, purge it from deploy environments, and
-then remove or rewrite the committed value.
-
-Local equivalents:
+### Frontend Build
 
 ```bash
-gitleaks detect --source . --config .gitleaks.toml --redact
-trivy fs --scanners vuln --vuln-type library --severity HIGH,CRITICAL --ignore-unfixed .
-docker build -f services/auth-service/Dockerfile -t parkio/auth-service:local-scan .
-trivy image --severity HIGH,CRITICAL --ignore-unfixed parkio/auth-service:local-scan
-cd frontend && pnpm audit --audit-level high
+cd frontend
+corepack pnpm install
+corepack pnpm -r typecheck
+corepack pnpm -r lint
+corepack pnpm -r test
+corepack pnpm -r build
 ```
 
-CodeQL local analysis is optional; use the GitHub workflow as the canonical SARIF
-producer unless you already have the CodeQL CLI installed.
-
-[`.github/dependabot.yml`](.github/dependabot.yml) raises conservative weekly
-update PRs for Gradle dependencies, the pnpm frontend workspace, GitHub Actions,
-service Dockerfile base images and Docker stack images.
-
-GitHub Actions currently use mutable major tags such as `actions/checkout@v4`
-and `actions/setup-java@v4`. That is an accepted short-term tradeoff for this
-hosted-beta line because Dependabot monitors GitHub Actions weekly. Full
-commit-SHA pinning remains a production hardening follow-up: pin critical
-actions only after verifying the exact upstream SHAs and update flow, rather
-than mass-changing CI blindly.
-
-### Supply chain & releases
-
-Build integrity, SBOMs, provenance and release signing are documented in
-[`docs/operations/supply-chain-security.md`](docs/operations/supply-chain-security.md).
-In short: each service emits a **CycloneDX SBOM** (CycloneDX Gradle plugin) and the
-frontend/images are billed via Trivy; the [`supply-chain.yml`](.github/workflows/supply-chain.yml)
-workflow publishes SBOMs + a portable provenance manifest; the
-[`release.yml`](.github/workflows/release.yml) workflow detects a semver tag, runs the
-full test + integration + SBOM + OCI-labelled image build, optionally cosign-signs
-(keyless OIDC, gated), and creates a **draft** GitHub Release (manual publish = the
-approval gate). The Gradle wrapper jar is integrity-checked on every backend PR and
-bootJars are built reproducibly (zeroed timestamps, stable order).
-
-### Dependency-line policy
-
-The platform is intentionally pinned to the **Spring Boot 3.x / Spring Cloud
-2025.0.x** line. Master is green on Spring Boot 3.5.15, Spring Cloud 2025.0.3,
-MinIO 8.6.0 and springdoc 2.8.17, and patch/minor Dependabot updates are
-expected to stay on that line. Two libraries publish **major** releases that are
-not drop-in upgrades here, so their major bumps are ignored in
-[`dependabot.yml`](.github/dependabot.yml) (patch/minor and in-line security
-fixes are still raised):
-
-| Dependency | Ignored | Why |
-| --- | --- | --- |
-| `io.minio:minio` | `>= 9.0.0` | MinIO 9.x removed `io.minio.http.Method` and changed `PutObjectArgs.stream(...)` (objectSize → boxed `Long`), breaking `MinioMediaStorageAdapter` at compile time. Needs a deliberate storage-adapter migration. |
-| `org.springdoc:springdoc-openapi-starter-webmvc-ui` | `>= 3.0.0` | springdoc 3.x targets Spring Framework 7 / Spring Boot 4; on Boot 3.5.x it fails servlet context init (`NoClassDefFoundError: ServletWebServerApplicationContextFactory` → `contextLoads` failures). Belongs to the Boot 4 migration. |
-
-**When the Spring Boot 4 / Spring Framework 7 migration starts:** bump the Boot
-and Spring Cloud BOMs first, then remove the matching `ignore` entry in
-`dependabot.yml` (or raise the bump manually) — springdoc 3.x and MinIO 9.x are
-adopted *as part of* that migration, with the `MinioMediaStorageAdapter` API
-rewrite, not before it. Removing an `ignore` entry is the explicit signal that
-its migration has been scheduled.
-
-## Line-ending policy
-
-[`.gitattributes`](.gitattributes) normalizes line endings so Windows/WSL
-clones stop producing noise diffs (e.g. `gradlew.bat`):
-
-- text files are stored with LF in the repository (`* text=auto`);
-- `*.sh` and `gradlew` are always checked out with LF (they run on Linux/CI);
-- `*.bat`/`*.cmd` and `gradlew.bat` are always checked out with CRLF;
-- images and jars are marked `binary`.
-
-Existing clones created before this policy should renormalize once:
+If workspace-level test orchestration hangs in a local WSL/Windows environment,
+run package-level tests:
 
 ```bash
-git add --renormalize .
-git commit -m "Normalize line endings"
+corepack pnpm --filter @parkio/api-client test
+corepack pnpm --filter @parkio/web test
+corepack pnpm --filter @parkio/mobile test -- --runInBand
 ```
 
-Fresh checkouts need no manual steps — `gradlew.bat` materializes as CRLF and
-`gradlew` as LF on every platform. AI-tool local files (`.claude/`, `.cursor/`,
-…) are git-ignored and never tracked, so the attributes do not affect them.
-
-## Running with Docker
-
-Each service ships a multi-stage [`Dockerfile`](services/auth-service/Dockerfile).
-See [`docker/README.md`](docker/README.md) for the **full application stack**
-(infra + services + web). The infra-only compose file is for partial local dev:
+### Local Stack
 
 ```bash
-docker compose -f docker/docker-compose.yml up --build
+cd docker
+cp .env.example .env
+docker compose -f docker-compose.yml -f docker-compose.apps.yml up -d --build
 ```
 
-For hosted beta, use the overlays and runbooks in [`docs/beta/`](docs/beta/) and
-run `scripts/preflight-hosted-beta.sh` before deploy.
+Read [docker/README.md](docker/README.md) before running the full stack. It
+documents required secrets, service ports, health checks, backup/restore, hosted
+beta overlays, and common troubleshooting.
 
-The runtime is production-hardened for a single VPS: per-container resource ceilings,
-JVM heap pinned to its container limit with fail-fast on OOM, Actuator-readiness
-healthchecks with startup ordering, graceful shutdown, and bounded log rotation. Host
-sizing and the full resource model are documented in
-[`docs/operations/runtime-sizing.md`](docs/operations/runtime-sizing.md).
+## Development
 
-## Release & certification
+Common commands:
 
-| Document | Purpose |
-|----------|---------|
-| [`CHANGELOG.md`](CHANGELOG.md) | Version history (Keep a Changelog) |
-| [`docs/releases/RC1-RELEASE-NOTES.md`](docs/releases/RC1-RELEASE-NOTES.md) | v1.0.0-rc1 release notes |
-| [`docs/releases/RC1-CHECKLIST.md`](docs/releases/RC1-CHECKLIST.md) | Pre-tag checklist |
-| [`docs/releases/KNOWN-ISSUES.md`](docs/releases/KNOWN-ISSUES.md) | Verified limitations |
-| [`docs/releases/RC1-READINESS.md`](docs/releases/RC1-READINESS.md) | GO / NO GO decision |
-| [`docs/certification/FINAL-PRODUCTION-CERTIFICATION.md`](docs/certification/FINAL-PRODUCTION-CERTIFICATION.md) | Authoritative project certification |
-| [`docs/certification/FINAL-BACKEND-CERTIFICATION.md`](docs/certification/FINAL-BACKEND-CERTIFICATION.md) | Backend certification (R-001–R6) |
-| [`docs/certification/FINAL-FRONTEND-CERTIFICATION.md`](docs/certification/FINAL-FRONTEND-CERTIFICATION.md) | Frontend certification (F1–FFINAL) |
-| [`SECURITY.md`](SECURITY.md) | Vulnerability reporting |
-| [`CONTRIBUTING.md`](CONTRIBUTING.md) | Contribution guide |
-| [`SUPPORT.md`](SUPPORT.md) | Operator troubleshooting |
+| Command | Purpose |
+|---------|---------|
+| `./gradlew build` | Compile and unit-test backend services |
+| `./gradlew integrationTest` | Run backend integration suites |
+| `./gradlew :services:<service>:test` | Test one backend service |
+| `./gradlew :services:<service>:bootRun` | Run one backend service |
+| `cd frontend && corepack pnpm -r typecheck` | Typecheck frontend workspace |
+| `cd frontend && corepack pnpm --filter @parkio/web dev` | Start web app |
+| `cd frontend && corepack pnpm --filter @parkio/web exec playwright test` | Run web e2e |
+| `scripts/preflight-hosted-beta.sh` | Validate hosted-beta env before deploy |
 
-Tag releases with semver `v*` (e.g. `v1.0.0-rc1`). The [`release.yml`](.github/workflows/release.yml) workflow builds, tests, generates SBOMs, and creates a **draft** GitHub Release.
+Contributor rules live in [CONTRIBUTING.md](CONTRIBUTING.md) and
+[`docs/ai-context/`](docs/ai-context/).
 
-## Documentation & AI-tool hygiene
+## Hosted Beta Status
 
-**Project documentation is versioned.** The canonical docs live under
-[`docs/`](docs) and especially [`docs/ai-context/`](docs/ai-context) — the rule
-set every contributor (human or AI agent) reads before working. These files are
-committed and reviewed like any other source; **do not delete or git-ignore them**.
+Parkio is in hosted-beta preparation. The repository contains:
 
-**AI-tool local files must NOT be committed.** Coding assistants (Claude Code /
-claude-mem, Cursor, Aider, Codex, etc.) drop per-developer memory and config files
-into the tree — e.g. auto-generated `CLAUDE.md` stubs, `.claude/`, `.cursor/`,
-`.cursorrules`, `.aider*`. These are local to a developer's machine, not project
-artifacts, and are excluded in [`.gitignore`](.gitignore).
+- Hosted-beta Docker Compose overlays.
+- Caddy/TLS routing configuration.
+- Environment templates.
+- Deploy, rollback, preflight, smoke, backup, and restore scripts.
+- Operator runbooks.
+- Public landing page, waitlist intake, and beta legal placeholders.
 
-- The scattered `CLAUDE.md` files in this repo are **auto-generated by a plugin**
-  and carry no project meaning, so `CLAUDE.md` is git-ignored at every depth.
-  Authoritative guidance lives in `docs/ai-context/`, not in `CLAUDE.md`.
-- The ignore patterns never match `docs/ai-context/` itself (it has no leading dot
-  and is not named `CLAUDE.md`), so project docs stay versioned.
-- If you ever need to commit a tool-specific file deliberately, force-add it:
-  `git add -f <path>`.
+The repository does **not** prove that a live VPS deployment is currently
+running. Operators should start with the single
+[Hosted Beta Runbook](HOSTED-BETA-RUNBOOK.md), then record live evidence in
+[Hosted Beta Deployment Report](docs/releases/RC2-HOSTED-BETA-DEPLOYMENT-REPORT.md).
 
-## OpenAPI documentation
+## Roadmap
 
-Each REST service exposes OpenAPI 3 docs when `PARKIO_OPENAPI_ENABLED=true`
-(default locally; disable in production):
+| Horizon | Focus |
+|---------|-------|
+| Current | Repository excellence, hosted-beta readiness, honest public docs |
+| Next | Operator-verified hosted beta deployment and smoke evidence |
+| Beta | Small invite cohorts, waitlist operations, mobile device proof |
+| Later | Managed data services, PITR, stronger CD rollback, public production hardening |
 
-| Service | Swagger UI (direct port) | Gateway prefix |
-|---------|--------------------------|----------------|
-| auth | http://localhost:8081/swagger-ui.html | `/api/v1/auth/**` |
-| user | http://localhost:8082/swagger-ui.html | `/api/v1/users/**` |
-| parking | http://localhost:8083/swagger-ui.html | `/api/v1/parking/**` |
-| media | http://localhost:8084/swagger-ui.html | `/api/v1/media/**` |
-| gamification | http://localhost:8085/swagger-ui.html | `/api/v1/gamification/**` |
-| notification | http://localhost:8086/swagger-ui.html | `/api/v1/notifications/**` |
-| moderation | http://localhost:8087/swagger-ui.html | `/api/v1/moderation/**` |
-| ai-validation | http://localhost:8088/swagger-ui.html | `/api/v1/ai-validations/**` |
-| analytics | http://localhost:8089/swagger-ui.html | `/api/v1/analytics/**` |
+Canonical roadmap source: [docs/startup/07-roadmap.md](docs/startup/07-roadmap.md).
+Known limitations: [docs/releases/KNOWN-ISSUES.md](docs/releases/KNOWN-ISSUES.md).
 
-Clients call the **gateway** on port 8080; service-level docs are for contract
-reference and client generation. Internal `/internal/**` endpoints are hidden
-from the public spec. See [`docs/architecture/openapi.md`](docs/architecture/openapi.md).
+## Documentation Index
 
-## Further reading
+| Need | Start here |
+|------|------------|
+| Product overview | [Startup README](docs/startup/README.md) |
+| Architecture map | [Architecture README](docs/architecture/README.md) |
+| Service boundaries | [Service Boundaries](docs/ai-context/03-service-boundaries.md) |
+| Security model | [Security Guidelines](docs/ai-context/07-security-guidelines.md) |
+| Event transport | [Kafka Transport](docs/architecture/kafka-transport.md) |
+| Observability | [Observability Metrics](docs/architecture/observability-metrics.md) |
+| Operations | [Operations docs](docs/operations/) |
+| Hosted beta deploy | [Hosted Beta Runbook](HOSTED-BETA-RUNBOOK.md) |
+| Release readiness | [RC1 Readiness](docs/releases/RC1-READINESS.md) |
+| Certification | [Certification docs](docs/certification/) |
+| Brand and copy | [Brand docs](docs/brand/) |
+| Landing and waitlist | [Design docs](docs/design/) |
+| Mobile runtime | [Mobile local runtime](docs/mobile-local-runtime.md) |
 
-- [`docs/`](docs) — architecture decisions and service contracts.
-- [`docs/ai-context/`](docs/ai-context) — project rules for contributors and AI agents.
-- [`infra/`](infra) — deployment and infrastructure definitions.
-- [`scripts/`](scripts) — helper scripts for local development and CI.
+## Contributing
+
+Parkio is not yet accepting broad public contribution intake as an open-source
+project because a final license has not been selected. Documentation, issue
+reports, and private review are still welcome.
+
+Before contributing, read:
+
+- [CONTRIBUTING.md](CONTRIBUTING.md)
+- [CODE_OF_CONDUCT.md](CODE_OF_CONDUCT.md)
+- [SUPPORT.md](SUPPORT.md)
+- [SECURITY.md](SECURITY.md)
+- [CODEOWNERS](CODEOWNERS)
+
+## Security
+
+Do not open public issues for vulnerabilities. Follow [SECURITY.md](SECURITY.md).
+
+Security-relevant documentation:
+
+- [Security Guidelines](docs/ai-context/07-security-guidelines.md)
+- [Security Boundaries](docs/operations/security-boundaries.md)
+- [Supply Chain Security](docs/operations/supply-chain-security.md)
+- [Production Readiness](docs/architecture/production-readiness.md)
+
+## License
+
+No open-source license has been selected yet. See [LICENSE](LICENSE).
+
+Until the maintainer replaces that file with an explicit open-source license,
+the repository should be treated as source-visible for review only, not as a
+permissively reusable open-source package.
+
+## FAQ
+
+**Is Parkio live?**
+
+The public landing page is ready. A live hosted beta deployment still requires
+operator verification. Public production is not live.
+
+**Is this a parking payment app?**
+
+No. Parkio is a parking intelligence layer focused on availability, freshness,
+trust, verification, and parking context.
+
+**Does Parkio decide whether parking is legal?**
+
+No. Parkio can carry user-reported legal/risk context and moderation signals,
+but it is not a legal authority and does not guarantee a spot is legal or safe.
+
+**Can I run it locally?**
+
+Yes. Use the Gradle, pnpm, and Docker Compose commands above. The full stack is
+heavier than a simple demo because it mirrors the microservice topology.
+
+**Is the repository production-ready?**
+
+Application-layer foundations are mature for hosted-beta preparation. Public
+production is blocked on managed HA data services, secrets management/rotation,
+CD rollback, on-call, and production-scale testing.
+
+**Why is there no final open-source license?**
+
+License selection is a maintainer/legal decision. The repo now makes that status
+explicit so reviewers do not mistake source visibility for reuse permission.

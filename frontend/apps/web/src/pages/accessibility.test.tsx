@@ -3,6 +3,7 @@ import { screen } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { axe } from 'jest-axe';
 import { describe, expect, it, vi } from 'vitest';
+import { LandingPage } from './LandingPage';
 import { LoginPage } from './LoginPage';
 import { MapPage } from './MapPage';
 import { RegisterPage } from './RegisterPage';
@@ -45,6 +46,12 @@ function stubGeolocation() {
 }
 
 describe('page accessibility', () => {
+  it('landing page has no automated axe violations', async () => {
+    const { container } = renderWithProviders(<LandingPage />);
+
+    expect(await axe(container)).toHaveNoViolations();
+  });
+
   it('login page has no automated axe violations', async () => {
     const { container } = renderWithProviders(<LoginPage />, { initialEntries: ['/login'] });
 

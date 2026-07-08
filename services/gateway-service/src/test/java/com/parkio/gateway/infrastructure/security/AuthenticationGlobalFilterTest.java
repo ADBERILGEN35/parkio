@@ -70,6 +70,18 @@ class AuthenticationGlobalFilterTest {
     }
 
     @Test
+    void waitlistSubmissionIsPublic() {
+        var request = MockServerHttpRequest
+                .post("/api/v1/waitlist")
+                .build();
+        var chain = new CapturingChain();
+
+        filter().filter(MockServerWebExchange.from(request), chain).block();
+
+        assertThat(chain.wasInvoked()).isTrue();
+    }
+
+    @Test
     void protectedRouteWithoutTokenIsRejected() {
         var exchange = MockServerWebExchange.from(MockServerHttpRequest
                 .get("/api/v1/users/me").build());

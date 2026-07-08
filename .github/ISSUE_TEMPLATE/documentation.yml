@@ -1,0 +1,32 @@
+name: Documentation issue
+description: Report confusing, missing, duplicated, or stale documentation.
+title: "docs: "
+labels:
+  - documentation
+body:
+  - type: textarea
+    id: location
+    attributes:
+      label: Document or page
+      description: Link the file, heading, or section.
+    validations:
+      required: true
+  - type: textarea
+    id: issue
+    attributes:
+      label: Problem
+      description: What is unclear, stale, duplicated, missing, or inconsistent?
+    validations:
+      required: true
+  - type: textarea
+    id: expected
+    attributes:
+      label: Expected improvement
+    validations:
+      required: false
+  - type: textarea
+    id: evidence
+    attributes:
+      label: Evidence or related links
+    validations:
+      required: false

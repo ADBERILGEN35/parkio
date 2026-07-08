@@ -1,19 +1,26 @@
 # Support
 
-## Release status
+Parkio is a hosted-beta candidate repository. Support is best-effort and focused
+on making the project understandable, reproducible, and safe to evaluate.
+
+## Release Status
 
 Parkio **v1.0.0-rc1** is a **hosted-beta release candidate**. It is suitable for controlled operator-run deployments, not unattended public production.
 
 | Track | Status |
 |-------|--------|
-| Hosted beta | **Supported** — see operator docs below |
-| Public production | **Not supported** on this release |
+| Local development | Supported through repository docs and issues |
+| Hosted beta | Supported through operator runbooks and preflight scripts |
+| Public production | Not supported on this release |
+| Broad public open source | Pending final license selection |
 
 ## Documentation
 
 | Topic | Location |
 |-------|----------|
-| Quick start (backend) | [`README.md`](README.md) |
+| Repository overview | [README](README.md) |
+| Documentation index | [docs/README.md](docs/README.md) |
+| Architecture | [docs/architecture/README.md](docs/architecture/README.md) |
 | Docker / local stack | [`docker/README.md`](docker/README.md) |
 | Hosted beta deploy | [`docs/beta/deploy-runbook.md`](docs/beta/deploy-runbook.md) |
 | VPS checklist | [`docs/operations/vps-hosted-beta-checklist.md`](docs/operations/vps-hosted-beta-checklist.md) |
@@ -23,11 +30,19 @@ Parkio **v1.0.0-rc1** is a **hosted-beta release candidate**. It is suitable for
 | Known issues | [`docs/releases/KNOWN-ISSUES.md`](docs/releases/KNOWN-ISSUES.md) |
 | RC1 checklist | [`docs/releases/RC1-CHECKLIST.md`](docs/releases/RC1-CHECKLIST.md) |
 
-## Getting help
+## Getting Help
 
-- **Operators:** Follow runbooks in `docs/beta/` and `docs/operations/`. Run `scripts/preflight-hosted-beta.sh` before every deploy.
-- **Security issues:** See [`SECURITY.md`](SECURITY.md) — do not file public issues for vulnerabilities.
-- **Bugs:** Open a GitHub issue with reproduction steps, environment (local / hosted-beta), and relevant logs (redact secrets).
+| Need | Where to go |
+|------|-------------|
+| Bug report | Use the GitHub bug report template |
+| Documentation problem | Use the documentation issue template |
+| Scoped product proposal | Use the feature request template |
+| Security vulnerability | Follow [SECURITY.md](SECURITY.md), not public issues |
+| Hosted-beta operation | Start with [docs/beta/deploy-runbook.md](docs/beta/deploy-runbook.md) |
+| Waitlist/privacy deletion request | Use the contact path documented on the beta legal pages before public intake |
+
+Good support requests include the command run, expected result, actual result,
+environment, logs with secrets redacted, and the relevant commit or branch.
 
 ## Troubleshooting
 
@@ -39,3 +54,10 @@ Parkio **v1.0.0-rc1** is a **hosted-beta release candidate**. It is suitable for
 | Upload stuck on SCANNING | ClamAV healthy? `PARKIO_MEDIA_SCANNER_ENABLED=true` |
 | Alerts not delivered | Slack webhook or `PARKIO_ALERT_WEBHOOK_URL` configured? Alertmanager running? |
 | Mobile push not working | Expo access token set? Dev client vs Expo Go limitations |
+| Waitlist submission rejected | Consent checked? Email valid? Redis/database configured? Rate limit hit? |
+
+## Response Expectations
+
+There is no guaranteed service-level agreement for public repository support.
+Security reports and hosted-beta blockers should be prioritized over general
+questions and enhancement ideas.

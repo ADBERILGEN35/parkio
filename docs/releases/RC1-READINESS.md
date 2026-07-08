@@ -66,12 +66,13 @@ Blockers PP-01–PP-06 in [`KNOWN-ISSUES.md`](KNOWN-ISSUES.md). Source: [`produc
 
 | Missing artifact | Required for OSS | Documented in |
 |------------------|------------------|---------------|
-| `LICENSE` | Yes | KNOWN-ISSUES OP-01, OSS-01 |
+| Final `LICENSE` text | Yes | KNOWN-ISSUES OP-01, OSS-01 |
 | `NOTICE` | Recommended | OSS-02 |
-| `CODEOWNERS` | Recommended | OSS-03 |
-| `CODE_OF_CONDUCT.md` | Recommended | OSS-04 |
+| `CODEOWNERS` | Added after RC1 | Repository root |
+| `CODE_OF_CONDUCT.md` | Added after RC1 | Repository root |
 
-**Maintainer must choose a license.** Do not publish as open source until `LICENSE` is added.
+**Maintainer must choose a license.** Do not publish as open source until the
+license-status placeholder is replaced with final license text.
 
 ---
 
@@ -79,10 +80,10 @@ Blockers PP-01–PP-06 in [`KNOWN-ISSUES.md`](KNOWN-ISSUES.md). Source: [`produc
 
 | ID | Blocker | Severity | Status |
 |----|---------|----------|--------|
-| B1 | No LICENSE | High (OSS) | Open |
+| B1 | No final open-source license selected | High (OSS) | Open |
 | B2 | Tag not pushed to `origin` | Medium | Operator action |
 | B3 | Mobile device smoke | Medium (beta) | Operator action |
-| B4 | OSS community files | Low | Optional pre-OSS |
+| B4 | OSS community files | Low | Partially closed after RC1 |
 
 **Resolved (RC1–RC1.3):** FINAL cert committed; F2 UTF-8 fixed; gates PASS; backend/production certs added.
 

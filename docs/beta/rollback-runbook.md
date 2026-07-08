@@ -19,7 +19,8 @@ also embeds `previousManifest` when `current.json` exists).
 
 ```bash
 PARKIO_ENV_FILE=docker/.env \
-PARKIO_GATEWAY_URL=http://127.0.0.1:8080 \
+PARKIO_GATEWAY_URL=https://<PARKIO_DOMAIN> \
+PARKIO_SMOKE_EXPECT_DIRECT_BLOCKED=1 \
 ./scripts/rollback-hosted-beta.sh \
   --manifest deploy-artifacts/deploy-<previous-sha>-<time>.json
 ```
@@ -63,4 +64,5 @@ docker inspect parkio-gateway-service-1 \
 
 ## Related
 
+- [Hosted Beta Runbook](../../HOSTED-BETA-RUNBOOK.md)
 - [Deploy runbook](./deploy-runbook.md)

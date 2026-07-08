@@ -1,1 +1,106 @@
-℣戯湩猯੨敳⁴攭ੵ䈊十彅佃䙎䝉⼽瑥⽣污牥浴湡条牥愯敬瑲慭慮敧⹲浹੬啒呎䵉彅佃䙎䝉⼽浴⽰污牥浴湡条牥礮汭ਊ䕗䡂住彋剕㵌␢偻剁䥋彏䱁剅彔䕗䡂住彋剕㩌紭ਢ䱓䍁彋剕㵌␢偻剁䥋彏䱁剅彔䱓䍁彋䕗䡂住彋剕㩌紭ਢ䱓䍁彋䡃乁䕎㵌␢偻剁䥋彏䱁剅彔䱓䍁彋䡃乁䕎㩌⌭慰歲潩愭敬瑲絳ਢ䕒䕐呁䍟䥒䥔䅃㵌␢偻剁䥋彏䱁剅彔䕒䕐呁䍟䥒䥔䅃㩌ㄭ絨ਢ䕒䕐呁坟剁䥎䝎∽笤䅐䭒佉䅟䕌呒剟偅䅅彔䅗乒义㩇㐭絨ਢ䕗䡂住彋䕓剃呅∽笤䅐䭒佉䅟䕌呒坟䉅佈䭏卟䍅䕒㩔紭ਢ椊⁦⁛稭∠笤䕗䡂住彋剕経•⁝☦嬠ⴠ⁺␢卻䅌䭃啟䱒≽崠※桴湥 挠⁰␢䅂䕓䍟乏䥆≇∠判乕䥔䕍䍟乏䥆≇攊獬੥†慣⁴∾判乕䥔䕍䍟乏䥆≇㰠䔼䙏朊潬慢㩬 爠獥汯敶瑟浩潥瑵›洵ਊ潲瑵㩥 爠捥楥敶㩲∠慷湲湩≧ 朠潲灵扟㩹嬠愢敬瑲慮敭Ⱒ∠敳癲捩≥‬猢癥牥瑩≹‬挢浯潰敮瑮崢 朠潲灵睟楡㩴㌠猰 朠潲灵楟瑮牥慶㩬㔠੭†敲数瑡楟瑮牥慶㩬␠剻偅䅅彔䅗乒义絇 爠畯整㩳 †ⴠ洠瑡档牥㩳 †††ⴠ猠癥牥瑩㵹挢楲楴慣≬ ††爠捥楥敶㩲∠牣瑩捩污ਢ†††敲数瑡楟瑮牥慶㩬␠剻偅䅅彔剃呉䍉䱁੽††‭慭捴敨獲਺††††‭敳敶楲祴∽慷湲湩≧ ††爠捥楥敶㩲∠慷湲湩≧ ††爠灥慥彴湩整癲污›笤䕒䕐呁坟剁䥎䝎੽椊桮扩瑩牟汵獥਺†‭潳牵散浟瑡档牥㩳 ††ⴠ猠癥牥瑩㵹挢楲楴慣≬ †琠牡敧彴慭捴敨獲਺†††‭敳敶楲祴∽慷湲湩≧ †攠畱污›≛污牥湴浡≥‬猢牥楶散Ⱒ∠潣灭湯湥≴੝爊捥楥敶獲਺佅੆ 椠⁦⁛渭∠笤䱓䍁彋剕経•㭝琠敨੮††慣⁴㸾␢啒呎䵉彅佃䙎䝉•㰼佅੆†‭慮敭›挢楲楴慣≬ †猠慬正损湯楦獧਺†††‭灡彩牵㩬✠笤䱓䍁彋剕経ਧ††††档湡敮㩬✠笤䱓䍁彋䡃乁䕎経ਧ††††敳摮牟獥汯敶㩤琠畲੥††††楴汴㩥✠筛⁻匮慴畴⁳⁼潴灕数⁲絽⁝筻⸠潃浭湯慌敢獬献癥牥瑩⁹絽›筻⸠潃浭湯慌敢獬愮敬瑲慮敭素❽ †††琠硥㩴✠筻爠湡敧⸠汁牥獴素⩽筻⸠湁潮慴楴湯⹳畳浭牡⁹絽笪⁻尢≮素筽⁻䄮湮瑯瑡潩獮搮獥牣灩楴湯素筽⁻尢≮素筽⁻晩⸠湁潮慴楴湯⹳畲扮潯彫牵⁬絽畒扮潯㩫笠⁻䄮湮瑯瑡潩獮爮湵潢歯畟汲素筽⁻尢≮素筽⁻湥⁤絽筻攠摮素❽ ⴠ渠浡㩥∠慷湲湩≧ †猠慬正损湯楦獧਺†††‭灡彩牵㩬✠笤䱓䍁彋剕経ਧ††††档湡敮㩬✠笤䱓䍁彋䡃乁䕎経ਧ††††敳摮牟獥汯敶㩤琠畲੥††††楴汴㩥✠筛⁻匮慴畴⁳⁼潴灕数⁲絽⁝筻⸠潃浭湯慌敢獬献癥牥瑩⁹絽›筻⸠潃浭湯慌敢獬愮敬瑲慮敭素❽ †††琠硥㩴✠筻爠湡敧⸠汁牥獴素⩽筻⸠湁潮慴楴湯⹳畳浭牡⁹絽笪⁻尢≮素筽⁻䄮湮瑯瑡潩獮搮獥牣灩楴湯素筽⁻尢≮素筽⁻晩⸠湁潮慴楴湯⹳畲扮潯彫牵⁬絽畒扮潯㩫笠⁻䄮湮瑯瑡潩獮爮湵潢歯畟汲素筽⁻尢≮素筽⁻湥⁤絽筻攠摮素❽䔊䙏 攠楬⁦⁛渭∠笤䕗䡂住彋剕経•㭝琠敨੮††晩嬠ⴠ⁮␢坻䉅佈䭏卟䍅䕒絔•㭝琠敨੮†††慣⁴㸾␢啒呎䵉彅佃䙎䝉•㰼佅੆†‭慮敭›挢楲楴慣≬ †眠扥潨歯损湯楦獧਺†††‭牵㩬✠笤䕗䡂住彋剕経ਧ††††敳摮牟獥汯敶㩤琠畲੥††††瑨灴损湯楦㩧 ††††愠瑵潨楲慺楴湯਺††††††祴数›敂牡牥 †††††挠敲敤瑮慩獬›␧坻䉅佈䭏卟䍅䕒絔ਧ†‭慮敭›眢牡楮杮ਢ††敷桢潯彫潣普杩㩳 ††ⴠ甠汲›␧坻䉅佈䭏啟䱒❽ †††猠湥彤敲潳癬摥›牴敵 †††栠瑴彰潣普杩਺†††††畡桴牯穩瑡潩㩮 †††††琠灹㩥䈠慥敲ੲ††††††牣摥湥楴污㩳✠笤䕗䡂住彋䕓剃呅❽䔊䙏 †攠獬੥†††慣⁴㸾␢啒呎䵉彅佃䙎䝉•㰼佅੆†‭慮敭›挢楲楴慣≬ †眠扥潨歯损湯楦獧਺†††‭牵㩬✠笤䕗䡂住彋剕経ਧ††††敳摮牟獥汯敶㩤琠畲੥†‭慮敭›眢牡楮杮ਢ††敷桢潯彫潣普杩㩳 ††ⴠ甠汲›␧坻䉅佈䭏啟䱒❽ †††猠湥彤敲潳癬摥›牴敵䔊䙏 †映੩†楦昊੩椊⁦⁛␢偻剁䥋彏䱁剅䵔乁䝁剅噟䱁䑉呁彅乏奌ⴺ≽㴠∠∱崠※桴湥 攠楸⁴ਰ楦ਊ硥捥⼠楢⽮污牥浴湡条牥尠 ⴠ挭湯楦⹧楦敬∽判乕䥔䕍䍟乏䥆≇尠 ⴠ猭潴慲敧瀮瑡㵨愯敬瑲慭慮敧⁲ੜ†ⴭ敷⹢楬瑳湥愭摤敲獳㨽〹㌹
+#!/bin/sh
+set -eu
+
+BASE_CONFIG=/etc/alertmanager/alertmanager.yml
+RUNTIME_CONFIG=/tmp/alertmanager.yml
+
+SLACK_URL="${PARKIO_ALERT_SLACK_WEBHOOK_URL:-}"
+SLACK_CHANNEL="${PARKIO_ALERT_SLACK_CHANNEL:-#parkio-alerts}"
+WEBHOOK_URL="${PARKIO_ALERT_WEBHOOK_URL:-}"
+WEBHOOK_SECRET="${PARKIO_ALERT_WEBHOOK_SECRET:-}"
+REPEAT_CRITICAL="${PARKIO_ALERT_REPEAT_CRITICAL:-1h}"
+REPEAT_WARNING="${PARKIO_ALERT_REPEAT_WARNING:-4h}"
+
+if [ -z "$SLACK_URL" ] && [ -z "$WEBHOOK_URL" ]; then
+  cp "$BASE_CONFIG" "$RUNTIME_CONFIG"
+else
+  cat > "$RUNTIME_CONFIG" <<EOF
+global:
+  resolve_timeout: 5m
+
+route:
+  receiver: "warning"
+  group_by: ["alertname", "service", "severity", "component"]
+  group_wait: 30s
+  group_interval: 5m
+  repeat_interval: ${REPEAT_WARNING}
+  routes:
+    - matchers:
+        - severity="critical"
+      receiver: "critical"
+      repeat_interval: ${REPEAT_CRITICAL}
+    - matchers:
+        - severity="warning"
+      receiver: "warning"
+      repeat_interval: ${REPEAT_WARNING}
+
+inhibit_rules:
+  - source_matchers:
+      - severity="critical"
+    target_matchers:
+      - severity="warning"
+    equal: ["alertname", "service", "component"]
+
+receivers:
+EOF
+
+  if [ -n "$SLACK_URL" ]; then
+    cat >> "$RUNTIME_CONFIG" <<EOF
+  - name: "critical"
+    slack_configs:
+      - api_url: '${SLACK_URL}'
+        channel: '${SLACK_CHANNEL}'
+        send_resolved: true
+        title: '[{{ .Status | toUpper }}] {{ .CommonLabels.severity }}: {{ .CommonLabels.alertname }}'
+        text: '{{ range .Alerts }}*{{ .Annotations.summary }}*{{ "\\n" }}{{ .Annotations.description }}{{ "\\n" }}{{ if .Annotations.runbook_url }}Runbook: {{ .Annotations.runbook_url }}{{ "\\n" }}{{ end }}{{ end }}'
+  - name: "warning"
+    slack_configs:
+      - api_url: '${SLACK_URL}'
+        channel: '${SLACK_CHANNEL}'
+        send_resolved: true
+        title: '[{{ .Status | toUpper }}] {{ .CommonLabels.severity }}: {{ .CommonLabels.alertname }}'
+        text: '{{ range .Alerts }}*{{ .Annotations.summary }}*{{ "\\n" }}{{ .Annotations.description }}{{ "\\n" }}{{ if .Annotations.runbook_url }}Runbook: {{ .Annotations.runbook_url }}{{ "\\n" }}{{ end }}{{ end }}'
+EOF
+  else
+    if [ -n "$WEBHOOK_SECRET" ]; then
+      cat >> "$RUNTIME_CONFIG" <<EOF
+  - name: "critical"
+    webhook_configs:
+      - url: '${WEBHOOK_URL}'
+        send_resolved: true
+        http_config:
+          authorization:
+            type: Bearer
+            credentials: '${WEBHOOK_SECRET}'
+  - name: "warning"
+    webhook_configs:
+      - url: '${WEBHOOK_URL}'
+        send_resolved: true
+        http_config:
+          authorization:
+            type: Bearer
+            credentials: '${WEBHOOK_SECRET}'
+EOF
+    else
+      cat >> "$RUNTIME_CONFIG" <<EOF
+  - name: "critical"
+    webhook_configs:
+      - url: '${WEBHOOK_URL}'
+        send_resolved: true
+  - name: "warning"
+    webhook_configs:
+      - url: '${WEBHOOK_URL}'
+        send_resolved: true
+EOF
+    fi
+  fi
+fi
+
+if [ "${PARKIO_ALERTMANAGER_VALIDATE_ONLY:-}" = "1" ]; then
+  exit 0
+fi
+
+exec /bin/alertmanager \
+  --config.file="$RUNTIME_CONFIG" \
+  --storage.path=/alertmanager \
+  --web.listen-address=:9093

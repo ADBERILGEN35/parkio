@@ -10,6 +10,7 @@ import {
   createNotificationsApi,
   createParkingApi,
   createUsersApi,
+  createWaitlistApi,
   setRefreshHandler,
 } from '@parkio/api-client';
 import { useAuthStore } from '@/auth/store';
@@ -34,6 +35,7 @@ export const gamificationApi = createGamificationApi(apiClient);
 export const moderationApi = createModerationApi(apiClient);
 export const analyticsApi = createAnalyticsApi(apiClient);
 export const geocodingApi = createGeocodingApi(apiClient);
+export const waitlistApi = createWaitlistApi(apiClient);
 
 // Single source of truth for the refresh network call and the resulting session
 // mutation. The shared single-flight coordinator (refreshSession) guarantees this

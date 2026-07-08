@@ -16,6 +16,16 @@ export { createModerationApi, type ModerationApi } from './moderation';
 export { createAnalyticsApi, type AnalyticsApi } from './analytics';
 export { createGeocodingApi, type GeocodingApi } from './geocoding';
 export {
+  createWaitlistApi,
+  isWaitlistRole,
+  WAITLIST_ROLES,
+  WAITLIST_SOURCE,
+  type WaitlistApi,
+  type WaitlistPayload,
+  type WaitlistResult,
+  type WaitlistRole,
+} from './waitlist';
+export {
   createIdempotencyKey,
   IDEMPOTENCY_HEADER,
 } from './idempotency';

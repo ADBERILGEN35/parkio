@@ -36,7 +36,7 @@ Source: [`docs/architecture/production-readiness.md`](../architecture/production
 
 | ID | Issue | Impact | Mitigation |
 |----|-------|--------|------------|
-| OP-01 | **No LICENSE file in repository** | Blocks public open-source distribution; legal ambiguity for third parties | Select and add LICENSE before public GitHub release |
+| OP-01 | **No final open-source license selected** | Blocks public open-source distribution; source visibility is not reuse permission | Replace license-status placeholder with chosen license before public OSS release |
 | OP-02 | **Preflight must pass** before every deploy | Misconfiguration causes startup failure or insecure deploy | `scripts/preflight-hosted-beta.sh` |
 | OP-03 | **JWT key + gateway secret required** | Services refuse start without them | Generate per environment; never reuse dev keys |
 | OP-04 | **CORS empty = deny** | SPA login fails if origins not set | Set `PARKIO_CORS_ALLOWED_ORIGINS` |
@@ -49,10 +49,8 @@ Source: [`docs/architecture/production-readiness.md`](../architecture/production
 
 | ID | Issue | Impact | Mitigation |
 |----|-------|--------|------------|
-| OSS-01 | **No `LICENSE`** | Blocks OSS distribution | Maintainer must select and add license |
+| OSS-01 | **No final `LICENSE` text** | Blocks OSS distribution | Maintainer must select a license and replace the placeholder |
 | OSS-02 | **No `NOTICE`** | Attribution unclear for third parties | Add if required by chosen license |
-| OSS-03 | **No `CODEOWNERS`** | Review routing undefined | Add for public collaboration |
-| OSS-04 | **No `CODE_OF_CONDUCT.md`** | Community norms undefined | Add before public contribution intake |
 
 **Open source publication remains NO GO** until OSS-01 is resolved.
 

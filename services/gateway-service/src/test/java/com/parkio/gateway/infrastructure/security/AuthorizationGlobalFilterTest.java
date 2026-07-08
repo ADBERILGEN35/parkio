@@ -62,6 +62,24 @@ class AuthorizationGlobalFilterTest {
     }
 
     @Test
+    void waitlistExportIsAdminOnly() {
+        CapturingChain moderatorChain = new CapturingChain();
+        ServerWebExchange moderator = exchange(HttpMethod.GET, "/api/v1/waitlist/export", "MODERATOR");
+
+        filter.filter(moderator, moderatorChain).block();
+
+        assertThat(moderatorChain.wasInvoked()).isFalse();
+        assertThat(moderator.getResponse().getStatusCode()).isEqualTo(HttpStatus.FORBIDDEN);
+
+        CapturingChain adminChain = new CapturingChain();
+        ServerWebExchange admin = exchange(HttpMethod.GET, "/api/v1/waitlist/export", "ADMIN");
+
+        filter.filter(admin, adminChain).block();
+
+        assertThat(adminChain.wasInvoked()).isTrue();
+    }
+
+    @Test
     void userCanReadTheirOwnAnalytics() {
         CapturingChain chain = new CapturingChain();
         ServerWebExchange exchange = exchange(HttpMethod.GET, "/api/v1/analytics/users/abc", "USER");

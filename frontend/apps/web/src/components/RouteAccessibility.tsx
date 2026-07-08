@@ -2,6 +2,7 @@ import { useEffect } from 'react';
 import { Outlet, matchPath, useLocation } from 'react-router-dom';
 
 const ROUTE_TITLES: Array<{ pattern: string; title: string }> = [
+  { pattern: '/', title: 'Parkio - Community-Powered Parking Intelligence' },
   { pattern: '/login', title: 'Parkio — Login' },
   { pattern: '/register', title: 'Parkio — Register' },
   { pattern: '/forgot-password', title: 'Parkio — Forgot Password' },

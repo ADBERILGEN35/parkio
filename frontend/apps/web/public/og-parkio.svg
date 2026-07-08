@@ -1,0 +1,21 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="630" viewBox="0 0 1200 630" role="img" aria-label="Parkio community-powered parking intelligence">
+  <rect width="1200" height="630" fill="#F8FAF8"/>
+  <rect x="72" y="72" width="1056" height="486" rx="40" fill="#FFFFFF" stroke="#CBD7D3"/>
+  <circle cx="184" cy="176" r="48" fill="#147C72"/>
+  <text x="184" y="195" text-anchor="middle" fill="#FFFFFF" font-family="Inter, Arial, sans-serif" font-size="52" font-weight="700">P</text>
+  <text x="256" y="164" fill="#17211F" font-family="Inter, Arial, sans-serif" font-size="48" font-weight="700">Parkio</text>
+  <text x="256" y="208" fill="#3D4A47" font-family="Inter, Arial, sans-serif" font-size="22">Community-powered parking intelligence</text>
+  <text x="124" y="304" fill="#17211F" font-family="Inter, Arial, sans-serif" font-size="48" font-weight="700">Parking intelligence powered</text>
+  <text x="124" y="360" fill="#17211F" font-family="Inter, Arial, sans-serif" font-size="48" font-weight="700">by real drivers.</text>
+  <text x="124" y="420" fill="#3D4A47" font-family="Inter, Arial, sans-serif" font-size="27">Find, share, verify, and manage</text>
+  <text x="124" y="456" fill="#3D4A47" font-family="Inter, Arial, sans-serif" font-size="27">real-world parking availability.</text>
+  <rect x="124" y="476" width="382" height="56" rx="28" fill="#DDF5F1"/>
+  <text x="315" y="513" text-anchor="middle" fill="#0E5F58" font-family="Inter, Arial, sans-serif" font-size="22" font-weight="700">Hosted-beta preparation</text>
+  <path d="M930 180c82 26 124 78 126 154 3 87-58 138-142 142-62 3-113-23-154-74" fill="none" stroke="#147C72" stroke-width="12" stroke-linecap="round"/>
+  <rect x="816" y="172" width="96" height="64" rx="18" fill="#147C72"/>
+  <text x="864" y="215" text-anchor="middle" fill="#FFFFFF" font-family="Inter, Arial, sans-serif" font-size="34" font-weight="700">P</text>
+  <circle cx="1064" cy="332" r="42" fill="#A3C94A"/>
+  <path d="m1044 333 14 14 30-32" fill="none" stroke="#17211F" stroke-width="8" stroke-linecap="round" stroke-linejoin="round"/>
+  <circle cx="816" cy="444" r="42" fill="#2563A6"/>
+  <path d="M816 418v28l20 12" fill="none" stroke="#FFFFFF" stroke-width="8" stroke-linecap="round" stroke-linejoin="round"/>
+</svg>

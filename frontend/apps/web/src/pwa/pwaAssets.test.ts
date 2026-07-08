@@ -1,4 +1,4 @@
-import { readFileSync } from 'node:fs';
+import { existsSync, readFileSync } from 'node:fs';
 import { dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
@@ -20,6 +20,30 @@ describe('PWA assets', () => {
     expect(manifest.display).toBe('standalone');
     expect(manifest.start_url).toBe('/');
     expect(manifest.icons.some((icon) => icon.purpose === 'maskable')).toBe(true);
+    expect(
+      manifest.icons.some((icon) => icon.type === 'image/png' && icon.sizes === '192x192'),
+    ).toBe(true);
+    expect(
+      manifest.icons.some((icon) => icon.type === 'image/png' && icon.sizes === '512x512'),
+    ).toBe(true);
+    expect(
+      manifest.icons.some((icon) => icon.type === 'image/png' && icon.purpose === 'maskable'),
+    ).toBe(true);
+  });
+
+  it('ships browser and social preview assets as crawler-friendly PNGs', () => {
+    for (const asset of [
+      'logo.svg',
+      'icons/favicon-32.png',
+      'icons/apple-touch-icon.png',
+      'icons/parkio-icon-192.png',
+      'icons/parkio-icon-512.png',
+      'icons/parkio-maskable-512.png',
+      'og-parkio.png',
+      'social-preview.png',
+    ]) {
+      expect(existsSync(resolve(publicDir, asset))).toBe(true);
+    }
   });
 
   it('keeps API and auth traffic out of the service worker cache', () => {

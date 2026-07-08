@@ -1,0 +1,13 @@
+# Default ownership. Keep review routing explicit while the project is founder-led.
+* @ADBERILGEN35
+
+# High-risk surfaces.
+/services/auth-service/ @ADBERILGEN35
+/services/gateway-service/ @ADBERILGEN35
+/services/media-service/ @ADBERILGEN35
+/docker/ @ADBERILGEN35
+/.github/workflows/ @ADBERILGEN35
+/docs/operations/ @ADBERILGEN35
+/docs/certification/ @ADBERILGEN35
+/SECURITY.md @ADBERILGEN35
+/LICENSE @ADBERILGEN35
