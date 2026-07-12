@@ -1,8 +1,8 @@
-import { render, screen, waitFor, within } from '@testing-library/react';
+import { render, screen, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { http, HttpResponse } from 'msw';
 import { MemoryRouter } from 'react-router-dom';
-import { describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import { API_BASE, apiErrorBody, server } from '@/test/server';
 import { LandingPage } from './LandingPage';
 
@@ -15,6 +15,10 @@ function renderLanding() {
 }
 
 describe('LandingPage', () => {
+  afterEach(() => {
+    vi.unstubAllEnvs();
+  });
+
   it('renders the canonical positioning and honest stage', () => {
     renderLanding();
 
@@ -63,9 +67,9 @@ describe('LandingPage', () => {
     );
     await user.click(screen.getByRole('button', { name: /join beta waitlist/i }));
 
-    await waitFor(() =>
-      expect(screen.getByRole('heading', { name: 'Your Parkio beta interest is ready.' })).toBeInTheDocument(),
-    );
+    expect(
+      await screen.findByRole('heading', { name: 'Your Parkio beta interest is ready.' }),
+    ).toBeInTheDocument();
   });
 
   it('shows an error when the waitlist API fails', async () => {
@@ -95,6 +99,30 @@ describe('LandingPage', () => {
     expect(screen.getByRole('option', { name: 'Tester' })).toHaveValue('tester');
     expect(screen.getByRole('option', { name: 'Partner' })).toHaveValue('partner');
     expect(screen.getByLabelText(/city or general area/i)).toBeInTheDocument();
+  });
+
+  it('can render the static Hostinger waitlist pause without collecting email or calling the API', async () => {
+    let requests = 0;
+    server.use(
+      http.post(`${API_BASE}/waitlist`, () => {
+        requests += 1;
+        return HttpResponse.json({ status: 'accepted' }, { status: 202 });
+      }),
+    );
+    vi.stubEnv('VITE_WAITLIST_INTAKE_MODE', 'disabled');
+
+    renderLanding();
+
+    expect(
+      screen.getByRole('heading', { name: 'Hosted-beta intake is temporarily paused.' }),
+    ).toBeInTheDocument();
+    expect(screen.queryByLabelText(/^email/i)).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: /join beta waitlist/i })).not.toBeInTheDocument();
+    expect(
+      screen.getByText(/does not store email addresses or submit waitlist data/i),
+    ).toBeInTheDocument();
+    await Promise.resolve();
+    expect(requests).toBe(0);
   });
 
   it('keeps FAQ answers discoverable', async () => {

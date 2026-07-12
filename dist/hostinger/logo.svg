@@ -1,0 +1,7 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="456" height="128" viewBox="0 0 456 128" role="img" aria-label="Parkio">
+  <rect width="128" height="128" rx="28" fill="#147C72"/>
+  <circle cx="64" cy="64" r="42" fill="#F8FAF8"/>
+  <path fill="#147C72" d="M49 91V37h22c13 0 22 8 22 20s-9 20-22 20h-9v14H49Zm13-25h8c6 0 10-3 10-9s-4-9-10-9h-8v18Z"/>
+  <text x="156" y="77" fill="#17211F" font-family="Inter, Arial, sans-serif" font-size="52" font-weight="800" letter-spacing="0">Parkio</text>
+  <text x="158" y="104" fill="#3D4A47" font-family="Inter, Arial, sans-serif" font-size="18" font-weight="650" letter-spacing="0">Community parking intelligence</text>
+</svg>

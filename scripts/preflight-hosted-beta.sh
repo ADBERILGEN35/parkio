@@ -10,10 +10,12 @@
 # Usage (from repo root):
 #   PARKIO_ENV_FILE=docker/.env ./scripts/preflight-hosted-beta.sh
 #   ./scripts/preflight-hosted-beta.sh --env-file docker/.env
+#   ./scripts/preflight-hosted-beta.sh --env-file docker/.env --deployment-profile azure-hosted-beta
 #   ./scripts/preflight-hosted-beta.sh --env-file docker/.env --skip-compose
 #
 # Options:
 #   --env-file <path>   env file to validate (default: $PARKIO_ENV_FILE or docker/.env)
+#   --deployment-profile <name>  hosted-beta or azure-hosted-beta
 #   --skip-compose      skip the docker-compose render (no docker needed; used by
 #                       fixture tests and by deploy-hosted-beta.sh, which renders
 #                       the compose config itself immediately afterwards)
@@ -32,10 +34,12 @@ set -u
 ROOT=$(cd "$(dirname "$0")/.." && pwd)
 ENV_FILE="${PARKIO_ENV_FILE:-docker/.env}"
 SKIP_COMPOSE=0
+DEPLOYMENT_PROFILE="${PARKIO_DEPLOYMENT_PROFILE:-}"
 
 while [ "$#" -gt 0 ]; do
   case "$1" in
     --env-file) ENV_FILE="${2:-}"; shift 2 ;;
+    --deployment-profile) DEPLOYMENT_PROFILE="${2:-}"; shift 2 ;;
     --skip-compose) SKIP_COMPOSE=1; shift ;;
     -h|--help) sed -n '2,28p' "$0"; exit 0 ;;
     *) echo "ERROR: unknown argument '$1'" >&2; exit 2 ;;
@@ -89,6 +93,19 @@ env_get() {
 env_has() {
   grep -q "^$1=..*" "$ENV_FILE"
 }
+
+if [ -z "$DEPLOYMENT_PROFILE" ]; then
+  DEPLOYMENT_PROFILE=$(env_get PARKIO_DEPLOYMENT_PROFILE)
+fi
+DEPLOYMENT_PROFILE=${DEPLOYMENT_PROFILE:-hosted-beta}
+case "$DEPLOYMENT_PROFILE" in
+  hosted-beta|azure-hosted-beta) ;;
+  *)
+    echo "ERROR: unsupported PARKIO_DEPLOYMENT_PROFILE='$DEPLOYMENT_PROFILE'" >&2
+    exit 2
+    ;;
+esac
+export PARKIO_DEPLOYMENT_PROFILE="$DEPLOYMENT_PROFILE"
 
 # is_placeholder VALUE -> 0 if the value looks like an unreplaced template value.
 is_placeholder() {
@@ -186,6 +203,7 @@ require_https_url() {
 
 echo "=== Parkio hosted-beta preflight (R-005) ==="
 echo "envFile=$ENV_FILE"
+echo "deploymentProfile=$DEPLOYMENT_PROFILE"
 
 # --------------------------------------------------------------------------- #
 category "Secrets"
@@ -231,8 +249,15 @@ case "$ADD_KEYS" in
 esac
 
 require_secret PARKIO_GATEWAY_INTERNAL_SECRET 32 "openssl rand -base64 48"
+require_secret PARKIO_WAITLIST_HASH_SECRET 32 "openssl rand -base64 48"
+if [ -n "$(env_get PARKIO_WAITLIST_HASH_SECRET)" ] \
+  && [ "$(env_get PARKIO_WAITLIST_HASH_SECRET)" = "$(env_get PARKIO_GATEWAY_INTERNAL_SECRET)" ]; then
+  fail "PARKIO_WAITLIST_HASH_SECRET" "must be distinct from PARKIO_GATEWAY_INTERNAL_SECRET" "generate an independent HMAC secret"
+else
+  ok
+fi
 
-for svc in AUTH USER PARKING MEDIA GAMIFICATION NOTIFICATION MODERATION ANALYTICS AIVALIDATION; do
+for svc in AUTH GATEWAY USER PARKING MEDIA GAMIFICATION NOTIFICATION MODERATION ANALYTICS AIVALIDATION; do
   require_secret "POSTGRES_${svc}_PASSWORD" 16 "openssl rand -base64 24"
 done
 
@@ -270,7 +295,9 @@ fi
 
 SLACK_URL=$(env_get PARKIO_ALERT_SLACK_WEBHOOK_URL)
 GENERIC_URL=$(env_get PARKIO_ALERT_WEBHOOK_URL)
-if is_placeholder "$SLACK_URL"; then
+if [ "$DEPLOYMENT_PROFILE" = "azure-hosted-beta" ]; then
+  ok
+elif is_placeholder "$SLACK_URL"; then
   fail "PARKIO_ALERT_SLACK_WEBHOOK_URL" "is a placeholder" "paste the real Slack incoming-webhook URL, or clear it and set PARKIO_PREFLIGHT_ALLOW_NO_ALERT_WEBHOOK=1 to run alert-silent"
 elif [ -n "$SLACK_URL" ]; then
   case "$SLACK_URL" in
@@ -309,6 +336,24 @@ if require_https_url VITE_API_BASE_URL; then
   DOMAIN=$(env_get PARKIO_DOMAIN)
   if [ -n "$DOMAIN" ] && [ "$API_HOST" != "$DOMAIN" ]; then
     fail "VITE_API_BASE_URL" "host '$API_HOST' does not match PARKIO_DOMAIN '$DOMAIN'" "the SPA must call the public API domain: https://\$PARKIO_DOMAIN/api/v1"
+  else
+    ok
+  fi
+fi
+
+if [ "$DEPLOYMENT_PROFILE" = "azure-hosted-beta" ]; then
+  if [ "$(env_get PARKIO_DOMAIN)" != "api.parkio.dev" ]; then
+    fail "PARKIO_DOMAIN" "Azure hosted beta must use 'api.parkio.dev'" "set PARKIO_DOMAIN=api.parkio.dev"
+  else
+    ok
+  fi
+  if [ "$(env_get VITE_API_BASE_URL)" != "https://api.parkio.dev/api/v1" ]; then
+    fail "VITE_API_BASE_URL" "Azure hosted beta must use the canonical API URL" "set VITE_API_BASE_URL=https://api.parkio.dev/api/v1"
+  else
+    ok
+  fi
+  if [ "$(env_get VITE_WAITLIST_INTAKE_MODE)" != "api" ]; then
+    fail "VITE_WAITLIST_INTAKE_MODE" "Azure web must explicitly use API-backed waitlist intake" "set VITE_WAITLIST_INTAKE_MODE=api"
   else
     ok
   fi
@@ -485,6 +530,14 @@ case "$JTO" in
   *) ok ;;
 esac
 
+if [ "$DEPLOYMENT_PROFILE" = "azure-hosted-beta" ]; then
+  if [ "$(env_get PARKIO_TRACING_ENABLED)" != "false" ]; then
+    fail "PARKIO_TRACING_ENABLED" "Azure profile requires tracing to be explicitly disabled" "set PARKIO_TRACING_ENABLED=false"
+  else
+    ok
+  fi
+fi
+
 # --------------------------------------------------------------------------- #
 category "Compose"
 # --------------------------------------------------------------------------- #
@@ -494,7 +547,7 @@ if [ "$SKIP_COMPOSE" -eq 1 ]; then
 elif [ "$FAILURES" -gt 0 ]; then
   echo "  SKIP compose render (fix the failures above first)"
 else
-  if PARKIO_ENV_FILE="$ENV_FILE" "$ROOT/scripts/validate-hosted-beta-compose.sh" >/dev/null 2>&1; then
+  if PARKIO_DEPLOYMENT_PROFILE="$DEPLOYMENT_PROFILE" PARKIO_ENV_FILE="$ENV_FILE" "$ROOT/scripts/validate-hosted-beta-compose.sh" >/dev/null 2>&1; then
     echo "  PASS compose config renders (validate-hosted-beta-compose.sh)"
     ok
   else

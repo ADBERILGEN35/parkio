@@ -50,6 +50,7 @@ services:
         VITE_MAPTILER_KEY: ${VITE_MAPTILER_KEY:-}
         VITE_MAPTILER_STYLE: ${VITE_MAPTILER_STYLE:-streets-v2}
         VITE_FRONTEND_ERROR_REPORTING: ${VITE_FRONTEND_ERROR_REPORTING:-disabled}
+        VITE_WAITLIST_INTAKE_MODE: ${VITE_WAITLIST_INTAKE_MODE:-api}
     image: parkio/web:${PARKIO_IMAGE_TAG:-local}
     container_name: parkio-web
     restart: unless-stopped

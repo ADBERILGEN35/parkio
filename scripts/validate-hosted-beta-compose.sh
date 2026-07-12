@@ -10,6 +10,8 @@ set -euo pipefail
 
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 ENV_FILE="${PARKIO_ENV_FILE:-docker/.env.hosted-beta.example}"
+# shellcheck source=lib/deploy-common.sh
+source "$ROOT/scripts/lib/deploy-common.sh"
 
 cd "$ROOT"
 
@@ -32,12 +34,7 @@ if [ -z "${VITE_API_BASE_URL:-}" ]; then
   fi
 fi
 
-COMPOSE_FILES=(
-  -f docker/docker-compose.yml
-  -f docker/docker-compose.apps.yml
-  -f docker/docker-compose.images.yml
-  -f docker/docker-compose.hosted-beta.yml
-)
+parkio_configure_deployment_profile "$ENV_FILE"
 
 # Files consumed by Docker/nginx/Grafana/blackbox/bash must be UTF-8 (no UTF-16):
 # a UTF-16 Dockerfile, nginx.conf, dashboard JSON or shell script fails at runtime
@@ -69,8 +66,84 @@ echo "OK: config/script file encodings are UTF-8"
 
 echo "=== validate-hosted-beta-compose ==="
 echo "envFile=$ENV_FILE"
+echo "deploymentProfile=$PARKIO_DEPLOYMENT_PROFILE"
 echo "imageTag=$PARKIO_IMAGE_TAG"
 echo "viteApi=$VITE_API_BASE_URL"
+echo "composeFiles=$PARKIO_COMPOSE_FILES"
+echo "runtimeServices=${PARKIO_RUNTIME_SERVICES[*]:-all}"
+echo "disabledServices=${PARKIO_DISABLED_SERVICES[*]:-none}"
 
-docker compose --env-file "$ENV_FILE" "${COMPOSE_FILES[@]}" config --quiet
+parkio_compose "$ENV_FILE" config --quiet
 echo "OK: compose config rendered"
+
+if [ "$PARKIO_DEPLOYMENT_PROFILE" = "azure-hosted-beta" ]; then
+  rendered="$(mktemp)"
+  trap 'rm -f "$rendered"' EXIT
+  parkio_compose "$ENV_FILE" config --format json > "$rendered"
+
+  [ "${#PARKIO_RUNTIME_SERVICES[@]}" -eq 32 ] || {
+    echo "ERROR: Azure runtime service count must be 32, got ${#PARKIO_RUNTIME_SERVICES[@]}" >&2
+    exit 4
+  }
+  for svc in "${PARKIO_RUNTIME_SERVICES[@]}"; do
+    jq -e --arg svc "$svc" '.services[$svc] != null' "$rendered" >/dev/null || {
+      echo "ERROR: Azure runtime service '$svc' missing from rendered config" >&2
+      exit 4
+    }
+    jq -e --arg svc "$svc" '.services[$svc].platform == "linux/amd64"' "$rendered" >/dev/null || {
+      echo "ERROR: Azure runtime service '$svc' does not enforce linux/amd64" >&2
+      exit 4
+    }
+  done
+
+  for svc in "${PARKIO_DISABLED_SERVICES[@]}"; do
+    jq -e --arg svc "$svc" '.services[$svc].profiles | index("azure-disabled-observability") != null' "$rendered" >/dev/null || {
+      echo "ERROR: disabled service '$svc' is not guarded by the Azure disabled profile" >&2
+      exit 4
+    }
+  done
+
+  for svc in gateway-service auth-service user-service parking-service media-service \
+    gamification-service notification-service moderation-service ai-validation-service analytics-service; do
+    jq -e --arg svc "$svc" '.services[$svc].environment.PARKIO_TRACING_ENABLED == "false"' "$rendered" >/dev/null || {
+      echo "ERROR: tracing is not disabled for '$svc'" >&2
+      exit 4
+    }
+  done
+
+  total_memory=0
+  for svc in "${PARKIO_RUNTIME_SERVICES[@]}"; do
+    limit="$(jq -r --arg svc "$svc" '.services[$svc].mem_limit // 0' "$rendered")"
+    total_memory=$((total_memory + limit))
+  done
+  max_memory=$((14 * 1024 * 1024 * 1024))
+  [ "$total_memory" -le "$max_memory" ] || {
+    echo "ERROR: Azure configured memory total $total_memory exceeds 14 GiB target $max_memory" >&2
+    exit 4
+  }
+
+  jq -e '
+    [.services | to_entries[] as $service | $service.value.ports[]? |
+      select((.host_ip // "") != "127.0.0.1") |
+      select(
+        $service.key != "caddy" or
+        (((.published | tostring) == "80" or (.published | tostring) == "443") | not)
+      )
+    ] | length == 0
+  ' "$rendered" >/dev/null || {
+    echo "ERROR: rendered Azure profile exposes a non-Caddy port beyond loopback" >&2
+    exit 4
+  }
+
+  jq -e '
+    [.services.caddy.ports[] | select((.host_ip // "") != "127.0.0.1") | .published | tostring]
+    | unique | sort == ["443", "80"]
+  ' "$rendered" >/dev/null || {
+    echo "ERROR: Caddy must be the only public service and publish exactly 80 and 443" >&2
+    exit 4
+  }
+
+  jq -e '.services.prometheus.command | index("--storage.tsdb.retention.time=7d") != null' "$rendered" >/dev/null
+  jq -e '.services.grafana.depends_on | keys == ["prometheus"]' "$rendered" >/dev/null
+  echo "OK: Azure runtime services=32 disabled=4 memoryBytes=$total_memory publicPorts=80,443 tracing=false"
+fi

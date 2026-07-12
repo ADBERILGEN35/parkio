@@ -1,0 +1,126 @@
+# Parkio Azure hosted-beta overlay.
+#
+# Apply after the base, apps, images, and hosted-beta files. This profile is
+# deliberately isolated from the normal hosted-beta deployment. The deploy
+# scripts also target an explicit runtime service list, while the profiles below
+# prevent excluded observability services from being started by a plain `up`.
+
+name: parkio
+
+services:
+  web:
+    platform: linux/amd64
+    mem_limit: 64m
+  caddy:
+    platform: linux/amd64
+    mem_limit: 96m
+
+  gateway-service:
+    platform: linux/amd64
+    environment:
+      PARKIO_TRACING_ENABLED: "false"
+  auth-service:
+    platform: linux/amd64
+    environment:
+      PARKIO_TRACING_ENABLED: "false"
+  user-service:
+    platform: linux/amd64
+    environment:
+      PARKIO_TRACING_ENABLED: "false"
+  parking-service:
+    platform: linux/amd64
+    environment:
+      PARKIO_TRACING_ENABLED: "false"
+  media-service:
+    platform: linux/amd64
+    environment:
+      PARKIO_TRACING_ENABLED: "false"
+  gamification-service:
+    platform: linux/amd64
+    environment:
+      PARKIO_TRACING_ENABLED: "false"
+  notification-service:
+    platform: linux/amd64
+    environment:
+      PARKIO_TRACING_ENABLED: "false"
+  moderation-service:
+    platform: linux/amd64
+    environment:
+      PARKIO_TRACING_ENABLED: "false"
+  ai-validation-service:
+    platform: linux/amd64
+    environment:
+      PARKIO_TRACING_ENABLED: "false"
+  analytics-service:
+    platform: linux/amd64
+    environment:
+      PARKIO_TRACING_ENABLED: "false"
+
+  postgres-auth:
+    platform: linux/amd64
+  postgres-gateway:
+    platform: linux/amd64
+  postgres-user:
+    platform: linux/amd64
+  postgres-parking:
+    platform: linux/amd64
+  postgres-media:
+    platform: linux/amd64
+  postgres-gamification:
+    platform: linux/amd64
+  postgres-notification:
+    platform: linux/amd64
+  postgres-moderation:
+    platform: linux/amd64
+  postgres-analytics:
+    platform: linux/amd64
+  postgres-ai-validation:
+    platform: linux/amd64
+
+  redis:
+    platform: linux/amd64
+  kafka:
+    platform: linux/amd64
+    mem_limit: 1024m
+    environment:
+      KAFKA_HEAP_OPTS: -Xms640m -Xmx640m
+  kafka-exporter:
+    platform: linux/amd64
+  blackbox-exporter:
+    platform: linux/amd64
+  node-exporter:
+    platform: linux/amd64
+  minio:
+    platform: linux/amd64
+  minio-setup:
+    platform: linux/amd64
+    mem_limit: 64m
+    cpus: "0.25"
+    pids_limit: 128
+  clamav:
+    platform: linux/amd64
+
+  prometheus:
+    platform: linux/amd64
+    mem_limit: 576m
+    command: !override
+      - --config.file=/etc/prometheus/prometheus.yml
+      - --storage.tsdb.path=/prometheus
+      - --storage.tsdb.retention.time=7d
+      - --web.enable-remote-write-receiver
+      - --enable-feature=exemplar-storage
+  grafana:
+    platform: linux/amd64
+    mem_limit: 224m
+    depends_on: !override
+      prometheus:
+        condition: service_healthy
+
+  alertmanager:
+    profiles: [azure-disabled-observability]
+  loki:
+    profiles: [azure-disabled-observability]
+  promtail:
+    profiles: [azure-disabled-observability]
+  tempo:
+    profiles: [azure-disabled-observability]

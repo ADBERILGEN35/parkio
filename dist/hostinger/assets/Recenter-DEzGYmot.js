@@ -1,0 +1,1 @@
+import{r as c}from"./react-vendor-Ck8WzSHf.js";import{u as s}from"./maplibre-Db-L35LC.js";function p({lat:t,lng:n,zoom:e}){const{current:r}=s(),u=c.useRef(e);return c.useEffect(()=>{if(!r)return;const o=e!==void 0&&e!==u.current;u.current=e,r.easeTo({center:[n,t],zoom:o?e:r.getZoom(),duration:600})},[t,n,e,r]),null}export{p as R};

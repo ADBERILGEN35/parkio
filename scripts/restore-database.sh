@@ -10,7 +10,7 @@
 # Usage:
 #   scripts/restore-database.sh <service> <dump-file> [--yes] [--env-file <path>]
 #
-#   <service>    one of: auth user parking media gamification notification moderation
+#   <service>    one of: auth gateway user parking media gamification notification moderation
 #                analytics ai-validation
 #   <dump-file>  path to a .sql, .sql.gz, or .sql.gz.enc file
 #   --yes        skip the interactive confirmation (for automation / drills)
@@ -74,6 +74,7 @@ fi
 resolve() {
   case "$1" in
     auth)          echo "parkio-postgres-auth:${POSTGRES_AUTH_USER:-parkio_auth}:${POSTGRES_AUTH_DB:-parkio_auth}" ;;
+    gateway)       echo "parkio-postgres-gateway:${POSTGRES_GATEWAY_USER:-parkio_gateway}:${POSTGRES_GATEWAY_DB:-parkio_gateway}" ;;
     user)          echo "parkio-postgres-user:${POSTGRES_USER_USER:-parkio_user}:${POSTGRES_USER_DB:-parkio_user}" ;;
     parking)       echo "parkio-postgres-parking:${POSTGRES_PARKING_USER:-parkio_parking}:${POSTGRES_PARKING_DB:-parkio_parking}" ;;
     media)         echo "parkio-postgres-media:${POSTGRES_MEDIA_USER:-parkio_media}:${POSTGRES_MEDIA_DB:-parkio_media}" ;;
@@ -88,7 +89,7 @@ resolve() {
 
 if ! TRIPLE="$(resolve "${SERVICE}")"; then
   echo "ERROR: unknown service '${SERVICE}'." >&2
-  echo "       Valid: auth user parking media gamification notification moderation analytics ai-validation" >&2
+  echo "       Valid: auth gateway user parking media gamification notification moderation analytics ai-validation" >&2
   exit 2
 fi
 IFS=":" read -r CONTAINER USER_NAME DB_NAME <<< "${TRIPLE}"

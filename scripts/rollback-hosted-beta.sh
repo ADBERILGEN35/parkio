@@ -53,6 +53,7 @@ IMAGE_TAG="$(jq -r .imageTag "$MANIFEST")"
 GIT_SHA="$(jq -r .gitSha "$MANIFEST")"
 BRANCH="$(jq -r .branch "$MANIFEST")"
 VERSION="$(jq -r .imageVersion "$MANIFEST")"
+MANIFEST_PROFILE="$(jq -r '.deploymentProfile // "hosted-beta"' "$MANIFEST")"
 CREATED="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
 
 if [ -z "$IMAGE_TAG" ] || [ "$IMAGE_TAG" = "null" ]; then
@@ -60,11 +61,17 @@ if [ -z "$IMAGE_TAG" ] || [ "$IMAGE_TAG" = "null" ]; then
   exit 2
 fi
 
-PARKIO_COMPOSE_FILES="-f docker/docker-compose.yml -f docker/docker-compose.apps.yml -f docker/docker-compose.images.yml"
-if [ "$USE_HOSTED_BETA" -eq 1 ] && [ -f docker/docker-compose.hosted-beta.yml ]; then
-  PARKIO_COMPOSE_FILES="$PARKIO_COMPOSE_FILES -f docker/docker-compose.hosted-beta.yml"
+if [ "$USE_HOSTED_BETA" -eq 1 ]; then
+  parkio_configure_deployment_profile "$ENV_FILE"
+  if [ "$PARKIO_DEPLOYMENT_PROFILE" != "$MANIFEST_PROFILE" ]; then
+    echo "ERROR: rollback profile '$PARKIO_DEPLOYMENT_PROFILE' does not match manifest profile '$MANIFEST_PROFILE'." >&2
+    exit 2
+  fi
+else
+  PARKIO_DEPLOYMENT_PROFILE="local-dev"
+  PARKIO_COMPOSE_FILES="-f docker/docker-compose.yml -f docker/docker-compose.apps.yml -f docker/docker-compose.images.yml"
+  export PARKIO_DEPLOYMENT_PROFILE PARKIO_COMPOSE_FILES
 fi
-export PARKIO_COMPOSE_FILES
 export PARKIO_IMAGE_TAG="$IMAGE_TAG"
 export PARKIO_GIT_SHA="$GIT_SHA"
 export PARKIO_IMAGE_CREATED="$CREATED"
@@ -83,13 +90,17 @@ echo "=== Parkio hosted-beta rollback ==="
 echo "targetManifest=$MANIFEST"
 echo "imageTag=$IMAGE_TAG"
 echo "gitSha=$GIT_SHA"
+echo "deploymentProfile=$PARKIO_DEPLOYMENT_PROFILE"
+echo "composeFiles=$PARKIO_COMPOSE_FILES"
+echo "runtimeServices=${PARKIO_RUNTIME_SERVICES[*]:-all}"
+echo "disabledServices=${PARKIO_DISABLED_SERVICES[*]:-none}"
 echo "dryRun=$DRY_RUN"
 
 parkio_write_manifest "$OUT_PATH" "rollback" "$OPERATOR" "$ENV_FILE" \
   "$IMAGE_TAG" "$GIT_SHA" "$BRANCH" "$CREATED" "$VERSION" "$PREVIOUS"
 
 if [ "$DRY_RUN" -eq 1 ]; then
-  echo "DRY-RUN: would verify local images and run parkio_compose $ENV_FILE up -d (no --build)"
+  echo "DRY-RUN: would verify local images and run parkio_compose_up $ENV_FILE (no --build)"
   echo "Rollback manifest: $OUT_PATH"
   exit 0
 fi
@@ -109,7 +120,7 @@ if [ "$missing" -ne 0 ]; then
 fi
 
 echo "Starting previous images (no rebuild)..."
-parkio_compose "$ENV_FILE" up -d
+parkio_compose_up "$ENV_FILE"
 
 echo "Waiting for health checks..."
 parkio_wait_healthy "$ENV_FILE" "$HEALTH_TIMEOUT"
@@ -117,7 +128,8 @@ parkio_wait_healthy "$ENV_FILE" "$HEALTH_TIMEOUT"
 if [ "$SKIP_SMOKE" -ne 1 ]; then
   echo "Running smoke checks..."
   PARKIO_ENV_FILE="$ENV_FILE" \
-    PARKIO_GATEWAY_URL="${PARKIO_GATEWAY_URL:-http://127.0.0.1:8080}" \
+    PARKIO_DEPLOYMENT_PROFILE="$PARKIO_DEPLOYMENT_PROFILE" \
+    PARKIO_GATEWAY_URL="${PARKIO_GATEWAY_URL:-$(parkio_default_gateway_url)}" \
     PARKIO_SMOKE_EXPECT_DIRECT_BLOCKED="${PARKIO_SMOKE_EXPECT_DIRECT_BLOCKED:-0}" \
     "$ROOT/scripts/smoke-hosted-beta.sh" | tee "$ARTIFACT_DIR/smoke-rollback-${GIT_SHA:0:12}.log"
 fi

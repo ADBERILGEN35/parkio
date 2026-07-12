@@ -1,6 +1,7 @@
 import { type FormEvent, useId, useState } from 'react';
 import { LandingIcon } from './LandingIcon';
-import { WAITLIST_SOURCE, type WaitlistRole, submitWaitlistInterest } from './waitlistService';
+import { WAITLIST_SOURCE, type WaitlistRole } from './waitlistShared';
+import { submitWaitlistInterest } from './waitlistService';
 
 interface FormState {
   email: string;
@@ -33,6 +34,7 @@ export function WaitlistForm() {
   const [submitting, setSubmitting] = useState(false);
   const [submitted, setSubmitted] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const intakeDisabled = import.meta.env.VITE_WAITLIST_INTAKE_MODE === 'disabled';
 
   async function handleSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -89,6 +91,24 @@ export function WaitlistForm() {
         >
           Submit another beta-interest form
         </button>
+      </section>
+    );
+  }
+
+  if (intakeDisabled) {
+    return (
+      <section className="landing-form" aria-labelledby={statusId}>
+        <div>
+          <p className="landing-eyebrow">Beta waitlist</p>
+          <h3>Hosted-beta intake is temporarily paused.</h3>
+          <p>
+            Parkio can be reviewed from this static landing page while backend VPS capacity is
+            pending. This page does not store email addresses or submit waitlist data.
+          </p>
+        </div>
+        <p id={statusId} className="landing-form__status" role="status">
+          Waitlist collection will open after the hosted-beta backend intake is available.
+        </p>
       </section>
     );
   }

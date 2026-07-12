@@ -19,8 +19,12 @@ FAILED=0
 # run_case NAME FIXTURE EXPECTED_EXIT
 run_case() {
   rc_name="$1"; rc_fixture="$2"; rc_expected="$3"
+  case "$rc_fixture" in
+    /*) rc_path="$rc_fixture" ;;
+    *) rc_path="$FIXTURES/$rc_fixture" ;;
+  esac
   TESTS=$((TESTS + 1))
-  "$PREFLIGHT" --env-file "$FIXTURES/$rc_fixture" --skip-compose > "$OUT" 2>&1
+  "$PREFLIGHT" --env-file "$rc_path" --skip-compose > "$OUT" 2>&1
   rc_actual=$?
   if [ "$rc_actual" -ne "$rc_expected" ]; then
     echo "FAIL $rc_name: expected exit $rc_expected, got $rc_actual"
@@ -62,6 +66,22 @@ echo "=== preflight-hosted-beta regression tests ==="
 run_case "valid.env exits 0" valid.env 0
 expect   "valid.env reports PASS" "PREFLIGHT: PASS"
 expect_not "valid.env has no FAIL lines" "  FAIL "
+
+# ---- Azure profile requires canonical host, API intake, and no tracing -------
+AZURE_VALID="${TMPDIR:-/tmp}/preflight-azure-valid-$$.env"
+sed \
+  -e 's|PARKIO_DOMAIN=api.beta.parkio.dev|PARKIO_DOMAIN=api.parkio.dev|' \
+  -e 's|PARKIO_WEB_DOMAIN=app.beta.parkio.dev|PARKIO_WEB_DOMAIN=app.parkio.dev|' \
+  -e 's|PARKIO_MEDIA_DOMAIN=media.beta.parkio.dev|PARKIO_MEDIA_DOMAIN=media.parkio.dev|' \
+  -e 's|PARKIO_CORS_ALLOWED_ORIGINS=https://app.beta.parkio.dev|PARKIO_CORS_ALLOWED_ORIGINS=https://app.parkio.dev|' \
+  -e 's|VITE_API_BASE_URL=https://api.beta.parkio.dev/api/v1|VITE_API_BASE_URL=https://api.parkio.dev/api/v1|' \
+  -e 's|PARKIO_MEDIA_STORAGE_PUBLIC_ENDPOINT=https://media.beta.parkio.dev|PARKIO_MEDIA_STORAGE_PUBLIC_ENDPOINT=https://media.parkio.dev|' \
+  -e 's|PARKIO_TRACING_ENABLED=true|PARKIO_TRACING_ENABLED=false|' \
+  "$FIXTURES/valid.env" > "$AZURE_VALID"
+printf '\nPARKIO_DEPLOYMENT_PROFILE=azure-hosted-beta\nVITE_WAITLIST_INTAKE_MODE=api\n' >> "$AZURE_VALID"
+run_case "azure-hosted-beta valid env exits 0" "$AZURE_VALID" 0
+expect "Azure profile reported" "deploymentProfile=azure-hosted-beta"
+rm -f "$AZURE_VALID"
 
 # ---- missing secrets fail with clear messages -------------------------------
 run_case "missing-secret.env exits 1" missing-secret.env 1

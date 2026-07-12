@@ -29,6 +29,7 @@ while [ "$#" -gt 0 ]; do
 done
 
 parkio_backup_load_env "${ENV_FILE}"
+parkio_backup_validate_deployment_profile
 
 BACKUP_DIR="${BACKUP_DIR:-./backups}"
 STAMP="$(parkio_backup_stamp)"
@@ -41,12 +42,13 @@ echo "=== Parkio hosted-beta backup ==="
 echo "destination=${DEST_DIR}"
 echo "gitSha=${GIT_SHA}"
 echo "operator=${OPERATOR}"
+echo "deploymentProfile=${PARKIO_DEPLOYMENT_PROFILE}"
 echo "dryRun=${DRY_RUN}"
 
 if [ "$DRY_RUN" -eq 1 ]; then
   echo "DRY-RUN: would run backup-databases.sh and backup-minio.sh into ${DEST_DIR}"
   parkio_backup_write_manifest "${MANIFEST_PATH}" "${STAMP}" "${GIT_SHA}" "${OPERATOR}" \
-    "${ENV_FILE:-<env>}" "${DEST_DIR}" 9 0 1 0
+    "${ENV_FILE:-<env>}" "${DEST_DIR}" "${#PARKIO_DB_SERVICES[@]}" 0 1 0
   echo "Manifest (dry-run): ${MANIFEST_PATH}"
   exit 0
 fi
@@ -55,7 +57,9 @@ mkdir -p "${DEST_DIR}"
 
 DB_FAILED=0
 if ! PARKIO_ENV_FILE="${ENV_FILE}" BACKUP_DIR="${BACKUP_DIR}" BACKUP_DEST_DIR="${DEST_DIR}" "${ROOT}/scripts/backup-databases.sh"; then
-  DB_FAILED=1
+  # backup-databases reports aggregate failure only. Do not invent a partial
+  # success count when one or more dumps failed.
+  DB_FAILED=${#PARKIO_DB_SERVICES[@]}
 fi
 
 MINIO_OBJECTS=0
@@ -65,7 +69,11 @@ if ! MINIO_OBJECTS="$("${ROOT}/scripts/backup-minio.sh" "${DEST_DIR}" ${ENV_FILE
   MINIO_OBJECTS=0
 fi
 
-DB_OK=$((9 - DB_FAILED))
+if [ "${DB_FAILED}" -eq 0 ]; then
+  DB_OK=${#PARKIO_DB_SERVICES[@]}
+else
+  DB_OK=0
+fi
 SUCCESS=0
 if [ "${DB_FAILED}" -eq 0 ] && [ "${MINIO_OK}" -eq 1 ]; then
   SUCCESS=1
@@ -73,7 +81,7 @@ fi
 
 parkio_backup_write_manifest "${MANIFEST_PATH}" "${STAMP}" "${GIT_SHA}" "${OPERATOR}" \
   "${ENV_FILE:-<env>}" "${DEST_DIR}" "${DB_OK}" "${DB_FAILED}" "${MINIO_OK}" "${MINIO_OBJECTS}"
-parkio_backup_write_metrics "hosted-beta" "${SUCCESS}" "${STAMP_EPOCH}" "${DB_FAILED}" "${MINIO_OBJECTS}"
+parkio_backup_write_metrics "${PARKIO_DEPLOYMENT_PROFILE}" "${SUCCESS}" "${STAMP_EPOCH}" "${DB_FAILED}" "${MINIO_OBJECTS}"
 
 cp "${MANIFEST_PATH}" "${ROOT}/${ARTIFACT_DIR}/backup-current.json" 2>/dev/null || true
 

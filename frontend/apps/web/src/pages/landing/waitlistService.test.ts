@@ -51,4 +51,25 @@ describe('waitlistService', () => {
       source: WAITLIST_SOURCE,
     });
   });
+
+  it('keeps duplicate accepted responses enumeration-safe', async () => {
+    let submissions = 0;
+    server.use(
+      http.post(`${API_BASE}/waitlist`, () => {
+        submissions += 1;
+        return HttpResponse.json({ status: 'accepted' }, { status: 202 });
+      }),
+    );
+    const payload = {
+      email: 'existing@parkio.dev',
+      betaUpdatesConsent: true,
+      researchConsent: false,
+      consentTimestamp: '2026-07-08T00:00:00.000Z',
+      source: WAITLIST_SOURCE,
+    } as const;
+
+    await expect(submitWaitlistInterest(payload)).resolves.toEqual({ status: 'accepted' });
+    await expect(submitWaitlistInterest(payload)).resolves.toEqual({ status: 'accepted' });
+    expect(submissions).toBe(2);
+  });
 });

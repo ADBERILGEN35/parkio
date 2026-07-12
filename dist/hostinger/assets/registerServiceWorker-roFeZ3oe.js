@@ -1,0 +1,1 @@
+function e(){"serviceWorker"in navigator&&window.addEventListener("load",()=>{navigator.serviceWorker.register("/sw.js").catch(r=>{console.warn("[pwa] Service worker registration failed",r)})})}export{e as registerServiceWorker};

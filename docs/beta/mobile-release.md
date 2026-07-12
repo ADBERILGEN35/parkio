@@ -18,7 +18,7 @@ node node_modules\expo\bin\cli prebuild --platform android --no-install
 |---|---|---|---|
 | Development build (Metro-attached) | `.\gradlew.bat assembleDebug` | `.env.local` | Debug-signed; loads JS from Metro; replaces Expo Go |
 | Internal validation APK | `.\gradlew.bat assembleRelease` (`NODE_ENV=production`) with `.env.production` = dev values (`http://10.0.2.2:8080/api/v1`) | local | Requires the temporary `android:usesCleartextTraffic="true"` on the main `<application>` (http). **Never ship this variant — and revert the manifest patch immediately after building** (`android/` is gitignored, so a stale patch survives silently). `pnpm verify:artifact` (below) fails any hosted-beta/production artifact that still carries it. |
-| Preview APK (beta testers) | same, `.env.production` = `EXPO_PUBLIC_APP_ENV=hosted-beta`, `EXPO_PUBLIC_API_BASE_URL=https://beta-api.parkio.dev/api/v1` | hosted-beta | No cleartext patch — https only |
+| Preview APK (beta testers) | same, `.env.production` = `EXPO_PUBLIC_APP_ENV=hosted-beta`, `EXPO_PUBLIC_API_BASE_URL=https://api.parkio.dev/api/v1` | hosted-beta | No cleartext patch — https only |
 | Release AAB (Play upload) | `.\gradlew.bat bundleRelease` (`NODE_ENV=production`), `.env.production` = production values | production | Output: `android/app/build/outputs/bundle/release/app-release.aab` |
 
 **Env plumbing gotchas (cost a day — do not rediscover):**
@@ -28,7 +28,7 @@ node node_modules\expo\bin\cli prebuild --platform android --no-install
    launch and passes that to the Metro/expo export child process. With
    `NODE_ENV=production` expo loads `.env.production` (then `.env.local`, which we
    move aside during artifact builds; both are gitignored). Verify what got baked:
-   `unzip -p app-release.apk assets/index.android.bundle | grep -ao 'beta-api\|10\.0\.2\.2'`.
+   `unzip -p app-release.apk assets/index.android.bundle | grep -ao 'api\.parkio\.dev\|10\.0\.2\.2'`.
 2. babel-preset-expo only inlines **static** `process.env.EXPO_PUBLIC_X` member
    expressions. `src/config/env.ts` therefore builds its raw object with explicit
    static accesses — never pass `process.env` around dynamically.

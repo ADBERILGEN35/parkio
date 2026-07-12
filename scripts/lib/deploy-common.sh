@@ -25,6 +25,66 @@ PARKIO_REQUIRED_HEALTHY=(
   web
 )
 
+PARKIO_AZURE_RUNTIME_SERVICES=(
+  postgres-auth postgres-gateway postgres-user postgres-parking postgres-media
+  postgres-gamification postgres-notification postgres-moderation postgres-analytics
+  postgres-ai-validation redis kafka kafka-exporter blackbox-exporter node-exporter
+  minio minio-setup clamav prometheus grafana
+  auth-service user-service parking-service media-service gamification-service
+  notification-service moderation-service ai-validation-service analytics-service
+  gateway-service web caddy
+)
+
+PARKIO_AZURE_REQUIRED_HEALTHY=(
+  kafka redis minio clamav prometheus grafana
+  postgres-auth postgres-gateway postgres-user postgres-parking postgres-media
+  postgres-gamification postgres-notification postgres-moderation postgres-analytics
+  postgres-ai-validation gateway-service auth-service user-service parking-service
+  media-service gamification-service notification-service moderation-service
+  ai-validation-service analytics-service web caddy
+)
+
+PARKIO_RUNTIME_SERVICES=()
+PARKIO_DISABLED_SERVICES=()
+
+parkio_env_value() {
+  local env_file="$1"
+  local key="$2"
+  [ -f "$env_file" ] || return 0
+  grep "^${key}=" "$env_file" | tail -n 1 | cut -d= -f2- \
+    | sed -e 's/^"\(.*\)"$/\1/' -e "s/^'\(.*\)'$/\1/"
+}
+
+parkio_configure_deployment_profile() {
+  local env_file="$1"
+  local requested="${PARKIO_DEPLOYMENT_PROFILE:-}"
+  if [ -z "$requested" ]; then
+    requested="$(parkio_env_value "$env_file" PARKIO_DEPLOYMENT_PROFILE)"
+  fi
+  requested="${requested:-hosted-beta}"
+
+  case "$requested" in
+    hosted-beta)
+      PARKIO_COMPOSE_FILES="-f docker/docker-compose.yml -f docker/docker-compose.apps.yml -f docker/docker-compose.images.yml -f docker/docker-compose.hosted-beta.yml"
+      PARKIO_RUNTIME_SERVICES=()
+      PARKIO_DISABLED_SERVICES=()
+      ;;
+    azure-hosted-beta)
+      PARKIO_COMPOSE_FILES="-f docker/docker-compose.yml -f docker/docker-compose.apps.yml -f docker/docker-compose.images.yml -f docker/docker-compose.hosted-beta.yml -f docker/docker-compose.azure-hosted-beta.yml"
+      PARKIO_RUNTIME_SERVICES=("${PARKIO_AZURE_RUNTIME_SERVICES[@]}")
+      PARKIO_DISABLED_SERVICES=(alertmanager loki promtail tempo)
+      PARKIO_REQUIRED_HEALTHY=("${PARKIO_AZURE_REQUIRED_HEALTHY[@]}")
+      ;;
+    *)
+      echo "ERROR: unsupported PARKIO_DEPLOYMENT_PROFILE='$requested' (expected hosted-beta or azure-hosted-beta)" >&2
+      return 2
+      ;;
+  esac
+
+  PARKIO_DEPLOYMENT_PROFILE="$requested"
+  export PARKIO_DEPLOYMENT_PROFILE PARKIO_COMPOSE_FILES
+}
+
 parkio_repo_root() {
   local here
   here="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
@@ -57,6 +117,43 @@ parkio_compose() {
   shift
   # shellcheck disable=SC2086
   docker compose --env-file "$env_file" $PARKIO_COMPOSE_FILES "$@"
+}
+
+parkio_compose_up() {
+  local env_file="$1"
+  if [ "${#PARKIO_RUNTIME_SERVICES[@]}" -gt 0 ]; then
+    parkio_compose "$env_file" up -d "${PARKIO_RUNTIME_SERVICES[@]}"
+  else
+    parkio_compose "$env_file" up -d
+  fi
+}
+
+parkio_default_gateway_url() {
+  if [ "${PARKIO_DEPLOYMENT_PROFILE:-hosted-beta}" = "azure-hosted-beta" ]; then
+    echo "https://api.parkio.dev"
+  else
+    echo "http://127.0.0.1:8080"
+  fi
+}
+
+parkio_runtime_services_json() {
+  local out="[" first=1 svc
+  for svc in "${PARKIO_RUNTIME_SERVICES[@]}"; do
+    if [ "$first" -eq 1 ]; then first=0; else out+=","; fi
+    out+="\"${svc}\""
+  done
+  out+="]"
+  echo "$out"
+}
+
+parkio_disabled_services_json() {
+  local out="[" first=1 svc
+  for svc in "${PARKIO_DISABLED_SERVICES[@]}"; do
+    if [ "$first" -eq 1 ]; then first=0; else out+=","; fi
+    out+="\"${svc}\""
+  done
+  out+="]"
+  echo "$out"
 }
 
 parkio_wait_healthy() {
@@ -147,10 +244,12 @@ parkio_write_manifest() {
   local created="$8"
   local version="$9"
   local previous_manifest="${10:-}"
-  local compose_files_json images_json migrations_json svc first rollback_target
+  local compose_files_json images_json migrations_json runtime_services_json disabled_services_json svc first rollback_target
 
   compose_files_json="$(parkio_compose_files_json)"
   migrations_json="$(parkio_migration_versions_json)"
+  runtime_services_json="$(parkio_runtime_services_json)"
+  disabled_services_json="$(parkio_disabled_services_json)"
   images_json="{"
   first=1
   for svc in "${PARKIO_APP_SERVICES[@]}"; do
@@ -173,12 +272,15 @@ parkio_write_manifest() {
     --arg imageTag "$image_tag" \
     --arg imageVersion "$version" \
     --arg envProfile "$env_file" \
+    --arg deploymentProfile "$PARKIO_DEPLOYMENT_PROFILE" \
     --arg operator "$operator" \
     --arg previousManifest "$previous_manifest" \
     --arg rollbackTarget "$rollback_target" \
     --argjson composeFiles "$compose_files_json" \
     --argjson images "$images_json" \
     --argjson migrationVersions "$migrations_json" \
+    --argjson runtimeServices "$runtime_services_json" \
+    --argjson disabledServices "$disabled_services_json" \
     '{
       schemaVersion: 1,
       action: $action,
@@ -189,11 +291,14 @@ parkio_write_manifest() {
       imageVersion: $imageVersion,
       composeFiles: $composeFiles,
       envProfile: $envProfile,
+      deploymentProfile: $deploymentProfile,
       operator: $operator,
       previousManifest: (if $previousManifest == "" then null else $previousManifest end),
       images: $images,
       migrationVersions: $migrationVersions,
+      runtimeServices: $runtimeServices,
+      disabledServices: $disabledServices,
       migrationNote: "Flyway runs automatically on service startup (readiness requires successful migrate). migrationVersions lists scripts present in source at deploy time.",
-      rollbackCommand: ("PARKIO_ENV_FILE=" + $envProfile + " ./scripts/rollback-hosted-beta.sh --manifest " + $rollbackTarget)
+      rollbackCommand: ("PARKIO_DEPLOYMENT_PROFILE=" + $deploymentProfile + " PARKIO_ENV_FILE=" + $envProfile + " ./scripts/rollback-hosted-beta.sh --manifest " + $rollbackTarget)
     }' > "$manifest_path"
 }

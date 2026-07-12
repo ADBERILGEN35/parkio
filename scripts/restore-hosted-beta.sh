@@ -37,17 +37,25 @@ if [ -z "${MANIFEST}" ] || [ ! -f "${MANIFEST}" ]; then
 fi
 
 parkio_backup_load_env "${ENV_FILE}"
+parkio_backup_validate_deployment_profile
 
 DEST_DIR="$(jq -r .destination "${MANIFEST}")"
 BUCKET="$(jq -r .minio.bucket "${MANIFEST}")"
 GIT_SHA="$(jq -r .gitSha "${MANIFEST}")"
 STAMP="$(jq -r .timestamp "${MANIFEST}")"
+MANIFEST_PROFILE="$(jq -r '.deploymentProfile // "hosted-beta"' "${MANIFEST}")"
+
+if [ "${PARKIO_DEPLOYMENT_PROFILE}" != "${MANIFEST_PROFILE}" ]; then
+  echo "ERROR: restore profile '${PARKIO_DEPLOYMENT_PROFILE}' does not match manifest profile '${MANIFEST_PROFILE}'." >&2
+  exit 2
+fi
 
 echo "=== Parkio hosted-beta restore ==="
 echo "manifest=${MANIFEST}"
 echo "destination=${DEST_DIR}"
 echo "gitSha=${GIT_SHA}"
 echo "stamp=${STAMP}"
+echo "deploymentProfile=${PARKIO_DEPLOYMENT_PROFILE}"
 echo "dryRun=${DRY_RUN}"
 echo "only=${ONLY:-all}"
 

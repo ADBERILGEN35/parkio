@@ -4,6 +4,7 @@
 
 PARKIO_DB_SERVICES=(
   "auth:parkio-postgres-auth:${POSTGRES_AUTH_USER:-parkio_auth}:${POSTGRES_AUTH_DB:-parkio_auth}"
+  "gateway:parkio-postgres-gateway:${POSTGRES_GATEWAY_USER:-parkio_gateway}:${POSTGRES_GATEWAY_DB:-parkio_gateway}"
   "user:parkio-postgres-user:${POSTGRES_USER_USER:-parkio_user}:${POSTGRES_USER_DB:-parkio_user}"
   "parking:parkio-postgres-parking:${POSTGRES_PARKING_USER:-parkio_parking}:${POSTGRES_PARKING_DB:-parkio_parking}"
   "media:parkio-postgres-media:${POSTGRES_MEDIA_USER:-parkio_media}:${POSTGRES_MEDIA_DB:-parkio_media}"
@@ -38,6 +39,19 @@ parkio_backup_load_env() {
   elif [ -n "${env_file}" ]; then
     echo "WARN: env file '${env_file}' not found; relying on current environment." >&2
   fi
+}
+
+parkio_backup_validate_deployment_profile() {
+  local profile="${PARKIO_DEPLOYMENT_PROFILE:-hosted-beta}"
+  case "$profile" in
+    hosted-beta|azure-hosted-beta) ;;
+    *)
+      echo "ERROR: unsupported PARKIO_DEPLOYMENT_PROFILE='$profile' for backup/restore." >&2
+      return 2
+      ;;
+  esac
+  PARKIO_DEPLOYMENT_PROFILE="$profile"
+  export PARKIO_DEPLOYMENT_PROFILE
 }
 
 parkio_backup_backend_network() {
@@ -104,6 +118,7 @@ parkio_backup_write_manifest() {
     --arg gitSha "${git_sha}" \
     --arg operator "${operator}" \
     --arg envProfile "${env_file}" \
+    --arg deploymentProfile "${PARKIO_DEPLOYMENT_PROFILE:-hosted-beta}" \
     --arg destDir "${dest_dir}" \
     --argjson databases "${databases_json}" \
     --argjson minio "${minio_json}" \
@@ -118,6 +133,7 @@ parkio_backup_write_manifest() {
     gitSha: $gitSha,
     operator: $operator,
     envProfile: $envProfile,
+    deploymentProfile: $deploymentProfile,
     destination: $destDir,
     databases: $databases,
     minio: $minio,

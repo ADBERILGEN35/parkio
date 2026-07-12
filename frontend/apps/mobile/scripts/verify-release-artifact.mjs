@@ -33,12 +33,12 @@ import { inflateRawSync } from 'node:zlib';
 const PROFILES = {
   production: {
     expectUrl: 'https://api.parkio.dev/api/v1',
-    forbidUrls: ['https://beta-api.parkio.dev/api/v1'],
+    forbidUrls: [],
     allowCleartext: false,
   },
   'hosted-beta': {
-    expectUrl: 'https://beta-api.parkio.dev/api/v1',
-    forbidUrls: ['https://api.parkio.dev/api/v1'],
+    expectUrl: 'https://api.parkio.dev/api/v1',
+    forbidUrls: ['https://beta-api.parkio.dev/api/v1'],
     allowCleartext: false,
   },
   'development-validation': {

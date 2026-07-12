@@ -3,7 +3,7 @@
 # Parkio — hosted-beta smoke checks against a running gateway.
 #
 # Usage:
-#   PARKIO_GATEWAY_URL=https://api.beta.example.com ./scripts/smoke-hosted-beta.sh
+#   PARKIO_DEPLOYMENT_PROFILE=azure-hosted-beta ./scripts/smoke-hosted-beta.sh
 #
 # Optional credentials (seeded accounts recommended):
 #   PARKIO_REAL_USER_EMAIL / PARKIO_REAL_USER_PASSWORD
@@ -13,7 +13,17 @@
 #
 set -euo pipefail
 
-GATEWAY_URL="${PARKIO_GATEWAY_URL:-http://127.0.0.1:8080}"
+PROFILE="${PARKIO_DEPLOYMENT_PROFILE:-hosted-beta}"
+case "$PROFILE" in
+  azure-hosted-beta) DEFAULT_GATEWAY_URL="https://api.parkio.dev" ;;
+  hosted-beta) DEFAULT_GATEWAY_URL="http://127.0.0.1:8080" ;;
+  *) echo "ERROR: unsupported PARKIO_DEPLOYMENT_PROFILE='$PROFILE'" >&2; exit 2 ;;
+esac
+GATEWAY_URL="${PARKIO_GATEWAY_URL:-$DEFAULT_GATEWAY_URL}"
+if [ "$PROFILE" = "azure-hosted-beta" ] && [ "$GATEWAY_URL" != "https://api.parkio.dev" ]; then
+  echo "ERROR: Azure hosted-beta smoke must target https://api.parkio.dev" >&2
+  exit 2
+fi
 API="$GATEWAY_URL/api/v1"
 EMAIL="${PARKIO_REAL_USER_EMAIL:-user@real-e2e.parkio.local}"
 PASSWORD="${PARKIO_REAL_USER_PASSWORD:-StrongParkio123}"

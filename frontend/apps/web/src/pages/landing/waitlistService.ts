@@ -1,10 +1,5 @@
-import {
-  WAITLIST_ROLES,
-  WAITLIST_SOURCE,
-  isWaitlistRole,
-  type WaitlistRole,
-} from '@parkio/api-client';
 import { waitlistApi } from '@/api';
+import { WAITLIST_ROLES, WAITLIST_SOURCE, isWaitlistRole, type WaitlistRole } from './waitlistShared';
 
 export interface WaitlistPayload {
   email: string;
