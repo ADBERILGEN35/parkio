@@ -119,6 +119,37 @@ parkio_compose() {
   docker compose --env-file "$env_file" $PARKIO_COMPOSE_FILES "$@"
 }
 
+# Compose v2.24+ omits inactive-profile services from the resolved model
+# (`config --format json` / `config --services`), so disabled-service
+# enforcement must not read `.services[<svc>].profiles` from the rendered
+# JSON. Instead, validate from the declared profile list and the default
+# active service set, and reject disabled services in the explicit runtime
+# target.
+#   $1: output of `docker compose ... config --profiles`
+#   $2: output of `docker compose ... config --services` (no profiles active)
+parkio_validate_azure_disabled_services() {
+  local profiles_output="$1"
+  local active_services_output="$2"
+  local svc
+
+  if ! grep -qx 'azure-disabled-observability' <<<"$profiles_output"; then
+    echo "ERROR: profile 'azure-disabled-observability' is missing from the compose model" >&2
+    return 1
+  fi
+
+  for svc in "${PARKIO_DISABLED_SERVICES[@]}"; do
+    if grep -qx "$svc" <<<"$active_services_output"; then
+      echo "ERROR: disabled service '$svc' is active in the default compose model" >&2
+      return 1
+    fi
+    if [[ " ${PARKIO_RUNTIME_SERVICES[*]} " == *" $svc "* ]]; then
+      echo "ERROR: disabled service '$svc' appears in the explicit Azure runtime target" >&2
+      return 1
+    fi
+  done
+  return 0
+}
+
 parkio_compose_up() {
   local env_file="$1"
   if [ "${#PARKIO_RUNTIME_SERVICES[@]}" -gt 0 ]; then

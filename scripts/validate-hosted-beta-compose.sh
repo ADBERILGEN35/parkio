@@ -96,12 +96,12 @@ if [ "$PARKIO_DEPLOYMENT_PROFILE" = "azure-hosted-beta" ]; then
     }
   done
 
-  for svc in "${PARKIO_DISABLED_SERVICES[@]}"; do
-    jq -e --arg svc "$svc" '.services[$svc].profiles | index("azure-disabled-observability") != null' "$rendered" >/dev/null || {
-      echo "ERROR: disabled service '$svc' is not guarded by the Azure disabled profile" >&2
-      exit 4
-    }
-  done
+  # Compose v2.24+ omits inactive-profile services from the rendered model,
+  # so their exclusion is asserted from the declared profile list and the
+  # default active service set rather than from `.services[<svc>].profiles`.
+  compose_profiles="$(parkio_compose "$ENV_FILE" config --profiles)"
+  active_services="$(parkio_compose "$ENV_FILE" config --services)"
+  parkio_validate_azure_disabled_services "$compose_profiles" "$active_services" || exit 4
 
   for svc in gateway-service auth-service user-service parking-service media-service \
     gamification-service notification-service moderation-service ai-validation-service analytics-service; do

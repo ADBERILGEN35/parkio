@@ -28,6 +28,40 @@ for disabled in alertmanager loki promtail tempo; do
 done
 pass "Alertmanager, Loki, Promtail, and Tempo are deterministically excluded"
 
+# Regression: Docker Compose v2.24+ (Azure host runs Engine 29.x / Compose v5)
+# omits inactive-profile services from the resolved model, so validation must
+# not read `.services[<svc>].profiles` from `config --format json`. Reproduce
+# that behavior with fixtures: the profile list still declares the disabled
+# profile, while the default active service set contains only the 32 runtime
+# services (the four disabled services are absent entirely).
+grep -q 'profiles | index("azure-disabled-observability")' scripts/validate-hosted-beta-compose.sh \
+  && fail "validate-hosted-beta-compose.sh still asserts profiles from the rendered JSON (incompatible with Compose v2.24+)"
+profiles_fixture='azure-disabled-observability'
+active_fixture="$(printf '%s\n' "${PARKIO_RUNTIME_SERVICES[@]}")"
+for disabled in alertmanager loki promtail tempo; do
+  echo "$active_fixture" | grep -qx "$disabled" && fail "fixture must reproduce inactive-profile omission for $disabled"
+done
+parkio_validate_azure_disabled_services "$profiles_fixture" "$active_fixture" >/dev/null 2>&1 \
+  || fail "disabled-service validation must accept the Compose v2.24+ rendered model"
+pass "disabled-service validation accepts a rendered model without inactive-profile services"
+
+parkio_validate_azure_disabled_services '' "$active_fixture" >/dev/null 2>&1 \
+  && fail "validation must fail when the azure-disabled-observability profile is missing"
+parkio_validate_azure_disabled_services 'some-other-profile' "$active_fixture" >/dev/null 2>&1 \
+  && fail "validation must fail when only unrelated profiles exist"
+pass "validation fails closed when the disabled profile no longer exists"
+
+for disabled in alertmanager loki promtail tempo; do
+  parkio_validate_azure_disabled_services "$profiles_fixture" "$(printf '%s\n%s\n' "$active_fixture" "$disabled")" >/dev/null 2>&1 \
+    && fail "validation must fail when $disabled is active in the default compose model"
+done
+pass "validation fails closed when a disabled service becomes active by default"
+
+if (PARKIO_RUNTIME_SERVICES+=(tempo); parkio_validate_azure_disabled_services "$profiles_fixture" "$active_fixture" >/dev/null 2>&1); then
+  fail "validation must fail when a disabled service enters the explicit Azure runtime target"
+fi
+pass "validation fails closed when a disabled service enters the runtime target"
+
 tracing_overrides="$(grep -c 'PARKIO_TRACING_ENABLED: "false"' docker/docker-compose.azure-hosted-beta.yml)"
 [ "$tracing_overrides" -eq 10 ] || fail "expected tracing=false on ten JVM services, got $tracing_overrides"
 pass "tracing is disabled for all ten JVM services"
