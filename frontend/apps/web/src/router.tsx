@@ -1,17 +1,16 @@
 import { Suspense, lazy, type ReactElement } from 'react';
 import { ProfileSkeleton } from '@parkio/ui';
-import { createBrowserRouter } from 'react-router-dom';
+import { createBrowserRouter, Navigate, type RouteObject } from 'react-router-dom';
 import { ProtectedRoute } from '@/auth/ProtectedRoute';
 import { RoleRoute } from '@/auth/RoleRoute';
 import { RouteAccessibility } from '@/components/RouteAccessibility';
 import { AppShell } from '@/components/shell/AppShell';
 import { RouteFallback } from '@/components/RouteFallback';
-// Eager: entry/auth routes and the default landing map keep the first paint fast
-// without an extra chunk round-trip.
+// Eager: entry/auth routes keep the first paint fast without an extra chunk
+// round-trip.
 import { AccountPreparingPage } from '@/pages/AccountPreparingPage';
 import { CheckEmailPage } from '@/pages/CheckEmailPage';
 import { ForgotPasswordPage } from '@/pages/ForgotPasswordPage';
-import { LandingPage } from '@/pages/LandingPage';
 import { LoginPage } from '@/pages/LoginPage';
 import { NotFoundPage } from '@/pages/NotFoundPage';
 import { RegisterPage } from '@/pages/RegisterPage';
@@ -77,10 +76,9 @@ function profileRoute(element: ReactElement): ReactElement {
   );
 }
 
-export const router = createBrowserRouter([{
+export const routes: RouteObject[] = [{
   element: <RouteAccessibility />,
   children: [
-  { path: '/', element: <LandingPage /> },
   { path: '/login', element: <LoginPage /> },
   { path: '/register', element: <RegisterPage /> },
   { path: '/forgot-password', element: <ForgotPasswordPage /> },
@@ -92,6 +90,9 @@ export const router = createBrowserRouter([{
   {
     element: <ProtectedRoute />,
     children: [
+      // Product entry: the authenticated home is the map. Unauthenticated
+      // visitors are bounced to /login by ProtectedRoute.
+      { path: '/', element: <Navigate to="/map" replace /> },
       { path: '/preparing', element: <AccountPreparingPage /> },
       {
         element: <AppShell />,
@@ -119,4 +120,6 @@ export const router = createBrowserRouter([{
   },
   { path: '*', element: <NotFoundPage /> },
   ],
-}]);
+}];
+
+export const router = createBrowserRouter(routes);

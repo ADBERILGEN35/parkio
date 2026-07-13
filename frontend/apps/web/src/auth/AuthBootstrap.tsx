@@ -3,8 +3,9 @@ import { useEffect } from 'react';
 import { initCrossTabAuth } from './crossTabSync';
 import { useAuthStore } from './store';
 
+// Note: '/' is intentionally NOT skipped — the root route is the product entry
+// (redirects to /map), so a returning session must be restored there.
 const PUBLIC_BOOTSTRAP_SKIP_PATHS = new Set([
-  '/',
   '/login',
   '/register',
   '/forgot-password',

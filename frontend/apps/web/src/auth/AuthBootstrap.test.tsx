@@ -57,7 +57,7 @@ describe('AuthBootstrap', () => {
 
   it('does not refresh on public-only routes', async () => {
     resetStore();
-    window.history.pushState({}, '', '/');
+    window.history.pushState({}, '', '/login');
     const refresh = vi.fn(async () => 'unexpected');
     setRefreshHandler(refresh);
 
@@ -69,6 +69,22 @@ describe('AuthBootstrap', () => {
 
     await waitFor(() => expect(useAuthStore.getState().bootstrapPending).toBe(false));
     expect(refresh).not.toHaveBeenCalled();
+  });
+
+  it('refreshes on the root product entry route so returning sessions are restored', async () => {
+    resetStore();
+    window.history.pushState({}, '', '/');
+    const refresh = vi.fn(async () => 'access-token');
+    setRefreshHandler(refresh);
+
+    render(
+      <StrictMode>
+        <AuthBootstrap />
+      </StrictMode>,
+    );
+
+    await waitFor(() => expect(useAuthStore.getState().bootstrapPending).toBe(false));
+    expect(refresh).toHaveBeenCalledTimes(1);
   });
 
   it('ends bootstrap even when refresh fails (so guards stop loading)', async () => {

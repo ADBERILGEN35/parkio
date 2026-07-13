@@ -10,16 +10,6 @@ async function bootstrap() {
   const root = createRoot(document.getElementById('root')!);
   const pathname = normalizedPathname();
 
-  if (pathname === '/') {
-    const { LandingApp } = await import('./landing/LandingApp');
-    root.render(
-      <StrictMode>
-        <LandingApp />
-      </StrictMode>,
-    );
-    return;
-  }
-
   if (pathname === '/privacy' || pathname === '/terms') {
     await import('./styles/index.css');
     const { PrivacyPage, TermsPage } = await import('./pages/LegalPage');
