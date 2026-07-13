@@ -357,7 +357,34 @@ if [ "$DEPLOYMENT_PROFILE" = "azure-hosted-beta" ]; then
   else
     ok
   fi
+  if [ "$(env_get PARKIO_WEB_BASE_URL)" != "https://app.parkio.dev" ]; then
+    fail "PARKIO_WEB_BASE_URL" "Azure hosted beta must use the canonical web origin for email links" "set PARKIO_WEB_BASE_URL=https://app.parkio.dev"
+  else
+    ok
+  fi
 fi
+
+# Transactional email links (verification, password reset) are built from this
+# base URL; an unset value silently falls back to the local Vite dev server and
+# beta users receive localhost links they cannot open.
+if require_https_url PARKIO_WEB_BASE_URL; then
+  WEB_BASE_HOST=$(env_get PARKIO_WEB_BASE_URL | sed -e 's|^https://||' -e 's|[/?].*$||')
+  WEB_DOMAIN=$(env_get PARKIO_WEB_DOMAIN)
+  if [ -n "$WEB_DOMAIN" ] && [ "$WEB_BASE_HOST" != "$WEB_DOMAIN" ]; then
+    fail "PARKIO_WEB_BASE_URL" "host '$WEB_BASE_HOST' does not match PARKIO_WEB_DOMAIN '$WEB_DOMAIN'" "email links must open the public SPA: set PARKIO_WEB_BASE_URL=https://\$PARKIO_WEB_DOMAIN"
+  else
+    ok
+  fi
+fi
+
+# Optional per-link overrides: when set they must also be public https URLs.
+for v in PARKIO_EMAIL_VERIFICATION_URL PARKIO_PASSWORD_RESET_URL; do
+  if env_has "$v"; then
+    require_https_url "$v"
+  else
+    ok
+  fi
+done
 
 CORS=$(env_get PARKIO_CORS_ALLOWED_ORIGINS)
 if [ -z "$CORS" ]; then

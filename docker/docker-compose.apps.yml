@@ -174,6 +174,15 @@ services:
       PARKIO_JWT_AUDIENCE: ${PARKIO_JWT_AUDIENCE:-parkio-api}
       PARKIO_JWT_ADDITIONAL_PUBLIC_KEYS_JSON: ${PARKIO_JWT_ADDITIONAL_PUBLIC_KEYS_JSON:-}
       PARKIO_CORS_ALLOWED_ORIGINS: ${PARKIO_CORS_ALLOWED_ORIGINS:-http://localhost:5173}
+      # Canonical public SPA origin: verification and password-reset links in
+      # transactional email derive from it. Default is the local Vite dev server;
+      # hosted environments MUST set PARKIO_WEB_BASE_URL (preflight enforces it,
+      # and auth-service fails startup if a live email provider still points at
+      # localhost). The two derived URLs are also passed explicitly so images
+      # built before parkio.web.base-url existed resolve the same links.
+      PARKIO_WEB_BASE_URL: ${PARKIO_WEB_BASE_URL:-http://localhost:5173}
+      PARKIO_EMAIL_VERIFICATION_URL: ${PARKIO_EMAIL_VERIFICATION_URL:-${PARKIO_WEB_BASE_URL:-http://localhost:5173}/verify-email}
+      PARKIO_PASSWORD_RESET_URL: ${PARKIO_PASSWORD_RESET_URL:-${PARKIO_WEB_BASE_URL:-http://localhost:5173}/reset-password}
       PARKIO_EMAIL_PROVIDER: ${PARKIO_EMAIL_PROVIDER:-logging}
       PARKIO_RESEND_API_KEY: ${PARKIO_RESEND_API_KEY:-}
       PARKIO_EMAIL_FROM: ${PARKIO_EMAIL_FROM:-}

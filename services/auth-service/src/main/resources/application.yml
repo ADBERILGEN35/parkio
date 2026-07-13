@@ -124,6 +124,13 @@ info:
     description: Parkio auth-service
 
 parkio:
+  web:
+    # Canonical public SPA origin. Every user-facing link the service embeds in
+    # transactional email (verification, password reset) derives from it, so a
+    # hosted environment only has to set PARKIO_WEB_BASE_URL once. The default
+    # is the local Vite dev server; EmailDeliveryConfig fails startup when a
+    # production-like profile or the resend provider still points at localhost.
+    base-url: ${PARKIO_WEB_BASE_URL:http://localhost:5173}
   openapi:
     enabled: ${PARKIO_OPENAPI_ENABLED:true}
   lifecycle:
@@ -178,12 +185,14 @@ parkio:
     email-verification:
       token-ttl: ${PARKIO_EMAIL_VERIFICATION_TTL:PT24H}
       resend-cooldown: ${PARKIO_EMAIL_VERIFICATION_RESEND_COOLDOWN:PT5M}
-      url: ${PARKIO_EMAIL_VERIFICATION_URL:http://localhost:5173/verify-email}
+      # Derived from the canonical web origin; the explicit env var remains an
+      # escape hatch for a non-standard path.
+      url: ${PARKIO_EMAIL_VERIFICATION_URL:${parkio.web.base-url}/verify-email}
       log-token: ${PARKIO_EMAIL_VERIFICATION_LOG_TOKEN:false}
     password-reset:
       token-ttl: ${PARKIO_PASSWORD_RESET_TTL:PT1H}
       request-cooldown: ${PARKIO_PASSWORD_RESET_REQUEST_COOLDOWN:PT5M}
-      url: ${PARKIO_PASSWORD_RESET_URL:http://localhost:5173/reset-password}
+      url: ${PARKIO_PASSWORD_RESET_URL:${parkio.web.base-url}/reset-password}
       log-token: ${PARKIO_PASSWORD_RESET_LOG_TOKEN:false}
   email:
     # Transactional email provider. Local/dev defaults to logging; hosted beta and

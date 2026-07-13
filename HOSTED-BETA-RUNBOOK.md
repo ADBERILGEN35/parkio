@@ -188,6 +188,7 @@ real value.
 | `PARKIO_GATEWAY_INTERNAL_SECRET` | Yes | `openssl rand -base64 48` | Yes |
 | `PARKIO_GATEWAY_INTERNAL_ACCEPTED_SECRETS` | Optional | blank unless rotating | Yes |
 | `PARKIO_EMAIL_PROVIDER` | Yes | `resend` | No |
+| `PARKIO_WEB_BASE_URL` | Yes | `https://<PARKIO_WEB_DOMAIN>` — public SPA origin baked into verification/reset email links; unset falls back to the local Vite dev server (preflight blocks this) | No |
 | `PARKIO_RESEND_API_KEY` | Yes | `re_...` | Yes |
 | `PARKIO_EMAIL_FROM` | Yes | `"Parkio <verify@...>"` | No |
 | `PARKIO_EMAIL_REPLY_TO` | Yes | Support email | No |

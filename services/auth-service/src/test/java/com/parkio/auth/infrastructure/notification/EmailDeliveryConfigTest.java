@@ -60,7 +60,70 @@ class EmailDeliveryConfigTest {
         runner.withPropertyValues(
                         "parkio.email.provider=resend",
                         "parkio.email.resend.api-key=re_test_key",
+                        "parkio.email.from=Parkio <verify@example.com>",
+                        "parkio.security.email-verification.url=https://app.parkio.dev/verify-email",
+                        "parkio.security.password-reset.url=https://app.parkio.dev/reset-password")
+                .run(context -> assertThat(context).hasNotFailed());
+    }
+
+    @Test
+    void resendProviderRejectsDefaultLocalhostVerificationUrl() {
+        // No URL properties set: the compiled-in fallback is the local Vite dev
+        // server, which a live email provider must never mail out.
+        runner.withPropertyValues(
+                        "parkio.email.provider=resend",
+                        "parkio.email.resend.api-key=re_test_key",
                         "parkio.email.from=Parkio <verify@example.com>")
+                .run(context -> {
+                    assertThat(context).hasFailed();
+                    assertThat(context.getStartupFailure())
+                            .rootCause()
+                            .hasMessageContaining("local-dev host");
+                });
+    }
+
+    @Test
+    void resendProviderRejectsNonHttpsLinkUrls() {
+        runner.withPropertyValues(
+                        "parkio.email.provider=resend",
+                        "parkio.email.resend.api-key=re_test_key",
+                        "parkio.email.from=Parkio <verify@example.com>",
+                        "parkio.security.email-verification.url=http://app.parkio.dev/verify-email",
+                        "parkio.security.password-reset.url=https://app.parkio.dev/reset-password")
+                .run(context -> {
+                    assertThat(context).hasFailed();
+                    assertThat(context.getStartupFailure())
+                            .rootCause()
+                            .hasMessageContaining("must be an https URL");
+                });
+    }
+
+    @Test
+    void productionProfileRejectsLocalhostResetUrl() {
+        runner.withPropertyValues(
+                        "spring.profiles.active=hosted-beta",
+                        "parkio.email.provider=resend",
+                        "parkio.email.resend.api-key=re_test_key",
+                        "parkio.email.from=Parkio <verify@example.com>",
+                        "parkio.security.email-verification.url=https://app.parkio.dev/verify-email",
+                        "parkio.security.password-reset.url=http://localhost:5173/reset-password")
+                .run(context -> {
+                    assertThat(context).hasFailed();
+                    assertThat(context.getStartupFailure())
+                            .rootCause()
+                            .hasMessageContaining("password-reset");
+                });
+    }
+
+    @Test
+    void hostedBetaProfileStartsWithPublicWebUrls() {
+        runner.withPropertyValues(
+                        "spring.profiles.active=hosted-beta",
+                        "parkio.email.provider=resend",
+                        "parkio.email.resend.api-key=re_test_key",
+                        "parkio.email.from=Parkio <verify@example.com>",
+                        "parkio.security.email-verification.url=https://app.parkio.dev/verify-email",
+                        "parkio.security.password-reset.url=https://app.parkio.dev/reset-password")
                 .run(context -> assertThat(context).hasNotFailed());
     }
 }

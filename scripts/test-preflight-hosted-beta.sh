@@ -74,6 +74,7 @@ sed \
   -e 's|PARKIO_WEB_DOMAIN=app.beta.parkio.dev|PARKIO_WEB_DOMAIN=app.parkio.dev|' \
   -e 's|PARKIO_MEDIA_DOMAIN=media.beta.parkio.dev|PARKIO_MEDIA_DOMAIN=media.parkio.dev|' \
   -e 's|PARKIO_CORS_ALLOWED_ORIGINS=https://app.beta.parkio.dev|PARKIO_CORS_ALLOWED_ORIGINS=https://app.parkio.dev|' \
+  -e 's|PARKIO_WEB_BASE_URL=https://app.beta.parkio.dev|PARKIO_WEB_BASE_URL=https://app.parkio.dev|' \
   -e 's|VITE_API_BASE_URL=https://api.beta.parkio.dev/api/v1|VITE_API_BASE_URL=https://api.parkio.dev/api/v1|' \
   -e 's|PARKIO_MEDIA_STORAGE_PUBLIC_ENDPOINT=https://media.beta.parkio.dev|PARKIO_MEDIA_STORAGE_PUBLIC_ENDPOINT=https://media.parkio.dev|' \
   -e 's|PARKIO_TRACING_ENABLED=true|PARKIO_TRACING_ENABLED=false|' \
@@ -85,6 +86,7 @@ rm -f "$AZURE_VALID"
 
 # ---- missing secrets fail with clear messages -------------------------------
 run_case "missing-secret.env exits 1" missing-secret.env 1
+expect "missing web base URL reported"  "PARKIO_WEB_BASE_URL: required URL is empty or unset"
 expect "missing JWT key reported"       "PARKIO_JWT_PRIVATE_KEY_PEM: JWT private key is empty"
 expect "missing auth DB pw reported"    "POSTGRES_AUTH_PASSWORD: required secret is empty or unset"
 expect "empty Redis password reported"  "REDIS_PASSWORD: required secret is empty or unset"
@@ -105,6 +107,7 @@ expect "localhost domain rejected"      "PARKIO_WEB_DOMAIN: 'localhost' is a loc
 expect "127.0.0.1 domain rejected"      "PARKIO_MEDIA_DOMAIN: '127.0.0.1' is a localhost/placeholder host"
 expect "http 10.0.2.2 URL rejected"     "VITE_API_BASE_URL: must be HTTPS"
 expect "http CORS origin rejected"      "origin 'http://localhost:5173' is not https"
+expect "localhost email-link base URL"  "PARKIO_WEB_BASE_URL: must be HTTPS"
 expect "localhost media endpoint"       "PARKIO_MEDIA_STORAGE_PUBLIC_ENDPOINT"
 expect "local-dev DB password leak"     "POSTGRES_AUTH_PASSWORD: is a committed LOCAL-DEV value"
 # (the committed local-dev gateway secret ends in 'change-me', so the
