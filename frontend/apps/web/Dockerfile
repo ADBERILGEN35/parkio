@@ -55,4 +55,4 @@ COPY --from=build /workspace/apps/web/dist /usr/share/nginx/html
 EXPOSE 80
 
 HEALTHCHECK --interval=15s --timeout=5s --start-period=10s --retries=5 \
-  CMD wget -q -O /dev/null http://localhost:80/ || exit 1
+  CMD wget -q -O /dev/null http://127.0.0.1:80/ || exit 1
