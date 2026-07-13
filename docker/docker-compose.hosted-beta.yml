@@ -119,7 +119,7 @@ services:
     healthcheck:
       # Caddy's admin API listens on loopback :2019; a 200 means the server is up.
       # BusyBox-compatible flags only (-q/-O); avoids --spider/--tries.
-      test: ["CMD", "wget", "-q", "-O", "/dev/null", "http://localhost:2019/config/"]
+      test: ["CMD", "wget", "-q", "-O", "/dev/null", "http://127.0.0.1:2019/config/"]
       interval: 30s
       timeout: 5s
       retries: 5
