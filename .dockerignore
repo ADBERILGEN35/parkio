@@ -41,9 +41,8 @@ buildSrc/.gradle/
 buildSrc/.kotlin/
 out/
 
-# ---- Node / frontend (built and shipped separately, not part of any JVM image) ----
+# ---- Node / frontend generated output ----
 **/node_modules/
-frontend/
 **/dist/
 **/.vite/
 **/coverage/
