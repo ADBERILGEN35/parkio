@@ -1,4 +1,4 @@
-import type { ButtonHTMLAttributes } from 'react';
+import { forwardRef, type ButtonHTMLAttributes } from 'react';
 import { cn } from '../cn';
 
 export interface ButtonProps extends ButtonHTMLAttributes<HTMLButtonElement> {
@@ -23,10 +23,14 @@ const VARIANT_CLASSES: Record<NonNullable<ButtonProps['variant']>, string> = {
   'destructive-soft': 'bg-error-container/50 text-error hover:bg-error-container',
 };
 
-export function Button({ variant = 'primary', className, children, ...props }: ButtonProps) {
+export const Button = forwardRef<HTMLButtonElement, ButtonProps>(function Button(
+  { variant = 'primary', className, children, type = 'button', ...props },
+  ref,
+) {
   return (
     <button
-      type="button"
+      ref={ref}
+      type={type}
       className={cn(
         'inline-flex items-center justify-center gap-sm rounded-full px-lg py-sm text-label-md',
         'transition-all duration-std motion-safe:active:scale-95',
@@ -40,4 +44,4 @@ export function Button({ variant = 'primary', className, children, ...props }: B
       {children}
     </button>
   );
-}
+});

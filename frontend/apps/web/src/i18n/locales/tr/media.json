@@ -81,6 +81,12 @@
     "createErrorRetry": "Park yeri oluşturulamadı. Lütfen ayrıntıları kontrol edip yeniden deneyin.",
     "successTitle": "Park yeri oluşturuldu",
     "successRedirect": "Katkınız için teşekkürler. Yeni park yerinize yönlendiriliyorsunuz…",
-    "viewSpotNow": "Yerinizi şimdi görüntüleyin"
+    "viewSpotNow": "Yerinizi şimdi görüntüleyin",
+    "unsavedChanges": {
+      "title": "Park yeri paylaşımından çıkılsın mı?",
+      "description": "Kaydedilmemiş değişiklikleriniz var. Şimdi çıkarsanız bu paylaşım için yaptığınız değişiklikler kaybolacak.",
+      "stay": "Paylaşmaya devam et",
+      "leave": "Çık ve değişiklikleri sil"
+    }
   }
 }

@@ -39,14 +39,17 @@ import { useForm, type UseFormRegisterReturn } from 'react-hook-form';
 import { useTranslation } from 'react-i18next';
 import { Link, useNavigate } from 'react-router-dom';
 import { mediaApi, parkingApi } from '@/api';
+import { ConfirmDialog } from '@/components/ConfirmDialog';
 import { FriendlyApiErrorMessage } from '@/components/FriendlyApiErrorMessage';
 import { MapPicker } from '@/components/map/MapPicker';
 import { isValidLatLng } from '@/components/map/mapConfig';
 import { PlaceSearch } from '@/components/map/PlaceSearch';
+import { useUnsavedChangesGuard } from '@/hooks/useUnsavedChangesGuard';
 import { enumLabel } from '@/lib/format';
 import { spotStatusLabel } from '@/lib/localized-status';
 import { invalidateGamificationQueries } from '@/lib/gamificationCache';
 import { type GeocodeResult } from '@/lib/geocoding';
+import { isUploadWizardDirty } from '@/lib/uploadDirty';
 import { showError, showSuccess } from '@/lib/toast';
 
 type SubmitPhase = 'idle' | 'uploading' | 'creating';
@@ -146,7 +149,7 @@ export function UploadPage() {
     watch,
     trigger,
     setValue,
-    formState: { errors },
+    formState: { errors, isDirty: formIsDirty },
   } = useForm<CreateSpotFormValues>({
     resolver: zodResolver(createSpotFormSchema),
     defaultValues: {
@@ -161,8 +164,17 @@ export function UploadPage() {
   const values = watch();
   const legalStatus = values.legalStatus;
 
+  const wizardDirty = isUploadWizardDirty({
+    hasSucceeded: createdSpot !== null,
+    hasSelectedFile: file !== null,
+    hasUploadedMedia: uploadedMedia !== null,
+    formIsDirty,
+    hasLocationLabel: locationLabel !== null,
+  });
+  const blocker = useUnsavedChangesGuard({ when: wizardDirty });
+
   // Editing a coordinate field or clicking the map both count as a manual edit.
-  const markManual = () => setValue('manualLocationEdited', true);
+  const markManual = () => setValue('manualLocationEdited', true, { shouldDirty: true });
 
   const latValue = Number(values.latitude);
   const lngValue = Number(values.longitude);
@@ -171,9 +183,9 @@ export function UploadPage() {
   const pickerLng = hasCoords ? lngValue : null;
 
   const handlePick = (lat: number, lng: number) => {
-    setValue('latitude', Number(lat.toFixed(6)), { shouldValidate: true });
-    setValue('longitude', Number(lng.toFixed(6)), { shouldValidate: true });
-    setValue('manualLocationEdited', true);
+    setValue('latitude', Number(lat.toFixed(6)), { shouldValidate: true, shouldDirty: true });
+    setValue('longitude', Number(lng.toFixed(6)), { shouldValidate: true, shouldDirty: true });
+    setValue('manualLocationEdited', true, { shouldDirty: true });
     setLocationLabel(t('upload.selectedMapPoint'));
   };
 
@@ -183,12 +195,15 @@ export function UploadPage() {
    * we never overwrite what the user typed). Does NOT submit/create anything.
    */
   const handleSelectPlace = (result: GeocodeResult) => {
-    setValue('latitude', Number(result.lat.toFixed(6)), { shouldValidate: true });
-    setValue('longitude', Number(result.lng.toFixed(6)), { shouldValidate: true });
-    setValue('manualLocationEdited', true);
+    setValue('latitude', Number(result.lat.toFixed(6)), { shouldValidate: true, shouldDirty: true });
+    setValue('longitude', Number(result.lng.toFixed(6)), { shouldValidate: true, shouldDirty: true });
+    setValue('manualLocationEdited', true, { shouldDirty: true });
     if (!values.addressText || values.addressText.trim() === '') {
       // addressText is capped at 512 chars by the schema.
-      setValue('addressText', result.displayName.slice(0, 512), { shouldValidate: true });
+      setValue('addressText', result.displayName.slice(0, 512), {
+        shouldValidate: true,
+        shouldDirty: true,
+      });
     }
     setLocationLabel(result.secondary || result.primary);
   };
@@ -351,15 +366,36 @@ export function UploadPage() {
 
   const pending = phase !== 'idle';
 
+  const leaveConfirmDialog = (
+    <ConfirmDialog
+      open={blocker.state === 'blocked'}
+      title={t('upload.unsavedChanges.title')}
+      description={t('upload.unsavedChanges.description')}
+      cancelLabel={t('upload.unsavedChanges.stay')}
+      confirmLabel={t('upload.unsavedChanges.leave')}
+      onCancel={() => {
+        if (blocker.state === 'blocked') blocker.reset();
+      }}
+      onConfirm={() => {
+        if (blocker.state === 'blocked') blocker.proceed();
+      }}
+    />
+  );
+
   if (createdSpot) {
     return (
-      <WizardContainer>
-        <SuccessPanel spot={createdSpot} />
-      </WizardContainer>
+      <>
+        {leaveConfirmDialog}
+        <WizardContainer>
+          <SuccessPanel spot={createdSpot} />
+        </WizardContainer>
+      </>
     );
   }
 
   return (
+    <>
+      {leaveConfirmDialog}
     <WizardContainer>
       <WizardHeader step={step} />
 
@@ -715,6 +751,7 @@ export function UploadPage() {
         </fieldset>
       </div>
     </WizardContainer>
+    </>
   );
 }
 

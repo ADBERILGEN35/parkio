@@ -1,12 +1,16 @@
 import type { GeocodeResult, Spot } from '@parkio/types';
 import { http, HttpResponse } from 'msw';
-import { screen } from '@testing-library/react';
+import { render, screen } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
-import { Route, Routes } from 'react-router-dom';
+import { createMemoryRouter, RouterProvider } from 'react-router-dom';
+import { QueryClientProvider } from '@tanstack/react-query';
+import { I18nextProvider } from 'react-i18next';
+import i18n from '@/i18n';
+import { createTestQueryClient } from '@/test/utils';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { mediaApi, parkingApi } from '@/api';
 import { API_BASE, server } from '@/test/server';
-import { renderWithProviders, resetAuth, signInAs } from '@/test/utils';
+import { resetAuth, signInAs } from '@/test/utils';
 import { UploadPage } from './UploadPage';
 
 vi.mock('@/api', async (importActual) => {
@@ -86,13 +90,24 @@ const createdSpot: Spot = {
 };
 
 function renderUpload() {
-  return renderWithProviders(
-    <Routes>
-      <Route path="/upload" element={<UploadPage />} />
-      <Route path="/spots/:spotId" element={<div>Spot detail</div>} />
-    </Routes>,
+  const queryClient = createTestQueryClient();
+  const router = createMemoryRouter(
+    [
+      { path: '/upload', element: <UploadPage /> },
+      { path: '/spots/:spotId', element: <div>Spot detail</div> },
+      { path: '/map', element: <div>Map stub</div> },
+      { path: '/my-spots', element: <div>My spots stub</div> },
+    ],
     { initialEntries: ['/upload'] },
   );
+  const result = render(
+    <I18nextProvider i18n={i18n}>
+      <QueryClientProvider client={queryClient}>
+        <RouterProvider router={router} />
+      </QueryClientProvider>
+    </I18nextProvider>,
+  );
+  return { ...result, queryClient, router };
 }
 
 function imageFile(name = 'spot.jpg', type = 'image/jpeg', size = 1024) {
@@ -378,5 +393,75 @@ describe('UploadPage', () => {
 
     // Navigation was blocked — still on the Location step.
     expect(screen.getByRole('heading', { name: '2. Location' })).toBeInTheDocument();
+  });
+
+  it('does not warn when navigating away from a clean wizard', async () => {
+    const { router } = renderUpload();
+    await router.navigate('/map');
+    expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
+    expect(router.state.location.pathname).toBe('/map');
+  });
+
+  it('warns after a photo is selected and cancel keeps the photo step', async () => {
+    const { router } = renderUpload();
+    const user = userEvent.setup();
+    await user.upload(screen.getByLabelText('Spot photo'), imageFile('guard.jpg'));
+    expect(screen.getByText('guard.jpg')).toBeInTheDocument();
+
+    await router.navigate('/my-spots');
+    expect(await screen.findByRole('dialog')).toBeInTheDocument();
+    expect(screen.getByRole('heading', { name: 'Leave parking spot sharing?' })).toBeInTheDocument();
+
+    await user.click(screen.getByRole('button', { name: 'Continue sharing' }));
+    expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
+    expect(router.state.location.pathname).toBe('/upload');
+    expect(screen.getByText('guard.jpg')).toBeInTheDocument();
+  });
+
+  it('discards progress and navigates to the intended destination', async () => {
+    const { router } = renderUpload();
+    const user = userEvent.setup();
+    await user.upload(screen.getByLabelText('Spot photo'), imageFile('leave.jpg'));
+    await router.navigate('/map');
+    await user.click(await screen.findByRole('button', { name: 'Leave and discard changes' }));
+    expect(await screen.findByText('Map stub')).toBeInTheDocument();
+    expect(router.state.location.pathname).toBe('/map');
+  });
+
+  it('does not warn on successful submit redirect', async () => {
+    vi.mocked(mediaApi.uploadMedia).mockResolvedValue({
+      mediaId: createdSpot.mediaId,
+      status: 'READY',
+      contentType: 'image/jpeg',
+      fileSize: 1024,
+    });
+    vi.mocked(parkingApi.createParkingSpot).mockResolvedValue(createdSpot);
+
+    renderUpload();
+    const user = userEvent.setup();
+    await advanceToReview(user);
+    await user.click(screen.getByRole('button', { name: 'Upload & create spot' }));
+    expect(await screen.findByRole('heading', { name: 'Spot created' })).toBeInTheDocument();
+    expect(await screen.findByText('Spot detail', {}, { timeout: 3000 })).toBeInTheDocument();
+    expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
+  });
+
+  it('keeps the guard active after a failed submit', async () => {
+    vi.mocked(mediaApi.uploadMedia).mockResolvedValue({
+      mediaId: createdSpot.mediaId,
+      status: 'READY',
+      contentType: 'image/jpeg',
+      fileSize: 1024,
+    });
+    vi.mocked(parkingApi.createParkingSpot).mockRejectedValue(new Error('Create failed'));
+
+    const { router } = renderUpload();
+    const user = userEvent.setup();
+    await advanceToReview(user);
+    await user.click(screen.getByRole('button', { name: 'Upload & create spot' }));
+    expect(await screen.findByText(/Your photo was uploaded successfully/)).toBeInTheDocument();
+
+    await router.navigate('/map');
+    expect(await screen.findByRole('dialog')).toBeInTheDocument();
   });
 });

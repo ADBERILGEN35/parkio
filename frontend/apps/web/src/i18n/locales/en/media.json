@@ -81,6 +81,12 @@
     "createErrorRetry": "Could not create spot. Please review the details and try again.",
     "successTitle": "Spot created",
     "successRedirect": "Thanks for contributing. Redirecting you to your new spot…",
-    "viewSpotNow": "View your spot now"
+    "viewSpotNow": "View your spot now",
+    "unsavedChanges": {
+      "title": "Leave parking spot sharing?",
+      "description": "You have unsaved changes. If you leave now, your progress on this parking spot submission will be lost.",
+      "stay": "Continue sharing",
+      "leave": "Leave and discard changes"
+    }
   }
 }
