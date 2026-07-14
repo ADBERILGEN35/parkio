@@ -11,23 +11,31 @@ export interface MetricCardProps {
   icon?: string;
   /** Optional trailing slot (trend chip, helper text). */
   trend?: ReactNode;
+  /** Compact padding/typography for dense mobile grids (e.g. leaderboard). */
+  dense?: boolean;
   className?: string;
 }
 
 /** KPI tile: tinted icon disc, uppercase label, display-size value (§2.4). */
-export function MetricCard({ label, value, icon, trend, className }: MetricCardProps) {
+export function MetricCard({ label, value, icon, trend, dense, className }: MetricCardProps) {
   return (
     <div
       className={cn(
-        'flex flex-col justify-between gap-md rounded-xl border border-outline-variant/20 bg-surface-container-lowest p-lg shadow-soft',
+        'flex min-w-0 flex-col justify-between rounded-xl border border-outline-variant/20 bg-surface-container-lowest shadow-soft',
+        dense ? 'gap-sm p-sm' : 'gap-md p-lg',
         className,
       )}
     >
       {icon || trend ? (
         <div className="flex items-start justify-between">
           {icon ? (
-            <span className="inline-flex rounded-lg bg-primary-container p-sm text-on-primary-container">
-              <Icon name={icon} />
+            <span
+              className={cn(
+                'inline-flex rounded-lg bg-primary-container text-on-primary-container',
+                dense ? 'p-1.5' : 'p-sm',
+              )}
+            >
+              <Icon name={icon} className={dense ? 'text-[18px] leading-none' : undefined} />
             </span>
           ) : (
             <span />
@@ -35,11 +43,18 @@ export function MetricCard({ label, value, icon, trend, className }: MetricCardP
           {trend}
         </div>
       ) : null}
-      <div>
-        <p className="m-0 mb-xs text-label-md uppercase tracking-wider text-on-surface-variant">
+      <div className="min-w-0">
+        <p
+          className={cn(
+            'm-0 mb-xs uppercase tracking-wider text-on-surface-variant',
+            dense ? 'truncate text-label-sm' : 'text-label-md',
+          )}
+        >
           {label}
         </p>
-        <p className="m-0 text-headline-md text-on-surface">{value}</p>
+        <p className={cn('m-0 text-on-surface', dense ? 'text-title-lg' : 'text-headline-md')}>
+          {value}
+        </p>
       </div>
     </div>
   );

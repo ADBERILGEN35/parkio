@@ -119,18 +119,21 @@ function LevelHeroContent({ level }: { level: LevelStanding }) {
         )}
       </div>
 
-      <div className="grid grid-cols-2 gap-md sm:grid-cols-3">
+      <div className="grid min-w-0 grid-cols-2 gap-sm sm:grid-cols-3 sm:gap-md">
         <MetricCard
+          dense
           label={t('gamification.totalPoints')}
           value={level.totalPoints}
           icon="stars"
         />
         <MetricCard
+          dense
           label={t('gamification.currentLevelLabel')}
           value={level.currentLevel}
           icon="military_tech"
         />
         <MetricCard
+          dense
           label={atMax ? t('gamification.status') : t('gamification.pointsToNext')}
           value={atMax ? t('gamification.topLevel') : (level.pointsToNextLevel as number)}
           icon={atMax ? 'workspace_premium' : 'flag'}

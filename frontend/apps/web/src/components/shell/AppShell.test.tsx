@@ -39,6 +39,18 @@ describe('AppShell navigation', () => {
     expect(screen.getByRole('navigation', { name: 'Primary' })).toBeInTheDocument();
   });
 
+  it('uses breakpoint-aware shell padding (no desktop-header reserve on mobile base classes)', () => {
+    useNavHandlers();
+    renderShell();
+    const main = document.querySelector('main');
+    expect(main).not.toBeNull();
+    expect(main!.className).toMatch(/\bpt-desktop-nav\b/);
+    expect(main!.className).toMatch(/\bpb-mobile-nav\b/);
+    // Legacy pt-16 on main reserved space for a hidden desktop header on mobile.
+    expect(main!.className).not.toMatch(/\bpt-16\b/);
+    expect(main!.className).not.toMatch(/\bpb-16\b/);
+  });
+
   it('opens the mobile overflow menu and reveals secondary links', async () => {
     useNavHandlers();
     renderShell();

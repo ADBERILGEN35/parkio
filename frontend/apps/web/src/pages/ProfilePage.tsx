@@ -58,13 +58,13 @@ export function ProfilePage({ smartReturnEnabled = frontendConfig.features.smart
   }, [requestedSection, sections]);
 
   return (
-    <div className="mx-auto w-full max-w-5xl px-md py-lg text-on-background md:px-xl">
-      <header className="mb-lg">
+    <div className="mx-auto w-full max-w-5xl min-w-0 px-md py-lg text-on-background md:px-xl">
+      <header className="mb-lg min-w-0">
         <p className="m-0 flex items-center gap-xs text-label-md font-semibold uppercase tracking-wider text-primary">
           <Icon name="settings" className="text-[16px] leading-none" />
           {t('page.eyebrow')}
         </p>
-        <h1 className="m-0 mt-sm text-headline-lg-mobile text-on-surface md:text-headline-lg">
+        <h1 className="m-0 mt-sm break-words text-headline-lg-mobile text-on-surface md:text-headline-lg">
           {t('page.title')}
         </h1>
         <p className="m-0 mt-xs text-body-md text-on-surface-variant">{t('page.description')}</p>
@@ -72,12 +72,12 @@ export function ProfilePage({ smartReturnEnabled = frontendConfig.features.smart
 
       <ImpactHero />
 
-      <div className="mt-lg grid grid-cols-1 gap-lg lg:grid-cols-12 lg:items-start">
-        <div className="lg:col-span-3">
+      <div className="mt-lg grid min-w-0 grid-cols-1 gap-lg lg:grid-cols-12 lg:items-start">
+        <div className="min-w-0 lg:col-span-3">
           <SettingsNav sections={sections} active={section} onSelect={(id) => setSection(id as SectionId)} />
         </div>
 
-        <div role="tabpanel" className="flex flex-col gap-lg lg:col-span-9">
+        <div role="tabpanel" className="flex min-w-0 flex-col gap-lg lg:col-span-9">
           {section === 'account' ? (
             <>
               <ProfileDetailsCard />

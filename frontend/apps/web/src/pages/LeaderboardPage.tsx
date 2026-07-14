@@ -81,13 +81,13 @@ export function LeaderboardPage() {
   const rest = entries.slice(3);
 
   return (
-    <div className="mx-auto w-full max-w-4xl px-md py-lg text-on-background md:px-xl">
-      <header className="mb-lg">
+    <div className="mx-auto w-full max-w-4xl min-w-0 px-md py-lg text-on-background md:px-xl">
+      <header className="mb-lg min-w-0">
         <p className="m-0 flex items-center gap-xs text-label-md font-semibold uppercase tracking-wider text-primary">
           <Icon name="leaderboard" className="text-[16px] leading-none" />
           {t('gamification.eyebrow')}
         </p>
-        <h1 className="m-0 mt-sm text-headline-lg-mobile text-on-surface md:text-headline-lg">
+        <h1 className="m-0 mt-sm break-words text-headline-lg-mobile text-on-surface md:text-headline-lg">
           {t('leaderboard.title')}
         </h1>
         <p className="m-0 mt-xs text-body-md text-on-surface-variant">
@@ -152,10 +152,10 @@ function YourStanding({ entry, hasProgress }: { entry: LeaderboardEntry | null; 
           <Icon name="person_pin_circle" className="text-[18px] leading-none" />
           {t('leaderboard.yourStanding')}
         </p>
-        <div className="grid grid-cols-1 gap-md sm:grid-cols-3">
-          <MetricCard label={t('leaderboard.rank')} value={`#${entry.rank}`} icon="trophy" />
-          <MetricCard label={t('leaderboard.points')} value={entry.totalPoints} icon="stars" />
-          <MetricCard label={t('leaderboard.level')} value={entry.currentLevel} icon="military_tech" />
+        <div className="grid min-w-0 grid-cols-3 gap-sm sm:gap-md">
+          <MetricCard dense label={t('leaderboard.rank')} value={`#${entry.rank}`} icon="trophy" />
+          <MetricCard dense label={t('leaderboard.points')} value={entry.totalPoints} icon="stars" />
+          <MetricCard dense label={t('leaderboard.level')} value={entry.currentLevel} icon="military_tech" />
         </div>
       </Surface>
     );

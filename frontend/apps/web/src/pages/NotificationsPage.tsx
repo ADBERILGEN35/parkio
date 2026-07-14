@@ -48,10 +48,10 @@ export function NotificationsPage() {
   });
 
   return (
-    <div className="mx-auto w-full max-w-3xl px-md py-lg text-on-background md:px-xl">
-      <header className="mb-lg flex flex-wrap items-end justify-between gap-sm">
+    <div className="mx-auto w-full max-w-3xl min-w-0 px-md py-lg text-on-background md:px-xl">
+      <header className="mb-lg flex min-w-0 flex-wrap items-end justify-between gap-sm">
         <div className="min-w-0">
-          <h1 className="m-0 text-headline-lg-mobile text-on-surface md:text-headline-lg">
+          <h1 className="m-0 break-words text-headline-lg-mobile text-on-surface md:text-headline-lg">
             {t('notifications.title')}
           </h1>
           <p className="m-0 mt-xs text-body-md text-on-surface-variant">
@@ -98,9 +98,9 @@ function NotificationsBoard({ notifications }: { notifications: AppNotification[
 
   return (
     <div className="flex flex-col gap-md">
-      {/* Filter chips — horizontal scroll on narrow screens */}
+      {/* Filter chips — contained horizontal scroller (no document overflow) */}
       <div
-        className="-mx-md flex gap-sm overflow-x-auto px-md hide-scrollbar"
+        className="flex w-full min-w-0 gap-sm overflow-x-auto overscroll-x-contain hide-scrollbar [-webkit-overflow-scrolling:touch]"
         role="group"
         aria-label={t('notifications.filterAria')}
       >

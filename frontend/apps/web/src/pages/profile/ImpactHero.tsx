@@ -26,18 +26,20 @@ export function ImpactHero() {
   const initial = (displayName ?? email ?? '?').charAt(0).toUpperCase();
 
   return (
-    <section className="flex flex-col gap-lg rounded-2xl border border-outline-variant/20 bg-surface-container-lowest p-lg shadow-soft">
-      <div className="flex flex-wrap items-center gap-md">
-        <span className="flex h-16 w-16 shrink-0 items-center justify-center rounded-full bg-primary-container text-headline-md text-on-primary-container">
+    <section className="flex min-w-0 flex-col gap-lg rounded-2xl border border-outline-variant/20 bg-surface-container-lowest p-md shadow-soft sm:p-lg">
+      <div className="flex min-w-0 items-start gap-md">
+        <span className="flex h-14 w-14 shrink-0 items-center justify-center rounded-full bg-primary-container text-headline-md text-on-primary-container sm:h-16 sm:w-16">
           {initial}
         </span>
         <div className="min-w-0 flex-1">
-          <h2 className="m-0 truncate text-headline-md text-on-surface">{heading}</h2>
-          <div className="mt-xs flex flex-wrap items-center gap-sm">
+          <h2 className="m-0 break-words text-headline-md text-on-surface [overflow-wrap:anywhere]" title={heading}>
+            {heading}
+          </h2>
+          <div className="mt-xs flex min-w-0 flex-wrap items-center gap-sm">
             {city ? (
-              <span className="flex items-center gap-xs text-body-md text-on-surface-variant">
-                <Icon name="location_on" className="text-[16px] leading-none" />
-                {city}
+              <span className="flex min-w-0 max-w-full items-center gap-xs text-body-md text-on-surface-variant">
+                <Icon name="location_on" className="shrink-0 text-[16px] leading-none" />
+                <span className="truncate">{city}</span>
               </span>
             ) : null}
             {status ? (
@@ -59,11 +61,12 @@ export function ImpactHero() {
       ) : stats.isError ? (
         <FriendlyApiErrorMessage error={stats.error} />
       ) : (
-        <div className="grid grid-cols-2 gap-md lg:grid-cols-4">
-          <MetricCard label={t('impact.totalPoints')} value={stats.data.totalPoints} icon="stars" />
-          <MetricCard label={t('impact.currentLevel')} value={stats.data.currentLevel} icon="military_tech" />
-          <MetricCard label={t('impact.trustScore')} value={stats.data.trustScore} icon="verified_user" />
+        <div className="grid min-w-0 grid-cols-2 gap-sm sm:gap-md lg:grid-cols-4">
+          <MetricCard dense label={t('impact.totalPoints')} value={stats.data.totalPoints} icon="stars" />
+          <MetricCard dense label={t('impact.currentLevel')} value={stats.data.currentLevel} icon="military_tech" />
+          <MetricCard dense label={t('impact.trustScore')} value={stats.data.trustScore} icon="verified_user" />
           <MetricCard
+            dense
             label={t('impact.trustBand')}
             icon="shield"
             value={

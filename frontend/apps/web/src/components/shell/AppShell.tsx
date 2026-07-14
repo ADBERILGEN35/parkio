@@ -11,7 +11,12 @@ export function AppShell() {
   return (
     <div className="flex h-dvh flex-col overflow-hidden bg-background text-on-background">
       <DesktopNav />
-      <main className="flex min-h-0 flex-1 flex-col overflow-y-auto pt-16 pb-16 md:pb-0">
+      {/*
+        Desktop fixed header is md+ only. Mobile must NOT reserve pt-16 for it —
+        that caused the large blank strip above content pages in production.
+        Bottom padding clears the fixed MobileNav (+ safe-area).
+      */}
+      <main className="flex min-h-0 flex-1 flex-col overflow-y-auto pt-desktop-nav pb-mobile-nav">
         <Outlet />
       </main>
       <MobileNav />

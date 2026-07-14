@@ -367,7 +367,7 @@ export function MapPage() {
   );
 
   return (
-    <div className="fixed inset-x-0 bottom-16 top-16 z-0 overflow-hidden bg-background md:bottom-0">
+    <div className="fixed inset-x-0 bottom-[var(--parkio-mobile-nav-offset)] top-0 z-0 overflow-hidden bg-background md:bottom-0 md:top-[var(--parkio-desktop-nav-height)]">
       {/* Full-bleed map canvas */}
       <div className="absolute inset-0 z-0">
         <Suspense fallback={<MapSearchSkeleton />}>
@@ -583,8 +583,8 @@ export function MapPage() {
           the sheet is collapsed, so an expanded/half sheet (which the user opened to
           browse results) is never obscured by the preview. selectSpot() collapses the
           sheet on selection, so the preview is visible by default. The offset is
-          derived from the exported COLLAPSED_PEEK + the device safe-area inset rather
-          than a hardcoded magic number, so it tracks the real peek height. */}
+          derived from COLLAPSED_PEEK. The map canvas already clears MobileNav +
+          safe-area via --parkio-mobile-nav-offset, so we do not add safe-area again. */}
       {selectedSpot ? (
         isDesktop ? (
           <div className="pointer-events-none absolute bottom-md left-md z-[1060] w-[360px]">
@@ -593,7 +593,7 @@ export function MapPage() {
         ) : sheetState === 'collapsed' ? (
           <div
             className="pointer-events-none absolute inset-x-0 z-[1060] px-sm"
-            style={{ bottom: `calc(${COLLAPSED_PEEK}px + env(safe-area-inset-bottom) + 0.5rem)` }}
+            style={{ bottom: `calc(${COLLAPSED_PEEK}px + 0.5rem)` }}
           >
             <SelectedSpotPreview spot={selectedSpot} onClose={() => selectSpot(null)} />
           </div>

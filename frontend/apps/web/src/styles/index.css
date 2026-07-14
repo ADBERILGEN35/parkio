@@ -86,6 +86,13 @@
     /* Skeleton shimmer highlight, token-backed and dark-mode overridable. */
     --skeleton-highlight: var(--color-surface-container-lowest);
     --skeleton-highlight-opacity: 0.55;
+
+    /* App shell chrome — desktop top nav is md+ only; mobile uses bottom nav. */
+    --parkio-desktop-nav-height: 4rem;
+    --parkio-mobile-nav-height: 4rem;
+    --parkio-mobile-nav-offset: calc(
+      var(--parkio-mobile-nav-height) + env(safe-area-inset-bottom, 0px)
+    );
   }
 
   .dark {
@@ -140,6 +147,40 @@
    */
   .pb-safe {
     padding-bottom: max(0.5rem, env(safe-area-inset-bottom));
+  }
+
+  /* Compensate for fixed DesktopNav (md+) without reserving space on mobile. */
+  .pt-desktop-nav {
+    padding-top: 0;
+  }
+  @media (min-width: 768px) {
+    .pt-desktop-nav {
+      padding-top: var(--parkio-desktop-nav-height);
+    }
+  }
+
+  /* Clear fixed MobileNav (+ safe-area); none on desktop. */
+  .pb-mobile-nav {
+    padding-bottom: var(--parkio-mobile-nav-offset);
+  }
+  @media (min-width: 768px) {
+    .pb-mobile-nav {
+      padding-bottom: 0;
+    }
+  }
+
+  /*
+   * RouteAccessibility focuses the page h1 for SR announcements. Suppress the
+   * browser's default black focus rectangle for pointer/touch, keep focus-visible
+   * for keyboard users.
+   */
+  .parkio-route-focus:focus {
+    outline: none;
+  }
+  .parkio-route-focus:focus-visible {
+    outline: 2px solid rgb(var(--color-primary));
+    outline-offset: 3px;
+    border-radius: 0.25rem;
   }
 
   .hover-lift {

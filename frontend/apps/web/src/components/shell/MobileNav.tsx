@@ -29,7 +29,7 @@ export function MobileNav() {
       {moreOpen ? (
         <div
           id="mobile-nav-more"
-          className="fixed inset-x-0 bottom-16 z-50 mx-container-margin mb-sm animate-fade-in-up rounded-2xl border border-outline-variant/20 bg-surface-container-lowest p-md shadow-deep md:hidden"
+          className="fixed inset-x-0 bottom-[var(--parkio-mobile-nav-offset)] z-50 mx-container-margin mb-sm animate-fade-in-up rounded-2xl border border-outline-variant/20 bg-surface-container-lowest p-md shadow-deep md:hidden"
         >
           <p className="m-0 mb-sm text-label-sm font-semibold uppercase tracking-wider text-on-surface-variant">
             {t('more')}

@@ -43,11 +43,13 @@ function focusRouteTarget() {
   const hadTabIndex = target.hasAttribute('tabindex');
   const previousTabIndex = target.getAttribute('tabindex');
   if (!hadTabIndex) target.setAttribute('tabindex', '-1');
+  target.classList.add('parkio-route-focus');
   target.focus({ preventScroll: true });
   if (!hadTabIndex) {
     target.addEventListener(
       'blur',
       () => {
+        target.classList.remove('parkio-route-focus');
         if (previousTabIndex === null) target.removeAttribute('tabindex');
         else target.setAttribute('tabindex', previousTabIndex);
       },

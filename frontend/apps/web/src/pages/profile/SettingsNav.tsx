@@ -25,8 +25,7 @@ export function SettingsNav({ sections, active, onSelect }: SettingsNavProps) {
     <nav
       aria-label={t('sections.navAria')}
       role="tablist"
-      aria-orientation="vertical"
-      className="-mx-md flex gap-xs overflow-x-auto px-md pb-xs lg:sticky lg:top-lg lg:mx-0 lg:flex-col lg:overflow-visible lg:px-0 lg:pb-0"
+      className="flex w-full min-w-0 gap-xs overflow-x-auto overscroll-x-contain pb-xs [-webkit-overflow-scrolling:touch] lg:sticky lg:top-lg lg:flex-col lg:overflow-visible lg:pb-0"
     >
       {sections.map((section) => {
         const isActive = section.id === active;
@@ -38,14 +37,14 @@ export function SettingsNav({ sections, active, onSelect }: SettingsNavProps) {
             aria-selected={isActive}
             onClick={() => onSelect(section.id)}
             className={cn(
-              'flex shrink-0 items-center gap-sm rounded-xl px-lg py-md text-label-md font-semibold transition-colors duration-std',
+              'flex max-w-full shrink-0 items-center gap-sm rounded-xl px-md py-sm text-label-md font-semibold transition-colors duration-std sm:px-lg sm:py-md',
               isActive
                 ? 'bg-primary-container text-on-primary-container shadow-soft'
                 : 'text-on-surface-variant hover:bg-surface-container-low',
             )}
           >
-            <Icon name={section.icon} filled={isActive} className="text-[20px] leading-none" />
-            {section.label}
+            <Icon name={section.icon} filled={isActive} className="shrink-0 text-[20px] leading-none" />
+            <span className="truncate">{section.label}</span>
           </button>
         );
       })}

@@ -724,7 +724,9 @@ export function UploadPage() {
 
 function WizardContainer({ children }: { children: ReactNode }) {
   return (
-    <div className="mx-auto w-full max-w-3xl px-md py-lg text-on-background md:px-xl">{children}</div>
+    <div className="mx-auto w-full max-w-3xl min-w-0 px-md py-lg text-on-background md:px-xl">
+      {children}
+    </div>
   );
 }
 

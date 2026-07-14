@@ -215,7 +215,11 @@ export function LeaderboardSkeleton() {
 
 export function MapSearchSkeleton() {
   return (
-    <div className="fixed inset-x-0 bottom-16 top-16 z-0 overflow-hidden bg-background md:bottom-0" role="status" aria-label="Loading map">
+    <div
+      className="fixed inset-x-0 bottom-[var(--parkio-mobile-nav-offset,4rem)] top-0 z-0 overflow-hidden bg-background md:bottom-0 md:top-[var(--parkio-desktop-nav-height,4rem)]"
+      role="status"
+      aria-label="Loading map"
+    >
       <SkeletonBlock className="absolute inset-0 h-full w-full" rounded="sm" />
       <div className="pointer-events-none absolute inset-x-0 top-md z-[1100] flex justify-center px-sm md:justify-start md:px-md md:pl-lg">
         <div className="pointer-events-auto w-full max-w-[min(28rem,calc(100vw-1rem))] rounded-2xl border border-outline-variant/20 bg-surface/80 p-md shadow-deep backdrop-blur-xl">
