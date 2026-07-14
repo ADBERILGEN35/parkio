@@ -1,4 +1,4 @@
-import type { User } from '@parkio/types';
+import type { ParkioLocale, User } from '@parkio/types';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { render } from '@testing-library/react';
 import type { ReactNode } from 'react';
@@ -42,4 +42,9 @@ export function signInAs(roles: string[]) {
   };
   useAuthStore.getState().setSession('test-access-token', user);
   return user;
+}
+
+/** Switch the shared test i18n instance (tests default to English in setup). */
+export async function withLocale(locale: ParkioLocale) {
+  await i18n.changeLanguage(locale);
 }

@@ -22,7 +22,7 @@ export function AdminDashboardPage() {
       <div className="flex flex-col gap-lg">
         <Card title={t('dashboard.accounts')}>
           {dashboard.isPending ? (
-            <LoadingState />
+            <LoadingState label={t('common:actions.loading')} />
           ) : dashboard.isError ? (
             <FriendlyApiErrorMessage error={dashboard.error} />
           ) : (
@@ -65,7 +65,7 @@ export function AdminDashboardPage() {
 
         <Card title={t('dashboard.platformActivity')}>
           {overview.isPending ? (
-            <LoadingState />
+            <LoadingState label={t('common:actions.loading')} />
           ) : overview.isError ? (
             <p className="m-0 text-body-md text-on-surface-variant">{t('dashboard.analyticsUnavailable')}</p>
           ) : (

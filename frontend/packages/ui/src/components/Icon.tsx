@@ -11,15 +11,26 @@ export interface IconProps extends HTMLAttributes<HTMLSpanElement> {
 /**
  * Material Symbols Outlined icon. Decorative by default (`aria-hidden`) —
  * pass `aria-hidden={false}` plus an `aria-label` for meaningful icons.
+ *
+ * Ligatures are case-sensitive. Parents often use Tailwind `uppercase` for
+ * eyebrow labels; without neutralizing text-transform the glyph name paints
+ * as visible UI (e.g. SETTINGS, ADD_LOCATION_ALT). Always force `normal-case`
+ * and a lowercase ligature name.
  */
-export function Icon({ name, filled, className, ...props }: IconProps) {
+export function Icon({ name, filled, className, style, ...props }: IconProps) {
+  const ligature = name.trim().toLowerCase();
   return (
     <span
       aria-hidden
-      className={cn('material-symbols-outlined select-none', filled && 'filled', className)}
+      className={cn(
+        'material-symbols-outlined select-none normal-case',
+        filled && 'filled',
+        className,
+      )}
+      style={{ textTransform: 'none', ...style }}
       {...props}
     >
-      {name}
+      {ligature}
     </span>
   );
 }

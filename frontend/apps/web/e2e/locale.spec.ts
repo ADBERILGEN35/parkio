@@ -117,6 +117,84 @@ async function installLocaleMockApi(page: Page) {
     if (method === 'GET' && path === '/analytics/metrics') return json([]);
     if (method === 'GET' && path === '/moderation/cases') return json([]);
     if (method === 'GET' && path === '/moderation/appeals') return json([]);
+    if (method === 'GET' && path === '/gamification/me/level') {
+      return json({
+        userId: USER_ID,
+        currentLevel: 1,
+        totalPoints: 10,
+        currentLevelMinPoints: 0,
+        nextLevelMinPoints: 100,
+        pointsToNextLevel: 90,
+      });
+    }
+    if (method === 'GET' && path === '/gamification/me/points') {
+      return json({ userId: USER_ID, totalPoints: 10, recentTransactions: [] });
+    }
+    if (method === 'GET' && path === '/gamification/me/access-policy') {
+      return json({
+        userId: USER_ID,
+        currentLevel: 1,
+        searchRadiusMeters: 1000,
+        resultLimit: 10,
+        dailyViewLimit: 50,
+        verifiedSpotPriority: false,
+        notificationPriority: false,
+      });
+    }
+    if (method === 'GET' && path === '/gamification/levels') {
+      return json([
+        {
+          level: 1,
+          minPoints: 0,
+          maxPoints: 99,
+          searchRadiusMeters: 1000,
+          resultLimit: 10,
+          dailyViewLimit: 50,
+          verifiedSpotPriority: false,
+          notificationPriority: false,
+        },
+      ]);
+    }
+    if (method === 'GET' && path === '/gamification/leaderboard') {
+      return json([{ rank: 1, userId: USER_ID, totalPoints: 10, currentLevel: 1 }]);
+    }
+    if (method === 'GET' && path === '/gamification/me/progress') {
+      return json({
+        userId: USER_ID,
+        totalPoints: 10,
+        currentLevel: 1,
+        updatedAt: '2026-06-11T09:00:00Z',
+      });
+    }
+    if (method === 'GET' && /^\/users\/[^/]+\/public-profile$/.test(path)) {
+      return json({
+        userId: USER_ID,
+        displayName: 'Test Driver',
+        city: 'Izmir',
+        trustBand: 'TRUSTED',
+        currentLevel: 1,
+        status: 'ACTIVE',
+        memberSince: '2026-01-01T00:00:00Z',
+      });
+    }
+    if (method === 'GET' && path === '/users/me') {
+      return json({
+        id: USER_ID,
+        authUserId: USER_ID,
+        email: 'tester@parkio.dev',
+        displayName: 'Test Driver',
+        phoneNumber: null,
+        city: 'Istanbul',
+        status: 'ACTIVE',
+        createdAt: '2026-01-01T09:00:00Z',
+      });
+    }
+    if (method === 'GET' && path === '/users/me/stats') {
+      return json({ trustScore: 72, trustBand: 'HIGH_TRUST', totalPoints: 10, currentLevel: 1 });
+    }
+    if (method === 'GET' && path === '/users/me/preferences') {
+      return json({ preferredRadiusMeters: 1500, notificationsEnabled: true, preferredLocale: null });
+    }
 
     return json({ code: 'NOT_MOCKED', message: `Unmocked ${method} ${path}` }, 500);
   });
@@ -240,4 +318,41 @@ test.describe('Locale flows', () => {
     });
     expect(overflow).toBe(false);
   });
+
+  test('Flow E: product surfaces localize without icon token leaks', async ({ page }) => {
+    const tokenLeak = /(?:\+)?__[A-Z0-9]+(?:__[A-Z0-9]+)*__/;
+    await page.goto('/login');
+    await page.evaluate(() => localStorage.clear());
+    await loginAs(page, user.email);
+    await expect(page.locator('html')).toHaveAttribute('lang', 'tr');
+
+    await spaGoto(page, '/upload');
+    await expect(page.getByText(/Park yeri paylaş/i)).toBeVisible();
+    await expect(page.locator('body')).not.toContainText('ADD_LOCATION_ALT');
+    expect(tokenLeak.test(await page.locator('body').innerText())).toBeFalsy();
+
+    await spaGoto(page, '/leaderboard');
+    await expect(page.getByText(/Sizin durumunuz/i)).toBeVisible();
+    await expect(page.locator('body')).not.toContainText('PERSON_PIN_CIRCLE');
+
+    await spaGoto(page, '/profile');
+    await expect(page.getByText('Ayarlar')).toBeVisible();
+    await expect(page.getByRole('heading', { name: /Hesap ve tercihler/i })).toBeVisible();
+    await expect(page.locator('body')).not.toContainText('SETTINGS');
+
+    await spaGoto(page, '/gamification');
+    await expect(page.getByRole('heading', { name: 'Katkılarınız' })).toBeVisible();
+    await expect(page.getByText('Son etkinlikler')).toBeVisible();
+    await expect(page.getByText('Mevcut avantajlarınız')).toBeVisible();
+    await expect(page.locator('body')).not.toContainText('Your Impact');
+
+    await page.evaluate(() => localStorage.setItem('parkio.locale', 'en'));
+    await page.reload();
+    await expect(page.locator('html')).toHaveAttribute('lang', 'en');
+    await spaGoto(page, '/gamification');
+    await expect(page.locator('html')).toHaveAttribute('lang', 'en');
+    await expect(page.getByRole('heading', { name: 'Your Impact' })).toBeVisible();
+    await expect(page.locator('body')).not.toContainText('Katkılarınız');
+  });
+
 });

@@ -107,7 +107,9 @@
     border: 1px solid rgb(255 255 255 / 0.3);
   }
 
-  /* Material Symbols defaults; add `.filled` for the active/filled state. */
+  /* Material Symbols defaults; add `.filled` for the active/filled state.
+   * Ligatures break if an ancestor's text-transform uppercases the glyph name
+   * (visible tokens like ADD_LOCATION_ALT / SETTINGS). Keep transform none. */
   .material-symbols-outlined {
     font-family: 'Material Symbols Outlined';
     font-variation-settings:
@@ -115,6 +117,7 @@
       'wght' 400,
       'GRAD' 0,
       'opsz' 24;
+    text-transform: none;
   }
   .material-symbols-outlined.filled {
     font-variation-settings: 'FILL' 1;

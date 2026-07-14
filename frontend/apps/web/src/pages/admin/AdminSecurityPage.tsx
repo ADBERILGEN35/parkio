@@ -16,7 +16,7 @@ export function AdminSecurityPage() {
       <p className="mb-lg mt-0 text-body-md text-on-surface-variant">{t('security.subtitle')}</p>
       <Card title={t('security.snapshot')}>
         {query.isPending ? (
-          <LoadingState />
+          <LoadingState label={t('common:actions.loading')} />
         ) : query.isError ? (
           <FriendlyApiErrorMessage error={query.error} />
         ) : (

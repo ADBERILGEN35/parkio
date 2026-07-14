@@ -66,7 +66,7 @@ export function AdminAuditPage() {
 
       <Card title={t('audit.events')} className="mt-lg">
         {query.isPending ? (
-          <LoadingState />
+          <LoadingState label={t('common:actions.loading')} />
         ) : query.isError ? (
           <FriendlyApiErrorMessage error={query.error} />
         ) : query.data.content.length === 0 ? (

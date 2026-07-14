@@ -29,7 +29,7 @@ export function PreferencesCard() {
       description={t('preferences.description')}
     >
       {query.isPending ? (
-        <LoadingState />
+        <LoadingState label={t('common:actions.loading')} />
       ) : query.isError ? (
         <FriendlyApiErrorMessage error={query.error} />
       ) : (

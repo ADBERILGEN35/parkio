@@ -22,7 +22,11 @@ export function DesktopNav() {
           className="mr-sm flex shrink-0 items-center gap-xs text-headline-md font-bold text-primary no-underline"
           aria-label={t('homeAria')}
         >
-          <span aria-hidden className="material-symbols-outlined filled select-none">
+          <span
+            aria-hidden
+            className="material-symbols-outlined filled select-none normal-case"
+            style={{ textTransform: 'none' }}
+          >
             local_parking
           </span>
           {t('brand')}

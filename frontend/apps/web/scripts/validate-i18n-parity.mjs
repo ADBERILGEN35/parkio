@@ -5,17 +5,20 @@ import { fileURLToPath } from 'node:url';
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const localesRoot = path.resolve(__dirname, '../src/i18n/locales');
 
-function flattenKeys(obj, prefix = '') {
-  const keys = [];
+/** Pseudo-icon / unresolved markers that must never appear in catalogs. */
+const TOKEN_LEAK_RE = /(?:\+)?__[A-Z0-9]+(?:__[A-Z0-9]+)*__/;
+
+function flattenEntries(obj, prefix = '') {
+  const entries = [];
   for (const [key, value] of Object.entries(obj)) {
     const next = prefix ? `${prefix}.${key}` : key;
     if (value && typeof value === 'object' && !Array.isArray(value)) {
-      keys.push(...flattenKeys(value, next));
+      entries.push(...flattenEntries(value, next));
     } else {
-      keys.push(next);
+      entries.push([next, value]);
     }
   }
-  return keys;
+  return entries;
 }
 
 function extractPlaceholders(value) {
@@ -40,27 +43,52 @@ for (const file of listNamespaceFiles()) {
     continue;
   }
 
-  const tr = JSON.parse(fs.readFileSync(trPath, 'utf8'));
-  const en = JSON.parse(fs.readFileSync(enPath, 'utf8'));
-  const trKeys = new Set(flattenKeys(tr));
-  const enKeys = new Set(flattenKeys(en));
+  let tr;
+  let en;
+  try {
+    tr = JSON.parse(fs.readFileSync(trPath, 'utf8'));
+    en = JSON.parse(fs.readFileSync(enPath, 'utf8'));
+  } catch (err) {
+    console.error(`[${file}] Malformed JSON: ${err.message}`);
+    failed = true;
+    continue;
+  }
 
-  for (const key of trKeys) {
-    if (!enKeys.has(key)) {
+  const trMap = new Map(flattenEntries(tr));
+  const enMap = new Map(flattenEntries(en));
+
+  for (const key of trMap.keys()) {
+    if (!enMap.has(key)) {
       console.error(`[${file}] Missing EN key: ${key}`);
       failed = true;
     }
   }
-  for (const key of enKeys) {
-    if (!trKeys.has(key)) {
+  for (const key of enMap.keys()) {
+    if (!trMap.has(key)) {
       console.error(`[${file}] Missing TR key: ${key}`);
       failed = true;
     }
   }
 
-  for (const key of trKeys) {
-    const trVal = key.split('.').reduce((acc, part) => acc?.[part], tr);
-    const enVal = key.split('.').reduce((acc, part) => acc?.[part], en);
+  for (const [key, trVal] of trMap) {
+    const enVal = enMap.get(key);
+    if (typeof trVal === 'string' && trVal.trim() === '') {
+      console.error(`[${file}] Empty TR value: ${key}`);
+      failed = true;
+    }
+    if (typeof enVal === 'string' && enVal.trim() === '') {
+      console.error(`[${file}] Empty EN value: ${key}`);
+      failed = true;
+    }
+    if (typeof trVal === 'string' && TOKEN_LEAK_RE.test(trVal)) {
+      console.error(`[${file}] Token leak in TR ${key}: ${trVal}`);
+      failed = true;
+    }
+    if (typeof enVal === 'string' && TOKEN_LEAK_RE.test(enVal)) {
+      console.error(`[${file}] Token leak in EN ${key}: ${enVal}`);
+      failed = true;
+    }
+
     const trPh = extractPlaceholders(trVal).join(',');
     const enPh = extractPlaceholders(enVal).join(',');
     if (trPh !== enPh) {

@@ -66,7 +66,7 @@ function OverviewCard() {
   return (
     <Card title={t('overview.title')}>
       {query.isPending ? (
-        <LoadingState />
+        <LoadingState label={t('common:actions.loading')} />
       ) : query.isError ? (
         <FriendlyApiErrorMessage error={query.error} />
       ) : (
@@ -111,7 +111,7 @@ function DailyCard() {
   return (
     <Card title={t('daily.title')}>
       {query.isPending ? (
-        <LoadingState />
+        <LoadingState label={t('common:actions.loading')} />
       ) : query.isError ? (
         <FriendlyApiErrorMessage error={query.error} />
       ) : query.data.length === 0 ? (
@@ -152,7 +152,7 @@ function ParkingCard() {
   return (
     <Card title={t('parking.title')}>
       {query.isPending ? (
-        <LoadingState />
+        <LoadingState label={t('common:actions.loading')} />
       ) : query.isError ? (
         <FriendlyApiErrorMessage error={query.error} />
       ) : query.data.length === 0 ? (
@@ -187,7 +187,7 @@ function MetricsCard() {
   return (
     <Card title={t('metrics.title')}>
       {query.isPending ? (
-        <LoadingState />
+        <LoadingState label={t('common:actions.loading')} />
       ) : query.isError ? (
         <FriendlyApiErrorMessage error={query.error} />
       ) : query.data.length === 0 ? (
@@ -277,7 +277,7 @@ function UserLookupCard() {
 
       {lookupUserId === null ? null : query.isPending ? (
         <div className="mt-sm">
-          <LoadingState />
+          <LoadingState label={t('common:actions.loading')} />
         </div>
       ) : query.isError ? (
         <div className="mt-sm">

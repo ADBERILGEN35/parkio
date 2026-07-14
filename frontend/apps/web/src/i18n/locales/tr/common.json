@@ -182,9 +182,9 @@
     "REJECTED": "Reddedildi"
   },
   "pointSource": {
-    "PARKING_UPLOAD": "Park yükleme",
-    "PARKING_VERIFIED": "Park doğrulama",
-    "PARKING_CLAIMED": "Park sahiplenme",
+    "PARKING_UPLOAD": "Park yeri paylaşımı",
+    "PARKING_VERIFIED": "Park yeri doğrulama",
+    "PARKING_CLAIMED": "Park yeri sahiplenme",
     "PARKING_FILLED_BY_USER": "Kullanıcı doldurdu",
     "PENALTY_FAKE": "Ceza: sahte",
     "PENALTY_SPAM": "Ceza: spam",

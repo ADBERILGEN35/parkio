@@ -21,7 +21,7 @@ export function MySpotsPage() {
     <PageShell title={t('mySpots.title')}>
       <Card title={t('mySpots.cardTitle')}>
         {query.isPending ? (
-          <LoadingState />
+          <LoadingState label={t('common:actions.loading')} />
         ) : query.isError ? (
           <FriendlyApiErrorMessage error={query.error} />
         ) : query.data.length === 0 ? (

@@ -181,7 +181,7 @@ function RecentActivityCard() {
   return (
     <Card title={t('gamification.recentActivity')}>
       {query.isPending ? (
-        <LoadingState />
+        <LoadingState label={t('gamification.loading')} />
       ) : query.isError ? (
         <FriendlyApiErrorMessage error={query.error} />
       ) : query.data.recentTransactions.length === 0 ? (
@@ -255,7 +255,7 @@ function BenefitsCard() {
   return (
     <Card title={t('gamification.currentBenefits')}>
       {query.isPending ? (
-        <LoadingState />
+        <LoadingState label={t('gamification.loading')} />
       ) : query.isError ? (
         <FriendlyApiErrorMessage error={query.error} />
       ) : (
@@ -333,7 +333,7 @@ function LevelsCard() {
   return (
     <Card title={t('gamification.levelRoadmap')}>
       {levels.isPending ? (
-        <LoadingState />
+        <LoadingState label={t('gamification.loading')} />
       ) : levels.isError ? (
         <FriendlyApiErrorMessage error={levels.error} />
       ) : levels.data.length === 0 ? (

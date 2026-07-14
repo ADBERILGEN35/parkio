@@ -31,7 +31,7 @@ export function VehicleCard() {
       description={t('vehicle.description')}
     >
       {query.isPending ? (
-        <LoadingState />
+        <LoadingState label={t('common:actions.loading')} />
       ) : query.isError ? (
         <FriendlyApiErrorMessage error={query.error} />
       ) : (

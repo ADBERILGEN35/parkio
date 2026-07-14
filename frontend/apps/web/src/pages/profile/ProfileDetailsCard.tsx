@@ -21,7 +21,7 @@ export function ProfileDetailsCard() {
       description={t('profile.description')}
     >
       {query.isPending ? (
-        <LoadingState />
+        <LoadingState label={t('common:actions.loading')} />
       ) : query.isError ? (
         <FriendlyApiErrorMessage error={query.error} />
       ) : (

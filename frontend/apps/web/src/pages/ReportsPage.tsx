@@ -57,7 +57,7 @@ function MyReportsCard() {
   return (
     <Card title={t('reports.cardTitle')}>
       {query.isPending ? (
-        <LoadingState />
+        <LoadingState label={t('common:actions.loading')} />
       ) : query.isError ? (
         <FriendlyApiErrorMessage error={query.error} />
       ) : query.data.length === 0 ? (

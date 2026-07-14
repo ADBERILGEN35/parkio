@@ -144,7 +144,7 @@ function CasesCard({
       </div>
 
       {query.isPending ? (
-        <LoadingState />
+        <LoadingState label={t('common:actions.loading')} />
       ) : query.isError ? (
         <FriendlyApiErrorMessage error={query.error} mapper={(error) => mapModerationError(t, error)} />
       ) : query.data.length === 0 ? (
@@ -269,7 +269,7 @@ function CaseDetailCard({ caseId }: { caseId: string }) {
   if (query.isPending) {
     return (
       <Card title={t('detail.title')}>
-        <LoadingState />
+        <LoadingState label={t('common:actions.loading')} />
       </Card>
     );
   }
@@ -448,7 +448,7 @@ function AppealsCard() {
   return (
     <Card title={t('appeals.title')}>
       {query.isPending ? (
-        <LoadingState />
+        <LoadingState label={t('common:actions.loading')} />
       ) : query.isError ? (
         <FriendlyApiErrorMessage error={query.error} mapper={(error) => mapModerationError(t, error)} />
       ) : query.data.length === 0 ? (

@@ -78,7 +78,7 @@ export function AdminUserDetailPage() {
   if (detail.isPending) {
     return (
       <PageShell title={t('users.detail.title')}>
-        <LoadingState />
+        <LoadingState label={t('common:actions.loading')} />
       </PageShell>
     );
   }
