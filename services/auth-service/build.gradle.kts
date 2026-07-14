@@ -36,6 +36,7 @@ dependencies {
     // Kafka integration tests (Testcontainers) — only run via the `integrationTest` task.
     testImplementation(libs.testcontainers.kafka)
     testImplementation(libs.testcontainers.junit)
+    testImplementation(libs.testcontainers.postgresql)
     testRuntimeOnly(libs.h2)
     testRuntimeOnly(libs.junit.platform.launcher)
 }

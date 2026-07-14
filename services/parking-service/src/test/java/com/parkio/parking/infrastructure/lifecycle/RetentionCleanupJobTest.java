@@ -2,6 +2,7 @@ package com.parkio.parking.infrastructure.lifecycle;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
+import java.sql.Timestamp;
 import java.time.Clock;
 import java.time.Duration;
 import java.time.Instant;
@@ -29,6 +30,7 @@ class RetentionCleanupJobTest {
                 CREATE TABLE outbox_events (
                     id UUID PRIMARY KEY,
                     published BOOLEAN NOT NULL,
+                    dead_lettered BOOLEAN NOT NULL DEFAULT FALSE,
                     created_at TIMESTAMP WITH TIME ZONE NOT NULL
                 )
                 """);
@@ -44,12 +46,27 @@ class RetentionCleanupJobTest {
     void outboxCleanupDeletesOnlyPublishedRowsOlderThanRetention() {
         UUID oldPublished = insertOutbox(true, NOW.minus(Duration.ofDays(8)));
         UUID oldUnpublished = insertOutbox(false, NOW.minus(Duration.ofDays(8)));
+        UUID oldDeadLetter = insertOutbox(false, true, NOW.minus(Duration.ofDays(8)));
         UUID recentPublished = insertOutbox(true, NOW.minus(Duration.ofDays(6)));
         RetentionCleanupJob job = enabledJob();
 
         assertThat(job.cleanupOutbox()).isEqualTo(1);
-        assertThat(ids("outbox_events")).containsExactlyInAnyOrder(oldUnpublished, recentPublished);
+        assertThat(ids("outbox_events"))
+                .containsExactlyInAnyOrder(oldUnpublished, oldDeadLetter, recentPublished);
         assertThat(ids("outbox_events")).doesNotContain(oldPublished);
+    }
+
+    @Test
+    void outboxCleanupDeletesTheOldestEligibleRowsUpToTheBatchLimit() {
+        UUID oldest = insertOutbox(true, NOW.minus(Duration.ofDays(10)));
+        UUID secondOldest = insertOutbox(true, NOW.minus(Duration.ofDays(9)));
+        UUID recent = insertOutbox(true, NOW.minus(Duration.ofDays(6)));
+        RetentionCleanupJob job = new RetentionCleanupJob(
+                jdbc, fixedClock(), true, true, Duration.ofDays(7), Duration.ofDays(30), 1);
+
+        assertThat(job.cleanupOutbox()).isEqualTo(1);
+        assertThat(ids("outbox_events")).containsExactlyInAnyOrder(secondOldest, recent);
+        assertThat(ids("outbox_events")).doesNotContain(oldest);
     }
 
     @Test
@@ -60,6 +77,19 @@ class RetentionCleanupJobTest {
         assertThat(enabledJob().cleanupInbox()).isEqualTo(1);
         assertThat(ids("inbox_events")).containsExactly(recentProcessed);
         assertThat(ids("inbox_events")).doesNotContain(oldProcessed);
+    }
+
+    @Test
+    void inboxCleanupHonorsTheBatchLimit() {
+        UUID oldest = insertInbox(NOW.minus(Duration.ofDays(32)));
+        UUID secondOldest = insertInbox(NOW.minus(Duration.ofDays(31)));
+        UUID recent = insertInbox(NOW.minus(Duration.ofDays(29)));
+        RetentionCleanupJob job = new RetentionCleanupJob(
+                jdbc, fixedClock(), true, true, Duration.ofDays(7), Duration.ofDays(30), 1);
+
+        assertThat(job.cleanupInbox()).isEqualTo(1);
+        assertThat(ids("inbox_events")).containsExactlyInAnyOrder(secondOldest, recent);
+        assertThat(ids("inbox_events")).doesNotContain(oldest);
     }
 
     @Test
@@ -85,15 +115,22 @@ class RetentionCleanupJobTest {
     }
 
     private UUID insertOutbox(boolean published, Instant createdAt) {
+        return insertOutbox(published, false, createdAt);
+    }
+
+    private UUID insertOutbox(boolean published, boolean deadLettered, Instant createdAt) {
         UUID id = UUID.randomUUID();
-        jdbc.update("INSERT INTO outbox_events (id, published, created_at) VALUES (?, ?, ?)",
-                id, published, createdAt);
+        jdbc.update("""
+                INSERT INTO outbox_events (id, published, dead_lettered, created_at)
+                VALUES (?, ?, ?, ?)
+                """, id, published, deadLettered, Timestamp.from(createdAt));
         return id;
     }
 
     private UUID insertInbox(Instant processedAt) {
         UUID id = UUID.randomUUID();
-        jdbc.update("INSERT INTO inbox_events (id, processed_at) VALUES (?, ?)", id, processedAt);
+        jdbc.update("INSERT INTO inbox_events (id, processed_at) VALUES (?, ?)",
+                id, Timestamp.from(processedAt));
         return id;
     }
 
