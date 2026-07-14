@@ -6,9 +6,14 @@ package com.parkio.auth.domain;
  * {@code ROLE_} prefix is applied only when building authorities (see the
  * authentication filter). Seeded in the {@code roles} table. New registrations
  * receive {@link #USER}.
+ *
+ * <p>{@link #SUPER_ADMIN} is the elevated privilege tier for role management and
+ * other critical administrative operations. Existing ADMIN-only routes also
+ * accept SUPER_ADMIN (see {@link com.parkio.auth.application.admin.AdminAuthority}).
  */
 public enum RoleName {
     USER,
     MODERATOR,
-    ADMIN
+    ADMIN,
+    SUPER_ADMIN
 }

@@ -4,6 +4,8 @@ import com.parkio.platform.messaging.EventEnvelope;
 
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.parkio.auth.application.event.UserRestoredEvent;
+import com.parkio.auth.application.event.UserSuspendedEvent;
 import com.parkio.auth.domain.event.UserRegisteredEvent;
 import com.parkio.auth.infrastructure.config.KafkaTopicsConfig;
 import com.parkio.auth.infrastructure.persistence.entity.OutboxEventEntity;
@@ -165,9 +167,15 @@ public class AuthOutboxRelay {
         return cause.getClass().getSimpleName() + ": " + cause.getMessage();
     }
 
-    /** Maps the stored event type to its topic. Auth only emits {@code UserRegistered}. */
+    /** Maps the stored event type to its Kafka topic. */
     static String topicFor(String eventType) {
-        return UserRegisteredEvent.TYPE.equals(eventType) ? KafkaTopicsConfig.AUTH_USER : null;
+        if (UserRegisteredEvent.TYPE.equals(eventType)) {
+            return KafkaTopicsConfig.AUTH_USER;
+        }
+        if (UserSuspendedEvent.TYPE.equals(eventType) || UserRestoredEvent.TYPE.equals(eventType)) {
+            return KafkaTopicsConfig.MODERATION_ACTION;
+        }
+        return null;
     }
 
     private EventEnvelope toEnvelope(OutboxEventEntity row) {

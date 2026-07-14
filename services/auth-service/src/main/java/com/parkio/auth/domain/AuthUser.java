@@ -156,6 +156,23 @@ public final class AuthUser {
         this.passwordHash = Objects.requireNonNull(passwordHash, "passwordHash");
     }
 
+    /** Grants a role if not already held. Returns {@code true} when the set changed. */
+    public boolean grantRole(Role role) {
+        Objects.requireNonNull(role, "role");
+        return roles.add(role);
+    }
+
+    /** Revokes a role if held. Returns {@code true} when the set changed. */
+    public boolean revokeRole(RoleName name) {
+        Objects.requireNonNull(name, "name");
+        return roles.removeIf(role -> role.name() == name);
+    }
+
+    public boolean hasRole(RoleName name) {
+        Objects.requireNonNull(name, "name");
+        return roles.stream().anyMatch(role -> role.name() == name);
+    }
+
     /**
      * Suspends the account (moderation-driven). Returns {@code false} when the event
      * is stale — older than the last applied status event — and was ignored.

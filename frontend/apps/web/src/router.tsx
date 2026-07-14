@@ -48,6 +48,27 @@ const ModerationPage = lazy(() =>
 const AnalyticsPage = lazy(() =>
   import('@/pages/AnalyticsPage').then((m) => ({ default: m.AnalyticsPage })),
 );
+const AdminShell = lazy(() =>
+  import('@/pages/admin/AdminShell').then((m) => ({ default: m.AdminShell })),
+);
+const AdminDashboardPage = lazy(() =>
+  import('@/pages/admin/AdminDashboardPage').then((m) => ({ default: m.AdminDashboardPage })),
+);
+const AdminUsersPage = lazy(() =>
+  import('@/pages/admin/AdminUsersPage').then((m) => ({ default: m.AdminUsersPage })),
+);
+const AdminUserDetailPage = lazy(() =>
+  import('@/pages/admin/AdminUserDetailPage').then((m) => ({ default: m.AdminUserDetailPage })),
+);
+const AdminSecurityPage = lazy(() =>
+  import('@/pages/admin/AdminSecurityPage').then((m) => ({ default: m.AdminSecurityPage })),
+);
+const AdminAuditPage = lazy(() =>
+  import('@/pages/admin/AdminAuditPage').then((m) => ({ default: m.AdminAuditPage })),
+);
+const AdminSystemPage = lazy(() =>
+  import('@/pages/admin/AdminSystemPage').then((m) => ({ default: m.AdminSystemPage })),
+);
 
 /** Wraps a lazily-loaded route element in a Suspense boundary with a shared fallback. */
 function lazyRoute(element: ReactElement): ReactElement {
@@ -108,11 +129,29 @@ export const routes: RouteObject[] = [{
           { path: '/leaderboard', element: lazyRoute(<LeaderboardPage />) },
           {
             element: <RoleRoute requirePrivileged />,
-            children: [{ path: '/moderation', element: lazyRoute(<ModerationPage />) }],
+            children: [
+              { path: '/moderation', element: <Navigate to="/admin/moderation" replace /> },
+              { path: '/admin/moderation', element: lazyRoute(<ModerationPage />) },
+            ],
           },
           {
             element: <RoleRoute requireAdmin />,
-            children: [{ path: '/analytics', element: lazyRoute(<AnalyticsPage />) }],
+            children: [
+              { path: '/analytics', element: <Navigate to="/admin/analytics" replace /> },
+              {
+                path: '/admin',
+                element: lazyRoute(<AdminShell />),
+                children: [
+                  { index: true, element: lazyRoute(<AdminDashboardPage />) },
+                  { path: 'users', element: lazyRoute(<AdminUsersPage />) },
+                  { path: 'users/:id', element: lazyRoute(<AdminUserDetailPage />) },
+                  { path: 'security', element: lazyRoute(<AdminSecurityPage />) },
+                  { path: 'analytics', element: lazyRoute(<AnalyticsPage />) },
+                  { path: 'audit', element: lazyRoute(<AdminAuditPage />) },
+                  { path: 'system', element: lazyRoute(<AdminSystemPage />) },
+                ],
+              },
+            ],
           },
         ],
       },

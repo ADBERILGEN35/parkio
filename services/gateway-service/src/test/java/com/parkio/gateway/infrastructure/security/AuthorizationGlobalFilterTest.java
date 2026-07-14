@@ -80,6 +80,39 @@ class AuthorizationGlobalFilterTest {
     }
 
     @Test
+    void normalUserCannotAccessAdminApi() {
+        CapturingChain chain = new CapturingChain();
+        ServerWebExchange exchange = exchange(HttpMethod.GET, "/api/v1/admin/dashboard", "USER");
+
+        filter.filter(exchange, chain).block();
+
+        assertThat(chain.wasInvoked()).isFalse();
+        assertThat(exchange.getResponse().getStatusCode()).isEqualTo(HttpStatus.FORBIDDEN);
+    }
+
+    @Test
+    void moderatorCannotAccessAdminApi() {
+        CapturingChain chain = new CapturingChain();
+        ServerWebExchange exchange = exchange(HttpMethod.GET, "/api/v1/admin/users", "MODERATOR");
+
+        filter.filter(exchange, chain).block();
+
+        assertThat(chain.wasInvoked()).isFalse();
+        assertThat(exchange.getResponse().getStatusCode()).isEqualTo(HttpStatus.FORBIDDEN);
+    }
+
+    @Test
+    void adminAndSuperAdminCanAccessAdminApi() {
+        CapturingChain adminChain = new CapturingChain();
+        filter.filter(exchange(HttpMethod.GET, "/api/v1/admin/dashboard", "ADMIN"), adminChain).block();
+        assertThat(adminChain.wasInvoked()).isTrue();
+
+        CapturingChain superChain = new CapturingChain();
+        filter.filter(exchange(HttpMethod.GET, "/api/v1/admin/dashboard", "SUPER_ADMIN"), superChain).block();
+        assertThat(superChain.wasInvoked()).isTrue();
+    }
+
+    @Test
     void userCanReadTheirOwnAnalytics() {
         CapturingChain chain = new CapturingChain();
         ServerWebExchange exchange = exchange(HttpMethod.GET, "/api/v1/analytics/users/abc", "USER");

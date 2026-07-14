@@ -45,6 +45,7 @@ public class AnalyticsController {
     private static final String USER_ID_HEADER = "X-User-Id";
     private static final String ROLES_HEADER = "X-User-Roles";
     private static final String ADMIN_ROLE = "ADMIN";
+    private static final String SUPER_ADMIN_ROLE = "SUPER_ADMIN";
 
     private final AnalyticsApplicationService analyticsService;
 
@@ -110,7 +111,7 @@ public class AnalyticsController {
                         .filter(s -> !s.isEmpty())
                         .map(s -> s.toUpperCase(Locale.ROOT))
                         .collect(Collectors.toSet());
-        if (!roles.contains(ADMIN_ROLE)) {
+        if (!roles.contains(ADMIN_ROLE) && !roles.contains(SUPER_ADMIN_ROLE)) {
             throw new AnalyticsException(AnalyticsErrorCode.FORBIDDEN, "Admin role required for platform analytics.");
         }
     }

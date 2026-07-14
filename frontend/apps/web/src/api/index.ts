@@ -1,5 +1,6 @@
 import {
   AccountNotActiveError,
+  createAdminApi,
   createAnalyticsApi,
   createApiClient,
   createAuthApi,
@@ -33,6 +34,7 @@ export const notificationsApi = createNotificationsApi(apiClient);
 export const gamificationApi = createGamificationApi(apiClient);
 export const moderationApi = createModerationApi(apiClient);
 export const analyticsApi = createAnalyticsApi(apiClient);
+export const adminApi = createAdminApi(apiClient);
 export const geocodingApi = createGeocodingApi(apiClient);
 
 // Single source of truth for the refresh network call and the resulting session

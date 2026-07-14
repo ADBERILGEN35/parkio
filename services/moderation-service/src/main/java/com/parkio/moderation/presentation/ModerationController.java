@@ -54,8 +54,8 @@ public class ModerationController {
 
     private static final String USER_ID_HEADER = "X-User-Id";
     private static final String ROLES_HEADER = "X-User-Roles";
-    private static final Set<String> MODERATOR_ROLES = Set.of("MODERATOR", "ADMIN");
-    private static final String ADMIN_ROLE = "ADMIN";
+    private static final Set<String> MODERATOR_ROLES = Set.of("MODERATOR", "ADMIN", "SUPER_ADMIN");
+    private static final Set<String> ADMIN_ROLES = Set.of("ADMIN", "SUPER_ADMIN");
 
     private final ModerationApplicationService moderationService;
 
@@ -228,7 +228,7 @@ public class ModerationController {
     }
 
     private static boolean hasAdminRole(String rolesHeader) {
-        return parseRoles(rolesHeader).contains(ADMIN_ROLE);
+        return parseRoles(rolesHeader).stream().anyMatch(ADMIN_ROLES::contains);
     }
 
     private static Set<String> parseRoles(String rolesHeader) {

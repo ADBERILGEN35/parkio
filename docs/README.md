@@ -22,6 +22,7 @@ Read these in order if you are evaluating the project:
 | Architecture | [architecture/README.md](architecture/README.md) | Gateway, services, data, messaging, storage, security, observability, deployment |
 | Hosted beta | [../HOSTED-BETA-RUNBOOK.md](../HOSTED-BETA-RUNBOOK.md) | Single operator deploy, rollback, backup, incident, and env guide |
 | Operations | [operations/HOSTED-BETA-INFRASTRUCTURE-PLAN.md](operations/HOSTED-BETA-INFRASTRUCTURE-PLAN.md) | Infrastructure, backups, DR, alerts, runtime validation |
+| Administration | [operations/ADMIN-PANEL.md](operations/ADMIN-PANEL.md) | Admin RBAC, APIs, audit, SUPER_ADMIN bootstrap, web `/admin` |
 | Certification | [certification/FINAL-PRODUCTION-CERTIFICATION.md](certification/FINAL-PRODUCTION-CERTIFICATION.md) | Evidence-backed readiness decisions |
 | Releases | [releases/RC1-READINESS.md](releases/RC1-READINESS.md) | Release notes, checklists, known issues |
 | Startup | [startup/README.md](startup/README.md) | Executive summary, market, GTM, accelerator packages, roadmap |

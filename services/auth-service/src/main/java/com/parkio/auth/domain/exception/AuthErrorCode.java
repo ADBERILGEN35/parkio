@@ -14,7 +14,14 @@ public enum AuthErrorCode {
     ACCOUNT_NOT_VERIFIED("Please verify your email before signing in."),
     WEAK_PASSWORD("Password does not meet the security requirements."),
     USER_NOT_ACTIVE("Account is not active."),
-    USER_NOT_FOUND("User not found.");
+    USER_NOT_FOUND("User not found."),
+    FORBIDDEN("You are not allowed to perform this action."),
+    CONFLICT("The request conflicts with the current state."),
+    LAST_SUPER_ADMIN("Cannot remove or demote the final SUPER_ADMIN."),
+    PRIVILEGE_ESCALATION("This role change is not permitted."),
+    INVALID_ADMIN_ACTION("The administrative action is invalid."),
+    SESSION_NOT_FOUND("Session not found."),
+    BOOTSTRAP_DISABLED("Admin bootstrap is disabled.");
 
     private final String defaultMessage;
 

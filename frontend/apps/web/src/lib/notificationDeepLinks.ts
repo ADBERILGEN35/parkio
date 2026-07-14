@@ -12,10 +12,13 @@ export const ALLOWED_NOTIFICATION_PATHS = [
   '/leaderboard',
   '/moderation',
   '/analytics',
+  '/admin',
+  '/admin/moderation',
+  '/admin/analytics',
 ] as const;
 
-const MODERATOR_ONLY_PATHS = new Set<string>(['/moderation']);
-const ADMIN_ONLY_PATHS = new Set<string>(['/analytics']);
+const MODERATOR_ONLY_PATHS = new Set<string>(['/moderation', '/admin/moderation']);
+const ADMIN_ONLY_PATHS = new Set<string>(['/analytics', '/admin', '/admin/analytics']);
 
 const SPOT_PATH = /^\/spots\/[0-9a-f-]{36}$/i;
 

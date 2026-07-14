@@ -191,6 +191,10 @@ services:
       # Hosted/production must keep these false (see docker/.env.hosted-beta.example).
       PARKIO_EMAIL_VERIFICATION_LOG_TOKEN: ${PARKIO_EMAIL_VERIFICATION_LOG_TOKEN:-false}
       PARKIO_PASSWORD_RESET_LOG_TOKEN: ${PARKIO_PASSWORD_RESET_LOG_TOKEN:-false}
+      # One-time SUPER_ADMIN bootstrap (docs/operations/ADMIN-PANEL.md). Keep
+      # disabled except for the single bootstrap run, then unset both again.
+      PARKIO_ADMIN_BOOTSTRAP_ENABLED: ${PARKIO_ADMIN_BOOTSTRAP_ENABLED:-false}
+      PARKIO_ADMIN_BOOTSTRAP_TOKEN: ${PARKIO_ADMIN_BOOTSTRAP_TOKEN:-}
     healthcheck:
       <<: *app-healthcheck
       test: ["CMD", "curl", "-fsS", "http://localhost:8081/actuator/health/readiness"]

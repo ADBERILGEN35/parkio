@@ -47,6 +47,17 @@
                 key-resolver: "#{@userOrIpKeyResolver}"
                 redis-rate-limiter.replenishRate: ${PARKIO_RL_AUTH_REPLENISH:5}
                 redis-rate-limiter.burstCapacity: ${PARKIO_RL_AUTH_BURST:10}
+        # --- Administration API (auth-service; ADMIN/SUPER_ADMIN at edge) --------
+        - id: auth-admin
+          uri: ${PARKIO_AUTH_SERVICE_URI:http://localhost:8081}
+          predicates:
+            - Path=/api/v1/admin/**
+          filters:
+            - name: RequestRateLimiter
+              args:
+                key-resolver: "#{@userOrIpKeyResolver}"
+                redis-rate-limiter.replenishRate: ${PARKIO_RL_ADMIN_REPLENISH:20}
+                redis-rate-limiter.burstCapacity: ${PARKIO_RL_ADMIN_BURST:40}
         # --- User profile: broad authenticated limit -----------------------------
         - id: user-service
           uri: ${PARKIO_USER_SERVICE_URI:http://localhost:8082}

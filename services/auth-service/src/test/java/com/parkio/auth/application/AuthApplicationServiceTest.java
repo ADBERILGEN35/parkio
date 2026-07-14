@@ -857,6 +857,47 @@ class AuthApplicationServiceTest {
         public boolean existsByEmail(String email) {
             return byId.values().stream().anyMatch(u -> u.email().equals(email));
         }
+
+        @Override
+        public com.parkio.auth.application.result.PageResult<AuthUser> search(
+                com.parkio.auth.application.admin.AdminUserSearchQuery query) {
+            List<AuthUser> all = new ArrayList<>(byId.values());
+            int from = Math.min(query.page() * query.size(), all.size());
+            int to = Math.min(from + query.size(), all.size());
+            List<AuthUser> slice = all.subList(from, to);
+            int pages = query.size() == 0 ? 0 : (int) Math.ceil((double) all.size() / query.size());
+            return new com.parkio.auth.application.result.PageResult<>(slice, query.page(), query.size(), all.size(), pages);
+        }
+
+        @Override
+        public long count() {
+            return byId.size();
+        }
+
+        @Override
+        public long countByStatus(AuthUserStatus status) {
+            return byId.values().stream().filter(u -> u.status() == status).count();
+        }
+
+        @Override
+        public long countVerified() {
+            return byId.values().stream().filter(AuthUser::emailVerified).count();
+        }
+
+        @Override
+        public long countUnverified() {
+            return byId.values().stream().filter(u -> !u.emailVerified()).count();
+        }
+
+        @Override
+        public long countCreatedSince(Instant since) {
+            return byId.values().stream().filter(u -> !u.createdAt().isBefore(since)).count();
+        }
+
+        @Override
+        public long countByRole(RoleName roleName) {
+            return byId.values().stream().filter(u -> u.hasRole(roleName)).count();
+        }
     }
 
     private static final class FakeRefreshTokenRepository implements RefreshTokenRepository {
@@ -902,6 +943,46 @@ class AuthApplicationServiceTest {
             }
             return revoked;
         }
+
+        @Override
+        public List<RefreshToken> findActiveSessionsForUser(UUID userId, Instant now) {
+            return byHash.values().stream()
+                    .filter(t -> t.userId().equals(userId) && t.isActive(now))
+                    .toList();
+        }
+
+        @Override
+        public long countActiveForUser(UUID userId, Instant now) {
+            return findActiveSessionsForUser(userId, now).size();
+        }
+
+        @Override
+        public long countAllActive(Instant now) {
+            return byHash.values().stream().filter(t -> t.isActive(now)).count();
+        }
+
+        @Override
+        public long countReuseDetected() {
+            return byHash.values().stream().filter(RefreshToken::isReusedDetected).count();
+        }
+
+        @Override
+        public Optional<RefreshToken> findByIdAndUserId(UUID sessionId, UUID userId) {
+            return byHash.values().stream()
+                    .filter(t -> t.id().equals(sessionId) && t.userId().equals(userId))
+                    .findFirst();
+        }
+
+        @Override
+        public boolean revokeById(
+                UUID sessionId, UUID userId, RefreshTokenRevocationReason reason, Instant revokedAt) {
+            Optional<RefreshToken> token = findByIdAndUserId(sessionId, userId);
+            if (token.isEmpty() || token.get().isRevoked()) {
+                return false;
+            }
+            token.get().revoke(reason, revokedAt);
+            return true;
+        }
     }
 
     private static final class FakePasswordResetRepository implements PasswordResetRepository {
@@ -933,10 +1014,22 @@ class AuthApplicationServiceTest {
 
     private static final class FakeOutboxEventAppender implements OutboxEventAppender {
         private final List<UserRegisteredEvent> events = new ArrayList<>();
+        private final List<com.parkio.auth.application.event.UserSuspendedEvent> suspended = new ArrayList<>();
+        private final List<com.parkio.auth.application.event.UserRestoredEvent> restored = new ArrayList<>();
 
         @Override
         public void append(UserRegisteredEvent event) {
             events.add(event);
+        }
+
+        @Override
+        public void append(com.parkio.auth.application.event.UserSuspendedEvent event) {
+            suspended.add(event);
+        }
+
+        @Override
+        public void append(com.parkio.auth.application.event.UserRestoredEvent event) {
+            restored.add(event);
         }
     }
 

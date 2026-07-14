@@ -217,3 +217,7 @@ parkio:
       poll-interval-ms: 1000
       batch-size: 100
       send-timeout-ms: 10000
+  admin:
+    bootstrap:
+      enabled: ${PARKIO_ADMIN_BOOTSTRAP_ENABLED:false}
+      token: ${PARKIO_ADMIN_BOOTSTRAP_TOKEN:}

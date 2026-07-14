@@ -1,5 +1,7 @@
 package com.parkio.auth.application.port;
 
+import com.parkio.auth.application.event.UserRestoredEvent;
+import com.parkio.auth.application.event.UserSuspendedEvent;
 import com.parkio.auth.domain.event.UserRegisteredEvent;
 
 /**
@@ -10,4 +12,8 @@ import com.parkio.auth.domain.event.UserRegisteredEvent;
 public interface OutboxEventAppender {
 
     void append(UserRegisteredEvent event);
+
+    void append(UserSuspendedEvent event);
+
+    void append(UserRestoredEvent event);
 }

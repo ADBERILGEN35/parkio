@@ -23,6 +23,7 @@ import org.springframework.kafka.config.TopicBuilder;
 public class KafkaTopicsConfig {
 
     public static final String AUTH_USER = "parkio.auth.user";
+    public static final String MODERATION_ACTION = "parkio.moderation.action";
     public static final String DLT_AUTH = "parkio.dlt.auth";
 
     private final int replicas;

@@ -58,7 +58,7 @@ public class MediaController {
 
     private static final String USER_ID_HEADER = "X-User-Id";
     private static final String ROLES_HEADER = "X-User-Roles";
-    private static final Set<String> MODERATOR_ROLES = Set.of("MODERATOR", "ADMIN");
+    private static final Set<String> MODERATOR_ROLES = Set.of("MODERATOR", "ADMIN", "SUPER_ADMIN");
 
     private final MediaApplicationService mediaService;
     private final IdempotencyService idempotencyService;

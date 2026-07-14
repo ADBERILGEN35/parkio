@@ -7,10 +7,10 @@ describe('getStaffNavItems', () => {
   });
 
   it('returns moderation only for moderators', () => {
-    expect(getStaffNavItems(['MODERATOR']).map((item) => item.to)).toEqual(['/moderation']);
+    expect(getStaffNavItems(['MODERATOR']).map((item) => item.to)).toEqual(['/admin/moderation']);
   });
 
-  it('returns moderation and analytics for admins', () => {
-    expect(getStaffNavItems(['ADMIN']).map((item) => item.to)).toEqual(['/moderation', '/analytics']);
+  it('returns moderation and admin for admins', () => {
+    expect(getStaffNavItems(['ADMIN']).map((item) => item.to)).toEqual(['/admin/moderation', '/admin']);
   });
 });

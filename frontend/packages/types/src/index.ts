@@ -8,8 +8,9 @@ export * from './gamification';
 export * from './moderation';
 export * from './analytics';
 export * from './geocoding';
+export * from './admin';
 
-export const PRIVILEGED_ROLES = ['MODERATOR', 'ADMIN'] as const;
+export const PRIVILEGED_ROLES = ['MODERATOR', 'ADMIN', 'SUPER_ADMIN'] as const;
 
 export type PrivilegedRole = (typeof PRIVILEGED_ROLES)[number];
 
@@ -17,6 +18,11 @@ export function hasPrivilegedRole(roles: string[]): boolean {
   return roles.some((role) => PRIVILEGED_ROLES.includes(role as PrivilegedRole));
 }
 
+/** True for ADMIN or SUPER_ADMIN (platform administration). */
 export function hasAdminRole(roles: string[]): boolean {
-  return roles.includes('ADMIN');
+  return roles.includes('ADMIN') || roles.includes('SUPER_ADMIN');
+}
+
+export function hasSuperAdminRole(roles: string[]): boolean {
+  return roles.includes('SUPER_ADMIN');
 }

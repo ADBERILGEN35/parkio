@@ -16,9 +16,9 @@ export const SECONDARY_NAV = [
   { to: '/notifications', label: 'Notifications', icon: 'notifications' },
 ] as const;
 
-export const MODERATOR_NAV = [{ to: '/moderation', label: 'Moderation', icon: 'gavel' }] as const;
+export const MODERATOR_NAV = [{ to: '/admin/moderation', label: 'Moderation', icon: 'gavel' }] as const;
 
-export const ADMIN_NAV = [{ to: '/analytics', label: 'Analytics', icon: 'insights' }] as const;
+export const ADMIN_NAV = [{ to: '/admin', label: 'Admin', icon: 'admin_panel_settings' }] as const;
 
 /** Staff destinations visible for the caller's roles (moderation vs platform analytics). */
 export function getStaffNavItems(roles: string[]) {

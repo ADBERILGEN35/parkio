@@ -34,10 +34,13 @@ import org.springframework.web.util.pattern.PathPatternParser;
 public class RouteAuthorizationRules {
 
     /** Roles permitted to reach moderator surfaces (moderation queue, AI findings). */
-    static final Set<String> PRIVILEGED_ROLES = Set.of("MODERATOR", "ADMIN");
+    static final Set<String> PRIVILEGED_ROLES = Set.of("MODERATOR", "ADMIN", "SUPER_ADMIN");
 
-    /** Admin-only surfaces (platform analytics, account-level operations). */
-    static final Set<String> ADMIN_ONLY = Set.of("ADMIN");
+    /**
+     * Admin-only surfaces (platform analytics, administration APIs).
+     * {@code SUPER_ADMIN} satisfies every ADMIN edge check.
+     */
+    static final Set<String> ADMIN_ONLY = Set.of("ADMIN", "SUPER_ADMIN");
 
     private enum Type {
         /** Any authenticated user may pass (no role restriction). */
@@ -74,6 +77,9 @@ public class RouteAuthorizationRules {
                 new Rule(HttpMethod.GET, parser.parse("/api/v1/analytics/users/**"), Type.AUTHENTICATED, Set.of()),
                 // Raw beta waitlist export contains email PII and is ADMIN-only.
                 new Rule(HttpMethod.GET, parser.parse("/api/v1/waitlist/export"), Type.REQUIRE_ROLES, ADMIN_ONLY),
+                // Dedicated administration API (auth-service). SUPER_ADMIN-only
+                // privilege mutations are enforced inside the service.
+                new Rule(null, parser.parse("/api/v1/admin/**"), Type.REQUIRE_ROLES, ADMIN_ONLY),
                 // Platform analytics is admin-only reporting (separation of duties).
                 new Rule(null, parser.parse("/api/v1/analytics/**"), Type.REQUIRE_ROLES, ADMIN_ONLY),
                 // AI validation findings are advisory/moderation data, so both reads

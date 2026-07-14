@@ -16,6 +16,11 @@ public class AuthException extends RuntimeException {
         this.errorCode = Objects.requireNonNull(errorCode, "errorCode");
     }
 
+    public AuthException(AuthErrorCode errorCode, String message) {
+        super(Objects.requireNonNull(message, "message"));
+        this.errorCode = Objects.requireNonNull(errorCode, "errorCode");
+    }
+
     public AuthErrorCode errorCode() {
         return errorCode;
     }

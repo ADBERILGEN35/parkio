@@ -15,12 +15,14 @@ describe('notificationDeepLinks', () => {
 
   it('marks staff routes', () => {
     expect(isStaffOnlyNotificationPath('/moderation')).toBe(true);
+    expect(isStaffOnlyNotificationPath('/admin/moderation')).toBe(true);
     expect(isStaffOnlyNotificationPath('/analytics')).toBe(true);
     expect(isStaffOnlyNotificationPath('/map')).toBe(false);
   });
 
   it('marks analytics as admin-only', () => {
     expect(isAdminOnlyNotificationPath('/analytics')).toBe(true);
+    expect(isAdminOnlyNotificationPath('/admin')).toBe(true);
     expect(isAdminOnlyNotificationPath('/moderation')).toBe(false);
   });
 

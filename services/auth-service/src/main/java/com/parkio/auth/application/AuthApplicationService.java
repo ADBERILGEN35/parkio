@@ -215,14 +215,30 @@ public class AuthApplicationService {
 
         authUsers.findByEmail(email)
                 .filter(user -> !user.emailVerified())
-                .ifPresent(user -> {
-                    Instant now = clock.instant();
-                    String rawVerificationToken = tokenGenerator.generate();
-                    Instant expiresAt = now.plus(emailVerificationTtl);
-                    user.issueEmailVerificationToken(refreshTokenHasher.hash(rawVerificationToken), expiresAt, now);
-                    AuthUser saved = authUsers.save(user);
-                    emailVerificationSender.sendVerificationLink(saved.email(), rawVerificationToken);
-                });
+                .ifPresent(this::issueAndSendVerificationToken);
+    }
+
+    /**
+     * Admin-triggered resend for a known user. Throws when already verified; still
+     * respects the per-email cooldown.
+     */
+    public void resendVerificationForUser(AuthUser user) {
+        if (user.emailVerified()) {
+            throw new AuthException(AuthErrorCode.INVALID_ADMIN_ACTION, "User is already verified.");
+        }
+        if (!verificationResendLimiter.tryAcquire(user.email())) {
+            throw new AuthException(AuthErrorCode.INVALID_ADMIN_ACTION, "Verification resend is on cooldown.");
+        }
+        issueAndSendVerificationToken(user);
+    }
+
+    private void issueAndSendVerificationToken(AuthUser user) {
+        Instant now = clock.instant();
+        String rawVerificationToken = tokenGenerator.generate();
+        Instant expiresAt = now.plus(emailVerificationTtl);
+        user.issueEmailVerificationToken(refreshTokenHasher.hash(rawVerificationToken), expiresAt, now);
+        AuthUser saved = authUsers.save(user);
+        emailVerificationSender.sendVerificationLink(saved.email(), rawVerificationToken);
     }
 
     public void forgotPassword(ForgotPasswordCommand command) {

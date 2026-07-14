@@ -3,6 +3,7 @@ package com.parkio.auth.application.port;
 import com.parkio.auth.domain.RefreshToken;
 import com.parkio.auth.domain.RefreshTokenRevocationReason;
 import java.time.Instant;
+import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
 
@@ -17,4 +18,16 @@ public interface RefreshTokenRepository {
 
     /** Revokes every active token across all of the user's families (e.g. on suspension). */
     int revokeAllActiveForUser(UUID userId, RefreshTokenRevocationReason reason, Instant revokedAt);
+
+    List<RefreshToken> findActiveSessionsForUser(UUID userId, Instant now);
+
+    long countActiveForUser(UUID userId, Instant now);
+
+    long countAllActive(Instant now);
+
+    long countReuseDetected();
+
+    Optional<RefreshToken> findByIdAndUserId(UUID sessionId, UUID userId);
+
+    boolean revokeById(UUID sessionId, UUID userId, RefreshTokenRevocationReason reason, Instant revokedAt);
 }

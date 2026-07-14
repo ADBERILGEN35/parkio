@@ -2,6 +2,8 @@ package com.parkio.auth.infrastructure.persistence;
 
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.parkio.auth.application.event.UserRestoredEvent;
+import com.parkio.auth.application.event.UserSuspendedEvent;
 import com.parkio.auth.application.port.OutboxEventAppender;
 import com.parkio.auth.domain.event.UserRegisteredEvent;
 import com.parkio.auth.infrastructure.persistence.entity.OutboxEventEntity;
@@ -19,6 +21,8 @@ import org.springframework.stereotype.Component;
 @Component
 public class OutboxEventAppenderAdapter implements OutboxEventAppender {
 
+    private static final String AUTH_USER_AGGREGATE = "AuthUser";
+
     private final OutboxEventJpaRepository jpa;
     private final ObjectMapper objectMapper;
 
@@ -29,24 +33,62 @@ public class OutboxEventAppenderAdapter implements OutboxEventAppender {
 
     @Override
     public void append(UserRegisteredEvent event) {
-        OutboxEventEntity entity = new OutboxEventEntity(
-                UUID.randomUUID(),
+        appendInternal(
                 event.eventId(),
                 UserRegisteredEvent.AGGREGATE_TYPE,
                 event.userId(),
                 UserRegisteredEvent.TYPE,
-                serialize(event),
-                event.occurredAt(),
+                event,
+                event.occurredAt());
+    }
+
+    @Override
+    public void append(UserSuspendedEvent event) {
+        appendInternal(
+                event.eventId(),
+                AUTH_USER_AGGREGATE,
+                event.userId(),
+                UserSuspendedEvent.TYPE,
+                event,
+                event.occurredAt());
+    }
+
+    @Override
+    public void append(UserRestoredEvent event) {
+        appendInternal(
+                event.eventId(),
+                AUTH_USER_AGGREGATE,
+                event.userId(),
+                UserRestoredEvent.TYPE,
+                event,
+                event.occurredAt());
+    }
+
+    private void appendInternal(
+            UUID eventId,
+            String aggregateType,
+            UUID aggregateId,
+            String eventType,
+            Object payload,
+            java.time.Instant occurredAt) {
+        OutboxEventEntity entity = new OutboxEventEntity(
+                UUID.randomUUID(),
+                eventId,
+                aggregateType,
+                aggregateId,
+                eventType,
+                serialize(payload, eventType),
+                occurredAt,
                 KafkaTraceContextSupport.currentOutboxTraceContext(),
                 false);
         jpa.save(entity);
     }
 
-    private String serialize(UserRegisteredEvent event) {
+    private String serialize(Object event, String eventType) {
         try {
             return objectMapper.writeValueAsString(event);
         } catch (JsonProcessingException e) {
-            throw new IllegalStateException("Failed to serialize " + UserRegisteredEvent.TYPE + " event", e);
+            throw new IllegalStateException("Failed to serialize " + eventType + " event", e);
         }
     }
 }
