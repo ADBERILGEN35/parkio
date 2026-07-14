@@ -94,7 +94,7 @@ describe('LeaderboardPage', () => {
     useLeaderboardHandlers();
     renderWithProviders(<LeaderboardPage />, { initialEntries: ['/leaderboard'] });
 
-    const podium = await screen.findByRole('region', { name: 'Top three contributors' });
+    const podium = await screen.findByRole('region', { name: 'Top contributors' });
     // All three podium contributors are present (names resolved from public profiles).
     expect(within(podium).getByText('Ada Lovelace')).toBeInTheDocument();
     expect(within(podium).getByText('Grace Hopper')).toBeInTheDocument();
@@ -164,6 +164,6 @@ describe('LeaderboardPage', () => {
     useLeaderboardHandlers({ rows: [] });
     renderWithProviders(<LeaderboardPage />, { initialEntries: ['/leaderboard'] });
 
-    expect(await screen.findByText('No ranked contributors yet')).toBeInTheDocument();
+    expect(await screen.findByText('No contributors yet')).toBeInTheDocument();
   });
 });

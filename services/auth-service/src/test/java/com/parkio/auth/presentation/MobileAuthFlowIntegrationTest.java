@@ -1,6 +1,7 @@
 package com.parkio.auth.presentation;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.atLeastOnce;
 import static org.mockito.Mockito.clearInvocations;
@@ -293,7 +294,7 @@ class MobileAuthFlowIntegrationTest {
         // directly for setup (the registration HTTP path is covered by other tests).
         authApplicationService.register(new RegisterCommand(email, PASSWORD));
         ArgumentCaptor<String> tokenCaptor = ArgumentCaptor.forClass(String.class);
-        verify(emailVerificationSender, atLeastOnce()).sendVerificationLink(eq(email), tokenCaptor.capture());
+        verify(emailVerificationSender, atLeastOnce()).sendVerificationLink(eq(email), tokenCaptor.capture(), any());
         authApplicationService.verifyEmail(new VerifyEmailCommand(tokenCaptor.getValue()));
         return email;
     }

@@ -12,6 +12,7 @@ import com.parkio.auth.application.command.ForgotPasswordCommand;
 import com.parkio.auth.application.command.LoginCommand;
 import com.parkio.auth.application.result.AuthResult;
 import com.parkio.auth.domain.AuthUser;
+import com.parkio.auth.domain.EmailLocale;
 import com.parkio.auth.domain.Role;
 import com.parkio.auth.domain.RoleName;
 import com.parkio.auth.domain.exception.AuthErrorCode;
@@ -92,10 +93,10 @@ class AuthLoginMetricsTest {
     @Test
     void forgotPasswordReturnsOkAndDelegatesWithoutLeakingAccountState() {
         var response = controller.forgotPassword(
-                new ForgotPasswordRequest("User@Example.com"), new MockHttpServletRequest());
+                new ForgotPasswordRequest("User@Example.com", null), new MockHttpServletRequest());
 
         assertThat(response.getStatusCode().value()).isEqualTo(200);
-        verify(authService).forgotPassword(new ForgotPasswordCommand("User@Example.com"));
+        verify(authService).forgotPassword(new ForgotPasswordCommand("User@Example.com", EmailLocale.TR));
     }
 
     private static RefreshCookieProperties refreshCookieProperties() {

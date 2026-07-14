@@ -16,12 +16,13 @@ import { createAppealSchema, type CreateAppealFormValues } from '@parkio/validat
 import { useMutation, useQuery } from '@tanstack/react-query';
 import { useState } from 'react';
 import { useForm } from 'react-hook-form';
+import { useTranslation } from 'react-i18next';
 import { Link } from 'react-router-dom';
 import { moderationApi } from '@/api';
 import { FriendlyApiErrorMessage } from '@/components/FriendlyApiErrorMessage';
 import { ProductCard } from '@/components/product/ProductCard';
 import { SettingsSectionCard } from '@/components/product/SettingsSectionCard';
-import { formatRelativeAgo, humanizeEnum } from '@/lib/format';
+import { enumLabel, formatRelativeAgo } from '@/lib/format';
 import { showError, showSuccess } from '@/lib/toast';
 
 const TEXTAREA_CLASS =
@@ -34,8 +35,9 @@ const APPEAL_STATUS_TONE: Record<AppealStatus, BadgeTone> = {
 };
 
 export function ReportsPage() {
+  const { t } = useTranslation('parking');
   return (
-    <PageShell title="My reports">
+    <PageShell title={t('reports.title')}>
       <div className="grid grid-cols-1 gap-lg lg:grid-cols-3 lg:items-start">
         <div className="lg:col-span-2">
           <MyReportsCard />
@@ -49,10 +51,11 @@ export function ReportsPage() {
 }
 
 function MyReportsCard() {
+  const { t } = useTranslation('parking');
   const query = useQuery({ queryKey: ['reports'], queryFn: moderationApi.getMyReports });
 
   return (
-    <Card title="Reports you submitted">
+    <Card title={t('reports.cardTitle')}>
       {query.isPending ? (
         <LoadingState />
       ) : query.isError ? (
@@ -60,8 +63,8 @@ function MyReportsCard() {
       ) : query.data.length === 0 ? (
         <EmptyState
           icon="flag"
-          title="No reports yet"
-          description="You haven't reported anything. You can report a spot from its detail page."
+          title={t('reports.emptyTitle')}
+          description={t('reports.emptyDescription')}
         />
       ) : (
         <ul className="m-0 flex list-none flex-col gap-sm p-0">
@@ -72,25 +75,27 @@ function MyReportsCard() {
       )}
       <p className="m-0 mt-md flex items-start gap-xs text-label-sm text-on-surface-variant">
         <Icon name="info" className="text-[14px] leading-none" />
-        Reports don't carry a status of their own — when a report opens a moderation case, its
-        case id is shown here and moderators take it from there.
+        {t('reports.footnote')}
       </p>
     </Card>
   );
 }
 
 function ReportItem({ report }: { report: ModerationReport }) {
+  const { t } = useTranslation(['parking', 'common']);
   return (
     <ProductCard as="li" className="rounded-xl">
       <div className="flex flex-wrap items-center gap-xs">
         <span className="text-body-md font-semibold text-on-surface">
-          {humanizeEnum(report.reason)}
+          {enumLabel(report.reason, t, ['reportReason', 'enums'])}
         </span>
-        <SoftBadge tone="neutral">{humanizeEnum(report.targetType)}</SoftBadge>
+        <SoftBadge tone="neutral">
+          {enumLabel(report.targetType, t, ['reportTarget', 'enums'])}
+        </SoftBadge>
       </div>
 
       <p className="m-0 mt-sm text-label-sm text-on-surface-variant">
-        Target:{' '}
+        {t('reports.target')}{' '}
         {report.targetType === 'PARKING_SPOT' ? (
           <Link to={`/spots/${report.targetId}`} className="font-mono text-primary hover:underline">
             {report.targetId}
@@ -107,11 +112,11 @@ function ReportItem({ report }: { report: ModerationReport }) {
       <div className="mt-sm flex flex-wrap items-center gap-xs">
         {report.caseId ? (
           <SoftBadge tone="primary" icon="gavel">
-            Case opened
+            {t('reports.caseOpened')}
           </SoftBadge>
         ) : (
           <SoftBadge tone="neutral" icon="check_circle">
-            Recorded
+            {t('reports.recorded')}
           </SoftBadge>
         )}
         <span className="text-label-sm text-on-surface-variant">
@@ -120,7 +125,7 @@ function ReportItem({ report }: { report: ModerationReport }) {
       </div>
       {report.caseId ? (
         <p className="m-0 mt-xs text-label-sm text-on-surface-variant">
-          Case: <span className="break-all font-mono">{report.caseId}</span>
+          {t('reports.caseLabel')} <span className="break-all font-mono">{report.caseId}</span>
         </p>
       ) : null}
     </ProductCard>
@@ -134,6 +139,7 @@ function ReportItem({ report }: { report: ModerationReport }) {
  * id must be entered manually (e.g. from a warning notification).
  */
 function AppealCard() {
+  const { t } = useTranslation(['parking', 'common']);
   const [createdAppeal, setCreatedAppeal] = useState<ModerationAppeal | null>(null);
 
   const {
@@ -155,29 +161,27 @@ function AppealCard() {
     onSuccess: (appeal) => {
       setCreatedAppeal(appeal);
       reset();
-      showSuccess('Appeal submitted.');
+      showSuccess(t('reports.appealSuccess'));
     },
-    onError: () => showError('Could not submit appeal.'),
+    onError: () => showError(t('reports.appealError')),
   });
 
   const onSubmit = handleSubmit((values) => appealMutation.mutate(values));
 
   return (
     <SettingsSectionCard
-      title="Appeal a moderation decision"
+      title={t('reports.appealTitle')}
       icon="balance"
-      description="Appeal a resolved moderation case that targets your own account."
+      description={t('reports.appealDescription')}
     >
       <p className="m-0 mb-sm flex items-start gap-xs text-label-sm text-on-surface-variant">
         <Icon name="info" className="text-[14px] leading-none" />
-        If a case against your account was resolved and you disagree, you can appeal it once.
-        Enter the case id from the warning you received — there's no way to list cases against
-        your account here yet.
+        {t('reports.appealHelp')}
       </p>
       <form onSubmit={onSubmit}>
         <fieldset disabled={appealMutation.isPending} className="m-0 flex flex-col gap-sm border-0 p-0">
           <Input
-            label="Case id"
+            label={t('reports.caseId')}
             placeholder="00000000-0000-0000-0000-000000000000"
             className="font-mono"
             error={errors.caseId?.message}
@@ -185,7 +189,7 @@ function AppealCard() {
           />
 
           <label className="flex flex-col gap-xs text-label-sm text-on-surface-variant">
-            Why should this decision be reconsidered? (optional)
+            {t('reports.noteLabel')}
             <textarea rows={3} className={TEXTAREA_CLASS} {...register('note')} />
           </label>
           {errors.note ? (
@@ -193,21 +197,26 @@ function AppealCard() {
           ) : null}
 
           <Button type="submit" disabled={appealMutation.isPending} className="self-start">
-            {appealMutation.isPending ? 'Submitting…' : 'Submit appeal'}
+            {appealMutation.isPending ? t('reports.submitting') : t('reports.submitAppeal')}
           </Button>
         </fieldset>
       </form>
       {appealMutation.isError ? (
         <div className="mt-sm">
-          <FriendlyApiErrorMessage error={appealMutation.error} mapper={mapAppealError} />
+          <FriendlyApiErrorMessage
+            error={appealMutation.error}
+            mapper={(error) => mapAppealError(error, t)}
+          />
         </div>
       ) : null}
       {createdAppeal ? (
         <div className="mt-sm flex items-center gap-xs">
           <Icon name="check_circle" className="text-[16px] leading-none text-secondary" />
-          <span className="text-label-sm text-on-surface-variant">Appeal submitted —</span>
+          <span className="text-label-sm text-on-surface-variant">
+            {t('reports.appealSubmittedPrefix')}
+          </span>
           <SoftBadge tone={APPEAL_STATUS_TONE[createdAppeal.status]}>
-            {humanizeEnum(createdAppeal.status)}
+            {enumLabel(createdAppeal.status, t, ['appealStatus', 'enums'])}
           </SoftBadge>
         </div>
       ) : null}
@@ -216,14 +225,17 @@ function AppealCard() {
 }
 
 /** Friendly wording for expected appeal failures; null falls back to the raw ApiError. */
-function mapAppealError(error: ParkioApiError): string | null {
+function mapAppealError(
+  error: ParkioApiError,
+  t: (key: string) => string,
+): string | null {
   if (error.status === 404) {
-    return 'Case not found — appeals are only possible for cases opened against your own account.';
+    return t('reports.caseNotFound');
   }
   if (error.status === 409) {
     return error.code === 'DUPLICATE_APPEAL'
-      ? 'You have already appealed this case.'
-      : 'This case has not been resolved yet — only a resolved case can be appealed.';
+      ? t('reports.duplicateAppeal')
+      : t('reports.caseNotResolved');
   }
   return null;
 }

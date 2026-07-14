@@ -14,11 +14,16 @@ describe('landing metadata', () => {
   it('keeps launch SEO metadata aligned with parkio.dev', () => {
     const html = readAppHtml();
 
-    expect(html).toContain('<title>Parkio - Community-Powered Parking Intelligence</title>');
+    expect(html).toContain('<title>Parkio</title>');
+    expect(html).toContain('lang="tr"');
     expect(html).toContain('name="description"');
-    expect(html).toContain(
-      'Parkio helps drivers find, share, verify, and manage real-world parking availability.',
-    );
+    expect(html).toContain('Parkio');
+    expect(html).toContain('topluluk destekli park yeri');
+    expect(html).toContain('park yeri bul');
+    expect(html).toContain('park yeri bul, paylaş ve doğrula');
+    expect(html).not.toContain('Community-powered parking for drivers');
+    expect(html).toContain('Turkish-default');
+    expect(html).toContain('canonical product language');
     expect(html).toContain('<link rel="canonical" href="https://parkio.dev/" />');
     expect(html).toContain('<meta name="robots" content="index, follow" />');
     expect(html).toContain('<meta property="og:url" content="https://parkio.dev/" />');
@@ -29,6 +34,7 @@ describe('landing metadata', () => {
     expect(html).toContain(
       '<meta name="twitter:image" content="https://parkio.dev/social-preview.png" />',
     );
+    expect(html).not.toContain('Community-Powered Parking Intelligence');
   });
 
   it('ships parseable JSON-LD for the public landing page', () => {
@@ -37,7 +43,7 @@ describe('landing metadata', () => {
 
     expect(jsonLd).toBeTruthy();
     const parsed = JSON.parse(jsonLd ?? '{}') as {
-      '@graph': Array<{ '@type': string; url?: string }>;
+      '@graph': Array<{ '@type': string; url?: string; description?: string }>;
     };
 
     expect(parsed['@graph'].map((entry) => entry['@type'])).toEqual([
@@ -46,6 +52,8 @@ describe('landing metadata', () => {
       'SoftwareApplication',
     ]);
     expect(parsed['@graph'].every((entry) => entry.url === 'https://parkio.dev/')).toBe(true);
+    const software = parsed['@graph'].find((entry) => entry['@type'] === 'SoftwareApplication');
+    expect(software?.description).toContain('park yeri bul');
   });
 
   it('publishes crawler entry points for the public pages only', () => {

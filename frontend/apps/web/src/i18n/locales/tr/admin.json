@@ -1,0 +1,198 @@
+{
+  "shell": {
+    "title": "Yönetim",
+    "administratorFallback": "Yönetici",
+    "superAdminBadge": "SUPER_ADMIN",
+    "navAria": "Yönetim",
+    "nav": {
+      "dashboard": "Kontrol paneli",
+      "users": "Kullanıcılar",
+      "security": "Güvenlik",
+      "moderation": "Moderasyon",
+      "analytics": "Analitik",
+      "audit": "Denetim",
+      "system": "Sistem"
+    },
+    "footerNote": "Barındırılan beta operasyonları: yıkıcı işlemler denetlenir. Silmek yerine askıya almayı tercih edin."
+  },
+  "roles": {
+    "USER": "Kullanıcı",
+    "MODERATOR": "Moderatör",
+    "ADMIN": "Yönetici",
+    "SUPER_ADMIN": "Süper Yönetici"
+  },
+  "status": {
+    "ACTIVE": "Aktif",
+    "PENDING_VERIFICATION": "Doğrulama bekliyor",
+    "SUSPENDED": "Askıya alındı",
+    "BANNED": "Yasaklandı",
+    "all": "Tüm durumlar"
+  },
+  "common": {
+    "yes": "Evet",
+    "no": "Hayır",
+    "previous": "Önceki",
+    "next": "Sonraki",
+    "reset": "Sıfırla",
+    "cancel": "İptal",
+    "confirm": "Onayla",
+    "na": "yok"
+  },
+  "confirm": {
+    "reasonLabel": "Gerekçe",
+    "reasonPlaceholder": "Denetim kaydı için zorunludur"
+  },
+  "dashboard": {
+    "title": "Yönetim paneli",
+    "subtitle": "Barındırılan Parkio beta sürümü için operasyonel özet.",
+    "accounts": "Hesaplar",
+    "platformActivity": "Platform etkinliği (analitik)",
+    "analyticsUnavailable": "Platform analitiği kullanılamıyor. Yukarıdaki hesap KPI’ları auth-service verisini yansıtmaya devam eder.",
+    "metrics": {
+      "totalUsers": "Toplam kullanıcı",
+      "verified": "Doğrulanmış",
+      "unverified": "Doğrulanmamış",
+      "activeSessions": "Aktif oturumlar",
+      "registeredToday": "Bugün kayıt olan",
+      "last7Days": "Son 7 gün",
+      "last30Days": "Son 30 gün",
+      "verificationRate": "Doğrulama oranı",
+      "spotsCreated": "Oluşturulan noktalar",
+      "claims": "Talepler",
+      "rejected": "Reddedilen",
+      "pointsEarned": "Kazanılan puan",
+      "notifications": "Bildirimler"
+    }
+  },
+  "users": {
+    "title": "Kullanıcılar",
+    "subtitle": "Kimlik doğrulama hesaplarını arayın ve inceleyin.",
+    "filters": "Filtreler",
+    "searchLabel": "E-posta veya kimlik ara",
+    "searchPlaceholder": "kullanici@ornek.com veya UUID",
+    "statusLabel": "Durum",
+    "accounts": "Hesaplar",
+    "emptyTitle": "Eşleşen kullanıcı yok",
+    "emptyDescription": "Filtreleri ayarlayın veya aramayı temizleyin.",
+    "table": {
+      "email": "E-posta",
+      "status": "Durum",
+      "verified": "Doğrulandı",
+      "roles": "Roller",
+      "sessions": "Oturumlar",
+      "created": "Oluşturulma"
+    },
+    "pagination": {
+      "summary": "Sayfa {{page}} / {{totalPages}} · {{total}} toplam"
+    },
+    "suspend": {
+      "confirmationTitle": "Hesabı askıya al",
+      "confirmationDescription": "{{email}} askıya alınsın mı? Giriş ve yenileme başarısız olur; aktif oturumlar iptal edilir.",
+      "confirmLabel": "Askıya al",
+      "button": "Askıya al"
+    },
+    "reactivate": {
+      "confirmationTitle": "Hesabı yeniden etkinleştir",
+      "confirmationDescription": "{{email}} yeniden etkinleştirilsin mi? Önceki yenileme jetonları iptal kalır.",
+      "confirmLabel": "Yeniden etkinleştir",
+      "button": "Yeniden etkinleştir"
+    },
+    "revokeSessions": {
+      "confirmationTitle": "Tüm oturumları iptal et",
+      "confirmationDescription": "Bu kullanıcı için tüm aktif yenileme jetonlarını geçersiz kıl.",
+      "confirmLabel": "Oturumları iptal et",
+      "button": "Tüm oturumları iptal et"
+    },
+    "resendVerification": {
+      "confirmationTitle": "Doğrulamayı yeniden gönder",
+      "confirmationDescription": "Hesap beklemedeyse yeni bir doğrulama e-postası gönder.",
+      "confirmLabel": "Yeniden gönder",
+      "button": "Doğrulamayı yeniden gönder"
+    },
+    "revokeSession": {
+      "confirmationTitle": "Oturumu iptal et",
+      "confirmationDescription": "Tek bir yenileme jetonu oturumunu iptal et.",
+      "confirmLabel": "İptal et",
+      "button": "İptal et"
+    },
+    "roleChange": {
+      "grantTitle": "{{role}} ver",
+      "revokeTitle": "{{role}} kaldır",
+      "description": "{{email}} için {{role}} rolünü {{action}}.",
+      "grantConfirmLabel": "Rol ver",
+      "revokeConfirmLabel": "Rolü kaldır",
+      "grantButton": "{{role}} ver",
+      "revokeButton": "{{role}} kaldır",
+      "actionGrant": "Ver",
+      "actionRevoke": "Kaldır"
+    },
+    "detail": {
+      "title": "Kullanıcı",
+      "breadcrumbUsers": "Kullanıcılar",
+      "overview": "Genel bakış",
+      "status": "Durum",
+      "emailVerified": "E-posta doğrulandı",
+      "registered": "Kayıt tarihi",
+      "activeSessions": "Aktif oturumlar",
+      "rolesTitle": "Roller",
+      "rolesSuperAdminRequired": "ADMIN / SUPER_ADMIN vermek veya kaldırmak için SUPER_ADMIN gerekir.",
+      "sessionsTitle": "Oturumlar",
+      "sessionsEmptyTitle": "Oturum listelenmedi",
+      "sessionsEmptyDescription": "Gösterilecek yenileme jetonu oturumu yok.",
+      "sessionActive": "Aktif yenileme oturumu",
+      "sessionRevoked": "İptal edildi ({{reason}})",
+      "sessionExpires": "bitiş {{expiresAt}}",
+      "auditTitle": "Yönetim geçmişi",
+      "auditEmptyTitle": "Denetim olayı yok",
+      "auditEmptyDescription": "Bu kullanıcı için henüz yönetim işlemi kaydedilmedi."
+    },
+    "toast": {
+      "actionCompleted": "Yönetim işlemi tamamlandı",
+      "actionFailed": "İşlem başarısız"
+    }
+  },
+  "security": {
+    "title": "Güvenlik",
+    "subtitle": "Auth-service kaynaklı kimlik doğrulama ve hesap riski özeti.",
+    "snapshot": "Anlık görünüm",
+    "metrics": {
+      "suspended": "Askıya alınan",
+      "pendingVerification": "Doğrulama bekleyen",
+      "activeSessions": "Aktif oturumlar",
+      "reuseDetected": "Yeniden kullanım tespiti"
+    }
+  },
+  "audit": {
+    "title": "Denetim izi",
+    "subtitle": "Değiştirilemez yönetim işlemi günlüğü. Kayıtlar burada düzenlenemez.",
+    "filters": "Filtreler",
+    "resultLabel": "Sonuç",
+    "resultAll": "Tümü",
+    "resultSuccess": "Başarılı",
+    "resultFailure": "Başarısız",
+    "correlationLabel": "Korelasyon kimliği (görüntüleme filtresi)",
+    "correlationPlaceholder": "İsteğe bağlı istemci tarafı filtre",
+    "events": "Olaylar",
+    "emptyTitle": "Denetim olayı yok",
+    "emptyDescription": "Yönetim işlemleri burada görünecek.",
+    "eventActor": "aktör {{actorId}} ({{roles}})",
+    "eventTarget": "hedef {{type}}{{id}}"
+  },
+  "system": {
+    "title": "Sistem",
+    "subtitle": "Bu Parkio web istemcisi için dağıtım bağlamı.",
+    "environment": "Ortam",
+    "appEnvironment": "Uygulama ortamı",
+    "apiBase": "API tabanı",
+    "observabilityTitle": "Derin altyapı gözlemlenebilirliği",
+    "observabilityBody": "Prometheus, Grafana, Loki ve Tempo barındırılan beta VPS üzerinde özel kalır. Operasyon kılavuzlarında belirtildiği gibi SSH tüneli ile erişin — Grafana’yı internete açmayın.",
+    "observabilityExample": "Örnek: <code>ssh -L 3000:127.0.0.1:3000 operator@vps</code> ardından <code>http://localhost:3000</code> adresini açın.",
+    "relatedTitle": "İlgili yönetim yüzeyleri",
+    "relatedModeration": "Moderasyon kuyruğu",
+    "relatedModerationService": "(moderation-service)",
+    "relatedAnalytics": "Platform analitiği",
+    "relatedAnalyticsService": "(analytics-service toplamları)",
+    "relatedAudit": "Denetim izi",
+    "relatedAuditService": "(auth-service yönetim denetim olayları)"
+  }
+}

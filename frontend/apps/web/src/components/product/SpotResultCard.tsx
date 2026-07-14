@@ -9,8 +9,10 @@ import {
   type BadgeTone,
 } from '@parkio/ui';
 import { memo } from 'react';
+import { useTranslation } from 'react-i18next';
 import { Link } from 'react-router-dom';
-import { formatInstant, formatRelativeAgo, formatRemaining, humanizeEnum } from '@/lib/format';
+import { enumLabel, formatInstant, formatRelativeAgo, formatRemaining } from '@/lib/format';
+import { freshnessLabel, spotStatusLabel } from '@/lib/localized-status';
 import { formatDistance } from '@/lib/spotDiscovery';
 import { ProductCard } from './ProductCard';
 
@@ -56,11 +58,12 @@ function SpotResultCardImpl({
   selected = false,
   onSelect,
 }: SpotResultCardProps) {
+  const { t } = useTranslation(['map', 'parking', 'common']);
   const freshness = getTrustFreshnessVisual(spot.updatedAt);
   const ownerMetrics = showOwnerMetrics ? readOwnerMetrics(spot) : {};
   const address = spot.addressText ?? `${spot.latitude}, ${spot.longitude}`;
   const discovery = typeof onSelect === 'function';
-  const compatibility = getVehicleCompatibility(spot.suitableVehicleTypes, userVehicleType);
+  const compatibility = getVehicleCompatibility(spot.suitableVehicleTypes, userVehicleType, t);
 
   return (
     <ProductCard
@@ -89,18 +92,20 @@ function SpotResultCardImpl({
               {formatDistance(distanceMeters)}
             </span>
           ) : null}
-          <StatusBadge status={spot.status} />
+          <StatusBadge status={spot.status} label={spotStatusLabel(spot.status, t)} />
         </div>
       </div>
 
       <p className={cn('m-0 mt-xs flex items-center gap-xs text-label-sm font-semibold', freshness.className)}>
         <Icon name={freshness.icon} className="text-[14px] leading-none" />
-        {freshness.label} · updated {formatRelativeAgo(spot.updatedAt)}
+        {freshnessLabel(freshness.freshness, t)} ·{' '}
+        {t('spotDetail.updatedAgo', { ns: 'parking', time: formatRelativeAgo(spot.updatedAt) })}
       </p>
 
       <p className="m-0 mt-xs flex items-center gap-xs text-label-sm text-on-surface-variant">
         <Icon name="schedule" className="text-[14px] leading-none" />
-        {formatRemaining(spot.expiresAt)} · expires {formatInstant(spot.expiresAt)}
+        {formatRemaining(spot.expiresAt)} ·{' '}
+        {t('spotDetail.expiresAt', { ns: 'parking', time: formatInstant(spot.expiresAt) })}
       </p>
 
       {spot.description ? (
@@ -115,7 +120,7 @@ function SpotResultCardImpl({
             key={type}
             className="rounded-full bg-surface-container px-sm py-xs text-label-sm text-on-surface-variant"
           >
-            {humanizeEnum(type)}
+            {enumLabel(type, t)}
           </span>
         ))}
         {compatibility ? (
@@ -135,10 +140,10 @@ function SpotResultCardImpl({
           </span>
         ) : null}
         <span className="rounded-full bg-surface-container px-sm py-xs text-label-sm text-on-surface-variant">
-          {humanizeEnum(spot.parkingContext)}
+          {enumLabel(spot.parkingContext, t, ['parkingContext'])}
         </span>
         <SoftBadge tone={LEGAL_STATUS_TONES[spot.legalStatus]}>
-          {humanizeEnum(spot.legalStatus)}
+          {enumLabel(spot.legalStatus, t, ['legalStatus'])}
         </SoftBadge>
       </div>
 
@@ -147,19 +152,28 @@ function SpotResultCardImpl({
           {ownerMetrics.verificationCount !== undefined ? (
             <span className="flex items-center gap-xs">
               <Icon name="verified" className="text-[14px] leading-none" />
-              {ownerMetrics.verificationCount} verification{ownerMetrics.verificationCount === 1 ? '' : 's'}
+              {t('spotDetail.verifications', {
+                ns: 'parking',
+                count: ownerMetrics.verificationCount,
+              })}
             </span>
           ) : null}
           {ownerMetrics.confidenceScore !== undefined ? (
             <span className="flex items-center gap-xs">
               <Icon name="speed" className="text-[14px] leading-none" />
-              Confidence {ownerMetrics.confidenceScore}
+              {t('spotDetail.confidenceValue', {
+                ns: 'parking',
+                score: ownerMetrics.confidenceScore,
+              })}
             </span>
           ) : null}
           {ownerMetrics.filledReportCount !== undefined ? (
             <span className="flex items-center gap-xs">
               <Icon name="report" className="text-[14px] leading-none" />
-              {ownerMetrics.filledReportCount} filled report{ownerMetrics.filledReportCount === 1 ? '' : 's'}
+              {t('spotDetail.filledReports', {
+                ns: 'parking',
+                count: ownerMetrics.filledReportCount,
+              })}
             </span>
           ) : null}
         </div>
@@ -172,10 +186,10 @@ function SpotResultCardImpl({
             className="inline-flex flex-1 items-center justify-center gap-xs rounded-full bg-primary px-md py-sm text-label-md font-semibold text-on-primary no-underline shadow-sm transition-colors hover:bg-primary-container focus:outline-none focus-visible:ring-4 focus-visible:ring-primary/30"
           >
             <Icon name="arrow_forward" className="text-[16px] leading-none" />
-            View details
+            {t('preview.viewDetails')}
           </Link>
           <IconButton
-            aria-label={`Show ${address} on map`}
+            aria-label={t('preview.showOnMapAria', { address })}
             aria-pressed={selected}
             icon="map"
             variant="tonal"
@@ -204,15 +218,17 @@ const USER_TO_SPOT_VEHICLE: Record<VehicleType, SpotVehicleType[]> = {
 function getVehicleCompatibility(
   spotTypes: SpotVehicleType[],
   userVehicleType: VehicleType | null,
+  t: (key: string, options?: Record<string, unknown>) => string,
 ): { compatible: boolean; label: string } | null {
   if (!userVehicleType) return null;
   const compatible =
     spotTypes.includes('ANY') ||
     USER_TO_SPOT_VEHICLE[userVehicleType].some((spotType) => spotTypes.includes(spotType));
+  const vehicle = enumLabel(userVehicleType, t);
   return {
     compatible,
     label: compatible
-      ? `Fits your ${humanizeEnum(userVehicleType)}`
-      : `Not listed for ${humanizeEnum(userVehicleType)}`,
+      ? t('preview.fitsYour', { vehicle })
+      : t('preview.notListedFor', { vehicle }),
   };
 }

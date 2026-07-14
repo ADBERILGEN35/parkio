@@ -1,5 +1,6 @@
 import { Icon } from '@parkio/ui';
 import { useMap } from 'react-map-gl/maplibre';
+import { useTranslation } from 'react-i18next';
 
 export interface MapFloatingControlsProps {
   onLocate: () => void;
@@ -17,20 +18,18 @@ export function MapFloatingControls({
   locating,
   sidebarOpen = true,
 }: MapFloatingControlsProps) {
+  const { t } = useTranslation('map');
   const { current: map } = useMap();
 
   return (
     <div
-      // Mobile: sit just above the collapsed bottom-sheet peek (~7rem) so the
-      // recenter/zoom stack is never hidden behind the sheet. Desktop: bottom-md,
-      // shifted left to clear the results sidebar when open.
       className={`pointer-events-none absolute z-[1055] flex flex-col gap-sm bottom-[7rem] right-md md:bottom-md ${
         sidebarOpen ? 'md:right-[420px]' : 'md:right-md'
       }`}
     >
       <button
         type="button"
-        aria-label="Use my location"
+        aria-label={t('locateAria')}
         disabled={locating}
         onClick={onLocate}
         className="pointer-events-auto flex h-11 w-11 items-center justify-center rounded-full bg-surface-container-lowest text-on-surface shadow-lg transition-all duration-std hover:bg-surface-container motion-safe:active:scale-95 disabled:opacity-60"
@@ -40,7 +39,7 @@ export function MapFloatingControls({
       <div className="pointer-events-auto flex flex-col overflow-hidden rounded-full bg-surface-container-lowest shadow-lg">
         <button
           type="button"
-          aria-label="Zoom in"
+          aria-label={t('zoomIn')}
           onClick={() => map?.zoomIn()}
           className="flex h-11 w-11 items-center justify-center text-on-surface transition-colors hover:bg-surface-container motion-safe:active:scale-95"
         >
@@ -49,7 +48,7 @@ export function MapFloatingControls({
         <div className="h-px bg-outline-variant/20" />
         <button
           type="button"
-          aria-label="Zoom out"
+          aria-label={t('zoomOut')}
           onClick={() => map?.zoomOut()}
           className="flex h-11 w-11 items-center justify-center text-on-surface transition-colors hover:bg-surface-container motion-safe:active:scale-95"
         >

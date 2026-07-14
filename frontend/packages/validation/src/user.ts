@@ -22,6 +22,7 @@ export const profileUpdateSchema = z.object({
 });
 
 export const preferencesUpdateSchema = z.object({
+  preferredLocale: z.enum(['tr', 'en']).optional(),
   preferredRadiusMeters: z.coerce
     .number()
     .int('Radius must be a whole number')

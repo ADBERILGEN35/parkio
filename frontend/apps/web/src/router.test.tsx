@@ -1,14 +1,16 @@
 import { QueryClientProvider } from '@tanstack/react-query';
 import { render, screen } from '@testing-library/react';
 import { http, HttpResponse } from 'msw';
+import { I18nextProvider } from 'react-i18next';
 import { createMemoryRouter, RouterProvider } from 'react-router-dom';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
+import i18n from '@/i18n';
 import { API_BASE, server } from '@/test/server';
 import { createTestQueryClient, resetAuth, signInAs } from '@/test/utils';
 import { routes } from './router';
 
 // The authenticated root redirect lands on /map; the real MapPage pulls in
-// maplibre, which jsdom cannot render. The stub keeps this a routing test.
+ // maplibre, which jsdom cannot render. The stub keeps this a routing test.
 vi.mock('@/pages/MapPage', () => ({
   MapPage: () => <div>Map page stub</div>,
 }));
@@ -16,9 +18,11 @@ vi.mock('@/pages/MapPage', () => ({
 function renderAt(path: string) {
   const router = createMemoryRouter(routes, { initialEntries: [path] });
   render(
-    <QueryClientProvider client={createTestQueryClient()}>
-      <RouterProvider router={router} />
-    </QueryClientProvider>,
+    <I18nextProvider i18n={i18n}>
+      <QueryClientProvider client={createTestQueryClient()}>
+        <RouterProvider router={router} />
+      </QueryClientProvider>
+    </I18nextProvider>,
   );
   return router;
 }

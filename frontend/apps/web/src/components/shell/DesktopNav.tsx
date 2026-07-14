@@ -1,14 +1,18 @@
 import { Icon, cn } from '@parkio/ui';
 import type { ReactNode } from 'react';
+import { useTranslation } from 'react-i18next';
 import { Link, NavLink } from 'react-router-dom';
 import { useAuthStore } from '@/auth/store';
-import { getStaffNavItems, PRIMARY_NAV, SECONDARY_NAV } from './navConfig';
+import { getPrimaryNav, getSecondaryNav, getStaffNavItems } from './navConfig';
 import { UnreadBadge } from './UnreadBadge';
 
 /** Fixed top glass bar — DESIGN_SYSTEM §2.1 TopNavBar (desktop). */
 export function DesktopNav() {
+  const { t } = useTranslation('navigation');
   const roles = useAuthStore((s) => s.roles);
-  const staffNav = getStaffNavItems(roles);
+  const primaryNav = getPrimaryNav(t);
+  const secondaryNav = getSecondaryNav(t);
+  const staffNav = getStaffNavItems(roles, t);
 
   return (
     <header className="fixed inset-x-0 top-0 z-50 hidden h-16 border-b border-outline-variant/20 bg-surface/70 shadow-sm backdrop-blur-xl md:block">
@@ -16,21 +20,21 @@ export function DesktopNav() {
         <Link
           to="/map"
           className="mr-sm flex shrink-0 items-center gap-xs text-headline-md font-bold text-primary no-underline"
-          aria-label="Parkio home"
+          aria-label={t('homeAria')}
         >
           <span aria-hidden className="material-symbols-outlined filled select-none">
             local_parking
           </span>
-          Parkio
+          {t('brand')}
         </Link>
 
         <nav className="flex min-w-0 flex-1 items-center gap-xs overflow-x-auto hide-scrollbar">
-          {PRIMARY_NAV.filter((item) => item.to !== '/profile').map((item) => (
+          {primaryNav.filter((item) => item.to !== '/profile').map((item) => (
             <DesktopNavLink key={item.to} to={item.to}>
               {item.label}
             </DesktopNavLink>
           ))}
-          {SECONDARY_NAV.map((item) => (
+          {secondaryNav.map((item) => (
             <DesktopNavLink key={item.to} to={item.to}>
               {item.label}
               {item.to === '/notifications' ? <UnreadBadge /> : null}
@@ -49,9 +53,9 @@ export function DesktopNav() {
             className="inline-flex items-center gap-xs rounded-full bg-primary px-md py-sm text-label-md text-on-primary no-underline shadow-sm transition-all duration-std hover:bg-primary/90 motion-safe:active:scale-95"
           >
             <Icon name="add_location_alt" className="text-[16px] leading-none" />
-            Share a spot
+            {t('shareSpot')}
           </Link>
-          <DesktopNavLink to="/profile">Profile</DesktopNavLink>
+          <DesktopNavLink to="/profile">{t('primary.profile')}</DesktopNavLink>
         </div>
       </div>
     </header>

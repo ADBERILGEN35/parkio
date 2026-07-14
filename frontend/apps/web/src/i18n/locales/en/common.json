@@ -1,0 +1,194 @@
+{
+  "actions": {
+    "save": "Save",
+    "cancel": "Cancel",
+    "continue": "Continue",
+    "back": "Back",
+    "delete": "Delete",
+    "retry": "Try again",
+    "close": "Close",
+    "dismiss": "Dismiss",
+    "search": "Search",
+    "loading": "Loading…",
+    "saving": "Saving…",
+    "saved": "Saved.",
+    "signOut": "Sign out",
+    "signIn": "Sign in"
+  },
+  "relative": {
+    "justNow": "just now",
+    "expired": "Expired",
+    "minutesLeft_one": "{{count}}m left",
+    "minutesLeft_other": "{{count}}m left",
+    "hoursLeft_one": "{{count}}h left",
+    "hoursLeft_other": "{{count}}h left",
+    "daysLeft_one": "{{count}}d left",
+    "daysLeft_other": "{{count}}d left"
+  },
+  "status": {
+    "online": "Online",
+    "offline": "Offline"
+  },
+  "offline": {
+    "banner": "You are offline. Parkio will reconnect when your network returns."
+  },
+  "notFound": {
+    "code": "404",
+    "title": "Page not found",
+    "description": "This Parkio page does not exist or the link is no longer available.",
+    "goToMap": "Go to map",
+    "goToLogin": "Go to login"
+  },
+  "errorBoundary": {
+    "reloading": "Reloading app…",
+    "title": "Something went wrong",
+    "description": "We could not keep the app running safely. Reload the app, or return to a stable starting point and try again.",
+    "reload": "Reload app",
+    "goToMap": "Go to map",
+    "goToLogin": "Go to login",
+    "shareTrace": "Share this diagnostic id if you contact support."
+  },
+  "enums": {
+    "ACTIVE": "Active",
+    "SUSPENDED": "Suspended",
+    "BANNED": "Banned",
+    "USER": "User",
+    "MODERATOR": "Moderator",
+    "ADMIN": "Admin",
+    "SUPER_ADMIN": "Super Admin",
+    "HIGH": "High",
+    "MEDIUM": "Medium",
+    "LOW": "Low",
+    "MOTORCYCLE": "Motorcycle",
+    "SMALL_CAR": "Small car",
+    "SEDAN": "Sedan",
+    "SUV": "SUV",
+    "VAN": "Van",
+    "TRUCK": "Truck",
+    "HIGH_TRUST": "High trust",
+    "MEDIUM_TRUST": "Medium trust",
+    "LOW_TRUST": "Low trust",
+    "UNTRUSTED": "Untrusted",
+    "HATCHBACK": "Hatchback",
+    "ANY": "Any"
+  },
+  "brand": "Parkio",
+  "titles": {
+    "home": "Parkio - Community-Powered Parking Intelligence",
+    "login": "Parkio — Login",
+    "register": "Parkio — Register",
+    "forgotPassword": "Parkio — Forgot Password",
+    "resetPassword": "Parkio — Reset Password",
+    "checkEmail": "Parkio — Check Email",
+    "verifyEmail": "Parkio — Verify Email",
+    "terms": "Parkio — Terms",
+    "privacy": "Parkio — Privacy",
+    "preparing": "Parkio — Preparing Account",
+    "map": "Parkio — Map",
+    "spotDetails": "Parkio — Spot Details",
+    "mySpots": "Parkio — My Spots",
+    "upload": "Parkio — Share a Spot",
+    "profile": "Parkio — Settings",
+    "reports": "Parkio — Reports",
+    "notifications": "Parkio — Notifications",
+    "gamification": "Parkio — Impact",
+    "leaderboard": "Parkio — Leaderboard",
+    "moderation": "Parkio — Moderation",
+    "analytics": "Parkio — Analytics",
+    "notFound": "Parkio — Not Found"
+  },
+  "notificationType": {
+    "NEARBY_PARKING": "Nearby parking",
+    "LEVEL_UP": "Level up",
+    "POINT_EARNED": "Point earned",
+    "WARNING": "Warning",
+    "SYSTEM": "System",
+    "SMART_RETURN_PROMPT": "Smart Return prompt",
+    "SMART_RETURN_AVAILABLE": "Smart Return available"
+  },
+  "accessDenied": {
+    "title": "Access denied",
+    "forbidden": "Forbidden",
+    "adminRequired": "This area requires an admin role.",
+    "privilegedRequired": "This area requires a moderator or admin role."
+  },
+  "spotStatus": {
+    "ACTIVE": "Active",
+    "VERIFIED": "Verified",
+    "SUSPICIOUS": "Suspicious",
+    "FILLED": "Filled",
+    "EXPIRED": "Expired",
+    "REJECTED": "Rejected",
+    "UNKNOWN": "Unknown"
+  },
+  "freshness": {
+    "fresh": "Fresh",
+    "recent": "Recent",
+    "aging": "Aging",
+    "stale": "Stale"
+  },
+  "parkingContext": {
+    "STREET_PARKING": "Street parking",
+    "OPEN_PARKING_LOT": "Open parking lot",
+    "INDOOR_PARKING": "Indoor parking",
+    "MALL_PARKING": "Mall parking",
+    "RESIDENTIAL_AREA": "Residential area",
+    "OFFICE_AREA": "Office area",
+    "UNKNOWN": "Unknown"
+  },
+  "legalStatus": {
+    "LEGAL": "Legal",
+    "UNCERTAIN": "Uncertain",
+    "ILLEGAL_OR_RISKY": "Illegal or risky"
+  },
+  "violationReason": {
+    "NO_PARKING_SIGN": "No parking sign",
+    "GARAGE_ENTRANCE": "Garage entrance",
+    "BUS_STOP": "Bus stop",
+    "PEDESTRIAN_CROSSING": "Pedestrian crossing",
+    "FIRE_HYDRANT": "Fire hydrant",
+    "SIDEWALK": "Sidewalk",
+    "TRAFFIC_FLOW_BLOCKING": "Traffic flow blocking",
+    "PRIVATE_PROPERTY": "Private property",
+    "OTHER": "Other"
+  },
+  "verificationResult": {
+    "AVAILABLE": "Available",
+    "FILLED": "Filled",
+    "INVALID": "Invalid",
+    "ILLEGAL_OR_RISKY": "Illegal or risky",
+    "WRONG_VEHICLE_SIZE": "Wrong vehicle size"
+  },
+  "reportReason": {
+    "FAKE_PHOTO": "Fake photo",
+    "DUPLICATE_PHOTO": "Duplicate photo",
+    "OLD_PHOTO": "Old photo",
+    "WRONG_LOCATION": "Wrong location",
+    "NOT_A_PARKING_SPOT": "Not a parking spot",
+    "ILLEGAL_OR_RISKY": "Illegal or risky",
+    "WRONG_VEHICLE_SIZE": "Wrong vehicle size",
+    "PRIVATE_PROPERTY": "Private property",
+    "SPAM_BEHAVIOR": "Spam behavior",
+    "ABUSE_REPORT": "Abuse report"
+  },
+  "reportTarget": {
+    "PARKING_SPOT": "Parking spot",
+    "USER": "User",
+    "MEDIA": "Media"
+  },
+  "appealStatus": {
+    "OPEN": "Open",
+    "ACCEPTED": "Accepted",
+    "REJECTED": "Rejected"
+  },
+  "pointSource": {
+    "PARKING_UPLOAD": "Parking upload",
+    "PARKING_VERIFIED": "Parking verified",
+    "PARKING_CLAIMED": "Parking claimed",
+    "PARKING_FILLED_BY_USER": "Parking filled by user",
+    "PENALTY_FAKE": "Penalty: fake",
+    "PENALTY_SPAM": "Penalty: spam",
+    "PENALTY_ILLEGAL_RISK": "Penalty: illegal risk"
+  },
+  "unknownEnum": "Unknown"
+}

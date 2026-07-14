@@ -2,8 +2,10 @@ import type { User } from '@parkio/types';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { render } from '@testing-library/react';
 import type { ReactNode } from 'react';
+import { I18nextProvider } from 'react-i18next';
 import { MemoryRouter } from 'react-router-dom';
 import { useAuthStore } from '@/auth/store';
+import i18n from '@/i18n';
 
 /** Fresh client per test — no retries, so error states are deterministic and fast. */
 export function createTestQueryClient() {
@@ -18,9 +20,11 @@ export function createTestQueryClient() {
 export function renderWithProviders(ui: ReactNode, { initialEntries = ['/'] } = {}) {
   const queryClient = createTestQueryClient();
   const result = render(
-    <QueryClientProvider client={queryClient}>
-      <MemoryRouter initialEntries={initialEntries}>{ui}</MemoryRouter>
-    </QueryClientProvider>,
+    <I18nextProvider i18n={i18n}>
+      <QueryClientProvider client={queryClient}>
+        <MemoryRouter initialEntries={initialEntries}>{ui}</MemoryRouter>
+      </QueryClientProvider>
+    </I18nextProvider>,
   );
   return { ...result, queryClient };
 }

@@ -15,10 +15,11 @@ import {
   cn,
 } from '@parkio/ui';
 import { useQuery } from '@tanstack/react-query';
+import { useTranslation } from 'react-i18next';
 import { Link } from 'react-router-dom';
 import { gamificationApi } from '@/api';
 import { FriendlyApiErrorMessage } from '@/components/FriendlyApiErrorMessage';
-import { formatRelativeAgo, humanizeEnum } from '@/lib/format';
+import { enumLabel, formatRelativeAgo } from '@/lib/format';
 
 /**
  * Your Impact (`/gamification`, labelled "Impact" in the nav). A user-facing
@@ -28,18 +29,19 @@ import { formatRelativeAgo, humanizeEnum } from '@/lib/format';
  * streaks, achievements, heatmaps, rewards or level names are invented.
  */
 export function GamificationPage() {
+  const { t } = useTranslation('parking');
   return (
     <div className="mx-auto w-full max-w-5xl px-md py-lg text-on-background md:px-xl">
       <header className="mb-lg">
         <p className="m-0 flex items-center gap-xs text-label-md font-semibold uppercase tracking-wider text-primary">
           <Icon name="auto_awesome" className="text-[16px] leading-none" />
-          Community
+          {t('gamification.eyebrow')}
         </p>
         <h1 className="m-0 mt-sm text-headline-lg-mobile text-on-surface md:text-headline-lg">
-          Your Impact
+          {t('gamification.title')}
         </h1>
         <p className="m-0 mt-xs text-body-md text-on-surface-variant">
-          Track your contributions and unlock more ways to help the community.
+          {t('gamification.description')}
         </p>
       </header>
 
@@ -61,12 +63,13 @@ export function GamificationPage() {
 
 /** Level + progress hero, driven by `GET /gamification/me/level`. */
 function LevelHero() {
+  const { t } = useTranslation('parking');
   const query = useQuery({ queryKey: ['level'], queryFn: gamificationApi.getMyLevel });
 
   return (
     <Surface level="raised" className="rounded-3xl p-lg">
       {query.isPending ? (
-        <LoadingState label="Loading your progress…" />
+        <LoadingState label={t('gamification.loadingProgress')} />
       ) : query.isError ? (
         <FriendlyApiErrorMessage error={query.error} />
       ) : (
@@ -77,6 +80,7 @@ function LevelHero() {
 }
 
 function LevelHeroContent({ level }: { level: LevelStanding }) {
+  const { t } = useTranslation('parking');
   const atMax = level.nextLevelMinPoints === null || level.pointsToNextLevel === null;
 
   // Progress within the current level band (clamped 0–100).
@@ -92,43 +96,60 @@ function LevelHeroContent({ level }: { level: LevelStanding }) {
         </span>
         <div className="min-w-0 flex-1">
           <p className="m-0 text-label-sm uppercase tracking-wider text-on-surface-variant">
-            Current level
+            {t('gamification.currentLevelLabel')}
           </p>
-          <h2 className="m-0 text-headline-md text-on-surface">Level {level.currentLevel}</h2>
+          <h2 className="m-0 text-headline-md text-on-surface">
+            {t('gamification.levelNumber', { level: level.currentLevel })}
+          </h2>
           <p className="m-0 mt-xs text-body-md text-on-surface-variant">
-            {level.totalPoints} total points
+            {t('gamification.totalPointsValue', { count: level.totalPoints })}
           </p>
         </div>
         {atMax ? (
           <SoftBadge tone="success" icon="workspace_premium">
-            Max level reached
+            {t('gamification.maxLevelReached')}
           </SoftBadge>
         ) : (
           <SoftBadge tone="primary" icon="trending_up">
-            {level.pointsToNextLevel} pts to level {level.currentLevel + 1}
+            {t('gamification.ptsToLevel', {
+              points: level.pointsToNextLevel,
+              level: level.currentLevel + 1,
+            })}
           </SoftBadge>
         )}
       </div>
 
       <div className="grid grid-cols-2 gap-md sm:grid-cols-3">
-        <MetricCard label="Total points" value={level.totalPoints} icon="stars" />
-        <MetricCard label="Current level" value={level.currentLevel} icon="military_tech" />
         <MetricCard
-          label={atMax ? 'Status' : 'Points to next'}
-          value={atMax ? 'Top level' : (level.pointsToNextLevel as number)}
+          label={t('gamification.totalPoints')}
+          value={level.totalPoints}
+          icon="stars"
+        />
+        <MetricCard
+          label={t('gamification.currentLevelLabel')}
+          value={level.currentLevel}
+          icon="military_tech"
+        />
+        <MetricCard
+          label={atMax ? t('gamification.status') : t('gamification.pointsToNext')}
+          value={atMax ? t('gamification.topLevel') : (level.pointsToNextLevel as number)}
           icon={atMax ? 'workspace_premium' : 'flag'}
         />
       </div>
 
       <div>
         <div className="flex items-center justify-between text-label-sm text-on-surface-variant">
-          <span>Level {level.currentLevel}</span>
-          <span>{atMax ? 'Top level' : `Level ${level.currentLevel + 1}`}</span>
+          <span>{t('gamification.levelNumber', { level: level.currentLevel })}</span>
+          <span>
+            {atMax
+              ? t('gamification.topLevel')
+              : t('gamification.levelNumber', { level: level.currentLevel + 1 })}
+          </span>
         </div>
         <div
           className="mt-xs h-2 w-full overflow-hidden rounded-full bg-surface-container-high"
           role="progressbar"
-          aria-label="Level progress"
+          aria-label={t('gamification.levelProgressAria')}
           aria-valuenow={Math.round(pct)}
           aria-valuemin={0}
           aria-valuemax={100}
@@ -137,8 +158,11 @@ function LevelHeroContent({ level }: { level: LevelStanding }) {
         </div>
         <p className="m-0 mt-xs text-label-sm text-on-surface-variant">
           {atMax
-            ? 'You are at the highest level.'
-            : `${level.totalPoints} / ${level.nextLevelMinPoints} points toward the next level.`}
+            ? t('gamification.atHighestLevel')
+            : t('gamification.pointsTowardNext', {
+                current: level.totalPoints,
+                next: level.nextLevelMinPoints,
+              })}
         </p>
       </div>
     </div>
@@ -151,10 +175,11 @@ function LevelHeroContent({ level }: { level: LevelStanding }) {
 
 /** Recent point history (`GET /gamification/me/points`). */
 function RecentActivityCard() {
+  const { t } = useTranslation('parking');
   const query = useQuery({ queryKey: ['points'], queryFn: gamificationApi.getMyPoints });
 
   return (
-    <Card title="Recent activity">
+    <Card title={t('gamification.recentActivity')}>
       {query.isPending ? (
         <LoadingState />
       ) : query.isError ? (
@@ -162,8 +187,8 @@ function RecentActivityCard() {
       ) : query.data.recentTransactions.length === 0 ? (
         <EmptyState
           icon="receipt_long"
-          title="No point activity yet"
-          description="Share or verify spots to start earning points."
+          title={t('gamification.emptyActivityTitle')}
+          description={t('gamification.emptyActivityDescription')}
         />
       ) : (
         <ul className="m-0 flex list-none flex-col gap-sm p-0">
@@ -177,6 +202,7 @@ function RecentActivityCard() {
 }
 
 function TransactionItem({ entry }: { entry: PointTransactionEntry }) {
+  const { t } = useTranslation(['parking', 'common']);
   const earned = entry.direction === 'EARNED';
   return (
     <li className="flex items-center justify-between gap-sm rounded-xl border border-outline-variant/40 bg-surface-container-low p-md">
@@ -190,14 +216,16 @@ function TransactionItem({ entry }: { entry: PointTransactionEntry }) {
           <Icon name={earned ? 'add_circle' : 'remove_circle'} className="text-[20px] leading-none" />
         </span>
         <div className="min-w-0">
-          <p className="m-0 text-body-md text-on-surface">{humanizeEnum(entry.sourceType)}</p>
+          <p className="m-0 text-body-md text-on-surface">
+            {enumLabel(entry.sourceType, t, ['pointSource'])}
+          </p>
           <p className="m-0 mt-xs text-label-sm text-on-surface-variant">
             {formatRelativeAgo(entry.createdAt)}
             {entry.relatedSpotId ? (
               <>
                 {' · '}
                 <Link to={`/spots/${entry.relatedSpotId}`} className="text-primary hover:underline">
-                  View spot
+                  {t('gamification.viewSpot')}
                 </Link>
               </>
             ) : null}
@@ -218,13 +246,14 @@ function TransactionItem({ entry }: { entry: PointTransactionEntry }) {
 
 /** Level-based perks (`GET /gamification/me/access-policy`), presented as benefits. */
 function BenefitsCard() {
+  const { t } = useTranslation('parking');
   const query = useQuery({
     queryKey: ['access-policy'],
     queryFn: gamificationApi.getMyAccessPolicy,
   });
 
   return (
-    <Card title="Your current benefits">
+    <Card title={t('gamification.currentBenefits')}>
       {query.isPending ? (
         <LoadingState />
       ) : query.isError ? (
@@ -237,33 +266,41 @@ function BenefitsCard() {
 }
 
 function BenefitsContent({ policy }: { policy: GamificationAccessPolicy }) {
+  const { t } = useTranslation('parking');
   return (
     <div className="flex flex-col gap-md">
       <p className="m-0 text-body-md text-on-surface-variant">
-        Perks unlocked at level {policy.currentLevel}. Keep contributing to level up and unlock
-        more.
+        {t('gamification.benefitsIntro', { level: policy.currentLevel })}
       </p>
       <dl className="m-0 grid grid-cols-1 gap-sm sm:grid-cols-3">
         <BenefitStat
-          label="Search radius"
-          value={`${policy.searchRadiusMeters} m`}
+          label={t('gamification.searchRadius')}
+          value={t('gamification.radiusMeters', { meters: policy.searchRadiusMeters })}
           icon="my_location"
         />
-        <BenefitStat label="Results per search" value={policy.resultLimit} icon="format_list_numbered" />
-        <BenefitStat label="Daily views" value={policy.dailyViewLimit} icon="visibility" />
+        <BenefitStat
+          label={t('gamification.resultsPerSearch')}
+          value={policy.resultLimit}
+          icon="format_list_numbered"
+        />
+        <BenefitStat
+          label={t('gamification.dailyViews')}
+          value={policy.dailyViewLimit}
+          icon="visibility"
+        />
       </dl>
       <div className="flex flex-wrap gap-sm">
         <SoftBadge
           tone={policy.verifiedSpotPriority ? 'success' : 'neutral'}
           icon={policy.verifiedSpotPriority ? 'verified' : 'lock'}
         >
-          Verified-spot priority
+          {t('gamification.verifiedSpotPriority')}
         </SoftBadge>
         <SoftBadge
           tone={policy.notificationPriority ? 'success' : 'neutral'}
           icon={policy.notificationPriority ? 'notifications_active' : 'lock'}
         >
-          Notification priority
+          {t('gamification.notificationPriority')}
         </SoftBadge>
       </div>
     </div>
@@ -288,18 +325,19 @@ function BenefitStat({ label, value, icon }: { label: string; value: string | nu
 
 /** Full level roadmap (`GET /gamification/levels`) with the current level highlighted. */
 function LevelsCard() {
+  const { t } = useTranslation('parking');
   const levels = useQuery({ queryKey: ['levels'], queryFn: gamificationApi.getLevels });
   const standing = useQuery({ queryKey: ['level'], queryFn: gamificationApi.getMyLevel });
   const currentLevel = standing.data?.currentLevel ?? null;
 
   return (
-    <Card title="Level roadmap">
+    <Card title={t('gamification.levelRoadmap')}>
       {levels.isPending ? (
         <LoadingState />
       ) : levels.isError ? (
         <FriendlyApiErrorMessage error={levels.error} />
       ) : levels.data.length === 0 ? (
-        <EmptyState icon="stairs" title="No levels defined" />
+        <EmptyState icon="stairs" title={t('gamification.noLevelsDefined')} />
       ) : (
         <ol className="m-0 flex list-none flex-col gap-sm p-0">
           {levels.data.map((rule) => (
@@ -325,6 +363,7 @@ function LevelRuleItem({
   current: boolean;
   completed: boolean;
 }) {
+  const { t } = useTranslation('parking');
   // Future (locked) levels are visually muted; completed levels get a subtle tick.
   const locked = !current && !completed;
   const statusIcon = current ? 'military_tech' : completed ? 'check_circle' : 'lock';
@@ -344,27 +383,32 @@ function LevelRuleItem({
       <div className="flex items-center justify-between gap-sm">
         <span className="flex items-center gap-sm text-body-md font-semibold text-on-surface">
           <Icon name={statusIcon} className={cn('text-[18px] leading-none', statusTone)} />
-          Level {rule.level}
+          {t('gamification.levelNumber', { level: rule.level })}
           {current ? (
             <SoftBadge tone="primary" icon="person">
-              You
+              {t('gamification.you')}
             </SoftBadge>
           ) : locked ? (
             <SoftBadge tone="neutral" icon="lock">
-              Locked
+              {t('gamification.locked')}
             </SoftBadge>
           ) : null}
         </span>
         <span className="text-label-sm text-on-surface-variant">
           {rule.minPoints}
-          {rule.maxPoints === null ? '+ pts' : `–${rule.maxPoints} pts`}
+          {rule.maxPoints === null
+            ? t('gamification.ptsPlus')
+            : t('gamification.ptsRange', { max: rule.maxPoints })}
         </span>
       </div>
       <p className="m-0 mt-xs text-label-sm text-on-surface-variant">
-        {rule.searchRadiusMeters} m radius · {rule.resultLimit} results · {rule.dailyViewLimit}{' '}
-        views/day
-        {rule.verifiedSpotPriority ? ' · verified priority' : ''}
-        {rule.notificationPriority ? ' · notification priority' : ''}
+        {t('gamification.ruleSummary', {
+          radius: rule.searchRadiusMeters,
+          results: rule.resultLimit,
+          views: rule.dailyViewLimit,
+        })}
+        {rule.verifiedSpotPriority ? t('gamification.verifiedPrioritySuffix') : ''}
+        {rule.notificationPriority ? t('gamification.notificationPrioritySuffix') : ''}
       </p>
     </li>
   );

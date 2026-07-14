@@ -1,5 +1,6 @@
 import { Icon } from '@parkio/ui';
 import { useState, type ReactNode } from 'react';
+import { useTranslation } from 'react-i18next';
 
 /**
  * Stitch auth split (`DESIGN_SYSTEM.md` §2.7 "Auth split"): a centered elevated
@@ -20,7 +21,6 @@ export function AuthSplitLayout({
 }) {
   return (
     <main className="relative flex min-h-screen items-center justify-center overflow-hidden bg-background px-md py-xl text-on-background">
-      {/* Ambient decoration */}
       <div
         aria-hidden
         className="pointer-events-none absolute -left-32 -top-32 h-96 w-96 rounded-full bg-primary/5 blur-3xl"
@@ -33,7 +33,6 @@ export function AuthSplitLayout({
       <div className="relative grid w-full max-w-[1100px] overflow-hidden rounded-2xl bg-surface-container-lowest shadow-deep md:min-h-[640px] md:grid-cols-2">
         <AuthHero />
 
-        {/* Form pane */}
         <section className="flex items-center justify-center p-lg sm:p-xl">
           <div className="w-full max-w-md">
             <header className="mb-lg">
@@ -55,6 +54,7 @@ const HERO_IMAGE_URL =
 
 /** Full-height photo panel with brand lockup + glass social-proof card. */
 function AuthHero() {
+  const { t } = useTranslation(['auth', 'common']);
   const [imageOk, setImageOk] = useState(true);
 
   return (
@@ -71,25 +71,20 @@ function AuthHero() {
         />
       ) : null}
 
-      {/* Gradient scrim for legibility + brand tint */}
       <div
         aria-hidden
         className="absolute inset-0 bg-gradient-to-t from-inverse-surface/95 via-inverse-surface/40 to-primary/20"
       />
 
-      {/* Brand lockup — centered on the mobile banner, top-left on desktop */}
       <div className="absolute left-1/2 top-1/2 flex -translate-x-1/2 -translate-y-1/2 items-center gap-xs text-inverse-on-surface md:left-lg md:top-lg md:translate-x-0 md:translate-y-0">
         <Icon name="local_parking" filled className="text-[28px] leading-none" />
-        <span className="text-headline-md font-bold">Parkio</span>
+        <span className="text-headline-md font-bold">{t('common:brand', { defaultValue: 'Parkio' })}</span>
       </div>
 
-      {/* Glass social-proof card (desktop only — keeps the mobile banner light) */}
       <div className="absolute inset-x-lg bottom-lg hidden md:block">
         <div className="glass-panel rounded-3xl p-lg shadow-deep">
-          <p className="m-0 text-title-lg font-semibold text-on-surface">Concierge for the curb.</p>
-          <p className="m-0 mt-xs text-body-md text-on-surface-variant">
-            Find and share real parking spots, verified by neighbors in real time.
-          </p>
+          <p className="m-0 text-title-lg font-semibold text-on-surface">{t('auth:layout.tagline')}</p>
+          <p className="m-0 mt-xs text-body-md text-on-surface-variant">{t('auth:layout.description')}</p>
           <div className="mt-md flex items-center gap-sm">
             <AvatarStack />
             <div>
@@ -99,7 +94,7 @@ function AuthHero() {
                 ))}
               </div>
               <p className="m-0 mt-xs text-label-sm text-on-surface-variant">
-                Trusted by drivers across the city
+                {t('auth:layout.trustedBy')}
               </p>
             </div>
           </div>

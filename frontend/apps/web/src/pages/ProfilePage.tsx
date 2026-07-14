@@ -1,5 +1,6 @@
 import { Icon } from '@parkio/ui';
-import { useEffect, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
+import { useTranslation } from 'react-i18next';
 import { useSearchParams } from 'react-router-dom';
 import { frontendConfig } from '@/config/env';
 import { AccountCard } from './profile/AccountCard';
@@ -11,47 +12,37 @@ import { SmartReturnCard } from './profile/SmartReturnCard';
 import { TrustProgressCard } from './profile/TrustProgressCard';
 import { VehicleCard } from './profile/VehicleCard';
 
-const BASE_SECTIONS = [
-  { id: 'account', label: 'Profile & Account', icon: 'person' },
-  { id: 'vehicle', label: 'Vehicle', icon: 'directions_car' },
-  { id: 'notifications', label: 'Notifications', icon: 'notifications' },
-  { id: 'trust', label: 'Trust & Progress', icon: 'verified_user' },
-] as const satisfies readonly SettingsSection[];
-
-const SMART_RETURN_SECTION = {
-  id: 'smart-return',
-  label: 'Smart Return',
-  icon: 'home_pin',
-} as const satisfies SettingsSection;
-
-const SECTIONS_WITH_SMART_RETURN = [
-  BASE_SECTIONS[0],
-  BASE_SECTIONS[1],
-  BASE_SECTIONS[2],
-  SMART_RETURN_SECTION,
-  BASE_SECTIONS[3],
-] as const satisfies readonly SettingsSection[];
-
-type SectionId = (typeof BASE_SECTIONS)[number]['id'] | typeof SMART_RETURN_SECTION.id;
+type SectionId = 'account' | 'vehicle' | 'notifications' | 'smart-return' | 'trust';
 
 export interface ProfilePageProps {
   smartReturnEnabled?: boolean;
-}
-
-function resolveSections(smartReturnEnabled: boolean): readonly SettingsSection[] {
-  return smartReturnEnabled ? SECTIONS_WITH_SMART_RETURN : BASE_SECTIONS;
 }
 
 /**
  * Profile — Settings & Preferences (`/profile`). A Stitch-style settings layout:
  * a persistent impact summary (identity + trust/level/points) sits above a
  * section rail (desktop) / scrollable tab strip (mobile) that toggles between
- * Profile & Account, Vehicle, Notifications and Trust & Progress. All data and
- * mutations are unchanged — only existing backend fields are used and the section
- * tabs are frontend-only (no route changes).
+ * Profile & Account, Vehicle, Notifications and Trust & Progress.
  */
 export function ProfilePage({ smartReturnEnabled = frontendConfig.features.smartReturn }: ProfilePageProps) {
-  const sections = resolveSections(smartReturnEnabled);
+  const { t } = useTranslation('settings');
+  const sections = useMemo((): readonly SettingsSection[] => {
+    const base: SettingsSection[] = [
+      { id: 'account', label: t('sections.account'), icon: 'person' },
+      { id: 'vehicle', label: t('sections.vehicle'), icon: 'directions_car' },
+      { id: 'notifications', label: t('sections.notifications'), icon: 'notifications' },
+      { id: 'trust', label: t('sections.trust'), icon: 'verified_user' },
+    ];
+    if (!smartReturnEnabled) return base;
+    return [
+      base[0]!,
+      base[1]!,
+      base[2]!,
+      { id: 'smart-return', label: t('sections.smartReturn'), icon: 'home_pin' },
+      base[3]!,
+    ];
+  }, [smartReturnEnabled, t]);
+
   const [searchParams] = useSearchParams();
   const requestedSection = searchParams.get('section');
   const initialSection: SectionId =
@@ -71,14 +62,12 @@ export function ProfilePage({ smartReturnEnabled = frontendConfig.features.smart
       <header className="mb-lg">
         <p className="m-0 flex items-center gap-xs text-label-md font-semibold uppercase tracking-wider text-primary">
           <Icon name="settings" className="text-[16px] leading-none" />
-          Account
+          {t('page.eyebrow')}
         </p>
         <h1 className="m-0 mt-sm text-headline-lg-mobile text-on-surface md:text-headline-lg">
-          Settings &amp; Preferences
+          {t('page.title')}
         </h1>
-        <p className="m-0 mt-xs text-body-md text-on-surface-variant">
-          Manage your profile, vehicle, and notification preferences.
-        </p>
+        <p className="m-0 mt-xs text-body-md text-on-surface-variant">{t('page.description')}</p>
       </header>
 
       <ImpactHero />

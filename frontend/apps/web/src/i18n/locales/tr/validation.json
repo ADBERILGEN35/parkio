@@ -1,0 +1,30 @@
+{
+  "email": {
+    "invalid": "Geçerli bir e-posta girin"
+  },
+  "password": {
+    "required": "Şifre gerekli",
+    "minLength": "Şifre en az 12 karakter olmalı",
+    "strong": "Şifre en az 12 karakter olmalı ve küçük harf, büyük harf ile rakam içermelidir",
+    "confirm": "Şifrenizi onaylayın",
+    "mismatch": "Şifreler eşleşmiyor",
+    "currentRequired": "Mevcut şifre gerekli",
+    "requirements": {
+      "length": "En az 12 karakter",
+      "lowercase": "Bir küçük harf",
+      "uppercase": "Bir büyük harf",
+      "digit": "Bir rakam",
+      "notCommon": "Yaygın bir şifre olmamalı"
+    }
+  },
+  "displayName": {
+    "min": "Adınızı girin (en az 2 karakter)",
+    "max": "Ad en fazla 50 karakter olabilir"
+  },
+  "phoneNumber": {
+    "max": "Telefon numarası en fazla 32 karakter olabilir"
+  },
+  "terms": {
+    "required": "Devam etmek için koşulları kabul etmelisiniz"
+  }
+}

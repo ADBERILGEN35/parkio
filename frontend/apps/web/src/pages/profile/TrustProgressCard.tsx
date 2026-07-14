@@ -1,47 +1,43 @@
 import { Icon, LoadingState, MetricCard, SoftBadge } from '@parkio/ui';
 import { useQuery } from '@tanstack/react-query';
+import { useTranslation } from 'react-i18next';
 import { Link } from 'react-router-dom';
 import { usersApi } from '@/api';
 import { FriendlyApiErrorMessage } from '@/components/FriendlyApiErrorMessage';
 import { SettingsSectionCard } from '@/components/product/SettingsSectionCard';
-import { humanizeEnum } from '@/lib/format';
+import { enumLabel } from '@/lib/format';
 import { trustBandTone } from './accountVisuals';
 
-/**
- * Read-only "Trust & progress" section: the four gamification/trust metrics from
- * `GET /users/me/stats` plus a link to the full gamification view. Streaks,
- * achievements and activity heatmaps are intentionally absent — the backend
- * exposes none of them, so nothing is invented (only an honest note is shown).
- */
 export function TrustProgressCard() {
+  const { t } = useTranslation(['settings', 'common']);
   const stats = useQuery({ queryKey: ['me', 'stats'], queryFn: usersApi.getMyStats });
 
   return (
     <SettingsSectionCard
-      title="Trust & progress"
+      title={t('trust.title')}
       icon="verified_user"
-      description="Review the lifetime points, level, and trust signals currently exposed by the backend."
+      description={t('trust.description')}
     >
       {stats.isPending ? (
-        <LoadingState label="Loading your progress…" />
+        <LoadingState label={t('trust.loading')} />
       ) : stats.isError ? (
         <FriendlyApiErrorMessage error={stats.error} />
       ) : (
         <div className="flex flex-col gap-md">
           <div className="grid grid-cols-2 gap-md">
-            <MetricCard label="Total points" value={stats.data.totalPoints} icon="stars" />
+            <MetricCard label={t('trust.totalPoints')} value={stats.data.totalPoints} icon="stars" />
             <MetricCard
-              label="Current level"
+              label={t('trust.currentLevel')}
               value={stats.data.currentLevel}
               icon="military_tech"
             />
-            <MetricCard label="Trust score" value={stats.data.trustScore} icon="verified_user" />
+            <MetricCard label={t('trust.trustScore')} value={stats.data.trustScore} icon="verified_user" />
             <MetricCard
-              label="Trust band"
+              label={t('trust.trustBand')}
               icon="shield"
               value={
                 <SoftBadge tone={trustBandTone(stats.data.trustBand)}>
-                  {humanizeEnum(stats.data.trustBand)}
+                  {enumLabel(stats.data.trustBand, t)}
                 </SoftBadge>
               }
             />
@@ -52,13 +48,10 @@ export function TrustProgressCard() {
             className="inline-flex items-center gap-xs self-start text-label-md font-semibold text-primary hover:underline"
           >
             <Icon name="trending_up" className="text-[18px] leading-none" />
-            View level progress and points history
+            {t('trust.viewHistory')}
           </Link>
 
-          <p className="m-0 text-label-sm text-on-surface-variant">
-            Streaks, achievements and activity heatmaps aren&apos;t available yet — only lifetime
-            points, level and trust are tracked today.
-          </p>
+          <p className="m-0 text-label-sm text-on-surface-variant">{t('trust.note')}</p>
         </div>
       )}
     </SettingsSectionCard>

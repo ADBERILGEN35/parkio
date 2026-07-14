@@ -1,16 +1,22 @@
 <!doctype html>
-<html lang="en">
+<html lang="tr">
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>Parkio - Community-Powered Parking Intelligence</title>
+    <title>Parkio</title>
+    <!--
+      Runtime i18n may update <html lang>, but static Open Graph / Twitter / JSON-LD
+      stay Turkish-default (canonical product language). Crawlers often execute little
+      or no JS at scrape time, so bilingual static metadata would still be English-first
+      for many bots — ship Turkish defaults instead.
+    -->
     <meta
       name="description"
-      content="Parkio helps drivers find, share, verify, and manage real-world parking availability."
+      content="Parkio — park yeri bul, paylaş ve doğrula."
     />
     <meta
       name="keywords"
-      content="Parkio, parking intelligence, community-powered parking, parking availability, parking verification, parking beta, Smart Return"
+      content="Parkio, park yeri, topluluk destekli park, park yeri bul, park doğrulama, Smart Return, parking intelligence"
     />
     <meta name="robots" content="index, follow" />
     <meta name="theme-color" content="#147C72" />
@@ -19,10 +25,10 @@
     <link rel="icon" href="/icons/parkio-icon.svg" type="image/svg+xml" />
     <link rel="icon" href="/icons/favicon-32.png" type="image/png" sizes="32x32" />
     <link rel="apple-touch-icon" href="/icons/apple-touch-icon.png" />
-    <meta property="og:title" content="Parkio - Community-Powered Parking Intelligence" />
+    <meta property="og:title" content="Parkio — topluluk destekli park yeri" />
     <meta
       property="og:description"
-      content="Parkio helps drivers find, share, verify, and manage real-world parking availability."
+      content="Parkio — park yeri bul, paylaş ve doğrula."
     />
     <meta property="og:url" content="https://parkio.dev/" />
     <meta property="og:type" content="website" />
@@ -30,10 +36,10 @@
     <meta property="og:image:width" content="1200" />
     <meta property="og:image:height" content="630" />
     <meta name="twitter:card" content="summary_large_image" />
-    <meta name="twitter:title" content="Parkio - Community-Powered Parking Intelligence" />
+    <meta name="twitter:title" content="Parkio — topluluk destekli park yeri" />
     <meta
       name="twitter:description"
-      content="Parkio helps drivers find, share, verify, and manage real-world parking availability."
+      content="Parkio — park yeri bul, paylaş ve doğrula."
     />
     <meta name="twitter:image" content="https://parkio.dev/social-preview.png" />
     <script type="application/ld+json">
@@ -62,7 +68,7 @@
             "applicationCategory": "TravelApplication",
             "operatingSystem": "Web, iOS, Android",
             "url": "https://parkio.dev/",
-            "description": "Parkio helps drivers find, share, verify, and manage real-world parking availability.",
+            "description": "Parkio — park yeri bul, paylaş ve doğrula.",
             "isAccessibleForFree": true,
             "publisher": {
               "@id": "https://parkio.dev/#organization"

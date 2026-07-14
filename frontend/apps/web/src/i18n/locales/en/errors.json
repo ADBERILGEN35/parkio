@@ -1,0 +1,26 @@
+{
+  "common": {
+    "generic": "Something went wrong. Please try again.",
+    "sessionExpired": "Your session has expired. Please sign in again.",
+    "forbidden": "You do not have permission to perform this action.",
+    "notFound": "We could not find that resource.",
+    "rateLimited": "Too many attempts. Please wait a moment and try again.",
+    "serviceUnavailable": "Service is temporarily unavailable. Please try again.",
+    "validationError": "Please check the information you entered."
+  },
+  "auth": {
+    "accountSuspended": "Your account is suspended.",
+    "accountNotVerified": "Please verify your email before signing in.",
+    "invalidCredentials": "Invalid email or password.",
+    "emailAlreadyExists": "This email address is already registered.",
+    "rateLimited": "Too many attempts. Please wait a moment and try again.",
+    "serviceUnavailable": "Service is temporarily unavailable. Please try again.",
+    "loginFailed": "Login failed. Please try again.",
+    "registrationFailed": "Registration failed. Please try again.",
+    "forgotPasswordFailed": "We could not process the request. Please try again.",
+    "resetPasswordFailed": "Password reset failed. Request a new link and try again.",
+    "verifyFailed": "Verification link is invalid or expired.",
+    "resendFailed": "Could not resend verification email.",
+    "changePasswordFailed": "Password change failed. Please try again."
+  }
+}

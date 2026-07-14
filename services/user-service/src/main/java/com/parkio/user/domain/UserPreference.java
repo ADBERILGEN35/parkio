@@ -23,6 +23,7 @@ public final class UserPreference {
     private final UUID userProfileId;
     private int preferredRadiusMeters;
     private boolean notificationsEnabled;
+    private PreferredLocale preferredLocale;
     private boolean smartReturnEnabled;
     private Double homeLatitude;
     private Double homeLongitude;
@@ -42,6 +43,7 @@ public final class UserPreference {
                           UUID userProfileId,
                           int preferredRadiusMeters,
                           boolean notificationsEnabled,
+                          PreferredLocale preferredLocale,
                           boolean smartReturnEnabled,
                           Double homeLatitude,
                           Double homeLongitude,
@@ -60,6 +62,7 @@ public final class UserPreference {
         this.userProfileId = Objects.requireNonNull(userProfileId, "userProfileId");
         this.preferredRadiusMeters = requireValidRadius(preferredRadiusMeters);
         this.notificationsEnabled = notificationsEnabled;
+        this.preferredLocale = preferredLocale == null ? PreferredLocale.DEFAULT : preferredLocale;
         this.smartReturnEnabled = smartReturnEnabled;
         this.homeLatitude = requireValidLatitude(homeLatitude);
         this.homeLongitude = requireValidLongitude(homeLongitude);
@@ -80,17 +83,20 @@ public final class UserPreference {
     /** Creates the default preferences for a newly-created profile. */
     public static UserPreference createDefault(UUID userProfileId) {
         return new UserPreference(UUID.randomUUID(), userProfileId, DEFAULT_RADIUS_METERS, true,
-                false, null, null, null, null, DEFAULT_SMART_RETURN_LEAD_MINUTES,
+                PreferredLocale.DEFAULT, false, null, null, null, null, DEFAULT_SMART_RETURN_LEAD_MINUTES,
                 null, SmartReturnTodayStatus.UNKNOWN, null, null, null, null, null, null);
     }
 
     /** Applies a partial update; {@code null} fields are left unchanged. */
-    public void update(Integer preferredRadiusMeters, Boolean notificationsEnabled) {
+    public void update(Integer preferredRadiusMeters, Boolean notificationsEnabled, PreferredLocale preferredLocale) {
         if (preferredRadiusMeters != null) {
             this.preferredRadiusMeters = requireValidRadius(preferredRadiusMeters);
         }
         if (notificationsEnabled != null) {
             this.notificationsEnabled = notificationsEnabled;
+        }
+        if (preferredLocale != null) {
+            this.preferredLocale = preferredLocale;
         }
     }
 
@@ -272,6 +278,10 @@ public final class UserPreference {
 
     public boolean notificationsEnabled() {
         return notificationsEnabled;
+    }
+
+    public PreferredLocale preferredLocale() {
+        return preferredLocale;
     }
 
     public boolean smartReturnEnabled() {

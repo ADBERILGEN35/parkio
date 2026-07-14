@@ -2,7 +2,8 @@ import type { AdminRoleName } from '@parkio/types';
 import { hasSuperAdminRole } from '@parkio/types';
 import { Button, Card, EmptyState, LoadingState, PageShell, SoftBadge } from '@parkio/ui';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { useState } from 'react';
+import { useState, type ReactNode } from 'react';
+import { useTranslation } from 'react-i18next';
 import { Link, useParams } from 'react-router-dom';
 import { adminApi } from '@/api';
 import { useAuthStore } from '@/auth/store';
@@ -18,7 +19,14 @@ type PendingAction =
   | { type: 'revoke-session'; sessionId: string }
   | { type: 'role'; role: AdminRoleName; action: 'GRANT' | 'REVOKE' };
 
+function roleLabel(t: (key: string) => string, role: string): string {
+  const key = `roles.${role}`;
+  const translated = t(key);
+  return translated === key ? role : translated;
+}
+
 export function AdminUserDetailPage() {
+  const { t } = useTranslation('admin');
   const { id = '' } = useParams();
   const roles = useAuthStore((s) => s.roles);
   const isSuper = hasSuperAdminRole(roles);
@@ -51,89 +59,106 @@ export function AdminUserDetailPage() {
           await adminApi.revokeSession(id, pending.sessionId, { reason });
           break;
         case 'role':
+          // Protocol enum values GRANT/REVOKE stay as API contract — not translated.
           await adminApi.changeRole(id, { role: pending.role, action: pending.action, reason });
           break;
       }
     },
     onSuccess: async () => {
-      showSuccess('Admin action completed');
+      showSuccess(t('users.toast.actionCompleted'));
       setPending(null);
       await qc.invalidateQueries({ queryKey: ['admin', 'users', id] });
       await qc.invalidateQueries({ queryKey: ['admin', 'dashboard'] });
     },
     onError: (error) => {
-      showError(error instanceof Error ? error.message : 'Action failed');
+      showError(error instanceof Error ? error.message : t('users.toast.actionFailed'));
     },
   });
 
   if (detail.isPending) {
     return (
-      <PageShell title="User">
+      <PageShell title={t('users.detail.title')}>
         <LoadingState />
       </PageShell>
     );
   }
   if (detail.isError || !detail.data) {
     return (
-      <PageShell title="User">
+      <PageShell title={t('users.detail.title')}>
         <FriendlyApiErrorMessage error={detail.error} />
       </PageShell>
     );
   }
 
   const user = detail.data.user;
-  const dialogCopy = (() => {
+  const dialogCopy = ((): { title: string; description: ReactNode; confirmLabel: string } => {
     switch (pending?.type) {
       case 'suspend':
         return {
-          title: 'Suspend account',
+          title: t('users.suspend.confirmationTitle'),
           description: (
             <p className="m-0">
-              Suspend <strong>{user.email}</strong>? Login and refresh will fail; active sessions are revoked.
+              {t('users.suspend.confirmationDescription', { email: user.email })}
             </p>
           ),
-          confirmLabel: 'Suspend',
+          confirmLabel: t('users.suspend.confirmLabel'),
         };
       case 'reactivate':
         return {
-          title: 'Reactivate account',
+          title: t('users.reactivate.confirmationTitle'),
           description: (
             <p className="m-0">
-              Reactivate <strong>{user.email}</strong>? Previous refresh tokens stay revoked.
+              {t('users.reactivate.confirmationDescription', { email: user.email })}
             </p>
           ),
-          confirmLabel: 'Reactivate',
+          confirmLabel: t('users.reactivate.confirmLabel'),
         };
       case 'revoke-sessions':
         return {
-          title: 'Revoke all sessions',
-          description: <p className="m-0">Invalidate every active refresh token for this user.</p>,
-          confirmLabel: 'Revoke sessions',
+          title: t('users.revokeSessions.confirmationTitle'),
+          description: <p className="m-0">{t('users.revokeSessions.confirmationDescription')}</p>,
+          confirmLabel: t('users.revokeSessions.confirmLabel'),
         };
       case 'resend':
         return {
-          title: 'Resend verification',
-          description: <p className="m-0">Send a new verification email if the account is pending.</p>,
-          confirmLabel: 'Resend',
+          title: t('users.resendVerification.confirmationTitle'),
+          description: <p className="m-0">{t('users.resendVerification.confirmationDescription')}</p>,
+          confirmLabel: t('users.resendVerification.confirmLabel'),
         };
       case 'revoke-session':
         return {
-          title: 'Revoke session',
-          description: <p className="m-0">Revoke a single refresh-token session.</p>,
-          confirmLabel: 'Revoke',
+          title: t('users.revokeSession.confirmationTitle'),
+          description: <p className="m-0">{t('users.revokeSession.confirmationDescription')}</p>,
+          confirmLabel: t('users.revokeSession.confirmLabel'),
         };
-      case 'role':
+      case 'role': {
+        const displayRole = roleLabel(t, pending.role);
+        const actionVerb =
+          pending.action === 'GRANT'
+            ? t('users.roleChange.actionGrant')
+            : t('users.roleChange.actionRevoke');
         return {
-          title: `${pending.action} ${pending.role}`,
+          title:
+            pending.action === 'GRANT'
+              ? t('users.roleChange.grantTitle', { role: displayRole })
+              : t('users.roleChange.revokeTitle', { role: displayRole }),
           description: (
             <p className="m-0">
-              {pending.action} role <strong>{pending.role}</strong> for {user.email}.
+              {t('users.roleChange.description', {
+                action: actionVerb,
+                role: displayRole,
+                email: user.email,
+              })}
             </p>
           ),
-          confirmLabel: pending.action === 'GRANT' ? 'Grant role' : 'Revoke role',
+          confirmLabel:
+            pending.action === 'GRANT'
+              ? t('users.roleChange.grantConfirmLabel')
+              : t('users.roleChange.revokeConfirmLabel'),
         };
+      }
       default:
-        return { title: '', description: null, confirmLabel: 'Confirm' };
+        return { title: '', description: null, confirmLabel: t('common.confirm') };
     }
   })();
 
@@ -141,58 +166,60 @@ export function AdminUserDetailPage() {
     <PageShell title={user.email}>
       <p className="mb-lg mt-0 font-mono text-body-sm text-on-surface-variant">
         <Link to="/admin/users" className="text-primary no-underline hover:underline">
-          Users
+          {t('users.detail.breadcrumbUsers')}
         </Link>{' '}
         / {user.id}
       </p>
       <div className="flex flex-col gap-lg">
-        <Card title="Overview">
+        <Card title={t('users.detail.overview')}>
           <dl className="grid grid-cols-1 gap-sm sm:grid-cols-2">
             <div>
-              <dt className="text-label-md text-on-surface-variant">Status</dt>
+              <dt className="text-label-md text-on-surface-variant">{t('users.detail.status')}</dt>
               <dd className="m-0 mt-xs">
-                <SoftBadge tone={user.status === 'ACTIVE' ? 'success' : 'warning'}>{user.status}</SoftBadge>
+                <SoftBadge tone={user.status === 'ACTIVE' ? 'success' : 'warning'}>
+                  {t(`status.${user.status}`)}
+                </SoftBadge>
               </dd>
             </div>
             <div>
-              <dt className="text-label-md text-on-surface-variant">Email verified</dt>
-              <dd className="m-0 mt-xs">{user.emailVerified ? 'Yes' : 'No'}</dd>
+              <dt className="text-label-md text-on-surface-variant">{t('users.detail.emailVerified')}</dt>
+              <dd className="m-0 mt-xs">{user.emailVerified ? t('common.yes') : t('common.no')}</dd>
             </div>
             <div>
-              <dt className="text-label-md text-on-surface-variant">Registered</dt>
+              <dt className="text-label-md text-on-surface-variant">{t('users.detail.registered')}</dt>
               <dd className="m-0 mt-xs">{new Date(user.createdAt).toLocaleString()}</dd>
             </div>
             <div>
-              <dt className="text-label-md text-on-surface-variant">Active sessions</dt>
+              <dt className="text-label-md text-on-surface-variant">{t('users.detail.activeSessions')}</dt>
               <dd className="m-0 mt-xs">{user.activeSessionCount}</dd>
             </div>
           </dl>
           <div className="mt-md flex flex-wrap gap-sm">
             {user.status !== 'SUSPENDED' ? (
               <Button type="button" onClick={() => setPending({ type: 'suspend' })}>
-                Suspend
+                {t('users.suspend.button')}
               </Button>
             ) : (
               <Button type="button" onClick={() => setPending({ type: 'reactivate' })}>
-                Reactivate
+                {t('users.reactivate.button')}
               </Button>
             )}
             <Button type="button" variant="secondary" onClick={() => setPending({ type: 'revoke-sessions' })}>
-              Revoke all sessions
+              {t('users.revokeSessions.button')}
             </Button>
             {!user.emailVerified ? (
               <Button type="button" variant="ghost" onClick={() => setPending({ type: 'resend' })}>
-                Resend verification
+                {t('users.resendVerification.button')}
               </Button>
             ) : null}
           </div>
         </Card>
 
-        <Card title="Roles">
+        <Card title={t('users.detail.rolesTitle')}>
           <div className="flex flex-wrap gap-xs">
             {user.roles.map((role) => (
               <SoftBadge key={role} tone="primary">
-                {role}
+                {roleLabel(t, role)}
               </SoftBadge>
             ))}
           </div>
@@ -200,6 +227,7 @@ export function AdminUserDetailPage() {
             {(['MODERATOR', 'ADMIN', 'SUPER_ADMIN'] as AdminRoleName[]).map((role) => {
               const held = user.roles.includes(role);
               const locked = (role === 'ADMIN' || role === 'SUPER_ADMIN') && !isSuper;
+              const label = roleLabel(t, role);
               return (
                 <Button
                   key={role}
@@ -210,21 +238,26 @@ export function AdminUserDetailPage() {
                     setPending({ type: 'role', role, action: held ? 'REVOKE' : 'GRANT' })
                   }
                 >
-                  {held ? `Revoke ${role}` : `Grant ${role}`}
+                  {held
+                    ? t('users.roleChange.revokeButton', { role: label })
+                    : t('users.roleChange.grantButton', { role: label })}
                 </Button>
               );
             })}
           </div>
           {!isSuper ? (
             <p className="mt-sm mb-0 text-body-sm text-on-surface-variant">
-              Granting or revoking ADMIN / SUPER_ADMIN requires SUPER_ADMIN.
+              {t('users.detail.rolesSuperAdminRequired')}
             </p>
           ) : null}
         </Card>
 
-        <Card title="Sessions">
+        <Card title={t('users.detail.sessionsTitle')}>
           {detail.data.sessions.length === 0 ? (
-            <EmptyState title="No sessions listed" description="No refresh-token sessions to show." />
+            <EmptyState
+              title={t('users.detail.sessionsEmptyTitle')}
+              description={t('users.detail.sessionsEmptyDescription')}
+            />
           ) : (
             <ul className="m-0 list-none space-y-sm p-0">
               {detail.data.sessions.map((session) => (
@@ -235,8 +268,15 @@ export function AdminUserDetailPage() {
                   <div>
                     <div className="font-mono text-body-sm">{session.sessionId}</div>
                     <div className="text-body-sm text-on-surface-variant">
-                      {session.revoked ? `Revoked (${session.revokedReason ?? 'n/a'})` : 'Active refresh session'}{' '}
-                      · expires {new Date(session.expiresAt).toLocaleString()}
+                      {session.revoked
+                        ? t('users.detail.sessionRevoked', {
+                            reason: session.revokedReason ?? t('common.na'),
+                          })
+                        : t('users.detail.sessionActive')}{' '}
+                      ·{' '}
+                      {t('users.detail.sessionExpires', {
+                        expiresAt: new Date(session.expiresAt).toLocaleString(),
+                      })}
                     </div>
                   </div>
                   {!session.revoked ? (
@@ -245,7 +285,7 @@ export function AdminUserDetailPage() {
                       variant="ghost"
                       onClick={() => setPending({ type: 'revoke-session', sessionId: session.sessionId })}
                     >
-                      Revoke
+                      {t('users.revokeSession.button')}
                     </Button>
                   ) : null}
                 </li>
@@ -254,9 +294,12 @@ export function AdminUserDetailPage() {
           )}
         </Card>
 
-        <Card title="Administrative history">
+        <Card title={t('users.detail.auditTitle')}>
           {detail.data.recentAuditEvents.length === 0 ? (
-            <EmptyState title="No audit events" description="No admin actions recorded for this user yet." />
+            <EmptyState
+              title={t('users.detail.auditEmptyTitle')}
+              description={t('users.detail.auditEmptyDescription')}
+            />
           ) : (
             <ul className="m-0 list-none space-y-sm p-0">
               {detail.data.recentAuditEvents.map((event) => (

@@ -30,6 +30,7 @@ import com.parkio.notification.domain.exception.NotificationErrorCode;
 import com.parkio.notification.domain.exception.NotificationException;
 import java.time.Clock;
 import java.time.Instant;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.UUID;
@@ -116,8 +117,13 @@ public class NotificationApplicationService {
         if (!claimEvent(event.eventId(), "PointsDeducted")) {
             return;
         }
+        // English `message` keeps WARNING template / push rendering; structured keys
+        // enable localized web clients (messageKey=pointsDeducted).
         createInAppNotification(event.userId(), NotificationType.WARNING,
-                Map.of("message", "You lost " + event.points() + " points (penalty)."),
+                Map.of(
+                        "message", "You lost " + event.points() + " points (penalty).",
+                        "messageKey", "pointsDeducted",
+                        "points", Long.toString(event.points())),
                 Map.of("deeplink", "/reports"));
     }
 
@@ -126,9 +132,15 @@ public class NotificationApplicationService {
             return;
         }
         String direction = event.newScore() >= event.previousScore() ? "increased" : "decreased";
+        // English `message` for templates/push; structured keys for localized web render.
         createInAppNotification(event.userId(), NotificationType.WARNING,
-                Map.of("message", "Your trust score " + direction + " from "
-                        + event.previousScore() + " to " + event.newScore() + "."),
+                Map.of(
+                        "message", "Your trust score " + direction + " from "
+                                + event.previousScore() + " to " + event.newScore() + ".",
+                        "messageKey", "trustChanged",
+                        "previousScore", Integer.toString(event.previousScore()),
+                        "newScore", Integer.toString(event.newScore()),
+                        "direction", direction),
                 Map.of("deeplink", "/profile"));
     }
 
@@ -137,7 +149,9 @@ public class NotificationApplicationService {
             return;
         }
         createInAppNotification(event.ownerUserId(), NotificationType.WARNING,
-                Map.of("message", "Your parking spot was rejected as illegal or risky."),
+                Map.of(
+                        "message", "Your parking spot was rejected as illegal or risky.",
+                        "messageKey", "spotRejectedIllegal"),
                 Map.of("deeplink", spotDeeplink(event.parkingSpotId())));
     }
 
@@ -148,7 +162,9 @@ public class NotificationApplicationService {
             return;
         }
         createInAppNotification(event.userId(), NotificationType.WARNING,
-                Map.of("message", "Your account has been suspended by moderation."),
+                Map.of(
+                        "message", "Your account has been suspended by moderation.",
+                        "messageKey", "accountSuspended"),
                 Map.of("deeplink", "/reports"));
     }
 
@@ -157,7 +173,9 @@ public class NotificationApplicationService {
             return;
         }
         createInAppNotification(event.userId(), NotificationType.SYSTEM,
-                Map.of("message", "Your account has been restored."),
+                Map.of(
+                        "message", "Your account has been restored.",
+                        "messageKey", "accountRestored"),
                 Map.of("deeplink", "/profile"));
     }
 
@@ -168,7 +186,9 @@ public class NotificationApplicationService {
         }
         if (event.ownerUserId() != null) {
             createInAppNotification(event.ownerUserId(), NotificationType.WARNING,
-                    Map.of("message", "Your parking spot was rejected by a moderator."),
+                    Map.of(
+                            "message", "Your parking spot was rejected by a moderator.",
+                            "messageKey", "spotRejectedByModerator"),
                     Map.of("deeplink", spotDeeplink(event.parkingSpotId())));
         }
     }
@@ -181,7 +201,10 @@ public class NotificationApplicationService {
         }
         String outcome = event.accepted() ? "accepted" : "rejected";
         createInAppNotification(event.userId(), NotificationType.SYSTEM,
-                Map.of("message", "Your appeal was " + outcome + "."),
+                Map.of(
+                        "message", "Your appeal was " + outcome + ".",
+                        "messageKey", "appealResolved",
+                        "outcome", outcome),
                 Map.of("deeplink", "/reports"));
     }
 
@@ -192,7 +215,9 @@ public class NotificationApplicationService {
         }
         if (ModerationCaseResolvedEvent.TARGET_TYPE_USER.equals(event.targetType()) && event.targetId() != null) {
             createInAppNotification(event.targetId(), NotificationType.SYSTEM,
-                    Map.of("message", "A moderation case about your account was resolved."),
+                    Map.of(
+                            "message", "A moderation case about your account was resolved.",
+                            "messageKey", "moderationCaseResolved"),
                     Map.of("deeplink", "/reports"));
         }
     }
@@ -272,8 +297,18 @@ public class NotificationApplicationService {
         NotificationTemplate.RenderedContent content = templates.findByType(type)
                 .map(template -> template.render(variables))
                 .orElseGet(() -> fallbackContent(type));
+        // Merge template variables into stored metadata (variables first; explicit metadata
+        // wins on colliding keys such as deeplink). Enables localized clients without a
+        // schema/migration change — title/body remain English for push/back-compat.
+        Map<String, String> storedMetadata = new LinkedHashMap<>();
+        if (variables != null && !variables.isEmpty()) {
+            storedMetadata.putAll(variables);
+        }
+        if (metadata != null && !metadata.isEmpty()) {
+            storedMetadata.putAll(metadata);
+        }
         Notification notification = notifications.save(Notification.create(
-                userId, type, NotificationChannel.IN_APP, content.title(), content.body(), metadata, now));
+                userId, type, NotificationChannel.IN_APP, content.title(), content.body(), storedMetadata, now));
         outbox.append(NotificationCreatedEvent.of(notification, now));
         delivery.enqueuePushDelivery(notification);
         return notification;

@@ -12,6 +12,7 @@ import {
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useEffect, useRef, useState } from 'react';
 import { useForm } from 'react-hook-form';
+import { useTranslation } from 'react-i18next';
 import { usersApi } from '@/api';
 import { FriendlyApiErrorMessage } from '@/components/FriendlyApiErrorMessage';
 import { PlaceSearch } from '@/components/map/PlaceSearch';
@@ -21,9 +22,9 @@ import { type GeocodeResult } from '@/lib/geocoding';
 
 /** Benefits surfaced on the empty state so opting in reads as a feature, not a form. */
 const BENEFITS = [
-  { icon: 'schedule', text: 'One automatic parking check before you head home.' },
-  { icon: 'notifications_active', text: 'A heads-up only when a spot opens near your home area.' },
-  { icon: 'shield', text: 'Private by design — no live location tracking.' },
+  { icon: 'schedule', key: 'smartReturn.benefits.check' },
+  { icon: 'notifications_active', key: 'smartReturn.benefits.headsUp' },
+  { icon: 'shield', key: 'smartReturn.benefits.private' },
 ] as const;
 
 export interface SmartReturnCardProps {
@@ -32,13 +33,14 @@ export interface SmartReturnCardProps {
 }
 
 export function SmartReturnCard({ autoFocusToday = false }: SmartReturnCardProps) {
+  const { t } = useTranslation('settings');
   const query = useQuery({ queryKey: ['me', 'smart-return'], queryFn: usersApi.getSmartReturn });
 
   return (
     <SettingsSectionCard
-      title="Smart Return"
+      title={t('smartReturn.title')}
       icon="home_pin"
-      description="One parking check near your saved home area, right before you head back."
+      description={t('smartReturn.description')}
     >
       {query.isPending ? (
         <SmartReturnSkeleton />
@@ -78,6 +80,7 @@ function SmartReturnPanel({
 /* -------------------------------------------------------------------------- */
 
 function SetupView({ settings }: { settings: SmartReturnSettings }) {
+  const { t } = useTranslation('settings');
   const [setupOpen, setSetupOpen] = useState(false);
 
   return (
@@ -87,17 +90,17 @@ function SetupView({ settings }: { settings: SmartReturnSettings }) {
           <Icon name="home_pin" className="text-[34px] leading-none text-primary" />
         </span>
         <div>
-          <h3 className="m-0 text-title-md text-on-surface">Never circle the block again</h3>
+          <h3 className="m-0 text-title-md text-on-surface">{t('smartReturn.setupHeadline')}</h3>
           <p className="m-0 mt-xs text-body-sm text-on-surface-variant">
-            Smart Return checks for parking near home so a spot is waiting when you get back.
+            {t('smartReturn.setupDescription')}
           </p>
         </div>
 
         <ul className="m-0 flex w-full list-none flex-col gap-sm p-0 text-left">
           {BENEFITS.map((benefit) => (
-            <li key={benefit.text} className="flex items-start gap-sm">
+            <li key={benefit.key} className="flex items-start gap-sm">
               <Icon name={benefit.icon} className="mt-[2px] text-[18px] leading-none text-primary" />
-              <span className="text-body-sm text-on-surface-variant">{benefit.text}</span>
+              <span className="text-body-sm text-on-surface-variant">{t(benefit.key)}</span>
             </li>
           ))}
         </ul>
@@ -105,14 +108,14 @@ function SetupView({ settings }: { settings: SmartReturnSettings }) {
         {!setupOpen ? (
           <Button type="button" className="min-h-11 w-full sm:w-auto" onClick={() => setSetupOpen(true)}>
             <Icon name="add" className="text-[18px] leading-none" />
-            Enable Smart Return
+            {t('smartReturn.enable')}
           </Button>
         ) : null}
       </div>
 
       {setupOpen ? (
         <div className="animate-fade-in-up">
-          <SmartReturnSettingsForm settings={settings} submitLabel="Turn on Smart Return" />
+          <SmartReturnSettingsForm settings={settings} submitLabel={t('smartReturn.turnOn')} />
         </div>
       ) : null}
 
@@ -122,15 +125,15 @@ function SetupView({ settings }: { settings: SmartReturnSettings }) {
 }
 
 function PrivacyNote() {
+  const { t } = useTranslation('settings');
   return (
     <div className="rounded-lg border border-outline-variant/40 bg-surface-container-low p-md">
       <p className="m-0 flex items-center gap-xs text-label-md font-semibold text-on-surface">
         <Icon name="shield" className="text-[16px] leading-none text-primary" />
-        Private by design
+        {t('smartReturn.privateByDesign')}
       </p>
       <p className="m-0 mt-xs text-body-sm text-on-surface-variant">
-        Your saved home area is stored only after you opt in. It powers Smart Return checks, is never shown to other
-        people, never goes into analytics, and your live location is never tracked.
+        {t('smartReturn.privacyBody')}
       </p>
     </div>
   );
@@ -143,6 +146,7 @@ function PrivacyNote() {
 type TodayMode = 'idle' | 'pickTime';
 
 function TodayCard({ settings, autoFocus }: { settings: SmartReturnSettings; autoFocus: boolean }) {
+  const { t } = useTranslation('settings');
   const queryClient = useQueryClient();
   const sectionRef = useRef<HTMLElement>(null);
   const [mode, setMode] = useState<TodayMode>('idle');
@@ -160,25 +164,25 @@ function TodayCard({ settings, autoFocus }: { settings: SmartReturnSettings; aut
     mutationFn: usersApi.smartReturnLeftByCar,
     onSuccess: (next) => {
       onSettled(next);
-      showSuccess("Today's Smart Return is set.");
+      showSuccess(t('smartReturn.planSetToast'));
     },
-    onError: () => showError('We could not save your plan. Please try again.'),
+    onError: () => showError(t('smartReturn.planSaveError')),
   });
   const notByCar = useMutation({
     mutationFn: usersApi.smartReturnNotByCar,
     onSuccess: (next) => {
       onSettled(next);
-      showSuccess('No Smart Return today.');
+      showSuccess(t('smartReturn.noPlanToast'));
     },
-    onError: () => showError('We could not update today’s plan. Please try again.'),
+    onError: () => showError(t('smartReturn.planUpdateError')),
   });
   const cancel = useMutation({
     mutationFn: usersApi.cancelSmartReturnToday,
     onSuccess: (next) => {
       onSettled(next);
-      showSuccess('Today’s reminder cancelled.');
+      showSuccess(t('smartReturn.cancelledToast'));
     },
-    onError: () => showError('We could not cancel today’s reminder. Please try again.'),
+    onError: () => showError(t('smartReturn.cancelError')),
   });
 
   const busy = planMutation.isPending || notByCar.isPending || cancel.isPending;
@@ -207,14 +211,14 @@ function TodayCard({ settings, autoFocus }: { settings: SmartReturnSettings; aut
   return (
     <section
       ref={sectionRef}
-      aria-label="Today's Smart Return"
+      aria-label={t('smartReturn.todayAria')}
       className={cn(
         'flex flex-col gap-md rounded-2xl border p-md transition-shadow duration-std',
         highlight ? 'animate-pulse-glow border-primary/60' : 'border-outline-variant/40',
       )}
     >
       <div className="flex items-center justify-between gap-sm">
-        <h3 className="m-0 text-title-md text-on-surface">Today</h3>
+        <h3 className="m-0 text-title-md text-on-surface">{t('smartReturn.today')}</h3>
         <TodayStatusBadge settings={settings} />
       </div>
 
@@ -226,7 +230,7 @@ function TodayCard({ settings, autoFocus }: { settings: SmartReturnSettings; aut
           onSave={(returnTime) => {
             const expectedReturnAt = todayAt(returnTime);
             if (!expectedReturnAt || expectedReturnAt.getTime() <= Date.now()) {
-              showError('Pick a return time later today.');
+              showError(t('smartReturn.pickLaterTime'));
               return;
             }
             planMutation.mutate({ expectedReturnAt: expectedReturnAt.toISOString() });
@@ -266,21 +270,22 @@ function DrivingPrompt({
   onYes: () => void;
   onNo: () => void;
 }) {
+  const { t } = useTranslation('settings');
   return (
     <div className="flex flex-col gap-sm">
       {cancelled ? (
         <p className="m-0 text-label-sm text-on-surface-variant">
-          Today’s reminder was cancelled. Driving again?
+          {t('smartReturn.cancelledPrompt')}
         </p>
       ) : null}
-      <p className="m-0 text-body-md text-on-surface">Are you driving today?</p>
+      <p className="m-0 text-body-md text-on-surface">{t('smartReturn.drivingQuestion')}</p>
       <div className="grid grid-cols-1 gap-sm sm:grid-cols-2">
         <Button type="button" disabled={busy} className="min-h-11 w-full" onClick={onYes}>
           <Icon name="directions_car" className="text-[18px] leading-none" />
-          Yes, driving
+          {t('smartReturn.yesDriving')}
         </Button>
         <Button variant="secondary" type="button" disabled={busy} className="min-h-11 w-full" onClick={onNo}>
-          Not by car
+          {t('smartReturn.notByCar')}
         </Button>
       </div>
     </div>
@@ -298,6 +303,7 @@ function TimePicker({
   onSave: (returnTime: string) => void;
   onCancel?: () => void;
 }) {
+  const { t } = useTranslation('settings');
   const {
     register,
     handleSubmit,
@@ -313,7 +319,7 @@ function TimePicker({
   return (
     <form onSubmit={handleSubmit((values) => onSave(values.returnTime))} className="flex flex-col gap-sm animate-fade-in-up">
       <Input
-        label="Expected return time"
+        label={t('smartReturn.expectedReturnTime')}
         type="time"
         disabled={pending}
         error={errors.returnTime?.message}
@@ -323,16 +329,16 @@ function TimePicker({
       {previewCheck ? (
         <p className="m-0 flex items-center gap-xs text-label-sm text-on-surface-variant">
           <Icon name="schedule" className="text-[16px] leading-none text-primary" />
-          We’ll check around {previewCheck}.
+          {t('smartReturn.checkAround', { time: previewCheck })}
         </p>
       ) : null}
       <div className="flex flex-col gap-sm sm:flex-row">
         <Button type="submit" disabled={pending} className="min-h-11 w-full sm:w-auto">
-          {pending ? 'Saving…' : "Save today's plan"}
+          {pending ? t('smartReturn.saving') : t('smartReturn.saveTodayPlan')}
         </Button>
         {onCancel ? (
           <Button type="button" variant="ghost" disabled={pending} className="min-h-11 w-full sm:w-auto" onClick={onCancel}>
-            Cancel
+            {t('smartReturn.cancel')}
           </Button>
         ) : null}
       </div>
@@ -351,6 +357,7 @@ function ActivePlan({
   onEdit: () => void;
   onCancel: () => void;
 }) {
+  const { t } = useTranslation('settings');
   const returnAt = settings.todayExpectedReturnAt ? formatClock(settings.todayExpectedReturnAt) : null;
   const checkAt = settings.todayExpectedReturnAt
     ? formatCheckTime(settings.todayExpectedReturnAt, settings.reminderLeadMinutes)
@@ -361,15 +368,15 @@ function ActivePlan({
       <div className="rounded-xl bg-primary/5 p-md">
         <p className="m-0 flex items-center gap-xs text-label-md font-semibold text-primary">
           <Icon name="check_circle" className="text-[18px] leading-none" />
-          Today’s Smart Return is active
+          {t('smartReturn.activeHeadline')}
         </p>
         <dl className="m-0 mt-sm grid grid-cols-2 gap-sm">
           <div>
-            <dt className="m-0 text-label-sm text-on-surface-variant">Returning around</dt>
+            <dt className="m-0 text-label-sm text-on-surface-variant">{t('smartReturn.returningAround')}</dt>
             <dd className="m-0 text-title-md text-on-surface">{returnAt ?? '—'}</dd>
           </div>
           <div>
-            <dt className="m-0 text-label-sm text-on-surface-variant">We’ll check around</dt>
+            <dt className="m-0 text-label-sm text-on-surface-variant">{t('smartReturn.wellCheckAround')}</dt>
             <dd className="m-0 text-title-md text-on-surface">{checkAt ?? '—'}</dd>
           </div>
         </dl>
@@ -377,10 +384,10 @@ function ActivePlan({
       <div className="flex flex-col gap-sm sm:flex-row">
         <Button type="button" variant="secondary" disabled={busy} className="min-h-11 w-full sm:w-auto" onClick={onEdit}>
           <Icon name="edit" className="text-[16px] leading-none" />
-          Edit
+          {t('smartReturn.edit')}
         </Button>
         <Button type="button" variant="ghost" disabled={busy} className="min-h-11 w-full sm:w-auto" onClick={onCancel}>
-          Cancel
+          {t('smartReturn.cancel')}
         </Button>
       </div>
     </div>
@@ -388,21 +395,23 @@ function ActivePlan({
 }
 
 function NotDrivingState({ busy, onChangedMind }: { busy: boolean; onChangedMind: () => void }) {
+  const { t } = useTranslation('settings');
   return (
     <div className="flex flex-col gap-sm animate-fade-in-up">
       <p className="m-0 flex items-center gap-xs text-body-md text-on-surface-variant">
         <Icon name="do_not_disturb_on" className="text-[18px] leading-none" />
-        No Smart Return scheduled today.
+        {t('smartReturn.noScheduled')}
       </p>
       <Button type="button" variant="ghost" disabled={busy} className="min-h-11 w-full self-start sm:w-auto" onClick={onChangedMind}>
-        I’m driving after all
+        {t('smartReturn.drivingAfterAll')}
       </Button>
     </div>
   );
 }
 
 function TodayStatusBadge({ settings }: { settings: SmartReturnSettings }) {
-  const { label, tone, icon } = todayBadge(settings.todayStatus);
+  const { t } = useTranslation('settings');
+  const { labelKey, tone, icon } = todayBadge(settings.todayStatus);
   return (
     <span
       className={cn(
@@ -411,27 +420,27 @@ function TodayStatusBadge({ settings }: { settings: SmartReturnSettings }) {
       )}
     >
       <Icon name={icon} className="text-[14px] leading-none" />
-      {label}
+      {t(labelKey)}
     </span>
   );
 }
 
 function todayBadge(status: SmartReturnSettings['todayStatus']): {
-  label: string;
+  labelKey: string;
   tone: string;
   icon: string;
 } {
   switch (status) {
     case 'LEFT_BY_CAR':
-      return { label: 'Active', tone: 'bg-primary/10 text-primary', icon: 'directions_car' };
+      return { labelKey: 'smartReturn.status.active', tone: 'bg-primary/10 text-primary', icon: 'directions_car' };
     case 'RETURN_CHECK_IN_PROGRESS':
-      return { label: 'Checking', tone: 'bg-primary/10 text-primary', icon: 'sync' };
+      return { labelKey: 'smartReturn.status.checking', tone: 'bg-primary/10 text-primary', icon: 'sync' };
     case 'NOT_BY_CAR':
-      return { label: 'Not today', tone: 'bg-on-surface-variant/10 text-on-surface-variant', icon: 'do_not_disturb_on' };
+      return { labelKey: 'smartReturn.status.notToday', tone: 'bg-on-surface-variant/10 text-on-surface-variant', icon: 'do_not_disturb_on' };
     case 'CANCELLED':
-      return { label: 'Cancelled', tone: 'bg-on-surface-variant/10 text-on-surface-variant', icon: 'cancel' };
+      return { labelKey: 'smartReturn.status.cancelled', tone: 'bg-on-surface-variant/10 text-on-surface-variant', icon: 'cancel' };
     default:
-      return { label: 'Not set', tone: 'bg-on-surface-variant/10 text-on-surface-variant', icon: 'help' };
+      return { labelKey: 'smartReturn.status.notSet', tone: 'bg-on-surface-variant/10 text-on-surface-variant', icon: 'help' };
   }
 }
 
@@ -440,6 +449,7 @@ function todayBadge(status: SmartReturnSettings['todayStatus']): {
 /* -------------------------------------------------------------------------- */
 
 function SettingsSection({ settings }: { settings: SmartReturnSettings }) {
+  const { t } = useTranslation('settings');
   const [open, setOpen] = useState(false);
 
   return (
@@ -452,7 +462,7 @@ function SettingsSection({ settings }: { settings: SmartReturnSettings }) {
       >
         <span className="flex items-center gap-sm text-label-md font-semibold text-on-surface">
           <Icon name="tune" className="text-[18px] leading-none text-primary" />
-          Smart Return settings
+          {t('smartReturn.settingsToggle')}
         </span>
         <Icon
           name="expand_more"
@@ -461,7 +471,7 @@ function SettingsSection({ settings }: { settings: SmartReturnSettings }) {
       </button>
       {open ? (
         <div className="border-t border-outline-variant/30 p-md animate-fade-in-up">
-          <SmartReturnSettingsForm settings={settings} submitLabel="Save changes" allowTurnOff />
+          <SmartReturnSettingsForm settings={settings} submitLabel={t('smartReturn.saveChanges')} allowTurnOff />
         </div>
       ) : null}
     </div>
@@ -477,15 +487,16 @@ function SmartReturnSettingsForm({
   submitLabel: string;
   allowTurnOff?: boolean;
 }) {
+  const { t } = useTranslation('settings');
   const queryClient = useQueryClient();
   const [advancedOpen, setAdvancedOpen] = useState(false);
   const mutation = useMutation({
     mutationFn: usersApi.updateSmartReturnSettings,
     onSuccess: (next) => {
       queryClient.setQueryData(['me', 'smart-return'], next);
-      showSuccess('Smart Return saved.');
+      showSuccess(t('smartReturn.savedToast'));
     },
-    onError: () => showError('We could not save your settings. Please try again.'),
+    onError: () => showError(t('smartReturn.saveError')),
   });
 
   const {
@@ -547,7 +558,7 @@ function SmartReturnSettingsForm({
       />
 
       <Input
-        label="When do you usually head home?"
+        label={t('smartReturn.usualHomeTime')}
         type="time"
         className="min-h-11"
         error={errors.defaultReturnTime?.message}
@@ -561,11 +572,11 @@ function SmartReturnSettingsForm({
         className="inline-flex min-h-11 items-center gap-xs self-start text-label-sm font-semibold text-on-surface-variant focus:outline-none focus-visible:ring-2 focus-visible:ring-primary"
       >
         <Icon name="expand_more" className={cn('text-[18px] leading-none transition-transform duration-std', advancedOpen && 'rotate-180')} />
-        Advanced
+        {t('smartReturn.advanced')}
       </button>
       {advancedOpen ? (
         <Input
-          label="How early should we check? (minutes)"
+          label={t('smartReturn.leadMinutes')}
           type="number"
           min={SMART_RETURN_LEAD_MINUTES_MIN}
           max={SMART_RETURN_LEAD_MINUTES_MAX}
@@ -580,11 +591,11 @@ function SmartReturnSettingsForm({
 
       <div className="flex flex-col gap-sm sm:flex-row">
         <Button type="button" onClick={onSubmit} disabled={mutation.isPending} className="min-h-11 w-full sm:w-auto">
-          {mutation.isPending ? 'Saving…' : submitLabel}
+          {mutation.isPending ? t('smartReturn.saving') : submitLabel}
         </Button>
         {allowTurnOff ? (
           <Button type="button" variant="ghost" onClick={turnOff} disabled={mutation.isPending} className="min-h-11 w-full sm:w-auto">
-            Turn off Smart Return
+            {t('smartReturn.turnOff')}
           </Button>
         ) : null}
       </div>
@@ -605,6 +616,7 @@ function HomeLocationField({
   onSelect: (place: GeocodeResult) => void;
   onRemove: () => void;
 }) {
+  const { t } = useTranslation('settings');
   const [editing, setEditing] = useState(!hasHome);
 
   // Collapse back to the saved chip whenever a home becomes set (e.g. after a pick).
@@ -615,16 +627,16 @@ function HomeLocationField({
   if (hasHome && !editing) {
     return (
       <div className="flex flex-col gap-xs">
-        <span className="text-label-sm font-medium text-on-surface-variant">Home area</span>
+        <span className="text-label-sm font-medium text-on-surface-variant">{t('smartReturn.homeArea')}</span>
         <div className="flex items-center gap-sm rounded-xl border border-outline-variant/40 bg-surface p-sm">
           <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-primary/10">
             <Icon name="home" className="text-[18px] leading-none text-primary" />
           </span>
           <span className="min-w-0 flex-1">
-            <span className="block truncate text-body-md font-medium text-on-surface">{label || 'Saved area'}</span>
+            <span className="block truncate text-body-md font-medium text-on-surface">{label || t('smartReturn.savedArea')}</span>
             <span className="flex items-center gap-xs text-label-sm text-secondary">
               <Icon name="check" className="text-[14px] leading-none" />
-              Saved
+              {t('smartReturn.saved')}
             </span>
           </span>
           <button
@@ -632,11 +644,11 @@ function HomeLocationField({
             onClick={() => setEditing(true)}
             className="flex min-h-11 items-center rounded-full px-sm text-label-sm font-semibold text-primary focus:outline-none focus-visible:ring-2 focus-visible:ring-primary"
           >
-            Change
+            {t('smartReturn.change')}
           </button>
           <button
             type="button"
-            aria-label="Remove home area"
+            aria-label={t('smartReturn.removeHomeAria')}
             onClick={onRemove}
             className="flex h-11 w-11 shrink-0 items-center justify-center rounded-full text-on-surface-variant hover:bg-surface-container focus:outline-none focus-visible:ring-2 focus-visible:ring-primary"
           >
@@ -649,7 +661,11 @@ function HomeLocationField({
 
   return (
     <div className="flex flex-col gap-xs">
-      <PlaceSearch label="Home area" placeholder="Search your street or neighbourhood" onSelect={onSelect} />
+      <PlaceSearch
+        label={t('smartReturn.homeArea')}
+        placeholder={t('smartReturn.homeSearchPlaceholder')}
+        onSelect={onSelect}
+      />
       {error ? (
         <span role="alert" className="text-label-sm text-error">
           {error}
@@ -664,9 +680,10 @@ function HomeLocationField({
 /* -------------------------------------------------------------------------- */
 
 function SmartReturnSkeleton() {
+  const { t } = useTranslation('settings');
   return (
-    <div className="flex flex-col gap-lg" role="status" aria-label="Loading Smart Return">
-      <span className="sr-only">Loading Smart Return…</span>
+    <div className="flex flex-col gap-lg" role="status" aria-label={t('smartReturn.loadingAria')}>
+      <span className="sr-only">{t('smartReturn.loading')}</span>
       <div className="flex flex-col gap-md rounded-2xl border border-outline-variant/30 p-md">
         <div className="flex items-center justify-between">
           <SkeletonBlock className="h-5 w-20" rounded="full" />
@@ -684,18 +701,19 @@ function SmartReturnSkeleton() {
 }
 
 function SettingsLoadError({ onRetry, retrying }: { onRetry: () => void; retrying: boolean }) {
+  const { t } = useTranslation('settings');
   return (
     <div className="flex flex-col items-center gap-md rounded-2xl bg-surface-container-low/60 px-md py-lg text-center">
       <span className="flex h-14 w-14 items-center justify-center rounded-full bg-error/10">
         <Icon name="cloud_off" className="text-[28px] leading-none text-error" />
       </span>
       <div>
-        <h3 className="m-0 text-title-md text-on-surface">Couldn’t load your Smart Return settings</h3>
-        <p className="m-0 mt-xs text-body-sm text-on-surface-variant">Check your connection and try again.</p>
+        <h3 className="m-0 text-title-md text-on-surface">{t('smartReturn.loadErrorTitle')}</h3>
+        <p className="m-0 mt-xs text-body-sm text-on-surface-variant">{t('smartReturn.loadErrorBody')}</p>
       </div>
       <Button type="button" onClick={onRetry} disabled={retrying} className="min-h-11 w-full sm:w-auto">
         <Icon name="refresh" className="text-[18px] leading-none" />
-        {retrying ? 'Retrying…' : 'Try again'}
+        {retrying ? t('smartReturn.retrying') : t('smartReturn.tryAgain')}
       </Button>
     </div>
   );

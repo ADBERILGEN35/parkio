@@ -12,7 +12,11 @@ async function bootstrap() {
 
   if (pathname === '/privacy' || pathname === '/terms') {
     await import('./styles/index.css');
-    const { PrivacyPage, TermsPage } = await import('./pages/LegalPage');
+    const [{ PrivacyPage, TermsPage }, { initI18n }] = await Promise.all([
+      import('./pages/LegalPage'),
+      import('./i18n'),
+    ]);
+    await initI18n();
     const Page = pathname === '/privacy' ? PrivacyPage : TermsPage;
     root.render(
       <StrictMode>
@@ -26,12 +30,15 @@ async function bootstrap() {
 
   await import('./styles/index.css');
 
-  const [{ App }, { initFrontendErrorReporting }, { registerServiceWorker }] = await Promise.all([
-    import('./App'),
-    import('./observability/errorReporting'),
-    import('./pwa/registerServiceWorker'),
-  ]);
+  const [{ App }, { initFrontendErrorReporting }, { registerServiceWorker }, { initI18n }] =
+    await Promise.all([
+      import('./App'),
+      import('./observability/errorReporting'),
+      import('./pwa/registerServiceWorker'),
+      import('./i18n'),
+    ]);
 
+  await initI18n();
   initFrontendErrorReporting();
   registerServiceWorker();
 

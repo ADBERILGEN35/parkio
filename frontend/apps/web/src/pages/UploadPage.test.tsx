@@ -103,7 +103,7 @@ function imageFile(name = 'spot.jpg', type = 'image/jpeg', size = 1024) {
 
 type User = ReturnType<typeof userEvent.setup>;
 
-const clickNext = (user: User) => user.click(screen.getByRole('button', { name: 'Next' }));
+const clickNext = (user: User) => user.click(screen.getByRole('button', { name: 'Continue' }));
 const clickBack = (user: User) => user.click(screen.getByRole('button', { name: 'Back' }));
 
 /** Step 1 → Step 2: choose a valid photo and advance to Location. */

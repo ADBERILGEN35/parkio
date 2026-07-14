@@ -6,12 +6,14 @@ import { Icon } from './Icon';
 export interface StatusBadgeProps extends HTMLAttributes<HTMLSpanElement> {
   /** Spot status (`ACTIVE`/`VERIFIED`/`SUSPICIOUS`/`FILLED`/`EXPIRED`/`REJECTED`). */
   status: string;
+  /** Localized label; falls back to the English default from `status.ts`. */
+  label?: string;
   /** Hide the leading icon. */
   hideIcon?: boolean;
 }
 
 /** Spot-status pill using the central status → visual mapping. */
-export function StatusBadge({ status, hideIcon, className, ...props }: StatusBadgeProps) {
+export function StatusBadge({ status, label, hideIcon, className, ...props }: StatusBadgeProps) {
   const visual = getSpotStatusVisual(status);
   return (
     <span
@@ -23,7 +25,7 @@ export function StatusBadge({ status, hideIcon, className, ...props }: StatusBad
       {...props}
     >
       {hideIcon ? null : <Icon name={visual.icon} className="text-[14px] leading-none" />}
-      {visual.label}
+      {label ?? visual.label}
     </span>
   );
 }

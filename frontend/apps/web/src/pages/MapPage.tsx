@@ -11,6 +11,8 @@ import { nearbySearchSchema, type NearbySearchFormValues } from '@parkio/validat
 import { keepPreviousData, useQuery } from '@tanstack/react-query';
 import { Suspense, lazy, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useForm } from 'react-hook-form';
+import { useTranslation } from 'react-i18next';
+import type { TFunction } from 'i18next';
 import { Link, useSearchParams } from 'react-router-dom';
 import { parkingApi, usersApi } from '@/api';
 import { useAuthStore } from '@/auth/store';
@@ -76,6 +78,7 @@ function optionalNumber(value: unknown): number | undefined {
  * click-to-set-center, and "Use my location" remain as an advanced fallback.
  */
 export function MapPage() {
+  const { t } = useTranslation('map');
   const [searchParams] = useSearchParams();
   const smartReturnMode = searchParams.get('smartReturn') === '1';
   const [params, setParams] = useState<NearbySearchParams | null>(null);
@@ -229,7 +232,7 @@ export function MapPage() {
   /** Map click / manual coordinate edits update the same center source of truth. */
   const handlePickCenter = (lat: number, lng: number) => {
     applyCoords(lat, lng);
-    setCenterLabel('selected map point');
+    setCenterLabel(t('selectedMapPoint'));
   };
 
   /**
@@ -243,7 +246,7 @@ export function MapPage() {
         typeof navigator !== 'undefined' ? navigator.geolocation : undefined;
       if (!geolocation) {
         setGeoStatus('error');
-        setGeoError("Geolocation isn't available in this browser. You can search manually.");
+        setGeoError(t('geoUnavailable'));
         return;
       }
       setGeoStatus('locating');
@@ -255,7 +258,7 @@ export function MapPage() {
           setValue('lat', lat, { shouldValidate: true });
           setValue('lng', lng, { shouldValidate: true });
           setMapZoom(LOCATED_ZOOM);
-          setCenterLabel('your current location');
+          setCenterLabel(t('currentLocation'));
           setGeoStatus('idle');
           if (autoSearch) {
             runSearch({ lat, lng, ...currentOptionalSearchFields() });
@@ -264,15 +267,13 @@ export function MapPage() {
         (error) => {
           setGeoStatus('error');
           setGeoError(
-            error.code === error.PERMISSION_DENIED
-              ? 'Location permission was not granted. You can search manually.'
-              : "We couldn't determine your location. You can search manually.",
+            error.code === error.PERMISSION_DENIED ? t('geoDenied') : t('geoFailed'),
           );
         },
         { enableHighAccuracy: false, timeout: 10_000 },
       );
     },
-    [currentOptionalSearchFields, runSearch, setValue],
+    [currentOptionalSearchFields, runSearch, setValue, t],
   );
 
   // Attempt geolocation exactly once per mount so the map opens on a useful view.
@@ -292,9 +293,9 @@ export function MapPage() {
     const lng = settings.homeLongitude;
     applyCoords(lat, lng);
     setMapZoom(LOCATED_ZOOM);
-    setCenterLabel('your saved home area');
+    setCenterLabel(t('savedHome'));
     runSearch({ lat, lng, radius: 1000 });
-  }, [applyCoords, runSearch, smartReturnMode, smartReturnQuery.data]);
+  }, [applyCoords, runSearch, smartReturnMode, smartReturnQuery.data, t]);
 
   const locate = () => runGeolocation({ autoSearch: false });
 
@@ -316,7 +317,13 @@ export function MapPage() {
     />
   );
 
-  const summaryText = resolveSummary(params, search, visibleSpots.length, spotsWithDistance.length);
+  const summaryText = resolveSummary(
+    t,
+    params,
+    search,
+    visibleSpots.length,
+    spotsWithDistance.length,
+  );
   const advancedForm = (
     <form onSubmit={onSubmit}>
       <fieldset
@@ -325,13 +332,13 @@ export function MapPage() {
       >
         <div className="grid grid-cols-2 gap-sm">
           <Input
-            label="Latitude"
+            label={t('latitude')}
             inputMode="decimal"
             error={errors.lat?.message}
             {...register('lat')}
           />
           <Input
-            label="Longitude"
+            label={t('longitude')}
             inputMode="decimal"
             error={errors.lng?.message}
             {...register('lng')}
@@ -339,13 +346,13 @@ export function MapPage() {
         </div>
         <div className="grid grid-cols-2 gap-sm">
           <Input
-            label="Radius (m, default 1000)"
+            label={t('radius')}
             inputMode="numeric"
             error={errors.radius?.message}
             {...register('radius')}
           />
           <Input
-            label="Limit (default 10)"
+            label={t('limit')}
             inputMode="numeric"
             error={errors.limit?.message}
             {...register('limit')}
@@ -353,7 +360,7 @@ export function MapPage() {
         </div>
         <Button type="submit" disabled={search.isFetching} className="w-full">
           <Icon name="travel_explore" className="text-[16px] leading-none" />
-          {search.isFetching ? 'Searching...' : 'Search nearby'}
+          {search.isFetching ? t('searching') : t('searchNearby')}
         </Button>
       </fieldset>
     </form>
@@ -383,25 +390,23 @@ export function MapPage() {
       {isDesktop ? (
         <div className="pointer-events-none absolute inset-x-0 top-md z-[1100] flex justify-start px-md pl-lg">
           <div className="pointer-events-auto w-full max-w-[min(28rem,calc(100vw-1rem))] animate-fade-in-up glass-panel rounded-2xl p-md shadow-deep">
-            <h2 className="m-0 text-title-lg text-on-surface">Find parking</h2>
-            <p className="m-0 mt-xs text-label-sm text-on-surface-variant">
-              Search by address or place, or click the map to set the center.
-            </p>
+            <h2 className="m-0 text-title-lg text-on-surface">{t('title')}</h2>
+            <p className="m-0 mt-xs text-label-sm text-on-surface-variant">{t('subtitle')}</p>
 
             {centerLabel ? (
               <p className="mt-sm flex items-center gap-xs text-label-sm font-medium text-on-surface">
                 <Icon name="location_on" className="text-[16px] leading-none text-primary" />
-                Searching near {centerLabel}
+                {t('searchingNear', { label: centerLabel })}
               </p>
             ) : null}
 
             {showSmartReturnReadyBanner ? (
               <div className="m-0 mt-sm flex items-center gap-xs rounded-2xl bg-primary/10 px-md py-sm text-label-sm font-medium text-primary">
                 <Icon name="home_pin" className="text-[16px] leading-none" />
-                <span className="flex-1">Showing parking near your saved home.</span>
+                <span className="flex-1">{t('smartReturnReady')}</span>
                 <button
                   type="button"
-                  aria-label="Dismiss Smart Return notice"
+                  aria-label={t('dismissSmartReturn')}
                   onClick={() => setSmartReturnBannerOpen(false)}
                   className="flex h-11 w-11 shrink-0 items-center justify-center rounded-full text-primary hover:bg-primary/10 focus:outline-none focus-visible:ring-2 focus-visible:ring-primary"
                 >
@@ -412,9 +417,9 @@ export function MapPage() {
 
             {showSmartReturnSetupNotice ? (
               <div className="m-0 mt-sm flex flex-col gap-xs rounded-2xl bg-surface-container px-md py-sm text-label-sm text-on-surface">
-                <span>Set up Smart Return in Profile to search near your saved home.</span>
+                <span>{t('smartReturnSetup')}</span>
                 <Link to="/profile?section=smart-return" className="font-semibold text-primary hover:underline">
-                  Open Smart Return settings
+                  {t('smartReturnOpen')}
                 </Link>
               </div>
             ) : null}
@@ -436,14 +441,14 @@ export function MapPage() {
               className="mt-sm inline-flex items-center gap-xs rounded-full bg-surface-container px-md py-xs text-label-sm font-medium text-on-surface transition-colors hover:bg-surface-container-high disabled:opacity-60"
             >
               <Icon name="my_location" className="text-[16px] leading-none" />
-              {geoStatus === 'locating' ? 'Locating...' : 'Use my location'}
+              {geoStatus === 'locating' ? t('locating') : t('useMyLocation')}
             </button>
 
             <details className="mt-sm border-t border-outline-variant/30 pt-sm">
               <summary className="cursor-pointer list-none text-label-sm font-semibold text-on-surface-variant marker:content-none">
                 <span className="inline-flex items-center gap-xs">
                   <Icon name="tune" className="text-[16px] leading-none" />
-                  Advanced coordinates
+                  {t('advanced')}
                 </span>
               </summary>
               <div className="mt-sm">{advancedForm}</div>
@@ -456,13 +461,13 @@ export function MapPage() {
             <div className="min-w-0 flex-1">
               <PlaceSearch
                 compact
-                placeholder="Search Parkio"
+                placeholder={t('searchPlaceholder')}
                 onSelect={selectPlace}
               />
             </div>
             <button
               type="button"
-              aria-label="Use my location"
+              aria-label={t('locateAria')}
               onClick={locate}
               disabled={geoStatus === 'locating'}
               className="flex h-11 w-11 shrink-0 items-center justify-center rounded-full bg-surface-container text-primary transition-colors hover:bg-surface-container-high focus:outline-none focus-visible:ring-2 focus-visible:ring-primary disabled:opacity-60"
@@ -471,7 +476,7 @@ export function MapPage() {
             </button>
             <button
               type="button"
-              aria-label="Filters and search options"
+              aria-label={t('filtersAria')}
               aria-expanded={advancedOpen}
               onClick={() => {
                 setAdvancedOpen((open) => !open);
@@ -486,17 +491,17 @@ export function MapPage() {
           {centerLabel ? (
             <p className="pointer-events-auto mx-auto mt-xs flex max-w-[430px] items-center gap-xs rounded-full bg-surface/85 px-md py-xs text-label-sm font-medium text-on-surface shadow-soft backdrop-blur-xl">
               <Icon name="location_on" className="text-[14px] leading-none text-primary" />
-              <span className="truncate">Near {centerLabel}</span>
+              <span className="truncate">{t('near', { label: centerLabel })}</span>
             </p>
           ) : null}
 
           {showSmartReturnReadyBanner ? (
             <div className="pointer-events-auto mx-auto mt-xs flex max-w-[430px] items-center gap-xs rounded-full bg-primary/10 px-md py-xs text-label-sm font-medium text-primary shadow-soft backdrop-blur-xl">
               <Icon name="home_pin" className="text-[14px] leading-none" />
-              <span className="flex-1 truncate">Showing parking near your saved home.</span>
+              <span className="flex-1 truncate">{t('smartReturnReady')}</span>
               <button
                 type="button"
-                aria-label="Dismiss Smart Return notice"
+                aria-label={t('dismissSmartReturn')}
                 onClick={() => setSmartReturnBannerOpen(false)}
                 className="flex h-11 w-11 shrink-0 items-center justify-center rounded-full text-primary hover:bg-primary/15 focus:outline-none focus-visible:ring-2 focus-visible:ring-primary"
               >
@@ -507,9 +512,9 @@ export function MapPage() {
 
           {showSmartReturnSetupNotice ? (
             <div className="pointer-events-auto mx-auto mt-xs max-w-[430px] rounded-2xl bg-surface/90 px-md py-sm text-label-sm text-on-surface shadow-soft backdrop-blur-xl">
-              <p className="m-0">Set up Smart Return in Profile to search near your saved home.</p>
+              <p className="m-0">{t('smartReturnSetup')}</p>
               <Link to="/profile?section=smart-return" className="mt-xs inline-block font-semibold text-primary">
-                Open Smart Return settings
+                {t('smartReturnOpen')}
               </Link>
             </div>
           ) : null}
@@ -524,14 +529,14 @@ export function MapPage() {
             <div className="pointer-events-auto mx-auto mt-xs max-w-[430px] animate-fade-in-up rounded-2xl glass-panel p-md shadow-deep">
               <div className="mb-sm flex items-start justify-between gap-sm">
                 <div>
-                  <h2 className="m-0 text-title-lg text-on-surface">Search options</h2>
+                  <h2 className="m-0 text-title-lg text-on-surface">{t('advanced')}</h2>
                   <p className="m-0 mt-xs text-label-sm text-on-surface-variant">
-                    Coordinate search and result filters use only current backend fields.
+                    {t('subtitle')}
                   </p>
                 </div>
                 <button
                   type="button"
-                  aria-label="Close search options"
+                  aria-label={t('actions.close', { ns: 'common' })}
                   onClick={() => setAdvancedOpen(false)}
                   className="-mr-xs -mt-xs flex h-11 w-11 shrink-0 items-center justify-center rounded-full text-on-surface-variant hover:bg-surface-container focus:outline-none focus-visible:ring-2 focus-visible:ring-primary"
                 >
@@ -542,7 +547,7 @@ export function MapPage() {
                 <summary className="cursor-pointer list-none text-label-sm font-semibold text-on-surface-variant marker:content-none">
                   <span className="inline-flex items-center gap-xs">
                     <Icon name="travel_explore" className="text-[16px] leading-none" />
-                    Advanced coordinates
+                    {t('advanced')}
                   </span>
                 </summary>
                 <div className="mt-sm">{advancedForm}</div>
@@ -557,17 +562,14 @@ export function MapPage() {
                   className="mt-sm inline-flex w-full items-center justify-center gap-xs rounded-full bg-surface-container px-md py-sm text-label-md font-semibold text-on-surface transition-colors hover:bg-surface-container-high focus:outline-none focus-visible:ring-2 focus-visible:ring-primary"
                 >
                   <Icon name="filter_alt" className="text-[16px] leading-none" />
-                  Show {spotsWithDistance.length} result
-                  {spotsWithDistance.length === 1 ? '' : 's'} &amp; filters
+                  {t('sheet.showResultsAndFilters', { count: spotsWithDistance.length })}
                 </button>
               ) : (
                 // No results yet ⇒ filters would be a dead-end. Point back at search
                 // instead of offering a control that opens an empty filter list.
                 <p className="mt-sm flex items-center gap-xs rounded-2xl bg-surface-container px-md py-sm text-label-sm text-on-surface-variant">
                   <Icon name="search" className="text-[16px] leading-none text-primary" />
-                  {params
-                    ? 'No spots matched here yet — try a wider radius or a new place above.'
-                    : 'Search a place above to see parking and result filters.'}
+                  {params ? t('sheet.noMatchYet') : t('sheet.searchPlaceHint')}
                 </p>
               )}
             </div>
@@ -602,7 +604,7 @@ export function MapPage() {
           mounts (media-query driven) so the discovery panel renders once. */}
       {isDesktop ? (
         <aside
-          aria-label="Search results"
+          aria-label={t('sheet.searchResultsAria')}
           className="pointer-events-none absolute bottom-0 right-0 top-0 z-[1050] flex w-[400px] flex-col"
         >
           <div className="pointer-events-auto flex h-full min-h-0 flex-col gap-sm overflow-y-auto glass-panel p-md shadow-sheet-left animate-slide-in-right rounded-l-[2rem] hide-scrollbar">
@@ -613,7 +615,7 @@ export function MapPage() {
         <BottomSheet
           state={sheetState}
           onStateChange={setSheetState}
-          ariaLabel="Search results"
+          ariaLabel={t('sheet.searchResultsAria')}
           summary={
             <span className="block truncate text-label-md font-semibold text-on-surface">
               {summaryText}
@@ -629,15 +631,16 @@ export function MapPage() {
 
 /** One-line summary for the collapsed bottom-sheet peek. */
 function resolveSummary(
+  t: TFunction<'map'>,
   params: NearbySearchParams | null,
   search: { isPending: boolean; isError: boolean },
   visible: number,
   total: number,
 ): string {
-  if (params === null) return 'Search for parking';
-  if (search.isPending) return 'Searching nearby…';
-  if (search.isError) return "Couldn't load results";
-  if (total === 0) return 'No spots nearby';
-  if (visible !== total) return `${visible} of ${total} spots`;
-  return `${total} ${total === 1 ? 'spot' : 'spots'} nearby`;
+  if (params === null) return t('sheet.summaryIdle');
+  if (search.isPending) return t('sheet.summarySearching');
+  if (search.isError) return t('sheet.summaryError');
+  if (total === 0) return t('sheet.summaryEmpty');
+  if (visible !== total) return t('sheet.summaryOf', { visible, total });
+  return t('sheet.summaryNearby', { count: total });
 }

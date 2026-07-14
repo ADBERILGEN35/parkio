@@ -1,0 +1,24 @@
+{
+  "brand": "Parkio",
+  "homeAria": "Parkio home",
+  "primaryAria": "Primary",
+  "closeMenu": "Close menu",
+  "more": "More",
+  "shareSpot": "Share a spot",
+  "primary": {
+    "map": "Map",
+    "mySpots": "My spots",
+    "share": "Share",
+    "leaderboard": "Leaderboard",
+    "profile": "Profile"
+  },
+  "secondary": {
+    "reports": "My reports",
+    "impact": "Impact",
+    "notifications": "Notifications"
+  },
+  "staff": {
+    "moderation": "Moderation",
+    "admin": "Admin"
+  }
+}

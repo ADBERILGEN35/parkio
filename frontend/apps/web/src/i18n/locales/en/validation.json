@@ -1,0 +1,30 @@
+{
+  "email": {
+    "invalid": "Enter a valid email"
+  },
+  "password": {
+    "required": "Password is required",
+    "minLength": "Password must be at least 12 characters",
+    "strong": "Password must be at least 12 characters and include lowercase, uppercase, and a number",
+    "confirm": "Confirm your password",
+    "mismatch": "Passwords do not match",
+    "currentRequired": "Current password is required",
+    "requirements": {
+      "length": "At least 12 characters",
+      "lowercase": "One lowercase letter",
+      "uppercase": "One uppercase letter",
+      "digit": "One number",
+      "notCommon": "Not a common password"
+    }
+  },
+  "displayName": {
+    "min": "Enter your name (at least 2 characters)",
+    "max": "Name must be 50 characters or fewer"
+  },
+  "phoneNumber": {
+    "max": "Phone number must be 32 characters or fewer"
+  },
+  "terms": {
+    "required": "You must accept the terms to continue"
+  }
+}

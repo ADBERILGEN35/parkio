@@ -6,6 +6,7 @@ import com.parkio.user.application.command.UpdatePreferencesCommand;
 import com.parkio.user.application.command.UpdateProfileCommand;
 import com.parkio.user.application.command.UpdateSmartReturnSettingsCommand;
 import com.parkio.user.application.command.UpsertVehicleCommand;
+import com.parkio.user.domain.PreferredLocale;
 import com.parkio.user.domain.exception.UserErrorCode;
 import com.parkio.user.domain.exception.UserException;
 import com.parkio.user.presentation.dto.PreferencesRequest;
@@ -91,8 +92,12 @@ public class UserController {
     public PreferencesResponse updateMyPreferences(
             @RequestHeader(value = USER_ID_HEADER, required = false) String userId,
             @Valid @RequestBody PreferencesRequest request) {
-        UpdatePreferencesCommand command =
-                new UpdatePreferencesCommand(request.preferredRadiusMeters(), request.notificationsEnabled());
+        UpdatePreferencesCommand command = new UpdatePreferencesCommand(
+                request.preferredRadiusMeters(),
+                request.notificationsEnabled(),
+                request.preferredLocale() == null
+                        ? null
+                        : PreferredLocale.fromCode(request.preferredLocale()));
         return PreferencesResponse.from(userService.updateMyPreferences(requireUserId(userId), command));
     }
 

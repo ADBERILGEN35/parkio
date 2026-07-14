@@ -36,13 +36,15 @@ import {
 } from 'react';
 import { useQueryClient } from '@tanstack/react-query';
 import { useForm, type UseFormRegisterReturn } from 'react-hook-form';
+import { useTranslation } from 'react-i18next';
 import { Link, useNavigate } from 'react-router-dom';
 import { mediaApi, parkingApi } from '@/api';
 import { FriendlyApiErrorMessage } from '@/components/FriendlyApiErrorMessage';
 import { MapPicker } from '@/components/map/MapPicker';
 import { isValidLatLng } from '@/components/map/mapConfig';
 import { PlaceSearch } from '@/components/map/PlaceSearch';
-import { humanizeEnum } from '@/lib/format';
+import { enumLabel } from '@/lib/format';
+import { spotStatusLabel } from '@/lib/localized-status';
 import { invalidateGamificationQueries } from '@/lib/gamificationCache';
 import { type GeocodeResult } from '@/lib/geocoding';
 import { showError, showSuccess } from '@/lib/toast';
@@ -58,12 +60,19 @@ const STEP_DETAILS = 2;
 const STEP_REVIEW = 3;
 const TOTAL_STEPS = 4;
 
-const STEP_META: { title: string; description: string }[] = [
-  { title: 'Photo', description: 'Add a clear photo of the parking spot.' },
-  { title: 'Location', description: 'Place the spot on the map or enter coordinates.' },
-  { title: 'Details', description: 'Describe the spot and who it suits.' },
-  { title: 'Review', description: 'Check everything, then publish.' },
-];
+const STEP_DESC_KEYS = [
+  'upload.stepPhotoDesc',
+  'upload.stepLocationDesc',
+  'upload.stepDetailsDesc',
+  'upload.stepReviewDesc',
+] as const;
+
+const STEP_PANEL_TITLE_KEYS = [
+  'upload.panelPhoto',
+  'upload.panelLocation',
+  'upload.panelDetails',
+  'upload.panelReview',
+] as const;
 
 const VEHICLE_ICONS: Record<SpotVehicleType, string> = {
   SEDAN: 'directions_car',
@@ -76,22 +85,22 @@ const VEHICLE_ICONS: Record<SpotVehicleType, string> = {
 
 const LEGAL_STATUS_META: Record<
   LegalStatus,
-  { tone: BadgeTone; icon: string; description: string }
+  { tone: BadgeTone; icon: string; descriptionKey: string }
 > = {
   LEGAL: {
     tone: 'success',
     icon: 'check_circle',
-    description: 'Parking here is allowed.',
+    descriptionKey: 'upload.legalAllowed',
   },
   UNCERTAIN: {
     tone: 'warning',
     icon: 'help',
-    description: 'Rules are unclear or vary by time.',
+    descriptionKey: 'upload.legalUncertain',
   },
   ILLEGAL_OR_RISKY: {
     tone: 'danger',
     icon: 'gpp_bad',
-    description: 'Parking here may be prohibited or risky.',
+    descriptionKey: 'upload.legalRisky',
   },
 };
 
@@ -112,6 +121,7 @@ function formatFileSize(bytes: number): string {
  * multi-photo, price, amenities or geocoding are introduced.
  */
 export function UploadPage() {
+  const { t } = useTranslation('media');
   const navigate = useNavigate();
   const queryClient = useQueryClient();
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -164,7 +174,7 @@ export function UploadPage() {
     setValue('latitude', Number(lat.toFixed(6)), { shouldValidate: true });
     setValue('longitude', Number(lng.toFixed(6)), { shouldValidate: true });
     setValue('manualLocationEdited', true);
-    setLocationLabel('Selected map point');
+    setLocationLabel(t('upload.selectedMapPoint'));
   };
 
   /**
@@ -223,7 +233,7 @@ export function UploadPage() {
     if (selected) {
       const check = mediaUploadSchema.safeParse({ file: selected });
       if (!check.success) {
-        setFileError(check.error.issues[0]?.message ?? 'Invalid file');
+        setFileError(check.error.issues[0]?.message ?? t('upload.invalidFile'));
       }
     }
   };
@@ -248,13 +258,13 @@ export function UploadPage() {
   const validateStep = async (current: number): Promise<boolean> => {
     if (current === STEP_PHOTO) {
       if (!file && !uploadedMedia) {
-        setFileError('Choose a photo to upload');
+        setFileError(t('upload.choosePhoto'));
         return false;
       }
       if (file) {
         const check = mediaUploadSchema.safeParse({ file });
         if (!check.success) {
-          setFileError(check.error.issues[0]?.message ?? 'Invalid file');
+          setFileError(check.error.issues[0]?.message ?? t('upload.invalidFile'));
           return false;
         }
       }
@@ -284,13 +294,13 @@ export function UploadPage() {
 
     if (!uploadedMedia) {
       if (!file) {
-        setFileError('Choose a photo to upload');
+        setFileError(t('upload.choosePhoto'));
         setStep(STEP_PHOTO);
         return;
       }
       const check = mediaUploadSchema.safeParse({ file });
       if (!check.success) {
-        const message = check.error.issues[0]?.message ?? 'Invalid file';
+        const message = check.error.issues[0]?.message ?? t('upload.invalidFile');
         setFileError(message);
         showError(message);
         setStep(STEP_PHOTO);
@@ -304,7 +314,7 @@ export function UploadPage() {
         setPhase('uploading');
         media = await mediaApi.uploadMedia(file as File, createIdempotencyKey());
         setUploadedMedia(media);
-        showSuccess('Photo uploaded.');
+        showSuccess(t('upload.photoUploaded'));
       }
 
       setPhase('creating');
@@ -330,10 +340,10 @@ export function UploadPage() {
       await queryClient.invalidateQueries({ queryKey: ['parking', 'my-spots'] });
       await queryClient.invalidateQueries({ queryKey: ['parking', 'nearby'] });
       await invalidateGamificationQueries(queryClient);
-      showSuccess('Spot created.');
+      showSuccess(t('upload.spotCreated'));
     } catch (error) {
       setSubmitError(error);
-      showError('Could not create spot. Please review the details and try again.');
+      showError(t('upload.createErrorRetry'));
     } finally {
       setPhase('idle');
     }
@@ -358,13 +368,13 @@ export function UploadPage() {
       <div>
         <fieldset disabled={pending} className="m-0 border-0 p-0">
           {/* Step 1 — Photo */}
-          <StepPanel active={step === STEP_PHOTO} title="1. Photo" description={STEP_META[0].description}>
+          <StepPanel active={step === STEP_PHOTO} title={t(STEP_PANEL_TITLE_KEYS[0])} description={t(STEP_DESC_KEYS[0])}>
             <div className="flex flex-col gap-sm">
               <input
                 ref={fileInputRef}
                 type="file"
                 accept={ACCEPTED_TYPES}
-                aria-label="Spot photo"
+                aria-label={t("upload.spotPhotoAria")}
                 className="sr-only"
                 onChange={onFileChange}
               />
@@ -374,7 +384,7 @@ export function UploadPage() {
                     {previewUrl ? (
                       <img
                         src={previewUrl}
-                        alt="Selected spot preview"
+                        alt={t("upload.previewAlt")}
                         className="h-full w-full object-cover"
                       />
                     ) : (
@@ -393,11 +403,11 @@ export function UploadPage() {
                     <div className="mt-sm flex flex-wrap items-center gap-sm">
                       {uploadedMedia ? (
                         <SoftBadge tone="success" icon="cloud_done">
-                          Uploaded — reused on retry
+                          {t('upload.uploadedReuse')}
                         </SoftBadge>
                       ) : !fileError ? (
                         <SoftBadge tone="primary" icon="check">
-                          Ready to upload
+                          {t('upload.readyToUpload')}
                         </SoftBadge>
                       ) : null}
                       <Button
@@ -406,11 +416,11 @@ export function UploadPage() {
                         onClick={() => fileInputRef.current?.click()}
                       >
                         <Icon name="autorenew" className="text-[16px] leading-none" />
-                        Replace
+                        {t('upload.replace')}
                       </Button>
                       <Button type="button" variant="ghost" onClick={clearFile}>
                         <Icon name="delete" className="text-[16px] leading-none" />
-                        Remove
+                        {t('upload.remove')}
                       </Button>
                     </div>
                   </div>
@@ -419,7 +429,7 @@ export function UploadPage() {
                 <div
                   role="button"
                   tabIndex={0}
-                  aria-label="Upload spot photo"
+                  aria-label={t("upload.dropzoneAria")}
                   onClick={() => fileInputRef.current?.click()}
                   onKeyDown={(event) => {
                     if (event.key === 'Enter' || event.key === ' ') {
@@ -444,17 +454,17 @@ export function UploadPage() {
                     <Icon name="add_a_photo" className="text-[32px] leading-none text-primary" />
                   </span>
                   <p className="m-0 text-body-md font-semibold text-on-surface">
-                    Drag &amp; drop a photo, or click to select
+                    {t('upload.dropzoneTitle')}
                   </p>
                   <p className="m-0 text-label-sm text-on-surface-variant">
-                    JPEG, PNG or WebP · up to 10 MB
+                    {t('upload.dropzoneHint')}
                   </p>
                 </div>
               )}
 
               <p className="m-0 flex items-center gap-xs text-label-sm text-on-surface-variant">
                 <Icon name="lock" className="text-[14px] leading-none" />
-                Your photo stays private — it&apos;s only shown on the spot&apos;s page.
+                {t('upload.privacyNote')}
               </p>
               {fileError ? (
                 <p className="m-0 flex items-center gap-xs text-label-sm text-error">
@@ -468,13 +478,12 @@ export function UploadPage() {
           {/* Step 2 — Location */}
           <StepPanel
             active={step === STEP_LOCATION}
-            title="2. Location"
-            description={STEP_META[1].description}
+            title={t(STEP_PANEL_TITLE_KEYS[1])}
+            description={t(STEP_DESC_KEYS[1])}
           >
             <div className="flex flex-col gap-md">
               <p className="m-0 text-label-sm text-on-surface-variant">
-                Search for an address or place, then fine-tune the pin by clicking the map. No
-                reverse geocoding — clicking the map updates coordinates only.
+                {t('upload.locationHint')}
               </p>
 
               {/* Primary: address / place typeahead search */}
@@ -483,7 +492,7 @@ export function UploadPage() {
               {locationLabel ? (
                 <p className="m-0 flex items-center gap-xs text-label-sm font-medium text-on-surface">
                   <Icon name="location_on" className="text-[16px] leading-none text-primary" />
-                  Selected location: {locationLabel}
+                  {t('upload.selectedLocation', { label: locationLabel })}
                 </p>
               ) : null}
 
@@ -493,7 +502,7 @@ export function UploadPage() {
 
               <div className="flex flex-wrap items-center gap-sm">
                 <span className="text-label-sm font-medium text-on-surface-variant">
-                  Selected coordinates:
+                  {t('upload.selectedCoordinates')}
                 </span>
                 {hasCoords ? (
                   <SoftBadge tone="primary" icon="my_location">
@@ -501,13 +510,13 @@ export function UploadPage() {
                   </SoftBadge>
                 ) : (
                   <SoftBadge tone="neutral" icon="location_searching">
-                    Not set yet
+                    {t('upload.notSetYet')}
                   </SoftBadge>
                 )}
               </div>
 
               <Input
-                label="Address (optional)"
+                label={t("upload.addressOptional")}
                 error={errors.addressText?.message}
                 {...register('addressText')}
               />
@@ -517,19 +526,19 @@ export function UploadPage() {
                 <summary className="cursor-pointer list-none text-label-sm font-semibold text-on-surface-variant marker:content-none">
                   <span className="inline-flex items-center gap-xs">
                     <Icon name="tune" className="text-[16px] leading-none" />
-                    Advanced coordinates
+                    {t('upload.advancedCoordinates')}
                   </span>
                 </summary>
                 <div className="mt-sm flex flex-col gap-md">
                   <div className="grid grid-cols-1 gap-md sm:grid-cols-2">
                     <Input
-                      label="Latitude"
+                      label={t("upload.latitude")}
                       inputMode="decimal"
                       error={errors.latitude?.message}
                       {...register('latitude', { onChange: markManual })}
                     />
                     <Input
-                      label="Longitude"
+                      label={t("upload.longitude")}
                       inputMode="decimal"
                       error={errors.longitude?.message}
                       {...register('longitude', { onChange: markManual })}
@@ -541,7 +550,7 @@ export function UploadPage() {
                       className="h-4 w-4 rounded border-outline-variant text-primary focus:ring-primary"
                       {...register('manualLocationEdited')}
                     />
-                    I adjusted the location manually
+                    {t('upload.adjustedManually')}
                   </label>
                 </div>
               </details>
@@ -551,20 +560,20 @@ export function UploadPage() {
           {/* Step 3 — Details */}
           <StepPanel
             active={step === STEP_DETAILS}
-            title="3. Details"
-            description={STEP_META[2].description}
+            title={t(STEP_PANEL_TITLE_KEYS[2])}
+            description={t(STEP_DESC_KEYS[2])}
           >
             <div className="flex flex-col gap-lg">
               <TextAreaField
-                label="Description (optional)"
-                placeholder="Anything that helps drivers find or judge this spot…"
+                label={t("upload.descriptionOptional")}
+                placeholder={t("upload.descriptionPlaceholder")}
                 error={errors.description?.message}
                 registration={register('description')}
               />
 
               <FieldGroup
-                label="Suitable vehicle types"
-                hint="Select all that fit."
+                label={t("upload.vehicleTypes")}
+                hint={t("upload.vehicleTypesHint")}
                 error={errors.suitableVehicleTypes?.message}
               >
                 <div className="grid grid-cols-2 gap-sm sm:grid-cols-3">
@@ -574,7 +583,7 @@ export function UploadPage() {
                       type="checkbox"
                       value={type}
                       icon={VEHICLE_ICONS[type]}
-                      label={humanizeEnum(type)}
+                      label={enumLabel(type, t)}
                       registration={register('suitableVehicleTypes')}
                     />
                   ))}
@@ -582,15 +591,15 @@ export function UploadPage() {
               </FieldGroup>
 
               <SelectField
-                label="Parking context"
+                label={t("upload.parkingContext")}
                 error={errors.parkingContext?.message}
                 registration={register('parkingContext')}
                 options={PARKING_CONTEXTS}
               />
 
               <FieldGroup
-                label="Legal status"
-                hint="Spots marked illegal/risky cannot be created — the backend rejects them."
+                label={t("upload.legalStatus")}
+                hint={t("upload.legalStatusHint")}
                 error={errors.legalStatus?.message}
               >
                 <div className="grid grid-cols-1 gap-sm sm:grid-cols-3">
@@ -600,8 +609,8 @@ export function UploadPage() {
                       type="radio"
                       value={status}
                       icon={LEGAL_STATUS_META[status].icon}
-                      label={humanizeEnum(status)}
-                      description={LEGAL_STATUS_META[status].description}
+                      label={enumLabel(status, t, ['legalStatus'])}
+                      description={t(LEGAL_STATUS_META[status].descriptionKey)}
                       tone={LEGAL_STATUS_META[status].tone}
                       registration={register('legalStatus')}
                     />
@@ -611,13 +620,13 @@ export function UploadPage() {
 
               {legalStatus === 'ILLEGAL_OR_RISKY' ? (
                 <>
-                  <FieldGroup label="Violation reasons" error={errors.violationReasons?.message}>
+                  <FieldGroup label={t("upload.violationReasons")} error={errors.violationReasons?.message}>
                     <div className="flex flex-wrap gap-sm">
                       {VIOLATION_REASONS.map((reason) => (
                         <SelectionChip
                           key={reason}
                           value={reason}
-                          label={humanizeEnum(reason)}
+                          label={enumLabel(reason, t, ['violationReason'])}
                           registration={register('violationReasons')}
                         />
                       ))}
@@ -626,8 +635,7 @@ export function UploadPage() {
                   <div className="flex items-start gap-sm rounded-2xl bg-error/10 p-md text-error">
                     <Icon name="gpp_bad" className="text-[18px] leading-none" />
                     <p className="m-0 text-body-md">
-                      The backend rejects creating spots marked illegal/risky
-                      (ILLEGAL_SPOT_REJECTED). Submitting will fail.
+                      {t('upload.illegalRejected')}
                     </p>
                   </div>
                 </>
@@ -638,8 +646,8 @@ export function UploadPage() {
           {/* Step 4 — Review */}
           <StepPanel
             active={step === STEP_REVIEW}
-            title="4. Review"
-            description={STEP_META[3].description}
+            title={t(STEP_PANEL_TITLE_KEYS[3])}
+            description={t(STEP_DESC_KEYS[3])}
           >
             <ReviewSummary
               previewUrl={previewUrl}
@@ -658,8 +666,7 @@ export function UploadPage() {
                 {uploadedMedia ? (
                   <p className="m-0 flex items-start gap-sm rounded-2xl bg-surface-container-low p-md text-body-md text-on-surface-variant">
                     <Icon name="cloud_done" className="text-[18px] leading-none text-secondary" />
-                    Your photo was uploaded successfully. Fix the details and submit again — the spot
-                    will be created without re-uploading the photo.
+                    {t('upload.retryHint')}
                   </p>
                 ) : null}
               </div>
@@ -667,7 +674,7 @@ export function UploadPage() {
 
             {pending ? (
               <div className="mt-md">
-                <LoadingState label={phase === 'uploading' ? 'Uploading photo…' : 'Creating spot…'} />
+                <LoadingState label={phase === 'uploading' ? t('upload.uploadingPhoto') : t('upload.creatingSpot')} />
               </div>
             ) : null}
           </StepPanel>
@@ -681,12 +688,12 @@ export function UploadPage() {
               disabled={step === STEP_PHOTO || pending}
             >
               <Icon name="arrow_back" className="text-[16px] leading-none" />
-              Back
+              {t('upload.back')}
             </Button>
 
             {step < STEP_REVIEW ? (
               <Button type="button" onClick={() => void goNext()}>
-                Next
+                {t('upload.next')}
                 <Icon name="arrow_forward" className="text-[16px] leading-none" />
               </Button>
             ) : (
@@ -698,10 +705,10 @@ export function UploadPage() {
                   />
                 ) : null}
                 {phase === 'uploading'
-                  ? 'Uploading photo…'
+                  ? t('upload.uploading')
                   : phase === 'creating'
-                    ? 'Creating spot…'
-                    : 'Upload & create spot'}
+                    ? t('upload.submitting')
+                    : t('upload.submit')}
               </Button>
             )}
           </div>
@@ -722,30 +729,36 @@ function WizardContainer({ children }: { children: ReactNode }) {
 }
 
 function WizardHeader({ step }: { step: number }) {
+  const { t } = useTranslation('media');
   const progress = ((step + 1) / TOTAL_STEPS) * 100;
-  const meta = STEP_META[step];
+  const stepTitles = [
+    t('upload.stepPhoto'),
+    t('upload.stepLocation'),
+    t('upload.stepDetails'),
+    t('upload.stepReview'),
+  ];
   return (
     <div className="mb-lg">
       <p className="m-0 flex items-center gap-xs text-label-md font-semibold uppercase tracking-wider text-primary">
         <Icon name="add_location_alt" className="text-[16px] leading-none" />
-        Share a spot
+        {t('upload.title')}
       </p>
       <div className="mt-sm flex flex-wrap items-end justify-between gap-sm">
         <h1 className="m-0 text-headline-lg-mobile text-on-surface md:text-headline-lg">
-          {meta.title}
+          {stepTitles[step]}
         </h1>
         <span className="text-label-md font-semibold text-on-surface-variant">
-          Step {step + 1} of {TOTAL_STEPS}
+          {t('upload.stepOf', { current: step + 1, total: TOTAL_STEPS })}
         </span>
       </div>
-      <p className="m-0 mt-xs text-body-md text-on-surface-variant">{meta.description}</p>
+      <p className="m-0 mt-xs text-body-md text-on-surface-variant">{t('upload.subtitle')}</p>
       <div
         className="mt-md h-1.5 w-full overflow-hidden rounded-full bg-surface-container-high"
         role="progressbar"
         aria-valuenow={step + 1}
         aria-valuemin={1}
         aria-valuemax={TOTAL_STEPS}
-        aria-label={`Step ${step + 1} of ${TOTAL_STEPS}`}
+        aria-label={t('upload.stepProgressAria', { current: step + 1, total: TOTAL_STEPS })}
       >
         <div
           className="h-full rounded-full bg-primary motion-safe:transition-[width] motion-safe:duration-fluid motion-safe:ease-out"
@@ -802,6 +815,7 @@ function ReviewSummary({
   latValue: number;
   lngValue: number;
 }) {
+  const { t } = useTranslation('media');
   const description = (values.description ?? '').trim();
   const descriptionSnippet =
     description.length > 140 ? `${description.slice(0, 140)}…` : description;
@@ -812,7 +826,7 @@ function ReviewSummary({
       <div className="flex flex-col gap-sm rounded-2xl bg-surface-container-low p-md sm:flex-row sm:items-center">
         <div className="h-28 w-full shrink-0 overflow-hidden rounded-xl bg-surface-container-high sm:w-40">
           {previewUrl ? (
-            <img src={previewUrl} alt="Spot preview" className="h-full w-full object-cover" />
+            <img src={previewUrl} alt={t("upload.reviewPreviewAlt")} className="h-full w-full object-cover" />
           ) : (
             <div className="flex h-full w-full items-center justify-center text-on-surface-variant">
               <Icon name="image" className="text-[32px] leading-none" />
@@ -821,7 +835,7 @@ function ReviewSummary({
         </div>
         <div className="min-w-0 flex-1">
           <p className="m-0 truncate text-body-md font-semibold text-on-surface">
-            {fileName ?? 'Photo'}
+            {fileName ?? t('upload.photoFallback')}
           </p>
           {fileSize !== null ? (
             <p className="m-0 mt-xs text-label-sm text-on-surface-variant">
@@ -831,35 +845,35 @@ function ReviewSummary({
           {uploaded ? (
             <div className="mt-sm">
               <SoftBadge tone="success" icon="cloud_done">
-                Uploaded — reused on submit
+                {t('upload.reviewUploadedReuse')}
               </SoftBadge>
             </div>
           ) : null}
         </div>
       </div>
 
-      <ReviewRow icon="my_location" label="Coordinates">
-        {hasCoords ? `${latValue.toFixed(6)}, ${lngValue.toFixed(6)}` : 'Not set'}
+      <ReviewRow icon="my_location" label={t("upload.reviewCoordinates")}>
+        {hasCoords ? `${latValue.toFixed(6)}, ${lngValue.toFixed(6)}` : t('upload.notSet')}
       </ReviewRow>
 
       {values.addressText && values.addressText.trim() !== '' ? (
-        <ReviewRow icon="home_pin" label="Address">
+        <ReviewRow icon="home_pin" label={t("upload.reviewAddress")}>
           {values.addressText}
         </ReviewRow>
       ) : null}
 
       {descriptionSnippet !== '' ? (
-        <ReviewRow icon="description" label="Description">
+        <ReviewRow icon="description" label={t("upload.reviewDescription")}>
           {descriptionSnippet}
         </ReviewRow>
       ) : null}
 
-      <ReviewRow icon="directions_car" label="Vehicle types">
+      <ReviewRow icon="directions_car" label={t("upload.reviewVehicles")}>
         {values.suitableVehicleTypes.length > 0 ? (
           <span className="flex flex-wrap gap-xs">
             {values.suitableVehicleTypes.map((type) => (
               <SoftBadge key={type} tone="neutral">
-                {humanizeEnum(type)}
+                {enumLabel(type, t)}
               </SoftBadge>
             ))}
           </span>
@@ -868,14 +882,14 @@ function ReviewSummary({
         )}
       </ReviewRow>
 
-      <ReviewRow icon="local_parking" label="Parking context">
-        {values.parkingContext ? humanizeEnum(values.parkingContext) : '—'}
+      <ReviewRow icon="local_parking" label={t("upload.parkingContext")}>
+        {values.parkingContext ? enumLabel(values.parkingContext, t, ['parkingContext']) : '—'}
       </ReviewRow>
 
-      <ReviewRow icon="gavel" label="Legal status">
+      <ReviewRow icon="gavel" label={t("upload.legalStatus")}>
         {values.legalStatus ? (
           <SoftBadge tone={LEGAL_STATUS_META[values.legalStatus].tone}>
-            {humanizeEnum(values.legalStatus)}
+            {enumLabel(values.legalStatus, t, ['legalStatus'])}
           </SoftBadge>
         ) : (
           '—'
@@ -883,11 +897,11 @@ function ReviewSummary({
       </ReviewRow>
 
       {values.violationReasons.length > 0 ? (
-        <ReviewRow icon="warning" label="Violation reasons">
+        <ReviewRow icon="warning" label={t("upload.reviewViolations")}>
           <span className="flex flex-wrap gap-xs">
             {values.violationReasons.map((reason) => (
               <SoftBadge key={reason} tone="danger" icon="warning">
-                {humanizeEnum(reason)}
+                {enumLabel(reason, t, ['violationReason'])}
               </SoftBadge>
             ))}
           </span>
@@ -924,22 +938,23 @@ function ReviewRow({
 /* ------------------------------------------------------------------------- */
 
 function SuccessPanel({ spot }: { spot: Spot }) {
+  const { t } = useTranslation('media');
   return (
     <Surface level="raised" className="rounded-3xl p-lg">
       <div className="flex flex-col items-center gap-md py-lg text-center">
         <span className="flex h-20 w-20 items-center justify-center rounded-full bg-secondary-container text-on-secondary-container">
           <Icon name="check" className="text-[40px] leading-none" />
         </span>
-        <h2 className="m-0 text-headline-md text-on-surface">Spot created</h2>
-        <StatusBadge status={spot.status} />
+        <h2 className="m-0 text-headline-md text-on-surface">{t('upload.successTitle')}</h2>
+        <StatusBadge status={spot.status} label={spotStatusLabel(spot.status, t)} />
         <p className="m-0 max-w-sm text-body-md text-on-surface-variant">
-          Thanks for contributing. Redirecting you to your new spot…
+          {t('upload.successRedirect')}
         </p>
         <Link
           to={`/spots/${spot.id}`}
           className="inline-flex items-center gap-sm rounded-full bg-primary px-lg py-sm text-label-md text-on-primary no-underline shadow-sm transition-all duration-std hover:bg-primary/90"
         >
-          View your spot now
+          {t('upload.viewSpotNow')}
           <Icon name="arrow_forward" className="text-[16px] leading-none" />
         </Link>
       </div>
@@ -1055,6 +1070,7 @@ function SelectField({
   registration: UseFormRegisterReturn;
   options: readonly string[];
 }) {
+  const { t } = useTranslation('media');
   return (
     <label className="flex flex-col gap-xs">
       <span className="text-label-md font-semibold text-on-surface">{label}</span>
@@ -1066,10 +1082,10 @@ function SelectField({
         )}
         {...registration}
       >
-        <option value="">— select —</option>
+        <option value="">{t("upload.selectOption")}</option>
         {options.map((option) => (
           <option key={option} value={option}>
-            {humanizeEnum(option)}
+            {enumLabel(option, t, ['parkingContext'])}
           </option>
         ))}
       </select>

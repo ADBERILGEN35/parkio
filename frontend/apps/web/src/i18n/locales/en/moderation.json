@@ -1,0 +1,109 @@
+{
+  "title": "Moderation",
+  "cases": {
+    "title": "Cases",
+    "filterByStatus": "Filter by status",
+    "allRecent": "All (recent)",
+    "emptyTitle": "No cases",
+    "emptyClear": "The moderation queue is clear.",
+    "emptyFiltered": "No cases with status {{status}}.",
+    "assigned": "assigned",
+    "unassigned": "unassigned",
+    "reportCount": "{{count}} report",
+    "reportCount_plural": "{{count}} reports",
+    "opened": "Opened {{when}}"
+  },
+  "detail": {
+    "title": "Case detail",
+    "selectTitle": "Select a case",
+    "selectDescription": "Choose a case from the queue to review its context and take action.",
+    "targetType": "Target type",
+    "target": "Target",
+    "reports": "Reports",
+    "assignedModerator": "Assigned moderator",
+    "unassigned": "Unassigned",
+    "opened": "Opened",
+    "updated": "Updated",
+    "resolution": "Resolution: {{action}}",
+    "resolutionAt": "{{action}} · {{when}}",
+    "closedNote": "This case is closed — it can no longer be assigned or resolved.",
+    "assignToMe": "Assign to me",
+    "assigning": "Assigning…",
+    "assignSuccess": "Case assigned to you.",
+    "assignError": "Could not assign case.",
+    "resolveWithAction": "Resolve with action",
+    "resolveHint": "APPROVE dismisses the case; any other action upholds it.",
+    "selectAction": "Select an action…",
+    "noteOptional": "Note (optional)",
+    "resolveCase": "Resolve case",
+    "resolving": "Resolving…",
+    "resolveSuccess": "Case resolved.",
+    "resolveError": "Could not resolve case."
+  },
+  "appeals": {
+    "title": "Appeals",
+    "emptyTitle": "No appeals yet",
+    "footerNote": "Recent appeals in every status — the backend has no status filter for appeals.",
+    "caseLabel": "Case:",
+    "appellantLabel": "Appellant:",
+    "accept": "Accept",
+    "reject": "Reject",
+    "resolutionNoteOptional": "Resolution note (optional)",
+    "resolveAppeal": "Resolve appeal",
+    "resolving": "Resolving…",
+    "resolveSuccess": "Appeal resolved.",
+    "resolveError": "Could not resolve appeal.",
+    "resolved": "Resolved",
+    "resolvedAt": "Resolved {{when}}"
+  },
+  "errors": {
+    "forbidden": "Moderator or admin role required.",
+    "notFound": "Not found — it may have been removed.",
+    "appealAlreadyResolved": "This appeal was already resolved.",
+    "caseAlreadyClosed": "This case is already resolved or dismissed."
+  },
+  "status": {
+    "OPEN": "Open",
+    "IN_REVIEW": "In review",
+    "RESOLVED": "Resolved",
+    "REJECTED": "Rejected"
+  },
+  "severity": {
+    "LOW": "Low",
+    "MEDIUM": "Medium",
+    "HIGH": "High",
+    "CRITICAL": "Critical"
+  },
+  "appealStatus": {
+    "OPEN": "Open",
+    "ACCEPTED": "Accepted",
+    "REJECTED": "Rejected"
+  },
+  "reason": {
+    "FAKE_PHOTO": "Fake photo",
+    "DUPLICATE_PHOTO": "Duplicate photo",
+    "OLD_PHOTO": "Old photo",
+    "WRONG_LOCATION": "Wrong location",
+    "NOT_A_PARKING_SPOT": "Not a parking spot",
+    "ILLEGAL_OR_RISKY": "Illegal or risky",
+    "WRONG_VEHICLE_SIZE": "Wrong vehicle size",
+    "PRIVATE_PROPERTY": "Private property",
+    "SPAM_BEHAVIOR": "Spam behavior",
+    "ABUSE_REPORT": "Abuse report"
+  },
+  "targetType": {
+    "PARKING_SPOT": "Parking spot",
+    "USER": "User",
+    "MEDIA": "Media"
+  },
+  "action": {
+    "APPROVE": "Approve",
+    "REJECT": "Reject",
+    "MARK_FILLED": "Mark filled",
+    "MARK_RISKY": "Mark risky",
+    "REDUCE_TRUST": "Reduce trust",
+    "DEDUCT_POINTS": "Deduct points",
+    "SUSPEND_USER": "Suspend user",
+    "RESTORE_USER": "Restore user"
+  }
+}

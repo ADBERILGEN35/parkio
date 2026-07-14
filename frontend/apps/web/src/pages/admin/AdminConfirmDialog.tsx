@@ -1,4 +1,5 @@
 import { useState, type ReactNode } from 'react';
+import { useTranslation } from 'react-i18next';
 import { Button, Input } from '@parkio/ui';
 
 interface AdminConfirmDialogProps {
@@ -23,6 +24,7 @@ export function AdminConfirmDialog({
   onCancel,
   onConfirm,
 }: AdminConfirmDialogProps) {
+  const { t } = useTranslation('admin');
   const [reason, setReason] = useState('');
   if (!open) return null;
 
@@ -42,18 +44,20 @@ export function AdminConfirmDialog({
         <div className="mt-sm text-body-md text-on-surface-variant">{description}</div>
         {reasonRequired ? (
           <label className="mt-md block">
-            <span className="mb-xs block text-label-md font-semibold text-on-surface">Reason</span>
+            <span className="mb-xs block text-label-md font-semibold text-on-surface">
+              {t('confirm.reasonLabel')}
+            </span>
             <Input
               value={reason}
               onChange={(e) => setReason(e.target.value)}
-              placeholder="Required for the audit trail"
+              placeholder={t('confirm.reasonPlaceholder')}
               disabled={busy}
             />
           </label>
         ) : null}
         <div className="mt-lg flex justify-end gap-sm">
           <Button type="button" variant="ghost" disabled={busy} onClick={onCancel}>
-            Cancel
+            {t('common.cancel')}
           </Button>
           <Button
             type="button"

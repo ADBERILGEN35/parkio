@@ -26,14 +26,17 @@ import {
   type ResolveCaseFormValues,
 } from '@parkio/validation';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import type { TFunction } from 'i18next';
 import { useState, type ReactNode } from 'react';
 import { useForm } from 'react-hook-form';
+import { useTranslation } from 'react-i18next';
 import { Link } from 'react-router-dom';
 import { moderationApi } from '@/api';
 import { FriendlyApiErrorMessage } from '@/components/FriendlyApiErrorMessage';
 import { ProductCardButton } from '@/components/product/ProductCard';
-import { formatInstant, formatRelativeAgo, humanizeEnum } from '@/lib/format';
+import { formatInstant, formatRelativeAgo } from '@/lib/format';
 import { showError, showSuccess } from '@/lib/toast';
+import i18n from 'i18next';
 
 const CASE_STATUS_TONE: Record<ModerationStatus, BadgeTone> = {
   OPEN: 'primary',
@@ -60,6 +63,13 @@ const SELECT_CLASS =
 const TEXTAREA_CLASS =
   'w-full rounded-lg border-0 bg-surface px-md py-sm text-body-md text-on-surface shadow-sm ring-1 ring-outline-variant/40 placeholder:text-outline focus:outline-none focus:ring-2 focus:ring-primary';
 
+function moderationLabel(t: TFunction<'moderation'>, group: string, value: string): string {
+  const key = `${group}.${value}`;
+  const translated = t(key);
+  if (translated !== key) return translated;
+  return i18n.t('common:unknownEnum');
+}
+
 /**
  * Moderator/admin dashboard. Access is enforced by the gateway and the service
  * (403 FORBIDDEN); the app's RoleRoute mirrors that for UX only. Queue-first
@@ -67,10 +77,11 @@ const TEXTAREA_CLASS =
  * below — all backed by the existing query keys and mutations.
  */
 export function ModerationPage() {
+  const { t } = useTranslation('moderation');
   const [selectedCaseId, setSelectedCaseId] = useState<string | null>(null);
 
   return (
-    <PageShell title="Moderation">
+    <PageShell title={t('title')}>
       <div className="flex flex-col gap-lg">
         <div className="grid grid-cols-1 gap-lg lg:grid-cols-3 lg:items-start">
           <div className="lg:col-span-1">
@@ -80,11 +91,11 @@ export function ModerationPage() {
             {selectedCaseId ? (
               <CaseDetailCard caseId={selectedCaseId} />
             ) : (
-              <Card title="Case detail">
+              <Card title={t('detail.title')}>
                 <EmptyState
                   icon="gavel"
-                  title="Select a case"
-                  description="Choose a case from the queue to review its context and take action."
+                  title={t('detail.selectTitle')}
+                  description={t('detail.selectDescription')}
                 />
               </Card>
             )}
@@ -103,6 +114,7 @@ function CasesCard({
   selectedCaseId: string | null;
   onSelect: (caseId: string) => void;
 }) {
+  const { t } = useTranslation('moderation');
   const [statusFilter, setStatusFilter] = useState<ModerationStatus | ''>('');
 
   const query = useQuery({
@@ -113,18 +125,18 @@ function CasesCard({
   return (
     <Card>
       <div className="mb-md flex flex-col gap-sm">
-        <h2 className="m-0 text-title-lg text-on-surface">Cases</h2>
+        <h2 className="m-0 text-title-lg text-on-surface">{t('cases.title')}</h2>
         <label className="flex flex-col gap-xs text-label-sm text-on-surface-variant">
-          Filter by status
+          {t('cases.filterByStatus')}
           <select
             value={statusFilter}
             onChange={(event) => setStatusFilter(event.target.value as ModerationStatus | '')}
             className={SELECT_CLASS}
           >
-            <option value="">All (recent)</option>
+            <option value="">{t('cases.allRecent')}</option>
             {MODERATION_STATUSES.map((status) => (
               <option key={status} value={status}>
-                {humanizeEnum(status)}
+                {moderationLabel(t, 'status', status)}
               </option>
             ))}
           </select>
@@ -134,15 +146,15 @@ function CasesCard({
       {query.isPending ? (
         <LoadingState />
       ) : query.isError ? (
-        <FriendlyApiErrorMessage error={query.error} mapper={mapModerationError} />
+        <FriendlyApiErrorMessage error={query.error} mapper={(error) => mapModerationError(t, error)} />
       ) : query.data.length === 0 ? (
         <EmptyState
           icon="inbox"
-          title="No cases"
+          title={t('cases.emptyTitle')}
           description={
             statusFilter
-              ? `No cases with status ${humanizeEnum(statusFilter)}.`
-              : 'The moderation queue is clear.'
+              ? t('cases.emptyFiltered', { status: moderationLabel(t, 'status', statusFilter) })
+              : t('cases.emptyClear')
           }
         />
       ) : (
@@ -170,6 +182,8 @@ function CaseListItem({
   selected: boolean;
   onSelect: () => void;
 }) {
+  const { t } = useTranslation('moderation');
+
   return (
     <li>
       <ProductCardButton
@@ -179,25 +193,25 @@ function CaseListItem({
       >
         <div className="flex w-full flex-wrap items-center gap-xs">
           <span className="text-body-md font-semibold text-on-surface">
-            {humanizeEnum(moderationCase.reason)}
+            {moderationLabel(t, 'reason', moderationCase.reason)}
           </span>
           <SoftBadge tone={SEVERITY_TONE[moderationCase.severity]}>
-            {humanizeEnum(moderationCase.severity)}
+            {moderationLabel(t, 'severity', moderationCase.severity)}
           </SoftBadge>
           <SoftBadge tone={CASE_STATUS_TONE[moderationCase.status]}>
-            {humanizeEnum(moderationCase.status)}
+            {moderationLabel(t, 'status', moderationCase.status)}
           </SoftBadge>
         </div>
         <span className="text-label-sm text-on-surface-variant">
-          {humanizeEnum(moderationCase.targetType)} ·{' '}
+          {moderationLabel(t, 'targetType', moderationCase.targetType)} ·{' '}
           <span className="font-mono" title={moderationCase.targetId}>
             {moderationCase.targetId.slice(0, 8)}…
           </span>{' '}
-          · {moderationCase.reportCount} report{moderationCase.reportCount === 1 ? '' : 's'} ·{' '}
-          {moderationCase.assignedModeratorId ? 'assigned' : 'unassigned'}
+          · {t('cases.reportCount', { count: moderationCase.reportCount })} ·{' '}
+          {moderationCase.assignedModeratorId ? t('cases.assigned') : t('cases.unassigned')}
         </span>
         <span className="text-label-sm text-on-surface-variant">
-          Opened {formatRelativeAgo(moderationCase.openedAt)}
+          {t('cases.opened', { when: formatRelativeAgo(moderationCase.openedAt) })}
         </span>
       </ProductCardButton>
     </li>
@@ -205,6 +219,7 @@ function CaseListItem({
 }
 
 function CaseDetailCard({ caseId }: { caseId: string }) {
+  const { t } = useTranslation('moderation');
   const queryClient = useQueryClient();
 
   const query = useQuery({
@@ -221,10 +236,10 @@ function CaseDetailCard({ caseId }: { caseId: string }) {
   const assignMutation = useMutation({
     mutationFn: () => moderationApi.assignModerationCase(caseId),
     onSuccess: () => {
-      showSuccess('Case assigned to you.');
+      showSuccess(t('detail.assignSuccess'));
       void invalidateCases();
     },
-    onError: () => showError('Could not assign case.'),
+    onError: () => showError(t('detail.assignError')),
   });
 
   const {
@@ -246,22 +261,22 @@ function CaseDetailCard({ caseId }: { caseId: string }) {
     onSuccess: async () => {
       reset();
       await invalidateCases();
-      showSuccess('Case resolved.');
+      showSuccess(t('detail.resolveSuccess'));
     },
-    onError: () => showError('Could not resolve case.'),
+    onError: () => showError(t('detail.resolveError')),
   });
 
   if (query.isPending) {
     return (
-      <Card title="Case detail">
+      <Card title={t('detail.title')}>
         <LoadingState />
       </Card>
     );
   }
   if (query.isError) {
     return (
-      <Card title="Case detail">
-        <FriendlyApiErrorMessage error={query.error} mapper={mapModerationError} />
+      <Card title={t('detail.title')}>
+        <FriendlyApiErrorMessage error={query.error} mapper={(error) => mapModerationError(t, error)} />
       </Card>
     );
   }
@@ -270,6 +285,9 @@ function CaseDetailCard({ caseId }: { caseId: string }) {
   const terminal = moderationCase.status === 'RESOLVED' || moderationCase.status === 'REJECTED';
   const pending = assignMutation.isPending || resolveMutation.isPending;
   const onResolve = handleSubmit((values) => resolveMutation.mutate(values));
+  const resolutionActionLabel = moderationCase.resolutionAction
+    ? moderationLabel(t, 'action', moderationCase.resolutionAction)
+    : '—';
 
   return (
     <Card>
@@ -278,7 +296,7 @@ function CaseDetailCard({ caseId }: { caseId: string }) {
         <div className="flex flex-wrap items-start justify-between gap-sm">
           <div className="min-w-0">
             <h2 className="m-0 text-title-lg text-on-surface">
-              {humanizeEnum(moderationCase.reason)}
+              {moderationLabel(t, 'reason', moderationCase.reason)}
             </h2>
             <p className="m-0 mt-xs font-mono text-label-sm text-on-surface-variant">
               {moderationCase.id}
@@ -286,19 +304,22 @@ function CaseDetailCard({ caseId }: { caseId: string }) {
           </div>
           <div className="flex flex-wrap items-center gap-xs">
             <SoftBadge tone={SEVERITY_TONE[moderationCase.severity]} icon="priority_high">
-              {humanizeEnum(moderationCase.severity)}
+              {moderationLabel(t, 'severity', moderationCase.severity)}
             </SoftBadge>
             <SoftBadge tone={CASE_STATUS_TONE[moderationCase.status]}>
-              {humanizeEnum(moderationCase.status)}
+              {moderationLabel(t, 'status', moderationCase.status)}
             </SoftBadge>
           </div>
         </div>
 
         {/* Context — only fields the backend actually exposes (no media/evidence). */}
         <dl className="m-0 grid grid-cols-1 gap-sm sm:grid-cols-2">
-          <Field label="Target type" value={humanizeEnum(moderationCase.targetType)} />
           <Field
-            label="Target"
+            label={t('detail.targetType')}
+            value={moderationLabel(t, 'targetType', moderationCase.targetType)}
+          />
+          <Field
+            label={t('detail.target')}
             value={
               moderationCase.targetType === 'PARKING_SPOT' ? (
                 <Link
@@ -312,26 +333,32 @@ function CaseDetailCard({ caseId }: { caseId: string }) {
               )
             }
           />
-          <Field label="Reports" value={moderationCase.reportCount} />
+          <Field label={t('detail.reports')} value={moderationCase.reportCount} />
           <Field
-            label="Assigned moderator"
+            label={t('detail.assignedModerator')}
             value={
               moderationCase.assignedModeratorId ? (
                 <span className="break-all font-mono">{moderationCase.assignedModeratorId}</span>
               ) : (
-                'Unassigned'
+                t('detail.unassigned')
               )
             }
           />
-          <Field label="Opened" value={formatInstant(moderationCase.openedAt)} />
-          <Field label="Updated" value={formatInstant(moderationCase.updatedAt)} />
+          <Field label={t('detail.opened')} value={formatInstant(moderationCase.openedAt)} />
+          <Field label={t('detail.updated')} value={formatInstant(moderationCase.updatedAt)} />
         </dl>
 
         {terminal ? (
           <div className="rounded-xl bg-surface-container-low p-md">
             <p className="m-0 text-body-md text-on-surface">
-              Resolution: <strong>{moderationCase.resolutionAction ?? '—'}</strong>
-              {moderationCase.resolvedAt ? ` · ${formatInstant(moderationCase.resolvedAt)}` : ''}
+              {moderationCase.resolvedAt ? (
+                t('detail.resolutionAt', {
+                  action: resolutionActionLabel,
+                  when: formatInstant(moderationCase.resolvedAt),
+                })
+              ) : (
+                t('detail.resolution', { action: resolutionActionLabel })
+              )}
             </p>
             {moderationCase.resolutionNote ? (
               <p className="m-0 mt-xs text-body-md text-on-surface-variant">
@@ -340,7 +367,7 @@ function CaseDetailCard({ caseId }: { caseId: string }) {
             ) : null}
             <p className="m-0 mt-sm flex items-center gap-xs text-label-sm text-on-surface-variant">
               <Icon name="lock" className="text-[14px] leading-none" />
-              This case is closed — it can no longer be assigned or resolved.
+              {t('detail.closedNote')}
             </p>
           </div>
         ) : (
@@ -348,25 +375,28 @@ function CaseDetailCard({ caseId }: { caseId: string }) {
             <div className="flex flex-col items-start gap-sm">
               <Button variant="secondary" onClick={() => assignMutation.mutate()} disabled={pending}>
                 <Icon name="assignment_ind" className="text-[16px] leading-none" />
-                {assignMutation.isPending ? 'Assigning…' : 'Assign to me'}
+                {assignMutation.isPending ? t('detail.assigning') : t('detail.assignToMe')}
               </Button>
               {assignMutation.isError ? (
-                <FriendlyApiErrorMessage error={assignMutation.error} mapper={mapModerationError} />
+                <FriendlyApiErrorMessage
+                  error={assignMutation.error}
+                  mapper={(error) => mapModerationError(t, error)}
+                />
               ) : null}
             </div>
 
             <form onSubmit={onResolve}>
               <fieldset disabled={pending} className="m-0 flex flex-col gap-sm border-0 p-0">
                 <label className="flex flex-col gap-xs text-label-md font-semibold text-on-surface">
-                  Resolve with action
+                  {t('detail.resolveWithAction')}
                   <span className="text-label-sm font-normal text-on-surface-variant">
-                    APPROVE dismisses the case; any other action upholds it.
+                    {t('detail.resolveHint')}
                   </span>
                   <select defaultValue="" className={SELECT_CLASS} {...register('action')}>
-                    <option value="">Select an action…</option>
+                    <option value="">{t('detail.selectAction')}</option>
                     {MODERATION_ACTIONS.map((action) => (
                       <option key={action} value={action}>
-                        {humanizeEnum(action)}
+                        {moderationLabel(t, 'action', action)}
                       </option>
                     ))}
                   </select>
@@ -376,7 +406,7 @@ function CaseDetailCard({ caseId }: { caseId: string }) {
                 ) : null}
 
                 <label className="flex flex-col gap-xs text-label-md font-semibold text-on-surface">
-                  Note (optional)
+                  {t('detail.noteOptional')}
                   <textarea rows={3} className={TEXTAREA_CLASS} {...register('note')} />
                 </label>
                 {errors.note ? (
@@ -384,19 +414,22 @@ function CaseDetailCard({ caseId }: { caseId: string }) {
                 ) : null}
 
                 <Button type="submit" disabled={pending} className="self-start">
-                  {resolveMutation.isPending ? 'Resolving…' : 'Resolve case'}
+                  {resolveMutation.isPending ? t('detail.resolving') : t('detail.resolveCase')}
                 </Button>
               </fieldset>
             </form>
             {resolveMutation.isError ? (
-              <FriendlyApiErrorMessage error={resolveMutation.error} mapper={mapModerationError} />
+              <FriendlyApiErrorMessage
+                error={resolveMutation.error}
+                mapper={(error) => mapModerationError(t, error)}
+              />
             ) : null}
           </>
         )}
         {resolveMutation.isSuccess ? (
           <p className="m-0 flex items-center gap-xs text-label-sm text-secondary">
             <Icon name="check_circle" className="text-[14px] leading-none" />
-            Case resolved.
+            {t('detail.resolveSuccess')}
           </p>
         ) : null}
       </div>
@@ -405,19 +438,21 @@ function CaseDetailCard({ caseId }: { caseId: string }) {
 }
 
 function AppealsCard() {
+  const { t } = useTranslation('moderation');
+
   const query = useQuery({
     queryKey: ['moderation', 'appeals'],
     queryFn: moderationApi.getModerationAppeals,
   });
 
   return (
-    <Card title="Appeals">
+    <Card title={t('appeals.title')}>
       {query.isPending ? (
         <LoadingState />
       ) : query.isError ? (
-        <FriendlyApiErrorMessage error={query.error} mapper={mapModerationError} />
+        <FriendlyApiErrorMessage error={query.error} mapper={(error) => mapModerationError(t, error)} />
       ) : query.data.length === 0 ? (
-        <EmptyState icon="balance" title="No appeals yet" />
+        <EmptyState icon="balance" title={t('appeals.emptyTitle')} />
       ) : (
         <ul className="m-0 flex list-none flex-col gap-sm p-0">
           {query.data.map((appeal) => (
@@ -425,24 +460,27 @@ function AppealsCard() {
           ))}
         </ul>
       )}
-      <p className="m-0 mt-md text-label-sm text-on-surface-variant">
-        Recent appeals in every status — the backend has no status filter for appeals.
-      </p>
+      <p className="m-0 mt-md text-label-sm text-on-surface-variant">{t('appeals.footerNote')}</p>
     </Card>
   );
 }
 
 function AppealItem({ appeal }: { appeal: ModerationAppeal }) {
+  const { t } = useTranslation('moderation');
+
   return (
     <li className="rounded-xl border border-outline-variant/40 bg-surface-container-low p-md">
       <div className="flex flex-wrap items-center gap-sm">
-        <SoftBadge tone={APPEAL_STATUS_TONE[appeal.status]}>{humanizeEnum(appeal.status)}</SoftBadge>
+        <SoftBadge tone={APPEAL_STATUS_TONE[appeal.status]}>
+          {moderationLabel(t, 'appealStatus', appeal.status)}
+        </SoftBadge>
         <span className="text-label-sm text-on-surface-variant">
           {formatRelativeAgo(appeal.createdAt)}
         </span>
       </div>
       <p className="m-0 mt-sm text-label-sm text-on-surface-variant">
-        Case: <span className="break-all font-mono">{appeal.caseId}</span> · Appellant:{' '}
+        {t('appeals.caseLabel')}{' '}
+        <span className="break-all font-mono">{appeal.caseId}</span> · {t('appeals.appellantLabel')}{' '}
         <span className="font-mono" title={appeal.appealUserId}>
           {appeal.appealUserId.slice(0, 8)}…
         </span>
@@ -452,7 +490,9 @@ function AppealItem({ appeal }: { appeal: ModerationAppeal }) {
         <ResolveAppealForm appealId={appeal.id} />
       ) : (
         <p className="m-0 mt-xs text-label-sm text-on-surface-variant">
-          {appeal.resolvedAt ? `Resolved ${formatInstant(appeal.resolvedAt)}` : 'Resolved'}
+          {appeal.resolvedAt
+            ? t('appeals.resolvedAt', { when: formatInstant(appeal.resolvedAt) })
+            : t('appeals.resolved')}
           {appeal.resolutionNote ? ` — ${appeal.resolutionNote}` : ''}
         </p>
       )}
@@ -461,6 +501,7 @@ function AppealItem({ appeal }: { appeal: ModerationAppeal }) {
 }
 
 function ResolveAppealForm({ appealId }: { appealId: string }) {
+  const { t } = useTranslation('moderation');
   const queryClient = useQueryClient();
 
   const {
@@ -479,10 +520,10 @@ function ResolveAppealForm({ appealId }: { appealId: string }) {
         note: values.note === '' ? null : values.note,
       }),
     onSuccess: () => {
-      showSuccess('Appeal resolved.');
+      showSuccess(t('appeals.resolveSuccess'));
       void queryClient.invalidateQueries({ queryKey: ['moderation', 'appeals'] });
     },
-    onError: () => showError('Could not resolve appeal.'),
+    onError: () => showError(t('appeals.resolveError')),
   });
 
   const onSubmit = handleSubmit((values) => resolveMutation.mutate(values));
@@ -493,11 +534,11 @@ function ResolveAppealForm({ appealId }: { appealId: string }) {
         <div className="flex gap-md text-body-md text-on-surface">
           <label className="flex items-center gap-xs">
             <input type="radio" value="true" className="text-primary focus:ring-primary" {...register('accepted')} />
-            Accept
+            {t('appeals.accept')}
           </label>
           <label className="flex items-center gap-xs">
             <input type="radio" value="false" className="text-primary focus:ring-primary" {...register('accepted')} />
-            Reject
+            {t('appeals.reject')}
           </label>
         </div>
         {errors.accepted ? (
@@ -505,18 +546,21 @@ function ResolveAppealForm({ appealId }: { appealId: string }) {
         ) : null}
 
         <label className="flex flex-col gap-xs text-label-sm text-on-surface-variant">
-          Resolution note (optional)
+          {t('appeals.resolutionNoteOptional')}
           <textarea rows={2} className={TEXTAREA_CLASS} {...register('note')} />
         </label>
         {errors.note ? <p className="m-0 text-label-sm text-error">{errors.note.message}</p> : null}
 
         <Button type="submit" disabled={resolveMutation.isPending} className="self-start">
-          {resolveMutation.isPending ? 'Resolving…' : 'Resolve appeal'}
+          {resolveMutation.isPending ? t('appeals.resolving') : t('appeals.resolveAppeal')}
         </Button>
       </fieldset>
       {resolveMutation.isError ? (
         <div className="mt-sm">
-          <FriendlyApiErrorMessage error={resolveMutation.error} mapper={mapModerationError} />
+          <FriendlyApiErrorMessage
+            error={resolveMutation.error}
+            mapper={(error) => mapModerationError(t, error)}
+          />
         </div>
       ) : null}
     </form>
@@ -533,17 +577,17 @@ function Field({ label, value }: { label: string; value: ReactNode }) {
 }
 
 /** Friendly wording for expected moderation failures; null falls back to the raw ApiError. */
-function mapModerationError(error: ParkioApiError): string | null {
+function mapModerationError(t: TFunction<'moderation'>, error: ParkioApiError): string | null {
   if (error.status === 403) {
-    return 'Moderator or admin role required.';
+    return t('errors.forbidden');
   }
   if (error.status === 404) {
-    return 'Not found — it may have been removed.';
+    return t('errors.notFound');
   }
   if (error.status === 409) {
     return error.code === 'INVALID_APPEAL_STATE'
-      ? 'This appeal was already resolved.'
-      : 'This case is already resolved or dismissed.';
+      ? t('errors.appealAlreadyResolved')
+      : t('errors.caseAlreadyClosed');
   }
   return null;
 }

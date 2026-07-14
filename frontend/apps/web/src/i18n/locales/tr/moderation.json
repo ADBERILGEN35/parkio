@@ -1,0 +1,109 @@
+{
+  "title": "Moderasyon",
+  "cases": {
+    "title": "Vakalar",
+    "filterByStatus": "Duruma göre filtrele",
+    "allRecent": "Tümü (son)",
+    "emptyTitle": "Vaka yok",
+    "emptyClear": "Moderasyon kuyruğu boş.",
+    "emptyFiltered": "{{status}} durumunda vaka yok.",
+    "assigned": "atanmış",
+    "unassigned": "atanmamış",
+    "reportCount": "{{count}} bildirim",
+    "reportCount_plural": "{{count}} bildirim",
+    "opened": "Açıldı {{when}}"
+  },
+  "detail": {
+    "title": "Vaka detayı",
+    "selectTitle": "Bir vaka seçin",
+    "selectDescription": "Bağlamını incelemek ve işlem yapmak için kuyruktan bir vaka seçin.",
+    "targetType": "Hedef türü",
+    "target": "Hedef",
+    "reports": "Bildirimler",
+    "assignedModerator": "Atanan moderatör",
+    "unassigned": "Atanmamış",
+    "opened": "Açıldı",
+    "updated": "Güncellendi",
+    "resolution": "Çözüm: {{action}}",
+    "resolutionAt": "{{action}} · {{when}}",
+    "closedNote": "Bu vaka kapatıldı — artık atanamaz veya çözülemez.",
+    "assignToMe": "Bana ata",
+    "assigning": "Atanıyor…",
+    "assignSuccess": "Vaka size atandı.",
+    "assignError": "Vaka atanamadı.",
+    "resolveWithAction": "Eylemle çöz",
+    "resolveHint": "ONAYLA vakayı reddeder; diğer eylemler vakayı onaylar.",
+    "selectAction": "Bir eylem seçin…",
+    "noteOptional": "Not (isteğe bağlı)",
+    "resolveCase": "Vakayı çöz",
+    "resolving": "Çözülüyor…",
+    "resolveSuccess": "Vaka çözüldü.",
+    "resolveError": "Vaka çözülemedi."
+  },
+  "appeals": {
+    "title": "İtirazlar",
+    "emptyTitle": "Henüz itiraz yok",
+    "footerNote": "Her durumdaki son itirazlar — backend itirazlar için durum filtresi sunmuyor.",
+    "caseLabel": "Vaka:",
+    "appellantLabel": "İtiraz eden:",
+    "accept": "Kabul et",
+    "reject": "Reddet",
+    "resolutionNoteOptional": "Çözüm notu (isteğe bağlı)",
+    "resolveAppeal": "İtirazı çöz",
+    "resolving": "Çözülüyor…",
+    "resolveSuccess": "İtiraz çözüldü.",
+    "resolveError": "İtiraz çözülemedi.",
+    "resolved": "Çözüldü",
+    "resolvedAt": "Çözüldü {{when}}"
+  },
+  "errors": {
+    "forbidden": "Moderatör veya yönetici rolü gerekir.",
+    "notFound": "Bulunamadı — kaldırılmış olabilir.",
+    "appealAlreadyResolved": "Bu itiraz zaten çözüldü.",
+    "caseAlreadyClosed": "Bu vaka zaten çözüldü veya reddedildi."
+  },
+  "status": {
+    "OPEN": "Açık",
+    "IN_REVIEW": "İncelemede",
+    "RESOLVED": "Çözüldü",
+    "REJECTED": "Reddedildi"
+  },
+  "severity": {
+    "LOW": "Düşük",
+    "MEDIUM": "Orta",
+    "HIGH": "Yüksek",
+    "CRITICAL": "Kritik"
+  },
+  "appealStatus": {
+    "OPEN": "Açık",
+    "ACCEPTED": "Kabul edildi",
+    "REJECTED": "Reddedildi"
+  },
+  "reason": {
+    "FAKE_PHOTO": "Sahte fotoğraf",
+    "DUPLICATE_PHOTO": "Yinelenen fotoğraf",
+    "OLD_PHOTO": "Eski fotoğraf",
+    "WRONG_LOCATION": "Yanlış konum",
+    "NOT_A_PARKING_SPOT": "Park yeri değil",
+    "ILLEGAL_OR_RISKY": "Yasadışı veya riskli",
+    "WRONG_VEHICLE_SIZE": "Yanlış araç boyutu",
+    "PRIVATE_PROPERTY": "Özel mülk",
+    "SPAM_BEHAVIOR": "Spam davranışı",
+    "ABUSE_REPORT": "Kötüye kullanım bildirimi"
+  },
+  "targetType": {
+    "PARKING_SPOT": "Park noktası",
+    "USER": "Kullanıcı",
+    "MEDIA": "Medya"
+  },
+  "action": {
+    "APPROVE": "Onayla",
+    "REJECT": "Reddet",
+    "MARK_FILLED": "Dolu olarak işaretle",
+    "MARK_RISKY": "Riskli olarak işaretle",
+    "REDUCE_TRUST": "Güveni düşür",
+    "DEDUCT_POINTS": "Puan düş",
+    "SUSPEND_USER": "Kullanıcıyı askıya al",
+    "RESTORE_USER": "Kullanıcıyı geri yükle"
+  }
+}

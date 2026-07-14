@@ -1,4 +1,5 @@
 export * from './api-error';
+export * from './locale';
 export * from './auth';
 export * from './parking';
 export * from './media';

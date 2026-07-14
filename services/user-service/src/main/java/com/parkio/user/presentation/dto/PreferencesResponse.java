@@ -2,9 +2,9 @@ package com.parkio.user.presentation.dto;
 
 import com.parkio.user.domain.UserPreference;
 
-public record PreferencesResponse(int preferredRadiusMeters, boolean notificationsEnabled) {
+public record PreferencesResponse(int preferredRadiusMeters, boolean notificationsEnabled, String preferredLocale) {
 
     public static PreferencesResponse from(UserPreference p) {
-        return new PreferencesResponse(p.preferredRadiusMeters(), p.notificationsEnabled());
+        return new PreferencesResponse(p.preferredRadiusMeters(), p.notificationsEnabled(), p.preferredLocale().code());
     }
 }

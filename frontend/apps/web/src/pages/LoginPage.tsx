@@ -1,17 +1,20 @@
 import { zodResolver } from '@hookform/resolvers/zod';
-import { loginSchema, type LoginFormValues } from '@parkio/validation';
+import type { LoginFormValues } from '@parkio/validation';
 import { Button, ErrorMessage, Icon, Input } from '@parkio/ui';
-import { useState } from 'react';
+import { useMemo, useState } from 'react';
 import { useForm } from 'react-hook-form';
+import { useTranslation } from 'react-i18next';
 import { Link, useNavigate, useSearchParams } from 'react-router-dom';
 import { authApi } from '@/api';
 import { describeAuthError } from '@/api/error-messages';
 import { AuthSplitLayout } from '@/pages/auth/AuthSplitLayout';
 import { getPendingProfile } from '@/auth/pendingProfile';
 import { useAuthStore } from '@/auth/store';
+import { createLoginSchema } from '@/lib/validation/localized-schemas';
 import { showError, showSuccess } from '@/lib/toast';
 
 export function LoginPage() {
+  const { t } = useTranslation(['auth', 'common', 'validation', 'errors']);
   const navigate = useNavigate();
   const [searchParams] = useSearchParams();
   const passwordResetSuccess = searchParams.get('passwordReset') === 'success';
@@ -20,12 +23,13 @@ export function LoginPage() {
   const [apiError, setApiError] = useState<string | null>(null);
   const [traceId, setTraceId] = useState<string | undefined>();
 
+  const schema = useMemo(() => createLoginSchema(t), [t]);
   const {
     register,
     handleSubmit,
     setError,
     formState: { errors, isSubmitting },
-  } = useForm<LoginFormValues>({ resolver: zodResolver(loginSchema) });
+  } = useForm<LoginFormValues>({ resolver: zodResolver(schema) });
 
   const onSubmit = handleSubmit(async (values) => {
     setApiError(null);
@@ -33,10 +37,10 @@ export function LoginPage() {
     try {
       const result = await authApi.login(values);
       if (!result.accessToken) {
-        throw new Error('Login response did not include an access token.');
+        throw new Error(t('auth:login.missingToken'));
       }
       setSession(result.accessToken, result.user);
-      showSuccess('Signed in successfully.');
+      showSuccess(t('auth:login.success'));
       if (getPendingProfile()) {
         beginProvisioning();
         navigate('/preparing');
@@ -44,7 +48,7 @@ export function LoginPage() {
         navigate('/map');
       }
     } catch (error) {
-      const friendly = describeAuthError(error, 'Login failed. Please try again.');
+      const friendly = describeAuthError(error, t('errors:auth.loginFailed'), t);
       setApiError(friendly.message);
       setTraceId(friendly.traceId);
       showError(friendly.message);
@@ -57,22 +61,22 @@ export function LoginPage() {
   });
 
   return (
-    <AuthSplitLayout title="Welcome back" subtitle="Sign in to find and share parking.">
+    <AuthSplitLayout title={t('auth:login.title')} subtitle={t('auth:login.subtitle')}>
       {passwordResetSuccess ? (
         <p className="mb-md rounded-2xl bg-success/10 px-md py-sm text-body-md text-success" role="status">
-          Your password was reset. Sign in with your new password.
+          {t('auth:login.passwordResetSuccess')}
         </p>
       ) : null}
       <form onSubmit={onSubmit} className="flex flex-col gap-md">
         <Input
-          label="Email"
+          label={t('auth:login.email')}
           type="email"
           autoComplete="email"
           error={errors.email?.message}
           {...register('email')}
         />
         <Input
-          label="Password"
+          label={t('auth:login.password')}
           type="password"
           autoComplete="current-password"
           error={errors.password?.message}
@@ -80,26 +84,24 @@ export function LoginPage() {
         />
 
         <div className="flex items-center justify-between gap-sm">
-          <p className="m-0 text-label-md text-on-surface-variant">
-            Sessions stay active securely with an HttpOnly refresh cookie.
-          </p>
+          <p className="m-0 text-label-md text-on-surface-variant">{t('auth:login.sessionHint')}</p>
           <Link to="/forgot-password" className="text-label-md font-semibold text-primary hover:underline">
-            Forgot password?
+            {t('auth:login.forgotPassword')}
           </Link>
         </div>
 
         {apiError ? <ErrorMessage message={apiError} traceId={traceId} /> : null}
 
         <Button type="submit" disabled={isSubmitting} className="w-full">
-          {isSubmitting ? 'Signing in…' : 'Sign in'}
+          {isSubmitting ? t('auth:login.submitting') : t('auth:login.submit')}
           {isSubmitting ? null : <Icon name="arrow_forward" className="text-[18px] leading-none" />}
         </Button>
       </form>
 
       <p className="m-0 mt-md text-center text-body-md text-on-surface-variant">
-        No account?{' '}
+        {t('auth:login.noAccount')}{' '}
         <Link to="/register" className="font-semibold text-primary hover:underline">
-          Register
+          {t('auth:login.registerLink')}
         </Link>
       </p>
     </AuthSplitLayout>

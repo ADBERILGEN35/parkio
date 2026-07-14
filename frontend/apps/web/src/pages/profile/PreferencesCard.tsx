@@ -1,5 +1,5 @@
 import { zodResolver } from '@hookform/resolvers/zod';
-import type { UserPreference } from '@parkio/types';
+import type { ParkioLocale, UserPreference } from '@parkio/types';
 import { Button, Icon, Input, LoadingState } from '@parkio/ui';
 import {
   PREFERRED_RADIUS_MAX_METERS,
@@ -8,20 +8,25 @@ import {
   type PreferencesUpdateFormValues,
 } from '@parkio/validation';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import { useEffect } from 'react';
 import { useForm } from 'react-hook-form';
+import { useTranslation } from 'react-i18next';
 import { usersApi } from '@/api';
+import { useAuthStore } from '@/auth/store';
 import { FriendlyApiErrorMessage } from '@/components/FriendlyApiErrorMessage';
 import { SettingsSectionCard } from '@/components/product/SettingsSectionCard';
+import { useLocaleStore } from '@/i18n/localeStore';
 import { showError, showSuccess } from '@/lib/toast';
 
 export function PreferencesCard() {
+  const { t } = useTranslation('settings');
   const query = useQuery({ queryKey: ['me', 'preferences'], queryFn: usersApi.getMyPreferences });
 
   return (
     <SettingsSectionCard
-      title="Preferences"
+      title={t('preferences.title')}
       icon="notifications"
-      description="Tune nearby search radius and account notification preferences."
+      description={t('preferences.description')}
     >
       {query.isPending ? (
         <LoadingState />
@@ -35,14 +40,26 @@ export function PreferencesCard() {
 }
 
 function PreferencesForm({ preferences }: { preferences: UserPreference }) {
+  const { t } = useTranslation('settings');
   const queryClient = useQueryClient();
+  const isAuthenticated = useAuthStore((s) => s.isAuthenticated);
+  const setLocale = useLocaleStore((s) => s.setLocale);
+  const syncFromServer = useLocaleStore((s) => s.syncFromServer);
+  const locale = useLocaleStore((s) => s.locale);
+
+  useEffect(() => {
+    if (preferences.preferredLocale) {
+      syncFromServer(preferences.preferredLocale);
+    }
+  }, [preferences.preferredLocale, syncFromServer]);
+
   const mutation = useMutation({
     mutationFn: usersApi.updateMyPreferences,
-    onSuccess: (preferences) => {
-      queryClient.setQueryData(['me', 'preferences'], preferences);
-      showSuccess('Preferences saved.');
+    onSuccess: (next) => {
+      queryClient.setQueryData(['me', 'preferences'], next);
+      showSuccess(t('preferences.savedToast'));
     },
-    onError: () => showError('Could not save preferences.'),
+    onError: () => showError(t('preferences.saveError')),
   });
 
   const {
@@ -54,10 +71,21 @@ function PreferencesForm({ preferences }: { preferences: UserPreference }) {
   } = useForm<PreferencesUpdateFormValues>({
     resolver: zodResolver(preferencesUpdateSchema),
     defaultValues: {
+      preferredLocale: preferences.preferredLocale ?? locale,
       preferredRadiusMeters: preferences.preferredRadiusMeters,
       notificationsEnabled: preferences.notificationsEnabled,
     },
   });
+
+  const preferredLocale = watch('preferredLocale') ?? locale;
+
+  const onLocaleChange = (next: ParkioLocale) => {
+    setValue('preferredLocale', next, { shouldDirty: true, shouldValidate: true });
+    setLocale(next);
+    if (isAuthenticated) {
+      mutation.mutate({ preferredLocale: next });
+    }
+  };
 
   const onSubmit = handleSubmit((values) => mutation.mutate(values));
 
@@ -75,9 +103,44 @@ function PreferencesForm({ preferences }: { preferences: UserPreference }) {
     <form onSubmit={onSubmit}>
       <fieldset disabled={mutation.isPending} className="m-0 flex flex-col gap-md border-0 p-0">
         <div className="flex flex-col gap-xs">
+          <span className="text-label-md font-semibold text-on-surface">{t('language.label')}</span>
+          <p className="m-0 text-label-sm text-on-surface-variant">{t('language.description')}</p>
+          <div
+            role="radiogroup"
+            aria-label={t('language.aria')}
+            className="mt-xs flex flex-wrap gap-sm"
+          >
+            {(
+              [
+                { value: 'tr' as const, label: t('language.turkish') },
+                { value: 'en' as const, label: t('language.english') },
+              ] as const
+            ).map((option) => {
+              const selected = preferredLocale === option.value;
+              return (
+                <button
+                  key={option.value}
+                  type="button"
+                  role="radio"
+                  aria-checked={selected}
+                  onClick={() => onLocaleChange(option.value)}
+                  className={
+                    selected
+                      ? 'rounded-full bg-primary-container px-md py-sm text-label-md font-semibold text-on-primary-container'
+                      : 'rounded-full bg-surface-container px-md py-sm text-label-md font-medium text-on-surface hover:bg-surface-container-high'
+                  }
+                >
+                  {option.label}
+                </button>
+              );
+            })}
+          </div>
+        </div>
+
+        <div className="flex flex-col gap-xs">
           <div className="flex items-baseline justify-between gap-sm">
             <span className="text-label-md font-semibold text-on-surface">
-              Preferred search radius
+              {t('preferences.radiusLabel')}
             </span>
             <span className="text-label-md font-semibold text-primary">{radiusLabel}</span>
           </div>
@@ -94,10 +157,10 @@ function PreferencesForm({ preferences }: { preferences: UserPreference }) {
               })
             }
             className="w-full accent-primary"
-            aria-label="Preferred search radius slider"
+            aria-label={t('preferences.radiusSliderAria')}
           />
           <Input
-            label="Radius in meters"
+            label={t('preferences.radiusMeters')}
             type="number"
             inputMode="numeric"
             min={PREFERRED_RADIUS_MIN_METERS}
@@ -106,8 +169,10 @@ function PreferencesForm({ preferences }: { preferences: UserPreference }) {
             {...register('preferredRadiusMeters')}
           />
           <p className="m-0 text-label-sm text-on-surface-variant">
-            How far around you nearby search looks, between {PREFERRED_RADIUS_MIN_METERS} m and{' '}
-            {(PREFERRED_RADIUS_MAX_METERS / 1000).toFixed(0)} km.
+            {t('preferences.radiusHelp', {
+              min: PREFERRED_RADIUS_MIN_METERS,
+              maxKm: (PREFERRED_RADIUS_MAX_METERS / 1000).toFixed(0),
+            })}
           </p>
         </div>
         <label className="flex items-center gap-sm text-body-md text-on-surface">
@@ -116,17 +181,17 @@ function PreferencesForm({ preferences }: { preferences: UserPreference }) {
             className="h-4 w-4 rounded border-outline-variant text-primary focus:ring-primary"
             {...register('notificationsEnabled')}
           />
-          Notifications enabled
+          {t('preferences.notificationsEnabled')}
         </label>
         {mutation.isError ? <FriendlyApiErrorMessage error={mutation.error} /> : null}
         {mutation.isSuccess ? (
           <p className="m-0 flex items-center gap-xs text-label-sm text-secondary">
             <Icon name="check_circle" className="text-[14px] leading-none" />
-            Saved.
+            {t('actions.saved', { ns: 'common' })}
           </p>
         ) : null}
         <Button type="submit" disabled={mutation.isPending} className="self-start">
-          {mutation.isPending ? 'Saving…' : 'Save preferences'}
+          {mutation.isPending ? t('preferences.saving') : t('preferences.save')}
         </Button>
       </fieldset>
     </form>

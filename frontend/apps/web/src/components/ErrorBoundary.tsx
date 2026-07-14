@@ -1,5 +1,6 @@
 import { Component, type ErrorInfo, type ReactNode } from 'react';
 import { Button, ErrorMessage, LoadingState } from '@parkio/ui';
+import i18n from 'i18next';
 import { useAuthStore } from '@/auth/store';
 import { frontendConfig } from '@/config/env';
 import { reportFrontendError } from '@/observability/errorReporting';
@@ -86,7 +87,7 @@ export class ErrorBoundary extends Component<ErrorBoundaryProps, ErrorBoundarySt
     if (this.state.chunkReloading) {
       return (
         <main className="flex min-h-screen items-center justify-center bg-background px-md text-on-background">
-          <LoadingState label="Reloading app…" />
+          <LoadingState label={i18n.t('common:errorBoundary.reloading')} />
         </main>
       );
     }
@@ -99,22 +100,23 @@ export class ErrorBoundary extends Component<ErrorBoundaryProps, ErrorBoundarySt
             Parkio
           </p>
           <h1 className="m-0 mt-sm text-headline-lg-mobile text-on-surface md:text-headline-lg">
-            Something went wrong
+            {i18n.t('common:errorBoundary.title')}
           </h1>
           <p className="m-0 mt-md text-body-lg text-on-surface-variant">
-            We could not keep the app running safely. Reload the app, or return to a stable
-            starting point and try again.
+            {i18n.t('common:errorBoundary.description')}
           </p>
           <div className="mt-lg flex flex-wrap gap-sm">
-            <Button onClick={this.handleReload}>Reload app</Button>
+            <Button onClick={this.handleReload}>{i18n.t('common:errorBoundary.reload')}</Button>
             <Button variant="outline" onClick={this.handleNavigate}>
-              Go to {destination === '/map' ? 'map' : 'login'}
+              {destination === '/map'
+                ? i18n.t('common:errorBoundary.goToMap')
+                : i18n.t('common:errorBoundary.goToLogin')}
             </Button>
           </div>
           {this.state.traceId ? (
             <div className="mt-lg">
               <ErrorMessage
-                message="Share this diagnostic id if you contact support."
+                message={i18n.t('common:errorBoundary.shareTrace')}
                 traceId={this.state.traceId}
               />
             </div>

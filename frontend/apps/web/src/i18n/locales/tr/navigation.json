@@ -1,0 +1,24 @@
+{
+  "brand": "Parkio",
+  "homeAria": "Parkio ana sayfa",
+  "primaryAria": "Ana menü",
+  "closeMenu": "Menüyü kapat",
+  "more": "Daha fazla",
+  "shareSpot": "Park yeri paylaş",
+  "primary": {
+    "map": "Harita",
+    "mySpots": "Yerlerim",
+    "share": "Paylaş",
+    "leaderboard": "Sıralama",
+    "profile": "Profil"
+  },
+  "secondary": {
+    "reports": "Bildirimlerim",
+    "impact": "Etki",
+    "notifications": "Bildirimler"
+  },
+  "staff": {
+    "moderation": "Moderasyon",
+    "admin": "Yönetim"
+  }
+}

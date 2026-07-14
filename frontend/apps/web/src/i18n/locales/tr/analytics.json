@@ -1,0 +1,66 @@
+{
+  "title": "Analitik",
+  "overview": {
+    "title": "Genel bakış — yaşam boyu toplamlar",
+    "spotsCreated": "Oluşturulan noktalar",
+    "verifications": "Doğrulamalar",
+    "claims": "Talepler",
+    "rejections": "Reddedilenler",
+    "pointsEarned": "Kazanılan puan",
+    "levelUps": "Seviye atlama",
+    "notifications": "Bildirimler"
+  },
+  "daily": {
+    "title": "Günlük anlık görüntüler",
+    "emptyTitle": "Henüz günlük anlık görüntü yok",
+    "headers": {
+      "date": "Tarih",
+      "metric": "Metrik",
+      "events": "Olaylar",
+      "sum": "Toplam"
+    }
+  },
+  "parking": {
+    "title": "Park hunisi",
+    "emptyTitle": "Henüz park analitiği yok",
+    "headers": {
+      "metric": "Metrik",
+      "events": "Olaylar",
+      "sum": "Toplam"
+    }
+  },
+  "metrics": {
+    "title": "Tüm metrikler",
+    "emptyTitle": "Henüz metrik yok",
+    "headers": {
+      "metric": "Metrik",
+      "totalCount": "Toplam sayı",
+      "totalValue": "Toplam değer"
+    }
+  },
+  "userLookup": {
+    "title": "Kullanıcı analitiği arama",
+    "info": "Backend yalnızca kendi analitiğinizi görmenize izin verir — diğer kimlikler moderatör/yönetici olsa bile 403 döner.",
+    "userIdLabel": "Kullanıcı kimliği",
+    "userIdPlaceholder": "00000000-0000-0000-0000-000000000000",
+    "fetch": "Analitiği getir",
+    "loading": "Yükleniyor…",
+    "useMyId": "Kimliğimi kullan",
+    "emptyTitle": "Bu kullanıcı için henüz analitik yok",
+    "headers": {
+      "metric": "Metrik",
+      "events": "Olaylar",
+      "sum": "Toplam"
+    },
+    "errorForbidden": "Yalnızca kendi analitiğinizi görüntüleyebilirsiniz — backend diğer kullanıcı kimliklerini reddeder."
+  },
+  "metricType": {
+    "PARKING_CREATED": "Park oluşturuldu",
+    "PARKING_VERIFIED": "Park doğrulandı",
+    "PARKING_CLAIMED": "Park talep edildi",
+    "PARKING_REJECTED": "Park reddedildi",
+    "POINTS_EARNED": "Puan kazanıldı",
+    "LEVEL_UP": "Seviye atlandı",
+    "NOTIFICATION_CREATED": "Bildirim oluşturuldu"
+  }
+}

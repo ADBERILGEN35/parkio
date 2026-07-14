@@ -29,16 +29,20 @@ export interface UpdateProfileRequest {
   city?: string;
 }
 
+import type { ParkioLocale } from './locale';
+
 /** `GET /users/me/preferences` — mirrors `PreferencesResponse`. */
 export interface UserPreference {
   preferredRadiusMeters: number;
   notificationsEnabled: boolean;
+  preferredLocale: ParkioLocale;
 }
 
 /** Partial preferences update (`PATCH /users/me/preferences`). Omitted fields are left unchanged. */
 export interface UpdatePreferenceRequest {
   preferredRadiusMeters?: number;
   notificationsEnabled?: boolean;
+  preferredLocale?: ParkioLocale;
 }
 
 export type SmartReturnTodayStatus =

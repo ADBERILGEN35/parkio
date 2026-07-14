@@ -1,0 +1,194 @@
+{
+  "actions": {
+    "save": "Kaydet",
+    "cancel": "İptal",
+    "continue": "Devam et",
+    "back": "Geri",
+    "delete": "Sil",
+    "retry": "Tekrar dene",
+    "close": "Kapat",
+    "dismiss": "Kapat",
+    "search": "Ara",
+    "loading": "Yükleniyor…",
+    "saving": "Kaydediliyor…",
+    "saved": "Kaydedildi.",
+    "signOut": "Çıkış yap",
+    "signIn": "Giriş yap"
+  },
+  "relative": {
+    "justNow": "az önce",
+    "expired": "Süresi doldu",
+    "minutesLeft_one": "{{count}} dk kaldı",
+    "minutesLeft_other": "{{count}} dk kaldı",
+    "hoursLeft_one": "{{count}} sa kaldı",
+    "hoursLeft_other": "{{count}} sa kaldı",
+    "daysLeft_one": "{{count}} gün kaldı",
+    "daysLeft_other": "{{count}} gün kaldı"
+  },
+  "status": {
+    "online": "Çevrimiçi",
+    "offline": "Çevrimdışı"
+  },
+  "offline": {
+    "banner": "Çevrimdışısınız. Parkio ağınız geri döndüğünde yeniden bağlanacak."
+  },
+  "notFound": {
+    "code": "404",
+    "title": "Sayfa bulunamadı",
+    "description": "Bu Parkio sayfası mevcut değil veya bağlantı artık geçerli değil.",
+    "goToMap": "Haritaya git",
+    "goToLogin": "Giriş yap"
+  },
+  "errorBoundary": {
+    "reloading": "Uygulama yenileniyor…",
+    "title": "Bir şeyler ters gitti",
+    "description": "Uygulamayı güvenli şekilde çalıştıramadık. Uygulamayı yenileyin veya kararlı bir başlangıç noktasına dönüp tekrar deneyin.",
+    "reload": "Yenile",
+    "goToMap": "Haritaya git",
+    "goToLogin": "Giriş yap",
+    "shareTrace": "Destek ile iletişime geçerken bu tanılama kimliğini paylaşın."
+  },
+  "enums": {
+    "ACTIVE": "Aktif",
+    "SUSPENDED": "Askıya alındı",
+    "BANNED": "Yasaklandı",
+    "USER": "Kullanıcı",
+    "MODERATOR": "Moderatör",
+    "ADMIN": "Yönetici",
+    "SUPER_ADMIN": "Süper Yönetici",
+    "HIGH": "Yüksek",
+    "MEDIUM": "Orta",
+    "LOW": "Düşük",
+    "MOTORCYCLE": "Motosiklet",
+    "SMALL_CAR": "Küçük araç",
+    "SEDAN": "Sedan",
+    "SUV": "SUV",
+    "VAN": "Minibüs",
+    "TRUCK": "Kamyon",
+    "HIGH_TRUST": "Yüksek güven",
+    "MEDIUM_TRUST": "Orta güven",
+    "LOW_TRUST": "Düşük güven",
+    "UNTRUSTED": "Güvenilmez",
+    "HATCHBACK": "Hatchback",
+    "ANY": "Herhangi biri"
+  },
+  "brand": "Parkio",
+  "titles": {
+    "home": "Parkio - Topluluk Destekli Park Zekâsı",
+    "login": "Parkio — Giriş",
+    "register": "Parkio — Kayıt",
+    "forgotPassword": "Parkio — Şifremi Unuttum",
+    "resetPassword": "Parkio — Şifre Sıfırla",
+    "checkEmail": "Parkio — E-postayı Kontrol Et",
+    "verifyEmail": "Parkio — E-postayı Doğrula",
+    "terms": "Parkio — Kullanım Koşulları",
+    "privacy": "Parkio — Gizlilik",
+    "preparing": "Parkio — Hesap Hazırlanıyor",
+    "map": "Parkio — Harita",
+    "spotDetails": "Parkio — Park Yeri Detayı",
+    "mySpots": "Parkio — Park Yerlerim",
+    "upload": "Parkio — Park Yeri Paylaş",
+    "profile": "Parkio — Ayarlar",
+    "reports": "Parkio — Raporlar",
+    "notifications": "Parkio — Bildirimler",
+    "gamification": "Parkio — Etki",
+    "leaderboard": "Parkio — Sıralama",
+    "moderation": "Parkio — Moderasyon",
+    "analytics": "Parkio — Analitik",
+    "notFound": "Parkio — Sayfa Bulunamadı"
+  },
+  "notificationType": {
+    "NEARBY_PARKING": "Yakındaki park",
+    "LEVEL_UP": "Seviye atlama",
+    "POINT_EARNED": "Puan kazanıldı",
+    "WARNING": "Uyarı",
+    "SYSTEM": "Sistem",
+    "SMART_RETURN_PROMPT": "Akıllı Dönüş promptu",
+    "SMART_RETURN_AVAILABLE": "Akıllı Dönüş hazır"
+  },
+  "accessDenied": {
+    "title": "Erişim reddedildi",
+    "forbidden": "Yasak",
+    "adminRequired": "Bu alan için yönetici rolü gerekir.",
+    "privilegedRequired": "Bu alan için moderatör veya yönetici rolü gerekir."
+  },
+  "spotStatus": {
+    "ACTIVE": "Aktif",
+    "VERIFIED": "Doğrulandı",
+    "SUSPICIOUS": "Şüpheli",
+    "FILLED": "Dolu",
+    "EXPIRED": "Süresi doldu",
+    "REJECTED": "Reddedildi",
+    "UNKNOWN": "Bilinmiyor"
+  },
+  "freshness": {
+    "fresh": "Yeni",
+    "recent": "Yakın",
+    "aging": "Eskiyor",
+    "stale": "Eski"
+  },
+  "parkingContext": {
+    "STREET_PARKING": "Cadde parkı",
+    "OPEN_PARKING_LOT": "Açık otopark",
+    "INDOOR_PARKING": "Kapalı otopark",
+    "MALL_PARKING": "AVM otoparkı",
+    "RESIDENTIAL_AREA": "Konut alanı",
+    "OFFICE_AREA": "Ofis alanı",
+    "UNKNOWN": "Bilinmiyor"
+  },
+  "legalStatus": {
+    "LEGAL": "Yasal",
+    "UNCERTAIN": "Belirsiz",
+    "ILLEGAL_OR_RISKY": "Yasadışı veya riskli"
+  },
+  "violationReason": {
+    "NO_PARKING_SIGN": "Park yasak tabelası",
+    "GARAGE_ENTRANCE": "Garaj girişi",
+    "BUS_STOP": "Otobüs durağı",
+    "PEDESTRIAN_CROSSING": "Yaya geçidi",
+    "FIRE_HYDRANT": "Yangın musluğu",
+    "SIDEWALK": "Kaldırım",
+    "TRAFFIC_FLOW_BLOCKING": "Trafik akışını engelleme",
+    "PRIVATE_PROPERTY": "Özel mülk",
+    "OTHER": "Diğer"
+  },
+  "verificationResult": {
+    "AVAILABLE": "Müsait",
+    "FILLED": "Dolu",
+    "INVALID": "Geçersiz",
+    "ILLEGAL_OR_RISKY": "Yasadışı veya riskli",
+    "WRONG_VEHICLE_SIZE": "Yanlış araç boyutu"
+  },
+  "reportReason": {
+    "FAKE_PHOTO": "Sahte fotoğraf",
+    "DUPLICATE_PHOTO": "Yinelenen fotoğraf",
+    "OLD_PHOTO": "Eski fotoğraf",
+    "WRONG_LOCATION": "Yanlış konum",
+    "NOT_A_PARKING_SPOT": "Park yeri değil",
+    "ILLEGAL_OR_RISKY": "Yasadışı veya riskli",
+    "WRONG_VEHICLE_SIZE": "Yanlış araç boyutu",
+    "PRIVATE_PROPERTY": "Özel mülk",
+    "SPAM_BEHAVIOR": "Spam davranış",
+    "ABUSE_REPORT": "Kötüye kullanım bildirimi"
+  },
+  "reportTarget": {
+    "PARKING_SPOT": "Park yeri",
+    "USER": "Kullanıcı",
+    "MEDIA": "Medya"
+  },
+  "appealStatus": {
+    "OPEN": "Açık",
+    "ACCEPTED": "Kabul edildi",
+    "REJECTED": "Reddedildi"
+  },
+  "pointSource": {
+    "PARKING_UPLOAD": "Park yükleme",
+    "PARKING_VERIFIED": "Park doğrulama",
+    "PARKING_CLAIMED": "Park sahiplenme",
+    "PARKING_FILLED_BY_USER": "Kullanıcı doldurdu",
+    "PENALTY_FAKE": "Ceza: sahte",
+    "PENALTY_SPAM": "Ceza: spam",
+    "PENALTY_ILLEGAL_RISK": "Ceza: yasadışı risk"
+  },
+  "unknownEnum": "Bilinmiyor"
+}

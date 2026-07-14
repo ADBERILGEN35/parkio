@@ -82,10 +82,11 @@ function profileRoute(element: ReactElement): ReactElement {
         <div className="mx-auto w-full max-w-5xl px-md py-lg text-on-background md:px-xl">
           <header className="mb-lg">
             <p className="m-0 flex items-center gap-xs text-label-md font-semibold uppercase tracking-wider text-primary">
-              Account
+              {/* Skeleton eyebrow; full labels come from Settings once the chunk loads */}
+              …
             </p>
             <h1 className="m-0 mt-sm text-headline-lg-mobile text-on-surface md:text-headline-lg">
-              Settings &amp; Preferences
+              …
             </h1>
           </header>
           <ProfileSkeleton />

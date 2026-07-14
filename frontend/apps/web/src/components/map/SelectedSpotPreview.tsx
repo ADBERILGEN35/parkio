@@ -1,6 +1,8 @@
 import { Icon, IconButton, StatusBadge, cn, getTrustFreshnessVisual } from '@parkio/ui';
+import { useTranslation } from 'react-i18next';
 import { Link } from 'react-router-dom';
-import { formatRelativeAgo, formatRemaining, humanizeEnum } from '@/lib/format';
+import { enumLabel, formatRelativeAgo, formatRemaining } from '@/lib/format';
+import { spotStatusLabel } from '@/lib/localized-status';
 import { formatDistance, type SpotWithDistance } from '@/lib/spotDiscovery';
 
 export interface SelectedSpotPreviewProps {
@@ -19,13 +21,14 @@ export interface SelectedSpotPreviewProps {
  * an image. See README caveats.
  */
 export function SelectedSpotPreview({ spot, onClose, className }: SelectedSpotPreviewProps) {
+  const { t } = useTranslation(['map', 'common']);
   const freshness = getTrustFreshnessVisual(spot.updatedAt);
   const address = spot.addressText ?? `${spot.latitude.toFixed(5)}, ${spot.longitude.toFixed(5)}`;
 
   return (
     <div
       role="group"
-      aria-label={`Selected spot: ${address}`}
+      aria-label={t('preview.selectedAria', { address })}
       data-testid="selected-spot-preview"
       className={cn(
         'pointer-events-auto animate-fade-in-up rounded-3xl glass-panel p-md shadow-deep ring-1 ring-primary/10',
@@ -49,7 +52,7 @@ export function SelectedSpotPreview({ spot, onClose, className }: SelectedSpotPr
               {address}
             </p>
             <IconButton
-              aria-label="Close preview"
+              aria-label={t('preview.closeAria')}
               icon="close"
               variant="ghost"
               onClick={onClose}
@@ -58,7 +61,7 @@ export function SelectedSpotPreview({ spot, onClose, className }: SelectedSpotPr
           </div>
 
           <div className="mt-xs flex flex-wrap items-center gap-x-sm gap-y-xs text-label-sm text-on-surface-variant">
-            <StatusBadge status={spot.status} className="font-semibold" />
+            <StatusBadge status={spot.status} label={spotStatusLabel(spot.status, t)} className="font-semibold" />
             {spot.distanceMeters !== null ? (
               <span className="inline-flex items-center gap-xs rounded-full bg-primary/10 px-sm py-xs font-semibold text-primary">
                 <Icon name="near_me" className="text-[14px] leading-none" />
@@ -73,7 +76,7 @@ export function SelectedSpotPreview({ spot, onClose, className }: SelectedSpotPr
 
           <p className="m-0 mt-sm flex items-center gap-xs text-label-sm font-medium text-on-surface-variant">
             <Icon name="schedule" className="text-[14px] leading-none" />
-            {formatRemaining(spot.expiresAt)} · {humanizeEnum(spot.parkingContext)}
+            {formatRemaining(spot.expiresAt)} · {enumLabel(spot.parkingContext, t, ['parkingContext'])}
           </p>
         </div>
       </div>
@@ -83,7 +86,7 @@ export function SelectedSpotPreview({ spot, onClose, className }: SelectedSpotPr
         className="mt-md inline-flex w-full items-center justify-center gap-xs rounded-full bg-primary px-lg py-md text-label-md font-semibold text-on-primary no-underline shadow-md transition-colors hover:bg-primary-container focus:outline-none focus-visible:ring-4 focus-visible:ring-primary/30"
       >
         <Icon name="arrow_forward" className="text-[18px] leading-none" />
-        View spot details
+        {t('preview.viewSpotDetails')}
       </Link>
     </div>
   );

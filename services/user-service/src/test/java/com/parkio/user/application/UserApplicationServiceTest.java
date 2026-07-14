@@ -23,6 +23,7 @@ import com.parkio.user.application.port.UserVehicleProfileRepository;
 import com.parkio.user.application.result.AccountStatusView;
 import com.parkio.user.application.result.PublicProfileView;
 import com.parkio.user.domain.PendingUserStatusEvent;
+import com.parkio.user.domain.PreferredLocale;
 import com.parkio.user.domain.SmartReturnTodayStatus;
 import com.parkio.user.domain.TrustBand;
 import com.parkio.user.domain.UserPreference;
@@ -326,15 +327,36 @@ class UserApplicationServiceTest {
     }
 
     @Test
+    void updateMyPreferencesAppliesLocale() {
+        UUID authUserId = UUID.randomUUID();
+        service.createProfile(command(authUserId));
+
+        UserPreference updated = service.updateMyPreferences(authUserId,
+                new UpdatePreferencesCommand(null, null, PreferredLocale.EN));
+
+        assertThat(updated.preferredLocale()).isEqualTo(PreferredLocale.EN);
+    }
+
+    @Test
+    void newProfilesDefaultToTurkishLocale() {
+        UUID authUserId = UUID.randomUUID();
+        service.createProfile(command(authUserId));
+
+        UserPreference prefs = service.getMyPreferences(authUserId);
+        assertThat(prefs.preferredLocale()).isEqualTo(PreferredLocale.TR);
+    }
+
+    @Test
     void updateMyPreferencesAppliesChanges() {
         UUID authUserId = UUID.randomUUID();
         service.createProfile(command(authUserId));
 
         UserPreference updated = service.updateMyPreferences(authUserId,
-                new UpdatePreferencesCommand(2500, false));
+                new UpdatePreferencesCommand(2500, false, PreferredLocale.EN));
 
         assertThat(updated.preferredRadiusMeters()).isEqualTo(2500);
         assertThat(updated.notificationsEnabled()).isFalse();
+        assertThat(updated.preferredLocale()).isEqualTo(PreferredLocale.EN);
     }
 
     @Test
@@ -343,7 +365,7 @@ class UserApplicationServiceTest {
         service.createProfile(command(authUserId));
 
         assertThatThrownBy(() -> service.updateMyPreferences(authUserId,
-                new UpdatePreferencesCommand(UserPreference.MAX_RADIUS_METERS + 1, null)))
+                new UpdatePreferencesCommand(UserPreference.MAX_RADIUS_METERS + 1, null, null)))
                 .isInstanceOf(IllegalArgumentException.class);
     }
 
@@ -406,7 +428,7 @@ class UserApplicationServiceTest {
         service.updateMySmartReturnSettings(notificationsOffUser,
                 new UpdateSmartReturnSettingsCommand(true, 38.4237, 27.1428,
                         "Konak", LocalTime.of(18, 30), 15));
-        service.updateMyPreferences(notificationsOffUser, new UpdatePreferencesCommand(null, false));
+        service.updateMyPreferences(notificationsOffUser, new UpdatePreferencesCommand(null, false, null));
 
         assertThat(service.claimDueSmartReturnPrompts(LocalDate.of(2026, 6, 6), 10)).isEmpty();
     }

@@ -10,7 +10,8 @@ describe('landing SEO assets', () => {
   it('ships production landing metadata in index.html', () => {
     const indexHtml = readFileSync(resolve(appDir, 'index.html'), 'utf8');
 
-    expect(indexHtml).toContain('Parkio - Community-Powered Parking Intelligence');
+    expect(indexHtml).toContain('Parkio — topluluk destekli park yeri');
+    expect(indexHtml).toContain('lang="tr"');
     expect(indexHtml).toContain('https://parkio.dev/');
     expect(indexHtml).toContain('og:image');
     expect(indexHtml).toContain('twitter:card');

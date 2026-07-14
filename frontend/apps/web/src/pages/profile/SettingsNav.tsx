@@ -1,4 +1,5 @@
 import { Icon, cn } from '@parkio/ui';
+import { useTranslation } from 'react-i18next';
 
 export interface SettingsSection {
   id: string;
@@ -19,9 +20,10 @@ export interface SettingsNavProps {
  * pill + filled icon). Tabs only toggle which section card set is visible.
  */
 export function SettingsNav({ sections, active, onSelect }: SettingsNavProps) {
+  const { t } = useTranslation('settings');
   return (
     <nav
-      aria-label="Settings sections"
+      aria-label={t('sections.navAria')}
       role="tablist"
       aria-orientation="vertical"
       className="-mx-md flex gap-xs overflow-x-auto px-md pb-xs lg:sticky lg:top-lg lg:mx-0 lg:flex-col lg:overflow-visible lg:px-0 lg:pb-0"

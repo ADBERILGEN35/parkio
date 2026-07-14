@@ -1,0 +1,66 @@
+{
+  "title": "Analytics",
+  "overview": {
+    "title": "Overview — lifetime totals",
+    "spotsCreated": "Spots created",
+    "verifications": "Verifications",
+    "claims": "Claims",
+    "rejections": "Rejections",
+    "pointsEarned": "Points earned",
+    "levelUps": "Level-ups",
+    "notifications": "Notifications"
+  },
+  "daily": {
+    "title": "Daily snapshots",
+    "emptyTitle": "No daily snapshots yet",
+    "headers": {
+      "date": "Date",
+      "metric": "Metric",
+      "events": "Events",
+      "sum": "Sum"
+    }
+  },
+  "parking": {
+    "title": "Parking funnel",
+    "emptyTitle": "No parking analytics yet",
+    "headers": {
+      "metric": "Metric",
+      "events": "Events",
+      "sum": "Sum"
+    }
+  },
+  "metrics": {
+    "title": "All metrics",
+    "emptyTitle": "No metrics yet",
+    "headers": {
+      "metric": "Metric",
+      "totalCount": "Total count",
+      "totalValue": "Total value"
+    }
+  },
+  "userLookup": {
+    "title": "User analytics lookup",
+    "info": "The backend only allows viewing your own analytics — other ids return 403, even for moderators/admins.",
+    "userIdLabel": "User id",
+    "userIdPlaceholder": "00000000-0000-0000-0000-000000000000",
+    "fetch": "Fetch analytics",
+    "loading": "Loading…",
+    "useMyId": "Use my id",
+    "emptyTitle": "No analytics for this user yet",
+    "headers": {
+      "metric": "Metric",
+      "events": "Events",
+      "sum": "Sum"
+    },
+    "errorForbidden": "You may only view your own analytics — the backend rejects other user ids."
+  },
+  "metricType": {
+    "PARKING_CREATED": "Parking created",
+    "PARKING_VERIFIED": "Parking verified",
+    "PARKING_CLAIMED": "Parking claimed",
+    "PARKING_REJECTED": "Parking rejected",
+    "POINTS_EARNED": "Points earned",
+    "LEVEL_UP": "Level up",
+    "NOTIFICATION_CREATED": "Notification created"
+  }
+}

@@ -4,10 +4,11 @@ import { Button, Icon, Input, LoadingState, SoftBadge, cn } from '@parkio/ui';
 import { vehicleUpsertSchema, type VehicleUpsertFormValues } from '@parkio/validation';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useForm, type UseFormRegisterReturn } from 'react-hook-form';
+import { useTranslation } from 'react-i18next';
 import { usersApi } from '@/api';
 import { FriendlyApiErrorMessage } from '@/components/FriendlyApiErrorMessage';
 import { SettingsSectionCard } from '@/components/product/SettingsSectionCard';
-import { humanizeEnum } from '@/lib/format';
+import { enumLabel } from '@/lib/format';
 import { showError, showSuccess } from '@/lib/toast';
 
 const VEHICLE_ICONS: Record<VehicleType, string> = {
@@ -20,13 +21,14 @@ const VEHICLE_ICONS: Record<VehicleType, string> = {
 };
 
 export function VehicleCard() {
+  const { t } = useTranslation('settings');
   const query = useQuery({ queryKey: ['me', 'vehicle'], queryFn: usersApi.getMyVehicle });
 
   return (
     <SettingsSectionCard
-      title="Vehicle"
+      title={t('vehicle.title')}
       icon="directions_car"
-      description="Set the vehicle profile used to judge spot fit."
+      description={t('vehicle.description')}
     >
       {query.isPending ? (
         <LoadingState />
@@ -40,14 +42,15 @@ export function VehicleCard() {
 }
 
 function VehicleForm({ vehicle }: { vehicle: VehicleProfile }) {
+  const { t } = useTranslation(['settings', 'common']);
   const queryClient = useQueryClient();
   const mutation = useMutation({
     mutationFn: usersApi.upsertMyVehicle,
     onSuccess: (vehicle) => {
       queryClient.setQueryData(['me', 'vehicle'], vehicle);
-      showSuccess('Vehicle saved.');
+      showSuccess(t('vehicle.savedToast'));
     },
-    onError: () => showError('Could not save vehicle.'),
+    onError: () => showError(t('vehicle.saveError')),
   });
 
   const {
@@ -74,22 +77,23 @@ function VehicleForm({ vehicle }: { vehicle: VehicleProfile }) {
     });
   });
 
+  const vehicleTypeLabel = (type: string) => enumLabel(type, t);
+
   return (
     <form onSubmit={onSubmit}>
       <fieldset disabled={mutation.isPending} className="m-0 flex flex-col gap-md border-0 p-0">
         {!hasVehicle ? (
           <div className="flex items-start gap-sm rounded-xl bg-surface-container-low p-md">
             <Icon name="directions_car" className="text-[20px] leading-none text-primary" />
-            <p className="m-0 text-body-md text-on-surface-variant">
-              No vehicle configured yet — pick a type below (and optionally add a plate) to set one
-              up. Your plate is private and never shown publicly.
-            </p>
+            <p className="m-0 text-body-md text-on-surface-variant">{t('vehicle.empty')}</p>
           </div>
         ) : (
           <div className="flex flex-wrap items-center gap-sm">
-            <span className="text-label-sm font-medium text-on-surface-variant">Current:</span>
+            <span className="text-label-sm font-medium text-on-surface-variant">
+              {t('vehicle.current')}
+            </span>
             <SoftBadge tone="primary" icon="directions_car">
-              {vehicle.vehicleType ? humanizeEnum(vehicle.vehicleType) : 'No type'}
+              {vehicle.vehicleType ? vehicleTypeLabel(vehicle.vehicleType) : t('vehicle.noType')}
             </SoftBadge>
             {vehicle.plate ? (
               <span className="rounded bg-surface-container-low px-sm py-xs font-mono text-label-sm text-on-surface">
@@ -100,14 +104,14 @@ function VehicleForm({ vehicle }: { vehicle: VehicleProfile }) {
         )}
 
         <div className="flex flex-col gap-xs">
-          <span className="text-label-md font-semibold text-on-surface">Vehicle type</span>
+          <span className="text-label-md font-semibold text-on-surface">{t('vehicle.type')}</span>
           <div className="grid grid-cols-2 gap-sm sm:grid-cols-3">
             {VEHICLE_TYPES.map((type) => (
               <VehicleOption
                 key={type}
                 value={type}
                 icon={VEHICLE_ICONS[type]}
-                label={humanizeEnum(type)}
+                label={vehicleTypeLabel(type)}
                 selected={selectedType === type}
                 registration={register('vehicleType')}
               />
@@ -115,7 +119,7 @@ function VehicleForm({ vehicle }: { vehicle: VehicleProfile }) {
             <VehicleOption
               value=""
               icon="block"
-              label="None"
+              label={t('vehicle.none')}
               selected={!selectedType}
               registration={register('vehicleType')}
             />
@@ -126,7 +130,7 @@ function VehicleForm({ vehicle }: { vehicle: VehicleProfile }) {
         </div>
 
         <Input
-          label="Plate (private, never shown publicly)"
+          label={t('vehicle.platePrivate')}
           error={errors.plate?.message}
           {...register('plate')}
         />
@@ -135,11 +139,11 @@ function VehicleForm({ vehicle }: { vehicle: VehicleProfile }) {
         {mutation.isSuccess ? (
           <p className="m-0 flex items-center gap-xs text-label-sm text-secondary">
             <Icon name="check_circle" className="text-[14px] leading-none" />
-            Saved.
+            {t('vehicle.savedInline')}
           </p>
         ) : null}
         <Button type="submit" disabled={mutation.isPending} className="self-start">
-          {mutation.isPending ? 'Saving…' : 'Save vehicle'}
+          {mutation.isPending ? t('vehicle.saving') : t('vehicle.save')}
         </Button>
       </fieldset>
     </form>

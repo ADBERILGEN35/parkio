@@ -1,33 +1,48 @@
 import { hasAdminRole, hasPrivilegedRole } from '@parkio/types';
+import type { TFunction } from 'i18next';
+
+export interface NavItem {
+  to: string;
+  label: string;
+  icon: string;
+}
 
 /** Primary destinations — surfaced in the mobile bottom bar (DESIGN_SYSTEM §2.1). */
-export const PRIMARY_NAV = [
-  { to: '/map', label: 'Map', icon: 'map' },
-  { to: '/my-spots', label: 'My spots', icon: 'bookmark' },
-  { to: '/upload', label: 'Share', icon: 'add_location_alt' },
-  { to: '/leaderboard', label: 'Leaderboard', icon: 'leaderboard' },
-  { to: '/profile', label: 'Profile', icon: 'account_circle' },
-] as const;
+export function getPrimaryNav(t: TFunction): NavItem[] {
+  return [
+    { to: '/map', label: t('navigation:primary.map'), icon: 'map' },
+    { to: '/my-spots', label: t('navigation:primary.mySpots'), icon: 'bookmark' },
+    { to: '/upload', label: t('navigation:primary.share'), icon: 'add_location_alt' },
+    { to: '/leaderboard', label: t('navigation:primary.leaderboard'), icon: 'leaderboard' },
+    { to: '/profile', label: t('navigation:primary.profile'), icon: 'account_circle' },
+  ];
+}
 
 /** Secondary destinations — desktop top bar + mobile overflow menu. */
-export const SECONDARY_NAV = [
-  { to: '/reports', label: 'My reports', icon: 'flag' },
-  { to: '/gamification', label: 'Impact', icon: 'military_tech' },
-  { to: '/notifications', label: 'Notifications', icon: 'notifications' },
-] as const;
+export function getSecondaryNav(t: TFunction): NavItem[] {
+  return [
+    { to: '/reports', label: t('navigation:secondary.reports'), icon: 'flag' },
+    { to: '/gamification', label: t('navigation:secondary.impact'), icon: 'military_tech' },
+    { to: '/notifications', label: t('navigation:secondary.notifications'), icon: 'notifications' },
+  ];
+}
 
-export const MODERATOR_NAV = [{ to: '/admin/moderation', label: 'Moderation', icon: 'gavel' }] as const;
+export function getModeratorNav(t: TFunction): NavItem[] {
+  return [{ to: '/admin/moderation', label: t('navigation:staff.moderation'), icon: 'gavel' }];
+}
 
-export const ADMIN_NAV = [{ to: '/admin', label: 'Admin', icon: 'admin_panel_settings' }] as const;
+export function getAdminNav(t: TFunction): NavItem[] {
+  return [{ to: '/admin', label: t('navigation:staff.admin'), icon: 'admin_panel_settings' }];
+}
 
 /** Staff destinations visible for the caller's roles (moderation vs platform analytics). */
-export function getStaffNavItems(roles: string[]) {
-  const items = [];
+export function getStaffNavItems(roles: string[], t: TFunction): NavItem[] {
+  const items: NavItem[] = [];
   if (hasPrivilegedRole(roles)) {
-    items.push(...MODERATOR_NAV);
+    items.push(...getModeratorNav(t));
   }
   if (hasAdminRole(roles)) {
-    items.push(...ADMIN_NAV);
+    items.push(...getAdminNav(t));
   }
   return items;
 }

@@ -29,11 +29,14 @@ import {
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useState, type ReactNode } from 'react';
 import { useForm } from 'react-hook-form';
+import i18n from 'i18next';
+import { useTranslation } from 'react-i18next';
 import { Link, useParams } from 'react-router-dom';
 import { moderationApi, parkingApi } from '@/api';
 import { FriendlyApiErrorMessage } from '@/components/FriendlyApiErrorMessage';
 import { SpotMap } from '@/components/map/SpotMap';
-import { formatInstant, formatRelativeAgo, formatRemaining, humanizeEnum } from '@/lib/format';
+import { enumLabel, formatInstant, formatRelativeAgo, formatRemaining } from '@/lib/format';
+import { freshnessLabel, spotStatusLabel } from '@/lib/localized-status';
 import { invalidateGamificationQueries } from '@/lib/gamificationCache';
 import { showError, showSuccess } from '@/lib/toast';
 
@@ -61,6 +64,7 @@ function readOptionalMetrics(spot: PublicSpot): OptionalSpotMetrics {
  * All data from `GET /parking/spots/{id}`; photo via parking-mediated signed URL only.
  */
 export function SpotDetailPage() {
+  const { t } = useTranslation('parking');
   const { spotId } = useParams<{ spotId: string }>();
 
   const spotQuery = useQuery({
@@ -77,7 +81,7 @@ export function SpotDetailPage() {
           className="inline-flex items-center gap-xs rounded-full px-sm py-xs text-label-md text-on-surface-variant no-underline transition-colors duration-std hover:bg-surface-container hover:text-primary"
         >
           <Icon name="arrow_back" className="text-[16px] leading-none" />
-          Back to map
+          {t('spotDetail.backToMap')}
         </Link>
       </nav>
 
@@ -88,8 +92,8 @@ export function SpotDetailPage() {
           {isParkioApiError(spotQuery.error) && spotQuery.error.status === 404 ? (
             <EmptyState
               icon="search_off"
-              title="Spot not found"
-              description="This spot was not found — it may have expired, been filled, or been removed."
+              title={t('spotDetail.notFound')}
+              description={t('spotDetail.notFound')}
             />
           ) : (
             <FriendlyApiErrorMessage error={spotQuery.error} />
@@ -165,13 +169,14 @@ function PremiumSection({
 
 /** Sticky trust/status panel — only fields present on the spot response. */
 function TrustStatusPanel({ spot }: { spot: PublicSpot }) {
+  const { t } = useTranslation('parking');
   const freshness = getTrustFreshnessVisual(spot.updatedAt);
   const metrics = readOptionalMetrics(spot);
 
   return (
     <Surface level="raised" className="rounded-3xl p-lg shadow-deep">
       <div className="flex flex-wrap items-center gap-sm">
-        <StatusBadge status={spot.status} />
+        <StatusBadge status={spot.status} label={spotStatusLabel(spot.status, t)} />
         <span
           className={cn(
             'inline-flex items-center gap-xs text-label-sm font-semibold',
@@ -179,10 +184,10 @@ function TrustStatusPanel({ spot }: { spot: PublicSpot }) {
           )}
         >
           <Icon name={freshness.icon} className="text-[14px] leading-none" />
-          {freshness.label}
+          {freshnessLabel(freshness.freshness, t)}
         </span>
         <SoftBadge tone={LEGAL_STATUS_TONES[spot.legalStatus]}>
-          {humanizeEnum(spot.legalStatus)}
+          {enumLabel(spot.legalStatus, t, ['legalStatus'])}
         </SoftBadge>
       </div>
 
@@ -192,27 +197,37 @@ function TrustStatusPanel({ spot }: { spot: PublicSpot }) {
 
       <p className="m-0 mt-xs flex items-center gap-xs text-label-sm text-on-surface-variant">
         <Icon name="schedule" className="text-[14px] leading-none" />
-        {formatRemaining(spot.expiresAt)} · updated {formatRelativeAgo(spot.updatedAt)}
+        {formatRemaining(spot.expiresAt)} ·{' '}
+        {t('spotDetail.updatedAgo', { time: formatRelativeAgo(spot.updatedAt) })}
       </p>
 
       <div className="mt-lg grid grid-cols-2 gap-sm">
-        <TrustTile label="Expires" value={formatRemaining(spot.expiresAt)} />
-        <TrustTile label="Parking context" value={humanizeEnum(spot.parkingContext)} />
+        <TrustTile label={t('spotDetail.expires')} value={formatRemaining(spot.expiresAt)} />
+        <TrustTile
+          label={t('spotDetail.parkingContext')}
+          value={enumLabel(spot.parkingContext, t, ['parkingContext'])}
+        />
         {metrics.confidenceScore !== undefined ? (
-          <TrustTile label="Confidence" value={String(metrics.confidenceScore)} />
+          <TrustTile label={t('spotDetail.confidence')} value={String(metrics.confidenceScore)} />
         ) : null}
         {metrics.verificationCount !== undefined ? (
-          <TrustTile label="Verifications" value={String(metrics.verificationCount)} />
+          <TrustTile
+            label={t('spotDetail.verificationsLabel')}
+            value={String(metrics.verificationCount)}
+          />
         ) : null}
         {metrics.filledReportCount !== undefined ? (
-          <TrustTile label="Filled reports" value={String(metrics.filledReportCount)} />
+          <TrustTile
+            label={t('spotDetail.filledReportsLabel')}
+            value={String(metrics.filledReportCount)}
+          />
         ) : null}
       </div>
 
       {spot.suitableVehicleTypes.length > 0 ? (
         <div className="mt-md">
           <p className="m-0 mb-xs text-label-sm uppercase tracking-wider text-on-surface-variant">
-            Suitable for
+            {t('spotDetail.suitableFor')}
           </p>
           <div className="flex flex-wrap gap-xs">
             {spot.suitableVehicleTypes.map((type) => (
@@ -221,7 +236,7 @@ function TrustStatusPanel({ spot }: { spot: PublicSpot }) {
                 className="inline-flex items-center gap-xs rounded-full bg-surface-container px-sm py-xs text-label-sm text-on-surface-variant"
               >
                 <Icon name="directions_car" className="text-[14px] leading-none" />
-                {humanizeEnum(type)}
+                {enumLabel(type, t)}
               </span>
             ))}
           </div>
@@ -245,6 +260,7 @@ function TrustTile({ label, value }: { label: string; value: string }) {
  * Loading and unavailable states never hide spot details elsewhere on the page.
  */
 function SpotPhotoHero({ spotId }: { spotId: string }) {
+  const { t } = useTranslation('parking');
   const mediaQuery = useQuery({
     queryKey: ['parking', 'spot', spotId, 'media-access-url'],
     queryFn: () => parkingApi.getSpotMediaAccessUrl(spotId),
@@ -255,22 +271,22 @@ function SpotPhotoHero({ spotId }: { spotId: string }) {
   return (
     <section className="overflow-hidden rounded-3xl shadow-deep ring-1 ring-outline-variant/10">
       {mediaQuery.isPending ? (
-        <div className="aspect-[4/3] bg-surface-container-low md:aspect-[16/9]" role="status" aria-label="Loading photo">
+        <div className="aspect-[4/3] bg-surface-container-low md:aspect-[16/9]" role="status" aria-label={t("spotDetail.loadingPhoto")}>
           <SkeletonBlock className="h-full w-full" rounded="sm" />
         </div>
       ) : mediaQuery.isError ? (
         <div className="flex aspect-[4/3] flex-col items-center justify-center gap-md bg-surface-container-low p-lg md:aspect-[16/9]">
           <EmptyState
             icon="no_photography"
-            title="Photo unavailable"
-            description="The photo is temporarily unavailable."
+            title={t("spotDetail.photoUnavailable")}
+            description={t("spotDetail.photoUnavailableDesc")}
             action={
               <Button
                 variant="secondary"
                 onClick={() => mediaQuery.refetch()}
                 disabled={mediaQuery.isFetching}
               >
-                {mediaQuery.isFetching ? 'Retrying…' : 'Retry'}
+                {mediaQuery.isFetching ? t('spotDetail.retrying') : t('spotDetail.retry')}
               </Button>
             }
           />
@@ -279,20 +295,19 @@ function SpotPhotoHero({ spotId }: { spotId: string }) {
         <>
           <img
             src={mediaQuery.data.accessUrl}
-            alt="Parking spot"
+            alt={t("spotDetail.photoAlt")}
             className="aspect-[4/3] w-full bg-surface-container object-cover md:aspect-[16/9]"
           />
           <div className="glass-panel flex flex-wrap items-center justify-between gap-sm border-t border-outline-variant/10 px-lg py-md">
             <p className="m-0 text-label-sm text-on-surface-variant">
-              Photo URL expires at {formatInstant(mediaQuery.data.expiresAt)}. If the image stops
-              loading, refresh it.
+              {t('spotDetail.photoExpires', { time: formatInstant(mediaQuery.data.expiresAt) })}
             </p>
             <Button
               variant="secondary"
               onClick={() => mediaQuery.refetch()}
               disabled={mediaQuery.isFetching}
             >
-              {mediaQuery.isFetching ? 'Refreshing…' : 'Refresh photo URL'}
+              {mediaQuery.isFetching ? t('spotDetail.refreshing') : t('spotDetail.refreshPhoto')}
             </Button>
           </div>
         </>
@@ -311,12 +326,13 @@ function DetailRow({ label, children }: { label: string; children: ReactNode }) 
 }
 
 function SpotOverviewSection({ spot }: { spot: PublicSpot }) {
+  const { t } = useTranslation('parking');
   return (
-    <PremiumSection title="Overview" icon="description">
+    <PremiumSection title={t("spotDetail.overview")} icon="description">
       <div className="flex flex-col gap-sm">
-        <DetailRow label="Address">{spot.addressText ?? '—'}</DetailRow>
-        <DetailRow label="Description">{spot.description ?? '—'}</DetailRow>
-        <DetailRow label="Coordinates">
+        <DetailRow label={t("spotDetail.address")}>{spot.addressText ?? '—'}</DetailRow>
+        <DetailRow label={t("spotDetail.description")}>{spot.description ?? '—'}</DetailRow>
+        <DetailRow label={t("spotDetail.coordinates")}>
           {spot.latitude}, {spot.longitude}
         </DetailRow>
       </div>
@@ -325,29 +341,30 @@ function SpotOverviewSection({ spot }: { spot: PublicSpot }) {
 }
 
 function SpotAttributesSection({ spot }: { spot: PublicSpot }) {
+  const { t } = useTranslation('parking');
   return (
-    <PremiumSection title="Parking attributes" icon="local_parking">
+    <PremiumSection title={t("spotDetail.parkingAttributes")} icon="local_parking">
       <div className="flex flex-wrap items-center gap-xs">
         <span className="rounded-full bg-surface-container px-sm py-xs text-label-sm text-on-surface-variant">
-          {humanizeEnum(spot.parkingContext)}
+          {enumLabel(spot.parkingContext, t, ['parkingContext'])}
         </span>
         <SoftBadge tone={LEGAL_STATUS_TONES[spot.legalStatus]}>
-          {humanizeEnum(spot.legalStatus)}
+          {enumLabel(spot.legalStatus, t, ['legalStatus'])}
         </SoftBadge>
         {spot.manualLocationEdited ? (
           <span className="rounded-full bg-surface-container px-sm py-xs text-label-sm text-on-surface-variant">
-            Location adjusted manually
+            {t('spotDetail.locationAdjusted')}
           </span>
         ) : null}
         {spot.violationReasons.map((reason) => (
           <SoftBadge key={reason} tone="danger" icon="warning">
-            {humanizeEnum(reason)}
+            {enumLabel(reason, t, ['violationReason'])}
           </SoftBadge>
         ))}
       </div>
 
       <h3 className="m-0 mb-sm mt-lg text-body-md font-semibold text-on-surface">
-        Vehicle suitability
+        {t('spotDetail.vehicleSuitability')}
       </h3>
       <div className="flex flex-wrap items-center gap-xs">
         {spot.suitableVehicleTypes.length === 0 ? (
@@ -359,7 +376,7 @@ function SpotAttributesSection({ spot }: { spot: PublicSpot }) {
               className="inline-flex items-center gap-xs rounded-full bg-surface-container px-sm py-xs text-label-sm text-on-surface-variant"
             >
               <Icon name="directions_car" className="text-[14px] leading-none" />
-              {humanizeEnum(type)}
+              {enumLabel(type, t)}
             </span>
           ))
         )}
@@ -373,36 +390,36 @@ function SpotAttributesSection({ spot }: { spot: PublicSpot }) {
  * Uses only timestamps and optional counts from the spot record.
  */
 function CommunitySignalSection({ spot }: { spot: PublicSpot }) {
+  const { t } = useTranslation('parking');
   const metrics = readOptionalMetrics(spot);
 
   return (
     <PremiumSection
-      title="Community signal"
+      title={t("spotDetail.communitySignal")}
       icon="groups"
-      description="Summary from this spot's record — not a full verification history."
+      description={t("spotDetail.communitySignalDesc")}
     >
       <div className="flex flex-col gap-sm">
-        <SignalRow icon="update" label="Last updated" value={formatInstant(spot.updatedAt)} />
-        <SignalRow icon="add_circle" label="Created" value={formatInstant(spot.createdAt)} />
-        <SignalRow icon="timer" label="Expires" value={formatInstant(spot.expiresAt)} />
+        <SignalRow icon="update" label={t("spotDetail.lastUpdated")} value={formatInstant(spot.updatedAt)} />
+        <SignalRow icon="add_circle" label={t("spotDetail.created")} value={formatInstant(spot.createdAt)} />
+        <SignalRow icon="timer" label={t("spotDetail.expires")} value={formatInstant(spot.expiresAt)} />
         {metrics.verificationCount !== undefined ? (
           <SignalRow
             icon="verified"
-            label="Verification count"
+            label={t("spotDetail.verificationCount")}
             value={String(metrics.verificationCount)}
           />
         ) : null}
         {metrics.filledReportCount !== undefined ? (
           <SignalRow
             icon="report"
-            label="Filled report count"
+            label={t("spotDetail.filledReportCount")}
             value={String(metrics.filledReportCount)}
           />
         ) : null}
       </div>
       <p className="m-0 mt-md text-label-sm text-on-surface-variant">
-        Freshness reflects the record's last update — the backend does not expose a verification
-        timeline or lastVerifiedAt yet.
+        {t('spotDetail.freshnessNote')}
       </p>
     </PremiumSection>
   );
@@ -423,11 +440,12 @@ function SignalRow({ icon, label, value }: { icon: string; label: string; value:
 }
 
 function SpotMapSection({ spot }: { spot: PublicSpot }) {
+  const { t } = useTranslation('parking');
   return (
     <PremiumSection
-      title="Location"
+      title={t("spotDetail.location")}
       icon="location_on"
-      description="Spot coordinates on the map — tap markers on the main map to browse nearby."
+      description={t("spotDetail.locationDesc")}
     >
       <div className="overflow-hidden rounded-3xl shadow-deep ring-1 ring-outline-variant/20">
         <SpotMap latitude={spot.latitude} longitude={spot.longitude} />
@@ -449,6 +467,7 @@ const TERMINAL_STATUSES: ReadonlyArray<PublicSpot['status']> = ['FILLED', 'EXPIR
  * Owner restrictions stay backend-enforced; UI only disables terminal statuses.
  */
 function PremiumActionCard({ spot }: { spot: PublicSpot }) {
+  const { t } = useTranslation(['parking', 'common']);
   const queryClient = useQueryClient();
   const [claimed, setClaimed] = useState(false);
   // Claiming flips the spot to FILLED for *every* user and can't be undone, so we
@@ -481,10 +500,10 @@ function PremiumActionCard({ spot }: { spot: PublicSpot }) {
       await queryClient.invalidateQueries({ queryKey: ['parking', 'my-spots'] });
       // Verification awards points/trust asynchronously; mark derived views stale.
       await invalidateGamificationQueries(queryClient);
-      showSuccess('Verification submitted.');
+      showSuccess(t('spotDetail.verifySubmitted'));
     },
     onError: (error) => {
-      showError(mapActionError(error as ParkioApiError) ?? 'Could not submit verification.');
+      showError(mapActionError(error as ParkioApiError) ?? t('spotDetail.verifyError'));
     },
   });
 
@@ -496,10 +515,10 @@ function PremiumActionCard({ spot }: { spot: PublicSpot }) {
       await queryClient.invalidateQueries({ queryKey: ['parking', 'my-spots'] });
       // Claiming awards points/trust asynchronously; mark derived views stale.
       await invalidateGamificationQueries(queryClient);
-      showSuccess('Spot claimed as filled.');
+      showSuccess(t('spotDetail.claimSuccess'));
     },
     onError: (error) => {
-      showError(mapActionError(error as ParkioApiError) ?? 'Could not claim this spot.');
+      showError(mapActionError(error as ParkioApiError) ?? t('spotDetail.claimError'));
     },
   });
 
@@ -524,10 +543,10 @@ function PremiumActionCard({ spot }: { spot: PublicSpot }) {
     onSuccess: async () => {
       resetReport();
       await queryClient.invalidateQueries({ queryKey: ['reports'] });
-      showSuccess('Report submitted.');
+      showSuccess(t('spotDetail.reportSubmitted'));
     },
     onError: (error) => {
-      showError(mapReportError(error as ParkioApiError) ?? 'Could not submit report.');
+      showError(mapReportError(error as ParkioApiError) ?? t('spotDetail.reportError'));
     },
   });
 
@@ -543,29 +562,29 @@ function PremiumActionCard({ spot }: { spot: PublicSpot }) {
     <Surface level="raised" className="rounded-3xl p-lg shadow-deep">
       <h2 className="m-0 flex items-center gap-sm text-title-lg text-on-surface">
         <Icon name="bolt" className="text-primary" />
-        Actions
+        {t('spotDetail.actions')}
       </h2>
       <p className="m-0 mt-xs text-body-md text-on-surface-variant">
-        Help the community keep this spot accurate.
+        {t('spotDetail.actionsHint')}
       </p>
 
       {terminal ? (
         <p className="m-0 mt-md rounded-2xl bg-surface-container-low px-md py-sm text-body-md text-on-surface-variant">
-          This spot is {spot.status.toLowerCase()} — it can no longer be verified or claimed.
+          {t('spotDetail.terminalStatus', { status: spot.status.toLowerCase() })}
         </p>
       ) : null}
 
       {/* Verify availability */}
       <form onSubmit={onVerify} className="mt-lg">
         <fieldset disabled={disabled} className="m-0 flex flex-col gap-sm border-0 p-0">
-          <h3 className="m-0 text-body-md font-semibold text-on-surface">Verify availability</h3>
+          <h3 className="m-0 text-body-md font-semibold text-on-surface">{t('spotDetail.verify')}</h3>
           <label className="flex flex-col gap-xs text-label-sm font-medium text-on-surface-variant">
-            Verify — what did you observe?
+            {t('spotDetail.verifyObserve')}
             <select defaultValue="" className={FIELD_CLASSES} {...registerVerify('result')}>
-              <option value="">Select…</option>
+              <option value="">{t('spotDetail.select')}</option>
               {VERIFICATION_RESULTS.map((result) => (
                 <option key={result} value={result}>
-                  {humanizeEnum(result)}
+                  {enumLabel(result, t, ['verificationResult'])}
                 </option>
               ))}
             </select>
@@ -574,7 +593,7 @@ function PremiumActionCard({ spot }: { spot: PublicSpot }) {
             <p className="m-0 text-label-sm text-error">{verifyErrors.result.message}</p>
           ) : null}
           <Button type="submit" disabled={disabled} className="w-full">
-            {verifyMutation.isPending ? 'Submitting…' : 'Submit verification'}
+{verifyMutation.isPending ? t('spotDetail.submitting') : t('spotDetail.submitVerification')}
           </Button>
         </fieldset>
       </form>
@@ -586,27 +605,27 @@ function PremiumActionCard({ spot }: { spot: PublicSpot }) {
       {verifyMutation.isSuccess ? (
         <p className="m-0 mt-sm flex items-center gap-xs text-body-md font-medium text-secondary">
           <Icon name="check_circle" className="text-[16px] leading-none" />
-          Thanks — your verification was recorded.
+          {t('spotDetail.verifyThanks')}
         </p>
       ) : null}
 
       {/* Claim as filled */}
       <div className="mt-lg flex flex-col gap-sm border-t border-outline-variant/30 pt-lg">
-        <h3 className="m-0 text-body-md font-semibold text-on-surface">Claim as filled</h3>
+        <h3 className="m-0 text-body-md font-semibold text-on-surface">{t('spotDetail.claim')}</h3>
         <p className="m-0 text-label-sm text-on-surface-variant">
-          Parked here? Claiming marks the spot as filled for everyone.
+          {t('spotDetail.claimHint')}
         </p>
         {claimed ? (
           <p className="m-0 flex items-center gap-xs text-body-md font-medium text-secondary">
             <Icon name="check_circle" className="text-[16px] leading-none" />
-            Spot claimed — it is now marked as filled.
+            {t('spotDetail.claimConfirmed')}
           </p>
         ) : confirmingClaim ? (
           // Explicit confirmation for an irreversible, everyone-visible change.
           <div className="flex flex-col gap-sm rounded-2xl bg-surface-container-low p-md">
             <p className="m-0 flex items-start gap-xs text-label-sm font-medium text-on-surface">
               <Icon name="warning" className="text-[16px] leading-none text-tertiary" />
-              This marks the spot filled for everyone and can&apos;t be undone. Continue?
+              {t('spotDetail.claimConfirmPrompt')}
             </p>
             <div className="flex gap-sm">
               <Button
@@ -615,7 +634,7 @@ function PremiumActionCard({ spot }: { spot: PublicSpot }) {
                 disabled={disabled}
                 className="flex-1"
               >
-                {claimMutation.isPending ? 'Claiming…' : 'Yes, mark as filled'}
+{claimMutation.isPending ? t('spotDetail.claiming') : t('spotDetail.claimConfirmYes')}
               </Button>
               <Button
                 variant="ghost"
@@ -623,7 +642,7 @@ function PremiumActionCard({ spot }: { spot: PublicSpot }) {
                 disabled={claimMutation.isPending}
                 className="flex-1"
               >
-                Cancel
+                {t('actions.cancel', { ns: 'common' })}
               </Button>
             </div>
           </div>
@@ -634,7 +653,7 @@ function PremiumActionCard({ spot }: { spot: PublicSpot }) {
             disabled={disabled}
             className="w-full"
           >
-            Claim this spot
+            {t('spotDetail.claimThisSpot')}
           </Button>
         )}
         {claimMutation.isError ? (
@@ -648,17 +667,17 @@ function PremiumActionCard({ spot }: { spot: PublicSpot }) {
           disabled={reportMutation.isPending}
           className="m-0 flex flex-col gap-sm border-0 p-0"
         >
-          <h3 className="m-0 text-body-md font-semibold text-on-surface">Report issue</h3>
+          <h3 className="m-0 text-body-md font-semibold text-on-surface">{t('spotDetail.report')}</h3>
           <p className="m-0 text-label-sm text-on-surface-variant">
-            Something wrong here? Reports go to moderation.
+            {t('spotDetail.reportHint')}
           </p>
           <label className="flex flex-col gap-xs text-label-sm font-medium text-on-surface-variant">
-            What is wrong with this spot?
+            {t('spotDetail.reportWhatWrong')}
             <select defaultValue="" className={FIELD_CLASSES} {...registerReport('reason')}>
-              <option value="">Select a reason…</option>
+              <option value="">{t('spotDetail.selectReason')}</option>
               {MODERATION_REASONS.map((reason) => (
                 <option key={reason} value={reason}>
-                  {humanizeEnum(reason)}
+                  {enumLabel(reason, t, ['reportReason'])}
                 </option>
               ))}
             </select>
@@ -668,7 +687,7 @@ function PremiumActionCard({ spot }: { spot: PublicSpot }) {
           ) : null}
 
           <label className="flex flex-col gap-xs text-label-sm font-medium text-on-surface-variant">
-            Details (optional)
+            {t('spotDetail.detailsOptional')}
             <textarea
               rows={3}
               className={cn(FIELD_CLASSES, 'font-sans')}
@@ -685,7 +704,7 @@ function PremiumActionCard({ spot }: { spot: PublicSpot }) {
             disabled={reportMutation.isPending}
             className="w-full"
           >
-            {reportMutation.isPending ? 'Reporting…' : 'Report this spot'}
+{reportMutation.isPending ? t('spotDetail.reporting') : t('spotDetail.reportThisSpot')}
           </Button>
         </fieldset>
       </form>
@@ -696,9 +715,9 @@ function PremiumActionCard({ spot }: { spot: PublicSpot }) {
       ) : null}
       {reportMutation.isSuccess ? (
         <p className="m-0 mt-sm text-body-md font-medium text-secondary">
-          Report submitted — thanks for helping keep Parkio accurate.{' '}
+          {t('spotDetail.reportThanks')}{' '}
           <Link to="/reports" className="text-primary">
-            View my reports
+            {t('spotDetail.viewMyReports')}
           </Link>
         </p>
       ) : null}
@@ -709,10 +728,10 @@ function PremiumActionCard({ spot }: { spot: PublicSpot }) {
 /** Friendly wording for expected report failures; null falls back to the raw ApiError. */
 function mapReportError(error: ParkioApiError): string | null {
   if (error.status === 409 && error.code === 'DUPLICATE_REPORT') {
-    return 'You have already reported this spot for this reason.';
+    return i18n.t('parking:spotDetail.duplicateReport');
   }
   if (error.status === 404) {
-    return 'This spot was not found — it may have expired or been removed.';
+    return i18n.t('parking:spotDetail.spotGone');
   }
   return null;
 }
@@ -720,12 +739,12 @@ function mapReportError(error: ParkioApiError): string | null {
 /** Friendly wording for expected verify/claim failures; null falls back to the raw ApiError. */
 function mapActionError(error: ParkioApiError): string | null {
   if (error.status === 404) {
-    return 'This spot was not found — it may have expired or been removed.';
+    return i18n.t('parking:spotDetail.spotGone');
   }
   if (error.status === 409) {
     return error.code === 'ALREADY_VERIFIED'
-      ? 'You have already verified this spot.'
-      : 'This spot is no longer available for this action.';
+      ? i18n.t('parking:spotDetail.alreadyVerified')
+      : i18n.t('parking:spotDetail.actionUnavailable');
   }
   return null;
 }

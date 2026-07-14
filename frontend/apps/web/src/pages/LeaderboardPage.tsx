@@ -10,6 +10,7 @@ import {
 } from '@parkio/ui';
 import { useQueries, useQuery } from '@tanstack/react-query';
 import { useState } from 'react';
+import { useTranslation } from 'react-i18next';
 import { gamificationApi, usersApi } from '@/api';
 import { FriendlyApiErrorMessage } from '@/components/FriendlyApiErrorMessage';
 import { LeaderboardRow, initialsFor, labelFor } from '@/components/product/LeaderboardRow';
@@ -42,6 +43,7 @@ const PODIUM_RING: Record<number, string> = {
  * exposes none of these and nothing is invented.
  */
 export function LeaderboardPage() {
+  const { t } = useTranslation('parking');
   const [limitStep, setLimitStep] = useState(0);
   const limit = LIMIT_STEPS[limitStep]!;
   const canShowMore = limitStep < LIMIT_STEPS.length - 1;
@@ -83,13 +85,13 @@ export function LeaderboardPage() {
       <header className="mb-lg">
         <p className="m-0 flex items-center gap-xs text-label-md font-semibold uppercase tracking-wider text-primary">
           <Icon name="leaderboard" className="text-[16px] leading-none" />
-          Community
+          {t('gamification.eyebrow')}
         </p>
         <h1 className="m-0 mt-sm text-headline-lg-mobile text-on-surface md:text-headline-lg">
-          Top Contributors
+          {t('leaderboard.title')}
         </h1>
         <p className="m-0 mt-xs text-body-md text-on-surface-variant">
-          Recognizing the community members who help map the curb.
+          {t('leaderboard.description')}
         </p>
       </header>
 
@@ -100,8 +102,8 @@ export function LeaderboardPage() {
       ) : entries.length === 0 ? (
         <EmptyState
           icon="leaderboard"
-          title="No ranked contributors yet"
-          description="Share and verify spots to earn points and climb the ranks."
+          title={t('leaderboard.emptyTitle')}
+          description={t('leaderboard.emptyDescription')}
         />
       ) : (
         <div className="flex flex-col gap-lg">
@@ -122,17 +124,17 @@ export function LeaderboardPage() {
                 className="inline-flex items-center gap-xs rounded-full bg-surface-container px-lg py-sm text-label-md font-semibold text-on-surface transition-colors hover:bg-surface-container-high disabled:opacity-60"
               >
                 <Icon name="expand_more" className="text-[18px] leading-none" />
-                {query.isFetching ? 'Loading…' : 'Show more'}
+                {query.isFetching ? t('notifications.loading') : t('leaderboard.showMore')}
               </button>
             ) : null}
-            <p className="m-0 text-label-sm text-on-surface-variant">Showing top {limit}</p>
+            <p className="m-0 text-label-sm text-on-surface-variant">
+              {t('leaderboard.showingTop', { limit })}
+            </p>
           </div>
         </div>
       )}
 
-      <p className="m-0 mt-lg text-label-sm text-on-surface-variant">
-        Leaderboard is based on lifetime points. Weekly/monthly rankings require backend support.
-      </p>
+      <p className="m-0 mt-lg text-label-sm text-on-surface-variant">{t('leaderboard.footerNote')}</p>
     </div>
   );
 }
@@ -142,17 +144,18 @@ export function LeaderboardPage() {
 /* ------------------------------------------------------------------------- */
 
 function YourStanding({ entry, hasProgress }: { entry: LeaderboardEntry | null; hasProgress: boolean }) {
+  const { t } = useTranslation('parking');
   if (entry) {
     return (
       <Surface level="raised" className="rounded-3xl p-lg">
         <p className="m-0 mb-md flex items-center gap-xs text-label-md font-semibold uppercase tracking-wider text-primary">
           <Icon name="person_pin_circle" className="text-[18px] leading-none" />
-          Your standing
+          {t('leaderboard.yourStanding')}
         </p>
         <div className="grid grid-cols-1 gap-md sm:grid-cols-3">
-          <MetricCard label="Rank" value={`#${entry.rank}`} icon="trophy" />
-          <MetricCard label="Points" value={entry.totalPoints} icon="stars" />
-          <MetricCard label="Level" value={entry.currentLevel} icon="military_tech" />
+          <MetricCard label={t('leaderboard.rank')} value={`#${entry.rank}`} icon="trophy" />
+          <MetricCard label={t('leaderboard.points')} value={entry.totalPoints} icon="stars" />
+          <MetricCard label={t('leaderboard.level')} value={entry.currentLevel} icon="military_tech" />
         </div>
       </Surface>
     );
@@ -165,7 +168,7 @@ function YourStanding({ entry, hasProgress }: { entry: LeaderboardEntry | null; 
     <Surface level="flat" className="rounded-2xl p-md">
       <p className="m-0 flex items-center gap-sm text-body-md text-on-surface-variant">
         <Icon name="info" className="text-[18px] leading-none text-primary" />
-        You are not in the current Top N yet. Share and verify spots to climb the ranks.
+        {t('leaderboard.notRanked')}
       </p>
     </Surface>
   );
@@ -184,12 +187,13 @@ function Podium({
   profiles: Map<string, PublicProfile | null>;
   myUserId: string | null;
 }) {
+  const { t } = useTranslation('parking');
   // Display order puts 1st in the centre: [2nd, 1st, 3rd]. With fewer than three
   // entries we keep natural order and still render gracefully.
   const ordered = entries.length === 3 ? [entries[1]!, entries[0]!, entries[2]!] : entries;
 
   return (
-    <section aria-label="Top three contributors" className="flex items-end justify-center gap-md sm:gap-lg">
+    <section aria-label={t('leaderboard.podium')} className="flex items-end justify-center gap-md sm:gap-lg">
       {ordered.map((entry) => (
         <PodiumCard
           key={entry.userId}
@@ -211,6 +215,7 @@ function PodiumCard({
   profile: PublicProfile | null;
   isMe: boolean;
 }) {
+  const { t } = useTranslation('parking');
   const label = labelFor(entry.userId, profile);
   const isFirst = entry.rank === 1;
   // Staggered podium heights (1st tallest).
@@ -249,13 +254,19 @@ function PodiumCard({
 
       <p className="m-0 mt-xs line-clamp-1 w-full text-body-md font-semibold text-on-surface" title={label}>
         {label}
-        {isMe ? <span className="ml-xs text-label-sm font-normal text-primary">(you)</span> : null}
+        {isMe ? (
+          <span className="ml-xs text-label-sm font-normal text-primary">{t('leaderboard.you')}</span>
+        ) : null}
       </p>
 
       <p className="m-0 text-headline-md text-primary">{entry.totalPoints}</p>
-      <p className="m-0 text-label-sm uppercase tracking-wider text-on-surface-variant">Points</p>
+      <p className="m-0 text-label-sm uppercase tracking-wider text-on-surface-variant">
+        {t('leaderboard.points')}
+      </p>
 
-      <SoftBadge tone="neutral">Level {entry.currentLevel}</SoftBadge>
+      <SoftBadge tone="neutral">
+        {t('leaderboard.levelLabel', { level: entry.currentLevel })}
+      </SoftBadge>
     </Surface>
   );
 }

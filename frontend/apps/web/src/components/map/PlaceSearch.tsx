@@ -7,6 +7,7 @@ import {
   type FormEvent,
   type KeyboardEvent,
 } from 'react';
+import { useTranslation } from 'react-i18next';
 import { type GeocodeResult } from '@/lib/geocoding';
 import { usePlaceAutocomplete, type AutocompleteStatus } from '@/lib/usePlaceAutocomplete';
 
@@ -23,8 +24,6 @@ export interface PlaceSearchProps {
   onSelect: (result: GeocodeResult) => void;
 }
 
-const DEFAULT_PLACEHOLDER = 'Search street, neighborhood, or place...';
-
 /**
  * Address/place typeahead used by both `/map` and `/upload`.
  *
@@ -35,11 +34,14 @@ const DEFAULT_PLACEHOLDER = 'Search street, neighborhood, or place...';
  * is proxied through Parkio's backend; see `lib/geocoding.ts`.
  */
 export function PlaceSearch({
-  label = 'Search location',
-  placeholder = DEFAULT_PLACEHOLDER,
+  label,
+  placeholder,
   compact = false,
   onSelect,
 }: PlaceSearchProps) {
+  const { t } = useTranslation('map');
+  const resolvedLabel = label ?? t('placeSearchLabel');
+  const resolvedPlaceholder = placeholder ?? t('placeSearchPlaceholder');
   const listboxId = useId();
   const optionId = (index: number) => `${listboxId}-option-${index}`;
 
@@ -124,14 +126,14 @@ export function PlaceSearch({
   }, []);
 
   return (
-    <form onSubmit={onSubmit} role="search" aria-label="Search by place">
+    <form onSubmit={onSubmit} role="search" aria-label={t('placeSearchAria')}>
       <div className={cn('flex gap-sm', compact ? 'items-center' : 'items-end')}>
         <div className="relative min-w-0 flex-1">
           <Input
-            label={compact ? undefined : label}
+            label={compact ? undefined : resolvedLabel}
             type="search"
             autoComplete="off"
-            placeholder={placeholder}
+            placeholder={resolvedPlaceholder}
             value={query}
             onChange={(event) => onChange(event.target.value)}
             onKeyDown={onKeyDown}
@@ -141,7 +143,7 @@ export function PlaceSearch({
             aria-expanded={showDropdown}
             aria-controls={listboxId}
             aria-autocomplete="list"
-            aria-label={compact ? label : undefined}
+            aria-label={compact ? resolvedLabel : undefined}
             aria-activedescendant={highlightedIndex >= 0 ? optionId(highlightedIndex) : undefined}
             className={
               compact
@@ -164,7 +166,7 @@ export function PlaceSearch({
         {compact ? null : (
           <Button type="submit" disabled={autocomplete.status === 'loading'} className="shrink-0">
             <Icon name="search" className="text-[16px] leading-none" />
-            Search
+            {t('placeSearchSubmit')}
           </Button>
         )}
       </div>
@@ -189,21 +191,26 @@ function SuggestionsDropdown({
   onHover: (index: number) => void;
   onSelect: (result: GeocodeResult) => void;
 }) {
+  const { t } = useTranslation('map');
   const showEmpty = status === 'success' && results.length === 0;
   return (
     <div className="absolute left-0 right-0 top-full z-[1200] mt-xs overflow-hidden rounded-xl border border-outline-variant/30 bg-surface shadow-deep">
       {status === 'loading' ? (
-        <div className="flex flex-col gap-xs px-md py-sm" role="status" aria-label="Searching places">
-          <span className="sr-only">Searching…</span>
+        <div
+          className="flex flex-col gap-xs px-md py-sm"
+          role="status"
+          aria-label={t('placeSearchSearchingAria')}
+        >
+          <span className="sr-only">{t('placeSearchSearching')}</span>
           <SkeletonBlock className="h-4 w-2/3" rounded="full" />
           <SkeletonBlock className="h-3 w-1/2" rounded="full" />
         </div>
       ) : null}
       {status === 'error' ? (
-        <p className="m-0 px-md py-sm text-label-sm text-error">Could not load suggestions</p>
+        <p className="m-0 px-md py-sm text-label-sm text-error">{t('placeSearchError')}</p>
       ) : null}
       {showEmpty ? (
-        <p className="m-0 px-md py-sm text-label-sm text-on-surface-variant">No places found</p>
+        <p className="m-0 px-md py-sm text-label-sm text-on-surface-variant">{t('placeSearchEmpty')}</p>
       ) : null}
       {results.length > 0 ? (
         <ul

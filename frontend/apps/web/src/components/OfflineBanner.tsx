@@ -1,5 +1,6 @@
 import { Icon } from '@parkio/ui';
 import { useEffect, useState } from 'react';
+import { useTranslation } from 'react-i18next';
 
 function getOnlineState() {
   if (typeof navigator === 'undefined') return true;
@@ -7,6 +8,7 @@ function getOnlineState() {
 }
 
 export function OfflineBanner() {
+  const { t } = useTranslation('common');
   const [online, setOnline] = useState(getOnlineState);
 
   useEffect(() => {
@@ -30,7 +32,7 @@ export function OfflineBanner() {
     >
       <div className="glass-panel flex max-w-lg items-center gap-sm rounded-full px-md py-sm text-label-sm font-medium text-on-surface shadow-lg">
         <Icon name="wifi_off" className="text-[18px] leading-none text-warning" />
-        You are offline. Parkio will reconnect when your network returns.
+        {t('offline.banner')}
       </div>
     </div>
   );

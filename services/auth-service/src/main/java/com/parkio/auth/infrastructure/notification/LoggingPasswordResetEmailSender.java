@@ -1,6 +1,7 @@
 package com.parkio.auth.infrastructure.notification;
 
 import com.parkio.auth.application.port.PasswordResetEmailSender;
+import com.parkio.auth.domain.EmailLocale;
 import java.net.URLEncoder;
 import java.nio.charset.StandardCharsets;
 import org.slf4j.Logger;
@@ -33,14 +34,16 @@ public class LoggingPasswordResetEmailSender implements PasswordResetEmailSender
     }
 
     @Override
-    public void sendResetLink(String email, String rawToken) {
+    public void sendResetLink(String email, String rawToken, EmailLocale locale) {
         metrics.emailSent();
         if (!logRawToken) {
-            log.info("Password reset requested; emailHash={}", Integer.toHexString(email.hashCode()));
+            log.info("Password reset requested; emailHash={}, locale={}",
+                    Integer.toHexString(email.hashCode()), locale.code());
             return;
         }
         String separator = resetUrl.contains("?") ? "&" : "?";
         String encoded = URLEncoder.encode(rawToken, StandardCharsets.UTF_8);
-        log.info("Password reset link for {}: {}{}token={}", email, resetUrl, separator, encoded);
+        log.info("Password reset link for {}: {}{}token={} (locale={})",
+                email, resetUrl, separator, encoded, locale.code());
     }
 }

@@ -7,17 +7,19 @@ import {
   PageShell,
 } from '@parkio/ui';
 import { useQuery } from '@tanstack/react-query';
+import { useTranslation } from 'react-i18next';
 import { Link } from 'react-router-dom';
 import { parkingApi } from '@/api';
 import { FriendlyApiErrorMessage } from '@/components/FriendlyApiErrorMessage';
 import { SpotResultCard } from '@/components/product/SpotResultCard';
 
 export function MySpotsPage() {
+  const { t } = useTranslation('parking');
   const query = useQuery({ queryKey: ['parking', 'my-spots'], queryFn: parkingApi.getMySpots });
 
   return (
-    <PageShell title="My spots">
-      <Card title="Spots I shared">
+    <PageShell title={t('mySpots.title')}>
+      <Card title={t('mySpots.cardTitle')}>
         {query.isPending ? (
           <LoadingState />
         ) : query.isError ? (
@@ -25,15 +27,15 @@ export function MySpotsPage() {
         ) : query.data.length === 0 ? (
           <EmptyState
             icon="local_parking"
-            title="No spots yet"
-            description="Spots you share will appear here, with their live status and verification activity."
+            title={t('mySpots.emptyTitle')}
+            description={t('mySpots.emptyDescription')}
             action={
               <Link
                 to="/upload"
                 className="inline-flex items-center gap-xs rounded-full bg-primary px-lg py-sm text-label-md text-on-primary no-underline shadow-sm transition-all duration-std hover:bg-primary/90"
               >
                 <Icon name="add_a_photo" className="text-[16px] leading-none" />
-                Share your first spot
+                {t('mySpots.shareFirst')}
               </Link>
             }
           />

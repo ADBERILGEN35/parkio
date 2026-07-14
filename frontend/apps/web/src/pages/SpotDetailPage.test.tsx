@@ -72,9 +72,7 @@ describe('SpotDetailPage', () => {
     renderSpotDetail();
 
     expect(
-      await screen.findByText(
-        'This spot was not found — it may have expired, been filled, or been removed.',
-      ),
+      await screen.findByRole('heading', { name: 'Spot not found' }),
     ).toBeInTheDocument();
   });
 

@@ -133,6 +133,9 @@ class NotificationApplicationServiceTest {
             assertThat(n.type()).isEqualTo(NotificationType.LEVEL_UP);
             assertThat(n.status()).isEqualTo(NotificationStatus.SENT);
             assertThat(n.body()).contains("level 3");
+            // Template variables are merged into metadata for localized clients.
+            assertThat(n.metadata()).containsEntry("level", "3");
+            assertThat(n.metadata()).containsEntry("deeplink", "/gamification");
         });
         assertThat(outbox.events).singleElement().isInstanceOf(NotificationCreatedEvent.class);
     }
@@ -163,6 +166,11 @@ class NotificationApplicationServiceTest {
                     assertThat(n.type()).isEqualTo(NotificationType.WARNING);
                     assertThat(n.body()).contains("100");
                     assertThat(n.body()).contains("85");
+                    assertThat(n.metadata()).containsEntry("messageKey", "trustChanged")
+                            .containsEntry("previousScore", "100")
+                            .containsEntry("newScore", "85")
+                            .containsEntry("direction", "decreased")
+                            .containsEntry("deeplink", "/profile");
                 });
     }
 

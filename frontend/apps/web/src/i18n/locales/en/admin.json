@@ -1,0 +1,198 @@
+{
+  "shell": {
+    "title": "Administration",
+    "administratorFallback": "Administrator",
+    "superAdminBadge": "SUPER_ADMIN",
+    "navAria": "Admin",
+    "nav": {
+      "dashboard": "Dashboard",
+      "users": "Users",
+      "security": "Security",
+      "moderation": "Moderation",
+      "analytics": "Analytics",
+      "audit": "Audit",
+      "system": "System"
+    },
+    "footerNote": "Hosted-beta ops: destructive actions are audited. Prefer suspension over deletion."
+  },
+  "roles": {
+    "USER": "User",
+    "MODERATOR": "Moderator",
+    "ADMIN": "Admin",
+    "SUPER_ADMIN": "Super Admin"
+  },
+  "status": {
+    "ACTIVE": "Active",
+    "PENDING_VERIFICATION": "Pending verification",
+    "SUSPENDED": "Suspended",
+    "BANNED": "Banned",
+    "all": "All statuses"
+  },
+  "common": {
+    "yes": "Yes",
+    "no": "No",
+    "previous": "Previous",
+    "next": "Next",
+    "reset": "Reset",
+    "cancel": "Cancel",
+    "confirm": "Confirm",
+    "na": "n/a"
+  },
+  "confirm": {
+    "reasonLabel": "Reason",
+    "reasonPlaceholder": "Required for the audit trail"
+  },
+  "dashboard": {
+    "title": "Admin dashboard",
+    "subtitle": "Operational overview for the hosted Parkio beta.",
+    "accounts": "Accounts",
+    "platformActivity": "Platform activity (analytics)",
+    "analyticsUnavailable": "Platform analytics unavailable. Account KPIs above still reflect auth-service data.",
+    "metrics": {
+      "totalUsers": "Total users",
+      "verified": "Verified",
+      "unverified": "Unverified",
+      "activeSessions": "Active sessions",
+      "registeredToday": "Registered today",
+      "last7Days": "Last 7 days",
+      "last30Days": "Last 30 days",
+      "verificationRate": "Verification rate",
+      "spotsCreated": "Spots created",
+      "claims": "Claims",
+      "rejected": "Rejected",
+      "pointsEarned": "Points earned",
+      "notifications": "Notifications"
+    }
+  },
+  "users": {
+    "title": "Users",
+    "subtitle": "Search and inspect authentication accounts.",
+    "filters": "Filters",
+    "searchLabel": "Search email or id",
+    "searchPlaceholder": "user@example.com or UUID",
+    "statusLabel": "Status",
+    "accounts": "Accounts",
+    "emptyTitle": "No users match",
+    "emptyDescription": "Adjust filters or clear search.",
+    "table": {
+      "email": "Email",
+      "status": "Status",
+      "verified": "Verified",
+      "roles": "Roles",
+      "sessions": "Sessions",
+      "created": "Created"
+    },
+    "pagination": {
+      "summary": "Page {{page}} of {{totalPages}} · {{total}} total"
+    },
+    "suspend": {
+      "confirmationTitle": "Suspend account",
+      "confirmationDescription": "Suspend {{email}}? Login and refresh will fail; active sessions are revoked.",
+      "confirmLabel": "Suspend",
+      "button": "Suspend"
+    },
+    "reactivate": {
+      "confirmationTitle": "Reactivate account",
+      "confirmationDescription": "Reactivate {{email}}? Previous refresh tokens stay revoked.",
+      "confirmLabel": "Reactivate",
+      "button": "Reactivate"
+    },
+    "revokeSessions": {
+      "confirmationTitle": "Revoke all sessions",
+      "confirmationDescription": "Invalidate every active refresh token for this user.",
+      "confirmLabel": "Revoke sessions",
+      "button": "Revoke all sessions"
+    },
+    "resendVerification": {
+      "confirmationTitle": "Resend verification",
+      "confirmationDescription": "Send a new verification email if the account is pending.",
+      "confirmLabel": "Resend",
+      "button": "Resend verification"
+    },
+    "revokeSession": {
+      "confirmationTitle": "Revoke session",
+      "confirmationDescription": "Revoke a single refresh-token session.",
+      "confirmLabel": "Revoke",
+      "button": "Revoke"
+    },
+    "roleChange": {
+      "grantTitle": "Grant {{role}}",
+      "revokeTitle": "Revoke {{role}}",
+      "description": "{{action}} role {{role}} for {{email}}.",
+      "grantConfirmLabel": "Grant role",
+      "revokeConfirmLabel": "Revoke role",
+      "grantButton": "Grant {{role}}",
+      "revokeButton": "Revoke {{role}}",
+      "actionGrant": "Grant",
+      "actionRevoke": "Revoke"
+    },
+    "detail": {
+      "title": "User",
+      "breadcrumbUsers": "Users",
+      "overview": "Overview",
+      "status": "Status",
+      "emailVerified": "Email verified",
+      "registered": "Registered",
+      "activeSessions": "Active sessions",
+      "rolesTitle": "Roles",
+      "rolesSuperAdminRequired": "Granting or revoking ADMIN / SUPER_ADMIN requires SUPER_ADMIN.",
+      "sessionsTitle": "Sessions",
+      "sessionsEmptyTitle": "No sessions listed",
+      "sessionsEmptyDescription": "No refresh-token sessions to show.",
+      "sessionActive": "Active refresh session",
+      "sessionRevoked": "Revoked ({{reason}})",
+      "sessionExpires": "expires {{expiresAt}}",
+      "auditTitle": "Administrative history",
+      "auditEmptyTitle": "No audit events",
+      "auditEmptyDescription": "No admin actions recorded for this user yet."
+    },
+    "toast": {
+      "actionCompleted": "Admin action completed",
+      "actionFailed": "Action failed"
+    }
+  },
+  "security": {
+    "title": "Security",
+    "subtitle": "Authentication and account-risk summary from auth-service.",
+    "snapshot": "Snapshot",
+    "metrics": {
+      "suspended": "Suspended",
+      "pendingVerification": "Pending verification",
+      "activeSessions": "Active sessions",
+      "reuseDetected": "Reuse detected"
+    }
+  },
+  "audit": {
+    "title": "Audit trail",
+    "subtitle": "Immutable administrative action log. Records cannot be edited here.",
+    "filters": "Filters",
+    "resultLabel": "Result",
+    "resultAll": "All",
+    "resultSuccess": "Success",
+    "resultFailure": "Failure",
+    "correlationLabel": "Correlation id (display filter)",
+    "correlationPlaceholder": "Optional client-side filter",
+    "events": "Events",
+    "emptyTitle": "No audit events",
+    "emptyDescription": "Administrative actions will appear here.",
+    "eventActor": "actor {{actorId}} ({{roles}})",
+    "eventTarget": "target {{type}}{{id}}"
+  },
+  "system": {
+    "title": "System",
+    "subtitle": "Deployment context for this Parkio web client.",
+    "environment": "Environment",
+    "appEnvironment": "App environment",
+    "apiBase": "API base",
+    "observabilityTitle": "Deep infrastructure observability",
+    "observabilityBody": "Prometheus, Grafana, Loki, and Tempo remain private on the hosted-beta VPS. Access them via SSH tunnel as documented in the operations runbooks — do not publish Grafana to the internet.",
+    "observabilityExample": "Example: <code>ssh -L 3000:127.0.0.1:3000 operator@vps</code> then open <code>http://localhost:3000</code>.",
+    "relatedTitle": "Related admin surfaces",
+    "relatedModeration": "Moderation queue",
+    "relatedModerationService": "(moderation-service)",
+    "relatedAnalytics": "Platform analytics",
+    "relatedAnalyticsService": "(analytics-service aggregates)",
+    "relatedAudit": "Audit trail",
+    "relatedAuditService": "(auth-service admin audit events)"
+  }
+}

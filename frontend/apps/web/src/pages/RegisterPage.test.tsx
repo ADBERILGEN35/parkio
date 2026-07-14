@@ -171,8 +171,9 @@ describe('RegisterPage', () => {
     await fillAndSubmit({ displayName: 'New Driver', phoneNumber: '5551234567' });
 
     await waitFor(() => expect(body).not.toBeNull());
-    expect(Object.keys(body!).sort()).toEqual(['email', 'password']);
+    expect(Object.keys(body!).sort()).toEqual(['email', 'locale', 'password']);
     expect(body!.email).toBe('newcomer@parkio.dev');
+    expect(body!.locale).toBe('en');
     expect(await screen.findByText('Check your email')).toBeInTheDocument();
     expect(useAuthStore.getState().isAuthenticated).toBe(false);
   });
@@ -232,7 +233,7 @@ describe('RegisterPage', () => {
     expect(await screen.findByText('Check your email')).toBeInTheDocument();
     await userEvent.setup().click(screen.getByRole('button', { name: 'Resend verification' }));
 
-    await waitFor(() => expect(resendBody).toEqual({ email: 'newcomer@parkio.dev' }));
+    await waitFor(() => expect(resendBody).toEqual({ email: 'newcomer@parkio.dev', locale: 'en' }));
     expect(screen.getByText('Verification email sent. Please check your inbox.')).toBeInTheDocument();
   });
 });

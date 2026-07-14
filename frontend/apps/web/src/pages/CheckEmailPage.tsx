@@ -1,5 +1,6 @@
 import { Button, ErrorMessage, Icon, Input } from '@parkio/ui';
 import { useState } from 'react';
+import { useTranslation } from 'react-i18next';
 import { Link, useSearchParams } from 'react-router-dom';
 import { authApi } from '@/api';
 import { describeAuthError } from '@/api/error-messages';
@@ -7,6 +8,7 @@ import { AuthSplitLayout } from '@/pages/auth/AuthSplitLayout';
 import { showError, showSuccess } from '@/lib/toast';
 
 export function CheckEmailPage() {
+  const { t, i18n } = useTranslation(['auth', 'common', 'errors']);
   const [searchParams] = useSearchParams();
   const [email, setEmail] = useState(searchParams.get('email') ?? '');
   const [message, setMessage] = useState<string | null>(null);
@@ -21,11 +23,15 @@ export function CheckEmailPage() {
     setApiError(null);
     setTraceId(undefined);
     try {
-      await authApi.resendVerification({ email: email.trim() });
-      setMessage('Verification email sent. Please check your inbox.');
-      showSuccess('Verification email sent. Please check your inbox.');
+      await authApi.resendVerification({
+        email: email.trim(),
+        locale: i18n.language === 'en' ? 'en' : 'tr',
+      });
+      const resent = t('auth:checkEmail.resent');
+      setMessage(resent);
+      showSuccess(resent);
     } catch (error) {
-      const friendly = describeAuthError(error, 'Could not resend verification email.');
+      const friendly = describeAuthError(error, t('errors:auth.resendFailed'), t);
       setApiError(friendly.message);
       setTraceId(friendly.traceId);
       showError(friendly.message);
@@ -35,7 +41,7 @@ export function CheckEmailPage() {
   }
 
   return (
-    <AuthSplitLayout title="Check your email" subtitle="Verify your address before signing in.">
+    <AuthSplitLayout title={t('auth:checkEmail.title')} subtitle={t('auth:checkEmail.subtitle')}>
       <form
         className="flex flex-col gap-md"
         onSubmit={(event) => {
@@ -43,12 +49,9 @@ export function CheckEmailPage() {
           void resend();
         }}
       >
-        <p className="m-0 text-body-md text-on-surface-variant">
-          We sent a verification link to your email address. Open it to activate your Parkio
-          account.
-        </p>
+        <p className="m-0 text-body-md text-on-surface-variant">{t('auth:checkEmail.body')}</p>
         <Input
-          label="Email"
+          label={t('auth:checkEmail.email')}
           type="email"
           autoComplete="email"
           value={email}
@@ -57,13 +60,13 @@ export function CheckEmailPage() {
         {message ? <p className="m-0 text-body-md text-success">{message}</p> : null}
         {apiError ? <ErrorMessage message={apiError} traceId={traceId} /> : null}
         <Button type="submit" disabled={isSubmitting || !email.trim()} className="w-full">
-          {isSubmitting ? 'Sending…' : 'Resend verification'}
+          {isSubmitting ? t('auth:checkEmail.sending') : t('auth:checkEmail.resend')}
           {isSubmitting ? null : <Icon name="send" className="text-[18px] leading-none" />}
         </Button>
         <p className="m-0 text-center text-body-md text-on-surface-variant">
-          Already verified?{' '}
+          {t('auth:checkEmail.alreadyVerified')}{' '}
           <Link to="/login" className="font-semibold text-primary hover:underline">
-            Sign in
+            {t('auth:checkEmail.signInLink')}
           </Link>
         </p>
       </form>

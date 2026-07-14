@@ -13,6 +13,7 @@ import com.parkio.auth.application.command.VerifyEmailCommand;
 import com.parkio.auth.application.result.AuthResult;
 import com.parkio.auth.application.result.RegisterResult;
 import com.parkio.auth.domain.AuthUser;
+import com.parkio.auth.domain.EmailLocale;
 import com.parkio.auth.domain.exception.LoginLockedException;
 import com.parkio.auth.infrastructure.metrics.AuthMetrics;
 import com.parkio.auth.presentation.dto.AuthResponse;
@@ -77,7 +78,10 @@ public class AuthController {
                                                  HttpServletRequest httpRequest) {
         validateOriginIfPresent(httpRequest);
         RegisterResult result = authService.register(
-                new RegisterCommand(request.email(), request.password()));
+                new RegisterCommand(
+                        request.email(),
+                        request.password(),
+                        EmailLocale.fromNullable(request.locale())));
         return ResponseEntity.status(HttpStatus.CREATED).body(AuthResponse.pendingVerification(result));
     }
 
@@ -137,7 +141,8 @@ public class AuthController {
     public ResponseEntity<Void> resendVerification(@Valid @RequestBody ResendVerificationRequest request,
                                                    HttpServletRequest httpRequest) {
         validateOriginIfPresent(httpRequest);
-        authService.resendVerification(new ResendVerificationCommand(request.email()));
+        authService.resendVerification(new ResendVerificationCommand(
+                request.email(), EmailLocale.fromNullable(request.locale())));
         return ResponseEntity.accepted().build();
     }
 
@@ -146,7 +151,8 @@ public class AuthController {
     public ResponseEntity<Void> forgotPassword(@Valid @RequestBody ForgotPasswordRequest request,
                                                HttpServletRequest httpRequest) {
         validateOriginIfPresent(httpRequest);
-        authService.forgotPassword(new ForgotPasswordCommand(request.email()));
+        authService.forgotPassword(new ForgotPasswordCommand(
+                request.email(), EmailLocale.fromNullable(request.locale())));
         return ResponseEntity.ok().build();
     }
 

@@ -1,0 +1,23 @@
+{
+  "backToParkio": "Parkio'ya dön",
+  "terms": {
+    "title": "Kullanım Koşulları",
+    "subtitle": "Hosted-beta kullanım koşulları taslağı",
+    "body": [
+      "Bu koşullar hosted-beta için bir taslaktır; nihai hukuki tavsiye veya herkese açık lansman yasal incelemesi değildir.",
+      "Parkio beta erişimi, desteklenen bölgeler, özellikler, davet zamanlaması ve kullanılabilirlik test sırasında değişebilir.",
+      "Beta sırasında Parkio kullanırken park bilgilerini sorumlu paylaşın, yerel park kurallarına uyun ve Parkio’yu nihai yasal veya güvenlik otoritesi olarak görmeyin.",
+      "Sorular veya silme talepleri için beta destek süreci tamamlanırken privacy@parkio.dev adresine yazabilirsiniz."
+    ]
+  },
+  "privacy": {
+    "title": "Gizlilik Politikası",
+    "subtitle": "Hosted-beta gizlilik taslağı",
+    "body": [
+      "Bu gizlilik sayfası hosted-beta için bir taslaktır; herkese açık lansman için nihai yasal inceleme değildir.",
+      "Beta bekleme listesi için Parkio e-postanızı, onay zamanını, isteğe bağlı şehir veya genel bölgeyi, isteğe bağlı rolü, kaynağı, oluşturma zamanını ve yinelenen kayıt ile kötüye kullanım koruması için IP ve kullanıcı aracısının gizlilik dostu özetlerini saklar.",
+      "Parkio bekleme listesi verilerini beta iletişimi, davet planlama, lansman alanı planlama, yinelenen kayıt önleme ve kötüye kullanım kontrolleri için kullanır. Satılmaz.",
+      "Bekleme listesi verileri veya silme talebi için privacy@parkio.dev ile iletişime geçin. Beta sırasında silme ve destek işlemleri manuel olabilir."
+    ]
+  }
+}

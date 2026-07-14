@@ -1,6 +1,7 @@
 import type { LeaderboardEntry, PublicProfile } from '@parkio/types';
 import { SoftBadge, cn } from '@parkio/ui';
-import { humanizeEnum } from '@/lib/format';
+import { useTranslation } from 'react-i18next';
+import { enumLabel } from '@/lib/format';
 import { trustBandTone } from '@/pages/profile/accountVisuals';
 
 export function shortId(userId: string): string {
@@ -26,6 +27,7 @@ export interface LeaderboardRowProps {
 }
 
 export function LeaderboardRow({ entry, profile, isMe }: LeaderboardRowProps) {
+  const { t } = useTranslation('common');
   const label = labelFor(entry.userId, profile);
   const band = profile?.trustBand?.trim() || null;
 
@@ -52,7 +54,7 @@ export function LeaderboardRow({ entry, profile, isMe }: LeaderboardRowProps) {
         {isMe ? <span className="ml-sm text-label-sm text-primary">(you)</span> : null}
       </span>
 
-      {band ? <SoftBadge tone={trustBandTone(band)}>{humanizeEnum(band)}</SoftBadge> : null}
+      {band ? <SoftBadge tone={trustBandTone(band)}>{enumLabel(band, t)}</SoftBadge> : null}
 
       <SoftBadge tone="neutral">Level {entry.currentLevel}</SoftBadge>
 

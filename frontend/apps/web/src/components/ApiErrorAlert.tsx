@@ -1,5 +1,7 @@
 import { type ParkioApiError, isParkioApiError } from '@parkio/api-client';
 import { ErrorMessage } from '@parkio/ui';
+import { useTranslation } from 'react-i18next';
+import { describeLocalizedApiError } from '@/i18n/map-api-error';
 
 export type ApiErrorMapper = (error: ParkioApiError) => string | null;
 
@@ -9,21 +11,14 @@ export interface ApiErrorAlertProps {
   fallback?: string;
 }
 
-function defaultApiMessage(error: ParkioApiError): string {
-  if (error.status === 401) return 'Your session has expired. Please sign in again.';
-  if (error.status === 403) return 'You do not have permission to perform this action.';
-  if (error.status === 404) return 'We could not find that resource.';
-  if (error.status === 409) return error.message;
-  if (error.status === 422 || error.status === 400) return error.message;
-  if (error.status === 429) return 'Too many attempts. Please wait a moment and try again.';
-  if (error.status >= 500) return 'Service is temporarily unavailable. Please try again.';
-  return error.message || 'Something went wrong. Please try again.';
-}
-
-export function describeApiError(error: unknown, mapper?: ApiErrorMapper, fallback = 'Something went wrong. Please try again.') {
+export function describeApiError(
+  error: unknown,
+  mapper?: ApiErrorMapper,
+  fallback = 'Something went wrong. Please try again.',
+) {
   if (isParkioApiError(error)) {
     return {
-      message: mapper?.(error) ?? defaultApiMessage(error),
+      message: mapper?.(error) ?? fallback,
       code: error.code,
       traceId: error.traceId || undefined,
     };
@@ -31,11 +26,15 @@ export function describeApiError(error: unknown, mapper?: ApiErrorMapper, fallba
   return { message: fallback };
 }
 
-export function ApiErrorAlert({
-  error,
-  mapper,
-  fallback = 'Something went wrong. Please try again.',
-}: ApiErrorAlertProps) {
-  const described = describeApiError(error, mapper, fallback);
-  return <ErrorMessage {...described} />;
+export function ApiErrorAlert({ error, mapper, fallback }: ApiErrorAlertProps) {
+  const { t } = useTranslation(['errors', 'common']);
+  const resolvedFallback = fallback ?? t('errors:common.generic');
+  if (isParkioApiError(error)) {
+    const mapped = mapper?.(error);
+    const described = mapped
+      ? { message: mapped, code: error.code, traceId: error.traceId || undefined }
+      : describeLocalizedApiError(error, t, 'errors:common.generic');
+    return <ErrorMessage {...described} />;
+  }
+  return <ErrorMessage message={resolvedFallback} />;
 }

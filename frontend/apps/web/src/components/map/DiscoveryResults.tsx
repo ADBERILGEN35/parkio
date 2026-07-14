@@ -1,11 +1,12 @@
 import type { NearbySearchParams, ParkingStatus, PublicSpot, VehicleType } from '@parkio/types';
 import { EmptyState, Icon, SpotCardSkeleton, cn, getSpotStatusVisual } from '@parkio/ui';
+import { spotStatusLabel } from '@/lib/localized-status';
 import type { UseQueryResult } from '@tanstack/react-query';
 import { useEffect, useRef } from 'react';
+import { useTranslation } from 'react-i18next';
 import { FriendlyApiErrorMessage } from '@/components/FriendlyApiErrorMessage';
 import { SpotResultCard } from '@/components/product/SpotResultCard';
 import {
-  SPOT_SORT_LABELS,
   hasActiveFilters,
   type SpotFilters,
   type SpotSort,
@@ -51,12 +52,14 @@ export function DiscoveryResults({
   onSelect,
   userVehicleType = null,
 }: DiscoveryResultsProps) {
+  const { t } = useTranslation('map');
+
   if (params === null) {
     return (
       <EmptyState
         icon="travel_explore"
-        title="Search for nearby spots"
-        description="Search an address or place, use your location, or tap the map to set the center — then search."
+        title={t('discovery.idleTitle')}
+        description={t('discovery.idleDescription')}
       />
     );
   }
@@ -65,12 +68,12 @@ export function DiscoveryResults({
     return (
       <>
         <div>
-          <h2 className="m-0 text-title-lg text-on-surface">Searching nearby</h2>
+          <h2 className="m-0 text-title-lg text-on-surface">{t('discovery.searchingTitle')}</h2>
           <p className="m-0 mt-xs text-label-sm text-on-surface-variant">
-            Matching available spots around your selected center.
+            {t('discovery.searchingDescription')}
           </p>
         </div>
-        <div className="flex flex-col gap-sm" role="status" aria-label="Searching nearby spots">
+        <div className="flex flex-col gap-sm" role="status" aria-label={t('discovery.searchingAria')}>
           <SpotCardSkeleton />
           <SpotCardSkeleton />
           <SpotCardSkeleton />
@@ -87,8 +90,8 @@ export function DiscoveryResults({
     return (
       <EmptyState
         icon="location_off"
-        title="No spots nearby"
-        description="No spots found in this area. Try a larger radius or a different search center."
+        title={t('discovery.emptyTitle')}
+        description={t('discovery.emptyDescription')}
       />
     );
   }
@@ -99,15 +102,9 @@ export function DiscoveryResults({
     <>
       <div className="flex items-center justify-between gap-sm">
         <h2 className="m-0 text-title-lg text-on-surface">
-          {filtersActive ? (
-            <>
-              {spots.length} of {totalCount} {totalCount === 1 ? 'spot' : 'spots'}
-            </>
-          ) : (
-            <>
-              {totalCount} {totalCount === 1 ? 'spot' : 'spots'} nearby
-            </>
-          )}
+          {filtersActive
+            ? t('discovery.resultsOf', { visible: spots.length, total: totalCount })
+            : t('discovery.resultsCount', { count: totalCount })}
         </h2>
         <SortControl sort={sort} onSortChange={onSortChange} options={sortOptions} />
       </div>
@@ -121,8 +118,8 @@ export function DiscoveryResults({
       {spots.length === 0 ? (
         <EmptyState
           icon="filter_alt_off"
-          title="No spots match these filters"
-          description="Clear or change the filters to see more results."
+          title={t('discovery.noMatchTitle')}
+          description={t('discovery.noMatchDescription')}
         />
       ) : (
         <ul className="m-0 flex list-none flex-col gap-sm p-0">
@@ -182,19 +179,25 @@ function SortControl({
   onSortChange: (sort: SpotSort) => void;
   options: SpotSort[];
 }) {
+  const { t } = useTranslation('map');
+  const labels: Record<SpotSort, string> = {
+    nearest: t('discovery.sortNearest'),
+    newest: t('discovery.sortNewest'),
+    recent: t('discovery.sortRecent'),
+  };
   return (
     <label className="flex shrink-0 items-center gap-xs text-label-sm text-on-surface-variant">
       <Icon name="sort" className="text-[16px] leading-none" />
-      <span className="sr-only">Sort results</span>
+      <span className="sr-only">{t('discovery.sortLabel')}</span>
       <select
-        aria-label="Sort results"
+        aria-label={t('discovery.sortLabel')}
         value={sort}
         onChange={(event) => onSortChange(event.target.value as SpotSort)}
         className="rounded-full border border-outline-variant/40 bg-surface-container-lowest px-sm py-xs text-label-sm font-medium text-on-surface focus:outline-none focus-visible:ring-2 focus-visible:ring-primary"
       >
         {options.map((option) => (
           <option key={option} value={option}>
-            {SPOT_SORT_LABELS[option]}
+            {labels[option]}
           </option>
         ))}
       </select>
@@ -211,6 +214,8 @@ function FilterBar({
   onFiltersChange: (filters: SpotFilters) => void;
   availableStatuses: ParkingStatus[];
 }) {
+  const { t } = useTranslation('map');
+
   const toggleStatus = (status: ParkingStatus) => {
     const next = filters.statuses.includes(status)
       ? filters.statuses.filter((value) => value !== status)
@@ -223,7 +228,7 @@ function FilterBar({
   return (
     <div
       role="group"
-      aria-label="Filter results"
+      aria-label={t('discovery.filterResultsAria')}
       className="-mx-md flex items-center gap-xs overflow-x-auto px-md pb-xs hide-scrollbar"
     >
       {availableStatuses.map((status) => {
@@ -232,7 +237,7 @@ function FilterBar({
         return (
           <FilterChip key={status} pressed={on} onClick={() => toggleStatus(status)}>
             <span className={cn('h-2 w-2 shrink-0 rounded-full', visual.dotClassName)} aria-hidden />
-            {visual.label}
+            {spotStatusLabel(status, t)}
           </FilterChip>
         );
       })}
@@ -242,7 +247,7 @@ function FilterBar({
         onClick={() => onFiltersChange({ ...filters, legalOnly: !filters.legalOnly })}
       >
         <Icon name="gavel" className="text-[14px] leading-none" />
-        Legal only
+        {t('discovery.legalOnly')}
       </FilterChip>
 
       {active ? (
@@ -252,7 +257,7 @@ function FilterBar({
           className="ml-auto inline-flex shrink-0 items-center gap-0.5 whitespace-nowrap rounded-full px-sm py-xs text-label-sm font-semibold text-primary hover:bg-primary/10 focus:outline-none focus-visible:ring-2 focus-visible:ring-primary"
         >
           <Icon name="close" className="text-[14px] leading-none" />
-          Clear
+          {t('discovery.clear')}
         </button>
       ) : null}
     </div>

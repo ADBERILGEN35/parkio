@@ -1,0 +1,26 @@
+{
+  "common": {
+    "generic": "Bir şeyler ters gitti. Lütfen yeniden deneyin.",
+    "sessionExpired": "Oturumunuz sona erdi. Lütfen tekrar giriş yapın.",
+    "forbidden": "Bu işlemi gerçekleştirmek için yetkiniz yok.",
+    "notFound": "İstenen kaynak bulunamadı.",
+    "rateLimited": "Çok fazla deneme yapıldı. Lütfen bir süre bekleyip yeniden deneyin.",
+    "serviceUnavailable": "Hizmet geçici olarak kullanılamıyor. Lütfen yeniden deneyin.",
+    "validationError": "Girdiğiniz bilgileri kontrol edin."
+  },
+  "auth": {
+    "accountSuspended": "Hesabınız askıya alındı.",
+    "accountNotVerified": "Giriş yapmadan önce e-postanızı doğrulayın.",
+    "invalidCredentials": "E-posta veya şifre hatalı.",
+    "emailAlreadyExists": "Bu e-posta adresi zaten kayıtlı.",
+    "rateLimited": "Çok fazla deneme yapıldı. Lütfen bir süre bekleyip yeniden deneyin.",
+    "serviceUnavailable": "Hizmet geçici olarak kullanılamıyor. Lütfen yeniden deneyin.",
+    "loginFailed": "Giriş başarısız. Lütfen yeniden deneyin.",
+    "registrationFailed": "Kayıt başarısız. Lütfen yeniden deneyin.",
+    "forgotPasswordFailed": "İstek işlenemedi. Lütfen yeniden deneyin.",
+    "resetPasswordFailed": "Şifre sıfırlama başarısız. Yeni bir bağlantı isteyip yeniden deneyin.",
+    "verifyFailed": "Doğrulama bağlantısı geçersiz veya süresi dolmuş.",
+    "resendFailed": "Doğrulama e-postası yeniden gönderilemedi.",
+    "changePasswordFailed": "Şifre değiştirilemedi. Lütfen yeniden deneyin."
+  }
+}

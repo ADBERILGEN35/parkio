@@ -27,6 +27,7 @@ export interface LoginRequest {
 export interface RegisterRequest {
   email: string;
   password: string;
+  locale?: 'tr' | 'en';
 }
 
 export interface VerifyEmailRequest {
@@ -35,10 +36,12 @@ export interface VerifyEmailRequest {
 
 export interface ResendVerificationRequest {
   email: string;
+  locale?: 'tr' | 'en';
 }
 
 export interface ForgotPasswordRequest {
   email: string;
+  locale?: 'tr' | 'en';
 }
 
 export interface ResetPasswordRequest {

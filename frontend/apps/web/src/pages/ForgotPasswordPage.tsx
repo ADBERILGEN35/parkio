@@ -1,37 +1,43 @@
 import { zodResolver } from '@hookform/resolvers/zod';
-import { forgotPasswordSchema, type ForgotPasswordFormValues } from '@parkio/validation';
+import type { ForgotPasswordFormValues } from '@parkio/validation';
 import { Button, ErrorMessage, Icon, Input } from '@parkio/ui';
-import { useState } from 'react';
+import { useMemo, useState } from 'react';
 import { useForm } from 'react-hook-form';
+import { useTranslation } from 'react-i18next';
 import { Link } from 'react-router-dom';
 import { authApi } from '@/api';
 import { describeAuthError } from '@/api/error-messages';
 import { AuthSplitLayout } from '@/pages/auth/AuthSplitLayout';
+import { createForgotPasswordSchema } from '@/lib/validation/localized-schemas';
 import { showError, showSuccess } from '@/lib/toast';
 
-const GENERIC_SUCCESS = 'If an account exists, we sent password reset instructions.';
-
 export function ForgotPasswordPage() {
+  const { t, i18n } = useTranslation(['auth', 'common', 'validation', 'errors']);
   const [message, setMessage] = useState<string | null>(null);
   const [apiError, setApiError] = useState<string | null>(null);
   const [traceId, setTraceId] = useState<string | undefined>();
 
+  const schema = useMemo(() => createForgotPasswordSchema(t), [t]);
   const {
     register,
     handleSubmit,
     setError,
     formState: { errors, isSubmitting },
-  } = useForm<ForgotPasswordFormValues>({ resolver: zodResolver(forgotPasswordSchema) });
+  } = useForm<ForgotPasswordFormValues>({ resolver: zodResolver(schema) });
 
   const onSubmit = handleSubmit(async (values) => {
     setApiError(null);
     setTraceId(undefined);
     try {
-      await authApi.forgotPassword({ email: values.email });
-      setMessage(GENERIC_SUCCESS);
-      showSuccess(GENERIC_SUCCESS);
+      await authApi.forgotPassword({
+        email: values.email,
+        locale: i18n.language === 'en' ? 'en' : 'tr',
+      });
+      const success = t('auth:forgotPassword.success');
+      setMessage(success);
+      showSuccess(success);
     } catch (error) {
-      const friendly = describeAuthError(error, 'We could not process the request. Please try again.');
+      const friendly = describeAuthError(error, t('errors:auth.forgotPasswordFailed'), t);
       setApiError(friendly.message);
       setTraceId(friendly.traceId);
       showError(friendly.message);
@@ -44,10 +50,13 @@ export function ForgotPasswordPage() {
   });
 
   return (
-    <AuthSplitLayout title="Reset your password" subtitle="Enter your email to receive reset instructions.">
+    <AuthSplitLayout
+      title={t('auth:forgotPassword.title')}
+      subtitle={t('auth:forgotPassword.subtitle')}
+    >
       <form onSubmit={onSubmit} className="flex flex-col gap-md">
         <Input
-          label="Email"
+          label={t('auth:forgotPassword.email')}
           type="email"
           autoComplete="email"
           error={errors.email?.message}
@@ -58,15 +67,15 @@ export function ForgotPasswordPage() {
         {apiError ? <ErrorMessage message={apiError} traceId={traceId} /> : null}
 
         <Button type="submit" disabled={isSubmitting} className="w-full">
-          {isSubmitting ? 'Sending…' : 'Send instructions'}
+          {isSubmitting ? t('auth:forgotPassword.submitting') : t('auth:forgotPassword.submit')}
           {isSubmitting ? null : <Icon name="mail" className="text-[18px] leading-none" />}
         </Button>
       </form>
 
       <p className="m-0 mt-md text-center text-body-md text-on-surface-variant">
-        Remembered it?{' '}
+        {t('auth:forgotPassword.remembered')}{' '}
         <Link to="/login" className="font-semibold text-primary hover:underline">
-          Sign in
+          {t('auth:forgotPassword.signInLink')}
         </Link>
       </p>
     </AuthSplitLayout>

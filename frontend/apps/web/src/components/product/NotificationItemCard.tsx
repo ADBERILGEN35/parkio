@@ -1,7 +1,9 @@
 import { isUnreadNotification, type AppNotification, type NotificationType } from '@parkio/types';
 import { Button, Icon, SoftBadge, cn, type BadgeTone } from '@parkio/ui';
 import type { ReactNode } from 'react';
-import { formatInstant, formatRelativeAgo, humanizeEnum } from '@/lib/format';
+import { useTranslation } from 'react-i18next';
+import { enumLabel, formatInstant, formatRelativeAgo } from '@/lib/format';
+import { localizeNotification } from '@/lib/localizeNotification';
 
 export const NOTIFICATION_TYPE_VISUALS: Record<NotificationType, { icon: string; tone: BadgeTone }> = {
   NEARBY_PARKING: { icon: 'local_parking', tone: 'primary' },
@@ -24,8 +26,11 @@ export interface NotificationItemCardProps {
 }
 
 export function NotificationItemCard({ notification, action, error }: NotificationItemCardProps) {
+  const { t } = useTranslation(['parking', 'common']);
   const unread = isUnreadNotification(notification);
   const visual = typeVisual(notification.type);
+  const { title, body } = localizeNotification(notification);
+  const typeLabel = enumLabel(notification.type, t, ['notificationType']);
 
   return (
     <li
@@ -53,7 +58,7 @@ export function NotificationItemCard({ notification, action, error }: Notificati
               unread ? 'text-on-surface' : 'font-normal text-on-surface-variant',
             )}
           >
-            {notification.title}
+            {title}
           </strong>
           {unread ? <span className="h-2 w-2 shrink-0 rounded-full bg-primary" aria-hidden /> : null}
         </div>
@@ -64,16 +69,18 @@ export function NotificationItemCard({ notification, action, error }: Notificati
             unread ? 'text-on-surface-variant' : 'text-on-surface-variant/80',
           )}
         >
-          {notification.body}
+          {body}
         </p>
 
         <div className="mt-xs flex flex-wrap items-center gap-x-sm gap-y-xs text-label-sm text-on-surface-variant">
           <SoftBadge tone={visual.tone} icon={visual.icon}>
-            {humanizeEnum(notification.type)}
+            {typeLabel}
           </SoftBadge>
           <span>
             {formatRelativeAgo(notification.createdAt)}
-            {notification.readAt ? ` · Read ${formatInstant(notification.readAt)}` : ''}
+            {notification.readAt
+              ? t('parking:notifications.readAt', { when: formatInstant(notification.readAt) })
+              : ''}
           </span>
         </div>
 
@@ -91,9 +98,10 @@ export function MarkReadButton({
   onClick: () => void;
   pending: boolean;
 }) {
+  const { t } = useTranslation('parking');
   return (
     <Button variant="ghost" onClick={onClick} disabled={pending}>
-      {pending ? 'Marking…' : 'Mark as read'}
+      {pending ? t('notifications.marking') : t('notifications.markAsRead')}
     </Button>
   );
 }

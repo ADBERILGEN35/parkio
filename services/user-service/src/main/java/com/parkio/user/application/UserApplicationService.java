@@ -334,7 +334,7 @@ public class UserApplicationService {
 
     public UserPreference updateMyPreferences(UUID authUserId, UpdatePreferencesCommand command) {
         UserPreference preference = requirePreferences(requireProfile(authUserId).id());
-        preference.update(command.preferredRadiusMeters(), command.notificationsEnabled());
+        preference.update(command.preferredRadiusMeters(), command.notificationsEnabled(), command.preferredLocale());
         return preferences.save(preference);
     }
 

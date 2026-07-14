@@ -30,6 +30,7 @@ import com.parkio.auth.application.result.IssuedAccessToken;
 import com.parkio.auth.application.result.RegisterResult;
 import com.parkio.auth.domain.AuthUser;
 import com.parkio.auth.domain.AuthUserStatus;
+import com.parkio.auth.domain.EmailLocale;
 import com.parkio.auth.domain.PasswordResetToken;
 import com.parkio.auth.domain.RefreshToken;
 import com.parkio.auth.domain.RefreshTokenRevocationReason;
@@ -1065,7 +1066,7 @@ class AuthApplicationServiceTest {
         private final Map<String, String> tokens = new HashMap<>();
 
         @Override
-        public void sendVerificationLink(String email, String rawToken) {
+        public void sendVerificationLink(String email, String rawToken, EmailLocale locale) {
             tokens.put(email, rawToken);
         }
 
@@ -1078,7 +1079,7 @@ class AuthApplicationServiceTest {
         private final Map<String, String> tokens = new HashMap<>();
 
         @Override
-        public void sendResetLink(String email, String rawToken) {
+        public void sendResetLink(String email, String rawToken, EmailLocale locale) {
             tokens.put(email, rawToken);
         }
 

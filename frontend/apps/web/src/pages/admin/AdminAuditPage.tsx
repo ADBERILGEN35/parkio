@@ -1,11 +1,13 @@
 import type { AdminAuditResult } from '@parkio/types';
 import { Button, Card, EmptyState, Input, LoadingState, PageShell, SoftBadge } from '@parkio/ui';
 import { useQuery } from '@tanstack/react-query';
+import { useTranslation } from 'react-i18next';
 import { useSearchParams } from 'react-router-dom';
 import { adminApi } from '@/api';
 import { FriendlyApiErrorMessage } from '@/components/FriendlyApiErrorMessage';
 
 export function AdminAuditPage() {
+  const { t } = useTranslation('admin');
   const [params, setParams] = useSearchParams();
   const page = Number(params.get('page') ?? '0') || 0;
   const correlationId = params.get('correlationId') ?? '';
@@ -17,20 +19,19 @@ export function AdminAuditPage() {
       adminApi.listAuditEvents({
         page,
         size: 25,
+        // Protocol enum SUCCESS/FAILURE stays as API filter value.
         result: result || undefined,
         sort: 'occurredAt,desc',
       }),
   });
 
   return (
-    <PageShell title="Audit trail">
-      <p className="mb-lg mt-0 text-body-md text-on-surface-variant">
-        Immutable administrative action log. Records cannot be edited here.
-      </p>
-      <Card title="Filters">
+    <PageShell title={t('audit.title')}>
+      <p className="mb-lg mt-0 text-body-md text-on-surface-variant">{t('audit.subtitle')}</p>
+      <Card title={t('audit.filters')}>
         <div className="flex flex-col gap-sm md:flex-row md:items-end">
           <label>
-            <span className="mb-xs block text-label-md font-semibold">Result</span>
+            <span className="mb-xs block text-label-md font-semibold">{t('audit.resultLabel')}</span>
             <select
               className="h-11 rounded-md border border-outline-variant bg-surface px-sm"
               value={result}
@@ -42,13 +43,13 @@ export function AdminAuditPage() {
                 setParams(next);
               }}
             >
-              <option value="">All</option>
-              <option value="SUCCESS">SUCCESS</option>
-              <option value="FAILURE">FAILURE</option>
+              <option value="">{t('audit.resultAll')}</option>
+              <option value="SUCCESS">{t('audit.resultSuccess')}</option>
+              <option value="FAILURE">{t('audit.resultFailure')}</option>
             </select>
           </label>
           <label className="min-w-0 flex-1">
-            <span className="mb-xs block text-label-md font-semibold">Correlation id (display filter)</span>
+            <span className="mb-xs block text-label-md font-semibold">{t('audit.correlationLabel')}</span>
             <Input
               value={correlationId}
               onChange={(e) => {
@@ -57,19 +58,19 @@ export function AdminAuditPage() {
                 else next.delete('correlationId');
                 setParams(next);
               }}
-              placeholder="Optional client-side filter"
+              placeholder={t('audit.correlationPlaceholder')}
             />
           </label>
         </div>
       </Card>
 
-      <Card title="Events" className="mt-lg">
+      <Card title={t('audit.events')} className="mt-lg">
         {query.isPending ? (
           <LoadingState />
         ) : query.isError ? (
           <FriendlyApiErrorMessage error={query.error} />
         ) : query.data.content.length === 0 ? (
-          <EmptyState title="No audit events" description="Administrative actions will appear here." />
+          <EmptyState title={t('audit.emptyTitle')} description={t('audit.emptyDescription')} />
         ) : (
           <>
             <ul className="m-0 list-none space-y-sm p-0">
@@ -83,16 +84,18 @@ export function AdminAuditPage() {
                     <div className="flex flex-wrap items-center gap-sm">
                       <span className="font-semibold">{event.actionType}</span>
                       <SoftBadge tone={event.result === 'SUCCESS' ? 'success' : 'danger'}>
-                        {event.result}
+                        {event.result === 'SUCCESS' ? t('audit.resultSuccess') : t('audit.resultFailure')}
                       </SoftBadge>
                     </div>
                     <div className="mt-xs text-on-surface-variant">
-                      {new Date(event.occurredAt).toLocaleString()} · actor {event.actorUserId} (
-                      {event.actorRoles})
+                      {new Date(event.occurredAt).toLocaleString()} ·{' '}
+                      {t('audit.eventActor', { actorId: event.actorUserId, roles: event.actorRoles })}
                     </div>
                     <div className="text-on-surface-variant">
-                      target {event.targetResourceType}
-                      {event.targetResourceId ? ` ${event.targetResourceId}` : ''}
+                      {t('audit.eventTarget', {
+                        type: event.targetResourceType,
+                        id: event.targetResourceId ? ` ${event.targetResourceId}` : '',
+                      })}
                       {event.reason ? ` · ${event.reason}` : ''}
                     </div>
                   </li>
@@ -109,7 +112,7 @@ export function AdminAuditPage() {
                   setParams(next);
                 }}
               >
-                Previous
+                {t('common.previous')}
               </Button>
               <Button
                 type="button"
@@ -121,7 +124,7 @@ export function AdminAuditPage() {
                   setParams(next);
                 }}
               >
-                Next
+                {t('common.next')}
               </Button>
             </div>
           </>

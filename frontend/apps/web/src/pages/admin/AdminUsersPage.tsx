@@ -1,6 +1,7 @@
 import type { AuthUserStatus } from '@parkio/types';
 import { Button, Card, EmptyState, Input, LoadingState, PageShell, SoftBadge } from '@parkio/ui';
 import { useQuery } from '@tanstack/react-query';
+import { useTranslation } from 'react-i18next';
 import { Link, useSearchParams } from 'react-router-dom';
 import { adminApi } from '@/api';
 import { FriendlyApiErrorMessage } from '@/components/FriendlyApiErrorMessage';
@@ -13,7 +14,19 @@ const STATUSES: Array<AuthUserStatus | ''> = [
   'BANNED',
 ];
 
+function statusLabel(t: (key: string) => string, status: AuthUserStatus | ''): string {
+  if (!status) return t('status.all');
+  return t(`status.${status}`);
+}
+
+function roleLabel(t: (key: string) => string, role: string): string {
+  const key = `roles.${role}`;
+  const translated = t(key);
+  return translated === key ? role : translated;
+}
+
 export function AdminUsersPage() {
+  const { t } = useTranslation('admin');
   const [params, setParams] = useSearchParams();
   const q = params.get('q') ?? '';
   const status = (params.get('status') ?? '') as AuthUserStatus | '';
@@ -42,22 +55,20 @@ export function AdminUsersPage() {
   }
 
   return (
-    <PageShell title="Users">
-      <p className="mb-lg mt-0 text-body-md text-on-surface-variant">
-        Search and inspect authentication accounts.
-      </p>
-      <Card title="Filters">
+    <PageShell title={t('users.title')}>
+      <p className="mb-lg mt-0 text-body-md text-on-surface-variant">{t('users.subtitle')}</p>
+      <Card title={t('users.filters')}>
         <div className="flex flex-col gap-sm md:flex-row md:items-end">
           <label className="min-w-0 flex-1">
-            <span className="mb-xs block text-label-md font-semibold">Search email or id</span>
+            <span className="mb-xs block text-label-md font-semibold">{t('users.searchLabel')}</span>
             <Input
               value={q}
               onChange={(e) => update({ q: e.target.value })}
-              placeholder="user@example.com or UUID"
+              placeholder={t('users.searchPlaceholder')}
             />
           </label>
           <label>
-            <span className="mb-xs block text-label-md font-semibold">Status</span>
+            <span className="mb-xs block text-label-md font-semibold">{t('users.statusLabel')}</span>
             <select
               className="h-11 rounded-md border border-outline-variant bg-surface px-sm text-body-md"
               value={status}
@@ -65,36 +76,36 @@ export function AdminUsersPage() {
             >
               {STATUSES.map((s) => (
                 <option key={s || 'all'} value={s}>
-                  {s || 'All statuses'}
+                  {statusLabel(t, s)}
                 </option>
               ))}
             </select>
           </label>
           <Button type="button" variant="ghost" onClick={() => setParams(new URLSearchParams())}>
-            Reset
+            {t('common.reset')}
           </Button>
         </div>
       </Card>
 
-      <Card title="Accounts" className="mt-lg">
+      <Card title={t('users.accounts')} className="mt-lg">
         {query.isPending ? (
           <LoadingState />
         ) : query.isError ? (
           <FriendlyApiErrorMessage error={query.error} />
         ) : query.data.content.length === 0 ? (
-          <EmptyState title="No users match" description="Adjust filters or clear search." />
+          <EmptyState title={t('users.emptyTitle')} description={t('users.emptyDescription')} />
         ) : (
           <>
             <div className="overflow-x-auto">
               <table className="w-full min-w-[640px] border-collapse text-left text-body-sm">
                 <thead>
                   <tr className="border-b border-outline-variant/50 text-label-md uppercase tracking-wide text-on-surface-variant">
-                    <th className="px-sm py-xs font-semibold">Email</th>
-                    <th className="px-sm py-xs font-semibold">Status</th>
-                    <th className="px-sm py-xs font-semibold">Verified</th>
-                    <th className="px-sm py-xs font-semibold">Roles</th>
-                    <th className="px-sm py-xs font-semibold">Sessions</th>
-                    <th className="px-sm py-xs font-semibold">Created</th>
+                    <th className="px-sm py-xs font-semibold">{t('users.table.email')}</th>
+                    <th className="px-sm py-xs font-semibold">{t('users.table.status')}</th>
+                    <th className="px-sm py-xs font-semibold">{t('users.table.verified')}</th>
+                    <th className="px-sm py-xs font-semibold">{t('users.table.roles')}</th>
+                    <th className="px-sm py-xs font-semibold">{t('users.table.sessions')}</th>
+                    <th className="px-sm py-xs font-semibold">{t('users.table.created')}</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -107,10 +118,12 @@ export function AdminUsersPage() {
                         <div className="font-mono text-body-sm text-on-surface-variant">{user.id}</div>
                       </td>
                       <td className="px-sm py-sm">
-                        <SoftBadge tone={user.status === 'ACTIVE' ? 'success' : 'warning'}>{user.status}</SoftBadge>
+                        <SoftBadge tone={user.status === 'ACTIVE' ? 'success' : 'warning'}>
+                          {statusLabel(t, user.status)}
+                        </SoftBadge>
                       </td>
-                      <td className="px-sm py-sm">{user.emailVerified ? 'Yes' : 'No'}</td>
-                      <td className="px-sm py-sm">{user.roles.join(', ')}</td>
+                      <td className="px-sm py-sm">{user.emailVerified ? t('common.yes') : t('common.no')}</td>
+                      <td className="px-sm py-sm">{user.roles.map((role) => roleLabel(t, role)).join(', ')}</td>
                       <td className="px-sm py-sm">{user.activeSessionCount}</td>
                       <td className="px-sm py-sm">{new Date(user.createdAt).toLocaleString()}</td>
                     </tr>
@@ -120,8 +133,11 @@ export function AdminUsersPage() {
             </div>
             <div className="mt-md flex items-center justify-between gap-sm">
               <p className="m-0 text-body-sm text-on-surface-variant">
-                Page {query.data.page + 1} of {Math.max(query.data.totalPages, 1)} · {query.data.totalElements}{' '}
-                total
+                {t('users.pagination.summary', {
+                  page: query.data.page + 1,
+                  totalPages: Math.max(query.data.totalPages, 1),
+                  total: query.data.totalElements,
+                })}
               </p>
               <div className="flex gap-xs">
                 <Button
@@ -130,7 +146,7 @@ export function AdminUsersPage() {
                   disabled={page <= 0}
                   onClick={() => update({ page: String(page - 1) })}
                 >
-                  Previous
+                  {t('common.previous')}
                 </Button>
                 <Button
                   type="button"
@@ -138,7 +154,7 @@ export function AdminUsersPage() {
                   disabled={page + 1 >= query.data.totalPages}
                   onClick={() => update({ page: String(page + 1) })}
                 >
-                  Next
+                  {t('common.next')}
                 </Button>
               </div>
             </div>

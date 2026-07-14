@@ -4,6 +4,7 @@ import com.fasterxml.jackson.annotation.JsonInclude;
 import com.fasterxml.jackson.annotation.JsonProperty;
 import com.parkio.auth.application.port.EmailVerificationSender;
 import com.parkio.auth.application.port.PasswordResetEmailSender;
+import com.parkio.auth.domain.EmailLocale;
 import java.net.URLEncoder;
 import java.nio.charset.StandardCharsets;
 import java.util.List;
@@ -45,54 +46,70 @@ public class ResendEmailSender implements EmailVerificationSender, PasswordReset
     }
 
     @Override
-    public void sendVerificationLink(String recipientEmail, String rawToken) {
+    public void sendVerificationLink(String recipientEmail, String rawToken, EmailLocale locale) {
         String link = appendToken(verificationUrl, rawToken);
-        String subject = "Verify your Parkio email";
+        TransactionalEmailCopy.Copy copy = TransactionalEmailCopy.verification(locale);
         String text = """
-                Welcome to Parkio!
-
-                Tap the link below to verify your email address. This link expires soon for your security.
+                %s
 
                 %s
 
-                If you did not create a Parkio account, you can ignore this email.
-                """.formatted(link);
+                %s
+
+                %s
+                """.formatted(copy.heading(), copy.body(), link, copy.ignoreNote());
         String html = """
                 <div style="font-family:Inter,Segoe UI,sans-serif;line-height:1.5;color:#1a1c1e;max-width:560px">
-                  <h1 style="font-size:20px;margin:0 0 12px">Verify your Parkio email</h1>
-                  <p style="margin:0 0 16px">Welcome to Parkio. Tap the button below to verify your email address. This link expires soon for your security.</p>
-                  <p style="margin:0 0 20px"><a href="%s" style="display:inline-block;background:#0061a4;color:#ffffff;text-decoration:none;padding:12px 20px;border-radius:999px;font-weight:600">Verify email</a></p>
-                  <p style="margin:0;font-size:13px;color:#5c5f66">If the button does not work, copy and paste this link into your browser:<br><a href="%s">%s</a></p>
-                  <p style="margin:20px 0 0;font-size:13px;color:#5c5f66">If you did not create a Parkio account, you can ignore this email.</p>
+                  <h1 style="font-size:20px;margin:0 0 12px">%s</h1>
+                  <p style="margin:0 0 16px">%s</p>
+                  <p style="margin:0 0 20px"><a href="%s" style="display:inline-block;background:#0061a4;color:#ffffff;text-decoration:none;padding:12px 20px;border-radius:999px;font-weight:600">%s</a></p>
+                  <p style="margin:0;font-size:13px;color:#5c5f66">%s<br><a href="%s">%s</a></p>
+                  <p style="margin:20px 0 0;font-size:13px;color:#5c5f66">%s</p>
                 </div>
-                """.formatted(escapeHtml(link), escapeHtml(link), escapeHtml(link));
-        send("email_verification", recipientEmail, subject, text, html);
+                """.formatted(
+                escapeHtml(copy.heading()),
+                escapeHtml(copy.body()),
+                escapeHtml(link),
+                escapeHtml(copy.cta()),
+                escapeHtml(copy.fallbackLinkIntro()),
+                escapeHtml(link),
+                escapeHtml(link),
+                escapeHtml(copy.ignoreNote()));
+        send("email_verification", recipientEmail, copy.subject(), text, html);
         metrics.verificationSent();
     }
 
     @Override
-    public void sendResetLink(String recipientEmail, String rawToken) {
+    public void sendResetLink(String recipientEmail, String rawToken, EmailLocale locale) {
         String link = appendToken(resetUrl, rawToken);
-        String subject = "Reset your Parkio password";
+        TransactionalEmailCopy.Copy copy = TransactionalEmailCopy.passwordReset(locale);
         String text = """
-                We received a request to reset your Parkio password.
-
-                Tap the link below to choose a new password. This link expires soon for your security.
+                %s
 
                 %s
 
-                If you did not request a password reset, you can ignore this email.
-                """.formatted(link);
+                %s
+
+                %s
+                """.formatted(copy.heading(), copy.body(), link, copy.ignoreNote());
         String html = """
                 <div style="font-family:Inter,Segoe UI,sans-serif;line-height:1.5;color:#1a1c1e;max-width:560px">
-                  <h1 style="font-size:20px;margin:0 0 12px">Reset your Parkio password</h1>
-                  <p style="margin:0 0 16px">We received a request to reset your password. Tap the button below to choose a new one. This link expires soon for your security.</p>
-                  <p style="margin:0 0 20px"><a href="%s" style="display:inline-block;background:#0061a4;color:#ffffff;text-decoration:none;padding:12px 20px;border-radius:999px;font-weight:600">Reset password</a></p>
-                  <p style="margin:0;font-size:13px;color:#5c5f66">If the button does not work, copy and paste this link into your browser:<br><a href="%s">%s</a></p>
-                  <p style="margin:20px 0 0;font-size:13px;color:#5c5f66">If you did not request a password reset, you can ignore this email.</p>
+                  <h1 style="font-size:20px;margin:0 0 12px">%s</h1>
+                  <p style="margin:0 0 16px">%s</p>
+                  <p style="margin:0 0 20px"><a href="%s" style="display:inline-block;background:#0061a4;color:#ffffff;text-decoration:none;padding:12px 20px;border-radius:999px;font-weight:600">%s</a></p>
+                  <p style="margin:0;font-size:13px;color:#5c5f66">%s<br><a href="%s">%s</a></p>
+                  <p style="margin:20px 0 0;font-size:13px;color:#5c5f66">%s</p>
                 </div>
-                """.formatted(escapeHtml(link), escapeHtml(link), escapeHtml(link));
-        send("password_reset", recipientEmail, subject, text, html);
+                """.formatted(
+                escapeHtml(copy.heading()),
+                escapeHtml(copy.body()),
+                escapeHtml(link),
+                escapeHtml(copy.cta()),
+                escapeHtml(copy.fallbackLinkIntro()),
+                escapeHtml(link),
+                escapeHtml(link),
+                escapeHtml(copy.ignoreNote()));
+        send("password_reset", recipientEmail, copy.subject(), text, html);
     }
 
     private void send(String template, String recipientEmail, String subject, String text, String html) {

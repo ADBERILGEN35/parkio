@@ -27,6 +27,7 @@ import com.parkio.auth.application.result.AuthResult;
 import com.parkio.auth.application.result.IssuedAccessToken;
 import com.parkio.auth.application.result.RegisterResult;
 import com.parkio.auth.domain.AuthUser;
+import com.parkio.auth.domain.EmailLocale;
 import com.parkio.auth.domain.PasswordResetToken;
 import com.parkio.auth.domain.RefreshToken;
 import com.parkio.auth.domain.RefreshTokenRevocationReason;
@@ -157,7 +158,7 @@ public class AuthApplicationService {
         AuthUser saved = authUsers.save(user);
 
         outbox.append(UserRegisteredEvent.of(saved.id(), saved.email(), now));
-        emailVerificationSender.sendVerificationLink(saved.email(), rawVerificationToken);
+        emailVerificationSender.sendVerificationLink(saved.email(), rawVerificationToken, command.locale());
 
         return new RegisterResult(saved, verificationExpiresAt);
     }
@@ -215,7 +216,7 @@ public class AuthApplicationService {
 
         authUsers.findByEmail(email)
                 .filter(user -> !user.emailVerified())
-                .ifPresent(this::issueAndSendVerificationToken);
+                .ifPresent(user -> issueAndSendVerificationToken(user, command.locale()));
     }
 
     /**
@@ -229,16 +230,16 @@ public class AuthApplicationService {
         if (!verificationResendLimiter.tryAcquire(user.email())) {
             throw new AuthException(AuthErrorCode.INVALID_ADMIN_ACTION, "Verification resend is on cooldown.");
         }
-        issueAndSendVerificationToken(user);
+        issueAndSendVerificationToken(user, EmailLocale.TR);
     }
 
-    private void issueAndSendVerificationToken(AuthUser user) {
+    private void issueAndSendVerificationToken(AuthUser user, EmailLocale locale) {
         Instant now = clock.instant();
         String rawVerificationToken = tokenGenerator.generate();
         Instant expiresAt = now.plus(emailVerificationTtl);
         user.issueEmailVerificationToken(refreshTokenHasher.hash(rawVerificationToken), expiresAt, now);
         AuthUser saved = authUsers.save(user);
-        emailVerificationSender.sendVerificationLink(saved.email(), rawVerificationToken);
+        emailVerificationSender.sendVerificationLink(saved.email(), rawVerificationToken, locale);
     }
 
     public void forgotPassword(ForgotPasswordCommand command) {
@@ -261,7 +262,7 @@ public class AuthApplicationService {
                             now.plus(passwordResetTtl),
                             now);
                     passwordResetTokens.save(resetToken);
-                    passwordResetEmailSender.sendResetLink(user.email(), rawResetToken);
+                    passwordResetEmailSender.sendResetLink(user.email(), rawResetToken, command.locale());
                 });
     }
 

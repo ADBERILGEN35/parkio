@@ -27,6 +27,7 @@ import com.parkio.auth.application.result.IssuedAccessToken;
 import com.parkio.auth.application.result.PageResult;
 import com.parkio.auth.domain.AuthUser;
 import com.parkio.auth.domain.AuthUserStatus;
+import com.parkio.auth.domain.EmailLocale;
 import com.parkio.auth.domain.RefreshToken;
 import com.parkio.auth.domain.Role;
 import com.parkio.auth.domain.RoleName;
@@ -460,13 +461,13 @@ class AdminApplicationServiceTest {
 
     private static final class FakeEmailVerificationSender implements EmailVerificationSender {
         @Override
-        public void sendVerificationLink(String email, String rawToken) {
+        public void sendVerificationLink(String email, String rawToken, EmailLocale locale) {
         }
     }
 
     private static final class FakePasswordResetEmailSender implements PasswordResetEmailSender {
         @Override
-        public void sendResetLink(String email, String rawToken) {
+        public void sendResetLink(String email, String rawToken, EmailLocale locale) {
         }
     }
 

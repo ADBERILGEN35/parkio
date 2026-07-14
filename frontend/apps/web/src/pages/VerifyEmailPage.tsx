@@ -1,5 +1,6 @@
 import { Button, ErrorMessage, Icon } from '@parkio/ui';
 import { useEffect, useState } from 'react';
+import { useTranslation } from 'react-i18next';
 import { useNavigate, useSearchParams } from 'react-router-dom';
 import { authApi } from '@/api';
 import { describeAuthError } from '@/api/error-messages';
@@ -9,6 +10,7 @@ import { showError, showSuccess } from '@/lib/toast';
 type VerifyState = 'verifying' | 'success' | 'error';
 
 export function VerifyEmailPage() {
+  const { t } = useTranslation(['auth', 'common', 'errors']);
   const navigate = useNavigate();
   const [searchParams] = useSearchParams();
   const [state, setState] = useState<VerifyState>('verifying');
@@ -19,7 +21,7 @@ export function VerifyEmailPage() {
     const token = searchParams.get('token');
     if (!token) {
       setState('error');
-      setApiError('Verification link is invalid or expired.');
+      setApiError(t('auth:verifyEmail.invalidLink'));
       return;
     }
 
@@ -29,12 +31,12 @@ export function VerifyEmailPage() {
       .then(() => {
         if (!cancelled) {
           setState('success');
-          showSuccess('Email verified. You can sign in now.');
+          showSuccess(t('auth:verifyEmail.successToast'));
         }
       })
       .catch((error) => {
         if (cancelled) return;
-        const friendly = describeAuthError(error, 'Verification link is invalid or expired.');
+        const friendly = describeAuthError(error, t('errors:auth.verifyFailed'), t);
         setApiError(friendly.message);
         setTraceId(friendly.traceId);
         setState('error');
@@ -44,36 +46,43 @@ export function VerifyEmailPage() {
     return () => {
       cancelled = true;
     };
-  }, [searchParams]);
+  }, [searchParams, t]);
 
   return (
     <AuthSplitLayout
-      title={state === 'success' ? 'Email verified' : 'Verify your email'}
-      subtitle={state === 'success' ? 'Your account is ready for sign in.' : 'Checking your link.'}
+      title={state === 'success' ? t('auth:verifyEmail.titleSuccess') : t('auth:verifyEmail.title')}
+      subtitle={
+        state === 'success' ? t('auth:verifyEmail.subtitleSuccess') : t('auth:verifyEmail.subtitle')
+      }
     >
       <div className="flex flex-col gap-md">
         {state === 'verifying' ? (
-          <p className="m-0 flex items-center gap-sm text-body-md text-on-surface-variant" role="status" aria-live="polite">
+          <p
+            className="m-0 flex items-center gap-sm text-body-md text-on-surface-variant"
+            role="status"
+            aria-live="polite"
+          >
             <Icon name="progress_activity" className="animate-spin text-[18px] leading-none text-primary" />
-            Verifying your email…
+            {t('auth:verifyEmail.verifying')}
           </p>
         ) : null}
         {state === 'success' ? (
           <>
-            <p className="m-0 text-body-md text-on-surface-variant">
-              Your email is verified. Sign in to finish setting up your profile.
-            </p>
+            <p className="m-0 text-body-md text-on-surface-variant">{t('auth:verifyEmail.successBody')}</p>
             <Button type="button" onClick={() => navigate('/login')} className="w-full">
-              Sign in
+              {t('auth:verifyEmail.signIn')}
               <Icon name="arrow_forward" className="text-[18px] leading-none" />
             </Button>
           </>
         ) : null}
         {state === 'error' ? (
           <>
-            <ErrorMessage message={apiError ?? 'Verification link is invalid or expired.'} traceId={traceId} />
+            <ErrorMessage
+              message={apiError ?? t('auth:verifyEmail.invalidLink')}
+              traceId={traceId}
+            />
             <Button type="button" onClick={() => navigate('/check-email')} className="w-full">
-              Request a new link
+              {t('auth:verifyEmail.requestNewLink')}
             </Button>
           </>
         ) : null}

@@ -1,14 +1,18 @@
 import { Icon, cn } from '@parkio/ui';
 import { useState, type ReactNode } from 'react';
+import { useTranslation } from 'react-i18next';
 import { Link, NavLink } from 'react-router-dom';
 import { useAuthStore } from '@/auth/store';
-import { getStaffNavItems, PRIMARY_NAV, SECONDARY_NAV } from './navConfig';
+import { getPrimaryNav, getSecondaryNav, getStaffNavItems } from './navConfig';
 import { UnreadBadge } from './UnreadBadge';
 
 /** Fixed bottom tab bar — DESIGN_SYSTEM §2.1 BottomNavBar (mobile). */
 export function MobileNav() {
+  const { t } = useTranslation('navigation');
   const roles = useAuthStore((s) => s.roles);
-  const staffNav = getStaffNavItems(roles);
+  const primaryNav = getPrimaryNav(t);
+  const secondaryNav = getSecondaryNav(t);
+  const staffNav = getStaffNavItems(roles, t);
   const [moreOpen, setMoreOpen] = useState(false);
 
   return (
@@ -16,7 +20,7 @@ export function MobileNav() {
       {moreOpen ? (
         <button
           type="button"
-          aria-label="Close menu"
+          aria-label={t('closeMenu')}
           className="fixed inset-0 z-40 bg-inverse-surface/20 md:hidden"
           onClick={() => setMoreOpen(false)}
         />
@@ -28,10 +32,10 @@ export function MobileNav() {
           className="fixed inset-x-0 bottom-16 z-50 mx-container-margin mb-sm animate-fade-in-up rounded-2xl border border-outline-variant/20 bg-surface-container-lowest p-md shadow-deep md:hidden"
         >
           <p className="m-0 mb-sm text-label-sm font-semibold uppercase tracking-wider text-on-surface-variant">
-            More
+            {t('more')}
           </p>
           <div className="flex flex-col gap-xs">
-            {SECONDARY_NAV.map((item) => (
+            {secondaryNav.map((item) => (
               <MoreLink key={item.to} to={item.to} icon={item.icon} onNavigate={() => setMoreOpen(false)}>
                 {item.label}
                 {item.to === '/notifications' ? <UnreadBadge className="ml-auto" /> : null}
@@ -52,10 +56,10 @@ export function MobileNav() {
       ) : null}
 
       <nav
-        aria-label="Primary"
+        aria-label={t('primaryAria')}
         className="fixed inset-x-0 bottom-0 z-50 flex h-16 items-center justify-around border-t border-outline-variant/20 bg-surface/70 px-container-margin pb-safe shadow-nav-up backdrop-blur-xl md:hidden"
       >
-        {PRIMARY_NAV.map((item) => (
+        {primaryNav.map((item) => (
           <MobileTab key={item.to} to={item.to} icon={item.icon} label={item.label} />
         ))}
         <button
@@ -71,7 +75,7 @@ export function MobileNav() {
           )}
         >
           <Icon name="more_horiz" filled={moreOpen} className="text-[22px] leading-none" />
-          <span>More</span>
+          <span>{t('more')}</span>
         </button>
       </nav>
     </>

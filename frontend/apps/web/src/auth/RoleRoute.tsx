@@ -1,5 +1,6 @@
 import { hasAdminRole, hasPrivilegedRole } from '@parkio/types';
 import { Card, PageShell } from '@parkio/ui';
+import { useTranslation } from 'react-i18next';
 import { Navigate, Outlet } from 'react-router-dom';
 import { useAuthStore } from './store';
 
@@ -11,6 +12,7 @@ interface RoleRouteProps {
 }
 
 export function RoleRoute({ requirePrivileged = false, requireAdmin = false }: RoleRouteProps) {
+  const { t } = useTranslation('common');
   const roles = useAuthStore((s) => s.roles);
   const isAuthenticated = useAuthStore((s) => s.isAuthenticated);
 
@@ -20,9 +22,9 @@ export function RoleRoute({ requirePrivileged = false, requireAdmin = false }: R
 
   if (requireAdmin && !hasAdminRole(roles)) {
     return (
-      <PageShell title="Access denied">
-        <Card title="Forbidden">
-          <p>This area requires an admin role.</p>
+      <PageShell title={t('accessDenied.title')}>
+        <Card title={t('accessDenied.forbidden')}>
+          <p>{t('accessDenied.adminRequired')}</p>
         </Card>
       </PageShell>
     );
@@ -30,9 +32,9 @@ export function RoleRoute({ requirePrivileged = false, requireAdmin = false }: R
 
   if (requirePrivileged && !hasPrivilegedRole(roles)) {
     return (
-      <PageShell title="Access denied">
-        <Card title="Forbidden">
-          <p>This area requires a moderator or admin role.</p>
+      <PageShell title={t('accessDenied.title')}>
+        <Card title={t('accessDenied.forbidden')}>
+          <p>{t('accessDenied.privilegedRequired')}</p>
         </Card>
       </PageShell>
     );

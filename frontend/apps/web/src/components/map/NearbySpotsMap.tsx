@@ -2,7 +2,9 @@ import './maplibreSetup';
 import type { PublicSpot } from '@parkio/types';
 import { cn, getSpotStatusVisual, getTrustFreshnessVisual } from '@parkio/ui';
 import { memo, useCallback, useMemo } from 'react';
+import { useTranslation } from 'react-i18next';
 import Map, { Marker } from 'react-map-gl/maplibre';
+import { freshnessLabel, spotStatusLabel } from '@/lib/localized-status';
 import { MapFloatingControls } from './MapFloatingControls';
 import { DEFAULT_MAP_ZOOM, getMapStyle, type LatLng } from './mapConfig';
 import { Recenter } from './Recenter';
@@ -33,10 +35,18 @@ const SpotMarker = memo(function SpotMarker({
   /** Stable across renders so `memo` skips unaffected markers on selection. */
   onSelect: (id: string) => void;
 }) {
+  const { t } = useTranslation(['map', 'common']);
   const status = getSpotStatusVisual(spot.status);
   const { freshness } = getTrustFreshnessVisual(spot.updatedAt);
   const dimmed = freshness === 'aging' || freshness === 'stale';
-  const label = `${status.label} parking spot${spot.addressText ? ` near ${spot.addressText}` : ''}`;
+  const statusText = spotStatusLabel(spot.status, t);
+  const label = spot.addressText
+    ? t('marker.parkingSpotNear', { status: statusText, address: spot.addressText })
+    : t('marker.parkingSpot', { status: statusText });
+  const freshnessText =
+    freshness === 'fresh'
+      ? t('marker.recentlyUpdated')
+      : t('marker.freshness', { freshness: freshnessLabel(freshness, t) });
 
   return (
     <button
@@ -65,7 +75,7 @@ const SpotMarker = memo(function SpotMarker({
       >
         P
       </span>
-      <span className="sr-only">{freshness === 'fresh' ? 'Recently updated' : `Freshness ${freshness}`}</span>
+      <span className="sr-only">{freshnessText}</span>
     </button>
   );
 });

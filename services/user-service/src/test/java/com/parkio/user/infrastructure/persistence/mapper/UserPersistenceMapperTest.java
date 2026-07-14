@@ -18,6 +18,7 @@ class UserPersistenceMapperTest {
                 UUID.randomUUID(),
                 UserPreference.DEFAULT_RADIUS_METERS,
                 true,
+                "tr",
                 null,
                 null,
                 null,

@@ -28,7 +28,7 @@ const profile: Profile = {
 
 const stats: UserStats = {
   trustScore: 72,
-  trustBand: 'TRUSTED',
+  trustBand: 'HIGH_TRUST',
   totalPoints: 340,
   currentLevel: 3,
 };
@@ -36,6 +36,7 @@ const stats: UserStats = {
 const preferences: UserPreference = {
   preferredRadiusMeters: 1500,
   notificationsEnabled: true,
+  preferredLocale: 'en',
 };
 
 const smartReturn: SmartReturnSettings = {
@@ -130,7 +131,7 @@ describe('ProfilePage', () => {
 
     expect(await screen.findByText('340')).toBeInTheDocument(); // total points
     expect(screen.getByText('72')).toBeInTheDocument(); // trust score
-    expect(screen.getByText('Trusted')).toBeInTheDocument(); // trust band
+    expect(screen.getByText('High trust')).toBeInTheDocument(); // trust band
   });
 
   it('shows the Profile & Account section by default', async () => {
@@ -138,7 +139,7 @@ describe('ProfilePage', () => {
     renderProfile();
 
     expect(await screen.findByLabelText('Display name')).toBeInTheDocument();
-    expect(screen.getByRole('button', { name: /Sign out/ })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: /Sign out/i })).toBeInTheDocument();
   });
 
   it('switches visible sections when a section tab is selected', async () => {
@@ -155,9 +156,11 @@ describe('ProfilePage', () => {
     expect(screen.queryByLabelText('Display name')).not.toBeInTheDocument();
 
     // Switch to Trust & Progress — the honest "no streaks" note appears.
-    await user.click(screen.getByRole('tab', { name: 'Trust & Progress' }));
+    await user.click(screen.getByRole('tab', { name: 'Trust & progress' }));
     expect(
-      await screen.findByText(/Streaks, achievements and activity heatmaps aren't available yet/),
+      await screen.findByText(
+        'Streaks, achievements and activity heatmaps are not available yet — only lifetime points, level and trust are tracked today.',
+      ),
     ).toBeInTheDocument();
 
     await user.click(screen.getByRole('tab', { name: 'Smart Return' }));
@@ -171,7 +174,7 @@ describe('ProfilePage', () => {
 
     await user.click(await screen.findByRole('tab', { name: 'Vehicle' }));
 
-    expect(await screen.findByText(/No vehicle configured yet/)).toBeInTheDocument();
+    expect(await screen.findByText(/No vehicle saved yet/)).toBeInTheDocument();
   });
 
   it('shows the current vehicle when one is configured', async () => {

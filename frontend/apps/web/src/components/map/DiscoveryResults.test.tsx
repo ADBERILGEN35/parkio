@@ -112,7 +112,7 @@ function listAddresses() {
 describe('DiscoveryResults', () => {
   it('shows the result count and a distance chip per spot', () => {
     renderWithProviders(<Harness />);
-    expect(screen.getByRole('heading', { name: /2 spots nearby/ })).toBeInTheDocument();
+    expect(screen.getByRole('heading', { name: /2 spots/ })).toBeInTheDocument();
     // Distance chips are derived from real coordinates (no fabricated metrics).
     expect(screen.getAllByText(/^\d+(\.\d+)? (m|km)$/).length).toBeGreaterThanOrEqual(2);
     expect(screen.getAllByText('Fits your Sedan')).toHaveLength(2);
@@ -128,7 +128,7 @@ describe('DiscoveryResults', () => {
     renderWithProviders(<Harness />);
 
     expect(listAddresses()[0]).toBe('Near Avenue'); // nearest default
-    await user.selectOptions(screen.getByLabelText('Sort results'), 'newest');
+    await user.selectOptions(screen.getByLabelText('Sort'), 'newest');
     expect(listAddresses()[0]).toBe('Far Street'); // newest createdAt wins
   });
 
@@ -168,7 +168,7 @@ describe('DiscoveryResults', () => {
     expect(screen.getByTestId('selected')).toHaveTextContent('near');
 
     // Selection must survive sort changes.
-    await user.selectOptions(screen.getByLabelText('Sort results'), 'newest');
+    await user.selectOptions(screen.getByLabelText('Sort'), 'newest');
     expect(screen.getByTestId('selected')).toHaveTextContent('near');
     expect(screen.getByRole('button', { name: /Show Near Avenue on map/ })).toHaveAttribute(
       'aria-pressed',

@@ -1,6 +1,7 @@
 package com.parkio.user.infrastructure.persistence.entity;
 
 import com.parkio.user.domain.SmartReturnTodayStatus;
+import com.parkio.user.domain.PreferredLocale;
 import jakarta.persistence.Column;
 import jakarta.persistence.Entity;
 import jakarta.persistence.EnumType;
@@ -30,6 +31,9 @@ public class UserPreferenceEntity {
 
     @Column(name = "notifications_enabled", nullable = false)
     private boolean notificationsEnabled;
+
+    @Column(name = "preferred_locale", nullable = false, length = 5)
+    private String preferredLocale;
 
     @Column(name = "smart_return_enabled", nullable = false)
     private Boolean smartReturnEnabled;
@@ -83,6 +87,7 @@ public class UserPreferenceEntity {
                                 UUID userProfileId,
                                 int preferredRadiusMeters,
                                 boolean notificationsEnabled,
+                                String preferredLocale,
                                 Boolean smartReturnEnabled,
                                 Double homeLatitude,
                                 Double homeLongitude,
@@ -101,6 +106,7 @@ public class UserPreferenceEntity {
         this.userProfileId = userProfileId;
         this.preferredRadiusMeters = preferredRadiusMeters;
         this.notificationsEnabled = notificationsEnabled;
+        this.preferredLocale = preferredLocale == null ? PreferredLocale.DEFAULT.code() : preferredLocale;
         this.smartReturnEnabled = smartReturnEnabled;
         this.homeLatitude = homeLatitude;
         this.homeLongitude = homeLongitude;
@@ -131,6 +137,10 @@ public class UserPreferenceEntity {
 
     public boolean isNotificationsEnabled() {
         return notificationsEnabled;
+    }
+
+    public String getPreferredLocale() {
+        return preferredLocale;
     }
 
     public Boolean getSmartReturnEnabled() {

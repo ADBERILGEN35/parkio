@@ -1,6 +1,7 @@
 import { UnauthorizedError } from '@parkio/api-client';
 import { Button, Icon, SkeletonBlock, Surface } from '@parkio/ui';
 import { useCallback, useEffect, useRef, useState } from 'react';
+import { useTranslation } from 'react-i18next';
 import { useNavigate } from 'react-router-dom';
 import { authApi, usersApi } from '@/api';
 import { performLogout } from '@/auth/logout';
@@ -27,6 +28,7 @@ type Phase = 'provisioning' | 'saving-profile';
  * is shown.
  */
 export function AccountPreparingPage() {
+  const { t } = useTranslation(['auth', 'common']);
   const navigate = useNavigate();
   const setUser = useAuthStore((s) => s.setUser);
   const endProvisioning = useAuthStore((s) => s.endProvisioning);
@@ -45,9 +47,6 @@ export function AccountPreparingPage() {
     }
   };
 
-  // Persists registration-captured profile fields once the account is ready, then
-  // forwards to /map. A PATCH failure never blocks account creation — the pending
-  // data is cleared and a soft warning is surfaced instead.
   const finishWithProfile = useCallback(async () => {
     const pending = getPendingProfile();
     if (!hasPendingProfile(pending)) {
@@ -67,7 +66,6 @@ export function AccountPreparingPage() {
       endProvisioning();
       navigate('/map', { replace: true });
     } catch {
-      // Account is ready; only the deferred profile save failed.
       if (!activeRef.current) return;
       clearPendingProfile();
       endProvisioning();
@@ -89,12 +87,7 @@ export function AccountPreparingPage() {
         await finishWithProfile();
       } catch (error) {
         if (!activeRef.current) return;
-        // A surfaced 401 means refresh already failed and the session was cleared;
-        // the route guard will redirect to /login, so stop polling.
         if (error instanceof UnauthorizedError) return;
-        // Everything else during the grace window (notably 403 ACCOUNT_NOT_ACTIVE,
-        // also 503/transient startup errors) means the profile is still being
-        // provisioned — keep polling until the window closes.
         if (Date.now() >= deadline) {
           setTimedOut(true);
           return;
@@ -137,7 +130,6 @@ export function AccountPreparingPage() {
     }
   };
 
-  // Soft-fail: the account is ready but the deferred profile save failed.
   if (profileWarning) {
     return (
       <main className="flex min-h-screen flex-col items-center justify-center gap-lg bg-background px-md py-xl text-on-background">
@@ -145,13 +137,13 @@ export function AccountPreparingPage() {
           <span className="mx-auto mb-md flex h-16 w-16 items-center justify-center rounded-full bg-tertiary-container/40 text-tertiary">
             <Icon name="info" className="text-[32px] leading-none" />
           </span>
-          <h1 className="m-0 text-headline-md text-on-surface">Your account is ready</h1>
+          <h1 className="m-0 text-headline-md text-on-surface">{t('auth:preparing.readyTitle')}</h1>
           <p className="m-0 mt-sm text-body-md text-on-surface-variant">
-            We couldn&apos;t save some profile details. You can update them anytime from Profile.
+            {t('auth:preparing.profileWarning')}
           </p>
           <div className="mt-lg flex justify-center">
             <Button onClick={onContinue}>
-              Continue to Parkio
+              {t('auth:preparing.continue')}
               <Icon name="arrow_forward" className="text-[16px] leading-none" />
             </Button>
           </div>
@@ -170,28 +162,25 @@ export function AccountPreparingPage() {
             <SkeletonBlock className="h-8 w-8" rounded="full" />
           )}
         </span>
-        <h1 className="m-0 text-headline-md text-on-surface">Preparing your account</h1>
+        <h1 className="m-0 text-headline-md text-on-surface">{t('auth:preparing.title')}</h1>
         {timedOut ? (
-          <p className="m-0 mt-sm text-body-md text-on-surface-variant">
-            This is taking longer than expected. You can try again in a moment, or sign out and
-            sign back in.
-          </p>
+          <p className="m-0 mt-sm text-body-md text-on-surface-variant">{t('auth:preparing.timeout')}</p>
         ) : (
           <p className="m-0 mt-sm text-body-md text-on-surface-variant" role="status">
             {phase === 'saving-profile'
-              ? 'Saving your profile details…'
-              : 'This usually takes a few seconds.'}
+              ? t('auth:preparing.savingProfile')
+              : t('auth:preparing.waiting')}
           </p>
         )}
         {timedOut ? (
           <div className="mt-lg flex flex-col items-center justify-center gap-sm sm:flex-row">
             <Button onClick={onRetry} disabled={signingOut}>
               <Icon name="refresh" className="text-[16px] leading-none" />
-              Try again
+              {t('auth:preparing.tryAgain')}
             </Button>
             <Button variant="ghost" onClick={onSignOut} disabled={signingOut}>
               <Icon name="logout" className="text-[16px] leading-none" />
-              {signingOut ? 'Signing out…' : 'Sign out'}
+              {signingOut ? t('auth:preparing.signingOut') : t('auth:preparing.signOut')}
             </Button>
           </div>
         ) : null}

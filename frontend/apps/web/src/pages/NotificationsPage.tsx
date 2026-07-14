@@ -8,6 +8,7 @@ import {
 } from '@parkio/ui';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useState, type ReactNode } from 'react';
+import { useTranslation } from 'react-i18next';
 import { useNavigate } from 'react-router-dom';
 import { notificationsApi } from '@/api';
 import { FriendlyApiErrorMessage } from '@/components/FriendlyApiErrorMessage';
@@ -24,12 +25,7 @@ import { useAuthStore } from '@/auth/store';
  */
 type NotificationFilter = 'all' | 'unread' | 'moderation' | 'gamification';
 
-const FILTERS: { id: NotificationFilter; label: string }[] = [
-  { id: 'all', label: 'All activity' },
-  { id: 'unread', label: 'Unread' },
-  { id: 'moderation', label: 'Moderation' },
-  { id: 'gamification', label: 'Gamification' },
-];
+const FILTER_IDS: NotificationFilter[] = ['all', 'unread', 'moderation', 'gamification'];
 
 function matchesFilter(notification: AppNotification, filter: NotificationFilter): boolean {
   switch (filter) {
@@ -45,6 +41,7 @@ function matchesFilter(notification: AppNotification, filter: NotificationFilter
 }
 
 export function NotificationsPage() {
+  const { t } = useTranslation('parking');
   const query = useQuery({
     queryKey: ['notifications'],
     queryFn: notificationsApi.getMyNotifications,
@@ -55,10 +52,10 @@ export function NotificationsPage() {
       <header className="mb-lg flex flex-wrap items-end justify-between gap-sm">
         <div className="min-w-0">
           <h1 className="m-0 text-headline-lg-mobile text-on-surface md:text-headline-lg">
-            Notifications
+            {t('notifications.title')}
           </h1>
           <p className="m-0 mt-xs text-body-md text-on-surface-variant">
-            Manage your alerts and activity updates.
+            {t('notifications.description')}
           </p>
         </div>
       </header>
@@ -73,8 +70,8 @@ export function NotificationsPage() {
         <Surface level="card" className="p-lg">
           <EmptyState
             icon="notifications_off"
-            title="No notifications yet"
-            description="Activity on your spots and points will show up here."
+            title={t('notifications.emptyTitle')}
+            description={t('notifications.emptyDescription')}
           />
         </Surface>
       ) : (
@@ -85,6 +82,7 @@ export function NotificationsPage() {
 }
 
 function NotificationsBoard({ notifications }: { notifications: AppNotification[] }) {
+  const { t } = useTranslation('parking');
   const [filter, setFilter] = useState<NotificationFilter>('all');
 
   const counts: Record<NotificationFilter, number> = {
@@ -101,15 +99,19 @@ function NotificationsBoard({ notifications }: { notifications: AppNotification[
   return (
     <div className="flex flex-col gap-md">
       {/* Filter chips — horizontal scroll on narrow screens */}
-      <div className="-mx-md flex gap-sm overflow-x-auto px-md hide-scrollbar" role="group" aria-label="Filter notifications">
-        {FILTERS.map((option) => {
-          const selected = filter === option.id;
+      <div
+        className="-mx-md flex gap-sm overflow-x-auto px-md hide-scrollbar"
+        role="group"
+        aria-label={t('notifications.filterAria')}
+      >
+        {FILTER_IDS.map((id) => {
+          const selected = filter === id;
           return (
             <button
-              key={option.id}
+              key={id}
               type="button"
               aria-pressed={selected}
-              onClick={() => setFilter(option.id)}
+              onClick={() => setFilter(id)}
               className={cn(
                 'inline-flex shrink-0 items-center gap-xs rounded-full px-md py-2.5 min-h-11 text-label-md transition-colors duration-std',
                 'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary',
@@ -118,14 +120,14 @@ function NotificationsBoard({ notifications }: { notifications: AppNotification[
                   : 'border border-outline-variant/40 bg-surface-container-lowest text-on-surface-variant hover:bg-surface-container',
               )}
             >
-              <span>{option.label}</span>
+              <span>{t(`notifications.filters.${id}`)}</span>
               <span
                 className={cn(
                   'rounded-full px-xs text-label-sm',
                   selected ? 'bg-primary/15 text-primary' : 'bg-surface-container-high text-on-surface-variant',
                 )}
               >
-                {counts[option.id]}
+                {counts[id]}
               </span>
             </button>
           );
@@ -136,14 +138,14 @@ function NotificationsBoard({ notifications }: { notifications: AppNotification[
         <Surface level="card" className="p-lg">
           <EmptyState
             icon="filter_alt_off"
-            title="Nothing in this filter"
-            description="Try a different filter to see more of your activity."
+            title={t('notifications.filterEmptyTitle')}
+            description={t('notifications.filterEmptyDescription')}
           />
         </Surface>
       ) : (
         <Surface level="card" className="flex flex-col gap-md p-md md:p-lg">
           {unread.length > 0 ? (
-            <Group label="New" count={unread.length}>
+            <Group label={t('notifications.groupNew')} count={unread.length}>
               {unread.map((n) => (
                 <NotificationItem key={n.id} notification={n} />
               ))}
@@ -151,7 +153,7 @@ function NotificationsBoard({ notifications }: { notifications: AppNotification[
           ) : null}
 
           {read.length > 0 ? (
-            <Group label="Earlier" count={read.length}>
+            <Group label={t('notifications.groupEarlier')} count={read.length}>
               {read.map((n) => (
                 <NotificationItem key={n.id} notification={n} />
               ))}
@@ -160,9 +162,7 @@ function NotificationsBoard({ notifications }: { notifications: AppNotification[
         </Surface>
       )}
 
-      <p className="m-0 px-xs text-label-sm text-on-surface-variant/80">
-        Showing your most recent notifications (up to 50). Pagination isn't available yet.
-      </p>
+      <p className="m-0 px-xs text-label-sm text-on-surface-variant/80">{t('notifications.footer')}</p>
     </div>
   );
 }
@@ -183,6 +183,7 @@ function Group({ label, count, children }: { label: string; count: number; child
 }
 
 function NotificationItem({ notification }: { notification: AppNotification }) {
+  const { t } = useTranslation('parking');
   const queryClient = useQueryClient();
   const navigate = useNavigate();
   const roles = useAuthStore((s) => s.roles);
@@ -194,12 +195,12 @@ function NotificationItem({ notification }: { notification: AppNotification }) {
       queryClient.setQueryData<AppNotification[]>(['notifications'], (current) =>
         current?.map((item) => (item.id === updated.id ? updated : item)),
       );
-      showSuccess('Notification marked as read.');
+      showSuccess(t('notifications.markReadSuccess'));
     },
-    onError: () => showError('Could not mark notification as read.'),
+    onError: () => showError(t('notifications.markReadError')),
   });
 
-  const smartReturnAction = smartReturnNotificationAction(notification, navigate, roles);
+  const smartReturnAction = smartReturnNotificationAction(notification, navigate, roles, t);
   const action = smartReturnAction || unread ? (
     <div className="flex flex-wrap gap-sm">
       {smartReturnAction}
@@ -222,6 +223,7 @@ function smartReturnNotificationAction(
   notification: AppNotification,
   navigate: (to: string) => void,
   roles: string[],
+  t: (key: string) => string,
 ): ReactNode {
   if (notification.type === 'SMART_RETURN_PROMPT') {
     return (
@@ -231,7 +233,7 @@ function smartReturnNotificationAction(
         className="inline-flex min-h-11 w-full items-center justify-center gap-xs rounded-full bg-primary px-lg py-sm text-label-md font-semibold text-on-primary transition-colors hover:bg-primary/90 focus:outline-none focus-visible:ring-2 focus-visible:ring-primary sm:w-auto"
       >
         <Icon name="directions_car" className="text-[18px] leading-none" />
-        Set today's return
+        {t('notifications.setTodaysReturn')}
       </button>
     );
   }
@@ -243,7 +245,7 @@ function smartReturnNotificationAction(
         className="inline-flex min-h-11 w-full items-center justify-center gap-xs rounded-full bg-primary px-lg py-sm text-label-md font-semibold text-on-primary transition-colors hover:bg-primary/90 focus:outline-none focus-visible:ring-2 focus-visible:ring-primary sm:w-auto"
       >
         <Icon name="map" className="text-[18px] leading-none" />
-        Open map
+        {t('notifications.openMap')}
       </button>
     );
   }

@@ -2,6 +2,7 @@ package com.parkio.auth.infrastructure.persistence;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
+import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.atLeastOnce;
 import static org.mockito.Mockito.clearInvocations;
@@ -254,7 +255,7 @@ class RefreshTokenSecurityIntegrationTest {
         clearInvocations(emailVerificationSender);
         authService.register(new RegisterCommand(email, "StrongerPass123"));
         ArgumentCaptor<String> tokenCaptor = ArgumentCaptor.forClass(String.class);
-        verify(emailVerificationSender, atLeastOnce()).sendVerificationLink(eq(email), tokenCaptor.capture());
+        verify(emailVerificationSender, atLeastOnce()).sendVerificationLink(eq(email), tokenCaptor.capture(), any());
         authService.verifyEmail(new VerifyEmailCommand(tokenCaptor.getValue()));
     }
 }

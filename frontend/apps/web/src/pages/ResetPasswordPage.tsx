@@ -1,27 +1,31 @@
 import { zodResolver } from '@hookform/resolvers/zod';
-import {
-  passwordRequirementState,
-  passwordRequirements,
-  resetPasswordSchema,
-  type ResetPasswordFormValues,
-} from '@parkio/validation';
+import { passwordRequirementState, type ResetPasswordFormValues } from '@parkio/validation';
 import { Button, ErrorMessage, Icon, Input } from '@parkio/ui';
-import { useState } from 'react';
+import { useMemo, useState } from 'react';
 import { useForm } from 'react-hook-form';
+import { useTranslation } from 'react-i18next';
 import { Link, useNavigate, useSearchParams } from 'react-router-dom';
 import { authApi } from '@/api';
 import { describeAuthError } from '@/api/error-messages';
 import { useAuthStore } from '@/auth/store';
 import { AuthSplitLayout } from '@/pages/auth/AuthSplitLayout';
+import {
+  createResetPasswordSchema,
+  getPasswordRequirements,
+} from '@/lib/validation/localized-schemas';
 import { showError, showSuccess } from '@/lib/toast';
 
 export function ResetPasswordPage() {
+  const { t } = useTranslation(['auth', 'common', 'validation', 'errors']);
   const [searchParams] = useSearchParams();
   const navigate = useNavigate();
   const clearSession = useAuthStore((s) => s.clearSession);
   const token = searchParams.get('token') ?? '';
   const [apiError, setApiError] = useState<string | null>(null);
   const [traceId, setTraceId] = useState<string | undefined>();
+
+  const schema = useMemo(() => createResetPasswordSchema(t), [t]);
+  const requirements = useMemo(() => getPasswordRequirements(t), [t]);
 
   const {
     register,
@@ -30,7 +34,7 @@ export function ResetPasswordPage() {
     watch,
     formState: { errors, isSubmitting },
   } = useForm<ResetPasswordFormValues>({
-    resolver: zodResolver(resetPasswordSchema),
+    resolver: zodResolver(schema),
     defaultValues: { password: '', confirmPassword: '' },
   });
   const passwordValue = watch('password') ?? '';
@@ -38,8 +42,9 @@ export function ResetPasswordPage() {
 
   const onSubmit = handleSubmit(async (values) => {
     if (!token) {
-      setApiError('Password reset link is missing a token.');
-      showError('Password reset link is missing a token.');
+      const missing = t('auth:resetPassword.missingToken');
+      setApiError(missing);
+      showError(missing);
       return;
     }
     setApiError(null);
@@ -47,10 +52,10 @@ export function ResetPasswordPage() {
     try {
       await authApi.resetPassword({ token, newPassword: values.password });
       clearSession();
-      showSuccess('Password reset. Sign in with your new password.');
+      showSuccess(t('auth:resetPassword.success'));
       navigate('/login?passwordReset=success', { replace: true });
     } catch (error) {
-      const friendly = describeAuthError(error, 'Password reset failed. Request a new link and try again.');
+      const friendly = describeAuthError(error, t('errors:auth.resetPasswordFailed'), t);
       setApiError(friendly.message);
       setTraceId(friendly.traceId);
       showError(friendly.message);
@@ -63,27 +68,33 @@ export function ResetPasswordPage() {
   });
 
   return (
-    <AuthSplitLayout title="Choose a new password" subtitle="Use a strong password you do not use elsewhere.">
+    <AuthSplitLayout
+      title={t('auth:resetPassword.title')}
+      subtitle={t('auth:resetPassword.subtitle')}
+    >
       <form onSubmit={onSubmit} className="flex flex-col gap-md">
         <Input
-          label="New password"
+          label={t('auth:resetPassword.password')}
           type="password"
           autoComplete="new-password"
           error={errors.password?.message}
           {...register('password')}
         />
         <ul className="m-0 grid list-none gap-1 p-0 text-label-sm text-on-surface-variant">
-          {passwordRequirements.map((requirement) => {
+          {requirements.map((requirement) => {
             const met = passwordState[requirement.id];
             return (
               <li key={requirement.id} className={met ? 'text-success' : 'text-on-surface-variant'}>
-                {met ? 'Met:' : 'Needed:'} {requirement.label}
+                {met
+                  ? t('auth:resetPassword.requirementMet')
+                  : t('auth:resetPassword.requirementNeeded')}{' '}
+                {requirement.label}
               </li>
             );
           })}
         </ul>
         <Input
-          label="Confirm password"
+          label={t('auth:resetPassword.confirmPassword')}
           type="password"
           autoComplete="new-password"
           error={errors.confirmPassword?.message}
@@ -93,15 +104,15 @@ export function ResetPasswordPage() {
         {apiError ? <ErrorMessage message={apiError} traceId={traceId} /> : null}
 
         <Button type="submit" disabled={isSubmitting || !token} className="w-full">
-          {isSubmitting ? 'Resetting…' : 'Reset password'}
+          {isSubmitting ? t('auth:resetPassword.submitting') : t('auth:resetPassword.submit')}
           {isSubmitting ? null : <Icon name="lock_reset" className="text-[18px] leading-none" />}
         </Button>
       </form>
 
       <p className="m-0 mt-md text-center text-body-md text-on-surface-variant">
-        Need a fresh link?{' '}
+        {t('auth:resetPassword.needFreshLink')}{' '}
         <Link to="/forgot-password" className="font-semibold text-primary hover:underline">
-          Request instructions
+          {t('auth:resetPassword.requestLink')}
         </Link>
       </p>
     </AuthSplitLayout>

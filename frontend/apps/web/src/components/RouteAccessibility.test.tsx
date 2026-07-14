@@ -1,4 +1,4 @@
-import { render, screen, waitFor } from '@testing-library/react';
+import { act, render, screen, waitFor } from '@testing-library/react';
 import { describe, expect, it } from 'vitest';
 import { MemoryRouter, Route, Routes } from 'react-router-dom';
 import { RouteAccessibility } from './RouteAccessibility';
@@ -20,6 +20,21 @@ describe('RouteAccessibility', () => {
   it('sets a meaningful document title', async () => {
     render(<TestRoutes initialPath="/login" />);
 
+    await waitFor(() => expect(document.title).toBe('Parkio — Login'));
+  });
+
+  it('updates document title when the language changes', async () => {
+    const i18n = (await import('@/i18n')).default;
+    render(<TestRoutes initialPath="/login" />);
+
+    await waitFor(() => expect(document.title).toBe('Parkio — Login'));
+    await act(async () => {
+      await i18n.changeLanguage('tr');
+    });
+    await waitFor(() => expect(document.title).toBe('Parkio — Giriş'));
+    await act(async () => {
+      await i18n.changeLanguage('en');
+    });
     await waitFor(() => expect(document.title).toBe('Parkio — Login'));
   });
 

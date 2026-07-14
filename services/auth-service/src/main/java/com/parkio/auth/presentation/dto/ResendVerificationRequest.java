@@ -5,5 +5,6 @@ import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.Size;
 
 public record ResendVerificationRequest(
-        @NotBlank @Email @Size(max = 255) String email) {
+        @NotBlank @Email @Size(max = 255) String email,
+        String locale) {
 }

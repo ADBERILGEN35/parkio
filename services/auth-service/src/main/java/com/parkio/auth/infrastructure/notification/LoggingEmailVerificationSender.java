@@ -1,6 +1,7 @@
 package com.parkio.auth.infrastructure.notification;
 
 import com.parkio.auth.application.port.EmailVerificationSender;
+import com.parkio.auth.domain.EmailLocale;
 import java.net.URLEncoder;
 import java.nio.charset.StandardCharsets;
 import org.slf4j.Logger;
@@ -33,15 +34,17 @@ public class LoggingEmailVerificationSender implements EmailVerificationSender {
     }
 
     @Override
-    public void sendVerificationLink(String email, String rawToken) {
+    public void sendVerificationLink(String email, String rawToken, EmailLocale locale) {
         metrics.emailSent();
         metrics.verificationSent();
         if (!logRawToken) {
-            log.info("Email verification requested; emailHash={}", Integer.toHexString(email.hashCode()));
+            log.info("Email verification requested; emailHash={}, locale={}",
+                    Integer.toHexString(email.hashCode()), locale.code());
             return;
         }
         String separator = verificationUrl.contains("?") ? "&" : "?";
         String encoded = URLEncoder.encode(rawToken, StandardCharsets.UTF_8);
-        log.info("Email verification link for {}: {}{}token={}", email, verificationUrl, separator, encoded);
+        log.info("Email verification link for {}: {}{}token={} (locale={})",
+                email, verificationUrl, separator, encoded, locale.code());
     }
 }
