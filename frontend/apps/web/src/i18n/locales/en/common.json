@@ -113,6 +113,8 @@
     "privilegedRequired": "This area requires a moderator or admin role."
   },
   "spotStatus": {
+    "PENDING_VALIDATION": "Validating",
+    "PENDING_REVIEW": "Under review",
     "ACTIVE": "Active",
     "VERIFIED": "Verified",
     "SUSPICIOUS": "Suspicious",

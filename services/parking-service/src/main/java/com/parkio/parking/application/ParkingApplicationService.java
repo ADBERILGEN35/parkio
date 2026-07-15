@@ -18,6 +18,7 @@ import com.parkio.parking.domain.ParkingSpotStatusHistory;
 import com.parkio.parking.domain.ParkingSpotVerification;
 import com.parkio.parking.domain.ParkingSpotViewLog;
 import com.parkio.parking.domain.VerificationResult;
+import com.parkio.parking.domain.event.ParkingSpotActivatedEvent;
 import com.parkio.parking.domain.event.ParkingSpotClaimedEvent;
 import com.parkio.parking.domain.event.ParkingSpotCreatedEvent;
 import com.parkio.parking.domain.event.ParkingSpotExpiredEvent;
@@ -28,6 +29,7 @@ import com.parkio.parking.domain.exception.ParkingException;
 import java.time.Clock;
 import java.time.Instant;
 import java.util.List;
+import java.util.Locale;
 import java.util.UUID;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -213,6 +215,53 @@ public class ParkingApplicationService {
         if (spot.markRejectedByModerator(now)) {
             spots.save(spot);
             recordHistory(spot, previous, "MODERATOR_REJECTED", now);
+        }
+    }
+
+    /**
+     * Applies the AI validation publication gate. Spots stay non-discoverable until
+     * {@code PASSED}; uncertain results wait in {@code PENDING_REVIEW}; failures /
+     * non-parking risks reject. Unknown statuses and provider gaps are fail-closed
+     * (no transition — spot remains {@code PENDING_VALIDATION}).
+     *
+     * @param statusName       PASSED / WARNING / FAILED (case-insensitive)
+     * @param detectedRiskTypes advisory risk type names from ai-validation-service
+     */
+    public void applyAiValidationResult(UUID parkingSpotId, String statusName, List<String> detectedRiskTypes) {
+        ParkingSpot spot = requireSpot(parkingSpotId);
+        Instant now = clock.instant();
+        ParkingSpotStatus previous = spot.status();
+
+        String normalized = statusName == null ? "" : statusName.trim().toUpperCase(Locale.ROOT);
+        boolean notParking = detectedRiskTypes != null
+                && detectedRiskTypes.stream()
+                .filter(r -> r != null && !r.isBlank())
+                .map(r -> r.trim().toUpperCase(Locale.ROOT))
+                .anyMatch("NOT_A_PARKING_SPOT"::equals);
+
+        boolean changed;
+        String reason;
+        if ("PASSED".equals(normalized) && !notParking) {
+            changed = spot.applyAiValidationPassed(now);
+            reason = "AI_PASSED";
+        } else if ("WARNING".equals(normalized) && !notParking) {
+            changed = spot.applyAiValidationUncertain(now);
+            reason = "AI_PENDING_REVIEW";
+        } else if ("FAILED".equals(normalized) || notParking) {
+            changed = spot.applyAiValidationRejected(now);
+            reason = "AI_REJECTED";
+        } else {
+            // Fail-closed: unknown / missing status leaves the spot pending validation.
+            return;
+        }
+
+        if (!changed) {
+            return;
+        }
+        ParkingSpot saved = spots.save(spot);
+        recordHistory(saved, previous, reason, now);
+        if (saved.status() == ParkingSpotStatus.ACTIVE) {
+            outbox.append(ParkingSpotActivatedEvent.of(saved, now));
         }
     }
 

@@ -48,6 +48,7 @@ export default function MainLayout() {
       <Stack.Screen name="vehicle" />
       <Stack.Screen name="preferences" />
       <Stack.Screen name="change-password" />
+      <Stack.Screen name="about" />
     </Stack>
   );
 }

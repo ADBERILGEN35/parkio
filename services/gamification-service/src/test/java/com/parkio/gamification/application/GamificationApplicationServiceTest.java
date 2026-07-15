@@ -3,6 +3,7 @@ package com.parkio.gamification.application;
 import static org.assertj.core.api.Assertions.assertThat;
 
 import com.parkio.gamification.application.event.ModerationCaseResolvedEvent;
+import com.parkio.gamification.application.event.ParkingSpotActivatedEvent;
 import com.parkio.gamification.application.event.ParkingSpotClaimedEvent;
 import com.parkio.gamification.application.event.ParkingSpotCreatedEvent;
 import com.parkio.gamification.application.event.ParkingSpotRejectedByModeratorEvent;
@@ -91,9 +92,10 @@ class GamificationApplicationServiceTest {
     }
 
     @Test
-    void createdEventAwardsOwnerFivePointsOnce() {
+    void createdEventWithActiveOrMissingStatusAwardsOwnerFivePointsOnce() {
         UUID owner = UUID.randomUUID();
-        ParkingSpotCreatedEvent event = new ParkingSpotCreatedEvent(UUID.randomUUID(), UUID.randomUUID(), owner, NOW);
+        ParkingSpotCreatedEvent event = new ParkingSpotCreatedEvent(
+                UUID.randomUUID(), UUID.randomUUID(), owner, "ACTIVE", NOW);
 
         service.handleParkingSpotCreated(event);
 
@@ -102,9 +104,45 @@ class GamificationApplicationServiceTest {
     }
 
     @Test
+    void legacyCreatedEventWithoutStatusStillAwards() {
+        UUID owner = UUID.randomUUID();
+        ParkingSpotCreatedEvent event = new ParkingSpotCreatedEvent(
+                UUID.randomUUID(), UUID.randomUUID(), owner, null, NOW);
+
+        service.handleParkingSpotCreated(event);
+
+        assertThat(progress.byUser.get(owner).totalPoints()).isEqualTo(5);
+    }
+
+    @Test
+    void pendingValidationCreatedEventDoesNotAward() {
+        UUID owner = UUID.randomUUID();
+        ParkingSpotCreatedEvent event = new ParkingSpotCreatedEvent(
+                UUID.randomUUID(), UUID.randomUUID(), owner, "PENDING_VALIDATION", NOW);
+
+        service.handleParkingSpotCreated(event);
+
+        assertThat(progress.byUser).doesNotContainKey(owner);
+        assertThat(transactions.all).isEmpty();
+    }
+
+    @Test
+    void activatedEventAwardsOwnerFivePointsOnce() {
+        UUID owner = UUID.randomUUID();
+        ParkingSpotActivatedEvent event = new ParkingSpotActivatedEvent(
+                UUID.randomUUID(), UUID.randomUUID(), owner, NOW);
+
+        service.handleParkingSpotActivated(event);
+
+        assertThat(progress.byUser.get(owner).totalPoints()).isEqualTo(5);
+        assertThat(transactions.all).hasSize(1);
+    }
+
+    @Test
     void duplicateEventIsSkipped() {
         UUID owner = UUID.randomUUID();
-        ParkingSpotCreatedEvent event = new ParkingSpotCreatedEvent(UUID.randomUUID(), UUID.randomUUID(), owner, NOW);
+        ParkingSpotCreatedEvent event = new ParkingSpotCreatedEvent(
+                UUID.randomUUID(), UUID.randomUUID(), owner, "ACTIVE", NOW);
 
         service.handleParkingSpotCreated(event);
         service.handleParkingSpotCreated(event); // redelivery

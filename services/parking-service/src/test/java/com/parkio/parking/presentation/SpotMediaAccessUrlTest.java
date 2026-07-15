@@ -14,11 +14,13 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.jayway.jsonpath.JsonPath;
+import com.parkio.parking.application.ParkingApplicationService;
 import com.parkio.parking.application.port.MediaAccessPort;
 import com.parkio.parking.application.port.MediaReadinessPort;
 import com.parkio.parking.domain.exception.ParkingErrorCode;
 import com.parkio.parking.domain.exception.ParkingException;
 import java.time.Instant;
+import java.util.List;
 import java.util.Map;
 import java.util.UUID;
 import org.junit.jupiter.api.BeforeEach;
@@ -54,6 +56,9 @@ class SpotMediaAccessUrlTest {
 
     @Autowired
     private JdbcTemplate jdbc;
+
+    @Autowired
+    private ParkingApplicationService parking;
 
     @MockBean
     private MediaAccessPort mediaAccess;
@@ -200,7 +205,9 @@ class SpotMediaAccessUrlTest {
                                 "violationReasons", new String[0]))))
                 .andExpect(status().isCreated())
                 .andReturn();
-        return JsonPath.read(result.getResponse().getContentAsString(), "$.id");
+        String spotId = JsonPath.read(result.getResponse().getContentAsString(), "$.id");
+        parking.applyAiValidationResult(UUID.fromString(spotId), "PASSED", List.of());
+        return spotId;
     }
 
     private MockHttpServletRequestBuilder authenticated(MockHttpServletRequestBuilder request, UUID userId) {

@@ -30,12 +30,27 @@ describe('presentSpot', () => {
 });
 
 describe('isUsableSpot', () => {
-  it('is true for available/unverified, false for filled/expired/rejected', () => {
+  it('is true for available/unverified, false for pending/filled/expired/rejected', () => {
     expect(isUsableSpot({ status: 'ACTIVE' })).toBe(true);
     expect(isUsableSpot({ status: 'VERIFIED' })).toBe(true);
     expect(isUsableSpot({ status: 'SUSPICIOUS' })).toBe(true);
+    expect(isUsableSpot({ status: 'PENDING_VALIDATION' })).toBe(false);
+    expect(isUsableSpot({ status: 'PENDING_REVIEW' })).toBe(false);
     expect(isUsableSpot({ status: 'FILLED' })).toBe(false);
     expect(isUsableSpot({ status: 'EXPIRED' })).toBe(false);
     expect(isUsableSpot({ status: 'REJECTED' })).toBe(false);
+  });
+});
+
+describe('presentSpot pending statuses', () => {
+  it('maps PENDING_VALIDATION and PENDING_REVIEW as unverified + low confidence', () => {
+    const validating = presentSpot({ status: 'PENDING_VALIDATION', legalStatus: 'LEGAL' });
+    expect(validating.availability).toBe('unverified');
+    expect(validating.statusLabel).toBe('Validating');
+    expect(validating.confidence).toBe('low');
+
+    const review = presentSpot({ status: 'PENDING_REVIEW', legalStatus: 'UNCERTAIN' });
+    expect(review.availability).toBe('unverified');
+    expect(review.statusLabel).toBe('Under review');
   });
 });

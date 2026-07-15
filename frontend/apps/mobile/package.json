@@ -1,6 +1,6 @@
 {
   "name": "@parkio/mobile",
-  "version": "1.0.0-rc1",
+  "version": "1.0.0-rc3",
   "private": true,
   "main": "expo-router/entry",
   "scripts": {
@@ -14,6 +14,7 @@
     "test:watch": "jest --watch",
     "doctor": "expo-doctor",
     "prebuild": "expo prebuild",
+    "validate:i18n": "node scripts/validate-i18n-parity.mjs",
     "verify:artifact": "node scripts/verify-release-artifact.mjs"
   },
   "dependencies": {

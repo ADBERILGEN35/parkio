@@ -114,7 +114,7 @@ class GamificationKafkaIT {
         ParkingEventsKafkaConsumer consumer = new ParkingEventsKafkaConsumer(gamification, objectMapper);
 
         String payload = objectMapper.writeValueAsString(
-                new ParkingSpotCreatedEvent(eventId, UUID.randomUUID(), owner, occurredAt));
+                new ParkingSpotCreatedEvent(eventId, UUID.randomUUID(), owner, "ACTIVE", occurredAt));
         produce(TOPIC, owner.toString(), envelope(eventId, "ParkingSpotCreated", "ParkingSpot", owner, occurredAt, payload),
                 "ParkingSpotCreated");
 

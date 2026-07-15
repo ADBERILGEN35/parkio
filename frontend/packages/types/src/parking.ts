@@ -1,5 +1,7 @@
 /** Lifecycle of a parking spot — mirrors parking-service `ParkingSpotStatus`. */
 export const PARKING_STATUSES = [
+  'PENDING_VALIDATION',
+  'PENDING_REVIEW',
   'ACTIVE',
   'VERIFIED',
   'SUSPICIOUS',

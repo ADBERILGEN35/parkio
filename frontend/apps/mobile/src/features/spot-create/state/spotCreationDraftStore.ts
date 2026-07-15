@@ -7,6 +7,7 @@ import {
   loadPersistedSpotCreationDraft,
   persistSpotCreationDraft,
 } from '../lib/spotCreationDraftPersistence';
+import type { SpotCreationWizardStep } from '../lib/wizardSteps';
 
 export interface SpotCreationDraft {
   media: UploadMediaResponse;
@@ -18,6 +19,8 @@ export interface SpotCreationDraft {
   parkingContext: ParkingContext;
   note: string;
   submitIdempotencyKey: string | null;
+  /** Current wizard step after photo upload. Defaults to location. */
+  wizardStep?: SpotCreationWizardStep;
 }
 
 interface SpotCreationDraftState {
@@ -36,6 +39,7 @@ const DEFAULT_DRAFT_FIELDS = {
   parkingContext: 'STREET_PARKING' as ParkingContext,
   note: '',
   submitIdempotencyKey: null,
+  wizardStep: 'location' as SpotCreationWizardStep,
 };
 
 export const useSpotCreationDraftStore = create<SpotCreationDraftState>((set) => ({
@@ -64,6 +68,7 @@ export const useSpotCreationDraftStore = create<SpotCreationDraftState>((set) =>
               ...state.draft,
               media,
               previewUri,
+              wizardStep: 'location',
             }
           : {
               media,

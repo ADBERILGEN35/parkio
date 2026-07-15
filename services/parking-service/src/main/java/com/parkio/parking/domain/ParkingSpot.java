@@ -96,8 +96,10 @@ public final class ParkingSpot {
     }
 
     /**
-     * Creates a new {@link ParkingSpotStatus#ACTIVE} spot valid for the default
-     * window. Rejects creation of an illegal/risky spot — no spot is produced.
+     * Creates a new {@link ParkingSpotStatus#PENDING_VALIDATION} spot valid for the
+     * default window. Spots are not publicly discoverable until AI validation passes
+     * and promotes them to {@code ACTIVE}. Rejects creation of an illegal/risky spot —
+     * no spot is produced.
      */
     public static ParkingSpot create(UUID ownerUserId,
                                      UUID mediaId,
@@ -117,8 +119,53 @@ public final class ParkingSpot {
         }
         return new ParkingSpot(UUID.randomUUID(), ownerUserId, mediaId, latitude, longitude,
                 addressText, description, manualLocationEdited, suitableVehicleTypes, parkingContext,
-                legalStatus, violationReasons, ParkingSpotStatus.ACTIVE, INITIAL_CONFIDENCE, 0, 0,
+                legalStatus, violationReasons, ParkingSpotStatus.PENDING_VALIDATION, INITIAL_CONFIDENCE, 0, 0,
                 now.plus(ACTIVE_DURATION), now, now, null);
+    }
+
+    /**
+     * Promotes a spot past the AI publication gate to {@link ParkingSpotStatus#ACTIVE}.
+     * Only {@code PENDING_VALIDATION} / {@code PENDING_REVIEW} may transition.
+     *
+     * @return {@code true} if the status changed
+     */
+    public boolean applyAiValidationPassed(Instant now) {
+        if (status != ParkingSpotStatus.PENDING_VALIDATION && status != ParkingSpotStatus.PENDING_REVIEW) {
+            return false;
+        }
+        this.status = ParkingSpotStatus.ACTIVE;
+        this.updatedAt = now;
+        return true;
+    }
+
+    /**
+     * Holds a spot for human/moderation attention when AI is uncertain.
+     * Only {@code PENDING_VALIDATION} may transition (already-{@code PENDING_REVIEW} is a no-op).
+     *
+     * @return {@code true} if the status changed
+     */
+    public boolean applyAiValidationUncertain(Instant now) {
+        if (status != ParkingSpotStatus.PENDING_VALIDATION) {
+            return false;
+        }
+        this.status = ParkingSpotStatus.PENDING_REVIEW;
+        this.updatedAt = now;
+        return true;
+    }
+
+    /**
+     * Rejects a spot when AI determines it is not valid parking (e.g. keyboard photo).
+     * Applies from AI-gated pending statuses only.
+     *
+     * @return {@code true} if the status changed
+     */
+    public boolean applyAiValidationRejected(Instant now) {
+        if (status != ParkingSpotStatus.PENDING_VALIDATION && status != ParkingSpotStatus.PENDING_REVIEW) {
+            return false;
+        }
+        this.status = ParkingSpotStatus.REJECTED;
+        this.updatedAt = now;
+        return true;
     }
 
     /** Applies a user's verification, enforcing ownership and verifiability invariants. */
@@ -202,6 +249,11 @@ public final class ParkingSpot {
     }
 
     private void ensureVerifiable(Instant now) {
+        if (status != ParkingSpotStatus.ACTIVE && status != ParkingSpotStatus.VERIFIED
+                && status != ParkingSpotStatus.SUSPICIOUS) {
+            // Pending AI gate / terminal / other: not community-verifiable until published.
+            throw new ParkingException(ParkingErrorCode.SPOT_NOT_VERIFIABLE, "Spot can no longer be verified.");
+        }
         if (isTerminal()) {
             throw new ParkingException(ParkingErrorCode.SPOT_NOT_VERIFIABLE, "Spot can no longer be verified.");
         }

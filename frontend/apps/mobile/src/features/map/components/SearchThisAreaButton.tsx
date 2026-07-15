@@ -2,6 +2,7 @@ import { Ionicons } from '@expo/vector-icons';
 import { memo } from 'react';
 import { ActivityIndicator, Pressable, StyleSheet, View } from 'react-native';
 import { AppText } from '@/components/ui';
+import { useLocale } from '@/i18n/LocaleProvider';
 import { HIT_SLOP, useTheme } from '@/theme';
 
 export interface SearchThisAreaButtonProps {
@@ -18,12 +19,13 @@ export interface SearchThisAreaButtonProps {
  */
 function SearchThisAreaButtonImpl({ visible, loading, topOffset, onPress }: SearchThisAreaButtonProps) {
   const theme = useTheme();
+  const { t } = useLocale();
   if (!visible) return null;
   return (
     <View style={[styles.wrap, { top: topOffset }]} pointerEvents="box-none">
       <Pressable
         accessibilityRole="button"
-        accessibilityLabel="Search this area"
+        accessibilityLabel={t('Search this area')}
         hitSlop={HIT_SLOP}
         onPress={onPress}
         disabled={loading}
@@ -41,9 +43,7 @@ function SearchThisAreaButtonImpl({ visible, loading, topOffset, onPress }: Sear
         ) : (
           <Ionicons name="refresh" size={16} color={theme.colors.onPrimary} />
         )}
-        <AppText variant="label" style={{ color: theme.colors.onPrimary }}>
-          Search this area
-        </AppText>
+        <AppText variant="label" style={{ color: theme.colors.onPrimary }}>{t('Search this area')}</AppText>
       </Pressable>
     </View>
   );

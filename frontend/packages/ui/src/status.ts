@@ -7,7 +7,15 @@
  */
 
 /** Mirrors parking-service `ParkingSpotStatus` values (string-compatible with `@parkio/types`). */
-export type SpotStatus = 'ACTIVE' | 'VERIFIED' | 'SUSPICIOUS' | 'FILLED' | 'EXPIRED' | 'REJECTED';
+export type SpotStatus =
+  | 'PENDING_VALIDATION'
+  | 'PENDING_REVIEW'
+  | 'ACTIVE'
+  | 'VERIFIED'
+  | 'SUSPICIOUS'
+  | 'FILLED'
+  | 'EXPIRED'
+  | 'REJECTED';
 
 export interface StatusVisual {
   /** Human-readable label. */
@@ -28,6 +36,18 @@ const NEUTRAL_STATUS_VISUAL: StatusVisual = {
 };
 
 export const SPOT_STATUS_VISUALS: Record<SpotStatus, StatusVisual> = {
+  PENDING_VALIDATION: {
+    label: 'Validating',
+    icon: 'hourglass_empty',
+    className: 'bg-tertiary-container/20 text-tertiary',
+    dotClassName: 'bg-tertiary',
+  },
+  PENDING_REVIEW: {
+    label: 'Under review',
+    icon: 'rate_review',
+    className: 'bg-tertiary-container/20 text-tertiary',
+    dotClassName: 'bg-tertiary',
+  },
   ACTIVE: {
     label: 'Active',
     icon: 'radio_button_checked',

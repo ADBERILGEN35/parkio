@@ -7,9 +7,11 @@ import java.util.Collection;
  * (ai-context/02). This is the one place the PASSED/WARNING/FAILED rule lives.
  *
  * <p>The thresholds below are placeholder defaults; real, environment-tunable
- * thresholds are backlog (kept here, not in {@code domain}, only because no real model
- * is wired yet). The status is <strong>advisory</strong>: {@code FAILED} never rejects
- * a spot — moderation decides.
+ * thresholds are backlog. Status remains advisory to moderation, but parking-service
+ * now enforces a server-authoritative publication gate on these outcomes:
+ * {@code PASSED} → ACTIVE, {@code WARNING} → PENDING_REVIEW,
+ * {@code FAILED}/{@code NOT_A_PARKING_SPOT} → REJECTED. Provider/heuristic failure
+ * that never emits a result leaves spots in PENDING_VALIDATION (fail-closed).
  */
 public final class AiValidationStatusPolicy {
 

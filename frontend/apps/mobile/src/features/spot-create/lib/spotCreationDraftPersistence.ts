@@ -1,6 +1,7 @@
 import * as SecureStore from 'expo-secure-store';
 import type { SpotCreationDraft } from '../state/spotCreationDraftStore';
 import { getFileSize } from '@/features/media/lib/fileSystem';
+import { isSpotCreationWizardStep } from './wizardSteps';
 
 const STORAGE_KEY = 'parkio.spotCreationDraft';
 
@@ -22,7 +23,8 @@ function sanitize(raw: unknown): SpotCreationDraft | null {
     return null;
   }
   if (getFileSize(d.previewUri) <= 0) return null;
-  return d as SpotCreationDraft;
+  const wizardStep = isSpotCreationWizardStep(d.wizardStep) ? d.wizardStep : 'location';
+  return { ...(d as SpotCreationDraft), wizardStep };
 }
 
 /** Restore a spot-creation draft after process death. Never throws. */

@@ -6,6 +6,7 @@ import { Image, Linking, Platform, StyleSheet, View } from 'react-native';
 import { formatDistance, formatRelativeTime, presentSpot, type SpotWithDistance } from '@parkio/geo';
 import { AppText, Badge, Button } from '@/components/ui';
 import type { BadgeTone } from '@/components/ui';
+import { useLocale } from '@/i18n/LocaleProvider';
 import { useTheme } from '@/theme';
 import { useSpotPhoto } from '../hooks/useSpotPhoto';
 
@@ -42,6 +43,7 @@ function openDirections(spot: SpotWithDistance) {
  */
 function SpotSheetImpl({ spot, onClose }: SpotSheetProps) {
   const theme = useTheme();
+  const { t } = useLocale();
   const router = useRouter();
   const sheetRef = useRef<BottomSheet>(null);
   const snapPoints = useMemo(() => ['32%', '70%'], []);
@@ -73,24 +75,24 @@ function SpotSheetImpl({ spot, onClose }: SpotSheetProps) {
     >
       <BottomSheetView style={styles.content}>
         {spot && presentation ? (
-          <View style={styles.body} accessible accessibilityLabel={`Parking spot, ${presentation.availabilityLabel}`}>
+          <View style={styles.body} accessible accessibilityLabel={`${t('Parking spot')}, ${t(presentation.availabilityLabel)}`}>
             <View style={styles.headerRow}>
-              <Badge label={presentation.availabilityLabel} tone={TONE_TO_BADGE[presentation.tone]} />
-              <Badge label={presentation.confidenceLabel} tone="neutral" />
+              <Badge label={t(presentation.availabilityLabel)} tone={TONE_TO_BADGE[presentation.tone]} />
+              <Badge label={t(presentation.confidenceLabel)} tone="neutral" />
             </View>
 
             <AppText variant="title" numberOfLines={2}>
-              {spot.addressText ?? 'Parking spot'}
+              {spot.addressText ?? t('Parking spot')}
             </AppText>
 
             <View style={styles.metaRow}>
               {spot.distanceMeters !== null ? (
                 <Meta icon="walk-outline" text={formatDistance(spot.distanceMeters)} />
               ) : null}
-              <Meta icon="time-outline" text={`Updated ${formatRelativeTime(spot.updatedAt)}`} />
+              <Meta icon="time-outline" text={t(`Updated ${formatRelativeTime(spot.updatedAt)}`)} />
               <Meta
                 icon={presentation.legalLabel.startsWith('Legal') ? 'shield-checkmark-outline' : 'alert-circle-outline'}
-                text={presentation.legalLabel}
+                text={t(presentation.legalLabel)}
               />
             </View>
 
@@ -99,7 +101,7 @@ function SpotSheetImpl({ spot, onClose }: SpotSheetProps) {
                 source={{ uri: photo.url }}
                 style={[styles.photo, { backgroundColor: theme.colors.surfaceMuted }]}
                 accessibilityIgnoresInvertColors
-                accessibilityLabel="Photo of the parking spot"
+                accessibilityLabel={t('Parking spot')}
               />
             ) : null}
 
@@ -110,12 +112,12 @@ function SpotSheetImpl({ spot, onClose }: SpotSheetProps) {
             ) : null}
 
             <Button
-              label="View details"
+              label={t('View details')}
               testID="map.spot.details"
               onPress={() => router.push(`/(main)/spots/${spot.id}`)}
             />
             <Button
-              label="Get directions"
+              label={t('Get directions')}
               testID="map.spot.directions"
               variant="secondary"
               leading={<Ionicons name="navigate" size={18} color={theme.colors.text} />}
@@ -142,7 +144,7 @@ function Meta({ icon, text }: { icon: keyof typeof Ionicons.glyphMap; text: stri
 
 const styles = StyleSheet.create({
   content: { flex: 1 },
-  body: { paddingHorizontal: 20, paddingTop: 4, paddingBottom: 28, gap: 14 },
+  body: { paddingHorizontal: 20, paddingTop: 4, paddingBottom: 40, gap: 14 },
   headerRow: { flexDirection: 'row', gap: 8, flexWrap: 'wrap' },
   metaRow: { gap: 8 },
   meta: { flexDirection: 'row', alignItems: 'center', gap: 8 },

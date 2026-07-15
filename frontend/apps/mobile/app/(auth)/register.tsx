@@ -9,10 +9,12 @@ import {
   registerSchema,
   type RegisterFormValues,
 } from '@parkio/validation';
+import { BrandLockup } from '@/components/brand/BrandLockup';
 import { Button, Screen } from '@/components/ui';
 import { AppText } from '@/components/ui/AppText';
 import { FormTextField } from '@/components/forms/FormTextField';
 import { useAuth } from '@/hooks/useAuth';
+import { useLocale } from '@/i18n/LocaleProvider';
 import { useToast } from '@/providers/ToastProvider';
 import { track } from '@/services/analytics';
 import { toUserMessage } from '@/utils/errors';
@@ -21,6 +23,7 @@ export default function RegisterScreen() {
   const { register } = useAuth();
   const router = useRouter();
   const toast = useToast();
+  const { t } = useLocale();
   const [submitting, setSubmitting] = useState(false);
 
   const { control, handleSubmit } = useForm<RegisterFormValues>({
@@ -51,9 +54,10 @@ export default function RegisterScreen() {
   return (
     <Screen contentStyle={styles.content}>
       <View style={styles.header}>
-        <AppText variant="display">Create account</AppText>
+        <BrandLockup />
+        <AppText variant="display">{t('Create account')}</AppText>
         <AppText variant="body" tone="muted">
-          Join Parkio to find parking faster.
+          {t('Join Parkio to find parking faster.')}
         </AppText>
       </View>
 
@@ -61,21 +65,21 @@ export default function RegisterScreen() {
         <FormTextField
           control={control}
           name="email"
-          label="Email"
+          label={t('Email')}
           autoCapitalize="none"
           autoComplete="email"
           keyboardType="email-address"
           textContentType="emailAddress"
-          placeholder="you@example.com"
+          placeholder={t('you@example.com')}
         />
         <FormTextField
           control={control}
           name="password"
-          label="Password"
+          label={t('Password')}
           secureTextEntry
           autoComplete="new-password"
           textContentType="newPassword"
-          placeholder="At least 12 characters"
+          placeholder={t('At least 12 characters')}
         />
 
         <View style={styles.requirements} accessibilityLabel="Password requirements">

@@ -96,7 +96,8 @@ class AiValidationApplicationServiceTest {
         assertThat(outbox.events).hasSize(1);
         AiValidationCompletedEvent emitted = outbox.events.get(0);
         assertThat(emitted.mediaId()).isEqualTo(mediaId);
-        assertThat(emitted.status()).isNotNull();
+        // Fail-closed default classifier → WARNING until a vision adapter is wired.
+        assertThat(emitted.status()).isEqualTo(com.parkio.aivalidation.domain.AiValidationStatus.WARNING);
         assertThat(emitted.occurredAt()).isEqualTo(NOW);
     }
 

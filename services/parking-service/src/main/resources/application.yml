@@ -192,6 +192,8 @@ parkio:
     replication-factor: ${PARKIO_KAFKA_REPLICATION_FACTOR:1}
     moderation-consumer:
       enabled: ${PARKIO_MODERATION_CONSUMER_ENABLED:true}
+    ai-validation-consumer:
+      enabled: ${PARKIO_AI_VALIDATION_CONSUMER_ENABLED:true}
     relay:
       # Outbox relay: publishes parking-spot events to parkio.parking.spot. Poll interval
       # and batch size are configurable; send-timeout bounds the per-row broker ack wait.

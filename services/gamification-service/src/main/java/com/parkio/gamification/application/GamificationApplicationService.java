@@ -1,6 +1,7 @@
 package com.parkio.gamification.application;
 
 import com.parkio.gamification.application.event.ModerationCaseResolvedEvent;
+import com.parkio.gamification.application.event.ParkingSpotActivatedEvent;
 import com.parkio.gamification.application.event.ParkingSpotClaimedEvent;
 import com.parkio.gamification.application.event.ParkingSpotCreatedEvent;
 import com.parkio.gamification.application.event.ParkingSpotRejectedByModeratorEvent;
@@ -97,14 +98,32 @@ public class GamificationApplicationService {
 
     // --- Event handlers (invoked directly for now; a Kafka consumer will call them) ---
 
-    /** Owner reward for submitting a spot. */
+    /** Owner reward for submitting a spot that is already publicly ACTIVE (legacy path). */
     public void handleParkingSpotCreated(ParkingSpotCreatedEvent event) {
         if (!claimEvent(event.eventId(), "ParkingSpotCreated")) {
+            return;
+        }
+        // Skip awards while AI publication gate has not passed; deferred to Activated.
+        if (isPendingPublication(event.status())) {
             return;
         }
         RewardRule rule = reward(RewardRuleKeys.UPLOAD_OWNER);
         award(event.ownerUserId(), transactionKey(event.eventId(), RewardRuleKeys.UPLOAD_OWNER),
                 rule, event.eventId(), event.parkingSpotId());
+    }
+
+    /** Owner upload reward when AI publishes the spot (ACTIVE). */
+    public void handleParkingSpotActivated(ParkingSpotActivatedEvent event) {
+        if (!claimEvent(event.eventId(), "ParkingSpotActivated")) {
+            return;
+        }
+        RewardRule rule = reward(RewardRuleKeys.UPLOAD_OWNER);
+        award(event.ownerUserId(), transactionKey(event.eventId(), RewardRuleKeys.UPLOAD_OWNER),
+                rule, event.eventId(), event.parkingSpotId());
+    }
+
+    private static boolean isPendingPublication(String status) {
+        return "PENDING_VALIDATION".equals(status) || "PENDING_REVIEW".equals(status);
     }
 
     /** Owner + verifier rewards (and an owner trust gain) when a spot is confirmed available. */

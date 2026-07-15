@@ -14,6 +14,7 @@ import {
 } from '@parkio/geo';
 import { AppText } from '@/components/ui';
 import { useOnlineStatus } from '@/hooks/useOnlineStatus';
+import { useLocale } from '@/i18n/LocaleProvider';
 import { useTheme } from '@/theme';
 import { LocationPermissionCard } from '../components/LocationPermissionCard';
 import { MapControls } from '../components/MapControls';
@@ -280,6 +281,7 @@ function DiscoveryStatus({
   visible: boolean;
 }) {
   const theme = useTheme();
+  const { t } = useLocale();
   if (!visible || center === null) return null;
 
   let icon: keyof typeof Ionicons.glyphMap = 'car-outline';
@@ -295,17 +297,17 @@ function DiscoveryStatus({
     action = isShowingCached ? onRetry : null;
   } else if (isFetching && count === 0) {
     icon = 'sync-outline';
-    text = 'Finding parking nearby…';
+    text = t('Finding parking…');
   } else if (isError) {
     icon = 'warning-outline';
-    text = 'Couldn’t load spots';
+    text = t("Couldn't load spots");
     action = onRetry;
   } else if (isSuccess && count === 0) {
     icon = 'search-outline';
-    text = 'No spots in this area';
+    text = t('No spots found in this area');
   } else if (count > 0) {
     icon = 'car-outline';
-    text = `${count} spot${count === 1 ? '' : 's'} nearby`;
+    text = count === 1 ? t('1 spot nearby') : t(`${count} spots nearby`);
   } else {
     return null;
   }
@@ -331,7 +333,7 @@ function DiscoveryStatus({
         <AppText variant="label">{text}</AppText>
         {action ? (
           <AppText variant="label" tone="primary">
-            {'  '}Retry
+            {'  '}{t('Retry')}
           </AppText>
         ) : null}
       </Pressable>

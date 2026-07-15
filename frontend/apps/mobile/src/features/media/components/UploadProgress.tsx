@@ -1,5 +1,6 @@
 import { StyleSheet, View } from 'react-native';
 import { AppText, Button } from '@/components/ui';
+import { useLocale } from '@/i18n/LocaleProvider';
 import { useTheme } from '@/theme';
 import type { UploadPhase } from '../types';
 
@@ -29,18 +30,19 @@ export function UploadProgress({
   onRetry,
 }: UploadProgressProps) {
   const theme = useTheme();
+  const { t } = useLocale();
   const pct = Math.round(Math.min(Math.max(progress, 0), 1) * 100);
   const active = phase === 'preparing' || phase === 'uploading';
 
   const statusLine =
     phase === 'preparing'
-      ? 'Preparing photo…'
+      ? t('Preparing photo…')
       : offline
-        ? 'Waiting for connection…'
+        ? t('Waiting for connection…')
         : phase === 'uploading'
-          ? `Uploading… ${pct}%`
+          ? t(`Uploading… ${pct}%`)
           : phase === 'error'
-            ? (errorMessage ?? 'Upload failed.')
+            ? t(errorMessage ?? 'Upload failed.')
             : '';
 
   return (
@@ -49,7 +51,7 @@ export function UploadProgress({
         accessible
         accessibilityRole="progressbar"
         accessibilityValue={{ min: 0, max: 100, now: pct }}
-        accessibilityLabel="Upload progress"
+        accessibilityLabel={t('Upload progress')}
         style={[styles.track, { backgroundColor: theme.colors.surfaceMuted, borderRadius: theme.radius.full }]}
       >
         <View
@@ -70,9 +72,9 @@ export function UploadProgress({
 
       <View style={styles.actions}>
         {phase === 'error' ? (
-          <Button label="Retry upload" onPress={onRetry} disabled={offline} />
+          <Button label={t('Retry upload')} onPress={onRetry} disabled={offline} />
         ) : null}
-        {active ? <Button label="Cancel" variant="secondary" onPress={onCancel} /> : null}
+        {active ? <Button label={t('Cancel')} variant="secondary" onPress={onCancel} /> : null}
       </View>
     </View>
   );

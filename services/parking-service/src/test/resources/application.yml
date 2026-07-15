@@ -48,6 +48,8 @@ parkio:
     provision-topics: false
     moderation-consumer:
       enabled: false
+    ai-validation-consumer:
+      enabled: false
     relay:
       enabled: false
 

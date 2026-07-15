@@ -1,6 +1,7 @@
 import { memo } from 'react';
 import { ActivityIndicator, Pressable, StyleSheet, View } from 'react-native';
 import { AppText } from '@/components/ui';
+import { useLocale } from '@/i18n/LocaleProvider';
 import { HIT_SLOP, MIN_TOUCH_TARGET, useTheme } from '@/theme';
 import type { SpotLocationStatus } from '../hooks/useSpotCreationLocation';
 import { formatAccuracy, gpsSignalLevel } from '../lib/locationAccuracy';
@@ -20,66 +21,66 @@ interface StatusVisual {
   busy?: boolean;
 }
 
-function resolveVisual(status: SpotLocationStatus, accuracyMeters: number | null): StatusVisual {
+function resolveVisual(
+  status: SpotLocationStatus,
+  accuracyMeters: number | null,
+  t: (v: string) => string,
+): StatusVisual {
   if (status === 'prompting' || status === 'locating') {
-    return { tone: 'warning', label: 'Improving location…', busy: true };
+    return { tone: 'warning', label: t('Improving location…'), busy: true };
   }
   if (status === 'denied') {
     return {
       tone: 'danger',
-      label: 'Location permission needed',
-      hint: 'Parkio uses GPS to place the spot where you stand.',
-      action: { label: 'Allow', onPress: 'retry' },
+      label: t('Location permission needed'),
+      hint: t('Parkio uses GPS to place the spot where you stand.'),
+      action: { label: t('Allow'), onPress: 'retry' },
     };
   }
   if (status === 'blocked') {
     return {
       tone: 'danger',
-      label: 'Location permission denied',
-      hint: 'Enable location for Parkio in system settings.',
-      action: { label: 'Open Settings', onPress: 'settings' },
+      label: t('Location permission denied'),
+      hint: t('Enable location for Parkio in system settings.'),
+      action: { label: t('Open Settings'), onPress: 'settings' },
     };
   }
   if (status === 'unavailable') {
     return {
       tone: 'danger',
-      label: 'GPS unavailable',
-      hint: 'Move outside or near a window, then retry.',
-      action: { label: 'Retry GPS', onPress: 'retry' },
+      label: t('GPS unavailable'),
+      hint: t('Move outside or near a window, then retry.'),
+      action: { label: t('Retry GPS'), onPress: 'retry' },
     };
   }
   switch (gpsSignalLevel(accuracyMeters)) {
     case 'excellent':
-      return { tone: 'success', label: `Excellent (${formatAccuracy(accuracyMeters)})` };
+      return { tone: 'success', label: t(`Excellent (${formatAccuracy(accuracyMeters)})`) };
     case 'good':
-      return { tone: 'success', label: `Good (${formatAccuracy(accuracyMeters)})` };
+      return { tone: 'success', label: t(`Good (${formatAccuracy(accuracyMeters)})`) };
     case 'usable':
       return {
         tone: 'warning',
-        label: `Usable (${formatAccuracy(accuracyMeters)})`,
-        hint: 'A better fix helps drivers find the spot faster.',
-        action: { label: 'Refresh', onPress: 'retry' },
+        label: t(`Usable (${formatAccuracy(accuracyMeters)})`),
+        hint: t('A better fix helps drivers find the spot faster.'),
+        action: { label: t('Refresh'), onPress: 'retry' },
       };
     case 'poor':
       return {
         tone: 'danger',
-        label: `Too imprecise (${formatAccuracy(accuracyMeters)})`,
-        hint: 'GPS accuracy is too low to publish.',
-        action: { label: 'Retry GPS', onPress: 'retry' },
+        label: t(`Too imprecise (${formatAccuracy(accuracyMeters)})`),
+        hint: t('GPS accuracy is too low to publish.'),
+        action: { label: t('Retry GPS'), onPress: 'retry' },
       };
     case 'none':
-      return { tone: 'danger', label: 'Waiting for GPS', action: { label: 'Retry', onPress: 'retry' } };
+      return { tone: 'danger', label: t('Waiting for GPS'), action: { label: t('Retry'), onPress: 'retry' } };
   }
 }
 
-/**
- * Traffic-light GPS status row — replaces the raw "GPS location · 5 m" text.
- * Same thresholds as the submit gate ({@link gpsSignalLevel}), so what the user
- * sees always matches what the Share button allows.
- */
 function GpsStatusPillImpl({ status, accuracyMeters, onRetry, onOpenSettings }: GpsStatusPillProps) {
   const theme = useTheme();
-  const visual = resolveVisual(status, accuracyMeters);
+  const { t } = useLocale();
+  const visual = resolveVisual(status, accuracyMeters, t);
   const dotColor =
     visual.tone === 'success' ? theme.colors.success : visual.tone === 'warning' ? theme.colors.warning : theme.colors.danger;
 
@@ -90,9 +91,13 @@ function GpsStatusPillImpl({ status, accuracyMeters, onRetry, onOpenSettings }: 
       ) : (
         <View style={[styles.dot, { backgroundColor: dotColor }]} />
       )}
-      <View style={styles.textCol} accessible accessibilityLabel={`GPS accuracy: ${visual.label}. ${visual.hint ?? ''}`}>
+      <View
+        style={styles.textCol}
+        accessible
+        accessibilityLabel={`${t('GPS accuracy')}: ${visual.label}. ${visual.hint ?? ''}`}
+      >
         <AppText variant="caption" tone="muted">
-          GPS accuracy
+          {t('GPS accuracy')}
         </AppText>
         <AppText variant="subtitle">{visual.label}</AppText>
         {visual.hint ? (

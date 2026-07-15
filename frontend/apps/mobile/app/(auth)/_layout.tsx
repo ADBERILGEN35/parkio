@@ -20,7 +20,7 @@ export default function AuthLayout() {
       </View>
     );
   }
-  if (isAuthenticated) return <Redirect href="/(main)/(tabs)/home" />;
+  if (isAuthenticated) return <Redirect href="/(main)/(tabs)/map" />;
 
   return <Stack screenOptions={{ headerShown: false }} />;
 }

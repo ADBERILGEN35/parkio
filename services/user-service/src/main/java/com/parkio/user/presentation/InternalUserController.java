@@ -3,6 +3,7 @@ package com.parkio.user.presentation;
 import com.parkio.user.application.UserApplicationService;
 import com.parkio.user.domain.exception.UserErrorCode;
 import com.parkio.user.domain.exception.UserException;
+import com.parkio.user.presentation.dto.PreferredLocaleResponse;
 import com.parkio.user.presentation.dto.SmartReturnCheckCandidateResponse;
 import com.parkio.user.presentation.dto.SmartReturnPromptCandidateResponse;
 import com.parkio.user.presentation.dto.UserStatusResponse;
@@ -48,6 +49,22 @@ public class InternalUserController {
     @GetMapping("/{authUserId}/status")
     public UserStatusResponse getStatus(@PathVariable("authUserId") UUID authUserId) {
         return UserStatusResponse.from(userService.getAccountStatus(authUserId));
+    }
+
+    /**
+     * Preferred UI locale for notification rendering. Missing profiles yield the
+     * product default ({@code tr}) so notification-service can fail soft.
+     */
+    @GetMapping("/{authUserId}/preferred-locale")
+    public PreferredLocaleResponse getPreferredLocale(@PathVariable("authUserId") UUID authUserId) {
+        try {
+            return PreferredLocaleResponse.from(userService.getMyPreferences(authUserId));
+        } catch (UserException ex) {
+            if (ex.errorCode() == UserErrorCode.PROFILE_NOT_FOUND) {
+                return PreferredLocaleResponse.defaultLocale();
+            }
+            throw ex;
+        }
     }
 
     @PostMapping("/smart-return/due-prompts")

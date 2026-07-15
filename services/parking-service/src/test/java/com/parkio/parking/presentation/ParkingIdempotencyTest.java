@@ -6,7 +6,9 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.parkio.parking.application.ParkingApplicationService;
 import com.parkio.parking.application.port.MediaReadinessPort;
+import java.util.List;
 import java.util.Map;
 import java.util.UUID;
 import org.junit.jupiter.api.BeforeEach;
@@ -35,6 +37,9 @@ class ParkingIdempotencyTest {
 
     @Autowired
     private JdbcTemplate jdbc;
+
+    @Autowired
+    private ParkingApplicationService parking;
 
     // Spot creation verifies media readiness; mocked (no media-service in this test) so
     // ensureMediaReady is a no-op (media treated as READY).
@@ -181,8 +186,10 @@ class ParkingIdempotencyTest {
     private UUID createdSpotId(UUID owner) throws Exception {
         MvcResult result = create(
                 owner, UUID.randomUUID().toString(), createBody(UUID.randomUUID(), "setup"));
-        return UUID.fromString(com.jayway.jsonpath.JsonPath.read(
+        UUID spotId = UUID.fromString(com.jayway.jsonpath.JsonPath.read(
                 result.getResponse().getContentAsString(), "$.id"));
+        parking.applyAiValidationResult(spotId, "PASSED", List.of());
+        return spotId;
     }
 
     private org.springframework.test.web.servlet.ResultActions claim(

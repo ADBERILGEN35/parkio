@@ -32,6 +32,8 @@ parkio:
     # No broker in tests: skip topic provisioning so the context starts without Kafka.
     provision-topics: false
   notification:
+    user-service:
+      base-url: http://localhost:8082
     delivery:
       push:
         # Delivery worker off by default in tests; exercised directly in worker tests.

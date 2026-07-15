@@ -113,6 +113,8 @@
     "privilegedRequired": "Bu alan için moderatör veya yönetici rolü gerekir."
   },
   "spotStatus": {
+    "PENDING_VALIDATION": "Doğrulanıyor",
+    "PENDING_REVIEW": "İncelemede",
     "ACTIVE": "Aktif",
     "VERIFIED": "Doğrulandı",
     "SUSPICIOUS": "Şüpheli",

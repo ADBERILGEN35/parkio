@@ -18,10 +18,10 @@ export function useUnsavedChangesGuard(enabled: boolean) {
         if (dialogOpenRef.current) return;
         dialogOpenRef.current = true;
         Alert.alert(
-          t('Unsaved changes'),
-          t('You have an unfinished parking spot submission. If you leave now, your progress will be lost.'),
+          t('Leave parking spot sharing?'),
+          t('You have unsaved changes. If you leave now, your progress will be lost.'),
           [
-            { text: t('Stay'), style: 'cancel', onPress: () => (dialogOpenRef.current = false) },
+            { text: t('Continue sharing'), style: 'cancel', onPress: () => (dialogOpenRef.current = false) },
             {
               text: t('Leave'),
               style: 'destructive',

@@ -9,6 +9,8 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 
 import com.parkio.user.application.UserApplicationService;
 import com.parkio.user.application.result.AccountStatusView;
+import com.parkio.user.domain.PreferredLocale;
+import com.parkio.user.domain.UserPreference;
 import com.parkio.user.domain.UserStatus;
 import com.parkio.user.domain.exception.UserErrorCode;
 import com.parkio.user.domain.exception.UserException;
@@ -22,9 +24,7 @@ import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.setup.MockMvcBuilders;
 
 /**
- * Slice test for the internal status endpoint via standalone MockMvc (no Spring
- * context). Verifies the HTTP contract: it returns only {@code userId} + {@code
- * status}, leaks no profile data, and maps a missing profile to {@code 404}.
+ * Slice test for internal user endpoints via standalone MockMvc (no Spring context).
  */
 class InternalUserControllerTest {
 
@@ -64,5 +64,27 @@ class InternalUserControllerTest {
         mvc.perform(get("/internal/users/{id}/status", UUID.randomUUID()))
                 .andExpect(status().isNotFound())
                 .andExpect(jsonPath("$.code").value("PROFILE_NOT_FOUND"));
+    }
+
+    @Test
+    void returnsPreferredLocale() throws Exception {
+        UUID authUserId = UUID.randomUUID();
+        UserPreference preference = mock(UserPreference.class);
+        when(preference.preferredLocale()).thenReturn(PreferredLocale.EN);
+        when(userService.getMyPreferences(authUserId)).thenReturn(preference);
+
+        mvc.perform(get("/internal/users/{id}/preferred-locale", authUserId))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.preferredLocale").value("en"));
+    }
+
+    @Test
+    void missingProfilePreferredLocaleDefaultsToTr() throws Exception {
+        when(userService.getMyPreferences(any()))
+                .thenThrow(new UserException(UserErrorCode.PROFILE_NOT_FOUND));
+
+        mvc.perform(get("/internal/users/{id}/preferred-locale", UUID.randomUUID()))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.preferredLocale").value("tr"));
     }
 }

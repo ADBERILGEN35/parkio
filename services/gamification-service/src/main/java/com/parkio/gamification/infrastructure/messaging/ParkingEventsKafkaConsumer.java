@@ -4,6 +4,7 @@ import com.parkio.platform.messaging.EventEnvelope;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.parkio.gamification.application.GamificationApplicationService;
+import com.parkio.gamification.application.event.ParkingSpotActivatedEvent;
 import com.parkio.gamification.application.event.ParkingSpotClaimedEvent;
 import com.parkio.gamification.application.event.ParkingSpotCreatedEvent;
 import com.parkio.gamification.application.event.ParkingSpotVerifiedEvent;
@@ -33,6 +34,7 @@ public class ParkingEventsKafkaConsumer {
     public static final String GROUP = "parkio.gamification";
 
     private static final String SPOT_CREATED = "ParkingSpotCreated";
+    private static final String SPOT_ACTIVATED = "ParkingSpotActivated";
     private static final String SPOT_VERIFIED = "ParkingSpotVerified";
     private static final String SPOT_CLAIMED = "ParkingSpotClaimed";
 
@@ -60,6 +62,8 @@ public class ParkingEventsKafkaConsumer {
         switch (eventType == null ? "" : eventType) {
             case SPOT_CREATED -> gamificationService.handleParkingSpotCreated(
                     payload(envelope, ParkingSpotCreatedEvent.class));
+            case SPOT_ACTIVATED -> gamificationService.handleParkingSpotActivated(
+                    payload(envelope, ParkingSpotActivatedEvent.class));
             case SPOT_VERIFIED -> gamificationService.handleParkingSpotVerified(
                     payload(envelope, ParkingSpotVerifiedEvent.class));
             case SPOT_CLAIMED -> gamificationService.handleParkingSpotClaimed(

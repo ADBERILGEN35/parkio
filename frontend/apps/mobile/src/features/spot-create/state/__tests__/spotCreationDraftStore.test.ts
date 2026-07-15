@@ -52,6 +52,11 @@ describe('spotCreationDraftStore preview lifecycle', () => {
 
     expect(deleteTempFile).not.toHaveBeenCalled();
   });
+
+  it('sets wizardStep to location on startFromUpload', () => {
+    useSpotCreationDraftStore.getState().startFromUpload(media('m1'), 'file:///preview-1.jpg');
+    expect(useSpotCreationDraftStore.getState().draft?.wizardStep).toBe('location');
+  });
 });
 
 describe('spotCreationDraftStore hydration', () => {

@@ -55,6 +55,7 @@ class ParkingPostgisIntegrationTest {
         registry.add("parkio.kafka.provision-topics", () -> "false");
         registry.add("parkio.kafka.relay.enabled", () -> "false");
         registry.add("parkio.kafka.moderation-consumer.enabled", () -> "false");
+        registry.add("parkio.kafka.ai-validation-consumer.enabled", () -> "false");
         registry.add("parkio.lifecycle.parking-expiry.enabled", () -> "false");
         registry.add("parkio.lifecycle.retention.outbox-enabled", () -> "false");
         registry.add("parkio.lifecycle.retention.inbox-enabled", () -> "false");

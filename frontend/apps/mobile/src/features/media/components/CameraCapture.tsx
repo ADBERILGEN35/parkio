@@ -2,6 +2,7 @@ import { CameraView, type CameraType } from 'expo-camera';
 import { useRef, useState } from 'react';
 import { Pressable, StyleSheet, View } from 'react-native';
 import { AppText } from '@/components/ui';
+import { useLocale } from '@/i18n/LocaleProvider';
 import { HIT_SLOP, MIN_TOUCH_TARGET, useTheme } from '@/theme';
 import type { LocalAsset } from '../types';
 
@@ -20,6 +21,7 @@ export interface CameraCaptureProps {
  */
 export function CameraCapture({ onCapture, onClose }: CameraCaptureProps) {
   const theme = useTheme();
+  const { t } = useLocale();
   const cameraRef = useRef<CameraView>(null);
   const [facing, setFacing] = useState<CameraType>('back');
   const [capturing, setCapturing] = useState(false);
@@ -46,7 +48,7 @@ export function CameraCapture({ onCapture, onClose }: CameraCaptureProps) {
           onPress={onClose}
           hitSlop={HIT_SLOP}
           accessibilityRole="button"
-          accessibilityLabel="Close camera"
+          accessibilityLabel={t('Close camera')}
           style={styles.iconButton}
         >
           <AppText variant="subtitle" tone="inverse">
@@ -57,7 +59,7 @@ export function CameraCapture({ onCapture, onClose }: CameraCaptureProps) {
           onPress={() => setFacing((f) => (f === 'back' ? 'front' : 'back'))}
           hitSlop={HIT_SLOP}
           accessibilityRole="button"
-          accessibilityLabel="Switch camera"
+          accessibilityLabel={t('Switch camera')}
           style={styles.iconButton}
         >
           <AppText variant="subtitle" tone="inverse">
@@ -71,7 +73,7 @@ export function CameraCapture({ onCapture, onClose }: CameraCaptureProps) {
           onPress={takePicture}
           disabled={capturing}
           accessibilityRole="button"
-          accessibilityLabel="Take photo"
+          accessibilityLabel={t('Take photo')}
           accessibilityState={{ disabled: capturing, busy: capturing }}
           style={[styles.shutter, { borderColor: theme.colors.onPrimary, opacity: capturing ? 0.5 : 1 }]}
         >

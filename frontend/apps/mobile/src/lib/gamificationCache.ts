@@ -15,6 +15,7 @@ export function invalidateGamificationQueries(queryClient: QueryClient): Promise
     queryClient.invalidateQueries({ queryKey: ['progress'] }),
     queryClient.invalidateQueries({ queryKey: ['access-policy'] }),
     queryClient.invalidateQueries({ queryKey: ['leaderboard'] }),
+    queryClient.invalidateQueries({ queryKey: ['gamification'] }),
     queryClient.invalidateQueries({ queryKey: ['notifications'] }),
   ]).then(() => undefined);
 }

@@ -4,9 +4,8 @@ import { useTheme } from '@/theme';
 import { useAuthStore } from '@/state/authStore';
 
 /**
- * Entry gate. While the cold-start session restore runs we hold a themed splash;
- * once it settles we redirect into the app or to login. The group layouts
- * ((auth)/(main)) re-assert this guard for deep links into protected routes.
+ * Entry gate. Authenticated users land on Map (product home); guests on Login.
+ * Verification/preparing/suspended stay on their dedicated routes when deep-linked.
  */
 export default function Index() {
   const bootstrapPending = useAuthStore((s) => s.bootstrapPending);
@@ -16,12 +15,12 @@ export default function Index() {
   if (bootstrapPending) {
     return (
       <View style={[styles.center, { backgroundColor: theme.colors.background }]}>
-        <ActivityIndicator color={theme.colors.primary} />
+        <ActivityIndicator color={theme.colors.primary} accessibilityLabel="Loading" />
       </View>
     );
   }
 
-  return <Redirect href={isAuthenticated ? '/(main)/(tabs)/home' : '/(auth)/login'} />;
+  return <Redirect href={isAuthenticated ? '/(main)/(tabs)/map' : '/(auth)/login'} />;
 }
 
 const styles = StyleSheet.create({

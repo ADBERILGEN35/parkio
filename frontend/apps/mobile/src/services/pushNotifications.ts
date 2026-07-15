@@ -46,7 +46,9 @@ export interface PushRegistration {
 let registration: PushRegistration | null = null;
 let tokenRefreshSubscription: NotificationsTypes.EventSubscription | null = null;
 
-/** Show remote/local notifications while the app is foregrounded (banner, no sound). */
+/** Show remote/local notifications while the app is foregrounded (banner, no sound).
+ * Remote title/body are already localized by notification-service for the
+ * recipient preferredLocale; data.messageKey remains available for re-render. */
 export function configureForegroundHandling(): void {
   if (!Notifications) return;
   Notifications.setNotificationHandler({
@@ -130,7 +132,7 @@ export async function unregisterPushToken(): Promise<void> {
 
 /** Routes a notification may deep-link to via its `data.route` payload. */
 const ALLOWED_ROUTES = [
-  '/(main)/(tabs)/home',
+  '/(main)/(tabs)/map',
   '/(main)/(tabs)/notifications',
   '/(main)/(tabs)/profile',
   '/(main)/map',

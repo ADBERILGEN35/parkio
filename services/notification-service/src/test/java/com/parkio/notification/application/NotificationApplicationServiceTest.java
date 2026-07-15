@@ -15,17 +15,17 @@ import com.parkio.notification.application.port.InboxEventRepository;
 import com.parkio.notification.application.port.NotificationDeliveryAttemptRepository;
 import com.parkio.notification.application.port.NotificationPreferenceRepository;
 import com.parkio.notification.application.port.NotificationRepository;
-import com.parkio.notification.application.port.NotificationTemplateRepository;
 import com.parkio.notification.application.port.OutboxEventAppender;
+import com.parkio.notification.application.port.UserLocalePort;
 import com.parkio.notification.domain.DeliveryStatus;
 import com.parkio.notification.domain.DevicePlatform;
 import com.parkio.notification.domain.DeviceToken;
 import com.parkio.notification.domain.Notification;
 import com.parkio.notification.domain.NotificationChannel;
 import com.parkio.notification.domain.NotificationDeliveryAttempt;
+import com.parkio.notification.domain.NotificationLocale;
 import com.parkio.notification.domain.NotificationPreference;
 import com.parkio.notification.domain.NotificationStatus;
-import com.parkio.notification.domain.NotificationTemplate;
 import com.parkio.notification.domain.NotificationType;
 import com.parkio.notification.domain.event.NotificationCreatedEvent;
 import com.parkio.notification.domain.exception.NotificationErrorCode;
@@ -44,7 +44,7 @@ import org.junit.jupiter.api.Test;
 
 /**
  * Behavioural unit tests for {@link NotificationApplicationService} using in-memory
- * fake ports (seeded with the same templates Flyway provides) — no Spring, no DB.
+ * fake ports — no Spring, no DB. Default locale is product default ({@code tr}).
  */
 class NotificationApplicationServiceTest {
 
@@ -52,27 +52,27 @@ class NotificationApplicationServiceTest {
 
     private FakeNotificationRepository notifications;
     private FakeDeviceTokenRepository deviceTokens;
-    private FakeTemplateRepository templates;
     private FakePreferenceRepository preferences;
     private FakeInboxRepository inbox;
     private FakeOutbox outbox;
     private FakeDeliveryAttemptRepository deliveryAttempts;
+    private FakeUserLocalePort userLocales;
     private NotificationApplicationService service;
 
     @BeforeEach
     void setUp() {
         notifications = new FakeNotificationRepository();
         deviceTokens = new FakeDeviceTokenRepository();
-        templates = new FakeTemplateRepository();
         preferences = new FakePreferenceRepository();
         inbox = new FakeInboxRepository();
         outbox = new FakeOutbox();
         deliveryAttempts = new FakeDeliveryAttemptRepository();
+        userLocales = new FakeUserLocalePort();
         Clock clock = Clock.fixed(NOW, ZoneOffset.UTC);
         NotificationDeliveryService delivery =
                 new NotificationDeliveryService(preferences, deviceTokens, deliveryAttempts, clock);
-        service = new NotificationApplicationService(notifications, deviceTokens, templates, preferences,
-                inbox, outbox, delivery, clock);
+        service = new NotificationApplicationService(notifications, deviceTokens, preferences,
+                inbox, outbox, delivery, userLocales, clock);
     }
 
     @Test
@@ -123,7 +123,7 @@ class NotificationApplicationServiceTest {
     }
 
     @Test
-    void levelChangedEventCreatesLevelUpNotification() {
+    void levelChangedEventCreatesLevelUpNotificationInDefaultTurkish() {
         UUID user = UUID.randomUUID();
 
         service.handleUserLevelChanged(new UserLevelChangedEvent(UUID.randomUUID(), user, 1, 3, 120, NOW));
@@ -132,12 +132,30 @@ class NotificationApplicationServiceTest {
         assertThat(userNotifications).singleElement().satisfies(n -> {
             assertThat(n.type()).isEqualTo(NotificationType.LEVEL_UP);
             assertThat(n.status()).isEqualTo(NotificationStatus.SENT);
-            assertThat(n.body()).contains("level 3");
-            // Template variables are merged into metadata for localized clients.
-            assertThat(n.metadata()).containsEntry("level", "3");
-            assertThat(n.metadata()).containsEntry("deeplink", "/gamification");
+            assertThat(n.title()).isEqualTo("Seviye atladınız!");
+            assertThat(n.body()).contains("3. seviyeye");
+            assertThat(n.metadata()).containsEntry("level", "3")
+                    .containsEntry("messageKey", "levelUp")
+                    .containsEntry("locale", "tr")
+                    .containsEntry("deeplink", "/gamification");
         });
         assertThat(outbox.events).singleElement().isInstanceOf(NotificationCreatedEvent.class);
+    }
+
+    @Test
+    void levelChangedEventCreatesEnglishContentWhenLocaleIsEn() {
+        UUID user = UUID.randomUUID();
+        userLocales.locale = NotificationLocale.EN;
+
+        service.handleUserLevelChanged(new UserLevelChangedEvent(UUID.randomUUID(), user, 1, 3, 120, NOW));
+
+        assertThat(notifications.findRecentByUserId(user, 10)).singleElement()
+                .satisfies(n -> {
+                    assertThat(n.title()).isEqualTo("Level up!");
+                    assertThat(n.body()).contains("level 3");
+                    assertThat(n.metadata()).containsEntry("locale", "en")
+                            .containsEntry("messageKey", "levelUp");
+                });
     }
 
     @Test
@@ -150,7 +168,8 @@ class NotificationApplicationServiceTest {
         assertThat(notifications.findRecentByUserId(user, 10)).singleElement()
                 .satisfies(n -> {
                     assertThat(n.type()).isEqualTo(NotificationType.POINT_EARNED);
-                    assertThat(n.body()).contains("20 points");
+                    assertThat(n.body()).contains("20 puan");
+                    assertThat(n.metadata()).containsEntry("messageKey", "pointEarned");
                 });
     }
 
@@ -212,7 +231,8 @@ class NotificationApplicationServiceTest {
         assertThat(notifications.findRecentByUserId(owner, 10)).singleElement()
                 .satisfies(n -> {
                     assertThat(n.type()).isEqualTo(NotificationType.WARNING);
-                    assertThat(n.metadata()).containsEntry("deeplink", "/spots/" + spotId);
+                    assertThat(n.metadata()).containsEntry("deeplink", "/spots/" + spotId)
+                            .containsEntry("messageKey", "spotRejectedByModerator");
                 });
     }
 
@@ -236,7 +256,8 @@ class NotificationApplicationServiceTest {
         assertThat(notifications.findRecentByUserId(owner, 10)).singleElement()
                 .satisfies(n -> {
                     assertThat(n.type()).isEqualTo(NotificationType.WARNING);
-                    assertThat(n.metadata()).containsEntry("deeplink", "/spots/" + spotId);
+                    assertThat(n.metadata()).containsEntry("deeplink", "/spots/" + spotId)
+                            .containsEntry("messageKey", "spotRejectedIllegal");
                 });
     }
 
@@ -292,9 +313,10 @@ class NotificationApplicationServiceTest {
         assertThat(notifications.findRecentByUserId(user, 10)).singleElement()
                 .satisfies(n -> {
                     assertThat(n.type()).isEqualTo(NotificationType.SMART_RETURN_PROMPT);
-                    assertThat(n.title()).contains("driving today");
-                    assertThat(n.body()).contains("parking check");
+                    assertThat(n.title()).contains("araç");
+                    assertThat(n.body()).contains("park kontrolü");
                     assertThat(n.metadata()).containsEntry("action", "SMART_RETURN_TODAY")
+                            .containsEntry("messageKey", "smartReturnPrompt")
                             .containsEntry("deeplink", "/profile?section=smart-return");
                 });
     }
@@ -308,16 +330,26 @@ class NotificationApplicationServiceTest {
         assertThat(notifications.findRecentByUserId(user, 10)).singleElement()
                 .satisfies(n -> {
                     assertThat(n.type()).isEqualTo(NotificationType.SMART_RETURN_AVAILABLE);
-                    assertThat(n.body()).contains("saved home area");
+                    assertThat(n.body()).contains("Kayıtlı ev alanınızın");
                     assertThat(n.body()).doesNotContain("Exact Home Street 1");
                     assertThat(n.body()).doesNotContain("38.4237");
                     assertThat(n.metadata()).containsEntry("action", "SMART_RETURN_MAP")
+                            .containsEntry("messageKey", "smartReturnAvailable")
                             .containsEntry("deeplink", "/map?smartReturn=1");
                     assertThat(n.metadata().values()).noneMatch(value -> value.contains("Exact Home Street 1"));
                 });
     }
 
     // --- Fakes -----------------------------------------------------------
+
+    private static final class FakeUserLocalePort implements UserLocalePort {
+        NotificationLocale locale = NotificationLocale.DEFAULT;
+
+        @Override
+        public NotificationLocale resolvePreferredLocale(UUID userId) {
+            return locale;
+        }
+    }
 
     private static final class FakeNotificationRepository implements NotificationRepository {
         private final Map<UUID, Notification> byId = new HashMap<>();
@@ -393,32 +425,6 @@ class NotificationApplicationServiceTest {
         public boolean existsByNotificationIdAndChannel(UUID notificationId, NotificationChannel channel) {
             return byId.values().stream()
                     .anyMatch(a -> a.notificationId().equals(notificationId) && a.channel() == channel);
-        }
-    }
-
-    private static final class FakeTemplateRepository implements NotificationTemplateRepository {
-        private final Map<NotificationType, NotificationTemplate> byType = new HashMap<>();
-
-        FakeTemplateRepository() {
-            byType.put(NotificationType.LEVEL_UP,
-                    new NotificationTemplate(NotificationType.LEVEL_UP, "Level up!",
-                            "Congratulations — you reached level {level}."));
-            byType.put(NotificationType.POINT_EARNED,
-                    new NotificationTemplate(NotificationType.POINT_EARNED, "You earned points",
-                            "You earned {points} points. Total: {totalPoints}."));
-            byType.put(NotificationType.WARNING,
-                    new NotificationTemplate(NotificationType.WARNING, "Heads up", "{message}"));
-            byType.put(NotificationType.SMART_RETURN_PROMPT,
-                    new NotificationTemplate(NotificationType.SMART_RETURN_PROMPT, "Are you driving today?",
-                            "Tell Parkio if you want a parking check before you return."));
-            byType.put(NotificationType.SMART_RETURN_AVAILABLE,
-                    new NotificationTemplate(NotificationType.SMART_RETURN_AVAILABLE, "Parking may be available",
-                            "{message}"));
-        }
-
-        @Override
-        public Optional<NotificationTemplate> findByType(NotificationType type) {
-            return Optional.ofNullable(byType.get(type));
         }
     }
 

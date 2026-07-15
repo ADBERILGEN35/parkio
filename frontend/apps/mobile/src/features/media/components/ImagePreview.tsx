@@ -1,5 +1,6 @@
 import { Image, StyleSheet, View } from 'react-native';
 import { Button } from '@/components/ui';
+import { useLocale } from '@/i18n/LocaleProvider';
 import { useTheme } from '@/theme';
 import type { LocalAsset } from '../types';
 
@@ -21,6 +22,7 @@ export interface ImagePreviewProps {
  */
 export function ImagePreview({ asset, onRetake, onChooseAnother, onConfirm, busy }: ImagePreviewProps) {
   const theme = useTheme();
+  const { t } = useLocale();
   return (
     <View style={styles.container} testID="image-preview">
       <View style={[styles.imageFrame, { borderRadius: theme.radius.xl, backgroundColor: theme.colors.surfaceMuted }]}>
@@ -29,15 +31,15 @@ export function ImagePreview({ asset, onRetake, onChooseAnother, onConfirm, busy
           style={styles.image}
           resizeMode="cover"
           accessibilityRole="image"
-          accessibilityLabel="Preview of the parking spot photo you captured"
+          accessibilityLabel={t('Preview of the parking spot photo you captured')}
         />
       </View>
       <View style={styles.actions}>
-        <Button label="Use this photo" onPress={onConfirm} loading={busy} />
+        <Button label={t('Use this photo')} onPress={onConfirm} loading={busy} />
         <View style={styles.secondaryRow}>
-          <Button label="Retake" variant="secondary" onPress={onRetake} disabled={busy} fullWidth={false} />
+          <Button label={t('Retake')} variant="secondary" onPress={onRetake} disabled={busy} fullWidth={false} />
           <Button
-            label="Choose another"
+            label={t('Choose another')}
             variant="ghost"
             onPress={onChooseAnother}
             disabled={busy}

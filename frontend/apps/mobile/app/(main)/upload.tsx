@@ -54,7 +54,7 @@ export default function UploadScreen() {
       upload.reset();
       if (!validation.ok) {
         setAsset(null);
-        setAssetError(validation.message ?? 'That photo cannot be uploaded.');
+        setAssetError(validation.message ?? t('That photo cannot be uploaded.'));
         setStep('source');
         return;
       }
@@ -63,7 +63,7 @@ export default function UploadScreen() {
       setPermissionError(null);
       setStep('preview');
     },
-    [upload],
+    [t, upload],
   );
 
   const openCamera = useCallback(async () => {
@@ -75,11 +75,11 @@ export default function UploadScreen() {
       return;
     }
     setPermissionError({
-      title: 'Camera access is off',
-      description: 'Allow camera access to take a parking spot photo.',
+      title: t('Camera access is off'),
+      description: t('Allow camera access to take a parking spot photo.'),
       canOpenSettings: permission.canAskAgain === false,
     });
-  }, [cameraPermission, requestCameraPermission]);
+  }, [cameraPermission, requestCameraPermission, t]);
 
   const openLibrary = useCallback(async () => {
     setAssetError(null);
@@ -87,8 +87,8 @@ export default function UploadScreen() {
     const permission = libraryPermission?.granted ? libraryPermission : await requestLibraryPermission();
     if (!permission.granted) {
       setPermissionError({
-        title: 'Gallery access is off',
-        description: 'Allow photo library access to choose an existing parking spot photo.',
+        title: t('Gallery access is off'),
+        description: t('Allow photo library access to choose an existing parking spot photo.'),
         canOpenSettings: permission.canAskAgain === false,
       });
       return;
@@ -97,7 +97,7 @@ export default function UploadScreen() {
     if (picked) {
       acceptAsset(picked);
     }
-  }, [acceptAsset, libraryPermission, pickFromLibrary, requestLibraryPermission]);
+  }, [acceptAsset, libraryPermission, pickFromLibrary, requestLibraryPermission, t]);
 
   const handlePickSource = useCallback(
     (source: MediaSource) => {
@@ -169,36 +169,41 @@ export default function UploadScreen() {
           }}
         />
       ) : (
-        <Screen scroll={false} contentStyle={styles.screen} testID="mobile-upload-screen">
+        <Screen scroll={false} contentStyle={styles.screen} edges={['top', 'left', 'right', 'bottom']} testID="mobile-upload-screen">
           {uploadedMedia ? (
             <StateView
               icon="checkmark-circle-outline"
-              title="Photo uploaded"
-              description={`Media is ready for Spot Creation. ${uploadedMedia.status} · ${formatBytes(
-                uploadedMedia.fileSize,
-              )}`}
-              actionLabel="Done"
+              title={t('Photo uploaded')}
+              description={t(
+                `Media is ready for Spot Creation. ${uploadedMedia.status} · ${formatBytes(
+                  uploadedMedia.fileSize,
+                )}`,
+              )}
+              actionLabel={t('Done')}
               onAction={() => router.back()}
             >
-              <Button label="Upload another photo" variant="secondary" onPress={chooseAnother} />
+              <Button label={t('Upload another photo')} variant="secondary" onPress={chooseAnother} />
             </StateView>
           ) : cancelled ? (
             <StateView
               icon="pause-circle-outline"
-              title="Upload cancelled"
-              description="The photo is still prepared on this screen. Retry when ready, or choose another image."
+              title={t('Upload cancelled')}
+              description={t(
+                'The photo is still prepared on this screen. Retry when ready, or choose another image.',
+              )}
             >
               <View style={styles.stateActions}>
-                <Button label="Retry upload" onPress={retryUpload} disabled={online === false} />
-                <Button label="Choose another" variant="secondary" onPress={chooseAnother} />
+                <Button label={t('Retry upload')} onPress={retryUpload} disabled={online === false} />
+                <Button label={t('Choose another')} variant="secondary" onPress={chooseAnother} />
               </View>
             </StateView>
           ) : step === 'uploading' ? (
             <View style={styles.uploadPane}>
-              <AppText variant="heading">Uploading photo</AppText>
+              <AppText variant="heading">{t('Uploading photo')}</AppText>
               <AppText variant="body" tone="muted">
-                Keep Parkio open while the upload finishes. If the connection drops, retry uses the same prepared
-                file and idempotency key.
+                {t(
+                  'Keep Parkio open while the upload finishes. If the connection drops, retry uses the same prepared file and idempotency key.',
+                )}
               </AppText>
               <UploadProgress
                 phase={upload.phase}
@@ -210,10 +215,10 @@ export default function UploadScreen() {
               />
               {online === false ? (
                 <AppText variant="callout" tone="danger" accessibilityRole="alert">
-                  You are offline. Upload will be ready to retry when the connection returns.
+                  {t('You are offline. Upload will be ready to retry when the connection returns.')}
                 </AppText>
               ) : null}
-              <Button label="Choose another" variant="ghost" onPress={chooseAnother} />
+              <Button label={t('Choose another')} variant="ghost" onPress={chooseAnother} />
             </View>
           ) : step === 'preview' && asset ? (
             <ImagePreview
@@ -238,7 +243,7 @@ export default function UploadScreen() {
                     {permissionError.description}
                   </AppText>
                   {permissionError.canOpenSettings ? (
-                    <Button label="Open Settings" variant="secondary" onPress={() => void Linking.openSettings()} />
+                    <Button label={t('Open Settings')} variant="secondary" onPress={() => void Linking.openSettings()} />
                   ) : null}
                 </View>
               ) : null}

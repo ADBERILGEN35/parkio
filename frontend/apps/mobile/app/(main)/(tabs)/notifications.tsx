@@ -12,6 +12,8 @@ import {
 import { Badge, Button, Screen, SkeletonCard, StateView, type BadgeTone } from '@/components/ui';
 import { AppText } from '@/components/ui/AppText';
 import { notificationsApi } from '@/services/api';
+import { useLocale } from '@/i18n/LocaleProvider';
+import { localizeNotification } from '@/lib/localizeNotification';
 import { useTheme, MIN_TOUCH_TARGET } from '@/theme';
 
 /** Per-type icon + badge tone — mirrors the web NOTIFICATION_TYPE_VISUALS. */
@@ -39,6 +41,7 @@ function humanizeType(value: string): string {
 
 export default function NotificationsScreen() {
   const theme = useTheme();
+  const { t } = useLocale();
   const query = useQuery<AppNotification[]>({
     queryKey: ['notifications'],
     queryFn: notificationsApi.getMyNotifications,
@@ -47,7 +50,7 @@ export default function NotificationsScreen() {
   if (query.isPending) {
     return (
       <Screen contentStyle={styles.content}>
-        <AppText variant="title">Notifications</AppText>
+        <AppText variant="title">{t('Notifications')}</AppText>
         <View style={styles.list}>
           <SkeletonCard />
           <SkeletonCard />
@@ -62,9 +65,9 @@ export default function NotificationsScreen() {
       <Screen scroll={false}>
         <StateView
           icon="cloud-offline-outline"
-          title="Couldn’t load notifications"
-          description="Check your connection and try again."
-          actionLabel="Retry"
+          title={t("Couldn't load notifications")}
+          description={t('Check your connection and try again.')}
+          actionLabel={t('Retry')}
           onAction={() => void query.refetch()}
         />
       </Screen>
@@ -78,8 +81,8 @@ export default function NotificationsScreen() {
       <Screen scroll={false}>
         <StateView
           icon="notifications-outline"
-          title="No notifications yet"
-          description="Activity on your spots and points will show up here."
+          title={t('No notifications yet')}
+          description={t('Activity on your spots will show up here.')}
         />
       </Screen>
     );
@@ -119,6 +122,8 @@ export default function NotificationsScreen() {
  */
 const NotificationRow = memo(function NotificationRow({ notification }: { notification: AppNotification }) {
   const theme = useTheme();
+  const { t } = useLocale();
+  const copy = localizeNotification(notification, t);
   const queryClient = useQueryClient();
   const unread = isUnreadNotification(notification);
   const visual = typeVisual(notification.type);
@@ -176,7 +181,7 @@ const NotificationRow = memo(function NotificationRow({ notification }: { notifi
             style={[styles.flex, unread ? styles.titleUnread : null]}
             numberOfLines={1}
           >
-            {notification.title}
+            {copy.title}
           </AppText>
           {unread ? (
             <View style={[styles.unreadDot, { backgroundColor: theme.colors.primary }]} accessibilityLabel="Unread" />
@@ -184,25 +189,25 @@ const NotificationRow = memo(function NotificationRow({ notification }: { notifi
         </View>
 
         <AppText variant="body" tone="muted">
-          {notification.body}
+          {copy.body}
         </AppText>
 
         <View style={styles.metaRow}>
-          <Badge label={humanizeType(notification.type)} tone={visual.tone} />
+          <Badge label={copy.typeLabel ?? t(humanizeType(notification.type))} tone={visual.tone} />
           <AppText variant="caption" tone="muted">
-            {formatRelativeTime(notification.createdAt)}
+            {t(formatRelativeTime(notification.createdAt))}
           </AppText>
           {unread ? (
             <Pressable
               testID={`notifications.markRead.${notification.id}`}
               accessibilityRole="button"
-              accessibilityLabel="Mark as read"
+              accessibilityLabel={t('Mark as read')}
               disabled={markRead.isPending}
               onPress={() => markRead.mutate()}
               style={styles.markReadButton}
             >
               <AppText variant="caption" style={{ color: theme.colors.primary, fontWeight: '600' }}>
-                {markRead.isPending ? 'Marking…' : 'Mark as read'}
+                {markRead.isPending ? t('Marking…') : t('Mark as read')}
               </AppText>
             </Pressable>
           ) : null}
@@ -226,6 +231,7 @@ const NotificationRow = memo(function NotificationRow({ notification }: { notifi
  * drives native routing.
  */
 function NotificationCta({ type }: { type: NotificationType }) {
+  const { t } = useLocale();
   const theme = useTheme();
   const router = useRouter();
 
@@ -233,7 +239,7 @@ function NotificationCta({ type }: { type: NotificationType }) {
     return (
       <View style={styles.ctaRow}>
         <Button
-          label="View map"
+          label={t('View map')}
           testID="notifications.nearbyParking"
           leading={<Ionicons name="map-outline" size={16} color={theme.colors.onPrimary} />}
           onPress={() => router.push('/(main)/map')}
@@ -245,7 +251,7 @@ function NotificationCta({ type }: { type: NotificationType }) {
     return (
       <View style={styles.ctaRow}>
         <Button
-          label="Set today's return"
+          label={t("Set today's return")}
           testID="notifications.smartReturn.prompt"
           leading={<Ionicons name="car" size={16} color={theme.colors.onPrimary} />}
           onPress={() => router.push('/(main)/smart-return')}
@@ -257,7 +263,7 @@ function NotificationCta({ type }: { type: NotificationType }) {
     return (
       <View style={styles.ctaRow}>
         <Button
-          label="Open map"
+          label={t('View map')}
           testID="notifications.smartReturn.available"
           leading={<Ionicons name="map-outline" size={16} color={theme.colors.onPrimary} />}
           onPress={() => router.push({ pathname: '/(main)/map', params: { smartReturn: '1' } })}
@@ -269,7 +275,7 @@ function NotificationCta({ type }: { type: NotificationType }) {
     return (
       <View style={styles.ctaRow}>
         <Button
-          label="View impact"
+          label={t('View impact')}
           testID="notifications.impact"
           variant="secondary"
           onPress={() => router.push('/(main)/impact')}
@@ -281,7 +287,7 @@ function NotificationCta({ type }: { type: NotificationType }) {
     return (
       <View style={styles.ctaRow}>
         <Button
-          label="View reports"
+          label={t('My reports')}
           testID="notifications.reports"
           variant="secondary"
           onPress={() => router.push('/(main)/reports')}

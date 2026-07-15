@@ -12,6 +12,7 @@ import {
 import type { GeocodeResult } from '@parkio/types';
 import { AppText } from '@/components/ui';
 import { HIT_SLOP, useTheme } from '@/theme';
+import { useLocale } from '@/i18n/LocaleProvider';
 import { usePlaceSearch } from '../hooks/usePlaceSearch';
 import { useRecentSearches, type RecentSearch } from '../hooks/useRecentSearches';
 
@@ -27,6 +28,7 @@ export interface MapSearchBarProps {
  */
 function MapSearchBarImpl({ topOffset, onSelectPlace }: MapSearchBarProps) {
   const theme = useTheme();
+  const { t } = useLocale();
   const [query, setQuery] = useState('');
   const [focused, setFocused] = useState(false);
   const { results, isSearching, isError, isActive } = usePlaceSearch(query);
@@ -58,11 +60,11 @@ function MapSearchBarImpl({ topOffset, onSelectPlace }: MapSearchBarProps) {
         <Ionicons name="search" size={20} color={theme.colors.textMuted} />
         <TextInput
           testID="map.search.input"
-          accessibilityLabel="Search for a place"
+          accessibilityLabel={t('Search a place or address')}
           value={query}
           onChangeText={setQuery}
           onFocus={() => setFocused(true)}
-          placeholder="Search a place or address"
+          placeholder={t('Search a place or address')}
           placeholderTextColor={theme.colors.textMuted}
           returnKeyType="search"
           autoCorrect={false}

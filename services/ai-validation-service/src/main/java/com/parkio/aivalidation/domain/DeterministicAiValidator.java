@@ -1,18 +1,33 @@
 package com.parkio.aivalidation.domain;
 
 import java.time.Instant;
+import java.util.ArrayList;
 import java.util.List;
 import java.util.UUID;
 
 /**
  * Placeholder validator that produces deterministic, advisory scores from simple
- * inputs — <strong>no real AI provider is called</strong>. Scores are derived from the
- * media id so the same input always yields the same safe, plausible result. Real model
- * integration (vision provider behind a port + infrastructure adapter) is backlog.
+ * inputs - no real AI provider is called. Scores are seeded from the media id and
+ * adjusted by {@link ContentRiskClassifier} so non-parking / uncertain media fail
+ * closed for the parking publication gate. Real model integration (vision provider
+ * behind a port + infrastructure adapter) is backlog.
  *
  * <p>Pure domain: no framework or provider SDK dependencies (ai-context/01).
  */
 public final class DeterministicAiValidator {
+
+    private final ContentRiskClassifier contentRiskClassifier;
+
+    public DeterministicAiValidator(ContentRiskClassifier contentRiskClassifier) {
+        this.contentRiskClassifier = contentRiskClassifier == null
+                ? mediaId -> ContentRiskClassifier.Verdict.UNCERTAIN
+                : contentRiskClassifier;
+    }
+
+    /** Fail-closed default constructor (always UNCERTAIN). Prefer the classifier ctor. */
+    public DeterministicAiValidator() {
+        this(mediaId -> ContentRiskClassifier.Verdict.UNCERTAIN);
+    }
 
     /**
      * Runs the placeholder checks and assembles an advisory result. The status is
@@ -20,6 +35,7 @@ public final class DeterministicAiValidator {
      */
     public AiValidationResult validate(UUID mediaId, UUID parkingSpotId, UUID requestedByUserId, Instant now) {
         int seed = seedOf(mediaId);
+        ContentRiskClassifier.Verdict verdict = contentRiskClassifier.classify(mediaId);
 
         int imageQuality = Score.clamp(70 + seed % 30);       // 70-99: acceptable
         int emptySpace = Score.clamp(60 + seed % 40);         // 60-99
@@ -27,7 +43,7 @@ public final class DeterministicAiValidator {
         int duplicateRisk = Score.clamp(seed % 20);           // 0-19: low
         int aiConfidence = Score.clamp(65 + seed % 35);       // 65-99
 
-        List<AiValidationFinding> findings = List.of(
+        List<AiValidationFinding> findings = new ArrayList<>(List.of(
                 AiValidationFinding.of(AiValidationType.PARKING_SPACE_VISIBILITY, null,
                         Score.clamp(70 + seed % 30), "Parking space is visible in the image.", now),
                 AiValidationFinding.of(AiValidationType.EMPTY_SPACE_DETECTION, null,
@@ -39,7 +55,24 @@ public final class DeterministicAiValidator {
                 AiValidationFinding.of(AiValidationType.IMAGE_QUALITY, null,
                         imageQuality, "Image quality is acceptable.", now),
                 AiValidationFinding.of(AiValidationType.DUPLICATE_RISK, null,
-                        duplicateRisk, "Low likelihood of being a duplicate submission.", now));
+                        duplicateRisk, "Low likelihood of being a duplicate submission.", now)));
+
+        if (verdict == ContentRiskClassifier.Verdict.NOT_A_PARKING_SPOT) {
+            // Force policy FAILED: risk + unusable quality floor.
+            imageQuality = 10;
+            findings.add(AiValidationFinding.of(AiValidationType.PARKING_SPACE_VISIBILITY,
+                    AiRiskType.NOT_A_PARKING_SPOT, 100,
+                    "Content does not appear to depict a parking spot.", now));
+            findings.add(AiValidationFinding.of(AiValidationType.IMAGE_QUALITY,
+                    AiRiskType.LOW_IMAGE_QUALITY, imageQuality,
+                    "Image quality treated as unusable for non-parking content.", now));
+        } else if (verdict == ContentRiskClassifier.Verdict.UNCERTAIN) {
+            // Force policy WARNING via confidence below threshold.
+            aiConfidence = 40;
+            findings.add(AiValidationFinding.of(AiValidationType.PARKING_SPACE_VISIBILITY, null,
+                    40, "Uncertain whether the image depicts a parking spot.", now));
+        }
+        // LIKELY_PARKING keeps the passing seed scores.
 
         List<VehicleFitEstimate> fits = List.of(
                 VehicleFitEstimate.of(VehicleType.MOTORCYCLE, 100, now),

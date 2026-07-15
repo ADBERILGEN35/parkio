@@ -17,11 +17,13 @@ import com.parkio.notification.application.port.DeviceTokenRepository;
 import com.parkio.notification.application.port.InboxEventRepository;
 import com.parkio.notification.application.port.NotificationPreferenceRepository;
 import com.parkio.notification.application.port.NotificationRepository;
-import com.parkio.notification.application.port.NotificationTemplateRepository;
 import com.parkio.notification.application.port.OutboxEventAppender;
+import com.parkio.notification.application.port.UserLocalePort;
 import com.parkio.notification.domain.DeviceToken;
+import com.parkio.notification.domain.LocalizedNotificationCatalog;
 import com.parkio.notification.domain.Notification;
 import com.parkio.notification.domain.NotificationChannel;
+import com.parkio.notification.domain.NotificationLocale;
 import com.parkio.notification.domain.NotificationPreference;
 import com.parkio.notification.domain.NotificationTemplate;
 import com.parkio.notification.domain.NotificationType;
@@ -47,6 +49,10 @@ import org.springframework.transaction.annotation.Transactional;
  * (ai-context/03). Each in-app notification is recorded as SENT and, via
  * {@link NotificationDeliveryService}, fans out PUSH delivery attempts for the user's
  * active device tokens (when push is enabled). EMAIL delivery is backlog.
+ *
+ * <p>Title/body for <em>new</em> notifications are rendered in the recipient's
+ * {@code preferredLocale} (default {@code tr}). Structured {@code messageKey} +
+ * variables are always stored in metadata so clients can re-render.
  */
 @Service
 @Transactional
@@ -54,28 +60,28 @@ public class NotificationApplicationService {
 
     private final NotificationRepository notifications;
     private final DeviceTokenRepository deviceTokens;
-    private final NotificationTemplateRepository templates;
     private final NotificationPreferenceRepository preferences;
     private final InboxEventRepository inbox;
     private final OutboxEventAppender outbox;
     private final NotificationDeliveryService delivery;
+    private final UserLocalePort userLocales;
     private final Clock clock;
 
     public NotificationApplicationService(NotificationRepository notifications,
                                           DeviceTokenRepository deviceTokens,
-                                          NotificationTemplateRepository templates,
                                           NotificationPreferenceRepository preferences,
                                           InboxEventRepository inbox,
                                           OutboxEventAppender outbox,
                                           NotificationDeliveryService delivery,
+                                          UserLocalePort userLocales,
                                           Clock clock) {
         this.notifications = notifications;
         this.deviceTokens = deviceTokens;
-        this.templates = templates;
         this.preferences = preferences;
         this.inbox = inbox;
         this.outbox = outbox;
         this.delivery = delivery;
+        this.userLocales = userLocales;
         this.clock = clock;
     }
 
@@ -99,7 +105,9 @@ public class NotificationApplicationService {
             return;
         }
         createInAppNotification(event.userId(), NotificationType.LEVEL_UP,
-                Map.of("level", Integer.toString(event.newLevel())),
+                Map.of(
+                        "messageKey", "levelUp",
+                        "level", Integer.toString(event.newLevel())),
                 Map.of("deeplink", "/gamification"));
     }
 
@@ -108,7 +116,9 @@ public class NotificationApplicationService {
             return;
         }
         createInAppNotification(event.userId(), NotificationType.POINT_EARNED,
-                Map.of("points", Long.toString(event.points()),
+                Map.of(
+                        "messageKey", "pointEarned",
+                        "points", Long.toString(event.points()),
                         "totalPoints", Long.toString(event.totalPoints())),
                 Map.of("deeplink", "/gamification"));
     }
@@ -117,11 +127,8 @@ public class NotificationApplicationService {
         if (!claimEvent(event.eventId(), "PointsDeducted")) {
             return;
         }
-        // English `message` keeps WARNING template / push rendering; structured keys
-        // enable localized web clients (messageKey=pointsDeducted).
         createInAppNotification(event.userId(), NotificationType.WARNING,
                 Map.of(
-                        "message", "You lost " + event.points() + " points (penalty).",
                         "messageKey", "pointsDeducted",
                         "points", Long.toString(event.points())),
                 Map.of("deeplink", "/reports"));
@@ -132,11 +139,8 @@ public class NotificationApplicationService {
             return;
         }
         String direction = event.newScore() >= event.previousScore() ? "increased" : "decreased";
-        // English `message` for templates/push; structured keys for localized web render.
         createInAppNotification(event.userId(), NotificationType.WARNING,
                 Map.of(
-                        "message", "Your trust score " + direction + " from "
-                                + event.previousScore() + " to " + event.newScore() + ".",
                         "messageKey", "trustChanged",
                         "previousScore", Integer.toString(event.previousScore()),
                         "newScore", Integer.toString(event.newScore()),
@@ -149,9 +153,7 @@ public class NotificationApplicationService {
             return;
         }
         createInAppNotification(event.ownerUserId(), NotificationType.WARNING,
-                Map.of(
-                        "message", "Your parking spot was rejected as illegal or risky.",
-                        "messageKey", "spotRejectedIllegal"),
+                Map.of("messageKey", "spotRejectedIllegal"),
                 Map.of("deeplink", spotDeeplink(event.parkingSpotId())));
     }
 
@@ -162,9 +164,7 @@ public class NotificationApplicationService {
             return;
         }
         createInAppNotification(event.userId(), NotificationType.WARNING,
-                Map.of(
-                        "message", "Your account has been suspended by moderation.",
-                        "messageKey", "accountSuspended"),
+                Map.of("messageKey", "accountSuspended"),
                 Map.of("deeplink", "/reports"));
     }
 
@@ -173,9 +173,7 @@ public class NotificationApplicationService {
             return;
         }
         createInAppNotification(event.userId(), NotificationType.SYSTEM,
-                Map.of(
-                        "message", "Your account has been restored.",
-                        "messageKey", "accountRestored"),
+                Map.of("messageKey", "accountRestored"),
                 Map.of("deeplink", "/profile"));
     }
 
@@ -186,9 +184,7 @@ public class NotificationApplicationService {
         }
         if (event.ownerUserId() != null) {
             createInAppNotification(event.ownerUserId(), NotificationType.WARNING,
-                    Map.of(
-                            "message", "Your parking spot was rejected by a moderator.",
-                            "messageKey", "spotRejectedByModerator"),
+                    Map.of("messageKey", "spotRejectedByModerator"),
                     Map.of("deeplink", spotDeeplink(event.parkingSpotId())));
         }
     }
@@ -202,7 +198,6 @@ public class NotificationApplicationService {
         String outcome = event.accepted() ? "accepted" : "rejected";
         createInAppNotification(event.userId(), NotificationType.SYSTEM,
                 Map.of(
-                        "message", "Your appeal was " + outcome + ".",
                         "messageKey", "appealResolved",
                         "outcome", outcome),
                 Map.of("deeplink", "/reports"));
@@ -215,9 +210,7 @@ public class NotificationApplicationService {
         }
         if (ModerationCaseResolvedEvent.TARGET_TYPE_USER.equals(event.targetType()) && event.targetId() != null) {
             createInAppNotification(event.targetId(), NotificationType.SYSTEM,
-                    Map.of(
-                            "message", "A moderation case about your account was resolved.",
-                            "messageKey", "moderationCaseResolved"),
+                    Map.of("messageKey", "moderationCaseResolved"),
                     Map.of("deeplink", "/reports"));
         }
     }
@@ -275,35 +268,32 @@ public class NotificationApplicationService {
 
     public Notification createSmartReturnPrompt(UUID userId) {
         return createInAppNotification(userId, NotificationType.SMART_RETURN_PROMPT,
-                Map.of("message", "Are you driving today?"),
+                Map.of("messageKey", "smartReturnPrompt"),
                 Map.of("action", "SMART_RETURN_TODAY", "deeplink", "/profile?section=smart-return"));
     }
 
     public Notification createSmartReturnParkingAvailable(UUID userId, String areaLabel) {
         return createInAppNotification(userId, NotificationType.SMART_RETURN_AVAILABLE,
-                Map.of("message", "Parking near your saved home area may be available now."),
+                Map.of("messageKey", "smartReturnAvailable"),
                 Map.of("action", "SMART_RETURN_MAP", "deeplink", "/map?smartReturn=1"));
     }
 
     // --- Internals ---
 
-    private Notification createInAppNotification(UUID userId, NotificationType type, Map<String, String> variables) {
-        return createInAppNotification(userId, type, variables, Map.of());
-    }
-
     private Notification createInAppNotification(UUID userId, NotificationType type, Map<String, String> variables,
                                                 Map<String, String> metadata) {
         Instant now = clock.instant();
-        NotificationTemplate.RenderedContent content = templates.findByType(type)
-                .map(template -> template.render(variables))
-                .orElseGet(() -> fallbackContent(type));
-        // Merge template variables into stored metadata (variables first; explicit metadata
-        // wins on colliding keys such as deeplink). Enables localized clients without a
-        // schema/migration change — title/body remain English for push/back-compat.
+        Map<String, String> vars = variables == null ? Map.of() : variables;
+        String messageKey = resolveMessageKey(type, vars);
+        NotificationLocale locale = userLocales.resolvePreferredLocale(userId);
+        NotificationTemplate.RenderedContent content = LocalizedNotificationCatalog.render(messageKey, locale, vars);
+
+        // Variables first; explicit metadata wins on colliding keys such as deeplink.
+        // Always persist messageKey so clients can re-render without relying on stored locale.
         Map<String, String> storedMetadata = new LinkedHashMap<>();
-        if (variables != null && !variables.isEmpty()) {
-            storedMetadata.putAll(variables);
-        }
+        storedMetadata.putAll(vars);
+        storedMetadata.put("messageKey", messageKey);
+        storedMetadata.put("locale", locale.code());
         if (metadata != null && !metadata.isEmpty()) {
             storedMetadata.putAll(metadata);
         }
@@ -314,17 +304,13 @@ public class NotificationApplicationService {
         return notification;
     }
 
-    private static NotificationTemplate.RenderedContent fallbackContent(NotificationType type) {
-        return new NotificationTemplate.RenderedContent("Notification",
-                fallbackBody(type));
-    }
-
-    private static String fallbackBody(NotificationType type) {
-        return switch (type) {
-            case SMART_RETURN_PROMPT -> "Are you driving today?";
-            case SMART_RETURN_AVAILABLE -> "Parking near your saved home area may be available now.";
-            default -> "You have a new " + type.name().toLowerCase().replace('_', ' ') + " notification.";
-        };
+    private static String resolveMessageKey(NotificationType type, Map<String, String> variables) {
+        String fromVariables = variables.get("messageKey");
+        if (fromVariables != null && !fromVariables.isBlank()) {
+            return fromVariables;
+        }
+        String fromType = LocalizedNotificationCatalog.defaultMessageKey(type);
+        return fromType != null ? fromType : "notification";
     }
 
     private boolean claimEvent(UUID eventId, String eventType) {

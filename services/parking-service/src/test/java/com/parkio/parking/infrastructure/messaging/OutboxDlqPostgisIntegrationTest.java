@@ -73,6 +73,7 @@ class OutboxDlqPostgisIntegrationTest {
         // Disable the scheduled relay bean so it cannot race the relay instance this test drives.
         registry.add("parkio.kafka.relay.enabled", () -> "false");
         registry.add("parkio.kafka.moderation-consumer.enabled", () -> "false");
+        registry.add("parkio.kafka.ai-validation-consumer.enabled", () -> "false");
         registry.add("parkio.lifecycle.parking-expiry.enabled", () -> "false");
         registry.add("parkio.lifecycle.retention.outbox-enabled", () -> "false");
         registry.add("parkio.lifecycle.retention.inbox-enabled", () -> "false");

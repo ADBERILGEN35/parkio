@@ -28,6 +28,8 @@ export interface SpotPresentation {
 }
 
 const STATUS_LABELS: Record<ParkingStatus, string> = {
+  PENDING_VALIDATION: 'Validating',
+  PENDING_REVIEW: 'Under review',
   ACTIVE: 'Active',
   VERIFIED: 'Verified',
   SUSPICIOUS: 'Unconfirmed',
@@ -43,6 +45,8 @@ const LEGAL_LABELS: Record<LegalStatus, string> = {
 };
 
 const AVAILABILITY_BY_STATUS: Record<ParkingStatus, Availability> = {
+  PENDING_VALIDATION: 'unverified',
+  PENDING_REVIEW: 'unverified',
   ACTIVE: 'available',
   VERIFIED: 'available',
   SUSPICIOUS: 'unverified',
@@ -70,6 +74,8 @@ const TONE_BY_AVAILABILITY: Record<Availability, SpotPresentation['tone']> = {
 const CONFIDENCE_BY_STATUS: Record<ParkingStatus, ConfidenceTier> = {
   VERIFIED: 'high',
   ACTIVE: 'medium',
+  PENDING_VALIDATION: 'low',
+  PENDING_REVIEW: 'low',
   SUSPICIOUS: 'low',
   FILLED: 'none',
   EXPIRED: 'none',
@@ -98,8 +104,14 @@ export function presentSpot(spot: Pick<PublicSpot, 'status' | 'legalStatus'>): S
   };
 }
 
-/** True when a spot is worth surfacing as a usable result (not filled/expired/rejected). */
+/**
+ * True when a spot is worth surfacing in discovery (map/nearby client filters).
+ * Pending AI / review are owner-only until published — exclude them here.
+ */
 export function isUsableSpot(spot: Pick<PublicSpot, 'status'>): boolean {
+  if (spot.status === 'PENDING_VALIDATION' || spot.status === 'PENDING_REVIEW') {
+    return false;
+  }
   const a = AVAILABILITY_BY_STATUS[spot.status];
   return a === 'available' || a === 'unverified';
 }

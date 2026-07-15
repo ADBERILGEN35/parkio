@@ -140,6 +140,8 @@ parkio:
     provision-topics: true
     replication-factor: ${PARKIO_KAFKA_REPLICATION_FACTOR:1}
   notification:
+    user-service:
+      base-url: ${PARKIO_USER_SERVICE_URI:http://localhost:8082}
     delivery:
       push:
         # Scheduled worker that drains PENDING push attempts. Enabled by default; the

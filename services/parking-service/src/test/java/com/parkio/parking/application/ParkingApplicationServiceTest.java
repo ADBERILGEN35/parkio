@@ -25,6 +25,7 @@ import com.parkio.parking.domain.ParkingSpotViewLog;
 import com.parkio.parking.domain.VehicleType;
 import com.parkio.parking.domain.VerificationResult;
 import com.parkio.parking.domain.event.ParkingEvent;
+import com.parkio.parking.domain.event.ParkingSpotActivatedEvent;
 import com.parkio.parking.domain.event.ParkingSpotClaimedEvent;
 import com.parkio.parking.domain.event.ParkingSpotCreatedEvent;
 import com.parkio.parking.domain.event.ParkingSpotExpiredEvent;
@@ -86,18 +87,81 @@ class ParkingApplicationServiceTest {
                 false, Set.of(VehicleType.SEDAN), ParkingContext.STREET_PARKING, legalStatus, Set.of());
     }
 
+    /** Creates a spot then applies AI PASSED so verify/claim tests exercise ACTIVE lifecycle. */
+    private ParkingSpot createPublishedSpot(UUID owner) {
+        ParkingSpot spot = service.createSpot(createCommand(owner, LegalStatus.LEGAL));
+        service.applyAiValidationResult(spot.id(), "PASSED", List.of());
+        return spots.byId.get(spot.id());
+    }
+
     @Test
-    void createsLegalSpotAsActiveAndEmitsEvent() {
+    void createsLegalSpotAsPendingValidationAndEmitsEvent() {
         UUID owner = UUID.randomUUID();
 
         ParkingSpot spot = service.createSpot(createCommand(owner, LegalStatus.LEGAL));
 
-        assertThat(spot.status()).isEqualTo(ParkingSpotStatus.ACTIVE);
+        assertThat(spot.status()).isEqualTo(ParkingSpotStatus.PENDING_VALIDATION);
         assertThat(spot.expiresAt()).isEqualTo(NOW.plus(10, ChronoUnit.MINUTES));
         assertThat(spots.byId).containsKey(spot.id());
         assertThat(statusHistory.all).singleElement()
-                .satisfies(h -> assertThat(h.newStatus()).isEqualTo(ParkingSpotStatus.ACTIVE));
-        assertThat(outbox.events).singleElement().isInstanceOf(ParkingSpotCreatedEvent.class);
+                .satisfies(h -> assertThat(h.newStatus()).isEqualTo(ParkingSpotStatus.PENDING_VALIDATION));
+        assertThat(outbox.events).singleElement().isInstanceOf(ParkingSpotCreatedEvent.class)
+                .satisfies(e -> assertThat(((ParkingSpotCreatedEvent) e).status())
+                        .isEqualTo(ParkingSpotStatus.PENDING_VALIDATION));
+    }
+
+    @Test
+    void applyAiValidationPassedActivatesAndEmitsActivatedEvent() {
+        ParkingSpot spot = service.createSpot(createCommand(UUID.randomUUID(), LegalStatus.LEGAL));
+        outbox.events.clear();
+        statusHistory.all.clear();
+
+        service.applyAiValidationResult(spot.id(), "PASSED", List.of());
+
+        assertThat(spots.byId.get(spot.id()).status()).isEqualTo(ParkingSpotStatus.ACTIVE);
+        assertThat(statusHistory.all).singleElement()
+                .satisfies(h -> {
+                    assertThat(h.previousStatus()).isEqualTo(ParkingSpotStatus.PENDING_VALIDATION);
+                    assertThat(h.newStatus()).isEqualTo(ParkingSpotStatus.ACTIVE);
+                    assertThat(h.reason()).isEqualTo("AI_PASSED");
+                });
+        assertThat(outbox.events).singleElement().isInstanceOf(ParkingSpotActivatedEvent.class);
+    }
+
+    @Test
+    void applyAiValidationWarningMovesToPendingReviewWithoutActivationEvent() {
+        ParkingSpot spot = service.createSpot(createCommand(UUID.randomUUID(), LegalStatus.LEGAL));
+        outbox.events.clear();
+
+        service.applyAiValidationResult(spot.id(), "WARNING", List.of());
+
+        assertThat(spots.byId.get(spot.id()).status()).isEqualTo(ParkingSpotStatus.PENDING_REVIEW);
+        assertThat(outbox.events).isEmpty();
+        assertThat(statusHistory.all.get(statusHistory.all.size() - 1).reason()).isEqualTo("AI_PENDING_REVIEW");
+    }
+
+    @Test
+    void applyAiValidationFailedOrNotParkingRejectsSpot() {
+        ParkingSpot failed = service.createSpot(createCommand(UUID.randomUUID(), LegalStatus.LEGAL));
+        service.applyAiValidationResult(failed.id(), "FAILED", List.of());
+        assertThat(spots.byId.get(failed.id()).status()).isEqualTo(ParkingSpotStatus.REJECTED);
+
+        ParkingSpot notParking = service.createSpot(createCommand(UUID.randomUUID(), LegalStatus.LEGAL));
+        service.applyAiValidationResult(notParking.id(), "PASSED", List.of("NOT_A_PARKING_SPOT"));
+        assertThat(spots.byId.get(notParking.id()).status()).isEqualTo(ParkingSpotStatus.REJECTED);
+    }
+
+    @Test
+    void applyAiValidationUnknownStatusIsFailClosed() {
+        ParkingSpot spot = service.createSpot(createCommand(UUID.randomUUID(), LegalStatus.LEGAL));
+        outbox.events.clear();
+        int historyBefore = statusHistory.all.size();
+
+        service.applyAiValidationResult(spot.id(), "BOGUS", List.of());
+
+        assertThat(spots.byId.get(spot.id()).status()).isEqualTo(ParkingSpotStatus.PENDING_VALIDATION);
+        assertThat(statusHistory.all).hasSize(historyBefore);
+        assertThat(outbox.events).isEmpty();
     }
 
     @Test
@@ -264,7 +328,7 @@ class ParkingApplicationServiceTest {
     @Test
     void ownerCannotVerifyOwnSpot() {
         UUID owner = UUID.randomUUID();
-        ParkingSpot spot = service.createSpot(createCommand(owner, LegalStatus.LEGAL));
+        ParkingSpot spot = createPublishedSpot(owner);
 
         assertThatThrownBy(() -> service.verifySpot(spot.id(), owner, VerificationResult.AVAILABLE))
                 .isInstanceOf(ParkingException.class)
@@ -276,7 +340,7 @@ class ParkingApplicationServiceTest {
     void duplicateVerificationBySameUserIsRejected() {
         UUID owner = UUID.randomUUID();
         UUID verifier = UUID.randomUUID();
-        ParkingSpot spot = service.createSpot(createCommand(owner, LegalStatus.LEGAL));
+        ParkingSpot spot = createPublishedSpot(owner);
 
         service.verifySpot(spot.id(), verifier, VerificationResult.AVAILABLE);
 
@@ -289,7 +353,7 @@ class ParkingApplicationServiceTest {
     @Test
     void availableVerificationsVerifyAndExtendExpiration() {
         UUID owner = UUID.randomUUID();
-        ParkingSpot spot = service.createSpot(createCommand(owner, LegalStatus.LEGAL));
+        ParkingSpot spot = createPublishedSpot(owner);
 
         ParkingSpot afterFirst = service.verifySpot(spot.id(), UUID.randomUUID(), VerificationResult.AVAILABLE);
         assertThat(afterFirst.status()).isEqualTo(ParkingSpotStatus.VERIFIED);
@@ -305,7 +369,7 @@ class ParkingApplicationServiceTest {
 
     @Test
     void illegalRiskVerificationIsSuspiciousAndEmitsNoRejectionEvent() {
-        ParkingSpot spot = service.createSpot(createCommand(UUID.randomUUID(), LegalStatus.LEGAL));
+        ParkingSpot spot = createPublishedSpot(UUID.randomUUID());
         outbox.events.clear();
 
         ParkingSpot reported =
@@ -322,7 +386,7 @@ class ParkingApplicationServiceTest {
 
     @Test
     void moderatorRejectionUpdatesStatusAndHistoryWithoutEmittingParkingEvent() {
-        ParkingSpot spot = service.createSpot(createCommand(UUID.randomUUID(), LegalStatus.LEGAL));
+        ParkingSpot spot = createPublishedSpot(UUID.randomUUID());
         service.verifySpot(spot.id(), UUID.randomUUID(), VerificationResult.ILLEGAL_OR_RISKY);
         outbox.events.clear();
         statusHistory.all.clear();
@@ -342,7 +406,7 @@ class ParkingApplicationServiceTest {
     @Test
     void filledReportsMoveSpotToSuspiciousThenFilled() {
         UUID owner = UUID.randomUUID();
-        ParkingSpot spot = service.createSpot(createCommand(owner, LegalStatus.LEGAL));
+        ParkingSpot spot = createPublishedSpot(owner);
 
         ParkingSpot afterOne = service.verifySpot(spot.id(), UUID.randomUUID(), VerificationResult.FILLED);
         assertThat(afterOne.status()).isEqualTo(ParkingSpotStatus.SUSPICIOUS);
@@ -359,7 +423,7 @@ class ParkingApplicationServiceTest {
     void claimMarksSpotFilledAndEmitsEvent() {
         UUID owner = UUID.randomUUID();
         UUID claimer = UUID.randomUUID();
-        ParkingSpot spot = service.createSpot(createCommand(owner, LegalStatus.LEGAL));
+        ParkingSpot spot = createPublishedSpot(owner);
 
         ParkingSpot claimed = service.claimSpot(spot.id(), claimer);
 
@@ -370,7 +434,7 @@ class ParkingApplicationServiceTest {
     @Test
     void ownerCannotClaimOwnSpot() {
         UUID owner = UUID.randomUUID();
-        ParkingSpot spot = service.createSpot(createCommand(owner, LegalStatus.LEGAL));
+        ParkingSpot spot = createPublishedSpot(owner);
 
         assertThatThrownBy(() -> service.claimSpot(spot.id(), owner))
                 .isInstanceOf(ParkingException.class)
@@ -381,7 +445,7 @@ class ParkingApplicationServiceTest {
     @Test
     void expiredSpotCannotBeVerified() {
         UUID owner = UUID.randomUUID();
-        ParkingSpot spot = service.createSpot(createCommand(owner, LegalStatus.LEGAL));
+        ParkingSpot spot = createPublishedSpot(owner);
 
         clock.set(NOW.plus(11, ChronoUnit.MINUTES)); // past the 10-minute window
 
@@ -501,7 +565,7 @@ class ParkingApplicationServiceTest {
 
     @Test
     void visibleSpotReturnsSignedMediaUrlForAnyAuthenticatedUser() {
-        ParkingSpot spot = service.createSpot(createCommand(UUID.randomUUID(), LegalStatus.LEGAL));
+        ParkingSpot spot = createPublishedSpot(UUID.randomUUID());
         UUID viewer = UUID.randomUUID();
 
         SpotMediaAccess access = service.getSpotMediaAccessUrl(spot.id(), viewer);

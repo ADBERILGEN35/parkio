@@ -21,10 +21,12 @@ import org.springframework.transaction.annotation.Transactional;
  * Advisory validation use cases: react to upstream events (idempotently) and serve
  * manual validation requests, persisting a result and emitting an advisory event.
  *
- * <p>ai-validation-service is an <strong>advisor</strong> (ai-context/02): it never
- * rejects a spot, bans a user, or mutates another service's data (ai-context/03). It
- * records a result and emits {@link AiValidationCompletedEvent} for moderation/parking
- * to consider. The validator is a deterministic placeholder — no real model is called.
+ * <p>ai-validation-service remains an <strong>advisor</strong> toward moderation
+ * (ai-context/02): it does not mutate parking rows directly. Parking-service consumes
+ * {@link AiValidationCompletedEvent} and enforces the publication gate
+ * (PENDING_VALIDATION → ACTIVE / PENDING_REVIEW / REJECTED). The validator is a
+ * deterministic placeholder with a fail-closed {@link com.parkio.aivalidation.domain.ContentRiskClassifier}
+ * — no real vision model is called until a production adapter is wired.
  */
 @Service
 @Transactional

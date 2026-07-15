@@ -12,7 +12,6 @@ import { usersApi } from '@/services/api';
 import { useToast } from '@/providers/ToastProvider';
 import { toUserMessage } from '@/utils/errors';
 import { useLocale } from '@/i18n/LocaleProvider';
-import { buildInfo } from '@/config/buildInfo';
 
 export default function ProfileScreen() {
   const { user, roles, logout, logoutAll } = useAuth();
@@ -48,7 +47,7 @@ export default function ProfileScreen() {
 
   return (
     <Screen contentStyle={styles.content}>
-      <AppText variant="title">Profile</AppText>
+      <AppText variant="title">{t('Profile')}</AppText>
 
       {profileQuery.isPending ? (
         <Card>
@@ -60,13 +59,13 @@ export default function ProfileScreen() {
       ) : profileQuery.isError ? (
         <StateView
           icon="alert-circle-outline"
-          title="Couldn’t load your profile"
-          actionLabel="Retry"
+          title={t('Couldn’t load your profile')}
+          actionLabel={t('Retry')}
           onAction={() => void profileQuery.refetch()}
         />
       ) : (
         <Card>
-          <AppText variant="subtitle">{profileQuery.data.displayName ?? 'Parkio driver'}</AppText>
+          <AppText variant="subtitle">{profileQuery.data.displayName ?? t('Parkio driver')}</AppText>
           <AppText variant="body" tone="muted">
             {profileQuery.data.email}
           </AppText>
@@ -79,63 +78,63 @@ export default function ProfileScreen() {
       )}
 
       <View style={styles.section}>
-        <AppText variant="heading">Account</AppText>
+        <AppText variant="heading">{t('Account')}</AppText>
         <LinkRow
           icon="person-outline"
-          title="Edit profile"
-          description="Display name, phone, and city"
+          title={t('Edit profile')}
+          description={t('Display name, phone, and city')}
           testID="profile.edit"
           onPress={() => router.push('/(main)/profile-edit')}
         />
         <LinkRow
           icon="car-outline"
-          title="Vehicle"
-          description="Vehicle type and plate"
+          title={t('Vehicle')}
+          description={t('Vehicle type and plate')}
           testID="profile.vehicle"
           onPress={() => router.push('/(main)/vehicle')}
         />
         <LinkRow
           icon="options-outline"
-          title="Preferences"
-          description="Search radius and notifications"
+          title={t('Preferences')}
+          description={t('Search radius and notifications')}
           testID="profile.preferences"
           onPress={() => router.push('/(main)/preferences')}
         />
         <LinkRow
           icon="key-outline"
-          title="Change password"
+          title={t('Change password')}
           testID="profile.changePassword"
           onPress={() => router.push('/(main)/change-password')}
         />
       </View>
 
       <View style={styles.section}>
-        <AppText variant="heading">Activity</AppText>
+        <AppText variant="heading">{t('Activity')}</AppText>
         <LinkRow
           icon="map-outline"
-          title="My spots"
-          description="Spots you shared"
+          title={t('My spots')}
+          description={t('Spots you shared')}
           testID="profile.mySpots"
           onPress={() => router.push('/(main)/my-spots')}
         />
         <LinkRow
           icon="trophy-outline"
-          title="Leaderboard"
-          description="Top contributors"
+          title={t('Leaderboard')}
+          description={t('Top contributors')}
           testID="profile.leaderboard"
           onPress={() => router.push('/(main)/leaderboard')}
         />
         <LinkRow
           icon="star-outline"
-          title="Your Impact"
-          description="Points, levels, and activity history"
+          title={t('Your Impact')}
+          description={t('Points, levels, and activity history')}
           testID="profile.impact"
           onPress={() => router.push('/(main)/impact')}
         />
         <LinkRow
           icon="flag-outline"
-          title="My reports"
-          description="Reports and appeals"
+          title={t('My reports')}
+          description={t('Reports and appeals')}
           testID="profile.reports"
           onPress={() => router.push('/(main)/reports')}
         />
@@ -143,11 +142,11 @@ export default function ProfileScreen() {
 
       {appConfig.features.smartReturn ? (
         <View style={styles.section}>
-          <AppText variant="heading">Parking</AppText>
+          <AppText variant="heading">{t('Parking')}</AppText>
           <LinkRow
             icon="home-outline"
-            title="Smart Return"
-            description="One parking check near home, right before you head back."
+            title={t('Smart Return')}
+            description={t('One parking check near home, right before you head back.')}
             testID="profile.smartReturn"
             onPress={() => router.push('/(main)/smart-return')}
           />
@@ -156,12 +155,12 @@ export default function ProfileScreen() {
 
       {showModeration || showAnalytics ? (
         <View style={styles.section}>
-          <AppText variant="heading">Staff</AppText>
+          <AppText variant="heading">{t('Staff')}</AppText>
           {showModeration ? (
             <LinkRow
               icon="shield-checkmark-outline"
-              title="Moderation"
-              description="Review cases and appeals"
+              title={t('Moderation')}
+              description={t('Review cases and appeals')}
               testID="profile.moderation"
               onPress={() => router.push('/(main)/moderation')}
             />
@@ -169,8 +168,8 @@ export default function ProfileScreen() {
           {showAnalytics ? (
             <LinkRow
               icon="stats-chart-outline"
-              title="Analytics"
-              description="Platform KPIs and metrics"
+              title={t('Analytics')}
+              description={t('Platform KPIs and metrics')}
               testID="profile.analytics"
               onPress={() => router.push('/(main)/analytics')}
             />
@@ -179,15 +178,32 @@ export default function ProfileScreen() {
       ) : null}
 
       <View style={styles.section}>
+        <AppText variant="heading">{t('More')}</AppText>
+        <LinkRow
+          icon="notifications-outline"
+          title={t('Notifications')}
+          testID="profile.notifications"
+          onPress={() => router.push('/(main)/(tabs)/notifications')}
+        />
+        <LinkRow
+          icon="information-circle-outline"
+          title={t('About the app')}
+          description={t('App version and build details for support.')}
+          testID="profile.about"
+          onPress={() => router.push('/(main)/about')}
+        />
+      </View>
+
+      <View style={styles.section}>
         <Button
-          label="Log out"
+          label={t('Log out')}
           testID="profile.logout"
           variant="secondary"
           onPress={() => void runLogout(logout)}
           loading={busy}
         />
         <Button
-          label="Log out of all devices"
+          label={t('Log out of all devices')}
           testID="profile.logoutAll"
           variant="ghost"
           onPress={confirmLogoutAll}
@@ -195,11 +211,8 @@ export default function ProfileScreen() {
         />
       </View>
 
-      <AppText variant="caption" tone="muted">
-        Signed in as {user?.email ?? 'unknown'}
-      </AppText>
-      <AppText variant="caption" tone="muted" testID="profile.buildLineage">
-        {`Parkio 1.0.0-rc1 · ${buildInfo.marker}`}
+      <AppText variant="caption" tone="muted" testID="profile.signedInAs">
+        {t('Signed in as')} {user?.email ?? '—'}
       </AppText>
     </Screen>
   );

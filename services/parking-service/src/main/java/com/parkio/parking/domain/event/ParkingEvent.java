@@ -11,6 +11,7 @@ import java.util.UUID;
  */
 public sealed interface ParkingEvent permits
         ParkingSpotCreatedEvent,
+        ParkingSpotActivatedEvent,
         ParkingSpotVerifiedEvent,
         ParkingSpotMarkedFilledEvent,
         ParkingSpotClaimedEvent,
