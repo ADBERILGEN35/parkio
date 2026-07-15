@@ -1,5 +1,4 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 180 180" role="img" aria-label="Parkio">
-  <rect width="180" height="180" rx="40" fill="#147C72"/>
-  <circle cx="90" cy="90" r="56" fill="#F8FAF8"/>
-  <path fill="#147C72" d="M69 128V52h30c19 0 31 11 31 27s-12 27-31 27H87v22H69Zm18-38h10c9 0 15-5 15-11s-6-11-15-11H87v22Z"/>
+<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" viewBox="0 0 512 512" role="img" aria-label="Parkio">
+  <image href="/icons/apple-touch-icon.png" xlink:href="/icons/apple-touch-icon.png" width="512" height="512" preserveAspectRatio="xMidYMid meet"/>
 </svg>

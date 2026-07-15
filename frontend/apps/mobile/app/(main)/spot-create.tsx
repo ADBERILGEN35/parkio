@@ -29,6 +29,8 @@ import { useSpotCreationLocation } from '@/features/spot-create/hooks/useSpotCre
 import { isGpsAccuracyAcceptable } from '@/features/spot-create/lib/locationAccuracy';
 import { useSpotCreationDraftStore } from '@/features/spot-create/state/spotCreationDraftStore';
 import { HIT_SLOP, MIN_TOUCH_TARGET, useTheme } from '@/theme';
+import { useUnsavedChangesGuard } from '@/hooks/useUnsavedChangesGuard';
+import { useLocale } from '@/i18n/LocaleProvider';
 
 const DEFAULT_CENTER: LatLng = { lat: 41.0082, lng: 28.9784 };
 const PICK_ZOOM = 18;
@@ -78,6 +80,8 @@ export default function SpotCreateScreen() {
   const clearDraft = useSpotCreationDraftStore((state) => state.clearDraft);
   const location = useSpotCreationLocation();
   const submit = useCreateSpotSubmit();
+  const { t } = useLocale();
+  const allowNextNavigation = useUnsavedChangesGuard(Boolean(draft) && !submit.isSuccess);
 
   const mapRef = useRef<MapSurfaceHandle>(null);
   const requestedLocationRef = useRef(false);
@@ -144,7 +148,7 @@ export default function SpotCreateScreen() {
   if (submit.isSuccess && submit.data) {
     return (
       <>
-        <Stack.Screen options={{ title: 'Spot created' }} />
+        <Stack.Screen options={{ title: t('Spot created') }} />
         <Screen>
           <StateView
             icon="checkmark-circle-outline"
@@ -163,7 +167,7 @@ export default function SpotCreateScreen() {
   if (!draft) {
     return (
       <>
-        <Stack.Screen options={{ title: 'Share spot' }} />
+        <Stack.Screen options={{ title: t('Share spot') }} />
         <Screen>
           <StateView
             icon="image-outline"
@@ -187,8 +191,8 @@ export default function SpotCreateScreen() {
     <>
       <Stack.Screen
         options={{
-          title: 'Share spot',
-          headerBackTitle: 'Photo',
+          title: t('Share spot'),
+          headerBackTitle: t('Photo'),
         }}
       />
       <KeyboardAvoidingView style={styles.flex} behavior={Platform.OS === 'ios' ? 'padding' : undefined}>
@@ -204,7 +208,10 @@ export default function SpotCreateScreen() {
               accessibilityRole="button"
               accessibilityLabel="Change photo"
               hitSlop={HIT_SLOP}
-              onPress={() => router.replace('/(main)/upload')}
+              onPress={() => {
+                allowNextNavigation();
+                router.replace('/(main)/upload');
+              }}
               style={({ pressed }) => [
                 styles.changePhoto,
                 {
@@ -335,6 +342,7 @@ export default function SpotCreateScreen() {
             variant="ghost"
             onPress={() => {
               clearDraft();
+              allowNextNavigation();
               router.replace('/(main)/upload');
             }}
             disabled={submit.isPending}

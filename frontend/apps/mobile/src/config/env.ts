@@ -10,8 +10,6 @@ import { z } from 'zod';
  */
 export type AppEnvironment = 'development' | 'hosted-beta' | 'production';
 
-const DEFAULT_LOCAL_API = 'http://10.0.2.2:8080/api/v1';
-
 const blankToUndefined = (value: unknown) =>
   typeof value === 'string' && value.trim() === '' ? undefined : value;
 
@@ -40,9 +38,9 @@ export function createMobileConfig(env: Record<string, string | undefined>): Mob
   const appEnv: AppEnvironment = raw.EXPO_PUBLIC_APP_ENV ?? 'development';
   const isProductionLike = appEnv === 'production' || appEnv === 'hosted-beta';
 
-  const apiBaseUrl = raw.EXPO_PUBLIC_API_BASE_URL ?? (isProductionLike ? undefined : DEFAULT_LOCAL_API);
+  const apiBaseUrl = raw.EXPO_PUBLIC_API_BASE_URL;
   if (!apiBaseUrl) {
-    throw new Error(`EXPO_PUBLIC_API_BASE_URL is required when EXPO_PUBLIC_APP_ENV=${appEnv}.`);
+    throw new Error(`EXPO_PUBLIC_API_BASE_URL is required when EXPO_PUBLIC_APP_ENV=${appEnv}. Set it explicitly for every build profile.`);
   }
 
   return {

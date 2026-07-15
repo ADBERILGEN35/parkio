@@ -11,12 +11,15 @@ import { useAuth } from '@/hooks/useAuth';
 import { usersApi } from '@/services/api';
 import { useToast } from '@/providers/ToastProvider';
 import { toUserMessage } from '@/utils/errors';
+import { useLocale } from '@/i18n/LocaleProvider';
+import { buildInfo } from '@/config/buildInfo';
 
 export default function ProfileScreen() {
   const { user, roles, logout, logoutAll } = useAuth();
   const router = useRouter();
   const toast = useToast();
   const [busy, setBusy] = useState(false);
+  const { t } = useLocale();
   const showModeration = hasPrivilegedRole(roles);
   const showAnalytics = hasAdminRole(roles);
 
@@ -24,11 +27,11 @@ export default function ProfileScreen() {
 
   const confirmLogoutAll = () => {
     Alert.alert(
-      'Log out of all devices?',
-      'This signs you out everywhere and revokes all active sessions.',
+      t('Log out of all devices?'),
+      t('This signs you out everywhere and revokes all active sessions.'),
       [
-        { text: 'Cancel', style: 'cancel' },
-        { text: 'Log out all', style: 'destructive', onPress: () => void runLogout(logoutAll) },
+        { text: t('Cancel'), style: 'cancel' },
+        { text: t('Log out all'), style: 'destructive', onPress: () => void runLogout(logoutAll) },
       ],
     );
   };
@@ -194,6 +197,9 @@ export default function ProfileScreen() {
 
       <AppText variant="caption" tone="muted">
         Signed in as {user?.email ?? 'unknown'}
+      </AppText>
+      <AppText variant="caption" tone="muted" testID="profile.buildLineage">
+        {`Parkio 1.0.0-rc1 · ${buildInfo.marker}`}
       </AppText>
     </Screen>
   );

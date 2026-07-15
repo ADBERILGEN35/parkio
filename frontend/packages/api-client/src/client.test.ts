@@ -3,7 +3,6 @@ import { setupServer } from 'msw/node';
 import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from 'vitest';
 import {
   createApiClient,
-  DEFAULT_API_BASE_URL,
   isRefreshInFlight,
   refreshSession,
   setRefreshHandler,
@@ -12,7 +11,7 @@ import { CORRELATION_HEADER } from './correlation';
 import { UnauthorizedError } from './errors';
 import { MemoryTokenStorage } from './token-storage';
 
-const BASE = DEFAULT_API_BASE_URL;
+const BASE = 'http://api.test/api/v1';
 
 const server = setupServer();
 
@@ -35,7 +34,7 @@ function apiErrorBody(code: string) {
 function makeClient() {
   const storage = new MemoryTokenStorage();
   const onAuthFailure = vi.fn();
-  const client = createApiClient({ tokenStorage: storage, onAuthFailure });
+  const client = createApiClient({ baseURL: BASE, tokenStorage: storage, onAuthFailure });
   return { client, storage, onAuthFailure };
 }
 

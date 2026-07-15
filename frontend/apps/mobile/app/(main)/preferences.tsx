@@ -17,13 +17,15 @@ import { useToast } from '@/providers/ToastProvider';
 import { usersApi } from '@/services/api';
 import { toUserMessage } from '@/utils/errors';
 import { useTheme } from '@/theme';
+import { useLocale } from '@/i18n/LocaleProvider';
 
 export default function PreferencesScreen() {
+  const { t } = useLocale();
   const query = useQuery({ queryKey: ['me', 'preferences'], queryFn: usersApi.getMyPreferences });
 
   return (
     <>
-      <Stack.Screen options={{ headerShown: true, title: 'Preferences' }} />
+      <Stack.Screen options={{ headerShown: true, title: t('Preferences') }} />
       <Screen contentStyle={styles.content} edges={['left', 'right', 'bottom']}>
         {query.isPending ? (
           <SkeletonCard />
@@ -46,11 +48,12 @@ function PreferencesForm({ preferences }: { preferences: UserPreference }) {
   const toast = useToast();
   const theme = useTheme();
   const queryClient = useQueryClient();
+  const { locale, setLocale, t } = useLocale();
   const mutation = useMutation({
     mutationFn: usersApi.updateMyPreferences,
     onSuccess: (updated) => {
       queryClient.setQueryData(['me', 'preferences'], updated);
-      toast.showSuccess('Preferences saved.');
+      toast.showSuccess(t('Preferences saved.'));
     },
     onError: (error) => toast.showError(toUserMessage(error)),
   });
@@ -58,6 +61,7 @@ function PreferencesForm({ preferences }: { preferences: UserPreference }) {
   const { control, handleSubmit } = useForm<PreferencesUpdateFormValues>({
     resolver: zodResolver(preferencesUpdateSchema),
     defaultValues: {
+      preferredLocale: preferences.preferredLocale,
       preferredRadiusMeters: preferences.preferredRadiusMeters,
       notificationsEnabled: preferences.notificationsEnabled,
     },
@@ -77,6 +81,43 @@ function PreferencesForm({ preferences }: { preferences: UserPreference }) {
         Tune nearby search radius and account notification preferences.
       </AppText>
       <View style={styles.form}>
+        <View style={styles.languageSection}>
+          <AppText variant="subtitle">Language</AppText>
+          <View style={styles.languageOptions}>
+            {(
+              [
+                { value: 'tr', label: 'Turkish' },
+                { value: 'en', label: 'English' },
+              ] as const
+            ).map((option) => {
+              const selected = locale === option.value;
+              return (
+                <Pressable
+                  key={option.value}
+                  accessibilityRole="radio"
+                  accessibilityState={{ selected }}
+                  accessibilityLabel={t(option.label)}
+                  onPress={() => {
+                    setLocale(option.value);
+                    mutation.mutate({ preferredLocale: option.value });
+                  }}
+                  style={[
+                    styles.languageOption,
+                    {
+                      borderColor: selected ? theme.colors.primary : theme.colors.border,
+                      backgroundColor: selected ? theme.colors.primarySoft : theme.colors.surface,
+                      borderRadius: theme.radius.full,
+                    },
+                  ]}
+                >
+                  <AppText variant="label" tone={selected ? 'primary' : 'default'}>
+                    {option.label}
+                  </AppText>
+                </Pressable>
+              );
+            })}
+          </View>
+        </View>
         <FormTextField
           control={control}
           name="preferredRadiusMeters"
@@ -114,6 +155,7 @@ function PreferencesForm({ preferences }: { preferences: UserPreference }) {
           label="Save preferences"
           onPress={handleSubmit((values) =>
             mutation.mutate({
+              preferredLocale: locale,
               preferredRadiusMeters: Number(values.preferredRadiusMeters),
               notificationsEnabled: values.notificationsEnabled,
             }),
@@ -128,5 +170,8 @@ function PreferencesForm({ preferences }: { preferences: UserPreference }) {
 const styles = StyleSheet.create({
   content: { gap: 16 },
   form: { gap: 12, marginTop: 12 },
+  languageSection: { gap: 8 },
+  languageOptions: { flexDirection: 'row', gap: 8 },
+  languageOption: { minHeight: 44, minWidth: 104, paddingHorizontal: 16, alignItems: 'center', justifyContent: 'center', borderWidth: 1 },
   toggle: { borderWidth: 1, padding: 14, gap: 4, minHeight: 44 },
 });

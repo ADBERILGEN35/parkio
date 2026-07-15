@@ -27,6 +27,7 @@ describe('landing metadata', () => {
     expect(html).toContain('<link rel="canonical" href="https://parkio.dev/" />');
     expect(html).toContain('<meta name="robots" content="index, follow" />');
     expect(html).toContain('<meta property="og:url" content="https://parkio.dev/" />');
+    expect(html).toContain('<meta name="theme-color" content="#0050CB" />');
     expect(html).toContain(
       '<meta property="og:image" content="https://parkio.dev/og-parkio.png" />',
     );

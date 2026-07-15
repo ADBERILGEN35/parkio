@@ -1,6 +1,7 @@
 import { Icon } from '@parkio/ui';
 import { useState, type ReactNode } from 'react';
 import { useTranslation } from 'react-i18next';
+import { BrandMark } from '@/components/brand/BrandMark';
 
 /**
  * Stitch auth split (`DESIGN_SYSTEM.md` §2.7 "Auth split"): a centered elevated
@@ -77,7 +78,7 @@ function AuthHero() {
       />
 
       <div className="absolute left-1/2 top-1/2 flex -translate-x-1/2 -translate-y-1/2 items-center gap-xs text-inverse-on-surface md:left-lg md:top-lg md:translate-x-0 md:translate-y-0">
-        <Icon name="local_parking" filled className="text-[28px] leading-none" />
+        <BrandMark size={32} className="drop-shadow-sm" />
         <span className="text-headline-md font-bold">{t('common:brand', { defaultValue: 'Parkio' })}</span>
       </div>
 

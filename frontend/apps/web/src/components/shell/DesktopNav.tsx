@@ -3,6 +3,7 @@ import type { ReactNode } from 'react';
 import { useTranslation } from 'react-i18next';
 import { Link, NavLink } from 'react-router-dom';
 import { useAuthStore } from '@/auth/store';
+import { BrandMark } from '@/components/brand/BrandMark';
 import { getPrimaryNav, getSecondaryNav, getStaffNavItems } from './navConfig';
 import { UnreadBadge } from './UnreadBadge';
 
@@ -22,13 +23,7 @@ export function DesktopNav() {
           className="mr-sm flex shrink-0 items-center gap-xs text-headline-md font-bold text-primary no-underline"
           aria-label={t('homeAria')}
         >
-          <span
-            aria-hidden
-            className="material-symbols-outlined filled select-none normal-case"
-            style={{ textTransform: 'none' }}
-          >
-            local_parking
-          </span>
+          <BrandMark size={28} className="select-none" />
           {t('brand')}
         </Link>
 

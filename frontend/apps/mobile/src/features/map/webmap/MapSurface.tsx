@@ -276,14 +276,22 @@ function MapSurfaceImpl(
       <WebView
         ref={webRef}
         style={styles.fill}
-        originWhitelist={['*']}
+        originWhitelist={['about:blank', 'data:*']}
         source={{ html }}
+        onShouldStartLoadWithRequest={(request) =>
+          request.url === 'about:blank' || request.url.startsWith('data:text/html')
+        }
         onMessage={handleMessage}
         onError={(event) => onError?.(event.nativeEvent.description || 'webview-error')}
         onHttpError={(event) => onError?.(`webview-http-${event.nativeEvent.statusCode}`)}
         onContentProcessDidTerminate={() => onError?.('webview-content-process-terminated')}
         javaScriptEnabled
         domStorageEnabled
+        mixedContentMode="never"
+        allowFileAccess={false}
+        allowFileAccessFromFileURLs={false}
+        allowUniversalAccessFromFileURLs={false}
+        javaScriptCanOpenWindowsAutomatically={false}
         // The map owns gestures; let RN siblings (FABs, sheet) still receive touches.
         androidLayerType="hardware"
         // A blank/transparent canvas while tiles fetch (we render our own loader).

@@ -1,6 +1,7 @@
 import { ActivityIndicator, StyleSheet, TouchableOpacity, View, type TouchableOpacityProps } from 'react-native';
 import { MIN_TOUCH_TARGET, useTheme } from '@/theme';
 import { AppText } from './AppText';
+import { useLocale } from '@/i18n/LocaleProvider';
 
 type Variant = 'primary' | 'secondary' | 'ghost' | 'danger';
 
@@ -28,7 +29,9 @@ export function Button({
   ...props
 }: ButtonProps) {
   const theme = useTheme();
+  const { t } = useLocale();
   const isDisabled = disabled || loading;
+  const translatedLabel = t(label);
 
   // Web design-system button recipes: full pills, solid primary/danger carry a
   // soft shadow, secondary is the tonal surface-container pill, ghost is
@@ -43,7 +46,7 @@ export function Button({
   return (
     <TouchableOpacity
       accessibilityRole="button"
-      accessibilityLabel={label}
+      accessibilityLabel={translatedLabel}
       accessibilityState={{ disabled: isDisabled, busy: loading }}
       disabled={isDisabled}
       activeOpacity={0.82}
@@ -67,7 +70,7 @@ export function Button({
         <View style={styles.content}>
           {leading}
           <AppText variant="label" style={{ color: palette.fg }}>
-            {label}
+            {translatedLabel}
           </AppText>
         </View>
       )}

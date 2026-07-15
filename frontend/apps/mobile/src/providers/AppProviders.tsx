@@ -3,6 +3,7 @@ import { StyleSheet } from 'react-native';
 import { GestureHandlerRootView } from 'react-native-gesture-handler';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
 import { ErrorBoundary } from '@/components/feedback/ErrorBoundary';
+import { LocaleProvider } from '@/i18n/LocaleProvider';
 import { ThemeProvider } from '@/theme';
 import { QueryProvider } from './QueryProvider';
 import { ToastProvider } from './ToastProvider';
@@ -14,8 +15,9 @@ import { ToastProvider } from './ToastProvider';
  *     GestureHandlerRootView (required by gesture/navigation libs)
  *       SafeAreaProvider     (insets for Screen/Toast/Banner)
  *         ThemeProvider      (colors/spacing/type)
- *           QueryProvider    (server state)
- *             ToastProvider  (global feedback)
+ *           LocaleProvider   (Turkish-first local + server-synced locale)
+ *             QueryProvider  (server state)
+ *               ToastProvider (global feedback)
  */
 export function AppProviders({ children }: { children: ReactNode }) {
   return (
@@ -23,9 +25,11 @@ export function AppProviders({ children }: { children: ReactNode }) {
       <GestureHandlerRootView style={styles.flex}>
         <SafeAreaProvider>
           <ThemeProvider>
-            <QueryProvider>
-              <ToastProvider>{children}</ToastProvider>
-            </QueryProvider>
+            <LocaleProvider>
+              <QueryProvider>
+                <ToastProvider>{children}</ToastProvider>
+              </QueryProvider>
+            </LocaleProvider>
           </ThemeProvider>
         </SafeAreaProvider>
       </GestureHandlerRootView>

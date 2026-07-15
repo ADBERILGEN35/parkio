@@ -3,10 +3,8 @@ import { CORRELATION_HEADER, createCorrelationId } from './correlation';
 import { AccountNotActiveError, getAxiosParkioError, UnauthorizedError } from './errors';
 import type { TokenStorage } from './token-storage';
 
-export const DEFAULT_API_BASE_URL = 'http://localhost:8080/api/v1';
-
 export interface ApiClientOptions {
-  baseURL?: string;
+  baseURL: string;
   tokenStorage: TokenStorage;
   /** Called when refresh fails or is not implemented — app should hard-logout. */
   onAuthFailure?: () => void;
@@ -75,7 +73,7 @@ function isRefreshExempt(url: string | undefined): boolean {
 
 export function createApiClient(options: ApiClientOptions): AxiosInstance {
   const { tokenStorage, onAuthFailure, onAccountNotActive, defaultHeaders } = options;
-  const baseURL = options.baseURL ?? DEFAULT_API_BASE_URL;
+  const { baseURL } = options;
 
   const client = axios.create({
     baseURL,

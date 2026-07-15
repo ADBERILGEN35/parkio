@@ -4,6 +4,7 @@ import { useController, type Control, type FieldValues, type Path } from 'react-
 import { Pressable, StyleSheet, TextInput, View, type TextInputProps } from 'react-native';
 import { HIT_SLOP, MIN_TOUCH_TARGET, useTheme } from '@/theme';
 import { AppText } from '@/components/ui/AppText';
+import { useLocale } from '@/i18n/LocaleProvider';
 
 export interface FormTextFieldProps<T extends FieldValues> extends Omit<TextInputProps, 'value' | 'onChangeText'> {
   control: Control<T>;
@@ -28,9 +29,11 @@ export function FormTextField<T extends FieldValues>({
   hint,
   onFocus,
   secureTextEntry,
+  placeholder,
   ...inputProps
 }: FormTextFieldProps<T>) {
   const theme = useTheme();
+  const { t } = useLocale();
   const { field, fieldState } = useController({ control, name });
   const error = fieldState.error?.message;
   const [focused, setFocused] = useState(false);
@@ -51,8 +54,8 @@ export function FormTextField<T extends FieldValues>({
       </AppText>
       <View>
         <TextInput
-          accessibilityLabel={label}
-          accessibilityHint={error ? undefined : hint}
+          accessibilityLabel={t(label)}
+          accessibilityHint={error ? undefined : hint ? t(hint) : undefined}
           value={field.value ?? ''}
           onChangeText={field.onChange}
           onFocus={(event) => {
@@ -65,6 +68,7 @@ export function FormTextField<T extends FieldValues>({
           }}
           secureTextEntry={secure && !revealed}
           placeholderTextColor={theme.colors.textMuted}
+          placeholder={placeholder ? t(placeholder) : undefined}
           style={[
             styles.input,
             {
@@ -83,7 +87,7 @@ export function FormTextField<T extends FieldValues>({
         {secure ? (
           <Pressable
             accessibilityRole="button"
-            accessibilityLabel={revealed ? 'Hide password' : 'Show password'}
+            accessibilityLabel={t(revealed ? 'Hide password' : 'Show password')}
             hitSlop={HIT_SLOP}
             onPress={() => setRevealed((v) => !v)}
             style={styles.reveal}

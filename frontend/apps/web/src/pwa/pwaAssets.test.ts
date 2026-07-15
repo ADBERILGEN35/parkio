@@ -19,6 +19,7 @@ describe('PWA assets', () => {
     expect(manifest.name).toBe('Parkio');
     expect(manifest.display).toBe('standalone');
     expect(manifest.start_url).toBe('/');
+    expect((manifest as { theme_color?: string }).theme_color?.toLowerCase()).toBe('#0050cb');
     expect(manifest.icons.some((icon) => icon.purpose === 'maskable')).toBe(true);
     expect(
       manifest.icons.some((icon) => icon.type === 'image/png' && icon.sizes === '192x192'),
@@ -34,6 +35,8 @@ describe('PWA assets', () => {
   it('ships browser and social preview assets as crawler-friendly PNGs', () => {
     for (const asset of [
       'logo.svg',
+      'brand/parkio-logo.png',
+      'brand/parkio-logo-mark.png',
       'icons/favicon-32.png',
       'icons/apple-touch-icon.png',
       'icons/parkio-icon-192.png',

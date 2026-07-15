@@ -1,6 +1,7 @@
 import { Ionicons } from '@expo/vector-icons';
 import { Tabs } from 'expo-router';
 import { useTheme } from '@/theme';
+import { useLocale } from '@/i18n/LocaleProvider';
 
 /**
  * Bottom tab bar — the primary navigation after sign-in. Mirrors the web
@@ -9,6 +10,7 @@ import { useTheme } from '@/theme';
  */
 export default function TabsLayout() {
   const theme = useTheme();
+  const { t } = useLocale();
 
   return (
     <Tabs
@@ -26,21 +28,21 @@ export default function TabsLayout() {
       <Tabs.Screen
         name="home"
         options={{
-          title: 'Home',
+          title: t('Home'),
           tabBarIcon: ({ color, size }) => <Ionicons name="home-outline" color={color} size={size} />,
         }}
       />
       <Tabs.Screen
         name="notifications"
         options={{
-          title: 'Notifications',
+          title: t('Notifications'),
           tabBarIcon: ({ color, size }) => <Ionicons name="notifications-outline" color={color} size={size} />,
         }}
       />
       <Tabs.Screen
         name="profile"
         options={{
-          title: 'Profile',
+          title: t('Profile'),
           tabBarIcon: ({ color, size }) => <Ionicons name="person-outline" color={color} size={size} />,
         }}
       />

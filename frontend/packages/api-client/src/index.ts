@@ -3,7 +3,6 @@ export {
   setRefreshHandler,
   refreshSession,
   isRefreshInFlight,
-  DEFAULT_API_BASE_URL,
   type ApiClientOptions,
 } from './client';
 export { createAuthApi, type AuthApi } from './auth';

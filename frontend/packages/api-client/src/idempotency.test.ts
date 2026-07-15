@@ -1,13 +1,13 @@
 import { http, HttpResponse } from 'msw';
 import { setupServer } from 'msw/node';
 import { afterAll, afterEach, beforeAll, describe, expect, it } from 'vitest';
-import { createApiClient, DEFAULT_API_BASE_URL } from './client';
+import { createApiClient } from './client';
 import { IDEMPOTENCY_HEADER, createIdempotencyKey } from './idempotency';
 import { createMediaApi } from './media';
 import { createParkingApi } from './parking';
 import { MemoryTokenStorage } from './token-storage';
 
-const BASE = DEFAULT_API_BASE_URL;
+const BASE = 'http://api.test/api/v1';
 
 const server = setupServer();
 
@@ -15,7 +15,7 @@ beforeAll(() => server.listen({ onUnhandledRequest: 'error' }));
 afterEach(() => server.resetHandlers());
 afterAll(() => server.close());
 
-const client = createApiClient({ tokenStorage: new MemoryTokenStorage() });
+const client = createApiClient({ baseURL: BASE, tokenStorage: new MemoryTokenStorage() });
 const parkingApi = createParkingApi(client);
 const mediaApi = createMediaApi(client);
 

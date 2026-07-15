@@ -1,6 +1,7 @@
 import { Text, type TextProps } from 'react-native';
 import { useTheme } from '@/theme';
 import type { TypographyVariant } from '@/theme';
+import { useLocale } from '@/i18n/LocaleProvider';
 
 export interface AppTextProps extends TextProps {
   variant?: TypographyVariant;
@@ -12,8 +13,9 @@ export interface AppTextProps extends TextProps {
  * keeps `allowFontScaling` on so Dynamic Type / font-size accessibility settings
  * are respected app-wide.
  */
-export function AppText({ variant = 'body', tone = 'default', style, ...props }: AppTextProps) {
+export function AppText({ variant = 'body', tone = 'default', style, children, ...props }: AppTextProps) {
   const theme = useTheme();
+  const { t } = useLocale();
   const typeStyle = theme.typography[variant];
   const color =
     tone === 'muted'
@@ -42,6 +44,8 @@ export function AppText({ variant = 'body', tone = 'default', style, ...props }:
         style,
       ]}
       {...props}
-    />
+    >
+      {typeof children === 'string' ? t(children) : children}
+    </Text>
   );
 }

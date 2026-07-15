@@ -3,6 +3,7 @@ import { Pressable, StyleSheet, View } from 'react-native';
 import { AppText } from '@/components/ui/AppText';
 import { Card } from '@/components/ui/Card';
 import { useTheme } from '@/theme';
+import { useLocale } from '@/i18n/LocaleProvider';
 
 export function LinkRow({
   icon,
@@ -18,11 +19,12 @@ export function LinkRow({
   testID?: string;
 }) {
   const theme = useTheme();
+  const { t } = useLocale();
   return (
     <Card padded={false}>
       <Pressable
         accessibilityRole="button"
-        accessibilityLabel={title}
+        accessibilityLabel={t(title)}
         testID={testID}
         onPress={onPress}
         style={({ pressed }) => [

@@ -138,7 +138,10 @@ describe('SmartReturnScreen — setup flow', () => {
     fireEvent.press(await findByTestId('smartReturn.setup.enable'));
 
     fireEvent.changeText(getByTestId('smartReturn.home.search'), 'Alsancak');
-    fireEvent.press(await findByTestId('smartReturn.home.result.g1'));
+    // The search is debounced and the full mobile suite can contend with
+    // Metro/Jest transforms on slower CI or WSL disks. Keep the assertion
+    // bounded, but allow the async result more than the 1 s global default.
+    fireEvent.press(await findByTestId('smartReturn.home.result.g1', {}, { timeout: 5_000 }));
 
     // Selection collapses into the saved chip showing the label, never coordinates.
     expect(await findByText('Konak, İzmir')).toBeTruthy();

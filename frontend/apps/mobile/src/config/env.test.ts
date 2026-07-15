@@ -12,8 +12,8 @@ describe('mobile environment configuration', () => {
     expect(preview.EXPO_PUBLIC_API_BASE_URL).not.toContain('beta-api.parkio.dev');
   });
 
-  it('keeps local development on the Android emulator gateway', () => {
-    expect(createMobileConfig({}).apiBaseUrl).toBe('http://10.0.2.2:8080/api/v1');
+  it('requires an explicit API endpoint even for local development', () => {
+    expect(() => createMobileConfig({})).toThrow('EXPO_PUBLIC_API_BASE_URL is required');
   });
 
   it('requires an explicit API URL for production-like environments', () => {

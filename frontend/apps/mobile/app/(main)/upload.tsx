@@ -12,6 +12,8 @@ import { validateLocalAsset } from '@/features/media/lib/validation';
 import type { LocalAsset, MediaSource } from '@/features/media/types';
 import { useSpotCreationDraftStore } from '@/features/spot-create/state/spotCreationDraftStore';
 import { useOnlineStatus } from '@/hooks/useOnlineStatus';
+import { useUnsavedChangesGuard } from '@/hooks/useUnsavedChangesGuard';
+import { useLocale } from '@/i18n/LocaleProvider';
 
 type Step = 'source' | 'camera' | 'preview' | 'uploading' | 'complete';
 
@@ -29,6 +31,7 @@ function formatBytes(bytes: number): string {
 
 export default function UploadScreen() {
   const router = useRouter();
+  const { t } = useLocale();
   const online = useOnlineStatus();
   const {
     cameraPermission,
@@ -43,6 +46,7 @@ export default function UploadScreen() {
   const [asset, setAsset] = useState<LocalAsset | null>(null);
   const [assetError, setAssetError] = useState<string | null>(null);
   const [permissionError, setPermissionError] = useState<PermissionError | null>(null);
+  const allowNextNavigation = useUnsavedChangesGuard(asset !== null || upload.phase !== 'idle');
 
   const acceptAsset = useCallback(
     (nextAsset: LocalAsset) => {
@@ -133,8 +137,9 @@ export default function UploadScreen() {
     if (!uploadedMedia || !asset || navigatedMediaIdRef.current === uploadedMedia.mediaId) return;
     navigatedMediaIdRef.current = uploadedMedia.mediaId;
     startSpotDraft(uploadedMedia, asset.uri);
+    allowNextNavigation();
     router.replace('/(main)/spot-create');
-  }, [asset, router, startSpotDraft, uploadedMedia]);
+  }, [allowNextNavigation, asset, router, startSpotDraft, uploadedMedia]);
 
   // When connectivity returns after a failed upload, retry automatically —
   // safe because retry reuses the same idempotency key and prepared bytes.
@@ -153,7 +158,7 @@ export default function UploadScreen() {
       <Stack.Screen
         options={{
           headerShown: step !== 'camera',
-          title: 'Share a spot',
+          title: t('Share a spot'),
         }}
       />
       {step === 'camera' ? (
