@@ -9,6 +9,8 @@ import com.parkio.aivalidation.application.port.AiValidationResultRepository;
 import com.parkio.aivalidation.application.port.InboxEventRepository;
 import com.parkio.aivalidation.application.port.OutboxEventAppender;
 import com.parkio.aivalidation.domain.AiValidationResult;
+import com.parkio.aivalidation.domain.AiValidationStatus;
+import com.parkio.aivalidation.domain.ContentRiskClassifier;
 import com.parkio.aivalidation.domain.DeterministicAiValidator;
 import com.parkio.aivalidation.domain.event.AiValidationCompletedEvent;
 import com.parkio.aivalidation.domain.exception.AiValidationException;
@@ -17,14 +19,20 @@ import java.time.Instant;
 import java.time.ZoneOffset;
 import java.util.ArrayList;
 import java.util.HashMap;
-import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
-import java.util.Set;
 import java.util.UUID;
+import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.concurrent.atomic.AtomicInteger;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import org.springframework.transaction.TransactionDefinition;
+import org.springframework.transaction.TransactionException;
+import org.springframework.transaction.support.AbstractPlatformTransactionManager;
+import org.springframework.transaction.support.DefaultTransactionStatus;
+import org.springframework.transaction.support.TransactionSynchronizationManager;
+import org.springframework.transaction.support.TransactionTemplate;
 
 /**
  * Behavioural unit tests for {@link AiValidationApplicationService} using in-memory
@@ -38,14 +46,16 @@ class AiValidationApplicationServiceTest {
     private FakeInbox inbox;
     private FakeOutbox outbox;
     private AiValidationApplicationService service;
+    private TransactionTemplate transactionTemplate;
 
     @BeforeEach
     void setUp() {
         results = new FakeResultRepository();
         inbox = new FakeInbox();
         outbox = new FakeOutbox();
+        transactionTemplate = new TransactionTemplate(new NoopTransactionManager());
         service = new AiValidationApplicationService(results, inbox, outbox,
-                new DeterministicAiValidator(), Clock.fixed(NOW, ZoneOffset.UTC));
+                new DeterministicAiValidator(), Clock.fixed(NOW, ZoneOffset.UTC), transactionTemplate);
     }
 
     @Test
@@ -131,6 +141,36 @@ class AiValidationApplicationServiceTest {
                 .isInstanceOf(AiValidationException.class);
     }
 
+    @Test
+    void providerClassifyRunsOutsideActiveDatabaseTransaction() {
+        AtomicBoolean classifySawActiveTx = new AtomicBoolean(true);
+        AtomicInteger classifyCalls = new AtomicInteger();
+        ContentRiskClassifier classifier = mediaId -> {
+            classifyCalls.incrementAndGet();
+            classifySawActiveTx.set(TransactionSynchronizationManager.isActualTransactionActive());
+            return ContentRiskClassifier.Verdict.LIKELY_PARKING;
+        };
+        service = new AiValidationApplicationService(results, inbox, outbox,
+                new DeterministicAiValidator(classifier), Clock.fixed(NOW, ZoneOffset.UTC),
+                transactionTemplate);
+
+        service.handleMediaUploaded(new MediaUploadedEvent(
+                UUID.randomUUID(), UUID.randomUUID(), UUID.randomUUID(), "image/jpeg", 1024, "abc", NOW));
+
+        assertThat(classifyCalls.get()).isEqualTo(1);
+        assertThat(classifySawActiveTx.get()).isFalse();
+        assertThat(results.byId).hasSize(1);
+        assertThat(inbox.txDepthDuringClaim.get()).isGreaterThan(0);
+    }
+
+    @Test
+    void revalidateInfrastructureFailurePersistsNewResult() {
+        UUID mediaId = UUID.randomUUID();
+        AiValidationResult saved = service.revalidateInfrastructureFailure(mediaId);
+        assertThat(results.byId).containsKey(saved.id());
+        assertThat(outbox.events).hasSize(1);
+    }
+
     // --- fakes -------------------------------------------------------------
 
     private static final class FakeResultRepository implements AiValidationResultRepository {
@@ -158,13 +198,33 @@ class AiValidationApplicationServiceTest {
                     .filter(r -> r.parkingSpotId().map(parkingSpotId::equals).orElse(false))
                     .toList();
         }
+
+        @Override
+        public List<AiValidationResult> findByStatusAndCreatedAtBetween(
+                AiValidationStatus status, Instant oldestInclusive, Instant newestExclusive, int limit) {
+            return byId.values().stream()
+                    .filter(r -> r.status() == status)
+                    .filter(r -> !r.createdAt().isBefore(oldestInclusive)
+                            && r.createdAt().isBefore(newestExclusive))
+                    .limit(limit)
+                    .toList();
+        }
     }
 
     private static final class FakeInbox implements InboxEventRepository {
         private final java.util.Set<UUID> claimed = java.util.concurrent.ConcurrentHashMap.newKeySet();
+        private final AtomicInteger txDepthDuringClaim = new AtomicInteger();
+
+        @Override
+        public boolean alreadyProcessed(UUID eventId) {
+            return claimed.contains(eventId);
+        }
 
         @Override
         public boolean tryClaim(UUID eventId, String eventType, Instant processedAt) {
+            if (TransactionSynchronizationManager.isActualTransactionActive()) {
+                txDepthDuringClaim.incrementAndGet();
+            }
             return claimed.add(eventId);
         }
     }
@@ -175,6 +235,30 @@ class AiValidationApplicationServiceTest {
         @Override
         public void append(AiValidationCompletedEvent event) {
             events.add(event);
+        }
+    }
+
+    /** Minimal TM so TransactionTemplate marks synchronization active during Phase A/C. */
+    private static final class NoopTransactionManager extends AbstractPlatformTransactionManager {
+        @Override
+        protected Object doGetTransaction() {
+            return new Object();
+        }
+
+        @Override
+        protected void doBegin(Object transaction, TransactionDefinition definition)
+                throws TransactionException {
+            // no-op
+        }
+
+        @Override
+        protected void doCommit(DefaultTransactionStatus status) throws TransactionException {
+            // no-op
+        }
+
+        @Override
+        protected void doRollback(DefaultTransactionStatus status) throws TransactionException {
+            // no-op
         }
     }
 }

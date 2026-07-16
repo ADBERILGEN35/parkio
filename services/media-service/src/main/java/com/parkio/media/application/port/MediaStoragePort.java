@@ -16,6 +16,13 @@ public interface MediaStoragePort {
     void delete(String objectKey);
 
     /**
+     * Loads the full content of a stored object. Media objects are small (upload cap
+     * is a few MB), so a byte array keeps callers simple; storage failures surface as
+     * the adapter's runtime exception.
+     */
+    byte[] load(String objectKey);
+
+    /**
      * Generates a short-lived presigned GET-only URL for the object. The URL is
      * never persisted — it is created per authorized request and expires after
      * {@code ttl}. Bucket/endpoint details stay inside the adapter.

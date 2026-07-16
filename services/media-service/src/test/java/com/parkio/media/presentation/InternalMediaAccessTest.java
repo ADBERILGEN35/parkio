@@ -189,6 +189,56 @@ class InternalMediaAccessTest {
                 .andExpect(jsonPath("$.code").value("MEDIA_NOT_FOUND"));
     }
 
+    @Test
+    void internalContentRequiresGatewayAuth() throws Exception {
+        UUID owner = UUID.randomUUID();
+        String mediaId = upload(owner);
+
+        mockMvc.perform(get("/internal/media/" + mediaId + "/content"))
+                .andExpect(status().isUnauthorized())
+                .andExpect(jsonPath("$.code").value("GATEWAY_AUTH_REQUIRED"));
+    }
+
+    @Test
+    void internalContentServesStoredBytesWithContentType() throws Exception {
+        UUID owner = UUID.randomUUID();
+        String mediaId = upload(owner);
+        byte[] stored = new byte[] {(byte) 0xFF, (byte) 0xD8, (byte) 0xFF, 42};
+        when(storage.load(anyString())).thenReturn(stored);
+
+        MvcResult result = mockMvc.perform(get("/internal/media/" + mediaId + "/content")
+                        .header("X-Gateway-Auth", GATEWAY_SECRET))
+                .andExpect(status().isOk())
+                .andReturn();
+
+        assertThat(result.getResponse().getContentType()).startsWith("image/jpeg");
+        assertThat(result.getResponse().getContentAsByteArray()).isEqualTo(stored);
+        assertThat(result.getResponse().getHeader("Cache-Control")).contains("no-store");
+    }
+
+    @Test
+    void internalContentForUnknownMediaIsNotFound() throws Exception {
+        mockMvc.perform(get("/internal/media/" + UUID.randomUUID() + "/content")
+                        .header("X-Gateway-Auth", GATEWAY_SECRET))
+                .andExpect(status().isNotFound())
+                .andExpect(jsonPath("$.code").value("MEDIA_NOT_FOUND"));
+    }
+
+    @Test
+    void internalContentForDeletedMediaIsNotFound() throws Exception {
+        UUID owner = UUID.randomUUID();
+        String mediaId = upload(owner);
+        mockMvc.perform(delete("/api/v1/media/" + mediaId)
+                        .header("X-Gateway-Auth", GATEWAY_SECRET)
+                        .header("X-User-Id", owner))
+                .andExpect(status().isNoContent());
+
+        mockMvc.perform(get("/internal/media/" + mediaId + "/content")
+                        .header("X-Gateway-Auth", GATEWAY_SECRET))
+                .andExpect(status().isNotFound())
+                .andExpect(jsonPath("$.code").value("MEDIA_NOT_FOUND"));
+    }
+
     private String upload(UUID owner) throws Exception {
         MockMultipartFile file = new MockMultipartFile("file", "spot.jpg", "image/jpeg", JPEG);
         MvcResult result = mockMvc.perform(multipart("/api/v1/media/upload")

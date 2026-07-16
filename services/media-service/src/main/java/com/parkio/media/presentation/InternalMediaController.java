@@ -2,6 +2,7 @@ package com.parkio.media.presentation;
 
 import com.parkio.media.application.MediaApplicationService;
 import com.parkio.media.application.result.MediaAccessUrl;
+import com.parkio.media.application.result.MediaBinaryContent;
 import com.parkio.media.presentation.dto.InternalAccessUrlRequest;
 import com.parkio.media.presentation.dto.InternalMediaStatusResponse;
 import com.parkio.media.presentation.dto.MediaAccessUrlResponse;
@@ -9,6 +10,9 @@ import io.swagger.v3.oas.annotations.Hidden;
 import java.util.UUID;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.http.CacheControl;
+import org.springframework.http.MediaType;
+import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
@@ -51,6 +55,23 @@ public class InternalMediaController {
                 request == null ? null : request.requesterUserId(),
                 request == null ? null : request.purpose());
         return new MediaAccessUrlResponse(accessUrl.mediaId(), accessUrl.url(), accessUrl.expiresAt());
+    }
+
+    /**
+     * Raw image bytes of a READY media object for internal vision analysis
+     * (ai-validation-service). The response carries the stored content type and a
+     * {@code no-store} cache directive; bytes are never logged. Non-READY, deleted
+     * or unknown media → {@code 404 MEDIA_NOT_FOUND}.
+     */
+    @GetMapping("/{mediaId}/content")
+    public ResponseEntity<byte[]> getContent(@PathVariable("mediaId") UUID mediaId) {
+        MediaBinaryContent content = mediaService.getContentForInternalCaller(mediaId);
+        log.info("Served internal media content for media {} ({} bytes)",
+                mediaId, content.content().length);
+        return ResponseEntity.ok()
+                .contentType(MediaType.parseMediaType(content.contentType()))
+                .cacheControl(CacheControl.noStore())
+                .body(content.content());
     }
 
     /**

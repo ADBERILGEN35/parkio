@@ -2,6 +2,7 @@ package com.parkio.media.infrastructure.storage;
 
 import com.parkio.media.application.port.MediaStoragePort;
 import com.parkio.media.infrastructure.config.MediaProperties;
+import io.minio.GetObjectArgs;
 import io.minio.GetPresignedObjectUrlArgs;
 import io.minio.MinioClient;
 import io.minio.PutObjectArgs;
@@ -50,6 +51,18 @@ public class MinioMediaStorageAdapter implements MediaStoragePort {
             throw new MediaStorageException("Failed to store media object", e);
         }
         return new StoredObject(bucket, objectKey);
+    }
+
+    @Override
+    public byte[] load(String objectKey) {
+        try (var stream = internalClient.getObject(GetObjectArgs.builder()
+                .bucket(bucket)
+                .object(objectKey)
+                .build())) {
+            return stream.readAllBytes();
+        } catch (Exception e) {
+            throw new MediaStorageException("Failed to load media object", e);
+        }
     }
 
     @Override

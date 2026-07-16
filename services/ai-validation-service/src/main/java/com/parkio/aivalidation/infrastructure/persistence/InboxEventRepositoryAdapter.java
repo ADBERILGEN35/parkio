@@ -18,6 +18,12 @@ public class InboxEventRepositoryAdapter implements InboxEventRepository {
     }
 
     @Override
+    @Transactional(readOnly = true)
+    public boolean alreadyProcessed(UUID eventId) {
+        return jpa.existsById(eventId);
+    }
+
+    @Override
     @Transactional
     public boolean tryClaim(UUID eventId, String eventType, Instant processedAt) {
         return jpa.insertIfAbsent(eventId, eventType, processedAt) > 0;

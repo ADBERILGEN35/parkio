@@ -10,6 +10,7 @@ import com.parkio.media.application.port.MediaStoragePort;
 import com.parkio.media.application.port.MediaValidationResultRepository;
 import com.parkio.media.application.port.OutboxEventAppender;
 import com.parkio.media.application.result.MediaAccessUrl;
+import com.parkio.media.application.result.MediaBinaryContent;
 import com.parkio.media.application.result.MediaUploadResult;
 import com.parkio.media.domain.MediaFile;
 import com.parkio.media.domain.MediaStatus;
@@ -240,6 +241,20 @@ public class MediaApplicationService {
     @Transactional(readOnly = true)
     public MediaAccessUrl createAccessUrlForInternalCaller(UUID mediaId) {
         return accessUrlFor(requireReady(requireActiveMedia(mediaId)));
+    }
+
+    /**
+     * Raw content of a media object for a trusted internal service that must analyse
+     * the actual image bytes (ai-validation-service vision classification). Reached
+     * only via {@code /internal/**} (never gateway-routed, X-Gateway-Auth required).
+     * Only {@link MediaStatus#READY} (scanned) media is served; anything else is
+     * NOT_FOUND so unscanned bytes never leave this service.
+     */
+    @Transactional(readOnly = true)
+    public MediaBinaryContent getContentForInternalCaller(UUID mediaId) {
+        MediaFile media = requireReady(requireActiveMedia(mediaId));
+        byte[] content = storage.load(media.objectKey());
+        return new MediaBinaryContent(media.id(), media.contentType(), content);
     }
 
     /**

@@ -19,4 +19,12 @@ public interface ContentRiskClassifier {
     }
 
     Verdict classify(UUID mediaId);
+
+    /**
+     * Detailed classification including whether the verdict is semantic or
+     * infrastructure fail-closed. Default wraps {@link #classify(UUID)} as SEMANTIC.
+     */
+    default ContentClassification classifyDetailed(UUID mediaId) {
+        return ContentClassification.semantic(classify(mediaId), null);
+    }
 }

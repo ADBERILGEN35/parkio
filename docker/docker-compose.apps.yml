@@ -379,6 +379,14 @@ services:
       SPRING_DATASOURCE_URL: jdbc:postgresql://postgres-ai-validation:5432/${POSTGRES_AIVALIDATION_DB:-parkio_aivalidation}
       SPRING_DATASOURCE_USERNAME: ${POSTGRES_AIVALIDATION_USER:-parkio_aivalidation}
       SPRING_DATASOURCE_PASSWORD: ${POSTGRES_AIVALIDATION_PASSWORD}
+      # Real vision classification. Default stays `heuristic` (fail-closed placeholder);
+      # set PARKIO_AI_VISION_PROVIDER=gemini plus the API key to analyse actual image
+      # bytes. Image content is fetched via media-service's internal endpoint (below),
+      # never via a public URL. The key is a secret: .env only, never committed.
+      PARKIO_AI_VISION_PROVIDER: ${PARKIO_AI_VISION_PROVIDER:-heuristic}
+      PARKIO_AI_VISION_GEMINI_API_KEY: ${PARKIO_AI_VISION_GEMINI_API_KEY:-}
+      PARKIO_AI_VISION_GEMINI_MODEL: ${PARKIO_AI_VISION_GEMINI_MODEL:-gemini-2.5-flash-lite}
+      PARKIO_MEDIA_SERVICE_URI: http://media-service:8084
     healthcheck:
       <<: *app-healthcheck
       test: ["CMD", "curl", "-fsS", "http://localhost:8088/actuator/health/readiness"]

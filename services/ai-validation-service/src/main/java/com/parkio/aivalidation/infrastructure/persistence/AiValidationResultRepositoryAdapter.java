@@ -2,14 +2,17 @@ package com.parkio.aivalidation.infrastructure.persistence;
 
 import com.parkio.aivalidation.application.port.AiValidationResultRepository;
 import com.parkio.aivalidation.domain.AiValidationResult;
+import com.parkio.aivalidation.domain.AiValidationStatus;
 import com.parkio.aivalidation.infrastructure.persistence.entity.AiValidationResultEntity;
 import com.parkio.aivalidation.infrastructure.persistence.jpa.AiValidationFindingJpaRepository;
 import com.parkio.aivalidation.infrastructure.persistence.jpa.AiValidationResultJpaRepository;
 import com.parkio.aivalidation.infrastructure.persistence.jpa.VehicleFitEstimateJpaRepository;
 import com.parkio.aivalidation.infrastructure.persistence.mapper.AiValidationPersistenceMapper;
+import java.time.Instant;
 import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
+import org.springframework.data.domain.PageRequest;
 import org.springframework.stereotype.Component;
 
 /**
@@ -56,6 +59,18 @@ public class AiValidationResultRepositoryAdapter implements AiValidationResultRe
     public List<AiValidationResult> findByParkingSpotId(UUID parkingSpotId) {
         return resultJpa.findByParkingSpotIdOrderByCreatedAtDesc(parkingSpotId).stream()
                 .map(this::hydrate).toList();
+    }
+
+    @Override
+    public List<AiValidationResult> findByStatusAndCreatedAtBetween(
+            AiValidationStatus status, Instant oldestInclusive, Instant newestExclusive, int limit) {
+        int capped = Math.max(1, Math.min(limit, 500));
+        return resultJpa
+                .findByStatusAndCreatedAtGreaterThanEqualAndCreatedAtLessThanOrderByCreatedAtAsc(
+                        status, oldestInclusive, newestExclusive, PageRequest.of(0, capped))
+                .stream()
+                .map(this::hydrate)
+                .toList();
     }
 
     private AiValidationResult hydrate(AiValidationResultEntity entity) {

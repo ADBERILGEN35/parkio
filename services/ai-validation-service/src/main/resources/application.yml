@@ -30,8 +30,8 @@
         spring.deserializer.value.delegate.class: org.springframework.kafka.support.serializer.JsonDeserializer
         request.timeout.ms: ${SPRING_KAFKA_CONSUMER_REQUEST_TIMEOUT_MS:10000}
         default.api.timeout.ms: ${SPRING_KAFKA_CONSUMER_DEFAULT_API_TIMEOUT_MS:10000}
-        max.poll.records: ${SPRING_KAFKA_CONSUMER_MAX_POLL_RECORDS:100}
-        max.poll.interval.ms: ${SPRING_KAFKA_CONSUMER_MAX_POLL_INTERVAL_MS:300000}
+        max.poll.records: ${SPRING_KAFKA_CONSUMER_MAX_POLL_RECORDS:1}
+        max.poll.interval.ms: ${SPRING_KAFKA_CONSUMER_MAX_POLL_INTERVAL_MS:180000}
         session.timeout.ms: ${SPRING_KAFKA_CONSUMER_SESSION_TIMEOUT_MS:10000}
         heartbeat.interval.ms: ${SPRING_KAFKA_CONSUMER_HEARTBEAT_INTERVAL_MS:3000}
         spring.json.trusted.packages: "com.parkio.*"
@@ -136,11 +136,59 @@ parkio:
     # gateway always sends `internal-secret`; downstream accepts that plus these so the
     # old and new secret overlap with no downtime. Empty when no rotation is in progress.
     internal-accepted-secrets: ${PARKIO_GATEWAY_INTERNAL_ACCEPTED_SECRETS:}
+  ai:
+    vision:
+      # Which classifier backs the AI gate. `heuristic` is the fail-closed placeholder
+      # (local dev/tests); `gemini` enables the real vision provider. Hosted-beta /
+      # production must set `gemini` — provider failures still fail closed (UNCERTAIN
+      # -> WARNING -> parking PENDING_REVIEW; never ACTIVE).
+      provider: ${PARKIO_AI_VISION_PROVIDER:heuristic}
+      # Final vision payload cap after downscale (default 1.5 MiB).
+      max-image-bytes: ${PARKIO_AI_VISION_MAX_IMAGE_BYTES:1572864}
+      # Encoded fetch cap from media-service before decode/downscale.
+      max-fetch-bytes: ${PARKIO_AI_VISION_MAX_FETCH_BYTES:15728640}
+      max-decoded-pixels: ${PARKIO_AI_VISION_MAX_DECODED_PIXELS:40000000}
+      max-source-edge: ${PARKIO_AI_VISION_MAX_SOURCE_EDGE:8000}
+      target-longest-edge: ${PARKIO_AI_VISION_TARGET_LONGEST_EDGE:1536}
+      jpeg-quality: ${PARKIO_AI_VISION_JPEG_QUALITY:0.85}
+      semantic-uncertain-reuse-ttl: ${PARKIO_AI_VISION_SEMANTIC_UNCERTAIN_REUSE_TTL:24h}
+      accept-confidence: ${PARKIO_AI_VISION_ACCEPT_CONFIDENCE:0.70}
+      reject-confidence: ${PARKIO_AI_VISION_REJECT_CONFIDENCE:0.70}
+      revalidation:
+        enabled: ${PARKIO_AI_VISION_REVALIDATION_ENABLED:true}
+        fixed-delay-ms: ${PARKIO_AI_VISION_REVALIDATION_FIXED_DELAY_MS:300000}
+        min-age: ${PARKIO_AI_VISION_REVALIDATION_MIN_AGE:5m}
+        max-age: ${PARKIO_AI_VISION_REVALIDATION_MAX_AGE:7d}
+        batch-size: ${PARKIO_AI_VISION_REVALIDATION_BATCH_SIZE:20}
+      media-client:
+        # Internal media-content endpoint (GET /internal/media/{id}/content). Bytes
+        # stay on the private service network; no presigned/public URL is created.
+        base-url: ${PARKIO_MEDIA_SERVICE_URI:http://localhost:8084}
+        connect-timeout: ${PARKIO_AI_VISION_MEDIA_CONNECT_TIMEOUT:2s}
+        read-timeout: ${PARKIO_AI_VISION_MEDIA_READ_TIMEOUT:5s}
+      gemini:
+        # Secret: environment-injected only. No default — startup fails when the
+        # gemini provider is enabled without a key (fail closed at deploy time).
+        api-key: ${PARKIO_AI_VISION_GEMINI_API_KEY:}
+        # Vision-capable model id; check ai.google.dev/gemini-api/docs/models before
+        # changing. Overridable per environment without a rebuild.
+        model: ${PARKIO_AI_VISION_GEMINI_MODEL:gemini-2.5-flash-lite}
+        base-url: ${PARKIO_AI_VISION_GEMINI_BASE_URL:https://generativelanguage.googleapis.com}
+        connect-timeout: ${PARKIO_AI_VISION_GEMINI_CONNECT_TIMEOUT:3s}
+        read-timeout: ${PARKIO_AI_VISION_GEMINI_READ_TIMEOUT:15s}
+        # Bounded retries for 429/5xx/timeout only; Retry-After honoured up to the cap.
+        max-retries: ${PARKIO_AI_VISION_GEMINI_MAX_RETRIES:1}
+        max-retry-delay: ${PARKIO_AI_VISION_GEMINI_MAX_RETRY_DELAY:2s}
   kafka:
     # Topic provisioning via NewTopic beans (KafkaTopicsConfig). Replication factor is
     # configurable for production; 1 is the local/dev default (single-broker compose).
     provision-topics: true
     replication-factor: ${PARKIO_KAFKA_REPLICATION_FACTOR:1}
+    consumer:
+      # Vision listeners use a dedicated factory (AiValidationKafkaConsumerConfig).
+      # Default batch=1 keeps worst-case Gemini latency under max.poll.interval.
+      max-poll-records: ${SPRING_KAFKA_CONSUMER_MAX_POLL_RECORDS:1}
+      max-poll-interval-ms: ${SPRING_KAFKA_CONSUMER_MAX_POLL_INTERVAL_MS:180000}
     relay:
       # Outbox relay: publishes advisory results to parkio.aivalidation.result. Poll
       # interval and batch size are configurable; send-timeout bounds the ack wait.
@@ -148,3 +196,17 @@ parkio:
       poll-interval-ms: 1000
       batch-size: 100
       send-timeout-ms: 10000
+
+# Outbound Gemini circuit breaker. Health indicator off so an open breaker does not
+# flip the service health DOWN while fail-closed validation continues.
+resilience4j:
+  circuitbreaker:
+    instances:
+      geminiVision:
+        register-health-indicator: false
+        sliding-window-type: COUNT_BASED
+        sliding-window-size: 10
+        minimum-number-of-calls: 5
+        failure-rate-threshold: 50
+        wait-duration-in-open-state: 30s
+        permitted-number-of-calls-in-half-open-state: 2

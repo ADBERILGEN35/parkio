@@ -835,6 +835,15 @@ class MediaApplicationServiceTest {
         }
 
         @Override
+        public byte[] load(String objectKey) {
+            byte[] content = objects.get(objectKey);
+            if (content == null) {
+                throw new IllegalStateException("no stored object for key");
+            }
+            return content;
+        }
+
+        @Override
         public String generatePresignedGetUrl(String objectKey, Duration ttl) {
             presignedKeys.add(objectKey);
             return "https://signed.example/" + objectKey + "?ttl=" + ttl;

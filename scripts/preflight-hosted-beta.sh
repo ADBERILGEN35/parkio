@@ -494,6 +494,25 @@ else
   fail "PARKIO_PUSH_DELIVERY_PROVIDER" "'$PUSH_PROVIDER' is not the supported hosted-beta provider" "set PARKIO_PUSH_DELIVERY_PROVIDER=expo (or acknowledge with PARKIO_PREFLIGHT_ALLOW_PROVIDER_OVERRIDE=1)"
 fi
 
+# AI vision: hosted beta should run the real provider so valid parking photos can
+# become ACTIVE. The heuristic placeholder fails closed (everything -> PENDING_REVIEW)
+# which is safe but routes every upload to manual review.
+VISION_PROVIDER=$(env_get PARKIO_AI_VISION_PROVIDER)
+if [ "$VISION_PROVIDER" = "gemini" ]; then
+  VISION_KEY=$(env_get PARKIO_AI_VISION_GEMINI_API_KEY)
+  if [ -z "$VISION_KEY" ] || is_placeholder "$VISION_KEY"; then
+    fail "PARKIO_AI_VISION_GEMINI_API_KEY" "missing or placeholder while PARKIO_AI_VISION_PROVIDER=gemini — ai-validation-service will refuse to start" "create a key at aistudio.google.com/apikey and set it in the git-ignored .env"
+  else
+    ok
+  fi
+elif [ "$ALLOW_PROVIDER" = "1" ] && [ -n "$VISION_PROVIDER" ] && [ "$VISION_PROVIDER" != "heuristic" ]; then
+  warn "PARKIO_AI_VISION_PROVIDER" "'$VISION_PROVIDER' (non-default) explicitly allowed — document the rationale in the deploy notes"
+elif [ "$VISION_PROVIDER" = "heuristic" ] || [ -z "$VISION_PROVIDER" ]; then
+  warn "PARKIO_AI_VISION_PROVIDER" "'${VISION_PROVIDER:-<unset -> compose default 'heuristic'>}' — no real vision model: every upload fails closed into PENDING_REVIEW (never ACTIVE without manual review)"
+else
+  fail "PARKIO_AI_VISION_PROVIDER" "'$VISION_PROVIDER' is not a supported vision provider" "set PARKIO_AI_VISION_PROVIDER=gemini (plus PARKIO_AI_VISION_GEMINI_API_KEY), or heuristic for fail-closed manual review"
+fi
+
 # --------------------------------------------------------------------------- #
 category "Deployment safety"
 # --------------------------------------------------------------------------- #
