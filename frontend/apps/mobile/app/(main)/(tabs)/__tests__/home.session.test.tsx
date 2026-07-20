@@ -1,25 +1,16 @@
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { act, renderHook, waitFor } from '@testing-library/react-native';
 import type { ReactNode } from 'react';
-import type { Profile, User, UserStats } from '@parkio/types';
+import type { Profile, User } from '@parkio/types';
 import HomeScreen from '../home';
 import { SessionQueryCacheSync } from '@/providers/SessionQueryCacheSync';
-import { usersApi } from '@/services/api';
 import { useAuthStore } from '@/state/authStore';
 import { renderWithProviders } from '@/test/renderWithProviders';
 
-jest.mock('@/services/api', () => ({
-  usersApi: {
-    getMyProfile: jest.fn(),
-    getMyStats: jest.fn(),
-  },
-}));
-
 jest.mock('expo-router', () => ({
+  Redirect: () => null,
   useRouter: () => ({ push: jest.fn() }),
 }));
-
-const mockedUsersApi = usersApi as jest.Mocked<typeof usersApi>;
 
 const userA: User = { id: 'user-a', email: 'alice@parkio.dev', status: 'ACTIVE', roles: ['USER'] };
 const userB: User = { id: 'user-b', email: 'bob@parkio.dev', status: 'ACTIVE', roles: ['USER'] };
@@ -33,24 +24,6 @@ const profileA: Profile = {
   city: null,
   status: 'ACTIVE',
   createdAt: '2026-01-01T00:00:00.000Z',
-};
-
-const profileB: Profile = {
-  id: 'profile-b',
-  authUserId: 'user-b',
-  email: 'bob@parkio.dev',
-  displayName: 'Bob',
-  phoneNumber: null,
-  city: null,
-  status: 'ACTIVE',
-  createdAt: '2026-01-01T00:00:00.000Z',
-};
-
-const statsB: UserStats = {
-  trustScore: 88,
-  trustBand: 'HIGH_TRUST',
-  totalPoints: 420,
-  currentLevel: 3,
 };
 
 function createClient() {
@@ -102,20 +75,18 @@ describe('SessionQueryCacheSync', () => {
       expect(client.getQueryData(['me', 'profile'])).toBeUndefined();
     });
 
-    mockedUsersApi.getMyProfile.mockResolvedValue(profileB);
-    mockedUsersApi.getMyStats.mockResolvedValue(statsB);
-
     act(() => {
       useAuthStore.getState().setSession(userB);
     });
 
-    const { findByText } = renderWithProviders(
+    const { queryByText } = renderWithProviders(
       <QueryHarness client={client}>
         <HomeScreen />
       </QueryHarness>,
     );
 
-    expect(await findByText('Bob')).toBeTruthy();
+    expect(queryByText('Alice')).toBeNull();
+    expect(queryByText('Bob')).toBeNull();
   });
 
   it('clears mismatched profile cache on first mount after account switch', async () => {
@@ -123,10 +94,7 @@ describe('SessionQueryCacheSync', () => {
     client.setQueryData(['me', 'profile'], profileA);
 
     useAuthStore.getState().setSession(userB);
-    mockedUsersApi.getMyProfile.mockResolvedValue(profileB);
-    mockedUsersApi.getMyStats.mockResolvedValue(statsB);
-
-    const { findByText, queryByText } = renderWithProviders(
+    const { queryByText } = renderWithProviders(
       <QueryHarness client={client}>
         <HomeScreen />
       </QueryHarness>,
@@ -136,30 +104,24 @@ describe('SessionQueryCacheSync', () => {
       expect(client.getQueryData(['me', 'profile'])).toBeUndefined();
     });
     expect(queryByText('Alice')).toBeNull();
-    expect(await findByText('Bob')).toBeTruthy();
+    expect(queryByText('Bob')).toBeNull();
   });
 });
 
 describe('HomeScreen session consistency', () => {
-  it('never shows the previous user name while user B stats are visible', async () => {
+  it('always redirects legacy home to the map tab', () => {
     const client = createClient();
     client.setQueryData(['me', 'profile'], profileA);
-    client.setQueryData(['me', 'stats'], statsB);
 
     useAuthStore.getState().setSession(userB);
-    mockedUsersApi.getMyProfile.mockImplementation(
-      () => new Promise((resolve) => setTimeout(() => resolve(profileB), 50)),
-    );
-    mockedUsersApi.getMyStats.mockResolvedValue(statsB);
 
-    const { queryByText, findByText } = renderWithProviders(
+    const { queryByText } = renderWithProviders(
       <QueryHarness client={client}>
         <HomeScreen />
       </QueryHarness>,
     );
 
     expect(queryByText('Alice')).toBeNull();
-    expect(await findByText('Bob')).toBeTruthy();
-    expect(await findByText('420')).toBeTruthy();
+    expect(queryByText('Bob')).toBeNull();
   });
 });
