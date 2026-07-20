@@ -95,5 +95,9 @@ export function isParkioApiError(error: unknown): error is ParkioApiError {
 
 export function getAxiosParkioError(error: AxiosError): ParkioApiError {
   const status = error.response?.status ?? 500;
+  if (typeof __DEV__ !== 'undefined' && __DEV__ && !error.response) {
+    // Surface transport-level failures (never sent / aborted / DNS) in dev.
+    console.warn('[api] transport error:', error.code, error.message, error.stack?.split('\n')[1]);
+  }
   return toParkioError(status, error.response?.data);
 }
