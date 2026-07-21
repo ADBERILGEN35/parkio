@@ -60,7 +60,7 @@ else
 fi
 
 # Unauthenticated nearby must be 401
-code="$(http_code "$API/parking/spots/nearby?latitude=41.0&longitude=29.0&radiusMeters=1000" -H "$CLIENT_HEADER")"
+code="$(http_code "$API/parking/spots/nearby?lat=41.0&lng=29.0&radius=1000&limit=5" -H "$CLIENT_HEADER")"
 if [ "$code" = "401" ]; then ok "nearby requires auth ($code)"; else bad "nearby unauth expected 401 got $code"; fi
 
 # Login
@@ -104,7 +104,7 @@ if [ -n "${ACCESS:-}" ]; then
   code="$(http_code "$API/users/me/stats" -H "$CLIENT_HEADER" -H "$AUTH")"
   if [ "$code" = "200" ]; then ok "gamification/user stats"; else bad "user stats ($code)"; fi
 
-  code="$(http_code "$API/parking/spots/nearby?latitude=41.0&longitude=29.0&radiusMeters=1000" \
+  code="$(http_code "$API/parking/spots/nearby?lat=41.0&lng=29.0&radius=1000&limit=5" \
     -H "$CLIENT_HEADER" -H "$AUTH")"
   if [ "$code" = "200" ]; then ok "parking nearby"; else bad "parking nearby ($code)"; fi
 
@@ -139,7 +139,7 @@ fi
 # On local apps overlay, parking requires gateway auth header (not a bare 200).
 if [ "$EXPECT_DIRECT_BLOCKED" = "1" ]; then
   code="$(curl -sS -o /tmp/parkio-smoke-direct.json -w '%{http_code}' --connect-timeout 2 \
-    "http://127.0.0.1:8083/api/v1/parking/spots/nearby?latitude=41.0&longitude=29.0&radiusMeters=1000" || echo "000")"
+    "http://127.0.0.1:8083/api/v1/parking/spots/nearby?lat=41.0&lng=29.0&radius=1000&limit=5" || true)"
   if [ "$code" = "000" ] || [ "$code" = "403" ] || [ "$code" = "401" ]; then
     ok "direct service access blocked ($code)"
   else
@@ -147,7 +147,7 @@ if [ "$EXPECT_DIRECT_BLOCKED" = "1" ]; then
   fi
 else
   code="$(curl -sS -o /tmp/parkio-smoke-direct.json -w '%{http_code}' --connect-timeout 2 \
-    "http://127.0.0.1:8083/api/v1/parking/spots/nearby?latitude=41.0&longitude=29.0&radiusMeters=1000" || echo "000")"
+    "http://127.0.0.1:8083/api/v1/parking/spots/nearby?lat=41.0&lng=29.0&radius=1000&limit=5" || true)"
   if [ "$code" = "401" ] || [ "$code" = "403" ] || [ "$code" = "000" ]; then
     ok "direct parking without gateway auth rejected ($code)"
   else

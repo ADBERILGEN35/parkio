@@ -131,8 +131,12 @@ if [ "$DRY_RUN" -eq 1 ]; then
   exit 0
 fi
 
-echo "Building images from current source (refuses stale jars)..."
-parkio_compose "$ENV_FILE" build
+echo "Building images from current source sequentially (refuses stale jars)..."
+
+for svc in "${PARKIO_APP_SERVICES[@]}"; do
+  echo "=== Building $svc ==="
+  parkio_compose "$ENV_FILE" build "$svc"
+done
 
 echo "Tagging beta-latest..."
 for svc in "${PARKIO_APP_SERVICES[@]}"; do
