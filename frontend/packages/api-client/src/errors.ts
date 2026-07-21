@@ -79,7 +79,9 @@ export function toParkioError(status: number, data: unknown): ParkioApiError {
   if (status === 403 && body.code === 'ACCOUNT_NOT_VERIFIED') {
     return new AccountNotVerifiedError(body);
   }
-  if (status === 403 && body.code === 'ACCOUNT_NOT_ACTIVE') return new AccountNotActiveError(body);
+  if (status === 403 && body.code === 'ACCOUNT_NOT_ACTIVE') {
+    return new AccountNotActiveError(body);
+  }
   if (status === 403) return new ForbiddenError(body);
   if (status === 429) return new RateLimitError(body);
   if (status === 503 && body.code === 'USER_STATUS_UNAVAILABLE') {
@@ -95,9 +97,6 @@ export function isParkioApiError(error: unknown): error is ParkioApiError {
 
 export function getAxiosParkioError(error: AxiosError): ParkioApiError {
   const status = error.response?.status ?? 500;
-  if (typeof __DEV__ !== 'undefined' && __DEV__ && !error.response) {
-    // Surface transport-level failures (never sent / aborted / DNS) in dev.
-    console.warn('[api] transport error:', error.code, error.message, error.stack?.split('\n')[1]);
-  }
+
   return toParkioError(status, error.response?.data);
 }
