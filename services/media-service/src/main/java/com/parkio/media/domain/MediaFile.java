@@ -23,6 +23,7 @@ public final class MediaFile {
     private final long fileSize;
     private final String checksum;
     private final String perceptualHash;
+    private ClaimedRegion claimedRegion;
     private MediaStatus status;
     private final Instant createdAt;
     private Instant updatedAt;
@@ -37,6 +38,7 @@ public final class MediaFile {
                      long fileSize,
                      String checksum,
                      String perceptualHash,
+                     ClaimedRegion claimedRegion,
                      MediaStatus status,
                      Instant createdAt,
                      Instant updatedAt,
@@ -53,6 +55,7 @@ public final class MediaFile {
         this.fileSize = fileSize;
         this.checksum = Objects.requireNonNull(checksum, "checksum");
         this.perceptualHash = perceptualHash;
+        this.claimedRegion = claimedRegion;
         this.status = Objects.requireNonNull(status, "status");
         this.createdAt = Objects.requireNonNull(createdAt, "createdAt");
         this.updatedAt = Objects.requireNonNull(updatedAt, "updatedAt");
@@ -68,9 +71,24 @@ public final class MediaFile {
                                    long fileSize,
                                    String checksum,
                                    String perceptualHash,
+                                   ClaimedRegion claimedRegion,
                                    Instant now) {
         return new MediaFile(UUID.randomUUID(), ownerUserId, bucketName, objectKey,
-                contentType, fileSize, checksum, perceptualHash, MediaStatus.PENDING_SCAN, now, now, null, null);
+                contentType, fileSize, checksum, perceptualHash, claimedRegion,
+                MediaStatus.PENDING_SCAN, now, now, null, null);
+    }
+
+    /** Creates a freshly-stored media file without a claimed region. */
+    public static MediaFile create(UUID ownerUserId,
+                                   String bucketName,
+                                   String objectKey,
+                                   String contentType,
+                                   long fileSize,
+                                   String checksum,
+                                   String perceptualHash,
+                                   Instant now) {
+        return create(ownerUserId, bucketName, objectKey, contentType, fileSize,
+                checksum, perceptualHash, null, now);
     }
 
     /**
@@ -94,6 +112,12 @@ public final class MediaFile {
         this.status = MediaStatus.DELETED;
         this.deletedAt = now;
         this.updatedAt = now;
+    }
+
+    /** Sets or replaces the uploader's claimed parking region annotation. */
+    public void setClaimedRegion(ClaimedRegion region, Instant now) {
+        this.claimedRegion = Objects.requireNonNull(region, "claimedRegion");
+        this.updatedAt = Objects.requireNonNull(now, "now");
     }
 
     public boolean isDeleted() {
@@ -139,6 +163,10 @@ public final class MediaFile {
 
     public String perceptualHash() {
         return perceptualHash;
+    }
+
+    public ClaimedRegion claimedRegion() {
+        return claimedRegion;
     }
 
     public MediaStatus status() {

@@ -19,7 +19,14 @@ export default function MainLayout() {
       }}
     >
       <Stack.Screen name="(tabs)" />
-      <Stack.Screen name="share" options={{ presentation: 'fullScreenModal', animation: 'slide_from_bottom' }} />
+      <Stack.Screen
+        name="share"
+        options={{
+          presentation: 'fullScreenModal',
+          animation: 'slide_from_bottom',
+          gestureEnabled: false,
+        }}
+      />
       <Stack.Screen name="spots/[id]" options={{ animation: 'slide_from_right' }} />
     </Stack>
   );

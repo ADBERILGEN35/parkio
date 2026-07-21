@@ -60,7 +60,36 @@ export function deleteDraftPhoto(): void {
     if (file.exists) {
       file.delete();
     }
+  } catch (error) {
+    console.warn('[share] deleteDraftPhoto failed', error);
+  }
+}
+
+/**
+ * True only for the app-owned draft copy under the document directory.
+ * User gallery/camera cache URIs must never be deleted by cancel/reset.
+ */
+export function isAppOwnedDraftPhotoUri(uri: string | null | undefined): boolean {
+  if (!uri) {
+    return false;
+  }
+  try {
+    const owned = new File(Paths.document, DRAFT_DIR, DRAFT_PHOTO).uri;
+    return uri === owned || uri.endsWith(`/${DRAFT_DIR}/${DRAFT_PHOTO}`);
   } catch {
-    // Best-effort.
+    return uri.includes(`${DRAFT_DIR}/${DRAFT_PHOTO}`);
+  }
+}
+
+/** True when a draft photo uri still resolves to a readable local file. */
+export function draftPhotoExists(uri: string | null | undefined): boolean {
+  if (!uri) {
+    return false;
+  }
+  try {
+    return new File(uri).exists;
+  } catch (error) {
+    console.warn('[share] draftPhotoExists check failed', error);
+    return false;
   }
 }

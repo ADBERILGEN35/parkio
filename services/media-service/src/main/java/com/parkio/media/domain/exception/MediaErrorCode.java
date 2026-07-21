@@ -9,6 +9,8 @@ public enum MediaErrorCode {
     EMPTY_FILE,
     /** The image bytes could not be decoded or exceeded safe pixel/dimension limits. */
     INVALID_IMAGE,
+    /** Claimed parking region coordinates are missing, incomplete, or out of bounds. */
+    INVALID_CLAIMED_REGION,
     MISSING_USER_ID,
     NOT_MEDIA_OWNER,
     /** The uploaded bytes failed the malware scan (mapped to 422). */

@@ -41,6 +41,18 @@ public class MediaFileEntity {
     @Column(name = "perceptual_hash")
     private String perceptualHash;
 
+    @Column(name = "claimed_region_x")
+    private Double claimedRegionX;
+
+    @Column(name = "claimed_region_y")
+    private Double claimedRegionY;
+
+    @Column(name = "claimed_region_width")
+    private Double claimedRegionWidth;
+
+    @Column(name = "claimed_region_height")
+    private Double claimedRegionHeight;
+
     @Enumerated(EnumType.STRING)
     @Column(name = "status", nullable = false)
     private MediaStatus status;
@@ -70,6 +82,10 @@ public class MediaFileEntity {
                            long fileSize,
                            String checksum,
                            String perceptualHash,
+                           Double claimedRegionX,
+                           Double claimedRegionY,
+                           Double claimedRegionWidth,
+                           Double claimedRegionHeight,
                            MediaStatus status,
                            Instant createdAt,
                            Instant updatedAt,
@@ -83,6 +99,10 @@ public class MediaFileEntity {
         this.fileSize = fileSize;
         this.checksum = checksum;
         this.perceptualHash = perceptualHash;
+        this.claimedRegionX = claimedRegionX;
+        this.claimedRegionY = claimedRegionY;
+        this.claimedRegionWidth = claimedRegionWidth;
+        this.claimedRegionHeight = claimedRegionHeight;
         this.status = status;
         this.createdAt = createdAt;
         this.updatedAt = updatedAt;
@@ -120,6 +140,22 @@ public class MediaFileEntity {
 
     public String getPerceptualHash() {
         return perceptualHash;
+    }
+
+    public Double getClaimedRegionX() {
+        return claimedRegionX;
+    }
+
+    public Double getClaimedRegionY() {
+        return claimedRegionY;
+    }
+
+    public Double getClaimedRegionWidth() {
+        return claimedRegionWidth;
+    }
+
+    public Double getClaimedRegionHeight() {
+        return claimedRegionHeight;
     }
 
     public MediaStatus getStatus() {

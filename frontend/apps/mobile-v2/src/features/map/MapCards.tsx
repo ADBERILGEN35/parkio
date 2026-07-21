@@ -88,25 +88,6 @@ export function ViewLimitCard({
   );
 }
 
-/** Map empty state — pulse + first-to-share CTA. */
-export function MapEmptyCard({ onShare }: { onShare: () => void }) {
-  const theme = useTheme();
-  const t = useT();
-  return (
-    <Glass radius={20} contentStyle={styles.cardContent}>
-      <PulseMotif size={84} rings={3} />
-      <AppText variant="titleMd" align="center">
-        {t('map.empty.title')}
-      </AppText>
-      <Button label={t('map.empty.cta')} size="md" style={styles.centerCta} onPress={onShare} />
-      <View style={{ height: 2 }} />
-      <AppText variant="labelSm" color={theme.colors.onSurfaceVariant} align="center">
-        {t('profile.about.stage')}
-      </AppText>
-    </Glass>
-  );
-}
-
 const styles = StyleSheet.create({
   cardContent: { padding: 18, gap: 8, alignItems: 'center' },
   // Non-block buttons self-align flex-start; recenter inside the card column.

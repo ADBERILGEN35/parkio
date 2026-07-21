@@ -15,11 +15,18 @@ public record MediaMetadataResponse(
         String contentType,
         long fileSize,
         String status,
+        ClaimedRegionDto claimedRegion,
         Instant createdAt,
         Instant updatedAt) {
 
     public static MediaMetadataResponse from(MediaFile media) {
+        ClaimedRegionDto region = null;
+        if (media.claimedRegion() != null) {
+            var r = media.claimedRegion();
+            region = new ClaimedRegionDto(r.x(), r.y(), r.width(), r.height());
+        }
         return new MediaMetadataResponse(media.id(), media.ownerUserId(), media.contentType(),
-                media.fileSize(), media.status().name(), media.createdAt(), media.updatedAt());
+                media.fileSize(), media.status().name(), region,
+                media.createdAt(), media.updatedAt());
     }
 }

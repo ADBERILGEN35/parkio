@@ -8,8 +8,8 @@ import {
 } from 'react-native';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import * as ImagePicker from 'expo-image-picker';
 import type { Spot } from '@parkio/types';
+import { isValidClaimedRegion } from '@parkio/types';
 import { AppText } from '@/components/ui/AppText';
 import { Button } from '@/components/ui/Button';
 import { ConfirmModal } from '@/components/ui/ConfirmModal';
@@ -20,8 +20,10 @@ import { LocationStep } from '@/features/share/steps/LocationStep';
 import { PhotoStep } from '@/features/share/steps/PhotoStep';
 import { ReviewStep } from '@/features/share/steps/ReviewStep';
 import { SuccessStep } from '@/features/share/steps/SuccessStep';
-import { prepareImage } from '@/features/share/prepareImage';
+import { openAppSettings, pickImageFromGallery } from '@/features/share/pickMedia';
+import { draftPhotoExists, prepareImage } from '@/features/share/prepareImage';
 import { SHARE_STEPS, useShareDraftStore, type ShareStep } from '@/features/share/state/shareDraftStore';
+import { useShareWizardBack } from '@/features/share/useShareWizardBack';
 import { useCreateSpot } from '@/features/share/useCreateSpot';
 import { useDraftUpload } from '@/features/share/useDraftUpload';
 import { useT } from '@/i18n/LocaleProvider';
@@ -50,23 +52,47 @@ export default function ShareWizardScreen() {
   const upload = useDraftUpload();
   const { publish, phase: publishPhase } = useCreateSpot();
   const [published, setPublished] = useState<Spot | null>(null);
-  const [leaveConfirm, setLeaveConfirm] = useState(false);
   const bootstrapped = useRef(false);
 
+  const {
+    cancelConfirmVisible,
+    cancelling,
+    handleShareBack,
+    dismissCancelConfirm,
+    confirmCancelShare,
+    markExitAllowed,
+  } = useShareWizardBack({ allowSystemExit: Boolean(published) });
+
   const pickFromGallery = async () => {
-    const result = await ImagePicker.launchImageLibraryAsync({
-      mediaTypes: ['images'],
-      quality: 1,
-      exif: false,
-    });
-    const asset = result.assets?.[0];
-    if (asset) {
-      try {
-        const prepared = await prepareImage(asset);
-        useShareDraftStore.getState().setPhoto(prepared);
-      } catch {
-        toast.show(t('common.error.generic'), 'error');
+    console.info('[ShareSheet] share wizard gallery bootstrap');
+    const generation = useShareDraftStore.getState().generation;
+    const result = await pickImageFromGallery();
+    if (!useShareDraftStore.getState().isGenerationCurrent(generation)) {
+      return;
+    }
+    if (result.status === 'cancelled') {
+      return;
+    }
+    if (result.status === 'permission_denied') {
+      toast.show(t('share.gallery.permissionDenied'), 'error');
+      if (!result.canAskAgain) {
+        void openAppSettings();
       }
+      return;
+    }
+    if (result.status === 'error') {
+      toast.show(t('common.error.generic'), 'error');
+      return;
+    }
+    try {
+      const prepared = await prepareImage(result.asset);
+      if (!useShareDraftStore.getState().isGenerationCurrent(generation)) {
+        return;
+      }
+      useShareDraftStore.getState().setPhoto(prepared);
+    } catch (error) {
+      console.warn('[share] prepare gallery image failed', error);
+      toast.show(t('common.error.generic'), 'error');
     }
   };
 
@@ -78,12 +104,22 @@ export default function ShareWizardScreen() {
     bootstrapped.current = true;
     const state = useShareDraftStore.getState();
     if (state.photo) {
-      return; // resuming a draft
+      if (!draftPhotoExists(state.photo.uri)) {
+        state.clearPhoto();
+        state.setStep('photo');
+        toast.show(t('share.draft.photoMissing'), 'error');
+        if (params.source === 'gallery') {
+          void pickFromGallery();
+        } else if (params.source === 'camera') {
+          router.push('/(main)/share/camera');
+        }
+      }
+      return; // resuming a draft with a valid photo
     }
     state.setStep('photo');
     if (params.source === 'gallery') {
       void pickFromGallery();
-    } else {
+    } else if (params.source === 'camera') {
       router.push('/(main)/share/camera');
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -100,7 +136,7 @@ export default function ShareWizardScreen() {
   const canContinue = (() => {
     switch (step) {
       case 'photo':
-        return photo !== null && uploadPhase !== 'failed';
+        return photo !== null && isValidClaimedRegion(photo.claimedRegion) && uploadPhase !== 'failed';
       case 'location':
         return location !== null;
       case 'details':
@@ -109,14 +145,6 @@ export default function ShareWizardScreen() {
         return mediaId !== null;
     }
   })();
-
-  const goBack = () => {
-    if (stepIndex === 0) {
-      setLeaveConfirm(true);
-    } else {
-      setStep(SHARE_STEPS[stepIndex - 1] as ShareStep);
-    }
-  };
 
   const goNext = async () => {
     if (step === 'review') {
@@ -135,11 +163,6 @@ export default function ShareWizardScreen() {
     setStep(SHARE_STEPS[stepIndex + 1] as ShareStep);
   };
 
-  const leave = () => {
-    setLeaveConfirm(false);
-    router.back();
-  };
-
   if (published) {
     return (
       <SafeAreaView style={[styles.safe, { backgroundColor: colors.background }]}>
@@ -147,10 +170,12 @@ export default function ShareWizardScreen() {
           <SuccessStep
             spot={published}
             onGoMySpots={() => {
+              markExitAllowed();
               router.dismissAll();
               router.replace('/(main)/(tabs)/my-spots');
             }}
             onBackToMap={() => {
+              markExitAllowed();
               router.dismissAll();
               router.replace('/(main)/(tabs)/map');
             }}
@@ -175,7 +200,7 @@ export default function ShareWizardScreen() {
           size={40}
           variant="glassless"
           accessibilityLabel={stepIndex === 0 ? t('common.close') : t('common.back')}
-          onPress={goBack}
+          onPress={handleShareBack}
         />
         <AppText variant="titleLg" style={styles.headerTitle}>
           {t('share.title')}
@@ -218,14 +243,15 @@ export default function ShareWizardScreen() {
       </KeyboardAvoidingView>
 
       <ConfirmModal
-        visible={leaveConfirm}
+        visible={cancelConfirmVisible}
         title={t('share.leave.title')}
         body={t('share.leave.body')}
         confirmLabel={t('share.leave.leave')}
         cancelLabel={t('share.leave.stay')}
-        confirmVariant="tonal"
-        onConfirm={leave}
-        onCancel={() => setLeaveConfirm(false)}
+        confirmVariant="destructive"
+        loading={cancelling}
+        onConfirm={() => void confirmCancelShare()}
+        onCancel={dismissCancelConfirm}
       />
     </SafeAreaView>
   );

@@ -8,7 +8,11 @@ package com.parkio.aivalidation.domain;
 public record ContentClassification(
         ContentRiskClassifier.Verdict verdict,
         OutcomeKind outcomeKind,
-        String reasonCode) {
+        String reasonCode,
+        String claimedRegionAssessment,
+        String vehicleFitEstimate,
+        String obstructionAssessment,
+        String legalityAccessAssessment) {
 
     public enum OutcomeKind {
         /** Model returned a semantic verdict (including genuine UNCERTAIN). */
@@ -17,12 +21,29 @@ public record ContentClassification(
         INFRASTRUCTURE
     }
 
+    public ContentClassification {
+        // compact ctor — fields may be null except verdict/outcomeKind
+    }
+
     public static ContentClassification semantic(ContentRiskClassifier.Verdict verdict, String reasonCode) {
-        return new ContentClassification(verdict, OutcomeKind.SEMANTIC, reasonCode);
+        return semantic(verdict, reasonCode, null, null, null, null);
+    }
+
+    public static ContentClassification semantic(ContentRiskClassifier.Verdict verdict,
+                                                 String reasonCode,
+                                                 String claimedRegionAssessment,
+                                                 String vehicleFitEstimate,
+                                                 String obstructionAssessment,
+                                                 String legalityAccessAssessment) {
+        return new ContentClassification(
+                verdict, OutcomeKind.SEMANTIC, reasonCode,
+                claimedRegionAssessment, vehicleFitEstimate,
+                obstructionAssessment, legalityAccessAssessment);
     }
 
     public static ContentClassification infrastructure(String reasonCode) {
         return new ContentClassification(
-                ContentRiskClassifier.Verdict.UNCERTAIN, OutcomeKind.INFRASTRUCTURE, reasonCode);
+                ContentRiskClassifier.Verdict.UNCERTAIN, OutcomeKind.INFRASTRUCTURE, reasonCode,
+                null, null, null, null);
     }
 }

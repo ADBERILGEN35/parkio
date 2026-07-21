@@ -11,7 +11,9 @@ import java.io.OutputStream;
 import java.net.InetSocketAddress;
 import java.time.Duration;
 import java.util.UUID;
-import java.util.concurrent.atomic.AtomicReference;
+import java.util.ArrayList;
+import java.util.List;
+import java.util.concurrent.CopyOnWriteArrayList;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -28,7 +30,7 @@ class MediaContentHttpClientTest {
     private static final byte[] JPEG = VisionTestImages.jpeg(800, 600);
 
     private HttpServer server;
-    private final AtomicReference<RecordedRequest> recorded = new AtomicReference<>();
+    private final List<RecordedRequest> recorded = new CopyOnWriteArrayList<>();
     private volatile int responseStatus = 200;
     private volatile byte[] responseBody = JPEG;
     private volatile String responseContentType = "image/jpeg";
@@ -40,7 +42,7 @@ class MediaContentHttpClientTest {
     void startServer() throws IOException {
         server = HttpServer.create(new InetSocketAddress("localhost", 0), 0);
         server.createContext("/", exchange -> {
-            recorded.set(new RecordedRequest(
+            recorded.add(new RecordedRequest(
                     exchange.getRequestURI().getPath(),
                     exchange.getRequestHeaders().getFirst("X-Gateway-Auth"),
                     exchange.getRequestHeaders().getFirst(CorrelationIdFilter.HEADER)));
@@ -50,6 +52,7 @@ class MediaContentHttpClientTest {
                 out.write(responseBody);
             }
         });
+        recorded.clear();
         server.start();
     }
 
@@ -81,10 +84,15 @@ class MediaContentHttpClientTest {
         assertThat(content.bytes().length).isGreaterThan(0);
         assertThat(content.bytes()[0] & 0xFF).isEqualTo(0xFF);
         assertThat(content.bytes()[1] & 0xFF).isEqualTo(0xD8);
-        RecordedRequest request = recorded.get();
-        assertThat(request.path()).isEqualTo("/internal/media/" + mediaId + "/content");
-        assertThat(request.gatewayAuth()).isEqualTo(SECRET);
-        assertThat(request.correlationId()).isEqualTo("corr-123");
+        assertThat(recorded).extracting(RecordedRequest::path)
+                .contains("/internal/media/" + mediaId + "/content",
+                        "/internal/media/" + mediaId + "/metadata");
+        RecordedRequest contentReq = recorded.stream()
+                .filter(r -> r.path().endsWith("/content"))
+                .findFirst()
+                .orElseThrow();
+        assertThat(contentReq.gatewayAuth()).isEqualTo(SECRET);
+        assertThat(contentReq.correlationId()).isEqualTo("corr-123");
     }
 
     @Test

@@ -2,6 +2,7 @@ package com.parkio.media.presentation;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.parkio.media.application.MediaApplicationService;
+import com.parkio.media.application.command.SetClaimedRegionCommand;
 import com.parkio.media.application.command.UploadMediaCommand;
 import com.parkio.media.application.result.MediaUploadResult;
 import com.parkio.media.domain.exception.MediaErrorCode;
@@ -10,6 +11,8 @@ import com.parkio.media.infrastructure.idempotency.IdempotencyService;
 import com.parkio.media.infrastructure.idempotency.IdempotentResponse;
 import com.parkio.media.infrastructure.idempotency.RequestFingerprint;
 import com.parkio.media.infrastructure.metrics.MediaMetrics;
+import com.parkio.media.domain.ClaimedRegion;
+import com.parkio.media.presentation.dto.ClaimedRegionDto;
 import com.parkio.media.presentation.dto.MediaAccessUrlResponse;
 import com.parkio.media.presentation.dto.MediaMetadataResponse;
 import com.parkio.media.presentation.dto.UploadMediaResponse;
@@ -32,8 +35,10 @@ import java.util.stream.Collectors;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.GetMapping;
+import org.springframework.web.bind.annotation.PatchMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
+import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestHeader;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
@@ -81,17 +86,24 @@ public class MediaController {
     public ResponseEntity<UploadMediaResponse> upload(
             @RequestHeader(value = USER_ID_HEADER, required = false) String userId,
             @RequestHeader(value = IdempotencyService.HEADER_NAME, required = false) String idempotencyKey,
-            @RequestParam("file") MultipartFile file) {
+            @RequestParam("file") MultipartFile file,
+            @RequestParam(value = "claimedRegionX", required = false) Double claimedRegionX,
+            @RequestParam(value = "claimedRegionY", required = false) Double claimedRegionY,
+            @RequestParam(value = "claimedRegionWidth", required = false) Double claimedRegionWidth,
+            @RequestParam(value = "claimedRegionHeight", required = false) Double claimedRegionHeight) {
         UUID ownerUserId = requireUserId(userId);
         byte[] content = readBytes(file);
+        ClaimedRegion claimedRegion = parseClaimedRegion(
+                claimedRegionX, claimedRegionY, claimedRegionWidth, claimedRegionHeight);
         String path = "/api/v1/media/upload";
-        String fingerprint = RequestFingerprint.sha256(objectMapper, uploadFingerprint(path, file, content));
+        String fingerprint = RequestFingerprint.sha256(objectMapper,
+                uploadFingerprint(path, file, content, claimedRegion));
         IdempotentResponse<UploadMediaResponse> response;
         try {
             response = idempotencyService.execute(
                     ownerUserId, "POST", path, idempotencyKey, fingerprint, UploadMediaResponse.class, () -> {
                         UploadMediaCommand command = new UploadMediaCommand(
-                                ownerUserId, file.getContentType(), content);
+                                ownerUserId, file.getContentType(), content, claimedRegion);
                         MediaUploadResult result = mediaService.upload(command);
                         // Counted inside the supplier so idempotent replays are not re-counted.
                         // A successful upload always passed the malware scan (scan-before-store).
@@ -118,6 +130,24 @@ public class MediaController {
             @PathVariable("mediaId") UUID mediaId) {
         return MediaMetadataResponse.from(
                 mediaService.getMetadata(mediaId, requireUserId(userId), hasModeratorRole(roles)));
+    }
+
+    @Operation(summary = "Set claimed parking region on media")
+    @SecurityRequirement(name = "bearerAuth")
+    @PatchMapping("/{mediaId}/claimed-region")
+    public MediaMetadataResponse setClaimedRegion(
+            @RequestHeader(value = USER_ID_HEADER, required = false) String userId,
+            @PathVariable("mediaId") UUID mediaId,
+            @RequestBody ClaimedRegionDto body) {
+        if (body == null) {
+            throw new MediaException(MediaErrorCode.INVALID_CLAIMED_REGION, "Claimed region is required.");
+        }
+        ClaimedRegion region = parseClaimedRegion(body.x(), body.y(), body.width(), body.height());
+        if (region == null) {
+            throw new MediaException(MediaErrorCode.INVALID_CLAIMED_REGION, "Claimed region is incomplete.");
+        }
+        return MediaMetadataResponse.from(mediaService.setClaimedRegion(
+                new SetClaimedRegionCommand(mediaId, requireUserId(userId), region)));
     }
 
     /** Short-lived presigned GET URL — owner or moderator/admin only; never persisted. */
@@ -205,13 +235,35 @@ public class MediaController {
     }
 
     private static Map<String, Object> uploadFingerprint(
-            String path, MultipartFile file, byte[] content) {
+            String path, MultipartFile file, byte[] content, ClaimedRegion claimedRegion) {
         Map<String, Object> value = new LinkedHashMap<>();
         value.put("path", path);
         value.put("filename", file.getOriginalFilename());
         value.put("contentType", file.getContentType());
         value.put("fileSize", content.length);
         value.put("checksum", RequestFingerprint.sha256(content));
+        if (claimedRegion != null) {
+            value.put("claimedRegionX", claimedRegion.x());
+            value.put("claimedRegionY", claimedRegion.y());
+            value.put("claimedRegionWidth", claimedRegion.width());
+            value.put("claimedRegionHeight", claimedRegion.height());
+        }
         return value;
+    }
+
+    private static ClaimedRegion parseClaimedRegion(Double x, Double y, Double width, Double height) {
+        boolean any = x != null || y != null || width != null || height != null;
+        if (!any) {
+            return null;
+        }
+        if (x == null || y == null || width == null || height == null) {
+            throw new MediaException(MediaErrorCode.INVALID_CLAIMED_REGION,
+                    "Claimed region requires x, y, width, and height.");
+        }
+        try {
+            return ClaimedRegion.of(x, y, width, height);
+        } catch (IllegalArgumentException ex) {
+            throw new MediaException(MediaErrorCode.INVALID_CLAIMED_REGION, ex.getMessage());
+        }
     }
 }

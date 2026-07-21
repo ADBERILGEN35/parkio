@@ -4,6 +4,7 @@ import com.parkio.media.application.MediaApplicationService;
 import com.parkio.media.application.result.MediaAccessUrl;
 import com.parkio.media.application.result.MediaBinaryContent;
 import com.parkio.media.presentation.dto.InternalAccessUrlRequest;
+import com.parkio.media.presentation.dto.InternalMediaMetadataResponse;
 import com.parkio.media.presentation.dto.InternalMediaStatusResponse;
 import com.parkio.media.presentation.dto.MediaAccessUrlResponse;
 import io.swagger.v3.oas.annotations.Hidden;
@@ -72,6 +73,15 @@ public class InternalMediaController {
                 .contentType(MediaType.parseMediaType(content.contentType()))
                 .cacheControl(CacheControl.noStore())
                 .body(content.content());
+    }
+
+    /**
+     * Metadata for trusted internal callers (claimed region for region-first vision).
+     * Non-deleted media only; deleted/unknown → {@code 404 MEDIA_NOT_FOUND}.
+     */
+    @GetMapping("/{mediaId}/metadata")
+    public InternalMediaMetadataResponse getMetadata(@PathVariable("mediaId") UUID mediaId) {
+        return InternalMediaMetadataResponse.from(mediaService.getMetadataForInternalCaller(mediaId));
     }
 
     /**

@@ -86,7 +86,7 @@ public class GlobalExceptionHandler {
             case DUPLICATE_MEDIA -> HttpStatus.CONFLICT;
             case UNSUPPORTED_MEDIA_TYPE -> HttpStatus.UNSUPPORTED_MEDIA_TYPE;
             case FILE_TOO_LARGE -> HttpStatus.PAYLOAD_TOO_LARGE;
-            case EMPTY_FILE -> HttpStatus.BAD_REQUEST;
+            case EMPTY_FILE, INVALID_CLAIMED_REGION -> HttpStatus.BAD_REQUEST;
             case INVALID_IMAGE -> HttpStatus.UNPROCESSABLE_ENTITY;
             case MISSING_USER_ID -> HttpStatus.UNAUTHORIZED;
             case NOT_MEDIA_OWNER -> HttpStatus.FORBIDDEN;

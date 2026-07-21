@@ -13,7 +13,11 @@
     "test": "jest",
     "test:watch": "jest --watch",
     "mock-gateway": "node scripts/mock-gateway.mjs",
-    "doctor": "expo-doctor"
+    "doctor": "expo-doctor",
+    "validate:release-env": "node ./scripts/validate-release-env.mjs",
+    "android:release": "node ./scripts/run-android-release.mjs hosted-beta assembleRelease",
+    "android:release:hosted-beta": "node ./scripts/run-android-release.mjs hosted-beta assembleRelease",
+    "android:release:preview": "node ./scripts/run-android-release.mjs preview assembleRelease"
   },
   "dependencies": {
     "@expo-google-fonts/inter": "^0.4.1",

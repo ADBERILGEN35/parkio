@@ -1,5 +1,6 @@
 package com.parkio.media.domain.event;
 
+import com.parkio.media.domain.ClaimedRegion;
 import com.parkio.media.domain.MediaFile;
 import java.time.Instant;
 import java.util.UUID;
@@ -17,14 +18,24 @@ public record MediaUploadedEvent(
         String contentType,
         long fileSize,
         String checksum,
+        Double claimedRegionX,
+        Double claimedRegionY,
+        Double claimedRegionWidth,
+        Double claimedRegionHeight,
         Instant occurredAt) implements MediaEvent {
 
     public static final String TYPE = "MediaUploaded";
 
     public static MediaUploadedEvent of(MediaFile media, Instant occurredAt) {
+        ClaimedRegion region = media.claimedRegion();
         return new MediaUploadedEvent(UUID.randomUUID(), media.id(), media.ownerUserId(),
                 media.bucketName(), media.objectKey(), media.contentType(), media.fileSize(),
-                media.checksum(), occurredAt);
+                media.checksum(),
+                region == null ? null : region.x(),
+                region == null ? null : region.y(),
+                region == null ? null : region.width(),
+                region == null ? null : region.height(),
+                occurredAt);
     }
 
     @Override

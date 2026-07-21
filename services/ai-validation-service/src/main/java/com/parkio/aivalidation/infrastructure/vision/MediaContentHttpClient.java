@@ -85,7 +85,97 @@ public class MediaContentHttpClient implements MediaContentFetcher {
         if (metrics != null) {
             metrics.recordBytes(bytes.length, rendition.bytes().length);
         }
-        return new MediaContent(rendition.bytes(), rendition.contentType());
+        ClaimedRegion claimedRegion = fetchClaimedRegion(mediaId);
+        return new MediaContent(rendition.bytes(), rendition.contentType(), claimedRegion);
+    }
+
+    private ClaimedRegion fetchClaimedRegion(UUID mediaId) {
+        try {
+            return restClient.get()
+                    .uri("/internal/media/{mediaId}/metadata", mediaId)
+                    .headers(headers -> {
+                        String traceId = MDC.get(CorrelationIdFilter.MDC_KEY);
+                        if (traceId != null && !traceId.isBlank()) {
+                            headers.set(CorrelationIdFilter.HEADER, traceId);
+                        }
+                    })
+                    .exchange((request, response) -> {
+                        if (!response.getStatusCode().is2xxSuccessful()) {
+                            return null;
+                        }
+                        try {
+                            String json = new String(response.getBody().readAllBytes(),
+                                    java.nio.charset.StandardCharsets.UTF_8);
+                            return parseClaimedRegion(json);
+                        } catch (java.io.IOException ex) {
+                            log.warn("Failed reading media metadata for {}: {}",
+                                    mediaId, ex.getClass().getSimpleName());
+                            return null;
+                        }
+                    });
+        } catch (RuntimeException ex) {
+            log.warn("media-service metadata call failed for {}: {}",
+                    mediaId, ex.getClass().getSimpleName());
+            return null;
+        }
+    }
+
+    static ClaimedRegion parseClaimedRegion(String json) {
+        if (json == null || json.isBlank()) {
+            return null;
+        }
+        // Lightweight parse without pulling Jackson into this hot path dependency graph:
+        // metadata JSON is a small fixed shape from media-service.
+        Double x = extractNumber(json, "\"x\"");
+        Double y = extractNumber(json, "\"y\"");
+        Double width = extractNumber(json, "\"width\"");
+        Double height = extractNumber(json, "\"height\"");
+        if (x == null || y == null || width == null || height == null) {
+            return null;
+        }
+        try {
+            return ClaimedRegion.of(x, y, width, height);
+        } catch (IllegalArgumentException ex) {
+            return null;
+        }
+    }
+
+    private static Double extractNumber(String json, String key) {
+        int claimed = json.indexOf("\"claimedRegion\"");
+        if (claimed < 0) {
+            return null;
+        }
+        String slice = json.substring(claimed);
+        int keyIdx = slice.indexOf(key);
+        if (keyIdx < 0) {
+            return null;
+        }
+        int colon = slice.indexOf(':', keyIdx);
+        if (colon < 0) {
+            return null;
+        }
+        int start = colon + 1;
+        while (start < slice.length() && Character.isWhitespace(slice.charAt(start))) {
+            start++;
+        }
+        int end = start;
+        while (end < slice.length()
+                && (Character.isDigit(slice.charAt(end))
+                || slice.charAt(end) == '.'
+                || slice.charAt(end) == '-'
+                || slice.charAt(end) == 'e'
+                || slice.charAt(end) == 'E'
+                || slice.charAt(end) == '+')) {
+            end++;
+        }
+        if (end <= start) {
+            return null;
+        }
+        try {
+            return Double.parseDouble(slice.substring(start, end));
+        } catch (NumberFormatException ex) {
+            return null;
+        }
     }
 
     private ContentResponse exchange(UUID mediaId) {

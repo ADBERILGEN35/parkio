@@ -33,7 +33,7 @@ class CircuitBreakingVisionProviderClientTest {
             }
 
             @Override
-            public VisionAnalysis analyze(byte[] imageBytes, String contentType) {
+            public VisionAnalysis analyze(byte[] imageBytes, String contentType, ClaimedRegion claimedRegion) {
                 calls.incrementAndGet();
                 throw new VisionProviderException(VisionProviderException.Category.TIMEOUT, "slow");
             }

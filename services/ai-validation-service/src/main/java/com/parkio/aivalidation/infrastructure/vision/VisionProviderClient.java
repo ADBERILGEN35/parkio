@@ -15,22 +15,39 @@ public interface VisionProviderClient {
     String modelId();
 
     /**
-     * Classifies the image. Implementations must bound time and retries.
+     * Classifies the image, optionally focusing on a claimed parking region.
      *
      * @throws VisionProviderException on timeout, HTTP errors, malformed or refused
      *         responses — callers fail closed (UNCERTAIN)
      */
-    VisionAnalysis analyze(byte[] imageBytes, String contentType);
+    VisionAnalysis analyze(byte[] imageBytes, String contentType, ClaimedRegion claimedRegion);
+
+    default VisionAnalysis analyze(byte[] imageBytes, String contentType) {
+        return analyze(imageBytes, contentType, null);
+    }
 
     /**
      * Normalized provider output. {@code verdict} is one of the three domain verdict
      * names; {@code confidence} is 0..1; {@code reasonCode} is machine-readable.
      */
-    record VisionAnalysis(String verdict, double confidence, String reasonCode,
-                          Usage usage, String finishReason) {
+    record VisionAnalysis(
+            String verdict,
+            double confidence,
+            String reasonCode,
+            String claimedRegionAssessment,
+            String vehicleFitEstimate,
+            String obstructionAssessment,
+            String legalityAccessAssessment,
+            Usage usage,
+            String finishReason) {
 
         public VisionAnalysis(String verdict, double confidence, String reasonCode) {
-            this(verdict, confidence, reasonCode, null, null);
+            this(verdict, confidence, reasonCode, null, null, null, null, null, null);
+        }
+
+        public VisionAnalysis(String verdict, double confidence, String reasonCode,
+                              Usage usage, String finishReason) {
+            this(verdict, confidence, reasonCode, null, null, null, null, usage, finishReason);
         }
 
         public record Usage(int promptTokens, int candidatesTokens, int totalTokens) {

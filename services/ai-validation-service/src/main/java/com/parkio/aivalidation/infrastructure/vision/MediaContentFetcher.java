@@ -17,7 +17,13 @@ public interface MediaContentFetcher {
      */
     MediaContent fetch(UUID mediaId);
 
-    /** Image bytes plus the content type media-service stored for them. */
-    record MediaContent(byte[] bytes, String contentType) {
+    /**
+     * Image bytes plus the content type media-service stored for them, and the
+     * optional uploader-claimed parking region.
+     */
+    record MediaContent(byte[] bytes, String contentType, ClaimedRegion claimedRegion) {
+        public MediaContent(byte[] bytes, String contentType) {
+            this(bytes, contentType, null);
+        }
     }
 }

@@ -1,5 +1,6 @@
 package com.parkio.media.application;
 
+import com.parkio.media.application.command.SetClaimedRegionCommand;
 import com.parkio.media.application.command.UploadMediaCommand;
 import com.parkio.media.application.port.MediaFileRepository;
 import com.parkio.media.application.port.ImageNormalizationException;
@@ -193,7 +194,8 @@ public class MediaApplicationService {
 
         try {
             MediaFile media = MediaFile.create(ownerUserId, stored.bucket(), stored.objectKey(),
-                    normalizedContentType, normalizedContent.length, checksum, null, now);
+                    normalizedContentType, normalizedContent.length, checksum, null,
+                    command.claimedRegion(), now);
             cleanup.mediaId = media.id();
             media.markReady(now);
             media = mediaFiles.save(media);
@@ -217,6 +219,23 @@ public class MediaApplicationService {
     @Transactional(readOnly = true)
     public MediaFile getMetadata(UUID mediaId, UUID requesterUserId, boolean canModerate) {
         return requireReadableMedia(mediaId, requesterUserId, canModerate);
+    }
+
+    /** Internal metadata (incl. claimed region) for trusted vision analysis. */
+    @Transactional(readOnly = true)
+    public MediaFile getMetadataForInternalCaller(UUID mediaId) {
+        return requireActiveMedia(mediaId);
+    }
+
+    /** Owner sets/replaces the claimed parking region annotation. */
+    @Transactional
+    public MediaFile setClaimedRegion(SetClaimedRegionCommand command) {
+        MediaFile media = requireActiveMedia(command.mediaId());
+        if (!media.isOwnedBy(command.ownerUserId())) {
+            throw new MediaException(MediaErrorCode.NOT_MEDIA_OWNER, "Only the media owner can update the claimed region.");
+        }
+        media.setClaimedRegion(command.claimedRegion(), clock.instant());
+        return mediaFiles.save(media);
     }
 
     /**

@@ -1,7 +1,7 @@
 import type { ReactNode } from 'react';
+import { useEffect, useId } from 'react';
 import { Modal, Pressable, StyleSheet, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import Animated, { FadeIn, FadeOut, SlideInDown, SlideOutDown } from 'react-native-reanimated';
 import { AppText } from './AppText';
 import { radius, shadows } from '@/theme/tokens';
 import { useTheme } from '@/theme/ThemeProvider';
@@ -13,43 +13,78 @@ export interface SheetProps {
   children: ReactNode;
 }
 
+/** Live mount counter for diagnostic builds (no PII). */
+let sheetMountCount = 0;
+
 /**
- * Action bottom sheet (24px top radius, drag handle, ambient-deep shadow).
- * Modal-based so it works from any screen without a host; the gesture-driven
- * map spot sheet uses @gorhom/bottom-sheet separately.
+ * Action bottom sheet. Modal-based.
+ *
+ * Hit-testing (Android): backdrop and panel are non-overlapping flex siblings.
+ * Reanimated wrappers are intentionally avoided on the press path — entering
+ * animations on Animated.View have swallowed Pressable onPress inside Modal on
+ * physical devices even when UIAutomator reported the buttons as clickable.
  */
 export function Sheet({ visible, onClose, title, children }: SheetProps) {
   const theme = useTheme();
   const insets = useSafeAreaInsets();
+  const instanceId = useId();
+
+  useEffect(() => {
+    sheetMountCount += 1;
+    console.info(`[ShareSheet] Sheet mounted id=${instanceId} count=${sheetMountCount} visible=${visible}`);
+    return () => {
+      sheetMountCount = Math.max(0, sheetMountCount - 1);
+      console.info(`[ShareSheet] Sheet unmounted id=${instanceId} count=${sheetMountCount}`);
+    };
+  }, [instanceId]);
+
+  useEffect(() => {
+    if (visible) {
+      console.info(`[ShareSheet] Sheet visible=true id=${instanceId} mounts=${sheetMountCount}`);
+    }
+  }, [visible, instanceId]);
+
+  const handleBackdropPress = () => {
+    console.info('[ShareSheet] backdrop press');
+    console.info('[ShareSheet] close requested');
+    onClose();
+  };
+
+  const handleRequestClose = () => {
+    console.info('[ShareSheet] close requested');
+    onClose();
+  };
 
   return (
     <Modal
       visible={visible}
       transparent
-      animationType="none"
+      animationType="fade"
       statusBarTranslucent
       navigationBarTranslucent
-      onRequestClose={onClose}
+      onRequestClose={handleRequestClose}
     >
-      <View style={styles.host}>
-        <Animated.View entering={FadeIn.duration(200)} exiting={FadeOut.duration(150)} style={StyleSheet.absoluteFill}>
+      <View style={styles.host} testID="sheet-host" collapsable={false}>
+        <View style={styles.backdropSlot} collapsable={false}>
           <Pressable
-            style={[StyleSheet.absoluteFill, { backgroundColor: theme.colors.scrim }]}
-            onPress={onClose}
+            testID="sheet-backdrop"
+            style={[styles.backdrop, { backgroundColor: theme.colors.scrim }]}
+            onPress={handleBackdropPress}
             accessibilityRole="button"
             accessibilityLabel="close"
           />
-        </Animated.View>
-        <Animated.View
-          entering={SlideInDown.duration(280)}
-          exiting={SlideOutDown.duration(200)}
+        </View>
+        <View
+          testID="sheet-panel"
+          collapsable={false}
           style={[
             styles.sheet,
+            shadows.ambientDeep,
             {
               backgroundColor: theme.colors.surface,
               paddingBottom: insets.bottom + 16,
+              elevation: 16,
             },
-            shadows.ambientDeep,
           ]}
         >
           <View style={[styles.handle, { backgroundColor: theme.colors.outlineVariant }]} />
@@ -59,14 +94,22 @@ export function Sheet({ visible, onClose, title, children }: SheetProps) {
             </AppText>
           ) : null}
           {children}
-        </Animated.View>
+        </View>
       </View>
     </Modal>
   );
 }
 
 const styles = StyleSheet.create({
-  host: { flex: 1, justifyContent: 'flex-end' },
+  host: {
+    flex: 1,
+  },
+  backdropSlot: {
+    flex: 1,
+  },
+  backdrop: {
+    flex: 1,
+  },
   sheet: {
     borderTopLeftRadius: radius.sheet,
     borderTopRightRadius: radius.sheet,

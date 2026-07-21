@@ -29,9 +29,10 @@ public final class CircuitBreakingVisionProviderClient implements VisionProvider
     }
 
     @Override
-    public VisionAnalysis analyze(byte[] imageBytes, String contentType) {
+    public VisionAnalysis analyze(byte[] imageBytes, String contentType, ClaimedRegion claimedRegion) {
         try {
-            return circuitBreaker.executeSupplier(() -> delegate.analyze(imageBytes, contentType));
+            return circuitBreaker.executeSupplier(
+                    () -> delegate.analyze(imageBytes, contentType, claimedRegion));
         } catch (CallNotPermittedException ex) {
             throw new VisionProviderException(VisionProviderException.Category.UNAVAILABLE,
                     "vision circuit breaker open", ex);

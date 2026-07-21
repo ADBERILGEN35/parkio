@@ -69,6 +69,47 @@ class VisionContentRiskClassifierTest {
     }
 
     @Test
+    void nearbyBarrierReasonForcesUncertainEvenWhenModelRejects() {
+        provider.analysis = new VisionProviderClient.VisionAnalysis(
+                "NOT_A_PARKING_SPOT", 0.99, "NEARBY_BARRIER_NOT_BLOCKING_TARGET");
+        assertThat(classifier.classifyDetailed(UUID.randomUUID()).verdict()).isEqualTo(Verdict.UNCERTAIN);
+    }
+
+    @Test
+    void plausibleSpaceBesideCarUsesUncertainOrLikelyNeverHardRejectWithoutAllowlist() {
+        provider.analysis = new VisionProviderClient.VisionAnalysis(
+                "NOT_A_PARKING_SPOT", 0.95, "POSSIBLE_SPACE_UNCLEAR_ACCESS");
+        assertThat(classifier.classify(UUID.randomUUID())).isEqualTo(Verdict.UNCERTAIN);
+
+        provider.analysis = new VisionProviderClient.VisionAnalysis(
+                "LIKELY_PARKING", 0.92, "CLEAR_USABLE_SPACE",
+                "FREE", "FITS", "NEARBY_ONLY", "OK", null, null);
+        assertThat(classifier.classify(UUID.randomUUID())).isEqualTo(Verdict.LIKELY_PARKING);
+    }
+
+    @Test
+    void targetPhysicallyBlockedIsConcreteReject() {
+        provider.analysis = new VisionProviderClient.VisionAnalysis(
+                "NOT_A_PARKING_SPOT", 0.96, "TARGET_PHYSICALLY_BLOCKED",
+                "BLOCKED", "TOO_SMALL", "BLOCKING_TARGET", "OK", null, null);
+        assertThat(classifier.classify(UUID.randomUUID())).isEqualTo(Verdict.NOT_A_PARKING_SPOT);
+    }
+
+    @Test
+    void lowConfidenceRejectDegradesToUncertain() {
+        provider.analysis = new VisionProviderClient.VisionAnalysis(
+                "NOT_A_PARKING_SPOT", 0.4, "NO_PLAUSIBLE_SPACE");
+        assertThat(classifier.classify(UUID.randomUUID())).isEqualTo(Verdict.UNCERTAIN);
+    }
+
+    @Test
+    void nonAllowlistedRejectReasonNeverBecomesNotParking() {
+        provider.analysis = new VisionProviderClient.VisionAnalysis(
+                "NOT_A_PARKING_SPOT", 0.99, "OTHER");
+        assertThat(classifier.classify(UUID.randomUUID())).isEqualTo(Verdict.UNCERTAIN);
+    }
+
+    @Test
     void weakNotParkingDegradesToUncertainForHumanReview() {
         provider.analysis = new VisionProviderClient.VisionAnalysis("NOT_A_PARKING_SPOT", 0.5, "UNRELATED_SUBJECT");
         assertThat(classifier.classify(UUID.randomUUID())).isEqualTo(Verdict.UNCERTAIN);
@@ -272,7 +313,7 @@ class VisionContentRiskClassifierTest {
         }
 
         @Override
-        public VisionAnalysis analyze(byte[] imageBytes, String contentType) {
+        public VisionAnalysis analyze(byte[] imageBytes, String contentType, ClaimedRegion claimedRegion) {
             calls++;
             if (delayMs > 0) {
                 try {

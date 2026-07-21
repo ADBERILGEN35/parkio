@@ -14,6 +14,7 @@ import java.time.Instant;
 import java.util.Comparator;
 import java.util.Locale;
 import java.util.Optional;
+import java.util.Set;
 import java.util.UUID;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ConcurrentHashMap;
@@ -104,7 +105,7 @@ public class VisionContentRiskClassifier implements ContentRiskClassifier {
         try {
             MediaContentFetcher.MediaContent content = mediaContentFetcher.fetch(mediaId);
             VisionProviderClient.VisionAnalysis analysis =
-                    providerClient.analyze(content.bytes(), content.contentType());
+                    providerClient.analyze(content.bytes(), content.contentType(), content.claimedRegion());
             if (analysis.usage() != null) {
                 metrics.recordUsage(analysis.usage());
             }
@@ -130,17 +131,49 @@ public class VisionContentRiskClassifier implements ContentRiskClassifier {
         }
     }
 
+    /**
+     * Reject reason codes that may map to {@code NOT_A_PARKING_SPOT}. Soft/ambiguous
+     * codes are forced to {@code UNCERTAIN} even if the model returned a hard reject.
+     */
+    static final Set<String> CONCRETE_REJECT_REASON_CODES = Set.of(
+            "NO_PLAUSIBLE_SPACE",
+            "TARGET_PHYSICALLY_BLOCKED",
+            "CLEARLY_RESTRICTED_AREA",
+            "UNRELATED_SUBJECT",
+            "SCREENSHOT_OR_SYNTHETIC",
+            "TOO_DARK_OR_BLURRY");
+
+    static final Set<String> FORCE_UNCERTAIN_REASON_CODES = Set.of(
+            "NEARBY_BARRIER_NOT_BLOCKING_TARGET",
+            "LEGALITY_UNCERTAIN",
+            "POSSIBLE_SPACE_UNCERTAIN_WIDTH",
+            "POSSIBLE_SPACE_UNCLEAR_ACCESS",
+            "WHOLE_IMAGE_NO_REGION");
+
     private ContentClassification applyConfidencePolicy(VisionProviderClient.VisionAnalysis analysis) {
+        String reasonCode = analysis.reasonCode() == null ? "OTHER" : analysis.reasonCode();
         Verdict verdict = switch (analysis.verdict()) {
             case "LIKELY_PARKING" -> analysis.confidence() >= properties.getAcceptConfidence()
                     ? Verdict.LIKELY_PARKING
                     : Verdict.UNCERTAIN;
-            case "NOT_A_PARKING_SPOT" -> analysis.confidence() >= properties.getRejectConfidence()
-                    ? Verdict.NOT_A_PARKING_SPOT
-                    : Verdict.UNCERTAIN;
+            case "NOT_A_PARKING_SPOT" -> {
+                if (FORCE_UNCERTAIN_REASON_CODES.contains(reasonCode)
+                        || !CONCRETE_REJECT_REASON_CODES.contains(reasonCode)) {
+                    yield Verdict.UNCERTAIN;
+                }
+                yield analysis.confidence() >= properties.getRejectConfidence()
+                        ? Verdict.NOT_A_PARKING_SPOT
+                        : Verdict.UNCERTAIN;
+            }
             default -> Verdict.UNCERTAIN;
         };
-        return ContentClassification.semantic(verdict, analysis.reasonCode());
+        return ContentClassification.semantic(
+                verdict,
+                reasonCode,
+                analysis.claimedRegionAssessment(),
+                analysis.vehicleFitEstimate(),
+                analysis.obstructionAssessment(),
+                analysis.legalityAccessAssessment());
     }
 
     private Optional<ContentClassification> reusableClassification(UUID mediaId) {

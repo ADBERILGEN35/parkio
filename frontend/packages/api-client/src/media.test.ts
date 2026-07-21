@@ -101,6 +101,42 @@ describe('mediaApi.uploadMedia', () => {
     expect(seen.key).toBe('key-rn-header');
   });
 
+  it('appends claimed region fields when provided', async () => {
+    type AppendCall = { name: string; value: unknown };
+    const appended: AppendCall[] = [];
+    const OriginalFormData = globalThis.FormData;
+
+    class CapturingFormData extends OriginalFormData {
+      override append(name: string, value: string | Blob, fileName?: string): void {
+        appended.push({ name, value });
+        if (fileName !== undefined) {
+          super.append(name, value as Blob, fileName);
+          return;
+        }
+        super.append(name, value as never);
+      }
+    }
+
+    vi.stubGlobal('FormData', CapturingFormData);
+    server.use(
+      http.post(`${BASE}/media/upload`, () => HttpResponse.json(OK_RESPONSE, { status: 201 })),
+    );
+
+    try {
+      await mediaApi.uploadMedia(
+        { uri: 'file:///tmp/spot.jpg', name: 'spot.jpg', type: 'image/jpeg' },
+        'key-region',
+        { claimedRegion: { x: 0.1, y: 0.2, width: 0.3, height: 0.4 } },
+      );
+      expect(appended.find((e) => e.name === 'claimedRegionX')?.value).toBe('0.1');
+      expect(appended.find((e) => e.name === 'claimedRegionY')?.value).toBe('0.2');
+      expect(appended.find((e) => e.name === 'claimedRegionWidth')?.value).toBe('0.3');
+      expect(appended.find((e) => e.name === 'claimedRegionHeight')?.value).toBe('0.4');
+    } finally {
+      vi.unstubAllGlobals();
+    }
+  });
+
   it('rejects when the abort signal is already aborted (cancel support)', async () => {
     server.use(http.post(`${BASE}/media/upload`, () => HttpResponse.json(OK_RESPONSE, { status: 201 })));
 

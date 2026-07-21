@@ -1,11 +1,13 @@
 import { Image, StyleSheet, View } from 'react-native';
 import { MaterialCommunityIcons } from '@expo/vector-icons';
+import { isValidClaimedRegion } from '@parkio/types';
 import { AppText } from '@/components/ui/AppText';
 import { Button } from '@/components/ui/Button';
 import { Card } from '@/components/ui/Card';
 import { FreshnessRing } from '@/components/spots/FreshnessRing';
 import { useT } from '@/i18n/LocaleProvider';
 import { useTheme } from '@/theme/ThemeProvider';
+import { ClaimedRegionAnnotator } from '../components/ClaimedRegionAnnotator';
 import { useShareDraftStore } from '../state/shareDraftStore';
 
 export interface PhotoStepProps {
@@ -16,18 +18,26 @@ export interface PhotoStepProps {
 }
 
 /**
- * Step 1 — the captured photo + live upload status (uploading / scanning /
- * ready / failed / offline-queued per brief §12.5.3–4).
+ * Step 1 — the captured photo, claimed-space annotation, and live upload status.
  */
 export function PhotoStep({ onRetake, onPickGallery, onCancelUpload, onRetryUpload }: PhotoStepProps) {
   const theme = useTheme();
   const t = useT();
   const { colors } = theme;
   const photo = useShareDraftStore((s) => s.photo);
+  const setClaimedRegion = useShareDraftStore((s) => s.setClaimedRegion);
   const phase = useShareDraftStore((s) => s.uploadPhase);
   const progress = useShareDraftStore((s) => s.uploadProgress);
+  const hasRegion = isValidClaimedRegion(photo?.claimedRegion);
 
   const status = (() => {
+    if (!hasRegion) {
+      return {
+        icon: 'vector-square' as const,
+        label: t('share.annotate.required'),
+        tone: colors.onSurfaceVariant,
+      };
+    }
     switch (phase) {
       case 'uploading':
         return {
@@ -52,7 +62,15 @@ export function PhotoStep({ onRetake, onPickGallery, onCancelUpload, onRetryUplo
     <View style={styles.container}>
       <View style={[styles.photoCard, { backgroundColor: colors.surfaceContainer2 }]}>
         {photo ? (
-          <Image source={{ uri: photo.uri }} style={styles.photo} resizeMode="cover" />
+          <>
+            <Image source={{ uri: photo.uri }} style={styles.photo} resizeMode="contain" />
+            <ClaimedRegionAnnotator
+              imageWidth={photo.width}
+              imageHeight={photo.height}
+              value={photo.claimedRegion}
+              onChange={(region) => setClaimedRegion(region)}
+            />
+          </>
         ) : (
           <View style={styles.photoFallback}>
             <MaterialCommunityIcons name="camera-outline" size={38} color={colors.outline} />
@@ -66,7 +84,7 @@ export function PhotoStep({ onRetake, onPickGallery, onCancelUpload, onRetryUplo
       {photo && (
         <Card tone={1} padding={14} style={styles.statusCard}>
           <View style={styles.statusRow}>
-            {phase === 'uploading' ? (
+            {hasRegion && phase === 'uploading' ? (
               <FreshnessRing fraction={progress} size={28} strokeWidth={2.5} color={colors.primary} />
             ) : status.icon ? (
               <MaterialCommunityIcons name={status.icon} size={22} color={status.tone} />
@@ -74,10 +92,10 @@ export function PhotoStep({ onRetake, onPickGallery, onCancelUpload, onRetryUplo
             <AppText variant="bodySm" color={status.tone} style={styles.statusLabel}>
               {status.label}
             </AppText>
-            {phase === 'uploading' && (
+            {hasRegion && phase === 'uploading' && (
               <Button label={t('common.cancel')} variant="ghost" size="sm" block={false} onPress={onCancelUpload} />
             )}
-            {phase === 'failed' && (
+            {hasRegion && phase === 'failed' && (
               <Button label={t('common.retry')} variant="tonal" size="sm" block={false} onPress={onRetryUpload} />
             )}
           </View>

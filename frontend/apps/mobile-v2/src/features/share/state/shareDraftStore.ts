@@ -1,10 +1,12 @@
 import { create } from 'zustand';
 import type {
+  ClaimedRegion,
   LegalStatus,
   ParkingContext,
   SpotVehicleType,
   ViolationReason,
 } from '@parkio/types';
+import { deleteDraftPhoto, draftPhotoExists } from '@/features/share/prepareImage';
 import { readJson, removeJson, writeJson } from '@/services/jsonStore';
 
 /**
@@ -33,6 +35,8 @@ export interface DraftPhoto {
   uri: string;
   width: number;
   height: number;
+  /** Normalized claimed free-space box; required before upload/continue. */
+  claimedRegion?: ClaimedRegion | null;
 }
 
 export interface DraftLocation {
@@ -60,12 +64,18 @@ interface ShareDraftState extends Omit<PersistedDraft, 'savedAt'> {
   hydrated: boolean;
   /** True when a persisted draft with real content was found on cold start. */
   resumableDraft: boolean;
+  /**
+   * Monotonic session generation. Bumped on reset/cancel so late async
+   * camera/gallery/persist work cannot revive a cancelled flow.
+   */
+  generation: number;
   uploadPhase: UploadPhase;
   uploadProgress: number;
 
   hydrate: () => Promise<void>;
   setStep: (step: ShareStep) => void;
   setPhoto: (photo: DraftPhoto) => void;
+  setClaimedRegion: (claimedRegion: ClaimedRegion | null) => void;
   clearPhoto: () => void;
   setUpload: (phase: UploadPhase, progress?: number) => void;
   setMediaId: (mediaId: string | null) => void;
@@ -78,7 +88,15 @@ interface ShareDraftState extends Omit<PersistedDraft, 'savedAt'> {
   setLegalStatus: (legalStatus: LegalStatus) => void;
   toggleViolationReason: (reason: ViolationReason) => void;
   dismissResume: () => void;
+  /** Clears in-memory + persisted draft and deletes the local draft photo file. */
   reset: () => void;
+  /**
+   * Confirmed cancel: bump generation, clear memory + disk, delete app-owned
+   * draft photo. Safe to call repeatedly.
+   */
+  cancelAndClear: () => Promise<void>;
+  /** True when `generation` still matches the caller's captured value. */
+  isGenerationCurrent: (generation: number) => boolean;
 }
 
 const STORE_KEY = 'share-draft';
@@ -112,6 +130,7 @@ function isFresh(savedAt: string): boolean {
 }
 
 function persist(state: ShareDraftState): void {
+  const generation = state.generation;
   const snapshot: PersistedDraft = {
     step: state.step,
     photo: state.photo,
@@ -127,11 +146,28 @@ function persist(state: ShareDraftState): void {
     violationReasons: state.violationReasons,
     savedAt: new Date().toISOString(),
   };
-  if (hasContent(snapshot)) {
-    void writeJson(STORE_KEY, snapshot);
-  } else {
-    void removeJson(STORE_KEY);
-  }
+  void (async () => {
+    if (hasContent(snapshot)) {
+      await writeJson(STORE_KEY, snapshot);
+    } else {
+      await removeJson(STORE_KEY);
+    }
+    // If the flow was cancelled after this write started, undo persistence.
+    if (useShareDraftStore.getState().generation !== generation) {
+      await removeJson(STORE_KEY);
+    }
+  })();
+}
+
+function clearInMemory(set: (partial: Partial<ShareDraftState>) => void, generation: number): void {
+  set({
+    ...EMPTY,
+    hydrated: true,
+    resumableDraft: false,
+    generation,
+    uploadPhase: 'idle',
+    uploadProgress: 0,
+  });
 }
 
 export const useShareDraftStore = create<ShareDraftState>((set, get) => {
@@ -144,25 +180,40 @@ export const useShareDraftStore = create<ShareDraftState>((set, get) => {
     ...EMPTY,
     hydrated: false,
     resumableDraft: false,
+    generation: 0,
     uploadPhase: 'idle',
     uploadProgress: 0,
 
     hydrate: async () => {
       const stored = await readJson<PersistedDraft>(STORE_KEY);
       if (stored && hasContent(stored) && isFresh(stored.savedAt)) {
+        let photo = stored.photo;
+        let step = stored.step;
+        // Missing local image: drop the photo and fall back to the photo step.
+        if (photo && !draftPhotoExists(photo.uri)) {
+          console.warn('[share] draft photo missing on hydrate; clearing photo');
+          photo = null;
+          step = 'photo';
+        }
+        const recovered: PersistedDraft = { ...stored, photo, step };
+        if (!hasContent(recovered)) {
+          void removeJson(STORE_KEY);
+          deleteDraftPhoto();
+          set({ hydrated: true });
+          return;
+        }
         set({
-          ...stored,
+          ...recovered,
           hydrated: true,
           resumableDraft: true,
-          // A previously-uploaded photo keeps its mediaId; phase resumes as
-          // ready so the wizard doesn't re-upload. Failed/partial uploads
-          // restart from idle.
-          uploadPhase: stored.mediaId ? 'ready' : 'idle',
-          uploadProgress: stored.mediaId ? 1 : 0,
+          uploadPhase: recovered.mediaId && recovered.photo ? 'ready' : 'idle',
+          uploadProgress: recovered.mediaId && recovered.photo ? 1 : 0,
+          mediaId: recovered.photo ? recovered.mediaId : null,
         });
       } else {
         if (stored) {
           void removeJson(STORE_KEY);
+          deleteDraftPhoto();
         }
         set({ hydrated: true });
       }
@@ -171,7 +222,26 @@ export const useShareDraftStore = create<ShareDraftState>((set, get) => {
     setStep: (step) => update({ step }),
 
     setPhoto: (photo) =>
-      update({ photo, mediaId: null, uploadPhase: 'idle', uploadProgress: 0 }),
+      update({
+        // Always clear region on photo replace — never carry over the previous box.
+        photo: { uri: photo.uri, width: photo.width, height: photo.height, claimedRegion: null },
+        mediaId: null,
+        uploadPhase: 'idle',
+        uploadProgress: 0,
+      }),
+
+    setClaimedRegion: (claimedRegion) => {
+      const current = get().photo;
+      if (!current) {
+        return;
+      }
+      update({
+        photo: { ...current, claimedRegion },
+        mediaId: null,
+        uploadPhase: 'idle',
+        uploadProgress: 0,
+      });
+    },
 
     clearPhoto: () =>
       update({ photo: null, mediaId: null, uploadPhase: 'idle', uploadProgress: 0 }),
@@ -227,15 +297,22 @@ export const useShareDraftStore = create<ShareDraftState>((set, get) => {
 
     dismissResume: () => set({ resumableDraft: false }),
 
+    isGenerationCurrent: (generation) => get().generation === generation,
+
     reset: () => {
-      set({
-        ...EMPTY,
-        hydrated: true,
-        resumableDraft: false,
-        uploadPhase: 'idle',
-        uploadProgress: 0,
-      });
+      const generation = get().generation + 1;
+      clearInMemory(set, generation);
       void removeJson(STORE_KEY);
+      deleteDraftPhoto();
+    },
+
+    cancelAndClear: async () => {
+      const generation = get().generation + 1;
+      clearInMemory(set, generation);
+      deleteDraftPhoto();
+      await removeJson(STORE_KEY);
+      // Belt-and-suspenders against a racing autosave write.
+      await removeJson(STORE_KEY);
     },
   };
 });

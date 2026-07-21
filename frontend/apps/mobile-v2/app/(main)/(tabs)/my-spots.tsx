@@ -10,6 +10,7 @@ import { Chip } from '@/components/ui/Chip';
 import { EmptyState } from '@/components/ui/EmptyState';
 import { Skeleton } from '@/components/ui/Skeleton';
 import { SpotCard } from '@/components/spots/SpotCard';
+import { useShareSessionStore } from '@/features/share/shareSessionStore';
 import { useSpotPhoto } from '@/features/spots/useSpotPhoto';
 import { useT } from '@/i18n/LocaleProvider';
 import { parkingApi } from '@/services/api';
@@ -79,7 +80,10 @@ export default function MySpotsScreen() {
         <EmptyState
           title={t('mySpots.empty.title')}
           ctaLabel={t('mySpots.empty.cta')}
-          onCtaPress={() => router.push({ pathname: '/(main)/share', params: { source: 'camera' } })}
+          onCtaPress={() => {
+            useShareSessionStore.getState().begin('my-spots', '/(main)/(tabs)/my-spots');
+            router.push({ pathname: '/(main)/share', params: { source: 'camera' } });
+          }}
         />
       ) : (
         <FlatList

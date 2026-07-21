@@ -36,9 +36,10 @@ class AiValidationStatusPolicyTest {
     }
 
     @Test
-    void warningWhenConfidenceLow() {
+    void warningWhenConfidenceLowAloneNeverFails() {
         AiValidationStatus status = AiValidationStatusPolicy.evaluate(10, 85, 30, List.of());
         assertThat(status).isEqualTo(AiValidationStatus.WARNING);
+        assertThat(AiValidationDecision.from(status)).isEqualTo(AiValidationDecision.REVIEW);
     }
 
     @Test
@@ -52,6 +53,7 @@ class AiValidationStatusPolicyTest {
         AiValidationStatus status =
                 AiValidationStatusPolicy.evaluate(10, 85, 90, Set.of(AiRiskType.NOT_A_PARKING_SPOT));
         assertThat(status).isEqualTo(AiValidationStatus.FAILED);
+        assertThat(AiValidationDecision.from(status)).isEqualTo(AiValidationDecision.REJECT);
     }
 
     @Test

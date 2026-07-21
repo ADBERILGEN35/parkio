@@ -19,6 +19,12 @@ public final class DeterministicAiValidator {
     public static final String VISION_OUTCOME_INFRA_PREFIX = "vision_outcome:INFRASTRUCTURE:";
     /** Finding detail prefix for genuine semantic UNCERTAIN (reuse within TTL). */
     public static final String VISION_OUTCOME_SEMANTIC_UNCERTAIN = "vision_outcome:SEMANTIC_UNCERTAIN";
+    public static final String REASON_CODE_PREFIX = "reason_code:";
+    public static final String ASSESSMENT_CLAIMED_REGION_PREFIX = "assessment:claimed_region:";
+    public static final String ASSESSMENT_VEHICLE_FIT_PREFIX = "assessment:vehicle_fit:";
+    public static final String ASSESSMENT_OBSTRUCTION_PREFIX = "assessment:obstruction:";
+    public static final String ASSESSMENT_LEGALITY_PREFIX = "assessment:legality:";
+    public static final String REVIEW_EXPLANATION_KEY = "share.validation.reviewBody";
 
     private final ContentRiskClassifier contentRiskClassifier;
 
@@ -62,18 +68,23 @@ public final class DeterministicAiValidator {
                 AiValidationFinding.of(AiValidationType.DUPLICATE_RISK, null,
                         duplicateRisk, "Low likelihood of being a duplicate submission.", now)));
 
+        appendStructuredAssessments(findings, classification, now);
+
         if (verdict == ContentRiskClassifier.Verdict.NOT_A_PARKING_SPOT) {
             imageQuality = 10;
             findings.add(AiValidationFinding.of(AiValidationType.PARKING_SPACE_VISIBILITY,
                     AiRiskType.NOT_A_PARKING_SPOT, 100,
-                    "Content does not appear to depict a parking spot.", now));
+                    "Content does not appear to depict a usable parking spot in the claimed region.", now));
             findings.add(AiValidationFinding.of(AiValidationType.IMAGE_QUALITY,
                     AiRiskType.LOW_IMAGE_QUALITY, imageQuality,
                     "Image quality treated as unusable for non-parking content.", now));
         } else if (verdict == ContentRiskClassifier.Verdict.UNCERTAIN) {
+            // Low confidence alone must never produce FAILED — keep WARNING path.
             aiConfidence = 40;
             findings.add(AiValidationFinding.of(AiValidationType.PARKING_SPACE_VISIBILITY, null,
-                    40, "Uncertain whether the image depicts a parking spot.", now));
+                    40, "Uncertain whether the claimed region is a usable parking spot.", now));
+            findings.add(AiValidationFinding.of(AiValidationType.PARKING_SPACE_VISIBILITY, null,
+                    40, REVIEW_EXPLANATION_KEY, now));
             if (classification.outcomeKind() == ContentClassification.OutcomeKind.INFRASTRUCTURE) {
                 String reason = classification.reasonCode() == null ? "unknown" : classification.reasonCode();
                 findings.add(AiValidationFinding.of(AiValidationType.IMAGE_QUALITY, null,
@@ -93,6 +104,31 @@ public final class DeterministicAiValidator {
 
         return AiValidationResult.create(mediaId, parkingSpotId, requestedByUserId,
                 emptySpace, legalRisk, imageQuality, aiConfidence, findings, fits, now);
+    }
+
+    private static void appendStructuredAssessments(List<AiValidationFinding> findings,
+                                                    ContentClassification classification,
+                                                    Instant now) {
+        if (classification.reasonCode() != null && !classification.reasonCode().isBlank()) {
+            findings.add(AiValidationFinding.of(AiValidationType.PARKING_SPACE_VISIBILITY, null,
+                    50, REASON_CODE_PREFIX + classification.reasonCode(), now));
+        }
+        if (classification.claimedRegionAssessment() != null) {
+            findings.add(AiValidationFinding.of(AiValidationType.EMPTY_SPACE_DETECTION, null,
+                    50, ASSESSMENT_CLAIMED_REGION_PREFIX + classification.claimedRegionAssessment(), now));
+        }
+        if (classification.vehicleFitEstimate() != null) {
+            findings.add(AiValidationFinding.of(AiValidationType.VEHICLE_FIT_ESTIMATION, null,
+                    50, ASSESSMENT_VEHICLE_FIT_PREFIX + classification.vehicleFitEstimate(), now));
+        }
+        if (classification.obstructionAssessment() != null) {
+            findings.add(AiValidationFinding.of(AiValidationType.EMPTY_SPACE_DETECTION, null,
+                    50, ASSESSMENT_OBSTRUCTION_PREFIX + classification.obstructionAssessment(), now));
+        }
+        if (classification.legalityAccessAssessment() != null) {
+            findings.add(AiValidationFinding.of(AiValidationType.LEGAL_RISK_DETECTION, null,
+                    50, ASSESSMENT_LEGALITY_PREFIX + classification.legalityAccessAssessment(), now));
+        }
     }
 
     private static int seedOf(UUID mediaId) {

@@ -1,5 +1,5 @@
 import type { AxiosInstance, AxiosProgressEvent, GenericAbortSignal } from 'axios';
-import type { UploadMediaResponse } from '@parkio/types';
+import type { ClaimedRegion, UploadMediaResponse } from '@parkio/types';
 import { IDEMPOTENCY_HEADER } from './idempotency';
 
 /**
@@ -22,6 +22,8 @@ export interface UploadMediaOptions {
   signal?: GenericAbortSignal;
   /** Progress callback driven by the XHR upload events (bytes loaded / total). */
   onUploadProgress?: (event: AxiosProgressEvent) => void;
+  /** Optional claimed parking region annotation (normalized [0,1]). */
+  claimedRegion?: ClaimedRegion | null;
 }
 
 export function createMediaApi(client: AxiosInstance) {
@@ -36,6 +38,13 @@ export function createMediaApi(client: AxiosInstance) {
       // part. `FormData` accepts both at runtime, but the RN shape is not
       // assignable to the DOM `FormData` typings — cast at this single boundary.
       form.append('file', file as unknown as Blob);
+      const region = options?.claimedRegion;
+      if (region) {
+        form.append('claimedRegionX', String(region.x));
+        form.append('claimedRegionY', String(region.y));
+        form.append('claimedRegionWidth', String(region.width));
+        form.append('claimedRegionHeight', String(region.height));
+      }
       return client
         .post<UploadMediaResponse>('/media/upload', form, {
           headers: {

@@ -13,7 +13,8 @@ import type { GeocodeResult } from '@parkio/types';
 import { isLiveStatus } from '@/components/spots/statusVisuals';
 import { MapSurface, type MapSurfaceHandle } from '@/features/map/MapSurface';
 import { MapSearchOverlay } from '@/features/map/MapSearchOverlay';
-import { LocationPermissionCard, MapEmptyCard, ViewLimitCard } from '@/features/map/MapCards';
+import { LocationPermissionCard, ViewLimitCard } from '@/features/map/MapCards';
+import { MapAreaStatusSheet } from '@/features/map/MapAreaStatusSheet';
 import { SpotSheet } from '@/features/map/SpotSheet';
 import { useAccessPolicy, useLocation, useNearbySpots } from '@/features/map/hooks';
 import type { MapSpotMarker } from '@/features/map/mapHtml';
@@ -26,6 +27,7 @@ import {
   useSmartReturnMutations,
 } from '@/features/smart-return/useSmartReturn';
 import { IconButton } from '@/components/ui/IconButton';
+import { useShareSheetStore } from '@/features/share/shareSheetStore';
 import { useT } from '@/i18n/LocaleProvider';
 import { apiErrorCode } from '@/lib/apiErrors';
 import { formatClock } from '@/lib/time';
@@ -42,6 +44,7 @@ export default function MapScreen() {
   const router = useRouter();
   const insets = useSafeAreaInsets();
   const mapRef = useRef<MapSurfaceHandle>(null);
+  const openShareSheet = useShareSheetStore((s) => s.open);
 
   const location = useLocation();
   const policy = useAccessPolicy();
@@ -176,6 +179,12 @@ export default function MapScreen() {
       })
     : null;
 
+  const radiusOnlyLabel = policy.data
+    ? policy.data.searchRadiusMeters >= 1000
+      ? `${(policy.data.searchRadiusMeters / 1000).toFixed(1).replace(/\.0$/, '')} km`
+      : `${policy.data.searchRadiusMeters} m`
+    : null;
+
   return (
     <View style={styles.container}>
       <MapSurface
@@ -220,14 +229,11 @@ export default function MapScreen() {
             onLevelUp={() => router.push('/(main)/impact')}
           />
         ) : null}
-        {showEmptyCard ? (
-          <MapEmptyCard onShare={() => router.push({ pathname: '/(main)/share', params: { source: 'camera' } })} />
-        ) : null}
       </View>
 
       {/* Locate FAB above the tab bar (hidden while the sheet is open). */}
       {!selectedSpot && (
-        <View style={styles.fabColumn} pointerEvents="box-none">
+        <View style={[styles.fabColumn, showEmptyCard && styles.fabAboveEmpty]} pointerEvents="box-none">
           <IconButton
             icon="crosshairs-gps"
             size={48}
@@ -238,6 +244,14 @@ export default function MapScreen() {
           />
         </View>
       )}
+
+      <MapAreaStatusSheet
+        visible={showEmptyCard}
+        radiusLabel={radiusOnlyLabel}
+        level={policy.data?.currentLevel ?? null}
+        lastRefreshedAt={nearby.dataUpdatedAt ? new Date(nearby.dataUpdatedAt) : null}
+        onShare={() => openShareSheet('map-empty-cta')}
+      />
 
       <SpotSheet
         spot={selectedSpot}
@@ -272,4 +286,5 @@ const styles = StyleSheet.create({
   map: { position: 'absolute', top: 0, left: 0, right: 0, bottom: 0 },
   topOverlay: { position: 'absolute', left: 12, right: 12, gap: 8 },
   fabColumn: { position: 'absolute', right: 14, bottom: 24 },
+  fabAboveEmpty: { bottom: 128 },
 });

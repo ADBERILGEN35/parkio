@@ -3,11 +3,11 @@ import { Image, StyleSheet, View } from 'react-native';
 import { useRouter } from 'expo-router';
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 import { CameraView, useCameraPermissions } from 'expo-camera';
-import * as ImagePicker from 'expo-image-picker';
 import { AppText } from '@/components/ui/AppText';
 import { Button } from '@/components/ui/Button';
 import { IconButton } from '@/components/ui/IconButton';
 import { PressableScale } from '@/components/ui/PressableScale';
+import { openAppSettings, pickImageFromGallery } from '@/features/share/pickMedia';
 import { prepareImage } from '@/features/share/prepareImage';
 import { useShareDraftStore } from '@/features/share/state/shareDraftStore';
 import { useT } from '@/i18n/LocaleProvider';
@@ -42,32 +42,49 @@ export default function ShareCameraScreen() {
       if (photo?.uri) {
         setCaptured({ uri: photo.uri, width: photo.width, height: photo.height });
       }
-    } catch {
+    } catch (error) {
+      console.warn('[share] camera capture failed', error);
       toast.show(t('common.error.generic'), 'error');
     }
   };
 
   const pickFromGallery = async () => {
-    const result = await ImagePicker.launchImageLibraryAsync({
-      mediaTypes: ['images'],
-      quality: 1,
-      exif: false,
-    });
-    const asset = result.assets?.[0];
-    if (asset) {
-      setCaptured({ uri: asset.uri, width: asset.width, height: asset.height });
+    const result = await pickImageFromGallery();
+    if (result.status === 'cancelled') {
+      return;
     }
+    if (result.status === 'permission_denied') {
+      toast.show(t('share.gallery.permissionDenied'), 'error');
+      if (!result.canAskAgain) {
+        void openAppSettings();
+      }
+      return;
+    }
+    if (result.status === 'error') {
+      toast.show(t('common.error.generic'), 'error');
+      return;
+    }
+    setCaptured({
+      uri: result.asset.uri,
+      width: result.asset.width,
+      height: result.asset.height,
+    });
   };
 
   const usePhoto = async () => {
     if (!captured || busy) return;
     setBusy(true);
+    const generation = useShareDraftStore.getState().generation;
     try {
       const prepared = await prepareImage(captured);
+      if (!useShareDraftStore.getState().isGenerationCurrent(generation)) {
+        return;
+      }
       useShareDraftStore.getState().setPhoto(prepared);
       useShareDraftStore.getState().setStep('photo');
       router.back();
-    } catch {
+    } catch (error) {
+      console.warn('[share] prepare camera image failed', error);
       toast.show(t('common.error.generic'), 'error');
     } finally {
       setBusy(false);

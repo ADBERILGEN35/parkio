@@ -1,5 +1,6 @@
 package com.parkio.media.application.command;
 
+import com.parkio.media.domain.ClaimedRegion;
 import java.util.UUID;
 
 /**
@@ -8,5 +9,13 @@ import java.util.UUID;
  * deliberately NOT carried — object keys are generated, never derived from
  * user-controlled input.
  */
-public record UploadMediaCommand(UUID ownerUserId, String contentType, byte[] content) {
+public record UploadMediaCommand(
+        UUID ownerUserId,
+        String contentType,
+        byte[] content,
+        ClaimedRegion claimedRegion) {
+
+    public UploadMediaCommand(UUID ownerUserId, String contentType, byte[] content) {
+        this(ownerUserId, contentType, content, null);
+    }
 }
