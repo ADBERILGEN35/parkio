@@ -3,6 +3,7 @@ import { useState, type ReactNode } from 'react';
 import { useTranslation } from 'react-i18next';
 import { Link, NavLink } from 'react-router-dom';
 import { useAuthStore } from '@/auth/store';
+import { ROUTE_IDS } from '@/routing/route-manifest';
 import { getPrimaryNav, getSecondaryNav, getStaffNavItems } from './navConfig';
 import { UnreadBadge } from './UnreadBadge';
 
@@ -38,7 +39,9 @@ export function MobileNav() {
             {secondaryNav.map((item) => (
               <MoreLink key={item.to} to={item.to} icon={item.icon} onNavigate={() => setMoreOpen(false)}>
                 {item.label}
-                {item.to === '/notifications' ? <UnreadBadge className="ml-auto" /> : null}
+                {item.id === ROUTE_IDS.NOTIFICATIONS ? (
+                  <UnreadBadge className="ml-auto" />
+                ) : null}
               </MoreLink>
             ))}
             {staffNav.map((item) => (

@@ -5,12 +5,13 @@ import { profileUpdateSchema, type ProfileUpdateFormValues } from '@parkio/valid
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useForm } from 'react-hook-form';
 import { useTranslation } from 'react-i18next';
-import { usersApi } from '@/api';
+import { useParkioSdk } from '@/app/AppRuntimeContext';
 import { FriendlyApiErrorMessage } from '@/components/FriendlyApiErrorMessage';
 import { SettingsSectionCard } from '@/components/product/SettingsSectionCard';
 import { showError, showSuccess } from '@/lib/toast';
 
 export function ProfileDetailsCard() {
+  const { usersApi } = useParkioSdk();
   const { t } = useTranslation('settings');
   const query = useQuery({ queryKey: ['me', 'profile'], queryFn: usersApi.getMyProfile });
 
@@ -32,6 +33,7 @@ export function ProfileDetailsCard() {
 }
 
 function ProfileForm({ profile }: { profile: Profile }) {
+  const { usersApi } = useParkioSdk();
   const { t } = useTranslation(['settings', 'common']);
   const queryClient = useQueryClient();
   const mutation = useMutation({

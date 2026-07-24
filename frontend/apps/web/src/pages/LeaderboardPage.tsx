@@ -11,7 +11,7 @@ import {
 import { useQueries, useQuery } from '@tanstack/react-query';
 import { useState } from 'react';
 import { useTranslation } from 'react-i18next';
-import { gamificationApi, usersApi } from '@/api';
+import { useParkioSdk } from '@/app/AppRuntimeContext';
 import { FriendlyApiErrorMessage } from '@/components/FriendlyApiErrorMessage';
 import { LeaderboardRow, initialsFor, labelFor } from '@/components/product/LeaderboardRow';
 
@@ -43,6 +43,7 @@ const PODIUM_RING: Record<number, string> = {
  * exposes none of these and nothing is invented.
  */
 export function LeaderboardPage() {
+  const { gamificationApi, usersApi } = useParkioSdk();
   const { t } = useTranslation('parking');
   const [limitStep, setLimitStep] = useState(0);
   const limit = LIMIT_STEPS[limitStep]!;

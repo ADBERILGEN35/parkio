@@ -1,10 +1,6 @@
-export type AuthUserStatus =
-  | 'PENDING_VERIFICATION'
-  | 'ACTIVE'
-  | 'SUSPENDED'
-  | 'BANNED';
+import type { AuthRoleName, AuthUserStatus } from './auth';
 
-export type AdminRoleName = 'USER' | 'MODERATOR' | 'ADMIN' | 'SUPER_ADMIN';
+export type AdminRoleName = AuthRoleName;
 
 export type AdminAuditAction =
   | 'ADMIN_USER_SUSPENDED'
@@ -17,6 +13,14 @@ export type AdminAuditAction =
   | 'ADMIN_BOOTSTRAP_SUPER_ADMIN';
 
 export type AdminAuditResult = 'SUCCESS' | 'FAILURE';
+
+type AdminSessionRevocationReason =
+  | 'ROTATED'
+  | 'LOGOUT'
+  | 'REUSE_DETECTED'
+  | 'EXPIRED_CLEANUP'
+  | 'ADMIN_REVOKED'
+  | 'PASSWORD_CHANGED';
 
 export interface AdminDashboard {
   totalUsers: number;
@@ -44,7 +48,7 @@ export interface AdminSession {
   sessionId: string;
   createdAt: string;
   revoked: boolean;
-  revokedReason: string | null;
+  revokedReason: AdminSessionRevocationReason | null;
   expiresAt: string;
 }
 
@@ -115,5 +119,5 @@ export interface AdminReasonBody {
 export interface AdminRoleChangeBody {
   role: AdminRoleName;
   action: 'GRANT' | 'REVOKE';
-  reason: string;
+  reason?: string | null;
 }

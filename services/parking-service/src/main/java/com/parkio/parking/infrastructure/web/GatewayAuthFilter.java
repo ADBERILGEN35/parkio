@@ -34,7 +34,7 @@ import org.springframework.web.filter.OncePerRequestFilter;
  * (fail closed, ai-context/07).
  */
 @Component
-@Order(Ordered.HIGHEST_PRECEDENCE + 1)
+@Order(Ordered.HIGHEST_PRECEDENCE + 2)
 public class GatewayAuthFilter extends OncePerRequestFilter {
 
     private static final String GATEWAY_AUTH_HEADER = "X-Gateway-Auth";

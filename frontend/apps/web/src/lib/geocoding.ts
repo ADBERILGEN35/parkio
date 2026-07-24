@@ -7,7 +7,7 @@
  * module is a thin pass-through that preserves the existing `GeocodeResult`
  * contract so callers (`usePlaceAutocomplete`, MapPage, UploadPage) are unchanged.
  */
-import { geocodingApi } from '@/api';
+import type { GeocodingApi } from '@parkio/api-client';
 import type { GeocodeResult } from '@parkio/types';
 
 export type { GeocodeResult } from '@parkio/types';
@@ -21,7 +21,11 @@ export const GEOCODING_RESULT_LIMIT = 5;
  * responses (the shared api client maps these to a {@code ParkioApiError}) so
  * callers can show a friendly error without breaking the separate parking search.
  */
-export async function geocodePlaces(query: string, signal?: AbortSignal): Promise<GeocodeResult[]> {
+export async function geocodePlaces(
+  geocodingApi: GeocodingApi,
+  query: string,
+  signal?: AbortSignal,
+): Promise<GeocodeResult[]> {
   const trimmed = query.trim();
   if (!trimmed) return [];
   return geocodingApi.searchPlaces(trimmed, GEOCODING_RESULT_LIMIT, signal);

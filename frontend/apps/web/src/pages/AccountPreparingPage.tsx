@@ -2,8 +2,7 @@ import { UnauthorizedError } from '@parkio/api-client';
 import { Button, Icon, SkeletonBlock, Surface } from '@parkio/ui';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
-import { useNavigate } from 'react-router-dom';
-import { authApi, usersApi } from '@/api';
+import { useAppRuntime } from '@/app/AppRuntimeContext';
 import { performLogout } from '@/auth/logout';
 import { clearPendingProfile, getPendingProfile, hasPendingProfile } from '@/auth/pendingProfile';
 import { useAuthStore } from '@/auth/store';
@@ -23,13 +22,18 @@ type Phase = 'provisioning' | 'saving-profile';
  * 403 ACCOUNT_NOT_ACTIVE. This page polls `/auth/me` during a short grace window
  * (the store's `provisioning` flag suppresses the global suspended screen for that
  * window only). Once the profile is ready it persists any registration-captured
- * profile fields (display name / phone) via `PATCH /users/me` and forwards to /map.
+ * profile fields (display name / phone) via `PATCH /users/me` and completes the
+ * provisioning lifecycle. RoutePolicyBoundary exclusively owns the resulting
+ * navigation.
  * A failed profile save is non-fatal — the account still works and a soft warning
  * is shown.
  */
 export function AccountPreparingPage() {
+  const {
+    authSession,
+    sdk: { authApi, usersApi },
+  } = useAppRuntime();
   const { t } = useTranslation(['auth', 'common']);
-  const navigate = useNavigate();
   const setUser = useAuthStore((s) => s.setUser);
   const endProvisioning = useAuthStore((s) => s.endProvisioning);
   const [timedOut, setTimedOut] = useState(false);
@@ -51,7 +55,6 @@ export function AccountPreparingPage() {
     const pending = getPendingProfile();
     if (!hasPendingProfile(pending)) {
       endProvisioning();
-      navigate('/map', { replace: true });
       return;
     }
 
@@ -64,14 +67,12 @@ export function AccountPreparingPage() {
       if (!activeRef.current) return;
       clearPendingProfile();
       endProvisioning();
-      navigate('/map', { replace: true });
     } catch {
       if (!activeRef.current) return;
       clearPendingProfile();
-      endProvisioning();
       setProfileWarning(true);
     }
-  }, [navigate, endProvisioning]);
+  }, [endProvisioning, usersApi]);
 
   const runReadiness = useCallback(() => {
     activeRef.current = true;
@@ -97,7 +98,7 @@ export function AccountPreparingPage() {
     };
 
     void attempt();
-  }, [setUser, finishWithProfile]);
+  }, [authApi, finishWithProfile, setUser]);
 
   useEffect(() => {
     runReadiness();
@@ -115,16 +116,15 @@ export function AccountPreparingPage() {
   };
 
   const onContinue = () => {
-    navigate('/map', { replace: true });
+    endProvisioning();
   };
 
   const onSignOut = async () => {
     setSigningOut(true);
     activeRef.current = false;
     clearTimer();
-    endProvisioning();
     try {
-      await performLogout();
+      await performLogout(authSession);
     } finally {
       setSigningOut(false);
     }

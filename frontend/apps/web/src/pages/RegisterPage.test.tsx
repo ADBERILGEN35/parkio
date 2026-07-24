@@ -2,11 +2,10 @@ import { http, HttpResponse } from 'msw';
 import { screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { Route, Routes } from 'react-router-dom';
-import { beforeEach, describe, expect, it } from 'vitest';
-import { useAuthStore } from '@/auth/store';
+import { describe, expect, it } from 'vitest';
 import { getPendingProfile } from '@/auth/pendingProfile';
 import { API_BASE, apiErrorBody, server } from '@/test/server';
-import { renderWithProviders, resetAuth } from '@/test/utils';
+import { renderWithProviders } from '@/test/utils';
 import { AccountPreparingPage } from './AccountPreparingPage';
 import { CheckEmailPage } from './CheckEmailPage';
 import { RegisterPage } from './RegisterPage';
@@ -48,7 +47,7 @@ interface FormOverrides {
 }
 
 async function fillAndSubmit(overrides: FormOverrides = {}) {
-  renderRegister();
+  const result = renderRegister();
   const user = userEvent.setup();
   const values = {
     displayName: 'New Driver',
@@ -73,12 +72,10 @@ async function fillAndSubmit(overrides: FormOverrides = {}) {
     await user.click(screen.getByRole('checkbox', { name: /I agree/ }));
   }
   await user.click(screen.getByRole('button', { name: 'Create account' }));
-  return user;
+  return { ...result, user };
 }
 
 describe('RegisterPage', () => {
-  beforeEach(() => resetAuth());
-
   it('requires a display name', async () => {
     let registerCalls = 0;
     server.use(
@@ -88,11 +85,11 @@ describe('RegisterPage', () => {
       }),
     );
 
-    await fillAndSubmit({ displayName: '' });
+    const { runtime } = await fillAndSubmit({ displayName: '' });
 
     expect(await screen.findByText('Enter your name (at least 2 characters)')).toBeInTheDocument();
     expect(registerCalls).toBe(0);
-    expect(useAuthStore.getState().isAuthenticated).toBe(false);
+    expect(runtime.authStore.getState().isAuthenticated).toBe(false);
   });
 
   it('blocks submit when the passwords do not match', async () => {
@@ -168,14 +165,17 @@ describe('RegisterPage', () => {
       }),
     );
 
-    await fillAndSubmit({ displayName: 'New Driver', phoneNumber: '5551234567' });
+    const { runtime } = await fillAndSubmit({
+      displayName: 'New Driver',
+      phoneNumber: '5551234567',
+    });
 
     await waitFor(() => expect(body).not.toBeNull());
     expect(Object.keys(body!).sort()).toEqual(['email', 'locale', 'password']);
     expect(body!.email).toBe('newcomer@parkio.dev');
     expect(body!.locale).toBe('en');
     expect(await screen.findByText('Check your email')).toBeInTheDocument();
-    expect(useAuthStore.getState().isAuthenticated).toBe(false);
+    expect(runtime.authStore.getState().isAuthenticated).toBe(false);
   });
 
   it('saves the captured display name and phone for after email verification login', async () => {
@@ -183,11 +183,14 @@ describe('RegisterPage', () => {
       http.post(`${API_BASE}/auth/register`, () => HttpResponse.json(authResponse)),
     );
 
-    await fillAndSubmit({ displayName: 'New Driver', phoneNumber: '5551234567' });
+    const { runtime } = await fillAndSubmit({
+      displayName: 'New Driver',
+      phoneNumber: '5551234567',
+    });
 
     expect(await screen.findByText('Check your email')).toBeInTheDocument();
     expect(getPendingProfile()).toEqual({ displayName: 'New Driver', phoneNumber: '5551234567' });
-    expect(useAuthStore.getState().provisioning).toBe(false);
+    expect(runtime.authStore.getState().provisioning).toBe(false);
   });
 
   it('does not authenticate immediately after account creation', async () => {
@@ -195,10 +198,10 @@ describe('RegisterPage', () => {
       http.post(`${API_BASE}/auth/register`, () => HttpResponse.json(authResponse)),
     );
 
-    await fillAndSubmit({ displayName: 'New Driver' });
+    const { runtime } = await fillAndSubmit({ displayName: 'New Driver' });
 
     expect(await screen.findByText('Verify your address before signing in.')).toBeInTheDocument();
-    expect(useAuthStore.getState().isAuthenticated).toBe(false);
+    expect(runtime.authStore.getState().isAuthenticated).toBe(false);
   });
 
   it('shows the backend error message with traceId on failure', async () => {
@@ -211,11 +214,11 @@ describe('RegisterPage', () => {
       ),
     );
 
-    await fillAndSubmit({ email: 'taken@parkio.dev' });
+    const { runtime } = await fillAndSubmit({ email: 'taken@parkio.dev' });
 
     expect(await screen.findByText('Email already registered')).toBeInTheDocument();
     expect(screen.getByText('Trace: trace-reg-1')).toBeInTheDocument();
-    expect(useAuthStore.getState().isAuthenticated).toBe(false);
+    expect(runtime.authStore.getState().isAuthenticated).toBe(false);
   });
 
   it('resends verification from the check-email screen', async () => {

@@ -1,5 +1,4 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { useAuthStore } from '@/auth/store';
 
 async function loadReporting() {
   vi.resetModules();
@@ -9,7 +8,6 @@ async function loadReporting() {
 afterEach(() => {
   vi.unstubAllEnvs();
   vi.restoreAllMocks();
-  useAuthStore.getState().clearSession();
 });
 
 describe('frontend error reporting', () => {

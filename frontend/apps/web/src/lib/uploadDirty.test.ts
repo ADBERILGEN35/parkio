@@ -44,13 +44,33 @@ describe('isUploadWizardDirty', () => {
 });
 
 describe('isAuthEscapePath', () => {
-  it('allows auth and preparing redirects', () => {
-    expect(isAuthEscapePath('/login')).toBe(true);
-    expect(isAuthEscapePath('/preparing')).toBe(true);
+  it('preserves the exact manifest-owned auth and preparing bypass set', () => {
+    for (const pathname of [
+      '/login',
+      '/register',
+      '/forgot-password',
+      '/reset-password',
+      '/check-email',
+      '/verify-email',
+      '/preparing',
+    ]) {
+      expect(isAuthEscapePath(pathname)).toBe(true);
+    }
   });
 
-  it('does not treat product routes as escape paths', () => {
-    expect(isAuthEscapePath('/map')).toBe(false);
-    expect(isAuthEscapePath('/upload')).toBe(false);
+  it('does not broaden bypass eligibility to other or malformed paths', () => {
+    for (const pathname of [
+      '/',
+      '/terms',
+      '/privacy',
+      '/map',
+      '/upload',
+      '/admin',
+      '/unknown',
+      '/login/',
+      '/login?return=/map',
+    ]) {
+      expect(isAuthEscapePath(pathname)).toBe(false);
+    }
   });
 });

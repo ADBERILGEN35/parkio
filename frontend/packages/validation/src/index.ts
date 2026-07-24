@@ -5,3 +5,4 @@ export * from './media';
 export * from './user';
 export * from './moderation';
 export * from './analytics';
+export * from './contracts';

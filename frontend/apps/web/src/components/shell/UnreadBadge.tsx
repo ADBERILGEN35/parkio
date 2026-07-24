@@ -1,12 +1,13 @@
 import { isUnreadNotification } from '@parkio/types';
 import { useQuery } from '@tanstack/react-query';
-import { notificationsApi } from '@/api';
+import { useParkioSdk } from '@/app/AppRuntimeContext';
 
 /**
  * Unread count derived from the cached `['notifications']` list — the backend has
  * no dedicated unread-count endpoint, so a separate key would double-fetch.
  */
 export function UnreadBadge({ className }: { className?: string }) {
+  const { notificationsApi } = useParkioSdk();
   const unreadCount = useQuery({
     queryKey: ['notifications'],
     queryFn: notificationsApi.getMyNotifications,

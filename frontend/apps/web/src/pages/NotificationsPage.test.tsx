@@ -3,9 +3,9 @@ import { http, HttpResponse } from 'msw';
 import { screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { Route, Routes, useLocation } from 'react-router-dom';
-import { beforeEach, describe, expect, it } from 'vitest';
+import { describe, expect, it } from 'vitest';
 import { API_BASE, server } from '@/test/server';
-import { renderWithProviders, resetAuth, signInAs } from '@/test/utils';
+import { renderWithProviders } from '@/test/utils';
 import { NotificationsPage } from './NotificationsPage';
 
 function makeNotifications(): AppNotification[] {
@@ -59,7 +59,7 @@ function renderNotifications(initialEntries = ['/notifications']) {
       <Route path="/profile" element={<LocationProbe label="profile" />} />
       <Route path="/map" element={<LocationProbe label="map" />} />
     </Routes>,
-    { initialEntries },
+    { authRoles: ['USER'], initialEntries },
   );
 }
 
@@ -69,11 +69,6 @@ function LocationProbe({ label }: { label: string }) {
 }
 
 describe('NotificationsPage', () => {
-  beforeEach(() => {
-    resetAuth();
-    signInAs(['USER']);
-  });
-
   it('renders grouped notifications with a single mark-as-read action for the unread item', async () => {
     useNotificationHandlers(makeNotifications());
     renderNotifications();

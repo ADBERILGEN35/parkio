@@ -2,9 +2,9 @@ import type { AnalyticsOverview } from '@parkio/types';
 import { http, HttpResponse } from 'msw';
 import { screen } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
-import { beforeEach, describe, expect, it } from 'vitest';
+import { describe, expect, it } from 'vitest';
 import { API_BASE, apiErrorBody, server } from '@/test/server';
-import { renderWithProviders, resetAuth, signInAs } from '@/test/utils';
+import { renderWithProviders } from '@/test/utils';
 import { AnalyticsPage } from './AnalyticsPage';
 
 const overview: AnalyticsOverview = {
@@ -28,14 +28,12 @@ function useAnalyticsHandlers() {
 }
 
 describe('AnalyticsPage', () => {
-  beforeEach(() => {
-    resetAuth();
-    signInAs(['ADMIN']);
-  });
-
   it('renders the overview KPI cards', async () => {
     useAnalyticsHandlers();
-    renderWithProviders(<AnalyticsPage />, { initialEntries: ['/analytics'] });
+    renderWithProviders(<AnalyticsPage />, {
+      authRoles: ['ADMIN'],
+      initialEntries: ['/analytics'],
+    });
 
     expect(await screen.findByText('Spots created')).toBeInTheDocument();
     expect(screen.getByText('12')).toBeInTheDocument();
@@ -43,7 +41,10 @@ describe('AnalyticsPage', () => {
 
   it('shows the empty state for daily snapshots', async () => {
     useAnalyticsHandlers();
-    renderWithProviders(<AnalyticsPage />, { initialEntries: ['/analytics'] });
+    renderWithProviders(<AnalyticsPage />, {
+      authRoles: ['ADMIN'],
+      initialEntries: ['/analytics'],
+    });
 
     expect(await screen.findByText('No daily snapshots yet')).toBeInTheDocument();
   });
@@ -55,7 +56,10 @@ describe('AnalyticsPage', () => {
         HttpResponse.json(apiErrorBody('FORBIDDEN', 'Forbidden'), { status: 403 }),
       ),
     );
-    renderWithProviders(<AnalyticsPage />, { initialEntries: ['/analytics'] });
+    renderWithProviders(<AnalyticsPage />, {
+      authRoles: ['ADMIN'],
+      initialEntries: ['/analytics'],
+    });
     const user = userEvent.setup();
 
     await user.type(

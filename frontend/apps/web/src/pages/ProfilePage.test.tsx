@@ -11,9 +11,23 @@ import { screen } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { Route, Routes } from 'react-router-dom';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
+import type { WebAppRuntime } from '@/app/runtime';
 import { API_BASE, server } from '@/test/server';
-import { renderWithProviders, resetAuth, signInAs } from '@/test/utils';
+import {
+  createTestAppRuntime,
+  renderWithProviders as renderWithBaseProviders,
+  signInAs,
+} from '@/test/utils';
 import { ProfilePage } from './ProfilePage';
+
+let runtime: WebAppRuntime;
+
+function renderWithProviders(
+  ui: Parameters<typeof renderWithBaseProviders>[0],
+  options: Parameters<typeof renderWithBaseProviders>[1] = {},
+) {
+  return renderWithBaseProviders(ui, { ...options, runtime });
+}
 
 const profile: Profile = {
   id: '0b8f6c3a-0000-0000-0000-000000000020',
@@ -109,6 +123,30 @@ const enabledSmartReturn: SmartReturnSettings = {
   homeLabel: 'Konak',
 };
 
+/**
+ * Production rejects return times that are not strictly later than now on the
+ * local calendar day (`todayAt` + `Date.now()`). A hard-coded `23:30` therefore
+ * fails for any run at or after 23:30 local time. Prefer a time ~2h ahead, or
+ * `23:59` when that would cross midnight.
+ */
+function laterTodayReturnTime(): string {
+  const now = new Date();
+  const later = new Date(now.getTime() + 2 * 60 * 60 * 1000);
+  if (
+    later.getFullYear() !== now.getFullYear() ||
+    later.getMonth() !== now.getMonth() ||
+    later.getDate() !== now.getDate()
+  ) {
+    const endOfDay = new Date(now);
+    endOfDay.setHours(23, 59, 0, 0);
+    if (endOfDay.getTime() <= now.getTime()) {
+      throw new Error('Cannot choose a later-today Smart Return time after 23:59 local.');
+    }
+    return '23:59';
+  }
+  return `${String(later.getHours()).padStart(2, '0')}:${String(later.getMinutes()).padStart(2, '0')}`;
+}
+
 function renderProfile(props: { smartReturnEnabled?: boolean; initialEntries?: string[] } = {}) {
   return renderWithProviders(
     <Routes>
@@ -121,8 +159,8 @@ function renderProfile(props: { smartReturnEnabled?: boolean; initialEntries?: s
 
 describe('ProfilePage', () => {
   beforeEach(() => {
-    resetAuth();
-    signInAs(['USER']);
+    runtime = createTestAppRuntime();
+    signInAs(runtime, ['USER']);
   });
 
   it('renders the impact stats from the backend', async () => {
@@ -247,15 +285,16 @@ describe('ProfilePage', () => {
     useProfileHandlers(emptyVehicle, enabledSmartReturn);
     renderProfile();
     const user = userEvent.setup();
+    const returnTime = laterTodayReturnTime();
 
     await user.click(screen.getByRole('tab', { name: 'Smart Return' }));
     await user.click(await screen.findByRole('button', { name: 'Yes, driving' }));
     expect(screen.getByLabelText('Expected return time')).toBeInTheDocument();
     await user.clear(screen.getByLabelText('Expected return time'));
-    await user.type(screen.getByLabelText('Expected return time'), '23:30');
+    await user.type(screen.getByLabelText('Expected return time'), returnTime);
     await user.click(screen.getByRole('button', { name: "Save today's plan" }));
 
-    expect(await screen.findByText(/Smart Return is active/)).toBeInTheDocument();
+    expect(await screen.findByText("Today's Smart Return is active")).toBeInTheDocument();
   });
 
   it('not-by-car updates the Smart Return today state', async () => {
@@ -304,7 +343,7 @@ describe('ProfilePage', () => {
     await user.click(await screen.findByRole('button', { name: 'Cancel' }));
 
     expect(await screen.findByText('Are you driving today?')).toBeInTheDocument();
-    expect(screen.queryByText(/Smart Return is active/)).not.toBeInTheDocument();
+    expect(screen.queryByText("Today's Smart Return is active")).not.toBeInTheDocument();
   });
 
   it('selects a Smart Return home area from geocoding suggestions', async () => {

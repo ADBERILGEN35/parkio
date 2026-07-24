@@ -31,7 +31,7 @@ import { useState, type ReactNode } from 'react';
 import { useForm } from 'react-hook-form';
 import { useTranslation } from 'react-i18next';
 import { Link } from 'react-router-dom';
-import { moderationApi } from '@/api';
+import { useParkioSdk } from '@/app/AppRuntimeContext';
 import { FriendlyApiErrorMessage } from '@/components/FriendlyApiErrorMessage';
 import { ProductCardButton } from '@/components/product/ProductCard';
 import { formatInstant, formatRelativeAgo } from '@/lib/format';
@@ -72,9 +72,9 @@ function moderationLabel(t: TFunction<'moderation'>, group: string, value: strin
 
 /**
  * Moderator/admin dashboard. Access is enforced by the gateway and the service
- * (403 FORBIDDEN); the app's RoleRoute mirrors that for UX only. Queue-first
- * layout: case list on the left, selected-case detail on the right, appeals
- * below — all backed by the existing query keys and mutations.
+ * (403 FORBIDDEN); RoutePolicyBoundary mirrors manifest role metadata for UX.
+ * Queue-first layout: case list on the left, selected-case detail on the right,
+ * appeals below — all backed by the existing query keys and mutations.
  */
 export function ModerationPage() {
   const { t } = useTranslation('moderation');
@@ -114,6 +114,7 @@ function CasesCard({
   selectedCaseId: string | null;
   onSelect: (caseId: string) => void;
 }) {
+  const { moderationApi } = useParkioSdk();
   const { t } = useTranslation('moderation');
   const [statusFilter, setStatusFilter] = useState<ModerationStatus | ''>('');
 
@@ -219,6 +220,7 @@ function CaseListItem({
 }
 
 function CaseDetailCard({ caseId }: { caseId: string }) {
+  const { moderationApi } = useParkioSdk();
   const { t } = useTranslation('moderation');
   const queryClient = useQueryClient();
 
@@ -438,6 +440,7 @@ function CaseDetailCard({ caseId }: { caseId: string }) {
 }
 
 function AppealsCard() {
+  const { moderationApi } = useParkioSdk();
   const { t } = useTranslation('moderation');
 
   const query = useQuery({
@@ -501,6 +504,7 @@ function AppealItem({ appeal }: { appeal: ModerationAppeal }) {
 }
 
 function ResolveAppealForm({ appealId }: { appealId: string }) {
+  const { moderationApi } = useParkioSdk();
   const { t } = useTranslation('moderation');
   const queryClient = useQueryClient();
 

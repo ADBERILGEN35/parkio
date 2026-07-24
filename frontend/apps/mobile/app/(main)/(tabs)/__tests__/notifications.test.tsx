@@ -30,6 +30,7 @@ function makeNotification(overrides: Partial<AppNotification>): AppNotification 
     createdAt: new Date().toISOString(),
     readAt: null,
     ...overrides,
+    metadata: overrides.metadata ?? {},
   };
 }
 

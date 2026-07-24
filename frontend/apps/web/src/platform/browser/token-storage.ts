@@ -1,6 +1,6 @@
 import type { StoredTokens, TokenStorage } from '@parkio/api-client';
 
-/** Web implementation — access token is memory-only; refresh token is an HttpOnly cookie. */
+/** Web adapter: access tokens are memory-only and refresh tokens remain HttpOnly cookies. */
 export class MemoryOnlyTokenStorage implements TokenStorage {
   private accessToken: string | null = null;
 
@@ -18,5 +18,3 @@ export class MemoryOnlyTokenStorage implements TokenStorage {
     localStorage.removeItem('parkio.refreshToken');
   }
 }
-
-export const webTokenStorage = new MemoryOnlyTokenStorage();

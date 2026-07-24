@@ -4,9 +4,10 @@
 # production build were never gated in CI — regressions and broken builds could
 # merge undetected (production-readiness audit, item "Frontend CI").
 #
-# Scope: typecheck + lint + unit tests (vitest) + production build. Playwright
-# e2e is intentionally NOT in this fast gate (it needs browser binaries and a
-# running app); add a separate workflow for it when an environment exists.
+# Scope: architecture checks, the frontend-controlled WP-03 Chromium acceptance
+# suite, typecheck, lint, unit tests (Vitest), and the production build. The
+# focused browser gate uses Playwright network mocks and does not start backend
+# services; real-stack E2E remains a separate manual workflow.
 #
 # Path-filtered to frontend changes so backend-/docs-only PRs stay fast, the
 # mirror image of how backend-integration.yml filters to backend paths.
@@ -45,6 +46,8 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
 
       # Installs the pnpm version pinned in frontend/package.json ("packageManager").
       - name: Set up pnpm
@@ -61,6 +64,31 @@ jobs:
 
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
+
+      - name: Install focused browser
+        run: pnpm --filter @parkio/web exec playwright install --with-deps chromium
+
+      - name: Architecture guardrails
+        run: pnpm guardrails
+
+      - name: Architecture guardrail tests
+        run: pnpm guardrails:test
+
+      - name: Architecture guardrail lint
+        run: pnpm guardrails:lint
+
+      - name: OpenAPI comparison tests
+        run: pnpm contracts:openapi:test
+
+      - name: OpenAPI comparison lint
+        run: pnpm contracts:openapi:lint
+
+      - name: Backend scope guard
+        if: github.event_name == 'pull_request'
+        run: pnpm guardrails:backend -- --base ${{ github.event.pull_request.base.sha }}
+
+      - name: WP-03 routing browser acceptance
+        run: pnpm --filter @parkio/web exec playwright test e2e/wp03-routing.spec.ts --project=wp03-chromium --workers=1
 
       # `pnpm -r` runs each script only in the workspace packages that define it,
       # so packages without a given script are skipped rather than failing.

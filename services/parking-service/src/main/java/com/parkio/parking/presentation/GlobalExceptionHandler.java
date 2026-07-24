@@ -6,6 +6,8 @@ import com.parkio.parking.infrastructure.idempotency.IdempotencyException;
 import com.parkio.platform.api.ApiError;
 import java.time.Clock;
 import java.util.List;
+import java.util.Set;
+import org.hibernate.exception.ConstraintViolationException;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.dao.DataIntegrityViolationException;
@@ -17,6 +19,7 @@ import org.springframework.web.bind.MethodArgumentNotValidException;
 import org.springframework.web.bind.MissingServletRequestParameterException;
 import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.RestControllerAdvice;
+import org.springframework.web.method.annotation.HandlerMethodValidationException;
 import org.springframework.web.method.annotation.MethodArgumentTypeMismatchException;
 
 /**
@@ -28,6 +31,9 @@ import org.springframework.web.method.annotation.MethodArgumentTypeMismatchExcep
 public class GlobalExceptionHandler {
 
     private static final Logger log = LoggerFactory.getLogger(GlobalExceptionHandler.class);
+    private static final Set<String> EXPECTED_CONFLICT_CONSTRAINTS = Set.of(
+            "uq_parking_spot_verifications_spot_user",
+            "uq_parking_sessions_active_user");
 
     private final Clock clock;
 
@@ -62,6 +68,19 @@ public class GlobalExceptionHandler {
         return ResponseEntity.badRequest().body(body);
     }
 
+    @ExceptionHandler(HandlerMethodValidationException.class)
+    public ResponseEntity<ApiError> handleMethodValidation(HandlerMethodValidationException ex) {
+        List<ApiError.FieldError> fieldErrors = ex.getParameterValidationResults().stream()
+                .flatMap(result -> result.getResolvableErrors().stream()
+                        .map(error -> new ApiError.FieldError(
+                                parameterName(result.getMethodParameter().getParameterName()),
+                                error.getDefaultMessage())))
+                .toList();
+        ApiError body = ApiError.of(
+                "VALIDATION_FAILED", "Request validation failed.", fieldErrors, clock.instant());
+        return ResponseEntity.badRequest().body(body);
+    }
+
     /** Missing/!typed query params (e.g. nearby without lat/lng) and unreadable bodies. */
     @ExceptionHandler({
             MissingServletRequestParameterException.class,
@@ -80,36 +99,73 @@ public class GlobalExceptionHandler {
         return ResponseEntity.badRequest().body(body);
     }
 
+    /** A lost update on a contended spot is a public state conflict. */
+    @ExceptionHandler(ObjectOptimisticLockingFailureException.class)
+    public ResponseEntity<ApiError> handleOptimisticConflict(ObjectOptimisticLockingFailureException ex) {
+        log.warn("Optimistic locking conflict: {}", ex.getPersistentClassName());
+        return conflictResponse();
+    }
+
     /**
-     * Concurrency conflicts: a duplicate-verification race ({@link DataIntegrityViolationException})
-     * or a lost update on a contended spot ({@link ObjectOptimisticLockingFailureException}).
-     * Both map to 409 with a generic message — no internal detail leaked.
+     * Only named constraints that encode public concurrency invariants are 409s.
+     * Other integrity failures are unexpected server errors and must not be
+     * misclassified or expose database details.
      */
-    @ExceptionHandler({DataIntegrityViolationException.class, ObjectOptimisticLockingFailureException.class})
-    public ResponseEntity<ApiError> handleConflict(Exception ex) {
-        log.warn("Concurrency/integrity conflict: {}", ex.getClass().getSimpleName());
-        ApiError body = ApiError.of("CONFLICT", "The request conflicts with the current state of the resource.",
-                clock.instant());
-        return ResponseEntity.status(HttpStatus.CONFLICT).body(body);
+    @ExceptionHandler(DataIntegrityViolationException.class)
+    public ResponseEntity<ApiError> handleIntegrityViolation(DataIntegrityViolationException ex) {
+        String constraintName = constraintName(ex);
+        if (constraintName != null && EXPECTED_CONFLICT_CONSTRAINTS.contains(constraintName)) {
+            log.warn("Expected database constraint conflict: {}", constraintName);
+            return conflictResponse();
+        }
+        log.error("Unexpected database integrity failure", ex);
+        return internalErrorResponse();
     }
 
     /** Catch-all: anything unmapped becomes a consistent 500 with no leaked detail. */
     @ExceptionHandler(Exception.class)
     public ResponseEntity<ApiError> handleUnexpected(Exception ex) {
         log.error("Unexpected error handling request", ex);
+        return internalErrorResponse();
+    }
+
+    private ResponseEntity<ApiError> conflictResponse() {
+        ApiError body = ApiError.of("CONFLICT", "The request conflicts with the current state of the resource.",
+                clock.instant());
+        return ResponseEntity.status(HttpStatus.CONFLICT).body(body);
+    }
+
+    private ResponseEntity<ApiError> internalErrorResponse() {
         ApiError body = ApiError.of("INTERNAL_ERROR", "An unexpected error occurred.", clock.instant());
         return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).body(body);
     }
 
+    private static String constraintName(Throwable failure) {
+        Throwable current = failure;
+        while (current != null) {
+            if (current instanceof ConstraintViolationException constraintViolation) {
+                return constraintViolation.getConstraintName();
+            }
+            current = current.getCause();
+        }
+        return null;
+    }
+
     private static HttpStatus statusFor(ParkingErrorCode code) {
         return switch (code) {
-            case SPOT_NOT_FOUND -> HttpStatus.NOT_FOUND;
+            case SPOT_NOT_FOUND, PARKING_SESSION_NOT_FOUND -> HttpStatus.NOT_FOUND;
+            case INVALID_PARKING_SESSION_CURSOR -> HttpStatus.BAD_REQUEST;
             case ILLEGAL_SPOT_REJECTED -> HttpStatus.UNPROCESSABLE_ENTITY;
             case OWNER_CANNOT_VERIFY, OWNER_CANNOT_CLAIM -> HttpStatus.FORBIDDEN;
-            case ALREADY_VERIFIED, SPOT_NOT_VERIFIABLE, SPOT_NOT_CLAIMABLE, SPOT_EXPIRED -> HttpStatus.CONFLICT;
+            case ALREADY_VERIFIED, SPOT_NOT_VERIFIABLE, SPOT_NOT_CLAIMABLE, SPOT_EXPIRED,
+                    PARKING_SESSION_NOT_ACTIVE, ACTIVE_PARKING_SESSION_EXISTS -> HttpStatus.CONFLICT;
             case MISSING_USER_ID -> HttpStatus.UNAUTHORIZED;
             case MEDIA_ACCESS_UNAVAILABLE -> HttpStatus.SERVICE_UNAVAILABLE;
             case MEDIA_NOT_READY -> HttpStatus.UNPROCESSABLE_ENTITY;
         };
+    }
+
+    private static String parameterName(String parameterName) {
+        return parameterName == null ? "request" : parameterName;
     }
 }

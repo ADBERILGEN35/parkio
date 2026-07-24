@@ -4,8 +4,25 @@ import { useTranslation } from 'react-i18next';
 import { Link, NavLink } from 'react-router-dom';
 import { useAuthStore } from '@/auth/store';
 import { BrandMark } from '@/components/brand/BrandMark';
-import { getPrimaryNav, getSecondaryNav, getStaffNavItems } from './navConfig';
+import { ROUTE_IDS, type RouteId } from '@/routing/route-manifest';
+import {
+  getPrimaryNav,
+  getSecondaryNav,
+  getStaffNavItems,
+  type NavItem,
+} from './navConfig';
 import { UnreadBadge } from './UnreadBadge';
+
+function requiredNavigationItem(
+  items: readonly NavItem[],
+  routeId: RouteId,
+): NavItem {
+  const item = items.find((candidate) => candidate.id === routeId);
+  if (!item) {
+    throw new Error(`Missing navigation metadata for route '${routeId}'.`);
+  }
+  return item;
+}
 
 /** Fixed top glass bar — DESIGN_SYSTEM §2.1 TopNavBar (desktop). */
 export function DesktopNav() {
@@ -14,12 +31,15 @@ export function DesktopNav() {
   const primaryNav = getPrimaryNav(t);
   const secondaryNav = getSecondaryNav(t);
   const staffNav = getStaffNavItems(roles, t);
+  const mapItem = requiredNavigationItem(primaryNav, ROUTE_IDS.MAP);
+  const uploadItem = requiredNavigationItem(primaryNav, ROUTE_IDS.UPLOAD);
+  const profileItem = requiredNavigationItem(primaryNav, ROUTE_IDS.PROFILE);
 
   return (
     <header className="fixed inset-x-0 top-0 z-50 hidden h-16 border-b border-outline-variant/20 bg-surface/70 shadow-sm backdrop-blur-xl md:block">
       <div className="mx-auto flex h-full max-w-7xl items-center gap-sm px-md">
         <Link
-          to="/map"
+          to={mapItem.to}
           className="mr-sm flex shrink-0 items-center gap-xs text-headline-md font-bold text-primary no-underline"
           aria-label={t('homeAria')}
         >
@@ -28,7 +48,7 @@ export function DesktopNav() {
         </Link>
 
         <nav className="flex min-w-0 flex-1 items-center gap-xs overflow-x-auto hide-scrollbar">
-          {primaryNav.filter((item) => item.to !== '/profile').map((item) => (
+          {primaryNav.filter((item) => item.id !== ROUTE_IDS.PROFILE).map((item) => (
             <DesktopNavLink key={item.to} to={item.to}>
               {item.label}
             </DesktopNavLink>
@@ -36,7 +56,7 @@ export function DesktopNav() {
           {secondaryNav.map((item) => (
             <DesktopNavLink key={item.to} to={item.to}>
               {item.label}
-              {item.to === '/notifications' ? <UnreadBadge /> : null}
+              {item.id === ROUTE_IDS.NOTIFICATIONS ? <UnreadBadge /> : null}
             </DesktopNavLink>
           ))}
           {staffNav.map((item) => (
@@ -48,13 +68,15 @@ export function DesktopNav() {
 
         <div className="ml-auto flex shrink-0 items-center gap-sm">
           <Link
-            to="/upload"
+            to={uploadItem.to}
             className="inline-flex items-center gap-xs rounded-full bg-primary px-md py-sm text-label-md text-on-primary no-underline shadow-sm transition-all duration-std hover:bg-primary/90 motion-safe:active:scale-95"
           >
-            <Icon name="add_location_alt" className="text-[16px] leading-none" />
+            <Icon name={uploadItem.icon} className="text-[16px] leading-none" />
             {t('shareSpot')}
           </Link>
-          <DesktopNavLink to="/profile">{t('primary.profile')}</DesktopNavLink>
+          <DesktopNavLink to={profileItem.to}>
+            {profileItem.label}
+          </DesktopNavLink>
         </div>
       </div>
     </header>

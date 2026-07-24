@@ -1,9 +1,9 @@
 import { http, HttpResponse } from 'msw';
 import { screen } from '@testing-library/react';
 import { Route, Routes } from 'react-router-dom';
-import { beforeEach, describe, expect, it } from 'vitest';
+import { describe, expect, it } from 'vitest';
 import { API_BASE, apiErrorBody, server } from '@/test/server';
-import { renderWithProviders, resetAuth } from '@/test/utils';
+import { renderWithProviders } from '@/test/utils';
 import { VerifyEmailPage } from './VerifyEmailPage';
 
 const verifiedUser = {
@@ -25,8 +25,6 @@ function renderVerify(token = 'verify-token') {
 }
 
 describe('VerifyEmailPage', () => {
-  beforeEach(() => resetAuth());
-
   it('shows success when the token verifies', async () => {
     let body: Record<string, unknown> | null = null;
     server.use(

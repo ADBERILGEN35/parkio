@@ -17,7 +17,7 @@ import {
 import { useQuery } from '@tanstack/react-query';
 import { useTranslation } from 'react-i18next';
 import { Link } from 'react-router-dom';
-import { gamificationApi } from '@/api';
+import { useParkioSdk } from '@/app/AppRuntimeContext';
 import { FriendlyApiErrorMessage } from '@/components/FriendlyApiErrorMessage';
 import { enumLabel, formatRelativeAgo } from '@/lib/format';
 
@@ -63,6 +63,7 @@ export function GamificationPage() {
 
 /** Level + progress hero, driven by `GET /gamification/me/level`. */
 function LevelHero() {
+  const { gamificationApi } = useParkioSdk();
   const { t } = useTranslation('parking');
   const query = useQuery({ queryKey: ['level'], queryFn: gamificationApi.getMyLevel });
 
@@ -178,6 +179,7 @@ function LevelHeroContent({ level }: { level: LevelStanding }) {
 
 /** Recent point history (`GET /gamification/me/points`). */
 function RecentActivityCard() {
+  const { gamificationApi } = useParkioSdk();
   const { t } = useTranslation('parking');
   const query = useQuery({ queryKey: ['points'], queryFn: gamificationApi.getMyPoints });
 
@@ -249,6 +251,7 @@ function TransactionItem({ entry }: { entry: PointTransactionEntry }) {
 
 /** Level-based perks (`GET /gamification/me/access-policy`), presented as benefits. */
 function BenefitsCard() {
+  const { gamificationApi } = useParkioSdk();
   const { t } = useTranslation('parking');
   const query = useQuery({
     queryKey: ['access-policy'],
@@ -328,6 +331,7 @@ function BenefitStat({ label, value, icon }: { label: string; value: string | nu
 
 /** Full level roadmap (`GET /gamification/levels`) with the current level highlighted. */
 function LevelsCard() {
+  const { gamificationApi } = useParkioSdk();
   const { t } = useTranslation('parking');
   const levels = useQuery({ queryKey: ['levels'], queryFn: gamificationApi.getLevels });
   const standing = useQuery({ queryKey: ['level'], queryFn: gamificationApi.getMyLevel });

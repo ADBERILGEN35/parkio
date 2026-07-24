@@ -9,6 +9,7 @@ function draft(overrides: Partial<SpotCreationDraft> = {}): SpotCreationDraft {
       status: 'READY',
       contentType: 'image/jpeg',
       fileSize: 1234,
+      claimedRegion: null,
     },
     previewUri: 'file:///spot.jpg',
     location: { lat: 41.01, lng: 29.02 },

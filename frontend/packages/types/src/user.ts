@@ -10,6 +10,9 @@ export const VEHICLE_TYPES = [
 
 export type VehicleType = (typeof VEHICLE_TYPES)[number];
 
+type UserStatus = 'ACTIVE' | 'SUSPENDED' | 'BANNED';
+type TrustBand = 'UNTRUSTED' | 'LOW_TRUST' | 'MEDIUM_TRUST' | 'HIGH_TRUST';
+
 /** The caller's own profile (`GET /users/me`) — mirrors `ProfileResponse`. */
 export interface Profile {
   id: string;
@@ -18,15 +21,15 @@ export interface Profile {
   displayName: string | null;
   phoneNumber: string | null;
   city: string | null;
-  status: string;
+  status: UserStatus;
   createdAt: string;
 }
 
 /** Partial profile update (`PATCH /users/me`). Omitted fields are left unchanged. */
 export interface UpdateProfileRequest {
-  displayName?: string;
-  phoneNumber?: string;
-  city?: string;
+  displayName?: string | null;
+  phoneNumber?: string | null;
+  city?: string | null;
 }
 
 import type { ParkioLocale } from './locale';
@@ -40,9 +43,9 @@ export interface UserPreference {
 
 /** Partial preferences update (`PATCH /users/me/preferences`). Omitted fields are left unchanged. */
 export interface UpdatePreferenceRequest {
-  preferredRadiusMeters?: number;
-  notificationsEnabled?: boolean;
-  preferredLocale?: ParkioLocale;
+  preferredRadiusMeters?: number | null;
+  notificationsEnabled?: boolean | null;
+  preferredLocale?: ParkioLocale | null;
 }
 
 export type SmartReturnTodayStatus =
@@ -67,12 +70,12 @@ export interface SmartReturnSettings {
 }
 
 export interface UpdateSmartReturnSettingsRequest {
-  enabled?: boolean;
+  enabled?: boolean | null;
   homeLatitude?: number | null;
   homeLongitude?: number | null;
   homeLabel?: string | null;
   defaultReturnTime?: string | null;
-  reminderLeadMinutes?: number;
+  reminderLeadMinutes?: number | null;
 }
 
 export interface SmartReturnTodayRequest {
@@ -94,7 +97,7 @@ export interface UpsertVehicleRequest {
 /** `GET /users/me/stats` — mirrors `StatsResponse` (trust + gamification projection). */
 export interface UserStats {
   trustScore: number;
-  trustBand: string;
+  trustBand: TrustBand;
   totalPoints: number;
   currentLevel: number;
 }
@@ -107,8 +110,8 @@ export interface PublicProfile {
   userId: string;
   displayName: string | null;
   city: string | null;
-  trustBand: string;
+  trustBand: TrustBand;
   currentLevel: number;
-  status: string;
+  status: UserStatus;
   memberSince: string;
 }

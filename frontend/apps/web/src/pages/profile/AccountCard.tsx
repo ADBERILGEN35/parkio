@@ -6,9 +6,8 @@ import { useMemo, useState } from 'react';
 import { useForm } from 'react-hook-form';
 import { useTranslation } from 'react-i18next';
 import { useNavigate } from 'react-router-dom';
-import { authApi, usersApi } from '@/api';
 import { describeAuthError } from '@/api/error-messages';
-import { broadcastLogout } from '@/auth/crossTabSync';
+import { useAppRuntime } from '@/app/AppRuntimeContext';
 import { performLogout } from '@/auth/logout';
 import { useAuthStore } from '@/auth/store';
 import { SettingsSectionCard } from '@/components/product/SettingsSectionCard';
@@ -27,12 +26,15 @@ import { accountStatusTone } from './accountVisuals';
  * is enriched from the profile query when available.
  */
 export function AccountCard() {
+  const {
+    authSession,
+    sdk: { authApi, usersApi },
+  } = useAppRuntime();
   const { t } = useTranslation(['settings', 'common', 'validation']);
   const navigate = useNavigate();
   const user = useAuthStore((s) => s.user);
   const roles = useAuthStore((s) => s.roles);
   const status = useAuthStore((s) => s.status);
-  const clearSession = useAuthStore((s) => s.clearSession);
   const [signingOut, setSigningOut] = useState(false);
   const [loggingOutAll, setLoggingOutAll] = useState(false);
   const [passwordMessage, setPasswordMessage] = useState<string | null>(null);
@@ -59,7 +61,7 @@ export function AccountCard() {
   const onSignOut = async () => {
     setSigningOut(true);
     try {
-      await performLogout();
+      await performLogout(authSession);
       showSuccess(t('account.signedOut'));
       navigate('/login', { replace: true });
     } finally {
@@ -78,8 +80,7 @@ export function AccountCard() {
       showWarning(t('account.logoutAllOffline'));
       // The local session is still cleared so this browser cannot keep using a stale token.
     } finally {
-      clearSession();
-      broadcastLogout();
+      authSession.destroyLocalSession();
       setLoggingOutAll(false);
       navigate('/login', { replace: true });
     }
@@ -96,7 +97,7 @@ export function AccountCard() {
       reset();
       setPasswordMessage(t('account.passwordChanged'));
       showSuccess(t('account.passwordChanged'));
-      clearSession();
+      authSession.destroyLocalSession();
       navigate('/login', { replace: true });
     } catch (error) {
       const friendly = describeAuthError(error, t('account.passwordFailed'));

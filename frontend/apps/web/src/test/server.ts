@@ -1,7 +1,7 @@
 import { setupServer } from 'msw/node';
 import { frontendConfig } from '@/config/env';
 
-/** Mirrors the api singleton's validated base URL resolution (`apps/web/src/api/index.ts`). */
+/** Mirrors the application runtime's validated gateway base URL resolution. */
 export const API_BASE = frontendConfig.apiBaseUrl;
 
 /** Shared MSW server — tests register handlers per test via `server.use(...)`. */

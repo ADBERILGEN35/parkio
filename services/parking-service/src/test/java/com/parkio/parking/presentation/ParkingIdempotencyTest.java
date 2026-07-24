@@ -3,6 +3,7 @@ package com.parkio.parking.presentation;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
+import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.header;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
@@ -17,6 +18,7 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.autoconfigure.web.servlet.AutoConfigureMockMvc;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.boot.test.mock.mockito.MockBean;
+import org.springframework.http.HttpHeaders;
 import org.springframework.http.MediaType;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.test.web.servlet.MockMvc;
@@ -52,6 +54,7 @@ class ParkingIdempotencyTest {
         jdbc.update("DELETE FROM parking_spot_verifications");
         jdbc.update("DELETE FROM parking_spot_status_history");
         jdbc.update("DELETE FROM outbox_events");
+        jdbc.update("DELETE FROM parking_sessions");
         jdbc.update("DELETE FROM parking_spots");
     }
 
@@ -71,6 +74,7 @@ class ParkingIdempotencyTest {
 
         mockMvc.perform(authenticated(post("/api/v1/parking/spots/{spotId}/claim", spotId), userId))
                 .andExpect(status().isBadRequest())
+                .andExpect(header().string(HttpHeaders.CACHE_CONTROL, "no-store"))
                 .andExpect(jsonPath("$.code").value("IDEMPOTENCY_KEY_REQUIRED"));
 
         mockMvc.perform(authenticated(post("/api/v1/parking/spots/{spotId}/verify", spotId), userId)
@@ -127,10 +131,19 @@ class ParkingIdempotencyTest {
         claim(claimer, spotId, key).andExpect(status().isOk());
         claim(claimer, spotId, key)
                 .andExpect(status().isOk())
+                .andExpect(header().string(HttpHeaders.CACHE_CONTROL, "no-store"))
                 .andExpect(jsonPath("$.status").value("FILLED"));
 
         assertThat(countWhere("parking_spot_status_history", "reason = 'CLAIMED'")).isEqualTo(1);
         assertThat(countWhere("outbox_events", "event_type = 'ParkingSpotClaimed'")).isEqualTo(1);
+        assertThat(jdbc.queryForObject(
+                """
+                SELECT count(*) FROM parking_sessions
+                WHERE user_id = ? AND status = 'ACTIVE' AND parking_source = 'COMMUNITY'
+                """,
+                Integer.class,
+                claimer))
+                .isEqualTo(1);
     }
 
     @Test

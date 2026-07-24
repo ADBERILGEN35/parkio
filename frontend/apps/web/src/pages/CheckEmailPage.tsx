@@ -2,12 +2,13 @@ import { Button, ErrorMessage, Icon, Input } from '@parkio/ui';
 import { useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { Link, useSearchParams } from 'react-router-dom';
-import { authApi } from '@/api';
 import { describeAuthError } from '@/api/error-messages';
+import { useParkioSdk } from '@/app/AppRuntimeContext';
 import { AuthSplitLayout } from '@/pages/auth/AuthSplitLayout';
 import { showError, showSuccess } from '@/lib/toast';
 
 export function CheckEmailPage() {
+  const { authApi } = useParkioSdk();
   const { t, i18n } = useTranslation(['auth', 'common', 'errors']);
   const [searchParams] = useSearchParams();
   const [email, setEmail] = useState(searchParams.get('email') ?? '');

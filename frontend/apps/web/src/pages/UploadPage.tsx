@@ -38,7 +38,7 @@ import { useQueryClient } from '@tanstack/react-query';
 import { useForm, type UseFormRegisterReturn } from 'react-hook-form';
 import { useTranslation } from 'react-i18next';
 import { Link, useNavigate } from 'react-router-dom';
-import { mediaApi, parkingApi } from '@/api';
+import { useParkioSdk } from '@/app/AppRuntimeContext';
 import { ConfirmDialog } from '@/components/ConfirmDialog';
 import { FriendlyApiErrorMessage } from '@/components/FriendlyApiErrorMessage';
 import { MapPicker } from '@/components/map/MapPicker';
@@ -124,6 +124,7 @@ function formatFileSize(bytes: number): string {
  * multi-photo, price, amenities or geocoding are introduced.
  */
 export function UploadPage() {
+  const { mediaApi, parkingApi } = useParkioSdk();
   const { t } = useTranslation('media');
   const navigate = useNavigate();
   const queryClient = useQueryClient();

@@ -5,13 +5,14 @@ import { useMemo, useState } from 'react';
 import { useForm } from 'react-hook-form';
 import { useTranslation } from 'react-i18next';
 import { Link } from 'react-router-dom';
-import { authApi } from '@/api';
 import { describeAuthError } from '@/api/error-messages';
+import { useParkioSdk } from '@/app/AppRuntimeContext';
 import { AuthSplitLayout } from '@/pages/auth/AuthSplitLayout';
 import { createForgotPasswordSchema } from '@/lib/validation/localized-schemas';
 import { showError, showSuccess } from '@/lib/toast';
 
 export function ForgotPasswordPage() {
+  const { authApi } = useParkioSdk();
   const { t, i18n } = useTranslation(['auth', 'common', 'validation', 'errors']);
   const [message, setMessage] = useState<string | null>(null);
   const [apiError, setApiError] = useState<string | null>(null);

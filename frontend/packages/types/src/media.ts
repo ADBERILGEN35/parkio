@@ -9,6 +9,28 @@ export interface ClaimedRegion {
   height: number;
 }
 
+type MediaStatus = 'PENDING_SCAN' | 'READY' | 'REJECTED' | 'DELETED';
+type AiRiskType =
+  | 'NO_PARKING_SIGN'
+  | 'GARAGE_ENTRANCE'
+  | 'BUS_STOP'
+  | 'PEDESTRIAN_CROSSING'
+  | 'FIRE_HYDRANT'
+  | 'SIDEWALK'
+  | 'TRAFFIC_FLOW_BLOCKING'
+  | 'PRIVATE_PROPERTY'
+  | 'LOW_IMAGE_QUALITY'
+  | 'NOT_A_PARKING_SPOT'
+  | 'UNKNOWN';
+type AiValidationType =
+  | 'PARKING_SPACE_VISIBILITY'
+  | 'EMPTY_SPACE_DETECTION'
+  | 'VEHICLE_FIT_ESTIMATION'
+  | 'LEGAL_RISK_DETECTION'
+  | 'IMAGE_QUALITY'
+  | 'DUPLICATE_RISK';
+type AiVehicleType = 'SEDAN' | 'HATCHBACK' | 'SUV' | 'VAN' | 'MOTORCYCLE' | 'ANY';
+
 /** Minimum fraction of image area required for a usable annotation. */
 export const CLAIMED_REGION_MIN_AREA = 0.05;
 
@@ -36,10 +58,10 @@ export function isValidClaimedRegion(region: ClaimedRegion | null | undefined): 
 
 export interface UploadMediaResponse {
   mediaId: string;
-  status: string;
+  status: MediaStatus;
   contentType: string;
   fileSize: number;
-  claimedRegion?: ClaimedRegion | null;
+  claimedRegion: ClaimedRegion | null;
 }
 
 export interface MediaAccessUrl {
@@ -53,8 +75,8 @@ export interface MediaMetadata {
   ownerUserId: string;
   contentType: string;
   fileSize: number;
-  status: string;
-  claimedRegion?: ClaimedRegion | null;
+  status: MediaStatus;
+  claimedRegion: ClaimedRegion | null;
   createdAt: string;
   updatedAt: string;
 }
@@ -67,19 +89,33 @@ export type AiValidationStatus = 'PASSED' | 'WARNING' | 'FAILED';
 export interface AiValidationResult {
   id: string;
   mediaId: string;
-  parkingSpotId?: string | null;
-  requestedByUserId?: string | null;
+  parkingSpotId: string | null;
+  requestedByUserId: string | null;
   status: AiValidationStatus;
   decision: AiValidationDecision;
-  reasonCode?: string | null;
-  claimedRegionAssessment?: string | null;
-  vehicleFitEstimate?: string | null;
-  obstructionAssessment?: string | null;
-  legalityAccessAssessment?: string | null;
+  reasonCode: string | null;
+  claimedRegionAssessment: string | null;
+  vehicleFitEstimate: string | null;
+  obstructionAssessment: string | null;
+  legalityAccessAssessment: string | null;
   emptySpaceConfidence: number;
   legalRiskScore: number;
   imageQualityScore: number;
   aiConfidence: number;
-  detectedRiskTypes: string[];
+  detectedRiskTypes: AiRiskType[];
+  findings: Array<{
+    id: string;
+    validationType: AiValidationType;
+    riskType: AiRiskType | null;
+    score: number;
+    message: string;
+    createdAt: string;
+  }>;
+  vehicleFitEstimates: Array<{
+    id: string;
+    vehicleType: AiVehicleType;
+    fitScore: number;
+    createdAt: string;
+  }>;
   createdAt: string;
 }

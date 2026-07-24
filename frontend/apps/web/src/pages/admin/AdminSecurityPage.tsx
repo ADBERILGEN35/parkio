@@ -1,10 +1,11 @@
 import { Card, LoadingState, MetricCard, PageShell } from '@parkio/ui';
 import { useQuery } from '@tanstack/react-query';
 import { useTranslation } from 'react-i18next';
-import { adminApi } from '@/api';
+import { useParkioSdk } from '@/app/AppRuntimeContext';
 import { FriendlyApiErrorMessage } from '@/components/FriendlyApiErrorMessage';
 
 export function AdminSecurityPage() {
+  const { adminApi } = useParkioSdk();
   const { t } = useTranslation('admin');
   const query = useQuery({
     queryKey: ['admin', 'security'],

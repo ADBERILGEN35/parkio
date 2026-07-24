@@ -1,5 +1,6 @@
 import { Button, Icon, Surface } from '@parkio/ui';
 import { useState } from 'react';
+import { useAppRuntime } from '@/app/AppRuntimeContext';
 import { useTranslation } from 'react-i18next';
 import { performLogout } from '@/auth/logout';
 
@@ -8,13 +9,14 @@ import { performLogout } from '@/auth/logout';
  * 403 ACCOUNT_NOT_ACTIVE. No retries — only sign-out is available.
  */
 export function AccountSuspendedPage() {
+  const { authSession } = useAppRuntime();
   const { t } = useTranslation(['auth', 'common']);
   const [signingOut, setSigningOut] = useState(false);
 
   const onSignOut = async () => {
     setSigningOut(true);
     try {
-      await performLogout();
+      await performLogout(authSession);
     } finally {
       setSigningOut(false);
     }

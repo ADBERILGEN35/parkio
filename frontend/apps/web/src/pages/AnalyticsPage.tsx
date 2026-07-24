@@ -17,15 +17,15 @@ import type { TFunction } from 'i18next';
 import { useState, type ReactNode } from 'react';
 import { useForm } from 'react-hook-form';
 import { useTranslation } from 'react-i18next';
-import { analyticsApi } from '@/api';
+import { useParkioSdk } from '@/app/AppRuntimeContext';
 import { useAuthStore } from '@/auth/store';
 import { FriendlyApiErrorMessage } from '@/components/FriendlyApiErrorMessage';
 import i18n from 'i18next';
 
 /**
- * Platform analytics dashboard (ADMIN via RoleRoute + gateway). KPI cards
- * plus plain tables — no chart library yet. None of the analytics endpoints take
- * query parameters, so there is nothing to filter client-side.
+ * Platform analytics dashboard (ADMIN via manifest policy + gateway). KPI
+ * cards plus plain tables — no chart library yet. None of the analytics
+ * endpoints take query parameters, so there is nothing to filter client-side.
  */
 export function AnalyticsPage() {
   const { t } = useTranslation('analytics');
@@ -56,6 +56,7 @@ const METRIC_ICON: Record<AnalyticsMetricType, string> = {
 };
 
 function OverviewCard() {
+  const { analyticsApi } = useParkioSdk();
   const { t } = useTranslation('analytics');
 
   const query = useQuery({
@@ -101,6 +102,7 @@ function OverviewCard() {
 }
 
 function DailyCard() {
+  const { analyticsApi } = useParkioSdk();
   const { t } = useTranslation('analytics');
 
   const query = useQuery({
@@ -142,6 +144,7 @@ function DailyCard() {
 }
 
 function ParkingCard() {
+  const { analyticsApi } = useParkioSdk();
   const { t } = useTranslation('analytics');
 
   const query = useQuery({
@@ -177,6 +180,7 @@ function ParkingCard() {
 }
 
 function MetricsCard() {
+  const { analyticsApi } = useParkioSdk();
   const { t } = useTranslation('analytics');
 
   const query = useQuery({
@@ -221,6 +225,7 @@ function MetricsCard() {
  * is mostly useful with "Use my id".
  */
 function UserLookupCard() {
+  const { analyticsApi } = useParkioSdk();
   const { t } = useTranslation('analytics');
   const ownUserId = useAuthStore((s) => s.user?.id ?? null);
   const [lookupUserId, setLookupUserId] = useState<string | null>(null);

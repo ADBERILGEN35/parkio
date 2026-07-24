@@ -3,12 +3,27 @@ import { screen } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 vi.mock('@/components/map/NearbySpotsMap', () => ({ NearbySpotsMap: () => null }));
-import { renderWithProviders, resetAuth, signInAs, withLocale } from '@/test/utils';
+import type { WebAppRuntime } from '@/app/runtime';
+import {
+  createTestAppRuntime,
+  renderWithProviders as renderWithBaseProviders,
+  signInAs,
+  withLocale,
+} from '@/test/utils';
 import { GamificationPage } from '@/pages/GamificationPage';
 import { LeaderboardPage } from '@/pages/LeaderboardPage';
 import { ProfilePage } from '@/pages/ProfilePage';
 import { http, HttpResponse } from 'msw';
 import { API_BASE, server } from '@/test/server';
+
+let runtime: WebAppRuntime;
+
+function renderWithProviders(
+  ui: Parameters<typeof renderWithBaseProviders>[0],
+  options: Parameters<typeof renderWithBaseProviders>[1] = {},
+) {
+  return renderWithBaseProviders(ui, { ...options, runtime });
+}
 
 const TOKEN_LEAK_RE = /(?:\+)?__[A-Z0-9]+(?:__[A-Z0-9]+)*__/;
 
@@ -137,8 +152,8 @@ describe('locale surface integrity', () => {
       (URL).createObjectURL = () => 'blob:mock';
       (URL).revokeObjectURL = () => undefined;
     }
-    resetAuth();
-    signInAs(['USER']);
+    runtime = createTestAppRuntime();
+    signInAs(runtime, ['USER']);
     stubAuthenticatedSurfaces();
   });
 

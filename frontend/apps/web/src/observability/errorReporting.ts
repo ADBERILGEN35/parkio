@@ -1,5 +1,4 @@
 import { frontendConfig } from '@/config/env';
-import { useAuthStore } from '@/auth/store';
 
 export interface FrontendErrorContext {
   componentStack?: string;
@@ -53,11 +52,10 @@ function sanitizeValue(value: unknown): unknown {
 }
 
 function buildSafeContext(context: FrontendErrorContext = {}): FrontendErrorContext {
-  const state = useAuthStore.getState();
   return sanitizeValue({
     ...context,
     route: context.route ?? sanitizeUrl(window.location.href),
-    userAuthState: context.userAuthState ?? (state.isAuthenticated ? 'authenticated' : 'anonymous'),
+    userAuthState: context.userAuthState ?? 'anonymous',
     browser: {
       userAgent: navigator.userAgent,
       language: navigator.language,
@@ -69,7 +67,7 @@ function isEnabled(): boolean {
   return frontendConfig.errorReporting.provider !== 'disabled';
 }
 
-export function initFrontendErrorReporting(): void {
+export function initFrontendErrorReporting(isAuthenticated: () => boolean): void {
   if (initialized) return;
   initialized = true;
 
@@ -79,6 +77,7 @@ export function initFrontendErrorReporting(): void {
       filename: event.filename,
       lineno: event.lineno,
       colno: event.colno,
+      userAuthState: isAuthenticated() ? 'authenticated' : 'anonymous',
     });
   });
 
@@ -86,6 +85,7 @@ export function initFrontendErrorReporting(): void {
     reportFrontendError(event.reason instanceof Error ? event.reason : new Error('Unhandled promise rejection'), {
       source: 'window.unhandledrejection',
       reasonType: typeof event.reason,
+      userAuthState: isAuthenticated() ? 'authenticated' : 'anonymous',
     });
   });
 }

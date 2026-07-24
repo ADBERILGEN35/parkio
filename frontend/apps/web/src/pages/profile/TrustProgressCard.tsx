@@ -2,13 +2,14 @@ import { Icon, LoadingState, MetricCard, SoftBadge } from '@parkio/ui';
 import { useQuery } from '@tanstack/react-query';
 import { useTranslation } from 'react-i18next';
 import { Link } from 'react-router-dom';
-import { usersApi } from '@/api';
+import { useParkioSdk } from '@/app/AppRuntimeContext';
 import { FriendlyApiErrorMessage } from '@/components/FriendlyApiErrorMessage';
 import { SettingsSectionCard } from '@/components/product/SettingsSectionCard';
 import { enumLabel } from '@/lib/format';
 import { trustBandTone } from './accountVisuals';
 
 export function TrustProgressCard() {
+  const { usersApi } = useParkioSdk();
   const { t } = useTranslation(['settings', 'common']);
   const stats = useQuery({ queryKey: ['me', 'stats'], queryFn: usersApi.getMyStats });
 

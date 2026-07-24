@@ -1,50 +1,34 @@
 import { StrictMode } from 'react';
 import { createRoot } from 'react-dom/client';
-import { BrowserRouter } from 'react-router-dom';
-
-function normalizedPathname() {
-  return window.location.pathname.replace(/\/+$/, '') || '/';
-}
 
 async function bootstrap() {
   const root = createRoot(document.getElementById('root')!);
-  const pathname = normalizedPathname();
-
-  if (pathname === '/privacy' || pathname === '/terms') {
-    await import('./styles/index.css');
-    const [{ PrivacyPage, TermsPage }, { initI18n }] = await Promise.all([
-      import('./pages/LegalPage'),
-      import('./i18n'),
-    ]);
-    await initI18n();
-    const Page = pathname === '/privacy' ? PrivacyPage : TermsPage;
-    root.render(
-      <StrictMode>
-        <BrowserRouter>
-          <Page />
-        </BrowserRouter>
-      </StrictMode>,
-    );
-    return;
-  }
 
   await import('./styles/index.css');
 
-  const [{ App }, { initFrontendErrorReporting }, { registerServiceWorker }, { initI18n }] =
+  const [
+    { App },
+    { createWebAppRuntime },
+    { initFrontendErrorReporting },
+    { registerServiceWorker },
+    { initI18n },
+  ] =
     await Promise.all([
       import('./App'),
+      import('./app/runtime'),
       import('./observability/errorReporting'),
       import('./pwa/registerServiceWorker'),
       import('./i18n'),
     ]);
 
   await initI18n();
-  initFrontendErrorReporting();
+  const runtime = createWebAppRuntime();
+  initFrontendErrorReporting(() => runtime.authStore.getState().isAuthenticated);
   registerServiceWorker();
 
   root.render(
     <StrictMode>
-      <App />
+      <App runtime={runtime} />
     </StrictMode>,
   );
 }

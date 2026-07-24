@@ -17,6 +17,7 @@ import com.parkio.parking.domain.ParkingSpotStatus;
 import com.parkio.parking.domain.ParkingSpotStatusHistory;
 import com.parkio.parking.domain.ParkingSpotVerification;
 import com.parkio.parking.domain.ParkingSpotViewLog;
+import com.parkio.parking.domain.ParkingSource;
 import com.parkio.parking.domain.VerificationResult;
 import com.parkio.parking.domain.event.ParkingSpotActivatedEvent;
 import com.parkio.parking.domain.event.ParkingSpotClaimedEvent;
@@ -31,6 +32,8 @@ import java.time.Instant;
 import java.util.List;
 import java.util.Locale;
 import java.util.UUID;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -48,6 +51,8 @@ import org.springframework.transaction.annotation.Transactional;
 @Transactional
 public class ParkingApplicationService {
 
+    private static final Logger log = LoggerFactory.getLogger(ParkingApplicationService.class);
+
     private final ParkingSpotRepository spots;
     private final ParkingSpotVerificationRepository verifications;
     private final ParkingSpotStatusHistoryRepository statusHistory;
@@ -57,6 +62,7 @@ public class ParkingApplicationService {
     private final MediaAccessPort mediaAccess;
     private final MediaReadinessPort mediaReadiness;
     private final ParkingSearchSettings searchSettings;
+    private final ParkingSessionService parkingSessions;
     private final Clock clock;
 
     public ParkingApplicationService(ParkingSpotRepository spots,
@@ -68,6 +74,7 @@ public class ParkingApplicationService {
                                      MediaAccessPort mediaAccess,
                                      MediaReadinessPort mediaReadiness,
                                      ParkingSearchSettings searchSettings,
+                                     ParkingSessionService parkingSessions,
                                      Clock clock) {
         this.spots = spots;
         this.verifications = verifications;
@@ -78,6 +85,7 @@ public class ParkingApplicationService {
         this.mediaAccess = mediaAccess;
         this.mediaReadiness = mediaReadiness;
         this.searchSettings = searchSettings;
+        this.parkingSessions = parkingSessions;
         this.clock = clock;
     }
 
@@ -198,6 +206,15 @@ public class ParkingApplicationService {
 
         ParkingSpotStatus previous = spot.status();
         spot.claim(claimerUserId, now);
+        var session = parkingSessions.startSession(
+                claimerUserId,
+                ParkingSource.COMMUNITY,
+                spot.latitude(),
+                spot.longitude(),
+                null,
+                null);
+        log.info("Community claim prepared spotId={} sessionId={} parkingSource={}",
+                spot.id(), session.getId(), session.getParkingSource());
         ParkingSpot saved = spots.save(spot);
         recordHistory(saved, previous, "CLAIMED", now);
         outbox.append(ParkingSpotClaimedEvent.of(saved, claimerUserId, now));

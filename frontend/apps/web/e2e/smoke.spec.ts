@@ -75,6 +75,9 @@ const PHOTO_BYTES = Buffer.from([0xff, 0xd8, 0xff, 0xe0, 0x00, 0x10, 0x4a, 0x46]
 async function installMockApi(page: Page) {
   let currentUser: typeof user | typeof moderator | null = null;
 
+  await page.addInitScript(() => {
+    localStorage.setItem('parkio.locale', 'en');
+  });
   await page.route(/openstreetmap\.org|api\.maptiler\.com|fonts\.(googleapis|gstatic)\.com/, (route) =>
     route.abort(),
   );
@@ -99,6 +102,9 @@ async function installMockApi(page: Page) {
       const body = request.postDataJSON() as { email?: string };
       currentUser = body.email === moderator.email ? moderator : user;
       return json(authResponse(currentUser));
+    }
+    if (method === 'PATCH' && path === '/users/me') {
+      return json(request.postDataJSON());
     }
     if (method === 'POST' && path === '/auth/logout') {
       currentUser = null;
@@ -176,20 +182,20 @@ async function spaGoto(page: Page, path: string) {
 
 async function fillCreateSpotWizard(page: Page) {
   await spaGoto(page, '/upload');
-  await page.getByLabel('Spot photo').setInputFiles({
+  await page.getByLabel('Spot photo', { exact: true }).setInputFiles({
     name: 'spot.jpg',
     mimeType: 'image/jpeg',
     buffer: PHOTO_BYTES,
   });
-  await page.getByRole('button', { name: /next/i }).click();
+  await page.getByRole('button', { name: 'Continue' }).click();
   await page.getByText('Advanced coordinates').click();
   await page.getByLabel('Latitude').fill('41.01');
   await page.getByLabel('Longitude').fill('28.97');
-  await page.getByRole('button', { name: /next/i }).click();
+  await page.getByRole('button', { name: 'Continue' }).click();
   await page.getByText('Sedan', { exact: true }).click();
   await page.getByLabel('Parking context').selectOption('STREET_PARKING');
   await page.getByText('Legal', { exact: true }).click();
-  await page.getByRole('button', { name: /next/i }).click();
+  await page.getByRole('button', { name: 'Continue' }).click();
 }
 
 test.beforeEach(async ({ page }) => {
@@ -262,7 +268,7 @@ test('map: search overlay and results sheet stay usable', async ({ page }) => {
   await page.getByRole('button', { name: 'Search nearby' }).click();
 
   await expect(page.getByRole('complementary', { name: 'Search results' })).toBeVisible();
-  await expect(page.getByRole('heading', { name: '1 spot nearby' })).toBeVisible();
+  await expect(page.getByRole('heading', { name: '1 spots' })).toBeVisible();
   if (mobile) {
     await expect(page.getByRole('button', { name: /Search results, half/ })).toBeVisible();
   }

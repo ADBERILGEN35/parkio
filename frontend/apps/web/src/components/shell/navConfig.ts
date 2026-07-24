@@ -1,48 +1,93 @@
 import { hasAdminRole, hasPrivilegedRole } from '@parkio/types';
 import type { TFunction } from 'i18next';
+import {
+  ROUTE_MANIFEST,
+  getRouteManifestEntry,
+  getRoutePath,
+  type RouteId,
+  type RouteNavigationGroup,
+  type RouteRoleRequirement,
+} from '@/routing/route-manifest';
 
 export interface NavItem {
+  id: RouteId;
   to: string;
   label: string;
   icon: string;
 }
 
+export interface AdminShellNavItem {
+  id: RouteId;
+  to: string;
+  label: string;
+  end: boolean;
+}
+
+function getNavigationItems(
+  group: RouteNavigationGroup,
+  t: TFunction,
+  role?: RouteRoleRequirement,
+): NavItem[] {
+  return ROUTE_MANIFEST.filter(
+    (entry) =>
+      entry.navigation?.group === group &&
+      (role === undefined || entry.role === role),
+  )
+    .sort(
+      (left, right) =>
+        left.navigation!.order - right.navigation!.order,
+    )
+    .map((entry) => ({
+      id: entry.id,
+      to: getRoutePath(entry.id),
+      label: t(entry.navigation!.labelKey),
+      icon: entry.navigation!.icon,
+    }));
+}
+
 /** Primary destinations — surfaced in the mobile bottom bar (DESIGN_SYSTEM §2.1). */
 export function getPrimaryNav(t: TFunction): NavItem[] {
-  return [
-    { to: '/map', label: t('navigation:primary.map'), icon: 'map' },
-    { to: '/my-spots', label: t('navigation:primary.mySpots'), icon: 'bookmark' },
-    { to: '/upload', label: t('navigation:primary.share'), icon: 'add_location_alt' },
-    { to: '/leaderboard', label: t('navigation:primary.leaderboard'), icon: 'leaderboard' },
-    { to: '/profile', label: t('navigation:primary.profile'), icon: 'account_circle' },
-  ];
+  return getNavigationItems('primary', t);
 }
 
 /** Secondary destinations — desktop top bar + mobile overflow menu. */
 export function getSecondaryNav(t: TFunction): NavItem[] {
-  return [
-    { to: '/reports', label: t('navigation:secondary.reports'), icon: 'flag' },
-    { to: '/gamification', label: t('navigation:secondary.impact'), icon: 'military_tech' },
-    { to: '/notifications', label: t('navigation:secondary.notifications'), icon: 'notifications' },
-  ];
+  return getNavigationItems('secondary', t);
 }
 
 export function getModeratorNav(t: TFunction): NavItem[] {
-  return [{ to: '/admin/moderation', label: t('navigation:staff.moderation'), icon: 'gavel' }];
+  return getNavigationItems('staff', t, 'privileged');
 }
 
 export function getAdminNav(t: TFunction): NavItem[] {
-  return [{ to: '/admin', label: t('navigation:staff.admin'), icon: 'admin_panel_settings' }];
+  return getNavigationItems('staff', t, 'admin');
 }
 
 /** Staff destinations visible for the caller's roles (moderation vs platform analytics). */
 export function getStaffNavItems(roles: string[], t: TFunction): NavItem[] {
-  const items: NavItem[] = [];
-  if (hasPrivilegedRole(roles)) {
-    items.push(...getModeratorNav(t));
-  }
-  if (hasAdminRole(roles)) {
-    items.push(...getAdminNav(t));
-  }
-  return items;
+  return getNavigationItems('staff', t).filter((item) => {
+    const requirement = getRouteManifestEntry(item.id).role;
+    if (requirement === 'privileged') {
+      return hasPrivilegedRole(roles);
+    }
+    if (requirement === 'admin') {
+      return hasAdminRole(roles);
+    }
+    return true;
+  });
+}
+
+/** Administration sidebar destinations projected only from canonical manifest metadata. */
+export function getAdminShellNav(t: TFunction): AdminShellNavItem[] {
+  return ROUTE_MANIFEST.filter((entry) => entry.shellNavigation)
+    .sort(
+      (left, right) =>
+        left.shellNavigation!.order - right.shellNavigation!.order,
+    )
+    .map((entry) => ({
+      id: entry.id,
+      to: getRoutePath(entry.id),
+      label: t(entry.shellNavigation!.labelKey),
+      end: entry.shellNavigation!.end,
+    }));
 }

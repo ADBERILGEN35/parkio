@@ -359,8 +359,8 @@ Troubleshooting:
 |------|-------|-------|
 | `packages/api-client` | `src/*.test.ts` | Authorization/`X-Correlation-Id` interceptors, 401 → single shared refresh → retry → hard logout, refresh-exempt auth paths, `toParkioError` mapping (401/403/`ACCOUNT_NOT_ACTIVE`/429/503/unknown), `Idempotency-Key` on create/verify/claim/upload |
 | `packages/validation` | `src/*.test.ts` | login/register, nearby-search boundaries (lat ±90, lng ±180, radius ≤ 50 000, limit 1–50), media type/size limits, create-spot vehicle/violation rules, profile/preferences/vehicle constraints |
-| `apps/web` | `src/**/*.test.tsx` | Login success (session + redirect) and 401 (friendly message + traceId), `ProtectedRoute`/`RoleRoute` guards, route title/focus management, Sonner toast helpers/dedupe, jest-axe checks for login/register/map shell, PWA manifest/service-worker cache policy, offline banner, 404 CTA routing, notifications list/empty/mark-as-read cache update, spot detail 404 / 409 `ALREADY_VERIFIED` / claim success, upload validation/media-reuse/create, profile stats + section-tab switching + vehicle empty/current + profile/preferences save + logout, gamification "Your Impact" header + level hero + recent activity/benefits + activity empty state + roadmap current-level highlight, leaderboard podium + public-profile enrichment/fallback + your-standing highlight + not-in-top-N + show-more + empty, moderation case queue/detail-assign/appeal-resolve controls, analytics overview KPIs + daily empty state + own-id-only 403 message, register extended-form validation (display name / password match / terms) + sends only email+password + captured name/phone PATCHed after provisioning + profile-save failure is non-fatal, register success → preparing → /map and register → preparing (not suspended), post-register provisioning grace (retry on `ACCOUNT_NOT_ACTIVE`, timeout → retry/sign-out) + store guard (suspended only outside the grace window), my-spots empty/list, reports list + appeal form, AppNav mobile menu toggle + role-gated links |
-| `apps/web` (E2E) | `e2e/smoke.spec.ts` | Mocked Playwright critical flows for auth, map search/results, parking, moderation, and mobile projects (desktop Chromium, iPhone 14, Pixel 8-sized Chromium). |
+| `apps/web` | `src/**/*.test.tsx` | Login success (session + redirect) and 401 (friendly message + traceId), manifest-driven `RoutePolicyBoundary` lifecycle/role policy, route title/focus management, Sonner toast helpers/dedupe, jest-axe checks for login/register/map shell, PWA manifest/service-worker cache policy, offline banner, 404 CTA routing, notifications list/empty/mark-as-read cache update, spot detail 404 / 409 `ALREADY_VERIFIED` / claim success, upload validation/media-reuse/create, profile stats + section-tab switching + vehicle empty/current + profile/preferences save + logout, gamification "Your Impact" header + level hero + recent activity/benefits + activity empty state + roadmap current-level highlight, leaderboard podium + public-profile enrichment/fallback + your-standing highlight + not-in-top-N + show-more + empty, moderation case queue/detail-assign/appeal-resolve controls, analytics overview KPIs + daily empty state + own-id-only 403 message, register extended-form validation (display name / password match / terms) + sends only email+password + captured name/phone PATCHed after provisioning + profile-save failure is non-fatal, register success → preparing → /map and register → preparing (not suspended), post-register provisioning grace (retry on `ACCOUNT_NOT_ACTIVE`, timeout → retry/sign-out) + store guard (suspended only outside the grace window), my-spots empty/list, reports list + appeal form, AppNav mobile menu toggle + role-gated links |
+| `apps/web` (E2E) | `e2e/smoke.spec.ts`, `e2e/wp03-routing.spec.ts` | Frontend-controlled Playwright coverage for critical product flows and the canonical WP-03 runtime/router/policy composition. The focused WP-03 Chromium suite is the required CI routing gate; no backend or seeded account is used. |
 
 Notes:
 
@@ -436,11 +436,16 @@ All auth calls go through the gateway (`VITE_API_BASE_URL`, **required** — def
 - Cookie-backed auth calls use browser credentials (`withCredentials: true`). CORS
   must allow credentials only for the trusted frontend origin; wildcard origins are
   invalid for this flow.
-- On app start (`AuthBootstrap`): the app calls `POST /auth/refresh-token` with the
-  HttpOnly cookie **through the single-flight coordinator**. Success restores
-  access-token memory state and the user profile; failure clears local auth state.
-  While this first refresh is pending, `ProtectedRoute` shows a loader instead of
-  redirecting, so a session being restored from the cookie does not flash `/login`.
+- Bootstrap is route-policy selected (`AuthBootstrap` + manifest `bootstrap`):
+  **protected-await** entry (authenticated surfaces) calls
+  `POST /auth/refresh-token` with the HttpOnly cookie **through the single-flight
+  coordinator**. Success restores access-token memory state and the user profile;
+  failure clears local auth state. While that protected-entry refresh is pending,
+  the manifest-driven `RoutePolicyBoundary` shows the shared route fallback
+  instead of redirecting, so a session being restored from the cookie does not
+  flash `/login`. **public-immediate** initial routes (login, register, legal,
+  and other public auth surfaces) settle without that protected-entry refresh;
+  they do not require every app start to call refresh.
 - Logout calls `POST /auth/logout` with the HttpOnly refresh cookie, then **always**
   clears local auth state — even if the backend call fails — and lands on `/login`.
 - **Multi-tab:** single-flight refresh is **per-tab** (it cannot stop a second tab
@@ -644,7 +649,8 @@ sends. To improve onboarding, the register form additionally collects **Full nam
 
 ### Other error statuses
 
-- `403 FORBIDDEN` — insufficient role (e.g. moderation/analytics without MODERATOR/ADMIN).
+- `403 FORBIDDEN` — insufficient role (for example, moderation without
+  `MODERATOR`/`ADMIN` or analytics without `ADMIN`).
 - `429` — gateway rate limit; surfaced as a friendly "too many attempts" message.
 - `503 USER_STATUS_UNAVAILABLE` — transient; surfaced as "service unavailable, try again".
 
@@ -1215,7 +1221,7 @@ own section below):
 status field**; "serious" reasons (`ILLEGAL_OR_RISKY`, `FAKE_PHOTO`,
 `PRIVATE_PROPERTY`, `ABUSE_REPORT`) open a moderation case immediately and the
 report then carries a `caseId` — the UI shows "Case opened: <id>" vs "Recorded".
-Spot targets link back to `/spots/:id`.
+Spot targets link back to `/spots/:spotId`.
 
 ### Appeal limitations
 
@@ -1233,9 +1239,10 @@ Expected errors: `404 CASE_NOT_FOUND`, `409 CASE_NOT_RESOLVED`,
 
 ## Moderator dashboard (Beta)
 
-`/moderation` requires a `MODERATOR` or `ADMIN` role — the gateway and
-moderation-service both enforce it (403 `FORBIDDEN`); the app's `RoleRoute` and the
-role-conditional nav link only mirror that for UX. Endpoints (all via gateway):
+`/admin/moderation` requires a `MODERATOR` or `ADMIN` role — the gateway and
+moderation-service both enforce it (403 `FORBIDDEN`); manifest role metadata and
+the derived role-conditional navigation mirror that for UX. `/moderation` is a
+replacement-navigation compatibility alias. Endpoints (all via gateway):
 
 | Action | Endpoint | Notes |
 |--------|----------|-------|
@@ -1275,8 +1282,10 @@ assigning to someone else).
 
 ## Analytics dashboard (Beta)
 
-`/analytics` requires a `MODERATOR` or `ADMIN` role (gateway + `RoleRoute`, same as
-the moderator dashboard). KPI cards plus plain tables — **no chart library yet**.
+`/admin/analytics` requires an `ADMIN` role through manifest policy; `/analytics`
+is a replacement-navigation compatibility alias with the same requirement.
+Backend authorization remains authoritative. KPI cards plus plain tables —
+**no chart library yet**.
 Endpoints (all via gateway, all parameterless GETs — the backend has no date-range,
 granularity or metric filters):
 
@@ -1313,11 +1322,15 @@ and maps the 403 to a friendly message with `code`/`traceId`.
 
 | Route | Guard |
 |-------|-------|
-| `/login`, `/register` | Public |
-| `/map`, `/spots/:id`, `/my-spots`, `/upload`, `/profile`, `/reports`, `/notifications`, `/gamification`, `/leaderboard` | Authenticated |
-| `/moderation`, `/analytics` | Authenticated + `MODERATOR` or `ADMIN` |
+| `/login`, `/register`, `/forgot-password`, `/reset-password`, `/check-email`, `/verify-email`, `/terms`, `/privacy` | Public |
+| `/map`, `/spots/:spotId`, `/my-spots`, `/upload`, `/profile`, `/reports`, `/notifications`, `/gamification`, `/leaderboard` | Authenticated |
+| `/admin/moderation` (`/moderation` compatibility alias) | Authenticated + `MODERATOR` or `ADMIN` |
+| `/admin`, `/admin/users`, `/admin/users/:id`, `/admin/security`, `/admin/analytics`, `/admin/audit`, `/admin/system` | Authenticated + `ADMIN` |
+| `/analytics` | Replacement alias to `/admin/analytics`; authenticated + `ADMIN` |
 
-The gateway also enforces privileged routes at the edge; the app's `RoleRoute` mirrors this for UX.
+The canonical manifest owns these presentation policies and
+`RoutePolicyBoundary` evaluates the matched metadata for UX. Gateway and service
+authorization remain authoritative.
 
 ## Smart Return
 

@@ -1,7 +1,7 @@
 import { Component, type ErrorInfo, type ReactNode } from 'react';
 import { Button, ErrorMessage, LoadingState } from '@parkio/ui';
 import i18n from 'i18next';
-import { useAuthStore } from '@/auth/store';
+import type { AuthStore } from '@/auth/auth-store';
 import { frontendConfig } from '@/config/env';
 import { reportFrontendError } from '@/observability/errorReporting';
 
@@ -15,6 +15,7 @@ const CHUNK_ERROR_PATTERNS = [
 
 interface ErrorBoundaryProps {
   children: ReactNode;
+  authStore: AuthStore;
 }
 
 interface ErrorBoundaryState {
@@ -33,8 +34,8 @@ export function isChunkLoadError(error: unknown): boolean {
   return CHUNK_ERROR_PATTERNS.some((pattern) => pattern.test(text));
 }
 
-function readAuthDestination(): '/map' | '/login' {
-  return useAuthStore.getState().isAuthenticated ? '/map' : '/login';
+function readAuthDestination(authStore: AuthStore): '/map' | '/login' {
+  return authStore.getState().isAuthenticated ? '/map' : '/login';
 }
 
 export class ErrorBoundary extends Component<ErrorBoundaryProps, ErrorBoundaryState> {
@@ -62,6 +63,9 @@ export class ErrorBoundary extends Component<ErrorBoundaryProps, ErrorBoundarySt
       componentStack: info.componentStack ?? undefined,
       traceId,
       chunkError,
+      userAuthState: this.props.authStore.getState().isAuthenticated
+        ? 'authenticated'
+        : 'anonymous',
     });
 
     if (chunkError && sessionStorage.getItem(CHUNK_RELOAD_KEY) !== '1') {
@@ -76,7 +80,7 @@ export class ErrorBoundary extends Component<ErrorBoundaryProps, ErrorBoundarySt
   };
 
   handleNavigate = (): void => {
-    window.location.assign(readAuthDestination());
+    window.location.assign(readAuthDestination(this.props.authStore));
   };
 
   render(): ReactNode {
@@ -92,7 +96,7 @@ export class ErrorBoundary extends Component<ErrorBoundaryProps, ErrorBoundarySt
       );
     }
 
-    const destination = readAuthDestination();
+    const destination = readAuthDestination(this.props.authStore);
     return (
       <main className="min-h-screen bg-background px-md py-xl text-on-background">
         <section className="mx-auto flex min-h-[70vh] max-w-xl flex-col justify-center">

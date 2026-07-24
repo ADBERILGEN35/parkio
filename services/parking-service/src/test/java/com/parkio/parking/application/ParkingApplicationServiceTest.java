@@ -2,6 +2,15 @@ package com.parkio.parking.application;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
+import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyDouble;
+import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.ArgumentMatchers.isNull;
+import static org.mockito.Mockito.doThrow;
+import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.verifyNoInteractions;
+import static org.mockito.Mockito.when;
 
 import com.parkio.parking.application.command.CreateSpotCommand;
 import com.parkio.parking.application.command.SearchNearbyQuery;
@@ -16,12 +25,14 @@ import com.parkio.parking.application.port.ParkingSpotViewLogRepository;
 import com.parkio.parking.application.result.SpotMediaAccess;
 import com.parkio.parking.domain.LegalStatus;
 import com.parkio.parking.domain.ParkingContext;
+import com.parkio.parking.domain.ParkingSession;
 import com.parkio.parking.domain.ParkingSpot;
 import com.parkio.parking.domain.ParkingSpotSearchLog;
 import com.parkio.parking.domain.ParkingSpotStatus;
 import com.parkio.parking.domain.ParkingSpotStatusHistory;
 import com.parkio.parking.domain.ParkingSpotVerification;
 import com.parkio.parking.domain.ParkingSpotViewLog;
+import com.parkio.parking.domain.ParkingSource;
 import com.parkio.parking.domain.VehicleType;
 import com.parkio.parking.domain.VerificationResult;
 import com.parkio.parking.domain.event.ParkingEvent;
@@ -64,6 +75,7 @@ class ParkingApplicationServiceTest {
     private FakeOutboxEventAppender outbox;
     private FakeMediaAccessPort mediaAccess;
     private FakeMediaReadinessPort mediaReadiness;
+    private ParkingSessionService parkingSessions;
     private MutableClock clock;
     private ParkingApplicationService service;
 
@@ -77,9 +89,20 @@ class ParkingApplicationServiceTest {
         outbox = new FakeOutboxEventAppender();
         mediaAccess = new FakeMediaAccessPort();
         mediaReadiness = new FakeMediaReadinessPort();
+        parkingSessions = mock(ParkingSessionService.class);
         clock = new MutableClock(NOW);
+        when(parkingSessions.startSession(any(), any(), anyDouble(), anyDouble(), any(), any()))
+                .thenAnswer(invocation -> ParkingSession.start(
+                        invocation.getArgument(0),
+                        invocation.getArgument(1),
+                        invocation.getArgument(2),
+                        invocation.getArgument(3),
+                        invocation.getArgument(4),
+                        invocation.getArgument(5),
+                        NOW));
         service = new ParkingApplicationService(spots, verifications, statusHistory, viewLogs, searchLogs,
-                outbox, mediaAccess, mediaReadiness, new ParkingSearchSettings(1000, 10, 50000, 50), clock);
+                outbox, mediaAccess, mediaReadiness, new ParkingSearchSettings(1000, 10, 50000, 50),
+                parkingSessions, clock);
     }
 
     private CreateSpotCommand createCommand(UUID owner, LegalStatus legalStatus) {
@@ -429,6 +452,32 @@ class ParkingApplicationServiceTest {
 
         assertThat(claimed.status()).isEqualTo(ParkingSpotStatus.FILLED);
         assertThat(outbox.events).filteredOn(e -> e instanceof ParkingSpotClaimedEvent).hasSize(1);
+        verify(parkingSessions).startSession(
+                eq(claimer),
+                eq(ParkingSource.COMMUNITY),
+                eq(spot.latitude()),
+                eq(spot.longitude()),
+                isNull(),
+                isNull());
+    }
+
+    @Test
+    void verifiedSpotCreatesCommunitySessionFromServerOwnedFields() {
+        UUID owner = UUID.randomUUID();
+        UUID claimer = UUID.randomUUID();
+        ParkingSpot spot = createPublishedSpot(owner);
+        service.verifySpot(spot.id(), UUID.randomUUID(), VerificationResult.AVAILABLE);
+
+        service.claimSpot(spot.id(), claimer);
+
+        assertThat(spots.byId.get(spot.id()).status()).isEqualTo(ParkingSpotStatus.FILLED);
+        verify(parkingSessions).startSession(
+                eq(claimer),
+                eq(ParkingSource.COMMUNITY),
+                eq(spot.latitude()),
+                eq(spot.longitude()),
+                isNull(),
+                isNull());
     }
 
     @Test
@@ -440,6 +489,54 @@ class ParkingApplicationServiceTest {
                 .isInstanceOf(ParkingException.class)
                 .extracting(e -> ((ParkingException) e).errorCode())
                 .isEqualTo(ParkingErrorCode.OWNER_CANNOT_CLAIM);
+        verifyNoInteractions(parkingSessions);
+    }
+
+    @Test
+    void expiredSpotDoesNotStartCommunitySession() {
+        ParkingSpot spot = createPublishedSpot(UUID.randomUUID());
+        clock.set(NOW.plus(11, ChronoUnit.MINUTES));
+
+        assertThatThrownBy(() -> service.claimSpot(spot.id(), UUID.randomUUID()))
+                .isInstanceOf(ParkingException.class)
+                .extracting(e -> ((ParkingException) e).errorCode())
+                .isEqualTo(ParkingErrorCode.SPOT_EXPIRED);
+
+        verifyNoInteractions(parkingSessions);
+    }
+
+    @Test
+    void terminalSpotDoesNotStartCommunitySession() {
+        ParkingSpot filled = buildSpot(
+                UUID.randomUUID(), ParkingSpotStatus.FILLED, NOW.plus(5, ChronoUnit.MINUTES), LegalStatus.LEGAL);
+        spots.save(filled);
+
+        assertThatThrownBy(() -> service.claimSpot(filled.id(), UUID.randomUUID()))
+                .isInstanceOf(ParkingException.class)
+                .extracting(e -> ((ParkingException) e).errorCode())
+                .isEqualTo(ParkingErrorCode.SPOT_NOT_CLAIMABLE);
+
+        verifyNoInteractions(parkingSessions);
+    }
+
+    @Test
+    void activeSessionConflictPreventsClaimPersistenceSideEffects() {
+        UUID claimer = UUID.randomUUID();
+        ParkingSpot spot = createPublishedSpot(UUID.randomUUID());
+        int historyBefore = statusHistory.all.size();
+        int eventsBefore = outbox.events.size();
+        doThrow(new ParkingException(ParkingErrorCode.ACTIVE_PARKING_SESSION_EXISTS))
+                .when(parkingSessions)
+                .startSession(
+                        eq(claimer), eq(ParkingSource.COMMUNITY), anyDouble(), anyDouble(), isNull(), isNull());
+
+        assertThatThrownBy(() -> service.claimSpot(spot.id(), claimer))
+                .isInstanceOf(ParkingException.class)
+                .extracting(e -> ((ParkingException) e).errorCode())
+                .isEqualTo(ParkingErrorCode.ACTIVE_PARKING_SESSION_EXISTS);
+
+        assertThat(statusHistory.all).hasSize(historyBefore);
+        assertThat(outbox.events).hasSize(eventsBefore);
     }
 
     @Test

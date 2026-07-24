@@ -1,6 +1,7 @@
 import { render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { createAuthStore, type AuthStore } from '@/auth/auth-store';
 import { ErrorBoundary, __privateErrorBoundary } from './ErrorBoundary';
 
 const reportFrontendError = vi.fn();
@@ -27,9 +28,11 @@ function mockLocation() {
 }
 
 describe('ErrorBoundary', () => {
+  let authStore: AuthStore;
   let consoleError: ReturnType<typeof vi.spyOn>;
 
   beforeEach(() => {
+    authStore = createAuthStore();
     sessionStorage.clear();
     reportFrontendError.mockReset();
     consoleError = vi.spyOn(console, 'error').mockImplementation(() => undefined);
@@ -41,7 +44,7 @@ describe('ErrorBoundary', () => {
 
   it('renders a friendly fallback when a child throws', () => {
     render(
-      <ErrorBoundary>
+      <ErrorBoundary authStore={authStore}>
         <ThrowingChild error={new Error('render failed')} />
       </ErrorBoundary>,
     );
@@ -56,7 +59,7 @@ describe('ErrorBoundary', () => {
     const location = mockLocation();
 
     render(
-      <ErrorBoundary>
+      <ErrorBoundary authStore={authStore}>
         <ThrowingChild error={new Error('render failed')} />
       </ErrorBoundary>,
     );
@@ -71,7 +74,7 @@ describe('ErrorBoundary', () => {
     const location = mockLocation();
 
     render(
-      <ErrorBoundary>
+      <ErrorBoundary authStore={authStore}>
         <ThrowingChild error={new Error('Failed to fetch dynamically imported module')} />
       </ErrorBoundary>,
     );
@@ -86,7 +89,7 @@ describe('ErrorBoundary', () => {
     sessionStorage.setItem(__privateErrorBoundary.CHUNK_RELOAD_KEY, '1');
 
     render(
-      <ErrorBoundary>
+      <ErrorBoundary authStore={authStore}>
         <ThrowingChild error={new Error('Importing a module script failed.')} />
       </ErrorBoundary>,
     );
@@ -100,7 +103,7 @@ describe('ErrorBoundary', () => {
     sessionStorage.setItem(__privateErrorBoundary.CHUNK_RELOAD_KEY, '1');
 
     render(
-      <ErrorBoundary>
+      <ErrorBoundary authStore={authStore}>
         <div>Healthy app</div>
       </ErrorBoundary>,
     );

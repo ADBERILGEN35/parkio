@@ -95,6 +95,12 @@
     "leaderboard": "Parkio — Sıralama",
     "moderation": "Parkio — Moderasyon",
     "analytics": "Parkio — Analitik",
+    "adminDashboard": "Parkio — Yönetim paneli",
+    "adminUsers": "Parkio — Kullanıcılar",
+    "adminUser": "Parkio — Kullanıcı",
+    "adminSecurity": "Parkio — Güvenlik",
+    "adminAudit": "Parkio — Denetim izi",
+    "adminSystem": "Parkio — Sistem",
     "notFound": "Parkio — Sayfa Bulunamadı"
   },
   "notificationType": {

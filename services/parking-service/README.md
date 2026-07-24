@@ -20,6 +20,30 @@ This service follows clean architecture. Source lives under
 
 > This service owns its own models. Domain models are **not** shared across services.
 
+### Parking Session monetary policy
+
+`ParkingSession` is the authoritative validation boundary for supported fee commands: values
+requiring rounding, negative values, and values outside `NUMERIC(12,2)` are rejected before
+persistence. PostgreSQL owns the valid stored representation and intentionally retains
+`NUMERIC(12,2)`; its normal scale coercion is accepted for privileged direct database writes.
+
+Direct SQL, imports, migrations, and repair scripts are operational paths rather than domain
+command paths. They must validate monetary inputs before persistence and must not rely on the
+database to reproduce aggregate input-validation behavior.
+
+### Community claim and parking session
+
+`POST /api/v1/parking/spots/{spotId}/claim` keeps its existing `PublicSpotResponse` contract and
+now atomically creates an ACTIVE `COMMUNITY` parking session for the authenticated claimer. The
+spot transition to `FILLED`, parking session, status history, unchanged `ParkingSpotClaimed`
+outbox event, and idempotency record commit or roll back together in one local transaction.
+
+The repository has no general-purpose rollout toggle suitable for this invariant-changing flow.
+Production deployment must therefore be coordinated so every client allowed to invoke community
+claim can restore an active session before this backend behavior is exposed. Rollback must also
+disable or drain community claims before reverting the backend, so successful claims never run on
+a version that omits session creation.
+
 ## Domain events (outbox)
 
 These events are written to `outbox_events` in the same transaction as the state

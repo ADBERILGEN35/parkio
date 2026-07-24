@@ -9,9 +9,10 @@
     ".": "./src/index.ts"
   },
   "scripts": {
-    "typecheck": "tsc --noEmit",
+    "typecheck": "tsc --noEmit && pnpm typecheck:contracts",
+    "typecheck:contracts": "tsc --noEmit -p tsconfig.type-tests.json",
     "lint": "eslint src",
-    "build": "tsc --noEmit",
+    "build": "pnpm typecheck",
     "test": "vitest run",
     "test:watch": "vitest"
   },

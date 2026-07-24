@@ -5,8 +5,8 @@ import { useMemo, useState } from 'react';
 import { useForm } from 'react-hook-form';
 import { useTranslation } from 'react-i18next';
 import { Link, useNavigate } from 'react-router-dom';
-import { authApi } from '@/api';
 import { describeAuthError } from '@/api/error-messages';
+import { useParkioSdk } from '@/app/AppRuntimeContext';
 import { AuthSplitLayout } from '@/pages/auth/AuthSplitLayout';
 import { setPendingProfile } from '@/auth/pendingProfile';
 import {
@@ -16,6 +16,7 @@ import {
 import { showError, showSuccess } from '@/lib/toast';
 
 export function RegisterPage() {
+  const { authApi } = useParkioSdk();
   const { t, i18n } = useTranslation(['auth', 'common', 'validation', 'errors']);
   const navigate = useNavigate();
   const [apiError, setApiError] = useState<string | null>(null);

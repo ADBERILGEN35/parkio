@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
+import { useParkioSdk } from '@/app/AppRuntimeContext';
 import { geocodePlaces, type GeocodeResult } from './geocoding';
 
 /** Minimum characters before typeahead fires (avoids noisy 1–2 char lookups). */
@@ -36,6 +37,7 @@ export interface PlaceAutocomplete {
  * - Retry one transient failure; aborts are treated as cancellation, not errors.
  */
 export function usePlaceAutocomplete(): PlaceAutocomplete {
+  const { geocodingApi } = useParkioSdk();
   const [status, setStatus] = useState<AutocompleteStatus>('idle');
   const [results, setResults] = useState<GeocodeResult[]>([]);
 
@@ -67,7 +69,7 @@ export function usePlaceAutocomplete(): PlaceAutocomplete {
 
     setStatus('loading');
 
-    return geocodePlacesWithRetry(query, controller.signal)
+    return geocodePlacesWithRetry(geocodingApi, query, controller.signal)
       .then((places) => {
         if (requestId !== requestIdRef.current) return [];
         abortRef.current = null;
@@ -83,7 +85,7 @@ export function usePlaceAutocomplete(): PlaceAutocomplete {
         setStatus('error');
         return [];
       });
-  }, []);
+  }, [geocodingApi]);
 
   const suggest = useCallback(
     (raw: string) => {
@@ -126,12 +128,16 @@ export function usePlaceAutocomplete(): PlaceAutocomplete {
   return { status, results, suggest, flush, clear };
 }
 
-async function geocodePlacesWithRetry(query: string, signal: AbortSignal): Promise<GeocodeResult[]> {
+async function geocodePlacesWithRetry(
+  geocodingApi: import('@parkio/api-client').GeocodingApi,
+  query: string,
+  signal: AbortSignal,
+): Promise<GeocodeResult[]> {
   let lastError: unknown;
 
   for (let attempt = 0; attempt <= AUTOCOMPLETE_RETRY_ATTEMPTS; attempt += 1) {
     try {
-      return await geocodePlaces(query, signal);
+      return await geocodePlaces(geocodingApi, query, signal);
     } catch (error) {
       if (isAbortError(error) || signal.aborted) throw error;
       lastError = error;

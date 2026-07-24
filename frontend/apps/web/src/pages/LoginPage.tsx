@@ -4,17 +4,20 @@ import { Button, ErrorMessage, Icon, Input } from '@parkio/ui';
 import { useMemo, useState } from 'react';
 import { useForm } from 'react-hook-form';
 import { useTranslation } from 'react-i18next';
-import { Link, useNavigate, useSearchParams } from 'react-router-dom';
-import { authApi } from '@/api';
+import { Link, useLocation, useNavigate, useSearchParams } from 'react-router-dom';
 import { describeAuthError } from '@/api/error-messages';
+import { useParkioSdk } from '@/app/AppRuntimeContext';
 import { AuthSplitLayout } from '@/pages/auth/AuthSplitLayout';
 import { getPendingProfile } from '@/auth/pendingProfile';
+import { sanitizeInternalRedirect } from '@/auth/redirect';
 import { useAuthStore } from '@/auth/store';
 import { createLoginSchema } from '@/lib/validation/localized-schemas';
 import { showError, showSuccess } from '@/lib/toast';
 
 export function LoginPage() {
+  const { authApi } = useParkioSdk();
   const { t } = useTranslation(['auth', 'common', 'validation', 'errors']);
+  const location = useLocation();
   const navigate = useNavigate();
   const [searchParams] = useSearchParams();
   const passwordResetSuccess = searchParams.get('passwordReset') === 'success';
@@ -45,7 +48,8 @@ export function LoginPage() {
         beginProvisioning();
         navigate('/preparing');
       } else {
-        navigate('/map');
+        const from = (location.state as { from?: unknown } | null)?.from;
+        navigate(sanitizeInternalRedirect(from));
       }
     } catch (error) {
       const friendly = describeAuthError(error, t('errors:auth.loginFailed'), t);

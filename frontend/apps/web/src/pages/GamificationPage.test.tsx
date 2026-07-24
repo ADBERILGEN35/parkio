@@ -7,9 +7,23 @@ import type {
 import { http, HttpResponse } from 'msw';
 import { screen } from '@testing-library/react';
 import { beforeEach, describe, expect, it } from 'vitest';
+import type { WebAppRuntime } from '@/app/runtime';
 import { API_BASE, server } from '@/test/server';
-import { renderWithProviders, resetAuth, signInAs } from '@/test/utils';
+import {
+  createTestAppRuntime,
+  renderWithProviders as renderWithBaseProviders,
+  signInAs,
+} from '@/test/utils';
 import { GamificationPage } from './GamificationPage';
+
+let runtime: WebAppRuntime;
+
+function renderWithProviders(
+  ui: Parameters<typeof renderWithBaseProviders>[0],
+  options: Parameters<typeof renderWithBaseProviders>[1] = {},
+) {
+  return renderWithBaseProviders(ui, { ...options, runtime });
+}
 
 const level: LevelStanding = {
   userId: 'aaaaaaaa-0000-0000-0000-000000000002',
@@ -69,8 +83,8 @@ function useGamificationHandlers() {
 
 describe('GamificationPage', () => {
   beforeEach(() => {
-    resetAuth();
-    signInAs(['USER']);
+    runtime = createTestAppRuntime();
+    signInAs(runtime, ['USER']);
   });
 
   it('renders the "Your Impact" page header', async () => {

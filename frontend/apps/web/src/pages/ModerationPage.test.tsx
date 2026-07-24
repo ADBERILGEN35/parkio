@@ -2,9 +2,9 @@ import type { ModerationAppeal, ModerationCase } from '@parkio/types';
 import { http, HttpResponse } from 'msw';
 import { screen } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
-import { beforeEach, describe, expect, it } from 'vitest';
+import { describe, expect, it } from 'vitest';
 import { API_BASE, server } from '@/test/server';
-import { renderWithProviders, resetAuth, signInAs } from '@/test/utils';
+import { renderWithProviders } from '@/test/utils';
 import { ModerationPage } from './ModerationPage';
 
 const CASE_ID = '0b8f6c3a-0000-0000-0000-0000000000c1';
@@ -47,14 +47,12 @@ function useModerationHandlers() {
 }
 
 describe('ModerationPage', () => {
-  beforeEach(() => {
-    resetAuth();
-    signInAs(['MODERATOR']);
-  });
-
   it('renders the case queue with reason, severity and status', async () => {
     useModerationHandlers();
-    renderWithProviders(<ModerationPage />, { initialEntries: ['/moderation'] });
+    renderWithProviders(<ModerationPage />, {
+      authRoles: ['MODERATOR'],
+      initialEntries: ['/moderation'],
+    });
 
     expect(await screen.findByText('Fake photo')).toBeInTheDocument();
     expect(screen.getAllByText('High').length).toBeGreaterThan(0);
@@ -62,7 +60,10 @@ describe('ModerationPage', () => {
 
   it('opens the case detail with an assign action when a case is selected', async () => {
     useModerationHandlers();
-    renderWithProviders(<ModerationPage />, { initialEntries: ['/moderation'] });
+    renderWithProviders(<ModerationPage />, {
+      authRoles: ['MODERATOR'],
+      initialEntries: ['/moderation'],
+    });
     const user = userEvent.setup();
 
     await user.click(await screen.findByRole('button', { name: /Fake photo/ }));
@@ -73,7 +74,10 @@ describe('ModerationPage', () => {
 
   it('renders appeal resolve controls for an open appeal', async () => {
     useModerationHandlers();
-    renderWithProviders(<ModerationPage />, { initialEntries: ['/moderation'] });
+    renderWithProviders(<ModerationPage />, {
+      authRoles: ['MODERATOR'],
+      initialEntries: ['/moderation'],
+    });
 
     expect(await screen.findByRole('button', { name: 'Resolve appeal' })).toBeInTheDocument();
     expect(screen.getByText('Accept')).toBeInTheDocument();

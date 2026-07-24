@@ -1,30 +1,23 @@
 import type { GeocodeResult, Spot } from '@parkio/types';
+import type { MediaApi, ParkingApi } from '@parkio/api-client';
 import { http, HttpResponse } from 'msw';
-import { render, screen } from '@testing-library/react';
+import { screen } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
-import { createMemoryRouter, RouterProvider } from 'react-router-dom';
-import { QueryClientProvider } from '@tanstack/react-query';
-import { I18nextProvider } from 'react-i18next';
-import i18n from '@/i18n';
-import { createTestQueryClient } from '@/test/utils';
-import { beforeEach, describe, expect, it, vi } from 'vitest';
-import { mediaApi, parkingApi } from '@/api';
+import { Route, Routes } from 'react-router-dom';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import type { WebAppRuntime } from '@/app/runtime';
 import { API_BASE, server } from '@/test/server';
-import { resetAuth, signInAs } from '@/test/utils';
+import {
+  createTestAppRuntime,
+  renderWithProviders,
+  resetAuth,
+  signInAs,
+} from '@/test/utils';
 import { UploadPage } from './UploadPage';
 
-vi.mock('@/api', async (importActual) => {
-  const actual = await importActual<typeof import('@/api')>();
-  return {
-    ...actual,
-    mediaApi: {
-      uploadMedia: vi.fn(),
-    },
-    parkingApi: {
-      createParkingSpot: vi.fn(),
-    },
-  };
-});
+let runtime: WebAppRuntime;
+let mediaApi: MediaApi;
+let parkingApi: ParkingApi;
 
 // Leaflet can't render in jsdom; stub the picker with a button that simulates a
 // map click setting the location.
@@ -90,24 +83,15 @@ const createdSpot: Spot = {
 };
 
 function renderUpload() {
-  const queryClient = createTestQueryClient();
-  const router = createMemoryRouter(
-    [
-      { path: '/upload', element: <UploadPage /> },
-      { path: '/spots/:spotId', element: <div>Spot detail</div> },
-      { path: '/map', element: <div>Map stub</div> },
-      { path: '/my-spots', element: <div>My spots stub</div> },
-    ],
-    { initialEntries: ['/upload'] },
+  return renderWithProviders(
+    <Routes>
+      <Route path="/upload" element={<UploadPage />} />
+      <Route path="/spots/:spotId" element={<div>Spot detail</div>} />
+      <Route path="/map" element={<div>Map stub</div>} />
+      <Route path="/my-spots" element={<div>My spots stub</div>} />
+    </Routes>,
+    { initialEntries: ['/upload'], runtime },
   );
-  const result = render(
-    <I18nextProvider i18n={i18n}>
-      <QueryClientProvider client={queryClient}>
-        <RouterProvider router={router} />
-      </QueryClientProvider>
-    </I18nextProvider>,
-  );
-  return { ...result, queryClient, router };
 }
 
 function imageFile(name = 'spot.jpg', type = 'image/jpeg', size = 1024) {
@@ -153,12 +137,17 @@ async function advanceToReview(user: User) {
 
 describe('UploadPage', () => {
   beforeEach(() => {
-    vi.mocked(mediaApi.uploadMedia).mockReset();
-    vi.mocked(parkingApi.createParkingSpot).mockReset();
-    resetAuth();
-    signInAs(['USER']);
+    runtime = createTestAppRuntime();
+    mediaApi = runtime.sdk.mediaApi;
+    parkingApi = runtime.sdk.parkingApi;
+    vi.spyOn(mediaApi, 'uploadMedia');
+    vi.spyOn(parkingApi, 'createParkingSpot');
+    resetAuth(runtime);
+    signInAs(runtime, ['USER']);
     server.use(http.get(`${API_BASE}/notifications/me`, () => HttpResponse.json([])));
   });
+
+  afterEach(() => runtime.dispose());
 
   it('rejects a file that exceeds the 10MB limit', async () => {
     renderUpload();

@@ -3,7 +3,7 @@ import { Button, Card, EmptyState, Input, LoadingState, PageShell, SoftBadge } f
 import { useQuery } from '@tanstack/react-query';
 import { useTranslation } from 'react-i18next';
 import { Link, useSearchParams } from 'react-router-dom';
-import { adminApi } from '@/api';
+import { useParkioSdk } from '@/app/AppRuntimeContext';
 import { FriendlyApiErrorMessage } from '@/components/FriendlyApiErrorMessage';
 
 const STATUSES: Array<AuthUserStatus | ''> = [
@@ -26,6 +26,7 @@ function roleLabel(t: (key: string) => string, role: string): string {
 }
 
 export function AdminUsersPage() {
+  const { adminApi } = useParkioSdk();
   const { t } = useTranslation('admin');
   const [params, setParams] = useSearchParams();
   const q = params.get('q') ?? '';

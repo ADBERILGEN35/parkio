@@ -2,14 +2,15 @@ import { Button, ErrorMessage, Icon } from '@parkio/ui';
 import { useEffect, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { useNavigate, useSearchParams } from 'react-router-dom';
-import { authApi } from '@/api';
 import { describeAuthError } from '@/api/error-messages';
+import { useParkioSdk } from '@/app/AppRuntimeContext';
 import { AuthSplitLayout } from '@/pages/auth/AuthSplitLayout';
 import { showError, showSuccess } from '@/lib/toast';
 
 type VerifyState = 'verifying' | 'success' | 'error';
 
 export function VerifyEmailPage() {
+  const { authApi } = useParkioSdk();
   const { t } = useTranslation(['auth', 'common', 'errors']);
   const navigate = useNavigate();
   const [searchParams] = useSearchParams();
@@ -46,7 +47,7 @@ export function VerifyEmailPage() {
     return () => {
       cancelled = true;
     };
-  }, [searchParams, t]);
+  }, [authApi, searchParams, t]);
 
   return (
     <AuthSplitLayout

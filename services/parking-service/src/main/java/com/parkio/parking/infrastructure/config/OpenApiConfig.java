@@ -14,7 +14,6 @@ public class OpenApiConfig {
     @Bean
     public OpenAPI parkioOpenAPI() {
         final String bearer = "bearerAuth";
-        final String gateway = "gatewayAuth";
         return new OpenAPI()
                 .info(new Info()
                         .title("Parkio Parking API")
@@ -26,11 +25,6 @@ public class OpenApiConfig {
                                 .type(SecurityScheme.Type.HTTP)
                                 .scheme("bearer")
                                 .bearerFormat("JWT")
-                                .description("RS256 access token from auth-service"))
-                        .addSecuritySchemes(gateway, new SecurityScheme()
-                                .type(SecurityScheme.Type.APIKEY)
-                                .in(SecurityScheme.In.HEADER)
-                                .name("X-Gateway-Auth")
-                                .description("Internal only — gateway stamps this on routed requests.")));
+                                .description("RS256 access token from auth-service")));
     }
 }

@@ -18,7 +18,7 @@ import { useState } from 'react';
 import { useForm } from 'react-hook-form';
 import { useTranslation } from 'react-i18next';
 import { Link } from 'react-router-dom';
-import { moderationApi } from '@/api';
+import { useParkioSdk } from '@/app/AppRuntimeContext';
 import { FriendlyApiErrorMessage } from '@/components/FriendlyApiErrorMessage';
 import { ProductCard } from '@/components/product/ProductCard';
 import { SettingsSectionCard } from '@/components/product/SettingsSectionCard';
@@ -51,6 +51,7 @@ export function ReportsPage() {
 }
 
 function MyReportsCard() {
+  const { moderationApi } = useParkioSdk();
   const { t } = useTranslation('parking');
   const query = useQuery({ queryKey: ['reports'], queryFn: moderationApi.getMyReports });
 
@@ -139,6 +140,7 @@ function ReportItem({ report }: { report: ModerationReport }) {
  * id must be entered manually (e.g. from a warning notification).
  */
 function AppealCard() {
+  const { moderationApi } = useParkioSdk();
   const { t } = useTranslation(['parking', 'common']);
   const [createdAppeal, setCreatedAppeal] = useState<ModerationAppeal | null>(null);
 

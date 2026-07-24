@@ -95,6 +95,12 @@
     "leaderboard": "Parkio — Leaderboard",
     "moderation": "Parkio — Moderation",
     "analytics": "Parkio — Analytics",
+    "adminDashboard": "Parkio — Admin dashboard",
+    "adminUsers": "Parkio — Users",
+    "adminUser": "Parkio — User",
+    "adminSecurity": "Parkio — Security",
+    "adminAudit": "Parkio — Audit trail",
+    "adminSystem": "Parkio — System",
     "notFound": "Parkio — Not Found"
   },
   "notificationType": {

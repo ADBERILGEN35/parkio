@@ -10,7 +10,7 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useState, type ReactNode } from 'react';
 import { useTranslation } from 'react-i18next';
 import { useNavigate } from 'react-router-dom';
-import { notificationsApi } from '@/api';
+import { useParkioSdk } from '@/app/AppRuntimeContext';
 import { FriendlyApiErrorMessage } from '@/components/FriendlyApiErrorMessage';
 import { MarkReadButton, NotificationItemCard } from '@/components/product/NotificationItemCard';
 import { showError, showSuccess } from '@/lib/toast';
@@ -41,6 +41,7 @@ function matchesFilter(notification: AppNotification, filter: NotificationFilter
 }
 
 export function NotificationsPage() {
+  const { notificationsApi } = useParkioSdk();
   const { t } = useTranslation('parking');
   const query = useQuery({
     queryKey: ['notifications'],
@@ -183,6 +184,7 @@ function Group({ label, count, children }: { label: string; count: number; child
 }
 
 function NotificationItem({ notification }: { notification: AppNotification }) {
+  const { notificationsApi } = useParkioSdk();
   const { t } = useTranslation('parking');
   const queryClient = useQueryClient();
   const navigate = useNavigate();

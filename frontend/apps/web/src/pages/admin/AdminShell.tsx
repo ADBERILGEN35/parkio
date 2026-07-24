@@ -3,27 +3,19 @@ import { hasSuperAdminRole } from '@parkio/types';
 import { useTranslation } from 'react-i18next';
 import { NavLink, Outlet } from 'react-router-dom';
 import { useAuthStore } from '@/auth/store';
+import { getAdminShellNav } from '@/components/shell/navConfig';
 import { frontendConfig } from '@/config/env';
 
 /**
  * Dedicated administration chrome: denser sidebar + environment warning.
- * Nested under AppShell's auth boundary via RoleRoute requireAdmin.
+ * RoutePolicyBoundary owns its manifest-derived administrator policy.
  */
 export function AdminShell() {
   const { t } = useTranslation('admin');
   const email = useAuthStore((s) => s.user?.email);
   const roles = useAuthStore((s) => s.roles);
   const env = frontendConfig.appEnv;
-
-  const nav = [
-    { to: '/admin', label: t('shell.nav.dashboard'), end: true as const },
-    { to: '/admin/users', label: t('shell.nav.users') },
-    { to: '/admin/security', label: t('shell.nav.security') },
-    { to: '/admin/moderation', label: t('shell.nav.moderation') },
-    { to: '/admin/analytics', label: t('shell.nav.analytics') },
-    { to: '/admin/audit', label: t('shell.nav.audit') },
-    { to: '/admin/system', label: t('shell.nav.system') },
-  ];
+  const nav = getAdminShellNav(t);
 
   return (
     <div className="mx-auto flex w-full max-w-7xl flex-col gap-md px-md py-md md:flex-row md:px-xl md:py-lg">
@@ -48,9 +40,9 @@ export function AdminShell() {
           <nav className="flex flex-row flex-wrap gap-xs md:flex-col" aria-label={t('shell.navAria')}>
             {nav.map((item) => (
               <NavLink
-                key={item.to}
+                key={item.id}
                 to={item.to}
-                end={'end' in item ? item.end : false}
+                end={item.end}
                 className={({ isActive }) =>
                   [
                     'rounded-md px-sm py-xs text-body-md no-underline transition-colors',

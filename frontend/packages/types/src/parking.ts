@@ -81,7 +81,7 @@ export interface PublicSpot {
   suitableVehicleTypes: SpotVehicleType[];
   parkingContext: ParkingContext;
   legalStatus: LegalStatus;
-  violationReasons: string[];
+  violationReasons: ViolationReason[];
   status: ParkingStatus;
   expiresAt: string;
   createdAt: string;
@@ -110,13 +110,13 @@ export interface CreateSpotRequest {
   mediaId: string;
   latitude: number;
   longitude: number;
-  addressText?: string;
-  description?: string;
+  addressText?: string | null;
+  description?: string | null;
   manualLocationEdited?: boolean;
   suitableVehicleTypes: SpotVehicleType[];
   parkingContext: ParkingContext;
   legalStatus: LegalStatus;
-  violationReasons?: ViolationReason[];
+  violationReasons?: ViolationReason[] | null;
 }
 
 /** Backend DTO name alias. */
@@ -148,3 +148,50 @@ export interface SpotMediaAccessUrl {
   accessUrl: string;
   expiresAt: string;
 }
+
+/** Parking-session lifecycle values returned by parking-service. */
+export const PARKING_SESSION_STATUSES = ['ACTIVE', 'COMPLETED', 'CANCELLED'] as const;
+
+export type ParkingSessionStatus = (typeof PARKING_SESSION_STATUSES)[number];
+
+/** Server-controlled origin of a parking session. */
+export const PARKING_SOURCES = ['MANUAL', 'FACILITY', 'CURB', 'COMMUNITY', 'AUTO'] as const;
+
+export type ParkingSource = (typeof PARKING_SOURCES)[number];
+
+/** Exact decimal-string representation accepted by `POST /parking/sessions`. */
+export type ParkingMoney = string;
+
+/** Manual session start body. Session source and user identity are never client inputs. */
+export interface StartParkingSessionRequest {
+  latitude: number;
+  longitude: number;
+  estimatedFee?: ParkingMoney | null;
+}
+
+/** Public parking-session representation returned by parking-service. */
+export interface ParkingSessionResponse {
+  id: string;
+  status: ParkingSessionStatus;
+  parkingSource: ParkingSource;
+  startedAt: string;
+  endedAt: string | null;
+  latitude: number;
+  longitude: number;
+  estimatedFee: ParkingMoney | null;
+}
+
+/** Opaque-cursor history query. */
+export interface ParkingSessionHistoryParams {
+  size?: number;
+  cursor?: string;
+}
+
+/** Bounded terminal-session page returned by `GET /parking/sessions/history`. */
+export interface ParkingSessionHistoryResponse {
+  items: ParkingSessionResponse[];
+  nextCursor: string | null;
+}
+
+/** The canonical community-claim endpoint preserves `PublicSpotResponse`. */
+export type CommunityClaimResponse = PublicSpotResponse;

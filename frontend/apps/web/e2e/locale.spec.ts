@@ -327,7 +327,9 @@ test.describe('Locale flows', () => {
     await expect(page.locator('html')).toHaveAttribute('lang', 'tr');
 
     await spaGoto(page, '/upload');
-    await expect(page.getByText(/Park yeri paylaş/i)).toBeVisible();
+    await expect(
+      page.getByRole('main').getByText(/Park yeri paylaş/i),
+    ).toBeVisible();
     await expect(page.locator('body')).not.toContainText('ADD_LOCATION_ALT');
     expect(tokenLeak.test(await page.locator('body').innerText())).toBeFalsy();
 

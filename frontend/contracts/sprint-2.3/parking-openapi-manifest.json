@@ -1,0 +1,167 @@
+{
+  "service": "parking-service",
+  "operations": [
+    {
+      "method": "post",
+      "path": "/api/v1/parking/sessions",
+      "operationId": "startParkingSession",
+      "requestSchema": "StartParkingSessionRequest",
+      "responses": {
+        "201": "ParkingSessionResponse"
+      }
+    },
+    {
+      "method": "get",
+      "path": "/api/v1/parking/sessions/active",
+      "operationId": "getActiveParkingSession",
+      "requestSchema": null,
+      "responses": {
+        "200": "ParkingSessionResponse",
+        "204": null
+      }
+    },
+    {
+      "method": "post",
+      "path": "/api/v1/parking/sessions/{sessionId}/complete",
+      "operationId": "completeParkingSession",
+      "requestSchema": null,
+      "responses": {
+        "200": "ParkingSessionResponse"
+      }
+    },
+    {
+      "method": "post",
+      "path": "/api/v1/parking/sessions/{sessionId}/cancel",
+      "operationId": "cancelParkingSession",
+      "requestSchema": null,
+      "responses": {
+        "200": "ParkingSessionResponse"
+      }
+    },
+    {
+      "method": "get",
+      "path": "/api/v1/parking/sessions/history",
+      "operationId": "getParkingSessionHistory",
+      "requestSchema": null,
+      "responses": {
+        "200": "ParkingSessionHistoryResponse"
+      }
+    },
+    {
+      "method": "post",
+      "path": "/api/v1/parking/spots/{spotId}/claim",
+      "operationId": "claimSpot",
+      "requestSchema": null,
+      "responses": {
+        "200": "PublicSpotResponse"
+      }
+    }
+  ],
+  "schemas": {
+    "StartParkingSessionRequest": {
+      "mode": "request",
+      "properties": ["latitude", "longitude", "estimatedFee"],
+      "required": ["latitude", "longitude"],
+      "additionalProperties": false,
+      "representations": {
+        "latitude": { "type": "number", "format": "double", "minimum": -90, "maximum": 90 },
+        "longitude": { "type": "number", "format": "double", "minimum": -180, "maximum": 180 },
+        "estimatedFee": {
+          "type": "string",
+          "nullable": true,
+          "pattern": "^0*(?:0|[1-9][0-9]{0,9})(?:\\.[0-9]{1,2})?$",
+          "maxLength": 32
+        }
+      }
+    },
+    "ParkingSessionResponse": {
+      "mode": "response",
+      "properties": [
+        "id",
+        "status",
+        "parkingSource",
+        "startedAt",
+        "endedAt",
+        "latitude",
+        "longitude",
+        "estimatedFee"
+      ],
+      "required": ["id", "status", "parkingSource", "startedAt", "endedAt", "latitude", "longitude", "estimatedFee"],
+      "enums": {
+        "status": ["ACTIVE", "COMPLETED", "CANCELLED"],
+        "parkingSource": ["MANUAL", "FACILITY", "CURB", "COMMUNITY", "AUTO"]
+      },
+      "representations": {
+        "id": { "type": "string", "format": "uuid", "nullable": false },
+        "status": { "type": "string", "nullable": false },
+        "parkingSource": { "type": "string", "nullable": false },
+        "startedAt": { "type": "string", "format": "date-time", "nullable": false },
+        "endedAt": { "type": "string", "format": "date-time", "nullable": true },
+        "latitude": { "type": "number", "format": "double", "minimum": -90, "maximum": 90 },
+        "longitude": { "type": "number", "format": "double", "minimum": -180, "maximum": 180 },
+        "estimatedFee": {
+          "type": "string",
+          "nullable": true,
+          "pattern": "^\\d{1,10}\\.\\d{2}$"
+        }
+      }
+    },
+    "ParkingSessionHistoryResponse": {
+      "mode": "response",
+      "properties": ["items", "nextCursor"],
+      "required": ["items", "nextCursor"],
+      "representations": {
+        "items": { "type": "array", "nullable": false, "items": { "ref": "ParkingSessionResponse" } },
+        "nextCursor": { "type": "string", "nullable": true, "maxLength": 512 }
+      }
+    },
+    "PublicSpotResponse": {
+      "mode": "response",
+      "properties": [
+        "id",
+        "mediaId",
+        "latitude",
+        "longitude",
+        "addressText",
+        "description",
+        "manualLocationEdited",
+        "suitableVehicleTypes",
+        "parkingContext",
+        "legalStatus",
+        "violationReasons",
+        "status",
+        "expiresAt",
+        "createdAt",
+        "updatedAt"
+      ],
+      "representations": {
+        "id": { "type": "string", "format": "uuid" },
+        "mediaId": { "type": "string", "format": "uuid" },
+        "latitude": { "type": "number", "format": "double" },
+        "longitude": { "type": "number", "format": "double" },
+        "addressText": { "type": "string" },
+        "description": { "type": "string" },
+        "manualLocationEdited": { "type": "boolean" },
+        "suitableVehicleTypes": { "type": "array", "items": { "type": "string" } },
+        "parkingContext": { "type": "string" },
+        "legalStatus": { "type": "string" },
+        "violationReasons": { "type": "array", "items": { "type": "string" } },
+        "status": { "type": "string" },
+        "expiresAt": { "type": "string", "format": "date-time" },
+        "createdAt": { "type": "string", "format": "date-time" },
+        "updatedAt": { "type": "string", "format": "date-time" }
+      }
+    },
+    "ApiError": {
+      "mode": "response",
+      "properties": ["code", "message", "traceId", "fieldErrors", "timestamp"],
+      "representations": {
+        "code": { "type": "string" },
+        "message": { "type": "string" },
+        "traceId": { "type": "string" },
+        "fieldErrors": { "type": "array" },
+        "timestamp": { "type": "string", "format": "date-time" }
+      }
+    }
+  }
+}

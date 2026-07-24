@@ -2,25 +2,22 @@ import { http, HttpResponse } from 'msw';
 import { screen } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { Route, Routes } from 'react-router-dom';
-import { beforeEach, describe, expect, it } from 'vitest';
-import { useAuthStore } from '@/auth/store';
+import { describe, expect, it } from 'vitest';
 import { API_BASE, server } from '@/test/server';
-import { renderWithProviders, resetAuth, signInAs } from '@/test/utils';
+import { renderWithProviders } from '@/test/utils';
 import { ResetPasswordPage } from './ResetPasswordPage';
 
-function renderPage() {
+function renderPage(authRoles?: string[]) {
   return renderWithProviders(
     <Routes>
       <Route path="/reset-password" element={<ResetPasswordPage />} />
       <Route path="/login" element={<div>Login page</div>} />
     </Routes>,
-    { initialEntries: ['/reset-password?token=reset-token-1'] },
+    { authRoles, initialEntries: ['/reset-password?token=reset-token-1'] },
   );
 }
 
 describe('ResetPasswordPage', () => {
-  beforeEach(() => resetAuth());
-
   it('validates confirmation before submitting', async () => {
     renderPage();
     const user = userEvent.setup();
@@ -33,7 +30,6 @@ describe('ResetPasswordPage', () => {
   });
 
   it('resets password and redirects to login', async () => {
-    signInAs(['USER']);
     let body: { token: string; newPassword: string } | null = null;
     server.use(
       http.post(`${API_BASE}/auth/reset-password`, async ({ request }) => {
@@ -42,7 +38,7 @@ describe('ResetPasswordPage', () => {
       }),
     );
 
-    renderPage();
+    const { runtime } = renderPage(['USER']);
     const user = userEvent.setup();
     await user.type(screen.getByLabelText('New password'), 'FreshStrong123');
     await user.type(screen.getByLabelText('Confirm password'), 'FreshStrong123');
@@ -50,6 +46,6 @@ describe('ResetPasswordPage', () => {
 
     expect(await screen.findByText('Login page')).toBeInTheDocument();
     expect(body).toEqual({ token: 'reset-token-1', newPassword: 'FreshStrong123' });
-    expect(useAuthStore.getState().isAuthenticated).toBe(false);
+    expect(runtime.authStore.getState().isAuthenticated).toBe(false);
   });
 });

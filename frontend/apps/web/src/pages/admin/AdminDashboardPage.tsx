@@ -1,10 +1,11 @@
 import { useQuery } from '@tanstack/react-query';
 import { Card, LoadingState, MetricCard, PageShell } from '@parkio/ui';
 import { useTranslation } from 'react-i18next';
-import { adminApi, analyticsApi } from '@/api';
+import { useParkioSdk } from '@/app/AppRuntimeContext';
 import { FriendlyApiErrorMessage } from '@/components/FriendlyApiErrorMessage';
 
 export function AdminDashboardPage() {
+  const { adminApi, analyticsApi } = useParkioSdk();
   const { t } = useTranslation('admin');
   const dashboard = useQuery({
     queryKey: ['admin', 'dashboard'],

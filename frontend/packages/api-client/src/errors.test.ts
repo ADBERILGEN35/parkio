@@ -4,6 +4,7 @@ import {
   ForbiddenError,
   ParkioApiError,
   RateLimitError,
+  ServerError,
   UnauthorizedError,
   UserStatusUnavailableError,
   parseApiError,
@@ -68,8 +69,9 @@ describe('toParkioError', () => {
     );
   });
 
-  it('keeps other 503s as plain ParkioApiError', () => {
+  it('maps other 503s to ServerError while preserving the API error base', () => {
     const error = toParkioError(503, { ...body, code: 'SERVICE_UNAVAILABLE' });
+    expect(error).toBeInstanceOf(ServerError);
     expect(error).toBeInstanceOf(ParkioApiError);
     expect(error).not.toBeInstanceOf(UserStatusUnavailableError);
   });

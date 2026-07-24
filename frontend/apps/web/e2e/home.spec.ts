@@ -19,6 +19,9 @@ function authResponse() {
 
 /** Mocks the minimal API surface the entry routes touch. */
 async function installMockApi(page: Page, { hasSession }: { hasSession: boolean }) {
+  await page.addInitScript(() => {
+    localStorage.setItem('parkio.locale', 'en');
+  });
   await page.route(/openstreetmap\.org|api\.maptiler\.com|fonts\.(googleapis|gstatic)\.com/, (route) =>
     route.abort(),
   );

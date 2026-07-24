@@ -32,7 +32,7 @@ import { useForm } from 'react-hook-form';
 import i18n from 'i18next';
 import { useTranslation } from 'react-i18next';
 import { Link, useParams } from 'react-router-dom';
-import { moderationApi, parkingApi } from '@/api';
+import { useParkioSdk } from '@/app/AppRuntimeContext';
 import { FriendlyApiErrorMessage } from '@/components/FriendlyApiErrorMessage';
 import { SpotMap } from '@/components/map/SpotMap';
 import { enumLabel, formatInstant, formatRelativeAgo, formatRemaining } from '@/lib/format';
@@ -64,6 +64,7 @@ function readOptionalMetrics(spot: PublicSpot): OptionalSpotMetrics {
  * All data from `GET /parking/spots/{id}`; photo via parking-mediated signed URL only.
  */
 export function SpotDetailPage() {
+  const { parkingApi } = useParkioSdk();
   const { t } = useTranslation('parking');
   const { spotId } = useParams<{ spotId: string }>();
 
@@ -260,6 +261,7 @@ function TrustTile({ label, value }: { label: string; value: string }) {
  * Loading and unavailable states never hide spot details elsewhere on the page.
  */
 function SpotPhotoHero({ spotId }: { spotId: string }) {
+  const { parkingApi } = useParkioSdk();
   const { t } = useTranslation('parking');
   const mediaQuery = useQuery({
     queryKey: ['parking', 'spot', spotId, 'media-access-url'],
@@ -467,6 +469,7 @@ const TERMINAL_STATUSES: ReadonlyArray<PublicSpot['status']> = ['FILLED', 'EXPIR
  * Owner restrictions stay backend-enforced; UI only disables terminal statuses.
  */
 function PremiumActionCard({ spot }: { spot: PublicSpot }) {
+  const { moderationApi, parkingApi } = useParkioSdk();
   const { t } = useTranslation(['parking', 'common']);
   const queryClient = useQueryClient();
   const [claimed, setClaimed] = useState(false);

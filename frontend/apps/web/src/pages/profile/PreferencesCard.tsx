@@ -11,7 +11,7 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useEffect } from 'react';
 import { useForm } from 'react-hook-form';
 import { useTranslation } from 'react-i18next';
-import { usersApi } from '@/api';
+import { useParkioSdk } from '@/app/AppRuntimeContext';
 import { useAuthStore } from '@/auth/store';
 import { FriendlyApiErrorMessage } from '@/components/FriendlyApiErrorMessage';
 import { SettingsSectionCard } from '@/components/product/SettingsSectionCard';
@@ -19,6 +19,7 @@ import { useLocaleStore } from '@/i18n/localeStore';
 import { showError, showSuccess } from '@/lib/toast';
 
 export function PreferencesCard() {
+  const { usersApi } = useParkioSdk();
   const { t } = useTranslation('settings');
   const query = useQuery({ queryKey: ['me', 'preferences'], queryFn: usersApi.getMyPreferences });
 
@@ -40,6 +41,7 @@ export function PreferencesCard() {
 }
 
 function PreferencesForm({ preferences }: { preferences: UserPreference }) {
+  const { usersApi } = useParkioSdk();
   const { t } = useTranslation('settings');
   const queryClient = useQueryClient();
   const isAuthenticated = useAuthStore((s) => s.isAuthenticated);

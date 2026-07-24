@@ -73,6 +73,7 @@ class SpotMediaAccessUrlTest {
         jdbc.update("DELETE FROM parking_spot_verifications");
         jdbc.update("DELETE FROM parking_spot_status_history");
         jdbc.update("DELETE FROM outbox_events");
+        jdbc.update("DELETE FROM parking_sessions");
         jdbc.update("DELETE FROM parking_spots");
         reset(mediaAccess, mediaReadiness);
         when(mediaAccess.requestAccessUrl(any(UUID.class), any(UUID.class)))

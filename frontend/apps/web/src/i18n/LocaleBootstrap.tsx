@@ -1,7 +1,7 @@
 import { useEffect } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { normalizeLocale } from '@parkio/types';
-import { usersApi } from '@/api';
+import { useParkioSdk } from '@/app/AppRuntimeContext';
 import { useAuthStore } from '@/auth/store';
 import { useLocaleStore } from '@/i18n/localeStore';
 
@@ -10,6 +10,7 @@ import { useLocaleStore } from '@/i18n/localeStore';
  * Logout keeps the last explicit device locale (localStorage).
  */
 export function LocaleBootstrap() {
+  const { usersApi } = useParkioSdk();
   const isAuthenticated = useAuthStore((s) => s.isAuthenticated);
   const syncFromServer = useLocaleStore((s) => s.syncFromServer);
 

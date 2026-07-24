@@ -1,50 +1,127 @@
-/**
- * Cross-tab auth coordination.
- *
- * Single-flight refresh is per-tab only — it cannot stop a *second tab* from
- * presenting the same HttpOnly refresh cookie. What we can do cheaply is keep
- * logout consistent: when one tab signs out (explicit logout, or a refresh
- * failure that clears the session), every other tab drops its in-memory session
- * too, instead of lingering on a now-revoked token until its next 401.
- *
- * Security: only a "logged out" signal crosses the channel. No access token and
- * no refresh token is ever broadcast or stored — the refresh token stays in the
- * HttpOnly cookie and the access token stays in memory in each tab.
- */
 const CHANNEL_NAME = 'parkio.auth';
+const MESSAGE_VERSION = 1;
+const SESSION_DESTRUCTION_TYPE = 'session-destroyed';
+const MAX_SEEN_EVENTS = 100;
 
-type AuthBroadcast = { type: 'logout' };
-
-let channel: BroadcastChannel | null = null;
-
-function getChannel(): BroadcastChannel | null {
-  if (typeof BroadcastChannel === 'undefined') {
-    return null; // jsdom/older browsers — degrade to in-tab only.
-  }
-  channel ??= new BroadcastChannel(CHANNEL_NAME);
-  return channel;
+export interface SessionDestructionMessage {
+  readonly version: 1;
+  readonly type: 'session-destroyed';
+  readonly eventId: string;
 }
 
-/** Tell other tabs this browser session was signed out. */
-export function broadcastLogout(): void {
-  getChannel()?.postMessage({ type: 'logout' } satisfies AuthBroadcast);
+interface CrossTabChannel {
+  postMessage(message: unknown): void;
+  addEventListener(type: 'message', listener: (event: MessageEvent<unknown>) => void): void;
+  removeEventListener(type: 'message', listener: (event: MessageEvent<unknown>) => void): void;
+  close?(): void;
+}
+
+export interface CrossTabSessionSync {
+  broadcastSessionDestruction(): void;
+  subscribe(onRemoteSessionDestruction: () => void): () => void;
+  dispose(): void;
+}
+
+export interface CrossTabSessionSyncOptions {
+  readonly createChannel?: (name: string) => CrossTabChannel | null;
+  readonly createEventId?: () => string;
+}
+
+function defaultChannelFactory(name: string): CrossTabChannel | null {
+  if (typeof BroadcastChannel === 'undefined') {
+    return null;
+  }
+  return new BroadcastChannel(name);
+}
+
+function defaultEventId(): string {
+  if (typeof globalThis.crypto?.randomUUID === 'function') {
+    return globalThis.crypto.randomUUID();
+  }
+  return `${Date.now().toString(36)}-${Math.random().toString(36).slice(2)}`;
+}
+
+function isSessionDestructionMessage(value: unknown): value is SessionDestructionMessage {
+  if (!value || typeof value !== 'object') {
+    return false;
+  }
+  const record = value as Record<string, unknown>;
+  const keys = Object.keys(record);
+  return (
+    keys.length === 3 &&
+    keys.every((key) => key === 'version' || key === 'type' || key === 'eventId') &&
+    record.version === MESSAGE_VERSION &&
+    record.type === SESSION_DESTRUCTION_TYPE &&
+    typeof record.eventId === 'string' &&
+    /^[A-Za-z0-9-]{1,128}$/.test(record.eventId)
+  );
 }
 
 /**
- * Subscribe to remote logout events. BroadcastChannel does not echo a message
- * back to its sender, so the handler only fires for *other* tabs — no loop.
- * Returns an unsubscribe function.
+ * Creates one credential-free cross-tab invalidation channel per application runtime.
+ * Receiving a message never publishes another one; session state is restored independently
+ * by each tab through the SDK lifecycle.
  */
-export function initCrossTabAuth(onRemoteLogout: () => void): () => void {
-  const ch = getChannel();
-  if (!ch) {
-    return () => {};
-  }
-  const handler = (event: MessageEvent<AuthBroadcast>) => {
-    if (event.data?.type === 'logout') {
-      onRemoteLogout();
+export function createCrossTabSessionSync(
+  options: CrossTabSessionSyncOptions = {},
+): CrossTabSessionSync {
+  const channel = (options.createChannel ?? defaultChannelFactory)(CHANNEL_NAME);
+  const createEventId = options.createEventId ?? defaultEventId;
+  const seenEventIds = new Set<string>();
+  const listeners = new Set<() => void>();
+
+  const remember = (eventId: string) => {
+    seenEventIds.add(eventId);
+    if (seenEventIds.size > MAX_SEEN_EVENTS) {
+      const oldest = seenEventIds.values().next().value as string | undefined;
+      if (oldest) {
+        seenEventIds.delete(oldest);
+      }
     }
   };
-  ch.addEventListener('message', handler);
-  return () => ch.removeEventListener('message', handler);
+
+  const handleMessage = (event: MessageEvent<unknown>) => {
+    if (!isSessionDestructionMessage(event.data) || seenEventIds.has(event.data.eventId)) {
+      return;
+    }
+    remember(event.data.eventId);
+    listeners.forEach((listener) => listener());
+  };
+
+  channel?.addEventListener('message', handleMessage);
+
+  let disposed = false;
+  return Object.freeze({
+    broadcastSessionDestruction() {
+      if (disposed || !channel) {
+        return;
+      }
+      const eventId = createEventId();
+      remember(eventId);
+      channel.postMessage({
+        version: MESSAGE_VERSION,
+        type: SESSION_DESTRUCTION_TYPE,
+        eventId,
+      } satisfies SessionDestructionMessage);
+    },
+
+    subscribe(onRemoteSessionDestruction: () => void) {
+      if (disposed) {
+        return () => {};
+      }
+      listeners.add(onRemoteSessionDestruction);
+      return () => listeners.delete(onRemoteSessionDestruction);
+    },
+
+    dispose() {
+      if (disposed) {
+        return;
+      }
+      disposed = true;
+      channel?.removeEventListener('message', handleMessage);
+      channel?.close?.();
+      listeners.clear();
+      seenEventIds.clear();
+    },
+  });
 }

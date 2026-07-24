@@ -1,9 +1,9 @@
 import type { Spot } from '@parkio/types';
 import { http, HttpResponse } from 'msw';
 import { screen } from '@testing-library/react';
-import { beforeEach, describe, expect, it } from 'vitest';
+import { describe, expect, it } from 'vitest';
 import { API_BASE, server } from '@/test/server';
-import { renderWithProviders, resetAuth, signInAs } from '@/test/utils';
+import { renderWithProviders } from '@/test/utils';
 import { MySpotsPage } from './MySpotsPage';
 
 const spot: Spot = {
@@ -36,14 +36,12 @@ function useMySpotsHandlers(spots: Spot[]) {
 }
 
 describe('MySpotsPage', () => {
-  beforeEach(() => {
-    resetAuth();
-    signInAs(['USER']);
-  });
-
   it('shows the empty state when no spots have been shared', async () => {
     useMySpotsHandlers([]);
-    renderWithProviders(<MySpotsPage />, { initialEntries: ['/my-spots'] });
+    renderWithProviders(<MySpotsPage />, {
+      authRoles: ['USER'],
+      initialEntries: ['/my-spots'],
+    });
 
     expect(await screen.findByText('No spots yet')).toBeInTheDocument();
     expect(screen.getByRole('link', { name: /Share your first spot/ })).toHaveAttribute(
@@ -54,7 +52,10 @@ describe('MySpotsPage', () => {
 
   it('renders a shared spot with status and owner signals', async () => {
     useMySpotsHandlers([spot]);
-    renderWithProviders(<MySpotsPage />, { initialEntries: ['/my-spots'] });
+    renderWithProviders(<MySpotsPage />, {
+      authRoles: ['USER'],
+      initialEntries: ['/my-spots'],
+    });
 
     expect(await screen.findByRole('link', { name: '12 Curb Lane' })).toBeInTheDocument();
     expect(screen.getByText(/2 verifications/)).toBeInTheDocument();

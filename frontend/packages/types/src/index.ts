@@ -10,6 +10,7 @@ export * from './moderation';
 export * from './analytics';
 export * from './geocoding';
 export * from './admin';
+export * from './waitlist';
 
 export const PRIVILEGED_ROLES = ['MODERATOR', 'ADMIN', 'SUPER_ADMIN'] as const;
 

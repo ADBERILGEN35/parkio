@@ -2,9 +2,9 @@ import { http, HttpResponse } from 'msw';
 import { screen } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { Route, Routes } from 'react-router-dom';
-import { beforeEach, describe, expect, it } from 'vitest';
+import { describe, expect, it } from 'vitest';
 import { API_BASE, server } from '@/test/server';
-import { renderWithProviders, resetAuth } from '@/test/utils';
+import { renderWithProviders } from '@/test/utils';
 import { ForgotPasswordPage } from './ForgotPasswordPage';
 
 function renderPage() {
@@ -17,8 +17,6 @@ function renderPage() {
 }
 
 describe('ForgotPasswordPage', () => {
-  beforeEach(() => resetAuth());
-
   it('submits email and shows the generic success message', async () => {
     let requestedEmail = '';
     server.use(

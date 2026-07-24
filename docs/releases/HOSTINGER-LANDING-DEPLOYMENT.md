@@ -84,7 +84,7 @@ Archive size:
 Upload the archive contents into Hostinger `public_html`, not the archive directory itself.
 
 Top-level package contents:
-
+     
 ```text
 assets/
 icons/

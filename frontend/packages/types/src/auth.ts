@@ -1,13 +1,26 @@
+export const AUTH_USER_STATUSES = [
+  'PENDING_VERIFICATION',
+  'ACTIVE',
+  'SUSPENDED',
+  'BANNED',
+] as const;
+
+export type AuthUserStatus = (typeof AUTH_USER_STATUSES)[number];
+
+export const AUTH_ROLE_NAMES = ['USER', 'MODERATOR', 'ADMIN', 'SUPER_ADMIN'] as const;
+
+export type AuthRoleName = (typeof AUTH_ROLE_NAMES)[number];
+
 export interface User {
   id: string;
   email: string;
-  status: string;
-  roles: string[];
+  status: AuthUserStatus;
+  roles: AuthRoleName[];
 }
 
 export interface AuthResponse {
   accessToken: string | null;
-  tokenType: string;
+  tokenType: 'Bearer';
   accessTokenExpiresAt: string | null;
   refreshTokenExpiresAt: string | null;
   /**
@@ -27,7 +40,7 @@ export interface LoginRequest {
 export interface RegisterRequest {
   email: string;
   password: string;
-  locale?: 'tr' | 'en';
+  locale?: 'tr' | 'en' | null;
 }
 
 export interface VerifyEmailRequest {
@@ -36,12 +49,12 @@ export interface VerifyEmailRequest {
 
 export interface ResendVerificationRequest {
   email: string;
-  locale?: 'tr' | 'en';
+  locale?: 'tr' | 'en' | null;
 }
 
 export interface ForgotPasswordRequest {
   email: string;
-  locale?: 'tr' | 'en';
+  locale?: 'tr' | 'en' | null;
 }
 
 export interface ResetPasswordRequest {
@@ -54,6 +67,11 @@ export interface ChangePasswordRequest {
   newPassword: string;
 }
 
-export type RefreshTokenRequest = Record<string, never>;
+/** Native-only body for refresh and logout; browsers send no body and use the HttpOnly cookie. */
+export interface MobileTokenRequest {
+  refreshToken: string;
+}
 
-export type LogoutRequest = Record<string, never>;
+export type RefreshTokenRequest = MobileTokenRequest | undefined;
+
+export type LogoutRequest = MobileTokenRequest | undefined;

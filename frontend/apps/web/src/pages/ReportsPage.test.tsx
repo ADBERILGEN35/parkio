@@ -1,9 +1,9 @@
 import type { ModerationReport } from '@parkio/types';
 import { http, HttpResponse } from 'msw';
 import { screen } from '@testing-library/react';
-import { beforeEach, describe, expect, it } from 'vitest';
+import { describe, expect, it } from 'vitest';
 import { API_BASE, server } from '@/test/server';
-import { renderWithProviders, resetAuth, signInAs } from '@/test/utils';
+import { renderWithProviders } from '@/test/utils';
 import { ReportsPage } from './ReportsPage';
 
 const SPOT_ID = '0b8f6c3a-0000-0000-0000-0000000000s1';
@@ -28,14 +28,12 @@ function useReportsHandlers(reports: ModerationReport[]) {
 }
 
 describe('ReportsPage', () => {
-  beforeEach(() => {
-    resetAuth();
-    signInAs(['USER']);
-  });
-
   it('renders a submitted report with its case and target link', async () => {
     useReportsHandlers([report]);
-    renderWithProviders(<ReportsPage />, { initialEntries: ['/reports'] });
+    renderWithProviders(<ReportsPage />, {
+      authRoles: ['USER'],
+      initialEntries: ['/reports'],
+    });
 
     expect(await screen.findByText('Fake photo')).toBeInTheDocument();
     expect(screen.getByText('Case opened')).toBeInTheDocument();
@@ -47,7 +45,10 @@ describe('ReportsPage', () => {
 
   it('renders the appeal form controls', async () => {
     useReportsHandlers([]);
-    renderWithProviders(<ReportsPage />, { initialEntries: ['/reports'] });
+    renderWithProviders(<ReportsPage />, {
+      authRoles: ['USER'],
+      initialEntries: ['/reports'],
+    });
 
     expect(await screen.findByLabelText('Case id')).toBeInTheDocument();
     expect(screen.getByRole('button', { name: 'Submit appeal' })).toBeInTheDocument();

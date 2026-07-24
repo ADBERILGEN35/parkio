@@ -5,7 +5,7 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useState, type ReactNode } from 'react';
 import { useTranslation } from 'react-i18next';
 import { Link, useParams } from 'react-router-dom';
-import { adminApi } from '@/api';
+import { useParkioSdk } from '@/app/AppRuntimeContext';
 import { useAuthStore } from '@/auth/store';
 import { FriendlyApiErrorMessage } from '@/components/FriendlyApiErrorMessage';
 import { showError, showSuccess } from '@/lib/toast';
@@ -26,6 +26,7 @@ function roleLabel(t: (key: string) => string, role: string): string {
 }
 
 export function AdminUserDetailPage() {
+  const { adminApi } = useParkioSdk();
   const { t } = useTranslation('admin');
   const { id = '' } = useParams();
   const roles = useAuthStore((s) => s.roles);

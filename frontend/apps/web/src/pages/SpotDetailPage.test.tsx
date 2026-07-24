@@ -3,9 +3,9 @@ import { http, HttpResponse } from 'msw';
 import { screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { Route, Routes } from 'react-router-dom';
-import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import { API_BASE, apiErrorBody, server } from '@/test/server';
-import { renderWithProviders, resetAuth, signInAs } from '@/test/utils';
+import { renderWithProviders } from '@/test/utils';
 import { SpotDetailPage } from './SpotDetailPage';
 
 // Leaflet needs real DOM sizing/canvas that jsdom lacks; the map is not under test here.
@@ -52,16 +52,11 @@ function renderSpotDetail() {
     <Routes>
       <Route path="/spots/:spotId" element={<SpotDetailPage />} />
     </Routes>,
-    { initialEntries: [`/spots/${SPOT_ID}`] },
+    { authRoles: ['USER'], initialEntries: [`/spots/${SPOT_ID}`] },
   );
 }
 
 describe('SpotDetailPage', () => {
-  beforeEach(() => {
-    resetAuth();
-    signInAs(['USER']);
-  });
-
   it('shows a friendly message when the spot is not found', async () => {
     server.use(
       http.get(`${API_BASE}/parking/spots/${SPOT_ID}`, () =>

@@ -5,9 +5,8 @@ import { useMemo, useState } from 'react';
 import { useForm } from 'react-hook-form';
 import { useTranslation } from 'react-i18next';
 import { Link, useNavigate, useSearchParams } from 'react-router-dom';
-import { authApi } from '@/api';
 import { describeAuthError } from '@/api/error-messages';
-import { useAuthStore } from '@/auth/store';
+import { useAppRuntime } from '@/app/AppRuntimeContext';
 import { AuthSplitLayout } from '@/pages/auth/AuthSplitLayout';
 import {
   createResetPasswordSchema,
@@ -16,10 +15,13 @@ import {
 import { showError, showSuccess } from '@/lib/toast';
 
 export function ResetPasswordPage() {
+  const {
+    authSession,
+    sdk: { authApi },
+  } = useAppRuntime();
   const { t } = useTranslation(['auth', 'common', 'validation', 'errors']);
   const [searchParams] = useSearchParams();
   const navigate = useNavigate();
-  const clearSession = useAuthStore((s) => s.clearSession);
   const token = searchParams.get('token') ?? '';
   const [apiError, setApiError] = useState<string | null>(null);
   const [traceId, setTraceId] = useState<string | undefined>();
@@ -51,7 +53,7 @@ export function ResetPasswordPage() {
     setTraceId(undefined);
     try {
       await authApi.resetPassword({ token, newPassword: values.password });
-      clearSession();
+      authSession.destroyLocalSession();
       showSuccess(t('auth:resetPassword.success'));
       navigate('/login?passwordReset=success', { replace: true });
     } catch (error) {

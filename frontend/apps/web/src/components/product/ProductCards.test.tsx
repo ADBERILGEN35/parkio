@@ -39,6 +39,7 @@ const unreadNotification: AppNotification = {
   channel: 'IN_APP',
   title: 'You earned points',
   body: 'Your spot was verified.',
+  metadata: {},
   status: 'SENT',
   createdAt: '2026-06-11T09:00:00Z',
   readAt: null,

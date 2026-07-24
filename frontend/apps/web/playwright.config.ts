@@ -13,6 +13,7 @@ import { defineConfig, devices } from '@playwright/test';
  */
 const PORT = 5193;
 const BASE_URL = `http://localhost:${PORT}`;
+const WP03_ACCEPTANCE = /wp03-routing\.spec\.ts/;
 
 export default defineConfig({
   testDir: './e2e',
@@ -28,12 +29,22 @@ export default defineConfig({
     trace: 'on-first-retry',
   },
   projects: [
-    { name: 'chromium', use: { ...devices['Desktop Chrome'] } },
+    {
+      name: 'wp03-chromium',
+      testMatch: WP03_ACCEPTANCE,
+      use: { ...devices['Desktop Chrome'] },
+    },
+    {
+      name: 'chromium',
+      testIgnore: WP03_ACCEPTANCE,
+      use: { ...devices['Desktop Chrome'] },
+    },
     {
       // Smallest mainstream Android width (360×800 — Galaxy A-series / many budget
       // phones). The tightest layout we support: validates no horizontal overflow,
       // no clipped CTAs, no chip wrapping, and that the preview clears the sheet.
       name: 'galaxy-360',
+      testIgnore: WP03_ACCEPTANCE,
       use: {
         ...devices['Pixel 7'],
         viewport: { width: 360, height: 800 },
@@ -44,6 +55,7 @@ export default defineConfig({
     },
     {
       name: 'iphone-14',
+      testIgnore: WP03_ACCEPTANCE,
       use: {
         ...devices['Desktop Chrome'],
         viewport: { width: 390, height: 844 },
@@ -54,6 +66,7 @@ export default defineConfig({
     },
     {
       name: 'pixel-8',
+      testIgnore: WP03_ACCEPTANCE,
       use: {
         ...devices['Pixel 7'],
         viewport: { width: 412, height: 915 },

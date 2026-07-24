@@ -1,12 +1,11 @@
 import { http, HttpResponse } from 'msw';
-import { screen } from '@testing-library/react';
+import { screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { Route, Routes } from 'react-router-dom';
 import { beforeEach, describe, expect, it } from 'vitest';
-import { useAuthStore } from '@/auth/store';
-import { setPendingProfile } from '@/auth/pendingProfile';
+import { clearPendingProfile, setPendingProfile } from '@/auth/pendingProfile';
 import { API_BASE, apiErrorBody, server } from '@/test/server';
-import { renderWithProviders, resetAuth } from '@/test/utils';
+import { renderWithProviders } from '@/test/utils';
 import { AccountPreparingPage } from './AccountPreparingPage';
 import { LoginPage } from './LoginPage';
 
@@ -29,6 +28,7 @@ function renderLogin() {
       <Route path="/login" element={<LoginPage />} />
       <Route path="/preparing" element={<AccountPreparingPage />} />
       <Route path="/map" element={<div>Map page stub</div>} />
+      <Route path="/profile" element={<div>Profile page stub</div>} />
     </Routes>,
     { initialEntries: ['/login'] },
   );
@@ -42,21 +42,59 @@ async function fillAndSubmit(email: string, password: string) {
 }
 
 describe('LoginPage', () => {
-  beforeEach(() => resetAuth());
+  beforeEach(() => clearPendingProfile());
 
   it('stores the session and redirects to /map on success', async () => {
     server.use(http.post(`${API_BASE}/auth/login`, () => HttpResponse.json(authResponse)));
 
-    renderLogin();
+    const { runtime } = renderLogin();
     await fillAndSubmit('tester@parkio.dev', 'password-1');
 
     expect(await screen.findByText('Map page stub')).toBeInTheDocument();
-    const state = useAuthStore.getState();
+    const state = runtime.authStore.getState();
     expect(state.isAuthenticated).toBe(true);
     expect(state.user?.email).toBe('tester@parkio.dev');
     expect(state.accessToken).toBe('access-1');
     expect(localStorage.getItem('parkio.accessToken')).toBeNull();
     expect(localStorage.getItem('parkio.refreshToken')).toBeNull();
+  });
+
+  it('returns only to a recognized internal route after login', async () => {
+    server.use(http.post(`${API_BASE}/auth/login`, () => HttpResponse.json(authResponse)));
+    renderWithProviders(
+      <Routes>
+        <Route path="/login" element={<LoginPage />} />
+        <Route path="/profile" element={<div>Profile page stub</div>} />
+      </Routes>,
+      {
+        initialEntries: [
+          { pathname: '/login', state: { from: { pathname: '/profile', search: '?unsafe=1' } } },
+        ],
+      },
+    );
+
+    await fillAndSubmit('tester@parkio.dev', 'password-1');
+
+    expect(await screen.findByText('Profile page stub')).toBeInTheDocument();
+  });
+
+  it('falls back to /map for an external post-login redirect', async () => {
+    server.use(http.post(`${API_BASE}/auth/login`, () => HttpResponse.json(authResponse)));
+    renderWithProviders(
+      <Routes>
+        <Route path="/login" element={<LoginPage />} />
+        <Route path="/map" element={<div>Map page stub</div>} />
+      </Routes>,
+      {
+        initialEntries: [
+          { pathname: '/login', state: { from: { pathname: '//evil.example/steal' } } },
+        ],
+      },
+    );
+
+    await fillAndSubmit('tester@parkio.dev', 'password-1');
+
+    expect(await screen.findByText('Map page stub')).toBeInTheDocument();
   });
 
   it('does not render a no-op remember-me control', () => {
@@ -75,12 +113,12 @@ describe('LoginPage', () => {
       ),
     );
 
-    renderLogin();
+    const { runtime } = renderLogin();
     await fillAndSubmit('tester@parkio.dev', 'wrong-password');
 
     expect(await screen.findByText('Invalid email or password.')).toBeInTheDocument();
     expect(screen.getByText('Trace: trace-login-1')).toBeInTheDocument();
-    expect(useAuthStore.getState().isAuthenticated).toBe(false);
+    expect(runtime.authStore.getState().isAuthenticated).toBe(false);
   });
 
   it('shows a friendly message when the account is not verified', async () => {
@@ -93,15 +131,15 @@ describe('LoginPage', () => {
       ),
     );
 
-    renderLogin();
+    const { runtime } = renderLogin();
     await fillAndSubmit('tester@parkio.dev', 'password-1');
 
     expect(await screen.findByText('Please verify your email before signing in.')).toBeInTheDocument();
     expect(screen.getByText('Trace: trace-verify-1')).toBeInTheDocument();
-    expect(useAuthStore.getState().isAuthenticated).toBe(false);
+    expect(runtime.authStore.getState().isAuthenticated).toBe(false);
   });
 
-  it('resumes profile provisioning after verified login when pending profile data exists', async () => {
+  it('resumes and completes profile provisioning for the route policy boundary', async () => {
     setPendingProfile({ displayName: 'New Driver', phoneNumber: '5551234567' });
     server.use(
       http.post(`${API_BASE}/auth/login`, () => HttpResponse.json(authResponse)),
@@ -109,10 +147,12 @@ describe('LoginPage', () => {
       http.patch(`${API_BASE}/users/me`, () => HttpResponse.json({})),
     );
 
-    renderLogin();
+    const { runtime } = renderLogin();
     await fillAndSubmit('tester@parkio.dev', 'password-1');
 
-    expect(await screen.findByText('Map page stub')).toBeInTheDocument();
-    expect(useAuthStore.getState().isAuthenticated).toBe(true);
+    await waitFor(() =>
+      expect(runtime.authStore.getState().lifecycle).toBe('authenticated'),
+    );
+    expect(runtime.authStore.getState().isAuthenticated).toBe(true);
   });
 });

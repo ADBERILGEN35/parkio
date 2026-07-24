@@ -13,7 +13,7 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useEffect, useRef, useState } from 'react';
 import { useForm } from 'react-hook-form';
 import { useTranslation } from 'react-i18next';
-import { usersApi } from '@/api';
+import { useParkioSdk } from '@/app/AppRuntimeContext';
 import { FriendlyApiErrorMessage } from '@/components/FriendlyApiErrorMessage';
 import { PlaceSearch } from '@/components/map/PlaceSearch';
 import { SettingsSectionCard } from '@/components/product/SettingsSectionCard';
@@ -33,6 +33,7 @@ export interface SmartReturnCardProps {
 }
 
 export function SmartReturnCard({ autoFocusToday = false }: SmartReturnCardProps) {
+  const { usersApi } = useParkioSdk();
   const { t } = useTranslation('settings');
   const query = useQuery({ queryKey: ['me', 'smart-return'], queryFn: usersApi.getSmartReturn });
 
@@ -146,6 +147,7 @@ function PrivacyNote() {
 type TodayMode = 'idle' | 'pickTime';
 
 function TodayCard({ settings, autoFocus }: { settings: SmartReturnSettings; autoFocus: boolean }) {
+  const { usersApi } = useParkioSdk();
   const { t } = useTranslation('settings');
   const queryClient = useQueryClient();
   const sectionRef = useRef<HTMLElement>(null);
@@ -487,6 +489,7 @@ function SmartReturnSettingsForm({
   submitLabel: string;
   allowTurnOff?: boolean;
 }) {
+  const { usersApi } = useParkioSdk();
   const { t } = useTranslation('settings');
   const queryClient = useQueryClient();
   const [advancedOpen, setAdvancedOpen] = useState(false);

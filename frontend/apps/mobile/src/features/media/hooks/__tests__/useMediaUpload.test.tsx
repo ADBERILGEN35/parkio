@@ -29,6 +29,7 @@ describe('useMediaUpload', () => {
     status: 'READY',
     contentType: 'image/jpeg',
     fileSize: 2048,
+    claimedRegion: null,
   };
 
   const prepared: PreparedImage = {

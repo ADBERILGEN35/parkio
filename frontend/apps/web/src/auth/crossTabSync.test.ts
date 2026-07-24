@@ -1,85 +1,152 @@
-import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
+import {
+  createCrossTabSessionSync,
+  type SessionDestructionMessage,
+} from './crossTabSync';
 
-/**
- * Minimal in-process BroadcastChannel stand-in: delivers a posted message to all
- * *other* instances with the same name (never to the sender), matching the real
- * cross-tab semantics we rely on.
- */
 class FakeBroadcastChannel {
   static instances: FakeBroadcastChannel[] = [];
-  private listeners = new Set<(e: MessageEvent) => void>();
-  constructor(public name: string) {
+  readonly posted: unknown[] = [];
+  private readonly listeners = new Set<(event: MessageEvent<unknown>) => void>();
+
+  constructor(readonly name: string) {
     FakeBroadcastChannel.instances.push(this);
   }
+
   postMessage(data: unknown) {
-    for (const inst of FakeBroadcastChannel.instances) {
-      if (inst !== this && inst.name === this.name) {
-        inst.listeners.forEach((l) => l({ data } as MessageEvent));
+    this.posted.push(data);
+    for (const instance of FakeBroadcastChannel.instances) {
+      if (instance !== this && instance.name === this.name) {
+        instance.deliver(data);
       }
     }
   }
-  addEventListener(_type: 'message', listener: (e: MessageEvent) => void) {
+
+  addEventListener(_type: 'message', listener: (event: MessageEvent<unknown>) => void) {
     this.listeners.add(listener);
   }
-  removeEventListener(_type: 'message', listener: (e: MessageEvent) => void) {
+
+  removeEventListener(_type: 'message', listener: (event: MessageEvent<unknown>) => void) {
     this.listeners.delete(listener);
+  }
+
+  deliver(data: unknown) {
+    this.listeners.forEach((listener) => listener({ data } as MessageEvent<unknown>));
+  }
+
+  close() {
+    this.listeners.clear();
   }
 }
 
-async function loadModule() {
-  vi.resetModules();
-  return import('./crossTabSync');
+function createSync(eventId = 'event-1') {
+  return createCrossTabSessionSync({
+    createChannel: (name) => new FakeBroadcastChannel(name),
+    createEventId: () => eventId,
+  });
 }
 
 beforeEach(() => {
   FakeBroadcastChannel.instances = [];
-  vi.stubGlobal('BroadcastChannel', FakeBroadcastChannel);
 });
 
-afterEach(() => {
-  vi.unstubAllGlobals();
-});
-
-describe('crossTabSync', () => {
-  it('invokes the remote-logout handler when another tab broadcasts logout', async () => {
-    const { initCrossTabAuth } = await loadModule();
-    const onRemoteLogout = vi.fn();
-    initCrossTabAuth(onRemoteLogout);
-
-    // Simulate "another tab" posting a logout on the same channel name.
-    new FakeBroadcastChannel('parkio.auth').postMessage({ type: 'logout' });
-
-    expect(onRemoteLogout).toHaveBeenCalledTimes(1);
-  });
-
-  it('broadcastLogout posts a logout message other tabs receive', async () => {
-    const { broadcastLogout } = await loadModule();
-    const otherTab = new FakeBroadcastChannel('parkio.auth');
+describe('credential-free cross-tab session destruction', () => {
+  it('broadcasts only the versioned non-sensitive invalidation envelope', () => {
+    const sync = createSync('event-safe-1');
+    const receivingChannel = new FakeBroadcastChannel('parkio.auth');
     const received: unknown[] = [];
-    otherTab.addEventListener('message', (e) => received.push(e.data));
+    receivingChannel.addEventListener('message', (event) => received.push(event.data));
 
-    broadcastLogout();
+    sync.broadcastSessionDestruction();
 
-    expect(received).toEqual([{ type: 'logout' }]);
+    expect(received).toEqual([
+      { version: 1, type: 'session-destroyed', eventId: 'event-safe-1' },
+    ]);
+    const serialized = JSON.stringify(received);
+    expect(serialized).not.toMatch(
+      /accessToken|refreshToken|authorization|email|roles|user|coordinates|payload/i,
+    );
   });
 
-  it('unsubscribe stops handling further logout broadcasts', async () => {
-    const { initCrossTabAuth } = await loadModule();
-    const onRemoteLogout = vi.fn();
-    const unsubscribe = initCrossTabAuth(onRemoteLogout);
+  it('handles a remote destruction event once', () => {
+    const sync = createSync();
+    const onRemoteDestruction = vi.fn();
+    sync.subscribe(onRemoteDestruction);
+
+    new FakeBroadcastChannel('parkio.auth').postMessage({
+      version: 1,
+      type: 'session-destroyed',
+      eventId: 'remote-1',
+    } satisfies SessionDestructionMessage);
+
+    expect(onRemoteDestruction).toHaveBeenCalledTimes(1);
+  });
+
+  it('deduplicates repeated event identifiers', () => {
+    const sync = createSync();
+    const onRemoteDestruction = vi.fn();
+    sync.subscribe(onRemoteDestruction);
+    const ownChannel = FakeBroadcastChannel.instances[0]!;
+    const message: SessionDestructionMessage = {
+      version: 1,
+      type: 'session-destroyed',
+      eventId: 'duplicate-1',
+    };
+
+    ownChannel.deliver(message);
+    ownChannel.deliver(message);
+
+    expect(onRemoteDestruction).toHaveBeenCalledTimes(1);
+  });
+
+  it('does not echo a remotely received event', () => {
+    const first = createSync('first-event');
+    const second = createSync('second-event');
+    const onSecond = vi.fn();
+    second.subscribe(onSecond);
+
+    first.broadcastSessionDestruction();
+
+    expect(onSecond).toHaveBeenCalledTimes(1);
+    expect(FakeBroadcastChannel.instances.flatMap((channel) => channel.posted)).toHaveLength(1);
+  });
+
+  it('rejects envelopes with credentials, identity, or backend payload fields', () => {
+    const sync = createSync();
+    const onRemoteDestruction = vi.fn();
+    sync.subscribe(onRemoteDestruction);
+    const ownChannel = FakeBroadcastChannel.instances[0]!;
+
+    ownChannel.deliver({
+      version: 1,
+      type: 'session-destroyed',
+      eventId: 'unsafe-1',
+      accessToken: 'secret',
+    });
+    ownChannel.deliver({
+      version: 1,
+      type: 'session-destroyed',
+      eventId: 'unsafe-2',
+      user: { email: 'tester@parkio.dev' },
+    });
+
+    expect(onRemoteDestruction).not.toHaveBeenCalled();
+  });
+
+  it('unsubscribes, disposes, and degrades without BroadcastChannel', () => {
+    const sync = createSync();
+    const onRemoteDestruction = vi.fn();
+    const unsubscribe = sync.subscribe(onRemoteDestruction);
+    const ownChannel = FakeBroadcastChannel.instances[0]!;
 
     unsubscribe();
-    new FakeBroadcastChannel('parkio.auth').postMessage({ type: 'logout' });
+    ownChannel.deliver({ version: 1, type: 'session-destroyed', eventId: 'remote-2' });
+    sync.dispose();
+    expect(() => sync.broadcastSessionDestruction()).not.toThrow();
 
-    expect(onRemoteLogout).not.toHaveBeenCalled();
-  });
-
-  it('degrades to a no-op when BroadcastChannel is unavailable', async () => {
-    vi.stubGlobal('BroadcastChannel', undefined);
-    const { broadcastLogout, initCrossTabAuth } = await loadModule();
-
-    const unsubscribe = initCrossTabAuth(vi.fn());
-    expect(() => broadcastLogout()).not.toThrow();
-    expect(() => unsubscribe()).not.toThrow();
+    const unavailable = createCrossTabSessionSync({ createChannel: () => null });
+    expect(() => unavailable.broadcastSessionDestruction()).not.toThrow();
+    expect(() => unavailable.dispose()).not.toThrow();
+    expect(onRemoteDestruction).not.toHaveBeenCalled();
   });
 });

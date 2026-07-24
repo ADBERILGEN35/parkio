@@ -10,6 +10,10 @@ public enum ParkingErrorCode {
     SPOT_NOT_VERIFIABLE,
     SPOT_NOT_CLAIMABLE,
     SPOT_EXPIRED,
+    PARKING_SESSION_NOT_FOUND,
+    PARKING_SESSION_NOT_ACTIVE,
+    ACTIVE_PARKING_SESSION_EXISTS,
+    INVALID_PARKING_SESSION_CURSOR,
     MISSING_USER_ID,
     MEDIA_ACCESS_UNAVAILABLE,
     /** The referenced media is missing or has not passed media-service safety checks (not READY). */

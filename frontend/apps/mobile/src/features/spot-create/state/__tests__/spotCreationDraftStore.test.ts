@@ -15,7 +15,13 @@ jest.mock('../../lib/spotCreationDraftPersistence', () => ({
 }));
 
 function media(id: string): UploadMediaResponse {
-  return { mediaId: id, status: 'READY', contentType: 'image/jpeg', fileSize: 2048 };
+  return {
+    mediaId: id,
+    status: 'READY',
+    contentType: 'image/jpeg',
+    fileSize: 2048,
+    claimedRegion: null,
+  };
 }
 
 describe('spotCreationDraftStore preview lifecycle', () => {

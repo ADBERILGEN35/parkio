@@ -3,10 +3,24 @@ import { fireEvent, screen } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { http, HttpResponse, delay } from 'msw';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-import { API_BASE, server } from '@/test/server';
-import { renderWithProviders, resetAuth, signInAs } from '@/test/utils';
+import type { WebAppRuntime } from '@/app/runtime';
 import { AUTOCOMPLETE_DEBOUNCE_MS } from '@/lib/usePlaceAutocomplete';
+import { API_BASE, server } from '@/test/server';
+import {
+  createTestAppRuntime,
+  renderWithProviders as renderWithBaseProviders,
+  signInAs,
+} from '@/test/utils';
 import { MapPage } from './MapPage';
+
+let runtime: WebAppRuntime;
+
+function renderWithProviders(
+  ui: Parameters<typeof renderWithBaseProviders>[0],
+  options: Parameters<typeof renderWithBaseProviders>[1] = {},
+) {
+  return renderWithBaseProviders(ui, { ...options, runtime });
+}
 
 // Leaflet can't render in jsdom; stub the map. It exposes the resolved center so
 // the fallback viewport can be asserted, plus a button that simulates clicking
@@ -119,8 +133,8 @@ const smartReturnSettings: SmartReturnSettings = {
 
 describe('MapPage', () => {
   beforeEach(() => {
-    resetAuth();
-    signInAs(['USER']);
+    runtime = createTestAppRuntime();
+    signInAs(runtime, ['USER']);
     // Shell unread badge fetches notifications on mount when AppShell is rendered.
     server.use(http.get(`${API_BASE}/notifications/me`, () => HttpResponse.json([])));
     server.use(

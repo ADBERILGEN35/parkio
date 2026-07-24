@@ -31,7 +31,7 @@ export interface AppNotification {
   channel: NotificationChannel;
   title: string;
   body: string;
-  metadata?: Record<string, string>;
+  metadata: Record<string, string>;
   status: NotificationStatus;
   createdAt: string;
   readAt: string | null;
@@ -49,10 +49,15 @@ export function isUnreadNotification(notification: AppNotification): boolean {
 export const DEVICE_PLATFORMS = ['IOS', 'ANDROID', 'WEB'] as const;
 export type DevicePlatform = (typeof DEVICE_PLATFORMS)[number];
 
+export interface RegisterDeviceTokenRequest {
+  token: string;
+  platform: DevicePlatform;
+}
+
 /** A registered push device token — mirrors `DeviceTokenResponse`. */
 export interface DeviceToken {
   id: string;
-  platform: string;
+  platform: DevicePlatform;
   active: boolean;
   createdAt: string;
 }

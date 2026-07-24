@@ -3,9 +3,23 @@ import { http, HttpResponse } from 'msw';
 import { screen, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { beforeEach, describe, expect, it } from 'vitest';
+import type { WebAppRuntime } from '@/app/runtime';
 import { API_BASE, server } from '@/test/server';
-import { renderWithProviders, resetAuth, signInAs } from '@/test/utils';
+import {
+  createTestAppRuntime,
+  renderWithProviders as renderWithBaseProviders,
+  signInAs,
+} from '@/test/utils';
 import { LeaderboardPage } from './LeaderboardPage';
+
+let runtime: WebAppRuntime;
+
+function renderWithProviders(
+  ui: Parameters<typeof renderWithBaseProviders>[0],
+  options: Parameters<typeof renderWithBaseProviders>[1] = {},
+) {
+  return renderWithBaseProviders(ui, { ...options, runtime });
+}
 
 const MY_USER_ID = 'aaaaaaaa-0000-0000-0000-000000000002';
 
@@ -86,8 +100,8 @@ function useLeaderboardHandlers(options: HandlerOptions = {}) {
 
 describe('LeaderboardPage', () => {
   beforeEach(() => {
-    resetAuth();
-    signInAs(['USER']);
+    runtime = createTestAppRuntime();
+    signInAs(runtime, ['USER']);
   });
 
   it('renders the top-3 podium', async () => {

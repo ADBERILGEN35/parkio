@@ -10,6 +10,7 @@ function TestRoutes({ initialPath }: { initialPath: string }) {
         <Route element={<RouteAccessibility />}>
           <Route path="/login" element={<main><h1>Welcome back</h1></main>} />
           <Route path="/map" element={<main><h1>Find parking</h1></main>} />
+          <Route path="*" element={<main><h1>Test route</h1></main>} />
         </Route>
       </Routes>
     </MemoryRouter>
@@ -37,6 +38,39 @@ describe('RouteAccessibility', () => {
     });
     await waitFor(() => expect(document.title).toBe('Parkio — Login'));
   });
+
+  it.each([
+    ['/admin', 'Parkio — Admin dashboard', 'Parkio — Yönetim paneli'],
+    ['/admin/users', 'Parkio — Users', 'Parkio — Kullanıcılar'],
+    [
+      '/admin/users/6f9619ff-8b86-4d01-b42d-00cf4fc964ff',
+      'Parkio — User',
+      'Parkio — Kullanıcı',
+    ],
+    ['/admin/security', 'Parkio — Security', 'Parkio — Güvenlik'],
+    ['/admin/moderation', 'Parkio — Moderation', 'Parkio — Moderasyon'],
+    ['/admin/analytics', 'Parkio — Analytics', 'Parkio — Analitik'],
+    ['/admin/audit', 'Parkio — Audit trail', 'Parkio — Denetim izi'],
+    ['/admin/system', 'Parkio — System', 'Parkio — Sistem'],
+  ])(
+    'sets the manifest-owned localized title for %s',
+    async (path, englishTitle, turkishTitle) => {
+      const i18n = (await import('@/i18n')).default;
+      await act(async () => {
+        await i18n.changeLanguage('en');
+      });
+      render(<TestRoutes initialPath={path} />);
+
+      await waitFor(() => expect(document.title).toBe(englishTitle));
+      await act(async () => {
+        await i18n.changeLanguage('tr');
+      });
+      await waitFor(() => expect(document.title).toBe(turkishTitle));
+      await act(async () => {
+        await i18n.changeLanguage('en');
+      });
+    },
+  );
 
   it('moves focus to the page heading after navigation render', async () => {
     render(<TestRoutes initialPath="/map" />);

@@ -1,32 +1,41 @@
 import { http, HttpResponse } from 'msw';
-import { screen, within } from '@testing-library/react';
+import { screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { Route, Routes } from 'react-router-dom';
 import { beforeEach, describe, expect, it } from 'vitest';
+import type { WebAppRuntime } from '@/app/runtime';
 import { AppShell } from '@/components/shell/AppShell';
 import { API_BASE, server } from '@/test/server';
-import { renderWithProviders, resetAuth, signInAs } from '@/test/utils';
+import {
+  createTestAppRuntime,
+  renderWithProviders as renderWithBaseProviders,
+  resetAuth,
+  signInAs,
+} from '@/test/utils';
+
+let runtime: WebAppRuntime;
 
 function useNavHandlers() {
   server.use(http.get(`${API_BASE}/notifications/me`, () => HttpResponse.json([])));
 }
 
 function renderShell(initialEntry = '/map') {
-  return renderWithProviders(
+  return renderWithBaseProviders(
     <Routes>
       <Route element={<AppShell />}>
         <Route path="/map" element={<div>Map page stub</div>} />
+        <Route path="/upload" element={<div>Upload page stub</div>} />
         <Route path="/moderation" element={<div>Moderation dashboard stub</div>} />
       </Route>
     </Routes>,
-    { initialEntries: [initialEntry] },
+    { initialEntries: [initialEntry], runtime },
   );
 }
 
 describe('AppShell navigation', () => {
   beforeEach(() => {
-    resetAuth();
-    signInAs(['USER']);
+    runtime = createTestAppRuntime();
+    signInAs(runtime, ['USER']);
   });
 
   it('renders persistent desktop navigation with the Parkio brand', () => {
@@ -37,6 +46,27 @@ describe('AppShell navigation', () => {
     expect(desktopHeader).not.toBeNull();
     expect(within(desktopHeader!).getByRole('link', { name: 'Map' })).toBeInTheDocument();
     expect(screen.getByRole('navigation', { name: 'Primary' })).toBeInTheDocument();
+  });
+
+  it('preserves PUSH semantics for explicit user navigation', async () => {
+    useNavHandlers();
+    const { router } = renderShell();
+    const user = userEvent.setup();
+    const desktopHeader = screen
+      .getByRole('link', { name: 'Parkio home' })
+      .closest('header');
+
+    expect(desktopHeader).not.toBeNull();
+    await user.click(
+      within(desktopHeader!).getByRole('link', {
+        name: 'Share a spot',
+      }),
+    );
+
+    await waitFor(() =>
+      expect(router.state.location.pathname).toBe('/upload'),
+    );
+    expect(router.state.historyAction).toBe('PUSH');
   });
 
   it('uses breakpoint-aware shell padding (no desktop-header reserve on mobile base classes)', () => {
@@ -68,8 +98,8 @@ describe('AppShell navigation', () => {
 
   it('shows privileged links in the mobile overflow menu for moderators', async () => {
     useNavHandlers();
-    resetAuth();
-    signInAs(['MODERATOR']);
+    resetAuth(runtime);
+    signInAs(runtime, ['MODERATOR']);
     renderShell();
     const user = userEvent.setup();
 
@@ -83,8 +113,8 @@ describe('AppShell navigation', () => {
 
   it('shows moderation and admin in the mobile overflow menu for admins', async () => {
     useNavHandlers();
-    resetAuth();
-    signInAs(['ADMIN']);
+    resetAuth(runtime);
+    signInAs(runtime, ['ADMIN']);
     renderShell();
     const user = userEvent.setup();
 
@@ -98,8 +128,8 @@ describe('AppShell navigation', () => {
 
   it('shows admin in desktop navigation for admins only', () => {
     useNavHandlers();
-    resetAuth();
-    signInAs(['ADMIN']);
+    resetAuth(runtime);
+    signInAs(runtime, ['ADMIN']);
     renderShell();
 
     const home = screen.getByRole('link', { name: 'Parkio home' });
@@ -110,8 +140,8 @@ describe('AppShell navigation', () => {
 
   it('hides analytics in desktop navigation for moderators', () => {
     useNavHandlers();
-    resetAuth();
-    signInAs(['MODERATOR']);
+    resetAuth(runtime);
+    signInAs(runtime, ['MODERATOR']);
     renderShell();
 
     const home = screen.getByRole('link', { name: 'Parkio home' });

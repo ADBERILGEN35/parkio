@@ -9,11 +9,12 @@ import {
 import { useQuery } from '@tanstack/react-query';
 import { useTranslation } from 'react-i18next';
 import { Link } from 'react-router-dom';
-import { parkingApi } from '@/api';
+import { useParkioSdk } from '@/app/AppRuntimeContext';
 import { FriendlyApiErrorMessage } from '@/components/FriendlyApiErrorMessage';
 import { SpotResultCard } from '@/components/product/SpotResultCard';
 
 export function MySpotsPage() {
+  const { parkingApi } = useParkioSdk();
   const { t } = useTranslation('parking');
   const query = useQuery({ queryKey: ['parking', 'my-spots'], queryFn: parkingApi.getMySpots });
 

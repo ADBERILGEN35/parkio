@@ -5,7 +5,7 @@ import { vehicleUpsertSchema, type VehicleUpsertFormValues } from '@parkio/valid
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useForm, type UseFormRegisterReturn } from 'react-hook-form';
 import { useTranslation } from 'react-i18next';
-import { usersApi } from '@/api';
+import { useParkioSdk } from '@/app/AppRuntimeContext';
 import { FriendlyApiErrorMessage } from '@/components/FriendlyApiErrorMessage';
 import { SettingsSectionCard } from '@/components/product/SettingsSectionCard';
 import { enumLabel } from '@/lib/format';
@@ -21,6 +21,7 @@ const VEHICLE_ICONS: Record<VehicleType, string> = {
 };
 
 export function VehicleCard() {
+  const { usersApi } = useParkioSdk();
   const { t } = useTranslation('settings');
   const query = useQuery({ queryKey: ['me', 'vehicle'], queryFn: usersApi.getMyVehicle });
 
@@ -42,6 +43,7 @@ export function VehicleCard() {
 }
 
 function VehicleForm({ vehicle }: { vehicle: VehicleProfile }) {
+  const { usersApi } = useParkioSdk();
   const { t } = useTranslation(['settings', 'common']);
   const queryClient = useQueryClient();
   const mutation = useMutation({

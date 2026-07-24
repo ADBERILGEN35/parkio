@@ -144,7 +144,7 @@ public class IdempotencyService {
                 rs.getString("status"),
                 rs.getInt("response_status"),
                 rs.getString("response_body"),
-                rs.getObject("expires_at", Instant.class)),
+                rs.getTimestamp("expires_at").toInstant()),
                 userId, method, key);
     }
 

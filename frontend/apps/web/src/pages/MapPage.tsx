@@ -14,7 +14,7 @@ import { useForm } from 'react-hook-form';
 import { useTranslation } from 'react-i18next';
 import type { TFunction } from 'i18next';
 import { Link, useSearchParams } from 'react-router-dom';
-import { parkingApi, usersApi } from '@/api';
+import { useParkioSdk } from '@/app/AppRuntimeContext';
 import { useAuthStore } from '@/auth/store';
 import { BottomSheet, COLLAPSED_PEEK, type SheetState } from '@/components/map/BottomSheet';
 import { DiscoveryResults } from '@/components/map/DiscoveryResults';
@@ -78,6 +78,7 @@ function optionalNumber(value: unknown): number | undefined {
  * click-to-set-center, and "Use my location" remain as an advanced fallback.
  */
 export function MapPage() {
+  const { parkingApi, usersApi } = useParkioSdk();
   const { t } = useTranslation('map');
   const [searchParams] = useSearchParams();
   const smartReturnMode = searchParams.get('smartReturn') === '1';
