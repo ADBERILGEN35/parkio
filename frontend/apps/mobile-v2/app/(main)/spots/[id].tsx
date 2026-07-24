@@ -22,9 +22,9 @@ import { spotChips, spotTitle } from '@/components/spots/spotChips';
 import { MapSurface } from '@/features/map/MapSurface';
 import { SpotActions } from '@/features/spots/SpotActions';
 import { useSpotPhoto } from '@/features/spots/useSpotPhoto';
+import { mySpotsQueryOptions, spotDetailQueryOptions } from '@/data/query-options/parking';
 import { useT } from '@/i18n/LocaleProvider';
 import { formatClock, formatCountdown, remainingFraction, remainingMs } from '@/lib/time';
-import { parkingApi } from '@/services/api';
 import { radius as radiusTokens } from '@/theme/tokens';
 import { useTheme } from '@/theme/ThemeProvider';
 
@@ -40,9 +40,7 @@ export default function SpotDetailScreen() {
   const { colors } = theme;
 
   const spotQuery = useQuery({
-    queryKey: ['spot', spotId],
-    queryFn: () => parkingApi.getSpot(spotId),
-    enabled: spotId.length > 0,
+    ...spotDetailQueryOptions(spotId),
     refetchInterval: 30_000,
     retry: false,
   });
@@ -50,8 +48,7 @@ export default function SpotDetailScreen() {
   // Ownership: the public payload is privacy-sanitized, so check membership in
   // the caller's own spots; owners get the richer counters + owner status copy.
   const mySpots = useQuery({
-    queryKey: ['my-spots'],
-    queryFn: () => parkingApi.getMySpots(),
+    ...mySpotsQueryOptions(),
     staleTime: 30_000,
   });
   const ownSpot: Spot | null = useMemo(

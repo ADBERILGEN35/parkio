@@ -1,4 +1,4 @@
-import { useCallback, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { LayoutChangeEvent, PanResponder, StyleSheet, View } from 'react-native';
 import type { ClaimedRegion } from '@parkio/types';
 import { CLAIMED_REGION_MIN_AREA, isValidClaimedRegion } from '@parkio/types';
@@ -54,7 +54,15 @@ export function ClaimedRegionAnnotator({
     }
     return computeContainContentRect(layout.width, layout.height, imageWidth, imageHeight);
   }, [layout, imageWidth, imageHeight]);
-  contentRef.current = contentRect;
+
+  useEffect(() => {
+    contentRef.current = contentRect;
+  }, [contentRect]);
+
+  const onChangeRef = useRef(onChange);
+  useEffect(() => {
+    onChangeRef.current = onChange;
+  }, [onChange]);
 
   const committedBox = useMemo(() => {
     if (!value || !contentRect) {
@@ -93,59 +101,62 @@ export function ClaimedRegionAnnotator({
     setDraftBox(next);
   };
 
-  const panResponder = useMemo(
-    () =>
-      PanResponder.create({
-        onStartShouldSetPanResponder: () => true,
-        onMoveShouldSetPanResponder: () => true,
-        onPanResponderGrant: (event) => {
-          if (!contentRef.current) {
-            return;
-          }
-          const { locationX, locationY } = event.nativeEvent;
-          startRef.current = { x: locationX, y: locationY };
-          endRef.current = { x: locationX, y: locationY };
-          setTooSmall(false);
-          updateDraftFromPoints(startRef.current, endRef.current);
-        },
-        onPanResponderMove: (event) => {
-          const start = startRef.current;
-          if (!start || !contentRef.current) {
-            return;
-          }
-          endRef.current = { x: event.nativeEvent.locationX, y: event.nativeEvent.locationY };
-          updateDraftFromPoints(start, endRef.current);
-        },
-        onPanResponderRelease: () => {
-          const content = contentRef.current;
-          const start = startRef.current;
-          const end = endRef.current;
-          startRef.current = null;
-          endRef.current = null;
-          setDraftBox(null);
-          if (!content || !start || !end) {
-            return;
-          }
-          const region = containerPointToNormalizedRegion(start, end, content);
-          if (!region || !isValidClaimedRegion(region)) {
-            setTooSmall(true);
-            onChange(null);
-            return;
-          }
-          setTooSmall(false);
-          onChange(region);
-        },
-        onPanResponderTerminate: () => {
-          startRef.current = null;
-          endRef.current = null;
-          setDraftBox(null);
-        },
-      }),
-    [onChange],
-  );
+  const [panHandlers, setPanHandlers] = useState<ReturnType<
+    typeof PanResponder.create
+  >['panHandlers'] | null>(null);
+
+  useEffect(() => {
+    const responder = PanResponder.create({
+      onStartShouldSetPanResponder: () => true,
+      onMoveShouldSetPanResponder: () => true,
+      onPanResponderGrant: (event) => {
+        if (!contentRef.current) {
+          return;
+        }
+        const { locationX, locationY } = event.nativeEvent;
+        startRef.current = { x: locationX, y: locationY };
+        endRef.current = { x: locationX, y: locationY };
+        setTooSmall(false);
+        updateDraftFromPoints(startRef.current, endRef.current);
+      },
+      onPanResponderMove: (event) => {
+        const start = startRef.current;
+        if (!start || !contentRef.current) {
+          return;
+        }
+        endRef.current = { x: event.nativeEvent.locationX, y: event.nativeEvent.locationY };
+        updateDraftFromPoints(start, endRef.current);
+      },
+      onPanResponderRelease: () => {
+        const content = contentRef.current;
+        const start = startRef.current;
+        const end = endRef.current;
+        startRef.current = null;
+        endRef.current = null;
+        setDraftBox(null);
+        if (!content || !start || !end) {
+          return;
+        }
+        const region = containerPointToNormalizedRegion(start, end, content);
+        if (!region || !isValidClaimedRegion(region)) {
+          setTooSmall(true);
+          onChangeRef.current(null);
+          return;
+        }
+        setTooSmall(false);
+        onChangeRef.current(region);
+      },
+      onPanResponderTerminate: () => {
+        startRef.current = null;
+        endRef.current = null;
+        setDraftBox(null);
+      },
+    });
+    setPanHandlers(responder.panHandlers);
+  }, []);
 
   return (
-    <View style={styles.wrap} onLayout={onLayout} {...panResponder.panHandlers}>
+    <View style={styles.wrap} onLayout={onLayout} {...(panHandlers ?? {})}>
       <View style={[styles.hint, { backgroundColor: 'rgba(0,0,0,0.45)' }]} pointerEvents="none">
         <AppText variant="labelSm" color="#FFFFFF" style={styles.hintText}>
           {t('share.annotate.title')}
@@ -182,7 +193,13 @@ export function ClaimedRegionAnnotator({
 }
 
 const styles = StyleSheet.create({
-  wrap: { ...StyleSheet.absoluteFillObject },
+  wrap: {
+    position: 'absolute',
+    left: 0,
+    right: 0,
+    top: 0,
+    bottom: 0,
+  },
   hint: {
     position: 'absolute',
     top: 10,

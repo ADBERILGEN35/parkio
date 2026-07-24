@@ -6,14 +6,14 @@ jest.mock('@/features/share/prepareImage', () => ({
   draftPhotoExists: jest.fn(() => true),
 }));
 
-const mockWriteJson = jest.fn(async () => undefined);
-const mockRemoveJson = jest.fn(async () => undefined);
-const mockReadJson = jest.fn(async () => null);
+const mockWriteJson = jest.fn(async (_key: string, _value: unknown) => undefined);
+const mockRemoveJson = jest.fn(async (_key: string) => undefined);
+const mockReadJson = jest.fn(async (_key: string) => null);
 
 jest.mock('@/services/jsonStore', () => ({
-  readJson: (...args: unknown[]) => mockReadJson(...args),
-  writeJson: (...args: unknown[]) => mockWriteJson(...args),
-  removeJson: (...args: unknown[]) => mockRemoveJson(...args),
+  readJson: (key: string) => mockReadJson(key),
+  writeJson: (key: string, value: unknown) => mockWriteJson(key, value),
+  removeJson: (key: string) => mockRemoveJson(key),
 }));
 
 describe('share region persistence / race behavior', () => {

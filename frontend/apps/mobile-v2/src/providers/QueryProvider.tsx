@@ -1,38 +1,20 @@
-import { QueryClient, QueryClientProvider, focusManager, onlineManager } from '@tanstack/react-query';
+import { QueryClientProvider, focusManager, onlineManager } from '@tanstack/react-query';
 import { useEffect, useState } from 'react';
 import type { ReactNode } from 'react';
 import { AppState, Platform } from 'react-native';
 import NetInfo from '@react-native-community/netinfo';
+import { SessionQueryCacheSync } from '@/data/SessionQueryCacheSync';
+import { createMobileQueryClient } from './query-client';
 
 /**
- * TanStack Query wired for native: refetch on app foreground, pause while
- * offline, calm retry policy (auth/4xx errors never retry).
+ * Single Mobile QueryClient owner (WP-07): cancel-safe retries, AppState focus,
+ * NetInfo online, and session cache sync on identity change.
  */
-function createQueryClient(): QueryClient {
-  return new QueryClient({
-    defaultOptions: {
-      queries: {
-        staleTime: 15_000,
-        gcTime: 5 * 60_000,
-        retry: (failureCount, error: unknown) => {
-          const status = (error as { status?: number } | null)?.status;
-          if (typeof status === 'number' && status >= 400 && status < 500) {
-            return false;
-          }
-          return failureCount < 2;
-        },
-        refetchOnWindowFocus: true,
-      },
-      mutations: { retry: false },
-    },
-  });
-}
-
 export function QueryProvider({ children }: { children: ReactNode }) {
-  const [client] = useState(createQueryClient);
+  const [client] = useState(createMobileQueryClient);
 
   useEffect(() => {
-    onlineManager.setEventListener((setOnline) =>
+    return onlineManager.setEventListener((setOnline) =>
       NetInfo.addEventListener((state) => {
         setOnline(Boolean(state.isConnected));
       }),
@@ -48,5 +30,10 @@ export function QueryProvider({ children }: { children: ReactNode }) {
     return () => subscription.remove();
   }, []);
 
-  return <QueryClientProvider client={client}>{children}</QueryClientProvider>;
+  return (
+    <QueryClientProvider client={client}>
+      <SessionQueryCacheSync />
+      {children}
+    </QueryClientProvider>
+  );
 }

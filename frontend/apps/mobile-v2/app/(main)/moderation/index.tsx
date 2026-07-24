@@ -22,6 +22,7 @@ import { PressableScale } from '@/components/ui/PressableScale';
 import { ScreenHeader } from '@/components/ui/ScreenHeader';
 import { SegmentedControl } from '@/components/ui/SegmentedControl';
 import { Skeleton } from '@/components/ui/Skeleton';
+import { moderationKeys } from '@/data/keys';
 import { useLocale, useT } from '@/i18n/LocaleProvider';
 import { describeApiError } from '@/lib/apiErrors';
 import { formatRelative } from '@/lib/time';
@@ -58,13 +59,13 @@ export default function ModerationQueueScreen() {
   const admin = hasAdminRole(user?.roles ?? []);
 
   const cases = useQuery({
-    queryKey: ['mod-cases', status],
+    queryKey: moderationKeys.cases(status),
     queryFn: () => moderationApi.getModerationCases(status),
     enabled: staff,
     refetchInterval: 60_000,
   });
   const appeals = useQuery({
-    queryKey: ['mod-appeals'],
+    queryKey: moderationKeys.appeals(),
     queryFn: () => moderationApi.getModerationAppeals(),
     enabled: staff && section === 'appeals',
   });
@@ -74,7 +75,7 @@ export default function ModerationQueueScreen() {
       moderationApi.resolveModerationAppeal(input.appealId, { accepted: input.accepted }),
     onSuccess: () => {
       toast.show(t('mod.appeals.resolved'), 'success');
-      void queryClient.invalidateQueries({ queryKey: ['mod-appeals'] });
+      void queryClient.invalidateQueries({ queryKey: moderationKeys.appeals() });
     },
     onError: (error) => toast.show(describeApiError(error, t).message, 'error'),
   });

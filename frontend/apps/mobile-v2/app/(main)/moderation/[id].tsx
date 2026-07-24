@@ -21,11 +21,13 @@ import { Skeleton } from '@/components/ui/Skeleton';
 import { TextArea } from '@/components/ui/TextArea';
 import { spotTitle } from '@/components/spots/spotChips';
 import { useNowTick } from '@/components/spots/FreshnessRing';
+import { moderationKeys } from '@/data/keys';
+import { spotDetailQueryOptions } from '@/data/query-options/parking';
 import { useSpotPhoto } from '@/features/spots/useSpotPhoto';
 import { useLocale, useT } from '@/i18n/LocaleProvider';
 import { describeApiError } from '@/lib/apiErrors';
 import { formatRelative } from '@/lib/time';
-import { moderationApi, parkingApi } from '@/services/api';
+import { moderationApi } from '@/services/api';
 import { useAuthStore } from '@/state/authStore';
 import { useToast } from '@/providers/ToastProvider';
 import { useTheme } from '@/theme/ThemeProvider';
@@ -69,7 +71,7 @@ export default function ModerationCaseScreen() {
   const admin = hasAdminRole(user?.roles ?? []);
 
   const caseQuery = useQuery({
-    queryKey: ['mod-case', caseId],
+    queryKey: moderationKeys.caseDetail(caseId),
     queryFn: () => moderationApi.getModerationCase(caseId),
     enabled: staff && caseId.length > 0,
   });
@@ -77,8 +79,7 @@ export default function ModerationCaseScreen() {
 
   const isSpotTarget = moderationCase?.targetType === 'PARKING_SPOT';
   const spotQuery = useQuery({
-    queryKey: ['spot', moderationCase?.targetId],
-    queryFn: () => parkingApi.getSpot(moderationCase!.targetId),
+    ...spotDetailQueryOptions(moderationCase?.targetId ?? ''),
     enabled: Boolean(isSpotTarget && moderationCase?.targetId),
     retry: false,
   });
@@ -87,8 +88,8 @@ export default function ModerationCaseScreen() {
   const assign = useMutation({
     mutationFn: () => moderationApi.assignModerationCase(caseId),
     onSuccess: (updated) => {
-      queryClient.setQueryData(['mod-case', caseId], updated);
-      void queryClient.invalidateQueries({ queryKey: ['mod-cases'] });
+      queryClient.setQueryData(moderationKeys.caseDetail(caseId), updated);
+      void queryClient.invalidateQueries({ queryKey: [...moderationKeys.all, 'cases'] });
     },
     onError: (error) => toast.show(describeApiError(error, t).message, 'error'),
   });
@@ -101,8 +102,8 @@ export default function ModerationCaseScreen() {
       }),
     onSuccess: (updated) => {
       toast.show(t('mod.case.resolved'), 'success');
-      queryClient.setQueryData(['mod-case', caseId], updated);
-      void queryClient.invalidateQueries({ queryKey: ['mod-cases'] });
+      queryClient.setQueryData(moderationKeys.caseDetail(caseId), updated);
+      void queryClient.invalidateQueries({ queryKey: [...moderationKeys.all, 'cases'] });
       setPendingAction(null);
     },
     onError: (error) => {

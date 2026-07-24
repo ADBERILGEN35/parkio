@@ -13,6 +13,11 @@ import { EmptyState } from '@/components/ui/EmptyState';
 import { LevelProgressBar } from '@/components/ui/LevelProgressBar';
 import { Skeleton } from '@/components/ui/Skeleton';
 import {
+  leaderboardQueryOptions,
+  myLevelQueryOptions,
+  myProgressQueryOptions,
+} from '@/data/query-options/gamification';
+import {
   REWARD_HINTS,
   anonymousDriverLabel,
   partitionLeaderboard,
@@ -21,7 +26,6 @@ import {
 } from '@/features/leaderboard/leaderboardModel';
 import { useShareSheetStore } from '@/features/share/shareSheetStore';
 import { useT } from '@/i18n/LocaleProvider';
-import { gamificationApi } from '@/services/api';
 import { useAuthStore } from '@/state/authStore';
 import { useTheme } from '@/theme/ThemeProvider';
 
@@ -36,18 +40,15 @@ export default function LeaderboardScreen() {
   const { colors } = theme;
 
   const leaderboard = useQuery({
-    queryKey: ['leaderboard'],
-    queryFn: () => gamificationApi.getLeaderboard(50),
+    ...leaderboardQueryOptions(50),
     staleTime: 60_000,
   });
   const progress = useQuery({
-    queryKey: ['my-progress'],
-    queryFn: () => gamificationApi.getMyProgress(),
+    ...myProgressQueryOptions(),
     staleTime: 60_000,
   });
   const myLevel = useQuery({
-    queryKey: ['my-level'],
-    queryFn: () => gamificationApi.getMyLevel(),
+    ...myLevelQueryOptions(),
     staleTime: 60_000,
   });
 

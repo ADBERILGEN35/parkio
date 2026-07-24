@@ -13,6 +13,8 @@ import { EmptyState } from '@/components/ui/EmptyState';
 import { PressableScale } from '@/components/ui/PressableScale';
 import { ScreenHeader } from '@/components/ui/ScreenHeader';
 import { Skeleton } from '@/components/ui/Skeleton';
+import { notificationsKeys } from '@/data/keys';
+import { myNotificationsQueryOptions } from '@/data/query-options/notifications';
 import { useLocale, useT } from '@/i18n/LocaleProvider';
 import { formatRelative } from '@/lib/time';
 import { notificationsApi } from '@/services/api';
@@ -66,15 +68,14 @@ export default function NotificationsScreen() {
   const { colors } = theme;
 
   const query = useQuery({
-    queryKey: ['notifications'],
-    queryFn: () => notificationsApi.getMyNotifications(),
+    ...myNotificationsQueryOptions(),
     refetchInterval: 60_000,
   });
 
   const markRead = useMutation({
     mutationFn: (id: string) => notificationsApi.markRead(id),
     onSuccess: (updated) => {
-      queryClient.setQueryData<AppNotification[]>(['notifications'], (current) =>
+      queryClient.setQueryData<AppNotification[]>(notificationsKeys.all, (current) =>
         current?.map((item) => (item.id === updated.id ? updated : item)),
       );
     },

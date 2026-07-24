@@ -1,10 +1,10 @@
 # Frontend quality gate. Mirrors backend-ci.yml's discipline (least-privilege
 # permissions, job timeout, fast feedback) for the pnpm workspace under
 # `frontend/`. Until this existed the SPA's typecheck, lint, unit tests and
-# production build were never gated in CI — regressions and broken builds could
+# production build were never gated in CI â€” regressions and broken builds could
 # merge undetected (production-readiness audit, item "Frontend CI").
 #
-# Scope: architecture checks, WP-04/WP-05/WP-06 focused Vitest gates,
+# Scope: architecture checks, WP-04/WP-05/WP-06/WP-07 focused gates,
 # the frontend-controlled WP-03 Chromium acceptance suite, typecheck, lint,
 # unit tests (Vitest), and the production build. The focused browser gate uses
 # Playwright network mocks and does not start backend services; real-stack E2E
@@ -102,6 +102,11 @@ jobs:
         run: |
           pnpm guardrails:wp06
           pnpm --filter @parkio/web test:wp06
+
+      - name: WP-07 mobile foundation
+        run: |
+          pnpm guardrails:wp07
+          pnpm --filter @parkio/mobile-v2 test:wp07
 
       - name: WP-03 routing browser acceptance
         run: pnpm --filter @parkio/web exec playwright test e2e/wp03-routing.spec.ts --project=wp03-chromium --workers=1 --retries=0

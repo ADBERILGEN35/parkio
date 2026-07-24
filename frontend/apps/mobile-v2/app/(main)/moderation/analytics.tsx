@@ -7,6 +7,7 @@ import { AppText } from '@/components/ui/AppText';
 import { Card } from '@/components/ui/Card';
 import { ScreenHeader } from '@/components/ui/ScreenHeader';
 import { Skeleton } from '@/components/ui/Skeleton';
+import { analyticsKeys } from '@/data/keys';
 import { useT } from '@/i18n/LocaleProvider';
 import { analyticsApi } from '@/services/api';
 import { useAuthStore } from '@/state/authStore';
@@ -21,7 +22,7 @@ export default function ModerationAnalyticsScreen() {
   const { colors } = theme;
 
   const overview = useQuery({
-    queryKey: ['analytics-overview'],
+    queryKey: analyticsKeys.overview(),
     queryFn: () => analyticsApi.getAnalyticsOverview(),
     enabled: hasAdminRole(user?.roles ?? []),
   });

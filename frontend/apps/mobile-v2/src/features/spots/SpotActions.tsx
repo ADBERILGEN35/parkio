@@ -10,6 +10,7 @@ import { IconButton } from '@/components/ui/IconButton';
 import { OptionSheet } from '@/components/ui/OptionSheet';
 import { Sheet } from '@/components/ui/Sheet';
 import { TextArea } from '@/components/ui/TextArea';
+import { parkingKeys, reportsKeys } from '@/data/keys';
 import { useT } from '@/i18n/LocaleProvider';
 import { describeApiError } from '@/lib/apiErrors';
 import { moderationApi, parkingApi } from '@/services/api';
@@ -47,9 +48,9 @@ export function SpotActions({ spotId, variant, onActionDone }: SpotActionsProps)
   const [reportNote, setReportNote] = useState('');
 
   const invalidate = () => {
-    void queryClient.invalidateQueries({ queryKey: ['nearby'] });
-    void queryClient.invalidateQueries({ queryKey: ['spot', spotId] });
-    void queryClient.invalidateQueries({ queryKey: ['my-spots'] });
+    void queryClient.invalidateQueries({ queryKey: parkingKeys.nearbyRoot() });
+    void queryClient.invalidateQueries({ queryKey: parkingKeys.spot(spotId) });
+    void queryClient.invalidateQueries({ queryKey: parkingKeys.mySpots() });
   };
 
   const verifyMutation = useMutation({
@@ -91,7 +92,7 @@ export function SpotActions({ spotId, variant, onActionDone }: SpotActionsProps)
       }),
     onSuccess: () => {
       toast.show(t('spot.report.success'), 'success');
-      void queryClient.invalidateQueries({ queryKey: ['my-reports'] });
+      void queryClient.invalidateQueries({ queryKey: reportsKeys.all });
       closeReport();
       onActionDone?.();
     },

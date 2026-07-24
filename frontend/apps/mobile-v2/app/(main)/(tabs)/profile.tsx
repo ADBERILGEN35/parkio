@@ -12,6 +12,7 @@ import { ListRow } from '@/components/ui/ListRow';
 import { OptionSheet } from '@/components/ui/OptionSheet';
 import { TrustRing, trustBandOf } from '@/components/ui/TrustRing';
 import { appConfig } from '@/config/env';
+import { myProfileQueryOptions, myStatsQueryOptions } from '@/data/query-options/me';
 import { useLocale, useT } from '@/i18n/LocaleProvider';
 import { formatDate } from '@/lib/time';
 import { usersApi } from '@/services/api';
@@ -34,8 +35,8 @@ export default function ProfileScreen() {
   const [appearanceSheet, setAppearanceSheet] = useState(false);
   const { colors } = theme;
 
-  const profile = useQuery({ queryKey: ['my-profile'], queryFn: () => usersApi.getMyProfile() });
-  const stats = useQuery({ queryKey: ['my-stats'], queryFn: () => usersApi.getMyStats() });
+  const profile = useQuery(myProfileQueryOptions());
+  const stats = useQuery(myStatsQueryOptions());
 
   const roles = user?.roles ?? [];
   const staff = hasPrivilegedRole(roles);

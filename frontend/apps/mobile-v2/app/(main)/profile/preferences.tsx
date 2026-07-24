@@ -8,6 +8,8 @@ import { Chip } from '@/components/ui/Chip';
 import { ScreenHeader } from '@/components/ui/ScreenHeader';
 import { Skeleton } from '@/components/ui/Skeleton';
 import { Toggle } from '@/components/ui/Toggle';
+import { meKeys } from '@/data/keys';
+import { myPreferencesQueryOptions } from '@/data/query-options/me';
 import { useAccessPolicy } from '@/features/map/hooks';
 import { useT } from '@/i18n/LocaleProvider';
 import { describeApiError } from '@/lib/apiErrors';
@@ -29,14 +31,14 @@ export default function PreferencesScreen() {
   const insets = useSafeAreaInsets();
   const { colors } = theme;
 
-  const prefs = useQuery({ queryKey: ['my-prefs'], queryFn: () => usersApi.getMyPreferences() });
+  const prefs = useQuery(myPreferencesQueryOptions());
   const policy = useAccessPolicy();
 
   const update = useMutation({
     mutationFn: (body: Parameters<typeof usersApi.updateMyPreferences>[0]) =>
       usersApi.updateMyPreferences(body),
     onSuccess: (updated: UserPreference) => {
-      queryClient.setQueryData(['my-prefs'], updated);
+      queryClient.setQueryData(meKeys.preferences(), updated);
       toast.show(t('profile.prefs.saved'), 'success');
     },
     onError: (error) => toast.show(describeApiError(error, t).message, 'error'),

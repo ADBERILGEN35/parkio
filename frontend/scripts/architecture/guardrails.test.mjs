@@ -16,6 +16,7 @@ import {
 import { findWp04DataArchitectureViolations } from './wp04-data-architecture.mjs';
 import { findWp05CoreParkingViolations } from './wp05-core-parking-flows.mjs';
 import { findWp06ProductionHardeningViolations } from './wp06-production-hardening.mjs';
+import { findWp07MobileFoundationViolations } from './wp07-mobile-foundation.mjs';
 
 test('direct HTTP detection rejects HTTP packages and network primitives', () => {
   const source = `
@@ -839,8 +840,8 @@ test('routing ownership permits non-authoritative metadata-shaped collections', 
       source: `
         export default {
           titles: {
-            login: 'Parkio — Login',
-            map: 'Parkio — Map',
+            login: 'Parkio â€” Login',
+            map: 'Parkio â€” Map',
           },
         };
       `,
@@ -1485,5 +1486,66 @@ test('WP-06 requires abort-signal forwarding in query-options and cancellation-a
       'apps/web/src/providers/query-client.ts',
     ).length,
     0,
+  );
+});
+
+test('WP-07 requires mobile-v2 ownership, signal forwarding, and cancel-safe retry', () => {
+  assert.ok(
+    findWp07MobileFoundationViolations(
+      `export const client = createApiClient({ baseURL: 'x' });`,
+      'apps/mobile-v2/src/features/map/hooks.ts',
+    ).some((v) => v.rule === 'wp07-single-sdk-owner'),
+  );
+  assert.equal(
+    findWp07MobileFoundationViolations(
+      `export const apiClient = createApiClient({ baseURL: 'x' });`,
+      'apps/mobile-v2/src/services/api.ts',
+    ).filter((v) => v.rule === 'wp07-single-sdk-owner').length,
+    0,
+  );
+  assert.ok(
+    findWp07MobileFoundationViolations(
+      `export const client = new QueryClient();`,
+      'apps/mobile-v2/app/(main)/spots/[id].tsx',
+    ).some((v) => v.rule === 'wp07-single-query-client-owner'),
+  );
+  assert.ok(
+    findWp07MobileFoundationViolations(
+      `
+        export function badOptions() {
+          return queryOptions({
+            queryKey: ['me'],
+            queryFn: () => usersApi.getMyProfile(),
+          });
+        }
+      `,
+      'apps/mobile-v2/src/data/query-options/me.ts',
+    ).some((v) => v.rule === 'wp07-query-options-abort-signal'),
+  );
+  assert.equal(
+    findWp07MobileFoundationViolations(
+      `
+        export function goodOptions() {
+          return queryOptions({
+            queryKey: ['me'],
+            queryFn: ({ signal }) => usersApi.getMyProfile({ signal }),
+          });
+        }
+      `,
+      'apps/mobile-v2/src/data/query-options/me.ts',
+    ).length,
+    0,
+  );
+  assert.ok(
+    findWp07MobileFoundationViolations(
+      `export function shouldRetryQuery() { return failureCount < 1; }`,
+      'apps/mobile-v2/src/providers/query-client.ts',
+    ).some((v) => v.rule === 'wp07-no-retry-on-cancellation'),
+  );
+  assert.ok(
+    findWp07MobileFoundationViolations(
+      `import { stuff } from '../../../../apps/mobile/src/services/api';`,
+      'apps/mobile-v2/src/services/auth.ts',
+    ).some((v) => v.rule === 'wp07-no-cross-app-imports'),
   );
 });

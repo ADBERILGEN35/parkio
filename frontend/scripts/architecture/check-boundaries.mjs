@@ -16,6 +16,7 @@ import {
 import { findWp04DataArchitectureViolations } from './wp04-data-architecture.mjs';
 import { findWp05CoreParkingViolations } from './wp05-core-parking-flows.mjs';
 import { findWp06ProductionHardeningViolations } from './wp06-production-hardening.mjs';
+import { findWp07MobileFoundationViolations } from './wp07-mobile-foundation.mjs';
 
 const scriptDirectory = path.dirname(fileURLToPath(import.meta.url));
 const frontendRoot = path.resolve(scriptDirectory, '../..');
@@ -76,6 +77,14 @@ export async function checkBoundaries() {
             ),
           );
         }
+      }
+      if (scanZone.root === 'apps/mobile-v2/src' || scanZone.root === 'apps/mobile-v2/app') {
+        fileViolations.push(
+          ...findWp07MobileFoundationViolations(
+            source,
+            normalizeRepositoryPath(path.relative(frontendRoot, file)),
+          ),
+        );
       }
 
       for (const violation of fileViolations) {

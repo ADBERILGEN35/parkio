@@ -16,10 +16,13 @@ import { Sheet } from '@/components/ui/Sheet';
 import { Skeleton } from '@/components/ui/Skeleton';
 import { TextArea } from '@/components/ui/TextArea';
 import { TextField } from '@/components/ui/TextField';
+import { reportsKeys } from '@/data/keys';
+import { myNotificationsQueryOptions } from '@/data/query-options/notifications';
+import { myReportsQueryOptions } from '@/data/query-options/reports';
 import { useLocale, useT } from '@/i18n/LocaleProvider';
 import { describeApiError } from '@/lib/apiErrors';
 import { formatRelative } from '@/lib/time';
-import { moderationApi, notificationsApi } from '@/services/api';
+import { moderationApi } from '@/services/api';
 import { useToast } from '@/providers/ToastProvider';
 import { useTheme } from '@/theme/ThemeProvider';
 
@@ -46,14 +49,8 @@ export default function ReportsScreen() {
   const now = useNowTick(60_000);
   const { colors } = theme;
 
-  const reports = useQuery({
-    queryKey: ['my-reports'],
-    queryFn: () => moderationApi.getMyReports(),
-  });
-  const notifications = useQuery({
-    queryKey: ['notifications'],
-    queryFn: () => notificationsApi.getMyNotifications(),
-  });
+  const reports = useQuery(myReportsQueryOptions());
+  const notifications = useQuery(myNotificationsQueryOptions());
 
   const penaltyNotifications = useMemo(
     () =>
@@ -74,7 +71,7 @@ export default function ReportsScreen() {
       setAppealOpen(false);
       setAppealCaseId('');
       setAppealNote('');
-      void queryClient.invalidateQueries({ queryKey: ['my-reports'] });
+      void queryClient.invalidateQueries({ queryKey: reportsKeys.all });
     },
     onError: (error) => {
       toast.show(describeApiError(error, t).message, 'error');

@@ -12,8 +12,8 @@ import { Skeleton } from '@/components/ui/Skeleton';
 import { SpotCard } from '@/components/spots/SpotCard';
 import { useShareSessionStore } from '@/features/share/shareSessionStore';
 import { useSpotPhoto } from '@/features/spots/useSpotPhoto';
+import { mySpotsQueryOptions } from '@/data/query-options/parking';
 import { useT } from '@/i18n/LocaleProvider';
-import { parkingApi } from '@/services/api';
 import { useTheme } from '@/theme/ThemeProvider';
 
 type Filter = 'all' | 'live' | 'pending' | 'closed';
@@ -33,8 +33,7 @@ export default function MySpotsScreen() {
   const { colors } = theme;
 
   const mySpots = useQuery({
-    queryKey: ['my-spots'],
-    queryFn: () => parkingApi.getMySpots(),
+    ...mySpotsQueryOptions(),
     refetchInterval: 30_000,
   });
 

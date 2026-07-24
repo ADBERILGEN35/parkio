@@ -103,6 +103,13 @@ export function useDraftUpload() {
     }
   }, [photo, hasRegion, mediaId, phase, online, run]);
 
+  // Abort in-flight upload when the hook unmounts (wizard leave / cancel).
+  useEffect(() => {
+    return () => {
+      abortRef.current?.abort();
+    };
+  }, []);
+
   const cancel = useCallback(() => {
     abortRef.current?.abort();
   }, []);

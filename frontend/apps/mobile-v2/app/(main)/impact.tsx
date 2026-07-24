@@ -11,9 +11,14 @@ import { RadiusDiagram } from '@/components/ui/RadiusDiagram';
 import { ScreenHeader } from '@/components/ui/ScreenHeader';
 import { Skeleton } from '@/components/ui/Skeleton';
 import { useNowTick } from '@/components/spots/FreshnessRing';
+import {
+  accessPolicyQueryOptions,
+  levelsQueryOptions,
+  myLevelQueryOptions,
+  myPointsQueryOptions,
+} from '@/data/query-options/gamification';
 import { useLocale, useT } from '@/i18n/LocaleProvider';
 import { formatRelative } from '@/lib/time';
-import { gamificationApi } from '@/services/api';
 import { useTheme } from '@/theme/ThemeProvider';
 
 function formatRadius(meters: number): string {
@@ -29,10 +34,10 @@ export default function ImpactScreen() {
   const now = useNowTick(60_000);
   const { colors } = theme;
 
-  const level = useQuery({ queryKey: ['my-level'], queryFn: () => gamificationApi.getMyLevel() });
-  const points = useQuery({ queryKey: ['my-points'], queryFn: () => gamificationApi.getMyPoints() });
-  const policy = useQuery({ queryKey: ['access-policy'], queryFn: () => gamificationApi.getMyAccessPolicy() });
-  const levels = useQuery({ queryKey: ['levels'], queryFn: () => gamificationApi.getLevels(), staleTime: 10 * 60_000 });
+  const level = useQuery(myLevelQueryOptions());
+  const points = useQuery(myPointsQueryOptions());
+  const policy = useQuery(accessPolicyQueryOptions());
+  const levels = useQuery(levelsQueryOptions());
 
   const currentLevel = level.data?.currentLevel ?? policy.data?.currentLevel ?? 1;
   const nextRule = levels.data?.find((rule) => rule.level === currentLevel + 1) ?? null;

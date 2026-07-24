@@ -39,6 +39,13 @@ Query retries are documented in
 `architecture/sprint-3/WP-06-PRODUCTION-HARDENING.md`. WP-03/WP-04/WP-05 stay
 frozen.
 
+## Mobile foundation (WP-07)
+
+Canonical Mobile app is `apps/mobile-v2` (legacy `apps/mobile` is not the
+production target). Composition, SecureStore session, QueryClient/keys,
+signal forwarding, and core-flow wiring are documented in
+`architecture/sprint-3/WP-07-MOBILE.md`.
+
 ## Prerequisites
 
 - Node.js ≥ 20

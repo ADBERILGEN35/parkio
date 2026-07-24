@@ -1,5 +1,5 @@
 import { useQuery } from '@tanstack/react-query';
-import { parkingApi } from '@/services/api';
+import { spotMediaAccessUrlQueryOptions } from '@/data/query-options/parking';
 
 /**
  * Signed photo URL for a spot. URLs expire (~5 min server-side) — cache just
@@ -7,11 +7,8 @@ import { parkingApi } from '@/services/api';
  */
 export function useSpotPhoto(spotId: string | null | undefined) {
   return useQuery({
-    queryKey: ['spot-photo', spotId],
-    queryFn: () => parkingApi.getSpotMediaAccessUrl(spotId as string),
+    ...spotMediaAccessUrlQueryOptions(spotId ?? ''),
     enabled: Boolean(spotId),
-    staleTime: 3 * 60_000,
-    gcTime: 4 * 60_000,
     select: (data) => data.accessUrl,
   });
 }

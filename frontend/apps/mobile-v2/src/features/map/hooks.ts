@@ -1,9 +1,11 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import * as Location from 'expo-location';
 import { useQuery } from '@tanstack/react-query';
-import { isUsableSpot, type LatLng } from '@parkio/geo';
+import type { LatLng } from '@parkio/geo';
 import type { GeocodeResult } from '@parkio/types';
-import { gamificationApi, geocodingApi, parkingApi } from '@/services/api';
+import { accessPolicyQueryOptions } from '@/data/query-options/gamification';
+import { placeSearchQueryOptions } from '@/data/query-options/geocoding';
+import { nearbySpotsQueryOptions } from '@/data/query-options/parking';
 import { readJson, writeJson } from '@/services/jsonStore';
 
 /** Foreground location permission + one-shot position. */
@@ -61,11 +63,7 @@ export function useLocation(): LocationState {
 
 /** Level-driven access policy (radius, result limit, daily views). */
 export function useAccessPolicy() {
-  return useQuery({
-    queryKey: ['access-policy'],
-    queryFn: () => gamificationApi.getMyAccessPolicy(),
-    staleTime: 60_000,
-  });
+  return useQuery(accessPolicyQueryOptions());
 }
 
 /**
@@ -74,23 +72,14 @@ export function useAccessPolicy() {
  */
 export function useNearbySpots(center: LatLng | null, radius: number | undefined, limit: number | undefined) {
   return useQuery({
-    queryKey: ['nearby', center?.lat, center?.lng, radius, limit],
-    queryFn: async ({ signal }) => {
-      const spots = await parkingApi.getNearbySpots(
-        {
-          lat: center!.lat,
-          lng: center!.lng,
-          ...(radius ? { radius } : {}),
-          ...(limit ? { limit } : {}),
-        },
-        signal,
-      );
-      return spots.filter(isUsableSpot);
-    },
+    ...nearbySpotsQueryOptions({
+      lat: center?.lat ?? 0,
+      lng: center?.lng ?? 0,
+      ...(radius !== undefined ? { radius } : {}),
+      ...(limit !== undefined ? { limit } : {}),
+    }),
     enabled: center !== null,
     refetchInterval: 30_000,
-    staleTime: 10_000,
-    retry: false,
   });
 }
 
@@ -104,10 +93,8 @@ export function usePlaceSearch(query: string) {
 
   const trimmed = debounced.trim();
   return useQuery({
-    queryKey: ['places', trimmed],
-    queryFn: ({ signal }) => geocodingApi.searchPlaces(trimmed, 8, signal),
+    ...placeSearchQueryOptions(trimmed),
     enabled: trimmed.length >= 3,
-    staleTime: 5 * 60_000,
     retry: false,
   });
 }

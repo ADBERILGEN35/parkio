@@ -7,6 +7,8 @@ import { Badge } from '@/components/ui/Badge';
 import { Button } from '@/components/ui/Button';
 import { ScreenHeader } from '@/components/ui/ScreenHeader';
 import { TextField } from '@/components/ui/TextField';
+import { meKeys } from '@/data/keys';
+import { myProfileQueryOptions } from '@/data/query-options/me';
 import { useT } from '@/i18n/LocaleProvider';
 import { describeApiError } from '@/lib/apiErrors';
 import { usersApi } from '@/services/api';
@@ -23,7 +25,7 @@ export default function ProfileEditScreen() {
   const insets = useSafeAreaInsets();
   const { colors } = theme;
 
-  const profile = useQuery({ queryKey: ['my-profile'], queryFn: () => usersApi.getMyProfile() });
+  const profile = useQuery(myProfileQueryOptions());
   const [displayName, setDisplayName] = useState('');
   const [phone, setPhone] = useState('');
   const [city, setCity] = useState('');
@@ -46,7 +48,7 @@ export default function ProfileEditScreen() {
         city: city.trim(),
       }),
     onSuccess: (updated) => {
-      queryClient.setQueryData(['my-profile'], updated);
+      queryClient.setQueryData(meKeys.profile(), updated);
       toast.show(t('profile.account.saved'), 'success');
     },
     onError: (error) => toast.show(describeApiError(error, t).message, 'error'),

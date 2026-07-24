@@ -1,4 +1,9 @@
-import { isParkioApiError } from '@parkio/api-client';
+import {
+  CancellationError,
+  NetworkError,
+  TimeoutError,
+  isParkioApiError,
+} from '@parkio/api-client';
 import type { Translator } from '@/i18n/LocaleProvider';
 import type { TranslationKey } from '@/i18n/translations';
 
@@ -37,6 +42,16 @@ export interface FriendlyApiError {
 }
 
 export function describeApiError(error: unknown, t: Translator): FriendlyApiError {
+  if (error instanceof CancellationError) {
+    // Aborted requests are silent — callers should not toast this.
+    return { message: '', traceId: null, code: 'REQUEST_CANCELLED' };
+  }
+  if (error instanceof TimeoutError) {
+    return { message: t('common.error.timeout'), traceId: null, code: 'TIMEOUT' };
+  }
+  if (error instanceof NetworkError) {
+    return { message: t('common.error.network'), traceId: null, code: 'NETWORK_ERROR' };
+  }
   if (isParkioApiError(error)) {
     const key = CODE_TO_KEY[error.code];
     if (key) {

@@ -1,7 +1,8 @@
-import { useCallback, useRef, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { useQueryClient } from '@tanstack/react-query';
 import { createIdempotencyKey, isParkioApiError } from '@parkio/api-client';
 import type { CreateSpotRequest, Spot } from '@parkio/types';
+import { parkingKeys } from '@/data/keys';
 import { parkingApi } from '@/services/api';
 import { useShareDraftStore } from './state/shareDraftStore';
 import { deleteDraftPhoto } from './prepareImage';
@@ -22,6 +23,24 @@ export function useCreateSpot() {
   const queryClient = useQueryClient();
   const [phase, setPhase] = useState<PublishPhase>('idle');
   const keyRef = useRef<string | null>(null);
+  const mountedRef = useRef(true);
+  const delayAbortRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const delayRejectRef = useRef<((reason?: unknown) => void) | null>(null);
+
+  useEffect(() => {
+    mountedRef.current = true;
+    return () => {
+      mountedRef.current = false;
+      if (delayAbortRef.current !== null) {
+        clearTimeout(delayAbortRef.current);
+        delayAbortRef.current = null;
+      }
+      if (delayRejectRef.current) {
+        delayRejectRef.current(new Error('unmounted'));
+        delayRejectRef.current = null;
+      }
+    };
+  }, []);
 
   const publish = useCallback(async (): Promise<Spot> => {
     const draft = useShareDraftStore.getState();
@@ -56,8 +75,8 @@ export function useCreateSpot() {
           // Draft is spent — clear storage and the persisted photo copy.
           useShareDraftStore.getState().reset();
           deleteDraftPhoto();
-          void queryClient.invalidateQueries({ queryKey: ['my-spots'] });
-          void queryClient.invalidateQueries({ queryKey: ['nearby'] });
+          void queryClient.invalidateQueries({ queryKey: parkingKeys.mySpots() });
+          void queryClient.invalidateQueries({ queryKey: parkingKeys.nearbyRoot() });
           return spot;
         } catch (error) {
           const mediaRace =
@@ -66,13 +85,29 @@ export function useCreateSpot() {
             throw error;
           }
           attempt += 1;
+          if (!mountedRef.current) {
+            throw error;
+          }
           setPhase('waitingMedia');
-          await new Promise((resolve) => setTimeout(resolve, MEDIA_RETRY_DELAY_MS));
+          await new Promise<void>((resolve, reject) => {
+            delayRejectRef.current = reject;
+            delayAbortRef.current = setTimeout(() => {
+              delayAbortRef.current = null;
+              delayRejectRef.current = null;
+              if (!mountedRef.current) {
+                reject(error);
+                return;
+              }
+              resolve();
+            }, MEDIA_RETRY_DELAY_MS);
+          });
           setPhase('publishing');
         }
       }
     } finally {
-      setPhase('idle');
+      if (mountedRef.current) {
+        setPhase('idle');
+      }
     }
   }, [queryClient]);
 

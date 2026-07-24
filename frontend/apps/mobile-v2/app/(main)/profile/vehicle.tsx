@@ -8,6 +8,8 @@ import { Button } from '@/components/ui/Button';
 import { Chip } from '@/components/ui/Chip';
 import { ScreenHeader } from '@/components/ui/ScreenHeader';
 import { TextField } from '@/components/ui/TextField';
+import { meKeys } from '@/data/keys';
+import { myVehicleQueryOptions } from '@/data/query-options/me';
 import { useT } from '@/i18n/LocaleProvider';
 import { describeApiError } from '@/lib/apiErrors';
 import { usersApi } from '@/services/api';
@@ -31,7 +33,7 @@ export default function VehicleScreen() {
   const insets = useSafeAreaInsets();
   const { colors } = theme;
 
-  const vehicle = useQuery({ queryKey: ['my-vehicle'], queryFn: () => usersApi.getMyVehicle() });
+  const vehicle = useQuery(myVehicleQueryOptions());
   const [type, setType] = useState<VehicleType | null>(null);
   const [plate, setPlate] = useState('');
   const hydrated = useRef(false);
@@ -51,7 +53,7 @@ export default function VehicleScreen() {
         plate: plate.trim() || null,
       }),
     onSuccess: (updated) => {
-      queryClient.setQueryData(['my-vehicle'], updated);
+      queryClient.setQueryData(meKeys.vehicle(), updated);
       toast.show(t('profile.vehicle.saved'), 'success');
     },
     onError: (error) => toast.show(describeApiError(error, t).message, 'error'),

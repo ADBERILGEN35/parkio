@@ -1,24 +1,18 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import type { SmartReturnSettings, UpdateSmartReturnSettingsRequest } from '@parkio/types';
-import { appConfig } from '@/config/env';
+import { meKeys } from '@/data/keys';
+import { mySmartReturnQueryOptions } from '@/data/query-options/me';
 import { usersApi } from '@/services/api';
-
-const QUERY_KEY = ['smart-return'];
 
 /** Smart Return settings/today state — disabled entirely when feature-flagged off. */
 export function useSmartReturn() {
-  return useQuery({
-    queryKey: QUERY_KEY,
-    queryFn: () => usersApi.getSmartReturn(),
-    enabled: appConfig.features.smartReturn,
-    staleTime: 60_000,
-  });
+  return useQuery(mySmartReturnQueryOptions());
 }
 
 export function useSmartReturnMutations() {
   const queryClient = useQueryClient();
   const sync = (settings: SmartReturnSettings) => {
-    queryClient.setQueryData(QUERY_KEY, settings);
+    queryClient.setQueryData(meKeys.smartReturn(), settings);
   };
 
   const updateSettings = useMutation({
