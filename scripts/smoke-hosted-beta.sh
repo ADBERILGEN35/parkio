@@ -135,6 +135,15 @@ if [ -n "${ACCESS:-}" ]; then
   fi
 fi
 
+
+  if [ "${PARKIO_SMOKE_PARKING_SESSION:-0}" = "1" ]; then
+    echo "=== ParkingSession smoke (PARKIO_SMOKE_PARKING_SESSION=1) ==="
+    if ! "$(cd "$(dirname "$0")" && pwd)/smoke-parking-session-hosted-beta.sh"; then
+      bad "parking session smoke"
+    else
+      ok "parking session smoke"
+    fi
+  fi
 # Direct service access: on hosted-beta ports are not published (connection fails).
 # On local apps overlay, parking requires gateway auth header (not a bare 200).
 if [ "$EXPECT_DIRECT_BLOCKED" = "1" ]; then

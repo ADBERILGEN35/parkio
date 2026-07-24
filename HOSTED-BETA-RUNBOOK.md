@@ -594,6 +594,7 @@ Estimated rollback time: 3-8 minutes if previous images exist locally.
 | Validate env and compose | `PARKIO_ENV_FILE=docker/.env ./scripts/preflight-hosted-beta.sh` |
 | Deploy | `PARKIO_ENV_FILE=docker/.env PARKIO_GATEWAY_URL=https://<api-host> PARKIO_SMOKE_EXPECT_DIRECT_BLOCKED=1 ./scripts/deploy-hosted-beta.sh` |
 | Smoke only | `PARKIO_GATEWAY_URL=https://<api-host> PARKIO_SMOKE_EXPECT_DIRECT_BLOCKED=1 ./scripts/smoke-hosted-beta.sh` |
+| ParkingSession smoke (R27) | See `docs/evidence/sprint-01/parking-session-hosted-beta/README.md`. Requires disposable-account confirmation and `./scripts/smoke-parking-session-hosted-beta.sh`. |
 | Backup | `PARKIO_ENV_FILE=docker/.env ./scripts/backup-hosted-beta.sh` |
 | Restore dry run | `PARKIO_ENV_FILE=docker/.env ./scripts/restore-hosted-beta.sh --manifest backup-artifacts/backup-current.json --dry-run` |
 | Rollback dry run | `PARKIO_ENV_FILE=docker/.env ./scripts/rollback-hosted-beta.sh --manifest deploy-artifacts/<previous>.json --dry-run` |

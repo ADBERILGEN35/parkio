@@ -1,0 +1,307 @@
+{
+  "runId": "ps-s1p012-20260724T212710Z",
+  "profile": "azure-hosted-beta",
+  "baseHost": "api.parkio.dev",
+  "startedAt": "2026-07-24T18:27:10.199Z",
+  "endedAt": "2026-07-24T18:27:12.415Z",
+  "totalChecks": 28,
+  "counts": {
+    "PASS": 17,
+    "FAIL": 7,
+    "SKIP": 0,
+    "NOT_EXECUTED": 2,
+    "NOT_OBSERVABLE": 2,
+    "PENDING": 0
+  },
+  "cleanup": {
+    "status": "PASS",
+    "detail": "userA active http 204; userA delete ddd3a59f... http 500; userA delete 7f85cf92... http 500; userA delete 392accf3... http 500; userA delete 74f47b5e... http 500; userA bulk-history http 500"
+  },
+  "checks": [
+    {
+      "id": "PS-HB-01",
+      "name": "target safety validation",
+      "status": "PASS",
+      "httpStatus": null,
+      "detail": "profile=azure-hosted-beta; host=api.parkio.dev",
+      "startedAt": "2026-07-24T18:27:10.201Z",
+      "endedAt": "2026-07-24T18:27:10.201Z",
+      "elapsedMs": 0
+    },
+    {
+      "id": "PS-HB-02",
+      "name": "gateway health",
+      "status": "PASS",
+      "httpStatus": 200,
+      "detail": null,
+      "startedAt": "2026-07-24T18:27:10.201Z",
+      "endedAt": "2026-07-24T18:27:10.514Z",
+      "elapsedMs": 313
+    },
+    {
+      "id": "PS-HB-03",
+      "name": "authenticate User A",
+      "status": "PASS",
+      "httpStatus": 200,
+      "detail": "alias=userA",
+      "startedAt": "2026-07-24T18:27:10.514Z",
+      "endedAt": "2026-07-24T18:27:10.752Z",
+      "elapsedMs": 238
+    },
+    {
+      "id": "PS-HB-04",
+      "name": "initial cleanup/reconciliation",
+      "status": "PASS",
+      "httpStatus": null,
+      "detail": "no active residue",
+      "startedAt": "2026-07-24T18:27:10.752Z",
+      "endedAt": "2026-07-24T18:27:10.827Z",
+      "elapsedMs": 75
+    },
+    {
+      "id": "PS-HB-04b",
+      "name": "deletion API capability probe",
+      "status": "FAIL",
+      "httpStatus": 500,
+      "detail": "expected 204 for foreign UUID, got 500 (deployed image likely lacks S1-P0-07)",
+      "startedAt": "2026-07-24T18:27:10.828Z",
+      "endedAt": "2026-07-24T18:27:10.889Z",
+      "elapsedMs": 61
+    },
+    {
+      "id": "PS-HB-05",
+      "name": "start session",
+      "status": "PASS",
+      "httpStatus": 201,
+      "detail": "session=ddd3a59f...",
+      "startedAt": "2026-07-24T18:27:10.889Z",
+      "endedAt": "2026-07-24T18:27:10.964Z",
+      "elapsedMs": 75
+    },
+    {
+      "id": "PS-HB-06",
+      "name": "start idempotent replay",
+      "status": "PASS",
+      "httpStatus": 201,
+      "detail": "same session id",
+      "startedAt": "2026-07-24T18:27:10.964Z",
+      "endedAt": "2026-07-24T18:27:11.033Z",
+      "elapsedMs": 69
+    },
+    {
+      "id": "PS-HB-07",
+      "name": "active read",
+      "status": "PASS",
+      "httpStatus": 200,
+      "detail": null,
+      "startedAt": "2026-07-24T18:27:11.033Z",
+      "endedAt": "2026-07-24T18:27:11.092Z",
+      "elapsedMs": 59
+    },
+    {
+      "id": "PS-HB-08",
+      "name": "second-start conflict",
+      "status": "PASS",
+      "httpStatus": 409,
+      "detail": "ACTIVE_PARKING_SESSION_EXISTS",
+      "startedAt": "2026-07-24T18:27:11.092Z",
+      "endedAt": "2026-07-24T18:27:11.217Z",
+      "elapsedMs": 125
+    },
+    {
+      "id": "PS-HB-09",
+      "name": "complete",
+      "status": "PASS",
+      "httpStatus": 200,
+      "detail": null,
+      "startedAt": "2026-07-24T18:27:11.217Z",
+      "endedAt": "2026-07-24T18:27:11.288Z",
+      "elapsedMs": 71
+    },
+    {
+      "id": "PS-HB-10",
+      "name": "active absent after complete",
+      "status": "PASS",
+      "httpStatus": 204,
+      "detail": null,
+      "startedAt": "2026-07-24T18:27:11.288Z",
+      "endedAt": "2026-07-24T18:27:11.348Z",
+      "elapsedMs": 60
+    },
+    {
+      "id": "PS-HB-11",
+      "name": "completed history",
+      "status": "PASS",
+      "httpStatus": 200,
+      "detail": "pageSize=2",
+      "startedAt": "2026-07-24T18:27:11.348Z",
+      "endedAt": "2026-07-24T18:27:11.416Z",
+      "elapsedMs": 69
+    },
+    {
+      "id": "PS-HB-12",
+      "name": "single delete",
+      "status": "FAIL",
+      "httpStatus": null,
+      "detail": "skipped - deletion API not healthy on deployed revision",
+      "startedAt": "2026-07-24T18:27:11.417Z",
+      "endedAt": "2026-07-24T18:27:11.417Z",
+      "elapsedMs": 0
+    },
+    {
+      "id": "PS-HB-13",
+      "name": "repeated single delete",
+      "status": "FAIL",
+      "httpStatus": null,
+      "detail": "skipped - deletion API not healthy on deployed revision",
+      "startedAt": "2026-07-24T18:27:11.417Z",
+      "endedAt": "2026-07-24T18:27:11.417Z",
+      "elapsedMs": 0
+    },
+    {
+      "id": "PS-HB-14",
+      "name": "start second session",
+      "status": "PASS",
+      "httpStatus": 201,
+      "detail": "session=7f85cf92...",
+      "startedAt": "2026-07-24T18:27:11.417Z",
+      "endedAt": "2026-07-24T18:27:11.486Z",
+      "elapsedMs": 69
+    },
+    {
+      "id": "PS-HB-15",
+      "name": "cancel",
+      "status": "PASS",
+      "httpStatus": 200,
+      "detail": null,
+      "startedAt": "2026-07-24T18:27:11.486Z",
+      "endedAt": "2026-07-24T18:27:11.613Z",
+      "elapsedMs": 127
+    },
+    {
+      "id": "PS-HB-16",
+      "name": "cancelled history",
+      "status": "PASS",
+      "httpStatus": 200,
+      "detail": null,
+      "startedAt": "2026-07-24T18:27:11.613Z",
+      "endedAt": "2026-07-24T18:27:11.682Z",
+      "elapsedMs": 69
+    },
+    {
+      "id": "PS-HB-17",
+      "name": "bulk delete",
+      "status": "FAIL",
+      "httpStatus": null,
+      "detail": "skipped - deletion API not healthy on deployed revision",
+      "startedAt": "2026-07-24T18:27:11.682Z",
+      "endedAt": "2026-07-24T18:27:11.682Z",
+      "elapsedMs": 0
+    },
+    {
+      "id": "PS-HB-18",
+      "name": "repeated bulk delete",
+      "status": "FAIL",
+      "httpStatus": null,
+      "detail": "skipped - deletion API not healthy on deployed revision",
+      "startedAt": "2026-07-24T18:27:11.682Z",
+      "endedAt": "2026-07-24T18:27:11.682Z",
+      "elapsedMs": 0
+    },
+    {
+      "id": "PS-HB-19",
+      "name": "active-preservation setup",
+      "status": "PASS",
+      "httpStatus": 201,
+      "detail": "active=74f47b5e...",
+      "startedAt": "2026-07-24T18:27:11.682Z",
+      "endedAt": "2026-07-24T18:27:11.899Z",
+      "elapsedMs": 217
+    },
+    {
+      "id": "PS-HB-20",
+      "name": "active single-delete conflict",
+      "status": "FAIL",
+      "httpStatus": null,
+      "detail": "skipped - deletion API not healthy on deployed revision",
+      "startedAt": "2026-07-24T18:27:11.899Z",
+      "endedAt": "2026-07-24T18:27:11.899Z",
+      "elapsedMs": 0
+    },
+    {
+      "id": "PS-HB-21",
+      "name": "delete-all preserves ACTIVE",
+      "status": "FAIL",
+      "httpStatus": null,
+      "detail": "skipped - deletion API not healthy on deployed revision",
+      "startedAt": "2026-07-24T18:27:11.899Z",
+      "endedAt": "2026-07-24T18:27:11.899Z",
+      "elapsedMs": 0
+    },
+    {
+      "id": "PS-HB-22",
+      "name": "cleanup active",
+      "status": "PASS",
+      "httpStatus": 200,
+      "detail": null,
+      "startedAt": "2026-07-24T18:27:11.899Z",
+      "endedAt": "2026-07-24T18:27:11.972Z",
+      "elapsedMs": 73
+    },
+    {
+      "id": "PS-HB-23",
+      "name": "owner isolation",
+      "status": "NOT_EXECUTED",
+      "httpStatus": null,
+      "detail": "User B credentials not provided",
+      "startedAt": "2026-07-24T18:27:11.972Z",
+      "endedAt": "2026-07-24T18:27:11.972Z",
+      "elapsedMs": 0
+    },
+    {
+      "id": "PS-HB-23b",
+      "name": "cursor pagination (page size 1)",
+      "status": "NOT_EXECUTED",
+      "httpStatus": null,
+      "detail": "requires healthy deletion for cleanup",
+      "startedAt": "2026-07-24T18:27:11.972Z",
+      "endedAt": "2026-07-24T18:27:11.972Z",
+      "elapsedMs": 0
+    },
+    {
+      "id": "PS-HB-24",
+      "name": "outbox/relay evidence",
+      "status": "NOT_OBSERVABLE",
+      "httpStatus": null,
+      "detail": "no public outbox verification endpoint; covered by parking-service unit/IT",
+      "startedAt": "2026-07-24T18:27:11.972Z",
+      "endedAt": "2026-07-24T18:27:11.972Z",
+      "elapsedMs": 0
+    },
+    {
+      "id": "PS-HB-25",
+      "name": "analytics ingestion evidence",
+      "status": "NOT_OBSERVABLE",
+      "httpStatus": null,
+      "detail": "no public analytics query for lifecycle facts; covered by analytics-service IT",
+      "startedAt": "2026-07-24T18:27:11.972Z",
+      "endedAt": "2026-07-24T18:27:11.972Z",
+      "elapsedMs": 0
+    },
+    {
+      "id": "PS-HB-26",
+      "name": "final cleanup verification",
+      "status": "PASS",
+      "httpStatus": 204,
+      "detail": "userA active http 204; userA delete ddd3a59f... http 500; userA delete 7f85cf92... http 500; userA delete 392accf3... http 500; userA delete 74f47b5e... http 500; userA bulk-history http 500",
+      "startedAt": "2026-07-24T18:27:12.355Z",
+      "endedAt": "2026-07-24T18:27:12.415Z",
+      "elapsedMs": 60
+    }
+  ],
+  "exitCode": 1,
+  "userAliases": {
+    "userA": "userA",
+    "userB": null
+  }
+}

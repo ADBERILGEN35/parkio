@@ -8,6 +8,7 @@ Developer and CI helper scripts.
 | `deploy-hosted-beta.sh` | Build SHA-tagged images from current commit, deploy, smoke, write manifest. |
 | `rollback-hosted-beta.sh` | Restore a previous SHA-tagged image set from a deploy manifest. |
 | `smoke-hosted-beta.sh` | Gateway/auth/parking/notifications/gamification smoke (no fakes). |
+| `smoke-parking-session-hosted-beta.sh` | ParkingSession lifecycle API smoke (PS-HB-01..26); requires disposable-account safety env vars. |
 | `lib/deploy-common.sh` | Shared helpers for deploy/rollback (sourced, not run directly). |
 | `run-service.sh`      | Run a single service locally (`run-service.sh auth-service`). |
 | `backup-databases.sh` | Dump every service DB (`pg_dump` via `docker exec`); optional AES-256 + offsite upload. |
