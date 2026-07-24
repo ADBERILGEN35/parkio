@@ -11,6 +11,10 @@ import { readJson, writeJson } from '@/services/jsonStore';
 /** Foreground location permission + one-shot position. */
 export interface LocationState {
   status: 'unknown' | 'granted' | 'denied';
+  /** False only after the OS reports permission cannot be requested again. */
+  canAskAgain: boolean;
+  /** Sync read after await request() — React state may still be stale. */
+  getCanAskAgain: () => boolean;
   position: LatLng | null;
   accuracy: number | null;
   request: () => Promise<LatLng | null>;
@@ -19,6 +23,8 @@ export interface LocationState {
 
 export function useLocation(): LocationState {
   const [status, setStatus] = useState<LocationState['status']>('unknown');
+  const [canAskAgain, setCanAskAgain] = useState(true);
+  const canAskAgainRef = useRef(true);
   const [position, setPosition] = useState<LatLng | null>(null);
   const [accuracy, setAccuracy] = useState<number | null>(null);
 
@@ -39,6 +45,8 @@ export function useLocation(): LocationState {
   useEffect(() => {
     void (async () => {
       const current = await Location.getForegroundPermissionsAsync();
+      canAskAgainRef.current = current.canAskAgain;
+      setCanAskAgain(current.canAskAgain);
       if (current.granted) {
         setStatus('granted');
         void readPosition();
@@ -50,6 +58,8 @@ export function useLocation(): LocationState {
 
   const request = useCallback(async (): Promise<LatLng | null> => {
     const result = await Location.requestForegroundPermissionsAsync();
+    canAskAgainRef.current = result.canAskAgain;
+    setCanAskAgain(result.canAskAgain);
     if (result.granted) {
       setStatus('granted');
       return readPosition();
@@ -58,7 +68,15 @@ export function useLocation(): LocationState {
     return null;
   }, [readPosition]);
 
-  return { status, position, accuracy, request, refresh: readPosition };
+  return {
+    status,
+    canAskAgain,
+    getCanAskAgain: () => canAskAgainRef.current,
+    position,
+    accuracy,
+    request,
+    refresh: readPosition,
+  };
 }
 
 /** Level-driven access policy (radius, result limit, daily views). */

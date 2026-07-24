@@ -25,6 +25,7 @@ export const USER_SESSION_QUERY_ROOTS: readonly (readonly unknown[])[] = [
   moderationKeys.all,
   analyticsKeys.all,
   parkingKeys.mySpots(),
+  parkingKeys.sessionsRoot(),
 ];
 
 /**

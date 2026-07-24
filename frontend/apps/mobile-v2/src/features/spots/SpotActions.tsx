@@ -51,6 +51,8 @@ export function SpotActions({ spotId, variant, onActionDone }: SpotActionsProps)
     void queryClient.invalidateQueries({ queryKey: parkingKeys.nearbyRoot() });
     void queryClient.invalidateQueries({ queryKey: parkingKeys.spot(spotId) });
     void queryClient.invalidateQueries({ queryKey: parkingKeys.mySpots() });
+    // Community claim creates an ACTIVE COMMUNITY session — surface it without restart.
+    void queryClient.invalidateQueries({ queryKey: parkingKeys.activeSession() });
   };
 
   const verifyMutation = useMutation({

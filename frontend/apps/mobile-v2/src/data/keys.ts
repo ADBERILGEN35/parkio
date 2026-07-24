@@ -36,6 +36,16 @@ export const parkingKeys = {
   spot: (spotId: string) => [...parkingKeys.all, 'spot', spotId] as const,
   spotMediaAccessUrl: (spotId: string) =>
     [...parkingKeys.spot(spotId), 'media-access-url'] as const,
+  /** User-scoped ParkingSession hierarchy (precise coordinates — cleared on logout). */
+  sessionsRoot: () => [...parkingKeys.all, 'sessions'] as const,
+  activeSession: () => [...parkingKeys.sessionsRoot(), 'active'] as const,
+  /**
+   * Cursor-paginated terminal history. Scoped under sessionsRoot so logout/user
+   * switch clears it with active session data (S1-P0-11).
+   */
+  sessionHistory: (size: number) =>
+    [...parkingKeys.sessionsRoot(), 'history', { size }] as const,
+  sessionHistoryRoot: () => [...parkingKeys.sessionsRoot(), 'history'] as const,
 };
 
 export const notificationsKeys = {

@@ -103,6 +103,7 @@ export default function ProfileScreen() {
           </AppText>
           <ListRow icon="account-outline" label={t('profile.menu.account')} onPress={() => router.push('/(main)/profile/edit')} />
           <ListRow icon="car-outline" label={t('profile.menu.vehicle')} onPress={() => router.push('/(main)/profile/vehicle')} />
+          <ListRow icon="history" label={t('profile.menu.parkingHistory')} onPress={() => router.push('/(main)/profile/parking-history')} />
           <ListRow icon="bell-outline" label={t('profile.menu.notifications')} onPress={() => router.push('/(main)/profile/preferences')} />
           {appConfig.features.smartReturn && (
             <ListRow icon="home-clock-outline" label={t('profile.menu.smartReturn')} sublabel={t('smartReturn.beta')} onPress={() => router.push('/(main)/smart-return')} />

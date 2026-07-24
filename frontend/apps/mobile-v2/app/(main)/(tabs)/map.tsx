@@ -19,6 +19,8 @@ import { SpotSheet } from '@/features/map/SpotSheet';
 import { useAccessPolicy, useLocation, useNearbySpots } from '@/features/map/hooks';
 import type { MapSpotMarker } from '@/features/map/mapHtml';
 import { MorningPromptModal } from '@/features/smart-return/MorningPromptModal';
+import { ActiveParkingSessionBanner } from '@/features/parking/ActiveParkingSessionBanner';
+import { ParkHereStartControl } from '@/features/parking/ParkHereStartControl';
 import { SmartReturnBanner } from '@/features/smart-return/SmartReturnBanner';
 import {
   todayAt,
@@ -32,6 +34,7 @@ import { useT } from '@/i18n/LocaleProvider';
 import { apiErrorCode } from '@/lib/apiErrors';
 import { formatClock } from '@/lib/time';
 import { readJson, writeJson } from '@/services/jsonStore';
+import { useAuthStore } from '@/state/authStore';
 
 const SEARCH_AREA_THRESHOLD_M = 250;
 
@@ -41,6 +44,7 @@ function isViewLimitCode(code: string | null): boolean {
 
 export default function MapScreen() {
   const t = useT();
+  const parkHereUserId = useAuthStore((state) => state.user?.id ?? 'anon');
   const router = useRouter();
   const insets = useSafeAreaInsets();
   const mapRef = useRef<MapSurfaceHandle>(null);
@@ -214,9 +218,11 @@ export default function MapScreen() {
             onDismiss={() => setBannerDismissed(true)}
           />
         ) : null}
+        <ActiveParkingSessionBanner />
+        <ParkHereStartControl key={parkHereUserId} location={location} />
         {showPermissionCard ? (
           <LocationPermissionCard
-            canAskAgain={location.status === 'unknown'}
+            canAskAgain={location.canAskAgain}
             onAllow={() => void locate()}
             onOpenSettings={() => void Linking.openSettings()}
             onDismiss={() => setPermissionDismissed(true)}

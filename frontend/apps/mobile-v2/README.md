@@ -62,5 +62,6 @@ first share wizard (eager upload with progress/retry/offline queue, GPS gate,
 Riskli hard-block, review, celebration + honest pending state, draft resume)
 · my spots · leaderboard · impact (radius diagram, ledger, level roadmap) ·
 notifications · reports & appeals · Smart Return (settings, morning prompt,
-today banner) · profile hub + subscreens · staff moderation queue/case/
+today banner) · profile hub + subscreens (including **Parking history** under Profile with terminal
+history list and confirmed deletion; see `docs/architecture/PARKING-SESSION-HISTORY-DELETION-UI.md`) · staff moderation queue/case/
 analytics · push deep-link routing (v1-compatible payloads) · dark mode.

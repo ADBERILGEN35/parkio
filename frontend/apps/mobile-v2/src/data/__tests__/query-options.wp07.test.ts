@@ -1,5 +1,11 @@
 import { myProfileQueryOptions, mySmartReturnQueryOptions } from '../query-options/me';
-import { nearbySpotsQueryOptions, spotDetailQueryOptions, mySpotsQueryOptions } from '../query-options/parking';
+import {
+  nearbySpotsQueryOptions,
+  spotDetailQueryOptions,
+  mySpotsQueryOptions,
+  activeParkingSessionQueryOptions,
+  parkingSessionHistoryInfiniteQueryOptions,
+} from '../query-options/parking';
 import { myReportsQueryOptions } from '../query-options/reports';
 import { meKeys, parkingKeys, reportsKeys } from '../keys';
 import * as api from '@/services/api';
@@ -13,6 +19,8 @@ jest.mock('@/services/api', () => ({
     getNearbySpots: jest.fn(async () => []),
     getSpot: jest.fn(async () => ({ id: 's1' })),
     getMySpots: jest.fn(async () => []),
+    getActiveParkingSession: jest.fn(async () => null),
+    getParkingSessionHistory: jest.fn(async () => ({ items: [], nextCursor: null })),
   },
   moderationApi: {
     getMyReports: jest.fn(async () => []),
@@ -28,6 +36,10 @@ describe('WP-07 mobile query-options signal forwarding', () => {
     expect(spotDetailQueryOptions('s1').queryKey).toEqual(parkingKeys.spot('s1'));
     expect(myReportsQueryOptions().queryKey).toEqual(reportsKeys.all);
     expect(mySmartReturnQueryOptions().queryKey).toEqual(meKeys.smartReturn());
+    expect(activeParkingSessionQueryOptions().queryKey).toEqual(parkingKeys.activeSession());
+    expect(parkingSessionHistoryInfiniteQueryOptions(20).queryKey).toEqual(
+      parkingKeys.sessionHistory(20),
+    );
   });
 
   it('forwards AbortSignal to representative SDK reads', async () => {
@@ -51,5 +63,8 @@ describe('WP-07 mobile query-options signal forwarding', () => {
       expect.objectContaining({ lat: 38.4, lng: 27.1 }),
       signal,
     );
+
+    await activeParkingSessionQueryOptions().queryFn!({ signal } as never);
+    expect(api.parkingApi.getActiveParkingSession).toHaveBeenCalledWith(signal);
   });
 });

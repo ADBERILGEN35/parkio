@@ -10,6 +10,7 @@ describe('WP-07 session query cache isolation', () => {
 
     client.setQueryData(meKeys.profile(), { id: 'u1' });
     client.setQueryData(parkingKeys.mySpots(), []);
+    client.setQueryData(parkingKeys.activeSession(), { id: 'sess', latitude: 41, longitude: 29 });
     client.setQueryData(reportsKeys.all, []);
     client.setQueryData(parkingKeys.nearby({ lat: 1, lng: 2 }), []);
 
@@ -18,7 +19,9 @@ describe('WP-07 session query cache isolation', () => {
     expect(cancel).toHaveBeenCalled();
     expect(remove).toHaveBeenCalledWith({ queryKey: meKeys.all });
     expect(remove).toHaveBeenCalledWith({ queryKey: parkingKeys.mySpots() });
+    expect(remove).toHaveBeenCalledWith({ queryKey: parkingKeys.sessionsRoot() });
     expect(remove).toHaveBeenCalledWith({ queryKey: reportsKeys.all });
+    expect(client.getQueryData(parkingKeys.activeSession())).toBeUndefined();
     expect(client.getQueryData(parkingKeys.nearby({ lat: 1, lng: 2 }))).toEqual([]);
   });
 });
