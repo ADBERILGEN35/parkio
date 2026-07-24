@@ -1,6 +1,8 @@
 package com.parkio.parking.presentation;
 
+import static org.assertj.core.api.Assertions.assertThat;
 import static org.hamcrest.Matchers.nullValue;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.delete;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.content;
@@ -59,6 +61,7 @@ class ParkingSessionControllerTest {
     @BeforeEach
     void clearState() {
         jdbc.update("DELETE FROM idempotency_records");
+        jdbc.update("DELETE FROM outbox_events");
         jdbc.update("DELETE FROM parking_sessions");
     }
 
@@ -194,13 +197,16 @@ class ParkingSessionControllerTest {
                 .andExpect(status().isCreated())
                 .andReturn();
         String sessionId = JsonPath.read(first.getResponse().getContentAsString(), "$.id");
+        assertThat(countOutbox("ParkingSessionStarted")).isEqualTo(1);
 
         start(userId, key, requestWithFee("1.20"))
                 .andExpect(status().isCreated())
                 .andExpect(jsonPath("$.id").value(sessionId));
+        assertThat(countOutbox("ParkingSessionStarted")).isEqualTo(1);
         start(userId, key, requestWithFee("1.21"))
                 .andExpect(status().isConflict())
                 .andExpect(jsonPath("$.code").value("IDEMPOTENCY_KEY_CONFLICT"));
+        assertThat(countOutbox("ParkingSessionStarted")).isEqualTo(1);
     }
 
     @Test
@@ -208,11 +214,47 @@ class ParkingSessionControllerTest {
         UUID userId = UUID.randomUUID();
         start(userId, UUID.randomUUID().toString(), requestWithFee("1.00"))
                 .andExpect(status().isCreated());
+        assertThat(countOutbox("ParkingSessionStarted")).isEqualTo(1);
 
         start(userId, UUID.randomUUID().toString(), requestWithFee("2.00"))
                 .andExpect(status().isConflict())
                 .andExpect(header().string(HttpHeaders.CACHE_CONTROL, "no-store"))
                 .andExpect(jsonPath("$.code").value("ACTIVE_PARKING_SESSION_EXISTS"));
+        assertThat(countOutbox("ParkingSessionStarted")).isEqualTo(1);
+    }
+
+    @Test
+    void completeAndCancelPersistLifecycleOutboxEventsOncePerTransition() throws Exception {
+        UUID owner = UUID.randomUUID();
+        String completeKey = UUID.randomUUID().toString();
+        String cancelKey = UUID.randomUUID().toString();
+
+        String completedId = JsonPath.read(start(owner, UUID.randomUUID().toString(), requestWithFee("1.00"))
+                .andExpect(status().isCreated())
+                .andReturn()
+                .getResponse()
+                .getContentAsString(), "$.id");
+        transition(owner, completedId, "complete", completeKey).andExpect(status().isOk());
+        transition(owner, completedId, "complete", completeKey).andExpect(status().isOk());
+        assertThat(countOutbox("ParkingSessionCompleted")).isEqualTo(1);
+
+        String cancelledId = JsonPath.read(start(owner, UUID.randomUUID().toString(), requestWithFee("2.00"))
+                .andExpect(status().isCreated())
+                .andReturn()
+                .getResponse()
+                .getContentAsString(), "$.id");
+        transition(owner, cancelledId, "cancel", cancelKey).andExpect(status().isOk());
+        transition(owner, cancelledId, "cancel", cancelKey).andExpect(status().isOk());
+        assertThat(countOutbox("ParkingSessionCancelled")).isEqualTo(1);
+
+        String payload = jdbc.queryForObject("""
+                SELECT payload FROM outbox_events
+                 WHERE event_type = 'ParkingSessionCompleted'
+                 LIMIT 1
+                """, String.class);
+        assertThat(payload).doesNotContain("latitude");
+        assertThat(payload).doesNotContain("longitude");
+        assertThat(payload).doesNotContain("idempotency");
     }
 
     @Test
@@ -364,6 +406,107 @@ class ParkingSessionControllerTest {
                 .andExpect(jsonPath("$.code").value("MISSING_USER_ID"));
     }
 
+    @Test
+    void deleteTerminalSessionIsOwnerSafeIdempotentAndRejectsActive() throws Exception {
+        UUID owner = UUID.randomUUID();
+        UUID stranger = UUID.randomUUID();
+        String completedId = startAndGetId(owner);
+        transition(owner, completedId, "complete", UUID.randomUUID().toString())
+                .andExpect(status().isOk());
+        String activeId = startAndGetId(owner);
+        String foreignId = startAndGetId(stranger);
+        transition(stranger, foreignId, "complete", UUID.randomUUID().toString())
+                .andExpect(status().isOk());
+
+        mockMvc.perform(authenticated(delete("/api/v1/parking/sessions/{sessionId}", completedId), owner))
+                .andExpect(status().isNoContent())
+                .andExpect(header().string(HttpHeaders.CACHE_CONTROL, "no-store"))
+                .andExpect(content().string(""));
+        mockMvc.perform(authenticated(delete("/api/v1/parking/sessions/{sessionId}", completedId), owner))
+                .andExpect(status().isNoContent());
+        mockMvc.perform(authenticated(
+                        delete("/api/v1/parking/sessions/{sessionId}", UUID.randomUUID()), owner))
+                .andExpect(status().isNoContent());
+        mockMvc.perform(authenticated(delete("/api/v1/parking/sessions/{sessionId}", foreignId), owner))
+                .andExpect(status().isNoContent());
+        mockMvc.perform(authenticated(delete("/api/v1/parking/sessions/{sessionId}", activeId), stranger))
+                .andExpect(status().isNoContent());
+
+        org.assertj.core.api.Assertions.assertThat(jdbc.queryForObject(
+                "SELECT count(*) FROM parking_sessions WHERE id = ?",
+                Integer.class,
+                UUID.fromString(foreignId))).isEqualTo(1);
+        org.assertj.core.api.Assertions.assertThat(jdbc.queryForObject(
+                "SELECT count(*) FROM parking_sessions WHERE id = ?",
+                Integer.class,
+                UUID.fromString(activeId))).isEqualTo(1);
+        org.assertj.core.api.Assertions.assertThat(jdbc.queryForObject(
+                "SELECT count(*) FROM parking_sessions WHERE id = ?",
+                Integer.class,
+                UUID.fromString(completedId))).isEqualTo(0);
+
+        mockMvc.perform(authenticated(delete("/api/v1/parking/sessions/{sessionId}", activeId), owner))
+                .andExpect(status().isConflict())
+                .andExpect(jsonPath("$.code").value("PARKING_SESSION_NOT_TERMINAL"))
+                .andExpect(jsonPath("$.latitude").doesNotExist())
+                .andExpect(jsonPath("$.longitude").doesNotExist());
+        mockMvc.perform(authenticated(get("/api/v1/parking/sessions/active"), owner))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.id").value(activeId));
+        mockMvc.perform(authenticated(get("/api/v1/parking/sessions/history"), owner))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.items").isEmpty());
+    }
+
+    @Test
+    void deleteHistoryClearsOwnedTerminalsAndPreservesActive() throws Exception {
+        UUID owner = UUID.randomUUID();
+        UUID stranger = UUID.randomUUID();
+        terminalSession(owner, true);
+        terminalSession(owner, false);
+        String activeId = startAndGetId(owner);
+        terminalSession(stranger, true);
+
+        mockMvc.perform(authenticated(delete("/api/v1/parking/sessions/history"), owner))
+                .andExpect(status().isNoContent())
+                .andExpect(content().string(""));
+        mockMvc.perform(authenticated(delete("/api/v1/parking/sessions/history"), owner))
+                .andExpect(status().isNoContent());
+        mockMvc.perform(delete("/api/v1/parking/sessions/history")
+                        .header("X-Gateway-Auth", GATEWAY_SECRET))
+                .andExpect(status().isUnauthorized())
+                .andExpect(jsonPath("$.code").value("MISSING_USER_ID"));
+
+        mockMvc.perform(authenticated(get("/api/v1/parking/sessions/active"), owner))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.id").value(activeId));
+        mockMvc.perform(authenticated(get("/api/v1/parking/sessions/history"), owner))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.items").isEmpty());
+        mockMvc.perform(authenticated(get("/api/v1/parking/sessions/history"), stranger))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.items.length()").value(1));
+
+        org.assertj.core.api.Assertions.assertThat(jdbc.queryForObject(
+                "SELECT count(*) FROM parking_sessions WHERE user_id = ? AND status = 'ACTIVE'",
+                Integer.class,
+                owner)).isEqualTo(1);
+        org.assertj.core.api.Assertions.assertThat(jdbc.queryForObject(
+                """
+                SELECT count(*) FROM parking_sessions
+                WHERE user_id = ? AND status IN ('COMPLETED', 'CANCELLED')
+                """,
+                Integer.class,
+                owner)).isEqualTo(0);
+        org.assertj.core.api.Assertions.assertThat(jdbc.queryForObject(
+                """
+                SELECT count(*) FROM parking_sessions
+                WHERE user_id = ? AND status IN ('COMPLETED', 'CANCELLED')
+                """,
+                Integer.class,
+                stranger)).isEqualTo(1);
+    }
+
     private String startAndGetId(UUID userId) throws Exception {
         MvcResult result = start(
                         userId,
@@ -409,6 +552,14 @@ class ParkingSessionControllerTest {
 
     private static String requestWithFee(String fee) {
         return "{\"latitude\":41.0,\"longitude\":29.0,\"estimatedFee\":\"" + fee + "\"}";
+    }
+
+    private int countOutbox(String eventType) {
+        Integer count = jdbc.queryForObject(
+                "SELECT count(*) FROM outbox_events WHERE event_type = ?",
+                Integer.class,
+                eventType);
+        return count == null ? 0 : count;
     }
 
     @TestConfiguration(proxyBeanMethods = false)

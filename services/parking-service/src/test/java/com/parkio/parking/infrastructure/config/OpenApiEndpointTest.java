@@ -50,6 +50,17 @@ class OpenApiEndpointTest {
                 .isEqualTo("cancelParkingSession");
         assertThat(root.at("/paths/~1api~1v1~1parking~1sessions~1history/get/operationId").asText())
                 .isEqualTo("getParkingSessionHistory");
+        assertThat(root.at("/paths/~1api~1v1~1parking~1sessions~1{sessionId}/delete/operationId").asText())
+                .isEqualTo("deleteParkingSession");
+        assertThat(root.at("/paths/~1api~1v1~1parking~1sessions~1history/delete/operationId").asText())
+                .isEqualTo("deleteParkingSessionHistory");
+        assertThat(root.at("/paths/~1api~1v1~1parking~1sessions~1{sessionId}/delete/responses").has("204"))
+                .isTrue();
+        assertThat(root.at("/paths/~1api~1v1~1parking~1sessions~1{sessionId}/delete/responses").has("409"))
+                .isTrue();
+        assertThat(root.at("/paths/~1api~1v1~1parking~1sessions~1history/delete/responses").has("204"))
+                .isTrue();
+        assertThat(root.toString()).contains("PARKING_SESSION_NOT_TERMINAL");
 
         JsonNode claimOperation = root.at("/paths/~1api~1v1~1parking~1spots~1{spotId}~1claim/post");
         assertThat(claimOperation.path("operationId").asText()).isEqualTo("claimSpot");
@@ -104,7 +115,9 @@ class OpenApiEndpointTest {
                 "/paths/~1api~1v1~1parking~1sessions~1active/get",
                 "/paths/~1api~1v1~1parking~1sessions~1{sessionId}~1complete/post",
                 "/paths/~1api~1v1~1parking~1sessions~1{sessionId}~1cancel/post",
-                "/paths/~1api~1v1~1parking~1sessions~1history/get");
+                "/paths/~1api~1v1~1parking~1sessions~1history/get",
+                "/paths/~1api~1v1~1parking~1sessions~1{sessionId}/delete",
+                "/paths/~1api~1v1~1parking~1sessions~1history/delete");
         for (String operationPointer : parkingSessionOperations) {
             assertThat(root.at(operationPointer + "/parameters").findValuesAsText("name"))
                     .as("gateway-injected identity header must be hidden for %s", operationPointer)

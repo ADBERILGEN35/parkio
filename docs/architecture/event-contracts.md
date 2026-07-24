@@ -215,11 +215,14 @@ configured so the contracts above hold and evolve safely:
 
 # Parking
 
-All parking events share: `aggregateType=ParkingSpot`, `aggregateId=parkingSpotId`,
+All parking **spot** events share: `aggregateType=ParkingSpot`, `aggregateId=parkingSpotId`,
 and every payload carries `eventId`, `parkingSpotId`, `ownerUserId`, `status`,
 `occurredAt`. Action events also carry `actorUserId` (the user who triggered it).
 `status` is the spot's status **after** the event: one of `ACTIVE`, `VERIFIED`,
 `SUSPICIOUS`, `FILLED`, `EXPIRED`, `REJECTED`.
+
+ParkingSession lifecycle events use a separate aggregate/topic — see
+`ParkingSessionStartedEvent` / `Completed` / `Cancelled` below.
 
 ## ParkingSpotCreatedEvent
 
@@ -299,6 +302,79 @@ and every payload carries `eventId`, `parkingSpotId`, `ownerUserId`, `status`,
 | `occurredAt` | timestamp (UTC) | yes | Claim time. |
 
 - **Version:** 1. **Compatibility:** append-only.
+
+## ParkingSessionStartedEvent
+
+- **Producer:** `parking-service`
+- **Expected consumers:** `analytics-service` (live, S1-P0-09 —
+  [`PARKING-SESSION-ANALYTICS-INGESTION.md`](PARKING-SESSION-ANALYTICS-INGESTION.md)).
+  Not a substitute for `ParkingSpotClaimed` (spot fan-out remains on `parkio.parking.spot`).
+- **Envelope:** `aggregateType=ParkingSession`, `aggregateId=sessionId`,
+  `eventType=ParkingSessionStarted`.
+- **Topic:** `parkio.parking.session` (key = sessionId).
+- **Semantics:** authoritative create of an ACTIVE private parking session
+  (MANUAL HTTP start or COMMUNITY claim session create).
+
+| Field | Type | Required | Meaning |
+|-------|------|----------|---------|
+| `eventId` | UUID (string) | yes | Dedup key. |
+| `sessionId` | UUID (string) | yes | ParkingSession id. |
+| `userId` | UUID (string) | yes | Session owner (authUserId). |
+| `status` | string (enum) | yes | `ACTIVE` after create. |
+| `source` | string (enum) | yes | Domain `ParkingSource` (`MANUAL`, `COMMUNITY`, …). |
+| `startedAt` | timestamp (UTC) | yes | Server-controlled session start. |
+| `occurredAt` | timestamp (UTC) | yes | When the fact was committed. |
+
+- **Version:** 1. **Compatibility:** append-only.
+- **Privacy:** no coordinates, fees, reminders, idempotency keys, or spot ids.
+
+## ParkingSessionCompletedEvent
+
+- **Producer:** `parking-service`
+- **Expected consumers:** `analytics-service` (live, S1-P0-09).
+- **Envelope:** `aggregateType=ParkingSession`, `aggregateId=sessionId`,
+  `eventType=ParkingSessionCompleted`.
+- **Topic:** `parkio.parking.session` (key = sessionId).
+- **Semantics:** authoritative ACTIVE → COMPLETED transition.
+
+| Field | Type | Required | Meaning |
+|-------|------|----------|---------|
+| `eventId` | UUID (string) | yes | Dedup key. |
+| `sessionId` | UUID (string) | yes | ParkingSession id. |
+| `userId` | UUID (string) | yes | Session owner. |
+| `status` | string (enum) | yes | `COMPLETED`. |
+| `source` | string (enum) | yes | Immutable session source. |
+| `startedAt` | timestamp (UTC) | yes | Original start. |
+| `endedAt` | timestamp (UTC) | yes | Server-controlled completion time. |
+| `occurredAt` | timestamp (UTC) | yes | When the fact was committed. |
+
+- **Version:** 1. **Compatibility:** append-only.
+- **Privacy:** no coordinates or idempotency keys. Duration is derived by consumers.
+
+## ParkingSessionCancelledEvent
+
+- **Producer:** `parking-service`
+- **Expected consumers:** `analytics-service` (live, S1-P0-09).
+- **Envelope:** `aggregateType=ParkingSession`, `aggregateId=sessionId`,
+  `eventType=ParkingSessionCancelled`.
+- **Topic:** `parkio.parking.session` (key = sessionId).
+- **Semantics:** authoritative ACTIVE → CANCELLED transition.
+
+| Field | Type | Required | Meaning |
+|-------|------|----------|---------|
+| `eventId` | UUID (string) | yes | Dedup key. |
+| `sessionId` | UUID (string) | yes | ParkingSession id. |
+| `userId` | UUID (string) | yes | Session owner. |
+| `status` | string (enum) | yes | `CANCELLED`. |
+| `source` | string (enum) | yes | Immutable session source. |
+| `startedAt` | timestamp (UTC) | yes | Original start. |
+| `endedAt` | timestamp (UTC) | yes | Server-controlled cancel time stored on the row. |
+| `occurredAt` | timestamp (UTC) | yes | When the fact was committed. |
+
+- **Version:** 1. **Compatibility:** append-only.
+- **Privacy:** no coordinates or idempotency keys.
+
+Operational producer rules: [`PARKING-SESSION-LIFECYCLE-EVENTS.md`](PARKING-SESSION-LIFECYCLE-EVENTS.md).
 
 ## ParkingSpotExpiredEvent
 

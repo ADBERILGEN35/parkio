@@ -3,6 +3,7 @@ package com.parkio.parking.application.port;
 import com.parkio.parking.application.ParkingSessionHistoryCursor;
 import com.parkio.parking.application.ParkingSessionHistoryPage;
 import com.parkio.parking.domain.ParkingSession;
+import com.parkio.parking.domain.ParkingSessionStatus;
 import java.util.Optional;
 import java.util.UUID;
 
@@ -29,4 +30,22 @@ public interface ParkingSessionRepository {
 
     ParkingSessionHistoryPage findHistoryByUserId(
             UUID userId, ParkingSessionHistoryCursor cursor, int pageSize);
+
+    /**
+     * Hard-deletes one COMPLETED/CANCELLED session owned by {@code userId}.
+     *
+     * @return number of rows deleted (0 or 1)
+     */
+    int deleteTerminalByIdAndUserId(UUID id, UUID userId);
+
+    /**
+     * Hard-deletes all COMPLETED/CANCELLED sessions owned by {@code userId}.
+     * ACTIVE rows are never matched.
+     *
+     * @return number of rows deleted
+     */
+    int deleteAllTerminalByUserId(UUID userId);
+
+    /** Ownership-scoped status probe without loading coordinate fields into the domain aggregate. */
+    Optional<ParkingSessionStatus> findStatusByIdAndUserId(UUID id, UUID userId);
 }

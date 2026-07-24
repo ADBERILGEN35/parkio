@@ -9,7 +9,9 @@ How Parkio's asynchronous event backbone is wired. This complements
 > 1. `auth-service` → `parkio.auth.user` → `user-service`
 > 2. `parking-service` → `parkio.parking.spot` → **`gamification`, `notification`,
 >    `analytics`, `ai-validation`, `moderation`** (fan-out: five consumer groups on one
->    topic, each handling the subset it cares about)
+>    topic, each handling the subset it cares about); and `parking-service` →
+>    `parkio.parking.session` for ParkingSession lifecycle (`ParkingSessionStarted` /
+>    `Completed` / `Cancelled`) — **producer live (S1-P0-08); analytics consumer live (S1-P0-09)**
 > 3. `gamification-service` → `parkio.gamification.score` → `notification-service` **and**
 >    `analytics-service`
 > 4. `media-service` → `parkio.media.media` → `ai-validation-service` (`MediaUploaded`)
@@ -83,6 +85,7 @@ event facts, not latest-state snapshots.
 | `parkio.auth.user` | auth | 3 | 7d | userId |
 | `parkio.user.profile` | user | 3 | 7d | userId |
 | `parkio.parking.spot` | parking | **6** | **30d** | parkingSpotId |
+| `parkio.parking.session` | parking | **6** | **30d** | sessionId |
 | `parkio.media.media` | media | **6** | 7d | mediaId |
 | `parkio.gamification.score` | gamification | **6** | **30d** | userId |
 | `parkio.notification.notification` | notification | 3 | 7d | notificationId |
@@ -90,7 +93,7 @@ event facts, not latest-state snapshots.
 | `parkio.moderation.action` | moderation | 3 | **30d** | parkingSpotId / userId |
 | `parkio.aivalidation.result` | ai-validation | **6** | 7d | mediaId |
 
-**Hot topics** (6 partitions): `parking.spot`, `media.media`, `gamification.score`,
+**Hot topics** (6 partitions): `parking.spot`, `parking.session`, `media.media`, `gamification.score`,
 `aivalidation.result`. All others use 3. Partition count is effectively immutable for
 keyed ordering, so it is sized deliberately up-front.
 

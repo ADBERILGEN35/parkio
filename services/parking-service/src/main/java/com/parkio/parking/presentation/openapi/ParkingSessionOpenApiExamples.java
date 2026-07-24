@@ -33,6 +33,9 @@ public final class ParkingSessionOpenApiExamples {
     public static final String SESSION_NOT_ACTIVE = """
             {"code":"PARKING_SESSION_NOT_ACTIVE","message":"Only an active parking session can be completed or cancelled.","traceId":"8a56ef7e-69de-4f3c-8fe5-32b83d67f1b4","timestamp":"2026-07-21T09:00:00Z"}
             """;
+    public static final String SESSION_NOT_TERMINAL = """
+            {"code":"PARKING_SESSION_NOT_TERMINAL","message":"An active parking session cannot be deleted.","traceId":"8a56ef7e-69de-4f3c-8fe5-32b83d67f1b4","timestamp":"2026-07-21T09:00:00Z"}
+            """;
     public static final String INVALID_CURSOR = """
             {"code":"INVALID_PARKING_SESSION_CURSOR","message":"Parking session history cursor is invalid.","traceId":"8a56ef7e-69de-4f3c-8fe5-32b83d67f1b4","timestamp":"2026-07-21T09:00:00Z"}
             """;

@@ -8,6 +8,7 @@ import java.util.UUID;
 import org.springframework.data.domain.Pageable;
 import org.springframework.data.domain.Slice;
 import org.springframework.data.jpa.repository.JpaRepository;
+import org.springframework.data.jpa.repository.Modifying;
 import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
 
@@ -16,6 +17,38 @@ public interface ParkingSessionJpaRepository extends JpaRepository<ParkingSessio
     Optional<ParkingSession> findByUserIdAndStatus(UUID userId, ParkingSessionStatus status);
 
     Optional<ParkingSession> findByIdAndUserId(UUID id, UUID userId);
+
+    @Query("""
+            SELECT parkingSession.status
+            FROM ParkingSession parkingSession
+            WHERE parkingSession.id = :id
+              AND parkingSession.userId = :userId
+            """)
+    Optional<ParkingSessionStatus> findStatusByIdAndUserId(
+            @Param("id") UUID id, @Param("userId") UUID userId);
+
+    @Modifying(flushAutomatically = true, clearAutomatically = true)
+    @Query("""
+            DELETE FROM ParkingSession parkingSession
+            WHERE parkingSession.id = :id
+              AND parkingSession.userId = :userId
+              AND parkingSession.status IN (
+                  com.parkio.parking.domain.ParkingSessionStatus.COMPLETED,
+                  com.parkio.parking.domain.ParkingSessionStatus.CANCELLED
+              )
+            """)
+    int deleteTerminalByIdAndUserId(@Param("id") UUID id, @Param("userId") UUID userId);
+
+    @Modifying(flushAutomatically = true, clearAutomatically = true)
+    @Query("""
+            DELETE FROM ParkingSession parkingSession
+            WHERE parkingSession.userId = :userId
+              AND parkingSession.status IN (
+                  com.parkio.parking.domain.ParkingSessionStatus.COMPLETED,
+                  com.parkio.parking.domain.ParkingSessionStatus.CANCELLED
+              )
+            """)
+    int deleteAllTerminalByUserId(@Param("userId") UUID userId);
 
     @Query("""
             SELECT parkingSession

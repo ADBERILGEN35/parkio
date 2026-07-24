@@ -24,6 +24,7 @@ import org.springframework.kafka.config.TopicBuilder;
 public class KafkaTopicsConfig {
 
     public static final String PARKING_SPOT = "parkio.parking.spot";
+    public static final String PARKING_SESSION = "parkio.parking.session";
 
     private final int replicas;
 
@@ -35,6 +36,12 @@ public class KafkaTopicsConfig {
     NewTopic parkingSpotTopic() {
         // Hot topic (fan-out to gamification, notification, analytics, ai-validation, moderation).
         return topic(PARKING_SPOT, 6, Duration.ofDays(30));
+    }
+
+    @Bean
+    NewTopic parkingSessionTopic() {
+        // ParkingSession lifecycle (start/complete/cancel); keyed by session id. Analytics planned.
+        return topic(PARKING_SESSION, 6, Duration.ofDays(30));
     }
 
     @Bean

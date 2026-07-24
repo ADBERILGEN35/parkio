@@ -15,9 +15,16 @@ public sealed interface ParkingEvent permits
         ParkingSpotVerifiedEvent,
         ParkingSpotMarkedFilledEvent,
         ParkingSpotClaimedEvent,
-        ParkingSpotExpiredEvent {
+        ParkingSpotExpiredEvent,
+        ParkingSessionStartedEvent,
+        ParkingSessionCompletedEvent,
+        ParkingSessionCancelledEvent {
 
+    /** Aggregate type for spot lifecycle events (default {@link #aggregateType()}). */
     String AGGREGATE_TYPE = "ParkingSpot";
+
+    /** Aggregate type for private ParkingSession lifecycle events. */
+    String SESSION_AGGREGATE_TYPE = "ParkingSession";
 
     UUID eventId();
 

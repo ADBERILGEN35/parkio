@@ -71,6 +71,25 @@ public class ParkingSessionRepositoryAdapter implements ParkingSessionRepository
                 PageRequest.of(0, boundedPageSize)));
     }
 
+    @Override
+    public int deleteTerminalByIdAndUserId(UUID id, UUID userId) {
+        return jpa.deleteTerminalByIdAndUserId(
+                Objects.requireNonNull(id, "id"),
+                Objects.requireNonNull(userId, "userId"));
+    }
+
+    @Override
+    public int deleteAllTerminalByUserId(UUID userId) {
+        return jpa.deleteAllTerminalByUserId(Objects.requireNonNull(userId, "userId"));
+    }
+
+    @Override
+    public Optional<ParkingSessionStatus> findStatusByIdAndUserId(UUID id, UUID userId) {
+        return jpa.findStatusByIdAndUserId(
+                Objects.requireNonNull(id, "id"),
+                Objects.requireNonNull(userId, "userId"));
+    }
+
     private static ParkingSessionHistoryPage toHistoryPage(Slice<ParkingSession> slice) {
         return new ParkingSessionHistoryPage(slice.getContent(), slice.hasNext());
     }

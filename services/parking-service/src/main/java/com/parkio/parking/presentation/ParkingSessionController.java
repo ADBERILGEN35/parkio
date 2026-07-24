@@ -33,6 +33,7 @@ import java.util.Map;
 import java.util.UUID;
 import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
+import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
@@ -267,6 +268,51 @@ public class ParkingSessionController {
         return new ParkingSessionHistoryResponse(
                 page.sessions().stream().map(ParkingSessionResponse::from).toList(),
                 page.nextCursor().map(cursorCodec::encode).orElse(null));
+    }
+
+    @Operation(
+            operationId = "deleteParkingSessionHistory",
+            summary = "Delete terminal parking session history",
+            description = """
+                    Hard-deletes all COMPLETED and CANCELLED sessions owned by the authenticated user.
+                    Any ACTIVE session is preserved. Repeated calls return 204.""")
+    @ApiResponses({
+            @ApiResponse(responseCode = "204", description = "Terminal history cleared (or already empty)",
+                    content = @Content)
+    })
+    // Declare /history before /{sessionId} so bulk delete never binds as a UUID path variable.
+    @DeleteMapping("/history")
+    public ResponseEntity<Void> deleteHistory(
+            @Parameter(hidden = true)
+            @RequestHeader(value = USER_ID_HEADER, required = false) String userId) {
+        sessionService.deleteTerminalHistory(requireUserId(userId));
+        return ResponseEntity.noContent().build();
+    }
+
+    @Operation(
+            operationId = "deleteParkingSession",
+            summary = "Delete one terminal parking session",
+            description = """
+                    Hard-deletes one COMPLETED or CANCELLED session owned by the authenticated user.
+                    ACTIVE sessions return 409. Missing, already-deleted, and foreign-owned ids return \
+                    opaque 204 without revealing ownership.""")
+    @ApiResponses({
+            @ApiResponse(responseCode = "204", description = "Deleted, already absent, or not owned",
+                    content = @Content),
+            @ApiResponse(responseCode = "400", description = "Malformed session identifier",
+                    content = @Content(schema = @Schema(implementation = ApiError.class))),
+            @ApiResponse(responseCode = "409", description = "Session is still ACTIVE",
+                    content = @Content(schema = @Schema(implementation = ApiError.class),
+                            examples = @ExampleObject(name = "sessionNotTerminal",
+                                    value = ParkingSessionOpenApiExamples.SESSION_NOT_TERMINAL)))
+    })
+    @DeleteMapping("/{sessionId}")
+    public ResponseEntity<Void> deleteSession(
+            @Parameter(hidden = true)
+            @RequestHeader(value = USER_ID_HEADER, required = false) String userId,
+            @PathVariable("sessionId") UUID sessionId) {
+        sessionService.deleteTerminalSession(requireUserId(userId), sessionId);
+        return ResponseEntity.noContent().build();
     }
 
     private ParkingSessionResponse transition(

@@ -214,6 +214,37 @@ class ParkingOutboxRelayTest {
 
     @Test
     @SuppressWarnings("unchecked")
+    void publishesSessionLifecycleEventsToSessionTopicKeyedBySessionId() {
+        UUID eventId = UUID.randomUUID();
+        UUID sessionId = UUID.randomUUID();
+        UUID userId = UUID.randomUUID();
+        String payload = "{\"eventId\":\"" + eventId + "\",\"sessionId\":\"" + sessionId
+                + "\",\"userId\":\"" + userId + "\",\"status\":\"ACTIVE\",\"source\":\"MANUAL\","
+                + "\"startedAt\":\"2026-06-08T12:00:00Z\",\"occurredAt\":\"2026-06-08T12:00:00Z\"}";
+        OutboxEventEntity row = new OutboxEventEntity(
+                UUID.randomUUID(), eventId, "ParkingSession", sessionId,
+                "ParkingSessionStarted", payload, OCCURRED_AT, "trace-session", false);
+        when(outbox.findUnpublishedBatchForUpdate(100)).thenReturn(List.of(row));
+        when(kafkaTemplate.send(any(ProducerRecord.class)))
+                .thenReturn(CompletableFuture.<SendResult<String, Object>>completedFuture(null));
+
+        relay.publishPending();
+
+        ArgumentCaptor<ProducerRecord<String, Object>> captor = ArgumentCaptor.forClass(ProducerRecord.class);
+        verify(kafkaTemplate).send(captor.capture());
+        ProducerRecord<String, Object> sent = captor.getValue();
+        assertThat(sent.topic()).isEqualTo("parkio.parking.session");
+        assertThat(sent.key()).isEqualTo(sessionId.toString());
+        EventEnvelope envelope = (EventEnvelope) sent.value();
+        assertThat(envelope.eventType()).isEqualTo("ParkingSessionStarted");
+        assertThat(envelope.aggregateType()).isEqualTo("ParkingSession");
+        assertThat(envelope.aggregateId()).isEqualTo(sessionId);
+        assertThat(envelope.payload().has("latitude")).isFalse();
+        assertThat(row.isPublished()).isTrue();
+    }
+
+    @Test
+    @SuppressWarnings("unchecked")
     void recordsSuccessDurationAndBatchSizeMetrics() {
         SimpleMeterRegistry registry = new SimpleMeterRegistry();
         ParkingOutboxRelay metered =

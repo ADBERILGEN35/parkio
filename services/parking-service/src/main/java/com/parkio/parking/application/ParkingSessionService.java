@@ -1,8 +1,13 @@
 package com.parkio.parking.application;
 
+import com.parkio.parking.application.port.OutboxEventAppender;
 import com.parkio.parking.application.port.ParkingSessionRepository;
 import com.parkio.parking.domain.ParkingSession;
+import com.parkio.parking.domain.ParkingSessionStatus;
 import com.parkio.parking.domain.ParkingSource;
+import com.parkio.parking.domain.event.ParkingSessionCancelledEvent;
+import com.parkio.parking.domain.event.ParkingSessionCompletedEvent;
+import com.parkio.parking.domain.event.ParkingSessionStartedEvent;
 import com.parkio.parking.domain.exception.ParkingErrorCode;
 import com.parkio.parking.domain.exception.ParkingException;
 import java.math.BigDecimal;
@@ -20,10 +25,13 @@ import org.springframework.transaction.annotation.Transactional;
 public class ParkingSessionService {
 
     private final ParkingSessionRepository sessions;
+    private final OutboxEventAppender outbox;
     private final Clock clock;
 
-    public ParkingSessionService(ParkingSessionRepository sessions, Clock clock) {
+    public ParkingSessionService(
+            ParkingSessionRepository sessions, OutboxEventAppender outbox, Clock clock) {
         this.sessions = sessions;
+        this.outbox = outbox;
         this.clock = clock;
     }
 
@@ -39,6 +47,7 @@ public class ParkingSessionService {
                     ParkingErrorCode.ACTIVE_PARKING_SESSION_EXISTS,
                     "The user already has an active parking session.");
         }
+        Instant now = clock.instant();
         ParkingSession session = ParkingSession.start(
                 ownerId,
                 parkingSource,
@@ -46,20 +55,28 @@ public class ParkingSessionService {
                 longitude,
                 estimatedFee,
                 reminderAt,
-                clock.instant());
-        return sessions.save(session);
+                now);
+        ParkingSession saved = sessions.save(session);
+        outbox.append(ParkingSessionStartedEvent.of(saved, now));
+        return saved;
     }
 
     public ParkingSession completeSession(UUID userId, UUID sessionId) {
+        Instant now = clock.instant();
         ParkingSession session = requireOwnedSession(userId, sessionId);
-        session.complete(clock.instant());
-        return sessions.save(session);
+        session.complete(now);
+        ParkingSession saved = sessions.save(session);
+        outbox.append(ParkingSessionCompletedEvent.of(saved, now));
+        return saved;
     }
 
     public ParkingSession cancelSession(UUID userId, UUID sessionId) {
+        Instant now = clock.instant();
         ParkingSession session = requireOwnedSession(userId, sessionId);
-        session.cancel(clock.instant());
-        return sessions.save(session);
+        session.cancel(now);
+        ParkingSession saved = sessions.save(session);
+        outbox.append(ParkingSessionCancelledEvent.of(saved, now));
+        return saved;
     }
 
     @Transactional(readOnly = true)
@@ -81,6 +98,42 @@ public class ParkingSessionService {
                 Objects.requireNonNull(userId, "userId"),
                 Objects.requireNonNull(cursor, "cursor"),
                 ParkingSessionRepository.requireValidHistoryPageSize(pageSize));
+    }
+
+    /**
+     * Hard-deletes one owned terminal session.
+     * Missing, foreign, and already-deleted ids are treated as successful no-ops.
+     * ACTIVE owned sessions raise {@link ParkingErrorCode#PARKING_SESSION_NOT_TERMINAL}.
+     */
+    public void deleteTerminalSession(UUID userId, UUID sessionId) {
+        UUID ownerId = Objects.requireNonNull(userId, "userId");
+        UUID id = Objects.requireNonNull(sessionId, "sessionId");
+
+        int deleted = sessions.deleteTerminalByIdAndUserId(id, ownerId);
+        if (deleted > 0) {
+            return;
+        }
+
+        Optional<ParkingSessionStatus> status = sessions.findStatusByIdAndUserId(id, ownerId);
+        if (status.isEmpty()) {
+            // Missing, foreign-owned, or already deleted — opaque success.
+            return;
+        }
+        if (status.get() == ParkingSessionStatus.ACTIVE) {
+            throw new ParkingException(
+                    ParkingErrorCode.PARKING_SESSION_NOT_TERMINAL,
+                    "An active parking session cannot be deleted.");
+        }
+
+        // Race: row became terminal after the first delete miss — delete once more.
+        sessions.deleteTerminalByIdAndUserId(id, ownerId);
+    }
+
+    /**
+     * Hard-deletes all owned COMPLETED/CANCELLED sessions. ACTIVE rows are preserved.
+     */
+    public void deleteTerminalHistory(UUID userId) {
+        sessions.deleteAllTerminalByUserId(Objects.requireNonNull(userId, "userId"));
     }
 
     private ParkingSession requireOwnedSession(UUID userId, UUID sessionId) {

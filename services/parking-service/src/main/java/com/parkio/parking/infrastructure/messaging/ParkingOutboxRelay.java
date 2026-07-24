@@ -37,7 +37,8 @@ import org.springframework.transaction.annotation.Transactional;
 /**
  * In-process transactional-outbox relay for parking-service. Polls unpublished
  * {@code outbox_events}, wraps each in the transport envelope and publishes it to
- * {@code parkio.parking.spot} keyed by the parking spot id, then marks the row published
+ * {@code parkio.parking.spot} or {@code parkio.parking.session} keyed by the aggregate id,
+ * then marks the row published
  * — only after the broker ack (ai-context/06, kafka-transport.md). At-least-once: if the
  * ack succeeds but the transaction does not commit, the row is re-sent and consumers
  * deduplicate by {@code eventId}. Rows are never deleted.
@@ -48,8 +49,8 @@ import org.springframework.transaction.annotation.Transactional;
  * never extends the transaction (and its {@code FOR UPDATE} row locks) across more than that
  * single await — the business transaction that wrote the row already committed independently.
  *
- * <p>Mirrors {@code auth-service}'s relay. All parking-spot lifecycle events share one
- * topic. Disable with {@code parkio.kafka.relay.enabled=false}.
+ * <p>Mirrors {@code auth-service}'s relay. Spot and session aggregates use separate topics.
+ * Disable with {@code parkio.kafka.relay.enabled=false}.
  */
 @Component
 @ConditionalOnProperty(name = "parkio.kafka.relay.enabled", havingValue = "true", matchIfMissing = true)
@@ -171,9 +172,15 @@ public class ParkingOutboxRelay {
         return cause.getClass().getSimpleName() + ": " + cause.getMessage();
     }
 
-    /** All parking-spot events share one topic. */
+    /** Spot events → {@code parkio.parking.spot}; session events → {@code parkio.parking.session}. */
     static String topicFor(String aggregateType) {
-        return ParkingEvent.AGGREGATE_TYPE.equals(aggregateType) ? KafkaTopicsConfig.PARKING_SPOT : null;
+        if (ParkingEvent.AGGREGATE_TYPE.equals(aggregateType)) {
+            return KafkaTopicsConfig.PARKING_SPOT;
+        }
+        if (ParkingEvent.SESSION_AGGREGATE_TYPE.equals(aggregateType)) {
+            return KafkaTopicsConfig.PARKING_SESSION;
+        }
+        return null;
     }
 
     private EventEnvelope toEnvelope(OutboxEventEntity row) {

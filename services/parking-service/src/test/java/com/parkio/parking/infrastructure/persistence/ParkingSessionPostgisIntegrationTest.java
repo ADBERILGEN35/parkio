@@ -10,6 +10,7 @@ import static org.mockito.Mockito.doAnswer;
 import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.delete;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.header;
@@ -1057,6 +1058,30 @@ class ParkingSessionPostgisIntegrationTest {
                 String.class,
                 owner))
                 .containsExactlyInAnyOrder("COMPLETED", "CANCELLED");
+        assertThat(jdbc.queryForObject(
+                "SELECT count(*) FROM outbox_events WHERE event_type = 'ParkingSessionStarted'",
+                Integer.class))
+                .isEqualTo(2);
+        assertThat(jdbc.queryForObject(
+                "SELECT count(*) FROM outbox_events WHERE event_type = 'ParkingSessionCompleted'",
+                Integer.class))
+                .isEqualTo(1);
+        assertThat(jdbc.queryForObject(
+                "SELECT count(*) FROM outbox_events WHERE event_type = 'ParkingSessionCancelled'",
+                Integer.class))
+                .isEqualTo(1);
+        assertThat(jdbc.queryForObject(
+                """
+                SELECT count(*) FROM outbox_events
+                 WHERE event_type = 'ParkingSessionCompleted'
+                   AND aggregate_type = 'ParkingSession'
+                   AND aggregate_id = ?
+                   AND payload::text NOT LIKE '%latitude%'
+                   AND payload::text NOT LIKE '%longitude%'
+                """,
+                Integer.class,
+                completedId))
+                .isEqualTo(1);
     }
 
     @Test
@@ -1095,6 +1120,91 @@ class ParkingSessionPostgisIntegrationTest {
                 .andExpect(jsonPath("$.items[0].id").value(lowestId.toString()))
                 .andExpect(jsonPath("$.items[1].id").value(olderId.toString()))
                 .andExpect(jsonPath("$.nextCursor").value(nullValue()));
+    }
+
+    @Test
+    void httpDeleteRemovesTerminalSessionsPreservesActiveAndDoesNotCascadeCommunityArtifacts()
+            throws Exception {
+        UUID ownerId = UUID.randomUUID();
+        UUID claimerId = UUID.randomUUID();
+        UUID strangerId = UUID.randomUUID();
+        ParkingSpot spot = insertSpot(ownerId, ParkingSpotStatus.ACTIVE, clock.instant().plusSeconds(600));
+        String claimKey = UUID.randomUUID().toString();
+        claimApi(claimerId, spot.id(), claimKey).andExpect(status().isOk());
+
+        UUID communitySessionId = jdbc.queryForObject(
+                """
+                SELECT id FROM parking_sessions
+                WHERE user_id = ? AND status = 'ACTIVE' AND parking_source = 'COMMUNITY'
+                """,
+                UUID.class,
+                claimerId);
+        assertThat(communitySessionId).isNotNull();
+        transitionApi(claimerId, communitySessionId, "complete").andExpect(status().isOk());
+
+        UUID completedId = UUID.randomUUID();
+        UUID cancelledId = UUID.randomUUID();
+        UUID activeId = UUID.randomUUID();
+        UUID strangerCompletedId = UUID.randomUUID();
+        insertSession(completedId, claimerId, ParkingSessionStatus.COMPLETED,
+                BASE_TIME.minusSeconds(40), BASE_TIME.minusSeconds(30), null, 41.1, 29.1);
+        insertSession(cancelledId, claimerId, ParkingSessionStatus.CANCELLED,
+                BASE_TIME.minusSeconds(20), BASE_TIME.minusSeconds(10), null, 41.2, 29.2);
+        insertSession(activeId, claimerId, ParkingSessionStatus.ACTIVE,
+                BASE_TIME, null, null, 41.3, 29.3);
+        insertSession(strangerCompletedId, strangerId, ParkingSessionStatus.COMPLETED,
+                BASE_TIME.minusSeconds(5), BASE_TIME.minusSeconds(1), null, 40.0, 29.0);
+
+        mockMvc.perform(authenticated(
+                        delete("/api/v1/parking/sessions/{sessionId}", communitySessionId), claimerId))
+                .andExpect(status().isNoContent());
+        mockMvc.perform(authenticated(
+                        delete("/api/v1/parking/sessions/{sessionId}", activeId), claimerId))
+                .andExpect(status().isConflict())
+                .andExpect(jsonPath("$.code").value("PARKING_SESSION_NOT_TERMINAL"));
+        mockMvc.perform(authenticated(delete("/api/v1/parking/sessions/history"), claimerId))
+                .andExpect(status().isNoContent());
+        mockMvc.perform(authenticated(delete("/api/v1/parking/sessions/history"), claimerId))
+                .andExpect(status().isNoContent());
+
+        assertThat(jdbc.queryForObject(
+                "SELECT count(*) FROM parking_sessions WHERE id = ?", Integer.class, communitySessionId))
+                .isEqualTo(0);
+        assertThat(jdbc.queryForObject(
+                "SELECT count(*) FROM parking_sessions WHERE id = ?", Integer.class, completedId))
+                .isEqualTo(0);
+        assertThat(jdbc.queryForObject(
+                "SELECT count(*) FROM parking_sessions WHERE id = ?", Integer.class, cancelledId))
+                .isEqualTo(0);
+        assertThat(jdbc.queryForObject(
+                "SELECT count(*) FROM parking_sessions WHERE id = ?", Integer.class, activeId))
+                .isEqualTo(1);
+        assertThat(jdbc.queryForObject(
+                "SELECT count(*) FROM parking_sessions WHERE id = ?", Integer.class, strangerCompletedId))
+                .isEqualTo(1);
+        assertThat(jdbc.queryForObject(
+                "SELECT status FROM parking_spots WHERE id = ?", String.class, spot.id()))
+                .isEqualTo("FILLED");
+        assertThat(jdbc.queryForObject(
+                """
+                SELECT count(*) FROM parking_spot_status_history
+                WHERE spot_id = ? AND reason = 'CLAIMED'
+                """,
+                Integer.class,
+                spot.id())).isEqualTo(1);
+        assertThat(jdbc.queryForObject(
+                """
+                SELECT count(*) FROM outbox_events
+                WHERE aggregate_id = ? AND event_type = 'ParkingSpotClaimed'
+                """,
+                Integer.class,
+                spot.id())).isEqualTo(1);
+        mockMvc.perform(authenticated(get("/api/v1/parking/sessions/active"), claimerId))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.id").value(activeId.toString()));
+        mockMvc.perform(authenticated(get("/api/v1/parking/sessions/history"), claimerId))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.items").isEmpty());
     }
 
     private void insertSession(
@@ -1191,6 +1301,19 @@ class ParkingSessionPostgisIntegrationTest {
                 Integer.class,
                 spotId))
                 .isEqualTo(1);
+        assertThat(jdbc.queryForObject(
+                """
+                SELECT count(*) FROM outbox_events o
+                JOIN parking_sessions s ON s.id = o.aggregate_id
+                WHERE o.event_type = 'ParkingSessionStarted'
+                  AND o.aggregate_type = 'ParkingSession'
+                  AND s.user_id = ?
+                  AND s.parking_source = 'COMMUNITY'
+                  AND o.payload::text NOT LIKE '%latitude%'
+                """,
+                Integer.class,
+                userId))
+                .isEqualTo(1);
         var idempotency = jdbc.queryForMap(
                 """
                 SELECT status, response_status FROM idempotency_records
@@ -1221,6 +1344,14 @@ class ParkingSessionPostgisIntegrationTest {
                 "SELECT count(*) FROM outbox_events WHERE aggregate_id = ? AND event_type = 'ParkingSpotClaimed'",
                 Integer.class,
                 spotId))
+                .isZero();
+        assertThat(jdbc.queryForObject(
+                """
+                SELECT count(*) FROM outbox_events
+                WHERE event_type = 'ParkingSessionStarted'
+                  AND payload::text LIKE '%"source":"COMMUNITY"%'
+                """,
+                Integer.class))
                 .isZero();
         assertThat(jdbc.queryForObject(
                 "SELECT count(*) FROM idempotency_records WHERE user_id = ? AND idempotency_key = ?",

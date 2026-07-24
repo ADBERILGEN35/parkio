@@ -21,6 +21,15 @@ class KafkaTopicsConfigTest {
     }
 
     @Test
+    void provisionsParkingSessionTopicAsHot30Day() {
+        NewTopic t = config.parkingSessionTopic();
+        assertThat(t.name()).isEqualTo("parkio.parking.session");
+        assertThat(t.numPartitions()).isEqualTo(6);
+        assertThat(t.replicationFactor()).isEqualTo((short) 1);
+        assertThat(t.configs()).containsEntry(TopicConfig.RETENTION_MS_CONFIG, "2592000000");
+    }
+
+    @Test
     void provisionsParkingConsumerDeadLetterTopic() {
         NewTopic t = config.parkingDeadLetterTopic();
         assertThat(t.name()).isEqualTo("parkio.dlt.parking");
