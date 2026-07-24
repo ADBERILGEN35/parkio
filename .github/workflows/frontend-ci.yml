@@ -4,7 +4,7 @@
 # production build were never gated in CI — regressions and broken builds could
 # merge undetected (production-readiness audit, item "Frontend CI").
 #
-# Scope: architecture checks, WP-04 focused data-architecture Vitest gate,
+# Scope: architecture checks, WP-04/WP-05 focused Vitest gates,
 # the frontend-controlled WP-03 Chromium acceptance suite, typecheck, lint,
 # unit tests (Vitest), and the production build. The focused browser gate uses
 # Playwright network mocks and does not start backend services; real-stack E2E
@@ -92,6 +92,11 @@ jobs:
         run: |
           pnpm guardrails:wp04
           pnpm --filter @parkio/web test:wp04
+
+      - name: WP-05 core parking flows
+        run: |
+          pnpm guardrails:wp05
+          pnpm --filter @parkio/web test:wp05
 
       - name: WP-03 routing browser acceptance
         run: pnpm --filter @parkio/web exec playwright test e2e/wp03-routing.spec.ts --project=wp03-chromium --workers=1 --retries=0

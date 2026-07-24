@@ -34,7 +34,6 @@ import {
   type DragEvent,
   type ReactNode,
 } from 'react';
-import { useQueryClient } from '@tanstack/react-query';
 import { useForm, type UseFormRegisterReturn } from 'react-hook-form';
 import { useTranslation } from 'react-i18next';
 import { Link, useNavigate } from 'react-router-dom';
@@ -47,11 +46,10 @@ import { PlaceSearch } from '@/components/map/PlaceSearch';
 import { useUnsavedChangesGuard } from '@/hooks/useUnsavedChangesGuard';
 import { enumLabel } from '@/lib/format';
 import { spotStatusLabel } from '@/lib/localized-status';
-import { invalidateGamificationQueries } from '@/lib/gamificationCache';
 import { type GeocodeResult } from '@/lib/geocoding';
 import { isUploadWizardDirty } from '@/lib/uploadDirty';
 import { showError, showSuccess } from '@/lib/toast';
-import { parkingKeys } from '@/data/keys';
+import { useCreateSpotMutation } from '@/data/hooks/useParkingMutations';
 
 type SubmitPhase = 'idle' | 'uploading' | 'creating';
 
@@ -125,11 +123,11 @@ function formatFileSize(bytes: number): string {
  * multi-photo, price, amenities or geocoding are introduced.
  */
 export function UploadPage() {
-  const { mediaApi, parkingApi } = useParkioSdk();
+  const { mediaApi } = useParkioSdk();
+  const createSpotMutation = useCreateSpotMutation();
   const { t } = useTranslation('media');
   const navigate = useNavigate();
-  const queryClient = useQueryClient();
-  const fileInputRef = useRef<HTMLInputElement>(null);
+    const fileInputRef = useRef<HTMLInputElement>(null);
 
   const [step, setStep] = useState(STEP_PHOTO);
   const [file, setFile] = useState<File | null>(null);
@@ -335,28 +333,20 @@ export function UploadPage() {
       }
 
       setPhase('creating');
-      const spot = await parkingApi.createParkingSpot(
-        {
-          mediaId: media.mediaId,
-          latitude: formValues.latitude,
-          longitude: formValues.longitude,
-          addressText: formValues.addressText || undefined,
-          description: formValues.description || undefined,
-          manualLocationEdited: formValues.manualLocationEdited,
-          suitableVehicleTypes: formValues.suitableVehicleTypes,
-          parkingContext: formValues.parkingContext,
-          legalStatus: formValues.legalStatus,
-          violationReasons:
-            formValues.violationReasons.length > 0 ? formValues.violationReasons : undefined,
-        },
-        createIdempotencyKey(),
-      );
+      const spot = await createSpotMutation.mutateAsync({
+        mediaId: media.mediaId,
+        latitude: formValues.latitude,
+        longitude: formValues.longitude,
+        addressText: formValues.addressText || undefined,
+        description: formValues.description || undefined,
+        manualLocationEdited: formValues.manualLocationEdited,
+        suitableVehicleTypes: formValues.suitableVehicleTypes,
+        parkingContext: formValues.parkingContext,
+        legalStatus: formValues.legalStatus,
+        violationReasons:
+          formValues.violationReasons.length > 0 ? formValues.violationReasons : undefined,
+      });
       setCreatedSpot(spot);
-      // The new spot must show up in My Spots / Nearby, and the upload reward
-      // (points/trust, async via events) must not leave stale derived views.
-      await queryClient.invalidateQueries({ queryKey: parkingKeys.mySpots() });
-      await queryClient.invalidateQueries({ queryKey: parkingKeys.nearbyRoot() });
-      await invalidateGamificationQueries(queryClient);
       showSuccess(t('upload.spotCreated'));
     } catch (error) {
       setSubmitError(error);

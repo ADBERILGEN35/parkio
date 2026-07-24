@@ -14,6 +14,7 @@ import {
   isBackendProtectedPath,
 } from './guardrail-lib.mjs';
 import { findWp04DataArchitectureViolations } from './wp04-data-architecture.mjs';
+import { findWp05CoreParkingViolations } from './wp05-core-parking-flows.mjs';
 
 test('direct HTTP detection rejects HTTP packages and network primitives', () => {
   const source = `
@@ -1361,5 +1362,78 @@ test('WP-04 permits page-local UI state and rejects feature bearer headers', () 
       'export const config = { headers: { Authorization: "Bearer secret" } };',
       'apps/web/src/pages/MapPage.tsx',
     ).some((v) => v.rule === 'wp04-no-feature-auth-headers'),
+  );
+});
+
+test('WP-05 rejects page-level parking mutation API calls and duplicate spot-cache helpers', () => {
+  assert.ok(
+    findWp05CoreParkingViolations(
+      `
+        export function Bad() {
+          const { parkingApi } = useParkioSdk();
+          return parkingApi.verifySpot(id, body, key);
+        }
+      `,
+      'apps/web/src/pages/SpotDetailPage.tsx',
+    ).some((v) => v.rule === 'wp05-page-parking-mutation-api'),
+  );
+  assert.ok(
+    findWp05CoreParkingViolations(
+      `
+        export function Bad() {
+          const { parkingApi } = useParkioSdk();
+          return parkingApi.createParkingSpot(body, key);
+        }
+      `,
+      'apps/web/src/pages/UploadPage.tsx',
+    ).some((v) => v.rule === 'wp05-page-parking-mutation-api'),
+  );
+  assert.ok(
+    findWp05CoreParkingViolations(
+      `
+        export function Bad() {
+          const { moderationApi } = useParkioSdk();
+          return moderationApi.createReport(body);
+        }
+      `,
+      'apps/web/src/pages/SpotDetailPage.tsx',
+    ).some((v) => v.rule === 'wp05-page-report-mutation-api'),
+  );
+  assert.ok(
+    findWp05CoreParkingViolations(
+      `export function applyParkingSpotUpdate() { return null; }`,
+      'apps/web/src/pages/SpotDetailPage.tsx',
+    ).some((v) => v.rule === 'wp05-duplicate-spot-cache-helper'),
+  );
+});
+
+test('WP-05 permits data-layer mutation owners and rejects page smart-return cache writes', () => {
+  assert.equal(
+    findWp05CoreParkingViolations(
+      `
+        export function createVerifySpotMutationOptions(sdk) {
+          return { mutationFn: () => sdk.parkingApi.verifySpot(id, body, key) };
+        }
+      `,
+      'apps/web/src/data/mutation-options/parking.ts',
+    ).length,
+    0,
+  );
+  assert.ok(
+    findWp05CoreParkingViolations(
+      `
+        export function Bad() {
+          queryClient.setQueryData(meKeys.smartReturn(), next);
+        }
+      `,
+      'apps/web/src/pages/profile/SmartReturnCard.tsx',
+    ).some((v) => v.rule === 'wp05-page-smart-return-cache-write'),
+  );
+  assert.equal(
+    findWp05CoreParkingViolations(
+      `export const config = { auth: 'Bearer x' };`,
+      'apps/web/src/pages/MapPage.test.tsx',
+    ).length,
+    0,
   );
 });

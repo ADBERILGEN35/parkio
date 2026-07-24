@@ -25,6 +25,13 @@ factories in `apps/web/src/data/keys.ts`, injected `useParkioSdk()`, and
 below that mention query keys should be read as describing those canonical
 factories (for example `gamificationKeys.level()` rather than ad hoc arrays).
 
+## Core parking flows (WP-05)
+
+Parking lifecycle mutations (verify/claim/create/report/Smart Return) and cache
+sync helpers live under `apps/web/src/data/`. See
+`architecture/sprint-2.5/WP-05-CORE-PARKING-FLOWS.md`. WP-03 routing and WP-04
+data ownership stay frozen.
+
 ## Prerequisites
 
 - Node.js ≥ 20

@@ -3,6 +3,7 @@ import type { ParkioSdk } from '@/app/sdk';
 import { meKeys } from '../keys';
 import { myProfileQueryOptions, mySmartReturnQueryOptions } from './me';
 import { mySpotsQueryOptions, nearbySpotsQueryOptions } from './parking';
+import { myReportsQueryOptions } from './reports';
 
 function createSdkMock(): ParkioSdk {
   return {
@@ -13,6 +14,9 @@ function createSdkMock(): ParkioSdk {
     parkingApi: {
       getMySpots: vi.fn(async () => []),
       getNearbySpots: vi.fn(async () => []),
+    },
+    moderationApi: {
+      getMyReports: vi.fn(async () => []),
     },
   } as unknown as ParkioSdk;
 }
@@ -32,6 +36,10 @@ describe('me and parking query options', () => {
     const mySpots = mySpotsQueryOptions(sdk);
     await mySpots.queryFn!({} as never);
     expect(sdk.parkingApi.getMySpots).toHaveBeenCalledOnce();
+
+    const reports = myReportsQueryOptions(sdk);
+    await reports.queryFn!({} as never);
+    expect(sdk.moderationApi.getMyReports).toHaveBeenCalledOnce();
   });
 
   it('passes AbortSignal to nearby parking reads', async () => {

@@ -13,7 +13,7 @@ import {
   type BadgeTone,
 } from '@parkio/ui';
 import { createAppealSchema, type CreateAppealFormValues } from '@parkio/validation';
-import { useMutation, useQuery } from '@tanstack/react-query';
+import { useMutation } from '@tanstack/react-query';
 import { useState } from 'react';
 import { useForm } from 'react-hook-form';
 import { useTranslation } from 'react-i18next';
@@ -22,7 +22,7 @@ import { useParkioSdk } from '@/app/AppRuntimeContext';
 import { FriendlyApiErrorMessage } from '@/components/FriendlyApiErrorMessage';
 import { ProductCard } from '@/components/product/ProductCard';
 import { SettingsSectionCard } from '@/components/product/SettingsSectionCard';
-import { reportsKeys } from '@/data/keys';
+import { useMyReportsQuery } from '@/data/hooks/useReportsQueries';
 import { enumLabel, formatRelativeAgo } from '@/lib/format';
 import { showError, showSuccess } from '@/lib/toast';
 
@@ -52,9 +52,8 @@ export function ReportsPage() {
 }
 
 function MyReportsCard() {
-  const { moderationApi } = useParkioSdk();
   const { t } = useTranslation('parking');
-  const query = useQuery({ queryKey: reportsKeys.all, queryFn: moderationApi.getMyReports });
+  const query = useMyReportsQuery();
 
   return (
     <Card title={t('reports.cardTitle')}>

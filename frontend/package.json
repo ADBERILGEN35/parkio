@@ -12,6 +12,7 @@
     "guardrails:test": "node ./scripts/architecture/guardrails.test.mjs",
     "guardrails:lint": "eslint scripts/architecture",
     "guardrails:wp04": "node ./scripts/architecture/check-wp04.mjs",
+    "guardrails:wp05": "node ./scripts/architecture/check-wp05.mjs",
     "guardrails:backend": "node ./scripts/architecture/check-backend-scope.mjs",
     "bundle:measure": "node ./scripts/architecture/measure-bundle-size.mjs",
     "contracts:openapi": "node ./scripts/contracts/openapi-comparison.mjs",

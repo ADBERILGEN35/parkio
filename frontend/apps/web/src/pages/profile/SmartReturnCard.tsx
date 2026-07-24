@@ -9,16 +9,19 @@ import {
   type SmartReturnSettingsFormValues,
   type SmartReturnTodayFormValues,
 } from '@parkio/validation';
-import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { useEffect, useRef, useState } from 'react';
 import { useForm } from 'react-hook-form';
 import { useTranslation } from 'react-i18next';
-import { useParkioSdk } from '@/app/AppRuntimeContext';
 import { FriendlyApiErrorMessage } from '@/components/FriendlyApiErrorMessage';
 import { PlaceSearch } from '@/components/map/PlaceSearch';
 import { SettingsSectionCard } from '@/components/product/SettingsSectionCard';
 import { useMySmartReturnQuery } from '@/data/hooks/useMeQueries';
-import { meKeys } from '@/data/keys';
+import {
+  useCancelSmartReturnTodayMutation,
+  useSmartReturnLeftByCarMutation,
+  useSmartReturnNotByCarMutation,
+  useUpdateSmartReturnSettingsMutation,
+} from '@/data/hooks/useSmartReturnMutations';
 import { showError, showSuccess } from '@/lib/toast';
 import { type GeocodeResult } from '@/lib/geocoding';
 
@@ -148,9 +151,7 @@ function PrivacyNote() {
 type TodayMode = 'idle' | 'pickTime';
 
 function TodayCard({ settings, autoFocus }: { settings: SmartReturnSettings; autoFocus: boolean }) {
-  const { usersApi } = useParkioSdk();
   const { t } = useTranslation('settings');
-  const queryClient = useQueryClient();
   const sectionRef = useRef<HTMLElement>(null);
   const [mode, setMode] = useState<TodayMode>('idle');
   const [highlight, setHighlight] = useState(false);
@@ -158,35 +159,9 @@ function TodayCard({ settings, autoFocus }: { settings: SmartReturnSettings; aut
   const active =
     settings.todayStatus === 'LEFT_BY_CAR' || settings.todayStatus === 'RETURN_CHECK_IN_PROGRESS';
 
-  const onSettled = (next: SmartReturnSettings) => {
-    queryClient.setQueryData(meKeys.smartReturn(), next);
-    setMode('idle');
-  };
-
-  const planMutation = useMutation({
-    mutationFn: usersApi.smartReturnLeftByCar,
-    onSuccess: (next) => {
-      onSettled(next);
-      showSuccess(t('smartReturn.planSetToast'));
-    },
-    onError: () => showError(t('smartReturn.planSaveError')),
-  });
-  const notByCar = useMutation({
-    mutationFn: usersApi.smartReturnNotByCar,
-    onSuccess: (next) => {
-      onSettled(next);
-      showSuccess(t('smartReturn.noPlanToast'));
-    },
-    onError: () => showError(t('smartReturn.planUpdateError')),
-  });
-  const cancel = useMutation({
-    mutationFn: usersApi.cancelSmartReturnToday,
-    onSuccess: (next) => {
-      onSettled(next);
-      showSuccess(t('smartReturn.cancelledToast'));
-    },
-    onError: () => showError(t('smartReturn.cancelError')),
-  });
+  const planMutation = useSmartReturnLeftByCarMutation();
+  const notByCar = useSmartReturnNotByCarMutation();
+  const cancel = useCancelSmartReturnTodayMutation();
 
   const busy = planMutation.isPending || notByCar.isPending || cancel.isPending;
   const mutationError = planMutation.error ?? notByCar.error ?? cancel.error;
@@ -236,7 +211,16 @@ function TodayCard({ settings, autoFocus }: { settings: SmartReturnSettings; aut
               showError(t('smartReturn.pickLaterTime'));
               return;
             }
-            planMutation.mutate({ expectedReturnAt: expectedReturnAt.toISOString() });
+            planMutation.mutate(
+              { expectedReturnAt: expectedReturnAt.toISOString() },
+              {
+                onSuccess: () => {
+                  setMode('idle');
+                  showSuccess(t('smartReturn.planSetToast'));
+                },
+                onError: () => showError(t('smartReturn.planSaveError')),
+              },
+            );
           }}
         />
       ) : active ? (
@@ -244,7 +228,15 @@ function TodayCard({ settings, autoFocus }: { settings: SmartReturnSettings; aut
           settings={settings}
           busy={busy}
           onEdit={() => setMode('pickTime')}
-          onCancel={() => cancel.mutate()}
+          onCancel={() =>
+            cancel.mutate(undefined, {
+              onSuccess: () => {
+                setMode('idle');
+                showSuccess(t('smartReturn.cancelledToast'));
+              },
+              onError: () => showError(t('smartReturn.cancelError')),
+            })
+          }
         />
       ) : settings.todayStatus === 'NOT_BY_CAR' ? (
         <NotDrivingState busy={busy} onChangedMind={() => setMode('pickTime')} />
@@ -253,7 +245,15 @@ function TodayCard({ settings, autoFocus }: { settings: SmartReturnSettings; aut
           cancelled={settings.todayStatus === 'CANCELLED'}
           busy={busy}
           onYes={() => setMode('pickTime')}
-          onNo={() => notByCar.mutate()}
+          onNo={() =>
+            notByCar.mutate(undefined, {
+              onSuccess: () => {
+                setMode('idle');
+                showSuccess(t('smartReturn.noPlanToast'));
+              },
+              onError: () => showError(t('smartReturn.planUpdateError')),
+            })
+          }
         />
       )}
 
@@ -490,18 +490,9 @@ function SmartReturnSettingsForm({
   submitLabel: string;
   allowTurnOff?: boolean;
 }) {
-  const { usersApi } = useParkioSdk();
   const { t } = useTranslation('settings');
-  const queryClient = useQueryClient();
   const [advancedOpen, setAdvancedOpen] = useState(false);
-  const mutation = useMutation({
-    mutationFn: usersApi.updateSmartReturnSettings,
-    onSuccess: (next) => {
-      queryClient.setQueryData(meKeys.smartReturn(), next);
-      showSuccess(t('smartReturn.savedToast'));
-    },
-    onError: () => showError(t('smartReturn.saveError')),
-  });
+  const mutation = useUpdateSmartReturnSettingsMutation();
 
   const {
     register,
@@ -538,18 +529,26 @@ function SmartReturnSettingsForm({
     setValue('homeLabel', '', { shouldDirty: true });
   };
 
+  const toastCallbacks = {
+    onSuccess: () => showSuccess(t('smartReturn.savedToast')),
+    onError: () => showError(t('smartReturn.saveError')),
+  };
+
   const onSubmit = handleSubmit((values) => {
-    mutation.mutate({
-      enabled: true,
-      homeLatitude: values.homeLatitude,
-      homeLongitude: values.homeLongitude,
-      homeLabel: values.homeLabel || null,
-      defaultReturnTime: values.defaultReturnTime,
-      reminderLeadMinutes: values.reminderLeadMinutes,
-    });
+    mutation.mutate(
+      {
+        enabled: true,
+        homeLatitude: values.homeLatitude,
+        homeLongitude: values.homeLongitude,
+        homeLabel: values.homeLabel || null,
+        defaultReturnTime: values.defaultReturnTime,
+        reminderLeadMinutes: values.reminderLeadMinutes,
+      },
+      toastCallbacks,
+    );
   });
 
-  const turnOff = () => mutation.mutate({ enabled: false });
+  const turnOff = () => mutation.mutate({ enabled: false }, toastCallbacks);
 
   return (
     <fieldset disabled={mutation.isPending} className="m-0 flex flex-col gap-md border-0 p-0">

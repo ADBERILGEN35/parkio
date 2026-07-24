@@ -14,6 +14,7 @@ import {
   normalizeRepositoryPath,
 } from './guardrail-lib.mjs';
 import { findWp04DataArchitectureViolations } from './wp04-data-architecture.mjs';
+import { findWp05CoreParkingViolations } from './wp05-core-parking-flows.mjs';
 
 const scriptDirectory = path.dirname(fileURLToPath(import.meta.url));
 const frontendRoot = path.resolve(scriptDirectory, '../..');
@@ -53,6 +54,10 @@ export async function checkBoundaries() {
             normalizeRepositoryPath(path.relative(frontendRoot, file)),
           ),
           ...findWp04DataArchitectureViolations(
+            source,
+            normalizeRepositoryPath(path.relative(frontendRoot, file)),
+          ),
+          ...findWp05CoreParkingViolations(
             source,
             normalizeRepositoryPath(path.relative(frontendRoot, file)),
           ),

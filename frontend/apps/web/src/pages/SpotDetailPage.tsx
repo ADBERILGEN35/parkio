@@ -1,5 +1,5 @@
 import { zodResolver } from '@hookform/resolvers/zod';
-import { createIdempotencyKey, isParkioApiError, type ParkioApiError } from '@parkio/api-client';
+import { isParkioApiError, type ParkioApiError } from '@parkio/api-client';
 import {
   MODERATION_REASONS,
   VERIFICATION_RESULTS,
@@ -26,23 +26,24 @@ import {
   type ReportSpotFormValues,
   type VerifySpotFormValues,
 } from '@parkio/validation';
-import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { useState, type ReactNode } from 'react';
 import { useForm } from 'react-hook-form';
-import i18n from 'i18next';
 import { useTranslation } from 'react-i18next';
 import { Link, useParams } from 'react-router-dom';
-import { useParkioSdk } from '@/app/AppRuntimeContext';
 import { FriendlyApiErrorMessage } from '@/components/FriendlyApiErrorMessage';
 import { SpotMap } from '@/components/map/SpotMap';
 import {
   useSpotDetailQuery,
   useSpotMediaAccessUrlQuery,
 } from '@/data/hooks/useParkingQueries';
-import { parkingKeys, reportsKeys } from '@/data/keys';
+import {
+  useClaimSpotMutation,
+  useReportSpotMutation,
+  useVerifySpotMutation,
+} from '@/data/hooks/useParkingMutations';
+import { mapParkingActionError, mapParkingReportError } from '@/data/parking/errors';
 import { enumLabel, formatInstant, formatRelativeAgo, formatRemaining } from '@/lib/format';
 import { freshnessLabel, spotStatusLabel } from '@/lib/localized-status';
-import { invalidateGamificationQueries } from '@/lib/gamificationCache';
 import { showError, showSuccess } from '@/lib/toast';
 
 /** Owner-only metrics that may appear on SpotResponse but not PublicSpotResponse. */
@@ -463,23 +464,11 @@ const TERMINAL_STATUSES: ReadonlyArray<PublicSpot['status']> = ['FILLED', 'EXPIR
  * Owner restrictions stay backend-enforced; UI only disables terminal statuses.
  */
 function PremiumActionCard({ spot }: { spot: PublicSpot }) {
-  const { moderationApi, parkingApi } = useParkioSdk();
   const { t } = useTranslation(['parking', 'common']);
-  const queryClient = useQueryClient();
   const [claimed, setClaimed] = useState(false);
   // Claiming flips the spot to FILLED for *every* user and can't be undone, so we
   // gate it behind an explicit in-place confirmation rather than a single tap.
   const [confirmingClaim, setConfirmingClaim] = useState(false);
-
-  const applySpotUpdate = (updated: PublicSpot) => {
-    queryClient.setQueryData(parkingKeys.spot(updated.id), updated);
-    queryClient.setQueriesData<PublicSpot[]>({ queryKey: parkingKeys.nearbyRoot() }, (current) =>
-      current?.map((item) => (item.id === updated.id ? updated : item)),
-    );
-    queryClient.setQueryData<Spot[]>(parkingKeys.mySpots(), (current) =>
-      current?.map((item) => (item.id === updated.id ? { ...item, ...updated } : item)),
-    );
-  };
 
   const {
     register: registerVerify,
@@ -488,37 +477,8 @@ function PremiumActionCard({ spot }: { spot: PublicSpot }) {
     formState: { errors: verifyErrors },
   } = useForm<VerifySpotFormValues>({ resolver: zodResolver(verifySpotSchema) });
 
-  const verifyMutation = useMutation({
-    mutationFn: (values: VerifySpotFormValues) =>
-      parkingApi.verifySpot(spot.id, { result: values.result }, createIdempotencyKey()),
-    onSuccess: async (updated) => {
-      applySpotUpdate(updated);
-      resetVerify();
-      await queryClient.invalidateQueries({ queryKey: parkingKeys.mySpots() });
-      // Verification awards points/trust asynchronously; mark derived views stale.
-      await invalidateGamificationQueries(queryClient);
-      showSuccess(t('spotDetail.verifySubmitted'));
-    },
-    onError: (error) => {
-      showError(mapActionError(error as ParkioApiError) ?? t('spotDetail.verifyError'));
-    },
-  });
-
-  const claimMutation = useMutation({
-    mutationFn: () => parkingApi.claimSpot(spot.id, createIdempotencyKey()),
-    onSuccess: async (updated) => {
-      applySpotUpdate(updated);
-      setClaimed(true);
-      await queryClient.invalidateQueries({ queryKey: parkingKeys.mySpots() });
-      // Claiming awards points/trust asynchronously; mark derived views stale.
-      await invalidateGamificationQueries(queryClient);
-      showSuccess(t('spotDetail.claimSuccess'));
-    },
-    onError: (error) => {
-      showError(mapActionError(error as ParkioApiError) ?? t('spotDetail.claimError'));
-    },
-  });
-
+  const verifyMutation = useVerifySpotMutation(spot.id);
+  const claimMutation = useClaimSpotMutation(spot.id);
   const {
     register: registerReport,
     handleSubmit: handleReportSubmit,
@@ -528,32 +488,48 @@ function PremiumActionCard({ spot }: { spot: PublicSpot }) {
     resolver: zodResolver(reportSpotFormSchema),
     defaultValues: { description: '' },
   });
-
-  const reportMutation = useMutation({
-    mutationFn: (values: ReportSpotFormValues) =>
-      moderationApi.createReport({
-        targetType: 'PARKING_SPOT',
-        targetId: spot.id,
-        reason: values.reason,
-        description: values.description === '' ? null : values.description,
-      }),
-    onSuccess: async () => {
-      resetReport();
-      await queryClient.invalidateQueries({ queryKey: reportsKeys.all });
-      showSuccess(t('spotDetail.reportSubmitted'));
-    },
-    onError: (error) => {
-      showError(mapReportError(error as ParkioApiError) ?? t('spotDetail.reportError'));
-    },
-  });
+  const reportMutation = useReportSpotMutation(spot.id);
 
   const pending =
     verifyMutation.isPending || claimMutation.isPending || reportMutation.isPending;
   const terminal = TERMINAL_STATUSES.includes(spot.status);
   const disabled = pending || terminal;
 
-  const onVerify = handleVerifySubmit((values) => verifyMutation.mutate(values));
-  const onReport = handleReportSubmit((values) => reportMutation.mutate(values));
+  const onVerify = handleVerifySubmit((values) => {
+    verifyMutation.mutate(values, {
+      onSuccess: () => {
+        resetVerify();
+        showSuccess(t('spotDetail.verifySubmitted'));
+      },
+      onError: (error) => {
+        showError(mapParkingActionError(error as ParkioApiError) ?? t('spotDetail.verifyError'));
+      },
+    });
+  });
+
+  const onClaim = () => {
+    claimMutation.mutate(undefined, {
+      onSuccess: () => {
+        setClaimed(true);
+        showSuccess(t('spotDetail.claimSuccess'));
+      },
+      onError: (error) => {
+        showError(mapParkingActionError(error as ParkioApiError) ?? t('spotDetail.claimError'));
+      },
+    });
+  };
+
+  const onReport = handleReportSubmit((values) => {
+    reportMutation.mutate(values, {
+      onSuccess: () => {
+        resetReport();
+        showSuccess(t('spotDetail.reportSubmitted'));
+      },
+      onError: (error) => {
+        showError(mapParkingReportError(error as ParkioApiError) ?? t('spotDetail.reportError'));
+      },
+    });
+  });
 
   return (
     <Surface level="raised" className="rounded-3xl p-lg shadow-deep">
@@ -596,7 +572,7 @@ function PremiumActionCard({ spot }: { spot: PublicSpot }) {
       </form>
       {verifyMutation.isError ? (
         <div className="mt-sm">
-          <FriendlyApiErrorMessage error={verifyMutation.error} mapper={mapActionError} />
+          <FriendlyApiErrorMessage error={verifyMutation.error} mapper={mapParkingActionError} />
         </div>
       ) : null}
       {verifyMutation.isSuccess ? (
@@ -627,7 +603,7 @@ function PremiumActionCard({ spot }: { spot: PublicSpot }) {
             <div className="flex gap-sm">
               <Button
                 variant="secondary"
-                onClick={() => claimMutation.mutate()}
+                onClick={onClaim}
                 disabled={disabled}
                 className="flex-1"
               >
@@ -654,7 +630,7 @@ function PremiumActionCard({ spot }: { spot: PublicSpot }) {
           </Button>
         )}
         {claimMutation.isError ? (
-          <FriendlyApiErrorMessage error={claimMutation.error} mapper={mapActionError} />
+          <FriendlyApiErrorMessage error={claimMutation.error} mapper={mapParkingActionError} />
         ) : null}
       </div>
 
@@ -707,7 +683,7 @@ function PremiumActionCard({ spot }: { spot: PublicSpot }) {
       </form>
       {reportMutation.isError ? (
         <div className="mt-sm">
-          <FriendlyApiErrorMessage error={reportMutation.error} mapper={mapReportError} />
+          <FriendlyApiErrorMessage error={reportMutation.error} mapper={mapParkingReportError} />
         </div>
       ) : null}
       {reportMutation.isSuccess ? (
@@ -720,28 +696,4 @@ function PremiumActionCard({ spot }: { spot: PublicSpot }) {
       ) : null}
     </Surface>
   );
-}
-
-/** Friendly wording for expected report failures; null falls back to the raw ApiError. */
-function mapReportError(error: ParkioApiError): string | null {
-  if (error.status === 409 && error.code === 'DUPLICATE_REPORT') {
-    return i18n.t('parking:spotDetail.duplicateReport');
-  }
-  if (error.status === 404) {
-    return i18n.t('parking:spotDetail.spotGone');
-  }
-  return null;
-}
-
-/** Friendly wording for expected verify/claim failures; null falls back to the raw ApiError. */
-function mapActionError(error: ParkioApiError): string | null {
-  if (error.status === 404) {
-    return i18n.t('parking:spotDetail.spotGone');
-  }
-  if (error.status === 409) {
-    return error.code === 'ALREADY_VERIFIED'
-      ? i18n.t('parking:spotDetail.alreadyVerified')
-      : i18n.t('parking:spotDetail.actionUnavailable');
-  }
-  return null;
 }
