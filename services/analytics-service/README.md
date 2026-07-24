@@ -42,12 +42,26 @@ recomputed), then increments the **daily**, **per-user** and (for parking metric
 | `ParkingSpotVerified` | `PARKING_VERIFIED` |
 | `ParkingSpotClaimed` | `PARKING_CLAIMED` |
 | `ParkingSpotRejected` | `PARKING_REJECTED` |
+| `ParkingSessionStarted` (MANUAL) | `PARKING_SESSION_STARTED_MANUAL` → product `parking_session_started` |
+| `ParkingSessionStarted` (COMMUNITY) | `PARKING_SESSION_STARTED_COMMUNITY` → product `parking_session_started` |
+| `ParkingSessionStarted` (other) | `PARKING_SESSION_STARTED_OTHER` → product `parking_session_started` |
+| `ParkingSessionCompleted` | `PARKING_SESSION_COMPLETED` → product `parking_session_completed` (value = duration seconds) |
+| `ParkingSessionCancelled` | `PARKING_SESSION_CANCELLED` → product `parking_session_cancelled` (value = duration seconds) |
 | `PointsEarned` | `POINTS_EARNED` (value = points) |
 | `UserLevelChanged` | `LEVEL_UP` |
 | `NotificationCreated` | `NOTIFICATION_CREATED` |
 
-Counts accumulate as `event_count`; `POINTS_EARNED` also accumulates points into
-`sum_value`.
+Kafka listeners (group `parkio.analytics`):
+
+- `parkio.parking.spot` → `ParkingEventsKafkaConsumer`
+- `parkio.parking.session` → `ParkingSessionEventsKafkaConsumer` (S1-P0-09)
+- `parkio.gamification.score` → `GamificationScoreKafkaConsumer`
+- `parkio.notification.notification` → `NotificationEventsKafkaConsumer`
+
+Session lifecycle details: `docs/architecture/PARKING-SESSION-ANALYTICS-INGESTION.md`.
+
+Counts accumulate as `event_count`; `POINTS_EARNED` and terminal session metrics also accumulate
+into `sum_value` (points / duration seconds).
 
 ## API
 
@@ -71,11 +85,11 @@ only lets a user view their own analytics.
 
 ## Backlog (not yet implemented)
 
-- Kafka consumer (upstream events) — handlers are invoked directly for now.
 - Snapshot **recompute** job from the raw `analytics_events` log.
 - Weekly/monthly rollups (the `TimeGranularity` enum is defined; only daily is wired).
 - The `outbox_events` table is provisioned but unused (analytics emits no events yet);
   no BI tooling or dashboards are implemented here.
+- `parking_history_deleted` ingestion (Sprint R22; deferred past S1-P0-09).
 
 ## Run locally
 

@@ -1,6 +1,9 @@
 package com.parkio.analytics.application;
 
 import com.parkio.analytics.application.event.NotificationCreatedEvent;
+import com.parkio.analytics.application.event.ParkingSessionCancelledEvent;
+import com.parkio.analytics.application.event.ParkingSessionCompletedEvent;
+import com.parkio.analytics.application.event.ParkingSessionStartedEvent;
 import com.parkio.analytics.application.event.ParkingSpotClaimedEvent;
 import com.parkio.analytics.application.event.ParkingSpotCreatedEvent;
 import com.parkio.analytics.application.event.ParkingSpotRejectedEvent;
@@ -99,6 +102,33 @@ public class AnalyticsApplicationService {
     public void handleNotificationCreated(NotificationCreatedEvent event) {
         ingest(event.eventId(), AnalyticsMetricType.NOTIFICATION_CREATED, event.userId(),
                 event.notificationId(), 0, event.occurredAt(), "NotificationCreated");
+    }
+
+    /**
+     * Projects an authoritative ParkingSessionStarted fact. COMMUNITY starts use a
+     * distinct metric from {@link #handleParkingSpotClaimed} so a community claim does
+     * not double-count session-start vs spot-claim funnels.
+     */
+    public void handleParkingSessionStarted(ParkingSessionStartedEvent event) {
+        AnalyticsMetricType metric = ParkingSessionLifecycleMapper.startedMetric(event.source());
+        ingest(event.eventId(), metric, event.userId(), event.sessionId(), 0, event.occurredAt(),
+                ParkingSessionLifecycleMapper.WIRE_STARTED);
+    }
+
+    public void handleParkingSessionCompleted(ParkingSessionCompletedEvent event) {
+        long durationSeconds =
+                ParkingSessionLifecycleMapper.durationSeconds(event.startedAt(), event.endedAt());
+        ingest(event.eventId(), AnalyticsMetricType.PARKING_SESSION_COMPLETED, event.userId(),
+                event.sessionId(), durationSeconds, event.occurredAt(),
+                ParkingSessionLifecycleMapper.WIRE_COMPLETED);
+    }
+
+    public void handleParkingSessionCancelled(ParkingSessionCancelledEvent event) {
+        long durationSeconds =
+                ParkingSessionLifecycleMapper.durationSeconds(event.startedAt(), event.endedAt());
+        ingest(event.eventId(), AnalyticsMetricType.PARKING_SESSION_CANCELLED, event.userId(),
+                event.sessionId(), durationSeconds, event.occurredAt(),
+                ParkingSessionLifecycleMapper.WIRE_CANCELLED);
     }
 
     // --- Queries ---
