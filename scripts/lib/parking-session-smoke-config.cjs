@@ -89,6 +89,10 @@ function resolveSmokeConfig(env = process.env) {
 
   const runId = env.PARKIO_SMOKE_RUN_ID || ('ps-' + new Date().toISOString().replace(/[:.]/g, '-') + '-' + randomUUID().slice(0, 8));
   const evidenceDir = env.PARKIO_SMOKE_EVIDENCE_DIR || join(process.cwd(), 'docs/evidence/sprint-01/parking-session-hosted-beta');
+  const requestDelayMs = Number(env.PARKIO_SMOKE_REQUEST_DELAY_MS ?? 150);
+  if (!Number.isFinite(requestDelayMs) || requestDelayMs < 0) {
+    errors.push('PARKIO_SMOKE_REQUEST_DELAY_MS must be a non-negative number');
+  }
 
   return {
     ok: errors.length === 0,
@@ -105,6 +109,7 @@ function resolveSmokeConfig(env = process.env) {
     lng,
     runId,
     evidenceDir,
+    requestDelayMs,
     observeEvents: env.PARKIO_SMOKE_OBSERVE_EVENTS === '1',
     pageSize: Math.min(Math.max(Number(env.PARKIO_SMOKE_HISTORY_PAGE_SIZE || 2), 1), 20),
   };

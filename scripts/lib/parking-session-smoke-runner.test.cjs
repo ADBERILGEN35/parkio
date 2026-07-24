@@ -74,7 +74,28 @@ describe('resolveSmokeConfig fail-closed', () => {
     assert.equal(wrongHost.ok, false);
     assert.ok(wrongHost.errors.some((e) => e.includes('api.parkio.dev')));
   });
+
+  it('defaults request pacing to 150 ms and accepts zero', () => {
+    assert.equal(resolveSmokeConfig(baseEnv()).requestDelayMs, 150);
+    assert.equal(
+      resolveSmokeConfig(baseEnv({ PARKIO_SMOKE_REQUEST_DELAY_MS: '0' })).requestDelayMs,
+      0,
+    );
+  });
+
+  it('enables owner isolation only when both User B credentials exist', () => {
+    const configured = resolveSmokeConfig(baseEnv({
+      PARKIO_SMOKE_USER_B_EMAIL: 'smoke-b@example.test',
+      PARKIO_SMOKE_USER_B_PASSWORD: 'SecretPass456!',
+    }));
+    assert.equal(configured.hasUserB, true);
+    assert.equal(
+      resolveSmokeConfig(baseEnv({ PARKIO_SMOKE_USER_B_EMAIL: 'smoke-b@example.test' })).hasUserB,
+      false,
+    );
+  });
 });
+
 
 describe('validateCoordinates', () => {
   it('rejects invalid coordinates', () => {
@@ -115,7 +136,10 @@ describe('SmokeRunner mocked minimal run', () => {
   });
 
   it('PS-HB-01..11 with delete probe 500 yields exit 1', async () => {
-    const env = baseEnv({ PARKIO_SMOKE_RUN_ID: 'test-run-delete-fail' });
+    const env = baseEnv({
+      PARKIO_SMOKE_RUN_ID: 'test-run-delete-fail',
+      PARKIO_SMOKE_REQUEST_DELAY_MS: '0',
+    });
     const config = resolveSmokeConfig(env);
     assert.equal(config.ok, true);
 
@@ -191,5 +215,105 @@ describe('SmokeRunner mocked minimal run', () => {
     const hb11 = summary.checks.find((c) => c.id === 'PS-HB-11');
     assert.ok(hb11);
     assert.equal(hb11.status, 'PASS');
+  });
+});
+
+describe('SmokeRunner hosted request policy', () => {
+  function runnerFor(fetchImpl, sleep, overrides = {}) {
+    const config = resolveSmokeConfig(baseEnv({
+      PARKIO_SMOKE_REQUEST_DELAY_MS: '0',
+      ...overrides,
+    }));
+    return new SmokeRunner(config, { fetchImpl, sleep, log: () => {} });
+  }
+
+  it('retries only HTTP 429 with 250/500/1000 ms backoff', async () => {
+    const statuses = [429, 429, 429, 204];
+    const sleeps = [];
+    const fetchImpl = mock.fn(async () => new Response(null, { status: statuses.shift() }));
+    const runner = runnerFor(fetchImpl, async (ms) => sleeps.push(ms));
+
+    const result = await runner.request('DELETE', '/parking/sessions/history');
+
+    assert.equal(result.status, 204);
+    assert.equal(fetchImpl.mock.callCount(), 4);
+    assert.deepEqual(sleeps, [250, 500, 1000]);
+  });
+
+  it('returns the fourth 429 after retry exhaustion', async () => {
+    const sleeps = [];
+    const fetchImpl = mock.fn(async () => new Response(null, { status: 429 }));
+    const runner = runnerFor(fetchImpl, async (ms) => sleeps.push(ms));
+
+    const result = await runner.request('GET', '/parking/sessions/active');
+
+    assert.equal(result.status, 429);
+    assert.equal(fetchImpl.mock.callCount(), 4);
+    assert.deepEqual(sleeps, [250, 500, 1000]);
+  });
+
+  it('does not retry HTTP 409', async () => {
+    const sleeps = [];
+    const fetchImpl = mock.fn(async () => jsonResponse(
+      { code: 'PARKING_SESSION_NOT_TERMINAL' },
+      409,
+    ));
+    const runner = runnerFor(fetchImpl, async (ms) => sleeps.push(ms));
+
+    const result = await runner.request('DELETE', `/parking/sessions/${randomUUID()}`);
+
+    assert.equal(result.status, 409);
+    assert.equal(fetchImpl.mock.callCount(), 1);
+    assert.deepEqual(sleeps, []);
+  });
+
+  it('paces consecutive logical requests using the configured delay', async () => {
+    const sleeps = [];
+    const fetchImpl = mock.fn(async () => new Response(null, { status: 204 }));
+    const runner = runnerFor(
+      fetchImpl,
+      async (ms) => sleeps.push(ms),
+      { PARKIO_SMOKE_REQUEST_DELAY_MS: '150' },
+    );
+
+    await runner.request('GET', '/parking/sessions/active');
+    await runner.request('GET', '/parking/sessions/active');
+
+    assert.equal(fetchImpl.mock.callCount(), 2);
+    assert.deepEqual(sleeps, [150]);
+  });
+
+  it('retries a cleanup 429 and continues through delete and bulk cleanup', async () => {
+    const activeId = randomUUID();
+    let cancelCalls = 0;
+    const requested = [];
+    const fetchImpl = mock.fn(async (url, init = {}) => {
+      const method = (init.method || 'GET').toUpperCase();
+      const path = new URL(String(url)).pathname;
+      requested.push(`${method} ${path}`);
+      if (method === 'GET' && path.endsWith('/active')) {
+        return jsonResponse({ id: activeId, status: 'ACTIVE' }, 200);
+      }
+      if (method === 'POST' && path.endsWith('/cancel')) {
+        cancelCalls += 1;
+        return cancelCalls === 1
+          ? new Response(null, { status: 429 })
+          : jsonResponse({ id: activeId, status: 'CANCELLED' }, 200);
+      }
+      if (method === 'DELETE') return new Response(null, { status: 204 });
+      if (method === 'GET' && path.endsWith('/history')) {
+        return jsonResponse({ items: [] }, 200);
+      }
+      return new Response(null, { status: 404 });
+    });
+    const runner = runnerFor(fetchImpl, async () => {});
+    runner.ownedSessionIds.add(activeId);
+
+    await runner.runCleanup('token-a', null);
+
+    assert.equal(cancelCalls, 2);
+    assert.equal(runner.cleanup.status, 'PASS');
+    assert.ok(requested.some((request) => request === `DELETE /api/v1/parking/sessions/${activeId}`));
+    assert.ok(requested.some((request) => request === 'DELETE /api/v1/parking/sessions/history'));
   });
 });

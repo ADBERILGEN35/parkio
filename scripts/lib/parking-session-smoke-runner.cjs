@@ -10,6 +10,8 @@ const {
   resolveSmokeConfig,
 } = require('./parking-session-smoke-config.cjs');
 
+const RATE_LIMIT_BACKOFF_MS = [250, 500, 1000];
+
 function newCheck(id, name) {
   return {
     id,
@@ -26,13 +28,15 @@ function newCheck(id, name) {
 class SmokeRunner {
   /**
    * @param {ReturnType<typeof resolveSmokeConfig>} config
-   * @param {{ fetchImpl?: typeof fetch, now?: () => Date, log?: (line: string) => void }} [opts]
+   * @param {{ fetchImpl?: typeof fetch, now?: () => Date, log?: (line: string) => void, sleep?: (ms: number) => Promise<void> }} [opts]
    */
   constructor(config, opts = {}) {
     this.config = config;
     this.fetchImpl = opts.fetchImpl || fetch;
     this.now = opts.now || (() => new Date());
     this.log = opts.log || ((line) => console.log(line));
+    this.sleep = opts.sleep || ((ms) => new Promise((resolve) => setTimeout(resolve, ms)));
+    this.hasMadeRequest = false;
     this.checks = [];
     this.secrets = [config.passwordA, config.passwordB, config.emailA, config.emailB].filter(Boolean);
     this.tokens = [];
@@ -61,27 +65,38 @@ class SmokeRunner {
     if (body !== undefined) {
       headers['Content-Type'] = 'application/json';
     }
-    const res = await this.fetchImpl(url, {
-      method,
-      headers,
-      body: body === undefined ? undefined : JSON.stringify(body),
-    });
-    const text = await res.text();
-    let json = null;
-    if (text) {
-      try {
-        json = JSON.parse(text);
-      } catch {
-        json = null;
-      }
+    if (this.hasMadeRequest && this.config.requestDelayMs > 0) {
+      await this.sleep(this.config.requestDelayMs);
     }
-    return {
-      status: res.status,
-      headers: res.headers,
-      text,
-      json,
-      cacheControl: res.headers.get('cache-control'),
-    };
+    this.hasMadeRequest = true;
+
+    for (let attempt = 0; ; attempt += 1) {
+      const res = await this.fetchImpl(url, {
+        method,
+        headers,
+        body: body === undefined ? undefined : JSON.stringify(body),
+      });
+      const text = await res.text();
+      let json = null;
+      if (text) {
+        try {
+          json = JSON.parse(text);
+        } catch {
+          json = null;
+        }
+      }
+      const result = {
+        status: res.status,
+        headers: res.headers,
+        text,
+        json,
+        cacheControl: res.headers.get('cache-control'),
+      };
+      if (res.status !== 429 || attempt >= RATE_LIMIT_BACKOFF_MS.length) {
+        return result;
+      }
+      await this.sleep(RATE_LIMIT_BACKOFF_MS[attempt]);
+    }
   }
 
   async runCheck(id, name, fn) {
@@ -186,50 +201,57 @@ class SmokeRunner {
 
   async runCleanup(tokenA, tokenB) {
     const notes = [];
-    try {
-      if (tokenA) {
-        const active = await this.getActive(tokenA);
-        if (active.status === 200 && active.json?.id) {
-          const id = active.json.id;
-          const cancel = await this.cancelSession(tokenA, id, randomUUID());
-          notes.push(`userA active cancel http ${cancel.status}`);
-        } else {
-          notes.push(`userA active http ${active.status}`);
-        }
-        // Prefer single-session deletes for owned ids; fall back to bulk only for disposable accounts.
-        for (const id of [...this.ownedSessionIds]) {
-          const del = await this.deleteSession(tokenA, id);
-          notes.push(`userA delete ${shortId(id)} http ${del.status}`);
-        }
-        const bulk = await this.deleteHistory(tokenA);
-        notes.push(`userA bulk-history http ${bulk.status}`);
+    let cleanupOk = true;
+    const attempt = async (label, action, acceptedStatuses) => {
+      try {
+        const result = await action();
+        notes.push(`${label} http ${result.status}`);
+        if (!acceptedStatuses.includes(result.status)) cleanupOk = false;
+        return result;
+      } catch (err) {
+        cleanupOk = false;
+        notes.push(`${label} error ${redactSecrets(err?.message || String(err), this.secrets.concat(this.tokens))}`);
+        return null;
       }
-      if (tokenB) {
-        const active = await this.getActive(tokenB);
-        if (active.status === 200 && active.json?.id) {
-          const cancel = await this.cancelSession(tokenB, active.json.id, randomUUID());
-          notes.push(`userB active cancel http ${cancel.status}`);
-        }
-        const bulk = await this.deleteHistory(tokenB);
-        notes.push(`userB bulk-history http ${bulk.status}`);
+    };
+
+    if (tokenA) {
+      const active = await attempt('userA active', () => this.getActive(tokenA), [200, 204]);
+      if (active?.status === 200 && active.json?.id) {
+        await attempt(
+          `userA active cancel ${shortId(active.json.id)}`,
+          () => this.cancelSession(tokenA, active.json.id, randomUUID()),
+          [200],
+        );
       }
-      let cleanupOk = true;
-      if (tokenA) {
-        const hist = await this.history(tokenA, { size: 1 });
-        const remaining = (hist.json && hist.json.items) ? hist.json.items.length : -1;
-        notes.push(`userA historyRemaining=${remaining}`);
-        if (remaining !== 0) cleanupOk = false;
+      // Prefer single-session deletes for owned ids; bulk is still attempted even if one delete fails.
+      for (const id of [...this.ownedSessionIds]) {
+        await attempt(`userA delete ${shortId(id)}`, () => this.deleteSession(tokenA, id), [204]);
       }
-      this.cleanup = {
-        status: cleanupOk ? 'PASS' : 'FAIL',
-        detail: notes.join('; ') + (cleanupOk ? '' : '; terminal history residue remains (deletion API unhealthy)'),
-      };
-    } catch (err) {
-      this.cleanup = {
-        status: 'FAIL',
-        detail: redactSecrets(err?.message || String(err), this.secrets.concat(this.tokens)),
-      };
+      await attempt('userA bulk-history', () => this.deleteHistory(tokenA), [204]);
     }
+    if (tokenB) {
+      const active = await attempt('userB active', () => this.getActive(tokenB), [200, 204]);
+      if (active?.status === 200 && active.json?.id) {
+        await attempt(
+          `userB active cancel ${shortId(active.json.id)}`,
+          () => this.cancelSession(tokenB, active.json.id, randomUUID()),
+          [200],
+        );
+      }
+      await attempt('userB bulk-history', () => this.deleteHistory(tokenB), [204]);
+    }
+    if (tokenA) {
+      const hist = await attempt('userA history verify', () => this.history(tokenA, { size: 1 }), [200]);
+      const remaining = hist?.status === 200 && Array.isArray(hist.json?.items) ? hist.json.items.length : -1;
+      notes.push(`userA historyRemaining=${remaining}`);
+      if (remaining !== 0) cleanupOk = false;
+    }
+
+    this.cleanup = {
+      status: cleanupOk ? 'PASS' : 'FAIL',
+      detail: notes.join('; ') + (cleanupOk ? '' : '; cleanup incomplete'),
+    };
   }
 
   async run() {
@@ -238,6 +260,7 @@ class SmokeRunner {
 
     let tokenA = null;
     let tokenB = null;
+    let cleanupActiveSucceeded = false;
 
     try {
       await this.runCheck('PS-HB-01', 'target safety validation', async (c) => {
@@ -470,7 +493,13 @@ class SmokeRunner {
             throw new Error(`expected 409 PARKING_SESSION_NOT_TERMINAL, got ${res.status} ${res.json?.code}`);
           }
           const active = await this.getActive(tokenA);
-          if (active.json?.id !== preserveSession.id) throw new Error('ACTIVE changed after delete conflict');
+          if (active.json?.id !== preserveSession.id || active.json?.status !== 'ACTIVE') {
+            throw new Error(
+              `expected ACTIVE session: ${preserveSession.id}; ` +
+              `actual ACTIVE session: ${active.json?.id || '(none)'}; ` +
+              `expected status: ACTIVE; actual status: ${active.json?.status || `(http ${active.status})`}`,
+            );
+          }
           return { status: 'PASS', httpStatus: 409 };
         });
 
@@ -502,6 +531,7 @@ class SmokeRunner {
         const res = await this.cancelSession(tokenA, preserveSession.id, randomUUID());
         c.httpStatus = res.status;
         if (res.status !== 200) throw new Error('cleanup cancel failed');
+        cleanupActiveSucceeded = true;
         return { status: 'PASS', httpStatus: 200 };
       });
 
@@ -544,7 +574,14 @@ class SmokeRunner {
         const ids = [];
         for (let i = 0; i < 2; i += 1) {
           const s = await this.startSession(tokenA, randomUUID());
-          if (s.status !== 201) throw new Error('pagination seed start failed');
+          if (s.status !== 201 && !cleanupActiveSucceeded) {
+            return {
+              status: 'SKIP',
+              httpStatus: s.status,
+              detail: 'SKIPPED (blocked by cleanup)',
+            };
+          }
+          if (s.status !== 201) throw new Error(`pagination seed start failed (http ${s.status})`);
           ids.push(s.json.id);
           this.ownedSessionIds.add(s.json.id);
           await this.completeSession(tokenA, s.json.id, randomUUID());

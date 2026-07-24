@@ -6,8 +6,17 @@
 - `PARKIO_SMOKE_CONFIRM_TARGET=beta`
 - `PARKIO_SMOKE_DISPOSABLE_ACCOUNT=I_CONFIRM_DISPOSABLE`
 - Disposable User A credentials (`PARKIO_SMOKE_USER_A_EMAIL` / `PARKIO_SMOKE_USER_A_PASSWORD`)
-- Optional User B for owner isolation
+- Optional User B credentials (`PARKIO_SMOKE_USER_B_EMAIL` / `PARKIO_SMOKE_USER_B_PASSWORD`)
 - HTTPS to `api.parkio.dev` for azure profile
+
+## Hosted request controls
+
+- `PARKIO_SMOKE_REQUEST_DELAY_MS`: delay between logical HTTP requests. Defaults to `150`;
+  set to `0` to disable pacing.
+- HTTP `429` responses are retried up to three times with fixed backoffs of 250 ms, 500 ms,
+  and 1000 ms. Other HTTP statuses are never retried.
+- `PARKIO_SMOKE_USER_B_EMAIL` and `PARKIO_SMOKE_USER_B_PASSWORD`: when both are present,
+  PS-HB-23 executes owner-isolation checks. Otherwise it remains `NOT_EXECUTED`.
 
 ## Invocation (secrets as placeholders)
 
@@ -18,6 +27,9 @@ PARKIO_SMOKE_ENVIRONMENT=beta \
 PARKIO_SMOKE_DISPOSABLE_ACCOUNT=I_CONFIRM_DISPOSABLE \
 PARKIO_SMOKE_USER_A_EMAIL=<disposable-a> \
 PARKIO_SMOKE_USER_A_PASSWORD=<secret> \
+PARKIO_SMOKE_USER_B_EMAIL=<optional-disposable-b> \
+PARKIO_SMOKE_USER_B_PASSWORD=<optional-secret> \
+PARKIO_SMOKE_REQUEST_DELAY_MS=150 \
 ./scripts/smoke-parking-session-hosted-beta.sh
 ```
 
