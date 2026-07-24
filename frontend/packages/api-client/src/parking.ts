@@ -8,6 +8,7 @@ import type {
   VerifySpotRequest,
 } from '@parkio/types';
 import { IDEMPOTENCY_HEADER } from './idempotency';
+import type { RequestOptions } from './request-options';
 
 export function createParkingApi(client: AxiosInstance) {
   return {
@@ -17,17 +18,21 @@ export function createParkingApi(client: AxiosInstance) {
         .then((r) => r.data);
     },
 
-    getSpot(spotId: string): Promise<PublicSpot> {
-      return client.get<PublicSpot>(`/parking/spots/${spotId}`).then((r) => r.data);
+    getSpot(spotId: string, options?: RequestOptions): Promise<PublicSpot> {
+      return client
+        .get<PublicSpot>(`/parking/spots/${spotId}`, { signal: options?.signal })
+        .then((r) => r.data);
     },
 
     /**
      * Short-lived signed URL for a spot photo.
      * Fetch on demand when rendering — URLs expire (~5m); do not cache long.
      */
-    getSpotMediaAccessUrl(spotId: string): Promise<SpotMediaAccessUrl> {
+    getSpotMediaAccessUrl(spotId: string, options?: RequestOptions): Promise<SpotMediaAccessUrl> {
       return client
-        .get<SpotMediaAccessUrl>(`/parking/spots/${spotId}/media-access-url`)
+        .get<SpotMediaAccessUrl>(`/parking/spots/${spotId}/media-access-url`, {
+          signal: options?.signal,
+        })
         .then((r) => r.data);
     },
 
@@ -55,12 +60,16 @@ export function createParkingApi(client: AxiosInstance) {
         .then((r) => r.data);
     },
 
-    getMySpots(): Promise<Spot[]> {
-      return client.get<Spot[]>('/parking/my-spots').then((r) => r.data);
+    getMySpots(options?: RequestOptions): Promise<Spot[]> {
+      return client
+        .get<Spot[]>('/parking/my-spots', { signal: options?.signal })
+        .then((r) => r.data);
     },
 
-    getMySpot(spotId: string): Promise<Spot> {
-      return client.get<Spot>(`/parking/my-spots/${spotId}`).then((r) => r.data);
+    getMySpot(spotId: string, options?: RequestOptions): Promise<Spot> {
+      return client
+        .get<Spot>(`/parking/my-spots/${spotId}`, { signal: options?.signal })
+        .then((r) => r.data);
     },
   };
 }

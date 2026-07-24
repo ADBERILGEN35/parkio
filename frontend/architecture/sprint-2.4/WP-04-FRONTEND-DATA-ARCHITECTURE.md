@@ -163,6 +163,7 @@ Optimistic updates are not the default for WP-04.
 - `mutationOptions` factories for profile/smart-return/spot mutations
 - Align mobile `sessionQueryCache` imports with shared package (out of WP-04 Web scope)
 - AbortSignal support on users API reads (parking nearby already supports it)
+  — **addressed in WP-06** for canonical Web query-options + typed SDK reads
 
 ## 20. Rules for future contributors
 

@@ -32,6 +32,13 @@ sync helpers live under `apps/web/src/data/`. See
 `architecture/sprint-2.5/WP-05-CORE-PARKING-FLOWS.md`. WP-03 routing and WP-04
 data ownership stay frozen.
 
+## Production hardening (WP-06)
+
+AbortSignal forwarding, cancel/timeout/network error mapping, and cancel-safe
+Query retries are documented in
+`architecture/sprint-3/WP-06-PRODUCTION-HARDENING.md`. WP-03/WP-04/WP-05 stay
+frozen.
+
 ## Prerequisites
 
 - Node.js ≥ 20

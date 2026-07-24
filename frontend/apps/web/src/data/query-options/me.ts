@@ -5,35 +5,35 @@ import { meKeys } from '../keys';
 export function myProfileQueryOptions(sdk: ParkioSdk) {
   return queryOptions({
     queryKey: meKeys.profile(),
-    queryFn: () => sdk.usersApi.getMyProfile(),
+    queryFn: ({ signal }) => sdk.usersApi.getMyProfile({ signal }),
   });
 }
 
 export function myStatsQueryOptions(sdk: ParkioSdk) {
   return queryOptions({
     queryKey: meKeys.stats(),
-    queryFn: () => sdk.usersApi.getMyStats(),
+    queryFn: ({ signal }) => sdk.usersApi.getMyStats({ signal }),
   });
 }
 
 export function myVehicleQueryOptions(sdk: ParkioSdk) {
   return queryOptions({
     queryKey: meKeys.vehicle(),
-    queryFn: () => sdk.usersApi.getMyVehicle(),
+    queryFn: ({ signal }) => sdk.usersApi.getMyVehicle({ signal }),
   });
 }
 
 export function myPreferencesQueryOptions(sdk: ParkioSdk) {
   return queryOptions({
     queryKey: meKeys.preferences(),
-    queryFn: () => sdk.usersApi.getMyPreferences(),
+    queryFn: ({ signal }) => sdk.usersApi.getMyPreferences({ signal }),
   });
 }
 
 export function myPreferencesLocaleBootstrapQueryOptions(sdk: ParkioSdk) {
   return queryOptions({
     queryKey: meKeys.preferencesLocaleBootstrap(),
-    queryFn: () => sdk.usersApi.getMyPreferences(),
+    queryFn: ({ signal }) => sdk.usersApi.getMyPreferences({ signal }),
     staleTime: 60_000,
   });
 }
@@ -41,6 +41,6 @@ export function myPreferencesLocaleBootstrapQueryOptions(sdk: ParkioSdk) {
 export function mySmartReturnQueryOptions(sdk: ParkioSdk) {
   return queryOptions({
     queryKey: meKeys.smartReturn(),
-    queryFn: () => sdk.usersApi.getSmartReturn(),
+    queryFn: ({ signal }) => sdk.usersApi.getSmartReturn({ signal }),
   });
 }

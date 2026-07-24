@@ -1,4 +1,5 @@
 import {
+  CancellationError,
   ForbiddenError,
   RateLimitError,
   UnauthorizedError,
@@ -39,6 +40,10 @@ describe('createWebQueryClient policy', () => {
     expect(shouldRetryQuery(0, new ValidationError(400, errorBody('VALIDATION_FAILED')))).toBe(
       false,
     );
+  });
+
+  it('does not retry cancelled requests', () => {
+    expect(shouldRetryQuery(0, new CancellationError())).toBe(false);
   });
 
   it('retries rate-limit failures a limited number of times', () => {

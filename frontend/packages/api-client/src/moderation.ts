@@ -9,6 +9,7 @@ import type {
   ResolveAppealRequest,
   ResolveCaseRequest,
 } from '@parkio/types';
+import type { RequestOptions } from './request-options';
 
 /**
  * Moderation endpoints. The moderator/admin functions require a MODERATOR or
@@ -21,8 +22,10 @@ export function createModerationApi(client: AxiosInstance) {
       return client.post<ModerationReport>('/moderation/reports', request).then((r) => r.data);
     },
 
-    getMyReports(): Promise<ModerationReport[]> {
-      return client.get<ModerationReport[]>('/moderation/reports/me').then((r) => r.data);
+    getMyReports(options?: RequestOptions): Promise<ModerationReport[]> {
+      return client
+        .get<ModerationReport[]>('/moderation/reports/me', { signal: options?.signal })
+        .then((r) => r.data);
     },
 
     /**

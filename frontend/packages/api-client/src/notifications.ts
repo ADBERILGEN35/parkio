@@ -1,11 +1,14 @@
 import type { AxiosInstance } from 'axios';
 import type { AppNotification, DevicePlatform, DeviceToken } from '@parkio/types';
+import type { RequestOptions } from './request-options';
 
 export function createNotificationsApi(client: AxiosInstance) {
   return {
     /** Most recent notifications (backend caps the list at 50 — no pagination params). */
-    getMyNotifications(): Promise<AppNotification[]> {
-      return client.get<AppNotification[]>('/notifications/me').then((r) => r.data);
+    getMyNotifications(options?: RequestOptions): Promise<AppNotification[]> {
+      return client
+        .get<AppNotification[]>('/notifications/me', { signal: options?.signal })
+        .then((r) => r.data);
     },
 
     /** Idempotent on the backend — re-marking a read notification is a no-op. */

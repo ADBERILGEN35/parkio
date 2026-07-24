@@ -15,6 +15,7 @@ import {
 } from './guardrail-lib.mjs';
 import { findWp04DataArchitectureViolations } from './wp04-data-architecture.mjs';
 import { findWp05CoreParkingViolations } from './wp05-core-parking-flows.mjs';
+import { findWp06ProductionHardeningViolations } from './wp06-production-hardening.mjs';
 
 test('direct HTTP detection rejects HTTP packages and network primitives', () => {
   const source = `
@@ -1433,6 +1434,55 @@ test('WP-05 permits data-layer mutation owners and rejects page smart-return cac
     findWp05CoreParkingViolations(
       `export const config = { auth: 'Bearer x' };`,
       'apps/web/src/pages/MapPage.test.tsx',
+    ).length,
+    0,
+  );
+});
+
+test('WP-06 requires abort-signal forwarding in query-options and cancellation-aware retry', () => {
+  assert.ok(
+    findWp06ProductionHardeningViolations(
+      `
+        export function badOptions(sdk) {
+          return queryOptions({
+            queryKey: ['me'],
+            queryFn: () => sdk.usersApi.getMyProfile(),
+          });
+        }
+      `,
+      'apps/web/src/data/query-options/me.ts',
+    ).some((v) => v.rule === 'wp06-query-options-abort-signal'),
+  );
+  assert.equal(
+    findWp06ProductionHardeningViolations(
+      `
+        export function goodOptions(sdk) {
+          return queryOptions({
+            queryKey: ['me'],
+            queryFn: ({ signal }) => sdk.usersApi.getMyProfile({ signal }),
+          });
+        }
+      `,
+      'apps/web/src/data/query-options/me.ts',
+    ).length,
+    0,
+  );
+  assert.ok(
+    findWp06ProductionHardeningViolations(
+      `export function shouldRetryQuery() { return failureCount < 1; }`,
+      'apps/web/src/providers/query-client.ts',
+    ).some((v) => v.rule === 'wp06-no-retry-on-cancellation'),
+  );
+  assert.equal(
+    findWp06ProductionHardeningViolations(
+      `
+        import { CancellationError } from '@parkio/api-client';
+        export function shouldRetryQuery(failureCount, error) {
+          if (error instanceof CancellationError) return false;
+          return failureCount < 1;
+        }
+      `,
+      'apps/web/src/providers/query-client.ts',
     ).length,
     0,
   );

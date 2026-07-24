@@ -12,27 +12,32 @@ import type {
   UserStats,
   VehicleProfile,
 } from '@parkio/types';
+import type { RequestOptions } from './request-options';
 
 export function createUsersApi(client: AxiosInstance) {
   return {
-    getMyProfile(): Promise<Profile> {
-      return client.get<Profile>('/users/me').then((r) => r.data);
+    getMyProfile(options?: RequestOptions): Promise<Profile> {
+      return client.get<Profile>('/users/me', { signal: options?.signal }).then((r) => r.data);
     },
 
     updateMyProfile(body: UpdateProfileRequest): Promise<Profile> {
       return client.patch<Profile>('/users/me', body).then((r) => r.data);
     },
 
-    getMyPreferences(): Promise<UserPreference> {
-      return client.get<UserPreference>('/users/me/preferences').then((r) => r.data);
+    getMyPreferences(options?: RequestOptions): Promise<UserPreference> {
+      return client
+        .get<UserPreference>('/users/me/preferences', { signal: options?.signal })
+        .then((r) => r.data);
     },
 
     updateMyPreferences(body: UpdatePreferenceRequest): Promise<UserPreference> {
       return client.patch<UserPreference>('/users/me/preferences', body).then((r) => r.data);
     },
 
-    getSmartReturn(): Promise<SmartReturnSettings> {
-      return client.get<SmartReturnSettings>('/users/me/smart-return').then((r) => r.data);
+    getSmartReturn(options?: RequestOptions): Promise<SmartReturnSettings> {
+      return client
+        .get<SmartReturnSettings>('/users/me/smart-return', { signal: options?.signal })
+        .then((r) => r.data);
     },
 
     updateSmartReturnSettings(body: UpdateSmartReturnSettingsRequest): Promise<SmartReturnSettings> {
@@ -55,20 +60,24 @@ export function createUsersApi(client: AxiosInstance) {
       return client.post<SmartReturnSettings>('/users/me/smart-return/today/cancel').then((r) => r.data);
     },
 
-    getMyVehicle(): Promise<VehicleProfile> {
-      return client.get<VehicleProfile>('/users/me/vehicle').then((r) => r.data);
+    getMyVehicle(options?: RequestOptions): Promise<VehicleProfile> {
+      return client
+        .get<VehicleProfile>('/users/me/vehicle', { signal: options?.signal })
+        .then((r) => r.data);
     },
 
     upsertMyVehicle(body: UpsertVehicleRequest): Promise<VehicleProfile> {
       return client.put<VehicleProfile>('/users/me/vehicle', body).then((r) => r.data);
     },
 
-    getMyStats(): Promise<UserStats> {
-      return client.get<UserStats>('/users/me/stats').then((r) => r.data);
+    getMyStats(options?: RequestOptions): Promise<UserStats> {
+      return client.get<UserStats>('/users/me/stats', { signal: options?.signal }).then((r) => r.data);
     },
 
-    getPublicProfile(userId: string): Promise<PublicProfile> {
-      return client.get<PublicProfile>(`/users/${userId}/public-profile`).then((r) => r.data);
+    getPublicProfile(userId: string, options?: RequestOptions): Promise<PublicProfile> {
+      return client
+        .get<PublicProfile>(`/users/${userId}/public-profile`, { signal: options?.signal })
+        .then((r) => r.data);
     },
   };
 }

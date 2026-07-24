@@ -5,6 +5,6 @@ import { reportsKeys } from '@/data/keys';
 export function myReportsQueryOptions(sdk: ParkioSdk) {
   return queryOptions({
     queryKey: reportsKeys.all,
-    queryFn: () => sdk.moderationApi.getMyReports(),
+    queryFn: ({ signal }) => sdk.moderationApi.getMyReports({ signal }),
   });
 }

@@ -9,7 +9,7 @@ import {
   type SpotVehicleType,
   type UploadMediaResponse,
 } from '@parkio/types';
-import { createIdempotencyKey } from '@parkio/api-client';
+import { CancellationError, createIdempotencyKey } from '@parkio/api-client';
 import {
   Button,
   Icon,
@@ -127,7 +127,8 @@ export function UploadPage() {
   const createSpotMutation = useCreateSpotMutation();
   const { t } = useTranslation('media');
   const navigate = useNavigate();
-    const fileInputRef = useRef<HTMLInputElement>(null);
+  const fileInputRef = useRef<HTMLInputElement>(null);
+  const uploadAbortRef = useRef<AbortController | null>(null);
 
   const [step, setStep] = useState(STEP_PHOTO);
   const [file, setFile] = useState<File | null>(null);
@@ -142,6 +143,14 @@ export function UploadPage() {
   const [createdSpot, setCreatedSpot] = useState<Spot | null>(null);
   // Human-readable label for the current pin source (place name or map point).
   const [locationLabel, setLocationLabel] = useState<string | null>(null);
+
+  // Cancel an in-flight media upload if the wizard unmounts mid-transfer.
+  useEffect(() => {
+    return () => {
+      uploadAbortRef.current?.abort();
+      uploadAbortRef.current = null;
+    };
+  }, []);
 
   const {
     register,
@@ -327,7 +336,12 @@ export function UploadPage() {
       let media = uploadedMedia;
       if (!media) {
         setPhase('uploading');
-        media = await mediaApi.uploadMedia(file as File, createIdempotencyKey());
+        const controller = new AbortController();
+        uploadAbortRef.current = controller;
+        media = await mediaApi.uploadMedia(file as File, createIdempotencyKey(), {
+          signal: controller.signal,
+        });
+        uploadAbortRef.current = null;
         setUploadedMedia(media);
         showSuccess(t('upload.photoUploaded'));
       }
@@ -349,6 +363,11 @@ export function UploadPage() {
       setCreatedSpot(spot);
       showSuccess(t('upload.spotCreated'));
     } catch (error) {
+      uploadAbortRef.current = null;
+      // Unmount / navigation abort is not a user-facing failure.
+      if (error instanceof CancellationError || (error instanceof DOMException && error.name === 'AbortError')) {
+        return;
+      }
       setSubmitError(error);
       showError(t('upload.createErrorRetry'));
     } finally {

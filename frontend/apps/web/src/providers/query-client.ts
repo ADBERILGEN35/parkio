@@ -1,5 +1,6 @@
 import {
   AccountNotActiveError,
+  CancellationError,
   ForbiddenError,
   isParkioApiError,
   RateLimitError,
@@ -28,6 +29,10 @@ export const WEB_QUERY_CLIENT_POLICY = {
 } as const;
 
 export function shouldRetryQuery(failureCount: number, error: unknown): boolean {
+  // Aborts are intentional (route change / unmount / superseded query) — never retry.
+  if (error instanceof CancellationError) {
+    return false;
+  }
   if (
     error instanceof UnauthorizedError ||
     error instanceof ForbiddenError ||

@@ -6,7 +6,7 @@ import { parkingKeys, type NearbyParkingFilters } from '../keys';
 export function mySpotsQueryOptions(sdk: ParkioSdk) {
   return queryOptions({
     queryKey: parkingKeys.mySpots(),
-    queryFn: () => sdk.parkingApi.getMySpots(),
+    queryFn: ({ signal }) => sdk.parkingApi.getMySpots({ signal }),
   });
 }
 
@@ -23,14 +23,14 @@ export function nearbySpotsQueryOptions(sdk: ParkioSdk, filters: NearbyParkingFi
 export function spotDetailQueryOptions(sdk: ParkioSdk, spotId: string) {
   return queryOptions({
     queryKey: parkingKeys.spot(spotId),
-    queryFn: () => sdk.parkingApi.getSpot(spotId),
+    queryFn: ({ signal }) => sdk.parkingApi.getSpot(spotId, { signal }),
   });
 }
 
 export function spotMediaAccessUrlQueryOptions(sdk: ParkioSdk, spotId: string) {
   return queryOptions({
     queryKey: parkingKeys.spotMediaAccessUrl(spotId),
-    queryFn: () => sdk.parkingApi.getSpotMediaAccessUrl(spotId),
+    queryFn: ({ signal }) => sdk.parkingApi.getSpotMediaAccessUrl(spotId, { signal }),
     staleTime: 0,
     gcTime: 0,
   });
