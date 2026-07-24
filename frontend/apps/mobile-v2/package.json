@@ -12,6 +12,7 @@
     "lint": "eslint .",
     "test": "jest --forceExit",
     "test:wp07": "jest --runInBand --forceExit --testPathPattern=wp07",
+    "test:task08": "jest --runInBand --forceExit --testPathPattern=task08",
     "test:watch": "jest --watch",
     "mock-gateway": "node scripts/mock-gateway.mjs",
     "doctor": "expo-doctor",
