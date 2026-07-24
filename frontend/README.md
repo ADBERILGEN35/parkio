@@ -16,6 +16,15 @@ frontend/
   docs/
 ```
 
+## Frontend data architecture (WP-04)
+
+Web server state is owned by a single runtime `QueryClient`, canonical key
+factories in `apps/web/src/data/keys.ts`, injected `useParkioSdk()`, and
+`SessionQueryCacheSync` for logout/user-switch cache isolation. See
+`architecture/sprint-2.4/WP-04-FRONTEND-DATA-ARCHITECTURE.md`. Product pages
+below that mention query keys should be read as describing those canonical
+factories (for example `gamificationKeys.level()` rather than ad hoc arrays).
+
 ## Prerequisites
 
 - Node.js ≥ 20

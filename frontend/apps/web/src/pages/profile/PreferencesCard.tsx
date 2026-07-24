@@ -7,7 +7,7 @@ import {
   preferencesUpdateSchema,
   type PreferencesUpdateFormValues,
 } from '@parkio/validation';
-import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { useEffect } from 'react';
 import { useForm } from 'react-hook-form';
 import { useTranslation } from 'react-i18next';
@@ -15,13 +15,14 @@ import { useParkioSdk } from '@/app/AppRuntimeContext';
 import { useAuthStore } from '@/auth/store';
 import { FriendlyApiErrorMessage } from '@/components/FriendlyApiErrorMessage';
 import { SettingsSectionCard } from '@/components/product/SettingsSectionCard';
+import { useMyPreferencesQuery } from '@/data/hooks/useMeQueries';
+import { meKeys } from '@/data/keys';
 import { useLocaleStore } from '@/i18n/localeStore';
 import { showError, showSuccess } from '@/lib/toast';
 
 export function PreferencesCard() {
-  const { usersApi } = useParkioSdk();
   const { t } = useTranslation('settings');
-  const query = useQuery({ queryKey: ['me', 'preferences'], queryFn: usersApi.getMyPreferences });
+  const query = useMyPreferencesQuery();
 
   return (
     <SettingsSectionCard
@@ -58,7 +59,7 @@ function PreferencesForm({ preferences }: { preferences: UserPreference }) {
   const mutation = useMutation({
     mutationFn: usersApi.updateMyPreferences,
     onSuccess: (next) => {
-      queryClient.setQueryData(['me', 'preferences'], next);
+      queryClient.setQueryData(meKeys.preferences(), next);
       showSuccess(t('preferences.savedToast'));
     },
     onError: () => showError(t('preferences.saveError')),

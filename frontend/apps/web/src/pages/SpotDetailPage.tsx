@@ -26,7 +26,7 @@ import {
   type ReportSpotFormValues,
   type VerifySpotFormValues,
 } from '@parkio/validation';
-import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { useState, type ReactNode } from 'react';
 import { useForm } from 'react-hook-form';
 import i18n from 'i18next';
@@ -35,6 +35,11 @@ import { Link, useParams } from 'react-router-dom';
 import { useParkioSdk } from '@/app/AppRuntimeContext';
 import { FriendlyApiErrorMessage } from '@/components/FriendlyApiErrorMessage';
 import { SpotMap } from '@/components/map/SpotMap';
+import {
+  useSpotDetailQuery,
+  useSpotMediaAccessUrlQuery,
+} from '@/data/hooks/useParkingQueries';
+import { parkingKeys, reportsKeys } from '@/data/keys';
 import { enumLabel, formatInstant, formatRelativeAgo, formatRemaining } from '@/lib/format';
 import { freshnessLabel, spotStatusLabel } from '@/lib/localized-status';
 import { invalidateGamificationQueries } from '@/lib/gamificationCache';
@@ -64,15 +69,10 @@ function readOptionalMetrics(spot: PublicSpot): OptionalSpotMetrics {
  * All data from `GET /parking/spots/{id}`; photo via parking-mediated signed URL only.
  */
 export function SpotDetailPage() {
-  const { parkingApi } = useParkioSdk();
   const { t } = useTranslation('parking');
   const { spotId } = useParams<{ spotId: string }>();
 
-  const spotQuery = useQuery({
-    queryKey: ['parking', 'spot', spotId],
-    queryFn: () => parkingApi.getSpot(spotId as string),
-    enabled: Boolean(spotId),
-  });
+  const spotQuery = useSpotDetailQuery(spotId ?? '');
 
   return (
     <div className="mx-auto w-full max-w-7xl px-md py-lg text-on-background md:px-xl">
@@ -261,14 +261,8 @@ function TrustTile({ label, value }: { label: string; value: string }) {
  * Loading and unavailable states never hide spot details elsewhere on the page.
  */
 function SpotPhotoHero({ spotId }: { spotId: string }) {
-  const { parkingApi } = useParkioSdk();
   const { t } = useTranslation('parking');
-  const mediaQuery = useQuery({
-    queryKey: ['parking', 'spot', spotId, 'media-access-url'],
-    queryFn: () => parkingApi.getSpotMediaAccessUrl(spotId),
-    staleTime: 0,
-    gcTime: 0,
-  });
+  const mediaQuery = useSpotMediaAccessUrlQuery(spotId);
 
   return (
     <section className="overflow-hidden rounded-3xl shadow-deep ring-1 ring-outline-variant/10">
@@ -478,11 +472,11 @@ function PremiumActionCard({ spot }: { spot: PublicSpot }) {
   const [confirmingClaim, setConfirmingClaim] = useState(false);
 
   const applySpotUpdate = (updated: PublicSpot) => {
-    queryClient.setQueryData(['parking', 'spot', updated.id], updated);
-    queryClient.setQueriesData<PublicSpot[]>({ queryKey: ['parking', 'nearby'] }, (current) =>
+    queryClient.setQueryData(parkingKeys.spot(updated.id), updated);
+    queryClient.setQueriesData<PublicSpot[]>({ queryKey: parkingKeys.nearbyRoot() }, (current) =>
       current?.map((item) => (item.id === updated.id ? updated : item)),
     );
-    queryClient.setQueryData<Spot[]>(['parking', 'my-spots'], (current) =>
+    queryClient.setQueryData<Spot[]>(parkingKeys.mySpots(), (current) =>
       current?.map((item) => (item.id === updated.id ? { ...item, ...updated } : item)),
     );
   };
@@ -500,7 +494,7 @@ function PremiumActionCard({ spot }: { spot: PublicSpot }) {
     onSuccess: async (updated) => {
       applySpotUpdate(updated);
       resetVerify();
-      await queryClient.invalidateQueries({ queryKey: ['parking', 'my-spots'] });
+      await queryClient.invalidateQueries({ queryKey: parkingKeys.mySpots() });
       // Verification awards points/trust asynchronously; mark derived views stale.
       await invalidateGamificationQueries(queryClient);
       showSuccess(t('spotDetail.verifySubmitted'));
@@ -515,7 +509,7 @@ function PremiumActionCard({ spot }: { spot: PublicSpot }) {
     onSuccess: async (updated) => {
       applySpotUpdate(updated);
       setClaimed(true);
-      await queryClient.invalidateQueries({ queryKey: ['parking', 'my-spots'] });
+      await queryClient.invalidateQueries({ queryKey: parkingKeys.mySpots() });
       // Claiming awards points/trust asynchronously; mark derived views stale.
       await invalidateGamificationQueries(queryClient);
       showSuccess(t('spotDetail.claimSuccess'));
@@ -545,7 +539,7 @@ function PremiumActionCard({ spot }: { spot: PublicSpot }) {
       }),
     onSuccess: async () => {
       resetReport();
-      await queryClient.invalidateQueries({ queryKey: ['reports'] });
+      await queryClient.invalidateQueries({ queryKey: reportsKeys.all });
       showSuccess(t('spotDetail.reportSubmitted'));
     },
     onError: (error) => {

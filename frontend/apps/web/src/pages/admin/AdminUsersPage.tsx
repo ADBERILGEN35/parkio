@@ -5,6 +5,7 @@ import { useTranslation } from 'react-i18next';
 import { Link, useSearchParams } from 'react-router-dom';
 import { useParkioSdk } from '@/app/AppRuntimeContext';
 import { FriendlyApiErrorMessage } from '@/components/FriendlyApiErrorMessage';
+import { adminKeys } from '@/data/keys';
 
 const STATUSES: Array<AuthUserStatus | ''> = [
   '',
@@ -34,7 +35,7 @@ export function AdminUsersPage() {
   const page = Number(params.get('page') ?? '0') || 0;
 
   const query = useQuery({
-    queryKey: ['admin', 'users', q, status, page],
+    queryKey: adminKeys.users(q, status, page),
     queryFn: () =>
       adminApi.listUsers({
         q: q || undefined,

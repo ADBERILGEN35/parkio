@@ -3,16 +3,17 @@ import { Card, LoadingState, MetricCard, PageShell } from '@parkio/ui';
 import { useTranslation } from 'react-i18next';
 import { useParkioSdk } from '@/app/AppRuntimeContext';
 import { FriendlyApiErrorMessage } from '@/components/FriendlyApiErrorMessage';
+import { adminKeys, analyticsKeys } from '@/data/keys';
 
 export function AdminDashboardPage() {
   const { adminApi, analyticsApi } = useParkioSdk();
   const { t } = useTranslation('admin');
   const dashboard = useQuery({
-    queryKey: ['admin', 'dashboard'],
+    queryKey: adminKeys.dashboard(),
     queryFn: () => adminApi.getDashboard(),
   });
   const overview = useQuery({
-    queryKey: ['analytics', 'overview'],
+    queryKey: analyticsKeys.overview(),
     queryFn: () => analyticsApi.getAnalyticsOverview(),
     retry: false,
   });

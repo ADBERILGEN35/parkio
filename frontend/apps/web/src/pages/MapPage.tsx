@@ -8,13 +8,11 @@ import {
   MapSearchSkeleton,
 } from '@parkio/ui';
 import { nearbySearchSchema, type NearbySearchFormValues } from '@parkio/validation';
-import { keepPreviousData, useQuery } from '@tanstack/react-query';
 import { Suspense, lazy, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useForm } from 'react-hook-form';
 import { useTranslation } from 'react-i18next';
 import type { TFunction } from 'i18next';
 import { Link, useSearchParams } from 'react-router-dom';
-import { useParkioSdk } from '@/app/AppRuntimeContext';
 import { useAuthStore } from '@/auth/store';
 import { BottomSheet, COLLAPSED_PEEK, type SheetState } from '@/components/map/BottomSheet';
 import { DiscoveryResults } from '@/components/map/DiscoveryResults';
@@ -26,6 +24,8 @@ import {
 } from '@/components/map/mapConfig';
 import { PlaceSearch } from '@/components/map/PlaceSearch';
 import { SelectedSpotPreview } from '@/components/map/SelectedSpotPreview';
+import { useMySmartReturnQuery, useMyVehicleQuery } from '@/data/hooks/useMeQueries';
+import { useNearbySpotsQuery } from '@/data/hooks/useParkingQueries';
 import { type GeocodeResult } from '@/lib/geocoding';
 import { DESKTOP_QUERY, useMediaQuery } from '@/lib/useMediaQuery';
 import {
@@ -78,7 +78,6 @@ function optionalNumber(value: unknown): number | undefined {
  * click-to-set-center, and "Use my location" remain as an advanced fallback.
  */
 export function MapPage() {
-  const { parkingApi, usersApi } = useParkioSdk();
   const { t } = useTranslation('map');
   const [searchParams] = useSearchParams();
   const smartReturnMode = searchParams.get('smartReturn') === '1';
@@ -100,32 +99,16 @@ export function MapPage() {
   const isDesktop = useMediaQuery(DESKTOP_QUERY);
   const isAuthenticated = useAuthStore((state) => state.isAuthenticated);
 
-  const search = useQuery({
-    queryKey: ['parking', 'nearby', params],
-    queryFn: () => parkingApi.getNearbySpots(params as NearbySearchParams),
-    enabled: params !== null,
-    // Keep the prior results and markers on screen while a re-search (new center,
-    // radius, or "use my location") loads, instead of flashing back to the
-    // skeleton — the map stays populated and feels instant. The first-ever search
-    // still shows the skeleton (no previous data to hold).
-    placeholderData: keepPreviousData,
-    // Results are spatial snapshots; treat them as fresh for 30s so remounting the
-    // route or refocusing the tab doesn't refetch an identical query.
-    staleTime: 30_000,
-  });
+  // Nearby hook keeps prior results via placeholderData while a re-search loads
+  // (new center/radius/"use my location") instead of flashing the skeleton.
+  const search = useNearbySpotsQuery(params);
 
-  const vehicleQuery = useQuery({
-    queryKey: ['me', 'vehicle'],
-    queryFn: usersApi.getMyVehicle,
+  const vehicleQuery = useMyVehicleQuery({
     enabled: isAuthenticated,
-    // The signed-in user's vehicle changes rarely; cache it across the session to
-    // avoid refetching on every map mount (it only gates the "Fits your X" hint).
     staleTime: 5 * 60_000,
   });
 
-  const smartReturnQuery = useQuery({
-    queryKey: ['me', 'smart-return'],
-    queryFn: usersApi.getSmartReturn,
+  const smartReturnQuery = useMySmartReturnQuery({
     enabled: isAuthenticated && smartReturnMode,
     staleTime: 30_000,
   });

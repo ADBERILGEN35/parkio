@@ -13,6 +13,7 @@ import { useNavigate } from 'react-router-dom';
 import { useParkioSdk } from '@/app/AppRuntimeContext';
 import { FriendlyApiErrorMessage } from '@/components/FriendlyApiErrorMessage';
 import { MarkReadButton, NotificationItemCard } from '@/components/product/NotificationItemCard';
+import { notificationsKeys } from '@/data/keys';
 import { showError, showSuccess } from '@/lib/toast';
 import { resolveNotificationNavigation } from '@/lib/notificationDeepLinks';
 import { useAuthStore } from '@/auth/store';
@@ -44,7 +45,7 @@ export function NotificationsPage() {
   const { notificationsApi } = useParkioSdk();
   const { t } = useTranslation('parking');
   const query = useQuery({
-    queryKey: ['notifications'],
+    queryKey: notificationsKeys.all,
     queryFn: notificationsApi.getMyNotifications,
   });
 
@@ -194,7 +195,7 @@ function NotificationItem({ notification }: { notification: AppNotification }) {
   const markRead = useMutation({
     mutationFn: () => notificationsApi.markRead(notification.id),
     onSuccess: (updated) => {
-      queryClient.setQueryData<AppNotification[]>(['notifications'], (current) =>
+      queryClient.setQueryData<AppNotification[]>(notificationsKeys.all, (current) =>
         current?.map((item) => (item.id === updated.id ? updated : item)),
       );
       showSuccess(t('notifications.markReadSuccess'));

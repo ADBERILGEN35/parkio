@@ -1,8 +1,7 @@
 import { useEffect } from 'react';
-import { useQuery } from '@tanstack/react-query';
 import { normalizeLocale } from '@parkio/types';
-import { useParkioSdk } from '@/app/AppRuntimeContext';
 import { useAuthStore } from '@/auth/store';
+import { useMyPreferencesLocaleBootstrapQuery } from '@/data/hooks/useMeQueries';
 import { useLocaleStore } from '@/i18n/localeStore';
 
 /**
@@ -10,16 +9,10 @@ import { useLocaleStore } from '@/i18n/localeStore';
  * Logout keeps the last explicit device locale (localStorage).
  */
 export function LocaleBootstrap() {
-  const { usersApi } = useParkioSdk();
   const isAuthenticated = useAuthStore((s) => s.isAuthenticated);
   const syncFromServer = useLocaleStore((s) => s.syncFromServer);
 
-  const preferencesQuery = useQuery({
-    queryKey: ['me', 'preferences', 'locale-bootstrap'],
-    queryFn: usersApi.getMyPreferences,
-    enabled: isAuthenticated,
-    staleTime: 60_000,
-  });
+  const preferencesQuery = useMyPreferencesLocaleBootstrapQuery({ enabled: isAuthenticated });
 
   useEffect(() => {
     if (!isAuthenticated || !preferencesQuery.data?.preferredLocale) return;

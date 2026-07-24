@@ -20,6 +20,7 @@ import { useTranslation } from 'react-i18next';
 import { useParkioSdk } from '@/app/AppRuntimeContext';
 import { useAuthStore } from '@/auth/store';
 import { FriendlyApiErrorMessage } from '@/components/FriendlyApiErrorMessage';
+import { analyticsKeys } from '@/data/keys';
 import i18n from 'i18next';
 
 /**
@@ -60,7 +61,7 @@ function OverviewCard() {
   const { t } = useTranslation('analytics');
 
   const query = useQuery({
-    queryKey: ['analytics', 'overview'],
+    queryKey: analyticsKeys.overview(),
     queryFn: analyticsApi.getAnalyticsOverview,
   });
 
@@ -106,7 +107,7 @@ function DailyCard() {
   const { t } = useTranslation('analytics');
 
   const query = useQuery({
-    queryKey: ['analytics', 'daily'],
+    queryKey: analyticsKeys.daily(),
     queryFn: analyticsApi.getDailyAnalytics,
   });
 
@@ -148,7 +149,7 @@ function ParkingCard() {
   const { t } = useTranslation('analytics');
 
   const query = useQuery({
-    queryKey: ['analytics', 'parking'],
+    queryKey: analyticsKeys.parking(),
     queryFn: analyticsApi.getParkingAnalytics,
   });
 
@@ -184,7 +185,7 @@ function MetricsCard() {
   const { t } = useTranslation('analytics');
 
   const query = useQuery({
-    queryKey: ['analytics', 'metrics'],
+    queryKey: analyticsKeys.metrics(),
     queryFn: analyticsApi.getAnalyticsMetrics,
   });
 
@@ -241,7 +242,7 @@ function UserLookupCard() {
   });
 
   const query = useQuery({
-    queryKey: ['analytics', 'user', lookupUserId],
+    queryKey: analyticsKeys.user(lookupUserId ?? ''),
     queryFn: () => analyticsApi.getUserAnalytics(lookupUserId as string),
     enabled: lookupUserId !== null,
   });

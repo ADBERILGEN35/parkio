@@ -2,12 +2,14 @@ import { zodResolver } from '@hookform/resolvers/zod';
 import { VEHICLE_TYPES, type VehicleType, type VehicleProfile } from '@parkio/types';
 import { Button, Icon, Input, LoadingState, SoftBadge, cn } from '@parkio/ui';
 import { vehicleUpsertSchema, type VehicleUpsertFormValues } from '@parkio/validation';
-import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { useForm, type UseFormRegisterReturn } from 'react-hook-form';
 import { useTranslation } from 'react-i18next';
 import { useParkioSdk } from '@/app/AppRuntimeContext';
 import { FriendlyApiErrorMessage } from '@/components/FriendlyApiErrorMessage';
 import { SettingsSectionCard } from '@/components/product/SettingsSectionCard';
+import { useMyVehicleQuery } from '@/data/hooks/useMeQueries';
+import { meKeys } from '@/data/keys';
 import { enumLabel } from '@/lib/format';
 import { showError, showSuccess } from '@/lib/toast';
 
@@ -21,9 +23,8 @@ const VEHICLE_ICONS: Record<VehicleType, string> = {
 };
 
 export function VehicleCard() {
-  const { usersApi } = useParkioSdk();
   const { t } = useTranslation('settings');
-  const query = useQuery({ queryKey: ['me', 'vehicle'], queryFn: usersApi.getMyVehicle });
+  const query = useMyVehicleQuery();
 
   return (
     <SettingsSectionCard
@@ -49,7 +50,7 @@ function VehicleForm({ vehicle }: { vehicle: VehicleProfile }) {
   const mutation = useMutation({
     mutationFn: usersApi.upsertMyVehicle,
     onSuccess: (vehicle) => {
-      queryClient.setQueryData(['me', 'vehicle'], vehicle);
+      queryClient.setQueryData(meKeys.vehicle(), vehicle);
       showSuccess(t('vehicle.savedToast'));
     },
     onError: () => showError(t('vehicle.saveError')),

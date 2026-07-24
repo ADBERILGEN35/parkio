@@ -1,7 +1,6 @@
 import { zodResolver } from '@hookform/resolvers/zod';
 import { passwordRequirementState, type ChangePasswordFormValues } from '@parkio/validation';
 import { Button, Icon, Input, SoftBadge } from '@parkio/ui';
-import { useQuery } from '@tanstack/react-query';
 import { useMemo, useState } from 'react';
 import { useForm } from 'react-hook-form';
 import { useTranslation } from 'react-i18next';
@@ -11,6 +10,7 @@ import { useAppRuntime } from '@/app/AppRuntimeContext';
 import { performLogout } from '@/auth/logout';
 import { useAuthStore } from '@/auth/store';
 import { SettingsSectionCard } from '@/components/product/SettingsSectionCard';
+import { useMyProfileQuery } from '@/data/hooks/useMeQueries';
 import { enumLabel } from '@/lib/format';
 import {
   createChangePasswordSchema,
@@ -28,7 +28,7 @@ import { accountStatusTone } from './accountVisuals';
 export function AccountCard() {
   const {
     authSession,
-    sdk: { authApi, usersApi },
+    sdk: { authApi },
   } = useAppRuntime();
   const { t } = useTranslation(['settings', 'common', 'validation']);
   const navigate = useNavigate();
@@ -44,7 +44,7 @@ export function AccountCard() {
   const requirements = useMemo(() => getPasswordRequirements(t), [t]);
 
   // Best-effort enrichment only — already cached by ImpactHero, never blocks sign-out.
-  const profile = useQuery({ queryKey: ['me', 'profile'], queryFn: usersApi.getMyProfile });
+  const profile = useMyProfileQuery();
   const {
     register,
     handleSubmit,

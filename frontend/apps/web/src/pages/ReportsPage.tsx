@@ -22,6 +22,7 @@ import { useParkioSdk } from '@/app/AppRuntimeContext';
 import { FriendlyApiErrorMessage } from '@/components/FriendlyApiErrorMessage';
 import { ProductCard } from '@/components/product/ProductCard';
 import { SettingsSectionCard } from '@/components/product/SettingsSectionCard';
+import { reportsKeys } from '@/data/keys';
 import { enumLabel, formatRelativeAgo } from '@/lib/format';
 import { showError, showSuccess } from '@/lib/toast';
 
@@ -53,7 +54,7 @@ export function ReportsPage() {
 function MyReportsCard() {
   const { moderationApi } = useParkioSdk();
   const { t } = useTranslation('parking');
-  const query = useQuery({ queryKey: ['reports'], queryFn: moderationApi.getMyReports });
+  const query = useQuery({ queryKey: reportsKeys.all, queryFn: moderationApi.getMyReports });
 
   return (
     <Card title={t('reports.cardTitle')}>

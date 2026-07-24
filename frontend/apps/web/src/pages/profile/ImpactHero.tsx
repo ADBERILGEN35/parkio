@@ -1,20 +1,18 @@
 import { Icon, LoadingState, MetricCard, SoftBadge } from '@parkio/ui';
-import { useQuery } from '@tanstack/react-query';
 import { useTranslation } from 'react-i18next';
 import { useAuthStore } from '@/auth/store';
 import { FriendlyApiErrorMessage } from '@/components/FriendlyApiErrorMessage';
+import { useMyProfileQuery, useMyStatsQuery } from '@/data/hooks/useMeQueries';
 import { enumLabel } from '@/lib/format';
-import { useParkioSdk } from '@/app/AppRuntimeContext';
 import { accountStatusTone, trustBandTone } from './accountVisuals';
 
 /**
  * Impact-first hero for `/profile`: identity plus the four read-only stat metrics.
  */
 export function ImpactHero() {
-  const { usersApi } = useParkioSdk();
   const { t } = useTranslation(['settings', 'common']);
-  const profile = useQuery({ queryKey: ['me', 'profile'], queryFn: usersApi.getMyProfile });
-  const stats = useQuery({ queryKey: ['me', 'stats'], queryFn: usersApi.getMyStats });
+  const profile = useMyProfileQuery();
+  const stats = useMyStatsQuery();
 
   const sessionUser = useAuthStore((s) => s.user);
   const roles = useAuthStore((s) => s.roles);

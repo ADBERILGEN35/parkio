@@ -2,18 +2,19 @@ import { zodResolver } from '@hookform/resolvers/zod';
 import type { Profile } from '@parkio/types';
 import { Button, Icon, Input, LoadingState } from '@parkio/ui';
 import { profileUpdateSchema, type ProfileUpdateFormValues } from '@parkio/validation';
-import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { useForm } from 'react-hook-form';
 import { useTranslation } from 'react-i18next';
 import { useParkioSdk } from '@/app/AppRuntimeContext';
 import { FriendlyApiErrorMessage } from '@/components/FriendlyApiErrorMessage';
 import { SettingsSectionCard } from '@/components/product/SettingsSectionCard';
+import { useMyProfileQuery } from '@/data/hooks/useMeQueries';
+import { meKeys } from '@/data/keys';
 import { showError, showSuccess } from '@/lib/toast';
 
 export function ProfileDetailsCard() {
-  const { usersApi } = useParkioSdk();
   const { t } = useTranslation('settings');
-  const query = useQuery({ queryKey: ['me', 'profile'], queryFn: usersApi.getMyProfile });
+  const query = useMyProfileQuery();
 
   return (
     <SettingsSectionCard
@@ -39,7 +40,7 @@ function ProfileForm({ profile }: { profile: Profile }) {
   const mutation = useMutation({
     mutationFn: usersApi.updateMyProfile,
     onSuccess: (profile) => {
-      queryClient.setQueryData(['me', 'profile'], profile);
+      queryClient.setQueryData(meKeys.profile(), profile);
       showSuccess(t('profile.savedToast'));
     },
     onError: () => showError(t('profile.saveError')),

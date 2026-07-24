@@ -51,6 +51,7 @@ import { invalidateGamificationQueries } from '@/lib/gamificationCache';
 import { type GeocodeResult } from '@/lib/geocoding';
 import { isUploadWizardDirty } from '@/lib/uploadDirty';
 import { showError, showSuccess } from '@/lib/toast';
+import { parkingKeys } from '@/data/keys';
 
 type SubmitPhase = 'idle' | 'uploading' | 'creating';
 
@@ -353,8 +354,8 @@ export function UploadPage() {
       setCreatedSpot(spot);
       // The new spot must show up in My Spots / Nearby, and the upload reward
       // (points/trust, async via events) must not leave stale derived views.
-      await queryClient.invalidateQueries({ queryKey: ['parking', 'my-spots'] });
-      await queryClient.invalidateQueries({ queryKey: ['parking', 'nearby'] });
+      await queryClient.invalidateQueries({ queryKey: parkingKeys.mySpots() });
+      await queryClient.invalidateQueries({ queryKey: parkingKeys.nearbyRoot() });
       await invalidateGamificationQueries(queryClient);
       showSuccess(t('upload.spotCreated'));
     } catch (error) {

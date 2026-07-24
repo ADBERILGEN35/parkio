@@ -6,17 +6,15 @@ import {
   LoadingState,
   PageShell,
 } from '@parkio/ui';
-import { useQuery } from '@tanstack/react-query';
 import { useTranslation } from 'react-i18next';
 import { Link } from 'react-router-dom';
-import { useParkioSdk } from '@/app/AppRuntimeContext';
 import { FriendlyApiErrorMessage } from '@/components/FriendlyApiErrorMessage';
 import { SpotResultCard } from '@/components/product/SpotResultCard';
+import { useMySpotsQuery } from '@/data/hooks/useParkingQueries';
 
 export function MySpotsPage() {
-  const { parkingApi } = useParkioSdk();
   const { t } = useTranslation('parking');
-  const query = useQuery({ queryKey: ['parking', 'my-spots'], queryFn: parkingApi.getMySpots });
+  const query = useMySpotsQuery();
 
   return (
     <PageShell title={t('mySpots.title')}>

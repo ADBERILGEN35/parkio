@@ -6,11 +6,13 @@ import { AppToaster } from '@/components/AppToaster';
 import { ErrorBoundary } from '@/components/ErrorBoundary';
 import { OfflineBanner } from '@/components/OfflineBanner';
 import { LocaleBootstrap } from '@/i18n/LocaleBootstrap';
+import { SessionQueryCacheSync } from '@/data/SessionQueryCacheSync';
 import { QueryProvider } from '@/providers/QueryProvider';
 
 function AppContent({ runtime }: { runtime: WebAppRuntime }) {
   return (
     <>
+      <SessionQueryCacheSync />
       <AuthBootstrap />
       <LocaleBootstrap />
       <OfflineBanner />

@@ -8,6 +8,7 @@ import { Link, useParams } from 'react-router-dom';
 import { useParkioSdk } from '@/app/AppRuntimeContext';
 import { useAuthStore } from '@/auth/store';
 import { FriendlyApiErrorMessage } from '@/components/FriendlyApiErrorMessage';
+import { adminKeys } from '@/data/keys';
 import { showError, showSuccess } from '@/lib/toast';
 import { AdminConfirmDialog } from './AdminConfirmDialog';
 
@@ -35,7 +36,7 @@ export function AdminUserDetailPage() {
   const [pending, setPending] = useState<PendingAction | null>(null);
 
   const detail = useQuery({
-    queryKey: ['admin', 'users', id],
+    queryKey: adminKeys.userDetail(id),
     queryFn: () => adminApi.getUser(id),
     enabled: Boolean(id),
   });
@@ -68,8 +69,8 @@ export function AdminUserDetailPage() {
     onSuccess: async () => {
       showSuccess(t('users.toast.actionCompleted'));
       setPending(null);
-      await qc.invalidateQueries({ queryKey: ['admin', 'users', id] });
-      await qc.invalidateQueries({ queryKey: ['admin', 'dashboard'] });
+      await qc.invalidateQueries({ queryKey: adminKeys.userDetail(id) });
+      await qc.invalidateQueries({ queryKey: adminKeys.dashboard() });
     },
     onError: (error) => {
       showError(error instanceof Error ? error.message : t('users.toast.actionFailed'));

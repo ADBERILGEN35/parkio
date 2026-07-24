@@ -5,6 +5,7 @@ import { useTranslation } from 'react-i18next';
 import { useSearchParams } from 'react-router-dom';
 import { useParkioSdk } from '@/app/AppRuntimeContext';
 import { FriendlyApiErrorMessage } from '@/components/FriendlyApiErrorMessage';
+import { adminKeys } from '@/data/keys';
 
 export function AdminAuditPage() {
   const { adminApi } = useParkioSdk();
@@ -15,7 +16,7 @@ export function AdminAuditPage() {
   const result = (params.get('result') ?? '') as AdminAuditResult | '';
 
   const query = useQuery({
-    queryKey: ['admin', 'audit', page, result],
+    queryKey: adminKeys.audit(page, result),
     queryFn: () =>
       adminApi.listAuditEvents({
         page,

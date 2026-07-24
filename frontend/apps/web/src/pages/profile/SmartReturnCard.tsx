@@ -9,7 +9,7 @@ import {
   type SmartReturnSettingsFormValues,
   type SmartReturnTodayFormValues,
 } from '@parkio/validation';
-import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { useEffect, useRef, useState } from 'react';
 import { useForm } from 'react-hook-form';
 import { useTranslation } from 'react-i18next';
@@ -17,6 +17,8 @@ import { useParkioSdk } from '@/app/AppRuntimeContext';
 import { FriendlyApiErrorMessage } from '@/components/FriendlyApiErrorMessage';
 import { PlaceSearch } from '@/components/map/PlaceSearch';
 import { SettingsSectionCard } from '@/components/product/SettingsSectionCard';
+import { useMySmartReturnQuery } from '@/data/hooks/useMeQueries';
+import { meKeys } from '@/data/keys';
 import { showError, showSuccess } from '@/lib/toast';
 import { type GeocodeResult } from '@/lib/geocoding';
 
@@ -33,9 +35,8 @@ export interface SmartReturnCardProps {
 }
 
 export function SmartReturnCard({ autoFocusToday = false }: SmartReturnCardProps) {
-  const { usersApi } = useParkioSdk();
   const { t } = useTranslation('settings');
-  const query = useQuery({ queryKey: ['me', 'smart-return'], queryFn: usersApi.getSmartReturn });
+  const query = useMySmartReturnQuery();
 
   return (
     <SettingsSectionCard
@@ -158,7 +159,7 @@ function TodayCard({ settings, autoFocus }: { settings: SmartReturnSettings; aut
     settings.todayStatus === 'LEFT_BY_CAR' || settings.todayStatus === 'RETURN_CHECK_IN_PROGRESS';
 
   const onSettled = (next: SmartReturnSettings) => {
-    queryClient.setQueryData(['me', 'smart-return'], next);
+    queryClient.setQueryData(meKeys.smartReturn(), next);
     setMode('idle');
   };
 
@@ -496,7 +497,7 @@ function SmartReturnSettingsForm({
   const mutation = useMutation({
     mutationFn: usersApi.updateSmartReturnSettings,
     onSuccess: (next) => {
-      queryClient.setQueryData(['me', 'smart-return'], next);
+      queryClient.setQueryData(meKeys.smartReturn(), next);
       showSuccess(t('smartReturn.savedToast'));
     },
     onError: () => showError(t('smartReturn.saveError')),

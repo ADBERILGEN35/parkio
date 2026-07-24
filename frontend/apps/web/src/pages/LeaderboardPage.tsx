@@ -14,6 +14,7 @@ import { useTranslation } from 'react-i18next';
 import { useParkioSdk } from '@/app/AppRuntimeContext';
 import { FriendlyApiErrorMessage } from '@/components/FriendlyApiErrorMessage';
 import { LeaderboardRow, initialsFor, labelFor } from '@/components/product/LeaderboardRow';
+import { gamificationKeys, publicProfileKeys } from '@/data/keys';
 
 /** "Show more" steps over the existing `limit` param (no real pagination). */
 const LIMIT_STEPS = [10, 20, 50, 100] as const;
@@ -50,14 +51,17 @@ export function LeaderboardPage() {
   const canShowMore = limitStep < LIMIT_STEPS.length - 1;
 
   const query = useQuery({
-    queryKey: ['leaderboard', limit],
+    queryKey: gamificationKeys.leaderboard(limit),
     queryFn: () => gamificationApi.getLeaderboard(limit),
   });
 
   // Best-effort: match the caller's platform user id (from their own progress)
   // against the visible rows so we can highlight + surface their standing. The
   // leaderboard response itself has no "is me" flag.
-  const myProgress = useQuery({ queryKey: ['progress'], queryFn: gamificationApi.getMyProgress });
+  const myProgress = useQuery({
+    queryKey: gamificationKeys.progress(),
+    queryFn: gamificationApi.getMyProgress,
+  });
   const myUserId = myProgress.data?.userId ?? null;
 
   const entries = query.data ?? [];
@@ -66,7 +70,7 @@ export function LeaderboardPage() {
   // are tolerated — the row falls back to a shortened id and the page keeps rendering.
   const profileQueries = useQueries({
     queries: entries.map((entry) => ({
-      queryKey: ['public-profile', entry.userId],
+      queryKey: publicProfileKeys.detail(entry.userId),
       queryFn: () => usersApi.getPublicProfile(entry.userId),
       staleTime: 5 * 60 * 1000,
       retry: false,

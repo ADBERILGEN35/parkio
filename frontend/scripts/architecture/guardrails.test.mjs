@@ -13,6 +13,7 @@ import {
   findWebRuntimeOwnershipViolations,
   isBackendProtectedPath,
 } from './guardrail-lib.mjs';
+import { findWp04DataArchitectureViolations } from './wp04-data-architecture.mjs';
 
 test('direct HTTP detection rejects HTTP packages and network primitives', () => {
   const source = `
@@ -1297,4 +1298,68 @@ test('backend-change classifier distinguishes protected backend paths', () => {
   assert.equal(isBackendProtectedPath('settings.gradle.kts'), true);
   assert.equal(isBackendProtectedPath('frontend/packages/api-client/src/index.ts'), false);
   assert.equal(isBackendProtectedPath('docs/sprint-2.3/implementation-plan.md'), false);
+});
+
+test('WP-04 rejects global queryClient.clear outside the session-cache owner', () => {
+  const source = `
+    export function logout(queryClient) {
+      queryClient.clear();
+    }
+  `;
+  const rules = findWp04DataArchitectureViolations(source, 'apps/web/src/auth/logout.ts').map(
+    (v) => v.rule,
+  );
+  assert.ok(rules.includes('wp04-no-global-query-clear'));
+  assert.deepEqual(
+    findWp04DataArchitectureViolations(
+      'export function clearUserSessionQueries(queryClient) { queryClient.clear(); }',
+      'apps/web/src/data/sessionQueryCache.ts',
+    ),
+    [],
+  );
+});
+
+test('WP-04 rejects duplicate meKeys registries and inline migrated query keys', () => {
+  assert.ok(
+    findWp04DataArchitectureViolations(
+      'export const meKeys = { all: ["me"] };',
+      'apps/web/src/pages/profile/localKeys.ts',
+    ).some((v) => v.rule === 'wp04-duplicate-query-key-registry'),
+  );
+  assert.deepEqual(
+    findWp04DataArchitectureViolations(
+      'export const meKeys = { all: ["me"] as const };',
+      'apps/web/src/data/keys.ts',
+    ),
+    [],
+  );
+  assert.ok(
+    findWp04DataArchitectureViolations(
+      'useQuery({ queryKey: ["me", "profile"], queryFn: fn });',
+      'apps/web/src/pages/profile/ImpactHero.tsx',
+    ).some((v) => v.rule === 'wp04-inline-migrated-query-key'),
+  );
+  assert.deepEqual(
+    findWp04DataArchitectureViolations(
+      'useQuery({ queryKey: meKeys.profile(), queryFn: fn });',
+      'apps/web/src/pages/profile/ImpactHero.tsx',
+    ),
+    [],
+  );
+});
+
+test('WP-04 permits page-local UI state and rejects feature bearer headers', () => {
+  assert.deepEqual(
+    findWp04DataArchitectureViolations(
+      'const steps = [{ path: "/a", title: "A" }, { path: "/b", title: "B" }];',
+      'apps/web/src/pages/UploadPage.tsx',
+    ),
+    [],
+  );
+  assert.ok(
+    findWp04DataArchitectureViolations(
+      'export const config = { headers: { Authorization: "Bearer secret" } };',
+      'apps/web/src/pages/MapPage.tsx',
+    ).some((v) => v.rule === 'wp04-no-feature-auth-headers'),
+  );
 });

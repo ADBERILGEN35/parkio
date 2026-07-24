@@ -34,6 +34,7 @@ import { Link } from 'react-router-dom';
 import { useParkioSdk } from '@/app/AppRuntimeContext';
 import { FriendlyApiErrorMessage } from '@/components/FriendlyApiErrorMessage';
 import { ProductCardButton } from '@/components/product/ProductCard';
+import { moderationKeys } from '@/data/keys';
 import { formatInstant, formatRelativeAgo } from '@/lib/format';
 import { showError, showSuccess } from '@/lib/toast';
 import i18n from 'i18next';
@@ -119,7 +120,7 @@ function CasesCard({
   const [statusFilter, setStatusFilter] = useState<ModerationStatus | ''>('');
 
   const query = useQuery({
-    queryKey: ['moderation', 'cases', statusFilter || 'all'],
+    queryKey: moderationKeys.cases(statusFilter || 'all'),
     queryFn: () => moderationApi.getModerationCases(statusFilter || undefined),
   });
 
@@ -225,14 +226,14 @@ function CaseDetailCard({ caseId }: { caseId: string }) {
   const queryClient = useQueryClient();
 
   const query = useQuery({
-    queryKey: ['moderation', 'case', caseId],
+    queryKey: moderationKeys.caseDetail(caseId),
     queryFn: () => moderationApi.getModerationCase(caseId),
   });
 
   const invalidateCases = () =>
     Promise.all([
-      queryClient.invalidateQueries({ queryKey: ['moderation', 'cases'] }),
-      queryClient.invalidateQueries({ queryKey: ['moderation', 'case', caseId] }),
+      queryClient.invalidateQueries({ queryKey: moderationKeys.casesRoot() }),
+      queryClient.invalidateQueries({ queryKey: moderationKeys.caseDetail(caseId) }),
     ]);
 
   const assignMutation = useMutation({
@@ -444,7 +445,7 @@ function AppealsCard() {
   const { t } = useTranslation('moderation');
 
   const query = useQuery({
-    queryKey: ['moderation', 'appeals'],
+    queryKey: moderationKeys.appeals(),
     queryFn: moderationApi.getModerationAppeals,
   });
 
@@ -525,7 +526,7 @@ function ResolveAppealForm({ appealId }: { appealId: string }) {
       }),
     onSuccess: () => {
       showSuccess(t('appeals.resolveSuccess'));
-      void queryClient.invalidateQueries({ queryKey: ['moderation', 'appeals'] });
+      void queryClient.invalidateQueries({ queryKey: moderationKeys.appeals() });
     },
     onError: () => showError(t('appeals.resolveError')),
   });

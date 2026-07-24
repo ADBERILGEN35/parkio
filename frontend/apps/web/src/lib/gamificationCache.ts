@@ -1,4 +1,9 @@
 import type { QueryClient } from '@tanstack/react-query';
+import {
+  gamificationKeys,
+  meKeys,
+  notificationsKeys,
+} from '@/data/keys';
 
 /**
  * Marks every query derived from gamification events stale after an action that
@@ -9,12 +14,12 @@ import type { QueryClient } from '@tanstack/react-query';
  */
 export function invalidateGamificationQueries(queryClient: QueryClient): Promise<void> {
   return Promise.all([
-    queryClient.invalidateQueries({ queryKey: ['me', 'stats'] }),
-    queryClient.invalidateQueries({ queryKey: ['points'] }),
-    queryClient.invalidateQueries({ queryKey: ['level'] }),
-    queryClient.invalidateQueries({ queryKey: ['progress'] }),
-    queryClient.invalidateQueries({ queryKey: ['access-policy'] }),
-    queryClient.invalidateQueries({ queryKey: ['leaderboard'] }),
-    queryClient.invalidateQueries({ queryKey: ['notifications'] }),
+    queryClient.invalidateQueries({ queryKey: meKeys.stats() }),
+    queryClient.invalidateQueries({ queryKey: gamificationKeys.points() }),
+    queryClient.invalidateQueries({ queryKey: gamificationKeys.level() }),
+    queryClient.invalidateQueries({ queryKey: gamificationKeys.progress() }),
+    queryClient.invalidateQueries({ queryKey: gamificationKeys.accessPolicy() }),
+    queryClient.invalidateQueries({ queryKey: gamificationKeys.leaderboard() }),
+    queryClient.invalidateQueries({ queryKey: notificationsKeys.all }),
   ]).then(() => undefined);
 }

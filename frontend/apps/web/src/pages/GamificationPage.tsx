@@ -19,6 +19,7 @@ import { useTranslation } from 'react-i18next';
 import { Link } from 'react-router-dom';
 import { useParkioSdk } from '@/app/AppRuntimeContext';
 import { FriendlyApiErrorMessage } from '@/components/FriendlyApiErrorMessage';
+import { gamificationKeys } from '@/data/keys';
 import { enumLabel, formatRelativeAgo } from '@/lib/format';
 
 /**
@@ -65,7 +66,7 @@ export function GamificationPage() {
 function LevelHero() {
   const { gamificationApi } = useParkioSdk();
   const { t } = useTranslation('parking');
-  const query = useQuery({ queryKey: ['level'], queryFn: gamificationApi.getMyLevel });
+  const query = useQuery({ queryKey: gamificationKeys.level(), queryFn: gamificationApi.getMyLevel });
 
   return (
     <Surface level="raised" className="rounded-3xl p-lg">
@@ -181,7 +182,7 @@ function LevelHeroContent({ level }: { level: LevelStanding }) {
 function RecentActivityCard() {
   const { gamificationApi } = useParkioSdk();
   const { t } = useTranslation('parking');
-  const query = useQuery({ queryKey: ['points'], queryFn: gamificationApi.getMyPoints });
+  const query = useQuery({ queryKey: gamificationKeys.points(), queryFn: gamificationApi.getMyPoints });
 
   return (
     <Card title={t('gamification.recentActivity')}>
@@ -254,7 +255,7 @@ function BenefitsCard() {
   const { gamificationApi } = useParkioSdk();
   const { t } = useTranslation('parking');
   const query = useQuery({
-    queryKey: ['access-policy'],
+    queryKey: gamificationKeys.accessPolicy(),
     queryFn: gamificationApi.getMyAccessPolicy,
   });
 
@@ -333,8 +334,8 @@ function BenefitStat({ label, value, icon }: { label: string; value: string | nu
 function LevelsCard() {
   const { gamificationApi } = useParkioSdk();
   const { t } = useTranslation('parking');
-  const levels = useQuery({ queryKey: ['levels'], queryFn: gamificationApi.getLevels });
-  const standing = useQuery({ queryKey: ['level'], queryFn: gamificationApi.getMyLevel });
+  const levels = useQuery({ queryKey: gamificationKeys.levels(), queryFn: gamificationApi.getLevels });
+  const standing = useQuery({ queryKey: gamificationKeys.level(), queryFn: gamificationApi.getMyLevel });
   const currentLevel = standing.data?.currentLevel ?? null;
 
   return (
