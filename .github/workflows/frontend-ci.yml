@@ -88,7 +88,7 @@ jobs:
         run: pnpm guardrails:backend -- --base ${{ github.event.pull_request.base.sha }}
 
       - name: WP-03 routing browser acceptance
-        run: pnpm --filter @parkio/web exec playwright test e2e/wp03-routing.spec.ts --project=wp03-chromium --workers=1
+        run: pnpm --filter @parkio/web exec playwright test e2e/wp03-routing.spec.ts --project=wp03-chromium --workers=1 --retries=0
 
       # `pnpm -r` runs each script only in the workspace packages that define it,
       # so packages without a given script are skipped rather than failing.
