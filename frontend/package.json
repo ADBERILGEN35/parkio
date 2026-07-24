@@ -35,7 +35,7 @@
       "react-dom": "19.2.3",
       "@types/react": "19.2.17",
       "@types/react-dom": "19.2.3",
-      "@expo/metro-runtime": "56.0.16",
+      "@expo/metro-runtime": "56.0.17",
       "@expo/dom-webview": "56.0.6"
     }
   }
