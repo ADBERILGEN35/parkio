@@ -77,9 +77,11 @@ jobs:
 
       - name: Expo doctor
         # Pre-existing Expo config / dependency drift may warn; Task 8 requires
-        # the doctor gate to execute against Mobile-v2. See docs/testing/TASK-08.
+        # the doctor gate to execute against Mobile-v2. Use `run doctor` so pnpm
+        # invokes the package script (expo-doctor), not pnpm's built-in doctor.
+        # See docs/testing/TASK-08-END-TO-END-VERIFICATION.md.
         continue-on-error: true
-        run: pnpm --filter @parkio/mobile-v2 doctor
+        run: pnpm --filter @parkio/mobile-v2 run doctor
 
   mobile-legacy-checks:
     name: Legacy mobile typecheck, lint, test & expo doctor

@@ -120,14 +120,14 @@ Workflow: `.github/workflows/mobile-ci.yml`
 
 - Path filters include `frontend/apps/mobile-v2/**`
 - New job `mobile-v2-checks`:
-  - typecheck / lint
-  - focused `test:wp07`
-  - full Mobile-v2 unit tests
-  - `expo-doctor` for `@parkio/mobile-v2`
+  - typecheck / lint / `test:wp07` / `test:task08` / full unit tests remain **blocking**
+  - Expo Doctor via package script: `pnpm --filter @parkio/mobile-v2 run doctor`
+    (`run` is required so pnpm invokes the script, not pnpm's built-in `doctor`)
 - Legacy job `mobile-legacy-checks` preserves previous `@parkio/mobile` coverage
 - Retries remain disabled; no unrelated repository jobs duplicated
-- Mobile-v2 `expo-doctor` executes with `continue-on-error` because pre-existing
-  Expo config / dependency drift warnings are documented debt (not Task 8 scope)
+- Only the Mobile-v2 Expo Doctor step uses `continue-on-error`; Doctor currently
+  exits non-zero due to documented pre-existing Expo config / dependency drift
+  (not Task 8 scope). Typecheck, lint, and tests stay hard failures.
 
 Frontend CI (`frontend-ci.yml`) continues to run WP-07 focused gates and
 recursive workspace tests. Backend integration remains
