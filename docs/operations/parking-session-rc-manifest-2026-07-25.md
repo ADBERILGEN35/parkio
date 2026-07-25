@@ -138,4 +138,15 @@ Disposition evidence:
 
 ---
 
+
+## Superseding RC: `v1.0.0-rc5`
+
+`v1.0.0-rc4` (`9ce171017e2b3e31d8c36ecf06ed831c138f257f`) published all four hosted-beta
+images to GHCR and passed the in-workflow registry digest / OCI-label checks, but the
+Release job still failed on `actions/attest-build-provenance` because GitHub artifact
+attestations are unavailable on user-owned private repositories. Cosign keyless signing
+succeeded. The only change in rc5 is skipping that attestation step when
+`github.event.repository.private` is true so a private-repo publish can finish green.
+Product scope is unchanged from rc2.
+
 **Do not deploy from this document alone.** Tag `v1.0.0-rc2` only when the RC SHA is clean, then proceed with a separate controlled rollout.

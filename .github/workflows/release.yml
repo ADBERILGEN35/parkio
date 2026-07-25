@@ -418,8 +418,13 @@ jobs:
           set -euo pipefail
           cosign sign --yes "${{ steps.refs.outputs.image }}@${DIGEST}"
 
+      # GitHub artifact attestations are unavailable on user-owned private
+      # repositories (API returns "Feature not available..."); attempting them
+      # after a successful push would fail a green publish. Cosign keyless
+      # signatures above still attach. Re-enable when the repo is public or the
+      # org has attestations enabled.
       - name: Attest image provenance
-        if: ${{ needs.version.outputs.publish == 'true' }}
+        if: ${{ needs.version.outputs.publish == 'true' && !github.event.repository.private }}
         uses: actions/attest-build-provenance@v1
         with:
           subject-name: ${{ steps.refs.outputs.image }}
