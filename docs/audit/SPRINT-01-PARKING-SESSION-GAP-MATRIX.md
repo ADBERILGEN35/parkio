@@ -42,7 +42,7 @@
 | R24 | Relevant unit tests exist. | **PARTIAL** | Backend deletion + lifecycle producer/consumer tests; mobile-v2 covers S1-P0-02/03/04/10/11 (including history query, delete mutations, screen, privacy guards). Web ParkingSession and hosted-beta smoke still incomplete. | Sprint 1 product coverage remains incomplete. |
 | R25 | Relevant integration tests exist. | **PASS** | `ParkingSessionPostgisIntegrationTest` has 20 real PostgreSQL/PostGIS tests; `Task08ParkingLifecyclePostgisIT` adds five lifecycle tests. Current `integrationTest` ran with `-Pparkio.integrationTest.requireDocker=true` and passed. | No live Azure/client E2E; that is tracked separately by R26-R27. |
 | R26 | Release/mobile verification instructions exist. | **PARTIAL** | mobile-v2 has `eas.json`, `scripts/validate-release-env.mjs`, `scripts/run-android-release.mjs`, and `.github/workflows/mobile-ci.yml`. `docs/beta/mobile-release.md` targets legacy Mobile; mobile-v2 `android/app/build.gradle` signs release with the debug key; no ParkingSession device checklist or verified signed artifact exists. | Build plumbing exists, but release proof/instructions for the canonical app and this feature are incomplete. |
-| R27 | Azure hosted-beta smoke coverage exists. | **FAIL** | Suite added and executed (`ps-s1p012-20260724T212710Z`: 17 PASS / 7 FAIL, deletion HTTP 500). S1-P0-13 committed Sprint implementation to `master`, but Azure VM deploy was blocked (no authorized SSH key / Azure CLI / self-hosted runner / `docker/.env.azure-hosted-beta` on the operator workstation). Evidence: `docs/evidence/sprint-01/parking-session-hosted-beta/`. | Deploy immutable `sha-<gitsha>` on the Azure VM, then re-run smoke to exit 0. |
+| R27 | Azure hosted-beta smoke coverage exists. | **FAIL** | Suite executed (`ps-s1p012-20260724T212710Z`: DELETE HTTP 500). 2026-07-25 web hosted-beta attempt classified **`DEPLOYMENT_NOT_PERFORMED`**: no SSH/`az`/`.env.azure-hosted-beta`; live `app.parkio.dev` lacks Parking Session Web markers; PR1–PR6 uncommitted on dirty `master`. See `docs/beta/parking-session-web-status.md`. | Commit PR1–PR6, deploy `sha-<gitsha>` on Azure VM, re-run API+web smoke to exit 0. |
 | R28 | Feature flag or rollback strategy exists. | **PASS** | No ParkingSession flag exists, but `services/parking-service/README.md` documents coordinated rollout and rollback: every claim-capable client must restore sessions; claims must be disabled/drained before backend rollback. Hosted deployment uses immutable-image rollback procedures. | Strategy is manual and current clients do not meet its rollout prerequisite. |
 
 ## Cross-layer gap summary
@@ -51,13 +51,13 @@
 |---|---|---|
 | Backend | Lifecycle aggregate; V15; one-ACTIVE invariant; idempotent start/terminal transitions; active/history reads; owner-safe single/full hard delete; session lifecycle outbox events; OpenAPI; real PostGIS tests | Reminder command/delivery; deletion lifecycle events; account-erasure handling; idempotency TTL sweeper |
 | Gateway | Auth propagation; forged-header stripping; internal secret; parking route; rate limit; no-store | Real proxied authenticated ParkingSession success test |
-| Shared frontend | ParkingSession types, Zod contracts, and typed API-client session methods including history + delete (`createParkingApi`; `parking.session.test.ts`) | Web consumption |
-| Web | Runtime/SDK/query architecture; generic auth/error/loading patterns | Entire ParkingSession data and UI vertical slice |
-| mobile-v2 | Canonical app; auth restore; QueryClient; ACTIVE restore/start/timer/terminal; navigate/share; Profile history + deletion UI; claim→active invalidate; session cache cleanup; release scripts | Crash reporting, signed/device proof; Web-parity N/A |
+| Shared frontend | ParkingSession types, Zod contracts, and typed API-client session methods including history + delete (`createParkingApi`; `parking.session.test.ts`) | — |
+| Web | **PR1–PR6 complete locally** (uncommitted) — data layer, ACTIVE restore, Park Here, Find/Maps/Share/complete/cancel, Profile Parking History, polish/a11y/privacy. See `docs/beta/parking-session-web-status.md`. | Hosted-beta: `DEPLOYMENT_NOT_PERFORMED` (R27) |
+| mobile-v2 | Canonical app; auth restore; QueryClient; ACTIVE restore/start/timer/terminal; navigate/share; Profile history + deletion UI; claim→active invalidate; session cache cleanup; release scripts | Crash reporting, signed/device proof |
 | Legacy Mobile | Non-canonical analytics/crash seams and spot claim | Cannot satisfy canonical mobile requirements |
 | Analytics | Kafka/inbox/read-model infrastructure; spot claim aggregate; ParkingSession lifecycle ingestion on `parkio.parking.session` (`parking_session_started/completed/cancelled`); client click/share events (R20–R21) | `parking_history_deleted` (R22) |
-| Privacy | Owner isolation; no-store; documented derived-data policy; terminal hard-delete APIs; mobile-v2 history deletion UX | `parking_history_deleted` analytics; account erasure (PRIV-001) |
-| Azure/operations | parking-service enabled/private; general smoke and rollback | ParkingSession smoke flow; client rollout prerequisite; current release evidence |
+| Privacy | Owner isolation; no-store; documented derived-data policy; terminal hard-delete APIs; mobile-v2 + **web** history deletion UX | `parking_history_deleted` analytics; account erasure (PRIV-001) |
+| Azure/operations | parking-service enabled/private; general smoke and rollback | ParkingSession hosted-beta smoke exit 0 (R27) |
 
 ## Blocker-to-dependency mapping
 

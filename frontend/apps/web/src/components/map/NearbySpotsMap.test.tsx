@@ -114,4 +114,42 @@ describe('NearbySpotsMap', () => {
     expect(onPickCenter).not.toHaveBeenCalled();
     expect(onSelectSpot).toHaveBeenCalledWith('spot-2');
   });
+
+  it('renders a dedicated parked-car marker distinct from spot markers', () => {
+    const onSelectParkedCar = vi.fn();
+    const onSelectSpot = vi.fn();
+    renderWithProviders(
+      <NearbySpotsMap
+        center={{ lat: 41, lng: 29 }}
+        spots={spots}
+        onPickCenter={() => undefined}
+        onSelectSpot={onSelectSpot}
+        parkedCar={{ latitude: 38.42, longitude: 27.14 }}
+        parkedCarSelected
+        onSelectParkedCar={onSelectParkedCar}
+      />,
+    );
+
+    // 2 spots + 1 center + 1 parked car
+    expect(screen.getAllByTestId('marker')).toHaveLength(4);
+    const parked = screen.getByTestId('parked-car-marker');
+    expect(parked).toHaveAttribute('aria-pressed', 'true');
+
+    fireEvent.click(parked);
+    expect(onSelectParkedCar).toHaveBeenCalledOnce();
+    expect(onSelectSpot).not.toHaveBeenCalled();
+  });
+
+  it('omits the parked-car marker when coordinates are invalid', () => {
+    renderWithProviders(
+      <NearbySpotsMap
+        center={{ lat: 41, lng: 29 }}
+        spots={[]}
+        onPickCenter={() => undefined}
+        parkedCar={{ latitude: 999, longitude: 27.14 }}
+      />,
+    );
+
+    expect(screen.queryByTestId('parked-car-marker')).not.toBeInTheDocument();
+  });
 });

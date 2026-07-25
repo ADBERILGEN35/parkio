@@ -7,6 +7,8 @@ export interface MapFloatingControlsProps {
   locating: boolean;
   /** Offset controls left when the results sidebar is open (desktop). */
   sidebarOpen?: boolean;
+  /** When set, shows a compact recenter-on-parked-car control. */
+  onFocusParkedCar?: () => void;
 }
 
 /**
@@ -17,6 +19,7 @@ export function MapFloatingControls({
   onLocate,
   locating,
   sidebarOpen = true,
+  onFocusParkedCar,
 }: MapFloatingControlsProps) {
   const { t } = useTranslation('map');
   const { current: map } = useMap();
@@ -27,6 +30,18 @@ export function MapFloatingControls({
         sidebarOpen ? 'md:right-[420px]' : 'md:right-md'
       }`}
     >
+      {onFocusParkedCar ? (
+        <button
+          type="button"
+          aria-label={t('parkingSession.recenterAria')}
+          title={t('parkingSession.recenterAria')}
+          data-testid="parked-car-recenter"
+          onClick={onFocusParkedCar}
+          className="pointer-events-auto flex h-11 w-11 items-center justify-center rounded-full bg-surface-container-lowest text-on-surface shadow-lg transition-all duration-std hover:bg-surface-container motion-safe:active:scale-95"
+        >
+          <Icon name="directions_car" className="text-[20px] leading-none text-primary" />
+        </button>
+      ) : null}
       <button
         type="button"
         aria-label={t('locateAria')}

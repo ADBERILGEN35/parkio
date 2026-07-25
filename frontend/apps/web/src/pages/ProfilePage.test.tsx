@@ -112,6 +112,9 @@ function useProfileHandlers(vehicle: VehicleProfile = emptyVehicle, smartReturnS
     ),
     http.get(`${API_BASE}/users/me/vehicle`, () => HttpResponse.json(vehicle)),
     http.put(`${API_BASE}/users/me/vehicle`, () => HttpResponse.json(vehicle)),
+    http.get(`${API_BASE}/parking/sessions/history`, () =>
+      HttpResponse.json({ items: [], nextCursor: null }),
+    ),
   );
 }
 
@@ -279,6 +282,29 @@ describe('ProfilePage', () => {
 
     expect(await screen.findByRole('heading', { name: 'Today' })).toBeInTheDocument();
     expect(screen.getByText('Are you driving today?')).toBeInTheDocument();
+  });
+
+  it('shows Parking History in the settings rail and opens via section query', async () => {
+    useProfileHandlers();
+    renderProfile({ initialEntries: ['/profile?section=parking-history'] });
+
+    expect(await screen.findByRole('tab', { name: 'Parking History' })).toBeInTheDocument();
+    expect(await screen.findByRole('heading', { name: 'Parking History' })).toBeInTheDocument();
+    expect(screen.getByText('No parking history yet')).toBeInTheDocument();
+    expect(screen.queryByText('Are you driving today?')).not.toBeInTheDocument();
+  });
+
+  it('keeps Smart Return section available alongside Parking History', async () => {
+    useProfileHandlers(emptyVehicle, enabledSmartReturn);
+    renderProfile();
+    const user = userEvent.setup();
+
+    expect(screen.getByRole('tab', { name: 'Smart Return' })).toBeInTheDocument();
+    expect(screen.getByRole('tab', { name: 'Parking History' })).toBeInTheDocument();
+    await user.click(screen.getByRole('tab', { name: 'Parking History' }));
+    expect(await screen.findByText('No parking history yet')).toBeInTheDocument();
+    await user.click(screen.getByRole('tab', { name: 'Smart Return' }));
+    expect(await screen.findByRole('heading', { name: 'Today' })).toBeInTheDocument();
   });
 
   it('driving today opens the return time flow and saving updates the current plan', async () => {

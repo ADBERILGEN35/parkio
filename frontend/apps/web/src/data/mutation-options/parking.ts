@@ -8,6 +8,7 @@ import {
   syncAfterSpotCreate,
   syncAfterSpotLifecycleMutation,
 } from '@/data/parking/spotCache';
+import { activeParkingSessionQueryOptions } from '@/data/query-options/parking';
 
 export type VerifySpotMutationInput = {
   result: VerificationResult;
@@ -41,6 +42,10 @@ export function createClaimSpotMutationOptions(
     onSuccess: async (updated: PublicSpot) => {
       applyParkingSpotUpdate(queryClient, updated);
       await syncAfterSpotLifecycleMutation(queryClient);
+      // Backend claim atomically creates an ACTIVE COMMUNITY ParkingSession; the claim
+      // response is still PublicSpot-only, so restore via the canonical active query
+      // (same intent as mobile-v2 SpotActions — never synthesize a session from the spot).
+      await queryClient.fetchQuery(activeParkingSessionQueryOptions(sdk));
     },
   };
 }

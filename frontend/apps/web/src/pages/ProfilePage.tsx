@@ -10,9 +10,16 @@ import { ProfileDetailsCard } from './profile/ProfileDetailsCard';
 import { SettingsNav, type SettingsSection } from './profile/SettingsNav';
 import { SmartReturnCard } from './profile/SmartReturnCard';
 import { TrustProgressCard } from './profile/TrustProgressCard';
+import { ParkingHistoryCard } from './profile/ParkingHistoryCard';
 import { VehicleCard } from './profile/VehicleCard';
 
-type SectionId = 'account' | 'vehicle' | 'notifications' | 'smart-return' | 'trust';
+type SectionId =
+  | 'account'
+  | 'vehicle'
+  | 'notifications'
+  | 'smart-return'
+  | 'parking-history'
+  | 'trust';
 
 export interface ProfilePageProps {
   smartReturnEnabled?: boolean;
@@ -22,7 +29,7 @@ export interface ProfilePageProps {
  * Profile — Settings & Preferences (`/profile`). A Stitch-style settings layout:
  * a persistent impact summary (identity + trust/level/points) sits above a
  * section rail (desktop) / scrollable tab strip (mobile) that toggles between
- * Profile & Account, Vehicle, Notifications and Trust & Progress.
+ * Profile & Account, Vehicle, Notifications, Parking History, and Trust & Progress.
  */
 export function ProfilePage({ smartReturnEnabled = frontendConfig.features.smartReturn }: ProfilePageProps) {
   const { t } = useTranslation('settings');
@@ -31,6 +38,7 @@ export function ProfilePage({ smartReturnEnabled = frontendConfig.features.smart
       { id: 'account', label: t('sections.account'), icon: 'person' },
       { id: 'vehicle', label: t('sections.vehicle'), icon: 'directions_car' },
       { id: 'notifications', label: t('sections.notifications'), icon: 'notifications' },
+      { id: 'parking-history', label: t('sections.parkingHistory'), icon: 'history' },
       { id: 'trust', label: t('sections.trust'), icon: 'verified_user' },
     ];
     if (!smartReturnEnabled) return base;
@@ -40,6 +48,7 @@ export function ProfilePage({ smartReturnEnabled = frontendConfig.features.smart
       base[2]!,
       { id: 'smart-return', label: t('sections.smartReturn'), icon: 'home_pin' },
       base[3]!,
+      base[4]!,
     ];
   }, [smartReturnEnabled, t]);
 
@@ -89,6 +98,7 @@ export function ProfilePage({ smartReturnEnabled = frontendConfig.features.smart
           {section === 'smart-return' && smartReturnEnabled ? (
             <SmartReturnCard autoFocusToday={requestedSection === 'smart-return'} />
           ) : null}
+          {section === 'parking-history' ? <ParkingHistoryCard /> : null}
           {section === 'trust' ? <TrustProgressCard /> : null}
         </div>
       </div>

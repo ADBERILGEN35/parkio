@@ -19,6 +19,14 @@ describe('canonical query keys', () => {
     expect(parkingKeys.spot('spot-1')).toEqual(['parking', 'spot', 'spot-1']);
   });
 
+  it('builds user-scoped ParkingSession keys under a shared sessions root', () => {
+    expect(parkingKeys.sessionsRoot()).toEqual(['parking', 'sessions']);
+    expect(parkingKeys.activeSession()).toEqual(['parking', 'sessions', 'active']);
+    expect(parkingKeys.sessionHistoryRoot()).toEqual(['parking', 'sessions', 'history']);
+    expect(parkingKeys.sessionHistory(20)).toEqual(['parking', 'sessions', 'history', { size: 20 }]);
+    expect(parkingKeys.sessionHistory(20)).not.toEqual(parkingKeys.sessionHistory(50));
+  });
+
   it('normalizes nearby filters so equivalent filters share identity', () => {
     const a = normalizeNearbyFilters({ lat: 41.0, lng: 29.0 });
     const b = normalizeNearbyFilters({ lat: 41.0, lng: 29.0 });
@@ -62,6 +70,17 @@ describe('clearUserSessionQueries', () => {
     expect(client.getQueryData(meKeys.profile())).toBeUndefined();
     expect(client.getQueryData(parkingKeys.mySpots())).toBeUndefined();
     expect(client.getQueryData(parkingKeys.nearby({ lat: 1, lng: 2 }))).toEqual([{ id: 'n1' }]);
+  });
+
+  it('clears precise ParkingSession state (active + history) on logout', () => {
+    const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    client.setQueryData(parkingKeys.activeSession(), { id: 'sess-1', status: 'ACTIVE' });
+    client.setQueryData(parkingKeys.sessionHistory(20), { pages: [], pageParams: [] });
+
+    clearUserSessionQueries(client);
+
+    expect(client.getQueryData(parkingKeys.activeSession())).toBeUndefined();
+    expect(client.getQueryData(parkingKeys.sessionHistory(20))).toBeUndefined();
   });
 
   it('prevents User A profile from remaining after clear before User B loads', () => {

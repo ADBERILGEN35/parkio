@@ -17,6 +17,9 @@ export function mapParkingActionError(error: ParkioApiError): string | null {
   if (error.status === 404) {
     return i18n.t('parking:spotDetail.spotGone');
   }
+  if (error.status === 409 && error.code === 'ACTIVE_PARKING_SESSION_EXISTS') {
+    return i18n.t('parking:spotDetail.claimAlreadyActive');
+  }
   if (error.status === 409) {
     return error.code === 'ALREADY_VERIFIED'
       ? i18n.t('parking:spotDetail.alreadyVerified')

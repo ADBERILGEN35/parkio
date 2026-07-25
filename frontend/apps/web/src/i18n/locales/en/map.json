@@ -89,5 +89,83 @@
     "parkingSpotNear": "{{status}} parking spot near {{address}}",
     "recentlyUpdated": "Recently updated",
     "freshness": "Freshness {{freshness}}"
+  },
+  "parkingSession": {
+    "activeTitle": "Parked",
+    "activeStatus": "Active",
+    "activeAria": "Active parking session, parked for {{duration}}",
+    "elapsed": "Parked for {{duration}}",
+    "elapsedAria": "Elapsed parking time {{duration}}",
+    "findMyCar": "Find my car",
+    "findMyCarAria": "Center map on your parked car",
+    "recenterAria": "Recenter map on parked car",
+    "markerAria": "Your parked car",
+    "sourceManual": "Saved by you",
+    "sourceCommunity": "From a claimed spot",
+    "sourceFacility": "Facility parking",
+    "sourceCurb": "Curb parking",
+    "sourceAuto": "Automatically saved",
+    "error": "Couldn't load your parked location",
+    "keepSession": "Keep session",
+    "maps": {
+      "cta": "Open in Maps",
+      "a11y": "Open parked location in an external maps app",
+      "failed": "Couldn't open maps. Try again.",
+      "invalidCoordinates": "Parked location isn't available for maps."
+    },
+    "share": {
+      "cta": "Share",
+      "a11y": "Share parked location",
+      "title": "Parked location",
+      "messageLead": "My parking location:",
+      "copied": "Map link copied to clipboard.",
+      "failed": "Couldn't share the parked location. Try again.",
+      "invalidCoordinates": "Parked location isn't available to share."
+    },
+    "complete": {
+      "cta": "I'm leaving",
+      "a11y": "Complete parking session — I'm leaving",
+      "confirmAria": "Confirm leaving parking",
+      "confirmBody": "This marks your parking session as finished. You can start a new one anytime.",
+      "confirmCta": "Confirm leave",
+      "busy": "Finishing…",
+      "success": "Parking session finished."
+    },
+    "cancel": {
+      "cta": "Cancel session",
+      "a11y": "Cancel parking session started by mistake",
+      "confirmAria": "Confirm cancel parking session",
+      "confirmBody": "Cancel only if you started this parking session by mistake. The saved parking record will be cancelled.",
+      "confirmCta": "Confirm cancellation",
+      "busy": "Cancelling…",
+      "success": "Parking session cancelled."
+    },
+    "terminal": {
+      "stillActive": "Your parking session is still active.",
+      "alreadyEnded": "That parking session was already ended.",
+      "ambiguousStillActive": "We couldn't confirm the change. Your session is still active — try again.",
+      "ambiguousUnknown": "Connection interrupted. Check your parking session and try again if needed.",
+      "serverError": "Couldn't update your parking session. Try again.",
+      "networkError": "Network error. Check your connection and try again."
+    },
+    "start": {
+      "title": "Park Here",
+      "lead": "Save your current location as a parking session",
+      "cta": "Park Here",
+      "a11y": "Start a parking session with your current location",
+      "regionAria": "Start parking session",
+      "locating": "Locating…",
+      "saving": "Saving…",
+      "success": "Parking location saved.",
+      "alreadyActive": "You already have an active parking session.",
+      "geoUnsupported": "Location is not supported in this browser.",
+      "geoDenied": "Location permission is required to park here.",
+      "geoTimeout": "Location request timed out. Try again.",
+      "geoUnavailable": "Couldn't get your location. Try again.",
+      "invalidCoordinates": "Couldn't use that location. Try again.",
+      "unauthorized": "Sign in again to start a parking session.",
+      "serverError": "Couldn't start your parking session. Try again.",
+      "networkError": "Network error. Check your connection and try again."
+    }
   }
 }

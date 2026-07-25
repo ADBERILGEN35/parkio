@@ -24,8 +24,16 @@ import {
 } from '@/components/map/mapConfig';
 import { PlaceSearch } from '@/components/map/PlaceSearch';
 import { SelectedSpotPreview } from '@/components/map/SelectedSpotPreview';
+import type { ParkedCarFocusRequest } from '@/components/map/parkedCarCoords';
+import { isUsableParkedCoordinate } from '@/components/map/parkedCarCoords';
+import {
+  ActiveParkingSessionCard,
+  ActiveParkingSessionErrorCard,
+} from '@/components/parking/ActiveParkingSessionCard';
+import { ParkHereStartControl } from '@/components/parking/ParkHereStartControl';
 import { useMySmartReturnQuery, useMyVehicleQuery } from '@/data/hooks/useMeQueries';
 import { useNearbySpotsQuery } from '@/data/hooks/useParkingQueries';
+import { useActiveParkingSessionQuery } from '@/data/hooks/useParkingSessionQueries';
 import { type GeocodeResult } from '@/lib/geocoding';
 import { DESKTOP_QUERY, useMediaQuery } from '@/lib/useMediaQuery';
 import {
@@ -95,6 +103,11 @@ export function MapPage() {
   const [filters, setFilters] = useState<SpotFilters>(EMPTY_FILTERS);
   const [sort, setSort] = useState<SpotSort | null>(null);
   const [sheetState, setSheetState] = useState<SheetState>('collapsed');
+  /** Visual emphasis for the parked-car marker (card stays non-dismissible). */
+  const [parkedCarSelected, setParkedCarSelected] = useState(false);
+  const [parkedCarFocusRequest, setParkedCarFocusRequest] =
+    useState<ParkedCarFocusRequest | null>(null);
+  const parkedFocusTokenRef = useRef(0);
 
   const isDesktop = useMediaQuery(DESKTOP_QUERY);
   const isAuthenticated = useAuthStore((state) => state.isAuthenticated);
@@ -102,6 +115,37 @@ export function MapPage() {
   // Nearby hook keeps prior results via placeholderData while a re-search loads
   // (new center/radius/"use my location") instead of flashing the skeleton.
   const search = useNearbySpotsQuery(params);
+
+  const activeSessionQuery = useActiveParkingSessionQuery({ enabled: isAuthenticated });
+  const activeSession =
+    isAuthenticated && activeSessionQuery.data?.status === 'ACTIVE'
+      ? activeSessionQuery.data
+      : null;
+  const parkedCarCoords = useMemo(() => {
+    if (!activeSession) return null;
+    if (!isUsableParkedCoordinate(activeSession.latitude, activeSession.longitude)) return null;
+    return { latitude: activeSession.latitude, longitude: activeSession.longitude };
+  }, [activeSession]);
+
+  /** Shared map-focus path: card CTA, marker click, and floating recenter. */
+  const focusParkedCar = useCallback(() => {
+    if (!parkedCarCoords) return;
+    parkedFocusTokenRef.current += 1;
+    setParkedCarSelected(true);
+    setParkedCarFocusRequest({
+      latitude: parkedCarCoords.latitude,
+      longitude: parkedCarCoords.longitude,
+      token: parkedFocusTokenRef.current,
+    });
+  }, [parkedCarCoords]);
+
+  // Drop parked-car emphasis when the ACTIVE session disappears (complete/logout).
+  useEffect(() => {
+    if (!parkedCarCoords) {
+      setParkedCarSelected(false);
+      setParkedCarFocusRequest(null);
+    }
+  }, [parkedCarCoords]);
 
   const vehicleQuery = useMyVehicleQuery({
     enabled: isAuthenticated,
@@ -155,6 +199,9 @@ export function MapPage() {
   const selectSpot = useCallback(
     (id: string | null) => {
       setSelectedId(id);
+      // Spot selection is independent of the persistent Active card; clear only
+      // the parked-car marker emphasis so both previews can coexist cleanly.
+      if (id !== null) setParkedCarSelected(false);
       // On mobile the preview owns the bottom band; drop the sheet to its peek so
       // the two never fight for the same space (and the sheet handle stays visible
       // just below the preview). Desktop has dedicated space for both.
@@ -365,7 +412,13 @@ export function MapPage() {
             height="100%"
             onLocate={locate}
             locating={geoStatus === 'locating'}
-            showFloatingControls={isDesktop || selectedId === null}
+            // Keep recenter reachable when ACTIVE even if a spot preview is selected.
+            showFloatingControls={isDesktop || selectedId === null || Boolean(parkedCarCoords)}
+            parkedCar={parkedCarCoords}
+            parkedCarSelected={parkedCarSelected}
+            onSelectParkedCar={focusParkedCar}
+            parkedCarFocusRequest={parkedCarFocusRequest}
+            onFocusParkedCar={focusParkedCar}
           />
         </Suspense>
       </div>
@@ -561,28 +614,65 @@ export function MapPage() {
         </div>
       )}
 
-      {/* Selected-spot preview (Google Maps / Uber style).
-          Desktop: floats bottom-left over the map, clear of the right-hand results
-          sidebar. Mobile: anchored just above the bottom-sheet peek — and only while
-          the sheet is collapsed, so an expanded/half sheet (which the user opened to
-          browse results) is never obscured by the preview. selectSpot() collapses the
-          sheet on selection, so the preview is visible by default. The offset is
-          derived from COLLAPSED_PEEK. The map canvas already clears MobileNav +
-          safe-area via --parkio-mobile-nav-offset, so we do not add safe-area again. */}
-      {selectedSpot ? (
-        isDesktop ? (
-          <div className="pointer-events-none absolute bottom-md left-md z-[1060] w-[360px]">
-            <SelectedSpotPreview spot={selectedSpot} onClose={() => selectSpot(null)} />
+      {/* Parking Session + selected-spot preview stack.
+          Park Here (no ACTIVE) and Active card (ACTIVE) share this band.
+          SelectedSpotPreview is selection-scoped and stacks below them.
+          Desktop: bottom-left over the map. Mobile: above the bottom-sheet peek
+          while the sheet is collapsed (same rule as SelectedSpotPreview). */}
+      {(() => {
+        // Show the Active card whenever ACTIVE exists — invalid coords still need leave/cancel.
+        const showActiveCard = Boolean(activeSession);
+        const showActiveError =
+          isAuthenticated && activeSessionQuery.isError && !activeSessionQuery.isPending;
+        // Authenticated + settled + no ACTIVE: offer Park Here (never flash while pending).
+        const showParkHere =
+          isAuthenticated &&
+          !activeSessionQuery.isPending &&
+          !activeSession &&
+          !showActiveError;
+        const showSpotPreview = Boolean(selectedSpot);
+        // Mobile: yield the bottom band to an expanded discovery sheet (same rule as
+        // SelectedSpotPreview). Recenter FAB still focuses the car when controls show.
+        const showBottomStack = isDesktop || sheetState === 'collapsed';
+        if (
+          !showBottomStack ||
+          (!showActiveCard && !showActiveError && !showParkHere && !showSpotPreview)
+        ) {
+          return null;
+        }
+
+        const stack = (
+          <div className="flex flex-col gap-sm">
+            {showActiveError ? (
+              <ActiveParkingSessionErrorCard onRetry={() => void activeSessionQuery.refetch()} />
+            ) : null}
+            {showActiveCard && activeSession ? (
+              <ActiveParkingSessionCard session={activeSession} onFocusCar={focusParkedCar} />
+            ) : null}
+            {showParkHere ? <ParkHereStartControl /> : null}
+            {showSpotPreview && selectedSpot ? (
+              <SelectedSpotPreview spot={selectedSpot} onClose={() => selectSpot(null)} />
+            ) : null}
           </div>
-        ) : sheetState === 'collapsed' ? (
+        );
+
+        if (isDesktop) {
+          return (
+            <div className="pointer-events-none absolute bottom-md left-md z-[1060] w-[360px]">
+              {stack}
+            </div>
+          );
+        }
+
+        return (
           <div
             className="pointer-events-none absolute inset-x-0 z-[1060] px-sm"
             style={{ bottom: `calc(${COLLAPSED_PEEK}px + 0.5rem)` }}
           >
-            <SelectedSpotPreview spot={selectedSpot} onClose={() => selectSpot(null)} />
+            {stack}
           </div>
-        ) : null
-      ) : null}
+        );
+      })()}
 
       {/* Results — desktop sidebar vs mobile draggable bottom sheet. Exactly one
           mounts (media-query driven) so the discovery panel renders once. */}

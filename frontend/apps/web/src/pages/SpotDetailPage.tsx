@@ -43,9 +43,13 @@ import {
   useVerifySpotMutation,
 } from '@/data/hooks/useParkingMutations';
 import { mapParkingActionError, mapParkingReportError } from '@/data/parking/errors';
+import { isActiveParkingSessionConflict } from '@/data/parking/sessionErrors';
+import { activeParkingSessionQueryOptions } from '@/data/query-options/parking';
 import { enumLabel, formatInstant, formatRelativeAgo, formatRemaining } from '@/lib/format';
 import { freshnessLabel, spotStatusLabel } from '@/lib/localized-status';
-import { showError, showSuccess } from '@/lib/toast';
+import { showError, showInfo, showSuccess } from '@/lib/toast';
+import { useParkioSdk } from '@/app/AppRuntimeContext';
+import { useQueryClient } from '@tanstack/react-query';
 
 /** Owner-only metrics that may appear on SpotResponse but not PublicSpotResponse. */
 type OptionalSpotMetrics = Partial<
@@ -491,6 +495,8 @@ const TERMINAL_STATUSES: ReadonlyArray<PublicSpot['status']> = [
  */
 function PremiumActionCard({ spot }: { spot: PublicSpot }) {
   const { t } = useTranslation(['parking', 'common']);
+  const sdk = useParkioSdk();
+  const queryClient = useQueryClient();
   const [claimed, setClaimed] = useState(false);
   // Claiming flips the spot to FILLED for *every* user and can't be undone, so we
   // gate it behind an explicit in-place confirmation rather than a single tap.
@@ -537,9 +543,18 @@ function PremiumActionCard({ spot }: { spot: PublicSpot }) {
     claimMutation.mutate(undefined, {
       onSuccess: () => {
         setClaimed(true);
+        setConfirmingClaim(false);
         showSuccess(t('spotDetail.claimSuccess'));
       },
       onError: (error) => {
+        setConfirmingClaim(false);
+        if (isActiveParkingSessionConflict(error)) {
+          void queryClient
+            .fetchQuery(activeParkingSessionQueryOptions(sdk))
+            .catch(() => undefined);
+          showInfo(t('spotDetail.claimAlreadyActive'));
+          return;
+        }
         showError(mapParkingActionError(error as ParkioApiError) ?? t('spotDetail.claimError'));
       },
     });

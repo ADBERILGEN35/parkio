@@ -1,4 +1,4 @@
-import type { CreateSpotRequest, PublicSpot, Spot } from '@parkio/types';
+import type { CreateSpotRequest, ParkingSessionResponse, PublicSpot, Spot } from '@parkio/types';
 import { describe, expect, it, vi } from 'vitest';
 import type { ParkioSdk } from '@/app/sdk';
 import { parkingKeys, reportsKeys } from '@/data/keys';
@@ -34,12 +34,24 @@ const publicSpot: PublicSpot = {
   updatedAt: '2026-07-24T10:00:00.000Z',
 };
 
+const communityActiveSession: ParkingSessionResponse = {
+  id: '33333333-3333-4333-8333-333333333333',
+  status: 'ACTIVE',
+  parkingSource: 'COMMUNITY',
+  startedAt: '2026-07-24T11:00:00.000Z',
+  endedAt: null,
+  latitude: 41,
+  longitude: 29,
+  estimatedFee: null,
+};
+
 function createSdk(): ParkioSdk {
   return {
     parkingApi: {
       verifySpot: vi.fn(async () => ({ ...publicSpot, status: 'AVAILABLE' })),
       claimSpot: vi.fn(async () => ({ ...publicSpot, status: 'FILLED' })),
       createParkingSpot: vi.fn(async () => ({ ...publicSpot, ownerUserId: 'o1' }) as Spot),
+      getActiveParkingSession: vi.fn(async () => communityActiveSession),
     },
     moderationApi: {
       createReport: vi.fn(async () => ({ id: 'r1' })),
@@ -59,17 +71,25 @@ describe('parking mutation options', () => {
     expect(sdk.parkingApi.verifySpot).toHaveBeenCalledOnce();
     expect(client.getQueryData(parkingKeys.spot(spotId))).toEqual(updated);
     expect(client.getQueryData<PublicSpot[]>(nearbyKey)?.[0]).toEqual(updated);
+    expect(sdk.parkingApi.getActiveParkingSession).not.toHaveBeenCalled();
   });
 
-  it('claim patches caches with FILLED status', async () => {
+  it('claim patches caches with FILLED status and reconciles ACTIVE COMMUNITY session', async () => {
     const sdk = createSdk();
     const client = createTestQueryClient();
     client.setQueryData(parkingKeys.spot(spotId), publicSpot);
+    client.setQueryData(parkingKeys.activeSession(), null);
     const options = createClaimSpotMutationOptions(sdk, client, spotId);
     const updated = await options.mutationFn();
     await options.onSuccess(updated);
     expect(updated.status).toBe('FILLED');
     expect(client.getQueryData<PublicSpot>(parkingKeys.spot(spotId))?.status).toBe('FILLED');
+    expect(sdk.parkingApi.getActiveParkingSession).toHaveBeenCalledOnce();
+    expect(client.getQueryData(parkingKeys.activeSession())).toEqual(communityActiveSession);
+    // Must not invent a session from the claimed spot shape alone.
+    expect(client.getQueryData(parkingKeys.activeSession())).not.toMatchObject({
+      id: spotId,
+    });
   });
 
   it('create invalidates my-spots and nearby roots', async () => {

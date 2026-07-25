@@ -94,23 +94,38 @@ describe('SpotDetailPage', () => {
 
   it('requires confirmation before an irreversible claim, then shows success', async () => {
     useSpotHandlers();
+    let activeFetches = 0;
     server.use(
       http.post(`${API_BASE}/parking/spots/${SPOT_ID}/claim`, () =>
         HttpResponse.json({ ...spot, status: 'FILLED' }),
       ),
+      http.get(`${API_BASE}/parking/sessions/active`, () => {
+        activeFetches += 1;
+        return HttpResponse.json({
+          id: 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa',
+          status: 'ACTIVE',
+          parkingSource: 'COMMUNITY',
+          startedAt: '2026-06-11T09:30:00Z',
+          endedAt: null,
+          latitude: spot.latitude,
+          longitude: spot.longitude,
+          estimatedFee: null,
+        });
+      }),
     );
 
     renderSpotDetail();
     const user = userEvent.setup();
 
     // First tap only reveals the confirmation — no request fires yet.
-    await user.click(await screen.findByRole('button', { name: 'Claim this spot' }));
-    expect(await screen.findByText(/can't be undone/i)).toBeInTheDocument();
+    await user.click(await screen.findByRole('button', { name: 'I parked here' }));
+    expect(await screen.findByRole('button', { name: 'Yes, I parked here' })).toBeInTheDocument();
 
-    await user.click(screen.getByRole('button', { name: 'Yes, mark as filled' }));
+    await user.click(screen.getByRole('button', { name: 'Yes, I parked here' }));
     expect(
-      await screen.findByText('Spot claimed — it is now marked as filled.'),
+      await screen.findByText('Parked — your session is active and the spot is marked filled.'),
     ).toBeInTheDocument();
+    await waitFor(() => expect(activeFetches).toBeGreaterThanOrEqual(1));
   });
 
   it('lets the user cancel an unintended claim without firing a request', async () => {
@@ -126,12 +141,52 @@ describe('SpotDetailPage', () => {
     renderSpotDetail();
     const user = userEvent.setup();
 
-    await user.click(await screen.findByRole('button', { name: 'Claim this spot' }));
+    await user.click(await screen.findByRole('button', { name: 'I parked here' }));
     await user.click(await screen.findByRole('button', { name: 'Cancel' }));
 
     // Back to the initial affordance, and the claim endpoint was never called.
-    expect(screen.getByRole('button', { name: 'Claim this spot' })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'I parked here' })).toBeInTheDocument();
     expect(claimCalls).toBe(0);
+  });
+
+  it('preserves an existing ACTIVE session when claim returns ACTIVE_PARKING_SESSION_EXISTS', async () => {
+    useSpotHandlers();
+    let activeFetches = 0;
+    server.use(
+      http.post(`${API_BASE}/parking/spots/${SPOT_ID}/claim`, () =>
+        HttpResponse.json(apiErrorBody('ACTIVE_PARKING_SESSION_EXISTS', 'Active session exists'), {
+          status: 409,
+        }),
+      ),
+      http.get(`${API_BASE}/parking/sessions/active`, () => {
+        activeFetches += 1;
+        return HttpResponse.json({
+          id: 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb',
+          status: 'ACTIVE',
+          parkingSource: 'MANUAL',
+          startedAt: '2026-06-11T08:00:00Z',
+          endedAt: null,
+          latitude: 40.0,
+          longitude: 29.0,
+          estimatedFee: null,
+        });
+      }),
+    );
+
+    renderSpotDetail();
+    const user = userEvent.setup();
+
+    await user.click(await screen.findByRole('button', { name: 'I parked here' }));
+    await user.click(screen.getByRole('button', { name: 'Yes, I parked here' }));
+
+    expect(
+      await screen.findByText(
+        'You already have an active parking session. Leave or cancel it before parking here.',
+      ),
+    ).toBeInTheDocument();
+    await waitFor(() => expect(activeFetches).toBeGreaterThanOrEqual(1));
+    // Spot must not flip to claimed UI when personal claim was rejected.
+    expect(screen.queryByText(/your session is active and the spot is marked filled/i)).not.toBeInTheDocument();
   });
 
   it('keeps spot details visible when the photo is unavailable', async () => {

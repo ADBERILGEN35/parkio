@@ -1,14 +1,18 @@
 import type { GeocodeResult, PublicSpot, SmartReturnSettings } from '@parkio/types';
-import { fireEvent, screen } from '@testing-library/react';
+import { fireEvent, screen, waitFor, act } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { http, HttpResponse, delay } from 'msw';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import type { WebAppRuntime } from '@/app/runtime';
+import { parkingKeys } from '@/data/keys';
+import { clearUserSessionQueries } from '@/data/sessionQueryCache';
+import * as toast from '@/lib/toast';
 import { AUTOCOMPLETE_DEBOUNCE_MS } from '@/lib/usePlaceAutocomplete';
-import { API_BASE, server } from '@/test/server';
+import { API_BASE, apiErrorBody, server } from '@/test/server';
 import {
   createTestAppRuntime,
   renderWithProviders as renderWithBaseProviders,
+  resetAuth,
   signInAs,
 } from '@/test/utils';
 import { MapPage } from './MapPage';
@@ -31,11 +35,19 @@ vi.mock('@/components/map/NearbySpotsMap', () => ({
     onPickCenter,
     spots = [],
     onSelectSpot,
+    parkedCar,
+    parkedCarSelected,
+    onSelectParkedCar,
+    onFocusParkedCar,
   }: {
     center: { lat: number; lng: number };
     onPickCenter: (lat: number, lng: number) => void;
     spots?: PublicSpot[];
     onSelectSpot?: (id: string | null) => void;
+    parkedCar?: { latitude: number; longitude: number } | null;
+    parkedCarSelected?: boolean;
+    onSelectParkedCar?: () => void;
+    onFocusParkedCar?: () => void;
   }) => (
     <div>
       <span data-testid="map-center">{`${center.lat},${center.lng}`}</span>
@@ -46,6 +58,22 @@ vi.mock('@/components/map/NearbySpotsMap', () => ({
         <button type="button" onClick={() => onSelectSpot?.(spots[0].id)}>
           stub-select-first-spot
         </button>
+      ) : null}
+      {parkedCar ? (
+        <>
+          <span
+            data-testid="stub-parked-car"
+            data-lat={parkedCar.latitude}
+            data-lng={parkedCar.longitude}
+            data-selected={parkedCarSelected ? 'true' : 'false'}
+          />
+          <button type="button" onClick={() => onSelectParkedCar?.()}>
+            stub-select-parked-car
+          </button>
+          <button type="button" onClick={() => onFocusParkedCar?.()}>
+            stub-recenter-parked-car
+          </button>
+        </>
       ) : null}
     </div>
   ),
@@ -141,6 +169,10 @@ describe('MapPage', () => {
       http.get(`${API_BASE}/users/me/vehicle`, () =>
         HttpResponse.json({ vehicleType: 'SEDAN', plate: '35PK123' }),
       ),
+    );
+    // Default: no ACTIVE Parking Session (HTTP 204). Individual tests override.
+    server.use(
+      http.get(`${API_BASE}/parking/sessions/active`, () => new HttpResponse(null, { status: 204 })),
     );
     // Default: geolocation unavailable so the map uses the İzmir fallback and
     // does not auto-search. Individual tests override this as needed.
@@ -517,5 +549,429 @@ describe('MapPage', () => {
     await user.click(screen.getByRole('button', { name: /Search results, collapsed/ }));
     expect(screen.queryByTestId('selected-spot-preview')).not.toBeInTheDocument();
     expect(screen.getByRole('button', { name: /Search results, half/ })).toBeInTheDocument();
+  });
+});
+
+const activeParkingSession = {
+  id: 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa',
+  status: 'ACTIVE' as const,
+  parkingSource: 'MANUAL' as const,
+  startedAt: '2026-07-25T10:00:00.000Z',
+  endedAt: null,
+  latitude: 38.42,
+  longitude: 27.14,
+  estimatedFee: null,
+};
+
+describe('MapPage Parking Session (ACTIVE restore)', () => {
+  beforeEach(() => {
+    runtime = createTestAppRuntime();
+    signInAs(runtime, ['USER']);
+    server.use(http.get(`${API_BASE}/notifications/me`, () => HttpResponse.json([])));
+    server.use(
+      http.get(`${API_BASE}/users/me/vehicle`, () =>
+        HttpResponse.json({ vehicleType: 'SEDAN', plate: '35PK123' }),
+      ),
+    );
+    server.use(
+      http.get(`${API_BASE}/parking/sessions/active`, () => new HttpResponse(null, { status: 204 })),
+    );
+    stubGeolocation(undefined);
+  });
+
+  it('does not fetch or render an active session for unauthenticated users', async () => {
+    resetAuth(runtime);
+    let activeFetched = false;
+    server.use(
+      http.get(`${API_BASE}/parking/sessions/active`, () => {
+        activeFetched = true;
+        return HttpResponse.json(activeParkingSession);
+      }),
+    );
+
+    renderWithProviders(<MapPage />);
+    await screen.findByTestId('map-center');
+    await wait(50);
+
+    expect(activeFetched).toBe(false);
+    expect(screen.queryByTestId('active-parking-session-card')).not.toBeInTheDocument();
+    expect(screen.queryByTestId('stub-parked-car')).not.toBeInTheDocument();
+  });
+
+  it('renders neither card nor marker when active session is 204/null', async () => {
+    renderWithProviders(<MapPage />);
+    await screen.findByTestId('map-center');
+    await wait(50);
+
+    expect(screen.queryByTestId('active-parking-session-card')).not.toBeInTheDocument();
+    expect(screen.queryByTestId('stub-parked-car')).not.toBeInTheDocument();
+  });
+
+  it('restores the Active card and parked-car marker from GET active', async () => {
+    server.use(
+      http.get(`${API_BASE}/parking/sessions/active`, () => HttpResponse.json(activeParkingSession)),
+    );
+
+    renderWithProviders(<MapPage />);
+
+    expect(await screen.findByTestId('active-parking-session-card')).toBeInTheDocument();
+    expect(screen.getByTestId('stub-parked-car')).toHaveAttribute('data-lat', '38.42');
+    expect(screen.getByTestId('stub-parked-car')).toHaveAttribute('data-lng', '27.14');
+    expect(screen.getByText('Saved by you')).toBeInTheDocument();
+  });
+
+  it('does not flash Active UI while the active query is still pending', async () => {
+    server.use(
+      http.get(`${API_BASE}/parking/sessions/active`, async () => {
+        await delay(250);
+        return HttpResponse.json(activeParkingSession);
+      }),
+    );
+
+    renderWithProviders(<MapPage />);
+    await screen.findByTestId('map-center');
+
+    expect(screen.queryByTestId('active-parking-session-card')).not.toBeInTheDocument();
+    expect(screen.queryByTestId('stub-parked-car')).not.toBeInTheDocument();
+
+    expect(await screen.findByTestId('active-parking-session-card')).toBeInTheDocument();
+  });
+
+  it('shares map-focus between card CTA, marker click, and recenter control', async () => {
+    server.use(
+      http.get(`${API_BASE}/parking/sessions/active`, () => HttpResponse.json(activeParkingSession)),
+    );
+
+    renderWithProviders(<MapPage />);
+    const user = userEvent.setup();
+    await screen.findByTestId('active-parking-session-card');
+    expect(screen.getByTestId('stub-parked-car')).toHaveAttribute('data-selected', 'false');
+
+    await user.click(screen.getByTestId('active-parking-find-my-car'));
+    expect(screen.getByTestId('stub-parked-car')).toHaveAttribute('data-selected', 'true');
+
+    // Clear emphasis via spot selection, then re-focus from marker.
+    server.use(http.get(`${API_BASE}/parking/spots/nearby`, () => HttpResponse.json([spot])));
+    await user.click(screen.getByRole('button', { name: 'stub-pick-center' }));
+    await openSearchOptions(user);
+    await user.click(screen.getByRole('button', { name: 'Search nearby' }));
+    await user.click(await screen.findByRole('button', { name: 'stub-select-first-spot' }));
+    expect(screen.getByTestId('stub-parked-car')).toHaveAttribute('data-selected', 'false');
+
+    await user.click(screen.getByRole('button', { name: 'stub-select-parked-car' }));
+    expect(screen.getByTestId('stub-parked-car')).toHaveAttribute('data-selected', 'true');
+
+    await user.click(screen.getByRole('button', { name: 'stub-select-first-spot' }));
+    expect(screen.getByTestId('stub-parked-car')).toHaveAttribute('data-selected', 'false');
+    await user.click(screen.getByRole('button', { name: 'stub-recenter-parked-car' }));
+    expect(screen.getByTestId('stub-parked-car')).toHaveAttribute('data-selected', 'true');
+  });
+
+  it('does not open Spot Detail from the parked-car marker', async () => {
+    server.use(
+      http.get(`${API_BASE}/parking/sessions/active`, () => HttpResponse.json(activeParkingSession)),
+    );
+
+    renderWithProviders(<MapPage />);
+    const user = userEvent.setup();
+    await screen.findByTestId('active-parking-session-card');
+    await user.click(screen.getByRole('button', { name: 'stub-select-parked-car' }));
+
+    expect(screen.queryByRole('link', { name: /view spot details/i })).not.toBeInTheDocument();
+    expect(screen.getByTestId('active-parking-session-card')).toBeInTheDocument();
+  });
+
+  it('renders COMMUNITY source label for claim-originated sessions', async () => {
+    server.use(
+      http.get(`${API_BASE}/parking/sessions/active`, () =>
+        HttpResponse.json({ ...activeParkingSession, parkingSource: 'COMMUNITY' }),
+      ),
+    );
+
+    renderWithProviders(<MapPage />);
+    expect(await screen.findByTestId('active-parking-source')).toHaveTextContent(
+      'From a claimed spot',
+    );
+  });
+
+  it('coexists with SelectedSpotPreview when a nearby spot is also selected', async () => {
+    server.use(
+      http.get(`${API_BASE}/parking/sessions/active`, () => HttpResponse.json(activeParkingSession)),
+    );
+    server.use(http.get(`${API_BASE}/parking/spots/nearby`, () => HttpResponse.json([spot])));
+
+    renderWithProviders(<MapPage />);
+    const user = userEvent.setup();
+
+    expect(await screen.findByTestId('active-parking-session-card')).toBeInTheDocument();
+
+    await user.click(await screen.findByRole('button', { name: 'stub-pick-center' }));
+    await openSearchOptions(user);
+    await user.click(screen.getByRole('button', { name: 'Search nearby' }));
+    await user.click(await screen.findByRole('button', { name: 'stub-select-first-spot' }));
+
+    expect(screen.getByTestId('active-parking-session-card')).toBeInTheDocument();
+    expect(screen.getByTestId('selected-spot-preview')).toBeInTheDocument();
+  });
+
+  it('clears the Active card after logout without retaining precise coordinates', async () => {
+    server.use(
+      http.get(`${API_BASE}/parking/sessions/active`, () => HttpResponse.json(activeParkingSession)),
+    );
+
+    const { queryClient } = renderWithProviders(<MapPage />);
+    expect(await screen.findByTestId('stub-parked-car')).toBeInTheDocument();
+
+    act(() => {
+      resetAuth(runtime);
+      // Production mounts SessionQueryCacheSync; mirror logout teardown here.
+      clearUserSessionQueries(queryClient);
+    });
+
+    await waitFor(() => {
+      expect(screen.queryByTestId('active-parking-session-card')).not.toBeInTheDocument();
+      expect(screen.queryByTestId('stub-parked-car')).not.toBeInTheDocument();
+    });
+  });
+
+  it('keeps the Active card when coordinates are unusable and hides Park Here', async () => {
+    const coords = await import('@/components/map/parkedCarCoords');
+    const spy = vi.spyOn(coords, 'isUsableParkedCoordinate').mockReturnValue(false);
+    try {
+      server.use(
+        http.get(`${API_BASE}/parking/sessions/active`, () => HttpResponse.json(activeParkingSession)),
+      );
+
+      renderWithProviders(<MapPage />);
+      expect(await screen.findByTestId('active-parking-session-card')).toBeInTheDocument();
+      expect(screen.queryByTestId('stub-parked-car')).not.toBeInTheDocument();
+      expect(screen.queryByTestId('park-here-start')).not.toBeInTheDocument();
+    } finally {
+      spy.mockRestore();
+    }
+  });
+});
+
+describe('MapPage Parking Session (Park Here)', () => {
+  beforeEach(() => {
+    runtime = createTestAppRuntime();
+    signInAs(runtime, ['USER']);
+    server.use(http.get(`${API_BASE}/notifications/me`, () => HttpResponse.json([])));
+    server.use(
+      http.get(`${API_BASE}/users/me/vehicle`, () =>
+        HttpResponse.json({ vehicleType: 'SEDAN', plate: '35PK123' }),
+      ),
+    );
+    server.use(
+      http.get(`${API_BASE}/parking/sessions/active`, () => new HttpResponse(null, { status: 204 })),
+    );
+    // Unavailable mount geolocation keeps the mobile sheet collapsed so the
+    // bottom Parking Session stack (Park Here / Active card) stays visible.
+    stubGeolocation(undefined);
+    vi.spyOn(toast, 'showSuccess').mockImplementation(() => undefined);
+    vi.spyOn(toast, 'showError').mockImplementation(() => undefined);
+    vi.spyOn(toast, 'showInfo').mockImplementation(() => undefined);
+  });
+
+  /** Park Here acquires location on click — enable GPS only for the start action. */
+  function stubParkHereLocation(
+    coords: { latitude: number; longitude: number } = { latitude: 38.42, longitude: 27.14 },
+  ) {
+    stubGeolocation({
+      getCurrentPosition: (success) =>
+        success({ coords } as GeolocationPosition),
+    });
+  }
+
+  it('does not show Park Here for guests', async () => {
+    resetAuth(runtime);
+    renderWithProviders(<MapPage />);
+    await screen.findByTestId('map-center');
+    await wait(50);
+
+    expect(screen.queryByTestId('park-here-start')).not.toBeInTheDocument();
+  });
+
+  it('shows Park Here when authenticated with no ACTIVE session', async () => {
+    renderWithProviders(<MapPage />);
+    expect(await screen.findByTestId('park-here-start')).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: /start a parking session/i })).toBeInTheDocument();
+  });
+
+  it('does not flash Park Here while the active query is pending', async () => {
+    server.use(
+      http.get(`${API_BASE}/parking/sessions/active`, async () => {
+        await delay(250);
+        return new HttpResponse(null, { status: 204 });
+      }),
+    );
+
+    renderWithProviders(<MapPage />);
+    await screen.findByTestId('map-center');
+
+    expect(screen.queryByTestId('park-here-start')).not.toBeInTheDocument();
+    expect(await screen.findByTestId('park-here-start')).toBeInTheDocument();
+  });
+
+  it('hides Park Here while ACTIVE exists and restores it after the session clears', async () => {
+    server.use(
+      http.get(`${API_BASE}/parking/sessions/active`, () => HttpResponse.json(activeParkingSession)),
+    );
+
+    const { queryClient } = renderWithProviders(<MapPage />);
+    expect(await screen.findByTestId('active-parking-session-card')).toBeInTheDocument();
+    expect(screen.queryByTestId('park-here-start')).not.toBeInTheDocument();
+
+    act(() => {
+      queryClient.setQueryData(parkingKeys.activeSession(), null);
+    });
+
+    expect(await screen.findByTestId('park-here-start')).toBeInTheDocument();
+    expect(screen.queryByTestId('active-parking-session-card')).not.toBeInTheDocument();
+  });
+
+  it('hides Park Here for COMMUNITY claim-originated ACTIVE sessions', async () => {
+    server.use(
+      http.get(`${API_BASE}/parking/sessions/active`, () =>
+        HttpResponse.json({ ...activeParkingSession, parkingSource: 'COMMUNITY' }),
+      ),
+    );
+
+    renderWithProviders(<MapPage />);
+    expect(await screen.findByTestId('active-parking-session-card')).toBeInTheDocument();
+    expect(screen.queryByTestId('park-here-start')).not.toBeInTheDocument();
+  });
+
+  it('creates a session from Park Here and restores card + marker without auto-flying', async () => {
+    let startCalls = 0;
+    server.use(
+      http.post(`${API_BASE}/parking/sessions`, async ({ request }) => {
+        startCalls += 1;
+        const body = (await request.json()) as { latitude: number; longitude: number };
+        expect(body).toEqual({ latitude: 38.42, longitude: 27.14 });
+        return HttpResponse.json(activeParkingSession, { status: 201 });
+      }),
+    );
+
+    renderWithProviders(<MapPage />);
+    const user = userEvent.setup();
+    expect(await screen.findByTestId('park-here-start')).toBeInTheDocument();
+
+    stubParkHereLocation();
+    await user.click(screen.getByTestId('park-here-cta'));
+
+    expect(await screen.findByTestId('active-parking-session-card')).toBeInTheDocument();
+    expect(screen.getByTestId('stub-parked-car')).toHaveAttribute('data-lat', '38.42');
+    expect(screen.queryByTestId('park-here-start')).not.toBeInTheDocument();
+    expect(toast.showSuccess).toHaveBeenCalledWith('Parking location saved.');
+    expect(startCalls).toBe(1);
+  });
+
+  it('recovers from 409 by restoring ACTIVE UI and a friendly toast', async () => {
+    let activeGets = 0;
+    server.use(
+      http.post(`${API_BASE}/parking/sessions`, () =>
+        HttpResponse.json(
+          apiErrorBody('ACTIVE_PARKING_SESSION_EXISTS', 'Active session exists'),
+          { status: 409 },
+        ),
+      ),
+      http.get(`${API_BASE}/parking/sessions/active`, () => {
+        activeGets += 1;
+        if (activeGets === 1) {
+          return new HttpResponse(null, { status: 204 });
+        }
+        return HttpResponse.json(activeParkingSession);
+      }),
+    );
+
+    renderWithProviders(<MapPage />);
+    const user = userEvent.setup();
+    expect(await screen.findByTestId('park-here-start')).toBeInTheDocument();
+
+    stubParkHereLocation();
+    await user.click(screen.getByTestId('park-here-cta'));
+
+    expect(await screen.findByTestId('active-parking-session-card')).toBeInTheDocument();
+    expect(screen.getByTestId('stub-parked-car')).toBeInTheDocument();
+    expect(screen.queryByTestId('park-here-start')).not.toBeInTheDocument();
+    expect(toast.showInfo).toHaveBeenCalledWith('You already have an active parking session.');
+    expect(toast.showError).not.toHaveBeenCalled();
+    expect(activeGets).toBeGreaterThanOrEqual(2);
+  });
+});
+
+describe('MapPage Parking Session (terminal actions)', () => {
+  beforeEach(() => {
+    runtime = createTestAppRuntime();
+    signInAs(runtime, ['USER']);
+    server.use(http.get(`${API_BASE}/notifications/me`, () => HttpResponse.json([])));
+    server.use(
+      http.get(`${API_BASE}/users/me/vehicle`, () =>
+        HttpResponse.json({ vehicleType: 'SEDAN', plate: '35PK123' }),
+      ),
+    );
+    server.use(
+      http.get(`${API_BASE}/parking/sessions/active`, () => HttpResponse.json(activeParkingSession)),
+    );
+    stubGeolocation(undefined);
+    vi.spyOn(toast, 'showSuccess').mockImplementation(() => undefined);
+    vi.spyOn(toast, 'showError').mockImplementation(() => undefined);
+    vi.spyOn(toast, 'showInfo').mockImplementation(() => undefined);
+  });
+
+  it('completing a session clears card/marker and restores Park Here', async () => {
+    server.use(
+      http.post(
+        `${API_BASE}/parking/sessions/${activeParkingSession.id}/complete`,
+        () =>
+          HttpResponse.json({
+            ...activeParkingSession,
+            status: 'COMPLETED',
+            endedAt: '2026-07-25T11:00:00.000Z',
+          }),
+      ),
+    );
+
+    renderWithProviders(<MapPage />);
+    const user = userEvent.setup();
+
+    expect(await screen.findByTestId('active-parking-session-card')).toBeInTheDocument();
+    expect(screen.getByTestId('stub-parked-car')).toBeInTheDocument();
+    expect(screen.queryByTestId('park-here-start')).not.toBeInTheDocument();
+
+    await user.click(screen.getByTestId('active-parking-leave'));
+    await user.click(screen.getByTestId('active-parking-confirm-leave'));
+
+    expect(await screen.findByTestId('park-here-start')).toBeInTheDocument();
+    expect(screen.queryByTestId('active-parking-session-card')).not.toBeInTheDocument();
+    expect(screen.queryByTestId('stub-parked-car')).not.toBeInTheDocument();
+    expect(toast.showSuccess).toHaveBeenCalledWith('Parking session finished.');
+  });
+
+  it('cancelling a session clears card/marker and restores Park Here', async () => {
+    server.use(
+      http.post(
+        `${API_BASE}/parking/sessions/${activeParkingSession.id}/cancel`,
+        () =>
+          HttpResponse.json({
+            ...activeParkingSession,
+            status: 'CANCELLED',
+            endedAt: '2026-07-25T11:00:00.000Z',
+          }),
+      ),
+    );
+
+    renderWithProviders(<MapPage />);
+    const user = userEvent.setup();
+
+    expect(await screen.findByTestId('active-parking-session-card')).toBeInTheDocument();
+
+    await user.click(screen.getByTestId('active-parking-cancel'));
+    await user.click(screen.getByTestId('active-parking-confirm-cancel'));
+
+    expect(await screen.findByTestId('park-here-start')).toBeInTheDocument();
+    expect(screen.queryByTestId('active-parking-session-card')).not.toBeInTheDocument();
+    expect(toast.showSuccess).toHaveBeenCalledWith('Parking session cancelled.');
   });
 });

@@ -89,5 +89,83 @@
     "parkingSpotNear": "{{address}} yakınında {{status}} park yeri",
     "recentlyUpdated": "Yakın zamanda güncellendi",
     "freshness": "Tazelik {{freshness}}"
+  },
+  "parkingSession": {
+    "activeTitle": "Park edildi",
+    "activeStatus": "Aktif",
+    "activeAria": "Aktif park oturumu, {{duration}} süredir park edilmiş",
+    "elapsed": "{{duration}} süredir park edilmiş",
+    "elapsedAria": "Geçen park süresi {{duration}}",
+    "findMyCar": "Arabamı bul",
+    "findMyCarAria": "Haritayı park edilen araca ortala",
+    "recenterAria": "Haritayı park edilen araca yeniden ortala",
+    "markerAria": "Park edilen aracınız",
+    "sourceManual": "Sizin kaydınız",
+    "sourceCommunity": "İşaretlenen yerden",
+    "sourceFacility": "Tesis parkı",
+    "sourceCurb": "Kaldırım parkı",
+    "sourceAuto": "Otomatik kaydedildi",
+    "error": "Park konumunuz yüklenemedi",
+    "keepSession": "Oturumu koru",
+    "maps": {
+      "cta": "Haritada aç",
+      "a11y": "Park konumunu harici harita uygulamasında aç",
+      "failed": "Harita açılamadı. Tekrar deneyin.",
+      "invalidCoordinates": "Park konumu harita için kullanılamıyor."
+    },
+    "share": {
+      "cta": "Paylaş",
+      "a11y": "Park konumunu paylaş",
+      "title": "Park konumu",
+      "messageLead": "Park konumum:",
+      "copied": "Harita bağlantısı panoya kopyalandı.",
+      "failed": "Park konumu paylaşılamadı. Tekrar deneyin.",
+      "invalidCoordinates": "Park konumu paylaşım için kullanılamıyor."
+    },
+    "complete": {
+      "cta": "Parktan ayrılıyorum",
+      "a11y": "Park oturumunu tamamla — parktan ayrılıyorum",
+      "confirmAria": "Parktan ayrılmayı onayla",
+      "confirmBody": "Bu, park oturumunuzu tamamlar. İstediğiniz zaman yenisini başlatabilirsiniz.",
+      "confirmCta": "Ayrılmayı onayla",
+      "busy": "Tamamlanıyor…",
+      "success": "Park oturumu tamamlandı."
+    },
+    "cancel": {
+      "cta": "Park kaydını iptal et",
+      "a11y": "Yanlışlıkla başlatılan park oturumunu iptal et",
+      "confirmAria": "Park oturumu iptalini onayla",
+      "confirmBody": "Yalnızca bu park oturumunu yanlışlıkla başlattıysanız iptal edin. Kayıtlı park kaydı iptal edilir.",
+      "confirmCta": "İptali onayla",
+      "busy": "İptal ediliyor…",
+      "success": "Park oturumu iptal edildi."
+    },
+    "terminal": {
+      "stillActive": "Park oturumunuz hâlâ aktif.",
+      "alreadyEnded": "Bu park oturumu zaten sonlandırılmış.",
+      "ambiguousStillActive": "Değişiklik doğrulanamadı. Oturumunuz hâlâ aktif — tekrar deneyin.",
+      "ambiguousUnknown": "Bağlantı kesildi. Park oturumunuzu kontrol edin; gerekirse tekrar deneyin.",
+      "serverError": "Park oturumu güncellenemedi. Tekrar deneyin.",
+      "networkError": "Ağ hatası. Bağlantınızı kontrol edip tekrar deneyin."
+    },
+    "start": {
+      "title": "Buraya park et",
+      "lead": "Mevcut konumunla park oturumu başlat",
+      "cta": "Buraya park et",
+      "a11y": "Mevcut konumunla park oturumu başlat",
+      "regionAria": "Park oturumu başlat",
+      "locating": "Konum alınıyor…",
+      "saving": "Kaydediliyor…",
+      "success": "Park konumu kaydedildi.",
+      "alreadyActive": "Zaten aktif bir park oturumunuz var.",
+      "geoUnsupported": "Bu tarayıcıda konum desteklenmiyor.",
+      "geoDenied": "Park etmek için konum izni gerekli.",
+      "geoTimeout": "Konum isteği zaman aşımına uğradı. Tekrar deneyin.",
+      "geoUnavailable": "Konumunuz alınamadı. Tekrar deneyin.",
+      "invalidCoordinates": "Bu konum kullanılamadı. Tekrar deneyin.",
+      "unauthorized": "Park oturumu başlatmak için tekrar giriş yapın.",
+      "serverError": "Park oturumu başlatılamadı. Tekrar deneyin.",
+      "networkError": "Ağ hatası. Bağlantınızı kontrol edip tekrar deneyin."
+    }
   }
 }

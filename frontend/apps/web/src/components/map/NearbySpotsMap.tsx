@@ -6,8 +6,16 @@ import { useTranslation } from 'react-i18next';
 import Map, { Marker } from 'react-map-gl/maplibre';
 import { freshnessLabel, spotStatusLabel } from '@/lib/localized-status';
 import { MapFloatingControls } from './MapFloatingControls';
+import { ParkedCarFocus } from './ParkedCarFocus';
+import { ParkedCarMarker } from './ParkedCarMarker';
+import { isUsableParkedCoordinate, type ParkedCarFocusRequest } from './parkedCarCoords';
 import { DEFAULT_MAP_ZOOM, getMapStyle, type LatLng } from './mapConfig';
 import { Recenter } from './Recenter';
+
+export interface ParkedCarMapState {
+  latitude: number;
+  longitude: number;
+}
 
 export interface NearbySpotsMapProps {
   center: LatLng;
@@ -22,6 +30,16 @@ export interface NearbySpotsMapProps {
   onLocate?: () => void;
   locating?: boolean;
   showFloatingControls?: boolean;
+  /** ACTIVE Parking Session coordinates for the dedicated parked-car marker. */
+  parkedCar?: ParkedCarMapState | null;
+  /** Visual emphasis for the parked-car marker (shared with the Active card focus). */
+  parkedCarSelected?: boolean;
+  /** Marker click — focuses the Active Parking Session experience (not Spot Detail). */
+  onSelectParkedCar?: () => void;
+  /** Imperative flyTo request from card / recenter / marker. */
+  parkedCarFocusRequest?: ParkedCarFocusRequest | null;
+  /** Compact floating recenter control; omitted when there is no ACTIVE session. */
+  onFocusParkedCar?: () => void;
 }
 
 /** Premium, status-aware marker shown for each real spot. */
@@ -91,11 +109,17 @@ export function NearbySpotsMap({
   onLocate,
   locating = false,
   showFloatingControls = false,
+  parkedCar = null,
+  parkedCarSelected = false,
+  onSelectParkedCar,
+  parkedCarFocusRequest = null,
+  onFocusParkedCar,
 }: NearbySpotsMapProps) {
   // Stable selection handler: passed by reference to every marker so the memoized
   // `SpotMarker` only re-renders when *its own* `selected` flag flips. Selecting a
   // spot therefore re-renders two markers (the old + new selection), not all N.
   const handleSelect = useCallback((id: string) => onSelectSpot?.(id), [onSelectSpot]);
+  const handleSelectParkedCar = useCallback(() => onSelectParkedCar?.(), [onSelectParkedCar]);
 
   // Marker geometry/labels change only with the spot set; `selected` styling is a
   // cheap per-marker prop. Panning/dragging never rebuilds this list.
@@ -108,6 +132,9 @@ export function NearbySpotsMap({
       )),
     [spots, selectedId, handleSelect],
   );
+
+  const showParkedCar =
+    parkedCar !== null && isUsableParkedCoordinate(parkedCar.latitude, parkedCar.longitude);
 
   return (
     <Map
@@ -122,8 +149,14 @@ export function NearbySpotsMap({
       style={{ height, width: '100%' }}
     >
       <Recenter lat={center.lat} lng={center.lng} zoom={zoom} />
+      <ParkedCarFocus request={parkedCarFocusRequest} />
       {showFloatingControls && onLocate ? (
-        <MapFloatingControls onLocate={onLocate} locating={locating} sidebarOpen />
+        <MapFloatingControls
+          onLocate={onLocate}
+          locating={locating}
+          sidebarOpen
+          onFocusParkedCar={showParkedCar ? onFocusParkedCar : undefined}
+        />
       ) : null}
 
       {/* Current search center indicator. */}
@@ -132,6 +165,17 @@ export function NearbySpotsMap({
       </Marker>
 
       {markers}
+
+      {showParkedCar ? (
+        <Marker
+          longitude={parkedCar.longitude}
+          latitude={parkedCar.latitude}
+          anchor="center"
+          style={{ zIndex: 2 }}
+        >
+          <ParkedCarMarker selected={parkedCarSelected} onSelect={handleSelectParkedCar} />
+        </Marker>
+      ) : null}
     </Map>
   );
 }
