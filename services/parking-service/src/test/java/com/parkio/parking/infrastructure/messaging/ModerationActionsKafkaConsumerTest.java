@@ -47,7 +47,10 @@ class ModerationActionsKafkaConsumerTest {
         consumer.onMessage(record, "ParkingSpotRejectedByModerator", null, ack);
         consumer.onMessage(record, "ParkingSpotRejectedByModerator", null, ack);
 
-        verify(parking).rejectSpotByModerator(spotId);
+        verify(parking).rejectSpotByModerator(
+                org.mockito.ArgumentMatchers.eq(spotId),
+                org.mockito.ArgumentMatchers.eq(eventId),
+                org.mockito.ArgumentMatchers.any());
         verify(ack, org.mockito.Mockito.times(2)).acknowledge();
     }
 
@@ -58,8 +61,38 @@ class ModerationActionsKafkaConsumerTest {
 
         consumer.onMessage(record(eventId, spotId), "UserSuspended", null, ack);
 
-        verify(parking, never()).rejectSpotByModerator(spotId);
+        verify(parking, never()).rejectSpotByModerator(
+                org.mockito.ArgumentMatchers.eq(spotId),
+                org.mockito.ArgumentMatchers.any(),
+                org.mockito.ArgumentMatchers.any());
         verify(ack).acknowledge();
+    }
+
+    @Test
+    void appliesModeratorApprovalOnceAndAcknowledges() throws Exception {
+        UUID eventId = UUID.randomUUID();
+        UUID spotId = UUID.randomUUID();
+        when(jdbc.update(
+                org.mockito.ArgumentMatchers.anyString(),
+                org.mockito.ArgumentMatchers.eq(eventId),
+                org.mockito.ArgumentMatchers.eq("ParkingSpotApprovedByModerator"),
+                org.mockito.ArgumentMatchers.any()))
+                .thenReturn(1, 0);
+        ConsumerRecord<String, String> record = record(eventId, spotId);
+
+        // Delivered twice: the inbox claim admits only the first.
+        consumer.onMessage(record, "ParkingSpotApprovedByModerator", null, ack);
+        consumer.onMessage(record, "ParkingSpotApprovedByModerator", null, ack);
+
+        verify(parking).approveSpotByModerator(
+                org.mockito.ArgumentMatchers.eq(spotId),
+                org.mockito.ArgumentMatchers.eq(eventId),
+                org.mockito.ArgumentMatchers.eq(Instant.parse("2026-06-09T12:00:00Z")));
+        verify(parking, never()).rejectSpotByModerator(
+                org.mockito.ArgumentMatchers.any(),
+                org.mockito.ArgumentMatchers.any(),
+                org.mockito.ArgumentMatchers.any());
+        verify(ack, org.mockito.Mockito.times(2)).acknowledge();
     }
 
     private ConsumerRecord<String, String> record(UUID eventId, UUID spotId) throws Exception {

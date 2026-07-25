@@ -207,7 +207,8 @@ class SpotMediaAccessUrlTest {
                 .andExpect(status().isCreated())
                 .andReturn();
         String spotId = JsonPath.read(result.getResponse().getContentAsString(), "$.id");
-        parking.applyAiValidationResult(UUID.fromString(spotId), "PASSED", List.of());
+        parking.applyAiValidationResult(UUID.fromString(spotId), "PASSED", List.of(),
+                UUID.randomUUID(), java.time.Instant.now());
         return spotId;
     }
 

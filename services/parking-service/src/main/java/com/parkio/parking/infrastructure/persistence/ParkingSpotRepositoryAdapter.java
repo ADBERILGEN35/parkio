@@ -45,6 +45,13 @@ public class ParkingSpotRepositoryAdapter implements ParkingSpotRepository {
     }
 
     @Override
+    public List<ParkingSpot> findModerationTimeoutCandidates(Instant now, int batchSize) {
+        return jpa.findModerationTimeoutCandidates(now, batchSize).stream()
+                .map(ParkingPersistenceMapper::toDomain)
+                .toList();
+    }
+
+    @Override
     public List<ParkingSpot> findNearby(double latitude, double longitude, double radiusMeters, int limit) {
         return jpa.findNearby(latitude, longitude, radiusMeters, limit).stream()
                 .map(ParkingPersistenceMapper::toDomain)

@@ -1,10 +1,16 @@
 package com.parkio.parking.infrastructure.messaging;
 
+import io.micrometer.core.instrument.Counter;
+import io.micrometer.core.instrument.MeterRegistry;
 import java.util.HashMap;
 import java.util.Map;
+import org.apache.kafka.clients.consumer.Consumer;
 import org.apache.kafka.clients.consumer.ConsumerConfig;
+import org.apache.kafka.clients.consumer.ConsumerRecord;
 import org.apache.kafka.common.TopicPartition;
 import org.apache.kafka.common.serialization.StringDeserializer;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
@@ -22,6 +28,8 @@ import org.springframework.util.backoff.FixedBackOff;
 public class ParkingKafkaConsumerConfig {
 
     public static final String DLT_PARKING = "parkio.dlt.parking";
+
+    private static final Logger log = LoggerFactory.getLogger(ParkingKafkaConsumerConfig.class);
 
     private final String bootstrapServers;
     private final boolean autoStartup;
@@ -54,7 +62,8 @@ public class ParkingKafkaConsumerConfig {
     ConcurrentKafkaListenerContainerFactory<String, String> parkingKafkaListenerContainerFactory(
             ConsumerFactory<String, String> parkingConsumerFactory,
             KafkaTemplate<Object, Object> kafkaTemplate,
-            KafkaTraceRecordInterceptor traceInterceptor) {
+            KafkaTraceRecordInterceptor traceInterceptor,
+            MeterRegistry meterRegistry) {
         ConcurrentKafkaListenerContainerFactory<String, String> factory =
                 new ConcurrentKafkaListenerContainerFactory<>();
         factory.setConsumerFactory(parkingConsumerFactory);
@@ -62,8 +71,23 @@ public class ParkingKafkaConsumerConfig {
         factory.setRecordInterceptor(traceInterceptor);
         factory.getContainerProperties().setAckMode(AckMode.MANUAL);
         factory.getContainerProperties().setObservationEnabled(true);
+        // Count every dead-lettered record before it is published. A moderation verdict that
+        // reaches the DLT is a spot left pending, so this counter is the direct signal that
+        // the moderation timeout job will shortly have work to do.
+        Counter dlqCounter = Counter.builder("parkio.parking.consumer.dlq.count")
+                .description("Records dead-lettered from the parking consumers to " + DLT_PARKING)
+                .register(meterRegistry);
         DeadLetterPublishingRecoverer recoverer = new DeadLetterPublishingRecoverer(
-                kafkaTemplate, (record, ex) -> new TopicPartition(DLT_PARKING, -1));
+                kafkaTemplate, (record, ex) -> new TopicPartition(DLT_PARKING, -1)) {
+            @Override
+            public void accept(ConsumerRecord<?, ?> record, Consumer<?, ?> consumer, Exception exception) {
+                dlqCounter.increment();
+                log.error("Dead-lettering record from topic={} partition={} offset={} to {}: {}",
+                        record.topic(), record.partition(), record.offset(), DLT_PARKING,
+                        exception.getMessage());
+                super.accept(record, consumer, exception);
+            }
+        };
         factory.setCommonErrorHandler(
                 new DefaultErrorHandler(recoverer, new FixedBackOff(500L, 2L)));
         return factory;

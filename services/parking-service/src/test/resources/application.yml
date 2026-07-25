@@ -24,6 +24,9 @@ parkio:
   lifecycle:
     parking-expiry:
       enabled: false
+    moderation-timeout:
+      # Scheduler off in tests; the job's logic is driven directly through the service.
+      enabled: false
     retention:
       outbox-enabled: false
       inbox-enabled: false
@@ -42,6 +45,13 @@ parkio:
       default-result-limit: 10
       max-radius-meters: 50000
       max-result-limit: 50
+    moderation:
+      active-duration: 10m
+      validation-timeout: 2m
+      validation-retry-backoff: 1m
+      max-validation-attempts: 3
+      review-timeout: 15m
+      max-publishable-age: 30m
   kafka:
     # No broker in tests: skip topic provisioning and disable the outbox relay so the
     # context starts without Kafka (the relay poller / native query never runs).

@@ -74,10 +74,15 @@ public class AiValidationEventsKafkaConsumer {
                 AiValidationCompleted event =
                         objectMapper.treeToValue(envelope.payload(), AiValidationCompleted.class);
                 if (event.parkingSpotId() != null && markProcessing(event.eventId(), eventType)) {
+                    // The event id doubles as the moderation request id in structured logs, and
+                    // the envelope's occurredAt is the watermark that keeps an out-of-order
+                    // verdict from overwriting a newer lifecycle state.
                     parking.applyAiValidationResult(
                             event.parkingSpotId(),
                             event.status(),
-                            event.detectedRiskTypes() == null ? List.of() : event.detectedRiskTypes());
+                            event.detectedRiskTypes() == null ? List.of() : event.detectedRiskTypes(),
+                            event.eventId(),
+                            envelope.occurredAt());
                 }
             } else {
                 log.debug("Ignoring unsupported event type {} on {}", eventType, TOPIC);

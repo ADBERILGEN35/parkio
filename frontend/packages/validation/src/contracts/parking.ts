@@ -102,7 +102,7 @@ export const publicSpotResponseSchema = z
     legalStatus: z.enum(LEGAL_STATUSES),
     violationReasons: z.array(z.enum(VIOLATION_REASONS)),
     status: z.enum(PARKING_STATUSES),
-    expiresAt: instantSchema,
+    expiresAt: instantSchema.nullable(),
     createdAt: instantSchema,
     updatedAt: instantSchema,
   })

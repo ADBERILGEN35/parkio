@@ -196,7 +196,7 @@ interface AuthResponse {
   user: User;
 }
 
-type ParkingStatus = 'PENDING_VALIDATION'|'PENDING_REVIEW'|'ACTIVE'|'VERIFIED'|'SUSPICIOUS'|'FILLED'|'EXPIRED'|'REJECTED';
+type ParkingStatus = 'PENDING_VALIDATION'|'PENDING_REVIEW'|'ACTIVE'|'VERIFIED'|'SUSPICIOUS'|'FILLED'|'EXPIRED'|'REJECTED'|'REVIEW_FAILED';
 type SpotVehicleType = 'SEDAN'|'HATCHBACK'|'SUV'|'VAN'|'MOTORCYCLE'|'ANY';
 type LegalStatus = 'LEGAL'|'UNCERTAIN'|'ILLEGAL_OR_RISKY';
 type ParkingContext = 'STREET_PARKING'|'OPEN_PARKING_LOT'|'INDOOR_PARKING'|'MALL_PARKING'|'RESIDENTIAL_AREA'|'OFFICE_AREA'|'UNKNOWN';
@@ -446,7 +446,8 @@ export class ParkioClient {
 //   mediaId, latitude: 38.4192, longitude: 27.1287,
 //   suitableVehicleTypes: ['ANY'], parkingContext: 'STREET_PARKING', legalStatus: 'LEGAL',
 // });
-// // spot.status === 'PENDING_VALIDATION' → poll api.mySpot(spot.id) until ACTIVE / PENDING_REVIEW / REJECTED
+// // spot.status === 'PENDING_VALIDATION' → poll api.mySpot(spot.id) until
+// // ACTIVE / PENDING_REVIEW / REJECTED / REVIEW_FAILED
 ```
 
 ## 9. Pointing the EXISTING apps at the live API
@@ -465,7 +466,9 @@ export class ParkioClient {
 1. **No public demo account exists.** To get data flowing you must register a real account and complete email verification — which depends on the deployed email provider actually sending. If verification mail doesn't arrive in the hosted env, that's an operator/provider configuration issue (admins can resend or verify via the admin API).
 2. **A fresh account starts at Level 1:** nearby search is capped to 300 m radius / 3 results / 20 views per day until points accrue (§ access policy). Don't mistake the cap for "no data."
 3. **The İzmir default center** (`lat 38.4192, lng 27.1287`) is where beta spots will cluster; searching elsewhere will legitimately return empty.
-4. **Spot creation is asynchronous:** `POST /parking/spots` returns `PENDING_VALIDATION`; the Gemini gate flips it to `ACTIVE` / `PENDING_REVIEW` / `REJECTED` seconds later. Poll `GET /parking/my-spots/{id}` and design for all three outcomes.
+4. **Spot creation is asynchronous:** `POST /parking/spots` returns `PENDING_VALIDATION`; the Gemini gate flips it to `ACTIVE` / `PENDING_REVIEW` / `REJECTED` seconds later. Poll `GET /parking/my-spots/{id}` and design for every outcome, including the terminal `REVIEW_FAILED` (moderation never reached a verdict within its deadline, retries were exhausted, or the approval arrived after `maxPublishableAge` — show a retry/failure message, never an indefinite "pending").
+   **`expiresAt` is null while pending and is only a countdown once the spot is published.** Do not render a remaining-time value for `PENDING_VALIDATION` / `PENDING_REVIEW` or a null `expiresAt`. On a still-fresh approval the spot receives its full advertised window measured from the approval instant. Approvals past `max-publishable-age` (default 30m from creation) become `REVIEW_FAILED` rather than publishing a stale availability report.
+   **Compatibility note:** `REVIEW_FAILED` is a new public enum value. Clients that deserialize `status` with a closed enum will need an update (or a tolerant fallback). First-party web/mobile clients and Zod contracts include it; external strict clients should treat unknown statuses as non-discoverable.
 5. **Photos expire:** `accessUrl` from `media-access-url` is short-lived (~5 min). Re-request instead of caching; non-owners can fetch it only while the spot is publicly visible.
 6. **Idempotency:** generate one `Idempotency-Key` per logical attempt of create/verify/claim/upload and REUSE it on retries of that same attempt (the §8 client does this on its internal 401-retry; do the same for your own network-failure retries).
 7. **Show `traceId`** from error bodies (and `x-correlation-id`) in error UI — it's how the operator debugs reports.

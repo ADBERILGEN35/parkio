@@ -45,6 +45,9 @@ export function statusVisual(status: ParkingStatus, theme: Theme): StatusVisual 
       return { icon: 'timer-off-outline', fg: c.error, bg: dark ? '#3A0E0C' : '#BA1A1A1A' };
     case 'REJECTED':
       return { icon: 'close-circle-outline', fg: c.error, bg: dark ? '#3A0E0C' : '#BA1A1A1A' };
+    case 'REVIEW_FAILED':
+      // Distinct from REJECTED: the platform failed to review, the owner did nothing wrong.
+      return { icon: 'alert-circle-outline', fg: c.error, bg: dark ? '#3A0E0C' : '#BA1A1A1A' };
   }
 }
 

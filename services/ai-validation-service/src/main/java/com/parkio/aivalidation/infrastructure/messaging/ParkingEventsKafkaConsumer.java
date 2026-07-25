@@ -5,6 +5,7 @@ import com.parkio.platform.messaging.EventEnvelope;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.parkio.aivalidation.application.AiValidationApplicationService;
 import com.parkio.aivalidation.application.event.ParkingSpotCreatedEvent;
+import com.parkio.aivalidation.application.event.ParkingSpotModerationRetryRequestedEvent;
 import org.apache.kafka.clients.consumer.ConsumerRecord;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -19,8 +20,10 @@ import org.springframework.stereotype.Component;
  * inbox inside the handler (dedupe by {@code eventId}); the offset is acknowledged only
  * after the handler's transaction commits.
  *
- * <p>Only {@code ParkingSpotCreated} is handled; all other parking-spot lifecycle events
- * and unknown future types are ignored and acked. On failure the record is retried and
+ * <p>{@code ParkingSpotCreated} requests the first validation and
+ * {@code ParkingSpotModerationRetryRequested} a bounded re-run after parking-service's
+ * publication gate went unanswered; all other parking-spot lifecycle events and unknown
+ * future types are ignored and acked. On failure the record is retried and
  * ultimately dead-lettered by the container's error handler (reuses the service's
  * {@code mediaEventsKafkaListenerContainerFactory} → {@code parkio.dlt.aivalidation}).
  */
@@ -31,6 +34,7 @@ public class ParkingEventsKafkaConsumer {
     public static final String GROUP = "parkio.aivalidation";
 
     private static final String SPOT_CREATED = "ParkingSpotCreated";
+    private static final String MODERATION_RETRY_REQUESTED = "ParkingSpotModerationRetryRequested";
 
     private static final Logger log = LoggerFactory.getLogger(ParkingEventsKafkaConsumer.class);
 
@@ -56,6 +60,9 @@ public class ParkingEventsKafkaConsumer {
         if (SPOT_CREATED.equals(eventType)) {
             validationService.handleParkingSpotCreated(
                     objectMapper.treeToValue(envelope.payload(), ParkingSpotCreatedEvent.class));
+        } else if (MODERATION_RETRY_REQUESTED.equals(eventType)) {
+            validationService.handleModerationRetryRequested(objectMapper.treeToValue(
+                    envelope.payload(), ParkingSpotModerationRetryRequestedEvent.class));
         } else {
             log.debug("Ignoring unsupported event type {} on {}", eventType, PARKING_SPOT_TOPIC);
         }

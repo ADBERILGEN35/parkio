@@ -12,7 +12,14 @@ package com.parkio.parking.domain;
  *   <li>{@code FILLED} - taken (claimed) or confirmed full by reports (terminal).</li>
  *   <li>{@code EXPIRED} - validity window elapsed (terminal).</li>
  *   <li>{@code REJECTED} - found illegal/risky or rejected by AI (terminal).</li>
+ *   <li>{@code REVIEW_FAILED} - moderation never reached a verdict within its deadline,
+ *       or bounded validation retries were exhausted (terminal).</li>
  * </ul>
+ *
+ * <p>The user-visible lifetime (TTL) is <em>not</em> consumed by the pending statuses:
+ * a spot's {@code expiresAt} is computed exactly once, when it is published
+ * ({@link ParkingSpot#activatedAt()}), so a slow moderation pipeline can never shorten
+ * the advertised visibility window.
  */
 public enum ParkingSpotStatus {
     PENDING_VALIDATION,
@@ -22,5 +29,16 @@ public enum ParkingSpotStatus {
     SUSPICIOUS,
     FILLED,
     EXPIRED,
-    REJECTED
+    REJECTED,
+    REVIEW_FAILED;
+
+    /** Whether the spot is still waiting on the moderation pipeline (AI or human). */
+    public boolean isPendingModeration() {
+        return this == PENDING_VALIDATION || this == PENDING_REVIEW;
+    }
+
+    /** Whether no further lifecycle transition is possible. */
+    public boolean isTerminal() {
+        return this == FILLED || this == EXPIRED || this == REJECTED || this == REVIEW_FAILED;
+    }
 }

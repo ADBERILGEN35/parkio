@@ -11,7 +11,14 @@ import type { LegalStatus, ParkingStatus, PublicSpot } from '@parkio/types';
  */
 
 /** Whether a parking spot can currently be used, derived from `status`. */
-export type Availability = 'available' | 'filled' | 'expired' | 'unverified' | 'rejected';
+export type Availability =
+  | 'available'
+  | 'filled'
+  | 'expired'
+  | 'unverified'
+  | 'rejected'
+  /** Moderation never returned a verdict — a platform failure, not the owner's fault. */
+  | 'review_failed';
 
 /** Qualitative trust tier derived from `status` (never a fabricated score). */
 export type ConfidenceTier = 'high' | 'medium' | 'low' | 'none';
@@ -36,6 +43,7 @@ const STATUS_LABELS: Record<ParkingStatus, string> = {
   FILLED: 'Filled',
   EXPIRED: 'Expired',
   REJECTED: 'Rejected',
+  REVIEW_FAILED: 'Review failed',
 };
 
 const LEGAL_LABELS: Record<LegalStatus, string> = {
@@ -53,6 +61,7 @@ const AVAILABILITY_BY_STATUS: Record<ParkingStatus, Availability> = {
   FILLED: 'filled',
   EXPIRED: 'expired',
   REJECTED: 'rejected',
+  REVIEW_FAILED: 'review_failed',
 };
 
 const AVAILABILITY_LABELS: Record<Availability, string> = {
@@ -61,6 +70,7 @@ const AVAILABILITY_LABELS: Record<Availability, string> = {
   expired: 'Listing expired',
   unverified: 'Not yet confirmed',
   rejected: 'Removed',
+  review_failed: 'Review could not be completed',
 };
 
 const TONE_BY_AVAILABILITY: Record<Availability, SpotPresentation['tone']> = {
@@ -69,6 +79,7 @@ const TONE_BY_AVAILABILITY: Record<Availability, SpotPresentation['tone']> = {
   filled: 'danger',
   expired: 'muted',
   rejected: 'muted',
+  review_failed: 'danger',
 };
 
 const CONFIDENCE_BY_STATUS: Record<ParkingStatus, ConfidenceTier> = {
@@ -80,6 +91,7 @@ const CONFIDENCE_BY_STATUS: Record<ParkingStatus, ConfidenceTier> = {
   FILLED: 'none',
   EXPIRED: 'none',
   REJECTED: 'none',
+  REVIEW_FAILED: 'none',
 };
 
 const CONFIDENCE_LABELS: Record<ConfidenceTier, string> = {

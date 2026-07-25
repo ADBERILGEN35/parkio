@@ -47,8 +47,9 @@ export function SpotCard({
   const { colors } = theme;
 
   const live = isLiveStatus(spot.status);
-  const fraction = live ? remainingFraction(spot.createdAt, spot.expiresAt, now) : 0;
-  const remaining = live ? remainingMs(spot.expiresAt, now) : 0;
+  const fraction =
+    live && spot.expiresAt ? remainingFraction(spot.createdAt, spot.expiresAt, now) : 0;
+  const remaining = live && spot.expiresAt ? remainingMs(spot.expiresAt, now) : 0;
   const visual = statusVisual(spot.status, theme);
   const chips = spotChips(spot, t);
 

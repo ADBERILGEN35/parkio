@@ -18,6 +18,12 @@ public interface ParkingSpotRepository {
     List<ParkingSpot> findExpiredCandidates(Instant now, int batchSize);
 
     /**
+     * Spots still awaiting a moderation verdict whose deadline has elapsed, locked for the
+     * bounded-retry / terminal-failure job. Never returns published or terminal spots.
+     */
+    List<ParkingSpot> findModerationTimeoutCandidates(Instant now, int batchSize);
+
+    /**
      * Candidate spots within {@code radiusMeters} of the point, nearest first. The
      * production adapter pre-filters by status/expiry via PostGIS; the application
      * layer still enforces visibility as the authoritative rule.

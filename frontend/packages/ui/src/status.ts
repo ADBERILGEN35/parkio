@@ -15,7 +15,8 @@ export type SpotStatus =
   | 'SUSPICIOUS'
   | 'FILLED'
   | 'EXPIRED'
-  | 'REJECTED';
+  | 'REJECTED'
+  | 'REVIEW_FAILED';
 
 export interface StatusVisual {
   /** Human-readable label. */
@@ -83,6 +84,12 @@ export const SPOT_STATUS_VISUALS: Record<SpotStatus, StatusVisual> = {
     icon: 'cancel',
     className: 'bg-error-container text-on-error-container',
     dotClassName: 'bg-on-error-container',
+  },
+  REVIEW_FAILED: {
+    label: 'Review failed',
+    icon: 'error',
+    className: 'bg-error/10 text-error',
+    dotClassName: 'bg-error',
   },
 };
 

@@ -1,6 +1,7 @@
 package com.parkio.parking.infrastructure.config;
 
 import com.parkio.parking.application.ParkingSearchSettings;
+import com.parkio.parking.domain.ModerationPolicy;
 import java.time.Clock;
 import org.springframework.boot.context.properties.EnableConfigurationProperties;
 import org.springframework.context.annotation.Bean;
@@ -29,5 +30,17 @@ public class ParkingInfrastructureConfig {
                 properties.getSearch().getDefaultResultLimit(),
                 properties.getSearch().getMaxRadiusMeters(),
                 properties.getSearch().getMaxResultLimit());
+    }
+
+    @Bean
+    public ModerationPolicy moderationPolicy(ParkingProperties properties) {
+        ParkingProperties.Moderation moderation = properties.getModeration();
+        return new ModerationPolicy(
+                moderation.getActiveDuration(),
+                moderation.getValidationTimeout(),
+                moderation.getValidationRetryBackoff(),
+                moderation.getMaxValidationAttempts(),
+                moderation.getReviewTimeout(),
+                moderation.getMaxPublishableAge());
     }
 }

@@ -8,6 +8,7 @@
     "report": "Sorun bildir",
     "selectReason": "Bir neden seçin…",
     "expires": "Bitiş",
+    "lifetimeNotStarted": "İnceleme sonrası başlar",
     "parkingContext": "Park bağlamı",
     "confidence": "Güven",
     "lastUpdated": "Son güncelleme",

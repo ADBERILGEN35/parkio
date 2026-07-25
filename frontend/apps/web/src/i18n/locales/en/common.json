@@ -127,6 +127,7 @@
     "FILLED": "Filled",
     "EXPIRED": "Expired",
     "REJECTED": "Rejected",
+    "REVIEW_FAILED": "Review failed",
     "UNKNOWN": "Unknown"
   },
   "freshness": {

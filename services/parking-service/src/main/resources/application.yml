@@ -136,6 +136,12 @@ parkio:
       enabled: ${PARKIO_PARKING_EXPIRY_ENABLED:true}
       fixed-delay-ms: ${PARKIO_PARKING_EXPIRY_FIXED_DELAY_MS:60000}
       batch-size: ${PARKIO_PARKING_EXPIRY_BATCH_SIZE:100}
+    moderation-timeout:
+      # Resolves spots the moderation pipeline never answered for: bounded retries at the
+      # AI gate, then the terminal REVIEW_FAILED state. Never touches pending spots' TTL.
+      enabled: ${PARKIO_MODERATION_TIMEOUT_ENABLED:true}
+      fixed-delay-ms: ${PARKIO_MODERATION_TIMEOUT_FIXED_DELAY_MS:60000}
+      batch-size: ${PARKIO_MODERATION_TIMEOUT_BATCH_SIZE:100}
     retention:
       outbox-enabled: ${PARKIO_OUTBOX_RETENTION_ENABLED:true}
       inbox-enabled: ${PARKIO_INBOX_RETENTION_ENABLED:true}
@@ -185,6 +191,23 @@ parkio:
       default-result-limit: 10
       max-radius-meters: 50000
       max-result-limit: 50
+    moderation:
+      # Moderation-lifecycle windows. `active-duration` is the advertised user-visible
+      # lifetime and is spent ONLY once a spot is published — never while it waits on
+      # moderation, which is what previously let slow reviews expire spots before they
+      # were ever visible.
+      active-duration: ${PARKIO_SPOT_ACTIVE_DURATION:10m}
+      # AI publication-gate budget, then bounded retries with per-attempt backoff.
+      # Defaults keep the AI path well under max-publishable-age (~8m worst case).
+      validation-timeout: ${PARKIO_MODERATION_VALIDATION_TIMEOUT:2m}
+      validation-retry-backoff: ${PARKIO_MODERATION_VALIDATION_RETRY_BACKOFF:1m}
+      max-validation-attempts: ${PARKIO_MODERATION_MAX_VALIDATION_ATTEMPTS:3}
+      # Human review budget after AI lands the spot in PENDING_REVIEW. Sized for
+      # perishable availability (~10m TTL), not overnight queues.
+      review-timeout: ${PARKIO_MODERATION_REVIEW_TIMEOUT:15m}
+      # Hard ceiling from submission time. A late approval past this age fails as
+      # REVIEW_FAILED (stale) instead of publishing a fresh TTL for an old report.
+      max-publishable-age: ${PARKIO_MODERATION_MAX_PUBLISHABLE_AGE:30m}
   kafka:
     # Topic provisioning via NewTopic beans (KafkaTopicsConfig). Replication factor is
     # configurable for production; 1 is the local/dev default (single-broker compose).

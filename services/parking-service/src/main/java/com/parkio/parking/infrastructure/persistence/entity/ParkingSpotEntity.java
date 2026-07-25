@@ -77,7 +77,8 @@ public class ParkingSpotEntity {
     @Column(name = "filled_report_count", nullable = false)
     private int filledReportCount;
 
-    @Column(name = "expires_at", nullable = false)
+    /** End of the advertised visibility window; null while pending moderation. */
+    @Column(name = "expires_at")
     private Instant expiresAt;
 
     @Column(name = "created_at", nullable = false, updatable = false)
@@ -90,6 +91,22 @@ public class ParkingSpotEntity {
     @Column(name = "version", nullable = false)
     private Long version;
 
+    /** Publication instant / TTL start; null while the spot is pending moderation. */
+    @Column(name = "activated_at")
+    private Instant activatedAt;
+
+    @Column(name = "moderation_deadline_at", nullable = false)
+    private Instant moderationDeadlineAt;
+
+    @Column(name = "moderation_attempts", nullable = false)
+    private int moderationAttempts;
+
+    @Column(name = "moderation_decided_at")
+    private Instant moderationDecidedAt;
+
+    @Column(name = "moderation_request_id")
+    private UUID moderationRequestId;
+
     protected ParkingSpotEntity() {
         // for JPA
     }
@@ -99,7 +116,9 @@ public class ParkingSpotEntity {
                              String suitableVehicleTypes, ParkingContext parkingContext, LegalStatus legalStatus,
                              String violationReasons, ParkingSpotStatus status, double confidenceScore,
                              int verificationCount, int filledReportCount, Instant expiresAt,
-                             Instant createdAt, Instant updatedAt, Long version) {
+                             Instant createdAt, Instant updatedAt, Long version,
+                             Instant activatedAt, Instant moderationDeadlineAt, int moderationAttempts,
+                             Instant moderationDecidedAt, UUID moderationRequestId) {
         this.id = id;
         this.ownerUserId = ownerUserId;
         this.mediaId = mediaId;
@@ -120,6 +139,11 @@ public class ParkingSpotEntity {
         this.createdAt = createdAt;
         this.updatedAt = updatedAt;
         this.version = version;
+        this.activatedAt = activatedAt;
+        this.moderationDeadlineAt = moderationDeadlineAt;
+        this.moderationAttempts = moderationAttempts;
+        this.moderationDecidedAt = moderationDecidedAt;
+        this.moderationRequestId = moderationRequestId;
     }
 
     public UUID getId() {
@@ -200,5 +224,25 @@ public class ParkingSpotEntity {
 
     public Long getVersion() {
         return version;
+    }
+
+    public Instant getActivatedAt() {
+        return activatedAt;
+    }
+
+    public Instant getModerationDeadlineAt() {
+        return moderationDeadlineAt;
+    }
+
+    public int getModerationAttempts() {
+        return moderationAttempts;
+    }
+
+    public Instant getModerationDecidedAt() {
+        return moderationDecidedAt;
+    }
+
+    public UUID getModerationRequestId() {
+        return moderationRequestId;
     }
 }

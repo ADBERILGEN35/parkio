@@ -85,8 +85,9 @@ export default function SpotDetailScreen() {
   }
 
   const live = isLiveStatus(spot.status);
-  const fraction = live ? remainingFraction(spot.createdAt, spot.expiresAt, now) : 0;
-  const remaining = live ? remainingMs(spot.expiresAt, now) : 0;
+  const fraction =
+    live && spot.expiresAt ? remainingFraction(spot.createdAt, spot.expiresAt, now) : 0;
+  const remaining = live && spot.expiresAt ? remainingMs(spot.expiresAt, now) : 0;
   const visual = statusVisual(spot.status, theme);
   const chips = spotChips(spot, t);
   const isOwner = ownSpot !== null;
@@ -118,6 +119,17 @@ export default function SpotDetailScreen() {
         icon: 'close-circle-outline' as const,
         title: t('spot.rejected.title'),
         body: `${t('spot.rejected.body')} ${t('spot.rejected.penalty')}`,
+        tone: colors.error,
+        indeterminate: false,
+      };
+    }
+    if (spot.status === 'REVIEW_FAILED') {
+      // Deliberately not phrased as a rejection: the review never completed, which is
+      // the platform's failure, so the owner is invited to resubmit rather than warned.
+      return {
+        icon: 'alert-circle-outline' as const,
+        title: t('spot.reviewFailed.title'),
+        body: `${t('spot.reviewFailed.body')} ${t('spot.reviewFailed.retry')}`,
         tone: colors.error,
         indeterminate: false,
       };

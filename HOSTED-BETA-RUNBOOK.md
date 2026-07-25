@@ -302,6 +302,41 @@ real value.
 outbound alerts, set `PARKIO_PREFLIGHT_ALLOW_NO_ALERT_WEBHOOK=1` only for the
 preflight command and record the decision.
 
+### Spot Moderation Lifecycle
+
+A spot's advertised visibility window starts only when it is published, never while it
+waits on moderation. These variables tune the windows; the defaults are safe.
+
+| Variable | Req | Default / example | Secret |
+|----------|-----|-------------------|--------|
+| `PARKIO_SPOT_ACTIVE_DURATION` | Optional | `10m` — advertised visible lifetime | No |
+| `PARKIO_MODERATION_VALIDATION_TIMEOUT` | Optional | `2m` — AI publication-gate budget | No |
+| `PARKIO_MODERATION_VALIDATION_RETRY_BACKOFF` | Optional | `1m` — added per retry attempt | No |
+| `PARKIO_MODERATION_MAX_VALIDATION_ATTEMPTS` | Optional | `3` | No |
+| `PARKIO_MODERATION_REVIEW_TIMEOUT` | Optional | `15m` — human review budget after AI uncertain | No |
+| `PARKIO_MODERATION_MAX_PUBLISHABLE_AGE` | Optional | `30m` — hard ceiling from submission; late approval past this fails as stale | No |
+| `PARKIO_MODERATION_TIMEOUT_ENABLED` | Optional | `true` | No |
+| `PARKIO_MODERATION_TIMEOUT_FIXED_DELAY_MS` | Optional | `60000` | No |
+| `PARKIO_MODERATION_TIMEOUT_BATCH_SIZE` | Optional | `100` | No |
+
+Exceeding `review-timeout` (or exhausting the validation attempts, or approving after
+`max-publishable-age`) moves a spot to the terminal `REVIEW_FAILED` state, which the apps
+surface as "Review failed" with an invitation to resubmit. Setting `review-timeout` very
+low will fail spots moderators have not reached yet; raise it rather than disabling the
+job, which is what prevents indefinite pending.
+
+**Metrics to watch** (all at `/actuator/prometheus` on parking-service):
+
+- `parkio_parking_expired_before_approved_count` and
+  `parkio_parking_expired_before_approved_total` — **must both stay 0**. Non-zero means a
+  spot's lifetime was consumed by moderation; page on it.
+- `parkio_parking_moderation_pending_oldest_seconds` — the longest-waiting submission.
+  Alert above `review-timeout`.
+- `parkio_parking_moderation_queue_latency_seconds` — submission → verdict.
+- `parkio_parking_moderation_retry_count`, `..._timeout_count`, `..._failed_count`,
+  `parkio_parking_consumer_dlq_count` — pipeline health; a rising DLQ count precedes a
+  rising retry count.
+
 ### Backup and Operator Script Variables
 
 | Variable | Req | Default / example | Secret |
@@ -595,6 +630,7 @@ Estimated rollback time: 3-8 minutes if previous images exist locally.
 | Deploy | `PARKIO_ENV_FILE=docker/.env PARKIO_GATEWAY_URL=https://<api-host> PARKIO_SMOKE_EXPECT_DIRECT_BLOCKED=1 ./scripts/deploy-hosted-beta.sh` |
 | Smoke only | `PARKIO_GATEWAY_URL=https://<api-host> PARKIO_SMOKE_EXPECT_DIRECT_BLOCKED=1 ./scripts/smoke-hosted-beta.sh` |
 | ParkingSession smoke (R27) | See `docs/evidence/sprint-01/parking-session-hosted-beta/README.md`. Requires disposable-account confirmation and `./scripts/smoke-parking-session-hosted-beta.sh`. |
+| Spot moderation lifecycle validation | See `docs/operations/spot-moderation-lifecycle-runbook.md`. |
 | Backup | `PARKIO_ENV_FILE=docker/.env ./scripts/backup-hosted-beta.sh` |
 | Restore dry run | `PARKIO_ENV_FILE=docker/.env ./scripts/restore-hosted-beta.sh --manifest backup-artifacts/backup-current.json --dry-run` |
 | Rollback dry run | `PARKIO_ENV_FILE=docker/.env ./scripts/rollback-hosted-beta.sh --manifest deploy-artifacts/<previous>.json --dry-run` |

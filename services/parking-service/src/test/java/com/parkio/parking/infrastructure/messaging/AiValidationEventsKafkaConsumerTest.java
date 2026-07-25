@@ -56,7 +56,8 @@ class AiValidationEventsKafkaConsumerTest {
 
         @SuppressWarnings("unchecked")
         ArgumentCaptor<List<String>> risksCaptor = ArgumentCaptor.forClass(List.class);
-        verify(parking).applyAiValidationResult(eq(spotId), eq("PASSED"), risksCaptor.capture());
+        verify(parking).applyAiValidationResult(eq(spotId), eq("PASSED"), risksCaptor.capture(),
+                eq(eventId), eq(Instant.parse("2026-06-08T12:00:00Z")));
         assertThat(risksCaptor.getValue()).containsExactly("LOW_IMAGE_QUALITY");
         verify(ack).acknowledge();
     }
@@ -72,7 +73,7 @@ class AiValidationEventsKafkaConsumerTest {
 
         consumer.onMessage(record(eventId, "AiValidationCompleted", payload), "AiValidationCompleted", null, ack);
 
-        verify(parking, never()).applyAiValidationResult(any(), any(), any());
+        verify(parking, never()).applyAiValidationResult(any(), any(), any(), any(), any());
         verify(jdbc, never()).update(any(String.class), any(), any(), any());
         verify(ack).acknowledge();
     }

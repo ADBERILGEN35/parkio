@@ -12,6 +12,7 @@ import com.fasterxml.jackson.databind.node.ObjectNode;
 import com.fasterxml.jackson.datatype.jsr310.JavaTimeModule;
 import com.parkio.aivalidation.application.AiValidationApplicationService;
 import com.parkio.aivalidation.application.event.ParkingSpotCreatedEvent;
+import com.parkio.aivalidation.application.event.ParkingSpotModerationRetryRequestedEvent;
 import java.util.UUID;
 import org.apache.kafka.clients.consumer.ConsumerRecord;
 import org.junit.jupiter.api.Test;
@@ -50,6 +51,35 @@ class ParkingEventsKafkaConsumerTest {
         verify(service).handleParkingSpotCreated(captor.capture());
         assertThat(captor.getValue().parkingSpotId()).isEqualTo(spotId);
         assertThat(captor.getValue().mediaId()).isEqualTo(mediaId);
+        verify(ack).acknowledge();
+    }
+
+    @Test
+    void dispatchesModerationRetryRequestedAndAcks() throws Exception {
+        UUID eventId = UUID.randomUUID();
+        UUID spotId = UUID.randomUUID();
+        UUID mediaId = UUID.randomUUID();
+        ObjectNode payload = objectMapper.createObjectNode();
+        payload.put("eventId", eventId.toString());
+        payload.put("parkingSpotId", spotId.toString());
+        payload.put("ownerUserId", UUID.randomUUID().toString());
+        payload.put("mediaId", mediaId.toString());
+        payload.put("attempt", 2);
+        payload.put("deadlineAt", "2026-06-08T12:15:00Z");
+        payload.put("occurredAt", "2026-06-08T12:00:00Z");
+
+        consumer.onMessage(record(eventId, spotId, "ParkingSpotModerationRetryRequested", payload),
+                "ParkingSpotModerationRetryRequested", ack);
+
+        ArgumentCaptor<ParkingSpotModerationRetryRequestedEvent> captor =
+                ArgumentCaptor.forClass(ParkingSpotModerationRetryRequestedEvent.class);
+        verify(service).handleModerationRetryRequested(captor.capture());
+        assertThat(captor.getValue().parkingSpotId()).isEqualTo(spotId);
+        assertThat(captor.getValue().mediaId()).isEqualTo(mediaId);
+        // A retry carries its own event id, so the inbox admits it as new work rather than
+        // deduplicating it against the original request.
+        assertThat(captor.getValue().eventId()).isEqualTo(eventId);
+        assertThat(captor.getValue().attempt()).isEqualTo(2);
         verify(ack).acknowledge();
     }
 

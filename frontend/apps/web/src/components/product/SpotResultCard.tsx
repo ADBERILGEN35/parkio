@@ -104,8 +104,11 @@ function SpotResultCardImpl({
 
       <p className="m-0 mt-xs flex items-center gap-xs text-label-sm text-on-surface-variant">
         <Icon name="schedule" className="text-[14px] leading-none" />
-        {formatRemaining(spot.expiresAt)} ·{' '}
-        {t('spotDetail.expiresAt', { ns: 'parking', time: formatInstant(spot.expiresAt) })}
+        {spot.expiresAt ? formatRemaining(spot.expiresAt) : '—'} ·{' '}
+        {t('spotDetail.expiresAt', {
+          ns: 'parking',
+          time: spot.expiresAt ? formatInstant(spot.expiresAt) : '—',
+        })}
       </p>
 
       {spot.description ? (

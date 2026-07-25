@@ -34,6 +34,7 @@ public class ModerationActionsKafkaConsumer {
     public static final String GROUP = "parkio.parking";
 
     private static final String REJECTED_BY_MODERATOR = "ParkingSpotRejectedByModerator";
+    private static final String APPROVED_BY_MODERATOR = "ParkingSpotApprovedByModerator";
     private static final Logger log = LoggerFactory.getLogger(ModerationActionsKafkaConsumer.class);
 
     private final ParkingApplicationService parking;
@@ -70,10 +71,20 @@ public class ModerationActionsKafkaConsumer {
         }
         try {
             if (REJECTED_BY_MODERATOR.equals(eventType)) {
-                ModeratorRejection event =
-                        objectMapper.treeToValue(envelope.payload(), ModeratorRejection.class);
+                ModeratorDecision event =
+                        objectMapper.treeToValue(envelope.payload(), ModeratorDecision.class);
                 if (markProcessing(event.eventId(), eventType)) {
-                    parking.rejectSpotByModerator(event.parkingSpotId());
+                    parking.rejectSpotByModerator(
+                            event.parkingSpotId(), event.eventId(), envelope.occurredAt());
+                }
+            } else if (APPROVED_BY_MODERATOR.equals(eventType)) {
+                // The human exit from PENDING_REVIEW. Without it a spot the AI was unsure
+                // about could never be published, whatever a moderator decided.
+                ModeratorDecision event =
+                        objectMapper.treeToValue(envelope.payload(), ModeratorDecision.class);
+                if (markProcessing(event.eventId(), eventType)) {
+                    parking.approveSpotByModerator(
+                            event.parkingSpotId(), event.eventId(), envelope.occurredAt());
                 }
             } else {
                 log.debug("Ignoring unsupported event type {} on {}", eventType, TOPIC);
@@ -96,6 +107,7 @@ public class ModerationActionsKafkaConsumer {
                 Timestamp.from(clock.instant())) == 1;
     }
 
-    private record ModeratorRejection(UUID eventId, UUID parkingSpotId) {
+    /** Shared shape of the moderator approve/reject payloads (both are spot-targeted). */
+    private record ModeratorDecision(UUID eventId, UUID parkingSpotId) {
     }
 }

@@ -8,6 +8,7 @@
     "report": "Report issue",
     "selectReason": "Select a reason…",
     "expires": "Expires",
+    "lifetimeNotStarted": "Starts after review",
     "parkingContext": "Parking context",
     "confidence": "Confidence",
     "lastUpdated": "Last updated",

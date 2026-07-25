@@ -4,6 +4,7 @@ import com.parkio.parking.application.command.CreateSpotCommand;
 import com.parkio.parking.application.command.SearchNearbyQuery;
 import com.parkio.parking.application.port.MediaAccessPort;
 import com.parkio.parking.application.port.MediaReadinessPort;
+import com.parkio.parking.application.port.ModerationMetricsPort;
 import com.parkio.parking.application.port.OutboxEventAppender;
 import com.parkio.parking.application.port.ParkingSpotRepository;
 import com.parkio.parking.application.port.ParkingSpotSearchLogRepository;
@@ -11,6 +12,7 @@ import com.parkio.parking.application.port.ParkingSpotStatusHistoryRepository;
 import com.parkio.parking.application.port.ParkingSpotVerificationRepository;
 import com.parkio.parking.application.port.ParkingSpotViewLogRepository;
 import com.parkio.parking.application.result.SpotMediaAccess;
+import com.parkio.parking.domain.ModerationPolicy;
 import com.parkio.parking.domain.ParkingSpot;
 import com.parkio.parking.domain.ParkingSpotSearchLog;
 import com.parkio.parking.domain.ParkingSpotStatus;
@@ -24,10 +26,13 @@ import com.parkio.parking.domain.event.ParkingSpotClaimedEvent;
 import com.parkio.parking.domain.event.ParkingSpotCreatedEvent;
 import com.parkio.parking.domain.event.ParkingSpotExpiredEvent;
 import com.parkio.parking.domain.event.ParkingSpotMarkedFilledEvent;
+import com.parkio.parking.domain.event.ParkingSpotModerationRetryRequestedEvent;
+import com.parkio.parking.domain.event.ParkingSpotReviewFailedEvent;
 import com.parkio.parking.domain.event.ParkingSpotVerifiedEvent;
 import com.parkio.parking.domain.exception.ParkingErrorCode;
 import com.parkio.parking.domain.exception.ParkingException;
 import java.time.Clock;
+import java.time.Duration;
 import java.time.Instant;
 import java.util.List;
 import java.util.Locale;
@@ -63,6 +68,8 @@ public class ParkingApplicationService {
     private final MediaReadinessPort mediaReadiness;
     private final ParkingSearchSettings searchSettings;
     private final ParkingSessionService parkingSessions;
+    private final ModerationPolicy moderationPolicy;
+    private final ModerationMetricsPort moderationMetrics;
     private final Clock clock;
 
     public ParkingApplicationService(ParkingSpotRepository spots,
@@ -75,6 +82,8 @@ public class ParkingApplicationService {
                                      MediaReadinessPort mediaReadiness,
                                      ParkingSearchSettings searchSettings,
                                      ParkingSessionService parkingSessions,
+                                     ModerationPolicy moderationPolicy,
+                                     ModerationMetricsPort moderationMetrics,
                                      Clock clock) {
         this.spots = spots;
         this.verifications = verifications;
@@ -86,6 +95,8 @@ public class ParkingApplicationService {
         this.mediaReadiness = mediaReadiness;
         this.searchSettings = searchSettings;
         this.parkingSessions = parkingSessions;
+        this.moderationPolicy = moderationPolicy;
+        this.moderationMetrics = moderationMetrics;
         this.clock = clock;
     }
 
@@ -103,10 +114,13 @@ public class ParkingApplicationService {
                 command.ownerUserId(), command.mediaId(), command.latitude(), command.longitude(),
                 command.addressText(), command.description(), command.manualLocationEdited(),
                 command.suitableVehicleTypes(), command.parkingContext(), command.legalStatus(),
-                command.violationReasons(), now);
+                command.violationReasons(), now, moderationPolicy);
         ParkingSpot saved = spots.save(spot);
         recordHistory(saved, null, "CREATED", now);
         outbox.append(ParkingSpotCreatedEvent.of(saved, now));
+        log.info("Spot lifecycle transition spotId={} from=null to={} reason=CREATED "
+                        + "moderationDeadlineAt={} attempt=0",
+                saved.id(), saved.status(), saved.moderationDeadlineAt());
         return saved;
     }
 
@@ -224,15 +238,62 @@ public class ParkingApplicationService {
     /**
      * Applies an authoritative moderation rejection without emitting a community
      * rejection event, preventing a parking-to-moderation event loop.
+     *
+     * @param occurredAt when the moderator decided; older than the spot's current decision
+     *                   watermark means an out-of-order delivery and is ignored
      */
-    public void rejectSpotByModerator(UUID spotId) {
+    public void rejectSpotByModerator(UUID spotId, UUID moderationRequestId, Instant occurredAt) {
+        applyModeratorDecision(spotId, moderationRequestId, occurredAt, false);
+    }
+
+    /**
+     * Publishes a spot on an explicit moderator approval — the human exit from
+     * {@code PENDING_REVIEW}. Without this path a spot the AI was unsure about could never
+     * become visible no matter what a moderator decided.
+     */
+    public void approveSpotByModerator(UUID spotId, UUID moderationRequestId, Instant occurredAt) {
+        applyModeratorDecision(spotId, moderationRequestId, occurredAt, true);
+    }
+
+    private void applyModeratorDecision(UUID spotId, UUID moderationRequestId, Instant occurredAt, boolean approve) {
+        long startedNanos = System.nanoTime();
         ParkingSpot spot = requireSpot(spotId);
         Instant now = clock.instant();
         ParkingSpotStatus previous = spot.status();
-        if (spot.markRejectedByModerator(now)) {
-            spots.save(spot);
-            recordHistory(spot, previous, "MODERATOR_REJECTED", now);
+        String reason = approve ? "MODERATOR_APPROVED" : "MODERATOR_REJECTED";
+
+        if (spot.isStaleModerationEvent(occurredAt)) {
+            log.info("Ignoring stale moderator decision spotId={} moderationRequestId={} transition={} "
+                            + "occurredAt={} decidedAt={}",
+                    spotId, moderationRequestId, reason, occurredAt, spot.moderationDecidedAt());
+            moderationMetrics.recordProcessingDuration(elapsedSince(startedNanos), "STALE");
+            return;
         }
+        spot.trackModerationRequest(moderationRequestId);
+
+        boolean changed = approve
+                ? spot.applyModeratorApproval(now, moderationPolicy)
+                : spot.markRejectedByModerator(now);
+        if (!changed) {
+            // Terminal or already-decided: replays and duplicates settle here as no-ops.
+            moderationMetrics.recordProcessingDuration(elapsedSince(startedNanos), "NO_CHANGE");
+            return;
+        }
+
+        ParkingSpot saved = spots.save(spot);
+        if (approve && saved.status() == ParkingSpotStatus.REVIEW_FAILED) {
+            reason = ParkingSpotReviewFailedEvent.REASON_STALE_BEFORE_PUBLICATION;
+            recordHistory(saved, previous, reason, now);
+            outbox.append(ParkingSpotReviewFailedEvent.of(saved, previous, reason, now));
+            moderationMetrics.recordModerationFailure(reason);
+            recordModerationOutcome(saved, previous, reason, moderationRequestId, now, startedNanos);
+            return;
+        }
+        recordHistory(saved, previous, reason, now);
+        if (saved.status() == ParkingSpotStatus.ACTIVE) {
+            outbox.append(ParkingSpotActivatedEvent.of(saved, now));
+        }
+        recordModerationOutcome(saved, previous, reason, moderationRequestId, now, startedNanos);
     }
 
     /**
@@ -241,13 +302,30 @@ public class ParkingApplicationService {
      * non-parking risks reject. Unknown statuses and provider gaps are fail-closed
      * (no transition — spot remains {@code PENDING_VALIDATION}).
      *
-     * @param statusName       PASSED / WARNING / FAILED (case-insensitive)
-     * @param detectedRiskTypes advisory risk type names from ai-validation-service
+     * <p>Idempotent on three independent levels: the consumer's inbox drops duplicate
+     * {@code eventId}s, {@code occurredAt} is compared against the spot's decision
+     * watermark so an out-of-order verdict cannot overwrite a newer state, and the domain
+     * transitions themselves only fire from the pending statuses.
+     *
+     * @param statusName          PASSED / WARNING / FAILED (case-insensitive)
+     * @param detectedRiskTypes   advisory risk type names from ai-validation-service
+     * @param moderationRequestId the upstream event id, carried for tracing
+     * @param occurredAt          when the verdict was produced (ordering watermark)
      */
-    public void applyAiValidationResult(UUID parkingSpotId, String statusName, List<String> detectedRiskTypes) {
+    public void applyAiValidationResult(UUID parkingSpotId, String statusName, List<String> detectedRiskTypes,
+                                        UUID moderationRequestId, Instant occurredAt) {
+        long startedNanos = System.nanoTime();
         ParkingSpot spot = requireSpot(parkingSpotId);
         Instant now = clock.instant();
         ParkingSpotStatus previous = spot.status();
+
+        if (spot.isStaleModerationEvent(occurredAt)) {
+            log.info("Ignoring stale AI validation result spotId={} moderationRequestId={} "
+                            + "occurredAt={} decidedAt={}",
+                    parkingSpotId, moderationRequestId, occurredAt, spot.moderationDecidedAt());
+            moderationMetrics.recordProcessingDuration(elapsedSince(startedNanos), "STALE");
+            return;
+        }
 
         String normalized = statusName == null ? "" : statusName.trim().toUpperCase(Locale.ROOT);
         boolean notParking = detectedRiskTypes != null
@@ -256,30 +334,42 @@ public class ParkingApplicationService {
                 .map(r -> r.trim().toUpperCase(Locale.ROOT))
                 .anyMatch("NOT_A_PARKING_SPOT"::equals);
 
+        spot.trackModerationRequest(moderationRequestId);
         boolean changed;
         String reason;
         if ("PASSED".equals(normalized) && !notParking) {
-            changed = spot.applyAiValidationPassed(now);
+            changed = spot.applyAiValidationPassed(now, moderationPolicy);
             reason = "AI_PASSED";
         } else if ("WARNING".equals(normalized) && !notParking) {
-            changed = spot.applyAiValidationUncertain(now);
+            changed = spot.applyAiValidationUncertain(now, moderationPolicy);
             reason = "AI_PENDING_REVIEW";
         } else if ("FAILED".equals(normalized) || notParking) {
             changed = spot.applyAiValidationRejected(now);
             reason = "AI_REJECTED";
         } else {
             // Fail-closed: unknown / missing status leaves the spot pending validation.
+            moderationMetrics.recordProcessingDuration(elapsedSince(startedNanos), "UNKNOWN_STATUS");
             return;
         }
 
         if (!changed) {
+            moderationMetrics.recordProcessingDuration(elapsedSince(startedNanos), "NO_CHANGE");
             return;
         }
         ParkingSpot saved = spots.save(spot);
+        if ("PASSED".equals(normalized) && saved.status() == ParkingSpotStatus.REVIEW_FAILED) {
+            reason = ParkingSpotReviewFailedEvent.REASON_STALE_BEFORE_PUBLICATION;
+            recordHistory(saved, previous, reason, now);
+            outbox.append(ParkingSpotReviewFailedEvent.of(saved, previous, reason, now));
+            moderationMetrics.recordModerationFailure(reason);
+            recordModerationOutcome(saved, previous, reason, moderationRequestId, now, startedNanos);
+            return;
+        }
         recordHistory(saved, previous, reason, now);
         if (saved.status() == ParkingSpotStatus.ACTIVE) {
             outbox.append(ParkingSpotActivatedEvent.of(saved, now));
         }
+        recordModerationOutcome(saved, previous, reason, moderationRequestId, now, startedNanos);
     }
 
     /** Expires one locked batch of elapsed, non-terminal spots. */
@@ -295,6 +385,73 @@ public class ParkingApplicationService {
             }
         }
         return expired;
+    }
+
+    /**
+     * Resolves one locked batch of spots whose moderation deadline elapsed, so no
+     * submission can sit pending forever.
+     *
+     * <p>A spot still at the AI gate gets a bounded retry: the request is re-published
+     * through the outbox (never a direct call into ai-validation-service) and the deadline
+     * is extended with per-attempt backoff. Once the attempts are exhausted — or as soon as
+     * a spot awaiting a <em>human</em> decision breaches its review window, where retrying
+     * cannot help — the spot moves to the terminal {@code REVIEW_FAILED} state.
+     *
+     * @return the number of spots that were retried or failed
+     */
+    public int processModerationTimeouts(int batchSize) {
+        if (batchSize < 1) {
+            throw new IllegalArgumentException("batchSize must be positive");
+        }
+        Instant now = clock.instant();
+        int handled = 0;
+        for (ParkingSpot spot : spots.findModerationTimeoutCandidates(now, batchSize)) {
+            if (!spot.isModerationOverdue(now)) {
+                continue;
+            }
+            moderationMetrics.recordTimeout(spot.status());
+            handled += spot.status() == ParkingSpotStatus.PENDING_VALIDATION
+                    ? retryOrFailValidation(spot, now)
+                    : failReview(spot, now);
+        }
+        return handled;
+    }
+
+    /** Re-requests the AI gate while attempts remain; otherwise fails the spot terminally. */
+    private int retryOrFailValidation(ParkingSpot spot, Instant now) {
+        ParkingSpotStatus previous = spot.status();
+        if (spot.recordValidationRetry(now, moderationPolicy)) {
+            ParkingSpot saved = spots.save(spot);
+            outbox.append(ParkingSpotModerationRetryRequestedEvent.of(saved, now));
+            moderationMetrics.recordRetry(saved.moderationAttempts());
+            log.warn("Moderation retry requested spotId={} moderationRequestId={} transition=RETRY "
+                            + "attempt={} queueLatencyMs={} nextDeadlineAt={}",
+                    saved.id(), saved.moderationRequestId(), saved.moderationAttempts(),
+                    saved.moderationWaitAt(now).toMillis(), saved.moderationDeadlineAt());
+            return 1;
+        }
+        return failModeration(spot, previous, ParkingSpotReviewFailedEvent.REASON_RETRIES_EXHAUSTED, now);
+    }
+
+    /** A human review window elapsed; no retry can substitute for the missing decision. */
+    private int failReview(ParkingSpot spot, Instant now) {
+        return failModeration(spot, spot.status(), ParkingSpotReviewFailedEvent.REASON_REVIEW_TIMEOUT, now);
+    }
+
+    private int failModeration(ParkingSpot spot, ParkingSpotStatus previous, String reason, Instant now) {
+        if (!spot.markReviewFailed(now)) {
+            return 0;
+        }
+        ParkingSpot saved = spots.save(spot);
+        recordHistory(saved, previous, reason, now);
+        outbox.append(ParkingSpotReviewFailedEvent.of(saved, previous, reason, now));
+        moderationMetrics.recordModerationFailure(reason);
+        moderationMetrics.recordQueueLatency(saved.moderationWaitAt(now), saved.status());
+        log.error("Moderation failed terminally spotId={} moderationRequestId={} transition={}->{} "
+                        + "reason={} attempt={} queueLatencyMs={}",
+                saved.id(), saved.moderationRequestId(), previous, saved.status(), reason,
+                saved.moderationAttempts(), saved.moderationWaitAt(now).toMillis());
+        return 1;
     }
 
     /** Nearby search filtering out expired/filled/rejected/illegal spots. */
@@ -342,17 +499,53 @@ public class ParkingApplicationService {
                 .orElseThrow(() -> new ParkingException(ParkingErrorCode.SPOT_NOT_FOUND));
     }
 
-    /** Transitions a time-elapsed, non-terminal spot to EXPIRED (with history + event). */
+    /**
+     * Transitions a time-elapsed, published, non-terminal spot to EXPIRED (with history +
+     * event).
+     *
+     * <p>Spots awaiting moderation are skipped outright: their advertised lifetime has not
+     * started, so there is nothing to elapse. This guard matters most on the read paths
+     * ({@code getMySpot}, {@code getSpotForViewer}), where an owner merely opening their
+     * own pending submission used to expire it — after which the arriving verdict was
+     * silently discarded because the spot was no longer pending.
+     */
     private boolean expireIfElapsed(ParkingSpot spot, Instant now) {
-        if (spot.isTerminal() || !spot.isTimeExpired(now)) {
+        if (spot.isPendingModeration() || spot.isTerminal() || !spot.isTimeExpired(now)) {
             return false;
         }
         ParkingSpotStatus previous = spot.status();
-        spot.markExpired(now);
+        if (!spot.markExpired(now)) {
+            return false;
+        }
         spots.save(spot);
         recordHistory(spot, previous, "EXPIRED", now);
         outbox.append(ParkingSpotExpiredEvent.of(spot, now));
+        if (spot.activatedAt() == null) {
+            // Unreachable by construction — a spot cannot leave the pending statuses without
+            // being activated, rejected or failed. Alarm rather than fail: this counter is the
+            // regression detector for the very defect this lifecycle was built to prevent.
+            moderationMetrics.recordExpiredBeforeApproved();
+            log.error("Invariant violated: spot expired before it was ever published spotId={} "
+                    + "previousStatus={} createdAt={}", spot.id(), previous, spot.createdAt());
+        }
         return true;
+    }
+
+    /** Emits the queue-latency metric and the structured lifecycle log for one verdict. */
+    private void recordModerationOutcome(ParkingSpot spot, ParkingSpotStatus previous, String reason,
+                                         UUID moderationRequestId, Instant now, long startedNanos) {
+        Duration queueLatency = spot.moderationWaitAt(now);
+        Duration processing = elapsedSince(startedNanos);
+        moderationMetrics.recordQueueLatency(queueLatency, spot.status());
+        moderationMetrics.recordProcessingDuration(processing, reason);
+        log.info("Spot lifecycle transition spotId={} moderationRequestId={} transition={}->{} reason={} "
+                        + "attempt={} queueLatencyMs={} processingMs={} activatedAt={} expiresAt={}",
+                spot.id(), moderationRequestId, previous, spot.status(), reason, spot.moderationAttempts(),
+                queueLatency.toMillis(), processing.toMillis(), spot.activatedAt(), spot.expiresAt());
+    }
+
+    private static Duration elapsedSince(long startedNanos) {
+        return Duration.ofNanos(System.nanoTime() - startedNanos);
     }
 
     private void emitVerificationEvent(ParkingSpot spot, UUID verifierUserId, VerificationResult result,

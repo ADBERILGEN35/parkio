@@ -1268,6 +1268,11 @@ class ParkingSessionPostgisIntegrationTest {
                 expiresAt,
                 createdAt,
                 createdAt,
+                null,
+                status.isPendingModeration() ? null : createdAt,
+                createdAt.plus(java.time.Duration.ofHours(24)),
+                0,
+                status.isPendingModeration() ? null : createdAt,
                 null);
         ParkingSpot saved = transaction.execute(transactionStatus -> spotRepositoryAdapter.save(spot));
         assertThat(saved).isNotNull();

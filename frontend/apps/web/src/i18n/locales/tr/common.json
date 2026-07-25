@@ -127,6 +127,7 @@
     "FILLED": "Dolu",
     "EXPIRED": "Süresi doldu",
     "REJECTED": "Reddedildi",
+    "REVIEW_FAILED": "İnceleme başarısız",
     "UNKNOWN": "Bilinmiyor"
   },
   "freshness": {

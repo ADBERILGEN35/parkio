@@ -32,7 +32,8 @@ public final class ParkingPersistenceMapper {
                 splitVehicleTypes(e.getSuitableVehicleTypes()), e.getParkingContext(), e.getLegalStatus(),
                 splitViolationReasons(e.getViolationReasons()), e.getStatus(), e.getConfidenceScore(),
                 e.getVerificationCount(), e.getFilledReportCount(), e.getExpiresAt(), e.getCreatedAt(),
-                e.getUpdatedAt(), e.getVersion());
+                e.getUpdatedAt(), e.getVersion(), e.getActivatedAt(), e.getModerationDeadlineAt(),
+                e.getModerationAttempts(), e.getModerationDecidedAt(), e.getModerationRequestId());
     }
 
     public static ParkingSpotEntity toEntity(ParkingSpot s) {
@@ -41,7 +42,8 @@ public final class ParkingPersistenceMapper {
                 joinEnums(s.suitableVehicleTypes()), s.parkingContext(), s.legalStatus(),
                 emptyToNull(joinEnums(s.violationReasons())), s.status(), s.confidenceScore(),
                 s.verificationCount(), s.filledReportCount(), s.expiresAt(), s.createdAt(),
-                s.updatedAt(), s.version());
+                s.updatedAt(), s.version(), s.activatedAt(), s.moderationDeadlineAt(),
+                s.moderationAttempts(), s.moderationDecidedAt(), s.moderationRequestId());
     }
 
     public static ParkingSpotVerification toDomain(ParkingSpotVerificationEntity e) {

@@ -15,6 +15,7 @@ public sealed interface ModerationEvent permits
         ModerationCaseOpenedEvent,
         ModerationCaseResolvedEvent,
         ParkingSpotRejectedByModeratorEvent,
+        ParkingSpotApprovedByModeratorEvent,
         UserSuspendedEvent,
         UserRestoredEvent,
         AppealCreatedEvent,

@@ -21,7 +21,7 @@ type Filter = 'all' | 'live' | 'pending' | 'closed';
 const FILTER_STATUSES: Record<Exclude<Filter, 'all'>, ParkingStatus[]> = {
   live: ['ACTIVE', 'VERIFIED', 'SUSPICIOUS'],
   pending: ['PENDING_VALIDATION', 'PENDING_REVIEW'],
-  closed: ['FILLED', 'EXPIRED', 'REJECTED'],
+  closed: ['FILLED', 'EXPIRED', 'REJECTED', 'REVIEW_FAILED'],
 };
 
 /** "Park yerlerim" — the owner's spots with status filters (brief §12.6). */

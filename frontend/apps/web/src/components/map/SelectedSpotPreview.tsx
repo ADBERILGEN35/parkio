@@ -76,7 +76,8 @@ export function SelectedSpotPreview({ spot, onClose, className }: SelectedSpotPr
 
           <p className="m-0 mt-sm flex items-center gap-xs text-label-sm font-medium text-on-surface-variant">
             <Icon name="schedule" className="text-[14px] leading-none" />
-            {formatRemaining(spot.expiresAt)} · {enumLabel(spot.parkingContext, t, ['parkingContext'])}
+            {spot.expiresAt ? formatRemaining(spot.expiresAt) : '—'} ·{' '}
+            {enumLabel(spot.parkingContext, t, ['parkingContext'])}
           </p>
         </div>
       </div>

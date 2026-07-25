@@ -257,7 +257,7 @@ class Task08ParkingLifecyclePostgisIT {
                 owner, UUID.randomUUID().toString(), createBody(UUID.randomUUID(), "task08-setup"));
         UUID spotId = UUID.fromString(com.jayway.jsonpath.JsonPath.read(
                 result.getResponse().getContentAsString(), "$.id"));
-        parking.applyAiValidationResult(spotId, "PASSED", List.of());
+        parking.applyAiValidationResult(spotId, "PASSED", List.of(), UUID.randomUUID(), java.time.Instant.now());
         return spotId;
     }
 

@@ -27,6 +27,7 @@ import com.parkio.moderation.domain.event.AppealCreatedEvent;
 import com.parkio.moderation.domain.event.AppealResolvedEvent;
 import com.parkio.moderation.domain.event.ModerationCaseOpenedEvent;
 import com.parkio.moderation.domain.event.ModerationCaseResolvedEvent;
+import com.parkio.moderation.domain.event.ParkingSpotApprovedByModeratorEvent;
 import com.parkio.moderation.domain.event.ParkingSpotRejectedByModeratorEvent;
 import com.parkio.moderation.domain.event.UserRestoredEvent;
 import com.parkio.moderation.domain.event.UserSuspendedEvent;
@@ -176,11 +177,20 @@ public class ModerationApplicationService {
         decisions.save(ModerationDecision.record(moderationCase.id(), command.moderatorId(), action, command.note(), now));
         outbox.append(ModerationCaseResolvedEvent.of(moderationCase, command.moderatorId(), now));
 
-        if (moderationCase.targetType() == ModerationTargetType.PARKING_SPOT
-                && (action == ModerationAction.REJECT || action == ModerationAction.MARK_RISKY)) {
-            outbox.append(ParkingSpotRejectedByModeratorEvent.of(moderationCase.id(),
-                    moderationCase.targetId(), moderationCase.ownerUserId(), command.moderatorId(),
-                    moderationCase.reason().name(), now));
+        if (moderationCase.targetType() == ModerationTargetType.PARKING_SPOT) {
+            if (action == ModerationAction.REJECT || action == ModerationAction.MARK_RISKY) {
+                outbox.append(ParkingSpotRejectedByModeratorEvent.of(moderationCase.id(),
+                        moderationCase.targetId(), moderationCase.ownerUserId(), command.moderatorId(),
+                        moderationCase.reason().name(), now));
+            } else if (action == ModerationAction.APPROVE) {
+                // Approving a spot case is not merely "dismiss the case": the spot may be held
+                // in PENDING_REVIEW awaiting exactly this decision, and AI emits only one verdict
+                // per spot. Emitting the approval is what lets parking-service publish it (and
+                // start its advertised lifetime from now, so the delay costs the owner nothing).
+                outbox.append(ParkingSpotApprovedByModeratorEvent.of(moderationCase.id(),
+                        moderationCase.targetId(), moderationCase.ownerUserId(), command.moderatorId(),
+                        moderationCase.reason().name(), now));
+            }
         }
 
         if (moderationCase.targetType() == ModerationTargetType.USER) {

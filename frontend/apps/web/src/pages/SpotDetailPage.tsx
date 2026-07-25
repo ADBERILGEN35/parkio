@@ -3,6 +3,7 @@ import { isParkioApiError, type ParkioApiError } from '@parkio/api-client';
 import {
   MODERATION_REASONS,
   VERIFICATION_RESULTS,
+  isPendingModeration,
   type LegalStatus,
   type PublicSpot,
   type Spot,
@@ -174,6 +175,9 @@ function TrustStatusPanel({ spot }: { spot: PublicSpot }) {
   const { t } = useTranslation('parking');
   const freshness = getTrustFreshnessVisual(spot.updatedAt);
   const metrics = readOptionalMetrics(spot);
+  // A pending spot has not started its visibility window, so `expiresAt` is null —
+  // showing it as a countdown would be a lie.
+  const awaitingReview = isPendingModeration(spot.status);
 
   return (
     <Surface level="raised" className="rounded-3xl p-lg shadow-deep">
@@ -199,12 +203,21 @@ function TrustStatusPanel({ spot }: { spot: PublicSpot }) {
 
       <p className="m-0 mt-xs flex items-center gap-xs text-label-sm text-on-surface-variant">
         <Icon name="schedule" className="text-[14px] leading-none" />
-        {formatRemaining(spot.expiresAt)} ·{' '}
+        {awaitingReview || !spot.expiresAt
+          ? t('spotDetail.lifetimeNotStarted')
+          : formatRemaining(spot.expiresAt)} ·{' '}
         {t('spotDetail.updatedAgo', { time: formatRelativeAgo(spot.updatedAt) })}
       </p>
 
       <div className="mt-lg grid grid-cols-2 gap-sm">
-        <TrustTile label={t('spotDetail.expires')} value={formatRemaining(spot.expiresAt)} />
+        <TrustTile
+          label={t('spotDetail.expires')}
+          value={
+            awaitingReview || !spot.expiresAt
+              ? t('spotDetail.lifetimeNotStarted')
+              : formatRemaining(spot.expiresAt)
+          }
+        />
         <TrustTile
           label={t('spotDetail.parkingContext')}
           value={enumLabel(spot.parkingContext, t, ['parkingContext'])}
@@ -399,7 +412,15 @@ function CommunitySignalSection({ spot }: { spot: PublicSpot }) {
       <div className="flex flex-col gap-sm">
         <SignalRow icon="update" label={t("spotDetail.lastUpdated")} value={formatInstant(spot.updatedAt)} />
         <SignalRow icon="add_circle" label={t("spotDetail.created")} value={formatInstant(spot.createdAt)} />
-        <SignalRow icon="timer" label={t("spotDetail.expires")} value={formatInstant(spot.expiresAt)} />
+        <SignalRow
+          icon="timer"
+          label={t("spotDetail.expires")}
+          value={
+            isPendingModeration(spot.status) || !spot.expiresAt
+              ? t("spotDetail.lifetimeNotStarted")
+              : formatInstant(spot.expiresAt)
+          }
+        />
         {metrics.verificationCount !== undefined ? (
           <SignalRow
             icon="verified"
@@ -457,7 +478,12 @@ const FIELD_CLASSES =
   'ring-1 ring-outline-variant/40 transition-shadow focus:outline-none focus:ring-2 focus:ring-primary';
 
 /** Statuses where verify/claim can no longer succeed — actions are disabled. */
-const TERMINAL_STATUSES: ReadonlyArray<PublicSpot['status']> = ['FILLED', 'EXPIRED', 'REJECTED'];
+const TERMINAL_STATUSES: ReadonlyArray<PublicSpot['status']> = [
+  'FILLED',
+  'EXPIRED',
+  'REJECTED',
+  'REVIEW_FAILED',
+];
 
 /**
  * Premium sticky action card — verify, claim, and report grouped in one raised surface.

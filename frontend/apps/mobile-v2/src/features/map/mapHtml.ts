@@ -46,7 +46,8 @@ export interface MapSpotMarker {
   lat: number;
   lng: number;
   createdAt: string;
-  expiresAt: string;
+  /** Null while pending moderation — map markers for live spots always have a value. */
+  expiresAt: string | null;
   /** Live statuses tick the ring; others render a static muted pill. */
   live: boolean;
   /** Suspicious flag renders the warning glyph. */
@@ -192,7 +193,7 @@ export function buildMapHtml(options: MapHtmlOptions): string {
         var el = entry.el;
         var timeEl = el.querySelector('.pk-time');
         var arcEl = el.querySelector('.pk-arc');
-        if (!data.live) {
+        if (!data.live || !data.expiresAt) {
           timeEl.textContent = '—';
           arcEl.setAttribute('stroke', COLORS.muted);
           arcEl.setAttribute('stroke-dashoffset', String(RING_C * 0.25));

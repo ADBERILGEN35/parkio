@@ -2,6 +2,7 @@ package com.parkio.aivalidation.application;
 
 import com.parkio.aivalidation.application.event.MediaUploadedEvent;
 import com.parkio.aivalidation.application.event.ParkingSpotCreatedEvent;
+import com.parkio.aivalidation.application.event.ParkingSpotModerationRetryRequestedEvent;
 import com.parkio.aivalidation.application.port.AiValidationResultRepository;
 import com.parkio.aivalidation.application.port.InboxEventRepository;
 import com.parkio.aivalidation.application.port.OutboxEventAppender;
@@ -63,6 +64,16 @@ public class AiValidationApplicationService {
     /** A newly created spot's photo is analysed; the result is linked to the spot. */
     public void handleParkingSpotCreated(ParkingSpotCreatedEvent event) {
         processEvent(event.eventId(), "ParkingSpotCreated",
+                event.mediaId(), event.parkingSpotId(), null);
+    }
+
+    /**
+     * Parking-service's publication gate went unanswered and asked for a bounded re-run.
+     * Processed exactly like a creation: the retry carries its own {@code eventId}, so the
+     * inbox admits it as new work rather than deduplicating it against the original.
+     */
+    public void handleModerationRetryRequested(ParkingSpotModerationRetryRequestedEvent event) {
+        processEvent(event.eventId(), "ParkingSpotModerationRetryRequested",
                 event.mediaId(), event.parkingSpotId(), null);
     }
 

@@ -1,4 +1,11 @@
-/** Lifecycle of a parking spot — mirrors parking-service `ParkingSpotStatus`. */
+/**
+ * Lifecycle of a parking spot — mirrors parking-service `ParkingSpotStatus`.
+ *
+ * `REVIEW_FAILED` is terminal: moderation never reached a verdict within its deadline,
+ * bounded validation retries were exhausted, or an approval arrived after
+ * `maxPublishableAge`. It exists so a submission can never sit in "Pending review"
+ * indefinitely — the owner is told the review could not be completed and can resubmit.
+ */
 export const PARKING_STATUSES = [
   'PENDING_VALIDATION',
   'PENDING_REVIEW',
@@ -8,9 +15,21 @@ export const PARKING_STATUSES = [
   'FILLED',
   'EXPIRED',
   'REJECTED',
+  'REVIEW_FAILED',
 ] as const;
 
 export type ParkingStatus = (typeof PARKING_STATUSES)[number];
+
+/** Spot statuses that are still waiting on the moderation pipeline. */
+export const PENDING_MODERATION_STATUSES = ['PENDING_VALIDATION', 'PENDING_REVIEW'] as const;
+
+/**
+ * Whether a spot is still awaiting a moderation verdict. Pending spots have not started
+ * their advertised lifetime, so `expiresAt` is null and must never be shown as a countdown.
+ */
+export function isPendingModeration(status: ParkingStatus): boolean {
+  return status === 'PENDING_VALIDATION' || status === 'PENDING_REVIEW';
+}
 
 /**
  * Vehicle sizes a spot can accommodate — mirrors parking-service `VehicleType`.
@@ -83,7 +102,11 @@ export interface PublicSpot {
   legalStatus: LegalStatus;
   violationReasons: ViolationReason[];
   status: ParkingStatus;
-  expiresAt: string;
+  /**
+   * End of the advertised visibility window. Null while the spot is still pending
+   * moderation (lifetime has not started). Only meaningful once published.
+   */
+  expiresAt: string | null;
   createdAt: string;
   updatedAt: string;
 }

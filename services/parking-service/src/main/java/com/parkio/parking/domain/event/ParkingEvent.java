@@ -16,6 +16,8 @@ public sealed interface ParkingEvent permits
         ParkingSpotMarkedFilledEvent,
         ParkingSpotClaimedEvent,
         ParkingSpotExpiredEvent,
+        ParkingSpotModerationRetryRequestedEvent,
+        ParkingSpotReviewFailedEvent,
         ParkingSessionStartedEvent,
         ParkingSessionCompletedEvent,
         ParkingSessionCancelledEvent {

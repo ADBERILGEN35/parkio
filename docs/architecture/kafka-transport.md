@@ -18,6 +18,16 @@ How Parkio's asynchronous event backbone is wired. This complements
 >    **and** `moderation-service` (`MediaRejected`)
 > 5. `ai-validation-service` → `parkio.aivalidation.result` → `moderation-service`
 >    (`AiValidationCompleted`)
+> 6. **Spot moderation lifecycle** (see
+>    [`../operations/spot-moderation-lifecycle-runbook.md`](../operations/spot-moderation-lifecycle-runbook.md)):
+>    `moderation-service` → `parkio.moderation.action` → `parking-service` carries both
+>    `ParkingSpotRejectedByModerator` **and `ParkingSpotApprovedByModerator`** — the latter
+>    is the only path by which a spot held in `PENDING_REVIEW` becomes visible. Overdue
+>    spots are re-requested by parking-service through its own outbox as
+>    `ParkingSpotModerationRetryRequested` on `parkio.parking.spot` (consumed by
+>    `ai-validation`), and exhausted ones emit `ParkingSpotReviewFailed`. The retry path
+>    deliberately reuses the outbox rather than calling ai-validation directly, so it keeps
+>    the same at-least-once and dead-letter guarantees as the original request.
 > 6. `moderation-service` → `parkio.moderation.action` → **`user`** (UserSuspended/Restored
 >    → account status), **`auth`** (UserSuspended/Restored → AuthUser status: suspension
 >    blocks login/refresh and revokes active refresh tokens; restoration re-enables login),

@@ -164,6 +164,41 @@ class ModerationApplicationServiceTest {
     }
 
     @Test
+    void moderatorApprovalOfSpotCaseEmitsApprovalEventSoTheSpotCanBePublished() {
+        UUID spot = UUID.randomUUID();
+        UUID caseId = openSeriousCase(ModerationTargetType.PARKING_SPOT, spot);
+        UUID moderator = UUID.randomUUID();
+        outbox.events.clear();
+
+        service.resolveCase(new ResolveCaseCommand(caseId, moderator, ModerationAction.APPROVE, "looks fine", false));
+
+        // Approving is not merely "dismiss the case": the spot may be held in PENDING_REVIEW
+        // waiting for exactly this signal, so an event must reach parking-service.
+        assertThat(outbox.events).hasExactlyElementsOfTypes(
+                ModerationCaseResolvedEvent.class,
+                com.parkio.moderation.domain.event.ParkingSpotApprovedByModeratorEvent.class);
+        com.parkio.moderation.domain.event.ParkingSpotApprovedByModeratorEvent emitted = outbox.events.stream()
+                .filter(e -> e instanceof com.parkio.moderation.domain.event.ParkingSpotApprovedByModeratorEvent)
+                .map(e -> (com.parkio.moderation.domain.event.ParkingSpotApprovedByModeratorEvent) e)
+                .findFirst()
+                .orElseThrow();
+        assertThat(emitted.parkingSpotId()).isEqualTo(spot);
+        assertThat(emitted.moderatorUserId()).isEqualTo(moderator);
+        assertThat(emitted.moderationCaseId()).isEqualTo(caseId);
+    }
+
+    @Test
+    void moderatorApprovalOfNonSpotCaseEmitsNoSpotEvent() {
+        UUID caseId = openSeriousCase(ModerationTargetType.USER, UUID.randomUUID());
+        outbox.events.clear();
+
+        service.resolveCase(new ResolveCaseCommand(caseId, UUID.randomUUID(),
+                ModerationAction.APPROVE, "no action", false));
+
+        assertThat(outbox.events).hasExactlyElementsOfTypes(ModerationCaseResolvedEvent.class);
+    }
+
+    @Test
     void moderatorRejectionEventCarriesOwnerWhenCaseOpenedFromCommunityRejection() {
         UUID spot = UUID.randomUUID();
         UUID owner = UUID.randomUUID();
