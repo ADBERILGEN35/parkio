@@ -2,6 +2,7 @@ package com.parkio.aivalidation.infrastructure.config;
 
 import java.time.Duration;
 import java.util.List;
+import java.util.Locale;
 import org.springframework.boot.context.properties.ConfigurationProperties;
 
 /**
@@ -66,6 +67,20 @@ public class VisionProperties {
      * auto-rejecting a legitimate submission.
      */
     private double rejectConfidence = 0.70;
+
+    /**
+     * Prompt/template version recorded on every result for traceability and to gate
+     * cross-version result reuse. Bump this whenever {@code GeminiVisionClient.PROMPT}
+     * or the response schema changes in a way that can alter verdicts.
+     */
+    private String promptVersion = "2026-07-region-first-v1";
+
+    /**
+     * Policy version (reason-code → verdict mapping in the classifier). Bump when
+     * {@code CONCRETE_REJECT_REASON_CODES} / {@code FORCE_UNCERTAIN_REASON_CODES} or
+     * the confidence-policy logic changes.
+     */
+    private String policyVersion = "2026-07-v1";
 
     private final MediaClient mediaClient = new MediaClient();
     private final Gemini gemini = new Gemini();
@@ -160,6 +175,30 @@ public class VisionProperties {
 
     public void setRejectConfidence(double rejectConfidence) {
         this.rejectConfidence = rejectConfidence;
+    }
+
+    public String getPromptVersion() {
+        return promptVersion;
+    }
+
+    public void setPromptVersion(String promptVersion) {
+        this.promptVersion = promptVersion;
+    }
+
+    public String getPolicyVersion() {
+        return policyVersion;
+    }
+
+    public void setPolicyVersion(String policyVersion) {
+        this.policyVersion = policyVersion;
+    }
+
+    /**
+     * Deterministically derived from the accept/reject thresholds so a threshold change
+     * automatically invalidates cross-version result reuse without a manual bump.
+     */
+    public String getThresholdVersion() {
+        return String.format(Locale.ROOT, "acc%.2f-rej%.2f", acceptConfidence, rejectConfidence);
     }
 
     public MediaClient getMediaClient() {
@@ -258,6 +297,19 @@ public class VisionProperties {
         private String apiKey = "";
         /** Vision-capable model id; override per environment without a rebuild. */
         private String model = "gemini-2.5-flash-lite";
+        /**
+         * Optional explicit model version recorded for traceability. When blank, the
+         * resolved {@link #model} id is persisted as the model version. Gemini
+         * {@code flash-lite} exposes only a moving alias (dated snapshots are retired),
+         * so exact provider-side pinning is not possible; we persist what we sent.
+         */
+        private String modelVersion = "";
+        /**
+         * Deterministic decoding seed sent to the provider. Combined with
+         * {@code temperature=0}, this maximizes reproducibility. The provider does not
+         * contractually guarantee determinism, so results still carry full provenance.
+         */
+        private int seed = 12345;
         /** API origin; tests point this at a local stub server. */
         private String baseUrl = "https://generativelanguage.googleapis.com";
         private Duration connectTimeout = Duration.ofSeconds(3);
@@ -281,6 +333,22 @@ public class VisionProperties {
 
         public void setModel(String model) {
             this.model = model;
+        }
+
+        public String getModelVersion() {
+            return modelVersion;
+        }
+
+        public void setModelVersion(String modelVersion) {
+            this.modelVersion = modelVersion;
+        }
+
+        public int getSeed() {
+            return seed;
+        }
+
+        public void setSeed(int seed) {
+            this.seed = seed;
         }
 
         public String getBaseUrl() {

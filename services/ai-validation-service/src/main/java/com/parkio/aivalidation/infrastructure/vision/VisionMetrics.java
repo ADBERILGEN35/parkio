@@ -41,6 +41,20 @@ public class VisionMetrics {
                 "provider", provider, "reason", reason).increment();
     }
 
+    /** A prior result was reused because its version tuple matched the current one. */
+    public void recordReuse() {
+        registry.counter("parkio.ai.vision.reuse", "provider", provider).increment();
+    }
+
+    /**
+     * A prior result was NOT reused because its model/prompt/policy/threshold version
+     * (or a legacy incomplete tuple) differed from the current configuration; the
+     * classifier re-ran instead of reusing a cross-version decision.
+     */
+    public void recordVersionMismatchRerun() {
+        registry.counter("parkio.ai.vision.reuse.version_mismatch", "provider", provider).increment();
+    }
+
     public void recordUsage(VisionProviderClient.VisionAnalysis.Usage usage) {
         if (usage == null) {
             return;

@@ -21,7 +21,7 @@ public final class AiValidationPersistenceMapper {
         return new AiValidationResultEntity(
                 r.id(), r.mediaId(), r.parkingSpotId().orElse(null), r.requestedByUserId().orElse(null),
                 r.status(), r.emptySpaceConfidence(), r.legalRiskScore(), r.imageQualityScore(),
-                r.aiConfidence(), r.createdAt(), r.version());
+                r.aiConfidence(), r.provenance(), r.createdAt(), r.version());
     }
 
     public static AiValidationFindingEntity toEntity(AiValidationFinding f, java.util.UUID resultId) {
@@ -42,7 +42,7 @@ public final class AiValidationPersistenceMapper {
                 e.getEmptySpaceConfidence(), e.getLegalRiskScore(), e.getImageQualityScore(), e.getAiConfidence(),
                 findings.stream().map(AiValidationPersistenceMapper::toDomain).toList(),
                 fits.stream().map(AiValidationPersistenceMapper::toDomain).toList(),
-                e.getCreatedAt(), e.getVersion());
+                e.getProvenance(), e.getCreatedAt(), e.getVersion());
     }
 
     private static AiValidationFinding toDomain(AiValidationFindingEntity e) {

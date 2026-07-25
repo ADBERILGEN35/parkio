@@ -189,6 +189,12 @@ public class GeminiVisionClient implements VisionProviderClient {
     }
 
     @Override
+    public String modelVersion() {
+        String configured = gemini.getModelVersion();
+        return configured == null || configured.isBlank() ? gemini.getModel() : configured;
+    }
+
+    @Override
     public VisionAnalysis analyze(byte[] imageBytes, String contentType, ClaimedRegion claimedRegion) {
         String body = buildRequestBody(imageBytes, contentType, claimedRegion);
         int attempts = Math.max(1, 1 + gemini.getMaxRetries());
@@ -243,6 +249,9 @@ public class GeminiVisionClient implements VisionProviderClient {
 
             ObjectNode generationConfig = root.putObject("generationConfig");
             generationConfig.put("temperature", 0.0);
+            // Deterministic decoding seed: with temperature=0 this maximizes
+            // reproducibility. Not a provider determinism guarantee (see provenance).
+            generationConfig.put("seed", gemini.getSeed());
             generationConfig.put("maxOutputTokens", 1024);
             generationConfig.put("responseMimeType", "application/json");
             generationConfig.set("responseSchema", objectMapper.readTree(RESPONSE_SCHEMA_JSON));

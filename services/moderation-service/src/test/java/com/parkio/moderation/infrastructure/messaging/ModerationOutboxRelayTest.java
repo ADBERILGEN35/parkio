@@ -82,6 +82,42 @@ class ModerationOutboxRelayTest {
     }
 
     @Test
+    void routesModeratorSpotApprovalToActionTopic() {
+        // Regression: ParkingSpotApprovedByModerator must be routed (not treated as an
+        // unroutable poison row), otherwise a moderator-approved PENDING_REVIEW spot never
+        // reaches parking-service and rots to REVIEW_FAILED on the review timeout.
+        UUID spotId = UUID.randomUUID();
+        OutboxEventEntity r = row("ParkingSpot", spotId, "ParkingSpotApprovedByModerator");
+        when(outbox.findUnpublishedBatchForUpdate(100)).thenReturn(List.of(r));
+        stubSuccessfulSend();
+
+        relay.publishPending();
+
+        ArgumentCaptor<ProducerRecord<String, Object>> captor = ArgumentCaptor.forClass(ProducerRecord.class);
+        verify(kafkaTemplate).send(captor.capture());
+        assertThat(captor.getValue().topic()).isEqualTo("parkio.moderation.action");
+        assertThat(captor.getValue().key()).isEqualTo(spotId.toString());
+        assertThat(((EventEnvelope) captor.getValue().value()).eventType())
+                .isEqualTo("ParkingSpotApprovedByModerator");
+        assertThat(r.isPublished()).isTrue();
+    }
+
+    @Test
+    void routesModeratorSpotRejectionToActionTopic() {
+        UUID spotId = UUID.randomUUID();
+        OutboxEventEntity r = row("ParkingSpot", spotId, "ParkingSpotRejectedByModerator");
+        when(outbox.findUnpublishedBatchForUpdate(100)).thenReturn(List.of(r));
+        stubSuccessfulSend();
+
+        relay.publishPending();
+
+        ArgumentCaptor<ProducerRecord<String, Object>> captor = ArgumentCaptor.forClass(ProducerRecord.class);
+        verify(kafkaTemplate).send(captor.capture());
+        assertThat(captor.getValue().topic()).isEqualTo("parkio.moderation.action");
+        assertThat(r.isPublished()).isTrue();
+    }
+
+    @Test
     @SuppressWarnings("unchecked")
     void recordsFailureWithoutThrowingWhenSendFails() {
         OutboxEventEntity r = row("ParkingSpot", UUID.randomUUID(), "ParkingSpotRejectedByModerator");

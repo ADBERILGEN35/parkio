@@ -15,6 +15,14 @@ public interface VisionProviderClient {
     String modelId();
 
     /**
+     * Exact model version persisted for traceability and cross-version reuse gating.
+     * Defaults to {@link #modelId()} when the provider exposes only a moving alias.
+     */
+    default String modelVersion() {
+        return modelId();
+    }
+
+    /**
      * Classifies the image, optionally focusing on a claimed parking region.
      *
      * @throws VisionProviderException on timeout, HTTP errors, malformed or refused

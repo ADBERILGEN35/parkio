@@ -8,6 +8,7 @@ import com.parkio.moderation.domain.event.AppealCreatedEvent;
 import com.parkio.moderation.domain.event.AppealResolvedEvent;
 import com.parkio.moderation.domain.event.ModerationCaseOpenedEvent;
 import com.parkio.moderation.domain.event.ModerationCaseResolvedEvent;
+import com.parkio.moderation.domain.event.ParkingSpotApprovedByModeratorEvent;
 import com.parkio.moderation.domain.event.ParkingSpotRejectedByModeratorEvent;
 import com.parkio.moderation.domain.event.UserRestoredEvent;
 import com.parkio.moderation.domain.event.UserSuspendedEvent;
@@ -50,9 +51,11 @@ import org.springframework.transaction.annotation.Transactional;
  * if the ack succeeds but the transaction does not commit, the row is re-sent and
  * consumers deduplicate by {@code eventId}. Rows are never deleted.
  *
- * <p>Mirrors the other relays. {@code ParkingSpotRejectedByModerator} is published to the
- * action topic but, per the loop-guard (kafka-transport.md), parking-service must not
- * consume it / re-emit {@code ParkingSpotRejected}. Disable with
+ * <p>Mirrors the other relays. Both moderator spot verdicts —
+ * {@code ParkingSpotApprovedByModerator} (the only human exit from {@code PENDING_REVIEW})
+ * and {@code ParkingSpotRejectedByModerator} — are outward actions on the action topic.
+ * Per the loop-guard (kafka-transport.md), parking-service applies them to its own state
+ * but must not re-emit {@code ParkingSpotRejected} in response. Disable with
  * {@code parkio.kafka.relay.enabled=false}.
  */
 @Component
@@ -66,7 +69,8 @@ public class ModerationOutboxRelay {
             ModerationCaseOpenedEvent.TYPE, ModerationCaseResolvedEvent.TYPE,
             AppealCreatedEvent.TYPE, AppealResolvedEvent.TYPE);
     private static final Set<String> ACTION_TYPES = Set.of(
-            UserSuspendedEvent.TYPE, UserRestoredEvent.TYPE, ParkingSpotRejectedByModeratorEvent.TYPE);
+            UserSuspendedEvent.TYPE, UserRestoredEvent.TYPE,
+            ParkingSpotApprovedByModeratorEvent.TYPE, ParkingSpotRejectedByModeratorEvent.TYPE);
 
     private final OutboxEventJpaRepository outbox;
     private final KafkaTemplate<String, Object> kafkaTemplate;

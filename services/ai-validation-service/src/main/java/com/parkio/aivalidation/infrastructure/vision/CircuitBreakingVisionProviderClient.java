@@ -29,6 +29,11 @@ public final class CircuitBreakingVisionProviderClient implements VisionProvider
     }
 
     @Override
+    public String modelVersion() {
+        return delegate.modelVersion();
+    }
+
+    @Override
     public VisionAnalysis analyze(byte[] imageBytes, String contentType, ClaimedRegion claimedRegion) {
         try {
             return circuitBreaker.executeSupplier(

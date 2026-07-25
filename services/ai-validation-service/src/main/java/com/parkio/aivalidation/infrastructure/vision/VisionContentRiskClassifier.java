@@ -6,12 +6,18 @@ import com.parkio.aivalidation.domain.AiValidationResult;
 import com.parkio.aivalidation.domain.AiValidationStatus;
 import com.parkio.aivalidation.domain.ContentClassification;
 import com.parkio.aivalidation.domain.ContentRiskClassifier;
+import com.parkio.aivalidation.domain.DecisionSource;
 import com.parkio.aivalidation.domain.DeterministicAiValidator;
+import com.parkio.aivalidation.domain.ModerationProvenance;
 import com.parkio.aivalidation.infrastructure.config.VisionProperties;
+import java.nio.charset.StandardCharsets;
+import java.security.MessageDigest;
+import java.security.NoSuchAlgorithmException;
 import java.time.Clock;
 import java.time.Duration;
 import java.time.Instant;
 import java.util.Comparator;
+import java.util.HexFormat;
 import java.util.Locale;
 import java.util.Optional;
 import java.util.Set;
@@ -36,6 +42,9 @@ import org.slf4j.LoggerFactory;
 public class VisionContentRiskClassifier implements ContentRiskClassifier {
 
     private static final Logger log = LoggerFactory.getLogger(VisionContentRiskClassifier.class);
+
+    /** Algorithm version for {@code requestIdentity}; bump if the identity recipe changes. */
+    static final String REQUEST_IDENTITY_VERSION = "v1";
 
     private final MediaContentFetcher mediaContentFetcher;
     private final VisionProviderClient providerClient;
@@ -109,15 +118,26 @@ public class VisionContentRiskClassifier implements ContentRiskClassifier {
             if (analysis.usage() != null) {
                 metrics.recordUsage(analysis.usage());
             }
-            ContentClassification classification = applyConfidencePolicy(analysis);
+            String canonicalImageHash = sha256Hex(content.bytes());
+            String requestIdentity = computeRequestIdentity(canonicalImageHash, content.claimedRegion());
+            ModerationProvenance provenance = new ModerationProvenance(
+                    DecisionSource.AUTOMATED, providerClient.providerId(), providerClient.modelId(),
+                    providerClient.modelVersion(), properties.getPromptVersion(),
+                    properties.getPolicyVersion(), properties.getThresholdVersion(),
+                    canonicalImageHash, analysis.confidence(), requestIdentity, REQUEST_IDENTITY_VERSION);
+            ContentClassification classification = applyConfidencePolicy(analysis).withProvenance(provenance);
             Duration duration = Duration.between(start, clock.instant());
             metrics.recordOutcome(classification.verdict().name(), duration);
             metrics.markSuccess();
             log.info("Vision validation completed for media {}: verdict={} outcome={} "
-                            + "confidence={} reasonCode={} durationMs={}",
+                            + "confidence={} reasonCode={} source=AUTOMATED model={} modelVersion={} "
+                            + "promptVersion={} policyVersion={} thresholdVersion={} hashPrefix={} "
+                            + "reqIdPrefix={} durationMs={}",
                     mediaId, classification.verdict(), classification.outcomeKind(),
                     String.format(Locale.ROOT, "%.2f", analysis.confidence()),
-                    analysis.reasonCode(), duration.toMillis());
+                    analysis.reasonCode(), provenance.modelId(), provenance.modelVersion(),
+                    provenance.promptVersion(), provenance.policyVersion(), provenance.thresholdVersion(),
+                    provenance.safeHashPrefix(), provenance.safeRequestIdentityPrefix(), duration.toMillis());
             return classification;
         } catch (MediaContentException ex) {
             return failClosed(mediaId, start,
@@ -182,13 +202,41 @@ public class VisionContentRiskClassifier implements ContentRiskClassifier {
                 .flatMap(result -> mapReusable(result, clock.instant()));
     }
 
+    /**
+     * Decides whether a persisted result may be reused. A candidate verdict is derived
+     * from the persisted status, then <b>gated by the version tuple</b>: a result whose
+     * model/prompt/policy/threshold version differs from the current configuration (or a
+     * legacy result with an incomplete tuple) is never reused — the classifier re-runs
+     * under the current version. This is the "no cross-version reuse" guarantee.
+     */
     private Optional<ContentClassification> mapReusable(AiValidationResult result, Instant now) {
+        Optional<Verdict> reuseVerdict = reuseVerdictOf(result, now);
+        if (reuseVerdict.isEmpty()) {
+            return Optional.empty();
+        }
+        ModerationProvenance persisted = result.provenance();
+        if (!currentVersionMatches(persisted)) {
+            metrics.recordVersionMismatchRerun();
+            log.info("Skipping reuse for media {}: persisted version tuple differs from current "
+                            + "(persisted model={}/{} prompt={} policy={} threshold={}); re-running",
+                    result.mediaId(), persisted.modelId(), persisted.modelVersion(),
+                    persisted.promptVersion(), persisted.policyVersion(), persisted.thresholdVersion());
+            return Optional.empty();
+        }
+        metrics.recordReuse();
+        ModerationProvenance reused = persisted.withDecisionSource(DecisionSource.REUSED);
+        return Optional.of(ContentClassification.semantic(reuseVerdict.get(), "reused")
+                .withProvenance(reused));
+    }
+
+    /** The verdict a persisted result would contribute if reuse were allowed. */
+    private Optional<Verdict> reuseVerdictOf(AiValidationResult result, Instant now) {
         if (result.status() == AiValidationStatus.FAILED
                 || result.detectedRiskTypes().contains(AiRiskType.NOT_A_PARKING_SPOT)) {
-            return Optional.of(ContentClassification.semantic(Verdict.NOT_A_PARKING_SPOT, "reused"));
+            return Optional.of(Verdict.NOT_A_PARKING_SPOT);
         }
         if (result.status() == AiValidationStatus.PASSED) {
-            return Optional.of(ContentClassification.semantic(Verdict.LIKELY_PARKING, "reused"));
+            return Optional.of(Verdict.LIKELY_PARKING);
         }
         if (result.status() == AiValidationStatus.WARNING) {
             boolean infra = result.findings().stream().anyMatch(f ->
@@ -202,11 +250,59 @@ public class VisionContentRiskClassifier implements ContentRiskClassifier {
             if (semanticUncertain) {
                 Duration age = Duration.between(result.createdAt(), now);
                 if (age.compareTo(properties.getSemanticUncertainReuseTtl()) <= 0) {
-                    return Optional.of(ContentClassification.semantic(Verdict.UNCERTAIN, "reused"));
+                    return Optional.of(Verdict.UNCERTAIN);
                 }
             }
         }
         return Optional.empty();
+    }
+
+    /** True when the persisted result's version tuple equals the current configuration. */
+    private boolean currentVersionMatches(ModerationProvenance persisted) {
+        if (persisted == null || !persisted.hasCompleteVersionTuple()) {
+            return false;
+        }
+        return persisted.sameVersionTuple(currentVersionTemplate());
+    }
+
+    /** Current version tuple (no hash/confidence/identity/source) for reuse comparison. */
+    private ModerationProvenance currentVersionTemplate() {
+        return new ModerationProvenance(null, providerClient.providerId(), providerClient.modelId(),
+                providerClient.modelVersion(), properties.getPromptVersion(),
+                properties.getPolicyVersion(), properties.getThresholdVersion(),
+                null, null, null, null);
+    }
+
+    /**
+     * Deterministic logical request identity: SHA-256 over the canonical image hash and
+     * the full version tuple plus the normalized claimed region. Same image + same
+     * versions + same region ⇒ same identity; a version bump ⇒ a new identity.
+     */
+    private String computeRequestIdentity(String canonicalImageHash, ClaimedRegion region) {
+        String regionKey = region == null
+                ? "none"
+                : String.format(Locale.ROOT, "%.4f,%.4f,%.4f,%.4f",
+                        region.x(), region.y(), region.width(), region.height());
+        String recipe = String.join("|",
+                REQUEST_IDENTITY_VERSION,
+                canonicalImageHash,
+                providerClient.providerId(),
+                providerClient.modelId(),
+                providerClient.modelVersion(),
+                properties.getPromptVersion(),
+                properties.getPolicyVersion(),
+                properties.getThresholdVersion(),
+                "region=" + regionKey);
+        return sha256Hex(recipe.getBytes(StandardCharsets.UTF_8));
+    }
+
+    private static String sha256Hex(byte[] bytes) {
+        try {
+            MessageDigest digest = MessageDigest.getInstance("SHA-256");
+            return HexFormat.of().formatHex(digest.digest(bytes));
+        } catch (NoSuchAlgorithmException e) {
+            throw new IllegalStateException("SHA-256 unavailable", e);
+        }
     }
 
     private ContentClassification failClosed(UUID mediaId, Instant start, String reason,
@@ -216,6 +312,8 @@ public class VisionContentRiskClassifier implements ContentRiskClassifier {
         metrics.recordOutcome("FAIL_CLOSED", duration);
         log.warn("Vision validation failed closed (UNCERTAIN) for media {}: reason={} cause={} durationMs={}",
                 mediaId, reason, cause.getClass().getSimpleName(), duration.toMillis());
-        return ContentClassification.infrastructure(reason);
+        ModerationProvenance provenance =
+                currentVersionTemplate().withDecisionSource(DecisionSource.INFRASTRUCTURE);
+        return ContentClassification.infrastructure(reason).withProvenance(provenance);
     }
 }

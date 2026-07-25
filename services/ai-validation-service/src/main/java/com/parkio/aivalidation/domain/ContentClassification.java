@@ -12,7 +12,8 @@ public record ContentClassification(
         String claimedRegionAssessment,
         String vehicleFitEstimate,
         String obstructionAssessment,
-        String legalityAccessAssessment) {
+        String legalityAccessAssessment,
+        ModerationProvenance provenance) {
 
     public enum OutcomeKind {
         /** Model returned a semantic verdict (including genuine UNCERTAIN). */
@@ -38,12 +39,18 @@ public record ContentClassification(
         return new ContentClassification(
                 verdict, OutcomeKind.SEMANTIC, reasonCode,
                 claimedRegionAssessment, vehicleFitEstimate,
-                obstructionAssessment, legalityAccessAssessment);
+                obstructionAssessment, legalityAccessAssessment, null);
     }
 
     public static ContentClassification infrastructure(String reasonCode) {
         return new ContentClassification(
                 ContentRiskClassifier.Verdict.UNCERTAIN, OutcomeKind.INFRASTRUCTURE, reasonCode,
-                null, null, null, null);
+                null, null, null, null, null);
+    }
+
+    /** Returns a copy carrying the given provenance (verdict/assessments unchanged). */
+    public ContentClassification withProvenance(ModerationProvenance provenance) {
+        return new ContentClassification(verdict, outcomeKind, reasonCode, claimedRegionAssessment,
+                vehicleFitEstimate, obstructionAssessment, legalityAccessAssessment, provenance);
     }
 }

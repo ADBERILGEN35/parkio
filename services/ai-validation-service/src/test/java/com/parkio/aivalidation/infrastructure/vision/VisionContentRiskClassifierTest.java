@@ -252,6 +252,62 @@ class VisionContentRiskClassifierTest {
         assertThat(provider.calls).isEqualTo(2);
     }
 
+    // --- version-gated reuse -------------------------------------------------
+
+    @Test
+    void crossVersionPassedIsNotReusedAndReRunsUnderCurrentVersion() {
+        UUID mediaId = UUID.randomUUID();
+        results.add(withProvenance(
+                new DeterministicAiValidator(id -> Verdict.LIKELY_PARKING).validate(mediaId, null, null, NOW),
+                staleVersionProvenance()));
+        provider.analysis = new VisionProviderClient.VisionAnalysis("LIKELY_PARKING", 0.92, "CLEAR_USABLE_SPACE");
+
+        assertThat(classifier.classify(mediaId)).isEqualTo(Verdict.LIKELY_PARKING);
+        assertThat(provider.calls).isEqualTo(1);
+        // classifyDetailed performs the reuse lookup twice (initial + re-check under the
+        // single-flight guard), so a stale result is detected >= once; never reused.
+        assertThat(versionMismatchCount()).isGreaterThanOrEqualTo(1.0);
+        assertThat(reuseCount()).isZero();
+    }
+
+    @Test
+    void legacyNullProvenanceIsNotReusedAndReRuns() {
+        UUID mediaId = UUID.randomUUID();
+        // Base fixture carries heuristic (all-null version tuple) provenance = legacy row.
+        results.add(new DeterministicAiValidator(id -> Verdict.LIKELY_PARKING).validate(mediaId, null, null, NOW));
+        provider.analysis = new VisionProviderClient.VisionAnalysis("UNCERTAIN", 0.4, "OTHER");
+
+        assertThat(classifier.classify(mediaId)).isEqualTo(Verdict.UNCERTAIN);
+        assertThat(provider.calls).isEqualTo(1);
+        assertThat(versionMismatchCount()).isGreaterThanOrEqualTo(1.0);
+    }
+
+    @Test
+    void matchingVersionReuseIncrementsReuseCounterAndSkipsProvider() {
+        UUID mediaId = UUID.randomUUID();
+        results.add(resultFor(mediaId, Verdict.LIKELY_PARKING));
+
+        assertThat(classifier.classify(mediaId)).isEqualTo(Verdict.LIKELY_PARKING);
+        assertThat(provider.calls).isZero();
+        assertThat(reuseCount()).isEqualTo(1.0);
+    }
+
+    @Test
+    void freshClassificationPersistsAutomatedProvenanceWithHashAndIdentity() {
+        provider.analysis = new VisionProviderClient.VisionAnalysis("LIKELY_PARKING", 0.92, "CLEAR_USABLE_SPACE");
+        var classification = classifier.classifyDetailed(UUID.randomUUID());
+
+        var prov = classification.provenance();
+        assertThat(prov).isNotNull();
+        assertThat(prov.decisionSource())
+                .isEqualTo(com.parkio.aivalidation.domain.DecisionSource.AUTOMATED);
+        assertThat(prov.modelId()).isEqualTo("test-model");
+        assertThat(prov.promptVersion()).isEqualTo(properties.getPromptVersion());
+        assertThat(prov.canonicalImageHash()).hasSize(64);
+        assertThat(prov.requestIdentity()).hasSize(64);
+        assertThat(prov.rawConfidence()).isEqualTo(0.92);
+    }
+
     // --- helpers --------------------------------------------------------------
 
     private double failClosedCount() {
@@ -259,10 +315,55 @@ class VisionContentRiskClassifierTest {
                 "provider", "gemini", "outcome", "FAIL_CLOSED").count();
     }
 
-    /** Builds a persisted-result fixture whose status matches the given verdict. */
-    private static AiValidationResult resultFor(UUID mediaId, Verdict verdict) {
-        return new DeterministicAiValidator(id -> verdict)
+    private double reuseCount() {
+        return registry.counter("parkio.ai.vision.reuse", "provider", "gemini").count();
+    }
+
+    private double versionMismatchCount() {
+        return registry.counter("parkio.ai.vision.reuse.version_mismatch", "provider", "gemini").count();
+    }
+
+    private static AiValidationResult withProvenance(
+            AiValidationResult base, com.parkio.aivalidation.domain.ModerationProvenance provenance) {
+        return new AiValidationResult(base.id(), base.mediaId(), base.parkingSpotId().orElse(null),
+                base.requestedByUserId().orElse(null), base.status(), base.emptySpaceConfidence(),
+                base.legalRiskScore(), base.imageQualityScore(), base.aiConfidence(), base.findings(),
+                base.vehicleFitEstimates(), provenance, base.createdAt(), base.version());
+    }
+
+    /** Complete but out-of-date version tuple (old prompt) → must not be reused. */
+    private com.parkio.aivalidation.domain.ModerationProvenance staleVersionProvenance() {
+        return new com.parkio.aivalidation.domain.ModerationProvenance(
+                com.parkio.aivalidation.domain.DecisionSource.AUTOMATED,
+                provider.providerId(), provider.modelId(), provider.modelVersion(),
+                "OLD-PROMPT-VERSION", properties.getPolicyVersion(), properties.getThresholdVersion(),
+                "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef",
+                0.90, "fedcba9876543210fedcba9876543210fedcba9876543210fedcba9876543210", "v1");
+    }
+
+    /**
+     * Builds a persisted-result fixture whose status matches the given verdict AND whose
+     * provenance version tuple matches the classifier's current configuration, so that
+     * version-gated reuse applies (a mismatched tuple would force a re-run instead).
+     */
+    private AiValidationResult resultFor(UUID mediaId, Verdict verdict) {
+        AiValidationResult base = new DeterministicAiValidator(id -> verdict)
                 .validate(mediaId, null, null, NOW);
+        return new AiValidationResult(base.id(), base.mediaId(), base.parkingSpotId().orElse(null),
+                base.requestedByUserId().orElse(null), base.status(), base.emptySpaceConfidence(),
+                base.legalRiskScore(), base.imageQualityScore(), base.aiConfidence(), base.findings(),
+                base.vehicleFitEstimates(), matchingProvenance(), base.createdAt(), base.version());
+    }
+
+    /** Provenance whose version tuple equals the classifier's current template (reusable). */
+    private com.parkio.aivalidation.domain.ModerationProvenance matchingProvenance() {
+        return new com.parkio.aivalidation.domain.ModerationProvenance(
+                com.parkio.aivalidation.domain.DecisionSource.AUTOMATED,
+                provider.providerId(), provider.modelId(), provider.modelVersion(),
+                properties.getPromptVersion(), properties.getPolicyVersion(),
+                properties.getThresholdVersion(),
+                "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef",
+                0.90, "fedcba9876543210fedcba9876543210fedcba9876543210fedcba9876543210", "v1");
     }
 
     private static AiValidationResult infraWarning(UUID mediaId) {

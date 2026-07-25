@@ -102,8 +102,11 @@ public final class DeterministicAiValidator {
                 VehicleFitEstimate.of(VehicleType.SUV, Score.clamp(emptySpace - 15), now),
                 VehicleFitEstimate.of(VehicleType.VAN, Score.clamp(emptySpace - 30), now));
 
+        ModerationProvenance provenance = classification.provenance() != null
+                ? classification.provenance()
+                : ModerationProvenance.heuristic();
         return AiValidationResult.create(mediaId, parkingSpotId, requestedByUserId,
-                emptySpace, legalRisk, imageQuality, aiConfidence, findings, fits, now);
+                emptySpace, legalRisk, imageQuality, aiConfidence, findings, fits, provenance, now);
     }
 
     private static void appendStructuredAssessments(List<AiValidationFinding> findings,

@@ -27,13 +27,15 @@ public final class AiValidationResult {
     private final int aiConfidence;
     private final List<AiValidationFinding> findings;
     private final List<VehicleFitEstimate> vehicleFitEstimates;
+    private final ModerationProvenance provenance;
     private final Instant createdAt;
     private final Long version;
 
     public AiValidationResult(UUID id, UUID mediaId, UUID parkingSpotId, UUID requestedByUserId,
                               AiValidationStatus status, int emptySpaceConfidence, int legalRiskScore,
                               int imageQualityScore, int aiConfidence, List<AiValidationFinding> findings,
-                              List<VehicleFitEstimate> vehicleFitEstimates, Instant createdAt, Long version) {
+                              List<VehicleFitEstimate> vehicleFitEstimates, ModerationProvenance provenance,
+                              Instant createdAt, Long version) {
         this.id = Objects.requireNonNull(id, "id");
         this.mediaId = Objects.requireNonNull(mediaId, "mediaId");
         this.parkingSpotId = parkingSpotId;
@@ -45,6 +47,7 @@ public final class AiValidationResult {
         this.aiConfidence = Score.require("aiConfidence", aiConfidence);
         this.findings = List.copyOf(findings);
         this.vehicleFitEstimates = List.copyOf(vehicleFitEstimates);
+        this.provenance = provenance == null ? ModerationProvenance.none() : provenance;
         this.createdAt = Objects.requireNonNull(createdAt, "createdAt");
         this.version = version;
     }
@@ -56,13 +59,14 @@ public final class AiValidationResult {
     public static AiValidationResult create(UUID mediaId, UUID parkingSpotId, UUID requestedByUserId,
                                             int emptySpaceConfidence, int legalRiskScore, int imageQualityScore,
                                             int aiConfidence, List<AiValidationFinding> findings,
-                                            List<VehicleFitEstimate> vehicleFitEstimates, Instant now) {
+                                            List<VehicleFitEstimate> vehicleFitEstimates,
+                                            ModerationProvenance provenance, Instant now) {
         List<AiRiskType> detectedRiskTypes = detectedRiskTypes(findings);
         AiValidationStatus status = AiValidationStatusPolicy.evaluate(
                 legalRiskScore, imageQualityScore, aiConfidence, detectedRiskTypes);
         return new AiValidationResult(UUID.randomUUID(), mediaId, parkingSpotId, requestedByUserId, status,
                 emptySpaceConfidence, legalRiskScore, imageQualityScore, aiConfidence, findings,
-                vehicleFitEstimates, now, null);
+                vehicleFitEstimates, provenance, now, null);
     }
 
     /** The distinct risk types flagged across this result's findings (advisory). */
@@ -120,6 +124,11 @@ public final class AiValidationResult {
 
     public List<VehicleFitEstimate> vehicleFitEstimates() {
         return vehicleFitEstimates;
+    }
+
+    /** Traceability metadata for this result (never null; {@link ModerationProvenance#none()} if absent). */
+    public ModerationProvenance provenance() {
+        return provenance;
     }
 
     public Instant createdAt() {
