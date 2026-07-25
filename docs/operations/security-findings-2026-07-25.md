@@ -39,11 +39,13 @@ Fix: pin the patched release of the same 1.81 line.
 Trivy lists 1.81.1 as a fixed version for this CVE, so the CRITICAL gate clears
 without touching the scanner configuration or suppression files.
 
-## 2. Dependency vulnerability scan — 7 × HIGH — **fixed**
+## 2. Dependency vulnerability scan - 7 HIGH - **6 fixed, 1 dispositioned**
 
-All seven were fixable transitive versions in `frontend/pnpm-lock.yaml`. Each is
-raised through a narrow `pnpm.overrides` entry in `frontend/package.json`; no
-direct dependency ranges were relaxed and no scanner rule was disabled.
+Six of the seven were fixable transitive versions in `frontend/pnpm-lock.yaml`, each
+raised through a narrow `pnpm.overrides` entry in `frontend/package.json`; no direct
+dependency ranges were relaxed and no scanner rule was disabled. The seventh
+(`CVE-2026-14257` against the 1.x line of `brace-expansion`) has no fix on that line
+at all and is dispositioned in section 3a.
 
 | Advisory | Package | Installed | Fixed in | Override applied |
 |---|---|---|---|---|
@@ -53,15 +55,35 @@ direct dependency ranges were relaxed and no scanner rule was disabled.
 | `CVE-2026-13149`, `CVE-2026-14257` | `brace-expansion` | 1.1.15 | 1.1.16 | `brace-expansion@1: ^1.1.16` |
 | `CVE-2026-13149`, `CVE-2026-14257` | `brace-expansion` | 5.0.6 | 5.0.8 | `brace-expansion@5: ^5.0.8` |
 
-Post-change the lockfile resolves exactly one version per package, all at or above
-the fixed version.
+Post-change the lockfile resolves exactly one version per package. The rescan on
+`v1.0.0-rc3` (run `30171255383`) dropped the job from seven findings to the single
+`brace-expansion@1.1.16` entry covered by section 3a.
 
 ## 3. Accepted, time-bounded, non-blocking findings
 
-These do **not** fail any gate (image scans block on CRITICAL only). They are
+None of these fail a gate: image scans block on CRITICAL only, and 3a carries an
+expiring .trivyignore.yaml exception. They are
 recorded here so that "Security CI green" is not mistaken for "zero findings".
 
-### 3a. pgjdbc SCRAM downgrade — HIGH
+### 3a. brace-expansion 1.x DoS - HIGH - **narrow suppression with expiry**
+
+| Field | Value |
+|---|---|
+| Finding | `CVE-2026-14257` - denial of service via crafted brace patterns |
+| Component | `brace-expansion` **1.1.16** in `frontend/pnpm-lock.yaml` |
+| Fixed in | 5.0.8 only - **no fix exists for the 1.x line** (1.1.16 is the newest 1.x release) |
+| Why not upgraded | brace-expansion 5.x exports a named `expand`, while its only consumer here, `minimatch@3`, calls the module itself; forcing 5.0.8 into that path would break at runtime |
+| Reachability | that `minimatch@3` copy comes only from lint/coverage tooling (eslint 9 internals, `eslint-plugin-import`, `eslint-plugin-react`, `glob@7`, `test-exclude`). It is a devDependency: never bundled into the web app, never present in a container image, and it only expands repo-controlled glob patterns |
+| Classification | **accepted pre-existing risk**, unfixable in our tree until upstream moves |
+| Owner | Parkio release engineering |
+| Expiry | **2026-08-31** (encoded as `expired_at` in `.trivyignore.yaml`, so the suppression fails the gate again once it lapses) |
+| Remediation | drop the exception when eslint's transitive `minimatch` reaches >= 10, or when a 1.1.x backport ships |
+
+The suppression is the narrowest form the scanner supports: one CVE ID, scoped to one
+file path, with an expiry date. `--severity HIGH,CRITICAL`, `--ignore-unfixed` and every
+other rule stay in force, and the dependency job now passes `--ignorefile
+.trivyignore.yaml` explicitly so the exception is visible in the workflow log.
+### 3b. pgjdbc SCRAM downgrade — HIGH
 
 | Field | Value |
 |---|---|
@@ -74,7 +96,7 @@ recorded here so that "Security CI green" is not mistaken for "zero findings".
 | Expiry | **2026-08-31** — bump to ≥ 42.7.12 (via BOM upgrade or a `libs.versions.toml` pin) in the first non-RC change after the hosted beta opens |
 | Remediation | tracked as release-engineering follow-up "bump pgjdbc to 42.7.12" |
 
-### 3b. Base-image Go binary findings — HIGH
+### 3c. Base-image Go binary findings — HIGH
 
 `usr/bin/pebble` in the Ubuntu 26.04 base layer reports five HIGH `golang.org/x/net`
 / `stdlib` CVEs. Parkio does not invoke pebble; remediation is an upstream base-image
@@ -83,9 +105,9 @@ image bump.
 
 ## Verification
 
-The fixes in sections 1 and 2 are source changes, so they are **not** part of
-`v1.0.0-rc2`. They ship in the follow-up commit that is tagged `v1.0.0-rc3`;
-`v1.0.0-rc2` remains immutable and is not the publication target. Security CI must
-be re-run green on `v1.0.0-rc3` before images are published — see
+These are source changes, so they are **not** part of `v1.0.0-rc2`. Sections 1 and 2
+ship in `v1.0.0-rc3`; the section 3a exception ships in `v1.0.0-rc4`, the publication
+target. `v1.0.0-rc2` and `v1.0.0-rc3` both remain immutable. Security CI must be green
+on `v1.0.0-rc4` before images are published — see
 `docs/operations/parking-session-tag-rollout-2026-07-25.md` for the recorded run
 IDs.

@@ -149,6 +149,7 @@ jobs:
           docker run --rm "${TRIVY_IMAGE}" --version
           echo "Scan target: ."
           echo "Severity policy: report HIGH/CRITICAL fixable library vulnerabilities; do not fail this report step."
+          echo "Ignore policy: .trivyignore.yaml (narrow, expiring exceptions only)"
           echo "Output: trivy-dependencies.txt"
           docker run --rm \
             -v "${GITHUB_WORKSPACE}:/work" \
@@ -160,6 +161,7 @@ jobs:
             --vuln-type library \
             --severity HIGH,CRITICAL \
             --ignore-unfixed \
+            --ignorefile .trivyignore.yaml \
             --format table \
             --output trivy-dependencies.txt \
             --exit-code 0 \
@@ -174,6 +176,7 @@ jobs:
           docker run --rm "${TRIVY_IMAGE}" --version
           echo "Scan target: ."
           echo "Severity policy: block on HIGH/CRITICAL fixable library vulnerabilities."
+          echo "Ignore policy: .trivyignore.yaml (narrow, expiring exceptions only)"
           echo "Output: trivy-dependencies.sarif"
           docker run --rm \
             -v "${GITHUB_WORKSPACE}:/work" \
@@ -185,6 +188,7 @@ jobs:
             --vuln-type library \
             --severity HIGH,CRITICAL \
             --ignore-unfixed \
+            --ignorefile .trivyignore.yaml \
             --format sarif \
             --output trivy-dependencies.sarif \
             --exit-code 1 \

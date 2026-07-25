@@ -1,0 +1,20 @@
+# Narrow, time-bounded Trivy exceptions. Every entry needs an owner, a rationale,
+# and an `expired_at` so the suppression cannot outlive its justification: once the
+# date passes, Trivy reports the finding again and Security CI fails.
+#
+# Full disposition: docs/operations/security-findings-2026-07-25.md
+vulnerabilities:
+  - id: CVE-2026-14257
+    paths:
+      - "frontend/pnpm-lock.yaml"
+    statement: >-
+      brace-expansion 1.1.16 (DoS via crafted brace patterns). The 1.x line has no
+      fix: 1.1.16 is the newest 1.x release and the advisory is only fixed in 5.0.8,
+      whose API (named `expand` export) is incompatible with its single consumer,
+      minimatch@3. That minimatch copy is reached exclusively through lint/coverage
+      tooling (eslint 9 internals, eslint-plugin-import/react, glob@7, test-exclude),
+      so it is a devDependency: it is never bundled into the web app and never enters
+      a container image. Build tooling expands only repo-controlled glob patterns, so
+      there is no untrusted input path. Owner: Parkio release engineering. Remediation:
+      drop when eslint's transitive minimatch reaches >= 10, or when a 1.x backport ships.
+    expired_at: 2026-08-31
