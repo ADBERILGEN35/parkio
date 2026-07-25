@@ -108,4 +108,34 @@ No new **required** secrets. Optional overrides listed above. Ensure Kafka topic
 
 ---
 
+## Superseding RC: `v1.0.0-rc3`
+
+`v1.0.0-rc2` (`17fa98ac1b4fb3056e0028da0bbf1a9f506f4910`) stays immutable but is **not**
+the publication target. Publishing it was blocked by four failing gates, and clearing
+them required source changes, so the fixes ship as a normal follow-up commit tagged
+`v1.0.0-rc3`.
+
+**Product scope is unchanged from rc2.** No Parking Session behaviour, API, schema, or
+configuration was touched. rc3 adds only:
+
+| Area | Change | Why |
+|---|---|---|
+| Security (backend) | pin `bcprov-jdk18on` to 1.81.1 via a `media-service` dependency constraint | CVE-2025-14813 CRITICAL blocked the image gate |
+| Security (frontend) | `pnpm.overrides` for `axios`, `postcss`, `js-yaml`, `brace-expansion` | 7 fixable HIGH advisories blocked the dependency gate |
+| Test correctness | legacy mobile `home.session` suite rewritten for the current redirect-to-map behaviour | the suite asserted a dashboard that no longer exists |
+| Test stability | mobile-v2 RNTL `asyncUtilTimeout` raised to 15s | the 1s default timed out under CI contention |
+| CI policy | legacy mobile job made advisory; Frontend CI no longer runs the RN apps | see `docs/operations/mobile-release-policy.md` |
+| Release workflow | `web` added to the image matrix, tag/clean-tree integrity gates, registry digest verification, `publish_images` input, build-record uploads disabled | image publication was impossible and the draft-release step failed on artifact download |
+
+Flyway targets (V17/V18), affected services, rollback strategy, environment variables,
+and the configuration checksum procedure above all apply unchanged to rc3.
+
+Disposition evidence:
+
+- `docs/operations/security-findings-2026-07-25.md`
+- `docs/operations/mobile-release-policy.md`
+- `docs/operations/parking-session-tag-rollout-2026-07-25.md` (run IDs, image digests)
+
+---
+
 **Do not deploy from this document alone.** Tag `v1.0.0-rc2` only when the RC SHA is clean, then proceed with a separate controlled rollout.

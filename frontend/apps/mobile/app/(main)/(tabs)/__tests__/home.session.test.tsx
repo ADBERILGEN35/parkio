@@ -3,6 +3,7 @@ import { act, renderHook, waitFor } from '@testing-library/react-native';
 import type { ReactNode } from 'react';
 import type { Profile, User, UserStats } from '@parkio/types';
 import HomeScreen from '../home';
+import ProfileScreen from '../profile';
 import { SessionQueryCacheSync } from '@/providers/SessionQueryCacheSync';
 import { usersApi } from '@/services/api';
 import { useAuthStore } from '@/state/authStore';
@@ -15,9 +16,18 @@ jest.mock('@/services/api', () => ({
   },
 }));
 
-jest.mock('expo-router', () => ({
-  useRouter: () => ({ push: jest.fn() }),
+jest.mock('@/providers/ToastProvider', () => ({
+  useToast: () => ({ showError: jest.fn() }),
 }));
+
+jest.mock('expo-router', () => {
+  const React = require('react');
+  const { Text } = require('react-native');
+  return {
+    useRouter: () => ({ push: jest.fn() }),
+    Redirect: ({ href }: { href: string }) => React.createElement(Text, null, `redirect:${href}`),
+  };
+});
 
 const mockedUsersApi = usersApi as jest.Mocked<typeof usersApi>;
 
@@ -94,12 +104,14 @@ describe('SessionQueryCacheSync', () => {
       useAuthStore.getState().setSession(userA);
     });
     client.setQueryData(['me', 'profile'], profileA);
+    client.setQueryData(['me', 'stats'], statsB);
 
     act(() => {
       useAuthStore.getState().clearSession();
     });
     await waitFor(() => {
       expect(client.getQueryData(['me', 'profile'])).toBeUndefined();
+      expect(client.getQueryData(['me', 'stats'])).toBeUndefined();
     });
 
     mockedUsersApi.getMyProfile.mockResolvedValue(profileB);
@@ -111,7 +123,7 @@ describe('SessionQueryCacheSync', () => {
 
     const { findByText } = renderWithProviders(
       <QueryHarness client={client}>
-        <HomeScreen />
+        <ProfileScreen />
       </QueryHarness>,
     );
 
@@ -128,7 +140,7 @@ describe('SessionQueryCacheSync', () => {
 
     const { findByText, queryByText } = renderWithProviders(
       <QueryHarness client={client}>
-        <HomeScreen />
+        <ProfileScreen />
       </QueryHarness>,
     );
 
@@ -140,8 +152,11 @@ describe('SessionQueryCacheSync', () => {
   });
 });
 
-describe('HomeScreen session consistency', () => {
-  it('never shows the previous user name while user B stats are visible', async () => {
+// The account-switch invariant is asserted against the screen that renders the
+// signed-in identity today. The legacy Home dashboard was replaced by a redirect
+// to Map, so identity display moved to Profile.
+describe('Signed-in identity after account switch', () => {
+  it('never shows the previous user name while the next user loads', async () => {
     const client = createClient();
     client.setQueryData(['me', 'profile'], profileA);
     client.setQueryData(['me', 'stats'], statsB);
@@ -154,12 +169,25 @@ describe('HomeScreen session consistency', () => {
 
     const { queryByText, findByText } = renderWithProviders(
       <QueryHarness client={client}>
-        <HomeScreen />
+        <ProfileScreen />
       </QueryHarness>,
     );
 
     expect(queryByText('Alice')).toBeNull();
     expect(await findByText('Bob')).toBeTruthy();
-    expect(await findByText('420')).toBeTruthy();
+    expect(queryByText('Alice')).toBeNull();
+  });
+
+  it('keeps the Home tab as a redirect to Map', () => {
+    const client = createClient();
+    useAuthStore.getState().setSession(userB);
+
+    const { getByText } = renderWithProviders(
+      <QueryHarness client={client}>
+        <HomeScreen />
+      </QueryHarness>,
+    );
+
+    expect(getByText('redirect:/(main)/(tabs)/map')).toBeTruthy();
   });
 });

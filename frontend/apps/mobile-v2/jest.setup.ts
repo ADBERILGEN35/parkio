@@ -1,6 +1,15 @@
 /* eslint-disable @typescript-eslint/no-require-imports */
 // @testing-library/react-native v13 ships its jest matchers built in — this
-// file hosts native-module mocks only.
+// file hosts native-module mocks and async-utility timing only.
+
+import { configure } from '@testing-library/react-native';
+
+// RNTL defaults `waitFor` to 1s. On shared CI runners several workspace suites
+// render concurrently, and React Native renders here regularly need longer than
+// that — which surfaced as "element is still mounted" failures that never
+// reproduce in isolation. Only the polling budget changes; every assertion and
+// its final outcome stay identical.
+configure({ asyncUtilTimeout: 15_000 });
 
 // expo-secure-store hits the native keystore — replace with an in-memory map.
 jest.mock('expo-secure-store', () => {

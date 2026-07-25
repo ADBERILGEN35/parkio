@@ -83,10 +83,16 @@ jobs:
         continue-on-error: true
         run: pnpm --filter @parkio/mobile-v2 run doctor
 
+  # Legacy `apps/mobile` is deprecated and is NOT a release artifact (see
+  # docs/operations/mobile-release-policy.md and frontend/README.md "Mobile
+  # foundation (WP-07)"). It keeps running for retirement visibility, but it is
+  # advisory: a deprecated app must not block releases of the canonical apps.
+  # Canonical Mobile (`mobile-v2`) above stays blocking.
   mobile-legacy-checks:
-    name: Legacy mobile typecheck, lint, test & expo doctor
+    name: Legacy mobile typecheck, lint, test & expo doctor (advisory)
     runs-on: ubuntu-latest
     timeout-minutes: 20
+    continue-on-error: true
     steps:
       - name: Checkout
         uses: actions/checkout@v4

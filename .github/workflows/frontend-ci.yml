@@ -113,14 +113,22 @@ jobs:
 
       # `pnpm -r` runs each script only in the workspace packages that define it,
       # so packages without a given script are skipped rather than failing.
+      #
+      # The Expo/React Native apps are excluded here and owned by Mobile CI:
+      #   * `mobile-v2` is gated there (typecheck, lint, focused suites, full jest);
+      #     running its jest suites a second time alongside the web suites only added
+      #     runner contention, which surfaced as RNTL `waitFor` timeouts.
+      #   * legacy `mobile` is deprecated and advisory (docs/operations/mobile-release-policy.md);
+      #     a blocking copy here would contradict that policy.
+      # Nothing loses coverage — every excluded script still runs in Mobile CI.
       - name: Typecheck
-        run: pnpm -r typecheck
+        run: pnpm -r --filter='!@parkio/mobile' --filter='!@parkio/mobile-v2' typecheck
 
       - name: Lint
-        run: pnpm -r lint
+        run: pnpm -r --filter='!@parkio/mobile' --filter='!@parkio/mobile-v2' lint
 
       - name: Unit tests
-        run: pnpm -r test
+        run: pnpm -r --filter='!@parkio/mobile' --filter='!@parkio/mobile-v2' test
 
       - name: Production build
-        run: pnpm -r build
+        run: pnpm -r --filter='!@parkio/mobile' --filter='!@parkio/mobile-v2' build

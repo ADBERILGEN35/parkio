@@ -6,6 +6,10 @@ springDependencyManagement = "1.1.7"
 jjwt = "0.12.6"
 # MinIO client is not part of the Spring Boot BOM, so it needs an explicit version.
 minio = "8.6.0"
+# Bouncy Castle arrives transitively through the MinIO client. MinIO 8.6.0 resolves
+# bcprov 1.81, which Trivy blocks as CRITICAL (CVE-2025-14813). 1.81.1 is the patch
+# release for that line. See docs/operations/security-findings-2026-07-25.md.
+bouncycastle = "1.81.1"
 # springdoc-openapi (OpenAPI 3 + Swagger UI for Spring MVC). Not in the Spring Boot BOM.
 springdoc = "2.8.17"
 # Resilience4j (circuit breaker / bulkhead / rate limiter). Not in the Spring Boot BOM,
@@ -73,6 +77,7 @@ flyway-database-postgresql = { module = "org.flywaydb:flyway-database-postgresql
 
 # Object storage (S3-compatible, used by media-service).
 minio = { module = "io.minio:minio", version.ref = "minio" }
+bouncycastle-bcprov = { module = "org.bouncycastle:bcprov-jdk18on", version.ref = "bouncycastle" }
 
 # JWT (access tokens).
 jjwt-api = { module = "io.jsonwebtoken:jjwt-api", version.ref = "jjwt" }

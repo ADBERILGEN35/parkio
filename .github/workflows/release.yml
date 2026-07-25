@@ -26,6 +26,11 @@ on:
         description: "Release version (e.g. v1.2.3). Used when run manually."
         required: true
         type: string
+      publish_images:
+        description: "Publish images to GHCR. Requires running from a tag ref. Overrides vars.PUBLISH_IMAGES."
+        required: false
+        default: false
+        type: boolean
 
 permissions:
   contents: read
@@ -37,6 +42,10 @@ concurrency:
 env:
   REGISTRY: ghcr.io
   TRIVY_IMAGE: aquasec/trivy:0.64.1
+  # build-push-action otherwise uploads a multi-MB `*.dockerbuild` build record per
+  # image. Those records are not release evidence, and downloading them alongside the
+  # SBOMs is what made the release job fail on artifact-service hiccups.
+  DOCKER_BUILD_RECORD_UPLOAD: "false"
 
 jobs:
   # ---------------------------------------------------------------------------
@@ -49,13 +58,24 @@ jobs:
     outputs:
       version: ${{ steps.detect.outputs.version }}
       created: ${{ steps.detect.outputs.created }}
+      sha: ${{ steps.detect.outputs.sha }}
+      publish: ${{ steps.detect.outputs.publish }}
     steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
       - name: Detect version + build timestamp
         id: detect
+        env:
+          DISPATCH_VERSION: ${{ inputs.version }}
+          DISPATCH_PUBLISH: ${{ inputs.publish_images }}
+          VAR_PUBLISH: ${{ vars.PUBLISH_IMAGES }}
         run: |
           set -euo pipefail
           if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
-            version="${{ inputs.version }}"
+            version="${DISPATCH_VERSION}"
           else
             version="${GITHUB_REF_NAME}"
           fi
@@ -63,9 +83,42 @@ jobs:
             echo "::error::Version '$version' is not a valid semver tag (vMAJOR.MINOR.PATCH)."
             exit 1
           fi
+
+          publish=false
+          if [ "${DISPATCH_PUBLISH:-false}" = "true" ] || [ "${VAR_PUBLISH:-}" = "true" ]; then
+            publish=true
+          fi
+
+          # Source integrity: a release must describe an immutable tag, and the
+          # checkout must be exactly that tag's commit with nothing uncommitted.
+          if [ "${GITHUB_REF_TYPE}" != "tag" ]; then
+            if [ "$publish" = "true" ]; then
+              echo "::error::Image publication requires running from refs/tags/<version>; got ${GITHUB_REF}."
+              exit 1
+            fi
+            echo "::warning::Not a tag ref (${GITHUB_REF}); running in build-only mode."
+          else
+            peeled="$(git rev-parse "refs/tags/${GITHUB_REF_NAME}^{commit}")"
+            if [ "$peeled" != "${GITHUB_SHA}" ]; then
+              echo "::error::Tag ${GITHUB_REF_NAME} peels to $peeled but the checkout is ${GITHUB_SHA}."
+              exit 1
+            fi
+            if [ "${GITHUB_REF_NAME}" != "$version" ]; then
+              echo "::error::Tag ${GITHUB_REF_NAME} does not match release version $version."
+              exit 1
+            fi
+          fi
+          if [ -n "$(git status --porcelain)" ]; then
+            echo "::error::Working tree is dirty; refusing to build a release from it."
+            git status --porcelain
+            exit 1
+          fi
+
           echo "version=$version" >> "$GITHUB_OUTPUT"
           echo "created=$(date -u +%Y-%m-%dT%H:%M:%SZ)" >> "$GITHUB_OUTPUT"
-          echo "Releasing $version (commit ${GITHUB_SHA})"
+          echo "sha=${GITHUB_SHA}" >> "$GITHUB_OUTPUT"
+          echo "publish=$publish" >> "$GITHUB_OUTPUT"
+          echo "Releasing $version (commit ${GITHUB_SHA}, publish=$publish)"
 
   # ---------------------------------------------------------------------------
   # 2. Verify — the same gates as CI, but all in the release lineage.
@@ -177,21 +230,63 @@ jobs:
       attestations: write
     strategy:
       fail-fast: false
+      # `web` is a first-class hosted-beta image (docker/docker-compose.images.yml
+      # deploys parkio/web next to the services), so the release must produce it
+      # from the same tag as the backend images.
       matrix:
-        service:
-          - ai-validation-service
-          - analytics-service
-          - auth-service
-          - gamification-service
-          - gateway-service
-          - media-service
-          - moderation-service
-          - notification-service
-          - parking-service
-          - user-service
+        include:
+          - service: ai-validation-service
+            dockerfile: services/ai-validation-service/Dockerfile
+          - service: analytics-service
+            dockerfile: services/analytics-service/Dockerfile
+          - service: auth-service
+            dockerfile: services/auth-service/Dockerfile
+          - service: gamification-service
+            dockerfile: services/gamification-service/Dockerfile
+          - service: gateway-service
+            dockerfile: services/gateway-service/Dockerfile
+          - service: media-service
+            dockerfile: services/media-service/Dockerfile
+          - service: moderation-service
+            dockerfile: services/moderation-service/Dockerfile
+          - service: notification-service
+            dockerfile: services/notification-service/Dockerfile
+          - service: parking-service
+            dockerfile: services/parking-service/Dockerfile
+          - service: user-service
+            dockerfile: services/user-service/Dockerfile
+          - service: web
+            dockerfile: frontend/apps/web/Dockerfile
     steps:
       - name: Checkout
         uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      # Second integrity gate: the image must come from the approved commit, and
+      # the tree it is built from must be pristine.
+      - name: Verify release source integrity
+        env:
+          EXPECTED_SHA: ${{ needs.version.outputs.sha }}
+        run: |
+          set -euo pipefail
+          head="$(git rev-parse HEAD)"
+          if [ "$head" != "$EXPECTED_SHA" ]; then
+            echo "::error::Checked-out commit $head does not match the release commit $EXPECTED_SHA."
+            exit 1
+          fi
+          if [ -n "$(git status --porcelain)" ]; then
+            echo "::error::Working tree is dirty; refusing to build ${{ matrix.service }}."
+            exit 1
+          fi
+          if [ "${GITHUB_REF_TYPE}" = "tag" ]; then
+            peeled="$(git rev-parse "refs/tags/${GITHUB_REF_NAME}^{commit}")"
+            if [ "$peeled" != "$EXPECTED_SHA" ]; then
+              echo "::error::Tag ${GITHUB_REF_NAME} peels to $peeled, expected $EXPECTED_SHA."
+              exit 1
+            fi
+          fi
+          echo "Building ${{ matrix.service }} from $head (${GITHUB_REF})."
 
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
@@ -214,32 +309,93 @@ jobs:
           base="${REGISTRY}/${repo}/${{ matrix.service }}"
           echo "image=${base}" >> "$GITHUB_OUTPUT"
           echo "tag_version=${base}:${{ needs.version.outputs.version }}" >> "$GITHUB_OUTPUT"
-          echo "tag_sha=${base}:sha-${GITHUB_SHA}" >> "$GITHUB_OUTPUT"
+          echo "tag_sha=${base}:sha-${{ needs.version.outputs.sha }}" >> "$GITHUB_OUTPUT"
 
       - name: Build image (OCI-labelled)
         uses: docker/build-push-action@v6
         id: build
         with:
           context: .
-          file: services/${{ matrix.service }}/Dockerfile
-          push: ${{ vars.PUBLISH_IMAGES == 'true' }}
-          load: ${{ vars.PUBLISH_IMAGES != 'true' }}
+          file: ${{ matrix.dockerfile }}
+          push: ${{ needs.version.outputs.publish == 'true' }}
+          load: ${{ needs.version.outputs.publish != 'true' }}
           tags: |
             ${{ steps.refs.outputs.tag_version }}
             ${{ steps.refs.outputs.tag_sha }}
+          # The web image bakes its public runtime config at build time; those values
+          # are public routing/feature config, never secret carriers. They are passed
+          # only for `web` so the service builds stay free of unused build-args.
           build-args: |
             IMAGE_VERSION=${{ needs.version.outputs.version }}
-            IMAGE_REVISION=${{ github.sha }}
+            IMAGE_REVISION=${{ needs.version.outputs.sha }}
             IMAGE_CREATED=${{ needs.version.outputs.created }}
+            ${{ matrix.service == 'web' && format('VITE_API_BASE_URL={0}', vars.WEB_API_BASE_URL || 'https://api.parkio.dev/api/v1') || '' }}
+            ${{ matrix.service == 'web' && format('VITE_APP_ENV={0}', vars.WEB_APP_ENV || 'hosted-beta') || '' }}
+            ${{ (matrix.service == 'web' && secrets.WEB_MAPTILER_KEY != '') && format('VITE_MAPTILER_KEY={0}', secrets.WEB_MAPTILER_KEY) || '' }}
           provenance: false # we attach our own attestations below
 
+      # ---- Registry evidence: never trust the runner-local digest alone ----
+      - name: Verify published image in registry
+        id: registry
+        if: ${{ needs.version.outputs.publish == 'true' }}
+        env:
+          IMAGE: ${{ steps.refs.outputs.image }}
+          TAG_VERSION: ${{ steps.refs.outputs.tag_version }}
+          TAG_SHA: ${{ steps.refs.outputs.tag_sha }}
+          EXPECTED_SHA: ${{ needs.version.outputs.sha }}
+          EXPECTED_VERSION: ${{ needs.version.outputs.version }}
+        run: |
+          set -euo pipefail
+          version_digest="$(docker buildx imagetools inspect "$TAG_VERSION" --format '{{.Manifest.Digest}}')"
+          sha_digest="$(docker buildx imagetools inspect "$TAG_SHA" --format '{{.Manifest.Digest}}')"
+          if [ "$version_digest" != "$sha_digest" ]; then
+            echo "::error::$TAG_VERSION ($version_digest) and $TAG_SHA ($sha_digest) resolve to different digests."
+            exit 1
+          fi
+
+          # Pull by digest and read the labels back off the registry copy.
+          docker pull "${IMAGE}@${version_digest}" >/dev/null
+          revision="$(docker image inspect "${IMAGE}@${version_digest}" \
+            --format '{{index .Config.Labels "org.opencontainers.image.revision"}}')"
+          labelled_version="$(docker image inspect "${IMAGE}@${version_digest}" \
+            --format '{{index .Config.Labels "org.opencontainers.image.version"}}')"
+          arch="$(docker image inspect "${IMAGE}@${version_digest}" --format '{{.Os}}/{{.Architecture}}')"
+          if [ "$revision" != "$EXPECTED_SHA" ]; then
+            echo "::error::Image revision label '$revision' != release commit $EXPECTED_SHA."
+            exit 1
+          fi
+          if [ "$labelled_version" != "$EXPECTED_VERSION" ]; then
+            echo "::error::Image version label '$labelled_version' != $EXPECTED_VERSION."
+            exit 1
+          fi
+
+          {
+            echo "### ${{ matrix.service }}"
+            echo ""
+            echo "| field | value |"
+            echo "|---|---|"
+            echo "| repository | \`${IMAGE}\` |"
+            echo "| tags | \`${EXPECTED_VERSION}\`, \`sha-${EXPECTED_SHA}\` |"
+            echo "| digest | \`${version_digest}\` |"
+            echo "| revision label | \`${revision}\` |"
+            echo "| platform | \`${arch}\` |"
+          } >> "$GITHUB_STEP_SUMMARY"
+          echo "digest=${version_digest}" >> "$GITHUB_OUTPUT"
+          echo "ref=${IMAGE}@${version_digest}" >> "$GITHUB_OUTPUT"
+
+      # Scans whatever copy exists locally: the digest pull above when publishing,
+      # the `load`ed build otherwise.
       - name: Generate image SBOM (CycloneDX / Trivy)
+        env:
+          DIGEST_REF: ${{ steps.registry.outputs.ref }}
+          LOCAL_REF: ${{ steps.refs.outputs.tag_version }}
         run: |
           set -euo pipefail
           mkdir -p sbom
+          ref="${DIGEST_REF:-$LOCAL_REF}"
           docker run --rm -v /var/run/docker.sock:/var/run/docker.sock \
             -v "${GITHUB_WORKSPACE}/sbom:/sbom" \
-            "${TRIVY_IMAGE}" image "${{ steps.refs.outputs.tag_version }}" \
+            "${TRIVY_IMAGE}" image "$ref" \
             --format cyclonedx --output "/sbom/${{ matrix.service }}-image.cdx.json"
 
       - name: Upload image SBOM
@@ -251,11 +407,11 @@ jobs:
 
       # ---- Optional: keyless signing + provenance (only when publishing images) ----
       - name: Install cosign
-        if: ${{ vars.PUBLISH_IMAGES == 'true' }}
+        if: ${{ needs.version.outputs.publish == 'true' }}
         uses: sigstore/cosign-installer@v3
 
       - name: Sign image (keyless / OIDC)
-        if: ${{ vars.PUBLISH_IMAGES == 'true' }}
+        if: ${{ needs.version.outputs.publish == 'true' }}
         env:
           DIGEST: ${{ steps.build.outputs.digest }}
         run: |
@@ -263,7 +419,7 @@ jobs:
           cosign sign --yes "${{ steps.refs.outputs.image }}@${DIGEST}"
 
       - name: Attest image provenance
-        if: ${{ vars.PUBLISH_IMAGES == 'true' }}
+        if: ${{ needs.version.outputs.publish == 'true' }}
         uses: actions/attest-build-provenance@v1
         with:
           subject-name: ${{ steps.refs.outputs.image }}
@@ -287,10 +443,14 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Download all artifacts
+      # SBOMs only. Downloading *everything* also pulled the multi-MB buildx build
+      # records, and that is what made this step exhaust its retries.
+      - name: Download release SBOMs
         uses: actions/download-artifact@v4
         with:
           path: artifacts
+          pattern: "*sbom*"
+          merge-multiple: true
 
       - name: Stage release assets
         run: |
