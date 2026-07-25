@@ -9,7 +9,9 @@ import com.parkio.parking.domain.exception.ParkingException;
 import com.parkio.parking.infrastructure.idempotency.IdempotencyService;
 import com.parkio.parking.infrastructure.idempotency.IdempotentResponse;
 import com.parkio.parking.infrastructure.idempotency.RequestFingerprint;
+import com.parkio.parking.infrastructure.config.ParkingProperties;
 import com.parkio.parking.presentation.dto.ParkingSessionHistoryResponse;
+import com.parkio.parking.presentation.dto.ParkingSessionLifecycleConfigResponse;
 import com.parkio.parking.presentation.dto.ParkingSessionResponse;
 import com.parkio.parking.presentation.dto.StartParkingSessionRequest;
 import com.parkio.parking.presentation.openapi.ParkingSessionApiResponses;
@@ -58,16 +60,19 @@ public class ParkingSessionController {
     private final IdempotencyService idempotencyService;
     private final ParkingSessionHistoryCursorCodec cursorCodec;
     private final ObjectMapper objectMapper;
+    private final ParkingProperties parkingProperties;
 
     public ParkingSessionController(
             ParkingSessionService sessionService,
             IdempotencyService idempotencyService,
             ParkingSessionHistoryCursorCodec cursorCodec,
-            ObjectMapper objectMapper) {
+            ObjectMapper objectMapper,
+            ParkingProperties parkingProperties) {
         this.sessionService = sessionService;
         this.idempotencyService = idempotencyService;
         this.cursorCodec = cursorCodec;
         this.objectMapper = objectMapper;
+        this.parkingProperties = parkingProperties;
     }
 
     @Operation(
@@ -138,6 +143,23 @@ public class ParkingSessionController {
         return ResponseEntity.status(response.statusCode()).body(response.body());
     }
 
+
+    @Operation(
+            operationId = "getParkingSessionLifecycleConfig",
+            summary = "Effective parking-session lifecycle thresholds",
+            description = "Returns confirm / reminder-2 / auto-complete durations from parking-service configuration. "
+                    + "Clients must use these values instead of hardcoding confirmation windows.")
+    @ApiResponses({
+            @ApiResponse(responseCode = "200", description = "Effective lifecycle configuration",
+                    content = @Content(schema = @Schema(implementation = ParkingSessionLifecycleConfigResponse.class)))
+    })
+    @GetMapping("/lifecycle-config")
+    public ParkingSessionLifecycleConfigResponse lifecycleConfig(
+            @Parameter(hidden = true)
+            @RequestHeader(value = USER_ID_HEADER, required = false) String userId) {
+        requireUserId(userId);
+        return ParkingSessionLifecycleConfigResponse.from(parkingProperties.getSession());
+    }
     @Operation(
             operationId = "getActiveParkingSession",
             summary = "Restore the active parking session",
@@ -159,6 +181,36 @@ public class ParkingSessionController {
                 .map(ParkingSessionResponse::from)
                 .map(ResponseEntity::ok)
                 .orElseGet(() -> ResponseEntity.noContent().build());
+    }
+
+    @Operation(
+            operationId = "confirmActiveParkingSession",
+            summary = "Confirm an active parking session is still parked",
+            description = "Extends the confirmation window (lastConfirmedAt = now). "
+                    + "Required after the configured confirm-after window (see GET /lifecycle-config) before Find My Car continues.")
+    @ApiResponses({
+            @ApiResponse(responseCode = "200", description = "Confirmation recorded",
+                    content = @Content(schema = @Schema(implementation = ParkingSessionResponse.class),
+                            examples = @ExampleObject(name = "confirmedSession",
+                                    value = ParkingSessionOpenApiExamples.ACTIVE_RESPONSE))),
+            @ApiResponse(responseCode = "400", description = "Malformed session identifier",
+                    content = @Content(schema = @Schema(implementation = ApiError.class))),
+            @ApiResponse(responseCode = "404", description = "Session is absent or belongs to another user",
+                    content = @Content(schema = @Schema(implementation = ApiError.class),
+                            examples = @ExampleObject(name = "sessionNotFound",
+                                    value = ParkingSessionOpenApiExamples.SESSION_NOT_FOUND))),
+            @ApiResponse(responseCode = "409", description = "Session is not ACTIVE",
+                    content = @Content(schema = @Schema(implementation = ApiError.class),
+                            examples = @ExampleObject(name = "sessionNotActive",
+                                    value = ParkingSessionOpenApiExamples.SESSION_NOT_ACTIVE)))
+    })
+    @PostMapping("/{sessionId}/confirm-active")
+    public ParkingSessionResponse confirmActiveSession(
+            @Parameter(hidden = true)
+            @RequestHeader(value = USER_ID_HEADER, required = false) String userId,
+            @PathVariable("sessionId") UUID sessionId) {
+        return ParkingSessionResponse.from(
+                sessionService.confirmActiveSession(requireUserId(userId), sessionId));
     }
 
     @Operation(operationId = "completeParkingSession", summary = "Complete an active parking session")

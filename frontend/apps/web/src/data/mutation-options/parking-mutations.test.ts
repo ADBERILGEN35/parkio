@@ -43,6 +43,8 @@ const communityActiveSession: ParkingSessionResponse = {
   latitude: 41,
   longitude: 29,
   estimatedFee: null,
+          lastConfirmedAt: '2026-07-25T10:00:00.000Z',
+          completionType: null,
 };
 
 function createSdk(): ParkioSdk {

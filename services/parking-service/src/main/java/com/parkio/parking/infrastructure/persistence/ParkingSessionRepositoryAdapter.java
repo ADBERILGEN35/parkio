@@ -8,6 +8,8 @@ import com.parkio.parking.domain.ParkingSessionStatus;
 import com.parkio.parking.domain.exception.ParkingErrorCode;
 import com.parkio.parking.domain.exception.ParkingException;
 import com.parkio.parking.infrastructure.persistence.jpa.ParkingSessionJpaRepository;
+import java.time.Instant;
+import java.util.List;
 import java.util.Objects;
 import java.util.Optional;
 import java.util.UUID;
@@ -41,6 +43,11 @@ public class ParkingSessionRepositoryAdapter implements ParkingSessionRepository
             }
             throw exception;
         }
+    }
+
+    @Override
+    public Optional<ParkingSession> findById(UUID id) {
+        return jpa.findById(Objects.requireNonNull(id, "id"));
     }
 
     @Override
@@ -88,6 +95,60 @@ public class ParkingSessionRepositoryAdapter implements ParkingSessionRepository
         return jpa.findStatusByIdAndUserId(
                 Objects.requireNonNull(id, "id"),
                 Objects.requireNonNull(userId, "userId"));
+    }
+
+    @Override
+    public List<ParkingSession> findStaleActiveCandidates(
+            Instant confirmedAtOrBefore, Instant startedAtOrBefore, int limit) {
+        if (limit < 1) {
+            throw new IllegalArgumentException("limit must be positive");
+        }
+        return jpa.findStaleActiveCandidates(
+                        Objects.requireNonNull(confirmedAtOrBefore, "confirmedAtOrBefore"),
+                        Objects.requireNonNull(startedAtOrBefore, "startedAtOrBefore"),
+                        PageRequest.of(0, limit))
+                .getContent();
+    }
+
+    @Override
+    public List<ParkingSession> findReminderCandidates(
+            int currentReminderStage,
+            Instant confirmedAtOrBefore,
+            Instant startedAtOrBefore,
+            int limit) {
+        if (limit < 1) {
+            throw new IllegalArgumentException("limit must be positive");
+        }
+        if (currentReminderStage < 0 || currentReminderStage > 1) {
+            throw new IllegalArgumentException("currentReminderStage must be 0 or 1");
+        }
+        return jpa.findReminderCandidates(
+                        currentReminderStage,
+                        Objects.requireNonNull(confirmedAtOrBefore, "confirmedAtOrBefore"),
+                        startedAtOrBefore,
+                        PageRequest.of(0, limit))
+                .getContent();
+    }
+
+    @Override
+    public long countByStatus(ParkingSessionStatus status) {
+        return jpa.countByStatus(Objects.requireNonNull(status, "status"));
+    }
+
+    @Override
+    public int deleteTerminalEndedAtOrBefore(Instant endedAtOrBefore, int limit) {
+        if (limit < 1) {
+            throw new IllegalArgumentException("limit must be positive");
+        }
+        List<ParkingSession> expired = jpa.findTerminalEndedAtOrBefore(
+                        Objects.requireNonNull(endedAtOrBefore, "endedAtOrBefore"),
+                        PageRequest.of(0, limit))
+                .getContent();
+        if (expired.isEmpty()) {
+            return 0;
+        }
+        jpa.deleteAllInBatch(expired);
+        return expired.size();
     }
 
     private static ParkingSessionHistoryPage toHistoryPage(Slice<ParkingSession> slice) {

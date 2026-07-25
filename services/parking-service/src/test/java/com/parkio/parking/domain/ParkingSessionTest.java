@@ -37,6 +37,8 @@ class ParkingSessionTest {
         assertThat(session.getLongitude()).isEqualTo(28.9784);
         assertThat(session.getEstimatedFee()).isEqualByComparingTo("125.50");
         assertThat(session.getReminderAt()).isEqualTo(reminderAt);
+        assertThat(session.getLastConfirmedAt()).isEqualTo(STARTED_AT);
+        assertThat(session.getCompletionType()).isNull();
         assertThat(session.getCreatedAt()).isEqualTo(STARTED_AT);
         assertThat(session.getUpdatedAt()).isEqualTo(STARTED_AT);
         assertThat(session.getVersion()).isNull();
@@ -44,16 +46,49 @@ class ParkingSessionTest {
     }
 
     @Test
-    void completesActiveSession() {
+    void completesActiveSessionAsManual() {
         ParkingSession session = newSession();
         Instant endedAt = STARTED_AT.plus(90, ChronoUnit.MINUTES);
 
-        session.complete(endedAt);
+        session.complete(endedAt, ParkingSessionCompletionType.MANUAL);
 
         assertThat(session.getStatus()).isEqualTo(ParkingSessionStatus.COMPLETED);
         assertThat(session.getEndedAt()).isEqualTo(endedAt);
         assertThat(session.getUpdatedAt()).isEqualTo(endedAt);
+        assertThat(session.getCompletionType()).isEqualTo(ParkingSessionCompletionType.MANUAL);
         assertThat(session.isActive()).isFalse();
+    }
+
+    @Test
+    void completesActiveSessionAsAuto() {
+        ParkingSession session = newSession();
+        Instant endedAt = STARTED_AT.plus(73, ChronoUnit.HOURS);
+
+        session.complete(endedAt, ParkingSessionCompletionType.AUTO);
+
+        assertThat(session.getStatus()).isEqualTo(ParkingSessionStatus.COMPLETED);
+        assertThat(session.getCompletionType()).isEqualTo(ParkingSessionCompletionType.AUTO);
+    }
+
+    @Test
+    void confirmActiveExtendsLastConfirmedAt() {
+        ParkingSession session = newSession();
+        Instant confirmedAt = STARTED_AT.plus(25, ChronoUnit.HOURS);
+
+        session.confirmActive(confirmedAt);
+
+        assertThat(session.getLastConfirmedAt()).isEqualTo(confirmedAt);
+        assertThat(session.getUpdatedAt()).isEqualTo(confirmedAt);
+        assertThat(session.isActive()).isTrue();
+        assertThat(session.getCompletionType()).isNull();
+    }
+
+    @Test
+    void confirmActiveRejectsTerminalSession() {
+        ParkingSession session = newSession();
+        session.complete(STARTED_AT.plusSeconds(1), ParkingSessionCompletionType.MANUAL);
+
+        assertInvalidTransition(() -> session.confirmActive(STARTED_AT.plusSeconds(2)));
     }
 
     @Test
@@ -72,9 +107,10 @@ class ParkingSessionTest {
     @Test
     void rejectsTransitionsFromCompletedSession() {
         ParkingSession session = newSession();
-        session.complete(STARTED_AT.plusSeconds(1));
+        session.complete(STARTED_AT.plusSeconds(1), ParkingSessionCompletionType.MANUAL);
 
-        assertInvalidTransition(() -> session.complete(STARTED_AT.plusSeconds(2)));
+        assertInvalidTransition(() -> session.complete(
+                STARTED_AT.plusSeconds(2), ParkingSessionCompletionType.MANUAL));
         assertInvalidTransition(() -> session.cancel(STARTED_AT.plusSeconds(2)));
     }
 
@@ -83,7 +119,8 @@ class ParkingSessionTest {
         ParkingSession session = newSession();
         session.cancel(STARTED_AT.plusSeconds(1));
 
-        assertInvalidTransition(() -> session.complete(STARTED_AT.plusSeconds(2)));
+        assertInvalidTransition(() -> session.complete(
+                STARTED_AT.plusSeconds(2), ParkingSessionCompletionType.MANUAL));
         assertInvalidTransition(() -> session.cancel(STARTED_AT.plusSeconds(2)));
     }
 
@@ -91,7 +128,8 @@ class ParkingSessionTest {
     void rejectsEndedAtBeforeStartedAtWithoutChangingActiveState() {
         ParkingSession session = newSession();
 
-        assertThatThrownBy(() -> session.complete(STARTED_AT.minusSeconds(1)))
+        assertThatThrownBy(() -> session.complete(
+                STARTED_AT.minusSeconds(1), ParkingSessionCompletionType.MANUAL))
                 .isInstanceOf(IllegalArgumentException.class)
                 .hasMessage("endedAt cannot be before startedAt");
 

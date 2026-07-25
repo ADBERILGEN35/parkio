@@ -7,6 +7,7 @@ import com.parkio.notification.application.event.ModerationCaseResolvedEvent;
 import com.parkio.notification.application.event.ParkingSpotCreatedEvent;
 import com.parkio.notification.application.event.ParkingSpotRejectedByModeratorEvent;
 import com.parkio.notification.application.event.ParkingSpotRejectedEvent;
+import com.parkio.notification.application.event.ParkingSessionReminderRequestedEvent;
 import com.parkio.notification.application.event.PointsDeductedEvent;
 import com.parkio.notification.application.event.PointsEarnedEvent;
 import com.parkio.notification.application.event.TrustScoreUpdatedEvent;
@@ -276,6 +277,31 @@ public class NotificationApplicationService {
         return createInAppNotification(userId, NotificationType.SMART_RETURN_AVAILABLE,
                 Map.of("messageKey", "smartReturnAvailable"),
                 Map.of("action", "SMART_RETURN_MAP", "deeplink", "/map?smartReturn=1"));
+    }
+
+    /**
+     * Creates an in-app (+ push) reminder for a stale ACTIVE parking session.
+     * Deep-links to the map active-session chrome. Inbox dedupe prevents duplicates.
+     */
+    public void handleParkingSessionReminderRequested(ParkingSessionReminderRequestedEvent event) {
+        if (!claimEvent(event.eventId(), "ParkingSessionReminderRequested")) {
+            return;
+        }
+        String stage = event.stage() == null ? "" : event.stage();
+        String messageKey = switch (stage) {
+            case "SECOND" -> "parkingSessionReminder2";
+            default -> "parkingSessionReminder1";
+        };
+        createInAppNotification(
+                event.userId(),
+                NotificationType.SYSTEM,
+                Map.of(
+                        "messageKey", messageKey,
+                        "sessionId", event.sessionId() == null ? "" : event.sessionId().toString(),
+                        "stage", stage),
+                Map.of(
+                        "action", "PARKING_SESSION_CONFIRM",
+                        "deeplink", "/map?parkingSession=active"));
     }
 
     // --- Internals ---

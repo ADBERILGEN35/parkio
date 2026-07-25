@@ -2,6 +2,7 @@ import { z } from 'zod';
 import {
   LEGAL_STATUSES,
   PARKING_CONTEXTS,
+  PARKING_SESSION_COMPLETION_TYPES,
   PARKING_SESSION_STATUSES,
   PARKING_SOURCES,
   PARKING_STATUSES,
@@ -13,6 +14,7 @@ import {
   type NearbySearchParams,
   type ParkingSessionHistoryParams,
   type ParkingSessionHistoryResponse,
+  type ParkingSessionLifecycleConfig,
   type ParkingSessionResponse,
   type PublicSpotResponse,
   type SpotMediaAccessUrlResponse,
@@ -136,6 +138,8 @@ export const parkingSessionResponseSchema = z
     latitude: latitudeSchema,
     longitude: longitudeSchema,
     estimatedFee: z.string().regex(PARKING_SESSION_RESPONSE_FEE_PATTERN).nullable(),
+    lastConfirmedAt: instantSchema.nullable(),
+    completionType: z.enum(PARKING_SESSION_COMPLETION_TYPES).nullable(),
   })
   .strip() satisfies z.ZodType<ParkingSessionResponse>;
 
@@ -145,6 +149,19 @@ export const parkingSessionHistoryResponseSchema = z
     nextCursor: parkingSessionCursorSchema.nullable(),
   })
   .strip() satisfies z.ZodType<ParkingSessionHistoryResponse>;
+
+export const parkingSessionLifecycleConfigSchema = z
+  .object({
+    confirmAfterMs: z.number().int().positive(),
+    reminder2AfterMs: z.number().int().positive(),
+    autoCompleteAfterMs: z.number().int().positive(),
+    confirmAfter: z.string().min(1),
+    reminder2After: z.string().min(1),
+    autoCompleteAfter: z.string().min(1),
+    remindersEnabled: z.boolean(),
+    autoCompleteEnabled: z.boolean(),
+  })
+  .strip() satisfies z.ZodType<ParkingSessionLifecycleConfig>;
 
 export const communityClaimResponseSchema =
   publicSpotResponseSchema satisfies z.ZodType<CommunityClaimResponse>;

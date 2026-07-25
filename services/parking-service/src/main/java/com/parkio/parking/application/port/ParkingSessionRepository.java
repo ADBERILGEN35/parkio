@@ -4,6 +4,8 @@ import com.parkio.parking.application.ParkingSessionHistoryCursor;
 import com.parkio.parking.application.ParkingSessionHistoryPage;
 import com.parkio.parking.domain.ParkingSession;
 import com.parkio.parking.domain.ParkingSessionStatus;
+import java.time.Instant;
+import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
 
@@ -21,6 +23,8 @@ public interface ParkingSessionRepository {
     }
 
     ParkingSession save(ParkingSession session);
+
+    Optional<ParkingSession> findById(UUID id);
 
     Optional<ParkingSession> findActiveByUserId(UUID userId);
 
@@ -48,4 +52,37 @@ public interface ParkingSessionRepository {
 
     /** Ownership-scoped status probe without loading coordinate fields into the domain aggregate. */
     Optional<ParkingSessionStatus> findStatusByIdAndUserId(UUID id, UUID userId);
+
+    /**
+     * ACTIVE sessions whose confirmation heartbeat and start are both at or before the
+     * given thresholds, oldest confirmation first. Used by the stale auto-complete job.
+     */
+    List<ParkingSession> findStaleActiveCandidates(
+            Instant confirmedAtOrBefore, Instant startedAtOrBefore, int limit);
+
+    /**
+     * ACTIVE sessions eligible for a specific reminder stage (exact current stage match),
+     * oldest confirmation first.
+     *
+     * @param currentReminderStage wire value of the stage already reached (0 before FIRST,
+     *                             1 before SECOND)
+     * @param confirmedAtOrBefore confirmation anchor must be at or before this instant
+     * @param startedAtOrBefore optional start ceiling; null skips the startedAt predicate
+     */
+    List<ParkingSession> findReminderCandidates(
+            int currentReminderStage,
+            Instant confirmedAtOrBefore,
+            Instant startedAtOrBefore,
+            int limit);
+
+    /** Approximate ACTIVE session count for gauges. */
+    long countByStatus(ParkingSessionStatus status);
+
+    /**
+     * Deletes up to {@code limit} terminal sessions whose {@code endedAt} is at or before
+     * {@code endedAtOrBefore}. Used only when retention is explicitly enabled.
+     *
+     * @return number of rows deleted
+     */
+    int deleteTerminalEndedAtOrBefore(Instant endedAtOrBefore, int limit);
 }

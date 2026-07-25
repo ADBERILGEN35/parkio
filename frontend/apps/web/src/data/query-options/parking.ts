@@ -44,6 +44,18 @@ export function activeParkingSessionQueryOptions(sdk: ParkioSdk) {
 }
 
 /**
+ * Effective confirm / reminder / auto-complete windows from parking-service.
+ * Long staleTime — config is env-driven and changes only on redeploy.
+ */
+export function parkingSessionLifecycleConfigQueryOptions(sdk: ParkioSdk) {
+  return queryOptions({
+    queryKey: parkingKeys.sessionLifecycleConfig(),
+    queryFn: ({ signal }) => sdk.parkingApi.getParkingSessionLifecycleConfig(signal),
+    staleTime: 5 * 60_000,
+  });
+}
+
+/**
  * Cursor-paginated terminal ParkingSession history.
  * Backend order: startedAt DESC, id DESC. ACTIVE rows are not part of the
  * contract; callers still filter defensively before exposing delete actions.

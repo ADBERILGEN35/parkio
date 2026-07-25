@@ -15,6 +15,8 @@ const startBody = {
   latitude: 41.0082,
   longitude: 28.9784,
   estimatedFee: '125.50',
+  lastConfirmedAt: '2026-07-25T10:00:00.000Z',
+  completionType: null,
 } as const;
 
 const activeSession = {
@@ -26,12 +28,15 @@ const activeSession = {
   latitude: 41.0082,
   longitude: 28.9784,
   estimatedFee: '125.50',
+  lastConfirmedAt: '2026-07-21T09:00:00Z',
+  completionType: null,
 } satisfies ParkingSessionResponse;
 
 const completedSession = {
   ...activeSession,
   status: 'COMPLETED',
   endedAt: '2026-07-21T11:15:00Z',
+  completionType: 'MANUAL',
 } satisfies ParkingSessionResponse;
 
 const historyResponse = {
@@ -166,6 +171,31 @@ describe('ParkingSession API — completeParkingSession', () => {
   });
 });
 
+describe('ParkingSession API — confirmActiveParkingSession', () => {
+  it('POSTs confirm-active without Idempotency-Key and returns the updated ACTIVE session', async () => {
+    const confirmed = {
+      ...activeSession,
+      lastConfirmedAt: '2026-07-22T09:00:00Z',
+    };
+    let url = '';
+    let idem: string | null = null;
+
+    server.use(
+      http.post(`${BASE}${ENCODED_SESSION_PATH}/confirm-active`, ({ request }) => {
+        url = request.url;
+        idem = request.headers.get(IDEMPOTENCY_HEADER);
+        return HttpResponse.json(confirmed, { status: 200 });
+      }),
+    );
+
+    const result = await parkingApi().confirmActiveParkingSession(SESSION_ID);
+
+    expect(url).toBe(`${BASE}${ENCODED_SESSION_PATH}/confirm-active`);
+    expect(idem).toBeNull();
+    expect(result).toEqual(confirmed);
+  });
+});
+
 describe('ParkingSession API — cancelParkingSession', () => {
   it('POSTs the encoded session path with Idempotency-Key and validates the response', async () => {
     const cancelled = {
@@ -173,6 +203,7 @@ describe('ParkingSession API — cancelParkingSession', () => {
       status: 'CANCELLED' as const,
       endedAt: '2026-07-21T09:05:00Z',
       estimatedFee: null,
+      completionType: 'MANUAL' as const,
     };
     let url = '';
     let idem: string | null = null;

@@ -9,12 +9,16 @@ const activeParkingSessionFixture = {
   latitude: 41.0082,
   longitude: 28.9784,
   estimatedFee: '125.50',
+  lastConfirmedAt: '2026-07-25T10:00:00.000Z',
+  completionType: null,
 };
 
 const communityParkingSessionFixture = {
   ...activeParkingSessionFixture,
   parkingSource: 'COMMUNITY' as const,
   estimatedFee: null,
+  lastConfirmedAt: '2026-07-25T10:00:00.000Z',
+  completionType: null,
 };
 import { parkingKeys } from '../keys';
 import { activeParkingSessionQueryOptions } from '../query-options/parking';

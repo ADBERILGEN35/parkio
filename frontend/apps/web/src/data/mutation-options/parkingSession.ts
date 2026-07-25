@@ -38,6 +38,19 @@ export function createCompleteParkingSessionMutationOptions(
   };
 }
 
+export function createConfirmActiveParkingSessionMutationOptions(
+  sdk: ParkioSdk,
+  queryClient: QueryClient,
+) {
+  return {
+    mutationFn: (sessionId: string): Promise<ParkingSessionResponse> =>
+      sdk.parkingApi.confirmActiveParkingSession(sessionId),
+    onSuccess: (session: ParkingSessionResponse) => {
+      setActiveParkingSession(queryClient, session);
+    },
+  };
+}
+
 export function createCancelParkingSessionMutationOptions(sdk: ParkioSdk, queryClient: QueryClient) {
   return {
     mutationFn: (sessionId: string): Promise<ParkingSessionResponse> =>

@@ -34,12 +34,15 @@ export const activeParkingSessionFixture = {
   latitude: 41.0082,
   longitude: 28.9784,
   estimatedFee: '125.50',
+  lastConfirmedAt: '2026-07-21T09:00:00Z',
+  completionType: null,
 } satisfies ParkingSessionResponse;
 
 export const completedParkingSessionFixture = {
   ...activeParkingSessionFixture,
   status: 'COMPLETED',
   endedAt: '2026-07-21T11:15:00Z',
+  completionType: 'MANUAL',
 } satisfies ParkingSessionResponse;
 
 export const cancelledParkingSessionFixture = {
@@ -47,6 +50,7 @@ export const cancelledParkingSessionFixture = {
   status: 'CANCELLED',
   endedAt: '2026-07-21T09:05:00Z',
   estimatedFee: null,
+  completionType: 'MANUAL',
 } satisfies ParkingSessionResponse;
 
 export const communityParkingSessionFixture = {

@@ -137,6 +137,20 @@ public final class LocalizedNotificationCatalog {
             case "nearbyParking" -> locale == NotificationLocale.TR
                     ? new Template("Yakında park yeri", "Yakınınızda yeni bir park yeri paylaşıldı.")
                     : new Template("Nearby parking", "A new parking spot was shared near you.");
+            case "parkingSessionReminder1" -> locale == NotificationLocale.TR
+                    ? new Template(
+                            "Aracınız hâlâ burada mı?",
+                            "Park oturumunuz hâlâ aktif. Hâlâ park halinde misiniz?")
+                    : new Template(
+                            "Is your vehicle still parked here?",
+                            "Your parking session is still active. Are you still parked?");
+            case "parkingSessionReminder2" -> locale == NotificationLocale.TR
+                    ? new Template(
+                            "Park oturumu yarın sonlanacak",
+                            "Onaylamazsanız park oturumunuz yarın otomatik olarak sonlandırılacak.")
+                    : new Template(
+                            "We'll end your parking session tomorrow",
+                            "We'll automatically end your parking session tomorrow unless you confirm.");
             default -> locale == NotificationLocale.TR
                     ? new Template("Bildirim", "Yeni bir bildiriminiz var.")
                     : new Template("Notification", "You have a new notification.");

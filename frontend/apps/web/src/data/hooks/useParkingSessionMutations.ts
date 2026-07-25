@@ -3,6 +3,7 @@ import { useParkioSdk } from '@/app/AppRuntimeContext';
 import {
   createCancelParkingSessionMutationOptions,
   createCompleteParkingSessionMutationOptions,
+  createConfirmActiveParkingSessionMutationOptions,
   createDeleteParkingSessionHistoryMutationOptions,
   createDeleteParkingSessionMutationOptions,
   createStartParkingSessionMutationOptions,
@@ -18,6 +19,12 @@ export function useCompleteParkingSessionMutation() {
   const sdk = useParkioSdk();
   const queryClient = useQueryClient();
   return useMutation(createCompleteParkingSessionMutationOptions(sdk, queryClient));
+}
+
+export function useConfirmActiveParkingSessionMutation() {
+  const sdk = useParkioSdk();
+  const queryClient = useQueryClient();
+  return useMutation(createConfirmActiveParkingSessionMutationOptions(sdk, queryClient));
 }
 
 export function useCancelParkingSessionMutation() {

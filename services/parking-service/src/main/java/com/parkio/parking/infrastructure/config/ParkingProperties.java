@@ -9,6 +9,7 @@ public class ParkingProperties {
 
     private Search search = new Search();
     private Moderation moderation = new Moderation();
+    private Session session = new Session();
 
     public Search getSearch() {
         return search;
@@ -24,6 +25,112 @@ public class ParkingProperties {
 
     public void setModeration(Moderation moderation) {
         this.moderation = moderation;
+    }
+
+    public Session getSession() {
+        return session;
+    }
+
+    public void setSession(Session session) {
+        this.session = session;
+    }
+
+    /**
+     * Parking-session stale lifecycle: confirmation, reminders, auto-complete, retention.
+     * Durations use ISO-8601 ({@code PT24H}) and may be overridden by env vars.
+     */
+    public static class Session {
+
+        private Duration confirmAfter = Duration.ofHours(24);
+        private Duration reminder2After = Duration.ofHours(48);
+        private Duration autoCompleteAfter = Duration.ofHours(72);
+        private Duration schedulerRate = Duration.ofHours(1);
+        private int schedulerBatchSize = 100;
+        private boolean remindersEnabled = true;
+        private boolean autoCompleteEnabled = true;
+        private boolean notificationEnabled = true;
+        private boolean retentionEnabled = false;
+        private Duration retentionAfter = Duration.ofDays(365);
+
+        public Duration getConfirmAfter() {
+            return confirmAfter;
+        }
+
+        public void setConfirmAfter(Duration confirmAfter) {
+            this.confirmAfter = confirmAfter;
+        }
+
+        public Duration getReminder2After() {
+            return reminder2After;
+        }
+
+        public void setReminder2After(Duration reminder2After) {
+            this.reminder2After = reminder2After;
+        }
+
+        public Duration getAutoCompleteAfter() {
+            return autoCompleteAfter;
+        }
+
+        public void setAutoCompleteAfter(Duration autoCompleteAfter) {
+            this.autoCompleteAfter = autoCompleteAfter;
+        }
+
+        public Duration getSchedulerRate() {
+            return schedulerRate;
+        }
+
+        public void setSchedulerRate(Duration schedulerRate) {
+            this.schedulerRate = schedulerRate;
+        }
+
+        public int getSchedulerBatchSize() {
+            return schedulerBatchSize;
+        }
+
+        public void setSchedulerBatchSize(int schedulerBatchSize) {
+            this.schedulerBatchSize = schedulerBatchSize;
+        }
+
+        public boolean isRemindersEnabled() {
+            return remindersEnabled;
+        }
+
+        public void setRemindersEnabled(boolean remindersEnabled) {
+            this.remindersEnabled = remindersEnabled;
+        }
+
+        public boolean isAutoCompleteEnabled() {
+            return autoCompleteEnabled;
+        }
+
+        public void setAutoCompleteEnabled(boolean autoCompleteEnabled) {
+            this.autoCompleteEnabled = autoCompleteEnabled;
+        }
+
+        public boolean isNotificationEnabled() {
+            return notificationEnabled;
+        }
+
+        public void setNotificationEnabled(boolean notificationEnabled) {
+            this.notificationEnabled = notificationEnabled;
+        }
+
+        public boolean isRetentionEnabled() {
+            return retentionEnabled;
+        }
+
+        public void setRetentionEnabled(boolean retentionEnabled) {
+            this.retentionEnabled = retentionEnabled;
+        }
+
+        public Duration getRetentionAfter() {
+            return retentionAfter;
+        }
+
+        public void setRetentionAfter(Duration retentionAfter) {
+            this.retentionAfter = retentionAfter;
+        }
     }
 
     /**

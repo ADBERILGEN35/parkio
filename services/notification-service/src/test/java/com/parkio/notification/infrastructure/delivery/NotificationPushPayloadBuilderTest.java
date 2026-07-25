@@ -90,4 +90,11 @@ class NotificationPushPayloadBuilderTest {
                 .containsEntry("totalPoints", "20")
                 .containsEntry("notificationType", "POINT_EARNED");
     }
+
+    @Test
+    void mapsParkingSessionActiveDeeplinkToMapTab() {
+        assertThat(NotificationPushPayloadBuilder.mobileRoute(
+                        NotificationType.SYSTEM, Map.of("deeplink", "/map?parkingSession=active")))
+                .isEqualTo("/(main)/(tabs)/map");
+    }
 }

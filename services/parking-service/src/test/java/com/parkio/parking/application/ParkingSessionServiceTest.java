@@ -6,14 +6,22 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import com.parkio.parking.application.port.OutboxEventAppender;
 import com.parkio.parking.application.port.ParkingSessionRepository;
 import com.parkio.parking.domain.ParkingSession;
+import com.parkio.parking.domain.ParkingSessionCompletionReason;
+import com.parkio.parking.domain.ParkingSessionCompletionType;
+import com.parkio.parking.domain.ParkingSessionReminderStage;
 import com.parkio.parking.domain.ParkingSessionStatus;
+import com.parkio.parking.domain.ParkingSessionStalePolicy;
 import com.parkio.parking.domain.ParkingSource;
 import com.parkio.parking.domain.event.ParkingEvent;
 import com.parkio.parking.domain.event.ParkingSessionCancelledEvent;
 import com.parkio.parking.domain.event.ParkingSessionCompletedEvent;
+import com.parkio.parking.domain.event.ParkingSessionReminderRequestedEvent;
 import com.parkio.parking.domain.event.ParkingSessionStartedEvent;
 import com.parkio.parking.domain.exception.ParkingErrorCode;
 import com.parkio.parking.domain.exception.ParkingException;
+import com.parkio.parking.infrastructure.config.ParkingProperties;
+import com.parkio.parking.infrastructure.metrics.ParkingSessionLifecycleMetrics;
+import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
 import java.math.BigDecimal;
 import java.time.Clock;
 import java.time.Instant;
@@ -39,12 +47,22 @@ class ParkingSessionServiceTest {
     private FakeParkingSessionRepository repository;
     private FakeOutboxEventAppender outbox;
     private ParkingSessionService service;
+    private ParkingProperties properties;
 
     @BeforeEach
     void setUp() {
         repository = new FakeParkingSessionRepository();
         outbox = new FakeOutboxEventAppender();
-        service = new ParkingSessionService(repository, outbox, Clock.fixed(NOW, ZoneOffset.UTC));
+        properties = new ParkingProperties();
+        service = new ParkingSessionService(
+                repository,
+                outbox,
+                Clock.fixed(NOW, ZoneOffset.UTC),
+                ParkingSessionStalePolicy.defaults(),
+                properties,
+                new ParkingSessionLifecycleMetrics(new SimpleMeterRegistry()),
+                new ParkingSessionStaleRowProcessor(
+                        repository, outbox, ParkingSessionStalePolicy.defaults()));
     }
 
     @Test
@@ -323,10 +341,147 @@ class ParkingSessionServiceTest {
         assertThat(service.findHistory(stranger, 10).sessions()).containsExactly(foreign);
     }
 
+    @Test
+    void confirmActiveExtendsHeartbeatWithoutEmittingLifecycleEvent() {
+        UUID userId = UUID.randomUUID();
+        ParkingSession session = service.startSession(
+                userId, ParkingSource.MANUAL, 41.0, 29.0, null, null);
+        outbox.events.clear();
+
+        ParkingSession confirmed = service.confirmActiveSession(userId, session.getId());
+
+        assertThat(confirmed.getLastConfirmedAt()).isEqualTo(NOW);
+        assertThat(confirmed.getStatus()).isEqualTo(ParkingSessionStatus.ACTIVE);
+        assertThat(outbox.events).isEmpty();
+    }
+
+    @Test
+    void autoCompleteStaleSessionsCompletesWithAutoTypeAndEmitsCompletedEventOnce() {
+        UUID userId = UUID.randomUUID();
+        Instant started = NOW.minus(ParkingSessionStalePolicy.defaults().autoCompleteAfter())
+                .minusSeconds(60);
+        ParkingSession stale = ParkingSession.start(
+                userId, ParkingSource.MANUAL, 41.0, 29.0, null, null, started);
+        repository.save(stale);
+        outbox.events.clear();
+
+        int first = service.autoCompleteStaleSessions(10);
+        int second = service.autoCompleteStaleSessions(10);
+
+        assertThat(first).isEqualTo(1);
+        assertThat(second).isEqualTo(0);
+        ParkingSession saved = repository.byId.get(stale.getId());
+        assertThat(saved.getStatus()).isEqualTo(ParkingSessionStatus.COMPLETED);
+        assertThat(saved.getCompletionType()).isEqualTo(ParkingSessionCompletionType.AUTO);
+        assertThat(saved.getCompletionReason()).isEqualTo(ParkingSessionCompletionReason.AUTO_TIMEOUT);
+        assertThat(outbox.events).singleElement().isInstanceOf(ParkingSessionCompletedEvent.class)
+                .satisfies(event -> {
+                    ParkingSessionCompletedEvent completed = (ParkingSessionCompletedEvent) event;
+                    assertThat(completed.completionReason())
+                            .isEqualTo(ParkingSessionCompletionReason.AUTO_TIMEOUT);
+                    assertThat(completed.sessionDurationSeconds()).isNotNull();
+                });
+    }
+
+    @Test
+    void autoCompleteSkipsSessionsConfirmedWithinSeventyTwoHours() {
+        UUID userId = UUID.randomUUID();
+        Instant started = NOW.minus(ParkingSessionStalePolicy.defaults().autoCompleteAfter())
+                .minusSeconds(60);
+        ParkingSession session = ParkingSession.start(
+                userId, ParkingSource.MANUAL, 41.0, 29.0, null, null, started);
+        session.confirmActive(NOW.minusSeconds(3600));
+        repository.save(session);
+        outbox.events.clear();
+
+        assertThat(service.autoCompleteStaleSessions(10)).isZero();
+        assertThat(repository.byId.get(session.getId()).isActive()).isTrue();
+        assertThat(outbox.events).isEmpty();
+    }
+
+    @Test
+    void autoCompleteRespectsFeatureFlag() {
+        properties.getSession().setAutoCompleteEnabled(false);
+        UUID userId = UUID.randomUUID();
+        Instant started = NOW.minus(ParkingSessionStalePolicy.defaults().autoCompleteAfter())
+                .minusSeconds(60);
+        repository.save(ParkingSession.start(
+                userId, ParkingSource.MANUAL, 41.0, 29.0, null, null, started));
+        outbox.events.clear();
+
+        assertThat(service.autoCompleteStaleSessionsPage(10).exhausted()).isTrue();
+        assertThat(outbox.events).isEmpty();
+    }
+
+    @Test
+    void sendDueRemindersPublishesOncePerStage() {
+        UUID userId = UUID.randomUUID();
+        Instant started = NOW.minus(ParkingSessionStalePolicy.defaults().confirmAfter())
+                .minusSeconds(60);
+        ParkingSession session = ParkingSession.start(
+                userId, ParkingSource.MANUAL, 41.0, 29.0, null, null, started);
+        repository.save(session);
+        outbox.events.clear();
+
+        ParkingSessionStaleBatchResult first =
+                service.sendDueRemindersPage(ParkingSessionReminderStage.FIRST, 10);
+        ParkingSessionStaleBatchResult again =
+                service.sendDueRemindersPage(ParkingSessionReminderStage.FIRST, 10);
+
+        assertThat(first.succeeded()).isEqualTo(1);
+        assertThat(again.exhausted()).isTrue();
+        assertThat(repository.byId.get(session.getId()).getReminderStage())
+                .isEqualTo(ParkingSessionReminderStage.FIRST);
+        assertThat(outbox.events).singleElement()
+                .isInstanceOf(ParkingSessionReminderRequestedEvent.class);
+    }
+
+    @Test
+    void retentionDisabledByDefault() {
+        UUID userId = UUID.randomUUID();
+        Instant started = NOW.minusSeconds(86_400);
+        ParkingSession completed = ParkingSession.start(
+                userId, ParkingSource.MANUAL, 41.0, 29.0, null, null, started);
+        completed.complete(started.plusSeconds(1), ParkingSessionCompletionReason.MANUAL);
+        repository.save(completed);
+
+        assertThat(service.purgeExpiredHistoryPage(10).exhausted()).isTrue();
+        assertThat(repository.byId).containsKey(completed.getId());
+    }
+
+    @Test
+    void retentionDeletesOldTerminalSessionsWhenEnabled() {
+        properties.getSession().setRetentionEnabled(true);
+        properties.getSession().setRetentionAfter(java.time.Duration.ofDays(1));
+        UUID userId = UUID.randomUUID();
+        Instant started = NOW.minus(java.time.Duration.ofDays(10));
+        ParkingSession completed = ParkingSession.start(
+                userId, ParkingSource.MANUAL, 41.0, 29.0, null, null, started);
+        completed.complete(started.plusSeconds(1), ParkingSessionCompletionReason.MANUAL);
+        repository.save(completed);
+
+        ParkingSessionStaleBatchResult result = service.purgeExpiredHistoryPage(10);
+
+        assertThat(result.succeeded()).isEqualTo(1);
+        assertThat(repository.byId).doesNotContainKey(completed.getId());
+    }
+
+    @Test
+    void manualCompleteSetsManualCompletionType() {
+        UUID userId = UUID.randomUUID();
+        ParkingSession session = service.startSession(
+                userId, ParkingSource.MANUAL, 41.0, 29.0, null, null);
+
+        ParkingSession completed = service.completeSession(userId, session.getId());
+
+        assertThat(completed.getCompletionType()).isEqualTo(ParkingSessionCompletionType.MANUAL);
+        assertThat(completed.getCompletionReason()).isEqualTo(ParkingSessionCompletionReason.MANUAL);
+    }
+
     private ParkingSession terminalSession(UUID userId, Instant startedAt) {
         ParkingSession session = ParkingSession.start(
                 userId, ParkingSource.MANUAL, 41.0, 29.0, null, null, startedAt);
-        session.complete(startedAt.plusSeconds(1));
+        session.complete(startedAt.plusSeconds(1), ParkingSessionCompletionType.MANUAL);
         return repository.save(session);
     }
 
@@ -340,6 +495,11 @@ class ParkingSessionServiceTest {
             saveCalls++;
             byId.put(session.getId(), session);
             return session;
+        }
+
+        @Override
+        public Optional<ParkingSession> findById(UUID id) {
+            return Optional.ofNullable(byId.get(id));
         }
 
         @Override
@@ -400,6 +560,84 @@ class ParkingSessionServiceTest {
             return Optional.ofNullable(byId.get(id))
                     .filter(session -> session.getUserId().equals(userId))
                     .map(ParkingSession::getStatus);
+        }
+
+        @Override
+        public List<ParkingSession> findStaleActiveCandidates(
+                Instant confirmedAtOrBefore, Instant startedAtOrBefore, int limit) {
+            if (limit < 1) {
+                throw new IllegalArgumentException("limit must be positive");
+            }
+            return byId.values().stream()
+                    .filter(ParkingSession::isActive)
+                    .filter(session -> {
+                        Instant confirmed = session.getLastConfirmedAt() != null
+                                ? session.getLastConfirmedAt()
+                                : session.getStartedAt();
+                        return !confirmed.isAfter(confirmedAtOrBefore)
+                                && !session.getStartedAt().isAfter(startedAtOrBefore);
+                    })
+                    .sorted(Comparator
+                            .comparing((ParkingSession session) -> session.getLastConfirmedAt() != null
+                                    ? session.getLastConfirmedAt()
+                                    : session.getStartedAt())
+                            .thenComparing(ParkingSession::getStartedAt)
+                            .thenComparing(session -> session.getId().toString()))
+                    .limit(limit)
+                    .toList();
+        }
+
+        @Override
+        public List<ParkingSession> findReminderCandidates(
+                int currentReminderStage,
+                Instant confirmedAtOrBefore,
+                Instant startedAtOrBefore,
+                int limit) {
+            if (limit < 1) {
+                throw new IllegalArgumentException("limit must be positive");
+            }
+            return byId.values().stream()
+                    .filter(ParkingSession::isActive)
+                    .filter(session -> session.getReminderStage().wireValue() == currentReminderStage)
+                    .filter(session -> {
+                        Instant confirmed = session.getLastConfirmedAt() != null
+                                ? session.getLastConfirmedAt()
+                                : session.getStartedAt();
+                        return !confirmed.isAfter(confirmedAtOrBefore);
+                    })
+                    .filter(session -> startedAtOrBefore == null
+                            || !session.getStartedAt().isAfter(startedAtOrBefore))
+                    .sorted(Comparator
+                            .comparing((ParkingSession session) -> session.getLastConfirmedAt() != null
+                                    ? session.getLastConfirmedAt()
+                                    : session.getStartedAt())
+                            .thenComparing(ParkingSession::getStartedAt)
+                            .thenComparing(session -> session.getId().toString()))
+                    .limit(limit)
+                    .toList();
+        }
+
+        @Override
+        public long countByStatus(ParkingSessionStatus status) {
+            return byId.values().stream().filter(session -> session.getStatus() == status).count();
+        }
+
+        @Override
+        public int deleteTerminalEndedAtOrBefore(Instant endedAtOrBefore, int limit) {
+            if (limit < 1) {
+                throw new IllegalArgumentException("limit must be positive");
+            }
+            List<UUID> removable = byId.values().stream()
+                    .filter(session -> !session.isActive())
+                    .filter(session -> session.getEndedAt() != null
+                            && !session.getEndedAt().isAfter(endedAtOrBefore))
+                    .sorted(Comparator.comparing(ParkingSession::getEndedAt)
+                            .thenComparing(session -> session.getId().toString()))
+                    .limit(limit)
+                    .map(ParkingSession::getId)
+                    .toList();
+            removable.forEach(byId::remove);
+            return removable.size();
         }
 
         private List<ParkingSession> historyFor(UUID userId) {

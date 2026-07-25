@@ -107,6 +107,20 @@
     "sourceAuto": "Otomatik kaydedildi",
     "error": "Park konumunuz yüklenemedi",
     "keepSession": "Oturumu koru",
+    "stale": {
+      "prompt": "Aracınız hâlâ burada park halinde mi?",
+      "confirmAria": "Aracınızın hâlâ park halinde olup olmadığını onaylayın",
+      "stillParked": "Evet, hâlâ park halinde",
+      "alreadyLeft": "Zaten ayrıldım",
+      "confirmBusy": "Onaylanıyor…",
+      "confirmSuccess": "Teşekkürler — park oturumunuz aktif kalmaya devam ediyor.",
+      "requiredBeforeFind": "Arabanızı bulmadan önce hâlâ park halinde olup olmadığınızı onaylayın.",
+      "leaveTitle": "Park yerinden ayrıl?",
+      "leaveBody": "Ayrıldıktan sonra bu park konumuna geri navigasyon yapamazsınız.",
+      "leaveConfirmAria": "Hâlâ park halinde kontrolünden sonra ayrılmayı onaylayın",
+      "leaveConfirmCta": "Park yerinden ayrıl",
+      "leaveCancel": "İptal"
+    },
     "maps": {
       "cta": "Haritada aç",
       "a11y": "Park konumunu harici harita uygulamasında aç",

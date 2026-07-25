@@ -1,4 +1,5 @@
 import type { ParkingSessionResponse } from '@parkio/types';
+import { useQuery } from '@tanstack/react-query';
 import { screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { http, HttpResponse, delay } from 'msw';
@@ -44,18 +45,22 @@ const session: ParkingSessionResponse = {
   latitude: 38.42,
   longitude: 27.14,
   estimatedFee: null,
+  lastConfirmedAt: '2026-07-25T10:00:00.000Z',
+  completionType: null,
 };
 
 const completed: ParkingSessionResponse = {
   ...session,
   status: 'COMPLETED',
   endedAt: '2026-07-25T11:00:00.000Z',
+  completionType: 'MANUAL',
 };
 
 const cancelled: ParkingSessionResponse = {
   ...session,
   status: 'CANCELLED',
   endedAt: '2026-07-25T11:00:00.000Z',
+  completionType: 'MANUAL',
 };
 
 beforeEach(() => {
@@ -64,6 +69,20 @@ beforeEach(() => {
   vi.spyOn(toast, 'showSuccess').mockImplementation(() => undefined);
   vi.spyOn(toast, 'showError').mockImplementation(() => undefined);
   vi.spyOn(toast, 'showInfo').mockImplementation(() => undefined);
+  server.use(
+    http.get(`${API_BASE}/parking/sessions/lifecycle-config`, () =>
+      HttpResponse.json({
+        confirmAfterMs: 86_400_000,
+        reminder2AfterMs: 172_800_000,
+        autoCompleteAfterMs: 259_200_000,
+        confirmAfter: 'PT24H',
+        reminder2After: 'PT48H',
+        autoCompleteAfter: 'PT72H',
+        remindersEnabled: true,
+        autoCompleteEnabled: true,
+      }),
+    ),
+  );
 });
 
 describe('ActiveParkingSessionCard', () => {
@@ -331,6 +350,110 @@ describe('ActiveParkingSessionCard', () => {
 
     await waitFor(() => {
       expect(toast.showSuccess).toHaveBeenCalledWith('Parking session finished.');
+    });
+  });
+
+  it('shows the 24h confirmation dialog and blocks Find my car until confirmed', async () => {
+    const stale = {
+      ...session,
+      startedAt: '2026-07-20T10:00:00.000Z',
+      lastConfirmedAt: '2026-07-20T10:00:00.000Z',
+    };
+    const confirmed = {
+      ...stale,
+      lastConfirmedAt: '2026-07-25T18:00:00.000Z',
+    };
+    server.use(
+      http.post(`${API_BASE}/parking/sessions/${stale.id}/confirm-active`, () =>
+        HttpResponse.json(confirmed),
+      ),
+    );
+
+    function Harness({ onFocus }: { onFocus: () => void }) {
+      const live = useQuery({
+        queryKey: parkingKeys.activeSession(),
+        queryFn: async () => stale,
+        initialData: stale,
+      }).data;
+      if (!live || live.status !== 'ACTIVE') return null;
+      return <ActiveParkingSessionCard session={live} onFocusCar={onFocus} />;
+    }
+
+    const onFocusCar = vi.fn();
+    const { queryClient } = renderWithBaseProviders(<Harness onFocus={onFocusCar} />, { runtime });
+    queryClient.setQueryData(parkingKeys.sessionLifecycleConfig(), {
+      confirmAfterMs: 86_400_000,
+      reminder2AfterMs: 172_800_000,
+      autoCompleteAfterMs: 259_200_000,
+      confirmAfter: 'PT24H',
+      reminder2After: 'PT48H',
+      autoCompleteAfter: 'PT72H',
+      remindersEnabled: true,
+      autoCompleteEnabled: true,
+    });
+    const user = userEvent.setup();
+
+    expect(await screen.findByTestId('active-parking-stale-confirm')).toBeInTheDocument();
+    expect(screen.queryByTestId('active-parking-find-my-car')).not.toBeInTheDocument();
+    expect(screen.getByText('Is your vehicle still parked here?')).toBeInTheDocument();
+
+    await user.click(screen.getByTestId('active-parking-still-parked'));
+
+    await waitFor(() => {
+      expect(toast.showSuccess).toHaveBeenCalledWith(
+        'Thanks — your parking session stays active.',
+      );
+    });
+    await waitFor(() => {
+      expect(queryClient.getQueryData(parkingKeys.activeSession())).toEqual(confirmed);
+    });
+    expect(await screen.findByTestId('active-parking-find-my-car')).toBeInTheDocument();
+    await user.click(screen.getByTestId('active-parking-find-my-car'));
+    expect(onFocusCar).toHaveBeenCalledOnce();
+  });
+
+  it('asks for a second confirmation before completing after I already left', async () => {
+    const stale = {
+      ...session,
+      startedAt: '2026-07-20T10:00:00.000Z',
+      lastConfirmedAt: '2026-07-20T10:00:00.000Z',
+    };
+    server.use(
+      http.post(`${API_BASE}/parking/sessions/${stale.id}/complete`, () =>
+        HttpResponse.json({
+          ...completed,
+          startedAt: stale.startedAt,
+          lastConfirmedAt: stale.lastConfirmedAt,
+        }),
+      ),
+    );
+    const { queryClient } = renderCard(stale);
+    queryClient.setQueryData(parkingKeys.activeSession(), stale);
+    queryClient.setQueryData(parkingKeys.sessionLifecycleConfig(), {
+      confirmAfterMs: 86_400_000,
+      reminder2AfterMs: 172_800_000,
+      autoCompleteAfterMs: 259_200_000,
+      confirmAfter: 'PT24H',
+      reminder2After: 'PT48H',
+      autoCompleteAfter: 'PT72H',
+      remindersEnabled: true,
+      autoCompleteEnabled: true,
+    });
+    const user = userEvent.setup();
+
+    expect(await screen.findByTestId('active-parking-stale-confirm')).toBeInTheDocument();
+    await user.click(screen.getByTestId('active-parking-already-left'));
+    expect(await screen.findByTestId('active-parking-stale-leave-confirm')).toBeInTheDocument();
+    expect(screen.getByText('Leave parking?')).toBeInTheDocument();
+    expect(toast.showSuccess).not.toHaveBeenCalled();
+
+    await user.click(screen.getByTestId('active-parking-confirm-stale-leave'));
+
+    await waitFor(() => {
+      expect(toast.showSuccess).toHaveBeenCalledWith('Parking session finished.');
+    });
+    await waitFor(() => {
+      expect(queryClient.getQueryData(parkingKeys.activeSession())).toBeNull();
     });
   });
 

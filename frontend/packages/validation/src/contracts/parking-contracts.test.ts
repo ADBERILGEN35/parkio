@@ -150,6 +150,8 @@ describe('parking response contracts', () => {
       parkingSessionResponseSchema.safeParse({
         ...activeParkingSessionFixture,
         estimatedFee: '125.5',
+  lastConfirmedAt: '2026-07-25T10:00:00.000Z',
+  completionType: null,
       }).success,
     ).toBe(false);
   });

@@ -1,9 +1,15 @@
 import type { AxiosInstance } from 'axios';
+import {
+  parkingSessionHistoryResponseSchema,
+  parkingSessionLifecycleConfigSchema,
+  parkingSessionResponseSchema,
+} from '@parkio/validation';
 import type {
   CreateSpotRequest,
   NearbySearchParams,
   ParkingSessionHistoryParams,
   ParkingSessionHistoryResponse,
+  ParkingSessionLifecycleConfig,
   ParkingSessionResponse,
   PublicSpot,
   Spot,
@@ -11,10 +17,6 @@ import type {
   StartParkingSessionRequest,
   VerifySpotRequest,
 } from '@parkio/types';
-import {
-  parkingSessionHistoryResponseSchema,
-  parkingSessionResponseSchema,
-} from '@parkio/validation';
 import { ContractValidationError } from './errors';
 import { IDEMPOTENCY_HEADER } from './idempotency';
 import type { RequestOptions } from './request-options';
@@ -129,6 +131,20 @@ export function createParkingApi(client: AxiosInstance) {
       });
     },
 
+    /**
+     * Effective confirm / reminder / auto-complete thresholds from parking-service.
+     * Single source of truth — clients must not hardcode these windows.
+     */
+    getParkingSessionLifecycleConfig(
+      signal?: AbortSignal,
+    ): Promise<ParkingSessionLifecycleConfig> {
+      return client
+        .get<unknown>('/parking/sessions/lifecycle-config', { signal })
+        .then((r) =>
+          parseContract<ParkingSessionLifecycleConfig>(parkingSessionLifecycleConfigSchema, r.data),
+        );
+    },
+
     completeParkingSession(
       sessionId: string,
       idempotencyKey: string,
@@ -137,6 +153,16 @@ export function createParkingApi(client: AxiosInstance) {
         .post<unknown>(`/parking/sessions/${encodeURIComponent(sessionId)}/complete`, null, {
           headers: { [IDEMPOTENCY_HEADER]: idempotencyKey },
         })
+        .then((r) => parseContract<ParkingSessionResponse>(parkingSessionResponseSchema, r.data));
+    },
+
+    /**
+     * Extends the ACTIVE confirmation window (lastConfirmedAt = now).
+     * No Idempotency-Key — safe to retry; overwrites the heartbeat.
+     */
+    confirmActiveParkingSession(sessionId: string): Promise<ParkingSessionResponse> {
+      return client
+        .post<unknown>(`/parking/sessions/${encodeURIComponent(sessionId)}/confirm-active`, null)
         .then((r) => parseContract<ParkingSessionResponse>(parkingSessionResponseSchema, r.data));
     },
 

@@ -116,8 +116,9 @@ public class AnalyticsApplicationService {
     }
 
     public void handleParkingSessionCompleted(ParkingSessionCompletedEvent event) {
-        long durationSeconds =
-                ParkingSessionLifecycleMapper.durationSeconds(event.startedAt(), event.endedAt());
+        long durationSeconds = event.sessionDurationSeconds() != null
+                ? event.sessionDurationSeconds()
+                : ParkingSessionLifecycleMapper.durationSeconds(event.startedAt(), event.endedAt());
         ingest(event.eventId(), AnalyticsMetricType.PARKING_SESSION_COMPLETED, event.userId(),
                 event.sessionId(), durationSeconds, event.occurredAt(),
                 ParkingSessionLifecycleMapper.WIRE_COMPLETED);

@@ -177,6 +177,14 @@ export const PARKING_SESSION_STATUSES = ['ACTIVE', 'COMPLETED', 'CANCELLED'] as 
 
 export type ParkingSessionStatus = (typeof PARKING_SESSION_STATUSES)[number];
 
+/**
+ * How a COMPLETED (or CANCELLED) parking session was closed.
+ * ACTIVE sessions always have {@code null}. CANCELLED is always MANUAL.
+ */
+export const PARKING_SESSION_COMPLETION_TYPES = ['MANUAL', 'AUTO'] as const;
+
+export type ParkingSessionCompletionType = (typeof PARKING_SESSION_COMPLETION_TYPES)[number];
+
 /** Server-controlled origin of a parking session. */
 export const PARKING_SOURCES = ['MANUAL', 'FACILITY', 'CURB', 'COMMUNITY', 'AUTO'] as const;
 
@@ -202,6 +210,10 @@ export interface ParkingSessionResponse {
   latitude: number;
   longitude: number;
   estimatedFee: ParkingMoney | null;
+  /** Heartbeat for stale-session warnings; equals startedAt for a fresh ACTIVE session. */
+  lastConfirmedAt: string | null;
+  /** Null while ACTIVE; MANUAL or AUTO once COMPLETED; MANUAL when CANCELLED. */
+  completionType: ParkingSessionCompletionType | null;
 }
 
 /** Opaque-cursor history query. */

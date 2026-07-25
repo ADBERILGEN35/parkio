@@ -1,7 +1,9 @@
 import type { ParkingSessionResponse, ParkingSource } from '@parkio/types';
 import { Button, Icon, cn } from '@parkio/ui';
+import { useId, useRef } from 'react';
 import { useTranslation } from 'react-i18next';
 import { formatElapsedFromStartedAt } from '@/lib/parkingSessionElapsed';
+import { InlineConfirmPanel } from './InlineConfirmPanel';
 import { useActiveParkingSessionActions } from './useActiveParkingSessionActions';
 import { useNowTicker } from './useNowTicker';
 
@@ -42,12 +44,33 @@ export function ActiveParkingSessionCard({
   const elapsed = formatElapsedFromStartedAt(session.startedAt, now);
   const sourceKey = sourceLabelKey(session.parkingSource);
   const actions = useActiveParkingSessionActions({ session, onFocusCar });
+  const stalePromptId = useId();
+  const staleLeaveBodyId = useId();
+  const completeBodyId = useId();
+  const cancelBodyId = useId();
+  const stillParkedRef = useRef<HTMLButtonElement>(null);
+  const keepStaleLeaveRef = useRef<HTMLButtonElement>(null);
+  const keepCompleteRef = useRef<HTMLButtonElement>(null);
+  const keepCancelRef = useRef<HTMLButtonElement>(null);
 
+  const showStaleConfirm =
+    actions.requiresActiveConfirmation && actions.phase !== 'confirming-stale-leave';
+  const showStaleLeaveConfirm =
+    actions.phase === 'confirming-stale-leave' ||
+    (actions.requiresActiveConfirmation && actions.phase === 'completing');
   const showCompleteConfirm =
-    actions.phase === 'confirming-complete' || actions.phase === 'completing';
+    !showStaleConfirm &&
+    !showStaleLeaveConfirm &&
+    (actions.phase === 'confirming-complete' || actions.phase === 'completing');
   const showCancelConfirm =
-    actions.phase === 'confirming-cancel' || actions.phase === 'cancelling';
+    !showStaleConfirm &&
+    !showStaleLeaveConfirm &&
+    (actions.phase === 'confirming-cancel' || actions.phase === 'cancelling');
   const busy = actions.terminalBusy;
+  const staleConfirmBusy =
+    actions.phase === 'confirming-active' ||
+    actions.phase === 'confirming-stale-leave' ||
+    actions.phase === 'completing';
 
   return (
     <div
@@ -98,19 +121,108 @@ export function ActiveParkingSessionCard({
       </div>
 
       <div className="mt-md flex flex-col gap-sm">
-        <Button
-          type="button"
-          className="w-full"
-          onClick={actions.findMyCar}
-          disabled={busy || !actions.destinationValid}
-          aria-label={t('parkingSession.findMyCarAria')}
-          data-testid="active-parking-find-my-car"
-        >
-          <Icon name="near_me" className="text-[18px] leading-none" />
-          {t('parkingSession.findMyCar')}
-        </Button>
+        {showStaleConfirm ? (
+          <InlineConfirmPanel
+            className="flex flex-col gap-sm rounded-2xl bg-surface-container-low p-md"
+            testId="active-parking-stale-confirm"
+            labelledBy={stalePromptId}
+            onDismiss={actions.keepSession}
+            dismissDisabled={staleConfirmBusy}
+            initialFocusRef={stillParkedRef}
+          >
+            <p
+              id={stalePromptId}
+              className="m-0 flex items-start gap-xs text-label-sm font-medium text-on-surface"
+            >
+              <Icon
+                name="warning"
+                className="mt-px shrink-0 text-[16px] leading-none text-tertiary"
+              />
+              {t('parkingSession.stale.prompt')}
+            </p>
+            <div className="flex flex-wrap gap-sm">
+              <Button
+                ref={stillParkedRef}
+                type="button"
+                className="min-w-0 flex-1"
+                onClick={() => void actions.confirmStillParked()}
+                disabled={staleConfirmBusy}
+                aria-busy={actions.phase === 'confirming-active'}
+                data-testid="active-parking-still-parked"
+              >
+                {actions.phase === 'confirming-active'
+                  ? t('parkingSession.stale.confirmBusy')
+                  : t('parkingSession.stale.stillParked')}
+              </Button>
+              <Button
+                type="button"
+                variant="secondary"
+                className="min-w-0 flex-1"
+                onClick={() => actions.confirmAlreadyLeft()}
+                disabled={staleConfirmBusy}
+                data-testid="active-parking-already-left"
+              >
+                {t('parkingSession.stale.alreadyLeft')}
+              </Button>
+            </div>
+          </InlineConfirmPanel>
+        ) : showStaleLeaveConfirm ? (
+          <InlineConfirmPanel
+            className="flex flex-col gap-sm rounded-2xl bg-surface-container-low p-md"
+            testId="active-parking-stale-leave-confirm"
+            title={t('parkingSession.stale.leaveTitle')}
+            describedBy={staleLeaveBodyId}
+            onDismiss={actions.keepSession}
+            dismissDisabled={busy}
+            initialFocusRef={keepStaleLeaveRef}
+          >
+            <p id={staleLeaveBodyId} className="m-0 text-label-sm font-medium text-on-surface-variant">
+              {t('parkingSession.stale.leaveBody')}
+            </p>
+            <div className="flex flex-wrap gap-sm">
+              <Button
+                type="button"
+                className="min-w-0 flex-1"
+                onClick={() => void actions.confirmComplete()}
+                disabled={busy}
+                aria-busy={busy}
+                data-testid="active-parking-confirm-stale-leave"
+              >
+                {busy
+                  ? t('parkingSession.complete.busy')
+                  : t('parkingSession.stale.leaveConfirmCta')}
+              </Button>
+              <Button
+                ref={keepStaleLeaveRef}
+                type="button"
+                variant="ghost"
+                className="min-w-0 flex-1"
+                onClick={actions.keepSession}
+                disabled={busy}
+                data-testid="active-parking-cancel-stale-leave"
+              >
+                {t('parkingSession.stale.leaveCancel')}
+              </Button>
+            </div>
+          </InlineConfirmPanel>
+        ) : (
+          <Button
+            type="button"
+            className="w-full"
+            onClick={actions.findMyCar}
+            disabled={busy || !actions.destinationValid}
+            aria-label={t('parkingSession.findMyCarAria')}
+            data-testid="active-parking-find-my-car"
+          >
+            <Icon name="near_me" className="text-[18px] leading-none" />
+            {t('parkingSession.findMyCar')}
+          </Button>
+        )}
 
-        {!showCompleteConfirm && !showCancelConfirm ? (
+        {!showStaleConfirm &&
+        !showStaleLeaveConfirm &&
+        !showCompleteConfirm &&
+        !showCancelConfirm ? (
           <div className="flex flex-wrap gap-sm">
             <Button
               type="button"
@@ -140,13 +252,15 @@ export function ActiveParkingSessionCard({
         ) : null}
 
         {showCompleteConfirm ? (
-          <div
+          <InlineConfirmPanel
             className="flex flex-col gap-sm rounded-2xl bg-surface-container-low p-md"
-            data-testid="active-parking-complete-confirm"
-            role="group"
-            aria-label={t('parkingSession.complete.confirmAria')}
+            testId="active-parking-complete-confirm"
+            labelledBy={completeBodyId}
+            onDismiss={actions.keepSession}
+            dismissDisabled={busy}
+            initialFocusRef={keepCompleteRef}
           >
-            <p className="m-0 text-label-sm font-medium text-on-surface">
+            <p id={completeBodyId} className="m-0 text-label-sm font-medium text-on-surface">
               {t('parkingSession.complete.confirmBody')}
             </p>
             <div className="flex flex-wrap gap-sm">
@@ -161,6 +275,7 @@ export function ActiveParkingSessionCard({
                 {busy ? t('parkingSession.complete.busy') : t('parkingSession.complete.confirmCta')}
               </Button>
               <Button
+                ref={keepCompleteRef}
                 type="button"
                 variant="ghost"
                 className="min-w-0 flex-1"
@@ -171,8 +286,8 @@ export function ActiveParkingSessionCard({
                 {t('parkingSession.keepSession')}
               </Button>
             </div>
-          </div>
-        ) : showCancelConfirm ? null : (
+          </InlineConfirmPanel>
+        ) : showStaleConfirm || showStaleLeaveConfirm || showCancelConfirm ? null : (
           <Button
             type="button"
             variant="outline"
@@ -188,13 +303,18 @@ export function ActiveParkingSessionCard({
         )}
 
         {showCancelConfirm ? (
-          <div
+          <InlineConfirmPanel
             className="flex flex-col gap-sm rounded-2xl bg-surface-container-low p-md"
-            data-testid="active-parking-cancel-confirm"
-            role="group"
-            aria-label={t('parkingSession.cancel.confirmAria')}
+            testId="active-parking-cancel-confirm"
+            labelledBy={cancelBodyId}
+            onDismiss={actions.keepSession}
+            dismissDisabled={busy}
+            initialFocusRef={keepCancelRef}
           >
-            <p className="m-0 flex items-start gap-xs text-label-sm font-medium text-on-surface">
+            <p
+              id={cancelBodyId}
+              className="m-0 flex items-start gap-xs text-label-sm font-medium text-on-surface"
+            >
               <Icon
                 name="warning"
                 className="mt-px shrink-0 text-[16px] leading-none text-tertiary"
@@ -214,6 +334,7 @@ export function ActiveParkingSessionCard({
                 {busy ? t('parkingSession.cancel.busy') : t('parkingSession.cancel.confirmCta')}
               </Button>
               <Button
+                ref={keepCancelRef}
                 type="button"
                 variant="ghost"
                 className="min-w-0 flex-1"
@@ -224,8 +345,8 @@ export function ActiveParkingSessionCard({
                 {t('parkingSession.keepSession')}
               </Button>
             </div>
-          </div>
-        ) : showCompleteConfirm ? null : (
+          </InlineConfirmPanel>
+        ) : showStaleConfirm || showStaleLeaveConfirm || showCompleteConfirm ? null : (
           <Button
             type="button"
             variant="ghost"

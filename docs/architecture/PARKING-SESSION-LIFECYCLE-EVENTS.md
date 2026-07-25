@@ -17,10 +17,12 @@ event contract registry.
 | `ParkingSessionStarted` | `ParkingSession` | Successful create of an ACTIVE session row (MANUAL start or COMMUNITY claim start) |
 | `ParkingSessionCompleted` | `ParkingSession` | Successful ACTIVE → COMPLETED |
 | `ParkingSessionCancelled` | `ParkingSession` | Successful ACTIVE → CANCELLED |
+| `ParkingSessionReminderRequested` | `ParkingSession` | Stale-session scheduler requests FIRST/SECOND confirmation reminder (notification-service) |
 
 Wire `eventType` strings are PascalCase (repository convention), matching `ParkingSpotClaimed`.
-Analytics product names such as `parking_session_started` map 1:1 to these types in S1-P0-09
-(see [`PARKING-SESSION-ANALYTICS-INGESTION.md`](PARKING-SESSION-ANALYTICS-INGESTION.md)).
+Analytics product names such as `parking_session_started` map 1:1 to Started/Completed/Cancelled
+in S1-P0-09 (see [`PARKING-SESSION-ANALYTICS-INGESTION.md`](PARKING-SESSION-ANALYTICS-INGESTION.md)).
+`ParkingSessionReminderRequested` is **not** projected by analytics (ignored + acked).
 
 **Not emitted by S1-P0-08:** deletion events, account-erasure events, ambiguous “ended” events.
 
@@ -49,7 +51,9 @@ transaction when both succeed.
 
 Common: `eventId`, `sessionId`, `userId`, `status`, `source`, `startedAt`, `occurredAt`.  
 Completed/Cancelled also: `endedAt` (server-controlled).  
-Duration is **not** on the wire — consumers derive from `startedAt`/`endedAt`.
+Completed additive (optional for legacy consumers): `completionReason`, `confirmedAt`,
+`sessionDurationSeconds`.  
+ReminderRequested: `stage`, `lastConfirmedAt` (no coordinates).
 
 ## Explicitly excluded fields
 

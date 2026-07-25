@@ -39,6 +39,12 @@ export function ParkingSessionHistoryRow({
     session.status === 'COMPLETED'
       ? t('parkingSession.history.status.completed')
       : t('parkingSession.history.status.cancelled');
+  const completionLabel =
+    session.completionType === 'AUTO'
+      ? t('parkingSession.history.completion.auto')
+      : session.completionType === 'MANUAL'
+        ? t('parkingSession.history.completion.manual')
+        : null;
   const startedLabel = formatTerminalSessionStarted(session.startedAt, locale);
   const durationLabel = formatTerminalSessionDuration(session.startedAt, session.endedAt, locale);
   const sourceLabel =
@@ -46,7 +52,9 @@ export function ParkingSessionHistoryRow({
       ? t('parkingSession.history.source.community')
       : t('parkingSession.history.source.manual');
 
-  const a11yParts = [statusLabel, startedLabel, durationLabel, sourceLabel].filter(Boolean);
+  const a11yParts = [statusLabel, completionLabel, startedLabel, durationLabel, sourceLabel].filter(
+    Boolean,
+  );
   const accessibilityLabel = a11yParts.join(', ');
 
   return (
@@ -72,7 +80,7 @@ export function ParkingSessionHistoryRow({
           <Chip label={statusLabel} size="sm" selected={session.status === 'COMPLETED'} />
         </View>
         <AppText variant="labelSm" color={colors.onSurfaceVariant} numberOfLines={1}>
-          {[durationLabel, sourceLabel].filter(Boolean).join(' · ')}
+          {[durationLabel, sourceLabel, completionLabel].filter(Boolean).join(' · ')}
         </AppText>
       </View>
       <IconButton

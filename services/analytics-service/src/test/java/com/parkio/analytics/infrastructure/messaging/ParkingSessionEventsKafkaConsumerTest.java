@@ -54,12 +54,35 @@ class ParkingSessionEventsKafkaConsumerTest {
     }
 
     @Test
-    void unsupportedEventTypeIsRejectedWithoutAck() {
-        assertThatThrownBy(() ->
-                        consumer.onMessage(startedRecord("MANUAL"), "ParkingSessionDeleted", ack))
-                .isInstanceOf(AnalyticsContractException.class);
+    void reminderRequestedIsIgnoredAndAcked() throws Exception {
+        UUID eventId = UUID.randomUUID();
+        UUID sessionId = UUID.randomUUID();
+        ObjectNode payload = objectMapper.createObjectNode();
+        payload.put("eventId", eventId.toString());
+        payload.put("sessionId", sessionId.toString());
+        payload.put("userId", UUID.randomUUID().toString());
+        payload.put("stage", "FIRST");
+        payload.put("startedAt", "2026-07-24T12:00:00Z");
+        payload.put("occurredAt", "2026-07-25T12:00:00Z");
+        ObjectNode envelope = envelope(
+                eventId, "ParkingSessionReminderRequested", "ParkingSession", sessionId, 1, payload);
+
+        consumer.onMessage(
+                new ConsumerRecord<>("parkio.parking.session", 0, 0L,
+                        sessionId.toString(), objectMapper.writeValueAsString(envelope)),
+                "ParkingSessionReminderRequested",
+                ack);
+
         verify(service, never()).handleParkingSessionStarted(any());
-        verify(ack, never()).acknowledge();
+        verify(service, never()).handleParkingSessionCompleted(any());
+        verify(ack).acknowledge();
+    }
+
+    @Test
+    void unsupportedEventTypeIsIgnoredAndAcked() throws Exception {
+        consumer.onMessage(startedRecord("MANUAL"), "ParkingSessionDeleted", ack);
+        verify(service, never()).handleParkingSessionStarted(any());
+        verify(ack).acknowledge();
     }
 
     @Test

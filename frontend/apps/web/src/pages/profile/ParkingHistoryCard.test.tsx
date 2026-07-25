@@ -29,6 +29,8 @@ function session(
     latitude: 38.42,
     longitude: 27.14,
     estimatedFee: null,
+  lastConfirmedAt: '2026-07-25T10:00:00.000Z',
+  completionType: overrides.status === 'ACTIVE' ? null : 'MANUAL',
     ...overrides,
   };
 }
@@ -118,9 +120,26 @@ describe('ParkingHistoryCard', () => {
     expect(within(list).getByText('Cancelled')).toBeInTheDocument();
     expect(within(list).getByText('Saved manually')).toBeInTheDocument();
     expect(within(list).getByText('Community parking spot')).toBeInTheDocument();
+    expect(within(list).getByText('You ended parking')).toBeInTheDocument();
     expect(screen.queryByText(completed.id)).not.toBeInTheDocument();
     expect(screen.queryByText(/38\.42/)).not.toBeInTheDocument();
     expect(screen.queryByText(/27\.14/)).not.toBeInTheDocument();
+  });
+
+  it('shows an auto-completed badge for scheduler completions', async () => {
+    server.use(
+      http.get(historyUrl(), () =>
+        HttpResponse.json({
+          items: [{ ...completed, completionType: 'AUTO' }],
+          nextCursor: null,
+        }),
+      ),
+    );
+    renderHistory();
+
+    expect(await screen.findByTestId('parking-history-completion-type')).toHaveTextContent(
+      'Automatically ended',
+    );
   });
 
   it('renders facility and auto sources without crashing', async () => {

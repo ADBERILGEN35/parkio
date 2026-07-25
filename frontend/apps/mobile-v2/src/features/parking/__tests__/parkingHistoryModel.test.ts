@@ -15,6 +15,8 @@ const completed: ParkingSessionResponse = {
   latitude: 41.0082,
   longitude: 28.9784,
   estimatedFee: null,
+  lastConfirmedAt: '2026-07-25T10:00:00.000Z',
+  completionType: null,
 };
 
 describe('parkingHistoryModel', () => {

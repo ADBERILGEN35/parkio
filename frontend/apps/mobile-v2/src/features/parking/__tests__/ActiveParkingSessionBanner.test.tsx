@@ -13,6 +13,8 @@ const activeParkingSessionFixture = {
   latitude: 41.0082,
   longitude: 28.9784,
   estimatedFee: '125.50',
+  lastConfirmedAt: '2026-07-25T10:00:00.000Z',
+  completionType: null,
 };
 
 import { LocaleProvider } from '@/i18n/LocaleProvider';
@@ -24,6 +26,17 @@ import * as api from '@/services/api';
 jest.mock('@/services/api', () => ({
   parkingApi: {
     getActiveParkingSession: jest.fn(),
+    getParkingSessionLifecycleConfig: jest.fn(async () => ({
+      confirmAfterMs: 86_400_000,
+      reminder2AfterMs: 172_800_000,
+      autoCompleteAfterMs: 259_200_000,
+      confirmAfter: 'PT24H',
+      reminder2After: 'PT48H',
+      autoCompleteAfter: 'PT72H',
+      remindersEnabled: true,
+      autoCompleteEnabled: true,
+    })),
+    confirmActiveParkingSession: jest.fn(),
     completeParkingSession: jest.fn(),
     cancelParkingSession: jest.fn(),
   },

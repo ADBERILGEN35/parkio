@@ -1,0 +1,52 @@
+{
+  "uid": "parkio-parking-sessions",
+  "title": "Parkio — Parking Sessions (stale lifecycle)",
+  "tags": ["parkio", "parking", "sessions"],
+  "timezone": "browser",
+  "schemaVersion": 39,
+  "version": 1,
+  "refresh": "30s",
+  "panels": [
+    {
+      "type": "stat",
+      "title": "ACTIVE sessions",
+      "gridPos": { "h": 4, "w": 6, "x": 0, "y": 0 },
+      "targets": [
+        { "refId": "A", "datasource": { "type": "prometheus", "uid": "parkio-prometheus" }, "expr": "parking_sessions_active{service=\"parking-service\"}" }
+      ]
+    },
+    {
+      "type": "timeseries",
+      "title": "Auto-completed rate",
+      "gridPos": { "h": 8, "w": 9, "x": 6, "y": 0 },
+      "targets": [
+        { "refId": "A", "datasource": { "type": "prometheus", "uid": "parkio-prometheus" }, "expr": "rate(parking_sessions_auto_completed_total{service=\"parking-service\"}[5m])", "legendFormat": "auto_completed" }
+      ]
+    },
+    {
+      "type": "timeseries",
+      "title": "Reminders by stage",
+      "gridPos": { "h": 8, "w": 9, "x": 15, "y": 0 },
+      "targets": [
+        { "refId": "A", "datasource": { "type": "prometheus", "uid": "parkio-prometheus" }, "expr": "rate(parking_sessions_reminder_sent_total{service=\"parking-service\"}[5m])", "legendFormat": "{{stage}}" }
+      ]
+    },
+    {
+      "type": "timeseries",
+      "title": "Scheduler duration",
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 8 },
+      "targets": [
+        { "refId": "A", "datasource": { "type": "prometheus", "uid": "parkio-prometheus" }, "expr": "rate(parking_sessions_scheduler_duration_seconds_sum{service=\"parking-service\"}[5m]) / clamp_min(rate(parking_sessions_scheduler_duration_seconds_count{service=\"parking-service\"}[5m]), 1)", "legendFormat": "avg tick" }
+      ]
+    },
+    {
+      "type": "timeseries",
+      "title": "Scheduler processed / failed",
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 8 },
+      "targets": [
+        { "refId": "A", "datasource": { "type": "prometheus", "uid": "parkio-prometheus" }, "expr": "rate(parking_sessions_scheduler_processed_total{service=\"parking-service\"}[5m])", "legendFormat": "processed" },
+        { "refId": "B", "datasource": { "type": "prometheus", "uid": "parkio-prometheus" }, "expr": "rate(parking_sessions_scheduler_failed_total{service=\"parking-service\"}[5m])", "legendFormat": "failed" }
+      ]
+    }
+  ]
+}

@@ -549,3 +549,41 @@ groups:
           summary: "Host CPU usage high"
           description: "Host CPU on {{ $labels.instance }} has averaged {{ $value | printf \"%.1f\" }}% (>85%) for >10m. Check which container is hot (`docker stats`) and whether it is load or a runaway process before it saturates."
           runbook_url: "docs/architecture/observability-metrics.md#runbook--hosthighcpuusage"
+
+  # ===================================================================== #
+  # Parking session stale lifecycle (parking-service)                       #
+  # ===================================================================== #
+  - name: parkio-parking-session-stale
+    rules:
+      - alert: ParkingSessionSchedulerFailures
+        expr: increase(parking_sessions_scheduler_failed_total{service="parking-service"}[30m]) > 0
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Parking session stale scheduler failures"
+          description: "parking-service recorded {{ $value }} stale-session scheduler failure(s) in 30m. Check parking-service logs for AUTO_COMPLETED / REMINDER_SENT / stack traces."
+          runbook_url: "docs/operations/parking-session-stale-runbook.md"
+
+      - alert: ParkingSessionAutoCompleteSpike
+        expr: increase(parking_sessions_auto_completed_total{service="parking-service"}[1h]) > 500
+        for: 10m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Unusual parking-session auto-completion spike"
+          description: "{{ $value }} sessions auto-completed in 1h. Verify confirm-after / auto-complete-after config and that users are not being force-ended unexpectedly."
+          runbook_url: "docs/operations/parking-session-stale-runbook.md"
+
+      - alert: ParkingSessionSchedulerFailuresSustained
+        # Repeated scheduler tick failures over 6h (not "idle reminders").
+        # True reminder-idle-while-ACTIVE is checked operationally via
+        # parking_sessions_active + parking_sessions_reminder_sent_total.
+        expr: increase(parking_sessions_scheduler_failed_total{service="parking-service"}[6h]) > 3
+        for: 15m
+        labels:
+          severity: critical
+        annotations:
+          summary: "Sustained parking-session scheduler failures"
+          description: "More than 3 stale-session scheduler failures in 6h. Auto-complete and reminders may be stalled. See parking-session-stale-runbook.md (scheduler stuck)."
+          runbook_url: "docs/operations/parking-session-stale-runbook.md"

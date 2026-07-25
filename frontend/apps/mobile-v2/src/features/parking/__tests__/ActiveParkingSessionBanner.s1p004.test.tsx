@@ -14,6 +14,17 @@ import * as api from '@/services/api';
 jest.mock('@/services/api', () => ({
   parkingApi: {
     getActiveParkingSession: jest.fn(),
+    getParkingSessionLifecycleConfig: jest.fn(async () => ({
+      confirmAfterMs: 86_400_000,
+      reminder2AfterMs: 172_800_000,
+      autoCompleteAfterMs: 259_200_000,
+      confirmAfter: 'PT24H',
+      reminder2After: 'PT48H',
+      autoCompleteAfter: 'PT72H',
+      remindersEnabled: true,
+      autoCompleteEnabled: true,
+    })),
+    confirmActiveParkingSession: jest.fn(),
     completeParkingSession: jest.fn(),
     cancelParkingSession: jest.fn(),
   },
@@ -28,6 +39,8 @@ const activeParkingSessionFixture = {
   latitude: 41.0082,
   longitude: 28.9784,
   estimatedFee: '125.50',
+  lastConfirmedAt: '2026-07-25T10:00:00.000Z',
+  completionType: null,
 };
 
 function renderBanner(ui: ReactElement = <ActiveParkingSessionBanner />) {
@@ -105,6 +118,11 @@ describe('ActiveParkingSessionBanner S1-P0-04 terminal UI', () => {
     fireEvent.press(screen.getByText('Ayrıldım'));
 
     await waitFor(() => {
+      expect(screen.getByText('Park oturumunu bitir?')).toBeTruthy();
+    });
+    fireEvent.press(screen.getByText('Evet, ayrıldım'));
+
+    await waitFor(() => {
       expect(api.parkingApi.completeParkingSession).toHaveBeenCalledTimes(1);
       expect(screen.queryByTestId('active-parking-session')).toBeNull();
     });
@@ -152,6 +170,11 @@ describe('ActiveParkingSessionBanner S1-P0-04 terminal UI', () => {
 
     await waitFor(() => expect(screen.getByText('Ayrıldım')).toBeTruthy());
     fireEvent.press(screen.getByText('Ayrıldım'));
+
+    await waitFor(() => {
+      expect(screen.getByText('Park oturumunu bitir?')).toBeTruthy();
+    });
+    fireEvent.press(screen.getByText('Evet, ayrıldım'));
 
     await waitFor(() => {
       expect(screen.getByText(/belirsiz/i)).toBeTruthy();

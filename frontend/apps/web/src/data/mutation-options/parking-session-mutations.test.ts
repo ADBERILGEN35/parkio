@@ -6,6 +6,7 @@ import { createTestQueryClient } from '@/test/utils';
 import {
   createCancelParkingSessionMutationOptions,
   createCompleteParkingSessionMutationOptions,
+  createConfirmActiveParkingSessionMutationOptions,
   createDeleteParkingSessionHistoryMutationOptions,
   createDeleteParkingSessionMutationOptions,
   createStartParkingSessionMutationOptions,
@@ -22,12 +23,15 @@ const activeSession: ParkingSessionResponse = {
   latitude: 41,
   longitude: 29,
   estimatedFee: null,
+  lastConfirmedAt: '2026-07-25T10:00:00.000Z',
+  completionType: null,
 };
 
 const completedSession: ParkingSessionResponse = {
   ...activeSession,
   status: 'COMPLETED',
   endedAt: '2026-07-25T11:00:00.000Z',
+  completionType: 'MANUAL',
 };
 
 function createSdk(): ParkioSdk {
@@ -35,6 +39,7 @@ function createSdk(): ParkioSdk {
     parkingApi: {
       startParkingSession: vi.fn(async () => activeSession),
       completeParkingSession: vi.fn(async () => completedSession),
+      confirmActiveParkingSession: vi.fn(async () => ({ ...activeSession, lastConfirmedAt: '2026-07-26T10:00:00.000Z' })),
       cancelParkingSession: vi.fn(async () => ({ ...completedSession, status: 'CANCELLED' })),
       deleteParkingSession: vi.fn(async () => undefined),
       deleteParkingSessionHistory: vi.fn(async () => undefined),
@@ -122,5 +127,19 @@ describe('ParkingSession mutation options', () => {
 
     expect(sdk.parkingApi.deleteParkingSessionHistory).toHaveBeenCalledOnce();
     expect(invalidate).toHaveBeenCalledWith({ queryKey: parkingKeys.sessionHistoryRoot() });
+  });
+
+  it('confirm-active writes the refreshed ACTIVE session into cache', async () => {
+    const sdk = createSdk();
+    const client = createTestQueryClient();
+    client.setQueryData(parkingKeys.activeSession(), activeSession);
+    const options = createConfirmActiveParkingSessionMutationOptions(sdk, client);
+
+    const confirmed = await options.mutationFn(sessionId);
+    options.onSuccess(confirmed);
+
+    expect(sdk.parkingApi.confirmActiveParkingSession).toHaveBeenCalledWith(sessionId);
+    expect(client.getQueryData(parkingKeys.activeSession())).toEqual(confirmed);
+    expect(confirmed.status).toBe('ACTIVE');
   });
 });

@@ -24,9 +24,10 @@ import org.springframework.stereotype.Component;
  * handler's transaction commits.
  *
  * <p>Supported wire types: {@code ParkingSessionStarted}, {@code ParkingSessionCompleted},
- * {@code ParkingSessionCancelled} (version 1). Unsupported types/versions and malformed
- * contracts throw {@link AnalyticsContractException} and follow the container error
- * handler → DLT ({@code parkio.dlt.analytics}). Spot claim events are not consumed here.
+ * {@code ParkingSessionCancelled} (version 1). Unknown future session event types
+ * (including {@code ParkingSessionReminderRequested}) are ignored and acknowledged so
+ * additive producers cannot DLT the analytics consumer. Malformed contracts for supported
+ * types still throw {@link AnalyticsContractException} → DLT ({@code parkio.dlt.analytics}).
  */
 @Component
 public class ParkingSessionEventsKafkaConsumer {
@@ -77,8 +78,12 @@ public class ParkingSessionEventsKafkaConsumer {
                 ParkingSessionLifecycleValidator.validateCancelled(alignEnvelope(envelope, eventType), payload);
                 analyticsService.handleParkingSessionCancelled(payload);
             }
-            default -> throw new AnalyticsContractException(
-                    "Unsupported ParkingSession event type: " + eventType);
+            case "ParkingSessionReminderRequested" ->
+                    log.debug("Ignoring non-analytics session event type {} on {}", eventType, PARKING_SESSION_TOPIC);
+            default ->
+                    // Forward-compatible: additive session events must not DLT analytics.
+                    log.debug("Ignoring unsupported ParkingSession event type {} on {}",
+                            eventType, PARKING_SESSION_TOPIC);
         }
         ack.acknowledge();
         log.debug("Processed {} eventId={}", eventType, envelope.eventId());

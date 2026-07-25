@@ -96,6 +96,32 @@ Configuration:
 | `parkio.lifecycle.parking-expiry.enabled` | `PARKIO_PARKING_EXPIRY_ENABLED` | `true` |
 | `parkio.lifecycle.parking-expiry.fixed-delay-ms` | `PARKIO_PARKING_EXPIRY_FIXED_DELAY_MS` | `60000` |
 | `parkio.lifecycle.parking-expiry.batch-size` | `PARKIO_PARKING_EXPIRY_BATCH_SIZE` | `100` |
+| `parkio.lifecycle.parking-session-stale.enabled` | `PARKIO_PARKING_SESSION_STALE_ENABLED` | `true` |
+| `parkio.parking.session.confirm-after` | `PARKIO_PARKING_SESSION_CONFIRM_AFTER` | `PT24H` |
+| `parkio.parking.session.reminder-2-after` | `PARKIO_PARKING_SESSION_REMINDER_2_AFTER` | `PT48H` |
+| `parkio.parking.session.auto-complete-after` | `PARKIO_PARKING_SESSION_AUTO_COMPLETE_AFTER` | `PT72H` |
+| `parkio.parking.session.scheduler-rate` | `PARKIO_PARKING_SESSION_SCHEDULER_RATE` | `PT1H` |
+| `parkio.parking.session.scheduler-batch-size` | `PARKIO_PARKING_SESSION_SCHEDULER_BATCH_SIZE` | `100` |
+| `parkio.parking.session.reminders-enabled` | `PARKIO_PARKING_SESSION_REMINDERS_ENABLED` | `true` |
+| `parkio.parking.session.auto-complete-enabled` | `PARKIO_PARKING_SESSION_AUTO_COMPLETE_ENABLED` | `true` |
+| `parkio.parking.session.notification-enabled` | `PARKIO_PARKING_SESSION_NOTIFICATION_ENABLED` | `true` |
+| `parkio.parking.session.retention-enabled` | `PARKIO_PARKING_SESSION_RETENTION_ENABLED` | `false` |
+| `parkio.parking.session.retention-after` | `PARKIO_PARKING_SESSION_RETENTION_AFTER` | `P365D` |
+
+### Stale parking-session lifecycle
+
+Forgotten ACTIVE sessions are never `EXPIRED`. After `confirm-after` the UI asks for
+confirmation (`POST .../confirm-active`). Reminder stages FIRST/SECOND publish
+`ParkingSessionReminderRequested` to `parkio.parking.session` for notification-service.
+After `auto-complete-after` the scheduler completes with public `completionType=AUTO`
+and internal `completionReason=AUTO_TIMEOUT`. See
+[`docs/operations/parking-session-stale-runbook.md`](../../docs/operations/parking-session-stale-runbook.md).
+
+Durations must satisfy `confirm-after < reminder-2-after < auto-complete-after` or the
+service fails at startup when building `ParkingSessionStalePolicy`.
+
+Clients must read effective thresholds from authenticated
+`GET /api/v1/parking/sessions/lifecycle-config` (do not hardcode 24h/48h/72h).
 
 The test profile disables this scheduler unless a test explicitly enables it.
 

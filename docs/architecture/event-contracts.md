@@ -347,9 +347,37 @@ ParkingSession lifecycle events use a separate aggregate/topic — see
 | `startedAt` | timestamp (UTC) | yes | Original start. |
 | `endedAt` | timestamp (UTC) | yes | Server-controlled completion time. |
 | `occurredAt` | timestamp (UTC) | yes | When the fact was committed. |
+| `completionReason` | string (enum) | no (additive) | Internal provenance: `MANUAL`, `AUTO_TIMEOUT`, `USER_CONFIRMATION`, `ADMIN`, `SYSTEM`, `API`, `MIGRATION`. Legacy producers omit; consumers must tolerate null. Public HTTP still exposes coarse `completionType` MANUAL/AUTO only. |
+| `confirmedAt` | timestamp (UTC) | no (additive) | Last `lastConfirmedAt` heartbeat before completion (may equal `startedAt`). |
+| `sessionDurationSeconds` | long | no (additive) | `endedAt - startedAt` in whole seconds; null if timestamps invalid. Never negative from parking-service. |
+
+- **Version:** 1. **Compatibility:** append-only (additive fields above).
+- **Privacy:** no coordinates or idempotency keys. Duration may be derived by consumers from timestamps when `sessionDurationSeconds` is absent.
+
+## ParkingSessionReminderRequestedEvent
+
+- **Producer:** `parking-service` (stale-session scheduler)
+- **Expected consumers:** `notification-service` (in-app + push). `analytics-service` **ignores** this type (ack, no projection).
+- **Envelope:** `aggregateType=ParkingSession`, `aggregateId=sessionId`,
+  `eventType=ParkingSessionReminderRequested`.
+- **Topic:** `parkio.parking.session` (key = sessionId).
+- **Semantics:** request to notify the owner that an ACTIVE session needs confirmation.
+  Dedup: outbox `eventId` + notification inbox `tryClaim(eventId)`. Persist
+  `reminder_stage` in the same parking TX before/with the outbox append so retries do not
+  re-emit the same stage.
+
+| Field | Type | Required | Meaning |
+|-------|------|----------|---------|
+| `eventId` | UUID (string) | yes | Dedup key. |
+| `sessionId` | UUID (string) | yes | ACTIVE session id. |
+| `userId` | UUID (string) | yes | Session owner. |
+| `stage` | string (enum) | yes | `FIRST` (24h) or `SECOND` (48h). |
+| `startedAt` | timestamp (UTC) | yes | Session start. |
+| `lastConfirmedAt` | timestamp (UTC) | no | Confirmation heartbeat. |
+| `occurredAt` | timestamp (UTC) | yes | When the reminder was requested. |
 
 - **Version:** 1. **Compatibility:** append-only.
-- **Privacy:** no coordinates or idempotency keys. Duration is derived by consumers.
+- **Privacy:** no coordinates.
 
 ## ParkingSessionCancelledEvent
 

@@ -87,6 +87,35 @@ are recorded once per published row / per poll in the relay (no extra query).
 | `parkio.parking.expired.count` | gauge | Spots in the terminal `EXPIRED` state. |
 | `parkio.parking.expiry.job.expired.count` | counter | Spots transitioned to `EXPIRED` by the expiry job since start. |
 
+### Parking sessions — stale lifecycle (parking-service)
+
+Micrometer component: `ParkingSessionLifecycleMetrics`. Never tagged by
+`userId` / `sessionId`. Prometheus names below (dots → underscores; counters
+gain `_total`).
+
+| Metric (Prometheus) | Type | Meaning |
+|---|---|---|
+| `parking_sessions_active` | gauge | Approximate ACTIVE parking sessions (refreshed each scheduler tick). |
+| `parking_sessions_auto_completed_total` | counter | Sessions auto-completed by the stale scheduler (`AUTO` / `AUTO_TIMEOUT`). |
+| `parking_sessions_confirmation_total` | counter | Owner confirm-active heartbeats. |
+| `parking_sessions_reminder_sent_total{stage}` | counter | Reminder outbox publishes; `stage=FIRST\|SECOND` only. |
+| `parking_sessions_scheduler_processed_total` | counter | Candidate rows examined by the stale scheduler. |
+| `parking_sessions_scheduler_failed_total` | counter | Scheduler tick failures. |
+| `parking_sessions_scheduler_duration_seconds_*` | timer | Wall time of a full stale-session scheduler tick. |
+| `parking_sessions_retention_deleted_total` | counter | Terminal rows deleted by retention (when enabled). |
+
+Grafana dashboard: **Parkio — Parking Sessions (stale lifecycle)**  
+(`docker/grafana/provisioning/dashboards/parkio-parking-sessions.json`).
+
+Alerts (`docker/prometheus/alerts.yml` group `parkio-parking-session-stale`):
+
+- `ParkingSessionSchedulerFailures`
+- `ParkingSessionAutoCompleteSpike`
+- `ParkingSessionSchedulerFailuresSustained` (repeated failures over 6h; not
+  “reminder idle”)
+
+Ops: [`docs/operations/parking-session-stale-runbook.md`](../operations/parking-session-stale-runbook.md).
+
 ### Auth (auth-service)
 
 | Metric | Type | Meaning |

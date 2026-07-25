@@ -39,7 +39,10 @@ const TYPE_ICON: Record<NotificationType, React.ComponentProps<typeof MaterialCo
 
 /** In-app deep link per type/metadata (backend also sends `metadata.deeplink`). */
 function routeFor(notification: AppNotification): string {
-  const deeplink = notification.metadata?.deeplink;
+  const deeplink = notification.metadata?.deeplink ?? '';
+  if (deeplink.includes('parkingSession=active') || deeplink.startsWith('/map')) {
+    return '/(main)/(tabs)/map';
+  }
   if (deeplink === '/reports') return '/(main)/reports';
   switch (notification.type) {
     case 'LEVEL_UP':
@@ -51,8 +54,11 @@ function routeFor(notification: AppNotification): string {
     case 'NEARBY_PARKING':
       return '/(main)/(tabs)/map';
     case 'WARNING':
-    case 'SYSTEM':
       return '/(main)/reports';
+    case 'SYSTEM':
+      return deeplink.includes('parkingSession')
+        ? '/(main)/(tabs)/map'
+        : '/(main)/reports';
   }
 }
 

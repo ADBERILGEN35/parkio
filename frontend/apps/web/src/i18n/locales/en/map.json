@@ -107,6 +107,20 @@
     "sourceAuto": "Automatically saved",
     "error": "Couldn't load your parked location",
     "keepSession": "Keep session",
+    "stale": {
+      "prompt": "Is your vehicle still parked here?",
+      "confirmAria": "Confirm whether your vehicle is still parked",
+      "stillParked": "Yes, still parked",
+      "alreadyLeft": "I already left",
+      "confirmBusy": "Confirming…",
+      "confirmSuccess": "Thanks — your parking session stays active.",
+      "requiredBeforeFind": "Confirm whether you're still parked before finding your car.",
+      "leaveTitle": "Leave parking?",
+      "leaveBody": "You won't be able to navigate back to this parking location after leaving.",
+      "leaveConfirmAria": "Confirm leaving parking after the still-parked check",
+      "leaveConfirmCta": "Leave Parking",
+      "leaveCancel": "Cancel"
+    },
     "maps": {
       "cta": "Open in Maps",
       "a11y": "Open parked location in an external maps app",

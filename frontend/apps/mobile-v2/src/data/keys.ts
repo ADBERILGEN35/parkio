@@ -39,6 +39,7 @@ export const parkingKeys = {
   /** User-scoped ParkingSession hierarchy (precise coordinates — cleared on logout). */
   sessionsRoot: () => [...parkingKeys.all, 'sessions'] as const,
   activeSession: () => [...parkingKeys.sessionsRoot(), 'active'] as const,
+  sessionLifecycleConfig: () => [...parkingKeys.sessionsRoot(), 'lifecycle-config'] as const,
   /**
    * Cursor-paginated terminal history. Scoped under sessionsRoot so logout/user
    * switch clears it with active session data (S1-P0-11).

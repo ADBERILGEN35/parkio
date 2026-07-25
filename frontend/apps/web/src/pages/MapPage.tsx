@@ -33,8 +33,9 @@ import {
 import { ParkHereStartControl } from '@/components/parking/ParkHereStartControl';
 import { useMySmartReturnQuery, useMyVehicleQuery } from '@/data/hooks/useMeQueries';
 import { useNearbySpotsQuery } from '@/data/hooks/useParkingQueries';
-import { useActiveParkingSessionQuery } from '@/data/hooks/useParkingSessionQueries';
+import { useActiveParkingSessionQuery, useParkingSessionLifecycleConfigQuery } from '@/data/hooks/useParkingSessionQueries';
 import { type GeocodeResult } from '@/lib/geocoding';
+import { needsActiveConfirmation } from '@/lib/parkingSessionStale';
 import { DESKTOP_QUERY, useMediaQuery } from '@/lib/useMediaQuery';
 import {
   EMPTY_FILTERS,
@@ -117,6 +118,8 @@ export function MapPage() {
   const search = useNearbySpotsQuery(params);
 
   const activeSessionQuery = useActiveParkingSessionQuery({ enabled: isAuthenticated });
+  const lifecycleConfigQuery = useParkingSessionLifecycleConfigQuery({ enabled: isAuthenticated });
+  const confirmAfterMs = lifecycleConfigQuery.data?.confirmAfterMs;
   const activeSession =
     isAuthenticated && activeSessionQuery.data?.status === 'ACTIVE'
       ? activeSessionQuery.data
@@ -126,10 +129,16 @@ export function MapPage() {
     if (!isUsableParkedCoordinate(activeSession.latitude, activeSession.longitude)) return null;
     return { latitude: activeSession.latitude, longitude: activeSession.longitude };
   }, [activeSession]);
+  const activeSessionNeedsConfirmation = Boolean(
+    activeSession &&
+      confirmAfterMs != null &&
+      needsActiveConfirmation(activeSession, confirmAfterMs),
+  );
 
   /** Shared map-focus path: card CTA, marker click, and floating recenter. */
   const focusParkedCar = useCallback(() => {
-    if (!parkedCarCoords) return;
+    if (!parkedCarCoords || !activeSession) return;
+    if (confirmAfterMs == null || needsActiveConfirmation(activeSession, confirmAfterMs)) return;
     parkedFocusTokenRef.current += 1;
     setParkedCarSelected(true);
     setParkedCarFocusRequest({
@@ -137,7 +146,7 @@ export function MapPage() {
       longitude: parkedCarCoords.longitude,
       token: parkedFocusTokenRef.current,
     });
-  }, [parkedCarCoords]);
+  }, [activeSession, confirmAfterMs, parkedCarCoords]);
 
   // Drop parked-car emphasis when the ACTIVE session disappears (complete/logout).
   useEffect(() => {
@@ -418,7 +427,9 @@ export function MapPage() {
             parkedCarSelected={parkedCarSelected}
             onSelectParkedCar={focusParkedCar}
             parkedCarFocusRequest={parkedCarFocusRequest}
-            onFocusParkedCar={focusParkedCar}
+            onFocusParkedCar={
+              activeSessionNeedsConfirmation ? undefined : focusParkedCar
+            }
           />
         </Suspense>
       </div>

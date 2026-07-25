@@ -1,4 +1,4 @@
-﻿spring:
+spring:
   application:
     name: parking-service
   data:
@@ -136,6 +136,12 @@ parkio:
       enabled: ${PARKIO_PARKING_EXPIRY_ENABLED:true}
       fixed-delay-ms: ${PARKIO_PARKING_EXPIRY_FIXED_DELAY_MS:60000}
       batch-size: ${PARKIO_PARKING_EXPIRY_BATCH_SIZE:100}
+    parking-session-stale:
+      # Master switch for the stale-session job (reminders + auto-complete + optional retention).
+      enabled: ${PARKIO_PARKING_SESSION_STALE_ENABLED:true}
+      # This is the live @Scheduled delay. Keep aligned with parkio.parking.session.scheduler-rate (PT1H).
+      fixed-delay-ms: ${PARKIO_PARKING_SESSION_STALE_FIXED_DELAY_MS:3600000}
+      batch-size: ${PARKIO_PARKING_SESSION_STALE_BATCH_SIZE:100}
     moderation-timeout:
       # Resolves spots the moderation pipeline never answered for: bounded retries at the
       # AI gate, then the terminal REVIEW_FAILED state. Never touches pending spots' TTL.
@@ -184,6 +190,17 @@ parkio:
       positive-ttl: ${PARKIO_GEOCODING_CACHE_POSITIVE_TTL:24h}
       negative-ttl: ${PARKIO_GEOCODING_CACHE_NEGATIVE_TTL:5m}
   parking:
+    session:
+      confirm-after: ${PARKIO_PARKING_SESSION_CONFIRM_AFTER:PT24H}
+      reminder-2-after: ${PARKIO_PARKING_SESSION_REMINDER_2_AFTER:PT48H}
+      auto-complete-after: ${PARKIO_PARKING_SESSION_AUTO_COMPLETE_AFTER:PT72H}
+      scheduler-rate: ${PARKIO_PARKING_SESSION_SCHEDULER_RATE:PT1H}
+      scheduler-batch-size: ${PARKIO_PARKING_SESSION_SCHEDULER_BATCH_SIZE:100}
+      reminders-enabled: ${PARKIO_PARKING_SESSION_REMINDERS_ENABLED:true}
+      auto-complete-enabled: ${PARKIO_PARKING_SESSION_AUTO_COMPLETE_ENABLED:true}
+      notification-enabled: ${PARKIO_PARKING_SESSION_NOTIFICATION_ENABLED:true}
+      retention-enabled: ${PARKIO_PARKING_SESSION_RETENTION_ENABLED:false}
+      retention-after: ${PARKIO_PARKING_SESSION_RETENTION_AFTER:P365D}
     search:
       # Tunable nearby-search defaults and caps (ai-context/02). Client-supplied
       # radius/limit above the max (or <= 0) are rejected with 400.

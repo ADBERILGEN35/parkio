@@ -34,7 +34,17 @@ public record ParkingSessionResponse(
         @Schema(description = "Estimated fee normalized to exactly two fractional digits",
                 type = "string", pattern = "^\\d{1,10}\\.\\d{2}$", example = "125.50",
                 nullable = true, requiredMode = Schema.RequiredMode.REQUIRED)
-        String estimatedFee) {
+        String estimatedFee,
+        @Schema(description = "Last time the user confirmed they are still parked; "
+                + "defaults to startedAt for a new ACTIVE session",
+                type = "string", format = "date-time", nullable = true,
+                requiredMode = Schema.RequiredMode.REQUIRED)
+        Instant lastConfirmedAt,
+        @Schema(description = "How the session reached a terminal COMPLETED state; "
+                + "null while ACTIVE; CANCELLED is always MANUAL",
+                allowableValues = {"MANUAL", "AUTO"},
+                nullable = true, requiredMode = Schema.RequiredMode.REQUIRED)
+        String completionType) {
 
     public static ParkingSessionResponse from(ParkingSession session) {
         return new ParkingSessionResponse(
@@ -47,6 +57,8 @@ public record ParkingSessionResponse(
                 session.getLongitude(),
                 session.getEstimatedFee() == null
                         ? null
-                        : session.getEstimatedFee().toPlainString());
+                        : session.getEstimatedFee().toPlainString(),
+                session.getLastConfirmedAt(),
+                session.getCompletionType() == null ? null : session.getCompletionType().name());
     }
 }

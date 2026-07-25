@@ -25,6 +25,15 @@ export function activeParkingSessionQueryOptions() {
   });
 }
 
+/** Effective confirm/reminder/auto-complete windows from parking-service. */
+export function parkingSessionLifecycleConfigQueryOptions() {
+  return queryOptions({
+    queryKey: parkingKeys.sessionLifecycleConfig(),
+    queryFn: ({ signal }) => parkingApi.getParkingSessionLifecycleConfig(signal),
+    staleTime: 5 * 60_000,
+  });
+}
+
 /**
  * Cursor-paginated terminal ParkingSession history (S1-P0-11).
  * Backend order: startedAt DESC, id DESC. ACTIVE rows are not part of the contract;

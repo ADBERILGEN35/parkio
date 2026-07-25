@@ -164,6 +164,8 @@ export async function unregisterPushToken(): Promise<void> {
 const ROUTE_MAP: Record<string, string> = {
   '/(main)/(tabs)/map': '/(main)/(tabs)/map',
   '/(main)/map': '/(main)/(tabs)/map',
+  '/map': '/(main)/(tabs)/map',
+  '/map?parkingSession=active': '/(main)/(tabs)/map',
   '/(main)/(tabs)/notifications': '/(main)/notifications',
   '/(main)/(tabs)/profile': '/(main)/(tabs)/profile',
   '/(main)/upload': '/(main)/share',
@@ -194,9 +196,16 @@ export function guardNotificationRoute(route: string, roles: string[]): string {
 }
 
 function routeFromResponse(response: NotificationsTypes.NotificationResponse): string {
-  const data = response.notification.request.content.data as { route?: unknown } | undefined;
+  const data = response.notification.request.content.data as {
+    route?: unknown;
+    deeplink?: unknown;
+  } | undefined;
+  const deeplink = typeof data?.deeplink === 'string' ? data.deeplink : '';
+  if (deeplink.includes('parkingSession=active') || deeplink === '/map') {
+    return '/(main)/(tabs)/map';
+  }
   const raw = typeof data?.route === 'string' ? data.route : '';
-  return ROUTE_MAP[raw] ?? FALLBACK_ROUTE;
+  return ROUTE_MAP[raw] ?? ROUTE_MAP[deeplink] ?? FALLBACK_ROUTE;
 }
 
 /**

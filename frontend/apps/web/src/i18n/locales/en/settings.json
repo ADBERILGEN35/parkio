@@ -190,6 +190,8 @@
     "statusCancelled": "Cancelled",
     "statusActive": "Active",
     "statusUnknown": "Unknown status",
+    "completionManual": "You ended parking",
+    "completionAuto": "Automatically ended",
     "sourceManual": "Saved manually",
     "sourceCommunity": "Community parking spot",
     "sourceFacility": "Facility parking",

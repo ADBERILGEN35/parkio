@@ -190,6 +190,8 @@
     "statusCancelled": "İptal edildi",
     "statusActive": "Aktif",
     "statusUnknown": "Bilinmeyen durum",
+    "completionManual": "Siz sonlandırdınız",
+    "completionAuto": "Otomatik sonlandırıldı",
     "sourceManual": "Manuel kaydedildi",
     "sourceCommunity": "Topluluk park yeri",
     "sourceFacility": "Tesis parkı",

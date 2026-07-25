@@ -20,6 +20,7 @@ export interface ButtonProps {
   /** Stretch to the container width (default true for lg). */
   block?: boolean;
   accessibilityHint?: string;
+  testID?: string;
   style?: StyleProp<ViewStyle>;
   children?: ReactNode;
 }
@@ -37,6 +38,7 @@ export function Button({
   loading,
   block,
   accessibilityHint,
+  testID,
   style,
 }: ButtonProps) {
   const theme = useTheme();
@@ -61,6 +63,7 @@ export function Button({
       accessibilityLabel={label}
       accessibilityHint={accessibilityHint}
       accessibilityState={{ disabled: Boolean(inactive), busy: Boolean(loading) }}
+      testID={testID}
       style={[
         styles.base,
         {

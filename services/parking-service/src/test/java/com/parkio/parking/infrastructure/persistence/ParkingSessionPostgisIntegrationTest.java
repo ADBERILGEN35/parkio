@@ -20,11 +20,16 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 import com.parkio.parking.application.ParkingApplicationService;
 import com.parkio.parking.application.ParkingSessionHistoryCursor;
 import com.parkio.parking.application.ParkingSessionHistoryPage;
+import com.parkio.parking.application.ParkingSessionService;
+import com.parkio.parking.application.ParkingSessionStaleRowProcessor;
 import com.parkio.parking.application.port.ParkingSessionRepository;
 import com.parkio.parking.domain.LegalStatus;
 import com.parkio.parking.domain.ParkingContext;
 import com.parkio.parking.domain.ParkingSession;
+import com.parkio.parking.domain.ParkingSessionCompletionReason;
+import com.parkio.parking.domain.ParkingSessionCompletionType;
 import com.parkio.parking.domain.ParkingSessionStatus;
+import com.parkio.parking.domain.ParkingSessionStalePolicy;
 import com.parkio.parking.domain.ParkingSource;
 import com.parkio.parking.domain.ParkingSpot;
 import com.parkio.parking.domain.ParkingSpotStatus;
@@ -37,9 +42,11 @@ import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
 import java.math.BigDecimal;
 import java.sql.Types;
 import java.time.Clock;
+import java.time.Duration;
 import java.time.Instant;
 import java.time.OffsetDateTime;
 import java.time.ZoneOffset;
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Set;
 import java.util.UUID;
@@ -115,6 +122,12 @@ class ParkingSessionPostgisIntegrationTest {
 
     @Autowired
     private ParkingSessionRepository sessions;
+
+    @Autowired
+    private ParkingSessionService sessionService;
+
+    @Autowired
+    private ParkingSessionStaleRowProcessor staleRows;
 
     @Autowired
     private JdbcTemplate jdbc;
@@ -200,6 +213,203 @@ class ParkingSessionPostgisIntegrationTest {
                 """,
                 String.class))
                 .contains("started_at DESC, id DESC");
+    }
+
+    @Test
+    void flywayAppliesV17AndV18StaleLifecycleColumnsAndIndexes() {
+        assertThat(jdbc.queryForObject(
+                "SELECT count(*) FROM flyway_schema_history WHERE version = '17' AND success",
+                Integer.class))
+                .isEqualTo(1);
+        assertThat(jdbc.queryForObject(
+                "SELECT count(*) FROM flyway_schema_history WHERE version = '18' AND success",
+                Integer.class))
+                .isEqualTo(1);
+
+        for (String column : List.of(
+                "last_confirmed_at", "reminder_stage", "completion_reason", "completion_type")) {
+            assertThat(jdbc.queryForObject(
+                    """
+                    SELECT count(*) FROM information_schema.columns
+                    WHERE table_name = 'parking_sessions' AND column_name = ?
+                    """,
+                    Integer.class,
+                    column))
+                    .as("column %s", column)
+                    .isEqualTo(1);
+        }
+
+        assertThat(jdbc.queryForObject(
+                """
+                SELECT data_type FROM information_schema.columns
+                WHERE table_name = 'parking_sessions' AND column_name = 'last_confirmed_at'
+                """,
+                String.class))
+                .startsWith("timestamp");
+        assertThat(jdbc.queryForObject(
+                """
+                SELECT data_type FROM information_schema.columns
+                WHERE table_name = 'parking_sessions' AND column_name = 'reminder_stage'
+                """,
+                String.class))
+                .isEqualTo("smallint");
+
+        assertThat(jdbc.queryForObject(
+                """
+                SELECT indexname FROM pg_indexes
+                WHERE tablename = 'parking_sessions'
+                  AND indexname = 'idx_parking_sessions_stale_active'
+                """,
+                String.class))
+                .isEqualTo("idx_parking_sessions_stale_active");
+        assertThat(jdbc.queryForObject(
+                """
+                SELECT indexname FROM pg_indexes
+                WHERE tablename = 'parking_sessions'
+                  AND indexname = 'idx_parking_sessions_reminder_candidates'
+                """,
+                String.class))
+                .isEqualTo("idx_parking_sessions_reminder_candidates");
+        assertThat(jdbc.queryForObject(
+                """
+                SELECT indexname FROM pg_indexes
+                WHERE tablename = 'parking_sessions'
+                  AND indexname = 'idx_parking_sessions_terminal_ended'
+                """,
+                String.class))
+                .isEqualTo("idx_parking_sessions_terminal_ended");
+    }
+
+    @Test
+    void manualCompleteRacesSchedulerAutoCompleteAndExactlyOneWins() throws Exception {
+        UUID userId = UUID.randomUUID();
+        Instant started = Instant.now().minus(ParkingSessionStalePolicy.defaults().autoCompleteAfter())
+                .minus(Duration.ofMinutes(5));
+        ParkingSession created = transaction.execute(status -> sessions.save(ParkingSession.start(
+                userId, ParkingSource.MANUAL, 41.0, 29.0, null, null, started)));
+        assertThat(created).isNotNull();
+        UUID sessionId = created.getId();
+
+        CyclicBarrier barrier = new CyclicBarrier(2);
+        ExecutorService executor = Executors.newFixedThreadPool(2);
+        List<String> outcomes = new ArrayList<>();
+        try {
+            Future<String> manual = executor.submit(() -> {
+                await(barrier);
+                try {
+                    sessionService.completeSession(userId, sessionId);
+                    return "MANUAL";
+                } catch (RuntimeException exception) {
+                    return "MANUAL_FAIL:" + exception.getClass().getSimpleName();
+                }
+            });
+            Future<String> auto = executor.submit(() -> {
+                await(barrier);
+                try {
+                    return staleRows.tryAutoComplete(sessionId, Instant.now()) ? "AUTO" : "SKIPPED";
+                } catch (RuntimeException exception) {
+                    return "SKIPPED";
+                }
+            });
+            outcomes.add(manual.get(30, TimeUnit.SECONDS));
+            outcomes.add(auto.get(30, TimeUnit.SECONDS));
+        } finally {
+            executor.shutdownNow();
+        }
+
+        long wins = outcomes.stream()
+                .filter(outcome -> outcome.equals("MANUAL") || outcome.equals("AUTO"))
+                .count();
+        assertThat(wins).isEqualTo(1);
+
+        ParkingSession persisted = transaction.execute(status -> sessions
+                .findByIdAndUserId(sessionId, userId)
+                .orElseThrow());
+        assertThat(persisted.getStatus()).isEqualTo(ParkingSessionStatus.COMPLETED);
+        if (outcomes.contains("MANUAL")) {
+            assertThat(persisted.getCompletionType()).isEqualTo(ParkingSessionCompletionType.MANUAL);
+            assertThat(persisted.getCompletionReason()).isEqualTo(ParkingSessionCompletionReason.MANUAL);
+        } else {
+            assertThat(persisted.getCompletionType()).isEqualTo(ParkingSessionCompletionType.AUTO);
+            assertThat(persisted.getCompletionReason())
+                    .isEqualTo(ParkingSessionCompletionReason.AUTO_TIMEOUT);
+        }
+        assertThat(jdbc.queryForObject(
+                """
+                SELECT count(*) FROM outbox_events
+                WHERE aggregate_id = ? AND event_type = 'ParkingSessionCompleted'
+                """,
+                Integer.class,
+                sessionId)).isEqualTo(1);
+    }
+
+    @Test
+    void confirmActiveRacesSchedulerAutoCompleteAndExactlyOneMutationWins() throws Exception {
+        UUID userId = UUID.randomUUID();
+        Instant started = Instant.now().minus(ParkingSessionStalePolicy.defaults().autoCompleteAfter())
+                .minus(Duration.ofMinutes(5));
+        ParkingSession created = transaction.execute(status -> sessions.save(ParkingSession.start(
+                userId, ParkingSource.MANUAL, 41.0, 29.0, null, null, started)));
+        assertThat(created).isNotNull();
+        UUID sessionId = created.getId();
+
+        CyclicBarrier barrier = new CyclicBarrier(2);
+        ExecutorService executor = Executors.newFixedThreadPool(2);
+        List<String> outcomes = new ArrayList<>();
+        try {
+            Future<String> confirm = executor.submit(() -> {
+                await(barrier);
+                try {
+                    sessionService.confirmActiveSession(userId, sessionId);
+                    return "CONFIRM";
+                } catch (RuntimeException exception) {
+                    return "CONFIRM_FAIL:" + exception.getClass().getSimpleName();
+                }
+            });
+            Future<String> auto = executor.submit(() -> {
+                await(barrier);
+                try {
+                    return staleRows.tryAutoComplete(sessionId, Instant.now()) ? "AUTO" : "SKIPPED";
+                } catch (RuntimeException exception) {
+                    return "SKIPPED";
+                }
+            });
+            outcomes.add(confirm.get(30, TimeUnit.SECONDS));
+            outcomes.add(auto.get(30, TimeUnit.SECONDS));
+        } finally {
+            executor.shutdownNow();
+        }
+
+        long wins = outcomes.stream()
+                .filter(outcome -> outcome.equals("CONFIRM") || outcome.equals("AUTO"))
+                .count();
+        assertThat(wins).isEqualTo(1);
+
+        ParkingSession persisted = transaction.execute(status -> sessions
+                .findByIdAndUserId(sessionId, userId)
+                .orElseThrow());
+        if (outcomes.contains("AUTO")) {
+            assertThat(persisted.getStatus()).isEqualTo(ParkingSessionStatus.COMPLETED);
+            assertThat(persisted.getCompletionReason())
+                    .isEqualTo(ParkingSessionCompletionReason.AUTO_TIMEOUT);
+            assertThat(jdbc.queryForObject(
+                    """
+                    SELECT count(*) FROM outbox_events
+                    WHERE aggregate_id = ? AND event_type = 'ParkingSessionCompleted'
+                    """,
+                    Integer.class,
+                    sessionId)).isEqualTo(1);
+        } else {
+            assertThat(persisted.isActive()).isTrue();
+            assertThat(persisted.getLastConfirmedAt()).isNotNull();
+            assertThat(jdbc.queryForObject(
+                    """
+                    SELECT count(*) FROM outbox_events
+                    WHERE aggregate_id = ? AND event_type = 'ParkingSessionCompleted'
+                    """,
+                    Integer.class,
+                    sessionId)).isZero();
+        }
     }
 
     @Test
@@ -325,7 +535,7 @@ class ParkingSessionPostgisIntegrationTest {
 
         transaction.executeWithoutResult(status -> {
             ParkingSession current = sessions.findByIdAndUserId(created.getId(), userId).orElseThrow();
-            current.complete(BASE_TIME.plusSeconds(60));
+            current.complete(BASE_TIME.plusSeconds(60), com.parkio.parking.domain.ParkingSessionCompletionType.MANUAL);
             sessions.save(current);
         });
 
@@ -1216,12 +1426,22 @@ class ParkingSessionPostgisIntegrationTest {
             BigDecimal estimatedFee,
             double latitude,
             double longitude) {
+        String completionType = switch (status) {
+            case ACTIVE -> null;
+            case COMPLETED, CANCELLED -> ParkingSessionCompletionType.MANUAL.name();
+        };
+        String completionReason = switch (status) {
+            case ACTIVE -> null;
+            case COMPLETED, CANCELLED -> ParkingSessionCompletionReason.MANUAL.name();
+        };
         jdbc.update(connection -> {
             var statement = connection.prepareStatement("""
                     INSERT INTO parking_sessions (
                         id, user_id, status, parking_source, started_at, ended_at,
-                        latitude, longitude, estimated_fee, created_at, updated_at, version
-                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0)
+                        latitude, longitude, estimated_fee, last_confirmed_at,
+                        completion_type, completion_reason, reminder_stage,
+                        created_at, updated_at, version
+                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0, ?, ?, 0)
                     """);
             statement.setObject(1, id);
             statement.setObject(2, userId);
@@ -1241,7 +1461,18 @@ class ParkingSessionPostgisIntegrationTest {
                 statement.setBigDecimal(9, estimatedFee);
             }
             statement.setObject(10, utc(startedAt));
-            statement.setObject(11, utc(endedAt == null ? startedAt : endedAt));
+            if (completionType == null) {
+                statement.setNull(11, Types.VARCHAR);
+            } else {
+                statement.setString(11, completionType);
+            }
+            if (completionReason == null) {
+                statement.setNull(12, Types.VARCHAR);
+            } else {
+                statement.setString(12, completionReason);
+            }
+            statement.setObject(13, utc(startedAt));
+            statement.setObject(14, utc(endedAt == null ? startedAt : endedAt));
             return statement;
         });
     }

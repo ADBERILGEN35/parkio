@@ -9,6 +9,8 @@ import jakarta.persistence.Enumerated;
 import jakarta.persistence.Id;
 import jakarta.persistence.Table;
 import jakarta.persistence.Version;
+import org.hibernate.annotations.JdbcTypeCode;
+import org.hibernate.type.SqlTypes;
 import java.math.BigDecimal;
 import java.math.RoundingMode;
 import java.time.Instant;
@@ -20,7 +22,8 @@ import java.util.UUID;
  *
  * <p>The approved model intentionally uses a single class for domain behavior and
  * persistence. State and location have no public setters; lifecycle changes are
- * available only through {@link #complete(Instant)} and {@link #cancel(Instant)}.
+ * available only through {@link #complete(Instant, ParkingSessionCompletionType)},
+ * {@link #cancel(Instant)}, and {@link #confirmActive(Instant)}.
  * The derived PostGIS {@code location} column is maintained by Flyway's database
  * trigger and therefore is not mapped here.
  */
@@ -64,6 +67,22 @@ public class ParkingSession {
     @Column(name = "reminder_at")
     private Instant reminderAt;
 
+    @Column(name = "last_confirmed_at")
+    private Instant lastConfirmedAt;
+
+    @Enumerated(EnumType.STRING)
+    @Column(name = "completion_type")
+    private ParkingSessionCompletionType completionType;
+
+    @Enumerated(EnumType.STRING)
+    @Column(name = "completion_reason")
+    private ParkingSessionCompletionReason completionReason;
+
+    /** Progressive reminder stage: 0=NONE, 1=FIRST, 2=SECOND. */
+    @JdbcTypeCode(SqlTypes.SMALLINT)
+    @Column(name = "reminder_stage", nullable = false)
+    private int reminderStage = 0;
+
     @Column(name = "created_at", nullable = false, updatable = false)
     private Instant createdAt;
 
@@ -88,6 +107,10 @@ public class ParkingSession {
                            double longitude,
                            BigDecimal estimatedFee,
                            Instant reminderAt,
+                           Instant lastConfirmedAt,
+                           ParkingSessionCompletionType completionType,
+                           ParkingSessionCompletionReason completionReason,
+                           int reminderStage,
                            Instant createdAt,
                            Instant updatedAt,
                            Long version) {
@@ -101,10 +124,14 @@ public class ParkingSession {
         this.longitude = validateLongitude(longitude);
         this.estimatedFee = validateEstimatedFee(estimatedFee);
         this.reminderAt = reminderAt;
+        this.lastConfirmedAt = lastConfirmedAt;
+        this.completionType = completionType;
+        this.completionReason = completionReason;
+        this.reminderStage = reminderStage;
         this.createdAt = Objects.requireNonNull(createdAt, "createdAt");
         this.updatedAt = Objects.requireNonNull(updatedAt, "updatedAt");
         this.version = version;
-        validateLifecycle(status, startedAt, endedAt);
+        validateLifecycle(status, startedAt, endedAt, completionType, completionReason);
     }
 
     /** Creates a new ACTIVE session using server-controlled timestamps. */
@@ -128,25 +155,85 @@ public class ParkingSession {
                 estimatedFee,
                 reminderAt,
                 startedAt,
+                null,
+                null,
+                ParkingSessionReminderStage.NONE.wireValue(),
+                startedAt,
                 startedAt,
                 null);
     }
 
-    /** Completes an ACTIVE session. Completed sessions are terminal. */
-    public void complete(Instant now) {
-        end(ParkingSessionStatus.COMPLETED, now);
+    /**
+     * Completes an ACTIVE session with an explicit completion provenance.
+     * Completed sessions are terminal. Public {@code completionType} is derived from
+     * {@code reason} so API clients keep seeing MANUAL/AUTO.
+     */
+    public void complete(Instant now, ParkingSessionCompletionReason reason) {
+        ParkingSessionCompletionReason completion =
+                Objects.requireNonNull(reason, "completionReason");
+        end(ParkingSessionStatus.COMPLETED, now, completion);
     }
 
-    /** Cancels an ACTIVE session. Cancelled sessions are terminal. */
+    /**
+     * @deprecated Prefer {@link #complete(Instant, ParkingSessionCompletionReason)}.
+     * Kept for call-site compatibility during the reason migration.
+     */
+    @Deprecated
+    public void complete(Instant now, ParkingSessionCompletionType type) {
+        complete(now, ParkingSessionCompletionReason.fromLegacyType(type));
+    }
+
+    /** Cancels an ACTIVE session. Cancelled sessions are always MANUAL. */
     public void cancel(Instant now) {
-        end(ParkingSessionStatus.CANCELLED, now);
+        end(ParkingSessionStatus.CANCELLED, now, ParkingSessionCompletionReason.MANUAL);
+    }
+
+    /**
+     * Extends the confirmation window for an ACTIVE session ("Yes, still parked").
+     * Sets {@code lastConfirmedAt} to {@code now} and resets reminder stages so the
+     * 24h/48h windows restart from this confirmation.
+     */
+    public void confirmActive(Instant now) {
+        if (!isActive()) {
+            throw new ParkingException(
+                    ParkingErrorCode.PARKING_SESSION_NOT_ACTIVE,
+                    "Only an active parking session can be confirmed.");
+        }
+        Instant confirmedAt = Objects.requireNonNull(now, "now");
+        this.lastConfirmedAt = confirmedAt;
+        this.reminderStage = ParkingSessionReminderStage.NONE.wireValue();
+        this.updatedAt = confirmedAt;
+    }
+
+    /**
+     * Records that a reminder stage was published. Idempotent for the same or lower stage.
+     */
+    public void markReminderSent(ParkingSessionReminderStage stage, Instant now) {
+        Objects.requireNonNull(stage, "stage");
+        Objects.requireNonNull(now, "now");
+        if (!isActive()) {
+            throw new ParkingException(
+                    ParkingErrorCode.PARKING_SESSION_NOT_ACTIVE,
+                    "Only an active parking session can receive reminders.");
+        }
+        if (stage == ParkingSessionReminderStage.NONE) {
+            throw new IllegalArgumentException("Cannot mark NONE as sent");
+        }
+        if (getReminderStage().hasReached(stage)) {
+            return;
+        }
+        this.reminderStage = stage.wireValue();
+        this.updatedAt = now;
     }
 
     public boolean isActive() {
         return status == ParkingSessionStatus.ACTIVE;
     }
 
-    private void end(ParkingSessionStatus terminalStatus, Instant now) {
+    private void end(
+            ParkingSessionStatus terminalStatus,
+            Instant now,
+            ParkingSessionCompletionReason reason) {
         if (!isActive()) {
             throw new ParkingException(
                     ParkingErrorCode.PARKING_SESSION_NOT_ACTIVE,
@@ -156,13 +243,21 @@ public class ParkingSession {
         if (terminalTime.isBefore(startedAt)) {
             throw new IllegalArgumentException("endedAt cannot be before startedAt");
         }
+        ParkingSessionCompletionReason completion =
+                Objects.requireNonNull(reason, "completionReason");
         status = terminalStatus;
         endedAt = terminalTime;
+        completionReason = completion;
+        completionType = completion.toCompletionType();
         updatedAt = terminalTime;
     }
 
     private static void validateLifecycle(
-            ParkingSessionStatus status, Instant startedAt, Instant endedAt) {
+            ParkingSessionStatus status,
+            Instant startedAt,
+            Instant endedAt,
+            ParkingSessionCompletionType completionType,
+            ParkingSessionCompletionReason completionReason) {
         if (status == ParkingSessionStatus.ACTIVE && endedAt != null) {
             throw new IllegalArgumentException("endedAt must be null while a parking session is active");
         }
@@ -171,6 +266,29 @@ public class ParkingSession {
         }
         if (endedAt != null && endedAt.isBefore(startedAt)) {
             throw new IllegalArgumentException("endedAt cannot be before startedAt");
+        }
+        if (status == ParkingSessionStatus.ACTIVE
+                && (completionType != null || completionReason != null)) {
+            throw new IllegalArgumentException(
+                    "completionType/completionReason must be null while a parking session is active");
+        }
+        if (status == ParkingSessionStatus.COMPLETED) {
+            if (completionType != ParkingSessionCompletionType.MANUAL
+                    && completionType != ParkingSessionCompletionType.AUTO) {
+                throw new IllegalArgumentException("COMPLETED sessions require MANUAL or AUTO completionType");
+            }
+            if (completionReason == null) {
+                throw new IllegalArgumentException("COMPLETED sessions require completionReason");
+            }
+        }
+        if (status == ParkingSessionStatus.CANCELLED) {
+            if (completionType != ParkingSessionCompletionType.MANUAL) {
+                throw new IllegalArgumentException("CANCELLED sessions require MANUAL completionType");
+            }
+            if (completionReason == null
+                    || completionReason == ParkingSessionCompletionReason.AUTO_TIMEOUT) {
+                throw new IllegalArgumentException("CANCELLED sessions require a non-AUTO completionReason");
+            }
         }
     }
 
@@ -248,6 +366,22 @@ public class ParkingSession {
 
     public Instant getReminderAt() {
         return reminderAt;
+    }
+
+    public Instant getLastConfirmedAt() {
+        return lastConfirmedAt;
+    }
+
+    public ParkingSessionCompletionType getCompletionType() {
+        return completionType;
+    }
+
+    public ParkingSessionCompletionReason getCompletionReason() {
+        return completionReason;
+    }
+
+    public ParkingSessionReminderStage getReminderStage() {
+        return ParkingSessionReminderStage.fromWire(reminderStage);
     }
 
     public Instant getCreatedAt() {

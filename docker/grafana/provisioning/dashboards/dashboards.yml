@@ -4,7 +4,7 @@ apiVersion: 1
 # they will be loaded automatically. Bundled dashboards:
 #   parkio-hosted-beta.json, parkio-api-health.json, parkio-jvm.json,
 #   parkio-kafka.json, parkio-postgresql.json, parkio-outbox-dlq.json,
-#   parkio-client-errors.json
+#   parkio-client-errors.json, parkio-parking-sessions.json
 providers:
   - name: parkio
     orgId: 1

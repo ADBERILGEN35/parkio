@@ -1,4 +1,9 @@
-import type { ParkingSessionResponse, ParkingSource, ParkingSessionStatus } from '@parkio/types';
+import type {
+  ParkingSessionCompletionType,
+  ParkingSessionResponse,
+  ParkingSource,
+  ParkingSessionStatus,
+} from '@parkio/types';
 import { Button, EmptyState, Icon, LoadingState, SoftBadge, cn } from '@parkio/ui';
 import { useQueryClient } from '@tanstack/react-query';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
@@ -49,6 +54,20 @@ function statusLabelKey(status: ParkingSessionStatus): string {
     default:
       return 'parkingHistory.statusUnknown';
   }
+}
+
+function completionLabelKey(
+  completionType: ParkingSessionCompletionType | null | undefined,
+): string | null {
+  if (completionType === 'MANUAL') return 'parkingHistory.completionManual';
+  if (completionType === 'AUTO') return 'parkingHistory.completionAuto';
+  return null;
+}
+
+function completionTone(
+  completionType: ParkingSessionCompletionType | null | undefined,
+): 'primary' | 'neutral' | 'warning' {
+  return completionType === 'AUTO' ? 'warning' : 'neutral';
 }
 
 function sourceLabelKey(source: ParkingSource | string): string | null {
@@ -340,6 +359,7 @@ function ParkingHistoryRow({
   const rowDisabled = disabled || busy;
   const duration = formatDurationLabel(session.startedAt, session.endedAt, t);
   const sourceKey = sourceLabelKey(session.parkingSource);
+  const completionKey = completionLabelKey(session.completionType);
   const startedLabel = formatInstant(session.startedAt, locale === 'tr' ? 'tr' : 'en');
 
   const openMaps = () => {
@@ -419,6 +439,14 @@ function ParkingHistoryRow({
                 defaultValue: humanizeEnum(session.status),
               })}
             </SoftBadge>
+            {session.status === 'COMPLETED' && completionKey ? (
+              <SoftBadge
+                tone={completionTone(session.completionType)}
+                data-testid="parking-history-completion-type"
+              >
+                {t(completionKey)}
+              </SoftBadge>
+            ) : null}
             {sourceKey ? (
               <span className="text-label-sm text-on-surface-variant">{t(sourceKey)}</span>
             ) : session.parkingSource ? (

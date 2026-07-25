@@ -561,6 +561,19 @@ const activeParkingSession = {
   latitude: 38.42,
   longitude: 27.14,
   estimatedFee: null,
+  lastConfirmedAt: '2026-07-25T10:00:00.000Z',
+  completionType: null,
+};
+
+const parkingSessionLifecycleConfig = {
+  confirmAfterMs: 86_400_000,
+  reminder2AfterMs: 172_800_000,
+  autoCompleteAfterMs: 259_200_000,
+  confirmAfter: 'PT24H',
+  reminder2After: 'PT48H',
+  autoCompleteAfter: 'PT72H',
+  remindersEnabled: true,
+  autoCompleteEnabled: true,
 };
 
 describe('MapPage Parking Session (ACTIVE restore)', () => {
@@ -571,6 +584,11 @@ describe('MapPage Parking Session (ACTIVE restore)', () => {
     server.use(
       http.get(`${API_BASE}/users/me/vehicle`, () =>
         HttpResponse.json({ vehicleType: 'SEDAN', plate: '35PK123' }),
+      ),
+    );
+    server.use(
+      http.get(`${API_BASE}/parking/sessions/lifecycle-config`, () =>
+        HttpResponse.json(parkingSessionLifecycleConfig),
       ),
     );
     server.use(
@@ -763,6 +781,11 @@ describe('MapPage Parking Session (Park Here)', () => {
       ),
     );
     server.use(
+      http.get(`${API_BASE}/parking/sessions/lifecycle-config`, () =>
+        HttpResponse.json(parkingSessionLifecycleConfig),
+      ),
+    );
+    server.use(
       http.get(`${API_BASE}/parking/sessions/active`, () => new HttpResponse(null, { status: 204 })),
     );
     // Unavailable mount geolocation keeps the mobile sheet collapsed so the
@@ -909,6 +932,11 @@ describe('MapPage Parking Session (terminal actions)', () => {
     server.use(
       http.get(`${API_BASE}/users/me/vehicle`, () =>
         HttpResponse.json({ vehicleType: 'SEDAN', plate: '35PK123' }),
+      ),
+    );
+    server.use(
+      http.get(`${API_BASE}/parking/sessions/lifecycle-config`, () =>
+        HttpResponse.json(parkingSessionLifecycleConfig),
       ),
     );
     server.use(

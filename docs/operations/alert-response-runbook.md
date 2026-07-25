@@ -62,6 +62,35 @@ when `PARKIO_ALERT_SLACK_WEBHOOK_URL` or `PARKIO_ALERT_WEBHOOK_URL` is set in `d
 - See `docs/architecture/observability-metrics.md` host runbooks.
 - Prune Docker images/logs, verify backup retention, check Loki/Tempo volume growth.
 
+## Parking session stale lifecycle {#parkingsessionschedulerfailures}
+
+Alerts: `ParkingSessionSchedulerFailures`, `ParkingSessionAutoCompleteSpike`,
+`ParkingSessionSchedulerFailuresSustained` (formerly misnamed
+`ParkingSessionReminderPublicationIdleWhileActive` — it tracks **repeated
+scheduler failures**, not idle reminder publication).
+
+Full playbooks: [parking-session-stale-runbook.md](./parking-session-stale-runbook.md).
+
+Quick checks:
+
+```bash
+curl -fsS http://127.0.0.1:8083/actuator/prometheus | rg parking_sessions_
+docker logs parkio-parking-service-1 --tail 200 | rg -i 'Stale parking-session|AUTO_COMPLETED|REMINDER_SENT'
+docker compose -f docker/docker-compose.yml -f docker/docker-compose.apps.yml -f docker/docker-compose.hosted-beta.yml \
+  ps parking-service notification-service analytics-service kafka postgres-parking
+```
+
+```promql
+increase(parking_sessions_scheduler_failed_total{service="parking-service"}[30m])
+increase(parking_sessions_auto_completed_total{service="parking-service"}[1h])
+parkio_outbox_unpublished_count{service="parking-service"}
+max by (consumergroup) (kafka_consumergroup_lag{topic="parkio.parking.session"})
+```
+
+Feature-flag rollback (recreate parking-service after env change):
+`PARKIO_PARKING_SESSION_STALE_ENABLED=false` or disable reminders /
+auto-complete individually (see stale runbook).
+
 ## Escalation
 
 - Capture alert labels, Grafana screenshots, and `docker compose ps`.

@@ -7,6 +7,8 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.SerializationFeature;
 import com.fasterxml.jackson.datatype.jsr310.JavaTimeModule;
 import com.parkio.parking.domain.ParkingSession;
+import com.parkio.parking.domain.ParkingSessionCompletionType;
+import com.parkio.parking.domain.ParkingSessionReminderStage;
 import com.parkio.parking.domain.ParkingSource;
 import java.time.Instant;
 import java.util.Iterator;
@@ -48,7 +50,7 @@ class ParkingSessionLifecycleEventContractTest {
     void completedPayloadIncludesTerminalTimestampsWithoutCoordinates() throws Exception {
         ParkingSession session = ParkingSession.start(
                 UUID.randomUUID(), ParkingSource.COMMUNITY, 40.0, 29.0, null, null, NOW);
-        session.complete(ENDED);
+        session.complete(ENDED, ParkingSessionCompletionType.MANUAL);
         ParkingSessionCompletedEvent event = ParkingSessionCompletedEvent.of(session, ENDED);
 
         JsonNode json = objectMapper.valueToTree(event);
@@ -58,6 +60,8 @@ class ParkingSessionLifecycleEventContractTest {
         assertThat(json.get("source").asText()).isEqualTo("COMMUNITY");
         assertThat(json.get("startedAt").asText()).isEqualTo("2026-07-24T12:00:00Z");
         assertThat(json.get("endedAt").asText()).isEqualTo("2026-07-24T12:30:00Z");
+        assertThat(json.get("completionReason").asText()).isEqualTo("MANUAL");
+        assertThat(json.get("sessionDurationSeconds").asLong()).isEqualTo(1800L);
         assertNoSensitiveFields(json);
     }
 
@@ -74,6 +78,29 @@ class ParkingSessionLifecycleEventContractTest {
         assertThat(json.get("status").asText()).isEqualTo("CANCELLED");
         assertThat(json.get("endedAt").asText()).isEqualTo("2026-07-24T12:30:00Z");
         assertThat(json.has("durationSeconds")).isFalse();
+        assertNoSensitiveFields(json);
+    }
+
+    @Test
+    void reminderRequestedPayloadCarriesStableSessionStageIdentityWithoutCoordinates()
+            throws Exception {
+        ParkingSession session = ParkingSession.start(
+                UUID.randomUUID(), ParkingSource.MANUAL, 41.0082, 28.9784, null, null, NOW);
+        ParkingSessionReminderRequestedEvent event = ParkingSessionReminderRequestedEvent.of(
+                session, ParkingSessionReminderStage.FIRST, NOW);
+
+        JsonNode json = objectMapper.valueToTree(event);
+
+        assertThat(event.eventType()).isEqualTo("ParkingSessionReminderRequested");
+        assertThat(event.aggregateType()).isEqualTo("ParkingSession");
+        assertThat(event.aggregateId()).isEqualTo(session.getId());
+        assertThat(json.get("eventId").asText()).isEqualTo(event.eventId().toString());
+        assertThat(json.get("sessionId").asText()).isEqualTo(session.getId().toString());
+        assertThat(json.get("userId").asText()).isEqualTo(session.getUserId().toString());
+        assertThat(json.get("stage").asText()).isEqualTo("FIRST");
+        assertThat(json.get("startedAt").asText()).isEqualTo("2026-07-24T12:00:00Z");
+        assertThat(json.get("lastConfirmedAt").asText()).isEqualTo("2026-07-24T12:00:00Z");
+        assertThat(json.get("occurredAt").asText()).isEqualTo("2026-07-24T12:00:00Z");
         assertNoSensitiveFields(json);
     }
 

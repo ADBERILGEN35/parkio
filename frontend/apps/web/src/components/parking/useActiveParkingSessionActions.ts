@@ -8,6 +8,7 @@ import { isUsableParkedCoordinate } from '@/components/map/parkedCarCoords';
 import {
   useCancelParkingSessionMutation,
   useCompleteParkingSessionMutation,
+  useConfirmActiveParkingSessionMutation,
 } from '@/data/hooks/useParkingSessionMutations';
 import { setActiveParkingSession } from '@/data/parking/sessionCache';
 import {
@@ -15,9 +16,12 @@ import {
   isStaleParkingSessionConflict,
 } from '@/data/parking/sessionErrors';
 import { activeParkingSessionQueryOptions } from '@/data/query-options/parking';
+import { useParkingSessionLifecycleConfigQuery } from '@/data/hooks/useParkingSessionQueries';
+import { needsActiveConfirmation } from '@/lib/parkingSessionStale';
 import { showError, showInfo, showSuccess } from '@/lib/toast';
 import { openParkingLocationInMaps } from './openParkingMaps';
 import { shareParkingLocation } from './shareParkingLocation';
+import { useNowTicker } from './useNowTicker';
 
 /**
  * Local Active-card action phase. Mutation pending is also reflected here so the
@@ -27,8 +31,10 @@ export type ActiveParkingActionPhase =
   | 'idle'
   | 'confirming-complete'
   | 'confirming-cancel'
+  | 'confirming-stale-leave'
   | 'completing'
-  | 'cancelling';
+  | 'cancelling'
+  | 'confirming-active';
 
 export interface ActiveParkingSessionActions {
   phase: ActiveParkingActionPhase;
@@ -36,6 +42,8 @@ export interface ActiveParkingSessionActions {
   destinationValid: boolean;
   mapsDisabled: boolean;
   shareDisabled: boolean;
+  /** True when the configured confirm-after window requires still-parked confirmation. */
+  requiresActiveConfirmation: boolean;
   findMyCar: () => void;
   openInMaps: () => void;
   share: () => Promise<void>;
@@ -44,11 +52,13 @@ export interface ActiveParkingSessionActions {
   keepSession: () => void;
   confirmComplete: () => Promise<void>;
   confirmCancel: () => Promise<void>;
+  confirmStillParked: () => Promise<void>;
+  confirmAlreadyLeft: () => void;
 }
 
 /**
- * Find / Open in Maps / Share / Complete / Cancel for an ACTIVE Parking Session (PR4).
- * Uses PR1 mutation hooks only — never calls the SDK from UI.
+ * Find / Open in Maps / Share / Complete / Cancel / stale confirm for an ACTIVE
+ * Parking Session. Uses PR1 mutation hooks only — never calls the SDK from UI.
  */
 export function useActiveParkingSessionActions(options: {
   session: ParkingSessionResponse;
@@ -60,6 +70,9 @@ export function useActiveParkingSessionActions(options: {
   const queryClient = useQueryClient();
   const completeMutation = useCompleteParkingSessionMutation();
   const cancelMutation = useCancelParkingSessionMutation();
+  const confirmActiveMutation = useConfirmActiveParkingSessionMutation();
+  const lifecycleConfigQuery = useParkingSessionLifecycleConfigQuery();
+  const nowMs = useNowTicker(session.status === 'ACTIVE');
 
   const [phase, setPhase] = useState<ActiveParkingActionPhase>('idle');
   const phaseRef = useRef(phase);
@@ -79,35 +92,64 @@ export function useActiveParkingSessionActions(options: {
     }
   }, [session.id]);
 
+  const confirmAfterMs = lifecycleConfigQuery.data?.confirmAfterMs;
+  const requiresActiveConfirmation =
+    confirmAfterMs != null && needsActiveConfirmation(session, confirmAfterMs, nowMs);
   const destinationValid = isUsableParkedCoordinate(session.latitude, session.longitude);
-  const terminalBusy = phase === 'completing' || phase === 'cancelling';
-  const mapsDisabled = terminalBusy || !destinationValid;
-  const shareDisabled = terminalBusy || !destinationValid;
+  const terminalBusy =
+    phase === 'completing' ||
+    phase === 'cancelling' ||
+    phase === 'confirming-active';
+  const mapsDisabled = terminalBusy || !destinationValid || requiresActiveConfirmation;
+  const shareDisabled = terminalBusy || !destinationValid || requiresActiveConfirmation;
 
   const keepSession = useCallback(() => {
-    if (phaseRef.current === 'completing' || phaseRef.current === 'cancelling') return;
+    if (
+      phaseRef.current === 'completing' ||
+      phaseRef.current === 'cancelling' ||
+      phaseRef.current === 'confirming-active'
+    ) {
+      return;
+    }
     setPhase('idle');
   }, []);
 
   const beginComplete = useCallback(() => {
     if (inFlightRef.current) return;
-    if (phaseRef.current === 'completing' || phaseRef.current === 'cancelling') return;
+    if (
+      phaseRef.current === 'completing' ||
+      phaseRef.current === 'cancelling' ||
+      phaseRef.current === 'confirming-active' ||
+      phaseRef.current === 'confirming-stale-leave'
+    ) {
+      return;
+    }
     setPhase('confirming-complete');
   }, []);
 
   const beginCancel = useCallback(() => {
     if (inFlightRef.current) return;
-    if (phaseRef.current === 'completing' || phaseRef.current === 'cancelling') return;
+    if (
+      phaseRef.current === 'completing' ||
+      phaseRef.current === 'cancelling' ||
+      phaseRef.current === 'confirming-active'
+    ) {
+      return;
+    }
     setPhase('confirming-cancel');
   }, []);
 
   const findMyCar = useCallback(() => {
-    if (terminalBusy) return;
+    if (terminalBusy || requiresActiveConfirmation) return;
     onFocusCar();
-  }, [onFocusCar, terminalBusy]);
+  }, [onFocusCar, requiresActiveConfirmation, terminalBusy]);
 
   const openInMaps = useCallback(() => {
     if (mapsDisabled) {
+      if (requiresActiveConfirmation) {
+        showInfo(t('parkingSession.stale.requiredBeforeFind'));
+        return;
+      }
       if (!destinationValid) {
         showError(t('parkingSession.maps.invalidCoordinates'));
       }
@@ -117,10 +159,21 @@ export function useActiveParkingSessionActions(options: {
     if (!opened) {
       showError(t('parkingSession.maps.failed'));
     }
-  }, [destinationValid, mapsDisabled, session.latitude, session.longitude, t]);
+  }, [
+    destinationValid,
+    mapsDisabled,
+    requiresActiveConfirmation,
+    session.latitude,
+    session.longitude,
+    t,
+  ]);
 
   const share = useCallback(async () => {
     if (shareDisabled) {
+      if (requiresActiveConfirmation) {
+        showInfo(t('parkingSession.stale.requiredBeforeFind'));
+        return;
+      }
       if (!destinationValid) {
         showError(t('parkingSession.share.invalidCoordinates'));
       }
@@ -146,6 +199,7 @@ export function useActiveParkingSessionActions(options: {
     showError(t('parkingSession.share.failed'));
   }, [
     destinationValid,
+    requiresActiveConfirmation,
     session.latitude,
     session.longitude,
     shareDisabled,
@@ -277,7 +331,12 @@ export function useActiveParkingSessionActions(options: {
   );
 
   const confirmComplete = useCallback(async () => {
-    if (phaseRef.current !== 'confirming-complete') return;
+    if (
+      phaseRef.current !== 'confirming-complete' &&
+      phaseRef.current !== 'confirming-stale-leave'
+    ) {
+      return;
+    }
     await runTerminal('complete');
   }, [runTerminal]);
 
@@ -286,12 +345,82 @@ export function useActiveParkingSessionActions(options: {
     await runTerminal('cancel');
   }, [runTerminal]);
 
+  const confirmStillParked = useCallback(async () => {
+    if (inFlightRef.current) return;
+    if (sessionIdRef.current !== session.id) return;
+    if (phaseRef.current === 'confirming-stale-leave') return;
+
+    inFlightRef.current = true;
+    setPhase('confirming-active');
+    const targetId = session.id;
+
+    try {
+      const result = await confirmActiveMutation.mutateAsync(targetId);
+      if (sessionIdRef.current !== targetId) return;
+
+      if (result.status !== 'ACTIVE') {
+        showInfo(t('parkingSession.terminal.alreadyEnded'));
+        setPhase('idle');
+        return;
+      }
+
+      showSuccess(t('parkingSession.stale.confirmSuccess'));
+      setPhase('idle');
+    } catch (error) {
+      if (sessionIdRef.current !== targetId) return;
+
+      if (error instanceof UnauthorizedError) {
+        setPhase('idle');
+        return;
+      }
+
+      if (isStaleParkingSessionConflict(error)) {
+        const outcome = await reconcileAfterTerminal(targetId, 'stale');
+        if (sessionIdRef.current !== targetId) return;
+        if (outcome === 'cleared') {
+          showInfo(t('parkingSession.terminal.alreadyEnded'));
+          setPhase('idle');
+          return;
+        }
+        showInfo(t('parkingSession.terminal.stillActive'));
+        setPhase('idle');
+        return;
+      }
+
+      if (isParkioApiError(error) && error.status >= 500) {
+        showError(t('parkingSession.terminal.serverError'));
+        setPhase('idle');
+        return;
+      }
+
+      showError(
+        isParkioApiError(error) ? error.message : t('parkingSession.terminal.networkError'),
+      );
+      setPhase('idle');
+    } finally {
+      inFlightRef.current = false;
+    }
+  }, [confirmActiveMutation, reconcileAfterTerminal, session.id, t]);
+
+  const confirmAlreadyLeft = useCallback(() => {
+    if (inFlightRef.current) return;
+    if (
+      phaseRef.current === 'completing' ||
+      phaseRef.current === 'cancelling' ||
+      phaseRef.current === 'confirming-active'
+    ) {
+      return;
+    }
+    setPhase('confirming-stale-leave');
+  }, []);
+
   return {
     phase,
     terminalBusy,
     destinationValid,
     mapsDisabled,
     shareDisabled,
+    requiresActiveConfirmation,
     findMyCar,
     openInMaps,
     share,
@@ -300,5 +429,7 @@ export function useActiveParkingSessionActions(options: {
     keepSession,
     confirmComplete,
     confirmCancel,
+    confirmStillParked,
+    confirmAlreadyLeft,
   };
 }

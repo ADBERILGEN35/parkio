@@ -4,6 +4,24 @@ This directory contains repeatable load probes for the Parkio gateway. They are
 measurement tools only; they do not change application behavior or production
 configuration.
 
+## Parking session stale lifecycle (skeleton)
+
+Focused probe for session start / active / confirm-active / complete (and
+lifecycle-config). Does not embed secrets; supply credentials or a bearer token
+via env. Suitable for staging soak alongside scheduler metrics — not a DB-scale
+substitute for EXPLAIN on 100k ACTIVE rows.
+
+```bash
+PARKIO_BASE_URL=http://localhost:8080 \
+PARKIO_K6_EMAIL=user@real-e2e.parkio.local \
+PARKIO_K6_PASSWORD='StrongParkio123' \
+k6 run benchmarks/k6/parking-session-stale.js
+```
+
+Optional: `PARKIO_K6_ACCESS_TOKEN=...` skips login;
+`PARKIO_K6_ENABLE_SESSION_MUTATIONS=false` limits the run to config + active reads.
+See [`docs/operations/parking-session-performance.md`](../../docs/operations/parking-session-performance.md).
+
 ## HTTP Benchmark
 
 Run against a local or Compose stack with seeded non-production credentials:

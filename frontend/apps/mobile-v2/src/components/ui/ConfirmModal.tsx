@@ -48,6 +48,9 @@ export function ConfirmModal({
         </Animated.View>
         <Animated.View
           entering={ZoomIn.springify().damping(18).stiffness(220)}
+          accessibilityRole="summary"
+          accessibilityViewIsModal
+          accessibilityLabel={title}
           style={[
             styles.card,
             { backgroundColor: theme.colors.surface, borderRadius: radius.modal },

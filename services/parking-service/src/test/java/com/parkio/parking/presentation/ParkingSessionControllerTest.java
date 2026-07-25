@@ -79,11 +79,69 @@ class ParkingSessionControllerTest {
                 .andExpect(jsonPath("$.latitude").value(41.0082))
                 .andExpect(jsonPath("$.longitude").value(28.9784))
                 .andExpect(jsonPath("$.estimatedFee").value("125.50"))
+                .andExpect(jsonPath("$.lastConfirmedAt").value("2026-07-21T09:00:00Z"))
+                .andExpect(jsonPath("$.completionType").value(nullValue()))
                 .andExpect(jsonPath("$.userId").doesNotExist())
                 .andExpect(jsonPath("$.reminderAt").doesNotExist())
                 .andExpect(jsonPath("$.createdAt").doesNotExist())
                 .andExpect(jsonPath("$.updatedAt").doesNotExist())
                 .andExpect(jsonPath("$.version").doesNotExist());
+    }
+
+    @Test
+    void lifecycleConfigReturnsConfiguredDurationsAndFlags() throws Exception {
+        UUID userId = UUID.randomUUID();
+
+        mockMvc.perform(authenticated(get("/api/v1/parking/sessions/lifecycle-config"), userId))
+                .andExpect(status().isOk())
+                .andExpect(header().string(HttpHeaders.CACHE_CONTROL, "no-store"))
+                .andExpect(jsonPath("$.confirmAfterMs").value(86_400_000))
+                .andExpect(jsonPath("$.reminder2AfterMs").value(172_800_000))
+                .andExpect(jsonPath("$.autoCompleteAfterMs").value(259_200_000))
+                .andExpect(jsonPath("$.confirmAfter").value("PT24H"))
+                .andExpect(jsonPath("$.reminder2After").value("PT48H"))
+                .andExpect(jsonPath("$.autoCompleteAfter").value("PT72H"))
+                .andExpect(jsonPath("$.remindersEnabled").value(true))
+                .andExpect(jsonPath("$.autoCompleteEnabled").value(true));
+
+        mockMvc.perform(get("/api/v1/parking/sessions/lifecycle-config")
+                        .header("X-Gateway-Auth", GATEWAY_SECRET))
+                .andExpect(status().isUnauthorized())
+                .andExpect(jsonPath("$.code").value("MISSING_USER_ID"));
+    }
+
+    @Test
+    void confirmActiveExtendsLastConfirmedAtWithoutOutboxEvent() throws Exception {
+        UUID userId = UUID.randomUUID();
+        String sessionId = startAndGetId(userId);
+        int before = countOutbox("ParkingSessionCompletedEvent")
+                + countOutbox("ParkingSessionStartedEvent")
+                + countOutbox("ParkingSessionCancelledEvent");
+
+        mockMvc.perform(authenticated(
+                        post("/api/v1/parking/sessions/{sessionId}/confirm-active", sessionId), userId))
+                .andExpect(status().isOk())
+                .andExpect(header().string(HttpHeaders.CACHE_CONTROL, "no-store"))
+                .andExpect(jsonPath("$.id").value(sessionId))
+                .andExpect(jsonPath("$.status").value("ACTIVE"))
+                .andExpect(jsonPath("$.lastConfirmedAt").value("2026-07-21T09:00:00Z"))
+                .andExpect(jsonPath("$.completionType").value(nullValue()));
+
+        int after = countOutbox("ParkingSessionCompletedEvent")
+                + countOutbox("ParkingSessionStartedEvent")
+                + countOutbox("ParkingSessionCancelledEvent");
+        assertThat(after).isEqualTo(before);
+    }
+
+    @Test
+    void completePersistsManualCompletionType() throws Exception {
+        UUID userId = UUID.randomUUID();
+        String sessionId = startAndGetId(userId);
+
+        transition(userId, sessionId, "complete", UUID.randomUUID().toString())
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.status").value("COMPLETED"))
+                .andExpect(jsonPath("$.completionType").value("MANUAL"));
     }
 
     @Test

@@ -63,6 +63,9 @@ public final class NotificationPushPayloadBuilder {
     }
 
     private static String mapWebDeeplinkToMobileRoute(String deeplink) {
+        if (deeplink.contains("parkingSession=active")) {
+            return "/(main)/(tabs)/map";
+        }
         String path = deeplink.split("\\?", 2)[0];
         return switch (path) {
             case "/map" -> "/(main)/map";

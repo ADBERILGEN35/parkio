@@ -85,4 +85,47 @@ public interface ParkingSessionJpaRepository extends JpaRepository<ParkingSessio
             @Param("cursorStartedAt") Instant cursorStartedAt,
             @Param("cursorId") UUID cursorId,
             Pageable pageable);
+
+    @Query("""
+            SELECT parkingSession
+            FROM ParkingSession parkingSession
+            WHERE parkingSession.status = com.parkio.parking.domain.ParkingSessionStatus.ACTIVE
+              AND parkingSession.lastConfirmedAt <= :confirmedAtOrBefore
+              AND parkingSession.startedAt <= :startedAtOrBefore
+            ORDER BY parkingSession.lastConfirmedAt ASC, parkingSession.startedAt ASC, parkingSession.id ASC
+            """)
+    Slice<ParkingSession> findStaleActiveCandidates(
+            @Param("confirmedAtOrBefore") Instant confirmedAtOrBefore,
+            @Param("startedAtOrBefore") Instant startedAtOrBefore,
+            Pageable pageable);
+
+    @Query("""
+            SELECT parkingSession
+            FROM ParkingSession parkingSession
+            WHERE parkingSession.status = com.parkio.parking.domain.ParkingSessionStatus.ACTIVE
+              AND parkingSession.reminderStage = :currentReminderStage
+              AND parkingSession.lastConfirmedAt <= :confirmedAtOrBefore
+              AND (:startedAtOrBefore IS NULL OR parkingSession.startedAt <= :startedAtOrBefore)
+            ORDER BY parkingSession.lastConfirmedAt ASC, parkingSession.startedAt ASC, parkingSession.id ASC
+            """)
+    Slice<ParkingSession> findReminderCandidates(
+            @Param("currentReminderStage") int currentReminderStage,
+            @Param("confirmedAtOrBefore") Instant confirmedAtOrBefore,
+            @Param("startedAtOrBefore") Instant startedAtOrBefore,
+            Pageable pageable);
+
+    long countByStatus(ParkingSessionStatus status);
+
+    @Query("""
+            SELECT parkingSession
+            FROM ParkingSession parkingSession
+            WHERE parkingSession.status IN (
+                  com.parkio.parking.domain.ParkingSessionStatus.COMPLETED,
+                  com.parkio.parking.domain.ParkingSessionStatus.CANCELLED
+              )
+              AND parkingSession.endedAt <= :endedAtOrBefore
+            ORDER BY parkingSession.endedAt ASC, parkingSession.id ASC
+            """)
+    Slice<ParkingSession> findTerminalEndedAtOrBefore(
+            @Param("endedAtOrBefore") Instant endedAtOrBefore, Pageable pageable);
 }

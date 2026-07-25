@@ -2,6 +2,7 @@ package com.parkio.parking.infrastructure.config;
 
 import com.parkio.parking.application.ParkingSearchSettings;
 import com.parkio.parking.domain.ModerationPolicy;
+import com.parkio.parking.domain.ParkingSessionStalePolicy;
 import java.time.Clock;
 import org.springframework.boot.context.properties.EnableConfigurationProperties;
 import org.springframework.context.annotation.Bean;
@@ -42,5 +43,14 @@ public class ParkingInfrastructureConfig {
                 moderation.getMaxValidationAttempts(),
                 moderation.getReviewTimeout(),
                 moderation.getMaxPublishableAge());
+    }
+
+    @Bean
+    public ParkingSessionStalePolicy parkingSessionStalePolicy(ParkingProperties properties) {
+        ParkingProperties.Session session = properties.getSession();
+        return new ParkingSessionStalePolicy(
+                session.getConfirmAfter(),
+                session.getReminder2After(),
+                session.getAutoCompleteAfter());
     }
 }
