@@ -20,6 +20,11 @@ export default defineConfig({
   expect: { timeout: 15_000 },
   use: {
     baseURL,
+    // Deterministic Intl formatting (dates/numbers) for assertions. NOTE: this does NOT
+    // select the UI language - the app reads localStorage['parkio.locale'] and defaults to
+    // Turkish, so the specs pin that key via addInitScript. See real-stack.real.spec.ts.
+    locale: 'en-US',
+    timezoneId: 'UTC',
     trace: 'retain-on-failure',
     screenshot: 'only-on-failure',
     video: 'retain-on-failure',

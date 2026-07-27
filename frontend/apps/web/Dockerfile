@@ -30,8 +30,21 @@ ENV VITE_API_BASE_URL=$VITE_API_BASE_URL \
     VITE_FRONTEND_ERROR_REPORTING=$VITE_FRONTEND_ERROR_REPORTING \
     VITE_WAITLIST_INTAKE_MODE=$VITE_WAITLIST_INTAKE_MODE
 
-RUN test -n "$VITE_API_BASE_URL" || (echo "VITE_API_BASE_URL build-arg is required" >&2 && exit 1)
+# Pre-build gate. A production-shaped build must never bake an empty required public value:
+# src/config/env.ts validates during module evaluation, so the SPA throws before React
+# mounts and every route renders blank while nginx still answers 200 (defect I11, rc5).
+# Fail here instead. The validator reads values from process.env internally so the Docker
+# RUN instruction never expands them into BuildKit's progress log.
+RUN node apps/web/scripts/validate-build-env.mjs
+
 RUN corepack pnpm --filter @parkio/web build
+
+# Post-build gate: assert the emitted artifact itself carries non-empty required values and
+# was built for the intended app env. This catches build-arg mis-wiring that the pre-build
+# check cannot see, and it inspects the bundle rather than trusting the build inputs.
+RUN node apps/web/scripts/verify-bundle-env.mjs \
+      --dist apps/web/dist \
+      --app-env "$VITE_APP_ENV"
 
 # ---- runtime stage ----
 FROM nginx:1.27-alpine AS runtime

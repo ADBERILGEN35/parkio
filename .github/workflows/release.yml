@@ -223,6 +223,10 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 45
     needs: [version, verify]
+    # WEB_MAPTILER_KEY (and any future release build secrets) live on the `release`
+    # environment. Without this, secrets.WEB_MAPTILER_KEY is empty for the web image
+    # even when the operator has configured the environment secret correctly.
+    environment: release
     permissions:
       contents: read
       packages: write
@@ -311,12 +315,46 @@ jobs:
           echo "tag_version=${base}:${{ needs.version.outputs.version }}" >> "$GITHUB_OUTPUT"
           echo "tag_sha=${base}:sha-${{ needs.version.outputs.sha }}" >> "$GITHUB_OUTPUT"
 
+      # Fail before the build (and therefore long before any push) when a production-shaped
+      # web build is missing a required public build-time value. rc5 shipped a web image
+      # with an empty VITE_MAPTILER_KEY because the build-arg was passed *conditionally*:
+      # an empty secret silently dropped the arg, the bundle baked "", and config/env.ts
+      # threw during module evaluation, white-screening every route while nginx still
+      # answered 200. The value itself is never printed - only its presence.
+      - name: Gate required web build configuration
+        if: ${{ matrix.service == 'web' }}
+        env:
+          WEB_APP_ENV: ${{ vars.WEB_APP_ENV || 'hosted-beta' }}
+          WEB_MAPTILER_KEY: ${{ secrets.WEB_MAPTILER_KEY }}
+          WEB_API_BASE_URL: ${{ vars.WEB_API_BASE_URL || 'https://api.parkio.dev/api/v1' }}
+        run: |
+          set -euo pipefail
+          missing=0
+          case "$WEB_APP_ENV" in
+            hosted-beta|production)
+              if [ -z "${WEB_API_BASE_URL}" ]; then
+                echo "::error::WEB_API_BASE_URL repository variable is empty but VITE_APP_ENV=$WEB_APP_ENV requires it."
+                missing=1
+              fi
+              if [ -z "${WEB_MAPTILER_KEY}" ]; then
+                echo "::error::WEB_MAPTILER_KEY is empty but VITE_APP_ENV=$WEB_APP_ENV requires it. Set the release-environment (or repository) secret WEB_MAPTILER_KEY before cutting the release."
+                missing=1
+              fi
+              ;;
+            *)
+              echo "VITE_APP_ENV=$WEB_APP_ENV is not production-shaped; required-value gate not applicable."
+              ;;
+          esac
+          [ "$missing" -eq 0 ] || exit 1
+          echo "Required web build configuration present for VITE_APP_ENV=$WEB_APP_ENV."
+
       - name: Build image (OCI-labelled)
         uses: docker/build-push-action@v6
         id: build
         with:
           context: .
           file: ${{ matrix.dockerfile }}
+          platforms: linux/amd64
           push: ${{ needs.version.outputs.publish == 'true' }}
           load: ${{ needs.version.outputs.publish != 'true' }}
           tags: |
@@ -325,13 +363,21 @@ jobs:
           # The web image bakes its public runtime config at build time; those values
           # are public routing/feature config, never secret carriers. They are passed
           # only for `web` so the service builds stay free of unused build-args.
+          #
+          # VITE_MAPTILER_KEY is stored as an Actions *secret* only to keep it out of the
+          # repository - it is NOT a server secret. Any Vite VITE_* value is embedded
+          # verbatim in the public JS bundle that every browser downloads, so it cannot be
+          # kept confidential. It must be protected provider-side with MapTiler
+          # domain/origin allow-listing (app.parkio.dev and any preview origins), not by
+          # secrecy. It is passed unconditionally: an empty value must reach the Dockerfile
+          # so the build fails loudly instead of baking "" (defect I11).
           build-args: |
             IMAGE_VERSION=${{ needs.version.outputs.version }}
             IMAGE_REVISION=${{ needs.version.outputs.sha }}
             IMAGE_CREATED=${{ needs.version.outputs.created }}
             ${{ matrix.service == 'web' && format('VITE_API_BASE_URL={0}', vars.WEB_API_BASE_URL || 'https://api.parkio.dev/api/v1') || '' }}
             ${{ matrix.service == 'web' && format('VITE_APP_ENV={0}', vars.WEB_APP_ENV || 'hosted-beta') || '' }}
-            ${{ (matrix.service == 'web' && secrets.WEB_MAPTILER_KEY != '') && format('VITE_MAPTILER_KEY={0}', secrets.WEB_MAPTILER_KEY) || '' }}
+            ${{ matrix.service == 'web' && format('VITE_MAPTILER_KEY={0}', secrets.WEB_MAPTILER_KEY) || '' }}
           provenance: false # we attach our own attestations below
 
       # ---- Registry evidence: never trust the runner-local digest alone ----
@@ -382,6 +428,43 @@ jobs:
           } >> "$GITHUB_STEP_SUMMARY"
           echo "digest=${version_digest}" >> "$GITHUB_OUTPUT"
           echo "ref=${IMAGE}@${version_digest}" >> "$GITHUB_OUTPUT"
+
+      - name: Install web image-smoke dependencies
+        if: ${{ matrix.service == 'web' }}
+        working-directory: frontend
+        run: |
+          set -euo pipefail
+          corepack pnpm install --frozen-lockfile
+          corepack pnpm --filter @parkio/web exec playwright install --with-deps chromium
+
+      - name: Test web artifact and image-smoke gates
+        if: ${{ matrix.service == 'web' }}
+        working-directory: frontend/apps/web
+        run: |
+          set -euo pipefail
+          node --test scripts/validate-build-env.test.mjs scripts/verify-bundle-env.test.mjs scripts/smoke-image.test.mjs
+
+      # ---- Web image smoke: prove the SPA MOUNTS, not just that nginx answers ----
+      # rc5's blank-page image satisfied every HTTP-level check (index.html and every asset
+      # returned 200). This runs the real image and fails if #root never receives children
+      # or a module-evaluation error is thrown. It also re-asserts the served bundle's
+      # required public values, reporting only PRESENT/EMPTY/MISSING - never a value.
+      #
+      # Runs against the digest-pulled copy when publishing, else the `load`ed local tag.
+      # The in-Dockerfile gates already make an invalid image unbuildable; this is the
+      # behavioural backstop that would have caught rc5 even if those gates were bypassed.
+      - name: Smoke-test web image
+        if: ${{ matrix.service == 'web' }}
+        env:
+          DIGEST_REF: ${{ steps.registry.outputs.ref }}
+          LOCAL_REF: ${{ steps.refs.outputs.tag_version }}
+          WEB_APP_ENV: ${{ vars.WEB_APP_ENV || 'hosted-beta' }}
+        working-directory: frontend/apps/web
+        run: |
+          set -euo pipefail
+          ref="${DIGEST_REF:-$LOCAL_REF}"
+          echo "Smoke-testing $ref"
+          node scripts/smoke-image.mjs --image "$ref" --app-env "$WEB_APP_ENV"
 
       # Scans whatever copy exists locally: the digest pull above when publishing,
       # the `load`ed build otherwise.

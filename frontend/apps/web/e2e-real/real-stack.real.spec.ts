@@ -1,4 +1,4 @@
-import { expect, test, type Browser, type Page } from '@playwright/test';
+import { expect, test, type Browser, type BrowserContext, type Page } from '@playwright/test';
 // Seeded-account contract: the PARKIO_REAL_{USER,MODERATOR,ADMIN}_{EMAIL,PASSWORD} pairs
 // must point at ACTIVE, email-verified accounts with the matching role. Provision them
 // Behavior: when a pair is MISSING the related tests skip; when it is PRESENT but login
@@ -19,6 +19,96 @@ const emailDomain = process.env.PARKIO_REAL_E2E_EMAIL_DOMAIN ?? 'real-e2e.parkio
 
 test.skip(!enabled, 'Set PARKIO_REAL_E2E=true to run real-stack E2E.');
 test.describe.configure({ mode: 'serial' });
+
+// Turkish is the canonical product default (DEFAULT_LOCALE in @parkio/types), and the app
+// resolves its locale from localStorage['parkio.locale'] - it never sniffs
+// navigator.language, so Playwright's `locale` option cannot influence it. These specs
+// assert English copy, so every context opts into English through the product's own
+// mechanism before the app bootstraps. This keeps the assertions exact (no loosened
+// regexes, no locale-agnostic guessing) and keeps the suite correct if the default
+// locale changes again. It does NOT change application behaviour for real users.
+const LOCALE_STORAGE_KEY = 'parkio.locale';
+const E2E_LOCALE = 'en';
+
+async function pinEnglishLocale(context: BrowserContext) {
+  await context.addInitScript(
+    ([key, value]) => {
+      try {
+        window.localStorage.setItem(key, value);
+      } catch {
+        // private mode / quota - the app falls back to its default locale
+      }
+    },
+    [LOCALE_STORAGE_KEY, E2E_LOCALE] as const,
+  );
+}
+
+/** Contexts created directly with browser.newContext() do not inherit config `use`. */
+async function newEnglishContext(browser: Browser) {
+  const context = await browser.newContext();
+  await pinEnglishLocale(context);
+  return context;
+}
+
+test.beforeEach(async ({ context }) => {
+  await pinEnglishLocale(context);
+});
+
+/**
+ * Mandatory white-screen guard - must be the first assertion the suite makes.
+ *
+ * Defect I11 (v1.0.0-rc5) shipped a web image whose bundle threw during module evaluation
+ * (`VITE_MAPTILER_KEY is required when VITE_APP_ENV=hosted-beta.`). React never mounted, so
+ * every route rendered a blank page - while nginx returned 200 for index.html and every
+ * asset. Every HTTP-level check passed and the rest of this suite failed with confusing
+ * selector timeouts. This test names the real failure directly.
+ */
+test('web shell mounts without a module-evaluation failure', async ({ page }) => {
+  const pageErrors: string[] = [];
+  page.on('pageerror', (error) => pageErrors.push(String(error)));
+
+  await page.goto('/login', { waitUntil: 'load' });
+
+  await expect
+    .poll(() => page.evaluate(() => document.getElementById('root')?.children.length ?? 0), {
+      message: '#root should receive rendered children (SPA must mount)',
+    })
+    .toBeGreaterThan(0);
+
+  await expect(page.getByLabel('Email')).toBeVisible();
+  await expect(page.getByRole('button', { name: 'Sign in' })).toBeVisible();
+
+  expect(
+    pageErrors,
+    `uncaught page errors during bootstrap: ${pageErrors.join(' | ')}`,
+  ).toEqual([]);
+});
+
+/**
+ * Disposable real-stack runs must serve a production-shaped web image whose baked
+ * `VITE_API_BASE_URL` matches `PARKIO_REAL_API_BASE_URL`. A smoke-fixture image that
+ * still points at `api.fixture.invalid` passes HTTP-level checks yet every auth call
+ * fails in the browser with a generic "Login failed" before the map assertion runs.
+ */
+test('browser can reach PARKIO_REAL_API_BASE_URL from the web origin', async ({ page }) => {
+  const failures: string[] = [];
+  page.on('requestfailed', (request) => {
+    if (!request.url().includes('/api/v1/')) return;
+    failures.push(`${request.url()} :: ${request.failure()?.errorText ?? 'unknown'}`);
+  });
+
+  await page.goto('/login', { waitUntil: 'load' });
+
+  const jwksOk = await page.evaluate(async (expectedApiBaseUrl) => {
+    const response = await fetch(`${expectedApiBaseUrl}/auth/.well-known/jwks.json`, {
+      credentials: 'include',
+    });
+    return response.ok;
+  }, apiBaseUrl);
+
+  expect(failures, failures.join(' | ')).toEqual([]);
+  expect(jwksOk).toBe(true);
+});
 
 let uploadedSpotId: string | null = null;
 let uploadedSpotAddress: string | null = null;
@@ -97,8 +187,8 @@ test('refresh bootstrap survives a stale in-memory access token after reload', a
 test('logout-all invalidates another browser session', async ({ browser }) => {
   requireUserAccount();
 
-  const first = await browser.newContext();
-  const second = await browser.newContext();
+  const first = await newEnglishContext(browser);
+  const second = await newEnglishContext(browser);
   try {
     const firstPage = await first.newPage();
     const secondPage = await second.newPage();
@@ -221,17 +311,17 @@ async function fillCreateSpotWizard(
     mimeType: 'image/png',
     buffer: uniquePng,
   });
-  await page.getByRole('button', { name: /next/i }).click();
+  await page.getByRole('button', { name: 'Continue' }).click();
   await page.getByText('Advanced coordinates').click();
   await page.getByLabel('Latitude').fill(String(spot.latitude));
   await page.getByLabel('Longitude').fill(String(spot.longitude));
   await page.getByLabel('Address (optional)').fill(spot.address);
-  await page.getByRole('button', { name: /next/i }).click();
+  await page.getByRole('button', { name: 'Continue' }).click();
   await page.getByLabel('Description (optional)').fill('Real-stack E2E validation spot.');
   await page.getByText('Sedan', { exact: true }).click();
   await page.getByLabel('Parking context').selectOption('STREET_PARKING');
   await page.getByText('Legal', { exact: true }).click();
-  await page.getByRole('button', { name: /next/i }).click();
+  await page.getByRole('button', { name: 'Continue' }).click();
 }
 
 function requireUserAccount() {

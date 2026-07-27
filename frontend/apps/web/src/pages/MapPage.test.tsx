@@ -2,7 +2,7 @@ import type { GeocodeResult, PublicSpot, SmartReturnSettings } from '@parkio/typ
 import { fireEvent, screen, waitFor, act } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { http, HttpResponse, delay } from 'msw';
-import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { WebAppRuntime } from '@/app/runtime';
 import { parkingKeys } from '@/data/keys';
 import { clearUserSessionQueries } from '@/data/sessionQueryCache';
@@ -18,6 +18,17 @@ import {
 import { MapPage } from './MapPage';
 
 let runtime: WebAppRuntime;
+const TEST_NOW = new Date('2026-07-25T22:00:00.000Z');
+
+beforeEach(() => {
+  // Parking-session fixtures below are intended to be 12h old. Pin Date without
+  // replacing real timers so debounce and user-event behavior remain representative.
+  vi.setSystemTime(TEST_NOW);
+});
+
+afterEach(() => {
+  vi.useRealTimers();
+});
 
 function renderWithProviders(
   ui: Parameters<typeof renderWithBaseProviders>[0],

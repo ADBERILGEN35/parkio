@@ -4,7 +4,7 @@ import { screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { http, HttpResponse, delay } from 'msw';
 import { useState } from 'react';
-import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { WebAppRuntime } from '@/app/runtime';
 import { parkingKeys } from '@/data/keys';
 import * as toast from '@/lib/toast';
@@ -22,6 +22,7 @@ import * as openMaps from './openParkingMaps';
 import * as shareLoc from './shareParkingLocation';
 
 let runtime: WebAppRuntime;
+const TEST_NOW = new Date('2026-07-25T22:00:00.000Z');
 
 function renderCard(
   session: ParkingSessionResponse,
@@ -64,6 +65,9 @@ const cancelled: ParkingSessionResponse = {
 };
 
 beforeEach(() => {
+  // These lifecycle fixtures are intentionally 12h old unless a test overrides them.
+  // Pin Date so the suite cannot drift into the 24h stale-confirmation state over time.
+  vi.setSystemTime(TEST_NOW);
   runtime = createTestAppRuntime();
   signInAs(runtime, ['USER']);
   vi.spyOn(toast, 'showSuccess').mockImplementation(() => undefined);
@@ -83,6 +87,10 @@ beforeEach(() => {
       }),
     ),
   );
+});
+
+afterEach(() => {
+  vi.useRealTimers();
 });
 
 describe('ActiveParkingSessionCard', () => {

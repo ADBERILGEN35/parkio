@@ -37,7 +37,9 @@ import com.parkio.parking.domain.VehicleType;
 import com.parkio.parking.domain.exception.ParkingErrorCode;
 import com.parkio.parking.domain.exception.ParkingException;
 import com.parkio.parking.infrastructure.lifecycle.ParkingExpiryJob;
+import com.parkio.parking.infrastructure.lifecycle.ParkingSessionStaleCompletionJob;
 import com.jayway.jsonpath.JsonPath;
+import io.micrometer.core.instrument.MeterRegistry;
 import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
 import java.math.BigDecimal;
 import java.sql.Types;
@@ -128,6 +130,12 @@ class ParkingSessionPostgisIntegrationTest {
 
     @Autowired
     private ParkingSessionStaleRowProcessor staleRows;
+
+    @Autowired
+    private ParkingSessionStaleCompletionJob staleCompletionJob;
+
+    @Autowired
+    private MeterRegistry meterRegistry;
 
     @Autowired
     private JdbcTemplate jdbc;
@@ -278,6 +286,109 @@ class ParkingSessionPostgisIntegrationTest {
                 """,
                 String.class))
                 .isEqualTo("idx_parking_sessions_terminal_ended");
+    }
+
+    @Test
+    void postgresCandidateQueriesHandleOptionalReminderThresholdBoundariesAndBatching() {
+        Instant boundary = clock.instant().minus(Duration.ofHours(24));
+        ParkingSession oldest = saveActiveSession(boundary.minusSeconds(2));
+        ParkingSession exactBoundary = saveActiveSession(boundary);
+        ParkingSession tooRecent = saveActiveSession(boundary.plusSeconds(1));
+
+        assertThat(sessions.findReminderCandidates(0, boundary, null, 2))
+                .extracting(ParkingSession::getId)
+                .containsExactly(oldest.getId(), exactBoundary.getId());
+        assertThat(sessions.findReminderCandidates(0, boundary, null, 1))
+                .extracting(ParkingSession::getId)
+                .containsExactly(oldest.getId());
+
+        assertThat(sessions.findReminderCandidates(0, boundary, boundary.minusSeconds(1), 10))
+                .extracting(ParkingSession::getId)
+                .containsExactly(oldest.getId());
+        assertThat(sessions.findReminderCandidates(0, boundary, boundary, 10))
+                .extracting(ParkingSession::getId)
+                .containsExactly(oldest.getId(), exactBoundary.getId());
+
+        assertThat(sessions.findStaleActiveCandidates(boundary, boundary, 10))
+                .extracting(ParkingSession::getId)
+                .containsExactly(oldest.getId(), exactBoundary.getId());
+        assertThat(sessions.findStaleActiveCandidates(
+                        boundary.minus(Duration.ofDays(1)),
+                        boundary.minus(Duration.ofDays(1)),
+                        10))
+                .isEmpty();
+        assertThat(sessions.findReminderCandidates(0, boundary.minus(Duration.ofDays(1)), null, 10))
+                .isEmpty();
+
+        assertThat(sessions.findReminderCandidates(0, boundary, null, 10))
+                .extracting(ParkingSession::getId)
+                .doesNotContain(tooRecent.getId());
+    }
+
+    @Test
+    void staleSchedulerRunsRepeatedTicksWithoutSqlState42P18OrFailureCounterIncrease() {
+        Instant now = clock.instant();
+        ParkingSession firstReminder = saveActiveSession(now.minus(Duration.ofHours(25)));
+        ParkingSession secondReminder = saveActiveSession(now.minus(Duration.ofHours(50)));
+        transaction.executeWithoutResult(status -> {
+            ParkingSession loaded = sessions.findById(secondReminder.getId()).orElseThrow();
+            loaded.markReminderSent(
+                    com.parkio.parking.domain.ParkingSessionReminderStage.FIRST,
+                    now.minus(Duration.ofHours(25)));
+            sessions.save(loaded);
+        });
+        ParkingSession autoComplete = saveActiveSession(now.minus(Duration.ofHours(73)));
+
+        double failuresBefore = meterRegistry
+                .get("parking.sessions.scheduler.failed")
+                .counter()
+                .count();
+
+        staleCompletionJob.processStaleSessions();
+        int outboxAfterFirstTick = jdbc.queryForObject(
+                """
+                SELECT count(*) FROM outbox_events
+                WHERE aggregate_id IN (?, ?, ?)
+                  AND event_type IN ('ParkingSessionReminderRequested', 'ParkingSessionCompleted')
+                """,
+                Integer.class,
+                firstReminder.getId(),
+                secondReminder.getId(),
+                autoComplete.getId());
+        staleCompletionJob.processStaleSessions();
+
+        assertThat(meterRegistry
+                        .get("parking.sessions.scheduler.failed")
+                        .counter()
+                        .count())
+                .isEqualTo(failuresBefore);
+        assertThat(jdbc.queryForObject(
+                """
+                SELECT count(*) FROM outbox_events
+                WHERE aggregate_id IN (?, ?, ?)
+                  AND event_type IN ('ParkingSessionReminderRequested', 'ParkingSessionCompleted')
+                """,
+                Integer.class,
+                firstReminder.getId(),
+                secondReminder.getId(),
+                autoComplete.getId()))
+                .isEqualTo(outboxAfterFirstTick);
+        assertThat(outboxAfterFirstTick).isGreaterThanOrEqualTo(3);
+        assertThat(jdbc.queryForObject(
+                "SELECT status FROM parking_sessions WHERE id = ?",
+                String.class,
+                autoComplete.getId()))
+                .isEqualTo(ParkingSessionStatus.COMPLETED.name());
+        assertThat(jdbc.queryForObject(
+                "SELECT reminder_stage FROM parking_sessions WHERE id = ?",
+                Integer.class,
+                firstReminder.getId()))
+                .isEqualTo(1);
+        assertThat(jdbc.queryForObject(
+                "SELECT reminder_stage FROM parking_sessions WHERE id = ?",
+                Integer.class,
+                secondReminder.getId()))
+                .isEqualTo(2);
     }
 
     @Test
@@ -1475,6 +1586,19 @@ class ParkingSessionPostgisIntegrationTest {
             statement.setObject(14, utc(endedAt == null ? startedAt : endedAt));
             return statement;
         });
+    }
+
+    private ParkingSession saveActiveSession(Instant startedAt) {
+        ParkingSession saved = transaction.execute(status -> sessions.save(ParkingSession.start(
+                UUID.randomUUID(),
+                ParkingSource.MANUAL,
+                41.0082,
+                28.9784,
+                null,
+                null,
+                startedAt)));
+        assertThat(saved).isNotNull();
+        return saved;
     }
 
     private ParkingSpot insertSpot(UUID ownerId, ParkingSpotStatus status, Instant expiresAt) {

@@ -122,11 +122,17 @@ public class ParkingSessionRepositoryAdapter implements ParkingSessionRepository
         if (currentReminderStage < 0 || currentReminderStage > 1) {
             throw new IllegalArgumentException("currentReminderStage must be 0 or 1");
         }
-        return jpa.findReminderCandidates(
-                        currentReminderStage,
-                        Objects.requireNonNull(confirmedAtOrBefore, "confirmedAtOrBefore"),
-                        startedAtOrBefore,
-                        PageRequest.of(0, limit))
+        Objects.requireNonNull(confirmedAtOrBefore, "confirmedAtOrBefore");
+        PageRequest page = PageRequest.of(0, limit);
+        // The optional start ceiling selects a query variant instead of being folded into a
+        // `(:param IS NULL OR ...)` guard: an untyped bind next to IS NULL is unparseable on
+        // PostgreSQL (SQLState 42P18). See ParkingSessionJpaRepository#findReminderCandidates.
+        if (startedAtOrBefore == null) {
+            return jpa.findReminderCandidates(currentReminderStage, confirmedAtOrBefore, page)
+                    .getContent();
+        }
+        return jpa.findReminderCandidatesStartedAtOrBefore(
+                        currentReminderStage, confirmedAtOrBefore, startedAtOrBefore, page)
                 .getContent();
     }
 
