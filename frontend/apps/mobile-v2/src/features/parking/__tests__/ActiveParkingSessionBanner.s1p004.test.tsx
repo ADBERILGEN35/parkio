@@ -1,4 +1,4 @@
-import { act, fireEvent, screen, waitFor } from '@testing-library/react-native';
+import { act, cleanup, fireEvent, screen, waitFor } from '@testing-library/react-native';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import type { ReactElement, ReactNode } from 'react';
 import { render } from '@testing-library/react-native';
@@ -30,6 +30,9 @@ jest.mock('@/services/api', () => ({
   },
 }));
 
+/** Pinned with fake timers so needsActiveConfirmation stays false for terminal CTAs. */
+const FAKE_NOW = '2026-07-21T09:05:00.000Z';
+
 const activeParkingSessionFixture = {
   id: 'd431ad5a-f8ce-4be2-b4dc-248b47990b39',
   status: 'ACTIVE' as const,
@@ -39,13 +42,21 @@ const activeParkingSessionFixture = {
   latitude: 41.0082,
   longitude: 28.9784,
   estimatedFee: '125.50',
-  lastConfirmedAt: '2026-07-25T10:00:00.000Z',
+  // Keep within confirmAfterMs of FAKE_NOW (not a wall-calendar date).
+  lastConfirmedAt: '2026-07-21T09:00:00.000Z',
   completionType: null,
 };
 
 function renderBanner(ui: ReactElement = <ActiveParkingSessionBanner />) {
   const client = new QueryClient({
-    defaultOptions: { queries: { retry: false, gcTime: 0 } },
+    defaultOptions: {
+      queries: {
+        retry: false,
+        gcTime: 0,
+        refetchOnWindowFocus: false,
+        refetchOnReconnect: false,
+      },
+    },
   });
   function Wrapper({ children }: { children: ReactNode }) {
     return (
@@ -69,8 +80,7 @@ function renderBanner(ui: ReactElement = <ActiveParkingSessionBanner />) {
 describe('ActiveParkingSessionBanner S1-P0-04 terminal UI', () => {
   beforeEach(() => {
     jest.clearAllMocks();
-    jest.useFakeTimers();
-    jest.setSystemTime(new Date('2026-07-21T09:05:00.000Z'));
+    jest.useFakeTimers({ now: new Date(FAKE_NOW) });
     useAuthStore.setState({
       status: 'authenticated',
       user: { id: 'user-1', email: 'a@b.c', displayName: 'A', roles: ['USER'] } as never,
@@ -79,6 +89,7 @@ describe('ActiveParkingSessionBanner S1-P0-04 terminal UI', () => {
   });
 
   afterEach(() => {
+    cleanup();
     jest.useRealTimers();
   });
 
@@ -107,10 +118,13 @@ describe('ActiveParkingSessionBanner S1-P0-04 terminal UI', () => {
     (api.parkingApi.getActiveParkingSession as jest.Mock).mockResolvedValue(
       activeParkingSessionFixture,
     );
-    (api.parkingApi.completeParkingSession as jest.Mock).mockResolvedValue({
-      ...activeParkingSessionFixture,
-      status: 'COMPLETED',
-      endedAt: '2026-07-21T09:10:00.000Z',
+    (api.parkingApi.completeParkingSession as jest.Mock).mockImplementation(async () => {
+      (api.parkingApi.getActiveParkingSession as jest.Mock).mockResolvedValue(null);
+      return {
+        ...activeParkingSessionFixture,
+        status: 'COMPLETED' as const,
+        endedAt: '2026-07-21T09:10:00.000Z',
+      };
     });
     const { client } = renderBanner();
 
@@ -137,10 +151,13 @@ describe('ActiveParkingSessionBanner S1-P0-04 terminal UI', () => {
     (api.parkingApi.getActiveParkingSession as jest.Mock).mockResolvedValue(
       activeParkingSessionFixture,
     );
-    (api.parkingApi.cancelParkingSession as jest.Mock).mockResolvedValue({
-      ...activeParkingSessionFixture,
-      status: 'CANCELLED',
-      endedAt: '2026-07-21T09:10:00.000Z',
+    (api.parkingApi.cancelParkingSession as jest.Mock).mockImplementation(async () => {
+      (api.parkingApi.getActiveParkingSession as jest.Mock).mockResolvedValue(null);
+      return {
+        ...activeParkingSessionFixture,
+        status: 'CANCELLED' as const,
+        endedAt: '2026-07-21T09:10:00.000Z',
+      };
     });
     renderBanner();
 
