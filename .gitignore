@@ -102,3 +102,15 @@ docker/prometheus/textfile/*.prom
 artifacts/*.apk
 artifacts/*.aab
 artifacts/*.sha256
+
+
+# Local Android builds
+frontend/apps/mobile-v2/android/.cxx/
+frontend/apps/mobile-v2/android/.gradle/
+frontend/apps/mobile-v2/android/build/
+
+# Local Expo
+.expo/
+
+# Local IDE
+.idea/workspace.xml
