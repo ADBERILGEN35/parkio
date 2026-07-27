@@ -93,3 +93,12 @@ backup-artifacts/*
 # Prometheus textfile metrics (written by backup jobs)
 docker/prometheus/textfile/*.prom
 !docker/prometheus/textfile/.gitkeep
+
+
+# Local pnpm cache
+**/.pnpm-store/
+
+# Local mobile build artifacts
+artifacts/*.apk
+artifacts/*.aab
+artifacts/*.sha256
