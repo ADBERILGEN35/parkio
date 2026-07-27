@@ -803,7 +803,7 @@ class ParkingApplicationServiceTest {
     }
 
     @Test
-    void humanReviewTimeoutFailsTerminallyWithoutRetrying() {
+    void humanReviewTimeoutRecordsSlaBreachWithoutRejecting() {
         ParkingSpot spot = service.createSpot(createCommand(UUID.randomUUID(), LegalStatus.LEGAL));
         service.applyAiValidationResult(spot.id(), "WARNING", List.of(), UUID.randomUUID(), clock.instant());
         outbox.events.clear();
@@ -812,22 +812,38 @@ class ParkingApplicationServiceTest {
 
         assertThat(service.processModerationTimeouts(10)).isEqualTo(1);
 
-        ParkingSpot failed = spots.byId.get(spot.id());
-        assertThat(failed.status()).isEqualTo(ParkingSpotStatus.REVIEW_FAILED);
-        assertThat(failed.moderationAttempts()).isZero();
-        assertThat(statusHistory.all).singleElement().satisfies(h -> {
-            assertThat(h.previousStatus()).isEqualTo(ParkingSpotStatus.PENDING_REVIEW);
-            assertThat(h.reason()).isEqualTo(ParkingSpotReviewFailedEvent.REASON_REVIEW_TIMEOUT);
-        });
-        assertThat(outbox.events).singleElement().isInstanceOf(ParkingSpotReviewFailedEvent.class);
+        ParkingSpot pending = spots.byId.get(spot.id());
+        assertThat(pending.status()).isEqualTo(ParkingSpotStatus.PENDING_REVIEW);
+        assertThat(pending.reviewSlaBreachedAt()).isEqualTo(clock.instant());
+        assertThat(pending.moderationAttempts()).isZero();
+        assertThat(statusHistory.all).isEmpty();
+        assertThat(outbox.events).isEmpty();
         assertThat(moderationMetrics.timeouts).containsExactly(ParkingSpotStatus.PENDING_REVIEW);
+    }
+
+    @Test
+    void reviewSlaBreachedSpotCanStillBeApproved() {
+        ParkingSpot spot = service.createSpot(createCommand(UUID.randomUUID(), LegalStatus.LEGAL));
+        service.applyAiValidationResult(spot.id(), "WARNING", List.of(), UUID.randomUUID(), clock.instant());
+        clock.set(NOW.plus(REVIEW_TIMEOUT).plusSeconds(1));
+        service.processModerationTimeouts(10);
+        outbox.events.clear();
+
+        Instant later = clock.instant().plusSeconds(60);
+        clock.set(later);
+        service.approveSpotByModerator(spot.id(), UUID.randomUUID(), later);
+
+        assertThat(spots.byId.get(spot.id()).status()).isEqualTo(ParkingSpotStatus.ACTIVE);
     }
 
     @Test
     void reviewFailedSpotCanNeverBecomeVisibleAfterwards() {
         ParkingSpot spot = service.createSpot(createCommand(UUID.randomUUID(), LegalStatus.LEGAL));
-        service.applyAiValidationResult(spot.id(), "WARNING", List.of(), UUID.randomUUID(), clock.instant());
-        clock.set(NOW.plus(REVIEW_TIMEOUT).plusSeconds(1));
+        for (int attempt = 1; attempt <= MAX_VALIDATION_ATTEMPTS; attempt++) {
+            clock.set(spots.byId.get(spot.id()).moderationDeadlineAt().plusSeconds(1));
+            service.processModerationTimeouts(10);
+        }
+        clock.set(spots.byId.get(spot.id()).moderationDeadlineAt().plusSeconds(1));
         service.processModerationTimeouts(10);
         outbox.events.clear();
 
@@ -1016,7 +1032,7 @@ class ParkingApplicationServiceTest {
         return new ParkingSpot(UUID.randomUUID(), owner, UUID.randomUUID(), 41.0, 29.0, null, null, false,
                 Set.of(VehicleType.SEDAN), ParkingContext.STREET_PARKING, legalStatus, Set.of(),
                 status, 1.0, 0, 0, expiresAt, NOW, NOW, 0L,
-                status.isPendingModeration() ? null : NOW, NOW.plus(Duration.ofHours(24)), 0, null, null);
+                status.isPendingModeration() ? null : NOW, NOW.plus(Duration.ofHours(24)), 0, null, null, null);
     }
 
     // --- Fakes -----------------------------------------------------------
@@ -1052,6 +1068,11 @@ class ParkingApplicationServiceTest {
         @Override
         public void recordModerationFailure(String reason) {
             failures.add(reason);
+        }
+
+        @Override
+        public void recordReviewSlaBreach(Duration queueLatencyBeforeBreach) {
+            // captured via timeout path in tests
         }
 
         @Override

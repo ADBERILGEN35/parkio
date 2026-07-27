@@ -6,10 +6,10 @@ import { mediaApi } from '@/services/api';
 import { useShareDraftStore } from './state/shareDraftStore';
 
 /**
- * Background upload for the share draft: starts only after a valid claimed
- * region is set, reports progress into the store, survives step navigation,
- * queues offline (auto-retries on reconnect), and reuses one idempotency key
- * per photo so retries dedupe server-side instead of duplicating uploads.
+ * Background upload for the share draft: starts when a prepared photo exists,
+ * reports progress into the store, survives step navigation, queues offline
+ * (auto-retries on reconnect), and reuses one idempotency key per photo so
+ * retries dedupe server-side instead of duplicating uploads.
  */
 export function useDraftUpload() {
   const online = useOnlineStatus();
@@ -21,8 +21,6 @@ export function useDraftUpload() {
   const photo = useShareDraftStore((s) => s.photo);
   const mediaId = useShareDraftStore((s) => s.mediaId);
   const phase = useShareDraftStore((s) => s.uploadPhase);
-  const hasRegion = isValidClaimedRegion(photo?.claimedRegion);
-
   const abortRef = useRef<AbortController | null>(null);
   const keyByUriRef = useRef<{ uri: string; key: string } | null>(null);
   const inFlightRef = useRef(false);
@@ -31,7 +29,8 @@ export function useDraftUpload() {
     const state = useShareDraftStore.getState();
     const currentPhoto = state.photo;
     const region = currentPhoto?.claimedRegion ?? null;
-    if (!currentPhoto || !isValidClaimedRegion(region) || state.mediaId || inFlightRef.current) {
+    const optionalRegion = isValidClaimedRegion(region) ? region : undefined;
+    if (!currentPhoto || state.mediaId || inFlightRef.current) {
       return;
     }
     if (!onlineRef.current) {
@@ -57,7 +56,7 @@ export function useDraftUpload() {
     try {
       const response = await mediaApi.uploadMedia(filePart, keyByUriRef.current.key, {
         signal: abort.signal,
-        claimedRegion: region,
+        claimedRegion: optionalRegion,
         onUploadProgress: (event) => {
           const total = event.total ?? 0;
           if (total > 0) {
@@ -91,9 +90,9 @@ export function useDraftUpload() {
     }
   }, []);
 
-  // Auto-start when a photo + claimed region land or connectivity returns.
+  // Auto-start when a photo lands or connectivity returns.
   useEffect(() => {
-    if (!photo || !hasRegion || mediaId) {
+    if (!photo || mediaId) {
       return;
     }
     if (online && (phase === 'idle' || phase === 'offline')) {
@@ -101,7 +100,7 @@ export function useDraftUpload() {
     } else if (!online && phase === 'idle') {
       useShareDraftStore.getState().setUpload('offline');
     }
-  }, [photo, hasRegion, mediaId, phase, online, run]);
+  }, [photo, mediaId, phase, online, run]);
 
   // Abort in-flight upload when the hook unmounts (wizard leave / cancel).
   useEffect(() => {

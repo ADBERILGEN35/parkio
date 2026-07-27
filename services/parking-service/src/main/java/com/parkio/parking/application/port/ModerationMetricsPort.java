@@ -28,6 +28,9 @@ public interface ModerationMetricsPort {
     /** A spot reached the terminal {@code REVIEW_FAILED} state. */
     void recordModerationFailure(String reason);
 
+    /** Human review SLA elapsed without rejecting the submission. */
+    void recordReviewSlaBreach(Duration queueLatencyBeforeBreach);
+
     /**
      * A spot was expired without ever having been published. This must never happen — it
      * is the exact defect this lifecycle exists to prevent — so the counter is an

@@ -59,28 +59,23 @@ public class VisionProperties {
      * Minimum provider confidence for LIKELY_PARKING to stand; below it the verdict
      * degrades to UNCERTAIN (human review) rather than publishing on a weak signal.
      */
-    private double acceptConfidence = 0.70;
+    /** Legacy accept floor; prefer {@link #decision} thresholds for new policy. */
+    private double acceptConfidence = 0.65;
 
-    /**
-     * Minimum provider confidence for NOT_A_PARKING_SPOT to stand; below it the
-     * verdict degrades to UNCERTAIN so weak rejections go to human review instead of
-     * auto-rejecting a legitimate submission.
-     */
-    private double rejectConfidence = 0.70;
+    /** Legacy reject floor; prefer {@link #decision} thresholds for new policy. */
+    private double rejectConfidence = 0.95;
+
+    private final Decision decision = new Decision();
 
     /**
      * Prompt/template version recorded on every result for traceability and to gate
      * cross-version result reuse. Bump this whenever {@code GeminiVisionClient.PROMPT}
      * or the response schema changes in a way that can alter verdicts.
      */
-    private String promptVersion = "2026-07-region-first-v1";
+    private String promptVersion = "2026-07-whole-image-v1";
 
-    /**
-     * Policy version (reason-code → verdict mapping in the classifier). Bump when
-     * {@code CONCRETE_REJECT_REASON_CODES} / {@code FORCE_UNCERTAIN_REASON_CODES} or
-     * the confidence-policy logic changes.
-     */
-    private String policyVersion = "2026-07-v1";
+    /** Bump when {@link ModerationDecisionPolicy} or reason-code routing changes. */
+    private String policyVersion = "2026-07-photo-policy-v2";
 
     private final MediaClient mediaClient = new MediaClient();
     private final Gemini gemini = new Gemini();
@@ -197,8 +192,68 @@ public class VisionProperties {
      * Deterministically derived from the accept/reject thresholds so a threshold change
      * automatically invalidates cross-version result reuse without a manual bump.
      */
+    public Decision getDecision() {
+        return decision;
+    }
+
     public String getThresholdVersion() {
-        return String.format(Locale.ROOT, "acc%.2f-rej%.2f", acceptConfidence, rejectConfidence);
+        return String.format(Locale.ROOT, "acc%.2f-rej%.2f-p%.2f-o%.2f-i%.2f-u%.2f",
+                decision.parkingContextAcceptConfidence,
+                decision.openSpaceAcceptConfidence,
+                decision.clearlyIrrelevantAcceptMax,
+                decision.clearlyIrrelevantRejectConfidence,
+                decision.unusableImageRejectConfidence,
+                rejectConfidence);
+    }
+
+    /** Central three-way decision thresholds — single source of truth. */
+    public static class Decision {
+
+        private double parkingContextAcceptConfidence = 0.65;
+        private double openSpaceAcceptConfidence = 0.55;
+        private double clearlyIrrelevantAcceptMax = 0.20;
+        private double clearlyIrrelevantRejectConfidence = 0.95;
+        private double unusableImageRejectConfidence = 0.95;
+
+        public double getParkingContextAcceptConfidence() {
+            return parkingContextAcceptConfidence;
+        }
+
+        public void setParkingContextAcceptConfidence(double parkingContextAcceptConfidence) {
+            this.parkingContextAcceptConfidence = parkingContextAcceptConfidence;
+        }
+
+        public double getOpenSpaceAcceptConfidence() {
+            return openSpaceAcceptConfidence;
+        }
+
+        public void setOpenSpaceAcceptConfidence(double openSpaceAcceptConfidence) {
+            this.openSpaceAcceptConfidence = openSpaceAcceptConfidence;
+        }
+
+        public double getClearlyIrrelevantAcceptMax() {
+            return clearlyIrrelevantAcceptMax;
+        }
+
+        public void setClearlyIrrelevantAcceptMax(double clearlyIrrelevantAcceptMax) {
+            this.clearlyIrrelevantAcceptMax = clearlyIrrelevantAcceptMax;
+        }
+
+        public double getClearlyIrrelevantRejectConfidence() {
+            return clearlyIrrelevantRejectConfidence;
+        }
+
+        public void setClearlyIrrelevantRejectConfidence(double clearlyIrrelevantRejectConfidence) {
+            this.clearlyIrrelevantRejectConfidence = clearlyIrrelevantRejectConfidence;
+        }
+
+        public double getUnusableImageRejectConfidence() {
+            return unusableImageRejectConfidence;
+        }
+
+        public void setUnusableImageRejectConfidence(double unusableImageRejectConfidence) {
+            this.unusableImageRejectConfidence = unusableImageRejectConfidence;
+        }
     }
 
     public MediaClient getMediaClient() {

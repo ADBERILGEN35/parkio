@@ -8,6 +8,7 @@ import { isValidClaimedRegion } from '@parkio/types';
 import { useShareDraftStore } from '@/features/share/state/shareDraftStore';
 
 jest.mock('@/features/share/prepareImage', () => ({
+  deleteAppOwnedDraftPhoto: jest.fn(),
   deleteDraftPhoto: jest.fn(),
   draftPhotoExists: jest.fn(() => true),
 }));

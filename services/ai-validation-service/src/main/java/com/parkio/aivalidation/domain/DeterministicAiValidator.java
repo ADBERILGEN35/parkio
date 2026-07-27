@@ -24,6 +24,8 @@ public final class DeterministicAiValidator {
     public static final String ASSESSMENT_VEHICLE_FIT_PREFIX = "assessment:vehicle_fit:";
     public static final String ASSESSMENT_OBSTRUCTION_PREFIX = "assessment:obstruction:";
     public static final String ASSESSMENT_LEGALITY_PREFIX = "assessment:legality:";
+    public static final String MODERATION_DECISION_PREFIX = "moderation_decision:";
+    public static final String MODERATION_SIGNAL_PREFIX = "moderation_signal:";
     public static final String REVIEW_EXPLANATION_KEY = "share.validation.reviewBody";
 
     private final ContentRiskClassifier contentRiskClassifier;
@@ -69,6 +71,7 @@ public final class DeterministicAiValidator {
                         duplicateRisk, "Low likelihood of being a duplicate submission.", now)));
 
         appendStructuredAssessments(findings, classification, now);
+        appendModerationSignals(findings, classification, now);
 
         if (verdict == ContentRiskClassifier.Verdict.NOT_A_PARKING_SPOT) {
             imageQuality = 10;
@@ -132,6 +135,33 @@ public final class DeterministicAiValidator {
             findings.add(AiValidationFinding.of(AiValidationType.LEGAL_RISK_DETECTION, null,
                     50, ASSESSMENT_LEGALITY_PREFIX + classification.legalityAccessAssessment(), now));
         }
+    }
+
+    private static void appendModerationSignals(List<AiValidationFinding> findings,
+                                                ContentClassification classification,
+                                                Instant now) {
+        if (classification.moderationDecision() != null) {
+            findings.add(AiValidationFinding.of(AiValidationType.PARKING_SPACE_VISIBILITY, null,
+                    50, MODERATION_DECISION_PREFIX + classification.moderationDecision().name(), now));
+        }
+        ModerationSignals signals = classification.moderationSignals();
+        if (signals == null) {
+            return;
+        }
+        findings.add(AiValidationFinding.of(AiValidationType.PARKING_SPACE_VISIBILITY, null,
+                50, MODERATION_SIGNAL_PREFIX + "sceneType=" + signals.sceneType(), now));
+        findings.add(AiValidationFinding.of(AiValidationType.PARKING_SPACE_VISIBILITY, null,
+                50, MODERATION_SIGNAL_PREFIX + "roadContext=" + signals.roadContextPresent(), now));
+        findings.add(AiValidationFinding.of(AiValidationType.PARKING_SPACE_VISIBILITY, null,
+                50, MODERATION_SIGNAL_PREFIX + "parkingContext=" + signals.parkingContextPresent(), now));
+        findings.add(AiValidationFinding.of(AiValidationType.PARKING_SPACE_VISIBILITY, null,
+                50, MODERATION_SIGNAL_PREFIX + "openSpace=" + signals.vehicleSizedOpenSpacePresent(), now));
+        findings.add(AiValidationFinding.of(AiValidationType.PARKING_SPACE_VISIBILITY, null,
+                50, MODERATION_SIGNAL_PREFIX + "irrelevant=" + signals.clearlyIrrelevantContent(), now));
+        findings.add(AiValidationFinding.of(AiValidationType.PARKING_SPACE_VISIBILITY, null,
+                50, MODERATION_SIGNAL_PREFIX + "usable=" + signals.imageUsable(), now));
+        findings.add(AiValidationFinding.of(AiValidationType.PARKING_SPACE_VISIBILITY, null,
+                50, MODERATION_SIGNAL_PREFIX + "legalityConcern=" + signals.possibleSafetyOrLegalityConcern(), now));
     }
 
     private static int seedOf(UUID mediaId) {

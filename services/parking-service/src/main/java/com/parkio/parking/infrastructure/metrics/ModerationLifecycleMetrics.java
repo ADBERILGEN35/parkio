@@ -124,6 +124,18 @@ public class ModerationLifecycleMetrics implements ModerationMetricsPort {
     }
 
     @Override
+    public void recordReviewSlaBreach(Duration queueLatencyBeforeBreach) {
+        Counter.builder("parkio.parking.moderation.review_sla_breach.count")
+                .description("Human review SLA elapsed without rejecting the submission")
+                .register(registry)
+                .increment();
+        Timer.builder("parkio.parking.moderation.review_sla_breach.queue_latency")
+                .description("Queue latency when the human review SLA first breached")
+                .register(registry)
+                .record(queueLatencyBeforeBreach.toNanos(), TimeUnit.NANOSECONDS);
+    }
+
+    @Override
     public void recordExpiredBeforeApproved() {
         expiredBeforeApprovedCounter.increment();
     }

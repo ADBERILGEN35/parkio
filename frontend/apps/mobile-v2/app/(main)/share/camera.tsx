@@ -7,6 +7,7 @@ import { AppText } from '@/components/ui/AppText';
 import { Button } from '@/components/ui/Button';
 import { IconButton } from '@/components/ui/IconButton';
 import { PressableScale } from '@/components/ui/PressableScale';
+import { beginMediaSelection, isLatestMediaSelection } from '@/features/share/mediaSelectionGuard';
 import { openAppSettings, pickImageFromGallery } from '@/features/share/pickMedia';
 import { prepareImage } from '@/features/share/prepareImage';
 import { useShareDraftStore } from '@/features/share/state/shareDraftStore';
@@ -75,9 +76,13 @@ export default function ShareCameraScreen() {
     if (!captured || busy) return;
     setBusy(true);
     const generation = useShareDraftStore.getState().generation;
+    const selection = beginMediaSelection();
     try {
       const prepared = await prepareImage(captured);
       if (!useShareDraftStore.getState().isGenerationCurrent(generation)) {
+        return;
+      }
+      if (!isLatestMediaSelection(selection)) {
         return;
       }
       useShareDraftStore.getState().setPhoto(prepared);

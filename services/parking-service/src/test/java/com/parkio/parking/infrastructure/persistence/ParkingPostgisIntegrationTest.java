@@ -168,6 +168,7 @@ class ParkingPostgisIntegrationTest {
                 now.plus(java.time.Duration.ofHours(24)),
                 0,
                 status.isPendingModeration() ? null : now,
+                null,
                 null));
     }
 }

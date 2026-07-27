@@ -34,7 +34,7 @@ jest.mock('@react-native-community/netinfo', () => ({
 jest.mock('expo-file-system', () => {
   const files = new Map<string, string>();
   class File {
-    private key: string;
+    key: string;
     constructor(...parts: string[]) {
       this.key = parts.join('/');
     }
@@ -55,13 +55,27 @@ jest.mock('expo-file-system', () => {
     delete(): void {
       files.delete(this.key);
     }
-    copy(): void {}
+    copy(destination: File): void {
+      const content = files.get(this.key);
+      if (content !== undefined) {
+        files.set(destination.key, content);
+      }
+    }
   }
   class Directory {
+    prefix: string;
+    constructor(...parts: string[]) {
+      this.prefix = parts.join('/');
+    }
     get exists(): boolean {
       return true;
     }
     create(): void {}
+    list(): File[] {
+      return [...files.keys()]
+        .filter((key) => key.startsWith(`${this.prefix}/`))
+        .map((key) => new File(key));
+    }
   }
   return { File, Directory, Paths: { document: '/doc', cache: '/cache' } };
 });

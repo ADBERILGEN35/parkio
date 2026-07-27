@@ -70,6 +70,8 @@ public final class ParkingSpot {
     private int moderationAttempts;
     private Instant moderationDecidedAt;
     private UUID moderationRequestId;
+    /** Operational SLA metadata: human review window elapsed without a terminal rejection. */
+    private Instant reviewSlaBreachedAt;
 
     public ParkingSpot(UUID id,
                        UUID ownerUserId,
@@ -95,7 +97,8 @@ public final class ParkingSpot {
                        Instant moderationDeadlineAt,
                        int moderationAttempts,
                        Instant moderationDecidedAt,
-                       UUID moderationRequestId) {
+                       UUID moderationRequestId,
+                       Instant reviewSlaBreachedAt) {
         this.id = Objects.requireNonNull(id, "id");
         this.ownerUserId = Objects.requireNonNull(ownerUserId, "ownerUserId");
         this.mediaId = Objects.requireNonNull(mediaId, "mediaId");
@@ -123,6 +126,7 @@ public final class ParkingSpot {
         this.moderationAttempts = Math.max(0, moderationAttempts);
         this.moderationDecidedAt = moderationDecidedAt;
         this.moderationRequestId = moderationRequestId;
+        this.reviewSlaBreachedAt = reviewSlaBreachedAt;
     }
 
     /**
@@ -153,7 +157,7 @@ public final class ParkingSpot {
                 addressText, description, manualLocationEdited, suitableVehicleTypes, parkingContext,
                 legalStatus, violationReasons, ParkingSpotStatus.PENDING_VALIDATION, INITIAL_CONFIDENCE, 0, 0,
                 null, now, now, null,
-                null, now.plus(policy.validationTimeout()), 0, null, null);
+                null, now.plus(policy.validationTimeout()), 0, null, null, null);
     }
 
     /**
@@ -588,6 +592,29 @@ public final class ParkingSpot {
     /** Correlation id of the moderation request in flight (the upstream event id). */
     public UUID moderationRequestId() {
         return moderationRequestId;
+    }
+
+    /**
+     * Records that the human-review SLA elapsed while the spot remains awaiting a decision.
+     * Extends the operational deadline without rejecting the submission.
+     *
+     * @return {@code true} if SLA metadata was updated
+     */
+    public boolean recordReviewSlaBreach(Instant now, ModerationPolicy policy) {
+        if (status != ParkingSpotStatus.PENDING_REVIEW) {
+            return false;
+        }
+        if (reviewSlaBreachedAt == null) {
+            reviewSlaBreachedAt = now;
+        }
+        moderationDeadlineAt = now.plus(policy.reviewTimeout());
+        updatedAt = now;
+        return true;
+    }
+
+    /** When the human-review SLA first breached; null until then. */
+    public Instant reviewSlaBreachedAt() {
+        return reviewSlaBreachedAt;
     }
 
     /** How long this spot has waited on moderation, for queue-latency observability. */

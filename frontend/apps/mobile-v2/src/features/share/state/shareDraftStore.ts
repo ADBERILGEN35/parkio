@@ -6,7 +6,11 @@ import type {
   SpotVehicleType,
   ViolationReason,
 } from '@parkio/types';
-import { deleteDraftPhoto, draftPhotoExists } from '@/features/share/prepareImage';
+import {
+  deleteAppOwnedDraftPhoto,
+  deleteDraftPhoto,
+  draftPhotoExists,
+} from '@/features/share/prepareImage';
 import { readJson, removeJson, writeJson } from '@/services/jsonStore';
 
 /**
@@ -35,7 +39,9 @@ export interface DraftPhoto {
   uri: string;
   width: number;
   height: number;
-  /** Normalized claimed free-space box; required before upload/continue. */
+  /** Monotonic identity for preview cache busting and race-safe hydration. */
+  revision?: number;
+  /** Optional legacy annotation; not required for upload or continue. */
   claimedRegion?: ClaimedRegion | null;
 }
 
@@ -47,6 +53,7 @@ export interface DraftLocation {
 interface PersistedDraft {
   step: ShareStep;
   photo: DraftPhoto | null;
+  photoRevision: number;
   mediaId: string | null;
   location: DraftLocation | null;
   gpsAccuracy: number | null;
@@ -107,6 +114,7 @@ const EMPTY: Omit<
 > = {
   step: 'photo',
   photo: null,
+  photoRevision: 0,
   mediaId: null,
   location: null,
   gpsAccuracy: null,
@@ -134,6 +142,7 @@ function persist(state: ShareDraftState): void {
   const snapshot: PersistedDraft = {
     step: state.step,
     photo: state.photo,
+    photoRevision: state.photoRevision,
     mediaId: state.mediaId,
     location: state.location,
     gpsAccuracy: state.gpsAccuracy,
@@ -185,17 +194,28 @@ export const useShareDraftStore = create<ShareDraftState>((set, get) => {
     uploadProgress: 0,
 
     hydrate: async () => {
+      const revisionAtStart = get().photoRevision;
       const stored = await readJson<PersistedDraft>(STORE_KEY);
+      if (get().photoRevision !== revisionAtStart) {
+        set({ hydrated: true });
+        return;
+      }
       if (stored && hasContent(stored) && isFresh(stored.savedAt)) {
         let photo = stored.photo;
         let step = stored.step;
+        const photoRevision = stored.photoRevision ?? photo?.revision ?? 0;
         // Missing local image: drop the photo and fall back to the photo step.
         if (photo && !draftPhotoExists(photo.uri)) {
           console.warn('[share] draft photo missing on hydrate; clearing photo');
           photo = null;
           step = 'photo';
         }
-        const recovered: PersistedDraft = { ...stored, photo, step };
+        const recovered: PersistedDraft = {
+          ...stored,
+          photo,
+          step,
+          photoRevision,
+        };
         if (!hasContent(recovered)) {
           void removeJson(STORE_KEY);
           deleteDraftPhoto();
@@ -204,6 +224,12 @@ export const useShareDraftStore = create<ShareDraftState>((set, get) => {
         }
         set({
           ...recovered,
+          photo: photo
+            ? {
+                ...photo,
+                revision: photo.revision ?? photoRevision,
+              }
+            : null,
           hydrated: true,
           resumableDraft: true,
           uploadPhase: recovered.mediaId && recovered.photo ? 'ready' : 'idle',
@@ -221,14 +247,27 @@ export const useShareDraftStore = create<ShareDraftState>((set, get) => {
 
     setStep: (step) => update({ step }),
 
-    setPhoto: (photo) =>
+    setPhoto: (photo) => {
+      const previous = get().photo;
+      if (previous?.uri && previous.uri !== photo.uri) {
+        deleteAppOwnedDraftPhoto(previous.uri);
+      }
+      const photoRevision = get().photoRevision + 1;
       update({
         // Always clear region on photo replace — never carry over the previous box.
-        photo: { uri: photo.uri, width: photo.width, height: photo.height, claimedRegion: null },
+        photo: {
+          uri: photo.uri,
+          width: photo.width,
+          height: photo.height,
+          revision: photoRevision,
+          claimedRegion: null,
+        },
+        photoRevision,
         mediaId: null,
         uploadPhase: 'idle',
         uploadProgress: 0,
-      }),
+      });
+    },
 
     setClaimedRegion: (claimedRegion) => {
       const current = get().photo;

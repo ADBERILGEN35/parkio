@@ -1,7 +1,7 @@
-import { isValidClaimedRegion } from '@parkio/types';
 import { useShareDraftStore } from '@/features/share/state/shareDraftStore';
 
 jest.mock('@/features/share/prepareImage', () => ({
+  deleteAppOwnedDraftPhoto: jest.fn(),
   deleteDraftPhoto: jest.fn(),
   draftPhotoExists: jest.fn(() => true),
 }));
@@ -25,13 +25,12 @@ describe('share region persistence / race behavior', () => {
     useShareDraftStore.getState().reset();
   });
 
-  it('upload precondition: no valid region means upload must not start', () => {
+  it('upload precondition: photo alone is enough to start upload', () => {
     const store = useShareDraftStore.getState();
     store.setPhoto({ uri: 'file://a.jpg', width: 100, height: 100 });
     const photo = useShareDraftStore.getState().photo;
-    const canUpload =
-      photo != null && isValidClaimedRegion(photo.claimedRegion) && !useShareDraftStore.getState().mediaId;
-    expect(canUpload).toBe(false);
+    const canUpload = photo != null && !useShareDraftStore.getState().mediaId;
+    expect(canUpload).toBe(true);
   });
 
   it('replacing photo atomically clears region and mediaId', () => {

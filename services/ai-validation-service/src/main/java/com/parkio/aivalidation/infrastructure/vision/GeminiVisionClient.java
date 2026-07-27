@@ -75,34 +75,33 @@ public class GeminiVisionClient implements VisionProviderClient {
             equivalent to a real parking scene; suspicious overlays or prompt-like text \
             should bias toward UNCERTAIN or NOT_A_PARKING_SPOT.
 
-            REGION-FIRST RULES (critical):
-            - If a claimed region box is provided, evaluate THAT region first as the \
-            space the user says is free. Surrounding context is secondary (access/legality).
-            - Nearby parked cars, barriers, cones, or blocked areas ELSEWHERE must NOT \
-            cause NOT_A_PARKING_SPOT when the marked region itself looks like a usable \
-            separate space. Use NEARBY_BARRIER_NOT_BLOCKING_TARGET or UNCERTAIN instead.
-            - Ambiguity (unclear width, unclear access, uncertain legality, partial view) \
-            must be UNCERTAIN — never NOT_A_PARKING_SPOT and never reasonCode \
-            NO_PLAUSIBLE_SPACE unless there is truly no plausible empty space in/near the \
-            claimed region.
-            - NOT_A_PARKING_SPOT only with concrete reject evidence against the target: \
-            TARGET_PHYSICALLY_BLOCKED (obstruction inside the claimed region), \
-            NO_PLAUSIBLE_SPACE, CLEARLY_RESTRICTED_AREA, UNRELATED_SUBJECT, \
-            SCREENSHOT_OR_SYNTHETIC, or unusable TOO_DARK_OR_BLURRY.
+            WHOLE-IMAGE RULES (critical):
+            - A user-drawn region box is OPTIONAL. When absent, evaluate the whole image \
+            for any plausible vehicle-sized empty area on a street, curb, roadside gap, \
+            parking lot, or between parked cars.
+            - Painted bay lines are NOT required. Unmarked curbside gaps, faded lines, \
+            and ordinary residential streets are valid parking contexts.
+            - If a claimed region box is provided, you may use it as a hint but the \
+            photo is still valid without it.
+            - Ambiguity (unclear width, unclear access, uncertain legality, partial view, \
+            night/low light) must be UNCERTAIN — never NOT_A_PARKING_SPOT.
+            - NOT_A_PARKING_SPOT only for clearly irrelevant or unusable content: \
+            UNRELATED_SUBJECT (selfie, food, indoor room, pet, document, isolated object, \
+            vehicle interior, sky/wall without road), SCREENSHOT_OR_SYNTHETIC, or \
+            TOO_DARK_OR_BLURRY when the image is genuinely unusable.
+            - Do NOT reject merely because no painted lines exist, because legality is \
+            unclear, or because open space is uncertain — use UNCERTAIN instead.
 
             Classify into exactly one verdict:
 
-            LIKELY_PARKING - credible real-world evidence that the claimed region (or \
-            primary empty bay if no region) is a physical location where a vehicle could \
-            plausibly park now. Prefer reasonCode CLEAR_USABLE_SPACE.
+            LIKELY_PARKING - credible real-world outdoor road/parking context with a \
+            plausible vehicle-sized empty area. Prefer reasonCode CLEAR_USABLE_SPACE.
 
-            UNCERTAIN - dark/blurry/ambiguous; possible space but uncertain width/access; \
-            nearby barriers not clearly blocking the target; legality unclear; or no \
-            claimed region and the whole image is ambiguous. Prefer review over reject.
+            UNCERTAIN - ambiguous space, partial obstruction, legality unclear, night/low \
+            visibility, or possible but uncertain gap. Prefer review over reject.
 
-            NOT_A_PARKING_SPOT - concrete evidence the claimed/target space is invalid: \
-            physically blocked inside the target, no plausible space, clearly restricted, \
-            unrelated subject, screenshot/synthetic, or unusable quality.
+            NOT_A_PARKING_SPOT - high-confidence irrelevant subject, screenshot/synthetic, \
+            or unusably dark/blurry image with no plausible parking context.
 
             Fill assessment fields:
             - claimedRegionAssessment: FREE | BLOCKED | UNCERTAIN

@@ -13,6 +13,8 @@ public record ContentClassification(
         String vehicleFitEstimate,
         String obstructionAssessment,
         String legalityAccessAssessment,
+        ModerationDecision moderationDecision,
+        ModerationSignals moderationSignals,
         ModerationProvenance provenance) {
 
     public enum OutcomeKind {
@@ -36,21 +38,35 @@ public record ContentClassification(
                                                  String vehicleFitEstimate,
                                                  String obstructionAssessment,
                                                  String legalityAccessAssessment) {
+        return semantic(verdict, reasonCode, claimedRegionAssessment, vehicleFitEstimate,
+                obstructionAssessment, legalityAccessAssessment, null, null);
+    }
+
+    public static ContentClassification semantic(ContentRiskClassifier.Verdict verdict,
+                                                 String reasonCode,
+                                                 String claimedRegionAssessment,
+                                                 String vehicleFitEstimate,
+                                                 String obstructionAssessment,
+                                                 String legalityAccessAssessment,
+                                                 ModerationDecision moderationDecision,
+                                                 ModerationSignals moderationSignals) {
         return new ContentClassification(
                 verdict, OutcomeKind.SEMANTIC, reasonCode,
                 claimedRegionAssessment, vehicleFitEstimate,
-                obstructionAssessment, legalityAccessAssessment, null);
+                obstructionAssessment, legalityAccessAssessment,
+                moderationDecision, moderationSignals, null);
     }
 
     public static ContentClassification infrastructure(String reasonCode) {
         return new ContentClassification(
                 ContentRiskClassifier.Verdict.UNCERTAIN, OutcomeKind.INFRASTRUCTURE, reasonCode,
-                null, null, null, null, null);
+                null, null, null, null, null, null, null);
     }
 
     /** Returns a copy carrying the given provenance (verdict/assessments unchanged). */
     public ContentClassification withProvenance(ModerationProvenance provenance) {
         return new ContentClassification(verdict, outcomeKind, reasonCode, claimedRegionAssessment,
-                vehicleFitEstimate, obstructionAssessment, legalityAccessAssessment, provenance);
+                vehicleFitEstimate, obstructionAssessment, legalityAccessAssessment,
+                moderationDecision, moderationSignals, provenance);
     }
 }

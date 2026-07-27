@@ -118,7 +118,7 @@ describe('shareDraftStore', () => {
   });
 
   it('reset deletes the durable draft photo file when present', () => {
-    const durable = new File(Paths.document, 'parkio-store', 'draft-photo.jpg');
+    const durable = new File(Paths.document, 'parkio-store', 'draft-photo-1-test.jpg');
     durable.write('jpeg-bytes');
     expect(durable.exists).toBe(true);
 

@@ -9,7 +9,6 @@ import {
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import type { Spot } from '@parkio/types';
-import { isValidClaimedRegion } from '@parkio/types';
 import { AppText } from '@/components/ui/AppText';
 import { Button } from '@/components/ui/Button';
 import { ConfirmModal } from '@/components/ui/ConfirmModal';
@@ -20,6 +19,7 @@ import { LocationStep } from '@/features/share/steps/LocationStep';
 import { PhotoStep } from '@/features/share/steps/PhotoStep';
 import { ReviewStep } from '@/features/share/steps/ReviewStep';
 import { SuccessStep } from '@/features/share/steps/SuccessStep';
+import { beginMediaSelection, isLatestMediaSelection } from '@/features/share/mediaSelectionGuard';
 import { openAppSettings, pickImageFromGallery } from '@/features/share/pickMedia';
 import { draftPhotoExists, prepareImage } from '@/features/share/prepareImage';
 import { SHARE_STEPS, useShareDraftStore, type ShareStep } from '@/features/share/state/shareDraftStore';
@@ -66,8 +66,12 @@ export default function ShareWizardScreen() {
   const pickFromGallery = async () => {
     console.info('[ShareSheet] share wizard gallery bootstrap');
     const generation = useShareDraftStore.getState().generation;
+    const selection = beginMediaSelection();
     const result = await pickImageFromGallery();
     if (!useShareDraftStore.getState().isGenerationCurrent(generation)) {
+      return;
+    }
+    if (!isLatestMediaSelection(selection)) {
       return;
     }
     if (result.status === 'cancelled') {
@@ -87,6 +91,9 @@ export default function ShareWizardScreen() {
     try {
       const prepared = await prepareImage(result.asset);
       if (!useShareDraftStore.getState().isGenerationCurrent(generation)) {
+        return;
+      }
+      if (!isLatestMediaSelection(selection)) {
         return;
       }
       useShareDraftStore.getState().setPhoto(prepared);
@@ -136,7 +143,7 @@ export default function ShareWizardScreen() {
   const canContinue = (() => {
     switch (step) {
       case 'photo':
-        return photo !== null && isValidClaimedRegion(photo.claimedRegion) && uploadPhase !== 'failed';
+        return photo !== null && uploadPhase !== 'failed';
       case 'location':
         return location !== null;
       case 'details':

@@ -107,6 +107,9 @@ public class ParkingSpotEntity {
     @Column(name = "moderation_request_id")
     private UUID moderationRequestId;
 
+    @Column(name = "review_sla_breached_at")
+    private Instant reviewSlaBreachedAt;
+
     protected ParkingSpotEntity() {
         // for JPA
     }
@@ -118,7 +121,8 @@ public class ParkingSpotEntity {
                              int verificationCount, int filledReportCount, Instant expiresAt,
                              Instant createdAt, Instant updatedAt, Long version,
                              Instant activatedAt, Instant moderationDeadlineAt, int moderationAttempts,
-                             Instant moderationDecidedAt, UUID moderationRequestId) {
+                             Instant moderationDecidedAt, UUID moderationRequestId,
+                             Instant reviewSlaBreachedAt) {
         this.id = id;
         this.ownerUserId = ownerUserId;
         this.mediaId = mediaId;
@@ -144,6 +148,7 @@ public class ParkingSpotEntity {
         this.moderationAttempts = moderationAttempts;
         this.moderationDecidedAt = moderationDecidedAt;
         this.moderationRequestId = moderationRequestId;
+        this.reviewSlaBreachedAt = reviewSlaBreachedAt;
     }
 
     public UUID getId() {
@@ -244,5 +249,9 @@ public class ParkingSpotEntity {
 
     public UUID getModerationRequestId() {
         return moderationRequestId;
+    }
+
+    public Instant getReviewSlaBreachedAt() {
+        return reviewSlaBreachedAt;
     }
 }

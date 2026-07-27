@@ -35,7 +35,7 @@ class PublicSpotResponseTest {
                 "Main St", "Nice spot", false, Set.of(VehicleType.SEDAN), ParkingContext.STREET_PARKING,
                 LegalStatus.LEGAL, Set.of(), ParkingSpotStatus.VERIFIED, 0.4, 3, 1,
                 now.plusSeconds(600), now, now, 0L,
-                now, now.plus(java.time.Duration.ofHours(24)), 0, now, null);
+                now, now.plus(java.time.Duration.ofHours(24)), 0, now, null, null);
 
         PublicSpotResponse response = PublicSpotResponse.from(spot);
 

@@ -155,15 +155,16 @@ public class VisionContentRiskClassifier implements ContentRiskClassifier {
      * Reject reason codes that may map to {@code NOT_A_PARKING_SPOT}. Soft/ambiguous
      * codes are forced to {@code UNCERTAIN} even if the model returned a hard reject.
      */
+    /** High-confidence irrelevant/unusable only; ambiguity routes to manual review. */
     static final Set<String> CONCRETE_REJECT_REASON_CODES = Set.of(
-            "NO_PLAUSIBLE_SPACE",
-            "TARGET_PHYSICALLY_BLOCKED",
-            "CLEARLY_RESTRICTED_AREA",
             "UNRELATED_SUBJECT",
             "SCREENSHOT_OR_SYNTHETIC",
             "TOO_DARK_OR_BLURRY");
 
     static final Set<String> FORCE_UNCERTAIN_REASON_CODES = Set.of(
+            "NO_PLAUSIBLE_SPACE",
+            "TARGET_PHYSICALLY_BLOCKED",
+            "CLEARLY_RESTRICTED_AREA",
             "NEARBY_BARRIER_NOT_BLOCKING_TARGET",
             "LEGALITY_UNCERTAIN",
             "POSSIBLE_SPACE_UNCERTAIN_WIDTH",
@@ -172,28 +173,19 @@ public class VisionContentRiskClassifier implements ContentRiskClassifier {
 
     private ContentClassification applyConfidencePolicy(VisionProviderClient.VisionAnalysis analysis) {
         String reasonCode = analysis.reasonCode() == null ? "OTHER" : analysis.reasonCode();
-        Verdict verdict = switch (analysis.verdict()) {
-            case "LIKELY_PARKING" -> analysis.confidence() >= properties.getAcceptConfidence()
-                    ? Verdict.LIKELY_PARKING
-                    : Verdict.UNCERTAIN;
-            case "NOT_A_PARKING_SPOT" -> {
-                if (FORCE_UNCERTAIN_REASON_CODES.contains(reasonCode)
-                        || !CONCRETE_REJECT_REASON_CODES.contains(reasonCode)) {
-                    yield Verdict.UNCERTAIN;
-                }
-                yield analysis.confidence() >= properties.getRejectConfidence()
-                        ? Verdict.NOT_A_PARKING_SPOT
-                        : Verdict.UNCERTAIN;
-            }
-            default -> Verdict.UNCERTAIN;
-        };
+        ModerationDecisionPolicy.Result policyResult =
+                ModerationDecisionPolicy.evaluate(analysis, properties);
+        Verdict verdict = policyResult.verdict();
+        metrics.recordModerationDecision(policyResult.decision().name(), reasonCode);
         return ContentClassification.semantic(
                 verdict,
                 reasonCode,
                 analysis.claimedRegionAssessment(),
                 analysis.vehicleFitEstimate(),
                 analysis.obstructionAssessment(),
-                analysis.legalityAccessAssessment());
+                analysis.legalityAccessAssessment(),
+                policyResult.decision(),
+                policyResult.signals());
     }
 
     private Optional<ContentClassification> reusableClassification(UUID mediaId) {

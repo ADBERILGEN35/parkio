@@ -51,7 +51,12 @@ export function DetailsStep({ onEditLocation }: DetailsStepProps) {
           <View style={styles.summaryRow}>
             <View style={[styles.thumb, { backgroundColor: colors.surfaceContainer3 }]}>
               {photo ? (
-                <Image source={{ uri: photo.uri }} style={styles.thumbImage} resizeMode="cover" />
+                <Image
+                  key={`${photo.uri}:${photo.revision ?? 0}`}
+                  source={{ uri: photo.uri }}
+                  style={styles.thumbImage}
+                  resizeMode="cover"
+                />
               ) : (
                 <MaterialCommunityIcons name="image-outline" size={18} color={colors.outline} />
               )}

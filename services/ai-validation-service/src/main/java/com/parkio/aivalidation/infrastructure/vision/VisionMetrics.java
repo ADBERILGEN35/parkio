@@ -74,6 +74,15 @@ public class VisionMetrics {
                 .record(renditionBytes);
     }
 
+    public void recordModerationDecision(String decision, String reasonCode) {
+        registry.counter("parkio.ai.vision.moderation.decision",
+                "provider", provider, "decision", decision).increment();
+        if (reasonCode != null && !reasonCode.isBlank()) {
+            registry.counter("parkio.ai.vision.moderation.reason",
+                    "provider", provider, "reason_code", reasonCode).increment();
+        }
+    }
+
     public void markSuccess() {
         lastSuccessEpochSeconds.set(System.currentTimeMillis() / 1000L);
     }

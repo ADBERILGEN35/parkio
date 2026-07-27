@@ -393,9 +393,9 @@ public class ParkingApplicationService {
      *
      * <p>A spot still at the AI gate gets a bounded retry: the request is re-published
      * through the outbox (never a direct call into ai-validation-service) and the deadline
-     * is extended with per-attempt backoff. Once the attempts are exhausted — or as soon as
-     * a spot awaiting a <em>human</em> decision breaches its review window, where retrying
-     * cannot help — the spot moves to the terminal {@code REVIEW_FAILED} state.
+     * is extended with per-attempt backoff. Once the attempts are exhausted the spot moves
+     * to the terminal {@code REVIEW_FAILED} state. Human-review SLA breaches record
+     * operational metadata only — they never reject the submission.
      *
      * @return the number of spots that were retried or failed
      */
@@ -412,7 +412,7 @@ public class ParkingApplicationService {
             moderationMetrics.recordTimeout(spot.status());
             handled += spot.status() == ParkingSpotStatus.PENDING_VALIDATION
                     ? retryOrFailValidation(spot, now)
-                    : failReview(spot, now);
+                    : recordReviewSlaBreach(spot, now);
         }
         return handled;
     }
@@ -433,9 +433,20 @@ public class ParkingApplicationService {
         return failModeration(spot, previous, ParkingSpotReviewFailedEvent.REASON_RETRIES_EXHAUSTED, now);
     }
 
-    /** A human review window elapsed; no retry can substitute for the missing decision. */
-    private int failReview(ParkingSpot spot, Instant now) {
-        return failModeration(spot, spot.status(), ParkingSpotReviewFailedEvent.REASON_REVIEW_TIMEOUT, now);
+    /** Human review SLA elapsed; record breach metadata and extend the review window. */
+    private int recordReviewSlaBreach(ParkingSpot spot, Instant now) {
+        if (!spot.recordReviewSlaBreach(now, moderationPolicy)) {
+            return 0;
+        }
+        ParkingSpot saved = spots.save(spot);
+        moderationMetrics.recordReviewSlaBreach(saved.reviewSlaBreachedAt() != null
+                ? Duration.between(saved.createdAt(), saved.reviewSlaBreachedAt())
+                : Duration.ZERO);
+        log.warn("Moderation review SLA breached spotId={} moderationRequestId={} "
+                        + "transition=REVIEW_SLA_BREACH status={} queueLatencyMs={} nextDeadlineAt={}",
+                saved.id(), saved.moderationRequestId(), saved.status(),
+                saved.moderationWaitAt(now).toMillis(), saved.moderationDeadlineAt());
+        return 1;
     }
 
     private int failModeration(ParkingSpot spot, ParkingSpotStatus previous, String reason, Instant now) {

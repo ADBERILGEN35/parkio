@@ -88,11 +88,18 @@ class VisionContentRiskClassifierTest {
     }
 
     @Test
-    void targetPhysicallyBlockedIsConcreteReject() {
+    void targetPhysicallyBlockedRoutesToManualReview() {
         provider.analysis = new VisionProviderClient.VisionAnalysis(
                 "NOT_A_PARKING_SPOT", 0.96, "TARGET_PHYSICALLY_BLOCKED",
                 "BLOCKED", "TOO_SMALL", "BLOCKING_TARGET", "OK", null, null);
-        assertThat(classifier.classify(UUID.randomUUID())).isEqualTo(Verdict.NOT_A_PARKING_SPOT);
+        assertThat(classifier.classify(UUID.randomUUID())).isEqualTo(Verdict.UNCERTAIN);
+    }
+
+    @Test
+    void noPlausibleSpaceAtHighConfidenceRoutesToManualReview() {
+        provider.analysis = new VisionProviderClient.VisionAnalysis(
+                "NOT_A_PARKING_SPOT", 0.99, "NO_PLAUSIBLE_SPACE");
+        assertThat(classifier.classify(UUID.randomUUID())).isEqualTo(Verdict.UNCERTAIN);
     }
 
     @Test
