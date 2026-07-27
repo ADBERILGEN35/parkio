@@ -321,7 +321,7 @@ commands and registry evidence:
 | Prometheus config and alert rule `promtool` parse | PASS |
 | Release workflow syntax | PASS (`actionlint`; only pre-existing SC2129 style suppressed) |
 | Affected frontend architecture guardrails | PASS |
-| Full release workflow | PENDING |
+| Full release workflow | PASS — run `30248167192` (`workflow_dispatch`, `publish_images=true`, tag `v1.0.0-rc6`) |
 
 ## Phase R3 — release cut gate (2026-07-27)
 
@@ -337,21 +337,48 @@ Operator added `WEB_MAPTILER_KEY` to the release environment. The images job pre
 use that environment, so the secret would still have been empty at web build time; the
 minimal wiring fix attaches `environment: release` to the images matrix.
 
-## Phase R4 — cut, publish, verify (in progress)
+## Phase R4 — cut, publish, verify (complete)
 
 | Gate | Result |
 |---|---|
 | MapTiler precondition | PASS — release-environment secret PRESENT; images job binds `environment: release` |
-| Focused remediation commit | PENDING |
-| Annotated tag `v1.0.0-rc6` | PENDING |
-| Release workflow (publish images) | PENDING |
-| Registry digest + OCI label verification | PENDING |
+| Focused remediation commit | PASS — `220a25cbfe4b4131557385f710fcf8f0c3790bd5` |
+| Annotated tag `v1.0.0-rc6` | PASS — peels to `220a25cbfe4b4131557385f710fcf8f0c3790bd5` |
+| Push commit + tag | PASS — `origin/master` and `refs/tags/v1.0.0-rc6` |
+| Release workflow (publish) | PASS — https://github.com/ADBERILGEN35/parkio/actions/runs/30248167192 |
+| Web MapTiler gate in CI | PASS — `Required web build configuration present for VITE_APP_ENV=hosted-beta` |
+| Web image Chromium smoke in CI | PASS — `smoke-image: OK` against digest-pulled image |
+| Registry digest + OCI label verification | PASS — every image job’s `Verify published image in registry` step succeeded (version tag digest == sha tag digest; `org.opencontainers.image.revision` == release commit; `org.opencontainers.image.version` == `v1.0.0-rc6`; platform `linux/amd64`) |
+| Draft GitHub Release | PASS — draft `Parkio v1.0.0-rc6` with SBOM assets |
+| Hosted-beta deploy | NOT PERFORMED (by design) |
+
+Workstation-side `docker buildx imagetools inspect` against GHCR returned HTTP 403 because the
+active `gh` token lacks `read:packages`. Digests below were taken from the successful CI
+registry-verify / smoke steps that already pulled those digests from GHCR on the runner.
 
 ## rc6 immutable metadata
 
-| Artifact | Version | Revision | Platform | Immutable digest |
-|---|---|---|---|---|
-| rc6 release images | PENDING | PENDING | `linux/amd64` required | PENDING |
+Release commit / revision: `220a25cbfe4b4131557385f710fcf8f0c3790bd5`  
+Version: `v1.0.0-rc6`  
+Platform: `linux/amd64`  
+Registry: `ghcr.io/adberilgen35/parkio/<service>`  
+Tags per service: `v1.0.0-rc6` and `sha-220a25cbfe4b4131557385f710fcf8f0c3790bd5`
+
+| Service | Immutable digest |
+|---|---|
+| ai-validation-service | `sha256:c16bfe790998d2f4c70a392435fd311e21e1c1cbd9af43e7b198452066f4cd8d` |
+| analytics-service | `sha256:381929e7480ecc5a9f095129c58bb3e18f7b8431dfcef5a526fae079d8357a04` |
+| auth-service | `sha256:5979de9996f89df3eaba22ce4e5e1c14163b3ee7f5552390661a091671678eda` |
+| gamification-service | `sha256:354ee7cb148ca8872c2301e6619624a6be2e652e391e8f5273e4d5db4fdf220d` |
+| gateway-service | `sha256:57d660b5f60390c0d61dff9c30f0bbabee33cd7c6e12835eac8730df7e9038ec` |
+| media-service | `sha256:1e7e88729bfffe0f28e3793960cc495804b19fe6fe6beecd183d8b07a510c0bf` |
+| moderation-service | `sha256:23a9c1398bb212e929a167de9bf1f61537b678d2c05a953f3a3afc76f950bcd1` |
+| notification-service | `sha256:7cfa20d3d0905b8ec03ae704a5c274f3e53c2cf209e62eb8f91f6812bac25ce6` |
+| parking-service | `sha256:c84ae5fb3692f779b4b43751828dc0ac5a5d618ef10e4097bab1cc362ba55881` |
+| user-service | `sha256:324b480fb96ae227c7e45ff6c33e4ffae5e8ab8dac835d78c5c04bb5009d462b` |
+| web | `sha256:b1d72118506a195330dffe5d6f769f4bcf6b49ba808423edb981fe787410bb66` |
+
+Decision: `RC6_READY_FOR_HOSTED_BETA`
 
 The local smoke image is disposable evidence only. Its local image identifier is not a
 release digest and must not be used for deployment.
