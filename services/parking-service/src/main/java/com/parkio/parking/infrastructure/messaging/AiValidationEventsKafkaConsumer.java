@@ -97,7 +97,9 @@ public class AiValidationEventsKafkaConsumer {
                             payload.detectedRiskTypes() == null ? List.of() : payload.detectedRiskTypes(),
                             payload.eventId(),
                             envelope.occurredAt(),
-                            evidenceInput);
+                            evidenceInput,
+                            payload.rejectionReasonCode(),
+                            payload.policyVersion());
                     AiValidationApplyOutcome applyOutcome = controlled.applyOutcome();
                     AiValidationEvidencePayloadMapper.observeEvidenceShadow(payload, envelope.occurredAt());
                     if (!controlled.authorityApplied()) {

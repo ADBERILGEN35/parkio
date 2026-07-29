@@ -14,6 +14,8 @@ import {
   parkingSessionHistoryParamsSchema,
   parkingSessionHistoryResponseSchema,
   parkingSessionResponseSchema,
+  publicSpotResponseSchema,
+  spotRejectionSchema,
   startParkingSessionRequestSchema,
 } from './parking';
 
@@ -154,5 +156,55 @@ describe('parking response contracts', () => {
   completionType: null,
       }).success,
     ).toBe(false);
+  });
+});
+
+describe('spot rejection contracts', () => {
+  const baseSpot = {
+    id: '0b8f6c3a-1111-0000-0000-000000000001',
+    mediaId: '0b8f6c3a-1111-0000-0000-000000000002',
+    latitude: 41.01,
+    longitude: 29.02,
+    addressText: null,
+    description: null,
+    manualLocationEdited: false,
+    suitableVehicleTypes: ['SEDAN'] as const,
+    parkingContext: 'STREET_PARKING' as const,
+    legalStatus: 'LEGAL' as const,
+    violationReasons: [] as const,
+    status: 'REJECTED' as const,
+    expiresAt: null,
+    createdAt: '2026-07-29T12:00:00.000Z',
+    updatedAt: '2026-07-29T12:00:00.000Z',
+  };
+
+  it('parses legacy payloads without rejection', () => {
+    expect(publicSpotResponseSchema.safeParse(baseSpot).success).toBe(true);
+  });
+
+  it('parses rejection with code but no message', () => {
+    expect(
+      spotRejectionSchema.safeParse({
+        code: 'CLEARLY_UNRELATED_CONTENT',
+        source: 'AI_POLICY',
+        rejectedAt: '2026-07-29T12:00:00.000Z',
+        rejectedBy: null,
+        policyVersion: '2026-07-photo-policy-v3-recall',
+      }).success,
+    ).toBe(true);
+  });
+
+  it('parses rejection with message and unknown code', () => {
+    expect(
+      spotRejectionSchema.safeParse({
+        code: 'FUTURE_CODE',
+        message: 'Compat text',
+        source: 'AI_POLICY',
+        rejectedAt: '2026-07-29T12:00:00.000Z',
+        rejectedBy: null,
+        policyVersion: null,
+        moderatorNote: null,
+      }).success,
+    ).toBe(true);
   });
 });

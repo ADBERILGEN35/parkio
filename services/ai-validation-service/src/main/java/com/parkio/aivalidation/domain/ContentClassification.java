@@ -4,6 +4,9 @@ package com.parkio.aivalidation.domain;
  * Rich classification outcome for content risk. {@link #verdict()} drives the
  * publication gate; {@link #outcomeKind()} distinguishes a genuine model verdict
  * from infrastructure fail-closed so reuse / recovery can treat them differently.
+ *
+ * <p>{@link #rejectionReasonCode()} is set only for {@link ModerationDecision#AUTO_REJECT}
+ * and carries a controlled product code (never raw provider prose).
  */
 public record ContentClassification(
         ContentRiskClassifier.Verdict verdict,
@@ -15,6 +18,7 @@ public record ContentClassification(
         String legalityAccessAssessment,
         ModerationDecision moderationDecision,
         ModerationSignals moderationSignals,
+        String rejectionReasonCode,
         ModerationProvenance provenance) {
 
     public enum OutcomeKind {
@@ -39,7 +43,7 @@ public record ContentClassification(
                                                  String obstructionAssessment,
                                                  String legalityAccessAssessment) {
         return semantic(verdict, reasonCode, claimedRegionAssessment, vehicleFitEstimate,
-                obstructionAssessment, legalityAccessAssessment, null, null);
+                obstructionAssessment, legalityAccessAssessment, null, null, null);
     }
 
     public static ContentClassification semantic(ContentRiskClassifier.Verdict verdict,
@@ -50,23 +54,36 @@ public record ContentClassification(
                                                  String legalityAccessAssessment,
                                                  ModerationDecision moderationDecision,
                                                  ModerationSignals moderationSignals) {
+        return semantic(verdict, reasonCode, claimedRegionAssessment, vehicleFitEstimate,
+                obstructionAssessment, legalityAccessAssessment, moderationDecision, moderationSignals, null);
+    }
+
+    public static ContentClassification semantic(ContentRiskClassifier.Verdict verdict,
+                                                 String reasonCode,
+                                                 String claimedRegionAssessment,
+                                                 String vehicleFitEstimate,
+                                                 String obstructionAssessment,
+                                                 String legalityAccessAssessment,
+                                                 ModerationDecision moderationDecision,
+                                                 ModerationSignals moderationSignals,
+                                                 String rejectionReasonCode) {
         return new ContentClassification(
                 verdict, OutcomeKind.SEMANTIC, reasonCode,
                 claimedRegionAssessment, vehicleFitEstimate,
                 obstructionAssessment, legalityAccessAssessment,
-                moderationDecision, moderationSignals, null);
+                moderationDecision, moderationSignals, rejectionReasonCode, null);
     }
 
     public static ContentClassification infrastructure(String reasonCode) {
         return new ContentClassification(
                 ContentRiskClassifier.Verdict.UNCERTAIN, OutcomeKind.INFRASTRUCTURE, reasonCode,
-                null, null, null, null, null, null, null);
+                null, null, null, null, null, null, null, null);
     }
 
     /** Returns a copy carrying the given provenance (verdict/assessments unchanged). */
     public ContentClassification withProvenance(ModerationProvenance provenance) {
         return new ContentClassification(verdict, outcomeKind, reasonCode, claimedRegionAssessment,
                 vehicleFitEstimate, obstructionAssessment, legalityAccessAssessment,
-                moderationDecision, moderationSignals, provenance);
+                moderationDecision, moderationSignals, rejectionReasonCode, provenance);
     }
 }

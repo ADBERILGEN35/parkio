@@ -1,4 +1,86 @@
 {
+  "rejection": {
+    "title": "Rejection reason",
+    "titleByVariant": {
+      "AI_POLICY": "AI decision",
+      "MODERATOR": "Moderator decision",
+      "SYSTEM_MIGRATION": "System policy migration",
+      "UNKNOWN": "Rejection reason"
+    },
+    "displayStatus": {
+      "systemMigration": "Rejected — System policy migration"
+    },
+    "sourceLabel": "Source",
+    "code": "Code",
+    "rejectedAt": "Rejected at",
+    "rejectedBy": "Rejected by",
+    "policyVersion": "Policy version",
+    "moderatorNoteLabel": "Moderator note",
+    "legacyMigrationNote": "This record was closed during migration from the old validation policy to the new one. This does not mean the photo was judged inappropriate by AI.",
+    "source": {
+      "AI_POLICY": "AI validation",
+      "MODERATOR": "Moderator",
+      "SYSTEM_MIGRATION": "System migration"
+    },
+    "sourceByVariant": {
+      "AI_POLICY": "AI validation",
+      "MODERATOR": "Moderator",
+      "SYSTEM_MIGRATION": "System migration",
+      "UNKNOWN": "Unknown"
+    },
+    "codes": {
+      "LEGACY_POLICY_RESET": "This record was closed during migration from the old validation policy to the new one. This does not mean the photo was judged inappropriate by AI.",
+      "CLEARLY_UNRELATED_CONTENT": "The photo does not appear related to a parking space or road context.",
+      "INDOOR_SCENE": "The photo was rejected because it shows an indoor scene.",
+      "SELFIE_OR_PERSONAL_PHOTO": "The photo contains a personal image rather than a parking space.",
+      "FOOD_OR_RANDOM_OBJECT": "The photo shows food or an unrelated object rather than parking.",
+      "SCREENSHOT_OR_DOCUMENT": "The photo was rejected because it is a screenshot or document.",
+      "NO_ROAD_OR_PARKING_CONTEXT": "No road or parking context could be identified in the image.",
+      "UNUSABLE_IMAGE": "The image is not usable enough for validation.",
+      "IMAGE_TOO_DARK": "The photo is too dark to evaluate.",
+      "IMAGE_TOO_BLURRY": "The photo is too blurry to evaluate.",
+      "IMAGE_CORRUPTED": "The image is corrupted or unreadable.",
+      "LEGALITY_CONCERN": "The submission was rejected due to a legality or access concern.",
+      "DUPLICATE_SUBMISSION": "The submission was rejected as a duplicate.",
+      "MANUAL_MODERATOR_REJECTION": "The submission was rejected by a moderator.",
+      "OTHER": "The submission was rejected under the validation policy.",
+      "UNKNOWN": "The submission was rejected under the validation policy."
+    }
+  },
+  "decision": {
+    "badge": {
+      "AI_POLICY": "AI",
+      "MODERATOR": "Moderator",
+      "SYSTEM_MIGRATION": "Migration",
+      "UNKNOWN": "Unknown",
+      "ACCEPTED": "Accepted",
+      "REJECTED": "Rejected",
+      "REVIEW": "Review",
+      "SYSTEM_MIGRATION_STATUS": "System migration"
+    },
+    "subtitle": {
+      "SYSTEM_MIGRATION": "This submission was closed as part of the migration to the new validation policy. It was NOT rejected because of image quality."
+    },
+    "moderatorNote": {
+      "title": "Moderator note",
+      "aria": "Moderator note"
+    },
+    "confidence": {
+      "title": "AI confidence",
+      "aria": "AI confidence (supporting information)",
+      "supporting": "Supporting information only — does not replace the decision."
+    },
+    "technical": {
+      "title": "Technical details",
+      "provider": "Provider",
+      "model": "Model",
+      "providerReason": "Provider reason",
+      "providerConfidence": "Provider confidence",
+      "validatedAt": "Validation timestamp",
+      "evidenceId": "Evidence ID",
+      "findings": "Findings"
+    }
+  },
   "spotDetail": {
     "backToMap": "Back to map",
     "notFound": "Spot not found",

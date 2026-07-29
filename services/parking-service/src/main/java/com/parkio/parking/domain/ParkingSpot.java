@@ -72,7 +72,11 @@ public final class ParkingSpot {
     private UUID moderationRequestId;
     /** Operational SLA metadata: human review window elapsed without a terminal rejection. */
     private Instant reviewSlaBreachedAt;
+    private ParkingSpotRejection rejection;
+    /** Latest AI publication-gate policy version applied to this spot (denormalized). */
+    private String lastAiPolicyVersion;
 
+    /** Backward-compatible constructor used by tests and pre-rejection call sites. */
     public ParkingSpot(UUID id,
                        UUID ownerUserId,
                        UUID mediaId,
@@ -99,6 +103,41 @@ public final class ParkingSpot {
                        Instant moderationDecidedAt,
                        UUID moderationRequestId,
                        Instant reviewSlaBreachedAt) {
+        this(id, ownerUserId, mediaId, latitude, longitude, addressText, description, manualLocationEdited,
+                suitableVehicleTypes, parkingContext, legalStatus, violationReasons, status, confidenceScore,
+                verificationCount, filledReportCount, expiresAt, createdAt, updatedAt, version, activatedAt,
+                moderationDeadlineAt, moderationAttempts, moderationDecidedAt, moderationRequestId,
+                reviewSlaBreachedAt, null, null);
+    }
+
+    public ParkingSpot(UUID id,
+                       UUID ownerUserId,
+                       UUID mediaId,
+                       double latitude,
+                       double longitude,
+                       String addressText,
+                       String description,
+                       boolean manualLocationEdited,
+                       Set<VehicleType> suitableVehicleTypes,
+                       ParkingContext parkingContext,
+                       LegalStatus legalStatus,
+                       Set<ViolationReason> violationReasons,
+                       ParkingSpotStatus status,
+                       double confidenceScore,
+                       int verificationCount,
+                       int filledReportCount,
+                       Instant expiresAt,
+                       Instant createdAt,
+                       Instant updatedAt,
+                       Long version,
+                       Instant activatedAt,
+                       Instant moderationDeadlineAt,
+                       int moderationAttempts,
+                       Instant moderationDecidedAt,
+                       UUID moderationRequestId,
+                       Instant reviewSlaBreachedAt,
+                       ParkingSpotRejection rejection,
+                       String lastAiPolicyVersion) {
         this.id = Objects.requireNonNull(id, "id");
         this.ownerUserId = Objects.requireNonNull(ownerUserId, "ownerUserId");
         this.mediaId = Objects.requireNonNull(mediaId, "mediaId");
@@ -127,6 +166,8 @@ public final class ParkingSpot {
         this.moderationDecidedAt = moderationDecidedAt;
         this.moderationRequestId = moderationRequestId;
         this.reviewSlaBreachedAt = reviewSlaBreachedAt;
+        this.rejection = rejection;
+        this.lastAiPolicyVersion = blankToNull(lastAiPolicyVersion);
     }
 
     /**
@@ -226,12 +267,24 @@ public final class ParkingSpot {
      * @return {@code true} if the status changed
      */
     public boolean applyAiValidationRejected(Instant now) {
+        return applyAiValidationRejected(now, null);
+    }
+
+    /**
+     * Rejects a pending spot with structured rejection metadata from the AI policy gate.
+     *
+     * @return {@code true} if the status changed
+     */
+    public boolean applyAiValidationRejected(Instant now, ParkingSpotRejection rejectionMetadata) {
         if (!status.isPendingModeration()) {
             return false;
         }
         this.status = ParkingSpotStatus.REJECTED;
         this.moderationDecidedAt = now;
         this.updatedAt = now;
+        if (rejectionMetadata != null) {
+            this.rejection = rejectionMetadata;
+        }
         return true;
     }
 
@@ -357,12 +410,61 @@ public final class ParkingSpot {
 
     /** Applies an authoritative moderator rejection without emitting another report. */
     public boolean markRejectedByModerator(Instant now) {
+        return markRejectedByModerator(now, null);
+    }
+
+    /** Applies an authoritative moderator rejection with structured rejection metadata. */
+    public boolean markRejectedByModerator(Instant now, ParkingSpotRejection rejectionMetadata) {
         if (isTerminal()) {
             return false;
         }
         this.status = ParkingSpotStatus.REJECTED;
         this.updatedAt = now;
+        this.moderationDecidedAt = now;
+        if (rejectionMetadata != null) {
+            this.rejection = rejectionMetadata;
+        }
         return true;
+    }
+
+    /**
+     * Quiet system migration rejection (legacy policy reset). Idempotent when the spot is
+     * already rejected with {@link RejectionReasonCode#LEGACY_POLICY_RESET}.
+     *
+     * @return {@code true} if the status or rejection metadata changed
+     */
+    public boolean markRejectedBySystemMigration(Instant now, ParkingSpotRejection rejectionMetadata) {
+        Objects.requireNonNull(rejectionMetadata, "rejectionMetadata");
+        if (rejectionMetadata.code() != RejectionReasonCode.LEGACY_POLICY_RESET
+                || rejectionMetadata.source() != RejectionSource.SYSTEM_MIGRATION) {
+            throw new IllegalArgumentException("system migration requires LEGACY_POLICY_RESET / SYSTEM_MIGRATION");
+        }
+        if (status == ParkingSpotStatus.REJECTED
+                && rejection != null
+                && rejection.code() == RejectionReasonCode.LEGACY_POLICY_RESET) {
+            return false;
+        }
+        if (isTerminal() && status != ParkingSpotStatus.REJECTED) {
+            // FILLED / EXPIRED / REVIEW_FAILED stay untouched.
+            return false;
+        }
+        if (isTerminal() && status == ParkingSpotStatus.REJECTED) {
+            // Already rejected for another reason — leave unchanged.
+            return false;
+        }
+        this.status = ParkingSpotStatus.REJECTED;
+        this.rejection = rejectionMetadata;
+        this.moderationDecidedAt = now;
+        this.updatedAt = now;
+        return true;
+    }
+
+    /** Records the latest AI publication-gate policy version applied to this spot. */
+    public void recordLastAiPolicyVersion(String policyVersion) {
+        String normalized = blankToNull(policyVersion);
+        if (normalized != null) {
+            this.lastAiPolicyVersion = normalized;
+        }
     }
 
     private void applyAvailable(Instant now) {
@@ -617,8 +719,26 @@ public final class ParkingSpot {
         return reviewSlaBreachedAt;
     }
 
+    /** Structured rejection metadata when status is {@link ParkingSpotStatus#REJECTED}. */
+    public ParkingSpotRejection rejection() {
+        return rejection;
+    }
+
+    /** Latest AI publication-gate policy version denormalized onto the spot. */
+    public String lastAiPolicyVersion() {
+        return lastAiPolicyVersion;
+    }
+
     /** How long this spot has waited on moderation, for queue-latency observability. */
     public Duration moderationWaitAt(Instant now) {
         return Duration.between(createdAt, now);
+    }
+
+    private static String blankToNull(String value) {
+        if (value == null) {
+            return null;
+        }
+        String trimmed = value.trim();
+        return trimmed.isEmpty() ? null : trimmed;
     }
 }

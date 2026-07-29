@@ -49,7 +49,9 @@ final class AiValidationEvidencePayloadMapper {
             Integer legalRiskScore,
             Integer imageQualityScore,
             Integer aiConfidence,
-            Instant occurredAt) {
+            Instant occurredAt,
+            String rejectionReasonCode,
+            String policyVersion) {
     }
 
     static void observeEvidenceShadow(AiValidationCompletedPayload payload, Instant envelopeOccurredAt) {

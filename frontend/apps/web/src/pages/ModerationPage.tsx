@@ -34,7 +34,8 @@ import { Link } from 'react-router-dom';
 import { useParkioSdk } from '@/app/AppRuntimeContext';
 import { FriendlyApiErrorMessage } from '@/components/FriendlyApiErrorMessage';
 import { ProductCardButton } from '@/components/product/ProductCard';
-import { moderationKeys } from '@/data/keys';
+import { SpotRejectionPanel } from '@/components/product/SpotRejectionPanel';
+import { moderationKeys, parkingKeys } from '@/data/keys';
 import { formatInstant, formatRelativeAgo } from '@/lib/format';
 import { showError, showSuccess } from '@/lib/toast';
 import i18n from 'i18next';
@@ -221,13 +222,21 @@ function CaseListItem({
 }
 
 function CaseDetailCard({ caseId }: { caseId: string }) {
-  const { moderationApi } = useParkioSdk();
+  const { moderationApi, parkingApi } = useParkioSdk();
   const { t } = useTranslation('moderation');
   const queryClient = useQueryClient();
 
   const query = useQuery({
     queryKey: moderationKeys.caseDetail(caseId),
     queryFn: () => moderationApi.getModerationCase(caseId),
+  });
+
+  const targetSpotId =
+    query.data?.targetType === 'PARKING_SPOT' ? query.data.targetId : undefined;
+  const spotQuery = useQuery({
+    queryKey: parkingKeys.spot(targetSpotId ?? 'none'),
+    queryFn: () => parkingApi.getSpot(targetSpotId!),
+    enabled: Boolean(targetSpotId),
   });
 
   const invalidateCases = () =>
@@ -350,6 +359,16 @@ function CaseDetailCard({ caseId }: { caseId: string }) {
           <Field label={t('detail.opened')} value={formatInstant(moderationCase.openedAt)} />
           <Field label={t('detail.updated')} value={formatInstant(moderationCase.updatedAt)} />
         </dl>
+
+        <SpotRejectionPanel
+          rejection={spotQuery.data?.rejection}
+          status={spotQuery.data?.status}
+          confidenceScore={
+            spotQuery.data && 'confidenceScore' in spotQuery.data
+              ? (spotQuery.data as { confidenceScore?: number }).confidenceScore
+              : undefined
+          }
+        />
 
         {terminal ? (
           <div className="rounded-xl bg-surface-container-low p-md">

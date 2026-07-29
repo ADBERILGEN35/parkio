@@ -1,10 +1,13 @@
 package com.parkio.parking.infrastructure.persistence.mapper;
 
 import com.parkio.parking.domain.ParkingSpot;
+import com.parkio.parking.domain.ParkingSpotRejection;
 import com.parkio.parking.domain.ParkingSpotSearchLog;
 import com.parkio.parking.domain.ParkingSpotStatusHistory;
 import com.parkio.parking.domain.ParkingSpotVerification;
 import com.parkio.parking.domain.ParkingSpotViewLog;
+import com.parkio.parking.domain.RejectionReasonCode;
+import com.parkio.parking.domain.RejectionSource;
 import com.parkio.parking.domain.VehicleType;
 import com.parkio.parking.domain.ViolationReason;
 import com.parkio.parking.infrastructure.persistence.entity.ParkingSpotEntity;
@@ -34,10 +37,11 @@ public final class ParkingPersistenceMapper {
                 e.getVerificationCount(), e.getFilledReportCount(), e.getExpiresAt(), e.getCreatedAt(),
                 e.getUpdatedAt(), e.getVersion(), e.getActivatedAt(), e.getModerationDeadlineAt(),
                 e.getModerationAttempts(), e.getModerationDecidedAt(), e.getModerationRequestId(),
-                e.getReviewSlaBreachedAt());
+                e.getReviewSlaBreachedAt(), toRejection(e), e.getLastAiPolicyVersion());
     }
 
     public static ParkingSpotEntity toEntity(ParkingSpot s) {
+        ParkingSpotRejection rejection = s.rejection();
         return new ParkingSpotEntity(s.id(), s.ownerUserId(), s.mediaId(), s.latitude(), s.longitude(),
                 s.addressText(), s.description(), s.manualLocationEdited(),
                 joinEnums(s.suitableVehicleTypes()), s.parkingContext(), s.legalStatus(),
@@ -45,7 +49,41 @@ public final class ParkingPersistenceMapper {
                 s.verificationCount(), s.filledReportCount(), s.expiresAt(), s.createdAt(),
                 s.updatedAt(), s.version(), s.activatedAt(), s.moderationDeadlineAt(),
                 s.moderationAttempts(), s.moderationDecidedAt(), s.moderationRequestId(),
-                s.reviewSlaBreachedAt());
+                s.reviewSlaBreachedAt(),
+                rejection == null ? null : rejection.code().name(),
+                rejection == null ? null : rejection.message(),
+                rejection == null ? null : rejection.source().name(),
+                rejection == null ? null : rejection.rejectedAt(),
+                rejection == null ? null : rejection.rejectedBy(),
+                rejection == null ? null : rejection.policyVersion(),
+                s.lastAiPolicyVersion());
+    }
+
+    private static ParkingSpotRejection toRejection(ParkingSpotEntity e) {
+        if (e.getRejectionReasonCode() == null || e.getRejectionReasonCode().isBlank()) {
+            return null;
+        }
+        RejectionReasonCode code;
+        try {
+            code = RejectionReasonCode.valueOf(e.getRejectionReasonCode());
+        } catch (IllegalArgumentException ignored) {
+            code = RejectionReasonCode.OTHER;
+        }
+        RejectionSource source = RejectionSource.AI_POLICY;
+        if (e.getRejectionSource() != null && !e.getRejectionSource().isBlank()) {
+            try {
+                source = RejectionSource.valueOf(e.getRejectionSource());
+            } catch (IllegalArgumentException ignored) {
+                source = RejectionSource.AI_POLICY;
+            }
+        }
+        String message = e.getRejectionReasonText();
+        if (message == null || message.isBlank()) {
+            message = com.parkio.parking.domain.RejectionReasonCatalog.messageTr(code);
+        }
+        java.time.Instant rejectedAt = e.getRejectedAt() != null ? e.getRejectedAt() : e.getUpdatedAt();
+        return new ParkingSpotRejection(
+                code, message, source, rejectedAt, e.getRejectedBy(), e.getRejectionPolicyVersion());
     }
 
     public static ParkingSpotVerification toDomain(ParkingSpotVerificationEntity e) {

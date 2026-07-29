@@ -1,4 +1,86 @@
 {
+  "rejection": {
+    "title": "Reddedilme nedeni",
+    "titleByVariant": {
+      "AI_POLICY": "AI kararı",
+      "MODERATOR": "Moderatör kararı",
+      "SYSTEM_MIGRATION": "Sistem politika geçişi",
+      "UNKNOWN": "Reddedilme nedeni"
+    },
+    "displayStatus": {
+      "systemMigration": "Reddedildi — Sistem politika geçişi"
+    },
+    "sourceLabel": "Kaynak",
+    "code": "Kod",
+    "rejectedAt": "Reddedilme zamanı",
+    "rejectedBy": "Reddeden",
+    "policyVersion": "Politika sürümü",
+    "moderatorNoteLabel": "Moderatör notu",
+    "legacyMigrationNote": "Bu kayıt, eski doğrulama politikasından yeni politikaya geçiş sırasında kapatıldı. Bu işlem, fotoğrafın AI tarafından uygunsuz bulunduğu anlamına gelmez.",
+    "source": {
+      "AI_POLICY": "AI doğrulama",
+      "MODERATOR": "Moderatör",
+      "SYSTEM_MIGRATION": "Sistem migrasyonu"
+    },
+    "sourceByVariant": {
+      "AI_POLICY": "AI doğrulama",
+      "MODERATOR": "Moderatör",
+      "SYSTEM_MIGRATION": "Sistem migrasyonu",
+      "UNKNOWN": "Bilinmiyor"
+    },
+    "codes": {
+      "LEGACY_POLICY_RESET": "Bu kayıt, eski doğrulama politikasından yeni politikaya geçiş sırasında kapatıldı. Bu işlem, fotoğrafın AI tarafından uygunsuz bulunduğu anlamına gelmez.",
+      "CLEARLY_UNRELATED_CONTENT": "Fotoğraf park yeri veya yol bağlamıyla ilgili görünmüyor.",
+      "INDOOR_SCENE": "Fotoğraf bir iç mekân görüntüsü olduğu için reddedildi.",
+      "SELFIE_OR_PERSONAL_PHOTO": "Fotoğraf park alanı yerine kişisel bir görüntü içeriyor.",
+      "FOOD_OR_RANDOM_OBJECT": "Fotoğraf park yeri yerine yiyecek veya rastgele bir nesne içeriyor.",
+      "SCREENSHOT_OR_DOCUMENT": "Fotoğraf ekran görüntüsü veya belge olduğu için reddedildi.",
+      "NO_ROAD_OR_PARKING_CONTEXT": "Görüntüde yol veya park bağlamı tespit edilemedi.",
+      "UNUSABLE_IMAGE": "Görüntü doğrulama için yeterince kullanılabilir değil.",
+      "IMAGE_TOO_DARK": "Fotoğraf aşırı karanlık olduğu için değerlendirilemedi.",
+      "IMAGE_TOO_BLURRY": "Fotoğraf aşırı bulanık olduğu için değerlendirilemedi.",
+      "IMAGE_CORRUPTED": "Görüntü bozuk veya okunamaz olduğu için reddedildi.",
+      "LEGALITY_CONCERN": "Görüntü yasal/erişim kaygısı nedeniyle reddedildi.",
+      "DUPLICATE_SUBMISSION": "Kayıt yinelenen bir gönderim olduğu için reddedildi.",
+      "MANUAL_MODERATOR_REJECTION": "Kayıt bir moderatör tarafından reddedildi.",
+      "OTHER": "Kayıt doğrulama politikası kapsamında reddedildi.",
+      "UNKNOWN": "Kayıt doğrulama politikası kapsamında reddedildi."
+    }
+  },
+  "decision": {
+    "badge": {
+      "AI_POLICY": "AI",
+      "MODERATOR": "Moderatör",
+      "SYSTEM_MIGRATION": "Migrasyon",
+      "UNKNOWN": "Bilinmiyor",
+      "ACCEPTED": "Kabul",
+      "REJECTED": "Red",
+      "REVIEW": "İnceleme",
+      "SYSTEM_MIGRATION_STATUS": "Sistem geçişi"
+    },
+    "subtitle": {
+      "SYSTEM_MIGRATION": "Bu gönderi yeni doğrulama politikasına geçiş kapsamında kapatıldı. Görüntü kalitesi nedeniyle reddedilmedi."
+    },
+    "moderatorNote": {
+      "title": "Moderatör notu",
+      "aria": "Moderatör notu"
+    },
+    "confidence": {
+      "title": "AI güveni",
+      "aria": "AI güveni (destekleyici bilgi)",
+      "supporting": "Yalnızca destekleyici bilgidir — kararın yerini almaz."
+    },
+    "technical": {
+      "title": "Teknik ayrıntılar",
+      "provider": "Sağlayıcı",
+      "model": "Model",
+      "providerReason": "Sağlayıcı nedeni",
+      "providerConfidence": "Sağlayıcı güveni",
+      "validatedAt": "Doğrulama zamanı",
+      "evidenceId": "Kanıt kimliği",
+      "findings": "Bulgular"
+    }
+  },
   "spotDetail": {
     "backToMap": "Haritaya dön",
     "notFound": "Park yeri bulunamadı",

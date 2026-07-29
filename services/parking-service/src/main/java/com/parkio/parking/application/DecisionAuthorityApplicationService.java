@@ -108,6 +108,19 @@ public class DecisionAuthorityApplicationService {
             UUID evaluationId,
             Instant occurredAt,
             AiValidationEvidenceInput evidenceInput) {
+        return applyAiValidation(
+                parkingSpotId, statusName, detectedRiskTypes, evaluationId, occurredAt, evidenceInput, null, null);
+    }
+
+    public ControlledAuthorityApplyResult applyAiValidation(
+            UUID parkingSpotId,
+            String statusName,
+            List<String> detectedRiskTypes,
+            UUID evaluationId,
+            Instant occurredAt,
+            AiValidationEvidenceInput evidenceInput,
+            String rejectionReasonCode,
+            String policyVersion) {
         long started = System.nanoTime();
         Objects.requireNonNull(parkingSpotId, "parkingSpotId");
         Objects.requireNonNull(evaluationId, "evaluationId");
@@ -142,7 +155,8 @@ public class DecisionAuthorityApplicationService {
 
         if (!selection.selected()) {
             AiValidationApplyOutcome legacy = parking.applyAiValidationResult(
-                    parkingSpotId, statusName, detectedRiskTypes, evaluationId, occurredAt);
+                    parkingSpotId, statusName, detectedRiskTypes, evaluationId, occurredAt,
+                    rejectionReasonCode, policyVersion);
             AuthorityFallbackReason fallback = mapNonSelectedFallback(selection.reason());
             if (selection.reason() != AuthorityEligibilityReason.AUTHORITY_DISABLED
                     && selection.reason() != AuthorityEligibilityReason.ZERO_PERCENT_CANARY) {
@@ -176,7 +190,8 @@ public class DecisionAuthorityApplicationService {
                         ex);
             }
             AiValidationApplyOutcome legacy = parking.applyAiValidationResult(
-                    parkingSpotId, statusName, detectedRiskTypes, evaluationId, occurredAt);
+                    parkingSpotId, statusName, detectedRiskTypes, evaluationId, occurredAt,
+                    rejectionReasonCode, policyVersion);
             observer.recordDuration(elapsed(started));
             return ControlledAuthorityApplyResult.legacy(
                     legacy,
@@ -188,7 +203,8 @@ public class DecisionAuthorityApplicationService {
         if (profile != EvidenceAvailabilityProfile.COMPLETE_CURRENT_V1) {
             observer.recordFallback(AuthorityFallbackReason.EVIDENCE_INCOMPLETE);
             AiValidationApplyOutcome legacy = parking.applyAiValidationResult(
-                    parkingSpotId, statusName, detectedRiskTypes, evaluationId, occurredAt);
+                    parkingSpotId, statusName, detectedRiskTypes, evaluationId, occurredAt,
+                    rejectionReasonCode, policyVersion);
             observer.recordDuration(elapsed(started));
             return ControlledAuthorityApplyResult.legacy(
                     legacy,
@@ -200,7 +216,8 @@ public class DecisionAuthorityApplicationService {
         if (risk != null && risk.hardConstraintActive()) {
             observer.recordFallback(AuthorityFallbackReason.HARD_CONSTRAINT);
             AiValidationApplyOutcome legacy = parking.applyAiValidationResult(
-                    parkingSpotId, statusName, detectedRiskTypes, evaluationId, occurredAt);
+                    parkingSpotId, statusName, detectedRiskTypes, evaluationId, occurredAt,
+                    rejectionReasonCode, policyVersion);
             observer.recordDuration(elapsed(started));
             return ControlledAuthorityApplyResult.legacy(
                     legacy,
@@ -215,7 +232,8 @@ public class DecisionAuthorityApplicationService {
                 || !AuthorityDispositionCompatibility.isCanaryAuthorityDisposition(disposition)) {
             observer.recordFallback(AuthorityFallbackReason.UNSUPPORTED_DISPOSITION);
             AiValidationApplyOutcome legacy = parking.applyAiValidationResult(
-                    parkingSpotId, statusName, detectedRiskTypes, evaluationId, occurredAt);
+                    parkingSpotId, statusName, detectedRiskTypes, evaluationId, occurredAt,
+                    rejectionReasonCode, policyVersion);
             observer.recordDuration(elapsed(started));
             return ControlledAuthorityApplyResult.legacy(
                     legacy,

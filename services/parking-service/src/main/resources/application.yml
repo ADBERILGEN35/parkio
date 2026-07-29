@@ -213,6 +213,12 @@ parkio:
       positive-ttl: ${PARKIO_GEOCODING_CACHE_POSITIVE_TTL:24h}
       negative-ttl: ${PARKIO_GEOCODING_CACHE_NEGATIVE_TTL:5m}
   parking:
+    # One-shot legacy inventory reset. Keep disabled except on an explicit operator run.
+    legacy-policy-reset:
+      enabled: ${PARKIO_PARKING_LEGACY_POLICY_RESET_ENABLED:false}
+      dry-run: ${PARKIO_PARKING_LEGACY_POLICY_RESET_DRY_RUN:true}
+      target-policy-version: ${PARKIO_PARKING_LEGACY_POLICY_RESET_TARGET:2026-07-photo-policy-v3-recall}
+      batch-size: ${PARKIO_PARKING_LEGACY_POLICY_RESET_BATCH_SIZE:500}
     outcome:
       max-processing-attempts: ${PARKIO_PARKING_OUTCOME_MAX_PROCESSING_ATTEMPTS:10}
     session:

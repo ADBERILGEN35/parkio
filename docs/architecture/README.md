@@ -141,7 +141,7 @@ module inside parking-service:
 - [WP-05.13 Adaptive Exposure Engine Shadow](wp-05-adaptive-exposure-engine-shadow.md)
 - [WP-05.14 Fraud Intelligence Engine Shadow](wp-05-fraud-intelligence-engine-shadow.md)
 - [WP-05.15 Continuous Calibration & Policy Governance](wp-05-continuous-calibration-policy-governance.md)
-- Related: [AI Vision Validation](ai-vision-validation.md), [Event Contracts](event-contracts.md)
+- Related: [AI Vision Validation](ai-vision-validation.md), [Event Contracts](event-contracts.md), [Parking Spot Rejection Reasons](parking-spot-rejection-reasons.md)
 
 ## WP-06 — Operational Platform
 

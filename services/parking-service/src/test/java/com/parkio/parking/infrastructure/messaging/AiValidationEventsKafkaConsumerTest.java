@@ -59,7 +59,7 @@ class AiValidationEventsKafkaConsumerTest {
         UUID spotId = UUID.randomUUID();
         when(jdbc.update(any(String.class), eq(eventId), eq("AiValidationCompleted"), any()))
                 .thenReturn(1);
-        when(authority.applyAiValidation(any(), any(), any(), any(), any(), any()))
+        when(authority.applyAiValidation(any(), any(), any(), any(), any(), any(), any(), any()))
                 .thenReturn(ControlledAuthorityApplyResult.legacy(
                         new AiValidationApplyOutcome(
                                 ParkingSpotStatus.PENDING_VALIDATION,
@@ -86,6 +86,8 @@ class AiValidationEventsKafkaConsumerTest {
                 risksCaptor.capture(),
                 eq(eventId),
                 eq(Instant.parse("2026-06-08T12:00:00Z")),
+                any(),
+                any(),
                 any());
         assertThat(risksCaptor.getValue()).containsExactly("LOW_IMAGE_QUALITY");
         verify(ack).acknowledge();
@@ -102,7 +104,7 @@ class AiValidationEventsKafkaConsumerTest {
 
         consumer.onMessage(record(eventId, "AiValidationCompleted", payload), "AiValidationCompleted", null, ack);
 
-        verify(authority, never()).applyAiValidation(any(), any(), any(), any(), any(), any());
+        verify(authority, never()).applyAiValidation(any(), any(), any(), any(), any(), any(), any(), any());
         verify(jdbc, never()).update(any(String.class), any(), any(), any());
         verify(ack).acknowledge();
     }

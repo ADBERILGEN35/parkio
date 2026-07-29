@@ -185,7 +185,8 @@ public class VisionContentRiskClassifier implements ContentRiskClassifier {
                 analysis.obstructionAssessment(),
                 analysis.legalityAccessAssessment(),
                 policyResult.decision(),
-                policyResult.signals());
+                policyResult.signals(),
+                policyResult.rejectionReasonCode());
     }
 
     private Optional<ContentClassification> reusableClassification(UUID mediaId) {

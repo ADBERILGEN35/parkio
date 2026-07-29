@@ -18,12 +18,16 @@ import com.parkio.parking.application.result.AiValidationApplyOutcome;
 import com.parkio.parking.application.result.SpotMediaAccess;
 import com.parkio.parking.domain.ModerationPolicy;
 import com.parkio.parking.domain.ParkingSpot;
+import com.parkio.parking.domain.ParkingSpotRejection;
 import com.parkio.parking.domain.ParkingSpotSearchLog;
 import com.parkio.parking.domain.ParkingSpotStatus;
 import com.parkio.parking.domain.ParkingSpotStatusHistory;
 import com.parkio.parking.domain.ParkingSpotVerification;
 import com.parkio.parking.domain.ParkingSpotViewLog;
 import com.parkio.parking.domain.ParkingSource;
+import com.parkio.parking.domain.RejectionReasonCatalog;
+import com.parkio.parking.domain.RejectionReasonCode;
+import com.parkio.parking.domain.RejectionSource;
 import com.parkio.parking.domain.VerificationResult;
 import com.parkio.parking.domain.event.ParkingSpotActivatedEvent;
 import com.parkio.parking.domain.event.ParkingSpotClaimedEvent;
@@ -257,7 +261,16 @@ public class ParkingApplicationService {
      *                   watermark means an out-of-order delivery and is ignored
      */
     public void rejectSpotByModerator(UUID spotId, UUID moderationRequestId, Instant occurredAt) {
-        applyModeratorDecision(spotId, moderationRequestId, occurredAt, false);
+        rejectSpotByModerator(spotId, moderationRequestId, occurredAt, null, null);
+    }
+
+    public void rejectSpotByModerator(
+            UUID spotId,
+            UUID moderationRequestId,
+            Instant occurredAt,
+            UUID moderatorUserId,
+            String resolutionNote) {
+        applyModeratorDecision(spotId, moderationRequestId, occurredAt, false, moderatorUserId, resolutionNote);
     }
 
     /**
@@ -266,10 +279,20 @@ public class ParkingApplicationService {
      * become visible no matter what a moderator decided.
      */
     public void approveSpotByModerator(UUID spotId, UUID moderationRequestId, Instant occurredAt) {
-        applyModeratorDecision(spotId, moderationRequestId, occurredAt, true);
+        applyModeratorDecision(spotId, moderationRequestId, occurredAt, true, null, null);
     }
 
     private void applyModeratorDecision(UUID spotId, UUID moderationRequestId, Instant occurredAt, boolean approve) {
+        applyModeratorDecision(spotId, moderationRequestId, occurredAt, approve, null, null);
+    }
+
+    private void applyModeratorDecision(
+            UUID spotId,
+            UUID moderationRequestId,
+            Instant occurredAt,
+            boolean approve,
+            UUID moderatorUserId,
+            String resolutionNote) {
         long startedNanos = System.nanoTime();
         ParkingSpot spot = requireSpot(spotId);
         Instant now = clock.instant();
@@ -285,9 +308,19 @@ public class ParkingApplicationService {
         }
         spot.trackModerationRequest(moderationRequestId);
 
-        boolean changed = approve
-                ? spot.applyModeratorApproval(now, moderationPolicy)
-                : spot.markRejectedByModerator(now);
+        boolean changed;
+        if (approve) {
+            changed = spot.applyModeratorApproval(now, moderationPolicy);
+        } else {
+            ParkingSpotRejection rejection = ParkingSpotRejection.of(
+                    RejectionReasonCode.MANUAL_MODERATOR_REJECTION,
+                    sanitizeModeratorNote(resolutionNote),
+                    RejectionSource.MODERATOR,
+                    now,
+                    moderatorUserId,
+                    null);
+            changed = spot.markRejectedByModerator(now, rejection);
+        }
         if (!changed) {
             // Terminal or already-decided: replays and duplicates settle here as no-ops.
             moderationMetrics.recordProcessingDuration(elapsedSince(startedNanos), "NO_CHANGE");
@@ -310,6 +343,14 @@ public class ParkingApplicationService {
             outbox.append(ParkingSpotActivatedEvent.of(saved, now));
         }
         recordModerationOutcome(saved, previous, reason, moderationRequestId, now, startedNanos);
+    }
+
+    private static String sanitizeModeratorNote(String note) {
+        if (note == null || note.isBlank()) {
+            return RejectionReasonCatalog.messageTr(RejectionReasonCode.MANUAL_MODERATOR_REJECTION);
+        }
+        String trimmed = note.trim();
+        return trimmed.length() > 512 ? trimmed.substring(0, 512) : trimmed;
     }
 
     /**
@@ -335,6 +376,18 @@ public class ParkingApplicationService {
             List<String> detectedRiskTypes,
             UUID moderationRequestId,
             Instant occurredAt) {
+        return applyAiValidationResult(
+                parkingSpotId, statusName, detectedRiskTypes, moderationRequestId, occurredAt, null, null);
+    }
+
+    public AiValidationApplyOutcome applyAiValidationResult(
+            UUID parkingSpotId,
+            String statusName,
+            List<String> detectedRiskTypes,
+            UUID moderationRequestId,
+            Instant occurredAt,
+            String rejectionReasonCode,
+            String policyVersion) {
         long startedNanos = System.nanoTime();
         ParkingSpot spot = requireSpot(parkingSpotId);
         Instant now = clock.instant();
@@ -356,6 +409,7 @@ public class ParkingApplicationService {
                 .anyMatch("NOT_A_PARKING_SPOT"::equals);
 
         spot.trackModerationRequest(moderationRequestId);
+        spot.recordLastAiPolicyVersion(policyVersion);
         boolean changed;
         String reason;
         if ("PASSED".equals(normalized) && !notParking) {
@@ -365,7 +419,15 @@ public class ParkingApplicationService {
             changed = spot.applyAiValidationUncertain(now, moderationPolicy);
             reason = "AI_PENDING_REVIEW";
         } else if ("FAILED".equals(normalized) || notParking) {
-            changed = spot.applyAiValidationRejected(now);
+            RejectionReasonCode code = RejectionReasonCatalog.fromWireReason(
+                    rejectionReasonCode != null ? rejectionReasonCode : "CLEARLY_UNRELATED_CONTENT");
+            ParkingSpotRejection rejection = ParkingSpotRejection.of(
+                    code,
+                    RejectionSource.AI_POLICY,
+                    now,
+                    null,
+                    policyVersion);
+            changed = spot.applyAiValidationRejected(now, rejection);
             reason = "AI_REJECTED";
         } else {
             // Fail-closed: unknown / missing status leaves the spot pending validation.
@@ -375,6 +437,8 @@ public class ParkingApplicationService {
         }
 
         if (!changed) {
+            // Still persist last_ai_policy_version when status did not change.
+            spots.save(spot);
             moderationMetrics.recordProcessingDuration(elapsedSince(startedNanos), "NO_CHANGE");
             return new AiValidationApplyOutcome(previous, previous, AiValidationApplyOutcome.Kind.NO_CHANGE);
         }

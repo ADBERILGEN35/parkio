@@ -75,7 +75,11 @@ public class ModerationActionsKafkaConsumer {
                         objectMapper.treeToValue(envelope.payload(), ModeratorDecision.class);
                 if (markProcessing(event.eventId(), eventType)) {
                     parking.rejectSpotByModerator(
-                            event.parkingSpotId(), event.eventId(), envelope.occurredAt());
+                            event.parkingSpotId(),
+                            event.eventId(),
+                            envelope.occurredAt(),
+                            event.moderatorUserId(),
+                            null);
                 }
             } else if (APPROVED_BY_MODERATOR.equals(eventType)) {
                 // The human exit from PENDING_REVIEW. Without it a spot the AI was unsure
@@ -108,6 +112,6 @@ public class ModerationActionsKafkaConsumer {
     }
 
     /** Shared shape of the moderator approve/reject payloads (both are spot-targeted). */
-    private record ModeratorDecision(UUID eventId, UUID parkingSpotId) {
+    private record ModeratorDecision(UUID eventId, UUID parkingSpotId, UUID moderatorUserId) {
     }
 }

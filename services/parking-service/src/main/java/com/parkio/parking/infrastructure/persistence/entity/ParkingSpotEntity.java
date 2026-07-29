@@ -110,6 +110,27 @@ public class ParkingSpotEntity {
     @Column(name = "review_sla_breached_at")
     private Instant reviewSlaBreachedAt;
 
+    @Column(name = "rejection_reason_code")
+    private String rejectionReasonCode;
+
+    @Column(name = "rejection_reason_text")
+    private String rejectionReasonText;
+
+    @Column(name = "rejection_source")
+    private String rejectionSource;
+
+    @Column(name = "rejected_at")
+    private Instant rejectedAt;
+
+    @Column(name = "rejected_by")
+    private UUID rejectedBy;
+
+    @Column(name = "rejection_policy_version")
+    private String rejectionPolicyVersion;
+
+    @Column(name = "last_ai_policy_version")
+    private String lastAiPolicyVersion;
+
     protected ParkingSpotEntity() {
         // for JPA
     }
@@ -123,6 +144,25 @@ public class ParkingSpotEntity {
                              Instant activatedAt, Instant moderationDeadlineAt, int moderationAttempts,
                              Instant moderationDecidedAt, UUID moderationRequestId,
                              Instant reviewSlaBreachedAt) {
+        this(id, ownerUserId, mediaId, latitude, longitude, addressText, description, manualLocationEdited,
+                suitableVehicleTypes, parkingContext, legalStatus, violationReasons, status, confidenceScore,
+                verificationCount, filledReportCount, expiresAt, createdAt, updatedAt, version, activatedAt,
+                moderationDeadlineAt, moderationAttempts, moderationDecidedAt, moderationRequestId,
+                reviewSlaBreachedAt, null, null, null, null, null, null, null);
+    }
+
+    public ParkingSpotEntity(UUID id, UUID ownerUserId, UUID mediaId, double latitude, double longitude,
+                             String addressText, String description, boolean manualLocationEdited,
+                             String suitableVehicleTypes, ParkingContext parkingContext, LegalStatus legalStatus,
+                             String violationReasons, ParkingSpotStatus status, double confidenceScore,
+                             int verificationCount, int filledReportCount, Instant expiresAt,
+                             Instant createdAt, Instant updatedAt, Long version,
+                             Instant activatedAt, Instant moderationDeadlineAt, int moderationAttempts,
+                             Instant moderationDecidedAt, UUID moderationRequestId,
+                             Instant reviewSlaBreachedAt,
+                             String rejectionReasonCode, String rejectionReasonText, String rejectionSource,
+                             Instant rejectedAt, UUID rejectedBy, String rejectionPolicyVersion,
+                             String lastAiPolicyVersion) {
         this.id = id;
         this.ownerUserId = ownerUserId;
         this.mediaId = mediaId;
@@ -149,6 +189,13 @@ public class ParkingSpotEntity {
         this.moderationDecidedAt = moderationDecidedAt;
         this.moderationRequestId = moderationRequestId;
         this.reviewSlaBreachedAt = reviewSlaBreachedAt;
+        this.rejectionReasonCode = rejectionReasonCode;
+        this.rejectionReasonText = rejectionReasonText;
+        this.rejectionSource = rejectionSource;
+        this.rejectedAt = rejectedAt;
+        this.rejectedBy = rejectedBy;
+        this.rejectionPolicyVersion = rejectionPolicyVersion;
+        this.lastAiPolicyVersion = lastAiPolicyVersion;
     }
 
     public UUID getId() {
@@ -253,5 +300,33 @@ public class ParkingSpotEntity {
 
     public Instant getReviewSlaBreachedAt() {
         return reviewSlaBreachedAt;
+    }
+
+    public String getRejectionReasonCode() {
+        return rejectionReasonCode;
+    }
+
+    public String getRejectionReasonText() {
+        return rejectionReasonText;
+    }
+
+    public String getRejectionSource() {
+        return rejectionSource;
+    }
+
+    public Instant getRejectedAt() {
+        return rejectedAt;
+    }
+
+    public UUID getRejectedBy() {
+        return rejectedBy;
+    }
+
+    public String getRejectionPolicyVersion() {
+        return rejectionPolicyVersion;
+    }
+
+    public String getLastAiPolicyVersion() {
+        return lastAiPolicyVersion;
     }
 }

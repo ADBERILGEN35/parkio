@@ -50,7 +50,9 @@ class ModerationActionsKafkaConsumerTest {
         verify(parking).rejectSpotByModerator(
                 org.mockito.ArgumentMatchers.eq(spotId),
                 org.mockito.ArgumentMatchers.eq(eventId),
-                org.mockito.ArgumentMatchers.any());
+                org.mockito.ArgumentMatchers.any(),
+                org.mockito.ArgumentMatchers.any(),
+                org.mockito.ArgumentMatchers.isNull());
         verify(ack, org.mockito.Mockito.times(2)).acknowledge();
     }
 
@@ -63,6 +65,8 @@ class ModerationActionsKafkaConsumerTest {
 
         verify(parking, never()).rejectSpotByModerator(
                 org.mockito.ArgumentMatchers.eq(spotId),
+                org.mockito.ArgumentMatchers.any(),
+                org.mockito.ArgumentMatchers.any(),
                 org.mockito.ArgumentMatchers.any(),
                 org.mockito.ArgumentMatchers.any());
         verify(ack).acknowledge();
@@ -89,6 +93,8 @@ class ModerationActionsKafkaConsumerTest {
                 org.mockito.ArgumentMatchers.eq(eventId),
                 org.mockito.ArgumentMatchers.eq(Instant.parse("2026-06-09T12:00:00Z")));
         verify(parking, never()).rejectSpotByModerator(
+                org.mockito.ArgumentMatchers.any(),
+                org.mockito.ArgumentMatchers.any(),
                 org.mockito.ArgumentMatchers.any(),
                 org.mockito.ArgumentMatchers.any(),
                 org.mockito.ArgumentMatchers.any());

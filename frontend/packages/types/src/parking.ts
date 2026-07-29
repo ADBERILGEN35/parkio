@@ -109,6 +109,24 @@ export interface PublicSpot {
   expiresAt: string | null;
   createdAt: string;
   updatedAt: string;
+  /** Present only when the spot was rejected with structured metadata. */
+  rejection?: SpotRejection | null;
+}
+
+/** Structured rejection metadata — mirrors parking-service `SpotRejectionResponse`. */
+export interface SpotRejection {
+  code: string;
+  /**
+   * Server fallback / audit snapshot. Clients should prefer localized copy from
+   * {@link code} for known product reasons.
+   */
+  message?: string | null;
+  source: 'AI_POLICY' | 'MODERATOR' | 'SYSTEM_MIGRATION' | string;
+  rejectedAt: string;
+  rejectedBy: string | null;
+  policyVersion: string | null;
+  /** Moderator-authored explanation when distinct from the catalog default. */
+  moderatorNote?: string | null;
 }
 
 /** Owner's full spot view (`/parking/my-spots` endpoints) — mirrors `SpotResponse`. */

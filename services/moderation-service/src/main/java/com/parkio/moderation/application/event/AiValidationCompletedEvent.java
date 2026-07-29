@@ -8,11 +8,7 @@ import java.util.UUID;
  * Local copy of ai-validation-service's {@code AiValidationCompleted} payload
  * (event-contracts.md). Contracts are duplicated, never shared (ai-context/01).
  *
- * <p>The AI result is <strong>advisory</strong> (ai-context/02): moderation derives a
- * decision from the real fields ({@code status}, {@code detectedRiskTypes}, scores) —
- * it never auto-rejects. {@code status} and {@code detectedRiskTypes} are carried as
- * strings/string-list so unknown future enum values deserialize safely. {@code
- * parkingSpotId} is nullable: a standalone media validation has no spot.
+ * <p>{@code rejectionReasonCode} and {@code policyVersion} are additive optional fields.
  */
 public record AiValidationCompletedEvent(
         UUID eventId,
@@ -24,7 +20,24 @@ public record AiValidationCompletedEvent(
         int imageQualityScore,
         int aiConfidence,
         List<String> detectedRiskTypes,
-        Instant occurredAt) {
+        Instant occurredAt,
+        String rejectionReasonCode,
+        String policyVersion) {
+
+    public AiValidationCompletedEvent(
+            UUID eventId,
+            UUID mediaId,
+            UUID parkingSpotId,
+            String status,
+            int emptySpaceConfidence,
+            int legalRiskScore,
+            int imageQualityScore,
+            int aiConfidence,
+            List<String> detectedRiskTypes,
+            Instant occurredAt) {
+        this(eventId, mediaId, parkingSpotId, status, emptySpaceConfidence, legalRiskScore,
+                imageQualityScore, aiConfidence, detectedRiskTypes, occurredAt, null, null);
+    }
 
     /** Non-null view of the detected risk types (the field may be absent/null on the wire). */
     public List<String> riskTypesOrEmpty() {

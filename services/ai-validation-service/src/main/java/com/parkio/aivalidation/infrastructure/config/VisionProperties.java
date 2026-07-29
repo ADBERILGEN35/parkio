@@ -75,7 +75,7 @@ public class VisionProperties {
     private String promptVersion = "2026-07-whole-image-v1";
 
     /** Bump when {@link ModerationDecisionPolicy} or reason-code routing changes. */
-    private String policyVersion = "2026-07-photo-policy-v2";
+    private String policyVersion = "2026-07-photo-policy-v3-recall";
 
     private final MediaClient mediaClient = new MediaClient();
     private final Gemini gemini = new Gemini();
@@ -206,13 +206,23 @@ public class VisionProperties {
                 rejectConfidence);
     }
 
-    /** Central three-way decision thresholds — single source of truth. */
+    /**
+     * Central three-way decision thresholds — single source of truth.
+     * Tuned for recall-first spam filtering: accept plausible parking context;
+     * reject only at extremely high irrelevant/unusable confidence.
+     * {@code openSpaceAcceptConfidence} is retained for telemetry / threshold versioning
+     * but is not a hard gate for {@code AUTO_ACCEPT} (availability is community-owned).
+     */
     public static class Decision {
 
-        private double parkingContextAcceptConfidence = 0.65;
-        private double openSpaceAcceptConfidence = 0.55;
-        private double clearlyIrrelevantAcceptMax = 0.20;
+        /** Floor for accepting when parking/road context is present (recall-first). */
+        private double parkingContextAcceptConfidence = 0.45;
+        /** Retained for versioning/signals; not required to AUTO_ACCEPT. */
+        private double openSpaceAcceptConfidence = 0.30;
+        private double clearlyIrrelevantAcceptMax = 0.25;
+        /** Extremely high confidence required before AUTO_REJECT for spam/unrelated. */
         private double clearlyIrrelevantRejectConfidence = 0.95;
+        /** Extremely high confidence required before AUTO_REJECT for unusable frames. */
         private double unusableImageRejectConfidence = 0.95;
 
         public double getParkingContextAcceptConfidence() {

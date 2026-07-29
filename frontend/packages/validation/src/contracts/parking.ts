@@ -18,6 +18,7 @@ import {
   type ParkingSessionResponse,
   type PublicSpotResponse,
   type SpotMediaAccessUrlResponse,
+  type SpotRejection,
   type SpotResponse,
   type StartParkingSessionRequest,
   type VerifySpotRequest,
@@ -28,6 +29,18 @@ import {
   nonNegativeIntegerSchema,
   uuidSchema,
 } from './primitives';
+
+export const spotRejectionSchema = z
+  .object({
+    code: z.string().min(1).max(64),
+    message: z.string().max(512).nullable().optional(),
+    source: z.string().min(1).max(32),
+    rejectedAt: instantSchema,
+    rejectedBy: uuidSchema.nullable(),
+    policyVersion: z.string().max(64).nullable(),
+    moderatorNote: z.string().max(512).nullable().optional(),
+  })
+  .strip() satisfies z.ZodType<SpotRejection>;
 
 export const PARKING_SESSION_ESTIMATED_FEE_PATTERN =
   /^0*(?:0|[1-9][0-9]{0,9})(?:\.[0-9]{1,2})?$/;
@@ -107,6 +120,7 @@ export const publicSpotResponseSchema = z
     expiresAt: instantSchema.nullable(),
     createdAt: instantSchema,
     updatedAt: instantSchema,
+    rejection: spotRejectionSchema.nullable().optional(),
   })
   .strip() satisfies z.ZodType<PublicSpotResponse>;
 

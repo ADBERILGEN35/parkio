@@ -263,4 +263,53 @@ class ParkingSpotTest {
         assertThat(spot.status()).isEqualTo(ParkingSpotStatus.REJECTED);
         assertThat(spot.markRejectedByModerator(NOW.plusSeconds(3))).isFalse();
     }
+
+    @Test
+    void applyAiValidationRejectedPersistsStructuredRejectionMetadata() {
+        ParkingSpot spot = createSpot();
+        ParkingSpotRejection rejection = ParkingSpotRejection.of(
+                RejectionReasonCode.CLEARLY_UNRELATED_CONTENT,
+                RejectionSource.AI_POLICY,
+                NOW.plusSeconds(1),
+                null,
+                "2026-07-photo-policy-v3-recall");
+
+        assertThat(spot.applyAiValidationRejected(NOW.plusSeconds(1), rejection)).isTrue();
+        assertThat(spot.status()).isEqualTo(ParkingSpotStatus.REJECTED);
+        assertThat(spot.rejection()).isNotNull();
+        assertThat(spot.rejection().code()).isEqualTo(RejectionReasonCode.CLEARLY_UNRELATED_CONTENT);
+        assertThat(spot.rejection().source()).isEqualTo(RejectionSource.AI_POLICY);
+        assertThat(spot.rejection().policyVersion()).isEqualTo("2026-07-photo-policy-v3-recall");
+    }
+
+    @Test
+    void systemMigrationRejectsActiveLegacySpotAndIsIdempotent() {
+        ParkingSpot spot = createActive();
+        ParkingSpotRejection rejection = ParkingSpotRejection.of(
+                RejectionReasonCode.LEGACY_POLICY_RESET,
+                RejectionSource.SYSTEM_MIGRATION,
+                NOW.plusSeconds(2),
+                null,
+                "2026-07-photo-policy-v3-recall");
+
+        assertThat(spot.markRejectedBySystemMigration(NOW.plusSeconds(2), rejection)).isTrue();
+        assertThat(spot.status()).isEqualTo(ParkingSpotStatus.REJECTED);
+        assertThat(spot.rejection().code()).isEqualTo(RejectionReasonCode.LEGACY_POLICY_RESET);
+        assertThat(spot.rejection().source()).isEqualTo(RejectionSource.SYSTEM_MIGRATION);
+        assertThat(spot.markRejectedBySystemMigration(NOW.plusSeconds(3), rejection)).isFalse();
+    }
+
+    @Test
+    void systemMigrationCanRejectEvenWhenLastAiPolicyIsCurrent_eligibilityIsJobConcern() {
+        ParkingSpot spot = createActive();
+        spot.recordLastAiPolicyVersion("2026-07-photo-policy-v3-recall");
+        ParkingSpotRejection rejection = ParkingSpotRejection.of(
+                RejectionReasonCode.LEGACY_POLICY_RESET,
+                RejectionSource.SYSTEM_MIGRATION,
+                NOW.plusSeconds(2),
+                null,
+                "2026-07-photo-policy-v3-recall");
+        assertThat(spot.markRejectedBySystemMigration(NOW.plusSeconds(2), rejection)).isTrue();
+        assertThat(spot.lastAiPolicyVersion()).isEqualTo("2026-07-photo-policy-v3-recall");
+    }
 }

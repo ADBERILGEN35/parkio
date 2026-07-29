@@ -192,7 +192,7 @@ class DecisionAuthorityApplicationServiceTest {
     @Test
     void mockedDisabledDoesNotCallAuthoritativePublish() {
         ParkingApplicationService parkingMock = mock(ParkingApplicationService.class);
-        when(parkingMock.applyAiValidationResult(any(), any(), any(), any(), any()))
+        when(parkingMock.applyAiValidationResult(any(), any(), any(), any(), any(), any(), any()))
                 .thenReturn(new AiValidationApplyOutcome(
                         ParkingSpotStatus.PENDING_VALIDATION,
                         ParkingSpotStatus.ACTIVE,
@@ -211,7 +211,8 @@ class DecisionAuthorityApplicationServiceTest {
 
         svc.applyAiValidation(spot.id(), "PASSED", List.of(), UUID.randomUUID(), NOW, strongAi(spot, UUID.randomUUID()));
 
-        verify(parkingMock).applyAiValidationResult(eq(spot.id()), eq("PASSED"), any(), any(), any());
+        verify(parkingMock).applyAiValidationResult(
+                eq(spot.id()), eq("PASSED"), any(), any(), any(), any(), any());
         verify(parkingMock, never()).applyAuthoritativeFullPublish(any(), any(), any());
     }
 

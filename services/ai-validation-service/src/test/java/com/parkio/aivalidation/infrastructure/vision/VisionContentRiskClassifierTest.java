@@ -57,9 +57,9 @@ class VisionContentRiskClassifierTest {
     }
 
     @Test
-    void weakLikelyParkingDegradesToUncertain() {
+    void weakLikelyParkingStillAcceptsUnderRecallPolicy() {
         provider.analysis = new VisionProviderClient.VisionAnalysis("LIKELY_PARKING", 0.55, "EMPTY_SPACE_VISIBLE");
-        assertThat(classifier.classify(UUID.randomUUID())).isEqualTo(Verdict.UNCERTAIN);
+        assertThat(classifier.classify(UUID.randomUUID())).isEqualTo(Verdict.LIKELY_PARKING);
     }
 
     @Test
@@ -69,17 +69,17 @@ class VisionContentRiskClassifierTest {
     }
 
     @Test
-    void nearbyBarrierReasonForcesUncertainEvenWhenModelRejects() {
+    void nearbyBarrierReasonPrefersAcceptWhenParkingRelated() {
         provider.analysis = new VisionProviderClient.VisionAnalysis(
                 "NOT_A_PARKING_SPOT", 0.99, "NEARBY_BARRIER_NOT_BLOCKING_TARGET");
-        assertThat(classifier.classifyDetailed(UUID.randomUUID()).verdict()).isEqualTo(Verdict.UNCERTAIN);
+        assertThat(classifier.classifyDetailed(UUID.randomUUID()).verdict()).isEqualTo(Verdict.LIKELY_PARKING);
     }
 
     @Test
-    void plausibleSpaceBesideCarUsesUncertainOrLikelyNeverHardRejectWithoutAllowlist() {
+    void plausibleSpaceBesideCarPrefersAccept() {
         provider.analysis = new VisionProviderClient.VisionAnalysis(
                 "NOT_A_PARKING_SPOT", 0.95, "POSSIBLE_SPACE_UNCLEAR_ACCESS");
-        assertThat(classifier.classify(UUID.randomUUID())).isEqualTo(Verdict.UNCERTAIN);
+        assertThat(classifier.classify(UUID.randomUUID())).isEqualTo(Verdict.LIKELY_PARKING);
 
         provider.analysis = new VisionProviderClient.VisionAnalysis(
                 "LIKELY_PARKING", 0.92, "CLEAR_USABLE_SPACE",

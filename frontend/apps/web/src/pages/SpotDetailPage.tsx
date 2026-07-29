@@ -33,6 +33,7 @@ import { useTranslation } from 'react-i18next';
 import { Link, useParams } from 'react-router-dom';
 import { FriendlyApiErrorMessage } from '@/components/FriendlyApiErrorMessage';
 import { SpotMap } from '@/components/map/SpotMap';
+import { SpotRejectionPanel } from '@/components/product/SpotRejectionPanel';
 import {
   useSpotDetailQuery,
   useSpotMediaAccessUrlQuery,
@@ -46,7 +47,7 @@ import { mapParkingActionError, mapParkingReportError } from '@/data/parking/err
 import { isActiveParkingSessionConflict } from '@/data/parking/sessionErrors';
 import { activeParkingSessionQueryOptions } from '@/data/query-options/parking';
 import { enumLabel, formatInstant, formatRelativeAgo, formatRemaining } from '@/lib/format';
-import { freshnessLabel, spotStatusLabel } from '@/lib/localized-status';
+import { freshnessLabel, spotDisplayStatusLabel } from '@/lib/localized-status';
 import { showError, showInfo, showSuccess } from '@/lib/toast';
 import { useParkioSdk } from '@/app/AppRuntimeContext';
 import { useQueryClient } from '@tanstack/react-query';
@@ -186,7 +187,7 @@ function TrustStatusPanel({ spot }: { spot: PublicSpot }) {
   return (
     <Surface level="raised" className="rounded-3xl p-lg shadow-deep">
       <div className="flex flex-wrap items-center gap-sm">
-        <StatusBadge status={spot.status} label={spotStatusLabel(spot.status, t)} />
+        <StatusBadge status={spot.status} label={spotDisplayStatusLabel(spot.status, spot.rejection, t)} />
         <span
           className={cn(
             'inline-flex items-center gap-xs text-label-sm font-semibold',
@@ -212,6 +213,16 @@ function TrustStatusPanel({ spot }: { spot: PublicSpot }) {
           : formatRemaining(spot.expiresAt)} ·{' '}
         {t('spotDetail.updatedAgo', { time: formatRelativeAgo(spot.updatedAt) })}
       </p>
+
+      {spot.rejection ? (
+        <div className="mt-md">
+          <SpotRejectionPanel
+            rejection={spot.rejection}
+            status={spot.status}
+            confidenceScore={metrics.confidenceScore}
+          />
+        </div>
+      ) : null}
 
       <div className="mt-lg grid grid-cols-2 gap-sm">
         <TrustTile

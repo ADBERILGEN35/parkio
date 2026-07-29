@@ -55,6 +55,14 @@ public class GeminiVisionClient implements VisionProviderClient {
             "TOO_DARK_OR_BLURRY",
             "SCREENSHOT_OR_SYNTHETIC",
             "UNRELATED_SUBJECT",
+            "INDOOR_SCENE",
+            "SELFIE_OR_PERSONAL_PHOTO",
+            "FOOD_OR_RANDOM_OBJECT",
+            "NO_ROAD_OR_PARKING_CONTEXT",
+            "IMAGE_TOO_DARK",
+            "IMAGE_TOO_BLURRY",
+            "IMAGE_CORRUPTED",
+            "UNUSABLE_IMAGE",
             "WHOLE_IMAGE_NO_REGION",
             "OTHER");
 
@@ -85,10 +93,11 @@ public class GeminiVisionClient implements VisionProviderClient {
             photo is still valid without it.
             - Ambiguity (unclear width, unclear access, uncertain legality, partial view, \
             night/low light) must be UNCERTAIN — never NOT_A_PARKING_SPOT.
-            - NOT_A_PARKING_SPOT only for clearly irrelevant or unusable content: \
-            UNRELATED_SUBJECT (selfie, food, indoor room, pet, document, isolated object, \
-            vehicle interior, sky/wall without road), SCREENSHOT_OR_SYNTHETIC, or \
-            TOO_DARK_OR_BLURRY when the image is genuinely unusable.
+            - NOT_A_PARKING_SPOT only for clearly irrelevant or unusable content. Prefer the \
+            most specific reasonCode when confident: INDOOR_SCENE, SELFIE_OR_PERSONAL_PHOTO, \
+            FOOD_OR_RANDOM_OBJECT, SCREENSHOT_OR_SYNTHETIC, NO_ROAD_OR_PARKING_CONTEXT, \
+            IMAGE_TOO_DARK, IMAGE_TOO_BLURRY, IMAGE_CORRUPTED, UNUSABLE_IMAGE, or \
+            UNRELATED_SUBJECT when none of the finer codes fit.
             - Do NOT reject merely because no painted lines exist, because legality is \
             unclear, or because open space is uncertain — use UNCERTAIN instead.
 
@@ -128,7 +137,10 @@ public class GeminiVisionClient implements VisionProviderClient {
                            "TARGET_PHYSICALLY_BLOCKED", "NO_PLAUSIBLE_SPACE",
                            "LEGALITY_UNCERTAIN", "CLEARLY_RESTRICTED_AREA",
                            "TOO_DARK_OR_BLURRY", "SCREENSHOT_OR_SYNTHETIC",
-                           "UNRELATED_SUBJECT", "WHOLE_IMAGE_NO_REGION", "OTHER"]
+                           "UNRELATED_SUBJECT", "INDOOR_SCENE", "SELFIE_OR_PERSONAL_PHOTO",
+                           "FOOD_OR_RANDOM_OBJECT", "NO_ROAD_OR_PARKING_CONTEXT",
+                           "IMAGE_TOO_DARK", "IMAGE_TOO_BLURRY", "IMAGE_CORRUPTED",
+                           "UNUSABLE_IMAGE", "WHOLE_IMAGE_NO_REGION", "OTHER"]
                 },
                 "claimedRegionAssessment": {
                   "type": "STRING",

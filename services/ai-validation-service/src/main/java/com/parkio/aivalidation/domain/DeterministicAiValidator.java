@@ -20,6 +20,7 @@ public final class DeterministicAiValidator {
     /** Finding detail prefix for genuine semantic UNCERTAIN (reuse within TTL). */
     public static final String VISION_OUTCOME_SEMANTIC_UNCERTAIN = "vision_outcome:SEMANTIC_UNCERTAIN";
     public static final String REASON_CODE_PREFIX = "reason_code:";
+    public static final String REJECTION_REASON_CODE_PREFIX = "rejection_reason_code:";
     public static final String ASSESSMENT_CLAIMED_REGION_PREFIX = "assessment:claimed_region:";
     public static final String ASSESSMENT_VEHICLE_FIT_PREFIX = "assessment:vehicle_fit:";
     public static final String ASSESSMENT_OBSTRUCTION_PREFIX = "assessment:obstruction:";
@@ -118,6 +119,10 @@ public final class DeterministicAiValidator {
         if (classification.reasonCode() != null && !classification.reasonCode().isBlank()) {
             findings.add(AiValidationFinding.of(AiValidationType.PARKING_SPACE_VISIBILITY, null,
                     50, REASON_CODE_PREFIX + classification.reasonCode(), now));
+        }
+        if (classification.rejectionReasonCode() != null && !classification.rejectionReasonCode().isBlank()) {
+            findings.add(AiValidationFinding.of(AiValidationType.PARKING_SPACE_VISIBILITY, null,
+                    50, REJECTION_REASON_CODE_PREFIX + classification.rejectionReasonCode(), now));
         }
         if (classification.claimedRegionAssessment() != null) {
             findings.add(AiValidationFinding.of(AiValidationType.EMPTY_SPACE_DETECTION, null,

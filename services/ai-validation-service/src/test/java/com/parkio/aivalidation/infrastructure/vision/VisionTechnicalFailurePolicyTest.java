@@ -113,16 +113,15 @@ class VisionTechnicalFailurePolicyTest {
     }
 
     @Test
-    void missingClaimedRegionWholeImageBiasesUncertainNotAutoReject() {
-        // Provider returns soft whole-image code; classifier must not hard-reject.
+    void missingClaimedRegionWholeImagePrefersAcceptNotAutoReject() {
+        // Soft whole-image parking context must never hard-reject; recall policy accepts.
         provider.analysis = new VisionProviderClient.VisionAnalysis(
                 "NOT_A_PARKING_SPOT", 0.99, "WHOLE_IMAGE_NO_REGION",
                 "UNCERTAIN", "UNCERTAIN", "NEARBY_ONLY", "UNCERTAIN", null, null);
-        assertThat(classifier.classify(UUID.randomUUID())).isEqualTo(Verdict.UNCERTAIN);
+        assertThat(classifier.classify(UUID.randomUUID())).isEqualTo(Verdict.LIKELY_PARKING);
         AiValidationResult result = validator.validate(UUID.randomUUID(), null, null, NOW);
-        assertThat(result.status()).isEqualTo(AiValidationStatus.WARNING);
-        assertThat(result.findings()).anyMatch(f ->
-                f.message() != null && f.message().contains("WHOLE_IMAGE_NO_REGION"));
+        assertThat(result.status()).isEqualTo(AiValidationStatus.PASSED);
+        assertThat(result.status()).isNotEqualTo(AiValidationStatus.FAILED);
     }
 
     private void assertNeverFailed() {
