@@ -19,11 +19,16 @@ import { CountdownText } from '@/components/spots/CountdownText';
 import { FreshnessRing, useNowTick } from '@/components/spots/FreshnessRing';
 import { isLiveStatus, statusVisual } from '@/components/spots/statusVisuals';
 import { spotChips, spotTitle } from '@/components/spots/spotChips';
+import { DecisionCard } from '@/features/moderation/decision';
 import { MapSurface } from '@/features/map/MapSurface';
 import { SpotActions } from '@/features/spots/SpotActions';
 import { useSpotPhoto } from '@/features/spots/useSpotPhoto';
 import { mySpotsQueryOptions, spotDetailQueryOptions } from '@/data/query-options/parking';
 import { useT } from '@/i18n/LocaleProvider';
+import {
+  getRejectionPresentation,
+  isLegacySystemMigrationRejection,
+} from '@/lib/getRejectionPresentation';
 import { formatClock, formatCountdown, remainingFraction, remainingMs } from '@/lib/time';
 import { radius as radiusTokens } from '@/theme/tokens';
 import { useTheme } from '@/theme/ThemeProvider';
@@ -93,6 +98,22 @@ export default function SpotDetailScreen() {
   const isOwner = ownSpot !== null;
   const dimmed = spot.status === 'FILLED' || spot.status === 'EXPIRED';
   const showActions = !isOwner && live;
+  const rejection = ownSpot?.rejection ?? spot.rejection ?? null;
+  const structuredRejection = Boolean(isOwner && spot.status === 'REJECTED' && rejection);
+  const migrationRejection = isLegacySystemMigrationRejection(rejection);
+  const rejectionPresentation =
+    rejection && spot.status === 'REJECTED'
+      ? getRejectionPresentation({
+          status: spot.status,
+          code: rejection.code,
+          source: rejection.source,
+          serverMessage: rejection.message,
+          moderatorNote: rejection.moderatorNote,
+          t,
+        })
+      : null;
+  const statusLabel =
+    rejectionPresentation?.displayStatus ?? t(`status.${spot.status}`);
 
   const ownerStatusCard = (() => {
     if (!isOwner) return null;
@@ -114,7 +135,8 @@ export default function SpotDetailScreen() {
         indeterminate: true,
       };
     }
-    if (spot.status === 'REJECTED') {
+    // Structured rejection metadata is rendered by DecisionCard instead.
+    if (spot.status === 'REJECTED' && !rejection) {
       return {
         icon: 'close-circle-outline' as const,
         title: t('spot.rejected.title'),
@@ -170,9 +192,16 @@ export default function SpotDetailScreen() {
               />
             </Glass>
             <Glass radius={999} contentStyle={styles.statusBadgeInner}>
-              <MaterialCommunityIcons name={visual.icon} size={14} color={visual.fg} />
-              <AppText variant="bodySm" color={visual.fg}>
-                {t(`status.${spot.status}`)}
+              <MaterialCommunityIcons
+                name={migrationRejection ? 'cog-outline' : visual.icon}
+                size={14}
+                color={migrationRejection ? colors.onSurfaceVariant : visual.fg}
+              />
+              <AppText
+                variant="bodySm"
+                color={migrationRejection ? colors.onSurfaceVariant : visual.fg}
+              >
+                {statusLabel}
               </AppText>
             </Glass>
           </View>
@@ -187,6 +216,22 @@ export default function SpotDetailScreen() {
         </View>
 
         <View style={styles.body}>
+          {structuredRejection && (
+            <View style={styles.ownerCard}>
+              <DecisionCard
+                rejection={rejection}
+                status={spot.status}
+                confidenceScore={ownSpot?.confidenceScore}
+              />
+              <Button
+                label={t('spot.appeal')}
+                variant="tonal"
+                size="md"
+                onPress={() => router.push('/(main)/reports')}
+              />
+            </View>
+          )}
+
           {ownerStatusCard && (
             <Card tone={spot.status === 'REJECTED' ? 0 : 1} style={styles.ownerCard}>
               <View style={styles.ownerCardRow}>

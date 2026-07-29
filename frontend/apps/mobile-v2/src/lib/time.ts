@@ -87,6 +87,21 @@ export function formatDate(iso: string, locale: 'tr' | 'en'): string {
   });
 }
 
+/** Local date + time for rejection / audit timestamps. */
+export function formatDateTime(iso: string, locale: 'tr' | 'en'): string {
+  const date = new Date(iso);
+  if (Number.isNaN(date.getTime())) {
+    return '';
+  }
+  return date.toLocaleString(locale === 'tr' ? 'tr-TR' : 'en-GB', {
+    day: '2-digit',
+    month: '2-digit',
+    year: 'numeric',
+    hour: '2-digit',
+    minute: '2-digit',
+  });
+}
+
 /** Relative "x dk önce / x min ago" for notification rows. */
 export function formatRelative(iso: string, now: number, locale: 'tr' | 'en'): string {
   const then = Date.parse(iso);
