@@ -21,7 +21,8 @@ public sealed interface ParkingEvent permits
         ParkingSessionStartedEvent,
         ParkingSessionCompletedEvent,
         ParkingSessionCancelledEvent,
-        ParkingSessionReminderRequestedEvent {
+        ParkingSessionReminderRequestedEvent,
+        ParkingHistoryDeletedEvent {
 
     /** Aggregate type for spot lifecycle events (default {@link #aggregateType()}). */
     String AGGREGATE_TYPE = "ParkingSpot";
