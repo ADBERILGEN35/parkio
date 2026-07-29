@@ -14,6 +14,8 @@ public enum AnalyticsMetricType {
     PARKING_SESSION_STARTED_OTHER,
     PARKING_SESSION_COMPLETED,
     PARKING_SESSION_CANCELLED,
+    /** ParkingHistoryDeleted → product {@code parking_session_history_deleted}. */
+    PARKING_SESSION_HISTORY_DELETED,
     POINTS_EARNED,
     LEVEL_UP,
     NOTIFICATION_CREATED;
@@ -30,6 +32,7 @@ public enum AnalyticsMetricType {
                 || this == PARKING_SESSION_STARTED_COMMUNITY
                 || this == PARKING_SESSION_STARTED_OTHER
                 || this == PARKING_SESSION_COMPLETED
-                || this == PARKING_SESSION_CANCELLED;
+                || this == PARKING_SESSION_CANCELLED
+                || this == PARKING_SESSION_HISTORY_DELETED;
     }
 }

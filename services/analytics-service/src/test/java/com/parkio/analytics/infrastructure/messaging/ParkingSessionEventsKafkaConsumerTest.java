@@ -37,11 +37,14 @@ class ParkingSessionEventsKafkaConsumerTest {
                 "ParkingSessionCompleted", ack);
         consumer.onMessage(terminalRecord("ParkingSessionCancelled", "CANCELLED", "COMMUNITY"),
                 "ParkingSessionCancelled", ack);
+        consumer.onMessage(historyDeletedSingleRecord(), "ParkingHistoryDeleted", ack);
+        consumer.onMessage(historyDeletedBulkRecord(), "ParkingHistoryDeleted", ack);
 
         verify(service).handleParkingSessionStarted(any());
         verify(service).handleParkingSessionCompleted(any());
         verify(service).handleParkingSessionCancelled(any());
-        verify(ack, org.mockito.Mockito.times(3)).acknowledge();
+        verify(service, org.mockito.Mockito.times(2)).handleParkingHistoryDeleted(any());
+        verify(ack, org.mockito.Mockito.times(5)).acknowledge();
     }
 
     @Test
@@ -80,9 +83,42 @@ class ParkingSessionEventsKafkaConsumerTest {
 
     @Test
     void unsupportedEventTypeIsIgnoredAndAcked() throws Exception {
-        consumer.onMessage(startedRecord("MANUAL"), "ParkingSessionDeleted", ack);
+        consumer.onMessage(startedRecord("MANUAL"), "ParkingSessionArchived", ack);
         verify(service, never()).handleParkingSessionStarted(any());
+        verify(service, never()).handleParkingHistoryDeleted(any());
         verify(ack).acknowledge();
+    }
+
+    @Test
+    void historyDeletedUnsupportedVersionIsRejectedWithoutAck() {
+        assertThatThrownBy(() ->
+                        consumer.onMessage(historyDeletedSingleRecord(2), "ParkingHistoryDeleted", ack))
+                .isInstanceOf(AnalyticsContractException.class);
+        verify(service, never()).handleParkingHistoryDeleted(any());
+        verify(ack, never()).acknowledge();
+    }
+
+    @Test
+    void historyDeletedMalformedPayloadIsRejectedWithoutAck() throws Exception {
+        UUID eventId = UUID.randomUUID();
+        UUID sessionId = UUID.randomUUID();
+        ObjectNode payload = objectMapper.createObjectNode();
+        payload.put("eventId", eventId.toString());
+        payload.put("userId", UUID.randomUUID().toString());
+        payload.put("scope", "SINGLE_TERMINAL_SESSION");
+        payload.put("sessionId", sessionId.toString());
+        payload.put("occurredAt", "2026-07-24T12:00:00Z");
+        ObjectNode envelope = envelope(
+                eventId, "ParkingHistoryDeleted", "ParkingSession", sessionId, 1, payload);
+
+        assertThatThrownBy(() -> consumer.onMessage(
+                        new ConsumerRecord<>("parkio.parking.session", 0, 0L,
+                                sessionId.toString(), objectMapper.writeValueAsString(envelope)),
+                        "ParkingHistoryDeleted",
+                        ack))
+                .isInstanceOf(AnalyticsContractException.class);
+        verify(service, never()).handleParkingHistoryDeleted(any());
+        verify(ack, never()).acknowledge();
     }
 
     @Test
@@ -148,6 +184,43 @@ class ParkingSessionEventsKafkaConsumerTest {
         ObjectNode envelope = envelope(eventId, eventType, "ParkingSession", sessionId, 1, payload);
         return new ConsumerRecord<>("parkio.parking.session", 0, 0L,
                 sessionId.toString(), objectMapper.writeValueAsString(envelope));
+    }
+
+    private ConsumerRecord<String, String> historyDeletedSingleRecord() throws Exception {
+        return historyDeletedSingleRecord(1);
+    }
+
+    private ConsumerRecord<String, String> historyDeletedSingleRecord(int version) throws Exception {
+        UUID eventId = UUID.randomUUID();
+        UUID sessionId = UUID.randomUUID();
+        UUID userId = UUID.randomUUID();
+        ObjectNode payload = objectMapper.createObjectNode();
+        payload.put("eventId", eventId.toString());
+        payload.put("userId", userId.toString());
+        payload.put("scope", "SINGLE_TERMINAL_SESSION");
+        payload.put("sessionId", sessionId.toString());
+        payload.put("deletedCount", 1);
+        payload.put("occurredAt", "2026-07-24T12:00:00Z");
+        ObjectNode envelope = envelope(
+                eventId, "ParkingHistoryDeleted", "ParkingSession", sessionId, version, payload);
+        return new ConsumerRecord<>("parkio.parking.session", 0, 0L,
+                sessionId.toString(), objectMapper.writeValueAsString(envelope));
+    }
+
+    private ConsumerRecord<String, String> historyDeletedBulkRecord() throws Exception {
+        UUID eventId = UUID.randomUUID();
+        UUID userId = UUID.randomUUID();
+        ObjectNode payload = objectMapper.createObjectNode();
+        payload.put("eventId", eventId.toString());
+        payload.put("userId", userId.toString());
+        payload.put("scope", "ALL_TERMINAL_HISTORY");
+        payload.putNull("sessionId");
+        payload.put("deletedCount", 3);
+        payload.put("occurredAt", "2026-07-24T12:00:00Z");
+        ObjectNode envelope = envelope(
+                eventId, "ParkingHistoryDeleted", "ParkingSession", userId, 1, payload);
+        return new ConsumerRecord<>("parkio.parking.session", 0, 0L,
+                userId.toString(), objectMapper.writeValueAsString(envelope));
     }
 
     private ObjectNode basePayload(

@@ -1,5 +1,7 @@
 package com.parkio.analytics.application;
 
+import com.parkio.analytics.application.event.ParkingHistoryDeletedEvent;
+import com.parkio.analytics.application.event.ParkingHistoryDeletionScope;
 import com.parkio.analytics.application.event.ParkingSessionCancelledEvent;
 import com.parkio.analytics.application.event.ParkingSessionCompletedEvent;
 import com.parkio.analytics.application.event.ParkingSessionStartedEvent;
@@ -87,6 +89,49 @@ public final class ParkingSessionLifecycleValidator {
             throw new AnalyticsContractException("endedAt is required for ParkingSessionCancelled");
         }
         ParkingSessionLifecycleMapper.durationSeconds(event.startedAt(), event.endedAt());
+    }
+
+    public static void validateHistoryDeleted(EventEnvelope envelope, ParkingHistoryDeletedEvent event) {
+        validateEnvelope(envelope, ParkingSessionLifecycleMapper.WIRE_HISTORY_DELETED);
+        if (event.eventId() == null) {
+            throw new AnalyticsContractException("payload.eventId is required");
+        }
+        if (!Objects.equals(envelope.eventId(), event.eventId())) {
+            throw new AnalyticsContractException("payload.eventId must match envelope.eventId");
+        }
+        if (event.userId() == null) {
+            throw new AnalyticsContractException("userId is required");
+        }
+        if (event.scope() == null) {
+            throw new AnalyticsContractException("scope is required");
+        }
+        if (event.occurredAt() == null) {
+            throw new AnalyticsContractException("payload.occurredAt is required");
+        }
+        if (event.deletedCount() == null || event.deletedCount() < 1) {
+            throw new AnalyticsContractException("deletedCount must be positive");
+        }
+        if (event.scope() == ParkingHistoryDeletionScope.SINGLE_TERMINAL_SESSION) {
+            if (event.sessionId() == null) {
+                throw new AnalyticsContractException("sessionId is required for SINGLE_TERMINAL_SESSION");
+            }
+            if (!Objects.equals(envelope.aggregateId(), event.sessionId())) {
+                throw new AnalyticsContractException("sessionId must match envelope.aggregateId");
+            }
+            if (!Objects.equals(event.deletedCount(), 1)) {
+                throw new AnalyticsContractException("deletedCount must be 1 for SINGLE_TERMINAL_SESSION");
+            }
+            return;
+        }
+        if (event.scope() != ParkingHistoryDeletionScope.ALL_TERMINAL_HISTORY) {
+            throw new AnalyticsContractException("Unsupported ParkingHistoryDeletionScope: " + event.scope());
+        }
+        if (event.sessionId() != null) {
+            throw new AnalyticsContractException("sessionId must be null for ALL_TERMINAL_HISTORY");
+        }
+        if (!Objects.equals(envelope.aggregateId(), event.userId())) {
+            throw new AnalyticsContractException("userId must match envelope.aggregateId for ALL_TERMINAL_HISTORY");
+        }
     }
 
     private static void requirePayloadIdentity(

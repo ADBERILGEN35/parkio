@@ -402,6 +402,28 @@ ParkingSession lifecycle events use a separate aggregate/topic — see
 - **Version:** 1. **Compatibility:** append-only.
 - **Privacy:** no coordinates or idempotency keys.
 
+## ParkingHistoryDeletedEvent
+
+- **Producer:** `parking-service`
+- **Expected consumers:** `analytics-service` (live, WP-07 PR-6).
+- **Envelope:** `aggregateType=ParkingSession`, `aggregateId=sessionId` (single delete) or
+  `aggregateId=userId` (bulk delete), `eventType=ParkingHistoryDeleted`.
+- **Topic:** `parkio.parking.session` (key = `aggregateId`).
+- **Semantics:** authoritative hard-delete of owned terminal ParkingSession history. Does
+  not reverse prior lifecycle analytics rows — records a deletion counter only.
+
+| Field | Type | Required | Meaning |
+|-------|------|----------|---------|
+| `eventId` | UUID (string) | yes | Dedup key. |
+| `userId` | UUID (string) | yes | Session owner (authUserId). |
+| `scope` | string (enum) | yes | `SINGLE_TERMINAL_SESSION` or `ALL_TERMINAL_HISTORY`. |
+| `sessionId` | UUID (string) | single only | Deleted session id; null for bulk. |
+| `deletedCount` | integer | yes | Rows removed (`1` for single). |
+| `occurredAt` | timestamp (UTC) | yes | When the delete committed. |
+
+- **Version:** 1. **Compatibility:** append-only.
+- **Privacy:** no coordinates, session payloads, or idempotency keys.
+
 Operational producer rules: [`PARKING-SESSION-LIFECYCLE-EVENTS.md`](PARKING-SESSION-LIFECYCLE-EVENTS.md).
 
 ## ParkingSpotExpiredEvent

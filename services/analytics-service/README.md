@@ -47,6 +47,7 @@ recomputed), then increments the **daily**, **per-user** and (for parking metric
 | `ParkingSessionStarted` (other) | `PARKING_SESSION_STARTED_OTHER` → product `parking_session_started` |
 | `ParkingSessionCompleted` | `PARKING_SESSION_COMPLETED` → product `parking_session_completed` (value = duration seconds) |
 | `ParkingSessionCancelled` | `PARKING_SESSION_CANCELLED` → product `parking_session_cancelled` (value = duration seconds) |
+| `ParkingHistoryDeleted` | `PARKING_SESSION_HISTORY_DELETED` → product `parking_session_history_deleted` (value = deletedCount) |
 | `PointsEarned` | `POINTS_EARNED` (value = points) |
 | `UserLevelChanged` | `LEVEL_UP` |
 | `NotificationCreated` | `NOTIFICATION_CREATED` |
@@ -89,7 +90,6 @@ only lets a user view their own analytics.
 - Weekly/monthly rollups (the `TimeGranularity` enum is defined; only daily is wired).
 - The `outbox_events` table is provisioned but unused (analytics emits no events yet);
   no BI tooling or dashboards are implemented here.
-- `parking_history_deleted` ingestion (Sprint R22; deferred past S1-P0-09).
 
 ## Run locally
 
