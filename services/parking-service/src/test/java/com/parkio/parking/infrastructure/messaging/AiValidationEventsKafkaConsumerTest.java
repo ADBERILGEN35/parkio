@@ -13,7 +13,16 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.node.ArrayNode;
 import com.fasterxml.jackson.databind.node.ObjectNode;
 import com.fasterxml.jackson.datatype.jsr310.JavaTimeModule;
-import com.parkio.parking.application.ParkingApplicationService;
+import com.parkio.parking.application.DecisionAuthorityApplicationService;
+import com.parkio.parking.application.DecisionShadowOrchestrator;
+import com.parkio.parking.application.port.DecisionShadowObserverPort;
+import com.parkio.parking.application.result.AiValidationApplyOutcome;
+import com.parkio.parking.application.result.ControlledAuthorityApplyResult;
+import com.parkio.parking.decision.application.EvidenceCollectionService;
+import com.parkio.parking.decision.authority.AuthorityEligibilityReason;
+import com.parkio.parking.decision.authority.AuthorityFallbackReason;
+import com.parkio.parking.decision.policy.DecisionEngine;
+import com.parkio.parking.domain.ParkingSpotStatus;
 import java.time.Clock;
 import java.time.Instant;
 import java.time.ZoneOffset;
@@ -31,11 +40,18 @@ class AiValidationEventsKafkaConsumerTest {
     private final ObjectMapper objectMapper = new ObjectMapper()
             .registerModule(new JavaTimeModule())
             .disable(DeserializationFeature.FAIL_ON_UNKNOWN_PROPERTIES);
-    private final ParkingApplicationService parking = mock(ParkingApplicationService.class);
+    private final DecisionAuthorityApplicationService authority =
+            mock(DecisionAuthorityApplicationService.class);
     private final JdbcTemplate jdbc = mock(JdbcTemplate.class);
     private final Acknowledgment ack = mock(Acknowledgment.class);
+    private final DecisionShadowOrchestrator decisionShadow = new DecisionShadowOrchestrator(
+            false, new DecisionEngine(), new EvidenceCollectionService(), DecisionShadowObserverPort.noop());
     private final AiValidationEventsKafkaConsumer consumer = new AiValidationEventsKafkaConsumer(
-            parking, jdbc, objectMapper, Clock.fixed(Instant.parse("2026-06-08T12:00:00Z"), ZoneOffset.UTC));
+            authority,
+            jdbc,
+            objectMapper,
+            Clock.fixed(Instant.parse("2026-06-08T12:00:00Z"), ZoneOffset.UTC),
+            decisionShadow);
 
     @Test
     void dispatchesCompletedEventWithParkingSpotId() throws Exception {
@@ -43,6 +59,14 @@ class AiValidationEventsKafkaConsumerTest {
         UUID spotId = UUID.randomUUID();
         when(jdbc.update(any(String.class), eq(eventId), eq("AiValidationCompleted"), any()))
                 .thenReturn(1);
+        when(authority.applyAiValidation(any(), any(), any(), any(), any(), any()))
+                .thenReturn(ControlledAuthorityApplyResult.legacy(
+                        new AiValidationApplyOutcome(
+                                ParkingSpotStatus.PENDING_VALIDATION,
+                                ParkingSpotStatus.ACTIVE,
+                                AiValidationApplyOutcome.Kind.APPLIED),
+                        AuthorityEligibilityReason.AUTHORITY_DISABLED,
+                        AuthorityFallbackReason.NOT_SELECTED));
 
         ObjectNode payload = objectMapper.createObjectNode();
         payload.put("eventId", eventId.toString());
@@ -56,8 +80,13 @@ class AiValidationEventsKafkaConsumerTest {
 
         @SuppressWarnings("unchecked")
         ArgumentCaptor<List<String>> risksCaptor = ArgumentCaptor.forClass(List.class);
-        verify(parking).applyAiValidationResult(eq(spotId), eq("PASSED"), risksCaptor.capture(),
-                eq(eventId), eq(Instant.parse("2026-06-08T12:00:00Z")));
+        verify(authority).applyAiValidation(
+                eq(spotId),
+                eq("PASSED"),
+                risksCaptor.capture(),
+                eq(eventId),
+                eq(Instant.parse("2026-06-08T12:00:00Z")),
+                any());
         assertThat(risksCaptor.getValue()).containsExactly("LOW_IMAGE_QUALITY");
         verify(ack).acknowledge();
     }
@@ -73,7 +102,7 @@ class AiValidationEventsKafkaConsumerTest {
 
         consumer.onMessage(record(eventId, "AiValidationCompleted", payload), "AiValidationCompleted", null, ack);
 
-        verify(parking, never()).applyAiValidationResult(any(), any(), any(), any(), any());
+        verify(authority, never()).applyAiValidation(any(), any(), any(), any(), any(), any());
         verify(jdbc, never()).update(any(String.class), any(), any(), any());
         verify(ack).acknowledge();
     }

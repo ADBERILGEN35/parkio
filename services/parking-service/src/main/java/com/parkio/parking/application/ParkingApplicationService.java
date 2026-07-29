@@ -2,15 +2,19 @@ package com.parkio.parking.application;
 
 import com.parkio.parking.application.command.CreateSpotCommand;
 import com.parkio.parking.application.command.SearchNearbyQuery;
+import com.parkio.parking.application.outcome.OutcomeEvaluationIdentity;
+import com.parkio.parking.application.outcome.OutcomeEvaluationTriggerRequest;
 import com.parkio.parking.application.port.MediaAccessPort;
 import com.parkio.parking.application.port.MediaReadinessPort;
 import com.parkio.parking.application.port.ModerationMetricsPort;
+import com.parkio.parking.application.port.OutcomeEvaluationTriggerPort;
 import com.parkio.parking.application.port.OutboxEventAppender;
 import com.parkio.parking.application.port.ParkingSpotRepository;
 import com.parkio.parking.application.port.ParkingSpotSearchLogRepository;
 import com.parkio.parking.application.port.ParkingSpotStatusHistoryRepository;
 import com.parkio.parking.application.port.ParkingSpotVerificationRepository;
 import com.parkio.parking.application.port.ParkingSpotViewLogRepository;
+import com.parkio.parking.application.result.AiValidationApplyOutcome;
 import com.parkio.parking.application.result.SpotMediaAccess;
 import com.parkio.parking.domain.ModerationPolicy;
 import com.parkio.parking.domain.ParkingSpot;
@@ -31,6 +35,7 @@ import com.parkio.parking.domain.event.ParkingSpotReviewFailedEvent;
 import com.parkio.parking.domain.event.ParkingSpotVerifiedEvent;
 import com.parkio.parking.domain.exception.ParkingErrorCode;
 import com.parkio.parking.domain.exception.ParkingException;
+import com.parkio.parking.outcome.history.OutcomeEvaluationTrigger;
 import java.time.Clock;
 import java.time.Duration;
 import java.time.Instant;
@@ -70,6 +75,8 @@ public class ParkingApplicationService {
     private final ParkingSessionService parkingSessions;
     private final ModerationPolicy moderationPolicy;
     private final ModerationMetricsPort moderationMetrics;
+    private final OutcomeEvaluationTriggerPort outcomeTriggers;
+    private final ExposureShadowOrchestrator exposureShadow;
     private final Clock clock;
 
     public ParkingApplicationService(ParkingSpotRepository spots,
@@ -84,6 +91,8 @@ public class ParkingApplicationService {
                                      ParkingSessionService parkingSessions,
                                      ModerationPolicy moderationPolicy,
                                      ModerationMetricsPort moderationMetrics,
+                                     OutcomeEvaluationTriggerPort outcomeTriggers,
+                                     ExposureShadowOrchestrator exposureShadow,
                                      Clock clock) {
         this.spots = spots;
         this.verifications = verifications;
@@ -97,6 +106,8 @@ public class ParkingApplicationService {
         this.parkingSessions = parkingSessions;
         this.moderationPolicy = moderationPolicy;
         this.moderationMetrics = moderationMetrics;
+        this.outcomeTriggers = outcomeTriggers;
+        this.exposureShadow = exposureShadow;
         this.clock = clock;
     }
 
@@ -196,12 +207,14 @@ public class ParkingApplicationService {
 
         ParkingSpotStatus previous = spot.status();
         spot.verify(verifierUserId, result, now);
-        verifications.save(ParkingSpotVerification.record(spotId, verifierUserId, result, now));
+        ParkingSpotVerification verification = verifications.save(ParkingSpotVerification.record(spotId, verifierUserId, result, now));
         ParkingSpot saved = spots.save(spot);
 
         if (saved.status() != previous) {
-            recordHistory(saved, previous, "VERIFICATION_" + result.name(), now);
+            ParkingSpotStatusHistory history = recordHistory(saved, previous, "VERIFICATION_" + result.name(), now);
+            enqueueOutcomeHistoryTrigger(saved, history);
         }
+        enqueueOutcomeVerificationTrigger(saved, verification);
         emitVerificationEvent(saved, verifierUserId, result, previous, now);
         return saved;
     }
@@ -230,7 +243,8 @@ public class ParkingApplicationService {
         log.info("Community claim prepared spotId={} sessionId={} parkingSource={}",
                 spot.id(), session.getId(), session.getParkingSource());
         ParkingSpot saved = spots.save(spot);
-        recordHistory(saved, previous, "CLAIMED", now);
+        ParkingSpotStatusHistory history = recordHistory(saved, previous, "CLAIMED", now);
+        enqueueOutcomeHistoryTrigger(saved, history);
         outbox.append(ParkingSpotClaimedEvent.of(saved, claimerUserId, now));
         return saved;
     }
@@ -283,13 +297,15 @@ public class ParkingApplicationService {
         ParkingSpot saved = spots.save(spot);
         if (approve && saved.status() == ParkingSpotStatus.REVIEW_FAILED) {
             reason = ParkingSpotReviewFailedEvent.REASON_STALE_BEFORE_PUBLICATION;
-            recordHistory(saved, previous, reason, now);
+            ParkingSpotStatusHistory history = recordHistory(saved, previous, reason, now);
+            enqueueOutcomeHistoryTrigger(saved, history);
             outbox.append(ParkingSpotReviewFailedEvent.of(saved, previous, reason, now));
             moderationMetrics.recordModerationFailure(reason);
             recordModerationOutcome(saved, previous, reason, moderationRequestId, now, startedNanos);
             return;
         }
-        recordHistory(saved, previous, reason, now);
+        ParkingSpotStatusHistory history = recordHistory(saved, previous, reason, now);
+        enqueueOutcomeHistoryTrigger(saved, history);
         if (saved.status() == ParkingSpotStatus.ACTIVE) {
             outbox.append(ParkingSpotActivatedEvent.of(saved, now));
         }
@@ -311,9 +327,14 @@ public class ParkingApplicationService {
      * @param detectedRiskTypes   advisory risk type names from ai-validation-service
      * @param moderationRequestId the upstream event id, carried for tracing
      * @param occurredAt          when the verdict was produced (ordering watermark)
+     * @return already-computed previous/resulting status for shadow comparison (no extra DB read)
      */
-    public void applyAiValidationResult(UUID parkingSpotId, String statusName, List<String> detectedRiskTypes,
-                                        UUID moderationRequestId, Instant occurredAt) {
+    public AiValidationApplyOutcome applyAiValidationResult(
+            UUID parkingSpotId,
+            String statusName,
+            List<String> detectedRiskTypes,
+            UUID moderationRequestId,
+            Instant occurredAt) {
         long startedNanos = System.nanoTime();
         ParkingSpot spot = requireSpot(parkingSpotId);
         Instant now = clock.instant();
@@ -324,7 +345,7 @@ public class ParkingApplicationService {
                             + "occurredAt={} decidedAt={}",
                     parkingSpotId, moderationRequestId, occurredAt, spot.moderationDecidedAt());
             moderationMetrics.recordProcessingDuration(elapsedSince(startedNanos), "STALE");
-            return;
+            return new AiValidationApplyOutcome(previous, previous, AiValidationApplyOutcome.Kind.STALE);
         }
 
         String normalized = statusName == null ? "" : statusName.trim().toUpperCase(Locale.ROOT);
@@ -349,29 +370,83 @@ public class ParkingApplicationService {
         } else {
             // Fail-closed: unknown / missing status leaves the spot pending validation.
             moderationMetrics.recordProcessingDuration(elapsedSince(startedNanos), "UNKNOWN_STATUS");
-            return;
+            return new AiValidationApplyOutcome(
+                    previous, previous, AiValidationApplyOutcome.Kind.UNKNOWN_STATUS);
         }
 
         if (!changed) {
             moderationMetrics.recordProcessingDuration(elapsedSince(startedNanos), "NO_CHANGE");
-            return;
+            return new AiValidationApplyOutcome(previous, previous, AiValidationApplyOutcome.Kind.NO_CHANGE);
         }
         ParkingSpot saved = spots.save(spot);
         if ("PASSED".equals(normalized) && saved.status() == ParkingSpotStatus.REVIEW_FAILED) {
             reason = ParkingSpotReviewFailedEvent.REASON_STALE_BEFORE_PUBLICATION;
-            recordHistory(saved, previous, reason, now);
+            ParkingSpotStatusHistory history = recordHistory(saved, previous, reason, now);
+            enqueueOutcomeHistoryTrigger(saved, history);
             outbox.append(ParkingSpotReviewFailedEvent.of(saved, previous, reason, now));
             moderationMetrics.recordModerationFailure(reason);
             recordModerationOutcome(saved, previous, reason, moderationRequestId, now, startedNanos);
-            return;
+            return new AiValidationApplyOutcome(
+                    previous, saved.status(), AiValidationApplyOutcome.Kind.APPLIED);
         }
-        recordHistory(saved, previous, reason, now);
+        ParkingSpotStatusHistory history = recordHistory(saved, previous, reason, now);
+        enqueueOutcomeHistoryTrigger(saved, history);
         if (saved.status() == ParkingSpotStatus.ACTIVE) {
             outbox.append(ParkingSpotActivatedEvent.of(saved, now));
         }
         recordModerationOutcome(saved, previous, reason, moderationRequestId, now, startedNanos);
+        return new AiValidationApplyOutcome(previous, saved.status(), AiValidationApplyOutcome.Kind.APPLIED);
     }
 
+
+    /**
+     * Applies Decision Engine FULL_PUBLISH authority using the same aggregate
+     * publication path as a legacy AI {@code PASSED} result (history, activation
+     * outbox, REVIEW_FAILED-on-stale-age). Does not parse AI status strings.
+     */
+    public AiValidationApplyOutcome applyAuthoritativeFullPublish(
+            UUID parkingSpotId,
+            UUID moderationRequestId,
+            Instant occurredAt) {
+        long startedNanos = System.nanoTime();
+        ParkingSpot spot = requireSpot(parkingSpotId);
+        Instant now = clock.instant();
+        ParkingSpotStatus previous = spot.status();
+
+        if (spot.isStaleModerationEvent(occurredAt)) {
+            log.info("Ignoring stale authoritative FullPublish spotId={} moderationRequestId={} "
+                            + "occurredAt={} decidedAt={}",
+                    parkingSpotId, moderationRequestId, occurredAt, spot.moderationDecidedAt());
+            moderationMetrics.recordProcessingDuration(elapsedSince(startedNanos), "STALE");
+            return new AiValidationApplyOutcome(previous, previous, AiValidationApplyOutcome.Kind.STALE);
+        }
+
+        spot.trackModerationRequest(moderationRequestId);
+        boolean changed = spot.applyAiValidationPassed(now, moderationPolicy);
+        if (!changed) {
+            moderationMetrics.recordProcessingDuration(elapsedSince(startedNanos), "NO_CHANGE");
+            return new AiValidationApplyOutcome(previous, previous, AiValidationApplyOutcome.Kind.NO_CHANGE);
+        }
+        ParkingSpot saved = spots.save(spot);
+        String reason = "AI_PASSED";
+        if (saved.status() == ParkingSpotStatus.REVIEW_FAILED) {
+            reason = ParkingSpotReviewFailedEvent.REASON_STALE_BEFORE_PUBLICATION;
+            ParkingSpotStatusHistory history = recordHistory(saved, previous, reason, now);
+            enqueueOutcomeHistoryTrigger(saved, history);
+            outbox.append(ParkingSpotReviewFailedEvent.of(saved, previous, reason, now));
+            moderationMetrics.recordModerationFailure(reason);
+            recordModerationOutcome(saved, previous, reason, moderationRequestId, now, startedNanos);
+            return new AiValidationApplyOutcome(
+                    previous, saved.status(), AiValidationApplyOutcome.Kind.APPLIED);
+        }
+        ParkingSpotStatusHistory history = recordHistory(saved, previous, reason, now);
+        enqueueOutcomeHistoryTrigger(saved, history);
+        if (saved.status() == ParkingSpotStatus.ACTIVE) {
+            outbox.append(ParkingSpotActivatedEvent.of(saved, now));
+        }
+        recordModerationOutcome(saved, previous, reason, moderationRequestId, now, startedNanos);
+        return new AiValidationApplyOutcome(previous, saved.status(), AiValidationApplyOutcome.Kind.APPLIED);
+    }
     /** Expires one locked batch of elapsed, non-terminal spots. */
     public int expireElapsedSpots(int batchSize) {
         if (batchSize < 1) {
@@ -454,7 +529,8 @@ public class ParkingApplicationService {
             return 0;
         }
         ParkingSpot saved = spots.save(spot);
-        recordHistory(saved, previous, reason, now);
+        ParkingSpotStatusHistory history = recordHistory(saved, previous, reason, now);
+        enqueueOutcomeHistoryTrigger(saved, history);
         outbox.append(ParkingSpotReviewFailedEvent.of(saved, previous, reason, now));
         moderationMetrics.recordModerationFailure(reason);
         moderationMetrics.recordQueueLatency(saved.moderationWaitAt(now), saved.status());
@@ -478,6 +554,15 @@ public class ParkingApplicationService {
 
         searchLogs.save(ParkingSpotSearchLog.record(
                 query.searcherUserId(), query.latitude(), query.longitude(), radius, visible.size(), now));
+
+        exposureShadow.maybeEvaluateNearbySearch(
+                visible,
+                query.latitude(),
+                query.longitude(),
+                radius,
+                limit,
+                query.searcherUserId() != null);
+
         return visible;
     }
 
@@ -529,7 +614,8 @@ public class ParkingApplicationService {
             return false;
         }
         spots.save(spot);
-        recordHistory(spot, previous, "EXPIRED", now);
+        ParkingSpotStatusHistory history = recordHistory(spot, previous, "EXPIRED", now);
+        enqueueOutcomeHistoryTrigger(spot, history);
         outbox.append(ParkingSpotExpiredEvent.of(spot, now));
         if (spot.activatedAt() == null) {
             // Unreachable by construction — a spot cannot leave the pending statuses without
@@ -571,7 +657,48 @@ public class ParkingApplicationService {
         // no dedicated event; the status-history row captures them.
     }
 
-    private void recordHistory(ParkingSpot spot, ParkingSpotStatus previous, String reason, Instant now) {
-        statusHistory.save(ParkingSpotStatusHistory.record(spot.id(), previous, spot.status(), reason, now));
+    private ParkingSpotStatusHistory recordHistory(ParkingSpot spot, ParkingSpotStatus previous, String reason, Instant now) {
+        ParkingSpotStatusHistory history = ParkingSpotStatusHistory.record(spot.id(), previous, spot.status(), reason, now);
+        statusHistory.save(history);
+        return history;
+    }
+
+    private void enqueueOutcomeVerificationTrigger(ParkingSpot spot, ParkingSpotVerification verification) {
+        OutcomeEvaluationTrigger triggerType = switch (verification.result()) {
+            case AVAILABLE -> OutcomeEvaluationTrigger.VERIFICATION_AVAILABLE;
+            case INVALID, ILLEGAL_OR_RISKY -> OutcomeEvaluationTrigger.NEGATIVE_VERIFICATION;
+            case FILLED -> OutcomeEvaluationTrigger.FILLED_REPORT;
+            default -> throw new IllegalStateException("Unhandled verification result " + verification.result());
+        };
+        enqueueOutcomeTrigger(spot.id(), triggerType, verification.id(), verification.createdAt());
+    }
+
+    private void enqueueOutcomeHistoryTrigger(ParkingSpot spot, ParkingSpotStatusHistory history) {
+        OutcomeEvaluationTrigger triggerType = switch (history.reason()) {
+            case "CLAIMED" -> OutcomeEvaluationTrigger.CLAIM;
+            case "MODERATOR_REJECTED" -> OutcomeEvaluationTrigger.MODERATOR_REJECTION;
+            case "EXPIRED" -> OutcomeEvaluationTrigger.EXPIRATION;
+            case ParkingSpotReviewFailedEvent.REASON_RETRIES_EXHAUSTED,
+                    ParkingSpotReviewFailedEvent.REASON_STALE_BEFORE_PUBLICATION -> OutcomeEvaluationTrigger.REVIEW_FAILURE;
+            case "AI_PASSED", "MODERATOR_APPROVED" -> OutcomeEvaluationTrigger.PUBLICATION;
+            default -> null;
+        };
+        if (triggerType != null) {
+            enqueueOutcomeTrigger(spot.id(), triggerType, history.id(), history.createdAt());
+        }
+    }
+
+    private void enqueueOutcomeTrigger(
+            UUID parkingSpotId,
+            OutcomeEvaluationTrigger triggerType,
+            UUID triggerReference,
+            Instant evidenceCutoffAt) {
+        outcomeTriggers.enqueue(new OutcomeEvaluationTriggerRequest(
+                OutcomeEvaluationIdentity.forTrigger(parkingSpotId, triggerType, triggerReference, evidenceCutoffAt),
+                parkingSpotId,
+                triggerType,
+                triggerReference,
+                evidenceCutoffAt,
+                evidenceCutoffAt));
     }
 }

@@ -1,0 +1,189 @@
+# WP-06.2B restored-application verification overlay.
+# Use ONLY with COMPOSE_PROJECT_NAME=parkio-wp062-* .
+# Uses Compose !override so host ports REPLACE base/apps bindings (no collision with developer stack).
+# Never apply against the developer project name "parkio".
+
+name: ${COMPOSE_PROJECT_NAME:-parkio-wp062-restored}
+
+services:
+  postgres-auth:
+    container_name: ${COMPOSE_PROJECT_NAME}-postgres-auth
+    ports: !override
+      - "${WP062B_POSTGRES_AUTH_PORT:-15432}:5432"
+    labels:
+      parkio.wp062.verification: "true"
+      parkio.wp062b.restored_stack: "true"
+  postgres-gateway:
+    container_name: ${COMPOSE_PROJECT_NAME}-postgres-gateway
+    ports: !override
+      - "${WP062B_POSTGRES_GATEWAY_PORT:-15441}:5432"
+    labels:
+      parkio.wp062.verification: "true"
+  postgres-user:
+    container_name: ${COMPOSE_PROJECT_NAME}-postgres-user
+    ports: !override
+      - "${WP062B_POSTGRES_USER_PORT:-15433}:5432"
+    labels:
+      parkio.wp062.verification: "true"
+  postgres-parking:
+    container_name: ${COMPOSE_PROJECT_NAME}-postgres-parking
+    ports: !override
+      - "${WP062B_POSTGRES_PARKING_PORT:-15434}:5432"
+    labels:
+      parkio.wp062.verification: "true"
+  postgres-media:
+    container_name: ${COMPOSE_PROJECT_NAME}-postgres-media
+    ports: !override
+      - "${WP062B_POSTGRES_MEDIA_PORT:-15435}:5432"
+    labels:
+      parkio.wp062.verification: "true"
+  postgres-gamification:
+    container_name: ${COMPOSE_PROJECT_NAME}-postgres-gamification
+    ports: !override
+      - "${WP062B_POSTGRES_GAMIFICATION_PORT:-15436}:5432"
+  postgres-notification:
+    container_name: ${COMPOSE_PROJECT_NAME}-postgres-notification
+    ports: !override
+      - "${WP062B_POSTGRES_NOTIFICATION_PORT:-15437}:5432"
+  postgres-moderation:
+    container_name: ${COMPOSE_PROJECT_NAME}-postgres-moderation
+    ports: !override
+      - "${WP062B_POSTGRES_MODERATION_PORT:-15438}:5432"
+  postgres-analytics:
+    container_name: ${COMPOSE_PROJECT_NAME}-postgres-analytics
+    ports: !override
+      - "${WP062B_POSTGRES_ANALYTICS_PORT:-15439}:5432"
+  postgres-ai-validation:
+    container_name: ${COMPOSE_PROJECT_NAME}-postgres-ai-validation
+    ports: !override
+      - "${WP062B_POSTGRES_AIVALIDATION_PORT:-15440}:5432"
+  redis:
+    container_name: ${COMPOSE_PROJECT_NAME}-redis
+    ports: !override
+      - "${WP062B_REDIS_PORT:-16379}:6379"
+    labels:
+      parkio.wp062.verification: "true"
+  kafka:
+    container_name: ${COMPOSE_PROJECT_NAME}-kafka
+    ports: !override
+      - "${WP062B_KAFKA_EXTERNAL_PORT:-19092}:29092"
+    environment:
+      KAFKA_ADVERTISED_LISTENERS: PLAINTEXT://kafka:9092,PLAINTEXT_HOST://localhost:${WP062B_KAFKA_EXTERNAL_PORT:-19092}
+      CLUSTER_ID: ${WP062B_KAFKA_CLUSTER_ID:-MkU3T1cwNjJCLUtBRktBLTAx}
+    labels:
+      parkio.wp062.verification: "true"
+  kafka-exporter:
+    container_name: ${COMPOSE_PROJECT_NAME}-kafka-exporter
+    ports: !override
+      - "127.0.0.1:${WP062B_KAFKA_EXPORTER_PORT:-19308}:9308"
+  blackbox-exporter:
+    container_name: ${COMPOSE_PROJECT_NAME}-blackbox-exporter
+    ports: !override
+      - "127.0.0.1:${WP062B_BLACKBOX_PORT:-19115}:9115"
+  minio:
+    container_name: ${COMPOSE_PROJECT_NAME}-minio
+    ports: !override
+      - "${WP062B_MINIO_API_PORT:-19000}:9000"
+      - "${WP062B_MINIO_CONSOLE_PORT:-19001}:9001"
+    labels:
+      parkio.wp062.verification: "true"
+  minio-setup:
+    container_name: ${COMPOSE_PROJECT_NAME}-minio-setup
+    environment:
+      MINIO_BUCKET: ${MINIO_BUCKET:-wp062-parkio-media}
+  clamav:
+    container_name: ${COMPOSE_PROJECT_NAME}-clamav
+    ports: !override
+      - "${WP062B_CLAMAV_PORT:-13310}:3310"
+  prometheus:
+    container_name: ${COMPOSE_PROJECT_NAME}-prometheus
+    ports: !override
+      - "127.0.0.1:${WP062B_PROMETHEUS_PORT:-19090}:9090"
+  alertmanager:
+    container_name: ${COMPOSE_PROJECT_NAME}-alertmanager
+    ports: !override
+      - "127.0.0.1:${WP062B_ALERTMANAGER_PORT:-19093}:9093"
+  loki:
+    container_name: ${COMPOSE_PROJECT_NAME}-loki
+    ports: !override
+      - "127.0.0.1:${WP062B_LOKI_PORT:-13100}:3100"
+  promtail:
+    container_name: ${COMPOSE_PROJECT_NAME}-promtail
+    ports: !override
+      - "127.0.0.1:${WP062B_PROMTAIL_PORT:-19080}:9080"
+  node-exporter:
+    container_name: ${COMPOSE_PROJECT_NAME}-node-exporter
+    ports: !override
+      - "127.0.0.1:${WP062B_NODE_EXPORTER_PORT:-19100}:9100"
+  tempo:
+    container_name: ${COMPOSE_PROJECT_NAME}-tempo
+    ports: !override
+      - "127.0.0.1:${WP062B_TEMPO_PORT:-13200}:3200"
+  grafana:
+    container_name: ${COMPOSE_PROJECT_NAME}-grafana
+    ports: !override
+      - "${WP062B_GRAFANA_PORT:-13000}:3000"
+  gateway-service:
+    image: ${PARKIO_GATEWAY_IMAGE:-parkio-gateway-service}
+    pull_policy: ${PARKIO_WP062B_PULL_POLICY:-never}
+    ports: !override
+      - "${WP062B_GATEWAY_PORT:-18080}:8080"
+    environment:
+      PARKIO_MEDIA_STORAGE_PUBLIC_ENDPOINT: ${PARKIO_MEDIA_STORAGE_PUBLIC_ENDPOINT:-http://localhost:19000}
+    labels:
+      parkio.wp062b.restored_stack: "true"
+  auth-service:
+    image: ${PARKIO_AUTH_IMAGE:-parkio-auth-service}
+    pull_policy: ${PARKIO_WP062B_PULL_POLICY:-never}
+    ports: !override
+      - "${WP062B_AUTH_PORT:-18081}:8081"
+  user-service:
+    image: ${PARKIO_USER_IMAGE:-parkio-user-service}
+    pull_policy: ${PARKIO_WP062B_PULL_POLICY:-never}
+    ports: !override
+      - "${WP062B_USER_PORT:-18082}:8082"
+  parking-service:
+    image: ${PARKIO_PARKING_IMAGE:-parkio-parking-service}
+    pull_policy: ${PARKIO_WP062B_PULL_POLICY:-never}
+    ports: !override
+      - "${WP062B_PARKING_PORT:-18083}:8083"
+  media-service:
+    image: ${PARKIO_MEDIA_IMAGE:-parkio-media-service}
+    pull_policy: ${PARKIO_WP062B_PULL_POLICY:-never}
+    ports: !override
+      - "${WP062B_MEDIA_PORT:-18084}:8084"
+    environment:
+      PARKIO_MEDIA_BUCKET: ${MINIO_BUCKET:-wp062-parkio-media}
+      PARKIO_MEDIA_STORAGE_PUBLIC_ENDPOINT: ${PARKIO_MEDIA_STORAGE_PUBLIC_ENDPOINT:-http://localhost:19000}
+  gamification-service:
+    image: ${PARKIO_GAMIFICATION_IMAGE:-parkio-gamification-service}
+    pull_policy: ${PARKIO_WP062B_PULL_POLICY:-never}
+    ports: !override
+      - "${WP062B_GAMIFICATION_PORT:-18085}:8085"
+  notification-service:
+    image: ${PARKIO_NOTIFICATION_IMAGE:-parkio-notification-service}
+    pull_policy: ${PARKIO_WP062B_PULL_POLICY:-never}
+    ports: !override
+      - "${WP062B_NOTIFICATION_PORT:-18086}:8086"
+  moderation-service:
+    image: ${PARKIO_MODERATION_IMAGE:-parkio-moderation-service}
+    pull_policy: ${PARKIO_WP062B_PULL_POLICY:-never}
+    ports: !override
+      - "${WP062B_MODERATION_PORT:-18087}:8087"
+  ai-validation-service:
+    image: ${PARKIO_AI_VALIDATION_IMAGE:-parkio-ai-validation-service}
+    pull_policy: ${PARKIO_WP062B_PULL_POLICY:-never}
+    ports: !override
+      - "${WP062B_AI_VALIDATION_PORT:-18088}:8088"
+  analytics-service:
+    image: ${PARKIO_ANALYTICS_IMAGE:-parkio-analytics-service}
+    pull_policy: ${PARKIO_WP062B_PULL_POLICY:-never}
+    ports: !override
+      - "${WP062B_ANALYTICS_PORT:-18089}:8089"
+
+# Isolate Docker networks from the developer stack (base file hardcodes name: parkio-backend).
+networks:
+  parkio-backend:
+    name: ${COMPOSE_PROJECT_NAME}-backend
+  parkio-observability:
+    name: ${COMPOSE_PROJECT_NAME}-observability

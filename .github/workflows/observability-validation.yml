@@ -12,7 +12,8 @@ on:
       - "scripts/backup-*.sh"
       - "scripts/restore-hosted-beta.sh"
       - "scripts/lib/backup-common.sh"
-      - ".github/workflows/observability-validation.yml"
+      - "docs/operations/**"
+      - "docs/architecture/wp-05-implementation-plan.md"
   workflow_dispatch:
 
 permissions:
@@ -40,6 +41,118 @@ jobs:
             -v "${{ github.workspace }}/docker/prometheus:/etc/prometheus:ro" \
             prom/prometheus:v2.54.1 \
             promtool check rules /etc/prometheus/alerts.yml
+          docker run --rm \
+            -v "${{ github.workspace }}/docker/prometheus:/etc/prometheus:ro" \
+            prom/prometheus:v2.54.1 \
+            promtool check rules /etc/prometheus/trust-shadow-recording-rules.yml
+          docker run --rm \
+            -v "${{ github.workspace }}/docker/prometheus:/etc/prometheus:ro" \
+            prom/prometheus:v2.54.1 \
+            promtool check rules /etc/prometheus/reward-shadow-recording-rules.yml
+          docker run --rm \
+            -v "${{ github.workspace }}/docker/prometheus:/etc/prometheus:ro" \
+            prom/prometheus:v2.54.1 \
+            promtool check rules /etc/prometheus/exposure-shadow-recording-rules.yml
+          docker run --rm \
+            -v "${{ github.workspace }}/docker/prometheus:/etc/prometheus:ro" \
+            prom/prometheus:v2.54.1 \
+            promtool check rules /etc/prometheus/fraud-shadow-recording-rules.yml
+          docker run --rm \
+            -v "${{ github.workspace }}/docker/prometheus:/etc/prometheus:ro" \
+            prom/prometheus:v2.54.1 \
+            promtool check rules /etc/prometheus/continuous-calibration-recording-rules.yml
+          docker run --rm \
+            -v "${{ github.workspace }}/docker/prometheus:/etc/prometheus:ro" \
+            prom/prometheus:v2.54.1 \
+            promtool check rules /etc/prometheus/operational-readiness-recording-rules.yml
+          docker run --rm \
+            -v "${{ github.workspace }}/docker/prometheus:/etc/prometheus:ro" \
+            prom/prometheus:v2.54.1 \
+            promtool check rules /etc/prometheus/operational-readiness-alert-rules.yml
+
+      - name: Grafana dashboard structure
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          import json
+          from pathlib import Path
+
+          dashboard = json.loads(Path("docker/grafana/provisioning/dashboards/parkio-trust-shadow.json").read_text(encoding="utf-8"))
+          assert dashboard["uid"] == "parkio-trust-shadow"
+          panel_ids = [panel["id"] for panel in dashboard.get("panels", [])]
+          assert len(panel_ids) == len(set(panel_ids)), f"duplicate panel ids: {panel_ids}"
+          exprs = []
+          for panel in dashboard.get("panels", []):
+              for target in panel.get("targets", []):
+                  expr = target.get("expr")
+                  if expr:
+                      exprs.append(expr)
+          assert any("parkio:trust_shadow:success_rate5m" in expr for expr in exprs)
+          dashboards_yml = Path("docker/grafana/provisioning/dashboards/dashboards.yml").read_text(encoding="utf-8")
+          assert "path: /etc/grafana/provisioning/dashboards" in dashboards_yml
+          assert "parkio-trust-shadow.json" in dashboards_yml
+          compose = Path("docker/docker-compose.yml").read_text(encoding="utf-8")
+          assert "./grafana/provisioning:/etc/grafana/provisioning:ro" in compose
+          reward_dashboard = json.loads(Path("docker/grafana/provisioning/dashboards/parkio-reward-shadow.json").read_text(encoding="utf-8"))
+          assert reward_dashboard["uid"] == "parkio-reward-shadow"
+          reward_panel_ids = [panel["id"] for panel in reward_dashboard.get("panels", [])]
+          assert len(reward_panel_ids) == len(set(reward_panel_ids)), f"duplicate reward panel ids: {reward_panel_ids}"
+          reward_exprs = []
+          for panel in reward_dashboard.get("panels", []):
+              for target in panel.get("targets", []):
+                  expr = target.get("expr")
+                  if expr:
+                      reward_exprs.append(expr)
+          assert any("parkio:reward_shadow:success_rate5m" in expr for expr in reward_exprs)
+          assert "parkio-reward-shadow.json" in dashboards_yml
+          assert "./prometheus/reward-shadow-recording-rules.yml:/etc/prometheus/reward-shadow-recording-rules.yml:ro" in compose
+          exposure_dashboard = json.loads(Path("docker/grafana/provisioning/dashboards/parkio-exposure-shadow.json").read_text(encoding="utf-8"))
+          assert exposure_dashboard["uid"] == "parkio-exposure-shadow"
+          exposure_panel_ids = [panel["id"] for panel in exposure_dashboard.get("panels", [])]
+          assert len(exposure_panel_ids) == len(set(exposure_panel_ids)), f"duplicate exposure panel ids: {exposure_panel_ids}"
+          exposure_exprs = []
+          for panel in exposure_dashboard.get("panels", []):
+              for target in panel.get("targets", []):
+                  expr = target.get("expr")
+                  if expr:
+                      exposure_exprs.append(expr)
+          assert any("parkio:exposure_shadow:success_rate5m" in expr for expr in exposure_exprs)
+          assert "parkio-exposure-shadow.json" in dashboards_yml
+          assert "./prometheus/exposure-shadow-recording-rules.yml:/etc/prometheus/exposure-shadow-recording-rules.yml:ro" in compose
+          fraud_dashboard = json.loads(Path("docker/grafana/provisioning/dashboards/parkio-fraud-shadow.json").read_text(encoding="utf-8"))
+          assert fraud_dashboard["uid"] == "parkio-fraud-shadow"
+          fraud_panel_ids = [panel["id"] for panel in fraud_dashboard.get("panels", [])]
+          assert len(fraud_panel_ids) == len(set(fraud_panel_ids)), f"duplicate fraud panel ids: {fraud_panel_ids}"
+          fraud_exprs = []
+          for panel in fraud_dashboard.get("panels", []):
+              for target in panel.get("targets", []):
+                  expr = target.get("expr")
+                  if expr:
+                      fraud_exprs.append(expr)
+          assert any("parkio:fraud_shadow:success_rate5m" in expr for expr in fraud_exprs)
+          assert "parkio-fraud-shadow.json" in dashboards_yml
+          assert "./prometheus/fraud-shadow-recording-rules.yml:/etc/prometheus/fraud-shadow-recording-rules.yml:ro" in compose
+          calibration_dashboard = json.loads(Path("docker/grafana/provisioning/dashboards/parkio-continuous-calibration.json").read_text(encoding="utf-8"))
+          assert calibration_dashboard["uid"] == "parkio-continuous-calibration"
+          calibration_panel_ids = [panel["id"] for panel in calibration_dashboard.get("panels", [])]
+          assert len(calibration_panel_ids) == len(set(calibration_panel_ids)), f"duplicate calibration panel ids: {calibration_panel_ids}"
+          calibration_exprs = []
+          for panel in calibration_dashboard.get("panels", []):
+              for target in panel.get("targets", []):
+                  expr = target.get("expr")
+                  if expr:
+                      calibration_exprs.append(expr)
+          assert any("parkio:continuous_calibration:success_rate5m" in expr for expr in calibration_exprs)
+          assert "parkio-continuous-calibration.json" in dashboards_yml
+          assert "./prometheus/continuous-calibration-recording-rules.yml:/etc/prometheus/continuous-calibration-recording-rules.yml:ro" in compose
+          ops_dashboard = json.loads(Path("docker/grafana/provisioning/dashboards/parkio-operational-readiness.json").read_text(encoding="utf-8"))
+          assert ops_dashboard["uid"] == "parkio-operational-readiness"
+          ops_panel_ids = [panel["id"] for panel in ops_dashboard.get("panels", [])]
+          assert len(ops_panel_ids) == len(set(ops_panel_ids)), f"duplicate ops panel ids: {ops_panel_ids}"
+          assert "./prometheus/operational-readiness-recording-rules.yml:/etc/prometheus/operational-readiness-recording-rules.yml:ro" in compose
+          hub = Path("docs/operations/wp-06-01-operational-readiness-production-governance.md")
+          assert hub.is_file(), "WP-06.1 hub document missing"
+          PY
 
       - name: Alertmanager render + check
         run: |

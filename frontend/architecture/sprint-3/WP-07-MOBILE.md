@@ -12,11 +12,14 @@ retries, AbortSignal forwarding, nearby/detail/create/reports/Smart Return
 wiring, location/privacy, upload abort cleanup, lifecycle/connectivity,
 typed errors, guardrails, focused tests, CI, documentation.
 
-**Non-goals:** formal WP-07 closure, legacy `frontend/apps/mobile` migration,
-Web redesign, backend/infra changes, store publication, background location,
-offline mutation queues, WP-08 work.
+**Non-goals:** overall WP-07 package closure (07.2–07.5), legacy
+`frontend/apps/mobile` migration, Web redesign, backend/infra changes, store
+publication, background location, offline mutation queues, WP-08 work.
 
-This document does not declare formal WP-07 closure.
+This document formally closes **WP-07.1** (Mobile Application Foundation) only.
+It does **not** declare overall WP-07 closure: release signing / crash-provider
+device proof (WP-07.4) and hosted-beta deployment (WP-07.5) remain separate
+operator-/evidence-gated packages.
 
 ## 2. Canonical directory
 
@@ -77,3 +80,27 @@ Expo ~56 / React Native 0.85 / expo-router / TypeScript strict / TanStack Query
 - Dedicated upload abort unit test beyond draft-upload cleanup
 - Legacy `apps/mobile` retirement (out of WP-07)
 - Store signing / push production builds (out of scope)
+
+## 9. Formal Closure — WP-07.1 Mobile Application Foundation
+
+**Closed:** 2026-07-29
+**Sub-package:** WP-07.1
+**Status:** WP-07.1 is formally complete in committed source (`4d76c62` and prior foundation commits). This does **not** close WP-07 overall.
+
+All mandatory section 8 production-debt items governed by WP-07.1 have been
+verified against the repository:
+
+| Debt Item | Status | Evidence |
+|-----------|--------|----------|
+| Broaden signal support for moderation/admin SDK methods | SATISFIED | PR-1 investigation: 21/21 mobile-v2-consumed read methods already forward `AbortSignal`. Admin methods not consumed by mobile-v2 are outside the WP-07.1 condition. No code change required. |
+| Dedicated upload abort unit test | SATISFIED | PR-2: `useDraftUpload.abort.test.ts` — 3 focused tests exercising the production `useDraftUpload` hook's `AbortController` lifecycle (abort on unmount, no abort after completion, idempotent cancel+unmount). |
+| Legacy `apps/mobile` retirement | OUT OF SCOPE | Explicitly excluded from WP-07 per section 1. |
+| Store signing / push production builds | OUT OF SCOPE | Governed by WP-07.4 (operator-gated), not WP-07.1. |
+
+**Not closed by this WP-07.1 entry (remain separate packages):**
+- WP-07.4 (Mobile Release Signing & Crash Verification — operator-/evidence-gated)
+- WP-07.5 (Hosted Beta Deploy Gate — operator-/evidence-gated)
+
+**Closed elsewhere (not by this mobile foundation entry):**
+- WP-07.2 (Web ParkingSession Parity) — complete in committed Web source
+- WP-07.3 (`ParkingHistoryDeleted` producer + analytics consumer) — commits `0a70b03`, `d482bcc`

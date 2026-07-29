@@ -72,6 +72,10 @@ class ParkingPostgisIntegrationTest {
 
     @BeforeEach
     void clearSpots() {
+        jdbc.update("DELETE FROM trust_snapshot");
+        jdbc.update("DELETE FROM trust_ledger");
+        jdbc.update("DELETE FROM outcome_evaluation_triggers");
+        jdbc.update("DELETE FROM outcome_history");
         jdbc.update("DELETE FROM parking_spots");
     }
 

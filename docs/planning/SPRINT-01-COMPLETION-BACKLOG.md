@@ -300,6 +300,7 @@ decision covered start, key persistence, stale drafts, logout, or reconciliation
 
 **Explicitly deferred in this task:** `parking_history_deleted` / deletion lifecycle events
 (remain for a later deletion-analytics task; R22 stays FAIL).
+*Status at task completion time; subsequently closed by S1-DEL-08 / WP-07.3.*
 
 **Definition of Done:** (verified)
 
@@ -331,6 +332,7 @@ decision covered start, key persistence, stale drafts, logout, or reconciliation
 
 **Explicitly deferred:** `parking_history_deleted` / deletion analytics (R22 remains FAIL).
 Backlog “four authoritative server events” exceeded producer scope (three lifecycle events only).
+*Status at task completion time; subsequently closed by S1-DEL-08 / WP-07.3.*
 
 **Definition of Done:** (verified)
 
@@ -369,7 +371,7 @@ Backlog “four authoritative server events” exceeded producer scope (three li
 
 **Layers:** mobile-v2, privacy, shared api-client
 **Closes/unlocks:** client history consumption of R7; mobile deletion UX for R8–R9
-**Does not close:** R22 (`parking_history_deleted` deferred to S1-DEL-08)
+**Closed later by S1-DEL-08 / WP-07.3:** R22 (`parking_history_deleted`) — **PASS** on branch `decision`
 **Evidence:** Profile-nested history screen, user-scoped infinite query, typed delete methods,
 ConfirmModal single/delete-all, ACTIVE preserved, online-only mutations, TR/EN i18n + a11y,
 architecture note `docs/architecture/PARKING-SESSION-HISTORY-DELETION-UI.md`.
@@ -391,6 +393,39 @@ architecture note `docs/architecture/PARKING-SESSION-HISTORY-DELETION-UI.md`.
 
 **Dependencies:** S1-P0-01, S1-P0-05, S1-P0-07.
 
+### S1-DEL-08 — Emit and ingest `parking_history_deleted` (R22 / WP-07.3) ✅ COMPLETE (2026-07-29)
+
+**Status:** COMPLETE (producer + analytics consumer on branch `decision`)
+**Layers:** backend (parking-service), analytics
+**Closes/unlocks:** R22
+**Evidence commits:** `0a70b03` — `feat(parking): publish parking history deleted lifecycle events`;
+`d482bcc` — `feat(analytics): consume parking history deleted lifecycle event`
+
+**Implemented:**
+
+- **Producer:** `parking-service` appends `ParkingHistoryDeleted` to the transactional outbox on
+  successful single or bulk terminal history delete when `deletedCount >= 1`. Wire `eventType`:
+  `ParkingHistoryDeleted`; `aggregateType`: `ParkingSession`. Scope values: `SINGLE_TERMINAL_SESSION`
+  (single delete; `aggregateId` = `sessionId`; `deletedCount` = 1) and `ALL_TERMINAL_HISTORY` (bulk
+  delete; `aggregateId` = `userId`; `deletedCount` = rows removed). No event on zero-delete or
+  failed ACTIVE deletion.
+- **Consumer:** `analytics-service` validates producer-compatible fields, records append-only
+  deletion analytics (`PARKING_SESSION_HISTORY_DELETED` → `parking_session_history_deleted`), and
+  excludes the metric from the parking funnel. Duplicate Kafka delivery is idempotent via inbox
+  `tryClaim(eventId)`. Malformed / invalid-version / validation-rejected **supported**
+  payloads follow the established DLT path (`parkio.dlt.analytics`). Unsupported event types
+  are ignored and acknowledged (no DLT).
+
+**Definition of Done:** (verified)
+
+- Single and bulk deletes emit one privacy-minimized event each when at least one row is removed.
+- Analytics ingestion is append-only; deletion metrics do not reverse prior lifecycle observations.
+- Idempotent replay under duplicate delivery; invalid **supported** payloads route to DLT;
+  unsupported event types are ignored and acked.
+- Focused parking-service and analytics-service unit/contract tests pass.
+
+**Dependencies:** S1-P0-07, S1-P0-08, S1-P0-09.
+
 ### S1-P0-13 — Release Sprint 01 to azure-hosted-beta for R27 ⚠️ COMMITS READY / DEPLOY BLOCKED (2026-07-24)
 
 **Layers:** DevOps, release
@@ -407,7 +442,7 @@ architecture note `docs/architecture/PARKING-SESSION-HISTORY-DELETION-UI.md`.
 - Previous hosted DELETE HTTP 500 root cause: deployed HEAD lacked `@DeleteMapping`;
   `GlobalExceptionHandler` maps `HttpRequestMethodNotSupportedException` to opaque 500.
   Current source PostGIS IT proves terminal/history delete 204 / ACTIVE 409 semantics.
-- R27 remains FAIL until deploy + smoke exit 0. R22 remains FAIL. Do not mark Sprint 1 complete.
+- R27 remains FAIL until deploy + smoke exit 0. R22 is **PASS** (S1-DEL-08). Do not mark Sprint 1 complete.
 
 **Definition of Done:** not met (no post-deploy hosted PASS evidence).
 
@@ -444,26 +479,30 @@ azure-hosted-beta profile passes on an actual deployed immutable image” while 
 
 ## 4. P1 — Required completion/hardening after the mobile core
 
-### S1-P1-01 — Add Web ParkingSession parity
+### S1-P1-01 — Add Web ParkingSession parity ✅ COMPLETE IN SOURCE (WP-07.2)
 
+**Status:** COMPLETE in committed source (Web ParkingSession lifecycle UI + data layer).
+Hosted deployment proof is **not** part of this item — see R27 / S1-P0-13 / WP-07.5.
 **Layers:** Web
-**Closes/unlocks:** Web portions of R8-R15
-**Evidence of gap:** Web has no session keys, query options, hooks, route/page, or cache cleanup.
+**Closes/unlocks:** Web portions of R8-R15 (source); does not close R27
+**Prior evidence of gap (historical):** Web had no session keys, query options, hooks,
+route/page, or cache cleanup at Sprint backlog authorship time.
 
-**Implementation task:**
+**Implemented (WP-07.2):**
 
-- Add Web-owned ParkingSession keys/query/mutation options using the shared API facade.
-- Add active restoration, timer, start/complete/cancel, navigation/share, history, and deletion
-  presentation at an accepted route/location in the existing manifest architecture.
-- Add user-session cache cleanup and all loading/empty/unauthorized/error states.
+- Web-owned ParkingSession keys/query/mutation options via shared `@parkio/api-client`.
+- Active restoration, timer, start/complete/cancel/confirm, maps/share, history pagination,
+  single delete, and bulk history delete on Map/Profile routes.
+- User-session cache cleanup via `SessionQueryCacheSync` / `parkingKeys.sessionsRoot()`.
+- Focused component/query/mutation/cache tests in `frontend/apps/web`.
 
-**Definition of Done:**
+**Definition of Done:** (met for source)
 
 - Web supports the accepted Sprint 1 lifecycle without direct HTTP calls or ad hoc keys.
 - Active state restores after refresh and clears on logout/user switch.
 - Elapsed, navigation/share, history, and deletion match the shared behavior/privacy policy.
 - Route ownership remains in the canonical route manifest.
-- Focused component/query/mutation/cache tests, Web typecheck, lint, and test pass.
+- Focused tests exist in committed source (CI definitions cover them; hosted smoke is R27).
 
 **Dependencies:** all P0 API/privacy/backend tasks needed by the corresponding flow.
 
@@ -599,7 +638,7 @@ Next authorized work (pick one, do not invent undeclared scope):
 1. **Complete S1-P0-13 deploy** from the Azure VM (`/opt/parkio`): pull/checkout the release SHA,
    run `PARKIO_DEPLOYMENT_PROFILE=azure-hosted-beta PARKIO_ENV_FILE=docker/.env.azure-hosted-beta
    ./scripts/deploy-hosted-beta.sh`, then re-run `./scripts/smoke-parking-session-hosted-beta.sh`.
-2. Or continue Sprint P0 residual **S1-DEL-08 / R22** (`parking_history_deleted`) only after
-   Product accepts analytics scope — **do not start unless selected**.
+2. **S1-DEL-08 / R22** (`parking_history_deleted`) — **COMPLETE** on branch `decision`
+   (`0a70b03`, `d482bcc`).
 
-Sprint 1 remains incomplete (R22 FAIL, R24 PARTIAL, R26 PARTIAL, R27 FAIL).
+Sprint 1 remains incomplete (R26 PARTIAL, R27 FAIL). R22 and R24 are **PASS**.

@@ -12,6 +12,11 @@
 #   PARKIO_SMOKE_EXPECT_DIRECT_BLOCKED=1  — expect direct :8083 access to fail (hosted-beta)
 #
 set -euo pipefail
+SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+# Prefer Python-3 JSON helper; fail closed if python3 missing (jq is not required).
+# shellcheck source=staging/lib/json-helper.sh
+source "${SCRIPT_DIR}/staging/lib/json-helper.sh"
+json_require_python
 
 PROFILE="${PARKIO_DEPLOYMENT_PROFILE:-hosted-beta}"
 case "$PROFILE" in
@@ -50,7 +55,7 @@ if [ "$code" = "200" ]; then ok "gateway health ($code)"; else bad "gateway heal
 
 code="$(http_code "$API/auth/.well-known/jwks.json" -H "$CLIENT_HEADER")"
 if [ "$code" = "200" ]; then
-  if jq -e '.keys | length > 0' /tmp/parkio-smoke-body.json >/dev/null 2>&1; then
+  if json_assert_jwks /tmp/parkio-smoke-body.json >/dev/null 2>&1; then
     ok "auth JWKS"
   else
     bad "auth JWKS empty body"
@@ -67,8 +72,8 @@ if [ "$code" = "401" ]; then ok "nearby requires auth ($code)"; else bad "nearby
 code="$(http_code "$API/auth/login" -H "$CLIENT_HEADER" -H "Content-Type: application/json" \
   -d "{\"email\":\"$EMAIL\",\"password\":\"$PASSWORD\"}")"
 if [ "$code" = "200" ]; then
-  ACCESS="$(jq -r .accessToken /tmp/parkio-smoke-body.json)"
-  REFRESH="$(jq -r .refreshToken /tmp/parkio-smoke-body.json)"
+  ACCESS="$(json_get /tmp/parkio-smoke-body.json accessToken)"
+  REFRESH="$(json_get /tmp/parkio-smoke-body.json refreshToken)"
   if [ -n "$ACCESS" ] && [ "$ACCESS" != "null" ]; then
     ok "login"
   else
@@ -88,7 +93,7 @@ if [ -n "${ACCESS:-}" ]; then
     code="$(http_code "$API/auth/refresh-token" -H "$CLIENT_HEADER" -H "Content-Type: application/json" \
       -d "{\"refreshToken\":\"$REFRESH\"}")"
     if [ "$code" = "200" ]; then
-      ACCESS="$(jq -r .accessToken /tmp/parkio-smoke-body.json)"
+      ACCESS="$(json_get /tmp/parkio-smoke-body.json accessToken)"
       AUTH="Authorization: Bearer $ACCESS"
       ok "refresh"
     else

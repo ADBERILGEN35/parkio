@@ -27,6 +27,19 @@ parkio:
     moderation-timeout:
       # Scheduler off in tests; the job's logic is driven directly through the service.
       enabled: false
+    outcome-validation:
+      enabled: false
+    trust-shadow:
+      enabled: false
+    reward-shadow:
+      enabled: false
+    fraud-shadow:
+      enabled: false
+    calibration:
+      enabled: false
+      fixed-delay-ms: 300000
+      batch-size: 50
+      max-attempts: 3
     retention:
       outbox-enabled: false
       inbox-enabled: false
@@ -40,11 +53,17 @@ parkio:
       connect-timeout: 1s
       read-timeout: 1s
   parking:
+    outcome:
+      max-processing-attempts: 3
     search:
       default-radius-meters: 1000
       default-result-limit: 10
       max-radius-meters: 50000
       max-result-limit: 50
+    exposure-shadow:
+      enabled: false
+      sample-percent: 0
+      time-budget-millis: 25
     moderation:
       active-duration: 10m
       validation-timeout: 2m

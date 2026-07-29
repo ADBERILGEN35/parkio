@@ -5,6 +5,8 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.node.ObjectNode;
+import com.parkio.analytics.application.event.ParkingHistoryDeletedEvent;
+import com.parkio.analytics.application.event.ParkingHistoryDeletionScope;
 import com.parkio.analytics.application.event.ParkingSessionCancelledEvent;
 import com.parkio.analytics.application.event.ParkingSessionCompletedEvent;
 import com.parkio.analytics.application.event.ParkingSessionStartedEvent;
@@ -103,6 +105,55 @@ class ParkingSessionLifecycleValidatorTest {
         assertThatThrownBy(() -> ParkingSessionLifecycleValidator.validateCancelled(envelope, event))
                 .isInstanceOf(AnalyticsContractException.class)
                 .hasMessageContaining("endedAt");
+    }
+
+    @Test
+    void acceptsValidSingleHistoryDeletedEnvelope() {
+        UUID eventId = UUID.randomUUID();
+        UUID sessionId = UUID.randomUUID();
+        UUID userId = UUID.randomUUID();
+        EventEnvelope envelope = envelope(eventId, "ParkingHistoryDeleted", sessionId, NOW);
+        ParkingHistoryDeletedEvent event = new ParkingHistoryDeletedEvent(
+                eventId, userId, ParkingHistoryDeletionScope.SINGLE_TERMINAL_SESSION, sessionId, 1, NOW);
+        assertThatCode(() -> ParkingSessionLifecycleValidator.validateHistoryDeleted(envelope, event))
+                .doesNotThrowAnyException();
+    }
+
+    @Test
+    void acceptsValidBulkHistoryDeletedEnvelope() {
+        UUID eventId = UUID.randomUUID();
+        UUID userId = UUID.randomUUID();
+        EventEnvelope envelope = envelope(eventId, "ParkingHistoryDeleted", userId, NOW);
+        ParkingHistoryDeletedEvent event = new ParkingHistoryDeletedEvent(
+                eventId, userId, ParkingHistoryDeletionScope.ALL_TERMINAL_HISTORY, null, 3, NOW);
+        assertThatCode(() -> ParkingSessionLifecycleValidator.validateHistoryDeleted(envelope, event))
+                .doesNotThrowAnyException();
+    }
+
+    @Test
+    void rejectsBulkHistoryDeletedWithSessionId() {
+        UUID eventId = UUID.randomUUID();
+        UUID userId = UUID.randomUUID();
+        EventEnvelope envelope = envelope(eventId, "ParkingHistoryDeleted", userId, NOW);
+        ParkingHistoryDeletedEvent event = new ParkingHistoryDeletedEvent(
+                eventId, userId, ParkingHistoryDeletionScope.ALL_TERMINAL_HISTORY,
+                UUID.randomUUID(), 3, NOW);
+        assertThatThrownBy(() -> ParkingSessionLifecycleValidator.validateHistoryDeleted(envelope, event))
+                .isInstanceOf(AnalyticsContractException.class)
+                .hasMessageContaining("sessionId must be null");
+    }
+
+    @Test
+    void rejectsHistoryDeletedWithoutDeletedCount() {
+        UUID eventId = UUID.randomUUID();
+        UUID sessionId = UUID.randomUUID();
+        EventEnvelope envelope = envelope(eventId, "ParkingHistoryDeleted", sessionId, NOW);
+        ParkingHistoryDeletedEvent event = new ParkingHistoryDeletedEvent(
+                eventId, UUID.randomUUID(), ParkingHistoryDeletionScope.SINGLE_TERMINAL_SESSION,
+                sessionId, null, NOW);
+        assertThatThrownBy(() -> ParkingSessionLifecycleValidator.validateHistoryDeleted(envelope, event))
+                .isInstanceOf(AnalyticsContractException.class)
+                .hasMessageContaining("deletedCount");
     }
 
     private EventEnvelope envelope(UUID eventId, String type, UUID sessionId, Instant occurredAt) {

@@ -2,6 +2,8 @@ package com.parkio.analytics.application;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
+import com.parkio.analytics.application.event.ParkingHistoryDeletedEvent;
+import com.parkio.analytics.application.event.ParkingHistoryDeletionScope;
 import com.parkio.analytics.application.event.ParkingSessionCancelledEvent;
 import com.parkio.analytics.application.event.ParkingSessionCompletedEvent;
 import com.parkio.analytics.application.event.ParkingSessionStartedEvent;
@@ -190,6 +192,52 @@ class ParkingSessionLifecycleIngestionTest {
                             .isEqualTo(AnalyticsMetricType.PARKING_SESSION_STARTED_MANUAL);
                     assertThat(metric.totalCount()).isEqualTo(1);
                 });
+    }
+
+    @Test
+    void singleHistoryDeletedStoresDeletedCountOne() {
+        UUID eventId = UUID.randomUUID();
+        UUID sessionId = UUID.randomUUID();
+        UUID userId = UUID.randomUUID();
+
+        service.handleParkingHistoryDeleted(new ParkingHistoryDeletedEvent(
+                eventId, userId, ParkingHistoryDeletionScope.SINGLE_TERMINAL_SESSION, sessionId, 1, NOW));
+
+        assertThat(events.all).hasSize(1);
+        AnalyticsEvent row = events.all.get(0);
+        assertThat(row.metricType()).isEqualTo(AnalyticsMetricType.PARKING_SESSION_HISTORY_DELETED);
+        assertThat(row.userId()).isEqualTo(userId);
+        assertThat(row.relatedEntityId()).isEqualTo(sessionId);
+        assertThat(row.value()).isEqualTo(1L);
+        assertPrivacyMinimized(row);
+    }
+
+    @Test
+    void bulkHistoryDeletedStoresDeletedCount() {
+        UUID eventId = UUID.randomUUID();
+        UUID userId = UUID.randomUUID();
+
+        service.handleParkingHistoryDeleted(new ParkingHistoryDeletedEvent(
+                eventId, userId, ParkingHistoryDeletionScope.ALL_TERMINAL_HISTORY, null, 4, NOW));
+
+        assertThat(events.all).hasSize(1);
+        AnalyticsEvent row = events.all.get(0);
+        assertThat(row.metricType()).isEqualTo(AnalyticsMetricType.PARKING_SESSION_HISTORY_DELETED);
+        assertThat(row.relatedEntityId()).isEqualTo(userId);
+        assertThat(row.value()).isEqualTo(4L);
+    }
+
+    @Test
+    void duplicateHistoryDeletedEventIdIsNoOp() {
+        ParkingHistoryDeletedEvent event = new ParkingHistoryDeletedEvent(
+                UUID.randomUUID(), UUID.randomUUID(), ParkingHistoryDeletionScope.SINGLE_TERMINAL_SESSION,
+                UUID.randomUUID(), 1, NOW);
+
+        service.handleParkingHistoryDeleted(event);
+        service.handleParkingHistoryDeleted(event);
+
+        assertThat(events.all).hasSize(1);
+        assertThat(inbox.claimed).hasSize(1);
     }
 
     private static void assertPrivacyMinimized(AnalyticsEvent row) {

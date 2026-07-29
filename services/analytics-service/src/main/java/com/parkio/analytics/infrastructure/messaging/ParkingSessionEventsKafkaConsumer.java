@@ -4,6 +4,7 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import com.parkio.analytics.application.AnalyticsApplicationService;
 import com.parkio.analytics.application.ParkingSessionLifecycleMapper;
 import com.parkio.analytics.application.ParkingSessionLifecycleValidator;
+import com.parkio.analytics.application.event.ParkingHistoryDeletedEvent;
 import com.parkio.analytics.application.event.ParkingSessionCancelledEvent;
 import com.parkio.analytics.application.event.ParkingSessionCompletedEvent;
 import com.parkio.analytics.application.event.ParkingSessionStartedEvent;
@@ -24,10 +25,11 @@ import org.springframework.stereotype.Component;
  * handler's transaction commits.
  *
  * <p>Supported wire types: {@code ParkingSessionStarted}, {@code ParkingSessionCompleted},
- * {@code ParkingSessionCancelled} (version 1). Unknown future session event types
- * (including {@code ParkingSessionReminderRequested}) are ignored and acknowledged so
- * additive producers cannot DLT the analytics consumer. Malformed contracts for supported
- * types still throw {@link AnalyticsContractException} → DLT ({@code parkio.dlt.analytics}).
+ * {@code ParkingSessionCancelled}, {@code ParkingHistoryDeleted} (version 1). Unknown future
+ * session event types (including {@code ParkingSessionReminderRequested}) are ignored and
+ * acknowledged so additive producers cannot DLT the analytics consumer. Malformed contracts
+ * for supported types still throw {@link AnalyticsContractException} → DLT
+ * ({@code parkio.dlt.analytics}).
  */
 @Component
 public class ParkingSessionEventsKafkaConsumer {
@@ -77,6 +79,13 @@ public class ParkingSessionEventsKafkaConsumer {
                         payload(envelope, ParkingSessionCancelledEvent.class);
                 ParkingSessionLifecycleValidator.validateCancelled(alignEnvelope(envelope, eventType), payload);
                 analyticsService.handleParkingSessionCancelled(payload);
+            }
+            case ParkingSessionLifecycleMapper.WIRE_HISTORY_DELETED -> {
+                ParkingHistoryDeletedEvent payload =
+                        payload(envelope, ParkingHistoryDeletedEvent.class);
+                ParkingSessionLifecycleValidator.validateHistoryDeleted(
+                        alignEnvelope(envelope, eventType), payload);
+                analyticsService.handleParkingHistoryDeleted(payload);
             }
             case "ParkingSessionReminderRequested" ->
                     log.debug("Ignoring non-analytics session event type {} on {}", eventType, PARKING_SESSION_TOPIC);

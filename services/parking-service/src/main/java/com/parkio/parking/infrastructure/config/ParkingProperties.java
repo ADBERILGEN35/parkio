@@ -10,6 +10,8 @@ public class ParkingProperties {
     private Search search = new Search();
     private Moderation moderation = new Moderation();
     private Session session = new Session();
+    private Decision decision = new Decision();
+    private ExposureShadow exposureShadow = new ExposureShadow();
 
     public Search getSearch() {
         return search;
@@ -33,6 +35,117 @@ public class ParkingProperties {
 
     public void setSession(Session session) {
         this.session = session;
+    }
+
+    public Decision getDecision() {
+        return decision;
+    }
+
+    public void setDecision(Decision decision) {
+        this.decision = decision;
+    }
+
+    public ExposureShadow getExposureShadow() {
+        return exposureShadow;
+    }
+
+    public void setExposureShadow(ExposureShadow exposureShadow) {
+        this.exposureShadow = exposureShadow;
+    }
+
+    /**
+     * WP-05.13 request-path exposure shadow. Defaults disabled with conservative sampling.
+     */
+    public static class ExposureShadow {
+
+        private boolean enabled = false;
+        private int samplePercent = 10;
+        private long timeBudgetMillis = 25;
+
+        public boolean isEnabled() {
+            return enabled;
+        }
+
+        public void setEnabled(boolean enabled) {
+            this.enabled = enabled;
+        }
+
+        public int getSamplePercent() {
+            return samplePercent;
+        }
+
+        public void setSamplePercent(int samplePercent) {
+            this.samplePercent = samplePercent;
+        }
+
+        public long getTimeBudgetMillis() {
+            return timeBudgetMillis;
+        }
+
+        public void setTimeBudgetMillis(long timeBudgetMillis) {
+            this.timeBudgetMillis = timeBudgetMillis;
+        }
+    }
+
+    /**
+     * Non-authoritative Decision Engine shadow settings.
+     * {@code shadow-enabled} defaults false in every environment.
+     */
+    public static class Decision {
+
+        private boolean shadowEnabled = false;
+        private Authority authority = new Authority();
+
+        public boolean isShadowEnabled() {
+            return shadowEnabled;
+        }
+
+        public void setShadowEnabled(boolean shadowEnabled) {
+            this.shadowEnabled = shadowEnabled;
+        }
+
+        public Authority getAuthority() {
+            return authority;
+        }
+
+        public void setAuthority(Authority authority) {
+            this.authority = authority;
+        }
+    }
+
+    /**
+     * Controlled Decision Engine authority (WP-05.8). Defaults disabled / 0% canary.
+     * Never enable in production profiles without explicit human-controlled config.
+     */
+    public static class Authority {
+
+        private boolean enabled = false;
+        private int canaryPercentage = 0;
+        private String policyVersion = "decision-shadow-v1";
+
+        public boolean isEnabled() {
+            return enabled;
+        }
+
+        public void setEnabled(boolean enabled) {
+            this.enabled = enabled;
+        }
+
+        public int getCanaryPercentage() {
+            return canaryPercentage;
+        }
+
+        public void setCanaryPercentage(int canaryPercentage) {
+            this.canaryPercentage = canaryPercentage;
+        }
+
+        public String getPolicyVersion() {
+            return policyVersion;
+        }
+
+        public void setPolicyVersion(String policyVersion) {
+            this.policyVersion = policyVersion;
+        }
     }
 
     /**

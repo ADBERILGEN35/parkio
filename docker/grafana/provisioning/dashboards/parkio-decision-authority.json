@@ -1,0 +1,118 @@
+{
+  "annotations": { "list": [] },
+  "editable": true,
+  "fiscalYearStartMonth": 0,
+  "graphTooltip": 0,
+  "id": null,
+  "links": [],
+  "panels": [
+    {
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "fieldConfig": { "defaults": {}, "overrides": [] },
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 0 },
+      "id": 1,
+      "targets": [
+        {
+          "expr": "parkio:decision_authority:selection_rate5m",
+          "legendFormat": "selection rate",
+          "refId": "A"
+        }
+      ],
+      "title": "Authority selection rate (5m)",
+      "type": "timeseries"
+    },
+    {
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "fieldConfig": { "defaults": {}, "overrides": [] },
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 0 },
+      "id": 2,
+      "targets": [
+        {
+          "expr": "parkio:decision_authority:apply_success_rate5m",
+          "legendFormat": "apply success",
+          "refId": "A"
+        },
+        {
+          "expr": "parkio:decision_authority:fallback_rate5m",
+          "legendFormat": "fallback",
+          "refId": "B"
+        }
+      ],
+      "title": "Authority apply vs fallback (5m)",
+      "type": "timeseries"
+    },
+    {
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "fieldConfig": { "defaults": {}, "overrides": [] },
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 8 },
+      "id": 3,
+      "targets": [
+        {
+          "expr": "parkio:decision_authority:audit_failure_rate5m",
+          "legendFormat": "audit failure",
+          "refId": "A"
+        },
+        {
+          "expr": "parkio:decision_authority:engine_failure_rate5m",
+          "legendFormat": "engine failure",
+          "refId": "B"
+        },
+        {
+          "expr": "parkio:decision_authority:transition_conflict_rate5m",
+          "legendFormat": "transition conflict",
+          "refId": "C"
+        }
+      ],
+      "title": "Authority failure rates (5m)",
+      "type": "timeseries"
+    },
+    {
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "fieldConfig": { "defaults": {}, "overrides": [] },
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 8 },
+      "id": 4,
+      "targets": [
+        {
+          "expr": "sum by (disposition) (rate(parkio_parking_decision_authority_applied_total[5m]))",
+          "legendFormat": "{{disposition}}",
+          "refId": "A"
+        }
+      ],
+      "title": "Applied disposition distribution",
+      "type": "timeseries"
+    },
+    {
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "fieldConfig": { "defaults": {}, "overrides": [] },
+      "gridPos": { "h": 8, "w": 24, "x": 0, "y": 16 },
+      "id": 5,
+      "targets": [
+        {
+          "expr": "histogram_quantile(0.50, sum(rate(parkio_parking_decision_authority_duration_seconds_bucket[5m])) by (le))",
+          "legendFormat": "p50",
+          "refId": "A"
+        },
+        {
+          "expr": "histogram_quantile(0.95, sum(rate(parkio_parking_decision_authority_duration_seconds_bucket[5m])) by (le))",
+          "legendFormat": "p95",
+          "refId": "B"
+        },
+        {
+          "expr": "histogram_quantile(0.99, sum(rate(parkio_parking_decision_authority_duration_seconds_bucket[5m])) by (le))",
+          "legendFormat": "p99",
+          "refId": "C"
+        }
+      ],
+      "title": "Authority path latency",
+      "type": "timeseries"
+    }
+  ],
+  "schemaVersion": 39,
+  "tags": ["parkio", "decision", "authority", "wp-05.8"],
+  "templating": { "list": [] },
+  "time": { "from": "now-6h", "to": "now" },
+  "timezone": "browser",
+  "title": "Parkio - Decision Authority Migration",
+  "uid": "parkio-decision-authority",
+  "version": 1
+}

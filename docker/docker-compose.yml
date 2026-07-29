@@ -345,6 +345,16 @@ services:
     volumes:
       - ./prometheus/prometheus.yml:/etc/prometheus/prometheus.yml:ro
       - ./prometheus/alerts.yml:/etc/prometheus/alerts.yml:ro
+      - ./prometheus/decision-shadow-recording-rules.yml:/etc/prometheus/decision-shadow-recording-rules.yml:ro
+      - ./prometheus/decision-authority-recording-rules.yml:/etc/prometheus/decision-authority-recording-rules.yml:ro
+      - ./prometheus/outcome-validation-recording-rules.yml:/etc/prometheus/outcome-validation-recording-rules.yml:ro
+      - ./prometheus/trust-shadow-recording-rules.yml:/etc/prometheus/trust-shadow-recording-rules.yml:ro
+      - ./prometheus/reward-shadow-recording-rules.yml:/etc/prometheus/reward-shadow-recording-rules.yml:ro
+      - ./prometheus/exposure-shadow-recording-rules.yml:/etc/prometheus/exposure-shadow-recording-rules.yml:ro
+      - ./prometheus/fraud-shadow-recording-rules.yml:/etc/prometheus/fraud-shadow-recording-rules.yml:ro
+      - ./prometheus/continuous-calibration-recording-rules.yml:/etc/prometheus/continuous-calibration-recording-rules.yml:ro
+      - ./prometheus/operational-readiness-recording-rules.yml:/etc/prometheus/operational-readiness-recording-rules.yml:ro
+      - ./prometheus/operational-readiness-alert-rules.yml:/etc/prometheus/operational-readiness-alert-rules.yml:ro
       - prometheus-data:/prometheus
     # On both networks: backend to scrape services, observability to serve Grafana.
     networks: [parkio-backend, parkio-observability]

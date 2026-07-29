@@ -1,10 +1,15 @@
 package com.parkio.parking.infrastructure.messaging;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
-import com.parkio.parking.application.ParkingApplicationService;
+import com.parkio.parking.application.DecisionAuthorityApplicationService;
+import com.parkio.parking.application.DecisionShadowOrchestrator;
+import com.parkio.parking.application.result.AiValidationApplyOutcome;
+import com.parkio.parking.application.result.ControlledAuthorityApplyResult;
+import com.parkio.parking.decision.normalization.AiValidationEvidenceInput;
 import com.parkio.platform.messaging.EventEnvelope;
 import java.sql.Timestamp;
 import java.time.Clock;
+import java.time.Instant;
 import java.util.List;
 import java.util.UUID;
 import org.apache.kafka.clients.consumer.ConsumerRecord;
@@ -23,6 +28,11 @@ import org.springframework.transaction.annotation.Transactional;
  * Applies AI validation results as the parking publication gate. Spots stay
  * non-discoverable until AI passes; uncertain to pending review; failed / non-parking
  * to rejected. Failures and missing parkingSpotId are fail-closed (no publication).
+ *
+ * <p>WP-05.8 controlled authority (default off) may apply Decision Engine FULL_PUBLISH
+ * for a deterministic canary cohort. Non-selected traffic uses the legacy path.
+ * Optional Decision Engine shadow runs after legacy applies only (never after
+ * authoritative Decision Engine apply).
  */
 @Component
 @ConditionalOnProperty(
@@ -37,20 +47,23 @@ public class AiValidationEventsKafkaConsumer {
     private static final String AI_VALIDATION_COMPLETED = "AiValidationCompleted";
     private static final Logger log = LoggerFactory.getLogger(AiValidationEventsKafkaConsumer.class);
 
-    private final ParkingApplicationService parking;
+    private final DecisionAuthorityApplicationService authority;
     private final JdbcTemplate jdbc;
     private final ObjectMapper objectMapper;
     private final Clock clock;
+    private final DecisionShadowOrchestrator decisionShadow;
 
     public AiValidationEventsKafkaConsumer(
-            ParkingApplicationService parking,
+            DecisionAuthorityApplicationService authority,
             JdbcTemplate jdbc,
             ObjectMapper objectMapper,
-            Clock clock) {
-        this.parking = parking;
+            Clock clock,
+            DecisionShadowOrchestrator decisionShadow) {
+        this.authority = authority;
         this.jdbc = jdbc;
         this.objectMapper = objectMapper;
         this.clock = clock;
+        this.decisionShadow = decisionShadow;
     }
 
     @Transactional
@@ -71,18 +84,25 @@ public class AiValidationEventsKafkaConsumer {
         }
         try {
             if (AI_VALIDATION_COMPLETED.equals(eventType)) {
-                AiValidationCompleted event =
-                        objectMapper.treeToValue(envelope.payload(), AiValidationCompleted.class);
-                if (event.parkingSpotId() != null && markProcessing(event.eventId(), eventType)) {
-                    // The event id doubles as the moderation request id in structured logs, and
-                    // the envelope's occurredAt is the watermark that keeps an out-of-order
-                    // verdict from overwriting a newer lifecycle state.
-                    parking.applyAiValidationResult(
-                            event.parkingSpotId(),
-                            event.status(),
-                            event.detectedRiskTypes() == null ? List.of() : event.detectedRiskTypes(),
-                            event.eventId(),
-                            envelope.occurredAt());
+                AiValidationEvidencePayloadMapper.AiValidationCompletedPayload payload =
+                        objectMapper.treeToValue(
+                                envelope.payload(),
+                                AiValidationEvidencePayloadMapper.AiValidationCompletedPayload.class);
+                if (payload.parkingSpotId() != null && markProcessing(payload.eventId(), eventType)) {
+                    AiValidationEvidenceInput evidenceInput =
+                            AiValidationEvidencePayloadMapper.toInput(payload, envelope.occurredAt());
+                    ControlledAuthorityApplyResult controlled = authority.applyAiValidation(
+                            payload.parkingSpotId(),
+                            payload.status(),
+                            payload.detectedRiskTypes() == null ? List.of() : payload.detectedRiskTypes(),
+                            payload.eventId(),
+                            envelope.occurredAt(),
+                            evidenceInput);
+                    AiValidationApplyOutcome applyOutcome = controlled.applyOutcome();
+                    AiValidationEvidencePayloadMapper.observeEvidenceShadow(payload, envelope.occurredAt());
+                    if (!controlled.authorityApplied()) {
+                        observeDecisionShadow(payload, envelope.occurredAt(), applyOutcome);
+                    }
                 }
             } else {
                 log.debug("Ignoring unsupported event type {} on {}", eventType, TOPIC);
@@ -90,6 +110,28 @@ public class AiValidationEventsKafkaConsumer {
             ack.acknowledge();
         } finally {
             MDC.remove("correlationId");
+        }
+    }
+
+    private void observeDecisionShadow(
+            AiValidationEvidencePayloadMapper.AiValidationCompletedPayload payload,
+            Instant envelopeOccurredAt,
+            AiValidationApplyOutcome applyOutcome) {
+        if (!decisionShadow.isEnabled()) {
+            return;
+        }
+        try {
+            AiValidationEvidenceInput input =
+                    AiValidationEvidencePayloadMapper.toInput(payload, envelopeOccurredAt);
+            decisionShadow.observeAfterApply(input, applyOutcome, clock.instant());
+        } catch (RuntimeException ex) {
+            if (log.isDebugEnabled()) {
+                log.debug(
+                        "Decision shadow orchestration skipped spotId={} eventId={}",
+                        payload.parkingSpotId(),
+                        payload.eventId(),
+                        ex);
+            }
         }
     }
 
@@ -103,18 +145,5 @@ public class AiValidationEventsKafkaConsumer {
                 eventId,
                 eventType,
                 Timestamp.from(clock.instant())) == 1;
-    }
-
-    /**
-     * Minimal payload shape from ai-validation-service {@code AiValidationCompleted}.
-     * Status and risk types are strings so unknown values fail closed in the
-     * application service instead of breaking deserialization.
-     */
-    private record AiValidationCompleted(
-            UUID eventId,
-            UUID mediaId,
-            UUID parkingSpotId,
-            String status,
-            List<String> detectedRiskTypes) {
     }
 }

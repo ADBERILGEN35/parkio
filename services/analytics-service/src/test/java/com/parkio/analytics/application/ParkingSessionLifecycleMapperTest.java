@@ -18,6 +18,8 @@ class ParkingSessionLifecycleMapperTest {
                 .isEqualTo("parking_session_completed");
         assertThat(ParkingSessionLifecycleMapper.canonicalName("ParkingSessionCancelled"))
                 .isEqualTo("parking_session_cancelled");
+        assertThat(ParkingSessionLifecycleMapper.canonicalName("ParkingHistoryDeleted"))
+                .isEqualTo("parking_session_history_deleted");
     }
 
     @Test

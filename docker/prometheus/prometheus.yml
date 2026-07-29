@@ -15,6 +15,16 @@ global:
 # config dir. Rules evaluate and route through Alertmanager.
 rule_files:
   - /etc/prometheus/alerts.yml
+  - /etc/prometheus/decision-shadow-recording-rules.yml
+  - /etc/prometheus/decision-authority-recording-rules.yml
+  - /etc/prometheus/outcome-validation-recording-rules.yml
+  - /etc/prometheus/trust-shadow-recording-rules.yml
+  - /etc/prometheus/reward-shadow-recording-rules.yml
+  - /etc/prometheus/exposure-shadow-recording-rules.yml
+  - /etc/prometheus/fraud-shadow-recording-rules.yml
+  - /etc/prometheus/continuous-calibration-recording-rules.yml
+  - /etc/prometheus/operational-readiness-recording-rules.yml
+  - /etc/prometheus/operational-readiness-alert-rules.yml
 
 alerting:
   alertmanagers:

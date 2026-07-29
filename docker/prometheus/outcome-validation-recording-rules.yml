@@ -1,0 +1,37 @@
+groups:
+  - name: parkio-outcome-validation
+    interval: 30s
+    rules:
+      - record: parkio:outcome:evaluation_success_rate5m
+        expr: |
+          sum(rate(parkio_parking_outcome_trigger_eligible_total[5m]))
+          /
+          clamp_min(sum(rate(parkio_parking_outcome_trigger_received_total[5m])), 1e-9)
+      - record: parkio:outcome:history_append_success_rate5m
+        expr: |
+          sum(rate(parkio_parking_outcome_history_append_success_total[5m]))
+          /
+          clamp_min(
+            sum(rate(parkio_parking_outcome_history_append_success_total[5m]))
+            + sum(rate(parkio_parking_outcome_history_append_failure_total[5m])),
+            1e-9)
+      - record: parkio:outcome:duplicate_trigger_rate5m
+        expr: |
+          sum(rate(parkio_parking_outcome_trigger_duplicate_total[5m]))
+          /
+          clamp_min(sum(rate(parkio_parking_outcome_trigger_received_total[5m])), 1e-9)
+      - record: parkio:outcome:expired_without_evidence_rate5m
+        expr: |
+          sum(rate(parkio_parking_outcome_expired_without_evidence_total[5m]))
+          /
+          clamp_min(sum(rate(parkio_parking_outcome_classification_total[5m])), 1e-9)
+      - record: parkio:outcome:validation_window_open_ratio5m
+        expr: |
+          sum(rate(parkio_parking_outcome_validation_window_total{open="true"}[5m]))
+          /
+          clamp_min(sum(rate(parkio_parking_outcome_validation_window_total[5m])), 1e-9)
+      - record: parkio:outcome:scheduler_success_rate5m
+        expr: |
+          sum(rate(parkio_parking_outcome_scheduler_completed_total[5m]))
+          /
+          clamp_min(sum(rate(parkio_parking_outcome_scheduler_candidates_total[5m])), 1e-9)

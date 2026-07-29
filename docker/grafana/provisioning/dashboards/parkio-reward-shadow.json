@@ -1,0 +1,128 @@
+{
+  "uid": "parkio-reward-shadow",
+  "title": "Parkio Reward Shadow",
+  "schemaVersion": 39,
+  "version": 1,
+  "timezone": "browser",
+  "refresh": "30s",
+  "panels": [
+    {
+      "id": 1,
+      "type": "stat",
+      "title": "Success Rate (5m)",
+      "datasource": { "type": "prometheus", "uid": "parkio-prometheus" },
+      "targets": [
+        { "refId": "A", "expr": "parkio:reward_shadow:success_rate5m" }
+      ],
+      "gridPos": { "h": 4, "w": 6, "x": 0, "y": 0 }
+    },
+    {
+      "id": 2,
+      "type": "stat",
+      "title": "Duplicate Rate (5m)",
+      "datasource": { "type": "prometheus", "uid": "parkio-prometheus" },
+      "targets": [
+        { "refId": "A", "expr": "parkio:reward_shadow:duplicate_rate5m" }
+      ],
+      "gridPos": { "h": 4, "w": 6, "x": 6, "y": 0 }
+    },
+    {
+      "id": 3,
+      "type": "stat",
+      "title": "Eligible Ratio (5m)",
+      "datasource": { "type": "prometheus", "uid": "parkio-prometheus" },
+      "targets": [
+        { "refId": "A", "expr": "parkio:reward_shadow:eligible_ratio5m" }
+      ],
+      "gridPos": { "h": 4, "w": 6, "x": 12, "y": 0 }
+    },
+    {
+      "id": 4,
+      "type": "stat",
+      "title": "Replay Mismatch Count",
+      "datasource": { "type": "prometheus", "uid": "parkio-prometheus" },
+      "targets": [
+        { "refId": "A", "expr": "sum(increase(parkio_parking_reward_replay_mismatch_total[15m]))" }
+      ],
+      "gridPos": { "h": 4, "w": 6, "x": 18, "y": 0 }
+    },
+    {
+      "id": 5,
+      "type": "timeseries",
+      "title": "Disposition Distribution",
+      "datasource": { "type": "prometheus", "uid": "parkio-prometheus" },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "sum(rate(parkio_parking_reward_disposition_total[5m])) by (disposition)"
+        }
+      ],
+      "gridPos": { "h": 8, "w": 8, "x": 0, "y": 4 }
+    },
+    {
+      "id": 6,
+      "type": "timeseries",
+      "title": "Amount Band Distribution",
+      "datasource": { "type": "prometheus", "uid": "parkio-prometheus" },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "sum(rate(parkio_parking_reward_evaluation_success_total[5m])) by (amount_band)"
+        }
+      ],
+      "gridPos": { "h": 8, "w": 8, "x": 8, "y": 4 }
+    },
+    {
+      "id": 7,
+      "type": "timeseries",
+      "title": "Contribution Roles",
+      "datasource": { "type": "prometheus", "uid": "parkio-prometheus" },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "sum(rate(parkio_parking_reward_contribution_produced_total[5m])) by (contribution_role)"
+        }
+      ],
+      "gridPos": { "h": 8, "w": 8, "x": 16, "y": 4 }
+    },
+    {
+      "id": 8,
+      "type": "timeseries",
+      "title": "Attribution Quality",
+      "datasource": { "type": "prometheus", "uid": "parkio-prometheus" },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "sum(rate(parkio_parking_reward_contribution_produced_total[5m])) by (attribution_quality)"
+        }
+      ],
+      "gridPos": { "h": 8, "w": 8, "x": 0, "y": 12 }
+    },
+    {
+      "id": 9,
+      "type": "timeseries",
+      "title": "Outcome Classifications",
+      "datasource": { "type": "prometheus", "uid": "parkio-prometheus" },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "sum(rate(parkio_parking_reward_contribution_produced_total[5m])) by (outcome_classification)"
+        }
+      ],
+      "gridPos": { "h": 8, "w": 8, "x": 8, "y": 12 }
+    },
+    {
+      "id": 10,
+      "type": "timeseries",
+      "title": "Evaluation Duration p95",
+      "datasource": { "type": "prometheus", "uid": "parkio-prometheus" },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "histogram_quantile(0.95, sum(rate(parkio_parking_reward_evaluation_duration_seconds_bucket[5m])) by (le))"
+        }
+      ],
+      "gridPos": { "h": 8, "w": 8, "x": 16, "y": 12 }
+    }
+  ]
+}

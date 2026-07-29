@@ -1,0 +1,33 @@
+{
+  "annotations": {"list": []},
+  "editable": true,
+  "fiscalYearStartMonth": 0,
+  "graphTooltip": 0,
+  "id": null,
+  "links": [],
+  "liveNow": false,
+  "panels": [
+    {"datasource":{"type":"prometheus","uid":"parkio-prometheus"},"fieldConfig":{"defaults":{"unit":"percentunit","min":0,"max":1},"overrides":[]},"gridPos":{"h":4,"w":6,"x":0,"y":0},"id":1,"options":{"reduceOptions":{"calcs":["lastNotNull"],"fields":"","values":false},"orientation":"auto","textMode":"auto","colorMode":"value"},"pluginVersion":"11.1.0","targets":[{"expr":"parkio:outcome:evaluation_success_rate5m","refId":"A"}],"title":"Evaluation Success Rate","type":"stat"},
+    {"datasource":{"type":"prometheus","uid":"parkio-prometheus"},"fieldConfig":{"defaults":{"unit":"percentunit","min":0,"max":1},"overrides":[]},"gridPos":{"h":4,"w":6,"x":6,"y":0},"id":2,"options":{"reduceOptions":{"calcs":["lastNotNull"],"fields":"","values":false},"orientation":"auto","textMode":"auto","colorMode":"value"},"pluginVersion":"11.1.0","targets":[{"expr":"1 - parkio:outcome:history_append_success_rate5m","refId":"A"}],"title":"History Append Failure Rate","type":"stat"},
+    {"datasource":{"type":"prometheus","uid":"parkio-prometheus"},"fieldConfig":{"defaults":{"unit":"percentunit","min":0,"max":1},"overrides":[]},"gridPos":{"h":4,"w":6,"x":12,"y":0},"id":3,"options":{"reduceOptions":{"calcs":["lastNotNull"],"fields":"","values":false},"orientation":"auto","textMode":"auto","colorMode":"value"},"pluginVersion":"11.1.0","targets":[{"expr":"parkio:outcome:duplicate_trigger_rate5m","refId":"A"}],"title":"Duplicate Trigger Rate","type":"stat"},
+    {"datasource":{"type":"prometheus","uid":"parkio-prometheus"},"fieldConfig":{"defaults":{"unit":"percentunit","min":0,"max":1},"overrides":[]},"gridPos":{"h":4,"w":6,"x":18,"y":0},"id":4,"options":{"reduceOptions":{"calcs":["lastNotNull"],"fields":"","values":false},"orientation":"auto","textMode":"auto","colorMode":"value"},"pluginVersion":"11.1.0","targets":[{"expr":"parkio:outcome:expired_without_evidence_rate5m","refId":"A"}],"title":"Expired Without Evidence Rate","type":"stat"},
+    {"datasource":{"type":"prometheus","uid":"parkio-prometheus"},"fieldConfig":{"defaults":{},"overrides":[]},"gridPos":{"h":8,"w":12,"x":0,"y":4},"id":5,"options":{"legend":{"displayMode":"list","placement":"bottom"},"tooltip":{"mode":"multi"}},"pluginVersion":"11.1.0","targets":[{"expr":"sum by (trigger_type) (rate(parkio_parking_outcome_trigger_received_by_type_total[5m]))","legendFormat":"{{trigger_type}}","refId":"A"}],"title":"Trigger Distribution","type":"timeseries"},
+    {"datasource":{"type":"prometheus","uid":"parkio-prometheus"},"fieldConfig":{"defaults":{},"overrides":[]},"gridPos":{"h":8,"w":12,"x":12,"y":4},"id":6,"options":{"legend":{"displayMode":"list","placement":"bottom"},"tooltip":{"mode":"multi"}},"pluginVersion":"11.1.0","targets":[{"expr":"sum by (classification) (rate(parkio_parking_outcome_classification_total[5m]))","legendFormat":"{{classification}}","refId":"A"}],"title":"Classification Distribution","type":"timeseries"},
+    {"datasource":{"type":"prometheus","uid":"parkio-prometheus"},"fieldConfig":{"defaults":{},"overrides":[]},"gridPos":{"h":8,"w":12,"x":0,"y":12},"id":7,"options":{"legend":{"displayMode":"list","placement":"bottom"},"tooltip":{"mode":"multi"}},"pluginVersion":"11.1.0","targets":[{"expr":"sum by (confidence_band) (rate(parkio_parking_outcome_confidence_band_total[5m]))","legendFormat":"{{confidence_band}}","refId":"A"}],"title":"Confidence Bands","type":"timeseries"},
+    {"datasource":{"type":"prometheus","uid":"parkio-prometheus"},"fieldConfig":{"defaults":{"unit":"percentunit","min":0,"max":1},"overrides":[]},"gridPos":{"h":8,"w":12,"x":12,"y":12},"id":8,"options":{"legend":{"displayMode":"list","placement":"bottom"},"tooltip":{"mode":"multi"}},"pluginVersion":"11.1.0","targets":[{"expr":"parkio:outcome:validation_window_open_ratio5m","legendFormat":"open ratio","refId":"A"},{"expr":"1 - parkio:outcome:validation_window_open_ratio5m","legendFormat":"closed ratio","refId":"B"}],"title":"Validation Window Open vs Closed","type":"timeseries"},
+    {"datasource":{"type":"prometheus","uid":"parkio-prometheus"},"fieldConfig":{"defaults":{"unit":"s"},"overrides":[]},"gridPos":{"h":8,"w":12,"x":0,"y":20},"id":9,"options":{"legend":{"displayMode":"list","placement":"bottom"},"tooltip":{"mode":"multi"}},"pluginVersion":"11.1.0","targets":[{"expr":"histogram_quantile(0.50, sum(rate(parkio_parking_outcome_processing_duration_seconds_bucket[5m])) by (le))","legendFormat":"p50","refId":"A"},{"expr":"histogram_quantile(0.95, sum(rate(parkio_parking_outcome_processing_duration_seconds_bucket[5m])) by (le))","legendFormat":"p95","refId":"B"},{"expr":"histogram_quantile(0.99, sum(rate(parkio_parking_outcome_processing_duration_seconds_bucket[5m])) by (le))","legendFormat":"p99","refId":"C"}],"title":"Processing Latency","type":"timeseries"},
+    {"datasource":{"type":"prometheus","uid":"parkio-prometheus"},"fieldConfig":{"defaults":{},"overrides":[]},"gridPos":{"h":8,"w":12,"x":12,"y":20},"id":10,"options":{"legend":{"displayMode":"list","placement":"bottom"},"tooltip":{"mode":"multi"}},"pluginVersion":"11.1.0","targets":[{"expr":"increase(parkio_parking_outcome_replay_mismatch_total[24h])","legendFormat":"mismatch","refId":"A"},{"expr":"increase(parkio_parking_outcome_replay_failure_total[24h])","legendFormat":"failure","refId":"B"}],"title":"Replay Mismatch / Failure","type":"timeseries"}
+  ],
+  "refresh": "30s",
+  "schemaVersion": 39,
+  "style": "dark",
+  "tags": ["parkio","outcome","wp-05"],
+  "templating": {"list": []},
+  "time": {"from": "now-6h", "to": "now"},
+  "timepicker": {},
+  "timezone": "browser",
+  "title": "Parkio - Outcome Validation",
+  "uid": "parkio-outcome-validation",
+  "version": 1,
+  "weekStart": ""
+}

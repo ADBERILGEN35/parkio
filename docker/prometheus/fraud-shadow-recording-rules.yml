@@ -1,0 +1,27 @@
+groups:
+  - name: parkio-fraud-shadow
+    interval: 30s
+    rules:
+      - record: parkio:fraud_shadow:success_rate5m
+        expr: |
+          sum(rate(parkio_parking_fraud_evaluation_success_total[5m]))
+          /
+          clamp_min(sum(rate(parkio_parking_fraud_candidate_received_total[5m])), 1)
+
+      - record: parkio:fraud_shadow:duplicate_rate5m
+        expr: |
+          sum(rate(parkio_parking_fraud_evaluation_duplicate_total[5m]))
+          /
+          clamp_min(sum(rate(parkio_parking_fraud_candidate_received_total[5m])), 1)
+
+      - record: parkio:fraud_shadow:failure_rate5m
+        expr: |
+          sum(rate(parkio_parking_fraud_evaluation_failure_total[5m]))
+          /
+          clamp_min(sum(rate(parkio_parking_fraud_candidate_received_total[5m])), 1)
+
+      - record: parkio:fraud_shadow:replay_mismatch_rate5m
+        expr: |
+          sum(rate(parkio_parking_fraud_replay_mismatch_total[5m]))
+          /
+          clamp_min(sum(rate(parkio_parking_fraud_evaluation_success_total[5m])), 1)

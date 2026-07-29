@@ -1,0 +1,137 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://parkio.dev/schemas/operational-evidence/1.0.0",
+  "title": "ParkioOperationalEvidence",
+  "type": "object",
+  "required": [
+    "evidenceSchemaVersion",
+    "runId",
+    "repositoryCommit",
+    "environmentType",
+    "startedAt",
+    "status",
+    "stages"
+  ],
+  "properties": {
+    "evidenceSchemaVersion": {
+      "type": "string",
+      "pattern": "^[0-9]+\\.[0-9]+\\.[0-9]+$"
+    },
+    "runId": {
+      "type": "string",
+      "minLength": 8
+    },
+    "repositoryCommit": {
+      "type": "string"
+    },
+    "environmentType": {
+      "type": "string",
+      "enum": [
+        "CI_EPHEMERAL",
+        "STAGING_LOCAL",
+        "STAGING_SHARED",
+        "DEVELOPMENT"
+      ]
+    },
+    "startedAt": {
+      "type": "string"
+    },
+    "completedAt": {
+      "type": "string"
+    },
+    "status": {
+      "type": "string",
+      "enum": [
+        "NOT_RUN",
+        "STARTED",
+        "BACKUP_VERIFIED",
+        "RESTORE_SUCCEEDED",
+        "SEMANTIC_VERIFICATION_SUCCEEDED",
+        "APPLICATION_VERIFICATION_SUCCEEDED",
+        "PARTIALLY_VERIFIED",
+        "FAILED",
+        "BLOCKED",
+        "UNSAFE_TARGET_REJECTED",
+        "RESTORED_STACK_STARTED",
+        "EXTERNAL_STAGING_REQUIRED",
+        "SIGNOFF_REQUIRED",
+        "APPROVED_FOR_WP_06_3",
+        "APPROVED_WITH_WAIVER",
+        "SHARED_STAGING_REQUIRED"
+      ]
+    },
+    "stages": {
+      "type": "object",
+      "additionalProperties": {
+        "type": "object",
+        "required": [
+          "status"
+        ],
+        "properties": {
+          "status": {
+            "type": "string"
+          },
+          "startedAt": {
+            "type": "string"
+          },
+          "completedAt": {
+            "type": "string"
+          },
+          "durationSeconds": {
+            "type": "number"
+          },
+          "warnings": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "blockers": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          }
+        }
+      }
+    },
+    "artifactChecksums": {
+      "type": "object"
+    },
+    "verificationResults": {
+      "type": "object"
+    },
+    "blockers": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "warnings": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "toolVersions": {
+      "type": "object"
+    },
+    "syntheticDataMarker": {
+      "type": "boolean"
+    },
+    "restoreEligibility": {
+      "type": "string"
+    },
+    "rpoRtoClassification": {
+      "type": "string",
+      "enum": [
+        "MEASURED_LOCAL",
+        "MEASURED_CI",
+        "MEASURED_STAGING",
+        "NOT_REPRESENTATIVE",
+        "PRODUCT_INFRA_APPROVAL_REQUIRED"
+      ]
+    }
+  },
+  "additionalProperties": false
+}

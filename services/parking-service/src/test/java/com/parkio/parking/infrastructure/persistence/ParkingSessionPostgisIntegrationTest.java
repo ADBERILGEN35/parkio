@@ -163,6 +163,10 @@ class ParkingSessionPostgisIntegrationTest {
     @BeforeEach
     void clearSessions() {
         jdbc.update("DELETE FROM idempotency_records");
+        jdbc.update("DELETE FROM trust_snapshot");
+        jdbc.update("DELETE FROM trust_ledger");
+        jdbc.update("DELETE FROM outcome_evaluation_triggers");
+        jdbc.update("DELETE FROM outcome_history");
         jdbc.update("DELETE FROM parking_spot_verifications");
         jdbc.update("DELETE FROM parking_spot_status_history");
         jdbc.update("DELETE FROM parking_spot_view_logs");

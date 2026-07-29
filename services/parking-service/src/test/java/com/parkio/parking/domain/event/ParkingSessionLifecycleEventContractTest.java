@@ -10,6 +10,7 @@ import com.parkio.parking.domain.ParkingSession;
 import com.parkio.parking.domain.ParkingSessionCompletionType;
 import com.parkio.parking.domain.ParkingSessionReminderStage;
 import com.parkio.parking.domain.ParkingSource;
+import com.parkio.parking.domain.event.ParkingHistoryDeletedEvent;
 import java.time.Instant;
 import java.util.Iterator;
 import java.util.UUID;
@@ -101,6 +102,40 @@ class ParkingSessionLifecycleEventContractTest {
         assertThat(json.get("startedAt").asText()).isEqualTo("2026-07-24T12:00:00Z");
         assertThat(json.get("lastConfirmedAt").asText()).isEqualTo("2026-07-24T12:00:00Z");
         assertThat(json.get("occurredAt").asText()).isEqualTo("2026-07-24T12:00:00Z");
+        assertNoSensitiveFields(json);
+    }
+
+    @Test
+    void historyDeletedSinglePayloadIsPrivacyMinimized() throws Exception {
+        UUID userId = UUID.randomUUID();
+        UUID sessionId = UUID.randomUUID();
+        ParkingHistoryDeletedEvent event = ParkingHistoryDeletedEvent.ofSingle(userId, sessionId, NOW);
+
+        JsonNode json = objectMapper.valueToTree(event);
+
+        assertThat(event.eventType()).isEqualTo("ParkingHistoryDeleted");
+        assertThat(event.aggregateType()).isEqualTo("ParkingSession");
+        assertThat(event.aggregateId()).isEqualTo(sessionId);
+        assertThat(json.get("scope").asText()).isEqualTo("SINGLE_TERMINAL_SESSION");
+        assertThat(json.get("sessionId").asText()).isEqualTo(sessionId.toString());
+        assertThat(json.get("userId").asText()).isEqualTo(userId.toString());
+        assertThat(json.get("deletedCount").asInt()).isEqualTo(1);
+        assertThat(json.get("occurredAt").asText()).isEqualTo("2026-07-24T12:00:00Z");
+        assertNoSensitiveFields(json);
+    }
+
+    @Test
+    void historyDeletedBulkPayloadCarriesDeletedCountWithoutSessionId() throws Exception {
+        UUID userId = UUID.randomUUID();
+        ParkingHistoryDeletedEvent event = ParkingHistoryDeletedEvent.ofAllTerminalHistory(userId, 3, NOW);
+
+        JsonNode json = objectMapper.valueToTree(event);
+
+        assertThat(event.eventType()).isEqualTo("ParkingHistoryDeleted");
+        assertThat(event.aggregateId()).isEqualTo(userId);
+        assertThat(json.get("scope").asText()).isEqualTo("ALL_TERMINAL_HISTORY");
+        assertThat(json.get("sessionId").isNull()).isTrue();
+        assertThat(json.get("deletedCount").asInt()).isEqualTo(3);
         assertNoSensitiveFields(json);
     }
 

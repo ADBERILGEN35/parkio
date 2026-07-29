@@ -1,6 +1,8 @@
 package com.parkio.analytics.application;
 
 import com.parkio.analytics.application.event.NotificationCreatedEvent;
+import com.parkio.analytics.application.event.ParkingHistoryDeletedEvent;
+import com.parkio.analytics.application.event.ParkingHistoryDeletionScope;
 import com.parkio.analytics.application.event.ParkingSessionCancelledEvent;
 import com.parkio.analytics.application.event.ParkingSessionCompletedEvent;
 import com.parkio.analytics.application.event.ParkingSessionStartedEvent;
@@ -130,6 +132,19 @@ public class AnalyticsApplicationService {
         ingest(event.eventId(), AnalyticsMetricType.PARKING_SESSION_CANCELLED, event.userId(),
                 event.sessionId(), durationSeconds, event.occurredAt(),
                 ParkingSessionLifecycleMapper.WIRE_CANCELLED);
+    }
+
+    /**
+     * Projects an authoritative ParkingHistoryDeleted fact. Does not reverse prior
+     * session lifecycle metrics — records a deletion counter only.
+     */
+    public void handleParkingHistoryDeleted(ParkingHistoryDeletedEvent event) {
+        UUID relatedEntityId = event.scope() == ParkingHistoryDeletionScope.SINGLE_TERMINAL_SESSION
+                ? event.sessionId()
+                : event.userId();
+        ingest(event.eventId(), AnalyticsMetricType.PARKING_SESSION_HISTORY_DELETED, event.userId(),
+                relatedEntityId, event.deletedCount(), event.occurredAt(),
+                ParkingSessionLifecycleMapper.WIRE_HISTORY_DELETED);
     }
 
     // --- Queries ---

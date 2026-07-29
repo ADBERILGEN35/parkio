@@ -1,0 +1,9 @@
+# WP-06.2 staging verification overlay — isolated compose project + synthetic markers.
+
+name: ${COMPOSE_PROJECT_NAME:-parkio-wp062-local}
+
+services:
+  postgres-parking:
+    environment:
+      PARKIO_STAGING_VERIFICATION: "true"
+      PARKIO_SYNTHETIC_DATA_MARKER: "wp062"

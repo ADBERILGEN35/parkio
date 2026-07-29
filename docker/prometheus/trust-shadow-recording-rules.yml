@@ -1,0 +1,31 @@
+groups:
+  - name: parkio-trust-shadow
+    interval: 30s
+    rules:
+      - record: parkio:trust_shadow:success_rate5m
+        expr: |
+          sum(rate(parkio_parking_trust_update_success_total[5m]))
+          /
+          clamp_min(sum(rate(parkio_parking_trust_outcome_received_total[5m])), 1)
+
+      - record: parkio:trust_shadow:duplicate_rate5m
+        expr: |
+          sum(rate(parkio_parking_trust_update_duplicate_total[5m]))
+          /
+          clamp_min(sum(rate(parkio_parking_trust_outcome_received_total[5m])), 1)
+
+      - record: parkio:trust_shadow:failure_rate5m
+        expr: |
+          sum(rate(parkio_parking_trust_update_failure_total[5m]))
+          /
+          clamp_min(sum(rate(parkio_parking_trust_outcome_received_total[5m])), 1)
+
+      - record: parkio:trust_shadow:eligible_ratio5m
+        expr: |
+          (
+            sum(rate(parkio_parking_trust_evidence_produced_total[5m]))
+            -
+            sum(rate(parkio_parking_trust_evidence_skipped_total[5m]))
+          )
+          /
+          clamp_min(sum(rate(parkio_parking_trust_evidence_produced_total[5m])), 1)

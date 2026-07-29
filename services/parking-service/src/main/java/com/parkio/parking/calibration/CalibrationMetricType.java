@@ -1,0 +1,15 @@
+package com.parkio.parking.calibration;
+
+public enum CalibrationMetricType {
+    OBSERVATION_COUNT,
+    LABELED_COUNT,
+    LABEL_COVERAGE,
+    REPLAY_MATCH_RATE,
+    PRECISION,
+    RECALL,
+    SPECIFICITY,
+    FALSE_POSITIVE_RATE,
+    OBSERVED_POSITIVE_RATE_BY_BAND,
+    DRIFT_STATUS,
+    NOT_APPLICABLE_MARKER
+}

@@ -13,6 +13,8 @@ import com.parkio.parking.domain.ParkingSessionStatus;
 import com.parkio.parking.domain.ParkingSessionStalePolicy;
 import com.parkio.parking.domain.ParkingSource;
 import com.parkio.parking.domain.event.ParkingEvent;
+import com.parkio.parking.domain.event.ParkingHistoryDeletedEvent;
+import com.parkio.parking.domain.event.ParkingHistoryDeletionScope;
 import com.parkio.parking.domain.event.ParkingSessionCancelledEvent;
 import com.parkio.parking.domain.event.ParkingSessionCompletedEvent;
 import com.parkio.parking.domain.event.ParkingSessionReminderRequestedEvent;
@@ -182,7 +184,7 @@ class ParkingSessionServiceTest {
     }
 
     @Test
-    void deletesDoNotEmitLifecycleEvents() {
+    void singleTerminalDeleteEmitsOneHistoryDeletedEvent() {
         UUID owner = UUID.randomUUID();
         ParkingSession completed = service.startSession(
                 owner, ParkingSource.MANUAL, 41.0, 29.0, null, null);
@@ -190,7 +192,70 @@ class ParkingSessionServiceTest {
         outbox.events.clear();
 
         service.deleteTerminalSession(owner, completed.getId());
+
+        assertThat(outbox.events).singleElement()
+                .isInstanceOf(ParkingHistoryDeletedEvent.class)
+                .satisfies(event -> {
+                    ParkingHistoryDeletedEvent deleted = (ParkingHistoryDeletedEvent) event;
+                    assertThat(deleted.eventType()).isEqualTo(ParkingHistoryDeletedEvent.TYPE);
+                    assertThat(deleted.userId()).isEqualTo(owner);
+                    assertThat(deleted.scope()).isEqualTo(ParkingHistoryDeletionScope.SINGLE_TERMINAL_SESSION);
+                    assertThat(deleted.sessionId()).isEqualTo(completed.getId());
+                    assertThat(deleted.deletedCount()).isEqualTo(1);
+                    assertThat(deleted.occurredAt()).isEqualTo(NOW);
+                    assertThat(deleted.aggregateId()).isEqualTo(completed.getId());
+                    assertThat(deleted.aggregateType()).isEqualTo(ParkingEvent.SESSION_AGGREGATE_TYPE);
+                });
+    }
+
+    @Test
+    void bulkTerminalDeleteEmitsOneHistoryDeletedEventWithDeletedCount() {
+        UUID owner = UUID.randomUUID();
+        ParkingSession completed = service.startSession(
+                owner, ParkingSource.MANUAL, 41.0, 29.0, null, null);
+        service.completeSession(owner, completed.getId());
+        ParkingSession cancelled = service.startSession(
+                owner, ParkingSource.AUTO, 41.1, 29.1, null, null);
+        service.cancelSession(owner, cancelled.getId());
+        outbox.events.clear();
+
         service.deleteTerminalHistory(owner);
+
+        assertThat(outbox.events).singleElement()
+                .isInstanceOf(ParkingHistoryDeletedEvent.class)
+                .satisfies(event -> {
+                    ParkingHistoryDeletedEvent deleted = (ParkingHistoryDeletedEvent) event;
+                    assertThat(deleted.scope()).isEqualTo(ParkingHistoryDeletionScope.ALL_TERMINAL_HISTORY);
+                    assertThat(deleted.sessionId()).isNull();
+                    assertThat(deleted.deletedCount()).isEqualTo(2);
+                    assertThat(deleted.userId()).isEqualTo(owner);
+                    assertThat(deleted.aggregateId()).isEqualTo(owner);
+                    assertThat(deleted.occurredAt()).isEqualTo(NOW);
+                });
+    }
+
+    @Test
+    void deleteOperationsDoNotEmitWhenNothingWasRemoved() {
+        UUID owner = UUID.randomUUID();
+        outbox.events.clear();
+
+        service.deleteTerminalSession(owner, UUID.randomUUID());
+        service.deleteTerminalHistory(owner);
+        service.deleteTerminalHistory(owner);
+
+        assertThat(outbox.events).isEmpty();
+    }
+
+    @Test
+    void idempotentSingleDeleteEmitsNoSecondHistoryDeletedEvent() {
+        UUID owner = UUID.randomUUID();
+        ParkingSession completed = service.startSession(
+                owner, ParkingSource.MANUAL, 41.0, 29.0, null, null);
+        service.completeSession(owner, completed.getId());
+        service.deleteTerminalSession(owner, completed.getId());
+        outbox.events.clear();
+
+        service.deleteTerminalSession(owner, completed.getId());
 
         assertThat(outbox.events).isEmpty();
     }
@@ -306,6 +371,7 @@ class ParkingSessionServiceTest {
         UUID owner = UUID.randomUUID();
         ParkingSession active = service.startSession(
                 owner, ParkingSource.MANUAL, 41.0, 29.0, null, null);
+        outbox.events.clear();
 
         assertThatThrownBy(() -> service.deleteTerminalSession(owner, active.getId()))
                 .isInstanceOf(ParkingException.class)
@@ -313,6 +379,18 @@ class ParkingSessionServiceTest {
                 .isEqualTo(ParkingErrorCode.PARKING_SESSION_NOT_TERMINAL);
         assertThat(repository.byId).containsKey(active.getId());
         assertThat(service.findActive(owner)).contains(active);
+        assertThat(outbox.events).isEmpty();
+    }
+
+    @Test
+    void bulkDeleteWithNoTerminalHistoryEmitsNoEvent() {
+        UUID owner = UUID.randomUUID();
+        service.startSession(owner, ParkingSource.MANUAL, 41.0, 29.0, null, null);
+        outbox.events.clear();
+
+        service.deleteTerminalHistory(owner);
+
+        assertThat(outbox.events).isEmpty();
     }
 
     @Test

@@ -8,6 +8,7 @@ import com.parkio.parking.domain.ParkingSessionReminderStage;
 import com.parkio.parking.domain.ParkingSessionStatus;
 import com.parkio.parking.domain.ParkingSessionStalePolicy;
 import com.parkio.parking.domain.ParkingSource;
+import com.parkio.parking.domain.event.ParkingHistoryDeletedEvent;
 import com.parkio.parking.domain.event.ParkingSessionCancelledEvent;
 import com.parkio.parking.domain.event.ParkingSessionCompletedEvent;
 import com.parkio.parking.domain.event.ParkingSessionReminderRequestedEvent;
@@ -265,6 +266,7 @@ public class ParkingSessionService {
 
         int deleted = sessions.deleteTerminalByIdAndUserId(id, ownerId);
         if (deleted > 0) {
+            outbox.append(ParkingHistoryDeletedEvent.ofSingle(ownerId, id, clock.instant()));
             return;
         }
 
@@ -285,7 +287,12 @@ public class ParkingSessionService {
      * Hard-deletes all owned COMPLETED/CANCELLED sessions. ACTIVE rows are preserved.
      */
     public void deleteTerminalHistory(UUID userId) {
-        sessions.deleteAllTerminalByUserId(Objects.requireNonNull(userId, "userId"));
+        UUID ownerId = Objects.requireNonNull(userId, "userId");
+        int deleted = sessions.deleteAllTerminalByUserId(ownerId);
+        if (deleted > 0) {
+            outbox.append(ParkingHistoryDeletedEvent.ofAllTerminalHistory(
+                    ownerId, deleted, clock.instant()));
+        }
     }
 
     private ParkingSession requireOwnedSession(UUID userId, UUID sessionId) {

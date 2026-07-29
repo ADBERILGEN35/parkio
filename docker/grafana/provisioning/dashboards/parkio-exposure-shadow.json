@@ -1,0 +1,135 @@
+{
+  "uid": "parkio-exposure-shadow",
+  "title": "Parkio Exposure Shadow",
+  "schemaVersion": 39,
+  "version": 1,
+  "timezone": "browser",
+  "refresh": "30s",
+  "panels": [
+    {
+      "id": 1,
+      "type": "stat",
+      "title": "Success Rate (5m)",
+      "datasource": { "type": "prometheus", "uid": "parkio-prometheus" },
+      "targets": [
+        { "refId": "A", "expr": "parkio:exposure_shadow:success_rate5m" }
+      ],
+      "gridPos": { "h": 4, "w": 6, "x": 0, "y": 0 }
+    },
+    {
+      "id": 2,
+      "type": "stat",
+      "title": "Skipped Rate (5m)",
+      "datasource": { "type": "prometheus", "uid": "parkio-prometheus" },
+      "targets": [
+        { "refId": "A", "expr": "parkio:exposure_shadow:skipped_rate5m" }
+      ],
+      "gridPos": { "h": 4, "w": 6, "x": 6, "y": 0 }
+    },
+    {
+      "id": 3,
+      "type": "stat",
+      "title": "Same Top1 Rate (5m)",
+      "datasource": { "type": "prometheus", "uid": "parkio-prometheus" },
+      "targets": [
+        { "refId": "A", "expr": "parkio:exposure_shadow:same_top1_rate5m" }
+      ],
+      "gridPos": { "h": 4, "w": 6, "x": 12, "y": 0 }
+    },
+    {
+      "id": 4,
+      "type": "stat",
+      "title": "Time Budget Exceeded Rate (5m)",
+      "datasource": { "type": "prometheus", "uid": "parkio-prometheus" },
+      "targets": [
+        { "refId": "A", "expr": "parkio:exposure_shadow:time_budget_exceeded_rate5m" }
+      ],
+      "gridPos": { "h": 4, "w": 6, "x": 18, "y": 0 }
+    },
+    {
+      "id": 5,
+      "type": "timeseries",
+      "title": "Disposition Distribution",
+      "datasource": { "type": "prometheus", "uid": "parkio-prometheus" },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "sum(rate(parkio_parking_exposure_candidate_evaluated_total[5m])) by (disposition)"
+        }
+      ],
+      "gridPos": { "h": 8, "w": 8, "x": 0, "y": 4 }
+    },
+    {
+      "id": 6,
+      "type": "timeseries",
+      "title": "Score Band Distribution",
+      "datasource": { "type": "prometheus", "uid": "parkio-prometheus" },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "sum(rate(parkio_parking_exposure_candidate_evaluated_total[5m])) by (score_band)"
+        }
+      ],
+      "gridPos": { "h": 8, "w": 8, "x": 8, "y": 4 }
+    },
+    {
+      "id": 7,
+      "type": "timeseries",
+      "title": "Availability State Distribution",
+      "datasource": { "type": "prometheus", "uid": "parkio-prometheus" },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "sum(rate(parkio_parking_exposure_candidate_evaluated_total[5m])) by (availability_state)"
+        }
+      ],
+      "gridPos": { "h": 8, "w": 8, "x": 16, "y": 4 }
+    },
+    {
+      "id": 8,
+      "type": "timeseries",
+      "title": "Evaluation Duration p95",
+      "datasource": { "type": "prometheus", "uid": "parkio-prometheus" },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "histogram_quantile(0.95, sum(rate(parkio_parking_exposure_evaluation_duration_seconds_bucket[5m])) by (le))"
+        }
+      ],
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 12 }
+    },
+    {
+      "id": 9,
+      "type": "timeseries",
+      "title": "Rank Movement Bands",
+      "datasource": { "type": "prometheus", "uid": "parkio-prometheus" },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "sum(rate(parkio_parking_exposure_evaluation_success_total[5m])) by (movement_band)"
+        }
+      ],
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 12 }
+    },
+    {
+      "id": 10,
+      "type": "stat",
+      "title": "Replay Mismatch Count",
+      "datasource": { "type": "prometheus", "uid": "parkio-prometheus" },
+      "targets": [
+        { "refId": "A", "expr": "sum(increase(parkio_parking_exposure_replay_mismatch_total[15m]))" }
+      ],
+      "gridPos": { "h": 4, "w": 6, "x": 0, "y": 20 }
+    },
+    {
+      "id": 11,
+      "type": "stat",
+      "title": "Failure Rate (5m)",
+      "datasource": { "type": "prometheus", "uid": "parkio-prometheus" },
+      "targets": [
+        { "refId": "A", "expr": "parkio:exposure_shadow:failure_rate5m" }
+      ],
+      "gridPos": { "h": 4, "w": 6, "x": 6, "y": 20 }
+    }
+  ]
+}

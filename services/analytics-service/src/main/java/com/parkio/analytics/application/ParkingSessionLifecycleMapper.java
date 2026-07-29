@@ -17,10 +17,12 @@ public final class ParkingSessionLifecycleMapper {
     public static final String WIRE_STARTED = "ParkingSessionStarted";
     public static final String WIRE_COMPLETED = "ParkingSessionCompleted";
     public static final String WIRE_CANCELLED = "ParkingSessionCancelled";
+    public static final String WIRE_HISTORY_DELETED = "ParkingHistoryDeleted";
 
     public static final String CANONICAL_STARTED = "parking_session_started";
     public static final String CANONICAL_COMPLETED = "parking_session_completed";
     public static final String CANONICAL_CANCELLED = "parking_session_cancelled";
+    public static final String CANONICAL_HISTORY_DELETED = "parking_session_history_deleted";
 
     public static final String AGGREGATE_TYPE = "ParkingSession";
 
@@ -35,6 +37,7 @@ public final class ParkingSessionLifecycleMapper {
             case WIRE_STARTED -> CANONICAL_STARTED;
             case WIRE_COMPLETED -> CANONICAL_COMPLETED;
             case WIRE_CANCELLED -> CANONICAL_CANCELLED;
+            case WIRE_HISTORY_DELETED -> CANONICAL_HISTORY_DELETED;
             default -> throw new AnalyticsContractException(
                     "Unsupported ParkingSession event type: " + wireEventType);
         };

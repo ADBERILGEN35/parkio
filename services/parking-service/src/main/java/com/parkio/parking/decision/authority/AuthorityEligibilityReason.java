@@ -1,0 +1,19 @@
+package com.parkio.parking.decision.authority;
+
+/** Bounded authority eligibility / selection reason. */
+public enum AuthorityEligibilityReason {
+    AUTHORITY_DISABLED,
+    ZERO_PERCENT_CANARY,
+    NOT_SELECTED,
+    UNSUPPORTED_CURRENT_STATUS,
+    UNSUPPORTED_DISPOSITION,
+    INSUFFICIENT_EVIDENCE_PROFILE,
+    UNSUPPORTED_POLICY_VERSION,
+    STALE_EVENT,
+    ALREADY_FINALIZED,
+    MODERATOR_CONTROLLED,
+    CONFIGURATION_INVALID,
+    ELIGIBLE_SELECTED,
+    HARD_CONSTRAINT_ACTIVE,
+    IDEMPOTENT_ALREADY_APPLIED
+}

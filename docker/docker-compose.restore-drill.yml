@@ -1,0 +1,11 @@
+# WP-06.2 restore drill overlay — database-only drill stack marker.
+
+name: ${COMPOSE_PROJECT_NAME:-parkio-wp062-restore-drill}
+
+services:
+  postgres-auth:
+    labels:
+      parkio.wp062.drill: "true"
+  postgres-parking:
+    labels:
+      parkio.wp062.drill: "true"
