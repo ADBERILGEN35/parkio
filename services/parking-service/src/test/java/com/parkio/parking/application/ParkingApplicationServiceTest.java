@@ -17,6 +17,8 @@ import com.parkio.parking.application.command.SearchNearbyQuery;
 import com.parkio.parking.application.port.MediaAccessPort;
 import com.parkio.parking.application.port.MediaReadinessPort;
 import com.parkio.parking.application.port.ModerationMetricsPort;
+import com.parkio.parking.application.port.OutcomeEvaluationTriggerPort;
+import com.parkio.parking.application.port.ExposureShadowObserverPort;
 import com.parkio.parking.application.port.OutboxEventAppender;
 import com.parkio.parking.application.port.ParkingSpotRepository;
 import com.parkio.parking.application.port.ParkingSpotSearchLogRepository;
@@ -117,7 +119,15 @@ class ParkingApplicationServiceTest {
                         NOW));
         service = new ParkingApplicationService(spots, verifications, statusHistory, viewLogs, searchLogs,
                 outbox, mediaAccess, mediaReadiness, new ParkingSearchSettings(1000, 10, 50000, 50),
-                parkingSessions, POLICY, moderationMetrics, clock);
+                parkingSessions, POLICY, moderationMetrics, OutcomeEvaluationTriggerPort.noop(),
+                disabledExposureShadow(), clock);
+    }
+
+    private static ExposureShadowOrchestrator disabledExposureShadow() {
+        return new ExposureShadowOrchestrator(
+                new ExposureShadowSettings(false, 0, 25),
+                mock(ExposureShadowApplicationService.class),
+                ExposureShadowObserverPort.NOOP);
     }
 
     private CreateSpotCommand createCommand(UUID owner, LegalStatus legalStatus) {

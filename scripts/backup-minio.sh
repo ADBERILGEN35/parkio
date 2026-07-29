@@ -40,18 +40,19 @@ MINIO_ROOT_PASSWORD="${MINIO_ROOT_PASSWORD:?set MINIO_ROOT_PASSWORD in env}"
 MC_IMAGE="${MINIO_MC_IMAGE:-minio/mc:RELEASE.2024-09-16T17-43-14Z}"
 MIRROR_DEST="${DEST_DIR}/minio/${BUCKET}"
 
-if ! docker inspect parkio-minio >/dev/null 2>&1; then
-  echo "ERROR: parkio-minio container not found." >&2
+MINIO_CONTAINER="${PARKIO_MINIO_CONTAINER:-parkio-minio}"
+if ! docker inspect "${MINIO_CONTAINER}" >/dev/null 2>&1; then
+  echo "ERROR: MinIO container '${MINIO_CONTAINER}' not found." >&2
   exit 1
 fi
 
-NETWORK="$(parkio_backup_backend_network parkio-minio)"
+NETWORK="$(parkio_backup_backend_network "${MINIO_CONTAINER}")"
 if [ -z "${NETWORK}" ]; then
-  echo "ERROR: could not resolve backend Docker network for parkio-minio." >&2
+  echo "ERROR: could not resolve backend Docker network for ${MINIO_CONTAINER}." >&2
   exit 1
 fi
 
-echo "MinIO backup -> ${MIRROR_DEST} (bucket=${BUCKET}, network=${NETWORK}, dryRun=${DRY_RUN})"
+echo "MinIO backup -> ${MIRROR_DEST} (bucket=${BUCKET}, container=${MINIO_CONTAINER}, network=${NETWORK}, dryRun=${DRY_RUN})"
 
 if [ "$DRY_RUN" -eq 1 ]; then
   echo "DRY-RUN: would mirror local/${BUCKET} to ${MIRROR_DEST}"
@@ -67,8 +68,9 @@ docker run --rm \
   -e "MINIO_ROOT_USER=${MINIO_ROOT_USER:-minioadmin}" \
   -e "MINIO_ROOT_PASSWORD=${MINIO_ROOT_PASSWORD}" \
   -e "BUCKET=${BUCKET}" \
+  --entrypoint /bin/sh \
   "${MC_IMAGE}" \
-  /bin/sh -c '
+  -c '
     set -eu
     mc alias set local http://minio:9000 "$MINIO_ROOT_USER" "$MINIO_ROOT_PASSWORD"
     mc mirror --overwrite "local/${BUCKET}" /backup

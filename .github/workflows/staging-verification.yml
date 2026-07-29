@@ -1,0 +1,148 @@
+name: Staging verification (WP-06.2 / WP-06.2A.1)
+
+on:
+  pull_request:
+    paths:
+      - "scripts/staging/**"
+      - "scripts/smoke-hosted-beta.sh"
+      - "scripts/restore-drill.sh"
+      - "docker/docker-compose.staging-verification.yml"
+      - "docker/docker-compose.restore-drill.yml"
+      - "docs/operations/evidence/**"
+      - "docs/operations/wp-06-02*.md"
+      - "services/gateway-service/src/main/resources/application.yml"
+      - ".github/workflows/staging-verification.yml"
+  schedule:
+    - cron: "47 5 * * 3"
+  workflow_dispatch:
+    inputs:
+      run_restore:
+        description: Run restore drill with evidence
+        type: boolean
+        default: false
+      run_journeys:
+        description: Run critical application journeys (requires full stack capability)
+        type: boolean
+        default: false
+      run_restored_apis:
+        description: Repoint apps to restored drill DBs and verify APIs
+        type: boolean
+        default: false
+
+permissions:
+  contents: read
+
+concurrency:
+  group: staging-verification-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  structural:
+    name: Safety guards and schema
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Make staging scripts executable
+        run: chmod +x scripts/staging/*.sh scripts/staging/lib/*.sh scripts/*.sh
+
+      - name: Bash syntax check
+        run: |
+          set -euo pipefail
+          for f in scripts/staging/*.sh scripts/staging/lib/*.sh scripts/smoke-hosted-beta.sh; do
+            bash -n "$f"
+          done
+
+      - name: Require python3 for JSON helper
+        run: |
+          python3 --version
+          bash -c 'source scripts/staging/lib/json-helper.sh && json_require_python'
+
+      - name: Compose overlay config validation
+        run: |
+          cp docker/.env.example docker/.env
+          docker compose --env-file docker/.env \
+            -f docker/docker-compose.yml \
+            -f docker/docker-compose.staging-verification.yml config >/dev/null
+
+      - name: Run WP-06.2 governance tests
+        run: |
+          ./gradlew :services:parking-service:test --tests "com.parkio.parking.infrastructure.metrics.StagingVerificationGovernanceTest" \
+            :services:gateway-service:test --tests "com.parkio.gateway.infrastructure.config.GatewayDownstreamTimeoutGovernanceTest" --no-daemon
+
+      - name: Upload evidence on failure
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: staging-verification-logs
+          path: build/operational-evidence/
+          if-no-files-found: ignore
+
+  restore-evidence:
+    name: Restore drill + evidence bundle
+    if: github.event_name == 'schedule' || (github.event_name == 'workflow_dispatch' && inputs.run_restore)
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    env:
+      PARKIO_ENVIRONMENT_TYPE: CI_EPHEMERAL
+      PARKIO_STAGING_ISOLATION_MARKER: wp062-ci-${{ github.run_id }}
+      COMPOSE_PROJECT_NAME: parkio-wp062-${{ github.run_id }}
+      PARKIO_STAGING_RUN_RESTORE: "yes"
+      PARKIO_STAGING_RUN_MINIO: "yes"
+      PARKIO_STAGING_ALLOW_DESTRUCTIVE: "yes"
+      # Full-stack journeys require app images + resources — enable via dispatch or self-hosted label.
+      PARKIO_STAGING_RUN_JOURNEYS: ${{ github.event_name == 'workflow_dispatch' && inputs.run_journeys && 'yes' || 'no' }}
+      PARKIO_STAGING_RUN_RESTORED_APIS: ${{ github.event_name == 'workflow_dispatch' && inputs.run_restored_apis && 'yes' || 'no' }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Prepare env
+        run: cp docker/.env.example docker/.env
+
+      - name: Start database stack
+        run: |
+          docker compose --env-file docker/.env -f docker/docker-compose.yml up -d --wait \
+            postgres-auth postgres-user postgres-parking postgres-media \
+            postgres-gamification postgres-notification postgres-moderation \
+            postgres-analytics postgres-ai-validation postgres-gateway redis kafka minio || \
+          docker compose --env-file docker/.env -f docker/docker-compose.yml up -d --wait \
+            postgres-auth postgres-user postgres-parking postgres-media \
+            postgres-gamification postgres-notification postgres-moderation \
+            postgres-analytics postgres-ai-validation
+
+      - name: Note journey capability
+        if: env.PARKIO_STAGING_RUN_JOURNEYS == 'yes'
+        run: |
+          echo "INFRA_INPUT_REQUIRED: full application stack journeys need docker-compose.apps.yml images."
+          echo "Starting apps when images are available locally; otherwise journeys remain blocked."
+          docker compose --env-file docker/.env \
+            -f docker/docker-compose.yml -f docker/docker-compose.apps.yml \
+            up -d --build || echo "APP_STACK_UNAVAILABLE"
+
+      - name: Run verification pipeline (restore + semantic [+ journeys])
+        run: |
+          chmod +x scripts/staging/*.sh scripts/staging/lib/*.sh scripts/*.sh
+          ./scripts/staging/run-verification-pipeline.sh
+
+      - name: Upload operational evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: wp062-operational-evidence-${{ github.run_id }}
+          path: build/operational-evidence/
+          if-no-files-found: ignore
+
+      - name: Capture diagnostics
+        if: failure()
+        run: |
+          mkdir -p build/operational-evidence/diagnostics
+          docker compose --env-file docker/.env -f docker/docker-compose.yml ps > build/operational-evidence/diagnostics/compose-ps.txt || true
+          docker ps -a > build/operational-evidence/diagnostics/docker-ps.txt || true
+
+      - name: Tear down databases
+        if: always()
+        run: |
+          docker compose --env-file docker/.env \
+            -f docker/docker-compose.yml -f docker/docker-compose.apps.yml down -v || \
+          docker compose --env-file docker/.env -f docker/docker-compose.yml down -v

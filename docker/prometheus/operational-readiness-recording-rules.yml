@@ -1,0 +1,21 @@
+groups:
+  - name: parkio-operational-readiness
+    interval: 30s
+    rules:
+      - record: parkio:gateway:availability_ratio5m
+        expr: |
+          sum(rate(http_server_requests_seconds_count{service="gateway-service",status!~"5.."}[5m]))
+          /
+          clamp_min(sum(rate(http_server_requests_seconds_count{service="gateway-service"}[5m])), 1)
+      - record: parkio:parking:availability_ratio5m
+        expr: |
+          sum(rate(http_server_requests_seconds_count{service="parking-service",status!~"5.."}[5m]))
+          /
+          clamp_min(sum(rate(http_server_requests_seconds_count{service="parking-service"}[5m])), 1)
+      - record: parkio:auth:availability_ratio5m
+        expr: |
+          sum(rate(http_server_requests_seconds_count{service="auth-service",status!~"5.."}[5m]))
+          /
+          clamp_min(sum(rate(http_server_requests_seconds_count{service="auth-service"}[5m])), 1)
+      - record: parkio:platform:service_up
+        expr: up{job="parkio-services"}

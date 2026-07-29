@@ -116,6 +116,41 @@ Start with:
 - [docker/README.md](../../docker/README.md)
 - [Production Readiness](production-readiness.md)
 
+
+## Parking Validation / Decision Architecture (WP-05)
+
+Baseline for replacing AI/moderator-as-final-authority with a Decision Engine
+module inside parking-service:
+
+- [WP-05 Current-State Audit](wp-05-parking-validation-current-state.md)
+- [ADR-WP05 Decision Engine Placement](adr/ADR-WP05-decision-engine-placement.md)
+- [WP-05 Implementation Plan](wp-05-implementation-plan.md)
+- [WP-05.2 Decision Domain Model](wp-05-decision-domain-model.md)
+- [WP-05.3 Evidence Collection & Normalization](wp-05-evidence-collection-normalization.md)
+- [WP-05.4 Evidence Evaluation Model](wp-05-evidence-evaluation-model.md)
+- [WP-05.5 Decision Engine Shadow Mode](wp-05-decision-engine-shadow-mode.md)
+- [WP-05.6 Decision Calibration & Shadow Analytics](wp-05-decision-calibration-shadow-analytics.md)
+- [WP-05.6 Calibration Report Template](wp-05-decision-calibration-report-template.md)
+- [WP-05.7 Decision Audit Store](wp-05-decision-audit-store.md)
+- [WP-05.8 Controlled Authority Migration](wp-05-controlled-authority-migration.md)
+- [WP-05.9 Availability Engine](wp-05-availability-engine.md)
+- [WP-05.10 Outcome Validation Engine](wp-05-outcome-validation.md)
+- [WP-05.11 Trust Engine Shadow](wp-05-trust-engine-shadow.md)
+- [WP-05.11A Trust Verification Closure](wp-05-trust-verification-closure.md)
+- [WP-05.12 Pending Reward Engine Shadow](wp-05-pending-reward-engine-shadow.md)
+- [WP-05.13 Adaptive Exposure Engine Shadow](wp-05-adaptive-exposure-engine-shadow.md)
+- [WP-05.14 Fraud Intelligence Engine Shadow](wp-05-fraud-intelligence-engine-shadow.md)
+- [WP-05.15 Continuous Calibration & Policy Governance](wp-05-continuous-calibration-policy-governance.md)
+- Related: [AI Vision Validation](ai-vision-validation.md), [Event Contracts](event-contracts.md)
+
+## WP-06 — Operational Platform
+
+- [WP-06.1 Operational Readiness & Production Governance](../operations/wp-06-01-operational-readiness-production-governance.md)
+- [Operations Index](../operations/README.md)
+
+WP-05.1–05.15 complete. WP-06.1 establishes runbooks, SLO definitions, and governance
+templates only — it does **not** claim production launch.
+
 ## Current Limitations
 
 Parkio is not public-production ready. Known blockers include managed HA data

@@ -1,0 +1,27 @@
+groups:
+  - name: parkio-continuous-calibration
+    interval: 30s
+    rules:
+      - record: parkio:continuous_calibration:success_rate5m
+        expr: |
+          sum(rate(parkio_parking_calibration_observation_success_total[5m]))
+          /
+          clamp_min(sum(rate(parkio_parking_calibration_candidate_received_total[5m])), 1)
+
+      - record: parkio:continuous_calibration:duplicate_rate5m
+        expr: |
+          sum(rate(parkio_parking_calibration_observation_duplicate_total[5m]))
+          /
+          clamp_min(sum(rate(parkio_parking_calibration_candidate_received_total[5m])), 1)
+
+      - record: parkio:continuous_calibration:failure_rate5m
+        expr: |
+          sum(rate(parkio_parking_calibration_observation_failure_total[5m]))
+          /
+          clamp_min(sum(rate(parkio_parking_calibration_candidate_received_total[5m])), 1)
+
+      - record: parkio:continuous_calibration:replay_mismatch_rate5m
+        expr: |
+          sum(rate(parkio_parking_calibration_replay_mismatch_total[5m]))
+          /
+          clamp_min(sum(rate(parkio_parking_calibration_observation_success_total[5m])), 1)

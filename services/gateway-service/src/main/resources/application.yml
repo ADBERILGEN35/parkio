@@ -25,6 +25,13 @@
     locations: classpath:db/migration
   cloud:
     gateway:
+      # Global downstream HTTP client budgets for routed services. Per-route
+      # user-status/session-epoch clients retain their own PT2S budgets under
+      # parkio.gateway.*. Route-specific long operations remain BASELINING_REQUIRED
+      # until measured (see docs/operations/gateway-timeout-governance.md).
+      httpclient:
+        connect-timeout: ${PARKIO_GATEWAY_DOWNSTREAM_CONNECT_TIMEOUT:2000}
+        response-timeout: ${PARKIO_GATEWAY_DOWNSTREAM_RESPONSE_TIMEOUT:30s}
       # Downstream URIs are externalized; defaults target local dev ports. In a
       # container/orchestrated environment these resolve to service DNS names.
       #

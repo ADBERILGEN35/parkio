@@ -92,6 +92,10 @@ class ModerationLifecyclePostgisIT {
 
     @BeforeEach
     void clearSpots() {
+        jdbc.update("DELETE FROM trust_snapshot");
+        jdbc.update("DELETE FROM trust_ledger");
+        jdbc.update("DELETE FROM outcome_evaluation_triggers");
+        jdbc.update("DELETE FROM outcome_history");
         jdbc.update("DELETE FROM parking_spot_status_history");
         jdbc.update("DELETE FROM outbox_events");
         jdbc.update("DELETE FROM parking_spots");

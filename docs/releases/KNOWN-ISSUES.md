@@ -74,3 +74,10 @@ Source: [`docs/architecture/production-readiness.md`](../architecture/production
 | AR-02 | **Partial frontend runtime matrix** | Strong unit + web smoke coverage; gaps documented in FFINAL |
 | AR-03 | **Dependabot major ignores** (MinIO 9, springdoc 3) | Requires deliberate migration; patch/minor still flow |
 | AR-04 | **Draft GitHub Release only** | Human approval before image publish (`PUBLISH_IMAGES` gate) |
+
+## Staging verification / WP-06.2B
+
+| ID | Issue | Impact | Status |
+|----|-------|--------|--------|
+| ST-01 | Shared-staging capacity not available from repository-supported runners alone | WP-06.3 remains blocked pending human decision / infra | Final-state LOCAL_REPRESENTATIVE evidence wp062b2-20260729073440 is SIGNOFF_REQUIRED (historical wp062b-20260728211226 preserved); see [WP-06.2B.2](../operations/wp-06-02b-2-final-state-reexecution-signoff-gate.md) |
+| ST-02 | Gateway per-route timeouts still BASELINING_REQUIRED | Must not set production timeout policy from local samples | Documented in gateway-route-baseline.json |

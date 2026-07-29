@@ -811,3 +811,9 @@ The scripted version is `scripts/smart-return-smoke.sh`. It uses normal gateway 
 requires an existing real nearby spot, waits for the scheduler, verifies exactly one
 `SMART_RETURN_AVAILABLE` notification row, checks for duplicate notification rows, and
 greps service logs for the exact smoke coordinates.
+
+<!-- WP-06.2B.1 -->
+WP-06.2B restored-stack verification is TECHNICALLY_VERIFIED_SIGNOFF_REQUIRED on LOCAL_REPRESENTATIVE evidence (wp062b-20260728211226). Human sign-off remains NOT_REVIEWED; WP-06.3 is NOT_ELIGIBLE; production readiness is not claimed. See docs/operations/wp-06-02b-1-evidence-finalization-signoff-preparation.md.
+
+<!-- WP-06.2B.2 -->
+WP-06.2B restored-stack verification final-state evidence: TECHNICALLY_VERIFIED_SIGNOFF_REQUIRED on LOCAL_REPRESENTATIVE run `wp062b2-20260729073440` (historical `wp062b-20260728211226` preserved). Human sign-off remains NOT_REVIEWED; WP-06.3 is NOT_ELIGIBLE; production readiness is not claimed. See docs/operations/wp-06-02b-2-final-state-reexecution-signoff-gate.md.

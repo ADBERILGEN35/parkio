@@ -1,0 +1,56 @@
+{
+  "uid": "parkio-continuous-calibration",
+  "title": "Parkio Continuous Calibration",
+  "tags": ["parkio", "calibration", "continuous"],
+  "timezone": "browser",
+  "schemaVersion": 39,
+  "version": 1,
+  "refresh": "30s",
+  "panels": [
+    {
+      "id": 1,
+      "title": "Observation Success Rate (5m)",
+      "type": "stat",
+      "gridPos": { "h": 4, "w": 6, "x": 0, "y": 0 },
+      "datasource": { "type": "prometheus", "uid": "parkio-prometheus" },
+      "targets": [{ "expr": "parkio:continuous_calibration:success_rate5m", "legendFormat": "success" }]
+    },
+    {
+      "id": 2,
+      "title": "Duplicate Rate (5m)",
+      "type": "stat",
+      "gridPos": { "h": 4, "w": 6, "x": 6, "y": 0 },
+      "datasource": { "type": "prometheus", "uid": "parkio-prometheus" },
+      "targets": [{ "expr": "parkio:continuous_calibration:duplicate_rate5m", "legendFormat": "duplicate" }]
+    },
+    {
+      "id": 3,
+      "title": "Failure Rate (5m)",
+      "type": "stat",
+      "gridPos": { "h": 4, "w": 6, "x": 12, "y": 0 },
+      "datasource": { "type": "prometheus", "uid": "parkio-prometheus" },
+      "targets": [{ "expr": "parkio:continuous_calibration:failure_rate5m", "legendFormat": "failure" }]
+    },
+    {
+      "id": 4,
+      "title": "Replay Mismatch Rate (5m)",
+      "type": "stat",
+      "gridPos": { "h": 4, "w": 6, "x": 18, "y": 0 },
+      "datasource": { "type": "prometheus", "uid": "parkio-prometheus" },
+      "targets": [{ "expr": "parkio:continuous_calibration:replay_mismatch_rate5m", "legendFormat": "mismatch" }]
+    },
+    {
+      "id": 5,
+      "title": "Report Generation Duration p95",
+      "type": "timeseries",
+      "gridPos": { "h": 8, "w": 24, "x": 0, "y": 4 },
+      "datasource": { "type": "prometheus", "uid": "parkio-prometheus" },
+      "targets": [
+        {
+          "expr": "histogram_quantile(0.95, sum(rate(parkio_parking_calibration_report_duration_seconds_bucket[5m])) by (le))",
+          "legendFormat": "p95"
+        }
+      ]
+    }
+  ]
+}

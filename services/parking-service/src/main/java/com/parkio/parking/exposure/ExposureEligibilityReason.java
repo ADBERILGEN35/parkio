@@ -1,0 +1,15 @@
+package com.parkio.parking.exposure;
+
+public enum ExposureEligibilityReason {
+    PUBLISHED_ACTIVE,
+    PUBLISHED_VERIFIED,
+    STATUS_NOT_PUBLISHED,
+    STATUS_TERMINAL,
+    EXPIRED,
+    LEGAL_RISKY,
+    AVAILABILITY_UNAVAILABLE,
+    AVAILABILITY_EXPIRED,
+    VEHICLE_MISMATCH,
+    MISSING_DISTANCE,
+    POLICY_UNSUPPORTED
+}

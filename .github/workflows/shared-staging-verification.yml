@@ -1,0 +1,100 @@
+name: shared-staging-verification
+
+# WP-06.2B — manual restored-stack verification. Not a production deploy workflow.
+on:
+  workflow_dispatch:
+    inputs:
+      execution_environment:
+        description: "LOCAL_REPRESENTATIVE | CI_EPHEMERAL | SHARED_STAGING"
+        required: true
+        default: CI_EPHEMERAL
+      run_restore:
+        description: "Run backup/restore into drill DBs"
+        type: boolean
+        default: true
+      run_restored_apis:
+        description: "Run restored application journeys"
+        type: boolean
+        default: true
+      run_route_baseline:
+        description: "Record gateway route baseline samples (no policy change)"
+        type: boolean
+        default: true
+      preserve_on_failure:
+        description: "Preserve compose project on failure"
+        type: boolean
+        default: false
+      signoff_ticket:
+        description: "Ticket reference for human sign-off (not an approval)"
+        required: false
+        default: ""
+
+permissions:
+  contents: read
+  actions: read
+
+concurrency:
+  group: shared-staging-verification-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  guard:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Reject production inputs
+        run: |
+          set -euo pipefail
+          echo "${{ inputs.execution_environment }}" | grep -vi production
+          if [ "${{ inputs.execution_environment }}" = "PRODUCTION" ]; then
+            echo "production execution rejected" >&2
+            exit 1
+          fi
+
+  restored-stack:
+    needs: guard
+    if: ${{ inputs.run_restored_apis == true || inputs.run_restore == true }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 180
+    env:
+      PARKIO_ENVIRONMENT_TYPE: CI_EPHEMERAL
+      PARKIO_STAGING_ALLOW_DESTRUCTIVE: "yes"
+      PARKIO_STAGING_ISOLATION_MARKER: "wp062b-ci-${{ github.run_id }}"
+      COMPOSE_PROJECT_NAME: parkio-wp062-b-ci-${{ github.run_id }}
+      PARKIO_WP062B_EXECUTION_CLASS: ${{ inputs.execution_environment }}
+      PARKIO_WP062B_PRESERVE_ON_FAILURE: ${{ inputs.preserve_on_failure && 'yes' || 'no' }}
+      PARKIO_WP062B_SIGNOFF_TICKET: ${{ inputs.signoff_ticket }}
+    steps:
+      - uses: actions/checkout@v4
+      - name: Require python3
+        run: python3 --version
+      - name: Runner capability note
+        run: |
+          echo "Full restored app stack may be INFRA_INPUT_REQUIRED on small GitHub-hosted runners."
+          echo "Use a capable self-hosted runner label when SHARED_STAGING capacity exists."
+      - name: Structural validation only when secrets missing
+        if: ${{ env.PARKIO_CI_HAS_STAGING_ENV != 'yes' }}
+        run: |
+          set -euo pipefail
+          bash -n scripts/staging/run-wp062b-restored-stack-verification.sh
+          bash -n scripts/staging/lib/safety-guards.sh
+          test -f docker/docker-compose.restored-application-verification.yml
+          echo "INFRA_INPUT_REQUIRED: staging .env/secrets not provisioned for full stack on this runner"
+      - name: Execute WP-06.2B restored stack
+        if: ${{ env.PARKIO_CI_HAS_STAGING_ENV == 'yes' }}
+        run: ./scripts/staging/run-wp062b-restored-stack-verification.sh
+      - name: Diagnostics
+        if: always()
+        run: |
+          docker compose ls || true
+          docker ps --filter "label=com.docker.compose.project=${COMPOSE_PROJECT_NAME}" || true
+      - name: Cleanup isolated project
+        if: always()
+        run: ./scripts/staging/cleanup-isolated-stack.sh || true
+      - name: Upload evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: wp062b-evidence-${{ github.run_id }}
+          path: build/operational-evidence/
+          if-no-files-found: warn

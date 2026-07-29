@@ -1,0 +1,45 @@
+{
+  "uid": "parkio-operational-readiness",
+  "title": "Parkio Operational Readiness",
+  "tags": ["parkio", "wp-06"],
+  "timezone": "browser",
+  "schemaVersion": 39,
+  "version": 1,
+  "panels": [
+    {
+      "id": 1,
+      "type": "stat",
+      "title": "Gateway Availability (5m)",
+      "gridPos": {"h": 8, "w": 8, "x": 0, "y": 0},
+      "datasource": {"type": "prometheus", "uid": "parkio-prometheus"},
+      "fieldConfig": {"defaults": {"unit": "percentunit"}},
+      "targets": [{"expr": "parkio:gateway:availability_ratio5m", "refId": "A"}]
+    },
+    {
+      "id": 2,
+      "type": "stat",
+      "title": "Parking Availability (5m)",
+      "gridPos": {"h": 8, "w": 8, "x": 8, "y": 0},
+      "datasource": {"type": "prometheus", "uid": "parkio-prometheus"},
+      "fieldConfig": {"defaults": {"unit": "percentunit"}},
+      "targets": [{"expr": "parkio:parking:availability_ratio5m", "refId": "A"}]
+    },
+    {
+      "id": 3,
+      "type": "stat",
+      "title": "Auth Availability (5m)",
+      "gridPos": {"h": 8, "w": 8, "x": 16, "y": 0},
+      "datasource": {"type": "prometheus", "uid": "parkio-prometheus"},
+      "fieldConfig": {"defaults": {"unit": "percentunit"}},
+      "targets": [{"expr": "parkio:auth:availability_ratio5m", "refId": "A"}]
+    },
+    {
+      "id": 4,
+      "type": "timeseries",
+      "title": "Service Up",
+      "gridPos": {"h": 9, "w": 24, "x": 0, "y": 8},
+      "datasource": {"type": "prometheus", "uid": "parkio-prometheus"},
+      "targets": [{"expr": "parkio:platform:service_up", "legendFormat": "{{service}}", "refId": "A"}]
+    }
+  ]
+}

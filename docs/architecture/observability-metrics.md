@@ -116,6 +116,240 @@ Alerts (`docker/prometheus/alerts.yml` group `parkio-parking-session-stale`):
 
 Ops: [`docs/operations/parking-session-stale-runbook.md`](../operations/parking-session-stale-runbook.md).
 
+### Decision shadow calibration (parking-service)
+
+Micrometer component: `DecisionShadowMetrics` (`com.parkio.parking.infrastructure.metrics`).
+Emits only when `parkio.parking.decision.shadow-enabled=true`. Success dimensions come from
+`DecisionCalibrationObservation` — bounded enums only (never spot/event/user IDs or exact
+`RiskScore`). See [wp-05-decision-calibration-shadow-analytics.md](./wp-05-decision-calibration-shadow-analytics.md).
+
+Prometheus names (dots → underscores; counters gain `_total`; timers → `_seconds_*`):
+
+| Metric (Prometheus) | Type | Tags | Meaning |
+|---|---|---|---|
+| `parkio_parking_decision_shadow_attempt_total` | counter | `policy_version` | Shadow evaluations attempted |
+| `parkio_parking_decision_shadow_success_total` | counter | `policy_version` | Shadow evaluations completed |
+| `parkio_parking_decision_shadow_failure_total` | counter | `policy_version`, `stage` | Failures by `ShadowFailureStage` |
+| `parkio_parking_decision_shadow_duration_seconds_*` | timer | `policy_version` | Orchestration duration |
+| `parkio_parking_decision_shadow_engine_duration_seconds_*` | timer | `policy_version` | Pure engine duration (optional helper) |
+| `parkio_parking_decision_shadow_disposition_total` | counter | `policy_version`, `disposition` | Shadow `PublicationDisposition` |
+| `parkio_parking_decision_shadow_comparison_total` | counter | `policy_version`, `category` | `ShadowComparisonCategory` |
+| `parkio_parking_decision_shadow_risk_band_total` | counter | `policy_version`, `band` | `RiskBand` |
+| `parkio_parking_decision_shadow_hard_constraint_family_total` | counter | `policy_version`, `family` | `HardConstraintFamily` |
+| `parkio_parking_decision_shadow_decisive_rule_total` | counter | `policy_version`, `rule` | `DecisivePolicyRule` |
+| `parkio_parking_decision_shadow_evidence_profile_total` | counter | `policy_version`, `profile` | `EvidenceAvailabilityProfile` |
+| `parkio_parking_decision_shadow_legacy_kind_total` | counter | `policy_version`, `kind` | Legacy outcome kind |
+| `parkio_parking_decision_shadow_legacy_status_total` | counter | `policy_version`, `status` | Legacy `ParkingSpotStatus` |
+| `parkio_parking_decision_shadow_assessment_level_total` | counter | `policy_version`, `category`, `level` | Active category levels |
+| `parkio_parking_decision_shadow_assessment_completeness_total` | counter | `policy_version`, `category`, `completeness` | Active category completeness |
+
+Recording rules: `docker/prometheus/decision-shadow-recording-rules.yml`
+(`parkio:decision_shadow:comparable_agreement_rate5m`, `more_restrictive_rate5m`,
+`more_permissive_rate5m`, `failure_rate5m`, and related ratios).
+
+Grafana: **Parkio - Decision Shadow Calibration**
+(`docker/grafana/provisioning/dashboards/parkio-decision-shadow.json`).
+
+**WP-05.6 provides parity and drift analytics, not correctness calibration.**
+
+### Availability engine (parking-service, WP-05.9)
+
+Micrometer component: `AvailabilityMetrics` (`com.parkio.parking.infrastructure.metrics`).
+Bounded enum tags only — never spot IDs or exact scores. See
+[wp-05-availability-engine.md](./wp-05-availability-engine.md).
+
+| Metric (Prometheus) | Type | Tags | Meaning |
+|---|---|---|---|
+| `parkio_parking_availability_evaluation_total` | counter | `policy_version` | Evaluations recorded |
+| `parkio_parking_availability_state_total` | counter | `policy_version`, `state` | `AvailabilityState` |
+| `parkio_parking_availability_freshness_total` | counter | `policy_version`, `freshness` | Freshness band |
+| `parkio_parking_availability_expiration_total` | counter | `policy_version`, `expired` | TTL expired at evaluation |
+| `parkio_parking_availability_aging_total` | counter | `policy_version` | Aging or stale freshness |
+| `parkio_parking_availability_evaluation_duration_seconds_*` | timer | `policy_version` | Evaluation duration |
+
+Hot-path orchestration is not wired in WP-05.9; metrics activate when an observer records evaluations.
+
+### Outcome validation (parking-service, WP-05.10)
+
+Micrometer component: `OutcomeValidationMetrics` (`com.parkio.parking.infrastructure.metrics`).
+Bounded enum tags only — never spot IDs or user IDs. See
+[wp-05-outcome-validation.md](./wp-05-outcome-validation.md).
+
+| Metric (Prometheus) | Type | Tags | Meaning |
+|---|---|---|---|
+| `parkio_parking_outcome_evaluation_total` | counter | `policy_version` | Evaluations recorded |
+| `parkio_parking_outcome_classification_total` | counter | `policy_version`, `classification` | `OutcomeClassification` |
+| `parkio_parking_outcome_validation_window_total` | counter | `policy_version`, `open` | Evaluations while window open |
+| `parkio_parking_outcome_expired_without_evidence_total` | counter | `policy_version` | Expired with no post-publish evidence |
+| `parkio_parking_outcome_evaluation_duration_seconds_*` | timer | `policy_version` | Evaluation duration |
+
+Hot-path orchestration is not wired in WP-05.10; metrics activate when an observer records evaluations.
+
+### Trust shadow (parking-service, WP-05.11)
+
+Micrometer component: `TrustShadowMetrics` (`com.parkio.parking.infrastructure.metrics`).
+Bounded tags only: `policy_version`, `snapshot_schema_version`, `subject_type`,
+`trust_domain`, `evidence_type`, `contribution_role`, `attribution_quality`,
+`eligibility_result`, `update_direction`, `trust_level`, `score_band`,
+`confidence_band`, `failure_stage`. Never subject ids, outcome ids, spot ids, or
+exact scores.
+
+| Metric (Prometheus) | Type | Tags | Meaning |
+|---|---|---|---|
+| `parkio_parking_trust_outcome_received_total` | counter | none | Durable outcome candidates received by trust shadow |
+| `parkio_parking_trust_evidence_produced_total` | counter | bounded evidence tags | Canonical trust evidence items produced |
+| `parkio_parking_trust_evidence_skipped_total` | counter | bounded evidence tags + `eligibility_result` | Ineligible or ambiguous evidence skipped |
+| `parkio_parking_trust_update_success_total` | counter | bounded evidence tags + level/direction bands | Successful shadow trust updates |
+| `parkio_parking_trust_update_duplicate_total` | counter | bounded evidence tags | Idempotent duplicate deliveries |
+| `parkio_parking_trust_update_failure_total` | counter | bounded evidence tags + `failure_stage` | Failed trust updates |
+| `parkio_parking_trust_evaluation_duration_seconds_*` | timer | none | Trust evaluation/orchestration duration |
+| `parkio_parking_trust_replay_success_total` | counter | none | Single-entry replay matched stored evaluation |
+| `parkio_parking_trust_replay_mismatch_total` | counter | none | Replay mismatch detected |
+| `parkio_parking_trust_replay_failure_total` | counter | none | Replay failed before comparison |
+
+Recording rules: `docker/prometheus/trust-shadow-recording-rules.yml`
+
+Grafana: `docker/grafana/provisioning/dashboards/parkio-trust-shadow.json`
+
+Validation closure:
+- `promtool check config docker/prometheus/prometheus.yml`
+- `promtool check rules docker/prometheus/trust-shadow-recording-rules.yml`
+- compose mount path: `docker/docker-compose.yml` `prometheus.volumes`
+- Grafana provider path: `docker/grafana/provisioning/dashboards/dashboards.yml`
+
+### Reward shadow (parking-service, WP-05.12)
+
+Micrometer component: `RewardShadowMetrics` (`com.parkio.parking.infrastructure.metrics`).
+Bounded tags only: `policy_version`, `snapshot_schema_version`, `attribution_version`,
+`subject_type`, `contribution_role`, `attribution_quality`, `outcome_classification`,
+`outcome_confidence_band`, `eligibility`, `disposition`, `reward_unit`, `amount_band`,
+`failure_stage`, `status`. Never subject ids, outcome ids, spot ids, or exact reward amounts.
+
+| Metric (Prometheus) | Type | Tags | Meaning |
+|---|---|---|---|
+| `parkio_parking_reward_outcome_received_total` | counter | none | Durable outcome candidates received by reward shadow |
+| `parkio_parking_reward_contribution_produced_total` | counter | bounded contribution tags | Canonical reward contributions produced |
+| `parkio_parking_reward_contribution_skipped_total` | counter | bounded contribution tags + `eligibility` | Contributions skipped as non-rewardable |
+| `parkio_parking_reward_evaluation_success_total` | counter | bounded contribution tags + `disposition`, `reward_unit`, `amount_band` | Successful reward-shadow evaluations appended |
+| `parkio_parking_reward_evaluation_duplicate_total` | counter | bounded contribution tags | Idempotent duplicate deliveries |
+| `parkio_parking_reward_evaluation_failure_total` | counter | bounded contribution tags + `failure_stage` | Failed reward-shadow evaluations |
+| `parkio_parking_reward_disposition_total` | counter | `disposition` | Distribution of pending vs no-reward outcomes |
+| `parkio_parking_reward_evaluation_duration_seconds_*` | timer | none | Reward evaluation/orchestration duration |
+| `parkio_parking_reward_replay_success_total` | counter | none | Replay matched stored evaluation |
+| `parkio_parking_reward_replay_mismatch_total` | counter | none | Replay mismatch detected |
+| `parkio_parking_reward_replay_failure_total` | counter | none | Replay failed before comparison |
+
+Recording rules: `docker/prometheus/reward-shadow-recording-rules.yml`
+
+Grafana: `docker/grafana/provisioning/dashboards/parkio-reward-shadow.json`
+
+Validation:
+- `promtool check config docker/prometheus/prometheus.yml`
+- `promtool check rules docker/prometheus/reward-shadow-recording-rules.yml`
+- compose mount path: `docker/docker-compose.yml` `prometheus.volumes`
+- Grafana provider path: `docker/grafana/provisioning/dashboards/dashboards.yml`
+
+### Exposure shadow (parking-service, WP-05.13)
+
+Micrometer component: `ExposureShadowMetrics` (`com.parkio.parking.infrastructure.metrics`).
+Bounded tags only: `policy_version`, `search_type`, `skip_reason`, `eligibility`, `disposition`,
+`score_band`, `availability_state`, `freshness_band`, `distance_band`, `vehicle_match`, `trust_level`,
+`movement_band`, `candidate_count_band`, `same_top1`, `failure_stage`. Never user ids, spot ids,
+candidate ids, exact coordinates, exact scores, or exact ranks.
+
+| Metric (Prometheus) | Type | Tags | Meaning |
+|---|---|---|---|
+| `parkio_parking_exposure_request_received_total` | counter | none | Nearby searches observed by exposure shadow hook |
+| `parkio_parking_exposure_request_sampled_total` | counter | none | Deterministic sample selected for evaluation |
+| `parkio_parking_exposure_request_skipped_total` | counter | `skip_reason` | Disabled or not sampled (not a failure) |
+| `parkio_parking_exposure_candidate_evaluated_total` | counter | bounded evaluation tags | Per-candidate shadow evaluation |
+| `parkio_parking_exposure_evaluation_success_total` | counter | `policy_version`, `search_type`, `same_top1`, `movement_band`, `candidate_count_band` | Completed shadow comparison for a sampled request |
+| `parkio_parking_exposure_evaluation_failure_total` | counter | `failure_stage` | Shadow evaluation failure (search still succeeds) |
+| `parkio_parking_exposure_time_budget_exceeded_total` | counter | none | Time budget exceeded before finishing all candidates |
+| `parkio_parking_exposure_evaluation_duration_seconds_*` | timer | none | Request-path shadow evaluation duration |
+| `parkio_parking_exposure_replay_success_total` | counter | none | Snapshot replay matched stored evaluation |
+| `parkio_parking_exposure_replay_mismatch_total` | counter | none | Snapshot replay mismatch detected |
+
+Recording rules: `docker/prometheus/exposure-shadow-recording-rules.yml`
+
+Grafana: `docker/grafana/provisioning/dashboards/parkio-exposure-shadow.json`
+
+Validation:
+- `promtool check config docker/prometheus/prometheus.yml`
+- `promtool check rules docker/prometheus/exposure-shadow-recording-rules.yml`
+- compose mount path: `docker/docker-compose.yml` `prometheus.volumes`
+- Grafana provider path: `docker/grafana/provisioning/dashboards/dashboards.yml`
+
+### Fraud shadow (parking-service, WP-05.14)
+
+Micrometer component: `FraudShadowMetrics` (`com.parkio.parking.infrastructure.metrics`).
+Bounded tags only: `policy_version`, `schema_version`, `mapping_version`,
+`aggregation_version`, `subject_type`, `fraud_domain`, `risk_band`, `confidence_band`,
+`disposition`, `evidence_volume_band`, `failure_stage`, `processing_result`. Never
+subject ids, outcome ids, spot ids, exact scores, or exact evidence counts.
+
+| Metric (Prometheus) | Type | Tags | Meaning |
+|---|---|---|---|
+| `parkio_parking_fraud_candidate_received_total` | counter | none | Outcome candidates received by fraud shadow |
+| `parkio_parking_fraud_feature_produced_total` | counter | bounded feature tags | Feature vectors produced from aggregates |
+| `parkio_parking_fraud_candidate_skipped_total` | counter | bounded feature tags | Candidates skipped (not a failure) |
+| `parkio_parking_fraud_evaluation_success_total` | counter | bounded evaluation tags | Successful shadow evaluations appended |
+| `parkio_parking_fraud_evaluation_duplicate_total` | counter | bounded feature tags | Idempotent duplicate deliveries |
+| `parkio_parking_fraud_evaluation_failure_total` | counter | bounded tags + `failure_stage` | Failed evaluations (source domains unaffected) |
+| `parkio_parking_fraud_evaluation_duration_seconds_*` | timer | none | Fraud evaluation/orchestration duration |
+| `parkio_parking_fraud_replay_success_total` | counter | none | Snapshot replay matched stored evaluation |
+| `parkio_parking_fraud_replay_mismatch_total` | counter | none | Replay mismatch detected |
+| `parkio_parking_fraud_replay_failure_total` | counter | none | Replay failed before comparison |
+| `parkio_parking_fraud_scheduler_candidates_total` | counter | none | Candidates claimed per scheduler tick |
+| `parkio_parking_fraud_scheduler_completed_total` | counter | none | Non-failed rows processed per tick |
+| `parkio_parking_fraud_scheduler_failed_total` | counter | none | Scheduler tick failures |
+
+Recording rules: `docker/prometheus/fraud-shadow-recording-rules.yml`
+
+Grafana: `docker/grafana/provisioning/dashboards/parkio-fraud-shadow.json`
+
+Validation:
+- `promtool check config docker/prometheus/prometheus.yml`
+- `promtool check rules docker/prometheus/fraud-shadow-recording-rules.yml`
+- compose mount path: `docker/docker-compose.yml` `prometheus.volumes`
+- Grafana provider path: `docker/grafana/provisioning/dashboards/dashboards.yml`
+
+### Continuous calibration (parking-service, WP-05.15)
+
+Micrometer component: `ContinuousCalibrationMetrics` (`com.parkio.parking.infrastructure.metrics`).
+Bounded tags only: `engine_type`, `failure_stage`, `report_status`, `readiness_status`,
+`status` (processing result). Never spot/evaluation/cohort/user ids or exact scores.
+
+| Metric (Prometheus) | Type | Tags | Meaning |
+|---|---|---|---|
+| `parkio_parking_calibration_scheduler_candidates` | summary | `engine_type` | Candidates claimed per scheduler tick |
+| `parkio_parking_calibration_candidate_received_total` | counter | `engine_type` | Calibration candidate received |
+| `parkio_parking_calibration_observation_success_total` | counter | `engine_type` | Observation successfully appended |
+| `parkio_parking_calibration_observation_appended_total` | counter | `engine_type` | Explicit observation append |
+| `parkio_parking_calibration_observation_duplicate_total` | counter | `engine_type` | Idempotent duplicate observation |
+| `parkio_parking_calibration_observation_failure_total` | counter | `engine_type`, `failure_stage` | Observation build/append failure |
+| `parkio_parking_calibration_report_generated_total` | counter | `engine_type`, `report_status` | Calibration report generated |
+| `parkio_parking_calibration_report_duplicate_total` | counter | `engine_type` | Idempotent duplicate report |
+| `parkio_parking_calibration_report_failure_total` | counter | `engine_type`, `failure_stage` | Report generation failure |
+| `parkio_parking_calibration_report_duration_seconds_*` | timer | none | Report generation duration |
+| `parkio_parking_calibration_readiness_assessed_total` | counter | `engine_type`, `readiness_status` | Readiness assessment written |
+| `parkio_parking_calibration_replay_success_total` | counter | `engine_type` | Snapshot replay matched |
+| `parkio_parking_calibration_replay_mismatch_total` | counter | `engine_type` | Snapshot replay mismatch |
+| `parkio_parking_calibration_replay_failure_total` | counter | `engine_type` | Replay failed before comparison |
+| `parkio_parking_calibration_scheduler_completed_total` | counter | `engine_type` | Non-failed rows completed per tick |
+| `parkio_parking_calibration_scheduler_failed_total` | counter | none | Scheduler tick failure |
+| `parkio_parking_calibration_processing_result_total` | counter | `engine_type`, `status` | Batch processing outcome |
+
+Recording rules: `docker/prometheus/continuous-calibration-recording-rules.yml`
+
+Grafana: `docker/grafana/provisioning/dashboards/parkio-continuous-calibration.json`
+
+Validation:
+- `promtool check config docker/prometheus/prometheus.yml`
+- `promtool check rules docker/prometheus/continuous-calibration-recording-rules.yml`
+- compose mount path: `docker/docker-compose.yml` `prometheus.volumes`
+- Grafana provider path: `docker/grafana/provisioning/dashboards/dashboards.yml`
+
 ### Auth (auth-service)
 
 | Metric | Type | Meaning |

@@ -1,0 +1,48 @@
+groups:
+  - name: exposure-shadow-recording
+    interval: 30s
+    rules:
+      - record: parkio:exposure_shadow:success_rate5m
+        expr: |
+          sum(rate(parkio_parking_exposure_evaluation_success_total[5m]))
+          /
+          clamp_min(
+            sum(rate(parkio_parking_exposure_request_sampled_total[5m])),
+            1
+          )
+
+      - record: parkio:exposure_shadow:skipped_rate5m
+        expr: |
+          sum(rate(parkio_parking_exposure_request_skipped_total[5m]))
+          /
+          clamp_min(
+            sum(rate(parkio_parking_exposure_request_received_total[5m])),
+            1
+          )
+
+      - record: parkio:exposure_shadow:failure_rate5m
+        expr: |
+          sum(rate(parkio_parking_exposure_evaluation_failure_total[5m]))
+          /
+          clamp_min(
+            sum(rate(parkio_parking_exposure_request_sampled_total[5m])),
+            1
+          )
+
+      - record: parkio:exposure_shadow:same_top1_rate5m
+        expr: |
+          sum(rate(parkio_parking_exposure_evaluation_success_total{same_top1="true"}[5m]))
+          /
+          clamp_min(
+            sum(rate(parkio_parking_exposure_evaluation_success_total[5m])),
+            1
+          )
+
+      - record: parkio:exposure_shadow:time_budget_exceeded_rate5m
+        expr: |
+          sum(rate(parkio_parking_exposure_time_budget_exceeded_total[5m]))
+          /
+          clamp_min(
+            sum(rate(parkio_parking_exposure_request_sampled_total[5m])),
+            1
+          )

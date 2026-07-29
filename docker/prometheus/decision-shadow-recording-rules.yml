@@ -1,0 +1,66 @@
+groups:
+  - name: parkio-decision-shadow
+    interval: 30s
+    rules:
+      # Success rate over attempts (failed evaluations remain in denominator).
+      - record: parkio:decision_shadow:success_rate5m
+        expr: |
+          sum(rate(parkio_parking_decision_shadow_success_total[5m]))
+          /
+          clamp_min(sum(rate(parkio_parking_decision_shadow_attempt_total[5m])), 1e-9)
+
+      # Comparable agreement: EQUIVALENT / (EQUIVALENT + restrictive + permissive + legacy_review_hold)
+      # Excludes NOT_COMPARABLE and NO_SAFE_EQUIVALENCE by construction.
+      - record: parkio:decision_shadow:comparable_agreement_rate5m
+        expr: |
+          sum(rate(parkio_parking_decision_shadow_comparison_total{category="EQUIVALENT"}[5m]))
+          /
+          clamp_min(
+            sum(rate(parkio_parking_decision_shadow_comparison_total{category=~"EQUIVALENT|SHADOW_MORE_RESTRICTIVE|SHADOW_MORE_PERMISSIVE|LEGACY_REVIEW_SHADOW_HOLD"}[5m])),
+            1e-9)
+
+      - record: parkio:decision_shadow:more_restrictive_rate5m
+        expr: |
+          sum(rate(parkio_parking_decision_shadow_comparison_total{category="SHADOW_MORE_RESTRICTIVE"}[5m]))
+          /
+          clamp_min(
+            sum(rate(parkio_parking_decision_shadow_comparison_total{category=~"EQUIVALENT|SHADOW_MORE_RESTRICTIVE|SHADOW_MORE_PERMISSIVE|LEGACY_REVIEW_SHADOW_HOLD"}[5m])),
+            1e-9)
+
+      - record: parkio:decision_shadow:more_permissive_rate5m
+        expr: |
+          sum(rate(parkio_parking_decision_shadow_comparison_total{category="SHADOW_MORE_PERMISSIVE"}[5m]))
+          /
+          clamp_min(
+            sum(rate(parkio_parking_decision_shadow_comparison_total{category=~"EQUIVALENT|SHADOW_MORE_RESTRICTIVE|SHADOW_MORE_PERMISSIVE|LEGACY_REVIEW_SHADOW_HOLD"}[5m])),
+            1e-9)
+
+      - record: parkio:decision_shadow:not_comparable_rate5m
+        expr: |
+          sum(rate(parkio_parking_decision_shadow_comparison_total{category=~"NOT_COMPARABLE|NO_SAFE_EQUIVALENCE"}[5m]))
+          /
+          clamp_min(sum(rate(parkio_parking_decision_shadow_comparison_total[5m])), 1e-9)
+
+      - record: parkio:decision_shadow:hold_rate5m
+        expr: |
+          sum(rate(parkio_parking_decision_shadow_disposition_total{disposition="HOLD"}[5m]))
+          /
+          clamp_min(sum(rate(parkio_parking_decision_shadow_disposition_total[5m])), 1e-9)
+
+      - record: parkio:decision_shadow:rejected_rate5m
+        expr: |
+          sum(rate(parkio_parking_decision_shadow_disposition_total{disposition="REJECTED"}[5m]))
+          /
+          clamp_min(sum(rate(parkio_parking_decision_shadow_disposition_total[5m])), 1e-9)
+
+      - record: parkio:decision_shadow:hard_constraint_rate5m
+        expr: |
+          sum(rate(parkio_parking_decision_shadow_hard_constraint_family_total{family!="NONE"}[5m]))
+          /
+          clamp_min(sum(rate(parkio_parking_decision_shadow_success_total[5m])), 1e-9)
+
+      - record: parkio:decision_shadow:failure_rate5m
+        expr: |
+          sum(rate(parkio_parking_decision_shadow_failure_total[5m]))
+          /
+          clamp_min(sum(rate(parkio_parking_decision_shadow_attempt_total[5m])), 1e-9)

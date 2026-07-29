@@ -1,6 +1,15 @@
 package com.parkio.parking.infrastructure.config;
 
+import com.parkio.parking.application.DecisionAuthoritySettings;
+import com.parkio.parking.application.DecisionShadowOrchestrator;
+import com.parkio.parking.application.ExposureShadowSettings;
 import com.parkio.parking.application.ParkingSearchSettings;
+import com.parkio.parking.application.port.DecisionAuditWriteObserver;
+import com.parkio.parking.application.port.DecisionShadowObserverPort;
+import com.parkio.parking.decision.application.EvidenceCollectionService;
+import com.parkio.parking.decision.policy.DecisionEngine;
+import com.parkio.parking.decision.port.DecisionAuditPort;
+import com.parkio.parking.decision.port.EvidenceCollectionPort;
 import com.parkio.parking.domain.ModerationPolicy;
 import com.parkio.parking.domain.ParkingSessionStalePolicy;
 import java.time.Clock;
@@ -52,5 +61,57 @@ public class ParkingInfrastructureConfig {
                 session.getConfirmAfter(),
                 session.getReminder2After(),
                 session.getAutoCompleteAfter());
+    }
+
+    /**
+     * Pure Decision Engine + fail-safe shadow orchestrator. Enabled only when
+     * {@code parkio.parking.decision.shadow-enabled=true} (default false).
+     * Successful evaluations append immutable audit snapshots via {@link DecisionAuditPort}.
+     */
+    @Bean
+    public DecisionShadowOrchestrator decisionShadowOrchestrator(
+            ParkingProperties properties,
+            DecisionShadowObserverPort observer,
+            DecisionAuditPort auditPort,
+            DecisionAuditWriteObserver auditWriteObserver) {
+        return new DecisionShadowOrchestrator(
+                properties.getDecision().isShadowEnabled(),
+                new DecisionEngine(),
+                new EvidenceCollectionService(),
+                observer,
+                auditPort,
+                auditWriteObserver);
+    }
+
+    /**
+     * Validated WP-05.8 authority settings. Defaults disabled / 0% canary.
+     * Unsupported policy versions fail startup safely.
+     */
+    @Bean
+    public DecisionAuthoritySettings decisionAuthoritySettings(ParkingProperties properties) {
+        ParkingProperties.Authority authority = properties.getDecision().getAuthority();
+        return new DecisionAuthoritySettings(
+                authority.isEnabled(),
+                authority.getCanaryPercentage(),
+                authority.getPolicyVersion());
+    }
+
+    @Bean
+    public DecisionEngine decisionEngine() {
+        return new DecisionEngine();
+    }
+
+    @Bean
+    public EvidenceCollectionPort evidenceCollectionPort() {
+        return new EvidenceCollectionService();
+    }
+
+    @Bean
+    public ExposureShadowSettings exposureShadowSettings(ParkingProperties properties) {
+        ParkingProperties.ExposureShadow exposure = properties.getExposureShadow();
+        return new ExposureShadowSettings(
+                exposure.isEnabled(),
+                exposure.getSamplePercent(),
+                exposure.getTimeBudgetMillis());
     }
 }

@@ -148,6 +148,29 @@ parkio:
       enabled: ${PARKIO_MODERATION_TIMEOUT_ENABLED:true}
       fixed-delay-ms: ${PARKIO_MODERATION_TIMEOUT_FIXED_DELAY_MS:60000}
       batch-size: ${PARKIO_MODERATION_TIMEOUT_BATCH_SIZE:100}
+    outcome-validation:
+      enabled: ${PARKIO_OUTCOME_VALIDATION_ENABLED:true}
+      fixed-delay-ms: ${PARKIO_OUTCOME_VALIDATION_FIXED_DELAY_MS:60000}
+      batch-size: ${PARKIO_OUTCOME_VALIDATION_BATCH_SIZE:100}
+    trust-shadow:
+      enabled: ${PARKIO_TRUST_SHADOW_ENABLED:true}
+      fixed-delay-ms: ${PARKIO_TRUST_SHADOW_FIXED_DELAY_MS:60000}
+      batch-size: ${PARKIO_TRUST_SHADOW_BATCH_SIZE:100}
+      max-attempts: ${PARKIO_TRUST_SHADOW_MAX_ATTEMPTS:3}
+    reward-shadow:
+      enabled: ${PARKIO_REWARD_SHADOW_ENABLED:false}
+      fixed-delay-ms: ${PARKIO_REWARD_SHADOW_FIXED_DELAY_MS:60000}
+      batch-size: ${PARKIO_REWARD_SHADOW_BATCH_SIZE:100}
+    fraud-shadow:
+      enabled: ${PARKIO_FRAUD_SHADOW_ENABLED:false}
+      fixed-delay-ms: ${PARKIO_FRAUD_SHADOW_FIXED_DELAY_MS:60000}
+      batch-size: ${PARKIO_FRAUD_SHADOW_BATCH_SIZE:100}
+      max-attempts: ${PARKIO_FRAUD_SHADOW_MAX_ATTEMPTS:3}
+    calibration:
+      enabled: ${PARKIO_CALIBRATION_ENABLED:false}
+      fixed-delay-ms: ${PARKIO_CALIBRATION_FIXED_DELAY_MS:300000}
+      batch-size: ${PARKIO_CALIBRATION_BATCH_SIZE:50}
+      max-attempts: ${PARKIO_CALIBRATION_MAX_ATTEMPTS:3}
     retention:
       outbox-enabled: ${PARKIO_OUTBOX_RETENTION_ENABLED:true}
       inbox-enabled: ${PARKIO_INBOX_RETENTION_ENABLED:true}
@@ -190,6 +213,8 @@ parkio:
       positive-ttl: ${PARKIO_GEOCODING_CACHE_POSITIVE_TTL:24h}
       negative-ttl: ${PARKIO_GEOCODING_CACHE_NEGATIVE_TTL:5m}
   parking:
+    outcome:
+      max-processing-attempts: ${PARKIO_PARKING_OUTCOME_MAX_PROCESSING_ATTEMPTS:10}
     session:
       confirm-after: ${PARKIO_PARKING_SESSION_CONFIRM_AFTER:PT24H}
       reminder-2-after: ${PARKIO_PARKING_SESSION_REMINDER_2_AFTER:PT48H}
@@ -208,6 +233,22 @@ parkio:
       default-result-limit: 10
       max-radius-meters: 50000
       max-result-limit: 50
+    decision:
+      # WP-05.5 non-authoritative Decision Engine shadow. Default off everywhere.
+      # When true, evaluates EvidenceVector→DecisionResult after applyAiValidationResult
+      # and records low-cardinality comparison metrics only. Never mutates publication.
+      shadow-enabled: ${PARKIO_PARKING_DECISION_SHADOW_ENABLED:false}
+      # WP-05.8 controlled authority. Default off / 0% canary everywhere.
+      # Independent of shadow-enabled. Never set non-zero canary in production defaults.
+      authority:
+        enabled: ${PARKIO_PARKING_DECISION_AUTHORITY_ENABLED:false}
+        canary-percentage: ${PARKIO_PARKING_DECISION_AUTHORITY_CANARY_PERCENTAGE:0}
+        policy-version: ${PARKIO_PARKING_DECISION_AUTHORITY_POLICY_VERSION:decision-shadow-v1}
+    exposure-shadow:
+      # WP-05.13 adaptive exposure shadow. Default off everywhere.
+      enabled: ${PARKIO_PARKING_EXPOSURE_SHADOW_ENABLED:false}
+      sample-percent: ${PARKIO_PARKING_EXPOSURE_SHADOW_SAMPLE_PERCENT:10}
+      time-budget-millis: ${PARKIO_PARKING_EXPOSURE_SHADOW_TIME_BUDGET_MS:25}
     moderation:
       # Moderation-lifecycle windows. `active-duration` is the advertised user-visible
       # lifetime and is spent ONLY once a spot is published — never while it waits on

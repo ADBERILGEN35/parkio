@@ -1,0 +1,129 @@
+{
+  "uid": "parkio-decision-shadow",
+  "title": "Parkio - Decision Shadow Calibration",
+  "tags": ["parkio", "decision", "shadow"],
+  "timezone": "browser",
+  "schemaVersion": 39,
+  "version": 1,
+  "refresh": "30s",
+  "time": { "from": "now-6h", "to": "now" },
+  "panels": [
+    {
+      "id": 1,
+      "type": "timeseries",
+      "title": "Shadow attempts / success / failure (/s)",
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 0 },
+      "datasource": { "type": "prometheus", "uid": "parkio-prometheus" },
+      "fieldConfig": { "defaults": { "unit": "ops" } },
+      "targets": [
+        { "expr": "sum(rate(parkio_parking_decision_shadow_attempt_total[5m]))", "legendFormat": "attempt" },
+        { "expr": "sum(rate(parkio_parking_decision_shadow_success_total[5m]))", "legendFormat": "success" },
+        { "expr": "sum(rate(parkio_parking_decision_shadow_failure_total[5m]))", "legendFormat": "failure" }
+      ]
+    },
+    {
+      "id": 2,
+      "type": "stat",
+      "title": "Recording: agreement / restrictive / permissive / failure",
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 0 },
+      "datasource": { "type": "prometheus", "uid": "parkio-prometheus" },
+      "fieldConfig": { "defaults": { "unit": "percentunit", "decimals": 3 } },
+      "options": { "reduceOptions": { "calcs": ["lastNotNull"] } },
+      "targets": [
+        { "expr": "parkio:decision_shadow:comparable_agreement_rate5m", "legendFormat": "comparable_agreement" },
+        { "expr": "parkio:decision_shadow:more_restrictive_rate5m", "legendFormat": "more_restrictive" },
+        { "expr": "parkio:decision_shadow:more_permissive_rate5m", "legendFormat": "more_permissive" },
+        { "expr": "parkio:decision_shadow:failure_rate5m", "legendFormat": "failure_rate" }
+      ]
+    },
+    {
+      "id": 3,
+      "type": "timeseries",
+      "title": "Comparison by category (/s)",
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 8 },
+      "datasource": { "type": "prometheus", "uid": "parkio-prometheus" },
+      "targets": [{
+        "expr": "sum by (category) (rate(parkio_parking_decision_shadow_comparison_total[5m]))",
+        "legendFormat": "{{category}}"
+      }]
+    },
+    {
+      "id": 4,
+      "type": "timeseries",
+      "title": "Disposition distribution (/s)",
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 8 },
+      "datasource": { "type": "prometheus", "uid": "parkio-prometheus" },
+      "targets": [{
+        "expr": "sum by (disposition) (rate(parkio_parking_decision_shadow_disposition_total[5m]))",
+        "legendFormat": "{{disposition}}"
+      }]
+    },
+    {
+      "id": 5,
+      "type": "timeseries",
+      "title": "Risk band (/s)",
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 16 },
+      "datasource": { "type": "prometheus", "uid": "parkio-prometheus" },
+      "targets": [{
+        "expr": "sum by (band) (rate(parkio_parking_decision_shadow_risk_band_total[5m]))",
+        "legendFormat": "{{band}}"
+      }]
+    },
+    {
+      "id": 6,
+      "type": "timeseries",
+      "title": "Hard constraint family (/s)",
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 16 },
+      "datasource": { "type": "prometheus", "uid": "parkio-prometheus" },
+      "targets": [{
+        "expr": "sum by (family) (rate(parkio_parking_decision_shadow_hard_constraint_family_total[5m]))",
+        "legendFormat": "{{family}}"
+      }]
+    },
+    {
+      "id": 7,
+      "type": "timeseries",
+      "title": "Decisive rule (/s)",
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 24 },
+      "datasource": { "type": "prometheus", "uid": "parkio-prometheus" },
+      "targets": [{
+        "expr": "sum by (rule) (rate(parkio_parking_decision_shadow_decisive_rule_total[5m]))",
+        "legendFormat": "{{rule}}"
+      }]
+    },
+    {
+      "id": 8,
+      "type": "timeseries",
+      "title": "Evidence profile (/s)",
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 24 },
+      "datasource": { "type": "prometheus", "uid": "parkio-prometheus" },
+      "targets": [{
+        "expr": "sum by (profile) (rate(parkio_parking_decision_shadow_evidence_profile_total[5m]))",
+        "legendFormat": "{{profile}}"
+      }]
+    },
+    {
+      "id": 9,
+      "type": "timeseries",
+      "title": "Orchestration duration p95",
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 32 },
+      "datasource": { "type": "prometheus", "uid": "parkio-prometheus" },
+      "fieldConfig": { "defaults": { "unit": "s" } },
+      "targets": [{
+        "expr": "histogram_quantile(0.95, sum by (le) (rate(parkio_parking_decision_shadow_duration_seconds_bucket[5m])))",
+        "legendFormat": "p95"
+      }]
+    },
+    {
+      "id": 10,
+      "type": "timeseries",
+      "title": "Failure by stage (/s)",
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 32 },
+      "datasource": { "type": "prometheus", "uid": "parkio-prometheus" },
+      "targets": [{
+        "expr": "sum by (stage) (rate(parkio_parking_decision_shadow_failure_total[5m]))",
+        "legendFormat": "{{stage}}"
+      }]
+    }
+  ]
+}

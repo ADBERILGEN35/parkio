@@ -1,0 +1,48 @@
+groups:
+  - name: parkio-decision-authority
+    interval: 30s
+    rules:
+      # Selection rate among considered evaluations (excludes nothing from considered).
+      - record: parkio:decision_authority:selection_rate5m
+        expr: |
+          sum(rate(parkio_parking_decision_authority_selected_total[5m]))
+          /
+          clamp_min(sum(rate(parkio_parking_decision_authority_considered_total[5m])), 1e-9)
+
+      # Apply success among selected attempts that reached engine evaluation:
+      # applied / (applied + fallback after selection). Denominator approximates selected work.
+      - record: parkio:decision_authority:apply_success_rate5m
+        expr: |
+          sum(rate(parkio_parking_decision_authority_applied_total[5m]))
+          /
+          clamp_min(
+            sum(rate(parkio_parking_decision_authority_applied_total[5m]))
+            + sum(rate(parkio_parking_decision_authority_fallback_total[5m])),
+            1e-9)
+
+      - record: parkio:decision_authority:fallback_rate5m
+        expr: |
+          sum(rate(parkio_parking_decision_authority_fallback_total[5m]))
+          /
+          clamp_min(
+            sum(rate(parkio_parking_decision_authority_applied_total[5m]))
+            + sum(rate(parkio_parking_decision_authority_fallback_total[5m])),
+            1e-9)
+
+      - record: parkio:decision_authority:engine_failure_rate5m
+        expr: |
+          sum(rate(parkio_parking_decision_authority_engine_failure_total[5m]))
+          /
+          clamp_min(sum(rate(parkio_parking_decision_authority_selected_total[5m])), 1e-9)
+
+      - record: parkio:decision_authority:audit_failure_rate5m
+        expr: |
+          sum(rate(parkio_parking_decision_authority_audit_failure_total[5m]))
+          /
+          clamp_min(sum(rate(parkio_parking_decision_authority_selected_total[5m])), 1e-9)
+
+      - record: parkio:decision_authority:transition_conflict_rate5m
+        expr: |
+          sum(rate(parkio_parking_decision_authority_fallback_total{reason="TRANSITION_CONFLICT"}[5m]))
+          /
+          clamp_min(sum(rate(parkio_parking_decision_authority_selected_total[5m])), 1e-9)
