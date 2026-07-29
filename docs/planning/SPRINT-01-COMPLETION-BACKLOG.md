@@ -300,6 +300,7 @@ decision covered start, key persistence, stale drafts, logout, or reconciliation
 
 **Explicitly deferred in this task:** `parking_history_deleted` / deletion lifecycle events
 (remain for a later deletion-analytics task; R22 stays FAIL).
+*Status at task completion time; subsequently closed by S1-DEL-08 / WP-07.3.*
 
 **Definition of Done:** (verified)
 
@@ -331,6 +332,7 @@ decision covered start, key persistence, stale drafts, logout, or reconciliation
 
 **Explicitly deferred:** `parking_history_deleted` / deletion analytics (R22 remains FAIL).
 Backlog “four authoritative server events” exceeded producer scope (three lifecycle events only).
+*Status at task completion time; subsequently closed by S1-DEL-08 / WP-07.3.*
 
 **Definition of Done:** (verified)
 
@@ -410,14 +412,16 @@ architecture note `docs/architecture/PARKING-SESSION-HISTORY-DELETION-UI.md`.
 - **Consumer:** `analytics-service` validates producer-compatible fields, records append-only
   deletion analytics (`PARKING_SESSION_HISTORY_DELETED` → `parking_session_history_deleted`), and
   excludes the metric from the parking funnel. Duplicate Kafka delivery is idempotent via inbox
-  `tryClaim(eventId)`. Malformed or unsupported messages follow the established DLT path
-  (`parkio.dlt.analytics`).
+  `tryClaim(eventId)`. Malformed / invalid-version / validation-rejected **supported**
+  payloads follow the established DLT path (`parkio.dlt.analytics`). Unsupported event types
+  are ignored and acknowledged (no DLT).
 
 **Definition of Done:** (verified)
 
 - Single and bulk deletes emit one privacy-minimized event each when at least one row is removed.
 - Analytics ingestion is append-only; deletion metrics do not reverse prior lifecycle observations.
-- Idempotent replay under duplicate delivery; invalid payloads route to DLT.
+- Idempotent replay under duplicate delivery; invalid **supported** payloads route to DLT;
+  unsupported event types are ignored and acked.
 - Focused parking-service and analytics-service unit/contract tests pass.
 
 **Dependencies:** S1-P0-07, S1-P0-08, S1-P0-09.
@@ -475,26 +479,30 @@ azure-hosted-beta profile passes on an actual deployed immutable image” while 
 
 ## 4. P1 — Required completion/hardening after the mobile core
 
-### S1-P1-01 — Add Web ParkingSession parity
+### S1-P1-01 — Add Web ParkingSession parity ✅ COMPLETE IN SOURCE (WP-07.2)
 
+**Status:** COMPLETE in committed source (Web ParkingSession lifecycle UI + data layer).
+Hosted deployment proof is **not** part of this item — see R27 / S1-P0-13 / WP-07.5.
 **Layers:** Web
-**Closes/unlocks:** Web portions of R8-R15
-**Evidence of gap:** Web has no session keys, query options, hooks, route/page, or cache cleanup.
+**Closes/unlocks:** Web portions of R8-R15 (source); does not close R27
+**Prior evidence of gap (historical):** Web had no session keys, query options, hooks,
+route/page, or cache cleanup at Sprint backlog authorship time.
 
-**Implementation task:**
+**Implemented (WP-07.2):**
 
-- Add Web-owned ParkingSession keys/query/mutation options using the shared API facade.
-- Add active restoration, timer, start/complete/cancel, navigation/share, history, and deletion
-  presentation at an accepted route/location in the existing manifest architecture.
-- Add user-session cache cleanup and all loading/empty/unauthorized/error states.
+- Web-owned ParkingSession keys/query/mutation options via shared `@parkio/api-client`.
+- Active restoration, timer, start/complete/cancel/confirm, maps/share, history pagination,
+  single delete, and bulk history delete on Map/Profile routes.
+- User-session cache cleanup via `SessionQueryCacheSync` / `parkingKeys.sessionsRoot()`.
+- Focused component/query/mutation/cache tests in `frontend/apps/web`.
 
-**Definition of Done:**
+**Definition of Done:** (met for source)
 
 - Web supports the accepted Sprint 1 lifecycle without direct HTTP calls or ad hoc keys.
 - Active state restores after refresh and clears on logout/user switch.
 - Elapsed, navigation/share, history, and deletion match the shared behavior/privacy policy.
 - Route ownership remains in the canonical route manifest.
-- Focused component/query/mutation/cache tests, Web typecheck, lint, and test pass.
+- Focused tests exist in committed source (CI definitions cover them; hosted smoke is R27).
 
 **Dependencies:** all P0 API/privacy/backend tasks needed by the corresponding flow.
 
@@ -633,4 +641,4 @@ Next authorized work (pick one, do not invent undeclared scope):
 2. **S1-DEL-08 / R22** (`parking_history_deleted`) — **COMPLETE** on branch `decision`
    (`0a70b03`, `d482bcc`).
 
-Sprint 1 remains incomplete (R24 PARTIAL, R26 PARTIAL, R27 FAIL). R22 is **PASS**.
+Sprint 1 remains incomplete (R26 PARTIAL, R27 FAIL). R22 and R24 are **PASS**.

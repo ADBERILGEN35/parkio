@@ -12,11 +12,14 @@ retries, AbortSignal forwarding, nearby/detail/create/reports/Smart Return
 wiring, location/privacy, upload abort cleanup, lifecycle/connectivity,
 typed errors, guardrails, focused tests, CI, documentation.
 
-**Non-goals:** formal WP-07 closure, legacy `frontend/apps/mobile` migration,
-Web redesign, backend/infra changes, store publication, background location,
-offline mutation queues, WP-08 work.
+**Non-goals:** overall WP-07 package closure (07.2–07.5), legacy
+`frontend/apps/mobile` migration, Web redesign, backend/infra changes, store
+publication, background location, offline mutation queues, WP-08 work.
 
-This document does not declare formal WP-07 closure.
+This document formally closes **WP-07.1** (Mobile Application Foundation) only.
+It does **not** declare overall WP-07 closure: release signing / crash-provider
+device proof (WP-07.4) and hosted-beta deployment (WP-07.5) remain separate
+operator-/evidence-gated packages.
 
 ## 2. Canonical directory
 
@@ -82,6 +85,7 @@ Expo ~56 / React Native 0.85 / expo-router / TypeScript strict / TanStack Query
 
 **Closed:** 2026-07-29
 **Sub-package:** WP-07.1
+**Status:** WP-07.1 is formally complete in committed source (`4d76c62` and prior foundation commits). This does **not** close WP-07 overall.
 
 All mandatory section 8 production-debt items governed by WP-07.1 have been
 verified against the repository:
@@ -93,8 +97,10 @@ verified against the repository:
 | Legacy `apps/mobile` retirement | OUT OF SCOPE | Explicitly excluded from WP-07 per section 1. |
 | Store signing / push production builds | OUT OF SCOPE | Governed by WP-07.4 (operator-gated), not WP-07.1. |
 
-**Not closed by this entry:**
-- WP-07.2 (Web ParkingSession Parity)
-- WP-07.3 (ParkingSession Deletion Analytics Event)
-- WP-07.4 (Mobile Release Signing & Crash Verification — operator-gated)
-- WP-07.5 (Hosted Beta Deploy Gate — operator-gated)
+**Not closed by this WP-07.1 entry (remain separate packages):**
+- WP-07.4 (Mobile Release Signing & Crash Verification — operator-/evidence-gated)
+- WP-07.5 (Hosted Beta Deploy Gate — operator-/evidence-gated)
+
+**Closed elsewhere (not by this mobile foundation entry):**
+- WP-07.2 (Web ParkingSession Parity) — complete in committed Web source
+- WP-07.3 (`ParkingHistoryDeleted` producer + analytics consumer) — commits `0a70b03`, `d482bcc`

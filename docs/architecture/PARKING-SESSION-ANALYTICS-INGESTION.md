@@ -16,7 +16,7 @@
 | Listener | `ParkingSessionEventsKafkaConsumer` |
 | Container factory | `gamificationScoreKafkaListenerContainerFactory` (shared) |
 | Ack | Manual, after successful handler TX |
-| DLT | `parkio.dlt.analytics` (existing FixedBackOff 2 retries) |
+| DLT | `parkio.dlt.analytics` (FixedBackOff 2 retries) — used when a **supported** wire type fails validation or deserializes as an invalid contract. Unsupported event types are **not** DLT'd (see Error handling). |
 | Producer | `parking-service` |
 
 ## Supported producer contracts
@@ -113,7 +113,21 @@ spot claim.
 - Records append-only deletion analytics; does **not** reverse prior lifecycle observations.
 - Metric excluded from spot parking-funnel snapshots (`isParking()` remains spot-only).
 - Duplicate delivery is idempotent via inbox `tryClaim(eventId)`.
-- Invalid or unsupported payloads follow the existing DLT path (`parkio.dlt.analytics`).
+- Malformed / invalid-version / validation-rejected **supported** events throw
+  `AnalyticsContractException` and follow the existing DLT path (`parkio.dlt.analytics`).
+- Unknown or non-analytics session event types are ignored and acknowledged (no DLT).
+
+## Error handling
+
+`ParkingSessionEventsKafkaConsumer` distinguishes three outcomes:
+
+| Outcome | When | Ack | Path |
+|---|---|---|---|
+| Ingest | Supported wire type (`ParkingSessionStarted` / `Completed` / `Cancelled` / `ParkingHistoryDeleted`) passes validation | After successful handler TX | Inbox `tryClaim(eventId)` then `ingest()` |
+| Reject → DLT | Supported wire type is malformed, wrong aggregate, unsupported envelope version, or fails validator | No | `AnalyticsContractException` → `parkio.dlt.analytics` |
+| Ignore | Unsupported / future session event types (including `ParkingSessionReminderRequested`) | Yes | Debug log only — additive producers must not DLT analytics |
+
+Duplicate Kafka delivery of an already-claimed supported `eventId` is a no-op (idempotent).
 
 ## Not in scope (remain deferred)
 
