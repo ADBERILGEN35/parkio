@@ -34,6 +34,7 @@ dependencies {
 
     implementation(libs.flyway.core)
     implementation(libs.flyway.database.postgresql)
+    implementation(libs.commons.csv)
 
     // Asynchronous event transport (Kafka). Topic provisioning + config now;
     // outbox relay and consumers are added later.

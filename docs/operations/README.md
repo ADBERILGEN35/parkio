@@ -68,3 +68,4 @@ Decision authority, enables WP-05 schedulers by default, or claims production la
 - [WP-06.2B.2 final-state re-execution & sign-off gate](wp-06-02b-2-final-state-reexecution-signoff-gate.md)
 
 - Municipal/OSM sources: [municipal-parking-source-runbook.md](municipal-parking-source-runbook.md)
+- İZELMAN inventory/tariff safety: [DATA-WP-03 architecture](../architecture/wp-data-03-izelman-inventory-tariffs.md)

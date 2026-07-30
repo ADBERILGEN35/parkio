@@ -151,6 +151,21 @@ parkio:
       allowed-input-dir: ""
       max-input-bytes: 52428800
       clip-version: izmir-bbox-v1
+    izelman:
+      enabled: ${PARKIO_MUNICIPAL_IZELMAN_ENABLED:false}
+      facility-import-enabled: ${PARKIO_MUNICIPAL_IZELMAN_FACILITY_IMPORT_ENABLED:false}
+      roadside-import-enabled: ${PARKIO_MUNICIPAL_IZELMAN_ROADSIDE_IMPORT_ENABLED:false}
+      tariff-import-enabled: ${PARKIO_MUNICIPAL_IZELMAN_TARIFF_IMPORT_ENABLED:false}
+      facility-publication-enabled: ${PARKIO_MUNICIPAL_IZELMAN_FACILITY_PUBLICATION_ENABLED:false}
+      roadside-publication-enabled: ${PARKIO_MUNICIPAL_IZELMAN_ROADSIDE_PUBLICATION_ENABLED:false}
+      tariff-publication-enabled: ${PARKIO_MUNICIPAL_IZELMAN_TARIFF_PUBLICATION_ENABLED:false}
+      scheduler-enabled: ${PARKIO_MUNICIPAL_IZELMAN_SCHEDULER_ENABLED:false}
+      candidate-generation-enabled: ${PARKIO_MUNICIPAL_IZELMAN_CANDIDATE_GENERATION_ENABLED:false}
+      auto-match-enabled: false
+      allowed-input-dir: ${PARKIO_MUNICIPAL_IZELMAN_ALLOWED_INPUT_DIR:}
+      max-input-bytes: ${PARKIO_MUNICIPAL_IZELMAN_MAX_INPUT_BYTES:5242880}
+      aging-after-days: ${PARKIO_MUNICIPAL_IZELMAN_AGING_AFTER_DAYS:180}
+      historical-after-days: ${PARKIO_MUNICIPAL_IZELMAN_HISTORICAL_AFTER_DAYS:730}
   openapi:
     enabled: ${PARKIO_OPENAPI_ENABLED:true}
   idempotency:

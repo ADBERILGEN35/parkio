@@ -5,6 +5,7 @@ import com.parkio.parking.application.port.MunicipalOccupancySnapshotRepository;
 import com.parkio.parking.externalsource.MunicipalFacilityType;
 import com.parkio.parking.externalsource.MunicipalOccupancyFreshness;
 import com.parkio.parking.externalsource.OccupancyFreshnessPolicy;
+import com.parkio.parking.infrastructure.config.IzelmanProperties;
 import com.parkio.parking.infrastructure.config.MunicipalSourceProperties;
 import java.time.Clock;
 import java.time.Duration;
@@ -23,16 +24,19 @@ public class MunicipalFacilityQueryService {
     private final MunicipalFacilityRepository facilities;
     private final MunicipalOccupancySnapshotRepository snapshots;
     private final MunicipalSourceProperties municipalProperties;
+    private final IzelmanProperties izelmanProperties;
     private final Clock clock;
 
     public MunicipalFacilityQueryService(
             MunicipalFacilityRepository facilities,
             MunicipalOccupancySnapshotRepository snapshots,
             MunicipalSourceProperties municipalProperties,
+            IzelmanProperties izelmanProperties,
             Clock clock) {
         this.facilities = facilities;
         this.snapshots = snapshots;
         this.municipalProperties = municipalProperties;
+        this.izelmanProperties = izelmanProperties;
         this.clock = clock;
     }
 
@@ -54,10 +58,9 @@ public class MunicipalFacilityQueryService {
         Integer available = null;
         Instant lastUpdated = null;
         Integer capacity = facility.capacityTotal();
-        // OSM never contributes live occupancy; ignore any snapshot on OSM-attributed rows.
-        boolean osmDerived = facility.attribution() != null
-                && facility.attribution().contains("OpenStreetMap");
-        if (!osmDerived && snapshot.isPresent()) {
+        // OSM and IZELMAN static inventory never contribute live occupancy.
+        boolean staticInventory = isOsmAttributed(facility) || isIzelmanAttributed(facility);
+        if (!staticInventory && snapshot.isPresent()) {
             var value = snapshot.get();
             freshness = new OccupancyFreshnessPolicy(
                     Duration.ofSeconds(facility.agingAfterSeconds()),
@@ -88,14 +91,38 @@ public class MunicipalFacilityQueryService {
                 lastUpdated);
     }
 
-    /** OSM facilities stay hidden until publication-enabled is explicitly turned on. */
+    /**
+     * OSM and IZELMAN facilities stay hidden until their publication flags are on.
+     * IZUM live facilities remain discoverable independently.
+     */
     private boolean isDiscoverable(MunicipalFacilityRepository.Facility facility) {
-        if (facility.attribution() != null
-                && facility.attribution().contains("OpenStreetMap")
-                && !municipalProperties.getOsm().isPublicationEnabled()) {
+        if (isOsmAttributed(facility) && !municipalProperties.getOsm().isPublicationEnabled()) {
+            return false;
+        }
+        if (isIzelmanAttributed(facility) && !izelmanProperties.isFacilityPublicationEnabled()) {
             return false;
         }
         return true;
+    }
+
+    private static boolean isOsmAttributed(MunicipalFacilityRepository.Facility facility) {
+        return facility.attribution() != null && facility.attribution().contains("OpenStreetMap");
+    }
+
+        private static boolean isIzelmanAttributed(MunicipalFacilityRepository.Facility facility) {
+        // Match publisher/sourceLabel only. IZUM attribution text mentions IZELMAN in a
+        // disclaimer and must not hide live IZUM occupancy facilities.
+        return isIzelmanPublisher(facility.sourceLabel());
+    }
+
+    private static boolean isIzelmanPublisher(String publisher) {
+        if (publisher == null || publisher.isBlank()) {
+            return false;
+        }
+        String folded = java.text.Normalizer.normalize(publisher, java.text.Normalizer.Form.NFKD)
+                .replaceAll("\\p{M}+", "")
+                .toUpperCase(java.util.Locale.ROOT);
+        return folded.contains("IZELMAN A");
     }
 
     private static void validate(double lat, double lng, int radius, int limit) {

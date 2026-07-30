@@ -57,8 +57,14 @@ public class ParkingInfrastructureConfig {
     }
 
     @Bean
-    public MunicipalFacilityQueryService municipalFacilityQueryService(MunicipalFacilityRepository facilities, MunicipalOccupancySnapshotRepository snapshots, MunicipalSourceProperties municipalSourceProperties, Clock clock) {
-        return new MunicipalFacilityQueryService(facilities, snapshots, municipalSourceProperties, clock);
+    public MunicipalFacilityQueryService municipalFacilityQueryService(
+            MunicipalFacilityRepository facilities,
+            MunicipalOccupancySnapshotRepository snapshots,
+            MunicipalSourceProperties municipalSourceProperties,
+            IzelmanProperties izelmanProperties,
+            Clock clock) {
+        return new MunicipalFacilityQueryService(
+                facilities, snapshots, municipalSourceProperties, izelmanProperties, clock);
     }
 
     @Bean

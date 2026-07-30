@@ -4,8 +4,22 @@ import com.parkio.parking.externalsource.MunicipalAccessClassification;
 import com.parkio.parking.externalsource.MunicipalFacilityType;
 
 /**
- * Canonical field ownership when a facility has municipal + OSM source links.
+ * Canonical field ownership across İZUM, İZELMAN, and OSM source links.
  * Controllers must not reimplement this.
+ *
+ * <p>Live occupancy: İZUM only. İZELMAN static inventory and OSM never supply
+ * live availability.
+ *
+ * <p>Name / operator: verified municipal (İZUM or İZELMAN) preferred over OSM.
+ * Do not erase municipal provenance when projecting.
+ *
+ * <p>Capacity: current verified municipal preferred; aged İZELMAN capacity must
+ * retain source-age metadata. Conflicting values keep independent source links.
+ *
+ * <p>Access: restrictive interpretation wins when evidence conflicts.
+ *
+ * <p>Tariff: only an assigned tariff plan; never infer from a nearby facility.
+ * Historical or unknown-validity tariffs are never treated as CURRENT.
  */
 public final class FieldPrecedencePolicy {
     private FieldPrecedencePolicy() {}
@@ -35,6 +49,10 @@ public final class FieldPrecedencePolicy {
 
     public static MunicipalAccessClassification preferAccess(
             MunicipalAccessClassification municipal, MunicipalAccessClassification osm) {
+        if (municipal == MunicipalAccessClassification.RESTRICTED
+                || osm == MunicipalAccessClassification.RESTRICTED) {
+            return MunicipalAccessClassification.RESTRICTED;
+        }
         if (municipal != null && municipal != MunicipalAccessClassification.UNKNOWN) {
             return municipal;
         }
@@ -52,7 +70,7 @@ public final class FieldPrecedencePolicy {
         return firstNonBlank(municipal, osm);
     }
 
-    /** Live occupancy is never taken from OSM — handled outside this policy. */
+    /** Live occupancy is never taken from OSM or İZELMAN — handled outside this policy. */
     private static String firstNonBlank(String preferred, String fallback) {
         if (preferred != null && !preferred.isBlank()) {
             return preferred;

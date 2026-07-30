@@ -86,3 +86,20 @@ See [rollback-runbook.md](rollback-runbook.md).
 | parkio.municipal.osm.conflation-enabled | false | Candidate generation |
 | parkio.municipal.osm.auto-match-enabled | false | Automatic link merge |
 | parkio.municipal.osm.publication-enabled | false | Future publication gate |
+
+## DATA-WP-03 IZELMAN (default OFF)
+
+| Flag | Default | Effect |
+|------|---------|--------|
+| parkio.municipal.izelman.enabled | false | Master gate for IZELMAN admin controller |
+| parkio.municipal.izelman.facility-import-enabled | false | Facility CSV import |
+| parkio.municipal.izelman.roadside-import-enabled | false | Roadside CSV import |
+| parkio.municipal.izelman.tariff-import-enabled | false | Tariff CSV import |
+| parkio.municipal.izelman.facility-publication-enabled | false | Hide IZELMAN-attributed facilities from public discovery |
+| parkio.municipal.izelman.roadside-publication-enabled | false | Disable roadside nearby controller |
+| parkio.municipal.izelman.tariff-publication-enabled | false | Do not expose tariffs as public current prices |
+| parkio.municipal.izelman.scheduler-enabled | false | No scheduled IZELMAN import |
+| parkio.municipal.izelman.candidate-generation-enabled | false | No automatic candidate linking |
+| parkio.municipal.izelman.auto-match-enabled | false | Unsupported; must remain false |
+
+Hosted-beta Compose maps PARKIO_MUNICIPAL_IZELMAN_* with defaults false.

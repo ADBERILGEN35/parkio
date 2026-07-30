@@ -169,3 +169,4 @@ See [Known Issues](../releases/KNOWN-ISSUES.md) for the current blocker list.
 
 - [DATA-WP-02 OSM İzmir import](wp-data-02-osm-izmir-facility-import.md)
 - [ADR: OSM import tooling](adr/ADR-WP-DATA-02-osm-import-tooling.md)
+- [DATA-WP-03 İZELMAN inventory, roadside and tariffs](wp-data-03-izelman-inventory-tariffs.md)
