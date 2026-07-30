@@ -127,6 +127,19 @@ info:
     description: Parkio parking-service
 
 parkio:
+  municipal:
+    enabled: false
+    manual-sync-enabled: false
+    izum:
+      enabled: false
+      base-url: https://openapi.izmir.bel.tr
+      path: /api/ibb/izum/otoparklar
+      connect-timeout: 2s
+      read-timeout: 5s
+      max-retries: 2
+      scheduler-enabled: false
+      fixed-delay-ms: 120000
+      user-agent: ParkioParkingService/1.0 (+https://parkio.dev)
   openapi:
     enabled: ${PARKIO_OPENAPI_ENABLED:true}
   idempotency:

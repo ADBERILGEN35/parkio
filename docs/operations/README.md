@@ -48,6 +48,7 @@ action, diagnostics, recovery, and escalation.
 | [Performance Capacity](performance-capacity.md) | Sizing guidance |
 | [Outcome Validation Runbook](outcome-validation-runbook.md) | WP-05.10 outcome job |
 | [DLQ Redrive Runbook](dlq-redrive-runbook.md) | Kafka DLT recovery |
+| [Municipal Parking Source Runbook](municipal-parking-source-runbook.md) | DATA-WP-01 İZUM sync / stale / rollback |
 
 ## Related Architecture
 
