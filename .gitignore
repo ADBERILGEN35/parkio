@@ -98,6 +98,10 @@ docker/prometheus/textfile/*.prom
 # Local pnpm cache
 **/.pnpm-store/
 
+# Python bytecode (local staging helpers)
+**/__pycache__/
+*.py[cod]
+
 # WP-06.2 generated operational evidence (never commit live drill output)
 build/operational-evidence/
 artifacts/wp-06-2/

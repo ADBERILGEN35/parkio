@@ -151,6 +151,14 @@ module inside parking-service:
 WP-05.1–05.15 complete. WP-06.1 establishes runbooks, SLO definitions, and governance
 templates only — it does **not** claim production launch.
 
+## DATA-WP-01 — Municipal Parking Sources
+
+Canonical municipal source architecture inside parking-service (İzmir / İZUM first):
+
+- [Municipal Parking Source Foundation](wp-data-01-municipal-parking-source-foundation.md)
+- [İZELMAN Discovery Report](wp-data-01-izelman-discovery.md)
+- [Municipal Source Runbook](../operations/municipal-parking-source-runbook.md)
+
 ## Current Limitations
 
 Parkio is not public-production ready. Known blockers include managed HA data
@@ -158,3 +166,6 @@ services, secrets manager and rotation workflow, stronger CD rollback,
 production on-call process, and production-scale validation.
 
 See [Known Issues](../releases/KNOWN-ISSUES.md) for the current blocker list.
+
+- [DATA-WP-02 OSM İzmir import](wp-data-02-osm-izmir-facility-import.md)
+- [ADR: OSM import tooling](adr/ADR-WP-DATA-02-osm-import-tooling.md)

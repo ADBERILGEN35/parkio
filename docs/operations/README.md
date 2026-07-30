@@ -48,6 +48,7 @@ action, diagnostics, recovery, and escalation.
 | [Performance Capacity](performance-capacity.md) | Sizing guidance |
 | [Outcome Validation Runbook](outcome-validation-runbook.md) | WP-05.10 outcome job |
 | [DLQ Redrive Runbook](dlq-redrive-runbook.md) | Kafka DLT recovery |
+| [Municipal Parking Source Runbook](municipal-parking-source-runbook.md) | DATA-WP-01 İZUM sync / stale / rollback |
 
 ## Related Architecture
 
@@ -65,3 +66,5 @@ Decision authority, enables WP-05 schedulers by default, or claims production la
 - [WP-06.2B.1 evidence finalization & sign-off preparation](wp-06-02b-1-evidence-finalization-signoff-preparation.md)
 
 - [WP-06.2B.2 final-state re-execution & sign-off gate](wp-06-02b-2-final-state-reexecution-signoff-gate.md)
+
+- Municipal/OSM sources: [municipal-parking-source-runbook.md](municipal-parking-source-runbook.md)

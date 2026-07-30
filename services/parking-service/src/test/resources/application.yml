@@ -19,6 +19,12 @@ spring:
     enabled: false
 
 parkio:
+  municipal:
+    enabled: false
+    manual-sync-enabled: false
+    izum:
+      enabled: false
+      scheduler-enabled: false
   idempotency:
     ttl: 24h
   lifecycle:

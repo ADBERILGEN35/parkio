@@ -4,8 +4,16 @@ import com.parkio.parking.application.DecisionAuthoritySettings;
 import com.parkio.parking.application.DecisionShadowOrchestrator;
 import com.parkio.parking.application.ExposureShadowSettings;
 import com.parkio.parking.application.ParkingSearchSettings;
+import com.parkio.parking.application.MunicipalFacilityQueryService;
+import com.parkio.parking.application.MunicipalFacilitySyncService;
+import com.parkio.parking.application.port.MunicipalDataSourceRepository;
+import com.parkio.parking.application.port.MunicipalFacilityRepository;
+import com.parkio.parking.application.port.MunicipalOccupancySnapshotRepository;
+import com.parkio.parking.application.port.MunicipalSourceLinkRepository;
+import com.parkio.parking.application.port.MunicipalSourceSyncRunRepository;
 import com.parkio.parking.application.port.DecisionAuditWriteObserver;
 import com.parkio.parking.application.port.DecisionShadowObserverPort;
+import com.parkio.parking.externalsource.MunicipalParkingSourceAdapter;
 import com.parkio.parking.decision.application.EvidenceCollectionService;
 import com.parkio.parking.decision.policy.DecisionEngine;
 import com.parkio.parking.decision.port.DecisionAuditPort;
@@ -13,6 +21,7 @@ import com.parkio.parking.decision.port.EvidenceCollectionPort;
 import com.parkio.parking.domain.ModerationPolicy;
 import com.parkio.parking.domain.ParkingSessionStalePolicy;
 import java.time.Clock;
+import java.util.List;
 import org.springframework.boot.context.properties.EnableConfigurationProperties;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
@@ -24,13 +33,32 @@ import org.springframework.scheduling.annotation.EnableScheduling;
  * stays free of Spring config types), and scheduling for the outbox relay poller.
  */
 @Configuration
-@EnableConfigurationProperties({ParkingProperties.class, GeocodingProperties.class})
+@EnableConfigurationProperties({
+        ParkingProperties.class, GeocodingProperties.class, MunicipalSourceProperties.class
+})
 @EnableScheduling
 public class ParkingInfrastructureConfig {
 
     @Bean
     public Clock clock() {
         return Clock.systemUTC();
+    }
+
+    @Bean
+    public MunicipalFacilitySyncService municipalFacilitySyncService(
+            List<MunicipalParkingSourceAdapter> adapters,
+            MunicipalDataSourceRepository sources,
+            MunicipalFacilityRepository facilities,
+            MunicipalSourceLinkRepository links,
+            MunicipalOccupancySnapshotRepository snapshots,
+            MunicipalSourceSyncRunRepository runs,
+            Clock clock) {
+        return new MunicipalFacilitySyncService(adapters, sources, facilities, links, snapshots, runs, clock);
+    }
+
+    @Bean
+    public MunicipalFacilityQueryService municipalFacilityQueryService(MunicipalFacilityRepository facilities, MunicipalOccupancySnapshotRepository snapshots, MunicipalSourceProperties municipalSourceProperties, Clock clock) {
+        return new MunicipalFacilityQueryService(facilities, snapshots, municipalSourceProperties, clock);
     }
 
     @Bean

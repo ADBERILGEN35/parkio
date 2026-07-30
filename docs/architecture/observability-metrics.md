@@ -87,6 +87,25 @@ are recorded once per published row / per poll in the relay (no extra query).
 | `parkio.parking.expired.count` | gauge | Spots in the terminal `EXPIRED` state. |
 | `parkio.parking.expiry.job.expired.count` | counter | Spots transitioned to `EXPIRED` by the expiry job since start. |
 
+### Municipal parking sources (parking-service)
+
+Micrometer component: `MunicipalSourceMetrics`. Labels bounded to `source_key`,
+`status`, `error_category`, and `outcome` — never facility/external IDs or URLs.
+
+| Metric | Type | Meaning |
+|---|---|---|
+| `parkio.municipal.sync.runs` | counter | Sync runs by status/error category. |
+| `parkio.municipal.sync.duration` | timer | Sync wall time. |
+| `parkio.municipal.sync.records` | counter | Records received/accepted/rejected. |
+| `parkio.municipal.sync.facilities` | counter | Facilities inserted/updated/unchanged. |
+| `parkio.municipal.sync.occupancy` | counter | Occupancy snapshots inserted. |
+| `parkio.municipal.sync.schema_mismatch` | counter | Contract/schema failures. |
+
+Health indicator `municipalSources` always contributes **UP** (municipal data is
+non-critical). Details include enablement and `izumStatus` (`disabled`, `healthy`, `aging`, `stale`, `never_synced`, `failing`, `schema_mismatch`, …).
+
+Ops: [`docs/operations/municipal-parking-source-runbook.md`](../operations/municipal-parking-source-runbook.md).
+
 ### Parking sessions — stale lifecycle (parking-service)
 
 Micrometer component: `ParkingSessionLifecycleMetrics`. Never tagged by
@@ -895,3 +914,15 @@ the outbox relay, Loki and MinIO simultaneously, so act before the critical (<10
 - Gauges must be backed by cheap (indexed COUNT) queries — they run on every scrape.
 - Never tag with unbounded or personal values (user ids, emails, file names, tokens).
 - Add a representative unit test with `SimpleMeterRegistry`.
+
+### Municipal OSM import (DATA-WP-02)
+
+| Metric | Type | Notes |
+|--------|------|-------|
+| parkio.municipal.osm.import.runs | counter | Labels: source_key, status, error_category |
+| parkio.municipal.osm.import.duration | timer | Labels: source_key, status |
+| parkio.municipal.osm.import.elements | counter | outcome=read\|extracted\|rejected |
+| parkio.municipal.osm.import.facilities | counter | outcome=inserted\|updated\|deactivated |
+| parkio.municipal.osm.conflation | counter | decision=candidate\|AUTO_MATCHED\|REVIEW_REQUIRED\|REJECTED\|HARD_CONFLICT |
+
+No OSM element IDs, facility IDs, file paths, or exception messages as labels.
