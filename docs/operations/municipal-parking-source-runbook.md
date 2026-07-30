@@ -1,5 +1,25 @@
 # Municipal parking source runbook (IZUM)
 
+## Hosted-beta Compose env bindings (DATA-WP-02C)
+
+Azure overlay `docker/docker-compose.azure-hosted-beta.yml` must map these into
+`parking-service` (env-file alone is insufficient):
+
+| Flag | Env | Default |
+|------|-----|---------|
+| `parkio.municipal.enabled` | `PARKIO_MUNICIPAL_ENABLED` | false |
+| `parkio.municipal.manual-sync-enabled` | `PARKIO_MUNICIPAL_MANUAL_SYNC_ENABLED` | false |
+| `parkio.municipal.izum.enabled` | `PARKIO_MUNICIPAL_IZUM_ENABLED` | false |
+| `parkio.municipal.izum.scheduler-enabled` | `PARKIO_MUNICIPAL_IZUM_SCHEDULER_ENABLED` | false |
+| `parkio.municipal.izum.fixed-delay-ms` | `PARKIO_MUNICIPAL_IZUM_FIXED_DELAY_MS` | 120000 |
+| `parkio.municipal.izum.connect-timeout` | `PARKIO_MUNICIPAL_IZUM_CONNECT_TIMEOUT` | 2s |
+| `parkio.municipal.izum.read-timeout` | `PARKIO_MUNICIPAL_IZUM_READ_TIMEOUT` | 5s |
+| `parkio.municipal.izum.max-retries` | `PARKIO_MUNICIPAL_IZUM_MAX_RETRIES` | 2 |
+
+Source key: `izmir-izum-otoparklar`.  
+Admin: `POST /api/v1/parking/municipal/sources/{sourceKey}/sync` (requires `municipal.enabled` + `manual-sync-enabled`; İZUM also requires `izum.enabled`).  
+Freshness thresholds live on the seeded source row (aging 300s, stale 900s), not Compose.
+
 ## Manual sync (hosted-beta / staging)
 
 1. Ensure Flyway V28 applied.
@@ -14,11 +34,12 @@
 ## Scheduler
 
 Enable only after soak:
-`parkio.municipal.izum.scheduler-enabled=true`
+`parkio.municipal.izum.scheduler-enabled=true`  
+Cadence: `fixed-delay-ms` default **120000** (2 minutes). Job is gated by municipal.enabled + izum.enabled + izum.scheduler-enabled. Unique RUNNING lock prevents overlap.
 
 ## Rollback
 
-1. Disable `parkio.municipal.izum.enabled` and scheduler.
+1. Disable `parkio.municipal.izum.scheduler-enabled` (and/or `izum.enabled`).
 2. Facilities remain; occupancy ages to STALE and free spaces disappear from API.
 3. Do not drop V28 tables in production without a dedicated migration plan.
 
