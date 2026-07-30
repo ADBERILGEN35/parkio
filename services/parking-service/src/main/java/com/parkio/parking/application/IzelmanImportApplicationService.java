@@ -98,7 +98,10 @@ public class IzelmanImportApplicationService {
             SourceAgeClassification age = SourceAgeClassifier.classify(contentAt, now,
                     properties.getAgingAfterDays(), properties.getHistoricalAfterDays());
             int accepted = 0, rejected = 0, inserted = 0, updated = 0, unchanged = 0;
+            int plansAccepted = 0, bandsAccepted = 0, assignmentsAccepted = 0;
+            int trueDuplicates = 0, textualFallbacks = 0;
             Set<String> seen = new HashSet<>();
+            Map<String, String> seenTariffHashes = new LinkedHashMap<>();
             Map<String, Integer> rejectReasons = new LinkedHashMap<>();
             for (Map<String, String> row : csv.rows()) {
                 try {
@@ -127,8 +130,29 @@ public class IzelmanImportApplicationService {
                     } else {
                         var mapped = tariffMapper.map(row, contentAt, now);
                         externalId = mapped.externalId();
-                        if (!seen.add(externalId)) { rejected++; rejectReasons.merge("duplicate", 1, Integer::sum); continue; }
+                        textualFallbacks += tariffMapper.countTextualFallbackCells(row);
+                        String priorHash = seenTariffHashes.get(externalId);
+                        if (priorHash != null) {
+                            if (priorHash.equals(mapped.rawRecordHash())) {
+                                trueDuplicates++;
+                                rejected++;
+                                rejectReasons.merge("true_duplicate_source_row", 1, Integer::sum);
+                            } else {
+                                rejected++;
+                                rejectReasons.merge("conflicting_plan_identity", 1, Integer::sum);
+                            }
+                            continue;
+                        }
+                        seenTariffHashes.put(externalId, mapped.rawRecordHash());
+                        seen.add(externalId);
+                        if (mapped.bands().isEmpty()) {
+                            rejected++;
+                            rejectReasons.merge("invalid_row", 1, Integer::sum);
+                            continue;
+                        }
                         accepted++;
+                        plansAccepted++;
+                        bandsAccepted += mapped.bands().size();
                         if (dryRun) continue;
                         outcome = repository.upsertTariff(source.id(), mapped, contentAt, age, now);
                     }
@@ -145,11 +169,17 @@ public class IzelmanImportApplicationService {
                 if ("FACILITY".equals(type)) deactivated = support.deactivateMissing(source.id(), seen, now);
                 else if ("ROADSIDE".equals(type)) deactivated = repository.deactivateMissingRoadside(source.id(), seen, now);
             }
-            String report = json.writeValueAsString(Map.of(
-                    "rejectReasons", rejectReasons,
-                    "completeSnapshot", source.completeSnapshot(),
-                    "occupancyWritten", false,
-                    "autoMatch", false));
+            Map<String, Object> reportMap = new LinkedHashMap<>();
+            reportMap.put("rejectReasons", rejectReasons);
+            reportMap.put("completeSnapshot", source.completeSnapshot());
+            reportMap.put("occupancyWritten", false);
+            reportMap.put("autoMatch", false);
+            reportMap.put("plansAccepted", plansAccepted);
+            reportMap.put("bandsAccepted", bandsAccepted);
+            reportMap.put("assignmentsAccepted", assignmentsAccepted);
+            reportMap.put("trueDuplicates", trueDuplicates);
+            reportMap.put("textualFallbacks", textualFallbacks);
+            String report = json.writeValueAsString(reportMap);
             String sha = IzelmanCsvReader.sha256(bytes);
             MunicipalSyncResult sync = new MunicipalSyncResult(MunicipalSyncRunStatus.SUCCESS,
                     csv.rows().size(), accepted, rejected, inserted, updated, unchanged, 0, null, null);
@@ -157,8 +187,9 @@ public class IzelmanImportApplicationService {
             if (!dryRun) sources.markSuccessful(source.id(), clock.instant());
             repository.saveRun(runId.get(), source.id(), type, path.getFileName().toString(), sha,
                     csv.encoding(), csv.delimiter(), csv.schemaFingerprint(), contentAt, age, dryRun, report, clock.instant());
-            return result(MunicipalSyncRunStatus.SUCCESS, sourceKey, type, dryRun, csv.rows().size(),
-                    accepted, rejected, inserted, updated, unchanged, deactivated, age, null);
+            return new IzelmanImportResult(MunicipalSyncRunStatus.SUCCESS, sourceKey, type, dryRun, csv.rows().size(),
+                    accepted, rejected, inserted, updated, unchanged, deactivated, age, null,
+                    plansAccepted, bandsAccepted, assignmentsAccepted, trueDuplicates, textualFallbacks);
         } catch (Exception ex) {
             MunicipalSyncResult failed = new MunicipalSyncResult(MunicipalSyncRunStatus.FAILED,
                     0, 0, 0, 0, 0, 0, 0, "import", truncate(ex.getClass().getSimpleName() + ": " + ex.getMessage()));

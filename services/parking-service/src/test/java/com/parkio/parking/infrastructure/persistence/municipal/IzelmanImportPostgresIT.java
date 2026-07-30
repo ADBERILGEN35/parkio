@@ -124,6 +124,50 @@ class IzelmanImportPostgresIT {
     }
 
     @Test
+    void officialTariffMatrixDryRunProjectsPlansAndBandsWithoutCanonicalWrites() throws Exception {
+        Path fixtures = Path.of("src/test/resources/fixtures/municipal/izelman").toAbsolutePath();
+        if (!Files.isDirectory(fixtures)) {
+            fixtures = Path.of("services/parking-service/src/test/resources/fixtures/municipal/izelman")
+                    .toAbsolutePath();
+        }
+        Files.copy(
+                fixtures.resolve("official-otopark-ucretleri.csv"),
+                INPUT_DIR.resolve(IzelmanSourceKeys.TARIFFS + ".csv"),
+                java.nio.file.StandardCopyOption.REPLACE_EXISTING);
+
+        Integer plansBefore = jdbc.queryForObject("SELECT count(*) FROM municipal_tariff_plans", Integer.class);
+        Integer bandsBefore = jdbc.queryForObject("SELECT count(*) FROM municipal_tariff_rate_bands", Integer.class);
+        Integer facilitiesBefore = jdbc.queryForObject(
+                "SELECT count(*) FROM municipal_parking_facilities WHERE primary_source_key LIKE 'izelman%'",
+                Integer.class);
+
+        var dry = importService.importConfigured(IzelmanSourceKeys.TARIFFS, true);
+        assertThat(dry.status()).isEqualTo(MunicipalSyncRunStatus.SUCCESS);
+        assertThat(dry.dryRun()).isTrue();
+        assertThat(dry.recordsRead()).isEqualTo(39);
+        assertThat(dry.accepted()).isEqualTo(39);
+        assertThat(dry.rejected()).isZero();
+        assertThat(dry.plansAccepted()).isEqualTo(39);
+        assertThat(dry.bandsAccepted()).isEqualTo(212);
+        assertThat(dry.trueDuplicates()).isZero();
+        assertThat(dry.ageClassification()).isEqualTo(SourceAgeClassification.AGING);
+        assertThat(dry.inserted() + dry.updated()).isZero();
+
+        Integer plansAfter = jdbc.queryForObject("SELECT count(*) FROM municipal_tariff_plans", Integer.class);
+        Integer bandsAfter = jdbc.queryForObject("SELECT count(*) FROM municipal_tariff_rate_bands", Integer.class);
+        Integer facilitiesAfter = jdbc.queryForObject(
+                "SELECT count(*) FROM municipal_parking_facilities WHERE primary_source_key LIKE 'izelman%'",
+                Integer.class);
+        Integer current = jdbc.queryForObject(
+                "SELECT count(*) FROM municipal_tariff_plans WHERE currentness=?",
+                Integer.class, TariffCurrentness.CURRENT.name());
+        assertThat(plansAfter).isEqualTo(plansBefore);
+        assertThat(bandsAfter).isEqualTo(bandsBefore);
+        assertThat(facilitiesAfter).isEqualTo(facilitiesBefore);
+        assertThat(current).isZero();
+    }
+
+    @Test
     void concurrentImportIsSkipped() throws Exception {
         UUID sourceId = jdbc.queryForObject(
                 "SELECT id FROM municipal_data_sources WHERE source_key=?",

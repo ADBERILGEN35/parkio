@@ -75,34 +75,50 @@ public class IzelmanImportRepositoryAdapter {
     public UpsertOutcome upsertTariff(
             UUID sourceId, NormalizedTariffPlan plan, Instant contentAt,
             SourceAgeClassification age, Instant now) {
-        var existing = jdbc.sql("SELECT id FROM municipal_tariff_plans WHERE source_id=:source AND external_id=:external")
-                .param("source", sourceId).param("external", plan.externalId()).query(UUID.class).optional();
-        UUID id = existing.orElseGet(UUID::randomUUID);
+        var existing = jdbc.sql("SELECT id, raw_record_hash FROM municipal_tariff_plans "
+                        + "WHERE source_id=:source AND external_id=:external")
+                .param("source", sourceId).param("external", plan.externalId())
+                .query((rs, n) -> new Existing(rs.getObject(1, UUID.class), rs.getString(2)))
+                .optional();
+        if (existing.isPresent() && plan.rawRecordHash().equals(existing.get().hash())) {
+            jdbc.sql("UPDATE municipal_tariff_plans SET active=true,updated_at=:now WHERE id=:id")
+                    .param("now", Timestamp.from(now)).param("id", existing.get().id()).update();
+            return UpsertOutcome.UNCHANGED;
+        }
+        UUID id = existing.map(Existing::id).orElseGet(UUID::randomUUID);
         if (existing.isEmpty()) {
             jdbc.sql("INSERT INTO municipal_tariff_plans(id,source_id,external_id,plan_name,source_content_at,"
-                            + "source_age_classification,currentness,original_text,created_at,updated_at) "
-                            + "VALUES(:id,:source,:external,:name,:content,:age,:currentness,:original,:now,:now)")
+                            + "source_age_classification,currentness,original_text,raw_record_hash,created_at,updated_at) "
+                            + "VALUES(:id,:source,:external,:name,:content,:age,:currentness,:original,:hash,:now,:now)")
                     .param("id", id).param("source", sourceId).param("external", plan.externalId())
-                    .param("name", plan.planName()).param("content", contentAt == null ? null : Timestamp.from(contentAt)).param("age", age.name())
+                    .param("name", plan.planName())
+                    .param("content", contentAt == null ? null : Timestamp.from(contentAt))
+                    .param("age", age.name())
                     .param("currentness", plan.currentness().name()).param("original", plan.originalText())
+                    .param("hash", plan.rawRecordHash())
                     .param("now", Timestamp.from(now)).update();
         } else {
             jdbc.sql("UPDATE municipal_tariff_plans SET plan_name=:name,source_content_at=:content,"
                             + "source_age_classification=:age,currentness=:currentness,original_text=:original,"
-                            + "active=true,updated_at=:now,version=version+1 WHERE id=:id")
-                    .param("id", id).param("name", plan.planName()).param("content", contentAt == null ? null : Timestamp.from(contentAt))
+                            + "raw_record_hash=:hash,active=true,updated_at=:now,version=version+1 WHERE id=:id")
+                    .param("id", id).param("name", plan.planName())
+                    .param("content", contentAt == null ? null : Timestamp.from(contentAt))
                     .param("age", age.name()).param("currentness", plan.currentness().name())
-                    .param("original", plan.originalText()).param("now", Timestamp.from(now)).update();
+                    .param("original", plan.originalText()).param("hash", plan.rawRecordHash())
+                    .param("now", Timestamp.from(now)).update();
             jdbc.sql("DELETE FROM municipal_tariff_rate_bands WHERE plan_id=:id").param("id", id).update();
         }
         for (var band : plan.bands()) {
             jdbc.sql("INSERT INTO municipal_tariff_rate_bands(id,plan_id,band_order,duration_from_minutes,"
-                            + "duration_to_minutes,amount,fee_kind,time_band_label) "
-                            + "VALUES(:id,:plan,:ord,:from,:to,:amount,:kind,:label)")
+                            + "duration_to_minutes,amount,fee_kind,time_band_label,vehicle_class,parse_status) "
+                            + "VALUES(:id,:plan,:ord,:from,:to,:amount,:kind,:label,:vehicle,:parseStatus)")
                     .param("id", UUID.randomUUID()).param("plan", id).param("ord", band.order())
                     .param("from", band.durationFromMinutes()).param("to", band.durationToMinutes())
                     .param("amount", band.amount()).param("kind", band.feeKind().name())
-                    .param("label", band.label()).update();
+                    .param("label", band.label())
+                    .param("vehicle", band.vehicleClass())
+                    .param("parseStatus", band.parseStatus().name())
+                    .update();
         }
         return existing.isEmpty() ? UpsertOutcome.INSERTED : UpsertOutcome.UPDATED;
     }
