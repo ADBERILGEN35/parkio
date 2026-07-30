@@ -172,3 +172,7 @@ See [Known Issues](../releases/KNOWN-ISSUES.md) for the current blocker list.
 - [DATA-WP-03 İZELMAN inventory, roadside and tariffs](wp-data-03-izelman-inventory-tariffs.md)
 - [DATA-WP-04 canonical registry provenance and link review](wp-data-04-canonical-registry-provenance-link-review.md)
 - [Municipal registry review runbook](../operations/municipal-registry-review-runbook.md)
+- [DATA-WP-05 bounded registry candidate generation (spec only)](wp-data-05-engineering-specification.md)
+
+> **Name collision:** Repository **WP-05** is Decision Intelligence. Municipal data
+> packages use **DATA-WP-NN** / `wp-data-NN-*` and must not reopen `wp-05-*`.
