@@ -4,7 +4,10 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.Mockito.mock;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.parkio.parking.application.LinkCandidateGenerationOrchestrator;
 import com.parkio.parking.application.LinkReviewApplicationService;
+import com.parkio.parking.application.port.LinkCandidateGenerationRunPort;
+import com.parkio.parking.presentation.RegistryLinkCandidateGenerationController;
 import com.parkio.parking.presentation.RegistryLinkReviewController;
 import org.junit.jupiter.api.Test;
 import org.springframework.boot.autoconfigure.AutoConfigurations;
@@ -50,6 +53,20 @@ class RegistryPropertiesBindingTest {
         // The edge/gateway therefore observes no mapped controller route (404), not an enabled-but-forbidden API.
     }
 
+    @Test
+    void generationControllerBeanIsAbsentWhenCandidateGenerationDisabled() {
+        new ApplicationContextRunner()
+                .withBean(LinkCandidateGenerationOrchestrator.class,
+                        () -> mock(LinkCandidateGenerationOrchestrator.class))
+                .withBean(LinkCandidateGenerationRunPort.class,
+                        () -> mock(LinkCandidateGenerationRunPort.class))
+                .withUserConfiguration(GenerationControllerConfiguration.class)
+                .withPropertyValues("parkio.municipal.registry.candidate-generation-enabled=false")
+                .run(context -> assertThat(context)
+                        .doesNotHaveBean(RegistryLinkCandidateGenerationController.class));
+        // A disabled controller contributes no MVC mapping, so the edge observes 404.
+    }
+
     @Configuration(proxyBeanMethods = false)
     @EnableConfigurationProperties(RegistryProperties.class)
     static class PropertiesConfiguration {}
@@ -57,4 +74,8 @@ class RegistryPropertiesBindingTest {
     @Configuration(proxyBeanMethods = false)
     @Import(RegistryLinkReviewController.class)
     static class ReviewControllerConfiguration {}
+
+    @Configuration(proxyBeanMethods = false)
+    @Import(RegistryLinkCandidateGenerationController.class)
+    static class GenerationControllerConfiguration {}
 }

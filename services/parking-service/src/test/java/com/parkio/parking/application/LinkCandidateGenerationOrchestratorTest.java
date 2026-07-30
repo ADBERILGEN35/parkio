@@ -37,13 +37,12 @@ class LinkCandidateGenerationOrchestratorTest {
     @Mock LinkCandidateGenerationService generation;
     @Mock RegistryMetrics metrics;
 
-    private RegistryProperties properties;
     private LinkCandidateGenerationOrchestrator orchestrator;
     private final UUID runId = UUID.randomUUID();
 
     @BeforeEach
     void setUp() {
-        properties = new RegistryProperties();
+        RegistryProperties properties = new RegistryProperties();
         properties.setCandidateGenerationEnabled(true);
         orchestrator = new LinkCandidateGenerationOrchestrator(
                 properties, discovery, runs, generation, new ObjectMapper(), metrics,
@@ -53,11 +52,9 @@ class LinkCandidateGenerationOrchestratorTest {
     @Test
     void dryRunEvaluatesWithoutCandidateWritesAndCompletesAudit() {
         DiscoveredPair pair = pair();
-        when(runs.tryStart(any())).thenReturn(Optional.of(runId));
-        when(discovery.discover(any(), any(), any(Double.class), any(Integer.class), any(Integer.class), any(), any()))
-                .thenReturn(new LinkCandidatePairDiscoveryPort.DiscoveryResult(List.of(pair), 1));
+        arrangeDiscovery(List.of(pair));
         when(discovery.alreadyLinked(pair)).thenReturn(false);
-        when(runs.findById(runId)).thenReturn(Optional.of(completedRun(true)));
+        when(runs.findById(runId)).thenReturn(Optional.of(completedRun(true, "COMPLETED")));
 
         var result = orchestrator.generate(request(true, false));
 
@@ -74,6 +71,46 @@ class LinkCandidateGenerationOrchestratorTest {
     }
 
     @Test
+    void alreadyLinkedSkipsWithoutCallingGeneration() {
+        DiscoveredPair pair = pair();
+        arrangeDiscovery(List.of(pair));
+        when(discovery.alreadyLinked(pair)).thenReturn(true);
+        when(runs.findById(runId)).thenReturn(Optional.of(completedRun(false, "COMPLETED")));
+
+        orchestrator.generate(request(false, true));
+
+        verify(generation, never()).generate(any(), any(), any());
+        ArgumentCaptor<LinkCandidateGenerationRunPort.Aggregates> aggregates =
+                ArgumentCaptor.forClass(LinkCandidateGenerationRunPort.Aggregates.class);
+        verify(runs).complete(
+                org.mockito.ArgumentMatchers.eq(runId),
+                org.mockito.ArgumentMatchers.eq("COMPLETED"),
+                aggregates.capture(), any(), org.mockito.ArgumentMatchers.isNull(), any(), any(Long.class));
+        assertThat(aggregates.getValue().skips()).containsEntry("already_linked", 1);
+    }
+
+    @Test
+    void processingFailureYieldsPartialStatusWhenOnePairThrows() {
+        DiscoveredPair failing = pair();
+        arrangeDiscovery(List.of(failing));
+        when(discovery.alreadyLinked(failing)).thenReturn(false);
+        when(generation.generate(any(), any(), any())).thenThrow(new RuntimeException("write failed"));
+        when(runs.findById(runId)).thenReturn(Optional.of(completedRun(false, "PARTIAL")));
+
+        var result = orchestrator.generate(request(false, true));
+
+        assertThat(result.status()).isEqualTo("PARTIAL");
+        ArgumentCaptor<LinkCandidateGenerationRunPort.Aggregates> aggregates =
+                ArgumentCaptor.forClass(LinkCandidateGenerationRunPort.Aggregates.class);
+        verify(runs).complete(
+                org.mockito.ArgumentMatchers.eq(runId),
+                org.mockito.ArgumentMatchers.eq("PARTIAL"),
+                aggregates.capture(), any(), org.mockito.ArgumentMatchers.isNull(), any(), any(Long.class));
+        assertThat(aggregates.getValue().failures()).isEqualTo(1);
+        assertThat(aggregates.getValue().skips()).containsEntry("processing_failure", 1);
+    }
+
+    @Test
     void rejectsInvalidPersistDryRunCombinationBeforeLock() {
         assertThatThrownBy(() -> orchestrator.generate(request(true, true)))
                 .isInstanceOf(IllegalArgumentException.class);
@@ -85,6 +122,12 @@ class LinkCandidateGenerationOrchestratorTest {
         when(runs.tryStart(any())).thenReturn(Optional.empty());
         assertThatThrownBy(() -> orchestrator.generate(request(false, false)))
                 .isInstanceOf(ConcurrentGenerationException.class);
+    }
+
+    private void arrangeDiscovery(List<DiscoveredPair> pairs) {
+        when(runs.tryStart(any())).thenReturn(Optional.of(runId));
+        when(discovery.discover(any(), any(), any(Double.class), any(Integer.class), any(Integer.class), any(), any()))
+                .thenReturn(new LinkCandidatePairDiscoveryPort.DiscoveryResult(pairs, 1));
     }
 
     private LinkCandidateGenerationOrchestrator.Request request(boolean dryRun, boolean persist) {
@@ -106,11 +149,12 @@ class LinkCandidateGenerationOrchestratorTest {
                 "Ataturk 1", "{\"district\":\"Konak\"}", true, true, "ACTIVE");
     }
 
-    private LinkCandidateGenerationRunPort.RunRecord completedRun(boolean dryRun) {
+    private LinkCandidateGenerationRunPort.RunRecord completedRun(boolean dryRun, String status) {
         return new LinkCandidateGenerationRunPort.RunRecord(
-                runId, "IZUM_OSM", "registry-link-candidate-v1", dryRun, false,
-                100, 100, 1000, 20, "{}", "COMPLETED",
-                new LinkCandidateGenerationRunPort.Aggregates(1, 1, 1, 0, 0, Map.of(), 0, 0),
+                runId, "IZUM_OSM", "registry-link-candidate-v1", dryRun, !dryRun,
+                100, 100, 1000, 20, "{}", status,
+                new LinkCandidateGenerationRunPort.Aggregates(1, 1, 1, 0, 0, Map.of(), 0,
+                        "PARTIAL".equals(status) ? 1 : 0),
                 "[]", null, "admin", "test", Instant.now(), Instant.now(), 1L);
     }
 }

@@ -72,7 +72,7 @@ this package.
 
 ## Dry-run
 
-Run `powershell -File scripts/registry-candidate-dry-run.ps1`. It uses deterministic fixtures and prints aggregate counts only. Live input is intentionally unsupported. The dry-run writes no links, occupancy, tariffs, provenance publication, or source data.
+Run `powershell -File scripts/registry-candidate-dry-run.ps1`. It uses deterministic fixtures and prints aggregate counts only. Live input is intentionally unsupported. A dry-run may write its bounded generation-run audit record; it writes no candidates, links, aliases, occupancy, tariffs, provenance publication, or source data.
 
 ## Monitoring and rollback
 

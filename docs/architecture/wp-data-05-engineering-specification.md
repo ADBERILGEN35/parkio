@@ -8,10 +8,10 @@
 
 DATA-WP-01 through DATA-WP-04 delivered İzmir municipal source foundations, OSM
 publication, gated İZELMAN import tooling, and a dark-by-default canonical registry
-with provenance and human link review. The remaining **repository-backed** gap is
-operational: candidate generation is pair-only (`LinkCandidateGenerationService.generate`),
-fixture dry-runs intentionally reject live input, and live hosted-beta shadow remains an
-explicit operator gate outside DATA-WP-04.
+with provenance and human link review. Historically, the remaining **repository-backed**
+gap was operational: candidate generation was pair-only and fixture dry-runs rejected live
+input. DATA-WP-05 closes that repository gap; live hosted-beta shadow remains an explicit
+operator gate under DATA-WP-05A.
 
 **DATA-WP-05** closes that gap with a **bounded, opt-in, non-applying** candidate
 generation orchestrator for official source families already present on hosted-beta
@@ -61,10 +61,10 @@ Application image tip for hosted-beta parking-service:
 
 ## 4. Problem statement
 
-Operators cannot run a **repository-supported**, bounded candidate generation pass
-against live hosted-beta İZUM/OSM facilities without inventing endpoints or offline
-policy reimplementations. DATA-WP-04B therefore could only prove dark defaults and an
-offline policy shadow. Without an explicit generation orchestrator:
+**Historical gap (closed locally by DATA-WP-05):** operators could not run a
+repository-supported, bounded candidate generation pass without inventing endpoints or
+offline policy reimplementations. DATA-WP-04B therefore could only prove dark defaults
+and an offline policy shadow. Before the DATA-WP-05 orchestrator:
 
 - Review tooling cannot be exercised on real İzmir pairs safely.
 - Hard-conflict and multi-signal distributions remain unmeasured on live data.
@@ -323,5 +323,7 @@ Implemented on the `api` branch after the specification baseline:
 - Dry-run and evaluation-only modes write only the bounded run audit. Persist mode inserts review candidates through the existing idempotent PENDING-candidate path.
 - Generation never applies aliases, links, occupancy, tariffs, provenance publication, or public projections. Automatic linking remains hard-false.
 - Run metrics and non-blocking health details expose completion, duration, active runs, and stale RUNNING audits.
+
+Implementation is complete locally at commit `deb557d07dfb64e8ddad2b6697cfbc2e5c58605f` plus the acceptance follow-up. **Push/deploy HOLD:** neither the implementation nor this follow-up has been pushed or deployed.
 
 DATA-WP-05A remains not started. Registry flags remain false in Compose and environment examples; live hosted-beta input, deployment, and temporary enablement are outside this implementation.
