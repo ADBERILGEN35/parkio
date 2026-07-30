@@ -175,11 +175,15 @@ See [Known Issues](../releases/KNOWN-ISSUES.md) for the current blocker list.
 - [DATA-WP-05 bounded registry candidate generation](wp-data-05-engineering-specification.md)
 - [DATA-WP-05 acceptance traceability](wp-data-05-acceptance-traceability.md)
   - Specification: complete.
-  - Implementation: complete locally in `deb557d07dfb64e8ddad2b6697cfbc2e5c58605f`
-    plus the acceptance-closure follow-up commit on this branch.
-  - Push/deploy: not yet performed.
-  - DATA-WP-05A hosted-beta gate: pending.
+  - Implementation: complete (`deb557d` + closure `b3f1cec`).
+  - Hosted-beta DATA-WP-05A: complete (dark deploy + dry-run; 0 eligible candidates).
   - Decision Intelligence WP-05 remains a separate work package.
+- [DATA-WP-06 municipal source health, SLA and recovery](wp-data-06-engineering-specification.md)
+  - Specification: complete (this package).
+  - Implementation / DATA-WP-06A: not started.
+  - Recommended next DATA package after DATA-WP-05 closed.
 
-> **Name collision:** Repository **WP-05** is Decision Intelligence. Municipal data
-> packages use **DATA-WP-NN** / `wp-data-NN-*` and must not reopen `wp-05-*`.
+> **Name collision:** Repository **WP-05** is Decision Intelligence. Repository
+> **WP-06** is Operational Platform (`docs/operations/wp-06-*`). Municipal data
+> packages use **DATA-WP-NN** / `wp-data-NN-*` and must not reopen `wp-05-*` or
+> ops `wp-06-*`.

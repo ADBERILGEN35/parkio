@@ -51,6 +51,7 @@ action, diagnostics, recovery, and escalation.
 | [Outcome Validation Runbook](outcome-validation-runbook.md) | WP-05.10 outcome job |
 | [DLQ Redrive Runbook](dlq-redrive-runbook.md) | Kafka DLT recovery |
 | [Municipal Parking Source Runbook](municipal-parking-source-runbook.md) | DATA-WP-01 İZUM sync / stale / rollback |
+| [DATA-WP-06 source health / SLA / recovery (spec)](../architecture/wp-data-06-engineering-specification.md) | Next municipal DATA package; not ops WP-06 |
 
 ## Related Architecture
 
