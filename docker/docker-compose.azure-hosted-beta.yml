@@ -31,6 +31,23 @@ services:
     platform: linux/amd64
     environment:
       PARKIO_TRACING_ENABLED: "false"
+      # Municipal / OSM facility import (DATA-WP-02). Defaults remain false; hosted-beta
+      # operators set these in docker/.env.azure-hosted-beta. Without explicit Compose
+      # mapping, env-file values never reach the container (Spring never sees them).
+      PARKIO_MUNICIPAL_ENABLED: ${PARKIO_MUNICIPAL_ENABLED:-false}
+      PARKIO_MUNICIPAL_OSM_IMPORT_ENABLED: ${PARKIO_MUNICIPAL_OSM_IMPORT_ENABLED:-false}
+      PARKIO_MUNICIPAL_OSM_SCHEDULER_ENABLED: ${PARKIO_MUNICIPAL_OSM_SCHEDULER_ENABLED:-false}
+      PARKIO_MUNICIPAL_OSM_CONFLATION_ENABLED: ${PARKIO_MUNICIPAL_OSM_CONFLATION_ENABLED:-false}
+      PARKIO_MUNICIPAL_OSM_AUTO_MATCH_ENABLED: ${PARKIO_MUNICIPAL_OSM_AUTO_MATCH_ENABLED:-false}
+      PARKIO_MUNICIPAL_OSM_PUBLICATION_ENABLED: ${PARKIO_MUNICIPAL_OSM_PUBLICATION_ENABLED:-false}
+      PARKIO_MUNICIPAL_OSM_PUBLISH_RESTRICTED: ${PARKIO_MUNICIPAL_OSM_PUBLISH_RESTRICTED:-false}
+      PARKIO_MUNICIPAL_OSM_LOCAL_INPUT_PATH: ${PARKIO_MUNICIPAL_OSM_LOCAL_INPUT_PATH:-}
+      PARKIO_MUNICIPAL_OSM_ALLOWED_INPUT_DIR: ${PARKIO_MUNICIPAL_OSM_ALLOWED_INPUT_DIR:-}
+      PARKIO_MUNICIPAL_OSM_MAX_INPUT_BYTES: ${PARKIO_MUNICIPAL_OSM_MAX_INPUT_BYTES:-52428800}
+      PARKIO_MUNICIPAL_OSM_CLIP_VERSION: ${PARKIO_MUNICIPAL_OSM_CLIP_VERSION:-izmir-bbox-v1}
+    volumes:
+      # Read-only ops interchange for OSM GeoJSON (outside Git). Created by operators.
+      - /opt/parkio/ops/data-wp-02b:/opt/parkio/ops/data-wp-02b:ro
   media-service:
     platform: linux/amd64
     environment:

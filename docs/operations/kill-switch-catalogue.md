@@ -81,8 +81,8 @@ See [rollback-runbook.md](rollback-runbook.md).
 
 | Key | Default | Scope |
 |-----|---------|-------|
-| parkio.municipal.osm.import-enabled | alse | Admin GeoJSON import |
-| parkio.municipal.osm.scheduler-enabled | alse | Reserved; unused in WP-02 |
-| parkio.municipal.osm.conflation-enabled | alse | Candidate generation |
-| parkio.municipal.osm.auto-match-enabled | alse | Automatic link merge |
-| parkio.municipal.osm.publication-enabled | alse | Future publication gate |
+| parkio.municipal.osm.import-enabled | false | Admin GeoJSON import |
+| parkio.municipal.osm.scheduler-enabled | false | Reserved; unused in WP-02 |
+| parkio.municipal.osm.conflation-enabled | false | Candidate generation |
+| parkio.municipal.osm.auto-match-enabled | false | Automatic link merge |
+| parkio.municipal.osm.publication-enabled | false | Future publication gate |

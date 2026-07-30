@@ -77,15 +77,18 @@ Convert osmium GeoJSON → Parkio `osm-parking-geojson-v1` (preserve `osmType`/`
 
 ### 4. Import flags (defaults remain false)
 
-| Flag | Default | Notes |
-|------|---------|--------|
-| `parkio.municipal.osm.import-enabled` | false | Required for admin import |
-| `parkio.municipal.osm.scheduler-enabled` | false | Keep off |
-| `parkio.municipal.osm.conflation-enabled` | false | Optional offline/review |
-| `parkio.municipal.osm.auto-match-enabled` | false | Separate gate; keep off until review passes |
-| `parkio.municipal.osm.publication-enabled` | false | Hides OSM-attributed rows from nearby/detail when false |
+| Flag | Env (Compose → parking-service) | Default | Notes |
+|------|----------------------------------|---------|--------|
+| `parkio.municipal.enabled` | `PARKIO_MUNICIPAL_ENABLED` | false | Master gate; required with OSM import |
+| `parkio.municipal.osm.import-enabled` | `PARKIO_MUNICIPAL_OSM_IMPORT_ENABLED` | false | Required for admin import |
+| `parkio.municipal.osm.scheduler-enabled` | `PARKIO_MUNICIPAL_OSM_SCHEDULER_ENABLED` | false | Keep off |
+| `parkio.municipal.osm.conflation-enabled` | `PARKIO_MUNICIPAL_OSM_CONFLATION_ENABLED` | false | Optional offline/review |
+| `parkio.municipal.osm.auto-match-enabled` | `PARKIO_MUNICIPAL_OSM_AUTO_MATCH_ENABLED` | false | Separate gate; keep off until review passes |
+| `parkio.municipal.osm.publication-enabled` | `PARKIO_MUNICIPAL_OSM_PUBLICATION_ENABLED` | false | Hides OSM-attributed rows from nearby/detail when false |
 
-Also set `local-input-path` and optional `allowed-input-dir`.
+Also set `local-input-path` / `allowed-input-dir` (`PARKIO_MUNICIPAL_OSM_LOCAL_INPUT_PATH`, `PARKIO_MUNICIPAL_OSM_ALLOWED_INPUT_DIR`).
+
+Azure hosted-beta: these env keys are mapped in `docker/docker-compose.azure-hosted-beta.yml` and must be present in `docker/.env.azure-hosted-beta`. Values in the env file alone do not reach the container without that Compose mapping. Ops GeoJSON is mounted read-only from `/opt/parkio/ops/data-wp-02b`.
 
 ### 5. Dry-run then mutating import
 
