@@ -35,9 +35,40 @@ Use only ADMIN or SUPER_ADMIN credentials. Inspect bounded evidence and hard con
 
 Rejections suppress candidate regeneration only for the same pair of source versions and algorithm version. A changed source version can legitimately create a new candidate.
 
+## Bounded candidate generation (DATA-WP-05)
+
+The ADMIN/SUPER_ADMIN endpoint is available only when
+`PARKIO_MUNICIPAL_REGISTRY_CANDIDATE_GENERATION_ENABLED=true`:
+
+`POST /api/v1/parking/admin/municipal/registry/link-candidates/generate`
+
+Supported pair: `IZUM` + `OSM`. `IZUM` + `IZELMAN` and `OSM` + `IZELMAN`
+are designed but rejected until a later explicit data-availability gate. This does
+not claim that OSM or IZELMAN input is available in any environment.
+
+Bounds default to 100 m / 100 left records / 1,000 pairs / 20 samples and clamp
+at 250 m / 1,000 left records / 10,000 pairs / 20 samples. Non-positive values
+return HTTP 400. `dryRun=true` and `persistCandidates=false` evaluate only.
+`persistCandidates=true` requires `dryRun=false`; it inserts PENDING review
+candidates but never links aliases or mutates occupancy, tariffs, or publication.
+Only one RUNNING audit exists per source-family pair; overlap returns HTTP 409.
+
+Inspect runs with:
+
+- `GET /api/v1/parking/admin/municipal/registry/link-candidate-runs/{runId}`
+- `GET /api/v1/parking/admin/municipal/registry/link-candidate-runs?page=0&size=20&sourceFamilyPair=IZUM_OSM`
+
+DATA-WP-05A has not started. Do not enable registry flags in hosted-beta Compose
+or run live source input under this package.
+
 ## Integration coverage
 
-Postgres/PostGIS ITs cover V31→V32 migration, candidate uniqueness/idempotency, distance/name-only protection, hard-conflict retention, accept/reject/reopen mutation paths, occupancy preservation, source-link lifecycle isolation, and automatic-linking prohibition. Live hosted-beta shadow against official datasets remains an operator gate outside this package.
+Postgres/PostGIS ITs cover V31→V32 and V32→V33 migration, bounded discovery,
+candidate uniqueness/idempotency, dry-run write protection, hard-conflict
+retention, accept/reject/reopen mutation paths, occupancy preservation,
+source-link lifecycle isolation, and automatic-linking prohibition. Live
+hosted-beta shadow against official datasets remains an operator gate outside
+this package.
 
 ## Dry-run
 
@@ -45,4 +76,9 @@ Run `powershell -File scripts/registry-candidate-dry-run.ps1`. It uses determini
 
 ## Monitoring and rollback
 
-Inspect `/actuator/health` component `municipalRegistry` and bounded `parkio.municipal.registry.*` metrics. Health findings do not fail liveness. On rollback, disable all flags. V32 is forward-only; do not drop tables. Reopen any incorrect accepted decisions through the API and retain the audit trail.
+Inspect `/actuator/health` component `municipalRegistry`, including active,
+latest-completed, and stale generation-run details, and bounded
+`parkio.municipal.registry.*` metrics. Health findings do not fail liveness.
+On rollback, disable all flags. V32 and V33 are forward-only; do not drop
+tables. Reopen any incorrect accepted decisions through the API and retain the
+audit trail.

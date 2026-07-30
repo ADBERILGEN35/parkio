@@ -116,3 +116,9 @@ Hosted-beta Compose maps PARKIO_MUNICIPAL_IZELMAN_* with defaults false.
 
 Disable publication first, then reviewed linking, review API, and candidate generation.
 These switches do not stop IZUM availability. IZELMAN publication stays independently disabled.
+
+DATA-WP-05 adds the bounded ADMIN generation endpoint behind the existing
+`candidate-generation-enabled` switch; it adds no scheduler or new enablement
+flag. Disabling the switch removes the controller (HTTP 404) after restart.
+Generation never applies links. All hosted-beta registry values remain `false`,
+and DATA-WP-05A is not started.

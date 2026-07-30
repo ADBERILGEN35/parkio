@@ -312,3 +312,16 @@ Prefer **migration-free** if V32 is sufficient. If a run-id column is proven nec
 | WP-07 mobile/session | No session API changes |
 | Frontend | No public contract change in 05; optional later provenance UX deferred |
 | parking-service registry | Own changes under application/presentation registry packages only |
+
+## 23. Implementation status (DATA-WP-05)
+
+Implemented on the `api` branch after the specification baseline:
+
+- V33 adds a dedicated cross-family generation-run audit and a partial unique lock for one RUNNING row per pair; per-source occupancy/import sync runs are not reused.
+- The synchronous ADMIN API performs bounded PostGIS `ST_DWithin` discovery without loading the facility inventory into memory.
+- Only `IZUM_OSM` is enabled. IZELMAN combinations remain explicitly rejected and no source availability is asserted.
+- Dry-run and evaluation-only modes write only the bounded run audit. Persist mode inserts review candidates through the existing idempotent PENDING-candidate path.
+- Generation never applies aliases, links, occupancy, tariffs, provenance publication, or public projections. Automatic linking remains hard-false.
+- Run metrics and non-blocking health details expose completion, duration, active runs, and stale RUNNING audits.
+
+DATA-WP-05A remains not started. Registry flags remain false in Compose and environment examples; live hosted-beta input, deployment, and temporary enablement are outside this implementation.

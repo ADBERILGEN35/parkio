@@ -1,7 +1,9 @@
 package com.parkio.parking.infrastructure.metrics;
 
 import com.parkio.parking.externalsource.registry.RegistryField;
+import io.micrometer.core.instrument.DistributionSummary;
 import io.micrometer.core.instrument.MeterRegistry;
+import java.util.concurrent.TimeUnit;
 import org.springframework.stereotype.Component;
 
 @Component
@@ -35,5 +37,47 @@ public class RegistryMetrics {
                 "parkio.municipal.registry.provenance",
                 "field_name", field.name(),
                 "outcome", outcome).increment();
+    }
+
+    public void generationRun(String sourceFamilyPair, String outcome, boolean dryRun) {
+        registry.counter(
+                "parkio.municipal.registry.generation.runs",
+                "source_family_pair", sourceFamilyPair,
+                "outcome", outcome,
+                "dry_run", Boolean.toString(dryRun)).increment();
+    }
+
+    public void generationDuration(String sourceFamilyPair, boolean dryRun, long durationMs) {
+        registry.timer(
+                "parkio.municipal.registry.generation.duration",
+                "source_family_pair", sourceFamilyPair,
+                "dry_run", Boolean.toString(dryRun)).record(durationMs, TimeUnit.MILLISECONDS);
+    }
+
+    public void generationPairs(
+            String sourceFamilyPair, String algorithmVersion, boolean dryRun, int count) {
+        DistributionSummary.builder("parkio.municipal.registry.generation.pairs")
+                .tag("source_family_pair", sourceFamilyPair)
+                .tag("algorithm_version", algorithmVersion)
+                .tag("dry_run", Boolean.toString(dryRun))
+                .register(registry)
+                .record(count);
+    }
+
+    public void generationCount(
+            String sourceFamilyPair,
+            String outcome,
+            String reasonCategory,
+            String algorithmVersion,
+            boolean dryRun,
+            int count) {
+        if (count <= 0) return;
+        registry.counter(
+                "parkio.municipal.registry.generation.outcomes",
+                "source_family_pair", sourceFamilyPair,
+                "outcome", outcome,
+                "reason_category", reasonCategory,
+                "algorithm_version", algorithmVersion,
+                "dry_run", Boolean.toString(dryRun)).increment(count);
     }
 }

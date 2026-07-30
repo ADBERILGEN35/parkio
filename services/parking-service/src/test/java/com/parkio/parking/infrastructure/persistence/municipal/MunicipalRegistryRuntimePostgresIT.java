@@ -56,13 +56,13 @@ class MunicipalRegistryRuntimePostgresIT {
     }
 
     @Test
-    void v31UpgradesToV32ExactlyOnceWithoutDamagingExistingRegistryData() throws Exception {
-        Flyway v31 = flyway(MigrationVersion.fromVersion("31"));
-        v31.clean();
-        v31.migrate();
+    void v32UpgradesToV33ExactlyOnceWithoutDamagingExistingRegistryData() throws Exception {
+        Flyway v32 = flyway(MigrationVersion.fromVersion("32"));
+        v32.clean();
+        v32.migrate();
         try (Connection connection = open()) {
             insertFacility(connection, FACILITY_A, "Existing facility");
-            assertThat(version(connection)).isEqualTo("31");
+            assertThat(version(connection)).isEqualTo("32");
         }
 
         Flyway latest = flyway(null);
@@ -70,7 +70,7 @@ class MunicipalRegistryRuntimePostgresIT {
         assertThat(latest.migrate().migrationsExecuted).isZero();
 
         try (Connection connection = open()) {
-            assertThat(version(connection)).isEqualTo("32");
+            assertThat(version(connection)).isEqualTo("33");
             assertThat(count(connection, "SELECT count(*) FROM municipal_parking_facilities WHERE id='" + FACILITY_A + "'"))
                     .isEqualTo(1);
             assertThat(count(connection, "SELECT count(*) FROM municipal_link_candidates")).isZero();
@@ -84,13 +84,15 @@ class MunicipalRegistryRuntimePostgresIT {
                     "municipal_occupancy_snapshots", "municipal_tariff_plans",
                     "municipal_tariff_rate_bands", "municipal_tariff_assignments",
                     "municipal_link_candidates", "municipal_link_review_audit",
-                    "municipal_facility_aliases", "municipal_facility_field_provenance"}) {
+                    "municipal_facility_aliases", "municipal_facility_field_provenance",
+                    "municipal_link_candidate_generation_runs"}) {
                 assertThat(tableExists(connection, table)).as(table).isTrue();
             }
             assertThat(constraintExists(connection, "ck_municipal_alias_not_self")).isTrue();
             assertThat(constraintExists(connection, "uq_municipal_candidate_source_versions")).isTrue();
             assertThat(indexExists(connection, "idx_municipal_candidate_queue")).isTrue();
             assertThat(indexExists(connection, "idx_municipal_facility_lifecycle")).isTrue();
+            assertThat(indexExists(connection, "uq_mlcg_runs_one_running")).isTrue();
         }
     }
 
