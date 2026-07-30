@@ -32,6 +32,7 @@ DATA-WP-01 `municipal_*` tables and ports are **behaviorally generic** (source_k
 - Version: `izmir-bbox-v1`
 - Bounds: west 26.20, south 37.85, east 28.45, north 39.05 (WGS84)
 - Temporary documented fallback until a licensed admin boundary polygon is checked in
+- DATA-WP-02A: bbox is acceptable for hosted-beta validation with known adjacent-province / peninsula contamination; not a production administrative boundary
 
 ## External IDs
 
@@ -61,7 +62,7 @@ Policy version `osm-conflation-v1` (see `ConflationPolicy`).
 
 ## Defaults (safe)
 
-All OSM flags default **false**. No remote download. No scheduler. Auto-match off.
+All OSM flags default **false** (import, scheduler, conflation, auto-match, publication). No remote download. No scheduler. Auto-match off. publication-enabled=false hides OSM-attributed facilities from discovery.
 
 ## Non-goals (explicit)
 

@@ -77,6 +77,7 @@ class OsmImportIntegrationTest {
         registry.add("parkio.municipal.osm.import-enabled", () -> "true");
         registry.add("parkio.municipal.osm.conflation-enabled", () -> "true");
         registry.add("parkio.municipal.osm.auto-match-enabled", () -> "false");
+        registry.add("parkio.municipal.osm.publication-enabled", () -> "true");
         registry.add("parkio.municipal.osm.local-input-path", () -> FIXTURE_PATH.toString());
         registry.add("parkio.municipal.osm.allowed-input-dir", () -> FIXTURE_DIR.toString());
     }
@@ -113,5 +114,35 @@ class OsmImportIntegrationTest {
         assertThat(osmFacility.get().availableSpaces()).isNull();
         assertThat(osmFacility.get().freshness()).isEqualTo(MunicipalOccupancyFreshness.UNAVAILABLE);
         assertThat(osmFacility.get().attribution()).contains("OpenStreetMap");
+    }
+    @Test
+    void softDeactivationThenFullImportReactivatesFacilities() throws Exception {
+        var first = importService.importFromConfiguredPath(false);
+        assertThat(first.status()).isEqualTo(MunicipalSyncRunStatus.SUCCESS);
+        assertThat(facilities.count()).isEqualTo(3);
+
+        Path reduced = FIXTURE_DIR.resolve("reduced.geojson");
+        String raw = Files.readString(FIXTURE_PATH);
+        // Keep only the first Feature in the fixture FeatureCollection for a complete reduced import.
+        var mapper = new com.fasterxml.jackson.databind.ObjectMapper();
+        var root = mapper.readTree(raw);
+        var features = root.withArray("features");
+        var kept = mapper.createArrayNode();
+        kept.add(features.get(0));
+        ((com.fasterxml.jackson.databind.node.ObjectNode) root).set("features", kept);
+        Files.writeString(reduced, mapper.writeValueAsString(root));
+
+        var reducedResult = importService.importPath(reduced, false);
+        assertThat(reducedResult.status()).isEqualTo(MunicipalSyncRunStatus.SUCCESS);
+        assertThat(reducedResult.deactivated()).isGreaterThan(0);
+        Long activeAfterReduce = jdbc.queryForObject(
+                "SELECT COUNT(*) FROM municipal_parking_facilities WHERE active=true", Long.class);
+        assertThat(activeAfterReduce).isEqualTo(1);
+
+        var restored = importService.importFromConfiguredPath(false);
+        assertThat(restored.status()).isEqualTo(MunicipalSyncRunStatus.SUCCESS);
+        Long activeAfterRestore = jdbc.queryForObject(
+                "SELECT COUNT(*) FROM municipal_parking_facilities WHERE active=true", Long.class);
+        assertThat(activeAfterRestore).isEqualTo(3);
     }
 }

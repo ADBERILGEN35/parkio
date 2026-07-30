@@ -34,7 +34,7 @@ public class MunicipalFacilityRepositoryAdapter implements MunicipalFacilityRepo
                     SET operator_name=:operator, facility_type=:type, display_name=:name,
                         address_text=:address, latitude=:lat, longitude=:lng,
                         capacity_total=:capacity, access_classification=:access,
-                        updated_at=:now, version=version+1
+                        active=true, updated_at=:now, version=version+1
                     WHERE id=:id
                     """).param("operator", value.operatorName()).param("type", value.facilityType().name())
                     .param("name", value.displayName()).param("address", value.addressText())
