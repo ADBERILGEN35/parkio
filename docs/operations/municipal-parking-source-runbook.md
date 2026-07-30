@@ -26,3 +26,16 @@ Enable only after soak:
 
 Use `src/test/resources/fixtures/municipal/izum/otoparklar-sample.json`.
 Do not point CI at `openapi.izmir.bel.tr`.
+
+## OSM / Geofabrik (DATA-WP-02)
+
+1. Download Turkey extract from Geofabrik (ops machine).
+2. Record filename, bytes, SHA-256, extract timestamp.
+3. Clip with osmium using `izmir-bbox-v1` (see architecture doc).
+4. Export `amenity=parking` to Parkio GeoJSON `osm-parking-geojson-v1`.
+5. Set `parkio.municipal.enabled=true`, `parkio.municipal.osm.import-enabled=true`, `local-input-path`, optional `allowed-input-dir`.
+6. Dry-run: `POST /api/v1/parking/municipal/sources/osm-geofabrik-turkey/import?dryRun=true` (admin).
+7. Keep `auto-match-enabled=false` until sample review passes.
+8. Kill switches listed in kill-switch catalogue.
+
+Attribution on OSM-derived facilities: © OpenStreetMap contributors (ODbL). Legal review required before bulk redistribution.

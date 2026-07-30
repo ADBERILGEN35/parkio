@@ -33,24 +33,25 @@ public class MunicipalFacilityRepositoryAdapter implements MunicipalFacilityRepo
                     UPDATE municipal_parking_facilities
                     SET operator_name=:operator, facility_type=:type, display_name=:name,
                         address_text=:address, latitude=:lat, longitude=:lng,
-                        capacity_total=:capacity, updated_at=:now, version=version+1
+                        capacity_total=:capacity, access_classification=:access,
+                        updated_at=:now, version=version+1
                     WHERE id=:id
                     """).param("operator", value.operatorName()).param("type", value.facilityType().name())
                     .param("name", value.displayName()).param("address", value.addressText())
                     .param("lat", value.latitude()).param("lng", value.longitude())
-                    .param("capacity", value.capacityTotal()).param("now", Timestamp.from(now)).param("id", id).update();
+                    .param("capacity", value.capacityTotal()).param("access", value.accessClassification().name()).param("now", Timestamp.from(now)).param("id", id).update();
             return new Upserted(id, false, !value.rawRecordHash().equals(existing.get().hash()));
         }
         UUID id = UUID.randomUUID();
         jdbc.sql("""
                 INSERT INTO municipal_parking_facilities
                     (id, operator_name, facility_type, display_name, address_text, latitude, longitude,
-                     capacity_total, opening_hours_json, is_paid, nonstop, active, created_at, updated_at, version)
-                VALUES (:id,:operator,:type,:name,:address,:lat,:lng,:capacity,NULL,false,false,true,:now,:now,0)
+                     capacity_total, opening_hours_json, is_paid, nonstop, active, access_classification, created_at, updated_at, version)
+                VALUES (:id,:operator,:type,:name,:address,:lat,:lng,:capacity,NULL,false,false,true,:access,:now,:now,0)
                 """).param("id", id).param("operator", value.operatorName()).param("type", value.facilityType().name())
                 .param("name", value.displayName()).param("address", value.addressText())
                 .param("lat", value.latitude()).param("lng", value.longitude())
-                .param("capacity", value.capacityTotal()).param("now", Timestamp.from(now)).update();
+                .param("capacity", value.capacityTotal()).param("access", value.accessClassification().name()).param("now", Timestamp.from(now)).update();
         return new Upserted(id, true, true);
     }
 

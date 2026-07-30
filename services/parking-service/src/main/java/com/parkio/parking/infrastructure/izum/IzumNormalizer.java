@@ -2,6 +2,7 @@ package com.parkio.parking.infrastructure.izum;
 
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.parkio.parking.externalsource.MunicipalAccessClassification;
 import com.parkio.parking.externalsource.MunicipalFacilityType;
 import com.parkio.parking.externalsource.MunicipalOccupancyFreshness;
 import com.parkio.parking.externalsource.MunicipalTimestampProvenance;
@@ -35,7 +36,7 @@ public class IzumNormalizer {
         metadata.put("openingHours", record.openingHours());
         return new NormalizedMunicipalFacility(
                 record.ufid(), record.provider(), facilityType(record.type()), record.name(), record.address(),
-                record.lat(), record.lng(), capacity, metadata, hash(record));
+                record.lat(), record.lng(), capacity, MunicipalAccessClassification.PUBLIC, metadata, hash(record));
     }
 
     public NormalizedMunicipalOccupancy occupancy(IzumParkingRecordDto record, Instant fetchedAt) {

@@ -14,3 +14,7 @@ parkio:
     izum:
       enabled: false
       scheduler-enabled: false
+    osm:
+      import-enabled: false
+      conflation-enabled: false
+      auto-match-enabled: false

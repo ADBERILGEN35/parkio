@@ -29,13 +29,13 @@ class MunicipalSourceMigrationPostgresIT {
             .withPassword("parkio");
 
     @Test
-    void freshSchemaMigratesThroughV28WithMunicipalTablesAndIzumSeed() throws Exception {
+    void freshSchemaMigratesThroughV29WithMunicipalTablesAndSeeds() throws Exception {
         Flyway flyway = flyway(null);
         flyway.clean();
         flyway.migrate();
 
         try (Connection connection = openConnection()) {
-            assertThat(currentFlywayVersion(connection)).isEqualTo("28");
+            assertThat(currentFlywayVersion(connection)).isEqualTo("29");
             assertThat(tableExists(connection, "municipal_data_sources")).isTrue();
             assertThat(tableExists(connection, "municipal_source_sync_runs")).isTrue();
             assertThat(tableExists(connection, "municipal_parking_facilities")).isTrue();
@@ -48,15 +48,19 @@ class MunicipalSourceMigrationPostgresIT {
             assertThat(indexExists(connection, "idx_municipal_parking_facilities_location")).isTrue();
             assertThat(indexExists(connection, "uq_municipal_source_sync_runs_one_running")).isTrue();
             assertThat(seedCount(connection, "izmir-izum-otoparklar")).isEqualTo(1);
+            assertThat(seedCount(connection, "osm-geofabrik-turkey")).isEqualTo(1);
+            assertThat(tableExists(connection, "municipal_osm_import_runs")).isTrue();
+            assertThat(tableExists(connection, "municipal_facility_conflation_decisions")).isTrue();
 
             flyway.migrate();
-            assertThat(currentFlywayVersion(connection)).isEqualTo("28");
+            assertThat(currentFlywayVersion(connection)).isEqualTo("29");
             assertThat(seedCount(connection, "izmir-izum-otoparklar")).isEqualTo(1);
+            assertThat(seedCount(connection, "osm-geofabrik-turkey")).isEqualTo(1);
         }
     }
 
     @Test
-    void v27SchemaUpgradesCleanlyToV28() throws Exception {
+    void v27SchemaUpgradesCleanlyToV29() throws Exception {
         Flyway targetV27 = flyway(MigrationVersion.fromVersion("27"));
         targetV27.clean();
         targetV27.migrate();
@@ -70,7 +74,7 @@ class MunicipalSourceMigrationPostgresIT {
         full.migrate();
 
         try (Connection connection = openConnection()) {
-            assertThat(currentFlywayVersion(connection)).isEqualTo("28");
+            assertThat(currentFlywayVersion(connection)).isEqualTo("29");
             assertThat(tableExists(connection, "municipal_data_sources")).isTrue();
             assertThat(foreignKeyExists(connection, "municipal_facility_source_links",
                     "fk_municipal_facility_source_links_facility")).isTrue();

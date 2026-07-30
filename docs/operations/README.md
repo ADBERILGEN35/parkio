@@ -66,3 +66,5 @@ Decision authority, enables WP-05 schedulers by default, or claims production la
 - [WP-06.2B.1 evidence finalization & sign-off preparation](wp-06-02b-1-evidence-finalization-signoff-preparation.md)
 
 - [WP-06.2B.2 final-state re-execution & sign-off gate](wp-06-02b-2-final-state-reexecution-signoff-gate.md)
+
+- Municipal/OSM sources: [municipal-parking-source-runbook.md](municipal-parking-source-runbook.md)

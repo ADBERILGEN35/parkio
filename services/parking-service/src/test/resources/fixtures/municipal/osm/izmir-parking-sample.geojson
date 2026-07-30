@@ -1,0 +1,110 @@
+{
+  "type": "FeatureCollection",
+  "parkioImportVersion": "osm-parking-geojson-v1",
+  "provenance": {
+    "license": "ODbL-1.0",
+    "attribution": "© OpenStreetMap contributors",
+    "note": "Synthetic deterministic fixture for CI — not a Geofabrik extract"
+  },
+  "features": [
+    {
+      "type": "Feature",
+      "id": "node/1001",
+      "geometry": { "type": "Point", "coordinates": [27.1283, 38.4187] },
+      "properties": {
+        "osmType": "node",
+        "osmId": 1001,
+        "amenity": "parking",
+        "name": "Konak Test Otopark",
+        "operator": "Izmir Belediyesi",
+        "access": "yes",
+        "fee": "yes",
+        "capacity": "120",
+        "parking": "surface"
+      }
+    },
+    {
+      "type": "Feature",
+      "id": "way/2002",
+      "geometry": {
+        "type": "Polygon",
+        "coordinates": [[
+          [27.1290, 38.4190], [27.1295, 38.4190], [27.1295, 38.4194], [27.1290, 38.4194], [27.1290, 38.4190]
+        ]]
+      },
+      "properties": {
+        "osmType": "way",
+        "osmId": 2002,
+        "amenity": "parking",
+        "name": "Alsancak Garage",
+        "access": "customers",
+        "capacity": "80",
+        "parking": "multi-storey"
+      }
+    },
+    {
+      "type": "Feature",
+      "id": "relation/3003",
+      "geometry": {
+        "type": "MultiPolygon",
+        "coordinates": [[
+          [[27.1400, 38.4300], [27.1410, 38.4300], [27.1410, 38.4310], [27.1400, 38.4310], [27.1400, 38.4300]]
+        ]]
+      },
+      "properties": {
+        "osmType": "relation",
+        "osmId": 3003,
+        "amenity": "parking",
+        "access": "yes",
+        "parking": "surface"
+      }
+    },
+    {
+      "type": "Feature",
+      "id": "node/1001-dupe-type-collision-test",
+      "geometry": { "type": "Point", "coordinates": [27.1500, 38.4500] },
+      "properties": {
+        "osmType": "way",
+        "osmId": 1001,
+        "amenity": "parking",
+        "name": "Different Element Same Numeric Id",
+        "access": "yes"
+      }
+    },
+    {
+      "type": "Feature",
+      "id": "node/4004",
+      "geometry": { "type": "Point", "coordinates": [27.1284, 38.4188] },
+      "properties": {
+        "osmType": "node",
+        "osmId": 4004,
+        "amenity": "parking",
+        "access": "private",
+        "name": "Private Lot"
+      }
+    },
+    {
+      "type": "Feature",
+      "id": "node/5005",
+      "geometry": { "type": "Point", "coordinates": [28.0, 41.0] },
+      "properties": {
+        "osmType": "node",
+        "osmId": 5005,
+        "amenity": "parking",
+        "name": "Istanbul Outside Clip",
+        "access": "yes"
+      }
+    },
+    {
+      "type": "Feature",
+      "id": "node/6006",
+      "geometry": { "type": "Point", "coordinates": [27.2, 38.5] },
+      "properties": {
+        "osmType": "node",
+        "osmId": 6006,
+        "amenity": "parking_space",
+        "access": "yes"
+      }
+    }
+  ]
+}

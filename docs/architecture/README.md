@@ -166,3 +166,6 @@ services, secrets manager and rotation workflow, stronger CD rollback,
 production on-call process, and production-scale validation.
 
 See [Known Issues](../releases/KNOWN-ISSUES.md) for the current blocker list.
+
+- [DATA-WP-02 OSM İzmir import](wp-data-02-osm-izmir-facility-import.md)
+- [ADR: OSM import tooling](adr/ADR-WP-DATA-02-osm-import-tooling.md)

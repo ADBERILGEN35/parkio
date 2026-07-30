@@ -22,6 +22,8 @@ public class MunicipalParkingFacilityEntity {
     @Column(name = "is_paid") private Boolean paid;
     private Boolean nonstop;
     @Column(nullable = false) private boolean active;
+    @Column(name = "access_classification", nullable = false) private String accessClassification;
+    @Column(name = "primary_source_key") private String primarySourceKey;
     @Column(name = "created_at", nullable = false) private Instant createdAt;
     @Column(name = "updated_at", nullable = false) private Instant updatedAt;
     @Version private long version;

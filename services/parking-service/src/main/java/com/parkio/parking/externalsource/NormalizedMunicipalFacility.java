@@ -11,5 +11,6 @@ public record NormalizedMunicipalFacility(
         double latitude,
         double longitude,
         Integer capacityTotal,
+        MunicipalAccessClassification accessClassification,
         Map<String, Object> sourceMetadata,
         String rawRecordHash) {}

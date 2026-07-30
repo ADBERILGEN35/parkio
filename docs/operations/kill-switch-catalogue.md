@@ -76,3 +76,13 @@ Disabling IZUM leaves facility inventory intact; occupancy ages to STALE and
 - **Never** set `canary-percentage` > 0 without PRR approval and calibration evidence.
 
 See [rollback-runbook.md](rollback-runbook.md).
+
+## OSM import (DATA-WP-02)
+
+| Key | Default | Scope |
+|-----|---------|-------|
+| parkio.municipal.osm.import-enabled | alse | Admin GeoJSON import |
+| parkio.municipal.osm.scheduler-enabled | alse | Reserved; unused in WP-02 |
+| parkio.municipal.osm.conflation-enabled | alse | Candidate generation |
+| parkio.municipal.osm.auto-match-enabled | alse | Automatic link merge |
+| parkio.municipal.osm.publication-enabled | alse | Future publication gate |

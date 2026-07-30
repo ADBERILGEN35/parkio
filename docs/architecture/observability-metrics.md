@@ -914,3 +914,15 @@ the outbox relay, Loki and MinIO simultaneously, so act before the critical (<10
 - Gauges must be backed by cheap (indexed COUNT) queries — they run on every scrape.
 - Never tag with unbounded or personal values (user ids, emails, file names, tokens).
 - Add a representative unit test with `SimpleMeterRegistry`.
+
+### Municipal OSM import (DATA-WP-02)
+
+| Metric | Type | Notes |
+|--------|------|-------|
+| parkio.municipal.osm.import.runs | counter | Labels: source_key, status, error_category |
+| parkio.municipal.osm.import.duration | timer | Labels: source_key, status |
+| parkio.municipal.osm.import.elements | counter | outcome=read\|extracted\|rejected |
+| parkio.municipal.osm.import.facilities | counter | outcome=inserted\|updated\|deactivated |
+| parkio.municipal.osm.conflation | counter | decision=candidate\|AUTO_MATCHED\|REVIEW_REQUIRED\|REJECTED\|HARD_CONFLICT |
+
+No OSM element IDs, facility IDs, file paths, or exception messages as labels.
