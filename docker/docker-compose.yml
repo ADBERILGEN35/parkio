@@ -355,6 +355,8 @@ services:
       - ./prometheus/continuous-calibration-recording-rules.yml:/etc/prometheus/continuous-calibration-recording-rules.yml:ro
       - ./prometheus/operational-readiness-recording-rules.yml:/etc/prometheus/operational-readiness-recording-rules.yml:ro
       - ./prometheus/operational-readiness-alert-rules.yml:/etc/prometheus/operational-readiness-alert-rules.yml:ro
+      - ./prometheus/municipal-source-health-recording-rules.yml:/etc/prometheus/municipal-source-health-recording-rules.yml:ro
+      - ./prometheus/municipal-source-health-alert-rules.yml:/etc/prometheus/municipal-source-health-alert-rules.yml:ro
       - prometheus-data:/prometheus
     # On both networks: backend to scrape services, observability to serve Grafana.
     networks: [parkio-backend, parkio-observability]

@@ -149,13 +149,14 @@ class IzumMunicipalSyncIntegrationTest {
         RESPONSE_STATUS.set(500);
         var failed = sync.sync(IzumMunicipalParkingAdapter.SOURCE_KEY);
         assertThat(failed.status()).isEqualTo(MunicipalSyncRunStatus.FAILED);
+        assertThat(failed.errorCategory()).isEqualTo("upstream_5xx");
         assertThat(facilities.count()).isEqualTo(facilityCount);
 
         RESPONSE_STATUS.set(200);
         RESPONSE_BODY.set("[{}]".getBytes(StandardCharsets.UTF_8));
         var contractFailed = sync.sync(IzumMunicipalParkingAdapter.SOURCE_KEY);
         assertThat(contractFailed.status()).isEqualTo(MunicipalSyncRunStatus.FAILED);
-        assertThat(contractFailed.errorCategory()).isEqualTo("contract");
+        assertThat(contractFailed.errorCategory()).isEqualTo("schema_contract");
         assertThat(facilities.count()).isEqualTo(facilityCount);
 
         RESPONSE_BODY.set(fixture("/fixtures/municipal/izum/otoparklar-sample.json"));

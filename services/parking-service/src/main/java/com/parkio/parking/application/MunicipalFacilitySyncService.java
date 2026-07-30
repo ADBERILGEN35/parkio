@@ -7,6 +7,7 @@ import com.parkio.parking.application.port.MunicipalOccupancySnapshotRepository;
 import com.parkio.parking.application.port.MunicipalSourceLinkRepository;
 import com.parkio.parking.application.port.MunicipalSourceSyncRunRepository;
 import com.parkio.parking.externalsource.MunicipalParkingSourceAdapter;
+import com.parkio.parking.externalsource.MunicipalSourceFailureClassifier;
 import com.parkio.parking.externalsource.MunicipalSyncResult;
 import com.parkio.parking.externalsource.MunicipalSyncRunStatus;
 import com.parkio.parking.externalsource.NormalizedMunicipalFacility;
@@ -93,7 +94,7 @@ public class MunicipalFacilitySyncService {
             sources.markSuccessful(source.id(), clock.instant());
             log.info(
                     "municipal_sync_complete sourceKey={} runId={} status={} received={} accepted={} rejected={} "
-                            + "inserted={} updated={} unchanged={} occupancyInserted={}",
+                            + "inserted={} updated={} unchanged={} occupancyInserted={} errorCategory=none recovery=false",
                     sourceKey, runId.get(), status, received, normalized.size(), rejected,
                     inserted, updated, unchanged, occupancyInserted);
             if (rejected > 0) {
@@ -101,11 +102,13 @@ public class MunicipalFacilitySyncService {
             }
             return result;
         } catch (RuntimeException failure) {
+            String category = MunicipalSourceFailureClassifier.wireValue(failure);
             MunicipalSyncResult result = result(MunicipalSyncRunStatus.FAILED, 0, 0, 0,
-                    0, 0, 0, 0, category(failure), truncate(failure.getMessage()));
+                    0, 0, 0, 0, category, truncate(failure.getMessage()));
             runs.complete(runId.get(), clock.instant(), result, fingerprint, null);
-            log.warn("municipal_sync_failed sourceKey={} runId={} errorCategory={} summary={}",
-                    sourceKey, runId.get(), result.errorCategory(), result.errorSummary());
+            log.warn("municipal_sync_failed sourceKey={} runId={} status=FAILED attempts=final "
+                            + "errorCategory={} recovery=false",
+                    sourceKey, runId.get(), result.errorCategory());
             return result;
         }
     }
@@ -115,11 +118,6 @@ public class MunicipalFacilitySyncService {
             String category, String summary) {
         return new MunicipalSyncResult(status, received, accepted, rejected, inserted, updated,
                 unchanged, occupancyInserted, category, summary);
-    }
-
-    private static String category(Throwable failure) {
-        String name = failure.getClass().getSimpleName().toLowerCase();
-        return name.contains("http") ? "http" : name.contains("timeout") ? "timeout" : "contract";
     }
 
     private static String truncate(String message) {

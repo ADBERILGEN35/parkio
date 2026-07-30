@@ -1,0 +1,101 @@
+{
+  "uid": "parkio-municipal-source-health",
+  "title": "Parkio - Municipal Source Health",
+  "tags": ["parkio", "municipal", "izum", "sla"],
+  "timezone": "browser",
+  "schemaVersion": 39,
+  "version": 1,
+  "refresh": "30s",
+  "time": { "from": "now-6h", "to": "now" },
+  "panels": [
+    {
+      "id": 1,
+      "type": "stat",
+      "title": "Consecutive failures",
+      "gridPos": { "h": 4, "w": 4, "x": 0, "y": 0 },
+      "datasource": { "type": "prometheus", "uid": "parkio-prometheus" },
+      "targets": [{
+        "expr": "parkio_municipal_source_consecutive_failures{source_key=\"izmir-izum-otoparklar\"}",
+        "legendFormat": "streak"
+      }]
+    },
+    {
+      "id": 2,
+      "type": "stat",
+      "title": "Seconds since success",
+      "gridPos": { "h": 4, "w": 4, "x": 4, "y": 0 },
+      "datasource": { "type": "prometheus", "uid": "parkio-prometheus" },
+      "fieldConfig": { "defaults": { "unit": "s" } },
+      "targets": [{
+        "expr": "parkio_municipal_source_seconds_since_success{source_key=\"izmir-izum-otoparklar\"}",
+        "legendFormat": "age"
+      }]
+    },
+    {
+      "id": 3,
+      "type": "stat",
+      "title": "Stale RUNNING ops",
+      "gridPos": { "h": 4, "w": 4, "x": 8, "y": 0 },
+      "datasource": { "type": "prometheus", "uid": "parkio-prometheus" },
+      "targets": [{
+        "expr": "parkio_municipal_source_stale_running_operations{source_key=\"izmir-izum-otoparklar\"}",
+        "legendFormat": "stale"
+      }]
+    },
+    {
+      "id": 4,
+      "type": "timeseries",
+      "title": "Operational SLA state",
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 0 },
+      "datasource": { "type": "prometheus", "uid": "parkio-prometheus" },
+      "targets": [{
+        "expr": "parkio_municipal_source_operational_state{source_key=\"izmir-izum-otoparklar\"}",
+        "legendFormat": "{{state}}"
+      }]
+    },
+    {
+      "id": 5,
+      "type": "timeseries",
+      "title": "Sync runs by status",
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 8 },
+      "datasource": { "type": "prometheus", "uid": "parkio-prometheus" },
+      "targets": [{
+        "expr": "sum by (status) (rate(parkio_municipal_sync_runs_total{source_key=\"izmir-izum-otoparklar\"}[5m]))",
+        "legendFormat": "{{status}}"
+      }]
+    },
+    {
+      "id": 6,
+      "type": "timeseries",
+      "title": "Failure categories (bounded)",
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 8 },
+      "datasource": { "type": "prometheus", "uid": "parkio-prometheus" },
+      "targets": [{
+        "expr": "sum by (error_category) (rate(parkio_municipal_sync_runs_total{source_key=\"izmir-izum-otoparklar\",status=\"FAILED\"}[5m]))",
+        "legendFormat": "{{error_category}}"
+      }]
+    },
+    {
+      "id": 7,
+      "type": "timeseries",
+      "title": "Occupancy freshness state",
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 16 },
+      "datasource": { "type": "prometheus", "uid": "parkio-prometheus" },
+      "targets": [{
+        "expr": "parkio_municipal_source_occupancy_freshness{source_key=\"izmir-izum-otoparklar\"}",
+        "legendFormat": "{{state}}"
+      }]
+    },
+    {
+      "id": 8,
+      "type": "timeseries",
+      "title": "Recovery events",
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 16 },
+      "datasource": { "type": "prometheus", "uid": "parkio-prometheus" },
+      "targets": [{
+        "expr": "increase(parkio_municipal_source_recoveries_total{source_key=\"izmir-izum-otoparklar\"}[15m])",
+        "legendFormat": "recoveries"
+      }]
+    }
+  ]
+}

@@ -69,6 +69,14 @@ jobs:
             -v "${{ github.workspace }}/docker/prometheus:/etc/prometheus:ro" \
             prom/prometheus:v2.54.1 \
             promtool check rules /etc/prometheus/operational-readiness-alert-rules.yml
+          docker run --rm \
+            -v "${{ github.workspace }}/docker/prometheus:/etc/prometheus:ro" \
+            prom/prometheus:v2.54.1 \
+            promtool check rules /etc/prometheus/municipal-source-health-recording-rules.yml
+          docker run --rm \
+            -v "${{ github.workspace }}/docker/prometheus:/etc/prometheus:ro" \
+            prom/prometheus:v2.54.1 \
+            promtool check rules /etc/prometheus/municipal-source-health-alert-rules.yml
 
       - name: Grafana dashboard structure
         run: |
@@ -150,6 +158,20 @@ jobs:
           ops_panel_ids = [panel["id"] for panel in ops_dashboard.get("panels", [])]
           assert len(ops_panel_ids) == len(set(ops_panel_ids)), f"duplicate ops panel ids: {ops_panel_ids}"
           assert "./prometheus/operational-readiness-recording-rules.yml:/etc/prometheus/operational-readiness-recording-rules.yml:ro" in compose
+          municipal_dashboard = json.loads(Path("docker/grafana/provisioning/dashboards/parkio-municipal-source-health.json").read_text(encoding="utf-8"))
+          assert municipal_dashboard["uid"] == "parkio-municipal-source-health"
+          municipal_panel_ids = [panel["id"] for panel in municipal_dashboard.get("panels", [])]
+          assert len(municipal_panel_ids) == len(set(municipal_panel_ids)), f"duplicate municipal panel ids: {municipal_panel_ids}"
+          municipal_exprs = []
+          for panel in municipal_dashboard.get("panels", []):
+              for target in panel.get("targets", []):
+                  expr = target.get("expr")
+                  if expr:
+                      municipal_exprs.append(expr)
+          assert any("parkio_municipal_source_consecutive_failures" in expr for expr in municipal_exprs)
+          assert "parkio-municipal-source-health.json" in dashboards_yml
+          assert "./prometheus/municipal-source-health-recording-rules.yml:/etc/prometheus/municipal-source-health-recording-rules.yml:ro" in compose
+          assert "./prometheus/municipal-source-health-alert-rules.yml:/etc/prometheus/municipal-source-health-alert-rules.yml:ro" in compose
           hub = Path("docs/operations/wp-06-01-operational-readiness-production-governance.md")
           assert hub.is_file(), "WP-06.1 hub document missing"
           PY

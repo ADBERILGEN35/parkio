@@ -25,6 +25,8 @@ rule_files:
   - /etc/prometheus/continuous-calibration-recording-rules.yml
   - /etc/prometheus/operational-readiness-recording-rules.yml
   - /etc/prometheus/operational-readiness-alert-rules.yml
+  - /etc/prometheus/municipal-source-health-recording-rules.yml
+  - /etc/prometheus/municipal-source-health-alert-rules.yml
 
 alerting:
   alertmanagers:

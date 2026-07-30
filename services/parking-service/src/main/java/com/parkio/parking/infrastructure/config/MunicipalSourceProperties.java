@@ -9,6 +9,7 @@ public class MunicipalSourceProperties {
     private boolean manualSyncEnabled;
     private Izum izum = new Izum();
     private Osm osm = new Osm();
+    private Sla sla = new Sla();
 
     public boolean isEnabled() { return enabled; }
     public void setEnabled(boolean enabled) { this.enabled = enabled; }
@@ -18,6 +19,51 @@ public class MunicipalSourceProperties {
     public void setIzum(Izum izum) { this.izum = izum; }
     public Osm getOsm() { return osm; }
     public void setOsm(Osm osm) { this.osm = osm; }
+    public Sla getSla() { return sla; }
+    public void setSla(Sla sla) { this.sla = sla; }
+
+    /**
+     * Operational SLA thresholds (integration health). Distinct from occupancy
+     * freshness aging/stale seconds on the source row.
+     */
+    public static class Sla {
+        private int warningConsecutiveFailures = 3;
+        private int criticalConsecutiveFailures = 5;
+        private long warningSecondsSinceSuccess = 600;
+        private long criticalSecondsSinceSuccess = 1800;
+        private long staleRunningAfterSeconds = 600;
+        private long recoveringWindowSeconds = 900;
+        private long failureWindowSeconds = 86400;
+
+        public int getWarningConsecutiveFailures() { return warningConsecutiveFailures; }
+        public void setWarningConsecutiveFailures(int warningConsecutiveFailures) {
+            this.warningConsecutiveFailures = warningConsecutiveFailures;
+        }
+        public int getCriticalConsecutiveFailures() { return criticalConsecutiveFailures; }
+        public void setCriticalConsecutiveFailures(int criticalConsecutiveFailures) {
+            this.criticalConsecutiveFailures = criticalConsecutiveFailures;
+        }
+        public long getWarningSecondsSinceSuccess() { return warningSecondsSinceSuccess; }
+        public void setWarningSecondsSinceSuccess(long warningSecondsSinceSuccess) {
+            this.warningSecondsSinceSuccess = warningSecondsSinceSuccess;
+        }
+        public long getCriticalSecondsSinceSuccess() { return criticalSecondsSinceSuccess; }
+        public void setCriticalSecondsSinceSuccess(long criticalSecondsSinceSuccess) {
+            this.criticalSecondsSinceSuccess = criticalSecondsSinceSuccess;
+        }
+        public long getStaleRunningAfterSeconds() { return staleRunningAfterSeconds; }
+        public void setStaleRunningAfterSeconds(long staleRunningAfterSeconds) {
+            this.staleRunningAfterSeconds = staleRunningAfterSeconds;
+        }
+        public long getRecoveringWindowSeconds() { return recoveringWindowSeconds; }
+        public void setRecoveringWindowSeconds(long recoveringWindowSeconds) {
+            this.recoveringWindowSeconds = recoveringWindowSeconds;
+        }
+        public long getFailureWindowSeconds() { return failureWindowSeconds; }
+        public void setFailureWindowSeconds(long failureWindowSeconds) {
+            this.failureWindowSeconds = failureWindowSeconds;
+        }
+    }
 
     public static class Izum {
         private boolean enabled;

@@ -6,6 +6,8 @@ import com.parkio.parking.application.ExposureShadowSettings;
 import com.parkio.parking.application.ParkingSearchSettings;
 import com.parkio.parking.application.MunicipalFacilityQueryService;
 import com.parkio.parking.application.MunicipalFacilitySyncService;
+import com.parkio.parking.application.MunicipalSourceHealthService;
+import com.parkio.parking.application.MunicipalSourceSlaPolicy;
 import com.parkio.parking.application.port.MunicipalDataSourceRepository;
 import com.parkio.parking.application.port.MunicipalFacilityRepository;
 import com.parkio.parking.application.port.MunicipalOccupancySnapshotRepository;
@@ -14,6 +16,7 @@ import com.parkio.parking.application.port.MunicipalSourceSyncRunRepository;
 import com.parkio.parking.application.port.DecisionAuditWriteObserver;
 import com.parkio.parking.application.port.DecisionShadowObserverPort;
 import com.parkio.parking.externalsource.MunicipalParkingSourceAdapter;
+import com.parkio.parking.infrastructure.izum.IzumMunicipalParkingAdapter;
 import com.parkio.parking.decision.application.EvidenceCollectionService;
 import com.parkio.parking.decision.policy.DecisionEngine;
 import com.parkio.parking.decision.port.DecisionAuditPort;
@@ -55,6 +58,31 @@ public class ParkingInfrastructureConfig {
             MunicipalSourceSyncRunRepository runs,
             Clock clock) {
         return new MunicipalFacilitySyncService(adapters, sources, facilities, links, snapshots, runs, clock);
+    }
+
+    @Bean
+    public MunicipalSourceHealthService municipalSourceHealthService(
+            MunicipalDataSourceRepository sources,
+            MunicipalSourceSyncRunRepository runs,
+            Clock clock,
+            MunicipalSourceProperties properties) {
+        MunicipalSourceProperties.Sla sla = properties.getSla();
+        MunicipalSourceSlaPolicy.Thresholds thresholds = new MunicipalSourceSlaPolicy.Thresholds(
+                sla.getWarningConsecutiveFailures(),
+                sla.getCriticalConsecutiveFailures(),
+                sla.getWarningSecondsSinceSuccess(),
+                sla.getCriticalSecondsSinceSuccess(),
+                sla.getStaleRunningAfterSeconds(),
+                sla.getRecoveringWindowSeconds());
+        return new MunicipalSourceHealthService(
+                sources,
+                runs,
+                clock,
+                thresholds,
+                properties.isEnabled(),
+                properties.getIzum().isEnabled(),
+                properties.getIzum().isSchedulerEnabled(),
+                IzumMunicipalParkingAdapter.SOURCE_KEY);
     }
 
     @Bean

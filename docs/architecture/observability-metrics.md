@@ -99,10 +99,27 @@ Micrometer component: `MunicipalSourceMetrics`. Labels bounded to `source_key`,
 | `parkio.municipal.sync.records` | counter | Records received/accepted/rejected. |
 | `parkio.municipal.sync.facilities` | counter | Facilities inserted/updated/unchanged. |
 | `parkio.municipal.sync.occupancy` | counter | Occupancy snapshots inserted. |
-| `parkio.municipal.sync.schema_mismatch` | counter | Contract/schema failures. |
+| `parkio.municipal.sync.schema_mismatch` | counter | Schema-contract failures (`schema_contract` or legacy `contract`). |
+| `parkio.municipal.sync.retries_exhausted` | counter | Final FAILED runs after client retries (bounded `error_category`). |
+| `parkio.municipal.source.consecutive_failures` | gauge | Trailing FAILED streak derived from sync-run history. |
+| `parkio.municipal.source.seconds_since_success` | gauge | Seconds since last SUCCESS/PARTIAL_SUCCESS (`-1` if never). |
+| `parkio.municipal.source.last_success_unixtime` | gauge | Last success unix epoch (`-1` if never). |
+| `parkio.municipal.source.last_run_unixtime` | gauge | Last completed run unix epoch (`-1` if never). |
+| `parkio.municipal.source.stale_running_operations` | gauge | RUNNING rows older than SLA stale-running threshold. |
+| `parkio.municipal.source.failures_in_window` | gauge | FAILED runs in the configured failure window. |
+| `parkio.municipal.source.operational_state` | gauge | One-hot operational SLA state label. |
+| `parkio.municipal.source.occupancy_freshness` | gauge | One-hot occupancy freshness label (separate from SLA). |
+| `parkio.municipal.source.recoveries` | counter | Success after a non-zero failure streak. |
 
 Health indicator `municipalSources` always contributes **UP** (municipal data is
-non-critical). Details include enablement and `izumStatus` (`disabled`, `healthy`, `aging`, `stale`, `never_synced`, `failing`, `schema_mismatch`, …).
+non-critical). Details include enablement, scheduler flag, consecutive failures,
+seconds since success, bounded `izumLastErrorCategory`, operational SLA state,
+occupancy freshness, and legacy `izumStatus` (`disabled`, `healthy`, `aging`,
+`stale`, `never_synced`, `failing`, `schema_mismatch`, …).
+
+Prometheus: `municipal-source-health-recording-rules.yml` +
+`municipal-source-health-alert-rules.yml`. Grafana:
+`parkio-municipal-source-health.json`.
 
 Ops: [`docs/operations/municipal-parking-source-runbook.md`](../operations/municipal-parking-source-runbook.md).
 

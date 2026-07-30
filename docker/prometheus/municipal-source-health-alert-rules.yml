@@ -1,0 +1,89 @@
+groups:
+  - name: parkio-municipal-source-health-alerts
+    rules:
+      - alert: MunicipalSourceConsecutiveFailuresWarning
+        expr: |
+          parkio_municipal_source_consecutive_failures{source_key="izmir-izum-otoparklar"} >= 3
+          and on(source_key)
+          parkio_municipal_source_operational_state{source_key="izmir-izum-otoparklar",state="DISABLED"} == 0
+        for: 5m
+        labels:
+          severity: warning
+          owner: parking
+          source_key: izmir-izum-otoparklar
+        annotations:
+          summary: Municipal source consecutive failures reached warning threshold
+          description: IZUM sync consecutive failures are elevated. Check operational SLA state and bounded error category via actuator health details.
+          runbook_url: docs/operations/municipal-parking-source-runbook.md
+
+      - alert: MunicipalSourceConsecutiveFailuresCritical
+        expr: |
+          parkio_municipal_source_consecutive_failures{source_key="izmir-izum-otoparklar"} >= 5
+          and on(source_key)
+          parkio_municipal_source_operational_state{source_key="izmir-izum-otoparklar",state="DISABLED"} == 0
+        for: 5m
+        labels:
+          severity: critical
+          owner: parking
+          source_key: izmir-izum-otoparklar
+        annotations:
+          summary: Municipal source consecutive failures reached critical threshold
+          description: IZUM sync consecutive failures are critical. Distinguish upstream timeout from schema_contract using bounded error_category.
+          runbook_url: docs/operations/municipal-parking-source-runbook.md
+
+      - alert: MunicipalSourceSecondsSinceSuccessWarning
+        expr: |
+          parkio_municipal_source_seconds_since_success{source_key="izmir-izum-otoparklar"} >= 600
+          and on(source_key)
+          parkio_municipal_source_operational_state{source_key="izmir-izum-otoparklar",state="DISABLED"} == 0
+        for: 5m
+        labels:
+          severity: warning
+          owner: parking
+          source_key: izmir-izum-otoparklar
+        annotations:
+          summary: Municipal source seconds since last success reached warning threshold
+          description: IZUM has not completed a successful sync within the warning SLA window.
+          runbook_url: docs/operations/municipal-parking-source-runbook.md
+
+      - alert: MunicipalSourceSecondsSinceSuccessCritical
+        expr: |
+          parkio_municipal_source_seconds_since_success{source_key="izmir-izum-otoparklar"} >= 1800
+          and on(source_key)
+          parkio_municipal_source_operational_state{source_key="izmir-izum-otoparklar",state="DISABLED"} == 0
+        for: 5m
+        labels:
+          severity: critical
+          owner: parking
+          source_key: izmir-izum-otoparklar
+        annotations:
+          summary: Municipal source seconds since last success reached critical threshold
+          description: IZUM has not completed a successful sync within the critical SLA window. Public occupancy may already be STALE/null.
+          runbook_url: docs/operations/municipal-parking-source-runbook.md
+
+      - alert: MunicipalSourceStaleRunningOperation
+        expr: |
+          parkio_municipal_source_stale_running_operations{source_key="izmir-izum-otoparklar"} > 0
+          and on(source_key)
+          parkio_municipal_source_operational_state{source_key="izmir-izum-otoparklar",state="DISABLED"} == 0
+        for: 10m
+        labels:
+          severity: warning
+          owner: parking
+          source_key: izmir-izum-otoparklar
+        annotations:
+          summary: Municipal source has a stale RUNNING synchronization operation
+          description: A municipal sync run remained RUNNING beyond the stale-running SLA threshold.
+          runbook_url: docs/operations/municipal-parking-source-runbook.md
+
+      - alert: MunicipalSourceRecovered
+        expr: increase(parkio_municipal_source_recoveries_total{source_key="izmir-izum-otoparklar"}[15m]) > 0
+        for: 0m
+        labels:
+          severity: info
+          owner: parking
+          source_key: izmir-izum-otoparklar
+        annotations:
+          summary: Municipal source recovered after consecutive failures
+          description: IZUM completed a successful sync after a failure streak. Confirm occupancy freshness returned to LIVE or AGING.
+          runbook_url: docs/operations/municipal-parking-source-runbook.md

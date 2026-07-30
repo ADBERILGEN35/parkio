@@ -1,87 +1,85 @@
 package com.parkio.parking.infrastructure.health;
 
-import com.parkio.parking.application.port.MunicipalDataSourceRepository;
-import com.parkio.parking.application.port.MunicipalSourceSyncRunRepository;
-import com.parkio.parking.infrastructure.config.MunicipalSourceProperties;
-import com.parkio.parking.infrastructure.izum.IzumMunicipalParkingAdapter;
-import java.time.Clock;
-import java.time.Duration;
-import java.time.Instant;
-import java.util.Optional;
+import com.parkio.parking.application.MunicipalSourceHealthService;
+import com.parkio.parking.application.MunicipalSourceSlaPolicy;
 import org.springframework.boot.actuate.health.Health;
 import org.springframework.boot.actuate.health.HealthIndicator;
 import org.springframework.stereotype.Component;
 
 /**
  * Non-critical municipal source health. Overall status stays UP so liveness is not
- * blocked, while details distinguish disabled / never synced / live / aging / stale /
- * failing / schema_mismatch.
+ * blocked. Details expose bounded operational SLA and occupancy freshness fields.
  */
 @Component("municipalSources")
 public class MunicipalSourceHealthIndicator implements HealthIndicator {
-    private final MunicipalSourceProperties properties;
-    private final MunicipalDataSourceRepository sources;
-    private final MunicipalSourceSyncRunRepository runs;
-    private final Clock clock;
+    private final MunicipalSourceHealthService healthService;
 
-    public MunicipalSourceHealthIndicator(
-            MunicipalSourceProperties properties,
-            MunicipalDataSourceRepository sources,
-            MunicipalSourceSyncRunRepository runs,
-            Clock clock) {
-        this.properties = properties;
-        this.sources = sources;
-        this.runs = runs;
-        this.clock = clock;
+    public MunicipalSourceHealthIndicator(MunicipalSourceHealthService healthService) {
+        this.healthService = healthService;
     }
 
     @Override
     public Health health() {
         Health.Builder builder = Health.up();
-        builder.withDetail("municipalEnabled", properties.isEnabled());
-        builder.withDetail("izumEnabled", properties.getIzum().isEnabled());
-        if (!properties.isEnabled() || !properties.getIzum().isEnabled()) {
-            builder.withDetail("izumStatus", "disabled");
-            return builder.build();
-        }
         try {
-            Optional<MunicipalDataSourceRepository.Source> source =
-                    sources.findBySourceKey(IzumMunicipalParkingAdapter.SOURCE_KEY);
-            if (source.isEmpty()) {
-                builder.withDetail("izumStatus", "source_missing");
-                return builder.build();
+            MunicipalSourceHealthService.Snapshot snapshot = healthService.izumSnapshot();
+            MunicipalSourceSlaPolicy.Evaluation evaluation = snapshot.evaluation();
+            builder.withDetail("municipalEnabled", snapshot.municipalEnabled());
+            builder.withDetail("izumEnabled", snapshot.sourceEnabled());
+            builder.withDetail("izumSchedulerEnabled", snapshot.schedulerEnabled());
+            builder.withDetail("izumOperationalState", evaluation.operationalState().name());
+            builder.withDetail("izumOccupancyFreshness", snapshot.occupancyFreshness().name());
+            builder.withDetail("izumConsecutiveFailures", evaluation.consecutiveFailures());
+            builder.withDetail("izumSecondsSinceSuccess", evaluation.secondsSinceSuccess());
+            builder.withDetail("izumFailuresInWindow", evaluation.failuresInWindow());
+            builder.withDetail("izumStaleRunningOperations", evaluation.staleRunningOperations());
+            builder.withDetail("izumRecovered", evaluation.recovered());
+            if (evaluation.lastRunStatus() != null) {
+                builder.withDetail("izumLastRunStatus", evaluation.lastRunStatus());
             }
-            MunicipalDataSourceRepository.Source value = source.get();
-            Optional<MunicipalSourceSyncRunRepository.LatestRun> latest = runs.findLatestCompleted(value.id());
-            if (latest.isPresent()) {
-                MunicipalSourceSyncRunRepository.LatestRun run = latest.get();
-                builder.withDetail("izumLastRunStatus", run.status());
-                if ("FAILED".equals(run.status())) {
-                    if ("contract".equals(run.errorCategory())) {
-                        builder.withDetail("izumStatus", "schema_mismatch");
-                    } else {
-                        builder.withDetail("izumStatus", "failing");
-                    }
-                    return builder.build();
-                }
+            if (evaluation.lastRunAt() != null) {
+                builder.withDetail("izumLastRunTimestamp", evaluation.lastRunAt().toString());
             }
-            Instant last = value.lastSuccessfulSyncAt();
-            if (last == null) {
-                builder.withDetail("izumStatus", "never_synced");
-                return builder.build();
+            if (evaluation.lastSuccessAt() != null) {
+                builder.withDetail("izumLastSuccessTimestamp", evaluation.lastSuccessAt().toString());
+                builder.withDetail("izumLastSuccessfulSyncAgeSeconds",
+                        Math.max(0, evaluation.secondsSinceSuccess()));
             }
-            long ageSeconds = Duration.between(last, clock.instant()).getSeconds();
-            builder.withDetail("izumLastSuccessfulSyncAgeSeconds", Math.max(0, ageSeconds));
-            if (ageSeconds >= value.staleAfterSeconds()) {
-                builder.withDetail("izumStatus", "stale");
-            } else if (ageSeconds >= value.agingAfterSeconds()) {
-                builder.withDetail("izumStatus", "aging");
-            } else {
-                builder.withDetail("izumStatus", "healthy");
+            if (evaluation.lastFailureCategory() != null) {
+                builder.withDetail("izumLastErrorCategory", evaluation.lastFailureCategory());
             }
+            builder.withDetail("izumStatus", mapLegacyStatus(snapshot));
             return builder.build();
         } catch (RuntimeException ex) {
             return builder.withDetail("izumStatus", "probe_error").build();
+        }
+    }
+
+    private static String mapLegacyStatus(MunicipalSourceHealthService.Snapshot snapshot) {
+        return switch (snapshot.operationalState()) {
+            case DISABLED -> "disabled";
+            case NEVER_RUN -> "never_synced";
+            case HEALTHY, RECOVERING -> switch (snapshot.occupancyFreshness()) {
+                case LIVE -> "healthy";
+                case AGING -> "aging";
+                case STALE -> "stale";
+                default -> "healthy";
+            };
+            case DEGRADED, CRITICAL, STALE_OPERATION -> {
+                if (MunicipalSourceFailureCategoryCompat.isSchema(
+                        snapshot.evaluation().lastFailureCategory())) {
+                    yield "schema_mismatch";
+                }
+                yield "failing";
+            }
+            case UNKNOWN -> "probe_error";
+        };
+    }
+
+    /** Tiny local helper to avoid importing failure category into health package cycles. */
+    private static final class MunicipalSourceFailureCategoryCompat {
+        private static boolean isSchema(String wire) {
+            return "schema_contract".equals(wire) || "contract".equals(wire);
         }
     }
 }

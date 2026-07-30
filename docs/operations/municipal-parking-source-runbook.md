@@ -37,6 +37,64 @@ Enable only after soak:
 `parkio.municipal.izum.scheduler-enabled=true`  
 Cadence: `fixed-delay-ms` default **120000** (2 minutes). Job is gated by municipal.enabled + izum.enabled + izum.scheduler-enabled. Unique RUNNING lock prevents overlap.
 
+## Source health / SLA (DATA-WP-06)
+
+Operational SLA is **not** the same as occupancy freshness:
+
+| Concern | Meaning | Typical signal |
+|---------|---------|----------------|
+| Occupancy freshness | Whether public `availableSpaces` may be shown | LIVE / AGING / STALE on facility DTO |
+| Operational SLA | Whether the İZUM integration is healthy | consecutive failures, seconds since success, Prometheus alerts |
+
+Public STALE masking remains authoritative for availability. Do **not** raise aging/stale thresholds to hide upstream outages.
+
+### Defaults (non-secret)
+
+| Setting | Default |
+|---------|---------|
+| `parkio.municipal.sla.warning-consecutive-failures` | 3 |
+| `parkio.municipal.sla.critical-consecutive-failures` | 5 |
+| `parkio.municipal.sla.warning-seconds-since-success` | 600 |
+| `parkio.municipal.sla.critical-seconds-since-success` | 1800 |
+| `parkio.municipal.sla.stale-running-after-seconds` | 600 |
+
+### Alert meanings
+
+- **ConsecutiveFailuresWarning/Critical** — trailing FAILED sync runs (SKIPPED ignored).
+- **SecondsSinceSuccessWarning/Critical** — no SUCCESS/PARTIAL_SUCCESS within SLA window.
+- **StaleRunningOperation** — a RUNNING row older than the stale-running threshold.
+- **MunicipalSourceRecovered** — info signal after a success resets a failure streak.
+
+Disabled sources must not page. Scheduler kill switch remains `izum.scheduler-enabled=false` (and/or `izum.enabled=false`).
+
+### Timeout vs schema_contract
+
+New runs classify I/O timeouts as `read_timeout` / `connect_timeout`. Schema/validation breaks are `schema_contract`. Historical rows may still show legacy `contract` for timeouts — do not rewrite them heuristically.
+
+### Diagnostic checklist (bounded)
+
+1. `izumLastRunStatus` / `izumLastRunTimestamp`
+2. `izumLastSuccessTimestamp` / `izumSecondsSinceSuccess`
+3. `izumLastErrorCategory` (bounded taxonomy only)
+4. `izumConsecutiveFailures`
+5. Public facility `freshness` + null `availableSpaces` when STALE
+6. Scheduler flags (`municipal.enabled`, `izum.enabled`, `izum.scheduler-enabled`)
+7. Upstream reachability outside the app (without dumping payloads or tokens)
+
+Actuator: `/actuator/health` detail contributor `municipalSources` (always UP for liveness). Grafana: `parkio-municipal-source-health`.
+
+### Recovery confirmation
+
+1. Observe a SUCCESS/PARTIAL_SUCCESS sync run.
+2. Confirm consecutive failures reset to 0 and recovery counter/alert resolves.
+3. Confirm public freshness returns to LIVE/AGING only from the **new** observation timestamp (do not expect old STALE snapshots to rewrite).
+
+### Escalation
+
+- Prolonged `read_timeout` / `connect_timeout` → treat as upstream/network incident; keep scheduler enabled unless disk/CPU risk.
+- Repeated `schema_contract` → halt publication assumptions; investigate adapter contract; do not fabricate occupancy.
+- Never enable registry linking or İZELMAN publication as an incident workaround.
+
 ## Rollback
 
 1. Disable `parkio.municipal.izum.scheduler-enabled` (and/or `izum.enabled`).

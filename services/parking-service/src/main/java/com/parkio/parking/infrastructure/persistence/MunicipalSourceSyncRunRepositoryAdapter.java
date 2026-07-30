@@ -5,6 +5,7 @@ import com.parkio.parking.externalsource.MunicipalSyncResult;
 import com.parkio.parking.externalsource.schema.SchemaFingerprint;
 import java.sql.Timestamp;
 import java.time.Instant;
+import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
 import org.springframework.dao.DataIntegrityViolationException;
@@ -70,5 +71,72 @@ public class MunicipalSourceSyncRunRepositoryAdapter implements MunicipalSourceS
                     rs.getString("error_category"),
                     completed == null ? null : completed.toInstant());
         }).optional();
+    }
+
+    @Override
+    public List<CompletedRunView> findRecentCompleted(UUID sourceId, int limit) {
+        int bound = Math.max(1, Math.min(limit, 500));
+        return jdbc.sql("""
+                SELECT status, error_category, started_at, completed_at
+                FROM municipal_source_sync_runs
+                WHERE source_id = :sourceId AND status <> 'RUNNING'
+                ORDER BY started_at DESC
+                LIMIT :limit
+                """).param("sourceId", sourceId).param("limit", bound)
+                .query((rs, row) -> {
+                    Timestamp started = rs.getTimestamp("started_at");
+                    Timestamp completed = rs.getTimestamp("completed_at");
+                    return new CompletedRunView(
+                            rs.getString("status"),
+                            rs.getString("error_category"),
+                            started == null ? null : started.toInstant(),
+                            completed == null ? null : completed.toInstant());
+                }).list();
+    }
+
+    @Override
+    public Optional<Instant> findLatestSuccessAt(UUID sourceId) {
+        return jdbc.sql("""
+                SELECT completed_at
+                FROM municipal_source_sync_runs
+                WHERE source_id = :sourceId
+                  AND status IN ('SUCCESS', 'PARTIAL_SUCCESS')
+                  AND completed_at IS NOT NULL
+                ORDER BY completed_at DESC
+                LIMIT 1
+                """).param("sourceId", sourceId).query((rs, row) -> {
+            Timestamp completed = rs.getTimestamp("completed_at");
+            return completed == null ? null : completed.toInstant();
+        }).optional();
+    }
+
+    @Override
+    public int countFailuresSince(UUID sourceId, Instant sinceInclusive) {
+        Integer count = jdbc.sql("""
+                SELECT count(*)::int
+                FROM municipal_source_sync_runs
+                WHERE source_id = :sourceId
+                  AND status = 'FAILED'
+                  AND started_at >= :since
+                """).param("sourceId", sourceId)
+                .param("since", Timestamp.from(sinceInclusive))
+                .query(Integer.class)
+                .single();
+        return count == null ? 0 : count;
+    }
+
+    @Override
+    public int countStaleRunning(UUID sourceId, Instant olderThan) {
+        Integer count = jdbc.sql("""
+                SELECT count(*)::int
+                FROM municipal_source_sync_runs
+                WHERE source_id = :sourceId
+                  AND status = 'RUNNING'
+                  AND started_at < :olderThan
+                """).param("sourceId", sourceId)
+                .param("olderThan", Timestamp.from(olderThan))
+                .query(Integer.class)
+                .single();
+        return count == null ? 0 : count;
     }
 }

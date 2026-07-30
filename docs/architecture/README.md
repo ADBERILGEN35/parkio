@@ -179,9 +179,10 @@ See [Known Issues](../releases/KNOWN-ISSUES.md) for the current blocker list.
   - Hosted-beta DATA-WP-05A: complete (dark deploy + dry-run; 0 eligible candidates).
   - Decision Intelligence WP-05 remains a separate work package.
 - [DATA-WP-06 municipal source health, SLA and recovery](wp-data-06-engineering-specification.md)
-  - Specification: complete (this package).
-  - Implementation / DATA-WP-06A: not started.
-  - Recommended next DATA package after DATA-WP-05 closed.
+  - Specification: complete (`090242f`).
+  - Implementation: complete on this branch (pending push/DATA-WP-06A).
+  - DATA-WP-06A hosted-beta gate: not started.
+  - Decision Intelligence WP-05 remains a separate work package.
 
 > **Name collision:** Repository **WP-05** is Decision Intelligence. Repository
 > **WP-06** is Operational Platform (`docs/operations/wp-06-*`). Municipal data
