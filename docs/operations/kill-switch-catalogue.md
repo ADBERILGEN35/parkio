@@ -103,3 +103,16 @@ See [rollback-runbook.md](rollback-runbook.md).
 | parkio.municipal.izelman.auto-match-enabled | false | Unsupported; must remain false |
 
 Hosted-beta Compose maps PARKIO_MUNICIPAL_IZELMAN_* with defaults false.
+
+## DATA-WP-04 canonical registry (default OFF)
+
+| Flag | Default | Effect |
+|------|---------|--------|
+| `parkio.municipal.registry.candidate-generation-enabled` | `false` | Generate conservative review candidates |
+| `parkio.municipal.registry.review-api-enabled` | `false` | Register admin review endpoints; disabled is HTTP 404 |
+| `parkio.municipal.registry.reviewed-linking-enabled` | `false` | Permit explicit ADMIN/SUPER_ADMIN decisions |
+| `parkio.municipal.registry.automatic-linking-enabled` | `false` | Prohibited; binding `true` fails startup |
+| `parkio.municipal.registry.provenance-publication-enabled` | `false` | Add bounded provenance to public facility responses |
+
+Disable publication first, then reviewed linking, review API, and candidate generation.
+These switches do not stop IZUM availability. IZELMAN publication stays independently disabled.

@@ -130,6 +130,13 @@ parkio:
   municipal:
     enabled: false
     manual-sync-enabled: false
+    registry:
+      candidate-generation-enabled: ${PARKIO_MUNICIPAL_REGISTRY_CANDIDATE_GENERATION_ENABLED:false}
+      review-api-enabled: ${PARKIO_MUNICIPAL_REGISTRY_REVIEW_API_ENABLED:false}
+      reviewed-linking-enabled: ${PARKIO_MUNICIPAL_REGISTRY_REVIEWED_LINKING_ENABLED:false}
+      # Intentionally hardcoded off. RegistryProperties rejects any attempt to bind true.
+      automatic-linking-enabled: false
+      provenance-publication-enabled: ${PARKIO_MUNICIPAL_REGISTRY_PROVENANCE_PUBLICATION_ENABLED:false}
     izum:
       enabled: false
       base-url: https://openapi.izmir.bel.tr

@@ -9,13 +9,13 @@ class FieldPrecedencePolicyTest {
     @Test
     void restrictiveAccessWins() {
         assertThat(FieldPrecedencePolicy.preferAccess(
-                MunicipalAccessClassification.PUBLIC, MunicipalAccessClassification.RESTRICTED))
+                        MunicipalAccessClassification.PUBLIC, MunicipalAccessClassification.RESTRICTED))
                 .isEqualTo(MunicipalAccessClassification.RESTRICTED);
     }
 
     @Test
     void municipalNamePreferredOverOsm() {
-        assertThat(FieldPrecedencePolicy.preferName("İZELMAN Lot", "OSM Lot")).isEqualTo("İZELMAN Lot");
+        assertThat(FieldPrecedencePolicy.preferName("IZELMAN Lot", "OSM Lot")).isEqualTo("IZELMAN Lot");
         assertThat(FieldPrecedencePolicy.preferCapacity(120, 90)).isEqualTo(120);
     }
 }

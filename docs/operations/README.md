@@ -21,6 +21,7 @@ not asserted.
 | [Release Readiness Checklist](release-readiness-checklist.md) | RC evidence model |
 | [Progressive Delivery](progressive-delivery.md) | Staged rollout model (no auto-canary) |
 | [Kill Switch Catalogue](kill-switch-catalogue.md) | Exact configuration keys and defaults |
+| [Municipal registry review runbook](municipal-registry-review-runbook.md) | DATA-WP-04 conservative link review (dark by default) |
 | [Rollback Runbook](rollback-runbook.md) | Code, config, policy, database rollback |
 | [Incident Management](incident-management.md) | Severity, roles, escalation |
 | [Backup & Restore](backup-restore.md) | Data durability status (not volume = backup) |

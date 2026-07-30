@@ -34,7 +34,8 @@ import org.springframework.scheduling.annotation.EnableScheduling;
  */
 @Configuration
 @EnableConfigurationProperties({
-        ParkingProperties.class, GeocodingProperties.class, MunicipalSourceProperties.class
+        ParkingProperties.class, GeocodingProperties.class, MunicipalSourceProperties.class,
+        RegistryProperties.class
 })
 @EnableScheduling
 public class ParkingInfrastructureConfig {
