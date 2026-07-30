@@ -12,15 +12,19 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.http.HttpStatus;
+import org.springframework.http.HttpStatusCode;
 import org.springframework.http.ResponseEntity;
 import org.springframework.orm.ObjectOptimisticLockingFailureException;
 import org.springframework.http.converter.HttpMessageNotReadableException;
+import org.springframework.web.HttpRequestMethodNotSupportedException;
 import org.springframework.web.bind.MethodArgumentNotValidException;
 import org.springframework.web.bind.MissingServletRequestParameterException;
 import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.RestControllerAdvice;
 import org.springframework.web.method.annotation.HandlerMethodValidationException;
 import org.springframework.web.method.annotation.MethodArgumentTypeMismatchException;
+import org.springframework.web.server.ResponseStatusException;
+import org.springframework.web.servlet.resource.NoResourceFoundException;
 
 /**
  * Maps domain {@link ParkingException}s, validation failures and infrastructure
@@ -99,6 +103,39 @@ public class GlobalExceptionHandler {
         return ResponseEntity.badRequest().body(body);
     }
 
+    /**
+     * Controllers throw {@link ResponseStatusException} for gated admin checks and
+     * feature conflicts. Preserve the declared status — never collapse to 500.
+     */
+    @ExceptionHandler(ResponseStatusException.class)
+    public ResponseEntity<ApiError> handleResponseStatus(ResponseStatusException ex) {
+        HttpStatusCode status = ex.getStatusCode();
+        String reason = ex.getReason();
+        String message = (reason == null || reason.isBlank())
+                ? defaultMessageFor(status)
+                : reason;
+        return ResponseEntity.status(status)
+                .body(ApiError.of(codeForStatus(status), message, clock.instant()));
+    }
+
+    /**
+     * Missing handler / property-disabled controller (Spring MVC 6). Must stay 404.
+     */
+    @ExceptionHandler(NoResourceFoundException.class)
+    public ResponseEntity<ApiError> handleNoResource(NoResourceFoundException ex) {
+        log.debug("No resource for {} {}", ex.getHttpMethod(), ex.getResourcePath());
+        return ResponseEntity.status(HttpStatus.NOT_FOUND)
+                .body(ApiError.of("NOT_FOUND", "Resource not found.", clock.instant()));
+    }
+
+    /** Wrong HTTP verb on a known path. */
+    @ExceptionHandler(HttpRequestMethodNotSupportedException.class)
+    public ResponseEntity<ApiError> handleMethodNotAllowed(HttpRequestMethodNotSupportedException ex) {
+        return ResponseEntity.status(HttpStatus.METHOD_NOT_ALLOWED)
+                .body(ApiError.of("METHOD_NOT_ALLOWED", "HTTP method not allowed for this resource.",
+                        clock.instant()));
+    }
+
     /** A lost update on a contended spot is a public state conflict. */
     @ExceptionHandler(ObjectOptimisticLockingFailureException.class)
     public ResponseEntity<ApiError> handleOptimisticConflict(ObjectOptimisticLockingFailureException ex) {
@@ -122,7 +159,7 @@ public class GlobalExceptionHandler {
         return internalErrorResponse();
     }
 
-    /** Catch-all: anything unmapped becomes a consistent 500 with no leaked detail. */
+    /** Catch-all: only true unexpected failures become a consistent 500 with no leaked detail. */
     @ExceptionHandler(Exception.class)
     public ResponseEntity<ApiError> handleUnexpected(Exception ex) {
         log.error("Unexpected error handling request", ex);
@@ -168,5 +205,33 @@ public class GlobalExceptionHandler {
 
     private static String parameterName(String parameterName) {
         return parameterName == null ? "request" : parameterName;
+    }
+
+    private static String codeForStatus(HttpStatusCode status) {
+        return switch (status.value()) {
+            case 400 -> "BAD_REQUEST";
+            case 401 -> "UNAUTHORIZED";
+            case 403 -> "FORBIDDEN";
+            case 404 -> "NOT_FOUND";
+            case 405 -> "METHOD_NOT_ALLOWED";
+            case 409 -> "CONFLICT";
+            case 429 -> "RATE_LIMITED";
+            default -> status.is4xxClientError() ? "REQUEST_REJECTED" : "INTERNAL_ERROR";
+        };
+    }
+
+    private static String defaultMessageFor(HttpStatusCode status) {
+        return switch (status.value()) {
+            case 400 -> "Request is malformed or invalid.";
+            case 401 -> "Authentication is required.";
+            case 403 -> "Request is forbidden.";
+            case 404 -> "Resource not found.";
+            case 405 -> "HTTP method not allowed for this resource.";
+            case 409 -> "The request conflicts with the current state of the resource.";
+            case 429 -> "Too many requests.";
+            default -> status.is4xxClientError()
+                    ? "Request was rejected."
+                    : "An unexpected error occurred.";
+        };
     }
 }
