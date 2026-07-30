@@ -29,13 +29,13 @@ class MunicipalSourceMigrationPostgresIT {
             .withPassword("parkio");
 
     @Test
-    void freshSchemaMigratesThroughV30WithMunicipalTablesAndSeeds() throws Exception {
+    void freshSchemaMigratesThroughV32WithMunicipalTablesAndSeeds() throws Exception {
         Flyway flyway = flyway(null);
         flyway.clean();
         flyway.migrate();
 
         try (Connection connection = openConnection()) {
-            assertThat(currentFlywayVersion(connection)).isEqualTo("30");
+            assertThat(currentFlywayVersion(connection)).isEqualTo("32");
             assertThat(tableExists(connection, "municipal_data_sources")).isTrue();
             assertThat(tableExists(connection, "municipal_source_sync_runs")).isTrue();
             assertThat(tableExists(connection, "municipal_parking_facilities")).isTrue();
@@ -54,7 +54,7 @@ class MunicipalSourceMigrationPostgresIT {
             assertThat(tableExists(connection, "municipal_facility_conflation_decisions")).isTrue();
 
             flyway.migrate();
-            assertThat(currentFlywayVersion(connection)).isEqualTo("30");
+            assertThat(currentFlywayVersion(connection)).isEqualTo("32");
             assertThat(seedCount(connection, "izmir-izum-otoparklar")).isEqualTo(1);
                 assertThat(seedCount(connection, "izelman-open-parking-facilities")).isEqualTo(1);
             assertThat(seedCount(connection, "osm-geofabrik-turkey")).isEqualTo(1);
@@ -62,7 +62,7 @@ class MunicipalSourceMigrationPostgresIT {
     }
 
     @Test
-    void v27SchemaUpgradesCleanlyToV30() throws Exception {
+    void v27SchemaUpgradesCleanlyToV32() throws Exception {
         Flyway targetV27 = flyway(MigrationVersion.fromVersion("27"));
         targetV27.clean();
         targetV27.migrate();
@@ -76,7 +76,7 @@ class MunicipalSourceMigrationPostgresIT {
         full.migrate();
 
         try (Connection connection = openConnection()) {
-            assertThat(currentFlywayVersion(connection)).isEqualTo("30");
+            assertThat(currentFlywayVersion(connection)).isEqualTo("32");
             assertThat(tableExists(connection, "municipal_data_sources")).isTrue();
             assertThat(foreignKeyExists(connection, "municipal_facility_source_links",
                     "fk_municipal_facility_source_links_facility")).isTrue();

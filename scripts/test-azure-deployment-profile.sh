@@ -66,6 +66,19 @@ tracing_overrides="$(grep -c 'PARKIO_TRACING_ENABLED: "false"' docker/docker-com
 [ "$tracing_overrides" -eq 10 ] || fail "expected tracing=false on ten JVM services, got $tracing_overrides"
 pass "tracing is disabled for all ten JVM services"
 
+for flag in \
+  PARKIO_MUNICIPAL_REGISTRY_CANDIDATE_GENERATION_ENABLED \
+  PARKIO_MUNICIPAL_REGISTRY_REVIEW_API_ENABLED \
+  PARKIO_MUNICIPAL_REGISTRY_REVIEWED_LINKING_ENABLED \
+  PARKIO_MUNICIPAL_REGISTRY_PROVENANCE_PUBLICATION_ENABLED
+do
+  grep -q "$flag: \${$flag:-false}" docker/docker-compose.azure-hosted-beta.yml \
+    || fail "parking-service missing default-false mapping for $flag"
+done
+grep -q 'PARKIO_MUNICIPAL_REGISTRY_AUTOMATIC_LINKING_ENABLED: "false"' docker/docker-compose.azure-hosted-beta.yml \
+  || fail "automatic linking must be hard-coded false in Azure compose"
+pass "registry flags are mapped on parking-service with safe defaults"
+
 memory_total="$({
   awk '
     /^  [a-zA-Z0-9_-]+:$/ { svc=$1; sub(":$", "", svc) }

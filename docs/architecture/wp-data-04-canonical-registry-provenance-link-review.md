@@ -58,6 +58,13 @@ All flags default false:
 - `parkio.municipal.registry.automatic-linking-enabled` (hardcoded false; binding true throws)
 - `parkio.municipal.registry.provenance-publication-enabled`
 
+Azure hosted-beta maps these on `parking-service.environment` in
+`docker/docker-compose.azure-hosted-beta.yml`. Validate with the five-file chain
+via `./scripts/validate-hosted-beta-compose.sh` using
+`PARKIO_DEPLOYMENT_PROFILE=azure-hosted-beta` and
+`docker/.env.azure-hosted-beta.example`. See
+`docs/operations/municipal-registry-review-runbook.md`.
+
 ## Metrics and health
 
 Registry metrics use only bounded labels: `source_family_pair`, `outcome`, `reason_category`,

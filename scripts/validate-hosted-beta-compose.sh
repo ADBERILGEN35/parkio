@@ -4,6 +4,16 @@
 # Usage (from repo root):
 #   ./scripts/validate-hosted-beta-compose.sh
 #   PARKIO_ENV_FILE=docker/.env ./scripts/validate-hosted-beta-compose.sh
+#   PARKIO_DEPLOYMENT_PROFILE=azure-hosted-beta \
+#     PARKIO_ENV_FILE=docker/.env.azure-hosted-beta.example \
+#     ./scripts/validate-hosted-beta-compose.sh
+#
+# Azure profile merges five files via scripts/lib/deploy-common.sh:
+#   docker-compose.yml + apps + images + hosted-beta + azure-hosted-beta
+# Do not validate azure-hosted-beta.yml alone (or with only the base file):
+# that overlay has no image/build and will fail with "neither an image nor a
+# build context". Registry flags live on parking-service.environment in the
+# azure overlay and must render as false by default.
 #
 # Exits non-zero if compose interpolation or merge fails.
 set -euo pipefail
@@ -78,23 +88,9 @@ echo "OK: compose config rendered"
 
 if [ "$PARKIO_DEPLOYMENT_PROFILE" = "azure-hosted-beta" ]; then
   rendered="$(mktemp)"
-  trap 'rm -f "$rendered"' EXIT
+  runtime_list="$(mktemp)"
+  trap 'rm -f "$rendered" "$runtime_list"' EXIT
   parkio_compose "$ENV_FILE" config --format json > "$rendered"
-
-  [ "${#PARKIO_RUNTIME_SERVICES[@]}" -eq 32 ] || {
-    echo "ERROR: Azure runtime service count must be 32, got ${#PARKIO_RUNTIME_SERVICES[@]}" >&2
-    exit 4
-  }
-  for svc in "${PARKIO_RUNTIME_SERVICES[@]}"; do
-    jq -e --arg svc "$svc" '.services[$svc] != null' "$rendered" >/dev/null || {
-      echo "ERROR: Azure runtime service '$svc' missing from rendered config" >&2
-      exit 4
-    }
-    jq -e --arg svc "$svc" '.services[$svc].platform == "linux/amd64"' "$rendered" >/dev/null || {
-      echo "ERROR: Azure runtime service '$svc' does not enforce linux/amd64" >&2
-      exit 4
-    }
-  done
 
   # Compose v2.24+ omits inactive-profile services from the rendered model,
   # so their exclusion is asserted from the declared profile list and the
@@ -103,47 +99,87 @@ if [ "$PARKIO_DEPLOYMENT_PROFILE" = "azure-hosted-beta" ]; then
   active_services="$(parkio_compose "$ENV_FILE" config --services)"
   parkio_validate_azure_disabled_services "$compose_profiles" "$active_services" || exit 4
 
-  for svc in gateway-service auth-service user-service parking-service media-service \
-    gamification-service notification-service moderation-service ai-validation-service analytics-service; do
-    jq -e --arg svc "$svc" '.services[$svc].environment.PARKIO_TRACING_ENABLED == "false"' "$rendered" >/dev/null || {
-      echo "ERROR: tracing is not disabled for '$svc'" >&2
+  # Prefer system jq when present; otherwise use the Node guardrail so clean
+  # Windows checkouts (Git Bash without jq) still validate the full Azure chain.
+  printf '%s\n' "${PARKIO_RUNTIME_SERVICES[@]}" > "$runtime_list"
+  if command -v jq >/dev/null 2>&1; then
+    [ "${#PARKIO_RUNTIME_SERVICES[@]}" -eq 32 ] || {
+      echo "ERROR: Azure runtime service count must be 32, got ${#PARKIO_RUNTIME_SERVICES[@]}" >&2
       exit 4
     }
-  done
+    for svc in "${PARKIO_RUNTIME_SERVICES[@]}"; do
+      jq -e --arg svc "$svc" '.services[$svc] != null' "$rendered" >/dev/null || {
+        echo "ERROR: Azure runtime service '$svc' missing from rendered config" >&2
+        exit 4
+      }
+      jq -e --arg svc "$svc" '.services[$svc].platform == "linux/amd64"' "$rendered" >/dev/null || {
+        echo "ERROR: Azure runtime service '$svc' does not enforce linux/amd64" >&2
+        exit 4
+      }
+    done
 
-  total_memory=0
-  for svc in "${PARKIO_RUNTIME_SERVICES[@]}"; do
-    limit="$(jq -r --arg svc "$svc" '.services[$svc].mem_limit // 0' "$rendered")"
-    total_memory=$((total_memory + limit))
-  done
-  max_memory=$((14 * 1024 * 1024 * 1024))
-  [ "$total_memory" -le "$max_memory" ] || {
-    echo "ERROR: Azure configured memory total $total_memory exceeds 14 GiB target $max_memory" >&2
-    exit 4
-  }
+    for svc in gateway-service auth-service user-service parking-service media-service \
+      gamification-service notification-service moderation-service ai-validation-service analytics-service; do
+      jq -e --arg svc "$svc" '.services[$svc].environment.PARKIO_TRACING_ENABLED == "false"' "$rendered" >/dev/null || {
+        echo "ERROR: tracing is not disabled for '$svc'" >&2
+        exit 4
+      }
+    done
 
-  jq -e '
-    [.services | to_entries[] as $service | $service.value.ports[]? |
-      select((.host_ip // "") != "127.0.0.1") |
-      select(
-        $service.key != "caddy" or
-        (((.published | tostring) == "80" or (.published | tostring) == "443") | not)
-      )
-    ] | length == 0
-  ' "$rendered" >/dev/null || {
-    echo "ERROR: rendered Azure profile exposes a non-Caddy port beyond loopback" >&2
-    exit 4
-  }
+    for flag in \
+      PARKIO_MUNICIPAL_REGISTRY_CANDIDATE_GENERATION_ENABLED \
+      PARKIO_MUNICIPAL_REGISTRY_REVIEW_API_ENABLED \
+      PARKIO_MUNICIPAL_REGISTRY_REVIEWED_LINKING_ENABLED \
+      PARKIO_MUNICIPAL_REGISTRY_AUTOMATIC_LINKING_ENABLED \
+      PARKIO_MUNICIPAL_REGISTRY_PROVENANCE_PUBLICATION_ENABLED
+    do
+      jq -e --arg flag "$flag" \
+        '.services["parking-service"].environment[$flag] == "false"' "$rendered" >/dev/null || {
+        echo "ERROR: parking-service.$flag must default to false in rendered Azure compose" >&2
+        exit 4
+      }
+    done
 
-  jq -e '
-    [.services.caddy.ports[] | select((.host_ip // "") != "127.0.0.1") | .published | tostring]
-    | unique | sort == ["443", "80"]
-  ' "$rendered" >/dev/null || {
-    echo "ERROR: Caddy must be the only public service and publish exactly 80 and 443" >&2
-    exit 4
-  }
+    total_memory=0
+    for svc in "${PARKIO_RUNTIME_SERVICES[@]}"; do
+      limit="$(jq -r --arg svc "$svc" '.services[$svc].mem_limit // 0' "$rendered")"
+      total_memory=$((total_memory + limit))
+    done
+    max_memory=$((14 * 1024 * 1024 * 1024))
+    [ "$total_memory" -le "$max_memory" ] || {
+      echo "ERROR: Azure configured memory total $total_memory exceeds 14 GiB target $max_memory" >&2
+      exit 4
+    }
 
-  jq -e '.services.prometheus.command | index("--storage.tsdb.retention.time=7d") != null' "$rendered" >/dev/null
-  jq -e '.services.grafana.depends_on | keys == ["prometheus"]' "$rendered" >/dev/null
-  echo "OK: Azure runtime services=32 disabled=4 memoryBytes=$total_memory publicPorts=80,443 tracing=false"
+    jq -e '
+      [.services | to_entries[] as $service | $service.value.ports[]? |
+        select((.host_ip // "") != "127.0.0.1") |
+        select(
+          $service.key != "caddy" or
+          (((.published | tostring) == "80" or (.published | tostring) == "443") | not)
+        )
+      ] | length == 0
+    ' "$rendered" >/dev/null || {
+      echo "ERROR: rendered Azure profile exposes a non-Caddy port beyond loopback" >&2
+      exit 4
+    }
+
+    jq -e '
+      [.services.caddy.ports[] | select((.host_ip // "") != "127.0.0.1") | .published | tostring]
+      | unique | sort == ["443", "80"]
+    ' "$rendered" >/dev/null || {
+      echo "ERROR: Caddy must be the only public service and publish exactly 80 and 443" >&2
+      exit 4
+    }
+
+    jq -e '.services.prometheus.command | index("--storage.tsdb.retention.time=7d") != null' "$rendered" >/dev/null
+    jq -e '.services.grafana.depends_on | keys == ["prometheus"]' "$rendered" >/dev/null
+    echo "OK: Azure runtime services=32 disabled=4 memoryBytes=$total_memory publicPorts=80,443 tracing=false registryFlags=false"
+  else
+    if ! command -v node >/dev/null 2>&1; then
+      echo "ERROR: jq or node is required for Azure compose post-checks" >&2
+      exit 4
+    fi
+    node "$ROOT/scripts/lib/assert-azure-compose-config.js" "$rendered" "$runtime_list"
+  fi
 fi

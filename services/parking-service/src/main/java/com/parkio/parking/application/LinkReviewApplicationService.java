@@ -57,6 +57,9 @@ public class LinkReviewApplicationService {
             UUID id, long expectedVersion, UUID chosenFacilityId, String reviewer) {
         requireReviewedLinking();
         RegistryPersistencePort.Candidate candidate = requireCandidate(id);
+        if (hasHardConflicts(candidate.hardConflictsJson())) {
+            throw new IllegalStateException("Hard-conflict municipal registry candidates cannot be accepted");
+        }
         if ("ACCEPTED".equals(candidate.reviewState())
                 && chosenFacilityId.equals(candidate.chosenFacilityId())) {
             return candidate;
@@ -152,6 +155,13 @@ public class LinkReviewApplicationService {
             throw new IllegalArgumentException("reviewer is required");
         }
         return reviewer;
+    }
+
+    private static boolean hasHardConflicts(String hardConflictsJson) {
+        if (hardConflictsJson == null || hardConflictsJson.isBlank()) {
+            return false;
+        }
+        return !"[]".equals(hardConflictsJson.replaceAll("\\s", ""));
     }
 
     public static final class RegistryApiDisabledException extends RuntimeException {}

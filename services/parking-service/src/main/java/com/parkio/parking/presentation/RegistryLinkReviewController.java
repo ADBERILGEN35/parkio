@@ -11,6 +11,7 @@ import java.util.Set;
 import java.util.UUID;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.http.HttpStatus;
+import org.springframework.orm.ObjectOptimisticLockingFailureException;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
@@ -124,7 +125,7 @@ public class RegistryLinkReviewController {
             return RegistryLinkCandidateResponse.from(action.run(), objectMapper);
         } catch (LinkReviewApplicationService.CandidateNotFoundException ex) {
             throw new ResponseStatusException(HttpStatus.NOT_FOUND, "Candidate not found");
-        } catch (IllegalStateException ex) {
+        } catch (IllegalStateException | ObjectOptimisticLockingFailureException ex) {
             throw new ResponseStatusException(HttpStatus.CONFLICT, ex.getMessage());
         }
     }

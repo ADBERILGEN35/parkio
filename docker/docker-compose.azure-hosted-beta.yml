@@ -1,9 +1,14 @@
 # Parkio Azure hosted-beta overlay.
 #
-# Apply after the base, apps, images, and hosted-beta files. This profile is
-# deliberately isolated from the normal hosted-beta deployment. The deploy
-# scripts also target an explicit runtime service list, while the profiles below
-# prevent excluded observability services from being started by a plain `up`.
+# Apply after the base, apps, images, and hosted-beta files (never alone).
+# Canonical validate command:
+#   PARKIO_DEPLOYMENT_PROFILE=azure-hosted-beta \
+#     PARKIO_ENV_FILE=docker/.env.azure-hosted-beta.example \
+#     ./scripts/validate-hosted-beta-compose.sh
+# This profile is deliberately isolated from the normal hosted-beta deployment.
+# The deploy scripts also target an explicit runtime service list, while the
+# profiles below prevent excluded observability services from being started by
+# a plain `up`.
 
 name: parkio
 
