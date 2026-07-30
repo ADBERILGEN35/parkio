@@ -19,6 +19,8 @@ set -euo pipefail
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 # shellcheck source=lib/deploy-common.sh
 source "$ROOT/scripts/lib/deploy-common.sh"
+# shellcheck source=lib/disk-space.sh
+source "$ROOT/scripts/lib/disk-space.sh"
 
 ENV_FILE="${PARKIO_ENV_FILE:-docker/.env}"
 ARTIFACT_DIR="${PARKIO_DEPLOY_ARTIFACT_DIR:-deploy-artifacts}"
@@ -110,6 +112,14 @@ echo "runtimeServices=${PARKIO_RUNTIME_SERVICES[*]:-all}"
 echo "disabledServices=${PARKIO_DISABLED_SERVICES[*]:-none}"
 echo "manifest=$MANIFEST_PATH"
 echo "dryRun=$DRY_RUN"
+
+# Fail closed before compose render / image builds when root free space is
+# below the hosted-beta capacity gate (default 12 GiB). Does not auto-prune.
+echo "Checking free disk capacity..."
+if ! parkio_require_free_disk /; then
+  echo "ERROR: disk preflight failed — deployment aborted before build." >&2
+  exit 3
+fi
 
 echo "Rendering compose config..."
 mkdir -p "$ARTIFACT_DIR"

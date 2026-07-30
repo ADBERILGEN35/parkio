@@ -22,6 +22,7 @@ not asserted.
 | [Progressive Delivery](progressive-delivery.md) | Staged rollout model (no auto-canary) |
 | [Kill Switch Catalogue](kill-switch-catalogue.md) | Exact configuration keys and defaults |
 | [Municipal registry review runbook](municipal-registry-review-runbook.md) | DATA-WP-04 conservative link review (dark by default) |
+| [Hosted-beta disk cleanup](hosted-beta-disk-cleanup.md) | Safe reclaim + 12 GiB deploy disk gate |
 | [Rollback Runbook](rollback-runbook.md) | Code, config, policy, database rollback |
 | [Incident Management](incident-management.md) | Severity, roles, escalation |
 | [Backup & Restore](backup-restore.md) | Data durability status (not volume = backup) |
