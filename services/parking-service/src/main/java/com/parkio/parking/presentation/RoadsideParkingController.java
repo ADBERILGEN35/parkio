@@ -34,17 +34,25 @@ public class RoadsideParkingController {
         }
         return jdbc.sql("SELECT s.id,s.display_name,s.district,s.neighborhood,s.address_or_description,"
                         + "s.latitude,s.longitude,s.capacity_total,s.source_age_classification,s.updated_at "
-                        + "FROM municipal_roadside_segments s WHERE s.active=true AND s.publication_status='PUBLISHED' "
-                        + "AND s.location IS NOT NULL AND ST_DWithin(s.location,"
-                        + "ST_SetSRID(ST_MakePoint(:lng,:lat),4326)::geography,:radius) "
-                        + "ORDER BY ST_Distance(s.location,ST_SetSRID(ST_MakePoint(:lng,:lat),4326)::geography) LIMIT :limit")
+                        + "FROM municipal_roadside_segments s "
+                        + "WHERE s.active=true AND s.publication_status='PUBLISHED' "
+                        + "AND EXISTS ("
+                        + "  SELECT 1 FROM municipal_roadside_source_links l "
+                        + "  JOIN municipal_data_sources d ON d.id=l.source_id AND d.active=true "
+                        + "  WHERE l.segment_id=s.id AND l.active=true "
+                        + "    AND d.source_key='izelman-roadside-parking'"
+                        + ") "
+                        + "AND s.location IS NOT NULL AND ST_DWithin(s.location, "
+                        + "ST_SetSRID(ST_MakePoint(:lng,:lat),4326)::geography, :radius) "
+                        + "ORDER BY ST_Distance(s.location, ST_SetSRID(ST_MakePoint(:lng,:lat),4326)::geography) "
+                        + "LIMIT :limit")
                 .param("lat", lat).param("lng", lng).param("radius", radiusMeters).param("limit", limit)
-                .query((rs, n) -> new RoadsideView(
+                .query((rs, row) -> new RoadsideView(
                         rs.getObject("id", UUID.class), rs.getString("display_name"), rs.getString("district"),
                         rs.getString("neighborhood"), rs.getString("address_or_description"),
                         rs.getDouble("latitude"), rs.getDouble("longitude"),
                         (Integer) rs.getObject("capacity_total"), null, rs.getString("source_age_classification"),
-                        "İzmir Metropolitan Municipality / İZELMAN A.Ş.", true,
+                        "Izmir Metropolitan Municipality / IZELMAN A.S.", true,
                         rs.getObject("updated_at", Instant.class))).list();
     }
 

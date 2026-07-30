@@ -49,4 +49,8 @@ freshness, and product review is complete.
 
 ## Publication filter note
 
-IZELMAN facility publication filtering uses the municipal source publisher label, not raw attribution text. IZUM attribution includes an IZELMAN disclaimer and must remain discoverable for live occupancy.
+Publication decisions use stable `source_key` identity via `MunicipalSourcePublicationPolicy`.
+Attribution text, publisher display labels, and dataset titles are never used to decide visibility.
+IZUM attribution may mention IZELMAN in a legal disclaimer; that text must not hide live IZUM facilities.
+Multi-source facilities remain visible when any linked publishable source remains enabled.
+Unpublished IZELMAN inventory fields are gated independently from facility visibility.
