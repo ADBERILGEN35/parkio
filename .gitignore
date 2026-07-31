@@ -122,3 +122,5 @@ frontend/apps/mobile-v2/android/build/
 
 # Local IDE
 .idea/workspace.xml
+# Operator-generated DATA hosted-beta gate evidence
+docs/evidence/data-wp-*/
