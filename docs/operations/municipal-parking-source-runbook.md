@@ -131,7 +131,19 @@ sha256sum turkey-YYYYMMDD.osm.pbf
 
 License: ODbL 1.0. Attribution: © OpenStreetMap contributors. Geofabrik distributes extracts; does not endorse Parkio.
 
-### 2. Clip to `izmir-bbox-v1` (temporary bbox, not admin boundary)
+### 2. Clip to `izmir-admin-izbb-2024-10-18-v1` (administrative polygon)
+
+Preferred path (DATA-WP-08):
+
+```bash
+export PARKIO_OSM_OPS_DIR=/opt/parkio/ops/data-wp-02b
+export PARKIO_OSM_BOUNDARY_DIR=/opt/parkio/ops/data-wp-08/boundary
+./scripts/data-wp-08/extract-izmir-osm-polygon.sh /data/turkey-YYYYMMDD.osm.pbf
+```
+
+Boundary preparation: `docs/operations/izmir-admin-boundary-asset-runbook.md`.
+
+#### Legacy rollback: `izmir-bbox-v1` (temporary bbox)
 
 Bounds: west 26.20, south 37.85, east 28.45, north 39.05 (WGS84).
 
@@ -143,6 +155,7 @@ docker run --rm -v "$OPS_DIR:/data" iboates/osmium:latest extract \
   -o /data/izmir-bbox-v1.osm.pbf /data/turkey-YYYYMMDD.osm.pbf
 ```
 
+Do not delete the previous bbox extract when adopting the admin polygon.
 ### 3. Filter parking + export GeoJSON with IDs/polygons
 
 ```bash

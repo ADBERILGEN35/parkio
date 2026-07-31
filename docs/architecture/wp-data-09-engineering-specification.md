@@ -22,7 +22,8 @@ It publishes provenance. It does **not** publish registry internals, enable link
 mutate storage. Flag default remains **false**. DATA-WP-09A (hosted-beta gate) is separate
 and not started by this package.
 
-DATA-WP-08 (Izmir administrative-boundary clip) remains externally blocked and is out of
+DATA-WP-08 (Izmir administrative-boundary clip) is complete for asset acceptance and
+polygon extract tooling; hosted-beta reimport remains DATA-WP-08A and is out of
 scope here.
 
 ## 2. Goals

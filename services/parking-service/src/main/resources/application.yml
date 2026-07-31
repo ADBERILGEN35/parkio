@@ -178,7 +178,12 @@ parkio:
       local-input-path: ""
       allowed-input-dir: ""
       max-input-bytes: 52428800
-      clip-version: izmir-bbox-v1
+      clip-version: ${PARKIO_MUNICIPAL_OSM_CLIP_VERSION:izmir-admin-izbb-2024-10-18-v1}
+      boundary-dir: ${PARKIO_MUNICIPAL_OSM_BOUNDARY_DIR:}
+      boundary-geojson-filename: ${PARKIO_MUNICIPAL_OSM_BOUNDARY_GEOJSON_FILENAME:izmir-admin-boundary.geojson}
+      boundary-poly-filename: ${PARKIO_MUNICIPAL_OSM_BOUNDARY_POLY_FILENAME:izmir-admin-boundary.poly}
+      boundary-geojson-sha256: ${PARKIO_MUNICIPAL_OSM_BOUNDARY_GEOJSON_SHA256:}
+      boundary-source-sha256: ${PARKIO_MUNICIPAL_OSM_BOUNDARY_SOURCE_SHA256:6f4f43e4ce8139ddca4606582d903f047cb7c73810f8b876541a1ec3994ffd89}
     izelman:
       enabled: ${PARKIO_MUNICIPAL_IZELMAN_ENABLED:false}
       facility-import-enabled: ${PARKIO_MUNICIPAL_IZELMAN_FACILITY_IMPORT_ENABLED:false}

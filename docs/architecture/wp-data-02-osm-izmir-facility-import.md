@@ -22,17 +22,18 @@ DATA-WP-01 `municipal_*` tables and ports are **behaviorally generic** (source_k
 
 1. Download Geofabrik Turkey PBF (ops, not CI).
 2. Verify SHA-256 with local tooling.
-3. `osmium extract` with `izmir-bbox-v1` (or future polygon clip).
+3. `osmium extract` with `izmir-admin-izbb-2024-10-18-v1` polygon (`.poly`); legacy `izmir-bbox-v1` bbox retained for rollback.
 4. Export amenity=parking to Parkio GeoJSON interchange.
 5. Configure `parkio.municipal.osm.local-input-path`.
 6. Admin `POST /api/v1/parking/municipal/sources/osm-geofabrik-turkey/import?dryRun=true|false`.
 
 ## İzmir clip
 
-- Version: `izmir-bbox-v1`
-- Bounds: west 26.20, south 37.85, east 28.45, north 39.05 (WGS84)
-- Temporary documented fallback until a licensed admin boundary polygon is checked in
-- DATA-WP-02A: bbox is acceptable for hosted-beta validation with known adjacent-province / peninsula contamination; not a production administrative boundary
+- Current version: `izmir-admin-izbb-2024-10-18-v1` (İZBB district dissolve; see DATA-WP-08)
+- Legacy rollback: `izmir-bbox-v1` bounds west 26.20, south 37.85, east 28.45, north 39.05 (WGS84)
+- Admin envelope (parser fallback): west 26.2302474, south 37.815253, east 28.4930441, north 39.3854527
+- Operator boundary: `/opt/parkio/ops/data-wp-08/boundary/` (see `docs/operations/izmir-admin-boundary-asset-runbook.md`)
+- DATA-WP-02A used bbox for hosted-beta validation; DATA-WP-08 replaces extract path with polygon clipping
 
 ## External IDs
 

@@ -149,7 +149,16 @@ public class MunicipalSourceProperties {
         private String localInputPath = "";
         private String allowedInputDir = "";
         private long maxInputBytes = 52_428_800L; // 50 MiB interchange cap
-        private String clipVersion = "izmir-bbox-v1";
+        private String clipVersion = "izmir-admin-izbb-2024-10-18-v1";
+        /** Operator boundary directory (Windows or hosted-beta Linux). Empty = envelope fallback. */
+        private String boundaryDir = "";
+        private String boundaryGeojsonFilename = "izmir-admin-boundary.geojson";
+        private String boundaryPolyFilename = "izmir-admin-boundary.poly";
+        /** Expected SHA-256 of derived admin GeoJSON; empty skips checksum enforcement. */
+        private String boundaryGeojsonSha256 = "";
+        /** Expected SHA-256 of official source ilceler GeoJSON; empty skips. */
+        private String boundarySourceSha256 =
+                "6f4f43e4ce8139ddca4606582d903f047cb7c73810f8b876541a1ec3994ffd89";
 
         public boolean isImportEnabled() { return importEnabled; }
         public void setImportEnabled(boolean importEnabled) { this.importEnabled = importEnabled; }
@@ -171,5 +180,23 @@ public class MunicipalSourceProperties {
         public void setMaxInputBytes(long maxInputBytes) { this.maxInputBytes = maxInputBytes; }
         public String getClipVersion() { return clipVersion; }
         public void setClipVersion(String clipVersion) { this.clipVersion = clipVersion; }
+        public String getBoundaryDir() { return boundaryDir; }
+        public void setBoundaryDir(String boundaryDir) { this.boundaryDir = boundaryDir; }
+        public String getBoundaryGeojsonFilename() { return boundaryGeojsonFilename; }
+        public void setBoundaryGeojsonFilename(String boundaryGeojsonFilename) {
+            this.boundaryGeojsonFilename = boundaryGeojsonFilename;
+        }
+        public String getBoundaryPolyFilename() { return boundaryPolyFilename; }
+        public void setBoundaryPolyFilename(String boundaryPolyFilename) {
+            this.boundaryPolyFilename = boundaryPolyFilename;
+        }
+        public String getBoundaryGeojsonSha256() { return boundaryGeojsonSha256; }
+        public void setBoundaryGeojsonSha256(String boundaryGeojsonSha256) {
+            this.boundaryGeojsonSha256 = boundaryGeojsonSha256;
+        }
+        public String getBoundarySourceSha256() { return boundarySourceSha256; }
+        public void setBoundarySourceSha256(String boundarySourceSha256) {
+            this.boundarySourceSha256 = boundarySourceSha256;
+        }
     }
 }

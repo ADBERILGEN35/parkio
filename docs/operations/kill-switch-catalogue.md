@@ -86,6 +86,8 @@ See [rollback-runbook.md](rollback-runbook.md).
 | parkio.municipal.osm.conflation-enabled | false | Candidate generation |
 | parkio.municipal.osm.auto-match-enabled | false | Automatic link merge |
 | parkio.municipal.osm.publication-enabled | false | Future publication gate |
+| parkio.municipal.osm.clip-version | izmir-admin-izbb-2024-10-18-v1 | DATA-WP-08; rollback `izmir-bbox-v1` |
+| parkio.municipal.osm.boundary-dir | empty | Operator boundary dir; empty = envelope fallback |
 
 ## DATA-WP-03 IZELMAN (default OFF)
 

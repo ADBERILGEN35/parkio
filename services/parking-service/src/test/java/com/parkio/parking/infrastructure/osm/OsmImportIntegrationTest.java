@@ -80,12 +80,14 @@ class OsmImportIntegrationTest {
         registry.add("parkio.municipal.osm.publication-enabled", () -> "true");
         registry.add("parkio.municipal.osm.local-input-path", () -> FIXTURE_PATH.toString());
         registry.add("parkio.municipal.osm.allowed-input-dir", () -> FIXTURE_DIR.toString());
+        registry.add("parkio.municipal.osm.clip-version", () -> "izmir-admin-izbb-2024-10-18-v1");
     }
 
     @Test
     void importIsIdempotentCreatesNoOccupancyAndSkipsWhenLocked() {
         var first = importService.importFromConfiguredPath(false);
         assertThat(first.status()).isEqualTo(MunicipalSyncRunStatus.SUCCESS);
+        assertThat(first.clipVersion()).isEqualTo("izmir-admin-izbb-2024-10-18-v1");
         // PUBLIC/UNKNOWN only: node/1001, relation/3003, way/1001
         assertThat(first.extracted()).isEqualTo(3);
         assertThat(snapshots.count()).isZero();
