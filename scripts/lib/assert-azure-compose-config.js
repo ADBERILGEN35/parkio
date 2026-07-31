@@ -86,6 +86,17 @@ function main() {
         "')",
     );
   }
+  // DATA-WP-12: nearby duplicate-presentation is default-on for hosted-beta leave-on prep.
+  const duplicateFlag = 'PARKIO_MUNICIPAL_DISCOVERY_DUPLICATE_PRESENTATION_ENABLED';
+  if (String(parkingEnv[duplicateFlag] == null ? '' : parkingEnv[duplicateFlag]) !== 'true') {
+    fail(
+      'parking-service.' +
+        duplicateFlag +
+        " must default to true in rendered Azure compose (DATA-WP-12; got '" +
+        parkingEnv[duplicateFlag] +
+        "')",
+    );
+  }
 
   let totalMemory = 0;
   for (const svc of runtimeServices) {
@@ -135,7 +146,7 @@ function main() {
   console.log(
     'OK: Azure runtime services=32 disabled=4 memoryBytes=' +
       totalMemory +
-      ' publicPorts=80,443 tracing=false registryLinkingFlags=false provenancePublication=true',
+      ' publicPorts=80,443 tracing=false registryLinkingFlags=false provenancePublication=true duplicatePresentation=true',
   );
 }
 

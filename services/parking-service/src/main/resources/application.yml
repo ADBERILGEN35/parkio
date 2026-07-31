@@ -131,7 +131,9 @@ parkio:
     enabled: false
     manual-sync-enabled: false
     discovery:
-      duplicate-presentation-enabled: ${PARKIO_MUNICIPAL_DISCOVERY_DUPLICATE_PRESENTATION_ENABLED:false}
+      # DATA-WP-12: nearby duplicate-presentation (canonical default on).
+      # Production profile pins false until a separate rollout approval.
+      duplicate-presentation-enabled: ${PARKIO_MUNICIPAL_DISCOVERY_DUPLICATE_PRESENTATION_ENABLED:true}
       duplicate-radius-meters: ${PARKIO_MUNICIPAL_DISCOVERY_DUPLICATE_RADIUS_METERS:100}
       overfetch-factor: ${PARKIO_MUNICIPAL_DISCOVERY_OVERFETCH_FACTOR:2}
       overfetch-absolute-max: ${PARKIO_MUNICIPAL_DISCOVERY_OVERFETCH_ABSOLUTE_MAX:200}

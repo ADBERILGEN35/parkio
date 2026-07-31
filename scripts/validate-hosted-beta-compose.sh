@@ -147,6 +147,14 @@ if [ "$PARKIO_DEPLOYMENT_PROFILE" = "azure-hosted-beta" ]; then
       exit 4
     }
 
+    # DATA-WP-12: nearby duplicate-presentation is default-on for hosted-beta leave-on prep.
+    jq -e \
+      '.services["parking-service"].environment.PARKIO_MUNICIPAL_DISCOVERY_DUPLICATE_PRESENTATION_ENABLED == "true"' \
+      "$rendered" >/dev/null || {
+      echo "ERROR: parking-service.PARKIO_MUNICIPAL_DISCOVERY_DUPLICATE_PRESENTATION_ENABLED must default to true in rendered Azure compose (DATA-WP-12)" >&2
+      exit 4
+    }
+
     total_memory=0
     for svc in "${PARKIO_RUNTIME_SERVICES[@]}"; do
       limit="$(jq -r --arg svc "$svc" '.services[$svc].mem_limit // 0' "$rendered")"

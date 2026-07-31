@@ -26,10 +26,12 @@ public class MunicipalSourceProperties {
     public void setDiscovery(Discovery discovery) { this.discovery = discovery; }
 
     /**
-     * Nearby duplicate-presentation controls (DATA-WP-07). Query-time only; default off.
+     * Nearby duplicate-presentation controls (DATA-WP-07 / DATA-WP-12).
+     * Canonical default on; production profile pins false until separate approval.
+     * Query-time only; never mutates registry state.
      */
     public static class Discovery {
-        private boolean duplicatePresentationEnabled;
+        private boolean duplicatePresentationEnabled = true;
         private double duplicateRadiusMeters = 100.0;
         private int overfetchFactor = 2;
         private int overfetchAbsoluteMax = 200;

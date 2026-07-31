@@ -77,6 +77,9 @@ done
 grep -q 'PARKIO_MUNICIPAL_REGISTRY_PROVENANCE_PUBLICATION_ENABLED: ${PARKIO_MUNICIPAL_REGISTRY_PROVENANCE_PUBLICATION_ENABLED:-true}' \
   docker/docker-compose.azure-hosted-beta.yml \
   || fail "provenance publication must default true on Azure hosted-beta (DATA-WP-11)"
+grep -q 'PARKIO_MUNICIPAL_DISCOVERY_DUPLICATE_PRESENTATION_ENABLED: ${PARKIO_MUNICIPAL_DISCOVERY_DUPLICATE_PRESENTATION_ENABLED:-true}' \
+  docker/docker-compose.azure-hosted-beta.yml \
+  || fail "duplicate-presentation must default true on Azure hosted-beta (DATA-WP-12)"
 grep -q 'PARKIO_MUNICIPAL_REGISTRY_AUTOMATIC_LINKING_ENABLED: "false"' docker/docker-compose.azure-hosted-beta.yml \
   || fail "automatic linking must be hard-coded false in Azure compose"
 pass "registry flags are mapped on parking-service with safe defaults"

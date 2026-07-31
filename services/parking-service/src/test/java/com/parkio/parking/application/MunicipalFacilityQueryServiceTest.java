@@ -253,6 +253,8 @@ class MunicipalFacilityQueryServiceTest {
             MunicipalOccupancySnapshotRepository snapshots,
             MunicipalSourceProperties municipal,
             IzelmanProperties izelman) {
+        // Isolate non-discovery tests from DATA-WP-12 Java field default-on.
+        municipal.getDiscovery().setDuplicatePresentationEnabled(false);
         return new MunicipalFacilityQueryService(
                 facilities, snapshots, municipal, izelman,
                 Clock.fixed(Instant.parse("2026-07-30T06:00:00Z"), ZoneOffset.UTC));

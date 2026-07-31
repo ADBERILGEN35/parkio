@@ -1,8 +1,12 @@
-# Production profile: keep public municipal provenance publication dark until a
-# separate production rollout approval (DATA-WP-11). Canonical application.yml
-# defaults publication on for local/hosted-beta; this profile re-pins the env
-# default to false so activating `prod` without an explicit env override stays off.
+# Production profile: keep public municipal discovery/provenance dark until a
+# separate production rollout approval. Canonical application.yml defaults
+# enable these for local/hosted-beta; this profile re-pins env defaults to false
+# so activating `prod` without an explicit env override stays off.
 parkio:
   municipal:
+    discovery:
+      # DATA-WP-12: nearby duplicate-presentation leave-on is hosted-beta only until approved.
+      duplicate-presentation-enabled: ${PARKIO_MUNICIPAL_DISCOVERY_DUPLICATE_PRESENTATION_ENABLED:false}
     registry:
+      # DATA-WP-11: public provenance leave-on is hosted-beta only until approved.
       provenance-publication-enabled: ${PARKIO_MUNICIPAL_REGISTRY_PROVENANCE_PUBLICATION_ENABLED:false}

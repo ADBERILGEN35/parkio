@@ -17,6 +17,7 @@ Azure overlay `docker/docker-compose.azure-hosted-beta.yml` must map these into
 | `parkio.municipal.izum.max-retries` | `PARKIO_MUNICIPAL_IZUM_MAX_RETRIES` | 2 |
 | `parkio.municipal.registry.provenance-ingest-write-enabled` | `PARKIO_MUNICIPAL_REGISTRY_PROVENANCE_INGEST_WRITE_ENABLED` | true |
 | `parkio.municipal.registry.provenance-publication-enabled` | `PARKIO_MUNICIPAL_REGISTRY_PROVENANCE_PUBLICATION_ENABLED` | true (prod profile: false) |
+| `parkio.municipal.discovery.duplicate-presentation-enabled` | `PARKIO_MUNICIPAL_DISCOVERY_DUPLICATE_PRESENTATION_ENABLED` | true (prod profile: false) |
 
 Source key: `izmir-izum-otoparklar`.  
 Admin: `POST /api/v1/parking/municipal/sources/{sourceKey}/sync` (requires `municipal.enabled` + `manual-sync-enabled`; İZUM also requires `izum.enabled`).  
@@ -202,3 +203,28 @@ export PARKIO_OSM_REAL_IZMIR_GEOJSON=/path/to/izmir-parking-parkio.geojson
 ./gradlew :services:parking-service:integrationTest \
   --tests com.parkio.parking.infrastructure.osm.OsmRealIzmirImportValidationIT
 ```
+
+## Nearby duplicate-presentation (DATA-WP-07 / DATA-WP-12)
+
+Canonical and Azure hosted-beta default **true** for
+`parkio.municipal.discovery.duplicate-presentation-enabled`. Production `prod`
+profile pins **false** until separate approval.
+
+- Nearby may suppress strong IZUM↔OSM presentation duplicates only.
+- Detail `GET /api/v1/parking/facilities/{id}` is never suppressed.
+- Kill-switch: set env/property `false` to restore legacy nearby result set/order immediately.
+- Zero suppressions is an acceptable safe result; false positives are avoided conservatively.
+- Independent of provenance publication, linking, and İZELMAN publication.
+- Matching radius/overfetch/thresholds are unchanged by DATA-WP-12.
+
+### Hosted-beta leave-on (DATA-WP-12A — not started here)
+
+1. Deploy with Compose `:-true` left on (do not force false after gate).
+2. Verify representative nearby queries; confirm detail for any suppressed IDs.
+3. Confirm linking + İZELMAN publication remain false; no DB mutation from reads.
+4. Canonical smoke; retain presentation enabled unless incident requires kill-switch.
+
+### Production warning
+
+Do not flip production to true without a dedicated rollout approval. `application-prod.yml`
+keeps the env default false under the `prod` profile.

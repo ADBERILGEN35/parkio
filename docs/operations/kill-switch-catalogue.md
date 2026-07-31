@@ -115,6 +115,16 @@ Hosted-beta Compose maps PARKIO_MUNICIPAL_IZELMAN_* with defaults false.
 | `parkio.municipal.registry.provenance-publication-enabled` | `true` | Add bounded provenance to public facility responses (DATA-WP-11; kill-switch to `false` restores null fields; production profile pins false) |
 | `parkio.municipal.registry.provenance-ingest-write-enabled` | `true` | Kill-switch for DATA-WP-10 ingest provenance writes (does not control publication) |
 
+## DATA-WP-07 / DATA-WP-12 nearby duplicate-presentation
+
+| Flag | Default | Effect |
+|------|---------|--------|
+| `parkio.municipal.discovery.duplicate-presentation-enabled` | `true` | Nearby-only presentation suppression (DATA-WP-12; kill-switch to `false` restores legacy nearby result set/order; production profile pins false) |
+
+Independent of provenance publication, candidate generation, review API, linking, and
+İZELMAN publication. Detail lookup is never suppressed. Zero suppressions is valid;
+thresholds stay conservative. Do not enable in production without separate approval.
+
 Disable publication first, then reviewed linking, review API, and candidate generation.
 Ingest-write kill-switch is independent: set it false to stop new provenance selections without changing publication.
 These switches do not stop IZUM availability. IZELMAN publication stays independently disabled.

@@ -317,7 +317,7 @@ Required:
 
 | Flag | Default | Purpose |
 |------|---------|---------|
-| `parkio.municipal.discovery.duplicate-presentation-enabled` | `false` | Master switch |
+| `parkio.municipal.discovery.duplicate-presentation-enabled` | `true` (DATA-WP-12; prod pins false) | Master switch |
 | `parkio.municipal.discovery.duplicate-radius-meters` | impl-locked small constant | Comparison geography bound |
 | `parkio.municipal.discovery.overfetch-factor` (optional) | impl-locked (~2) | Bounded refill |
 | `parkio.municipal.discovery.supported-pairs` (optional) | `IZUM_OSM` only | Allowlist |
@@ -544,17 +544,20 @@ to force suppression.
 
 | Phase | Objective | Commit boundary | Deploy |
 |-------|-----------|-----------------|--------|
-| **DATA-WP-07** | Spec + deterministic implementation | Spec/hardening docs + implementation on `api` (flag false) | Not required for local 07 complete |
-| **DATA-WP-07A** | Hosted-beta presentation validation | Separate ops gate | Required |
+| **DATA-WP-07** | Spec + deterministic implementation | Spec/hardening docs + implementation on `api` (originally flag false) | Not required for local 07 complete |
+| **DATA-WP-07A** | Hosted-beta presentation validation | Separate ops gate (complete) | Required |
+| **DATA-WP-12** | Enable presentation by default | Defaults flip; prod pins false | Hosted-beta leave-on is DATA-WP-12A |
 
 ## 31. Implementation status
 
-**DATA-WP-07 implementation is complete on `api` (flag default false).**
+**DATA-WP-07 implementation is complete** (policy + PostGIS coverage). **DATA-WP-07A** hosted-beta gate is **complete**.
+
+Default-on enablement is **DATA-WP-12** (canonical/hosted-beta true; production profile explicit false). Matching thresholds and detail behavior remain as specified here.
 
 - Query-time nearby duplicate-presentation policy only
 - Detail lookup unchanged
 - No Flyway migration
 - No registry / automatic-linking mutation
-- DATA-WP-07A hosted-beta gate remains separate and not started
+- DATA-WP-12A leave-on gate is separate and not started by DATA-WP-12
 
 Specification ancestry: `6826a09` (scope) then `791e462` (hardening).

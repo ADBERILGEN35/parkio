@@ -48,7 +48,20 @@ Never expect confidence, review status, candidate IDs, or İZELMAN fields while 
 publication remains off. Disabling the flag restores null provenance fields immediately; no
 database rewrite.
 
-**DATA-WP-11A** (leave-on hosted-beta gate) is separate and not started by DATA-WP-11.
+**DATA-WP-11A** (leave-on hosted-beta gate) is complete (ACCEPT WITH NON-BLOCKING NOTES).
+
+## Nearby duplicate-presentation (DATA-WP-07 / DATA-WP-12)
+
+`PARKIO_MUNICIPAL_DISCOVERY_DUPLICATE_PRESENTATION_ENABLED` defaults **true**
+(canonical `application.yml` and Azure hosted-beta Compose `:-true`). The `prod`
+Spring profile (`application-prod.yml`) re-pins the env default to **false** until a
+separate production rollout approval.
+
+Affects only nearby listing; detail lookup for suppressed IDs remains available.
+Kill-switch `false` restores legacy nearby immediately. Zero suppressions is valid;
+do not lower thresholds. Independent of provenance and linking flags.
+
+**DATA-WP-12A** (leave-on hosted-beta gate) is separate and not started by DATA-WP-12.
 
 ## Provenance ingest writes (DATA-WP-10)
 

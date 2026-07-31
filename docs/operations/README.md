@@ -52,7 +52,8 @@ action, diagnostics, recovery, and escalation.
 | [DLQ Redrive Runbook](dlq-redrive-runbook.md) | Kafka DLT recovery |
 | [Municipal Parking Source Runbook](municipal-parking-source-runbook.md) | DATA-WP-01 İZUM sync / stale / rollback |
 | [DATA-WP-06 source health / SLA / recovery (spec)](../architecture/wp-data-06-engineering-specification.md) | Municipal DATA package; not ops WP-06 |
-| [DATA-WP-07 discovery duplicate-presentation](../architecture/wp-data-07-engineering-specification.md) | Implemented (flag default false); DATA-WP-07A gate pending; not mobile WP-07 |
+| [DATA-WP-07 discovery duplicate-presentation](../architecture/wp-data-07-engineering-specification.md) | Policy closed (07/07A); defaults enabled by DATA-WP-12; not mobile WP-07 |
+| [DATA-WP-12 enable duplicate-presentation default](../architecture/wp-data-12-engineering-specification.md) | Canonical/hosted-beta default true; prod pins false; 12A leave-on not started |
 
 ## Related Architecture
 

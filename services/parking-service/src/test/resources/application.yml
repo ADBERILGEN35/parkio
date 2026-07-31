@@ -22,6 +22,9 @@ parkio:
   municipal:
     enabled: false
     manual-sync-enabled: false
+    discovery:
+      # Isolate non-discovery tests from DATA-WP-12 canonical default-on.
+      duplicate-presentation-enabled: false
     registry:
       # Isolate non-provenance tests from DATA-WP-11 canonical default-on.
       provenance-publication-enabled: false

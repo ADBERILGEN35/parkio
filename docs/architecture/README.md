@@ -185,7 +185,7 @@ See [Known Issues](../releases/KNOWN-ISSUES.md) for the current blocker list.
   - Decision Intelligence WP-05 remains a separate work package.
 - [DATA-WP-07 public facility discovery duplicate-presentation safety](wp-data-07-engineering-specification.md)
   - Specification: hardened safety contract complete.
-  - Implementation: query-time nearby duplicate-presentation policy landed (flag default false).
+  - Implementation: query-time nearby duplicate-presentation policy (DATA-WP-07).
   - DATA-WP-07A hosted-beta gate: complete (ACCEPT WITH NON-BLOCKING NOTES).
   - Repository **WP-07** (mobile/session foundation) remains a separate work package.
 - [DATA-WP-09 public facility provenance publication](wp-data-09-engineering-specification.md)
@@ -198,7 +198,11 @@ See [Known Issues](../releases/KNOWN-ISSUES.md) for the current blocker list.
 - [DATA-WP-11 enable public municipal provenance publication](wp-data-11-engineering-specification.md)
   - Canonical default **true**; production profile pins **false**; Azure hosted-beta Compose `:-true`.
   - No semantic/DTO/migration changes; kill-switch restores null fields.
-  - DATA-WP-11A hosted-beta leave-on gate: **not started**.
+  - DATA-WP-11A hosted-beta leave-on gate: complete (ACCEPT WITH NON-BLOCKING NOTES).
+- [DATA-WP-12 enable nearby duplicate-presentation by default](wp-data-12-engineering-specification.md)
+  - Canonical default **true**; production profile pins **false**; Azure hosted-beta Compose `:-true`.
+  - Matching thresholds unchanged; detail endpoint unaffected; kill-switch restores legacy nearby.
+  - DATA-WP-12A hosted-beta leave-on gate: **not started**.
 - DATA-WP-08 İzmir administrative-boundary clip: **BLOCKED** (external licensed boundary asset).
 
 > **Name collision:** Repository **WP-05** is Decision Intelligence. Repository
