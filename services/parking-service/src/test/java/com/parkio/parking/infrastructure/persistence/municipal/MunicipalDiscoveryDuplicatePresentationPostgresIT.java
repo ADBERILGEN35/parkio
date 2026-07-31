@@ -5,6 +5,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 import com.parkio.parking.application.MunicipalFacilityQueryService;
 import com.parkio.parking.externalsource.MunicipalOccupancyFreshness;
 import com.parkio.parking.externalsource.MunicipalSourceIdentity;
+import com.parkio.parking.infrastructure.config.RegistryProperties;
 import java.util.List;
 import java.util.Map;
 import java.util.UUID;
@@ -42,6 +43,8 @@ class MunicipalDiscoveryDuplicatePresentationPostgresIT {
     @Autowired MunicipalFacilityQueryService query;
     @Autowired JdbcClient jdbc;
 
+        @Autowired RegistryProperties registryProperties;
+
     @DynamicPropertySource
     static void properties(DynamicPropertyRegistry registry) {
         registry.add("spring.datasource.url", POSTGRES::getJdbcUrl);
@@ -70,6 +73,7 @@ class MunicipalDiscoveryDuplicatePresentationPostgresIT {
     @BeforeEach
     void seed() {
         jdbc.sql("DELETE FROM municipal_occupancy_snapshots").update();
+        jdbc.sql("DELETE FROM municipal_source_sync_runs WHERE correlation_id = 'discovery-dup-it'").update();
         jdbc.sql("DELETE FROM municipal_facility_source_links").update();
         jdbc.sql("DELETE FROM municipal_parking_facilities").update();
 
@@ -100,12 +104,25 @@ class MunicipalDiscoveryDuplicatePresentationPostgresIT {
                 SET primary_source_key = :key WHERE id = :id
                 """).param("key", MunicipalSourceIdentity.OSM).param("id", OSM_FAR).update();
 
+        UUID syncRunId = UUID.randomUUID();
+        jdbc.sql("""
+                INSERT INTO municipal_source_sync_runs(
+                  id, source_id, correlation_id, started_at, completed_at, status,
+                  records_received, records_accepted, records_rejected, records_inserted,
+                  records_updated, records_unchanged, occupancy_inserted)
+                SELECT :id, id, 'discovery-dup-it', now(), now(), 'SUCCESS',
+                       1, 1, 0, 0, 0, 0, 1
+                FROM municipal_data_sources WHERE source_key = :sourceKey
+                """)
+                .param("id", syncRunId)
+                .param("sourceKey", MunicipalSourceIdentity.IZUM)
+                .update();
         jdbc.sql("""
                 INSERT INTO municipal_occupancy_snapshots(
                   id, facility_id, source_id, source_link_id, sync_run_id, source_observed_at, fetched_at,
                   timestamp_provenance, capacity_total, occupied_spaces, available_spaces,
                   occupancy_status, raw_record_hash, created_at)
-                SELECT :id, :facility, ds.id, lx.id, NULL, now(), now(),
+                SELECT :id, :facility, ds.id, lx.id, :runId, now(), now(),
                        'SOURCE', 120, 20, 100, 'LIVE', 'occ-hash-1', now()
                 FROM municipal_data_sources ds
                 JOIN municipal_facility_source_links lx ON lx.source_id = ds.id AND lx.facility_id = :facility
@@ -114,6 +131,7 @@ class MunicipalDiscoveryDuplicatePresentationPostgresIT {
                 """)
                 .param("id", UUID.randomUUID())
                 .param("facility", IZUM)
+                .param("runId", syncRunId)
                 .param("sourceKey", MunicipalSourceIdentity.IZUM)
                 .update();
     }
@@ -145,11 +163,8 @@ class MunicipalDiscoveryDuplicatePresentationPostgresIT {
                         nearby.stream().map(MunicipalFacilityQueryService.FacilityView::id).toList());
 
         assertThat(mutationCounts()).isEqualTo(before);
-        assertThat(jdbc.sql("""
-                SELECT automatic_linking_enabled FROM municipal_data_sources
-                WHERE source_key = :key
-                """).param("key", MunicipalSourceIdentity.IZUM)
-                .query(Boolean.class).optional()).isEmpty();
+        assertThat(registryProperties.isAutomaticLinkingEnabled()).isFalse();
+        assertThat(registryProperties.isReviewedLinkingEnabled()).isFalse();
     }
 
     @Test

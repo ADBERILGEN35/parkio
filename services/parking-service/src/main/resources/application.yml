@@ -127,7 +127,7 @@ info:
     description: Parkio parking-service
 
 parkio:
-    municipal:
+  municipal:
     enabled: false
     manual-sync-enabled: false
     discovery:
