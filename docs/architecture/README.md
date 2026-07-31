@@ -180,11 +180,17 @@ See [Known Issues](../releases/KNOWN-ISSUES.md) for the current blocker list.
   - Decision Intelligence WP-05 remains a separate work package.
 - [DATA-WP-06 municipal source health, SLA and recovery](wp-data-06-engineering-specification.md)
   - Specification: complete (`090242f`).
-  - Implementation: complete on this branch (pending push/DATA-WP-06A).
-  - DATA-WP-06A hosted-beta gate: not started.
+  - Implementation: complete (`f4faf279`).
+  - DATA-WP-06A hosted-beta gate: complete (ACCEPT WITH NON-BLOCKING NOTES).
   - Decision Intelligence WP-05 remains a separate work package.
+- [DATA-WP-07 public facility discovery duplicate-presentation safety](wp-data-07-engineering-specification.md)
+  - Specification: planning complete on this branch (docs only).
+  - Implementation / DATA-WP-07A: not started.
+  - Repository **WP-07** (mobile/session foundation) remains a separate work package.
 
 > **Name collision:** Repository **WP-05** is Decision Intelligence. Repository
-> **WP-06** is Operational Platform (`docs/operations/wp-06-*`). Municipal data
-> packages use **DATA-WP-NN** / `wp-data-NN-*` and must not reopen `wp-05-*` or
-> ops `wp-06-*`.
+> **WP-06** is Operational Platform (`docs/operations/wp-06-*`). Repository
+> **WP-07** is Mobile Application Foundation & Sprint 01 closure
+> (`docs/architecture/wp-07-*`, `frontend/architecture/sprint-3/WP-07-MOBILE.md`).
+> Municipal data packages use **DATA-WP-NN** / `wp-data-NN-*` and must not reopen
+> `wp-05-*`, ops `wp-06-*`, or mobile/session `wp-07-*`.
