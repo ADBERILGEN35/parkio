@@ -112,7 +112,7 @@ Hosted-beta Compose maps PARKIO_MUNICIPAL_IZELMAN_* with defaults false.
 | `parkio.municipal.registry.review-api-enabled` | `false` | Register admin review endpoints; disabled is HTTP 404 |
 | `parkio.municipal.registry.reviewed-linking-enabled` | `false` | Permit explicit ADMIN/SUPER_ADMIN decisions |
 | `parkio.municipal.registry.automatic-linking-enabled` | `false` | Prohibited; binding `true` fails startup |
-| `parkio.municipal.registry.provenance-publication-enabled` | `false` | Add bounded provenance to public facility responses |
+| `parkio.municipal.registry.provenance-publication-enabled` | `true` | Add bounded provenance to public facility responses (DATA-WP-11; kill-switch to `false` restores null fields; production profile pins false) |
 | `parkio.municipal.registry.provenance-ingest-write-enabled` | `true` | Kill-switch for DATA-WP-10 ingest provenance writes (does not control publication) |
 
 Disable publication first, then reviewed linking, review API, and candidate generation.

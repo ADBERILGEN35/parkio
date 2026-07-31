@@ -66,12 +66,12 @@ would guess field ownership. Live ingest writes are sufficient; operators can re
 | Flag | Default | Role |
 |------|---------|------|
 | `parkio.municipal.registry.provenance-ingest-write-enabled` | **true** | Kill-switch for ingest writes |
-| `parkio.municipal.registry.provenance-publication-enabled` | **false** | Public DTO enrichment (unchanged) |
+| `parkio.municipal.registry.provenance-publication-enabled` | **true** | Public DTO enrichment (DATA-WP-11; prod profile pins false) |
 
 Env:
 
 - `PARKIO_MUNICIPAL_REGISTRY_PROVENANCE_INGEST_WRITE_ENABLED` (default true)
-- `PARKIO_MUNICIPAL_REGISTRY_PROVENANCE_PUBLICATION_ENABLED` (default false)
+- `PARKIO_MUNICIPAL_REGISTRY_PROVENANCE_PUBLICATION_ENABLED` (canonical default true; production profile default false)
 
 These flags are independent. Ingest write does not enable publication.
 

@@ -29,17 +29,26 @@ Disable in this order when anomalies appear:
 
 These switches do not affect IZUM availability collection. Do not enable IZELMAN publication as part of registry review.
 
-## Public provenance publication (DATA-WP-09)
+## Public provenance publication (DATA-WP-09 / DATA-WP-11)
 
-`PARKIO_MUNICIPAL_REGISTRY_PROVENANCE_PUBLICATION_ENABLED` defaults **false**. When temporarily
-enabled (DATA-WP-09A only), nearby/detail DTOs may include:
+`PARKIO_MUNICIPAL_REGISTRY_PROVENANCE_PUBLICATION_ENABLED` defaults **true**
+(canonical `application.yml` and Azure hosted-beta Compose `:-true`). The `prod`
+Spring profile (`application-prod.yml`) re-pins the env default to **false** until a
+separate production rollout approval.
+
+When enabled, nearby/detail DTOs may include:
 
 - `contributingSourceKeys` — distinct publishable source keys
 - `selectedFieldProvenanceSummary` — allow-listed field → `source_key` only
 
+Empty publishable provenance yields empty list/map (not null). Flag off yields **null**
+for both fields.
+
 Never expect confidence, review status, candidate IDs, or İZELMAN fields while İZELMAN
 publication remains off. Disabling the flag restores null provenance fields immediately; no
-database rewrite. Do not enable this flag in hosted-beta under DATA-WP-09 implementation alone.
+database rewrite.
+
+**DATA-WP-11A** (leave-on hosted-beta gate) is separate and not started by DATA-WP-11.
 
 ## Provenance ingest writes (DATA-WP-10)
 

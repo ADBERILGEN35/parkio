@@ -188,14 +188,18 @@ See [Known Issues](../releases/KNOWN-ISSUES.md) for the current blocker list.
   - Implementation: query-time nearby duplicate-presentation policy landed (flag default false).
   - DATA-WP-07A hosted-beta gate: complete (ACCEPT WITH NON-BLOCKING NOTES).
   - Repository **WP-07** (mobile/session foundation) remains a separate work package.
-- DATA-WP-08 İzmir administrative-boundary clip: **BLOCKED** (external licensed boundary asset).
 - [DATA-WP-09 public facility provenance publication](wp-data-09-engineering-specification.md)
-  - Specification + implementation: bounded nearby/detail provenance (flag default false).
+  - Specification + implementation: bounded nearby/detail provenance.
   - DATA-WP-09A hosted-beta gate: complete (ACCEPT WITH NON-BLOCKING NOTES).
 - [DATA-WP-10 municipal field provenance selection on ingest](wp-data-10-engineering-specification.md)
-  - Specification + implementation: İZUM/OSM ingest writes allow-listed provenance (publication remains false).
+  - Specification + implementation: İZUM/OSM ingest writes allow-listed provenance.
   - Backfill omitted (no safe field ownership without guessing).
-  - DATA-WP-10A hosted-beta gate: not started.
+  - DATA-WP-10A hosted-beta gate: complete (ACCEPT).
+- [DATA-WP-11 enable public municipal provenance publication](wp-data-11-engineering-specification.md)
+  - Canonical default **true**; production profile pins **false**; Azure hosted-beta Compose `:-true`.
+  - No semantic/DTO/migration changes; kill-switch restores null fields.
+  - DATA-WP-11A hosted-beta leave-on gate: **not started**.
+- DATA-WP-08 İzmir administrative-boundary clip: **BLOCKED** (external licensed boundary asset).
 
 > **Name collision:** Repository **WP-05** is Decision Intelligence. Repository
 > **WP-06** is Operational Platform (`docs/operations/wp-06-*`). Repository

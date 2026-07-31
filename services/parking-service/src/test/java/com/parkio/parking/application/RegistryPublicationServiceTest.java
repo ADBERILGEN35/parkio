@@ -27,6 +27,7 @@ class RegistryPublicationServiceTest {
     private RegistryProperties properties;
     private MunicipalSourceProperties municipal;
     private IzelmanProperties izelman;
+    private SimpleMeterRegistry meterRegistry;
     private ProvenancePublicationMetrics metrics;
 
     @BeforeEach
@@ -35,7 +36,8 @@ class RegistryPublicationServiceTest {
         municipal = new MunicipalSourceProperties();
         municipal.getOsm().setPublicationEnabled(true);
         izelman = new IzelmanProperties();
-        metrics = new ProvenancePublicationMetrics(new SimpleMeterRegistry());
+        meterRegistry = new SimpleMeterRegistry();
+        metrics = new ProvenancePublicationMetrics(meterRegistry);
     }
 
     @Test
@@ -93,6 +95,37 @@ class RegistryPublicationServiceTest {
         assertThat(enrichment.contributingSourceKeys()).isEmpty();
         assertThat(enrichment.selectedFieldProvenanceSummary()).isEmpty();
         assertThat(enrichment.registryConfidenceOrReviewStatus()).isNull();
+    }
+
+    @Test
+    void killSwitchAfterEnrichmentRestoresHiddenWithoutFurtherQueries() {
+        properties.setProvenancePublicationEnabled(true);
+        JdbcClient jdbc = mockJdbcReturning(List.of(
+                new PublicProvenancePublicationPolicy.FieldSource("NAME", MunicipalSourceIdentity.IZUM)));
+        RegistryPublicationService service =
+                new RegistryPublicationService(properties, jdbc, municipal, izelman, metrics);
+
+        assertThat(service.forFacility(FACILITY).selectedFieldProvenanceSummary()).isNotEmpty();
+
+        properties.setProvenancePublicationEnabled(false);
+        RegistryPublicationService.Enrichment hidden = service.forFacility(FACILITY);
+        assertThat(hidden.contributingSourceKeys()).isNull();
+        assertThat(hidden.selectedFieldProvenanceSummary()).isNull();
+        assertThat(meterRegistry.find("parkio.municipal.registry.provenance.publication")
+                        .tag("outcome", "hidden")
+                        .counter())
+                .isNotNull();
+        assertThat(meterRegistry.find("parkio.municipal.registry.provenance.publication")
+                        .tag("outcome", "enriched")
+                        .tag("source_family", "izum")
+                        .tag("policy_version", PublicProvenancePublicationPolicy.POLICY_VERSION)
+                        .counter())
+                .isNotNull();
+        assertThat(meterRegistry.find("parkio.municipal.registry.provenance.publication.fields")
+                        .tag("field_name", "NAME")
+                        .tag("policy_version", PublicProvenancePublicationPolicy.POLICY_VERSION)
+                        .counter())
+                .isNotNull();
     }
 
     @SuppressWarnings({"rawtypes", "unchecked"})

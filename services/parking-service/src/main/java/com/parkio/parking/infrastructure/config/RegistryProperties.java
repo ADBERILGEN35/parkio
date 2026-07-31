@@ -8,7 +8,12 @@ public class RegistryProperties {
     private boolean reviewApiEnabled;
     private boolean reviewedLinkingEnabled;
     private boolean automaticLinkingEnabled;
-    private boolean provenancePublicationEnabled;
+    /**
+     * DATA-WP-11: public nearby/detail provenance enrichment. Canonical default true.
+     * Production profile ({@code application-prod.yml}) pins the env default false.
+     * Independent of ingest-write, candidate generation, review API, and linking.
+     */
+    private boolean provenancePublicationEnabled = true;
     /**
      * DATA-WP-10 kill-switch for ingest provenance writes. Default true so successful
      * İZUM/OSM ingest records allow-listed field ownership. Does not control publication.

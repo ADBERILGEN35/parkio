@@ -17,9 +17,10 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 /**
- * DATA-WP-09 read-only public provenance enrichment for nearby/detail DTOs.
- * Flag default false. Never mutates registry, links, reviews, candidates,
- * occupancy, or tariffs. Never publishes confidence, review status, or IDs.
+ * DATA-WP-09/11 read-only public provenance enrichment for nearby/detail DTOs.
+ * Canonical default on (DATA-WP-11); production profile pins false. Never mutates
+ * registry, links, reviews, candidates, occupancy, or tariffs. Never publishes
+ * confidence, review status, or IDs.
  */
 @Service
 public class RegistryPublicationService {

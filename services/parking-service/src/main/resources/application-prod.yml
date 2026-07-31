@@ -1,0 +1,8 @@
+# Production profile: keep public municipal provenance publication dark until a
+# separate production rollout approval (DATA-WP-11). Canonical application.yml
+# defaults publication on for local/hosted-beta; this profile re-pins the env
+# default to false so activating `prod` without an explicit env override stays off.
+parkio:
+  municipal:
+    registry:
+      provenance-publication-enabled: ${PARKIO_MUNICIPAL_REGISTRY_PROVENANCE_PUBLICATION_ENABLED:false}

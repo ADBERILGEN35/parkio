@@ -78,10 +78,13 @@ It does not create links, merge identities, or change availability authority
 
 | Flag | Default | Purpose |
 |------|---------|---------|
-| `parkio.municipal.registry.provenance-publication-enabled` | `false` | Master switch |
+| `parkio.municipal.registry.provenance-publication-enabled` | **true** (DATA-WP-11) | Master switch |
 
-Env: `PARKIO_MUNICIPAL_REGISTRY_PROVENANCE_PUBLICATION_ENABLED` (already mapped in
-`docker/docker-compose.azure-hosted-beta.yml`).
+Env: `PARKIO_MUNICIPAL_REGISTRY_PROVENANCE_PUBLICATION_ENABLED` (mapped in
+`docker/docker-compose.azure-hosted-beta.yml` with Compose default `:-true`).
+
+Production (`application-prod.yml`): env default re-pinned to **false** until a separate
+production rollout approval. See [DATA-WP-11](wp-data-11-engineering-specification.md).
 
 ## 7. Metrics
 
@@ -106,8 +109,8 @@ None. Reuses V32 `municipal_facility_field_provenance`.
 
 ## 10. Hosted-beta
 
-**DATA-WP-09A** (separate): deploy with flag false then temporary enable then DTO checks then restore false.
-Not started by this package.
+**DATA-WP-09A** (complete): temporary enable then restore false (pre-DATA-WP-11).
+**DATA-WP-11A** (separate, not started): leave publication on after DATA-WP-11 default-on.
 
 ## 11. Rollback
 

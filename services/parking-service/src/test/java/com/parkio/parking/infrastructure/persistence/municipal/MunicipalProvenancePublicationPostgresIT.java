@@ -62,14 +62,19 @@ class MunicipalProvenancePublicationPostgresIT {
         registry.add("parkio.lifecycle.retention.inbox-enabled", () -> "false");
         registry.add("parkio.municipal.enabled", () -> "true");
         registry.add("parkio.municipal.osm.publication-enabled", () -> "true");
-        registry.add("parkio.municipal.registry.provenance-publication-enabled", () -> "false");
+        // DATA-WP-11: simulate canonical/hosted-beta default-on; tests toggle kill-switch.
+        registry.add("parkio.municipal.registry.provenance-publication-enabled", () -> "true");
         registry.add("parkio.municipal.registry.automatic-linking-enabled", () -> "false");
         registry.add("parkio.municipal.registry.reviewed-linking-enabled", () -> "false");
         registry.add("parkio.municipal.registry.candidate-generation-enabled", () -> "false");
+        registry.add("parkio.municipal.registry.provenance-ingest-write-enabled", () -> "true");
     }
 
     @BeforeEach
     void seed() {
+        // Reset kill-switch mutations between methods (RegistryProperties is a mutable singleton).
+        registryProperties.setProvenancePublicationEnabled(true);
+
         jdbc.sql("DELETE FROM municipal_facility_field_provenance").update();
         jdbc.sql("DELETE FROM municipal_occupancy_snapshots").update();
         jdbc.sql("DELETE FROM municipal_facility_source_links").update();
@@ -95,12 +100,48 @@ class MunicipalProvenancePublicationPostgresIT {
         insertProvenance(IZUM, "ACCESS", MunicipalSourceIdentity.OSM, "CURRENT");
         insertProvenance(OSM, "NAME", MunicipalSourceIdentity.OSM, "CURRENT");
         insertProvenance(OSM, "ATTRIBUTION", MunicipalSourceIdentity.OSM, "CURRENT");
+    }
+
+    @Test
+    void defaultOnEnrichesWithoutExplicitToggle() {
+        assertThat(registryProperties.isProvenancePublicationEnabled()).isTrue();
+        assertThat(registryProperties.isProvenanceIngestWriteEnabled()).isTrue();
+        assertThat(registryProperties.isAutomaticLinkingEnabled()).isFalse();
+        assertThat(registryProperties.isReviewedLinkingEnabled()).isFalse();
+
+        Map<String, Long> before = mutationCounts();
+        MunicipalFacilityResponse izum = MunicipalFacilityResponse.from(
+                query.findById(IZUM).orElseThrow(), publication.forFacility(IZUM));
+        assertThat(izum.selectedFieldProvenanceSummary())
+                .containsEntry("NAME", MunicipalSourceIdentity.IZUM)
+                .doesNotContainKey("TARIFF_ASSIGNMENT")
+                .doesNotContainKey("ACCESS");
+        assertThat(izum.registryConfidenceOrReviewStatus()).isNull();
+        assertThat(mutationCounts()).isEqualTo(before);
+    }
+
+    @Test
+    void killSwitchFalseRestoresNullProvenanceFields() {
+        Map<String, Long> before = mutationCounts();
+        assertThat(registryProperties.isProvenancePublicationEnabled()).isTrue();
+
+        MunicipalFacilityResponse on = MunicipalFacilityResponse.from(
+                query.findById(IZUM).orElseThrow(), publication.forFacility(IZUM));
+        assertThat(on.selectedFieldProvenanceSummary()).isNotEmpty();
 
         registryProperties.setProvenancePublicationEnabled(false);
+        MunicipalFacilityResponse off = MunicipalFacilityResponse.from(
+                query.findById(IZUM).orElseThrow(), publication.forFacility(IZUM));
+        assertThat(off.contributingSourceKeys()).isNull();
+        assertThat(off.selectedFieldProvenanceSummary()).isNull();
+        assertThat(off.registryConfidenceOrReviewStatus()).isNull();
+        assertThat(registryProperties.isProvenanceIngestWriteEnabled()).isTrue();
+        assertThat(mutationCounts()).isEqualTo(before);
     }
 
     @Test
     void flagOffNearbyAndDetailKeepProvenanceNullAndRegistryUnchanged() {
+        registryProperties.setProvenancePublicationEnabled(false);
         Map<String, Long> before = mutationCounts();
 
         List<MunicipalFacilityQueryService.FacilityView> nearby =
@@ -126,8 +167,9 @@ class MunicipalProvenancePublicationPostgresIT {
 
     @Test
     void flagOnEnrichesIzumAndOsmWithoutInternalsOrIzelmanLeak() {
-        Map<String, Long> before = mutationCounts();
         registryProperties.setProvenancePublicationEnabled(true);
+        insertIzumOccupancy();
+        Map<String, Long> before = mutationCounts();
 
         MunicipalFacilityResponse izum = MunicipalFacilityResponse.from(
                 query.findById(IZUM).orElseThrow(), publication.forFacility(IZUM));
@@ -142,6 +184,8 @@ class MunicipalProvenancePublicationPostgresIT {
                 .doesNotContainKey("ACCESS");
         assertThat(izum.contributingSourceKeys()).containsExactly(MunicipalSourceIdentity.IZUM);
         assertThat(izum.registryConfidenceOrReviewStatus()).isNull();
+        assertThat(izum.availableSpaces()).isEqualTo(100);
+        assertThat(izum.availabilitySource()).isEqualTo(MunicipalSourceIdentity.IZUM);
         assertThat(izum.selectedFieldProvenanceSummary().values())
                 .noneMatch(v -> v.contains(":") || v.contains("REVIEW") || v.contains("CURRENT"));
 
@@ -150,6 +194,7 @@ class MunicipalProvenancePublicationPostgresIT {
                 .containsEntry("ATTRIBUTION", MunicipalSourceIdentity.OSM);
         assertThat(osm.contributingSourceKeys()).containsExactly(MunicipalSourceIdentity.OSM);
         assertThat(osm.availableSpaces()).isNull();
+        assertThat(osm.availabilitySource()).isNull();
 
         List<MunicipalFacilityResponse> nearby = query.nearby(38.42000, 27.14000, 5000, 10).stream()
                 .map(view -> MunicipalFacilityResponse.from(view, publication.forFacility(view.id())))
@@ -183,6 +228,43 @@ class MunicipalProvenancePublicationPostgresIT {
         assertThat(response.contributingSourceKeys()).isEmpty();
         assertThat(response.selectedFieldProvenanceSummary()).isEmpty();
         assertThat(response.registryConfidenceOrReviewStatus()).isNull();
+    }
+
+    private void insertIzumOccupancy() {
+        UUID syncRunId = UUID.fromString("00000000-0000-0000-0000-000000009180");
+        jdbc.sql("DELETE FROM municipal_occupancy_snapshots").update();
+        jdbc.sql("DELETE FROM municipal_source_sync_runs WHERE id = :id")
+                .param("id", syncRunId)
+                .update();
+        jdbc.sql("""
+                INSERT INTO municipal_source_sync_runs(
+                  id, source_id, correlation_id, started_at, completed_at, status,
+                  records_received, records_accepted, records_rejected, records_inserted,
+                  records_updated, records_unchanged, occupancy_inserted)
+                SELECT :id, id, 'prov-pub-occ', now(), now(), 'SUCCESS',
+                       1, 1, 0, 0, 0, 1, 1
+                FROM municipal_data_sources WHERE source_key = :sourceKey
+                """)
+                .param("id", syncRunId)
+                .param("sourceKey", MunicipalSourceIdentity.IZUM)
+                .update();
+        jdbc.sql("""
+                INSERT INTO municipal_occupancy_snapshots(
+                  id, facility_id, source_id, source_link_id, sync_run_id, source_observed_at, fetched_at,
+                  timestamp_provenance, capacity_total, occupied_spaces, available_spaces,
+                  occupancy_status, raw_record_hash, created_at)
+                SELECT :id, :facility, ds.id, lx.id, :runId, now(), now(),
+                       'SOURCE', 120, 20, 100, 'LIVE', 'occ-hash-prov-pub', now()
+                FROM municipal_data_sources ds
+                JOIN municipal_facility_source_links lx ON lx.source_id = ds.id AND lx.facility_id = :facility
+                WHERE ds.source_key = :sourceKey
+                LIMIT 1
+                """)
+                .param("id", UUID.randomUUID())
+                .param("facility", IZUM)
+                .param("runId", syncRunId)
+                .param("sourceKey", MunicipalSourceIdentity.IZUM)
+                .update();
     }
 
     private Map<String, Long> mutationCounts() {

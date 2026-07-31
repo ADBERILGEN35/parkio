@@ -16,7 +16,7 @@ Azure overlay `docker/docker-compose.azure-hosted-beta.yml` must map these into
 | `parkio.municipal.izum.read-timeout` | `PARKIO_MUNICIPAL_IZUM_READ_TIMEOUT` | 5s |
 | `parkio.municipal.izum.max-retries` | `PARKIO_MUNICIPAL_IZUM_MAX_RETRIES` | 2 |
 | `parkio.municipal.registry.provenance-ingest-write-enabled` | `PARKIO_MUNICIPAL_REGISTRY_PROVENANCE_INGEST_WRITE_ENABLED` | true |
-| `parkio.municipal.registry.provenance-publication-enabled` | `PARKIO_MUNICIPAL_REGISTRY_PROVENANCE_PUBLICATION_ENABLED` | false |
+| `parkio.municipal.registry.provenance-publication-enabled` | `PARKIO_MUNICIPAL_REGISTRY_PROVENANCE_PUBLICATION_ENABLED` | true (prod profile: false) |
 
 Source key: `izmir-izum-otoparklar`.  
 Admin: `POST /api/v1/parking/municipal/sources/{sourceKey}/sync` (requires `municipal.enabled` + `manual-sync-enabled`; İZUM also requires `izum.enabled`).  
@@ -33,7 +33,8 @@ Freshness thresholds live on the seeded source row (aging 300s, stale 900s), not
 4. Confirm `municipal_source_sync_runs.status` SUCCESS/PARTIAL_SUCCESS.
 5. Confirm nearby facilities return `freshness=LIVE|AGING` with non-null `availableSpaces` only then.
 6. Confirm `municipal_facility_field_provenance` gained allow-listed rows for synced facilities
-   (DATA-WP-10). Nearby/detail provenance DTO fields stay null while publication is false.
+   (DATA-WP-10). Nearby/detail provenance DTO fields are published when publication is
+   true (DATA-WP-11 canonical default); set publication false to restore null fields.
 7. Historical provenance backfill is **not** provided — re-run sync/import instead of guessing
    field ownership from `primary_source_key`.
 

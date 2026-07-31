@@ -63,18 +63,28 @@ function main() {
     }
   }
 
-  const registryFlags = [
+  const registryFlagsOff = [
     'PARKIO_MUNICIPAL_REGISTRY_CANDIDATE_GENERATION_ENABLED',
     'PARKIO_MUNICIPAL_REGISTRY_REVIEW_API_ENABLED',
     'PARKIO_MUNICIPAL_REGISTRY_REVIEWED_LINKING_ENABLED',
     'PARKIO_MUNICIPAL_REGISTRY_AUTOMATIC_LINKING_ENABLED',
-    'PARKIO_MUNICIPAL_REGISTRY_PROVENANCE_PUBLICATION_ENABLED',
   ];
   const parkingEnv = (data.services && data.services['parking-service'] && data.services['parking-service'].environment) || {};
-  for (const flag of registryFlags) {
+  for (const flag of registryFlagsOff) {
     if (String(parkingEnv[flag] == null ? '' : parkingEnv[flag]) !== 'false') {
       fail('parking-service.' + flag + " must default to false in rendered Azure compose (got '" + parkingEnv[flag] + "')");
     }
+  }
+  // DATA-WP-11: public provenance publication is default-on for hosted-beta leave-on prep.
+  const provenanceFlag = 'PARKIO_MUNICIPAL_REGISTRY_PROVENANCE_PUBLICATION_ENABLED';
+  if (String(parkingEnv[provenanceFlag] == null ? '' : parkingEnv[provenanceFlag]) !== 'true') {
+    fail(
+      'parking-service.' +
+        provenanceFlag +
+        " must default to true in rendered Azure compose (DATA-WP-11; got '" +
+        parkingEnv[provenanceFlag] +
+        "')",
+    );
   }
 
   let totalMemory = 0;
@@ -125,7 +135,7 @@ function main() {
   console.log(
     'OK: Azure runtime services=32 disabled=4 memoryBytes=' +
       totalMemory +
-      ' publicPorts=80,443 tracing=false registryFlags=false',
+      ' publicPorts=80,443 tracing=false registryLinkingFlags=false provenancePublication=true',
   );
 }
 

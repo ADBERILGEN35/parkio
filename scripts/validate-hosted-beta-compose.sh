@@ -130,8 +130,7 @@ if [ "$PARKIO_DEPLOYMENT_PROFILE" = "azure-hosted-beta" ]; then
       PARKIO_MUNICIPAL_REGISTRY_CANDIDATE_GENERATION_ENABLED \
       PARKIO_MUNICIPAL_REGISTRY_REVIEW_API_ENABLED \
       PARKIO_MUNICIPAL_REGISTRY_REVIEWED_LINKING_ENABLED \
-      PARKIO_MUNICIPAL_REGISTRY_AUTOMATIC_LINKING_ENABLED \
-      PARKIO_MUNICIPAL_REGISTRY_PROVENANCE_PUBLICATION_ENABLED
+      PARKIO_MUNICIPAL_REGISTRY_AUTOMATIC_LINKING_ENABLED
     do
       jq -e --arg flag "$flag" \
         '.services["parking-service"].environment[$flag] == "false"' "$rendered" >/dev/null || {
@@ -139,6 +138,14 @@ if [ "$PARKIO_DEPLOYMENT_PROFILE" = "azure-hosted-beta" ]; then
         exit 4
       }
     done
+
+    # DATA-WP-11: public provenance publication is default-on for hosted-beta leave-on prep.
+    jq -e \
+      '.services["parking-service"].environment.PARKIO_MUNICIPAL_REGISTRY_PROVENANCE_PUBLICATION_ENABLED == "true"' \
+      "$rendered" >/dev/null || {
+      echo "ERROR: parking-service.PARKIO_MUNICIPAL_REGISTRY_PROVENANCE_PUBLICATION_ENABLED must default to true in rendered Azure compose (DATA-WP-11)" >&2
+      exit 4
+    }
 
     total_memory=0
     for svc in "${PARKIO_RUNTIME_SERVICES[@]}"; do

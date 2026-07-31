@@ -31,6 +31,28 @@ class RegistryPropertiesBindingTest {
     }
 
     @Test
+    void missingProvenancePublicationPropertyResolvesTrue() {
+        propertiesRunner.run(context -> {
+            assertThat(context).hasNotFailed();
+            assertThat(context.getBean(RegistryProperties.class).isProvenancePublicationEnabled()).isTrue();
+            assertThat(context.getBean(RegistryProperties.class).isProvenanceIngestWriteEnabled()).isTrue();
+            assertThat(context.getBean(RegistryProperties.class).isReviewedLinkingEnabled()).isFalse();
+            assertThat(context.getBean(RegistryProperties.class).isCandidateGenerationEnabled()).isFalse();
+        });
+    }
+
+    @Test
+    void explicitFalseDisablesProvenancePublication() {
+        propertiesRunner
+                .withPropertyValues("parkio.municipal.registry.provenance-publication-enabled=false")
+                .run(context -> {
+                    assertThat(context).hasNotFailed();
+                    assertThat(context.getBean(RegistryProperties.class).isProvenancePublicationEnabled())
+                            .isFalse();
+                });
+    }
+
+    @Test
     void automaticLinkingTrueFailsContextStartup() {
         propertiesRunner
                 .withPropertyValues("parkio.municipal.registry.automatic-linking-enabled=true")

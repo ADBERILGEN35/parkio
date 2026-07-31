@@ -69,12 +69,14 @@ pass "tracing is disabled for all ten JVM services"
 for flag in \
   PARKIO_MUNICIPAL_REGISTRY_CANDIDATE_GENERATION_ENABLED \
   PARKIO_MUNICIPAL_REGISTRY_REVIEW_API_ENABLED \
-  PARKIO_MUNICIPAL_REGISTRY_REVIEWED_LINKING_ENABLED \
-  PARKIO_MUNICIPAL_REGISTRY_PROVENANCE_PUBLICATION_ENABLED
+  PARKIO_MUNICIPAL_REGISTRY_REVIEWED_LINKING_ENABLED
 do
   grep -q "$flag: \${$flag:-false}" docker/docker-compose.azure-hosted-beta.yml \
     || fail "parking-service missing default-false mapping for $flag"
 done
+grep -q 'PARKIO_MUNICIPAL_REGISTRY_PROVENANCE_PUBLICATION_ENABLED: ${PARKIO_MUNICIPAL_REGISTRY_PROVENANCE_PUBLICATION_ENABLED:-true}' \
+  docker/docker-compose.azure-hosted-beta.yml \
+  || fail "provenance publication must default true on Azure hosted-beta (DATA-WP-11)"
 grep -q 'PARKIO_MUNICIPAL_REGISTRY_AUTOMATIC_LINKING_ENABLED: "false"' docker/docker-compose.azure-hosted-beta.yml \
   || fail "automatic linking must be hard-coded false in Azure compose"
 pass "registry flags are mapped on parking-service with safe defaults"

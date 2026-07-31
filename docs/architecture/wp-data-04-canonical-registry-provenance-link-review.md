@@ -53,13 +53,14 @@ published).
 
 ## Flags
 
-All flags default false:
+Linking/generation flags default false; provenance flags follow DATA-WP-10/11:
 
-- `parkio.municipal.registry.candidate-generation-enabled`
-- `parkio.municipal.registry.review-api-enabled`
-- `parkio.municipal.registry.reviewed-linking-enabled`
+- `parkio.municipal.registry.candidate-generation-enabled` (false)
+- `parkio.municipal.registry.review-api-enabled` (false)
+- `parkio.municipal.registry.reviewed-linking-enabled` (false)
 - `parkio.municipal.registry.automatic-linking-enabled` (hardcoded false; binding true throws)
-- `parkio.municipal.registry.provenance-publication-enabled`
+- `parkio.municipal.registry.provenance-publication-enabled` (DATA-WP-11; canonical default true;
+  production profile pins false)
 - `parkio.municipal.registry.provenance-ingest-write-enabled` (DATA-WP-10; default true)
 
 Azure hosted-beta maps these on `parking-service.environment` in

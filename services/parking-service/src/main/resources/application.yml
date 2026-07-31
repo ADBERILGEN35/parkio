@@ -143,7 +143,9 @@ parkio:
       reviewed-linking-enabled: ${PARKIO_MUNICIPAL_REGISTRY_REVIEWED_LINKING_ENABLED:false}
       # Intentionally hardcoded off. RegistryProperties rejects any attempt to bind true.
       automatic-linking-enabled: false
-      provenance-publication-enabled: ${PARKIO_MUNICIPAL_REGISTRY_PROVENANCE_PUBLICATION_ENABLED:false}
+      # DATA-WP-11: public nearby/detail provenance (canonical default on).
+      # Production profile pins false until a separate rollout approval.
+      provenance-publication-enabled: ${PARKIO_MUNICIPAL_REGISTRY_PROVENANCE_PUBLICATION_ENABLED:true}
       # DATA-WP-10: ingest provenance writes (default on). Independent of publication.
       provenance-ingest-write-enabled: ${PARKIO_MUNICIPAL_REGISTRY_PROVENANCE_INGEST_WRITE_ENABLED:true}
     izum:
