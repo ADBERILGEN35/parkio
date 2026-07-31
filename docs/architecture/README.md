@@ -202,7 +202,7 @@ See [Known Issues](../releases/KNOWN-ISSUES.md) for the current blocker list.
 - [DATA-WP-12 enable nearby duplicate-presentation by default](wp-data-12-engineering-specification.md)
   - Canonical default **true**; production profile pins **false**; Azure hosted-beta Compose `:-true`.
   - Matching thresholds unchanged; detail endpoint unaffected; kill-switch restores legacy nearby.
-  - DATA-WP-12A hosted-beta leave-on gate: **not started**.
+  - DATA-WP-12A hosted-beta leave-on gate: complete (ACCEPT WITH NON-BLOCKING NOTES).
 - DATA-WP-08 İzmir administrative-boundary clip: **BLOCKED** (external licensed boundary asset).
 
 > **Name collision:** Repository **WP-05** is Decision Intelligence. Repository

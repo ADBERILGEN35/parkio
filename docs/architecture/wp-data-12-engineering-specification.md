@@ -5,8 +5,9 @@
 
 ## 1. Status
 
-**Implementation complete (this package).** DATA-WP-12A (hosted-beta leave-on gate) is
-**not started** and must not be started by this commit.
+**Implementation complete.** DATA-WP-12A (hosted-beta leave-on gate) is **complete**
+(ACCEPT WITH NON-BLOCKING NOTES): hosted-beta runtime left with
+`duplicate-presentation=true`; production profile remains pinned `false`.
 
 DATA-WP-07 / DATA-WP-07A remain closed (policy implemented and live-tested). This package
 only flips the existing master switch defaults.
