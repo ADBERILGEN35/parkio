@@ -2,9 +2,6 @@ package com.parkio.parking.application;
 
 import com.fasterxml.jackson.databind.JsonNode;
 import com.parkio.parking.application.port.MunicipalDataSourceRepository;
-import com.parkio.parking.application.port.MunicipalFacilityRepository;
-import com.parkio.parking.application.port.MunicipalOccupancySnapshotRepository;
-import com.parkio.parking.application.port.MunicipalSourceLinkRepository;
 import com.parkio.parking.application.port.MunicipalSourceSyncRunRepository;
 import com.parkio.parking.externalsource.MunicipalParkingSourceAdapter;
 import com.parkio.parking.externalsource.MunicipalSourceFailureClassifier;
@@ -29,27 +26,21 @@ public class MunicipalFacilitySyncService {
 
     private final Map<String, MunicipalParkingSourceAdapter> adapters;
     private final MunicipalDataSourceRepository sources;
-    private final MunicipalFacilityRepository facilities;
-    private final MunicipalSourceLinkRepository links;
-    private final MunicipalOccupancySnapshotRepository snapshots;
     private final MunicipalSourceSyncRunRepository runs;
+    private final MunicipalFacilityIngestWriter ingestWriter;
     private final Clock clock;
 
     public MunicipalFacilitySyncService(
             List<MunicipalParkingSourceAdapter> adapters,
             MunicipalDataSourceRepository sources,
-            MunicipalFacilityRepository facilities,
-            MunicipalSourceLinkRepository links,
-            MunicipalOccupancySnapshotRepository snapshots,
             MunicipalSourceSyncRunRepository runs,
+            MunicipalFacilityIngestWriter ingestWriter,
             Clock clock) {
         this.adapters = adapters.stream().collect(Collectors.toUnmodifiableMap(
                 MunicipalParkingSourceAdapter::sourceKey, Function.identity()));
         this.sources = sources;
-        this.facilities = facilities;
-        this.links = links;
-        this.snapshots = snapshots;
         this.runs = runs;
+        this.ingestWriter = ingestWriter;
         this.clock = clock;
     }
 
@@ -75,14 +66,16 @@ public class MunicipalFacilitySyncService {
                     .stream().collect(Collectors.toMap(NormalizedMunicipalOccupancy::externalId, Function.identity()));
             int inserted = 0, updated = 0, unchanged = 0, occupancyInserted = 0;
             for (NormalizedMunicipalFacility facility : normalized) {
-                var upserted = facilities.upsert(source.id(), facility, fetchedAt);
-                if (upserted.inserted()) inserted++;
-                else if (upserted.changed()) updated++;
+                var persisted = ingestWriter.persistIzumFacility(
+                        source.id(),
+                        runId.get(),
+                        facility,
+                        occupancy.get(facility.externalId()),
+                        fetchedAt);
+                if (persisted.inserted()) inserted++;
+                else if (persisted.changed()) updated++;
                 else unchanged++;
-                UUID linkId = links.upsert(upserted.id(), source.id(), facility, fetchedAt);
-                NormalizedMunicipalOccupancy value = occupancy.get(facility.externalId());
-                if (value != null && snapshots.insertIfAbsent(
-                        upserted.id(), source.id(), linkId, runId.get(), value)) occupancyInserted++;
+                if (persisted.occupancyInserted()) occupancyInserted++;
             }
             int received = payload.size();
             int rejected = Math.max(0, received - normalized.size());

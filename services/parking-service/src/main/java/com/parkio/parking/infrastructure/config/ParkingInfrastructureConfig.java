@@ -11,7 +11,6 @@ import com.parkio.parking.application.MunicipalSourceSlaPolicy;
 import com.parkio.parking.application.port.MunicipalDataSourceRepository;
 import com.parkio.parking.application.port.MunicipalFacilityRepository;
 import com.parkio.parking.application.port.MunicipalOccupancySnapshotRepository;
-import com.parkio.parking.application.port.MunicipalSourceLinkRepository;
 import com.parkio.parking.application.port.MunicipalSourceSyncRunRepository;
 import com.parkio.parking.application.port.DecisionAuditWriteObserver;
 import com.parkio.parking.application.port.DecisionShadowObserverPort;
@@ -53,12 +52,10 @@ public class ParkingInfrastructureConfig {
     public MunicipalFacilitySyncService municipalFacilitySyncService(
             List<MunicipalParkingSourceAdapter> adapters,
             MunicipalDataSourceRepository sources,
-            MunicipalFacilityRepository facilities,
-            MunicipalSourceLinkRepository links,
-            MunicipalOccupancySnapshotRepository snapshots,
             MunicipalSourceSyncRunRepository runs,
+            com.parkio.parking.application.MunicipalFacilityIngestWriter ingestWriter,
             Clock clock) {
-        return new MunicipalFacilitySyncService(adapters, sources, facilities, links, snapshots, runs, clock);
+        return new MunicipalFacilitySyncService(adapters, sources, runs, ingestWriter, clock);
     }
 
     @Bean

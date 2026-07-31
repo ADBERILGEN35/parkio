@@ -17,7 +17,8 @@ Canonical facility UUIDs remain stable. Every external identity remains in
 
 `municipal_facility_field_provenance` records the selected source record, content/fetch timestamps,
 age class, confidence/review state, reason, and optimistic version for every registry field.
-`CanonicalFieldPrecedencePolicy` is the central policy:
+DATA-WP-10 writes allow-listed selections on successful İZUM sync and OSM import; it does not
+enable public publication. `CanonicalFieldPrecedencePolicy` is the central policy:
 
 - verified municipal name, address, operator, type, and current static capacity precede OSM;
 - restrictive access wins conflicts;
@@ -59,6 +60,7 @@ All flags default false:
 - `parkio.municipal.registry.reviewed-linking-enabled`
 - `parkio.municipal.registry.automatic-linking-enabled` (hardcoded false; binding true throws)
 - `parkio.municipal.registry.provenance-publication-enabled`
+- `parkio.municipal.registry.provenance-ingest-write-enabled` (DATA-WP-10; default true)
 
 Azure hosted-beta maps these on `parking-service.environment` in
 `docker/docker-compose.azure-hosted-beta.yml`. Validate with the five-file chain

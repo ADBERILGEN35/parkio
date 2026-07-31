@@ -107,6 +107,8 @@ Live contract probes must be opt-in, timeout-bounded, and separate from CI.
 - `GET /api/v1/parking/facilities/nearby?lat=&lng=&radiusMeters=&limit=`
 - `GET /api/v1/parking/facilities/{id}`
 - Manual sync (when enabled): municipal manual sync controller under `/api/v1/parking/municipal/...`
+- DATA-WP-10: successful per-facility İZUM persist also selects allow-listed
+  `municipal_facility_field_provenance` rows (`izmir-izum-otoparklar`). Publication remains off.
 
 Existing `/api/v1/parking/spots/**` contracts are unchanged.
 

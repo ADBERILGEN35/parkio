@@ -95,11 +95,28 @@ class IzumMunicipalSyncIntegrationTest {
         assertThat(occupancyCount).isPositive();
         assertThat(linkCount).isEqualTo(facilityCount);
 
+        long provenanceAfterFirst = jdbc.queryForObject(
+                "SELECT count(*) FROM municipal_facility_field_provenance", Long.class);
+        assertThat(provenanceAfterFirst).isPositive();
+        assertThat(jdbc.queryForObject(
+                """
+                SELECT count(*) FROM municipal_facility_field_provenance
+                WHERE source_key = 'izmir-izum-otoparklar'
+                  AND field_name IN ('NAME','COORDINATES','ADDRESS','OPERATOR','FACILITY_TYPE','STATIC_CAPACITY','ATTRIBUTION')
+                """,
+                Long.class)).isEqualTo(provenanceAfterFirst);
+        assertThat(jdbc.queryForObject(
+                "SELECT count(*) FROM municipal_facility_field_provenance WHERE field_name NOT IN ('NAME','COORDINATES','ADDRESS','OPERATOR','FACILITY_TYPE','STATIC_CAPACITY','ATTRIBUTION')",
+                Long.class)).isZero();
+
         var second = sync.sync(IzumMunicipalParkingAdapter.SOURCE_KEY);
         assertThat(facilities.count()).isEqualTo(facilityCount);
         assertThat(second.recordsInserted()).isZero();
         // New fetch timestamps create new observation rows; inventory stays stable.
         assertThat(snapshots.count()).isGreaterThanOrEqualTo(occupancyCount);
+        assertThat(jdbc.queryForObject(
+                "SELECT count(*) FROM municipal_facility_field_provenance", Long.class))
+                .isEqualTo(provenanceAfterFirst);
 
         long beforeDedupe = snapshots.count();
         jdbc.update("""
@@ -151,6 +168,12 @@ class IzumMunicipalSyncIntegrationTest {
         assertThat(failed.status()).isEqualTo(MunicipalSyncRunStatus.FAILED);
         assertThat(failed.errorCategory()).isEqualTo("upstream_5xx");
         assertThat(facilities.count()).isEqualTo(facilityCount);
+        assertThat(jdbc.queryForObject(
+                "SELECT count(*) FROM municipal_facility_field_provenance", Long.class))
+                .isEqualTo(provenanceAfterFirst);
+        assertThat(jdbc.queryForObject("SELECT count(*) FROM municipal_link_candidates", Long.class)).isZero();
+        assertThat(jdbc.queryForObject("SELECT count(*) FROM municipal_facility_aliases", Long.class)).isZero();
+        assertThat(jdbc.queryForObject("SELECT count(*) FROM municipal_tariff_assignments", Long.class)).isZero();
 
         RESPONSE_STATUS.set(200);
         RESPONSE_BODY.set("[{}]".getBytes(StandardCharsets.UTF_8));

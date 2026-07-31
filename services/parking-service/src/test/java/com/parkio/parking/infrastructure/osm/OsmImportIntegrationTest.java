@@ -92,9 +92,27 @@ class OsmImportIntegrationTest {
         long facilitiesAfterFirst = facilities.count();
         assertThat(facilitiesAfterFirst).isEqualTo(3);
 
+        long provenanceAfterFirst = jdbc.queryForObject(
+                "SELECT count(*) FROM municipal_facility_field_provenance", Long.class);
+        assertThat(provenanceAfterFirst).isPositive();
+        assertThat(jdbc.queryForObject(
+                "SELECT count(*) FROM municipal_facility_field_provenance WHERE source_key='osm-geofabrik-turkey'",
+                Long.class)).isEqualTo(provenanceAfterFirst);
+        // Synthetic OSM names must not create NAME provenance for unnamed features.
+        assertThat(jdbc.queryForObject(
+                """
+                SELECT count(*) FROM municipal_facility_field_provenance p
+                JOIN municipal_parking_facilities f ON f.id=p.facility_id
+                WHERE p.field_name='NAME' AND f.display_name LIKE 'OSM parking %'
+                """,
+                Long.class)).isZero();
+
         var second = importService.importFromConfiguredPath(false);
         assertThat(facilities.count()).isEqualTo(facilitiesAfterFirst);
         assertThat(second.inserted()).isZero();
+        assertThat(jdbc.queryForObject(
+                "SELECT count(*) FROM municipal_facility_field_provenance", Long.class))
+                .isEqualTo(provenanceAfterFirst);
 
         jdbc.update("""
                 INSERT INTO municipal_source_sync_runs
@@ -114,6 +132,8 @@ class OsmImportIntegrationTest {
         assertThat(osmFacility.get().availableSpaces()).isNull();
         assertThat(osmFacility.get().freshness()).isEqualTo(MunicipalOccupancyFreshness.UNAVAILABLE);
         assertThat(osmFacility.get().attribution()).contains("OpenStreetMap");
+        assertThat(jdbc.queryForObject("SELECT count(*) FROM municipal_link_candidates", Long.class)).isZero();
+        assertThat(jdbc.queryForObject("SELECT count(*) FROM municipal_occupancy_snapshots", Long.class)).isZero();
     }
     @Test
     void softDeactivationThenFullImportReactivatesFacilities() throws Exception {

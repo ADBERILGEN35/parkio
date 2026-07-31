@@ -2,8 +2,6 @@ package com.parkio.parking.application;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.parkio.parking.application.port.MunicipalDataSourceRepository;
-import com.parkio.parking.application.port.MunicipalFacilityRepository;
-import com.parkio.parking.application.port.MunicipalSourceLinkRepository;
 import com.parkio.parking.application.port.MunicipalSourceSyncRunRepository;
 import com.parkio.parking.application.port.OsmImportSupportRepository;
 import com.parkio.parking.externalsource.MunicipalAccessClassification;
@@ -44,32 +42,29 @@ public class OsmImportApplicationService {
 
     private final MunicipalSourceProperties properties;
     private final MunicipalDataSourceRepository sources;
-    private final MunicipalFacilityRepository facilities;
-    private final MunicipalSourceLinkRepository links;
     private final MunicipalSourceSyncRunRepository runs;
     private final OsmImportSupportRepository support;
     private final OsmGeoJsonParkingParser parser;
     private final ObjectMapper objectMapper;
+    private final MunicipalFacilityIngestWriter ingestWriter;
     private final Clock clock;
 
     public OsmImportApplicationService(
             MunicipalSourceProperties properties,
             MunicipalDataSourceRepository sources,
-            MunicipalFacilityRepository facilities,
-            MunicipalSourceLinkRepository links,
             MunicipalSourceSyncRunRepository runs,
             OsmImportSupportRepository support,
             OsmGeoJsonParkingParser parser,
             ObjectMapper objectMapper,
+            MunicipalFacilityIngestWriter ingestWriter,
             Clock clock) {
         this.properties = properties;
         this.sources = sources;
-        this.facilities = facilities;
-        this.links = links;
         this.runs = runs;
         this.support = support;
         this.parser = parser;
         this.objectMapper = objectMapper;
+        this.ingestWriter = ingestWriter;
         this.clock = clock;
     }
 
@@ -166,7 +161,9 @@ public class OsmImportApplicationService {
                         feature.access(),
                         metadata,
                         feature.rawRecordHash());
-                var upserted = facilities.upsert(source.id(), normalized, started);
+                boolean osmNameTagPresent = feature.name() != null && !feature.name().isBlank();
+                var upserted = ingestWriter.persistOsmFacility(
+                        source.id(), normalized, osmNameTagPresent, started);
                 if (upserted.inserted()) {
                     inserted++;
                 } else if (upserted.changed()) {
@@ -174,11 +171,9 @@ public class OsmImportApplicationService {
                 } else {
                     unchanged++;
                 }
-                links.upsert(upserted.id(), source.id(), normalized, started);
-
 
                 if (properties.getOsm().isConflationEnabled()) {
-                    ConflationOutcome outcome = conflate(feature, upserted.id(), dryRun, started);
+                    ConflationOutcome outcome = conflate(feature, upserted.facilityId(), dryRun, started);
                     candidates += outcome.candidate() ? 1 : 0;
                     autoMatched += outcome.auto() ? 1 : 0;
                     reviewRequired += outcome.review() ? 1 : 0;

@@ -113,8 +113,10 @@ Hosted-beta Compose maps PARKIO_MUNICIPAL_IZELMAN_* with defaults false.
 | `parkio.municipal.registry.reviewed-linking-enabled` | `false` | Permit explicit ADMIN/SUPER_ADMIN decisions |
 | `parkio.municipal.registry.automatic-linking-enabled` | `false` | Prohibited; binding `true` fails startup |
 | `parkio.municipal.registry.provenance-publication-enabled` | `false` | Add bounded provenance to public facility responses |
+| `parkio.municipal.registry.provenance-ingest-write-enabled` | `true` | Kill-switch for DATA-WP-10 ingest provenance writes (does not control publication) |
 
 Disable publication first, then reviewed linking, review API, and candidate generation.
+Ingest-write kill-switch is independent: set it false to stop new provenance selections without changing publication.
 These switches do not stop IZUM availability. IZELMAN publication stays independently disabled.
 
 DATA-WP-05 adds the bounded ADMIN generation endpoint behind the existing

@@ -222,6 +222,24 @@ public class RegistryPersistenceAdapter implements RegistryPersistencePort {
                 .update();
     }
 
+    @Override
+    public Optional<ProvenanceRow> findProvenance(UUID facilityId, String fieldName) {
+        return jdbc.sql("""
+                SELECT facility_id, field_name, source_key, source_record_id, version
+                FROM municipal_facility_field_provenance
+                WHERE facility_id=:facility AND field_name=:field
+                """)
+                .param("facility", facilityId)
+                .param("field", fieldName)
+                .query((rs, rowNum) -> new ProvenanceRow(
+                        rs.getObject("facility_id", UUID.class),
+                        rs.getString("field_name"),
+                        rs.getString("source_key"),
+                        rs.getString("source_record_id"),
+                        rs.getLong("version")))
+                .optional();
+    }
+
     private void moveLink(String sourceKey, String externalId, UUID facilityId, Instant now) {
         jdbc.sql("""
                 UPDATE municipal_facility_source_links link

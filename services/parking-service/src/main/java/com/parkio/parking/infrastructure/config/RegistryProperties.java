@@ -9,6 +9,11 @@ public class RegistryProperties {
     private boolean reviewedLinkingEnabled;
     private boolean automaticLinkingEnabled;
     private boolean provenancePublicationEnabled;
+    /**
+     * DATA-WP-10 kill-switch for ingest provenance writes. Default true so successful
+     * İZUM/OSM ingest records allow-listed field ownership. Does not control publication.
+     */
+    private boolean provenanceIngestWriteEnabled = true;
 
     public boolean isCandidateGenerationEnabled() {
         return candidateGenerationEnabled;
@@ -51,5 +56,13 @@ public class RegistryProperties {
 
     public void setProvenancePublicationEnabled(boolean provenancePublicationEnabled) {
         this.provenancePublicationEnabled = provenancePublicationEnabled;
+    }
+
+    public boolean isProvenanceIngestWriteEnabled() {
+        return provenanceIngestWriteEnabled;
+    }
+
+    public void setProvenanceIngestWriteEnabled(boolean provenanceIngestWriteEnabled) {
+        this.provenanceIngestWriteEnabled = provenanceIngestWriteEnabled;
     }
 }

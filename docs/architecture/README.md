@@ -191,7 +191,11 @@ See [Known Issues](../releases/KNOWN-ISSUES.md) for the current blocker list.
 - DATA-WP-08 İzmir administrative-boundary clip: **BLOCKED** (external licensed boundary asset).
 - [DATA-WP-09 public facility provenance publication](wp-data-09-engineering-specification.md)
   - Specification + implementation: bounded nearby/detail provenance (flag default false).
-  - DATA-WP-09A hosted-beta gate: not started.
+  - DATA-WP-09A hosted-beta gate: complete (ACCEPT WITH NON-BLOCKING NOTES).
+- [DATA-WP-10 municipal field provenance selection on ingest](wp-data-10-engineering-specification.md)
+  - Specification + implementation: İZUM/OSM ingest writes allow-listed provenance (publication remains false).
+  - Backfill omitted (no safe field ownership without guessing).
+  - DATA-WP-10A hosted-beta gate: not started.
 
 > **Name collision:** Repository **WP-05** is Decision Intelligence. Repository
 > **WP-06** is Operational Platform (`docs/operations/wp-06-*`). Repository

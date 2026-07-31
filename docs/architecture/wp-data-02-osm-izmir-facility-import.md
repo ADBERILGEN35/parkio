@@ -38,6 +38,13 @@ DATA-WP-01 `municipal_*` tables and ports are **behaviorally generic** (source_k
 
 `node/{id}`, `way/{id}`, `relation/{id}` — numeric IDs alone are forbidden.
 
+## Field provenance on ingest (DATA-WP-10)
+
+Successful per-facility OSM upsert selects allow-listed provenance for fields OSM
+actually supplied (`osm-geofabrik-turkey`). Synthetic display names do not claim
+`NAME`; OSM never claims `ADDRESS`. Soft-deactivated facilities are not re-selected
+unless they reappear in a later import. Public provenance publication remains off.
+
 ## Soft deactivation
 
 Missing OSM elements are soft-deactivated **only after a complete successful import**. Failed/partial imports do not mass-deactivate.

@@ -144,6 +144,8 @@ parkio:
       # Intentionally hardcoded off. RegistryProperties rejects any attempt to bind true.
       automatic-linking-enabled: false
       provenance-publication-enabled: ${PARKIO_MUNICIPAL_REGISTRY_PROVENANCE_PUBLICATION_ENABLED:false}
+      # DATA-WP-10: ingest provenance writes (default on). Independent of publication.
+      provenance-ingest-write-enabled: ${PARKIO_MUNICIPAL_REGISTRY_PROVENANCE_INGEST_WRITE_ENABLED:true}
     izum:
       enabled: false
       base-url: https://openapi.izmir.bel.tr

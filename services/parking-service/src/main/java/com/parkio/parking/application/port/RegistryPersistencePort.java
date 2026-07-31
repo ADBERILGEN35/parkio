@@ -71,4 +71,16 @@ public interface RegistryPersistencePort {
     void reopenLink(Candidate candidate, String reviewer, Instant now);
 
     void upsertProvenance(FieldProvenanceSelection selection);
+
+    /**
+     * Existing field provenance row for ingest ownership checks (DATA-WP-10).
+     */
+    record ProvenanceRow(
+            UUID facilityId,
+            String fieldName,
+            String sourceKey,
+            String sourceRecordId,
+            long version) {}
+
+    Optional<ProvenanceRow> findProvenance(UUID facilityId, String fieldName);
 }

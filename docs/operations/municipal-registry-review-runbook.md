@@ -41,6 +41,17 @@ Never expect confidence, review status, candidate IDs, or İZELMAN fields while 
 publication remains off. Disabling the flag restores null provenance fields immediately; no
 database rewrite. Do not enable this flag in hosted-beta under DATA-WP-09 implementation alone.
 
+## Provenance ingest writes (DATA-WP-10)
+
+`PARKIO_MUNICIPAL_REGISTRY_PROVENANCE_INGEST_WRITE_ENABLED` defaults **true**.
+Successful İZUM sync and OSM import select allow-listed field provenance via
+`FieldProvenanceApplicationService`. This does **not** enable publication.
+
+- Kill ingest writes without touching publication: set ingest-write to `false`.
+- Historical backfill is **not** provided: `primary_source_key` is not trustworthy for
+  field ownership; re-run sync/import instead.
+- Existing foreign-source provenance rows are never overwritten (`skipped_other_source`).
+
 ## Review notes
 
 Use only ADMIN or SUPER_ADMIN credentials. Inspect bounded evidence and hard conflicts. Accept only when multiple independent signals identify the same facility and choose one of the two canonical facility IDs. Reject insufficient evidence; use distinct when evidence establishes separate facilities. Reopen reverses an accepted link without deleting source identities, aliases history, audit, or occupancy history. Concurrent reviewers must supply the current optimistic `expectedVersion`; a stale version returns HTTP 409 and leaves exactly one applied final state.
