@@ -10,6 +10,7 @@ public class MunicipalSourceProperties {
     private Izum izum = new Izum();
     private Osm osm = new Osm();
     private Sla sla = new Sla();
+    private Discovery discovery = new Discovery();
 
     public boolean isEnabled() { return enabled; }
     public void setEnabled(boolean enabled) { this.enabled = enabled; }
@@ -21,6 +22,40 @@ public class MunicipalSourceProperties {
     public void setOsm(Osm osm) { this.osm = osm; }
     public Sla getSla() { return sla; }
     public void setSla(Sla sla) { this.sla = sla; }
+    public Discovery getDiscovery() { return discovery; }
+    public void setDiscovery(Discovery discovery) { this.discovery = discovery; }
+
+    /**
+     * Nearby duplicate-presentation controls (DATA-WP-07). Query-time only; default off.
+     */
+    public static class Discovery {
+        private boolean duplicatePresentationEnabled;
+        private double duplicateRadiusMeters = 100.0;
+        private int overfetchFactor = 2;
+        private int overfetchAbsoluteMax = 200;
+        private java.util.List<String> supportedPairs = java.util.List.of("IZUM_OSM");
+
+        public boolean isDuplicatePresentationEnabled() { return duplicatePresentationEnabled; }
+        public void setDuplicatePresentationEnabled(boolean duplicatePresentationEnabled) {
+            this.duplicatePresentationEnabled = duplicatePresentationEnabled;
+        }
+        public double getDuplicateRadiusMeters() { return duplicateRadiusMeters; }
+        public void setDuplicateRadiusMeters(double duplicateRadiusMeters) {
+            this.duplicateRadiusMeters = duplicateRadiusMeters;
+        }
+        public int getOverfetchFactor() { return overfetchFactor; }
+        public void setOverfetchFactor(int overfetchFactor) {
+            this.overfetchFactor = Math.max(1, overfetchFactor);
+        }
+        public int getOverfetchAbsoluteMax() { return overfetchAbsoluteMax; }
+        public void setOverfetchAbsoluteMax(int overfetchAbsoluteMax) {
+            this.overfetchAbsoluteMax = Math.max(1, overfetchAbsoluteMax);
+        }
+        public java.util.List<String> getSupportedPairs() { return supportedPairs; }
+        public void setSupportedPairs(java.util.List<String> supportedPairs) {
+            this.supportedPairs = supportedPairs == null ? java.util.List.of() : supportedPairs;
+        }
+    }
 
     /**
      * Operational SLA thresholds (integration health). Distinct from occupancy

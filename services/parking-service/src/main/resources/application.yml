@@ -127,9 +127,16 @@ info:
     description: Parkio parking-service
 
 parkio:
-  municipal:
+    municipal:
     enabled: false
     manual-sync-enabled: false
+    discovery:
+      duplicate-presentation-enabled: ${PARKIO_MUNICIPAL_DISCOVERY_DUPLICATE_PRESENTATION_ENABLED:false}
+      duplicate-radius-meters: ${PARKIO_MUNICIPAL_DISCOVERY_DUPLICATE_RADIUS_METERS:100}
+      overfetch-factor: ${PARKIO_MUNICIPAL_DISCOVERY_OVERFETCH_FACTOR:2}
+      overfetch-absolute-max: ${PARKIO_MUNICIPAL_DISCOVERY_OVERFETCH_ABSOLUTE_MAX:200}
+      supported-pairs:
+        - IZUM_OSM
     registry:
       candidate-generation-enabled: ${PARKIO_MUNICIPAL_REGISTRY_CANDIDATE_GENERATION_ENABLED:false}
       review-api-enabled: ${PARKIO_MUNICIPAL_REGISTRY_REVIEW_API_ENABLED:false}

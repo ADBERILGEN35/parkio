@@ -1,5 +1,6 @@
 package com.parkio.parking.application.port;
 
+import com.parkio.parking.externalsource.MunicipalAccessClassification;
 import com.parkio.parking.externalsource.MunicipalFacilityType;
 import com.parkio.parking.externalsource.NormalizedMunicipalFacility;
 import java.time.Instant;
@@ -13,7 +14,8 @@ public interface MunicipalFacilityRepository {
                     String addressText, double latitude, double longitude, Integer capacityTotal,
                     boolean paid, boolean nonstop, String sourceLabel, String attribution,
                     long agingAfterSeconds, long staleAfterSeconds,
-                    String primarySourceKey, Set<String> linkedSourceKeys) {}
+                    String primarySourceKey, Set<String> linkedSourceKeys,
+                    MunicipalAccessClassification accessClassification) {}
     record Upserted(UUID id, boolean inserted, boolean changed) {}
     Upserted upsert(UUID sourceId, NormalizedMunicipalFacility facility, Instant now);
     List<Facility> nearby(double lat, double lng, int radiusMeters, int limit);

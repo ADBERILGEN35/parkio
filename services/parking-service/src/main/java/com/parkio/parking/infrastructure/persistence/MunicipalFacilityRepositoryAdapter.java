@@ -1,6 +1,7 @@
 package com.parkio.parking.infrastructure.persistence;
 
 import com.parkio.parking.application.port.MunicipalFacilityRepository;
+import com.parkio.parking.externalsource.MunicipalAccessClassification;
 import com.parkio.parking.externalsource.MunicipalFacilityType;
 import com.parkio.parking.externalsource.MunicipalSourceIdentity;
 import com.parkio.parking.externalsource.NormalizedMunicipalFacility;
@@ -65,6 +66,7 @@ public class MunicipalFacilityRepositoryAdapter implements MunicipalFacilityRepo
                   SELECT DISTINCT ON (f.id)
                     f.id, f.display_name, f.operator_name, f.facility_type, f.address_text,
                     f.latitude, f.longitude, f.capacity_total, f.is_paid, f.nonstop,
+                    f.access_classification,
                     s.publisher, s.attribution_text, s.aging_after_seconds, s.stale_after_seconds,
                     f.primary_source_key,
                     (SELECT string_agg(ds.source_key, ',' ORDER BY ds.source_key)
@@ -83,7 +85,7 @@ public class MunicipalFacilityRepositoryAdapter implements MunicipalFacilityRepo
                          ELSE 2 END,
                     dist
                 ) ranked
-                ORDER BY dist
+                ORDER BY dist ASC, id ASC
                 LIMIT :limit
                 """).param("lat", lat).param("lng", lng).param("radius", radiusMeters).param("limit", limit)
                 .query(this::map).list();
@@ -95,6 +97,7 @@ public class MunicipalFacilityRepositoryAdapter implements MunicipalFacilityRepo
                 SELECT DISTINCT ON (f.id)
                   f.id, f.display_name, f.operator_name, f.facility_type, f.address_text,
                   f.latitude, f.longitude, f.capacity_total, f.is_paid, f.nonstop,
+                  f.access_classification,
                   s.publisher, s.attribution_text, s.aging_after_seconds, s.stale_after_seconds,
                   f.primary_source_key,
                   (SELECT string_agg(ds.source_key, ',' ORDER BY ds.source_key)
@@ -118,6 +121,10 @@ public class MunicipalFacilityRepositoryAdapter implements MunicipalFacilityRepo
     }
 
     private Facility map(java.sql.ResultSet rs, int row) throws java.sql.SQLException {
+        String access = rs.getString("access_classification");
+        MunicipalAccessClassification accessClassification = access == null || access.isBlank()
+                ? MunicipalAccessClassification.UNKNOWN
+                : MunicipalAccessClassification.valueOf(access);
         return new Facility(rs.getObject("id", UUID.class), rs.getString("display_name"),
                 rs.getString("operator_name"), MunicipalFacilityType.valueOf(rs.getString("facility_type")),
                 rs.getString("address_text"), rs.getDouble("latitude"), rs.getDouble("longitude"),
@@ -125,6 +132,7 @@ public class MunicipalFacilityRepositoryAdapter implements MunicipalFacilityRepo
                 rs.getString("publisher"), rs.getString("attribution_text"),
                 rs.getLong("aging_after_seconds"), rs.getLong("stale_after_seconds"),
                 rs.getString("primary_source_key"),
-                MunicipalSourceIdentity.parseLinkedKeys(rs.getString("linked_source_keys")));
+                MunicipalSourceIdentity.parseLinkedKeys(rs.getString("linked_source_keys")),
+                accessClassification);
     }
 }

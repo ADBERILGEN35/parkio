@@ -17,6 +17,7 @@ import com.parkio.parking.application.port.DecisionAuditWriteObserver;
 import com.parkio.parking.application.port.DecisionShadowObserverPort;
 import com.parkio.parking.externalsource.MunicipalParkingSourceAdapter;
 import com.parkio.parking.infrastructure.izum.IzumMunicipalParkingAdapter;
+import com.parkio.parking.infrastructure.metrics.DiscoveryDuplicatePresentationMetrics;
 import com.parkio.parking.decision.application.EvidenceCollectionService;
 import com.parkio.parking.decision.policy.DecisionEngine;
 import com.parkio.parking.decision.port.DecisionAuditPort;
@@ -91,9 +92,15 @@ public class ParkingInfrastructureConfig {
             MunicipalOccupancySnapshotRepository snapshots,
             MunicipalSourceProperties municipalSourceProperties,
             IzelmanProperties izelmanProperties,
+            DiscoveryDuplicatePresentationMetrics discoveryDuplicatePresentationMetrics,
             Clock clock) {
         return new MunicipalFacilityQueryService(
-                facilities, snapshots, municipalSourceProperties, izelmanProperties, clock);
+                facilities,
+                snapshots,
+                municipalSourceProperties,
+                izelmanProperties,
+                discoveryDuplicatePresentationMetrics,
+                clock);
     }
 
     @Bean

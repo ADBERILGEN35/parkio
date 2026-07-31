@@ -544,12 +544,17 @@ to force suppression.
 
 | Phase | Objective | Commit boundary | Deploy |
 |-------|-----------|-----------------|--------|
-| **DATA-WP-07** | Spec + later deterministic implementation | Spec/hardening docs; later impl on `api` | Not required for local 07 complete |
+| **DATA-WP-07** | Spec + deterministic implementation | Spec/hardening docs + implementation on `api` (flag false) | Not required for local 07 complete |
 | **DATA-WP-07A** | Hosted-beta presentation validation | Separate ops gate | Required |
 
-## 31. Planning status
+## 31. Implementation status
 
-**Specification / planning only.** This document does not implement code, add
-migrations, change runtime flags, or deploy. Original scope commit:
-`6826a095278c497ef8799abe2d56a0b372fc8ec2`. Hardening follows in a separate docs commit.
+**DATA-WP-07 implementation is complete on `api` (flag default false).**
 
+- Query-time nearby duplicate-presentation policy only
+- Detail lookup unchanged
+- No Flyway migration
+- No registry / automatic-linking mutation
+- DATA-WP-07A hosted-beta gate remains separate and not started
+
+Specification ancestry: `6826a09` (scope) then `791e462` (hardening).

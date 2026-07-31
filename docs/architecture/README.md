@@ -184,8 +184,9 @@ See [Known Issues](../releases/KNOWN-ISSUES.md) for the current blocker list.
   - DATA-WP-06A hosted-beta gate: complete (ACCEPT WITH NON-BLOCKING NOTES).
   - Decision Intelligence WP-05 remains a separate work package.
 - [DATA-WP-07 public facility discovery duplicate-presentation safety](wp-data-07-engineering-specification.md)
-  - Specification: planning complete; safety contract hardened (nearby-only, multi-signal, no-mutation).
-  - Implementation / DATA-WP-07A: not started.
+  - Specification: hardened safety contract complete.
+  - Implementation: query-time nearby duplicate-presentation policy landed (flag default false).
+  - DATA-WP-07A hosted-beta gate: not started.
   - Repository **WP-07** (mobile/session foundation) remains a separate work package.
 
 > **Name collision:** Repository **WP-05** is Decision Intelligence. Repository

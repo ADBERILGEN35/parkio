@@ -2,17 +2,23 @@ package com.parkio.parking.application;
 
 import com.parkio.parking.application.port.MunicipalFacilityRepository;
 import com.parkio.parking.application.port.MunicipalOccupancySnapshotRepository;
+import com.parkio.parking.externalsource.MunicipalAccessClassification;
 import com.parkio.parking.externalsource.MunicipalFacilityType;
 import com.parkio.parking.externalsource.MunicipalOccupancyFreshness;
 import com.parkio.parking.externalsource.MunicipalSourceIdentity;
 import com.parkio.parking.externalsource.MunicipalSourcePublicationPolicy;
 import com.parkio.parking.externalsource.OccupancyFreshnessPolicy;
+import com.parkio.parking.externalsource.discovery.DiscoveryDuplicatePresentationPolicy;
 import com.parkio.parking.infrastructure.config.IzelmanProperties;
 import com.parkio.parking.infrastructure.config.MunicipalSourceProperties;
+import com.parkio.parking.infrastructure.metrics.DiscoveryDuplicatePresentationMetrics;
 import java.time.Clock;
 import java.time.Duration;
 import java.time.Instant;
+import java.util.ArrayList;
+import java.util.HashSet;
 import java.util.List;
+import java.util.Locale;
 import java.util.Optional;
 import java.util.Set;
 import java.util.UUID;
@@ -35,6 +41,8 @@ public class MunicipalFacilityQueryService {
     private final MunicipalFacilityRepository facilities;
     private final MunicipalOccupancySnapshotRepository snapshots;
     private final MunicipalSourcePublicationPolicy publicationPolicy;
+    private final MunicipalSourceProperties.Discovery discovery;
+    private final DiscoveryDuplicatePresentationMetrics metrics;
     private final Clock clock;
 
     public MunicipalFacilityQueryService(
@@ -43,22 +51,93 @@ public class MunicipalFacilityQueryService {
             MunicipalSourceProperties municipalProperties,
             IzelmanProperties izelmanProperties,
             Clock clock) {
+        this(facilities, snapshots, municipalProperties, izelmanProperties, null, clock);
+    }
+
+    public MunicipalFacilityQueryService(
+            MunicipalFacilityRepository facilities,
+            MunicipalOccupancySnapshotRepository snapshots,
+            MunicipalSourceProperties municipalProperties,
+            IzelmanProperties izelmanProperties,
+            DiscoveryDuplicatePresentationMetrics metrics,
+            Clock clock) {
         this.facilities = facilities;
         this.snapshots = snapshots;
         this.publicationPolicy = new MunicipalSourcePublicationPolicy(municipalProperties, izelmanProperties);
+        this.discovery = municipalProperties.getDiscovery() == null
+                ? new MunicipalSourceProperties.Discovery()
+                : municipalProperties.getDiscovery();
+        this.metrics = metrics;
         this.clock = clock;
     }
 
     public List<FacilityView> nearby(double lat, double lng, int radiusMeters, int limit) {
         validate(lat, lng, radiusMeters, limit);
-        return facilities.nearby(lat, lng, radiusMeters, limit).stream()
-                .filter(this::isDiscoverable)
-                .map(this::project)
-                .toList();
+        if (!discovery.isDuplicatePresentationEnabled()) {
+            return facilities.nearby(lat, lng, radiusMeters, limit).stream()
+                    .filter(this::isDiscoverable)
+                    .map(this::project)
+                    .toList();
+        }
+
+        int fetchLimit = DiscoveryDuplicatePresentationPolicy.boundedFetchLimit(
+                limit, discovery.getOverfetchFactor(), discovery.getOverfetchAbsoluteMax());
+        List<MunicipalFacilityRepository.Facility> rows =
+                facilities.nearby(lat, lng, radiusMeters, fetchLimit);
+
+        List<DiscoveryDuplicatePresentationPolicy.Candidate> candidates = new ArrayList<>();
+        for (MunicipalFacilityRepository.Facility facility : rows) {
+            if (!isDiscoverable(facility)) {
+                continue;
+            }
+            FacilityView view = project(facility);
+            DiscoveryDuplicatePresentationPolicy.Family family =
+                    DiscoveryDuplicatePresentationPolicy.familyOf(
+                            linkedKeys(facility), facility.primarySourceKey());
+            candidates.add(new DiscoveryDuplicatePresentationPolicy.Candidate(
+                    facility.id(),
+                    family,
+                    facility.displayName(),
+                    facility.operatorName(),
+                    facility.addressText(),
+                    facility.latitude(),
+                    facility.longitude(),
+                    facility.capacityTotal(),
+                    facility.facilityType(),
+                    facility.accessClassification() == null
+                            ? MunicipalAccessClassification.UNKNOWN
+                            : facility.accessClassification(),
+                    view.freshness(),
+                    view));
+        }
+
+        var policy = new DiscoveryDuplicatePresentationPolicy(
+                discovery.getDuplicateRadiusMeters(), supportedPairs());
+        DiscoveryDuplicatePresentationPolicy.ApplyResult<FacilityView> applied =
+                policy.apply(candidates, limit);
+        if (metrics != null) {
+            metrics.record(applied);
+        }
+        return applied.kept();
     }
 
     public Optional<FacilityView> findById(UUID id) {
         return facilities.findById(id).filter(this::isDiscoverable).map(this::project);
+    }
+
+    private Set<String> supportedPairs() {
+        Set<String> pairs = new HashSet<>();
+        if (discovery.getSupportedPairs() != null) {
+            for (String pair : discovery.getSupportedPairs()) {
+                if (pair != null && !pair.isBlank()) {
+                    pairs.add(pair.trim().toUpperCase(Locale.ROOT));
+                }
+            }
+        }
+        if (pairs.isEmpty()) {
+            return DiscoveryDuplicatePresentationPolicy.supportedPairsDefault();
+        }
+        return pairs;
     }
 
     private FacilityView project(MunicipalFacilityRepository.Facility facility) {

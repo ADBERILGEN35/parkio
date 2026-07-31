@@ -6,6 +6,7 @@ import static org.mockito.Mockito.when;
 
 import com.parkio.parking.application.port.MunicipalFacilityRepository;
 import com.parkio.parking.application.port.MunicipalOccupancySnapshotRepository;
+import com.parkio.parking.externalsource.MunicipalAccessClassification;
 import com.parkio.parking.externalsource.MunicipalFacilityType;
 import com.parkio.parking.externalsource.MunicipalOccupancyFreshness;
 import com.parkio.parking.externalsource.MunicipalSourceIdentity;
@@ -243,7 +244,8 @@ class MunicipalFacilityQueryServiceTest {
             String primaryKey, Set<String> linked) {
         return new MunicipalFacilityRepository.Facility(
                 id, name, operator, MunicipalFacilityType.OFF_STREET, "", 38.4, 27.1,
-                100, true, true, sourceLabel, attribution, 60, 120, primaryKey, linked);
+                100, true, true, sourceLabel, attribution, 60, 120, primaryKey, linked,
+                MunicipalAccessClassification.PUBLIC);
     }
 
     private static MunicipalFacilityQueryService service(
