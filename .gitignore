@@ -124,3 +124,9 @@ frontend/apps/mobile-v2/android/build/
 .idea/workspace.xml
 # Operator-generated DATA hosted-beta gate evidence
 docs/evidence/data-wp-*/
+
+# Operator-generated DATA hosted-beta gate evidence
+docs/evidence/data-wp-*/
+
+# Temporary hosted-beta gate scripts
+scripts/staging/_wp*a_*.sh
