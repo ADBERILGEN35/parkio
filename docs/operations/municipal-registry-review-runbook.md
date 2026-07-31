@@ -29,6 +29,18 @@ Disable in this order when anomalies appear:
 
 These switches do not affect IZUM availability collection. Do not enable IZELMAN publication as part of registry review.
 
+## Public provenance publication (DATA-WP-09)
+
+`PARKIO_MUNICIPAL_REGISTRY_PROVENANCE_PUBLICATION_ENABLED` defaults **false**. When temporarily
+enabled (DATA-WP-09A only), nearby/detail DTOs may include:
+
+- `contributingSourceKeys` — distinct publishable source keys
+- `selectedFieldProvenanceSummary` — allow-listed field → `source_key` only
+
+Never expect confidence, review status, candidate IDs, or İZELMAN fields while İZELMAN
+publication remains off. Disabling the flag restores null provenance fields immediately; no
+database rewrite. Do not enable this flag in hosted-beta under DATA-WP-09 implementation alone.
+
 ## Review notes
 
 Use only ADMIN or SUPER_ADMIN credentials. Inspect bounded evidence and hard conflicts. Accept only when multiple independent signals identify the same facility and choose one of the two canonical facility IDs. Reject insufficient evidence; use distinct when evidence establishes separate facilities. Reopen reverses an accepted link without deleting source identities, aliases history, audit, or occupancy history. Concurrent reviewers must supply the current optimistic `expectedVersion`; a stale version returns HTTP 409 and leaves exactly one applied final state.

@@ -46,7 +46,9 @@ Complete successful disappearance may deactivate a source link. Partial runs and
 A facility with no active links is retained but unpublished. Reactivation reuses identity. Stale
 availability remains history but is not reported as live. Public provenance is bounded and only
 included when `provenance-publication-enabled` is true; review scores, reviewer identity, reasons,
-raw source payloads, and unpublished source fields are never public.
+raw source payloads, and unpublished source fields are never public. DATA-WP-09 implements that
+publication path (allow-listed field → public `source_key` only; confidence/review status never
+published).
 
 ## Flags
 

@@ -186,8 +186,12 @@ See [Known Issues](../releases/KNOWN-ISSUES.md) for the current blocker list.
 - [DATA-WP-07 public facility discovery duplicate-presentation safety](wp-data-07-engineering-specification.md)
   - Specification: hardened safety contract complete.
   - Implementation: query-time nearby duplicate-presentation policy landed (flag default false).
-  - DATA-WP-07A hosted-beta gate: not started.
+  - DATA-WP-07A hosted-beta gate: complete (ACCEPT WITH NON-BLOCKING NOTES).
   - Repository **WP-07** (mobile/session foundation) remains a separate work package.
+- DATA-WP-08 İzmir administrative-boundary clip: **BLOCKED** (external licensed boundary asset).
+- [DATA-WP-09 public facility provenance publication](wp-data-09-engineering-specification.md)
+  - Specification + implementation: bounded nearby/detail provenance (flag default false).
+  - DATA-WP-09A hosted-beta gate: not started.
 
 > **Name collision:** Repository **WP-05** is Decision Intelligence. Repository
 > **WP-06** is Operational Platform (`docs/operations/wp-06-*`). Repository

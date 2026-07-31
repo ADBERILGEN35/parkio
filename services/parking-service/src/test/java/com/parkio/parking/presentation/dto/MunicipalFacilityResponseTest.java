@@ -2,11 +2,13 @@ package com.parkio.parking.presentation.dto;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
+import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.parkio.parking.application.MunicipalFacilityQueryService;
 import com.parkio.parking.application.RegistryPublicationService;
 import com.parkio.parking.externalsource.MunicipalFacilityType;
 import com.parkio.parking.externalsource.MunicipalOccupancyFreshness;
+import com.parkio.parking.externalsource.MunicipalSourceIdentity;
 import java.time.Instant;
 import java.util.List;
 import java.util.Map;
@@ -35,13 +37,48 @@ class MunicipalFacilityResponseTest {
         MunicipalFacilityResponse response = MunicipalFacilityResponse.from(
                 view,
                 new RegistryPublicationService.Enrichment(
-                        List.of("izmir-izum-otoparklar", "osm-geofabrik-turkey"),
-                        Map.of("NAME", "izmir-izum-otoparklar:CURRENT"),
-                        "PROVENANCE_RECORDED"));
+                        List.of(MunicipalSourceIdentity.IZUM, MunicipalSourceIdentity.OSM),
+                        Map.of(
+                                "NAME", MunicipalSourceIdentity.IZUM,
+                                "COORDINATES", MunicipalSourceIdentity.OSM),
+                        null));
         String json = new ObjectMapper().findAndRegisterModules().writeValueAsString(response);
+        JsonNode root = new ObjectMapper().findAndRegisterModules().readTree(json);
 
         assertThat(response.contributingSourceKeys()).hasSize(2);
-        assertThat(response.selectedFieldProvenanceSummary()).containsKey("NAME");
-        assertThat(json).doesNotContain("totalScore", "scoreComponents", "reviewedBy", "rejectionReason");
+        assertThat(response.selectedFieldProvenanceSummary())
+                .containsEntry("NAME", MunicipalSourceIdentity.IZUM)
+                .containsEntry("COORDINATES", MunicipalSourceIdentity.OSM);
+        assertThat(response.registryConfidenceOrReviewStatus()).isNull();
+        assertThat(root.get("registryConfidenceOrReviewStatus").isNull()).isTrue();
+        assertThat(json).doesNotContain(
+                "totalScore", "scoreComponents", "reviewedBy", "rejectionReason",
+                "REVIEW_REQUIRED", "PROVENANCE_RECORDED", "confidence", "candidate",
+                "source_record_id", "selection_reason");
+        assertThat(json).doesNotContain("izelman-open-parking-facilities:CURRENT");
+    }
+
+    @Test
+    void osmNullAvailabilityRemainsCompatibleWithProvenance() {
+        MunicipalFacilityQueryService.FacilityView osmView = new MunicipalFacilityQueryService.FacilityView(
+                UUID.fromString("00000000-0000-0000-0000-000000000102"),
+                "OSM Lot", null, MunicipalFacilityType.OFF_STREET, "Alsancak", 38.43, 27.15,
+                40, null, MunicipalOccupancyFreshness.UNAVAILABLE,
+                "OpenStreetMap contributors", "OpenStreetMap",
+                Instant.parse("2026-07-30T12:00:00Z"));
+
+        MunicipalFacilityResponse response = MunicipalFacilityResponse.from(
+                osmView,
+                new RegistryPublicationService.Enrichment(
+                        List.of(MunicipalSourceIdentity.OSM),
+                        Map.of("NAME", MunicipalSourceIdentity.OSM),
+                        null));
+
+        assertThat(response.availableSpaces()).isNull();
+        assertThat(response.availabilitySource()).isNull();
+        assertThat(response.selectedFieldProvenanceSummary())
+                .containsEntry("NAME", MunicipalSourceIdentity.OSM);
+        assertThat(response.id()).isEqualTo(osmView.id());
+        assertThat(response.displayName()).isEqualTo("OSM Lot");
     }
 }

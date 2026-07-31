@@ -1,7 +1,14 @@
 package com.parkio.parking.application;
 
+import com.parkio.parking.externalsource.MunicipalSourcePublicationPolicy;
+import com.parkio.parking.externalsource.registry.PublicProvenancePublicationPolicy;
+import com.parkio.parking.externalsource.registry.PublicProvenancePublicationPolicy.BoundedProvenance;
+import com.parkio.parking.externalsource.registry.PublicProvenancePublicationPolicy.FieldSource;
+import com.parkio.parking.infrastructure.config.IzelmanProperties;
+import com.parkio.parking.infrastructure.config.MunicipalSourceProperties;
 import com.parkio.parking.infrastructure.config.RegistryProperties;
-import java.util.LinkedHashMap;
+import com.parkio.parking.infrastructure.metrics.ProvenancePublicationMetrics;
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 import java.util.UUID;
@@ -9,8 +16,17 @@ import org.springframework.jdbc.core.simple.JdbcClient;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+/**
+ * DATA-WP-09 read-only public provenance enrichment for nearby/detail DTOs.
+ * Flag default false. Never mutates registry, links, reviews, candidates,
+ * occupancy, or tariffs. Never publishes confidence, review status, or IDs.
+ */
 @Service
 public class RegistryPublicationService {
+    /**
+     * Public DTO enrichment. {@code registryConfidenceOrReviewStatus} is retained for
+     * backward-compatible JSON shape but is always null (never published).
+     */
     public record Enrichment(
             List<String> contributingSourceKeys,
             Map<String, String> selectedFieldProvenanceSummary,
@@ -18,46 +34,62 @@ public class RegistryPublicationService {
         public static Enrichment hidden() {
             return new Enrichment(null, null, null);
         }
+
+        public static Enrichment of(BoundedProvenance provenance) {
+            return new Enrichment(
+                    provenance.contributingSourceKeys(),
+                    provenance.selectedFieldProvenanceSummary(),
+                    null);
+        }
     }
 
     private final RegistryProperties properties;
     private final JdbcClient jdbc;
+    private final PublicProvenancePublicationPolicy policy;
+    private final ProvenancePublicationMetrics metrics;
 
-    public RegistryPublicationService(RegistryProperties properties, JdbcClient jdbc) {
+    public RegistryPublicationService(
+            RegistryProperties properties,
+            JdbcClient jdbc,
+            MunicipalSourceProperties municipalSourceProperties,
+            IzelmanProperties izelmanProperties,
+            ProvenancePublicationMetrics metrics) {
         this.properties = properties;
         this.jdbc = jdbc;
+        this.policy = new PublicProvenancePublicationPolicy(
+                new MunicipalSourcePublicationPolicy(municipalSourceProperties, izelmanProperties));
+        this.metrics = metrics;
     }
 
     @Transactional(readOnly = true)
     public Enrichment forFacility(UUID facilityId) {
         if (!properties.isProvenancePublicationEnabled()) {
+            metrics.recordHidden();
             return Enrichment.hidden();
         }
-        List<String> keys = jdbc.sql("""
-                SELECT DISTINCT source.source_key
-                FROM municipal_facility_source_links link
-                JOIN municipal_data_sources source ON source.id=link.source_id
-                WHERE link.facility_id=:facility AND link.active=true
-                  AND source.active=true AND source.production_approved=true
-                ORDER BY source.source_key
-                LIMIT 16
-                """).param("facility", facilityId).query(String.class).list();
-        Map<String, String> summary = new LinkedHashMap<>();
+        List<String> allowlist = List.copyOf(PublicProvenancePublicationPolicy.PUBLIC_FIELD_ALLOWLIST);
+        List<FieldSource> rows = new ArrayList<>();
         jdbc.sql("""
-                SELECT field_name,source_key,confidence_or_review_state
+                SELECT field_name, source_key
                 FROM municipal_facility_field_provenance
-                WHERE facility_id=:facility
+                WHERE facility_id = :facility
+                  AND field_name IN (:fields)
                 ORDER BY field_name
-                LIMIT 11
-                """).param("facility", facilityId)
-                .query((rs, rowNum) -> Map.entry(
+                """)
+                .param("facility", facilityId)
+                .param("fields", allowlist)
+                .query((rs, rowNum) -> new FieldSource(
                         rs.getString("field_name"),
-                        rs.getString("source_key") + ":" + rs.getString("confidence_or_review_state")))
+                        rs.getString("source_key")))
                 .list()
-                .forEach(entry -> summary.put(entry.getKey(), entry.getValue()));
-        String status = summary.isEmpty() ? "UNASSESSED"
-                : summary.values().stream().anyMatch(value -> value.endsWith(":REVIEW_REQUIRED"))
-                        ? "REVIEW_REQUIRED" : "PROVENANCE_RECORDED";
-        return new Enrichment(List.copyOf(keys), Map.copyOf(summary), status);
+                .forEach(rows::add);
+
+        BoundedProvenance projected = policy.project(rows);
+        if (projected.isEmpty()) {
+            metrics.recordEmpty();
+            return Enrichment.of(projected);
+        }
+        metrics.recordEnriched(projected);
+        return Enrichment.of(projected);
     }
 }

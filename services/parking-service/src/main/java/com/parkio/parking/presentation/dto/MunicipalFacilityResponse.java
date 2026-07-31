@@ -28,6 +28,7 @@ public record MunicipalFacilityResponse(
         Instant lastUpdatedAt,
         List<String> contributingSourceKeys,
         Map<String, String> selectedFieldProvenanceSummary,
+        /** Retained for JSON compatibility; DATA-WP-09 never publishes a value (always null). */
         String registryConfidenceOrReviewStatus,
         String availabilitySource,
         MunicipalOccupancyFreshness availabilityFreshness,
