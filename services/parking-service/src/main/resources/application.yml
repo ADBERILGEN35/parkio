@@ -179,6 +179,8 @@ parkio:
       allowed-input-dir: ""
       max-input-bytes: 52428800
       clip-version: ${PARKIO_MUNICIPAL_OSM_CLIP_VERSION:izmir-admin-izbb-2024-10-18-v1}
+      # DATA-WP-13: osm-label-v1 (default) or legacy technical IDs
+      label-policy: ${PARKIO_MUNICIPAL_OSM_LABEL_POLICY:osm-label-v1}
       boundary-dir: ${PARKIO_MUNICIPAL_OSM_BOUNDARY_DIR:}
       boundary-geojson-filename: ${PARKIO_MUNICIPAL_OSM_BOUNDARY_GEOJSON_FILENAME:izmir-admin-boundary.geojson}
       boundary-poly-filename: ${PARKIO_MUNICIPAL_OSM_BOUNDARY_POLY_FILENAME:izmir-admin-boundary.poly}

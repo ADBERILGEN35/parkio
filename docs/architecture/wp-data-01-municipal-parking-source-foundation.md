@@ -109,6 +109,10 @@ Live contract probes must be opt-in, timeout-bounded, and separate from CI.
 - Manual sync (when enabled): municipal manual sync controller under `/api/v1/parking/municipal/...`
 - DATA-WP-10: successful per-facility İZUM persist also selects allow-listed
   `municipal_facility_field_provenance` rows (`izmir-izum-otoparklar`). Publication remains off.
+- DATA-WP-13 display-label semantics: OSM facilities expose human-readable `displayName`
+  under `osm-label-v1` (validated OSM name tags preferred; readable fallbacks otherwise).
+  No DTO field rename/addition; never expose `OSM parking node|way|relation/{id}` as the
+  public label when that policy is active. External source IDs remain on source links only.
 
 Existing `/api/v1/parking/spots/**` contracts are unchanged.
 

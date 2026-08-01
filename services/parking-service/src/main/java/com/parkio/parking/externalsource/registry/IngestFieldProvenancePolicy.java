@@ -55,8 +55,10 @@ public final class IngestFieldProvenancePolicy {
     }
 
     /**
-     * Fields OSM import supplied. Synthetic display names (no OSM name tag) do not
-     * claim NAME provenance. ADDRESS is never supplied by OSM import.
+     * Fields OSM import supplied. NAME provenance is claimed only when the selected
+     * display label came from a real OSM name-bearing tag ({@code name:tr}, {@code name},
+     * {@code official_name}, {@code short_name}) — never for operator/brand/type/neutral
+     * fallbacks (DATA-WP-13). ADDRESS is never supplied by OSM import.
      */
     public static List<SuppliedField> forOsmFacility(
             NormalizedMunicipalFacility facility, boolean osmNameTagPresent) {

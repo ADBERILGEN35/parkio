@@ -73,6 +73,10 @@ Successful İZUM sync and OSM import select allow-listed field provenance via
 - Historical backfill is **not** provided: `primary_source_key` is not trustworthy for
   field ownership; re-run sync/import instead.
 - Existing foreign-source provenance rows are never overwritten (`skipped_other_source`).
+- **DATA-WP-13:** OSM `NAME` provenance is written only when the display label came from
+  a real name-bearing tag (`name:tr` / `name` / `official_name` / `short_name`).
+  Operator/brand/type/neutral fallback labels do not claim `NAME`. Brand must not invent
+  `OPERATOR`. See `docs/architecture/wp-data-13-engineering-specification.md`.
 
 ## Review notes
 

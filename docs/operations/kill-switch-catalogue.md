@@ -88,6 +88,10 @@ See [rollback-runbook.md](rollback-runbook.md).
 | parkio.municipal.osm.publication-enabled | false | Future publication gate |
 | parkio.municipal.osm.clip-version | izmir-admin-izbb-2024-10-18-v1 | DATA-WP-08; rollback `izmir-bbox-v1` |
 | parkio.municipal.osm.boundary-dir | empty | Operator boundary dir; empty = envelope fallback |
+| parkio.municipal.osm.label-policy | osm-label-v1 | DATA-WP-13 display labels; kill-switch `legacy` |
+
+Independent of import/publication/linking. Env: `PARKIO_MUNICIPAL_OSM_LABEL_POLICY`.
+Reimport required after changing policy for existing rows to refresh `display_name`.
 
 ## DATA-WP-03 IZELMAN (default OFF)
 

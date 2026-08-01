@@ -39,12 +39,20 @@ DATA-WP-01 `municipal_*` tables and ports are **behaviorally generic** (source_k
 
 `node/{id}`, `way/{id}`, `relation/{id}` — numeric IDs alone are forbidden.
 
-## Field provenance on ingest (DATA-WP-10)
+## Field provenance on ingest (DATA-WP-10 / DATA-WP-13)
 
 Successful per-facility OSM upsert selects allow-listed provenance for fields OSM
-actually supplied (`osm-geofabrik-turkey`). Synthetic display names do not claim
-`NAME`; OSM never claims `ADDRESS`. Soft-deactivated facilities are not re-selected
-unless they reappear in a later import. Public provenance publication remains off.
+actually supplied (`osm-geofabrik-turkey`). Under **`osm-label-v1`** (DATA-WP-13),
+public display names prefer validated `name:tr` → `name` → `official_name` →
+`short_name`, then readable operator/brand/type/neutral fallbacks — never
+`OSM parking {element}/{id}` as the public label. `NAME` provenance is claimed
+**only** for real name-bearing tags; operator/brand/type/neutral fallbacks do not
+claim `NAME`. Brand fallback must not invent `OPERATOR`. OSM never claims
+`ADDRESS`. Soft-deactivated facilities are not re-selected unless they reappear in
+a later import. Public provenance publication is controlled separately
+(DATA-WP-11).
+
+See [DATA-WP-13 engineering specification](wp-data-13-engineering-specification.md).
 
 ## Soft deactivation
 

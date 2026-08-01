@@ -203,6 +203,9 @@ See [Known Issues](../releases/KNOWN-ISSUES.md) for the current blocker list.
   - Canonical default **true**; production profile pins **false**; Azure hosted-beta Compose `:-true`.
   - Matching thresholds unchanged; detail endpoint unaffected; kill-switch restores legacy nearby.
   - DATA-WP-12A hosted-beta leave-on gate: complete (ACCEPT WITH NON-BLOCKING NOTES).
+- [DATA-WP-13 OSM facility display-label hygiene](wp-data-13-engineering-specification.md)
+  - Policy `osm-label-v1` (kill-switch `legacy`); NAME provenance only for real name tags.
+  - No migration / DTO change; reimport refreshes labels; DATA-WP-13A not started.
 - [DATA-WP-08 İzmir administrative-boundary clip](wp-data-08-engineering-specification.md)
   - Clip `izmir-admin-izbb-2024-10-18-v1` from İZBB `ilceler.geojson` (CC BY 4.0).
   - Operator-managed boundary + polygon osmium extract; rollback to `izmir-bbox-v1`.

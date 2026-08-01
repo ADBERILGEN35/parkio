@@ -12,10 +12,13 @@ import com.parkio.parking.externalsource.osm.ConflationDecision;
 import com.parkio.parking.externalsource.osm.ConflationPolicy;
 import com.parkio.parking.externalsource.osm.IzmirClip;
 import com.parkio.parking.externalsource.osm.OsmAccessMapper;
+import com.parkio.parking.externalsource.osm.OsmDisplayLabelPolicy;
+import com.parkio.parking.externalsource.osm.OsmDisplayLabelSelection;
 import com.parkio.parking.externalsource.osm.OsmGeoJsonParkingParser;
 import com.parkio.parking.externalsource.osm.OsmParkingFeature;
 import com.parkio.parking.infrastructure.config.MunicipalSourceProperties;
 import com.parkio.parking.infrastructure.izum.IzumMunicipalParkingAdapter;
+import com.parkio.parking.infrastructure.metrics.OsmDisplayLabelMetrics;
 import com.parkio.parking.infrastructure.osm.OsmGeofabrikSourceKeys;
 import java.nio.file.Files;
 import java.nio.file.Path;
@@ -47,6 +50,7 @@ public class OsmImportApplicationService {
     private final OsmGeoJsonParkingParser parser;
     private final ObjectMapper objectMapper;
     private final MunicipalFacilityIngestWriter ingestWriter;
+    private final OsmDisplayLabelMetrics labelMetrics;
     private final Clock clock;
 
     public OsmImportApplicationService(
@@ -57,6 +61,7 @@ public class OsmImportApplicationService {
             OsmGeoJsonParkingParser parser,
             ObjectMapper objectMapper,
             MunicipalFacilityIngestWriter ingestWriter,
+            OsmDisplayLabelMetrics labelMetrics,
             Clock clock) {
         this.properties = properties;
         this.sources = sources;
@@ -65,6 +70,7 @@ public class OsmImportApplicationService {
         this.parser = parser;
         this.objectMapper = objectMapper;
         this.ingestWriter = ingestWriter;
+        this.labelMetrics = labelMetrics;
         this.clock = clock;
     }
 
@@ -115,8 +121,10 @@ public class OsmImportApplicationService {
             int hardConflicts = 0;
             Set<String> seen = new HashSet<>();
             Map<String, Integer> rejectReasons = new HashMap<>();
+            Map<String, Integer> labelOutcomes = new LinkedHashMap<>();
             int named = 0;
             int capacityKnown = 0;
+            String labelPolicy = OsmDisplayLabelPolicy.normalizePolicyVersion(properties.getOsm().getLabelPolicy());
 
             for (OsmParkingFeature feature : features) {
                 if (!feature.valid()) {
@@ -131,7 +139,10 @@ public class OsmImportApplicationService {
                     continue;
                 }
                 seen.add(feature.externalId());
-                if (feature.name() != null) {
+                OsmDisplayLabelSelection label = OsmDisplayLabelPolicy.select(
+                        labelPolicy, feature.externalId(), feature.allowlistedTags());
+                labelOutcomes.merge(label.outcome().metricOutcome(), 1, Integer::sum);
+                if (label.nameBearing()) {
                     named++;
                 }
                 if (feature.capacity() != null) {
@@ -149,12 +160,14 @@ public class OsmImportApplicationService {
                 metadata.put("fee", feature.fee());
                 metadata.put("openingHours", feature.openingHours());
                 metadata.put("clipVersion", clipVersion);
+                metadata.put("labelPolicyVersion", label.policyVersion());
+                metadata.put("labelOutcome", label.outcome().metricOutcome());
                 metadata.put("attribution", OsmGeofabrikSourceKeys.ATTRIBUTION);
                 NormalizedMunicipalFacility normalized = new NormalizedMunicipalFacility(
                         feature.externalId(),
                         feature.operator(),
                         feature.facilityType(),
-                        feature.name() == null ? "OSM parking " + feature.externalId() : feature.name(),
+                        label.displayLabel(),
                         null,
                         feature.latitude(),
                         feature.longitude(),
@@ -162,15 +175,16 @@ public class OsmImportApplicationService {
                         feature.access(),
                         metadata,
                         feature.rawRecordHash());
-                boolean osmNameTagPresent = feature.name() != null && !feature.name().isBlank();
                 var upserted = ingestWriter.persistOsmFacility(
-                        source.id(), normalized, osmNameTagPresent, started);
+                        source.id(), normalized, label.nameBearing(), started);
+                labelMetrics.record(label);
                 if (upserted.inserted()) {
                     inserted++;
                 } else if (upserted.changed()) {
                     updated++;
                 } else {
                     unchanged++;
+                    labelMetrics.recordUnchanged(labelPolicy);
                 }
 
                 if (properties.getOsm().isConflationEnabled()) {
@@ -195,6 +209,8 @@ public class OsmImportApplicationService {
             report.put("capacityKnown", capacityKnown);
             report.put("rejectReasons", rejectReasons);
             report.put("clipVersion", clipVersion);
+            report.put("labelPolicyVersion", labelPolicy);
+            report.put("labelOutcomes", labelOutcomes);
             String reportJson = objectMapper.writeValueAsString(report);
 
             OsmImportSupportRepository.ImportRunStats stats = new OsmImportSupportRepository.ImportRunStats(

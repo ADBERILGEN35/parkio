@@ -185,8 +185,17 @@ Convert osmium GeoJSON → Parkio `osm-parking-geojson-v1` (preserve `osmType`/`
 | `parkio.municipal.osm.conflation-enabled` | `PARKIO_MUNICIPAL_OSM_CONFLATION_ENABLED` | false | Optional offline/review |
 | `parkio.municipal.osm.auto-match-enabled` | `PARKIO_MUNICIPAL_OSM_AUTO_MATCH_ENABLED` | false | Separate gate; keep off until review passes |
 | `parkio.municipal.osm.publication-enabled` | `PARKIO_MUNICIPAL_OSM_PUBLICATION_ENABLED` | false | Hides OSM-attributed rows from nearby/detail when false |
+| `parkio.municipal.osm.label-policy` | `PARKIO_MUNICIPAL_OSM_LABEL_POLICY` | `osm-label-v1` | DATA-WP-13; `legacy` restores technical `OSM parking …` labels |
 
 Also set `local-input-path` / `allowed-input-dir` (`PARKIO_MUNICIPAL_OSM_LOCAL_INPUT_PATH`, `PARKIO_MUNICIPAL_OSM_ALLOWED_INPUT_DIR`).
+
+### Display labels (DATA-WP-13)
+
+Under `osm-label-v1`, public `displayName` prefers validated OSM name tags, then
+readable operator/brand/type/neutral Turkish fallbacks. External IDs and source
+links are unchanged. Roll back with `label-policy=legacy` + reimport. Does **not**
+change ranking, linking, availability, or duplicate-presentation. See
+`docs/architecture/wp-data-13-engineering-specification.md`.
 
 Azure hosted-beta: these env keys are mapped in `docker/docker-compose.azure-hosted-beta.yml` and must be present in `docker/.env.azure-hosted-beta`. Values in the env file alone do not reach the container without that Compose mapping. Ops GeoJSON is mounted read-only from `/opt/parkio/ops/data-wp-02b`.
 

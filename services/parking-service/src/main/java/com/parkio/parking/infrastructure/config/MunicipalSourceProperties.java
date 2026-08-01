@@ -150,6 +150,11 @@ public class MunicipalSourceProperties {
         private String allowedInputDir = "";
         private long maxInputBytes = 52_428_800L; // 50 MiB interchange cap
         private String clipVersion = "izmir-admin-izbb-2024-10-18-v1";
+        /**
+         * DATA-WP-13 display-label policy. {@code osm-label-v1} (default) or {@code legacy}
+         * technical fallback. Independent of import/publication/linking flags.
+         */
+        private String labelPolicy = "osm-label-v1";
         /** Operator boundary directory (Windows or hosted-beta Linux). Empty = envelope fallback. */
         private String boundaryDir = "";
         private String boundaryGeojsonFilename = "izmir-admin-boundary.geojson";
@@ -180,6 +185,8 @@ public class MunicipalSourceProperties {
         public void setMaxInputBytes(long maxInputBytes) { this.maxInputBytes = maxInputBytes; }
         public String getClipVersion() { return clipVersion; }
         public void setClipVersion(String clipVersion) { this.clipVersion = clipVersion; }
+        public String getLabelPolicy() { return labelPolicy; }
+        public void setLabelPolicy(String labelPolicy) { this.labelPolicy = labelPolicy; }
         public String getBoundaryDir() { return boundaryDir; }
         public void setBoundaryDir(String boundaryDir) { this.boundaryDir = boundaryDir; }
         public String getBoundaryGeojsonFilename() { return boundaryGeojsonFilename; }

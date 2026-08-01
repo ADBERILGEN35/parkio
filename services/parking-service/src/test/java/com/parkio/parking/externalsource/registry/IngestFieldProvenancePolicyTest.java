@@ -61,12 +61,12 @@ class IngestFieldProvenancePolicyTest {
     }
 
     @Test
-    void osmSkipsSyntheticNameAndNeverClaimsAddress() {
+    void osmSkipsFallbackLabelAndNeverClaimsAddress() {
         NormalizedMunicipalFacility facility = new NormalizedMunicipalFacility(
                 "way/1",
                 null,
                 MunicipalFacilityType.OFF_STREET,
-                "OSM parking way/1",
+                "Otopark",
                 null,
                 38.4,
                 27.1,
@@ -102,5 +102,29 @@ class IngestFieldProvenancePolicyTest {
                 .extracting(IngestFieldProvenancePolicy.SuppliedField::field)
                 .contains(RegistryField.NAME, RegistryField.OPERATOR)
                 .doesNotContain(RegistryField.ADDRESS, RegistryField.STATIC_CAPACITY);
+    }
+
+    @Test
+    void brandFallbackDisplayDoesNotInventOperatorProvenance() {
+        // Brand-only OSM features keep operatorName null; brand must not claim OPERATOR.
+        NormalizedMunicipalFacility facility = new NormalizedMunicipalFacility(
+                "way/8008",
+                null,
+                MunicipalFacilityType.OFF_STREET,
+                "Parkio Otoparkı",
+                null,
+                38.4,
+                27.1,
+                null,
+                MunicipalAccessClassification.PUBLIC,
+                Map.of(),
+                "hash");
+        assertThat(IngestFieldProvenancePolicy.forOsmFacility(facility, false))
+                .extracting(IngestFieldProvenancePolicy.SuppliedField::field)
+                .containsExactly(
+                        RegistryField.COORDINATES,
+                        RegistryField.FACILITY_TYPE,
+                        RegistryField.ATTRIBUTION)
+                .doesNotContain(RegistryField.NAME, RegistryField.OPERATOR, RegistryField.ADDRESS);
     }
 }
