@@ -2,46 +2,75 @@ package com.parkio.parking.externalsource.district;
 
 import java.util.List;
 import java.util.Objects;
+import org.locationtech.jts.geom.Point;
+import org.locationtech.jts.geom.prep.PreparedGeometry;
 
 /**
- * Immutable district geometry for point-in-polygon assignment (DATA-WP-18).
+ * Immutable district geometry for point-in-polygon assignment.
  *
- * <p>Membership uses {@code covers}: interior or boundary of any exterior ring, excluding
- * true holes. Island rings incorrectly nested as holes are promoted to exterior components
- * (same repair semantics as WP-08 dissolve).
+ * <p>DATA-WP-19 topology mode uses JTS {@link PreparedGeometry#covers}. Legacy DATA-WP-18 mode
+ * retains even-odd ring membership (known to false-positive on some valid İzBB polygons).
  */
 public final class MunicipalDistrictGeometry {
     private final String districtName;
     private final String foldedName;
     private final List<RingSet> polygons;
+    private final PreparedGeometry prepared;
+    private final boolean topologyMode;
     private final double south;
     private final double north;
     private final double west;
     private final double east;
 
+    /** Legacy ray-casting constructor (DATA-WP-18 rollback path). */
     public MunicipalDistrictGeometry(String districtName, String foldedName, List<RingSet> polygons) {
+        this(districtName, foldedName, polygons, null, false);
+    }
+
+    /** Topology constructor backed by prepared JTS geometry (DATA-WP-19). */
+    public MunicipalDistrictGeometry(
+            String districtName, String foldedName, PreparedGeometry prepared) {
+        this(districtName, foldedName, List.of(), Objects.requireNonNull(prepared, "prepared"), true);
+    }
+
+    private MunicipalDistrictGeometry(
+            String districtName,
+            String foldedName,
+            List<RingSet> polygons,
+            PreparedGeometry prepared,
+            boolean topologyMode) {
         this.districtName = Objects.requireNonNull(districtName, "districtName");
         this.foldedName = Objects.requireNonNull(foldedName, "foldedName");
         this.polygons = List.copyOf(Objects.requireNonNull(polygons, "polygons"));
-        if (this.polygons.isEmpty()) {
-            throw new IllegalArgumentException("polygons required");
-        }
-        double s = Double.POSITIVE_INFINITY;
-        double n = Double.NEGATIVE_INFINITY;
-        double w = Double.POSITIVE_INFINITY;
-        double e = Double.NEGATIVE_INFINITY;
-        for (RingSet poly : this.polygons) {
-            for (double[] c : poly.exterior()) {
-                w = Math.min(w, c[0]);
-                e = Math.max(e, c[0]);
-                s = Math.min(s, c[1]);
-                n = Math.max(n, c[1]);
+        this.prepared = prepared;
+        this.topologyMode = topologyMode;
+        if (topologyMode) {
+            var env = prepared.getGeometry().getEnvelopeInternal();
+            this.south = env.getMinY();
+            this.north = env.getMaxY();
+            this.west = env.getMinX();
+            this.east = env.getMaxX();
+        } else {
+            if (this.polygons.isEmpty()) {
+                throw new IllegalArgumentException("polygons required");
             }
+            double s = Double.POSITIVE_INFINITY;
+            double n = Double.NEGATIVE_INFINITY;
+            double w = Double.POSITIVE_INFINITY;
+            double e = Double.NEGATIVE_INFINITY;
+            for (RingSet poly : this.polygons) {
+                for (double[] c : poly.exterior()) {
+                    w = Math.min(w, c[0]);
+                    e = Math.max(e, c[0]);
+                    s = Math.min(s, c[1]);
+                    n = Math.max(n, c[1]);
+                }
+            }
+            this.south = s;
+            this.north = n;
+            this.west = w;
+            this.east = e;
         }
-        this.south = s;
-        this.north = n;
-        this.west = w;
-        this.east = e;
     }
 
     public String districtName() {
@@ -52,12 +81,20 @@ public final class MunicipalDistrictGeometry {
         return foldedName;
     }
 
+    public boolean topologyMode() {
+        return topologyMode;
+    }
+
     public boolean covers(double longitude, double latitude) {
         if (!Double.isFinite(longitude) || !Double.isFinite(latitude)) {
             return false;
         }
         if (latitude < south || latitude > north || longitude < west || longitude > east) {
             return false;
+        }
+        if (topologyMode) {
+            Point p = MunicipalDistrictJtsFactory.point(longitude, latitude);
+            return prepared.covers(p);
         }
         for (RingSet poly : polygons) {
             if (poly.covers(longitude, latitude)) {
@@ -67,7 +104,17 @@ public final class MunicipalDistrictGeometry {
         return false;
     }
 
-    /** One polygon: exterior + holes (holes that are islands outside the shell are promoted). */
+    /** True when the point lies on the district boundary (topology mode only; else false). */
+    public boolean onBoundaryOnly(double longitude, double latitude) {
+        if (!topologyMode || !covers(longitude, latitude)) {
+            return false;
+        }
+        Point p = MunicipalDistrictJtsFactory.point(longitude, latitude);
+        return prepared.getGeometry().getBoundary().distance(p) <= 1e-12
+                || prepared.getGeometry().touches(p);
+    }
+
+    /** One polygon: exterior + holes (legacy path). */
     public record RingSet(double[][] exterior, List<double[][]> holes) {
         public RingSet {
             Objects.requireNonNull(exterior, "exterior");
@@ -79,7 +126,6 @@ public final class MunicipalDistrictGeometry {
                 return false;
             }
             for (double[][] hole : holes) {
-                // Hole interior is outside the district; hole boundary remains covered (OGC-style).
                 if (pointInRingStrict(x, y, hole) && !pointOnBoundary(x, y, hole)) {
                     return false;
                 }

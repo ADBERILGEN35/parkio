@@ -84,13 +84,31 @@ class MunicipalDistrictAssignmentPolicyTest {
         var kinik = new MunicipalDistrictGeometry(
                 "KINIK", IzmirBoundaryAssetValidator.foldDistrictName("KINIK"),
                 List.of(new MunicipalDistrictGeometry.RingSet(ring, List.of())));
-        var overlapPolicy = new MunicipalDistrictAssignmentPolicy(List.of(konak, kinik));
+        var overlapPolicy = new MunicipalDistrictAssignmentPolicy(List.of(konak, kinik), false);
 
         Assignment assignment = overlapPolicy.assign(27.005, 38.755);
 
         assertThat(assignment.classification()).isEqualTo(Classification.ASSIGNED);
         assertThat(assignment.districtName()).isEqualTo("KINIK");
         assertThat(assignment.foldedName()).isEqualTo("KINIK");
+        assertThat(assignment.overlapAnomaly()).isTrue();
+    }
+
+    @Test
+    void topologyModeMaterialOverlapIsAmbiguousWithoutNameTieBreak() {
+        double[][] ring = square(KONAK_WEST, KONAK_SOUTH, KONAK_EAST, KONAK_NORTH);
+        var prepared = MunicipalDistrictJtsFactory.prepareDistrict(
+                List.<List<double[][]>>of(List.<double[][]>of(ring)));
+        var konak = new MunicipalDistrictGeometry(
+                "KONAK", IzmirBoundaryAssetValidator.foldDistrictName("KONAK"), prepared);
+        var kinik = new MunicipalDistrictGeometry(
+                "KINIK", IzmirBoundaryAssetValidator.foldDistrictName("KINIK"), prepared);
+        var topologyPolicy = new MunicipalDistrictAssignmentPolicy(List.of(konak, kinik), true);
+
+        Assignment assignment = topologyPolicy.assign(27.005, 38.755);
+
+        assertThat(assignment.classification()).isEqualTo(Classification.TOPOLOGY_AMBIGUOUS);
+        assertThat(assignment.districtName()).isNull();
         assertThat(assignment.overlapAnomaly()).isTrue();
     }
 

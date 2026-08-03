@@ -82,6 +82,15 @@ public class MunicipalSourceProperties {
         private int expectedCount = 30;
         private int maxFacilities = 10_000;
         private int cacheTtlSeconds = 45;
+        /** DATA-WP-19: when true, load normalized asset and use JTS topology assignment. */
+        private boolean topologyPolicyEnabled = false;
+        private String topologyPolicyVersion =
+                com.parkio.parking.externalsource.district.MunicipalDistrictTopologyPolicy
+                        .TOPOLOGY_POLICY_VERSION;
+        private String normalizedAssetPath = "";
+        private String normalizedAssetSha256 =
+                com.parkio.parking.externalsource.district.MunicipalDistrictTopologyPolicy
+                        .NORMALIZED_ASSET_SHA256;
 
         public String getAssetPath() { return assetPath; }
         public void setAssetPath(String assetPath) {
@@ -101,6 +110,26 @@ public class MunicipalSourceProperties {
         public void setMaxFacilities(int maxFacilities) { this.maxFacilities = maxFacilities; }
         public int getCacheTtlSeconds() { return Math.max(1, cacheTtlSeconds); }
         public void setCacheTtlSeconds(int cacheTtlSeconds) { this.cacheTtlSeconds = cacheTtlSeconds; }
+
+        public boolean isTopologyPolicyEnabled() { return topologyPolicyEnabled; }
+        public void setTopologyPolicyEnabled(boolean topologyPolicyEnabled) {
+            this.topologyPolicyEnabled = topologyPolicyEnabled;
+        }
+        public String getTopologyPolicyVersion() { return topologyPolicyVersion; }
+        public void setTopologyPolicyVersion(String topologyPolicyVersion) {
+            this.topologyPolicyVersion = topologyPolicyVersion == null || topologyPolicyVersion.isBlank()
+                    ? com.parkio.parking.externalsource.district.MunicipalDistrictTopologyPolicy
+                            .TOPOLOGY_POLICY_VERSION
+                    : topologyPolicyVersion;
+        }
+        public String getNormalizedAssetPath() { return normalizedAssetPath; }
+        public void setNormalizedAssetPath(String normalizedAssetPath) {
+            this.normalizedAssetPath = normalizedAssetPath == null ? "" : normalizedAssetPath;
+        }
+        public String getNormalizedAssetSha256() { return normalizedAssetSha256; }
+        public void setNormalizedAssetSha256(String normalizedAssetSha256) {
+            this.normalizedAssetSha256 = normalizedAssetSha256 == null ? "" : normalizedAssetSha256;
+        }
     }
 
     /**

@@ -21,6 +21,8 @@ public final class MunicipalDistrictCoveragePolicy {
     public static final String REASON_ASSET_UNAVAILABLE = "asset_unavailable";
     public static final String REASON_ASSET_INVALID = "asset_invalid";
     public static final String REASON_FACILITY_LIMIT = "facility_limit_exceeded";
+    public static final String REASON_TOPOLOGY_INVALID =
+            com.parkio.parking.externalsource.district.MunicipalDistrictTopologyPolicy.REASON_TOPOLOGY_INVALID;
 
     private MunicipalDistrictCoveragePolicy() {}
 }

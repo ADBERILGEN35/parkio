@@ -7,6 +7,7 @@ import com.parkio.parking.externalsource.district.MunicipalDistrictAssignmentPol
 import com.parkio.parking.externalsource.district.MunicipalDistrictAssetLoader;
 import com.parkio.parking.externalsource.district.MunicipalDistrictCoveragePolicy;
 import com.parkio.parking.externalsource.district.MunicipalDistrictGeometry;
+import com.parkio.parking.externalsource.district.MunicipalDistrictTopologyPolicy;
 import com.parkio.parking.infrastructure.config.MunicipalSourceProperties;
 import com.parkio.parking.infrastructure.metrics.MunicipalDistrictCoverageMetrics;
 import java.nio.file.Files;
@@ -17,6 +18,7 @@ import java.time.Instant;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Objects;
 import java.util.concurrent.atomic.AtomicReference;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -24,7 +26,7 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Component;
 
 /**
- * Assembles the DATA-WP-18 district coverage section with asset load, assignment and TTL cache.
+ * Assembles the DATA-WP-18/19 district coverage section with asset load, assignment and TTL cache.
  * Read-only: never mutates facilities, links, provenance, occupancy or asset files.
  */
 @Component
@@ -53,7 +55,6 @@ public class MunicipalDistrictCoverageAssembler {
         this.clock = clock;
     }
 
-    /** Test/constructor seam allowing a custom loader. */
     MunicipalDistrictCoverageAssembler(
             MunicipalSourceProperties properties,
             MunicipalQualityReportQueryPort queries,
@@ -72,36 +73,44 @@ public class MunicipalDistrictCoverageAssembler {
         MunicipalSourceProperties.Ops ops = properties.getOps();
         if (!ops.isDistrictCoverageEnabled()) {
             cache.set(null);
+            loadedDistricts.set(null);
             DistrictCoverageSection disabled = DistrictCoverageSection.disabled(generatedAt);
             metrics.recordRequest("disabled", "disabled", "none", elapsedMs(start), 0, 0);
             return disabled;
         }
 
+        MunicipalSourceProperties.DistrictCoverage cfg = ops.getDistrictCoverage();
+        String cacheKey = cacheKey(cfg);
         CacheEntry hit = cache.get();
-        if (hit != null && !hit.expired(clock.instant(), ops.getDistrictCoverage().getCacheTtlSeconds())) {
+        if (hit != null
+                && Objects.equals(hit.cacheKey(), cacheKey)
+                && !hit.expired(clock.instant(), cfg.getCacheTtlSeconds())) {
             metrics.recordRequest(
                     "cache_hit",
                     hit.section().status().name().toLowerCase(),
-                    MunicipalDistrictCoveragePolicy.POLICY_VERSION,
+                    policyLabel(cfg),
                     elapsedMs(start),
                     hit.section().activeFacilityCountConsidered(),
-                    hit.section().overlapAnomalyCount());
+                    hit.section().topologyAmbiguousCount() > 0
+                            ? hit.section().topologyAmbiguousCount()
+                            : hit.section().overlapAnomalyCount());
             return hit.section();
         }
 
         DistrictCoverageSection section = compute(generatedAt, ops, agingSeconds, staleSeconds);
-        cache.set(new CacheEntry(clock.instant(), section));
+        cache.set(new CacheEntry(clock.instant(), cacheKey, section));
         metrics.recordRequest(
                 section.status() == DistrictCoverageStatus.AVAILABLE ? "success" : "unavailable",
                 section.status().name().toLowerCase(),
-                MunicipalDistrictCoveragePolicy.POLICY_VERSION,
+                policyLabel(cfg),
                 elapsedMs(start),
                 section.activeFacilityCountConsidered(),
-                section.overlapAnomalyCount());
+                section.topologyAmbiguousCount() > 0
+                        ? section.topologyAmbiguousCount()
+                        : section.overlapAnomalyCount());
         return section;
     }
 
-    /** Clears report and district caches (tests / optional reload). */
     public void clearCache() {
         cache.set(null);
         loadedDistricts.set(null);
@@ -112,7 +121,8 @@ public class MunicipalDistrictCoverageAssembler {
             MunicipalSourceProperties.Ops ops,
             long agingSeconds,
             long staleSeconds) {
-        LoadedDistricts districts = ensureDistricts(ops.getDistrictCoverage());
+        MunicipalSourceProperties.DistrictCoverage cfg = ops.getDistrictCoverage();
+        LoadedDistricts districts = ensureDistricts(cfg);
         if (!districts.present()) {
             log.warn("municipal_district_coverage_asset_unavailable");
             return DistrictCoverageSection.unavailable(
@@ -121,10 +131,12 @@ public class MunicipalDistrictCoverageAssembler {
         if (!districts.valid()) {
             log.warn("municipal_district_coverage_asset_invalid");
             return DistrictCoverageSection.unavailable(
-                    generatedAt, MunicipalDistrictCoverageReason.ASSET_INVALID);
+                    generatedAt,
+                    cfg.isTopologyPolicyEnabled()
+                            ? MunicipalDistrictCoverageReason.TOPOLOGY_INVALID
+                            : MunicipalDistrictCoverageReason.ASSET_INVALID);
         }
 
-        MunicipalSourceProperties.DistrictCoverage cfg = ops.getDistrictCoverage();
         var projections = queries.listActiveFacilityProjections(
                 cfg.getMaxFacilities(), agingSeconds, staleSeconds, generatedAt);
         if (projections.size() > cfg.getMaxFacilities()) {
@@ -135,8 +147,9 @@ public class MunicipalDistrictCoverageAssembler {
                     generatedAt, MunicipalDistrictCoverageReason.FACILITY_LIMIT);
         }
 
+        boolean topology = cfg.isTopologyPolicyEnabled();
         MunicipalDistrictAssignmentPolicy policy =
-                new MunicipalDistrictAssignmentPolicy(districts.geometries());
+                new MunicipalDistrictAssignmentPolicy(districts.geometries(), topology);
         Map<String, Acc> byFolded = new LinkedHashMap<>();
         for (MunicipalDistrictGeometry g : districts.geometries()) {
             byFolded.put(g.foldedName(), new Acc(g.districtName()));
@@ -146,11 +159,18 @@ public class MunicipalDistrictCoverageAssembler {
         long unassigned = 0;
         long invalid = 0;
         long overlaps = 0;
+        long boundaryAmbiguous = 0;
+        long topologyAmbiguous = 0;
         for (MunicipalDistrictFacilityProjection row : projections) {
             var assignment = policy.assign(row.longitude(), row.latitude());
             switch (assignment.classification()) {
                 case INVALID_COORDINATES -> invalid++;
                 case UNASSIGNED -> unassigned++;
+                case BOUNDARY_AMBIGUOUS -> boundaryAmbiguous++;
+                case TOPOLOGY_AMBIGUOUS -> {
+                    topologyAmbiguous++;
+                    overlaps++;
+                }
                 case ASSIGNED -> {
                     assigned++;
                     if (assignment.overlapAnomaly()) {
@@ -191,7 +211,9 @@ public class MunicipalDistrictCoverageAssembler {
                 DistrictCoverageStatus.AVAILABLE,
                 null,
                 MunicipalDistrictCoveragePolicy.POLICY_VERSION,
-                MunicipalDistrictCoveragePolicy.ASSET_VERSION,
+                topology
+                        ? MunicipalDistrictTopologyPolicy.NORMALIZED_ASSET_VERSION
+                        : MunicipalDistrictCoveragePolicy.ASSET_VERSION,
                 generatedAt,
                 entries.size(),
                 projections.size(),
@@ -199,66 +221,97 @@ public class MunicipalDistrictCoverageAssembler {
                 unassigned,
                 invalid,
                 overlaps,
-                entries);
+                entries,
+                topology ? cfg.getTopologyPolicyVersion() : null,
+                topology ? MunicipalDistrictTopologyPolicy.NORMALIZED_ASSET_VERSION : null,
+                topology ? "AVAILABLE" : "DISABLED",
+                boundaryAmbiguous,
+                topologyAmbiguous);
     }
 
     private LoadedDistricts ensureDistricts(MunicipalSourceProperties.DistrictCoverage cfg) {
+        String key = cacheKey(cfg);
         LoadedDistricts current = loadedDistricts.get();
-        if (current != null) {
+        if (current != null && Objects.equals(current.loadKey(), key)) {
             return current;
         }
         synchronized (this) {
             current = loadedDistricts.get();
-            if (current != null) {
+            if (current != null && Objects.equals(current.loadKey(), key)) {
                 return current;
             }
-            String pathText = cfg.getAssetPath();
+            boolean topology = cfg.isTopologyPolicyEnabled();
+            String pathText = topology ? cfg.getNormalizedAssetPath() : cfg.getAssetPath();
+            String expectedSha = topology ? cfg.getNormalizedAssetSha256() : cfg.getExpectedSha256();
             if (pathText == null || pathText.isBlank()) {
-                loadedDistricts.set(LoadedDistricts.missing());
+                loadedDistricts.set(LoadedDistricts.missing(key));
                 return loadedDistricts.get();
             }
             Path path = Path.of(pathText);
             if (!Files.isRegularFile(path)) {
-                loadedDistricts.set(LoadedDistricts.missing());
+                loadedDistricts.set(LoadedDistricts.missing(key));
                 return loadedDistricts.get();
             }
             try {
+                byte[] bytes = Files.readAllBytes(path);
                 var loaded = loader.load(
-                        path, cfg.getExpectedSha256(), cfg.getNameProperty(), cfg.getExpectedCount());
+                        bytes,
+                        expectedSha,
+                        cfg.getNameProperty(),
+                        cfg.getExpectedCount(),
+                        topology);
                 LoadedDistricts next = loaded.valid()
-                        ? LoadedDistricts.ok(loaded.districts())
-                        : LoadedDistricts.invalid();
+                        ? LoadedDistricts.ok(key, loaded.districts())
+                        : LoadedDistricts.invalid(key);
                 loadedDistricts.set(next);
                 return next;
             } catch (Exception ex) {
                 log.warn("municipal_district_coverage_asset_load_failed");
-                loadedDistricts.set(LoadedDistricts.missing());
+                loadedDistricts.set(LoadedDistricts.missing(key));
                 return loadedDistricts.get();
             }
         }
+    }
+
+    private static String cacheKey(MunicipalSourceProperties.DistrictCoverage cfg) {
+        return (cfg.isTopologyPolicyEnabled() ? "topo:" : "legacy:")
+                + cfg.getTopologyPolicyVersion()
+                + "|"
+                + (cfg.isTopologyPolicyEnabled()
+                        ? cfg.getNormalizedAssetSha256()
+                        : cfg.getExpectedSha256())
+                + "|"
+                + (cfg.isTopologyPolicyEnabled() ? cfg.getNormalizedAssetPath() : cfg.getAssetPath());
+    }
+
+    private static String policyLabel(MunicipalSourceProperties.DistrictCoverage cfg) {
+        return cfg.isTopologyPolicyEnabled()
+                ? cfg.getTopologyPolicyVersion()
+                : MunicipalDistrictCoveragePolicy.POLICY_VERSION;
     }
 
     private static long elapsedMs(long startNanos) {
         return Duration.ofNanos(System.nanoTime() - startNanos).toMillis();
     }
 
-    private record CacheEntry(Instant loadedAt, DistrictCoverageSection section) {
+    private record CacheEntry(Instant loadedAt, String cacheKey, DistrictCoverageSection section) {
         boolean expired(Instant now, int ttlSeconds) {
             return now.isAfter(loadedAt.plusSeconds(ttlSeconds));
         }
     }
 
-    private record LoadedDistricts(boolean present, boolean valid, List<MunicipalDistrictGeometry> geometries) {
-        static LoadedDistricts missing() {
-            return new LoadedDistricts(false, false, List.of());
+    private record LoadedDistricts(
+            String loadKey, boolean present, boolean valid, List<MunicipalDistrictGeometry> geometries) {
+        static LoadedDistricts missing(String key) {
+            return new LoadedDistricts(key, false, false, List.of());
         }
 
-        static LoadedDistricts invalid() {
-            return new LoadedDistricts(true, false, List.of());
+        static LoadedDistricts invalid(String key) {
+            return new LoadedDistricts(key, true, false, List.of());
         }
 
-        static LoadedDistricts ok(List<MunicipalDistrictGeometry> geometries) {
-            return new LoadedDistricts(true, true, List.copyOf(geometries));
+        static LoadedDistricts ok(String key, List<MunicipalDistrictGeometry> geometries) {
+            return new LoadedDistricts(key, true, true, List.copyOf(geometries));
         }
     }
 

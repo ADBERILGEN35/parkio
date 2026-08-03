@@ -35,6 +35,8 @@ dependencies {
     implementation(libs.flyway.core)
     implementation(libs.flyway.database.postgresql)
     implementation(libs.commons.csv)
+    // DATA-WP-19: PreparedGeometry.covers for district assignment (replaces defective even-odd PIP).
+    implementation(libs.jts.core)
 
     // Asynchronous event transport (Kafka). Topic provisioning + config now;
     // outbox relay and consumers are added later.

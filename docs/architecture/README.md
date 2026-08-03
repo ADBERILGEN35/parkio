@@ -216,7 +216,10 @@ See [Known Issues](../releases/KNOWN-ISSUES.md) for the current blocker list.
   - No score, linking, İZELMAN pub, migration, or frontend; DATA-WP-15A leave-on gate: not started.
 - [DATA-WP-18 municipal district coverage quality report](wp-data-18-engineering-specification.md)
   - Additive `districtCoverage` on WP-15 overall report; independent kill-switch default **false**; reuses WP-08 ilceler asset.
-  - No migration / public geometry / linking / İZELMAN; DATA-WP-18A leave-on gate: not started.
+  - Hosted-beta leave-on (DATA-WP-18A) accepted with non-blocking notes (legacy PIP false-positive overlaps).
+- [DATA-WP-19 İzmir district geometry topology reconciliation](wp-data-19-engineering-specification.md)
+  - Root cause: even-odd ray casting false positives; JTS + normalized MakeValid asset; topology policy default off until DATA-WP-19A.
+  - No migration / no deployment in this package; province clip unchanged.
 - [DATA-WP-08 İzmir administrative-boundary clip](wp-data-08-engineering-specification.md)
   - Clip `izmir-admin-izbb-2024-10-18-v1` from İZBB `ilceler.geojson` (CC BY 4.0).
   - Operator-managed boundary + polygon osmium extract; rollback to `izmir-bbox-v1`.
