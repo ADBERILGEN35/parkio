@@ -1,6 +1,7 @@
 package com.parkio.parking.application;
 
 import com.parkio.parking.externalsource.MunicipalOccupancyFreshness;
+import com.parkio.parking.externalsource.MunicipalSourceOperatingMode;
 import com.parkio.parking.externalsource.MunicipalSourceOperationalState;
 import com.parkio.parking.externalsource.MunicipalSyncRunStatus;
 import java.time.Duration;
@@ -11,6 +12,10 @@ import java.util.Objects;
 /**
  * Pure consecutive-failure and SLA calculation for municipal sources.
  * Occupancy freshness thresholds remain separate from operational SLA thresholds.
+ *
+ * <p>When mode-aware SLA is enabled, {@link MunicipalSourceOperatingMode#OPERATOR_IMPORTED}
+ * sources do not become CRITICAL/DEGRADED from seconds-since-success alone. Failure streaks,
+ * stale RUNNING, never-run, and recovery semantics still apply.
  */
 public final class MunicipalSourceSlaPolicy {
     public static final int DEFAULT_HISTORY_BOUND = 100;
@@ -79,6 +84,11 @@ public final class MunicipalSourceSlaPolicy {
         return count;
     }
 
+    /**
+     * Legacy evaluation: seconds-since-success thresholds always apply (DATA-WP-06).
+     * Prefer {@link #evaluate(boolean, boolean, boolean, MunicipalSourceOperatingMode, boolean,
+     * List, Instant, int, int, Instant, Thresholds)} when mode-aware SLA is wired.
+     */
     public static Evaluation evaluate(
             boolean municipalEnabled,
             boolean sourceEnabled,
@@ -89,8 +99,35 @@ public final class MunicipalSourceSlaPolicy {
             int staleRunningOperations,
             Instant now,
             Thresholds thresholds) {
+        return evaluate(
+                municipalEnabled,
+                sourceEnabled,
+                schedulerEnabled,
+                MunicipalSourceOperatingMode.SCHEDULED,
+                false,
+                runsNewestFirst,
+                lastSuccessAt,
+                failuresInWindow,
+                staleRunningOperations,
+                now,
+                thresholds);
+    }
+
+    public static Evaluation evaluate(
+            boolean municipalEnabled,
+            boolean sourceEnabled,
+            boolean schedulerEnabled,
+            MunicipalSourceOperatingMode operatingMode,
+            boolean sourceModeSlaEnabled,
+            List<CompletedRun> runsNewestFirst,
+            Instant lastSuccessAt,
+            int failuresInWindow,
+            int staleRunningOperations,
+            Instant now,
+            Thresholds thresholds) {
         Objects.requireNonNull(now, "now");
         Objects.requireNonNull(thresholds, "thresholds");
+        Objects.requireNonNull(operatingMode, "operatingMode");
 
         if (!municipalEnabled || !sourceEnabled) {
             return disabled(lastSuccessAt, now);
@@ -113,16 +150,19 @@ public final class MunicipalSourceSlaPolicy {
                 && isSuccess(latest.status())
                 && hadPriorFailure(runsNewestFirst);
 
+        boolean applyAge = MunicipalSourceOperatingModePolicy.applySecondsSinceSuccessThresholds(
+                operatingMode, sourceModeSlaEnabled);
+
         MunicipalSourceOperationalState state;
         if (staleRunningOperations > 0) {
             state = MunicipalSourceOperationalState.STALE_OPERATION;
         } else if (lastSuccessAt == null && consecutive == 0 && latest == null) {
             state = MunicipalSourceOperationalState.NEVER_RUN;
         } else if (consecutive >= thresholds.criticalConsecutiveFailures()
-                || secondsSinceSuccess >= thresholds.criticalSecondsSinceSuccess()) {
+                || (applyAge && secondsSinceSuccess >= thresholds.criticalSecondsSinceSuccess())) {
             state = MunicipalSourceOperationalState.CRITICAL;
         } else if (consecutive >= thresholds.warningConsecutiveFailures()
-                || secondsSinceSuccess >= thresholds.warningSecondsSinceSuccess()) {
+                || (applyAge && secondsSinceSuccess >= thresholds.warningSecondsSinceSuccess())) {
             state = MunicipalSourceOperationalState.DEGRADED;
         } else if (recovered && secondsSinceSuccess <= thresholds.recoveringWindowSeconds()) {
             state = MunicipalSourceOperationalState.RECOVERING;
@@ -136,6 +176,8 @@ public final class MunicipalSourceSlaPolicy {
 
         // Scheduler disabled is still observable but not alerted by Prometheus (expr gates).
         // Keep computed state; DISABLED only when source itself is off.
+        // Mode is never inferred from schedulerEnabled — a temporarily paused SCHEDULED
+        // source must retain age-based SLA when source-mode SLA is enabled.
         if (!schedulerEnabled && state == MunicipalSourceOperationalState.NEVER_RUN) {
             // Enabled source with scheduler off and no runs remains NEVER_RUN.
         }

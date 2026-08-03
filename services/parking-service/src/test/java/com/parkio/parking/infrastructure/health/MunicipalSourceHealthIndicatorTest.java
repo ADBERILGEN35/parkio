@@ -34,6 +34,7 @@ class MunicipalSourceHealthIndicatorTest {
                 true,
                 true,
                 true,
+                com.parkio.parking.externalsource.MunicipalSourceOperatingMode.SCHEDULED,
                 evaluation,
                 MunicipalOccupancyFreshness.STALE,
                 300,
@@ -43,6 +44,7 @@ class MunicipalSourceHealthIndicatorTest {
 
         assertThat(health.getStatus()).isEqualTo(Status.UP);
         assertThat(health.getDetails())
+                .containsEntry("izumSourceMode", "SCHEDULED")
                 .containsEntry("izumOperationalState", "CRITICAL")
                 .containsEntry("izumOccupancyFreshness", "STALE")
                 .containsEntry("izumConsecutiveFailures", 4)

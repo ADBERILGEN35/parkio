@@ -1,5 +1,6 @@
 package com.parkio.parking.infrastructure.config;
 
+import com.parkio.parking.externalsource.MunicipalSourceOperatingMode;
 import java.time.Duration;
 import org.springframework.boot.context.properties.ConfigurationProperties;
 
@@ -29,18 +30,24 @@ public class MunicipalSourceProperties {
     public void setOps(Ops ops) { this.ops = ops; }
 
     /**
-     * Operator-facing municipal quality/coverage report (DATA-WP-15).
-     * Read-only aggregates; never triggers sync, import or linking.
-     * Canonical default off everywhere; leave-on gate is DATA-WP-15A.
+     * Operator-facing municipal ops controls (DATA-WP-15 / DATA-WP-16).
+     * Quality report is read-only aggregates; never triggers sync, import or linking.
+     * Source-mode SLA is independent of the quality-report flag.
+     * Canonical defaults off everywhere; leave-on gates are DATA-WP-15A / DATA-WP-16A.
      */
     public static class Ops {
         private boolean qualityReportEnabled = false;
+        private boolean sourceModeSlaEnabled = false;
         private int recentRunLimitDefault = 20;
         private int recentRunLimitMax = 100;
 
         public boolean isQualityReportEnabled() { return qualityReportEnabled; }
         public void setQualityReportEnabled(boolean qualityReportEnabled) {
             this.qualityReportEnabled = qualityReportEnabled;
+        }
+        public boolean isSourceModeSlaEnabled() { return sourceModeSlaEnabled; }
+        public void setSourceModeSlaEnabled(boolean sourceModeSlaEnabled) {
+            this.sourceModeSlaEnabled = sourceModeSlaEnabled;
         }
         /** Clamped into [1, max] because binding order of the two limits is not guaranteed. */
         public int getRecentRunLimitDefault() {
@@ -144,9 +151,17 @@ public class MunicipalSourceProperties {
         private Long staleAfterSeconds;
         private Long agingAfterSeconds;
         private String userAgent = "ParkioParkingService/1.0 (+https://parkio.dev)";
+        /** Explicit SLA mode; never inferred from schedulerEnabled alone. */
+        private MunicipalSourceOperatingMode operatingMode = MunicipalSourceOperatingMode.SCHEDULED;
 
         public boolean isEnabled() { return enabled; }
         public void setEnabled(boolean enabled) { this.enabled = enabled; }
+        public MunicipalSourceOperatingMode getOperatingMode() { return operatingMode; }
+        public void setOperatingMode(MunicipalSourceOperatingMode operatingMode) {
+            this.operatingMode = operatingMode == null
+                    ? MunicipalSourceOperatingMode.SCHEDULED
+                    : operatingMode;
+        }
         public String getBaseUrl() { return baseUrl; }
         public void setBaseUrl(String baseUrl) { this.baseUrl = baseUrl; }
         public String getPath() { return path; }
@@ -194,8 +209,17 @@ public class MunicipalSourceProperties {
         /** Expected SHA-256 of official source ilceler GeoJSON; empty skips. */
         private String boundarySourceSha256 =
                 "6f4f43e4ce8139ddca4606582d903f047cb7c73810f8b876541a1ec3994ffd89";
+        /** Explicit SLA mode; never inferred from schedulerEnabled alone. */
+        private MunicipalSourceOperatingMode operatingMode =
+                MunicipalSourceOperatingMode.OPERATOR_IMPORTED;
 
         public boolean isImportEnabled() { return importEnabled; }
+        public MunicipalSourceOperatingMode getOperatingMode() { return operatingMode; }
+        public void setOperatingMode(MunicipalSourceOperatingMode operatingMode) {
+            this.operatingMode = operatingMode == null
+                    ? MunicipalSourceOperatingMode.OPERATOR_IMPORTED
+                    : operatingMode;
+        }
         public void setImportEnabled(boolean importEnabled) { this.importEnabled = importEnabled; }
         public boolean isSchedulerEnabled() { return schedulerEnabled; }
         public void setSchedulerEnabled(boolean schedulerEnabled) { this.schedulerEnabled = schedulerEnabled; }

@@ -152,6 +152,7 @@ parkio:
       provenance-ingest-write-enabled: ${PARKIO_MUNICIPAL_REGISTRY_PROVENANCE_INGEST_WRITE_ENABLED:true}
     izum:
       enabled: false
+      operating-mode: ${PARKIO_MUNICIPAL_IZUM_OPERATING_MODE:SCHEDULED}
       base-url: https://openapi.izmir.bel.tr
       path: /api/ibb/izum/otoparklar
       connect-timeout: 2s
@@ -171,6 +172,7 @@ parkio:
     osm:
       import-enabled: false
       scheduler-enabled: false
+      operating-mode: ${PARKIO_MUNICIPAL_OSM_OPERATING_MODE:OPERATOR_IMPORTED}
       conflation-enabled: false
       auto-match-enabled: false
       publish-restricted: false
@@ -204,6 +206,8 @@ parkio:
     ops:
       # DATA-WP-15: admin quality/coverage report API (canonical default off; leave-on is DATA-WP-15A).
       quality-report-enabled: ${PARKIO_MUNICIPAL_OPS_QUALITY_REPORT_ENABLED:false}
+      # DATA-WP-16: source-mode-aware SLA (canonical default off; leave-on is DATA-WP-16A).
+      source-mode-sla-enabled: ${PARKIO_MUNICIPAL_OPS_SOURCE_MODE_SLA_ENABLED:false}
       recent-run-limit-default: ${PARKIO_MUNICIPAL_OPS_QUALITY_REPORT_RECENT_RUN_LIMIT_DEFAULT:20}
       recent-run-limit-max: ${PARKIO_MUNICIPAL_OPS_QUALITY_REPORT_RECENT_RUN_LIMIT_MAX:100}
   openapi:

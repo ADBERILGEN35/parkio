@@ -77,6 +77,7 @@ public class ParkingInfrastructureConfig {
                 runs,
                 clock,
                 thresholds,
+                properties,
                 properties.isEnabled(),
                 properties.getIzum().isEnabled(),
                 properties.getIzum().isSchedulerEnabled(),

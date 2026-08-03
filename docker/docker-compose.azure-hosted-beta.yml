@@ -93,6 +93,7 @@ services:
       PARKIO_MUNICIPAL_IZELMAN_MAX_INPUT_BYTES: ${PARKIO_MUNICIPAL_IZELMAN_MAX_INPUT_BYTES:-5242880}
       # DATA-WP-15: operator quality/coverage report API. Hosted-beta default off (leave-on gate is DATA-WP-15A).
       PARKIO_MUNICIPAL_OPS_QUALITY_REPORT_ENABLED: ${PARKIO_MUNICIPAL_OPS_QUALITY_REPORT_ENABLED:-false}
+      PARKIO_MUNICIPAL_OPS_SOURCE_MODE_SLA_ENABLED: ${PARKIO_MUNICIPAL_OPS_SOURCE_MODE_SLA_ENABLED:-false}
     volumes:
       # Read-only ops interchange for OSM GeoJSON (outside Git). Created by operators.
       - /opt/parkio/ops/data-wp-02b:/opt/parkio/ops/data-wp-02b:ro

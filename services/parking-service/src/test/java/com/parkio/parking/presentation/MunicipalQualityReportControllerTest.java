@@ -440,6 +440,7 @@ class MunicipalQualityReportControllerTest {
         return new SourceQualitySummary(
                 sourceKey,
                 MunicipalSourceIdentity.familyOf(sourceKey),
+                MunicipalSourceIdentity.isOsm(sourceKey) ? "OPERATOR_IMPORTED" : "SCHEDULED",
                 true,
                 true,
                 false,

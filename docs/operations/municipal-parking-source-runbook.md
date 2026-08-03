@@ -19,6 +19,7 @@ Azure overlay `docker/docker-compose.azure-hosted-beta.yml` must map these into
 | `parkio.municipal.registry.provenance-publication-enabled` | `PARKIO_MUNICIPAL_REGISTRY_PROVENANCE_PUBLICATION_ENABLED` | true (prod profile: false) |
 | `parkio.municipal.discovery.duplicate-presentation-enabled` | `PARKIO_MUNICIPAL_DISCOVERY_DUPLICATE_PRESENTATION_ENABLED` | true (prod profile: false) |
 | `parkio.municipal.ops.quality-report-enabled` | `PARKIO_MUNICIPAL_OPS_QUALITY_REPORT_ENABLED` | false |
+| `parkio.municipal.ops.source-mode-sla-enabled` | `PARKIO_MUNICIPAL_OPS_SOURCE_MODE_SLA_ENABLED` | false |
 
 Source key: `izmir-izum-otoparklar`.  
 Admin: `POST /api/v1/parking/municipal/sources/{sourceKey}/sync` (requires `municipal.enabled` + `manual-sync-enabled`; İZUM also requires `izum.enabled`).  
@@ -47,14 +48,27 @@ Enable only after soak:
 `parkio.municipal.izum.scheduler-enabled=true`  
 Cadence: `fixed-delay-ms` default **120000** (2 minutes). Job is gated by municipal.enabled + izum.enabled + izum.scheduler-enabled. Unique RUNNING lock prevents overlap.
 
-## Source health / SLA (DATA-WP-06)
+## Source health / SLA (DATA-WP-06 + DATA-WP-16)
 
 Operational SLA is **not** the same as occupancy freshness:
 
 | Concern | Meaning | Typical signal |
 |---------|---------|----------------|
 | Occupancy freshness | Whether public `availableSpaces` may be shown | LIVE / AGING / STALE on facility DTO |
-| Operational SLA | Whether the İZUM integration is healthy | consecutive failures, seconds since success, Prometheus alerts |
+| Operational SLA | Whether the integration is healthy for its **source mode** | consecutive failures, seconds since success (scheduled only), Prometheus alerts |
+
+### Source modes (DATA-WP-16)
+
+| Mode | Default source | Age (seconds since success) |
+|------|----------------|-----------------------------|
+| `SCHEDULED` | İZUM | Warning/critical thresholds apply |
+| `OPERATOR_IMPORTED` | OSM | Observational when `source-mode-sla-enabled=true`; does not page alone |
+
+Kill-switch: `parkio.municipal.ops.source-mode-sla-enabled=false` restores legacy global age
+semantics (OSM can appear CRITICAL when last import is old). Leave-on is DATA-WP-16A.
+
+Do **not** infer mode from `scheduler-enabled=false` — a temporarily paused SCHEDULED source
+must keep age-based SLA.
 
 Public STALE masking remains authoritative for availability. Do **not** raise aging/stale thresholds to hide upstream outages.
 
@@ -67,13 +81,16 @@ Public STALE masking remains authoritative for availability. Do **not** raise ag
 | `parkio.municipal.sla.warning-seconds-since-success` | 600 |
 | `parkio.municipal.sla.critical-seconds-since-success` | 1800 |
 | `parkio.municipal.sla.stale-running-after-seconds` | 600 |
+| `parkio.municipal.ops.source-mode-sla-enabled` | false |
+| `parkio.municipal.izum.operating-mode` | SCHEDULED |
+| `parkio.municipal.osm.operating-mode` | OPERATOR_IMPORTED |
 
 ### Alert meanings
 
-- **ConsecutiveFailuresWarning/Critical** — trailing FAILED sync runs (SKIPPED ignored).
-- **SecondsSinceSuccessWarning/Critical** — no SUCCESS/PARTIAL_SUCCESS within SLA window.
-- **StaleRunningOperation** — a RUNNING row older than the stale-running threshold.
-- **MunicipalSourceRecovered** — info signal after a success resets a failure streak.
+- **ConsecutiveFailuresWarning/Critical** — trailing FAILED sync/import runs (SKIPPED ignored). Applies to İZUM and OSM.
+- **SecondsSinceSuccessWarning/Critical** — SCHEDULED (İZUM) only; no OSM age-only page.
+- **StaleRunningOperation** — a RUNNING row older than the stale-running threshold (İZUM and OSM).
+- **MunicipalSourceRecovered / MunicipalOsmRecovered** — info after a success resets a failure streak.
 
 Disabled sources must not page. Scheduler kill switch remains `izum.scheduler-enabled=false` (and/or `izum.enabled=false`).
 

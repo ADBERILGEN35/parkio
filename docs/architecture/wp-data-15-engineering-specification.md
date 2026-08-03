@@ -20,7 +20,9 @@ aggregate coverage and freshness facts from persisted registry state:
 - per-source detail with bounded recent sync-run history
 
 The report reuses **DATA-WP-06** source-health/SLA evaluation (`MunicipalSourceHealthService`)
-and **DATA-WP-13** label outcomes stored in `source_metadata_json`. It emits **no** global
+and **DATA-WP-13** label outcomes stored in `source_metadata_json`. With **DATA-WP-16**
+enabled, OSM `OPERATOR_IMPORTED` mode no longer maps old successful imports to CRITICAL
+from age alone; additive `sourceMode` appears on each source summary. It emits **no** global
 quality score, trust score, linking readiness, or production-readiness verdict.
 
 No Flyway migration. No frontend. No İZELMAN publication change. Disabled by default; HTTP

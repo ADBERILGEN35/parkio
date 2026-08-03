@@ -743,11 +743,16 @@ class MunicipalQualityReportServiceTest {
     }
 
     private static MunicipalSourceHealthService.Snapshot snapshot(String sourceKey) {
+        com.parkio.parking.externalsource.MunicipalSourceOperatingMode mode =
+                "osm-geofabrik-turkey".equals(sourceKey)
+                        ? com.parkio.parking.externalsource.MunicipalSourceOperatingMode.OPERATOR_IMPORTED
+                        : com.parkio.parking.externalsource.MunicipalSourceOperatingMode.SCHEDULED;
         return new MunicipalSourceHealthService.Snapshot(
                 sourceKey,
                 true,
                 true,
                 false,
+                mode,
                 new MunicipalSourceSlaPolicy.Evaluation(
                         3,
                         "FAILED",

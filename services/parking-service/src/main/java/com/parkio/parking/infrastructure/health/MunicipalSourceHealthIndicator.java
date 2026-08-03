@@ -27,6 +27,7 @@ public class MunicipalSourceHealthIndicator implements HealthIndicator {
             builder.withDetail("municipalEnabled", snapshot.municipalEnabled());
             builder.withDetail("izumEnabled", snapshot.sourceEnabled());
             builder.withDetail("izumSchedulerEnabled", snapshot.schedulerEnabled());
+            builder.withDetail("izumSourceMode", snapshot.operatingMode().name());
             builder.withDetail("izumOperationalState", evaluation.operationalState().name());
             builder.withDetail("izumOccupancyFreshness", snapshot.occupancyFreshness().name());
             builder.withDetail("izumConsecutiveFailures", evaluation.consecutiveFailures());

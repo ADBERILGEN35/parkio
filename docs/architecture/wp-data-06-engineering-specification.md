@@ -199,9 +199,12 @@ Prometheus:
 ## 14. Health and alerting
 
 - Keep `MunicipalSourceHealthIndicator` **non-liveness-blocking** (always UP).
-- Enrich details: `izumStatus`, `consecutiveFailures`, `lastErrorCategory`,
+- Enrich details: `izumStatus`, `izumSourceMode`, `consecutiveFailures`, `lastErrorCategory`,
   `secondsSinceSuccess`, `latestRunStatus`.
-- Alerting via Prometheus/Alertmanager-not by failing liveness.
+- Alerting via Prometheus/Alertmanager — not by failing liveness.
+- **DATA-WP-16:** source-mode-aware SLA — OPERATOR_IMPORTED (OSM) does not page on age alone
+  when `parkio.municipal.ops.source-mode-sla-enabled=true`. See
+  [wp-data-16-engineering-specification.md](wp-data-16-engineering-specification.md).
 - Document how to read `/actuator/health` details in the runbook.
 
 ## 15. Security/privacy

@@ -13,3 +13,5 @@ parkio:
     ops:
       # DATA-WP-15: operator quality/coverage report stays dark until DATA-WP-15A.
       quality-report-enabled: ${PARKIO_MUNICIPAL_OPS_QUALITY_REPORT_ENABLED:false}
+      # DATA-WP-16: source-mode SLA stays dark until DATA-WP-16A (legacy age semantics).
+      source-mode-sla-enabled: ${PARKIO_MUNICIPAL_OPS_SOURCE_MODE_SLA_ENABLED:false}

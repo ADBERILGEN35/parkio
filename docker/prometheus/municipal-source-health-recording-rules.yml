@@ -15,5 +15,7 @@ groups:
           clamp_min(sum by (source_key) (rate(parkio_municipal_sync_runs_total{status=~"SUCCESS|PARTIAL_SUCCESS|FAILED"}[5m])), 1)
       - record: parkio:municipal_source:operational_critical
         expr: parkio_municipal_source_operational_state{state="CRITICAL"}
+      - record: parkio:municipal_source:seconds_since_success_scheduled
+        expr: parkio_municipal_source_seconds_since_success{source_mode="SCHEDULED"}
       - record: parkio:municipal_source:recoveries_total
         expr: parkio_municipal_source_recoveries_total

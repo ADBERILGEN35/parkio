@@ -3,6 +3,7 @@ package com.parkio.parking.application;
 import static org.assertj.core.api.Assertions.assertThat;
 
 import com.parkio.parking.externalsource.MunicipalOccupancyFreshness;
+import com.parkio.parking.externalsource.MunicipalSourceOperatingMode;
 import com.parkio.parking.externalsource.MunicipalSourceOperationalState;
 import java.time.Instant;
 import java.util.List;
@@ -106,6 +107,162 @@ class MunicipalSourceSlaPolicyTest {
         assertThat(MunicipalSourceSlaPolicy.consecutiveFailures(List.of(
                         failed("schema_contract", T0.plusSeconds(1)), success(T0))))
                 .isEqualTo(1);
+    }
+
+    @Test
+    void legacyAgeOnlyCriticalReproducedForOperatorImportedWhenFlagOff() {
+        Instant success = T0;
+        Instant now = T0.plusSeconds(7200);
+        MunicipalSourceSlaPolicy.Evaluation evaluation = MunicipalSourceSlaPolicy.evaluate(
+                true,
+                true,
+                false,
+                MunicipalSourceOperatingMode.OPERATOR_IMPORTED,
+                false,
+                List.of(success(success)),
+                success,
+                0,
+                0,
+                now,
+                THRESHOLDS);
+        assertThat(evaluation.operationalState()).isEqualTo(MunicipalSourceOperationalState.CRITICAL);
+        assertThat(evaluation.secondsSinceSuccess()).isEqualTo(7200);
+        assertThat(evaluation.consecutiveFailures()).isZero();
+    }
+
+    @Test
+    void operatorImportedAgeOnlyIsHealthyWhenModeAwareEnabled() {
+        Instant success = T0;
+        Instant now = T0.plusSeconds(7200);
+        MunicipalSourceSlaPolicy.Evaluation evaluation = MunicipalSourceSlaPolicy.evaluate(
+                true,
+                true,
+                false,
+                MunicipalSourceOperatingMode.OPERATOR_IMPORTED,
+                true,
+                List.of(success(success)),
+                success,
+                0,
+                0,
+                now,
+                THRESHOLDS);
+        assertThat(evaluation.operationalState()).isEqualTo(MunicipalSourceOperationalState.HEALTHY);
+        assertThat(evaluation.secondsSinceSuccess()).isEqualTo(7200);
+    }
+
+    @Test
+    void scheduledAgeOnlyRemainsCriticalWhenModeAwareEnabled() {
+        Instant success = T0;
+        Instant now = T0.plusSeconds(7200);
+        MunicipalSourceSlaPolicy.Evaluation evaluation = MunicipalSourceSlaPolicy.evaluate(
+                true,
+                true,
+                true,
+                MunicipalSourceOperatingMode.SCHEDULED,
+                true,
+                List.of(success(success)),
+                success,
+                0,
+                0,
+                now,
+                THRESHOLDS);
+        assertThat(evaluation.operationalState()).isEqualTo(MunicipalSourceOperationalState.CRITICAL);
+    }
+
+    @Test
+    void operatorImportedFailuresAndStaleRunningStillAlert() {
+        Instant now = T0.plusSeconds(7200);
+        MunicipalSourceSlaPolicy.Evaluation failed = MunicipalSourceSlaPolicy.evaluate(
+                true,
+                true,
+                false,
+                MunicipalSourceOperatingMode.OPERATOR_IMPORTED,
+                true,
+                List.of(
+                        failed("read_timeout", now),
+                        failed("read_timeout", now.minusSeconds(10)),
+                        failed("read_timeout", now.minusSeconds(20)),
+                        failed("read_timeout", now.minusSeconds(30)),
+                        failed("read_timeout", now.minusSeconds(40)),
+                        success(T0)),
+                T0,
+                5,
+                0,
+                now,
+                THRESHOLDS);
+        assertThat(failed.operationalState()).isEqualTo(MunicipalSourceOperationalState.CRITICAL);
+        assertThat(failed.consecutiveFailures()).isEqualTo(5);
+
+        MunicipalSourceSlaPolicy.Evaluation stale = MunicipalSourceSlaPolicy.evaluate(
+                true,
+                true,
+                false,
+                MunicipalSourceOperatingMode.OPERATOR_IMPORTED,
+                true,
+                List.of(success(T0)),
+                T0,
+                0,
+                1,
+                now,
+                THRESHOLDS);
+        assertThat(stale.operationalState()).isEqualTo(MunicipalSourceOperationalState.STALE_OPERATION);
+    }
+
+    @Test
+    void operatorImportedNeverRunAndPublicationWithoutSuccessRemainNonHealthy() {
+        MunicipalSourceSlaPolicy.Evaluation never = MunicipalSourceSlaPolicy.evaluate(
+                true,
+                true,
+                false,
+                MunicipalSourceOperatingMode.OPERATOR_IMPORTED,
+                true,
+                List.of(),
+                null,
+                0,
+                0,
+                T0,
+                THRESHOLDS);
+        assertThat(never.operationalState()).isEqualTo(MunicipalSourceOperationalState.NEVER_RUN);
+
+        MunicipalSourceSlaPolicy.Evaluation singleFailure = MunicipalSourceSlaPolicy.evaluate(
+                true,
+                true,
+                false,
+                MunicipalSourceOperatingMode.OPERATOR_IMPORTED,
+                true,
+                List.of(failed("read_timeout", T0)),
+                null,
+                1,
+                0,
+                T0.plusSeconds(10),
+                THRESHOLDS);
+        assertThat(singleFailure.operationalState()).isEqualTo(MunicipalSourceOperationalState.DEGRADED);
+        assertThat(singleFailure.operationalState()).isNotEqualTo(MunicipalSourceOperationalState.HEALTHY);
+    }
+
+    @Test
+    void operatorImportedRecoveryStillApplies() {
+        Instant successAt = T0.plusSeconds(120);
+        MunicipalSourceSlaPolicy.Evaluation evaluation = MunicipalSourceSlaPolicy.evaluate(
+                true,
+                true,
+                false,
+                MunicipalSourceOperatingMode.OPERATOR_IMPORTED,
+                true,
+                List.of(success(successAt), failed("read_timeout", T0.plusSeconds(60)), success(T0)),
+                successAt,
+                1,
+                0,
+                successAt.plusSeconds(30),
+                THRESHOLDS);
+        assertThat(evaluation.recovered()).isTrue();
+        assertThat(evaluation.operationalState()).isEqualTo(MunicipalSourceOperationalState.RECOVERING);
+    }
+
+    @Test
+    void occupancyFreshnessUnaffectedBySourceMode() {
+        assertThat(MunicipalSourceSlaPolicy.occupancyFreshness(T0, T0.plusSeconds(1000), 300, 900))
+                .isEqualTo(MunicipalOccupancyFreshness.STALE);
     }
 
     private static MunicipalSourceSlaPolicy.CompletedRun success(Instant at) {

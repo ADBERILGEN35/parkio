@@ -140,6 +140,7 @@ These switches do not stop IZUM availability. IZELMAN publication stays independ
 | Flag | Env | Default | Effect |
 |------|-----|---------|--------|
 | `parkio.municipal.ops.quality-report-enabled` | `PARKIO_MUNICIPAL_OPS_QUALITY_REPORT_ENABLED` | `false` | Registers the read-only ADMIN quality/coverage report endpoints; disabled is HTTP 404 |
+| `parkio.municipal.ops.source-mode-sla-enabled` | `PARKIO_MUNICIPAL_OPS_SOURCE_MODE_SLA_ENABLED` | `false` | Mode-aware SLA (DATA-WP-16); false restores legacy age-based CRITICAL for operator-imported OSM |
 | `parkio.municipal.ops.recent-run-limit-default` | `PARKIO_MUNICIPAL_OPS_QUALITY_REPORT_RECENT_RUN_LIMIT_DEFAULT` | `20` | Default recent-run window on source detail |
 | `parkio.municipal.ops.recent-run-limit-max` | `PARKIO_MUNICIPAL_OPS_QUALITY_REPORT_RECENT_RUN_LIMIT_MAX` | `100` | Hard cap on the `limit` query parameter |
 

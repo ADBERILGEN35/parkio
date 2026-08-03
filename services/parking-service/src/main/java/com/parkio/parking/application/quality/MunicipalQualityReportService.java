@@ -124,6 +124,7 @@ public class MunicipalQualityReportService {
         return new SourceQualitySummary(
                 sourceKey,
                 MunicipalSourceIdentity.familyOf(sourceKey),
+                snapshot.operatingMode().name(),
                 snapshot.municipalEnabled(),
                 snapshot.sourceEnabled(),
                 snapshot.schedulerEnabled(),

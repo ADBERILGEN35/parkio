@@ -3,7 +3,9 @@ package com.parkio.parking.application;
 import com.parkio.parking.application.port.MunicipalDataSourceRepository;
 import com.parkio.parking.application.port.MunicipalSourceSyncRunRepository;
 import com.parkio.parking.externalsource.MunicipalOccupancyFreshness;
+import com.parkio.parking.externalsource.MunicipalSourceOperatingMode;
 import com.parkio.parking.externalsource.MunicipalSourceOperationalState;
+import com.parkio.parking.infrastructure.config.MunicipalSourceProperties;
 import java.time.Clock;
 import java.time.Duration;
 import java.time.Instant;
@@ -17,6 +19,7 @@ public class MunicipalSourceHealthService {
             boolean municipalEnabled,
             boolean sourceEnabled,
             boolean schedulerEnabled,
+            MunicipalSourceOperatingMode operatingMode,
             MunicipalSourceSlaPolicy.Evaluation evaluation,
             MunicipalOccupancyFreshness occupancyFreshness,
             long agingAfterSeconds,
@@ -39,6 +42,7 @@ public class MunicipalSourceHealthService {
     private final MunicipalSourceSyncRunRepository runs;
     private final Clock clock;
     private final MunicipalSourceSlaPolicy.Thresholds thresholds;
+    private final MunicipalSourceProperties properties;
     private final boolean municipalEnabled;
     private final boolean izumEnabled;
     private final boolean izumSchedulerEnabled;
@@ -49,6 +53,7 @@ public class MunicipalSourceHealthService {
             MunicipalSourceSyncRunRepository runs,
             Clock clock,
             MunicipalSourceSlaPolicy.Thresholds thresholds,
+            MunicipalSourceProperties properties,
             boolean municipalEnabled,
             boolean izumEnabled,
             boolean izumSchedulerEnabled,
@@ -57,6 +62,7 @@ public class MunicipalSourceHealthService {
         this.runs = runs;
         this.clock = clock;
         this.thresholds = thresholds;
+        this.properties = properties;
         this.municipalEnabled = municipalEnabled;
         this.izumEnabled = izumEnabled;
         this.izumSchedulerEnabled = izumSchedulerEnabled;
@@ -69,11 +75,17 @@ public class MunicipalSourceHealthService {
 
     public Snapshot snapshot(String sourceKey, boolean sourceEnabled, boolean schedulerEnabled) {
         Instant now = clock.instant();
+        MunicipalSourceOperatingMode mode =
+                MunicipalSourceOperatingModePolicy.resolve(sourceKey, properties);
+        boolean sourceModeSlaEnabled = properties.getOps().isSourceModeSlaEnabled();
+
         if (!municipalEnabled || !sourceEnabled) {
             MunicipalSourceSlaPolicy.Evaluation evaluation = MunicipalSourceSlaPolicy.evaluate(
                     municipalEnabled,
                     sourceEnabled,
                     schedulerEnabled,
+                    mode,
+                    sourceModeSlaEnabled,
                     List.of(),
                     null,
                     0,
@@ -85,6 +97,7 @@ public class MunicipalSourceHealthService {
                     municipalEnabled,
                     sourceEnabled,
                     schedulerEnabled,
+                    mode,
                     evaluation,
                     MunicipalOccupancyFreshness.UNAVAILABLE,
                     0,
@@ -94,12 +107,23 @@ public class MunicipalSourceHealthService {
         Optional<MunicipalDataSourceRepository.Source> source = sources.findBySourceKey(sourceKey);
         if (source.isEmpty()) {
             MunicipalSourceSlaPolicy.Evaluation evaluation = MunicipalSourceSlaPolicy.evaluate(
-                    true, true, schedulerEnabled, List.of(), null, 0, 0, now, thresholds);
+                    true,
+                    true,
+                    schedulerEnabled,
+                    mode,
+                    sourceModeSlaEnabled,
+                    List.of(),
+                    null,
+                    0,
+                    0,
+                    now,
+                    thresholds);
             return new Snapshot(
                     sourceKey,
                     true,
                     true,
                     schedulerEnabled,
+                    mode,
                     evaluation,
                     MunicipalOccupancyFreshness.UNAVAILABLE,
                     0,
@@ -128,6 +152,8 @@ public class MunicipalSourceHealthService {
                 true,
                 true,
                 schedulerEnabled,
+                mode,
+                sourceModeSlaEnabled,
                 mapped,
                 lastSuccess,
                 failuresInWindow,
@@ -146,6 +172,7 @@ public class MunicipalSourceHealthService {
                 true,
                 true,
                 schedulerEnabled,
+                mode,
                 evaluation,
                 freshness,
                 value.agingAfterSeconds(),

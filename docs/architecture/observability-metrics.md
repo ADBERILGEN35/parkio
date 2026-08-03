@@ -101,13 +101,13 @@ Micrometer component: `MunicipalSourceMetrics`. Labels bounded to `source_key`,
 | `parkio.municipal.sync.occupancy` | counter | Occupancy snapshots inserted. |
 | `parkio.municipal.sync.schema_mismatch` | counter | Schema-contract failures (`schema_contract` or legacy `contract`). |
 | `parkio.municipal.sync.retries_exhausted` | counter | Final FAILED runs after client retries (bounded `error_category`). |
-| `parkio.municipal.source.consecutive_failures` | gauge | Trailing FAILED streak derived from sync-run history. |
-| `parkio.municipal.source.seconds_since_success` | gauge | Seconds since last SUCCESS/PARTIAL_SUCCESS (`-1` if never). |
+| `parkio.municipal.source.consecutive_failures` | gauge | Trailing FAILED streak; labels `source_key`, `source_mode` (İZUM + OSM). |
+| `parkio.municipal.source.seconds_since_success` | gauge | Seconds since last SUCCESS/PARTIAL_SUCCESS (`-1` if never); observational for OPERATOR_IMPORTED when mode-aware SLA is on. |
 | `parkio.municipal.source.last_success_unixtime` | gauge | Last success unix epoch (`-1` if never). |
 | `parkio.municipal.source.last_run_unixtime` | gauge | Last completed run unix epoch (`-1` if never). |
 | `parkio.municipal.source.stale_running_operations` | gauge | RUNNING rows older than SLA stale-running threshold. |
 | `parkio.municipal.source.failures_in_window` | gauge | FAILED runs in the configured failure window. |
-| `parkio.municipal.source.operational_state` | gauge | One-hot operational SLA state label. |
+| `parkio.municipal.source.operational_state` | gauge | One-hot operational SLA state; labels `source_key`, `source_mode`, `state` (İZUM + OSM). |
 | `parkio.municipal.source.occupancy_freshness` | gauge | One-hot occupancy freshness label (separate from SLA). |
 | `parkio.municipal.source.recoveries` | counter | Success after a non-zero failure streak. |
 | `parkio.municipal.ops.quality_report` | counter | DATA-WP-15; labels: `report_type`, `outcome`, `source_family`, `policy_version` |

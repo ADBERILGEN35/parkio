@@ -10,6 +10,7 @@ import java.util.List;
 public record SourceQualitySummary(
         String sourceKey,
         String sourceFamily,
+        String sourceMode,
         boolean municipalEnabled,
         boolean sourceEnabled,
         boolean schedulerEnabled,
