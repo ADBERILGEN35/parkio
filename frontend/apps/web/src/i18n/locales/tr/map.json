@@ -26,6 +26,16 @@
   "locateAria": "Konumumu kullan",
   "zoomIn": "Yakınlaştır",
   "zoomOut": "Uzaklaştır",
+  "layers": {
+    "groupLabel": "Harita katmanları",
+    "groupAria": "Harita katmanı görünürlüğü",
+    "community": "Topluluk park yerleri",
+    "municipal": "Belediye tesisleri",
+    "visibleHint": "Haritada ve sonuçlarda görünür",
+    "hiddenHint": "Haritadan ve sonuçlardan gizli",
+    "bothHiddenTitle": "Şu anda hiçbir harita katmanı görünür değil",
+    "bothHiddenDescription": "İşaretçileri ve sonuçları yeniden göstermek için Topluluk park yerleri veya Belediye tesisleri katmanını açın. Yakın sonuç verisi yüklü kalır."
+  },
   "geoUnavailable": "Bu tarayıcıda konum hizmeti yok. Elle arama yapabilirsiniz.",
   "geoDenied": "Konum izni verilmedi. Elle arama yapabilirsiniz.",
   "geoFailed": "Konumunuz belirlenemedi. Elle arama yapabilirsiniz.",

@@ -26,6 +26,16 @@
   "locateAria": "Use my location",
   "zoomIn": "Zoom in",
   "zoomOut": "Zoom out",
+  "layers": {
+    "groupLabel": "Map layers",
+    "groupAria": "Map layer visibility",
+    "community": "Community spots",
+    "municipal": "Municipal facilities",
+    "visibleHint": "Visible on map and in results",
+    "hiddenHint": "Hidden from map and results",
+    "bothHiddenTitle": "No map layers are currently visible",
+    "bothHiddenDescription": "Turn on Community spots or Municipal facilities to show markers and results again. Nearby data stays loaded."
+  },
   "geoUnavailable": "Geolocation is not available in this browser. You can search manually.",
   "geoDenied": "Location permission was not granted. You can search manually.",
   "geoFailed": "We could not determine your location. You can search manually.",

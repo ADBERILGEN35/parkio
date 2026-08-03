@@ -2,6 +2,7 @@ import { zodResolver } from '@hookform/resolvers/zod';
 import type { NearbySearchParams } from '@parkio/types';
 import {
   Button,
+  EmptyState,
   ErrorMessage,
   Icon,
   Input,
@@ -16,6 +17,7 @@ import { Link, useSearchParams } from 'react-router-dom';
 import { useAuthStore } from '@/auth/store';
 import { BottomSheet, COLLAPSED_PEEK, type SheetState } from '@/components/map/BottomSheet';
 import { DiscoveryResults } from '@/components/map/DiscoveryResults';
+import { MapLayerVisibilityControls } from '@/components/map/MapLayerVisibilityControls';
 import { MunicipalFacilityResults } from '@/components/map/MunicipalFacilityResults';
 import {
   DEFAULT_MAP_CENTER,
@@ -123,6 +125,9 @@ export function MapPage({
   const [municipalFilters, setMunicipalFilters] =
     useState<MunicipalFacilityFilters>(EMPTY_MUNICIPAL_FILTERS);
   const [sort, setSort] = useState<SpotSort | null>(null);
+  /** Dual-inventory layer visibility (WEB-MUNI-05) — presentation only. */
+  const [communityLayerVisible, setCommunityLayerVisible] = useState(true);
+  const [municipalLayerVisible, setMunicipalLayerVisible] = useState(true);
   const [sheetState, setSheetState] = useState<SheetState>('collapsed');
   /** Visual emphasis for the parked-car marker (card stays non-dismissible). */
   const [parkedCarSelected, setParkedCarSelected] = useState(false);
@@ -282,6 +287,23 @@ export function MapPage({
     [isDesktop],
   );
 
+  const handleCommunityLayerVisibleChange = useCallback((visible: boolean) => {
+    setCommunityLayerVisible(visible);
+    if (!visible) {
+      setSelectedId(null);
+    }
+  }, []);
+
+  const handleMunicipalLayerVisibleChange = useCallback((visible: boolean) => {
+    setMunicipalLayerVisible(visible);
+    if (!visible) {
+      setSelectedMunicipalId(null);
+    }
+  }, []);
+
+  // Spot filters/sort reset when the search center/params change (existing behaviour).
+  // Layer visibility is independent and intentionally preserved across re-searches.
+
   const {
     register,
     handleSubmit,
@@ -402,9 +424,40 @@ export function MapPage({
 
   const locate = () => runGeolocation({ autoSearch: false });
 
+  const mapCommunitySpots = communityLayerVisible ? visibleSpots : [];
+  const mapMunicipalFacilities =
+    municipalDiscoveryEnabled && municipalLayerVisible ? visibleMunicipalFacilities : [];
+  const bothLayersHidden =
+    municipalDiscoveryEnabled && !communityLayerVisible && !municipalLayerVisible;
+
   const discovery = (
     <>
       {municipalDiscoveryEnabled ? (
+        <div className="mb-md">
+          <MapLayerVisibilityControls
+            communityVisible={communityLayerVisible}
+            municipalVisible={municipalLayerVisible}
+            onCommunityVisibleChange={handleCommunityLayerVisibleChange}
+            onMunicipalVisibleChange={handleMunicipalLayerVisibleChange}
+          />
+        </div>
+      ) : null}
+
+      {bothLayersHidden ? (
+        <div
+          role="status"
+          data-testid="map-layers-both-hidden"
+          className="mb-md rounded-3xl bg-surface-container px-md py-md"
+        >
+          <EmptyState
+            icon="layers"
+            title={t('layers.bothHiddenTitle')}
+            description={t('layers.bothHiddenDescription')}
+          />
+        </div>
+      ) : null}
+
+      {municipalDiscoveryEnabled && municipalLayerVisible ? (
         <MunicipalFacilityResults
           search={municipalSearch}
           params={params}
@@ -418,31 +471,47 @@ export function MapPage({
           onSelect={selectMunicipalFacility}
         />
       ) : null}
-      <DiscoveryResults
-        search={search}
-        params={params}
-        spots={visibleSpots}
-        totalCount={spotsWithDistance.length}
-        filters={filters}
-        onFiltersChange={setFilters}
-        availableStatuses={statuses}
-        sort={effectiveSort}
-        onSortChange={setSort}
-        sortOptions={sortOptions}
-        selectedId={selectedId}
-        onSelect={selectSpot}
-        userVehicleType={vehicleQuery.data?.vehicleType ?? null}
-      />
+      {communityLayerVisible ? (
+        <DiscoveryResults
+          search={search}
+          params={params}
+          spots={visibleSpots}
+          totalCount={spotsWithDistance.length}
+          filters={filters}
+          onFiltersChange={setFilters}
+          availableStatuses={statuses}
+          sort={effectiveSort}
+          onSortChange={setSort}
+          sortOptions={sortOptions}
+          selectedId={selectedId}
+          onSelect={selectSpot}
+          userVehicleType={vehicleQuery.data?.vehicleType ?? null}
+        />
+      ) : null}
     </>
   );
 
-  const summaryText = resolveSummary(
-    t,
-    params,
-    search,
-    visibleSpots.length,
-    spotsWithDistance.length,
-  );
+  const summaryText = (() => {
+    if (bothLayersHidden) {
+      return t('layers.bothHiddenTitle');
+    }
+    if (municipalDiscoveryEnabled && !communityLayerVisible && municipalLayerVisible) {
+      if (params === null) {
+        return t('discovery.idleTitle');
+      }
+      if (municipalSearch.isPending) {
+        return t('municipal.searchingAria');
+      }
+      return t('municipal.resultsCount', { count: visibleMunicipalFacilities.length });
+    }
+    return resolveSummary(
+      t,
+      params,
+      search,
+      visibleSpots.length,
+      spotsWithDistance.length,
+    );
+  })();
   const advancedForm = (
     <form onSubmit={onSubmit}>
       <fieldset
@@ -493,13 +562,19 @@ export function MapPage({
           <NearbySpotsMap
             center={center}
             zoom={mapZoom}
-            spots={search.data ?? []}
-            municipalFacilities={visibleMunicipalFacilities}
+            spots={mapCommunitySpots}
+            municipalFacilities={mapMunicipalFacilities}
             onPickCenter={handlePickCenter}
-            selectedId={selectedId}
-            selectedMunicipalId={selectedMunicipalId}
-            onSelectSpot={selectSpot}
-            onSelectMunicipalFacility={selectMunicipalFacility}
+            selectedId={communityLayerVisible ? selectedId : null}
+            selectedMunicipalId={
+              municipalDiscoveryEnabled && municipalLayerVisible ? selectedMunicipalId : null
+            }
+            onSelectSpot={communityLayerVisible ? selectSpot : undefined}
+            onSelectMunicipalFacility={
+              municipalDiscoveryEnabled && municipalLayerVisible
+                ? selectMunicipalFacility
+                : undefined
+            }
             height="100%"
             onLocate={locate}
             locating={geoStatus === 'locating'}

@@ -71,6 +71,7 @@ No database / API rollback.
 - Mobile out of scope
 - Live availability often `unknown` for OSM-published inventory (backend semantics)
 - Detail location map is WEB-MUNI-04 (`web-muni-04-municipal-detail-location.md`)
+- Dual-inventory layer visibility is WEB-MUNI-05 (`web-muni-05-layer-visibility-controls.md`)
 
 ## Confirmations
 

@@ -29,6 +29,7 @@ Expose existing municipal parking facilities (`GET /api/v1/parking/facilities/ne
 4. Selecting a municipal marker/list row opens a read-only detail panel (source, availability, freshness, provenance when present).
 5. No claim / edit / report / linking / İZELMAN UI.
 6. Clustering: **not implemented** — web map does not cluster community spots today; municipal markers follow the same per-pin pattern.
+7. **WEB-MUNI-05:** Dual-inventory layer visibility controls (community / municipal) when discovery is enabled. See `web-muni-05-layer-visibility-controls.md`.
 
 ## Rollback
 

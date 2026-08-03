@@ -67,6 +67,7 @@ vi.mock('@/components/map/NearbySpotsMap', () => ({
   }) => (
     <div>
       <span data-testid="map-center">{`${center.lat},${center.lng}`}</span>
+      <span data-testid="stub-spot-count">{spots.length}</span>
       <span data-testid="stub-municipal-count">{municipalFacilities.length}</span>
       <button type="button" onClick={() => onPickCenter(41.5, 29.5)}>
         stub-pick-center
@@ -1198,5 +1199,243 @@ describe('MapPage municipal discovery (WEB-MUNI-01)', () => {
     expect(screen.getByText('OSM Lot')).toBeInTheDocument();
     expect(screen.getByTestId('stub-municipal-count')).toHaveTextContent('2');
     expect(facilitiesHits).toBe(1);
+  });
+});
+
+describe('MapPage dual-inventory layer visibility (WEB-MUNI-05)', () => {
+  beforeEach(() => {
+    runtime = createTestAppRuntime();
+    signInAs(runtime, ['USER']);
+    server.use(http.get(`${API_BASE}/notifications/me`, () => HttpResponse.json([])));
+    server.use(
+      http.get(`${API_BASE}/users/me/vehicle`, () =>
+        HttpResponse.json({ vehicleType: 'SEDAN', plate: '35PK123' }),
+      ),
+    );
+    server.use(
+      http.get(`${API_BASE}/parking/sessions/active`, () => new HttpResponse(null, { status: 204 })),
+    );
+    server.use(
+      http.get(`${API_BASE}/parking/sessions/lifecycle-config`, () =>
+        HttpResponse.json({
+          confirmAfterMs: 43_200_000,
+          reminderLeadMs: 3_600_000,
+          autoCompleteAfterMs: 86_400_000,
+        }),
+      ),
+    );
+    stubGeolocation(undefined);
+  });
+
+  afterEach(() => {
+    clearUserSessionQueries(runtime.queryClient);
+    resetAuth(runtime);
+  });
+
+  async function searchNear(user: ReturnType<typeof userEvent.setup>) {
+    await openSearchOptions(user);
+    await user.type(screen.getByLabelText('Latitude'), '38.42');
+    await user.type(screen.getByLabelText('Longitude'), '27.14');
+    await user.click(screen.getByRole('button', { name: 'Search nearby' }));
+  }
+
+  it('defaults both layers visible and omits controls when discovery flag is off', async () => {
+    server.use(
+      http.get(`${API_BASE}/parking/spots/nearby`, () => HttpResponse.json([spot])),
+      http.get(`${API_BASE}/parking/facilities/nearby`, () => HttpResponse.json([])),
+    );
+
+    renderWithProviders(<MapPage municipalDiscoveryEnabled={false} />);
+    const user = userEvent.setup();
+    await searchNear(user);
+
+    expect(await screen.findByText('Stub Address 7')).toBeInTheDocument();
+    expect(screen.queryByTestId('map-layer-visibility-controls')).not.toBeInTheDocument();
+    expect(screen.getByTestId('stub-spot-count')).toHaveTextContent('1');
+  });
+
+  it('toggles community and municipal layers independently without refetch', async () => {
+    let spotsHits = 0;
+    let facilitiesHits = 0;
+    const facility = makeMunicipalFacility({
+      id: 'fac-layer-1',
+      displayName: 'Layer Lot',
+      latitude: 38.42,
+      longitude: 27.14,
+      availableSpaces: 3,
+    });
+
+    server.use(
+      http.get(`${API_BASE}/parking/spots/nearby`, () => {
+        spotsHits += 1;
+        return HttpResponse.json([spot]);
+      }),
+      http.get(`${API_BASE}/parking/facilities/nearby`, () => {
+        facilitiesHits += 1;
+        return HttpResponse.json([facility]);
+      }),
+    );
+
+    renderWithProviders(<MapPage municipalDiscoveryEnabled />);
+    const user = userEvent.setup();
+    await searchNear(user);
+
+    expect(await screen.findByTestId('map-layer-visibility-controls')).toBeInTheDocument();
+    expect(screen.getByTestId('map-layer-community')).toHaveAttribute('aria-pressed', 'true');
+    expect(screen.getByTestId('map-layer-municipal')).toHaveAttribute('aria-pressed', 'true');
+    expect(screen.getByText('Layer Lot')).toBeInTheDocument();
+    expect(screen.getByText('Stub Address 7')).toBeInTheDocument();
+    expect(screen.getByTestId('stub-spot-count')).toHaveTextContent('1');
+    expect(screen.getByTestId('stub-municipal-count')).toHaveTextContent('1');
+    expect(spotsHits).toBe(1);
+    expect(facilitiesHits).toBe(1);
+
+    await user.click(screen.getByTestId('map-layer-municipal'));
+    expect(screen.getByTestId('map-layer-municipal')).toHaveAttribute('aria-pressed', 'false');
+    expect(screen.queryByTestId('municipal-facility-results')).not.toBeInTheDocument();
+    expect(screen.queryByText('Layer Lot')).not.toBeInTheDocument();
+    expect(screen.getByText('Stub Address 7')).toBeInTheDocument();
+    expect(screen.getByTestId('stub-municipal-count')).toHaveTextContent('0');
+    expect(screen.getByTestId('stub-spot-count')).toHaveTextContent('1');
+    expect(spotsHits).toBe(1);
+    expect(facilitiesHits).toBe(1);
+
+    await user.click(screen.getByTestId('map-layer-community'));
+    expect(screen.getByTestId('map-layer-community')).toHaveAttribute('aria-pressed', 'false');
+    expect(screen.queryByText('Stub Address 7')).not.toBeInTheDocument();
+    expect(await screen.findByTestId('map-layers-both-hidden')).toBeInTheDocument();
+    expect(screen.getByTestId('map-layers-both-hidden')).toHaveTextContent(
+      /No map layers are currently visible/i,
+    );
+    expect(screen.getByTestId('stub-spot-count')).toHaveTextContent('0');
+    expect(screen.getByTestId('stub-municipal-count')).toHaveTextContent('0');
+    expect(spotsHits).toBe(1);
+    expect(facilitiesHits).toBe(1);
+
+    await user.click(screen.getByTestId('map-layer-municipal'));
+    expect(screen.queryByTestId('map-layers-both-hidden')).not.toBeInTheDocument();
+    expect(screen.getByText('Layer Lot')).toBeInTheDocument();
+    expect(screen.getByTestId('stub-municipal-count')).toHaveTextContent('1');
+    expect(spotsHits).toBe(1);
+    expect(facilitiesHits).toBe(1);
+  });
+
+  it('preserves municipal filters while the municipal layer is hidden', async () => {
+    const izum = makeMunicipalFacility({
+      id: 'fac-izum-layer',
+      displayName: 'IZUM Visible',
+      sourceLabel: 'Izmir Buyuksehir Belediyesi / IZUM',
+      availableSpaces: 5,
+      facilityType: 'OFF_STREET',
+      latitude: 38.42,
+      longitude: 27.14,
+    });
+    const osm = makeMunicipalFacility({
+      id: 'fac-osm-layer',
+      displayName: 'OSM Hidden By Filter',
+      sourceLabel: 'OpenStreetMap contributors / Geofabrik GmbH',
+      availableSpaces: null,
+      facilityType: 'UNKNOWN',
+      latitude: 38.421,
+      longitude: 27.141,
+    });
+
+    server.use(
+      http.get(`${API_BASE}/parking/spots/nearby`, () => HttpResponse.json([spot])),
+      http.get(`${API_BASE}/parking/facilities/nearby`, () => HttpResponse.json([izum, osm])),
+    );
+
+    renderWithProviders(<MapPage municipalDiscoveryEnabled />);
+    const user = userEvent.setup();
+    await searchNear(user);
+
+    expect(await screen.findByText('IZUM Visible')).toBeInTheDocument();
+    await user.click(screen.getByTestId('municipal-filter-availability-available'));
+    expect(screen.queryByText('OSM Hidden By Filter')).not.toBeInTheDocument();
+    expect(screen.getByTestId('stub-municipal-count')).toHaveTextContent('1');
+
+    await user.click(screen.getByTestId('map-layer-municipal'));
+    expect(screen.queryByTestId('municipal-facility-results')).not.toBeInTheDocument();
+
+    await user.click(screen.getByTestId('map-layer-municipal'));
+    expect(await screen.findByText('IZUM Visible')).toBeInTheDocument();
+    expect(screen.queryByText('OSM Hidden By Filter')).not.toBeInTheDocument();
+    expect(screen.getByTestId('stub-municipal-count')).toHaveTextContent('1');
+  });
+
+  it('clears only the selected inventory when its layer is hidden', async () => {
+    const facility = makeMunicipalFacility({
+      id: 'fac-sel',
+      displayName: 'Select Lot',
+      latitude: 38.42,
+      longitude: 27.14,
+    });
+    server.use(
+      http.get(`${API_BASE}/parking/spots/nearby`, () => HttpResponse.json([spot])),
+      http.get(`${API_BASE}/parking/facilities/nearby`, () => HttpResponse.json([facility])),
+    );
+
+    renderWithProviders(<MapPage municipalDiscoveryEnabled />);
+    const user = userEvent.setup();
+    await searchNear(user);
+
+    expect(await screen.findByText('Select Lot')).toBeInTheDocument();
+    await user.click(screen.getByRole('button', { name: 'stub-select-first-facility' }));
+    expect(await screen.findByTestId('selected-municipal-facility-preview')).toBeInTheDocument();
+
+    await user.click(screen.getByTestId('map-layer-community'));
+    expect(screen.getByTestId('selected-municipal-facility-preview')).toBeInTheDocument();
+
+    await user.click(screen.getByTestId('map-layer-municipal'));
+    expect(screen.queryByTestId('selected-municipal-facility-preview')).not.toBeInTheDocument();
+
+    await user.click(screen.getByTestId('map-layer-community'));
+    await user.click(screen.getByTestId('map-layer-municipal'));
+    expect(screen.queryByTestId('selected-municipal-facility-preview')).not.toBeInTheDocument();
+
+    await user.click(screen.getByRole('button', { name: 'stub-select-first-spot' }));
+    expect(await screen.findByTestId('selected-spot-preview')).toBeInTheDocument();
+    await user.click(screen.getByTestId('map-layer-community'));
+    expect(screen.queryByTestId('selected-spot-preview')).not.toBeInTheDocument();
+  });
+
+  it('supports keyboard activation of layer toggles', async () => {
+    server.use(
+      http.get(`${API_BASE}/parking/spots/nearby`, () => HttpResponse.json([spot])),
+      http.get(`${API_BASE}/parking/facilities/nearby`, () =>
+        HttpResponse.json([makeMunicipalFacility({ latitude: 38.42, longitude: 27.14 })]),
+      ),
+    );
+
+    renderWithProviders(<MapPage municipalDiscoveryEnabled />);
+    const user = userEvent.setup();
+    await searchNear(user);
+
+    const municipalToggle = await screen.findByTestId('map-layer-municipal');
+    municipalToggle.focus();
+    expect(municipalToggle).toHaveFocus();
+    await user.keyboard('{Enter}');
+    expect(municipalToggle).toHaveAttribute('aria-pressed', 'false');
+    expect(screen.queryByTestId('municipal-facility-results')).not.toBeInTheDocument();
+  });
+
+  it('renders Turkish layer labels', async () => {
+    const { withLocale } = await import('@/test/utils');
+    await withLocale('tr');
+    server.use(
+      http.get(`${API_BASE}/parking/spots/nearby`, () => HttpResponse.json([spot])),
+      http.get(`${API_BASE}/parking/facilities/nearby`, () => HttpResponse.json([])),
+    );
+
+    renderWithProviders(<MapPage municipalDiscoveryEnabled />);
+    const user = userEvent.setup();
+    await user.click(screen.getByRole('button', { name: 'Filtreler ve arama seçenekleri' }));
+    await user.type(screen.getByLabelText('Enlem'), '38.42');
+    await user.type(screen.getByLabelText('Boylam'), '27.14');
+    await user.click(screen.getByRole('button', { name: 'Yakında ara' }));
+
+    expect(await screen.findByText('Harita katmanları')).toBeInTheDocument();
+    expect(screen.getByTestId('map-layer-community')).toHaveTextContent('Topluluk park yerleri');
+    expect(screen.getByTestId('map-layer-municipal')).toHaveTextContent('Belediye tesisleri');
   });
 });
