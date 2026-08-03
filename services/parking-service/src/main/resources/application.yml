@@ -201,6 +201,11 @@ parkio:
       max-input-bytes: ${PARKIO_MUNICIPAL_IZELMAN_MAX_INPUT_BYTES:5242880}
       aging-after-days: ${PARKIO_MUNICIPAL_IZELMAN_AGING_AFTER_DAYS:180}
       historical-after-days: ${PARKIO_MUNICIPAL_IZELMAN_HISTORICAL_AFTER_DAYS:730}
+    ops:
+      # DATA-WP-15: admin quality/coverage report API (canonical default off; leave-on is DATA-WP-15A).
+      quality-report-enabled: ${PARKIO_MUNICIPAL_OPS_QUALITY_REPORT_ENABLED:false}
+      recent-run-limit-default: ${PARKIO_MUNICIPAL_OPS_QUALITY_REPORT_RECENT_RUN_LIMIT_DEFAULT:20}
+      recent-run-limit-max: ${PARKIO_MUNICIPAL_OPS_QUALITY_REPORT_RECENT_RUN_LIMIT_MAX:100}
   openapi:
     enabled: ${PARKIO_OPENAPI_ENABLED:true}
   idempotency:

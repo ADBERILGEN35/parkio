@@ -56,6 +56,8 @@ publication is controlled separately (DATA-WP-11).
 
 See [DATA-WP-13 engineering specification](wp-data-13-engineering-specification.md)
 and [DATA-WP-14 engineering specification](wp-data-14-engineering-specification.md).
+Operator read-only aggregates over import quality JSON, label outcomes, and
+coverage are [DATA-WP-15](wp-data-15-engineering-specification.md) (flag default off).
 
 ## Soft deactivation
 

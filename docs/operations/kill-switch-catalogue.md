@@ -135,6 +135,20 @@ Disable publication first, then reviewed linking, review API, and candidate gene
 Ingest-write kill-switch is independent: set it false to stop new provenance selections without changing publication.
 These switches do not stop IZUM availability. IZELMAN publication stays independently disabled.
 
+## DATA-WP-15 municipal quality & coverage report (default OFF)
+
+| Flag | Env | Default | Effect |
+|------|-----|---------|--------|
+| `parkio.municipal.ops.quality-report-enabled` | `PARKIO_MUNICIPAL_OPS_QUALITY_REPORT_ENABLED` | `false` | Registers the read-only ADMIN quality/coverage report endpoints; disabled is HTTP 404 |
+| `parkio.municipal.ops.recent-run-limit-default` | `PARKIO_MUNICIPAL_OPS_QUALITY_REPORT_RECENT_RUN_LIMIT_DEFAULT` | `20` | Default recent-run window on source detail |
+| `parkio.municipal.ops.recent-run-limit-max` | `PARKIO_MUNICIPAL_OPS_QUALITY_REPORT_RECENT_RUN_LIMIT_MAX` | `100` | Hard cap on the `limit` query parameter |
+
+Read-only aggregates. The report triggers no sync, import, conflation or linking, adds no
+scheduler, and does not change İZELMAN publication. It reports coverage and freshness facts
+only — no global quality score, trust score, linking readiness or production-readiness verdict.
+Default is false in canonical `application.yml`, the `prod` profile and hosted-beta Compose;
+the leave-on gate is DATA-WP-15A and is not started by this package.
+
 DATA-WP-05 adds the bounded ADMIN generation endpoint behind the existing
 `candidate-generation-enabled` switch; it adds no scheduler or new enablement
 flag. Disabling the switch removes the controller (HTTP 404) after restart.

@@ -323,6 +323,7 @@ No external network in CI. Use fixtures for timeout exceptions.
 | Multi-replica ShedLock | Architecture decision later |
 | Source-quality marketplace / SLA product catalog | Product scope |
 | Facility ranking / fusion | Explicitly out of DATA roadmap evidence |
+| Operator coverage dashboard UI | Product/frontend; read-only aggregates are [DATA-WP-15](wp-data-15-engineering-specification.md) |
 
 ## 24. Package phasing
 

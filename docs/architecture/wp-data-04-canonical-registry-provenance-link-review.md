@@ -78,6 +78,10 @@ reports alias integrity, orphan links, no-active-source facilities, unresolved c
 tariff precedence, inactive-facility availability, and duplicate external IDs. It always reports UP
 and therefore cannot fail liveness.
 
+Operator provenance/coverage aggregates (allow-listed fields only) are exposed by the
+read-only [DATA-WP-15](wp-data-15-engineering-specification.md) quality report API
+(default off; no public exposure).
+
 ## Rollback and limitations
 
 V32 is forward-only. Operational rollback disables all registry flags; it does not reverse schema.

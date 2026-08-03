@@ -11,6 +11,7 @@ public class MunicipalSourceProperties {
     private Osm osm = new Osm();
     private Sla sla = new Sla();
     private Discovery discovery = new Discovery();
+    private Ops ops = new Ops();
 
     public boolean isEnabled() { return enabled; }
     public void setEnabled(boolean enabled) { this.enabled = enabled; }
@@ -24,6 +25,35 @@ public class MunicipalSourceProperties {
     public void setSla(Sla sla) { this.sla = sla; }
     public Discovery getDiscovery() { return discovery; }
     public void setDiscovery(Discovery discovery) { this.discovery = discovery; }
+    public Ops getOps() { return ops; }
+    public void setOps(Ops ops) { this.ops = ops; }
+
+    /**
+     * Operator-facing municipal quality/coverage report (DATA-WP-15).
+     * Read-only aggregates; never triggers sync, import or linking.
+     * Canonical default off everywhere; leave-on gate is DATA-WP-15A.
+     */
+    public static class Ops {
+        private boolean qualityReportEnabled = false;
+        private int recentRunLimitDefault = 20;
+        private int recentRunLimitMax = 100;
+
+        public boolean isQualityReportEnabled() { return qualityReportEnabled; }
+        public void setQualityReportEnabled(boolean qualityReportEnabled) {
+            this.qualityReportEnabled = qualityReportEnabled;
+        }
+        /** Clamped into [1, max] because binding order of the two limits is not guaranteed. */
+        public int getRecentRunLimitDefault() {
+            return Math.min(Math.max(1, recentRunLimitDefault), getRecentRunLimitMax());
+        }
+        public void setRecentRunLimitDefault(int recentRunLimitDefault) {
+            this.recentRunLimitDefault = recentRunLimitDefault;
+        }
+        public int getRecentRunLimitMax() { return Math.max(1, recentRunLimitMax); }
+        public void setRecentRunLimitMax(int recentRunLimitMax) {
+            this.recentRunLimitMax = recentRunLimitMax;
+        }
+    }
 
     /**
      * Nearby duplicate-presentation controls (DATA-WP-07 / DATA-WP-12).

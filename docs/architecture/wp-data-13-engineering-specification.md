@@ -122,6 +122,8 @@ Never label with facility ID, external ID, name/operator text, coordinates, or r
 
 Quality report JSON on import runs includes `labelPolicyVersion` and `labelOutcomes`.
 Facility metadata may record `labelPolicyVersion` / `labelOutcome` (bounded).
+The ADMIN [DATA-WP-15](wp-data-15-engineering-specification.md) report aggregates
+those outcomes from `source_metadata_json` (no migration; flag default off).
 
 ## 9. Public API impact
 

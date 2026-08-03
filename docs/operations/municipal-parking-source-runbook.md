@@ -18,6 +18,7 @@ Azure overlay `docker/docker-compose.azure-hosted-beta.yml` must map these into
 | `parkio.municipal.registry.provenance-ingest-write-enabled` | `PARKIO_MUNICIPAL_REGISTRY_PROVENANCE_INGEST_WRITE_ENABLED` | true |
 | `parkio.municipal.registry.provenance-publication-enabled` | `PARKIO_MUNICIPAL_REGISTRY_PROVENANCE_PUBLICATION_ENABLED` | true (prod profile: false) |
 | `parkio.municipal.discovery.duplicate-presentation-enabled` | `PARKIO_MUNICIPAL_DISCOVERY_DUPLICATE_PRESENTATION_ENABLED` | true (prod profile: false) |
+| `parkio.municipal.ops.quality-report-enabled` | `PARKIO_MUNICIPAL_OPS_QUALITY_REPORT_ENABLED` | false |
 
 Source key: `izmir-izum-otoparklar`.  
 Admin: `POST /api/v1/parking/municipal/sources/{sourceKey}/sync` (requires `municipal.enabled` + `manual-sync-enabled`; İZUM also requires `izum.enabled`).  
@@ -75,6 +76,25 @@ Public STALE masking remains authoritative for availability. Do **not** raise ag
 - **MunicipalSourceRecovered** — info signal after a success resets a failure streak.
 
 Disabled sources must not page. Scheduler kill switch remains `izum.scheduler-enabled=false` (and/or `izum.enabled=false`).
+
+## Quality & coverage report (DATA-WP-15)
+
+Read-only ADMIN report for registry coverage and source health. **Default off** everywhere
+(canonical, prod profile, hosted-beta Compose). Does not trigger sync, import, linking, or
+İZELMAN publication.
+
+1. Set `PARKIO_MUNICIPAL_OPS_QUALITY_REPORT_ENABLED=true` and restart parking-service (or
+   enable only for DATA-WP-15A on hosted-beta).
+2. Call with gateway JWT and ADMIN role (`X-User-Roles` includes `ADMIN` or `SUPER_ADMIN`):
+   - Overall: `GET /api/v1/parking/admin/municipal/quality-report`
+   - OSM detail: `GET /api/v1/parking/admin/municipal/quality-report/sources/osm-geofabrik-turkey`
+   - İZUM detail: `GET /api/v1/parking/admin/municipal/quality-report/sources/izmir-izum-otoparklar`
+   - Optional `?limit=N` (1–100, default 20) on source detail for recent sync runs.
+3. When the flag is false, the path returns **404** (controller not registered).
+4. Use `integrity.*` and OSM `staleNameMismatchCount` alongside WP-06 SLA alerts; the report
+   carries no aggregate quality score or readiness verdict.
+5. Rollback: set flag false and restart. Spec:
+   [`wp-data-15-engineering-specification.md`](../architecture/wp-data-15-engineering-specification.md).
 
 ### Timeout vs schema_contract
 

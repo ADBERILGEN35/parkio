@@ -110,6 +110,8 @@ Micrometer component: `MunicipalSourceMetrics`. Labels bounded to `source_key`,
 | `parkio.municipal.source.operational_state` | gauge | One-hot operational SLA state label. |
 | `parkio.municipal.source.occupancy_freshness` | gauge | One-hot occupancy freshness label (separate from SLA). |
 | `parkio.municipal.source.recoveries` | counter | Success after a non-zero failure streak. |
+| `parkio.municipal.ops.quality_report` | counter | DATA-WP-15; labels: `report_type`, `outcome`, `source_family`, `policy_version` |
+| `parkio.municipal.ops.quality_report.duration` | timer | DATA-WP-15; same bounded tags as quality_report counter |
 
 Health indicator `municipalSources` always contributes **UP** (municipal data is
 non-critical). Details include enablement, scheduler flag, consecutive failures,

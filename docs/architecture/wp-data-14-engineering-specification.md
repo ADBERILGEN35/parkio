@@ -131,3 +131,6 @@ No shape change. After reconciliation, fallback-only OSM facilities must not pro
 
 DATA-WP-14A deploy/gate, linking, İZELMAN publication, label precedence changes,
 DTO shape changes, Flyway migrations, production deploy.
+
+Operator read-only coverage reporting (including `staleNameMismatchCount`) is
+[DATA-WP-15](wp-data-15-engineering-specification.md).

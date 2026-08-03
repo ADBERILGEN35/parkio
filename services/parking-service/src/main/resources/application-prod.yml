@@ -10,3 +10,6 @@ parkio:
     registry:
       # DATA-WP-11: public provenance leave-on is hosted-beta only until approved.
       provenance-publication-enabled: ${PARKIO_MUNICIPAL_REGISTRY_PROVENANCE_PUBLICATION_ENABLED:false}
+    ops:
+      # DATA-WP-15: operator quality/coverage report stays dark until DATA-WP-15A.
+      quality-report-enabled: ${PARKIO_MUNICIPAL_OPS_QUALITY_REPORT_ENABLED:false}
