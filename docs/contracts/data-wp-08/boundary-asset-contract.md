@@ -40,6 +40,13 @@ CC BY 4.0 via İzmir Büyükşehir Belediyesi Açık Veri Lisansı.
 
 Attribution: Contains public sector information licensed under Attribution 4.0 International (CC BY 4.0) by İzmir Metropolitan Municipality (İzmir Şehir Haritası / ilceler).
 
+## Consumers
+
+| Package | Use |
+|---------|-----|
+| DATA-WP-08 / 08A | OSM polygon clip (`izmir-admin-boundary.*`) |
+| DATA-WP-18 | Read-only district coverage aggregates from `izmir-ilceler-source.geojson` (30 `adi` districts). Geometry is never exposed via API. |
+
 ## Scripts
 
 - `scripts/data-wp-08/build-izmir-admin-boundary.py`

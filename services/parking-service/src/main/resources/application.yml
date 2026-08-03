@@ -208,8 +208,17 @@ parkio:
       quality-report-enabled: ${PARKIO_MUNICIPAL_OPS_QUALITY_REPORT_ENABLED:false}
       # DATA-WP-16: source-mode-aware SLA (canonical default off; leave-on is DATA-WP-16A).
       source-mode-sla-enabled: ${PARKIO_MUNICIPAL_OPS_SOURCE_MODE_SLA_ENABLED:false}
+      # DATA-WP-18: district coverage section (canonical default off; leave-on is DATA-WP-18A).
+      district-coverage-enabled: ${PARKIO_MUNICIPAL_OPS_DISTRICT_COVERAGE_ENABLED:false}
       recent-run-limit-default: ${PARKIO_MUNICIPAL_OPS_QUALITY_REPORT_RECENT_RUN_LIMIT_DEFAULT:20}
       recent-run-limit-max: ${PARKIO_MUNICIPAL_OPS_QUALITY_REPORT_RECENT_RUN_LIMIT_MAX:100}
+      district-coverage:
+        asset-path: ${PARKIO_MUNICIPAL_OPS_DISTRICT_COVERAGE_ASSET_PATH:}
+        expected-sha256: ${PARKIO_MUNICIPAL_OPS_DISTRICT_COVERAGE_EXPECTED_SHA256:6f4f43e4ce8139ddca4606582d903f047cb7c73810f8b876541a1ec3994ffd89}
+        name-property: ${PARKIO_MUNICIPAL_OPS_DISTRICT_COVERAGE_NAME_PROPERTY:adi}
+        expected-count: ${PARKIO_MUNICIPAL_OPS_DISTRICT_COVERAGE_EXPECTED_COUNT:30}
+        max-facilities: ${PARKIO_MUNICIPAL_OPS_DISTRICT_COVERAGE_MAX_FACILITIES:10000}
+        cache-ttl-seconds: ${PARKIO_MUNICIPAL_OPS_DISTRICT_COVERAGE_CACHE_TTL_SECONDS:45}
   openapi:
     enabled: ${PARKIO_OPENAPI_ENABLED:true}
   idempotency:

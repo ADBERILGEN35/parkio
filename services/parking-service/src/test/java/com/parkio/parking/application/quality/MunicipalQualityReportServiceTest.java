@@ -61,6 +61,7 @@ class MunicipalQualityReportServiceTest {
     private MunicipalSourceProperties properties;
     private MunicipalDataSourceRepository sources;
     private MunicipalSourceSyncRunRepository runs;
+    private MunicipalDistrictCoverageAssembler districtCoverage;
     private MunicipalQualityReportService service;
 
     @BeforeEach
@@ -69,13 +70,17 @@ class MunicipalQualityReportServiceTest {
         healthService = mock(MunicipalSourceHealthService.class);
         sources = mock(MunicipalDataSourceRepository.class);
         runs = mock(MunicipalSourceSyncRunRepository.class);
+        districtCoverage = mock(MunicipalDistrictCoverageAssembler.class);
         properties = properties();
+        when(districtCoverage.assemble(any(), anyLong(), anyLong()))
+                .thenReturn(DistrictCoverageSection.disabled(NOW));
         service = new MunicipalQualityReportService(
                 queries,
                 healthService,
                 properties,
                 sources,
                 runs,
+                districtCoverage,
                 Clock.fixed(NOW, ZoneOffset.UTC),
                 new ObjectMapper());
 
@@ -100,6 +105,7 @@ class MunicipalQualityReportServiceTest {
         assertThat(report.osm()).isNotNull();
         assertThat(report.izum()).isNotNull();
         assertThat(report.integrity()).isNotNull();
+        assertThat(report.districtCoverage()).isEqualTo(DistrictCoverageSection.disabled(NOW));
     }
 
     @Test
@@ -602,12 +608,13 @@ class MunicipalQualityReportServiceTest {
         verify(runs, never()).countFailuresSince(any(), any());
         verify(runs, never()).countStaleRunning(any(), any());
         verify(runs, times(2)).findRecentCompleted(any(), anyInt());
+        verify(districtCoverage, times(1)).assemble(any(), anyLong(), anyLong());
 
         // The query port itself is read-only by construction: assert the contract, not the mock.
         assertThat(MunicipalQualityReportQueryPort.class.getDeclaredMethods())
                 .extracting(java.lang.reflect.Method::getName)
                 .allSatisfy(name -> assertThat(name)
-                        .matches("^(count|find|get|latest|technical|stale|label|provenance|integrity).*"));
+                        .matches("^(count|find|get|latest|list|technical|stale|label|provenance|integrity).*"));
     }
 
     @Test

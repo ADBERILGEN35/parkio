@@ -30,16 +30,19 @@ public class MunicipalSourceProperties {
     public void setOps(Ops ops) { this.ops = ops; }
 
     /**
-     * Operator-facing municipal ops controls (DATA-WP-15 / DATA-WP-16).
+     * Operator-facing municipal ops controls (DATA-WP-15 / DATA-WP-16 / DATA-WP-18).
      * Quality report is read-only aggregates; never triggers sync, import or linking.
-     * Source-mode SLA is independent of the quality-report flag.
-     * Canonical defaults off everywhere; leave-on gates are DATA-WP-15A / DATA-WP-16A.
+     * Source-mode SLA and district coverage are independent of each other and of the
+     * main quality-report flag (district requires the controller to be registered).
+     * Canonical defaults off everywhere; leave-on gates are DATA-WP-15A / 16A / 18A.
      */
     public static class Ops {
         private boolean qualityReportEnabled = false;
         private boolean sourceModeSlaEnabled = false;
+        private boolean districtCoverageEnabled = false;
         private int recentRunLimitDefault = 20;
         private int recentRunLimitMax = 100;
+        private DistrictCoverage districtCoverage = new DistrictCoverage();
 
         public boolean isQualityReportEnabled() { return qualityReportEnabled; }
         public void setQualityReportEnabled(boolean qualityReportEnabled) {
@@ -48,6 +51,10 @@ public class MunicipalSourceProperties {
         public boolean isSourceModeSlaEnabled() { return sourceModeSlaEnabled; }
         public void setSourceModeSlaEnabled(boolean sourceModeSlaEnabled) {
             this.sourceModeSlaEnabled = sourceModeSlaEnabled;
+        }
+        public boolean isDistrictCoverageEnabled() { return districtCoverageEnabled; }
+        public void setDistrictCoverageEnabled(boolean districtCoverageEnabled) {
+            this.districtCoverageEnabled = districtCoverageEnabled;
         }
         /** Clamped into [1, max] because binding order of the two limits is not guaranteed. */
         public int getRecentRunLimitDefault() {
@@ -60,6 +67,40 @@ public class MunicipalSourceProperties {
         public void setRecentRunLimitMax(int recentRunLimitMax) {
             this.recentRunLimitMax = recentRunLimitMax;
         }
+        public DistrictCoverage getDistrictCoverage() { return districtCoverage; }
+        public void setDistrictCoverage(DistrictCoverage districtCoverage) {
+            this.districtCoverage = districtCoverage == null ? new DistrictCoverage() : districtCoverage;
+        }
+    }
+
+    /** DATA-WP-18 district coverage asset and bound configuration. */
+    public static class DistrictCoverage {
+        private String assetPath = "";
+        private String expectedSha256 =
+                "6f4f43e4ce8139ddca4606582d903f047cb7c73810f8b876541a1ec3994ffd89";
+        private String nameProperty = "adi";
+        private int expectedCount = 30;
+        private int maxFacilities = 10_000;
+        private int cacheTtlSeconds = 45;
+
+        public String getAssetPath() { return assetPath; }
+        public void setAssetPath(String assetPath) {
+            this.assetPath = assetPath == null ? "" : assetPath;
+        }
+        public String getExpectedSha256() { return expectedSha256; }
+        public void setExpectedSha256(String expectedSha256) {
+            this.expectedSha256 = expectedSha256 == null ? "" : expectedSha256;
+        }
+        public String getNameProperty() { return nameProperty; }
+        public void setNameProperty(String nameProperty) {
+            this.nameProperty = nameProperty == null || nameProperty.isBlank() ? "adi" : nameProperty;
+        }
+        public int getExpectedCount() { return Math.max(1, expectedCount); }
+        public void setExpectedCount(int expectedCount) { this.expectedCount = expectedCount; }
+        public int getMaxFacilities() { return Math.max(1, maxFacilities); }
+        public void setMaxFacilities(int maxFacilities) { this.maxFacilities = maxFacilities; }
+        public int getCacheTtlSeconds() { return Math.max(1, cacheTtlSeconds); }
+        public void setCacheTtlSeconds(int cacheTtlSeconds) { this.cacheTtlSeconds = cacheTtlSeconds; }
     }
 
     /**

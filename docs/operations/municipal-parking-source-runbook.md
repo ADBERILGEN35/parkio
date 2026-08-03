@@ -20,6 +20,7 @@ Azure overlay `docker/docker-compose.azure-hosted-beta.yml` must map these into
 | `parkio.municipal.discovery.duplicate-presentation-enabled` | `PARKIO_MUNICIPAL_DISCOVERY_DUPLICATE_PRESENTATION_ENABLED` | true (prod profile: false) |
 | `parkio.municipal.ops.quality-report-enabled` | `PARKIO_MUNICIPAL_OPS_QUALITY_REPORT_ENABLED` | false |
 | `parkio.municipal.ops.source-mode-sla-enabled` | `PARKIO_MUNICIPAL_OPS_SOURCE_MODE_SLA_ENABLED` | false |
+| `parkio.municipal.ops.district-coverage-enabled` | `PARKIO_MUNICIPAL_OPS_DISTRICT_COVERAGE_ENABLED` | false |
 
 Source key: `izmir-izum-otoparklar`.  
 Admin: `POST /api/v1/parking/municipal/sources/{sourceKey}/sync` (requires `municipal.enabled` + `manual-sync-enabled`; İZUM also requires `izum.enabled`).  
@@ -117,6 +118,21 @@ Read-only ADMIN report for registry coverage and source health. **Default off** 
    carries no aggregate quality score or readiness verdict.
 5. Rollback: set flag false and restart. Spec:
    [`wp-data-15-engineering-specification.md`](../architecture/wp-data-15-engineering-specification.md).
+
+### District coverage (DATA-WP-18)
+
+Additive `districtCoverage` on the overall quality report. Independent kill-switch
+(`PARKIO_MUNICIPAL_OPS_DISTRICT_COVERAGE_ENABLED`, default false). Requires the main
+quality-report flag so the controller is registered.
+
+1. Point `PARKIO_MUNICIPAL_OPS_DISTRICT_COVERAGE_ASSET_PATH` at the WP-08 operator
+   `izmir-ilceler-source.geojson` and keep the expected SHA-256 contract.
+2. Enable district coverage only for DATA-WP-18A on hosted-beta.
+3. When disabled, overall report still works with `districtCoverage.status=DISABLED`.
+4. Asset/checksum failures → `UNAVAILABLE` with bounded reason; main WP-15 sections remain.
+5. Empty district counts mean zero currently active assigned facilities — not “no parking”
+   or demand shortage.
+6. Spec: [`wp-data-18-engineering-specification.md`](../architecture/wp-data-18-engineering-specification.md).
 
 ### Timeout vs schema_contract
 

@@ -270,6 +270,88 @@ public class MunicipalQualityReportQueryAdapter implements MunicipalQualityRepor
                 .single();
     }
 
+    @Override
+    public List<com.parkio.parking.application.port.MunicipalDistrictFacilityProjection>
+            listActiveFacilityProjections(
+                    int maxFacilities, long agingSeconds, long staleSeconds, Instant now) {
+        Instant staleCutoff = now.minusSeconds(Math.max(0, staleSeconds));
+        int limit = Math.max(1, maxFacilities) + 1;
+        String realName = OsmDisplayLabelOutcome.REAL_NAME_SELECTED.metricOutcome();
+        String localized = OsmDisplayLabelOutcome.LOCALIZED_NAME_SELECTED.metricOutcome();
+        String neutral = OsmDisplayLabelOutcome.NEUTRAL_FALLBACK.metricOutcome();
+        return jdbc.sql("""
+                WITH osm AS (
+                    SELECT DISTINCT ON (l.facility_id)
+                           l.facility_id,
+                           CASE
+                             WHEN left(btrim(l.source_metadata_json), 1) = '{'
+                               THEN (l.source_metadata_json::json ->> 'labelOutcome')
+                             ELSE NULL
+                           END AS label_outcome
+                    FROM municipal_facility_source_links l
+                    JOIN municipal_data_sources d ON d.id = l.source_id
+                    WHERE l.active = TRUE AND d.source_key = :osmKey
+                    ORDER BY l.facility_id
+                ),
+                izum AS (
+                    SELECT DISTINCT l.facility_id
+                    FROM municipal_facility_source_links l
+                    JOIN municipal_data_sources d ON d.id = l.source_id
+                    WHERE l.active = TRUE AND d.source_key = :izumKey
+                ),
+                izum_latest AS (
+                    SELECT DISTINCT ON (o.facility_id)
+                           o.facility_id, o.fetched_at, o.available_spaces
+                    FROM municipal_occupancy_snapshots o
+                    JOIN municipal_data_sources d ON d.id = o.source_id
+                    WHERE d.source_key = :izumKey
+                    ORDER BY o.facility_id, o.fetched_at DESC
+                ),
+                prov AS (
+                    SELECT DISTINCT p.facility_id
+                    FROM municipal_facility_field_provenance p
+                    WHERE p.field_name IN (:fields)
+                )
+                SELECT f.id,
+                       f.latitude,
+                       f.longitude,
+                       (osm.facility_id IS NOT NULL) AS osm_linked,
+                       (izum.facility_id IS NOT NULL) AS izum_linked,
+                       (izum_latest.fetched_at >= :staleCutoff
+                          AND izum_latest.available_spaces IS NOT NULL) AS izum_exposed,
+                       (osm.label_outcome IN (:realName, :localized)) AS osm_real_name,
+                       (osm.label_outcome = :neutral) AS osm_neutral,
+                       (prov.facility_id IS NOT NULL) AS provenance_covered
+                FROM municipal_parking_facilities f
+                LEFT JOIN osm ON osm.facility_id = f.id
+                LEFT JOIN izum ON izum.facility_id = f.id
+                LEFT JOIN izum_latest ON izum_latest.facility_id = f.id
+                LEFT JOIN prov ON prov.facility_id = f.id
+                WHERE f.active = TRUE
+                ORDER BY f.id
+                LIMIT :limit
+                """)
+                .param("osmKey", MunicipalSourceIdentity.OSM)
+                .param("izumKey", MunicipalSourceIdentity.IZUM)
+                .param("fields", MunicipalQualityReportPolicy.PROVENANCE_FIELD_ORDER)
+                .param("staleCutoff", Timestamp.from(staleCutoff))
+                .param("realName", realName)
+                .param("localized", localized)
+                .param("neutral", neutral)
+                .param("limit", limit)
+                .query((rs, row) -> new com.parkio.parking.application.port.MunicipalDistrictFacilityProjection(
+                        (java.util.UUID) rs.getObject("id"),
+                        (Double) rs.getObject("latitude"),
+                        (Double) rs.getObject("longitude"),
+                        rs.getBoolean("osm_linked"),
+                        rs.getBoolean("izum_linked"),
+                        rs.getBoolean("izum_exposed"),
+                        rs.getBoolean("osm_real_name"),
+                        rs.getBoolean("osm_neutral"),
+                        rs.getBoolean("provenance_covered")))
+                .list();
+    }
+
     private static long single(Long value) {
         return value == null ? 0L : value;
     }

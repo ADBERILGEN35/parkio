@@ -112,6 +112,10 @@ Micrometer component: `MunicipalSourceMetrics`. Labels bounded to `source_key`,
 | `parkio.municipal.source.recoveries` | counter | Success after a non-zero failure streak. |
 | `parkio.municipal.ops.quality_report` | counter | DATA-WP-15; labels: `report_type`, `outcome`, `source_family`, `policy_version` |
 | `parkio.municipal.ops.quality_report.duration` | timer | DATA-WP-15; same bounded tags as quality_report counter |
+| `parkio.municipal.ops.district_coverage.requests` | counter | DATA-WP-18; labels: `outcome`, `asset_status`, `policy_version` (no district names) |
+| `parkio.municipal.ops.district_coverage.duration` | timer | DATA-WP-18; same tags as district_coverage.requests |
+| `parkio.municipal.ops.district_coverage.facilities` | counter | DATA-WP-18; labels: `outcome` |
+| `parkio.municipal.ops.district_coverage.anomalies` | counter | DATA-WP-18; labels: `anomaly_type` (`overlap`), `outcome` |
 
 Health indicator `municipalSources` always contributes **UP** (municipal data is
 non-critical). Details include enablement, scheduler flag, consecutive failures,

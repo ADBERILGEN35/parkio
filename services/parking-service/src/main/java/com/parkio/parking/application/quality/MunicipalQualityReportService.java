@@ -37,6 +37,7 @@ public class MunicipalQualityReportService {
     private final MunicipalSourceProperties properties;
     private final MunicipalDataSourceRepository sources;
     private final MunicipalSourceSyncRunRepository runs;
+    private final MunicipalDistrictCoverageAssembler districtCoverage;
     private final Clock clock;
     private final ObjectMapper objectMapper;
 
@@ -46,6 +47,7 @@ public class MunicipalQualityReportService {
             MunicipalSourceProperties properties,
             MunicipalDataSourceRepository sources,
             MunicipalSourceSyncRunRepository runs,
+            MunicipalDistrictCoverageAssembler districtCoverage,
             Clock clock,
             ObjectMapper objectMapper) {
         this.queries = queries;
@@ -53,6 +55,7 @@ public class MunicipalQualityReportService {
         this.properties = properties;
         this.sources = sources;
         this.runs = runs;
+        this.districtCoverage = districtCoverage;
         this.clock = clock;
         this.objectMapper = objectMapper;
     }
@@ -60,6 +63,10 @@ public class MunicipalQualityReportService {
     public MunicipalQualityReport overallReport() {
         Instant generatedAt = clock.instant();
         long activeFacilities = queries.countActiveFacilities();
+        Optional<MunicipalDataSourceRepository.Source> izum =
+                sources.findBySourceKey(MunicipalSourceIdentity.IZUM);
+        long aging = izum.map(MunicipalDataSourceRepository.Source::agingAfterSeconds).orElse(300L);
+        long stale = izum.map(MunicipalDataSourceRepository.Source::staleAfterSeconds).orElse(900L);
         return new MunicipalQualityReport(
                 MunicipalQualityReportPolicy.POLICY_VERSION,
                 generatedAt,
@@ -69,7 +76,8 @@ public class MunicipalQualityReportService {
                         summary(MunicipalSourceIdentity.IZUM, activeFacilities)),
                 osmSection(),
                 izumSection(generatedAt),
-                integrity());
+                integrity(),
+                districtCoverage.assemble(generatedAt, aging, stale));
     }
 
     public SourceQualityDetail sourceReport(String sourceKey, Integer limit) {

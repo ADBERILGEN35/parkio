@@ -111,3 +111,4 @@ parser safety filter. Polygon membership loads when the derived GeoJSON is prese
 - `docs/operations/municipal-parking-source-runbook.md`
 - `docs/architecture/wp-data-02-osm-izmir-facility-import.md`
 - `docs/contracts/data-wp-08/boundary-asset-contract.md`
+- `docs/architecture/wp-data-18-engineering-specification.md` — district coverage report reuses this asset (read-only; no geometry publication)

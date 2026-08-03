@@ -214,6 +214,9 @@ See [Known Issues](../releases/KNOWN-ISSUES.md) for the current blocker list.
 - [DATA-WP-17 source-level availability semantics alignment](wp-data-17-engineering-specification.md)
   - Read-only ADMIN/SUPER_ADMIN aggregates; kill-switch default **false**; reuses WP-06 health + WP-13 label outcomes.
   - No score, linking, İZELMAN pub, migration, or frontend; DATA-WP-15A leave-on gate: not started.
+- [DATA-WP-18 municipal district coverage quality report](wp-data-18-engineering-specification.md)
+  - Additive `districtCoverage` on WP-15 overall report; independent kill-switch default **false**; reuses WP-08 ilceler asset.
+  - No migration / public geometry / linking / İZELMAN; DATA-WP-18A leave-on gate: not started.
 - [DATA-WP-08 İzmir administrative-boundary clip](wp-data-08-engineering-specification.md)
   - Clip `izmir-admin-izbb-2024-10-18-v1` from İZBB `ilceler.geojson` (CC BY 4.0).
   - Operator-managed boundary + polygon osmium extract; rollback to `izmir-bbox-v1`.

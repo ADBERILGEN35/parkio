@@ -20,6 +20,11 @@ Expected source SHA-256:
 6f4f43e4ce8139ddca4606582d903f047cb7c73810f8b876541a1ec3994ffd89
 ```
 
+District FeatureCollection contract: exactly **30** features, name property `adi`,
+Polygon/MultiPolygon only. DATA-WP-18 reuses this source read-only for ADMIN
+district coverage reporting (geometry is never published). See
+[`wp-data-18-engineering-specification.md`](../architecture/wp-data-18-engineering-specification.md).
+
 ## Operator directories
 
 | Environment | Path |

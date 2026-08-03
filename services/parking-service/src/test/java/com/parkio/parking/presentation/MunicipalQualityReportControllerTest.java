@@ -19,6 +19,7 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
 import com.parkio.parking.application.quality.CoverageMetric;
+import com.parkio.parking.application.quality.DistrictCoverageSection;
 import com.parkio.parking.application.quality.IntegrityGuardrails;
 import com.parkio.parking.application.quality.IzumQualitySection;
 import com.parkio.parking.application.quality.MunicipalQualityReport;
@@ -396,7 +397,8 @@ class MunicipalQualityReportControllerTest {
                         summary(MunicipalSourceIdentity.IZUM, 4L, 10L)),
                 osmSection(6L),
                 izumSection(4L),
-                new IntegrityGuardrails(0, 0, 3, 2, 1, 0, 5, 4, 2, 0));
+                new IntegrityGuardrails(0, 0, 3, 2, 1, 0, 5, 4, 2, 0),
+                districtCoverageSection());
     }
 
     private static MunicipalQualityReport emptyRegistryReport() {
@@ -408,7 +410,12 @@ class MunicipalQualityReportControllerTest {
                         summary(MunicipalSourceIdentity.IZUM, 0L, 0L)),
                 osmSection(0L),
                 izumSection(0L),
-                new IntegrityGuardrails(0, 0, 0, 0, 0, 0, 0, 0, 0, 0));
+                new IntegrityGuardrails(0, 0, 0, 0, 0, 0, 0, 0, 0, 0),
+                districtCoverageSection());
+    }
+
+    private static DistrictCoverageSection districtCoverageSection() {
+        return DistrictCoverageSection.disabled(NOW);
     }
 
     private static SourceQualityDetail osmDetail() {

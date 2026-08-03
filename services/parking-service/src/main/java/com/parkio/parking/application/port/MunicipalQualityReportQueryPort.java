@@ -53,4 +53,12 @@ public interface MunicipalQualityReportQueryPort {
     Optional<String> latestOsmImportQualityReportJson();
 
     IzumFreshness countIzumFreshnessBuckets(long agingSeconds, long staleSeconds, Instant now);
+
+    /**
+     * Bounded active-facility projection for district assignment. Returns at most
+     * {@code maxFacilities + 1} rows so callers can detect hard-limit overflow without
+     * truncating silently.
+     */
+    java.util.List<MunicipalDistrictFacilityProjection> listActiveFacilityProjections(
+            int maxFacilities, long agingSeconds, long staleSeconds, Instant now);
 }

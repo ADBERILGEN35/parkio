@@ -126,6 +126,7 @@ Policy version: `municipal-quality-report-v1` (`MunicipalQualityReportPolicy.POL
 | `osm` | `OsmQualitySection` |
 | `izum` | `IzumQualitySection` |
 | `integrity` | `IntegrityGuardrails` |
+| `districtCoverage` | Additive DATA-WP-18 section (`AVAILABLE` / `DISABLED` / `UNAVAILABLE`); see [wp-data-18](wp-data-18-engineering-specification.md) |
 
 ### 7.2 Per-source summary (`SourceQualitySummary`)
 
@@ -271,8 +272,12 @@ Catalogue: [kill-switch-catalogue.md](../operations/kill-switch-catalogue.md) (D
 DATA-WP-15A leave-on gate, linking, İZELMAN publication, Flyway migrations, frontend,
 aggregate scoring, production deploy without separate approval.
 
+District geographic coverage is **DATA-WP-18** (additive `districtCoverage` section;
+independent kill-switch; no migration).
+
 ## 17. Related packages
 
 - [DATA-WP-06](wp-data-06-engineering-specification.md) — source health / SLA reuse
 - [DATA-WP-13](wp-data-13-engineering-specification.md) — OSM label outcomes in link metadata
 - [DATA-WP-14](wp-data-14-engineering-specification.md) — stale NAME mismatch signal in OSM section
+- [DATA-WP-18](wp-data-18-engineering-specification.md) — İzmir district coverage section

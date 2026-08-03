@@ -11,4 +11,5 @@ public record MunicipalQualityReport(
         List<SourceQualitySummary> sources,
         OsmQualitySection osm,
         IzumQualitySection izum,
-        IntegrityGuardrails integrity) {}
+        IntegrityGuardrails integrity,
+        DistrictCoverageSection districtCoverage) {}
