@@ -45,13 +45,18 @@ import { needsActiveConfirmation } from '@/lib/parkingSessionStale';
 import { DESKTOP_QUERY, useMediaQuery } from '@/lib/useMediaQuery';
 import {
   EMPTY_FILTERS,
+  EMPTY_MUNICIPAL_FILTERS,
+  availableMunicipalFacilityTypes,
+  availableMunicipalSourceLabels,
   availableSorts,
   availableStatuses as deriveStatuses,
   defaultSort,
+  filterMunicipalFacilities,
   filterSpots,
   haversineMeters,
   sortSpots,
   withDistance,
+  type MunicipalFacilityFilters,
   type SpotFilters,
   type SpotSort,
 } from '@/lib/spotDiscovery';
@@ -115,6 +120,8 @@ export function MapPage({
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [selectedMunicipalId, setSelectedMunicipalId] = useState<string | null>(null);
   const [filters, setFilters] = useState<SpotFilters>(EMPTY_FILTERS);
+  const [municipalFilters, setMunicipalFilters] =
+    useState<MunicipalFacilityFilters>(EMPTY_MUNICIPAL_FILTERS);
   const [sort, setSort] = useState<SpotSort | null>(null);
   const [sheetState, setSheetState] = useState<SheetState>('collapsed');
   /** Visual emphasis for the parked-car marker (card stays non-dismissible). */
@@ -222,6 +229,20 @@ export function MapPage({
   );
 
   const municipalFacilities = municipalDiscoveryEnabled ? (municipalSearch.data ?? []) : [];
+  const municipalSourceLabels = useMemo(
+    () => availableMunicipalSourceLabels(municipalFacilities),
+    [municipalFacilities],
+  );
+  const municipalFacilityTypes = useMemo(
+    () => availableMunicipalFacilityTypes(municipalFacilities),
+    [municipalFacilities],
+  );
+  const visibleMunicipalFacilities = useMemo(
+    () => filterMunicipalFacilities(municipalFacilities, municipalFilters),
+    [municipalFacilities, municipalFilters],
+  );
+  // Selection resolves from the unfiltered set so a selected facility survives
+  // filter changes (and /facilities/:id deep links stay independent of filters).
   const selectedMunicipalFacility = useMemo(
     () => municipalFacilities.find((facility) => facility.id === selectedMunicipalId) ?? null,
     [municipalFacilities, selectedMunicipalId],
@@ -387,7 +408,12 @@ export function MapPage({
         <MunicipalFacilityResults
           search={municipalSearch}
           params={params}
-          facilities={municipalFacilities}
+          facilities={visibleMunicipalFacilities}
+          totalCount={municipalFacilities.length}
+          filters={municipalFilters}
+          onFiltersChange={setMunicipalFilters}
+          availableSourceLabels={municipalSourceLabels}
+          availableFacilityTypes={municipalFacilityTypes}
           selectedId={selectedMunicipalId}
           onSelect={selectMunicipalFacility}
         />
@@ -468,7 +494,7 @@ export function MapPage({
             center={center}
             zoom={mapZoom}
             spots={search.data ?? []}
-            municipalFacilities={municipalFacilities}
+            municipalFacilities={visibleMunicipalFacilities}
             onPickCenter={handlePickCenter}
             selectedId={selectedId}
             selectedMunicipalId={selectedMunicipalId}

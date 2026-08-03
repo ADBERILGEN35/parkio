@@ -1145,4 +1145,58 @@ describe('MapPage municipal discovery (WEB-MUNI-01)', () => {
     expect(await screen.findByTestId('municipal-facility-error')).toBeInTheDocument();
     expect(screen.getByText('Stub Address 7')).toBeInTheDocument();
   });
+
+  it('filters municipal markers and sidebar client-side without extra facilities requests', async () => {
+    let facilitiesHits = 0;
+    const izum = makeMunicipalFacility({
+      id: 'fac-izum',
+      displayName: 'IZUM Lot',
+      sourceLabel: 'Izmir Buyuksehir Belediyesi / IZUM',
+      availableSpaces: 5,
+      facilityType: 'OFF_STREET',
+      latitude: 38.42,
+      longitude: 27.14,
+    });
+    const osm = makeMunicipalFacility({
+      id: 'fac-osm',
+      displayName: 'OSM Lot',
+      sourceLabel: 'OpenStreetMap contributors / Geofabrik GmbH',
+      availableSpaces: null,
+      facilityType: 'UNKNOWN',
+      latitude: 38.421,
+      longitude: 27.141,
+    });
+
+    server.use(
+      http.get(`${API_BASE}/parking/spots/nearby`, () => HttpResponse.json([spot])),
+      http.get(`${API_BASE}/parking/facilities/nearby`, () => {
+        facilitiesHits += 1;
+        return HttpResponse.json([izum, osm]);
+      }),
+    );
+
+    renderWithProviders(<MapPage municipalDiscoveryEnabled />);
+    const user = userEvent.setup();
+    await openSearchOptions(user);
+    await user.type(screen.getByLabelText('Latitude'), '38.42');
+    await user.type(screen.getByLabelText('Longitude'), '27.14');
+    await user.click(screen.getByRole('button', { name: 'Search nearby' }));
+
+    expect(await screen.findByText('IZUM Lot')).toBeInTheDocument();
+    expect(screen.getByText('OSM Lot')).toBeInTheDocument();
+    expect(screen.getByTestId('stub-municipal-count')).toHaveTextContent('2');
+    expect(facilitiesHits).toBe(1);
+
+    await user.click(screen.getByTestId('municipal-filter-availability-available'));
+    expect(screen.getByText('IZUM Lot')).toBeInTheDocument();
+    expect(screen.queryByText('OSM Lot')).not.toBeInTheDocument();
+    expect(screen.getByTestId('stub-municipal-count')).toHaveTextContent('1');
+    expect(screen.getByText('1 of 2 facilities')).toBeInTheDocument();
+    expect(facilitiesHits).toBe(1);
+
+    await user.click(screen.getByTestId('municipal-filter-clear'));
+    expect(screen.getByText('OSM Lot')).toBeInTheDocument();
+    expect(screen.getByTestId('stub-municipal-count')).toHaveTextContent('2');
+    expect(facilitiesHits).toBe(1);
+  });
 });

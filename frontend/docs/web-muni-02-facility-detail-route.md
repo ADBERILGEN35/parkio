@@ -56,6 +56,7 @@ No database / API rollback.
 
 - Detail page has no embedded interactive map (coordinates shown as text)
 - Flag-off still matches the route URL (shows disabled UI, not global 404)
+- Municipal map filters are WEB-MUNI-03 (separate package)
 - Mobile out of scope
 
 ## Confirmations

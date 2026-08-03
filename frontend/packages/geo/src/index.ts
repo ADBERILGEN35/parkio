@@ -25,6 +25,18 @@ export {
   availableStatuses,
 } from './discovery';
 export {
+  type MunicipalAvailabilityFilter,
+  type MunicipalFacilityFilters,
+  MUNICIPAL_AVAILABILITY_FILTERS,
+  EMPTY_MUNICIPAL_FILTERS,
+  hasActiveMunicipalFilters,
+  municipalAvailabilityBucket,
+  hasMunicipalProvenance,
+  availableMunicipalSourceLabels,
+  availableMunicipalFacilityTypes,
+  filterMunicipalFacilities,
+} from './municipalDiscovery';
+export {
   type Availability,
   type ConfidenceTier,
   type SpotPresentation,

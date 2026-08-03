@@ -65,7 +65,8 @@ Production builds must omit the flag or set it to `false`.
 ## Remaining limitations
 
 - No marker clustering on web (parity with community layer)
-- No dedicated `/facilities/:id` route page (in-map detail panel only)
+- Detail route `/facilities/:id` is WEB-MUNI-02 (complete)
+- Client-side municipal filters are WEB-MUNI-03 (complete)
 - Mobile not in scope
 - Availability often `UNAVAILABLE` for OSM-published inventory (backend semantics)
 
