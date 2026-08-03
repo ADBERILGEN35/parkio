@@ -140,7 +140,14 @@
       "invalidIdTitle": "Invalid facility link",
       "invalidIdDescription": "This facility URL is not valid. Return to the map and select a municipal facility.",
       "notFoundTitle": "Facility not found",
-      "notFoundDescription": "No municipal parking facility exists for this link."
+      "notFoundDescription": "No municipal parking facility exists for this link.",
+      "locationTitle": "Location",
+      "openInMaps": "Open in maps",
+      "openInMapsA11y": "Open municipal facility location in an external maps app",
+      "openInMapsExternal": "Opens in a new tab",
+      "locationUnavailable": "Location isn't available for this facility.",
+      "mapUnavailable": "Map couldn't be loaded. Facility details remain available.",
+      "mapAria": "Map of municipal parking facility: {{name}}"
     },
     "freshness": {
       "live": "Live availability",

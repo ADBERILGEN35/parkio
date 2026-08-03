@@ -5,10 +5,12 @@ import type { ReactNode } from 'react';
 import { Link, useParams } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
 import { FriendlyApiErrorMessage } from '@/components/FriendlyApiErrorMessage';
+import { isUsableParkedCoordinate } from '@/components/map/parkedCarCoords';
 import { frontendConfig } from '@/config/env';
 import { useMunicipalFacilityDetailQuery } from '@/data/hooks/useParkingQueries';
 import { formatInstant } from '@/lib/format';
 import { isValidRouteParameter } from '@/routing/route-manifest';
+import { MunicipalFacilityLocationSection } from './MunicipalFacilityLocationSection';
 
 function freshnessLabelKey(freshness: MunicipalOccupancyFreshness | null | undefined): string {
   switch (freshness) {
@@ -133,9 +135,15 @@ function FacilityDetailBody({ facility }: { facility: MunicipalFacility }) {
             </DetailRow>
           ) : null}
           <DetailRow label={t('municipal.coordinates')}>
-            <span className="font-mono text-label-md">
-              {facility.latitude.toFixed(6)}, {facility.longitude.toFixed(6)}
-            </span>
+            {isUsableParkedCoordinate(facility.latitude, facility.longitude) ? (
+              <span className="font-mono text-label-md">
+                {facility.latitude.toFixed(6)}, {facility.longitude.toFixed(6)}
+              </span>
+            ) : (
+              <span className="text-on-surface-variant">
+                {t('municipal.detail.locationUnavailable')}
+              </span>
+            )}
           </DetailRow>
           {facility.lastUpdatedAt ? (
             <DetailRow label={t('municipal.lastUpdated')}>
@@ -144,6 +152,8 @@ function FacilityDetailBody({ facility }: { facility: MunicipalFacility }) {
           ) : null}
         </dl>
       </Surface>
+
+      <MunicipalFacilityLocationSection facility={facility} facilityTitle={title} />
 
       {provenanceEntries.length > 0 ? (
         <Surface level="raised" className="rounded-3xl p-md md:p-lg">

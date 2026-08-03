@@ -140,7 +140,14 @@
       "invalidIdTitle": "Geçersiz tesis bağlantısı",
       "invalidIdDescription": "Bu tesis URL’si geçerli değil. Haritaya dönüp bir belediye tesisi seçin.",
       "notFoundTitle": "Tesis bulunamadı",
-      "notFoundDescription": "Bu bağlantı için belediye otopark tesisi yok."
+      "notFoundDescription": "Bu bağlantı için belediye otopark tesisi yok.",
+      "locationTitle": "Konum",
+      "openInMaps": "Haritalarda aç",
+      "openInMapsA11y": "Belediye tesis konumunu harici harita uygulamasında aç",
+      "openInMapsExternal": "Yeni sekmede açılır",
+      "locationUnavailable": "Bu tesis için konum kullanılamıyor.",
+      "mapUnavailable": "Harita yüklenemedi. Tesis ayrıntıları kullanılabilir durumda kalır.",
+      "mapAria": "Belediye otopark tesisi haritası: {{name}}"
     },
     "freshness": {
       "live": "Canlı müsaitlik",

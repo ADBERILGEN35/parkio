@@ -70,6 +70,7 @@ No database / API rollback.
 - Source chip labels can be long (truncated with native `title`)
 - Mobile out of scope
 - Live availability often `unknown` for OSM-published inventory (backend semantics)
+- Detail location map is WEB-MUNI-04 (`web-muni-04-municipal-detail-location.md`)
 
 ## Confirmations
 

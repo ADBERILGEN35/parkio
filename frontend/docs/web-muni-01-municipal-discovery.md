@@ -19,6 +19,7 @@ Expose existing municipal parking facilities (`GET /api/v1/parking/facilities/ne
 - Hosted-beta: enable **only** during WEB-MUNI-01A build/deploy
 - Production: must remain **false**
 - Detail route `/facilities/:facilityId` (WEB-MUNI-02) reuses this flag — when off, the route shows a disabled empty state and does not call facilities APIs
+- Detail location map + open-in-maps (WEB-MUNI-04) also reuse this flag — no additional flag
 
 ## Behaviour when enabled
 

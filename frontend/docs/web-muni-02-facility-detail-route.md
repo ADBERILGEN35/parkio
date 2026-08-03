@@ -34,6 +34,7 @@ No new feature flag.
 
 - Marker / list selection still opens the in-map preview (WEB-MUNI-01 behavior).
 - Preview CTA navigates to `/facilities/{id}` (same pattern as community `/spots/{id}`).
+- **WEB-MUNI-04:** Detail page embeds a read-only `SpotMap` + **Open in maps** using facility DTO coordinates only. See `web-muni-04-municipal-detail-location.md`.
 
 ## Rollback
 
@@ -54,10 +55,10 @@ No database / API rollback.
 
 ## Remaining limitations
 
-- Detail page has no embedded interactive map (coordinates shown as text)
 - Flag-off still matches the route URL (shows disabled UI, not global 404)
-- Municipal map filters are WEB-MUNI-03 (separate package)
+- Embedded detail map styling is SpotMap municipal presentation (not a separate map stack)
 - Mobile out of scope
+- WEB-MUNI-04A leave-on gate not started here
 
 ## Confirmations
 
