@@ -205,7 +205,10 @@ See [Known Issues](../releases/KNOWN-ISSUES.md) for the current blocker list.
   - DATA-WP-12A hosted-beta leave-on gate: complete (ACCEPT WITH NON-BLOCKING NOTES).
 - [DATA-WP-13 OSM facility display-label hygiene](wp-data-13-engineering-specification.md)
   - Policy `osm-label-v1` (kill-switch `legacy`); NAME provenance only for real name tags.
-  - No migration / DTO change; reimport refreshes labels; DATA-WP-13A not started.
+  - No migration / DTO change; reimport refreshes labels; DATA-WP-13A hosted-beta gate: complete.
+- [DATA-WP-14 field provenance reconciliation](wp-data-14-engineering-specification.md)
+  - Same-source stale selection withdrawal on successful İZUM/OSM ingest (hard delete).
+  - No migration / DTO / label-precedence change; cleanup via complete reimport (DATA-WP-14A not started).
 - [DATA-WP-08 İzmir administrative-boundary clip](wp-data-08-engineering-specification.md)
   - Clip `izmir-admin-izbb-2024-10-18-v1` from İZBB `ilceler.geojson` (CC BY 4.0).
   - Operator-managed boundary + polygon osmium extract; rollback to `izmir-bbox-v1`.

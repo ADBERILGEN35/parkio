@@ -26,6 +26,8 @@ class IngestProvenanceBoundaryTest {
         assertThat(policySource).doesNotContain("TARIFF_ASSIGNMENT");
         assertThat(policySource).doesNotContain("municipal_link_candidates");
         assertThat(serviceSource).contains("skipped_other_source");
+        assertThat(serviceSource).contains("withdrawn_stale");
+        assertThat(serviceSource).contains("deleteProvenanceIfSourceOwns");
         assertThat(serviceSource).contains("isProvenanceIngestWriteEnabled");
         assertThat(serviceSource).doesNotContain("isProvenancePublicationEnabled()");
     }

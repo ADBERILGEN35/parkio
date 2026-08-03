@@ -49,10 +49,13 @@ public display names prefer validated `name:tr` → `name` → `official_name` �
 **only** for real name-bearing tags; operator/brand/type/neutral fallbacks do not
 claim `NAME`. Brand fallback must not invent `OPERATOR`. OSM never claims
 `ADDRESS`. Soft-deactivated facilities are not re-selected unless they reappear in
-a later import. Public provenance publication is controlled separately
-(DATA-WP-11).
+a later import. **DATA-WP-14** reconciles same-source provenance on successful
+ingest: when OSM no longer supplies a valid name-bearing selection, stale `NAME`
+provenance is withdrawn in the same per-facility transaction. Public provenance
+publication is controlled separately (DATA-WP-11).
 
-See [DATA-WP-13 engineering specification](wp-data-13-engineering-specification.md).
+See [DATA-WP-13 engineering specification](wp-data-13-engineering-specification.md)
+and [DATA-WP-14 engineering specification](wp-data-14-engineering-specification.md).
 
 ## Soft deactivation
 

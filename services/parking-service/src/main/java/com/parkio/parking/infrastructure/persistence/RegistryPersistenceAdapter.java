@@ -240,6 +240,19 @@ public class RegistryPersistenceAdapter implements RegistryPersistencePort {
                 .optional();
     }
 
+    @Override
+    public boolean deleteProvenanceIfSourceOwns(UUID facilityId, String fieldName, String sourceKey) {
+        int deleted = jdbc.sql("""
+                DELETE FROM municipal_facility_field_provenance
+                WHERE facility_id=:facility AND field_name=:field AND source_key=:source
+                """)
+                .param("facility", facilityId)
+                .param("field", fieldName)
+                .param("source", sourceKey)
+                .update();
+        return deleted > 0;
+    }
+
     private void moveLink(String sourceKey, String externalId, UUID facilityId, Instant now) {
         jdbc.sql("""
                 UPDATE municipal_facility_source_links link

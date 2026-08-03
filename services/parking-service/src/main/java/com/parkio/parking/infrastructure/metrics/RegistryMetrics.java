@@ -33,10 +33,26 @@ public class RegistryMetrics {
     }
 
     public void provenance(RegistryField field, String outcome) {
+        provenance(field, outcome, "unknown", "ingest-provenance-v1", "select");
+    }
+
+    /**
+     * Bounded provenance ingest/reconcile counter (DATA-WP-10/14).
+     * Allowed tags only: field_name, outcome, source_family, policy_version, operation (+ application).
+     */
+    public void provenance(
+            RegistryField field,
+            String outcome,
+            String sourceFamily,
+            String policyVersion,
+            String operation) {
         registry.counter(
                 "parkio.municipal.registry.provenance",
                 "field_name", field.name(),
-                "outcome", outcome).increment();
+                "outcome", outcome,
+                "source_family", sourceFamily == null ? "unknown" : sourceFamily,
+                "policy_version", policyVersion == null ? "unknown" : policyVersion,
+                "operation", operation == null ? "select" : operation).increment();
     }
 
     public void generationRun(String sourceFamilyPair, String outcome, boolean dryRun) {

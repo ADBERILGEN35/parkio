@@ -83,4 +83,10 @@ public interface RegistryPersistencePort {
             long version) {}
 
     Optional<ProvenanceRow> findProvenance(UUID facilityId, String fieldName);
+
+    /**
+     * DATA-WP-14: hard-delete a provenance row only when owned by {@code sourceKey}.
+     * Returns {@code true} when a row was removed.
+     */
+    boolean deleteProvenanceIfSourceOwns(UUID facilityId, String fieldName, String sourceKey);
 }

@@ -87,6 +87,11 @@ official source text beyond display-safe normalization.
 
 `ATTRIBUTION` provenance unchanged. Address never claimed by OSM.
 
+**DATA-WP-14:** when a later successful OSM ingest selects a fallback (or otherwise
+omits NAME from the supplied set), any previous **same-source** `NAME` provenance
+row is withdrawn in the same facility transaction. Foreign sources are never deleted.
+See [DATA-WP-14](wp-data-14-engineering-specification.md).
+
 ## 7. OSM import integration
 
 Applied during accepted OSM import normalization (`OsmImportApplicationService`):

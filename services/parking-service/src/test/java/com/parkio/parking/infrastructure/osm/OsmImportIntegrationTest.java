@@ -4,12 +4,15 @@ import static org.assertj.core.api.Assertions.assertThat;
 
 import com.parkio.parking.application.MunicipalFacilityQueryService;
 import com.parkio.parking.application.OsmImportApplicationService;
+import com.parkio.parking.application.RegistryPublicationService;
 import com.parkio.parking.application.port.MunicipalFacilityRepository;
 import com.parkio.parking.application.port.MunicipalOccupancySnapshotRepository;
 import com.parkio.parking.externalsource.MunicipalOccupancyFreshness;
 import com.parkio.parking.externalsource.MunicipalSyncRunStatus;
+import com.parkio.parking.presentation.dto.MunicipalFacilityResponse;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.util.UUID;
 import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -53,6 +56,7 @@ class OsmImportIntegrationTest {
 
     @Autowired OsmImportApplicationService importService;
     @Autowired MunicipalFacilityQueryService query;
+    @Autowired RegistryPublicationService publication;
     @Autowired MunicipalFacilityRepository facilities;
     @Autowired MunicipalOccupancySnapshotRepository snapshots;
     @Autowired JdbcTemplate jdbc;
@@ -213,6 +217,208 @@ class OsmImportIntegrationTest {
         assertThat(jdbc.queryForObject(
                 "SELECT COUNT(*) FROM municipal_parking_facilities WHERE active=true", Long.class))
                 .isEqualTo(5);
+    }
+
+    @Test
+    void realNameToFallbackWithdrawsStaleNameProvenanceAndKeepsPublicProjectionClean() throws Exception {
+        var first = importService.importFromConfiguredPath(false);
+        assertThat(first.status()).isEqualTo(MunicipalSyncRunStatus.SUCCESS);
+
+        String externalIdBefore = jdbc.queryForObject(
+                "SELECT external_id FROM municipal_facility_source_links l "
+                        + "JOIN municipal_data_sources d ON d.id=l.source_id "
+                        + "WHERE d.source_key='osm-geofabrik-turkey' AND l.external_id='node/1001'",
+                String.class);
+        assertThat(externalIdBefore).isEqualTo("node/1001");
+        assertThat(jdbc.queryForObject(
+                """
+                SELECT count(*) FROM municipal_facility_field_provenance p
+                JOIN municipal_facility_source_links l ON l.facility_id=p.facility_id
+                WHERE l.external_id='node/1001' AND p.field_name='NAME' AND p.source_key='osm-geofabrik-turkey'
+                """,
+                Long.class)).isEqualTo(1);
+
+        long izumLinksBefore = jdbc.queryForObject(
+                """
+                SELECT count(*) FROM municipal_facility_source_links l
+                JOIN municipal_data_sources d ON d.id=l.source_id
+                WHERE d.source_key='izmir-izum-otoparklar'
+                """,
+                Long.class);
+        long candidatesBefore = jdbc.queryForObject("SELECT count(*) FROM municipal_link_candidates", Long.class);
+        long aliasesBefore = jdbc.queryForObject("SELECT count(*) FROM municipal_facility_aliases", Long.class);
+        long tariffsBefore = jdbc.queryForObject("SELECT count(*) FROM municipal_tariff_rate_bands", Long.class);
+        long occupancyBefore = jdbc.queryForObject("SELECT count(*) FROM municipal_occupancy_snapshots", Long.class);
+
+        // Strip all name-bearing tags from node/1001 → osm-label-v1 neutral/type fallback
+        Path renamed = FIXTURE_DIR.resolve("node1001-fallback.geojson");
+        var mapper = new com.fasterxml.jackson.databind.ObjectMapper();
+        var root = mapper.readTree(Files.readString(FIXTURE_PATH));
+        for (var feature : root.withArray("features")) {
+            if ("node/1001".equals(feature.path("id").asText())) {
+                var props = (com.fasterxml.jackson.databind.node.ObjectNode) feature.get("properties");
+                props.remove("name");
+                props.remove("name:tr");
+                props.remove("official_name");
+                props.remove("short_name");
+                props.remove("operator");
+            }
+        }
+        Files.writeString(renamed, mapper.writeValueAsString(root));
+
+        var second = importService.importPath(renamed, false);
+        assertThat(second.status()).isEqualTo(MunicipalSyncRunStatus.SUCCESS);
+
+        String display = jdbc.queryForObject(
+                "SELECT display_name FROM municipal_parking_facilities f "
+                        + "JOIN municipal_facility_source_links l ON l.facility_id=f.id "
+                        + "WHERE l.external_id='node/1001'",
+                String.class);
+        assertThat(display).isIn("Otopark", "Açık Otopark");
+        assertThat(display).doesNotContain("node/");
+        assertThat(jdbc.queryForObject(
+                """
+                SELECT count(*) FROM municipal_facility_field_provenance p
+                JOIN municipal_facility_source_links l ON l.facility_id=p.facility_id
+                WHERE l.external_id='node/1001' AND p.field_name='NAME'
+                """,
+                Long.class)).isZero();
+        assertThat(jdbc.queryForObject(
+                """
+                SELECT count(*) FROM municipal_facility_field_provenance p
+                JOIN municipal_facility_source_links l ON l.facility_id=p.facility_id
+                WHERE l.external_id='node/1001' AND p.field_name='ATTRIBUTION'
+                """,
+                Long.class)).isEqualTo(1);
+        assertThat(jdbc.queryForObject(
+                "SELECT external_id FROM municipal_facility_source_links WHERE external_id='node/1001'",
+                String.class)).isEqualTo(externalIdBefore);
+
+        long nameProvAfterSecond = jdbc.queryForObject(
+                """
+                SELECT count(*) FROM municipal_facility_field_provenance p
+                JOIN municipal_facility_source_links l ON l.facility_id=p.facility_id
+                WHERE l.external_id='node/1001' AND p.field_name='NAME'
+                """,
+                Long.class);
+        long provTotalAfterSecond = jdbc.queryForObject(
+                "SELECT count(*) FROM municipal_facility_field_provenance", Long.class);
+
+        var third = importService.importPath(renamed, false);
+        assertThat(third.status()).isEqualTo(MunicipalSyncRunStatus.SUCCESS);
+        assertThat(third.inserted()).isZero();
+        assertThat(third.deactivated()).isZero();
+        assertThat(jdbc.queryForObject(
+                """
+                SELECT count(*) FROM municipal_facility_field_provenance p
+                JOIN municipal_facility_source_links l ON l.facility_id=p.facility_id
+                WHERE l.external_id='node/1001' AND p.field_name='NAME'
+                """,
+                Long.class)).isEqualTo(nameProvAfterSecond);
+        assertThat(jdbc.queryForObject(
+                "SELECT count(*) FROM municipal_facility_field_provenance", Long.class))
+                .isEqualTo(provTotalAfterSecond);
+
+        var nearbyView = query.nearby(38.4187, 27.1283, 500, 20).stream()
+                .filter(f -> "node/1001".equals(resolveExternalId(f.id())))
+                .findFirst();
+        assertThat(nearbyView).isPresent();
+        MunicipalFacilityResponse nearbyDto = MunicipalFacilityResponse.from(
+                nearbyView.get(), publication.forFacility(nearbyView.get().id()));
+        assertThat(nearbyDto.availableSpaces()).isNull();
+        assertThat(nearbyDto.freshness()).isEqualTo(MunicipalOccupancyFreshness.UNAVAILABLE);
+        assertThat(nearbyDto.selectedFieldProvenanceSummary()).doesNotContainKey("NAME");
+        assertThat(nearbyDto.selectedFieldProvenanceSummary()).containsKey("ATTRIBUTION");
+        assertThat(nearbyDto.contributingSourceKeys()).contains("osm-geofabrik-turkey");
+
+        MunicipalFacilityResponse detail = MunicipalFacilityResponse.from(
+                query.findById(nearbyView.get().id()).orElseThrow(),
+                publication.forFacility(nearbyView.get().id()));
+        assertThat(detail.displayName()).isEqualTo(display);
+        assertThat(detail.selectedFieldProvenanceSummary()).doesNotContainKey("NAME");
+        assertThat(detail.registryConfidenceOrReviewStatus()).isNull();
+
+        // Real-name row still keeps NAME when tags remain (way/1001 in same import set if present)
+        assertThat(jdbc.queryForObject(
+                """
+                SELECT count(*) FROM municipal_facility_field_provenance p
+                JOIN municipal_facility_source_links l ON l.facility_id=p.facility_id
+                WHERE l.external_id='way/1001' AND p.field_name='NAME'
+                """,
+                Long.class)).isEqualTo(1);
+
+        assertThat(jdbc.queryForObject("SELECT count(*) FROM municipal_occupancy_snapshots", Long.class))
+                .isEqualTo(occupancyBefore);
+        assertThat(jdbc.queryForObject(
+                """
+                SELECT count(*) FROM municipal_facility_source_links l
+                JOIN municipal_data_sources d ON d.id=l.source_id
+                WHERE d.source_key='izmir-izum-otoparklar'
+                """,
+                Long.class)).isEqualTo(izumLinksBefore);
+        assertThat(jdbc.queryForObject("SELECT count(*) FROM municipal_link_candidates", Long.class))
+                .isEqualTo(candidatesBefore);
+        assertThat(jdbc.queryForObject("SELECT count(*) FROM municipal_facility_aliases", Long.class))
+                .isEqualTo(aliasesBefore);
+        assertThat(jdbc.queryForObject("SELECT count(*) FROM municipal_tariff_rate_bands", Long.class))
+                .isEqualTo(tariffsBefore);
+    }
+
+    private String resolveExternalId(UUID facilityId) {
+        return jdbc.query(
+                "SELECT external_id FROM municipal_facility_source_links WHERE facility_id=?",
+                rs -> rs.next() ? rs.getString(1) : null,
+                facilityId);
+    }
+
+    @Test
+    void seededStaleNameRowsAreCleanedByCompleteReimport() throws Exception {
+        var first = importService.importFromConfiguredPath(false);
+        assertThat(first.status()).isEqualTo(MunicipalSyncRunStatus.SUCCESS);
+
+        // Simulate hosted-beta stale pattern on a fallback-labelled facility (relation/3003)
+        UUID facilityId = jdbc.queryForObject(
+                "SELECT facility_id FROM municipal_facility_source_links WHERE external_id='relation/3003'",
+                UUID.class);
+        assertThat(facilityId).isNotNull();
+        assertThat(jdbc.queryForObject(
+                "SELECT display_name FROM municipal_parking_facilities WHERE id=?",
+                String.class,
+                facilityId)).isEqualTo("Açık Otopark");
+        jdbc.update("""
+                INSERT INTO municipal_facility_field_provenance (
+                    id, facility_id, field_name, source_key, source_record_id, source_content_ts, fetch_ts,
+                    source_age_class, confidence_or_review_state, selection_reason, last_selected_at, version)
+                VALUES (
+                    'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaa1', ?, 'NAME', 'osm-geofabrik-turkey', 'relation/3003',
+                    NULL, NOW(), 'CURRENT', 'SELECTED', 'ingest_osm_import', NOW(), 0)
+                ON CONFLICT (facility_id, field_name) DO UPDATE SET
+                    source_key=EXCLUDED.source_key, source_record_id=EXCLUDED.source_record_id,
+                    version=municipal_facility_field_provenance.version+1
+                """,
+                facilityId);
+        assertThat(jdbc.queryForObject(
+                "SELECT count(*) FROM municipal_facility_field_provenance WHERE facility_id=? AND field_name='NAME'",
+                Long.class,
+                facilityId)).isEqualTo(1);
+
+        var cleaned = importService.importFromConfiguredPath(false);
+        assertThat(cleaned.status()).isEqualTo(MunicipalSyncRunStatus.SUCCESS);
+        assertThat(jdbc.queryForObject(
+                "SELECT count(*) FROM municipal_facility_field_provenance WHERE facility_id=? AND field_name='NAME'",
+                Long.class,
+                facilityId)).isZero();
+        assertThat(jdbc.queryForObject(
+                "SELECT display_name FROM municipal_parking_facilities WHERE id=?",
+                String.class,
+                facilityId)).isEqualTo("Açık Otopark");
+
+        var again = importService.importFromConfiguredPath(false);
+        assertThat(again.status()).isEqualTo(MunicipalSyncRunStatus.SUCCESS);
+        assertThat(jdbc.queryForObject(
+                "SELECT count(*) FROM municipal_facility_field_provenance WHERE facility_id=? AND field_name='NAME'",
+                Long.class,
+                facilityId)).isZero();
     }
 
     @Test

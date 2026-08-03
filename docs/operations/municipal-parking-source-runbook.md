@@ -37,7 +37,8 @@ Freshness thresholds live on the seeded source row (aging 300s, stale 900s), not
    (DATA-WP-10). Nearby/detail provenance DTO fields are published when publication is
    true (DATA-WP-11 canonical default); set publication false to restore null fields.
 7. Historical provenance backfill is **not** provided — re-run sync/import instead of guessing
-   field ownership from `primary_source_key`.
+   field ownership from `primary_source_key`. Successful re-ingest also withdraws same-source
+   stale selections (DATA-WP-14).
 
 ## Scheduler
 
@@ -189,13 +190,18 @@ Convert osmium GeoJSON → Parkio `osm-parking-geojson-v1` (preserve `osmType`/`
 
 Also set `local-input-path` / `allowed-input-dir` (`PARKIO_MUNICIPAL_OSM_LOCAL_INPUT_PATH`, `PARKIO_MUNICIPAL_OSM_ALLOWED_INPUT_DIR`).
 
-### Display labels (DATA-WP-13)
+### Display labels (DATA-WP-13) and provenance reconciliation (DATA-WP-14)
 
 Under `osm-label-v1`, public `displayName` prefers validated OSM name tags, then
 readable operator/brand/type/neutral Turkish fallbacks. External IDs and source
 links are unchanged. Roll back with `label-policy=legacy` + reimport. Does **not**
 change ranking, linking, availability, or duplicate-presentation. See
 `docs/architecture/wp-data-13-engineering-specification.md`.
+
+Complete successful OSM reimport also reconciles same-source provenance
+(DATA-WP-14): fallback-only labels withdraw stale `NAME` rows. Use reimport for
+hosted-beta cleanup of known stale selections — no mass-delete job. See
+`docs/architecture/wp-data-14-engineering-specification.md`.
 
 Azure hosted-beta: these env keys are mapped in `docker/docker-compose.azure-hosted-beta.yml` and must be present in `docker/.env.azure-hosted-beta`. Values in the env file alone do not reach the container without that Compose mapping. Ops GeoJSON is mounted read-only from `/opt/parkio/ops/data-wp-02b`.
 

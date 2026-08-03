@@ -54,6 +54,9 @@ Same as public publication allow-list:
 - Soft-deactivation still runs only after a complete successful import (unchanged).
 - Existing provenance with a **different** `source_key` -> skip (`skipped_other_source`).
 - Same source + same `source_record_id` -> unchanged (no row growth).
+- **DATA-WP-14:** allow-listed fields absent from the current supplied set, previously
+  owned by this source -> hard-delete (`withdrawn_stale`). Blank/ambiguous ownership
+  -> `skipped_ambiguous` (no delete).
 - Failed upstream IZUM fetch does not add provenance; prior successful facilities keep theirs.
 
 ## 7. Backfill
@@ -77,7 +80,12 @@ These flags are independent. Ingest write does not enable publication.
 
 ## 9. Metrics
 
-`parkio.municipal.registry.provenance` labels: `field_name`, `outcome`
+`parkio.municipal.registry.provenance` labels: `field_name`, `outcome`,
+`source_family`, `policy_version`, `operation`
+
+Outcomes include DATA-WP-14 `withdrawn_stale`, `skipped_ambiguous`, `failed`
+(plus existing `selected` / `updated` / `unchanged` / `skipped_other_source` /
+`skipped_disabled`).
 
 Outcomes: `selected`, `updated`, `unchanged`, `skipped_other_source`, `skipped_disabled`
 
