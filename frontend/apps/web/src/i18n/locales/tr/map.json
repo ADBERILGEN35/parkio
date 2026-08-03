@@ -108,6 +108,26 @@
     "spacesAvailable": "{{available}} boş / {{capacity}} kapasite",
     "capacityOnly": "{{capacity}} kapasite",
     "provenance": "Alan kaynağı",
+    "viewFacilityDetails": "Tesis detayını gör",
+    "facilityTypeLabel": "Tesis türü",
+    "freshnessLabel": "Tazelik",
+    "capacity": "Kapasite",
+    "coordinates": "Koordinatlar",
+    "lastUpdated": "Son güncelleme",
+    "facilityType": {
+      "onStreet": "Cadde üzeri",
+      "offStreet": "Kapalı / alan",
+      "unknown": "Bilinmiyor"
+    },
+    "detail": {
+      "backToMap": "Haritaya dön",
+      "disabledTitle": "Belediye tesisleri kullanılamıyor",
+      "disabledDescription": "Belediye otopark keşfi bu derlemede kapalı.",
+      "invalidIdTitle": "Geçersiz tesis bağlantısı",
+      "invalidIdDescription": "Bu tesis URL’si geçerli değil. Haritaya dönüp bir belediye tesisi seçin.",
+      "notFoundTitle": "Tesis bulunamadı",
+      "notFoundDescription": "Bu bağlantı için belediye otopark tesisi yok."
+    },
     "freshness": {
       "live": "Canlı müsaitlik",
       "aging": "Eskiyen müsaitlik",

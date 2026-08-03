@@ -51,6 +51,11 @@ vi.mock('@/pages/SpotDetailPage', () => ({
     <span data-testid="lazy-route-marker">spot-detail-page</span>
   ),
 }));
+vi.mock('@/pages/MunicipalFacilityDetailPage', () => ({
+  MunicipalFacilityDetailPage: () => (
+    <span data-testid="lazy-route-marker">facility-detail-page</span>
+  ),
+}));
 vi.mock('@/pages/MySpotsPage', () => ({
   MySpotsPage: () => (
     <span data-testid="lazy-route-marker">my-spots-page</span>
@@ -144,6 +149,7 @@ const EXPECTED_COMPONENT_KEYS = {
   [ROUTE_IDS.APPLICATION_SHELL]: ROUTE_COMPONENT_KEYS.APPLICATION_SHELL,
   [ROUTE_IDS.MAP]: ROUTE_COMPONENT_KEYS.MAP_PAGE,
   [ROUTE_IDS.SPOT_DETAIL]: ROUTE_COMPONENT_KEYS.SPOT_DETAIL_PAGE,
+  [ROUTE_IDS.FACILITY_DETAIL]: ROUTE_COMPONENT_KEYS.FACILITY_DETAIL_PAGE,
   [ROUTE_IDS.MY_SPOTS]: ROUTE_COMPONENT_KEYS.MY_SPOTS_PAGE,
   [ROUTE_IDS.UPLOAD]: ROUTE_COMPONENT_KEYS.UPLOAD_PAGE,
   [ROUTE_IDS.PROFILE]: ROUTE_COMPONENT_KEYS.PROFILE_PAGE,
@@ -193,6 +199,7 @@ const EXPECTED_EAGER_COMPONENTS: Partial<
 const EXPECTED_LAZY_MARKERS: Partial<Record<RouteComponentKey, string>> = {
   [ROUTE_COMPONENT_KEYS.MAP_PAGE]: 'map-page',
   [ROUTE_COMPONENT_KEYS.SPOT_DETAIL_PAGE]: 'spot-detail-page',
+  [ROUTE_COMPONENT_KEYS.FACILITY_DETAIL_PAGE]: 'facility-detail-page',
   [ROUTE_COMPONENT_KEYS.MY_SPOTS_PAGE]: 'my-spots-page',
   [ROUTE_COMPONENT_KEYS.UPLOAD_PAGE]: 'upload-page',
   [ROUTE_COMPONENT_KEYS.PROFILE_PAGE]: 'profile-page',

@@ -94,6 +94,11 @@ export const ROUTE_ELEMENT_REGISTRY: Readonly<
       default: module.SpotDetailPage,
     })),
   ),
+  [ROUTE_COMPONENT_KEYS.FACILITY_DETAIL_PAGE]: lazyComponent(() =>
+    import('@/pages/MunicipalFacilityDetailPage').then((module) => ({
+      default: module.MunicipalFacilityDetailPage,
+    })),
+  ),
   [ROUTE_COMPONENT_KEYS.MY_SPOTS_PAGE]: lazyComponent(() =>
     import('@/pages/MySpotsPage').then((module) => ({
       default: module.MySpotsPage,

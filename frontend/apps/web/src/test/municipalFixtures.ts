@@ -1,19 +1,17 @@
 import type { MunicipalFacility } from '@parkio/types';
 
-/** Fixture matching `MunicipalFacilityResponse` for WEB-MUNI-01 tests. */
+/** Fixture matching `MunicipalFacilityResponse` for WEB-MUNI tests. */
 export function makeMunicipalFacility(
-  overrides: Partial<MunicipalFacility> &
-    Pick<MunicipalFacility, 'id' | 'latitude' | 'longitude'> = {
-    id: '70db58f2-4cca-4010-9315-fa46b30fba1e',
-    latitude: 38.4237,
-    longitude: 27.1428,
-  },
+  overrides: Partial<MunicipalFacility> = {},
 ): MunicipalFacility {
   return {
+    id: '70db58f2-4cca-4010-9315-fa46b30fba1e',
     displayName: 'Konak Otopark',
     operatorName: null,
     facilityType: 'OFF_STREET',
     addressText: 'Konak, İzmir',
+    latitude: 38.4237,
+    longitude: 27.1428,
     capacityTotal: 120,
     availableSpaces: null,
     freshness: 'UNAVAILABLE',

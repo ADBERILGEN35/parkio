@@ -37,4 +37,15 @@ describe('SelectedMunicipalFacilityPreview', () => {
     expect(screen.queryByText(/claim/i)).not.toBeInTheDocument();
     expect(screen.queryByText(/View spot details/i)).not.toBeInTheDocument();
   });
+
+  it('links to the dedicated municipal facility detail route', () => {
+    const facility = makeMunicipalFacility();
+    renderWithProviders(
+      <SelectedMunicipalFacilityPreview facility={facility} onClose={() => undefined} />,
+    );
+    expect(screen.getByTestId('municipal-facility-view-details')).toHaveAttribute(
+      'href',
+      `/facilities/${facility.id}`,
+    );
+  });
 });

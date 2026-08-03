@@ -2,8 +2,8 @@
 
 **Program:** WEB-MUNI (productization)  
 **Package:** WEB-MUNI-01  
-**Status:** Implementation complete — **WEB-MUNI-01A not started**  
-**Scope:** Web discovery only. No backend mutation. No mobile. No deploy in this package.
+**Status:** Implementation + hosted-beta leave-on complete (**WEB-MUNI-01 / 01A CLOSED**)  
+**Scope:** Web discovery only. No backend mutation. No mobile.
 
 ## Goal
 
@@ -18,6 +18,7 @@ Expose existing municipal parking facilities (`GET /api/v1/parking/facilities/ne
 - Local demo: set `VITE_WEB_MUNICIPAL_DISCOVERY_ENABLED=true` in `apps/web/.env`
 - Hosted-beta: enable **only** during WEB-MUNI-01A build/deploy
 - Production: must remain **false**
+- Detail route `/facilities/:facilityId` (WEB-MUNI-02) reuses this flag — when off, the route shows a disabled empty state and does not call facilities APIs
 
 ## Behaviour when enabled
 
@@ -59,7 +60,7 @@ Production builds must omit the flag or set it to `false`.
 - [x] No backend / migration / linking / İZELMAN changes
 - [x] Unit + MapPage integration tests
 - [x] Playwright smoke for flag-off default
-- [ ] WEB-MUNI-01A hosted-beta gate (not started)
+- [x] WEB-MUNI-01A hosted-beta leave-on (`VITE_WEB_MUNICIPAL_DISCOVERY_ENABLED=true`)
 
 ## Remaining limitations
 

@@ -108,6 +108,26 @@
     "spacesAvailable": "{{available}} open / {{capacity}} spaces",
     "capacityOnly": "{{capacity}} spaces",
     "provenance": "Field provenance",
+    "viewFacilityDetails": "View facility details",
+    "facilityTypeLabel": "Facility type",
+    "freshnessLabel": "Freshness",
+    "capacity": "Capacity",
+    "coordinates": "Coordinates",
+    "lastUpdated": "Last updated",
+    "facilityType": {
+      "onStreet": "On-street",
+      "offStreet": "Off-street",
+      "unknown": "Unknown"
+    },
+    "detail": {
+      "backToMap": "Back to map",
+      "disabledTitle": "Municipal facilities unavailable",
+      "disabledDescription": "Municipal parking discovery is turned off in this build.",
+      "invalidIdTitle": "Invalid facility link",
+      "invalidIdDescription": "This facility URL is not valid. Return to the map and select a municipal facility.",
+      "notFoundTitle": "Facility not found",
+      "notFoundDescription": "No municipal parking facility exists for this link."
+    },
     "freshness": {
       "live": "Live availability",
       "aging": "Aging availability",

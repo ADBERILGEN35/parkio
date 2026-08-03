@@ -1,6 +1,7 @@
 import type { MunicipalFacility, MunicipalOccupancyFreshness } from '@parkio/types';
 import { Icon, IconButton, SoftBadge, cn } from '@parkio/ui';
 import { useTranslation } from 'react-i18next';
+import { Link } from 'react-router-dom';
 import { formatDistance } from '@/lib/spotDiscovery';
 
 export interface SelectedMunicipalFacilityPreviewProps {
@@ -164,6 +165,15 @@ export function SelectedMunicipalFacilityPreview({
           ) : null}
         </div>
       </div>
+
+      <Link
+        to={`/facilities/${facility.id}`}
+        data-testid="municipal-facility-view-details"
+        className="mt-md inline-flex w-full items-center justify-center gap-xs rounded-full bg-secondary px-lg py-md text-label-md font-semibold text-on-secondary no-underline shadow-md transition-colors hover:bg-secondary-container focus:outline-none focus-visible:ring-4 focus-visible:ring-secondary/30"
+      >
+        <Icon name="arrow_forward" className="text-[18px] leading-none" />
+        {t('municipal.viewFacilityDetails')}
+      </Link>
     </div>
   );
 }

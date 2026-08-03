@@ -68,6 +68,7 @@ describe('canonical route inventory', () => {
       '/preparing',
       '/map',
       '/spots/:spotId',
+      '/facilities/:facilityId',
       '/my-spots',
       '/upload',
       '/profile',
@@ -280,6 +281,8 @@ describe('canonical route inventory', () => {
       ['/map', 'titles.map'],
       [`/spots/${validUuid}`, 'titles.spotDetails'],
       ['/spots/not-a-uuid', 'titles.spotDetails'],
+      [`/facilities/${validUuid}`, 'titles.facilityDetails'],
+      ['/facilities/not-a-uuid', 'titles.facilityDetails'],
       ['/my-spots', 'titles.mySpots'],
       ['/upload', 'titles.upload'],
       ['/profile', 'titles.profile'],
@@ -611,6 +614,7 @@ describe('derived route classifications', () => {
       ROUTE_IDS.PREPARING,
       ROUTE_IDS.MAP,
       ROUTE_IDS.SPOT_DETAIL,
+      ROUTE_IDS.FACILITY_DETAIL,
       ROUTE_IDS.MY_SPOTS,
       ROUTE_IDS.UPLOAD,
       ROUTE_IDS.PROFILE,
@@ -657,7 +661,7 @@ describe('manifest snapshot', () => {
 
     expect(projection).toMatchInlineSnapshot(`
       {
-        "fingerprint": "ec6a749f",
+        "fingerprint": "d6aac4d7",
         "graph": [
           "routing.root|root|pathless",
           "auth.login|routing.root|/login",
@@ -675,6 +679,7 @@ describe('manifest snapshot', () => {
           "shell.application|routing.protected|pathless",
           "app.map|shell.application|/map",
           "app.spot-detail|shell.application|/spots/:spotId",
+          "app.facility-detail|shell.application|/facilities/:facilityId",
           "app.my-spots|shell.application|/my-spots",
           "app.upload|shell.application|/upload",
           "app.profile|shell.application|/profile",
@@ -697,7 +702,7 @@ describe('manifest snapshot', () => {
           "admin.system|shell.admin|system",
           "routing.not-found|routing.root|*",
         ],
-        "total": 37,
+        "total": 38,
       }
     `);
   });
