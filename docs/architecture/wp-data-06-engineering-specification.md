@@ -203,6 +203,7 @@ Prometheus:
   `secondsSinceSuccess`, `latestRunStatus`.
 - Alerting via Prometheus/Alertmanager — not by failing liveness.
 - **DATA-WP-16:** source-mode-aware SLA — OPERATOR_IMPORTED (OSM) does not page on age alone
+- **DATA-WP-17:** source-level occupancy freshness uses occupancy authority (İZUM observations only; OSM/İZELMAN always UNAVAILABLE) — never sync/import success age
   when `parkio.municipal.ops.source-mode-sla-enabled=true`. See
   [wp-data-16-engineering-specification.md](wp-data-16-engineering-specification.md).
 - Document how to read `/actuator/health` details in the runbook.

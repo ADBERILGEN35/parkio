@@ -22,7 +22,9 @@ aggregate coverage and freshness facts from persisted registry state:
 The report reuses **DATA-WP-06** source-health/SLA evaluation (`MunicipalSourceHealthService`)
 and **DATA-WP-13** label outcomes stored in `source_metadata_json`. With **DATA-WP-16**
 enabled, OSM `OPERATOR_IMPORTED` mode no longer maps old successful imports to CRITICAL
-from age alone; additive `sourceMode` appears on each source summary. It emits **no** global
+from age alone; additive `sourceMode` appears on each source summary. **DATA-WP-17**
+aligns source-summary `occupancyFreshness` with occupancy authority (OSM always
+`UNAVAILABLE`; İZUM from latest occupancy observation). It emits **no** global
 quality score, trust score, linking readiness, or production-readiness verdict.
 
 No Flyway migration. No frontend. No İZELMAN publication change. Disabled by default; HTTP
@@ -36,7 +38,8 @@ No Flyway migration. No frontend. No İZELMAN publication change. Disabled by de
 - Coverage metrics with explicit numerators/denominators; `null` percentage when
   denominator is zero.
 - Reuse WP-06 operational SLA snapshot (consecutive failures, seconds since success,
-  stale RUNNING, occupancy freshness) without duplicating evaluation logic.
+  stale RUNNING) without duplicating evaluation logic. Occupancy freshness on the
+  snapshot follows **DATA-WP-17** authority (not sync/import age).
 - OSM label-outcome histogram from `source_metadata_json.labelOutcome` on active links.
 - İZUM occupancy freshness buckets from latest snapshot per active facility.
 - Integrity guardrail counters (duplicate links/provenance, link-candidate depth, etc.).

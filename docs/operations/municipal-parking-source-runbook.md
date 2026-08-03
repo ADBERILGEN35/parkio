@@ -48,7 +48,12 @@ Enable only after soak:
 `parkio.municipal.izum.scheduler-enabled=true`  
 Cadence: `fixed-delay-ms` default **120000** (2 minutes). Job is gated by municipal.enabled + izum.enabled + izum.scheduler-enabled. Unique RUNNING lock prevents overlap.
 
-## Source health / SLA (DATA-WP-06 + DATA-WP-16)
+## Source health / SLA (DATA-WP-06 + DATA-WP-16 + DATA-WP-17)
+
+Operational SLA (consecutive failures, seconds-since-success, stale RUNNING) is separate from
+**occupancy freshness**. DATA-WP-17: OSM source-level `occupancyFreshness` is always
+`UNAVAILABLE` (no occupancy authority). İZUM freshness comes from the latest occupancy
+observation. OSM `HEALTHY` + `UNAVAILABLE` is a valid leave-on combination.
 
 Operational SLA is **not** the same as occupancy freshness:
 

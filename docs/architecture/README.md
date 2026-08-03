@@ -211,6 +211,7 @@ See [Known Issues](../releases/KNOWN-ISSUES.md) for the current blocker list.
   - No migration / DTO / label-precedence change; DATA-WP-14A hosted-beta gate: complete.
 - [DATA-WP-15 municipal source quality and coverage report API](wp-data-15-engineering-specification.md)
 - [DATA-WP-16 source-mode-aware municipal SLA for operator imports](wp-data-16-engineering-specification.md)
+- [DATA-WP-17 source-level availability semantics alignment](wp-data-17-engineering-specification.md)
   - Read-only ADMIN/SUPER_ADMIN aggregates; kill-switch default **false**; reuses WP-06 health + WP-13 label outcomes.
   - No score, linking, İZELMAN pub, migration, or frontend; DATA-WP-15A leave-on gate: not started.
 - [DATA-WP-08 İzmir administrative-boundary clip](wp-data-08-engineering-specification.md)

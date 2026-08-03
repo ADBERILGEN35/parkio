@@ -239,6 +239,28 @@ class MunicipalQualityReportPostgresIT {
     }
 
     @Test
+    void sourceLevelOccupancyFreshnessFollowsAuthorityNotSyncAge() {
+        MunicipalQualityReport report = service.overallReport();
+        SourceQualitySummary osm = summary(report, MunicipalSourceIdentity.OSM);
+        SourceQualitySummary izum = summary(report, MunicipalSourceIdentity.IZUM);
+
+        // OSM has successful import history age, but never contributes occupancy.
+        assertThat(osm.occupancyFreshness()).isEqualTo("UNAVAILABLE");
+        assertThat(report.osm().occupancySnapshotCount()).isZero();
+        assertThat(report.osm().nullAvailabilityCoverage().numerator())
+                .isEqualTo(ACTIVE_OSM_FACILITIES);
+
+        // İZUM source freshness follows the newest occupancy observation (LIVE fixture).
+        assertThat(izum.occupancyFreshness()).isEqualTo("LIVE");
+        assertThat(report.izum().liveCoverage().numerator()).isEqualTo(2L);
+        assertThat(report.izum().staleCoverage().numerator()).isEqualTo(1L);
+
+        // Operational state remains independent of occupancy freshness.
+        assertThat(osm.operationalState()).isNotEqualTo("UNKNOWN");
+        assertThat(izum.operationalState()).isNotEqualTo("UNKNOWN");
+    }
+
+    @Test
     void osmSectionMirrorsTheConfiguredLabelAndClipPolicy() {
         OsmQualitySection osm = service.overallReport().osm();
 

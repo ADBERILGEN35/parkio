@@ -1,8 +1,10 @@
 package com.parkio.parking.application;
 
 import com.parkio.parking.application.port.MunicipalDataSourceRepository;
+import com.parkio.parking.application.port.MunicipalOccupancySnapshotRepository;
 import com.parkio.parking.application.port.MunicipalSourceSyncRunRepository;
 import com.parkio.parking.externalsource.MunicipalOccupancyFreshness;
+import com.parkio.parking.externalsource.MunicipalSourceOccupancyAuthorityPolicy;
 import com.parkio.parking.externalsource.MunicipalSourceOperatingMode;
 import com.parkio.parking.externalsource.MunicipalSourceOperationalState;
 import com.parkio.parking.infrastructure.config.MunicipalSourceProperties;
@@ -40,6 +42,8 @@ public class MunicipalSourceHealthService {
 
     private final MunicipalDataSourceRepository sources;
     private final MunicipalSourceSyncRunRepository runs;
+    private final MunicipalOccupancySnapshotRepository occupancySnapshots;
+    private final MunicipalSourceOccupancyAuthorityPolicy occupancyAuthority;
     private final Clock clock;
     private final MunicipalSourceSlaPolicy.Thresholds thresholds;
     private final MunicipalSourceProperties properties;
@@ -51,6 +55,7 @@ public class MunicipalSourceHealthService {
     public MunicipalSourceHealthService(
             MunicipalDataSourceRepository sources,
             MunicipalSourceSyncRunRepository runs,
+            MunicipalOccupancySnapshotRepository occupancySnapshots,
             Clock clock,
             MunicipalSourceSlaPolicy.Thresholds thresholds,
             MunicipalSourceProperties properties,
@@ -60,6 +65,8 @@ public class MunicipalSourceHealthService {
             String izumSourceKey) {
         this.sources = sources;
         this.runs = runs;
+        this.occupancySnapshots = occupancySnapshots;
+        this.occupancyAuthority = new MunicipalSourceOccupancyAuthorityPolicy();
         this.clock = clock;
         this.thresholds = thresholds;
         this.properties = properties;
@@ -161,11 +168,8 @@ public class MunicipalSourceHealthService {
                 now,
                 thresholds);
 
-        MunicipalOccupancyFreshness freshness = MunicipalSourceSlaPolicy.occupancyFreshness(
-                lastSuccess,
-                now,
-                value.agingAfterSeconds(),
-                value.staleAfterSeconds());
+        MunicipalOccupancyFreshness freshness = resolveOccupancyFreshness(
+                sourceKey, value.id(), value.agingAfterSeconds(), value.staleAfterSeconds(), now);
 
         return new Snapshot(
                 sourceKey,
@@ -177,5 +181,30 @@ public class MunicipalSourceHealthService {
                 freshness,
                 value.agingAfterSeconds(),
                 value.staleAfterSeconds());
+    }
+
+    private MunicipalOccupancyFreshness resolveOccupancyFreshness(
+            String sourceKey,
+            java.util.UUID sourceId,
+            long agingAfterSeconds,
+            long staleAfterSeconds,
+            Instant now) {
+        if (!occupancyAuthority.mayContributeOccupancy(sourceKey)) {
+            return MunicipalOccupancyFreshness.UNAVAILABLE;
+        }
+        Optional<MunicipalOccupancySnapshotRepository.Snapshot> latest =
+                occupancySnapshots.latestForSource(sourceId);
+        if (latest.isEmpty()) {
+            return MunicipalOccupancyFreshness.UNAVAILABLE;
+        }
+        MunicipalOccupancySnapshotRepository.Snapshot observation = latest.get();
+        return occupancyAuthority.classify(
+                sourceKey,
+                observation.fetchedAt(),
+                observation.sourceAgeSeconds(),
+                observation.valid(),
+                agingAfterSeconds,
+                staleAfterSeconds,
+                now);
     }
 }

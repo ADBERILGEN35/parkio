@@ -2,11 +2,12 @@ package com.parkio.parking.application.quality;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
+import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyBoolean;
 import static org.mockito.ArgumentMatchers.anyInt;
 import static org.mockito.ArgumentMatchers.anyLong;
 import static org.mockito.ArgumentMatchers.anyString;
-import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.times;
@@ -654,17 +655,43 @@ class MunicipalQualityReportServiceTest {
 
     @Test
     void summaryMirrorsTheHealthSnapshotSlaFacts() {
-        SourceQualitySummary osm = service.overallReport().sources().get(0);
+        SourceQualitySummary izum = service.overallReport().sources().get(1);
 
-        assertThat(osm.municipalEnabled()).isTrue();
-        assertThat(osm.operationalState()).isEqualTo(MunicipalSourceOperationalState.DEGRADED.name());
-        assertThat(osm.lastRunStatus()).isEqualTo("FAILED");
-        assertThat(osm.consecutiveFailures()).isEqualTo(3);
-        assertThat(osm.failuresInWindow()).isEqualTo(4);
-        assertThat(osm.staleRunningOperations()).isZero();
-        assertThat(osm.lastFailureCategory()).isEqualTo("read_timeout");
-        assertThat(osm.secondsSinceSuccess()).isEqualTo(3600L);
-        assertThat(osm.occupancyFreshness()).isEqualTo(MunicipalOccupancyFreshness.STALE.name());
+        assertThat(izum.municipalEnabled()).isTrue();
+        assertThat(izum.operationalState()).isEqualTo(MunicipalSourceOperationalState.DEGRADED.name());
+        assertThat(izum.lastRunStatus()).isEqualTo("FAILED");
+        assertThat(izum.consecutiveFailures()).isEqualTo(3);
+        assertThat(izum.failuresInWindow()).isEqualTo(4);
+        assertThat(izum.staleRunningOperations()).isZero();
+        assertThat(izum.lastFailureCategory()).isEqualTo("read_timeout");
+        assertThat(izum.secondsSinceSuccess()).isEqualTo(3600L);
+        assertThat(izum.occupancyFreshness()).isEqualTo(MunicipalOccupancyFreshness.STALE.name());
+    }
+
+    @Test
+    void osmHealthyOperationalStateDoesNotImplyLiveOccupancy() {
+        when(healthService.snapshot(eq(MunicipalSourceIdentity.OSM), anyBoolean(), anyBoolean()))
+                .thenReturn(osmHealthyUnavailableSnapshot());
+
+        MunicipalQualityReport report = service.overallReport();
+        SourceQualitySummary osm = report.sources().get(0);
+
+        assertThat(osm.sourceMode()).isEqualTo("OPERATOR_IMPORTED");
+        assertThat(osm.operationalState()).isEqualTo(MunicipalSourceOperationalState.HEALTHY.name());
+        assertThat(osm.occupancyFreshness()).isEqualTo(MunicipalOccupancyFreshness.UNAVAILABLE.name());
+        assertThat(report.osm().occupancySnapshotCount()).isZero();
+        assertThat(report.osm().nullAvailabilityCoverage().numerator()).isEqualTo(6L);
+        assertThat(report.osm().nullAvailabilityCoverage().denominator()).isEqualTo(6L);
+        assertThat(report.osm().nullAvailabilityCoverage().percentage()).isEqualTo(100.0);
+    }
+
+    @Test
+    void izumDetailFreshnessBucketsRemainCanonical() {
+        IzumQualitySection izum = service.overallReport().izum();
+        assertThat(izum.liveCoverage().numerator()).isEqualTo(2L);
+        assertThat(izum.agingCoverage().numerator()).isEqualTo(1L);
+        assertThat(izum.staleCoverage().numerator()).isEqualTo(1L);
+        assertThat(izum.availabilityExposedCoverage().numerator()).isEqualTo(3L);
     }
 
     // ---------------------------------------------------------------- fixtures
@@ -686,8 +713,10 @@ class MunicipalQualityReportServiceTest {
     }
 
     private void stubHealth() {
-        when(healthService.snapshot(anyString(), anyBoolean(), anyBoolean()))
-                .thenAnswer(invocation -> snapshot(invocation.getArgument(0)));
+        when(healthService.snapshot(eq(MunicipalSourceIdentity.OSM), anyBoolean(), anyBoolean()))
+                .thenReturn(osmHealthyUnavailableSnapshot());
+        when(healthService.snapshot(eq(MunicipalSourceIdentity.IZUM), anyBoolean(), anyBoolean()))
+                .thenReturn(izumDegradedSnapshot());
     }
 
     private void stubSources() {
@@ -742,17 +771,36 @@ class MunicipalQualityReportServiceTest {
                 id, sourceKey, "publisher", "attribution", aging, stale, NOW.minusSeconds(3600), true);
     }
 
-    private static MunicipalSourceHealthService.Snapshot snapshot(String sourceKey) {
-        com.parkio.parking.externalsource.MunicipalSourceOperatingMode mode =
-                "osm-geofabrik-turkey".equals(sourceKey)
-                        ? com.parkio.parking.externalsource.MunicipalSourceOperatingMode.OPERATOR_IMPORTED
-                        : com.parkio.parking.externalsource.MunicipalSourceOperatingMode.SCHEDULED;
+    private static MunicipalSourceHealthService.Snapshot osmHealthyUnavailableSnapshot() {
         return new MunicipalSourceHealthService.Snapshot(
-                sourceKey,
+                MunicipalSourceIdentity.OSM,
                 true,
                 true,
                 false,
-                mode,
+                com.parkio.parking.externalsource.MunicipalSourceOperatingMode.OPERATOR_IMPORTED,
+                new MunicipalSourceSlaPolicy.Evaluation(
+                        0,
+                        "SUCCESS",
+                        NOW.minusSeconds(7200),
+                        NOW.minusSeconds(7200),
+                        7200L,
+                        null,
+                        0,
+                        0,
+                        MunicipalSourceOperationalState.HEALTHY,
+                        false),
+                MunicipalOccupancyFreshness.UNAVAILABLE,
+                86400L,
+                604800L);
+    }
+
+    private static MunicipalSourceHealthService.Snapshot izumDegradedSnapshot() {
+        return new MunicipalSourceHealthService.Snapshot(
+                MunicipalSourceIdentity.IZUM,
+                true,
+                true,
+                false,
+                com.parkio.parking.externalsource.MunicipalSourceOperatingMode.SCHEDULED,
                 new MunicipalSourceSlaPolicy.Evaluation(
                         3,
                         "FAILED",

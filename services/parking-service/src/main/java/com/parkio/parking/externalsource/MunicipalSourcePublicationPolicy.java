@@ -84,6 +84,15 @@ public final class MunicipalSourcePublicationPolicy {
     }
 
     /**
+     * Source-key form of occupancy authority. Prefer
+     * {@link MunicipalSourceOccupancyAuthorityPolicy} for source-level freshness classification;
+     * this method remains the facility-link publication gate.
+     */
+    public boolean mayContributeOccupancy(String sourceKey) {
+        return MunicipalSourceIdentity.isIzum(sourceKey) && isSourceLinkPublishable(sourceKey);
+    }
+
+    /**
      * Field contribution is independent of facility visibility.
      * IZELMAN inventory fields stay gated while IZELMAN facility publication is false.
      */

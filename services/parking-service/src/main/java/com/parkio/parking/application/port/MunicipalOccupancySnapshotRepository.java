@@ -11,5 +11,9 @@ public interface MunicipalOccupancySnapshotRepository {
     boolean insertIfAbsent(UUID facilityId, UUID sourceId, UUID sourceLinkId,
                            UUID syncRunId, NormalizedMunicipalOccupancy occupancy);
     Optional<Snapshot> latestForFacility(UUID facilityId);
+
+    /** Latest occupancy observation for a municipal source (by {@code fetched_at}). */
+    Optional<Snapshot> latestForSource(UUID sourceId);
+
     long count();
 }

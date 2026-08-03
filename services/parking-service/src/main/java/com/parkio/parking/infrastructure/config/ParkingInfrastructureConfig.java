@@ -62,6 +62,7 @@ public class ParkingInfrastructureConfig {
     public MunicipalSourceHealthService municipalSourceHealthService(
             MunicipalDataSourceRepository sources,
             MunicipalSourceSyncRunRepository runs,
+            MunicipalOccupancySnapshotRepository occupancySnapshots,
             Clock clock,
             MunicipalSourceProperties properties) {
         MunicipalSourceProperties.Sla sla = properties.getSla();
@@ -75,6 +76,7 @@ public class ParkingInfrastructureConfig {
         return new MunicipalSourceHealthService(
                 sources,
                 runs,
+                occupancySnapshots,
                 clock,
                 thresholds,
                 properties,

@@ -105,6 +105,12 @@ class MunicipalSourceModeSlaPostgresIT {
         assertThat(osm.sourceMode()).isEqualTo("OPERATOR_IMPORTED");
         assertThat(osm.operationalState()).isEqualTo("HEALTHY");
         assertThat(osm.secondsSinceSuccess()).isGreaterThanOrEqualTo(7200);
+        assertThat(osm.occupancyFreshness()).isEqualTo("UNAVAILABLE");
+        assertThat(report.osm().occupancySnapshotCount()).isZero();
+        assertThat(report.osm().nullAvailabilityCoverage().numerator())
+                .isEqualTo(report.osm().activeFacilities());
+        assertThat(report.osm().nullAvailabilityCoverage().percentage())
+                .isEqualTo(report.osm().activeFacilities() == 0 ? null : 100.0);
 
         // Read-only: second report does not mutate sync runs.
         long runsBefore = jdbc.queryForObject(

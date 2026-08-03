@@ -195,15 +195,23 @@ public final class MunicipalSourceSlaPolicy {
                 recovered);
     }
 
+    /**
+     * Classifies occupancy observation age into LIVE/AGING/STALE.
+     *
+     * <p><strong>Do not</strong> pass sync/import success timestamps here for source-level
+     * freshness. Source-level occupancy freshness is owned by
+     * {@link com.parkio.parking.externalsource.MunicipalSourceOccupancyAuthorityPolicy}
+     * and must use occupancy snapshot observations (İZUM only).
+     */
     public static MunicipalOccupancyFreshness occupancyFreshness(
-            Instant lastSuccessAt,
+            Instant observationFetchedAt,
             Instant now,
             long agingAfterSeconds,
             long staleAfterSeconds) {
-        if (lastSuccessAt == null) {
+        if (observationFetchedAt == null) {
             return MunicipalOccupancyFreshness.UNAVAILABLE;
         }
-        long age = Math.max(0, Duration.between(lastSuccessAt, now).getSeconds());
+        long age = Math.max(0, Duration.between(observationFetchedAt, now).getSeconds());
         if (age >= staleAfterSeconds) {
             return MunicipalOccupancyFreshness.STALE;
         }

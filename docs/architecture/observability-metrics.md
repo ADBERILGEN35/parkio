@@ -108,7 +108,7 @@ Micrometer component: `MunicipalSourceMetrics`. Labels bounded to `source_key`,
 | `parkio.municipal.source.stale_running_operations` | gauge | RUNNING rows older than SLA stale-running threshold. |
 | `parkio.municipal.source.failures_in_window` | gauge | FAILED runs in the configured failure window. |
 | `parkio.municipal.source.operational_state` | gauge | One-hot operational SLA state; labels `source_key`, `source_mode`, `state` (İZUM + OSM). |
-| `parkio.municipal.source.occupancy_freshness` | gauge | One-hot occupancy freshness label (separate from SLA). |
+| `parkio.municipal.source.occupancy_freshness` | gauge | One-hot occupancy freshness (`source_key`, `source_mode`, `state`). **DATA-WP-17:** OSM/İZELMAN always `UNAVAILABLE`; İZUM from latest occupancy observation — never from sync/import success age. Separate from operational SLA. |
 | `parkio.municipal.source.recoveries` | counter | Success after a non-zero failure streak. |
 | `parkio.municipal.ops.quality_report` | counter | DATA-WP-15; labels: `report_type`, `outcome`, `source_family`, `policy_version` |
 | `parkio.municipal.ops.quality_report.duration` | timer | DATA-WP-15; same bounded tags as quality_report counter |

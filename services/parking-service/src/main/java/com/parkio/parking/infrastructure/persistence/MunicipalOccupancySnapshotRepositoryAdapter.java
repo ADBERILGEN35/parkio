@@ -46,13 +46,31 @@ public class MunicipalOccupancySnapshotRepositoryAdapter implements MunicipalOcc
                 FROM municipal_occupancy_snapshots
                 WHERE facility_id=:facilityId
                 ORDER BY fetched_at DESC LIMIT 1
-                """).param("facilityId", facilityId).query((rs, row) -> {
-                    Timestamp fetched = rs.getTimestamp("fetched_at");
-                    return new Snapshot((Integer) rs.getObject("capacity_total"),
-                            (Integer) rs.getObject("occupied_spaces"), (Integer) rs.getObject("available_spaces"),
-                            fetched == null ? null : fetched.toInstant(),
-                            (Long) rs.getObject("source_age_seconds"), rs.getBoolean("valid"));
-                }).optional();
+                """).param("facilityId", facilityId).query(this::mapSnapshot).optional();
+    }
+
+    @Override
+    public Optional<Snapshot> latestForSource(UUID sourceId) {
+        return jdbc.sql("""
+                SELECT capacity_total,occupied_spaces,available_spaces,fetched_at,
+                       CASE WHEN source_observed_at IS NULL THEN NULL
+                            ELSE GREATEST(0,EXTRACT(EPOCH FROM (fetched_at-source_observed_at)))::bigint END source_age_seconds,
+                       occupancy_status <> 'INVALID' AS valid
+                FROM municipal_occupancy_snapshots
+                WHERE source_id=:sourceId
+                ORDER BY fetched_at DESC LIMIT 1
+                """).param("sourceId", sourceId).query(this::mapSnapshot).optional();
+    }
+
+    private Snapshot mapSnapshot(java.sql.ResultSet rs, int row) throws java.sql.SQLException {
+        Timestamp fetched = rs.getTimestamp("fetched_at");
+        return new Snapshot(
+                (Integer) rs.getObject("capacity_total"),
+                (Integer) rs.getObject("occupied_spaces"),
+                (Integer) rs.getObject("available_spaces"),
+                fetched == null ? null : fetched.toInstant(),
+                (Long) rs.getObject("source_age_seconds"),
+                rs.getBoolean("valid"));
     }
 
     @Override
