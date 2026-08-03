@@ -90,6 +90,32 @@
     "recentlyUpdated": "Yakın zamanda güncellendi",
     "freshness": "Tazelik {{freshness}}"
   },
+  "municipal": {
+    "inventoryLabel": "Belediye otoparkı",
+    "sectionTitle": "Belediye otopark tesisleri",
+    "sectionSubtitle": "Resmi envanter — topluluk noktalarından ayrı",
+    "sectionAria": "Belediye otopark tesisleri",
+    "unnamedFacility": "Belediye otopark tesisi",
+    "markerAria": "Belediye otopark tesisi: {{name}}",
+    "previewAria": "Seçili belediye tesisi: {{name}}",
+    "searchingAria": "Belediye otopark tesisleri aranıyor",
+    "emptyTitle": "Yakında belediye tesisi yok",
+    "emptyDescription": "Bu alanda resmi otopark tesisi bulunamadı. Topluluk noktaları aşağıda görünebilir.",
+    "source": "Kaynak",
+    "operator": "İşletmeci",
+    "availability": "Müsaitlik",
+    "availabilityUnknown": "Canlı müsaitlik yayınlanmıyor",
+    "spacesAvailable": "{{available}} boş / {{capacity}} kapasite",
+    "capacityOnly": "{{capacity}} kapasite",
+    "provenance": "Alan kaynağı",
+    "freshness": {
+      "live": "Canlı müsaitlik",
+      "aging": "Eskiyen müsaitlik",
+      "stale": "Bayat müsaitlik",
+      "unavailable": "Müsaitlik yok",
+      "invalid": "Geçersiz müsaitlik"
+    }
+  },
   "parkingSession": {
     "activeTitle": "Park edildi",
     "activeStatus": "Aktif",

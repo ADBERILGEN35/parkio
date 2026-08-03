@@ -1,11 +1,12 @@
 import './maplibreSetup';
-import type { PublicSpot } from '@parkio/types';
+import type { MunicipalFacility, PublicSpot } from '@parkio/types';
 import { cn, getSpotStatusVisual, getTrustFreshnessVisual } from '@parkio/ui';
 import { memo, useCallback, useMemo } from 'react';
 import { useTranslation } from 'react-i18next';
 import Map, { Marker } from 'react-map-gl/maplibre';
 import { freshnessLabel, spotStatusLabel } from '@/lib/localized-status';
 import { MapFloatingControls } from './MapFloatingControls';
+import { MunicipalFacilityMarker } from './MunicipalFacilityMarker';
 import { ParkedCarFocus } from './ParkedCarFocus';
 import { ParkedCarMarker } from './ParkedCarMarker';
 import { isUsableParkedCoordinate, type ParkedCarFocusRequest } from './parkedCarCoords';
@@ -21,11 +22,16 @@ export interface NearbySpotsMapProps {
   center: LatLng;
   zoom?: number;
   spots: PublicSpot[];
+  /** Municipal facilities — separate inventory; omit or [] when flag off. */
+  municipalFacilities?: MunicipalFacility[];
   onPickCenter: (lat: number, lng: number) => void;
-  /** Currently selected spot id (controlled — the preview card lives outside). */
+  /** Currently selected community spot id (controlled — the preview card lives outside). */
   selectedId?: string | null;
+  /** Currently selected municipal facility id (mutually exclusive in the page). */
+  selectedMunicipalId?: string | null;
   /** Selection changes (marker tap, or `null` when the map background is tapped). */
   onSelectSpot?: (id: string | null) => void;
+  onSelectMunicipalFacility?: (id: string | null) => void;
   height?: number | string;
   onLocate?: () => void;
   locating?: boolean;
@@ -72,6 +78,7 @@ const SpotMarker = memo(function SpotMarker({
       title={label}
       aria-label={label}
       aria-pressed={selected}
+      data-testid="community-spot-marker"
       onClick={(event) => {
         event.stopPropagation();
         onSelect(spot.id);
@@ -102,9 +109,12 @@ export function NearbySpotsMap({
   center,
   zoom = DEFAULT_MAP_ZOOM,
   spots,
+  municipalFacilities = [],
   onPickCenter,
   selectedId = null,
+  selectedMunicipalId = null,
   onSelectSpot,
+  onSelectMunicipalFacility,
   height = 320,
   onLocate,
   locating = false,
@@ -119,6 +129,10 @@ export function NearbySpotsMap({
   // `SpotMarker` only re-renders when *its own* `selected` flag flips. Selecting a
   // spot therefore re-renders two markers (the old + new selection), not all N.
   const handleSelect = useCallback((id: string) => onSelectSpot?.(id), [onSelectSpot]);
+  const handleSelectMunicipal = useCallback(
+    (id: string) => onSelectMunicipalFacility?.(id),
+    [onSelectMunicipalFacility],
+  );
   const handleSelectParkedCar = useCallback(() => onSelectParkedCar?.(), [onSelectParkedCar]);
 
   // Marker geometry/labels change only with the spot set; `selected` styling is a
@@ -126,11 +140,30 @@ export function NearbySpotsMap({
   const markers = useMemo(
     () =>
       spots.map((spot) => (
-        <Marker key={spot.id} longitude={spot.longitude} latitude={spot.latitude} anchor="center">
+        <Marker key={`spot-${spot.id}`} longitude={spot.longitude} latitude={spot.latitude} anchor="center">
           <SpotMarker spot={spot} selected={selectedId === spot.id} onSelect={handleSelect} />
         </Marker>
       )),
     [spots, selectedId, handleSelect],
+  );
+
+  const municipalMarkers = useMemo(
+    () =>
+      municipalFacilities.map((facility) => (
+        <Marker
+          key={`facility-${facility.id}`}
+          longitude={facility.longitude}
+          latitude={facility.latitude}
+          anchor="center"
+        >
+          <MunicipalFacilityMarker
+            facility={facility}
+            selected={selectedMunicipalId === facility.id}
+            onSelect={handleSelectMunicipal}
+          />
+        </Marker>
+      )),
+    [municipalFacilities, selectedMunicipalId, handleSelectMunicipal],
   );
 
   const showParkedCar =
@@ -144,6 +177,7 @@ export function NearbySpotsMap({
       pitchWithRotate={false}
       onClick={(event) => {
         onSelectSpot?.(null);
+        onSelectMunicipalFacility?.(null);
         onPickCenter(event.lngLat.lat, event.lngLat.lng);
       }}
       style={{ height, width: '100%' }}
@@ -164,6 +198,7 @@ export function NearbySpotsMap({
         <span className="pointer-events-none block h-4 w-4 rounded-full border-2 border-white bg-primary/50 shadow-md" />
       </Marker>
 
+      {municipalMarkers}
       {markers}
 
       {showParkedCar ? (

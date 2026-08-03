@@ -9,6 +9,7 @@ import { clearUserSessionQueries } from '@/data/sessionQueryCache';
 import * as toast from '@/lib/toast';
 import { AUTOCOMPLETE_DEBOUNCE_MS } from '@/lib/usePlaceAutocomplete';
 import { API_BASE, apiErrorBody, server } from '@/test/server';
+import { makeMunicipalFacility } from '@/test/municipalFixtures';
 import {
   createTestAppRuntime,
   renderWithProviders as renderWithBaseProviders,
@@ -45,7 +46,9 @@ vi.mock('@/components/map/NearbySpotsMap', () => ({
     center,
     onPickCenter,
     spots = [],
+    municipalFacilities = [],
     onSelectSpot,
+    onSelectMunicipalFacility,
     parkedCar,
     parkedCarSelected,
     onSelectParkedCar,
@@ -54,7 +57,9 @@ vi.mock('@/components/map/NearbySpotsMap', () => ({
     center: { lat: number; lng: number };
     onPickCenter: (lat: number, lng: number) => void;
     spots?: PublicSpot[];
+    municipalFacilities?: { id: string }[];
     onSelectSpot?: (id: string | null) => void;
+    onSelectMunicipalFacility?: (id: string | null) => void;
     parkedCar?: { latitude: number; longitude: number } | null;
     parkedCarSelected?: boolean;
     onSelectParkedCar?: () => void;
@@ -62,12 +67,18 @@ vi.mock('@/components/map/NearbySpotsMap', () => ({
   }) => (
     <div>
       <span data-testid="map-center">{`${center.lat},${center.lng}`}</span>
+      <span data-testid="stub-municipal-count">{municipalFacilities.length}</span>
       <button type="button" onClick={() => onPickCenter(41.5, 29.5)}>
         stub-pick-center
       </button>
       {spots[0] ? (
         <button type="button" onClick={() => onSelectSpot?.(spots[0].id)}>
           stub-select-first-spot
+        </button>
+      ) : null}
+      {municipalFacilities[0] ? (
+        <button type="button" onClick={() => onSelectMunicipalFacility?.(municipalFacilities[0].id)}>
+          stub-select-first-facility
         </button>
       ) : null}
       {parkedCar ? (
@@ -1012,5 +1023,126 @@ describe('MapPage Parking Session (terminal actions)', () => {
     expect(await screen.findByTestId('park-here-start')).toBeInTheDocument();
     expect(screen.queryByTestId('active-parking-session-card')).not.toBeInTheDocument();
     expect(toast.showSuccess).toHaveBeenCalledWith('Parking session cancelled.');
+  });
+});
+
+describe('MapPage municipal discovery (WEB-MUNI-01)', () => {
+  beforeEach(() => {
+    runtime = createTestAppRuntime();
+    signInAs(runtime, ['USER']);
+    server.use(http.get(`${API_BASE}/notifications/me`, () => HttpResponse.json([])));
+    server.use(
+      http.get(`${API_BASE}/users/me/vehicle`, () =>
+        HttpResponse.json({ vehicleType: 'SEDAN', plate: '35PK123' }),
+      ),
+    );
+    server.use(
+      http.get(`${API_BASE}/parking/sessions/active`, () => new HttpResponse(null, { status: 204 })),
+    );
+    server.use(
+      http.get(`${API_BASE}/parking/sessions/lifecycle-config`, () =>
+        HttpResponse.json({
+          confirmAfterMs: 43_200_000,
+          reminderLeadMs: 3_600_000,
+          autoCompleteAfterMs: 86_400_000,
+        }),
+      ),
+    );
+    stubGeolocation(undefined);
+  });
+
+  afterEach(() => {
+    clearUserSessionQueries(runtime.queryClient);
+    resetAuth(runtime);
+  });
+
+  it('does not call facilities API when the feature flag is off', async () => {
+    let facilitiesHits = 0;
+    server.use(
+      http.get(`${API_BASE}/parking/spots/nearby`, () => HttpResponse.json([spot])),
+      http.get(`${API_BASE}/parking/facilities/nearby`, () => {
+        facilitiesHits += 1;
+        return HttpResponse.json([]);
+      }),
+    );
+
+    renderWithProviders(<MapPage municipalDiscoveryEnabled={false} />);
+    const user = userEvent.setup();
+    await openSearchOptions(user);
+    await user.type(screen.getByLabelText('Latitude'), '38.42');
+    await user.type(screen.getByLabelText('Longitude'), '27.14');
+    await user.click(screen.getByRole('button', { name: 'Search nearby' }));
+
+    expect(await screen.findByText('Stub Address 7')).toBeInTheDocument();
+    expect(facilitiesHits).toBe(0);
+    expect(screen.queryByTestId('municipal-facility-results')).not.toBeInTheDocument();
+    expect(screen.getByTestId('stub-municipal-count')).toHaveTextContent('0');
+  });
+
+  it('loads municipal facilities as a separate inventory when enabled', async () => {
+    const facility = makeMunicipalFacility({
+      id: 'fac-map-1',
+      latitude: 38.42,
+      longitude: 27.14,
+      displayName: 'Konak Municipal Lot',
+    });
+
+    server.use(
+      http.get(`${API_BASE}/parking/spots/nearby`, () => HttpResponse.json([spot])),
+      http.get(`${API_BASE}/parking/facilities/nearby`, () => HttpResponse.json([facility])),
+    );
+
+    renderWithProviders(<MapPage municipalDiscoveryEnabled />);
+    const user = userEvent.setup();
+    await openSearchOptions(user);
+    await user.type(screen.getByLabelText('Latitude'), '38.42');
+    await user.type(screen.getByLabelText('Longitude'), '27.14');
+    await user.click(screen.getByRole('button', { name: 'Search nearby' }));
+
+    expect(await screen.findByTestId('municipal-facility-results')).toBeInTheDocument();
+    expect(screen.getByText('Municipal parking facilities')).toBeInTheDocument();
+    expect(screen.getByText('Konak Municipal Lot')).toBeInTheDocument();
+    expect(screen.getByText('Stub Address 7')).toBeInTheDocument();
+    expect(screen.getByTestId('stub-municipal-count')).toHaveTextContent('1');
+
+    await user.click(screen.getByRole('button', { name: 'stub-select-first-facility' }));
+    expect(await screen.findByTestId('selected-municipal-facility-preview')).toBeInTheDocument();
+    expect(screen.getByText('Municipal parking')).toBeInTheDocument();
+  });
+
+  it('shows municipal empty state without hiding community spots', async () => {
+    server.use(
+      http.get(`${API_BASE}/parking/spots/nearby`, () => HttpResponse.json([spot])),
+      http.get(`${API_BASE}/parking/facilities/nearby`, () => HttpResponse.json([])),
+    );
+
+    renderWithProviders(<MapPage municipalDiscoveryEnabled />);
+    const user = userEvent.setup();
+    await openSearchOptions(user);
+    await user.type(screen.getByLabelText('Latitude'), '38.42');
+    await user.type(screen.getByLabelText('Longitude'), '27.14');
+    await user.click(screen.getByRole('button', { name: 'Search nearby' }));
+
+    expect(await screen.findByTestId('municipal-facility-empty')).toBeInTheDocument();
+    expect(screen.getByText('Stub Address 7')).toBeInTheDocument();
+  });
+
+  it('shows municipal error state while community spots still render', async () => {
+    server.use(
+      http.get(`${API_BASE}/parking/spots/nearby`, () => HttpResponse.json([spot])),
+      http.get(`${API_BASE}/parking/facilities/nearby`, () =>
+        HttpResponse.json(apiErrorBody('INTERNAL', 'fail'), { status: 500 }),
+      ),
+    );
+
+    renderWithProviders(<MapPage municipalDiscoveryEnabled />);
+    const user = userEvent.setup();
+    await openSearchOptions(user);
+    await user.type(screen.getByLabelText('Latitude'), '38.42');
+    await user.type(screen.getByLabelText('Longitude'), '27.14');
+    await user.click(screen.getByRole('button', { name: 'Search nearby' }));
+
+    expect(await screen.findByTestId('municipal-facility-error')).toBeInTheDocument();
+    expect(screen.getByText('Stub Address 7')).toBeInTheDocument();
   });
 });

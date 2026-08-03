@@ -13,6 +13,8 @@ interface ImportMetaEnv {
   readonly VITE_MAP_TILE_ATTRIBUTION?: string;
   readonly VITE_FRONTEND_ERROR_REPORTING?: 'disabled' | 'console';
   readonly VITE_SMART_RETURN_ENABLED?: 'true' | 'false';
+  /** WEB-MUNI-01 client flag (`WEB_MUNICIPAL_DISCOVERY_ENABLED`). Default off. */
+  readonly VITE_WEB_MUNICIPAL_DISCOVERY_ENABLED?: 'true' | 'false';
 }
 
 interface ImportMeta {

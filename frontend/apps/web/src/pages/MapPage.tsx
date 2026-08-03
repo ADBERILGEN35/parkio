@@ -16,6 +16,7 @@ import { Link, useSearchParams } from 'react-router-dom';
 import { useAuthStore } from '@/auth/store';
 import { BottomSheet, COLLAPSED_PEEK, type SheetState } from '@/components/map/BottomSheet';
 import { DiscoveryResults } from '@/components/map/DiscoveryResults';
+import { MunicipalFacilityResults } from '@/components/map/MunicipalFacilityResults';
 import {
   DEFAULT_MAP_CENTER,
   DEFAULT_MAP_ZOOM,
@@ -23,6 +24,7 @@ import {
   isValidLatLng,
 } from '@/components/map/mapConfig';
 import { PlaceSearch } from '@/components/map/PlaceSearch';
+import { SelectedMunicipalFacilityPreview } from '@/components/map/SelectedMunicipalFacilityPreview';
 import { SelectedSpotPreview } from '@/components/map/SelectedSpotPreview';
 import type { ParkedCarFocusRequest } from '@/components/map/parkedCarCoords';
 import { isUsableParkedCoordinate } from '@/components/map/parkedCarCoords';
@@ -31,8 +33,12 @@ import {
   ActiveParkingSessionErrorCard,
 } from '@/components/parking/ActiveParkingSessionCard';
 import { ParkHereStartControl } from '@/components/parking/ParkHereStartControl';
+import { frontendConfig } from '@/config/env';
 import { useMySmartReturnQuery, useMyVehicleQuery } from '@/data/hooks/useMeQueries';
-import { useNearbySpotsQuery } from '@/data/hooks/useParkingQueries';
+import {
+  useNearbyMunicipalFacilitiesQuery,
+  useNearbySpotsQuery,
+} from '@/data/hooks/useParkingQueries';
 import { useActiveParkingSessionQuery, useParkingSessionLifecycleConfigQuery } from '@/data/hooks/useParkingSessionQueries';
 import { type GeocodeResult } from '@/lib/geocoding';
 import { needsActiveConfirmation } from '@/lib/parkingSessionStale';
@@ -43,6 +49,7 @@ import {
   availableStatuses as deriveStatuses,
   defaultSort,
   filterSpots,
+  haversineMeters,
   sortSpots,
   withDistance,
   type SpotFilters,
@@ -86,7 +93,12 @@ function optionalNumber(value: unknown): number | undefined {
  * `GET /parking/spots/nearby` call. Manual lat/lng (+ radius/limit),
  * click-to-set-center, and "Use my location" remain as an advanced fallback.
  */
-export function MapPage() {
+export function MapPage({
+  municipalDiscoveryEnabled = frontendConfig.features.municipalDiscovery,
+}: {
+  /** Test override for WEB_MUNICIPAL_DISCOVERY_ENABLED. */
+  municipalDiscoveryEnabled?: boolean;
+} = {}) {
   const { t } = useTranslation('map');
   const [searchParams] = useSearchParams();
   const smartReturnMode = searchParams.get('smartReturn') === '1';
@@ -101,6 +113,7 @@ export function MapPage() {
   // Discovery state (selection is shared by map markers, the preview card, and
   // the result list; filters/sort are client-side presentation only).
   const [selectedId, setSelectedId] = useState<string | null>(null);
+  const [selectedMunicipalId, setSelectedMunicipalId] = useState<string | null>(null);
   const [filters, setFilters] = useState<SpotFilters>(EMPTY_FILTERS);
   const [sort, setSort] = useState<SpotSort | null>(null);
   const [sheetState, setSheetState] = useState<SheetState>('collapsed');
@@ -116,6 +129,9 @@ export function MapPage() {
   // Nearby hook keeps prior results via placeholderData while a re-search loads
   // (new center/radius/"use my location") instead of flashing the skeleton.
   const search = useNearbySpotsQuery(params);
+  const municipalSearch = useNearbyMunicipalFacilitiesQuery(params, {
+    enabled: municipalDiscoveryEnabled,
+  });
 
   const activeSessionQuery = useActiveParkingSessionQuery({ enabled: isAuthenticated });
   const lifecycleConfigQuery = useParkingSessionLifecycleConfigQuery({ enabled: isAuthenticated });
@@ -205,15 +221,41 @@ export function MapPage() {
     [spotsWithDistance, selectedId],
   );
 
+  const municipalFacilities = municipalDiscoveryEnabled ? (municipalSearch.data ?? []) : [];
+  const selectedMunicipalFacility = useMemo(
+    () => municipalFacilities.find((facility) => facility.id === selectedMunicipalId) ?? null,
+    [municipalFacilities, selectedMunicipalId],
+  );
+  const selectedMunicipalDistance = useMemo(() => {
+    if (!selectedMunicipalFacility || !searchCenter) return null;
+    return haversineMeters(
+      { lat: searchCenter.lat, lng: searchCenter.lng },
+      { lat: selectedMunicipalFacility.latitude, lng: selectedMunicipalFacility.longitude },
+    );
+  }, [selectedMunicipalFacility, searchCenter]);
+
   const selectSpot = useCallback(
     (id: string | null) => {
       setSelectedId(id);
-      // Spot selection is independent of the persistent Active card; clear only
-      // the parked-car marker emphasis so both previews can coexist cleanly.
-      if (id !== null) setParkedCarSelected(false);
+      if (id !== null) {
+        setSelectedMunicipalId(null);
+        setParkedCarSelected(false);
+      }
       // On mobile the preview owns the bottom band; drop the sheet to its peek so
       // the two never fight for the same space (and the sheet handle stays visible
       // just below the preview). Desktop has dedicated space for both.
+      if (id !== null && !isDesktop) setSheetState('collapsed');
+    },
+    [isDesktop],
+  );
+
+  const selectMunicipalFacility = useCallback(
+    (id: string | null) => {
+      setSelectedMunicipalId(id);
+      if (id !== null) {
+        setSelectedId(null);
+        setParkedCarSelected(false);
+      }
       if (id !== null && !isDesktop) setSheetState('collapsed');
     },
     [isDesktop],
@@ -340,21 +382,32 @@ export function MapPage() {
   const locate = () => runGeolocation({ autoSearch: false });
 
   const discovery = (
-    <DiscoveryResults
-      search={search}
-      params={params}
-      spots={visibleSpots}
-      totalCount={spotsWithDistance.length}
-      filters={filters}
-      onFiltersChange={setFilters}
-      availableStatuses={statuses}
-      sort={effectiveSort}
-      onSortChange={setSort}
-      sortOptions={sortOptions}
-      selectedId={selectedId}
-      onSelect={selectSpot}
-      userVehicleType={vehicleQuery.data?.vehicleType ?? null}
-    />
+    <>
+      {municipalDiscoveryEnabled ? (
+        <MunicipalFacilityResults
+          search={municipalSearch}
+          params={params}
+          facilities={municipalFacilities}
+          selectedId={selectedMunicipalId}
+          onSelect={selectMunicipalFacility}
+        />
+      ) : null}
+      <DiscoveryResults
+        search={search}
+        params={params}
+        spots={visibleSpots}
+        totalCount={spotsWithDistance.length}
+        filters={filters}
+        onFiltersChange={setFilters}
+        availableStatuses={statuses}
+        sort={effectiveSort}
+        onSortChange={setSort}
+        sortOptions={sortOptions}
+        selectedId={selectedId}
+        onSelect={selectSpot}
+        userVehicleType={vehicleQuery.data?.vehicleType ?? null}
+      />
+    </>
   );
 
   const summaryText = resolveSummary(
@@ -415,14 +468,21 @@ export function MapPage() {
             center={center}
             zoom={mapZoom}
             spots={search.data ?? []}
+            municipalFacilities={municipalFacilities}
             onPickCenter={handlePickCenter}
             selectedId={selectedId}
+            selectedMunicipalId={selectedMunicipalId}
             onSelectSpot={selectSpot}
+            onSelectMunicipalFacility={selectMunicipalFacility}
             height="100%"
             onLocate={locate}
             locating={geoStatus === 'locating'}
             // Keep recenter reachable when ACTIVE even if a spot preview is selected.
-            showFloatingControls={isDesktop || selectedId === null || Boolean(parkedCarCoords)}
+            showFloatingControls={
+              isDesktop ||
+              (selectedId === null && selectedMunicipalId === null) ||
+              Boolean(parkedCarCoords)
+            }
             parkedCar={parkedCarCoords}
             parkedCarSelected={parkedCarSelected}
             onSelectParkedCar={focusParkedCar}
@@ -642,12 +702,17 @@ export function MapPage() {
           !activeSession &&
           !showActiveError;
         const showSpotPreview = Boolean(selectedSpot);
+        const showMunicipalPreview = Boolean(selectedMunicipalFacility);
         // Mobile: yield the bottom band to an expanded discovery sheet (same rule as
         // SelectedSpotPreview). Recenter FAB still focuses the car when controls show.
         const showBottomStack = isDesktop || sheetState === 'collapsed';
         if (
           !showBottomStack ||
-          (!showActiveCard && !showActiveError && !showParkHere && !showSpotPreview)
+          (!showActiveCard &&
+            !showActiveError &&
+            !showParkHere &&
+            !showSpotPreview &&
+            !showMunicipalPreview)
         ) {
           return null;
         }
@@ -663,6 +728,13 @@ export function MapPage() {
             {showParkHere ? <ParkHereStartControl /> : null}
             {showSpotPreview && selectedSpot ? (
               <SelectedSpotPreview spot={selectedSpot} onClose={() => selectSpot(null)} />
+            ) : null}
+            {showMunicipalPreview && selectedMunicipalFacility ? (
+              <SelectedMunicipalFacilityPreview
+                facility={selectedMunicipalFacility}
+                distanceMeters={selectedMunicipalDistance}
+                onClose={() => selectMunicipalFacility(null)}
+              />
             ) : null}
           </div>
         );

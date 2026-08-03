@@ -34,6 +34,12 @@ export const parkingKeys = {
   nearby: (filters: NearbyParkingFilters) =>
     [...parkingKeys.all, 'nearby', normalizeNearbyFilters(filters)] as const,
   nearbyRoot: () => [...parkingKeys.all, 'nearby'] as const,
+  /** Municipal facilities nearby — separate cache tree from community spots. */
+  municipalNearby: (filters: NearbyParkingFilters) =>
+    [...parkingKeys.all, 'municipal-nearby', normalizeNearbyFilters(filters)] as const,
+  municipalNearbyRoot: () => [...parkingKeys.all, 'municipal-nearby'] as const,
+  municipalFacility: (facilityId: string) =>
+    [...parkingKeys.all, 'municipal-facility', facilityId] as const,
   mySpots: () => [...parkingKeys.all, 'my-spots'] as const,
   spot: (spotId: string) => [...parkingKeys.all, 'spot', spotId] as const,
   spotMediaAccessUrl: (spotId: string) =>

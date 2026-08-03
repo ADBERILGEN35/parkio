@@ -80,9 +80,33 @@ describe('createFrontendConfig', () => {
     expect(config.features.smartReturn).toBe(true);
   });
 
-  it('disables Smart Return when the frontend flag is false', () => {
-    const config = createFrontendConfig(env({ VITE_SMART_RETURN_ENABLED: 'false' }));
+  it('keeps municipal discovery disabled by default', () => {
+    const config = createFrontendConfig(env());
+    expect(config.features.municipalDiscovery).toBe(false);
+  });
 
-    expect(config.features.smartReturn).toBe(false);
+  it('enables municipal discovery only when explicitly true', () => {
+    const config = createFrontendConfig(
+      env({ VITE_WEB_MUNICIPAL_DISCOVERY_ENABLED: 'true' }),
+    );
+    expect(config.features.municipalDiscovery).toBe(true);
+  });
+
+  it('keeps municipal discovery disabled in hosted-beta unless explicitly enabled', () => {
+    const config = createFrontendConfig(
+      env({
+        VITE_APP_ENV: 'hosted-beta',
+        VITE_API_BASE_URL: 'https://api.parkio.example/api/v1',
+        VITE_MAPTILER_KEY: 'map-key',
+      }),
+    );
+    expect(config.features.municipalDiscovery).toBe(false);
+  });
+
+  it('keeps municipal discovery disabled when the flag is false', () => {
+    const config = createFrontendConfig(
+      env({ VITE_WEB_MUNICIPAL_DISCOVERY_ENABLED: 'false' }),
+    );
+    expect(config.features.municipalDiscovery).toBe(false);
   });
 });

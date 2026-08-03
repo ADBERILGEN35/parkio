@@ -90,6 +90,32 @@
     "recentlyUpdated": "Recently updated",
     "freshness": "Freshness {{freshness}}"
   },
+  "municipal": {
+    "inventoryLabel": "Municipal parking",
+    "sectionTitle": "Municipal parking facilities",
+    "sectionSubtitle": "Official inventory — separate from community spots",
+    "sectionAria": "Municipal parking facilities",
+    "unnamedFacility": "Municipal parking facility",
+    "markerAria": "Municipal parking facility: {{name}}",
+    "previewAria": "Selected municipal facility: {{name}}",
+    "searchingAria": "Searching municipal parking facilities",
+    "emptyTitle": "No municipal facilities nearby",
+    "emptyDescription": "No official parking facilities found in this area. Community spots may still appear below.",
+    "source": "Source",
+    "operator": "Operator",
+    "availability": "Availability",
+    "availabilityUnknown": "Live availability not published",
+    "spacesAvailable": "{{available}} open / {{capacity}} spaces",
+    "capacityOnly": "{{capacity}} spaces",
+    "provenance": "Field provenance",
+    "freshness": {
+      "live": "Live availability",
+      "aging": "Aging availability",
+      "stale": "Stale availability",
+      "unavailable": "Availability unavailable",
+      "invalid": "Availability invalid"
+    }
+  },
   "parkingSession": {
     "activeTitle": "Parked",
     "activeStatus": "Active",

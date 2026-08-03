@@ -6,6 +6,8 @@ import {
 } from '@parkio/validation';
 import type {
   CreateSpotRequest,
+  MunicipalFacility,
+  MunicipalFacilityNearbyParams,
   NearbySearchParams,
   ParkingSessionHistoryParams,
   ParkingSessionHistoryResponse,
@@ -54,6 +56,28 @@ export function createParkingApi(client: AxiosInstance) {
     getNearbySpots(params: NearbySearchParams, signal?: AbortSignal): Promise<PublicSpot[]> {
       return client
         .get<PublicSpot[]>('/parking/spots/nearby', { params, signal })
+        .then((r) => r.data);
+    },
+
+    /**
+     * Municipal facility nearby discovery (WEB-MUNI-01).
+     * Separate inventory from community spots — never fuse responses.
+     */
+    getNearbyMunicipalFacilities(
+      params: MunicipalFacilityNearbyParams,
+      signal?: AbortSignal,
+    ): Promise<MunicipalFacility[]> {
+      return client
+        .get<MunicipalFacility[]>('/parking/facilities/nearby', { params, signal })
+        .then((r) => r.data);
+    },
+
+    /** Municipal facility detail — same DTO as nearby items. */
+    getMunicipalFacility(facilityId: string, options?: RequestOptions): Promise<MunicipalFacility> {
+      return client
+        .get<MunicipalFacility>(`/parking/facilities/${encodeURIComponent(facilityId)}`, {
+          signal: options?.signal,
+        })
         .then((r) => r.data);
     },
 

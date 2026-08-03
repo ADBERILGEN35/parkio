@@ -28,6 +28,8 @@ const rawEnvSchema = z.object({
   VITE_MAP_TILE_ATTRIBUTION: optionalNonEmpty,
   VITE_FRONTEND_ERROR_REPORTING: z.enum(['disabled', 'console']).optional(),
   VITE_SMART_RETURN_ENABLED: z.enum(['true', 'false']).optional(),
+  /** WEB-MUNI-01 — municipal facility map discovery. Default off everywhere. */
+  VITE_WEB_MUNICIPAL_DISCOVERY_ENABLED: z.enum(['true', 'false']).optional(),
 });
 
 export interface FrontendConfig {
@@ -45,6 +47,12 @@ export interface FrontendConfig {
   };
   features: {
     smartReturn: boolean;
+    /**
+     * When true, `/map` loads municipal facilities as a separate inventory
+     * (`WEB_MUNICIPAL_DISCOVERY_ENABLED` / `VITE_WEB_MUNICIPAL_DISCOVERY_ENABLED`).
+     * Default false; hosted-beta enables only for WEB-MUNI-01A; production stays false.
+     */
+    municipalDiscovery: boolean;
   };
 }
 
@@ -91,6 +99,8 @@ export function createFrontendConfig(env: ImportMetaEnv): FrontendConfig {
       smartReturn: raw.VITE_SMART_RETURN_ENABLED === undefined
         ? !isProductionLike
         : raw.VITE_SMART_RETURN_ENABLED === 'true',
+      // Explicit opt-in only — never default on for hosted-beta or production.
+      municipalDiscovery: raw.VITE_WEB_MUNICIPAL_DISCOVERY_ENABLED === 'true',
     },
   };
 }
