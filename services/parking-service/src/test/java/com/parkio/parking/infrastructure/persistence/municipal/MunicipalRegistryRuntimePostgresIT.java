@@ -24,13 +24,14 @@ import org.junit.jupiter.api.Test;
 import org.testcontainers.containers.PostgreSQLContainer;
 import org.testcontainers.junit.jupiter.Container;
 import org.testcontainers.junit.jupiter.Testcontainers;
+import com.parkio.parking.testsupport.PostgisTestImages;
 import org.testcontainers.utility.DockerImageName;
 
 @Tag("integration")
 @Testcontainers(disabledWithoutDocker = true)
 class MunicipalRegistryRuntimePostgresIT {
     private static final DockerImageName POSTGIS =
-            DockerImageName.parse("postgis/postgis:16-3.4").asCompatibleSubstituteFor("postgres");
+            PostgisTestImages.dockerImageName();
     private static final UUID FACILITY_A = UUID.fromString("00000000-0000-0000-0000-000000004001");
     private static final UUID FACILITY_B = UUID.fromString("00000000-0000-0000-0000-000000004002");
     private static final UUID CANDIDATE = UUID.fromString("00000000-0000-0000-0000-000000004003");

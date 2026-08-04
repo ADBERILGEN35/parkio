@@ -20,6 +20,7 @@ import org.springframework.test.context.DynamicPropertySource;
 import org.testcontainers.containers.PostgreSQLContainer;
 import org.testcontainers.junit.jupiter.Container;
 import org.testcontainers.junit.jupiter.Testcontainers;
+import com.parkio.parking.testsupport.PostgisTestImages;
 import org.testcontainers.utility.DockerImageName;
 
 @Tag("integration")
@@ -27,7 +28,7 @@ import org.testcontainers.utility.DockerImageName;
 @SpringBootTest
 class MunicipalDiscoveryDuplicatePresentationPostgresIT {
     private static final DockerImageName POSTGIS =
-            DockerImageName.parse("postgis/postgis:16-3.4").asCompatibleSubstituteFor("postgres");
+            PostgisTestImages.dockerImageName();
 
     private static final UUID IZUM = UUID.fromString("00000000-0000-0000-0000-000000007001");
     private static final UUID OSM_DUP = UUID.fromString("00000000-0000-0000-0000-000000007002");

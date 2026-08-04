@@ -9,14 +9,14 @@ import org.junit.jupiter.api.Test;
 import org.testcontainers.containers.PostgreSQLContainer;
 import org.testcontainers.junit.jupiter.Container;
 import org.testcontainers.junit.jupiter.Testcontainers;
-import org.testcontainers.utility.DockerImageName;
+import com.parkio.parking.testsupport.PostgisTestImages;
 
 @Tag("integration")
 @Testcontainers
 class MunicipalRegistryMigrationPostgresIT {
     @Container
     static final PostgreSQLContainer<?> POSTGRES = new PostgreSQLContainer<>(
-            DockerImageName.parse("postgis/postgis:16-3.4").asCompatibleSubstituteFor("postgres"));
+            PostgisTestImages.dockerImageName());
 
     @Test
     void migratesFromV31ToV32WithoutRemovingExistingLinks() throws Exception {

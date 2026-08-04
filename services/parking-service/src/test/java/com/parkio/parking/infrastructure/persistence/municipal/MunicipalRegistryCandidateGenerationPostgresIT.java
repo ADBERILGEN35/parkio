@@ -30,13 +30,14 @@ import org.springframework.jdbc.datasource.DriverManagerDataSource;
 import org.testcontainers.containers.PostgreSQLContainer;
 import org.testcontainers.junit.jupiter.Container;
 import org.testcontainers.junit.jupiter.Testcontainers;
+import com.parkio.parking.testsupport.PostgisTestImages;
 import org.testcontainers.utility.DockerImageName;
 
 @Tag("integration")
 @Testcontainers(disabledWithoutDocker = true)
 class MunicipalRegistryCandidateGenerationPostgresIT {
     private static final DockerImageName POSTGIS =
-            DockerImageName.parse("postgis/postgis:16-3.4").asCompatibleSubstituteFor("postgres");
+            PostgisTestImages.dockerImageName();
     private static final UUID FACILITY_A = UUID.fromString("00000000-0000-0000-0000-000000005001");
     private static final UUID FACILITY_B = UUID.fromString("00000000-0000-0000-0000-000000005002");
     private static final UUID FACILITY_C = UUID.fromString("00000000-0000-0000-0000-000000005003");

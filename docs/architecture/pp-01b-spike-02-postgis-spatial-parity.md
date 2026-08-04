@@ -3,20 +3,21 @@
 | Field | Value |
 |-------|-------|
 | Spike ID | **PP-01B-SPIKE-02** |
-| Status | **DOCUMENTATION COMPLETE — HOLD ON RUNTIME PARITY** |
+| Status | **MODE A COMPLETE — PASS WITH NON-BLOCKING NOTES** (Mode B **not executed**; SPIKE-02 not fully closed) |
 | Evidence snapshot | **2026-08-04** |
-| Method | Repository inventory only — **no** SQL, Docker, Azure, or test execution |
+| Method | Repository inventory + **Mode A local runtime parity** (no Azure) |
 | Parent ADR | [ADR-PP-01A](adr/ADR-PP-01A-managed-postgresql.md) (**ACCEPTED WITH CONDITIONS**) — **frozen** |
 | Prior spike | [PP-01B-SPIKE-01](pp-01b-spike-01.md) (**CLOSED**) |
 | Registry | [pp-01b-spike-registry.md](pp-01b-spike-registry.md) |
-| Baseline image (repo) | `postgis/postgis:16-3.4` |
-| Target under ADR | Azure Flexible Server PostgreSQL **16** + documented PostGIS (SPIKE-01 EXTERNAL VERIFICATION cited **3.6.1** on PG16 — **revalidate** before sandbox) |
+| Baseline image (Mode A) | `postgis/postgis:16-3.4` @ `sha256:44126d872ac91993766c341e369c539e8196614321765d36a6f1bab0419a5fa5` (PG 16.4 / PostGIS 3.4.3 / GEOS 3.9.0 / PROJ 7.2.1) |
+| Newer image (Mode A) | `imresamu/postgis:16-3.6.1-bookworm` @ `sha256:74377ef202667cf7ec0d3e03699e43f037f1773323fc6a60445041eb821ffa10` (PG 16.11 / PostGIS 3.6.1 / GEOS 3.11.1 / PROJ 9.1.1) |
+| Target under ADR | Azure Flexible Server PostgreSQL **16** + documented PostGIS (SPIKE-01 EXTERNAL VERIFICATION cited **3.6.1** on PG16 — **revalidate** before Mode B) |
 
 **Statement taxonomy:** REPOSITORY FACT · EXTERNAL VERIFICATION · INFERENCE · RECOMMENDATION · UNKNOWN
 
-**Board rule:** UNKNOWN must not be promoted to PASS without execution. Documentation presence of a function on Azure ≠ Parkio behavioral parity.
+**Board rule:** UNKNOWN must not be promoted to PASS without execution. Documentation presence of a function on Azure ≠ Parkio behavioral parity. Mode A local PASS does **not** certify Azure managed runtime.
 
-**Authorization boundary:** This package does **not** authorize Azure provisioning, Docker/SQL execution, ADR changes, production apply, or SPIKE-03. PP-01 remains **open**. Public production **NO-GO**. Municipal production **disabled**.
+**Authorization boundary:** Mode A does **not** authorize Azure provisioning, ADR changes, production apply, or SPIKE-03. PP-01 remains **open**. Public production **NO-GO**. Municipal production **disabled**. No Azure resource provisioned. No Azure credential used. No IaC generated.
 
 ---
 
@@ -24,10 +25,19 @@
 
 | Verdict | Meaning |
 |---------|---------|
-| **HOLD (runtime parity)** | Inventory shows no *documented* ADR-blocking absence of core PostGIS primitives Parkio uses; **compatibility of PG16 + PostGIS 3.6.x with Parkio behavior remains UNKNOWN** until Mode A/B execution. |
+| **Mode A** | **PASS WITH NON-BLOCKING NOTES** — local PG16 PostGIS 3.4.3 vs 3.6.1 semantic parity proven |
+| **Mode B** | **READY WITH CONDITIONS** — still required for Azure allow-list / privilege / managed build |
+| **SPIKE-02 closure** | **Not fully closed** until Mode B (or board waive) |
 | Documentation phase | **COMPLETE** |
 
-No product-behavior change recommended. No implementation recommended.
+No public API/DTO/business-rule/Flyway migration **content** changes. Linking remains disabled. İZELMAN publication remains disabled.
+
+### Mode A non-blocking notes
+
+1. Official `postgis/postgis` has no reproducible `16-3.6` tag; Target B used pinned `imresamu/postgis:16-3.6.1-bookworm` (digest recorded) — community build, not Microsoft-managed binaries.
+2. Under full `integrationTest` load on Target B, `TrustShadowPersistencePostgresIT.concurrentDistinctEvidence…` intermittently failed (`APPENDED` vs `FAILED`); **isolated re-runs PASS**. Not spatial/nearby/KNN/Flyway. Classified suite-load concurrency flake.
+3. `OsmRealIzmirImportValidationIT` is env-gated (optional; not required Mode A).
+4. Shadow-migration tip assertions updated `26` → current tip `33` (test harness only).
 
 ---
 
@@ -146,17 +156,19 @@ No product-behavior change recommended. No implementation recommended.
 
 | Risk | Severity | Class | Notes |
 |------|----------|-------|-------|
-| Version skew 3.4 (CI) vs 3.6.x (Azure docs) | Medium | EXTERNAL VERIFICATION (SPIKE-01) + UNKNOWN parity | Must not claim PASS |
-| Geography `ST_DWithin` / `ST_Distance` meter semantics | Medium | UNKNOWN until execution | Core product path |
-| KNN `<->` on geography with GiST | Medium | UNKNOWN until SPIKE-03 execution (incl. PG16 planner behaviour for `<->`) | Nearby ordering |
-| GiST index selection / planner behaviour | Medium | UNKNOWN until SPIKE-03 execution | Index use under PG16 |
-| Trigger `EXECUTE FUNCTION` syntax vs older `EXECUTE PROCEDURE` | Low | REPOSITORY FACT uses `EXECUTE FUNCTION` on PG16 image | Re-check on managed |
-| `ST_Equals` on geometry casts in session trigger | Low | UNKNOWN until Flyway apply on target | |
-| Extension create privileges on Flexible Server | Medium | UNKNOWN | SPIKE-01 noted privilege gate for SPIKE-02 |
-| Offline `ST_MakeValid` / `ST_AsGeoJSON` if operators re-run export on Azure | Low | UNKNOWN if Mode B used for tooling | Not runtime parking path |
-| JTS vs PostGIS district semantics drift | N/A for SQL | REPOSITORY FACT | Runtime districts are JTS — **not** blocked by PostGIS 3.6 SQL |
+| Version skew 3.4 (CI) vs 3.6.x | Medium | Mode A FACT | **PASS WITH NOTE** — semantics matched locally |
+| Geography `ST_DWithin` / `ST_Distance` meter semantics | Medium | Mode A FACT | **PASS** (tolerance 0.05 m) |
+| KNN `<->` on geography with GiST (local) | Medium | Mode A FACT | **PASS** — identical nearest IDs |
+| GiST index selection / planner (local) | Medium | Mode A FACT | **PASS** — EXPLAIN Index Scan using GiST |
+| Azure managed planner / build | Medium | UNKNOWN | Pending Mode B |
+| Trigger `EXECUTE FUNCTION` syntax | Low | Mode A FACT | **PASS** on both local images |
+| `ST_Equals` session immutable path | Low | Mode A FACT | **PASS** |
+| Extension create privileges (local model) | Medium | Mode A FACT | App role cannot create extension |
+| Extension create privileges on Flexible Server | Medium | UNKNOWN | Pending Mode B |
+| Offline `ST_MakeValid` / `ST_AsGeoJSON` on Azure | Low | UNKNOWN | Optional tooling / Mode B |
+| JTS vs PostGIS district semantics drift | N/A for SQL | REPOSITORY FACT | Runtime districts are JTS |
 
-**INFERENCE:** No repository evidence of exotic/deprecated PostGIS APIs that are known-removed in 3.6 from this inventory alone. Absence of evidence ≠ PASS.
+**INFERENCE (inventory):** No exotic/deprecated PostGIS APIs found. Mode A confirmed core Parkio operators on 3.6.1 locally. Azure managed still UNKNOWN.
 
 ---
 
@@ -183,23 +195,27 @@ Documentation compatibility and runtime compatibility are recorded separately. D
 
 | Layer | Statement | Classification |
 |-------|-----------|----------------|
-| **Documentation** | Azure Database for PostgreSQL Flexible Server documentation exposes the required PostGIS capabilities. | **FACT (documentation)** — SPIKE-01 EXTERNAL VERIFICATION snapshot; **revalidate** Learn page before sandbox |
-| **Runtime** | Parkio runtime compatibility on PostgreSQL 16 + PostGIS 3.6.x remains UNKNOWN until sandbox execution. | **UNKNOWN** |
+| **Documentation** | Azure Database for PostgreSQL Flexible Server documentation exposes the required PostGIS capabilities. | **FACT (documentation)** — SPIKE-01 EXTERNAL VERIFICATION snapshot; **revalidate** Learn page before Mode B |
+| **Local runtime (Mode A)** | Parkio spatial semantics match on PG16 + PostGIS 3.4.3 and PG16 + PostGIS 3.6.1 (pinned local images). | **PASS WITH NON-BLOCKING NOTES** |
+| **Azure runtime (Mode B)** | Parkio runtime on **managed** Flexible Server PostGIS remains UNKNOWN until Mode B. | **UNKNOWN** |
 
-Supporting note (not a PASS): core operators Parkio uses (`ST_MakePoint`, `ST_SetSRID`, `ST_DWithin`, `ST_Distance`, GiST, geography) are long-standing PostGIS features (INFERENCE). That does **not** upgrade runtime UNKNOWN to PASS.
+Never imply Azure runtime PASS from documentation or from local Mode A alone.
 
 ---
 
-## 7. Functions impossible to validate without execution
+## 7. Remaining unknowns after Mode A
 
-Everything in §5. Also: exact numeric distance/ordering equality vs `16-3.4` fixtures; migration apply errors; privilege failures; performance under GiST.
+Local Mode A closed: Flyway tip **33**, core function matrix, KNN/`<->` ordering, local GiST planner selection, triggers, required PostGIS/municipal ITs.
 
-Explicit planner / index UNKNOWNs (remain **UNKNOWN** until SPIKE-03 execution):
+Still **UNKNOWN** until Mode B (Azure sandbox) — **not** SPIKE-03:
 
-- PostgreSQL 16 query planner behaviour for KNN (`<->`)
-- GiST index selection / planner behaviour
+- Extension allow-list on Flexible Server General Purpose
+- Extension enable privilege under least-privilege roles
+- Exact managed PostGIS build / GEOS / PROJ
+- Azure-specific planner/runtime behaviour
+- General Purpose SKU behaviour under Parkio load shape
 
-**ST_Covers / ST_MakeValid in product runtime SQL:** N/A (not used) — do not require sandbox for unused SQL. Offline script validation is optional and separate.
+**ST_Covers / ST_MakeValid in product runtime SQL:** N/A (not used). Offline script validation is optional and separate.
 
 ---
 
@@ -209,14 +225,16 @@ Explicit planner / index UNKNOWNs (remain **UNKNOWN** until SPIKE-03 execution):
 |------|--------|-------|
 | Inventory of repo spatial usage complete | **PASS** | This document |
 | ADR topology unchanged | **PASS** | No ADR edit |
-| Azure Flexible Server docs expose required PostGIS capabilities | **FACT (documentation)** | Not runtime PASS; revalidate |
-| Parkio spatial parity on PostGIS 3.6.x | **UNKNOWN** | No sandbox execution |
-| Flyway apply on Azure PG16 | **UNKNOWN** | No execution |
-| Nearby / KNN / GiST behavior (incl. planner) | **UNKNOWN** | Until SPIKE-03 execution for KNN/`<->` planner and GiST index selection |
-| Extension privilege fit | **UNKNOWN** | No execution |
-| Product/API/DTO/Flyway change required | **PASS** (docs phase) — none proposed | Must reaffirm after execution |
-| Unsupported behavior found in inventory | **PASS** (none identified as hard block) | Not a runtime certificate |
-| Overall runtime spike verdict | **HOLD** | Pending Mode A/B |
+| Azure Flexible Server docs expose required PostGIS capabilities | **FACT (documentation)** | Not Azure runtime PASS; revalidate |
+| Local Mode A spatial parity (3.4 vs 3.6.1) | **PASS WITH NOTES** | Digests + harness + ITs |
+| Flyway tip / validate (local) | **PASS** | Tip **33** both targets |
+| Nearby / KNN / GiST (local) | **PASS** | GiST Index Scan in EXPLAIN |
+| Extension privilege model (local) | **PASS** | App cannot create extension |
+| Azure Flyway / privilege / managed build | **UNKNOWN** | Mode B |
+| Product/API/DTO/Flyway migration content change | **PASS** — none | Tip assertion test fix only |
+| Mode A overall | **PASS WITH NON-BLOCKING NOTES** | |
+| Mode B readiness | **READY WITH CONDITIONS** | |
+| Overall SPIKE-02 closure | **HOLD** (Mode B pending) | |
 
 ### PASS / HOLD / FAIL / UNKNOWN (board symbols)
 
@@ -246,33 +264,30 @@ Documentation-only package does **not** trip stop conditions that require execut
 
 ## 10. Future sandbox plan (not executed here)
 
-### Mode A — Local compatibility
+### Mode A — Local compatibility — **EXECUTED**
 
-- Image: `postgis/postgis:16-3.4` and, if available offline, an image matching Azure’s reported PostGIS version
-- Run parking Flyway + PostGIS IT suites
-- No Azure cost
+- Baseline `postgis/postgis:16-3.4` + newer pinned `imresamu/postgis:16-3.6.1-bookworm`
+- Parking Flyway tip **33** + Mode A harness + required PostGIS/municipal ITs
+- Override: `-Dparkio.postgis.image=…` via `PostgisTestImages`
+- Scripts: `scripts/pp-01b-spike-02-mode-a.ps1`, `scripts/pp-01b-spike-02-mode-a.sh`
+- No Azure cost; containers ephemeral / cleaned
 
-### Mode B — Board-approved Azure sandbox
+### Mode B — Board-approved Azure sandbox — **NOT EXECUTED**
 
 - General Purpose Flexible Server only (Burstable rejected — SPIKE-01)
 - Prefer SPIKE-01 candidate regions; **revalidate** `$` ZR status; region still not production-frozen
 - No production data/traffic/credentials
 - Mandatory cleanup
-- Record exact `version()` / `PostGIS_Full_Version()`
-
-**Do not execute Mode A or B in this package.**
+- Record exact managed `version()` / `PostGIS_Full_Version()`
 
 ---
 
 ## 11. Out-of-scope
 
-- SPIKE-03 private networking
+- SPIKE-03 private networking (**NOT STARTED**)
 - Terraform / ARM / Bicep / provisioning
-- SQL/Docker/test execution
-- Backend / API / DTO / Flyway / Docker / deploy changes
 - ADR amendments
 - Production or municipal enablement
-- Implementation recommendations beyond “run Mode A/B later”
 - Claiming public GO or PP-01 closed
 
 ---
@@ -280,9 +295,11 @@ Documentation-only package does **not** trip stop conditions that require execut
 ## References (repository)
 
 - `services/parking-service/src/main/resources/db/migration/V1__enable_postgis.sql` … `V2`, `V15`, `V28`, `V30`
-- `ParkingSpotJpaRepository`, `MunicipalFacilityRepositoryAdapter`, `LinkCandidatePairDiscoveryAdapter`, `RoadsideParkingController`, `OsmImportSupportRepositoryAdapter`
-- `MunicipalDistrictJtsFactory`, `MunicipalDistrictGeometry`, `MunicipalDistrictTopologyPolicy`
-- `scripts/data-wp-19/export-normalized-districts.sh`, `scripts/restore-drill.sh`
+- `PostgisTestImages`, `ModeAPostgisSpatialParityIT`
+- `ParkingSpotJpaRepository`, municipal adapters, OSM/İZUM ITs
+- `MunicipalDistrictJtsFactory` (JTS — not PostGIS SQL)
+- `scripts/pp-01b-spike-02-mode-a.ps1` / `.sh`, `scripts/restore-drill.sh`
 - SPIKE-01 PostGIS EXTERNAL VERIFICATION links
 
 Evidence index: [evidence/pp-01b-spike-02/README.md](evidence/pp-01b-spike-02/README.md)
+Machine evidence (gitignored): `deploy-artifacts/pp-01b-spike-02/`

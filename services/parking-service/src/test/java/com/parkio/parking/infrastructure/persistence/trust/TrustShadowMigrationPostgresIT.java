@@ -13,14 +13,14 @@ import org.junit.jupiter.api.Test;
 import org.testcontainers.containers.PostgreSQLContainer;
 import org.testcontainers.junit.jupiter.Container;
 import org.testcontainers.junit.jupiter.Testcontainers;
+import com.parkio.parking.testsupport.PostgisTestImages;
 import org.testcontainers.utility.DockerImageName;
 
 @Tag("integration")
 @Testcontainers(disabledWithoutDocker = true)
 class TrustShadowMigrationPostgresIT {
 
-    private static final DockerImageName POSTGIS_IMAGE =
-            DockerImageName.parse("postgis/postgis:16-3.4").asCompatibleSubstituteFor("postgres");
+    private static final DockerImageName POSTGIS_IMAGE = PostgisTestImages.dockerImageName();
 
     @Container
     static final PostgreSQLContainer<?> POSTGRES = new PostgreSQLContainer<>(POSTGIS_IMAGE)
@@ -36,7 +36,7 @@ class TrustShadowMigrationPostgresIT {
         flyway.migrate();
 
         try (Connection connection = openConnection()) {
-            assertThat(currentFlywayVersion(connection)).isEqualTo("26");
+            assertThat(currentFlywayVersion(connection)).isEqualTo("33");
             assertThat(tableExists(connection, "trust_ledger")).isTrue();
             assertThat(tableExists(connection, "trust_snapshot")).isTrue();
             assertThat(columnExists(connection, "trust_snapshot", "version")).isTrue();
@@ -65,7 +65,7 @@ class TrustShadowMigrationPostgresIT {
         full.migrate();
 
         try (Connection connection = openConnection()) {
-            assertThat(currentFlywayVersion(connection)).isEqualTo("26");
+            assertThat(currentFlywayVersion(connection)).isEqualTo("33");
             assertThat(tableExists(connection, "trust_ledger")).isTrue();
             assertThat(tableExists(connection, "trust_snapshot")).isTrue();
             assertThat(foreignKeyExists(connection, "trust_ledger", "fk_trust_ledger_outcome")).isTrue();
