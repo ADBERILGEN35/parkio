@@ -82,6 +82,13 @@ MakeValid district union is compatible; no DATA-WP-08B required from this eviden
 
 ## DATA-WP-19A procedure (not started)
 
+Hosted-beta operator inputs remain outside Git. The Azure hosted-beta compose
+overlay must mount the following paths read-only into `parking-service`:
+
+- `/opt/parkio/ops/data-wp-02b:/opt/parkio/ops/data-wp-02b:ro`
+- `/opt/parkio/ops/data-wp-08/boundary:/opt/parkio/ops/data-wp-08/boundary:ro`
+- `/opt/parkio/ops/data-wp-19/district-topology:/opt/parkio/ops/data-wp-19/district-topology:ro`
+
 1. Mount `/opt/parkio/ops/data-wp-19/district-topology` read-only.
 2. Enable topology policy + normalized path/SHA on hosted-beta only.
 3. Reconcile Karşıyaka > 0, multi ≈ 0, 30 districts, no leaks.

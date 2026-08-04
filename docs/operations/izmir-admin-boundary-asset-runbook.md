@@ -32,6 +32,17 @@ district coverage reporting (geometry is never published). See
 | Windows | `D:\parkio-ops\data-wp-08\boundary\` |
 | Hosted-beta | `/opt/parkio/ops/data-wp-08/boundary/` |
 
+Hosted-beta operator mounts for `parking-service` are read-only and must be
+present in the Azure hosted-beta compose overlay:
+
+- `/opt/parkio/ops/data-wp-02b:/opt/parkio/ops/data-wp-02b:ro`
+- `/opt/parkio/ops/data-wp-08/boundary:/opt/parkio/ops/data-wp-08/boundary:ro`
+- `/opt/parkio/ops/data-wp-19/district-topology:/opt/parkio/ops/data-wp-19/district-topology:ro`
+
+These asset directories are operator-managed inputs and must not be committed to
+Git. Missing mounts make boundary and normalized topology assets unavailable to
+the hosted-beta `parking-service`. Production compose behavior is unchanged.
+
 ## Prepare
 
 1. Copy the downloaded file bit-identically to `izmir-ilceler-source.geojson`.

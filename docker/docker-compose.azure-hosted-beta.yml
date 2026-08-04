@@ -105,6 +105,8 @@ services:
       PARKIO_MUNICIPAL_OPS_DISTRICT_COVERAGE_NORMALIZED_ASSET_SHA256: ${PARKIO_MUNICIPAL_OPS_DISTRICT_COVERAGE_NORMALIZED_ASSET_SHA256:-0c7457122d13fa02eba1258b6cda5cc28bfb7d64150e4e7db131f40611a655ec}
     volumes:
       # Read-only ops interchange for OSM GeoJSON (outside Git). Created by operators.
+      - /opt/parkio/ops/data-wp-08/boundary:/opt/parkio/ops/data-wp-08/boundary:ro
+      - /opt/parkio/ops/data-wp-19/district-topology:/opt/parkio/ops/data-wp-19/district-topology:ro
       - /opt/parkio/ops/data-wp-02b:/opt/parkio/ops/data-wp-02b:ro
   media-service:
     platform: linux/amd64

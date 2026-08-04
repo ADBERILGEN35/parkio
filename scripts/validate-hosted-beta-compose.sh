@@ -155,6 +155,51 @@ if [ "$PARKIO_DEPLOYMENT_PROFILE" = "azure-hosted-beta" ]; then
       exit 4
     }
 
+    jq -e '
+      [.services["parking-service"].volumes[]? | select(.type == "bind") | .source]
+      | index("/opt/parkio/ops/data-wp-02b") != null
+    ' "$rendered" >/dev/null || {
+      echo "ERROR: parking-service is missing the DATA-WP-02B read-only operator mount in rendered Azure compose" >&2
+      exit 4
+    }
+
+    jq -e '
+      [.services["parking-service"].volumes[]? | select(.type == "bind") | .source]
+      | index("/opt/parkio/ops/data-wp-08/boundary") != null
+    ' "$rendered" >/dev/null || {
+      echo "ERROR: parking-service is missing the DATA-WP-08 boundary read-only operator mount in rendered Azure compose" >&2
+      exit 4
+    }
+
+    jq -e '
+      [.services["parking-service"].volumes[]? | select(.type == "bind") | .source]
+      | index("/opt/parkio/ops/data-wp-19/district-topology") != null
+    ' "$rendered" >/dev/null || {
+      echo "ERROR: parking-service is missing the DATA-WP-19 topology read-only operator mount in rendered Azure compose" >&2
+      exit 4
+    }
+
+    jq -e '
+      [.services["parking-service"].volumes[]? | select(.type == "bind") |
+        select(
+          .source == "/opt/parkio/ops/data-wp-02b" or
+          .source == "/opt/parkio/ops/data-wp-08/boundary" or
+          .source == "/opt/parkio/ops/data-wp-19/district-topology"
+        ) | .read_only == true]
+      | all
+    ' "$rendered" >/dev/null || {
+      echo "ERROR: parking-service operator asset mounts must remain read-only in rendered Azure compose" >&2
+      exit 4
+    }
+
+    jq -e '
+      [.services["parking-service"].volumes[]? | select(.type == "bind") | .source]
+      | index("/opt/parkio/ops") == null
+    ' "$rendered" >/dev/null || {
+      echo "ERROR: parking-service must not broad-mount /opt/parkio/ops in rendered Azure compose" >&2
+      exit 4
+    }
+
     total_memory=0
     for svc in "${PARKIO_RUNTIME_SERVICES[@]}"; do
       limit="$(jq -r --arg svc "$svc" '.services[$svc].mem_limit // 0' "$rendered")"
@@ -189,7 +234,7 @@ if [ "$PARKIO_DEPLOYMENT_PROFILE" = "azure-hosted-beta" ]; then
 
     jq -e '.services.prometheus.command | index("--storage.tsdb.retention.time=7d") != null' "$rendered" >/dev/null
     jq -e '.services.grafana.depends_on | keys == ["prometheus"]' "$rendered" >/dev/null
-    echo "OK: Azure runtime services=32 disabled=4 memoryBytes=$total_memory publicPorts=80,443 tracing=false registryFlags=false"
+    echo "OK: Azure runtime services=32 disabled=4 memoryBytes=$total_memory publicPorts=80,443 tracing=false registryFlags=false operatorMounts=wp02b,wp08,wp19"
   else
     if ! command -v node >/dev/null 2>&1; then
       echo "ERROR: jq or node is required for Azure compose post-checks" >&2

@@ -84,6 +84,19 @@ grep -q 'PARKIO_MUNICIPAL_REGISTRY_AUTOMATIC_LINKING_ENABLED: "false"' docker/do
   || fail "automatic linking must be hard-coded false in Azure compose"
 pass "registry flags are mapped on parking-service with safe defaults"
 
+for mount in \
+  '/opt/parkio/ops/data-wp-02b:/opt/parkio/ops/data-wp-02b:ro' \
+  '/opt/parkio/ops/data-wp-08/boundary:/opt/parkio/ops/data-wp-08/boundary:ro' \
+  '/opt/parkio/ops/data-wp-19/district-topology:/opt/parkio/ops/data-wp-19/district-topology:ro'
+do
+  grep -q -- "$mount" docker/docker-compose.azure-hosted-beta.yml \
+    || fail "parking-service missing required read-only operator mount $mount"
+done
+if grep -q -- '/opt/parkio/ops:/opt/parkio/ops' docker/docker-compose.azure-hosted-beta.yml; then
+  fail "parking-service must not broad-mount /opt/parkio/ops"
+fi
+pass "parking-service operator asset mounts are present and read-only"
+
 memory_total="$({
   awk '
     /^  [a-zA-Z0-9_-]+:$/ { svc=$1; sub(":$", "", svc) }
