@@ -1439,3 +1439,276 @@ describe('MapPage dual-inventory layer visibility (WEB-MUNI-05)', () => {
     expect(screen.getByTestId('map-layer-municipal')).toHaveTextContent('Belediye tesisleri');
   });
 });
+
+describe('MapPage dual-inventory empty chrome (WEB-MUNI-06)', () => {
+  beforeEach(() => {
+    runtime = createTestAppRuntime();
+    signInAs(runtime, ['USER']);
+    server.use(http.get(`${API_BASE}/notifications/me`, () => HttpResponse.json([])));
+    server.use(
+      http.get(`${API_BASE}/users/me/vehicle`, () =>
+        HttpResponse.json({ vehicleType: 'SEDAN', plate: '35PK123' }),
+      ),
+    );
+    server.use(
+      http.get(`${API_BASE}/parking/sessions/active`, () => new HttpResponse(null, { status: 204 })),
+    );
+    server.use(
+      http.get(`${API_BASE}/parking/sessions/lifecycle-config`, () =>
+        HttpResponse.json({
+          confirmAfterMs: 43_200_000,
+          reminderLeadMs: 3_600_000,
+          autoCompleteAfterMs: 86_400_000,
+        }),
+      ),
+    );
+    stubGeolocation(undefined);
+  });
+
+  afterEach(() => {
+    clearUserSessionQueries(runtime.queryClient);
+    resetAuth(runtime);
+  });
+
+  async function searchNear(user: ReturnType<typeof userEvent.setup>) {
+    await openSearchOptions(user);
+    await user.type(screen.getByLabelText('Latitude'), '38.42');
+    await user.type(screen.getByLabelText('Longitude'), '27.14');
+    await user.click(screen.getByRole('button', { name: 'Search nearby' }));
+  }
+
+  it('municipal-only results do not show community-only nothing-nearby chrome', async () => {
+    let spotsHits = 0;
+    let facilitiesHits = 0;
+    const facility = makeMunicipalFacility({
+      id: 'fac-empty-1',
+      displayName: 'Chrome Lot',
+      latitude: 38.42,
+      longitude: 27.14,
+    });
+    server.use(
+      http.get(`${API_BASE}/parking/spots/nearby`, () => {
+        spotsHits += 1;
+        return HttpResponse.json([]);
+      }),
+      http.get(`${API_BASE}/parking/facilities/nearby`, () => {
+        facilitiesHits += 1;
+        return HttpResponse.json([facility]);
+      }),
+    );
+
+    renderWithProviders(<MapPage municipalDiscoveryEnabled />);
+    const user = userEvent.setup();
+    await searchNear(user);
+
+    expect(await screen.findByText('Chrome Lot')).toBeInTheDocument();
+    expect(screen.getByTestId('map-sheet-summary')).toHaveTextContent(/municipal facility/i);
+    expect(screen.getByTestId('map-sheet-summary')).not.toHaveTextContent('No spots nearby');
+    expect(screen.getByText('No community spots nearby')).toBeInTheDocument();
+    expect(screen.queryByText('No spots nearby')).not.toBeInTheDocument();
+
+    await openSearchOptions(user);
+    expect(screen.getByTestId('map-sheet-show-results')).toHaveTextContent(/municipal facility/i);
+    await user.click(screen.getByTestId('map-sheet-show-results'));
+    expect(screen.getByTestId('municipal-facility-results')).toBeInTheDocument();
+    expect(spotsHits).toBe(1);
+    expect(facilitiesHits).toBe(1);
+  });
+
+  it('community-only results keep legacy community summary', async () => {
+    server.use(
+      http.get(`${API_BASE}/parking/spots/nearby`, () => HttpResponse.json([spot])),
+      http.get(`${API_BASE}/parking/facilities/nearby`, () => HttpResponse.json([])),
+    );
+
+    renderWithProviders(<MapPage municipalDiscoveryEnabled />);
+    const user = userEvent.setup();
+    await searchNear(user);
+
+    expect(await screen.findByText('Stub Address 7')).toBeInTheDocument();
+    expect(screen.getByTestId('map-sheet-summary')).toHaveTextContent(/spot nearby/i);
+    await openSearchOptions(user);
+    expect(screen.getByTestId('map-sheet-show-results')).toHaveTextContent(/result/i);
+  });
+
+  it('dual results summarize both inventories separately', async () => {
+    const facility = makeMunicipalFacility({
+      id: 'fac-dual-1',
+      displayName: 'Dual Lot',
+      latitude: 38.42,
+      longitude: 27.14,
+    });
+    server.use(
+      http.get(`${API_BASE}/parking/spots/nearby`, () => HttpResponse.json([spot])),
+      http.get(`${API_BASE}/parking/facilities/nearby`, () => HttpResponse.json([facility])),
+    );
+
+    renderWithProviders(<MapPage municipalDiscoveryEnabled />);
+    const user = userEvent.setup();
+    await searchNear(user);
+
+    expect(await screen.findByText('Stub Address 7')).toBeInTheDocument();
+    expect(await screen.findByText('Dual Lot')).toBeInTheDocument();
+    expect(screen.getByTestId('map-sheet-summary')).toHaveTextContent(/community spots/i);
+    expect(screen.getByTestId('map-sheet-summary')).toHaveTextContent(/municipal facilities/i);
+    await openSearchOptions(user);
+    expect(screen.getByTestId('map-sheet-show-results')).toHaveTextContent(/community spots and/i);
+  });
+
+  it('true empty differs from both-hidden', async () => {
+    server.use(
+      http.get(`${API_BASE}/parking/spots/nearby`, () => HttpResponse.json([])),
+      http.get(`${API_BASE}/parking/facilities/nearby`, () => HttpResponse.json([])),
+    );
+
+    renderWithProviders(<MapPage municipalDiscoveryEnabled />);
+    const user = userEvent.setup();
+    await searchNear(user);
+
+    expect(await screen.findByTestId('map-sheet-summary')).toHaveTextContent(
+      'No visible results nearby',
+    );
+    expect(screen.queryByTestId('map-layers-both-hidden')).not.toBeInTheDocument();
+
+    await user.click(screen.getByTestId('map-layer-community'));
+    await user.click(screen.getByTestId('map-layer-municipal'));
+    expect(screen.getByTestId('map-layers-both-hidden')).toBeInTheDocument();
+    expect(screen.getByTestId('map-sheet-summary')).toHaveTextContent(
+      'No map layers are currently visible',
+    );
+    await openSearchOptions(user);
+    expect(screen.getByTestId('map-sheet-results-hint')).toHaveTextContent(/Turn on Community/i);
+  });
+
+  it('municipal filtered-empty summary differs from true empty', async () => {
+    let facilitiesHits = 0;
+    const facility = makeMunicipalFacility({
+      id: 'fac-filter-empty',
+      displayName: 'Filter Lot',
+      latitude: 38.42,
+      longitude: 27.14,
+      availableSpaces: 2,
+    });
+    server.use(
+      http.get(`${API_BASE}/parking/spots/nearby`, () => HttpResponse.json([])),
+      http.get(`${API_BASE}/parking/facilities/nearby`, () => {
+        facilitiesHits += 1;
+        return HttpResponse.json([facility]);
+      }),
+    );
+
+    renderWithProviders(<MapPage municipalDiscoveryEnabled />);
+    const user = userEvent.setup();
+    await searchNear(user);
+    expect(await screen.findByText('Filter Lot')).toBeInTheDocument();
+
+    await user.click(screen.getByTestId('municipal-filter-availability-unavailable'));
+    expect(screen.getByText('No facilities match these filters')).toBeInTheDocument();
+    expect(screen.getByTestId('map-sheet-summary')).toHaveTextContent(
+      'No municipal facilities match filters',
+    );
+    await openSearchOptions(user);
+    expect(screen.getByTestId('map-sheet-show-results')).toBeInTheDocument();
+    expect(facilitiesHits).toBe(1);
+  });
+
+  it('partial community failure preserves municipal results chrome', async () => {
+    const facility = makeMunicipalFacility({
+      id: 'fac-partial',
+      displayName: 'Healthy Lot',
+      latitude: 38.42,
+      longitude: 27.14,
+    });
+    server.use(
+      http.get(`${API_BASE}/parking/spots/nearby`, () =>
+        HttpResponse.json({ message: 'boom' }, { status: 500 }),
+      ),
+      http.get(`${API_BASE}/parking/facilities/nearby`, () => HttpResponse.json([facility])),
+    );
+
+    renderWithProviders(<MapPage municipalDiscoveryEnabled />);
+    const user = userEvent.setup();
+    await searchNear(user);
+
+    expect(await screen.findByText('Healthy Lot')).toBeInTheDocument();
+    expect(screen.getByTestId('map-sheet-summary')).toHaveTextContent(/municipal facility/i);
+    expect(screen.getByTestId('map-sheet-summary')).not.toHaveTextContent("Couldn't load results");
+  });
+
+  it('layer toggle recomputes summary without refetch', async () => {
+    let spotsHits = 0;
+    let facilitiesHits = 0;
+    const facility = makeMunicipalFacility({
+      id: 'fac-toggle-chrome',
+      displayName: 'Toggle Lot',
+      latitude: 38.42,
+      longitude: 27.14,
+    });
+    server.use(
+      http.get(`${API_BASE}/parking/spots/nearby`, () => {
+        spotsHits += 1;
+        return HttpResponse.json([]);
+      }),
+      http.get(`${API_BASE}/parking/facilities/nearby`, () => {
+        facilitiesHits += 1;
+        return HttpResponse.json([facility]);
+      }),
+    );
+
+    renderWithProviders(<MapPage municipalDiscoveryEnabled />);
+    const user = userEvent.setup();
+    await searchNear(user);
+    expect(await screen.findByText('Toggle Lot')).toBeInTheDocument();
+    expect(spotsHits).toBe(1);
+    expect(facilitiesHits).toBe(1);
+
+    await user.click(screen.getByTestId('map-layer-municipal'));
+    expect(screen.getByTestId('map-sheet-summary')).toHaveTextContent('No visible results nearby');
+    await user.click(screen.getByTestId('map-layer-municipal'));
+    expect(screen.getByTestId('map-sheet-summary')).toHaveTextContent(/municipal facility/i);
+    expect(spotsHits).toBe(1);
+    expect(facilitiesHits).toBe(1);
+  });
+
+  it('flag-off UI keeps community-only empty copy', async () => {
+    server.use(
+      http.get(`${API_BASE}/parking/spots/nearby`, () => HttpResponse.json([])),
+      http.get(`${API_BASE}/parking/facilities/nearby`, () => HttpResponse.json([])),
+    );
+
+    renderWithProviders(<MapPage municipalDiscoveryEnabled={false} />);
+    const user = userEvent.setup();
+    await searchNear(user);
+
+    expect(await screen.findByTestId('map-sheet-summary')).toHaveTextContent('No spots nearby');
+    expect(screen.getByRole('heading', { name: 'No spots nearby' })).toBeInTheDocument();
+    expect(screen.queryByText('No community spots nearby')).not.toBeInTheDocument();
+    expect(screen.queryByText(/municipal facility/i)).not.toBeInTheDocument();
+  });
+
+  it('renders Turkish municipal-only summary', async () => {
+    const { withLocale } = await import('@/test/utils');
+    await withLocale('tr');
+    const facility = makeMunicipalFacility({
+      id: 'fac-tr-chrome',
+      displayName: 'TR Lot',
+      latitude: 38.42,
+      longitude: 27.14,
+    });
+    server.use(
+      http.get(`${API_BASE}/parking/spots/nearby`, () => HttpResponse.json([])),
+      http.get(`${API_BASE}/parking/facilities/nearby`, () => HttpResponse.json([facility])),
+    );
+
+    renderWithProviders(<MapPage municipalDiscoveryEnabled />);
+    const user = userEvent.setup();
+    await user.click(screen.getByRole('button', { name: 'Filtreler ve arama seçenekleri' }));
+    await user.type(screen.getByLabelText('Enlem'), '38.42');
+    await user.type(screen.getByLabelText('Boylam'), '27.14');
+    await user.click(screen.getByRole('button', { name: 'Yakında ara' }));
+
+    expect(await screen.findByText('TR Lot')).toBeInTheDocument();
+    expect(screen.getByTestId('map-sheet-summary')).toHaveTextContent(/belediye tesisi/i);
+    expect(screen.getByTestId('map-sheet-summary')).not.toHaveTextContent('Yakında park yeri yok');
+  });
+});

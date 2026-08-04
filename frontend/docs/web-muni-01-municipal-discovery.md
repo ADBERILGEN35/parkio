@@ -69,6 +69,7 @@ Production builds must omit the flag or set it to `false`.
 - No marker clustering on web (parity with community layer)
 - Detail route `/facilities/:id` is WEB-MUNI-02 (complete)
 - Client-side municipal filters are WEB-MUNI-03 (complete)
+- Dual-inventory empty chrome / sheet CTA is WEB-MUNI-06 (`web-muni-06-dual-inventory-empty-chrome.md`)
 - Mobile not in scope
 - Availability often `UNAVAILABLE` for OSM-published inventory (backend semantics)
 

@@ -72,6 +72,7 @@ No database / API rollback.
 - Live availability often `unknown` for OSM-published inventory (backend semantics)
 - Detail location map is WEB-MUNI-04 (`web-muni-04-municipal-detail-location.md`)
 - Dual-inventory layer visibility is WEB-MUNI-05 (`web-muni-05-layer-visibility-controls.md`)
+- Dual-inventory empty chrome / sheet CTA is WEB-MUNI-06 (`web-muni-06-dual-inventory-empty-chrome.md`)
 
 ## Confirmations
 

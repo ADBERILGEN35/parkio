@@ -30,6 +30,11 @@ export interface DiscoveryResultsProps {
   selectedId: string | null;
   onSelect: (id: string | null) => void;
   userVehicleType?: VehicleType | null;
+  /**
+   * When true, community fetched-empty copy is subordinate to a healthy sibling
+   * inventory (WEB-MUNI-06). Hidden inventories must not set this.
+   */
+  siblingInventoryHasResults?: boolean;
 }
 
 /**
@@ -51,6 +56,7 @@ export function DiscoveryResults({
   selectedId,
   onSelect,
   userVehicleType = null,
+  siblingInventoryHasResults = false,
 }: DiscoveryResultsProps) {
   const { t } = useTranslation('map');
 
@@ -90,8 +96,16 @@ export function DiscoveryResults({
     return (
       <EmptyState
         icon="location_off"
-        title={t('discovery.emptyTitle')}
-        description={t('discovery.emptyDescription')}
+        title={
+          siblingInventoryHasResults
+            ? t('discovery.emptyWithMunicipalTitle')
+            : t('discovery.emptyTitle')
+        }
+        description={
+          siblingInventoryHasResults
+            ? t('discovery.emptyWithMunicipalDescription')
+            : t('discovery.emptyDescription')
+        }
       />
     );
   }

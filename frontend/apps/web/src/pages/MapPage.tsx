@@ -12,7 +12,6 @@ import { nearbySearchSchema, type NearbySearchFormValues } from '@parkio/validat
 import { Suspense, lazy, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useForm } from 'react-hook-form';
 import { useTranslation } from 'react-i18next';
-import type { TFunction } from 'i18next';
 import { Link, useSearchParams } from 'react-router-dom';
 import { useAuthStore } from '@/auth/store';
 import { BottomSheet, COLLAPSED_PEEK, type SheetState } from '@/components/map/BottomSheet';
@@ -62,6 +61,11 @@ import {
   type SpotFilters,
   type SpotSort,
 } from '@/lib/spotDiscovery';
+import {
+  formatDiscoveryChromeCtaLabel,
+  formatDiscoveryChromeSummary,
+  resolveMapDiscoveryChrome,
+} from '@/lib/mapDiscoveryChrome';
 
 const NearbySpotsMap = lazy(() =>
   import('@/components/map/NearbySpotsMap').then((m) => ({ default: m.NearbySpotsMap })),
@@ -233,7 +237,10 @@ export function MapPage({
     [spotsWithDistance, selectedId],
   );
 
-  const municipalFacilities = municipalDiscoveryEnabled ? (municipalSearch.data ?? []) : [];
+  const municipalFacilities = useMemo(
+    () => (municipalDiscoveryEnabled ? (municipalSearch.data ?? []) : []),
+    [municipalDiscoveryEnabled, municipalSearch.data],
+  );
   const municipalSourceLabels = useMemo(
     () => availableMunicipalSourceLabels(municipalFacilities),
     [municipalFacilities],
@@ -430,6 +437,43 @@ export function MapPage({
   const bothLayersHidden =
     municipalDiscoveryEnabled && !communityLayerVisible && !municipalLayerVisible;
 
+  const discoveryChrome = useMemo(
+    () =>
+      resolveMapDiscoveryChrome({
+        municipalDiscoveryEnabled,
+        communityLayerVisible,
+        municipalLayerVisible,
+        hasSearchParams: params !== null,
+        communityPending: search.isPending,
+        communityError: search.isError,
+        communityVisibleCount: visibleSpots.length,
+        communityTotalCount: spotsWithDistance.length,
+        municipalPending: municipalSearch.isPending,
+        municipalError: municipalSearch.isError,
+        municipalVisibleCount: visibleMunicipalFacilities.length,
+        municipalTotalCount: municipalFacilities.length,
+      }),
+    [
+      municipalDiscoveryEnabled,
+      communityLayerVisible,
+      municipalLayerVisible,
+      params,
+      search.isPending,
+      search.isError,
+      visibleSpots.length,
+      spotsWithDistance.length,
+      municipalSearch.isPending,
+      municipalSearch.isError,
+      visibleMunicipalFacilities.length,
+      municipalFacilities.length,
+    ],
+  );
+
+  const summaryText = useMemo(
+    () => formatDiscoveryChromeSummary(t, discoveryChrome),
+    [t, discoveryChrome],
+  );
+
   const discovery = (
     <>
       {municipalDiscoveryEnabled ? (
@@ -486,32 +530,11 @@ export function MapPage({
           selectedId={selectedId}
           onSelect={selectSpot}
           userVehicleType={vehicleQuery.data?.vehicleType ?? null}
+          siblingInventoryHasResults={discoveryChrome.communityEmptySubordinate}
         />
       ) : null}
     </>
   );
-
-  const summaryText = (() => {
-    if (bothLayersHidden) {
-      return t('layers.bothHiddenTitle');
-    }
-    if (municipalDiscoveryEnabled && !communityLayerVisible && municipalLayerVisible) {
-      if (params === null) {
-        return t('discovery.idleTitle');
-      }
-      if (municipalSearch.isPending) {
-        return t('municipal.searchingAria');
-      }
-      return t('municipal.resultsCount', { count: visibleMunicipalFacilities.length });
-    }
-    return resolveSummary(
-      t,
-      params,
-      search,
-      visibleSpots.length,
-      spotsWithDistance.length,
-    );
-  })();
   const advancedForm = (
     <form onSubmit={onSubmit}>
       <fieldset
@@ -761,9 +784,10 @@ export function MapPage({
                 </summary>
                 <div className="mt-sm">{advancedForm}</div>
               </details>
-              {spotsWithDistance.length > 0 ? (
+              {discoveryChrome.ctaMode === 'open_results' ? (
                 <button
                   type="button"
+                  data-testid="map-sheet-show-results"
                   onClick={() => {
                     setSheetState('half');
                     setAdvancedOpen(false);
@@ -771,14 +795,26 @@ export function MapPage({
                   className="mt-sm inline-flex w-full items-center justify-center gap-xs rounded-full bg-surface-container px-md py-sm text-label-md font-semibold text-on-surface transition-colors hover:bg-surface-container-high focus:outline-none focus-visible:ring-2 focus-visible:ring-primary"
                 >
                   <Icon name="filter_alt" className="text-[16px] leading-none" />
-                  {t('sheet.showResultsAndFilters', { count: spotsWithDistance.length })}
+                  {formatDiscoveryChromeCtaLabel(t, discoveryChrome)}
                 </button>
               ) : (
-                // No results yet ⇒ filters would be a dead-end. Point back at search
-                // instead of offering a control that opens an empty filter list.
-                <p className="mt-sm flex items-center gap-xs rounded-2xl bg-surface-container px-md py-sm text-label-sm text-on-surface-variant">
-                  <Icon name="search" className="text-[16px] leading-none text-primary" />
-                  {params ? t('sheet.noMatchYet') : t('sheet.searchPlaceHint')}
+                <p
+                  className="mt-sm flex items-center gap-xs rounded-2xl bg-surface-container px-md py-sm text-label-sm text-on-surface-variant"
+                  data-testid="map-sheet-results-hint"
+                >
+                  <Icon
+                    name={discoveryChrome.ctaMode === 'both_hidden' ? 'layers' : 'search'}
+                    className="text-[16px] leading-none text-primary"
+                  />
+                  {discoveryChrome.ctaMode === 'both_hidden'
+                    ? t('sheet.bothHiddenHint')
+                    : discoveryChrome.ctaMode === 'idle'
+                      ? t('sheet.searchPlaceHint')
+                      : discoveryChrome.ctaMode === 'error'
+                        ? t('sheet.summaryError')
+                        : municipalDiscoveryEnabled
+                          ? t('sheet.noVisibleResultsYet')
+                          : t('sheet.noMatchYet')}
                 </p>
               )}
             </div>
@@ -875,7 +911,13 @@ export function MapPage({
           onStateChange={setSheetState}
           ariaLabel={t('sheet.searchResultsAria')}
           summary={
-            <span className="block truncate text-label-md font-semibold text-on-surface">
+            <span
+              className="block truncate text-label-md font-semibold text-on-surface"
+              data-testid="map-sheet-summary"
+              aria-live="polite"
+              aria-atomic="true"
+              aria-label={t('sheet.summaryLiveRegionAria')}
+            >
               {summaryText}
             </span>
           }
@@ -885,20 +927,4 @@ export function MapPage({
       )}
     </div>
   );
-}
-
-/** One-line summary for the collapsed bottom-sheet peek. */
-function resolveSummary(
-  t: TFunction<'map'>,
-  params: NearbySearchParams | null,
-  search: { isPending: boolean; isError: boolean },
-  visible: number,
-  total: number,
-): string {
-  if (params === null) return t('sheet.summaryIdle');
-  if (search.isPending) return t('sheet.summarySearching');
-  if (search.isError) return t('sheet.summaryError');
-  if (total === 0) return t('sheet.summaryEmpty');
-  if (visible !== total) return t('sheet.summaryOf', { visible, total });
-  return t('sheet.summaryNearby', { count: total });
 }

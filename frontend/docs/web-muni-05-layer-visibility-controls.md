@@ -89,11 +89,15 @@ Localized title/description distinguish **user-hidden layers** from empty/loadin
 
 ## WEB-MUNI-05A
 
-Hosted-beta leave-on gate for layer toggles. **Not started** here.
+Hosted-beta leave-on gate for layer toggles. Completed separately from this doc when applicable.
+
+## Related
+
+- Dual-inventory empty chrome / sheet CTA: WEB-MUNI-06 (`web-muni-06-dual-inventory-empty-chrome.md`)
 
 ## Confirmations
 
-- WEB-MUNI-05A not started
+- WEB-MUNI-05A not started in the original implementation commit
 - No deployment
 - Production municipal discovery default unchanged
 - No backend / API / DTO / migration change
