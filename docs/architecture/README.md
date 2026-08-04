@@ -115,6 +115,8 @@ Start with:
 - [Hosted Beta Runbook](../../HOSTED-BETA-RUNBOOK.md)
 - [docker/README.md](../../docker/README.md)
 - [Production Readiness](production-readiness.md)
+- [ADR-PP-01A Managed PostgreSQL provider and topology](adr/ADR-PP-01A-managed-postgresql.md) (**ACCEPTED WITH CONDITIONS** — PP-01 implementation remains open)
+- [PP-01B Spike Registry](pp-01b-spike-registry.md)
 
 
 ## Parking Validation / Decision Architecture (WP-05)
@@ -162,7 +164,8 @@ Canonical municipal source architecture inside parking-service (İzmir / İZUM f
 ## Current Limitations
 
 Parkio is not public-production ready. Known blockers include managed HA data
-services, secrets manager and rotation workflow, stronger CD rollback,
+services (PP-01 architecture decided in [ADR-PP-01A](adr/ADR-PP-01A-managed-postgresql.md);
+implementation still open), secrets manager and rotation workflow, stronger CD rollback,
 production on-call process, and production-scale validation.
 
 See [Known Issues](../releases/KNOWN-ISSUES.md) for the current blocker list.

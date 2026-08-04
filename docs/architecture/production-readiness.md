@@ -110,18 +110,29 @@ PostGIS is required by `parking-service`; everything else is plain Postgres 16.
 - **Topology — cost-aware compromise.** The architectural invariant is *no shared schema, no
   cross-service table access, separate credentials* — **not necessarily separate servers**. For
   production:
-  - **Recommended:** 1–2 **managed Postgres clusters** hosting **9 logical databases** with **9
-    distinct roles**, each role granted only its own database. This preserves database-per-service
-    isolation (separate DB + separate creds, no cross-DB grants) at a fraction of the cost of 9
-    managed instances.
+  - **Decision (PP-01A):** provider and topology are frozen in
+    [`adr/ADR-PP-01A-managed-postgresql.md`](adr/ADR-PP-01A-managed-postgresql.md)
+    (**ACCEPTED WITH CONDITIONS**). Primary: **Azure Database for PostgreSQL Flexible Server**;
+    approved alternate: **AWS RDS for PostgreSQL**. Default: **2** managed clusters (core +
+    parking/PostGIS) hosting **10 logical databases** with **10 distinct roles**, each role
+    granted only its own database. One shared cluster remains a controlled exception only.
+    PP-01A closes the **architecture decision** only — **PP-01 implementation remains open**;
+    next work is **PP-01B** IaC authoring and named sandbox spikes
+    ([`pp-01b-spike-registry.md`](pp-01b-spike-registry.md)). PP-01A does **not** close public
+    production NO-GO and does **not** authorize municipal production enablement.
+  - **Recommended (historical cost-aware framing):** 1–2 **managed Postgres clusters** hosting
+    **10 logical databases** with **10 distinct roles**, each role granted only its own database.
+    This preserves database-per-service isolation (separate DB + separate creds, no cross-DB
+    grants) at a fraction of the cost of 10 managed instances.
   - **parking** must run on a cluster whose provider supports the **`postgis` extension** (AWS RDS,
-    Aiven, Supabase, Crunchy, Neon all do). If the chosen managed provider can't enable PostGIS on a
-    shared cluster, isolate **parking on its own PostGIS-capable instance** and co-locate the rest.
+    Aiven, Supabase, Crunchy, Neon all do; Azure Flexible Server subject to extension validation).
+    If the chosen managed provider can't enable PostGIS on a shared cluster, isolate **parking on
+    its own PostGIS-capable instance** and co-locate the rest (frozen default in ADR-PP-01A).
   - Keep separate instances only where load profiles diverge sharply (e.g. analytics write-heavy).
 - **Backups + PITR.** Enable provider automated backups with **Point-In-Time Recovery** (WAL
   archiving), retention ≥ 7 days (beta) / ≥ 30 days (prod).
   - **VPS beta interim — implemented; restore drill automated.** `scripts/backup-databases.sh`
-    (nightly cron) dumps all nine service DBs (timestamped gzip; optional AES-256 + offsite via `mc`),
+    (nightly cron) dumps all ten service DBs (timestamped gzip; optional AES-256 + offsite via `mc`),
     `scripts/restore-database.sh` performs a guarded single-DB restore, and
     `scripts/verify-backup.sh` proves a dump is restorable by restoring into a **disposable temp
     database** (no live-data risk). The end-to-end **restore drill is now a single script**
@@ -744,9 +755,10 @@ OIDC federation to the cloud provider where possible.
   the source of truth for produced events is the **transactional outbox in Postgres** (relay re-publishes),
   and consumers are idempotent — so DB backups substantially bound the blast radius. Still, treat
   RF≥3 as a **public-prod blocker**.
-- **Shared managed Postgres cluster for 9 logical DBs.** Saves cost but is a shared failure domain and
-  shared connection budget. *Mitigation:* separate roles/DBs (isolation preserved), PgBouncer, and
-  split out hot DBs (parking/analytics) if load demands.
+- **Shared managed Postgres cluster for 10 logical DBs.** Saves cost but is a shared failure domain and
+  shared connection budget. *Mitigation:* ADR-PP-01A defaults to **two** clusters (parking/PostGIS
+  isolated); separate roles/DBs (isolation preserved), PgBouncer, and split out hot DBs
+  (parking/analytics) if load demands. One-cluster use requires the ADR exception contract.
 - **10 JVMs are memory-hungry.** Beta on one VPS may be RAM-bound. *Mitigated (P1.5):* per-container
   `mem_limit` ceilings are now set with heap pinned to 65 % of each limit and `ExitOnOutOfMemoryError`;
   total ceilings ≈ 15.8 GB → 24 GB host recommended (16 GB minimum). See
