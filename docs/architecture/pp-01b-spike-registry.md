@@ -20,7 +20,7 @@ public GO, or municipal production enablement. **PP-01B is not complete.**
 |-------|--------|----------|
 | **PP-01B-SPIKE-01** | **CLOSED / ACCEPT WITH NON-BLOCKING NOTES** | [pp-01b-spike-01.md](pp-01b-spike-01.md) |
 | **PP-01B-SPIKE-02** | **MODE A COMPLETE — PASS WITH NON-BLOCKING NOTES** (Mode B **not executed**) | [pp-01b-spike-02-postgis-spatial-parity.md](pp-01b-spike-02-postgis-spatial-parity.md) |
-| **PP-01B-SPIKE-03** | **NOT STARTED** | (networking — registry section below) |
+| **PP-01B-SPIKE-03** | **MODE A COMPLETE — PASS WITH NON-BLOCKING NOTES** (Mode B **not executed**) | [pp-01b-spike-03-private-network-dns-tls.md](pp-01b-spike-03-private-network-dns-tls.md) |
 
 ---
 
@@ -63,11 +63,18 @@ Live portal/CLI proof remains optional future work and must **revalidate** Micro
 | Field | Definition |
 |-------|------------|
 | **Purpose** | Prove private connectivity path and TLS-required client connections. |
-| **Status** | **NOT STARTED** |
-| **Evidence required** | Private endpoint or VNet integration; private DNS; JDBC/`psql` TLS required; public admin blocked for prod posture. |
-| **Success criteria** | Private resolve + TLS-required connect; negative check when TLS disabled. |
+| **Status** | **MODE A COMPLETE — PASS WITH NON-BLOCKING NOTES**; Mode B pending |
+| **Specification / report** | [`pp-01b-spike-03-private-network-dns-tls.md`](pp-01b-spike-03-private-network-dns-tls.md) |
+| **Evidence index** | [`evidence/pp-01b-spike-03/README.md`](evidence/pp-01b-spike-03/README.md) |
+| **Modes** | **A executed** (local TLS JDBC / DNS contract / pool / guard); B board-approved Flexible Server private sandbox — **not executed** |
 | **Owner** | Infra |
-| **Board approval before paid create** | Yes |
+| **Cloud provisioning** | Mode B only, with spend approval |
+| **Board approval before Mode B** | Yes |
+| **Mode A key result** | `verify-full` positive/negative matrix PASS; hostname mismatch FAIL; role isolation PASS; Hikari recovery PASS; production private-only guard PASS; 0 required skips |
+| **Mode B readiness** | **READY WITH CONDITIONS** |
+| **Key inventory note** | Repo defaults lack `sslmode`; Flyway shares runtime datasource; migrator/runtime split deferred to PP-01C/PP-03 |
+| **TLS policy** | Production target `sslmode=verify-full` |
+| **Azure provisioned** | **No** |
 
 ---
 
@@ -75,6 +82,6 @@ Live portal/CLI proof remains optional future work and must **revalidate** Micro
 
 1. SPIKE-01 — **CLOSED** (catalog)
 2. SPIKE-02 — **MODE A COMPLETE**; Mode B **not executed**
-3. SPIKE-03 — **NOT STARTED**
+3. SPIKE-03 — **MODE A COMPLETE**; Mode B **not executed**
 
 Do not proceed to production-shaped apply, staging cutover (PP-01D), or PP-01E/F until ADR conditions and remaining spike success criteria are met.

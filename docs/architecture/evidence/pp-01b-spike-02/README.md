@@ -27,7 +27,7 @@ Method: **repository inventory**. No secrets in Git.
 | Scripts | `scripts/pp-01b-spike-02-mode-a.ps1`, `scripts/pp-01b-spike-02-mode-a.sh` |
 | Machine evidence (gitignored) | `deploy-artifacts/pp-01b-spike-02/` |
 | Mode B | **READY WITH CONDITIONS** — not executed; no Azure provisioned |
-| SPIKE-03 | **NOT STARTED** |
+| SPIKE-03 | **MODE A COMPLETE — PASS WITH NON-BLOCKING NOTES** (Mode B not executed) |
 | Public production | **NO-GO** |
 | Municipal production | **DISABLED** |
 

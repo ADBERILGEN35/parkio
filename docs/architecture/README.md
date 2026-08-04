@@ -119,6 +119,7 @@ Start with:
 - [PP-01B Spike Registry](pp-01b-spike-registry.md)
 - [PP-01B-SPIKE-01 Azure technical validation](pp-01b-spike-01.md) (**CLOSED — ACCEPT WITH NON-BLOCKING NOTES**)
 - [PP-01B-SPIKE-02 PostGIS spatial parity](pp-01b-spike-02-postgis-spatial-parity.md) (**MODE A COMPLETE — PASS WITH NON-BLOCKING NOTES**; Mode B pending)
+- [PP-01B-SPIKE-03 Private network / DNS / TLS](pp-01b-spike-03-private-network-dns-tls.md) (**MODE A COMPLETE — PASS WITH NON-BLOCKING NOTES**; Mode B pending)
 
 
 ## Parking Validation / Decision Architecture (WP-05)

@@ -9,7 +9,7 @@
 | Provisioning | **None** — no Azure credentials, no portal create, no sandbox server |
 | Parent ADR | [ADR-PP-01A](adr/ADR-PP-01A-managed-postgresql.md) (**ACCEPTED WITH CONDITIONS**) |
 | Registry | [pp-01b-spike-registry.md](pp-01b-spike-registry.md) |
-| Next | [PP-01B-SPIKE-02 plan](pp-01b-spike-02-postgis-spatial-parity.md) — **READY, NOT STARTED** |
+| Next | [PP-01B-SPIKE-02](pp-01b-spike-02-postgis-spatial-parity.md) Mode A complete; [SPIKE-03](pp-01b-spike-03-private-network-dns-tls.md) Mode A complete |
 
 **Statement taxonomy:** REPOSITORY FACT · EXTERNAL VERIFICATION · INFERENCE · RECOMMENDATION · UNKNOWN
 

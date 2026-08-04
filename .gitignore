@@ -84,6 +84,10 @@ backups/
 deploy-artifacts/*
 !deploy-artifacts/.gitkeep
 
+# PP-01B-SPIKE-03 Mode A transient TLS material (never commit)
+**/.spike03-certs/
+**/spike03-tls-work/
+
 backup-artifacts/*
 !backup-artifacts/.gitkeep
 

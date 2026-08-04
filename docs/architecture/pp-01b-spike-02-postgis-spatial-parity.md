@@ -284,7 +284,7 @@ Documentation-only package does **not** trip stop conditions that require execut
 
 ## 11. Out-of-scope
 
-- SPIKE-03 private networking (**NOT STARTED**)
+- SPIKE-03 private networking (**MODE A COMPLETE — PASS WITH NON-BLOCKING NOTES**; Mode B pending)
 - Terraform / ARM / Bicep / provisioning
 - ADR amendments
 - Production or municipal enablement
