@@ -9,7 +9,10 @@ import { describeAuthError } from '@/api/error-messages';
 import { useParkioSdk } from '@/app/AppRuntimeContext';
 import { AuthSplitLayout } from '@/pages/auth/AuthSplitLayout';
 import { getPendingProfile } from '@/auth/pendingProfile';
-import { sanitizeInternalRedirect } from '@/auth/redirect';
+import {
+  AUTH_RETURN_QUERY_PARAM,
+  sanitizeInternalRedirect,
+} from '@/auth/redirect';
 import { useAuthStore } from '@/auth/store';
 import { createLoginSchema } from '@/lib/validation/localized-schemas';
 import { showError, showSuccess } from '@/lib/toast';
@@ -49,7 +52,9 @@ export function LoginPage() {
         navigate('/preparing');
       } else {
         const from = (location.state as { from?: unknown } | null)?.from;
-        navigate(sanitizeInternalRedirect(from));
+        navigate(
+          sanitizeInternalRedirect(searchParams.get(AUTH_RETURN_QUERY_PARAM), from),
+        );
       }
     } catch (error) {
       const friendly = describeAuthError(error, t('errors:auth.loginFailed'), t);

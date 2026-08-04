@@ -2,8 +2,10 @@ import { http, HttpResponse } from 'msw';
 import { screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { Route, Routes } from 'react-router-dom';
+import { useLocation } from 'react-router-dom';
 import { beforeEach, describe, expect, it } from 'vitest';
 import { clearPendingProfile, setPendingProfile } from '@/auth/pendingProfile';
+import { AUTH_RETURN_QUERY_PARAM } from '@/auth/redirect';
 import { API_BASE, apiErrorBody, server } from '@/test/server';
 import { renderWithProviders } from '@/test/utils';
 import { AccountPreparingPage } from './AccountPreparingPage';
@@ -22,13 +24,26 @@ const authResponse = {
   },
 };
 
+function ProfileRouteProbe() {
+  const location = useLocation();
+  return <div>{`Profile page stub ${location.pathname}${location.search}`}</div>;
+}
+
+function loginEntryWithReturn(value: string) {
+  const params = new URLSearchParams();
+  params.set(AUTH_RETURN_QUERY_PARAM, value);
+  return `/login?${params.toString()}`;
+}
+
 function renderLogin() {
   return renderWithProviders(
     <Routes>
       <Route path="/login" element={<LoginPage />} />
       <Route path="/preparing" element={<AccountPreparingPage />} />
       <Route path="/map" element={<div>Map page stub</div>} />
-      <Route path="/profile" element={<div>Profile page stub</div>} />
+        <Route path="/profile" element={<ProfileRouteProbe />} />
+        <Route path="/spots/:spotId" element={<ProfileRouteProbe />} />
+        <Route path="/facilities/:facilityId" element={<ProfileRouteProbe />} />
     </Routes>,
     { initialEntries: ['/login'] },
   );
@@ -59,23 +74,43 @@ describe('LoginPage', () => {
     expect(localStorage.getItem('parkio.refreshToken')).toBeNull();
   });
 
-  it('returns only to a recognized internal route after login', async () => {
+  it('returns to a recognized internal route and preserves safe query state after login', async () => {
     server.use(http.post(`${API_BASE}/auth/login`, () => HttpResponse.json(authResponse)));
     renderWithProviders(
       <Routes>
         <Route path="/login" element={<LoginPage />} />
-        <Route path="/profile" element={<div>Profile page stub</div>} />
+        <Route path="/profile" element={<ProfileRouteProbe />} />
+        <Route path="/map" element={<div>Map page stub</div>} />
       </Routes>,
       {
-        initialEntries: [
-          { pathname: '/login', state: { from: { pathname: '/profile', search: '?unsafe=1' } } },
-        ],
+        initialEntries: [loginEntryWithReturn('/profile?tab=security')],
       },
     );
 
     await fillAndSubmit('tester@parkio.dev', 'password-1');
 
-    expect(await screen.findByText('Profile page stub')).toBeInTheDocument();
+    expect(
+      await screen.findByText('Profile page stub /profile?tab=security'),
+    ).toBeInTheDocument();
+  });
+
+  it('strips fragments from the login return target before restoring navigation', async () => {
+    server.use(http.post(`${API_BASE}/auth/login`, () => HttpResponse.json(authResponse)));
+    renderWithProviders(
+      <Routes>
+        <Route path="/login" element={<LoginPage />} />
+        <Route path="/profile" element={<ProfileRouteProbe />} />
+      </Routes>,
+      {
+        initialEntries: [loginEntryWithReturn('/profile?tab=security#danger')],
+      },
+    );
+
+    await fillAndSubmit('tester@parkio.dev', 'password-1');
+
+    expect(
+      await screen.findByText('Profile page stub /profile?tab=security'),
+    ).toBeInTheDocument();
   });
 
   it('falls back to /map for an external post-login redirect', async () => {
@@ -86,15 +121,59 @@ describe('LoginPage', () => {
         <Route path="/map" element={<div>Map page stub</div>} />
       </Routes>,
       {
-        initialEntries: [
-          { pathname: '/login', state: { from: { pathname: '//evil.example/steal' } } },
-        ],
+        initialEntries: [loginEntryWithReturn('//evil.example/steal')],
       },
     );
 
     await fillAndSubmit('tester@parkio.dev', 'password-1');
 
     expect(await screen.findByText('Map page stub')).toBeInTheDocument();
+  });
+
+  it('falls back to /map for an unknown post-login redirect target', async () => {
+    server.use(http.post(`${API_BASE}/auth/login`, () => HttpResponse.json(authResponse)));
+    renderWithProviders(
+      <Routes>
+        <Route path="/login" element={<LoginPage />} />
+        <Route path="/map" element={<div>Map page stub</div>} />
+      </Routes>,
+      {
+        initialEntries: [loginEntryWithReturn('/unknown')],
+      },
+    );
+
+    await fillAndSubmit('tester@parkio.dev', 'password-1');
+
+    expect(await screen.findByText('Map page stub')).toBeInTheDocument();
+  });
+
+  it('uses legacy route state only as a fallback when no login return query exists', async () => {
+    server.use(http.post(`${API_BASE}/auth/login`, () => HttpResponse.json(authResponse)));
+    renderWithProviders(
+      <Routes>
+        <Route path="/login" element={<LoginPage />} />
+        <Route path="/profile" element={<ProfileRouteProbe />} />
+      </Routes>,
+      {
+        initialEntries: [
+          {
+            pathname: '/login',
+            state: {
+              from: {
+                pathname: '/profile',
+                search: '?tab=legacy',
+              },
+            },
+          },
+        ],
+      },
+    );
+
+    await fillAndSubmit('tester@parkio.dev', 'password-1');
+
+    expect(
+      await screen.findByText('Profile page stub /profile?tab=legacy'),
+    ).toBeInTheDocument();
   });
 
   it('does not render a no-op remember-me control', () => {

@@ -117,6 +117,8 @@ relative order ahead of the managed keys.
 - Owned by existing Smart Return routing/search-param behavior
 - WEB-MUNI-07 never changes its semantics
 - `smartReturn=1` is preserved through canonicalization, filter/layer writes, and browser history navigation
+- Protected-route login redirects must preserve `smartReturn=1` and safe municipal query
+  state on the same internal route; URL fragments remain stripped
 
 ## State ownership
 
@@ -181,6 +183,8 @@ Invariants:
 - Copying the URL preserves the stable layer/filter state
 - Refresh restores the same stable layer/filter state
 - Opening the copied URL in a new tab restores the same stable layer/filter state
+- Protected-route auth redirects preserve safe query state on recognized internal routes
+  so a login bounce does not discard municipal layer/filter URL state
 - Clearing municipal filters removes the relevant params
 - Re-enabling both layers removes default visibility params
 - Detail routes stay independent; route-local selection is still transient

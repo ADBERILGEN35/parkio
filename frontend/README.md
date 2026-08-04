@@ -1386,7 +1386,11 @@ runtime flags only after the controlled-beta smoke procedure passes.
 
 `smartReturn=1` also coexists with WEB-MUNI-07 map URL-state persistence on `/map`; the
 municipal filter/layer params are canonicalized independently and must never remove the
-existing Smart Return param. See `docs/web-muni-07-url-state-persistence.md`.
+existing Smart Return param. WEB-MUNI-08 additionally preserves that safe `/map`
+query state through protected-route login redirects while still stripping fragments
+and rejecting unsafe redirect targets. See
+`docs/web-muni-07-url-state-persistence.md` and
+`docs/web-muni-08-auth-query-preservation.md`.
 
 ## Error shape
 

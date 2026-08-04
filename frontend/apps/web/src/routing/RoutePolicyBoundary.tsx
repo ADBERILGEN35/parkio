@@ -8,7 +8,10 @@ import {
   useMatches,
   type UIMatch,
 } from 'react-router-dom';
-import { sanitizeInternalRedirect } from '@/auth/redirect';
+import {
+  createSanitizedLoginReturnSearch,
+  sanitizeInternalRedirect,
+} from '@/auth/redirect';
 import { useAuthStore } from '@/auth/store';
 import { RouteFallback } from '@/components/RouteFallback';
 import { AccountSuspendedPage } from '@/pages/AccountSuspendedPage';
@@ -116,12 +119,17 @@ export function RoutePolicyBoundary() {
   }
 
   if (lifecycle === 'anonymous') {
-    const returnPath = sanitizeInternalRedirect(location.pathname);
+    const returnPath = sanitizeInternalRedirect({
+      pathname: location.pathname,
+      search: location.search,
+    });
     return (
       <Navigate
-        to={getRoutePath(AUTH_LIFECYCLE_DESTINATIONS.anonymous)}
+        to={{
+          pathname: getRoutePath(AUTH_LIFECYCLE_DESTINATIONS.anonymous),
+          search: createSanitizedLoginReturnSearch(returnPath),
+        }}
         replace
-        state={{ from: { pathname: returnPath } }}
       />
     );
   }
