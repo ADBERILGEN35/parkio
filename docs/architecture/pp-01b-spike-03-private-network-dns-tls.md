@@ -4,7 +4,7 @@
 |-------|-------|
 | Spike ID | **PP-01B-SPIKE-03** |
 | Mode A status | **COMPLETE — PASS WITH NON-BLOCKING NOTES** |
-| Mode B status | **READY WITH CONDITIONS** (not executed) |
+| Mode B status | **HOLD — NOT EXECUTED** (sandbox blocked; see §10) |
 | Verification date | **2026-08-04** |
 | ADR | [ADR-PP-01A](adr/ADR-PP-01A-managed-postgresql.md) — **unchanged** |
 | Registry | [pp-01b-spike-registry.md](pp-01b-spike-registry.md) |
@@ -145,24 +145,45 @@ SPIKE-03 defines only the contract: no secrets in Git/images/Vite/logs; per-serv
 
 ---
 
-## 10. Mode B readiness
+## 10. Mode B readiness / execution attempt (2026-08-04)
 
-**READY WITH CONDITIONS**
+**Pre-attempt classification:** READY WITH CONDITIONS  
+**Execution result:** **HOLD — NOT EXECUTED**
 
-Smallest board-approved sandbox must prove: private access + Private DNS, public disabled, `verify-full` with managed chain, in-network connect / out-of-network deny, two-cluster DNS names, role isolation, pool recovery after controlled failover (where safe), no secrets committed, cleanup + cost recorded.
+This session authorized a temporary board-approved sandbox attempt. Execution stopped before any Azure create because truthful Mode B proof requires live provider access that is **not available** on the runner.
 
-Prerequisites: board approval, cost ceiling, region/SKU revalidation, naming, cleanup deadline, no production data/credentials/traffic.
+| Prerequisite | Status | Class |
+|--------------|--------|-------|
+| Board authorization for temporary sandbox | Present in this Mode B prompt | REPOSITORY / PROCESS |
+| Azure CLI (`az`) installed | **Missing** | FACT |
+| Azure PowerShell (`Az.*`) installed | **Missing** | FACT |
+| Azure subscription / credentials in environment | **Missing** (no `AZURE_*` / `ARM_*` / account session) | FACT |
+| Approved cost ceiling | **UNKNOWN** (still unset since SPIKE-01) | UNKNOWN |
+| Exact GP SKU | **UNKNOWN** (SPIKE-01 deferred) | UNKNOWN |
+| Region revalidation at apply time | Not reached | — |
+| Temporary naming / cleanup deadline | Not reached | — |
+| Azure resources provisioned | **None** | FACT |
+
+**Stop condition applied:** truthful private-network / Private DNS / managed TLS / in-VNet connectivity proof requires Azure provisioning with working credentials and a cost/SKU envelope. Inventing results, using production credentials, or leaving unpaid permanent infra is forbidden.
+
+**Unblock checklist (minimum):**
+1. Install Azure CLI (or equivalent) on the validation host.
+2. Authenticate a **non-production** sandbox subscription (no production credentials).
+3. Record approved **cost ceiling**, cleanup deadline, and temporary resource prefix.
+4. Revalidate region + General Purpose SKU + private-access + Private DNS docs on Microsoft Learn at apply time.
+5. Re-run Mode B; tear down all resources; record cost.
 
 ---
 
-## 11. Program status after Mode A
+## 11. Program status after Mode B attempt
 
 | Item | Status |
 |------|--------|
 | PP-01B-SPIKE-03 Mode A | **COMPLETE — PASS WITH NON-BLOCKING NOTES** |
-| PP-01B-SPIKE-03 Mode B | **READY WITH CONDITIONS** — not executed |
+| PP-01B-SPIKE-03 Mode B | **HOLD — NOT EXECUTED** (tooling/credentials/cost ceiling) |
 | PP-01B-SPIKE-02 Mode B | Separate — **not executed** |
-| PP-01 | **OPEN** |
+| PP-01 | **OPEN** (not ready for production cutover) |
 | Public production | **NO-GO** |
 | Municipal production | **DISABLED** |
 | PP-01C / PP-02…PP-06 | **Not started** |
+| Azure resources created this attempt | **None** |

@@ -22,12 +22,20 @@ Evidence snapshot: **2026-08-04**.
 | JDBC | `org.postgresql:postgresql:42.7.11` |
 | TLS policy | `verify-full` |
 | Required IT skipped | **0** |
-| Mode B | **READY WITH CONDITIONS** — not executed; no Azure provisioned |
+| Mode B | **HOLD — NOT EXECUTED** — no Azure CLI/credentials; cost ceiling/SKU UNKNOWN; **no** Azure provisioned |
 | SPIKE-02 Mode B | **not executed** |
 | Public production | **NO-GO** |
 | Municipal production | **DISABLED** |
 
-### EXTERNAL VERIFICATION (revalidate before Mode B)
+### Mode B unblock (minimum)
+
+1. Azure CLI (or equivalent) on validation host  
+2. Non-production sandbox subscription auth (no production credentials)  
+3. Approved cost ceiling + cleanup deadline + temporary prefix  
+4. Region/SKU revalidation on Microsoft Learn at apply time  
+5. Re-run Mode B; full teardown; cost recorded  
+
+### EXTERNAL VERIFICATION (revalidate before Mode B apply)
 
 - Private networking: https://learn.microsoft.com/en-us/azure/postgresql/network/concepts-networking-private
 - TLS connect: https://learn.microsoft.com/en-us/azure/postgresql/security/security-tls-how-to-connect
