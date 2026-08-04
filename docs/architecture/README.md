@@ -118,7 +118,7 @@ Start with:
 - [ADR-PP-01A Managed PostgreSQL provider and topology](adr/ADR-PP-01A-managed-postgresql.md) (**ACCEPTED WITH CONDITIONS** — PP-01 implementation remains open)
 - [PP-01B Spike Registry](pp-01b-spike-registry.md)
 - [PP-01B-SPIKE-01 Azure technical validation](pp-01b-spike-01.md) (**CLOSED — ACCEPT WITH NON-BLOCKING NOTES**)
-- [PP-01B-SPIKE-02 PostGIS spatial parity](pp-01b-spike-02-postgis-spatial-parity.md) (**READY, NOT STARTED**)
+- [PP-01B-SPIKE-02 PostGIS spatial parity](pp-01b-spike-02-postgis-spatial-parity.md) (**DOCUMENTATION COMPLETE — HOLD ON RUNTIME PARITY**)
 
 
 ## Parking Validation / Decision Architecture (WP-05)
