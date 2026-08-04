@@ -11,16 +11,18 @@ public GO, or municipal production enablement. **PP-01B is not complete.**
 | PP-01 status | Remains **open** / public production **NO-GO** |
 | Municipal production | Remains **disabled** |
 | PP-01B scope | Planning, IaC authoring, and named sandbox spikes |
+| IaC contract | [`pp-01b-iac-contract.md`](pp-01b-iac-contract.md) (**PP-01B-R0 ACCEPTED WITH CONDITIONS**) |
 | Secrets in Git | Forbidden |
 | Cleanup | Required for any provisioned sandbox resources |
 
 ## Status board
 
-| Spike | Status | Artifact |
-|-------|--------|----------|
+| Spike / package | Status | Artifact |
+|-----------------|--------|----------|
 | **PP-01B-SPIKE-01** | **CLOSED / ACCEPT WITH NON-BLOCKING NOTES** | [pp-01b-spike-01.md](pp-01b-spike-01.md) |
 | **PP-01B-SPIKE-02** | **MODE A COMPLETE — PASS WITH NON-BLOCKING NOTES** (Mode B **not executed**) | [pp-01b-spike-02-postgis-spatial-parity.md](pp-01b-spike-02-postgis-spatial-parity.md) |
 | **PP-01B-SPIKE-03** | **MODE A COMPLETE**; Mode B **HOLD — NOT EXECUTED** | [pp-01b-spike-03-private-network-dns-tls.md](pp-01b-spike-03-private-network-dns-tls.md) |
+| **PP-01B-R0 IaC contract** | **ACCEPTED WITH CONDITIONS** (no IaC code generated) | [pp-01b-iac-contract.md](pp-01b-iac-contract.md) |
 
 ---
 
@@ -83,5 +85,7 @@ Live portal/CLI proof remains optional future work and must **revalidate** Micro
 1. SPIKE-01 — **CLOSED** (catalog)
 2. SPIKE-02 — **MODE A COMPLETE**; Mode B **not executed**
 3. SPIKE-03 — **MODE A COMPLETE**; Mode B **HOLD — NOT EXECUTED**
+4. PP-01B-R0 IaC contract — **ACCEPTED WITH CONDITIONS**; Terraform authoring may start offline; apply/Mode B still gated
 
 Do not proceed to production-shaped apply, staging cutover (PP-01D), or PP-01E/F until ADR conditions and remaining spike success criteria are met.
+Do not start PP-01C until PP-01B is complete per ADR §20 and the IaC contract.

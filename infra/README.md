@@ -2,27 +2,35 @@
 
 Infrastructure-as-code for deploying Parkio.
 
-Suggested structure:
+## Managed PostgreSQL (PP-01B)
 
-- `kubernetes/` — manifests / Helm charts / Kustomize overlays per environment.
-- `terraform/` — cloud resources (networking, databases, queues, object storage).
-- `environments/` — environment-specific configuration (dev, staging, prod).
+**Authoritative IaC contract:**
+[`docs/architecture/pp-01b-iac-contract.md`](../docs/architecture/pp-01b-iac-contract.md)
+(**PP-01B-R0 — ACCEPTED WITH CONDITIONS**).
 
-This directory holds deployment definitions only; application configuration that
-ships with a service lives in that service's `src/main/resources`.
+| Frozen by PP-01B-R0 | Value |
+|--------------------|-------|
+| Tool | **Terraform** (`infra/terraform/`) |
+| Network model | Flexible Server **private access** (VNet integration / delegated subnet) + Private DNS |
+| Topology | 2 clusters · 10 DBs · 10 roles (ADR-PP-01A) |
+| Authoring | Authorized offline |
+| Apply | Sandbox only with board/cost/Mode B gates — **not** in this docs package |
+| Production apply | **Forbidden** in PP-01B |
 
-## Managed PostgreSQL (PP-01)
+Provider and topology remain frozen in
+[`ADR-PP-01A`](../docs/architecture/adr/ADR-PP-01A-managed-postgresql.md).
 
-Provider and topology are decided in
-[`docs/architecture/adr/ADR-PP-01A-managed-postgresql.md`](../docs/architecture/adr/ADR-PP-01A-managed-postgresql.md)
-(**ACCEPTED WITH CONDITIONS**):
+**PP-01 remains open.** Public production **NO-GO**. Municipal production **disabled**.
+**PP-01C not authorized.** Azure Mode B **HOLD**.
+This directory still has **no** Terraform implementation files until a future authoring package; R0 freezes the contract only.
 
-- Primary: Azure Database for PostgreSQL Flexible Server
-- Alternate: AWS RDS for PostgreSQL
-- Default topology: 2 clusters · 10 logical databases · 10 isolated roles
+### Planned layout (do not invent alternatives)
 
-**PP-01 remains open.** PP-01B may author IaC and run named sandbox spikes
-([`docs/architecture/pp-01b-spike-registry.md`](../docs/architecture/pp-01b-spike-registry.md))
-only. No production apply, public production GO, or municipal production
-enablement is authorized by PP-01A. This directory is still a placeholder until
-PP-01B lands IaC.
+See PP-01B-R0 §6:
+
+- `terraform/modules/` — reusable modules
+- `terraform/stacks/{sandbox,staging,production}/` — directory-isolated stacks
+- Generated plans/state — gitignored
+
+Suggested non-Postgres overlays (`kubernetes/`, etc.) remain future work and are
+**out of PP-01B Postgres IaC scope**.

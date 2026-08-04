@@ -88,6 +88,18 @@ deploy-artifacts/*
 **/.spike03-certs/
 **/spike03-tls-work/
 
+# PP-01B Terraform authoring artifacts (never commit state/plans/locks local)
+**/.terraform/
+**/*.tfstate
+**/*.tfstate.*
+**/*.tfplan
+**/*.tfplan.*
+**/crash.log
+**/crash.*.log
+infra/terraform/**/*.auto.tfvars
+infra/terraform/**/terraform.tfvars
+infra/evidence/
+
 backup-artifacts/*
 !backup-artifacts/.gitkeep
 

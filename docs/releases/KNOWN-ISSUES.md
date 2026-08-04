@@ -21,7 +21,7 @@ Verified findings only. No speculative defects.
 
 | ID | Issue | Impact | Status |
 |----|-------|--------|--------|
-| PP-01 | **No managed HA Postgres with PITR** | Data loss risk | **NO GO** — topology/provider decided in [ADR-PP-01A](../architecture/adr/ADR-PP-01A-managed-postgresql.md) (**ACCEPTED WITH CONDITIONS**); **implementation remains open**. Next: PP-01B IaC + [sandbox spikes](../architecture/pp-01b-spike-registry.md). ADR does **not** close public production NO-GO or enable municipal production. |
+| PP-01 | **No managed HA Postgres with PITR** | Data loss risk | **NO GO** — topology/provider decided in [ADR-PP-01A](../architecture/adr/ADR-PP-01A-managed-postgresql.md) (**ACCEPTED WITH CONDITIONS**); **implementation remains open**. Next: PP-01B IaC authoring per [PP-01B-R0 contract](../architecture/pp-01b-iac-contract.md) + [sandbox spikes](../architecture/pp-01b-spike-registry.md). ADR does **not** close public production NO-GO or enable municipal production. |
 | PP-02 | **No managed Kafka RF≥3** | Broker loss = event loss risk | **NO GO** |
 | PP-03 | **No secrets manager + rotation** | Operational secret risk | **NO GO** |
 | PP-04 | **No CD with rollback + approval** | Unsafe deploy velocity | **NO GO** |

@@ -118,6 +118,8 @@ PostGIS is required by `parking-service`; everything else is plain Postgres 16.
     granted only its own database. One shared cluster remains a controlled exception only.
     PP-01A closes the **architecture decision** only — **PP-01 implementation remains open**;
     next work is **PP-01B** IaC authoring and named sandbox spikes
+    ([`pp-01b-iac-contract.md`](pp-01b-iac-contract.md) **PP-01B-R0** freezes the Terraform
+    authoring contract; Azure Mode B remains HOLD; PP-01B is not complete).
     ([`pp-01b-spike-registry.md`](pp-01b-spike-registry.md)). PP-01A does **not** close public
     production NO-GO and does **not** authorize municipal production enablement.
   - **Recommended (historical cost-aware framing):** 1–2 **managed Postgres clusters** hosting

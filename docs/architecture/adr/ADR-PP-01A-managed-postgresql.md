@@ -6,7 +6,7 @@
 | **Date** | 2026-08-04 |
 | **Deciders** | Parkio PP-01A Architecture Review Board (PP-01A + PP-01A-R1) |
 | **Parent program** | PP-01 (managed HA Postgres with PITR) |
-| **Related** | [production-readiness.md](../production-readiness.md) §3 · [KNOWN-ISSUES.md](../../releases/KNOWN-ISSUES.md) PP-01 · [PP-01B spike registry](../pp-01b-spike-registry.md) |
+| **Related** | [production-readiness.md](../production-readiness.md) §3 · [KNOWN-ISSUES.md](../../releases/KNOWN-ISSUES.md) PP-01 · [PP-01B spike registry](../pp-01b-spike-registry.md) · [PP-01B-R0 IaC contract](../pp-01b-iac-contract.md) |
 
 ## Board posture (authoritative)
 
