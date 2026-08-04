@@ -76,7 +76,7 @@ resource "azurerm_resource_group" "mode_b" {
   name     = var.name
   location = var.location
   tags = merge(var.tags, {
-    environment      = "sandbox"
+    environment      = var.environment
     program          = "pp-01b"
     package          = "mode-b"
     temporary        = "true"

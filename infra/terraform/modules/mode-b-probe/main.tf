@@ -113,7 +113,11 @@ resource "azurerm_network_interface" "probe" {
   name                = "nic-${var.name}"
   location            = var.location
   resource_group_name = var.resource_group_name
-  tags                = var.tags
+  tags = merge(var.tags, {
+    environment = var.environment
+    role        = "mode-b-probe"
+    temporary   = "true"
+  })
 
   ip_configuration {
     name                          = "internal"
@@ -159,8 +163,9 @@ resource "azurerm_linux_virtual_machine" "probe" {
   }
 
   tags = merge(var.tags, {
-    role      = "mode-b-probe"
-    temporary = "true"
+    environment = var.environment
+    role        = "mode-b-probe"
+    temporary   = "true"
   })
 }
 
