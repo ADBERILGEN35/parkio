@@ -24,7 +24,8 @@ public GO, or municipal production enablement. **PP-01B is not complete.**
 | **PP-01B-SPIKE-03** | **MODE A COMPLETE**; Mode B **HOLD — NOT EXECUTED** | [pp-01b-spike-03-private-network-dns-tls.md](pp-01b-spike-03-private-network-dns-tls.md) |
 | **PP-01B-R0 IaC contract** | **ACCEPTED WITH CONDITIONS** | [pp-01b-iac-contract.md](pp-01b-iac-contract.md) |
 | **PP-01B-IAC-01** | **CLOSED** as offline authoring (PP-01B still **OPEN**) | [infra/terraform/README.md](../../infra/terraform/README.md) |
-| **PP-01B Mode B auth** | **AUTHORIZED FOR STEP 2** (`PP-01B-MODE-B-20260804-01`; G0–G7 satisfied; Step 2 not started) | [pp-01b-mode-b-authorization.md](pp-01b-mode-b-authorization.md) |
+| **PP-01B Mode B auth** | **AUTHORIZED FOR STEP 2** (`PP-01B-MODE-B-20260804-01`; G0–G7 satisfied; Step 2 COMPLETE; Step 3A HOLD cleared by IAC-02; Step 3B not started) | [pp-01b-mode-b-authorization.md](pp-01b-mode-b-authorization.md) |
+| **PP-01B-IAC-02** | Mode B sandbox enablement hardening (**PASS WITH NON-BLOCKING NOTES** when committed) | [infra/terraform/README.md](../../infra/terraform/README.md) |
 
 ---
 
@@ -90,7 +91,10 @@ Live portal/CLI proof remains optional future work and must **revalidate** Micro
 4. PP-01B-R0 IaC contract — **ACCEPTED WITH CONDITIONS**
 5. PP-01B-IAC-01 — offline Terraform authoring **CLOSED**
 6. Mode B Step 1 — read-only baseline **COMPLETE** (Go/No-Go A **NO-GO**)
-7. Mode B authorization record — [pp-01b-mode-b-authorization.md](pp-01b-mode-b-authorization.md) (**AUTHORIZED FOR STEP 2** — `PP-01B-MODE-B-20260804-01`; Step 2 not started)
+7. Mode B authorization record — [pp-01b-mode-b-authorization.md](pp-01b-mode-b-authorization.md) (**AUTHORIZED FOR STEP 2** — `PP-01B-MODE-B-20260804-01`)
+8. Mode B Step 2 provider registration — **COMPLETE**
+9. Mode B Step 3A pre-apply audit — HOLD (IaC gaps)
+10. PP-01B-IAC-02 Mode B enablement — clears Step 3A blockers (**Step 3B not started**)
 
 Do not proceed to production-shaped apply, staging cutover (PP-01D), or PP-01E/F until ADR conditions and remaining spike success criteria are met.
 Do not start PP-01C until PP-01B is complete per ADR §20 and the IaC contract.

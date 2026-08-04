@@ -11,14 +11,10 @@ terraform {
       version = "~> 1.25"
     }
   }
-
-  # Remote backend is supplied externally before any shared apply.
-  # No backend block here — local state only (gitignored) during authoring.
 }
 
 provider "azurerm" {
   features {}
-  # No credentials, subscription_id, or tenant_id in this block.
 }
 
 # Offline bootstrap provider: never used when enable_live_bootstrap=false (resource count=0).
@@ -51,6 +47,100 @@ locals {
   public_network_access_enabled = var.public_network_access_enabled
   sandbox_cleanup_deadline      = var.sandbox_cleanup_deadline
   diagnostics_placeholder       = var.enable_diagnostics_placeholder
+
+  mode_b_auth_exact = "PP-01B-MODE-B-20260804-01"
+  unlock_inputs_complete = (
+    var.authorization_reference == local.mode_b_auth_exact &&
+    var.cost_approval_reference != null && var.cost_approval_reference != "" &&
+    var.sandbox_cleanup_deadline != null && var.sandbox_cleanup_deadline != "" &&
+    length(var.naming_prefix) > 0 &&
+    var.environment == "sandbox"
+  )
+
+  mode_b_tags = merge(var.tags, {
+    authorization    = coalesce(var.authorization_reference, "locked")
+    cleanup_deadline = coalesce(var.sandbox_cleanup_deadline, "unset")
+    naming_prefix    = var.naming_prefix
+  })
+}
+
+# --- Mode B apply-unlock contract (defaults locked) ---
+
+check "apply_unlock_requires_auth_bundle" {
+  assert {
+    condition     = !var.apply_authorized || local.unlock_inputs_complete
+    error_message = "apply_authorized=true requires authorization_reference=PP-01B-MODE-B-20260804-01, cost_approval_reference, sandbox_cleanup_deadline, naming_prefix, environment=sandbox."
+  }
+}
+
+check "create_network_requires_apply_authorized" {
+  assert {
+    condition     = !var.create_network || var.apply_authorized
+    error_message = "create_network requires apply_authorized."
+  }
+}
+
+check "create_rg_requires_apply_authorized" {
+  assert {
+    condition     = !var.create_disposable_rg || var.apply_authorized
+    error_message = "create_disposable_rg requires apply_authorized."
+  }
+}
+
+check "create_probe_requires_apply_authorized" {
+  assert {
+    condition     = !var.create_probe || var.apply_authorized
+    error_message = "create_probe requires apply_authorized."
+  }
+}
+
+check "create_azure_requires_unlock_and_provider" {
+  assert {
+    condition = (
+      !var.create_azure_resources || (
+        var.apply_authorized &&
+        var.provider_postgresql_registered &&
+        (var.create_network || (var.existing_delegated_subnet_id != null && var.existing_delegated_subnet_id != ""))
+      )
+    )
+    error_message = "create_azure_resources requires apply_authorized, provider_postgresql_registered=true, and network inputs."
+  }
+}
+
+check "live_bootstrap_requires_servers" {
+  assert {
+    condition = (
+      !var.enable_live_bootstrap || (
+        var.create_azure_resources &&
+        var.environment == "sandbox" &&
+        var.apply_authorized
+      )
+    )
+    error_message = "enable_live_bootstrap requires sandbox, apply_authorized, and create_azure_resources."
+  }
+}
+
+check "reject_hosted_beta_identifiers" {
+  assert {
+    condition = (
+      !can(regex("hosted-beta", var.resource_group_name)) &&
+      !can(regex("hosted-beta", coalesce(var.existing_vnet_id, ""))) &&
+      !can(regex("hosted-beta", coalesce(var.existing_delegated_subnet_id, "")))
+    )
+    error_message = "hosted-beta identifiers are forbidden in Mode B sandbox inputs."
+  }
+}
+
+module "disposable_rg" {
+  source = "../../modules/disposable-rg"
+
+  create                  = var.create_disposable_rg
+  name                    = var.resource_group_name
+  location                = var.location
+  environment             = var.environment
+  authorization_reference = coalesce(var.authorization_reference, "locked")
+  cleanup_deadline        = var.sandbox_cleanup_deadline
+  tags                    = local.mode_b_tags
 }
 
 module "network" {
@@ -58,21 +148,24 @@ module "network" {
 
   naming_prefix                = var.naming_prefix
   location                     = var.location
-  resource_group_name          = var.resource_group_name
+  resource_group_name          = module.disposable_rg.name
   create_network               = var.create_network
   existing_vnet_id             = var.existing_vnet_id
   existing_delegated_subnet_id = var.existing_delegated_subnet_id
+  existing_probe_subnet_id     = var.existing_probe_subnet_id
   existing_private_dns_zone_id = var.existing_private_dns_zone_id
   sandbox_address_space        = var.sandbox_address_space
-  sandbox_subnet_prefix        = var.sandbox_subnet_prefix
-  tags                         = var.tags
+  postgres_subnet_prefixes     = var.postgres_subnet_prefixes
+  probe_subnet_prefixes        = var.probe_subnet_prefixes
+  private_dns_zone_name        = var.private_dns_zone_name
+  tags                         = local.mode_b_tags
 }
 
 module "core" {
   source = "../../modules/postgresql-flexible-server"
 
-  name                          = "${var.naming_prefix}-core-pg"
-  resource_group_name           = var.resource_group_name
+  name                          = "psql-${var.naming_prefix}-core"
+  resource_group_name           = module.disposable_rg.name
   location                      = var.location
   postgres_version              = var.postgres_version
   sku_name                      = var.core_sku_name
@@ -82,21 +175,21 @@ module "core" {
   environment                   = "sandbox"
   production_shaped             = false
   public_network_access_enabled = false
-  delegated_subnet_id           = module.network.delegated_subnet_id
-  private_dns_zone_id           = module.network.private_dns_zone_id
+  delegated_subnet_id           = coalesce(module.network.delegated_subnet_id, "offline-placeholder")
+  private_dns_zone_id           = coalesce(module.network.private_dns_zone_id, "offline-placeholder")
   administrator_login           = var.administrator_login
   administrator_password        = var.administrator_password
   deletion_protection           = var.deletion_protection
   create_resource               = var.create_azure_resources
   cluster_role                  = "core"
-  tags                          = var.tags
+  tags                          = local.mode_b_tags
 }
 
 module "parking" {
   source = "../../modules/postgresql-flexible-server"
 
-  name                          = "${var.naming_prefix}-parking-pg"
-  resource_group_name           = var.resource_group_name
+  name                          = "psql-${var.naming_prefix}-parking"
+  resource_group_name           = module.disposable_rg.name
   location                      = var.location
   postgres_version              = var.postgres_version
   sku_name                      = var.parking_sku_name
@@ -106,14 +199,29 @@ module "parking" {
   environment                   = "sandbox"
   production_shaped             = false
   public_network_access_enabled = false
-  delegated_subnet_id           = module.network.delegated_subnet_id
-  private_dns_zone_id           = module.network.private_dns_zone_id
+  delegated_subnet_id           = coalesce(module.network.delegated_subnet_id, "offline-placeholder")
+  private_dns_zone_id           = coalesce(module.network.private_dns_zone_id, "offline-placeholder")
   administrator_login           = var.administrator_login
   administrator_password        = var.administrator_password
   deletion_protection           = var.deletion_protection
   create_resource               = var.create_azure_resources
   cluster_role                  = "parking"
-  tags                          = var.tags
+  tags                          = local.mode_b_tags
+}
+
+module "probe" {
+  source = "../../modules/mode-b-probe"
+
+  create                       = var.create_probe
+  environment                  = var.environment
+  name                         = "vm-${var.naming_prefix}-probe"
+  location                     = var.location
+  resource_group_name          = module.disposable_rg.name
+  probe_subnet_id              = coalesce(module.network.probe_subnet_id, "offline-probe-subnet")
+  delegated_postgres_subnet_id = coalesce(module.network.delegated_subnet_id, "")
+  vm_size                      = var.probe_vm_size
+  ssh_public_key               = var.probe_ssh_public_key
+  tags                         = local.mode_b_tags
 }
 
 module "core_roles" {
@@ -144,39 +252,32 @@ module "postgis" {
 module "policy" {
   source = "../../modules/policy-guards"
 
-  environment                   = "sandbox"
-  server_count                  = 2
-  database_count                = 10
-  role_count                    = 10
-  service_manifest              = local.service_manifest
-  postgis_on_core               = false
-  postgis_on_parking            = var.enable_postgis
-  public_network_access_enabled = false
-  core_backup_retention_days    = var.core_backup_retention_days
-  parking_backup_retention_days = var.parking_backup_retention_days
-  core_ha_mode                  = var.core_ha_mode
-  parking_ha_mode               = var.parking_ha_mode
-  core_sku_name                 = var.core_sku_name
-  parking_sku_name              = var.parking_sku_name
-  production_shaped             = false
-  apply_authorized              = false
-  tls_client_mode               = "verify-full"
-  provider_topology             = local.provider_topology
-}
-
-check "cost_approval_before_create" {
-  assert {
-    condition = (
-      !var.create_azure_resources ||
-      (var.cost_approval_reference != null && length(trimspace(var.cost_approval_reference)) > 0)
-    )
-    error_message = "cost_approval_reference is required before any future sandbox create/apply."
-  }
-}
-
-check "apply_not_authorized_in_iac01" {
-  assert {
-    condition     = var.apply_authorized == false
-    error_message = "PP-01B-IAC-01 forbids apply_authorized=true (Azure sandbox apply not authorized in this package)."
-  }
+  environment                    = "sandbox"
+  server_count                   = 2
+  database_count                 = 10
+  role_count                     = 10
+  service_manifest               = local.service_manifest
+  postgis_on_core                = false
+  postgis_on_parking             = var.enable_postgis
+  public_network_access_enabled  = false
+  core_backup_retention_days     = var.core_backup_retention_days
+  parking_backup_retention_days  = var.parking_backup_retention_days
+  core_ha_mode                   = var.core_ha_mode
+  parking_ha_mode                = var.parking_ha_mode
+  core_sku_name                  = var.core_sku_name
+  parking_sku_name               = var.parking_sku_name
+  production_shaped              = false
+  apply_authorized               = var.apply_authorized
+  tls_client_mode                = "verify-full"
+  provider_topology              = local.provider_topology
+  private_dns_zone_name          = var.private_dns_zone_name
+  disposable_rg_created          = var.create_disposable_rg
+  probe_subnet_present           = var.create_network || (var.existing_probe_subnet_id != null && var.existing_probe_subnet_id != "")
+  probe_public_ip_count          = module.probe.public_ip_count
+  probe_inbound_ssh_rule_count   = module.probe.inbound_ssh_rule_count
+  authorization_reference        = var.authorization_reference
+  sandbox_cleanup_deadline       = var.sandbox_cleanup_deadline
+  create_azure_resources         = var.create_azure_resources
+  provider_postgresql_registered = var.provider_postgresql_registered
+  mode_b_create_shaped           = var.apply_authorized && var.create_disposable_rg && var.create_network
 }

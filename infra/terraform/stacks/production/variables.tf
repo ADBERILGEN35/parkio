@@ -97,9 +97,26 @@ variable "existing_delegated_subnet_id" {
   default = "/subscriptions/00000000-0000-0000-0000-000000000000/resourceGroups/rg-pp01b-production-definition-only/providers/Microsoft.Network/virtualNetworks/vnet-pp01b-definition/subnets/snet-pg-delegated"
 }
 
+variable "existing_probe_subnet_id" {
+  type    = string
+  default = "/subscriptions/00000000-0000-0000-0000-000000000000/resourceGroups/rg-pp01b-production-definition-only/providers/Microsoft.Network/virtualNetworks/vnet-pp01b-definition/subnets/snet-probe"
+}
+
 variable "existing_private_dns_zone_id" {
   type    = string
-  default = "/subscriptions/00000000-0000-0000-0000-000000000000/resourceGroups/rg-pp01b-production-definition-only/providers/Microsoft.Network/privateDnsZones/privatelink.postgres.database.azure.com"
+  default = "/subscriptions/00000000-0000-0000-0000-000000000000/resourceGroups/rg-pp01b-production-definition-only/providers/Microsoft.Network/privateDnsZones/pp01b-prod.private.postgres.database.azure.com"
+}
+
+variable "private_dns_zone_name" {
+  type    = string
+  default = "pp01b-prod.private.postgres.database.azure.com"
+  validation {
+    condition = (
+      endswith(var.private_dns_zone_name, ".postgres.database.azure.com") &&
+      !startswith(var.private_dns_zone_name, "privatelink.")
+    )
+    error_message = "Must use VNet-integration DNS suffix (not privatelink)."
+  }
 }
 
 variable "administrator_login" {

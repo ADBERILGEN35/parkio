@@ -1,18 +1,39 @@
 # Example tfvars for offline documentation only.
-# Copy to terraform.tfvars locally (gitignored). Never commit real secrets.
+# Copy to a local gitignored file for Mode B execution. Never commit real secrets.
+# Do NOT set apply_authorized=true in any committed file.
 
-# environment is fixed by stack directory
-location       = "westeurope"
-naming_prefix  = "pp01b-sbx"
-# create_azure_resources = false   # default — keep false for IAC-01
-# apply_authorized      = false   # default — required false for IAC-01
-# enable_live_bootstrap = false   # default
-# cost_approval_reference = "TICKET-REPLACE-ME"  # required only before future apply
+location       = "francecentral"
+naming_prefix  = "pp01b-mb-20260804-7nr2"
+resource_group_name = "rg-pp01b-mb-20260804-7nr2"
 
-# SKUs are placeholders until Mode B / cost board picks exact sizes:
-# core_sku_name    = "GP_Standard_D2s_v3"
-# parking_sku_name = "GP_Standard_D2s_v3"
+# Defaults remain locked:
+# apply_authorized              = false
+# create_disposable_rg          = false
+# create_network                = false
+# create_probe                  = false
+# create_azure_resources        = false
+# enable_live_bootstrap         = false
+# provider_postgresql_registered = false
 
-# Inject secrets via env at apply time, never in committed files:
+# Mode B unlock (ephemeral only — Step 3B+):
+# apply_authorized               = true
+# authorization_reference        = "PP-01B-MODE-B-20260804-01"
+# cost_approval_reference        = "PP-01B-MODE-B-20260804-01"
+# sandbox_cleanup_deadline       = "2026-08-05T21:00:00Z"
+# provider_postgresql_registered = true
+
+# Network (VNet integration — NOT privatelink):
+# private_dns_zone_name   = "pp01b-mb-20260804-7nr2.private.postgres.database.azure.com"
+# sandbox_address_space   = ["10.251.0.0/16"]
+# postgres_subnet_prefixes = ["10.251.1.0/24"]
+# probe_subnet_prefixes    = ["10.251.2.0/24"]
+
+# Servers:
+# core_sku_name / parking_sku_name = "GP_Standard_D2s_v3"
+# core_ha_mode / parking_ha_mode   = "Disabled"
+# core_backup_retention_days       = 30
+
+# Inject secrets via env, never in committed files:
 #   TF_VAR_administrator_password
-#   TF_VAR_service_role_passwords  (JSON map)
+#   TF_VAR_probe_ssh_public_key   (public half only)
+#   TF_VAR_service_role_passwords

@@ -193,7 +193,7 @@ check "password_required_when_creating" {
   assert {
     condition = (
       !var.create_resource ||
-      (var.administrator_password != null && length(var.administrator_password) >= 16)
+      try(length(var.administrator_password) >= 16, false)
     )
     error_message = "administrator_password (>=16) required when create_resource=true."
   }

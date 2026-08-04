@@ -4,11 +4,11 @@
 |-------|-------|
 | **Document** | PP-01B-MODE-B-AUTH |
 | **Authorization reference** | **PP-01B-MODE-B-20260804-01** |
-| **Status** | **AUTHORIZED FOR STEP 2** |
+| **Status** | **AUTHORIZED FOR STEP 2** — IAC-02 enablement complete; Step 3B not started |
 | **Date prepared** | 2026-08-04 |
 | **Date approved** | 2026-08-04 (explicit user approval recorded in this document) |
 | **Parent contract** | [pp-01b-iac-contract.md](pp-01b-iac-contract.md) (PP-01B-R0) |
-| **IaC** | [infra/terraform/](../../infra/terraform/) (PP-01B-IAC-01 closed as offline authoring) |
+| **IaC** | [infra/terraform/](../../infra/terraform/) (IAC-01 offline authoring + **IAC-02 Mode B enablement**) |
 | **Step 1 evidence** | `deploy-artifacts/pp-01b-mode-b/step-01/` (gitignored) |
 | **Playbook** | Approved PP-01B Mode B Execution Playbook (session-authoritative; not a separate committed code package) |
 
@@ -237,8 +237,21 @@ Revalidate **again immediately before the first create/apply** for:
 | Disposable VNet | New VNet in that RG only |
 | Delegated subnet | New empty subnet; delegation `Microsoft.DBforPostgreSQL/flexibleServers` only |
 | Probe subnet | **Separate** non-delegated subnet (probe VM must **not** be in the delegated subnet) |
-| Private DNS | Zone under `*.postgres.database.azure.com` + VNet link in disposable RG |
+| Private DNS | Zone under `*.postgres.database.azure.com` (VNet integration; **not** `privatelink.postgres.database.azure.com`) + VNet link in disposable RG |
 | Peering to hosted-beta | **Forbidden** |
+
+### IAC-02 enablement (2026-08-04)
+
+Step 3A HOLD blockers resolved in Terraform (offline):
+
+1. VNet-integration DNS zone (rejects privatelink)
+2. Terraform-owned disposable RG
+3. Separate probe subnet
+4. Private probe VM (no public IP / no SSH / Run Command identity)
+5. Authorization-bound sandbox apply unlock (defaults locked)
+6. Cleanup ownership manifest
+
+**Step 3B is not started.** Create flags remain false until a separate Step 3B task.
 
 ### Explicitly rejected
 

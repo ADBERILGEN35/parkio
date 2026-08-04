@@ -1,7 +1,9 @@
-# Network + Private DNS (M-NET-DNS)
+# Network + Private DNS (M-NET-DNS) — PP-01B-IAC-02
 #
-# Models Flexible Server private access (VNet integration / delegated subnet)
-# + Private DNS. Does not invent production CIDRs or subscription IDs.
+# Frozen model: Flexible Server private VNet integration (delegated subnet),
+# NOT Private Endpoint / Private Link.
+# Private DNS zone MUST end with .postgres.database.azure.com and MUST NOT be
+# privatelink.postgres.database.azure.com.
 
 terraform {
   required_version = ">= 1.5.0, < 2.0.0"
@@ -23,8 +25,7 @@ variable "naming_prefix" {
 }
 
 variable "location" {
-  type        = string
-  description = "Azure location for created network resources."
+  type = string
   validation {
     condition     = length(trimspace(var.location)) > 0
     error_message = "location must be non-empty."
@@ -38,41 +39,65 @@ variable "resource_group_name" {
 
 variable "create_network" {
   type        = bool
-  description = "When true, create a disposable sandbox VNet/subnet/DNS. When false, use existing IDs."
+  description = "When true, create disposable VNet/subnets/DNS. When false, use existing IDs."
   default     = false
 }
 
 variable "existing_vnet_id" {
-  type        = string
-  description = "Existing VNet ID when create_network=false."
-  default     = null
-  nullable    = true
+  type     = string
+  default  = null
+  nullable = true
 }
 
 variable "existing_delegated_subnet_id" {
-  type        = string
-  description = "Existing delegated subnet ID when create_network=false."
-  default     = null
-  nullable    = true
+  type     = string
+  default  = null
+  nullable = true
+}
+
+variable "existing_probe_subnet_id" {
+  type     = string
+  default  = null
+  nullable = true
 }
 
 variable "existing_private_dns_zone_id" {
-  type        = string
-  description = "Existing Private DNS zone ID when create_network=false."
-  default     = null
-  nullable    = true
+  type     = string
+  default  = null
+  nullable = true
 }
 
 variable "sandbox_address_space" {
   type        = list(string)
-  description = "Sanitized example CIDRs for create_network=true only (not production)."
-  default     = ["10.250.0.0/16"]
+  description = "VNet address space (Mode B default 10.251.0.0/16)."
+  default     = ["10.251.0.0/16"]
 }
 
-variable "sandbox_subnet_prefix" {
+variable "postgres_subnet_prefixes" {
   type        = list(string)
-  description = "Sanitized delegated subnet prefixes for create_network=true only."
-  default     = ["10.250.1.0/24"]
+  description = "Delegated PostgreSQL subnet prefixes (Mode B default 10.251.1.0/24)."
+  default     = ["10.251.1.0/24"]
+}
+
+variable "probe_subnet_prefixes" {
+  type        = list(string)
+  description = "Non-delegated probe subnet prefixes (Mode B default 10.251.2.0/24)."
+  default     = ["10.251.2.0/24"]
+}
+
+variable "private_dns_zone_name" {
+  type        = string
+  description = "VNet-integration Private DNS zone ending with .postgres.database.azure.com (not privatelink)."
+  default     = "pp01b-mb-20260804-7nr2.private.postgres.database.azure.com"
+
+  validation {
+    condition = (
+      endswith(var.private_dns_zone_name, ".postgres.database.azure.com") &&
+      var.private_dns_zone_name != "privatelink.postgres.database.azure.com" &&
+      !startswith(var.private_dns_zone_name, "privatelink.")
+    )
+    error_message = "private_dns_zone_name must end with .postgres.database.azure.com and must not be the Private Link zone privatelink.postgres.database.azure.com."
+  }
 }
 
 variable "tags" {
@@ -81,12 +106,35 @@ variable "tags" {
 }
 
 locals {
-  private_dns_zone_name = "privatelink.postgres.database.azure.com"
+  # Reject hosted-beta CIDR literals when creating disposable network.
+  postgres_probe_prefix_overlap = length(setintersection(
+    toset(var.postgres_subnet_prefixes),
+    toset(var.probe_subnet_prefixes)
+  )) > 0
+
+  uses_hosted_beta_literal = anytrue([
+    for c in concat(var.sandbox_address_space, var.postgres_subnet_prefixes, var.probe_subnet_prefixes) :
+    startswith(c, "10.0.")
+  ])
+}
+
+check "reject_hosted_beta_cidrs_on_create" {
+  assert {
+    condition     = !var.create_network || !local.uses_hosted_beta_literal
+    error_message = "Disposable Mode B network must not use hosted-beta 10.0.0.0/16 ranges."
+  }
+}
+
+check "reject_subnet_prefix_overlap" {
+  assert {
+    condition     = !var.create_network || !local.postgres_probe_prefix_overlap
+    error_message = "PostgreSQL delegated subnet and probe subnet prefixes must not overlap."
+  }
 }
 
 resource "azurerm_virtual_network" "this" {
   count               = var.create_network ? 1 : 0
-  name                = "${var.naming_prefix}-vnet"
+  name                = "vnet-${var.naming_prefix}"
   location            = var.location
   resource_group_name = var.resource_group_name
   address_space       = var.sandbox_address_space
@@ -95,10 +143,10 @@ resource "azurerm_virtual_network" "this" {
 
 resource "azurerm_subnet" "postgres" {
   count                = var.create_network ? 1 : 0
-  name                 = "${var.naming_prefix}-pg-delegated"
+  name                 = "snet-pg-delegated"
   resource_group_name  = var.resource_group_name
   virtual_network_name = azurerm_virtual_network.this[0].name
-  address_prefixes     = var.sandbox_subnet_prefix
+  address_prefixes     = var.postgres_subnet_prefixes
 
   delegation {
     name = "fs"
@@ -111,16 +159,25 @@ resource "azurerm_subnet" "postgres" {
   }
 }
 
+resource "azurerm_subnet" "probe" {
+  count                = var.create_network ? 1 : 0
+  name                 = "snet-probe"
+  resource_group_name  = var.resource_group_name
+  virtual_network_name = azurerm_virtual_network.this[0].name
+  address_prefixes     = var.probe_subnet_prefixes
+  # Intentionally NO PostgreSQL delegation — probe VM only.
+}
+
 resource "azurerm_private_dns_zone" "postgres" {
   count               = var.create_network ? 1 : 0
-  name                = local.private_dns_zone_name
+  name                = var.private_dns_zone_name
   resource_group_name = var.resource_group_name
   tags                = var.tags
 }
 
 resource "azurerm_private_dns_zone_virtual_network_link" "postgres" {
   count                 = var.create_network ? 1 : 0
-  name                  = "${var.naming_prefix}-pg-dns-link"
+  name                  = "pdnslink-${var.naming_prefix}"
   private_dns_zone_name = azurerm_private_dns_zone.postgres[0].name
   virtual_network_id    = azurerm_virtual_network.this[0].id
   resource_group_name   = var.resource_group_name
@@ -134,21 +191,50 @@ locals {
     ? azurerm_subnet.postgres[0].id
     : var.existing_delegated_subnet_id
   )
+  probe_subnet_id = (
+    var.create_network
+    ? azurerm_subnet.probe[0].id
+    : var.existing_probe_subnet_id
+  )
   private_dns_zone_id = (
     var.create_network
     ? azurerm_private_dns_zone.postgres[0].id
     : var.existing_private_dns_zone_id
+  )
+  private_dns_zone_name_effective = (
+    var.create_network
+    ? azurerm_private_dns_zone.postgres[0].name
+    : var.private_dns_zone_name
   )
 }
 
 check "network_inputs_present" {
   assert {
     condition = (
-      local.vnet_id != null && local.vnet_id != "" &&
-      local.subnet_id != null && local.subnet_id != "" &&
-      local.private_dns_zone_id != null && local.private_dns_zone_id != ""
+      !var.create_network || (
+        local.vnet_id != null && local.vnet_id != "" &&
+        local.subnet_id != null && local.subnet_id != "" &&
+        local.probe_subnet_id != null && local.probe_subnet_id != "" &&
+        local.private_dns_zone_id != null && local.private_dns_zone_id != ""
+      )
+      ) && (
+      var.create_network || (
+        try(length(var.existing_vnet_id), 0) > 0 &&
+        try(length(var.existing_delegated_subnet_id), 0) > 0 &&
+        try(length(var.existing_private_dns_zone_id), 0) > 0
+      )
     )
-    error_message = "VNet, delegated subnet, and Private DNS zone IDs are required (create or existing)."
+    error_message = "VNet, delegated subnet, probe subnet (when creating), and Private DNS zone IDs are required."
+  }
+}
+
+check "dns_not_privatelink" {
+  assert {
+    condition = (
+      local.private_dns_zone_name_effective != "privatelink.postgres.database.azure.com" &&
+      !startswith(local.private_dns_zone_name_effective, "privatelink.")
+    )
+    error_message = "Private Link DNS zone is forbidden for VNet-integration Model A."
   }
 }
 
@@ -162,17 +248,43 @@ output "delegated_subnet_id" {
   description = "Delegated subnet ID for Microsoft.DBforPostgreSQL/flexibleServers."
 }
 
+output "probe_subnet_id" {
+  value       = local.probe_subnet_id
+  description = "Non-delegated probe subnet ID for the disposable validation VM."
+}
+
 output "private_dns_zone_id" {
   value       = local.private_dns_zone_id
-  description = "Private DNS zone ID for postgres.database.azure.com family."
+  description = "Private DNS zone ID for VNet-integration Flexible Server access."
 }
 
 output "private_dns_zone_name" {
-  value       = local.private_dns_zone_name
-  description = "Canonical Private DNS zone name for Flexible Server private access."
+  value       = local.private_dns_zone_name_effective
+  description = "Selected VNet-integration Private DNS zone name."
+}
+
+output "postgres_delegation_count" {
+  value       = var.create_network ? 1 : 0
+  description = "Number of PostgreSQL Flexible Server subnet delegations created."
+}
+
+output "subnet_create_count" {
+  value       = var.create_network ? 2 : 0
+  description = "Number of subnets created (delegated + probe)."
 }
 
 output "public_ingress_exposed" {
   value       = false
   description = "Contract: network module never exposes public DB ingress."
+}
+
+output "cleanup_inventory" {
+  value = var.create_network ? [
+    "azurerm_private_dns_zone_virtual_network_link.postgres",
+    "azurerm_postgresql_flexible_server (external dependency)",
+    "azurerm_subnet.probe",
+    "azurerm_subnet.postgres",
+    "azurerm_private_dns_zone.postgres",
+    "azurerm_virtual_network.this",
+  ] : []
 }

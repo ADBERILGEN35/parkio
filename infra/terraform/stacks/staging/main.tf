@@ -54,7 +54,9 @@ module "network" {
   create_network               = false
   existing_vnet_id             = var.existing_vnet_id
   existing_delegated_subnet_id = var.existing_delegated_subnet_id
+  existing_probe_subnet_id     = var.existing_probe_subnet_id
   existing_private_dns_zone_id = var.existing_private_dns_zone_id
+  private_dns_zone_name        = var.private_dns_zone_name
   tags                         = var.tags
 }
 
@@ -144,6 +146,7 @@ module "policy" {
   apply_authorized              = false
   tls_client_mode               = "verify-full"
   provider_topology             = "azure-postgresql-flexible-server-vnet-private-dns"
+  private_dns_zone_name         = var.private_dns_zone_name
 }
 
 check "staging_apply_forbidden" {

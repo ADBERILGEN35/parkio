@@ -10,25 +10,28 @@ variable "environment" {
 
 variable "location" {
   type        = string
-  description = "Azure location. No fabricated production default — must be supplied."
-  # Offline authoring placeholder location (not a committed production region claim).
-  default = "westeurope"
+  description = "Azure location. Mode B approved: francecentral."
+  default     = "francecentral"
 }
 
 variable "naming_prefix" {
   type        = string
   description = "Temporary naming prefix for disposable sandbox resources."
-  default     = "pp01b-sbx"
+  default     = "pp01b-mb-20260804-7nr2"
   validation {
     condition     = can(regex("^[a-z0-9]([a-z0-9-]{0,20}[a-z0-9])?$", var.naming_prefix))
-    error_message = "naming_prefix must be short lowercase alphanumeric/hyphen."
+    error_message = "naming_prefix must be short lowercase alphanumeric/hyphen (max 22)."
   }
 }
 
 variable "resource_group_name" {
   type        = string
-  description = "Resource group name (sanitized placeholder OK for offline)."
-  default     = "rg-pp01b-sandbox-offline"
+  description = "Disposable Mode B RG name (created when create_disposable_rg=true)."
+  default     = "rg-pp01b-mb-20260804-7nr2"
+  validation {
+    condition     = !can(regex("hosted-beta", var.resource_group_name))
+    error_message = "Must not reference hosted-beta."
+  }
 }
 
 variable "postgres_version" {
@@ -41,15 +44,13 @@ variable "postgres_version" {
 }
 
 variable "core_sku_name" {
-  type        = string
-  description = "Exact core SKU — must be provided for real apply; placeholder for offline authoring."
-  default     = "GP_Standard_D2s_v3"
+  type    = string
+  default = "GP_Standard_D2s_v3"
 }
 
 variable "parking_sku_name" {
-  type        = string
-  description = "Exact parking SKU — must be provided for real apply; placeholder for offline authoring."
-  default     = "GP_Standard_D2s_v3"
+  type    = string
+  default = "GP_Standard_D2s_v3"
 }
 
 variable "core_storage_mb" {
@@ -64,7 +65,7 @@ variable "parking_storage_mb" {
 
 variable "core_backup_retention_days" {
   type    = number
-  default = 7
+  default = 30
   validation {
     condition     = var.core_backup_retention_days >= 1 && var.core_backup_retention_days <= 35
     error_message = "backup retention must be 1–35 days."
@@ -73,7 +74,7 @@ variable "core_backup_retention_days" {
 
 variable "parking_backup_retention_days" {
   type    = number
-  default = 7
+  default = 30
 }
 
 variable "core_ha_mode" {
@@ -94,15 +95,66 @@ variable "parking_ha_mode" {
   }
 }
 
+variable "create_disposable_rg" {
+  type        = bool
+  description = "Create Terraform-owned disposable Mode B RG. Requires apply_authorized."
+  default     = false
+}
+
 variable "create_network" {
   type        = bool
-  description = "Create disposable VNet/subnet/DNS. Default false for offline authoring."
+  description = "Create disposable VNet/subnets/DNS. Requires apply_authorized."
+  default     = false
+}
+
+variable "create_probe" {
+  type        = bool
+  description = "Create private probe VM. Requires apply_authorized + create_network (or existing probe subnet)."
+  default     = false
+}
+
+variable "create_azure_resources" {
+  type        = bool
+  description = "Create Flexible Servers. Requires apply_authorized + network ready + provider registered."
+  default     = false
+}
+
+variable "apply_authorized" {
+  type        = bool
+  description = "Temporary Mode B unlock. Default false. Requires exact auth reference + cost + deadline."
+  default     = false
+}
+
+variable "authorization_reference" {
+  type        = string
+  description = "Must be PP-01B-MODE-B-20260804-01 to unlock Mode B apply."
+  default     = null
+  nullable    = true
+}
+
+variable "cost_approval_reference" {
+  type        = string
+  description = "Spend approval ticket/ref required before sandbox apply."
+  default     = null
+  nullable    = true
+}
+
+variable "sandbox_cleanup_deadline" {
+  type        = string
+  description = "ISO-8601 deadline for disposable sandbox cleanup."
+  default     = null
+  nullable    = true
+}
+
+variable "provider_postgresql_registered" {
+  type        = bool
+  description = "Proof input that Microsoft.DBforPostgreSQL is Registered (Step 2). Required when creating servers."
   default     = false
 }
 
 variable "existing_vnet_id" {
   type        = string
-  description = "Sanitized offline placeholder VNet ID (zero subscription GUID)."
+  description = "Offline placeholder when create_network=false."
   default     = "/subscriptions/00000000-0000-0000-0000-000000000000/resourceGroups/rg-pp01b-sandbox-offline/providers/Microsoft.Network/virtualNetworks/vnet-pp01b-offline"
 }
 
@@ -111,19 +163,42 @@ variable "existing_delegated_subnet_id" {
   default = "/subscriptions/00000000-0000-0000-0000-000000000000/resourceGroups/rg-pp01b-sandbox-offline/providers/Microsoft.Network/virtualNetworks/vnet-pp01b-offline/subnets/snet-pg-delegated"
 }
 
+variable "existing_probe_subnet_id" {
+  type    = string
+  default = "/subscriptions/00000000-0000-0000-0000-000000000000/resourceGroups/rg-pp01b-sandbox-offline/providers/Microsoft.Network/virtualNetworks/vnet-pp01b-offline/subnets/snet-probe"
+}
+
 variable "existing_private_dns_zone_id" {
   type    = string
-  default = "/subscriptions/00000000-0000-0000-0000-000000000000/resourceGroups/rg-pp01b-sandbox-offline/providers/Microsoft.Network/privateDnsZones/privatelink.postgres.database.azure.com"
+  default = "/subscriptions/00000000-0000-0000-0000-000000000000/resourceGroups/rg-pp01b-sandbox-offline/providers/Microsoft.Network/privateDnsZones/pp01b-mb-20260804-7nr2.private.postgres.database.azure.com"
 }
 
 variable "sandbox_address_space" {
   type    = list(string)
-  default = ["10.250.0.0/16"]
+  default = ["10.251.0.0/16"]
 }
 
-variable "sandbox_subnet_prefix" {
+variable "postgres_subnet_prefixes" {
   type    = list(string)
-  default = ["10.250.1.0/24"]
+  default = ["10.251.1.0/24"]
+}
+
+variable "probe_subnet_prefixes" {
+  type    = list(string)
+  default = ["10.251.2.0/24"]
+}
+
+variable "private_dns_zone_name" {
+  type    = string
+  default = "pp01b-mb-20260804-7nr2.private.postgres.database.azure.com"
+  validation {
+    condition = (
+      endswith(var.private_dns_zone_name, ".postgres.database.azure.com") &&
+      var.private_dns_zone_name != "privatelink.postgres.database.azure.com" &&
+      !startswith(var.private_dns_zone_name, "privatelink.")
+    )
+    error_message = "Must use VNet-integration DNS suffix .postgres.database.azure.com (not privatelink)."
+  }
 }
 
 variable "administrator_login" {
@@ -166,7 +241,7 @@ variable "bootstrap_password" {
 
 variable "enable_live_bootstrap" {
   type        = bool
-  description = "DB/role/PostGIS live provisioning. Default false — offline only in IAC-01."
+  description = "DB/role/PostGIS live provisioning. Requires create_azure_resources and both endpoints."
   default     = false
 }
 
@@ -175,49 +250,35 @@ variable "enable_postgis" {
   default = true
 }
 
-variable "create_azure_resources" {
-  type        = bool
-  description = "When true, would create Flexible Servers (still requires apply_authorized + cost approval)."
-  default     = false
+variable "probe_vm_size" {
+  type    = string
+  default = "Standard_B1s"
 }
 
-variable "apply_authorized" {
-  type        = bool
-  description = "Must remain false for PP-01B-IAC-01."
-  default     = false
-}
-
-variable "cost_approval_reference" {
-  type        = string
-  description = "Spend approval ticket/ref required before any future sandbox apply."
-  default     = null
-  nullable    = true
-}
-
-variable "sandbox_cleanup_deadline" {
-  type        = string
-  description = "ISO-8601 deadline for disposable sandbox cleanup responsibility."
-  default     = null
-  nullable    = true
+variable "probe_ssh_public_key" {
+  type      = string
+  sensitive = true
+  default   = null
+  nullable  = true
 }
 
 variable "deletion_protection" {
-  type        = bool
-  description = "Sandbox defaults to false (disposable)."
-  default     = false
+  type    = bool
+  default = false
 }
 
 variable "enable_diagnostics_placeholder" {
-  type        = bool
-  description = "Placeholder for future diagnostic settings (not wired in IAC-01)."
-  default     = false
+  type    = bool
+  default = false
 }
 
 variable "tags" {
   type = map(string)
   default = {
-    parkio_package = "pp-01b-iac-01"
+    parkio_package = "pp-01b-mode-b"
     environment    = "sandbox"
+    program        = "pp-01b"
+    temporary      = "true"
   }
 }
 

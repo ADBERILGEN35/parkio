@@ -122,7 +122,8 @@ Start with:
 - [PP-01B-SPIKE-03 Private network / DNS / TLS](pp-01b-spike-03-private-network-dns-tls.md) (**MODE A COMPLETE**; Mode B **HOLD — NOT EXECUTED**)
 - [PP-01B-R0 Managed PostgreSQL IaC contract](pp-01b-iac-contract.md) (**ACCEPTED WITH CONDITIONS** — authoring authorized)
 - [PP-01B-IAC-01 Terraform](../../infra/terraform/README.md) (offline authoring **CLOSED**; **PP-01B still OPEN**; no apply until Mode B gates)
-- [PP-01B Mode B authorization](pp-01b-mode-b-authorization.md) (**AUTHORIZED FOR STEP 2** — `PP-01B-MODE-B-20260804-01`; Step 1 COMPLETE; Step 2 not started)
+- [PP-01B Mode B authorization](pp-01b-mode-b-authorization.md) (**AUTHORIZED FOR STEP 2** — `PP-01B-MODE-B-20260804-01`; IAC-02 enablement; Step 3B not started)
+- [PP-01B-IAC-02 Terraform](../../infra/terraform/README.md) (Mode B sandbox enablement; no apply)
 
 
 ## Parking Validation / Decision Architecture (WP-05)

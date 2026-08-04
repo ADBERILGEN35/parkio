@@ -1,86 +1,68 @@
-# Parkio managed PostgreSQL — Terraform (PP-01B-IAC-01)
+# Parkio managed PostgreSQL — Terraform (PP-01B-IAC-01 + IAC-02)
 
-**Status:** Offline Terraform **authoring** for the accepted PP-01B architecture.
+**Status:** Offline Terraform for the accepted PP-01B architecture, with Mode B sandbox enablement hardening (IAC-02).
 
 | Gate | Status |
 |------|--------|
 | PP-01B-R0 IaC contract | ACCEPTED WITH CONDITIONS |
-| PP-01B-IAC-01 authoring | This package |
-| Azure Mode B (SPIKE-02/03) | **AUTHORIZED FOR STEP 2** — G0–G7 satisfied; Step 2 not started; flags still locked |
+| PP-01B-IAC-01 authoring | CLOSED (offline) |
+| PP-01B-IAC-02 Mode B enablement | This package — clears Step 3A HOLD blockers |
+| Azure Mode B (SPIKE-02/03) | Step 1–2 COMPLETE; Step 3A HOLD cleared in IaC; **Step 3B not started** |
 | PP-01B package | **OPEN** (not complete) |
 | PP-01C | **NOT STARTED** |
 | Public production | **NO-GO** |
 | Municipal production | **DISABLED** |
-| `terraform apply` | **Forbidden** until Step 2+ unlock contract executes (auth recorded; flags still false) |
+| `terraform apply` | **Forbidden** until Step 3B+ unlock with ephemeral inputs |
 
 Canonical contract: [`docs/architecture/pp-01b-iac-contract.md`](../../docs/architecture/pp-01b-iac-contract.md)
 
-Mode B authorization: [`docs/architecture/pp-01b-mode-b-authorization.md`](../../docs/architecture/pp-01b-mode-b-authorization.md) (**AUTHORIZED FOR STEP 2** — `PP-01B-MODE-B-20260804-01`)
+Mode B authorization: [`docs/architecture/pp-01b-mode-b-authorization.md`](../../docs/architecture/pp-01b-mode-b-authorization.md) (`PP-01B-MODE-B-20260804-01`)
+
+Cleanup manifest: [`docs/mode-b-cleanup-manifest.md`](docs/mode-b-cleanup-manifest.md)
 
 ## Layout
 
 ```
 infra/terraform/
   modules/
-    network-dns/                 # M-NET-DNS
+    disposable-rg/               # Terraform-owned Mode B RG (sandbox)
+    network-dns/                 # VNet + delegated PG subnet + probe subnet + VNet-integration DNS
+    mode-b-probe/                # private Linux probe (no public IP / no SSH)
     postgresql-flexible-server/  # reusable; instantiate core + parking
     database-roles/              # M-DB-ROLES (live gated)
     postgis-bootstrap/           # M-POSTGIS parking-only (live gated)
     policy-guards/               # M-POLICY-GUARDS
   stacks/
-    sandbox/                     # only future apply-eligible stack (gated)
-    staging/                     # definition; apply forbidden in IAC-01
-    production/                  # guarded definition; apply impossible
-  policies/service-manifest.yaml
-  tests/
-  docs/
+    sandbox/                     # only stack eligible for Mode B unlock
+    staging/                     # permanently locked
+    production/                  # permanently locked
 ```
 
-## Tool / provider versions
+## Networking contract (frozen)
 
-| Tool | Constraint |
-|------|------------|
-| Terraform | `>= 1.5.0, < 2.0.0` (CI pin **1.9.8**) |
-| hashicorp/azurerm | `~> 4.26` (exact via lockfile) |
-| cyrilgdn/postgresql | `~> 1.25` (DB/role/PostGIS bootstrap only) |
+- Model: Flexible Server **VNet integration** (delegated subnet) — **not** Private Endpoint
+- Private DNS zone must end with `.postgres.database.azure.com`
+- **Forbidden:** `privatelink.postgres.database.azure.com`
+- Mode B CIDRs: `10.251.0.0/16`, PG `10.251.1.0/24`, probe `10.251.2.0/24`
 
-## Offline validation (no Azure credentials)
+## Apply-unlock (sandbox only)
 
-```powershell
-$env:PATH = "$(Resolve-Path .tools/terraform);$env:PATH"   # if using portable TF
-cd infra/terraform
+Defaults remain locked (`apply_authorized=false`, creates false). Temporary unlock requires:
+
+- `authorization_reference=PP-01B-MODE-B-20260804-01`
+- cost approval reference
+- cleanup deadline
+- sandbox environment
+
+Staging/production cannot unlock. Use ephemeral gitignored inputs only — never commit unlock=true.
+
+## Offline validation
+
+```
 terraform fmt -check -recursive
-
-foreach ($s in 'sandbox','staging','production') {
-  Push-Location "stacks/$s"
-  terraform init -backend=false
-  terraform validate
-  Pop-Location
-}
-
-Push-Location modules/policy-guards
 terraform init -backend=false
-terraform test
-Pop-Location
-
-pwsh -File tests/policy-guards.ps1
-# or: bash tests/policy-guards.sh
+terraform validate
+terraform test   # modules/*/tests
 ```
 
-Do **not** run `terraform apply`, `terraform destroy`, or Azure login for this package.
-
-## Apply boundary
-
-- `create_azure_resources` defaults **false**
-- `enable_live_bootstrap` defaults **false**
-- `apply_authorized` defaults **false** and is rejected for production
-- Production `production_enablement` defaults **false** and is rejected if true
-- Cost approval reference required before any future sandbox create
-
-## Outputs (non-secret)
-
-FQDNs (null until create), resource IDs (null until create), Private DNS ids,
-10/10 service→database→role→cluster map, HA/PITR posture, public-access=false,
-PostGIS parking-only, `sslmode=verify-full` handoff flag for PP-01C.
-
-Terraform does **not** own application JDBC binding (PP-01C) or Key Vault (PP-03).
+No `terraform apply` / `destroy` in CI or IAC-02.

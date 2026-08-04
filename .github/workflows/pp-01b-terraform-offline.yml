@@ -68,6 +68,14 @@ jobs:
         working-directory: infra/terraform/modules/policy-guards
         run: terraform init -backend=false -input=false && terraform test
 
+      - name: Terraform tests (network-dns)
+        working-directory: infra/terraform/modules/network-dns
+        run: terraform init -backend=false -input=false && terraform test
+
+      - name: Terraform tests (mode-b-probe)
+        working-directory: infra/terraform/modules/mode-b-probe
+        run: terraform init -backend=false -input=false && terraform test
+
       - name: Setup TFLint
         uses: terraform-linters/setup-tflint@v4
         with:

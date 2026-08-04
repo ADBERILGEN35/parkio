@@ -1,4 +1,4 @@
-# Policy / topology guards (M-POLICY-GUARDS)
+# Policy / topology guards (M-POLICY-GUARDS) — PP-01B-IAC-02
 # Pure locals + check blocks — no cloud calls.
 
 terraform {
@@ -75,7 +75,7 @@ variable "production_shaped" {
 
 variable "apply_authorized" {
   type        = bool
-  description = "Must remain false for production during PP-01B-IAC-01."
+  description = "Sandbox may unlock temporarily; staging/production must remain false."
   default     = false
 }
 
@@ -86,6 +86,59 @@ variable "tls_client_mode" {
 variable "provider_topology" {
   type        = string
   description = "Frozen primary topology identifier."
+}
+
+variable "private_dns_zone_name" {
+  type    = string
+  default = "pp01b-mb-20260804-7nr2.private.postgres.database.azure.com"
+}
+
+variable "disposable_rg_created" {
+  type    = bool
+  default = false
+}
+
+variable "probe_subnet_present" {
+  type    = bool
+  default = false
+}
+
+variable "probe_public_ip_count" {
+  type    = number
+  default = 0
+}
+
+variable "probe_inbound_ssh_rule_count" {
+  type    = number
+  default = 0
+}
+
+variable "authorization_reference" {
+  type     = string
+  default  = null
+  nullable = true
+}
+
+variable "sandbox_cleanup_deadline" {
+  type     = string
+  default  = null
+  nullable = true
+}
+
+variable "create_azure_resources" {
+  type    = bool
+  default = false
+}
+
+variable "provider_postgresql_registered" {
+  type    = bool
+  default = false
+}
+
+variable "mode_b_create_shaped" {
+  type        = bool
+  description = "When true, enforce Mode B create-shaped completeness (RG + probe subnet)."
+  default     = false
 }
 
 locals {
@@ -116,6 +169,12 @@ locals {
   parking_burstable = can(regex("(?i)^B_", var.parking_sku_name))
   core_ha           = var.core_ha_mode != "Disabled"
   parking_ha        = var.parking_ha_mode != "Disabled"
+
+  dns_ok = (
+    endswith(var.private_dns_zone_name, ".postgres.database.azure.com") &&
+    var.private_dns_zone_name != "privatelink.postgres.database.azure.com" &&
+    !startswith(var.private_dns_zone_name, "privatelink.")
+  )
 }
 
 check "server_count_is_two" {
@@ -226,7 +285,16 @@ check "production_apply_forbidden" {
     condition = (
       var.environment != "production" || var.apply_authorized == false
     )
-    error_message = "Production apply_authorized must be false during PP-01B-IAC-01."
+    error_message = "Production apply_authorized must remain false."
+  }
+}
+
+check "staging_apply_forbidden" {
+  assert {
+    condition = (
+      var.environment != "staging" || var.apply_authorized == false
+    )
+    error_message = "Staging apply_authorized must remain false."
   }
 }
 
@@ -244,20 +312,87 @@ check "frozen_provider_topology" {
   }
 }
 
+check "dns_vnet_integration_suffix" {
+  assert {
+    condition     = local.dns_ok
+    error_message = "Private DNS must end with .postgres.database.azure.com and must not be privatelink.postgres.database.azure.com."
+  }
+}
+
+check "mode_b_disposable_rg_when_create_shaped" {
+  assert {
+    condition     = !var.mode_b_create_shaped || var.disposable_rg_created
+    error_message = "Create-shaped Mode B requires Terraform-owned disposable RG."
+  }
+}
+
+check "mode_b_probe_subnet_when_create_shaped" {
+  assert {
+    condition     = !var.mode_b_create_shaped || var.probe_subnet_present
+    error_message = "Create-shaped Mode B requires probe subnet."
+  }
+}
+
+check "probe_no_public_ip" {
+  assert {
+    condition     = var.probe_public_ip_count == 0
+    error_message = "Probe public IP count must be 0."
+  }
+}
+
+check "probe_no_ssh_ingress" {
+  assert {
+    condition     = var.probe_inbound_ssh_rule_count == 0
+    error_message = "Probe inbound SSH rule count must be 0."
+  }
+}
+
+check "sandbox_unlock_auth_ref" {
+  assert {
+    condition = (
+      !var.apply_authorized ||
+      var.authorization_reference == "PP-01B-MODE-B-20260804-01"
+    )
+    error_message = "Sandbox apply_authorized requires authorization_reference=PP-01B-MODE-B-20260804-01."
+  }
+}
+
+check "sandbox_unlock_cleanup_deadline" {
+  assert {
+    condition = (
+      !var.apply_authorized ||
+      (var.sandbox_cleanup_deadline != null && var.sandbox_cleanup_deadline != "")
+    )
+    error_message = "Sandbox apply_authorized requires sandbox_cleanup_deadline."
+  }
+}
+
+check "create_servers_requires_provider_registered" {
+  assert {
+    condition = (
+      !var.create_azure_resources || var.provider_postgresql_registered
+    )
+    error_message = "create_azure_resources requires provider_postgresql_registered proof."
+  }
+}
+
 output "policy_passed" {
   value = true
 }
 
 output "guards" {
   value = {
-    server_count                = var.server_count
-    database_count              = var.database_count
-    role_count                  = var.role_count
-    public_network_access       = var.public_network_access_enabled
-    postgis_on_core             = var.postgis_on_core
-    postgis_on_parking          = var.postgis_on_parking
-    production_apply_authorized = var.apply_authorized
-    tls_client_mode             = var.tls_client_mode
-    provider_topology           = var.provider_topology
+    server_count                 = var.server_count
+    database_count               = var.database_count
+    role_count                   = var.role_count
+    public_network_access        = var.public_network_access_enabled
+    postgis_on_core              = var.postgis_on_core
+    postgis_on_parking           = var.postgis_on_parking
+    production_apply_authorized  = var.apply_authorized
+    tls_client_mode              = var.tls_client_mode
+    provider_topology            = var.provider_topology
+    private_dns_zone_name        = var.private_dns_zone_name
+    probe_public_ip_count        = var.probe_public_ip_count
+    probe_inbound_ssh_rule_count = var.probe_inbound_ssh_rule_count
   }
 }

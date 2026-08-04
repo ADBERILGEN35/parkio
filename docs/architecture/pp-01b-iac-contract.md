@@ -468,15 +468,17 @@ After acceptance, freeze:
 | Cost ceiling | Required before paid apply | **CONDITION** |
 | Offline IaC authoring may start without inventing architecture/security posture | **AUTHORIZED** by this contract |
 | PP-01B-IAC-01 offline authoring tree | Present under `infra/terraform/` — **does not** close PP-01B |
+| PP-01B-IAC-02 Mode B enablement | Disposable RG, VNet-integration DNS (not privatelink), probe subnet/VM, auth-bound sandbox unlock — **does not** start Step 3B or close PP-01B |
 
 Implementers must **not** choose alternate tool, alternate primary network model, alternate inventory, or weak TLS/public access.
 
-### Authoring status note (PP-01B-IAC-01)
+### Authoring status note (PP-01B-IAC-01 / IAC-02)
 
 | Item | Status |
 |------|--------|
-| Offline Terraform modules/stacks | Authored |
-| Azure Mode B | **HOLD** |
+| Offline Terraform modules/stacks | Authored (IAC-01) + Mode B enablement (IAC-02) |
+| Private DNS Model A | Must end with `.postgres.database.azure.com`; **forbid** `privatelink.postgres.database.azure.com` |
+| Azure Mode B | Step 1–2 COMPLETE; Step 3A HOLD cleared in IaC; **Step 3B not started** |
 | PP-01B package | **OPEN** |
 | PP-01C | **NOT STARTED** |
 | Public production | **NO-GO** |
