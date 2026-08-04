@@ -53,6 +53,9 @@ vi.mock('@/components/map/NearbySpotsMap', () => ({
     parkedCarSelected,
     onSelectParkedCar,
     onFocusParkedCar,
+    ariaLabel,
+    ariaDescription,
+    selectionSummary,
   }: {
     center: { lat: number; lng: number };
     onPickCenter: (lat: number, lng: number) => void;
@@ -64,8 +67,15 @@ vi.mock('@/components/map/NearbySpotsMap', () => ({
     parkedCarSelected?: boolean;
     onSelectParkedCar?: () => void;
     onFocusParkedCar?: () => void;
+    ariaLabel?: string;
+    ariaDescription?: string;
+    selectionSummary?: string | null;
   }) => (
-    <div>
+    <div role="region" aria-label={ariaLabel} aria-describedby="stub-map-description stub-map-selection">
+      <span id="stub-map-description">{ariaDescription}</span>
+      <span id="stub-map-selection" data-testid="stub-map-selection" role="status" aria-live="polite">
+        {selectionSummary}
+      </span>
       <span data-testid="map-center">{`${center.lat},${center.lng}`}</span>
       <span data-testid="stub-spot-count">{spots.length}</span>
       <span data-testid="stub-municipal-count">{municipalFacilities.length}</span>
@@ -1106,7 +1116,7 @@ describe('MapPage municipal discovery (WEB-MUNI-01)', () => {
     expect(screen.getByText('Stub Address 7')).toBeInTheDocument();
     expect(screen.getByTestId('stub-municipal-count')).toHaveTextContent('1');
 
-    await user.click(screen.getByRole('button', { name: 'stub-select-first-facility' }));
+    await user.click(await screen.findByRole('button', { name: 'stub-select-first-facility' }));
     expect(await screen.findByTestId('selected-municipal-facility-preview')).toBeInTheDocument();
     expect(screen.getByText('Municipal parking')).toBeInTheDocument();
   });
@@ -1199,6 +1209,43 @@ describe('MapPage municipal discovery (WEB-MUNI-01)', () => {
     expect(screen.getByText('OSM Lot')).toBeInTheDocument();
     expect(screen.getByTestId('stub-municipal-count')).toHaveTextContent('2');
     expect(facilitiesHits).toBe(1);
+  });
+
+  it('clears the selected municipal preview when filters hide that facility', async () => {
+    const available = makeMunicipalFacility({
+      id: 'fac-available',
+      displayName: 'Available Lot',
+      availableSpaces: 4,
+      latitude: 38.42,
+      longitude: 27.14,
+    });
+    const unavailable = makeMunicipalFacility({
+      id: 'fac-hidden',
+      displayName: 'Unavailable Lot',
+      availableSpaces: 0,
+      latitude: 38.421,
+      longitude: 27.141,
+    });
+
+    server.use(
+      http.get(`${API_BASE}/parking/spots/nearby`, () => HttpResponse.json([spot])),
+      http.get(`${API_BASE}/parking/facilities/nearby`, () =>
+        HttpResponse.json([available, unavailable]),
+      ),
+    );
+
+    renderWithProviders(<MapPage municipalDiscoveryEnabled />);
+    const user = userEvent.setup();
+    await openSearchOptions(user);
+    await user.type(screen.getByLabelText('Latitude'), '38.42');
+    await user.type(screen.getByLabelText('Longitude'), '27.14');
+    await user.click(screen.getByRole('button', { name: 'Search nearby' }));
+
+    await user.click(await screen.findByRole('button', { name: 'stub-select-first-facility' }));
+    expect(await screen.findByTestId('selected-municipal-facility-preview')).toBeInTheDocument();
+
+    await user.click(screen.getByTestId('municipal-filter-availability-unavailable'));
+    expect(screen.queryByTestId('selected-municipal-facility-preview')).not.toBeInTheDocument();
   });
 });
 
@@ -1380,7 +1427,7 @@ describe('MapPage dual-inventory layer visibility (WEB-MUNI-05)', () => {
     await searchNear(user);
 
     expect(await screen.findByText('Select Lot')).toBeInTheDocument();
-    await user.click(screen.getByRole('button', { name: 'stub-select-first-facility' }));
+    await user.click(await screen.findByRole('button', { name: 'stub-select-first-facility' }));
     expect(await screen.findByTestId('selected-municipal-facility-preview')).toBeInTheDocument();
 
     await user.click(screen.getByTestId('map-layer-community'));
@@ -1417,6 +1464,67 @@ describe('MapPage dual-inventory layer visibility (WEB-MUNI-05)', () => {
     await user.keyboard('{Enter}');
     expect(municipalToggle).toHaveAttribute('aria-pressed', 'false');
     expect(screen.queryByTestId('municipal-facility-results')).not.toBeInTheDocument();
+  });
+
+  it('keeps focus on the activated layer toggle when hiding a selected municipal result', async () => {
+    server.use(
+      http.get(`${API_BASE}/parking/spots/nearby`, () => HttpResponse.json([spot])),
+      http.get(`${API_BASE}/parking/facilities/nearby`, () =>
+        HttpResponse.json([
+          makeMunicipalFacility({
+            id: 'fac-focus',
+            displayName: 'Focus Lot',
+            latitude: 38.42,
+            longitude: 27.14,
+          }),
+        ]),
+      ),
+    );
+
+    renderWithProviders(<MapPage municipalDiscoveryEnabled />);
+    const user = userEvent.setup();
+    await searchNear(user);
+
+    await user.click(await screen.findByRole('button', { name: 'stub-select-first-facility' }));
+    expect(await screen.findByTestId('selected-municipal-facility-preview')).toBeInTheDocument();
+
+    const municipalToggle = screen.getByTestId('map-layer-municipal');
+    municipalToggle.focus();
+    await user.keyboard('{Enter}');
+
+    expect(municipalToggle).toHaveFocus();
+    expect(screen.queryByTestId('selected-municipal-facility-preview')).not.toBeInTheDocument();
+  });
+
+  it('announces marker-driven selection without repeating the same message for list selection', async () => {
+    server.use(
+      http.get(`${API_BASE}/parking/spots/nearby`, () => HttpResponse.json([spot])),
+      http.get(`${API_BASE}/parking/facilities/nearby`, () =>
+        HttpResponse.json([
+          makeMunicipalFacility({
+            id: 'fac-announce',
+            displayName: 'Announce Lot',
+            latitude: 38.42,
+            longitude: 27.14,
+          }),
+        ]),
+      ),
+    );
+
+    renderWithProviders(<MapPage municipalDiscoveryEnabled />);
+    const user = userEvent.setup();
+    await searchNear(user);
+
+    expect(screen.getByRole('region', { name: 'Interactive parking discovery map' })).toBeInTheDocument();
+    expect(screen.getByTestId('stub-map-selection')).toHaveTextContent('');
+
+    await user.click(await screen.findByRole('button', { name: 'stub-select-first-facility' }));
+    expect(screen.getByTestId('stub-map-selection')).toHaveTextContent(
+      'Selected municipal facility: Announce Lot',
+    );
+
+    await user.click(screen.getByTestId('municipal-facility-result'));
+    expect(screen.getByTestId('stub-map-selection')).toHaveTextContent('');
   });
 
   it('hydrates municipal filters and layer visibility from URL params', async () => {

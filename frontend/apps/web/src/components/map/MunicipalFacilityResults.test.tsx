@@ -2,6 +2,7 @@ import type { ComponentProps } from 'react';
 import type { MunicipalFacility, NearbySearchParams } from '@parkio/types';
 import { fireEvent, screen } from '@testing-library/react';
 import type { UseQueryResult } from '@tanstack/react-query';
+import { axe } from 'jest-axe';
 import { describe, expect, it, vi } from 'vitest';
 import { MunicipalFacilityResults } from './MunicipalFacilityResults';
 import { EMPTY_MUNICIPAL_FILTERS } from '@/lib/spotDiscovery';
@@ -94,6 +95,11 @@ describe('MunicipalFacilityResults', () => {
     expect(onSelect).toHaveBeenCalledWith('fac-9');
   });
 
+  it('exposes bounded accessible names for municipal result buttons', () => {
+    renderResults();
+    expect(screen.getByRole('button', { name: /municipal parking/i })).toBeInTheDocument();
+  });
+
   it('renders filter chips and announces filter state', () => {
     renderResults();
     expect(screen.getByTestId('municipal-facility-filters')).toBeInTheDocument();
@@ -141,5 +147,50 @@ describe('MunicipalFacilityResults', () => {
     expect(screen.getByText('0 of 2 facilities')).toBeInTheDocument();
     fireEvent.click(screen.getByTestId('municipal-filter-clear'));
     expect(onFiltersChange).toHaveBeenCalledWith(EMPTY_MUNICIPAL_FILTERS);
+  });
+
+  it('keeps a marker-driven selected facility in view accessibly', () => {
+    const scrollIntoView = vi.fn();
+    const previous = Element.prototype.scrollIntoView;
+    Element.prototype.scrollIntoView = scrollIntoView;
+
+    try {
+      const facility = makeMunicipalFacility({
+        id: 'fac-9',
+        latitude: 38.42,
+        longitude: 27.14,
+        displayName: 'Hatay Katli Pazaryeri',
+      });
+      renderResults({
+        search: queryResult({ isSuccess: true, status: 'success', data: [facility] }),
+        facilities: [facility],
+        totalCount: 1,
+        selectedId: 'fac-9',
+        selectionFromMap: true,
+      });
+
+      expect(screen.getByTestId('municipal-facility-result')).toHaveAttribute('aria-pressed', 'true');
+      expect(scrollIntoView).toHaveBeenCalled();
+    } finally {
+      Element.prototype.scrollIntoView = previous;
+    }
+  });
+
+  it('has no automated accessibility violations in the success state', async () => {
+    const { container } = renderResults();
+    expect(await axe(container)).toHaveNoViolations();
+  });
+
+  it('does not force list scroll for list-origin selection', () => {
+    const scrollIntoView = vi.fn();
+    const previous = Element.prototype.scrollIntoView;
+    Element.prototype.scrollIntoView = scrollIntoView;
+
+    try {
+      renderResults({ selectedId: 'fac-9', selectionFromMap: false });
+      expect(scrollIntoView).not.toHaveBeenCalled();
+    } finally {
+      Element.prototype.scrollIntoView = previous;
+    }
   });
 });

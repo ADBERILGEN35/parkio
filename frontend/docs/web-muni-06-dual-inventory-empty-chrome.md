@@ -87,6 +87,9 @@ Flag off: legacy community-only empty / summary / CTA contract unchanged.
 - Peek summary: `aria-live="polite"` + `aria-atomic` (bounded announcements)
 - CTA labels name the inventory explicitly
 - Filtered-empty / true-empty / both-hidden remain distinguishable
+- WEB-MUNI-09 keeps the collapsed mobile sheet content out of the accessibility tree until the
+  sheet is opened, so the peek summary and CTA remain the only reachable controls in the collapsed
+  state
 
 ## Network
 

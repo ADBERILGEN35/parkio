@@ -1,6 +1,7 @@
 import type { MunicipalFacility, MunicipalFacilityType, NearbySearchParams } from '@parkio/types';
 import { EmptyState, Icon, SpotCardSkeleton, cn } from '@parkio/ui';
 import type { UseQueryResult } from '@tanstack/react-query';
+import { useEffect, useMemo, useRef } from 'react';
 import { useTranslation } from 'react-i18next';
 import { FriendlyApiErrorMessage } from '@/components/FriendlyApiErrorMessage';
 import {
@@ -28,6 +29,7 @@ export interface MunicipalFacilityResultsProps {
   availableFacilityTypes: MunicipalFacilityType[];
   selectedId: string | null;
   onSelect: (id: string | null) => void;
+  selectionFromMap?: boolean;
 }
 
 function facilityTypeLabelKey(type: MunicipalFacilityType): string {
@@ -57,6 +59,7 @@ export function MunicipalFacilityResults({
   availableFacilityTypes,
   selectedId,
   onSelect,
+  selectionFromMap = false,
 }: MunicipalFacilityResultsProps) {
   const { t } = useTranslation('map');
 
@@ -146,51 +149,88 @@ export function MunicipalFacilityResults({
               className="m-0 flex list-none flex-col gap-sm p-0"
               data-testid="municipal-facility-list"
             >
-              {facilities.map((facility) => {
-                const selected = facility.id === selectedId;
-                const title =
-                  facility.displayName?.trim() ||
-                  facility.addressText?.trim() ||
-                  t('municipal.unnamedFacility');
-                const distance = haversineMeters(
-                  { lat: params.lat, lng: params.lng },
-                  { lat: facility.latitude, lng: facility.longitude },
-                );
-                return (
-                  <li key={facility.id}>
-                    <button
-                      type="button"
-                      data-testid="municipal-facility-result"
-                      aria-pressed={selected}
-                      onClick={() => onSelect(selected ? null : facility.id)}
-                      className={cn(
-                        'flex w-full items-start gap-sm rounded-2xl border border-transparent bg-surface-container/60 px-md py-sm text-left transition-colors hover:bg-surface-container-high focus:outline-none focus-visible:ring-2 focus-visible:ring-secondary',
-                        selected && 'border-secondary/40 bg-secondary/10 ring-1 ring-secondary/20',
-                      )}
-                    >
-                      <span className="mt-0.5 flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-secondary text-on-secondary">
-                        <Icon name="local_parking" className="text-[18px] leading-none" filled />
-                      </span>
-                      <span className="min-w-0 flex-1">
-                        <span className="block truncate text-label-md font-semibold text-on-surface">
-                          {title}
-                        </span>
-                        <span className="mt-xs flex flex-wrap items-center gap-xs text-label-sm text-on-surface-variant">
-                          <span className="font-semibold text-secondary">
-                            {formatDistance(distance)}
-                          </span>
-                          {facility.sourceLabel ? <span>· {facility.sourceLabel}</span> : null}
-                        </span>
-                      </span>
-                    </button>
-                  </li>
-                );
-              })}
+              {facilities.map((facility) => (
+                <MunicipalFacilityListItem
+                  key={facility.id}
+                  facility={facility}
+                  params={params}
+                  selected={facility.id === selectedId}
+                  selectionFromMap={selectionFromMap}
+                  onSelect={() => onSelect(facility.id === selectedId ? null : facility.id)}
+                />
+              ))}
             </ul>
           )}
         </>
       ) : null}
     </section>
+  );
+}
+
+function MunicipalFacilityListItem({
+  facility,
+  params,
+  selected,
+  selectionFromMap,
+  onSelect,
+}: {
+  facility: MunicipalFacility;
+  params: NearbySearchParams;
+  selected: boolean;
+  selectionFromMap: boolean;
+  onSelect: () => void;
+}) {
+  const { t } = useTranslation('map');
+  const ref = useRef<HTMLLIElement>(null);
+  const title =
+    facility.displayName?.trim() ||
+    facility.addressText?.trim() ||
+    t('municipal.unnamedFacility');
+  const distance = useMemo(
+    () =>
+      haversineMeters(
+        { lat: params.lat, lng: params.lng },
+        { lat: facility.latitude, lng: facility.longitude },
+      ),
+    [facility.latitude, facility.longitude, params.lat, params.lng],
+  );
+  const source = facility.sourceLabel?.trim() || null;
+
+  useEffect(() => {
+    if (selected && selectionFromMap) {
+      ref.current?.scrollIntoView?.({ block: 'nearest', behavior: 'smooth' });
+    }
+  }, [selected, selectionFromMap]);
+
+  return (
+    <li ref={ref}>
+      <button
+        type="button"
+        data-testid="municipal-facility-result"
+        aria-label={t('municipal.resultAria', {
+          name: title,
+          inventory: t('municipal.inventoryLabel'),
+          distance: formatDistance(distance),
+        })}
+        aria-pressed={selected}
+        onClick={onSelect}
+        className={cn(
+          'flex w-full items-start gap-sm rounded-2xl border border-transparent bg-surface-container/60 px-md py-sm text-left transition-colors hover:bg-surface-container-high focus:outline-none focus-visible:ring-2 focus-visible:ring-secondary',
+          selected && 'border-secondary/40 bg-secondary/10 ring-1 ring-secondary/20',
+        )}
+      >
+        <span className="mt-0.5 flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-secondary text-on-secondary">
+          <Icon name="local_parking" className="text-[18px] leading-none" filled />
+        </span>
+        <span className="min-w-0 flex-1">
+          <span className="block truncate text-label-md font-semibold text-on-surface">{title}</span>
+          <span className="mt-xs flex flex-wrap items-center gap-xs text-label-sm text-on-surface-variant">
+            <span className="font-semibold text-secondary">{formatDistance(distance)}</span>
+            {source ? <span title={source}>· {source}</span> : null}
+          </span>
+        </span>
+      </button>
+    </li>
   );
 }
 

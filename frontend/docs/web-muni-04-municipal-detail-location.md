@@ -79,6 +79,8 @@ Forbidden from this page/map: nearby, spots list, mutations, geocoding, polling,
 - Municipal marker `role="img"` + same label when custom presentation is used
 - Open-in-maps keyboard accessible; external navigation described
 - MapLibre keyboard limitations: surrounding controls remain accessible; map does not trap focus for page chrome
+- Discovery-map follow-up hardening for marker/list announcements, layer-toggle focus cleanup, and
+  collapsed mobile sheet behavior lives in WEB-MUNI-09 (`web-muni-09-accessibility.md`)
 
 ## i18n
 

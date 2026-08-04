@@ -87,6 +87,11 @@ Localized title/description distinguish **user-hidden layers** from empty/loadin
 - Each toggle: `aria-pressed`, keyboard operable, visible focus
 - State communicated via label text + pressed state (not color alone)
 - Both-hidden region: `role="status"`
+- Hiding a selected layer clears the relevant preview/selection without moving focus off the
+  activated toggle
+- Re-enabling a layer does not restore stale marker/list selection
+- Additional marker/list/live-region behavior is documented in WEB-MUNI-09
+  (`web-muni-09-accessibility.md`)
 
 ## Rollback
 

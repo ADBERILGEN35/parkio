@@ -3,7 +3,7 @@ import type { UseQueryResult } from '@tanstack/react-query';
 import { screen, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { useState } from 'react';
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import { renderWithProviders } from '@/test/utils';
 import {
   EMPTY_FILTERS,
@@ -104,6 +104,41 @@ function Harness() {
   );
 }
 
+function renderDiscoveryWithSelection(
+  selectionFromMap: boolean,
+  selectedId: string | null,
+) {
+  const withDist = withDistance(spots, center);
+  const statuses = availableStatuses(withDist);
+  const sortOptions = availableSorts(true);
+  const effectiveSort = defaultSort(true);
+  const search = {
+    isPending: false,
+    isError: false,
+    error: null,
+    data: spots,
+  } as unknown as UseQueryResult<PublicSpot[], Error>;
+
+  return renderWithProviders(
+    <DiscoveryResults
+      search={search}
+      params={{ lat: center.lat, lng: center.lng }}
+      spots={sortSpots(withDist, effectiveSort)}
+      totalCount={withDist.length}
+      filters={EMPTY_FILTERS}
+      onFiltersChange={() => undefined}
+      availableStatuses={statuses}
+      sort={effectiveSort}
+      onSortChange={() => undefined}
+      sortOptions={sortOptions}
+      selectedId={selectedId}
+      onSelect={() => undefined}
+      selectionFromMap={selectionFromMap}
+      userVehicleType="SEDAN"
+    />,
+  );
+}
+
 function listAddresses() {
   // Each card has an address link first, then a "View details" CTA link.
   return screen.getAllByRole('listitem').map((li) => within(li).getAllByRole('link')[0].textContent);
@@ -174,5 +209,31 @@ describe('DiscoveryResults', () => {
       'aria-pressed',
       'true',
     );
+  });
+
+  it('scrolls a selected spot into view only for map-origin selection', () => {
+    const scrollIntoView = vi.fn();
+    const previous = Element.prototype.scrollIntoView;
+    Element.prototype.scrollIntoView = scrollIntoView;
+
+    try {
+      renderDiscoveryWithSelection(true, 'near');
+      expect(scrollIntoView).toHaveBeenCalledTimes(1);
+    } finally {
+      Element.prototype.scrollIntoView = previous;
+    }
+  });
+
+  it('does not scroll the list for list-origin selection', () => {
+    const scrollIntoView = vi.fn();
+    const previous = Element.prototype.scrollIntoView;
+    Element.prototype.scrollIntoView = scrollIntoView;
+
+    try {
+      renderDiscoveryWithSelection(false, 'near');
+      expect(scrollIntoView).not.toHaveBeenCalled();
+    } finally {
+      Element.prototype.scrollIntoView = previous;
+    }
   });
 });

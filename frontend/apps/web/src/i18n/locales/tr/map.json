@@ -26,6 +26,14 @@
   "locateAria": "Konumumu kullan",
   "zoomIn": "Yakınlaştır",
   "zoomOut": "Uzaklaştır",
+  "mapRegionAria": "Etkileşimli park keşif haritası",
+  "mapRegionHelp": "Harita işaretçilerine ve denetimlerine klavyeyle erişilebilir. Denetimlere ve işaretçilere geçmek için Tab kullanın, ardından bir park işaretçisini seçmek için Enter veya Boşluk'a basın. Harita arka planına tıklamak arama merkezini günceller.",
+  "mapRegionHelpMunicipal": "Harita işaretçilerine ve denetimlerine klavyeyle erişilebilir. Denetimlere ve işaretçilere geçmek için Tab kullanın, ardından bir topluluk park yeri veya belediye tesisi işaretçisini seçmek için Enter veya Boşluk'a basın. Harita arka planına tıklamak arama merkezini günceller.",
+  "mapSelection": {
+    "community": "Seçilen topluluk park yeri: {{address}}",
+    "municipal": "Seçilen belediye tesisi: {{name}}",
+    "parkedCar": "Seçilen park edilmiş araç konumu"
+  },
   "layers": {
     "groupLabel": "Harita katmanları",
     "groupAria": "Harita katmanı görünürlüğü",
@@ -76,8 +84,13 @@
     "viewSpotDetails": "Park yeri detaylarını gör"
   },
   "sheet": {
-    "handleAria": "Sonuç panelini yeniden boyutlandır",
+    "handleAria": "Arama sonuçları, {{state}}. Yeniden boyutlandırmak için sürükleyin veya ok tuşlarını kullanın.",
     "searchResultsAria": "Arama sonuçları",
+    "state": {
+      "collapsed": "daraltılmış",
+      "half": "yarı açık",
+      "expanded": "tam açık"
+    },
     "showResultsAndFilters_one": "{{count}} sonucu ve filtreleri göster",
     "showResultsAndFilters_other": "{{count}} sonucu ve filtreleri göster",
     "showMunicipalResultsAndFilters_one": "{{count}} belediye tesisini ve filtreleri göster",
@@ -108,8 +121,8 @@
   "placeSearchError": "Öneriler yüklenemedi",
   "placeSearchEmpty": "Yer bulunamadı",
   "marker": {
-    "parkingSpot": "{{status}} park yeri",
-    "parkingSpotNear": "{{address}} yakınında {{status}} park yeri",
+    "parkingSpot": "Topluluk park yeri, {{status}}",
+    "parkingSpotNear": "{{address}} yakınında topluluk park yeri, {{status}}",
     "recentlyUpdated": "Yakın zamanda güncellendi",
     "freshness": "Tazelik {{freshness}}"
   },
@@ -128,6 +141,7 @@
     "filteredEmptyDescription": "Resmi tesisleri görmek için belediye filtrelerini temizleyin veya değiştirin.",
     "resultsOf": "{{visible}} / {{total}} tesis",
     "resultsCount": "{{count}} tesis",
+    "resultAria": "{{inventory}}: {{name}}, {{distance}}",
     "filterResultsAria": "Belediye tesislerini filtrele",
     "filterStateAria": "Filtrelerden sonra {{count}} belediye tesisi gösteriliyor",
     "clearFilters": "Temizle",

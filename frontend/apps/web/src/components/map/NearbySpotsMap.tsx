@@ -1,7 +1,7 @@
 import './maplibreSetup';
 import type { MunicipalFacility, PublicSpot } from '@parkio/types';
 import { cn, getSpotStatusVisual, getTrustFreshnessVisual } from '@parkio/ui';
-import { memo, useCallback, useMemo } from 'react';
+import { memo, useCallback, useId, useMemo } from 'react';
 import { useTranslation } from 'react-i18next';
 import Map, { Marker } from 'react-map-gl/maplibre';
 import { freshnessLabel, spotStatusLabel } from '@/lib/localized-status';
@@ -46,6 +46,12 @@ export interface NearbySpotsMapProps {
   parkedCarFocusRequest?: ParkedCarFocusRequest | null;
   /** Compact floating recenter control; omitted when there is no ACTIVE session. */
   onFocusParkedCar?: () => void;
+  /** Accessible region label for the interactive map surface. */
+  ariaLabel?: string;
+  /** Non-visual instructions describing how the map and markers behave. */
+  ariaDescription?: string;
+  /** Live summary announced when selection changes outside the list. */
+  selectionSummary?: string | null;
 }
 
 /** Premium, status-aware marker shown for each real spot. */
@@ -124,7 +130,12 @@ export function NearbySpotsMap({
   onSelectParkedCar,
   parkedCarFocusRequest = null,
   onFocusParkedCar,
+  ariaLabel,
+  ariaDescription,
+  selectionSummary = null,
 }: NearbySpotsMapProps) {
+  const descriptionId = useId();
+  const selectionId = useId();
   // Stable selection handler: passed by reference to every marker so the memoized
   // `SpotMarker` only re-renders when *its own* `selected` flag flips. Selecting a
   // spot therefore re-renders two markers (the old + new selection), not all N.
@@ -170,47 +181,70 @@ export function NearbySpotsMap({
     parkedCar !== null && isUsableParkedCoordinate(parkedCar.latitude, parkedCar.longitude);
 
   return (
-    <Map
-      initialViewState={{ longitude: center.lng, latitude: center.lat, zoom }}
-      mapStyle={getMapStyle()}
-      dragRotate={false}
-      pitchWithRotate={false}
-      onClick={(event) => {
-        onSelectSpot?.(null);
-        onSelectMunicipalFacility?.(null);
-        onPickCenter(event.lngLat.lat, event.lngLat.lng);
-      }}
+    <div
+      role="region"
+      aria-label={ariaLabel}
+      aria-describedby={
+        ariaDescription || selectionSummary ? [ariaDescription ? descriptionId : null, selectionSummary ? selectionId : null].filter(Boolean).join(' ') : undefined
+      }
+      className="h-full w-full"
       style={{ height, width: '100%' }}
     >
-      <Recenter lat={center.lat} lng={center.lng} zoom={zoom} />
-      <ParkedCarFocus request={parkedCarFocusRequest} />
-      {showFloatingControls && onLocate ? (
-        <MapFloatingControls
-          onLocate={onLocate}
-          locating={locating}
-          sidebarOpen
-          onFocusParkedCar={showParkedCar ? onFocusParkedCar : undefined}
-        />
+      {ariaDescription ? (
+        <p id={descriptionId} className="sr-only">
+          {ariaDescription}
+        </p>
       ) : null}
+      {selectionSummary ? (
+        <p id={selectionId} className="sr-only" role="status" aria-live="polite" aria-atomic="true">
+          {selectionSummary}
+        </p>
+      ) : null}
+      <Map
+        initialViewState={{ longitude: center.lng, latitude: center.lat, zoom }}
+        mapStyle={getMapStyle()}
+        dragRotate={false}
+        pitchWithRotate={false}
+        onClick={(event) => {
+          onSelectSpot?.(null);
+          onSelectMunicipalFacility?.(null);
+          onPickCenter(event.lngLat.lat, event.lngLat.lng);
+        }}
+        style={{ height: '100%', width: '100%' }}
+      >
+        <Recenter lat={center.lat} lng={center.lng} zoom={zoom} />
+        <ParkedCarFocus request={parkedCarFocusRequest} />
+        {showFloatingControls && onLocate ? (
+          <MapFloatingControls
+            onLocate={onLocate}
+            locating={locating}
+            sidebarOpen
+            onFocusParkedCar={showParkedCar ? onFocusParkedCar : undefined}
+          />
+        ) : null}
 
-      {/* Current search center indicator. */}
-      <Marker longitude={center.lng} latitude={center.lat} anchor="center">
-        <span className="pointer-events-none block h-4 w-4 rounded-full border-2 border-white bg-primary/50 shadow-md" />
-      </Marker>
-
-      {municipalMarkers}
-      {markers}
-
-      {showParkedCar ? (
-        <Marker
-          longitude={parkedCar.longitude}
-          latitude={parkedCar.latitude}
-          anchor="center"
-          style={{ zIndex: 2 }}
-        >
-          <ParkedCarMarker selected={parkedCarSelected} onSelect={handleSelectParkedCar} />
+        {/* Current search center indicator is decorative; surrounding copy names it. */}
+        <Marker longitude={center.lng} latitude={center.lat} anchor="center">
+          <span
+            aria-hidden="true"
+            className="pointer-events-none block h-4 w-4 rounded-full border-2 border-white bg-primary/50 shadow-md"
+          />
         </Marker>
-      ) : null}
-    </Map>
+
+        {municipalMarkers}
+        {markers}
+
+        {showParkedCar ? (
+          <Marker
+            longitude={parkedCar.longitude}
+            latitude={parkedCar.latitude}
+            anchor="center"
+            style={{ zIndex: 2 }}
+          >
+            <ParkedCarMarker selected={parkedCarSelected} onSelect={handleSelectParkedCar} />
+          </Marker>
+        ) : null}
+      </Map>
+    </div>
   );
 }

@@ -653,6 +653,11 @@ sends. To improve onboarding, the register form additionally collects **Full nam
 - Forms must use real labels, expose required/disabled states, and pass validation
   messages through the shared `Input` primitive or a `role="alert"` error element.
   Icon-only controls require `aria-label`.
+- Municipal discovery map accessibility is intentionally contract-based rather than
+  canvas-perfect: the map surface exposes a named region, localized instructions,
+  focusable DOM markers, bounded selection announcements, and inert collapsed mobile
+  sheet content. See `docs/web-muni-09-accessibility.md` for the supported keyboard
+  path and the remaining MapLibre limitations.
 - API errors should render through `ApiErrorAlert`/`FriendlyApiErrorMessage` so
   network/401/403/404/409/422/429/5xx states get consistent wording, code, and
   `traceId` display.
@@ -1390,7 +1395,9 @@ existing Smart Return param. WEB-MUNI-08 additionally preserves that safe `/map`
 query state through protected-route login redirects while still stripping fragments
 and rejecting unsafe redirect targets. See
 `docs/web-muni-07-url-state-persistence.md` and
-`docs/web-muni-08-auth-query-preservation.md`.
+`docs/web-muni-08-auth-query-preservation.md`. WEB-MUNI-09 then hardens the map/results
+accessibility contract around that persisted municipal discovery state; see
+`docs/web-muni-09-accessibility.md`.
 
 ## Error shape
 

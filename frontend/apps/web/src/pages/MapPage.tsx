@@ -78,6 +78,7 @@ const NearbySpotsMap = lazy(() =>
 );
 
 type GeoStatus = 'idle' | 'locating' | 'error';
+type DiscoverySelectionOrigin = 'map' | 'list' | 'control' | 'system';
 
 /** Parse a watched coordinate field; blank/non-finite values yield NaN (no center). */
 function parseCoord(value: unknown): number {
@@ -139,6 +140,7 @@ export function MapPage({
   // the result list; filters/sort are client-side presentation only).
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [selectedMunicipalId, setSelectedMunicipalId] = useState<string | null>(null);
+  const [selectionOrigin, setSelectionOrigin] = useState<DiscoverySelectionOrigin | null>(null);
   const [filters, setFilters] = useState<SpotFilters>(EMPTY_FILTERS);
   const [municipalFilters, setMunicipalFilters] = useState<MunicipalFacilityFilters>(
     persistedMapUiState.municipalFilters,
@@ -320,8 +322,9 @@ export function MapPage({
   }, [selectedMunicipalFacility, searchCenter]);
 
   const selectSpot = useCallback(
-    (id: string | null) => {
+    (id: string | null, origin: DiscoverySelectionOrigin = 'system') => {
       setSelectedId(id);
+      setSelectionOrigin(id === null ? null : origin);
       if (id !== null) {
         setSelectedMunicipalId(null);
         setParkedCarSelected(false);
@@ -335,8 +338,9 @@ export function MapPage({
   );
 
   const selectMunicipalFacility = useCallback(
-    (id: string | null) => {
+    (id: string | null, origin: DiscoverySelectionOrigin = 'system') => {
       setSelectedMunicipalId(id);
+      setSelectionOrigin(id === null ? null : origin);
       if (id !== null) {
         setSelectedId(null);
         setParkedCarSelected(false);
@@ -350,6 +354,7 @@ export function MapPage({
     setCommunityLayerVisible(visible);
     if (!visible) {
       setSelectedId(null);
+      setSelectionOrigin(null);
     }
   }, []);
 
@@ -357,6 +362,7 @@ export function MapPage({
     setMunicipalLayerVisible(visible);
     if (!visible) {
       setSelectedMunicipalId(null);
+      setSelectionOrigin(null);
     }
   }, []);
 
@@ -376,10 +382,12 @@ export function MapPage({
     setCommunityLayerVisible(persistedMapUiState.communityLayerVisible);
     if (!persistedMapUiState.communityLayerVisible) {
       setSelectedId(null);
+      setSelectionOrigin(null);
     }
     setMunicipalLayerVisible(persistedMapUiState.municipalLayerVisible);
     if (!persistedMapUiState.municipalLayerVisible) {
       setSelectedMunicipalId(null);
+      setSelectionOrigin(null);
     }
     setMunicipalFilters(persistedMapUiState.municipalFilters);
   }, [persistedMapUiState, persistedMapUiStateKey]);
@@ -414,6 +422,17 @@ export function MapPage({
     setSearchParams,
     urlStateOptions,
   ]);
+
+  useEffect(() => {
+    if (selectedMunicipalId === null) {
+      return;
+    }
+    const stillVisible = visibleMunicipalFacilities.some((facility) => facility.id === selectedMunicipalId);
+    if (!stillVisible) {
+      setSelectedMunicipalId(null);
+      setSelectionOrigin(null);
+    }
+  }, [selectedMunicipalId, visibleMunicipalFacilities]);
 
   // Spot filters/sort reset when the search center/params change (existing behaviour).
   // Layer visibility is independent and intentionally preserved across re-searches.
@@ -580,6 +599,23 @@ export function MapPage({
     () => formatDiscoveryChromeSummary(t, discoveryChrome),
     [t, discoveryChrome],
   );
+  const selectedMapAnnouncement = useMemo(() => {
+    if (selectionOrigin === 'map' && selectedMunicipalFacility) {
+      const name =
+        selectedMunicipalFacility.displayName?.trim() ||
+        selectedMunicipalFacility.addressText?.trim() ||
+        t('municipal.unnamedFacility');
+      return t('mapSelection.municipal', { name });
+    }
+    if (selectionOrigin === 'map' && selectedSpot) {
+      const address = selectedSpot.addressText?.trim() || t('currentLocation');
+      return t('mapSelection.community', { address });
+    }
+    if (selectionOrigin === 'map' && parkedCarSelected) {
+      return t('mapSelection.parkedCar');
+    }
+    return null;
+  }, [parkedCarSelected, selectedMunicipalFacility, selectedSpot, selectionOrigin, t]);
 
   const discovery = (
     <>
@@ -619,7 +655,8 @@ export function MapPage({
           availableSourceLabels={municipalSourceLabels}
           availableFacilityTypes={municipalFacilityTypes}
           selectedId={selectedMunicipalId}
-          onSelect={selectMunicipalFacility}
+          onSelect={(id) => selectMunicipalFacility(id, 'list')}
+          selectionFromMap={selectionOrigin === 'map'}
         />
       ) : null}
       {communityLayerVisible ? (
@@ -635,7 +672,8 @@ export function MapPage({
           onSortChange={setSort}
           sortOptions={sortOptions}
           selectedId={selectedId}
-          onSelect={selectSpot}
+          onSelect={(id) => selectSpot(id, 'list')}
+          selectionFromMap={selectionOrigin === 'map'}
           userVehicleType={vehicleQuery.data?.vehicleType ?? null}
           siblingInventoryHasResults={discoveryChrome.communityEmptySubordinate}
         />
@@ -699,10 +737,14 @@ export function MapPage({
             selectedMunicipalId={
               municipalDiscoveryEnabled && municipalLayerVisible ? selectedMunicipalId : null
             }
-            onSelectSpot={communityLayerVisible ? selectSpot : undefined}
+            onSelectSpot={
+              communityLayerVisible
+                ? (id) => selectSpot(id, id === null ? 'system' : 'map')
+                : undefined
+            }
             onSelectMunicipalFacility={
               municipalDiscoveryEnabled && municipalLayerVisible
-                ? selectMunicipalFacility
+                ? (id) => selectMunicipalFacility(id, id === null ? 'system' : 'map')
                 : undefined
             }
             height="100%"
@@ -716,11 +758,24 @@ export function MapPage({
             }
             parkedCar={parkedCarCoords}
             parkedCarSelected={parkedCarSelected}
-            onSelectParkedCar={focusParkedCar}
+            onSelectParkedCar={() => {
+              setSelectionOrigin('map');
+              focusParkedCar();
+            }}
             parkedCarFocusRequest={parkedCarFocusRequest}
             onFocusParkedCar={
-              activeSessionNeedsConfirmation ? undefined : focusParkedCar
+              activeSessionNeedsConfirmation
+                ? undefined
+                : () => {
+                    setSelectionOrigin('control');
+                    focusParkedCar();
+                  }
             }
+            ariaLabel={t('mapRegionAria')}
+            ariaDescription={
+              municipalDiscoveryEnabled ? t('mapRegionHelpMunicipal') : t('mapRegionHelp')
+            }
+            selectionSummary={selectedMapAnnouncement}
           />
         </Suspense>
       </div>
@@ -1017,6 +1072,7 @@ export function MapPage({
           state={sheetState}
           onStateChange={setSheetState}
           ariaLabel={t('sheet.searchResultsAria')}
+          handleAriaLabel={t('sheet.handleAria', { state: t(`sheet.state.${sheetState}`) })}
           summary={
             <span
               className="block truncate text-label-md font-semibold text-on-surface"

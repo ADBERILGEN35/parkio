@@ -206,7 +206,8 @@ data path.
 
 - URL restoration updates pressed/selected UI state without resetting focus
 - invalid-param cleanup is silent
-- existing bounded `aria-live="polite"` result-summary behavior remains the only live announcement path
+- existing bounded `aria-live="polite"` result-summary behavior remains stable while
+  WEB-MUNI-09 adds dedicated map-region selection announcements for marker-driven focus changes
 - browser history restoration updates `aria-pressed` states for layer controls
 
 ## Locale independence

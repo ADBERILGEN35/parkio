@@ -26,6 +26,14 @@
   "locateAria": "Use my location",
   "zoomIn": "Zoom in",
   "zoomOut": "Zoom out",
+  "mapRegionAria": "Interactive parking discovery map",
+  "mapRegionHelp": "Map markers and controls are keyboard reachable. Use Tab to move to controls and markers, then press Enter or Space to select a parking marker. Clicking the map background updates the search center.",
+  "mapRegionHelpMunicipal": "Map markers and controls are keyboard reachable. Use Tab to move to controls and markers, then press Enter or Space to select a community spot or municipal facility marker. Clicking the map background updates the search center.",
+  "mapSelection": {
+    "community": "Selected community spot: {{address}}",
+    "municipal": "Selected municipal facility: {{name}}",
+    "parkedCar": "Selected parked car location"
+  },
   "layers": {
     "groupLabel": "Map layers",
     "groupAria": "Map layer visibility",
@@ -76,8 +84,13 @@
     "viewSpotDetails": "View spot details"
   },
   "sheet": {
-    "handleAria": "Resize results sheet",
+    "handleAria": "Search results, {{state}}. Drag or use arrow keys to resize.",
     "searchResultsAria": "Search results",
+    "state": {
+      "collapsed": "collapsed",
+      "half": "half open",
+      "expanded": "expanded"
+    },
     "showResultsAndFilters_one": "Show {{count}} result & filters",
     "showResultsAndFilters_other": "Show {{count}} results & filters",
     "showMunicipalResultsAndFilters_one": "Show {{count}} municipal facility & filters",
@@ -108,8 +121,8 @@
   "placeSearchError": "Could not load suggestions",
   "placeSearchEmpty": "No places found",
   "marker": {
-    "parkingSpot": "{{status}} parking spot",
-    "parkingSpotNear": "{{status}} parking spot near {{address}}",
+    "parkingSpot": "Community parking spot, {{status}}",
+    "parkingSpotNear": "Community parking spot near {{address}}, {{status}}",
     "recentlyUpdated": "Recently updated",
     "freshness": "Freshness {{freshness}}"
   },
@@ -128,6 +141,7 @@
     "filteredEmptyDescription": "Clear or adjust municipal filters to see official parking facilities again.",
     "resultsOf": "{{visible}} of {{total}} facilities",
     "resultsCount": "{{count}} facilities",
+    "resultAria": "{{inventory}}: {{name}}, {{distance}}",
     "filterResultsAria": "Filter municipal facilities",
     "filterStateAria": "{{count}} municipal facilities shown after filters",
     "clearFilters": "Clear",

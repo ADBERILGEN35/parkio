@@ -1,5 +1,6 @@
 import type { PublicSpot } from '@parkio/types';
 import { fireEvent, screen } from '@testing-library/react';
+import { axe } from 'jest-axe';
 import { describe, expect, it, vi } from 'vitest';
 import { makeMunicipalFacility } from '@/test/municipalFixtures';
 import { renderWithProviders } from '@/test/utils';
@@ -52,6 +53,25 @@ const spots: PublicSpot[] = [
 ];
 
 describe('NearbySpotsMap', () => {
+  it('exposes the map as an accessible region with instructions and a live selection summary', async () => {
+    const { container } = renderWithProviders(
+      <NearbySpotsMap
+        center={{ lat: 41, lng: 29 }}
+        spots={spots}
+        onPickCenter={() => undefined}
+        ariaLabel="Interactive parking discovery map"
+        ariaDescription="Use Tab to move to map markers."
+        selectionSummary="Selected community spot: First Spot"
+      />,
+    );
+
+    expect(
+      screen.getByRole('region', { name: 'Interactive parking discovery map' }),
+    ).toHaveAccessibleDescription('Use Tab to move to map markers. Selected community spot: First Spot');
+    expect(screen.getByRole('status')).toHaveTextContent('Selected community spot: First Spot');
+    expect(await axe(container)).toHaveNoViolations();
+  });
+
   it('renders a marker for each spot plus the search-center indicator', () => {
     renderWithProviders(
       <NearbySpotsMap center={{ lat: 41, lng: 29 }} spots={spots} onPickCenter={() => undefined} />,
