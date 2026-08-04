@@ -199,7 +199,15 @@ check "password_required_when_creating" {
   }
 }
 
+# CKV2_AZURE_57 (Private Endpoint) is a false positive for Model A VNet
+# Integration. Suppression is resource-scoped inside azurerm_postgresql_flexible_server.this
+# (not a global skip-check). Microsoft Learn: VNet Integration vs Private Endpoint are
+# mutually exclusive; PE unsupported on VNet-injected Flexible Servers.
+# https://learn.microsoft.com/en-us/azure/postgresql/network/concepts-networking-private
+# https://learn.microsoft.com/en-us/azure/postgresql/network/how-to-networking
+# https://learn.microsoft.com/en-us/azure/postgresql/network/concepts-networking-private-link
 resource "azurerm_postgresql_flexible_server" "this" {
+  #checkov:skip=CKV2_AZURE_57:Model A uses VNet Integration (delegated_subnet_id + private_dns_zone_id); PE mutually exclusive and unsupported on VNet-injected FS per Microsoft Learn concepts-networking-private / how-to-networking / concepts-networking-private-link
   count = var.create_resource ? 1 : 0
 
   name                          = var.name

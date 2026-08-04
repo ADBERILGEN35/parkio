@@ -22,3 +22,10 @@ skip-check:
   # service delegation; NSG attachment is environment network ownership (not
   # frozen as mandatory on the delegated subnet in PP-01B-R0 Model A).
   - CKV2_AZURE_31
+
+# CKV2_AZURE_57 is intentionally NOT listed above (not a global skip).
+# Resource-scoped #checkov:skip lives inside
+# modules/postgresql-flexible-server/main.tf → azurerm_postgresql_flexible_server.this
+# because Model A VNet Integration (delegated subnet + private DNS) is mutually
+# exclusive with Private Endpoint per Microsoft Learn, and PE is unsupported on
+# VNet-injected Flexible Servers.
