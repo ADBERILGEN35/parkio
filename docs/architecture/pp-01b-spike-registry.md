@@ -22,7 +22,8 @@ public GO, or municipal production enablement. **PP-01B is not complete.**
 | **PP-01B-SPIKE-01** | **CLOSED / ACCEPT WITH NON-BLOCKING NOTES** | [pp-01b-spike-01.md](pp-01b-spike-01.md) |
 | **PP-01B-SPIKE-02** | **MODE A COMPLETE — PASS WITH NON-BLOCKING NOTES** (Mode B **not executed**) | [pp-01b-spike-02-postgis-spatial-parity.md](pp-01b-spike-02-postgis-spatial-parity.md) |
 | **PP-01B-SPIKE-03** | **MODE A COMPLETE**; Mode B **HOLD — NOT EXECUTED** | [pp-01b-spike-03-private-network-dns-tls.md](pp-01b-spike-03-private-network-dns-tls.md) |
-| **PP-01B-R0 IaC contract** | **ACCEPTED WITH CONDITIONS** (no IaC code generated) | [pp-01b-iac-contract.md](pp-01b-iac-contract.md) |
+| **PP-01B-R0 IaC contract** | **ACCEPTED WITH CONDITIONS** | [pp-01b-iac-contract.md](pp-01b-iac-contract.md) |
+| **PP-01B-IAC-01** | **OFFLINE AUTHORING** — see `infra/terraform/` (PP-01B still **OPEN**) | [infra/terraform/README.md](../../infra/terraform/README.md) |
 
 ---
 
@@ -85,7 +86,9 @@ Live portal/CLI proof remains optional future work and must **revalidate** Micro
 1. SPIKE-01 — **CLOSED** (catalog)
 2. SPIKE-02 — **MODE A COMPLETE**; Mode B **not executed**
 3. SPIKE-03 — **MODE A COMPLETE**; Mode B **HOLD — NOT EXECUTED**
-4. PP-01B-R0 IaC contract — **ACCEPTED WITH CONDITIONS**; Terraform authoring may start offline; apply/Mode B still gated
+4. PP-01B-R0 IaC contract — **ACCEPTED WITH CONDITIONS**
+5. PP-01B-IAC-01 — offline Terraform authoring under `infra/terraform/` (**no apply**; Mode B still **HOLD**)
 
 Do not proceed to production-shaped apply, staging cutover (PP-01D), or PP-01E/F until ADR conditions and remaining spike success criteria are met.
 Do not start PP-01C until PP-01B is complete per ADR §20 and the IaC contract.
+**PP-01B remains OPEN** after IAC-01 authoring alone.

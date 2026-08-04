@@ -1,0 +1,24 @@
+# Checkov skip policy for PP-01B-IAC-01 offline authoring.
+# Runtime hardening (CMK, Defender, diagnostic sinks) is owned by later packages
+# (PP-03 secrets, PP-05 observability). Skips are explicit — not silent drops of
+# private-access / public-disabled contract controls.
+
+skip-check:
+  # Lockfile verified by CI assert + committed .terraform.lock.hcl
+  - CKV_TF_1
+  # Customer-managed keys / disk encryption extras — PP-03 / later
+  - CKV_AZURE_130
+  - CKV_AZURE_136
+  - CKV2_AZURE_32
+  # Threat detection / Defender — later hardening
+  - CKV_AZURE_128
+  - CKV_AZURE_129
+  # Geo-redundant backup optional beyond PITR floor — cost-gated
+  - CKV_AZURE_68
+  # Diagnostic settings sink — PP-05
+  - CKV_AZURE_138
+  - CKV2_AZURE_7
+  # NSG on Flexible Server delegated subnet — Azure FS private access uses
+  # service delegation; NSG attachment is environment network ownership (not
+  # frozen as mandatory on the delegated subnet in PP-01B-R0 Model A).
+  - CKV2_AZURE_31

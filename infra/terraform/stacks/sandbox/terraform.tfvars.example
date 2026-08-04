@@ -1,0 +1,18 @@
+# Example tfvars for offline documentation only.
+# Copy to terraform.tfvars locally (gitignored). Never commit real secrets.
+
+# environment is fixed by stack directory
+location       = "westeurope"
+naming_prefix  = "pp01b-sbx"
+# create_azure_resources = false   # default — keep false for IAC-01
+# apply_authorized      = false   # default — required false for IAC-01
+# enable_live_bootstrap = false   # default
+# cost_approval_reference = "TICKET-REPLACE-ME"  # required only before future apply
+
+# SKUs are placeholders until Mode B / cost board picks exact sizes:
+# core_sku_name    = "GP_Standard_D2s_v3"
+# parking_sku_name = "GP_Standard_D2s_v3"
+
+# Inject secrets via env at apply time, never in committed files:
+#   TF_VAR_administrator_password
+#   TF_VAR_service_role_passwords  (JSON map)

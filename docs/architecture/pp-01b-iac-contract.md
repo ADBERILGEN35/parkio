@@ -9,10 +9,11 @@
 | **Parent** | [ADR-PP-01A](adr/ADR-PP-01A-managed-postgresql.md) (**ACCEPTED WITH CONDITIONS**, frozen) |
 | **Spikes** | [pp-01b-spike-registry.md](pp-01b-spike-registry.md) |
 | **Connectivity** | [pp-01b-spike-03-private-network-dns-tls.md](pp-01b-spike-03-private-network-dns-tls.md) |
+| **Authoring package** | **PP-01B-IAC-01** → [`infra/terraform/`](../../infra/terraform/) (offline; no apply) |
 
 **This document is the single authoritative implementation contract for PP-01B IaC authoring.**
 
-It does **not** generate Terraform/Bicep/ARM/Pulumi code. It does **not** authorize Azure apply, production GO, municipal enablement, or PP-01C.
+Implementation code lives under `infra/terraform/` per §6. This contract still does **not** authorize Azure apply, production GO, municipal enablement, or PP-01C.
 
 | Closure distinction | Meaning |
 |---------------------|---------|
@@ -466,8 +467,21 @@ After acceptance, freeze:
 | Azure Mode B | HOLD until sandbox env | **CONDITION** |
 | Cost ceiling | Required before paid apply | **CONDITION** |
 | Offline IaC authoring may start without inventing architecture/security posture | **AUTHORIZED** by this contract |
+| PP-01B-IAC-01 offline authoring tree | Present under `infra/terraform/` — **does not** close PP-01B |
 
 Implementers must **not** choose alternate tool, alternate primary network model, alternate inventory, or weak TLS/public access.
+
+### Authoring status note (PP-01B-IAC-01)
+
+| Item | Status |
+|------|--------|
+| Offline Terraform modules/stacks | Authored |
+| Azure Mode B | **HOLD** |
+| PP-01B package | **OPEN** |
+| PP-01C | **NOT STARTED** |
+| Public production | **NO-GO** |
+| Municipal production | **DISABLED** |
+| Production apply | **Forbidden** |
 
 ---
 
