@@ -46,7 +46,6 @@ import { needsActiveConfirmation } from '@/lib/parkingSessionStale';
 import { DESKTOP_QUERY, useMediaQuery } from '@/lib/useMediaQuery';
 import {
   EMPTY_FILTERS,
-  EMPTY_MUNICIPAL_FILTERS,
   availableMunicipalFacilityTypes,
   availableMunicipalSourceLabels,
   availableSorts,
@@ -66,6 +65,13 @@ import {
   formatDiscoveryChromeSummary,
   resolveMapDiscoveryChrome,
 } from '@/lib/mapDiscoveryChrome';
+import {
+  canonicalizeMapDiscoveryUrlState,
+  mapDiscoveryUrlStateKey,
+  parseMapDiscoveryUrlState,
+  serializeMapDiscoveryUrlState,
+  type MapDiscoveryUrlState,
+} from '@/lib/mapDiscoveryUrlState';
 
 const NearbySpotsMap = lazy(() =>
   import('@/components/map/NearbySpotsMap').then((m) => ({ default: m.NearbySpotsMap })),
@@ -111,7 +117,15 @@ export function MapPage({
   municipalDiscoveryEnabled?: boolean;
 } = {}) {
   const { t } = useTranslation('map');
-  const [searchParams] = useSearchParams();
+  const [searchParams, setSearchParams] = useSearchParams();
+  const persistedMapUiState = useMemo(
+    () => parseMapDiscoveryUrlState(searchParams, { municipalDiscoveryEnabled }),
+    [municipalDiscoveryEnabled, searchParams],
+  );
+  const persistedMapUiStateKey = useMemo(
+    () => mapDiscoveryUrlStateKey(persistedMapUiState, { municipalDiscoveryEnabled }),
+    [municipalDiscoveryEnabled, persistedMapUiState],
+  );
   const smartReturnMode = searchParams.get('smartReturn') === '1';
   const [params, setParams] = useState<NearbySearchParams | null>(null);
   const [geoStatus, setGeoStatus] = useState<GeoStatus>('idle');
@@ -126,18 +140,26 @@ export function MapPage({
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [selectedMunicipalId, setSelectedMunicipalId] = useState<string | null>(null);
   const [filters, setFilters] = useState<SpotFilters>(EMPTY_FILTERS);
-  const [municipalFilters, setMunicipalFilters] =
-    useState<MunicipalFacilityFilters>(EMPTY_MUNICIPAL_FILTERS);
+  const [municipalFilters, setMunicipalFilters] = useState<MunicipalFacilityFilters>(
+    persistedMapUiState.municipalFilters,
+  );
   const [sort, setSort] = useState<SpotSort | null>(null);
   /** Dual-inventory layer visibility (WEB-MUNI-05) — presentation only. */
-  const [communityLayerVisible, setCommunityLayerVisible] = useState(true);
-  const [municipalLayerVisible, setMunicipalLayerVisible] = useState(true);
+  const [communityLayerVisible, setCommunityLayerVisible] = useState(
+    persistedMapUiState.communityLayerVisible,
+  );
+  const [municipalLayerVisible, setMunicipalLayerVisible] = useState(
+    persistedMapUiState.municipalLayerVisible,
+  );
   const [sheetState, setSheetState] = useState<SheetState>('collapsed');
   /** Visual emphasis for the parked-car marker (card stays non-dismissible). */
   const [parkedCarSelected, setParkedCarSelected] = useState(false);
   const [parkedCarFocusRequest, setParkedCarFocusRequest] =
     useState<ParkedCarFocusRequest | null>(null);
   const parkedFocusTokenRef = useRef(0);
+  const isApplyingUrlStateRef = useRef(false);
+  const initialUrlWriteDoneRef = useRef(false);
+  const lastSeenPersistedMapUiStateKeyRef = useRef(persistedMapUiStateKey);
 
   const isDesktop = useMediaQuery(DESKTOP_QUERY);
   const isAuthenticated = useAuthStore((state) => state.isAuthenticated);
@@ -249,6 +271,36 @@ export function MapPage({
     () => availableMunicipalFacilityTypes(municipalFacilities),
     [municipalFacilities],
   );
+  const urlStateOptions = useMemo(
+    () => ({
+      municipalDiscoveryEnabled,
+      availableSourceLabels: municipalSearch.isSuccess ? municipalSourceLabels : undefined,
+      availableFacilityTypes: municipalSearch.isSuccess ? municipalFacilityTypes : undefined,
+    }),
+    [
+      municipalDiscoveryEnabled,
+      municipalFacilityTypes,
+      municipalSearch.isSuccess,
+      municipalSourceLabels,
+    ],
+  );
+  const canonicalSearchParams = useMemo(
+    () => canonicalizeMapDiscoveryUrlState(searchParams, urlStateOptions),
+    [searchParams, urlStateOptions],
+  );
+  const canonicalSearchParamsKey = canonicalSearchParams.toString();
+  const persistedStateFromComponent = useMemo<MapDiscoveryUrlState>(
+    () => ({
+      communityLayerVisible,
+      municipalLayerVisible,
+      municipalFilters,
+    }),
+    [communityLayerVisible, municipalLayerVisible, municipalFilters],
+  );
+  const persistedStateFromComponentKey = useMemo(
+    () => mapDiscoveryUrlStateKey(persistedStateFromComponent, urlStateOptions),
+    [persistedStateFromComponent, urlStateOptions],
+  );
   const visibleMunicipalFacilities = useMemo(
     () => filterMunicipalFacilities(municipalFacilities, municipalFilters),
     [municipalFacilities, municipalFilters],
@@ -307,6 +359,61 @@ export function MapPage({
       setSelectedMunicipalId(null);
     }
   }, []);
+
+  useEffect(() => {
+    if (canonicalSearchParamsKey !== searchParams.toString()) {
+      setSearchParams(canonicalSearchParams, { replace: true });
+    }
+  }, [canonicalSearchParams, canonicalSearchParamsKey, searchParams, setSearchParams]);
+
+  useEffect(() => {
+    if (lastSeenPersistedMapUiStateKeyRef.current === persistedMapUiStateKey) {
+      return;
+    }
+    lastSeenPersistedMapUiStateKeyRef.current = persistedMapUiStateKey;
+
+    isApplyingUrlStateRef.current = true;
+    setCommunityLayerVisible(persistedMapUiState.communityLayerVisible);
+    if (!persistedMapUiState.communityLayerVisible) {
+      setSelectedId(null);
+    }
+    setMunicipalLayerVisible(persistedMapUiState.municipalLayerVisible);
+    if (!persistedMapUiState.municipalLayerVisible) {
+      setSelectedMunicipalId(null);
+    }
+    setMunicipalFilters(persistedMapUiState.municipalFilters);
+  }, [persistedMapUiState, persistedMapUiStateKey]);
+
+  useEffect(() => {
+    if (isApplyingUrlStateRef.current) {
+      if (persistedStateFromComponentKey === persistedMapUiStateKey) {
+        isApplyingUrlStateRef.current = false;
+      }
+      return;
+    }
+
+    const nextSearchParams = serializeMapDiscoveryUrlState(
+      searchParams,
+      persistedStateFromComponent,
+      urlStateOptions,
+    );
+    const currentKey = searchParams.toString();
+    const nextKey = nextSearchParams.toString();
+    if (currentKey === nextKey) {
+      initialUrlWriteDoneRef.current = true;
+      return;
+    }
+
+    setSearchParams(nextSearchParams, { replace: !initialUrlWriteDoneRef.current });
+    initialUrlWriteDoneRef.current = true;
+  }, [
+    persistedMapUiStateKey,
+    persistedStateFromComponent,
+    persistedStateFromComponentKey,
+    searchParams,
+    setSearchParams,
+    urlStateOptions,
+  ]);
 
   // Spot filters/sort reset when the search center/params change (existing behaviour).
   // Layer visibility is independent and intentionally preserved across re-searches.

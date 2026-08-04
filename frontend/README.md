@@ -204,6 +204,7 @@ real browser with deterministic network mocks:
 - Auth: forgot password → reset password → login with the new password.
 - Parking: upload image → create spot → success redirect.
 - Map: search overlay → advanced coordinates → nearby results sheet.
+- Map: focused WEB-MUNI flag-default smoke specs, including URL-state canonicalization / no-leak behavior.
 - Parking: open spot details → claim spot.
 - Parking: verify spot and report spot.
 - Moderation: moderator login → open queue → assign/review/resolve a case.
@@ -1382,6 +1383,10 @@ Smart Return is release-gated. In hosted-beta/production, set
 `VITE_SMART_RETURN_ENABLED=true` at web build time and set the backend
 `PARKIO_SMART_RETURN_ENABLED=true` / `PARKIO_SMART_RETURN_SCHEDULER_ENABLED=true`
 runtime flags only after the controlled-beta smoke procedure passes.
+
+`smartReturn=1` also coexists with WEB-MUNI-07 map URL-state persistence on `/map`; the
+municipal filter/layer params are canonicalized independently and must never remove the
+existing Smart Return param. See `docs/web-muni-07-url-state-persistence.md`.
 
 ## Error shape
 

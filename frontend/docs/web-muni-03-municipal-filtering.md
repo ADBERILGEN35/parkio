@@ -43,7 +43,13 @@ Selection resolves from the **unfiltered** municipal set so a selected facility 
 
 ## URL persistence
 
-Not applicable — same as community `SpotFilters` (in-memory presentation state only).
+WEB-MUNI-07 adds canonical URL persistence for the stable municipal filter state. See
+`web-muni-07-url-state-persistence.md` for:
+
+- exact query-param names and defaults
+- stale/invalid filter canonicalization
+- `smartReturn=1` coexistence
+- refresh/share/history semantics
 
 ## Rollback
 
@@ -73,6 +79,7 @@ No database / API rollback.
 - Detail location map is WEB-MUNI-04 (`web-muni-04-municipal-detail-location.md`)
 - Dual-inventory layer visibility is WEB-MUNI-05 (`web-muni-05-layer-visibility-controls.md`)
 - Dual-inventory empty chrome / sheet CTA is WEB-MUNI-06 (`web-muni-06-dual-inventory-empty-chrome.md`)
+- URL-backed municipal filter persistence is WEB-MUNI-07 (`web-muni-07-url-state-persistence.md`)
 
 ## Confirmations
 

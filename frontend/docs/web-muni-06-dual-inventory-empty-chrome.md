@@ -73,6 +73,8 @@ from fetched-empty.
   filtered-empty so filters remain reachable)
 - Both-hidden hint guides re-enable, not a fruitless search
 - Opening the sheet causes **zero** nearby requests
+- WEB-MUNI-07 later makes the stable layer/filter inputs URL-restorable without
+  persisting transient sheet state; see `web-muni-07-url-state-persistence.md`
 
 ## Feature flag
 

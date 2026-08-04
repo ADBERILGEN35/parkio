@@ -27,13 +27,17 @@ No new flag. Production remains false by default.
 
 ## State model
 
-In-memory `MapPage` state:
+`MapPage` owns the visible UI state, but WEB-MUNI-07 makes the stable layer state
+URL-canonical when municipal discovery is enabled:
 
 - `communityLayerVisible` (default `true`)
 - `municipalLayerVisible` (default `true`)
 
 Independent of municipal attribute filters and community spot filters.  
 Hiding a layer does **not** clear React Query cache or reset filters.
+
+Canonical URL details, history semantics, and flag-off cleanup are documented in
+`web-muni-07-url-state-persistence.md`.
 
 ## Control UI
 
@@ -56,7 +60,9 @@ Base map always remains. Parked-car marker is unrelated to inventory layers.
 
 ### Municipal filters while hidden
 
-Filter controls are **hidden** with the municipal section. Filter state stays in memory and reapplies on re-enable. No API request.
+Filter controls are **hidden** with the municipal section. Filter state stays in memory,
+reapplies on re-enable, and when municipal discovery is enabled is also restored from the
+URL. No API request.
 
 ### Marker / list sync
 
@@ -94,6 +100,7 @@ Hosted-beta leave-on gate for layer toggles. Completed separately from this doc 
 ## Related
 
 - Dual-inventory empty chrome / sheet CTA: WEB-MUNI-06 (`web-muni-06-dual-inventory-empty-chrome.md`)
+- URL-backed layer/filter persistence: WEB-MUNI-07 (`web-muni-07-url-state-persistence.md`)
 
 ## Confirmations
 

@@ -1419,6 +1419,139 @@ describe('MapPage dual-inventory layer visibility (WEB-MUNI-05)', () => {
     expect(screen.queryByTestId('municipal-facility-results')).not.toBeInTheDocument();
   });
 
+  it('hydrates municipal filters and layer visibility from URL params', async () => {
+    let spotsHits = 0;
+    let facilitiesHits = 0;
+    const izum = makeMunicipalFacility({
+      id: 'fac-url-izum',
+      displayName: 'URL Visible',
+      sourceLabel: 'Izmir Buyuksehir Belediyesi / IZUM',
+      availableSpaces: 5,
+      facilityType: 'OFF_STREET',
+      latitude: 38.42,
+      longitude: 27.14,
+    });
+    const osm = makeMunicipalFacility({
+      id: 'fac-url-osm',
+      displayName: 'URL Hidden',
+      sourceLabel: 'OpenStreetMap contributors / Geofabrik GmbH',
+      availableSpaces: null,
+      facilityType: 'UNKNOWN',
+      latitude: 38.421,
+      longitude: 27.141,
+    });
+
+    server.use(
+      http.get(`${API_BASE}/parking/spots/nearby`, () => {
+        spotsHits += 1;
+        return HttpResponse.json([spot]);
+      }),
+      http.get(`${API_BASE}/parking/facilities/nearby`, () => {
+        facilitiesHits += 1;
+        return HttpResponse.json([izum, osm]);
+      }),
+    );
+
+    const { router } = renderWithProviders(<MapPage municipalDiscoveryEnabled />, {
+      initialEntries: [
+        '/map?communityLayer=0&municipalAvailability=available&municipalSources=Izmir%20Buyuksehir%20Belediyesi%20%2F%20IZUM',
+      ],
+    });
+    const user = userEvent.setup();
+    await searchNear(user);
+
+    expect(await screen.findByTestId('map-layer-visibility-controls')).toBeInTheDocument();
+    expect(screen.getByTestId('map-layer-community')).toHaveAttribute('aria-pressed', 'false');
+    expect(screen.getByTestId('map-layer-municipal')).toHaveAttribute('aria-pressed', 'true');
+    expect(screen.queryByText('Stub Address 7')).not.toBeInTheDocument();
+    expect(screen.getByText('URL Visible')).toBeInTheDocument();
+    expect(screen.queryByText('URL Hidden')).not.toBeInTheDocument();
+    expect(screen.getByTestId('stub-spot-count')).toHaveTextContent('0');
+    expect(screen.getByTestId('stub-municipal-count')).toHaveTextContent('1');
+    expect(router.state.location.search).toContain('communityLayer=0');
+    expect(router.state.location.search).toContain('municipalAvailability=available');
+    expect(spotsHits).toBe(1);
+    expect(facilitiesHits).toBe(1);
+  });
+
+  it('restores filter and layer state from browser history without refetch', async () => {
+    let spotsHits = 0;
+    let facilitiesHits = 0;
+    const availableStreet = makeMunicipalFacility({
+      id: 'fac-history-1',
+      displayName: 'History Match',
+      sourceLabel: 'Izmir Buyuksehir Belediyesi / IZUM',
+      availableSpaces: 2,
+      facilityType: 'ON_STREET',
+      latitude: 38.42,
+      longitude: 27.14,
+    });
+    const unavailableLot = makeMunicipalFacility({
+      id: 'fac-history-2',
+      displayName: 'History Hidden',
+      sourceLabel: 'OpenStreetMap contributors / Geofabrik GmbH',
+      availableSpaces: 0,
+      facilityType: 'OFF_STREET',
+      latitude: 38.421,
+      longitude: 27.141,
+    });
+
+    server.use(
+      http.get(`${API_BASE}/parking/spots/nearby`, () => {
+        spotsHits += 1;
+        return HttpResponse.json([spot]);
+      }),
+      http.get(`${API_BASE}/parking/facilities/nearby`, () => {
+        facilitiesHits += 1;
+        return HttpResponse.json([availableStreet, unavailableLot]);
+      }),
+    );
+
+    const { router } = renderWithProviders(<MapPage municipalDiscoveryEnabled />);
+    const user = userEvent.setup();
+    await searchNear(user);
+
+    expect(await screen.findByText('History Match')).toBeInTheDocument();
+    await user.click(screen.getByTestId('municipal-filter-availability-available'));
+    await user.click(screen.getByTestId('map-layer-community'));
+
+    await waitFor(() => {
+      expect(router.state.location.search).toContain('communityLayer=0');
+      expect(router.state.location.search).toContain('municipalAvailability=available');
+    });
+    expect(screen.queryByText('Stub Address 7')).not.toBeInTheDocument();
+    expect(screen.getByText('History Match')).toBeInTheDocument();
+    expect(screen.queryByText('History Hidden')).not.toBeInTheDocument();
+    expect(spotsHits).toBe(1);
+    expect(facilitiesHits).toBe(1);
+
+    await act(async () => {
+      await router.navigate(-1);
+    });
+    await waitFor(() => {
+      expect(screen.getByTestId('map-layer-community')).toHaveAttribute('aria-pressed', 'true');
+    });
+    expect(screen.getByText('Stub Address 7')).toBeInTheDocument();
+    expect(screen.getByText('History Match')).toBeInTheDocument();
+    expect(screen.queryByText('History Hidden')).not.toBeInTheDocument();
+
+    await act(async () => {
+      await router.navigate(-1);
+    });
+    await waitFor(() => {
+      expect(screen.getByTestId('map-layer-community')).toHaveAttribute('aria-pressed', 'true');
+      expect(screen.getByTestId('municipal-filter-availability-available')).toHaveAttribute(
+        'aria-pressed',
+        'false',
+      );
+    });
+    expect(screen.getByText('Stub Address 7')).toBeInTheDocument();
+    expect(screen.getByText('History Match')).toBeInTheDocument();
+    expect(screen.getByText('History Hidden')).toBeInTheDocument();
+    expect(spotsHits).toBe(1);
+    expect(facilitiesHits).toBe(1);
+  });
+
   it('renders Turkish layer labels', async () => {
     const { withLocale } = await import('@/test/utils');
     await withLocale('tr');
@@ -1710,5 +1843,110 @@ describe('MapPage dual-inventory empty chrome (WEB-MUNI-06)', () => {
     expect(await screen.findByText('TR Lot')).toBeInTheDocument();
     expect(screen.getByTestId('map-sheet-summary')).toHaveTextContent(/belediye tesisi/i);
     expect(screen.getByTestId('map-sheet-summary')).not.toHaveTextContent('Yakında park yeri yok');
+  });
+
+  it('preserves smartReturn=1 while syncing municipal URL state', async () => {
+    const facility = makeMunicipalFacility({
+      id: 'fac-smart-return-url',
+      displayName: 'Smart Return Lot',
+      latitude: 38.4237,
+      longitude: 27.1428,
+      availableSpaces: 4,
+    });
+    server.use(
+      http.get(`${API_BASE}/users/me/smart-return`, () => HttpResponse.json(smartReturnSettings)),
+      http.get(`${API_BASE}/parking/spots/nearby`, () => HttpResponse.json([])),
+      http.get(`${API_BASE}/parking/facilities/nearby`, () => HttpResponse.json([facility])),
+    );
+
+    const { router } = renderWithProviders(<MapPage municipalDiscoveryEnabled />, {
+      initialEntries: ['/map?smartReturn=1&communityLayer=0&municipalAvailability=available'],
+    });
+
+    expect(await screen.findByText('Showing parking near your saved home.')).toBeInTheDocument();
+    expect(await screen.findByText('Smart Return Lot')).toBeInTheDocument();
+    expect(screen.getByTestId('map-layer-community')).toHaveAttribute('aria-pressed', 'false');
+    expect(router.state.location.search).toContain('smartReturn=1');
+    expect(router.state.location.search).toContain('communityLayer=0');
+    expect(router.state.location.search).toContain('municipalAvailability=available');
+  });
+
+  it('drops invalid stale municipal URL params safely after data loads', async () => {
+    const facility = makeMunicipalFacility({
+      id: 'fac-stale-url',
+      displayName: 'Stale Safe Lot',
+      latitude: 38.42,
+      longitude: 27.14,
+      availableSpaces: 3,
+      sourceLabel: 'Izmir Buyuksehir Belediyesi / IZUM',
+      facilityType: 'OFF_STREET',
+    });
+    server.use(
+      http.get(`${API_BASE}/parking/spots/nearby`, () => HttpResponse.json([])),
+      http.get(`${API_BASE}/parking/facilities/nearby`, () => HttpResponse.json([facility])),
+    );
+
+    const { router } = renderWithProviders(<MapPage municipalDiscoveryEnabled />, {
+      initialEntries: [
+        '/map?municipalAvailability=nope&municipalSources=Missing%20Source&municipalTypes=NOT_REAL&municipalProvenance=2',
+      ],
+    });
+    const user = userEvent.setup();
+    await searchNear(user);
+
+    expect(await screen.findByText('Stale Safe Lot')).toBeInTheDocument();
+    expect(screen.queryByText('No facilities match these filters')).not.toBeInTheDocument();
+    await waitFor(() => {
+      expect(router.state.location.search).toBe('');
+    });
+  });
+
+  it('preserves unrelated params while syncing municipal URL state', async () => {
+    const facility = makeMunicipalFacility({
+      id: 'fac-unrelated-url',
+      displayName: 'Related Lot',
+      latitude: 38.4237,
+      longitude: 27.1428,
+      availableSpaces: 4,
+    });
+    server.use(
+      http.get(`${API_BASE}/parking/spots/nearby`, () => HttpResponse.json([])),
+      http.get(`${API_BASE}/parking/facilities/nearby`, () => HttpResponse.json([facility])),
+    );
+
+    const { router } = renderWithProviders(<MapPage municipalDiscoveryEnabled />, {
+      initialEntries: ['/map?foo=bar&smartReturn=1'],
+    });
+    const user = userEvent.setup();
+    await searchNear(user);
+
+    await user.click(screen.getByTestId('map-layer-community'));
+
+    await waitFor(() => {
+      expect(router.state.location.search).toContain('foo=bar');
+      expect(router.state.location.search).toContain('smartReturn=1');
+      expect(router.state.location.search).toContain('communityLayer=0');
+    });
+  });
+
+  it('flag-off canonicalization strips municipal URL state but preserves smartReturn', async () => {
+    server.use(
+      http.get(`${API_BASE}/users/me/smart-return`, () => HttpResponse.json(smartReturnSettings)),
+      http.get(`${API_BASE}/parking/spots/nearby`, () => HttpResponse.json([])),
+      http.get(`${API_BASE}/parking/facilities/nearby`, () => HttpResponse.json([])),
+    );
+
+    const { router } = renderWithProviders(<MapPage municipalDiscoveryEnabled={false} />, {
+      initialEntries: [
+        '/map?smartReturn=1&communityLayer=0&municipalLayer=0&municipalAvailability=available&municipalSources=IZUM',
+      ],
+    });
+
+    expect(await screen.findByText('Showing parking near your saved home.')).toBeInTheDocument();
+    await waitFor(() => {
+      expect(router.state.location.search).toBe('?smartReturn=1');
+    });
+    expect(screen.queryByTestId('map-layer-visibility-controls')).not.toBeInTheDocument();
+    expect(screen.queryByTestId('municipal-facility-filters')).not.toBeInTheDocument();
   });
 });

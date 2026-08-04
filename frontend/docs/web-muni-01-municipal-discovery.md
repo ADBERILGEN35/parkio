@@ -20,6 +20,7 @@ Expose existing municipal parking facilities (`GET /api/v1/parking/facilities/ne
 - Production: must remain **false**
 - Detail route `/facilities/:facilityId` (WEB-MUNI-02) reuses this flag — when off, the route shows a disabled empty state and does not call facilities APIs
 - Detail location map + open-in-maps (WEB-MUNI-04) also reuse this flag — no additional flag
+- WEB-MUNI-07 also reuses this same flag: when off, municipal URL-state params are ignored and stripped from the canonical URL (`web-muni-07-url-state-persistence.md`)
 
 ## Behaviour when enabled
 
@@ -70,6 +71,7 @@ Production builds must omit the flag or set it to `false`.
 - Detail route `/facilities/:id` is WEB-MUNI-02 (complete)
 - Client-side municipal filters are WEB-MUNI-03 (complete)
 - Dual-inventory empty chrome / sheet CTA is WEB-MUNI-06 (`web-muni-06-dual-inventory-empty-chrome.md`)
+- URL-backed municipal filter/layer persistence is WEB-MUNI-07 (`web-muni-07-url-state-persistence.md`)
 - Mobile not in scope
 - Availability often `UNAVAILABLE` for OSM-published inventory (backend semantics)
 
