@@ -9,7 +9,7 @@ import { fileURLToPath } from 'node:url';
 const script = fileURLToPath(new URL('./verify-bundle-env.mjs', import.meta.url));
 const placeholder = 'fixture-map-key-not-a-real-provider-key';
 
-function runVerifier(env, expectedAppEnv = 'hosted-beta') {
+function runVerifier(env, expectedAppEnv = 'hosted-beta', extraArgs = []) {
   const fixture = mkdtempSync(join(tmpdir(), 'parkio-bundle-env-'));
   const assets = join(fixture, 'assets');
   mkdirSync(assets);
@@ -22,11 +22,8 @@ function runVerifier(env, expectedAppEnv = 'hosted-beta') {
     `const injected={${members}};globalThis.__fixture=injected;`,
   );
   try {
-    const result = spawnSync(
-      process.execPath,
-      [script, '--dist', fixture, '--app-env', expectedAppEnv],
-      { encoding: 'utf8' },
-    );
+    const args = [script, '--dist', fixture, '--app-env', expectedAppEnv, ...extraArgs];
+    const result = spawnSync(process.execPath, args, { encoding: 'utf8' });
     assert.ifError(result.error);
     return result;
   } finally {
@@ -80,4 +77,47 @@ test('rejects wrong VITE_APP_ENV build-argument wiring', () => {
   assert.notEqual(result.status, 0);
   assert.match(`${result.stdout}${result.stderr}`, /build-arg wiring is wrong/);
   assert.doesNotMatch(`${result.stdout}${result.stderr}`, new RegExp(placeholder));
+});
+
+test('PROD-MUNI-01 rejects production bundle with municipal discovery enabled', () => {
+  const result = runVerifier(
+    {
+      VITE_APP_ENV: 'production',
+      VITE_API_BASE_URL: 'https://api.fixture.invalid/api/v1',
+      VITE_MAPTILER_KEY: placeholder,
+      VITE_WEB_MUNICIPAL_DISCOVERY_ENABLED: 'true',
+    },
+    'production',
+  );
+  assert.notEqual(result.status, 0);
+  assert.match(`${result.stdout}${result.stderr}`, /PROD-MUNI-01 bake guard/);
+});
+
+test('PROD-MUNI-01 require-municipal false rejects municipal-on bundle', () => {
+  const result = runVerifier(
+    {
+      VITE_APP_ENV: 'hosted-beta',
+      VITE_API_BASE_URL: 'https://api.fixture.invalid/api/v1',
+      VITE_MAPTILER_KEY: placeholder,
+      VITE_WEB_MUNICIPAL_DISCOVERY_ENABLED: 'true',
+    },
+    'hosted-beta',
+    ['--require-municipal', 'false'],
+  );
+  assert.notEqual(result.status, 0);
+  assert.match(`${result.stdout}${result.stderr}`, /must be false/);
+});
+
+test('PROD-MUNI-01 require-municipal true accepts municipal-on bundle', () => {
+  const result = runVerifier(
+    {
+      VITE_APP_ENV: 'hosted-beta',
+      VITE_API_BASE_URL: 'https://api.fixture.invalid/api/v1',
+      VITE_MAPTILER_KEY: placeholder,
+      VITE_WEB_MUNICIPAL_DISCOVERY_ENABLED: 'true',
+    },
+    'hosted-beta',
+    ['--require-municipal', 'true'],
+  );
+  assert.equal(result.status, 0, `${result.stdout}${result.stderr}`);
 });

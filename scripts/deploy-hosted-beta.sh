@@ -166,6 +166,14 @@ if [ "$SKIP_SMOKE" -ne 1 ]; then
     PARKIO_GATEWAY_URL="${PARKIO_GATEWAY_URL:-$(parkio_default_gateway_url)}" \
     PARKIO_SMOKE_EXPECT_DIRECT_BLOCKED="${PARKIO_SMOKE_EXPECT_DIRECT_BLOCKED:-0}" \
     "$ROOT/scripts/smoke-hosted-beta.sh" | tee "$ARTIFACT_DIR/smoke-${GIT_SHA:0:12}.log"
+  # PROD-MUNI-01 / M1: optional municipal facilities smoke (opt-in; does not alter stack).
+  if [ "${PARKIO_SMOKE_MUNICIPAL:-0}" = "1" ]; then
+    echo "Running municipal smoke (PARKIO_SMOKE_MUNICIPAL=1)..."
+    PARKIO_ENV_FILE="$ENV_FILE" \
+      PARKIO_DEPLOYMENT_PROFILE="$PARKIO_DEPLOYMENT_PROFILE" \
+      PARKIO_GATEWAY_URL="${PARKIO_GATEWAY_URL:-$(parkio_default_gateway_url)}" \
+      "$ROOT/scripts/prod-muni-01/smoke-municipal.sh" | tee "$ARTIFACT_DIR/smoke-municipal-${GIT_SHA:0:12}.log"
+  fi
 fi
 
 cp "$MANIFEST_PATH" "$ARTIFACT_DIR/current.json"

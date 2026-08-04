@@ -30,11 +30,17 @@ const PRODUCTION_LIKE = new Set(['hosted-beta', 'production']);
 const REQUIRED_IN_PRODUCTION_LIKE = ['VITE_API_BASE_URL', 'VITE_MAPTILER_KEY'];
 
 function parseArgs(argv) {
-  const out = { dist: 'dist', appEnv: undefined };
+  const out = { dist: 'dist', appEnv: undefined, requireMunicipal: undefined };
   for (let i = 0; i < argv.length; i += 1) {
     if (argv[i] === '--dist') out.dist = argv[++i];
     else if (argv[i] === '--app-env') out.appEnv = argv[++i];
-    else throw new Error(`unknown argument: ${argv[i]}`);
+    else if (argv[i] === '--require-municipal') {
+      const value = argv[++i];
+      if (value !== 'true' && value !== 'false') {
+        throw new Error('--require-municipal must be true or false');
+      }
+      out.requireMunicipal = value;
+    } else throw new Error(`unknown argument: ${argv[i]}`);
   }
   return out;
 }
@@ -109,7 +115,7 @@ function extractInjectedEnv(source) {
 }
 
 function main() {
-  const { dist, appEnv: expectedAppEnv } = parseArgs(process.argv.slice(2));
+  const { dist, appEnv: expectedAppEnv, requireMunicipal } = parseArgs(process.argv.slice(2));
   const distDir = resolve(dist);
 
   if (!existsSync(distDir)) {
@@ -154,6 +160,8 @@ function main() {
 
   const productionLike = PRODUCTION_LIKE.has(appEnv);
   const checked = productionLike ? REQUIRED_IN_PRODUCTION_LIKE : [];
+  const municipalRaw = (env.VITE_WEB_MUNICIPAL_DISCOVERY_ENABLED ?? '').trim();
+  const municipalEnabled = municipalRaw === 'true';
 
   for (const key of checked) {
     if (!(key in env)) failures.push(`${key} is MISSING from the bundle`);
@@ -167,6 +175,35 @@ function main() {
     const status = !(key in env) ? 'MISSING' : env[key].trim() === '' ? 'EMPTY' : 'PRESENT';
     console.log(`verify-bundle-env:   ${key} = ${status}`);
   }
+  const municipalStatus =
+    !( 'VITE_WEB_MUNICIPAL_DISCOVERY_ENABLED' in env)
+      ? 'MISSING'
+      : municipalRaw === ''
+        ? 'EMPTY'
+        : municipalEnabled
+          ? 'true'
+          : municipalRaw;
+  console.log(`verify-bundle-env:   VITE_WEB_MUNICIPAL_DISCOVERY_ENABLED = ${municipalStatus}`);
+
+  // PROD-MUNI-01 / M3: refuse production bundles that bake municipal discovery on.
+  if (appEnv === 'production' && municipalEnabled) {
+    failures.push(
+      'VITE_WEB_MUNICIPAL_DISCOVERY_ENABLED is true in a production bundle (PROD-MUNI-01 bake guard)',
+    );
+  }
+
+  // Optional explicit municipal contract (kill-switch / hosted-beta drills).
+  if (requireMunicipal === 'true' && !municipalEnabled) {
+    failures.push(
+      `VITE_WEB_MUNICIPAL_DISCOVERY_ENABLED must be true (got ${municipalStatus})`,
+    );
+  }
+  if (requireMunicipal === 'false' && municipalEnabled) {
+    failures.push(
+      'VITE_WEB_MUNICIPAL_DISCOVERY_ENABLED must be false/off for this verification',
+    );
+  }
+
   if (!productionLike) {
     console.log(
       'verify-bundle-env: app env is not production-like; required-value checks are not applicable.',
