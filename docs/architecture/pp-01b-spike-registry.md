@@ -23,7 +23,8 @@ public GO, or municipal production enablement. **PP-01B is not complete.**
 | **PP-01B-SPIKE-02** | **MODE A COMPLETE — PASS WITH NON-BLOCKING NOTES** (Mode B **not executed**) | [pp-01b-spike-02-postgis-spatial-parity.md](pp-01b-spike-02-postgis-spatial-parity.md) |
 | **PP-01B-SPIKE-03** | **MODE A COMPLETE**; Mode B **HOLD — NOT EXECUTED** | [pp-01b-spike-03-private-network-dns-tls.md](pp-01b-spike-03-private-network-dns-tls.md) |
 | **PP-01B-R0 IaC contract** | **ACCEPTED WITH CONDITIONS** | [pp-01b-iac-contract.md](pp-01b-iac-contract.md) |
-| **PP-01B-IAC-01** | **OFFLINE AUTHORING** — see `infra/terraform/` (PP-01B still **OPEN**) | [infra/terraform/README.md](../../infra/terraform/README.md) |
+| **PP-01B-IAC-01** | **CLOSED** as offline authoring (PP-01B still **OPEN**) | [infra/terraform/README.md](../../infra/terraform/README.md) |
+| **PP-01B Mode B auth** | **AUTHORIZED FOR STEP 2** (`PP-01B-MODE-B-20260804-01`; G0–G7 satisfied; Step 2 not started) | [pp-01b-mode-b-authorization.md](pp-01b-mode-b-authorization.md) |
 
 ---
 
@@ -87,8 +88,10 @@ Live portal/CLI proof remains optional future work and must **revalidate** Micro
 2. SPIKE-02 — **MODE A COMPLETE**; Mode B **not executed**
 3. SPIKE-03 — **MODE A COMPLETE**; Mode B **HOLD — NOT EXECUTED**
 4. PP-01B-R0 IaC contract — **ACCEPTED WITH CONDITIONS**
-5. PP-01B-IAC-01 — offline Terraform authoring under `infra/terraform/` (**no apply**; Mode B still **HOLD**)
+5. PP-01B-IAC-01 — offline Terraform authoring **CLOSED**
+6. Mode B Step 1 — read-only baseline **COMPLETE** (Go/No-Go A **NO-GO**)
+7. Mode B authorization record — [pp-01b-mode-b-authorization.md](pp-01b-mode-b-authorization.md) (**AUTHORIZED FOR STEP 2** — `PP-01B-MODE-B-20260804-01`; Step 2 not started)
 
 Do not proceed to production-shaped apply, staging cutover (PP-01D), or PP-01E/F until ADR conditions and remaining spike success criteria are met.
 Do not start PP-01C until PP-01B is complete per ADR §20 and the IaC contract.
-**PP-01B remains OPEN** after IAC-01 authoring alone.
+**PP-01B remains OPEN** until Mode B (or waiver) + cleanup close the package.

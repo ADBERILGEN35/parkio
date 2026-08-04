@@ -6,14 +6,16 @@
 |------|--------|
 | PP-01B-R0 IaC contract | ACCEPTED WITH CONDITIONS |
 | PP-01B-IAC-01 authoring | This package |
-| Azure Mode B (SPIKE-02/03) | **HOLD** |
+| Azure Mode B (SPIKE-02/03) | **AUTHORIZED FOR STEP 2** — G0–G7 satisfied; Step 2 not started; flags still locked |
 | PP-01B package | **OPEN** (not complete) |
 | PP-01C | **NOT STARTED** |
 | Public production | **NO-GO** |
 | Municipal production | **DISABLED** |
-| `terraform apply` | **Forbidden** in this package |
+| `terraform apply` | **Forbidden** until Step 2+ unlock contract executes (auth recorded; flags still false) |
 
 Canonical contract: [`docs/architecture/pp-01b-iac-contract.md`](../../docs/architecture/pp-01b-iac-contract.md)
+
+Mode B authorization: [`docs/architecture/pp-01b-mode-b-authorization.md`](../../docs/architecture/pp-01b-mode-b-authorization.md) (**AUTHORIZED FOR STEP 2** — `PP-01B-MODE-B-20260804-01`)
 
 ## Layout
 
