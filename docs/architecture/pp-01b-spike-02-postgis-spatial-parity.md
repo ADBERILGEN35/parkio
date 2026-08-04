@@ -164,16 +164,16 @@ No product-behavior change recommended. No implementation recommended.
 
 Must execute (Mode A and/or Mode B) before any PASS on parity:
 
-1. `CREATE EXTENSION postgis` (+ record version)  
-2. Full parking Flyway chain on target engine  
-3. Trigger insert/update → geography populate  
-4. GiST index create/use  
-5. `ST_DWithin` / `ST_Distance` representative nearby + roadside + facilities + pair discovery  
-6. `ORDER BY location <->` KNN ordering vs fixture expectations  
-7. `ST_Equals` session trigger path  
-8. Parking PostGIS IT suite (or documented equivalent)  
-9. Extension privilege model under least-privilege role  
-10. Optional: offline export functions if tooling must run on managed Postgres  
+1. `CREATE EXTENSION postgis` (+ record version)
+2. Full parking Flyway chain on target engine
+3. Trigger insert/update → geography populate
+4. GiST index create/use
+5. `ST_DWithin` / `ST_Distance` representative nearby + roadside + facilities + pair discovery
+6. `ORDER BY location <->` KNN ordering vs fixture expectations
+7. `ST_Equals` session trigger path
+8. Parking PostGIS IT suite (or documented equivalent)
+9. Extension privilege model under least-privilege role
+10. Optional: offline export functions if tooling must run on managed Postgres
 
 ---
 
@@ -248,17 +248,17 @@ Documentation-only package does **not** trip stop conditions that require execut
 
 ### Mode A — Local compatibility
 
-- Image: `postgis/postgis:16-3.4` and, if available offline, an image matching Azure’s reported PostGIS version  
-- Run parking Flyway + PostGIS IT suites  
-- No Azure cost  
+- Image: `postgis/postgis:16-3.4` and, if available offline, an image matching Azure’s reported PostGIS version
+- Run parking Flyway + PostGIS IT suites
+- No Azure cost
 
 ### Mode B — Board-approved Azure sandbox
 
-- General Purpose Flexible Server only (Burstable rejected — SPIKE-01)  
-- Prefer SPIKE-01 candidate regions; **revalidate** `$` ZR status; region still not production-frozen  
-- No production data/traffic/credentials  
-- Mandatory cleanup  
-- Record exact `version()` / `PostGIS_Full_Version()`  
+- General Purpose Flexible Server only (Burstable rejected — SPIKE-01)
+- Prefer SPIKE-01 candidate regions; **revalidate** `$` ZR status; region still not production-frozen
+- No production data/traffic/credentials
+- Mandatory cleanup
+- Record exact `version()` / `PostGIS_Full_Version()`
 
 **Do not execute Mode A or B in this package.**
 
@@ -266,23 +266,23 @@ Documentation-only package does **not** trip stop conditions that require execut
 
 ## 11. Out-of-scope
 
-- SPIKE-03 private networking  
-- Terraform / ARM / Bicep / provisioning  
-- SQL/Docker/test execution  
-- Backend / API / DTO / Flyway / Docker / deploy changes  
-- ADR amendments  
-- Production or municipal enablement  
-- Implementation recommendations beyond “run Mode A/B later”  
-- Claiming public GO or PP-01 closed  
+- SPIKE-03 private networking
+- Terraform / ARM / Bicep / provisioning
+- SQL/Docker/test execution
+- Backend / API / DTO / Flyway / Docker / deploy changes
+- ADR amendments
+- Production or municipal enablement
+- Implementation recommendations beyond “run Mode A/B later”
+- Claiming public GO or PP-01 closed
 
 ---
 
 ## References (repository)
 
-- `services/parking-service/src/main/resources/db/migration/V1__enable_postgis.sql` … `V2`, `V15`, `V28`, `V30`  
-- `ParkingSpotJpaRepository`, `MunicipalFacilityRepositoryAdapter`, `LinkCandidatePairDiscoveryAdapter`, `RoadsideParkingController`, `OsmImportSupportRepositoryAdapter`  
-- `MunicipalDistrictJtsFactory`, `MunicipalDistrictGeometry`, `MunicipalDistrictTopologyPolicy`  
-- `scripts/data-wp-19/export-normalized-districts.sh`, `scripts/restore-drill.sh`  
-- SPIKE-01 PostGIS EXTERNAL VERIFICATION links  
+- `services/parking-service/src/main/resources/db/migration/V1__enable_postgis.sql` … `V2`, `V15`, `V28`, `V30`
+- `ParkingSpotJpaRepository`, `MunicipalFacilityRepositoryAdapter`, `LinkCandidatePairDiscoveryAdapter`, `RoadsideParkingController`, `OsmImportSupportRepositoryAdapter`
+- `MunicipalDistrictJtsFactory`, `MunicipalDistrictGeometry`, `MunicipalDistrictTopologyPolicy`
+- `scripts/data-wp-19/export-normalized-districts.sh`, `scripts/restore-drill.sh`
+- SPIKE-01 PostGIS EXTERNAL VERIFICATION links
 
 Evidence index: [evidence/pp-01b-spike-02/README.md](evidence/pp-01b-spike-02/README.md)
