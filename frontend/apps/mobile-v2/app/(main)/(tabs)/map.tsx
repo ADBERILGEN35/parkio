@@ -5,19 +5,29 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import {
   DEFAULT_MAP_CENTER,
   DEFAULT_MAP_ZOOM,
+  DEFAULT_NEARBY_RADIUS_M,
   LOCATED_ZOOM,
+  NEARBY_RESULT_LIMIT,
   haversineMeters,
   type LatLng,
 } from '@parkio/geo';
-import type { GeocodeResult } from '@parkio/types';
+import type { GeocodeResult, MunicipalFacility } from '@parkio/types';
 import { isLiveStatus } from '@/components/spots/statusVisuals';
+import { appConfig } from '@/config/env';
 import { MapSurface, type MapSurfaceHandle } from '@/features/map/MapSurface';
 import { MapSearchOverlay } from '@/features/map/MapSearchOverlay';
 import { LocationPermissionCard, ViewLimitCard } from '@/features/map/MapCards';
 import { MapAreaStatusSheet } from '@/features/map/MapAreaStatusSheet';
+import { MunicipalFacilitySheet } from '@/features/map/MunicipalFacilitySheet';
 import { SpotSheet } from '@/features/map/SpotSheet';
-import { useAccessPolicy, useLocation, useNearbySpots } from '@/features/map/hooks';
+import {
+  useAccessPolicy,
+  useLocation,
+  useNearbyMunicipalFacilities,
+  useNearbySpots,
+} from '@/features/map/hooks';
 import type { MapSpotMarker } from '@/features/map/mapHtml';
+import { toMapMunicipalMarkers } from '@/features/municipal/municipalMapMarker';
 import { MorningPromptModal } from '@/features/smart-return/MorningPromptModal';
 import { ActiveParkingSessionBanner } from '@/features/parking/ActiveParkingSessionBanner';
 import { ParkHereStartControl } from '@/features/parking/ParkHereStartControl';
@@ -49,18 +59,33 @@ export default function MapScreen() {
   const insets = useSafeAreaInsets();
   const mapRef = useRef<MapSurfaceHandle>(null);
   const openShareSheet = useShareSheetStore((s) => s.open);
+  const municipalDiscovery = appConfig.features.municipalDiscovery;
 
   const location = useLocation();
   const policy = useAccessPolicy();
   const [searchCenter, setSearchCenter] = useState<LatLng | null>(null);
   const [viewCenter, setViewCenter] = useState<LatLng>(DEFAULT_MAP_CENTER);
   const [selectedSpotId, setSelectedSpotId] = useState<string | null>(null);
+  const [selectedMunicipalId, setSelectedMunicipalId] = useState<string | null>(null);
   const [permissionDismissed, setPermissionDismissed] = useState(false);
   const [bannerDismissed, setBannerDismissed] = useState(false);
   const [promptVisible, setPromptVisible] = useState(false);
 
+  const searchRadiusMeters = policy.data?.searchRadiusMeters ?? DEFAULT_NEARBY_RADIUS_M;
+  const resultLimit = policy.data?.resultLimit ?? NEARBY_RESULT_LIMIT;
+
   const nearby = useNearbySpots(searchCenter, policy.data?.searchRadiusMeters, policy.data?.resultLimit);
   const spots = useMemo(() => nearby.data ?? [], [nearby.data]);
+
+  const municipalNearby = useNearbyMunicipalFacilities(
+    municipalDiscovery ? searchCenter : null,
+    searchRadiusMeters,
+    resultLimit,
+  );
+  const municipalFacilities = useMemo(
+    () => (municipalDiscovery ? (municipalNearby.data ?? []) : []),
+    [municipalDiscovery, municipalNearby.data],
+  );
 
   const smartReturn = useSmartReturn();
   const smartReturnMutations = useSmartReturnMutations();
@@ -81,7 +106,7 @@ export default function MapScreen() {
     mapRef.current?.setUserLocation(location.position);
   }, [location.position]);
 
-  // Push markers into the WebView whenever data changes.
+  // Push community markers into the WebView whenever data changes.
   useEffect(() => {
     const markers: MapSpotMarker[] = spots.map((spot) => ({
       id: spot.id,
@@ -95,6 +120,24 @@ export default function MapScreen() {
     mapRef.current?.setSpots(markers);
   }, [spots]);
 
+  // Municipal markers — flag-off: never emit municipal bridge messages.
+  useEffect(() => {
+    if (!municipalDiscovery) {
+      return;
+    }
+    const markers = toMapMunicipalMarkers(municipalFacilities, {
+      unnamedLabel: t('map.municipal.unnamed'),
+      occupancyLabels: {
+        live: t('map.municipal.occupancy.live'),
+        aging: t('map.municipal.occupancy.aging'),
+        stale_live: t('map.municipal.occupancy.staleLive'),
+        static: t('map.municipal.occupancy.static'),
+        invalid: t('map.municipal.occupancy.invalid'),
+      },
+    });
+    mapRef.current?.setMunicipalFacilities(markers);
+  }, [municipalDiscovery, municipalFacilities, t]);
+
   useEffect(() => {
     mapRef.current?.setSelected(selectedSpotId);
   }, [selectedSpotId]);
@@ -104,6 +147,21 @@ export default function MapScreen() {
     () => spots.find((spot) => spot.id === selectedSpotId) ?? null,
     [spots, selectedSpotId],
   );
+
+  // If the facility leaves the nearby result set, selectedMunicipal becomes null
+  // (sheet closes / bridge deselects) without a cascading setState effect.
+  const selectedMunicipal: MunicipalFacility | null = useMemo(() => {
+    if (!selectedMunicipalId) return null;
+    return municipalFacilities.find((facility) => facility.id === selectedMunicipalId) ?? null;
+  }, [municipalFacilities, selectedMunicipalId]);
+
+  useEffect(() => {
+    if (!municipalDiscovery) {
+      return;
+    }
+    // Prefer resolved facility id so markers deselect when the facility leaves radius.
+    mapRef.current?.setSelectedMunicipal(selectedMunicipal?.id ?? null);
+  }, [municipalDiscovery, selectedMunicipal?.id]);
 
   // Morning prompt: once per day when enabled + configured + unanswered.
   useEffect(() => {
@@ -146,6 +204,21 @@ export default function MapScreen() {
     setViewCenter(target);
   }, []);
 
+  const selectSpot = useCallback((id: string) => {
+    setSelectedMunicipalId(null);
+    setSelectedSpotId(id);
+  }, []);
+
+  const selectMunicipal = useCallback((id: string) => {
+    setSelectedSpotId(null);
+    setSelectedMunicipalId(id);
+  }, []);
+
+  const clearSelection = useCallback(() => {
+    setSelectedSpotId(null);
+    setSelectedMunicipalId(null);
+  }, []);
+
   const movedAway =
     searchCenter !== null && haversineMeters(viewCenter, searchCenter) > SEARCH_AREA_THRESHOLD_M;
 
@@ -157,6 +230,13 @@ export default function MapScreen() {
     selectedSpot && distanceFrom
       ? haversineMeters(distanceFrom, { lat: selectedSpot.latitude, lng: selectedSpot.longitude })
       : null;
+  const selectedMunicipalDistance =
+    selectedMunicipal && distanceFrom
+      ? haversineMeters(distanceFrom, {
+          lat: selectedMunicipal.latitude,
+          lng: selectedMunicipal.longitude,
+        })
+      : null;
 
   const showPermissionCard =
     location.status !== 'granted' && !permissionDismissed && searchCenter === null;
@@ -166,7 +246,8 @@ export default function MapScreen() {
     searchCenter !== null &&
     nearby.isSuccess &&
     spots.length === 0 &&
-    !selectedSpot;
+    !selectedSpot &&
+    !selectedMunicipal;
   const showBanner =
     Boolean(smartReturn.data?.enabled) &&
     (smartReturn.data?.todayStatus === 'LEFT_BY_CAR' ||
@@ -189,14 +270,17 @@ export default function MapScreen() {
       : `${policy.data.searchRadiusMeters} m`
     : null;
 
+  const sheetOpen = Boolean(selectedSpot || selectedMunicipal);
+
   return (
     <View style={styles.container}>
       <MapSurface
         ref={mapRef}
         initialCenter={DEFAULT_MAP_CENTER}
         initialZoom={DEFAULT_MAP_ZOOM}
-        onSpotTap={setSelectedSpotId}
-        onMapTap={() => setSelectedSpotId(null)}
+        onSpotTap={selectSpot}
+        onMunicipalTap={municipalDiscovery ? selectMunicipal : undefined}
+        onMapTap={clearSelection}
         onMoveEnd={(event) => setViewCenter({ lat: event.lat, lng: event.lng })}
         style={styles.map}
       />
@@ -238,7 +322,7 @@ export default function MapScreen() {
       </View>
 
       {/* Locate FAB above the tab bar (hidden while the sheet is open). */}
-      {!selectedSpot && (
+      {!sheetOpen && (
         <View style={[styles.fabColumn, showEmptyCard && styles.fabAboveEmpty]} pointerEvents="box-none">
           <IconButton
             icon="crosshairs-gps"
@@ -265,6 +349,14 @@ export default function MapScreen() {
         onClose={() => setSelectedSpotId(null)}
         onOpenDetail={(spotId) => router.push({ pathname: '/(main)/spots/[id]', params: { id: spotId } })}
       />
+
+      {municipalDiscovery ? (
+        <MunicipalFacilitySheet
+          facility={selectedMunicipal}
+          distanceMeters={selectedMunicipalDistance}
+          onClose={() => setSelectedMunicipalId(null)}
+        />
+      ) : null}
 
       <MorningPromptModal
         visible={promptVisible}

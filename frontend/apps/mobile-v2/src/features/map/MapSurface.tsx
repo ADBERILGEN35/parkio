@@ -9,11 +9,17 @@ import { StyleSheet, View, type StyleProp, type ViewStyle } from 'react-native';
 import { WebView, type WebViewMessageEvent } from 'react-native-webview';
 import type { LatLng } from '@parkio/geo';
 import { useTheme } from '@/theme/ThemeProvider';
-import { buildMapHtml, type MapSpotMarker } from './mapHtml';
+import {
+  buildMapHtml,
+  type MapMunicipalMarkerPayload,
+  type MapSpotMarker,
+} from './mapHtml';
 
 export interface MapSurfaceHandle {
   setSpots: (spots: MapSpotMarker[]) => void;
   setSelected: (id: string | null) => void;
+  setMunicipalFacilities: (facilities: MapMunicipalMarkerPayload[]) => void;
+  setSelectedMunicipal: (id: string | null) => void;
   flyTo: (target: LatLng & { zoom?: number; silent?: boolean }) => void;
   jumpTo: (target: LatLng & { zoom?: number; silent?: boolean }) => void;
   setUserLocation: (location: LatLng | null) => void;
@@ -31,6 +37,7 @@ export interface MapSurfaceProps {
   interactiveSpots?: boolean;
   onReady?: () => void;
   onSpotTap?: (id: string) => void;
+  onMunicipalTap?: (id: string) => void;
   onMapTap?: () => void;
   onMoveEnd?: (event: MapMoveEvent) => void;
   /** Continuous move stream (center pin tracking). */
@@ -50,6 +57,7 @@ export const MapSurface = forwardRef<MapSurfaceHandle, MapSurfaceProps>(function
     interactiveSpots = true,
     onReady,
     onSpotTap,
+    onMunicipalTap,
     onMapTap,
     onMoveEnd,
     onMove,
@@ -102,6 +110,9 @@ export const MapSurface = forwardRef<MapSurfaceHandle, MapSurfaceProps>(function
     () => ({
       setSpots: (spots) => dispatch({ op: 'setSpots', spots }),
       setSelected: (id) => dispatch({ op: 'setSelected', id }),
+      setMunicipalFacilities: (facilities) =>
+        dispatch({ op: 'setMunicipalFacilities', facilities }),
+      setSelectedMunicipal: (id) => dispatch({ op: 'setSelectedMunicipal', id }),
       flyTo: ({ lat, lng, zoom, silent }) => dispatch({ op: 'flyTo', lat, lng, zoom, silent }),
       jumpTo: ({ lat, lng, zoom, silent }) => dispatch({ op: 'jumpTo', lat, lng, zoom, silent }),
       setUserLocation: (location) => dispatch({ op: 'setUserLocation', location }),
@@ -135,6 +146,11 @@ export const MapSurface = forwardRef<MapSurfaceHandle, MapSurfaceProps>(function
             onSpotTap?.(message.id);
           }
           break;
+        case 'municipalTap':
+          if (typeof message.id === 'string') {
+            onMunicipalTap?.(message.id);
+          }
+          break;
         case 'mapTap':
           onMapTap?.();
           break;
@@ -163,7 +179,7 @@ export const MapSurface = forwardRef<MapSurfaceHandle, MapSurfaceProps>(function
           break;
       }
     },
-    [initialZoom, onMapTap, onMove, onMoveEnd, onReady, onSpotTap],
+    [initialZoom, onMapTap, onMove, onMoveEnd, onMunicipalTap, onReady, onSpotTap],
   );
 
   return (
