@@ -241,6 +241,7 @@ export function MunicipalFacilitySheet({
             size="md"
             icon="chevron-right"
             onPress={() => onOpenDetail(facility.id)}
+            accessibilityHint={t('map.municipal.detail.title')}
           />
         ) : null}
       </BottomSheetScrollView>

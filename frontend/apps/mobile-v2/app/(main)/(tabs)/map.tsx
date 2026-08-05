@@ -355,6 +355,18 @@ export default function MapScreen() {
           facility={selectedMunicipal}
           distanceMeters={selectedMunicipalDistance}
           onClose={() => setSelectedMunicipalId(null)}
+          onOpenDetail={(facilityId) => {
+            setSelectedMunicipalId(null);
+            router.push({
+              pathname: '/(main)/facilities/[id]',
+              params: {
+                id: facilityId,
+                ...(selectedMunicipalDistance != null
+                  ? { distanceMeters: String(Math.round(selectedMunicipalDistance)) }
+                  : {}),
+              },
+            });
+          }}
         />
       ) : null}
 

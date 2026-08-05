@@ -80,7 +80,7 @@ describe('MunicipalFacilitySheet', () => {
     expect(queryByText(/osm-geofabrik/)).toBeNull();
     expect(queryByText(/izmir-izum/)).toBeNull();
     expect(queryByText('38.4237')).toBeNull();
-    expect(queryByText('Detay')).toBeNull();
+    expect(queryByText('Detayları gör')).toBeNull();
   });
 
   it('shows stale İZUM copy without numeric occupancy as current', () => {
@@ -125,7 +125,7 @@ describe('MunicipalFacilitySheet', () => {
       />,
     );
     expect(getByText('Haritada aç')).toBeTruthy();
-    expect(queryByText('Detay')).toBeNull();
+    expect(queryByText('Detayları gör')).toBeNull();
 
     rerender(
       <MunicipalFacilitySheet
@@ -135,7 +135,7 @@ describe('MunicipalFacilitySheet', () => {
         onOpenDetail={onOpenDetail}
       />,
     );
-    fireEvent.press(getByText('Detay'));
+    fireEvent.press(getByText('Detayları gör'));
     expect(onOpenDetail).toHaveBeenCalledWith('70db58f2-4cca-4010-9315-fa46b30fba1e');
   });
 });
