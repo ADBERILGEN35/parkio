@@ -17,12 +17,33 @@ export const meKeys = {
 
 export type NearbyParkingFilters = NearbySearchParams;
 
+/**
+ * Municipal nearby filters — separate inventory from community spots.
+ * Canonical radius is {@code radiusMeters} (never the legacy spot `radius` key).
+ */
+export interface NearbyMunicipalFilters {
+  lat: number;
+  lng: number;
+  radiusMeters: number;
+  limit?: number;
+}
+
 /** Stable nearby-filter identity: omit undefined optionals. */
 export function normalizeNearbyFilters(filters: NearbyParkingFilters) {
   return {
     lat: filters.lat,
     lng: filters.lng,
     ...(filters.radius !== undefined ? { radius: filters.radius } : {}),
+    ...(filters.limit !== undefined ? { limit: filters.limit } : {}),
+  } as const;
+}
+
+/** Stable municipal nearby identity — includes every result-affecting param. */
+export function normalizeMunicipalNearbyFilters(filters: NearbyMunicipalFilters) {
+  return {
+    lat: filters.lat,
+    lng: filters.lng,
+    radiusMeters: filters.radiusMeters,
     ...(filters.limit !== undefined ? { limit: filters.limit } : {}),
   } as const;
 }
@@ -36,6 +57,20 @@ export const parkingKeys = {
   spot: (spotId: string) => [...parkingKeys.all, 'spot', spotId] as const,
   spotMediaAccessUrl: (spotId: string) =>
     [...parkingKeys.spot(spotId), 'media-access-url'] as const,
+  /**
+   * Municipal facility hierarchy (MOBILE-MUNI-V2-01).
+   * Sibling of spot nearby — never fuse inventories or share key segments beyond `parking`.
+   */
+  municipalRoot: () => [...parkingKeys.all, 'municipal'] as const,
+  municipalNearby: (filters: NearbyMunicipalFilters) =>
+    [
+      ...parkingKeys.municipalRoot(),
+      'nearby',
+      normalizeMunicipalNearbyFilters(filters),
+    ] as const,
+  municipalNearbyRoot: () => [...parkingKeys.municipalRoot(), 'nearby'] as const,
+  municipalFacility: (facilityId: string) =>
+    [...parkingKeys.municipalRoot(), 'facility', facilityId] as const,
   /** User-scoped ParkingSession hierarchy (precise coordinates — cleared on logout). */
   sessionsRoot: () => [...parkingKeys.all, 'sessions'] as const,
   activeSession: () => [...parkingKeys.sessionsRoot(), 'active'] as const,

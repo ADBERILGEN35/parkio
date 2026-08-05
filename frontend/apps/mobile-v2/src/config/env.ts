@@ -13,10 +13,24 @@ export type AppEnvironment = 'development' | 'hosted-beta' | 'production';
 const blankToUndefined = (value: unknown) =>
   typeof value === 'string' && value.trim() === '' ? undefined : value;
 
+/**
+ * Accept only the literal strings `true` / `false`. Blank or any other value is
+ * treated as missing (safe default) — never crash startup on a typo.
+ */
+const optionalTrueFalseFlag = z.preprocess((value) => {
+  const cleaned = blankToUndefined(value);
+  if (cleaned === undefined) return undefined;
+  if (typeof cleaned === 'string' && (cleaned === 'true' || cleaned === 'false')) {
+    return cleaned;
+  }
+  return undefined;
+}, z.enum(['true', 'false']).optional());
+
 const rawSchema = z.object({
   EXPO_PUBLIC_APP_ENV: z.enum(['development', 'hosted-beta', 'production']).optional(),
   EXPO_PUBLIC_API_BASE_URL: z.preprocess(blankToUndefined, z.string().url().optional()),
   EXPO_PUBLIC_SMART_RETURN_ENABLED: z.enum(['true', 'false']).optional(),
+  EXPO_PUBLIC_MUNICIPAL_DISCOVERY_ENABLED: optionalTrueFalseFlag,
 });
 
 export interface MobileConfig {
@@ -25,6 +39,12 @@ export interface MobileConfig {
   apiBaseUrl: string;
   features: {
     smartReturn: boolean;
+    /**
+     * Guarded municipal facility discovery (MOBILE-MUNI-V2-01).
+     * Default off when unset — including development — so flag-off produces no
+     * municipal network traffic until explicitly enabled.
+     */
+    municipalDiscovery: boolean;
   };
 }
 
@@ -33,6 +53,7 @@ export function createMobileConfig(env: Record<string, string | undefined>): Mob
     EXPO_PUBLIC_APP_ENV: env.EXPO_PUBLIC_APP_ENV,
     EXPO_PUBLIC_API_BASE_URL: env.EXPO_PUBLIC_API_BASE_URL,
     EXPO_PUBLIC_SMART_RETURN_ENABLED: env.EXPO_PUBLIC_SMART_RETURN_ENABLED,
+    EXPO_PUBLIC_MUNICIPAL_DISCOVERY_ENABLED: env.EXPO_PUBLIC_MUNICIPAL_DISCOVERY_ENABLED,
   });
 
   const appEnv: AppEnvironment = raw.EXPO_PUBLIC_APP_ENV ?? 'development';
@@ -54,6 +75,8 @@ export function createMobileConfig(env: Record<string, string | undefined>): Mob
         raw.EXPO_PUBLIC_SMART_RETURN_ENABLED === undefined
           ? !isProductionLike
           : raw.EXPO_PUBLIC_SMART_RETURN_ENABLED === 'true',
+      // Explicit opt-in only. Missing / malformed / "false" → disabled.
+      municipalDiscovery: raw.EXPO_PUBLIC_MUNICIPAL_DISCOVERY_ENABLED === 'true',
     },
   };
 }
@@ -65,4 +88,5 @@ export const appConfig = createMobileConfig({
   EXPO_PUBLIC_APP_ENV: process.env.EXPO_PUBLIC_APP_ENV,
   EXPO_PUBLIC_API_BASE_URL: process.env.EXPO_PUBLIC_API_BASE_URL,
   EXPO_PUBLIC_SMART_RETURN_ENABLED: process.env.EXPO_PUBLIC_SMART_RETURN_ENABLED,
+  EXPO_PUBLIC_MUNICIPAL_DISCOVERY_ENABLED: process.env.EXPO_PUBLIC_MUNICIPAL_DISCOVERY_ENABLED,
 });
