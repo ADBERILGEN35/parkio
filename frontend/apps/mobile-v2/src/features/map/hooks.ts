@@ -106,9 +106,9 @@ export function useNearbySpots(center: LatLng | null, radius: number | undefined
 }
 
 /**
- * Nearby municipal facilities for the map layer (MOBILE-MUNI-V2-02).
- * Shares search-center + radius policy with community nearby; inventories stay separate.
- * Flag-off / missing center → query disabled (no request).
+ * Nearby municipal facilities for the map layer (MOBILE-MUNI-V2-02 / V2-04).
+ * Radius is caller-owned (municipal filter store) and independent of community nearby radius.
+ * Flag-off / missing center / layer-off (null center) → query disabled (no request).
  */
 export function useNearbyMunicipalFacilities(
   center: LatLng | null,

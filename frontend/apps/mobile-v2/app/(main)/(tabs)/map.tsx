@@ -5,7 +5,6 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import {
   DEFAULT_MAP_CENTER,
   DEFAULT_MAP_ZOOM,
-  DEFAULT_NEARBY_RADIUS_M,
   LOCATED_ZOOM,
   NEARBY_RESULT_LIMIT,
   haversineMeters,
@@ -27,6 +26,17 @@ import {
   useNearbySpots,
 } from '@/features/map/hooks';
 import type { MapSpotMarker } from '@/features/map/mapHtml';
+import {
+  MunicipalFilterEntry,
+  MunicipalFilterSheet,
+} from '@/features/municipal/MunicipalFilterSheet';
+import { MunicipalSummaryBanner } from '@/features/municipal/MunicipalSummaryBanner';
+import { applyMunicipalMapFilters } from '@/features/municipal/municipalFilterPipeline';
+import {
+  selectMunicipalMapFilters,
+  useMunicipalFilterStore,
+} from '@/features/municipal/municipalFilterStore';
+import { hasActiveMunicipalMapFilters } from '@/features/municipal/municipalFilterModel';
 import { toMapMunicipalMarkers } from '@/features/municipal/municipalMapMarker';
 import { MorningPromptModal } from '@/features/smart-return/MorningPromptModal';
 import { ActiveParkingSessionBanner } from '@/features/parking/ActiveParkingSessionBanner';
@@ -60,6 +70,12 @@ export default function MapScreen() {
   const mapRef = useRef<MapSurfaceHandle>(null);
   const openShareSheet = useShareSheetStore((s) => s.open);
   const municipalDiscovery = appConfig.features.municipalDiscovery;
+  const municipalFilters = useMunicipalFilterStore(selectMunicipalMapFilters);
+  const setMunicipalLayerEnabled = useMunicipalFilterStore((s) => s.setLayerEnabled);
+  const setMunicipalSource = useMunicipalFilterStore((s) => s.setSource);
+  const setMunicipalOccupancy = useMunicipalFilterStore((s) => s.setOccupancy);
+  const setMunicipalRadiusMeters = useMunicipalFilterStore((s) => s.setRadiusMeters);
+  const resetMunicipalFilters = useMunicipalFilterStore((s) => s.resetFilters);
 
   const location = useLocation();
   const policy = useAccessPolicy();
@@ -70,22 +86,35 @@ export default function MapScreen() {
   const [permissionDismissed, setPermissionDismissed] = useState(false);
   const [bannerDismissed, setBannerDismissed] = useState(false);
   const [promptVisible, setPromptVisible] = useState(false);
+  const [municipalFilterSheetOpen, setMunicipalFilterSheetOpen] = useState(false);
 
-  const searchRadiusMeters = policy.data?.searchRadiusMeters ?? DEFAULT_NEARBY_RADIUS_M;
   const resultLimit = policy.data?.resultLimit ?? NEARBY_RESULT_LIMIT;
+  const municipalRadiusMeters = municipalFilters.radiusMeters;
+  const municipalLayerActive = municipalDiscovery && municipalFilters.layerEnabled;
 
   const nearby = useNearbySpots(searchCenter, policy.data?.searchRadiusMeters, policy.data?.resultLimit);
   const spots = useMemo(() => nearby.data ?? [], [nearby.data]);
 
+  // Municipal radius is owned by the municipal filter store — independent of community policy radius.
   const municipalNearby = useNearbyMunicipalFacilities(
-    municipalDiscovery ? searchCenter : null,
-    searchRadiusMeters,
+    municipalLayerActive ? searchCenter : null,
+    municipalRadiusMeters,
     resultLimit,
   );
-  const municipalFacilities = useMemo(
+  const municipalFacilitiesRaw = useMemo(
     () => (municipalDiscovery ? (municipalNearby.data ?? []) : []),
     [municipalDiscovery, municipalNearby.data],
   );
+
+  const municipalPipeline = useMemo(
+    () =>
+      applyMunicipalMapFilters(municipalFacilitiesRaw, municipalFilters, {
+        selectedId: selectedMunicipalId,
+        resultLimit,
+      }),
+    [municipalFacilitiesRaw, municipalFilters, selectedMunicipalId, resultLimit],
+  );
+  const municipalFacilities = municipalPipeline.facilities;
 
   const smartReturn = useSmartReturn();
   const smartReturnMutations = useSmartReturnMutations();
@@ -121,8 +150,14 @@ export default function MapScreen() {
   }, [spots]);
 
   // Municipal markers — flag-off: never emit municipal bridge messages.
+  // Layer-off: clear markers. Filtered set drives markers (raw query cache unchanged).
   useEffect(() => {
     if (!municipalDiscovery) {
+      return;
+    }
+    if (!municipalFilters.layerEnabled) {
+      mapRef.current?.setMunicipalFacilities([]);
+      mapRef.current?.setSelectedMunicipal(null);
       return;
     }
     const markers = toMapMunicipalMarkers(municipalFacilities, {
@@ -136,7 +171,7 @@ export default function MapScreen() {
       },
     });
     mapRef.current?.setMunicipalFacilities(markers);
-  }, [municipalDiscovery, municipalFacilities, t]);
+  }, [municipalDiscovery, municipalFilters.layerEnabled, municipalFacilities, t]);
 
   useEffect(() => {
     mapRef.current?.setSelected(selectedSpotId);
@@ -148,18 +183,18 @@ export default function MapScreen() {
     [spots, selectedSpotId],
   );
 
-  // If the facility leaves the nearby result set, selectedMunicipal becomes null
-  // (sheet closes / bridge deselects) without a cascading setState effect.
+  // Resolve from the filtered visible set / layer-on only so sheets and bridge
+  // deselect without cascading setState when filters or layer change.
   const selectedMunicipal: MunicipalFacility | null = useMemo(() => {
-    if (!selectedMunicipalId) return null;
+    if (!selectedMunicipalId || !municipalFilters.layerEnabled) return null;
     return municipalFacilities.find((facility) => facility.id === selectedMunicipalId) ?? null;
-  }, [municipalFacilities, selectedMunicipalId]);
+  }, [municipalFacilities, municipalFilters.layerEnabled, selectedMunicipalId]);
 
   useEffect(() => {
     if (!municipalDiscovery) {
       return;
     }
-    // Prefer resolved facility id so markers deselect when the facility leaves radius.
+    // Prefer resolved facility id so markers deselect when the facility leaves radius/filters.
     mapRef.current?.setSelectedMunicipal(selectedMunicipal?.id ?? null);
   }, [municipalDiscovery, selectedMunicipal?.id]);
 
@@ -271,6 +306,8 @@ export default function MapScreen() {
     : null;
 
   const sheetOpen = Boolean(selectedSpot || selectedMunicipal);
+  const showMunicipalSummary =
+    municipalLayerActive && searchCenter != null && !showPermissionCard && !sheetOpen;
 
   return (
     <View style={styles.container}>
@@ -279,7 +316,7 @@ export default function MapScreen() {
         initialCenter={DEFAULT_MAP_CENTER}
         initialZoom={DEFAULT_MAP_ZOOM}
         onSpotTap={selectSpot}
-        onMunicipalTap={municipalDiscovery ? selectMunicipal : undefined}
+        onMunicipalTap={municipalLayerActive ? selectMunicipal : undefined}
         onMapTap={clearSelection}
         onMoveEnd={(event) => setViewCenter({ lat: event.lat, lng: event.lng })}
         style={styles.map}
@@ -295,6 +332,24 @@ export default function MapScreen() {
           onLocate={locate}
           onPickPlace={pickPlace}
         />
+        {municipalDiscovery ? (
+          <View style={styles.municipalChrome} pointerEvents="box-none">
+            <MunicipalFilterEntry
+              filters={municipalFilters}
+              onPress={() => setMunicipalFilterSheetOpen(true)}
+            />
+            <MunicipalSummaryBanner
+              visible={showMunicipalSummary}
+              summary={municipalPipeline.summary}
+              emptyReason={municipalPipeline.emptyReason}
+              resultLimitReached={municipalPipeline.resultLimitReached}
+              resultLimit={resultLimit}
+              loading={municipalNearby.isFetching && !municipalNearby.data}
+              showReset={hasActiveMunicipalMapFilters(municipalFilters)}
+              onResetFilters={resetMunicipalFilters}
+            />
+          </View>
+        ) : null}
         {showBanner && smartReturn.data ? (
           <SmartReturnBanner
             settings={smartReturn.data}
@@ -370,6 +425,19 @@ export default function MapScreen() {
         />
       ) : null}
 
+      {municipalDiscovery ? (
+        <MunicipalFilterSheet
+          visible={municipalFilterSheetOpen}
+          onClose={() => setMunicipalFilterSheetOpen(false)}
+          filters={municipalFilters}
+          onLayerEnabledChange={setMunicipalLayerEnabled}
+          onSourceChange={setMunicipalSource}
+          onOccupancyChange={setMunicipalOccupancy}
+          onRadiusChange={setMunicipalRadiusMeters}
+          onReset={resetMunicipalFilters}
+        />
+      ) : null}
+
       <MorningPromptModal
         visible={promptVisible}
         defaultTime={
@@ -395,6 +463,7 @@ const styles = StyleSheet.create({
   container: { flex: 1 },
   map: { position: 'absolute', top: 0, left: 0, right: 0, bottom: 0 },
   topOverlay: { position: 'absolute', left: 12, right: 12, gap: 8 },
+  municipalChrome: { gap: 8 },
   fabColumn: { position: 'absolute', right: 14, bottom: 24 },
   fabAboveEmpty: { bottom: 128 },
 });
