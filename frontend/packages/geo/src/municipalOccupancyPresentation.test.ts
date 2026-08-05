@@ -18,6 +18,7 @@ function facility(overrides: Partial<MunicipalFacility> = {}): MunicipalFacility
     longitude: 27.1,
     capacityTotal: 100,
     availableSpaces: null,
+    occupiedSpaces: null,
     freshness: 'UNAVAILABLE',
     attribution: null,
     sourceLabel: null,

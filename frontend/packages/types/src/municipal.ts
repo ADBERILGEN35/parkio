@@ -52,6 +52,8 @@ export interface MunicipalFacility {
   longitude: number;
   capacityTotal: number | null;
   availableSpaces: number | null;
+  /** Optional; present only with live/aging occupancy when the source supplies it. */
+  occupiedSpaces: number | null;
   freshness: MunicipalOccupancyFreshness | null;
   attribution: string | null;
   sourceLabel: string | null;

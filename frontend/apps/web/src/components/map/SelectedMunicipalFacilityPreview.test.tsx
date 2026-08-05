@@ -71,6 +71,21 @@ describe('SelectedMunicipalFacilityPreview', () => {
     );
   });
 
+  it('passes discovery distance on the facility detail deep-link', () => {
+    const facility = makeMunicipalFacility();
+    renderWithProviders(
+      <SelectedMunicipalFacilityPreview
+        facility={facility}
+        distanceMeters={650.4}
+        onClose={() => undefined}
+      />,
+    );
+    expect(screen.getByTestId('municipal-facility-view-details')).toHaveAttribute(
+      'href',
+      `/facilities/${facility.id}?d=650`,
+    );
+  });
+
   it('shows live İZUM availability distinctly from static OSM', () => {
     renderWithProviders(
       <SelectedMunicipalFacilityPreview

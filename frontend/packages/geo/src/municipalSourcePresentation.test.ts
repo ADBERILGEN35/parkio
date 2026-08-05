@@ -23,6 +23,7 @@ function facility(overrides: Partial<MunicipalFacility> = {}): MunicipalFacility
     longitude: 27.14,
     capacityTotal: 100,
     availableSpaces: null,
+    occupiedSpaces: null,
     freshness: 'UNAVAILABLE',
     attribution: 'OpenStreetMap contributors',
     sourceLabel: 'OpenStreetMap contributors / Geofabrik GmbH',

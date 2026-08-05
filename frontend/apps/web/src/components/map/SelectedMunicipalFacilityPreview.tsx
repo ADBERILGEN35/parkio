@@ -136,7 +136,11 @@ export function SelectedMunicipalFacilityPreview({
       </div>
 
       <Link
-        to={`/facilities/${facility.id}`}
+        to={
+          distanceMeters != null && Number.isFinite(distanceMeters)
+            ? `/facilities/${facility.id}?d=${Math.round(distanceMeters)}`
+            : `/facilities/${facility.id}`
+        }
         data-testid="municipal-facility-view-details"
         className="mt-md inline-flex w-full items-center justify-center gap-xs rounded-full bg-secondary px-lg py-md text-label-md font-semibold text-on-secondary no-underline shadow-md transition-colors hover:bg-secondary-container focus:outline-none focus-visible:ring-4 focus-visible:ring-secondary/30"
       >

@@ -35,8 +35,8 @@ public class MunicipalFacilityQueryService {
     public record FacilityView(
             UUID id, String displayName, String operatorName, MunicipalFacilityType facilityType,
             String addressText, double latitude, double longitude, Integer capacityTotal,
-            Integer availableSpaces, MunicipalOccupancyFreshness freshness, String attribution,
-            String sourceLabel, Instant lastUpdatedAt) {}
+            Integer availableSpaces, Integer occupiedSpaces, MunicipalOccupancyFreshness freshness,
+            String attribution, String sourceLabel, Instant lastUpdatedAt) {}
 
     private final MunicipalFacilityRepository facilities;
     private final MunicipalOccupancySnapshotRepository snapshots;
@@ -145,6 +145,7 @@ public class MunicipalFacilityQueryService {
         var snapshot = snapshots.latestForFacility(facility.id());
         MunicipalOccupancyFreshness freshness = MunicipalOccupancyFreshness.UNAVAILABLE;
         Integer available = null;
+        Integer occupied = null;
         Instant lastUpdated = null;
         Integer capacity = facility.capacityTotal();
 
@@ -158,6 +159,7 @@ public class MunicipalFacilityQueryService {
             if (freshness == MunicipalOccupancyFreshness.LIVE
                     || freshness == MunicipalOccupancyFreshness.AGING) {
                 available = value.availableSpaces();
+                occupied = value.occupiedSpaces();
             }
             if (value.capacityTotal() != null) {
                 capacity = value.capacityTotal();
@@ -165,6 +167,7 @@ public class MunicipalFacilityQueryService {
             lastUpdated = value.fetchedAt();
         } else if (!mayLive) {
             available = null;
+            occupied = null;
             freshness = MunicipalOccupancyFreshness.UNAVAILABLE;
         }
 
@@ -187,6 +190,7 @@ public class MunicipalFacilityQueryService {
                 facility.longitude(),
                 capacity,
                 available,
+                occupied,
                 freshness,
                 display.attribution(),
                 display.sourceLabel(),

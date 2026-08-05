@@ -116,12 +116,12 @@ describe('MunicipalFacilityDetailPage (WEB-MUNI-02 / WEB-MUNI-04)', () => {
     expect(await screen.findByTestId('municipal-facility-detail')).toBeInTheDocument();
     expect(screen.getByRole('heading', { name: 'Konak Otopark' })).toBeInTheDocument();
     expect(screen.getByText('Municipal parking')).toBeInTheDocument();
-    expect(screen.getByText('Off-street')).toBeInTheDocument();
-    expect(screen.getByText('İBB')).toBeInTheDocument();
-    expect(screen.getByText('200')).toBeInTheDocument();
-    expect(screen.getByText('OpenStreetMap')).toBeInTheDocument();
+    expect(screen.getByTestId('municipal-facility-type')).toHaveTextContent('Off-street');
+    expect(screen.getByTestId('municipal-facility-operator')).toHaveTextContent('İBB');
+    expect(screen.getAllByText('OpenStreetMap').length).toBeGreaterThanOrEqual(1);
     expect(screen.getByText('Data source')).toBeInTheDocument();
-    expect(screen.getByText(/38\.423700/)).toBeInTheDocument();
+    expect(screen.queryByText(/38\.423700/)).not.toBeInTheDocument();
+    expect(screen.queryByText('Coordinates')).not.toBeInTheDocument();
     expect(screen.queryByText('Field provenance')).not.toBeInTheDocument();
     expect(screen.queryByText('Alan kaynağı')).not.toBeInTheDocument();
     expect(screen.queryByText('ATTRIBUTION')).not.toBeInTheDocument();
@@ -131,6 +131,99 @@ describe('MunicipalFacilityDetailPage (WEB-MUNI-02 / WEB-MUNI-04)', () => {
     expect(screen.getByRole('link', { name: /Back to map/i })).toHaveAttribute('href', '/map');
 
     await waitFor(() => expect(getDetailHits()).toBe(1));
+  });
+
+  it('renders live İZUM occupancy metrics without OSM static wording', async () => {
+    stubFacility({
+      contributingSourceKeys: ['izmir-izum-otoparklar'],
+      availabilitySource: 'izmir-izum-otoparklar',
+      availabilityFreshness: 'LIVE',
+      freshness: 'LIVE',
+      availableSpaces: 97,
+      occupiedSpaces: 323,
+      capacityTotal: 420,
+      lastUpdatedAt: '2026-08-05T12:00:00Z',
+      availabilityObservationTimestamp: '2026-08-05T12:00:00Z',
+      sourceLabel: 'Izmir Buyuksehir Belediyesi / IZUM',
+    });
+
+    renderDetail(`/facilities/${FACILITY_ID}`);
+
+    expect(await screen.findByTestId('municipal-facility-occupancy')).toBeInTheDocument();
+    expect(screen.getByTestId('municipal-occupancy-available')).toHaveTextContent('97');
+    expect(screen.getByTestId('municipal-occupancy-occupied')).toHaveTextContent('323');
+    expect(screen.getByTestId('municipal-occupancy-capacity')).toHaveTextContent('420');
+    expect(screen.getByTestId('municipal-occupancy-status')).toHaveTextContent(/Live occupancy/i);
+    expect(screen.getByTestId('municipal-occupancy-updated')).toBeInTheDocument();
+    expect(screen.queryByText('Live occupancy is not shared')).not.toBeInTheDocument();
+    expect(screen.queryByText('—')).not.toBeInTheDocument();
+    expect(screen.queryByText('N/A')).not.toBeInTheDocument();
+  });
+
+  it('renders OSM static occupancy copy without inventing free spaces', async () => {
+    stubFacility({
+      availableSpaces: null,
+      occupiedSpaces: null,
+      capacityTotal: 120,
+      contributingSourceKeys: ['osm-geofabrik-turkey'],
+    });
+
+    renderDetail(`/facilities/${FACILITY_ID}`);
+
+    expect(await screen.findByTestId('municipal-availability-copy')).toHaveTextContent(
+      'Live occupancy is not shared',
+    );
+    expect(screen.queryByTestId('municipal-occupancy-available')).not.toBeInTheDocument();
+    expect(screen.queryByTestId('municipal-occupancy-occupied')).not.toBeInTheDocument();
+    expect(screen.queryByText(/ETA|traffic|directions/i)).not.toBeInTheDocument();
+  });
+
+  it('hides optional facility info and contact when values are absent', async () => {
+    stubFacility({
+      facilityType: 'UNKNOWN',
+      operatorName: null,
+      addressText: null,
+      displayName: 'Nameless Lot',
+    });
+
+    renderDetail(`/facilities/${FACILITY_ID}`);
+
+    expect(await screen.findByTestId('municipal-facility-detail')).toBeInTheDocument();
+    expect(screen.queryByTestId('municipal-facility-info')).not.toBeInTheDocument();
+    expect(screen.queryByText('Unknown')).not.toBeInTheDocument();
+    expect(screen.queryByText('Phone')).not.toBeInTheDocument();
+    expect(screen.queryByText('Website')).not.toBeInTheDocument();
+    expect(screen.queryByText('Opening hours')).not.toBeInTheDocument();
+    expect(screen.queryByText('Pricing')).not.toBeInTheDocument();
+  });
+
+  it('shows distance from optional discovery deep-link and location address', async () => {
+    stubFacility({ addressText: 'Konak, İzmir', displayName: 'Konak Otopark' });
+
+    renderDetail(`/facilities/${FACILITY_ID}?d=650`);
+
+    expect(await screen.findByTestId('municipal-facility-distance')).toHaveTextContent(/650/);
+    expect(screen.getByTestId('municipal-facility-address')).toHaveTextContent('Konak, İzmir');
+    expect(screen.getByTestId('municipal-facility-location-distance')).toBeInTheDocument();
+  });
+
+  it('renders stale İZUM copy distinct from OSM static wording', async () => {
+    stubFacility({
+      contributingSourceKeys: ['izmir-izum-otoparklar'],
+      availabilitySource: 'izmir-izum-otoparklar',
+      availableSpaces: null,
+      occupiedSpaces: null,
+      freshness: 'STALE',
+      availabilityFreshness: 'STALE',
+      capacityTotal: 200,
+    });
+
+    renderDetail(`/facilities/${FACILITY_ID}`);
+
+    expect(await screen.findByTestId('municipal-availability-copy')).toHaveTextContent(
+      /Live data is temporarily out of date/i,
+    );
+    expect(screen.queryByText('Live occupancy is not shared')).not.toBeInTheDocument();
   });
 
   it('renders location map and marker for valid coordinates', async () => {
@@ -352,12 +445,16 @@ describe('MunicipalFacilityDetailPage (WEB-MUNI-02 / WEB-MUNI-04)', () => {
 
     expect(await screen.findByTestId('municipal-facility-detail')).toBeInTheDocument();
     expect(screen.getByText('Data sources')).toBeInTheDocument();
-    expect(screen.getByText('İzmir Büyükşehir Belediyesi / İZUM')).toBeInTheDocument();
-    expect(screen.getByText('OpenStreetMap')).toBeInTheDocument();
+    const sourceList = screen.getByTestId('municipal-facility-source-list');
+    expect(sourceList).toHaveTextContent('İzmir Büyükşehir Belediyesi / İZUM');
+    expect(sourceList).toHaveTextContent('OpenStreetMap');
+    expect(sourceList.textContent?.indexOf('İzmir')).toBeLessThan(
+      sourceList.textContent?.indexOf('OpenStreetMap') ?? -1,
+    );
   });
 
   it('does not invent availability fields on the detail page', async () => {
-    stubFacility({ availableSpaces: null, capacityTotal: null });
+    stubFacility({ availableSpaces: null, occupiedSpaces: null, capacityTotal: null });
 
     renderDetail(`/facilities/${FACILITY_ID}`);
 

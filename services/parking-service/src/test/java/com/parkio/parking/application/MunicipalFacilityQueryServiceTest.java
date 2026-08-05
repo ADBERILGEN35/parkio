@@ -67,6 +67,7 @@ class MunicipalFacilityQueryServiceTest {
         assertThat(service.nearby(38.4, 27.1, 1000, 10)).hasSize(1);
         var view = service.findById(id).orElseThrow();
         assertThat(view.availableSpaces()).isEqualTo(80);
+        assertThat(view.occupiedSpaces()).isEqualTo(20);
         assertThat(view.attribution()).contains("IZELMAN");
         assertThat(view.sourceLabel()).isEqualTo(MunicipalFacilityQueryService.IZUM_SOURCE_LABEL);
     }

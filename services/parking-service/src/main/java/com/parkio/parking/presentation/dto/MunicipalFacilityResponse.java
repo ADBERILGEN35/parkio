@@ -22,6 +22,8 @@ public record MunicipalFacilityResponse(
         double longitude,
         Integer capacityTotal,
         Integer availableSpaces,
+        /** Optional; published only with live/aging occupancy (never invented). */
+        Integer occupiedSpaces,
         MunicipalOccupancyFreshness freshness,
         String attribution,
         String sourceLabel,
@@ -52,6 +54,7 @@ public record MunicipalFacilityResponse(
                 view.longitude(),
                 view.capacityTotal(),
                 view.availableSpaces(),
+                view.occupiedSpaces(),
                 view.freshness(),
                 view.attribution(),
                 view.sourceLabel(),

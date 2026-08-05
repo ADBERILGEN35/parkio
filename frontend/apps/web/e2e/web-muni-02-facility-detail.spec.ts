@@ -19,6 +19,7 @@ const municipalFacility = {
   longitude: 27.1428,
   capacityTotal: 120,
   availableSpaces: null,
+  occupiedSpaces: null,
   freshness: 'UNAVAILABLE',
   attribution: 'OpenStreetMap contributors',
   sourceLabel: 'OSM',

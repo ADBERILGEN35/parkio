@@ -38,6 +38,7 @@ const municipalFacility = {
   longitude: 27.14,
   facilityType: 'OFF_STREET',
   availableSpaces: 5,
+  occupiedSpaces: 15,
   totalSpaces: 20,
   capacityTotal: 20,
   freshness: 'LIVE',

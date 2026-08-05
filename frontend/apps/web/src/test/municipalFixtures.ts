@@ -14,6 +14,7 @@ export function makeMunicipalFacility(
     longitude: 27.1428,
     capacityTotal: 120,
     availableSpaces: null,
+    occupiedSpaces: null,
     freshness: 'UNAVAILABLE',
     attribution: 'OpenStreetMap contributors',
     sourceLabel: 'OpenStreetMap contributors / Geofabrik GmbH',

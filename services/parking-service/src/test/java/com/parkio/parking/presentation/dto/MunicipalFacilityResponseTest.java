@@ -19,7 +19,7 @@ class MunicipalFacilityResponseTest {
     private final MunicipalFacilityQueryService.FacilityView view = new MunicipalFacilityQueryService.FacilityView(
             UUID.fromString("00000000-0000-0000-0000-000000000101"),
             "Konak Parking", "IZUM", MunicipalFacilityType.OFF_STREET, "Konak", 38.42, 27.14,
-            100, 25, MunicipalOccupancyFreshness.LIVE, "Attribution", "IZUM",
+            100, 25, 75, MunicipalOccupancyFreshness.LIVE, "Attribution", "IZUM",
             Instant.parse("2026-07-30T12:00:00Z"));
 
     @Test
@@ -63,7 +63,7 @@ class MunicipalFacilityResponseTest {
         MunicipalFacilityQueryService.FacilityView osmView = new MunicipalFacilityQueryService.FacilityView(
                 UUID.fromString("00000000-0000-0000-0000-000000000102"),
                 "OSM Lot", null, MunicipalFacilityType.OFF_STREET, "Alsancak", 38.43, 27.15,
-                40, null, MunicipalOccupancyFreshness.UNAVAILABLE,
+                40, null, null, MunicipalOccupancyFreshness.UNAVAILABLE,
                 "OpenStreetMap contributors", "OpenStreetMap",
                 Instant.parse("2026-07-30T12:00:00Z"));
 
@@ -75,10 +75,20 @@ class MunicipalFacilityResponseTest {
                         null));
 
         assertThat(response.availableSpaces()).isNull();
+        assertThat(response.occupiedSpaces()).isNull();
         assertThat(response.availabilitySource()).isNull();
         assertThat(response.selectedFieldProvenanceSummary())
                 .containsEntry("NAME", MunicipalSourceIdentity.OSM);
         assertThat(response.id()).isEqualTo(osmView.id());
         assertThat(response.displayName()).isEqualTo("OSM Lot");
+    }
+
+    @Test
+    void liveOccupancyPublishesOptionalOccupiedSpacesWithoutInventing() {
+        MunicipalFacilityResponse response = MunicipalFacilityResponse.from(view);
+
+        assertThat(response.availableSpaces()).isEqualTo(25);
+        assertThat(response.occupiedSpaces()).isEqualTo(75);
+        assertThat(response.capacityTotal()).isEqualTo(100);
     }
 }
