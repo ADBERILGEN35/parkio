@@ -1275,6 +1275,7 @@ describe('MapPage dual-inventory layer visibility (WEB-MUNI-05)', () => {
   beforeEach(() => {
     runtime = createTestAppRuntime();
     signInAs(runtime, ['USER']);
+    window.history.replaceState(null, '', '/');
     server.use(http.get(`${API_BASE}/notifications/me`, () => HttpResponse.json([])));
     server.use(
       http.get(`${API_BASE}/users/me/vehicle`, () =>
@@ -1299,6 +1300,8 @@ describe('MapPage dual-inventory layer visibility (WEB-MUNI-05)', () => {
   afterEach(() => {
     clearUserSessionQueries(runtime.queryClient);
     resetAuth(runtime);
+    restoreGeolocation();
+    window.history.replaceState(null, '', '/');
   });
 
   async function searchNear(user: ReturnType<typeof userEvent.setup>) {
@@ -1352,10 +1355,10 @@ describe('MapPage dual-inventory layer visibility (WEB-MUNI-05)', () => {
     expect(await screen.findByTestId('map-layer-visibility-controls')).toBeInTheDocument();
     expect(screen.getByTestId('map-layer-community')).toHaveAttribute('aria-pressed', 'true');
     expect(screen.getByTestId('map-layer-municipal')).toHaveAttribute('aria-pressed', 'true');
-    expect(screen.getByText('Layer Lot')).toBeInTheDocument();
-    expect(screen.getByText('Stub Address 7')).toBeInTheDocument();
+    // Wait for inventory settlement; layer chrome can mount before MSW responses resolve.
+    await expectMunicipalFacilityLoaded('Layer Lot', '1');
+    expect(await screen.findByText('Stub Address 7')).toBeInTheDocument();
     expect(screen.getByTestId('stub-spot-count')).toHaveTextContent('1');
-    expect(screen.getByTestId('stub-municipal-count')).toHaveTextContent('1');
     expect(spotsHits).toBe(1);
     expect(facilitiesHits).toBe(1);
 
@@ -1383,8 +1386,7 @@ describe('MapPage dual-inventory layer visibility (WEB-MUNI-05)', () => {
 
     await user.click(screen.getByTestId('map-layer-municipal'));
     expect(screen.queryByTestId('map-layers-both-hidden')).not.toBeInTheDocument();
-    expect(screen.getByText('Layer Lot')).toBeInTheDocument();
-    expect(screen.getByTestId('stub-municipal-count')).toHaveTextContent('1');
+    await expectMunicipalFacilityLoaded('Layer Lot', '1');
     expect(spotsHits).toBe(1);
     expect(facilitiesHits).toBe(1);
   });
@@ -1593,13 +1595,14 @@ describe('MapPage dual-inventory layer visibility (WEB-MUNI-05)', () => {
     expect(await screen.findByTestId('map-layer-visibility-controls')).toBeInTheDocument();
     expect(screen.getByTestId('map-layer-community')).toHaveAttribute('aria-pressed', 'false');
     expect(screen.getByTestId('map-layer-municipal')).toHaveAttribute('aria-pressed', 'true');
+    // Await filtered municipal settlement; URL-derived filters apply before results arrive.
+    await expectMunicipalFacilityLoaded('URL Visible', '1');
     expect(screen.queryByText('Stub Address 7')).not.toBeInTheDocument();
-    expect(screen.getByText('URL Visible')).toBeInTheDocument();
     expect(screen.queryByText('URL Hidden')).not.toBeInTheDocument();
     expect(screen.getByTestId('stub-spot-count')).toHaveTextContent('0');
-    expect(screen.getByTestId('stub-municipal-count')).toHaveTextContent('1');
     expect(router.state.location.search).toContain('communityLayer=0');
     expect(router.state.location.search).toContain('municipalAvailability=available');
+    expect(router.state.location.search).toContain('municipalSources=');
     expect(spotsHits).toBe(1);
     expect(facilitiesHits).toBe(1);
   });
