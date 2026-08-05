@@ -117,6 +117,28 @@ function stubGeolocation(value: Partial<Geolocation> | undefined) {
   Object.defineProperty(navigator, 'geolocation', { configurable: true, value });
 }
 
+const originalGeolocation = navigator.geolocation;
+
+function restoreGeolocation() {
+  stubGeolocation(originalGeolocation);
+}
+
+/** Wait until discovery chrome leaves the loading summary copy. */
+async function expectSettledMapSheetSummary(text: string | RegExp) {
+  await waitFor(() => {
+    expect(screen.getByTestId('map-sheet-summary')).toHaveTextContent(text);
+  });
+}
+
+/** Wait until municipal list data settles (section shell can render while loading). */
+async function expectMunicipalFacilityLoaded(displayName: string, expectedMapCount: string) {
+  expect(await screen.findByText(displayName)).toBeInTheDocument();
+  await waitFor(() => {
+    expect(screen.getByTestId('stub-municipal-count')).toHaveTextContent(expectedMapCount);
+    expect(screen.queryByTestId('municipal-facility-loading')).not.toBeInTheDocument();
+  });
+}
+
 /** Backend geocoding endpoint — the browser no longer calls Nominatim directly (ADR-014). */
 const GEOCODING_URL = `${API_BASE}/geocoding/search`;
 
@@ -1065,6 +1087,7 @@ describe('MapPage municipal discovery (WEB-MUNI-01)', () => {
   afterEach(() => {
     clearUserSessionQueries(runtime.queryClient);
     resetAuth(runtime);
+    restoreGeolocation();
   });
 
   it('does not call facilities API when the feature flag is off', async () => {
@@ -1112,9 +1135,8 @@ describe('MapPage municipal discovery (WEB-MUNI-01)', () => {
 
     expect(await screen.findByTestId('municipal-facility-results')).toBeInTheDocument();
     expect(screen.getByText('Municipal parking facilities')).toBeInTheDocument();
-    expect(screen.getByText('Konak Municipal Lot')).toBeInTheDocument();
-    expect(screen.getByText('Stub Address 7')).toBeInTheDocument();
-    expect(screen.getByTestId('stub-municipal-count')).toHaveTextContent('1');
+    await expectMunicipalFacilityLoaded('Konak Municipal Lot', '1');
+    expect(await screen.findByText('Stub Address 7')).toBeInTheDocument();
 
     await user.click(await screen.findByRole('button', { name: 'stub-select-first-facility' }));
     expect(await screen.findByTestId('selected-municipal-facility-preview')).toBeInTheDocument();
@@ -1709,6 +1731,7 @@ describe('MapPage dual-inventory empty chrome (WEB-MUNI-06)', () => {
   afterEach(() => {
     clearUserSessionQueries(runtime.queryClient);
     resetAuth(runtime);
+    restoreGeolocation();
   });
 
   async function searchNear(user: ReturnType<typeof userEvent.setup>) {
@@ -1806,9 +1829,7 @@ describe('MapPage dual-inventory empty chrome (WEB-MUNI-06)', () => {
     const user = userEvent.setup();
     await searchNear(user);
 
-    expect(await screen.findByTestId('map-sheet-summary')).toHaveTextContent(
-      'No visible results nearby',
-    );
+    await expectSettledMapSheetSummary('No visible results nearby');
     expect(screen.queryByTestId('map-layers-both-hidden')).not.toBeInTheDocument();
 
     await user.click(screen.getByTestId('map-layer-community'));
