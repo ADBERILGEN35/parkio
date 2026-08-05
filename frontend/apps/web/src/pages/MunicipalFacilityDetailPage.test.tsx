@@ -362,7 +362,7 @@ describe('MunicipalFacilityDetailPage (WEB-MUNI-02 / WEB-MUNI-04)', () => {
     renderDetail(`/facilities/${FACILITY_ID}`);
 
     expect(await screen.findByTestId('municipal-facility-detail')).toBeInTheDocument();
-    expect(screen.getByText('Live availability not published')).toBeInTheDocument();
+    expect(screen.getByText('Live occupancy is not shared')).toBeInTheDocument();
     expect(screen.queryByText(/ETA|traffic|directions/i)).not.toBeInTheDocument();
   });
 });

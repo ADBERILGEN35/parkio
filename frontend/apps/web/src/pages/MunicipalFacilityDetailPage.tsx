@@ -1,6 +1,11 @@
 import { isParkioApiError } from '@parkio/api-client';
-import type { MunicipalFacility, MunicipalFacilityType, MunicipalOccupancyFreshness } from '@parkio/types';
-import { municipalDataSourceLabels } from '@parkio/geo';
+import type { MunicipalFacility, MunicipalFacilityType } from '@parkio/types';
+import {
+  municipalAvailabilityCopyKey,
+  municipalDataSourceLabels,
+  municipalFreshnessCopyKey,
+  municipalOccupancyPresentationKind,
+} from '@parkio/geo';
 import { EmptyState, Icon, SoftBadge, Surface, cn } from '@parkio/ui';
 import type { ReactNode } from 'react';
 import { Link, useParams } from 'react-router-dom';
@@ -12,22 +17,6 @@ import { useMunicipalFacilityDetailQuery } from '@/data/hooks/useParkingQueries'
 import { formatInstant } from '@/lib/format';
 import { isValidRouteParameter } from '@/routing/route-manifest';
 import { MunicipalFacilityLocationSection } from './MunicipalFacilityLocationSection';
-
-function freshnessLabelKey(freshness: MunicipalOccupancyFreshness | null | undefined): string {
-  switch (freshness) {
-    case 'LIVE':
-      return 'municipal.freshness.live';
-    case 'AGING':
-      return 'municipal.freshness.aging';
-    case 'STALE':
-      return 'municipal.freshness.stale';
-    case 'INVALID':
-      return 'municipal.freshness.invalid';
-    case 'UNAVAILABLE':
-    default:
-      return 'municipal.freshness.unavailable';
-  }
-}
 
 function facilityTypeLabelKey(type: MunicipalFacilityType): string {
   switch (type) {
@@ -79,7 +68,8 @@ function FacilityDetailBody({ facility }: { facility: MunicipalFacility }) {
     facility.displayName?.trim() ||
     facility.addressText?.trim() ||
     t('municipal.unnamedFacility');
-  const freshness = facility.availabilityFreshness ?? facility.freshness;
+  const occupancyKind = municipalOccupancyPresentationKind(facility);
+  const availabilityCopyKey = municipalAvailabilityCopyKey(occupancyKind);
   const dataSourceLabels = municipalDataSourceLabels(facility);
   const dataSourceHeadingKey =
     dataSourceLabels.length > 1 ? 'municipal.dataSources' : 'municipal.dataSource';
@@ -111,17 +101,23 @@ function FacilityDetailBody({ facility }: { facility: MunicipalFacility }) {
             {t(facilityTypeLabelKey(facility.facilityType))}
           </DetailRow>
           <DetailRow label={t('municipal.freshnessLabel')}>
-            {t(freshnessLabelKey(freshness))}
+            <span data-testid="municipal-occupancy-status">
+              {t(`municipal.freshness.${municipalFreshnessCopyKey(occupancyKind)}`)}
+            </span>
           </DetailRow>
           <DetailRow label={t('municipal.availability')}>
-            {facility.availableSpaces != null || facility.capacityTotal != null
-              ? facility.availableSpaces != null
-                ? t('municipal.spacesAvailable', {
+            <span data-testid="municipal-availability-copy">
+              {occupancyKind === 'live' || occupancyKind === 'aging'
+                ? t(`municipal.${availabilityCopyKey}`, {
                     available: facility.availableSpaces,
                     capacity: facility.capacityTotal ?? '—',
                   })
-                : t('municipal.capacityOnly', { capacity: facility.capacityTotal })
-              : t('municipal.availabilityUnknown')}
+                : occupancyKind === 'stale_live' && facility.capacityTotal != null
+                  ? `${t(`municipal.${availabilityCopyKey}`)} · ${t('municipal.capacityOnly', {
+                      capacity: facility.capacityTotal,
+                    })}`
+                  : t(`municipal.${availabilityCopyKey}`)}
+            </span>
           </DetailRow>
           {facility.capacityTotal != null ? (
             <DetailRow label={t('municipal.capacity')}>{facility.capacityTotal}</DetailRow>

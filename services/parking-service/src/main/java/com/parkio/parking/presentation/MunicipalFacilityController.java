@@ -15,6 +15,8 @@ import org.springframework.web.bind.annotation.RestController;
 @RestController
 @RequestMapping("/api/v1/parking/facilities")
 public class MunicipalFacilityController {
+    static final int DEFAULT_RADIUS_METERS = 1000;
+
     private final MunicipalFacilityQueryService service;
     private final RegistryPublicationService registryPublication;
 
@@ -29,9 +31,11 @@ public class MunicipalFacilityController {
     public List<MunicipalFacilityResponse> nearby(
             @RequestParam double lat,
             @RequestParam double lng,
-            @RequestParam(defaultValue = "1000") int radiusMeters,
+            @RequestParam(required = false) Integer radiusMeters,
+            @RequestParam(required = false) Integer radius,
             @RequestParam(defaultValue = "20") int limit) {
-        return service.nearby(lat, lng, radiusMeters, limit).stream()
+        int resolved = resolveRadiusMeters(radiusMeters, radius);
+        return service.nearby(lat, lng, resolved, limit).stream()
                 .map(view -> MunicipalFacilityResponse.from(
                         view, registryPublication.forFacility(view.id())))
                 .toList();
@@ -42,5 +46,18 @@ public class MunicipalFacilityController {
         return service.findById(id).map(view -> MunicipalFacilityResponse.from(
                         view, registryPublication.forFacility(view.id())))
                 .map(ResponseEntity::ok).orElseGet(() -> ResponseEntity.notFound().build());
+    }
+
+    /**
+     * Canonical query parameter is {@code radiusMeters}. Legacy {@code radius} is accepted when
+     * {@code radiusMeters} is absent. When both are present, {@code radiusMeters} wins.
+     * Invalid values are left for {@link MunicipalFacilityQueryService} validation.
+     */
+    static int resolveRadiusMeters(Integer radiusMeters, Integer radius) {
+        Integer chosen = radiusMeters != null ? radiusMeters : radius;
+        if (chosen == null) {
+            return DEFAULT_RADIUS_METERS;
+        }
+        return chosen;
     }
 }

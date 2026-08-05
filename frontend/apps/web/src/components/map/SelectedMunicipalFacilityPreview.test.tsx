@@ -19,7 +19,10 @@ describe('SelectedMunicipalFacilityPreview', () => {
     expect(screen.getByText('Municipal parking')).toBeInTheDocument();
     expect(screen.getByText('Konak Otopark')).toBeInTheDocument();
     expect(screen.getByText('OpenStreetMap')).toBeInTheDocument();
-    expect(screen.getByText('Availability unavailable')).toBeInTheDocument();
+    expect(screen.getByText('Static facility information')).toBeInTheDocument();
+    expect(screen.getByTestId('municipal-availability-copy')).toHaveTextContent(
+      'Live occupancy is not shared',
+    );
     expect(screen.queryByText('Field provenance')).not.toBeInTheDocument();
     expect(screen.queryByText('Alan kaynağı')).not.toBeInTheDocument();
     expect(screen.queryByText('ATTRIBUTION')).not.toBeInTheDocument();
@@ -66,5 +69,47 @@ describe('SelectedMunicipalFacilityPreview', () => {
       'href',
       `/facilities/${facility.id}`,
     );
+  });
+
+  it('shows live İZUM availability distinctly from static OSM', () => {
+    renderWithProviders(
+      <SelectedMunicipalFacilityPreview
+        facility={makeMunicipalFacility({
+          contributingSourceKeys: ['izmir-izum-otoparklar'],
+          sourceLabel: 'Izmir Buyuksehir Belediyesi / IZUM',
+          availableSpaces: 42,
+          capacityTotal: 100,
+          freshness: 'LIVE',
+          availabilityFreshness: 'LIVE',
+          availabilitySource: 'izmir-izum-otoparklar',
+        })}
+        onClose={() => undefined}
+      />,
+    );
+    expect(screen.getByTestId('municipal-occupancy-status')).toHaveTextContent('Live occupancy');
+    expect(screen.getByTestId('municipal-availability-copy')).toHaveTextContent('42 open / 100 spaces');
+  });
+
+  it('shows stale-live copy for İZUM STALE, not static-source copy', () => {
+    renderWithProviders(
+      <SelectedMunicipalFacilityPreview
+        facility={makeMunicipalFacility({
+          contributingSourceKeys: ['izmir-izum-otoparklar'],
+          sourceLabel: 'Izmir Buyuksehir Belediyesi / IZUM',
+          availableSpaces: null,
+          capacityTotal: 133,
+          freshness: 'STALE',
+          availabilityFreshness: null,
+        })}
+        onClose={() => undefined}
+      />,
+    );
+    expect(screen.getByTestId('municipal-occupancy-status')).toHaveTextContent(
+      'Live data temporarily out of date',
+    );
+    expect(screen.getByTestId('municipal-availability-copy')).toHaveTextContent(
+      'Live data is temporarily out of date',
+    );
+    expect(screen.queryByText('Static facility information')).not.toBeInTheDocument();
   });
 });

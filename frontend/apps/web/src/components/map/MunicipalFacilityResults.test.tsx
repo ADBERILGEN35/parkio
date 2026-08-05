@@ -185,6 +185,29 @@ describe('MunicipalFacilityResults', () => {
     }
   });
 
+  it('shows live vs static occupancy summary without raw source keys', () => {
+    const osm = makeMunicipalFacility({ id: 'fac-osm' });
+    const izum = makeMunicipalFacility({
+      id: 'fac-izum',
+      contributingSourceKeys: ['izmir-izum-otoparklar'],
+      availableSpaces: 5,
+      freshness: 'LIVE',
+      availabilityFreshness: 'LIVE',
+      sourceLabel: 'Izmir Buyuksehir Belediyesi / IZUM',
+    });
+    renderResults({
+      search: queryResult({ isSuccess: true, status: 'success', data: [osm, izum] }),
+      facilities: [osm, izum],
+      totalCount: 2,
+      availableSourceLabels: [RAW_OSM_SOURCE_LABEL, 'Izmir Buyuksehir Belediyesi / IZUM'],
+    });
+    expect(screen.getByTestId('municipal-occupancy-summary')).toHaveTextContent(
+      /2 facilities · 1 live occupancy · 1 static info only/i,
+    );
+    expect(screen.queryByText(/osm-geofabrik-turkey/i)).not.toBeInTheDocument();
+    expect(screen.queryByText(/izmir-izum-otoparklar/i)).not.toBeInTheDocument();
+  });
+
   it('has no automated accessibility violations in the success state', async () => {
     const { container } = renderResults();
     expect(await axe(container)).toHaveNoViolations();

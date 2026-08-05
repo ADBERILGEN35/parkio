@@ -150,14 +150,19 @@
     "source": "Data source",
     "operator": "Operator",
     "availability": "Availability",
-    "availabilityUnknown": "Live availability not published",
+    "availabilityUnknown": "Live occupancy is not shared",
+    "availabilityStatic": "Live occupancy is not shared",
+    "availabilityStaleLive": "Live data is temporarily out of date",
+    "availabilityInvalid": "Live occupancy could not be validated",
     "spacesAvailable": "{{available}} open / {{capacity}} spaces",
     "capacityOnly": "{{capacity}} spaces",
+    "summaryBreakdown": "{{total}} facilities · {{live}} live occupancy · {{staticOnly}} static info only",
+    "summaryBreakdownWithStale": "{{total}} facilities · {{live}} live occupancy · {{staticOnly}} static info only · {{staleLive}} live data out of date",
     "provenance": "Field provenance",
     "provenanceOnly": "Has provenance",
     "viewFacilityDetails": "View facility details",
     "facilityTypeLabel": "Facility type",
-    "freshnessLabel": "Freshness",
+    "freshnessLabel": "Occupancy status",
     "capacity": "Capacity",
     "coordinates": "Coordinates",
     "lastUpdated": "Last updated",
@@ -189,11 +194,13 @@
       "mapAria": "Map of municipal parking facility: {{name}}"
     },
     "freshness": {
-      "live": "Live availability",
-      "aging": "Aging availability",
-      "stale": "Stale availability",
-      "unavailable": "Availability unavailable",
-      "invalid": "Availability invalid"
+      "live": "Live occupancy",
+      "aging": "Live occupancy (aging)",
+      "stale": "Live data temporarily out of date",
+      "staleLive": "Live data temporarily out of date",
+      "unavailable": "Live occupancy is not shared",
+      "static": "Static facility information",
+      "invalid": "Live occupancy could not be validated"
     }
   },
   "parkingSession": {

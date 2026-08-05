@@ -150,14 +150,19 @@
     "source": "Veri kaynağı",
     "operator": "İşletmeci",
     "availability": "Müsaitlik",
-    "availabilityUnknown": "Canlı müsaitlik yayınlanmıyor",
+    "availabilityUnknown": "Canlı doluluk paylaşılmıyor",
+    "availabilityStatic": "Canlı doluluk paylaşılmıyor",
+    "availabilityStaleLive": "Canlı veri geçici olarak güncel değil",
+    "availabilityInvalid": "Canlı doluluk doğrulanamadı",
     "spacesAvailable": "{{available}} boş / {{capacity}} kapasite",
     "capacityOnly": "{{capacity}} kapasite",
+    "summaryBreakdown": "{{total}} tesis · {{live}} canlı doluluk · {{staticOnly}} yalnızca statik bilgi",
+    "summaryBreakdownWithStale": "{{total}} tesis · {{live}} canlı doluluk · {{staticOnly}} yalnızca statik bilgi · {{staleLive}} canlı veri güncel değil",
     "provenance": "Alan kaynağı",
     "provenanceOnly": "Kaynak bilgisi var",
     "viewFacilityDetails": "Tesis detayını gör",
     "facilityTypeLabel": "Tesis türü",
-    "freshnessLabel": "Tazelik",
+    "freshnessLabel": "Doluluk durumu",
     "capacity": "Kapasite",
     "coordinates": "Koordinatlar",
     "lastUpdated": "Son güncelleme",
@@ -189,11 +194,13 @@
       "mapAria": "Belediye otopark tesisi haritası: {{name}}"
     },
     "freshness": {
-      "live": "Canlı müsaitlik",
-      "aging": "Eskiyen müsaitlik",
-      "stale": "Bayat müsaitlik",
-      "unavailable": "Müsaitlik yok",
-      "invalid": "Geçersiz müsaitlik"
+      "live": "Canlı doluluk",
+      "aging": "Canlı doluluk (eskiyor)",
+      "stale": "Canlı veri geçici olarak güncel değil",
+      "staleLive": "Canlı veri geçici olarak güncel değil",
+      "unavailable": "Canlı doluluk paylaşılmıyor",
+      "static": "Statik tesis bilgisi",
+      "invalid": "Canlı doluluk doğrulanamadı"
     }
   },
   "parkingSession": {

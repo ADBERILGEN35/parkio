@@ -12,6 +12,7 @@ import com.parkio.parking.application.port.MunicipalDataSourceRepository;
 import com.parkio.parking.application.port.MunicipalFacilityRepository;
 import com.parkio.parking.application.port.MunicipalOccupancySnapshotRepository;
 import com.parkio.parking.application.port.MunicipalSourceSyncRunRepository;
+import com.parkio.parking.application.port.OsmImportSupportRepository;
 import com.parkio.parking.application.port.DecisionAuditWriteObserver;
 import com.parkio.parking.application.port.DecisionShadowObserverPort;
 import com.parkio.parking.externalsource.MunicipalParkingSourceAdapter;
@@ -54,8 +55,10 @@ public class ParkingInfrastructureConfig {
             MunicipalDataSourceRepository sources,
             MunicipalSourceSyncRunRepository runs,
             com.parkio.parking.application.MunicipalFacilityIngestWriter ingestWriter,
+            OsmImportSupportRepository setReconciliation,
             Clock clock) {
-        return new MunicipalFacilitySyncService(adapters, sources, runs, ingestWriter, clock);
+        return new MunicipalFacilitySyncService(
+                adapters, sources, runs, ingestWriter, setReconciliation, clock);
     }
 
     @Bean

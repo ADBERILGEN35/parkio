@@ -34,12 +34,9 @@ public class OsmImportSupportRepositoryAdapter implements OsmImportSupportReposi
 
     @Override
     public int deactivateMissing(UUID sourceId, Set<String> seenExternalIds, Instant now) {
+        // Refuse mass wipe when the authoritative seen-set is empty (İZELMAN roadside parity).
         if (seenExternalIds.isEmpty()) {
-            return jdbc.sql("""
-                    UPDATE municipal_facility_source_links
-                    SET active=false, updated_at=:now
-                    WHERE source_id=:sourceId AND active=true
-                    """).param("sourceId", sourceId).param("now", Timestamp.from(now)).update();
+            return 0;
         }
         // Deactivate active links not in seen set via NOT IN is awkward for large sets;
         // use temp strategy: mark all unseen by excluding matched ids in Java-sized batches.

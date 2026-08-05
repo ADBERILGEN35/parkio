@@ -24,10 +24,16 @@ export const MUNICIPAL_OCCUPANCY_FRESHNESS = [
 
 export type MunicipalOccupancyFreshness = (typeof MUNICIPAL_OCCUPANCY_FRESHNESS)[number];
 
-/** `GET /parking/facilities/nearby` query params (same shape as spots nearby). */
+/** `GET /parking/facilities/nearby` query params. Canonical radius is {@code radiusMeters}. */
 export interface MunicipalFacilityNearbyParams {
   lat: number;
   lng: number;
+  /** Canonical search radius in meters (preferred). */
+  radiusMeters?: number;
+  /**
+   * Legacy alias accepted by the API client when mapping to {@code radiusMeters}.
+   * Prefer {@link radiusMeters}.
+   */
   radius?: number;
   limit?: number;
 }

@@ -62,13 +62,26 @@ export function createParkingApi(client: AxiosInstance) {
     /**
      * Municipal facility nearby discovery (WEB-MUNI-01).
      * Separate inventory from community spots — never fuse responses.
+     * Always sends canonical {@code radiusMeters} (maps legacy {@code radius} when needed).
      */
     getNearbyMunicipalFacilities(
       params: MunicipalFacilityNearbyParams,
       signal?: AbortSignal,
     ): Promise<MunicipalFacility[]> {
+      const resolvedRadius = params.radiusMeters ?? params.radius;
+      const query: {
+        lat: number;
+        lng: number;
+        limit?: number;
+        radiusMeters?: number;
+      } = {
+        lat: params.lat,
+        lng: params.lng,
+        ...(params.limit !== undefined ? { limit: params.limit } : {}),
+        ...(resolvedRadius !== undefined ? { radiusMeters: resolvedRadius } : {}),
+      };
       return client
-        .get<MunicipalFacility[]>('/parking/facilities/nearby', { params, signal })
+        .get<MunicipalFacility[]>('/parking/facilities/nearby', { params: query, signal })
         .then((r) => r.data);
     },
 

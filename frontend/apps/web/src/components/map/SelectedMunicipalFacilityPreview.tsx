@@ -1,5 +1,11 @@
-import type { MunicipalFacility, MunicipalOccupancyFreshness } from '@parkio/types';
-import { formatMunicipalDataSourcesLine, municipalDataSourceLabels } from '@parkio/geo';
+import type { MunicipalFacility } from '@parkio/types';
+import {
+  formatMunicipalDataSourcesLine,
+  municipalAvailabilityCopyKey,
+  municipalDataSourceLabels,
+  municipalFreshnessCopyKey,
+  municipalOccupancyPresentationKind,
+} from '@parkio/geo';
 import { Icon, IconButton, SoftBadge, cn } from '@parkio/ui';
 import { useTranslation } from 'react-i18next';
 import { Link } from 'react-router-dom';
@@ -10,22 +16,6 @@ export interface SelectedMunicipalFacilityPreviewProps {
   distanceMeters?: number | null;
   onClose: () => void;
   className?: string;
-}
-
-function freshnessLabelKey(freshness: MunicipalOccupancyFreshness | null | undefined): string {
-  switch (freshness) {
-    case 'LIVE':
-      return 'municipal.freshness.live';
-    case 'AGING':
-      return 'municipal.freshness.aging';
-    case 'STALE':
-      return 'municipal.freshness.stale';
-    case 'INVALID':
-      return 'municipal.freshness.invalid';
-    case 'UNAVAILABLE':
-    default:
-      return 'municipal.freshness.unavailable';
-  }
 }
 
 /**
@@ -43,11 +33,12 @@ export function SelectedMunicipalFacilityPreview({
     facility.displayName?.trim() ||
     facility.addressText?.trim() ||
     t('municipal.unnamedFacility');
-  const freshness = facility.availabilityFreshness ?? facility.freshness;
+  const occupancyKind = municipalOccupancyPresentationKind(facility);
   const dataSourceLabels = municipalDataSourceLabels(facility);
   const dataSourceLine = formatMunicipalDataSourcesLine(facility);
   const dataSourceHeadingKey =
     dataSourceLabels.length > 1 ? 'municipal.dataSources' : 'municipal.dataSource';
+  const availabilityCopyKey = municipalAvailabilityCopyKey(occupancyKind);
 
   return (
     <div
@@ -93,9 +84,12 @@ export function SelectedMunicipalFacilityPreview({
                 {formatDistance(distanceMeters)}
               </span>
             ) : null}
-            <span className="inline-flex items-center gap-xs rounded-full bg-surface-container px-sm py-xs font-semibold">
+            <span
+              className="inline-flex items-center gap-xs rounded-full bg-surface-container px-sm py-xs font-semibold"
+              data-testid="municipal-occupancy-status"
+            >
               <Icon name="schedule" className="text-[14px] leading-none" />
-              {t(freshnessLabelKey(freshness))}
+              {t(`municipal.freshness.${municipalFreshnessCopyKey(occupancyKind)}`)}
             </span>
           </div>
 
@@ -112,28 +106,23 @@ export function SelectedMunicipalFacilityPreview({
                 <dd className="m-0 min-w-0">{dataSourceLine}</dd>
               </div>
             ) : null}
-            {facility.availableSpaces != null || facility.capacityTotal != null ? (
-              <div className="flex gap-sm">
-                <dt className="shrink-0 font-medium text-on-surface-variant">
-                  {t('municipal.availability')}
-                </dt>
-                <dd className="m-0">
-                  {facility.availableSpaces != null
-                    ? t('municipal.spacesAvailable', {
-                        available: facility.availableSpaces,
-                        capacity: facility.capacityTotal ?? '—',
-                      })
-                    : t('municipal.capacityOnly', { capacity: facility.capacityTotal })}
-                </dd>
-              </div>
-            ) : (
-              <div className="flex gap-sm">
-                <dt className="shrink-0 font-medium text-on-surface-variant">
-                  {t('municipal.availability')}
-                </dt>
-                <dd className="m-0">{t('municipal.availabilityUnknown')}</dd>
-              </div>
-            )}
+            <div className="flex gap-sm">
+              <dt className="shrink-0 font-medium text-on-surface-variant">
+                {t('municipal.availability')}
+              </dt>
+              <dd className="m-0" data-testid="municipal-availability-copy">
+                {occupancyKind === 'live' || occupancyKind === 'aging'
+                  ? t(`municipal.${availabilityCopyKey}`, {
+                      available: facility.availableSpaces,
+                      capacity: facility.capacityTotal ?? '—',
+                    })
+                  : occupancyKind === 'stale_live' && facility.capacityTotal != null
+                    ? `${t(`municipal.${availabilityCopyKey}`)} · ${t('municipal.capacityOnly', {
+                        capacity: facility.capacityTotal,
+                      })}`
+                    : t(`municipal.${availabilityCopyKey}`)}
+              </dd>
+            </div>
             {facility.operatorName ? (
               <div className="flex gap-sm">
                 <dt className="shrink-0 font-medium text-on-surface-variant">

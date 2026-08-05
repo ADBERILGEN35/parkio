@@ -80,6 +80,10 @@ public class MunicipalSourceMetrics {
                 .tag("source_key", sourceKey)
                 .tag("source_mode", mode)
                 .register(registry);
+        Gauge.builder("parkio.municipal.sync.active_links", state.lastActiveLinkCount, AtomicInteger::get)
+                .tag("source_key", sourceKey)
+                .tag("source_mode", mode)
+                .register(registry);
         for (MunicipalSourceOperationalState operationalState : MunicipalSourceOperationalState.values()) {
             Gauge.builder("parkio.municipal.source.operational_state", state,
                             gauges -> gauges.operationalState.get() == operationalState ? 1.0 : 0.0)
@@ -141,6 +145,16 @@ public class MunicipalSourceMetrics {
         registry.counter("parkio.municipal.sync.occupancy",
                         "source_key", sourceKey, "outcome", "inserted")
                 .increment(result.occupancyInserted());
+        registry.counter("parkio.municipal.sync.facilities",
+                        "source_key", sourceKey, "outcome", "deactivated")
+                .increment(result.recordsDeactivated());
+        registry.counter("parkio.municipal.sync.facilities",
+                        "source_key", sourceKey, "outcome", "reactivated")
+                .increment(result.recordsReactivated());
+        SourceGaugeState syncState = stateFor(sourceKey);
+        if (syncState != null) {
+            syncState.lastActiveLinkCount.set(result.activeLinkCount());
+        }
         if (result.status() == MunicipalSyncRunStatus.FAILED
                 && MunicipalSourceFailureCategory.isSchemaMismatchWire(error)) {
             registry.counter("parkio.municipal.sync.schema_mismatch",
@@ -242,6 +256,7 @@ public class MunicipalSourceMetrics {
         private final AtomicLong lastRunEpochSeconds = new AtomicLong(-1);
         private final AtomicInteger staleRunningOperations = new AtomicInteger();
         private final AtomicInteger failuresInWindow = new AtomicInteger();
+        private final AtomicInteger lastActiveLinkCount = new AtomicInteger();
         private final AtomicReference<MunicipalSourceOperationalState> operationalState =
                 new AtomicReference<>(MunicipalSourceOperationalState.UNKNOWN);
         private final AtomicReference<MunicipalOccupancyFreshness> occupancyFreshness =

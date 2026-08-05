@@ -50,6 +50,14 @@ export {
   displaySourceLabelForFilter,
 } from './municipalSourcePresentation';
 export {
+  type MunicipalOccupancyPresentationKind,
+  type MunicipalOccupancySummary,
+  municipalOccupancyPresentationKind,
+  municipalAvailabilityCopyKey,
+  municipalFreshnessCopyKey,
+  summarizeMunicipalOccupancy,
+} from './municipalOccupancyPresentation';
+export {
   type Availability,
   type ConfidenceTier,
   type SpotPresentation,

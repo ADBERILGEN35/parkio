@@ -1,5 +1,9 @@
 import type { MunicipalFacility, MunicipalFacilityType, NearbySearchParams } from '@parkio/types';
-import { displaySourceLabelForFilter, formatMunicipalDataSourcesLine } from '@parkio/geo';
+import {
+  displaySourceLabelForFilter,
+  formatMunicipalDataSourcesLine,
+  summarizeMunicipalOccupancy,
+} from '@parkio/geo';
 import { EmptyState, Icon, SpotCardSkeleton, cn } from '@parkio/ui';
 import type { UseQueryResult } from '@tanstack/react-query';
 import { useEffect, useMemo, useRef } from 'react';
@@ -63,12 +67,15 @@ export function MunicipalFacilityResults({
   selectionFromMap = false,
 }: MunicipalFacilityResultsProps) {
   const { t } = useTranslation('map');
+  const filtersActive = hasActiveMunicipalFilters(filters);
+  const occupancySummary = useMemo(
+    () => summarizeMunicipalOccupancy(search.data ?? []),
+    [search.data],
+  );
 
   if (params === null) {
     return null;
   }
-
-  const filtersActive = hasActiveMunicipalFilters(filters);
 
   return (
     <section
@@ -125,6 +132,25 @@ export function MunicipalFacilityResults({
               ? t('municipal.resultsOf', { visible: facilities.length, total: totalCount })
               : t('municipal.resultsCount', { count: totalCount })}
           </p>
+          {!filtersActive && occupancySummary.total > 0 ? (
+            <p
+              className="m-0 text-label-sm text-on-surface-variant"
+              data-testid="municipal-occupancy-summary"
+            >
+              {occupancySummary.staleLive > 0
+                ? t('municipal.summaryBreakdownWithStale', {
+                    total: occupancySummary.total,
+                    live: occupancySummary.live + occupancySummary.aging,
+                    staticOnly: occupancySummary.staticOnly,
+                    staleLive: occupancySummary.staleLive,
+                  })
+                : t('municipal.summaryBreakdown', {
+                    total: occupancySummary.total,
+                    live: occupancySummary.live + occupancySummary.aging,
+                    staticOnly: occupancySummary.staticOnly,
+                  })}
+            </p>
+          ) : null}
 
           <MunicipalFilterBar
             filters={filters}
