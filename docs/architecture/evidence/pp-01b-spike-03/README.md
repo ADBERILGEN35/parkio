@@ -22,18 +22,17 @@ Evidence snapshot: **2026-08-04**.
 | JDBC | `org.postgresql:postgresql:42.7.11` |
 | TLS policy | `verify-full` |
 | Required IT skipped | **0** |
-| Mode B | **HOLD — NOT EXECUTED** — no Azure CLI/credentials; cost ceiling/SKU UNKNOWN; **no** Azure provisioned |
-| SPIKE-02 Mode B | **not executed** |
+| Mode B | **Engineering Complete — Runtime Validation Deferred** — [final report](../pp-01b-mode-b-final-report.md); disposable stack destroyed 2026-08-05 |
+| SPIKE-02 Mode B PostGIS | **DEFERRED** (regional vCPU quota) |
 | Public production | **NO-GO** |
 | Municipal production | **DISABLED** |
 
-### Mode B unblock (minimum)
+### Mode B deferred unblock (minimum)
 
-1. Azure CLI (or equivalent) on validation host  
-2. Non-production sandbox subscription auth (no production credentials)  
-3. Approved cost ceiling + cleanup deadline + temporary prefix  
-4. Region/SKU revalidation on Microsoft Learn at apply time  
-5. Re-run Mode B; full teardown; cost recorded  
+1. France Central Total Regional vCPUs raised (or free ≥1 vCPU for `Standard_B1s`)  
+2. New Mode B authorization + cost ceiling + cleanup deadline  
+3. Recreate disposable private stack; create probe; run DNS/TLS proofs  
+4. Full teardown; cost recorded  
 
 ### EXTERNAL VERIFICATION (revalidate before Mode B apply)
 

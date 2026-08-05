@@ -4,7 +4,7 @@
 |-------|-------|
 | **Document** | PP-01B-MODE-B-AUTH |
 | **Authorization reference** | **PP-01B-MODE-B-20260804-01** |
-| **Status** | **AUTHORIZED FOR STEP 2** — IAC-02 enablement complete; Step 3B not started |
+| **Status** | **CLOSED OUT** — Engineering Complete; Runtime Validation Deferred; disposable Mode B destroyed (2026-08-05) |
 | **Date prepared** | 2026-08-04 |
 | **Date approved** | 2026-08-04 (explicit user approval recorded in this document) |
 | **Parent contract** | [pp-01b-iac-contract.md](pp-01b-iac-contract.md) (PP-01B-R0) |
@@ -16,9 +16,11 @@
 
 **This document does not authorize staging, production, PP-01C, municipal production, public GO, hosted-beta mutation, or persistent infrastructure.**
 
-**PP-01B remains OPEN. PP-01C remains NOT STARTED. Public production remains NO-GO. Municipal production remains DISABLED.**
+**Closeout (2026-08-05):** Mode B disposable infrastructure was destroyed. Hosted-beta remains the live app host. Final status: **Engineering Complete — Runtime Validation Deferred** (France Central Total Regional vCPUs 4/4 blocked probe VM). See [pp-01b-mode-b-final-report.md](pp-01b-mode-b-final-report.md).
 
-**Step 2 is authorized but not started by this document.** Do not register providers, create resources, or unlock Terraform flags until a separate Step 2 execution task begins.
+**PP-01B remains OPEN for ADR closure. PP-01C remains NOT STARTED. Public production remains NO-GO. Municipal production remains DISABLED.**
+
+**Historical note:** Step 2 was authorized and executed under this reference; further Mode B apply unlocks require a **new** authorization after closeout.
 
 Statement taxonomy: **FACT** · **EXTERNAL VERIFICATION** · **APPROVED** · **UNKNOWN**
 
@@ -395,6 +397,8 @@ PP-01B CLOSED only when authoring complete **and** SPIKE-02+03 Mode B PASS (or b
 | G6 | **SATISFIED** (Step 1 FACT — active non-production subscription) |
 | G7 | **SATISFIED (APPROVED)** — disposable RG/VNet + separate probe subnet/VM |
 
-**Overall decision:** **AUTHORIZED FOR STEP 2**
+**Overall decision:** **CLOSED OUT** — Engineering Complete; Runtime Validation Deferred
+
+See [pp-01b-mode-b-final-report.md](pp-01b-mode-b-final-report.md).
 
 Step 2 itself is **not started** by recording this approval.

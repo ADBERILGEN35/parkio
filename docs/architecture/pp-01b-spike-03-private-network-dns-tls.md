@@ -4,8 +4,8 @@
 |-------|-------|
 | Spike ID | **PP-01B-SPIKE-03** |
 | Mode A status | **COMPLETE — PASS WITH NON-BLOCKING NOTES** |
-| Mode B status | **HOLD — NOT EXECUTED** (sandbox blocked; see §10) |
-| Verification date | **2026-08-04** |
+| Mode B status | **Engineering Complete — Runtime Validation Deferred** (quota; see §10 + [final report](pp-01b-mode-b-final-report.md)) |
+| Verification date | **2026-08-04** (Mode A); Mode B closeout **2026-08-05** |
 | ADR | [ADR-PP-01A](adr/ADR-PP-01A-managed-postgresql.md) — **unchanged** |
 | Registry | [pp-01b-spike-registry.md](pp-01b-spike-registry.md) |
 | Evidence index | [evidence/pp-01b-spike-03/README.md](evidence/pp-01b-spike-03/README.md) |
@@ -145,45 +145,32 @@ SPIKE-03 defines only the contract: no secrets in Git/images/Vite/logs; per-serv
 
 ---
 
-## 10. Mode B readiness / execution attempt (2026-08-04)
+## 10. Mode B readiness / execution (updated 2026-08-05)
 
-**Pre-attempt classification:** READY WITH CONDITIONS  
-**Execution result:** **HOLD — NOT EXECUTED**
+**Closeout classification:** Engineering Complete — Runtime Validation Deferred  
+**Authoritative report:** [pp-01b-mode-b-final-report.md](pp-01b-mode-b-final-report.md)
 
-This session authorized a temporary board-approved sandbox attempt. Execution stopped before any Azure create because truthful Mode B proof requires live provider access that is **not available** on the runner.
+Under authorization `PP-01B-MODE-B-20260804-01`, Mode B provisioned a disposable private network and two Flexible Servers in France Central. The probe VM was not created because Total Regional vCPUs were **4/4**. The disposable stack was destroyed at finalization; hosted-beta was unchanged.
 
-| Prerequisite | Status | Class |
-|--------------|--------|-------|
-| Board authorization for temporary sandbox | Present in this Mode B prompt | REPOSITORY / PROCESS |
-| Azure CLI (`az`) installed | **Missing** | FACT |
-| Azure PowerShell (`Az.*`) installed | **Missing** | FACT |
-| Azure subscription / credentials in environment | **Missing** (no `AZURE_*` / `ARM_*` / account session) | FACT |
-| Approved cost ceiling | **UNKNOWN** (still unset since SPIKE-01) | UNKNOWN |
-| Exact GP SKU | **UNKNOWN** (SPIKE-01 deferred) | UNKNOWN |
-| Region revalidation at apply time | Not reached | — |
-| Temporary naming / cleanup deadline | Not reached | — |
-| Azure resources provisioned | **None** | FACT |
+| Gate | Result |
+|------|--------|
+| Network + Private DNS (VNet integration) | **VALIDATED** (then destroyed) |
+| Flexible Servers private / PG16 / GP D2s_v3 | **VALIDATED Ready** (then destroyed) |
+| Probe private DNS + TLS `verify-full` | **DEFERRED** (Azure regional vCPU quota) |
 
-**Stop condition applied:** truthful private-network / Private DNS / managed TLS / in-VNet connectivity proof requires Azure provisioning with working credentials and a cost/SKU envelope. Inventing results, using production credentials, or leaving unpaid permanent infra is forbidden.
-
-**Unblock checklist (minimum):**
-1. Install Azure CLI (or equivalent) on the validation host.
-2. Authenticate a **non-production** sandbox subscription (no production credentials).
-3. Record approved **cost ceiling**, cleanup deadline, and temporary resource prefix.
-4. Revalidate region + General Purpose SKU + private-access + Private DNS docs on Microsoft Learn at apply time.
-5. Re-run Mode B; tear down all resources; record cost.
+Earlier 2026-08-04 “HOLD — NOT EXECUTED” tooling notes are superseded by the authorized Mode B execution and teardown above.
 
 ---
 
-## 11. Program status after Mode B attempt
+## 11. Program status after Mode B closeout
 
 | Item | Status |
 |------|--------|
 | PP-01B-SPIKE-03 Mode A | **COMPLETE — PASS WITH NON-BLOCKING NOTES** |
-| PP-01B-SPIKE-03 Mode B | **HOLD — NOT EXECUTED** (tooling/credentials/cost ceiling) |
-| PP-01B-SPIKE-02 Mode B | Separate — **not executed** |
+| PP-01B-SPIKE-03 Mode B | **Engineering Complete — Runtime Validation Deferred** |
+| PP-01B-SPIKE-02 Mode B PostGIS runtime | **DEFERRED** (same quota blocker) |
 | PP-01 | **OPEN** (not ready for production cutover) |
 | Public production | **NO-GO** |
 | Municipal production | **DISABLED** |
 | PP-01C / PP-02…PP-06 | **Not started** |
-| Azure resources created this attempt | **None** |
+| Azure Mode B resources remaining | **None** (disposable RG destroyed) |

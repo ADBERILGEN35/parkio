@@ -3,7 +3,7 @@
 | Field | Value |
 |-------|-------|
 | Spike ID | **PP-01B-SPIKE-02** |
-| Status | **MODE A COMPLETE — PASS WITH NON-BLOCKING NOTES** (Mode B **not executed**; SPIKE-02 not fully closed) |
+| Status | **MODE A COMPLETE — PASS WITH NON-BLOCKING NOTES**; Mode B PostGIS runtime **DEFERRED** (quota) — [final report](pp-01b-mode-b-final-report.md) |
 | Evidence snapshot | **2026-08-04** |
 | Method | Repository inventory + **Mode A local runtime parity** (no Azure) |
 | Parent ADR | [ADR-PP-01A](adr/ADR-PP-01A-managed-postgresql.md) (**ACCEPTED WITH CONDITIONS**) — **frozen** |
@@ -26,8 +26,8 @@
 | Verdict | Meaning |
 |---------|---------|
 | **Mode A** | **PASS WITH NON-BLOCKING NOTES** — local PG16 PostGIS 3.4.3 vs 3.6.1 semantic parity proven |
-| **Mode B** | **READY WITH CONDITIONS** — still required for Azure allow-list / privilege / managed build |
-| **SPIKE-02 closure** | **Not fully closed** until Mode B (or board waive) |
+| **Mode B** | **DEFERRED** — disposable private Flexible Servers validated then destroyed; live PostGIS proof blocked by France Central regional vCPU 4/4 (no probe) |
+| **SPIKE-02 closure** | **Not fully closed** until Mode B runtime (or board waive) |
 | Documentation phase | **COMPLETE** |
 
 No public API/DTO/business-rule/Flyway migration **content** changes. Linking remains disabled. İZELMAN publication remains disabled.

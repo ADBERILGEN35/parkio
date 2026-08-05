@@ -26,8 +26,8 @@ Method: **repository inventory**. No secrets in Git.
 | Image override | `-Dparkio.postgis.image=` via `PostgisTestImages` |
 | Scripts | `scripts/pp-01b-spike-02-mode-a.ps1`, `scripts/pp-01b-spike-02-mode-a.sh` |
 | Machine evidence (gitignored) | `deploy-artifacts/pp-01b-spike-02/` |
-| Mode B | **READY WITH CONDITIONS** — not executed; no Azure provisioned |
-| SPIKE-03 | **MODE A COMPLETE — PASS WITH NON-BLOCKING NOTES** (Mode B not executed) |
+| Mode B | **DEFERRED** — see [pp-01b-mode-b-final-report.md](../pp-01b-mode-b-final-report.md); disposable FS validated then destroyed; PostGIS runtime not executed |
+| SPIKE-03 | Mode B engineering complete; probe DNS/TLS deferred (quota) |
 | Public production | **NO-GO** |
 | Municipal production | **DISABLED** |
 
