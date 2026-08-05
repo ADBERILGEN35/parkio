@@ -119,9 +119,15 @@ describe('MunicipalFacilityDetailPage (WEB-MUNI-02 / WEB-MUNI-04)', () => {
     expect(screen.getByText('Off-street')).toBeInTheDocument();
     expect(screen.getByText('İBB')).toBeInTheDocument();
     expect(screen.getByText('200')).toBeInTheDocument();
-    expect(screen.getByText(/OSM/)).toBeInTheDocument();
+    expect(screen.getByText('OpenStreetMap')).toBeInTheDocument();
+    expect(screen.getByText('Data source')).toBeInTheDocument();
     expect(screen.getByText(/38\.423700/)).toBeInTheDocument();
-    expect(screen.getByText('Field provenance')).toBeInTheDocument();
+    expect(screen.queryByText('Field provenance')).not.toBeInTheDocument();
+    expect(screen.queryByText('Alan kaynağı')).not.toBeInTheDocument();
+    expect(screen.queryByText('ATTRIBUTION')).not.toBeInTheDocument();
+    expect(screen.queryByText('COORDINATES')).not.toBeInTheDocument();
+    expect(screen.queryByText(/Geofabrik/i)).not.toBeInTheDocument();
+    expect(screen.queryByText(/osm-geofabrik-turkey/i)).not.toBeInTheDocument();
     expect(screen.getByRole('link', { name: /Back to map/i })).toHaveAttribute('href', '/map');
 
     await waitFor(() => expect(getDetailHits()).toBe(1));
@@ -334,6 +340,20 @@ describe('MunicipalFacilityDetailPage (WEB-MUNI-02 / WEB-MUNI-04)', () => {
 
     expect(await screen.findByRole('heading', { name: 'Location' })).toBeInTheDocument();
     expect(screen.getByTestId('municipal-facility-open-in-maps')).toHaveTextContent('Open in maps');
+  });
+
+  it('shows multi-source labels in deterministic order on detail page', async () => {
+    stubFacility({
+      contributingSourceKeys: ['osm-geofabrik-turkey', 'izmir-izum-otoparklar'],
+      sourceLabel: 'Izmir Buyuksehir Belediyesi / IZUM',
+    });
+
+    renderDetail(`/facilities/${FACILITY_ID}`);
+
+    expect(await screen.findByTestId('municipal-facility-detail')).toBeInTheDocument();
+    expect(screen.getByText('Data sources')).toBeInTheDocument();
+    expect(screen.getByText('İzmir Büyükşehir Belediyesi / İZUM')).toBeInTheDocument();
+    expect(screen.getByText('OpenStreetMap')).toBeInTheDocument();
   });
 
   it('does not invent availability fields on the detail page', async () => {

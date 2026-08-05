@@ -1,4 +1,5 @@
 import type { MunicipalFacility, MunicipalOccupancyFreshness } from '@parkio/types';
+import { formatMunicipalDataSourcesLine, municipalDataSourceLabels } from '@parkio/geo';
 import { Icon, IconButton, SoftBadge, cn } from '@parkio/ui';
 import { useTranslation } from 'react-i18next';
 import { Link } from 'react-router-dom';
@@ -43,10 +44,10 @@ export function SelectedMunicipalFacilityPreview({
     facility.addressText?.trim() ||
     t('municipal.unnamedFacility');
   const freshness = facility.availabilityFreshness ?? facility.freshness;
-  const provenanceEntries = Object.entries(facility.selectedFieldProvenanceSummary ?? {}).slice(
-    0,
-    6,
-  );
+  const dataSourceLabels = municipalDataSourceLabels(facility);
+  const dataSourceLine = formatMunicipalDataSourcesLine(facility);
+  const dataSourceHeadingKey =
+    dataSourceLabels.length > 1 ? 'municipal.dataSources' : 'municipal.dataSource';
 
   return (
     <div
@@ -103,17 +104,12 @@ export function SelectedMunicipalFacilityPreview({
           ) : null}
 
           <dl className="m-0 mt-sm grid gap-xs text-label-sm text-on-surface">
-            {facility.sourceLabel || facility.attribution ? (
+            {dataSourceLine ? (
               <div className="flex gap-sm">
                 <dt className="shrink-0 font-medium text-on-surface-variant">
-                  {t('municipal.source')}
+                  {t(dataSourceHeadingKey)}
                 </dt>
-                <dd className="m-0 min-w-0">
-                  {facility.sourceLabel ?? facility.attribution}
-                  {facility.attribution && facility.sourceLabel
-                    ? ` · ${facility.attribution}`
-                    : null}
-                </dd>
+                <dd className="m-0 min-w-0">{dataSourceLine}</dd>
               </div>
             ) : null}
             {facility.availableSpaces != null || facility.capacityTotal != null ? (
@@ -147,22 +143,6 @@ export function SelectedMunicipalFacilityPreview({
               </div>
             ) : null}
           </dl>
-
-          {provenanceEntries.length > 0 ? (
-            <div className="mt-sm rounded-2xl bg-surface-container/80 px-sm py-sm">
-              <p className="m-0 text-label-sm font-semibold text-on-surface-variant">
-                {t('municipal.provenance')}
-              </p>
-              <ul className="m-0 mt-xs list-none space-y-xs p-0 text-label-sm text-on-surface">
-                {provenanceEntries.map(([field, source]) => (
-                  <li key={field} className="flex justify-between gap-sm">
-                    <span className="text-on-surface-variant">{field}</span>
-                    <span className="truncate font-medium">{source}</span>
-                  </li>
-                ))}
-              </ul>
-            </div>
-          ) : null}
         </div>
       </div>
 

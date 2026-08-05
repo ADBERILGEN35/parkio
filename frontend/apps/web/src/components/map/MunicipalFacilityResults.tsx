@@ -1,4 +1,5 @@
 import type { MunicipalFacility, MunicipalFacilityType, NearbySearchParams } from '@parkio/types';
+import { displaySourceLabelForFilter, formatMunicipalDataSourcesLine } from '@parkio/geo';
 import { EmptyState, Icon, SpotCardSkeleton, cn } from '@parkio/ui';
 import type { UseQueryResult } from '@tanstack/react-query';
 import { useEffect, useMemo, useRef } from 'react';
@@ -194,7 +195,7 @@ function MunicipalFacilityListItem({
       ),
     [facility.latitude, facility.longitude, params.lat, params.lng],
   );
-  const source = facility.sourceLabel?.trim() || null;
+  const source = formatMunicipalDataSourcesLine(facility);
 
   useEffect(() => {
     if (selected && selectionFromMap) {
@@ -289,15 +290,17 @@ function MunicipalFilterBar({
 
       {availableSourceLabels.map((label) => {
         const pressed = filters.sourceLabels.includes(label);
+        const displayLabel = displaySourceLabelForFilter(label);
+        if (!displayLabel) return null;
         return (
           <FilterChip
             key={label}
             pressed={pressed}
             onClick={() => toggleSource(label)}
             testId="municipal-filter-source"
-            title={label}
+            title={displayLabel}
           >
-            <span className="max-w-[10rem] truncate">{label}</span>
+            <span className="max-w-[10rem] truncate">{displayLabel}</span>
           </FilterChip>
         );
       })}

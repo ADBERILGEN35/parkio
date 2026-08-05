@@ -1,5 +1,6 @@
 import { isParkioApiError } from '@parkio/api-client';
 import type { MunicipalFacility, MunicipalFacilityType, MunicipalOccupancyFreshness } from '@parkio/types';
+import { municipalDataSourceLabels } from '@parkio/geo';
 import { EmptyState, Icon, SoftBadge, Surface, cn } from '@parkio/ui';
 import type { ReactNode } from 'react';
 import { Link, useParams } from 'react-router-dom';
@@ -79,7 +80,9 @@ function FacilityDetailBody({ facility }: { facility: MunicipalFacility }) {
     facility.addressText?.trim() ||
     t('municipal.unnamedFacility');
   const freshness = facility.availabilityFreshness ?? facility.freshness;
-  const provenanceEntries = Object.entries(facility.selectedFieldProvenanceSummary ?? {});
+  const dataSourceLabels = municipalDataSourceLabels(facility);
+  const dataSourceHeadingKey =
+    dataSourceLabels.length > 1 ? 'municipal.dataSources' : 'municipal.dataSource';
 
   return (
     <article
@@ -126,12 +129,17 @@ function FacilityDetailBody({ facility }: { facility: MunicipalFacility }) {
           {facility.operatorName ? (
             <DetailRow label={t('municipal.operator')}>{facility.operatorName}</DetailRow>
           ) : null}
-          {facility.sourceLabel || facility.attribution ? (
-            <DetailRow label={t('municipal.source')}>
-              {facility.sourceLabel ?? facility.attribution}
-              {facility.attribution && facility.sourceLabel
-                ? ` · ${facility.attribution}`
-                : null}
+          {dataSourceLabels.length > 0 ? (
+            <DetailRow label={t(dataSourceHeadingKey)}>
+              {dataSourceLabels.length === 1 ? (
+                dataSourceLabels[0]
+              ) : (
+                <ul className="m-0 list-none space-y-xs p-0">
+                  {dataSourceLabels.map((label) => (
+                    <li key={label}>{label}</li>
+                  ))}
+                </ul>
+              )}
             </DetailRow>
           ) : null}
           <DetailRow label={t('municipal.coordinates')}>
@@ -154,23 +162,6 @@ function FacilityDetailBody({ facility }: { facility: MunicipalFacility }) {
       </Surface>
 
       <MunicipalFacilityLocationSection facility={facility} facilityTitle={title} />
-
-      {provenanceEntries.length > 0 ? (
-        <Surface level="raised" className="rounded-3xl p-md md:p-lg">
-          <h2 className="m-0 text-title-md text-on-surface">{t('municipal.provenance')}</h2>
-          <ul className="m-0 mt-sm list-none space-y-sm p-0">
-            {provenanceEntries.map(([field, source]) => (
-              <li
-                key={field}
-                className="flex justify-between gap-md border-b border-outline-variant/20 py-xs text-label-md last:border-b-0"
-              >
-                <span className="text-on-surface-variant">{field}</span>
-                <span className="truncate font-medium text-on-surface">{source}</span>
-              </li>
-            ))}
-          </ul>
-        </Surface>
-      ) : null}
     </article>
   );
 }

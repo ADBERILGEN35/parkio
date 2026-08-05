@@ -37,6 +37,19 @@ export {
   filterMunicipalFacilities,
 } from './municipalDiscovery';
 export {
+  MUNICIPAL_CANONICAL_LABEL_IZUM,
+  MUNICIPAL_CANONICAL_LABEL_OSM,
+  MUNICIPAL_SOURCE_KEY_IZUM,
+  MUNICIPAL_SOURCE_KEY_OSM,
+  type MunicipalSourceFamily,
+  municipalSourceFamily,
+  canonicalLabelForSourceKey,
+  canonicalLabelForSourceLabel,
+  municipalDataSourceLabels,
+  formatMunicipalDataSourcesLine,
+  displaySourceLabelForFilter,
+} from './municipalSourcePresentation';
+export {
   type Availability,
   type ConfidenceTier,
   type SpotPresentation,

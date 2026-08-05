@@ -27,6 +27,8 @@ function queryResult(
 
 const params: NearbySearchParams = { lat: 38.4237, lng: 27.1428, radius: 1000 };
 
+const RAW_OSM_SOURCE_LABEL = 'OpenStreetMap contributors / Geofabrik GmbH';
+
 function renderResults(
   overrides: Partial<ComponentProps<typeof MunicipalFacilityResults>> = {},
 ) {
@@ -39,7 +41,7 @@ function renderResults(
       totalCount={1}
       filters={EMPTY_MUNICIPAL_FILTERS}
       onFiltersChange={() => undefined}
-      availableSourceLabels={['OSM']}
+      availableSourceLabels={[RAW_OSM_SOURCE_LABEL]}
       availableFacilityTypes={['OFF_STREET']}
       selectedId={null}
       onSelect={() => undefined}
@@ -104,10 +106,17 @@ describe('MunicipalFacilityResults', () => {
     renderResults();
     expect(screen.getByTestId('municipal-facility-filters')).toBeInTheDocument();
     expect(screen.getByTestId('municipal-filter-availability-available')).toBeInTheDocument();
-    expect(screen.getByTestId('municipal-filter-source')).toHaveTextContent('OSM');
+    expect(screen.getByTestId('municipal-filter-source')).toHaveTextContent('OpenStreetMap');
     expect(screen.getByTestId('municipal-filter-type-OFF_STREET')).toBeInTheDocument();
     expect(screen.getByTestId('municipal-filter-provenance')).toBeInTheDocument();
     expect(screen.getByText(/1 municipal facilities shown after filters/i)).toBeInTheDocument();
+  });
+
+  it('shows canonical source on list cards without raw backend strings', () => {
+    renderResults();
+    expect(screen.getByTestId('municipal-facility-result')).toHaveTextContent('OpenStreetMap');
+    expect(screen.queryByText(/Geofabrik/i)).not.toBeInTheDocument();
+    expect(screen.queryByText(/osm-geofabrik-turkey/i)).not.toBeInTheDocument();
   });
 
   it('toggles availability and source filters', () => {
@@ -121,7 +130,7 @@ describe('MunicipalFacilityResults', () => {
 
     fireEvent.click(screen.getByTestId('municipal-filter-source'));
     expect(onFiltersChange).toHaveBeenCalledWith(
-      expect.objectContaining({ sourceLabels: ['OSM'] }),
+      expect.objectContaining({ sourceLabels: [RAW_OSM_SOURCE_LABEL] }),
     );
 
     fireEvent.click(screen.getByTestId('municipal-filter-type-OFF_STREET'));
