@@ -436,6 +436,16 @@ async function spaGoto(page: Page, path: string) {
   }, path);
 }
 
+async function expectLoginRedirectWithReturn(
+  page: Page,
+  expectedReturn: string,
+) {
+  await expect(page).toHaveURL((url) => new URL(url).pathname === '/login');
+  const loginUrl = new URL(page.url());
+  expect(loginUrl.pathname).toBe('/login');
+  expect(loginUrl.searchParams.get('return')).toBe(expectedReturn);
+}
+
 /** Same-origin link click so React Router data-router + useBlocker observe the transition. */
 
 async function callRuntimeAuth(
@@ -603,12 +613,11 @@ test.describe('WP-03 canonical routing acceptance', () => {
     );
 
     backend.releaseBootstrap();
-    await expect(page).toHaveURL(/\/login$/);
+    await expectLoginRedirectWithReturn(page, '/admin/analytics?unsafe=1');
     await page.getByLabel('Email').fill(users.admin.email);
     await page.getByLabel('Password').fill(PASSWORD);
     await page.getByRole('button', { name: 'Sign in' }).click();
-    await expect(page).toHaveURL(/\/admin\/analytics$/);
-    expect(new URL(page.url()).search).toBe('');
+    await expect(page).toHaveURL(/\/admin\/analytics\?unsafe=1$/);
     expect(new URL(page.url()).hash).toBe('');
   });
 
@@ -847,7 +856,7 @@ test.describe('WP-03 canonical routing acceptance', () => {
       });
       channel.close();
     });
-    await expect(page).toHaveURL(/\/login$/);
+    await expectLoginRedirectWithReturn(page, '/upload');
     await expect(page.getByRole('dialog')).toHaveCount(0);
   });
 
@@ -1131,7 +1140,7 @@ test.describe('WP-03 canonical routing acceptance', () => {
       page.getByRole('heading', { name: 'Privacy Policy' }),
     ).toBeVisible();
     await spaGoto(page, '/map');
-    await expect(page).toHaveURL(/\/login$/);
+    await expectLoginRedirectWithReturn(page, '/map');
     await page.goBack();
     await expect(page).toHaveURL(/\/privacy$/);
     await expect(page).not.toHaveURL(/\/map$/);
