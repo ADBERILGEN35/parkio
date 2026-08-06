@@ -4,6 +4,7 @@ export * from './auth';
 export * from './gamification';
 export * from './geocoding';
 export * from './destination';
+export * from './saved-place';
 export * from './media';
 export * from './moderation';
 export * from './notification';

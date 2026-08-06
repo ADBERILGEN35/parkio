@@ -76,6 +76,17 @@
                 key-resolver: "#{@userOrIpKeyResolver}"
                 redis-rate-limiter.replenishRate: ${PARKIO_RL_DEFAULT_REPLENISH:30}
                 redis-rate-limiter.burstCapacity: ${PARKIO_RL_DEFAULT_BURST:60}
+        # --- Saved places (user-service; WP-SPA-03) ------------------------------
+        - id: places-service
+          uri: ${PARKIO_USER_SERVICE_URI:http://localhost:8082}
+          predicates:
+            - Path=/api/v1/places/**
+          filters:
+            - name: RequestRateLimiter
+              args:
+                key-resolver: "#{@userOrIpKeyResolver}"
+                redis-rate-limiter.replenishRate: ${PARKIO_RL_DEFAULT_REPLENISH:30}
+                redis-rate-limiter.burstCapacity: ${PARKIO_RL_DEFAULT_BURST:40}
         # --- Parking (create/verify/claim): moderate limit -----------------------
         - id: parking-service
           uri: ${PARKIO_PARKING_SERVICE_URI:http://localhost:8083}

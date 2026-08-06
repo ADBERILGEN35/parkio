@@ -217,6 +217,27 @@ public final class UserPreference {
         return homeLatitude != null && homeLongitude != null;
     }
 
+    /**
+     * Clears legacy Smart Return home coordinates (WP-SPA-03 dual-write / HOME delete).
+     * Unrelated preferences (lead minutes, default return time, today status) are preserved.
+     * Disables Smart Return when home is removed so alerts cannot use stale coordinates.
+     */
+    public void clearHomeLocation() {
+        this.homeLatitude = null;
+        this.homeLongitude = null;
+        this.homeLabel = null;
+        if (this.smartReturnEnabled) {
+            this.smartReturnEnabled = false;
+        }
+    }
+
+    /** Mirrors SavedPlace(HOME) into legacy columns without toggling enablement. */
+    public void mirrorHomeLocation(double latitude, double longitude, String homeLabel) {
+        this.homeLatitude = requireValidLatitude(latitude);
+        this.homeLongitude = requireValidLongitude(longitude);
+        this.homeLabel = normalizeHomeLabel(homeLabel);
+    }
+
     private static int requireValidRadius(int radius) {
         if (radius < MIN_RADIUS_METERS || radius > MAX_RADIUS_METERS) {
             throw new IllegalArgumentException(

@@ -120,6 +120,11 @@ info:
 parkio:
   smart-return:
     enabled: ${PARKIO_SMART_RETURN_ENABLED:false}
+  spa:
+    saved-places:
+      enabled: ${PARKIO_SPA_SAVED_PLACES_ENABLED:false}
+      migration-enabled: ${PARKIO_SPA_SAVED_PLACES_MIGRATION_ENABLED:false}
+      migration-batch-size: ${PARKIO_SPA_SAVED_PLACES_MIGRATION_BATCH_SIZE:200}
   openapi:
     enabled: ${PARKIO_OPENAPI_ENABLED:true}
   lifecycle:

@@ -62,6 +62,8 @@ import type {
   ResetPasswordRequest,
   ResolveAppealRequest,
   ResolveCaseRequest,
+  SavedPlace,
+  SavedPlaceListResponse,
   SmartReturnSettings,
   SmartReturnTodayRequest,
   SpotMediaAccessUrlResponse,
@@ -72,6 +74,7 @@ import type {
   UpdateProfileRequest,
   UpdateSmartReturnSettingsRequest,
   UploadMediaResponse,
+  UpsertSavedPlaceRequest,
   UpsertVehicleRequest,
   User,
   UserAnalytics,
@@ -81,6 +84,7 @@ import type {
   VerifyEmailRequest,
   VerifySpotRequest,
   WaitlistAcceptedResponse,
+  CreateCustomSavedPlaceRequest,
 } from '@parkio/types';
 import { apiErrorSchema, fieldErrorSchema } from '../api-error';
 import {
@@ -129,6 +133,12 @@ import {
 } from './gamification';
 import { geocodeResultResponseSchema, geocodeSearchResponseSchema } from './geocoding';
 import { destinationSchema, placeIdentitySchema } from './destination';
+import {
+  createCustomSavedPlaceRequestSchema,
+  savedPlaceListResponseSchema,
+  savedPlaceSchema,
+  upsertSavedPlaceRequestSchema,
+} from './saved-place';
 import {
   aiValidationResultResponseSchema,
   claimedRegionResponseSchema,
@@ -255,6 +265,10 @@ type ContractSchemaAssertions = [
   Assert<SchemaMatches<typeof geocodeSearchResponseSchema, GeocodeSearchResponse>>,
   Assert<SchemaMatches<typeof placeIdentitySchema, PlaceIdentity>>,
   Assert<SchemaMatches<typeof destinationSchema, Destination>>,
+  Assert<SchemaMatches<typeof savedPlaceSchema, SavedPlace>>,
+  Assert<SchemaMatches<typeof savedPlaceListResponseSchema, SavedPlaceListResponse>>,
+  Assert<SchemaMatches<typeof upsertSavedPlaceRequestSchema, UpsertSavedPlaceRequest>>,
+  Assert<SchemaMatches<typeof createCustomSavedPlaceRequestSchema, CreateCustomSavedPlaceRequest>>,
   Assert<SchemaMatches<typeof gamificationProgressResponseSchema, GamificationProgress>>,
   Assert<SchemaMatches<typeof pointTransactionEntryResponseSchema, PointTransactionEntry>>,
   Assert<SchemaMatches<typeof pointsSummaryResponseSchema, PointsSummary>>,

@@ -80,10 +80,11 @@ public class GlobalExceptionHandler {
 
     private static HttpStatus statusFor(UserErrorCode code) {
         return switch (code) {
-            case PROFILE_NOT_FOUND -> HttpStatus.NOT_FOUND;
-            case PROFILE_ALREADY_EXISTS -> HttpStatus.CONFLICT;
+            case PROFILE_NOT_FOUND, SAVED_PLACE_NOT_FOUND, SAVED_PLACES_DISABLED, SMART_RETURN_DISABLED
+                    -> HttpStatus.NOT_FOUND;
+            case PROFILE_ALREADY_EXISTS, SAVED_PLACE_CONFLICT, SAVED_PLACE_LIMIT_EXCEEDED
+                    -> HttpStatus.CONFLICT;
             case MISSING_USER_ID -> HttpStatus.UNAUTHORIZED;
-            case SMART_RETURN_DISABLED -> HttpStatus.NOT_FOUND;
         };
     }
 }

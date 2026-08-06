@@ -41,8 +41,15 @@ class GatewayRoutesTest {
                 // the geocoding route (parking-service behind a dedicated path + RL tier)
                 .contains("geocoding-service")
                 // and the previously-wired routes are still present
-                .contains("auth-service", "user-service", "parking-service", "media-service",
+                .contains("auth-service", "user-service", "places-service", "parking-service", "media-service",
                         "gamification-service", "notification-service", "moderation-service");
+    }
+
+    @Test
+    void placesRouteIsProtected() {
+        MockServerHttpRequest request = MockServerHttpRequest
+                .method(HttpMethod.GET, "/api/v1/places/saved").build();
+        assertThat(publicEndpoints.isPublic(request)).isFalse();
     }
 
     @Test

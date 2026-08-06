@@ -45,6 +45,7 @@ import java.util.Optional;
 import java.util.UUID;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -74,6 +75,7 @@ public class UserApplicationService {
     private final PendingUserStatusEventRepository pendingStatusEvents;
     private final Clock clock;
     private final SmartReturnMetrics smartReturnMetrics;
+    private final SavedPlaceApplicationService savedPlaces;
 
     public UserApplicationService(UserProfileRepository profiles,
                                   UserPreferenceRepository preferences,
@@ -85,6 +87,22 @@ public class UserApplicationService {
                                   PendingUserStatusEventRepository pendingStatusEvents,
                                   Clock clock,
                                   SmartReturnMetrics smartReturnMetrics) {
+        this(profiles, preferences, vehicles, trustProfiles, trustHistory, outbox, inbox,
+                pendingStatusEvents, clock, smartReturnMetrics, null);
+    }
+
+    @Autowired
+    public UserApplicationService(UserProfileRepository profiles,
+                                  UserPreferenceRepository preferences,
+                                  UserVehicleProfileRepository vehicles,
+                                  UserTrustProfileRepository trustProfiles,
+                                  UserTrustScoreHistoryRepository trustHistory,
+                                  OutboxEventAppender outbox,
+                                  InboxEventRepository inbox,
+                                  PendingUserStatusEventRepository pendingStatusEvents,
+                                  Clock clock,
+                                  SmartReturnMetrics smartReturnMetrics,
+                                  SavedPlaceApplicationService savedPlaces) {
         this.profiles = profiles;
         this.preferences = preferences;
         this.vehicles = vehicles;
@@ -95,6 +113,7 @@ public class UserApplicationService {
         this.pendingStatusEvents = pendingStatusEvents;
         this.clock = clock;
         this.smartReturnMetrics = smartReturnMetrics;
+        this.savedPlaces = savedPlaces;
     }
 
     /**
@@ -340,18 +359,26 @@ public class UserApplicationService {
 
     @Transactional(readOnly = true)
     public UserPreference getMySmartReturn(UUID authUserId) {
-        return requirePreferences(requireProfile(authUserId).id());
+        UserProfile profile = requireProfile(authUserId);
+        UserPreference preference = requirePreferences(profile.id());
+        return applyDualReadHome(profile.id(), preference);
     }
 
     public UserPreference updateMySmartReturnSettings(UUID authUserId, UpdateSmartReturnSettingsCommand command) {
-        UserPreference preference = requirePreferences(requireProfile(authUserId).id());
+        UserProfile profile = requireProfile(authUserId);
+        UserPreference preference = requirePreferences(profile.id());
         boolean wasEnabled = preference.smartReturnEnabled();
         preference.updateSmartReturnSettings(command.enabled(), command.homeLatitude(), command.homeLongitude(),
                 command.homeLabel(), command.defaultReturnTime(), command.reminderLeadMinutes());
         if (!wasEnabled && preference.smartReturnEnabled()) {
             smartReturnMetrics.recordEnabled();
         }
-        return preferences.save(preference);
+        UserPreference saved = preferences.save(preference);
+        if (savedPlaces != null && saved.hasHomeLocation()) {
+            savedPlaces.mirrorLegacyHomeToSavedPlace(
+                    profile.id(), saved.homeLatitude(), saved.homeLongitude(), saved.homeLabel());
+        }
+        return applyDualReadHome(profile.id(), saved);
     }
 
     public UserPreference markSmartReturnLeftByCar(UUID authUserId, SmartReturnReturnTimeCommand command) {
@@ -405,8 +432,19 @@ public class UserApplicationService {
                     preference.claimReturnCheck(now, now.plusSeconds(SMART_RETURN_CLAIM_TTL_SECONDS));
                     UserPreference saved = preferences.save(preference);
                     UserProfile profile = requireProfileById(saved.userProfileId());
-                    return new SmartReturnCheckCandidate(profile.authUserId(), saved.homeLatitude(),
-                            saved.homeLongitude(), saved.homeLabel(), saved.preferredRadiusMeters(),
+                    double homeLat = saved.homeLatitude();
+                    double homeLng = saved.homeLongitude();
+                    String homeLabel = saved.homeLabel();
+                    if (savedPlaces != null) {
+                        var resolved = savedPlaces.resolveHome(saved.userProfileId(), saved);
+                        if (resolved.isPresent()) {
+                            homeLat = resolved.get().latitude();
+                            homeLng = resolved.get().longitude();
+                            homeLabel = resolved.get().label();
+                        }
+                    }
+                    return new SmartReturnCheckCandidate(profile.authUserId(), homeLat,
+                            homeLng, homeLabel, saved.preferredRadiusMeters(),
                             saved.todayExpectedReturnAt(), claimRetried);
                 })
                 .toList();
@@ -475,6 +513,15 @@ public class UserApplicationService {
     private UserTrustProfile requireTrustProfile(UUID userProfileId) {
         return trustProfiles.findByUserProfileId(userProfileId)
                 .orElseThrow(() -> new UserException(UserErrorCode.PROFILE_NOT_FOUND));
+    }
+
+    private UserPreference applyDualReadHome(UUID profileId, UserPreference preference) {
+        if (savedPlaces == null) {
+            return preference;
+        }
+        savedPlaces.resolveHome(profileId, preference).ifPresent(resolved ->
+                preference.mirrorHomeLocation(resolved.latitude(), resolved.longitude(), resolved.label()));
+        return preference;
     }
 
     private static String deriveDisplayName(String email) {
