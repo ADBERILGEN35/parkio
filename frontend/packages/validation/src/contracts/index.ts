@@ -3,6 +3,7 @@ export * from './admin';
 export * from './auth';
 export * from './gamification';
 export * from './geocoding';
+export * from './destination';
 export * from './media';
 export * from './moderation';
 export * from './notification';

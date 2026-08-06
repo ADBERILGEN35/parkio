@@ -25,6 +25,7 @@ import type {
   CreateReportRequest,
   CreateSpotRequest,
   DailyAnalytics,
+  Destination,
   DeviceToken,
   FieldError,
   ForgotPasswordRequest,
@@ -48,6 +49,7 @@ import type {
   ParkingSessionHistoryParams,
   ParkingSessionHistoryResponse,
   ParkingSessionResponse,
+  PlaceIdentity,
   PointTransactionEntry,
   PointsSummary,
   Profile,
@@ -126,6 +128,7 @@ import {
   pointsSummaryResponseSchema,
 } from './gamification';
 import { geocodeResultResponseSchema, geocodeSearchResponseSchema } from './geocoding';
+import { destinationSchema, placeIdentitySchema } from './destination';
 import {
   aiValidationResultResponseSchema,
   claimedRegionResponseSchema,
@@ -250,6 +253,8 @@ type ContractSchemaAssertions = [
   Assert<SchemaMatches<typeof analyticsMetricResponseSchema, AnalyticsMetric>>,
   Assert<SchemaMatches<typeof geocodeResultResponseSchema, GeocodeResult>>,
   Assert<SchemaMatches<typeof geocodeSearchResponseSchema, GeocodeSearchResponse>>,
+  Assert<SchemaMatches<typeof placeIdentitySchema, PlaceIdentity>>,
+  Assert<SchemaMatches<typeof destinationSchema, Destination>>,
   Assert<SchemaMatches<typeof gamificationProgressResponseSchema, GamificationProgress>>,
   Assert<SchemaMatches<typeof pointTransactionEntryResponseSchema, PointTransactionEntry>>,
   Assert<SchemaMatches<typeof pointsSummaryResponseSchema, PointsSummary>>,
