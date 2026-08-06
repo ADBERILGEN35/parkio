@@ -4,6 +4,14 @@ import com.parkio.parking.application.MunicipalFacilityQueryService;
 import com.parkio.parking.application.MunicipalFacilityQueryService.FacilityView;
 import com.parkio.parking.application.ParkingApplicationService;
 import com.parkio.parking.application.command.SearchNearbyQuery;
+import com.parkio.parking.application.port.FavouriteFacilityLookupPort;
+import com.parkio.parking.application.recommendation.ranking.DeterministicParkingCandidateRanker;
+import com.parkio.parking.application.recommendation.ranking.ParkingCandidateRanker;
+import com.parkio.parking.application.recommendation.ranking.RankingContext;
+import com.parkio.parking.application.recommendation.ranking.RankingMetrics;
+import com.parkio.parking.application.recommendation.ranking.RankingProperties;
+import com.parkio.parking.application.recommendation.ranking.RankingStatus;
+import com.parkio.parking.application.recommendation.ranking.RankingVersion;
 import com.parkio.parking.domain.ParkingSpot;
 import com.parkio.parking.domain.exception.ParkingErrorCode;
 import com.parkio.parking.domain.exception.ParkingException;
@@ -11,7 +19,10 @@ import com.parkio.parking.domain.place.Destination;
 import java.time.Clock;
 import java.util.ArrayList;
 import java.util.Comparator;
+import java.util.HashSet;
 import java.util.List;
+import java.util.Set;
+import java.util.UUID;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.CompletionException;
 import java.util.concurrent.Executor;
@@ -22,14 +33,12 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 
 /**
- * Dual-inventory recommendation orchestration (WP-SPA-05).
+ * Dual-inventory recommendation orchestration (WP-SPA-05 / WP-SPA-06).
  *
- * <p>Composes existing community and municipal nearby paths into a deterministic
- * distance-ordered {@link ParkingCandidate} list. Does not implement weighted
- * ranking, favourite boosts, or recents (WP-SPA-06 / WP-SPA-07).
- *
- * <p>No response cache — nearby inventories are occupancy-sensitive and the
- * existing discovery paths are uncached.
+ * <p>Composes community and municipal nearby paths into {@link ParkingCandidate}
+ * views, then applies deterministic ranking when enabled. Ranking does not own
+ * inventory fetching. Favourite lookup is fail-open and never marks inventory
+ * degraded.
  */
 @Service
 public class RecommendationApplicationService {
@@ -48,6 +57,10 @@ public class RecommendationApplicationService {
 
     private final ParkingApplicationService communityParking;
     private final MunicipalFacilityQueryService municipalFacilities;
+    private final FavouriteFacilityLookupPort favouriteLookup;
+    private final ParkingCandidateRanker ranker;
+    private final RankingProperties rankingProperties;
+    private final RankingMetrics rankingMetrics;
     private final Clock clock;
     private final RecommendationMetrics metrics;
     private final Executor executor;
@@ -56,11 +69,19 @@ public class RecommendationApplicationService {
     public RecommendationApplicationService(
             ParkingApplicationService communityParking,
             MunicipalFacilityQueryService municipalFacilities,
+            FavouriteFacilityLookupPort favouriteLookup,
+            ParkingCandidateRanker ranker,
+            RankingProperties rankingProperties,
+            RankingMetrics rankingMetrics,
             Clock clock,
             RecommendationMetrics metrics) {
         this(
                 communityParking,
                 municipalFacilities,
+                favouriteLookup,
+                ranker,
+                rankingProperties,
+                rankingMetrics,
                 clock,
                 metrics,
                 Executors.newVirtualThreadPerTaskExecutor());
@@ -69,11 +90,19 @@ public class RecommendationApplicationService {
     RecommendationApplicationService(
             ParkingApplicationService communityParking,
             MunicipalFacilityQueryService municipalFacilities,
+            FavouriteFacilityLookupPort favouriteLookup,
+            ParkingCandidateRanker ranker,
+            RankingProperties rankingProperties,
+            RankingMetrics rankingMetrics,
             Clock clock,
             RecommendationMetrics metrics,
             Executor executor) {
         this.communityParking = communityParking;
         this.municipalFacilities = municipalFacilities;
+        this.favouriteLookup = favouriteLookup;
+        this.ranker = ranker;
+        this.rankingProperties = rankingProperties;
+        this.rankingMetrics = rankingMetrics;
         this.clock = clock;
         this.metrics = metrics;
         this.executor = executor;
@@ -135,14 +164,20 @@ public class RecommendationApplicationService {
         merged.addAll(municipalFetch.candidates());
         merged.sort(BASELINE_ORDER);
 
-        List<ParkingCandidate> limited = new ArrayList<>();
-        int order = 0;
-        for (ParkingCandidate candidate : merged) {
-            if (limited.size() >= query.limit()) {
-                break;
-            }
-            limited.add(ParkingCandidateMapper.withBaselineOrder(candidate, order++));
+        List<ParkingCandidate> withBaseline = new ArrayList<>(merged.size());
+        for (int i = 0; i < merged.size(); i++) {
+            withBaseline.add(ParkingCandidateMapper.withBaselineOrder(merged.get(i), i));
         }
+
+        RankingProperties.RankingConfiguration config = rankingProperties.snapshot();
+        Set<UUID> favouriteIds = lookupFavourites(query, withBaseline, config);
+
+        ParkingCandidateRanker.RankingOutcome outcome = applyRanking(
+                destination, query, withBaseline, favouriteIds, config);
+
+        List<ParkingCandidate> limited = outcome.ranked().stream()
+                .limit(query.limit())
+                .toList();
 
         boolean partial = requestedFailures > 0;
         List<RecommendationReason> warnings = partial
@@ -156,7 +191,9 @@ public class RecommendationApplicationService {
                 communityFetch.status(),
                 municipalFetch.status(),
                 limited,
-                warnings);
+                warnings,
+                outcome.version(),
+                outcome.status());
 
         metrics.record(
                 partial,
@@ -168,16 +205,122 @@ public class RecommendationApplicationService {
                 query.limit(),
                 System.nanoTime() - started);
 
+        if (!limited.isEmpty()) {
+            rankingMetrics.recordTopChannel(limited.getFirst().channel().name());
+            if (limited.getFirst().score() != null) {
+                rankingMetrics.recordScoreBucket(limited.getFirst().score());
+            }
+        }
+
         log.info(
-                "recommendation complete partial={} community={} municipal={} results={} radiusBucket={} limitBucket={}",
+                "recommendation complete partial={} community={} municipal={} results={} ranking={} radiusBucket={} limitBucket={}",
                 partial,
                 communityFetch.status(),
                 municipalFetch.status(),
                 limited.size(),
+                outcome.status(),
                 RecommendationMetrics.radiusBucket(query.radiusMeters()),
                 RecommendationMetrics.limitBucket(query.limit()));
 
         return result;
+    }
+
+    private Set<UUID> lookupFavourites(
+            RecommendationQuery query,
+            List<ParkingCandidate> candidates,
+            RankingProperties.RankingConfiguration config) {
+        if (!config.enabled() || !config.favouritesEnabled()) {
+            return Set.of();
+        }
+        Set<UUID> municipalIds = new HashSet<>();
+        for (ParkingCandidate candidate : candidates) {
+            if (candidate.channel() != ParkingCandidateChannel.MUNICIPAL_FACILITY) {
+                continue;
+            }
+            try {
+                municipalIds.add(UUID.fromString(candidate.refId()));
+            } catch (IllegalArgumentException ignored) {
+                // skip malformed ref
+            }
+        }
+        if (municipalIds.isEmpty()) {
+            return Set.of();
+        }
+        return favouriteLookup.favouritedMunicipalFacilityIds(query.requesterUserId(), municipalIds);
+    }
+
+    private ParkingCandidateRanker.RankingOutcome applyRanking(
+            Destination destination,
+            RecommendationQuery query,
+            List<ParkingCandidate> withBaseline,
+            Set<UUID> favouriteIds,
+            RankingProperties.RankingConfiguration config) {
+        long rankingStarted = System.nanoTime();
+        RankingContext context = new RankingContext(
+                destination,
+                query.requesterUserId(),
+                query.radiusMeters(),
+                withBaseline,
+                favouriteIds,
+                config);
+        try {
+            ParkingCandidateRanker.RankingOutcome outcome = ranker.rank(context);
+            if (outcome.status() == RankingStatus.APPLIED) {
+                recordShadow(withBaseline, outcome.ranked());
+            }
+            rankingMetrics.recordApplied(
+                    outcome.version(), outcome.status(), System.nanoTime() - rankingStarted);
+            return outcome;
+        } catch (RuntimeException ex) {
+            log.warn(
+                    "recommendation ranking failed; falling back to distance baseline type={}",
+                    ex.getClass().getSimpleName());
+            List<ParkingCandidate> fallback = DeterministicParkingCandidateRanker.baselineOrder(withBaseline)
+                    .stream()
+                    .map(c -> new ParkingCandidate(
+                            c.id(),
+                            c.channel(),
+                            c.refId(),
+                            c.title(),
+                            c.latitude(),
+                            c.longitude(),
+                            c.distanceMeters(),
+                            c.availability(),
+                            c.sourceLabel(),
+                            c.baselineOrder(),
+                            c.reasons(),
+                            null,
+                            null,
+                            RankingVersion.DISTANCE_BASELINE_V1.name()))
+                    .toList();
+            ParkingCandidateRanker.RankingOutcome outcome = new ParkingCandidateRanker.RankingOutcome(
+                    fallback, RankingVersion.DISTANCE_BASELINE_V1, RankingStatus.FALLBACK);
+            rankingMetrics.recordApplied(
+                    outcome.version(), outcome.status(), System.nanoTime() - rankingStarted);
+            return outcome;
+        }
+    }
+
+    private void recordShadow(List<ParkingCandidate> baselineOrdered, List<ParkingCandidate> ranked) {
+        if (baselineOrdered.isEmpty() || ranked.isEmpty()) {
+            return;
+        }
+        boolean top1Changed = !baselineOrdered.getFirst().id().equals(ranked.getFirst().id());
+        Set<String> baselineTop3 = new HashSet<>();
+        Set<String> rankedTop3 = new HashSet<>();
+        for (int i = 0; i < Math.min(3, baselineOrdered.size()); i++) {
+            baselineTop3.add(baselineOrdered.get(i).id());
+        }
+        for (int i = 0; i < Math.min(3, ranked.size()); i++) {
+            rankedTop3.add(ranked.get(i).id());
+        }
+        int overlap = 0;
+        for (String id : rankedTop3) {
+            if (baselineTop3.contains(id)) {
+                overlap++;
+            }
+        }
+        rankingMetrics.recordShadow(top1Changed, overlap);
     }
 
     static RecommendationQuery normalize(RecommendationQuery raw) {
@@ -246,7 +389,7 @@ public class RecommendationApplicationService {
                             .toList();
                 },
                 executor);
-        return ChannelFetch.pending(future, ParkingCandidateChannel.COMMUNITY_SPOT);
+        return ChannelFetch.pending(future);
     }
 
     private ChannelFetch fetchMunicipalAsync(RecommendationQuery query) {
@@ -266,7 +409,7 @@ public class RecommendationApplicationService {
                             .toList();
                 },
                 executor);
-        return ChannelFetch.pending(future, ParkingCandidateChannel.MUNICIPAL_FACILITY);
+        return ChannelFetch.pending(future);
     }
 
     private static final class ChannelFetch {
@@ -287,11 +430,8 @@ public class RecommendationApplicationService {
             return new ChannelFetch(InventoryChannelStatus.DISABLED, null);
         }
 
-        static ChannelFetch pending(
-                CompletableFuture<List<ParkingCandidate>> future, ParkingCandidateChannel channel) {
-            ChannelFetch fetch = new ChannelFetch(null, future);
-            // channel retained only for clarity in stack traces via future
-            return fetch;
+        static ChannelFetch pending(CompletableFuture<List<ParkingCandidate>> future) {
+            return new ChannelFetch(null, future);
         }
 
         void await() {

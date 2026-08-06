@@ -1,6 +1,7 @@
 import { z } from 'zod';
 import type {
   CandidateAvailability,
+  CandidateScoreBreakdown,
   InventoryStatus,
   ParkingCandidate,
   RecommendationDestinationInput,
@@ -31,7 +32,13 @@ export const recommendationReasonCodeSchema = z.enum([
   'STATIC_INVENTORY',
   'COMMUNITY_FRESH',
   'INVENTORY_DEGRADED',
+  'FAVOURITE',
+  'HIGH_CONFIDENCE',
 ]);
+
+export const rankingVersionSchema = z.enum(['DISTANCE_BASELINE_V1', 'DETERMINISTIC_V1']);
+
+export const rankingStatusSchema = z.enum(['DISABLED', 'APPLIED', 'FALLBACK']);
 
 export const recommendationReasonSchema = z
   .object({
@@ -63,6 +70,16 @@ export const candidateAvailabilitySchema = z
   })
   .strip() satisfies z.ZodType<CandidateAvailability>;
 
+export const candidateScoreBreakdownSchema = z
+  .object({
+    distance: finiteNumberSchema.min(0).max(1),
+    freshness: finiteNumberSchema.min(0).max(1),
+    capacity: finiteNumberSchema.min(0).max(1),
+    confidence: finiteNumberSchema.min(0).max(1),
+    favourite: finiteNumberSchema.min(0).max(1),
+  })
+  .strip() satisfies z.ZodType<CandidateScoreBreakdown>;
+
 export const parkingCandidateSchema = z
   .object({
     id: z.string().min(1),
@@ -76,6 +93,9 @@ export const parkingCandidateSchema = z
     sourceLabel: z.string().nullish(),
     baselineOrder: z.number().int().nonnegative(),
     reasons: z.array(recommendationReasonSchema),
+    score: finiteNumberSchema.min(0).max(1).nullish(),
+    scoreBreakdown: candidateScoreBreakdownSchema.nullish(),
+    rankingVersion: z.string().nullish(),
   })
   .strip() satisfies z.ZodType<ParkingCandidate>;
 
@@ -115,5 +135,7 @@ export const recommendationResponseSchema = z
     inventoryStatus: inventoryStatusSchema,
     candidates: z.array(parkingCandidateSchema),
     warnings: z.array(recommendationReasonSchema).nullish(),
+    rankingVersion: rankingVersionSchema.nullish(),
+    rankingStatus: rankingStatusSchema.nullish(),
   })
   .strip() satisfies z.ZodType<RecommendationResponse>;

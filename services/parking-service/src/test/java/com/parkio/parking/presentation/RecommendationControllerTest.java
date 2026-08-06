@@ -14,6 +14,8 @@ import com.parkio.parking.application.recommendation.RecommendationApplicationSe
 import com.parkio.parking.application.recommendation.RecommendationReason;
 import com.parkio.parking.application.recommendation.RecommendationReasonCode;
 import com.parkio.parking.application.recommendation.RecommendationResult;
+import com.parkio.parking.application.recommendation.ranking.RankingStatus;
+import com.parkio.parking.application.recommendation.ranking.RankingVersion;
 import com.parkio.parking.domain.exception.ParkingErrorCode;
 import com.parkio.parking.domain.exception.ParkingException;
 import com.parkio.parking.domain.place.Destination;
@@ -102,7 +104,9 @@ class RecommendationControllerTest {
                 InventoryChannelStatus.EMPTY,
                 InventoryChannelStatus.AVAILABLE,
                 List.of(candidate),
-                List.of()));
+                List.of(),
+                RankingVersion.DISTANCE_BASELINE_V1,
+                RankingStatus.DISABLED));
 
         mockMvc.perform(post("/api/v1/parking/recommendations")
                         .header("X-User-Id", USER_ID)
@@ -110,6 +114,8 @@ class RecommendationControllerTest {
                         .content(validBody()))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.partial").value(false))
+                .andExpect(jsonPath("$.rankingVersion").value("DISTANCE_BASELINE_V1"))
+                .andExpect(jsonPath("$.rankingStatus").value("DISABLED"))
                 .andExpect(jsonPath("$.destination.label").value("Forum Bornova"))
                 .andExpect(jsonPath("$.inventoryStatus.municipal").value("AVAILABLE"))
                 .andExpect(jsonPath("$.candidates.length()").value(1))

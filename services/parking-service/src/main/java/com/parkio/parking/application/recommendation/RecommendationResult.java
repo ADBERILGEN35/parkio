@@ -1,5 +1,7 @@
 package com.parkio.parking.application.recommendation;
 
+import com.parkio.parking.application.recommendation.ranking.RankingStatus;
+import com.parkio.parking.application.recommendation.ranking.RankingVersion;
 import com.parkio.parking.domain.place.Destination;
 import java.time.Instant;
 import java.util.List;
@@ -13,7 +15,9 @@ public record RecommendationResult(
         InventoryChannelStatus communityStatus,
         InventoryChannelStatus municipalStatus,
         List<ParkingCandidate> candidates,
-        List<RecommendationReason> warnings) {
+        List<RecommendationReason> warnings,
+        RankingVersion rankingVersion,
+        RankingStatus rankingStatus) {
 
     public RecommendationResult {
         Objects.requireNonNull(destination, "destination");
@@ -22,6 +26,8 @@ public record RecommendationResult(
         Objects.requireNonNull(municipalStatus, "municipalStatus");
         Objects.requireNonNull(candidates, "candidates");
         Objects.requireNonNull(warnings, "warnings");
+        Objects.requireNonNull(rankingVersion, "rankingVersion");
+        Objects.requireNonNull(rankingStatus, "rankingStatus");
         candidates = List.copyOf(candidates);
         warnings = List.copyOf(warnings);
     }

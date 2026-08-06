@@ -1,8 +1,10 @@
 package com.parkio.parking.application.recommendation;
 
 /**
- * Baseline reason codes for WP-SPA-05. These describe candidates; they do
- * <em>not</em> drive ordering. Weighted ranking arrives in WP-SPA-06.
+ * Reason codes for recommendation candidates / warnings.
+ *
+ * <p>SPA-05 baseline codes describe candidates; SPA-06 adds {@link #FAVOURITE}
+ * and {@link #HIGH_CONFIDENCE}. Codes do not inject client-supplied scores.
  */
 public enum RecommendationReasonCode {
     CLOSE_TO_DESTINATION,
@@ -10,5 +12,7 @@ public enum RecommendationReasonCode {
     HIGH_CAPACITY,
     STATIC_INVENTORY,
     COMMUNITY_FRESH,
-    INVENTORY_DEGRADED
+    INVENTORY_DEGRADED,
+    FAVOURITE,
+    HIGH_CONFIDENCE
 }

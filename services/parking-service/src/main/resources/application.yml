@@ -312,6 +312,23 @@ parkio:
     recommendations:
       # WP-SPA-05 destination parking recommendations. Default off; schema-free kill switch.
       enabled: ${PARKIO_SPA_RECOMMENDATIONS_ENABLED:false}
+    ranking:
+      # WP-SPA-06 deterministic ranking. Default off — preserves SPA-05 distance order.
+      enabled: ${PARKIO_SPA_RANKING_ENABLED:false}
+      favourites-enabled: ${PARKIO_SPA_RANKING_FAVOURITES_ENABLED:true}
+      distance-weight: ${PARKIO_SPA_RANKING_DISTANCE_WEIGHT:0.35}
+      freshness-weight: ${PARKIO_SPA_RANKING_FRESHNESS_WEIGHT:0.25}
+      capacity-weight: ${PARKIO_SPA_RANKING_CAPACITY_WEIGHT:0.15}
+      confidence-weight: ${PARKIO_SPA_RANKING_CONFIDENCE_WEIGHT:0.15}
+      favourite-weight: ${PARKIO_SPA_RANKING_FAVOURITE_WEIGHT:0.10}
+      distance-cap-meters: ${PARKIO_SPA_RANKING_DISTANCE_CAP_METERS:1200}
+  user:
+    client:
+      # Internal base URL of user-service for favourite parking status (WP-SPA-06).
+      # Fail-open; short timeouts so ranking continues with favourite=0 on outage.
+      base-url: ${PARKIO_USER_SERVICE_URI:http://localhost:8082}
+      connect-timeout: ${PARKIO_USER_CLIENT_CONNECT_TIMEOUT:1s}
+      read-timeout: ${PARKIO_USER_CLIENT_READ_TIMEOUT:2s}
   parking:
     # One-shot legacy inventory reset. Keep disabled except on an explicit operator run.
     legacy-policy-reset:

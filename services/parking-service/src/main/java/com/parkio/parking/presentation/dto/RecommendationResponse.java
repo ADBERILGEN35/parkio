@@ -8,6 +8,9 @@ import com.parkio.parking.application.recommendation.ParkingCandidateChannel;
 import com.parkio.parking.application.recommendation.RecommendationReason;
 import com.parkio.parking.application.recommendation.RecommendationReasonCode;
 import com.parkio.parking.application.recommendation.RecommendationResult;
+import com.parkio.parking.application.recommendation.ranking.CandidateScoreBreakdown;
+import com.parkio.parking.application.recommendation.ranking.RankingStatus;
+import com.parkio.parking.application.recommendation.ranking.RankingVersion;
 import com.parkio.parking.externalsource.MunicipalOccupancyFreshness;
 import java.time.Instant;
 import java.util.List;
@@ -20,7 +23,9 @@ public record RecommendationResponse(
         boolean partial,
         InventoryStatusResponse inventoryStatus,
         List<ParkingCandidateResponse> candidates,
-        List<RecommendationReasonResponse> warnings) {
+        List<RecommendationReasonResponse> warnings,
+        RankingVersion rankingVersion,
+        RankingStatus rankingStatus) {
 
     public static RecommendationResponse from(RecommendationResult result) {
         return new RecommendationResponse(
@@ -33,7 +38,9 @@ public record RecommendationResponse(
                 result.candidates().stream().map(ParkingCandidateResponse::from).toList(),
                 result.warnings().isEmpty()
                         ? null
-                        : result.warnings().stream().map(RecommendationReasonResponse::from).toList());
+                        : result.warnings().stream().map(RecommendationReasonResponse::from).toList(),
+                result.rankingVersion(),
+                result.rankingStatus());
     }
 
     public record InventoryStatusResponse(
@@ -51,7 +58,10 @@ public record RecommendationResponse(
             CandidateAvailabilityResponse availability,
             String sourceLabel,
             int baselineOrder,
-            List<RecommendationReasonResponse> reasons) {
+            List<RecommendationReasonResponse> reasons,
+            Double score,
+            ScoreBreakdownResponse scoreBreakdown,
+            String rankingVersion) {
 
         static ParkingCandidateResponse from(ParkingCandidate candidate) {
             return new ParkingCandidateResponse(
@@ -65,7 +75,30 @@ public record RecommendationResponse(
                     CandidateAvailabilityResponse.from(candidate.availability()),
                     candidate.sourceLabel(),
                     candidate.baselineOrder(),
-                    candidate.reasons().stream().map(RecommendationReasonResponse::from).toList());
+                    candidate.reasons().stream().map(RecommendationReasonResponse::from).toList(),
+                    candidate.score(),
+                    ScoreBreakdownResponse.from(candidate.scoreBreakdown()),
+                    candidate.rankingVersion());
+        }
+    }
+
+    public record ScoreBreakdownResponse(
+            double distance,
+            double freshness,
+            double capacity,
+            double confidence,
+            double favourite) {
+
+        static ScoreBreakdownResponse from(CandidateScoreBreakdown breakdown) {
+            if (breakdown == null) {
+                return null;
+            }
+            return new ScoreBreakdownResponse(
+                    breakdown.distance(),
+                    breakdown.freshness(),
+                    breakdown.capacity(),
+                    breakdown.confidence(),
+                    breakdown.favourite());
         }
     }
 

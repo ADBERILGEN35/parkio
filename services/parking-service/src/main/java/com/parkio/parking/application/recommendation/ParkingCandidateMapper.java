@@ -89,7 +89,10 @@ public final class ParkingCandidateMapper {
                 candidate.availability(),
                 candidate.sourceLabel(),
                 order,
-                candidate.reasons());
+                candidate.reasons(),
+                candidate.score(),
+                candidate.scoreBreakdown(),
+                candidate.rankingVersion());
     }
 
     private static String communityTitle(ParkingSpot spot) {

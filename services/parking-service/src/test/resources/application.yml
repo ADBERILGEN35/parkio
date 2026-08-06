@@ -65,6 +65,17 @@ parkio:
       base-url: http://localhost:0
       connect-timeout: 1s
       read-timeout: 1s
+  user:
+    client:
+      # No user-service in tests: fail-open favourite lookup uses unroutable port.
+      base-url: http://localhost:0
+      connect-timeout: 1s
+      read-timeout: 1s
+  spa:
+    recommendations:
+      enabled: false
+    ranking:
+      enabled: false
   parking:
     outcome:
       max-processing-attempts: 3

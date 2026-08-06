@@ -242,6 +242,8 @@ services:
       # Internal client for POST /internal/media/{id}/access-url (parkio.media.client.base-url).
       # Defaults to localhost:8084 (IDE dev); inside compose must be the service DNS name.
       PARKIO_MEDIA_SERVICE_URI: http://media-service:8084
+      # Favourite status lookup for ranking boosts (parkio.user.client.base-url).
+      PARKIO_USER_SERVICE_URI: http://user-service:8082
     healthcheck:
       <<: *app-healthcheck
       test: ["CMD", "curl", "-fsS", "http://localhost:8083/actuator/health/readiness"]

@@ -88,8 +88,8 @@ export function createParkingApi(client: AxiosInstance) {
     },
 
     /**
-     * Destination-scoped parking recommendations (WP-SPA-05).
-     * Baseline distance order — not weighted ranking.
+     * Destination-scoped parking recommendations (WP-SPA-05 / WP-SPA-06).
+     * Distance baseline when ranking disabled; deterministic ranking when enabled.
      */
     recommendParking(
       body: RecommendationRequest,

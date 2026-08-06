@@ -23,10 +23,11 @@ import org.springframework.web.bind.annotation.RestController;
 /**
  * Destination-scoped parking recommendations (WP-SPA-05).
  *
- * <p>Authenticated (Option A): future personalization will need user context.
- * This package does not call user-service or apply favourite/recent boosts.
+ * <p>Authenticated (Option A): personalization (favourite boost) uses X-User-Id
+ * for a fail-open batch favourite lookup when ranking is enabled.
  *
  * <p>Gated by {@code parkio.spa.recommendations.enabled} (default false).
+ * Ranking is separately gated by {@code parkio.spa.ranking.enabled} (default false).
  */
 @RestController
 @RequestMapping("/api/v1/parking/recommendations")
@@ -48,7 +49,8 @@ public class RecommendationController {
     @Operation(
             summary = "Recommend parking candidates near a destination",
             description = "Composes municipal facilities and community spots around a Destination. "
-                    + "Baseline order is distance-ascending (not weighted ranking).")
+                    + "Order is distance-ascending when ranking is disabled; deterministic "
+                    + "weighted ranking when parkio.spa.ranking.enabled=true.")
     @SecurityRequirement(name = "bearerAuth")
     @StandardApiResponses
     @PostMapping(consumes = MediaType.APPLICATION_JSON_VALUE, produces = MediaType.APPLICATION_JSON_VALUE)

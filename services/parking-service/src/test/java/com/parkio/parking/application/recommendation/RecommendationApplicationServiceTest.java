@@ -5,15 +5,25 @@ import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyCollection;
 import static org.mockito.ArgumentMatchers.anyDouble;
 import static org.mockito.ArgumentMatchers.anyInt;
+import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 import com.parkio.parking.application.MunicipalFacilityQueryService;
 import com.parkio.parking.application.MunicipalFacilityQueryService.FacilityView;
 import com.parkio.parking.application.ParkingApplicationService;
 import com.parkio.parking.application.command.SearchNearbyQuery;
+import com.parkio.parking.application.port.FavouriteFacilityLookupPort;
+import com.parkio.parking.application.recommendation.ranking.DeterministicParkingCandidateRanker;
+import com.parkio.parking.application.recommendation.ranking.RankingMetrics;
+import com.parkio.parking.application.recommendation.ranking.RankingProperties;
+import com.parkio.parking.application.recommendation.ranking.RankingStatus;
+import com.parkio.parking.application.recommendation.ranking.RankingVersion;
 import com.parkio.parking.domain.LegalStatus;
 import com.parkio.parking.domain.ParkingContext;
 import com.parkio.parking.domain.ParkingSpot;
@@ -45,17 +55,28 @@ class RecommendationApplicationServiceTest {
 
     private ParkingApplicationService community;
     private MunicipalFacilityQueryService municipal;
+    private FavouriteFacilityLookupPort favourites;
+    private RankingProperties rankingProperties;
     private RecommendationApplicationService service;
+    private Clock clock;
 
     @BeforeEach
     void setUp() {
         community = mock(ParkingApplicationService.class);
         municipal = mock(MunicipalFacilityQueryService.class);
+        favourites = mock(FavouriteFacilityLookupPort.class);
+        rankingProperties = new RankingProperties();
+        rankingProperties.validate();
+        clock = Clock.fixed(NOW, ZoneOffset.UTC);
         Executor sync = Runnable::run;
         service = new RecommendationApplicationService(
                 community,
                 municipal,
-                Clock.fixed(NOW, ZoneOffset.UTC),
+                favourites,
+                new DeterministicParkingCandidateRanker(clock),
+                rankingProperties,
+                new RankingMetrics(new SimpleMeterRegistry()),
+                clock,
                 new RecommendationMetrics(new SimpleMeterRegistry()),
                 sync);
     }
@@ -73,6 +94,8 @@ class RecommendationApplicationServiceTest {
 
         assertFalse(result.partial());
         assertEquals(3, result.candidates().size());
+        assertEquals(RankingStatus.DISABLED, result.rankingStatus());
+        assertEquals(RankingVersion.DISTANCE_BASELINE_V1, result.rankingVersion());
         assertEquals(0, result.candidates().get(0).baselineOrder());
         assertTrue(result.candidates().get(0).distanceMeters()
                 <= result.candidates().get(1).distanceMeters());
@@ -80,6 +103,50 @@ class RecommendationApplicationServiceTest {
                 <= result.candidates().get(2).distanceMeters());
         assertEquals(InventoryChannelStatus.AVAILABLE, result.communityStatus());
         assertEquals(InventoryChannelStatus.AVAILABLE, result.municipalStatus());
+        verify(favourites, never()).favouritedMunicipalFacilityIds(any(), anyCollection());
+    }
+
+    @Test
+    void rankingOnReordersByScoreAndLooksUpFavourites() {
+        rankingProperties.setEnabled(true);
+        rankingProperties.validate();
+        UUID municipalId = UUID.fromString("cccccccc-cccc-cccc-cccc-cccccccccccc");
+        when(favourites.favouritedMunicipalFacilityIds(eq(USER), anyCollection()))
+                .thenReturn(Set.of(municipalId));
+        when(community.searchNearby(any())).thenReturn(List.of(
+                spot("aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa", 38.45005, 27.20005, "Close community")));
+        when(municipal.nearby(anyDouble(), anyDouble(), anyInt(), anyInt())).thenReturn(List.of(
+                facility(municipalId.toString(), "Favourite live", 38.451, 27.201,
+                        MunicipalOccupancyFreshness.LIVE, 80, 100)));
+
+        RecommendationResult result = service.recommend(query(true, true, 10));
+
+        assertEquals(RankingStatus.APPLIED, result.rankingStatus());
+        assertEquals(RankingVersion.DETERMINISTIC_V1, result.rankingVersion());
+        assertEquals(ParkingCandidateChannel.MUNICIPAL_FACILITY, result.candidates().getFirst().channel());
+        assertTrue(result.candidates().getFirst().score() != null
+                && result.candidates().getFirst().score()
+                        > result.candidates().get(1).score());
+        assertTrue(result.candidates().getFirst().reasons().stream()
+                .anyMatch(r -> r.code() == RecommendationReasonCode.FAVOURITE));
+        verify(favourites).favouritedMunicipalFacilityIds(eq(USER), anyCollection());
+    }
+
+    @Test
+    void favouriteLookupFailureDoesNotDegradeInventory() {
+        rankingProperties.setEnabled(true);
+        rankingProperties.validate();
+        when(favourites.favouritedMunicipalFacilityIds(eq(USER), anyCollection())).thenReturn(Set.of());
+        when(community.searchNearby(any())).thenReturn(List.of());
+        when(municipal.nearby(anyDouble(), anyDouble(), anyInt(), anyInt())).thenReturn(List.of(
+                facility("cccccccc-cccc-cccc-cccc-cccccccccccc", "C", 38.4501, 27.2001,
+                        MunicipalOccupancyFreshness.LIVE, 5, 40)));
+
+        RecommendationResult result = service.recommend(query(true, true, 10));
+        assertFalse(result.partial());
+        assertEquals(InventoryChannelStatus.EMPTY, result.communityStatus());
+        assertEquals(InventoryChannelStatus.AVAILABLE, result.municipalStatus());
+        assertEquals(RankingStatus.APPLIED, result.rankingStatus());
     }
 
     @Test

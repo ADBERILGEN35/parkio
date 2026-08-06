@@ -105,4 +105,53 @@ describe('recommendation contracts', () => {
     });
     expect(parsed.success).toBe(true);
   });
+
+  it('accepts ranking score breakdown additively', () => {
+    const parsed = recommendationResponseSchema.safeParse({
+      destination: {
+        label: 'Forum Bornova',
+        latitude: 38.45,
+        longitude: 27.2,
+        source: 'GEOCODING',
+      },
+      generatedAt: '2026-08-06T12:00:00Z',
+      partial: false,
+      inventoryStatus: { community: 'EMPTY', municipal: 'AVAILABLE' },
+      rankingVersion: 'DETERMINISTIC_V1',
+      rankingStatus: 'APPLIED',
+      candidates: [
+        {
+          id: 'municipal:cccccccc-cccc-cccc-cccc-cccccccccccc',
+          channel: 'MUNICIPAL_FACILITY',
+          refId: 'cccccccc-cccc-cccc-cccc-cccccccccccc',
+          title: 'Katlı Otopark',
+          latitude: 38.4505,
+          longitude: 27.2005,
+          distanceMeters: 80,
+          availability: {
+            kind: 'MUNICIPAL',
+            freshness: 'LIVE',
+            availableSpaces: 12,
+            capacityTotal: 80,
+          },
+          baselineOrder: 1,
+          score: 0.82,
+          scoreBreakdown: {
+            distance: 0.93,
+            freshness: 1,
+            capacity: 0.4,
+            confidence: 1,
+            favourite: 1,
+          },
+          rankingVersion: 'DETERMINISTIC_V1',
+          reasons: [
+            { code: 'FAVOURITE' },
+            { code: 'LIVE_AVAILABILITY' },
+            { code: 'CLOSE_TO_DESTINATION' },
+          ],
+        },
+      ],
+    });
+    expect(parsed.success).toBe(true);
+  });
 });

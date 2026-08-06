@@ -1,8 +1,9 @@
 /**
- * Destination-scoped parking recommendations (WP-SPA-05).
+ * Destination-scoped parking recommendations (WP-SPA-05 / WP-SPA-06).
  *
  * Composes municipal facilities and community spots around a Destination.
- * Baseline order is distance-ascending — not weighted ranking (WP-SPA-06).
+ * When ranking is disabled, order is distance-ascending (SPA-05 baseline).
+ * When ranking is enabled, order is deterministic weighted ranking (SPA-06).
  */
 
 import type { Destination, DestinationSource, PlaceIdentity } from './destination';
@@ -18,7 +19,13 @@ export type RecommendationReasonCode =
   | 'HIGH_CAPACITY'
   | 'STATIC_INVENTORY'
   | 'COMMUNITY_FRESH'
-  | 'INVENTORY_DEGRADED';
+  | 'INVENTORY_DEGRADED'
+  | 'FAVOURITE'
+  | 'HIGH_CONFIDENCE';
+
+export type RankingVersion = 'DISTANCE_BASELINE_V1' | 'DETERMINISTIC_V1';
+
+export type RankingStatus = 'DISABLED' | 'APPLIED' | 'FALLBACK';
 
 export type CandidateAvailabilityKind = 'MUNICIPAL' | 'COMMUNITY';
 
@@ -40,6 +47,14 @@ export interface CandidateAvailability {
   expiresAt?: string | null;
 }
 
+export interface CandidateScoreBreakdown {
+  distance: number;
+  freshness: number;
+  capacity: number;
+  confidence: number;
+  favourite: number;
+}
+
 export interface ParkingCandidate {
   id: string;
   channel: ParkingCandidateChannel;
@@ -52,6 +67,10 @@ export interface ParkingCandidate {
   sourceLabel?: string | null;
   baselineOrder: number;
   reasons: RecommendationReason[];
+  /** Present when deterministic ranking was applied. */
+  score?: number | null;
+  scoreBreakdown?: CandidateScoreBreakdown | null;
+  rankingVersion?: RankingVersion | string | null;
 }
 
 export interface InventoryStatus {
@@ -84,4 +103,6 @@ export interface RecommendationResponse {
   inventoryStatus: InventoryStatus;
   candidates: ParkingCandidate[];
   warnings?: RecommendationReason[] | null;
+  rankingVersion?: RankingVersion | null;
+  rankingStatus?: RankingStatus | null;
 }
