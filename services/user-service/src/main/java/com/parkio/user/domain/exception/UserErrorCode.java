@@ -19,7 +19,13 @@ public enum UserErrorCode {
     FAVOURITE_DESTINATION_NOT_FOUND("Favourite destination not found."),
     UNSUPPORTED_FAVOURITE_TARGET("Unsupported favourite target."),
     FAVOURITE_CONFLICT("Favourite conflict."),
-    FAVOURITE_LIMIT_EXCEEDED("Favourite limit exceeded.");
+    FAVOURITE_LIMIT_EXCEEDED("Favourite limit exceeded."),
+    RECENTS_DISABLED("Recents is not enabled in this environment."),
+    RECENT_DESTINATION_NOT_FOUND("Recent destination not found."),
+    RECENT_PARKING_NOT_FOUND("Recent parking not found."),
+    INVALID_RECENT_DESTINATION("Invalid recent destination."),
+    INVALID_RECENT_PARKING_TARGET("Invalid recent parking target."),
+    UNSUPPORTED_RECENT_PARKING_TARGET("Unsupported recent parking target.");
 
     private final String defaultMessage;
 

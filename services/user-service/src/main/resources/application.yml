@@ -127,6 +127,10 @@ parkio:
       migration-batch-size: ${PARKIO_SPA_SAVED_PLACES_MIGRATION_BATCH_SIZE:200}
     favourites:
       enabled: ${PARKIO_SPA_FAVOURITES_ENABLED:false}
+    recents:
+      enabled: ${PARKIO_SPA_RECENTS_ENABLED:false}
+      destination-limit: ${PARKIO_SPA_RECENTS_DESTINATION_LIMIT:20}
+      parking-limit: ${PARKIO_SPA_RECENTS_PARKING_LIMIT:20}
   openapi:
     enabled: ${PARKIO_OPENAPI_ENABLED:true}
   lifecycle:

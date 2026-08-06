@@ -108,6 +108,19 @@ export const geocodingKeys = {
   places: (query: string) => ['geocoding', 'places', query] as const,
 };
 
+/** User-scoped places hierarchy — clear on logout / user switch with session caches. */
+export const placesKeys = {
+  all: ['places'] as const,
+  savedRoot: () => [...placesKeys.all, 'saved'] as const,
+  saved: () => [...placesKeys.savedRoot(), 'list'] as const,
+  favouritesRoot: () => [...placesKeys.all, 'favourites'] as const,
+  favouriteDestinations: () => [...placesKeys.favouritesRoot(), 'destinations'] as const,
+  favouriteParking: () => [...placesKeys.favouritesRoot(), 'parking'] as const,
+  recentsRoot: () => [...placesKeys.all, 'recents'] as const,
+  recentDestinations: () => [...placesKeys.recentsRoot(), 'destinations'] as const,
+  recentParking: () => [...placesKeys.recentsRoot(), 'parking'] as const,
+};
+
 export const moderationKeys = {
   all: ['moderation'] as const,
   cases: (statusFilter: string) => [...moderationKeys.all, 'cases', statusFilter] as const,

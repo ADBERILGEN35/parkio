@@ -7,6 +7,7 @@ import {
   moderationKeys,
   notificationsKeys,
   parkingKeys,
+  placesKeys,
   reportsKeys,
 } from './keys';
 
@@ -28,6 +29,7 @@ export const USER_SESSION_QUERY_ROOTS: readonly (readonly unknown[])[] = [
   analyticsKeys.all,
   parkingKeys.mySpots(),
   parkingKeys.sessionsRoot(),
+  placesKeys.all,
   adminKeys.all,
 ];
 

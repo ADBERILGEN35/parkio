@@ -9,6 +9,7 @@ import {
   createModerationApi,
   createNotificationsApi,
   createParkingApi,
+  createPlacesApi,
   createUsersApi,
   setRefreshHandler,
 } from '@parkio/api-client';
@@ -42,6 +43,7 @@ export const mediaApi = createMediaApi(apiClient);
 export const notificationsApi = createNotificationsApi(apiClient);
 export const gamificationApi = createGamificationApi(apiClient);
 export const geocodingApi = createGeocodingApi(apiClient);
+export const placesApi = createPlacesApi(apiClient);
 export const moderationApi = createModerationApi(apiClient);
 export const analyticsApi = createAnalyticsApi(apiClient);
 

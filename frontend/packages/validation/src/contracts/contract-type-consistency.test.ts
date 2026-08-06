@@ -96,6 +96,13 @@ import type {
   CreateCustomSavedPlaceRequest,
   CreateFavouriteDestinationRequest,
   CreateFavouriteParkingRequest,
+  ConfirmRecentDestinationRequest,
+  RecentDestination,
+  RecentDestinationListResponse,
+  RecentParking,
+  RecentParkingListResponse,
+  RecordRecentParkingRequest,
+  DestinationSearchItem,
 } from '@parkio/types';
 import { apiErrorSchema, fieldErrorSchema } from '../api-error';
 import {
@@ -160,6 +167,15 @@ import {
   favouriteParkingStatusResponseSchema,
   updateFavouriteDestinationRequestSchema,
 } from './favourite';
+import {
+  confirmRecentDestinationRequestSchema,
+  recentDestinationListResponseSchema,
+  recentDestinationSchema,
+  recentParkingListResponseSchema,
+  recentParkingSchema,
+  recordRecentParkingRequestSchema,
+} from './recent';
+import { destinationSearchItemSchema } from './destination-search';
 import {
   parkingCandidateSchema,
   recommendationRequestSchema,
@@ -303,6 +319,13 @@ type ContractSchemaAssertions = [
   Assert<SchemaMatches<typeof favouriteDestinationListResponseSchema, FavouriteDestinationListResponse>>,
   Assert<SchemaMatches<typeof createFavouriteDestinationRequestSchema, CreateFavouriteDestinationRequest>>,
   Assert<SchemaMatches<typeof updateFavouriteDestinationRequestSchema, UpdateFavouriteDestinationRequest>>,
+  Assert<SchemaMatches<typeof recentDestinationSchema, RecentDestination>>,
+  Assert<SchemaMatches<typeof recentDestinationListResponseSchema, RecentDestinationListResponse>>,
+  Assert<SchemaMatches<typeof confirmRecentDestinationRequestSchema, ConfirmRecentDestinationRequest>>,
+  Assert<SchemaMatches<typeof recentParkingSchema, RecentParking>>,
+  Assert<SchemaMatches<typeof recentParkingListResponseSchema, RecentParkingListResponse>>,
+  Assert<SchemaMatches<typeof recordRecentParkingRequestSchema, RecordRecentParkingRequest>>,
+  Assert<SchemaMatches<typeof destinationSearchItemSchema, DestinationSearchItem>>,
   Assert<SchemaMatches<typeof recommendationRequestSchema, RecommendationRequest>>,
   Assert<SchemaMatches<typeof recommendationResponseSchema, RecommendationResponse>>,
   Assert<SchemaMatches<typeof parkingCandidateSchema, ParkingCandidate>>,

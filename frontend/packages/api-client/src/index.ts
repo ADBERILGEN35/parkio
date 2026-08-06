@@ -15,6 +15,7 @@ export { createModerationApi, type ModerationApi } from './moderation';
 export { createAnalyticsApi, type AnalyticsApi } from './analytics';
 export { createAdminApi, type AdminApi } from './admin';
 export { createGeocodingApi, type GeocodingApi } from './geocoding';
+export { createPlacesApi, type PlacesApi } from './places';
 export {
   createWaitlistApi,
   isWaitlistRole,

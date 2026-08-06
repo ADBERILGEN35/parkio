@@ -7,3 +7,8 @@ export * from './user';
 export * from './moderation';
 export * from './analytics';
 export * from './contracts';
+export {
+  composeDestinationSearch,
+  destinationDuplicateKey,
+  normalizeSearchText,
+} from './destination-search-compose';

@@ -99,6 +99,19 @@ export const analyticsKeys = {
   user: (userId: string) => [...analyticsKeys.all, 'user', userId] as const,
 };
 
+/** User-scoped places hierarchy — clear on logout / user switch with session caches. */
+export const placesKeys = {
+  all: ['places'] as const,
+  savedRoot: () => [...placesKeys.all, 'saved'] as const,
+  saved: () => [...placesKeys.savedRoot(), 'list'] as const,
+  favouritesRoot: () => [...placesKeys.all, 'favourites'] as const,
+  favouriteDestinations: () => [...placesKeys.favouritesRoot(), 'destinations'] as const,
+  favouriteParking: () => [...placesKeys.favouritesRoot(), 'parking'] as const,
+  recentsRoot: () => [...placesKeys.all, 'recents'] as const,
+  recentDestinations: () => [...placesKeys.recentsRoot(), 'destinations'] as const,
+  recentParking: () => [...placesKeys.recentsRoot(), 'parking'] as const,
+};
+
 export const adminKeys = {
   all: ['admin'] as const,
   dashboard: () => [...adminKeys.all, 'dashboard'] as const,
