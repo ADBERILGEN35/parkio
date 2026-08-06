@@ -1,9 +1,3 @@
-import type { AxiosInstance } from 'axios';
-import {
-  parkingSessionHistoryResponseSchema,
-  parkingSessionLifecycleConfigSchema,
-  parkingSessionResponseSchema,
-} from '@parkio/validation';
 import type {
   CreateSpotRequest,
   MunicipalFacility,
@@ -14,15 +8,23 @@ import type {
   ParkingSessionLifecycleConfig,
   ParkingSessionResponse,
   PublicSpot,
+  RecommendationRequest,
+  RecommendationResponse,
   Spot,
   SpotMediaAccessUrl,
   StartParkingSessionRequest,
   VerifySpotRequest,
 } from '@parkio/types';
+import {
+  parkingSessionHistoryResponseSchema,
+  parkingSessionLifecycleConfigSchema,
+  parkingSessionResponseSchema,
+  recommendationResponseSchema,
+} from '@parkio/validation';
 import { ContractValidationError } from './errors';
 import { IDEMPOTENCY_HEADER } from './idempotency';
 import type { RequestOptions } from './request-options';
-
+import type { AxiosInstance } from 'axios';
 type ContractSchema<T> = {
   safeParse(
     data: unknown,
@@ -83,6 +85,21 @@ export function createParkingApi(client: AxiosInstance) {
       return client
         .get<MunicipalFacility[]>('/parking/facilities/nearby', { params: query, signal })
         .then((r) => r.data);
+    },
+
+    /**
+     * Destination-scoped parking recommendations (WP-SPA-05).
+     * Baseline distance order — not weighted ranking.
+     */
+    recommendParking(
+      body: RecommendationRequest,
+      options?: RequestOptions,
+    ): Promise<RecommendationResponse> {
+      return client
+        .post<RecommendationResponse>('/parking/recommendations', body, {
+          signal: options?.signal,
+        })
+        .then((r) => parseContract(recommendationResponseSchema, r.data));
     },
 
     /** Municipal facility detail — same DTO as nearby items. */

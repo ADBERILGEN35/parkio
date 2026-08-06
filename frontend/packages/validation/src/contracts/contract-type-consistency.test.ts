@@ -69,6 +69,9 @@ import type {
   FavouriteParking,
   FavouriteParkingListResponse,
   FavouriteParkingStatusResponse,
+  RecommendationRequest,
+  RecommendationResponse,
+  ParkingCandidate,
   SmartReturnSettings,
   SmartReturnTodayRequest,
   SpotMediaAccessUrlResponse,
@@ -157,6 +160,11 @@ import {
   favouriteParkingStatusResponseSchema,
   updateFavouriteDestinationRequestSchema,
 } from './favourite';
+import {
+  parkingCandidateSchema,
+  recommendationRequestSchema,
+  recommendationResponseSchema,
+} from './recommendation';
 import {
   aiValidationResultResponseSchema,
   claimedRegionResponseSchema,
@@ -295,6 +303,9 @@ type ContractSchemaAssertions = [
   Assert<SchemaMatches<typeof favouriteDestinationListResponseSchema, FavouriteDestinationListResponse>>,
   Assert<SchemaMatches<typeof createFavouriteDestinationRequestSchema, CreateFavouriteDestinationRequest>>,
   Assert<SchemaMatches<typeof updateFavouriteDestinationRequestSchema, UpdateFavouriteDestinationRequest>>,
+  Assert<SchemaMatches<typeof recommendationRequestSchema, RecommendationRequest>>,
+  Assert<SchemaMatches<typeof recommendationResponseSchema, RecommendationResponse>>,
+  Assert<SchemaMatches<typeof parkingCandidateSchema, ParkingCandidate>>,
   Assert<SchemaMatches<typeof gamificationProgressResponseSchema, GamificationProgress>>,
   Assert<SchemaMatches<typeof pointTransactionEntryResponseSchema, PointTransactionEntry>>,
   Assert<SchemaMatches<typeof pointsSummaryResponseSchema, PointsSummary>>,

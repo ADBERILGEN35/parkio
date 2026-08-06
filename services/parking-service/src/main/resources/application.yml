@@ -308,6 +308,10 @@ parkio:
     cache:
       positive-ttl: ${PARKIO_GEOCODING_CACHE_POSITIVE_TTL:24h}
       negative-ttl: ${PARKIO_GEOCODING_CACHE_NEGATIVE_TTL:5m}
+  spa:
+    recommendations:
+      # WP-SPA-05 destination parking recommendations. Default off; schema-free kill switch.
+      enabled: ${PARKIO_SPA_RECOMMENDATIONS_ENABLED:false}
   parking:
     # One-shot legacy inventory reset. Keep disabled except on an explicit operator run.
     legacy-policy-reset:

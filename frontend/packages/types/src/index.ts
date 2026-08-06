@@ -14,6 +14,7 @@ export * from './geocoding';
 export * from './destination';
 export * from './saved-place';
 export * from './favourite';
+export * from './recommendation';
 export * from './admin';
 export * from './waitlist';
 
