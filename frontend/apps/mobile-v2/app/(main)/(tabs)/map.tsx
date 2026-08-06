@@ -33,8 +33,8 @@ import {
 import { MunicipalSummaryBanner } from '@/features/municipal/MunicipalSummaryBanner';
 import { applyMunicipalMapFilters } from '@/features/municipal/municipalFilterPipeline';
 import {
-  selectMunicipalMapFilters,
   useMunicipalFilterStore,
+  useMunicipalMapFilters,
 } from '@/features/municipal/municipalFilterStore';
 import { hasActiveMunicipalMapFilters } from '@/features/municipal/municipalFilterModel';
 import { toMapMunicipalMarkers } from '@/features/municipal/municipalMapMarker';
@@ -70,7 +70,7 @@ export default function MapScreen() {
   const mapRef = useRef<MapSurfaceHandle>(null);
   const openShareSheet = useShareSheetStore((s) => s.open);
   const municipalDiscovery = appConfig.features.municipalDiscovery;
-  const municipalFilters = useMunicipalFilterStore(selectMunicipalMapFilters);
+  const municipalFilters = useMunicipalMapFilters();
   const setMunicipalLayerEnabled = useMunicipalFilterStore((s) => s.setLayerEnabled);
   const setMunicipalSource = useMunicipalFilterStore((s) => s.setSource);
   const setMunicipalOccupancy = useMunicipalFilterStore((s) => s.setOccupancy);

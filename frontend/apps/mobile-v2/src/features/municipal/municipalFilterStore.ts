@@ -1,3 +1,4 @@
+import { useMemo } from 'react';
 import { create } from 'zustand';
 import { readJson, writeJson } from '@/services/jsonStore';
 import {
@@ -23,6 +24,7 @@ interface MunicipalFilterState extends MunicipalMapFilters {
   resetFilters: () => void;
 }
 
+/** Persistable filter fields only — never use as a React `useStore` selector. */
 function snapshot(state: MunicipalFilterState): MunicipalMapFilters {
   return {
     version: state.version,
@@ -74,7 +76,23 @@ export const useMunicipalFilterStore = create<MunicipalFilterState>((set, get) =
   },
 }));
 
-/** Selectors for map wiring — keep filter snapshot without store methods. */
-export function selectMunicipalMapFilters(state: MunicipalFilterState): MunicipalMapFilters {
-  return snapshot(state);
+/**
+ * React-safe municipal filter subscription.
+ *
+ * Subscribes to primitive fields only (Zustand / useSyncExternalStore-safe),
+ * then memoizes the composite object. Do not replace this with a selector that
+ * allocates a fresh object on every snapshot read — that triggers an infinite
+ * update loop under React 19 (`getSnapshot should be cached`).
+ */
+export function useMunicipalMapFilters(): MunicipalMapFilters {
+  const version = useMunicipalFilterStore((state) => state.version);
+  const layerEnabled = useMunicipalFilterStore((state) => state.layerEnabled);
+  const source = useMunicipalFilterStore((state) => state.source);
+  const occupancy = useMunicipalFilterStore((state) => state.occupancy);
+  const radiusMeters = useMunicipalFilterStore((state) => state.radiusMeters);
+
+  return useMemo(
+    () => ({ version, layerEnabled, source, occupancy, radiusMeters }),
+    [version, layerEnabled, source, occupancy, radiusMeters],
+  );
 }
