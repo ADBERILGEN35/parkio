@@ -80,11 +80,14 @@ public class GlobalExceptionHandler {
 
     private static HttpStatus statusFor(UserErrorCode code) {
         return switch (code) {
-            case PROFILE_NOT_FOUND, SAVED_PLACE_NOT_FOUND, SAVED_PLACES_DISABLED, SMART_RETURN_DISABLED
+            case PROFILE_NOT_FOUND, SAVED_PLACE_NOT_FOUND, SAVED_PLACES_DISABLED, SMART_RETURN_DISABLED,
+                    FAVOURITES_DISABLED, FAVOURITE_PARKING_NOT_FOUND, FAVOURITE_DESTINATION_NOT_FOUND
                     -> HttpStatus.NOT_FOUND;
-            case PROFILE_ALREADY_EXISTS, SAVED_PLACE_CONFLICT, SAVED_PLACE_LIMIT_EXCEEDED
+            case PROFILE_ALREADY_EXISTS, SAVED_PLACE_CONFLICT, SAVED_PLACE_LIMIT_EXCEEDED,
+                    FAVOURITE_CONFLICT, FAVOURITE_LIMIT_EXCEEDED
                     -> HttpStatus.CONFLICT;
             case MISSING_USER_ID -> HttpStatus.UNAUTHORIZED;
+            case UNSUPPORTED_FAVOURITE_TARGET -> HttpStatus.BAD_REQUEST;
         };
     }
 }

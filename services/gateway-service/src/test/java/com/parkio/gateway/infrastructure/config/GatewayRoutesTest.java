@@ -53,6 +53,16 @@ class GatewayRoutesTest {
     }
 
     @Test
+    void favouritesRouteIsProtected() {
+        MockServerHttpRequest parking = MockServerHttpRequest
+                .method(HttpMethod.GET, "/api/v1/places/favourites/parking").build();
+        MockServerHttpRequest destinations = MockServerHttpRequest
+                .method(HttpMethod.POST, "/api/v1/places/favourites/destinations").build();
+        assertThat(publicEndpoints.isPublic(parking)).isFalse();
+        assertThat(publicEndpoints.isPublic(destinations)).isFalse();
+    }
+
+    @Test
     void geocodingRouteIsProtected() {
         MockServerHttpRequest request = MockServerHttpRequest
                 .method(HttpMethod.GET, "/api/v1/geocoding/search").build();

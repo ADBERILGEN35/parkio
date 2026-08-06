@@ -13,7 +13,13 @@ public enum UserErrorCode {
     SAVED_PLACES_DISABLED("Saved Places is not enabled in this environment."),
     SAVED_PLACE_NOT_FOUND("Saved place not found."),
     SAVED_PLACE_CONFLICT("Saved place conflict."),
-    SAVED_PLACE_LIMIT_EXCEEDED("Saved place limit exceeded.");
+    SAVED_PLACE_LIMIT_EXCEEDED("Saved place limit exceeded."),
+    FAVOURITES_DISABLED("Favourites is not enabled in this environment."),
+    FAVOURITE_PARKING_NOT_FOUND("Favourite parking not found."),
+    FAVOURITE_DESTINATION_NOT_FOUND("Favourite destination not found."),
+    UNSUPPORTED_FAVOURITE_TARGET("Unsupported favourite target."),
+    FAVOURITE_CONFLICT("Favourite conflict."),
+    FAVOURITE_LIMIT_EXCEEDED("Favourite limit exceeded.");
 
     private final String defaultMessage;
 
