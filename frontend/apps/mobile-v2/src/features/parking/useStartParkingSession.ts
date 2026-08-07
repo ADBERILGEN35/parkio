@@ -15,6 +15,7 @@ import { activeParkingSessionQueryOptions } from '@/data/query-options/parking';
 import type { LocationState } from '@/features/map/hooks';
 import { useOnlineStatus } from '@/hooks/useOnlineStatus';
 import { parkingApi } from '@/services/api';
+import { trackParkHereFailed, trackParkingSessionStarted } from '@/services/spaTelemetry';
 import { useAuthStore } from '@/state/authStore';
 
 /** Stable domain conflict when the user already has an ACTIVE session. */
@@ -193,6 +194,7 @@ export function useStartParkingSession(location: LocationState): StartParkingSes
           return;
         }
         applyActiveSession(session);
+        trackParkingSessionStarted('map_location');
         keyRef.current = null;
         setAttemptKey(null);
         setPhase('idle');
@@ -207,6 +209,7 @@ export function useStartParkingSession(location: LocationState): StartParkingSes
         }
 
         if (isActiveConflict(error)) {
+          trackParkHereFailed('conflict', 'map_location');
           setPhase('reconciling');
           try {
             const existing = await reconcileActive();

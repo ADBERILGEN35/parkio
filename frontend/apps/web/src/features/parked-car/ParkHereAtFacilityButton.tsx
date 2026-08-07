@@ -1,5 +1,5 @@
 import { Button, Icon, cn } from '@parkio/ui';
-import type { ParkedCarTargetRef } from '@parkio/types';
+import type { ParkedCarTargetRef, SpaParkHereOriginSurface } from '@parkio/types';
 import { municipalParkTarget } from '@parkio/validation';
 import { useCallback } from 'react';
 import { useTranslation } from 'react-i18next';
@@ -15,6 +15,7 @@ export interface ParkHereAtFacilityButtonProps {
   onParked?: () => void;
   /** Visual density — preview vs recommendation card. */
   size?: 'default' | 'compact';
+  originSurface?: SpaParkHereOriginSurface;
 }
 
 /**
@@ -29,13 +30,14 @@ export function ParkHereAtFacilityButton({
   className,
   onParked,
   size = 'default',
+  originSurface = 'municipal_preview',
 }: ParkHereAtFacilityButtonProps) {
   const { t } = useTranslation('map');
   const { busy, start, reset } = useParkHereAtTarget();
 
   const onClick = useCallback(async () => {
     const target: ParkedCarTargetRef = municipalParkTarget(facilityId, displayLabel);
-    const outcome = await start({ latitude, longitude, target });
+    const outcome = await start({ latitude, longitude, target, originSurface });
     if (outcome.status === 'busy') return;
     if (outcome.status === 'success') {
       showSuccess(t('parkedCar.parkHere.success'));
@@ -50,7 +52,7 @@ export function ParkHereAtFacilityButton({
     }
     showError(t('parkedCar.parkHere.failed'));
     reset();
-  }, [displayLabel, facilityId, latitude, longitude, onParked, reset, start, t]);
+  }, [displayLabel, facilityId, latitude, longitude, onParked, originSurface, reset, start, t]);
 
   const label = busy ? t('parkedCar.parkHere.saving') : t('parkedCar.parkHere.cta');
 

@@ -13,6 +13,14 @@ import {
   assistantDestinationIdentityKey,
   type AssistantUrlState,
 } from '@/lib/assistantUrlState';
+import {
+  trackDestinationConfirmed,
+  trackDestinationSearchResultSelected,
+  trackDestinationSearchStarted,
+  trackRecommendationSelected,
+  trackRecommendationsFailed,
+  trackRecommendationsResponse,
+} from '@/services/spaTelemetry';
 
 export type AssistantPhase =
   | 'IDLE'
@@ -66,6 +74,7 @@ export function useSmartParkingAssistant({
   const openSearch = useCallback(() => {
     if (!enabled) return;
     setSearchOpen(true);
+    trackDestinationSearchStarted();
   }, [enabled]);
 
   const closeSearch = useCallback(() => {
@@ -81,13 +90,13 @@ export function useSmartParkingAssistant({
   const selectAssistantDestination = useCallback(
     (dest: Destination, origin: AssistantDestinationOrigin = 'SEARCH') => {
       if (!enabled) return;
-      void origin;
       const key = assistantDestinationIdentityKey(dest);
       setSearchOpen(false);
       onUrlStateChange({ destination: dest, candidateId: null });
 
       if (!confirmedWriteKeysRef.current.has(key)) {
         confirmedWriteKeysRef.current.add(key);
+        trackDestinationConfirmed(origin);
         confirmMutation.mutate(dest, {
           onError: () => {
             confirmedWriteKeysRef.current.delete(key);
@@ -100,6 +109,7 @@ export function useSmartParkingAssistant({
 
   const confirmDestination = useCallback(
     (item: DestinationSearchItem) => {
+      trackDestinationSearchResultSelected(item.source);
       selectAssistantDestination(item.destination, 'SEARCH');
     },
     [selectAssistantDestination],
@@ -108,20 +118,29 @@ export function useSmartParkingAssistant({
   const selectCandidate = useCallback(
     (candidate: ParkingCandidate | null) => {
       if (!destination) return;
+      if (candidate && recommendations.data) {
+        const position = recommendations.data.candidates.findIndex((c) => c.id === candidate.id);
+        trackRecommendationSelected(candidate, position >= 0 ? position : 0);
+      }
       onUrlStateChange({
         destination,
         candidateId: candidate?.id ?? null,
       });
     },
-    [destination, onUrlStateChange],
+    [destination, onUrlStateChange, recommendations.data],
   );
 
   const selectCandidateById = useCallback(
     (id: string | null) => {
       if (!destination) return;
+      if (id && recommendations.data) {
+        const position = recommendations.data.candidates.findIndex((c) => c.id === id);
+        const candidate = position >= 0 ? recommendations.data.candidates[position] : null;
+        if (candidate) trackRecommendationSelected(candidate, position);
+      }
       onUrlStateChange({ destination, candidateId: id });
     },
-    [destination, onUrlStateChange],
+    [destination, onUrlStateChange, recommendations.data],
   );
 
   // Drop search UI when assistant disabled.
@@ -130,6 +149,32 @@ export function useSmartParkingAssistant({
       setSearchOpen(false);
     }
   }, [enabled]);
+
+  // Emit recommendation funnel events once per response identity (not per render).
+  const lastRecKeyRef = useRef<string | null>(null);
+  const lastRecErrorRef = useRef(false);
+  useEffect(() => {
+    if (!enabled || !destination) return;
+    if (recommendations.isError) {
+      if (!lastRecErrorRef.current) {
+        lastRecErrorRef.current = true;
+        trackRecommendationsFailed();
+      }
+      return;
+    }
+    lastRecErrorRef.current = false;
+    const data = recommendations.data;
+    if (!data) return;
+    const key = `${data.generatedAt}:${data.candidates.length}:${data.partial}:${data.rankingStatus ?? ''}`;
+    if (lastRecKeyRef.current === key) return;
+    lastRecKeyRef.current = key;
+    trackRecommendationsResponse(data);
+  }, [
+    destination,
+    enabled,
+    recommendations.data,
+    recommendations.isError,
+  ]);
 
   const selectedCandidate = useMemo(() => {
     if (!candidateId || !recommendations.data) return null;

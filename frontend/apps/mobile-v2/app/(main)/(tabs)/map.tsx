@@ -69,6 +69,7 @@ import { useT } from '@/i18n/LocaleProvider';
 import { apiErrorCode } from '@/lib/apiErrors';
 import { formatClock } from '@/lib/time';
 import { readJson, writeJson } from '@/services/jsonStore';
+import { trackAssistantOpened, trackReturnToCarStarted } from '@/services/spaTelemetry';
 import { useAuthStore } from '@/state/authStore';
 
 const SEARCH_AREA_THRESHOLD_M = 250;
@@ -143,6 +144,7 @@ export default function MapScreen() {
     ) {
       return;
     }
+    trackReturnToCarStarted();
     mapRef.current?.flyTo({
       lat: session.latitude,
       lng: session.longitude,
@@ -518,7 +520,14 @@ export default function MapScreen() {
           onLocate={locate}
           onPickPlace={pickPlace}
         />
-        {spaEnabled ? <AssistantEntryControl onPress={() => assistant.openSearch()} /> : null}
+        {spaEnabled ? (
+          <AssistantEntryControl
+            onPress={() => {
+              trackAssistantOpened();
+              assistant.openSearch();
+            }}
+          />
+        ) : null}
         {spaEnabled && !assistant.destination ? (
           <QuickActionsRow
             enabled={spaEnabled}

@@ -31,6 +31,10 @@ import { IconButton } from '@/components/ui/IconButton';
 import { municipalFacilityDetailQueryOptions } from '@/data/query-options/parking';
 import { useT } from '@/i18n/LocaleProvider';
 import type { TranslationKey } from '@/i18n/translations';
+import {
+  trackQuickActionSelected,
+  trackQuickActionUnavailable,
+} from '@/services/spaTelemetry';
 import { useTheme } from '@/theme/ThemeProvider';
 import { useQuickActionSources } from './useQuickActionSources';
 
@@ -130,33 +134,51 @@ export function QuickActionsRow({
       const { kind, availability } = descriptor;
       if (kind === 'HOME') {
         if (availability === 'UNCONFIGURED') {
+          trackQuickActionUnavailable(kind, availability);
           onOpenSearch();
           return;
         }
-        if (availability !== 'AVAILABLE') return;
+        if (availability !== 'AVAILABLE') {
+          trackQuickActionUnavailable(kind, availability);
+          return;
+        }
         const place = resolveHomePlace(sources.snapshot.savedPlaces);
         if (!place) return;
+        trackQuickActionSelected(kind, availability);
         onSelectDestination(destinationFromSavedPlace(place), 'HOME_QUICK_ACTION');
         return;
       }
       if (kind === 'WORK') {
         if (availability === 'UNCONFIGURED') {
+          trackQuickActionUnavailable(kind, availability);
           onOpenSearch();
           return;
         }
-        if (availability !== 'AVAILABLE') return;
+        if (availability !== 'AVAILABLE') {
+          trackQuickActionUnavailable(kind, availability);
+          return;
+        }
         const place = resolveWorkPlace(sources.snapshot.savedPlaces);
         if (!place) return;
+        trackQuickActionSelected(kind, availability);
         onSelectDestination(destinationFromSavedPlace(place), 'WORK_QUICK_ACTION');
         return;
       }
       if (kind === 'PARKED_CAR') {
-        if (availability !== 'AVAILABLE') return;
+        if (availability !== 'AVAILABLE') {
+          trackQuickActionUnavailable(kind, availability);
+          return;
+        }
+        trackQuickActionSelected(kind, availability);
         onParkedCar();
         return;
       }
       if (kind === 'FAVOURITE_DESTINATIONS') {
-        if (availability !== 'AVAILABLE') return;
+        if (availability !== 'AVAILABLE') {
+          trackQuickActionUnavailable(kind, availability);
+          return;
+        }
+        trackQuickActionSelected(kind, availability);
         const items = sources.favouriteDestinations.data ?? [];
         if (items.length === 1) {
           onSelectDestination(
@@ -169,12 +191,20 @@ export function QuickActionsRow({
         return;
       }
       if (kind === 'FAVOURITE_PARKING') {
-        if (availability !== 'AVAILABLE') return;
+        if (availability !== 'AVAILABLE') {
+          trackQuickActionUnavailable(kind, availability);
+          return;
+        }
+        trackQuickActionSelected(kind, availability);
         setPicker('favourite_parking');
         return;
       }
       if (kind === 'RECENT_DESTINATIONS') {
-        if (availability !== 'AVAILABLE') return;
+        if (availability !== 'AVAILABLE') {
+          trackQuickActionUnavailable(kind, availability);
+          return;
+        }
+        trackQuickActionSelected(kind, availability);
         const items = sources.recentDestinations.data ?? [];
         if (items.length === 1) {
           onSelectDestination(

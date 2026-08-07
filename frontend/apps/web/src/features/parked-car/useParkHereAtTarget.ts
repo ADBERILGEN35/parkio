@@ -17,6 +17,12 @@ import {
   recordRecentParkingAfterPark,
 } from '@/data/parking/recordRecentParkingAfterPark';
 import { activeParkingSessionQueryOptions } from '@/data/query-options/parking';
+import {
+  trackParkHereFailed,
+  trackParkingSessionStarted,
+  trackRecentParkingRecordFailed,
+} from '@/services/spaTelemetry';
+import type { SpaParkHereOriginSurface } from '@parkio/types';
 
 export type ParkHereAtTargetPhase =
   | 'idle'
@@ -36,6 +42,7 @@ export interface ParkHereAtTargetInput {
   longitude: number;
   /** When set and municipal, RecentParking is recorded after success (fail-open). */
   target?: ParkedCarTargetRef | null;
+  originSurface?: SpaParkHereOriginSurface;
 }
 
 export interface ParkHereAtTargetControls {
@@ -77,11 +84,14 @@ export function useParkHereAtTarget(): ParkHereAtTargetControls {
 
       inFlightRef.current = true;
       setPhase('starting');
+      const originSurface = input.originSurface ?? 'unknown';
       try {
         const session = await startMutation.mutateAsync({
           latitude: input.latitude,
           longitude: input.longitude,
         });
+
+        trackParkingSessionStarted(originSurface, input.target?.kind ?? null);
 
         if (input.target) {
           const key = recentParkingAttemptKey(session, input.target);
@@ -90,6 +100,7 @@ export function useParkHereAtTarget(): ParkHereAtTargetControls {
             void recordRecentParkingAfterPark(sdk, queryClient, input.target).then((result) => {
               if (result === 'failed') {
                 recentAttemptsRef.current.delete(key);
+                trackRecentParkingRecordFailed();
               }
             });
           }
@@ -104,6 +115,7 @@ export function useParkHereAtTarget(): ParkHereAtTargetControls {
           } catch {
             // ignore
           }
+          trackParkHereFailed('conflict', originSurface);
           setPhase('conflict');
           return { status: 'conflict' };
         }
@@ -115,10 +127,12 @@ export function useParkHereAtTarget(): ParkHereAtTargetControls {
           error instanceof TimeoutError ||
           isParkioApiError(error)
         ) {
+          trackParkHereFailed('error', originSurface);
           setPhase('error');
           return { status: 'error' };
         }
 
+        trackParkHereFailed('error', originSurface);
         setPhase('error');
         return { status: 'error' };
       } finally {

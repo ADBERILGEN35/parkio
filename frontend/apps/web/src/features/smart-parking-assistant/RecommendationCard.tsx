@@ -143,6 +143,7 @@ export function RecommendationCard({
           longitude={candidate.longitude}
           displayLabel={candidate.title}
           size="compact"
+          originSurface="recommendation"
         />
       ) : null}
     </div>

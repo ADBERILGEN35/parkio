@@ -327,6 +327,7 @@ function FacilityDetailBody({
             latitude={facility.latitude}
             longitude={facility.longitude}
             displayLabel={title}
+            originSurface="municipal_detail"
           />
         ) : null}
       </header>

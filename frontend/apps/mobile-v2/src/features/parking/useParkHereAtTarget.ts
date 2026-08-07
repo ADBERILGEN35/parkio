@@ -8,12 +8,17 @@ import {
   createIdempotencyKey,
   isParkioApiError,
 } from '@parkio/api-client';
-import type { ParkedCarTargetRef, ParkingSessionResponse } from '@parkio/types';
+import type { ParkedCarTargetRef, ParkingSessionResponse, SpaParkHereOriginSurface } from '@parkio/types';
 import { isUsableParkedCarCoordinate } from '@parkio/validation';
 import { parkingKeys } from '@/data/keys';
 import { activeParkingSessionQueryOptions } from '@/data/query-options/parking';
 import { useOnlineStatus } from '@/hooks/useOnlineStatus';
 import { parkingApi } from '@/services/api';
+import {
+  trackParkHereFailed,
+  trackParkingSessionStarted,
+  trackRecentParkingRecordFailed,
+} from '@/services/spaTelemetry';
 import { useAuthStore } from '@/state/authStore';
 import {
   recentParkingAttemptKey,
@@ -35,6 +40,7 @@ export interface ParkHereAtTargetInput {
   latitude: number;
   longitude: number;
   target?: ParkedCarTargetRef | null;
+  originSurface?: SpaParkHereOriginSurface;
 }
 
 /**
@@ -59,15 +65,18 @@ export function useParkHereAtTarget() {
       if (inFlightRef.current) return { status: 'busy' };
       if (!online) {
         setPhase('error');
+        trackParkHereFailed('offline', input.originSurface ?? 'unknown');
         return { status: 'offline' };
       }
       if (!isUsableParkedCarCoordinate(input.latitude, input.longitude)) {
         setPhase('error');
+        trackParkHereFailed('error', input.originSurface ?? 'unknown');
         return { status: 'error' };
       }
 
       const startedUserId = userId;
       const startedEpoch = sessionEpoch;
+      const originSurface = input.originSurface ?? 'unknown';
       inFlightRef.current = true;
       setPhase('starting');
 
@@ -85,13 +94,17 @@ export function useParkHereAtTarget() {
         }
 
         queryClient.setQueryData(parkingKeys.activeSession(), session);
+        trackParkingSessionStarted(originSurface, input.target?.kind ?? null);
 
         if (input.target) {
           const key = recentParkingAttemptKey(session, input.target);
           if (!recentAttemptsRef.current.has(key)) {
             recentAttemptsRef.current.add(key);
             void recordRecentParkingAfterPark(queryClient, input.target).then((result) => {
-              if (result === 'failed') recentAttemptsRef.current.delete(key);
+              if (result === 'failed') {
+                recentAttemptsRef.current.delete(key);
+                trackRecentParkingRecordFailed();
+              }
             });
           }
         }
@@ -116,6 +129,7 @@ export function useParkHereAtTarget() {
           } catch {
             // ignore
           }
+          trackParkHereFailed('conflict', originSurface);
           setPhase('conflict');
           return { status: 'conflict' };
         }
@@ -127,10 +141,12 @@ export function useParkHereAtTarget() {
           error instanceof TimeoutError ||
           isParkioApiError(error)
         ) {
+          trackParkHereFailed('error', originSurface);
           setPhase('error');
           return { status: 'error' };
         }
 
+        trackParkHereFailed('error', originSurface);
         setPhase('error');
         return { status: 'error' };
       } finally {

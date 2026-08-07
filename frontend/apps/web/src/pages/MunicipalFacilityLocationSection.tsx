@@ -8,6 +8,7 @@ import { SpotMap } from '@/components/map/SpotMap';
 import { openParkingLocationInMaps } from '@/components/parking/openParkingMaps';
 import { formatDistance } from '@/lib/spotDiscovery';
 import { showError } from '@/lib/toast';
+import { trackNavigationStarted } from '@/services/spaTelemetry';
 
 export type MunicipalFacilityLocationSectionProps = {
   facility: MunicipalFacility;
@@ -36,6 +37,7 @@ export function MunicipalFacilityLocationSection({
     if (!coordsValid) {
       return;
     }
+    trackNavigationStarted('MUNICIPAL_FACILITY');
     if (!openParkingLocationInMaps(facility.latitude, facility.longitude)) {
       showError(t('parkingSession.maps.failed'));
     }

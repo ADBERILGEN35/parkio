@@ -8,6 +8,7 @@ import {
   trackProductEvent,
   type ParkingActionFailureReason,
 } from '@/services/productAnalytics';
+import { trackReturnToCarStarted } from '@/services/spaTelemetry';
 import {
   buildParkingMapsHttpsUrl,
   buildParkingNavigationUrl,
@@ -139,6 +140,7 @@ export function useParkingLocationActions(options: {
       if (identityRef.current !== token) {
         return;
       }
+      trackReturnToCarStarted();
       trackProductEvent('return_to_car_clicked', { platform: Platform.OS });
     } catch (error) {
       if (identityRef.current !== token) {

@@ -16,6 +16,7 @@ import { useParkHereAtTarget } from '@/features/parking/useParkHereAtTarget';
 import { municipalParkTarget } from '@parkio/validation';
 import { useLocale, useT } from '@/i18n/LocaleProvider';
 import { useToast } from '@/providers/ToastProvider';
+import { trackNavigationStarted } from '@/services/spaTelemetry';
 import { formatDistance } from '@/lib/time';
 import { radius as radiusTokens, shadows } from '@/theme/tokens';
 import { useTheme } from '@/theme/ThemeProvider';
@@ -76,6 +77,7 @@ export function MunicipalFacilitySheet({
     const label = facility.displayName?.trim() || t('map.municipal.unnamed');
     const platform =
       Platform.OS === 'ios' ? 'ios' : Platform.OS === 'android' ? 'android' : 'default';
+    trackNavigationStarted('MUNICIPAL_FACILITY');
     try {
       const primary = buildParkingNavigationUrl(
         facility.latitude,
@@ -99,6 +101,7 @@ export function MunicipalFacilitySheet({
       latitude: facility.latitude,
       longitude: facility.longitude,
       target: municipalParkTarget(facility.id, label),
+      originSurface: 'municipal_preview',
     });
     if (outcome.status === 'busy') return;
     if (outcome.status === 'success') {

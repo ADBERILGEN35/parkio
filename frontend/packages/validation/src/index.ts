@@ -37,3 +37,17 @@ export {
   toParkedCarView,
   toRecordRecentParkingRequest,
 } from './parked-car';
+export {
+  SPA_TELEMETRY_FORBIDDEN_KEYS,
+  assertSpaTelemetryParams,
+  bucketCandidateCount,
+  bucketLatencyMs,
+  createSpaJourneyId,
+  isSpaTelemetryEventName,
+  sanitizeSpaTelemetryParams,
+} from './spa-telemetry';
+export {
+  spaRolloutFlagSnapshotMobile,
+  spaRolloutFlagSnapshotWeb,
+} from './spa-rollout-flags';
+export type { SpaRolloutFlagSnapshot } from './spa-rollout-flags';

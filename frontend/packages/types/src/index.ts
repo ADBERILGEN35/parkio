@@ -18,6 +18,7 @@ export * from './recent';
 export * from './destination-search';
 export * from './quick-action';
 export * from './parked-car';
+export * from './spa-telemetry';
 export * from './recommendation';
 export * from './admin';
 export * from './waitlist';

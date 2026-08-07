@@ -90,6 +90,7 @@ export function RecommendationCard({
       latitude: candidate.latitude,
       longitude: candidate.longitude,
       target: municipalParkTarget(candidate.refId, candidate.title),
+      originSurface: 'recommendation',
     });
     if (outcome.status === 'busy') return;
     if (outcome.status === 'success') {

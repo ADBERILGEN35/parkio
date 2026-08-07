@@ -149,6 +149,7 @@ export function SelectedMunicipalFacilityPreview({
           longitude={facility.longitude}
           displayLabel={title}
           className="mt-md"
+          originSurface="municipal_preview"
         />
       ) : null}
 

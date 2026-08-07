@@ -92,6 +92,7 @@ import {
   RecommendationsPanel,
   useSmartParkingAssistant,
 } from '@/features/smart-parking-assistant';
+import { trackAssistantOpened, trackReturnToCarStarted } from '@/services/spaTelemetry';
 
 const NearbySpotsMap = lazy(() =>
   import('@/components/map/NearbySpotsMap').then((m) => ({ default: m.NearbySpotsMap })),
@@ -430,6 +431,7 @@ export function MapPage({
 
   const handleQuickParkedCar = useCallback(() => {
     if (!parkedCarCoords || !activeSession) return;
+    trackReturnToCarStarted();
     setParkedCarSelected(true);
     focusParkedCar();
     if (!isDesktop) setSheetState('half');
@@ -1019,7 +1021,12 @@ export function MapPage({
                 />
               ) : !assistant.destination ? (
                 <>
-                  <AssistantEntryControl onOpen={assistant.openSearch} />
+                  <AssistantEntryControl
+                    onOpen={() => {
+                      trackAssistantOpened();
+                      assistant.openSearch();
+                    }}
+                  />
                   <QuickActionsBar
                     enabled={smartParkingAssistantEnabled}
                     authenticated={isAuthenticated}
@@ -1059,7 +1066,13 @@ export function MapPage({
           <div className="pointer-events-auto mx-auto flex max-w-[430px] flex-col gap-xs">
             <div className="flex items-center gap-xs rounded-full border border-outline-variant/30 bg-surface/90 p-xs shadow-deep backdrop-blur-xl">
               {smartParkingAssistantEnabled && !assistant.destination && !assistant.searchOpen ? (
-                <AssistantEntryControl compact onOpen={assistant.openSearch} />
+                <AssistantEntryControl
+                  compact
+                  onOpen={() => {
+                    trackAssistantOpened();
+                    assistant.openSearch();
+                  }}
+                />
               ) : (
                 <div className="min-w-0 flex-1">
                   <PlaceSearch
