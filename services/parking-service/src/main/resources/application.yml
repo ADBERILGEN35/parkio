@@ -352,6 +352,13 @@ parkio:
         cleanup-enabled: ${PARKIO_SPA_RANKING_EVALUATION_CLEANUP_ENABLED:true}
         cleanup-fixed-delay-ms: ${PARKIO_SPA_RANKING_EVALUATION_CLEANUP_FIXED_DELAY_MS:900000}
         cleanup-batch-size: ${PARKIO_SPA_RANKING_EVALUATION_CLEANUP_BATCH_SIZE:500}
+        # WP-SPA-14D privacy-safe long-horizon rollups. Default off.
+        rollup-enabled: ${PARKIO_SPA_RANKING_EVALUATION_ROLLUP_ENABLED:false}
+        rollup-retention-days: ${PARKIO_SPA_RANKING_EVALUATION_ROLLUP_RETENTION_DAYS:90}
+        rollup-grace-minutes: ${PARKIO_SPA_RANKING_EVALUATION_ROLLUP_GRACE_MINUTES:60}
+        rollup-fixed-delay-ms: ${PARKIO_SPA_RANKING_EVALUATION_ROLLUP_FIXED_DELAY_MS:900000}
+        rollup-max-slices-per-pass: ${PARKIO_SPA_RANKING_EVALUATION_ROLLUP_MAX_SLICES_PER_PASS:24}
+        rollup-cleanup-enabled: ${PARKIO_SPA_RANKING_EVALUATION_ROLLUP_CLEANUP_ENABLED:true}
   user:
     client:
       # Internal base URL of user-service for favourite parking status (WP-SPA-06).

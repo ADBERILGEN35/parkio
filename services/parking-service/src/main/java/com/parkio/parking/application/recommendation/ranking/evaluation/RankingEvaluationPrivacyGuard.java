@@ -64,6 +64,38 @@ public final class RankingEvaluationPrivacyGuard {
 
     private RankingEvaluationPrivacyGuard() {}
 
+    public static void assertRollupRecordsAllowed(java.util.List<RankingEvaluationRollupRecord> rows) {
+        if (rows == null) {
+            return;
+        }
+        for (RankingEvaluationRollupRecord row : rows) {
+            assertRollupRecordAllowed(row);
+        }
+    }
+
+    public static void assertRollupRecordAllowed(RankingEvaluationRollupRecord row) {
+        if (row == null) {
+            throw new IllegalArgumentException("rollup row required");
+        }
+        if (!RankingEvaluationRollupConstants.EXPOSURE_POLICY.equals(row.exposurePolicy())) {
+            throw new IllegalArgumentException("invalid exposure policy");
+        }
+        assertAllowedRollupToken("platform", row.platform());
+        assertAllowedRollupToken("inventoryComposition", row.inventoryComposition());
+        assertAllowedRollupToken("outcomeType", row.outcomeType());
+        assertAllowedRollupToken("evidenceSource", row.evidenceSource());
+    }
+
+    private static void assertAllowedRollupToken(String field, String value) {
+        if (value == null) {
+            throw new IllegalArgumentException(field + " required");
+        }
+        String normalized = value.toLowerCase(Locale.ROOT).replace("-", "");
+        if (FORBIDDEN_FIELD_NAMES.contains(normalized)) {
+            throw new IllegalArgumentException("forbidden rollup value for " + field);
+        }
+    }
+
     public static void assertFeaturesJsonAllowed(ObjectMapper mapper, String featuresJson) {
         if (featuresJson == null || featuresJson.isBlank()) {
             throw new IllegalArgumentException("featuresJson required");

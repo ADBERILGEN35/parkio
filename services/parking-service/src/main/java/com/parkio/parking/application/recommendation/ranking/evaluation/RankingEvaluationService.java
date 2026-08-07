@@ -22,6 +22,8 @@ import java.util.Optional;
 import java.util.UUID;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.context.annotation.Lazy;
 import org.springframework.stereotype.Service;
 
 /**
@@ -39,6 +41,7 @@ public class RankingEvaluationService {
     private final RankingEvaluationMetrics metrics;
     private final ObjectMapper objectMapper;
     private final Clock clock;
+    private final RankingEvaluationRollupService rollupService;
 
     public RankingEvaluationService(
             RankingEvaluationProperties properties,
@@ -46,11 +49,23 @@ public class RankingEvaluationService {
             RankingEvaluationMetrics metrics,
             ObjectMapper objectMapper,
             Clock clock) {
+        this(properties, store, metrics, objectMapper, clock, null);
+    }
+
+    @Autowired
+    public RankingEvaluationService(
+            RankingEvaluationProperties properties,
+            RankingEvaluationStore store,
+            RankingEvaluationMetrics metrics,
+            ObjectMapper objectMapper,
+            Clock clock,
+            @Autowired(required = false) @Lazy RankingEvaluationRollupService rollupService) {
         this.properties = Objects.requireNonNull(properties, "properties");
         this.store = Objects.requireNonNull(store, "store");
         this.metrics = Objects.requireNonNull(metrics, "metrics");
         this.objectMapper = Objects.requireNonNull(objectMapper, "objectMapper");
         this.clock = Objects.requireNonNull(clock, "clock");
+        this.rollupService = rollupService;
     }
 
     public boolean isEnabled() {
@@ -245,7 +260,12 @@ public class RankingEvaluationService {
             return 0;
         }
         try {
-            int deleted = store.deleteExpiredBefore(clock.instant(), config.cleanupBatchSize());
+            int deleted;
+            if (rollupService != null && config.rollupEnabled()) {
+                deleted = rollupService.cleanupExpiredRawRespectingWatermark();
+            } else {
+                deleted = store.deleteExpiredBefore(clock.instant(), config.cleanupBatchSize());
+            }
             metrics.recordCleanupDeleted(deleted);
             if (deleted > 0) {
                 log.info("evaluation_cleanup status=ok deletedBucket={}", deletedBucket(deleted));

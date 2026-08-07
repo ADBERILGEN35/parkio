@@ -74,7 +74,7 @@ class MunicipalRegistryCandidateGenerationPostgresIT {
     }
 
     @Test
-    void v32UpgradesToV35AndEnforcesOneRunningPair() {
+    void v32UpgradesToV36AndEnforcesOneRunningPair() {
         Flyway v32 = flyway(MigrationVersion.fromVersion("32"));
         v32.clean();
         v32.migrate();

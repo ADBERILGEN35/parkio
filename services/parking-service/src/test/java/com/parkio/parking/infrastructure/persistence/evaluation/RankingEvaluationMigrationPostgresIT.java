@@ -29,26 +29,33 @@ class RankingEvaluationMigrationPostgresIT {
             .withPassword("parkio");
 
     @Test
-    void v34UpgradesToV35WithPrivacySafeEvaluationTables() throws Exception {
-        Flyway toV34 = flyway(MigrationVersion.fromVersion("34"));
-        toV34.clean();
-        toV34.migrate();
+    void v35UpgradesToV36WithRollupTables() throws Exception {
+        Flyway toV35 = flyway(MigrationVersion.fromVersion("35"));
+        toV35.clean();
+        toV35.migrate();
 
         try (Connection connection = openConnection()) {
-            assertThat(currentFlywayVersion(connection)).isEqualTo("34");
-            assertThat(tableExists(connection, "ranking_evaluations")).isFalse();
+            assertThat(currentFlywayVersion(connection)).isEqualTo("35");
+            assertThat(tableExists(connection, "ranking_evaluations")).isTrue();
+            assertThat(tableExists(connection, "ranking_evaluation_daily_rollups")).isFalse();
+            assertThat(tableExists(connection, "ranking_evaluation_rollup_watermark")).isFalse();
         }
 
         assertThat(flyway(null).migrate().migrationsExecuted).isEqualTo(1);
 
         try (Connection connection = openConnection()) {
-            assertThat(currentFlywayVersion(connection)).isEqualTo("35");
+            assertThat(currentFlywayVersion(connection)).isEqualTo("36");
             assertThat(tableExists(connection, "ranking_evaluations")).isTrue();
             assertThat(tableExists(connection, "ranking_evaluation_outcomes")).isTrue();
-            assertThat(indexExists(connection, "idx_ranking_evaluations_expires_at")).isTrue();
-            assertThat(columnExists(connection, "ranking_evaluations", "user_id")).isFalse();
-            assertThat(columnExists(connection, "ranking_evaluations", "facility_id")).isFalse();
-            assertThat(columnExists(connection, "ranking_evaluation_outcomes", "session_id")).isFalse();
+            assertThat(tableExists(connection, "ranking_evaluation_daily_rollups")).isTrue();
+            assertThat(tableExists(connection, "ranking_evaluation_rollup_slices")).isTrue();
+            assertThat(tableExists(connection, "ranking_evaluation_rollup_watermark")).isTrue();
+            assertThat(indexExists(connection, "idx_ranking_evaluation_daily_rollups_date")).isTrue();
+            assertThat(columnExists(connection, "ranking_evaluation_daily_rollups", "evaluation_id")).isFalse();
+            assertThat(columnExists(connection, "ranking_evaluation_daily_rollups", "user_id")).isFalse();
+            assertThat(columnExists(connection, "ranking_evaluation_daily_rollups", "facility_id")).isFalse();
+            assertThat(columnExists(connection, "ranking_evaluation_daily_rollups", "session_id")).isFalse();
+            assertThat(columnExists(connection, "ranking_evaluation_daily_rollups", "latitude")).isFalse();
         }
     }
 

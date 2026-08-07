@@ -57,7 +57,7 @@ class MunicipalRegistryRuntimePostgresIT {
     }
 
     @Test
-    void v32UpgradesToV35ExactlyOnceWithoutDamagingExistingRegistryData() throws Exception {
+    void v32UpgradesToV36ExactlyOnceWithoutDamagingExistingRegistryData() throws Exception {
         Flyway v32 = flyway(MigrationVersion.fromVersion("32"));
         v32.clean();
         v32.migrate();
@@ -71,7 +71,7 @@ class MunicipalRegistryRuntimePostgresIT {
         assertThat(latest.migrate().migrationsExecuted).isZero();
 
         try (Connection connection = open()) {
-            assertThat(version(connection)).isEqualTo("35");
+            assertThat(version(connection)).isEqualTo("36");
             assertThat(count(connection, "SELECT count(*) FROM municipal_parking_facilities WHERE id='" + FACILITY_A + "'"))
                     .isEqualTo(1);
             assertThat(count(connection, "SELECT count(*) FROM municipal_link_candidates")).isZero();
