@@ -29,13 +29,13 @@ class MunicipalSourceMigrationPostgresIT {
             .withPassword("parkio");
 
     @Test
-    void freshSchemaMigratesThroughV33WithMunicipalTablesAndSeeds() throws Exception {
+    void freshSchemaMigratesThroughV34WithMunicipalTablesAndSeeds() throws Exception {
         Flyway flyway = flyway(null);
         flyway.clean();
         flyway.migrate();
 
         try (Connection connection = openConnection()) {
-            assertThat(currentFlywayVersion(connection)).isEqualTo("33");
+            assertThat(currentFlywayVersion(connection)).isEqualTo("34");
             assertThat(tableExists(connection, "municipal_data_sources")).isTrue();
             assertThat(tableExists(connection, "municipal_source_sync_runs")).isTrue();
             assertThat(tableExists(connection, "municipal_parking_facilities")).isTrue();
@@ -50,21 +50,23 @@ class MunicipalSourceMigrationPostgresIT {
             assertThat(seedCount(connection, "izmir-izum-otoparklar")).isEqualTo(1);
                 assertThat(seedCount(connection, "izelman-open-parking-facilities")).isEqualTo(1);
             assertThat(seedCount(connection, "osm-geofabrik-turkey")).isEqualTo(1);
+            assertThat(seedCount(connection, "istanbul-ispark-parks")).isEqualTo(1);
             assertThat(tableExists(connection, "municipal_osm_import_runs")).isTrue();
             assertThat(tableExists(connection, "municipal_facility_conflation_decisions")).isTrue();
             assertThat(tableExists(connection, "municipal_link_candidate_generation_runs")).isTrue();
             assertThat(indexExists(connection, "uq_mlcg_runs_one_running")).isTrue();
 
             flyway.migrate();
-            assertThat(currentFlywayVersion(connection)).isEqualTo("33");
+            assertThat(currentFlywayVersion(connection)).isEqualTo("34");
             assertThat(seedCount(connection, "izmir-izum-otoparklar")).isEqualTo(1);
                 assertThat(seedCount(connection, "izelman-open-parking-facilities")).isEqualTo(1);
             assertThat(seedCount(connection, "osm-geofabrik-turkey")).isEqualTo(1);
+            assertThat(seedCount(connection, "istanbul-ispark-parks")).isEqualTo(1);
         }
     }
 
     @Test
-    void v27SchemaUpgradesCleanlyToV33() throws Exception {
+    void v27SchemaUpgradesCleanlyToV34() throws Exception {
         Flyway targetV27 = flyway(MigrationVersion.fromVersion("27"));
         targetV27.clean();
         targetV27.migrate();
@@ -78,7 +80,7 @@ class MunicipalSourceMigrationPostgresIT {
         full.migrate();
 
         try (Connection connection = openConnection()) {
-            assertThat(currentFlywayVersion(connection)).isEqualTo("33");
+            assertThat(currentFlywayVersion(connection)).isEqualTo("34");
             assertThat(tableExists(connection, "municipal_data_sources")).isTrue();
             assertThat(foreignKeyExists(connection, "municipal_facility_source_links",
                     "fk_municipal_facility_source_links_facility")).isTrue();
@@ -87,6 +89,7 @@ class MunicipalSourceMigrationPostgresIT {
             assertThat(tableExists(connection, "municipal_link_candidate_generation_runs")).isTrue();
             assertThat(seedCount(connection, "izmir-izum-otoparklar")).isEqualTo(1);
                 assertThat(seedCount(connection, "izelman-open-parking-facilities")).isEqualTo(1);
+            assertThat(seedCount(connection, "istanbul-ispark-parks")).isEqualTo(1);
         }
     }
 
