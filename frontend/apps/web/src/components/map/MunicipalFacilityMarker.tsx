@@ -6,6 +6,8 @@ import { useTranslation } from 'react-i18next';
 export interface MunicipalFacilityMarkerProps {
   facility: MunicipalFacility;
   selected: boolean;
+  /** Highlight when this facility appears in assistant recommendations. */
+  recommended?: boolean;
   onSelect: (id: string) => void;
 }
 
@@ -30,6 +32,7 @@ function freshnessTone(freshness: MunicipalOccupancyFreshness | null | undefined
 export const MunicipalFacilityMarker = memo(function MunicipalFacilityMarker({
   facility,
   selected,
+  recommended = false,
   onSelect,
 }: MunicipalFacilityMarkerProps) {
   const { t } = useTranslation('map');
@@ -47,6 +50,7 @@ export const MunicipalFacilityMarker = memo(function MunicipalFacilityMarker({
       aria-pressed={selected}
       data-testid="municipal-facility-marker"
       data-facility-id={facility.id}
+      data-recommended={recommended ? 'true' : undefined}
       onClick={(event) => {
         event.stopPropagation();
         onSelect(facility.id);
@@ -54,6 +58,7 @@ export const MunicipalFacilityMarker = memo(function MunicipalFacilityMarker({
       className={cn(
         'group relative flex h-10 w-10 items-center justify-center rounded-xl border-2 border-white bg-surface-container-lowest shadow-lg transition-all duration-std focus:outline-none focus-visible:ring-4 focus-visible:ring-secondary/30 motion-safe:hover:-translate-y-0.5',
         selected && 'scale-110 shadow-xl ring-4 ring-secondary/25',
+        recommended && !selected && 'ring-2 ring-tertiary/50',
         freshnessTone(facility.freshness ?? facility.availabilityFreshness),
       )}
     >

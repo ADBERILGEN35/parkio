@@ -52,16 +52,22 @@ export interface NearbySpotsMapProps {
   ariaDescription?: string;
   /** Live summary announced when selection changes outside the list. */
   selectionSummary?: string | null;
+  /** WP-SPA-08 destination pin — distinct from parking markers. */
+  destinationMarker?: { latitude: number; longitude: number; label: string } | null;
+  /** Community/municipal ref ids that appear in current recommendations. */
+  recommendedRefIds?: ReadonlySet<string>;
 }
 
 /** Premium, status-aware marker shown for each real spot. */
 const SpotMarker = memo(function SpotMarker({
   spot,
   selected,
+  recommended,
   onSelect,
 }: {
   spot: PublicSpot;
   selected: boolean;
+  recommended?: boolean;
   /** Stable across renders so `memo` skips unaffected markers on selection. */
   onSelect: (id: string) => void;
 }) {
@@ -85,6 +91,7 @@ const SpotMarker = memo(function SpotMarker({
       aria-label={label}
       aria-pressed={selected}
       data-testid="community-spot-marker"
+      data-recommended={recommended ? 'true' : undefined}
       onClick={(event) => {
         event.stopPropagation();
         onSelect(spot.id);
@@ -92,6 +99,7 @@ const SpotMarker = memo(function SpotMarker({
       className={cn(
         'group relative flex h-10 w-10 items-center justify-center rounded-full border-2 border-white bg-surface-container-lowest shadow-lg transition-all duration-std focus:outline-none focus-visible:ring-4 focus-visible:ring-primary/30 motion-safe:hover:-translate-y-0.5',
         selected && 'scale-110 shadow-xl ring-4 ring-primary/20',
+        recommended && !selected && 'ring-2 ring-tertiary/50',
         dimmed && !selected && 'opacity-75',
       )}
     >
@@ -133,7 +141,10 @@ export function NearbySpotsMap({
   ariaLabel,
   ariaDescription,
   selectionSummary = null,
+  destinationMarker = null,
+  recommendedRefIds,
 }: NearbySpotsMapProps) {
+  const { t } = useTranslation('map');
   const descriptionId = useId();
   const selectionId = useId();
   // Stable selection handler: passed by reference to every marker so the memoized
@@ -152,10 +163,15 @@ export function NearbySpotsMap({
     () =>
       spots.map((spot) => (
         <Marker key={`spot-${spot.id}`} longitude={spot.longitude} latitude={spot.latitude} anchor="center">
-          <SpotMarker spot={spot} selected={selectedId === spot.id} onSelect={handleSelect} />
+          <SpotMarker
+            spot={spot}
+            selected={selectedId === spot.id}
+            recommended={recommendedRefIds?.has(spot.id) ?? false}
+            onSelect={handleSelect}
+          />
         </Marker>
       )),
-    [spots, selectedId, handleSelect],
+    [spots, selectedId, handleSelect, recommendedRefIds],
   );
 
   const municipalMarkers = useMemo(
@@ -170,11 +186,12 @@ export function NearbySpotsMap({
           <MunicipalFacilityMarker
             facility={facility}
             selected={selectedMunicipalId === facility.id}
+            recommended={recommendedRefIds?.has(facility.id) ?? false}
             onSelect={handleSelectMunicipal}
           />
         </Marker>
       )),
-    [municipalFacilities, selectedMunicipalId, handleSelectMunicipal],
+    [municipalFacilities, selectedMunicipalId, handleSelectMunicipal, recommendedRefIds],
   );
 
   const showParkedCar =
@@ -230,6 +247,27 @@ export function NearbySpotsMap({
             className="pointer-events-none block h-4 w-4 rounded-full border-2 border-white bg-primary/50 shadow-md"
           />
         </Marker>
+
+        {destinationMarker ? (
+          <Marker
+            longitude={destinationMarker.longitude}
+            latitude={destinationMarker.latitude}
+            anchor="bottom"
+            style={{ zIndex: 3 }}
+          >
+            <div
+              role="img"
+              aria-label={t('assistant.destinationMarkerAria', { label: destinationMarker.label })}
+              data-testid="assistant-destination-marker"
+              className="flex flex-col items-center"
+            >
+              <span className="rounded-full border-2 border-white bg-tertiary px-sm py-xs text-label-sm font-semibold text-on-tertiary shadow-lg">
+                {t('assistant.destinationPin')}
+              </span>
+              <span className="mt-[-2px] h-0 w-0 border-x-[6px] border-t-[8px] border-x-transparent border-t-tertiary drop-shadow" />
+            </div>
+          </Marker>
+        ) : null}
 
         {municipalMarkers}
         {markers}

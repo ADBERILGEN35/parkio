@@ -303,5 +303,64 @@
       "serverError": "Park oturumu başlatılamadı. Tekrar deneyin.",
       "networkError": "Ağ hatası. Bağlantınızı kontrol edip tekrar deneyin."
     }
+  },
+  "assistant": {
+    "entryPrompt": "Nereye gidiyorsun?",
+    "entryHint": "Hedef seçin, yakındaki park önerilerini görün",
+    "entryAria": "Hedef aramayı aç",
+    "searchLabel": "Hedef ara",
+    "searchPlaceholder": "Ev, iş, favori veya adres ara...",
+    "closeSearch": "Hedef aramasını kapat",
+    "suggestionsAria": "Hedef önerileri",
+    "sections": {
+      "saved": "Kayıtlı yerler",
+      "favourites": "Favoriler",
+      "recents": "Son gidilenler",
+      "geocoding": "Arama sonuçları"
+    },
+    "kinds": {
+      "home": "Ev",
+      "work": "İş",
+      "custom": "Kayıtlı",
+      "favourite": "Favori",
+      "recent": "Son"
+    },
+    "geocodeError": "Adres araması şu anda kullanılamıyor. Kayıtlı yerleriniz hâlâ kullanılabilir.",
+    "noSearchResults": "Sonuç bulunamadı.",
+    "destinationLabel": "Hedef",
+    "recommendationsTitle": "{{label}} için park seçenekleri",
+    "clearDestination": "Hedefi temizle",
+    "changeDestination": "Hedefi değiştir",
+    "candidateCount": "{{count}} seçenek",
+    "partialInventory": "Bazı park kaynakları şu anda kullanılamıyor.",
+    "recommendationsError": "Park önerileri yüklenemedi. Tekrar deneyin.",
+    "retry": "Tekrar dene",
+    "emptyTitle": "Bu hedefin yakınında uygun park seçeneği bulunamadı.",
+    "emptyDescription": "Farklı bir hedef deneyin veya haritada yakındaki keşfe dönün.",
+    "rankRecommended": "Önerilen",
+    "rankOption": "{{n}}. seçenek",
+    "channelMunicipal": "Belediye",
+    "channelCommunity": "Topluluk",
+    "distanceMeters": "{{meters}} m",
+    "distanceKm": "{{km}} km",
+    "spacesAvailable": "{{available}} / {{capacity}} boş",
+    "spacesAvailableOnly": "{{available}} boş yer",
+    "freshnessLive": "Canlı doluluk",
+    "freshnessAging": "Güncellenen doluluk",
+    "freshnessStale": "Eski doluluk verisi",
+    "freshnessStatic": "Canlı doluluk paylaşılmıyor",
+    "reasonsAria": "Öneri nedenleri",
+    "reasons": {
+      "closeToDestination": "Hedefe yakın",
+      "liveAvailability": "Canlı doluluk verisi var",
+      "highCapacity": "Yüksek kapasite",
+      "staticInventory": "Canlı doluluk paylaşılmıyor",
+      "communityFresh": "Güncel topluluk bildirimi",
+      "inventoryDegraded": "Kısmi envanter",
+      "favourite": "Favorilerinizde",
+      "highConfidence": "Yüksek güven"
+    },
+    "destinationPin": "Hedef",
+    "destinationMarkerAria": "Hedef: {{label}}"
   }
 }

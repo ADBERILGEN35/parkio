@@ -1,5 +1,5 @@
 import { zodResolver } from '@hookform/resolvers/zod';
-import type { NearbySearchParams } from '@parkio/types';
+import type { NearbySearchParams, DestinationSearchItem, ParkingCandidate } from '@parkio/types';
 import {
   Button,
   EmptyState,
@@ -72,6 +72,19 @@ import {
   serializeMapDiscoveryUrlState,
   type MapDiscoveryUrlState,
 } from '@/lib/mapDiscoveryUrlState';
+import {
+  parseAssistantUrlState,
+  serializeAssistantUrlState,
+  stripAssistantUrlParams,
+  type AssistantUrlState,
+} from '@/lib/assistantUrlState';
+import { ASSISTANT_RECOMMEND_RADIUS_METERS } from '@/lib/recommendationPresentation';
+import {
+  AssistantEntryControl,
+  DestinationSearchPanel,
+  RecommendationsPanel,
+  useSmartParkingAssistant,
+} from '@/features/smart-parking-assistant';
 
 const NearbySpotsMap = lazy(() =>
   import('@/components/map/NearbySpotsMap').then((m) => ({ default: m.NearbySpotsMap })),
@@ -113,9 +126,12 @@ function optionalNumber(value: unknown): number | undefined {
  */
 export function MapPage({
   municipalDiscoveryEnabled = frontendConfig.features.municipalDiscovery,
+  smartParkingAssistantEnabled = frontendConfig.features.smartParkingAssistant,
 }: {
   /** Test override for WEB_MUNICIPAL_DISCOVERY_ENABLED. */
   municipalDiscoveryEnabled?: boolean;
+  /** Test override for VITE_SMART_PARKING_ASSISTANT_ENABLED. */
+  smartParkingAssistantEnabled?: boolean;
 } = {}) {
   const { t } = useTranslation('map');
   const [searchParams, setSearchParams] = useSearchParams();
@@ -127,6 +143,31 @@ export function MapPage({
     () => mapDiscoveryUrlStateKey(persistedMapUiState, { municipalDiscoveryEnabled }),
     [municipalDiscoveryEnabled, persistedMapUiState],
   );
+  const assistantUrlState = useMemo(
+    () =>
+      parseAssistantUrlState(searchParams, {
+        assistantEnabled: smartParkingAssistantEnabled,
+      }),
+    [searchParams, smartParkingAssistantEnabled],
+  );
+  const setAssistantUrlState = useCallback(
+    (next: AssistantUrlState) => {
+      if (!smartParkingAssistantEnabled) return;
+      const serialized = serializeAssistantUrlState(searchParams, next, {
+        assistantEnabled: true,
+      });
+      if (serialized.toString() !== searchParams.toString()) {
+        setSearchParams(serialized, { replace: false });
+      }
+    },
+    [searchParams, setSearchParams, smartParkingAssistantEnabled],
+  );
+  const assistant = useSmartParkingAssistant({
+    enabled: smartParkingAssistantEnabled,
+    municipalDiscoveryEnabled,
+    urlState: assistantUrlState,
+    onUrlStateChange: setAssistantUrlState,
+  });
   const smartReturnMode = searchParams.get('smartReturn') === '1';
   const [params, setParams] = useState<NearbySearchParams | null>(null);
   const [geoStatus, setGeoStatus] = useState<GeoStatus>('idle');
@@ -350,6 +391,66 @@ export function MapPage({
     [isDesktop],
   );
 
+  // Strip assistant URL params when the feature flag is off.
+  useEffect(() => {
+    if (smartParkingAssistantEnabled) return;
+    const stripped = stripAssistantUrlParams(searchParams);
+    if (stripped.toString() !== searchParams.toString()) {
+      setSearchParams(stripped, { replace: true });
+    }
+  }, [searchParams, setSearchParams, smartParkingAssistantEnabled]);
+
+  const handleAssistantConfirm = useCallback(
+    (item: DestinationSearchItem) => {
+      assistant.confirmDestination(item);
+    },
+    [assistant],
+  );
+
+  const handleAssistantSelectCandidate = useCallback(
+    (candidate: ParkingCandidate) => {
+      assistant.selectCandidate(candidate);
+      if (candidate.channel === 'MUNICIPAL_FACILITY') {
+        selectMunicipalFacility(candidate.refId, 'list');
+      } else {
+        selectSpot(candidate.refId, 'list');
+      }
+    },
+    [assistant, selectMunicipalFacility, selectSpot],
+  );
+
+  const handleSelectSpotWithAssistant = useCallback(
+    (id: string | null, origin: DiscoverySelectionOrigin = 'system') => {
+      selectSpot(id, origin);
+      if (!assistant.enabled || !assistant.destination) return;
+      if (id == null) {
+        assistant.selectCandidateById(null);
+        return;
+      }
+      const match = assistant.recommendations.data?.candidates.find(
+        (c) => c.channel === 'COMMUNITY_SPOT' && c.refId === id,
+      );
+      assistant.selectCandidateById(match?.id ?? null);
+    },
+    [assistant, selectSpot],
+  );
+
+  const handleSelectMunicipalWithAssistant = useCallback(
+    (id: string | null, origin: DiscoverySelectionOrigin = 'system') => {
+      selectMunicipalFacility(id, origin);
+      if (!assistant.enabled || !assistant.destination) return;
+      if (id == null) {
+        assistant.selectCandidateById(null);
+        return;
+      }
+      const match = assistant.recommendations.data?.candidates.find(
+        (c) => c.channel === 'MUNICIPAL_FACILITY' && c.refId === id,
+      );
+      assistant.selectCandidateById(match?.id ?? null);
+    },
+    [assistant, selectMunicipalFacility],
+  );
+
   const handleCommunityLayerVisibleChange = useCallback((visible: boolean) => {
     setCommunityLayerVisible(visible);
     if (!visible) {
@@ -487,6 +588,27 @@ export function MapPage({
     runSearch({ lat: result.lat, lng: result.lng, ...currentOptionalSearchFields() });
   };
 
+  // When a destination is confirmed (or restored from URL), center discovery nearby.
+  const lastAssistantDestKeyRef = useRef<string | null>(null);
+  useEffect(() => {
+    if (!assistant.destination) {
+      lastAssistantDestKeyRef.current = null;
+      return;
+    }
+    const key = `${assistant.destination.latitude},${assistant.destination.longitude},${assistant.destination.label}`;
+    if (lastAssistantDestKeyRef.current === key) return;
+    lastAssistantDestKeyRef.current = key;
+    applyCoords(assistant.destination.latitude, assistant.destination.longitude);
+    setMapZoom(LOCATED_ZOOM);
+    setCenterLabel(assistant.destination.label);
+    runSearch({
+      lat: assistant.destination.latitude,
+      lng: assistant.destination.longitude,
+      radius: ASSISTANT_RECOMMEND_RADIUS_METERS,
+    });
+    if (!isDesktop) setSheetState('half');
+  }, [applyCoords, assistant.destination, isDesktop, runSearch]);
+
   /** Map click / manual coordinate edits update the same center source of truth. */
   const handlePickCenter = (lat: number, lng: number) => {
     applyCoords(lat, lng);
@@ -619,6 +741,25 @@ export function MapPage({
 
   const discovery = (
     <>
+      {smartParkingAssistantEnabled && assistant.destination ? (
+        <div className="mb-md">
+          <RecommendationsPanel
+            destination={assistant.destination}
+            recommendations={assistant.recommendations}
+            selectedCandidateId={assistant.candidateId}
+            onSelectCandidate={handleAssistantSelectCandidate}
+            onClearDestination={() => {
+              assistant.clearDestination();
+              selectSpot(null);
+              selectMunicipalFacility(null);
+            }}
+            onChangeDestination={() => {
+              assistant.openSearch();
+            }}
+          />
+        </div>
+      ) : null}
+
       {municipalDiscoveryEnabled ? (
         <div className="mb-md">
           <MapLayerVisibilityControls
@@ -655,7 +796,7 @@ export function MapPage({
           availableSourceLabels={municipalSourceLabels}
           availableFacilityTypes={municipalFacilityTypes}
           selectedId={selectedMunicipalId}
-          onSelect={(id) => selectMunicipalFacility(id, 'list')}
+          onSelect={(id) => handleSelectMunicipalWithAssistant(id, 'list')}
           selectionFromMap={selectionOrigin === 'map'}
         />
       ) : null}
@@ -672,7 +813,7 @@ export function MapPage({
           onSortChange={setSort}
           sortOptions={sortOptions}
           selectedId={selectedId}
-          onSelect={(id) => selectSpot(id, 'list')}
+          onSelect={(id) => handleSelectSpotWithAssistant(id, 'list')}
           selectionFromMap={selectionOrigin === 'map'}
           userVehicleType={vehicleQuery.data?.vehicleType ?? null}
           siblingInventoryHasResults={discoveryChrome.communityEmptySubordinate}
@@ -739,12 +880,12 @@ export function MapPage({
             }
             onSelectSpot={
               communityLayerVisible
-                ? (id) => selectSpot(id, id === null ? 'system' : 'map')
+                ? (id) => handleSelectSpotWithAssistant(id, id === null ? 'system' : 'map')
                 : undefined
             }
             onSelectMunicipalFacility={
               municipalDiscoveryEnabled && municipalLayerVisible
-                ? (id) => selectMunicipalFacility(id, id === null ? 'system' : 'map')
+                ? (id) => handleSelectMunicipalWithAssistant(id, id === null ? 'system' : 'map')
                 : undefined
             }
             height="100%"
@@ -776,6 +917,18 @@ export function MapPage({
               municipalDiscoveryEnabled ? t('mapRegionHelpMunicipal') : t('mapRegionHelp')
             }
             selectionSummary={selectedMapAnnouncement}
+            destinationMarker={
+              assistant.destination
+                ? {
+                    latitude: assistant.destination.latitude,
+                    longitude: assistant.destination.longitude,
+                    label: assistant.destination.label,
+                  }
+                : null
+            }
+            recommendedRefIds={
+              assistant.enabled && assistant.destination ? assistant.recommendedRefIds : undefined
+            }
           />
         </Suspense>
       </div>
@@ -828,6 +981,18 @@ export function MapPage({
               <PlaceSearch onSelect={selectPlace} />
             </div>
 
+            {smartParkingAssistantEnabled ? (
+              assistant.searchOpen ? (
+                <DestinationSearchPanel
+                  open
+                  onClose={assistant.closeSearch}
+                  onSelect={handleAssistantConfirm}
+                />
+              ) : !assistant.destination ? (
+                <AssistantEntryControl onOpen={assistant.openSearch} />
+              ) : null
+            ) : null}
+
             <button
               type="button"
               onClick={locate}
@@ -851,39 +1016,54 @@ export function MapPage({
         </div>
       ) : (
         <div className="pointer-events-none absolute inset-x-0 top-sm z-[1100] px-sm">
-          <div className="pointer-events-auto mx-auto flex max-w-[430px] items-center gap-xs rounded-full border border-outline-variant/30 bg-surface/90 p-xs shadow-deep backdrop-blur-xl">
-            <div className="min-w-0 flex-1">
-              <PlaceSearch
-                compact
-                placeholder={t('searchPlaceholder')}
-                onSelect={selectPlace}
-              />
+          <div className="pointer-events-auto mx-auto flex max-w-[430px] flex-col gap-xs">
+            <div className="flex items-center gap-xs rounded-full border border-outline-variant/30 bg-surface/90 p-xs shadow-deep backdrop-blur-xl">
+              {smartParkingAssistantEnabled && !assistant.destination && !assistant.searchOpen ? (
+                <AssistantEntryControl compact onOpen={assistant.openSearch} />
+              ) : (
+                <div className="min-w-0 flex-1">
+                  <PlaceSearch
+                    compact
+                    placeholder={t('searchPlaceholder')}
+                    onSelect={selectPlace}
+                  />
+                </div>
+              )}
+              <button
+                type="button"
+                aria-label={t('locateAria')}
+                onClick={locate}
+                disabled={geoStatus === 'locating'}
+                className="flex h-11 w-11 shrink-0 items-center justify-center rounded-full bg-surface-container text-primary transition-colors hover:bg-surface-container-high focus:outline-none focus-visible:ring-2 focus-visible:ring-primary disabled:opacity-60"
+              >
+                <Icon name={geoStatus === 'locating' ? 'progress_activity' : 'my_location'} className="text-[20px] leading-none" />
+              </button>
+              <button
+                type="button"
+                aria-label={t('filtersAria')}
+                aria-expanded={advancedOpen}
+                onClick={() => {
+                  setAdvancedOpen((open) => !open);
+                  if (params) setSheetState('half');
+                }}
+                className="flex h-11 w-11 shrink-0 items-center justify-center rounded-full bg-surface-container text-on-surface transition-colors hover:bg-surface-container-high focus:outline-none focus-visible:ring-2 focus-visible:ring-primary"
+              >
+                <Icon name="tune" className="text-[20px] leading-none" />
+              </button>
             </div>
-            <button
-              type="button"
-              aria-label={t('locateAria')}
-              onClick={locate}
-              disabled={geoStatus === 'locating'}
-              className="flex h-11 w-11 shrink-0 items-center justify-center rounded-full bg-surface-container text-primary transition-colors hover:bg-surface-container-high focus:outline-none focus-visible:ring-2 focus-visible:ring-primary disabled:opacity-60"
-            >
-              <Icon name={geoStatus === 'locating' ? 'progress_activity' : 'my_location'} className="text-[20px] leading-none" />
-            </button>
-            <button
-              type="button"
-              aria-label={t('filtersAria')}
-              aria-expanded={advancedOpen}
-              onClick={() => {
-                setAdvancedOpen((open) => !open);
-                if (params) setSheetState('half');
-              }}
-              className="flex h-11 w-11 shrink-0 items-center justify-center rounded-full bg-surface-container text-on-surface transition-colors hover:bg-surface-container-high focus:outline-none focus-visible:ring-2 focus-visible:ring-primary"
-            >
-              <Icon name="tune" className="text-[20px] leading-none" />
-            </button>
-          </div>
+
+            {smartParkingAssistantEnabled && assistant.searchOpen ? (
+              <div className="rounded-2xl border border-outline-variant/30 bg-surface/95 p-xs shadow-deep backdrop-blur-xl">
+                <DestinationSearchPanel
+                  open
+                  onClose={assistant.closeSearch}
+                  onSelect={handleAssistantConfirm}
+                />
+              </div>
+            ) : null}
 
           {centerLabel ? (
-            <p className="pointer-events-auto mx-auto mt-xs flex max-w-[430px] items-center gap-xs rounded-full bg-surface/85 px-md py-xs text-label-sm font-medium text-on-surface shadow-soft backdrop-blur-xl">
+            <p className="flex items-center gap-xs rounded-full bg-surface/85 px-md py-xs text-label-sm font-medium text-on-surface shadow-soft backdrop-blur-xl">
               <Icon name="location_on" className="text-[14px] leading-none text-primary" />
               <span className="truncate">{t('near', { label: centerLabel })}</span>
             </p>
@@ -981,6 +1161,7 @@ export function MapPage({
               )}
             </div>
           ) : null}
+          </div>
         </div>
       )}
 

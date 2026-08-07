@@ -303,5 +303,64 @@
       "serverError": "Couldn't start your parking session. Try again.",
       "networkError": "Network error. Check your connection and try again."
     }
+  },
+  "assistant": {
+    "entryPrompt": "Where are you going?",
+    "entryHint": "Pick a destination to see ranked parking options nearby",
+    "entryAria": "Open destination search",
+    "searchLabel": "Search destination",
+    "searchPlaceholder": "Search home, work, favourites, or an address...",
+    "closeSearch": "Close destination search",
+    "suggestionsAria": "Destination suggestions",
+    "sections": {
+      "saved": "Saved places",
+      "favourites": "Favourites",
+      "recents": "Recent destinations",
+      "geocoding": "Search results"
+    },
+    "kinds": {
+      "home": "Home",
+      "work": "Work",
+      "custom": "Saved",
+      "favourite": "Favourite",
+      "recent": "Recent"
+    },
+    "geocodeError": "Address search is unavailable right now. Your saved places still work.",
+    "noSearchResults": "No results found.",
+    "destinationLabel": "Destination",
+    "recommendationsTitle": "Parking options for {{label}}",
+    "clearDestination": "Clear destination",
+    "changeDestination": "Change destination",
+    "candidateCount": "{{count}} options",
+    "partialInventory": "Some parking sources are temporarily unavailable.",
+    "recommendationsError": "Could not load parking recommendations. Try again.",
+    "retry": "Retry",
+    "emptyTitle": "No suitable parking options near this destination.",
+    "emptyDescription": "Try another destination or return to nearby map discovery.",
+    "rankRecommended": "Recommended",
+    "rankOption": "Option {{n}}",
+    "channelMunicipal": "Municipal",
+    "channelCommunity": "Community",
+    "distanceMeters": "{{meters}} m",
+    "distanceKm": "{{km}} km",
+    "spacesAvailable": "{{available}} / {{capacity}} free",
+    "spacesAvailableOnly": "{{available}} free spaces",
+    "freshnessLive": "Live availability",
+    "freshnessAging": "Recently updated availability",
+    "freshnessStale": "Stale availability data",
+    "freshnessStatic": "Live availability not shared",
+    "reasonsAria": "Recommendation reasons",
+    "reasons": {
+      "closeToDestination": "Close to destination",
+      "liveAvailability": "Live availability data",
+      "highCapacity": "High capacity",
+      "staticInventory": "Live availability not shared",
+      "communityFresh": "Fresh community report",
+      "inventoryDegraded": "Partial inventory",
+      "favourite": "In your favourites",
+      "highConfidence": "High confidence"
+    },
+    "destinationPin": "Destination",
+    "destinationMarkerAria": "Destination: {{label}}"
   }
 }

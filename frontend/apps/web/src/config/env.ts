@@ -30,6 +30,8 @@ const rawEnvSchema = z.object({
   VITE_SMART_RETURN_ENABLED: z.enum(['true', 'false']).optional(),
   /** WEB-MUNI-01 — municipal facility map discovery. Default off everywhere. */
   VITE_WEB_MUNICIPAL_DISCOVERY_ENABLED: z.enum(['true', 'false']).optional(),
+  /** WP-SPA-08 — web Smart Parking Assistant. Explicit opt-in only. */
+  VITE_SMART_PARKING_ASSISTANT_ENABLED: z.enum(['true', 'false']).optional(),
 });
 
 export interface FrontendConfig {
@@ -53,6 +55,11 @@ export interface FrontendConfig {
      * Default false; hosted-beta enables only for WEB-MUNI-01A; production stays false.
      */
     municipalDiscovery: boolean;
+    /**
+     * When true, `/map` shows the destination-first Smart Parking Assistant
+     * (`VITE_SMART_PARKING_ASSISTANT_ENABLED`). Default false; independent of municipalDiscovery.
+     */
+    smartParkingAssistant: boolean;
   };
 }
 
@@ -101,6 +108,7 @@ export function createFrontendConfig(env: ImportMetaEnv): FrontendConfig {
         : raw.VITE_SMART_RETURN_ENABLED === 'true',
       // Explicit opt-in only — never default on for hosted-beta or production.
       municipalDiscovery: raw.VITE_WEB_MUNICIPAL_DISCOVERY_ENABLED === 'true',
+      smartParkingAssistant: raw.VITE_SMART_PARKING_ASSISTANT_ENABLED === 'true',
     },
   };
 }

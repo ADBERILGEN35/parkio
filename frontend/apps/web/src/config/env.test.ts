@@ -109,4 +109,23 @@ describe('createFrontendConfig', () => {
     );
     expect(config.features.municipalDiscovery).toBe(false);
   });
+
+  it('keeps smart parking assistant disabled by default', () => {
+    const config = createFrontendConfig(env());
+    expect(config.features.smartParkingAssistant).toBe(false);
+  });
+
+  it('enables smart parking assistant only when explicitly true', () => {
+    const config = createFrontendConfig(
+      env({ VITE_SMART_PARKING_ASSISTANT_ENABLED: 'true' }),
+    );
+    expect(config.features.smartParkingAssistant).toBe(true);
+  });
+
+  it('keeps smart parking assistant disabled when the flag is false', () => {
+    const config = createFrontendConfig(
+      env({ VITE_SMART_PARKING_ASSISTANT_ENABLED: 'false' }),
+    );
+    expect(config.features.smartParkingAssistant).toBe(false);
+  });
 });

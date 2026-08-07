@@ -112,6 +112,31 @@ export const placesKeys = {
   recentParking: () => [...placesKeys.recentsRoot(), 'parking'] as const,
 };
 
+/** Destination-scoped parking recommendations (WP-SPA-05/06/08). */
+export type RecommendationFilters = {
+  destKey: string;
+  radiusMeters: number;
+  limit: number;
+  includeCommunity: boolean;
+  includeMunicipal: boolean;
+};
+
+export function normalizeRecommendationFilters(filters: RecommendationFilters) {
+  return {
+    destKey: filters.destKey,
+    radiusMeters: filters.radiusMeters,
+    limit: filters.limit,
+    includeCommunity: filters.includeCommunity,
+    includeMunicipal: filters.includeMunicipal,
+  } as const;
+}
+
+export const recommendationKeys = {
+  all: ['parking', 'recommendations'] as const,
+  list: (filters: RecommendationFilters) =>
+    [...recommendationKeys.all, 'list', normalizeRecommendationFilters(filters)] as const,
+};
+
 export const adminKeys = {
   all: ['admin'] as const,
   dashboard: () => [...adminKeys.all, 'dashboard'] as const,
