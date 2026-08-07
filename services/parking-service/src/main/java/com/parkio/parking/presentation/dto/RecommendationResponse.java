@@ -25,7 +25,9 @@ public record RecommendationResponse(
         List<ParkingCandidateResponse> candidates,
         List<RecommendationReasonResponse> warnings,
         RankingVersion rankingVersion,
-        RankingStatus rankingStatus) {
+        RankingStatus rankingStatus,
+        /** Opaque privacy-safe ranking evaluation correlation token (WP-SPA-14B). */
+        java.util.UUID evaluationId) {
 
     public static RecommendationResponse from(RecommendationResult result) {
         return new RecommendationResponse(
@@ -40,7 +42,8 @@ public record RecommendationResponse(
                         ? null
                         : result.warnings().stream().map(RecommendationReasonResponse::from).toList(),
                 result.rankingVersion(),
-                result.rankingStatus());
+                result.rankingStatus(),
+                result.evaluationId());
     }
 
     public record InventoryStatusResponse(

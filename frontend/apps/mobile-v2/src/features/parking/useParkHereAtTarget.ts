@@ -14,6 +14,7 @@ import { parkingKeys } from '@/data/keys';
 import { activeParkingSessionQueryOptions } from '@/data/query-options/parking';
 import { useOnlineStatus } from '@/hooks/useOnlineStatus';
 import { parkingApi } from '@/services/api';
+import { recordOutcomeForSelectedCandidate } from '@/services/rankingEvaluationCorrelation';
 import {
   trackParkHereFailed,
   trackParkingSessionStarted,
@@ -95,6 +96,9 @@ export function useParkHereAtTarget() {
 
         queryClient.setQueryData(parkingKeys.activeSession(), session);
         trackParkingSessionStarted(originSurface, input.target?.kind ?? null);
+        if (originSurface === 'recommendation') {
+          recordOutcomeForSelectedCandidate('PARKING_SESSION_STARTED', 'MOBILE_V2');
+        }
 
         if (input.target) {
           const key = recentParkingAttemptKey(session, input.target);

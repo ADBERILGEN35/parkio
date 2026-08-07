@@ -15,6 +15,7 @@ import {
 } from '@parkio/api-client';
 import { appConfig } from '@/config/env';
 import { useAuthStore } from '@/state/authStore';
+import { configureRankingEvaluationApi } from './rankingEvaluationCorrelation';
 import { secureStore } from './secureStore';
 import { tokenStorage } from './tokenStorage';
 
@@ -39,6 +40,7 @@ export const apiClient = createApiClient({
 export const authApi = createAuthApi(apiClient);
 export const usersApi = createUsersApi(apiClient);
 export const parkingApi = createParkingApi(apiClient);
+configureRankingEvaluationApi(parkingApi);
 export const mediaApi = createMediaApi(apiClient);
 export const notificationsApi = createNotificationsApi(apiClient);
 export const gamificationApi = createGamificationApi(apiClient);

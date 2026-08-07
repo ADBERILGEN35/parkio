@@ -16,6 +16,7 @@ import com.parkio.parking.application.recommendation.RecommendationReasonCode;
 import com.parkio.parking.application.recommendation.RecommendationResult;
 import com.parkio.parking.application.recommendation.ranking.RankingStatus;
 import com.parkio.parking.application.recommendation.ranking.RankingVersion;
+import com.parkio.parking.application.recommendation.ranking.evaluation.RankingEvaluationService;
 import com.parkio.parking.domain.exception.ParkingErrorCode;
 import com.parkio.parking.domain.exception.ParkingException;
 import com.parkio.parking.domain.place.Destination;
@@ -39,17 +40,19 @@ class RecommendationControllerTest {
     private static final Instant NOW = Instant.parse("2026-08-06T12:00:00Z");
 
     private RecommendationApplicationService service;
+    private RankingEvaluationService rankingEvaluationService;
     private MockMvc mockMvc;
     private final ObjectMapper objectMapper = new ObjectMapper().findAndRegisterModules();
 
     @BeforeEach
     void setUp() {
         service = Mockito.mock(RecommendationApplicationService.class);
+        rankingEvaluationService = Mockito.mock(RankingEvaluationService.class);
         Clock clock = Clock.fixed(NOW, ZoneOffset.UTC);
         MappingJackson2HttpMessageConverter converter = new MappingJackson2HttpMessageConverter();
         converter.setObjectMapper(objectMapper);
         mockMvc = MockMvcBuilders
-                .standaloneSetup(new RecommendationController(service, true))
+                .standaloneSetup(new RecommendationController(service, rankingEvaluationService, true))
                 .setControllerAdvice(new GlobalExceptionHandler(clock))
                 .setMessageConverters(converter)
                 .build();
@@ -60,7 +63,7 @@ class RecommendationControllerTest {
         MappingJackson2HttpMessageConverter converter = new MappingJackson2HttpMessageConverter();
         converter.setObjectMapper(objectMapper);
         MockMvc disabled = MockMvcBuilders
-                .standaloneSetup(new RecommendationController(service, false))
+                .standaloneSetup(new RecommendationController(service, rankingEvaluationService, false))
                 .setControllerAdvice(new GlobalExceptionHandler(Clock.fixed(NOW, ZoneOffset.UTC)))
                 .setMessageConverters(converter)
                 .build();

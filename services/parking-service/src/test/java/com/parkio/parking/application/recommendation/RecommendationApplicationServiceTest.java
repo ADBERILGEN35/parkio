@@ -84,6 +84,7 @@ class RecommendationApplicationServiceTest {
                 rankingProperties,
                 new RankingMetrics(new SimpleMeterRegistry()),
                 disabledShadowOrchestrator(),
+                null,
                 clock,
                 new RecommendationMetrics(new SimpleMeterRegistry()),
                 sync);
@@ -115,6 +116,7 @@ class RecommendationApplicationServiceTest {
                 new FakeShadowParkingRanker(FakeShadowParkingRanker.Mode.REVERSE),
                 new ShadowRankingMetrics(new SimpleMeterRegistry()),
                 store,
+                null,
                 clock);
         RecommendationApplicationService withShadow = new RecommendationApplicationService(
                 community,
@@ -124,6 +126,7 @@ class RecommendationApplicationServiceTest {
                 rankingProperties,
                 new RankingMetrics(new SimpleMeterRegistry()),
                 reverseShadow,
+                null,
                 clock,
                 new RecommendationMetrics(new SimpleMeterRegistry()),
                 Runnable::run);
@@ -159,6 +162,7 @@ class RecommendationApplicationServiceTest {
                 new FakeShadowParkingRanker(FakeShadowParkingRanker.Mode.IDENTITY),
                 new ShadowRankingMetrics(new SimpleMeterRegistry()),
                 new BoundedShadowEvaluationStore(),
+                null,
                 clock);
     }
 

@@ -8,6 +8,8 @@ import type {
   ParkingSessionLifecycleConfig,
   ParkingSessionResponse,
   PublicSpot,
+  RankingEvaluationOutcomeRequest,
+  RankingEvaluationOutcomeResponse,
   RecommendationRequest,
   RecommendationResponse,
   Spot,
@@ -19,6 +21,7 @@ import {
   parkingSessionHistoryResponseSchema,
   parkingSessionLifecycleConfigSchema,
   parkingSessionResponseSchema,
+  rankingEvaluationOutcomeResponseSchema,
   recommendationResponseSchema,
 } from '@parkio/validation';
 import { ContractValidationError } from './errors';
@@ -100,6 +103,26 @@ export function createParkingApi(client: AxiosInstance) {
           signal: options?.signal,
         })
         .then((r) => parseContract(recommendationResponseSchema, r.data));
+    },
+
+    /**
+     * Privacy-safe ranking evaluation outcome (WP-SPA-14B).
+     * Correlates evaluationId + candidate ordinal to an explicit user action.
+     */
+    recordRankingEvaluationOutcome(
+      body: RankingEvaluationOutcomeRequest,
+      options?: RequestOptions,
+    ): Promise<RankingEvaluationOutcomeResponse> {
+      return client
+        .post<unknown>('/parking/recommendations/evaluation-outcomes', body, {
+          signal: options?.signal,
+        })
+        .then((r) =>
+          parseContract<RankingEvaluationOutcomeResponse>(
+            rankingEvaluationOutcomeResponseSchema,
+            r.data,
+          ),
+        );
     },
 
     /** Municipal facility detail — same DTO as nearby items. */

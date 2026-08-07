@@ -69,6 +69,8 @@ import type {
   FavouriteParking,
   FavouriteParkingListResponse,
   FavouriteParkingStatusResponse,
+  RankingEvaluationOutcomeRequest,
+  RankingEvaluationOutcomeResponse,
   RecommendationRequest,
   RecommendationResponse,
   ParkingCandidate,
@@ -178,6 +180,8 @@ import {
 import { destinationSearchItemSchema } from './destination-search';
 import {
   parkingCandidateSchema,
+  rankingEvaluationOutcomeRequestSchema,
+  rankingEvaluationOutcomeResponseSchema,
   recommendationRequestSchema,
   recommendationResponseSchema,
 } from './recommendation';
@@ -328,6 +332,8 @@ type ContractSchemaAssertions = [
   Assert<SchemaMatches<typeof destinationSearchItemSchema, DestinationSearchItem>>,
   Assert<SchemaMatches<typeof recommendationRequestSchema, RecommendationRequest>>,
   Assert<SchemaMatches<typeof recommendationResponseSchema, RecommendationResponse>>,
+  Assert<SchemaMatches<typeof rankingEvaluationOutcomeRequestSchema, RankingEvaluationOutcomeRequest>>,
+  Assert<SchemaMatches<typeof rankingEvaluationOutcomeResponseSchema, RankingEvaluationOutcomeResponse>>,
   Assert<SchemaMatches<typeof parkingCandidateSchema, ParkingCandidate>>,
   Assert<SchemaMatches<typeof gamificationProgressResponseSchema, GamificationProgress>>,
   Assert<SchemaMatches<typeof pointTransactionEntryResponseSchema, PointTransactionEntry>>,

@@ -17,6 +17,7 @@ import {
   recordRecentParkingAfterPark,
 } from '@/data/parking/recordRecentParkingAfterPark';
 import { activeParkingSessionQueryOptions } from '@/data/query-options/parking';
+import { recordOutcomeForSelectedCandidate } from '@/services/rankingEvaluationCorrelation';
 import {
   trackParkHereFailed,
   trackParkingSessionStarted,
@@ -92,6 +93,9 @@ export function useParkHereAtTarget(): ParkHereAtTargetControls {
         });
 
         trackParkingSessionStarted(originSurface, input.target?.kind ?? null);
+        if (originSurface === 'recommendation') {
+          recordOutcomeForSelectedCandidate('PARKING_SESSION_STARTED', 'WEB');
+        }
 
         if (input.target) {
           const key = recentParkingAttemptKey(session, input.target);

@@ -4,6 +4,8 @@ import type {
   CandidateScoreBreakdown,
   InventoryStatus,
   ParkingCandidate,
+  RankingEvaluationOutcomeRequest,
+  RankingEvaluationOutcomeResponse,
   RecommendationDestinationInput,
   RecommendationReason,
   RecommendationRequest,
@@ -127,6 +129,32 @@ export const recommendationRequestSchema = z
   })
   .strip() satisfies z.ZodType<RecommendationRequest>;
 
+export const rankingEvaluationOutcomeTypeSchema = z.enum([
+  'RECOMMENDATION_SELECTED',
+  'NAVIGATION_STARTED',
+  'PARKING_SESSION_STARTED',
+  'RETURN_TO_CAR_STARTED',
+  'PARKING_SESSION_ENDED',
+]);
+
+export const rankingEvaluationPlatformSchema = z.enum(['WEB', 'MOBILE_V2', 'UNKNOWN']);
+
+export const rankingEvaluationOutcomeRequestSchema = z
+  .object({
+    evaluationId: z.string().uuid(),
+    candidateOrdinal: z.number().int().nonnegative(),
+    outcomeType: rankingEvaluationOutcomeTypeSchema,
+    platform: rankingEvaluationPlatformSchema.nullish(),
+    latencyBucket: z.string().nullish(),
+  })
+  .strip() satisfies z.ZodType<RankingEvaluationOutcomeRequest>;
+
+export const rankingEvaluationOutcomeResponseSchema = z
+  .object({
+    status: z.string().min(1),
+  })
+  .strip() satisfies z.ZodType<RankingEvaluationOutcomeResponse>;
+
 export const recommendationResponseSchema = z
   .object({
     destination: destinationSchema,
@@ -137,5 +165,6 @@ export const recommendationResponseSchema = z
     warnings: z.array(recommendationReasonSchema).nullish(),
     rankingVersion: rankingVersionSchema.nullish(),
     rankingStatus: rankingStatusSchema.nullish(),
+    evaluationId: z.string().uuid().nullish(),
   })
   .strip() satisfies z.ZodType<RecommendationResponse>;

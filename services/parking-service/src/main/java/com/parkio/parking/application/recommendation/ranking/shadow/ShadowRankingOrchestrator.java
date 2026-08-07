@@ -3,10 +3,12 @@ package com.parkio.parking.application.recommendation.ranking.shadow;
 import com.parkio.parking.application.recommendation.ParkingCandidate;
 import com.parkio.parking.application.recommendation.ranking.RankingStatus;
 import com.parkio.parking.application.recommendation.ranking.RankingVersion;
+import com.parkio.parking.application.recommendation.ranking.evaluation.RankingEvaluationService;
 import java.time.Clock;
 import java.time.Instant;
 import java.util.List;
 import java.util.Objects;
+import java.util.UUID;
 import java.util.concurrent.Executor;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
@@ -37,6 +39,7 @@ public class ShadowRankingOrchestrator {
     private final ShadowParkingRanker ranker;
     private final ShadowRankingMetrics metrics;
     private final ShadowEvaluationStore store;
+    private final RankingEvaluationService rankingEvaluationService;
     private final Clock clock;
     private final Semaphore concurrency;
     private final AtomicInteger consecutiveProviderErrors = new AtomicInteger();
@@ -48,11 +51,13 @@ public class ShadowRankingOrchestrator {
             ShadowParkingRanker ranker,
             ShadowRankingMetrics metrics,
             ShadowEvaluationStore store,
+            RankingEvaluationService rankingEvaluationService,
             Clock clock) {
         this.properties = Objects.requireNonNull(properties, "properties");
         this.ranker = Objects.requireNonNull(ranker, "ranker");
         this.metrics = Objects.requireNonNull(metrics, "metrics");
         this.store = Objects.requireNonNull(store, "store");
+        this.rankingEvaluationService = rankingEvaluationService;
         this.clock = Objects.requireNonNull(clock, "clock");
         this.concurrency = new Semaphore(Math.max(1, properties.snapshot().maxConcurrent()), true);
     }
@@ -61,6 +66,7 @@ public class ShadowRankingOrchestrator {
      * Non-blocking entry point. Never throws to callers; never blocks the public path.
      *
      * @param authoritativeLimited candidates in authoritative public order (already limited)
+     * @param evaluationId optional privacy-safe evaluation token from WP-SPA-14B
      */
     public void maybeEvaluateAsync(
             RankingStatus authStatus,
@@ -68,6 +74,7 @@ public class ShadowRankingOrchestrator {
             List<ParkingCandidate> authoritativeLimited,
             boolean inventoryPartial,
             int radiusMeters,
+            UUID evaluationId,
             Executor executor) {
         try {
             ShadowRankingProperties.ShadowConfiguration config = properties.snapshot();
@@ -109,7 +116,7 @@ public class ShadowRankingOrchestrator {
             try {
                 runOn.execute(() -> {
                     try {
-                        evaluate(authVersion, capped, inventoryPartial, radiusMeters, config);
+                        evaluate(authVersion, capped, inventoryPartial, radiusMeters, evaluationId, config);
                     } catch (RuntimeException ex) {
                         log.debug(
                                 "shadow ranking async evaluation failed type={}",
@@ -128,11 +135,30 @@ public class ShadowRankingOrchestrator {
         }
     }
 
+    /** Compatibility overload without evaluation correlation. */
+    public void maybeEvaluateAsync(
+            RankingStatus authStatus,
+            RankingVersion authVersion,
+            List<ParkingCandidate> authoritativeLimited,
+            boolean inventoryPartial,
+            int radiusMeters,
+            Executor executor) {
+        maybeEvaluateAsync(
+                authStatus,
+                authVersion,
+                authoritativeLimited,
+                inventoryPartial,
+                radiusMeters,
+                null,
+                executor);
+    }
+
     void evaluate(
             RankingVersion authVersion,
             List<ParkingCandidate> capped,
             boolean inventoryPartial,
             int radiusMeters,
+            UUID evaluationId,
             ShadowRankingProperties.ShadowConfiguration config) {
         long started = System.nanoTime();
         ShadowRankingRequest request =
@@ -186,6 +212,15 @@ public class ShadowRankingOrchestrator {
                     output,
                     comparison,
                     latencyMs));
+            if (rankingEvaluationService != null) {
+                rankingEvaluationService.maybeAttachShadowOrder(
+                        evaluationId,
+                        authoritativeAliases,
+                        output.orderedCandidateAliases(),
+                        comparison.top1Agreement(),
+                        comparison.top3Overlap(),
+                        ShadowRankingConstants.SHADOW_RANKER_VERSION);
+            }
         } catch (TimeoutException ex) {
             future.cancel(true);
             consecutiveProviderErrors.set(0);

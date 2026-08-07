@@ -345,6 +345,13 @@ parkio:
         timeout-ms: ${PARKIO_SPA_RANKING_SHADOW_TIMEOUT_MS:500}
         max-candidates: ${PARKIO_SPA_RANKING_SHADOW_MAX_CANDIDATES:10}
         max-concurrent: ${PARKIO_SPA_RANKING_SHADOW_MAX_CONCURRENT:4}
+      # WP-SPA-14B privacy-safe ranking evaluation correlation. Default off.
+      evaluation:
+        enabled: ${PARKIO_SPA_RANKING_EVALUATION_ENABLED:false}
+        retention-hours: ${PARKIO_SPA_RANKING_EVALUATION_RETENTION_HOURS:24}
+        cleanup-enabled: ${PARKIO_SPA_RANKING_EVALUATION_CLEANUP_ENABLED:true}
+        cleanup-fixed-delay-ms: ${PARKIO_SPA_RANKING_EVALUATION_CLEANUP_FIXED_DELAY_MS:900000}
+        cleanup-batch-size: ${PARKIO_SPA_RANKING_EVALUATION_CLEANUP_BATCH_SIZE:500}
   user:
     client:
       # Internal base URL of user-service for favourite parking status (WP-SPA-06).

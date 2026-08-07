@@ -154,4 +154,41 @@ describe('recommendation contracts', () => {
     });
     expect(parsed.success).toBe(true);
   });
+
+  it('accepts optional evaluationId correlation token', () => {
+    const parsed = recommendationResponseSchema.safeParse({
+      destination: {
+        label: 'Forum Bornova',
+        latitude: 38.45,
+        longitude: 27.2,
+        source: 'GEOCODING',
+      },
+      generatedAt: '2026-08-06T12:00:00Z',
+      partial: false,
+      inventoryStatus: { community: 'EMPTY', municipal: 'AVAILABLE' },
+      evaluationId: '11111111-1111-4111-8111-111111111111',
+      candidates: [],
+    });
+    expect(parsed.success).toBe(true);
+    if (parsed.success) {
+      expect(parsed.data.evaluationId).toBe('11111111-1111-4111-8111-111111111111');
+    }
+  });
+
+  it('accepts null evaluationId', () => {
+    const parsed = recommendationResponseSchema.safeParse({
+      destination: {
+        label: 'Forum Bornova',
+        latitude: 38.45,
+        longitude: 27.2,
+        source: 'GEOCODING',
+      },
+      generatedAt: '2026-08-06T12:00:00Z',
+      partial: false,
+      inventoryStatus: { community: 'EMPTY', municipal: 'AVAILABLE' },
+      evaluationId: null,
+      candidates: [],
+    });
+    expect(parsed.success).toBe(true);
+  });
 });

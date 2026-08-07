@@ -129,7 +129,7 @@ class ShadowRankingOrchestratorTest {
     }
 
     private ShadowRankingOrchestrator orchestrator(ShadowParkingRanker ranker) {
-        return new ShadowRankingOrchestrator(properties, ranker, metrics, store, CLOCK);
+        return new ShadowRankingOrchestrator(properties, ranker, metrics, store, null, CLOCK);
     }
 
     private ShadowEvaluationRecord latest() {

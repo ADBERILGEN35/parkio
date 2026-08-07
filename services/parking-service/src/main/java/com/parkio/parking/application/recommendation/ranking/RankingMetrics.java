@@ -57,14 +57,21 @@ public class RankingMetrics {
         registry.counter("parkio.spa.ranking.score_bucket", "bucket", scoreBucket(score)).increment();
     }
 
+    /**
+     * SPA-06 distance-baseline vs deterministic comparison.
+     *
+     * <p>Writes {@code parkio.spa.ranking.baseline.*} only. Legacy
+     * {@code parkio.spa.ranking.shadow.top1_changed} / {@code …top3_overlap} names
+     * collided with SPA-14 challenger metrics and are no longer emitted here.
+     */
     public void recordShadow(boolean top1Changed, int top3Overlap) {
         registry.counter(
-                        "parkio.spa.ranking.shadow.top1_changed",
+                        "parkio.spa.ranking.baseline.top1_changed",
                         "changed",
                         Boolean.toString(top1Changed))
                 .increment();
         registry.counter(
-                        "parkio.spa.ranking.shadow.top3_overlap",
+                        "parkio.spa.ranking.baseline.top3_overlap",
                         "overlap",
                         Integer.toString(Math.min(Math.max(top3Overlap, 0), 3)))
                 .increment();

@@ -17,7 +17,9 @@ public record RecommendationResult(
         List<ParkingCandidate> candidates,
         List<RecommendationReason> warnings,
         RankingVersion rankingVersion,
-        RankingStatus rankingStatus) {
+        RankingStatus rankingStatus,
+        /** Opaque privacy-safe ranking evaluation token (WP-SPA-14B); null when disabled. */
+        java.util.UUID evaluationId) {
 
     public RecommendationResult {
         Objects.requireNonNull(destination, "destination");
@@ -30,5 +32,29 @@ public record RecommendationResult(
         Objects.requireNonNull(rankingStatus, "rankingStatus");
         candidates = List.copyOf(candidates);
         warnings = List.copyOf(warnings);
+    }
+
+    /** Backward-compatible constructor without evaluation correlation. */
+    public RecommendationResult(
+            Destination destination,
+            Instant generatedAt,
+            boolean partial,
+            InventoryChannelStatus communityStatus,
+            InventoryChannelStatus municipalStatus,
+            List<ParkingCandidate> candidates,
+            List<RecommendationReason> warnings,
+            RankingVersion rankingVersion,
+            RankingStatus rankingStatus) {
+        this(
+                destination,
+                generatedAt,
+                partial,
+                communityStatus,
+                municipalStatus,
+                candidates,
+                warnings,
+                rankingVersion,
+                rankingStatus,
+                null);
     }
 }

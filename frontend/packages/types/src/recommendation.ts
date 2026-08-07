@@ -96,6 +96,34 @@ export interface RecommendationRequest {
   includeMunicipal?: boolean | null;
 }
 
+export type RankingEvaluationOutcomeType =
+  | 'RECOMMENDATION_SELECTED'
+  | 'NAVIGATION_STARTED'
+  | 'PARKING_SESSION_STARTED'
+  | 'RETURN_TO_CAR_STARTED'
+  | 'PARKING_SESSION_ENDED';
+
+export type RankingEvaluationPlatform = 'WEB' | 'MOBILE_V2' | 'UNKNOWN';
+
+export type RankingEvaluationOutcomeStatus =
+  | 'RECORDED'
+  | 'DUPLICATE'
+  | 'DISABLED'
+  | 'PERSISTENCE_FAILED';
+
+/** Privacy-safe ranking evaluation outcome submission (WP-SPA-14B). */
+export interface RankingEvaluationOutcomeRequest {
+  evaluationId: string;
+  candidateOrdinal: number;
+  outcomeType: RankingEvaluationOutcomeType;
+  platform?: RankingEvaluationPlatform | null;
+  latencyBucket?: string | null;
+}
+
+export interface RankingEvaluationOutcomeResponse {
+  status: RankingEvaluationOutcomeStatus | string;
+}
+
 export interface RecommendationResponse {
   destination: Destination;
   generatedAt: string;
@@ -105,4 +133,6 @@ export interface RecommendationResponse {
   warnings?: RecommendationReason[] | null;
   rankingVersion?: RankingVersion | null;
   rankingStatus?: RankingStatus | null;
+  /** Opaque privacy-safe ranking evaluation correlation token (WP-SPA-14B). */
+  evaluationId?: string | null;
 }

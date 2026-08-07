@@ -13,6 +13,7 @@ import com.parkio.parking.application.recommendation.ranking.RankingProperties;
 import com.parkio.parking.application.recommendation.ranking.RankingStatus;
 import com.parkio.parking.application.recommendation.ranking.RankingVersion;
 import com.parkio.parking.application.recommendation.ranking.shadow.ShadowRankingOrchestrator;
+import com.parkio.parking.application.recommendation.ranking.evaluation.RankingEvaluationService;
 import com.parkio.parking.domain.ParkingSpot;
 import com.parkio.parking.domain.exception.ParkingErrorCode;
 import com.parkio.parking.domain.exception.ParkingException;
@@ -63,6 +64,7 @@ public class RecommendationApplicationService {
     private final RankingProperties rankingProperties;
     private final RankingMetrics rankingMetrics;
     private final ShadowRankingOrchestrator shadowRankingOrchestrator;
+    private final RankingEvaluationService rankingEvaluationService;
     private final Clock clock;
     private final RecommendationMetrics metrics;
     private final Executor executor;
@@ -76,6 +78,7 @@ public class RecommendationApplicationService {
             RankingProperties rankingProperties,
             RankingMetrics rankingMetrics,
             ShadowRankingOrchestrator shadowRankingOrchestrator,
+            RankingEvaluationService rankingEvaluationService,
             Clock clock,
             RecommendationMetrics metrics) {
         this(
@@ -86,6 +89,7 @@ public class RecommendationApplicationService {
                 rankingProperties,
                 rankingMetrics,
                 shadowRankingOrchestrator,
+                rankingEvaluationService,
                 clock,
                 metrics,
                 Executors.newVirtualThreadPerTaskExecutor());
@@ -99,6 +103,7 @@ public class RecommendationApplicationService {
             RankingProperties rankingProperties,
             RankingMetrics rankingMetrics,
             ShadowRankingOrchestrator shadowRankingOrchestrator,
+            RankingEvaluationService rankingEvaluationService,
             Clock clock,
             RecommendationMetrics metrics,
             Executor executor) {
@@ -109,6 +114,7 @@ public class RecommendationApplicationService {
         this.rankingProperties = rankingProperties;
         this.rankingMetrics = rankingMetrics;
         this.shadowRankingOrchestrator = shadowRankingOrchestrator;
+        this.rankingEvaluationService = rankingEvaluationService;
         this.clock = clock;
         this.metrics = metrics;
         this.executor = executor;
@@ -199,7 +205,31 @@ public class RecommendationApplicationService {
                 limited,
                 warnings,
                 outcome.version(),
-                outcome.status());
+                outcome.status(),
+                null);
+
+        UUID evaluationId = null;
+        if (rankingEvaluationService != null) {
+            evaluationId = rankingEvaluationService.maybeCreateEvaluation(
+                    limited,
+                    outcome.version(),
+                    outcome.status(),
+                    partial,
+                    query.radiusMeters());
+            if (evaluationId != null) {
+                result = new RecommendationResult(
+                        result.destination(),
+                        result.generatedAt(),
+                        result.partial(),
+                        result.communityStatus(),
+                        result.municipalStatus(),
+                        result.candidates(),
+                        result.warnings(),
+                        result.rankingVersion(),
+                        result.rankingStatus(),
+                        evaluationId);
+            }
+        }
 
         metrics.record(
                 partial,
@@ -226,6 +256,7 @@ public class RecommendationApplicationService {
                     limited,
                     partial,
                     query.radiusMeters(),
+                    evaluationId,
                     executor);
         }
 

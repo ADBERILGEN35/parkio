@@ -23,6 +23,7 @@ import {
   createSpaJourneyId,
 } from '@parkio/validation';
 import { trackProductEvent, type ProductAnalyticsParams } from './productAnalytics';
+import { recordOutcomeForSelectedCandidate } from './rankingEvaluationCorrelation';
 
 const PLATFORM = 'mobile_v2' as const;
 
@@ -126,6 +127,7 @@ export function trackRecommendationSelected(
 export function trackNavigationStarted(channel?: 'MUNICIPAL_FACILITY' | 'COMMUNITY_SPOT'): void {
   maybeEmitTimeToConfidentChoice();
   track('navigation_started', channel ? { candidateChannel: channel } : undefined);
+  recordOutcomeForSelectedCandidate('NAVIGATION_STARTED', 'MOBILE_V2');
 }
 
 export function trackQuickActionSelected(

@@ -12,6 +12,12 @@ import { placesApi, parkingApi } from '@/services/api';
 import { assistantDestinationIdentityKey } from './assistantDestinationKey';
 import { useAssistantDestinationStore } from './assistantStore';
 import {
+  bindRecommendationEvaluation,
+  clearRankingEvaluation,
+  recordRankingOutcome,
+  setSelectedCandidateById,
+} from '@/services/rankingEvaluationCorrelation';
+import {
   trackDestinationConfirmed,
   trackDestinationSearchResultSelected,
   trackDestinationSearchStarted,
@@ -99,6 +105,7 @@ export function useSmartParkingAssistant({
   const clearDestination = useCallback(() => {
     setSearchOpen(false);
     setCandidateId(null);
+    clearRankingEvaluation();
     clearStoredDestination();
     confirmMutation.reset();
   }, [clearStoredDestination, confirmMutation]);
@@ -109,6 +116,7 @@ export function useSmartParkingAssistant({
       const key = assistantDestinationIdentityKey(dest);
       setSearchOpen(false);
       setCandidateId(null);
+      setSelectedCandidateById(null);
       setStoredDestination(dest);
 
       if (!confirmedWriteKeysRef.current.has(key)) {
@@ -136,7 +144,17 @@ export function useSmartParkingAssistant({
     (candidate: ParkingCandidate | null) => {
       if (candidate && recommendations.data) {
         const position = recommendations.data.candidates.findIndex((c) => c.id === candidate.id);
-        trackRecommendationSelected(candidate, position >= 0 ? position : 0);
+        const ordinal = position >= 0 ? position : 0;
+        trackRecommendationSelected(candidate, ordinal);
+        setSelectedCandidateById(candidate.id);
+        recordRankingOutcome({
+          outcomeType: 'RECOMMENDATION_SELECTED',
+          candidateId: candidate.id,
+          candidateOrdinal: ordinal,
+          platform: 'MOBILE_V2',
+        });
+      } else {
+        setSelectedCandidateById(null);
       }
       setCandidateId(candidate?.id ?? null);
     },
@@ -148,7 +166,20 @@ export function useSmartParkingAssistant({
       if (id && recommendations.data) {
         const position = recommendations.data.candidates.findIndex((c) => c.id === id);
         const candidate = position >= 0 ? recommendations.data.candidates[position] : null;
-        if (candidate) trackRecommendationSelected(candidate, position);
+        if (candidate) {
+          trackRecommendationSelected(candidate, position);
+          setSelectedCandidateById(candidate.id);
+          recordRankingOutcome({
+            outcomeType: 'RECOMMENDATION_SELECTED',
+            candidateId: candidate.id,
+            candidateOrdinal: position,
+            platform: 'MOBILE_V2',
+          });
+        } else {
+          setSelectedCandidateById(null);
+        }
+      } else {
+        setSelectedCandidateById(null);
       }
       setCandidateId(id);
     },
@@ -172,11 +203,15 @@ export function useSmartParkingAssistant({
     lastRecErrorRef.current = false;
     const data = recommendations.data;
     if (!data) return;
-    const key = `${data.generatedAt}:${data.candidates.length}:${data.partial}:${data.rankingStatus ?? ''}`;
+    const key = `${data.generatedAt}:${data.candidates.length}:${data.partial}:${data.rankingStatus ?? ''}:${data.evaluationId ?? ''}`;
     if (lastRecKeyRef.current === key) return;
     lastRecKeyRef.current = key;
+    bindRecommendationEvaluation(data);
+    if (candidateId) {
+      setSelectedCandidateById(candidateId);
+    }
     trackRecommendationsResponse(data);
-  }, [destination, enabled, recommendations.data, recommendations.isError]);
+  }, [candidateId, destination, enabled, recommendations.data, recommendations.isError]);
 
   const selectedCandidate = useMemo(() => {
     if (!enabled || !candidateId || !recommendations.data) return null;

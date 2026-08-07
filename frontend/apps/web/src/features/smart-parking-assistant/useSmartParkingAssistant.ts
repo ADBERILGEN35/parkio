@@ -14,6 +14,12 @@ import {
   type AssistantUrlState,
 } from '@/lib/assistantUrlState';
 import {
+  bindRecommendationEvaluation,
+  clearRankingEvaluation,
+  recordRankingOutcome,
+  setSelectedCandidateById,
+} from '@/services/rankingEvaluationCorrelation';
+import {
   trackDestinationConfirmed,
   trackDestinationSearchResultSelected,
   trackDestinationSearchStarted,
@@ -83,6 +89,7 @@ export function useSmartParkingAssistant({
 
   const clearDestination = useCallback(() => {
     setSearchOpen(false);
+    clearRankingEvaluation();
     onUrlStateChange({ destination: null, candidateId: null });
     confirmMutation.reset();
   }, [confirmMutation, onUrlStateChange]);
@@ -92,6 +99,7 @@ export function useSmartParkingAssistant({
       if (!enabled) return;
       const key = assistantDestinationIdentityKey(dest);
       setSearchOpen(false);
+      setSelectedCandidateById(null);
       onUrlStateChange({ destination: dest, candidateId: null });
 
       if (!confirmedWriteKeysRef.current.has(key)) {
@@ -120,7 +128,17 @@ export function useSmartParkingAssistant({
       if (!destination) return;
       if (candidate && recommendations.data) {
         const position = recommendations.data.candidates.findIndex((c) => c.id === candidate.id);
-        trackRecommendationSelected(candidate, position >= 0 ? position : 0);
+        const ordinal = position >= 0 ? position : 0;
+        trackRecommendationSelected(candidate, ordinal);
+        setSelectedCandidateById(candidate.id);
+        recordRankingOutcome({
+          outcomeType: 'RECOMMENDATION_SELECTED',
+          candidateId: candidate.id,
+          candidateOrdinal: ordinal,
+          platform: 'WEB',
+        });
+      } else {
+        setSelectedCandidateById(null);
       }
       onUrlStateChange({
         destination,
@@ -136,7 +154,20 @@ export function useSmartParkingAssistant({
       if (id && recommendations.data) {
         const position = recommendations.data.candidates.findIndex((c) => c.id === id);
         const candidate = position >= 0 ? recommendations.data.candidates[position] : null;
-        if (candidate) trackRecommendationSelected(candidate, position);
+        if (candidate) {
+          trackRecommendationSelected(candidate, position);
+          setSelectedCandidateById(candidate.id);
+          recordRankingOutcome({
+            outcomeType: 'RECOMMENDATION_SELECTED',
+            candidateId: candidate.id,
+            candidateOrdinal: position,
+            platform: 'WEB',
+          });
+        } else {
+          setSelectedCandidateById(null);
+        }
+      } else {
+        setSelectedCandidateById(null);
       }
       onUrlStateChange({ destination, candidateId: id });
     },
@@ -165,11 +196,16 @@ export function useSmartParkingAssistant({
     lastRecErrorRef.current = false;
     const data = recommendations.data;
     if (!data) return;
-    const key = `${data.generatedAt}:${data.candidates.length}:${data.partial}:${data.rankingStatus ?? ''}`;
+    const key = `${data.generatedAt}:${data.candidates.length}:${data.partial}:${data.rankingStatus ?? ''}:${data.evaluationId ?? ''}`;
     if (lastRecKeyRef.current === key) return;
     lastRecKeyRef.current = key;
+    bindRecommendationEvaluation(data);
+    if (candidateId) {
+      setSelectedCandidateById(candidateId);
+    }
     trackRecommendationsResponse(data);
   }, [
+    candidateId,
     destination,
     enabled,
     recommendations.data,
