@@ -3,6 +3,7 @@ package com.parkio.parking.externalsource.provider;
 import com.parkio.parking.externalsource.MunicipalSourceIdentity;
 import com.parkio.parking.externalsource.izelman.IzelmanSourceKeys;
 import com.parkio.parking.infrastructure.fake.FakeTestMunicipalParkingAdapter;
+import com.parkio.parking.infrastructure.ispark.IsparkMunicipalParkingAdapter;
 import com.parkio.parking.infrastructure.izum.IzumMunicipalParkingAdapter;
 import com.parkio.parking.infrastructure.osm.OsmGeofabrikSourceKeys;
 import java.util.Collection;
@@ -23,6 +24,12 @@ public final class ParkingProviderCatalog {
             "Includes public sector information from Izmir Buyuksehir Belediyesi Acik Veri Portali "
                     + "licensed under Attribution 4.0 International (CC BY 4.0). Parkio is not affiliated "
                     + "with or endorsed by Izmir Municipality or IZELMAN A.S.";
+    /** ASCII catalog label; clients may localize diacritics for display. */
+    public static final String ISPARK_DISPLAY_NAME = "Istanbul Buyuksehir Belediyesi / ISPARK";
+    public static final String ISPARK_ATTRIBUTION =
+            "Includes public sector information from Istanbul Buyuksehir Belediyesi Acik Veri Portali "
+                    + "(ISPARK). Parkio is not affiliated with or endorsed by Istanbul Metropolitan "
+                    + "Municipality or ISPARK A.S. Attribution required under IBB Acik Veri Licence.";
     public static final String OSM_DISPLAY_NAME = "OpenStreetMap contributors / Geofabrik GmbH";
     public static final String OSM_ATTRIBUTION = "OpenStreetMap contributors";
 
@@ -38,6 +45,15 @@ public final class ParkingProviderCatalog {
                 ReconciliationMode.AUTHORITATIVE_FULL_SET,
                 IZUM_DISPLAY_NAME,
                 IZUM_ATTRIBUTION,
+                true));
+        put(map, new ParkingDataSourceDescriptor(
+                ParkingDataProviderId.ISPARK,
+                IsparkMunicipalParkingAdapter.SOURCE_KEY,
+                MunicipalSourceIdentity.FAMILY_ISPARK,
+                Set.of(ProviderCapability.FACILITY_INVENTORY, ProviderCapability.LIVE_OCCUPANCY),
+                ReconciliationMode.AUTHORITATIVE_FULL_SET,
+                ISPARK_DISPLAY_NAME,
+                ISPARK_ATTRIBUTION,
                 true));
         put(map, new ParkingDataSourceDescriptor(
                 ParkingDataProviderId.OPENSTREETMAP,
@@ -113,6 +129,11 @@ public final class ParkingProviderCatalog {
         if (publishableSourceKeys.contains(IzumMunicipalParkingAdapter.SOURCE_KEY)
                 && supportsLiveOccupancy(IzumMunicipalParkingAdapter.SOURCE_KEY)) {
             return Optional.of(IzumMunicipalParkingAdapter.SOURCE_KEY);
+        }
+        // Prefer İSPARK next when co-linked (rare); otherwise first LIVE_OCCUPANCY source.
+        if (publishableSourceKeys.contains(IsparkMunicipalParkingAdapter.SOURCE_KEY)
+                && supportsLiveOccupancy(IsparkMunicipalParkingAdapter.SOURCE_KEY)) {
+            return Optional.of(IsparkMunicipalParkingAdapter.SOURCE_KEY);
         }
         return publishableSourceKeys.stream().filter(ParkingProviderCatalog::supportsLiveOccupancy).findFirst();
     }

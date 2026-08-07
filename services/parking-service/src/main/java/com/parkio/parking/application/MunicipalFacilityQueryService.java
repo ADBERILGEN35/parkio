@@ -27,6 +27,8 @@ import java.util.UUID;
 public class MunicipalFacilityQueryService {
     static final String IZUM_SOURCE_LABEL = ParkingProviderCatalog.IZUM_DISPLAY_NAME;
     static final String IZUM_ATTRIBUTION = ParkingProviderCatalog.IZUM_ATTRIBUTION;
+    static final String ISPARK_SOURCE_LABEL = ParkingProviderCatalog.ISPARK_DISPLAY_NAME;
+    static final String ISPARK_ATTRIBUTION = ParkingProviderCatalog.ISPARK_ATTRIBUTION;
     static final String OSM_SOURCE_LABEL = ParkingProviderCatalog.OSM_DISPLAY_NAME;
     static final String OSM_ATTRIBUTION = ParkingProviderCatalog.OSM_ATTRIBUTION;
 
@@ -209,6 +211,9 @@ public class MunicipalFacilityQueryService {
         if (publishable.contains(MunicipalSourceIdentity.IZUM)) {
             // Keep IZUM attribution even when it mentions IZELMAN in a disclaimer.
             return new DisplayProvenance(IZUM_SOURCE_LABEL, IZUM_ATTRIBUTION);
+        }
+        if (publishable.contains(MunicipalSourceIdentity.ISPARK)) {
+            return new DisplayProvenance(ISPARK_SOURCE_LABEL, ISPARK_ATTRIBUTION);
         }
         if (publishable.contains(MunicipalSourceIdentity.OSM) && !izelmanInventoryPublishable) {
             return new DisplayProvenance(OSM_SOURCE_LABEL, OSM_ATTRIBUTION);

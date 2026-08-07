@@ -6,6 +6,8 @@ package com.parkio.parking.externalsource.provider;
  */
 public enum ParkingDataProviderId {
     IZUM,
+    /** İstanbul Büyükşehir Belediyesi / İSPARK (machine id: ISPARK). */
+    ISPARK,
     OPENSTREETMAP,
     IZELMAN,
     /** Test-only; never production-enabled. */

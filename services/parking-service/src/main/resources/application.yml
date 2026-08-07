@@ -161,6 +161,18 @@ parkio:
       scheduler-enabled: false
       fixed-delay-ms: 120000
       user-agent: ParkioParkingService/1.0 (+https://parkio.dev)
+    ispark:
+      # PROVIDER-ISTANBUL-01: İstanbul / İSPARK. Default dark; enable independently of İZUM.
+      enabled: false
+      operating-mode: ${PARKIO_MUNICIPAL_ISPARK_OPERATING_MODE:SCHEDULED}
+      base-url: https://api.ibb.gov.tr
+      path: /ispark/Park
+      connect-timeout: 2s
+      read-timeout: 10s
+      max-retries: 1
+      scheduler-enabled: false
+      fixed-delay-ms: 120000
+      user-agent: ParkioParkingService/1.0 (+https://parkio.dev)
     fake-test:
       # WP-SPA-13: architecture-only fake provider. Never enable outside tests.
       enabled: false

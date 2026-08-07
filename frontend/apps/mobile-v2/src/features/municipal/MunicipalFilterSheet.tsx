@@ -9,6 +9,7 @@ import { radius } from '@/theme/tokens';
 import { useTheme } from '@/theme/ThemeProvider';
 import {
   MUNICIPAL_CANONICAL_LABEL_IZUM,
+  MUNICIPAL_CANONICAL_LABEL_ISPARK,
   MUNICIPAL_CANONICAL_LABEL_OSM,
 } from '@parkio/geo';
 import {
@@ -55,6 +56,7 @@ export function MunicipalFilterSheet({
   const sourceOptions: { value: MunicipalSourceFilter; label: string }[] = [
     { value: 'all', label: t('map.municipal.filters.source.all') },
     { value: 'izum', label: MUNICIPAL_CANONICAL_LABEL_IZUM },
+    { value: 'ispark', label: MUNICIPAL_CANONICAL_LABEL_ISPARK },
     { value: 'osm', label: MUNICIPAL_CANONICAL_LABEL_OSM },
   ];
 

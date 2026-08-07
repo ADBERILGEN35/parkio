@@ -9,6 +9,7 @@ public class MunicipalSourceProperties {
     private boolean enabled;
     private boolean manualSyncEnabled;
     private Izum izum = new Izum();
+    private Ispark ispark = new Ispark();
     private Osm osm = new Osm();
     private FakeTest fakeTest = new FakeTest();
     private Sla sla = new Sla();
@@ -21,6 +22,8 @@ public class MunicipalSourceProperties {
     public void setManualSyncEnabled(boolean manualSyncEnabled) { this.manualSyncEnabled = manualSyncEnabled; }
     public Izum getIzum() { return izum; }
     public void setIzum(Izum izum) { this.izum = izum; }
+    public Ispark getIspark() { return ispark; }
+    public void setIspark(Ispark ispark) { this.ispark = ispark == null ? new Ispark() : ispark; }
     public Osm getOsm() { return osm; }
     public void setOsm(Osm osm) { this.osm = osm; }
     public FakeTest getFakeTest() { return fakeTest; }
@@ -242,6 +245,54 @@ public class MunicipalSourceProperties {
         private Long agingAfterSeconds;
         private String userAgent = "ParkioParkingService/1.0 (+https://parkio.dev)";
         /** Explicit SLA mode; never inferred from schedulerEnabled alone. */
+        private MunicipalSourceOperatingMode operatingMode = MunicipalSourceOperatingMode.SCHEDULED;
+
+        public boolean isEnabled() { return enabled; }
+        public void setEnabled(boolean enabled) { this.enabled = enabled; }
+        public MunicipalSourceOperatingMode getOperatingMode() { return operatingMode; }
+        public void setOperatingMode(MunicipalSourceOperatingMode operatingMode) {
+            this.operatingMode = operatingMode == null
+                    ? MunicipalSourceOperatingMode.SCHEDULED
+                    : operatingMode;
+        }
+        public String getBaseUrl() { return baseUrl; }
+        public void setBaseUrl(String baseUrl) { this.baseUrl = baseUrl; }
+        public String getPath() { return path; }
+        public void setPath(String path) { this.path = path; }
+        public Duration getConnectTimeout() { return connectTimeout; }
+        public void setConnectTimeout(Duration connectTimeout) { this.connectTimeout = connectTimeout; }
+        public Duration getReadTimeout() { return readTimeout; }
+        public void setReadTimeout(Duration readTimeout) { this.readTimeout = readTimeout; }
+        public int getMaxRetries() { return maxRetries; }
+        public void setMaxRetries(int maxRetries) { this.maxRetries = Math.max(0, maxRetries); }
+        public boolean isSchedulerEnabled() { return schedulerEnabled; }
+        public void setSchedulerEnabled(boolean schedulerEnabled) { this.schedulerEnabled = schedulerEnabled; }
+        public long getFixedDelayMs() { return fixedDelayMs; }
+        public void setFixedDelayMs(long fixedDelayMs) { this.fixedDelayMs = fixedDelayMs; }
+        public Long getStaleAfterSeconds() { return staleAfterSeconds; }
+        public void setStaleAfterSeconds(Long staleAfterSeconds) { this.staleAfterSeconds = staleAfterSeconds; }
+        public Long getAgingAfterSeconds() { return agingAfterSeconds; }
+        public void setAgingAfterSeconds(Long agingAfterSeconds) { this.agingAfterSeconds = agingAfterSeconds; }
+        public String getUserAgent() { return userAgent; }
+        public void setUserAgent(String userAgent) { this.userAgent = userAgent; }
+    }
+
+    /**
+     * İstanbul / İSPARK live inventory + occupancy feed (PROVIDER-ISTANBUL-01).
+     * Defaults off; independently controllable from İZUM.
+     */
+    public static class Ispark {
+        private boolean enabled;
+        private String baseUrl = "https://api.ibb.gov.tr";
+        private String path = "/ispark/Park";
+        private Duration connectTimeout = Duration.ofSeconds(2);
+        private Duration readTimeout = Duration.ofSeconds(10);
+        private int maxRetries = 1;
+        private boolean schedulerEnabled;
+        private long fixedDelayMs = 120000;
+        private Long staleAfterSeconds;
+        private Long agingAfterSeconds;
+        private String userAgent = "ParkioParkingService/1.0 (+https://parkio.dev)";
         private MunicipalSourceOperatingMode operatingMode = MunicipalSourceOperatingMode.SCHEDULED;
 
         public boolean isEnabled() { return enabled; }

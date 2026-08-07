@@ -25,6 +25,7 @@ public final class MunicipalSourcePublicationPolicy {
     public boolean isSourceLinkPublishable(String sourceKey) {
         return switch (MunicipalSourceIdentity.familyOf(sourceKey)) {
             case MunicipalSourceIdentity.FAMILY_IZUM -> true;
+            case MunicipalSourceIdentity.FAMILY_ISPARK -> true;
             case MunicipalSourceIdentity.FAMILY_OSM -> municipal.getOsm().isPublicationEnabled();
             case MunicipalSourceIdentity.FAMILY_IZELMAN -> {
                 if (MunicipalSourceIdentity.isIzelmanRoadside(sourceKey)) {

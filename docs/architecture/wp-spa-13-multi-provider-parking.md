@@ -42,6 +42,7 @@ Current:
 | Source | Provider | Capabilities | Reconciliation |
 |--------|----------|--------------|----------------|
 | `izmir-izum-otoparklar` | IZUM | inventory + live occupancy | `AUTHORITATIVE_FULL_SET` |
+| `istanbul-ispark-parks` | ISPARK | inventory + live occupancy | `AUTHORITATIVE_FULL_SET` |
 | `osm-geofabrik-turkey` | OPENSTREETMAP | inventory only | `UPSERT_ONLY` (file import path) |
 | `izelman-*` | IZELMAN | inventory only | `UPSERT_ONLY` (file import path) |
 | `parkio-fake-test-provider` | FAKE_TEST | inventory + live occupancy | `AUTHORITATIVE_FULL_SET` (tests only) |

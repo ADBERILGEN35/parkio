@@ -38,8 +38,10 @@ export {
 } from './municipalDiscovery';
 export {
   MUNICIPAL_CANONICAL_LABEL_IZUM,
+  MUNICIPAL_CANONICAL_LABEL_ISPARK,
   MUNICIPAL_CANONICAL_LABEL_OSM,
   MUNICIPAL_SOURCE_KEY_IZUM,
+  MUNICIPAL_SOURCE_KEY_ISPARK,
   MUNICIPAL_SOURCE_KEY_OSM,
   type MunicipalSourceFamily,
   municipalSourceFamily,

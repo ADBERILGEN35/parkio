@@ -2,23 +2,27 @@ import type { MunicipalFacility } from '@parkio/types';
 
 /** Stable ingestion keys — presentation only; never shown to users. */
 export const MUNICIPAL_SOURCE_KEY_IZUM = 'izmir-izum-otoparklar';
+export const MUNICIPAL_SOURCE_KEY_ISPARK = 'istanbul-ispark-parks';
 export const MUNICIPAL_SOURCE_KEY_OSM = 'osm-geofabrik-turkey';
 
-/** Canonical end-user labels (Turkish municipality copy for IZUM). */
+/** Canonical end-user labels (Turkish municipality copy). */
 export const MUNICIPAL_CANONICAL_LABEL_IZUM = 'İzmir Büyükşehir Belediyesi / İZUM';
+export const MUNICIPAL_CANONICAL_LABEL_ISPARK = 'İstanbul Büyükşehir Belediyesi / İSPARK';
 export const MUNICIPAL_CANONICAL_LABEL_OSM = 'OpenStreetMap';
 
 const SOURCE_KEY_SORT_ORDER: Record<string, number> = {
   [MUNICIPAL_SOURCE_KEY_IZUM]: 0,
-  [MUNICIPAL_SOURCE_KEY_OSM]: 1,
+  [MUNICIPAL_SOURCE_KEY_ISPARK]: 1,
+  [MUNICIPAL_SOURCE_KEY_OSM]: 2,
 };
 
-export type MunicipalSourceFamily = 'izum' | 'osm' | 'izelman' | 'unknown';
+export type MunicipalSourceFamily = 'izum' | 'ispark' | 'osm' | 'izelman' | 'unknown';
 
 /** Map a raw ingestion key to a source family. */
 export function municipalSourceFamily(sourceKey: string): MunicipalSourceFamily {
   const key = sourceKey.trim();
   if (key === MUNICIPAL_SOURCE_KEY_IZUM) return 'izum';
+  if (key === MUNICIPAL_SOURCE_KEY_ISPARK) return 'ispark';
   if (key === MUNICIPAL_SOURCE_KEY_OSM) return 'osm';
   if (key.startsWith('izelman-')) return 'izelman';
   return 'unknown';
@@ -29,6 +33,8 @@ export function canonicalLabelForSourceKey(sourceKey: string): string | null {
   switch (municipalSourceFamily(sourceKey)) {
     case 'izum':
       return MUNICIPAL_CANONICAL_LABEL_IZUM;
+    case 'ispark':
+      return MUNICIPAL_CANONICAL_LABEL_ISPARK;
     case 'osm':
       return MUNICIPAL_CANONICAL_LABEL_OSM;
     default:
@@ -43,6 +49,9 @@ export function canonicalLabelForSourceKey(sourceKey: string): string | null {
 export function canonicalLabelForSourceLabel(sourceLabel: string | null | undefined): string | null {
   if (sourceLabel == null || !sourceLabel.trim()) return null;
   const folded = sourceLabel.trim().toUpperCase();
+  if (folded.includes('ISPARK') || (folded.includes('ISTANBUL') && folded.includes('BELEDIY'))) {
+    return MUNICIPAL_CANONICAL_LABEL_ISPARK;
+  }
   if (folded.includes('IZUM') || (folded.includes('IZMIR') && folded.includes('BELEDIY'))) {
     return MUNICIPAL_CANONICAL_LABEL_IZUM;
   }
@@ -53,7 +62,7 @@ export function canonicalLabelForSourceLabel(sourceLabel: string | null | undefi
 }
 
 /**
- * Unique canonical data-source labels for a facility, deterministic order: IZUM → OSM → other.
+ * Unique canonical data-source labels for a facility, deterministic order: IZUM → ISPARK → OSM → other.
  * Never exposes source keys, registry field names, or distributor strings.
  */
 export function municipalDataSourceLabels(facility: MunicipalFacility): string[] {

@@ -71,6 +71,19 @@ const dual = facility({
   freshness: 'LIVE',
   availabilityFreshness: 'LIVE',
 });
+const isparkLive = facility({
+  id: 'ispark-live',
+  availableSpaces: 12,
+  occupiedSpaces: 88,
+  capacityTotal: 100,
+  freshness: 'LIVE',
+  availabilityFreshness: 'LIVE',
+  availabilitySource: 'istanbul-ispark-parks',
+  contributingSourceKeys: ['istanbul-ispark-parks'],
+  sourceLabel: 'Istanbul Buyuksehir Belediyesi / ISPARK',
+  latitude: 41.01,
+  longitude: 29.0,
+});
 
 describe('municipalFilterPipeline', () => {
   it('does not mutate the input array', () => {
@@ -91,6 +104,9 @@ describe('municipalFilterPipeline', () => {
     expect(matchesMunicipalSourceFilter(osm, 'osm')).toBe(true);
     expect(matchesMunicipalSourceFilter(dual, 'izum')).toBe(true);
     expect(matchesMunicipalSourceFilter(dual, 'osm')).toBe(true);
+    expect(matchesMunicipalSourceFilter(isparkLive, 'ispark')).toBe(true);
+    expect(matchesMunicipalSourceFilter(isparkLive, 'izum')).toBe(false);
+    expect(matchesMunicipalSourceFilter(isparkLive, 'osm')).toBe(false);
   });
 
   it('keeps zero-available live facilities under live occupancy', () => {

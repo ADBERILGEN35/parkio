@@ -2,8 +2,10 @@ import { describe, expect, it } from 'vitest';
 import type { MunicipalFacility } from '@parkio/types';
 import {
   MUNICIPAL_CANONICAL_LABEL_IZUM,
+  MUNICIPAL_CANONICAL_LABEL_ISPARK,
   MUNICIPAL_CANONICAL_LABEL_OSM,
   MUNICIPAL_SOURCE_KEY_IZUM,
+  MUNICIPAL_SOURCE_KEY_ISPARK,
   MUNICIPAL_SOURCE_KEY_OSM,
   canonicalLabelForSourceKey,
   canonicalLabelForSourceLabel,
@@ -42,6 +44,7 @@ describe('canonicalLabelForSourceKey', () => {
   it('maps known keys', () => {
     expect(canonicalLabelForSourceKey(MUNICIPAL_SOURCE_KEY_OSM)).toBe(MUNICIPAL_CANONICAL_LABEL_OSM);
     expect(canonicalLabelForSourceKey(MUNICIPAL_SOURCE_KEY_IZUM)).toBe(MUNICIPAL_CANONICAL_LABEL_IZUM);
+    expect(canonicalLabelForSourceKey(MUNICIPAL_SOURCE_KEY_ISPARK)).toBe(MUNICIPAL_CANONICAL_LABEL_ISPARK);
   });
 
   it('omits unknown keys', () => {
@@ -62,6 +65,12 @@ describe('canonicalLabelForSourceLabel', () => {
   it('recognizes IZUM backend copy', () => {
     expect(canonicalLabelForSourceLabel('Izmir Buyuksehir Belediyesi / IZUM')).toBe(
       MUNICIPAL_CANONICAL_LABEL_IZUM,
+    );
+  });
+
+  it('recognizes ISPARK backend copy', () => {
+    expect(canonicalLabelForSourceLabel('Istanbul Buyuksehir Belediyesi / ISPARK')).toBe(
+      MUNICIPAL_CANONICAL_LABEL_ISPARK,
     );
   });
 });

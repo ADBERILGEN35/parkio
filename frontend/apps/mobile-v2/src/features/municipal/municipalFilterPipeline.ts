@@ -1,5 +1,6 @@
 import {
   MUNICIPAL_CANONICAL_LABEL_IZUM,
+  MUNICIPAL_CANONICAL_LABEL_ISPARK,
   MUNICIPAL_CANONICAL_LABEL_OSM,
   municipalDataSourceLabels,
   municipalOccupancyPresentationKind,
@@ -41,15 +42,18 @@ export function municipalFacilitySourceFilter(
 ): Exclude<MunicipalSourceFilter, 'all'> | 'unknown' {
   const labels = municipalDataSourceLabels(facility);
   const hasIzum = labels.includes(MUNICIPAL_CANONICAL_LABEL_IZUM);
+  const hasIspark = labels.includes(MUNICIPAL_CANONICAL_LABEL_ISPARK);
   const hasOsm = labels.includes(MUNICIPAL_CANONICAL_LABEL_OSM);
-  if (hasIzum && !hasOsm) return 'izum';
-  if (hasOsm && !hasIzum) return 'osm';
-  if (hasIzum && hasOsm) return 'izum'; // dual-source: treat as İZUM for exclusive buckets
+  if (hasIzum && !hasOsm && !hasIspark) return 'izum';
+  if (hasIspark && !hasOsm && !hasIzum) return 'ispark';
+  if (hasOsm && !hasIzum && !hasIspark) return 'osm';
+  if (hasIzum) return 'izum';
+  if (hasIspark) return 'ispark';
   return 'unknown';
 }
 
 /**
- * Match source filter. Dual-source (İZUM+OSM) facilities match both İZUM and OSM filters
+ * Match source filter. Dual-source facilities match both exclusive controls
  * so users can find them under either control.
  */
 export function matchesMunicipalSourceFilter(
@@ -59,6 +63,7 @@ export function matchesMunicipalSourceFilter(
   if (source === 'all') return true;
   const labels = municipalDataSourceLabels(facility);
   if (source === 'izum') return labels.includes(MUNICIPAL_CANONICAL_LABEL_IZUM);
+  if (source === 'ispark') return labels.includes(MUNICIPAL_CANONICAL_LABEL_ISPARK);
   if (source === 'osm') return labels.includes(MUNICIPAL_CANONICAL_LABEL_OSM);
   return true;
 }

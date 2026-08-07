@@ -13,6 +13,7 @@ import com.parkio.parking.domain.VehicleType;
 import com.parkio.parking.externalsource.MunicipalFacilityType;
 import com.parkio.parking.externalsource.MunicipalOccupancyFreshness;
 import com.parkio.parking.externalsource.MunicipalSourceIdentity;
+import com.parkio.parking.externalsource.provider.ParkingProviderCatalog;
 import java.time.Instant;
 import java.util.Set;
 import java.util.UUID;
@@ -87,6 +88,34 @@ class ParkingCandidateMapperTest {
         assertEquals(0, candidate.availability().availableSpaces());
         assertTrue(candidate.reasons().stream()
                 .anyMatch(r -> r.code() == RecommendationReasonCode.LIVE_AVAILABILITY));
+    }
+
+    @Test
+    void mapsLiveIsparkMunicipalWithoutProviderSpecialCasing() {
+        FacilityView view = new FacilityView(
+                UUID.fromString("dddddddd-dddd-dddd-dddd-dddddddddddd"),
+                "Kadıköy Açık Otopark",
+                "İSPARK",
+                MunicipalFacilityType.OFF_STREET,
+                "KADIKÖY",
+                40.9901,
+                29.0292,
+                120,
+                45,
+                75,
+                MunicipalOccupancyFreshness.LIVE,
+                ParkingProviderCatalog.ISPARK_ATTRIBUTION,
+                ParkingProviderCatalog.ISPARK_DISPLAY_NAME,
+                NOW,
+                MunicipalSourceIdentity.ISPARK);
+        ParkingCandidate candidate = ParkingCandidateMapper.fromMunicipal(view, 41.0, 29.0);
+
+        assertEquals(ParkingCandidateChannel.MUNICIPAL_FACILITY, candidate.channel());
+        assertEquals(45, candidate.availability().availableSpaces());
+        assertTrue(candidate.reasons().stream()
+                .anyMatch(r -> r.code() == RecommendationReasonCode.LIVE_AVAILABILITY));
+        assertTrue(candidate.reasons().stream()
+                .anyMatch(r -> r.code() == RecommendationReasonCode.HIGH_CAPACITY));
     }
 
     private static FacilityView facility(

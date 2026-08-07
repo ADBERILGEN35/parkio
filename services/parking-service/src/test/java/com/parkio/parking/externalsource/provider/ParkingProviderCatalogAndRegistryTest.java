@@ -8,6 +8,7 @@ import static org.mockito.Mockito.when;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.parkio.parking.externalsource.MunicipalParkingSourceAdapter;
 import com.parkio.parking.infrastructure.fake.FakeTestMunicipalParkingAdapter;
+import com.parkio.parking.infrastructure.ispark.IsparkMunicipalParkingAdapter;
 import com.parkio.parking.infrastructure.izum.IzumMunicipalParkingAdapter;
 import java.util.List;
 import org.junit.jupiter.api.Test;
@@ -22,6 +23,12 @@ class ParkingProviderCatalogAndRegistryTest {
         assertThat(izum.supports(ProviderCapability.LIVE_OCCUPANCY)).isTrue();
         assertThat(izum.reconciliationMode()).isEqualTo(ReconciliationMode.AUTHORITATIVE_FULL_SET);
 
+        ParkingDataSourceDescriptor ispark = ParkingProviderCatalog.require(IsparkMunicipalParkingAdapter.SOURCE_KEY);
+        assertThat(ispark.providerId()).isEqualTo(ParkingDataProviderId.ISPARK);
+        assertThat(ispark.supports(ProviderCapability.LIVE_OCCUPANCY)).isTrue();
+        assertThat(ispark.reconciliationMode()).isEqualTo(ReconciliationMode.AUTHORITATIVE_FULL_SET);
+        assertThat(ispark.productionEligible()).isTrue();
+
         ParkingDataSourceDescriptor osm = ParkingProviderCatalog.require("osm-geofabrik-turkey");
         assertThat(osm.providerId()).isEqualTo(ParkingDataProviderId.OPENSTREETMAP);
         assertThat(osm.supports(ProviderCapability.LIVE_OCCUPANCY)).isFalse();
@@ -32,10 +39,26 @@ class ParkingProviderCatalogAndRegistryTest {
     void displayNamesRemainStableAndSeparateFromSourceKeys() {
         assertThat(ParkingProviderCatalog.IZUM_DISPLAY_NAME)
                 .isEqualTo("Izmir Buyuksehir Belediyesi / IZUM");
+        assertThat(ParkingProviderCatalog.ISPARK_DISPLAY_NAME)
+                .isEqualTo("Istanbul Buyuksehir Belediyesi / ISPARK");
         assertThat(ParkingProviderCatalog.OSM_DISPLAY_NAME)
                 .isEqualTo("OpenStreetMap contributors / Geofabrik GmbH");
         assertThat(ParkingProviderCatalog.require(IzumMunicipalParkingAdapter.SOURCE_KEY).displayName())
                 .doesNotContain("izmir-izum");
+        assertThat(ParkingProviderCatalog.require(IsparkMunicipalParkingAdapter.SOURCE_KEY).displayName())
+                .doesNotContain("istanbul-ispark");
+    }
+
+    @Test
+    void liveOccupancyAuthorityPrefersIzumThenIspark() {
+        assertThat(ParkingProviderCatalog.liveOccupancyAuthoritySource(
+                        java.util.Set.of(
+                                IzumMunicipalParkingAdapter.SOURCE_KEY,
+                                IsparkMunicipalParkingAdapter.SOURCE_KEY)))
+                .contains(IzumMunicipalParkingAdapter.SOURCE_KEY);
+        assertThat(ParkingProviderCatalog.liveOccupancyAuthoritySource(
+                        java.util.Set.of(IsparkMunicipalParkingAdapter.SOURCE_KEY)))
+                .contains(IsparkMunicipalParkingAdapter.SOURCE_KEY);
     }
 
     @Test

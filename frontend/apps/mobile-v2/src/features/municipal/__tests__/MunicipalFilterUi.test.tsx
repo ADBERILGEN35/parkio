@@ -32,8 +32,10 @@ describe('MunicipalFilterSheet / entry / summary UI', () => {
       />,
     );
     expect(screen.getByText('İzmir Büyükşehir Belediyesi / İZUM')).toBeTruthy();
+    expect(screen.getByText('İstanbul Büyükşehir Belediyesi / İSPARK')).toBeTruthy();
     expect(screen.getByText('OpenStreetMap')).toBeTruthy();
     expect(screen.queryByText(/izmir-izum/)).toBeNull();
+    expect(screen.queryByText(/istanbul-ispark/)).toBeNull();
     expect(screen.queryByText(/osm-geofabrik/)).toBeNull();
     expect(screen.getByText(/Canlı doluluk|Live occupancy/)).toBeTruthy();
     expect(screen.getByText('500 m')).toBeTruthy();
