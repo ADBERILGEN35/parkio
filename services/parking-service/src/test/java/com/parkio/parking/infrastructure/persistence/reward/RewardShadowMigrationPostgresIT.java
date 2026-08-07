@@ -35,7 +35,7 @@ class RewardShadowMigrationPostgresIT {
         flyway.migrate();
 
         try (Connection connection = openConnection()) {
-            assertThat(currentFlywayVersion(connection)).isEqualTo("34");
+            assertThat(currentFlywayVersion(connection)).isEqualTo("35");
             assertThat(tableExists(connection, "pending_reward_ledger")).isTrue();
             assertThat(uniqueConstraintExists(connection, "pending_reward_ledger", "uq_pending_reward_ledger_evaluation"))
                     .isTrue();
@@ -62,7 +62,7 @@ class RewardShadowMigrationPostgresIT {
         full.migrate();
 
         try (Connection connection = openConnection()) {
-            assertThat(currentFlywayVersion(connection)).isEqualTo("34");
+            assertThat(currentFlywayVersion(connection)).isEqualTo("35");
             assertThat(tableExists(connection, "pending_reward_ledger")).isTrue();
             assertThat(foreignKeyExists(connection, "pending_reward_ledger", "fk_pending_reward_ledger_outcome")).isTrue();
             assertThat(foreignKeyExists(connection, "pending_reward_ledger", "fk_pending_reward_ledger_spot")).isTrue();

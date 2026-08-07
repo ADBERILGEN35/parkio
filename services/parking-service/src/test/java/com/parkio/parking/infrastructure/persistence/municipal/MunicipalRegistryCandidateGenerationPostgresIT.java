@@ -74,11 +74,11 @@ class MunicipalRegistryCandidateGenerationPostgresIT {
     }
 
     @Test
-    void v32UpgradesToV34AndEnforcesOneRunningPair() {
+    void v32UpgradesToV35AndEnforcesOneRunningPair() {
         Flyway v32 = flyway(MigrationVersion.fromVersion("32"));
         v32.clean();
         v32.migrate();
-        assertThat(flyway(null).migrate().migrationsExecuted).isEqualTo(2);
+        assertThat(flyway(null).migrate().migrationsExecuted).isEqualTo(3);
         assertThat(flyway(null).migrate().migrationsExecuted).isZero();
         assertThat(count("SELECT count(*) FROM information_schema.tables "
                 + "WHERE table_name='municipal_link_candidate_generation_runs'")).isEqualTo(1);
