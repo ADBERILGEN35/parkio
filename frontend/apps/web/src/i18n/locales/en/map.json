@@ -361,6 +361,21 @@
       "highConfidence": "High confidence"
     },
     "destinationPin": "Destination",
-    "destinationMarkerAria": "Destination: {{label}}"
+    "destinationMarkerAria": "Destination: {{label}}",
+    "quickActions": {
+      "groupLabel": "Quick actions",
+      "home": "Home",
+      "work": "Work",
+      "parkedCar": "Parked car",
+      "favouriteDestinations": "Favourite places",
+      "favouriteParking": "Favourite parking",
+      "recentDestinations": "Recent destinations",
+      "addHome": "Add home",
+      "addWork": "Add work",
+      "unavailable": "Unavailable right now",
+      "empty": "None yet",
+      "loading": "Loading…",
+      "parkingFallback": "Favourite parking"
+    }
   }
 }

@@ -361,6 +361,21 @@
       "highConfidence": "Yüksek güven"
     },
     "destinationPin": "Hedef",
-    "destinationMarkerAria": "Hedef: {{label}}"
+    "destinationMarkerAria": "Hedef: {{label}}",
+    "quickActions": {
+      "groupLabel": "Hızlı işlemler",
+      "home": "Ev",
+      "work": "İş",
+      "parkedCar": "Park ettiğim araç",
+      "favouriteDestinations": "Favori yerler",
+      "favouriteParking": "Favori otoparklar",
+      "recentDestinations": "Son gidilenler",
+      "addHome": "Ev ekle",
+      "addWork": "İş ekle",
+      "unavailable": "Şu anda kullanılamıyor",
+      "empty": "Henüz yok",
+      "loading": "Yükleniyor…",
+      "parkingFallback": "Favori otopark"
+    }
   }
 }

@@ -1,5 +1,11 @@
 import { zodResolver } from '@hookform/resolvers/zod';
-import type { NearbySearchParams, DestinationSearchItem, ParkingCandidate } from '@parkio/types';
+import type {
+  NearbySearchParams,
+  Destination,
+  DestinationSearchItem,
+  ParkingCandidate,
+  AssistantDestinationOrigin,
+} from '@parkio/types';
 import {
   Button,
   EmptyState,
@@ -82,6 +88,7 @@ import { ASSISTANT_RECOMMEND_RADIUS_METERS } from '@/lib/recommendationPresentat
 import {
   AssistantEntryControl,
   DestinationSearchPanel,
+  QuickActionsBar,
   RecommendationsPanel,
   useSmartParkingAssistant,
 } from '@/features/smart-parking-assistant';
@@ -406,6 +413,27 @@ export function MapPage({
     },
     [assistant],
   );
+
+  const handleQuickSelectDestination = useCallback(
+    (destination: Destination, origin: AssistantDestinationOrigin) => {
+      assistant.selectAssistantDestination(destination, origin);
+    },
+    [assistant],
+  );
+
+  const handleQuickFavouriteParking = useCallback(
+    (facilityId: string) => {
+      selectMunicipalFacility(facilityId, 'list');
+    },
+    [selectMunicipalFacility],
+  );
+
+  const handleQuickParkedCar = useCallback(() => {
+    if (!parkedCarCoords || !activeSession) return;
+    setParkedCarSelected(true);
+    focusParkedCar();
+    if (!isDesktop) setSheetState('half');
+  }, [activeSession, focusParkedCar, isDesktop, parkedCarCoords]);
 
   const handleAssistantSelectCandidate = useCallback(
     (candidate: ParkingCandidate) => {
@@ -989,7 +1017,18 @@ export function MapPage({
                   onSelect={handleAssistantConfirm}
                 />
               ) : !assistant.destination ? (
-                <AssistantEntryControl onOpen={assistant.openSearch} />
+                <>
+                  <AssistantEntryControl onOpen={assistant.openSearch} />
+                  <QuickActionsBar
+                    enabled={smartParkingAssistantEnabled}
+                    authenticated={isAuthenticated}
+                    visible
+                    onSelectDestination={handleQuickSelectDestination}
+                    onOpenSearch={assistant.openSearch}
+                    onParkedCar={handleQuickParkedCar}
+                    onSelectFavouriteParking={handleQuickFavouriteParking}
+                  />
+                </>
               ) : null
             ) : null}
 
@@ -1058,6 +1097,20 @@ export function MapPage({
                   open
                   onClose={assistant.closeSearch}
                   onSelect={handleAssistantConfirm}
+                />
+              </div>
+            ) : null}
+
+            {smartParkingAssistantEnabled && !assistant.destination && !assistant.searchOpen ? (
+              <div className="rounded-2xl border border-outline-variant/30 bg-surface/95 p-sm shadow-deep backdrop-blur-xl">
+                <QuickActionsBar
+                  enabled={smartParkingAssistantEnabled}
+                  authenticated={isAuthenticated}
+                  visible
+                  onSelectDestination={handleQuickSelectDestination}
+                  onOpenSearch={assistant.openSearch}
+                  onParkedCar={handleQuickParkedCar}
+                  onSelectFavouriteParking={handleQuickFavouriteParking}
                 />
               </div>
             ) : null}

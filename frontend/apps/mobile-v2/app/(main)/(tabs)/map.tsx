@@ -10,7 +10,13 @@ import {
   haversineMeters,
   type LatLng,
 } from '@parkio/geo';
-import type { GeocodeResult, MunicipalFacility, ParkingCandidate } from '@parkio/types';
+import type {
+  AssistantDestinationOrigin,
+  Destination,
+  GeocodeResult,
+  MunicipalFacility,
+  ParkingCandidate,
+} from '@parkio/types';
 import { isLiveStatus } from '@/components/spots/statusVisuals';
 import { appConfig } from '@/config/env';
 import { MapSurface, type MapSurfaceHandle } from '@/features/map/MapSurface';
@@ -41,6 +47,8 @@ import { toMapMunicipalMarkers } from '@/features/municipal/municipalMapMarker';
 import { MorningPromptModal } from '@/features/smart-return/MorningPromptModal';
 import { ActiveParkingSessionBanner } from '@/features/parking/ActiveParkingSessionBanner';
 import { ParkHereStartControl } from '@/features/parking/ParkHereStartControl';
+import { useActiveParkingSession } from '@/features/parking/useActiveParkingSession';
+import { useParkingLocationActions } from '@/features/parking/useParkingLocationActions';
 import { SmartReturnBanner } from '@/features/smart-return/SmartReturnBanner';
 import {
   todayAt,
@@ -52,6 +60,7 @@ import {
   AssistantEntryControl,
   ASSISTANT_RECOMMEND_RADIUS_METERS,
   DestinationSearchSheet,
+  QuickActionsRow,
   RecommendationsSheet,
   useSmartParkingAssistant,
 } from '@/features/smart-parking-assistant';
@@ -100,6 +109,41 @@ export default function MapScreen() {
     enabled: spaEnabled,
     municipalDiscoveryEnabled: municipalDiscovery,
   });
+
+  const activeParkingSession = useActiveParkingSession();
+  const parkedCarActions = useParkingLocationActions({
+    sessionId: activeParkingSession.data?.id ?? null,
+    latitude: activeParkingSession.data?.latitude,
+    longitude: activeParkingSession.data?.longitude,
+    terminalBusy: false,
+  });
+
+  const onQuickSelectDestination = useCallback(
+    (destination: Destination, origin: AssistantDestinationOrigin) => {
+      assistant.selectAssistantDestination(destination, origin);
+    },
+    [assistant],
+  );
+
+  const onQuickFavouriteParking = useCallback(
+    (facilityId: string) => {
+      setSelectedSpotId(null);
+      if (municipalDiscovery && municipalFilters.layerEnabled) {
+        setSelectedMunicipalId(facilityId);
+      } else {
+        setSelectedMunicipalId(null);
+        router.push({
+          pathname: '/(main)/facilities/[id]',
+          params: { id: facilityId },
+        });
+      }
+    },
+    [municipalDiscovery, municipalFilters.layerEnabled, router],
+  );
+
+  const onQuickParkedCar = useCallback(() => {
+    void parkedCarActions.navigate();
+  }, [parkedCarActions]);
 
   const resultLimit = policy.data?.resultLimit ?? NEARBY_RESULT_LIMIT;
   const municipalRadiusMeters = municipalFilters.radiusMeters;
@@ -451,6 +495,16 @@ export default function MapScreen() {
           onPickPlace={pickPlace}
         />
         {spaEnabled ? <AssistantEntryControl onPress={() => assistant.openSearch()} /> : null}
+        {spaEnabled && !assistant.destination ? (
+          <QuickActionsRow
+            enabled={spaEnabled}
+            visible
+            onSelectDestination={onQuickSelectDestination}
+            onOpenSearch={() => assistant.openSearch()}
+            onParkedCar={onQuickParkedCar}
+            onSelectFavouriteParking={onQuickFavouriteParking}
+          />
+        ) : null}
         {municipalDiscovery ? (
           <View style={styles.municipalChrome} pointerEvents="box-none">
             <MunicipalFilterEntry

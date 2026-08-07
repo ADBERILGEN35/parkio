@@ -34,3 +34,11 @@ export function recentParkingQueryOptions(placesApi: PlacesApi) {
     staleTime: 30_000,
   });
 }
+
+export function favouriteParkingQueryOptions(placesApi: PlacesApi) {
+  return queryOptions({
+    queryKey: placesKeys.favouriteParking(),
+    queryFn: ({ signal }) => placesApi.listFavouriteParking(signal),
+    staleTime: 60_000,
+  });
+}

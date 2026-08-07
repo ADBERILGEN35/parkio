@@ -12,3 +12,21 @@ export {
   destinationDuplicateKey,
   normalizeSearchText,
 } from './destination-search-compose';
+export {
+  QUICK_ACTION_BASE_ORDER,
+  asAssistantSearchItem,
+  buildQuickActionDescriptors,
+  destinationFromFavouriteDestination,
+  destinationFromRecentDestination,
+  destinationFromSavedPlace,
+  favouriteDestinationsAvailability,
+  favouriteParkingAvailability,
+  homeAvailability,
+  isAssistantDestinationOrigin,
+  parkedCarAvailability,
+  recentDestinationsAvailability,
+  resolveHomePlace,
+  resolveWorkPlace,
+  workAvailability,
+} from './quick-actions';
+export type { QuickActionSourceSnapshot } from './quick-actions';

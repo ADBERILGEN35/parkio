@@ -130,6 +130,27 @@ jest.mock('@/features/parking/ActiveParkingSessionBanner', () => ({
   ActiveParkingSessionBanner: () => null,
 }));
 
+jest.mock('@/features/parking/useActiveParkingSession', () => ({
+  useActiveParkingSession: () => ({
+    data: null,
+    isPending: false,
+    isError: false,
+    isSuccess: true,
+  }),
+}));
+
+jest.mock('@/features/parking/useParkingLocationActions', () => ({
+  useParkingLocationActions: () => ({
+    phase: 'idle',
+    busy: false,
+    destinationValid: false,
+    navigateDisabled: true,
+    shareDisabled: true,
+    navigate: jest.fn(async () => undefined),
+    share: jest.fn(async () => undefined),
+  }),
+}));
+
 jest.mock('@/features/parking/ParkHereStartControl', () => ({
   ParkHereStartControl: () => null,
 }));

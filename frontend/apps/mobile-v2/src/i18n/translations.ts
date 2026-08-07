@@ -878,6 +878,19 @@ export const tr = {
   'assistant.reasons.favourite': 'Favorilerinizde',
   'assistant.reasons.highConfidence': 'Güvenilir kaynak',
   'assistant.destinationMarkerA11y': 'Hedef: {label}',
+  'assistant.quickActions.groupLabel': 'Hızlı işlemler',
+  'assistant.quickActions.home': 'Ev',
+  'assistant.quickActions.work': 'İş',
+  'assistant.quickActions.parkedCar': 'Park ettiğim araç',
+  'assistant.quickActions.favouriteDestinations': 'Favori yerler',
+  'assistant.quickActions.favouriteParking': 'Favori otoparklar',
+  'assistant.quickActions.recentDestinations': 'Son gidilenler',
+  'assistant.quickActions.addHome': 'Ev ekle',
+  'assistant.quickActions.addWork': 'İş ekle',
+  'assistant.quickActions.unavailable': 'Şu anda kullanılamıyor',
+  'assistant.quickActions.empty': 'Henüz yok',
+  'assistant.quickActions.loading': 'Yükleniyor…',
+  'assistant.quickActions.parkingFallback': 'Favori otopark',
 } as const;
 
 export type TranslationKey = keyof typeof tr;
@@ -1731,6 +1744,19 @@ export const en: Record<TranslationKey, string> = {
   'assistant.reasons.favourite': 'In your favourites',
   'assistant.reasons.highConfidence': 'Trusted source',
   'assistant.destinationMarkerA11y': 'Destination: {label}',
+  'assistant.quickActions.groupLabel': 'Quick actions',
+  'assistant.quickActions.home': 'Home',
+  'assistant.quickActions.work': 'Work',
+  'assistant.quickActions.parkedCar': 'Parked car',
+  'assistant.quickActions.favouriteDestinations': 'Favourite places',
+  'assistant.quickActions.favouriteParking': 'Favourite parking',
+  'assistant.quickActions.recentDestinations': 'Recent destinations',
+  'assistant.quickActions.addHome': 'Add home',
+  'assistant.quickActions.addWork': 'Add work',
+  'assistant.quickActions.unavailable': 'Unavailable right now',
+  'assistant.quickActions.empty': 'None yet',
+  'assistant.quickActions.loading': 'Loading…',
+  'assistant.quickActions.parkingFallback': 'Favourite parking',
 };
 
 export const translations = { tr, en } as const;

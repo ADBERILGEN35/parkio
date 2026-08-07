@@ -1,6 +1,11 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useMutation, useQueryClient } from '@tanstack/react-query';
-import type { Destination, DestinationSearchItem, ParkingCandidate } from '@parkio/types';
+import type {
+  AssistantDestinationOrigin,
+  Destination,
+  DestinationSearchItem,
+  ParkingCandidate,
+} from '@parkio/types';
 import { useParkioSdk } from '@/app/AppRuntimeContext';
 import { placesKeys } from '@/data/keys';
 import { useParkingRecommendationsQuery } from '@/data/hooks/useParkingRecommendationsQuery';
@@ -27,8 +32,9 @@ export type UseSmartParkingAssistantArgs = {
 };
 
 /**
- * Headless assistant orchestration for /map (WP-SPA-08).
+ * Headless assistant orchestration for /map (WP-SPA-08/10).
  * Confirmation writes once per explicit selection identity; URL restore does not re-confirm.
+ * Quick Actions and search share selectAssistantDestination.
  */
 export function useSmartParkingAssistant({
   enabled,
@@ -72,10 +78,10 @@ export function useSmartParkingAssistant({
     confirmMutation.reset();
   }, [confirmMutation, onUrlStateChange]);
 
-  const confirmDestination = useCallback(
-    (item: DestinationSearchItem) => {
+  const selectAssistantDestination = useCallback(
+    (dest: Destination, origin: AssistantDestinationOrigin = 'SEARCH') => {
       if (!enabled) return;
-      const dest = item.destination;
+      void origin;
       const key = assistantDestinationIdentityKey(dest);
       setSearchOpen(false);
       onUrlStateChange({ destination: dest, candidateId: null });
@@ -84,13 +90,19 @@ export function useSmartParkingAssistant({
         confirmedWriteKeysRef.current.add(key);
         confirmMutation.mutate(dest, {
           onError: () => {
-            // Allow a later retry if the write failed.
             confirmedWriteKeysRef.current.delete(key);
           },
         });
       }
     },
     [confirmMutation, enabled, onUrlStateChange],
+  );
+
+  const confirmDestination = useCallback(
+    (item: DestinationSearchItem) => {
+      selectAssistantDestination(item.destination, 'SEARCH');
+    },
+    [selectAssistantDestination],
   );
 
   const selectCandidate = useCallback(
@@ -163,6 +175,7 @@ export function useSmartParkingAssistant({
     selectedCandidate,
     recommendedRefIds,
     confirmDestination,
+    selectAssistantDestination,
     clearDestination,
     selectCandidate,
     selectCandidateById,

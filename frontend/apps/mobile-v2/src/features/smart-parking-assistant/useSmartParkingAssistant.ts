@@ -1,6 +1,11 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import type { DestinationSearchItem, ParkingCandidate } from '@parkio/types';
+import type {
+  AssistantDestinationOrigin,
+  Destination,
+  DestinationSearchItem,
+  ParkingCandidate,
+} from '@parkio/types';
 import { placesKeys } from '@/data/keys';
 import { recommendationsQueryOptions } from '@/data/query-options/recommendations';
 import { placesApi, parkingApi } from '@/services/api';
@@ -23,9 +28,10 @@ export type UseSmartParkingAssistantArgs = {
 };
 
 /**
- * Headless assistant orchestration for mobile-v2 MapScreen (WP-SPA-09).
+ * Headless assistant orchestration for mobile-v2 MapScreen (WP-SPA-09/10).
  * confirmRecentDestination runs once per explicit selection identity;
  * hydrated destination does not re-confirm.
+ * Quick Actions and search share selectAssistantDestination.
  */
 export function useSmartParkingAssistant({
   enabled,
@@ -88,10 +94,10 @@ export function useSmartParkingAssistant({
     confirmMutation.reset();
   }, [clearStoredDestination, confirmMutation]);
 
-  const confirmDestination = useCallback(
-    (item: DestinationSearchItem) => {
+  const selectAssistantDestination = useCallback(
+    (dest: Destination, origin: AssistantDestinationOrigin = 'SEARCH') => {
       if (!enabled) return;
-      const dest = item.destination;
+      void origin;
       const key = assistantDestinationIdentityKey(dest);
       setSearchOpen(false);
       setCandidateId(null);
@@ -107,6 +113,13 @@ export function useSmartParkingAssistant({
       }
     },
     [confirmMutation, enabled, setStoredDestination],
+  );
+
+  const confirmDestination = useCallback(
+    (item: DestinationSearchItem) => {
+      selectAssistantDestination(item.destination, 'SEARCH');
+    },
+    [selectAssistantDestination],
   );
 
   const selectCandidate = useCallback((candidate: ParkingCandidate | null) => {
@@ -179,6 +192,7 @@ export function useSmartParkingAssistant({
     recommendedMunicipalIds,
     topCandidate,
     confirmDestination,
+    selectAssistantDestination,
     clearDestination,
     selectCandidate,
     selectCandidateById,
