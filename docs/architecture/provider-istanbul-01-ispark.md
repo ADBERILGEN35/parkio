@@ -42,6 +42,10 @@ parkio.municipal.ispark.scheduler-enabled: false
 
 Independently controllable from İZUM. Disable stops sync; does not hard-delete source-scoped rows. Publication follows family policy (ISPARK publishable like İZUM).
 
+Hosted-beta (`docker-compose.azure-hosted-beta.yml`) must map `PARKIO_MUNICIPAL_ISPARK_*`
+into parking-service (same pattern as İZUM). Without Compose passthrough, env-file values
+never reach the container. Example defaults live in `docker/.env.azure-hosted-beta.example`.
+
 ### Reconciliation
 
 `AUTHORITATIVE_FULL_SET` after successful non-empty validated feed. Soft-deactivate missing İSPARK links only. Failures / empty / partial never mass-deactivate. Large-shrink warning retained from WP-SPA-13.
