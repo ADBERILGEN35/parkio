@@ -35,6 +35,7 @@ import com.parkio.parking.domain.place.Destination;
 import com.parkio.parking.domain.place.DestinationSource;
 import com.parkio.parking.externalsource.MunicipalFacilityType;
 import com.parkio.parking.externalsource.MunicipalOccupancyFreshness;
+import com.parkio.parking.externalsource.MunicipalSourceIdentity;
 import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
 import java.time.Clock;
 import java.time.Instant;
@@ -300,6 +301,7 @@ class RecommendationApplicationServiceTest {
                 freshness,
                 "attr",
                 freshness == MunicipalOccupancyFreshness.LIVE ? "IZUM" : "OSM",
-                NOW);
+                NOW,
+                freshness == MunicipalOccupancyFreshness.LIVE ? MunicipalSourceIdentity.IZUM : null);
     }
 }

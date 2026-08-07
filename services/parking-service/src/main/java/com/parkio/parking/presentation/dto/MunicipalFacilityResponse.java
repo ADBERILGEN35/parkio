@@ -5,7 +5,6 @@ import com.parkio.parking.application.MunicipalFacilityQueryService;
 import com.parkio.parking.application.RegistryPublicationService;
 import com.parkio.parking.externalsource.MunicipalFacilityType;
 import com.parkio.parking.externalsource.MunicipalOccupancyFreshness;
-import com.parkio.parking.externalsource.MunicipalSourceIdentity;
 import java.time.Instant;
 import java.util.List;
 import java.util.Map;
@@ -62,7 +61,7 @@ public record MunicipalFacilityResponse(
                 enrichment.contributingSourceKeys(),
                 enrichment.selectedFieldProvenanceSummary(),
                 enrichment.registryConfidenceOrReviewStatus(),
-                hasAvailability ? MunicipalSourceIdentity.IZUM : null,
+                hasAvailability ? view.availabilitySource() : null,
                 hasAvailability ? view.freshness() : null,
                 hasAvailability ? view.lastUpdatedAt() : null);
     }

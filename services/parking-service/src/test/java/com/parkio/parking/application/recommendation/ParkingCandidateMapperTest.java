@@ -12,6 +12,7 @@ import com.parkio.parking.domain.ParkingSpotStatus;
 import com.parkio.parking.domain.VehicleType;
 import com.parkio.parking.externalsource.MunicipalFacilityType;
 import com.parkio.parking.externalsource.MunicipalOccupancyFreshness;
+import com.parkio.parking.externalsource.MunicipalSourceIdentity;
 import java.time.Instant;
 import java.util.Set;
 import java.util.UUID;
@@ -107,7 +108,8 @@ class ParkingCandidateMapperTest {
                 freshness,
                 "attr",
                 sourceLabel,
-                NOW);
+                NOW,
+                available == null ? null : MunicipalSourceIdentity.IZUM);
     }
 
     private static ParkingSpot communitySpot() {

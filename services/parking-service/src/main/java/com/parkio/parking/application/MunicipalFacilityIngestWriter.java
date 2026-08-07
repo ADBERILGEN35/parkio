@@ -37,9 +37,10 @@ public class MunicipalFacilityIngestWriter {
             UUID facilityId, boolean inserted, boolean changed, boolean occupancyInserted) {}
 
     @Transactional
-    public FacilityPersistResult persistIzumFacility(
+    public FacilityPersistResult persistLiveAdapterFacility(
             UUID sourceId,
             UUID syncRunId,
+            String sourceKey,
             NormalizedMunicipalFacility facility,
             NormalizedMunicipalOccupancy occupancy,
             Instant fetchedAt) {
@@ -50,9 +51,27 @@ public class MunicipalFacilityIngestWriter {
                 && snapshots.insertIfAbsent(upserted.id(), sourceId, linkId, syncRunId, occupancy)) {
             occupancyInserted = true;
         }
-        provenance.applyIzumIngest(upserted.id(), facility, fetchedAt);
+        provenance.applyLiveAdapterIngest(upserted.id(), sourceKey, facility, fetchedAt);
         return new FacilityPersistResult(
                 upserted.id(), upserted.inserted(), upserted.changed(), occupancyInserted);
+    }
+
+    /** Compatibility alias for live İZUM ingest. */
+    @Deprecated
+    @Transactional
+    public FacilityPersistResult persistIzumFacility(
+            UUID sourceId,
+            UUID syncRunId,
+            NormalizedMunicipalFacility facility,
+            NormalizedMunicipalOccupancy occupancy,
+            Instant fetchedAt) {
+        return persistLiveAdapterFacility(
+                sourceId,
+                syncRunId,
+                com.parkio.parking.externalsource.MunicipalSourceIdentity.IZUM,
+                facility,
+                occupancy,
+                fetchedAt);
     }
 
     /**

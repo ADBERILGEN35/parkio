@@ -1,11 +1,12 @@
 package com.parkio.parking.externalsource;
 
+import com.parkio.parking.externalsource.provider.ParkingProviderCatalog;
 import java.time.Duration;
 import java.time.Instant;
 import java.util.Objects;
 
 /**
- * Canonical source-level occupancy authority (DATA-WP-17).
+ * Canonical source-level occupancy authority (DATA-WP-17 / WP-SPA-13).
  *
  * <p>Separates operational source health from occupancy freshness:
  * <ul>
@@ -13,9 +14,10 @@ import java.util.Objects;
  *   <li>occupancy freshness — whether the source currently supplies valid live occupancy</li>
  * </ul>
  *
- * <p>Only İZUM may contribute occupancy. OSM and all İZELMAN sources are always
- * {@link MunicipalOccupancyFreshness#UNAVAILABLE} at source level, regardless of import
- * success, publication, scheduler flags, facility counts or operational health.
+ * <p>Only sources declaring {@code LIVE_OCCUPANCY} capability may contribute occupancy.
+ * OSM and all İZELMAN sources remain {@link MunicipalOccupancyFreshness#UNAVAILABLE}
+ * at source level. Capability membership is catalog-driven so future providers do not
+ * require hard-coded {@code if (source == IZUM)} branches.
  *
  * <p>Facility projection must continue to use
  * {@link MunicipalSourcePublicationPolicy#mayContributeLiveOccupancy(java.util.Set)}; this
@@ -24,7 +26,7 @@ import java.util.Objects;
 public final class MunicipalSourceOccupancyAuthorityPolicy {
 
     public boolean mayContributeOccupancy(String sourceKey) {
-        return MunicipalSourceIdentity.isIzum(sourceKey);
+        return ParkingProviderCatalog.supportsLiveOccupancy(sourceKey);
     }
 
     /**

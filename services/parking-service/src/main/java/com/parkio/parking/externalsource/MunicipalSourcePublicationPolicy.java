@@ -1,7 +1,9 @@
 package com.parkio.parking.externalsource;
 
+import com.parkio.parking.externalsource.MunicipalSourceIdentity;
 import com.parkio.parking.externalsource.izelman.SourceAgeClassification;
 import com.parkio.parking.externalsource.izelman.TariffCurrentness;
+import com.parkio.parking.externalsource.provider.ParkingProviderCatalog;
 import com.parkio.parking.infrastructure.config.IzelmanProperties;
 import com.parkio.parking.infrastructure.config.MunicipalSourceProperties;
 import java.util.LinkedHashSet;
@@ -33,6 +35,8 @@ public final class MunicipalSourcePublicationPolicy {
                 }
                 yield izelman.isFacilityPublicationEnabled();
             }
+            case MunicipalSourceIdentity.FAMILY_FAKE_TEST ->
+                    municipal.getFakeTest() != null && municipal.getFakeTest().isPublicationEnabled();
             default -> false;
         };
     }
@@ -78,9 +82,10 @@ public final class MunicipalSourcePublicationPolicy {
         return izelman.isTariffPublicationEnabled();
     }
 
-    /** Live occupancy may only come from a publishable IZUM source link. */
+    /** Live occupancy may only come from a publishable LIVE_OCCUPANCY-capable source link. */
     public boolean mayContributeLiveOccupancy(Set<String> linkedSourceKeys) {
-        return publishableSourceKeys(linkedSourceKeys).stream().anyMatch(MunicipalSourceIdentity::isIzum);
+        return publishableSourceKeys(linkedSourceKeys).stream()
+                .anyMatch(ParkingProviderCatalog::supportsLiveOccupancy);
     }
 
     /**
@@ -89,7 +94,8 @@ public final class MunicipalSourcePublicationPolicy {
      * this method remains the facility-link publication gate.
      */
     public boolean mayContributeOccupancy(String sourceKey) {
-        return MunicipalSourceIdentity.isIzum(sourceKey) && isSourceLinkPublishable(sourceKey);
+        return ParkingProviderCatalog.supportsLiveOccupancy(sourceKey)
+                && isSourceLinkPublishable(sourceKey);
     }
 
     /**

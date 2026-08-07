@@ -12,8 +12,9 @@ class MunicipalSourceOccupancyAuthorityPolicyTest {
             new MunicipalSourceOccupancyAuthorityPolicy();
 
     @Test
-    void onlyIzumMayContributeOccupancy() {
+    void onlyLiveOccupancyCapableSourcesMayContributeOccupancy() {
         assertThat(policy.mayContributeOccupancy(MunicipalSourceIdentity.IZUM)).isTrue();
+        assertThat(policy.mayContributeOccupancy(MunicipalSourceIdentity.FAKE_TEST)).isTrue();
         assertThat(policy.mayContributeOccupancy(MunicipalSourceIdentity.OSM)).isFalse();
         assertThat(policy.mayContributeOccupancy(IzelmanSourceKeys.OPEN)).isFalse();
         assertThat(policy.mayContributeOccupancy(IzelmanSourceKeys.ROADSIDE)).isFalse();

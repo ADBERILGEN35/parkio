@@ -16,8 +16,11 @@ import com.parkio.parking.application.port.OsmImportSupportRepository;
 import com.parkio.parking.application.port.DecisionAuditWriteObserver;
 import com.parkio.parking.application.port.DecisionShadowObserverPort;
 import com.parkio.parking.externalsource.MunicipalParkingSourceAdapter;
+import com.parkio.parking.externalsource.provider.ParkingProviderRegistry;
+import com.parkio.parking.infrastructure.fake.FakeTestMunicipalParkingAdapter;
 import com.parkio.parking.infrastructure.izum.IzumMunicipalParkingAdapter;
 import com.parkio.parking.infrastructure.metrics.DiscoveryDuplicatePresentationMetrics;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import com.parkio.parking.decision.application.EvidenceCollectionService;
 import com.parkio.parking.decision.policy.DecisionEngine;
 import com.parkio.parking.decision.port.DecisionAuditPort;
@@ -26,6 +29,7 @@ import com.parkio.parking.domain.ModerationPolicy;
 import com.parkio.parking.domain.ParkingSessionStalePolicy;
 import java.time.Clock;
 import java.util.List;
+import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.boot.context.properties.EnableConfigurationProperties;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
@@ -48,6 +52,17 @@ public class ParkingInfrastructureConfig {
     @Bean
     public Clock clock() {
         return Clock.systemUTC();
+    }
+
+    @Bean
+    public ParkingProviderRegistry parkingProviderRegistry(List<MunicipalParkingSourceAdapter> adapters) {
+        return new ParkingProviderRegistry(adapters);
+    }
+
+    @Bean
+    @ConditionalOnProperty(prefix = "parkio.municipal.fake-test", name = "enabled", havingValue = "true")
+    public FakeTestMunicipalParkingAdapter fakeTestMunicipalParkingAdapter(ObjectMapper objectMapper) {
+        return new FakeTestMunicipalParkingAdapter(objectMapper);
     }
 
     @Bean

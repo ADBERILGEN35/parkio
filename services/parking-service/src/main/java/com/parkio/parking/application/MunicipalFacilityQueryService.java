@@ -9,6 +9,7 @@ import com.parkio.parking.externalsource.MunicipalSourceIdentity;
 import com.parkio.parking.externalsource.MunicipalSourcePublicationPolicy;
 import com.parkio.parking.externalsource.OccupancyFreshnessPolicy;
 import com.parkio.parking.externalsource.discovery.DiscoveryDuplicatePresentationPolicy;
+import com.parkio.parking.externalsource.provider.ParkingProviderCatalog;
 import com.parkio.parking.infrastructure.config.IzelmanProperties;
 import com.parkio.parking.infrastructure.config.MunicipalSourceProperties;
 import com.parkio.parking.infrastructure.metrics.DiscoveryDuplicatePresentationMetrics;
@@ -24,19 +25,17 @@ import java.util.Set;
 import java.util.UUID;
 
 public class MunicipalFacilityQueryService {
-    static final String IZUM_SOURCE_LABEL = "Izmir Buyuksehir Belediyesi / IZUM";
-    static final String IZUM_ATTRIBUTION =
-            "Includes public sector information from Izmir Buyuksehir Belediyesi Acik Veri Portali "
-                    + "licensed under Attribution 4.0 International (CC BY 4.0). Parkio is not affiliated "
-                    + "with or endorsed by Izmir Municipality or IZELMAN A.S.";
-    static final String OSM_SOURCE_LABEL = "OpenStreetMap contributors / Geofabrik GmbH";
-    static final String OSM_ATTRIBUTION = "OpenStreetMap contributors";
+    static final String IZUM_SOURCE_LABEL = ParkingProviderCatalog.IZUM_DISPLAY_NAME;
+    static final String IZUM_ATTRIBUTION = ParkingProviderCatalog.IZUM_ATTRIBUTION;
+    static final String OSM_SOURCE_LABEL = ParkingProviderCatalog.OSM_DISPLAY_NAME;
+    static final String OSM_ATTRIBUTION = ParkingProviderCatalog.OSM_ATTRIBUTION;
 
     public record FacilityView(
             UUID id, String displayName, String operatorName, MunicipalFacilityType facilityType,
             String addressText, double latitude, double longitude, Integer capacityTotal,
             Integer availableSpaces, Integer occupiedSpaces, MunicipalOccupancyFreshness freshness,
-            String attribution, String sourceLabel, Instant lastUpdatedAt) {}
+            String attribution, String sourceLabel, Instant lastUpdatedAt,
+            String availabilitySource) {}
 
     private final MunicipalFacilityRepository facilities;
     private final MunicipalOccupancySnapshotRepository snapshots;
@@ -180,6 +179,11 @@ public class MunicipalFacilityQueryService {
         }
 
         DisplayProvenance display = displayProvenance(facility, linked);
+        String availabilitySource = available == null
+                ? null
+                : ParkingProviderCatalog.liveOccupancyAuthoritySource(
+                                publicationPolicy.publishableSourceKeys(linked))
+                        .orElse(null);
         return new FacilityView(
                 facility.id(),
                 facility.displayName(),
@@ -194,7 +198,8 @@ public class MunicipalFacilityQueryService {
                 freshness,
                 display.attribution(),
                 display.sourceLabel(),
-                lastUpdated);
+                lastUpdated,
+                availabilitySource);
     }
 
     private DisplayProvenance displayProvenance(

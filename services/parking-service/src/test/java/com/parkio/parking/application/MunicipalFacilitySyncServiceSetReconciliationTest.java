@@ -3,6 +3,7 @@ package com.parkio.parking.application;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.Mockito.lenient;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
@@ -53,6 +54,8 @@ class MunicipalFacilitySyncServiceSetReconciliationTest {
     @BeforeEach
     void setUp() {
         when(adapter.sourceKey()).thenReturn(IzumMunicipalParkingAdapter.SOURCE_KEY);
+        lenient().when(adapter.reconciliationMode()).thenReturn(
+                com.parkio.parking.externalsource.provider.ReconciliationMode.AUTHORITATIVE_FULL_SET);
         service = new MunicipalFacilitySyncService(
                 List.of(adapter),
                 sources,
@@ -116,7 +119,7 @@ class MunicipalFacilitySyncServiceSetReconciliationTest {
         when(adapter.normalizeFacilities(eq(payload), eq(NOW))).thenReturn(List.of(facility("A")));
         when(adapter.normalizeOccupancy(eq(payload), eq(NOW))).thenReturn(List.of());
         when(setReconciliation.activeExternalIds(SOURCE_ID)).thenReturn(Set.of("A", "B"));
-        when(ingestWriter.persistIzumFacility(eq(SOURCE_ID), eq(RUN_ID), any(), any(), eq(NOW)))
+        when(ingestWriter.persistLiveAdapterFacility(eq(SOURCE_ID), eq(RUN_ID), any(), any(), any(), eq(NOW)))
                 .thenReturn(new FacilityPersistResult(UUID.randomUUID(), false, true, false));
 
         var result = service.sync(IzumMunicipalParkingAdapter.SOURCE_KEY);
@@ -136,7 +139,7 @@ class MunicipalFacilitySyncServiceSetReconciliationTest {
         when(adapter.normalizeOccupancy(eq(payload), eq(NOW))).thenReturn(List.of());
         when(setReconciliation.activeExternalIds(SOURCE_ID)).thenReturn(Set.of()).thenReturn(Set.of("A"));
         when(setReconciliation.deactivateMissing(eq(SOURCE_ID), eq(Set.of("A")), eq(NOW))).thenReturn(0);
-        when(ingestWriter.persistIzumFacility(eq(SOURCE_ID), eq(RUN_ID), any(), any(), eq(NOW)))
+        when(ingestWriter.persistLiveAdapterFacility(eq(SOURCE_ID), eq(RUN_ID), any(), any(), any(), eq(NOW)))
                 .thenReturn(new FacilityPersistResult(UUID.randomUUID(), false, true, true));
 
         var result = service.sync(IzumMunicipalParkingAdapter.SOURCE_KEY);
@@ -155,7 +158,7 @@ class MunicipalFacilitySyncServiceSetReconciliationTest {
         when(adapter.normalizeFacilities(eq(payload), eq(NOW))).thenReturn(facilities);
         when(adapter.normalizeOccupancy(eq(payload), eq(NOW))).thenReturn(List.of());
         when(setReconciliation.activeExternalIds(SOURCE_ID)).thenReturn(previouslyActive);
-        when(ingestWriter.persistIzumFacility(eq(SOURCE_ID), eq(RUN_ID), any(), any(), eq(NOW)))
+        when(ingestWriter.persistLiveAdapterFacility(eq(SOURCE_ID), eq(RUN_ID), any(), any(), any(), eq(NOW)))
                 .thenAnswer(inv -> new FacilityPersistResult(UUID.randomUUID(), true, false, true));
     }
 

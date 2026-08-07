@@ -45,12 +45,22 @@ class MunicipalFacilitySyncServiceAuthoritativeSetTest {
     }
 
     @Test
-    void nonIzumSourcesAreNotAuthoritativeForThisPath() {
+    void nonAuthoritativeSourcesAreNotAuthoritativeForThisPath() {
         assertThat(MunicipalFacilitySyncService.isAuthoritativeSet(
                         "osm-geofabrik-turkey",
                         MunicipalSyncRunStatus.SUCCESS,
                         2,
                         Set.of("a", "b")))
                 .isFalse();
+    }
+
+    @Test
+    void fakeTestProviderIsAuthoritativeWhenSuccessful() {
+        assertThat(MunicipalFacilitySyncService.isAuthoritativeSet(
+                        "parkio-fake-test-provider",
+                        MunicipalSyncRunStatus.SUCCESS,
+                        2,
+                        Set.of("a", "b")))
+                .isTrue();
     }
 }

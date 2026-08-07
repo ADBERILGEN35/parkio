@@ -18,10 +18,14 @@ public final class MunicipalSourceIdentity {
     public static final String FAMILY_IZUM = "izum";
     public static final String FAMILY_OSM = "osm";
     public static final String FAMILY_IZELMAN = "izelman";
+    /** Test-only family; never production-published by default. */
+    public static final String FAMILY_FAKE_TEST = "fake_test";
     public static final String FAMILY_UNKNOWN = "unknown";
 
     public static final String IZUM = IzumMunicipalParkingAdapter.SOURCE_KEY;
     public static final String OSM = OsmGeofabrikSourceKeys.SOURCE_KEY;
+    public static final String FAKE_TEST =
+            com.parkio.parking.infrastructure.fake.FakeTestMunicipalParkingAdapter.SOURCE_KEY;
 
     private MunicipalSourceIdentity() {}
 
@@ -35,10 +39,17 @@ public final class MunicipalSourceIdentity {
         if (OSM.equals(sourceKey)) {
             return FAMILY_OSM;
         }
+        if (FAKE_TEST.equals(sourceKey) || sourceKey.startsWith("parkio-fake-")) {
+            return FAMILY_FAKE_TEST;
+        }
         if (IzelmanSourceKeys.ALL.contains(sourceKey) || sourceKey.startsWith("izelman-")) {
             return FAMILY_IZELMAN;
         }
         return FAMILY_UNKNOWN;
+    }
+
+    public static boolean isFakeTest(String sourceKey) {
+        return FAMILY_FAKE_TEST.equals(familyOf(sourceKey));
     }
 
     public static boolean isIzum(String sourceKey) {

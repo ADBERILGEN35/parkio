@@ -20,7 +20,7 @@ class MunicipalFacilityResponseTest {
             UUID.fromString("00000000-0000-0000-0000-000000000101"),
             "Konak Parking", "IZUM", MunicipalFacilityType.OFF_STREET, "Konak", 38.42, 27.14,
             100, 25, 75, MunicipalOccupancyFreshness.LIVE, "Attribution", "IZUM",
-            Instant.parse("2026-07-30T12:00:00Z"));
+            Instant.parse("2026-07-30T12:00:00Z"), MunicipalSourceIdentity.IZUM);
 
     @Test
     void provenanceDisabledKeepsAdditiveRegistryFieldsNull() {
@@ -65,7 +65,7 @@ class MunicipalFacilityResponseTest {
                 "OSM Lot", null, MunicipalFacilityType.OFF_STREET, "Alsancak", 38.43, 27.15,
                 40, null, null, MunicipalOccupancyFreshness.UNAVAILABLE,
                 "OpenStreetMap contributors", "OpenStreetMap",
-                Instant.parse("2026-07-30T12:00:00Z"));
+                Instant.parse("2026-07-30T12:00:00Z"), null);
 
         MunicipalFacilityResponse response = MunicipalFacilityResponse.from(
                 osmView,

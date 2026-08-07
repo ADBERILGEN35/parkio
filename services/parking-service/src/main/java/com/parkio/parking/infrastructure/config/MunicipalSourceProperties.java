@@ -10,6 +10,7 @@ public class MunicipalSourceProperties {
     private boolean manualSyncEnabled;
     private Izum izum = new Izum();
     private Osm osm = new Osm();
+    private FakeTest fakeTest = new FakeTest();
     private Sla sla = new Sla();
     private Discovery discovery = new Discovery();
     private Ops ops = new Ops();
@@ -22,12 +23,31 @@ public class MunicipalSourceProperties {
     public void setIzum(Izum izum) { this.izum = izum; }
     public Osm getOsm() { return osm; }
     public void setOsm(Osm osm) { this.osm = osm; }
+    public FakeTest getFakeTest() { return fakeTest; }
+    public void setFakeTest(FakeTest fakeTest) {
+        this.fakeTest = fakeTest == null ? new FakeTest() : fakeTest;
+    }
     public Sla getSla() { return sla; }
     public void setSla(Sla sla) { this.sla = sla; }
     public Discovery getDiscovery() { return discovery; }
     public void setDiscovery(Discovery discovery) { this.discovery = discovery; }
     public Ops getOps() { return ops; }
     public void setOps(Ops ops) { this.ops = ops; }
+
+    /**
+     * WP-SPA-13 test-only provider. Defaults off; never enable in production.
+     */
+    public static class FakeTest {
+        private boolean enabled = false;
+        private boolean publicationEnabled = false;
+
+        public boolean isEnabled() { return enabled; }
+        public void setEnabled(boolean enabled) { this.enabled = enabled; }
+        public boolean isPublicationEnabled() { return publicationEnabled; }
+        public void setPublicationEnabled(boolean publicationEnabled) {
+            this.publicationEnabled = publicationEnabled;
+        }
+    }
 
     /**
      * Operator-facing municipal ops controls (DATA-WP-15 / DATA-WP-16 / DATA-WP-18).

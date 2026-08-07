@@ -10,8 +10,9 @@ import com.parkio.parking.externalsource.MunicipalSyncResult;
 import com.parkio.parking.externalsource.MunicipalSyncRunStatus;
 import com.parkio.parking.externalsource.NormalizedMunicipalFacility;
 import com.parkio.parking.externalsource.NormalizedMunicipalOccupancy;
+import com.parkio.parking.externalsource.provider.ParkingProviderCatalog;
+import com.parkio.parking.externalsource.provider.ReconciliationMode;
 import com.parkio.parking.externalsource.schema.SchemaFingerprint;
-import com.parkio.parking.infrastructure.izum.IzumMunicipalParkingAdapter;
 import java.time.Clock;
 import java.time.Instant;
 import java.util.HashSet;
@@ -80,9 +81,10 @@ public class MunicipalFacilitySyncService {
             Set<String> seen = new HashSet<>();
             for (NormalizedMunicipalFacility facility : normalized) {
                 seen.add(facility.externalId());
-                var persisted = ingestWriter.persistIzumFacility(
+                var persisted = ingestWriter.persistLiveAdapterFacility(
                         source.id(),
                         runId.get(),
+                        sourceKey,
                         facility,
                         occupancy.get(facility.externalId()),
                         fetchedAt);
@@ -104,7 +106,7 @@ public class MunicipalFacilitySyncService {
                     ? MunicipalSyncRunStatus.SUCCESS : MunicipalSyncRunStatus.PARTIAL_SUCCESS;
 
             int deactivated = 0;
-            if (isAuthoritativeSet(sourceKey, status, accepted, seen)) {
+            if (isAuthoritativeSet(adapter, status, accepted, seen)) {
                 deactivated = setReconciliation.deactivateMissing(source.id(), seen, fetchedAt);
                 if (previouslyActive.size() > 0
                         && deactivated > previouslyActive.size() * LARGE_SHRINK_RATIO) {
@@ -121,7 +123,7 @@ public class MunicipalFacilitySyncService {
                         sourceKey, accepted, seen.size());
             }
             if (status == MunicipalSyncRunStatus.SUCCESS
-                    && isAuthoritativeSet(sourceKey, status, accepted, seen)
+                    && isAuthoritativeSet(adapter, status, accepted, seen)
                     && activeLinkCount > seen.size()) {
                 log.warn(
                         "municipal_sync_active_exceeds_set sourceKey={} activeLinks={} authoritativeSet={}",
@@ -157,12 +159,32 @@ public class MunicipalFacilitySyncService {
     }
 
     /**
-     * Missing-set soft-deactivation runs only for İZUM after a fully successful non-empty
-     * validated feed. Partial success, empty feeds, and failures never mass-deactivate.
+     * Missing-set soft-deactivation runs only for {@link ReconciliationMode#AUTHORITATIVE_FULL_SET}
+     * sources after a fully successful non-empty validated feed. Partial success, empty feeds,
+     * and failures never mass-deactivate. Policy is source-scoped (never cross-provider).
      */
     static boolean isAuthoritativeSet(
+            MunicipalParkingSourceAdapter adapter,
+            MunicipalSyncRunStatus status,
+            int accepted,
+            Set<String> seen) {
+        ReconciliationMode mode = adapter != null
+                ? adapter.reconciliationMode()
+                : ReconciliationMode.UPSERT_ONLY;
+        return mode == ReconciliationMode.AUTHORITATIVE_FULL_SET
+                && status == MunicipalSyncRunStatus.SUCCESS
+                && accepted > 0
+                && !seen.isEmpty()
+                && seen.size() == accepted;
+    }
+
+    /**
+     * @deprecated Prefer {@link #isAuthoritativeSet(MunicipalParkingSourceAdapter, MunicipalSyncRunStatus, int, Set)}.
+     */
+    @Deprecated
+    static boolean isAuthoritativeSet(
             String sourceKey, MunicipalSyncRunStatus status, int accepted, Set<String> seen) {
-        return IzumMunicipalParkingAdapter.SOURCE_KEY.equals(sourceKey)
+        return ParkingProviderCatalog.isAuthoritativeFullSet(sourceKey)
                 && status == MunicipalSyncRunStatus.SUCCESS
                 && accepted > 0
                 && !seen.isEmpty()

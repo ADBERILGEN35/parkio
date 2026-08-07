@@ -14,6 +14,8 @@ public final class IngestFieldProvenancePolicy {
     public static final String POLICY_VERSION = "ingest-provenance-v1";
     public static final String REASON_IZUM_SYNC = "ingest_izum_sync";
     public static final String REASON_OSM_IMPORT = "ingest_osm_import";
+    public static final String REASON_LIVE_ADAPTER_SYNC = "ingest_live_adapter_sync";
+    public static final String REASON_FAKE_TEST_SYNC = "ingest_fake_test_sync";
     public static final String CONFIDENCE_SELECTED = "SELECTED";
 
     public static final Set<String> INGEST_FIELD_ALLOWLIST =
@@ -32,6 +34,11 @@ public final class IngestFieldProvenancePolicy {
      * Fields İZUM sync wrote onto the facility row (availability is separate).
      */
     public static List<SuppliedField> forIzumFacility(NormalizedMunicipalFacility facility) {
+        return forLiveInventoryFacility(facility);
+    }
+
+    /** Shared field set for live inventory adapters (İZUM, FAKE_TEST, future HTTP feeds). */
+    public static List<SuppliedField> forLiveInventoryFacility(NormalizedMunicipalFacility facility) {
         Objects.requireNonNull(facility, "facility");
         List<SuppliedField> fields = new ArrayList<>();
         if (hasText(facility.displayName())) {

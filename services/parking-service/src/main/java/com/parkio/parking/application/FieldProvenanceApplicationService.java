@@ -123,6 +123,27 @@ public class FieldProvenanceApplicationService {
         }
     }
 
+    public void applyLiveAdapterIngest(
+            UUID facilityId,
+            String sourceKey,
+            NormalizedMunicipalFacility facility,
+            Instant fetchTimestamp) {
+        if (MunicipalSourceIdentity.isIzum(sourceKey)) {
+            applyIzumIngest(facilityId, facility, fetchTimestamp);
+            return;
+        }
+        String reason = MunicipalSourceIdentity.isFakeTest(sourceKey)
+                ? IngestFieldProvenancePolicy.REASON_FAKE_TEST_SYNC
+                : IngestFieldProvenancePolicy.REASON_LIVE_ADAPTER_SYNC;
+        applyIngestSelections(
+                facilityId,
+                sourceKey,
+                facility.externalId(),
+                fetchTimestamp,
+                reason,
+                IngestFieldProvenancePolicy.forLiveInventoryFacility(facility));
+    }
+
     public void applyIzumIngest(
             UUID facilityId, NormalizedMunicipalFacility facility, Instant fetchTimestamp) {
         applyIngestSelections(

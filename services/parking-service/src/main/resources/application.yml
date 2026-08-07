@@ -161,6 +161,10 @@ parkio:
       scheduler-enabled: false
       fixed-delay-ms: 120000
       user-agent: ParkioParkingService/1.0 (+https://parkio.dev)
+    fake-test:
+      # WP-SPA-13: architecture-only fake provider. Never enable outside tests.
+      enabled: false
+      publication-enabled: false
     sla:
       warning-consecutive-failures: ${PARKIO_MUNICIPAL_SLA_WARNING_CONSECUTIVE_FAILURES:3}
       critical-consecutive-failures: ${PARKIO_MUNICIPAL_SLA_CRITICAL_CONSECUTIVE_FAILURES:5}
