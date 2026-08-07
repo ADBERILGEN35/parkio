@@ -51,6 +51,8 @@ describe('buildMapHtml municipal bridge', () => {
   it('adds destination marker and recommendation highlight ops for SPA-09', () => {
     expect(html).toContain("message.op === 'setDestinationMarker'");
     expect(html).toContain('function setDestinationMarker');
+    expect(html).toContain("message.op === 'setParkedCarMarker'");
+    expect(html).toContain('function setParkedCarMarker');
     expect(html).toContain("message.op === 'setRecommendedHighlights'");
     expect(html).toContain('function setRecommendedHighlights');
     expect(html).toContain('.pk-dest');

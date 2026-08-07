@@ -74,6 +74,7 @@ jest.mock('@/features/map/MapSurface', () => {
         setMunicipalFacilities: jest.fn(),
         setSelectedMunicipal: jest.fn(),
         setDestinationMarker: jest.fn(),
+        setParkedCarMarker: jest.fn(),
         setRecommendedHighlights: jest.fn(),
       }));
       return <ReactNative.View testID="map-surface" />;
@@ -135,19 +136,9 @@ jest.mock('@/features/parking/useActiveParkingSession', () => ({
     data: null,
     isPending: false,
     isError: false,
+    isFetching: false,
     isSuccess: true,
-  }),
-}));
-
-jest.mock('@/features/parking/useParkingLocationActions', () => ({
-  useParkingLocationActions: () => ({
-    phase: 'idle',
-    busy: false,
-    destinationValid: false,
-    navigateDisabled: true,
-    shareDisabled: true,
-    navigate: jest.fn(async () => undefined),
-    share: jest.fn(async () => undefined),
+    refetch: jest.fn(),
   }),
 }));
 

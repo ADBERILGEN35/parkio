@@ -784,6 +784,7 @@ export function MapPage({
             onChangeDestination={() => {
               assistant.openSearch();
             }}
+            parkHereEnabled={isAuthenticated && !activeSession}
           />
         </div>
       ) : null}
@@ -1267,6 +1268,7 @@ export function MapPage({
                 facility={selectedMunicipalFacility}
                 distanceMeters={selectedMunicipalDistance}
                 onClose={() => selectMunicipalFacility(null)}
+                parkHereEnabled={!activeSession}
               />
             ) : null}
           </div>

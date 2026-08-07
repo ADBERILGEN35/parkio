@@ -304,6 +304,21 @@
       "networkError": "Ağ hatası. Bağlantınızı kontrol edip tekrar deneyin."
     }
   },
+  "parkedCar": {
+    "title": "Park ettiğim araç",
+    "return": "Araca dön",
+    "end": "Parkı bitir",
+    "unavailable": "Park konumu kullanılamıyor",
+    "parkHere": {
+      "cta": "Buraya park ettim",
+      "a11y": "Bu otoparkta park ettiğimi kaydet",
+      "saving": "Kaydediliyor…",
+      "success": "Park konumunuz kaydedildi.",
+      "alreadyActive": "Zaten park edilmiş bir aracınız var.",
+      "failed": "Park kaydedilemedi. Tekrar deneyin."
+    },
+    "endFailed": "Park sonlandırılamadı. Tekrar deneyin."
+  },
   "assistant": {
     "entryPrompt": "Nereye gidiyorsun?",
     "entryHint": "Hedef seçin, yakındaki park önerilerini görün",

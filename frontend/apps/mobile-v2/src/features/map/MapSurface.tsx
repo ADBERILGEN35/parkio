@@ -24,6 +24,10 @@ export interface MapSurfaceHandle {
   setDestinationMarker: (
     marker: { lat: number; lng: number; label: string } | null,
   ) => void;
+  /** Active ParkingSession pin — distinct from destination / municipal / community. */
+  setParkedCarMarker: (
+    marker: { lat: number; lng: number; label: string } | null,
+  ) => void;
   /** Highlight recommended facility/spot ids already on the map (no duplicates). */
   setRecommendedHighlights: (
     payload: {
@@ -127,6 +131,7 @@ export const MapSurface = forwardRef<MapSurfaceHandle, MapSurfaceProps>(function
         dispatch({ op: 'setMunicipalFacilities', facilities }),
       setSelectedMunicipal: (id) => dispatch({ op: 'setSelectedMunicipal', id }),
       setDestinationMarker: (marker) => dispatch({ op: 'setDestinationMarker', marker }),
+      setParkedCarMarker: (marker) => dispatch({ op: 'setParkedCarMarker', marker }),
       setRecommendedHighlights: (payload) =>
         dispatch({ op: 'setRecommendedHighlights', payload }),
       flyTo: ({ lat, lng, zoom, silent }) => dispatch({ op: 'flyTo', lat, lng, zoom, silent }),

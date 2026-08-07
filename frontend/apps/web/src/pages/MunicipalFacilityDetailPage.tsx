@@ -13,7 +13,10 @@ import { Link, useParams, useSearchParams } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
 import { FriendlyApiErrorMessage } from '@/components/FriendlyApiErrorMessage';
 import { frontendConfig } from '@/config/env';
+import { useAuthStore } from '@/auth/store';
+import { useActiveParkingSessionQuery } from '@/data/hooks/useParkingSessionQueries';
 import { useMunicipalFacilityDetailQuery } from '@/data/hooks/useParkingQueries';
+import { ParkHereAtFacilityButton } from '@/features/parked-car';
 import { formatRelativeAgo } from '@/lib/format';
 import { formatDistance } from '@/lib/spotDiscovery';
 import { isValidRouteParameter } from '@/routing/route-manifest';
@@ -257,6 +260,10 @@ function FacilityDetailBody({
   distanceMeters: number | null;
 }) {
   const { t } = useTranslation('map');
+  const isAuthenticated = useAuthStore((s) => s.isAuthenticated);
+  const activeSessionQuery = useActiveParkingSessionQuery({ enabled: isAuthenticated });
+  const hasActive =
+    isAuthenticated && activeSessionQuery.data?.status === 'ACTIVE';
   const title =
     facility.displayName?.trim() ||
     facility.addressText?.trim() ||
@@ -306,13 +313,21 @@ function FacilityDetailBody({
             {t(`municipal.freshness.${municipalFreshnessCopyKey(occupancyKind)}`)}
           </span>
           {typeKey ? (
-            <span className="inline-flex items-center gap-xs rounded-full bg-surface-container px-sm py-xs">
+            <span className="inline-flex items-center gap-xs rounded-full bg-surface-container px-xs py-xs">
               {t(typeKey)}
             </span>
           ) : null}
         </div>
         {facility.addressText && facility.displayName ? (
           <p className="m-0 text-body-md text-on-surface-variant">{facility.addressText}</p>
+        ) : null}
+        {isAuthenticated && !hasActive ? (
+          <ParkHereAtFacilityButton
+            facilityId={facility.id}
+            latitude={facility.latitude}
+            longitude={facility.longitude}
+            displayLabel={title}
+          />
         ) : null}
       </header>
 

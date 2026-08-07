@@ -19,6 +19,7 @@ export type RecommendationsSheetProps = {
   onClearDestination: () => void;
   /** Hide sheet peek while SpotSheet / MunicipalFacilitySheet is open. */
   suppressed?: boolean;
+  parkHereEnabled?: boolean;
 };
 
 const PEEK = 220;
@@ -31,6 +32,7 @@ export function RecommendationsSheet({
   onChangeDestination,
   onClearDestination,
   suppressed = false,
+  parkHereEnabled = false,
 }: RecommendationsSheetProps) {
   const t = useT();
   const theme = useTheme();
@@ -151,6 +153,7 @@ export function RecommendationsSheet({
               rankIndex={index}
               selected={item.id === selectedCandidateId}
               onSelect={onSelectCandidate}
+              parkHereEnabled={parkHereEnabled}
             />
           )}
         />

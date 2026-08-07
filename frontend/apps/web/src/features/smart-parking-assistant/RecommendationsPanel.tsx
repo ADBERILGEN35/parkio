@@ -12,6 +12,7 @@ export type RecommendationsPanelProps = {
   onSelectCandidate: (candidate: ParkingCandidate) => void;
   onClearDestination: () => void;
   onChangeDestination: () => void;
+  parkHereEnabled?: boolean;
 };
 
 export function RecommendationsPanel({
@@ -21,6 +22,7 @@ export function RecommendationsPanel({
   onSelectCandidate,
   onClearDestination,
   onChangeDestination,
+  parkHereEnabled = false,
 }: RecommendationsPanelProps) {
   const { t } = useTranslation('map');
   const data = recommendations.data;
@@ -105,6 +107,7 @@ export function RecommendationsPanel({
                 rankIndex={index}
                 selected={candidate.id === selectedCandidateId}
                 onSelect={onSelectCandidate}
+                parkHereEnabled={parkHereEnabled}
               />
             </li>
           ))}

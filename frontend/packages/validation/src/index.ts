@@ -30,3 +30,10 @@ export {
   workAvailability,
 } from './quick-actions';
 export type { QuickActionSourceSnapshot } from './quick-actions';
+export {
+  isUsableParkedCarCoordinate,
+  municipalParkTarget,
+  shouldRecordRecentParking,
+  toParkedCarView,
+  toRecordRecentParkingRequest,
+} from './parked-car';

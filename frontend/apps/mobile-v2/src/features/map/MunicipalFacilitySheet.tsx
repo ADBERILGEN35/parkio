@@ -12,6 +12,8 @@ import {
   buildParkingMapsHttpsUrl,
   buildParkingNavigationUrl,
 } from '@/features/parking/parkingLocationLinks';
+import { useParkHereAtTarget } from '@/features/parking/useParkHereAtTarget';
+import { municipalParkTarget } from '@parkio/validation';
 import { useLocale, useT } from '@/i18n/LocaleProvider';
 import { useToast } from '@/providers/ToastProvider';
 import { formatDistance } from '@/lib/time';
@@ -27,6 +29,8 @@ export interface MunicipalFacilitySheetProps {
    * When omitted, no detail CTA is rendered (avoids a dead button).
    */
   onOpenDetail?: (facilityId: string) => void;
+  /** Explicit municipal Park Here when authenticated and no ACTIVE session. */
+  parkHereEnabled?: boolean;
 }
 
 const PEEK_HEIGHT = 200;
@@ -40,6 +44,7 @@ export function MunicipalFacilitySheet({
   distanceMeters,
   onClose,
   onOpenDetail,
+  parkHereEnabled = false,
 }: MunicipalFacilitySheetProps) {
   const theme = useTheme();
   const t = useT();
@@ -47,6 +52,7 @@ export function MunicipalFacilitySheet({
   const { locale } = useLocale();
   const sheetRef = useRef<BottomSheet>(null);
   const { colors } = theme;
+  const parkHere = useParkHereAtTarget();
 
   const snapPoints = useMemo(() => [PEEK_HEIGHT, '48%'], []);
 
@@ -85,6 +91,35 @@ export function MunicipalFacilitySheet({
       toast.show(t('map.municipal.openInMapsFailed'), 'error');
     }
   }, [facility, t, toast]);
+
+  const onParkHere = useCallback(async () => {
+    if (!facility) return;
+    const label = facility.displayName?.trim() || t('map.municipal.unnamed');
+    const outcome = await parkHere.start({
+      latitude: facility.latitude,
+      longitude: facility.longitude,
+      target: municipalParkTarget(facility.id, label),
+    });
+    if (outcome.status === 'busy') return;
+    if (outcome.status === 'success') {
+      toast.show(t('parkedCar.parkHere.success'), 'success');
+      parkHere.reset();
+      onClose();
+      return;
+    }
+    if (outcome.status === 'conflict') {
+      toast.show(t('parkedCar.parkHere.alreadyActive'), 'neutral');
+      parkHere.reset();
+      return;
+    }
+    if (outcome.status === 'offline') {
+      toast.show(t('parkingSession.start.offlineBody'), 'error');
+      parkHere.reset();
+      return;
+    }
+    toast.show(t('parkedCar.parkHere.failed'), 'error');
+    parkHere.reset();
+  }, [facility, onClose, parkHere, t, toast]);
 
   if (!facility) {
     return null;
@@ -223,6 +258,23 @@ export function MunicipalFacilitySheet({
               {presented.addressText.trim()}
             </AppText>
           </View>
+        ) : null}
+
+        {parkHereEnabled ? (
+          <Button
+            label={
+              parkHere.busy
+                ? t('parkedCar.parkHere.saving')
+                : t('parkedCar.parkHere.cta')
+            }
+            variant="primary"
+            size="md"
+            icon="car-outline"
+            loading={parkHere.busy}
+            disabled={parkHere.busy}
+            onPress={() => void onParkHere()}
+            accessibilityHint={t('parkedCar.parkHere.a11y')}
+          />
         ) : null}
 
         <Button

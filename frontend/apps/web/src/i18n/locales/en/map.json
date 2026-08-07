@@ -304,6 +304,21 @@
       "networkError": "Network error. Check your connection and try again."
     }
   },
+  "parkedCar": {
+    "title": "My parked car",
+    "return": "Return to car",
+    "end": "End parking",
+    "unavailable": "Parked location unavailable",
+    "parkHere": {
+      "cta": "I parked here",
+      "a11y": "Save that you parked at this facility",
+      "saving": "Saving…",
+      "success": "Parking location saved.",
+      "alreadyActive": "You already have a parked car.",
+      "failed": "Couldn't save parking. Try again."
+    },
+    "endFailed": "Couldn't end parking. Try again."
+  },
   "assistant": {
     "entryPrompt": "Where are you going?",
     "entryHint": "Pick a destination to see ranked parking options nearby",

@@ -146,6 +146,23 @@ export function buildMapHtml(options: MapHtmlOptions): string {
       max-width: 140px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
       box-shadow: 0 1px 4px rgba(0,0,0,0.18);
     }
+    .pk-parked {
+      position: relative; display: flex; flex-direction: column; align-items: center;
+      pointer-events: none; z-index: 14;
+    }
+    .pk-parked-pin {
+      width: 28px; height: 28px; border-radius: 50%;
+      background: #0F766E; border: 3px solid #ffffff;
+      box-shadow: 0 2px 10px rgba(15,118,110,0.45);
+    }
+    .pk-parked-label {
+      margin-top: 6px;
+      font: 600 11px/14px system-ui, sans-serif;
+      color: var(--pill-text); background: var(--pill-bg);
+      padding: 2px 6px; border-radius: 6px;
+      max-width: 140px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+      box-shadow: 0 1px 4px rgba(0,0,0,0.18);
+    }
     .pk-muni-recommended .pk-muni-pin { box-shadow: 0 0 0 3px rgba(0, 128, 105, 0.45); }
     .pk-muni-recommended-top .pk-muni-pin { box-shadow: 0 0 0 4px rgba(0, 128, 105, 0.7); }
 
@@ -233,6 +250,7 @@ export function buildMapHtml(options: MapHtmlOptions): string {
       var topCommunityId = null;
       var topMunicipalId = null;
       var destinationMarker = null;
+      var parkedCarMarker = null;
       var userMarker = null;
       var suppressMoveEvent = false;
 
@@ -377,6 +395,34 @@ export function buildMapHtml(options: MapHtmlOptions): string {
           .addTo(map);
       }
 
+      function setParkedCarMarker(marker) {
+        if (parkedCarMarker) {
+          parkedCarMarker.remove();
+          parkedCarMarker = null;
+        }
+        if (!marker || typeof marker.lat !== 'number' || typeof marker.lng !== 'number') return;
+        if (!isFinite(marker.lat) || !isFinite(marker.lng)) return;
+        var el = document.createElement('div');
+        el.className = 'pk-parked';
+        var label = typeof marker.label === 'string' ? marker.label : '';
+        el.setAttribute('role', 'img');
+        if (label) el.setAttribute('aria-label', label);
+        el.innerHTML =
+          '<div class="pk-parked-pin" aria-hidden="true"></div>' +
+          (label
+            ? '<div class="pk-parked-label">' +
+              String(label)
+                .replace(/&/g, '&amp;')
+                .replace(/</g, '&lt;')
+                .replace(/>/g, '&gt;')
+                .replace(/"/g, '&quot;') +
+              '</div>'
+            : '');
+        parkedCarMarker = new maplibregl.Marker({ element: el, anchor: 'center' })
+          .setLngLat([marker.lng, marker.lat])
+          .addTo(map);
+      }
+
       function setRecommendedHighlights(payload) {
         recommendedCommunity = {};
         recommendedMunicipal = {};
@@ -511,6 +557,7 @@ export function buildMapHtml(options: MapHtmlOptions): string {
             applySelection();
           }
           else if (message.op === 'setDestinationMarker') setDestinationMarker(message.marker || null);
+          else if (message.op === 'setParkedCarMarker') setParkedCarMarker(message.marker || null);
           else if (message.op === 'setRecommendedHighlights') setRecommendedHighlights(message.payload || null);
           else if (message.op === 'flyTo') {
             suppressMoveEvent = Boolean(message.silent);

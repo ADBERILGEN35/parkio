@@ -17,6 +17,7 @@ export * from './favourite';
 export * from './recent';
 export * from './destination-search';
 export * from './quick-action';
+export * from './parked-car';
 export * from './recommendation';
 export * from './admin';
 export * from './waitlist';

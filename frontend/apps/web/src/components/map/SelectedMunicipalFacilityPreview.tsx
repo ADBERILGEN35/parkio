@@ -9,6 +9,8 @@ import {
 import { Icon, IconButton, SoftBadge, cn } from '@parkio/ui';
 import { useTranslation } from 'react-i18next';
 import { Link } from 'react-router-dom';
+import { useAuthStore } from '@/auth/store';
+import { ParkHereAtFacilityButton } from '@/features/parked-car';
 import { formatDistance } from '@/lib/spotDiscovery';
 
 export interface SelectedMunicipalFacilityPreviewProps {
@@ -16,6 +18,8 @@ export interface SelectedMunicipalFacilityPreviewProps {
   distanceMeters?: number | null;
   onClose: () => void;
   className?: string;
+  /** Hide Park Here while an ACTIVE session already exists. */
+  parkHereEnabled?: boolean;
 }
 
 /**
@@ -27,8 +31,10 @@ export function SelectedMunicipalFacilityPreview({
   distanceMeters = null,
   onClose,
   className,
+  parkHereEnabled = true,
 }: SelectedMunicipalFacilityPreviewProps) {
   const { t } = useTranslation('map');
+  const isAuthenticated = useAuthStore((s) => s.isAuthenticated);
   const title =
     facility.displayName?.trim() ||
     facility.addressText?.trim() ||
@@ -39,6 +45,7 @@ export function SelectedMunicipalFacilityPreview({
   const dataSourceHeadingKey =
     dataSourceLabels.length > 1 ? 'municipal.dataSources' : 'municipal.dataSource';
   const availabilityCopyKey = municipalAvailabilityCopyKey(occupancyKind);
+  const showParkHere = isAuthenticated && parkHereEnabled;
 
   return (
     <div
@@ -135,6 +142,16 @@ export function SelectedMunicipalFacilityPreview({
         </div>
       </div>
 
+      {showParkHere ? (
+        <ParkHereAtFacilityButton
+          facilityId={facility.id}
+          latitude={facility.latitude}
+          longitude={facility.longitude}
+          displayLabel={title}
+          className="mt-md"
+        />
+      ) : null}
+
       <Link
         to={
           distanceMeters != null && Number.isFinite(distanceMeters)
@@ -142,7 +159,7 @@ export function SelectedMunicipalFacilityPreview({
             : `/facilities/${facility.id}`
         }
         data-testid="municipal-facility-view-details"
-        className="mt-md inline-flex w-full items-center justify-center gap-xs rounded-full bg-secondary px-lg py-md text-label-md font-semibold text-on-secondary no-underline shadow-md transition-colors hover:bg-secondary-container focus:outline-none focus-visible:ring-4 focus-visible:ring-secondary/30"
+        className="mt-sm inline-flex w-full items-center justify-center gap-xs rounded-full bg-secondary px-lg py-md text-label-md font-semibold text-on-secondary no-underline shadow-md transition-colors hover:bg-secondary-container focus:outline-none focus-visible:ring-4 focus-visible:ring-secondary/30"
       >
         <Icon name="arrow_forward" className="text-[18px] leading-none" />
         {t('municipal.viewFacilityDetails')}

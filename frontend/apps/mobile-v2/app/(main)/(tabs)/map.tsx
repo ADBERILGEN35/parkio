@@ -48,7 +48,6 @@ import { MorningPromptModal } from '@/features/smart-return/MorningPromptModal';
 import { ActiveParkingSessionBanner } from '@/features/parking/ActiveParkingSessionBanner';
 import { ParkHereStartControl } from '@/features/parking/ParkHereStartControl';
 import { useActiveParkingSession } from '@/features/parking/useActiveParkingSession';
-import { useParkingLocationActions } from '@/features/parking/useParkingLocationActions';
 import { SmartReturnBanner } from '@/features/smart-return/SmartReturnBanner';
 import {
   todayAt,
@@ -111,12 +110,6 @@ export default function MapScreen() {
   });
 
   const activeParkingSession = useActiveParkingSession();
-  const parkedCarActions = useParkingLocationActions({
-    sessionId: activeParkingSession.data?.id ?? null,
-    latitude: activeParkingSession.data?.latitude,
-    longitude: activeParkingSession.data?.longitude,
-    terminalBusy: false,
-  });
 
   const onQuickSelectDestination = useCallback(
     (destination: Destination, origin: AssistantDestinationOrigin) => {
@@ -142,8 +135,21 @@ export default function MapScreen() {
   );
 
   const onQuickParkedCar = useCallback(() => {
-    void parkedCarActions.navigate();
-  }, [parkedCarActions]);
+    const session = activeParkingSession.data;
+    if (!session || session.status !== 'ACTIVE') return;
+    if (
+      !Number.isFinite(session.latitude) ||
+      !Number.isFinite(session.longitude)
+    ) {
+      return;
+    }
+    mapRef.current?.flyTo({
+      lat: session.latitude,
+      lng: session.longitude,
+      zoom: LOCATED_ZOOM,
+      silent: true,
+    });
+  }, [activeParkingSession.data]);
 
   const resultLimit = policy.data?.resultLimit ?? NEARBY_RESULT_LIMIT;
   const municipalRadiusMeters = municipalFilters.radiusMeters;
@@ -280,6 +286,24 @@ export default function MapScreen() {
     spaEnabled,
     t,
   ]);
+
+  // Active parked-car marker (ParkingSession) — independent of SPA destination.
+  useEffect(() => {
+    const session = activeParkingSession.data;
+    if (!session || session.status !== 'ACTIVE') {
+      mapRef.current?.setParkedCarMarker(null);
+      return;
+    }
+    if (!Number.isFinite(session.latitude) || !Number.isFinite(session.longitude)) {
+      mapRef.current?.setParkedCarMarker(null);
+      return;
+    }
+    mapRef.current?.setParkedCarMarker({
+      lat: session.latitude,
+      lng: session.longitude,
+      label: t('parkedCar.markerA11y'),
+    });
+  }, [activeParkingSession.data, t]);
 
   // Reframe map when destination is confirmed / hydrated.
   const lastFlownDestKey = useRef<string | null>(null);
@@ -585,6 +609,9 @@ export default function MapScreen() {
             assistant.clearDestination();
           }}
           suppressed={sheetOpen}
+          parkHereEnabled={
+            activeParkingSession.data?.status !== 'ACTIVE' && !activeParkingSession.isPending
+          }
         />
       ) : null}
 
@@ -602,6 +629,10 @@ export default function MapScreen() {
           facility={selectedMunicipal}
           distanceMeters={selectedMunicipalDistance}
           onClose={() => setSelectedMunicipalId(null)}
+          parkHereEnabled={
+            Boolean(activeParkingSession.data?.status !== 'ACTIVE') &&
+            !activeParkingSession.isPending
+          }
           onOpenDetail={(facilityId) => {
             setSelectedMunicipalId(null);
             router.push({

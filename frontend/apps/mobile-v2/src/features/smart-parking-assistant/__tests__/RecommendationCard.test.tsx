@@ -14,6 +14,7 @@ jest.mock('@/i18n/LocaleProvider', () => ({
     if (key === 'map.municipal.spacesAvailable') {
       return `${params?.available} free · ${params?.capacity} capacity`;
     }
+    if (key === 'parkedCar.parkHere.cta') return 'I parked here';
     return key;
   },
   useLocale: () => ({ locale: 'en' as const }),
@@ -30,6 +31,19 @@ jest.mock('@/theme/ThemeProvider', () => ({
       outlineVariant: '#C0C6D4',
       surfaceContainer1: '#EFF4FF',
     },
+  }),
+}));
+
+jest.mock('@/providers/ToastProvider', () => ({
+  useToast: () => ({ show: jest.fn() }),
+}));
+
+jest.mock('@/features/parking/useParkHereAtTarget', () => ({
+  useParkHereAtTarget: () => ({
+    phase: 'idle',
+    busy: false,
+    start: jest.fn(async () => ({ status: 'success', session: {} })),
+    reset: jest.fn(),
   }),
 }));
 
@@ -67,7 +81,7 @@ const municipalCandidate: ParkingCandidate = {
 describe('RecommendationCard', () => {
   it('shows recommended rank, reasons, and hides raw score', () => {
     const onSelect = jest.fn();
-    const { getByTestId, queryByText } = render(
+    const { getByTestId, getByText, queryByText } = render(
       <RecommendationCard
         candidate={municipalCandidate}
         rankIndex={0}
@@ -75,12 +89,11 @@ describe('RecommendationCard', () => {
         onSelect={onSelect}
       />,
     );
-    const card = getByTestId('recommendation-card-c1');
-    expect(card).toBeTruthy();
+    expect(getByTestId('recommendation-card-c1')).toBeTruthy();
     expect(queryByText('0.91')).toBeNull();
     expect(queryByText('DETERMINISTIC_V1')).toBeNull();
     expect(queryByText('fac-1')).toBeNull();
-    fireEvent.press(card);
+    fireEvent.press(getByText('Konak İZUM'));
     expect(onSelect).toHaveBeenCalledWith(municipalCandidate);
   });
 

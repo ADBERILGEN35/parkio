@@ -841,6 +841,20 @@ export const tr = {
   'parkingSession.start.rejectedTitle': 'Başlatılamadı',
   'parkingSession.start.rejectedBody': 'Park oturumu başlatılamadı. Tekrar dene.',
 
+  // --- Parked car unification (WP-SPA-11) ---
+  'parkedCar.title': 'Park ettiğim araç',
+  'parkedCar.markerA11y': 'Park ettiğim araç',
+  'parkedCar.return': 'Araca dön',
+  'parkedCar.end': 'Parkı bitir',
+  'parkedCar.unavailable': 'Park konumu kullanılamıyor',
+  'parkedCar.parkHere.cta': 'Buraya park ettim',
+  'parkedCar.parkHere.a11y': 'Bu otoparkta park ettiğimi kaydet',
+  'parkedCar.parkHere.saving': 'Kaydediliyor…',
+  'parkedCar.parkHere.success': 'Park konumunuz kaydedildi.',
+  'parkedCar.parkHere.alreadyActive': 'Zaten park edilmiş bir aracınız var.',
+  'parkedCar.parkHere.failed': 'Park kaydedilemedi. Tekrar dene.',
+  'parkedCar.endFailed': 'Park sonlandırılamadı. Tekrar dene.',
+
   'push.channelName': 'Parkio bildirimleri',
 
   // ── Smart Parking Assistant (WP-SPA-09) ───────────────────────────────────
@@ -1705,6 +1719,20 @@ export const en: Record<TranslationKey, string> = {
   'parkingSession.start.reconcileFailedBody': 'Could not load your parking session. Try again.',
   'parkingSession.start.rejectedTitle': 'Could not start',
   'parkingSession.start.rejectedBody': 'The parking session could not be started. Try again.',
+
+  // --- Parked car unification (WP-SPA-11) ---
+  'parkedCar.title': 'My parked car',
+  'parkedCar.markerA11y': 'My parked car',
+  'parkedCar.return': 'Return to car',
+  'parkedCar.end': 'End parking',
+  'parkedCar.unavailable': 'Parked location unavailable',
+  'parkedCar.parkHere.cta': 'I parked here',
+  'parkedCar.parkHere.a11y': 'Save that you parked at this facility',
+  'parkedCar.parkHere.saving': 'Saving…',
+  'parkedCar.parkHere.success': 'Parking location saved.',
+  'parkedCar.parkHere.alreadyActive': 'You already have a parked car.',
+  'parkedCar.parkHere.failed': 'Could not save parking. Try again.',
+  'parkedCar.endFailed': 'Could not end parking. Try again.',
 
 
   'push.channelName': 'Parkio notifications',

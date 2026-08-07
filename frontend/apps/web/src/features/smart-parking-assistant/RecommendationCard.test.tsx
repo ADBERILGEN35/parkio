@@ -16,9 +16,16 @@ vi.mock('react-i18next', () => ({
       if (key === 'assistant.freshnessLive') return 'Canlı doluluk';
       if (key === 'assistant.spacesAvailable') return `${opts?.available} / ${opts?.capacity} boş`;
       if (key === 'assistant.reasonsAria') return 'reasons';
+      if (key === 'parkedCar.parkHere.cta') return 'Buraya park ettim';
+      if (key === 'parkedCar.parkHere.a11y') return 'park a11y';
+      if (key === 'parkedCar.parkHere.saving') return 'Kaydediliyor…';
       return key;
     },
   }),
+}));
+
+vi.mock('@/features/parked-car', () => ({
+  ParkHereAtFacilityButton: () => null,
 }));
 
 const candidate: ParkingCandidate = {
@@ -72,7 +79,7 @@ describe('RecommendationCard', () => {
     expect(screen.queryByText(/scoreBreakdown/i)).not.toBeInTheDocument();
     expect(screen.queryByText('fac-1')).not.toBeInTheDocument();
 
-    fireEvent.click(screen.getByTestId('assistant-recommendation-card'));
+    fireEvent.click(screen.getByRole('button', { pressed: false }));
     expect(onSelect).toHaveBeenCalledWith(candidate);
   });
 
@@ -86,9 +93,6 @@ describe('RecommendationCard', () => {
       />,
     );
     expect(screen.getByText('3. seçenek')).toBeInTheDocument();
-    expect(screen.getByTestId('assistant-recommendation-card')).toHaveAttribute(
-      'aria-pressed',
-      'true',
-    );
+    expect(screen.getByRole('button', { pressed: true })).toBeInTheDocument();
   });
 });
