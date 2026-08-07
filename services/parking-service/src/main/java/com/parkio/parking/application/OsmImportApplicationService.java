@@ -200,6 +200,12 @@ public class OsmImportApplicationService {
             int deactivated = 0;
             boolean completeSuccess = !dryRun;
             if (!dryRun && completeSuccess) {
+                if (!runs.isRunning(runId.get())) {
+                    log.warn("osm_import_ownership_lost sourceKey={} runId={} phase=before_reconcile",
+                            OsmGeofabrikSourceKeys.SOURCE_KEY, runId.get());
+                    return empty(MunicipalSyncRunStatus.FAILED, dryRun, path.getFileName().toString(), null,
+                            "ownership_lost", "run ownership lost");
+                }
                 deactivated = support.deactivateMissing(source.id(), seen, started);
             }
 
@@ -220,7 +226,12 @@ public class OsmImportApplicationService {
             MunicipalSyncResult syncResult = new MunicipalSyncResult(
                     MunicipalSyncRunStatus.SUCCESS,
                     features.size(), seen.size(), rejected, inserted, updated, unchanged, 0, null, null);
-            runs.complete(runId.get(), clock.instant(), syncResult, null, sha);
+            if (!runs.complete(runId.get(), clock.instant(), syncResult, null, sha)) {
+                log.warn("osm_import_complete_ignored sourceKey={} runId={} reason=ownership_lost",
+                        OsmGeofabrikSourceKeys.SOURCE_KEY, runId.get());
+                return empty(MunicipalSyncRunStatus.FAILED, dryRun, path.getFileName().toString(), sha,
+                        "ownership_lost", "run ownership lost");
+            }
             if (!dryRun) {
                 sources.markSuccessful(source.id(), clock.instant());
             }
@@ -239,9 +250,13 @@ public class OsmImportApplicationService {
         } catch (Exception ex) {
             MunicipalSyncResult failed = new MunicipalSyncResult(
                     MunicipalSyncRunStatus.FAILED, 0, 0, 0, 0, 0, 0, 0, category(ex), truncate(ex.getMessage()));
-            runs.complete(runId.get(), clock.instant(), failed, null, null);
-            log.warn("osm_import_failed sourceKey={} runId={} category={} summary={}",
-                    OsmGeofabrikSourceKeys.SOURCE_KEY, runId.get(), failed.errorCategory(), failed.errorSummary());
+            if (!runs.complete(runId.get(), clock.instant(), failed, null, null)) {
+                log.warn("osm_import_complete_ignored sourceKey={} runId={} reason=ownership_lost",
+                        OsmGeofabrikSourceKeys.SOURCE_KEY, runId.get());
+            } else {
+                log.warn("osm_import_failed sourceKey={} runId={} category={} summary={}",
+                        OsmGeofabrikSourceKeys.SOURCE_KEY, runId.get(), failed.errorCategory(), failed.errorSummary());
+            }
             return empty(MunicipalSyncRunStatus.FAILED, dryRun, path.getFileName().toString(), null,
                     failed.errorCategory(), failed.errorSummary());
         }

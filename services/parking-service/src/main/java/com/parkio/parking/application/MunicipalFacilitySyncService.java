@@ -5,6 +5,7 @@ import com.parkio.parking.application.port.MunicipalDataSourceRepository;
 import com.parkio.parking.application.port.MunicipalSourceSyncRunRepository;
 import com.parkio.parking.application.port.OsmImportSupportRepository;
 import com.parkio.parking.externalsource.MunicipalParkingSourceAdapter;
+import com.parkio.parking.externalsource.MunicipalSourceFailureCategory;
 import com.parkio.parking.externalsource.MunicipalSourceFailureClassifier;
 import com.parkio.parking.externalsource.MunicipalSyncResult;
 import com.parkio.parking.externalsource.MunicipalSyncRunStatus;
@@ -107,6 +108,13 @@ public class MunicipalFacilitySyncService {
 
             int deactivated = 0;
             if (isAuthoritativeSet(adapter, status, accepted, seen)) {
+                // Never deactivate unless this execution still owns the RUNNING lease.
+                if (!runs.isRunning(runId.get())) {
+                    log.warn(
+                            "municipal_sync_ownership_lost sourceKey={} runId={} phase=before_reconcile",
+                            sourceKey, runId.get());
+                    return ownershipLost();
+                }
                 deactivated = setReconciliation.deactivateMissing(source.id(), seen, fetchedAt);
                 if (previouslyActive.size() > 0
                         && deactivated > previouslyActive.size() * LARGE_SHRINK_RATIO) {
@@ -133,7 +141,12 @@ public class MunicipalFacilitySyncService {
             MunicipalSyncResult result = result(status, received, accepted, rejected,
                     inserted, updated, unchanged, occupancyInserted, deactivated, reactivated,
                     activeLinkCount, null, null);
-            runs.complete(runId.get(), clock.instant(), result, fingerprint, null);
+            if (!runs.complete(runId.get(), clock.instant(), result, fingerprint, null)) {
+                log.warn(
+                        "municipal_sync_complete_ignored sourceKey={} runId={} reason=ownership_lost",
+                        sourceKey, runId.get());
+                return ownershipLost();
+            }
             sources.markSuccessful(source.id(), clock.instant());
             log.info(
                     "municipal_sync_complete sourceKey={} runId={} status={} received={} accepted={} rejected={} "
@@ -150,7 +163,13 @@ public class MunicipalFacilitySyncService {
             String category = MunicipalSourceFailureClassifier.wireValue(failure);
             MunicipalSyncResult result = result(MunicipalSyncRunStatus.FAILED, 0, 0, 0,
                     0, 0, 0, 0, 0, 0, 0, category, truncate(failure.getMessage()));
-            runs.complete(runId.get(), clock.instant(), result, fingerprint, null);
+            if (!runs.complete(runId.get(), clock.instant(), result, fingerprint, null)) {
+                log.warn(
+                        "municipal_sync_complete_ignored sourceKey={} runId={} reason=ownership_lost "
+                                + "originalCategory={}",
+                        sourceKey, runId.get(), category);
+                return ownershipLost();
+            }
             log.warn("municipal_sync_failed sourceKey={} runId={} status=FAILED attempts=final "
                             + "errorCategory={} recovery=false",
                     sourceKey, runId.get(), result.errorCategory());
@@ -189,6 +208,14 @@ public class MunicipalFacilitySyncService {
                 && accepted > 0
                 && !seen.isEmpty()
                 && seen.size() == accepted;
+    }
+
+    private static MunicipalSyncResult ownershipLost() {
+        return result(
+                MunicipalSyncRunStatus.FAILED,
+                0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+                MunicipalSourceFailureCategory.OWNERSHIP_LOST.wireValue(),
+                "run ownership lost; sync-control only");
     }
 
     private static MunicipalSyncResult result(

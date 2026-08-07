@@ -24,6 +24,10 @@ public enum MunicipalSourceFailureCategory {
     DATABASE("database"),
     CONCURRENT_RUN("concurrent_run"),
     CANCELLED("cancelled"),
+    /** Orphan/stale RUNNING terminalized by sync-run recovery (not an upstream failure). */
+    STALE_RUN_RECOVERED("stale_run_recovered"),
+    /** Late worker attempted complete/reconcile after run ownership was lost. */
+    OWNERSHIP_LOST("ownership_lost"),
     UNKNOWN("unknown");
 
     private final String wireValue;

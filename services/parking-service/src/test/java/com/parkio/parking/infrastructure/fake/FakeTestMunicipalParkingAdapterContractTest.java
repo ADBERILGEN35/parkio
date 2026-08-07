@@ -3,6 +3,7 @@ package com.parkio.parking.infrastructure.fake;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.Mockito.lenient;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
@@ -86,6 +87,8 @@ class FakeTestMunicipalParkingAdapterContractTest {
                         null,
                         true));
         when(runs.tryStart(eq(SOURCE_ID), any(), eq(NOW))).thenReturn(Optional.of(RUN_ID));
+        lenient().when(runs.isRunning(RUN_ID)).thenReturn(true);
+        lenient().when(runs.complete(eq(RUN_ID), any(), any(), any(), any())).thenReturn(true);
     }
 
     @Test

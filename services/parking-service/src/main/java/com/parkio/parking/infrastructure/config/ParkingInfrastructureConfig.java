@@ -80,6 +80,16 @@ public class ParkingInfrastructureConfig {
     }
 
     @Bean
+    public com.parkio.parking.application.MunicipalSyncRunRecoveryService municipalSyncRunRecoveryService(
+            MunicipalSourceSyncRunRepository runs,
+            MunicipalSourceProperties properties,
+            com.parkio.parking.infrastructure.metrics.MunicipalSourceMetrics metrics,
+            Clock clock) {
+        return new com.parkio.parking.application.MunicipalSyncRunRecoveryService(
+                runs, properties, metrics, clock);
+    }
+
+    @Bean
     public MunicipalSourceHealthService municipalSourceHealthService(
             MunicipalDataSourceRepository sources,
             MunicipalSourceSyncRunRepository runs,

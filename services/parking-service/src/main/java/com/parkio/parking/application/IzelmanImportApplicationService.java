@@ -166,6 +166,11 @@ public class IzelmanImportApplicationService {
             }
             int deactivated = 0;
             if (!dryRun && source.completeSnapshot() && accepted > 0) {
+                if (!runs.isRunning(runId.get())) {
+                    return result(MunicipalSyncRunStatus.FAILED, sourceKey, type, dryRun,
+                            csv.rows().size(), accepted, rejected, inserted, updated, unchanged, 0,
+                            age, "ownership_lost");
+                }
                 if ("FACILITY".equals(type)) deactivated = support.deactivateMissing(source.id(), seen, now);
                 else if ("ROADSIDE".equals(type)) deactivated = repository.deactivateMissingRoadside(source.id(), seen, now);
             }
@@ -183,7 +188,11 @@ public class IzelmanImportApplicationService {
             String sha = IzelmanCsvReader.sha256(bytes);
             MunicipalSyncResult sync = new MunicipalSyncResult(MunicipalSyncRunStatus.SUCCESS,
                     csv.rows().size(), accepted, rejected, inserted, updated, unchanged, 0, null, null);
-            runs.complete(runId.get(), clock.instant(), sync, null, sha);
+            if (!runs.complete(runId.get(), clock.instant(), sync, null, sha)) {
+                return result(MunicipalSyncRunStatus.FAILED, sourceKey, type, dryRun,
+                        csv.rows().size(), accepted, rejected, inserted, updated, unchanged, deactivated,
+                        age, "ownership_lost");
+            }
             if (!dryRun) sources.markSuccessful(source.id(), clock.instant());
             repository.saveRun(runId.get(), source.id(), type, path.getFileName().toString(), sha,
                     csv.encoding(), csv.delimiter(), csv.schemaFingerprint(), contentAt, age, dryRun, report, clock.instant());

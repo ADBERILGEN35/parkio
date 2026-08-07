@@ -90,6 +90,8 @@ class ProviderIsolationTest {
         when(sources.requireBySourceKey(FakeTestMunicipalParkingAdapter.SOURCE_KEY))
                 .thenReturn(source(FAKE_SOURCE, FakeTestMunicipalParkingAdapter.SOURCE_KEY));
         when(runs.tryStart(eq(FAKE_SOURCE), any(), eq(NOW))).thenReturn(Optional.of(RUN));
+        when(runs.isRunning(RUN)).thenReturn(true);
+        when(runs.complete(eq(RUN), any(), any(), any(), any())).thenReturn(true);
         when(reconciliation.activeExternalIds(FAKE_SOURCE)).thenReturn(Set.of("SAME-ID", "GONE"));
         when(reconciliation.deactivateMissing(eq(FAKE_SOURCE), eq(Set.of("SAME-ID")), eq(NOW))).thenReturn(1);
         when(ingest.persistLiveAdapterFacility(

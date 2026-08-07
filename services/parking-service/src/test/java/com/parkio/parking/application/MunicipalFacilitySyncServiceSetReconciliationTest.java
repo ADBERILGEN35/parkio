@@ -74,6 +74,8 @@ class MunicipalFacilitySyncServiceSetReconciliationTest {
                         null,
                         true));
         when(runs.tryStart(eq(SOURCE_ID), any(), eq(NOW))).thenReturn(Optional.of(RUN_ID));
+        lenient().when(runs.isRunning(RUN_ID)).thenReturn(true);
+        lenient().when(runs.complete(eq(RUN_ID), any(), any(), any(), any())).thenReturn(true);
     }
 
     @Test
@@ -147,6 +149,36 @@ class MunicipalFacilitySyncServiceSetReconciliationTest {
         assertThat(result.status()).isEqualTo(MunicipalSyncRunStatus.SUCCESS);
         assertThat(result.recordsReactivated()).isEqualTo(1);
         assertThat(result.recordsInserted()).isZero();
+    }
+
+    @Test
+    void ownershipLostBeforeReconcileSkipsDeactivate() {
+        ArrayNode payload = mapper.createArrayNode();
+        payload.add(record("A"));
+        stubSuccessfulFetch(payload, List.of(facility("A")), Set.of("A", "B"));
+        when(runs.isRunning(RUN_ID)).thenReturn(false);
+
+        var result = service.sync(IzumMunicipalParkingAdapter.SOURCE_KEY);
+
+        assertThat(result.status()).isEqualTo(MunicipalSyncRunStatus.FAILED);
+        assertThat(result.errorCategory()).isEqualTo("ownership_lost");
+        verify(setReconciliation, never()).deactivateMissing(any(), any(), any());
+        verify(sources, never()).markSuccessful(any(), any());
+    }
+
+    @Test
+    void lateCompleteDoesNotMarkSuccessful() {
+        ArrayNode payload = mapper.createArrayNode();
+        payload.add(record("A"));
+        stubSuccessfulFetch(payload, List.of(facility("A")), Set.of("A"));
+        when(setReconciliation.deactivateMissing(any(), any(), any())).thenReturn(0);
+        when(runs.complete(eq(RUN_ID), any(), any(), any(), any())).thenReturn(false);
+
+        var result = service.sync(IzumMunicipalParkingAdapter.SOURCE_KEY);
+
+        assertThat(result.status()).isEqualTo(MunicipalSyncRunStatus.FAILED);
+        assertThat(result.errorCategory()).isEqualTo("ownership_lost");
+        verify(sources, never()).markSuccessful(any(), any());
     }
 
     private void stubSuccessfulFetch(

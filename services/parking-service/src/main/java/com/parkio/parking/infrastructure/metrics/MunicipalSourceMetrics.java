@@ -200,6 +200,32 @@ public class MunicipalSourceMetrics {
         osm.previousConsecutiveFailures.set(osm.consecutiveFailures.get());
     }
 
+    /** MUNI-SYNC-RESILIENCE-01: count of RUNNING rows selected for recovery in one pass. */
+    public void recordStaleDetected(int count) {
+        if (count <= 0) {
+            return;
+        }
+        registry.counter("parkio.municipal.sync.stale.detected").increment(count);
+    }
+
+    /** One recovered orphan RUNNING → FAILED/stale_run_recovered (bounded source_key tag). */
+    public void recordStaleRecovered(String sourceKey) {
+        String key = sourceKey == null || sourceKey.isBlank() ? "unknown" : sourceKey;
+        registry.counter("parkio.municipal.sync.stale.recovered",
+                        "source_key", key,
+                        "status", MunicipalSyncRunStatus.FAILED.name())
+                .increment();
+        // Refresh SLA gauges so stale_running_operations drops after recovery.
+        SourceGaugeState state = stateFor(key);
+        if (state != null) {
+            applySnapshot(state, snapshotFor(key));
+        }
+    }
+
+    public void recordStaleRecoveryFailed() {
+        registry.counter("parkio.municipal.sync.stale.recovery_failed").increment();
+    }
+
     private MunicipalSourceHealthService.Snapshot snapshotFor(String sourceKey) {
         if (IZUM.equals(sourceKey)) {
             return healthService.izumSnapshot();

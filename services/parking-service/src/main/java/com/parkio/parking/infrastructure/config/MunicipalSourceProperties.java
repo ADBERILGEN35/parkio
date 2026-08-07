@@ -13,6 +13,7 @@ public class MunicipalSourceProperties {
     private Osm osm = new Osm();
     private FakeTest fakeTest = new FakeTest();
     private Sla sla = new Sla();
+    private Sync sync = new Sync();
     private Discovery discovery = new Discovery();
     private Ops ops = new Ops();
 
@@ -32,10 +33,52 @@ public class MunicipalSourceProperties {
     }
     public Sla getSla() { return sla; }
     public void setSla(Sla sla) { this.sla = sla; }
+    public Sync getSync() { return sync; }
+    public void setSync(Sync sync) { this.sync = sync == null ? new Sync() : sync; }
     public Discovery getDiscovery() { return discovery; }
     public void setDiscovery(Discovery discovery) { this.discovery = discovery; }
     public Ops getOps() { return ops; }
     public void setOps(Ops ops) { this.ops = ops; }
+
+    /**
+     * MUNI-SYNC-RESILIENCE-01: provider-neutral stale RUNNING recovery.
+     * Distinct from {@link Sla#staleRunningAfterSeconds} (observability-only alert threshold).
+     */
+    public static class Sync {
+        /** When true, tryStart/startup/watchdog may terminalize orphan RUNNING rows. */
+        private boolean staleRunRecoveryEnabled = true;
+        /**
+         * RUNNING rows with {@code started_at} strictly older than {@code now - threshold}
+         * are eligible for recovery. Default 20m ≫ HTTP budgets (~25s) and SLA alert (10m).
+         */
+        private Duration staleRunningThreshold = Duration.ofMinutes(20);
+        private boolean staleRunWatchdogEnabled = true;
+        private long staleRunWatchdogFixedDelayMs = 120_000L;
+
+        public boolean isStaleRunRecoveryEnabled() { return staleRunRecoveryEnabled; }
+        public void setStaleRunRecoveryEnabled(boolean staleRunRecoveryEnabled) {
+            this.staleRunRecoveryEnabled = staleRunRecoveryEnabled;
+        }
+        public Duration getStaleRunningThreshold() {
+            return staleRunningThreshold == null || staleRunningThreshold.isNegative()
+                    || staleRunningThreshold.isZero()
+                    ? Duration.ofMinutes(20)
+                    : staleRunningThreshold;
+        }
+        public void setStaleRunningThreshold(Duration staleRunningThreshold) {
+            this.staleRunningThreshold = staleRunningThreshold;
+        }
+        public boolean isStaleRunWatchdogEnabled() { return staleRunWatchdogEnabled; }
+        public void setStaleRunWatchdogEnabled(boolean staleRunWatchdogEnabled) {
+            this.staleRunWatchdogEnabled = staleRunWatchdogEnabled;
+        }
+        public long getStaleRunWatchdogFixedDelayMs() {
+            return Math.max(1_000L, staleRunWatchdogFixedDelayMs);
+        }
+        public void setStaleRunWatchdogFixedDelayMs(long staleRunWatchdogFixedDelayMs) {
+            this.staleRunWatchdogFixedDelayMs = staleRunWatchdogFixedDelayMs;
+        }
+    }
 
     /**
      * WP-SPA-13 test-only provider. Defaults off; never enable in production.
