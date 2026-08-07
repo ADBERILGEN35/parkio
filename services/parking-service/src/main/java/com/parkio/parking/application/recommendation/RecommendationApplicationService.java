@@ -12,6 +12,7 @@ import com.parkio.parking.application.recommendation.ranking.RankingMetrics;
 import com.parkio.parking.application.recommendation.ranking.RankingProperties;
 import com.parkio.parking.application.recommendation.ranking.RankingStatus;
 import com.parkio.parking.application.recommendation.ranking.RankingVersion;
+import com.parkio.parking.application.recommendation.ranking.shadow.ShadowRankingOrchestrator;
 import com.parkio.parking.domain.ParkingSpot;
 import com.parkio.parking.domain.exception.ParkingErrorCode;
 import com.parkio.parking.domain.exception.ParkingException;
@@ -61,6 +62,7 @@ public class RecommendationApplicationService {
     private final ParkingCandidateRanker ranker;
     private final RankingProperties rankingProperties;
     private final RankingMetrics rankingMetrics;
+    private final ShadowRankingOrchestrator shadowRankingOrchestrator;
     private final Clock clock;
     private final RecommendationMetrics metrics;
     private final Executor executor;
@@ -73,6 +75,7 @@ public class RecommendationApplicationService {
             ParkingCandidateRanker ranker,
             RankingProperties rankingProperties,
             RankingMetrics rankingMetrics,
+            ShadowRankingOrchestrator shadowRankingOrchestrator,
             Clock clock,
             RecommendationMetrics metrics) {
         this(
@@ -82,6 +85,7 @@ public class RecommendationApplicationService {
                 ranker,
                 rankingProperties,
                 rankingMetrics,
+                shadowRankingOrchestrator,
                 clock,
                 metrics,
                 Executors.newVirtualThreadPerTaskExecutor());
@@ -94,6 +98,7 @@ public class RecommendationApplicationService {
             ParkingCandidateRanker ranker,
             RankingProperties rankingProperties,
             RankingMetrics rankingMetrics,
+            ShadowRankingOrchestrator shadowRankingOrchestrator,
             Clock clock,
             RecommendationMetrics metrics,
             Executor executor) {
@@ -103,6 +108,7 @@ public class RecommendationApplicationService {
         this.ranker = ranker;
         this.rankingProperties = rankingProperties;
         this.rankingMetrics = rankingMetrics;
+        this.shadowRankingOrchestrator = shadowRankingOrchestrator;
         this.clock = clock;
         this.metrics = metrics;
         this.executor = executor;
@@ -210,6 +216,17 @@ public class RecommendationApplicationService {
             if (limited.getFirst().score() != null) {
                 rankingMetrics.recordScoreBucket(limited.getFirst().score());
             }
+        }
+
+        // WP-SPA-14: async shadow only — never blocks the public response path.
+        if (shadowRankingOrchestrator != null) {
+            shadowRankingOrchestrator.maybeEvaluateAsync(
+                    outcome.status(),
+                    outcome.version(),
+                    limited,
+                    partial,
+                    query.radiusMeters(),
+                    executor);
         }
 
         log.info(

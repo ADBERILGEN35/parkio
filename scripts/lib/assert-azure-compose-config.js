@@ -110,6 +110,26 @@ function main() {
       );
     }
   }
+  // WP-SPA-14: AI ranking shadow defaults off / sample 0.
+  if (String(parkingEnv.PARKIO_SPA_RANKING_SHADOW_ENABLED == null ? '' : parkingEnv.PARKIO_SPA_RANKING_SHADOW_ENABLED) !== 'false') {
+    fail(
+      "parking-service.PARKIO_SPA_RANKING_SHADOW_ENABLED must default to false (got '" +
+        parkingEnv.PARKIO_SPA_RANKING_SHADOW_ENABLED +
+        "')",
+    );
+  }
+  const shadowRate = String(
+    parkingEnv.PARKIO_SPA_RANKING_SHADOW_SAMPLE_RATE == null
+      ? ''
+      : parkingEnv.PARKIO_SPA_RANKING_SHADOW_SAMPLE_RATE,
+  );
+  if (shadowRate !== '0.0' && shadowRate !== '0') {
+    fail(
+      "parking-service.PARKIO_SPA_RANKING_SHADOW_SAMPLE_RATE must default to 0.0 (got '" +
+        shadowRate +
+        "')",
+    );
+  }
 
   const webArgs =
     (data.services && data.services.web && data.services.web.build && data.services.web.build.args) || {};

@@ -24,6 +24,12 @@ import com.parkio.parking.application.recommendation.ranking.RankingMetrics;
 import com.parkio.parking.application.recommendation.ranking.RankingProperties;
 import com.parkio.parking.application.recommendation.ranking.RankingStatus;
 import com.parkio.parking.application.recommendation.ranking.RankingVersion;
+import com.parkio.parking.application.recommendation.ranking.shadow.BoundedShadowEvaluationStore;
+import com.parkio.parking.application.recommendation.ranking.shadow.FakeShadowParkingRanker;
+import com.parkio.parking.application.recommendation.ranking.shadow.ShadowRankingMetrics;
+import com.parkio.parking.application.recommendation.ranking.shadow.ShadowRankingOrchestrator;
+import com.parkio.parking.application.recommendation.ranking.shadow.ShadowRankingProperties;
+import com.parkio.parking.application.recommendation.ranking.shadow.ShadowRankingStatus;
 import com.parkio.parking.domain.LegalStatus;
 import com.parkio.parking.domain.ParkingContext;
 import com.parkio.parking.domain.ParkingSpot;
@@ -77,9 +83,83 @@ class RecommendationApplicationServiceTest {
                 new DeterministicParkingCandidateRanker(clock),
                 rankingProperties,
                 new RankingMetrics(new SimpleMeterRegistry()),
+                disabledShadowOrchestrator(),
                 clock,
                 new RecommendationMetrics(new SimpleMeterRegistry()),
                 sync);
+    }
+
+    @Test
+    void rankingOnWithShadowReverseChallengerDoesNotChangePublicOrder() {
+        rankingProperties.setEnabled(true);
+        rankingProperties.validate();
+        UUID municipalId = UUID.fromString("cccccccc-cccc-cccc-cccc-cccccccccccc");
+        when(favourites.favouritedMunicipalFacilityIds(eq(USER), anyCollection()))
+                .thenReturn(Set.of());
+        when(community.searchNearby(any())).thenReturn(List.of(
+                spot("aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa", 38.45005, 27.20005, "Close community"),
+                spot("bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb", 38.4515, 27.2015, "Far community")));
+        when(municipal.nearby(anyDouble(), anyDouble(), anyInt(), anyInt())).thenReturn(List.of(
+                facility(municipalId.toString(), "Live municipal", 38.4508, 27.2008,
+                        MunicipalOccupancyFreshness.LIVE, 40, 80)));
+
+        RecommendationResult withoutShadow = service.recommend(query(true, true, 10));
+
+        ShadowRankingProperties shadowProps = new ShadowRankingProperties();
+        shadowProps.setEnabled(true);
+        shadowProps.setSampleRate(1.0);
+        shadowProps.setTimeoutMs(500L);
+        BoundedShadowEvaluationStore store = new BoundedShadowEvaluationStore();
+        ShadowRankingOrchestrator reverseShadow = new ShadowRankingOrchestrator(
+                shadowProps,
+                new FakeShadowParkingRanker(FakeShadowParkingRanker.Mode.REVERSE),
+                new ShadowRankingMetrics(new SimpleMeterRegistry()),
+                store,
+                clock);
+        RecommendationApplicationService withShadow = new RecommendationApplicationService(
+                community,
+                municipal,
+                favourites,
+                new DeterministicParkingCandidateRanker(clock),
+                rankingProperties,
+                new RankingMetrics(new SimpleMeterRegistry()),
+                reverseShadow,
+                clock,
+                new RecommendationMetrics(new SimpleMeterRegistry()),
+                Runnable::run);
+
+        RecommendationResult withShadowOn = withShadow.recommend(query(true, true, 10));
+
+        assertEquals(RankingStatus.APPLIED, withShadowOn.rankingStatus());
+        assertEquals(withoutShadow.rankingVersion(), withShadowOn.rankingVersion());
+        assertEquals(withoutShadow.candidates().size(), withShadowOn.candidates().size());
+        for (int i = 0; i < withoutShadow.candidates().size(); i++) {
+            assertEquals(
+                    withoutShadow.candidates().get(i).id(),
+                    withShadowOn.candidates().get(i).id());
+            assertEquals(
+                    withoutShadow.candidates().get(i).score(),
+                    withShadowOn.candidates().get(i).score());
+            assertEquals(
+                    withoutShadow.candidates().get(i).reasons(),
+                    withShadowOn.candidates().get(i).reasons());
+            assertEquals(
+                    withoutShadow.candidates().get(i).rankingVersion(),
+                    withShadowOn.candidates().get(i).rankingVersion());
+        }
+        assertTrue(store.snapshot().stream().anyMatch(r -> r.status() == ShadowRankingStatus.SUCCESS));
+    }
+
+    private ShadowRankingOrchestrator disabledShadowOrchestrator() {
+        ShadowRankingProperties shadowProps = new ShadowRankingProperties();
+        shadowProps.setEnabled(false);
+        shadowProps.setSampleRate(0.0);
+        return new ShadowRankingOrchestrator(
+                shadowProps,
+                new FakeShadowParkingRanker(FakeShadowParkingRanker.Mode.IDENTITY),
+                new ShadowRankingMetrics(new SimpleMeterRegistry()),
+                new BoundedShadowEvaluationStore(),
+                clock);
     }
 
     @Test

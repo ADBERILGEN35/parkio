@@ -44,7 +44,8 @@ import org.springframework.scheduling.annotation.EnableScheduling;
 @EnableConfigurationProperties({
         ParkingProperties.class, GeocodingProperties.class, MunicipalSourceProperties.class,
         RegistryProperties.class,
-        com.parkio.parking.application.recommendation.ranking.RankingProperties.class
+        com.parkio.parking.application.recommendation.ranking.RankingProperties.class,
+        com.parkio.parking.application.recommendation.ranking.shadow.ShadowRankingProperties.class
 })
 @EnableScheduling
 public class ParkingInfrastructureConfig {
