@@ -46,6 +46,26 @@ Hosted-beta (`docker-compose.azure-hosted-beta.yml`) must map `PARKIO_MUNICIPAL_
 into parking-service (same pattern as İZUM). Without Compose passthrough, env-file values
 never reach the container. Example defaults live in `docker/.env.azure-hosted-beta.example`.
 
+### Smart Parking hosted-beta packaging (PROVIDER-ISTANBUL-01C)
+
+Accepted İstanbul recommendation/ranking/assistant rollout uses the **certified compose +
+Dockerfile path** (no ops overlays).
+
+| Setting | Kind | Default | Hosted-beta enable |
+|---|---|---|---|
+| `PARKIO_SPA_RECOMMENDATIONS_ENABLED` | parking-service **runtime** env | false | env true → recreate parking-service |
+| `PARKIO_SPA_RANKING_ENABLED` | parking-service **runtime** env | false | env true → recreate parking-service |
+| `VITE_SMART_PARKING_ASSISTANT_ENABLED` | web **build-time** Vite arg | false | env true → **rebuild** web image |
+
+Azure compose maps the two `PARKIO_SPA_*` booleans into parking-service. Web build args are
+wired in `docker-compose.hosted-beta.yml` / `docker-compose.images.yml` and declared in
+`frontend/apps/web/Dockerfile` (same pattern as `VITE_WEB_MUNICIPAL_DISCOVERY_ENABLED`).
+Ranking weights stay `application.yml` defaults; do not hardcode product `true` in generic
+production profiles.
+
+Rollback order (preferred): assistant OFF (web rebuild) → ranking OFF (parking recreate) →
+recommendations OFF (parking recreate). No temporary Dockerfile or SPA compose overlay.
+
 ### Reconciliation
 
 `AUTHORITATIVE_FULL_SET` after successful non-empty validated feed. Soft-deactivate missing İSPARK links only. Failures / empty / partial never mass-deactivate. Large-shrink warning retained from WP-SPA-13.

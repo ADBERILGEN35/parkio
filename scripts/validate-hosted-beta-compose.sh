@@ -155,6 +155,21 @@ if [ "$PARKIO_DEPLOYMENT_PROFILE" = "azure-hosted-beta" ]; then
       exit 4
     }
 
+    # PROVIDER-ISTANBUL-01C: Smart Parking rollout booleans default false.
+    for spa_flag in PARKIO_SPA_RECOMMENDATIONS_ENABLED PARKIO_SPA_RANKING_ENABLED; do
+      jq -e --arg flag "$spa_flag" \
+        '.services["parking-service"].environment[$flag] == "false"' "$rendered" >/dev/null || {
+        echo "ERROR: parking-service.$spa_flag must default to false in rendered Azure compose" >&2
+        exit 4
+      }
+    done
+    jq -e \
+      '.services.web.build.args.VITE_SMART_PARKING_ASSISTANT_ENABLED == "false"' \
+      "$rendered" >/dev/null || {
+      echo "ERROR: web.build.args.VITE_SMART_PARKING_ASSISTANT_ENABLED must default to false in rendered Azure compose" >&2
+      exit 4
+    }
+
     jq -e '
       [.services["parking-service"].volumes[]? | select(.type == "bind") | .source]
       | index("/opt/parkio/ops/data-wp-02b") != null

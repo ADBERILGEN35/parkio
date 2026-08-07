@@ -98,6 +98,32 @@ function main() {
     );
   }
 
+  // PROVIDER-ISTANBUL-01C: Smart Parking rollout booleans must default false (env may enable).
+  for (const spaFlag of ['PARKIO_SPA_RECOMMENDATIONS_ENABLED', 'PARKIO_SPA_RANKING_ENABLED']) {
+    if (String(parkingEnv[spaFlag] == null ? '' : parkingEnv[spaFlag]) !== 'false') {
+      fail(
+        'parking-service.' +
+          spaFlag +
+          " must default to false in rendered Azure compose (got '" +
+          parkingEnv[spaFlag] +
+          "')",
+      );
+    }
+  }
+
+  const webArgs =
+    (data.services && data.services.web && data.services.web.build && data.services.web.build.args) || {};
+  const spaWebArg = 'VITE_SMART_PARKING_ASSISTANT_ENABLED';
+  if (String(webArgs[spaWebArg] == null ? '' : webArgs[spaWebArg]) !== 'false') {
+    fail(
+      'web.build.args.' +
+        spaWebArg +
+        " must default to false in rendered Azure compose (got '" +
+        webArgs[spaWebArg] +
+        "')",
+    );
+  }
+
   let totalMemory = 0;
   for (const svc of runtimeServices) {
     totalMemory += Number(data.services[svc].mem_limit == null ? 0 : data.services[svc].mem_limit);
@@ -146,7 +172,7 @@ function main() {
   console.log(
     'OK: Azure runtime services=32 disabled=4 memoryBytes=' +
       totalMemory +
-      ' publicPorts=80,443 tracing=false registryLinkingFlags=false provenancePublication=true duplicatePresentation=true',
+      ' publicPorts=80,443 tracing=false registryLinkingFlags=false provenancePublication=true duplicatePresentation=true spaFlags=false',
   );
 }
 
