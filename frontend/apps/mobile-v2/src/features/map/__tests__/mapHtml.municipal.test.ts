@@ -47,4 +47,13 @@ describe('buildMapHtml municipal bridge', () => {
   it('ignores non-finite municipal coordinates', () => {
     expect(html).toContain('!isFinite(data.lat)');
   });
+
+  it('adds destination marker and recommendation highlight ops for SPA-09', () => {
+    expect(html).toContain("message.op === 'setDestinationMarker'");
+    expect(html).toContain('function setDestinationMarker');
+    expect(html).toContain("message.op === 'setRecommendedHighlights'");
+    expect(html).toContain('function setRecommendedHighlights');
+    expect(html).toContain('.pk-dest');
+    expect(html).toContain('pk-recommended');
+  });
 });

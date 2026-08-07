@@ -31,6 +31,7 @@ const rawSchema = z.object({
   EXPO_PUBLIC_API_BASE_URL: z.preprocess(blankToUndefined, z.string().url().optional()),
   EXPO_PUBLIC_SMART_RETURN_ENABLED: z.enum(['true', 'false']).optional(),
   EXPO_PUBLIC_MUNICIPAL_DISCOVERY_ENABLED: optionalTrueFalseFlag,
+  EXPO_PUBLIC_SMART_PARKING_ASSISTANT_ENABLED: optionalTrueFalseFlag,
 });
 
 export interface MobileConfig {
@@ -45,6 +46,11 @@ export interface MobileConfig {
      * municipal network traffic until explicitly enabled.
      */
     municipalDiscovery: boolean;
+    /**
+     * Destination-first Smart Parking Assistant (WP-SPA-09).
+     * Explicit opt-in only; independent of municipalDiscovery.
+     */
+    smartParkingAssistant: boolean;
   };
 }
 
@@ -54,6 +60,7 @@ export function createMobileConfig(env: Record<string, string | undefined>): Mob
     EXPO_PUBLIC_API_BASE_URL: env.EXPO_PUBLIC_API_BASE_URL,
     EXPO_PUBLIC_SMART_RETURN_ENABLED: env.EXPO_PUBLIC_SMART_RETURN_ENABLED,
     EXPO_PUBLIC_MUNICIPAL_DISCOVERY_ENABLED: env.EXPO_PUBLIC_MUNICIPAL_DISCOVERY_ENABLED,
+    EXPO_PUBLIC_SMART_PARKING_ASSISTANT_ENABLED: env.EXPO_PUBLIC_SMART_PARKING_ASSISTANT_ENABLED,
   });
 
   const appEnv: AppEnvironment = raw.EXPO_PUBLIC_APP_ENV ?? 'development';
@@ -77,6 +84,7 @@ export function createMobileConfig(env: Record<string, string | undefined>): Mob
           : raw.EXPO_PUBLIC_SMART_RETURN_ENABLED === 'true',
       // Explicit opt-in only. Missing / malformed / "false" → disabled.
       municipalDiscovery: raw.EXPO_PUBLIC_MUNICIPAL_DISCOVERY_ENABLED === 'true',
+      smartParkingAssistant: raw.EXPO_PUBLIC_SMART_PARKING_ASSISTANT_ENABLED === 'true',
     },
   };
 }
@@ -89,4 +97,6 @@ export const appConfig = createMobileConfig({
   EXPO_PUBLIC_API_BASE_URL: process.env.EXPO_PUBLIC_API_BASE_URL,
   EXPO_PUBLIC_SMART_RETURN_ENABLED: process.env.EXPO_PUBLIC_SMART_RETURN_ENABLED,
   EXPO_PUBLIC_MUNICIPAL_DISCOVERY_ENABLED: process.env.EXPO_PUBLIC_MUNICIPAL_DISCOVERY_ENABLED,
+  EXPO_PUBLIC_SMART_PARKING_ASSISTANT_ENABLED:
+    process.env.EXPO_PUBLIC_SMART_PARKING_ASSISTANT_ENABLED,
 });

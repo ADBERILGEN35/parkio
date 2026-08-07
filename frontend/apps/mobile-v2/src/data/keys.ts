@@ -121,6 +121,22 @@ export const placesKeys = {
   recentParking: () => [...placesKeys.recentsRoot(), 'parking'] as const,
 };
 
+/** Destination-scoped recommendations — user/session private; clear on logout. */
+export type RecommendationListFilters = {
+  destKey: string;
+  radiusMeters: number;
+  limit: number;
+  includeCommunity: boolean;
+  includeMunicipal: boolean;
+};
+
+export const recommendationKeys = {
+  all: ['recommendations'] as const,
+  lists: () => [...recommendationKeys.all, 'list'] as const,
+  list: (filters: RecommendationListFilters) =>
+    [...recommendationKeys.lists(), filters] as const,
+};
+
 export const moderationKeys = {
   all: ['moderation'] as const,
   cases: (statusFilter: string) => [...moderationKeys.all, 'cases', statusFilter] as const,

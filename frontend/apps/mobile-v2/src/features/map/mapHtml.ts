@@ -127,6 +127,27 @@ export function buildMapHtml(options: MapHtmlOptions): string {
     }
     @media (prefers-reduced-motion: reduce) { .pk-pulse { animation: none; } }
     .pk-selected .pk-pill { outline: 2px solid var(--pulse); }
+    .pk-recommended .pk-pill { box-shadow: 0 0 0 3px rgba(0, 128, 105, 0.45); }
+    .pk-recommended-top .pk-pill { box-shadow: 0 0 0 4px rgba(0, 128, 105, 0.7); }
+    .pk-dest {
+      position: relative; display: flex; flex-direction: column; align-items: center;
+      pointer-events: none;
+    }
+    .pk-dest-pin {
+      width: 28px; height: 28px; border-radius: 6px; transform: rotate(45deg);
+      background: #008069; border: 2px solid #ffffff;
+      box-shadow: 0 2px 8px rgba(0,0,0,0.28);
+    }
+    .pk-dest-label {
+      margin-top: 8px; transform: none;
+      font: 600 11px/14px system-ui, sans-serif;
+      color: var(--pill-text); background: var(--pill-bg);
+      padding: 2px 6px; border-radius: 6px;
+      max-width: 140px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+      box-shadow: 0 1px 4px rgba(0,0,0,0.18);
+    }
+    .pk-muni-recommended .pk-muni-pin { box-shadow: 0 0 0 3px rgba(0, 128, 105, 0.45); }
+    .pk-muni-recommended-top .pk-muni-pin { box-shadow: 0 0 0 4px rgba(0, 128, 105, 0.7); }
 
     .pk-user { width: 16px; height: 16px; border-radius: 50%; background: var(--user-dot);
       border: 3px solid #fff; box-shadow: 0 0 0 6px var(--user-halo), 0 2px 6px rgba(0,0,0,0.25); }
@@ -207,6 +228,11 @@ export function buildMapHtml(options: MapHtmlOptions): string {
       var muniMarkers = {}; // id -> { marker, el, data } (municipal facilities)
       var selectedId = null;
       var selectedMunicipalId = null;
+      var recommendedCommunity = {}; // id -> true
+      var recommendedMunicipal = {}; // id -> true
+      var topCommunityId = null;
+      var topMunicipalId = null;
+      var destinationMarker = null;
       var userMarker = null;
       var suppressMoveEvent = false;
 
@@ -303,16 +329,70 @@ export function buildMapHtml(options: MapHtmlOptions): string {
         Object.keys(markers).forEach(function (id) {
           var entry = markers[id];
           var isSelected = id === selectedId;
+          var isRecommended = Boolean(recommendedCommunity[id]);
+          var isTop = id === topCommunityId;
           entry.el.classList.toggle('pk-selected', isSelected);
+          entry.el.classList.toggle('pk-recommended', isRecommended);
+          entry.el.classList.toggle('pk-recommended-top', isTop);
           entry.el.querySelector('.pk-pulse').style.display = isSelected ? '' : 'none';
-          entry.el.style.zIndex = isSelected ? '10' : '1';
+          entry.el.style.zIndex = isSelected ? '10' : isTop ? '8' : isRecommended ? '6' : '1';
         });
         Object.keys(muniMarkers).forEach(function (id) {
           var entry = muniMarkers[id];
           var isSelected = id === selectedMunicipalId;
+          var isRecommended = Boolean(recommendedMunicipal[id]);
+          var isTop = id === topMunicipalId;
           entry.el.classList.toggle('pk-muni-selected', isSelected);
-          entry.el.style.zIndex = isSelected ? '11' : '2';
+          entry.el.classList.toggle('pk-muni-recommended', isRecommended);
+          entry.el.classList.toggle('pk-muni-recommended-top', isTop);
+          entry.el.style.zIndex = isSelected ? '11' : isTop ? '9' : isRecommended ? '7' : '2';
         });
+      }
+
+      function setDestinationMarker(marker) {
+        if (destinationMarker) {
+          destinationMarker.remove();
+          destinationMarker = null;
+        }
+        if (!marker || typeof marker.lat !== 'number' || typeof marker.lng !== 'number') return;
+        if (!isFinite(marker.lat) || !isFinite(marker.lng)) return;
+        var el = document.createElement('div');
+        el.className = 'pk-dest';
+        var label = typeof marker.label === 'string' ? marker.label : '';
+        el.setAttribute('role', 'img');
+        if (label) el.setAttribute('aria-label', label);
+        el.innerHTML =
+          '<div class="pk-dest-pin" aria-hidden="true"></div>' +
+          (label
+            ? '<div class="pk-dest-label">' +
+              String(label)
+                .replace(/&/g, '&amp;')
+                .replace(/</g, '&lt;')
+                .replace(/>/g, '&gt;')
+                .replace(/"/g, '&quot;') +
+              '</div>'
+            : '');
+        destinationMarker = new maplibregl.Marker({ element: el, anchor: 'center' })
+          .setLngLat([marker.lng, marker.lat])
+          .addTo(map);
+      }
+
+      function setRecommendedHighlights(payload) {
+        recommendedCommunity = {};
+        recommendedMunicipal = {};
+        topCommunityId = null;
+        topMunicipalId = null;
+        if (payload) {
+          (payload.communityIds || []).forEach(function (id) {
+            if (typeof id === 'string') recommendedCommunity[id] = true;
+          });
+          (payload.municipalIds || []).forEach(function (id) {
+            if (typeof id === 'string') recommendedMunicipal[id] = true;
+          });
+          if (typeof payload.topCommunityId === 'string') topCommunityId = payload.topCommunityId;
+          if (typeof payload.topMunicipalId === 'string') topMunicipalId = payload.topMunicipalId;
+        }
+        applySelection();
       }
 
       function muniKindClass(kind) {
@@ -430,6 +510,8 @@ export function buildMapHtml(options: MapHtmlOptions): string {
             selectedMunicipalId = message.id || null;
             applySelection();
           }
+          else if (message.op === 'setDestinationMarker') setDestinationMarker(message.marker || null);
+          else if (message.op === 'setRecommendedHighlights') setRecommendedHighlights(message.payload || null);
           else if (message.op === 'flyTo') {
             suppressMoveEvent = Boolean(message.silent);
             map.flyTo({ center: [message.lng, message.lat], zoom: message.zoom || map.getZoom(), duration: 650 });

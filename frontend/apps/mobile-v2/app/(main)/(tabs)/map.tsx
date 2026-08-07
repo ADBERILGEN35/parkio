@@ -10,7 +10,7 @@ import {
   haversineMeters,
   type LatLng,
 } from '@parkio/geo';
-import type { GeocodeResult, MunicipalFacility } from '@parkio/types';
+import type { GeocodeResult, MunicipalFacility, ParkingCandidate } from '@parkio/types';
 import { isLiveStatus } from '@/components/spots/statusVisuals';
 import { appConfig } from '@/config/env';
 import { MapSurface, type MapSurfaceHandle } from '@/features/map/MapSurface';
@@ -48,6 +48,13 @@ import {
   useSmartReturn,
   useSmartReturnMutations,
 } from '@/features/smart-return/useSmartReturn';
+import {
+  AssistantEntryControl,
+  ASSISTANT_RECOMMEND_RADIUS_METERS,
+  DestinationSearchSheet,
+  RecommendationsSheet,
+  useSmartParkingAssistant,
+} from '@/features/smart-parking-assistant';
 import { IconButton } from '@/components/ui/IconButton';
 import { useShareSheetStore } from '@/features/share/shareSheetStore';
 import { useT } from '@/i18n/LocaleProvider';
@@ -70,6 +77,7 @@ export default function MapScreen() {
   const mapRef = useRef<MapSurfaceHandle>(null);
   const openShareSheet = useShareSheetStore((s) => s.open);
   const municipalDiscovery = appConfig.features.municipalDiscovery;
+  const spaEnabled = appConfig.features.smartParkingAssistant;
   const municipalFilters = useMunicipalMapFilters();
   const setMunicipalLayerEnabled = useMunicipalFilterStore((s) => s.setLayerEnabled);
   const setMunicipalSource = useMunicipalFilterStore((s) => s.setSource);
@@ -88,17 +96,29 @@ export default function MapScreen() {
   const [promptVisible, setPromptVisible] = useState(false);
   const [municipalFilterSheetOpen, setMunicipalFilterSheetOpen] = useState(false);
 
+  const assistant = useSmartParkingAssistant({
+    enabled: spaEnabled,
+    municipalDiscoveryEnabled: municipalDiscovery,
+  });
+
   const resultLimit = policy.data?.resultLimit ?? NEARBY_RESULT_LIMIT;
   const municipalRadiusMeters = municipalFilters.radiusMeters;
   const municipalLayerActive = municipalDiscovery && municipalFilters.layerEnabled;
 
-  const nearby = useNearbySpots(searchCenter, policy.data?.searchRadiusMeters, policy.data?.resultLimit);
+  // When assistant has a destination, nearby search recenters on it (SPA radius).
+  const effectiveSearchCenter = assistant.destination
+    ? { lat: assistant.destination.latitude, lng: assistant.destination.longitude }
+    : searchCenter;
+  const communityRadius = assistant.destination
+    ? ASSISTANT_RECOMMEND_RADIUS_METERS
+    : policy.data?.searchRadiusMeters;
+
+  const nearby = useNearbySpots(effectiveSearchCenter, communityRadius, policy.data?.resultLimit);
   const spots = useMemo(() => nearby.data ?? [], [nearby.data]);
 
-  // Municipal radius is owned by the municipal filter store — independent of community policy radius.
   const municipalNearby = useNearbyMunicipalFacilities(
-    municipalLayerActive ? searchCenter : null,
-    municipalRadiusMeters,
+    municipalLayerActive ? effectiveSearchCenter : null,
+    assistant.destination ? ASSISTANT_RECOMMEND_RADIUS_METERS : municipalRadiusMeters,
     resultLimit,
   );
   const municipalFacilitiesRaw = useMemo(
@@ -119,23 +139,20 @@ export default function MapScreen() {
   const smartReturn = useSmartReturn();
   const smartReturnMutations = useSmartReturnMutations();
 
-  // First fix: fly to the user and search there. viewCenter follows the
-  // programmatic move so "search this area" doesn't appear spuriously.
   const located = useRef(false);
   useEffect(() => {
-    if (location.position && !located.current) {
+    if (location.position && !located.current && !assistant.destination) {
       located.current = true;
       mapRef.current?.flyTo({ ...location.position, zoom: LOCATED_ZOOM, silent: true });
       setSearchCenter(location.position);
       setViewCenter(location.position);
     }
-  }, [location.position]);
+  }, [assistant.destination, location.position]);
 
   useEffect(() => {
     mapRef.current?.setUserLocation(location.position);
   }, [location.position]);
 
-  // Push community markers into the WebView whenever data changes.
   useEffect(() => {
     const markers: MapSpotMarker[] = spots.map((spot) => ({
       id: spot.id,
@@ -149,8 +166,6 @@ export default function MapScreen() {
     mapRef.current?.setSpots(markers);
   }, [spots]);
 
-  // Municipal markers — flag-off: never emit municipal bridge messages.
-  // Layer-off: clear markers. Filtered set drives markers (raw query cache unchanged).
   useEffect(() => {
     if (!municipalDiscovery) {
       return;
@@ -177,14 +192,11 @@ export default function MapScreen() {
     mapRef.current?.setSelected(selectedSpotId);
   }, [selectedSpotId]);
 
-  // Selected spot may expire out of the result set — drop the stale selection.
   const selectedSpot = useMemo(
     () => spots.find((spot) => spot.id === selectedSpotId) ?? null,
     [spots, selectedSpotId],
   );
 
-  // Resolve from the filtered visible set / layer-on only so sheets and bridge
-  // deselect without cascading setState when filters or layer change.
   const selectedMunicipal: MunicipalFacility | null = useMemo(() => {
     if (!selectedMunicipalId || !municipalFilters.layerEnabled) return null;
     return municipalFacilities.find((facility) => facility.id === selectedMunicipalId) ?? null;
@@ -194,11 +206,56 @@ export default function MapScreen() {
     if (!municipalDiscovery) {
       return;
     }
-    // Prefer resolved facility id so markers deselect when the facility leaves radius/filters.
     mapRef.current?.setSelectedMunicipal(selectedMunicipal?.id ?? null);
   }, [municipalDiscovery, selectedMunicipal?.id]);
 
-  // Morning prompt: once per day when enabled + configured + unanswered.
+  // Assistant destination marker + recommendation highlights (flag-off: clear).
+  useEffect(() => {
+    if (!spaEnabled || !assistant.destination) {
+      mapRef.current?.setDestinationMarker(null);
+      mapRef.current?.setRecommendedHighlights(null);
+      return;
+    }
+    mapRef.current?.setDestinationMarker({
+      lat: assistant.destination.latitude,
+      lng: assistant.destination.longitude,
+      label: t('assistant.destinationMarkerA11y', { label: assistant.destination.label }),
+    });
+    const top = assistant.topCandidate;
+    mapRef.current?.setRecommendedHighlights({
+      communityIds: assistant.recommendedCommunityIds,
+      municipalIds: assistant.recommendedMunicipalIds,
+      topCommunityId: top?.channel === 'COMMUNITY_SPOT' ? top.refId : null,
+      topMunicipalId: top?.channel === 'MUNICIPAL_FACILITY' ? top.refId : null,
+    });
+  }, [
+    assistant.destination,
+    assistant.recommendedCommunityIds,
+    assistant.recommendedMunicipalIds,
+    assistant.topCandidate,
+    spaEnabled,
+    t,
+  ]);
+
+  // Reframe map when destination is confirmed / hydrated.
+  const lastFlownDestKey = useRef<string | null>(null);
+  useEffect(() => {
+    if (!spaEnabled || !assistant.destination) {
+      lastFlownDestKey.current = null;
+      return;
+    }
+    const key = `${assistant.destination.latitude}:${assistant.destination.longitude}`;
+    if (lastFlownDestKey.current === key) return;
+    lastFlownDestKey.current = key;
+    const target = {
+      lat: assistant.destination.latitude,
+      lng: assistant.destination.longitude,
+    };
+    mapRef.current?.flyTo({ ...target, zoom: LOCATED_ZOOM, silent: true });
+    setSearchCenter(target);
+    setViewCenter(target);
+  }, [assistant.destination, spaEnabled]);
+
   useEffect(() => {
     const settings = smartReturn.data;
     if (
@@ -224,7 +281,8 @@ export default function MapScreen() {
   }, [viewCenter]);
 
   const locate = useCallback(async () => {
-    const position = location.status === 'granted' ? await location.refresh() : await location.request();
+    const position =
+      location.status === 'granted' ? await location.refresh() : await location.request();
     if (position) {
       mapRef.current?.flyTo({ ...position, zoom: LOCATED_ZOOM, silent: true });
       setSearchCenter(position);
@@ -239,28 +297,83 @@ export default function MapScreen() {
     setViewCenter(target);
   }, []);
 
-  const selectSpot = useCallback((id: string) => {
-    setSelectedMunicipalId(null);
-    setSelectedSpotId(id);
-  }, []);
+  const selectSpot = useCallback(
+    (id: string) => {
+      setSelectedMunicipalId(null);
+      setSelectedSpotId(id);
+      if (spaEnabled && assistant.destination) {
+        const match = assistant.recommendations.data?.candidates.find(
+          (c) => c.channel === 'COMMUNITY_SPOT' && c.refId === id,
+        );
+        if (match) assistant.selectCandidate(match);
+      }
+    },
+    [assistant, spaEnabled],
+  );
 
-  const selectMunicipal = useCallback((id: string) => {
-    setSelectedSpotId(null);
-    setSelectedMunicipalId(id);
-  }, []);
+  const selectMunicipal = useCallback(
+    (id: string) => {
+      setSelectedSpotId(null);
+      setSelectedMunicipalId(id);
+      if (spaEnabled && assistant.destination) {
+        const match = assistant.recommendations.data?.candidates.find(
+          (c) => c.channel === 'MUNICIPAL_FACILITY' && c.refId === id,
+        );
+        if (match) assistant.selectCandidate(match);
+      }
+    },
+    [assistant, spaEnabled],
+  );
 
   const clearSelection = useCallback(() => {
     setSelectedSpotId(null);
     setSelectedMunicipalId(null);
-  }, []);
+    if (spaEnabled) assistant.selectCandidate(null);
+  }, [assistant, spaEnabled]);
+
+  const onSelectRecommendation = useCallback(
+    (candidate: ParkingCandidate) => {
+      assistant.selectCandidate(candidate);
+      if (candidate.channel === 'COMMUNITY_SPOT') {
+        setSelectedMunicipalId(null);
+        setSelectedSpotId(candidate.refId);
+        mapRef.current?.flyTo({
+          lat: candidate.latitude,
+          lng: candidate.longitude,
+          zoom: LOCATED_ZOOM,
+          silent: true,
+        });
+      } else {
+        setSelectedSpotId(null);
+        if (municipalDiscovery && municipalFilters.layerEnabled) {
+          setSelectedMunicipalId(candidate.refId);
+        } else if (municipalDiscovery) {
+          setSelectedMunicipalId(null);
+          router.push({
+            pathname: '/(main)/facilities/[id]',
+            params: { id: candidate.refId },
+          });
+        }
+        mapRef.current?.flyTo({
+          lat: candidate.latitude,
+          lng: candidate.longitude,
+          zoom: LOCATED_ZOOM,
+          silent: true,
+        });
+      }
+    },
+    [assistant, municipalDiscovery, municipalFilters.layerEnabled, router],
+  );
 
   const movedAway =
-    searchCenter !== null && haversineMeters(viewCenter, searchCenter) > SEARCH_AREA_THRESHOLD_M;
+    !assistant.destination &&
+    searchCenter !== null &&
+    haversineMeters(viewCenter, searchCenter) > SEARCH_AREA_THRESHOLD_M;
 
   const nearbyErrorCode = nearby.isError ? apiErrorCode(nearby.error) : null;
   const viewLimited = isViewLimitCode(nearbyErrorCode);
 
-  const distanceFrom = location.position ?? searchCenter;
+  const distanceFrom = location.position ?? effectiveSearchCenter;
   const selectedDistance =
     selectedSpot && distanceFrom
       ? haversineMeters(distanceFrom, { lat: selectedSpot.latitude, lng: selectedSpot.longitude })
@@ -274,15 +387,19 @@ export default function MapScreen() {
       : null;
 
   const showPermissionCard =
-    location.status !== 'granted' && !permissionDismissed && searchCenter === null;
+    location.status !== 'granted' &&
+    !permissionDismissed &&
+    searchCenter === null &&
+    !assistant.destination;
   const showEmptyCard =
     !showPermissionCard &&
     !viewLimited &&
-    searchCenter !== null &&
+    effectiveSearchCenter !== null &&
     nearby.isSuccess &&
     spots.length === 0 &&
     !selectedSpot &&
-    !selectedMunicipal;
+    !selectedMunicipal &&
+    !assistant.destination;
   const showBanner =
     Boolean(smartReturn.data?.enabled) &&
     (smartReturn.data?.todayStatus === 'LEFT_BY_CAR' ||
@@ -307,7 +424,9 @@ export default function MapScreen() {
 
   const sheetOpen = Boolean(selectedSpot || selectedMunicipal);
   const showMunicipalSummary =
-    municipalLayerActive && searchCenter != null && !showPermissionCard && !sheetOpen;
+    municipalLayerActive && effectiveSearchCenter != null && !showPermissionCard && !sheetOpen;
+  const showRecommendations =
+    spaEnabled && assistant.destination != null && !assistant.searchOpen;
 
   return (
     <View style={styles.container}>
@@ -322,7 +441,6 @@ export default function MapScreen() {
         style={styles.map}
       />
 
-      {/* Floating chrome */}
       <View style={[styles.topOverlay, { top: insets.top + 8 }]} pointerEvents="box-none">
         <MapSearchOverlay
           radiusChip={radiusChip}
@@ -332,6 +450,7 @@ export default function MapScreen() {
           onLocate={locate}
           onPickPlace={pickPlace}
         />
+        {spaEnabled ? <AssistantEntryControl onPress={() => assistant.openSearch()} /> : null}
         {municipalDiscovery ? (
           <View style={styles.municipalChrome} pointerEvents="box-none">
             <MunicipalFilterEntry
@@ -376,9 +495,11 @@ export default function MapScreen() {
         ) : null}
       </View>
 
-      {/* Locate FAB above the tab bar (hidden while the sheet is open). */}
-      {!sheetOpen && (
-        <View style={[styles.fabColumn, showEmptyCard && styles.fabAboveEmpty]} pointerEvents="box-none">
+      {!sheetOpen && !showRecommendations ? (
+        <View
+          style={[styles.fabColumn, showEmptyCard && styles.fabAboveEmpty]}
+          pointerEvents="box-none"
+        >
           <IconButton
             icon="crosshairs-gps"
             size={48}
@@ -388,7 +509,7 @@ export default function MapScreen() {
             onPress={() => void locate()}
           />
         </View>
-      )}
+      ) : null}
 
       <MapAreaStatusSheet
         visible={showEmptyCard}
@@ -398,11 +519,28 @@ export default function MapScreen() {
         onShare={() => openShareSheet('map-empty-cta')}
       />
 
+      {showRecommendations && assistant.destination ? (
+        <RecommendationsSheet
+          destination={assistant.destination}
+          recommendations={assistant.recommendations}
+          selectedCandidateId={assistant.candidateId}
+          onSelectCandidate={onSelectRecommendation}
+          onChangeDestination={() => assistant.openSearch()}
+          onClearDestination={() => {
+            clearSelection();
+            assistant.clearDestination();
+          }}
+          suppressed={sheetOpen}
+        />
+      ) : null}
+
       <SpotSheet
         spot={selectedSpot}
         distanceMeters={selectedDistance}
         onClose={() => setSelectedSpotId(null)}
-        onOpenDetail={(spotId) => router.push({ pathname: '/(main)/spots/[id]', params: { id: spotId } })}
+        onOpenDetail={(spotId) =>
+          router.push({ pathname: '/(main)/spots/[id]', params: { id: spotId } })
+        }
       />
 
       {municipalDiscovery ? (
@@ -438,6 +576,14 @@ export default function MapScreen() {
         />
       ) : null}
 
+      {spaEnabled ? (
+        <DestinationSearchSheet
+          open={assistant.searchOpen}
+          onClose={() => assistant.closeSearch()}
+          onSelect={(item) => assistant.confirmDestination(item)}
+        />
+      ) : null}
+
       <MorningPromptModal
         visible={promptVisible}
         defaultTime={
@@ -446,7 +592,9 @@ export default function MapScreen() {
             ? formatClock(smartReturn.data.todayExpectedReturnAt)
             : '18:00')
         }
-        submitting={smartReturnMutations.leftByCar.isPending || smartReturnMutations.notByCar.isPending}
+        submitting={
+          smartReturnMutations.leftByCar.isPending || smartReturnMutations.notByCar.isPending
+        }
         onYes={(hours, minutes) => {
           smartReturnMutations.leftByCar.mutate(todayAt(hours, minutes), {
             onSettled: dismissPrompt,

@@ -15,6 +15,7 @@ jest.mock('@/config/env', () => ({
       return {
         smartReturn: true,
         municipalDiscovery: mockMunicipalDiscovery(),
+        smartParkingAssistant: false,
       };
     },
   },
@@ -44,6 +45,19 @@ jest.mock('@gorhom/bottom-sheet', () => {
     BottomSheetScrollView: ({ children }: { children: React.ReactNode }) => (
       <ReactNative.View>{children}</ReactNative.View>
     ),
+    BottomSheetFlatList: ({
+      data,
+      renderItem,
+    }: {
+      data: unknown[];
+      renderItem: (info: { item: unknown; index: number }) => React.ReactNode;
+    }) => (
+      <ReactNative.View>
+        {(data ?? []).map((item, index) => (
+          <ReactNative.View key={String(index)}>{renderItem({ item, index })}</ReactNative.View>
+        ))}
+      </ReactNative.View>
+    ),
   };
 });
 
@@ -59,6 +73,8 @@ jest.mock('@/features/map/MapSurface', () => {
         setSelected: jest.fn(),
         setMunicipalFacilities: jest.fn(),
         setSelectedMunicipal: jest.fn(),
+        setDestinationMarker: jest.fn(),
+        setRecommendedHighlights: jest.fn(),
       }));
       return <ReactNative.View testID="map-surface" />;
     }),

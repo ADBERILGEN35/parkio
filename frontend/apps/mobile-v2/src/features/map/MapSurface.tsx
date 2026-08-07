@@ -20,6 +20,19 @@ export interface MapSurfaceHandle {
   setSelected: (id: string | null) => void;
   setMunicipalFacilities: (facilities: MapMunicipalMarkerPayload[]) => void;
   setSelectedMunicipal: (id: string | null) => void;
+  /** Destination pin for Smart Parking Assistant — distinct from parking markers. */
+  setDestinationMarker: (
+    marker: { lat: number; lng: number; label: string } | null,
+  ) => void;
+  /** Highlight recommended facility/spot ids already on the map (no duplicates). */
+  setRecommendedHighlights: (
+    payload: {
+      communityIds: string[];
+      municipalIds: string[];
+      topCommunityId?: string | null;
+      topMunicipalId?: string | null;
+    } | null,
+  ) => void;
   flyTo: (target: LatLng & { zoom?: number; silent?: boolean }) => void;
   jumpTo: (target: LatLng & { zoom?: number; silent?: boolean }) => void;
   setUserLocation: (location: LatLng | null) => void;
@@ -113,6 +126,9 @@ export const MapSurface = forwardRef<MapSurfaceHandle, MapSurfaceProps>(function
       setMunicipalFacilities: (facilities) =>
         dispatch({ op: 'setMunicipalFacilities', facilities }),
       setSelectedMunicipal: (id) => dispatch({ op: 'setSelectedMunicipal', id }),
+      setDestinationMarker: (marker) => dispatch({ op: 'setDestinationMarker', marker }),
+      setRecommendedHighlights: (payload) =>
+        dispatch({ op: 'setRecommendedHighlights', payload }),
       flyTo: ({ lat, lng, zoom, silent }) => dispatch({ op: 'flyTo', lat, lng, zoom, silent }),
       jumpTo: ({ lat, lng, zoom, silent }) => dispatch({ op: 'jumpTo', lat, lng, zoom, silent }),
       setUserLocation: (location) => dispatch({ op: 'setUserLocation', location }),
