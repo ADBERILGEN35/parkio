@@ -16,6 +16,8 @@ import com.sun.net.httpserver.HttpServer;
 import java.io.IOException;
 import java.net.InetSocketAddress;
 import java.nio.charset.StandardCharsets;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicReference;
 import org.junit.jupiter.api.AfterAll;
@@ -46,6 +48,7 @@ class AnparkMunicipalSyncIntegrationTest {
     static final AtomicReference<byte[]> RESPONSE_BODY = new AtomicReference<>();
     static final AtomicInteger RESPONSE_STATUS = new AtomicInteger(200);
     static final AtomicInteger RESPONSE_DELAY_MS = new AtomicInteger(0);
+    static final ExecutorService SERVER_EXECUTOR = Executors.newCachedThreadPool();
     static final HttpServer SERVER = startServer();
 
     @Autowired MunicipalFacilitySyncService sync;
@@ -86,6 +89,7 @@ class AnparkMunicipalSyncIntegrationTest {
     @AfterAll
     static void stopServer() {
         SERVER.stop(0);
+        SERVER_EXECUTOR.shutdownNow();
     }
 
     @Test
@@ -354,7 +358,14 @@ class AnparkMunicipalSyncIntegrationTest {
         var failedWhileInactive = sync.sync(AnparkMunicipalParkingAdapter.SOURCE_KEY);
         assertThat(failedWhileInactive.status()).isEqualTo(MunicipalSyncRunStatus.FAILED);
         assertThat(failedWhileInactive.recordsDeactivated()).isZero();
-        assertThat(failedWhileInactive.activeLinkCount()).isEqualTo(1);
+        assertThat(jdbc.queryForObject(
+                """
+                SELECT count(*) FROM municipal_facility_source_links l
+                JOIN municipal_data_sources d ON d.id=l.source_id
+                WHERE d.source_key=? AND l.active=true
+                """,
+                Long.class,
+                AnparkMunicipalParkingAdapter.SOURCE_KEY)).isEqualTo(1L);
         assertThat(jdbc.queryForObject(
                         """
                         SELECT count(*)
@@ -416,6 +427,7 @@ class AnparkMunicipalSyncIntegrationTest {
         try {
             RESPONSE_BODY.set("[]".getBytes(StandardCharsets.UTF_8));
             HttpServer server = HttpServer.create(new InetSocketAddress("localhost", 0), 0);
+            server.setExecutor(SERVER_EXECUTOR);
             server.createContext("/wp-json/anpark/v1/parks", exchange -> {
                 byte[] body = RESPONSE_BODY.get();
                 int status = RESPONSE_STATUS.get();
