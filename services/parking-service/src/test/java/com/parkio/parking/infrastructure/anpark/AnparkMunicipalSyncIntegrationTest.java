@@ -98,6 +98,44 @@ class AnparkMunicipalSyncIntegrationTest {
         assertThat(first.activeLinkCount()).isEqualTo(3);
         assertThat(snapshots.count()).isEqualTo(snapshotsBefore);
 
+        // active=true initial sync: inactive must not be active in DB, while active must be active.
+        assertThat(jdbc.queryForObject(
+                        """
+                        SELECT count(*)
+                        FROM municipal_facility_source_links l
+                        JOIN municipal_data_sources d ON d.id=l.source_id AND d.source_key=?
+                        WHERE l.external_id=? AND l.active=true
+                        """,
+                        Long.class,
+                        AnparkMunicipalParkingAdapter.SOURCE_KEY,
+                        "1095"))
+                .isEqualTo(1L);
+        assertThat(jdbc.queryForObject(
+                        """
+                        SELECT count(*)
+                        FROM municipal_facility_source_links l
+                        JOIN municipal_data_sources d ON d.id=l.source_id AND d.source_key=?
+                        WHERE l.external_id=? AND l.active=true
+                        """,
+                        Long.class,
+                        AnparkMunicipalParkingAdapter.SOURCE_KEY,
+                        "1096"))
+                .isEqualTo(0L);
+
+        // capacity=0 handling must map to canonical unknown/null capacity (never availability/occupancy).
+        assertThat(jdbc.queryForObject(
+                        """
+                        SELECT f.capacity_total
+                        FROM municipal_parking_facilities f
+                        JOIN municipal_facility_source_links l ON l.facility_id=f.id AND l.active=true
+                        JOIN municipal_data_sources d ON d.id=l.source_id AND d.source_key=?
+                        WHERE l.external_id=?
+                        """,
+                        Integer.class,
+                        AnparkMunicipalParkingAdapter.SOURCE_KEY,
+                        "1098"))
+                .isNull();
+
         var nearby = query.nearby(39.93, 32.86, 50_000, 20);
         assertThat(nearby).isNotEmpty();
         assertThat(nearby).allSatisfy(view -> {
@@ -173,12 +211,101 @@ class AnparkMunicipalSyncIntegrationTest {
         assertThat(inactiveFlip.activeLinkCount()).isEqualTo(1);
         assertThat(inactiveFlip.occupancyInserted()).isZero();
 
+        // same upstream ID becomes active=false while still present in feed:
+        assertThat(jdbc.queryForObject(
+                        """
+                        SELECT count(*)
+                        FROM municipal_facility_source_links l
+                        JOIN municipal_data_sources d ON d.id=l.source_id AND d.source_key=?
+                        WHERE l.external_id=? AND l.active=true
+                        """,
+                        Long.class,
+                        AnparkMunicipalParkingAdapter.SOURCE_KEY,
+                        "1095"))
+                .isEqualTo(0L);
+        assertThat(jdbc.queryForObject(
+                        """
+                        SELECT count(*)
+                        FROM municipal_facility_source_links l
+                        JOIN municipal_data_sources d ON d.id=l.source_id AND d.source_key=?
+                        WHERE l.external_id=? AND l.active=true
+                        """,
+                        Long.class,
+                        AnparkMunicipalParkingAdapter.SOURCE_KEY,
+                        "1118"))
+                .isEqualTo(1L);
+
+        // remains inactive on next full sync (still present upstream as active=false):
+        RESPONSE_BODY.set("""
+                [
+                  {"id":"1095","name":"ALSANCAK YOL BOYU OTOPARKI","type":"yolustu","district":"Altındağ",
+                   "lat":39.941283987606035,"lng":32.855654018215056,"capacity":16,
+                   "schedule":"08-18","address":"Alsancak","active":false},
+                  {"id":"1118","name":"SIHHIYE ÇOK KATLI OTOPARKI","type":"kapali","district":"Çankaya",
+                   "lat":39.926417,"lng":32.859245,"capacity":186,
+                   "schedule":"00-24","address":"Sıhhiye","active":true}
+                ]
+                """.getBytes(StandardCharsets.UTF_8));
+        var staysInactive = sync.sync(AnparkMunicipalParkingAdapter.SOURCE_KEY);
+        assertThat(staysInactive.status()).isEqualTo(MunicipalSyncRunStatus.SUCCESS);
+        assertThat(staysInactive.recordsAccepted()).isEqualTo(1);
+        assertThat(staysInactive.recordsDeactivated()).isZero();
+        assertThat(staysInactive.activeLinkCount()).isEqualTo(1);
+        assertThat(staysInactive.occupancyInserted()).isZero();
+
+        // failed sync while inactive does not corrupt state (no accidental reactivation):
+        RESPONSE_STATUS.set(500);
+        var failedWhileInactive = sync.sync(AnparkMunicipalParkingAdapter.SOURCE_KEY);
+        assertThat(failedWhileInactive.status()).isEqualTo(MunicipalSyncRunStatus.FAILED);
+        assertThat(failedWhileInactive.recordsDeactivated()).isZero();
+        assertThat(failedWhileInactive.activeLinkCount()).isEqualTo(1);
+        assertThat(jdbc.queryForObject(
+                        """
+                        SELECT count(*)
+                        FROM municipal_facility_source_links l
+                        JOIN municipal_data_sources d ON d.id=l.source_id AND d.source_key=?
+                        WHERE l.external_id=? AND l.active=true
+                        """,
+                        Long.class,
+                        AnparkMunicipalParkingAdapter.SOURCE_KEY,
+                        "1095"))
+                .isEqualTo(0L);
+
+        // empty sync while inactive does not corrupt state:
+        RESPONSE_STATUS.set(200);
+        RESPONSE_BODY.set("[]".getBytes(StandardCharsets.UTF_8));
+        var emptyWhileInactive = sync.sync(AnparkMunicipalParkingAdapter.SOURCE_KEY);
+        assertThat(emptyWhileInactive.recordsDeactivated()).isZero();
+        assertThat(jdbc.queryForObject(
+                        """
+                        SELECT count(*)
+                        FROM municipal_facility_source_links l
+                        JOIN municipal_data_sources d ON d.id=l.source_id AND d.source_key=?
+                        WHERE l.active=true
+                        """,
+                        Long.class,
+                        AnparkMunicipalParkingAdapter.SOURCE_KEY))
+                .isEqualTo(1L);
+
         RESPONSE_BODY.set(fixture("/fixtures/municipal/anpark/park-sample.json"));
         var restored = sync.sync(AnparkMunicipalParkingAdapter.SOURCE_KEY);
         assertThat(restored.status()).isEqualTo(MunicipalSyncRunStatus.SUCCESS);
         assertThat(restored.recordsReactivated()).isGreaterThanOrEqualTo(1);
         assertThat(restored.activeLinkCount()).isEqualTo(3);
         assertThat(restored.occupancyInserted()).isZero();
+
+        // inactive → active safely reactivates:
+        assertThat(jdbc.queryForObject(
+                        """
+                        SELECT count(*)
+                        FROM municipal_facility_source_links l
+                        JOIN municipal_data_sources d ON d.id=l.source_id AND d.source_key=?
+                        WHERE l.external_id=? AND l.active=true
+                        """,
+                        Long.class,
+                        AnparkMunicipalParkingAdapter.SOURCE_KEY,
+                        "1095"))
+                .isEqualTo(1L);
         assertThat(facilities.count()).isGreaterThanOrEqualTo(3);
         assertThat(snapshots.count()).isEqualTo(snapshotsBefore);
     }
