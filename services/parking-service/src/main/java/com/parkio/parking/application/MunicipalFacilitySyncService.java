@@ -72,6 +72,10 @@ public class MunicipalFacilitySyncService {
         try {
             JsonNode payload = adapter.fetch();
             fingerprint = adapter.validateContract(payload);
+            // Authoritative reconciliation needs a trust signal that is independent from how adapters
+            // filter "non-active" members (e.g. inventory-only feeds where active=false is legitimate).
+            int authoritativeValidUniqueExternalIds =
+                    adapter.countAuthoritativeValidUniqueFacilityExternalIds(payload);
             Instant fetchedAt = clock.instant();
             List<NormalizedMunicipalFacility> normalized = adapter.normalizeFacilities(payload, fetchedAt);
             Map<String, NormalizedMunicipalOccupancy> occupancy = adapter.normalizeOccupancy(payload, fetchedAt)
@@ -107,7 +111,13 @@ public class MunicipalFacilitySyncService {
                     ? MunicipalSyncRunStatus.SUCCESS : MunicipalSyncRunStatus.PARTIAL_SUCCESS;
 
             int deactivated = 0;
-            if (isAuthoritativeSet(adapter, status, accepted, seen)) {
+            if (isAuthoritativeSet(
+                    adapter,
+                    status,
+                    accepted,
+                    seen,
+                    authoritativeValidUniqueExternalIds,
+                    received)) {
                 // Never deactivate unless this execution still owns the RUNNING lease.
                 if (!runs.isRunning(runId.get())) {
                     log.warn(
@@ -131,7 +141,13 @@ public class MunicipalFacilitySyncService {
                         sourceKey, accepted, seen.size());
             }
             if (status == MunicipalSyncRunStatus.SUCCESS
-                    && isAuthoritativeSet(adapter, status, accepted, seen)
+                    && isAuthoritativeSet(
+                            adapter,
+                            status,
+                            accepted,
+                            seen,
+                            authoritativeValidUniqueExternalIds,
+                            received)
                     && activeLinkCount > seen.size()) {
                 log.warn(
                         "municipal_sync_active_exceeds_set sourceKey={} activeLinks={} authoritativeSet={}",
@@ -186,14 +202,21 @@ public class MunicipalFacilitySyncService {
             MunicipalParkingSourceAdapter adapter,
             MunicipalSyncRunStatus status,
             int accepted,
-            Set<String> seen) {
+            Set<String> seen,
+            int authoritativeValidUniqueExternalIds,
+            int received) {
         ReconciliationMode mode = adapter != null
                 ? adapter.reconciliationMode()
                 : ReconciliationMode.UPSERT_ONLY;
+        // Trustworthiness check:
+        // - authoritativeValidUniqueExternalIds counts structurally valid unique members
+        //   (adapter-specific; for ANPARK it includes active=false rows).
+        // - received is the authoritative snapshot cardinality from fetch() output.
+        // Reconciliation to an empty active set is allowed ONLY when the authoritative snapshot
+        // is structurally trustworthy (valid unique ids == received > 0).
         return mode == ReconciliationMode.AUTHORITATIVE_FULL_SET
-                && status == MunicipalSyncRunStatus.SUCCESS
-                && accepted > 0
-                && !seen.isEmpty()
+                && authoritativeValidUniqueExternalIds > 0
+                && authoritativeValidUniqueExternalIds == received
                 && seen.size() == accepted;
     }
 

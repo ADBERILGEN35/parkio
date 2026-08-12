@@ -105,6 +105,22 @@ public class AnparkMunicipalParkingAdapter implements MunicipalParkingSourceAdap
     }
 
     @Override
+    public int countAuthoritativeValidUniqueFacilityExternalIds(JsonNode payload) {
+        // For ANPARK we must consider upstream rows that are structurally valid even when
+        // record.active=false. Those rows intentionally imply an empty upstream active set.
+        Set<String> seenValidIds = new HashSet<>();
+        for (AnparkParkingRecordDto record : records(payload)) {
+            if (record == null || record.id() == null || record.id().isBlank()) {
+                continue;
+            }
+            if (validator.validate(record).valid()) {
+                seenValidIds.add(record.id().trim());
+            }
+        }
+        return seenValidIds.size();
+    }
+
+    @Override
     public List<NormalizedMunicipalOccupancy> normalizeOccupancy(JsonNode payload, Instant fetchedAt) {
         // Inventory-only: never invent occupancy from capacity.
         return List.of();
@@ -119,6 +135,7 @@ public class AnparkMunicipalParkingAdapter implements MunicipalParkingSourceAdap
             return payload;
         }
         ArrayNode filtered = objectMapper.createArrayNode();
+        int originalSize = payload.size();
         for (JsonNode node : payload) {
             if (node != null && node.isObject()) {
                 JsonNode active = node.get("active");
@@ -127,6 +144,11 @@ public class AnparkMunicipalParkingAdapter implements MunicipalParkingSourceAdap
                 }
             }
             filtered.add(node);
+        }
+        // If filtering would remove the entire feed, preserve the original so that reconciliation
+        // can still distinguish "all valid but all inactive" from literal empty/unusable feeds.
+        if (originalSize > 0 && filtered.isEmpty()) {
+            return payload;
         }
         return filtered;
     }

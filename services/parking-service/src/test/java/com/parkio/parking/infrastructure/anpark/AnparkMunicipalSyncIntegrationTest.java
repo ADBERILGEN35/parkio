@@ -45,6 +45,7 @@ class AnparkMunicipalSyncIntegrationTest {
 
     static final AtomicReference<byte[]> RESPONSE_BODY = new AtomicReference<>();
     static final AtomicInteger RESPONSE_STATUS = new AtomicInteger(200);
+    static final AtomicInteger RESPONSE_DELAY_MS = new AtomicInteger(0);
     static final HttpServer SERVER = startServer();
 
     @Autowired MunicipalFacilitySyncService sync;
@@ -75,6 +76,9 @@ class AnparkMunicipalSyncIntegrationTest {
         registry.add("parkio.municipal.anpark.base-url",
                 () -> "http://localhost:" + SERVER.getAddress().getPort());
         registry.add("parkio.municipal.anpark.path", () -> "/wp-json/anpark/v1/parks");
+        // Short timeouts so we can simulate transport timeouts quickly in this integration test.
+        registry.add("parkio.municipal.anpark.connect-timeout", () -> "200ms");
+        registry.add("parkio.municipal.anpark.read-timeout", () -> "200ms");
         registry.add("parkio.municipal.izum.enabled", () -> "false");
         registry.add("parkio.municipal.ispark.enabled", () -> "false");
     }
@@ -166,6 +170,90 @@ class AnparkMunicipalSyncIntegrationTest {
                 IzumMunicipalParkingAdapter.SOURCE_KEY);
         assertThat(isparkLinks).isZero();
         assertThat(izumLinks).isZero();
+
+        // AUTHORITATIVE_FULL_SET edge case:
+        // A non-empty structurally-valid authoritative feed where all facilities are active=false
+        // must reconcile to an empty active set for ANPARK.
+        RESPONSE_STATUS.set(200);
+        RESPONSE_DELAY_MS.set(0);
+        RESPONSE_BODY.set("""
+                [
+                  {"id":"1095","name":"ALSANCAK YOL BOYU OTOPARKI","type":"yolustu","district":"Altındağ",
+                   "lat":39.941283987606035,"lng":32.855654018215056,"capacity":16,
+                   "schedule":"Haftanın her günü 08:00-18:00","address":"Alsancak Mahallesi, Altındağ/Ankara","active":false},
+                  {"id":"1098","name":"GÖKSU PARKI OTOPARKI","type":"rekreasyon","district":"Etimesgut",
+                   "lat":39.988505,"lng":32.647731,"capacity":0,
+                   "schedule":"Haftanın her günü 08:00-22:00","address":"Göksu Parkı, Etimesgut/Ankara","active":false},
+                  {"id":"1118","name":"SIHHIYE ÇOK KATLI OTOPARKI","type":"kapali","district":"Çankaya",
+                   "lat":39.926417,"lng":32.859245,"capacity":186,
+                   "schedule":"Haftanın her günü 00:00-24:00","address":"Sıhhiye, Çankaya/Ankara","active":false}
+                ]
+                """.getBytes(StandardCharsets.UTF_8));
+
+        var allInactive = sync.sync(AnparkMunicipalParkingAdapter.SOURCE_KEY);
+        assertThat(allInactive.occupancyInserted()).isZero();
+        assertThat(allInactive.recordsAccepted()).isZero();
+        assertThat(allInactive.recordsDeactivated()).isEqualTo(3);
+        assertThat(allInactive.activeLinkCount()).isZero();
+        assertThat(query.nearby(39.93, 32.86, 50_000, 20)).isEmpty();
+
+        // Repeat same all-inactive snapshot: idempotent; no additional incorrect mutations.
+        var allInactive2 = sync.sync(AnparkMunicipalParkingAdapter.SOURCE_KEY);
+        assertThat(allInactive2.recordsAccepted()).isZero();
+        assertThat(allInactive2.recordsDeactivated()).isZero();
+        assertThat(allInactive2.activeLinkCount()).isZero();
+
+        // Later active=true records must reactivate.
+        RESPONSE_BODY.set(fixture("/fixtures/municipal/anpark/park-sample.json"));
+        RESPONSE_STATUS.set(200);
+        RESPONSE_DELAY_MS.set(0);
+        var restoredForEmptyActive = sync.sync(AnparkMunicipalParkingAdapter.SOURCE_KEY);
+        assertThat(restoredForEmptyActive.activeLinkCount()).isEqualTo(3);
+        assertThat(restoredForEmptyActive.occupancyInserted()).isZero();
+        assertThat(query.nearby(39.93, 32.86, 50_000, 20)).isNotEmpty();
+
+        // All-invalid non-empty rows must not deactivate.
+        RESPONSE_BODY.set("""
+                [
+                  {"id":"1095","name":"","type":"yolustu","district":"Altındağ",
+                   "lat":39.941283987606035,"lng":32.855654018215056,"capacity":16,
+                   "schedule":"Haftanın her günü 08:00-18:00","address":"Alsancak Mahallesi, Altındağ/Ankara","active":false},
+                  {"id":"1098","name":"GÖKSU PARKI OTOPARKI","type":"rekreasyon","district":"Etimesgut",
+                   "lat":0.0,"lng":32.647731,"capacity":0,
+                   "schedule":"Haftanın her günü 08:00-22:00","address":"Göksu Parkı, Etimesgut/Ankara","active":false}
+                ]
+                """.getBytes(StandardCharsets.UTF_8));
+        RESPONSE_STATUS.set(200);
+        RESPONSE_DELAY_MS.set(0);
+        var invalidAll = sync.sync(AnparkMunicipalParkingAdapter.SOURCE_KEY);
+        assertThat(invalidAll.recordsDeactivated()).isZero();
+        assertThat(invalidAll.activeLinkCount()).isEqualTo(3);
+
+        // Mixed valid+invalid non-empty must not deactivate.
+        RESPONSE_BODY.set("""
+                [
+                  {"id":"1095","name":"ALSANCAK YOL BOYU OTOPARKI","type":"yolustu","district":"Altındağ",
+                   "lat":39.941283987606035,"lng":32.855654018215056,"capacity":16,
+                   "schedule":"Haftanın her günü 08:00-18:00","address":"Alsancak Mahallesi, Altındağ/Ankara","active":false},
+                  {"id":"1118","name":"SIHHIYE ÇOK KATLI OTOPARKI","type":"kapali","district":"Çankaya",
+                   "lat":0.0,"lng":32.859245,"capacity":186,
+                   "schedule":"Haftanın her günü 00:00-24:00","address":"Sıhhiye, Çankaya/Ankara","active":false}
+                ]
+                """.getBytes(StandardCharsets.UTF_8));
+        RESPONSE_STATUS.set(200);
+        RESPONSE_DELAY_MS.set(0);
+        var invalidMixed = sync.sync(AnparkMunicipalParkingAdapter.SOURCE_KEY);
+        assertThat(invalidMixed.recordsDeactivated()).isZero();
+        assertThat(invalidMixed.activeLinkCount()).isEqualTo(3);
+
+        // Timeout must not deactivate.
+        RESPONSE_STATUS.set(200);
+        RESPONSE_DELAY_MS.set(1000);
+        var timeout = sync.sync(AnparkMunicipalParkingAdapter.SOURCE_KEY);
+        assertThat(timeout.status()).isEqualTo(MunicipalSyncRunStatus.FAILED);
+        assertThat(timeout.recordsDeactivated()).isZero();
+        assertThat(timeout.activeLinkCount()).isEqualTo(3);
+        RESPONSE_DELAY_MS.set(0);
 
         RESPONSE_BODY.set(fixture("/fixtures/municipal/anpark/park-shrunk.json"));
         var shrunk = sync.sync(AnparkMunicipalParkingAdapter.SOURCE_KEY);
@@ -323,6 +411,14 @@ class AnparkMunicipalSyncIntegrationTest {
             server.createContext("/wp-json/anpark/v1/parks", exchange -> {
                 byte[] body = RESPONSE_BODY.get();
                 int status = RESPONSE_STATUS.get();
+                int delayMs = RESPONSE_DELAY_MS.get();
+                if (delayMs > 0) {
+                    try {
+                        Thread.sleep(delayMs);
+                    } catch (InterruptedException ignored) {
+                        Thread.currentThread().interrupt();
+                    }
+                }
                 exchange.getResponseHeaders().add("Content-Type", "application/json;charset=utf-8");
                 exchange.sendResponseHeaders(status, body.length);
                 exchange.getResponseBody().write(body);
