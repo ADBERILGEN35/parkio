@@ -95,3 +95,9 @@ Catalog `productionEligible=true` (Level-B CC BY evidence sufficient for technic
 - Incomplete zone coverage possible
 - Copy-pasted coordinates require ongoing geo gate
 - No publisher stable facility UUID
+- **Hosted-beta egress (2026-08-12):** Azure VM (`francecentral`) receives Cloudflare
+  challenge HTML (`403 Just a moment...`) for `acikveri.konya.bel.tr` datastore API.
+  Browser/User-Agent changes did not bypass. Local/non-datacenter clients still receive
+  HTTP 200. Live hosted-beta sync therefore fails with `errorCategory=authentication`
+  until publisher allowlisting or an approved egress path exists. Implementation remains
+  default-OFF and ready once access is restored.
