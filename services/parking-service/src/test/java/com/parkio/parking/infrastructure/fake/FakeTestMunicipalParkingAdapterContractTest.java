@@ -2,6 +2,7 @@ package com.parkio.parking.infrastructure.fake;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyBoolean;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.lenient;
 import static org.mockito.Mockito.mock;
@@ -112,7 +113,7 @@ class FakeTestMunicipalParkingAdapterContractTest {
         assertThat(occupancy.get(0).availableSpaces()).isEqualTo(12);
 
         when(setReconciliation.activeExternalIds(SOURCE_ID)).thenReturn(Set.of()).thenReturn(Set.of("EXT-1"));
-        when(setReconciliation.deactivateMissing(eq(SOURCE_ID), eq(Set.of("EXT-1")), eq(NOW))).thenReturn(0);
+        when(setReconciliation.deactivateMissing(eq(SOURCE_ID), eq(Set.of("EXT-1")), eq(NOW), eq(true))).thenReturn(0);
         when(ingestWriter.persistLiveAdapterFacility(
                         eq(SOURCE_ID), eq(RUN_ID), eq(FakeTestMunicipalParkingAdapter.SOURCE_KEY),
                         any(), any(), eq(NOW)))
@@ -134,7 +135,7 @@ class FakeTestMunicipalParkingAdapterContractTest {
         when(setReconciliation.activeExternalIds(SOURCE_ID))
                 .thenReturn(Set.of("A", "B"))
                 .thenReturn(Set.of("A"));
-        when(setReconciliation.deactivateMissing(eq(SOURCE_ID), eq(Set.of("A")), eq(NOW))).thenReturn(1);
+        when(setReconciliation.deactivateMissing(eq(SOURCE_ID), eq(Set.of("A")), eq(NOW), eq(true))).thenReturn(1);
         when(ingestWriter.persistLiveAdapterFacility(
                         eq(SOURCE_ID), eq(RUN_ID), eq(FakeTestMunicipalParkingAdapter.SOURCE_KEY),
                         any(), any(), eq(NOW)))
@@ -142,12 +143,12 @@ class FakeTestMunicipalParkingAdapterContractTest {
 
         var shrink = service.sync(FakeTestMunicipalParkingAdapter.SOURCE_KEY);
         assertThat(shrink.recordsDeactivated()).isEqualTo(1);
-        verify(setReconciliation).deactivateMissing(SOURCE_ID, Set.of("A"), NOW);
+        verify(setReconciliation).deactivateMissing(SOURCE_ID, Set.of("A"), NOW, true);
 
         // Reactivation: previously inactive external returns.
         when(runs.tryStart(eq(SOURCE_ID), any(), eq(NOW))).thenReturn(Optional.of(RUN_ID));
         when(setReconciliation.activeExternalIds(SOURCE_ID)).thenReturn(Set.of()).thenReturn(Set.of("A"));
-        when(setReconciliation.deactivateMissing(eq(SOURCE_ID), eq(Set.of("A")), eq(NOW))).thenReturn(0);
+        when(setReconciliation.deactivateMissing(eq(SOURCE_ID), eq(Set.of("A")), eq(NOW), eq(true))).thenReturn(0);
         when(ingestWriter.persistLiveAdapterFacility(
                         eq(SOURCE_ID), eq(RUN_ID), eq(FakeTestMunicipalParkingAdapter.SOURCE_KEY),
                         any(), any(), eq(NOW)))
@@ -177,8 +178,8 @@ class FakeTestMunicipalParkingAdapterContractTest {
         var result = failingService.sync(FakeTestMunicipalParkingAdapter.SOURCE_KEY);
 
         assertThat(result.status()).isEqualTo(MunicipalSyncRunStatus.FAILED);
-        verify(setReconciliation, never()).deactivateMissing(any(), any(), any());
-        verify(setReconciliation, never()).deactivateMissing(eq(IZUM_SOURCE_ID), any(), any());
+        verify(setReconciliation, never()).deactivateMissing(any(), any(), any(), anyBoolean());
+        verify(setReconciliation, never()).deactivateMissing(eq(IZUM_SOURCE_ID), any(), any(), anyBoolean());
         verify(ingestWriter, never()).persistLiveAdapterFacility(any(), any(), any(), any(), any(), any());
     }
 

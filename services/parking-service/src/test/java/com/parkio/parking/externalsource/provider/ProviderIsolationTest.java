@@ -2,6 +2,7 @@ package com.parkio.parking.externalsource.provider;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyBoolean;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
@@ -65,8 +66,8 @@ class ProviderIsolationTest {
         var result = service.sync(FakeTestMunicipalParkingAdapter.SOURCE_KEY);
 
         assertThat(result.status()).isEqualTo(MunicipalSyncRunStatus.FAILED);
-        verify(reconciliation, never()).deactivateMissing(eq(IZUM_SOURCE), any(), any());
-        verify(reconciliation, never()).deactivateMissing(eq(FAKE_SOURCE), any(), any());
+        verify(reconciliation, never()).deactivateMissing(eq(IZUM_SOURCE), any(), any(), anyBoolean());
+        verify(reconciliation, never()).deactivateMissing(eq(FAKE_SOURCE), any(), any(), anyBoolean());
         verify(ingest, never()).persistLiveAdapterFacility(any(), any(), any(), any(), any(), any());
     }
 
@@ -93,7 +94,7 @@ class ProviderIsolationTest {
         when(runs.isRunning(RUN)).thenReturn(true);
         when(runs.complete(eq(RUN), any(), any(), any(), any())).thenReturn(true);
         when(reconciliation.activeExternalIds(FAKE_SOURCE)).thenReturn(Set.of("SAME-ID", "GONE"));
-        when(reconciliation.deactivateMissing(eq(FAKE_SOURCE), eq(Set.of("SAME-ID")), eq(NOW))).thenReturn(1);
+        when(reconciliation.deactivateMissing(eq(FAKE_SOURCE), eq(Set.of("SAME-ID")), eq(NOW), eq(true))).thenReturn(1);
         when(ingest.persistLiveAdapterFacility(
                         eq(FAKE_SOURCE), eq(RUN), eq(FakeTestMunicipalParkingAdapter.SOURCE_KEY),
                         any(), any(), eq(NOW)))
@@ -107,8 +108,8 @@ class ProviderIsolationTest {
 
         assertThat(result.status()).isEqualTo(MunicipalSyncRunStatus.SUCCESS);
         assertThat(result.recordsDeactivated()).isEqualTo(1);
-        verify(reconciliation).deactivateMissing(FAKE_SOURCE, Set.of("SAME-ID"), NOW);
-        verify(reconciliation, never()).deactivateMissing(eq(IZUM_SOURCE), any(), any());
+        verify(reconciliation).deactivateMissing(FAKE_SOURCE, Set.of("SAME-ID"), NOW, true);
+        verify(reconciliation, never()).deactivateMissing(eq(IZUM_SOURCE), any(), any(), anyBoolean());
     }
 
     private static MunicipalDataSourceRepository.Source source(UUID id, String key) {

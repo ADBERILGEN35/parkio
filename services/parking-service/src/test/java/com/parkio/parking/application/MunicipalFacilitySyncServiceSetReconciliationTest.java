@@ -2,6 +2,7 @@ package com.parkio.parking.application;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyBoolean;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.lenient;
 import static org.mockito.Mockito.never;
@@ -84,7 +85,7 @@ class MunicipalFacilitySyncServiceSetReconciliationTest {
         payload.add(record("A"));
         payload.add(record("B"));
         stubSuccessfulFetch(payload, List.of(facility("A"), facility("B")), Set.of("A", "B", "C"));
-        when(setReconciliation.deactivateMissing(eq(SOURCE_ID), eq(Set.of("A", "B")), eq(NOW))).thenReturn(1);
+        when(setReconciliation.deactivateMissing(eq(SOURCE_ID), eq(Set.of("A", "B")), eq(NOW), eq(true))).thenReturn(1);
         when(setReconciliation.activeExternalIds(SOURCE_ID))
                 .thenReturn(Set.of("A", "B", "C"))
                 .thenReturn(Set.of("A", "B"));
@@ -95,7 +96,7 @@ class MunicipalFacilitySyncServiceSetReconciliationTest {
         assertThat(result.recordsAccepted()).isEqualTo(2);
         assertThat(result.recordsDeactivated()).isEqualTo(1);
         assertThat(result.activeLinkCount()).isEqualTo(2);
-        verify(setReconciliation).deactivateMissing(SOURCE_ID, Set.of("A", "B"), NOW);
+        verify(setReconciliation).deactivateMissing(SOURCE_ID, Set.of("A", "B"), NOW, true);
         verify(sources).markSuccessful(SOURCE_ID, NOW);
     }
 
@@ -107,7 +108,7 @@ class MunicipalFacilitySyncServiceSetReconciliationTest {
 
         assertThat(result.status()).isEqualTo(MunicipalSyncRunStatus.FAILED);
         assertThat(result.recordsDeactivated()).isZero();
-        verify(setReconciliation, never()).deactivateMissing(any(), any(), any());
+        verify(setReconciliation, never()).deactivateMissing(any(), any(), any(), anyBoolean());
         verify(sources, never()).markSuccessful(any(), any());
     }
 
@@ -128,7 +129,7 @@ class MunicipalFacilitySyncServiceSetReconciliationTest {
 
         assertThat(result.status()).isEqualTo(MunicipalSyncRunStatus.PARTIAL_SUCCESS);
         assertThat(result.recordsDeactivated()).isZero();
-        verify(setReconciliation, never()).deactivateMissing(any(), any(), any());
+        verify(setReconciliation, never()).deactivateMissing(any(), any(), any(), anyBoolean());
     }
 
     @Test
@@ -142,7 +143,7 @@ class MunicipalFacilitySyncServiceSetReconciliationTest {
         when(adapter.normalizeFacilities(eq(payload), eq(NOW))).thenReturn(List.of(facility("A")));
         when(adapter.normalizeOccupancy(eq(payload), eq(NOW))).thenReturn(List.of());
         when(setReconciliation.activeExternalIds(SOURCE_ID)).thenReturn(Set.of()).thenReturn(Set.of("A"));
-        when(setReconciliation.deactivateMissing(eq(SOURCE_ID), eq(Set.of("A")), eq(NOW))).thenReturn(0);
+        when(setReconciliation.deactivateMissing(eq(SOURCE_ID), eq(Set.of("A")), eq(NOW), eq(true))).thenReturn(0);
         when(ingestWriter.persistLiveAdapterFacility(eq(SOURCE_ID), eq(RUN_ID), any(), any(), any(), eq(NOW)))
                 .thenReturn(new FacilityPersistResult(UUID.randomUUID(), false, true, true));
 
@@ -151,6 +152,31 @@ class MunicipalFacilitySyncServiceSetReconciliationTest {
         assertThat(result.status()).isEqualTo(MunicipalSyncRunStatus.SUCCESS);
         assertThat(result.recordsReactivated()).isEqualTo(1);
         assertThat(result.recordsInserted()).isZero();
+    }
+
+    @Test
+    void trustworthyAllInactiveAuthoritativeFeedDeactivatesToEmptyActiveSet() {
+        ArrayNode payload = mapper.createArrayNode();
+        payload.add(record("A"));
+        payload.add(record("B"));
+        payload.add(record("C"));
+        when(adapter.fetch()).thenReturn(payload);
+        when(adapter.validateContract(payload)).thenReturn(SchemaFingerprint.fromArray(payload));
+        when(adapter.countAuthoritativeValidUniqueFacilityExternalIds(payload)).thenReturn(3);
+        when(adapter.normalizeFacilities(eq(payload), eq(NOW))).thenReturn(List.of());
+        when(adapter.normalizeOccupancy(eq(payload), eq(NOW))).thenReturn(List.of());
+        when(setReconciliation.activeExternalIds(SOURCE_ID))
+                .thenReturn(Set.of("A", "B", "C"))
+                .thenReturn(Set.of());
+        when(setReconciliation.deactivateMissing(eq(SOURCE_ID), eq(Set.of()), eq(NOW), eq(true))).thenReturn(3);
+
+        var result = service.sync(IzumMunicipalParkingAdapter.SOURCE_KEY);
+
+        assertThat(result.status()).isEqualTo(MunicipalSyncRunStatus.PARTIAL_SUCCESS);
+        assertThat(result.recordsAccepted()).isZero();
+        assertThat(result.recordsDeactivated()).isEqualTo(3);
+        assertThat(result.activeLinkCount()).isZero();
+        verify(setReconciliation).deactivateMissing(SOURCE_ID, Set.of(), NOW, true);
     }
 
     @Test
@@ -164,7 +190,7 @@ class MunicipalFacilitySyncServiceSetReconciliationTest {
 
         assertThat(result.status()).isEqualTo(MunicipalSyncRunStatus.FAILED);
         assertThat(result.errorCategory()).isEqualTo("ownership_lost");
-        verify(setReconciliation, never()).deactivateMissing(any(), any(), any());
+        verify(setReconciliation, never()).deactivateMissing(any(), any(), any(), anyBoolean());
         verify(sources, never()).markSuccessful(any(), any());
     }
 
@@ -173,7 +199,7 @@ class MunicipalFacilitySyncServiceSetReconciliationTest {
         ArrayNode payload = mapper.createArrayNode();
         payload.add(record("A"));
         stubSuccessfulFetch(payload, List.of(facility("A")), Set.of("A"));
-        when(setReconciliation.deactivateMissing(any(), any(), any())).thenReturn(0);
+        when(setReconciliation.deactivateMissing(any(), any(), any(), anyBoolean())).thenReturn(0);
         when(runs.complete(eq(RUN_ID), any(), any(), any(), any())).thenReturn(false);
 
         var result = service.sync(IzumMunicipalParkingAdapter.SOURCE_KEY);

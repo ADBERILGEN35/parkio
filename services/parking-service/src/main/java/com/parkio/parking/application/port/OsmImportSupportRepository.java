@@ -37,7 +37,17 @@ public interface OsmImportSupportRepository {
 
     Set<String> activeExternalIds(UUID sourceId);
 
-    int deactivateMissing(UUID sourceId, Set<String> seenExternalIds, Instant now);
+    default int deactivateMissing(UUID sourceId, Set<String> seenExternalIds, Instant now) {
+        return deactivateMissing(sourceId, seenExternalIds, now, false);
+    }
+
+    /**
+     * Soft-deactivate active source links whose external id is absent from {@code seenExternalIds}.
+     * When {@code seenExternalIds} is empty, deactivation runs only if {@code trustedAuthoritativeEmptySet}
+     * is true (caller already proved a trustworthy authoritative snapshot with an intentionally empty active set).
+     */
+    int deactivateMissing(
+            UUID sourceId, Set<String> seenExternalIds, Instant now, boolean trustedAuthoritativeEmptySet);
 
     int reactivate(UUID sourceId, String externalId, Instant now);
 

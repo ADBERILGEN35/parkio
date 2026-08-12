@@ -33,9 +33,10 @@ public class OsmImportSupportRepositoryAdapter implements OsmImportSupportReposi
     }
 
     @Override
-    public int deactivateMissing(UUID sourceId, Set<String> seenExternalIds, Instant now) {
-        // Refuse mass wipe when the authoritative seen-set is empty (İZELMAN roadside parity).
-        if (seenExternalIds.isEmpty()) {
+    public int deactivateMissing(
+            UUID sourceId, Set<String> seenExternalIds, Instant now, boolean trustedAuthoritativeEmptySet) {
+        // Refuse mass wipe on an empty seen-set unless the caller proved a trustworthy authoritative snapshot.
+        if (seenExternalIds.isEmpty() && !trustedAuthoritativeEmptySet) {
             return 0;
         }
         // Deactivate active links not in seen set via NOT IN is awkward for large sets;

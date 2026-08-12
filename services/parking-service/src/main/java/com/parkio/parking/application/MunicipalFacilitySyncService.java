@@ -125,7 +125,8 @@ public class MunicipalFacilitySyncService {
                             sourceKey, runId.get());
                     return ownershipLost();
                 }
-                deactivated = setReconciliation.deactivateMissing(source.id(), seen, fetchedAt);
+                deactivated = setReconciliation.deactivateMissing(
+                        source.id(), seen, fetchedAt, true);
                 if (previouslyActive.size() > 0
                         && deactivated > previouslyActive.size() * LARGE_SHRINK_RATIO) {
                     log.warn(

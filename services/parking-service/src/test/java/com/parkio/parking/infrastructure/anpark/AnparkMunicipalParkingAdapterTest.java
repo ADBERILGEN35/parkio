@@ -114,6 +114,27 @@ class AnparkMunicipalParkingAdapterTest {
     }
 
     @Test
+    void allInactiveFeedPreservesPayloadForAuthoritativeTrustAndCountsValidIds() throws Exception {
+        JsonNode payload = mapper.readTree("""
+                [
+                  {"id":"1095","name":"ALSANCAK YOL BOYU OTOPARKI","type":"yolustu","district":"Altındağ",
+                   "lat":39.941283987606035,"lng":32.855654018215056,"capacity":16,
+                   "schedule":"Haftanın her günü 08:00-18:00","address":"Alsancak Mahallesi, Altındağ/Ankara","active":false},
+                  {"id":"1098","name":"GÖKSU PARKI OTOPARKI","type":"rekreasyon","district":"Etimesgut",
+                   "lat":39.988505,"lng":32.647731,"capacity":0,
+                   "schedule":"Haftanın her günü 08:00-22:00","address":"Göksu Parkı, Etimesgut/Ankara","active":false},
+                  {"id":"1118","name":"SIHHIYE ÇOK KATLI OTOPARKI","type":"kapali","district":"Çankaya",
+                   "lat":39.926417,"lng":32.859245,"capacity":186,
+                   "schedule":"Haftanın her günü 00:00-24:00","address":"Sıhhiye, Çankaya/Ankara","active":false}
+                ]
+                """);
+        JsonNode preserved = adapter.excludeInactive(payload);
+        assertThat(preserved).hasSize(3);
+        assertThat(adapter.countAuthoritativeValidUniqueFacilityExternalIds(preserved)).isEqualTo(3);
+        assertThat(adapter.normalizeFacilities(preserved, Instant.parse("2026-08-12T10:00:00Z"))).isEmpty();
+    }
+
+    @Test
     void excludeInactiveRemovesExplicitFalseOnly() throws Exception {
         JsonNode payload = mapper.readTree("""
                 [
