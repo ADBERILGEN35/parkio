@@ -252,7 +252,15 @@ class AnparkMunicipalSyncIntegrationTest {
         var timeout = sync.sync(AnparkMunicipalParkingAdapter.SOURCE_KEY);
         assertThat(timeout.status()).isEqualTo(MunicipalSyncRunStatus.FAILED);
         assertThat(timeout.recordsDeactivated()).isZero();
-        assertThat(timeout.activeLinkCount()).isEqualTo(3);
+        // FAILED catch-path DTO reports activeLinkCount=0; DB must retain the prior active set.
+        assertThat(jdbc.queryForObject(
+                """
+                SELECT count(*) FROM municipal_facility_source_links l
+                JOIN municipal_data_sources d ON d.id=l.source_id
+                WHERE d.source_key=? AND l.active=true
+                """,
+                Long.class,
+                AnparkMunicipalParkingAdapter.SOURCE_KEY)).isEqualTo(3);
         RESPONSE_DELAY_MS.set(0);
 
         RESPONSE_BODY.set(fixture("/fixtures/municipal/anpark/park-shrunk.json"));
