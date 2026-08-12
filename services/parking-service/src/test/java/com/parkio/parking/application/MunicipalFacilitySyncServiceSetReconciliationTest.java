@@ -137,6 +137,8 @@ class MunicipalFacilitySyncServiceSetReconciliationTest {
         payload.add(record("A"));
         when(adapter.fetch()).thenReturn(payload);
         when(adapter.validateContract(payload)).thenReturn(SchemaFingerprint.fromArray(payload));
+        // authoritative snapshot is structurally trustworthy even when active-set is non-empty
+        when(adapter.countAuthoritativeValidUniqueFacilityExternalIds(payload)).thenReturn(1);
         when(adapter.normalizeFacilities(eq(payload), eq(NOW))).thenReturn(List.of(facility("A")));
         when(adapter.normalizeOccupancy(eq(payload), eq(NOW))).thenReturn(List.of());
         when(setReconciliation.activeExternalIds(SOURCE_ID)).thenReturn(Set.of()).thenReturn(Set.of("A"));
@@ -187,6 +189,9 @@ class MunicipalFacilitySyncServiceSetReconciliationTest {
             Set<String> previouslyActive) {
         when(adapter.fetch()).thenReturn(payload);
         when(adapter.validateContract(payload)).thenReturn(SchemaFingerprint.fromArray(payload));
+        // Trustworthiness for reconciliation: every payload row must be structurally valid and unique
+        // to allow AUTHORITATIVE_FULL_SET reconciliation logic to run.
+        when(adapter.countAuthoritativeValidUniqueFacilityExternalIds(payload)).thenReturn(payload.size());
         when(adapter.normalizeFacilities(eq(payload), eq(NOW))).thenReturn(facilities);
         when(adapter.normalizeOccupancy(eq(payload), eq(NOW))).thenReturn(List.of());
         when(setReconciliation.activeExternalIds(SOURCE_ID)).thenReturn(previouslyActive);
