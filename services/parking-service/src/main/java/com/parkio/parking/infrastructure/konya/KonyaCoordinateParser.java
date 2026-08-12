@@ -4,6 +4,7 @@ import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import java.util.ArrayList;
 import java.util.List;
+import org.springframework.stereotype.Component;
 
 /**
  * Parses {@code peronkoordinat} strings from the Konya CKAN feed.
@@ -16,6 +17,7 @@ import java.util.List;
  * </ul>
  * All numeric pairs are treated as WGS-84 with longitude first.
  */
+@Component
 public final class KonyaCoordinateParser {
     private final ObjectMapper objectMapper;
 
