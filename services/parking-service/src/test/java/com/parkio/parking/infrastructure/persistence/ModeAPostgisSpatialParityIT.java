@@ -84,7 +84,7 @@ class ModeAPostgisSpatialParityIT {
         assertThat(validateResult.validationSuccessful)
                 .as("Flyway validate must succeed with zero checksum drift")
                 .isTrue();
-        assertThat(migrateResult.targetSchemaVersion).isEqualTo("37");
+        assertThat(migrateResult.targetSchemaVersion).isEqualTo("38");
 
         try (Connection admin = connect(
                 POSTGIS.getJdbcUrl(), POSTGIS.getUsername(), POSTGIS.getPassword())) {
