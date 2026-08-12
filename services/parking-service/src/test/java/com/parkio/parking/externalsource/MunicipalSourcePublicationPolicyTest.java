@@ -108,4 +108,13 @@ class MunicipalSourcePublicationPolicyTest {
                 TariffCurrentness.CURRENT, SourceAgeClassification.HISTORICAL))
                 .isEqualTo(TariffCurrentness.HISTORICAL);
     }
+
+    @Test
+    void konyaAndKayseriRemainPublishableAsInventorySources() {
+        assertThat(policy.isSourceLinkPublishable(MunicipalSourceIdentity.KONYA)).isTrue();
+        assertThat(policy.isSourceLinkPublishable(MunicipalSourceIdentity.KAYSERI)).isTrue();
+        assertThat(policy.isFacilityPublishable(
+                Set.of(MunicipalSourceIdentity.KAYSERI), MunicipalSourceIdentity.KAYSERI)).isTrue();
+        assertThat(policy.mayContributeLiveOccupancy(Set.of(MunicipalSourceIdentity.KAYSERI))).isFalse();
+    }
 }

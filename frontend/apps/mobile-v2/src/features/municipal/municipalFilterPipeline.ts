@@ -3,6 +3,7 @@ import {
   MUNICIPAL_CANONICAL_LABEL_ISPARK,
   MUNICIPAL_CANONICAL_LABEL_ANPARK,
   MUNICIPAL_CANONICAL_LABEL_KONYA,
+  MUNICIPAL_CANONICAL_LABEL_KAYSERI,
   MUNICIPAL_CANONICAL_LABEL_OSM,
   municipalDataSourceLabels,
   municipalOccupancyPresentationKind,
@@ -47,16 +48,19 @@ export function municipalFacilitySourceFilter(
   const hasIspark = labels.includes(MUNICIPAL_CANONICAL_LABEL_ISPARK);
   const hasAnpark = labels.includes(MUNICIPAL_CANONICAL_LABEL_ANPARK);
   const hasKonya = labels.includes(MUNICIPAL_CANONICAL_LABEL_KONYA);
+  const hasKayseri = labels.includes(MUNICIPAL_CANONICAL_LABEL_KAYSERI);
   const hasOsm = labels.includes(MUNICIPAL_CANONICAL_LABEL_OSM);
-  if (hasIzum && !hasOsm && !hasIspark && !hasAnpark && !hasKonya) return 'izum';
-  if (hasIspark && !hasOsm && !hasIzum && !hasAnpark && !hasKonya) return 'ispark';
-  if (hasAnpark && !hasOsm && !hasIzum && !hasIspark && !hasKonya) return 'anpark';
-  if (hasKonya && !hasOsm && !hasIzum && !hasIspark && !hasAnpark) return 'konya';
-  if (hasOsm && !hasIzum && !hasIspark && !hasAnpark && !hasKonya) return 'osm';
+  if (hasIzum && !hasOsm && !hasIspark && !hasAnpark && !hasKonya && !hasKayseri) return 'izum';
+  if (hasIspark && !hasOsm && !hasIzum && !hasAnpark && !hasKonya && !hasKayseri) return 'ispark';
+  if (hasAnpark && !hasOsm && !hasIzum && !hasIspark && !hasKonya && !hasKayseri) return 'anpark';
+  if (hasKonya && !hasOsm && !hasIzum && !hasIspark && !hasAnpark && !hasKayseri) return 'konya';
+  if (hasKayseri && !hasOsm && !hasIzum && !hasIspark && !hasAnpark && !hasKonya) return 'kayseri';
+  if (hasOsm && !hasIzum && !hasIspark && !hasAnpark && !hasKonya && !hasKayseri) return 'osm';
   if (hasIzum) return 'izum';
   if (hasIspark) return 'ispark';
   if (hasAnpark) return 'anpark';
   if (hasKonya) return 'konya';
+  if (hasKayseri) return 'kayseri';
   return 'unknown';
 }
 
@@ -74,6 +78,7 @@ export function matchesMunicipalSourceFilter(
   if (source === 'ispark') return labels.includes(MUNICIPAL_CANONICAL_LABEL_ISPARK);
   if (source === 'anpark') return labels.includes(MUNICIPAL_CANONICAL_LABEL_ANPARK);
   if (source === 'konya') return labels.includes(MUNICIPAL_CANONICAL_LABEL_KONYA);
+  if (source === 'kayseri') return labels.includes(MUNICIPAL_CANONICAL_LABEL_KAYSERI);
   if (source === 'osm') return labels.includes(MUNICIPAL_CANONICAL_LABEL_OSM);
   return true;
 }

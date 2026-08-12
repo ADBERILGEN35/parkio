@@ -27,6 +27,8 @@ public final class MunicipalSourcePublicationPolicy {
             case MunicipalSourceIdentity.FAMILY_IZUM -> true;
             case MunicipalSourceIdentity.FAMILY_ISPARK -> true;
             case MunicipalSourceIdentity.FAMILY_ANPARK -> true;
+            case MunicipalSourceIdentity.FAMILY_KONYA -> true;
+            case MunicipalSourceIdentity.FAMILY_KAYSERI -> true;
             case MunicipalSourceIdentity.FAMILY_OSM -> municipal.getOsm().isPublicationEnabled();
             case MunicipalSourceIdentity.FAMILY_IZELMAN -> {
                 if (MunicipalSourceIdentity.isIzelmanRoadside(sourceKey)) {

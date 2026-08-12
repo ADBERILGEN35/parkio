@@ -86,6 +86,8 @@ public final class PublicProvenancePublicationPolicy {
         boolean izum = keys.stream().anyMatch(MunicipalSourceIdentity::isIzum);
         boolean ispark = keys.stream().anyMatch(MunicipalSourceIdentity::isIspark);
         boolean anpark = keys.stream().anyMatch(MunicipalSourceIdentity::isAnpark);
+        boolean konya = keys.stream().anyMatch(MunicipalSourceIdentity::isKonya);
+        boolean kayseri = keys.stream().anyMatch(MunicipalSourceIdentity::isKayseri);
         boolean osm = keys.stream().anyMatch(MunicipalSourceIdentity::isOsm);
         if (izum && osm) {
             return "mixed";
@@ -96,6 +98,12 @@ public final class PublicProvenancePublicationPolicy {
         if (anpark && osm) {
             return "mixed";
         }
+        if (konya && osm) {
+            return "mixed";
+        }
+        if (kayseri && osm) {
+            return "mixed";
+        }
         if (izum) {
             return MunicipalSourceIdentity.FAMILY_IZUM;
         }
@@ -104,6 +112,12 @@ public final class PublicProvenancePublicationPolicy {
         }
         if (anpark) {
             return MunicipalSourceIdentity.FAMILY_ANPARK;
+        }
+        if (konya) {
+            return MunicipalSourceIdentity.FAMILY_KONYA;
+        }
+        if (kayseri) {
+            return MunicipalSourceIdentity.FAMILY_KAYSERI;
         }
         if (osm) {
             return MunicipalSourceIdentity.FAMILY_OSM;

@@ -45,6 +45,14 @@ class ParkingProviderCatalogAndRegistryTest {
         assertThat(konya.reconciliationMode()).isEqualTo(ReconciliationMode.UPSERT_ONLY);
         assertThat(konya.productionEligible()).isTrue();
 
+        ParkingDataSourceDescriptor kayseri = ParkingProviderCatalog.require(
+                com.parkio.parking.infrastructure.kayseri.KayseriMunicipalParkingAdapter.SOURCE_KEY);
+        assertThat(kayseri.providerId()).isEqualTo(ParkingDataProviderId.KAYSERI);
+        assertThat(kayseri.supports(ProviderCapability.FACILITY_INVENTORY)).isTrue();
+        assertThat(kayseri.supports(ProviderCapability.LIVE_OCCUPANCY)).isFalse();
+        assertThat(kayseri.reconciliationMode()).isEqualTo(ReconciliationMode.UPSERT_ONLY);
+        assertThat(kayseri.productionEligible()).isTrue();
+
         ParkingDataSourceDescriptor osm = ParkingProviderCatalog.require("osm-geofabrik-turkey");
         assertThat(osm.providerId()).isEqualTo(ParkingDataProviderId.OPENSTREETMAP);
         assertThat(osm.supports(ProviderCapability.LIVE_OCCUPANCY)).isFalse();
@@ -61,6 +69,8 @@ class ParkingProviderCatalogAndRegistryTest {
                 .isEqualTo("Ankara Buyuksehir Belediyesi / ANPARK");
         assertThat(ParkingProviderCatalog.KONYA_DISPLAY_NAME)
                 .isEqualTo("Konya Buyuksehir Belediyesi");
+        assertThat(ParkingProviderCatalog.KAYSERI_DISPLAY_NAME)
+                .isEqualTo("Kayseri Buyuksehir Belediyesi");
         assertThat(ParkingProviderCatalog.OSM_DISPLAY_NAME)
                 .isEqualTo("OpenStreetMap contributors / Geofabrik GmbH");
         assertThat(ParkingProviderCatalog.require(IzumMunicipalParkingAdapter.SOURCE_KEY).displayName())

@@ -4,6 +4,7 @@ import com.parkio.parking.externalsource.izelman.IzelmanSourceKeys;
 import com.parkio.parking.infrastructure.anpark.AnparkMunicipalParkingAdapter;
 import com.parkio.parking.infrastructure.ispark.IsparkMunicipalParkingAdapter;
 import com.parkio.parking.infrastructure.izum.IzumMunicipalParkingAdapter;
+import com.parkio.parking.infrastructure.kayseri.KayseriMunicipalParkingAdapter;
 import com.parkio.parking.infrastructure.konya.KonyaMunicipalParkingAdapter;
 import com.parkio.parking.infrastructure.osm.OsmGeofabrikSourceKeys;
 import java.util.Collection;
@@ -22,6 +23,7 @@ public final class MunicipalSourceIdentity {
     public static final String FAMILY_ISPARK = "ispark";
     public static final String FAMILY_ANPARK = "anpark";
     public static final String FAMILY_KONYA = "konya";
+    public static final String FAMILY_KAYSERI = "kayseri";
     public static final String FAMILY_OSM = "osm";
     public static final String FAMILY_IZELMAN = "izelman";
     /** Test-only family; never production-published by default. */
@@ -32,6 +34,7 @@ public final class MunicipalSourceIdentity {
     public static final String ISPARK = IsparkMunicipalParkingAdapter.SOURCE_KEY;
     public static final String ANPARK = AnparkMunicipalParkingAdapter.SOURCE_KEY;
     public static final String KONYA = KonyaMunicipalParkingAdapter.SOURCE_KEY;
+    public static final String KAYSERI = KayseriMunicipalParkingAdapter.SOURCE_KEY;
     public static final String OSM = OsmGeofabrikSourceKeys.SOURCE_KEY;
     public static final String FAKE_TEST =
             com.parkio.parking.infrastructure.fake.FakeTestMunicipalParkingAdapter.SOURCE_KEY;
@@ -53,6 +56,9 @@ public final class MunicipalSourceIdentity {
         }
         if (KONYA.equals(sourceKey)) {
             return FAMILY_KONYA;
+        }
+        if (KAYSERI.equals(sourceKey)) {
+            return FAMILY_KAYSERI;
         }
         if (OSM.equals(sourceKey)) {
             return FAMILY_OSM;
@@ -84,6 +90,10 @@ public final class MunicipalSourceIdentity {
 
     public static boolean isKonya(String sourceKey) {
         return FAMILY_KONYA.equals(familyOf(sourceKey));
+    }
+
+    public static boolean isKayseri(String sourceKey) {
+        return FAMILY_KAYSERI.equals(familyOf(sourceKey));
     }
 
     public static boolean isOsm(String sourceKey) {

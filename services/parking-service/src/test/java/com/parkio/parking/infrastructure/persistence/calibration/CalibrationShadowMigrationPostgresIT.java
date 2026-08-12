@@ -35,7 +35,7 @@ class CalibrationShadowMigrationPostgresIT {
         flyway.migrate();
 
         try (Connection connection = openConnection()) {
-            assertThat(currentFlywayVersion(connection)).isEqualTo("38");
+            assertThat(currentFlywayVersion(connection)).isEqualTo("39");
             assertThat(tableExists(connection, "calibration_observation")).isTrue();
             assertThat(tableExists(connection, "calibration_report")).isTrue();
             assertThat(tableExists(connection, "calibration_readiness_assessment")).isTrue();
@@ -68,7 +68,7 @@ class CalibrationShadowMigrationPostgresIT {
         full.migrate();
 
         try (Connection connection = openConnection()) {
-            assertThat(currentFlywayVersion(connection)).isEqualTo("38");
+            assertThat(currentFlywayVersion(connection)).isEqualTo("39");
             assertThat(tableExists(connection, "calibration_observation")).isTrue();
             assertThat(tableExists(connection, "calibration_report")).isTrue();
             assertThat(tableExists(connection, "calibration_readiness_assessment")).isTrue();

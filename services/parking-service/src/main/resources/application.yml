@@ -204,6 +204,20 @@ parkio:
       # 24h — static/stale inventory; no live occupancy polling cadence.
       fixed-delay-ms: 86400000
       user-agent: ParkioParkingService/1.0 (+https://parkio.dev)
+    kayseri:
+      # PROVIDER-KAYSERI-01: Kayseri / Otoparklar GeoJSON inventory only. Default dark.
+      enabled: false
+      operating-mode: ${PARKIO_MUNICIPAL_KAYSERI_OPERATING_MODE:SCHEDULED}
+      base-url: https://acikveri.kayseri.bel.tr
+      path: /uploads/data/2024/10/7/otoparklar-456371.geojson
+      max-records: 100
+      connect-timeout: 5s
+      read-timeout: 30s
+      max-retries: 1
+      scheduler-enabled: false
+      # 24h — static inventory; no live occupancy polling cadence.
+      fixed-delay-ms: 86400000
+      user-agent: ParkioParkingService/1.0 (+https://parkio.dev)
     fake-test:
       # WP-SPA-13: architecture-only fake provider. Never enable outside tests.
       enabled: false

@@ -6,6 +6,7 @@ import com.parkio.parking.infrastructure.anpark.AnparkMunicipalParkingAdapter;
 import com.parkio.parking.infrastructure.fake.FakeTestMunicipalParkingAdapter;
 import com.parkio.parking.infrastructure.ispark.IsparkMunicipalParkingAdapter;
 import com.parkio.parking.infrastructure.izum.IzumMunicipalParkingAdapter;
+import com.parkio.parking.infrastructure.kayseri.KayseriMunicipalParkingAdapter;
 import com.parkio.parking.infrastructure.konya.KonyaMunicipalParkingAdapter;
 import com.parkio.parking.infrastructure.osm.OsmGeofabrikSourceKeys;
 import java.util.Collection;
@@ -43,6 +44,11 @@ public final class ParkingProviderCatalog {
             "Includes public sector information from Konya Buyuksehir Belediyesi Acik Veri Portali "
                     + "licensed under Creative Commons Attribution 3.0 (CC BY 3.0). "
                     + "Parkio is not affiliated with or endorsed by Konya Metropolitan Municipality.";
+    public static final String KAYSERI_DISPLAY_NAME = "Kayseri Buyuksehir Belediyesi";
+    public static final String KAYSERI_ATTRIBUTION =
+            "Includes public sector information from Kayseri Buyuksehir Belediyesi Acik Veri Portali "
+                    + "licensed under Attribution 4.0 International (CC BY 4.0). "
+                    + "Parkio is not affiliated with or endorsed by Kayseri Metropolitan Municipality.";
     public static final String OSM_DISPLAY_NAME = "OpenStreetMap contributors / Geofabrik GmbH";
     public static final String OSM_ATTRIBUTION = "OpenStreetMap contributors";
 
@@ -85,6 +91,15 @@ public final class ParkingProviderCatalog {
                 ReconciliationMode.UPSERT_ONLY,
                 KONYA_DISPLAY_NAME,
                 KONYA_ATTRIBUTION,
+                true));
+        put(map, new ParkingDataSourceDescriptor(
+                ParkingDataProviderId.KAYSERI,
+                KayseriMunicipalParkingAdapter.SOURCE_KEY,
+                MunicipalSourceIdentity.FAMILY_KAYSERI,
+                Set.of(ProviderCapability.FACILITY_INVENTORY),
+                ReconciliationMode.UPSERT_ONLY,
+                KAYSERI_DISPLAY_NAME,
+                KAYSERI_ATTRIBUTION,
                 true));
         put(map, new ParkingDataSourceDescriptor(
                 ParkingDataProviderId.OPENSTREETMAP,
