@@ -85,6 +85,7 @@ public final class PublicProvenancePublicationPolicy {
         }
         boolean izum = keys.stream().anyMatch(MunicipalSourceIdentity::isIzum);
         boolean ispark = keys.stream().anyMatch(MunicipalSourceIdentity::isIspark);
+        boolean anpark = keys.stream().anyMatch(MunicipalSourceIdentity::isAnpark);
         boolean osm = keys.stream().anyMatch(MunicipalSourceIdentity::isOsm);
         if (izum && osm) {
             return "mixed";
@@ -92,11 +93,17 @@ public final class PublicProvenancePublicationPolicy {
         if (ispark && osm) {
             return "mixed";
         }
+        if (anpark && osm) {
+            return "mixed";
+        }
         if (izum) {
             return MunicipalSourceIdentity.FAMILY_IZUM;
         }
         if (ispark) {
             return MunicipalSourceIdentity.FAMILY_ISPARK;
+        }
+        if (anpark) {
+            return MunicipalSourceIdentity.FAMILY_ANPARK;
         }
         if (osm) {
             return MunicipalSourceIdentity.FAMILY_OSM;

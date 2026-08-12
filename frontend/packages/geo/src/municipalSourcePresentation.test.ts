@@ -3,9 +3,11 @@ import type { MunicipalFacility } from '@parkio/types';
 import {
   MUNICIPAL_CANONICAL_LABEL_IZUM,
   MUNICIPAL_CANONICAL_LABEL_ISPARK,
+  MUNICIPAL_CANONICAL_LABEL_ANPARK,
   MUNICIPAL_CANONICAL_LABEL_OSM,
   MUNICIPAL_SOURCE_KEY_IZUM,
   MUNICIPAL_SOURCE_KEY_ISPARK,
+  MUNICIPAL_SOURCE_KEY_ANPARK,
   MUNICIPAL_SOURCE_KEY_OSM,
   canonicalLabelForSourceKey,
   canonicalLabelForSourceLabel,
@@ -45,6 +47,7 @@ describe('canonicalLabelForSourceKey', () => {
     expect(canonicalLabelForSourceKey(MUNICIPAL_SOURCE_KEY_OSM)).toBe(MUNICIPAL_CANONICAL_LABEL_OSM);
     expect(canonicalLabelForSourceKey(MUNICIPAL_SOURCE_KEY_IZUM)).toBe(MUNICIPAL_CANONICAL_LABEL_IZUM);
     expect(canonicalLabelForSourceKey(MUNICIPAL_SOURCE_KEY_ISPARK)).toBe(MUNICIPAL_CANONICAL_LABEL_ISPARK);
+    expect(canonicalLabelForSourceKey(MUNICIPAL_SOURCE_KEY_ANPARK)).toBe(MUNICIPAL_CANONICAL_LABEL_ANPARK);
   });
 
   it('omits unknown keys', () => {
@@ -71,6 +74,12 @@ describe('canonicalLabelForSourceLabel', () => {
   it('recognizes ISPARK backend copy', () => {
     expect(canonicalLabelForSourceLabel('Istanbul Buyuksehir Belediyesi / ISPARK')).toBe(
       MUNICIPAL_CANONICAL_LABEL_ISPARK,
+    );
+  });
+
+  it('recognizes ANPARK backend copy', () => {
+    expect(canonicalLabelForSourceLabel('Ankara Buyuksehir Belediyesi / ANPARK')).toBe(
+      MUNICIPAL_CANONICAL_LABEL_ANPARK,
     );
   });
 });

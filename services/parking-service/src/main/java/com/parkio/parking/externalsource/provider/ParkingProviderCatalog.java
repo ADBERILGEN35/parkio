@@ -2,6 +2,7 @@ package com.parkio.parking.externalsource.provider;
 
 import com.parkio.parking.externalsource.MunicipalSourceIdentity;
 import com.parkio.parking.externalsource.izelman.IzelmanSourceKeys;
+import com.parkio.parking.infrastructure.anpark.AnparkMunicipalParkingAdapter;
 import com.parkio.parking.infrastructure.fake.FakeTestMunicipalParkingAdapter;
 import com.parkio.parking.infrastructure.ispark.IsparkMunicipalParkingAdapter;
 import com.parkio.parking.infrastructure.izum.IzumMunicipalParkingAdapter;
@@ -30,6 +31,12 @@ public final class ParkingProviderCatalog {
             "Includes public sector information from Istanbul Buyuksehir Belediyesi Acik Veri Portali "
                     + "(ISPARK). Parkio is not affiliated with or endorsed by Istanbul Metropolitan "
                     + "Municipality or ISPARK A.S. Attribution required under IBB Acik Veri Licence.";
+    /** ASCII catalog label; clients may localize diacritics for display. */
+    public static final String ANPARK_DISPLAY_NAME = "Ankara Buyuksehir Belediyesi / ANPARK";
+    public static final String ANPARK_ATTRIBUTION =
+            "Includes facility inventory from Ankara Buyuksehir Belediyesi / ANPARK (BELTAS A.S.). "
+                    + "Parkio is not affiliated with or endorsed by Ankara Metropolitan Municipality, "
+                    + "BELTAS A.S., or ANPARK. LEGAL REVIEW REQUIRED for redistribution.";
     public static final String OSM_DISPLAY_NAME = "OpenStreetMap contributors / Geofabrik GmbH";
     public static final String OSM_ATTRIBUTION = "OpenStreetMap contributors";
 
@@ -55,6 +62,15 @@ public final class ParkingProviderCatalog {
                 ISPARK_DISPLAY_NAME,
                 ISPARK_ATTRIBUTION,
                 true));
+        put(map, new ParkingDataSourceDescriptor(
+                ParkingDataProviderId.ANPARK,
+                AnparkMunicipalParkingAdapter.SOURCE_KEY,
+                MunicipalSourceIdentity.FAMILY_ANPARK,
+                Set.of(ProviderCapability.FACILITY_INVENTORY),
+                ReconciliationMode.AUTHORITATIVE_FULL_SET,
+                ANPARK_DISPLAY_NAME,
+                ANPARK_ATTRIBUTION,
+                false));
         put(map, new ParkingDataSourceDescriptor(
                 ParkingDataProviderId.OPENSTREETMAP,
                 OsmGeofabrikSourceKeys.SOURCE_KEY,

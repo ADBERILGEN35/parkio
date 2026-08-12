@@ -29,6 +29,14 @@ class ParkingProviderCatalogAndRegistryTest {
         assertThat(ispark.reconciliationMode()).isEqualTo(ReconciliationMode.AUTHORITATIVE_FULL_SET);
         assertThat(ispark.productionEligible()).isTrue();
 
+        ParkingDataSourceDescriptor anpark = ParkingProviderCatalog.require(
+                com.parkio.parking.infrastructure.anpark.AnparkMunicipalParkingAdapter.SOURCE_KEY);
+        assertThat(anpark.providerId()).isEqualTo(ParkingDataProviderId.ANPARK);
+        assertThat(anpark.supports(ProviderCapability.FACILITY_INVENTORY)).isTrue();
+        assertThat(anpark.supports(ProviderCapability.LIVE_OCCUPANCY)).isFalse();
+        assertThat(anpark.reconciliationMode()).isEqualTo(ReconciliationMode.AUTHORITATIVE_FULL_SET);
+        assertThat(anpark.productionEligible()).isFalse();
+
         ParkingDataSourceDescriptor osm = ParkingProviderCatalog.require("osm-geofabrik-turkey");
         assertThat(osm.providerId()).isEqualTo(ParkingDataProviderId.OPENSTREETMAP);
         assertThat(osm.supports(ProviderCapability.LIVE_OCCUPANCY)).isFalse();
@@ -41,12 +49,18 @@ class ParkingProviderCatalogAndRegistryTest {
                 .isEqualTo("Izmir Buyuksehir Belediyesi / IZUM");
         assertThat(ParkingProviderCatalog.ISPARK_DISPLAY_NAME)
                 .isEqualTo("Istanbul Buyuksehir Belediyesi / ISPARK");
+        assertThat(ParkingProviderCatalog.ANPARK_DISPLAY_NAME)
+                .isEqualTo("Ankara Buyuksehir Belediyesi / ANPARK");
         assertThat(ParkingProviderCatalog.OSM_DISPLAY_NAME)
                 .isEqualTo("OpenStreetMap contributors / Geofabrik GmbH");
         assertThat(ParkingProviderCatalog.require(IzumMunicipalParkingAdapter.SOURCE_KEY).displayName())
                 .doesNotContain("izmir-izum");
         assertThat(ParkingProviderCatalog.require(IsparkMunicipalParkingAdapter.SOURCE_KEY).displayName())
                 .doesNotContain("istanbul-ispark");
+        assertThat(ParkingProviderCatalog.require(
+                        com.parkio.parking.infrastructure.anpark.AnparkMunicipalParkingAdapter.SOURCE_KEY)
+                .displayName())
+                .doesNotContain("ankara-anpark");
     }
 
     @Test

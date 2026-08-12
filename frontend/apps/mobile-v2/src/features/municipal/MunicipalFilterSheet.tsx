@@ -10,6 +10,7 @@ import { useTheme } from '@/theme/ThemeProvider';
 import {
   MUNICIPAL_CANONICAL_LABEL_IZUM,
   MUNICIPAL_CANONICAL_LABEL_ISPARK,
+  MUNICIPAL_CANONICAL_LABEL_ANPARK,
   MUNICIPAL_CANONICAL_LABEL_OSM,
 } from '@parkio/geo';
 import {
@@ -57,6 +58,7 @@ export function MunicipalFilterSheet({
     { value: 'all', label: t('map.municipal.filters.source.all') },
     { value: 'izum', label: MUNICIPAL_CANONICAL_LABEL_IZUM },
     { value: 'ispark', label: MUNICIPAL_CANONICAL_LABEL_ISPARK },
+    { value: 'anpark', label: MUNICIPAL_CANONICAL_LABEL_ANPARK },
     { value: 'osm', label: MUNICIPAL_CANONICAL_LABEL_OSM },
   ];
 

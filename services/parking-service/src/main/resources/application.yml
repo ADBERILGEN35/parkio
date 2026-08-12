@@ -173,6 +173,20 @@ parkio:
       scheduler-enabled: false
       fixed-delay-ms: 120000
       user-agent: ParkioParkingService/1.0 (+https://parkio.dev)
+    anpark:
+      # PROVIDER-ANKARA-01: Ankara / ANPARK inventory only. Default dark.
+      # LEGAL REVIEW REQUIRED before production enablement.
+      enabled: false
+      operating-mode: ${PARKIO_MUNICIPAL_ANPARK_OPERATING_MODE:SCHEDULED}
+      base-url: https://www.anpark.com.tr
+      path: /wp-json/anpark/v1/parks
+      connect-timeout: 2s
+      read-timeout: 10s
+      max-retries: 1
+      scheduler-enabled: false
+      # 6h — inventory-only; no live occupancy polling cadence.
+      fixed-delay-ms: 21600000
+      user-agent: ParkioParkingService/1.0 (+https://parkio.dev)
     fake-test:
       # WP-SPA-13: architecture-only fake provider. Never enable outside tests.
       enabled: false

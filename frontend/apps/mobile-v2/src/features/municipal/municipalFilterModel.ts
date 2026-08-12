@@ -12,7 +12,7 @@ export const MUNICIPAL_RADIUS_OPTIONS_M = [500, 1000, 1500, 3000, 5000] as const
 
 export type MunicipalRadiusMeters = (typeof MUNICIPAL_RADIUS_OPTIONS_M)[number];
 
-export type MunicipalSourceFilter = 'all' | 'izum' | 'ispark' | 'osm';
+export type MunicipalSourceFilter = 'all' | 'izum' | 'ispark' | 'anpark' | 'osm';
 
 export type MunicipalOccupancyFilter = 'all' | 'live' | 'static';
 
@@ -33,7 +33,7 @@ export const DEFAULT_MUNICIPAL_MAP_FILTERS: MunicipalMapFilters = {
   radiusMeters: DEFAULT_NEARBY_RADIUS_M as MunicipalRadiusMeters,
 };
 
-const SOURCE_VALUES = new Set<MunicipalSourceFilter>(['all', 'izum', 'ispark', 'osm']);
+const SOURCE_VALUES = new Set<MunicipalSourceFilter>(['all', 'izum', 'ispark', 'anpark', 'osm']);
 const OCCUPANCY_VALUES = new Set<MunicipalOccupancyFilter>(['all', 'live', 'static']);
 const RADIUS_VALUES = new Set<number>(MUNICIPAL_RADIUS_OPTIONS_M);
 

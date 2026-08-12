@@ -1,6 +1,7 @@
 package com.parkio.parking.externalsource;
 
 import com.parkio.parking.externalsource.izelman.IzelmanSourceKeys;
+import com.parkio.parking.infrastructure.anpark.AnparkMunicipalParkingAdapter;
 import com.parkio.parking.infrastructure.ispark.IsparkMunicipalParkingAdapter;
 import com.parkio.parking.infrastructure.izum.IzumMunicipalParkingAdapter;
 import com.parkio.parking.infrastructure.osm.OsmGeofabrikSourceKeys;
@@ -18,6 +19,7 @@ import java.util.stream.Collectors;
 public final class MunicipalSourceIdentity {
     public static final String FAMILY_IZUM = "izum";
     public static final String FAMILY_ISPARK = "ispark";
+    public static final String FAMILY_ANPARK = "anpark";
     public static final String FAMILY_OSM = "osm";
     public static final String FAMILY_IZELMAN = "izelman";
     /** Test-only family; never production-published by default. */
@@ -26,6 +28,7 @@ public final class MunicipalSourceIdentity {
 
     public static final String IZUM = IzumMunicipalParkingAdapter.SOURCE_KEY;
     public static final String ISPARK = IsparkMunicipalParkingAdapter.SOURCE_KEY;
+    public static final String ANPARK = AnparkMunicipalParkingAdapter.SOURCE_KEY;
     public static final String OSM = OsmGeofabrikSourceKeys.SOURCE_KEY;
     public static final String FAKE_TEST =
             com.parkio.parking.infrastructure.fake.FakeTestMunicipalParkingAdapter.SOURCE_KEY;
@@ -41,6 +44,9 @@ public final class MunicipalSourceIdentity {
         }
         if (ISPARK.equals(sourceKey)) {
             return FAMILY_ISPARK;
+        }
+        if (ANPARK.equals(sourceKey)) {
+            return FAMILY_ANPARK;
         }
         if (OSM.equals(sourceKey)) {
             return FAMILY_OSM;
@@ -64,6 +70,10 @@ public final class MunicipalSourceIdentity {
 
     public static boolean isIspark(String sourceKey) {
         return FAMILY_ISPARK.equals(familyOf(sourceKey));
+    }
+
+    public static boolean isAnpark(String sourceKey) {
+        return FAMILY_ANPARK.equals(familyOf(sourceKey));
     }
 
     public static boolean isOsm(String sourceKey) {

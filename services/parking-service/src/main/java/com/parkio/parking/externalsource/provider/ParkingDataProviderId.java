@@ -8,6 +8,8 @@ public enum ParkingDataProviderId {
     IZUM,
     /** İstanbul Büyükşehir Belediyesi / İSPARK (machine id: ISPARK). */
     ISPARK,
+    /** Ankara Büyükşehir Belediyesi / ANPARK (machine id: ANPARK). Inventory only. */
+    ANPARK,
     OPENSTREETMAP,
     IZELMAN,
     /** Test-only; never production-enabled. */

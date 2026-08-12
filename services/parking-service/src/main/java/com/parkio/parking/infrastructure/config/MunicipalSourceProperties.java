@@ -10,6 +10,7 @@ public class MunicipalSourceProperties {
     private boolean manualSyncEnabled;
     private Izum izum = new Izum();
     private Ispark ispark = new Ispark();
+    private Anpark anpark = new Anpark();
     private Osm osm = new Osm();
     private FakeTest fakeTest = new FakeTest();
     private Sla sla = new Sla();
@@ -25,6 +26,8 @@ public class MunicipalSourceProperties {
     public void setIzum(Izum izum) { this.izum = izum; }
     public Ispark getIspark() { return ispark; }
     public void setIspark(Ispark ispark) { this.ispark = ispark == null ? new Ispark() : ispark; }
+    public Anpark getAnpark() { return anpark; }
+    public void setAnpark(Anpark anpark) { this.anpark = anpark == null ? new Anpark() : anpark; }
     public Osm getOsm() { return osm; }
     public void setOsm(Osm osm) { this.osm = osm; }
     public FakeTest getFakeTest() { return fakeTest; }
@@ -333,6 +336,55 @@ public class MunicipalSourceProperties {
         private int maxRetries = 1;
         private boolean schedulerEnabled;
         private long fixedDelayMs = 120000;
+        private Long staleAfterSeconds;
+        private Long agingAfterSeconds;
+        private String userAgent = "ParkioParkingService/1.0 (+https://parkio.dev)";
+        private MunicipalSourceOperatingMode operatingMode = MunicipalSourceOperatingMode.SCHEDULED;
+
+        public boolean isEnabled() { return enabled; }
+        public void setEnabled(boolean enabled) { this.enabled = enabled; }
+        public MunicipalSourceOperatingMode getOperatingMode() { return operatingMode; }
+        public void setOperatingMode(MunicipalSourceOperatingMode operatingMode) {
+            this.operatingMode = operatingMode == null
+                    ? MunicipalSourceOperatingMode.SCHEDULED
+                    : operatingMode;
+        }
+        public String getBaseUrl() { return baseUrl; }
+        public void setBaseUrl(String baseUrl) { this.baseUrl = baseUrl; }
+        public String getPath() { return path; }
+        public void setPath(String path) { this.path = path; }
+        public Duration getConnectTimeout() { return connectTimeout; }
+        public void setConnectTimeout(Duration connectTimeout) { this.connectTimeout = connectTimeout; }
+        public Duration getReadTimeout() { return readTimeout; }
+        public void setReadTimeout(Duration readTimeout) { this.readTimeout = readTimeout; }
+        public int getMaxRetries() { return maxRetries; }
+        public void setMaxRetries(int maxRetries) { this.maxRetries = Math.max(0, maxRetries); }
+        public boolean isSchedulerEnabled() { return schedulerEnabled; }
+        public void setSchedulerEnabled(boolean schedulerEnabled) { this.schedulerEnabled = schedulerEnabled; }
+        public long getFixedDelayMs() { return fixedDelayMs; }
+        public void setFixedDelayMs(long fixedDelayMs) { this.fixedDelayMs = fixedDelayMs; }
+        public Long getStaleAfterSeconds() { return staleAfterSeconds; }
+        public void setStaleAfterSeconds(Long staleAfterSeconds) { this.staleAfterSeconds = staleAfterSeconds; }
+        public Long getAgingAfterSeconds() { return agingAfterSeconds; }
+        public void setAgingAfterSeconds(Long agingAfterSeconds) { this.agingAfterSeconds = agingAfterSeconds; }
+        public String getUserAgent() { return userAgent; }
+        public void setUserAgent(String userAgent) { this.userAgent = userAgent; }
+    }
+
+    /**
+     * Ankara / ANPARK facility inventory feed (PROVIDER-ANKARA-01).
+     * Inventory only — no live occupancy. Defaults off; LEGAL REVIEW REQUIRED for production.
+     */
+    public static class Anpark {
+        private boolean enabled;
+        private String baseUrl = "https://www.anpark.com.tr";
+        private String path = "/wp-json/anpark/v1/parks";
+        private Duration connectTimeout = Duration.ofSeconds(2);
+        private Duration readTimeout = Duration.ofSeconds(10);
+        private int maxRetries = 1;
+        private boolean schedulerEnabled;
+        /** 6 hours — inventory-only; no live occupancy cadence. */
+        private long fixedDelayMs = 21_600_000L;
         private Long staleAfterSeconds;
         private Long agingAfterSeconds;
         private String userAgent = "ParkioParkingService/1.0 (+https://parkio.dev)";

@@ -2,6 +2,7 @@ package com.parkio.parking.presentation;
 
 import com.parkio.parking.application.MunicipalFacilitySyncService;
 import com.parkio.parking.externalsource.MunicipalSyncResult;
+import com.parkio.parking.infrastructure.anpark.AnparkMunicipalParkingAdapter;
 import com.parkio.parking.infrastructure.config.MunicipalSourceProperties;
 import com.parkio.parking.infrastructure.ispark.IsparkMunicipalParkingAdapter;
 import com.parkio.parking.infrastructure.izum.IzumMunicipalParkingAdapter;
@@ -55,6 +56,9 @@ public class MunicipalManualSyncController {
         }
         if (IsparkMunicipalParkingAdapter.SOURCE_KEY.equals(sourceKey) && !properties.getIspark().isEnabled()) {
             throw new ResponseStatusException(HttpStatus.CONFLICT, "ISPARK source is disabled");
+        }
+        if (AnparkMunicipalParkingAdapter.SOURCE_KEY.equals(sourceKey) && !properties.getAnpark().isEnabled()) {
+            throw new ResponseStatusException(HttpStatus.CONFLICT, "ANPARK source is disabled");
         }
         Instant started = Instant.now();
         try {

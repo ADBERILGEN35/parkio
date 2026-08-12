@@ -1,6 +1,7 @@
 import {
   MUNICIPAL_CANONICAL_LABEL_IZUM,
   MUNICIPAL_CANONICAL_LABEL_ISPARK,
+  MUNICIPAL_CANONICAL_LABEL_ANPARK,
   MUNICIPAL_CANONICAL_LABEL_OSM,
   municipalDataSourceLabels,
   municipalOccupancyPresentationKind,
@@ -43,12 +44,15 @@ export function municipalFacilitySourceFilter(
   const labels = municipalDataSourceLabels(facility);
   const hasIzum = labels.includes(MUNICIPAL_CANONICAL_LABEL_IZUM);
   const hasIspark = labels.includes(MUNICIPAL_CANONICAL_LABEL_ISPARK);
+  const hasAnpark = labels.includes(MUNICIPAL_CANONICAL_LABEL_ANPARK);
   const hasOsm = labels.includes(MUNICIPAL_CANONICAL_LABEL_OSM);
-  if (hasIzum && !hasOsm && !hasIspark) return 'izum';
-  if (hasIspark && !hasOsm && !hasIzum) return 'ispark';
-  if (hasOsm && !hasIzum && !hasIspark) return 'osm';
+  if (hasIzum && !hasOsm && !hasIspark && !hasAnpark) return 'izum';
+  if (hasIspark && !hasOsm && !hasIzum && !hasAnpark) return 'ispark';
+  if (hasAnpark && !hasOsm && !hasIzum && !hasIspark) return 'anpark';
+  if (hasOsm && !hasIzum && !hasIspark && !hasAnpark) return 'osm';
   if (hasIzum) return 'izum';
   if (hasIspark) return 'ispark';
+  if (hasAnpark) return 'anpark';
   return 'unknown';
 }
 
@@ -64,6 +68,7 @@ export function matchesMunicipalSourceFilter(
   const labels = municipalDataSourceLabels(facility);
   if (source === 'izum') return labels.includes(MUNICIPAL_CANONICAL_LABEL_IZUM);
   if (source === 'ispark') return labels.includes(MUNICIPAL_CANONICAL_LABEL_ISPARK);
+  if (source === 'anpark') return labels.includes(MUNICIPAL_CANONICAL_LABEL_ANPARK);
   if (source === 'osm') return labels.includes(MUNICIPAL_CANONICAL_LABEL_OSM);
   return true;
 }

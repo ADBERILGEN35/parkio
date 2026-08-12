@@ -24,6 +24,9 @@ public final class MunicipalSourceOperatingModePolicy {
         if (MunicipalSourceIdentity.isIspark(sourceKey)) {
             return properties.getIspark().getOperatingMode();
         }
+        if (MunicipalSourceIdentity.isAnpark(sourceKey)) {
+            return properties.getAnpark().getOperatingMode();
+        }
         if (MunicipalSourceIdentity.isOsm(sourceKey)) {
             return properties.getOsm().getOperatingMode();
         }
