@@ -10,6 +10,8 @@ public enum ParkingDataProviderId {
     ISPARK,
     /** Ankara Büyükşehir Belediyesi / ANPARK (machine id: ANPARK). Inventory only. */
     ANPARK,
+    /** Konya Büyükşehir Belediyesi / Otopark Bilgileri (machine id: KONYA). Inventory only. */
+    KONYA,
     OPENSTREETMAP,
     IZELMAN,
     /** Test-only; never production-enabled. */

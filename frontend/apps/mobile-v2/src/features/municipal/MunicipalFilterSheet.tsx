@@ -11,6 +11,7 @@ import {
   MUNICIPAL_CANONICAL_LABEL_IZUM,
   MUNICIPAL_CANONICAL_LABEL_ISPARK,
   MUNICIPAL_CANONICAL_LABEL_ANPARK,
+  MUNICIPAL_CANONICAL_LABEL_KONYA,
   MUNICIPAL_CANONICAL_LABEL_OSM,
 } from '@parkio/geo';
 import {
@@ -59,6 +60,7 @@ export function MunicipalFilterSheet({
     { value: 'izum', label: MUNICIPAL_CANONICAL_LABEL_IZUM },
     { value: 'ispark', label: MUNICIPAL_CANONICAL_LABEL_ISPARK },
     { value: 'anpark', label: MUNICIPAL_CANONICAL_LABEL_ANPARK },
+    { value: 'konya', label: MUNICIPAL_CANONICAL_LABEL_KONYA },
     { value: 'osm', label: MUNICIPAL_CANONICAL_LABEL_OSM },
   ];
 

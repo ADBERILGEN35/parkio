@@ -4,10 +4,12 @@ import {
   MUNICIPAL_CANONICAL_LABEL_IZUM,
   MUNICIPAL_CANONICAL_LABEL_ISPARK,
   MUNICIPAL_CANONICAL_LABEL_ANPARK,
+  MUNICIPAL_CANONICAL_LABEL_KONYA,
   MUNICIPAL_CANONICAL_LABEL_OSM,
   MUNICIPAL_SOURCE_KEY_IZUM,
   MUNICIPAL_SOURCE_KEY_ISPARK,
   MUNICIPAL_SOURCE_KEY_ANPARK,
+  MUNICIPAL_SOURCE_KEY_KONYA,
   MUNICIPAL_SOURCE_KEY_OSM,
   canonicalLabelForSourceKey,
   canonicalLabelForSourceLabel,
@@ -48,6 +50,7 @@ describe('canonicalLabelForSourceKey', () => {
     expect(canonicalLabelForSourceKey(MUNICIPAL_SOURCE_KEY_IZUM)).toBe(MUNICIPAL_CANONICAL_LABEL_IZUM);
     expect(canonicalLabelForSourceKey(MUNICIPAL_SOURCE_KEY_ISPARK)).toBe(MUNICIPAL_CANONICAL_LABEL_ISPARK);
     expect(canonicalLabelForSourceKey(MUNICIPAL_SOURCE_KEY_ANPARK)).toBe(MUNICIPAL_CANONICAL_LABEL_ANPARK);
+    expect(canonicalLabelForSourceKey(MUNICIPAL_SOURCE_KEY_KONYA)).toBe(MUNICIPAL_CANONICAL_LABEL_KONYA);
   });
 
   it('omits unknown keys', () => {
@@ -80,6 +83,12 @@ describe('canonicalLabelForSourceLabel', () => {
   it('recognizes ANPARK backend copy', () => {
     expect(canonicalLabelForSourceLabel('Ankara Buyuksehir Belediyesi / ANPARK')).toBe(
       MUNICIPAL_CANONICAL_LABEL_ANPARK,
+    );
+  });
+
+  it('recognizes Konya backend copy', () => {
+    expect(canonicalLabelForSourceLabel('Konya Buyuksehir Belediyesi')).toBe(
+      MUNICIPAL_CANONICAL_LABEL_KONYA,
     );
   });
 });

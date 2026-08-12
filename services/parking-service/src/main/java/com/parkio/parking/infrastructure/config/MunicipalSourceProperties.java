@@ -11,6 +11,7 @@ public class MunicipalSourceProperties {
     private Izum izum = new Izum();
     private Ispark ispark = new Ispark();
     private Anpark anpark = new Anpark();
+    private Konya konya = new Konya();
     private Osm osm = new Osm();
     private FakeTest fakeTest = new FakeTest();
     private Sla sla = new Sla();
@@ -28,6 +29,8 @@ public class MunicipalSourceProperties {
     public void setIspark(Ispark ispark) { this.ispark = ispark == null ? new Ispark() : ispark; }
     public Anpark getAnpark() { return anpark; }
     public void setAnpark(Anpark anpark) { this.anpark = anpark == null ? new Anpark() : anpark; }
+    public Konya getKonya() { return konya; }
+    public void setKonya(Konya konya) { this.konya = konya == null ? new Konya() : konya; }
     public Osm getOsm() { return osm; }
     public void setOsm(Osm osm) { this.osm = osm; }
     public FakeTest getFakeTest() { return fakeTest; }
@@ -402,6 +405,67 @@ public class MunicipalSourceProperties {
         public void setBaseUrl(String baseUrl) { this.baseUrl = baseUrl; }
         public String getPath() { return path; }
         public void setPath(String path) { this.path = path; }
+        public Duration getConnectTimeout() { return connectTimeout; }
+        public void setConnectTimeout(Duration connectTimeout) { this.connectTimeout = connectTimeout; }
+        public Duration getReadTimeout() { return readTimeout; }
+        public void setReadTimeout(Duration readTimeout) { this.readTimeout = readTimeout; }
+        public int getMaxRetries() { return maxRetries; }
+        public void setMaxRetries(int maxRetries) { this.maxRetries = Math.max(0, maxRetries); }
+        public boolean isSchedulerEnabled() { return schedulerEnabled; }
+        public void setSchedulerEnabled(boolean schedulerEnabled) { this.schedulerEnabled = schedulerEnabled; }
+        public long getFixedDelayMs() { return fixedDelayMs; }
+        public void setFixedDelayMs(long fixedDelayMs) { this.fixedDelayMs = fixedDelayMs; }
+        public Long getStaleAfterSeconds() { return staleAfterSeconds; }
+        public void setStaleAfterSeconds(Long staleAfterSeconds) { this.staleAfterSeconds = staleAfterSeconds; }
+        public Long getAgingAfterSeconds() { return agingAfterSeconds; }
+        public void setAgingAfterSeconds(Long agingAfterSeconds) { this.agingAfterSeconds = agingAfterSeconds; }
+        public String getUserAgent() { return userAgent; }
+        public void setUserAgent(String userAgent) { this.userAgent = userAgent; }
+    }
+
+    /**
+     * Konya / Otopark Bilgileri CKAN inventory feed (PROVIDER-KONYA-01).
+     * Inventory only — no live occupancy. Defaults off.
+     */
+    public static class Konya {
+        private boolean enabled;
+        private String baseUrl = "https://acikveri.konya.bel.tr";
+        private String path = "/api/3/action/datastore_search";
+        private String resourceId = "707d3cb9-1264-49dc-98a0-b9863766ab39";
+        private int pageSize = 100;
+        private int maxPages = 10;
+        private int maxRecords = 500;
+        private Duration connectTimeout = Duration.ofSeconds(5);
+        private Duration readTimeout = Duration.ofSeconds(30);
+        private int maxRetries = 1;
+        private boolean schedulerEnabled;
+        /** 24h — static/stale inventory; no live occupancy polling cadence. */
+        private long fixedDelayMs = 86_400_000L;
+        private Long staleAfterSeconds;
+        private Long agingAfterSeconds;
+        private String userAgent = "ParkioParkingService/1.0 (+https://parkio.dev)";
+        private MunicipalSourceOperatingMode operatingMode = MunicipalSourceOperatingMode.SCHEDULED;
+
+        public boolean isEnabled() { return enabled; }
+        public void setEnabled(boolean enabled) { this.enabled = enabled; }
+        public MunicipalSourceOperatingMode getOperatingMode() { return operatingMode; }
+        public void setOperatingMode(MunicipalSourceOperatingMode operatingMode) {
+            this.operatingMode = operatingMode == null
+                    ? MunicipalSourceOperatingMode.SCHEDULED
+                    : operatingMode;
+        }
+        public String getBaseUrl() { return baseUrl; }
+        public void setBaseUrl(String baseUrl) { this.baseUrl = baseUrl; }
+        public String getPath() { return path; }
+        public void setPath(String path) { this.path = path; }
+        public String getResourceId() { return resourceId; }
+        public void setResourceId(String resourceId) { this.resourceId = resourceId; }
+        public int getPageSize() { return Math.max(1, pageSize); }
+        public void setPageSize(int pageSize) { this.pageSize = pageSize; }
+        public int getMaxPages() { return Math.max(1, maxPages); }
+        public void setMaxPages(int maxPages) { this.maxPages = maxPages; }
+        public int getMaxRecords() { return Math.max(1, maxRecords); }
+        public void setMaxRecords(int maxRecords) { this.maxRecords = maxRecords; }
         public Duration getConnectTimeout() { return connectTimeout; }
         public void setConnectTimeout(Duration connectTimeout) { this.connectTimeout = connectTimeout; }
         public Duration getReadTimeout() { return readTimeout; }

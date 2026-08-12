@@ -35,7 +35,7 @@ class MunicipalSourceMigrationPostgresIT {
         flyway.migrate();
 
         try (Connection connection = openConnection()) {
-            assertThat(currentFlywayVersion(connection)).isEqualTo("37");
+            assertThat(currentFlywayVersion(connection)).isEqualTo("38");
             assertThat(tableExists(connection, "municipal_data_sources")).isTrue();
             assertThat(tableExists(connection, "municipal_source_sync_runs")).isTrue();
             assertThat(tableExists(connection, "municipal_parking_facilities")).isTrue();
@@ -52,6 +52,7 @@ class MunicipalSourceMigrationPostgresIT {
             assertThat(seedCount(connection, "osm-geofabrik-turkey")).isEqualTo(1);
             assertThat(seedCount(connection, "istanbul-ispark-parks")).isEqualTo(1);
             assertThat(seedCount(connection, "ankara-anpark-parks")).isEqualTo(1);
+            assertThat(seedCount(connection, "konya-bb-otopark-bilgileri")).isEqualTo(1);
             assertThat(tableExists(connection, "municipal_osm_import_runs")).isTrue();
             assertThat(tableExists(connection, "municipal_facility_conflation_decisions")).isTrue();
             assertThat(tableExists(connection, "municipal_link_candidate_generation_runs")).isTrue();
@@ -60,12 +61,13 @@ class MunicipalSourceMigrationPostgresIT {
             assertThat(tableExists(connection, "ranking_evaluation_outcomes")).isTrue();
 
             flyway.migrate();
-            assertThat(currentFlywayVersion(connection)).isEqualTo("37");
+            assertThat(currentFlywayVersion(connection)).isEqualTo("38");
             assertThat(seedCount(connection, "izmir-izum-otoparklar")).isEqualTo(1);
                 assertThat(seedCount(connection, "izelman-open-parking-facilities")).isEqualTo(1);
             assertThat(seedCount(connection, "osm-geofabrik-turkey")).isEqualTo(1);
             assertThat(seedCount(connection, "istanbul-ispark-parks")).isEqualTo(1);
             assertThat(seedCount(connection, "ankara-anpark-parks")).isEqualTo(1);
+            assertThat(seedCount(connection, "konya-bb-otopark-bilgileri")).isEqualTo(1);
         }
     }
 
@@ -84,7 +86,7 @@ class MunicipalSourceMigrationPostgresIT {
         full.migrate();
 
         try (Connection connection = openConnection()) {
-            assertThat(currentFlywayVersion(connection)).isEqualTo("37");
+            assertThat(currentFlywayVersion(connection)).isEqualTo("38");
             assertThat(tableExists(connection, "municipal_data_sources")).isTrue();
             assertThat(foreignKeyExists(connection, "municipal_facility_source_links",
                     "fk_municipal_facility_source_links_facility")).isTrue();
@@ -95,6 +97,7 @@ class MunicipalSourceMigrationPostgresIT {
                 assertThat(seedCount(connection, "izelman-open-parking-facilities")).isEqualTo(1);
             assertThat(seedCount(connection, "istanbul-ispark-parks")).isEqualTo(1);
             assertThat(seedCount(connection, "ankara-anpark-parks")).isEqualTo(1);
+            assertThat(seedCount(connection, "konya-bb-otopark-bilgileri")).isEqualTo(1);
         }
     }
 

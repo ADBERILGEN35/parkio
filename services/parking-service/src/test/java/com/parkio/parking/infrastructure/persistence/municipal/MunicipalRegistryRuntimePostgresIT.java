@@ -67,17 +67,17 @@ class MunicipalRegistryRuntimePostgresIT {
         }
 
         Flyway latest = flyway(null);
-        assertThat(latest.migrate().migrationsExecuted).isEqualTo(5);
+        assertThat(latest.migrate().migrationsExecuted).isEqualTo(6);
         assertThat(latest.migrate().migrationsExecuted).isZero();
 
         try (Connection connection = open()) {
-            assertThat(version(connection)).isEqualTo("37");
+            assertThat(version(connection)).isEqualTo("38");
             assertThat(count(connection, "SELECT count(*) FROM municipal_parking_facilities WHERE id='" + FACILITY_A + "'"))
                     .isEqualTo(1);
             assertThat(count(connection, "SELECT count(*) FROM municipal_link_candidates")).isZero();
             for (String sourceKey : new String[] {
                     "izmir-izum-otoparklar", "osm-geofabrik-turkey", "izelman-open-parking-facilities",
-                    "istanbul-ispark-parks", "ankara-anpark-parks"}) {
+                    "istanbul-ispark-parks", "ankara-anpark-parks", "konya-bb-otopark-bilgileri"}) {
                 assertThat(count(connection, "SELECT count(*) FROM municipal_data_sources WHERE source_key='"
                         + sourceKey + "'")).as(sourceKey).isEqualTo(1);
             }

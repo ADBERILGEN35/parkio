@@ -187,6 +187,23 @@ parkio:
       # 6h — inventory-only; no live occupancy polling cadence.
       fixed-delay-ms: 21600000
       user-agent: ParkioParkingService/1.0 (+https://parkio.dev)
+    konya:
+      # PROVIDER-KONYA-01: Konya / Otopark Bilgileri inventory only. Default dark.
+      enabled: false
+      operating-mode: ${PARKIO_MUNICIPAL_KONYA_OPERATING_MODE:SCHEDULED}
+      base-url: https://acikveri.konya.bel.tr
+      path: /api/3/action/datastore_search
+      resource-id: 707d3cb9-1264-49dc-98a0-b9863766ab39
+      page-size: 100
+      max-pages: 10
+      max-records: 500
+      connect-timeout: 5s
+      read-timeout: 30s
+      max-retries: 1
+      scheduler-enabled: false
+      # 24h — static/stale inventory; no live occupancy polling cadence.
+      fixed-delay-ms: 86400000
+      user-agent: ParkioParkingService/1.0 (+https://parkio.dev)
     fake-test:
       # WP-SPA-13: architecture-only fake provider. Never enable outside tests.
       enabled: false

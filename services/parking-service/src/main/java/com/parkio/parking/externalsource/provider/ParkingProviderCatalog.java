@@ -6,6 +6,7 @@ import com.parkio.parking.infrastructure.anpark.AnparkMunicipalParkingAdapter;
 import com.parkio.parking.infrastructure.fake.FakeTestMunicipalParkingAdapter;
 import com.parkio.parking.infrastructure.ispark.IsparkMunicipalParkingAdapter;
 import com.parkio.parking.infrastructure.izum.IzumMunicipalParkingAdapter;
+import com.parkio.parking.infrastructure.konya.KonyaMunicipalParkingAdapter;
 import com.parkio.parking.infrastructure.osm.OsmGeofabrikSourceKeys;
 import java.util.Collection;
 import java.util.LinkedHashMap;
@@ -37,6 +38,11 @@ public final class ParkingProviderCatalog {
             "Includes facility inventory from Ankara Buyuksehir Belediyesi / ANPARK (BELTAS A.S.). "
                     + "Parkio is not affiliated with or endorsed by Ankara Metropolitan Municipality, "
                     + "BELTAS A.S., or ANPARK. LEGAL REVIEW REQUIRED for redistribution.";
+    public static final String KONYA_DISPLAY_NAME = "Konya Buyuksehir Belediyesi";
+    public static final String KONYA_ATTRIBUTION =
+            "Includes public sector information from Konya Buyuksehir Belediyesi Acik Veri Portali "
+                    + "licensed under Creative Commons Attribution 3.0 (CC BY 3.0). "
+                    + "Parkio is not affiliated with or endorsed by Konya Metropolitan Municipality.";
     public static final String OSM_DISPLAY_NAME = "OpenStreetMap contributors / Geofabrik GmbH";
     public static final String OSM_ATTRIBUTION = "OpenStreetMap contributors";
 
@@ -71,6 +77,15 @@ public final class ParkingProviderCatalog {
                 ANPARK_DISPLAY_NAME,
                 ANPARK_ATTRIBUTION,
                 false));
+        put(map, new ParkingDataSourceDescriptor(
+                ParkingDataProviderId.KONYA,
+                KonyaMunicipalParkingAdapter.SOURCE_KEY,
+                MunicipalSourceIdentity.FAMILY_KONYA,
+                Set.of(ProviderCapability.FACILITY_INVENTORY),
+                ReconciliationMode.UPSERT_ONLY,
+                KONYA_DISPLAY_NAME,
+                KONYA_ATTRIBUTION,
+                true));
         put(map, new ParkingDataSourceDescriptor(
                 ParkingDataProviderId.OPENSTREETMAP,
                 OsmGeofabrikSourceKeys.SOURCE_KEY,
