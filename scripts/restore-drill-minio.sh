@@ -57,12 +57,17 @@ cleanup() {
     -e MINIO_ROOT_PASSWORD="${MINIO_ROOT_PASSWORD:?set MINIO_ROOT_PASSWORD}" \
     -e SRC_BUCKET="${SRC_BUCKET}" -e DST_BUCKET="${DST_BUCKET}" \
     "${MC_IMAGE}" -c '
-      set -eu
+      set +e
       mc alias set local http://minio:9000 "$MINIO_ROOT_USER" "$MINIO_ROOT_PASSWORD" >/dev/null
-      mc rb --force "local/${SRC_BUCKET}" >/dev/null 2>&1 || true
-      mc rb --force "local/${DST_BUCKET}" >/dev/null 2>&1 || true
+      mc rb --force "local/${SRC_BUCKET}" >/dev/null 2>&1
+      mc rb --force "local/${DST_BUCKET}" >/dev/null 2>&1
+      exit 0
     ' || true
-  rm -rf "${WORK}"
+  # mc mirror writes as root into the bind mount; delete via container.
+  docker run --rm --user 0 --entrypoint /bin/sh \
+    -v "${WORK}:/work" \
+    "${MC_IMAGE}" -c 'rm -rf /work/*' >/dev/null 2>&1 || true
+  rm -rf "${WORK}" 2>/dev/null || true
 }
 trap cleanup EXIT
 
