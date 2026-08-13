@@ -74,5 +74,6 @@ docker run --rm \
     set -eu
     mc alias set local http://minio:9000 "$MINIO_ROOT_USER" "$MINIO_ROOT_PASSWORD" >/dev/null
     mc mirror --overwrite --quiet "local/${BUCKET}" /backup >/dev/null
+    chmod -R a+rwX /backup
     mc ls --recursive "local/${BUCKET}" | wc -l
   '

@@ -142,6 +142,9 @@ rm -rf "${PROBE}"
 
 # 6) Simulate local loss.
 echo "==> Removing local stamp ${STAMP_DIR}"
+docker run --rm --user 0 --entrypoint /bin/sh \
+  -v "${STAMP_DIR}:/wipe" \
+  "${MC_IMAGE}" -c 'rm -rf /wipe/* /wipe/.[!.]*' >/dev/null 2>&1 || true
 rm -rf "${STAMP_DIR}"
 if [ -e "${STAMP_DIR}" ]; then
   echo "ERROR: local stamp still present after delete." >&2
@@ -189,7 +192,11 @@ docker run --rm --network "${NETWORK}" --entrypoint /bin/sh \
     mc cp "local/${DST_BUCKET}/synthetic/offsite-drill-object.txt" "/out/${OUT_NAME}"
   '
 GOT_SHA="$(sha256sum "${GOT}" | awk '{print $1}')"
-rm -f "${GOT}"
+docker run --rm --user 0 --entrypoint /bin/sh \
+  -v "$(dirname "${GOT}"):/out" \
+  -e OUT_NAME="$(basename "${GOT}")" \
+  "${MC_IMAGE}" -c 'rm -f "/out/${OUT_NAME}"' >/dev/null 2>&1 || true
+rm -f "${GOT}" 2>/dev/null || true
 docker run --rm --network "${NETWORK}" --entrypoint /bin/sh \
   -e MINIO_ROOT_USER="${MINIO_ROOT_USER:-minioadmin}" \
   -e MINIO_ROOT_PASSWORD="${MINIO_ROOT_PASSWORD}" \
