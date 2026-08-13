@@ -14,6 +14,27 @@
 name: Backup restore drill
 
 on:
+  push:
+    branches: [api]
+    paths:
+      - "scripts/backup-databases.sh"
+      - "scripts/backup-minio.sh"
+      - "scripts/backup-hosted-beta.sh"
+      - "scripts/restore-hosted-beta.sh"
+      - "scripts/lib/backup-common.sh"
+      - "scripts/lib/restore-drill-services.sh"
+      - "scripts/restore-database.sh"
+      - "scripts/verify-backup.sh"
+      - "scripts/restore-drill.sh"
+      - "scripts/restore-drill-minio.sh"
+      - "scripts/restore-drill-failure-modes.sh"
+      - "scripts/staging/**"
+      - "docker/docker-compose.staging-verification.yml"
+      - "docker/docker-compose.restore-drill.yml"
+      - "docker/docker-compose.yml"
+      - "services/parking-service/src/main/resources/db/migration/**"
+      - "services/gateway-service/src/main/resources/db/migration/**"
+      - ".github/workflows/backup-restore-drill.yml"
   pull_request:
     paths:
       - "scripts/backup-databases.sh"
