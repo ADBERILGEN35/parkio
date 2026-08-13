@@ -52,10 +52,10 @@ if [ -z "${NETWORK}" ]; then
   exit 1
 fi
 
-echo "MinIO backup -> ${MIRROR_DEST} (bucket=${BUCKET}, container=${MINIO_CONTAINER}, network=${NETWORK}, dryRun=${DRY_RUN})"
+echo "MinIO backup -> ${MIRROR_DEST} (bucket=${BUCKET}, container=${MINIO_CONTAINER}, network=${NETWORK}, dryRun=${DRY_RUN})" >&2
 
 if [ "$DRY_RUN" -eq 1 ]; then
-  echo "DRY-RUN: would mirror local/${BUCKET} to ${MIRROR_DEST}"
+  echo "DRY-RUN: would mirror local/${BUCKET} to ${MIRROR_DEST}" >&2
   echo "0"
   exit 0
 fi
@@ -72,7 +72,7 @@ docker run --rm \
   "${MC_IMAGE}" \
   -c '
     set -eu
-    mc alias set local http://minio:9000 "$MINIO_ROOT_USER" "$MINIO_ROOT_PASSWORD"
-    mc mirror --overwrite "local/${BUCKET}" /backup
+    mc alias set local http://minio:9000 "$MINIO_ROOT_USER" "$MINIO_ROOT_PASSWORD" >/dev/null
+    mc mirror --overwrite --quiet "local/${BUCKET}" /backup >/dev/null
     mc ls --recursive "local/${BUCKET}" | wc -l
   '

@@ -83,13 +83,22 @@ if [ "${KIND}" = "none" ] || [ "${KIND}" = "s3" ]; then
         -e MINIO_ROOT_PASSWORD="${BACKUP_MC_SECRET_KEY:-offsite-ci-not-prod-minio}" \
         minio/minio:RELEASE.2024-09-22T00-33-43Z server /data >/dev/null
       STARTED_OFFSITE=1
+      ready=0
       for _ in $(seq 1 30); do
-        if docker exec "${OFFSITE_NAME}" mc --help >/dev/null 2>&1 || docker inspect -f '{{.State.Running}}' "${OFFSITE_NAME}" | grep -q true; then
-          sleep 2
+        if docker run --rm --network "${NETWORK}" --entrypoint /bin/sh \
+          -e MC_URL="http://${OFFSITE_NAME}:9000" \
+          -e MC_ACCESS="${BACKUP_MC_ACCESS_KEY:-offsiteadmin}" \
+          -e MC_SECRET="${BACKUP_MC_SECRET_KEY:-offsite-ci-not-prod-minio}" \
+          "${MC_IMAGE}" -c 'mc alias set offsite "$MC_URL" "$MC_ACCESS" "$MC_SECRET" >/dev/null && mc ready offsite' >/dev/null 2>&1; then
+          ready=1
           break
         fi
         sleep 1
       done
+      if [ "${ready}" -ne 1 ]; then
+        echo "ERROR: ephemeral offsite MinIO did not become ready." >&2
+        exit 1
+      fi
     fi
     export BACKUP_OFFSITE_KIND=s3
     export BACKUP_MC_DEST="${BACKUP_MC_DEST:-offsite/parkio-backups}"

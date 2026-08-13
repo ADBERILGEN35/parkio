@@ -70,9 +70,12 @@ fi
 
 MINIO_OBJECTS=0
 MINIO_OK=1
-if ! MINIO_OBJECTS="$("${ROOT}/scripts/backup-minio.sh" "${DEST_DIR}" ${ENV_FILE:+--env-file "$ENV_FILE"})"; then
+if ! MINIO_RAW="$("${ROOT}/scripts/backup-minio.sh" "${DEST_DIR}" ${ENV_FILE:+--env-file "$ENV_FILE"})"; then
   MINIO_OK=0
   MINIO_OBJECTS=0
+else
+  MINIO_OBJECTS="$(printf '%s\n' "${MINIO_RAW}" | tail -1 | tr -cd '0-9')"
+  MINIO_OBJECTS="${MINIO_OBJECTS:-0}"
 fi
 
 if [ -n "${BACKUP_ENCRYPT_PASSPHRASE:-}" ]; then
