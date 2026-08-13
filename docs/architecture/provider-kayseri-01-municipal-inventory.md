@@ -26,3 +26,9 @@
 - Capacity / opening hours / active flag absent upstream → canonical null / UNKNOWN
 - Geo gate: lat 38.40–39.20, lng 35.00–36.20
 - Konya remains in repo with flags OFF; no Cloudflare bypass
+- **Hosted-beta egress (2026-08-13):** Azure France Central (`20.199.17.76`,
+  AS8075) cannot complete TCP/443 to `acikveri.kayseri.bel.tr`
+  (`212.175.206.120`, AS9121). Local/non-Azure clients receive HTTP 200.
+  Classification: remote firewall/ACL (likely Azure/datacenter block), not an
+  Azure NSG/routing defect. Keep `PARKIO_MUNICIPAL_KAYSERI_*` **false** until
+  official allowlist/API. See [municipal-open-data-egress.md](../operations/municipal-open-data-egress.md).

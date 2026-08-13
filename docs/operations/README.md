@@ -51,6 +51,7 @@ action, diagnostics, recovery, and escalation.
 | [Outcome Validation Runbook](outcome-validation-runbook.md) | WP-05.10 outcome job |
 | [DLQ Redrive Runbook](dlq-redrive-runbook.md) | Kafka DLT recovery |
 | [Municipal Parking Source Runbook](municipal-parking-source-runbook.md) | DATA-WP-01 İZUM sync / stale / rollback |
+| [Municipal open-data egress](municipal-open-data-egress.md) | Hosted-beta reachability policy; Kayseri/Konya blockers |
 | [DATA-WP-06 source health / SLA / recovery (spec)](../architecture/wp-data-06-engineering-specification.md) | Municipal DATA package; not ops WP-06 |
 | [DATA-WP-07 discovery duplicate-presentation](../architecture/wp-data-07-engineering-specification.md) | Policy closed (07/07A); defaults enabled by DATA-WP-12; not mobile WP-07 |
 | [DATA-WP-12 enable duplicate-presentation default](../architecture/wp-data-12-engineering-specification.md) | Canonical/hosted-beta default true; prod pins false; 12A leave-on not started |

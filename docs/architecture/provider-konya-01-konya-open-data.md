@@ -100,4 +100,5 @@ Catalog `productionEligible=true` (Level-B CC BY evidence sufficient for technic
   Browser/User-Agent changes did not bypass. Local/non-datacenter clients still receive
   HTTP 200. Live hosted-beta sync therefore fails with `errorCategory=authentication`
   until publisher allowlisting or an approved egress path exists. Implementation remains
-  default-OFF and ready once access is restored.
+  default-OFF and ready once access is restored. This is **not** the same failure
+  as Kayseri TCP timeout. See [municipal-open-data-egress.md](../operations/municipal-open-data-egress.md).

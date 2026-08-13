@@ -50,6 +50,10 @@ Exact configuration keys, defaults, and disable behavior. Source:
 | `parkio.municipal.enabled` | `false` | Master gate for municipal integration |
 | `parkio.municipal.izum.enabled` | `false` | Live IZUM HTTP fetch path |
 | `parkio.municipal.izum.scheduler-enabled` | `false` | Scheduled sync job |
+| `parkio.municipal.kayseri.enabled` | `false` | Keep OFF until hosted-beta egress is allowlisted |
+| `parkio.municipal.kayseri.scheduler-enabled` | `false` | Do not leave daily timeout jobs enabled |
+| `parkio.municipal.konya.enabled` | `false` | Keep OFF; Cloudflare 403 from Azure |
+| `parkio.municipal.konya.scheduler-enabled` | `false` | Do not leave daily challenge jobs enabled |
 | `parkio.municipal.manual-sync-enabled` | `false` | Admin manual sync endpoint |
 
 Disabling IZUM leaves facility inventory intact; occupancy ages to STALE and

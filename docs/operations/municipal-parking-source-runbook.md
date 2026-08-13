@@ -1,5 +1,9 @@
 # Municipal parking source runbook (IZUM)
 
+Hosted-beta reachability for additional municipal open-data hosts:
+[municipal-open-data-egress.md](municipal-open-data-egress.md).
+Kayseri/Konya schedulers stay OFF until `HOSTED_BETA_EGRESS_REACHABLE=YES`.
+
 ## Hosted-beta Compose env bindings (DATA-WP-02C)
 
 Azure overlay `docker/docker-compose.azure-hosted-beta.yml` must map these into
