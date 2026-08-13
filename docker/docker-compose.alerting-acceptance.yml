@@ -1,0 +1,124 @@
+# Isolated Prometheus → Alertmanager → webhook catcher stack.
+# Used only by scripts/alerting-acceptance.sh (CI). Do not attach to hosted-beta.
+
+name: parkio-alert-accept
+
+services:
+  alerting-metrics:
+    image: python:3.12-slim
+    container_name: parkio-alerting-metrics
+    command: ["python", "/app/alerting-acceptance-receiver.py", "metrics"]
+    volumes:
+      - ../scripts/alerting-acceptance-receiver.py:/app/alerting-acceptance-receiver.py:ro
+    ports:
+      - "127.0.0.1:${PARKIO_ALERT_ACCEPT_METRICS_PORT:-18081}:8081"
+    networks: [parkio-alerting-accept]
+    healthcheck:
+      test:
+        [
+          "CMD",
+          "python",
+          "-c",
+          "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8081/health')",
+        ]
+      interval: 5s
+      timeout: 3s
+      retries: 12
+      start_period: 5s
+
+  alerting-parking-probe:
+    image: python:3.12-slim
+    container_name: parkio-alerting-parking-probe
+    command: ["python", "/app/alerting-acceptance-receiver.py", "probe"]
+    volumes:
+      - ../scripts/alerting-acceptance-receiver.py:/app/alerting-acceptance-receiver.py:ro
+    networks: [parkio-alerting-accept]
+    healthcheck:
+      test:
+        [
+          "CMD",
+          "python",
+          "-c",
+          "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8082/health')",
+        ]
+      interval: 5s
+      timeout: 3s
+      retries: 12
+      start_period: 5s
+
+  alerting-webhook:
+    image: python:3.12-slim
+    container_name: parkio-alerting-webhook
+    command: ["python", "/app/alerting-acceptance-receiver.py", "webhook"]
+    volumes:
+      - ../scripts/alerting-acceptance-receiver.py:/app/alerting-acceptance-receiver.py:ro
+      - ${PARKIO_ALERT_ACCEPT_RECEIPTS_DIR:-./.alerting-acceptance-receipts}:/receipts
+    ports:
+      - "127.0.0.1:${PARKIO_ALERT_ACCEPT_WEBHOOK_PORT:-18080}:8080"
+    networks: [parkio-alerting-accept]
+    healthcheck:
+      test:
+        [
+          "CMD",
+          "python",
+          "-c",
+          "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8080/health')",
+        ]
+      interval: 5s
+      timeout: 3s
+      retries: 12
+      start_period: 5s
+
+  alerting-prometheus:
+    image: ${PROMETHEUS_IMAGE:-prom/prometheus:v2.54.1}
+    container_name: parkio-alerting-prometheus
+    command:
+      - --config.file=/etc/prometheus/prometheus.yml
+      - --storage.tsdb.path=/prometheus
+      - --storage.tsdb.retention.time=2h
+      - --web.enable-lifecycle
+    volumes:
+      - ./prometheus/alerting-acceptance/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - ./prometheus/alerts.yml:/etc/prometheus/alerts.yml:ro
+    ports:
+      - "127.0.0.1:${PARKIO_ALERT_ACCEPT_PROM_PORT:-19090}:9090"
+    networks: [parkio-alerting-accept]
+    depends_on:
+      alerting-metrics:
+        condition: service_healthy
+      alerting-parking-probe:
+        condition: service_healthy
+      alerting-alertmanager:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "wget", "--quiet", "--tries=1", "--spider", "http://localhost:9090/-/healthy"]
+      interval: 5s
+      timeout: 3s
+      retries: 12
+      start_period: 10s
+
+  alerting-alertmanager:
+    image: ${ALERTMANAGER_IMAGE:-prom/alertmanager:v0.27.0}
+    container_name: parkio-alerting-alertmanager
+    command:
+      - --config.file=/etc/alertmanager/alertmanager.yml
+      - --storage.path=/alertmanager
+      - --web.listen-address=:9093
+    volumes:
+      - ./prometheus/alerting-acceptance/alertmanager.yml:/etc/alertmanager/alertmanager.yml:ro
+    ports:
+      - "127.0.0.1:${PARKIO_ALERT_ACCEPT_AM_PORT:-19093}:9093"
+    networks: [parkio-alerting-accept]
+    depends_on:
+      alerting-webhook:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "wget", "--quiet", "--tries=1", "--spider", "http://localhost:9093/-/healthy"]
+      interval: 5s
+      timeout: 3s
+      retries: 12
+      start_period: 10s
+
+networks:
+  parkio-alerting-accept:
+    name: parkio-alerting-accept

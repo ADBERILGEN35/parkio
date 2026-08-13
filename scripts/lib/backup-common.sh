@@ -152,6 +152,10 @@ parkio_backup_write_metrics() {
   local encrypt_on="${7:-0}"
   local backup_bytes="${8:-0}"
   local textfile_dir="${PARKIO_PROMETHEUS_TEXTFILE_DIR:-docker/prometheus/textfile}"
+  local prod_mode=0
+  if parkio_backup_production_mode; then
+    prod_mode=1
+  fi
   local root
   root="$(parkio_backup_repo_root)"
   mkdir -p "${root}/${textfile_dir}"
@@ -177,6 +181,9 @@ parkio_backup_encryption_enabled{scope="${scope}"} ${encrypt_on}
 # HELP parkio_backup_last_bytes Approximate local stamp size in bytes.
 # TYPE parkio_backup_last_bytes gauge
 parkio_backup_last_bytes{scope="${scope}"} ${backup_bytes}
+# HELP parkio_backup_production_mode 1 when BACKUP_PRODUCTION_MODE was set for the last run.
+# TYPE parkio_backup_production_mode gauge
+parkio_backup_production_mode{scope="${scope}"} ${prod_mode}
 EOF
 }
 

@@ -1,0 +1,54 @@
+# Isolated alerting-acceptance Prometheus. Not used by hosted-beta.
+# Scrapes only the synthetic metrics + parking probe. Loads production alert rules.
+
+global:
+  scrape_interval: 5s
+  evaluation_interval: 5s
+  external_labels:
+    monitor: parkio-alerting-acceptance
+    environment: isolated-ci
+
+rule_files:
+  - /etc/prometheus/alerts.yml
+
+alerting:
+  alertmanagers:
+    - static_configs:
+        - targets: ["alerting-alertmanager:9093"]
+
+scrape_configs:
+  - job_name: parkio-services
+    metrics_path: /metrics
+    static_configs:
+      - targets: ["alerting-metrics:8081"]
+        labels: { service: gateway-service }
+      - targets: ["alerting-parking-probe:8082"]
+        labels: { service: parking-service }
+
+  - job_name: alerting-synthetic
+    metrics_path: /metrics
+    static_configs:
+      - targets: ["alerting-metrics:8081"]
+        labels: { service: alerting-metrics }
+
+  - job_name: blackbox-infra
+    metrics_path: /metrics
+    static_configs:
+      - targets: ["alerting-metrics:8081"]
+
+  - job_name: blackbox-tcp
+    metrics_path: /metrics
+    static_configs:
+      - targets: ["alerting-metrics:8081"]
+
+  - job_name: node-exporter
+    metrics_path: /metrics
+    static_configs:
+      - targets: ["alerting-metrics:8081"]
+        labels: { service: node-exporter }
+
+  - job_name: kafka-exporter
+    metrics_path: /metrics
+    static_configs:
+      - targets: ["alerting-metrics:8081"]
+        labels: { service: kafka-exporter }

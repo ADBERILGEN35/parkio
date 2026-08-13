@@ -1,0 +1,390 @@
+# promtool unit tests for docker/prometheus/alerts.yml (PROD-ALERTING-01).
+rule_files:
+  - ../alerts.yml
+
+evaluation_interval: 1m
+
+tests:
+  - name: normal state produces no P0/P1 infrastructure alerts
+    interval: 1m
+    input_series:
+      - series: 'up{job="parkio-services",service="gateway-service"}'
+        values: "1 1 1 1 1"
+      - series: 'up{job="parkio-services",service="auth-service"}'
+        values: "1 1 1 1 1"
+      - series: 'probe_success{component="redis"}'
+        values: "1 1 1 1 1"
+      - series: 'probe_success{component="minio"}'
+        values: "1 1 1 1 1"
+      - series: 'probe_success{component="postgres-auth"}'
+        values: "1 1 1 1 1"
+      - series: 'kafka_brokers'
+        values: "1 1 1 1 1"
+      - series: 'parkio_backup_last_success{scope="hosted-beta"}'
+        values: "1 1 1 1 1"
+      - series: 'parkio_backup_last_timestamp_seconds{scope="hosted-beta"}'
+        values: "1e15 1e15 1e15 1e15 1e15"
+      - series: 'parkio_backup_production_mode{scope="hosted-beta"}'
+        values: "1 1 1 1 1"
+      - series: 'parkio_backup_offsite_last_success{scope="hosted-beta"}'
+        values: "1 1 1 1 1"
+      - series: 'parkio_backup_encryption_enabled{scope="hosted-beta"}'
+        values: "1 1 1 1 1"
+      - series: "parkio_alerting_acceptance_test"
+        values: "0 0 0 0 0"
+      - series: 'http_server_requests_seconds_count{service="gateway-service",status="200"}'
+        values: "0+100x4"
+      - series: 'http_server_requests_seconds_count{service="gateway-service",status="500"}'
+        values: "0+0x4"
+      - series: 'node_filesystem_avail_bytes{fstype="ext4",mountpoint="/"}'
+        values: "8e10 8e10 8e10 8e10 8e10"
+      - series: 'node_filesystem_size_bytes{fstype="ext4",mountpoint="/"}'
+        values: "1e11 1e11 1e11 1e11 1e11"
+    alert_rule_test:
+      - eval_time: 4m
+        alertname: ServiceDown
+        exp_alerts: []
+      - eval_time: 4m
+        alertname: GatewayDown
+        exp_alerts: []
+      - eval_time: 4m
+        alertname: CoreServiceDown
+        exp_alerts: []
+      - eval_time: 4m
+        alertname: GatewayHigh5xxRate
+        exp_alerts: []
+      - eval_time: 4m
+        alertname: Gateway5xxElevated
+        exp_alerts: []
+      - eval_time: 4m
+        alertname: PostgresDown
+        exp_alerts: []
+      - eval_time: 4m
+        alertname: RedisDown
+        exp_alerts: []
+      - eval_time: 4m
+        alertname: MinIODown
+        exp_alerts: []
+      - eval_time: 4m
+        alertname: KafkaBrokerUnavailable
+        exp_alerts: []
+      - eval_time: 4m
+        alertname: BackupFailed
+        exp_alerts: []
+      - eval_time: 4m
+        alertname: BackupStale
+        exp_alerts: []
+      - eval_time: 4m
+        alertname: BackupOffsiteFailed
+        exp_alerts: []
+      - eval_time: 4m
+        alertname: BackupEncryptionDisabledInProduction
+        exp_alerts: []
+      - eval_time: 4m
+        alertname: HostDiskSpaceCritical
+        exp_alerts: []
+      - eval_time: 4m
+        alertname: ParkioAlertingAcceptanceTest
+        exp_alerts: []
+
+  - name: missing metrics do not invent infrastructure alerts
+    interval: 1m
+    input_series: []
+    alert_rule_test:
+      - eval_time: 15m
+        alertname: ServiceDown
+        exp_alerts: []
+      - eval_time: 15m
+        alertname: BackupFailed
+        exp_alerts: []
+      - eval_time: 15m
+        alertname: BackupStale
+        exp_alerts: []
+      - eval_time: 15m
+        alertname: RedisDown
+        exp_alerts: []
+      - eval_time: 15m
+        alertname: ParkioAlertingAcceptanceTest
+        exp_alerts: []
+
+  - name: service down pending then firing then recovered
+    interval: 1m
+    input_series:
+      - series: 'up{job="parkio-services",service="auth-service",instance="auth-service:8081"}'
+        values: "0 0 0 1 1 1"
+    alert_rule_test:
+      - eval_time: 1m
+        alertname: ServiceDown
+        exp_alerts: []
+      - eval_time: 2m
+        alertname: ServiceDown
+        exp_alerts:
+          - exp_labels:
+              alertname: ServiceDown
+              severity: critical
+              job: parkio-services
+              service: auth-service
+              instance: "auth-service:8081"
+            exp_annotations:
+              summary: "Service auth-service is down"
+              description: "Prometheus cannot scrape auth-service (auth-service:8081) for >2m. Check `docker compose ps` and the service logs."
+              runbook_url: "docs/architecture/observability-metrics.md#runbook--servicedown"
+      - eval_time: 5m
+        alertname: ServiceDown
+        exp_alerts: []
+
+  - name: gateway down fires independently
+    interval: 1m
+    input_series:
+      - series: 'up{job="parkio-services",service="gateway-service"}'
+        values: "0 0 0"
+    alert_rule_test:
+      - eval_time: 2m
+        alertname: GatewayDown
+        exp_alerts:
+          - exp_labels:
+              alertname: GatewayDown
+              severity: critical
+              job: parkio-services
+              service: gateway-service
+            exp_annotations:
+              summary: "Gateway is down"
+              description: "Prometheus cannot scrape gateway-service for >2m. The API edge is unreachable."
+              runbook_url: "docs/operations/alert-response-runbook.md#gatewaydown"
+
+  - name: http 5xx high traffic fires; tiny traffic does not
+    interval: 1m
+    input_series:
+      - series: 'http_server_requests_seconds_count{service="gateway-service",status="500"}'
+        values: "0+60x20"
+      - series: 'http_server_requests_seconds_count{service="gateway-service",status="200"}'
+        values: "0+10x20"
+    alert_rule_test:
+      - eval_time: 5m
+        alertname: GatewayHigh5xxRate
+        exp_alerts: []
+      - eval_time: 15m
+        alertname: GatewayHigh5xxRate
+        exp_alerts:
+          - exp_labels:
+              alertname: GatewayHigh5xxRate
+              severity: critical
+            exp_annotations:
+              summary: "Gateway 5xx rate is high"
+              description: "More than 5% of gateway responses are 5xx over the last 5m. A downstream service is likely failing — check ServiceDown and per-service 5xx."
+              runbook_url: "docs/architecture/observability-metrics.md#runbook--gatewayhigh5xxrate"
+
+  - name: http 5xx sparse traffic stays quiet because of clamp_min
+    interval: 1m
+    input_series:
+      - series: 'http_server_requests_seconds_count{service="gateway-service",status="500"}'
+        values: "0+1x20"
+      - series: 'http_server_requests_seconds_count{service="gateway-service",status="200"}'
+        values: "0+0x20"
+    alert_rule_test:
+      - eval_time: 15m
+        alertname: GatewayHigh5xxRate
+        exp_alerts: []
+
+  - name: postgres redis minio kafka down
+    interval: 1m
+    input_series:
+      - series: 'probe_success{component="postgres-gateway"}'
+        values: "0 0 0"
+      - series: 'probe_success{component="redis"}'
+        values: "0 0 0"
+      - series: 'probe_success{component="minio"}'
+        values: "0 0 0"
+      - series: "kafka_brokers"
+        values: "0 0 0"
+    alert_rule_test:
+      - eval_time: 2m
+        alertname: PostgresDown
+        exp_alerts:
+          - exp_labels:
+              alertname: PostgresDown
+              severity: critical
+              component: postgres-gateway
+            exp_annotations:
+              summary: "Postgres postgres-gateway is down"
+              description: "TCP probe to postgres-gateway:5432 failed for >2m."
+              runbook_url: "docs/operations/alert-response-runbook.md#postgresdown"
+      - eval_time: 2m
+        alertname: RedisDown
+        exp_alerts:
+          - exp_labels:
+              alertname: RedisDown
+              severity: critical
+              component: redis
+            exp_annotations:
+              summary: "Redis is down"
+              description: "TCP probe to redis:6379 failed for >2m. Rate limiting and caches may be impaired."
+              runbook_url: "docs/operations/alert-response-runbook.md#redisdown"
+      - eval_time: 2m
+        alertname: MinIODown
+        exp_alerts:
+          - exp_labels:
+              alertname: MinIODown
+              severity: critical
+              component: minio
+            exp_annotations:
+              summary: "MinIO is down"
+              description: "Blackbox probe to MinIO health endpoint failed for >2m. Media uploads and presigned GETs will fail."
+              runbook_url: "docs/operations/alert-response-runbook.md#miniodown"
+      - eval_time: 2m
+        alertname: KafkaBrokerUnavailable
+        exp_alerts:
+          - exp_labels:
+              alertname: KafkaBrokerUnavailable
+              severity: critical
+            exp_annotations:
+              summary: "Kafka exporter sees no brokers"
+              description: "Kafka exporter is reachable but reports zero Kafka brokers. Check parkio-kafka health, listener config, and exporter broker address kafka:9092."
+              runbook_url: "docs/architecture/observability-metrics.md#runbook--kafkabrokerunavailable"
+
+  - name: backup failed for duration then recovered
+    interval: 15m
+    input_series:
+      - series: 'parkio_backup_last_success{scope="hosted-beta"}'
+        values: "0 0 0 0 0 1 1"
+      - series: 'parkio_backup_last_timestamp_seconds{scope="hosted-beta"}'
+        values: "1e15 1e15 1e15 1e15 1e15 1e15 1e15"
+    alert_rule_test:
+      - eval_time: 45m
+        alertname: BackupFailed
+        exp_alerts: []
+      - eval_time: 1h
+        alertname: BackupFailed
+        exp_alerts:
+          - exp_labels:
+              alertname: BackupFailed
+              severity: critical
+              scope: hosted-beta
+            exp_annotations:
+              summary: "Hosted-beta backup last run failed"
+              description: "parkio_backup_last_success is 0 for scope hosted-beta. The last backup attempt did not meet success (databases + MinIO + required offsite). Inspect the backup log; do not treat a local directory as success."
+              runbook_url: "docs/operations/backup-runbook.md#failed-backups"
+      - eval_time: 1h30m
+        alertname: BackupFailed
+        exp_alerts: []
+
+  - name: backup stale and azure-hosted-beta scope
+    interval: 1h
+    input_series:
+      - series: 'parkio_backup_last_timestamp_seconds{scope="azure-hosted-beta"}'
+        values: "0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0"
+    alert_rule_test:
+      - eval_time: 24h
+        alertname: BackupStale
+        exp_alerts: []
+      - eval_time: 26h
+        alertname: BackupStale
+        exp_alerts:
+          - exp_labels:
+              alertname: BackupStale
+              severity: critical
+              scope: azure-hosted-beta
+            exp_annotations:
+              summary: "Hosted-beta backup is stale"
+              description: "Last backup attempt timestamp for scope azure-hosted-beta is older than ~25h. Nightly cadence was missed. Run scripts/backup-hosted-beta.sh after checking why cron/job did not run."
+              runbook_url: "docs/operations/backup-runbook.md#failed-backups"
+
+  - name: offsite failed and encryption disabled only in production mode
+    interval: 15m
+    input_series:
+      - series: 'parkio_backup_production_mode{scope="hosted-beta"}'
+        values: "1 1 1 1 1 1"
+      - series: 'parkio_backup_offsite_last_success{scope="hosted-beta"}'
+        values: "0 0 0 0 0 0"
+      - series: 'parkio_backup_encryption_enabled{scope="hosted-beta"}'
+        values: "0 0 0 0 0 0"
+      - series: 'parkio_backup_last_timestamp_seconds{scope="hosted-beta"}'
+        values: "1e15 1e15 1e15 1e15 1e15 1e15"
+    alert_rule_test:
+      - eval_time: 10m
+        alertname: BackupEncryptionDisabledInProduction
+        exp_alerts: []
+      - eval_time: 15m
+        alertname: BackupEncryptionDisabledInProduction
+        exp_alerts:
+          - exp_labels:
+              alertname: BackupEncryptionDisabledInProduction
+              severity: critical
+              scope: hosted-beta
+            exp_annotations:
+              summary: "Backup encryption disabled in production mode"
+              description: "parkio_backup_production_mode is 1 for scope hosted-beta but parkio_backup_encryption_enabled is 0. Production-intended dumps must be encrypted. Do not continue relying on plaintext stamps."
+              runbook_url: "docs/operations/backup-runbook.md#failed-backups"
+      - eval_time: 1h
+        alertname: BackupOffsiteFailed
+        exp_alerts:
+          - exp_labels:
+              alertname: BackupOffsiteFailed
+              severity: critical
+              scope: hosted-beta
+            exp_annotations:
+              summary: "Production-mode offsite backup failed"
+              description: "BACKUP_PRODUCTION_MODE is on for scope hosted-beta but parkio_backup_offsite_last_success is 0. Local stamp existence is not offsite protection. Check Azure/S3 credentials and backup-offsite logs."
+              runbook_url: "docs/operations/backup-runbook.md#failed-backups"
+
+  - name: offsite and encryption alerts stay silent without production mode
+    interval: 15m
+    input_series:
+      - series: 'parkio_backup_production_mode{scope="hosted-beta"}'
+        values: "0 0 0 0 0 0"
+      - series: 'parkio_backup_offsite_last_success{scope="hosted-beta"}'
+        values: "0 0 0 0 0 0"
+      - series: 'parkio_backup_encryption_enabled{scope="hosted-beta"}'
+        values: "0 0 0 0 0 0"
+    alert_rule_test:
+      - eval_time: 1h
+        alertname: BackupOffsiteFailed
+        exp_alerts: []
+      - eval_time: 1h
+        alertname: BackupEncryptionDisabledInProduction
+        exp_alerts: []
+
+  - name: disk critical after for duration
+    interval: 1m
+    input_series:
+      - series: 'node_filesystem_avail_bytes{fstype="ext4",mountpoint="/",instance="isolated"}'
+        values: "5e9 5e9 5e9 5e9 5e9 5e9"
+      - series: 'node_filesystem_size_bytes{fstype="ext4",mountpoint="/",instance="isolated"}'
+        values: "1e11 1e11 1e11 1e11 1e11 1e11"
+    alert_rule_test:
+      - eval_time: 4m
+        alertname: HostDiskSpaceCritical
+        exp_alerts: []
+      - eval_time: 5m
+        alertname: HostDiskSpaceCritical
+        exp_alerts:
+          - exp_labels:
+              alertname: HostDiskSpaceCritical
+              severity: critical
+              fstype: ext4
+              mountpoint: "/"
+              instance: isolated
+            exp_annotations:
+              summary: "Host disk almost full on /"
+              description: "/ on isolated has only 5.0% free for >5m. Writes will start failing. Follow the disk-cleanup runbook (Docker logs, old images, Loki retention, backups)."
+              runbook_url: "docs/architecture/observability-metrics.md#runbook--hostdiskspacelow"
+
+  - name: synthetic acceptance arm and recover
+    interval: 15s
+    input_series:
+      - series: "parkio_alerting_acceptance_test"
+        values: "1 1 1 0 0 0"
+    alert_rule_test:
+      - eval_time: 30s
+        alertname: ParkioAlertingAcceptanceTest
+        exp_alerts:
+          - exp_labels:
+              alertname: ParkioAlertingAcceptanceTest
+              severity: critical
+            exp_annotations:
+              summary: "Parkio alerting acceptance test is armed"
+              description: "Synthetic alert ParkioAlertingAcceptanceTest is firing. This is not a production outage. Disarm the series (set to 0 or remove the textfile) after confirming operator notification plumbing."
+              runbook_url: "docs/operations/alerting.md#synthetic-acceptance"
+      - eval_time: 75s
+        alertname: ParkioAlertingAcceptanceTest
+        exp_alerts: []

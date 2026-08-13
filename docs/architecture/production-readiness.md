@@ -154,6 +154,11 @@ PostGIS is required by `parking-service`; everything else is plain Postgres 16.
     is minutes for 10 logical DBs + MinIO object checksum; live hosted-beta restore RTO is unproven
     (emergency procedure documented, not executed against live). Managed PITR + Multi-AZ failover is
     still required for public production.
+  - **PROD-READINESS-02 alerting / paging (PROD-ALERTING-01) — OPEN / destination-blocked.**
+    Prometheus rules, Alertmanager routing, inhibition, runbooks, `promtool` validation, and an
+    isolated webhook delivery+resolve drill exist on `api`. **No approved operator Slack/webhook
+    secret is configured in GitHub or committed env**, so a human has not been paged. Azure
+    hosted-beta still disables Alertmanager. This is **not** CLOSED. Parkio is **not** production-ready.
   - **PROD-READINESS-02 backup blockers (PROD-BACKUP-OFFSITE-01):**
     - **B. OFFSITE — PARTIALLY CLOSED.** Encrypted stamp uploads to Azure Blob (`rg-parkio-backups`,
       westeurope, separate from francecentral VM). CI protocol uses ephemeral MinIO (same GHA VM —
@@ -430,10 +435,12 @@ metric catalogue exists. **Missing: async/Kafka trace propagation and fully stru
 application logs.**
 
 - **Prometheus + Alertmanager**: Prometheus evaluates `docker/prometheus/alerts.yml` and sends
-  alerts to `alertmanager:9093`. Local/dev uses a no-op receiver. Hosted beta should set
-  `PARKIO_ALERT_SLACK_WEBHOOK_URL` so critical/warning alerts notify Slack. Prometheus,
-  Alertmanager, and Grafana are loopback-only in the hosted-beta overlay; access through an
-  SSH tunnel, not the public proxy.
+  alerts to `alertmanager:9093`. Local/dev uses a no-op receiver. Hosted beta / production-intended
+  paging requires `PARKIO_ALERT_SLACK_WEBHOOK_URL` or `PARKIO_ALERT_WEBHOOK_URL` (never committed).
+  Isolated delivery is proven in CI (`scripts/alerting-acceptance.sh`); a human operator destination
+  is still required before this blocker can close. Prometheus, Alertmanager, and Grafana are
+  loopback-only in the hosted-beta overlay; access through an SSH tunnel, not the public proxy.
+  See `docs/operations/alerting.md`.
 - **Kafka exporter**: `parkio-kafka-exporter` scrapes the private broker at `kafka:9092`.
   Prometheus alerts on exporter health, visible broker count, service consumer lag, sustained
   lag, and retained `parkio.dlt.*` offset depth. DLT depth is broker-side retained offset depth,
@@ -630,7 +637,7 @@ OIDC federation to the cloud provider where possible.
 | Object storage | single MinIO | private bucket + signed URLs (already) + backup | managed S3-compatible, versioning, lifecycle, CORS | High |
 | Redis | no auth/TLS | acceptable on private net | managed Redis + AUTH + TLS | Medium |
 | Migrations in deploy | run on app boot | gated pre-deploy step | gated, backward-compatible (expand/contract) | High |
-| Observability: alerts | none | alert on dead-letter + service-down + 5xx | full alert set + on-call | High |
+| Observability: alerts | rules + Alertmanager + isolated webhook drill; **no operator destination secret** | alert on dead-letter + service-down + 5xx + backup/offsite | full alert set + on-call destination proven | High |
 | Tracing | OTel spans → Tempo (HTTP path, 100% sampling) | same + tuned sampling | + async/Kafka propagation, tail sampling, object-storage Tempo | Medium |
 | Log aggregation | Loki/Promtail in local compose | Loki/Promtail with 7-day retention | centralized logs + structured JSON + managed/provider retention | High (prod) |
 | CD pipeline | none (CI only) | manual deploy ok | build→stage→smoke→approve→prod + rollback | High (prod) |

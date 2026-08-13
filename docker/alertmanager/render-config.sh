@@ -28,6 +28,7 @@ route:
     - matchers:
         - severity="critical"
       receiver: "critical"
+      group_wait: 15s
       repeat_interval: ${REPEAT_CRITICAL}
     - matchers:
         - severity="warning"
@@ -40,6 +41,39 @@ inhibit_rules:
     target_matchers:
       - severity="warning"
     equal: ["alertname", "service", "component"]
+  - source_matchers:
+      - alertname="GatewayDown"
+    target_matchers:
+      - alertname=~"ServiceDown|GatewayHigh5xxRate|Gateway5xxElevated|GatewayHighLatencyP95|GatewayLatencyP95High"
+    equal: ["service"]
+  - source_matchers:
+      - alertname="CoreServiceDown"
+    target_matchers:
+      - alertname="ServiceDown"
+    equal: ["service"]
+  - source_matchers:
+      - alertname="PostgresDown"
+    target_matchers:
+      - alertname="DatabaseConnectionPoolExhausted"
+  - source_matchers:
+      - alertname="KafkaBrokerUnavailable"
+    target_matchers:
+      - alertname=~"KafkaConsumerLagHigh|KafkaConsumerLagSustained|KafkaDltMessagesPresent|KafkaDltGrowing"
+  - source_matchers:
+      - alertname="HostDiskSpaceCritical"
+    target_matchers:
+      - alertname=~"HostDiskSpaceLow|HostDiskWillFillSoon"
+    equal: ["instance", "mountpoint"]
+  - source_matchers:
+      - alertname="BackupFailed"
+    target_matchers:
+      - alertname="BackupStale"
+    equal: ["scope"]
+  - source_matchers:
+      - alertname="BackupOffsiteFailed"
+    target_matchers:
+      - alertname="BackupOffsiteStale"
+    equal: ["scope"]
 
 receivers:
 EOF
@@ -52,14 +86,14 @@ EOF
         channel: '${SLACK_CHANNEL}'
         send_resolved: true
         title: '[{{ .Status | toUpper }}] {{ .CommonLabels.severity }}: {{ .CommonLabels.alertname }}'
-        text: '{{ range .Alerts }}*{{ .Annotations.summary }}*{{ "\\n" }}{{ .Annotations.description }}{{ "\\n" }}{{ if .Annotations.runbook_url }}Runbook: {{ .Annotations.runbook_url }}{{ "\\n" }}{{ end }}{{ end }}'
+        text: 'monitor={{ .CommonLabels.monitor }}{{ "\\n" }}{{ range .Alerts }}*{{ .Annotations.summary }}*{{ "\\n" }}{{ .Annotations.description }}{{ "\\n" }}started={{ .StartsAt }}{{ "\\n" }}{{ if .Annotations.runbook_url }}Runbook: {{ .Annotations.runbook_url }}{{ "\\n" }}{{ end }}{{ end }}'
   - name: "warning"
     slack_configs:
       - api_url: '${SLACK_URL}'
         channel: '${SLACK_CHANNEL}'
         send_resolved: true
         title: '[{{ .Status | toUpper }}] {{ .CommonLabels.severity }}: {{ .CommonLabels.alertname }}'
-        text: '{{ range .Alerts }}*{{ .Annotations.summary }}*{{ "\\n" }}{{ .Annotations.description }}{{ "\\n" }}{{ if .Annotations.runbook_url }}Runbook: {{ .Annotations.runbook_url }}{{ "\\n" }}{{ end }}{{ end }}'
+        text: 'monitor={{ .CommonLabels.monitor }}{{ "\\n" }}{{ range .Alerts }}*{{ .Annotations.summary }}*{{ "\\n" }}{{ .Annotations.description }}{{ "\\n" }}started={{ .StartsAt }}{{ "\\n" }}{{ if .Annotations.runbook_url }}Runbook: {{ .Annotations.runbook_url }}{{ "\\n" }}{{ end }}{{ end }}'
 EOF
   else
     if [ -n "$WEBHOOK_SECRET" ]; then

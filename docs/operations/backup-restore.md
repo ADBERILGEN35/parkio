@@ -57,7 +57,7 @@ Dev/CI: optional `BACKUP_ENCRYPT_PASSPHRASE` for DB dumps.
 - `.github/workflows/backup-restore-drill.yml` — automated drill
 - `.github/workflows/staging-verification.yml` — WP-06.2 evidence pipeline (WP-06.2)
 - `scripts/staging/run-verification-pipeline.sh` — local/scheduled evidence orchestration
-- Metric: `parkio_backup_last_success` — alert **BackupFailedOrStale**
+- Metric: `parkio_backup_last_success` — alerts **BackupFailed** / **BackupStale** (see `docs/operations/alerting.md`)
 
 ## Ownership
 

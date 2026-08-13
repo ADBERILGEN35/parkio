@@ -2,6 +2,25 @@
 name: Observability validation
 
 on:
+  push:
+    branches: [api]
+    paths:
+      - "docker/prometheus/**"
+      - "docker/alertmanager/**"
+      - "docker/blackbox/**"
+      - "docker/grafana/**"
+      - "docker/docker-compose.yml"
+      - "docker/docker-compose.alerting-acceptance.yml"
+      - "scripts/backup-*.sh"
+      - "scripts/restore-hosted-beta.sh"
+      - "scripts/lib/backup-common.sh"
+      - "scripts/observability-validate.sh"
+      - "scripts/alerting-acceptance.sh"
+      - "scripts/alerting-acceptance-receiver.py"
+      - "docs/operations/**"
+      - "docs/architecture/production-readiness.md"
+      - "docs/architecture/wp-05-implementation-plan.md"
+      - ".github/workflows/observability-validation.yml"
   pull_request:
     paths:
       - "docker/prometheus/**"
@@ -9,11 +28,17 @@ on:
       - "docker/blackbox/**"
       - "docker/grafana/**"
       - "docker/docker-compose.yml"
+      - "docker/docker-compose.alerting-acceptance.yml"
       - "scripts/backup-*.sh"
       - "scripts/restore-hosted-beta.sh"
       - "scripts/lib/backup-common.sh"
+      - "scripts/observability-validate.sh"
+      - "scripts/alerting-acceptance.sh"
+      - "scripts/alerting-acceptance-receiver.py"
       - "docs/operations/**"
+      - "docs/architecture/production-readiness.md"
       - "docs/architecture/wp-05-implementation-plan.md"
+      - ".github/workflows/observability-validation.yml"
   workflow_dispatch:
 
 permissions:
@@ -23,60 +48,18 @@ jobs:
   validate:
     name: Config + script checks
     runs-on: ubuntu-latest
-    timeout-minutes: 15
+    timeout-minutes: 25
     steps:
       - uses: actions/checkout@v4
 
       - name: Install jq
         run: sudo apt-get update && sudo apt-get install -y jq
 
-      - name: Prometheus config + rules
+      - name: Prometheus config + rules + Alertmanager + unit tests
         run: |
           set -euo pipefail
-          docker run --rm \
-            -v "${{ github.workspace }}/docker/prometheus:/etc/prometheus:ro" \
-            prom/prometheus:v2.54.1 \
-            promtool check config /etc/prometheus/prometheus.yml
-          docker run --rm \
-            -v "${{ github.workspace }}/docker/prometheus:/etc/prometheus:ro" \
-            prom/prometheus:v2.54.1 \
-            promtool check rules /etc/prometheus/alerts.yml
-          docker run --rm \
-            -v "${{ github.workspace }}/docker/prometheus:/etc/prometheus:ro" \
-            prom/prometheus:v2.54.1 \
-            promtool check rules /etc/prometheus/trust-shadow-recording-rules.yml
-          docker run --rm \
-            -v "${{ github.workspace }}/docker/prometheus:/etc/prometheus:ro" \
-            prom/prometheus:v2.54.1 \
-            promtool check rules /etc/prometheus/reward-shadow-recording-rules.yml
-          docker run --rm \
-            -v "${{ github.workspace }}/docker/prometheus:/etc/prometheus:ro" \
-            prom/prometheus:v2.54.1 \
-            promtool check rules /etc/prometheus/exposure-shadow-recording-rules.yml
-          docker run --rm \
-            -v "${{ github.workspace }}/docker/prometheus:/etc/prometheus:ro" \
-            prom/prometheus:v2.54.1 \
-            promtool check rules /etc/prometheus/fraud-shadow-recording-rules.yml
-          docker run --rm \
-            -v "${{ github.workspace }}/docker/prometheus:/etc/prometheus:ro" \
-            prom/prometheus:v2.54.1 \
-            promtool check rules /etc/prometheus/continuous-calibration-recording-rules.yml
-          docker run --rm \
-            -v "${{ github.workspace }}/docker/prometheus:/etc/prometheus:ro" \
-            prom/prometheus:v2.54.1 \
-            promtool check rules /etc/prometheus/operational-readiness-recording-rules.yml
-          docker run --rm \
-            -v "${{ github.workspace }}/docker/prometheus:/etc/prometheus:ro" \
-            prom/prometheus:v2.54.1 \
-            promtool check rules /etc/prometheus/operational-readiness-alert-rules.yml
-          docker run --rm \
-            -v "${{ github.workspace }}/docker/prometheus:/etc/prometheus:ro" \
-            prom/prometheus:v2.54.1 \
-            promtool check rules /etc/prometheus/municipal-source-health-recording-rules.yml
-          docker run --rm \
-            -v "${{ github.workspace }}/docker/prometheus:/etc/prometheus:ro" \
-            prom/prometheus:v2.54.1 \
-            promtool check rules /etc/prometheus/municipal-source-health-alert-rules.yml
+          chmod +x scripts/observability-validate.sh docker/alertmanager/render-config.sh
+          ./scripts/observability-validate.sh
 
       - name: Grafana dashboard structure
         run: |
@@ -176,32 +159,36 @@ jobs:
           assert hub.is_file(), "WP-06.1 hub document missing"
           PY
 
-      - name: Alertmanager render + check
+      - name: Isolated alerting delivery (Prometheus → Alertmanager → webhook)
         run: |
           set -euo pipefail
-          chmod +x docker/alertmanager/render-config.sh
-          docker run --rm \
-            -v "${{ github.workspace }}/docker/alertmanager:/etc/alertmanager:ro" \
-            -e PARKIO_ALERT_SLACK_WEBHOOK_URL=https://example.invalid/hooks/test \
-            -e PARKIO_ALERT_SLACK_CHANNEL='#test' \
-            -e PARKIO_ALERTMANAGER_VALIDATE_ONLY=1 \
-            --entrypoint /bin/sh \
-            prom/alertmanager:v0.27.0 \
-            -c '/etc/alertmanager/render-config.sh && amtool check-config /tmp/alertmanager.yml'
+          chmod +x scripts/alerting-acceptance.sh
+          ./scripts/alerting-acceptance.sh
+          test -s docker/.alerting-acceptance-receipts/evidence.txt
+          grep -q 'synthetic firing delivered' docker/.alerting-acceptance-receipts/evidence.txt
+          grep -q 'synthetic resolved delivered' docker/.alerting-acceptance-receipts/evidence.txt
+          if grep -Ei 'hooks\.slack|xoxb-|Bearer [A-Za-z0-9._-]{12,}|PASSWORD|SECRET' docker/.alerting-acceptance-receipts/evidence.txt docker/.alerting-acceptance-receipts/receipts.jsonl; then
+            echo "FAIL: secret-like string in alerting receipts" >&2
+            exit 1
+          fi
 
       - name: Docker compose config
         run: |
           set -euo pipefail
           cp docker/.env.example docker/.env.ci-obs
           docker compose --env-file docker/.env.ci-obs -f docker/docker-compose.yml config --quiet
+          docker compose -f docker/docker-compose.alerting-acceptance.yml config --quiet
 
       - name: Bash syntax checks
         run: |
           set -euo pipefail
-          chmod +x scripts/backup-*.sh scripts/restore-hosted-beta.sh scripts/lib/backup-common.sh
-          for f in scripts/backup-hosted-beta.sh scripts/backup-minio.sh scripts/restore-hosted-beta.sh scripts/lib/backup-common.sh; do
+          chmod +x scripts/backup-*.sh scripts/restore-hosted-beta.sh scripts/lib/backup-common.sh \
+            scripts/observability-validate.sh scripts/alerting-acceptance.sh
+          for f in scripts/backup-hosted-beta.sh scripts/backup-minio.sh scripts/restore-hosted-beta.sh \
+            scripts/lib/backup-common.sh scripts/observability-validate.sh scripts/alerting-acceptance.sh; do
             bash -n "$f"
           done
+          python3 -m py_compile scripts/alerting-acceptance-receiver.py
 
       - name: Backup dry-run manifest
         run: |

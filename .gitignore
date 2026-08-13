@@ -110,6 +110,9 @@ backup-artifacts/*
 docker/prometheus/textfile/*.prom
 !docker/prometheus/textfile/.gitkeep
 
+# Isolated alerting-acceptance receipts (no secrets; still local/CI only)
+docker/.alerting-acceptance-receipts/
+
 
 # Local pnpm cache
 **/.pnpm-store/
