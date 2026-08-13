@@ -167,7 +167,7 @@ if [ ! -d "${MIRROR}" ]; then
   echo "ERROR: retrieved stamp has no MinIO tree ${MIRROR}" >&2
   exit 1
 fi
-DST_BUCKET="drill-offsite-restore-${STAMP}"
+DST_BUCKET="drill-offsite-$(echo "${STAMP}" | tr '[:upper:]' '[:lower:]' | tr -c 'a-z0-9' '-' | tr -s '-' | sed 's/-$//')"
 docker run --rm --network "${NETWORK}" --entrypoint /bin/sh \
   -v "${MIRROR}:/restore:ro" \
   -e MINIO_ROOT_USER="${MINIO_ROOT_USER:-minioadmin}" \
