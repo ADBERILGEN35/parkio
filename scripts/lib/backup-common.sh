@@ -143,3 +143,34 @@ parkio_backup_write_manifest() {
     retentionDays: $retentionDays
   }' > "${manifest_path}"
 }
+
+# Write a sidecar checksum next to a dump (best-effort; missing sha256sum is not fatal).
+parkio_backup_write_checksum() {
+  local file="$1"
+  if [ ! -f "${file}" ]; then
+    return 1
+  fi
+  if command -v sha256sum >/dev/null 2>&1; then
+    sha256sum "${file}" > "${file}.sha256"
+  elif command -v shasum >/dev/null 2>&1; then
+    shasum -a 256 "${file}" > "${file}.sha256"
+  fi
+}
+
+# Upload a completed stamp directory (dumps + optional minio/) to BACKUP_MC_DEST.
+# Call AFTER MinIO mirror so object storage is included. Empty dest = skip (optional).
+parkio_backup_offsite_upload() {
+  local dest_dir="$1"
+  local mc_dest="${2:-${BACKUP_MC_DEST:-}}"
+  local stamp="${3:-$(basename "${dest_dir}")}"
+  if [ -z "${mc_dest}" ]; then
+    echo "Offsite: BACKUP_MC_DEST unset — local copy only."
+    return 0
+  fi
+  if ! command -v mc >/dev/null 2>&1; then
+    echo "WARN: BACKUP_MC_DEST set but 'mc' not installed; keeping local copy only." >&2
+    return 1
+  fi
+  echo "Uploading ${dest_dir} -> ${mc_dest}/${stamp}"
+  mc cp --recursive "${dest_dir}" "${mc_dest}/${stamp}"
+}

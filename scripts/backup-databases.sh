@@ -13,8 +13,12 @@
 #   # load the same .env the stack uses, then run:
 #   PARKIO_ENV_FILE=docker/.env ./scripts/backup-databases.sh
 #
-# Schedule nightly via cron on the VPS, e.g. (03:30, log to syslog):
-#   30 3 * * * cd /opt/parkio && PARKIO_ENV_FILE=docker/.env ./scripts/backup-databases.sh >> /var/log/parkio-backup.log 2>&1
+# Canonical nightly schedule is the orchestrator (DB + MinIO + metrics), not this
+# script alone. See docs/operations/backup-runbook.md:
+#   30 3 * * * cd /opt/parkio && PARKIO_ENV_FILE=docker/.env ./scripts/backup-hosted-beta.sh >> /var/log/parkio-backup.log 2>&1
+#
+# This script is the Postgres dump step. Running it standalone uploads dumps only
+# (no MinIO). Prefer backup-hosted-beta.sh so offsite includes object storage.
 #
 # Restore a single database with the companion script (handles gzip/encryption + safety prompt):
 #   ./scripts/restore-database.sh auth /var/backups/parkio/<stamp>/auth.sql.gz
@@ -29,6 +33,10 @@
 # Postgres PITR/HA, which is required before public production.
 
 set -euo pipefail
+
+SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+# shellcheck source=lib/backup-common.sh
+source "${SCRIPT_DIR}/lib/backup-common.sh"
 
 # Optionally load an env file (so POSTGRES_*_USER/DB, BACKUP_* are available).
 ENV_FILE="${PARKIO_ENV_FILE:-}"
@@ -91,6 +99,7 @@ for entry in "${SERVICES[@]}"; do
       | openssl enc -aes-256-cbc -pbkdf2 -salt -pass env:BACKUP_ENCRYPT_PASSPHRASE > "${out}" \
       && [ -s "${out}" ]; then
       echo "OK -> $(basename "${out}") ($(du -h "${out}" | cut -f1))"
+      parkio_backup_write_checksum "${out}" || true
     else
       echo "FAILED (dump errored or empty)" >&2; failures=$((failures + 1)); rm -f "${out}"
     fi
@@ -99,20 +108,20 @@ for entry in "${SERVICES[@]}"; do
       | gzip -9 > "${out}" \
       && [ -s "${out}" ]; then
       echo "OK -> $(basename "${out}") ($(du -h "${out}" | cut -f1))"
+      parkio_backup_write_checksum "${out}" || true
     else
       echo "FAILED (dump errored or empty)" >&2; failures=$((failures + 1)); rm -f "${out}"
     fi
   fi
 done
 
-# Optional off-box upload to S3-compatible storage via the MinIO client.
-if [ -n "${MC_DEST}" ]; then
-  if command -v mc >/dev/null 2>&1; then
-    echo "Uploading ${DEST_DIR} -> ${MC_DEST}/${STAMP}"
-    mc cp --recursive "${DEST_DIR}" "${MC_DEST}/${STAMP}" || { echo "WARN: mc upload failed" >&2; failures=$((failures + 1)); }
-  else
-    echo "WARN: BACKUP_MC_DEST set but 'mc' not installed; keeping local copy only." >&2
-  fi
+# Optional off-box upload. The hosted-beta orchestrator sets BACKUP_SKIP_MC_UPLOAD=1
+# and uploads AFTER MinIO mirror so object storage is included in the same stamp.
+if [ -z "${BACKUP_SKIP_MC_UPLOAD:-}" ] && [ -n "${MC_DEST}" ]; then
+  parkio_backup_offsite_upload "${DEST_DIR}" "${MC_DEST}" "${STAMP}" \
+    || { echo "WARN: mc upload failed" >&2; failures=$((failures + 1)); }
+elif [ -n "${BACKUP_SKIP_MC_UPLOAD:-}" ]; then
+  echo "Offsite upload deferred to orchestrator (BACKUP_SKIP_MC_UPLOAD=1)."
 fi
 
 # Prune local backups older than the retention window.

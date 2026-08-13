@@ -55,8 +55,11 @@ fi
 
 mkdir -p "${DEST_DIR}"
 
+# Dump first, then MinIO mirror, THEN offsite — so BACKUP_MC_DEST includes objects.
+# backup-databases.sh would otherwise upload dumps before MinIO exists in DEST_DIR.
 DB_FAILED=0
-if ! PARKIO_ENV_FILE="${ENV_FILE}" BACKUP_DIR="${BACKUP_DIR}" BACKUP_DEST_DIR="${DEST_DIR}" "${ROOT}/scripts/backup-databases.sh"; then
+if ! PARKIO_ENV_FILE="${ENV_FILE}" BACKUP_DIR="${BACKUP_DIR}" BACKUP_DEST_DIR="${DEST_DIR}" \
+    BACKUP_SKIP_MC_UPLOAD=1 "${ROOT}/scripts/backup-databases.sh"; then
   # backup-databases reports aggregate failure only. Do not invent a partial
   # success count when one or more dumps failed.
   DB_FAILED=${#PARKIO_DB_SERVICES[@]}
@@ -69,13 +72,18 @@ if ! MINIO_OBJECTS="$("${ROOT}/scripts/backup-minio.sh" "${DEST_DIR}" ${ENV_FILE
   MINIO_OBJECTS=0
 fi
 
+OFFSITE_OK=1
+if ! parkio_backup_offsite_upload "${DEST_DIR}" "${BACKUP_MC_DEST:-}" "$(basename "${DEST_DIR}")"; then
+  OFFSITE_OK=0
+fi
+
 if [ "${DB_FAILED}" -eq 0 ]; then
   DB_OK=${#PARKIO_DB_SERVICES[@]}
 else
   DB_OK=0
 fi
 SUCCESS=0
-if [ "${DB_FAILED}" -eq 0 ] && [ "${MINIO_OK}" -eq 1 ]; then
+if [ "${DB_FAILED}" -eq 0 ] && [ "${MINIO_OK}" -eq 1 ] && [ "${OFFSITE_OK}" -eq 1 ]; then
   SUCCESS=1
 fi
 
@@ -86,7 +94,7 @@ parkio_backup_write_metrics "${PARKIO_DEPLOYMENT_PROFILE}" "${SUCCESS}" "${STAMP
 cp "${MANIFEST_PATH}" "${ROOT}/${ARTIFACT_DIR}/backup-current.json" 2>/dev/null || true
 
 if [ "${SUCCESS}" -ne 1 ]; then
-  echo "Backup completed with failures (dbFailed=${DB_FAILED}, minioOk=${MINIO_OK})." >&2
+  echo "Backup completed with failures (dbFailed=${DB_FAILED}, minioOk=${MINIO_OK}, offsiteOk=${OFFSITE_OK})." >&2
   exit 1
 fi
 

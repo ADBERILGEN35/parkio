@@ -26,7 +26,7 @@
 # postgres-* services). Wired into CI by .github/workflows/backup-restore-drill.yml.
 #
 # Usage:
-#   PARKIO_ENV_FILE=docker/.env scripts/restore-drill.sh                 # all nine services
+#   PARKIO_ENV_FILE=docker/.env scripts/restore-drill.sh                 # all ten services
 #   PARKIO_ENV_FILE=docker/.env scripts/restore-drill.sh --service parking
 #   scripts/restore-drill.sh --env-file docker/.env --keep-backups
 #
@@ -96,6 +96,15 @@ fi
 
 CANARY_TABLE="parkio_restore_drill"
 RUN_ID="$(date -u +%Y%m%d%H%M%S)"
+DRILL_STARTED_EPOCH="$(date -u +%s)"
+
+# Deterministic non-PII fixtures (not real users).
+DRILL_SPOT_ID="00000000-0000-4000-a000-000000000001"
+DRILL_OWNER_ID="00000000-0000-4000-a000-000000000002"
+DRILL_MEDIA_ID="00000000-0000-4000-a000-000000000003"
+DRILL_WAITLIST_ID="aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa"
+DRILL_WAITLIST_EMAIL="restore-drill@parkio.test"
+KAYSERI_SOURCE_ID="a1111111-1111-4111-8111-111111111107"
 
 # Per-service expected canary marker.
 declare -A EXPECTED_MARKER
@@ -132,6 +141,111 @@ ensure_parking_schema() {
   done
 }
 
+ensure_gateway_schema() {
+  local container="$1" user="$2" db="$3"
+  local exists
+  exists="$(scalar "$container" "$user" "$db" "SELECT to_regclass('public.waitlist_interest') IS NOT NULL;")"
+  if [ "${exists}" = "t" ]; then
+    echo "    gateway schema already present — using it as-is."
+    return 0
+  fi
+  echo "    gateway schema absent — applying V1 waitlist migration."
+  psql_db "$container" "$user" "$db" \
+    < "${ROOT_DIR}/services/gateway-service/src/main/resources/db/migration/V1__create_waitlist_interest.sql" >/dev/null
+}
+
+seed_service_fixtures() {
+  local svc="$1" container="$2" user="$3" db="$4"
+  case "${svc}" in
+    parking)
+      psql_db "${container}" "${user}" "${db}" -c "
+        INSERT INTO parking_spots (
+          id, owner_user_id, media_id, latitude, longitude, address_text, description,
+          suitable_vehicle_types, parking_context, legal_status, status, expires_at,
+          moderation_deadline_at
+        ) VALUES (
+          '${DRILL_SPOT_ID}', '${DRILL_OWNER_ID}', '${DRILL_MEDIA_ID}',
+          38.4192, 27.1287,
+          'Restore drill synthetic spot',
+          'PROD-RESTORE-DRILL-01 non-PII fixture',
+          'SEDAN', 'STREET_PARKING', 'LEGAL', 'PENDING_VALIDATION', NULL,
+          TIMESTAMPTZ '2026-08-13T00:15:00Z'
+        ) ON CONFLICT (id) DO UPDATE SET description = EXCLUDED.description;
+      " >/dev/null
+      echo "    seeded parking_spots ${DRILL_SPOT_ID}"
+      ;;
+    gateway)
+      local email_hash ip_hash
+      email_hash="$(printf '%s' "${DRILL_WAITLIST_EMAIL}" | sha256sum | awk '{print $1}')"
+      ip_hash="$(printf '%s' 'restore-drill' | sha256sum | awk '{print $1}')"
+      psql_db "${container}" "${user}" "${db}" -c "
+        INSERT INTO waitlist_interest (
+          id, email, email_hash, consent_timestamp, city, role, source, ip_hash, created_at
+        ) VALUES (
+          '${DRILL_WAITLIST_ID}',
+          '${DRILL_WAITLIST_EMAIL}',
+          '${email_hash}',
+          TIMESTAMPTZ '2026-08-13T00:00:00Z',
+          'Izmir',
+          'tester',
+          'parkio.dev-landing',
+          '${ip_hash}',
+          TIMESTAMPTZ '2026-08-13T00:00:00Z'
+        ) ON CONFLICT (id) DO UPDATE SET email = EXCLUDED.email;
+      " >/dev/null
+      echo "    seeded waitlist_interest ${DRILL_WAITLIST_EMAIL}"
+      ;;
+  esac
+}
+
+assert_service_fixtures() {
+  local svc="$1" container="$2" user="$3" tmp_db="$4"
+  case "${svc}" in
+    parking)
+      local lat src
+      lat="$(scalar "${container}" "${user}" "${tmp_db}" "SELECT latitude::text FROM parking_spots WHERE id = '${DRILL_SPOT_ID}';")"
+      src="$(scalar "${container}" "${user}" "${tmp_db}" "SELECT source_key FROM municipal_data_sources WHERE id = '${KAYSERI_SOURCE_ID}';")"
+      echo "    fixture parking_spots.lat=${lat} municipal.source_key=${src}"
+      if [ "${lat}" != "38.4192" ] || [ "${src}" != "kayseri-bb-otoparklar" ]; then
+        echo "    FAIL: parking representative rows did not restore." >&2
+        return 1
+      fi
+      ;;
+    gateway)
+      local email
+      email="$(scalar "${container}" "${user}" "${tmp_db}" "SELECT email FROM waitlist_interest WHERE id = '${DRILL_WAITLIST_ID}';")"
+      echo "    fixture waitlist.email=${email}"
+      if [ "${email}" != "${DRILL_WAITLIST_EMAIL}" ]; then
+        echo "    FAIL: gateway waitlist fixture did not restore." >&2
+        return 1
+      fi
+      ;;
+  esac
+  return 0
+}
+
+verify_dump_checksum() {
+  local dump="$1"
+  local sumfile="${dump}.sha256"
+  if [ ! -f "${sumfile}" ]; then
+    echo "    WARN: no checksum sidecar for $(basename "${dump}")"
+    return 0
+  fi
+  local expected actual
+  expected="$(awk '{print $1}' "${sumfile}")"
+  if command -v sha256sum >/dev/null 2>&1; then
+    actual="$(sha256sum "${dump}" | awk '{print $1}')"
+  else
+    actual="$(shasum -a 256 "${dump}" | awk '{print $1}')"
+  fi
+  if [ "${expected}" != "${actual}" ]; then
+    echo "    FAIL: checksum mismatch for $(basename "${dump}")" >&2
+    return 1
+  fi
+  echo "    OK: sha256 ${actual:0:12}…"
+  return 0
+}
+
 decode_dump() {
   case "$1" in
     *.enc) openssl enc -d -aes-256-cbc -pbkdf2 -pass env:BACKUP_ENCRYPT_PASSPHRASE -in "$1" ;;
@@ -164,6 +278,10 @@ for svc in "${SERVICES[@]}"; do
   if [ "${svc}" = "parking" ]; then
     ensure_parking_schema "${container}" "${user}" "${db}"
   fi
+  if [ "${svc}" = "gateway" ]; then
+    ensure_gateway_schema "${container}" "${user}" "${db}"
+  fi
+  seed_service_fixtures "${svc}" "${container}" "${user}" "${db}"
   marker="drill-${RUN_ID}-${svc}"
   EXPECTED_MARKER["${svc}"]="${marker}"
   psql_db "${container}" "${user}" "${db}" -c \
@@ -195,6 +313,9 @@ for svc in "${SERVICES[@]}"; do
     echo "    FAIL: no dump for '${svc}' in ${BACKUP_DIR}" >&2
     RESULT["${svc}"]="FAIL (no dump)"; OVERALL=1; continue
   fi
+  if ! verify_dump_checksum "${dump}"; then
+    RESULT["${svc}"]="FAIL (checksum)"; OVERALL=1; continue
+  fi
 
   # 3a) generic restorability (exercises scripts/verify-backup.sh).
   if ! PARKIO_ENV_FILE="${ENV_FILE}" "${ROOT_DIR}/scripts/verify-backup.sh" "${svc}" "${dump}" >/dev/null; then
@@ -221,6 +342,12 @@ for svc in "${SERVICES[@]}"; do
       svc_failed="yes"
     else
       echo "    OK: canary row survived the round-trip."
+    fi
+  fi
+
+  if [ "${svc_failed}" = "no" ]; then
+    if ! assert_service_fixtures "${svc}" "${container}" "${user}" "${tmp_db}"; then
+      svc_failed="yes"
     fi
   fi
 
@@ -262,6 +389,8 @@ for svc in "${SERVICES[@]}"; do
   printf '  %-16s %s\n' "${svc}" "${RESULT[${svc}]:-FAIL (not run)}"
 done
 echo "=========================================================================="
+DRILL_ELAPSED="$(( $(date -u +%s) - DRILL_STARTED_EPOCH ))"
+echo "elapsed_seconds=${DRILL_ELAPSED}"
 if [ "${OVERALL}" -eq 0 ]; then
   echo "RESULT: PASS — every targeted dump restored with its canary (and parking PostGIS) intact."
 else

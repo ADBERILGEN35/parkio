@@ -1,17 +1,14 @@
 # Automated backup RESTORE DRILL. Proves — on real postgres/postgis images, with the
 # real backup + restore scripts — that a pg_dump is actually restorable and that data
 # (and parking's PostGIS extension / GiST index / location trigger) survive the
-# round-trip. This is the drill the production-readiness plan flagged as "pending";
-# wiring it into CI makes it repeatable instead of a one-off manual ritual.
+# round-trip.
 #
-# It brings up ONLY the database containers (no app JVMs, no Kafka/MinIO), so it is
-# lean and reliable. scripts/restore-drill.sh applies the real parking V*.sql migrations
-# when the schema is absent, so the dump contains the production PostGIS objects.
+# Brings up ALL ten service Postgres containers plus MinIO (no app JVMs, no Kafka).
+# scripts/restore-drill.sh applies parking V*.sql when the schema is absent.
 #
 # When it runs:
 #  - schedule: weekly, so backups are continuously proven restorable.
-#  - pull_request: when the scripts, the compose stack, or the parking migrations change
-#    (those are exactly the things that can break restorability).
+#  - pull_request: when the scripts, the compose stack, or the parking migrations change.
 #  - workflow_dispatch: on demand from the Actions tab.
 
 name: Backup restore drill
@@ -24,14 +21,18 @@ on:
       - "scripts/backup-hosted-beta.sh"
       - "scripts/restore-hosted-beta.sh"
       - "scripts/lib/backup-common.sh"
+      - "scripts/lib/restore-drill-services.sh"
       - "scripts/restore-database.sh"
       - "scripts/verify-backup.sh"
       - "scripts/restore-drill.sh"
+      - "scripts/restore-drill-minio.sh"
+      - "scripts/restore-drill-failure-modes.sh"
       - "scripts/staging/**"
       - "docker/docker-compose.staging-verification.yml"
       - "docker/docker-compose.restore-drill.yml"
       - "docker/docker-compose.yml"
       - "services/parking-service/src/main/resources/db/migration/**"
+      - "services/gateway-service/src/main/resources/db/migration/**"
       - ".github/workflows/backup-restore-drill.yml"
   schedule:
     # 04:23 UTC every Monday (off the hour to avoid the cron stampede).
@@ -49,7 +50,7 @@ jobs:
   restore-drill:
     name: Backup → restore → assert
     runs-on: ubuntu-latest
-    timeout-minutes: 25
+    timeout-minutes: 35
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -60,19 +61,35 @@ jobs:
         run: cp docker/.env.example docker/.env
 
       - name: Make scripts executable
-        run: chmod +x scripts/*.sh
+        run: chmod +x scripts/*.sh scripts/lib/*.sh
 
-      # Bring up ONLY the postgres-* containers (no apps, no Kafka/MinIO). --wait blocks
-      # until every listed service reports healthy via its compose healthcheck.
-      - name: Start database stack
+      # Authoritative 10-DB set from scripts/lib/restore-drill-services.sh plus MinIO.
+      - name: Start database + MinIO stack
         run: |
+          set -euo pipefail
+          # shellcheck source=scripts/lib/restore-drill-services.sh
+          source scripts/lib/restore-drill-services.sh
           docker compose --env-file docker/.env -f docker/docker-compose.yml up -d --wait \
-            postgres-auth postgres-user postgres-parking postgres-media \
-            postgres-gamification postgres-notification postgres-moderation \
-            postgres-analytics postgres-ai-validation
+            "${PARKIO_POSTGRES_COMPOSE_SERVICES[@]}" minio
+          docker compose --env-file docker/.env -f docker/docker-compose.yml up minio-setup
 
-      - name: Run restore drill (all services)
-        run: PARKIO_ENV_FILE=docker/.env ./scripts/restore-drill.sh
+      - name: Run restore drill (all ten PostgreSQL services)
+        run: PARKIO_ENV_FILE=docker/.env ./scripts/restore-drill.sh --keep-backups
+
+      - name: Isolated MinIO backup/restore checksum
+        run: PARKIO_ENV_FILE=docker/.env ./scripts/restore-drill-minio.sh
+
+      - name: Failure-mode + encryption round-trip
+        run: PARKIO_ENV_FILE=docker/.env ./scripts/restore-drill-failure-modes.sh
+
+      - name: Upload drill dumps on failure
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: restore-drill-backups
+          path: backups/
+          if-no-files-found: ignore
+          retention-days: 7
 
       - name: Tear down
         if: always()

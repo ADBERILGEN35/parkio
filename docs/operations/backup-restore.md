@@ -15,8 +15,8 @@ not close public production NO-GO.
 
 | Store | Database / bucket | Backup method | Schedule | RPO status | RTO status | Restore verified |
 |-------|-------------------|---------------|----------|------------|------------|------------------|
-| auth | `parkio_auth` | `scripts/backup-databases.sh` pg_dump | Cron 03:30 VPS | PROPOSED | UNVERIFIED | CI drill weekly |
-| gateway | `parkio_gateway` | same | same | PROPOSED | UNVERIFIED | CI drill |
+| auth | `parkio_auth` | `scripts/backup-databases.sh` pg_dump | Cron 03:30 VPS (`backup-hosted-beta.sh`) | PROPOSED | UNVERIFIED | CI drill (PROD-RESTORE-DRILL-01) |
+| gateway | `parkio_gateway` | same | same | PROPOSED | UNVERIFIED | CI drill (must start `postgres-gateway`) |
 | user | `parkio_user` | same | same | PROPOSED | UNVERIFIED | CI drill |
 | parking | `parkio_parking` (PostGIS) | same | same | PROPOSED | UNVERIFIED | CI drill |
 | media metadata | `parkio_media` | same | same | PROPOSED | UNVERIFIED | CI drill |
@@ -25,7 +25,7 @@ not close public production NO-GO.
 | moderation | `parkio_moderation` | same | same | PROPOSED | UNVERIFIED | CI drill |
 | analytics | `parkio_analytics` | same | same | PROPOSED | UNVERIFIED | CI drill |
 | ai-validation | `parkio_aivalidation` | same | same | PROPOSED | UNVERIFIED | CI drill |
-| MinIO objects | `MINIO_BUCKET` | `scripts/backup-minio.sh` | same | PROPOSED | UNVERIFIED | manual |
+| MinIO objects | `MINIO_BUCKET` | `scripts/backup-minio.sh` | same | PROPOSED | UNVERIFIED | isolated CI (`restore-drill-minio.sh`); live restore unproven |
 | WP-05 ledgers | parking DB tables V20–V26 | included in parking dump | same | PROPOSED | UNVERIFIED | IT only |
 
 ## Derived / Rebuildable
