@@ -437,6 +437,7 @@ parkio_backup_mc_docker() {
           set -eu
           mc alias set offsite "$MC_URL" "$MC_ACCESS" "$MC_SECRET" >/dev/null
           mc mirror --overwrite "$MC_DEST" /download
+          chmod -R a+rwX /download
         '
       ;;
     *)
