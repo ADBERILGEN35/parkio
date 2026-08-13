@@ -153,5 +153,5 @@ if prom_firing ParkioAlertingAcceptanceTest; then
   exit 1
 fi
 
-log "evidence written (no secrets): ${EVIDENCE}"
+log "evidence written (credentials not included): ${EVIDENCE}"
 echo "ALERTING_ACCEPTANCE_PASS"

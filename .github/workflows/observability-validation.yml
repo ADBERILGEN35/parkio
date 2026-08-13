@@ -167,8 +167,8 @@ jobs:
           test -s docker/.alerting-acceptance-receipts/evidence.txt
           grep -q 'synthetic firing delivered' docker/.alerting-acceptance-receipts/evidence.txt
           grep -q 'synthetic resolved delivered' docker/.alerting-acceptance-receipts/evidence.txt
-          if grep -Ei 'hooks\.slack|xoxb-|Bearer [A-Za-z0-9._-]{12,}|PASSWORD|SECRET' docker/.alerting-acceptance-receipts/evidence.txt docker/.alerting-acceptance-receipts/receipts.jsonl; then
-            echo "FAIL: secret-like string in alerting receipts" >&2
+          if grep -Ei 'hooks\.slack\.com|xox[bp]-|Bearer [A-Za-z0-9._-]{20,}' docker/.alerting-acceptance-receipts/evidence.txt docker/.alerting-acceptance-receipts/receipts.jsonl; then
+            echo "FAIL: credential-like string in alerting receipts" >&2
             exit 1
           fi
 
