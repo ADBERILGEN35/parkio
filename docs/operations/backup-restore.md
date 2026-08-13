@@ -39,7 +39,9 @@ not close public production NO-GO.
 
 ## Encryption
 
-Optional `BACKUP_ENCRYPT_PASSPHRASE` for DB dumps — see backup-runbook.
+Dev/CI: optional `BACKUP_ENCRYPT_PASSPHRASE` for DB dumps.
+
+`BACKUP_PRODUCTION_MODE=1`: encryption **required** (fail-closed). MinIO mirror is not client-side encrypted; offsite SSE + TLS apply. See backup-runbook.
 
 ## Restore Order
 
@@ -62,5 +64,5 @@ Optional `BACKUP_ENCRYPT_PASSPHRASE` for DB dumps — see backup-runbook.
 | Item | Status |
 |------|--------|
 | Backup schedule on VPS | OPERATOR |
-| Offsite `BACKUP_MC_DEST` | PRODUCT/INFRA INPUT REQUIRED |
+| Offsite `BACKUP_MC_DEST` / Azure Blob | Azure Blob in `rg-parkio-backups` (westeurope); CI uses ephemeral MinIO |
 | Production RPO/RTO approval | NOT APPROVED |

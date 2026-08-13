@@ -28,6 +28,8 @@ on:
       - "scripts/restore-drill.sh"
       - "scripts/restore-drill-minio.sh"
       - "scripts/restore-drill-failure-modes.sh"
+      - "scripts/restore-drill-offsite.sh"
+      - "scripts/backup-offsite-pull.sh"
       - "scripts/staging/**"
       - "docker/docker-compose.staging-verification.yml"
       - "docker/docker-compose.restore-drill.yml"
@@ -48,6 +50,8 @@ on:
       - "scripts/restore-drill.sh"
       - "scripts/restore-drill-minio.sh"
       - "scripts/restore-drill-failure-modes.sh"
+      - "scripts/restore-drill-offsite.sh"
+      - "scripts/backup-offsite-pull.sh"
       - "scripts/staging/**"
       - "docker/docker-compose.staging-verification.yml"
       - "docker/docker-compose.restore-drill.yml"
@@ -59,6 +63,11 @@ on:
     # 04:23 UTC every Monday (off the hour to avoid the cron stampede).
     - cron: "23 4 * * 1"
   workflow_dispatch:
+    inputs:
+      azure_offsite:
+        description: "Run Azure Blob offsite acceptance (requires BACKUP_AZURE_* secrets)"
+        type: boolean
+        default: false
 
 permissions:
   contents: read
@@ -71,7 +80,7 @@ jobs:
   restore-drill:
     name: Backup → restore → assert
     runs-on: ubuntu-latest
-    timeout-minutes: 35
+    timeout-minutes: 45
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -102,6 +111,30 @@ jobs:
 
       - name: Failure-mode + encryption round-trip
         run: PARKIO_ENV_FILE=docker/.env ./scripts/restore-drill-failure-modes.sh
+
+      - name: Encrypted offsite upload/pull/restore (ephemeral MinIO)
+        run: PARKIO_ENV_FILE=docker/.env ./scripts/restore-drill-offsite.sh
+
+      - name: Azure Blob offsite acceptance
+        if: ${{ github.event_name == 'workflow_dispatch' && inputs.azure_offsite }}
+        env:
+          BACKUP_OFFSITE_KIND: azure
+          BACKUP_AZURE_STORAGE_ACCOUNT: ${{ secrets.BACKUP_AZURE_STORAGE_ACCOUNT }}
+          BACKUP_AZURE_STORAGE_KEY: ${{ secrets.BACKUP_AZURE_STORAGE_KEY }}
+          BACKUP_AZURE_CONTAINER: ${{ secrets.BACKUP_AZURE_CONTAINER }}
+          BACKUP_PRODUCTION_MODE: "1"
+          BACKUP_ENCRYPT_PASSPHRASE: ${{ secrets.BACKUP_ENCRYPT_PASSPHRASE }}
+        run: |
+          set -euo pipefail
+          if [ -z "${BACKUP_AZURE_STORAGE_ACCOUNT}" ] || [ -z "${BACKUP_AZURE_STORAGE_KEY}" ] || [ -z "${BACKUP_AZURE_CONTAINER}" ] || [ -z "${BACKUP_ENCRYPT_PASSPHRASE}" ]; then
+            echo "ERROR: Azure offsite secrets are not configured." >&2
+            exit 2
+          fi
+          if ! command -v az >/dev/null 2>&1; then
+            echo "ERROR: Azure CLI is required for Azure offsite acceptance." >&2
+            exit 2
+          fi
+          PARKIO_ENV_FILE=docker/.env ./scripts/restore-drill-offsite.sh
 
       - name: Upload drill dumps on failure
         if: failure()

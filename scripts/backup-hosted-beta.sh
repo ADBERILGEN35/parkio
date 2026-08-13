@@ -30,6 +30,9 @@ done
 
 parkio_backup_load_env "${ENV_FILE}"
 parkio_backup_validate_deployment_profile
+if ! parkio_backup_preflight; then
+  exit 2
+fi
 
 BACKUP_DIR="${BACKUP_DIR:-./backups}"
 STAMP="$(parkio_backup_stamp)"
@@ -72,16 +75,33 @@ if ! MINIO_OBJECTS="$("${ROOT}/scripts/backup-minio.sh" "${DEST_DIR}" ${ENV_FILE
   MINIO_OBJECTS=0
 fi
 
-OFFSITE_OK=1
-if ! parkio_backup_offsite_upload "${DEST_DIR}" "${BACKUP_MC_DEST:-}" "$(basename "${DEST_DIR}")"; then
-  OFFSITE_OK=0
+if [ -n "${BACKUP_ENCRYPT_PASSPHRASE:-}" ]; then
+  parkio_backup_assert_encrypted_dumps "${DEST_DIR}" || exit 1
 fi
+
+ENCRYPT_ON=0
+if [ -n "${BACKUP_ENCRYPT_PASSPHRASE:-}" ]; then ENCRYPT_ON=1; fi
 
 if [ "${DB_FAILED}" -eq 0 ]; then
   DB_OK=${#PARKIO_DB_SERVICES[@]}
 else
   DB_OK=0
 fi
+
+PARKIO_BACKUP_OFFSITE_UPLOADED=0
+parkio_backup_write_manifest "${MANIFEST_PATH}" "${STAMP}" "${GIT_SHA}" "${OPERATOR}" \
+  "${ENV_FILE:-<env>}" "${DEST_DIR}" "${DB_OK}" "${DB_FAILED}" "${MINIO_OK}" "${MINIO_OBJECTS}"
+cp "${MANIFEST_PATH}" "${DEST_DIR}/backup-manifest.json"
+parkio_backup_write_stamp_integrity "${DEST_DIR}" "${STAMP}"
+
+OFFSITE_OK=1
+if ! parkio_backup_offsite_upload "${DEST_DIR}" "${BACKUP_MC_DEST:-}" "$(basename "${DEST_DIR}")"; then
+  OFFSITE_OK=0
+fi
+if [ "${OFFSITE_OK}" -eq 1 ] && [ "$(parkio_backup_offsite_kind)" != "none" ]; then
+  PARKIO_BACKUP_OFFSITE_UPLOADED=1
+fi
+
 SUCCESS=0
 if [ "${DB_FAILED}" -eq 0 ] && [ "${MINIO_OK}" -eq 1 ] && [ "${OFFSITE_OK}" -eq 1 ]; then
   SUCCESS=1
@@ -89,7 +109,10 @@ fi
 
 parkio_backup_write_manifest "${MANIFEST_PATH}" "${STAMP}" "${GIT_SHA}" "${OPERATOR}" \
   "${ENV_FILE:-<env>}" "${DEST_DIR}" "${DB_OK}" "${DB_FAILED}" "${MINIO_OK}" "${MINIO_OBJECTS}"
-parkio_backup_write_metrics "${PARKIO_DEPLOYMENT_PROFILE}" "${SUCCESS}" "${STAMP_EPOCH}" "${DB_FAILED}" "${MINIO_OBJECTS}"
+BACKUP_BYTES="$(du -sb "${DEST_DIR}" 2>/dev/null | awk '{print $1}')"
+BACKUP_BYTES="${BACKUP_BYTES:-0}"
+parkio_backup_write_metrics "${PARKIO_DEPLOYMENT_PROFILE}" "${SUCCESS}" "${STAMP_EPOCH}" \
+  "${DB_FAILED}" "${MINIO_OBJECTS}" "${PARKIO_BACKUP_OFFSITE_UPLOADED}" "${ENCRYPT_ON}" "${BACKUP_BYTES}"
 
 cp "${MANIFEST_PATH}" "${ROOT}/${ARTIFACT_DIR}/backup-current.json" 2>/dev/null || true
 

@@ -147,11 +147,25 @@ PostGIS is required by `parking-service`; everything else is plain Postgres 16.
     (applying the real `V*.sql` migrations first when the schema is absent). This proves
     restorability on real postgres/postgis images on every run. **Still recommended before relying
     on it in production:** run the drill once **on the actual VPS host** against the live data path,
-    and verify a dump pulled back from the **offsite** copy (`BACKUP_MC_DEST`), not just the local
-    file. Runbook in `docker/README.md`.
-  - **RPO/RTO (beta):** RPO ≈ 24h (nightly logical dumps; no point-in-time recovery between dumps —
-    shorten the interval to reduce it); RTO ≈ minutes per DB. Managed PITR + Multi-AZ failover is
-    still required for public production (logical dumps are a stop-gap, not HA).
+    and verify a dump pulled back from the **offsite** copy (Azure Blob / `BACKUP_MC_DEST`), not just the local
+    file. Isolated offsite protocol: `scripts/restore-drill-offsite.sh`. Runbook in `docs/operations/backup-runbook.md`.
+  - **RPO/RTO (beta, after PROD-BACKUP-OFFSITE-01):** RPO remains **cadence-bound** (nightly ≈ 24h;
+    no PITR / WAL archive). Offsite Azure Blob does **not** create PITR. Isolated restore-drill RTO
+    is minutes for 10 logical DBs + MinIO object checksum; live hosted-beta restore RTO is unproven
+    (emergency procedure documented, not executed against live). Managed PITR + Multi-AZ failover is
+    still required for public production.
+  - **PROD-READINESS-02 backup blockers (PROD-BACKUP-OFFSITE-01):**
+    - **B. OFFSITE — PARTIALLY CLOSED.** Encrypted stamp uploads to Azure Blob (`rg-parkio-backups`,
+      westeurope, separate from francecentral VM). CI protocol uses ephemeral MinIO (same GHA VM —
+      not a failure-domain proof). Real Azure acceptance is `workflow_dispatch` `azure_offsite`.
+      Hosted-beta cron is **not** yet running `BACKUP_PRODUCTION_MODE=1` on the VM (no production
+      deploy in this package).
+    - **C. ENCRYPTION — CLOSED** for production-intended mode: `BACKUP_PRODUCTION_MODE=1` fail-closes
+      if the passphrase is absent (no silent plaintext). Dev/CI remain optional. MinIO mirror is
+      **not** client-side encrypted; Azure SSE + TLS apply.
+    - **D. MINIO RESTORE — PARTIALLY CLOSED.** Isolated MinIO object restore from offsite-retrieved
+      stamp is proven in CI. Live hosted-beta MinIO restore is **not** executed; `restore-hosted-beta.sh`
+      refuses live bucket overwrite unless `PARKIO_ALLOW_LIVE_MINIO_RESTORE=yes`.
   - **Test the restore** (and the *offsite* copy, not just the local file) before relying on it.
 - **Migrations.** Already Flyway-owned, `validate` at runtime. Run migrations as a **pre-deploy
   step** (init container / deploy job) — never let two app replicas race migrations on boot. Gate

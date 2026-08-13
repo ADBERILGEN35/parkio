@@ -29,6 +29,7 @@
 #   PARKIO_ENV_FILE=docker/.env scripts/restore-drill.sh                 # all ten services
 #   PARKIO_ENV_FILE=docker/.env scripts/restore-drill.sh --service parking
 #   scripts/restore-drill.sh --env-file docker/.env --keep-backups
+#   scripts/restore-drill.sh --from-dir /tmp/pulled-stamp   # assert dumps already retrieved
 #
 # Exit code 0 = every targeted service backed up AND restored with its canary intact
 # (and parking's PostGIS objects intact); non-zero = at least one drill step failed.
@@ -45,12 +46,16 @@ ALL_SERVICES=(auth gateway user parking media gamification notification moderati
 TARGET_SERVICE=""
 ENV_FILE="${PARKIO_ENV_FILE:-}"
 KEEP_BACKUPS="no"
+FROM_DIR=""
+KEEP_CANARIES="no"
 
 while [ "$#" -gt 0 ]; do
   case "$1" in
     --service) TARGET_SERVICE="${2:-}"; shift 2 ;;
     --env-file) ENV_FILE="${2:-}"; shift 2 ;;
     --keep-backups) KEEP_BACKUPS="yes"; shift ;;
+    --from-dir) FROM_DIR="${2:-}"; shift 2 ;;
+    --keep-canaries) KEEP_CANARIES="yes"; shift ;;
     -h|--help) sed -n '2,40p' "$0"; exit 0 ;;
     -*) echo "ERROR: unknown flag '$1'" >&2; exit 2 ;;
     *) echo "ERROR: unexpected argument '$1'" >&2; exit 2 ;;
@@ -265,38 +270,56 @@ find_dump() {
 
 echo "==> Parkio restore drill ${RUN_ID} — services: ${SERVICES[*]}"
 
-# 1) Pre-flight: containers up, seed canaries, ensure parking schema.
-for svc in "${SERVICES[@]}"; do
-  IFS=":" read -r container user db <<< "$(resolve "${svc}")"
-  require_container "${container}"
-  echo "--> [${svc}] seeding canary into ${db}"
-  if [ "${svc}" = "parking" ]; then
-    ensure_parking_schema "${container}" "${user}" "${db}"
+BACKUP_DIR=""
+if [ -n "${FROM_DIR}" ]; then
+  if [ ! -d "${FROM_DIR}" ]; then
+    echo "ERROR: --from-dir is not a directory: ${FROM_DIR}" >&2
+    exit 2
   fi
-  if [ "${svc}" = "gateway" ]; then
-    ensure_gateway_schema "${container}" "${user}" "${db}"
+  BACKUP_DIR="${FROM_DIR%/}"
+  echo "==> Using retrieved backup set ${BACKUP_DIR} (no seed/backup)"
+  if [ -f "${BACKUP_DIR}/SHA256SUMS" ]; then
+    parkio_backup_verify_stamp "${BACKUP_DIR}" || exit 1
   fi
-  seed_service_fixtures "${svc}" "${container}" "${user}" "${db}"
-  marker="drill-${RUN_ID}-${svc}"
-  EXPECTED_MARKER["${svc}"]="${marker}"
-  psql_db "${container}" "${user}" "${db}" -c \
-    "CREATE TABLE IF NOT EXISTS ${CANARY_TABLE} (id int PRIMARY KEY, marker text NOT NULL, created_at timestamptz NOT NULL DEFAULT now());" >/dev/null
-  psql_db "${container}" "${user}" "${db}" -c \
-    "INSERT INTO ${CANARY_TABLE} (id, marker) VALUES (1, '${marker}') ON CONFLICT (id) DO UPDATE SET marker = EXCLUDED.marker, created_at = now();" >/dev/null
-done
+  for svc in "${SERVICES[@]}"; do
+    IFS=":" read -r container user db <<< "$(resolve "${svc}")"
+    require_container "${container}"
+    EXPECTED_MARKER["${svc}"]=""
+  done
+else
+  # 1) Pre-flight: containers up, seed canaries, ensure parking schema.
+  for svc in "${SERVICES[@]}"; do
+    IFS=":" read -r container user db <<< "$(resolve "${svc}")"
+    require_container "${container}"
+    echo "--> [${svc}] seeding canary into ${db}"
+    if [ "${svc}" = "parking" ]; then
+      ensure_parking_schema "${container}" "${user}" "${db}"
+    fi
+    if [ "${svc}" = "gateway" ]; then
+      ensure_gateway_schema "${container}" "${user}" "${db}"
+    fi
+    seed_service_fixtures "${svc}" "${container}" "${user}" "${db}"
+    marker="drill-${RUN_ID}-${svc}"
+    EXPECTED_MARKER["${svc}"]="${marker}"
+    psql_db "${container}" "${user}" "${db}" -c \
+      "CREATE TABLE IF NOT EXISTS ${CANARY_TABLE} (id int PRIMARY KEY, marker text NOT NULL, created_at timestamptz NOT NULL DEFAULT now());" >/dev/null
+    psql_db "${container}" "${user}" "${db}" -c \
+      "INSERT INTO ${CANARY_TABLE} (id, marker) VALUES (1, '${marker}') ON CONFLICT (id) DO UPDATE SET marker = EXCLUDED.marker, created_at = now();" >/dev/null
+  done
 
-# 2) Run the real backup (backs up every running service DB). Pin BACKUP_DIR to the repo
-# root so the drill finds the dumps regardless of the caller's working directory.
-echo "==> Running scripts/backup-databases.sh"
-BACKUP_ROOT="${ROOT_DIR}/backups"
-PARKIO_ENV_FILE="${ENV_FILE}" BACKUP_DIR="${BACKUP_ROOT}" "${ROOT_DIR}/scripts/backup-databases.sh"
-BACKUP_DIR="$(ls -dt "${BACKUP_ROOT}"/*/ 2>/dev/null | head -1)"
-if [ -z "${BACKUP_DIR}" ] || [ ! -d "${BACKUP_DIR}" ]; then
-  echo "ERROR: no backup directory produced under ${BACKUP_ROOT}/." >&2
-  exit 1
+  # 2) Run the real backup (backs up every running service DB). Pin BACKUP_DIR to the repo
+  # root so the drill finds the dumps regardless of the caller's working directory.
+  echo "==> Running scripts/backup-databases.sh"
+  BACKUP_ROOT="${ROOT_DIR}/backups"
+  PARKIO_ENV_FILE="${ENV_FILE}" BACKUP_DIR="${BACKUP_ROOT}" "${ROOT_DIR}/scripts/backup-databases.sh"
+  BACKUP_DIR="$(ls -dt "${BACKUP_ROOT}"/*/ 2>/dev/null | head -1)"
+  if [ -z "${BACKUP_DIR}" ] || [ ! -d "${BACKUP_DIR}" ]; then
+    echo "ERROR: no backup directory produced under ${BACKUP_ROOT}/." >&2
+    exit 1
+  fi
+  BACKUP_DIR="${BACKUP_DIR%/}"
+  echo "    backup set: ${BACKUP_DIR}"
 fi
-BACKUP_DIR="${BACKUP_DIR%/}"
-echo "    backup set: ${BACKUP_DIR}"
 
 # 3) For each service: generic verify + canary/PostGIS restore assertions.
 OVERALL=0
@@ -332,8 +355,12 @@ for svc in "${SERVICES[@]}"; do
 
   if [ "${svc_failed}" = "no" ]; then
     got="$(scalar "${container}" "${user}" "${tmp_db}" "SELECT marker FROM ${CANARY_TABLE} WHERE id = 1;")"
-    if [ "${got}" != "${EXPECTED_MARKER[${svc}]}" ]; then
-      echo "    FAIL: canary mismatch (expected='${EXPECTED_MARKER[${svc}]}' got='${got}')." >&2
+    expected="${EXPECTED_MARKER[${svc}]:-}"
+    if [ -n "${expected}" ] && [ "${got}" != "${expected}" ]; then
+      echo "    FAIL: canary mismatch (expected='${expected}' got='${got}')." >&2
+      svc_failed="yes"
+    elif [ -z "${got}" ]; then
+      echo "    FAIL: canary row missing after restore." >&2
       svc_failed="yes"
     else
       echo "    OK: canary row survived the round-trip."
@@ -361,8 +388,10 @@ for svc in "${SERVICES[@]}"; do
   fi
 
   psql_admin "${container}" "${user}" -c "DROP DATABASE IF EXISTS \"${tmp_db}\";" >/dev/null
-  # Remove the drill-owned canary table from the live DB (never touches business tables).
-  psql_db "${container}" "${user}" "${db}" -c "DROP TABLE IF EXISTS ${CANARY_TABLE};" >/dev/null
+  if [ "${KEEP_CANARIES}" != "yes" ] && [ -z "${FROM_DIR}" ]; then
+    # Remove the drill-owned canary table from the live DB (never touches business tables).
+    psql_db "${container}" "${user}" "${db}" -c "DROP TABLE IF EXISTS ${CANARY_TABLE};" >/dev/null
+  fi
 
   if [ "${svc_failed}" = "yes" ]; then
     RESULT["${svc}"]="FAIL"; OVERALL=1
@@ -371,8 +400,8 @@ for svc in "${SERVICES[@]}"; do
   fi
 done
 
-# 4) Optionally discard the drill's backup artifacts.
-if [ "${KEEP_BACKUPS}" = "no" ]; then
+# 4) Optionally discard the drill's backup artifacts (never a --from-dir pull).
+if [ "${KEEP_BACKUPS}" = "no" ] && [ -z "${FROM_DIR}" ]; then
   rm -rf "${BACKUP_DIR}" 2>/dev/null || true
   echo "==> Removed drill backup set ${BACKUP_DIR} (pass --keep-backups to retain)."
 fi

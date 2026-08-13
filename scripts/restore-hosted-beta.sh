@@ -93,31 +93,48 @@ restore_databases() {
 }
 
 restore_minio() {
+  local restore_bucket="${MINIO_RESTORE_BUCKET:-${BUCKET}}"
   local mirror_src="${DEST_DIR}/minio/${BUCKET}"
+  if [ ! -d "${mirror_src}" ]; then
+    # retrieved stamps store the bucket tree under minio/<bucket>
+    local alt
+    alt="$(find "${DEST_DIR}/minio" -mindepth 1 -maxdepth 1 -type d 2>/dev/null | head -1 || true)"
+    if [ -n "${alt}" ]; then
+      mirror_src="${alt}"
+    fi
+  fi
   if [ "$DRY_RUN" -eq 1 ]; then
-    echo "DRY-RUN: would mirror ${mirror_src} -> local/${BUCKET}"
+    echo "DRY-RUN: would mirror ${mirror_src} -> local/${restore_bucket}"
     return 0
   fi
   if [ ! -d "${mirror_src}" ]; then
     echo "ERROR: MinIO mirror not found: ${mirror_src}" >&2
     return 1
   fi
-  local network mc_image
-  network="$(parkio_backup_backend_network parkio-minio)"
+  if [ "${restore_bucket}" = "${BUCKET}" ] && [ "${PARKIO_ALLOW_LIVE_MINIO_RESTORE:-}" != "yes" ]; then
+    echo "ERROR: refusing to overwrite live bucket '${BUCKET}'." >&2
+    echo "Set MINIO_RESTORE_BUCKET to an isolated bucket, or PARKIO_ALLOW_LIVE_MINIO_RESTORE=yes after operator confirmation." >&2
+    return 2
+  fi
+  local network mc_image minio_container
+  minio_container="${PARKIO_MINIO_CONTAINER:-parkio-minio}"
+  network="$(parkio_backup_backend_network "${minio_container}")"
   mc_image="${MINIO_MC_IMAGE:-minio/mc:RELEASE.2024-09-16T17-43-14Z}"
   docker run --rm \
     --network "${network}" \
+    --entrypoint /bin/sh \
     -v "${mirror_src}:/restore:ro" \
     -e "MINIO_ROOT_USER=${MINIO_ROOT_USER:-minioadmin}" \
     -e "MINIO_ROOT_PASSWORD=${MINIO_ROOT_PASSWORD:?set MINIO_ROOT_PASSWORD}" \
-    -e "BUCKET=${BUCKET}" \
+    -e "BUCKET=${restore_bucket}" \
     "${mc_image}" \
-    /bin/sh -c '
+    -c '
       set -eu
       mc alias set local http://minio:9000 "$MINIO_ROOT_USER" "$MINIO_ROOT_PASSWORD"
+      mc mb -p "local/${BUCKET}" >/dev/null 2>&1 || true
       mc mirror --overwrite /restore "local/${BUCKET}"
     '
-  echo "MinIO restore completed from ${mirror_src}"
+  echo "MinIO restore completed from ${mirror_src} -> ${restore_bucket}"
 }
 
 if [ "${ASSUME_YES}" != "yes" ] && [ "$DRY_RUN" -ne 1 ]; then
