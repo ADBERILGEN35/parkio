@@ -2,7 +2,7 @@
 rule_files:
   - ../alerts.yml
 
-evaluation_interval: 1m
+evaluation_interval: 15s
 
 tests:
   - name: normal state produces no P0/P1 infrastructure alerts
@@ -243,12 +243,12 @@ tests:
               runbook_url: "docs/architecture/observability-metrics.md#runbook--kafkabrokerunavailable"
 
   - name: backup failed for duration then recovered
-    interval: 15m
+    interval: 1m
     input_series:
       - series: 'parkio_backup_last_success{scope="hosted-beta"}'
-        values: "0 0 0 0 0 1 1"
+        values: "0x70 1x20"
       - series: 'parkio_backup_last_timestamp_seconds{scope="hosted-beta"}'
-        values: "1e15 1e15 1e15 1e15 1e15 1e15 1e15"
+        values: "1000000000x90"
     alert_rule_test:
       - eval_time: 45m
         alertname: BackupFailed
@@ -269,10 +269,10 @@ tests:
         exp_alerts: []
 
   - name: backup stale and azure-hosted-beta scope
-    interval: 1h
+    interval: 1m
     input_series:
       - series: 'parkio_backup_last_timestamp_seconds{scope="azure-hosted-beta"}'
-        values: "0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0"
+        values: "0x1620"
     alert_rule_test:
       - eval_time: 24h
         alertname: BackupStale
@@ -290,16 +290,16 @@ tests:
               runbook_url: "docs/operations/backup-runbook.md#failed-backups"
 
   - name: offsite failed and encryption disabled only in production mode
-    interval: 15m
+    interval: 1m
     input_series:
       - series: 'parkio_backup_production_mode{scope="hosted-beta"}'
-        values: "1 1 1 1 1 1"
+        values: "1x70"
       - series: 'parkio_backup_offsite_last_success{scope="hosted-beta"}'
-        values: "0 0 0 0 0 0"
+        values: "0x70"
       - series: 'parkio_backup_encryption_enabled{scope="hosted-beta"}'
-        values: "0 0 0 0 0 0"
+        values: "0x70"
       - series: 'parkio_backup_last_timestamp_seconds{scope="hosted-beta"}'
-        values: "1e15 1e15 1e15 1e15 1e15 1e15"
+        values: "1000000000x70"
     alert_rule_test:
       - eval_time: 10m
         alertname: BackupEncryptionDisabledInProduction
@@ -328,14 +328,14 @@ tests:
               runbook_url: "docs/operations/backup-runbook.md#failed-backups"
 
   - name: offsite and encryption alerts stay silent without production mode
-    interval: 15m
+    interval: 1m
     input_series:
       - series: 'parkio_backup_production_mode{scope="hosted-beta"}'
-        values: "0 0 0 0 0 0"
+        values: "0x70"
       - series: 'parkio_backup_offsite_last_success{scope="hosted-beta"}'
-        values: "0 0 0 0 0 0"
+        values: "0x70"
       - series: 'parkio_backup_encryption_enabled{scope="hosted-beta"}'
-        values: "0 0 0 0 0 0"
+        values: "0x70"
     alert_rule_test:
       - eval_time: 1h
         alertname: BackupOffsiteFailed
