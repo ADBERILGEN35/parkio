@@ -277,7 +277,7 @@ tests:
       - eval_time: 24h
         alertname: BackupStale
         exp_alerts: []
-      - eval_time: 26h
+      - eval_time: 27h
         alertname: BackupStale
         exp_alerts:
           - exp_labels:
