@@ -47,7 +47,7 @@ Step 3 runs **after** step 2. Unset `BACKUP_MC_DEST` → local copy only (option
 | `BACKUP_MC_DEST` | Optional `mc` alias (e.g. `s3/parkio-backups`) | empty (off) |
 | `MINIO_ROOT_PASSWORD` | Required for MinIO mirror | — |
 
-Offsite and encryption are **not** configured in repo examples. Do not invent a destination. MinIO mirror is **not** encrypted independently (rely on disk/offsite TLS).
+Offsite and encryption are **not** configured in repo examples. Do not invent a destination. MinIO mirror is **not** encrypted independently (rely on disk/offsite TLS). A non-empty process-env `BACKUP_ENCRYPT_PASSPHRASE` / `BACKUP_MC_DEST` wins over blank `.env` placeholders.
 
 ## Isolated verification (no live overwrite)
 

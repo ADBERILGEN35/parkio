@@ -39,17 +39,10 @@ SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 source "${SCRIPT_DIR}/lib/backup-common.sh"
 
 # Optionally load an env file (so POSTGRES_*_USER/DB, BACKUP_* are available).
+# Non-empty BACKUP_ENCRYPT_PASSPHRASE / BACKUP_MC_DEST already in the environment
+# win over blank .env placeholders.
 ENV_FILE="${PARKIO_ENV_FILE:-}"
-if [ -n "${ENV_FILE}" ]; then
-  if [ -f "${ENV_FILE}" ]; then
-    set -a
-    # shellcheck disable=SC1090
-    . "${ENV_FILE}"
-    set +a
-  else
-    echo "WARN: PARKIO_ENV_FILE='${ENV_FILE}' not found; relying on current environment." >&2
-  fi
-fi
+parkio_backup_load_env "${ENV_FILE}"
 
 BACKUP_DIR="${BACKUP_DIR:-./backups}"
 RETENTION_DAYS="${BACKUP_RETENTION_DAYS:-14}"

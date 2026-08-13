@@ -32,10 +32,20 @@ parkio_backup_stamp() {
 parkio_backup_load_env() {
   local env_file="${1:-}"
   if [ -n "${env_file}" ] && [ -f "${env_file}" ]; then
+    # Blank .env placeholders (BACKUP_ENCRYPT_PASSPHRASE=) must not wipe a
+    # non-empty caller/cron/CI secret already in the process environment.
+    local _saved_encrypt="${BACKUP_ENCRYPT_PASSPHRASE-}"
+    local _saved_mc="${BACKUP_MC_DEST-}"
     set -a
     # shellcheck disable=SC1090
     . "${env_file}"
     set +a
+    if [ -n "${_saved_encrypt}" ]; then
+      export BACKUP_ENCRYPT_PASSPHRASE="${_saved_encrypt}"
+    fi
+    if [ -n "${_saved_mc}" ]; then
+      export BACKUP_MC_DEST="${_saved_mc}"
+    fi
   elif [ -n "${env_file}" ]; then
     echo "WARN: env file '${env_file}' not found; relying on current environment." >&2
   fi

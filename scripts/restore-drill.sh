@@ -37,6 +37,8 @@ set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 ROOT_DIR="$(cd "${SCRIPT_DIR}/.." && pwd)"
+# shellcheck source=lib/backup-common.sh
+source "${SCRIPT_DIR}/lib/backup-common.sh"
 
 ALL_SERVICES=(auth gateway user parking media gamification notification moderation analytics ai-validation)
 
@@ -55,14 +57,7 @@ while [ "$#" -gt 0 ]; do
   esac
 done
 
-if [ -n "${ENV_FILE}" ]; then
-  if [ -f "${ENV_FILE}" ]; then
-    set -a; # shellcheck disable=SC1090
-    . "${ENV_FILE}"; set +a
-  else
-    echo "WARN: env file '${ENV_FILE}' not found; relying on current environment." >&2
-  fi
-fi
+parkio_backup_load_env "${ENV_FILE}"
 
 # service -> container:user:db  (mirrors docker/docker-compose.yml + scripts/backup-databases.sh)
 resolve() {
