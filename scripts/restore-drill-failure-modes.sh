@@ -40,7 +40,9 @@ expect_nonzero "truncated/corrupt dump" \
   "${ROOT}/scripts/verify-backup.sh" auth "${BAD}" --env-file "${ENV_FILE}"
 rm -f "${BAD}"
 
-# Encryption round-trip on a single already-running DB (auth).
+# Encryption round-trip against parking: that DB has real Flyway/PostGIS tables
+# after restore-drill. Empty services (auth with no app migrations) would fail
+# verify-backup's ">=1 public table" check without weakening it.
 ENC_ROOT="$(mktemp -d "${TMPDIR:-/tmp}/parkio-enc-backup.XXXXXX")"
 echo "==> Encrypted dump round-trip (CI passphrase, not production)"
 if BACKUP_ENCRYPT_PASSPHRASE="parkio-ci-restore-drill-not-prod" \
@@ -49,17 +51,17 @@ if BACKUP_ENCRYPT_PASSPHRASE="parkio-ci-restore-drill-not-prod" \
   BACKUP_DEST_DIR="${ENC_ROOT}/enc" \
   BACKUP_SKIP_MC_UPLOAD=1 \
   "${ROOT}/scripts/backup-databases.sh"; then
-  ENC_DUMP="${ENC_ROOT}/enc/auth.sql.gz.enc"
+  ENC_DUMP="${ENC_ROOT}/enc/parking.sql.gz.enc"
   if [ ! -f "${ENC_DUMP}" ]; then
-    echo "FAIL: encrypted auth dump missing" >&2
+    echo "FAIL: encrypted parking dump missing" >&2
     FAILED=1
   elif ! BACKUP_ENCRYPT_PASSPHRASE="parkio-ci-restore-drill-not-prod" \
       PARKIO_ENV_FILE="${ENV_FILE}" \
-      "${ROOT}/scripts/verify-backup.sh" auth "${ENC_DUMP}"; then
+      "${ROOT}/scripts/verify-backup.sh" parking "${ENC_DUMP}"; then
     echo "FAIL: encrypted dump did not verify" >&2
     FAILED=1
   else
-    echo "OK: encrypted auth dump restored into disposable verify DB"
+    echo "OK: encrypted parking dump restored into disposable verify DB"
   fi
 else
   echo "FAIL: encrypted backup-databases.sh failed" >&2
