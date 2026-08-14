@@ -67,11 +67,11 @@ class MunicipalRegistryRuntimePostgresIT {
         }
 
         Flyway latest = flyway(null);
-        assertThat(latest.migrate().migrationsExecuted).isEqualTo(7);
+        assertThat(latest.migrate().migrationsExecuted).isEqualTo(8);
         assertThat(latest.migrate().migrationsExecuted).isZero();
 
         try (Connection connection = open()) {
-            assertThat(version(connection)).isEqualTo("39");
+            assertThat(version(connection)).isEqualTo("40");
             assertThat(count(connection, "SELECT count(*) FROM municipal_parking_facilities WHERE id='" + FACILITY_A + "'"))
                     .isEqualTo(1);
             assertThat(count(connection, "SELECT count(*) FROM municipal_link_candidates")).isZero();
