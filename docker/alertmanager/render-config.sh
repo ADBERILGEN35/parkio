@@ -90,14 +90,14 @@ EOF
         channel: '${SLACK_CHANNEL}'
         send_resolved: true
         title: '[{{ .Status | toUpper }}] {{ .CommonLabels.severity }}: {{ .CommonLabels.alertname }}'
-        text: 'environment={{ .CommonLabels.environment }} monitor={{ .CommonLabels.monitor }}{{ "\\n" }}{{ range .Alerts }}*{{ .Annotations.summary }}*{{ "\\n" }}{{ .Annotations.description }}{{ "\\n" }}started={{ .StartsAt }}{{ "\\n" }}{{ if .Annotations.runbook_url }}Runbook: {{ .Annotations.runbook_url }}{{ "\\n" }}{{ end }}{{ end }}'
+        text: 'environment={{ .CommonLabels.environment }} monitor={{ .CommonLabels.monitor }}{{ "\\n" }}{{ range .Alerts }}*{{ .Annotations.summary }}*{{ "\\n" }}{{ if eq .Status "resolved" }}The condition has cleared. This alert is no longer firing.{{ else }}{{ .Annotations.description }}{{ end }}{{ "\\n" }}started={{ .StartsAt }}{{ "\\n" }}{{ if .Annotations.runbook_url }}Runbook: {{ .Annotations.runbook_url }}{{ "\\n" }}{{ end }}{{ end }}'
   - name: "warning"
     slack_configs:
       - api_url: '${SLACK_URL}'
         channel: '${SLACK_CHANNEL}'
         send_resolved: true
         title: '[{{ .Status | toUpper }}] {{ .CommonLabels.severity }}: {{ .CommonLabels.alertname }}'
-        text: 'environment={{ .CommonLabels.environment }} monitor={{ .CommonLabels.monitor }}{{ "\\n" }}{{ range .Alerts }}*{{ .Annotations.summary }}*{{ "\\n" }}{{ .Annotations.description }}{{ "\\n" }}started={{ .StartsAt }}{{ "\\n" }}{{ if .Annotations.runbook_url }}Runbook: {{ .Annotations.runbook_url }}{{ "\\n" }}{{ end }}{{ end }}'
+        text: 'environment={{ .CommonLabels.environment }} monitor={{ .CommonLabels.monitor }}{{ "\\n" }}{{ range .Alerts }}*{{ .Annotations.summary }}*{{ "\\n" }}{{ if eq .Status "resolved" }}The condition has cleared. This alert is no longer firing.{{ else }}{{ .Annotations.description }}{{ end }}{{ "\\n" }}started={{ .StartsAt }}{{ "\\n" }}{{ if .Annotations.runbook_url }}Runbook: {{ .Annotations.runbook_url }}{{ "\\n" }}{{ end }}{{ end }}'
 EOF
   else
     if [ -n "$WEBHOOK_SECRET" ]; then

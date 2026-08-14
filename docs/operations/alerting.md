@@ -31,13 +31,13 @@ Every production alert has: stable `alertname`, `severity`, `summary`, `descript
 
 When a webhook is configured:
 
-- `group_by`: `alertname`, `service`, `severity`, `component`
+- `group_by`: `alertname`, `service`, `severity`, `component` (one Slack message per group; identical unlabeled metrics scraped under different `service`/`job` labels become duplicate groups — the isolated acceptance stack now keeps `parkio_alerting_acceptance_test` on a single job, and the rule uses `max(...)`)
 - `group_wait`: 30s (15s for critical)
 - `group_interval`: 5m
 - `repeat_interval`: 1h critical / 4h warning
 - `send_resolved`: true
 
-Critical and warning share the same destination so one operator channel sees both; grouping and inhibition reduce storms.
+Critical and warning share the same destination so one operator channel sees both; grouping and inhibition reduce storms. Slack `text` is status-aware: resolved notifications must not reuse firing-only annotation copy.
 
 ## Inhibition
 

@@ -383,8 +383,29 @@ tests:
               severity: critical
             exp_annotations:
               summary: "Parkio alerting acceptance test is armed"
-              description: "Synthetic alert ParkioAlertingAcceptanceTest is firing. This is not a production outage. Disarm the series (set to 0 or remove the textfile) after confirming operator notification plumbing."
+              description: "Synthetic alert ParkioAlertingAcceptanceTest is active. This is not a production outage. Disarm the series (set to 0 or remove the textfile) after confirming operator notification plumbing."
               runbook_url: "docs/operations/alerting.md#synthetic-acceptance"
       - eval_time: 75s
         alertname: ParkioAlertingAcceptanceTest
         exp_alerts: []
+
+  - name: synthetic acceptance multi-job scrape collapses to one alert
+    interval: 15s
+    input_series:
+      - series: 'parkio_alerting_acceptance_test{job="parkio-services",service="gateway-service"}'
+        values: "1 1 1"
+      - series: 'parkio_alerting_acceptance_test{job="alerting-synthetic",service="alerting-metrics"}'
+        values: "1 1 1"
+      - series: 'parkio_alerting_acceptance_test{job="node-exporter",service="node-exporter"}'
+        values: "1 1 1"
+    alert_rule_test:
+      - eval_time: 30s
+        alertname: ParkioAlertingAcceptanceTest
+        exp_alerts:
+          - exp_labels:
+              alertname: ParkioAlertingAcceptanceTest
+              severity: critical
+            exp_annotations:
+              summary: "Parkio alerting acceptance test is armed"
+              description: "Synthetic alert ParkioAlertingAcceptanceTest is active. This is not a production outage. Disarm the series (set to 0 or remove the textfile) after confirming operator notification plumbing."
+              runbook_url: "docs/operations/alerting.md#synthetic-acceptance"

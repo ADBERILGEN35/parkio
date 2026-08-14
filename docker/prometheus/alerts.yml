@@ -288,13 +288,15 @@ groups:
         # Synthetic plumbing probe. Disabled unless parkio_alerting_acceptance_test==1
         # is deliberately exported (isolated acceptance stack or a temporary textfile).
         # Never leave this series at 1 on hosted-beta.
-        expr: parkio_alerting_acceptance_test == 1
+        # max() so one armed gauge cannot fan out into N alerts if the same
+        # unlabeled series is scraped by multiple jobs (acceptance fixture).
+        expr: max(parkio_alerting_acceptance_test) == 1
         for: 15s
         labels:
           severity: critical
         annotations:
           summary: "Parkio alerting acceptance test is armed"
-          description: "Synthetic alert ParkioAlertingAcceptanceTest is firing. This is not a production outage. Disarm the series (set to 0 or remove the textfile) after confirming operator notification plumbing."
+          description: "Synthetic alert ParkioAlertingAcceptanceTest is active. This is not a production outage. Disarm the series (set to 0 or remove the textfile) after confirming operator notification plumbing."
           runbook_url: "docs/operations/alerting.md#synthetic-acceptance"
 
   # ===================================================================== #

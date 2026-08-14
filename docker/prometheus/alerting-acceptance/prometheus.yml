@@ -17,6 +17,9 @@ alerting:
         - targets: ["alerting-alertmanager:9093"]
 
 scrape_configs:
+  # Shared fixture exporter is reused by several jobs. Drop the synthetic
+  # gauge everywhere except alerting-synthetic so one arm produces one alert
+  # group (group_by includes service).
   - job_name: parkio-services
     metrics_path: /metrics
     static_configs:
@@ -24,6 +27,10 @@ scrape_configs:
         labels: { service: gateway-service }
       - targets: ["alerting-parking-probe:8082"]
         labels: { service: parking-service }
+    metric_relabel_configs:
+      - source_labels: [__name__]
+        regex: parkio_alerting_acceptance_test
+        action: drop
 
   - job_name: alerting-synthetic
     metrics_path: /metrics
@@ -35,20 +42,36 @@ scrape_configs:
     metrics_path: /metrics
     static_configs:
       - targets: ["alerting-metrics:8081"]
+    metric_relabel_configs:
+      - source_labels: [__name__]
+        regex: parkio_alerting_acceptance_test
+        action: drop
 
   - job_name: blackbox-tcp
     metrics_path: /metrics
     static_configs:
       - targets: ["alerting-metrics:8081"]
+    metric_relabel_configs:
+      - source_labels: [__name__]
+        regex: parkio_alerting_acceptance_test
+        action: drop
 
   - job_name: node-exporter
     metrics_path: /metrics
     static_configs:
       - targets: ["alerting-metrics:8081"]
         labels: { service: node-exporter }
+    metric_relabel_configs:
+      - source_labels: [__name__]
+        regex: parkio_alerting_acceptance_test
+        action: drop
 
   - job_name: kafka-exporter
     metrics_path: /metrics
     static_configs:
       - targets: ["alerting-metrics:8081"]
         labels: { service: kafka-exporter }
+    metric_relabel_configs:
+      - source_labels: [__name__]
+        regex: parkio_alerting_acceptance_test
+        action: drop

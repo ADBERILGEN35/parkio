@@ -159,8 +159,14 @@ if [ "${FAILED_AFTER_FIRE}" -gt "${FAILED_BEFORE}" ]; then
   log "FAIL Alertmanager recorded Slack notification failures"
   exit 1
 fi
+FIRE_DELTA=$((NOTIFY_AFTER_FIRE - NOTIFY_BEFORE))
+log "slack_notify_delta_after_fire=${FIRE_DELTA}"
 if [ "${NOTIFY_AFTER_FIRE}" -le "${NOTIFY_BEFORE}" ]; then
   log "FAIL Alertmanager did not increment Slack notification success counter"
+  exit 1
+fi
+if [ "${FIRE_DELTA}" -ne 1 ]; then
+  log "FAIL expected exactly 1 Slack FIRING notification, got ${FIRE_DELTA}"
   exit 1
 fi
 SLACK_FIRE_AT="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
@@ -189,8 +195,14 @@ if [ "${FAILED_AFTER_RESOLVE}" -gt "${FAILED_AFTER_FIRE}" ]; then
   log "FAIL Alertmanager recorded Slack notification failures on resolve"
   exit 1
 fi
+RESOLVE_DELTA=$((NOTIFY_AFTER_RESOLVE - NOTIFY_AFTER_FIRE))
+log "slack_notify_delta_after_resolve=${RESOLVE_DELTA}"
 if [ "${NOTIFY_AFTER_RESOLVE}" -le "${NOTIFY_AFTER_FIRE}" ]; then
   log "FAIL Alertmanager did not increment Slack notification counter on resolve"
+  exit 1
+fi
+if [ "${RESOLVE_DELTA}" -ne 1 ]; then
+  log "FAIL expected exactly 1 Slack RESOLVED notification, got ${RESOLVE_DELTA}"
   exit 1
 fi
 SLACK_RESOLVE_AT="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
