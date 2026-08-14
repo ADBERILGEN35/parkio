@@ -152,8 +152,10 @@ PostGIS is required by `parking-service`; everything else is plain Postgres 16.
   - **RPO/RTO (beta, after PROD-BACKUP-OFFSITE-01):** RPO remains **cadence-bound** (nightly ≈ 24h;
     no PITR / WAL archive). Offsite Azure Blob does **not** create PITR. Isolated restore-drill RTO
     is minutes for 10 logical DBs + MinIO object checksum; live hosted-beta restore RTO is unproven
-    (emergency procedure documented, not executed against live). Managed PITR + Multi-AZ failover is
-    still required for public production.
+    (emergency procedure documented, not executed against live). **Managed PITR is proven** on a
+    disposable Azure Flexible Server (PP-01; new-server restore, ~8 min on a tiny dataset — not a
+    production RTO guarantee). **Zone-redundant HA is DEFERRED** for first invite rollout and
+    remains required before broad public GO ([ADR-PP-01A](adr/ADR-PP-01A-managed-postgresql.md)).
   - **PROD-READINESS-02 alerting / paging (PROD-ALERTING-01) — CLOSED.** Operator Slack
     `#parkio-alert` received exactly one FIRING and one RESOLVED for
     `ParkioAlertingAcceptanceTest` on `5b48b0c78ce7ec8256677a2b326a9b0ef6a609ae`
@@ -168,8 +170,12 @@ PostGIS is required by `parking-service`; everything else is plain Postgres 16.
     (pre-erasure dump + post-erasure ledger replay; restored user not ACTIVE),
     Observability Validation. Runtime flag remains **off**
     (`PARKIO_ACCOUNT_ERASURE_ENABLED=false`). Hosted-beta public deletion was
-    not enabled. See `docs/architecture/priv-001-account-data-erasure.md`.
+    not enabled.     See `docs/architecture/priv-001-account-data-erasure.md`.
     Parkio is **not** overall production-ready.
+  - **PROD-READINESS-02 managed PostgreSQL + PITR (PP-01) — PITR CLOSED; HA DEFERRED WITH ACCEPTED RISK.**
+    Disposable Flexible Server empty-schema Flyway + real PITR restore + PRIV-001 tombstone
+    replay after restore: [pp-01-managed-postgresql-pitr-ha.md](pp-01-managed-postgresql-pitr-ha.md).
+    Hosted-beta was **not** migrated. Public production remains **NO-GO**.
   - **PROD-READINESS-02 backup blockers (PROD-BACKUP-OFFSITE-01):**
     - **B. OFFSITE — PARTIALLY CLOSED.** Encrypted stamp uploads to Azure Blob (`rg-parkio-backups`,
       westeurope, separate from francecentral VM). CI protocol uses ephemeral MinIO (same GHA VM —
@@ -644,7 +650,7 @@ OIDC federation to the cloud provider where possible.
 | Public exposure | all service ports mapped | gateway-only; drop `8081–8089` | gateway-only; backends private | **Blocker** |
 | Secrets | git-ignored `.env` | unique strong values, off-repo | secrets manager + **rotation** *(zero-downtime rotation now implemented for JWT keys + gateway secret)* | High |
 | JWT/issuer/aud/CORS | dev defaults | set real values per env | set + verified; **key rotation runbook (done — `docker/README.md`)** | **Blocker** |
-| Postgres durability | single node, volume only | **automated backups + CI-proven restore drill** *(`scripts/backup-databases.sh` + `restore-database.sh` + `verify-backup.sh` + `restore-drill.sh`, the drill asserting data + parking PostGIS survive a real restore in `backup-restore-drill.yml`; run once on the VPS + verify the offsite copy before relying on it)* | managed PITR + Multi-AZ failover | **Blocker** |
+| Postgres durability | single node, volume only | **automated backups + CI-proven restore drill** *(`scripts/backup-databases.sh` + `restore-database.sh` + `verify-backup.sh` + `restore-drill.sh`, the drill asserting data + parking PostGIS survive a real restore in `backup-restore-drill.yml`; run once on the VPS + verify the offsite copy before relying on it)* | managed PITR **proven on disposable Flexible Server** (PP-01); Multi-AZ HA **deferred** | **PITR closed / HA deferred** |
 | Kafka durability | 1 broker, RF=1, ISR=1 | documented risk; backups of source-of-truth (outbox in DB) | managed RF≥3, `min.insync.replicas=2` | High (beta) / **Blocker** (prod) |
 | Object storage | single MinIO | private bucket + signed URLs (already) + backup | managed S3-compatible, versioning, lifecycle, CORS | High |
 | Redis | no auth/TLS | acceptable on private net | managed Redis + AUTH + TLS | Medium |

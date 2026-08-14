@@ -5,10 +5,10 @@ datastore. Detailed procedures: [backup-runbook.md](backup-runbook.md),
 [restore-runbook.md](restore-runbook.md).
 
 **Hosted-beta:** logical `pg_dump` for **10** service databases (see matrix below).
-This is **not** managed provider PITR. Production managed Postgres topology/provider
-is decided in [ADR-PP-01A](../architecture/adr/ADR-PP-01A-managed-postgresql.md)
-(**ACCEPTED WITH CONDITIONS**); **PP-01 implementation remains open**. PP-01A does
-not close public production NO-GO.
+Logical `pg_dump` is **not** managed provider PITR. Topology is decided in
+[ADR-PP-01A](../architecture/adr/ADR-PP-01A-managed-postgresql.md). Implementation
+and PITR proof: [pp-01-managed-postgresql-pitr-ha.md](../architecture/pp-01-managed-postgresql-pitr-ha.md).
+Public production remains **NO-GO** until remaining readiness blockers close.
 
 ## Authoritative Datastores
 
@@ -47,7 +47,7 @@ Dev/CI: optional `BACKUP_ENCRYPT_PASSPHRASE` for DB dumps.
 
 1. PostgreSQL instances (auth → user → parking → … per service dependency)
 2. Run Flyway on each service startup
-3. Replay `erasure-tombstones.json` from the stamp into auth (`scripts/lib/erasure-tombstones.sh`) **before** returning the environment to service. Production-intended restore (`restore-hosted-beta.sh`, `BACKUP_PRODUCTION_MODE=1`, or `PARKIO_RESTORE_REQUIRE_ERASURE_LEDGER=1`) **fail-closes** if the ledger file is missing. Then call auth `POST /internal/erasure/replay` (or wait for Kafka republish) so participants re-erase restored PII.
+3. Replay `erasure-tombstones.json` from the stamp into auth (`scripts/lib/erasure-tombstones.sh`) **before** returning the environment to service. This applies after **logical restore and after managed PITR restore** (PITR to a pre-erasure timestamp can resurrect ACTIVE users). Production-intended restore (`restore-hosted-beta.sh`, `BACKUP_PRODUCTION_MODE=1`, or `PARKIO_RESTORE_REQUIRE_ERASURE_LEDGER=1`) **fail-closes** if the ledger file is missing. Then call auth `POST /internal/erasure/replay` (or wait for Kafka republish) so participants re-erase restored PII.
 4. MinIO restore before media-dependent flows
 5. Kafka topics auto-provision (`KafkaTopicsConfig`)
 6. Verify readiness endpoints — only then serve traffic

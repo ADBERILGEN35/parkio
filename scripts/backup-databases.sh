@@ -3,11 +3,11 @@
 # Parkio — nightly per-database backup for the hosted-beta single-VPS stack.
 #
 # Dumps each service's PostgreSQL database (database-per-service) with pg_dump via
-# `docker exec`, gzips it, optionally encrypts it (AES-256), optionally uploads it to a
-# remote S3-compatible bucket via the MinIO client `mc`, and prunes old local backups.
+# `docker exec` (default) or managed PostgreSQL over TLS when PARKIO_PG_MODE=managed.
+# Then gzips, optionally encrypts (AES-256), optionally uploads to offsite, and prunes.
 #
-# It connects over the container's local socket (the official postgres image trusts local
-# connections), so no DB password is needed here.
+# Docker mode connects over the container's local socket (no password). Managed mode
+# requires PARKIO_PG_HOST and sslmode=require (disable is rejected).
 #
 # Usage:
 #   # load the same .env the stack uses, then run:
@@ -78,7 +78,7 @@ failures=0
 for entry in "${SERVICES[@]}"; do
   IFS=":" read -r name container user db <<< "${entry}"
 
-  if ! docker inspect "${container}" >/dev/null 2>&1; then
+  if [ "$(parkio_pg_mode)" != "managed" ] && ! docker inspect "${container}" >/dev/null 2>&1; then
     echo "  SKIP ${name}: container '${container}' not found" >&2
     failures=$((failures + 1))
     continue
@@ -90,7 +90,7 @@ for entry in "${SERVICES[@]}"; do
   # pg_dump (plain SQL, restore-friendly) | gzip [ | openssl encrypt ]
   if [ -n "${ENCRYPT_PASSPHRASE}" ]; then
     out="${out}.enc"
-    if docker exec "${container}" pg_dump -U "${user}" -d "${db}" --no-owner --clean --if-exists \
+    if parkio_pg_dump_stream "${user}" "${db}" "${container}" \
       | gzip -9 \
       | openssl enc -aes-256-cbc -pbkdf2 -salt -pass env:BACKUP_ENCRYPT_PASSPHRASE > "${out}" \
       && [ -s "${out}" ]; then
@@ -105,7 +105,7 @@ for entry in "${SERVICES[@]}"; do
       failures=$((failures + 1))
       continue
     fi
-    if docker exec "${container}" pg_dump -U "${user}" -d "${db}" --no-owner --clean --if-exists \
+    if parkio_pg_dump_stream "${user}" "${db}" "${container}" \
       | gzip -9 > "${out}" \
       && [ -s "${out}" ]; then
       echo "OK -> $(basename "${out}") ($(du -h "${out}" | cut -f1))"

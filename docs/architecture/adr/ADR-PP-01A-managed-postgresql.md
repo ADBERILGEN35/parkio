@@ -13,10 +13,11 @@
 | Statement | Status |
 |-----------|--------|
 | PP-01A is **closed** as an architecture decision | Yes |
-| PP-01 (implementation / managed HA+PITR proof) remains **open** | Yes — **NO GO** for public production |
+| PP-01 (implementation / managed HA+PITR proof) remains **open** | PITR proven on disposable FS; **ZR HA + public GO still open** |
 | PP-01B sandbox planning/spikes are **conditionally authorized** | Yes — see §23–§24 |
 | Public production | Remains **NO-GO** |
 | Production municipal discovery | Remains **disabled** |
+| PP-01 PITR implementation proof | See [pp-01-managed-postgresql-pitr-ha.md](../pp-01-managed-postgresql-pitr-ha.md) (disposable Flexible Server). HA still deferred vs this ADR's frozen ZR HA default. |
 
 **Statement taxonomy used below:** FACT · EXTERNAL VERIFICATION · INFERENCE · RECOMMENDATION · UNKNOWN
 

@@ -86,7 +86,7 @@ parkio_backup_load_env() {
 parkio_backup_validate_deployment_profile() {
   local profile="${PARKIO_DEPLOYMENT_PROFILE:-hosted-beta}"
   case "$profile" in
-    hosted-beta|azure-hosted-beta) ;;
+    hosted-beta|azure-hosted-beta|managed-postgres) ;;
     *)
       echo "ERROR: unsupported PARKIO_DEPLOYMENT_PROFILE='$profile' for backup/restore." >&2
       return 2
@@ -107,6 +107,61 @@ parkio_backup_production_mode() {
     1|true|yes|on|TRUE|YES|ON) return 0 ;;
     *) return 1 ;;
   esac
+}
+
+# Dual dump path: Docker socket (hosted-beta) or managed PostgreSQL over TLS.
+# PARKIO_PG_MODE=managed requires PARKIO_PG_HOST and per-service POSTGRES_*_PASSWORD
+# (or PARKIO_PG_PASSWORD). Never logs credentials. sslmode defaults to require.
+parkio_pg_mode() {
+  echo "${PARKIO_PG_MODE:-docker}"
+}
+
+parkio_pg_dump_stream() {
+  local user="$1"
+  local db="$2"
+  local container="${3:-}"
+  local mode
+  mode="$(parkio_pg_mode)"
+  if [ "${mode}" = "managed" ]; then
+    : "${PARKIO_PG_HOST:?PARKIO_PG_HOST required when PARKIO_PG_MODE=managed}"
+    local port="${PARKIO_PG_PORT:-5432}"
+    local sslmode="${PARKIO_PG_SSLMODE:-require}"
+    if [ "${sslmode}" = "disable" ]; then
+      echo "ERROR: PARKIO_PG_SSLMODE=disable is not allowed." >&2
+      return 2
+    fi
+    local pw="${PARKIO_PG_PASSWORD:-}"
+    case "${db}" in
+      "${POSTGRES_AUTH_DB:-parkio_auth}") pw="${POSTGRES_AUTH_PASSWORD:-$pw}" ;;
+      "${POSTGRES_GATEWAY_DB:-parkio_gateway}") pw="${POSTGRES_GATEWAY_PASSWORD:-$pw}" ;;
+      "${POSTGRES_USER_DB:-parkio_user}") pw="${POSTGRES_USER_PASSWORD:-$pw}" ;;
+      "${POSTGRES_PARKING_DB:-parkio_parking}") pw="${POSTGRES_PARKING_PASSWORD:-$pw}" ;;
+      "${POSTGRES_MEDIA_DB:-parkio_media}") pw="${POSTGRES_MEDIA_PASSWORD:-$pw}" ;;
+      "${POSTGRES_GAMIFICATION_DB:-parkio_gamification}") pw="${POSTGRES_GAMIFICATION_PASSWORD:-$pw}" ;;
+      "${POSTGRES_NOTIFICATION_DB:-parkio_notification}") pw="${POSTGRES_NOTIFICATION_PASSWORD:-$pw}" ;;
+      "${POSTGRES_MODERATION_DB:-parkio_moderation}") pw="${POSTGRES_MODERATION_PASSWORD:-$pw}" ;;
+      "${POSTGRES_ANALYTICS_DB:-parkio_analytics}") pw="${POSTGRES_ANALYTICS_PASSWORD:-$pw}" ;;
+      "${POSTGRES_AIVALIDATION_DB:-parkio_aivalidation}") pw="${POSTGRES_AIVALIDATION_PASSWORD:-$pw}" ;;
+    esac
+    if [ -z "${pw}" ]; then
+      echo "ERROR: managed dump missing password for database ${db}" >&2
+      return 2
+    fi
+    if command -v pg_dump >/dev/null 2>&1; then
+      PGPASSWORD="${pw}" PGSSLMODE="${sslmode}" pg_dump \
+        -h "${PARKIO_PG_HOST}" -p "${port}" -U "${user}" -d "${db}" \
+        --no-owner --clean --if-exists
+    else
+      docker run --rm \
+        -e PGPASSWORD="${pw}" \
+        -e PGSSLMODE="${sslmode}" \
+        postgres:16-alpine \
+        pg_dump -h "${PARKIO_PG_HOST}" -p "${port}" -U "${user}" -d "${db}" \
+          --no-owner --clean --if-exists
+    fi
+    return $?
+  fi
+  docker exec "${container}" pg_dump -U "${user}" -d "${db}" --no-owner --clean --if-exists
 }
 
 parkio_backup_offsite_kind() {

@@ -1,6 +1,8 @@
 #!/usr/bin/env bash
 #
 # Parkio - restore hosted-beta backups from a manifest produced by backup-hosted-beta.sh.
+# After DB restore, replay erasure-tombstones.json (PRIV-001). The same replay is
+# required after managed PITR restore — see docs/architecture/pp-01-managed-postgresql-pitr-ha.md
 #
 # Usage:
 #   PARKIO_ENV_FILE=docker/.env ./scripts/restore-hosted-beta.sh --manifest backup-artifacts/backup-....json

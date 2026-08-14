@@ -1,0 +1,132 @@
+# docker-compose.managed-db.yml
+#
+# Overlay for workloads that use Azure Database for PostgreSQL (or any external
+# host) instead of the local postgres-* containers.
+#
+# Required env:
+#   PARKIO_PG_HOST          Flexible Server FQDN
+#   POSTGRES_*_DB/USER/PASSWORD as usual
+#
+# JDBC always uses sslmode=require. Do not set sslmode=disable.
+#
+# Start WITHOUT launching local Postgres:
+#   docker compose -f docker-compose.yml -f docker-compose.apps.yml \
+#     -f docker-compose.managed-db.yml up -d
+#
+# Hosted-beta remains on local volumes unless this overlay is explicitly added.
+# Do not apply this overlay to live hosted-beta without a dedicated cutover.
+
+name: parkio
+
+x-managed-jdbc: &managed-ssl
+  SPRING_DATASOURCE_HIKARI_MAX_LIFETIME: ${SPRING_DATASOURCE_HIKARI_MAX_LIFETIME:-1500000}
+  SPRING_DATASOURCE_HIKARI_KEEPALIVE_TIME: ${SPRING_DATASOURCE_HIKARI_KEEPALIVE_TIME:-60000}
+
+services:
+  postgres-auth:
+    profiles: ["local-postgres"]
+  postgres-gateway:
+    profiles: ["local-postgres"]
+  postgres-user:
+    profiles: ["local-postgres"]
+  postgres-parking:
+    profiles: ["local-postgres"]
+  postgres-media:
+    profiles: ["local-postgres"]
+  postgres-gamification:
+    profiles: ["local-postgres"]
+  postgres-notification:
+    profiles: ["local-postgres"]
+  postgres-moderation:
+    profiles: ["local-postgres"]
+  postgres-analytics:
+    profiles: ["local-postgres"]
+  postgres-ai-validation:
+    profiles: ["local-postgres"]
+
+  gateway-service:
+    environment:
+      <<: *managed-ssl
+      SPRING_DATASOURCE_URL: jdbc:postgresql://${PARKIO_PG_HOST}:5432/${POSTGRES_GATEWAY_DB:-parkio_gateway}?sslmode=require
+    depends_on: !override
+      redis:
+        condition: service_healthy
+      auth-service:
+        condition: service_healthy
+      user-service:
+        condition: service_healthy
+  auth-service:
+    environment:
+      <<: *managed-ssl
+      SPRING_DATASOURCE_URL: jdbc:postgresql://${PARKIO_PG_HOST}:5432/${POSTGRES_AUTH_DB:-parkio_auth}?sslmode=require
+    depends_on: !override
+      kafka:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+  user-service:
+    environment:
+      <<: *managed-ssl
+      SPRING_DATASOURCE_URL: jdbc:postgresql://${PARKIO_PG_HOST}:5432/${POSTGRES_USER_DB:-parkio_user}?sslmode=require
+    depends_on: !override
+      kafka:
+        condition: service_healthy
+  parking-service:
+    environment:
+      <<: *managed-ssl
+      SPRING_DATASOURCE_URL: jdbc:postgresql://${PARKIO_PG_HOST}:5432/${POSTGRES_PARKING_DB:-parkio_parking}?sslmode=require
+    depends_on: !override
+      kafka:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+  media-service:
+    environment:
+      <<: *managed-ssl
+      SPRING_DATASOURCE_URL: jdbc:postgresql://${PARKIO_PG_HOST}:5432/${POSTGRES_MEDIA_DB:-parkio_media}?sslmode=require
+    depends_on: !override
+      kafka:
+        condition: service_healthy
+      minio:
+        condition: service_healthy
+      minio-setup:
+        condition: service_completed_successfully
+      clamav:
+        condition: service_healthy
+  gamification-service:
+    environment:
+      <<: *managed-ssl
+      SPRING_DATASOURCE_URL: jdbc:postgresql://${PARKIO_PG_HOST}:5432/${POSTGRES_GAMIFICATION_DB:-parkio_gamification}?sslmode=require
+    depends_on: !override
+      kafka:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+  notification-service:
+    environment:
+      <<: *managed-ssl
+      SPRING_DATASOURCE_URL: jdbc:postgresql://${PARKIO_PG_HOST}:5432/${POSTGRES_NOTIFICATION_DB:-parkio_notification}?sslmode=require
+    depends_on: !override
+      kafka:
+        condition: service_healthy
+  moderation-service:
+    environment:
+      <<: *managed-ssl
+      SPRING_DATASOURCE_URL: jdbc:postgresql://${PARKIO_PG_HOST}:5432/${POSTGRES_MODERATION_DB:-parkio_moderation}?sslmode=require
+    depends_on: !override
+      kafka:
+        condition: service_healthy
+  ai-validation-service:
+    environment:
+      <<: *managed-ssl
+      SPRING_DATASOURCE_URL: jdbc:postgresql://${PARKIO_PG_HOST}:5432/${POSTGRES_AIVALIDATION_DB:-parkio_aivalidation}?sslmode=require
+    depends_on: !override
+      kafka:
+        condition: service_healthy
+  analytics-service:
+    environment:
+      <<: *managed-ssl
+      SPRING_DATASOURCE_URL: jdbc:postgresql://${PARKIO_PG_HOST}:5432/${POSTGRES_ANALYTICS_DB:-parkio_analytics}?sslmode=require
+    depends_on: !override
+      kafka:
+        condition: service_healthy
