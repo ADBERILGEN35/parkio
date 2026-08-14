@@ -116,6 +116,12 @@ for entry in "${SERVICES[@]}"; do
   fi
 done
 
+# PRIV-001: copy live erasure tombstones beside dumps (ids + timestamps only).
+# Restores must replay this ledger; do not mutate historical dump files.
+# shellcheck source=lib/erasure-tombstones.sh
+source "${SCRIPT_DIR}/lib/erasure-tombstones.sh"
+parkio_export_erasure_tombstones "${DEST_DIR}" || true
+
 # Optional off-box upload. The hosted-beta orchestrator sets BACKUP_SKIP_MC_UPLOAD=1
 # and uploads AFTER MinIO mirror so object storage is included in the same stamp.
 if [ -z "${BACKUP_SKIP_MC_UPLOAD:-}" ] && [ "$(parkio_backup_offsite_kind)" != "none" ]; then

@@ -93,6 +93,8 @@ x-app-common: &app-common
     PARKIO_GATEWAY_INTERNAL_ACCEPTED_SECRETS: ${PARKIO_GATEWAY_INTERNAL_ACCEPTED_SECRETS:-}
     # OpenAPI/Swagger UI. Default true for local dev; set false on hosted-beta/production.
     PARKIO_OPENAPI_ENABLED: ${PARKIO_OPENAPI_ENABLED:-true}
+    PARKIO_AUTH_SERVICE_URI: ${PARKIO_AUTH_SERVICE_URI:-http://auth-service:8081}
+    PARKIO_ACCOUNT_ERASURE_ENABLED: ${PARKIO_ACCOUNT_ERASURE_ENABLED:-false}
 
 x-datasource-depends: &datasource-depends
   kafka:

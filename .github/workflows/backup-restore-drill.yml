@@ -22,6 +22,7 @@ on:
       - "scripts/backup-hosted-beta.sh"
       - "scripts/restore-hosted-beta.sh"
       - "scripts/lib/backup-common.sh"
+      - "scripts/lib/erasure-tombstones.sh"
       - "scripts/lib/restore-drill-services.sh"
       - "scripts/restore-database.sh"
       - "scripts/verify-backup.sh"
@@ -36,6 +37,7 @@ on:
       - "docker/docker-compose.yml"
       - "services/parking-service/src/main/resources/db/migration/**"
       - "services/gateway-service/src/main/resources/db/migration/**"
+      - "services/auth-service/src/main/resources/db/migration/**"
       - ".github/workflows/backup-restore-drill.yml"
   pull_request:
     paths:
@@ -44,6 +46,7 @@ on:
       - "scripts/backup-hosted-beta.sh"
       - "scripts/restore-hosted-beta.sh"
       - "scripts/lib/backup-common.sh"
+      - "scripts/lib/erasure-tombstones.sh"
       - "scripts/lib/restore-drill-services.sh"
       - "scripts/restore-database.sh"
       - "scripts/verify-backup.sh"
@@ -58,6 +61,7 @@ on:
       - "docker/docker-compose.yml"
       - "services/parking-service/src/main/resources/db/migration/**"
       - "services/gateway-service/src/main/resources/db/migration/**"
+      - "services/auth-service/src/main/resources/db/migration/**"
       - ".github/workflows/backup-restore-drill.yml"
   schedule:
     # 04:23 UTC every Monday (off the hour to avoid the cron stampede).

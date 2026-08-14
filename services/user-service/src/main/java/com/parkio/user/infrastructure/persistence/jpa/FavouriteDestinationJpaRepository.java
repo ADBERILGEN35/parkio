@@ -17,4 +17,6 @@ public interface FavouriteDestinationJpaRepository extends JpaRepository<Favouri
     long countByUserProfileId(UUID userProfileId);
 
     void deleteByIdAndUserProfileId(UUID id, UUID userProfileId);
+
+    void deleteByUserProfileId(UUID userProfileId);
 }

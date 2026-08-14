@@ -649,3 +649,15 @@ groups:
           summary: "Sustained parking-session scheduler failures"
           description: "More than 3 stale-session scheduler failures in 6h. Auto-complete and reminders may be stalled. See parking-session-stale-runbook.md (scheduler stuck)."
           runbook_url: "docs/operations/parking-session-stale-runbook.md"
+
+  - name: parkio-account-erasure
+    rules:
+      - alert: AccountErasureStuck
+        expr: parkio_erasure_stuck > 0
+        for: 15m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Account erasure incomplete beyond operational SLA"
+          description: "{{ $value }} erasure request(s) still incomplete after 1h SLA. Check auth-service erasure_requests and participant acks. Do not reverse completed deletions."
+          runbook_url: "docs/architecture/priv-001-account-data-erasure.md"

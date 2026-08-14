@@ -1,8 +1,18 @@
 package com.parkio.media.infrastructure.storage;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.Mockito.times;
+import static org.mockito.Mockito.verify;
 
+import com.parkio.media.application.AccountErasureHandler;
+import com.parkio.media.application.event.UserErasureRequestedEvent;
 import com.parkio.media.application.port.MediaStoragePort.StoredObject;
+import com.parkio.media.domain.MediaFile;
+import com.parkio.media.infrastructure.client.AuthErasureAckClient;
+import com.parkio.media.infrastructure.persistence.jpa.MediaFileJpaRepository;
+import com.parkio.media.infrastructure.persistence.mapper.MediaPersistenceMapper;
 import io.minio.BucketExistsArgs;
 import io.minio.ListObjectsArgs;
 import io.minio.MakeBucketArgs;
@@ -14,6 +24,7 @@ import java.net.http.HttpClient;
 import java.net.http.HttpRequest;
 import java.net.http.HttpResponse;
 import java.time.Duration;
+import java.time.Instant;
 import java.util.Base64;
 import java.util.UUID;
 import org.junit.jupiter.api.BeforeEach;
@@ -21,6 +32,7 @@ import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
+import org.springframework.boot.test.mock.mockito.MockBean;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.test.context.DynamicPropertyRegistry;
 import org.springframework.test.context.DynamicPropertySource;
@@ -78,6 +90,8 @@ class MediaInfrastructureIntegrationTest {
         registry.add("parkio.media.storage.region", () -> "us-east-1");
         registry.add("parkio.kafka.provision-topics", () -> "false");
         registry.add("parkio.kafka.relay.enabled", () -> "false");
+        registry.add("parkio.gateway.internal-secret", () -> "test-only-parkio-gateway-internal-secret-0123456789");
+        registry.add("parkio.auth.client.base-url", () -> "http://127.0.0.1:1");
         registry.add("parkio.lifecycle.retention.outbox-enabled", () -> "false");
         registry.add("parkio.lifecycle.retention.inbox-enabled", () -> "false");
     }
@@ -91,6 +105,15 @@ class MediaInfrastructureIntegrationTest {
     @Autowired
     private JdbcTemplate jdbc;
 
+    @Autowired
+    private AccountErasureHandler erasureHandler;
+
+    @Autowired
+    private MediaFileJpaRepository mediaFiles;
+
+    @MockBean
+    private AuthErasureAckClient ackClient;
+
     @BeforeEach
     void ensureBucketExists() throws Exception {
         if (!minio.bucketExists(BucketExistsArgs.builder().bucket(BUCKET).build())) {
@@ -102,7 +125,14 @@ class MediaInfrastructureIntegrationTest {
     void mediaFlywayMigrationsRunCleanlyOnPostgresql() {
         assertThat(jdbc.queryForObject(
                 "SELECT count(*) FROM flyway_schema_history WHERE success", Integer.class))
-                .isGreaterThanOrEqualTo(7);
+                .isGreaterThanOrEqualTo(13);
+        assertThat(jdbc.queryForObject(
+                """
+                SELECT count(*) FROM information_schema.tables
+                WHERE table_schema = 'public' AND table_name = 'erased_user_tombstones'
+                """,
+                Integer.class))
+                .isEqualTo(1);
         assertThat(jdbc.queryForObject(
                 """
                 SELECT count(*) FROM information_schema.tables
@@ -155,6 +185,26 @@ class MediaInfrastructureIntegrationTest {
         assertThat(response.body()).isEqualTo(PNG);
 
         storage.delete(objectKey);
+    }
+
+    @Test
+    void accountErasureDeletesMinioObjectAndIsIdempotentWhenAlreadyGone() throws Exception {
+        UUID owner = UUID.randomUUID();
+        String objectKey = "erasure/" + UUID.randomUUID() + ".png";
+        storage.store(objectKey, PNG, "image/png");
+        Instant now = Instant.parse("2026-08-14T12:00:00Z");
+        MediaFile media = MediaFile.create(
+                owner, BUCKET, objectKey, "image/png", PNG.length, UUID.randomUUID().toString(), null, null, now);
+        media.markReady(now);
+        mediaFiles.save(MediaPersistenceMapper.toEntity(media));
+        assertThat(listObjectNames()).contains(objectKey);
+
+        UserErasureRequestedEvent event = new UserErasureRequestedEvent(
+                UUID.randomUUID(), UUID.randomUUID(), owner, now);
+        erasureHandler.handle(event);
+        assertThat(listObjectNames()).doesNotContain(objectKey);
+        erasureHandler.handle(event);
+        verify(ackClient, times(2)).acknowledge(any(), any(), eq(owner), eq("SUCCESS"));
     }
 
     private java.util.List<String> listObjectNames() throws Exception {

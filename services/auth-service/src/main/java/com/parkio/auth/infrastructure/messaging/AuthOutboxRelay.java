@@ -6,6 +6,7 @@ import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.parkio.auth.application.event.UserRestoredEvent;
 import com.parkio.auth.application.event.UserSuspendedEvent;
+import com.parkio.auth.domain.event.UserErasureRequestedEvent;
 import com.parkio.auth.domain.event.UserRegisteredEvent;
 import com.parkio.auth.infrastructure.config.KafkaTopicsConfig;
 import com.parkio.auth.infrastructure.persistence.entity.OutboxEventEntity;
@@ -174,6 +175,9 @@ public class AuthOutboxRelay {
         }
         if (UserSuspendedEvent.TYPE.equals(eventType) || UserRestoredEvent.TYPE.equals(eventType)) {
             return KafkaTopicsConfig.MODERATION_ACTION;
+        }
+        if (UserErasureRequestedEvent.TYPE.equals(eventType)) {
+            return KafkaTopicsConfig.PRIVACY_ERASURE;
         }
         return null;
     }

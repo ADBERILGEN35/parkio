@@ -86,6 +86,9 @@ tests:
       - eval_time: 4m
         alertname: ParkioAlertingAcceptanceTest
         exp_alerts: []
+      - eval_time: 4m
+        alertname: AccountErasureStuck
+        exp_alerts: []
 
   - name: missing metrics do not invent infrastructure alerts
     interval: 1m
@@ -409,3 +412,20 @@ tests:
               summary: "Parkio alerting acceptance test is armed"
               description: "Synthetic alert ParkioAlertingAcceptanceTest is active. This is not a production outage. Disarm the series (set to 0 or remove the textfile) after confirming operator notification plumbing."
               runbook_url: "docs/operations/alerting.md#synthetic-acceptance"
+
+  - name: account erasure stuck fires after SLA
+    interval: 1m
+    input_series:
+      - series: 'parkio_erasure_stuck'
+        values: '1x20'
+    alert_rule_test:
+      - eval_time: 16m
+        alertname: AccountErasureStuck
+        exp_alerts:
+          - exp_labels:
+              alertname: AccountErasureStuck
+              severity: warning
+            exp_annotations:
+              summary: "Account erasure incomplete beyond operational SLA"
+              description: "1 erasure request(s) still incomplete after 1h SLA. Check auth-service erasure_requests and participant acks. Do not reverse completed deletions."
+              runbook_url: "docs/architecture/priv-001-account-data-erasure.md"

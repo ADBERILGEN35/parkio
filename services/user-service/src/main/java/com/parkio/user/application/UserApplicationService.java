@@ -21,6 +21,7 @@ import com.parkio.user.application.port.UserProfileRepository;
 import com.parkio.user.application.port.UserTrustProfileRepository;
 import com.parkio.user.application.port.UserTrustScoreHistoryRepository;
 import com.parkio.user.application.port.UserVehicleProfileRepository;
+import com.parkio.user.infrastructure.persistence.jpa.ErasedUserTombstoneJpaRepository;
 import com.parkio.user.application.result.AccountStatusView;
 import com.parkio.user.application.result.PublicProfileView;
 import com.parkio.user.application.result.SmartReturnCheckCandidate;
@@ -76,6 +77,7 @@ public class UserApplicationService {
     private final Clock clock;
     private final SmartReturnMetrics smartReturnMetrics;
     private final SavedPlaceApplicationService savedPlaces;
+    private final ErasedUserTombstoneJpaRepository erasureTombstones;
 
     public UserApplicationService(UserProfileRepository profiles,
                                   UserPreferenceRepository preferences,
@@ -88,7 +90,7 @@ public class UserApplicationService {
                                   Clock clock,
                                   SmartReturnMetrics smartReturnMetrics) {
         this(profiles, preferences, vehicles, trustProfiles, trustHistory, outbox, inbox,
-                pendingStatusEvents, clock, smartReturnMetrics, null);
+                pendingStatusEvents, clock, smartReturnMetrics, null, null);
     }
 
     @Autowired
@@ -102,7 +104,8 @@ public class UserApplicationService {
                                   PendingUserStatusEventRepository pendingStatusEvents,
                                   Clock clock,
                                   SmartReturnMetrics smartReturnMetrics,
-                                  SavedPlaceApplicationService savedPlaces) {
+                                  SavedPlaceApplicationService savedPlaces,
+                                  ErasedUserTombstoneJpaRepository erasureTombstones) {
         this.profiles = profiles;
         this.preferences = preferences;
         this.vehicles = vehicles;
@@ -114,6 +117,7 @@ public class UserApplicationService {
         this.clock = clock;
         this.smartReturnMetrics = smartReturnMetrics;
         this.savedPlaces = savedPlaces;
+        this.erasureTombstones = erasureTombstones;
     }
 
     /**
@@ -124,6 +128,9 @@ public class UserApplicationService {
      * provisioned after a suspension starts {@code SUSPENDED}, not {@code ACTIVE}.
      */
     public UserProfile createProfile(CreateProfileCommand command) {
+        if (erasureTombstones != null && erasureTombstones.existsById(command.authUserId())) {
+            throw new UserException(UserErrorCode.PROFILE_NOT_FOUND);
+        }
         if (profiles.existsByAuthUserId(command.authUserId())) {
             throw new UserException(UserErrorCode.PROFILE_ALREADY_EXISTS);
         }
@@ -155,6 +162,9 @@ public class UserApplicationService {
     public void handleUserRegistered(UserRegisteredEvent event) {
         if (!claimEvent(event.eventId(), UserRegisteredEvent.TYPE)) {
             return; // already processed; skip redelivery
+        }
+        if (erasureTombstones != null && erasureTombstones.existsById(event.userId())) {
+            return;
         }
         if (!profiles.existsByAuthUserId(event.userId())) {
             String displayName = deriveDisplayName(event.email());

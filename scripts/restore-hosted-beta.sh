@@ -12,6 +12,8 @@ set -euo pipefail
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 # shellcheck source=lib/backup-common.sh
 source "$ROOT/scripts/lib/backup-common.sh"
+# shellcheck source=lib/erasure-tombstones.sh
+source "$ROOT/scripts/lib/erasure-tombstones.sh"
 
 ENV_FILE="${PARKIO_ENV_FILE:-}"
 MANIFEST=""
@@ -147,13 +149,29 @@ if [ "${ASSUME_YES}" != "yes" ] && [ "$DRY_RUN" -ne 1 ]; then
   fi
 fi
 
+replay_erasure_ledger() {
+  if [ "$DRY_RUN" -eq 1 ]; then
+    echo "DRY-RUN: would replay ${DEST_DIR}/erasure-tombstones.json into auth"
+    return 0
+  fi
+  local ledger="${DEST_DIR}/erasure-tombstones.json"
+  PARKIO_RESTORE_REQUIRE_ERASURE_LEDGER="${PARKIO_RESTORE_REQUIRE_ERASURE_LEDGER:-1}" \
+    parkio_replay_erasure_tombstones "${ledger}" \
+      "${PARKIO_POSTGRES_AUTH_CONTAINER:-parkio-postgres-auth}" \
+      "${POSTGRES_AUTH_USER:-parkio_auth}" \
+      "${POSTGRES_AUTH_DB:-parkio_auth}"
+  echo "Erasure ledger replayed; do not serve traffic until auth POST /internal/erasure/replay (or Kafka) finishes participant erase."
+}
+
 case "${ONLY}" in
   ""|all)
     restore_databases
+    replay_erasure_ledger
     restore_minio
     ;;
   databases|db)
     restore_databases
+    replay_erasure_ledger
     ;;
   minio)
     restore_minio

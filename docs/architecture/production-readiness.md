@@ -161,6 +161,11 @@ PostGIS is required by `parking-service`; everything else is plain Postgres 16.
     `PARKIO_ALERT_SLACK_WEBHOOK_URL` (never committed). Azure hosted-beta Alertmanager is still
     disabled (`azure-disabled-observability`); paging proof used the isolated operator stack.
     Parkio is **not** production-ready: other blockers remain.
+  - **PROD-READINESS-02 USER-DATA ERASURE (PRIV-001) — OPEN.** Coordinator, flag-off API,
+    all participant handlers, tombstone ledger export/replay, and restore-resurrection
+    drill path are implemented on `api`. Blocker closes only after exact-SHA CI
+    (Backend, integration, Security, Backup Restore Drill, Observability) is green.
+    See `docs/architecture/priv-001-account-data-erasure.md`.
   - **PROD-READINESS-02 backup blockers (PROD-BACKUP-OFFSITE-01):**
     - **B. OFFSITE — PARTIALLY CLOSED.** Encrypted stamp uploads to Azure Blob (`rg-parkio-backups`,
       westeurope, separate from francecentral VM). CI protocol uses ephemeral MinIO (same GHA VM —

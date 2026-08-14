@@ -47,9 +47,10 @@ Dev/CI: optional `BACKUP_ENCRYPT_PASSPHRASE` for DB dumps.
 
 1. PostgreSQL instances (auth → user → parking → … per service dependency)
 2. Run Flyway on each service startup
-3. MinIO restore before media-dependent flows
-4. Kafka topics auto-provision (`KafkaTopicsConfig`)
-5. Verify readiness endpoints
+3. Replay `erasure-tombstones.json` from the stamp into auth (`scripts/lib/erasure-tombstones.sh`) **before** returning the environment to service. Production-intended restore (`restore-hosted-beta.sh`, `BACKUP_PRODUCTION_MODE=1`, or `PARKIO_RESTORE_REQUIRE_ERASURE_LEDGER=1`) **fail-closes** if the ledger file is missing. Then call auth `POST /internal/erasure/replay` (or wait for Kafka republish) so participants re-erase restored PII.
+4. MinIO restore before media-dependent flows
+5. Kafka topics auto-provision (`KafkaTopicsConfig`)
+6. Verify readiness endpoints — only then serve traffic
 
 ## Verification
 

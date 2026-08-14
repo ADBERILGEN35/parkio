@@ -1032,6 +1032,10 @@ class AuthApplicationServiceTest {
         public void append(com.parkio.auth.application.event.UserRestoredEvent event) {
             restored.add(event);
         }
+
+        @Override
+        public void append(com.parkio.auth.domain.event.UserErasureRequestedEvent event) {
+        }
     }
 
     private static final class FakeInboxEventRepository implements InboxEventRepository {

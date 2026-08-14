@@ -17,6 +17,8 @@ public interface FavouriteParkingJpaRepository extends JpaRepository<FavouritePa
 
     long countByUserProfileId(UUID userProfileId);
 
+    void deleteByUserProfileId(UUID userProfileId);
+
     void deleteByUserProfileIdAndTargetKindAndTargetId(
             UUID userProfileId, FavouriteParkingTargetKind targetKind, UUID targetId);
 

@@ -21,6 +21,8 @@ public interface SavedPlaceJpaRepository extends JpaRepository<SavedPlaceEntity,
 
     void deleteByIdAndUserProfileId(UUID id, UUID userProfileId);
 
+    void deleteByUserProfileId(UUID userProfileId);
+
     @Query(value = """
             SELECT up.user_profile_id AS user_profile_id,
                    up.home_latitude AS home_latitude,

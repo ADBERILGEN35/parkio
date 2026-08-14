@@ -40,6 +40,7 @@ class GatewayRoutesTest {
                 .contains("analytics-service", "ai-validation-service")
                 // the geocoding route (parking-service behind a dedicated path + RL tier)
                 .contains("geocoding-service")
+                .contains("account-erasure")
                 // and the previously-wired routes are still present
                 .contains("auth-service", "user-service", "places-service", "parking-service", "media-service",
                         "gamification-service", "notification-service", "moderation-service");
@@ -101,5 +102,15 @@ class GatewayRoutesTest {
                 .method(HttpMethod.GET, "/api/v1/ai-validations/media/abc").build();
         assertThat(publicEndpoints.isPublic(manual)).isFalse();
         assertThat(publicEndpoints.isPublic(lookup)).isFalse();
+    }
+
+    @Test
+    void accountErasureRouteIsProtected() {
+        MockServerHttpRequest delete = MockServerHttpRequest
+                .method(HttpMethod.DELETE, "/api/v1/account").build();
+        MockServerHttpRequest status = MockServerHttpRequest
+                .method(HttpMethod.GET, "/api/v1/account/deletion-status").build();
+        assertThat(publicEndpoints.isPublic(delete)).isFalse();
+        assertThat(publicEndpoints.isPublic(status)).isFalse();
     }
 }

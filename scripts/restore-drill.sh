@@ -40,6 +40,8 @@ SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 ROOT_DIR="$(cd "${SCRIPT_DIR}/.." && pwd)"
 # shellcheck source=lib/backup-common.sh
 source "${SCRIPT_DIR}/lib/backup-common.sh"
+# shellcheck source=lib/erasure-tombstones.sh
+source "${SCRIPT_DIR}/lib/erasure-tombstones.sh"
 
 ALL_SERVICES=(auth gateway user parking media gamification notification moderation analytics ai-validation)
 
@@ -104,6 +106,8 @@ DRILL_OWNER_ID="00000000-0000-4000-a000-000000000002"
 DRILL_MEDIA_ID="00000000-0000-4000-a000-000000000003"
 DRILL_WAITLIST_ID="aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa"
 DRILL_WAITLIST_EMAIL="restore-drill@parkio.test"
+DRILL_ERASURE_USER_ID="00000000-0000-4000-a000-0000000000e1"
+DRILL_ERASURE_EMAIL="priv001r-restore@parkio.test"
 KAYSERI_SOURCE_ID="a1111111-1111-4111-8111-111111111107"
 
 # Per-service expected canary marker.
@@ -141,6 +145,28 @@ ensure_parking_schema() {
   done
 }
 
+ensure_auth_schema() {
+  local container="$1" user="$2" db="$3"
+  local exists tombstones
+  exists="$(scalar "$container" "$user" "$db" "SELECT to_regclass('public.auth_users') IS NOT NULL;")"
+  local dir="${ROOT_DIR}/services/auth-service/src/main/resources/db/migration"
+  local f
+  if [ "${exists}" != "t" ]; then
+    echo "    auth schema absent — applying real V*.sql migrations for the drill."
+    for f in $(ls "${dir}"/V*.sql | sort -V); do
+      psql_db "$container" "$user" "$db" < "${f}" >/dev/null
+    done
+    return 0
+  fi
+  tombstones="$(scalar "$container" "$user" "$db" "SELECT to_regclass('public.erased_user_tombstones') IS NOT NULL;")"
+  if [ "${tombstones}" != "t" ]; then
+    echo "    auth tombstone tables absent — applying V21 account erasure migration."
+    psql_db "$container" "$user" "$db" < "${dir}/V21__account_erasure.sql" >/dev/null
+  else
+    echo "    auth schema already present — using it as-is."
+  fi
+}
+
 ensure_gateway_schema() {
   local container="$1" user="$2" db="$3"
   local exists
@@ -174,6 +200,27 @@ seed_service_fixtures() {
       " >/dev/null
       echo "    seeded parking_spots ${DRILL_SPOT_ID}"
       ;;
+    auth)
+      psql_db "${container}" "${user}" "${db}" -c "
+        INSERT INTO auth_users (
+          id, email, password_hash, status, version, created_at, updated_at,
+          email_verified, session_epoch
+        ) VALUES (
+          '${DRILL_ERASURE_USER_ID}',
+          '${DRILL_ERASURE_EMAIL}',
+          '\$2a\$10\$restore.drill.synthetic.hash.not.a.real.passwordxx',
+          'ACTIVE',
+          0,
+          now(),
+          now(),
+          TRUE,
+          0
+        ) ON CONFLICT (id) DO UPDATE SET
+          status = 'ACTIVE',
+          email = EXCLUDED.email;
+      " >/dev/null
+      echo "    seeded auth_users ${DRILL_ERASURE_USER_ID} (pre-erasure ACTIVE)"
+      ;;
     gateway)
       local email_hash ip_hash
       email_hash="$(printf '%s' "${DRILL_WAITLIST_EMAIL}" | sha256sum | awk '{print $1}')"
@@ -201,6 +248,24 @@ seed_service_fixtures() {
 assert_service_fixtures() {
   local svc="$1" container="$2" user="$3" tmp_db="$4"
   case "${svc}" in
+    auth)
+      local status email
+      status="$(scalar "${container}" "${user}" "${tmp_db}" "SELECT status FROM auth_users WHERE id = '${DRILL_ERASURE_USER_ID}';")"
+      email="$(scalar "${container}" "${user}" "${tmp_db}" "SELECT email FROM auth_users WHERE id = '${DRILL_ERASURE_USER_ID}';")"
+      echo "    fixture auth_users.status=${status} email=${email}"
+      if [ "${status}" = "ACTIVE" ]; then
+        echo "    FAIL: restored pre-erasure user remained ACTIVE after ledger replay." >&2
+        return 1
+      fi
+      if [ "${status}" != "ERASURE_IN_PROGRESS" ] && [ "${status}" != "ERASED" ]; then
+        echo "    FAIL: restored erasure user has unexpected status '${status}'." >&2
+        return 1
+      fi
+      if [ "${email}" != "${DRILL_ERASURE_EMAIL}" ] && [[ "${email}" != erased-*@invalid.localhost ]]; then
+        echo "    FAIL: restored auth email unexpected." >&2
+        return 1
+      fi
+      ;;
     parking)
       local lat src
       lat="$(scalar "${container}" "${user}" "${tmp_db}" "SELECT latitude::text FROM parking_spots WHERE id = '${DRILL_SPOT_ID}';")"
@@ -298,6 +363,9 @@ else
     if [ "${svc}" = "gateway" ]; then
       ensure_gateway_schema "${container}" "${user}" "${db}"
     fi
+    if [ "${svc}" = "auth" ]; then
+      ensure_auth_schema "${container}" "${user}" "${db}"
+    fi
     seed_service_fixtures "${svc}" "${container}" "${user}" "${db}"
     marker="drill-${RUN_ID}-${svc}"
     EXPECTED_MARKER["${svc}"]="${marker}"
@@ -319,6 +387,28 @@ else
   fi
   BACKUP_DIR="${BACKUP_DIR%/}"
   echo "    backup set: ${BACKUP_DIR}"
+
+  # PRIV-001R: after the PRE-erasure dump, insert a tombstone on LIVE and export a
+  # newer ledger. Restore must replay this post-erasure ledger so the restored
+  # ACTIVE user cannot authenticate (resurrection blocking).
+  for svc in "${SERVICES[@]}"; do
+    if [ "${svc}" != "auth" ]; then
+      continue
+    fi
+    IFS=":" read -r container user db <<< "$(resolve "${svc}")"
+    echo "==> [auth] simulating post-backup erasure ledger (live tombstone, dump unchanged)"
+    psql_db "${container}" "${user}" "${db}" -c "
+      INSERT INTO erased_user_tombstones (auth_user_id, erased_at)
+      VALUES ('${DRILL_ERASURE_USER_ID}', now())
+      ON CONFLICT (auth_user_id) DO UPDATE SET erased_at = EXCLUDED.erased_at;
+      UPDATE auth_users SET status = 'ERASURE_IN_PROGRESS', status_changed_at = now(),
+             session_epoch = COALESCE(session_epoch, 0) + 1
+       WHERE id = '${DRILL_ERASURE_USER_ID}';
+    " >/dev/null
+    parkio_export_erasure_tombstones "${BACKUP_DIR}" "${container}" "${user}" "${db}"
+    cp "${BACKUP_DIR}/erasure-tombstones.json" "${BACKUP_DIR}/erasure-tombstones.post-erasure.json"
+    echo "    post-erasure ledger: ${BACKUP_DIR}/erasure-tombstones.post-erasure.json"
+  done
 fi
 
 # 3) For each service: generic verify + canary/PostGIS restore assertions.
@@ -367,6 +457,31 @@ for svc in "${SERVICES[@]}"; do
     fi
   fi
 
+  if [ "${svc_failed}" = "no" ] && [ "${svc}" = "auth" ]; then
+    restored_status="$(scalar "${container}" "${user}" "${tmp_db}" "SELECT status FROM auth_users WHERE id = '${DRILL_ERASURE_USER_ID}';" || true)"
+    echo "    restored auth status before replay=${restored_status:-missing}"
+    if [ -n "${FROM_DIR}" ]; then
+      ledger="${BACKUP_DIR}/erasure-tombstones.json"
+    else
+      ledger="${BACKUP_DIR}/erasure-tombstones.post-erasure.json"
+      if [ ! -f "${ledger}" ]; then
+        ledger="${BACKUP_DIR}/erasure-tombstones.json"
+      fi
+    fi
+    if [ -z "${FROM_DIR}" ] && [ "${restored_status}" != "ACTIVE" ] && [ -n "${restored_status}" ]; then
+      echo "    FAIL: pre-erasure dump restored user as ${restored_status}, expected ACTIVE." >&2
+      svc_failed="yes"
+    fi
+    if [ "${svc_failed}" = "no" ]; then
+      if parkio_replay_erasure_tombstones "${ledger}" "${container}" "${user}" "${tmp_db}"; then
+        echo "    OK: erasure tombstone ledger replayed into isolated restore (${ledger})."
+      else
+        echo "    FAIL: erasure tombstone replay failed." >&2
+        svc_failed="yes"
+      fi
+    fi
+  fi
+
   if [ "${svc_failed}" = "no" ]; then
     if ! assert_service_fixtures "${svc}" "${container}" "${user}" "${tmp_db}"; then
       svc_failed="yes"
@@ -388,9 +503,15 @@ for svc in "${SERVICES[@]}"; do
   fi
 
   psql_admin "${container}" "${user}" -c "DROP DATABASE IF EXISTS \"${tmp_db}\";" >/dev/null
-  if [ "${KEEP_CANARIES}" != "yes" ] && [ -z "${FROM_DIR}" ]; then
+    if [ "${KEEP_CANARIES}" != "yes" ] && [ -z "${FROM_DIR}" ]; then
     # Remove the drill-owned canary table from the live DB (never touches business tables).
     psql_db "${container}" "${user}" "${db}" -c "DROP TABLE IF EXISTS ${CANARY_TABLE};" >/dev/null
+    if [ "${svc}" = "auth" ]; then
+      psql_db "${container}" "${user}" "${db}" -c "
+        DELETE FROM erased_user_tombstones WHERE auth_user_id = '${DRILL_ERASURE_USER_ID}';
+        DELETE FROM auth_users WHERE id = '${DRILL_ERASURE_USER_ID}';
+      " >/dev/null || true
+    fi
   fi
 
   if [ "${svc_failed}" = "yes" ]; then
@@ -416,7 +537,7 @@ echo "==========================================================================
 DRILL_ELAPSED="$(( $(date -u +%s) - DRILL_STARTED_EPOCH ))"
 echo "elapsed_seconds=${DRILL_ELAPSED}"
 if [ "${OVERALL}" -eq 0 ]; then
-  echo "RESULT: PASS — every targeted dump restored with its canary (and parking PostGIS) intact."
+  echo "RESULT: PASS — every targeted dump restored with its canary (and parking PostGIS / auth erasure replay) intact."
 else
   echo "RESULT: FAIL — at least one service failed the restore drill." >&2
 fi
