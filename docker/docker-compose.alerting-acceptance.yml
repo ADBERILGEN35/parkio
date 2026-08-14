@@ -107,6 +107,10 @@ services:
       PARKIO_ALERT_WEBHOOK_URL: ${PARKIO_ALERT_WEBHOOK_URL:-http://alerting-webhook:8080/webhook}
       PARKIO_ALERT_REPEAT_CRITICAL: ${PARKIO_ALERT_REPEAT_CRITICAL:-15m}
       PARKIO_ALERT_REPEAT_WARNING: ${PARKIO_ALERT_REPEAT_WARNING:-1h}
+      PARKIO_ALERT_GROUP_WAIT: ${PARKIO_ALERT_GROUP_WAIT:-30s}
+      PARKIO_ALERT_GROUP_WAIT_CRITICAL: ${PARKIO_ALERT_GROUP_WAIT_CRITICAL:-15s}
+      PARKIO_ALERT_GROUP_INTERVAL: ${PARKIO_ALERT_GROUP_INTERVAL:-5m}
+      PARKIO_ALERT_RESOLVE_TIMEOUT: ${PARKIO_ALERT_RESOLVE_TIMEOUT:-5m}
     volumes:
       - ./alertmanager/alertmanager.yml:/etc/alertmanager/alertmanager.yml:ro
       - ./alertmanager/render-config.sh:/etc/alertmanager/render-config.sh:ro

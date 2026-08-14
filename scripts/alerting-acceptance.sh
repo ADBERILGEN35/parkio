@@ -98,6 +98,10 @@ log "start isolated alerting acceptance"
 # Slack takes precedence in render-config.sh and would skip the in-compose catcher.
 unset PARKIO_ALERT_SLACK_WEBHOOK_URL || true
 export PARKIO_ALERT_WEBHOOK_URL="${PARKIO_ALERT_WEBHOOK_URL:-http://alerting-webhook:8080/webhook}"
+export PARKIO_ALERT_GROUP_WAIT="${PARKIO_ALERT_GROUP_WAIT:-5s}"
+export PARKIO_ALERT_GROUP_WAIT_CRITICAL="${PARKIO_ALERT_GROUP_WAIT_CRITICAL:-5s}"
+export PARKIO_ALERT_GROUP_INTERVAL="${PARKIO_ALERT_GROUP_INTERVAL:-10s}"
+export PARKIO_ALERT_RESOLVE_TIMEOUT="${PARKIO_ALERT_RESOLVE_TIMEOUT:-30s}"
 "${COMPOSE[@]}" up -d --wait --wait-timeout 120
 
 log "baseline: synthetic disarmed"

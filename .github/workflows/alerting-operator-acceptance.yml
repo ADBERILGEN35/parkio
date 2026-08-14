@@ -26,6 +26,10 @@ jobs:
     env:
       PARKIO_ALERT_SLACK_WEBHOOK_URL: ${{ secrets.PARKIO_ALERT_SLACK_WEBHOOK_URL }}
       PARKIO_ALERT_SLACK_CHANNEL: "#parkio-alert"
+      PARKIO_ALERT_GROUP_WAIT: "5s"
+      PARKIO_ALERT_GROUP_WAIT_CRITICAL: "5s"
+      PARKIO_ALERT_GROUP_INTERVAL: "10s"
+      PARKIO_ALERT_RESOLVE_TIMEOUT: "30s"
     steps:
       - uses: actions/checkout@v4
 
