@@ -79,7 +79,17 @@ am_not_active() {
 
 am_critical_receiver() {
   curl -fsS --max-time 10 "${AM_URL}/api/v2/alerts" \
-    | "${PYTHON}" -c 'import json,sys; alerts=json.load(sys.stdin); raise SystemExit(0 if any((a.get("labels") or {}).get("alertname")=="ParkioAlertingAcceptanceTest" and "critical" in (a.get("receivers") or []) for a in alerts) else 1)'
+    | "${PYTHON}" -c 'import json,sys
+alerts=json.load(sys.stdin)
+def names(alert):
+    out=[]
+    for rec in alert.get("receivers") or []:
+        if isinstance(rec, str):
+            out.append(rec)
+        elif isinstance(rec, dict) and rec.get("name"):
+            out.append(rec["name"])
+    return out
+raise SystemExit(0 if any((a.get("labels") or {}).get("alertname")=="ParkioAlertingAcceptanceTest" and "critical" in names(a) for a in alerts) else 1)'
 }
 
 am_metric_sum() {
