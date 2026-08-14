@@ -5,8 +5,8 @@ global:
   scrape_interval: 5s
   evaluation_interval: 5s
   external_labels:
-    monitor: parkio-alerting-acceptance
-    environment: isolated-ci
+    monitor: parkio
+    environment: alerting-acceptance
 
 rule_files:
   - /etc/prometheus/alerts.yml

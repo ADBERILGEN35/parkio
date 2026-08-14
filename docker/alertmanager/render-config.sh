@@ -5,7 +5,7 @@ BASE_CONFIG=/etc/alertmanager/alertmanager.yml
 RUNTIME_CONFIG=/tmp/alertmanager.yml
 
 SLACK_URL="${PARKIO_ALERT_SLACK_WEBHOOK_URL:-}"
-SLACK_CHANNEL="${PARKIO_ALERT_SLACK_CHANNEL:-#parkio-alerts}"
+SLACK_CHANNEL="${PARKIO_ALERT_SLACK_CHANNEL:-#parkio-alert}"
 WEBHOOK_URL="${PARKIO_ALERT_WEBHOOK_URL:-}"
 WEBHOOK_SECRET="${PARKIO_ALERT_WEBHOOK_SECRET:-}"
 REPEAT_CRITICAL="${PARKIO_ALERT_REPEAT_CRITICAL:-1h}"
@@ -86,14 +86,14 @@ EOF
         channel: '${SLACK_CHANNEL}'
         send_resolved: true
         title: '[{{ .Status | toUpper }}] {{ .CommonLabels.severity }}: {{ .CommonLabels.alertname }}'
-        text: 'monitor={{ .CommonLabels.monitor }}{{ "\\n" }}{{ range .Alerts }}*{{ .Annotations.summary }}*{{ "\\n" }}{{ .Annotations.description }}{{ "\\n" }}started={{ .StartsAt }}{{ "\\n" }}{{ if .Annotations.runbook_url }}Runbook: {{ .Annotations.runbook_url }}{{ "\\n" }}{{ end }}{{ end }}'
+        text: 'environment={{ .CommonLabels.environment }} monitor={{ .CommonLabels.monitor }}{{ "\\n" }}{{ range .Alerts }}*{{ .Annotations.summary }}*{{ "\\n" }}{{ .Annotations.description }}{{ "\\n" }}started={{ .StartsAt }}{{ "\\n" }}{{ if .Annotations.runbook_url }}Runbook: {{ .Annotations.runbook_url }}{{ "\\n" }}{{ end }}{{ end }}'
   - name: "warning"
     slack_configs:
       - api_url: '${SLACK_URL}'
         channel: '${SLACK_CHANNEL}'
         send_resolved: true
         title: '[{{ .Status | toUpper }}] {{ .CommonLabels.severity }}: {{ .CommonLabels.alertname }}'
-        text: 'monitor={{ .CommonLabels.monitor }}{{ "\\n" }}{{ range .Alerts }}*{{ .Annotations.summary }}*{{ "\\n" }}{{ .Annotations.description }}{{ "\\n" }}started={{ .StartsAt }}{{ "\\n" }}{{ if .Annotations.runbook_url }}Runbook: {{ .Annotations.runbook_url }}{{ "\\n" }}{{ end }}{{ end }}'
+        text: 'environment={{ .CommonLabels.environment }} monitor={{ .CommonLabels.monitor }}{{ "\\n" }}{{ range .Alerts }}*{{ .Annotations.summary }}*{{ "\\n" }}{{ .Annotations.description }}{{ "\\n" }}started={{ .StartsAt }}{{ "\\n" }}{{ if .Annotations.runbook_url }}Runbook: {{ .Annotations.runbook_url }}{{ "\\n" }}{{ end }}{{ end }}'
 EOF
   else
     if [ -n "$WEBHOOK_SECRET" ]; then

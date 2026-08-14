@@ -11,7 +11,7 @@ Grafana dashboards and Alertmanager "firing" in the UI are **not** acceptance of
 - **Prometheus** (`docker/prometheus/prometheus.yml`) scrapes services, blackbox probes, kafka-exporter, node-exporter (including backup **textfile** metrics), and evaluates `docker/prometheus/alerts.yml`.
 - **Alertmanager** (`docker/alertmanager/`) receives alerts at `alertmanager:9093`.
 - **Render** (`docker/alertmanager/render-config.sh`) interpolates receiver credentials from the environment at container start. The committed `alertmanager.yml` is the **null** receiver (no outbound notify).
-- **Azure hosted-beta overlay** currently disables Alertmanager via `profiles: [azure-disabled-observability]`. Isolated CI is the default proof environment until that overlay is changed in a later package.
+- **Azure hosted-beta overlay** currently disables Alertmanager via `profiles: [azure-disabled-observability]` (16 GiB VM sizing). Operator paging for PROD-ALERTING-01A uses GitHub Actions secret injection into the isolated Alertmanager stack (`scripts/alerting-operator-acceptance.sh`). Hosted-beta VM `.env` injection is a separate ops step and is not required for GitHub-secret acceptance.
 
 ```
 Prometheus ──► Alertmanager ──► Slack webhook  (PARKIO_ALERT_SLACK_WEBHOOK_URL)
@@ -58,7 +58,7 @@ Approved destinations (do **not** invent credentials):
 1. Slack incoming webhook — `PARKIO_ALERT_SLACK_WEBHOOK_URL` + optional `PARKIO_ALERT_SLACK_CHANNEL`
 2. Generic HTTPS webhook — `PARKIO_ALERT_WEBHOOK_URL` + optional `PARKIO_ALERT_WEBHOOK_SECRET` (Bearer)
 
-Set them in the host env / `docker/.env` (gitignored). Restart Alertmanager after changes so `render-config.sh` re-runs.
+Set them in the host env / `docker/.env` (gitignored), **or** as the GitHub Actions repository secret `PARKIO_ALERT_SLACK_WEBHOOK_URL` (Actions injects it into the operator-acceptance workflow; never commit the value). Restart Alertmanager after host-env changes so `render-config.sh` re-runs.
 
 If neither is set, Alertmanager uses receiver `"null"`. Alerts still evaluate; **nobody is paged**. That is **not** production-capable notification.
 
@@ -83,8 +83,9 @@ If neither is set, Alertmanager uses receiver `"null"`. Alerts still evaluate; *
 
 Alert: `ParkioAlertingAcceptanceTest`.
 
-1. Isolated (preferred): `./scripts/alerting-acceptance.sh` starts a throwaway Prometheus/Alertmanager/webhook stack, arms `parkio_alerting_acceptance_test=1`, asserts firing + webhook delivery, disarms, asserts resolved, then simulates a reversible parking-service scrape failure.
-2. Hosted-beta (only if an operator webhook is already configured and a change window exists): write a textfile `parkio_alerting_acceptance_test 1`, wait for Slack/webhook, set to `0`, confirm resolved, delete the file. **Never leave it at 1.**
+1. Isolated catcher (plumbing): `./scripts/alerting-acceptance.sh` (no Slack secret).
+2. Operator Slack (GitHub secret): `PARKIO_ALERT_SLACK_WEBHOOK_URL` + `./scripts/alerting-operator-acceptance.sh` or workflow **Alerting operator acceptance**. Then confirm in `#parkio-alert`: `FIRING RECEIVED` and `RESOLVED RECEIVED`.
+3. Hosted-beta VM: only after the same env var is present on the host and Alertmanager is actually running (Azure overlay currently disables it).
 
 This proves plumbing only. Infrastructure alert semantics are covered by `docker/prometheus/tests/alerts.test.yml`.
 

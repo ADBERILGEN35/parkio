@@ -94,6 +94,10 @@ webhook_has_service_down() {
 }
 
 log "start isolated alerting acceptance"
+# Catcher path must not inherit a Slack webhook from the runner environment.
+# Slack takes precedence in render-config.sh and would skip the in-compose catcher.
+unset PARKIO_ALERT_SLACK_WEBHOOK_URL || true
+export PARKIO_ALERT_WEBHOOK_URL="${PARKIO_ALERT_WEBHOOK_URL:-http://alerting-webhook:8080/webhook}"
 "${COMPOSE[@]}" up -d --wait --wait-timeout 120
 
 log "baseline: synthetic disarmed"
