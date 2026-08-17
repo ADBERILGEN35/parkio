@@ -229,7 +229,7 @@ jobs:
             local service="$1" artifact="$2" url="$3" container_artifact status
             container_artifact="/tmp/${artifact}"
             status="$(docker compose --env-file "$COMPOSE_ENV_FILE" $COMPOSE_FILES exec -T "$service" \
-              curl -sS -o "$container_artifact" -w '%{http_code}' "$url")"
+              curl --path-as-is -sS -o "$container_artifact" -w '%{http_code}' "$url")"
             docker compose --env-file "$COMPOSE_ENV_FILE" $COMPOSE_FILES cp \
               "${service}:${container_artifact}" "runtime-validation-artifacts/${artifact}" >/dev/null
             printf '%s' "$status"
