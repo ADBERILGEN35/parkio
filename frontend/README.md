@@ -406,10 +406,10 @@ Notes:
 
 | Variable | Default | Description |
 |----------|---------|-------------|
-| `VITE_APP_ENV` | derived from Vite mode | `development`, `test`, `hosted-beta`, or `production`. `hosted-beta` and `production` are production-like and fail loudly on missing required config. |
-| `VITE_API_BASE_URL` | `http://localhost:8080/api/v1` in dev/test only | **Gateway-only** API base. Required in `hosted-beta`/`production`; never point at service ports (8081–8089). |
+| `VITE_APP_ENV` | derived from Vite mode | `development`, `test`, `hosted-beta`, `invite-production`, or `production`. `hosted-beta`, `invite-production`, and `production` are production-like and fail loudly on missing required config. |
+| `VITE_API_BASE_URL` | `http://localhost:8080/api/v1` in dev/test only | **Gateway-only** API base. Required in `hosted-beta`/`invite-production`/`production`; never point at service ports (8081–8089). |
 | `VITE_FRONTEND_ERROR_REPORTING` | `disabled` | Client-side reporting adapter. `disabled` is a safe no-op; `console` logs sanitized diagnostics for hosted debugging until a provider adapter is added. |
-| `VITE_SMART_RETURN_ENABLED` | `true` in dev/test, `false` in hosted-beta/production unless set | Build-time Smart Return UI gate. Set to `true` only for the controlled beta cohort. |
+| `VITE_SMART_RETURN_ENABLED` | `true` in dev/test, `false` in hosted-beta/invite-production/production unless set | Build-time Smart Return UI gate. Set to `true` only for the controlled beta cohort. |
 
 Set in `apps/web/.env` (not committed).
 
@@ -953,11 +953,11 @@ key is set, otherwise it falls back to **OpenStreetMap raster tiles** so the map
 
 | Variable | Default | Description |
 |----------|---------|-------------|
-| `VITE_MAPTILER_KEY` | _(unset → OSM raster fallback in dev/test)_ | MapTiler API key. Enables production-grade vector tiles (HiDPI/Retina, vector typography, dark-mode-ready). Required in `hosted-beta`/`production`. Free key at <https://cloud.maptiler.com/account/keys/>. Injected at build time — never commit it. |
+| `VITE_MAPTILER_KEY` | _(unset → OSM raster fallback in dev/test)_ | MapTiler API key. Enables production-grade vector tiles (HiDPI/Retina, vector typography, dark-mode-ready). Required in `hosted-beta`/`invite-production`/`production`. Free key at <https://cloud.maptiler.com/account/keys/>. Injected at build time — never commit it. |
 | `VITE_MAPTILER_STYLE` | `streets-v2` | MapTiler vector style id (e.g. `streets-v2-dark`). Prepared for style switching. |
 | `VITE_MAP_TILE_URL` | `https://tile.openstreetmap.org/{z}/{x}/{y}.png` | Raster fallback tile template (used **only** when no MapTiler key is set). `{s}` subdomains are expanded automatically. |
 | `VITE_MAP_TILE_ATTRIBUTION` | OpenStreetMap attribution | Raster fallback attribution HTML. |
-| `VITE_GEOCODING_BASE_URL` | `https://nominatim.openstreetmap.org` in dev/test only | Forward-geocoding base URL for `/map` location search. Required in `hosted-beta`/`production`; point at the backend or an SLA provider for production. |
+| `VITE_GEOCODING_BASE_URL` | `https://nominatim.openstreetmap.org` in dev/test only | Forward-geocoding base URL for `/map` location search. Required in `hosted-beta`/`invite-production`/`production`; point at the backend or an SLA provider for production. |
 
 MapTiler/geocoding are optional only in dev/test. **Production:** set `VITE_MAPTILER_KEY`
 (OSM's public tile servers are not intended for production traffic) and allow the tile host in the SPA's CSP via
@@ -967,7 +967,7 @@ build/deploy time; do not commit production keys.
 `VITE_MAPTILER_KEY` is public client configuration, not a server secret: Vite embeds every
 `VITE_*` value in JavaScript downloaded by the browser. Storing it in GitHub Actions secrets
 keeps it out of source and routine logs, but does not make it confidential. Restrict the key
-in MapTiler to Parkio's approved production/hosted-beta domains and preview origins, apply
+in MapTiler to Parkio's approved production/invite-production/hosted-beta domains and preview origins, apply
 provider-side usage limits, and rotate it if those restrictions or allowed origins change.
 
 ### Spot Detail Beta (`/spots/:spotId` layout)
@@ -1384,7 +1384,7 @@ return time to `user-service`; parking suggestions come from the existing real n
 parking search, never mocked availability. Return notifications intentionally use generic
 saved-home-area copy rather than exact street/home addresses.
 
-Smart Return is release-gated. In hosted-beta/production, set
+Smart Return is release-gated. In hosted-beta/invite-production/production, set
 `VITE_SMART_RETURN_ENABLED=true` at web build time and set the backend
 `PARKIO_SMART_RETURN_ENABLED=true` / `PARKIO_SMART_RETURN_SCHEDULER_ENABLED=true`
 runtime flags only after the controlled-beta smoke procedure passes.

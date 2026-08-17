@@ -14,6 +14,13 @@ from pathlib import Path
 RESOURCE_GROUP = "rg-parkio-invite-production-we"
 FOUNDATION_DEPLOYMENT = "prod-deploy-01a-foundation"
 
+OPERATOR_SECRET_KEYS = {
+    "PARKIO_ACME_EMAIL": "acme-contact-email",
+    "VITE_MAPTILER_KEY": "maptiler-public-key",
+    "PARKIO_RESEND_API_KEY": "resend-api-key",
+    "PARKIO_ALERT_SLACK_WEBHOOK_URL": "slack-webhook-url",
+}
+
 SECRET_KEYS = {
     "PARKIO_JWT_PRIVATE_KEY_PEM": "jwt-private-key-pem",
     "PARKIO_GATEWAY_INTERNAL_SECRET": "gateway-internal-secret",
@@ -43,13 +50,9 @@ SECRET_KEYS = {
     "MINIO_ROOT_PASSWORD": "minio-root-password",
     "GRAFANA_ADMIN_PASSWORD": "grafana-admin-password",
     "BACKUP_ENCRYPT_PASSPHRASE": "backup-encryption-passphrase",
-    # Operator-provided third-party/contact values. These are required and are
-    # never substituted with fake production values.
-    "PARKIO_ACME_EMAIL": "acme-contact-email",
-    "VITE_MAPTILER_KEY": "maptiler-public-key",
-    "PARKIO_RESEND_API_KEY": "resend-api-key",
-    "PARKIO_EXPO_ACCESS_TOKEN": "expo-access-token",
-    "PARKIO_ALERT_SLACK_WEBHOOK_URL": "slack-webhook-url",
+    # Operator-provided third-party/contact values. Mobile/Expo is intentionally
+    # absent because invite-production is a web-only boundary.
+    **OPERATOR_SECRET_KEYS,
 }
 
 

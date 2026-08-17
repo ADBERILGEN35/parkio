@@ -7,7 +7,7 @@
  * which would disclose the value in CI logs. This validator prints names and status only.
  */
 
-const PRODUCTION_LIKE = new Set(['hosted-beta', 'production']);
+const PRODUCTION_LIKE = new Set(['hosted-beta', 'invite-production', 'production']);
 
 const appEnv = process.env.VITE_APP_ENV ?? '';
 const municipalRaw = (process.env.VITE_WEB_MUNICIPAL_DISCOVERY_ENABLED ?? '').trim();

@@ -1,6 +1,6 @@
 import { z } from 'zod';
 
-export type AppEnvironment = 'development' | 'test' | 'hosted-beta' | 'production';
+export type AppEnvironment = 'development' | 'test' | 'hosted-beta' | 'invite-production' | 'production';
 export type FrontendErrorReportingProvider = 'disabled' | 'console';
 
 const LOCAL_API_BASE_URL = 'http://localhost:8080/api/v1';
@@ -8,7 +8,7 @@ const LOCAL_MAP_TILE_URL = 'https://tile.openstreetmap.org/{z}/{x}/{y}.png';
 const LOCAL_MAP_TILE_ATTRIBUTION =
   '© <a href="https://www.openstreetmap.org/copyright" target="_blank" rel="noopener">OpenStreetMap</a> contributors';
 
-const appEnvSchema = z.enum(['development', 'test', 'hosted-beta', 'production']);
+const appEnvSchema = z.enum(['development', 'test', 'hosted-beta', 'invite-production', 'production']);
 
 const blankToUndefined = (value: unknown) =>
   typeof value === 'string' && value.trim() === '' ? undefined : value;
@@ -52,7 +52,8 @@ export interface FrontendConfig {
     /**
      * When true, `/map` loads municipal facilities as a separate inventory
      * (`WEB_MUNICIPAL_DISCOVERY_ENABLED` / `VITE_WEB_MUNICIPAL_DISCOVERY_ENABLED`).
-     * Default false; hosted-beta enables only for WEB-MUNI-01A; production stays false.
+     * Default false; hosted-beta and invite-production enable only under their
+     * controlled release policies; broad production stays false.
      */
     municipalDiscovery: boolean;
     /**
@@ -71,16 +72,20 @@ function resolveAppEnv(raw: z.infer<typeof rawEnvSchema>): AppEnvironment {
 
 function requireInProductionLike(value: string | undefined, key: string, appEnv: AppEnvironment): string {
   if (value) return value;
-  if (appEnv === 'production' || appEnv === 'hosted-beta') {
+  if (isProductionLikeEnvironment(appEnv)) {
     throw new Error(`${key} is required when VITE_APP_ENV=${appEnv}.`);
   }
   return '';
 }
 
+function isProductionLikeEnvironment(appEnv: AppEnvironment): boolean {
+  return appEnv === 'production' || appEnv === 'hosted-beta' || appEnv === 'invite-production';
+}
+
 export function createFrontendConfig(env: ImportMetaEnv): FrontendConfig {
   const raw = rawEnvSchema.parse(env);
   const appEnv = resolveAppEnv(raw);
-  const isProductionLike = appEnv === 'production' || appEnv === 'hosted-beta';
+  const isProductionLike = isProductionLikeEnvironment(appEnv);
 
   const apiBaseUrl = raw.VITE_API_BASE_URL ?? (isProductionLike ? undefined : LOCAL_API_BASE_URL);
 
@@ -106,7 +111,7 @@ export function createFrontendConfig(env: ImportMetaEnv): FrontendConfig {
       smartReturn: raw.VITE_SMART_RETURN_ENABLED === undefined
         ? !isProductionLike
         : raw.VITE_SMART_RETURN_ENABLED === 'true',
-      // Explicit opt-in only — never default on for hosted-beta or production.
+      // Explicit opt-in only — never default on for a production-like environment.
       municipalDiscovery: raw.VITE_WEB_MUNICIPAL_DISCOVERY_ENABLED === 'true',
       smartParkingAssistant: raw.VITE_SMART_PARKING_ASSISTANT_ENABLED === 'true',
     },

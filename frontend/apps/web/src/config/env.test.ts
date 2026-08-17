@@ -62,6 +62,42 @@ describe('createFrontendConfig', () => {
     ).toThrow('VITE_MAPTILER_KEY is required');
   });
 
+  it('accepts invite-production as a production-like environment', () => {
+    const config = createFrontendConfig(
+      env({
+        VITE_APP_ENV: 'invite-production',
+        VITE_API_BASE_URL: 'https://api.parkio.dev/api/v1',
+        VITE_MAPTILER_KEY: 'map-key',
+      }),
+    );
+
+    expect(config.appEnv).toBe('invite-production');
+    expect(config.isProductionLike).toBe(true);
+    expect(config.features.smartReturn).toBe(false);
+  });
+
+  it('requires an API URL for invite-production', () => {
+    expect(() =>
+      createFrontendConfig(
+        env({
+          VITE_APP_ENV: 'invite-production',
+          VITE_MAPTILER_KEY: 'map-key',
+        }),
+      ),
+    ).toThrow('VITE_API_BASE_URL is required');
+  });
+
+  it('requires MapTiler configuration for invite-production', () => {
+    expect(() =>
+      createFrontendConfig(
+        env({
+          VITE_APP_ENV: 'invite-production',
+          VITE_API_BASE_URL: 'https://api.parkio.dev/api/v1',
+        }),
+      ),
+    ).toThrow('VITE_MAPTILER_KEY is required when VITE_APP_ENV=invite-production');
+  });
+
   it('keeps Smart Return disabled in hosted-beta unless explicitly enabled', () => {
     const config = createFrontendConfig(
       env({

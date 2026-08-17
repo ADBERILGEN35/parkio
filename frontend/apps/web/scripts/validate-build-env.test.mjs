@@ -39,6 +39,18 @@ test('rejects an explicitly empty MapTiler key for production', () => {
   assert.match(result.output, /VITE_MAPTILER_KEY is required/);
 });
 
+test('accepts complete invite-production public configuration', () => {
+  const result = run({ VITE_APP_ENV: 'invite-production' });
+  assert.equal(result.status, 0, result.output);
+  assert.match(result.output, /production_like=true/);
+});
+
+test('rejects a missing MapTiler key for invite-production', () => {
+  const result = run({ VITE_APP_ENV: 'invite-production', VITE_MAPTILER_KEY: undefined });
+  assert.notEqual(result.status, 0);
+  assert.match(result.output, /VITE_MAPTILER_KEY is required/);
+});
+
 test('does not require the MapTiler key for a non-production development build', () => {
   const result = run({ VITE_APP_ENV: 'development', VITE_MAPTILER_KEY: undefined });
   assert.equal(result.status, 0, result.output);
@@ -57,6 +69,14 @@ test('PROD-MUNI-01 rejects production bake with municipal discovery enabled', ()
 test('PROD-MUNI-01 allows hosted-beta bake with municipal discovery enabled', () => {
   const result = run({
     VITE_APP_ENV: 'hosted-beta',
+    VITE_WEB_MUNICIPAL_DISCOVERY_ENABLED: 'true',
+  });
+  assert.equal(result.status, 0, result.output);
+});
+
+test('allows explicitly enabled municipal discovery for controlled invite-production', () => {
+  const result = run({
+    VITE_APP_ENV: 'invite-production',
     VITE_WEB_MUNICIPAL_DISCOVERY_ENABLED: 'true',
   });
   assert.equal(result.status, 0, result.output);

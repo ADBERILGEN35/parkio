@@ -46,6 +46,15 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      - name: Invite-production configuration contract tests
+        run: |
+          set -euo pipefail
+          python3 scripts/azure/test_render_invite_production_env.py
+          bash scripts/test-preflight-invite-production.sh
+          node --test \
+            frontend/apps/web/scripts/validate-build-env.test.mjs \
+            frontend/apps/web/scripts/verify-bundle-env.test.mjs
+
       - name: Meta
         id: meta
         run: |
@@ -71,7 +80,9 @@ jobs:
               "PARKIO_ACME_EMAIL": "ops@parkio.dev",
               "VITE_MAPTILER_KEY": "ci-public-map-key",
               "PARKIO_RESEND_API_KEY": "re_ci_validation_only",
-              "PARKIO_EXPO_ACCESS_TOKEN": "ci-expo-validation-only",
+              "PARKIO_PUSH_DELIVERY_ENABLED": "false",
+              "PARKIO_PUSH_DELIVERY_PROVIDER": "noop",
+              "PARKIO_EXPO_ACCESS_TOKEN": "",
               "PARKIO_ALERT_SLACK_WEBHOOK_URL": "",
               "KAFKA_CLUSTER_ID": "Q0lJbnZpdGVQcm9kMDFBQQ",
           }

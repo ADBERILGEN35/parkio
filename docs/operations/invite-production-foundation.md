@@ -110,9 +110,11 @@ atomically with mode 0600 and suppresses values. Rotation is: create a new Key
 Vault version, rematerialize env, restart only dependent services, verify, then
 disable the old version after the overlap window.
 
-Operator-provided secrets remain mandatory: ACME contact email, MapTiler public
-key, Resend API key, Expo access token, and the real Slack webhook. The renderer
-fails closed and writes no env file when any are absent.
+Operator-provided values remain mandatory: ACME contact email, MapTiler public
+key, Resend API key, and the real Slack webhook. Mobile is outside the invite
+boundary, so push delivery is explicitly disabled with the noop provider and no
+Expo token is required. The renderer fails closed and writes no env file when
+any required operator value is absent.
 
 ## Runtime, observability, and backup policy
 

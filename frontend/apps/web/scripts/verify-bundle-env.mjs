@@ -24,7 +24,7 @@ import { readFileSync, readdirSync, existsSync, statSync } from 'node:fs';
 import { join, resolve } from 'node:path';
 
 /** Mirrors `requireInProductionLike` in src/config/env.ts. */
-const PRODUCTION_LIKE = new Set(['hosted-beta', 'production']);
+const PRODUCTION_LIKE = new Set(['hosted-beta', 'invite-production', 'production']);
 
 /** Public vars that src/config/env.ts throws on when absent in a production-like build. */
 const REQUIRED_IN_PRODUCTION_LIKE = ['VITE_API_BASE_URL', 'VITE_MAPTILER_KEY'];

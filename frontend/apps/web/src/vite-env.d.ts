@@ -2,7 +2,7 @@
 
 interface ImportMetaEnv {
   readonly VITE_API_BASE_URL: string;
-  readonly VITE_APP_ENV?: 'development' | 'test' | 'hosted-beta' | 'production';
+  readonly VITE_APP_ENV?: 'development' | 'test' | 'hosted-beta' | 'invite-production' | 'production';
   /** MapTiler API key — enables vector tiles. Absent ⇒ OSM raster fallback. */
   readonly VITE_MAPTILER_KEY?: string;
   /** MapTiler vector style id (default `streets-v2`). Prepared for style switching. */

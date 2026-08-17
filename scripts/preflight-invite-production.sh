@@ -59,6 +59,17 @@ expect_nonempty() {
   return 0
 }
 
+expect_empty() {
+  local key="$1"
+  local actual
+  actual="$(env_get "$key")"
+  if [ -n "$actual" ]; then
+    echo "FAIL $key: expected empty value for the web-only invite boundary" >&2
+    return 1
+  fi
+  return 0
+}
+
 expect_secret_ready() {
   local key="$1"
   local actual
@@ -101,6 +112,9 @@ expect_eq SPRING_DATASOURCE_HIKARI_MINIMUM_IDLE 1 || FAILURES=$((FAILURES + 1))
 expect_eq BACKUP_PRODUCTION_MODE 1 || FAILURES=$((FAILURES + 1))
 expect_eq BACKUP_AZURE_CONTAINER invite-production-backups || FAILURES=$((FAILURES + 1))
 expect_eq PARKIO_ACCOUNT_ERASURE_ENABLED true || FAILURES=$((FAILURES + 1))
+expect_eq PARKIO_PUSH_DELIVERY_ENABLED false || FAILURES=$((FAILURES + 1))
+expect_eq PARKIO_PUSH_DELIVERY_PROVIDER noop || FAILURES=$((FAILURES + 1))
+expect_empty PARKIO_EXPO_ACCESS_TOKEN || FAILURES=$((FAILURES + 1))
 expect_eq PARKIO_DOMAIN api.parkio.dev || FAILURES=$((FAILURES + 1))
 expect_eq PARKIO_WEB_DOMAIN app.parkio.dev || FAILURES=$((FAILURES + 1))
 expect_eq PARKIO_MEDIA_DOMAIN media.parkio.dev || FAILURES=$((FAILURES + 1))

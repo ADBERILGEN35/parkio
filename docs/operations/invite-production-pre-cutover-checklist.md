@@ -35,8 +35,10 @@ DNS switching, data migration, traffic, or invitations.
 
 - [x] Key Vault and VM managed identity are provisioned; generated first-party
   secrets are present without committed values.
-- [ ] Operator supplies ACME contact, MapTiler, Resend, Expo, and Slack values;
+- [ ] Operator supplies ACME contact, MapTiler, Resend, and Slack values;
   env renderer passes without printing values.
+- [ ] Web-only invite push policy is explicit: delivery disabled, provider
+  `noop`, and no Expo token required or provisioned.
 - [ ] Rotation procedure is operator-reviewed.
 - [ ] Account-erasure flag is ON, all eight handlers/topic/coordinator/tombstone/
   backup-ledger/replay/`AccountErasureStuck` paths are present.

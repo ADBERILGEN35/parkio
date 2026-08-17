@@ -286,11 +286,18 @@ else
   esac
 fi
 
-EXPO_TOKEN=$(env_get PARKIO_EXPO_ACCESS_TOKEN)
-if [ -z "$EXPO_TOKEN" ] || is_placeholder "$EXPO_TOKEN"; then
-  fail "PARKIO_EXPO_ACCESS_TOKEN" "missing or placeholder" "create an access token at expo.dev (Account settings -> Access tokens)"
-else
+# Expo remains mandatory for hosted environments that intentionally include
+# mobile push. The web-only invite-production profile enforces disabled/noop in
+# its dedicated wrapper instead.
+if [ "$DEPLOYMENT_PROFILE" = "invite-production" ]; then
   ok
+else
+  EXPO_TOKEN=$(env_get PARKIO_EXPO_ACCESS_TOKEN)
+  if [ -z "$EXPO_TOKEN" ] || is_placeholder "$EXPO_TOKEN"; then
+    fail "PARKIO_EXPO_ACCESS_TOKEN" "missing or placeholder" "create an access token at expo.dev (Account settings -> Access tokens)"
+  else
+    ok
+  fi
 fi
 
 SLACK_URL=$(env_get PARKIO_ALERT_SLACK_WEBHOOK_URL)
@@ -484,7 +491,10 @@ else
 fi
 
 PUSH_PROVIDER=$(env_get PARKIO_PUSH_DELIVERY_PROVIDER)
-if [ "$PUSH_PROVIDER" = "expo" ]; then
+if [ "$DEPLOYMENT_PROFILE" = "invite-production" ]; then
+  # Exact disabled/noop semantics are checked by preflight-invite-production.sh.
+  ok
+elif [ "$PUSH_PROVIDER" = "expo" ]; then
   ok
 elif [ "$ALLOW_PROVIDER" = "1" ] && [ -n "$PUSH_PROVIDER" ] && [ "$PUSH_PROVIDER" != "noop" ]; then
   warn "PARKIO_PUSH_DELIVERY_PROVIDER" "'$PUSH_PROVIDER' (non-default) explicitly allowed — document the rationale in the deploy notes"

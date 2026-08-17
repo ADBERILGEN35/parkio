@@ -43,6 +43,34 @@ test('accepts a production-like bundle with all required public values', () => {
   assert.doesNotMatch(`${result.stdout}${result.stderr}`, new RegExp(placeholder));
 });
 
+test('accepts an invite-production bundle with required public values', () => {
+  const result = runVerifier(
+    {
+      VITE_APP_ENV: 'invite-production',
+      VITE_API_BASE_URL: 'https://api.parkio.dev/api/v1',
+      VITE_MAPTILER_KEY: placeholder,
+    },
+    'invite-production',
+  );
+
+  assert.equal(result.status, 0, result.stderr);
+  assert.match(result.stdout, /production_like=true/);
+  assert.match(result.stdout, /VITE_MAPTILER_KEY = PRESENT/);
+});
+
+test('rejects an invite-production bundle without MapTiler configuration', () => {
+  const result = runVerifier(
+    {
+      VITE_APP_ENV: 'invite-production',
+      VITE_API_BASE_URL: 'https://api.parkio.dev/api/v1',
+    },
+    'invite-production',
+  );
+
+  assert.notEqual(result.status, 0);
+  assert.match(`${result.stdout}${result.stderr}`, /VITE_MAPTILER_KEY is MISSING/);
+});
+
 test('rejects a missing required public value without printing any other value', () => {
   const result = runVerifier({
     VITE_APP_ENV: 'hosted-beta',
