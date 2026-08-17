@@ -1,6 +1,16 @@
 name: Invite-production deploy
 
 on:
+  pull_request:
+    branches:
+      - master
+    paths:
+      - ".github/workflows/invite-production-deploy.yml"
+      - "docker/**"
+      - "frontend/**"
+      - "infra/**"
+      - "scripts/**"
+      - "services/**"
   workflow_dispatch:
     inputs:
       action:
@@ -28,7 +38,7 @@ concurrency:
 jobs:
   build-images:
     name: Build images + dry-run manifest
-    if: ${{ github.event.inputs.action == 'build' || github.event.inputs.action == 'deploy' }}
+    if: ${{ github.event_name == 'pull_request' || github.event.inputs.action == 'build' || github.event.inputs.action == 'deploy' }}
     runs-on: ubuntu-latest
     timeout-minutes: 90
     outputs:
