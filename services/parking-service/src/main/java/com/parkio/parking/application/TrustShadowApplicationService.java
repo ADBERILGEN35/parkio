@@ -7,6 +7,7 @@ import com.parkio.parking.application.port.TrustSnapshotWritePort;
 import com.parkio.parking.application.trust.TrustShadowFailureStage;
 import com.parkio.parking.application.trust.TrustShadowProcessingResult;
 import com.parkio.parking.application.trust.ValidatedOutcomeForTrust;
+import com.parkio.parking.trust.TrustDomain;
 import com.parkio.parking.trust.TrustEngine;
 import com.parkio.parking.trust.TrustEvaluation;
 import com.parkio.parking.trust.TrustEvaluationContext;
@@ -20,6 +21,8 @@ import com.parkio.parking.trust.ValidatedTrustEvidenceFactory;
 import java.nio.charset.StandardCharsets;
 import java.time.Clock;
 import java.time.Duration;
+import java.time.Instant;
+import java.util.List;
 import java.util.Objects;
 import java.util.UUID;
 import org.springframework.stereotype.Service;
@@ -29,7 +32,6 @@ import org.springframework.transaction.interceptor.TransactionAspectSupport;
 public class TrustShadowApplicationService {
 
     private final TrustLedgerPort ledger;
-    private final TrustSnapshotReadPort snapshots;
     private final TrustSnapshotWritePort snapshotWrites;
     private final TrustShadowObserverPort observer;
     private final Clock clock;
@@ -43,7 +45,7 @@ public class TrustShadowApplicationService {
             TrustShadowObserverPort observer,
             Clock clock) {
         this.ledger = Objects.requireNonNull(ledger, "ledger");
-        this.snapshots = Objects.requireNonNull(snapshots, "snapshots");
+        Objects.requireNonNull(snapshots, "snapshots");
         this.snapshotWrites = Objects.requireNonNull(snapshotWrites, "snapshotWrites");
         this.observer = Objects.requireNonNull(observer, "observer");
         this.clock = Objects.requireNonNull(clock, "clock");
@@ -65,15 +67,16 @@ public class TrustShadowApplicationService {
                     candidate.outcomeRecord().evaluatedAt(),
                     TrustPolicyConfig.POLICY_VERSION,
                     TrustSnapshotSchemaVersion.V1);
-            TrustEvidence eligibleEvidence = evidence;
-            TrustSnapshot previous = snapshots.findBySubjectAndDomain(eligibleEvidence.subject(), eligibleEvidence.domain())
-                    .orElseGet(() -> engine.initialSnapshot(
-                            eligibleEvidence.subject(),
-                            eligibleEvidence.domain(),
-                            context));
+            TrustDomain domain = evidence.domain();
+            UUID ledgerEntryId = deterministicId("trust-ledger|" + evidence.evidenceId());
+            List<TrustLedgerEntry> existing = ledger.findBySubject(evidence.subject()).stream()
+                    .filter(entry -> entry.domain() == domain)
+                    .sorted(TrustShadowApplicationService::compareEntries)
+                    .toList();
+            TrustSnapshot previous = foldBefore(evidence, context, ledgerEntryId, existing);
             TrustEvaluation evaluation = engine.evaluate(previous, evidence, context);
             TrustLedgerEntry entry = new TrustLedgerEntry(
-                    deterministicId("trust-ledger|" + evidence.evidenceId()),
+                    ledgerEntryId,
                     deterministicId("trust-evaluation|" + evidence.evidenceId()),
                     evidence.subject(),
                     evidence.domain(),
@@ -95,7 +98,7 @@ public class TrustShadowApplicationService {
                     previous,
                     evaluation);
             ledger.append(entry);
-            snapshotWrites.upsert(evaluation.resultingSnapshot());
+            snapshotWrites.upsert(foldAfter(evaluation.resultingSnapshot(), context, ledgerEntryId, existing));
             Duration duration = Duration.ofNanos(System.nanoTime() - started);
             observer.recordUpdateSuccess(evaluation, duration);
             var replay = replayer.replay(entry);
@@ -126,6 +129,69 @@ public class TrustShadowApplicationService {
             }
             return TrustShadowProcessingResult.failed(candidate.outcomeRecord().recordId(), stage);
         }
+    }
+
+    /**
+     * Incremental apply requires evaluatedAt to be in canonical ledger order.
+     * Concurrent distinct evidence can persist a later row first; fold already-durable
+     * earlier rows as previous, then re-apply later rows so the projection matches replay.
+     */
+    private TrustSnapshot foldBefore(
+            TrustEvidence evidence,
+            TrustEvaluationContext incomingContext,
+            UUID incomingLedgerId,
+            List<TrustLedgerEntry> existing) {
+        List<TrustLedgerEntry> before = existing.stream()
+                .filter(entry -> compareCanonical(entry, incomingContext.evaluatedAt(), incomingLedgerId) < 0)
+                .toList();
+        TrustEvaluationContext initialContext = before.isEmpty()
+                ? incomingContext
+                : new TrustEvaluationContext(
+                        before.get(0).evaluatedAt(),
+                        before.get(0).trustPolicyVersion(),
+                        before.get(0).snapshotSchemaVersion());
+        TrustSnapshot snapshot = engine.initialSnapshot(evidence.subject(), evidence.domain(), initialContext);
+        for (TrustLedgerEntry entry : before) {
+            snapshot = apply(snapshot, entry);
+        }
+        return snapshot;
+    }
+
+    private TrustSnapshot foldAfter(
+            TrustSnapshot afterIncoming,
+            TrustEvaluationContext incomingContext,
+            UUID incomingLedgerId,
+            List<TrustLedgerEntry> existing) {
+        TrustSnapshot snapshot = afterIncoming;
+        for (TrustLedgerEntry entry : existing) {
+            if (compareCanonical(entry, incomingContext.evaluatedAt(), incomingLedgerId) > 0) {
+                snapshot = apply(snapshot, entry);
+            }
+        }
+        return snapshot;
+    }
+
+    private TrustSnapshot apply(TrustSnapshot snapshot, TrustLedgerEntry entry) {
+        return engine.evaluate(
+                        snapshot,
+                        entry.evidence(),
+                        new TrustEvaluationContext(
+                                entry.evaluatedAt(),
+                                entry.trustPolicyVersion(),
+                                entry.snapshotSchemaVersion()))
+                .resultingSnapshot();
+    }
+
+    private static int compareEntries(TrustLedgerEntry left, TrustLedgerEntry right) {
+        return compareCanonical(left, right.evaluatedAt(), right.ledgerEntryId());
+    }
+
+    private static int compareCanonical(TrustLedgerEntry entry, Instant evaluatedAt, UUID ledgerEntryId) {
+        int byTime = entry.evaluatedAt().compareTo(evaluatedAt);
+        if (byTime != 0) {
+            return byTime;
+        }
+        return entry.ledgerEntryId().compareTo(ledgerEntryId);
     }
 
     private static TrustShadowFailureStage classifyFailure(RuntimeException ex) {
