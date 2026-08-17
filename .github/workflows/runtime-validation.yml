@@ -214,12 +214,12 @@ jobs:
             port="${ports[$svc]}"
             docker compose --env-file "$COMPOSE_ENV_FILE" $COMPOSE_FILES exec -T "$svc" \
               curl -fsS "http://localhost:${port}/actuator/health/readiness" \
-              | tee "runtime-validation-artifacts/${svc}-readiness.json"
+              > "runtime-validation-artifacts/${svc}-readiness.json"
           done
 
           docker compose --env-file "$COMPOSE_ENV_FILE" $COMPOSE_FILES exec -T gateway-service \
             curl -fsS http://localhost:8080/api/v1/auth/.well-known/jwks.json \
-            | tee runtime-validation-artifacts/gateway-jwks.json
+            > runtime-validation-artifacts/gateway-jwks.json
 
           status="$(docker compose --env-file "$COMPOSE_ENV_FILE" $COMPOSE_FILES exec -T gateway-service \
             curl -sS -o runtime-validation-artifacts/gateway-protected-401.json -w '%{http_code}' \
