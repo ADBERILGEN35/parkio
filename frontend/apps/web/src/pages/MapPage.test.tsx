@@ -1945,7 +1945,7 @@ describe('MapPage dual-inventory empty chrome (WEB-MUNI-06)', () => {
     const user = userEvent.setup();
     await searchNear(user);
 
-    expect(await screen.findByTestId('map-sheet-summary')).toHaveTextContent('No spots nearby');
+    await expectSettledMapSheetSummary('No spots nearby');
     expect(screen.getByRole('heading', { name: 'No spots nearby' })).toBeInTheDocument();
     expect(screen.queryByText('No community spots nearby')).not.toBeInTheDocument();
     expect(screen.queryByText(/municipal facility/i)).not.toBeInTheDocument();

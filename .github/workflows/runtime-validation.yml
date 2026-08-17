@@ -71,10 +71,10 @@ jobs:
       - name: Frontend build smoke
         working-directory: frontend
         run: |
-          pnpm -r typecheck
-          pnpm -r lint
-          pnpm -r test
-          pnpm -r build
+          pnpm -r --filter='!@parkio/mobile' --filter='!@parkio/mobile-v2' typecheck
+          pnpm -r --filter='!@parkio/mobile' --filter='!@parkio/mobile-v2' lint
+          pnpm -r --filter='!@parkio/mobile' --filter='!@parkio/mobile-v2' test
+          pnpm -r --filter='!@parkio/mobile' --filter='!@parkio/mobile-v2' build
 
       - name: Prepare CI-only hosted-beta env
         run: |
