@@ -7,7 +7,8 @@
 #   PARKIO_PG_HOST          Flexible Server FQDN
 #   POSTGRES_*_DB/USER/PASSWORD as usual
 #
-# JDBC always uses sslmode=require. Do not set sslmode=disable.
+# JDBC must validate endpoint identity. Default to verify-full; override only with
+# a stronger equivalent. Do not set sslmode=disable.
 #
 # Start WITHOUT launching local Postgres:
 #   docker compose -f docker-compose.yml -f docker-compose.apps.yml \
@@ -19,6 +20,8 @@
 name: parkio
 
 x-managed-jdbc: &managed-ssl
+  SPRING_DATASOURCE_HIKARI_MAXIMUM_POOL_SIZE: ${SPRING_DATASOURCE_HIKARI_MAXIMUM_POOL_SIZE:-4}
+  SPRING_DATASOURCE_HIKARI_MINIMUM_IDLE: ${SPRING_DATASOURCE_HIKARI_MINIMUM_IDLE:-1}
   SPRING_DATASOURCE_HIKARI_MAX_LIFETIME: ${SPRING_DATASOURCE_HIKARI_MAX_LIFETIME:-1500000}
   SPRING_DATASOURCE_HIKARI_KEEPALIVE_TIME: ${SPRING_DATASOURCE_HIKARI_KEEPALIVE_TIME:-60000}
 
@@ -47,7 +50,11 @@ services:
   gateway-service:
     environment:
       <<: *managed-ssl
-      SPRING_DATASOURCE_URL: jdbc:postgresql://${PARKIO_PG_HOST}:5432/${POSTGRES_GATEWAY_DB:-parkio_gateway}?sslmode=require
+      SPRING_DATASOURCE_URL: jdbc:postgresql://${PARKIO_PG_HOST}:5432/${POSTGRES_GATEWAY_DB:-parkio_gateway}?${PARKIO_PG_JDBC_QUERY:-sslmode=verify-full}
+      SPRING_FLYWAY_USER: ${POSTGRES_GATEWAY_MIGRATION_USER:-parkio_gateway_migrator}
+      SPRING_FLYWAY_PASSWORD: ${POSTGRES_GATEWAY_MIGRATION_PASSWORD}
+    volumes:
+      - ${PARKIO_PG_SSLROOTCERT_HOST:-/opt/parkio/certs/azure-postgres-root.crt}:/opt/parkio/certs/azure-postgres-root.crt:ro
     depends_on: !override
       redis:
         condition: service_healthy
@@ -58,7 +65,11 @@ services:
   auth-service:
     environment:
       <<: *managed-ssl
-      SPRING_DATASOURCE_URL: jdbc:postgresql://${PARKIO_PG_HOST}:5432/${POSTGRES_AUTH_DB:-parkio_auth}?sslmode=require
+      SPRING_DATASOURCE_URL: jdbc:postgresql://${PARKIO_PG_HOST}:5432/${POSTGRES_AUTH_DB:-parkio_auth}?${PARKIO_PG_JDBC_QUERY:-sslmode=verify-full}
+      SPRING_FLYWAY_USER: ${POSTGRES_AUTH_MIGRATION_USER:-parkio_auth_migrator}
+      SPRING_FLYWAY_PASSWORD: ${POSTGRES_AUTH_MIGRATION_PASSWORD}
+    volumes:
+      - ${PARKIO_PG_SSLROOTCERT_HOST:-/opt/parkio/certs/azure-postgres-root.crt}:/opt/parkio/certs/azure-postgres-root.crt:ro
     depends_on: !override
       kafka:
         condition: service_healthy
@@ -67,14 +78,22 @@ services:
   user-service:
     environment:
       <<: *managed-ssl
-      SPRING_DATASOURCE_URL: jdbc:postgresql://${PARKIO_PG_HOST}:5432/${POSTGRES_USER_DB:-parkio_user}?sslmode=require
+      SPRING_DATASOURCE_URL: jdbc:postgresql://${PARKIO_PG_HOST}:5432/${POSTGRES_USER_DB:-parkio_user}?${PARKIO_PG_JDBC_QUERY:-sslmode=verify-full}
+      SPRING_FLYWAY_USER: ${POSTGRES_USER_MIGRATION_USER:-parkio_user_migrator}
+      SPRING_FLYWAY_PASSWORD: ${POSTGRES_USER_MIGRATION_PASSWORD}
+    volumes:
+      - ${PARKIO_PG_SSLROOTCERT_HOST:-/opt/parkio/certs/azure-postgres-root.crt}:/opt/parkio/certs/azure-postgres-root.crt:ro
     depends_on: !override
       kafka:
         condition: service_healthy
   parking-service:
     environment:
       <<: *managed-ssl
-      SPRING_DATASOURCE_URL: jdbc:postgresql://${PARKIO_PG_HOST}:5432/${POSTGRES_PARKING_DB:-parkio_parking}?sslmode=require
+      SPRING_DATASOURCE_URL: jdbc:postgresql://${PARKIO_PG_HOST}:5432/${POSTGRES_PARKING_DB:-parkio_parking}?${PARKIO_PG_JDBC_QUERY:-sslmode=verify-full}
+      SPRING_FLYWAY_USER: ${POSTGRES_PARKING_MIGRATION_USER:-parkio_parking_migrator}
+      SPRING_FLYWAY_PASSWORD: ${POSTGRES_PARKING_MIGRATION_PASSWORD}
+    volumes:
+      - ${PARKIO_PG_SSLROOTCERT_HOST:-/opt/parkio/certs/azure-postgres-root.crt}:/opt/parkio/certs/azure-postgres-root.crt:ro
     depends_on: !override
       kafka:
         condition: service_healthy
@@ -83,7 +102,11 @@ services:
   media-service:
     environment:
       <<: *managed-ssl
-      SPRING_DATASOURCE_URL: jdbc:postgresql://${PARKIO_PG_HOST}:5432/${POSTGRES_MEDIA_DB:-parkio_media}?sslmode=require
+      SPRING_DATASOURCE_URL: jdbc:postgresql://${PARKIO_PG_HOST}:5432/${POSTGRES_MEDIA_DB:-parkio_media}?${PARKIO_PG_JDBC_QUERY:-sslmode=verify-full}
+      SPRING_FLYWAY_USER: ${POSTGRES_MEDIA_MIGRATION_USER:-parkio_media_migrator}
+      SPRING_FLYWAY_PASSWORD: ${POSTGRES_MEDIA_MIGRATION_PASSWORD}
+    volumes:
+      - ${PARKIO_PG_SSLROOTCERT_HOST:-/opt/parkio/certs/azure-postgres-root.crt}:/opt/parkio/certs/azure-postgres-root.crt:ro
     depends_on: !override
       kafka:
         condition: service_healthy
@@ -96,7 +119,11 @@ services:
   gamification-service:
     environment:
       <<: *managed-ssl
-      SPRING_DATASOURCE_URL: jdbc:postgresql://${PARKIO_PG_HOST}:5432/${POSTGRES_GAMIFICATION_DB:-parkio_gamification}?sslmode=require
+      SPRING_DATASOURCE_URL: jdbc:postgresql://${PARKIO_PG_HOST}:5432/${POSTGRES_GAMIFICATION_DB:-parkio_gamification}?${PARKIO_PG_JDBC_QUERY:-sslmode=verify-full}
+      SPRING_FLYWAY_USER: ${POSTGRES_GAMIFICATION_MIGRATION_USER:-parkio_gamification_migrator}
+      SPRING_FLYWAY_PASSWORD: ${POSTGRES_GAMIFICATION_MIGRATION_PASSWORD}
+    volumes:
+      - ${PARKIO_PG_SSLROOTCERT_HOST:-/opt/parkio/certs/azure-postgres-root.crt}:/opt/parkio/certs/azure-postgres-root.crt:ro
     depends_on: !override
       kafka:
         condition: service_healthy
@@ -105,28 +132,44 @@ services:
   notification-service:
     environment:
       <<: *managed-ssl
-      SPRING_DATASOURCE_URL: jdbc:postgresql://${PARKIO_PG_HOST}:5432/${POSTGRES_NOTIFICATION_DB:-parkio_notification}?sslmode=require
+      SPRING_DATASOURCE_URL: jdbc:postgresql://${PARKIO_PG_HOST}:5432/${POSTGRES_NOTIFICATION_DB:-parkio_notification}?${PARKIO_PG_JDBC_QUERY:-sslmode=verify-full}
+      SPRING_FLYWAY_USER: ${POSTGRES_NOTIFICATION_MIGRATION_USER:-parkio_notification_migrator}
+      SPRING_FLYWAY_PASSWORD: ${POSTGRES_NOTIFICATION_MIGRATION_PASSWORD}
+    volumes:
+      - ${PARKIO_PG_SSLROOTCERT_HOST:-/opt/parkio/certs/azure-postgres-root.crt}:/opt/parkio/certs/azure-postgres-root.crt:ro
     depends_on: !override
       kafka:
         condition: service_healthy
   moderation-service:
     environment:
       <<: *managed-ssl
-      SPRING_DATASOURCE_URL: jdbc:postgresql://${PARKIO_PG_HOST}:5432/${POSTGRES_MODERATION_DB:-parkio_moderation}?sslmode=require
+      SPRING_DATASOURCE_URL: jdbc:postgresql://${PARKIO_PG_HOST}:5432/${POSTGRES_MODERATION_DB:-parkio_moderation}?${PARKIO_PG_JDBC_QUERY:-sslmode=verify-full}
+      SPRING_FLYWAY_USER: ${POSTGRES_MODERATION_MIGRATION_USER:-parkio_moderation_migrator}
+      SPRING_FLYWAY_PASSWORD: ${POSTGRES_MODERATION_MIGRATION_PASSWORD}
+    volumes:
+      - ${PARKIO_PG_SSLROOTCERT_HOST:-/opt/parkio/certs/azure-postgres-root.crt}:/opt/parkio/certs/azure-postgres-root.crt:ro
     depends_on: !override
       kafka:
         condition: service_healthy
   ai-validation-service:
     environment:
       <<: *managed-ssl
-      SPRING_DATASOURCE_URL: jdbc:postgresql://${PARKIO_PG_HOST}:5432/${POSTGRES_AIVALIDATION_DB:-parkio_aivalidation}?sslmode=require
+      SPRING_DATASOURCE_URL: jdbc:postgresql://${PARKIO_PG_HOST}:5432/${POSTGRES_AIVALIDATION_DB:-parkio_aivalidation}?${PARKIO_PG_JDBC_QUERY:-sslmode=verify-full}
+      SPRING_FLYWAY_USER: ${POSTGRES_AIVALIDATION_MIGRATION_USER:-parkio_aivalidation_migrator}
+      SPRING_FLYWAY_PASSWORD: ${POSTGRES_AIVALIDATION_MIGRATION_PASSWORD}
+    volumes:
+      - ${PARKIO_PG_SSLROOTCERT_HOST:-/opt/parkio/certs/azure-postgres-root.crt}:/opt/parkio/certs/azure-postgres-root.crt:ro
     depends_on: !override
       kafka:
         condition: service_healthy
   analytics-service:
     environment:
       <<: *managed-ssl
-      SPRING_DATASOURCE_URL: jdbc:postgresql://${PARKIO_PG_HOST}:5432/${POSTGRES_ANALYTICS_DB:-parkio_analytics}?sslmode=require
+      SPRING_DATASOURCE_URL: jdbc:postgresql://${PARKIO_PG_HOST}:5432/${POSTGRES_ANALYTICS_DB:-parkio_analytics}?${PARKIO_PG_JDBC_QUERY:-sslmode=verify-full}
+      SPRING_FLYWAY_USER: ${POSTGRES_ANALYTICS_MIGRATION_USER:-parkio_analytics_migrator}
+      SPRING_FLYWAY_PASSWORD: ${POSTGRES_ANALYTICS_MIGRATION_PASSWORD}
+    volumes:
+      - ${PARKIO_PG_SSLROOTCERT_HOST:-/opt/parkio/certs/azure-postgres-root.crt}:/opt/parkio/certs/azure-postgres-root.crt:ro
     depends_on: !override
       kafka:
         condition: service_healthy

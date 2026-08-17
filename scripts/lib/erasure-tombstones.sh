@@ -10,13 +10,13 @@ parkio_erasure_psql() {
   shift 3
   if [ "${PARKIO_PG_MODE:-docker}" = "managed" ]; then
     : "${PARKIO_PG_HOST:?PARKIO_PG_HOST required when PARKIO_PG_MODE=managed}"
-    local sslmode="${PARKIO_PG_SSLMODE:-require}"
+    local sslmode="${PARKIO_PG_SSLMODE:-verify-full}"
     if [ "${sslmode}" = "disable" ]; then
       echo "ERROR: PARKIO_PG_SSLMODE=disable is not allowed." >&2
       return 2
     fi
     local pw="${PARKIO_PG_PASSWORD:-${POSTGRES_AUTH_PASSWORD:-}}"
-    PGPASSWORD="${pw}" PGSSLMODE="${sslmode}" psql \
+    PGPASSWORD="${pw}" PGSSLMODE="${sslmode}" PGSSLROOTCERT="${PARKIO_PG_SSLROOTCERT:-}" psql \
       -h "${PARKIO_PG_HOST}" -p "${PARKIO_PG_PORT:-5432}" \
       -U "${user}" -d "${db}" "$@"
     return $?

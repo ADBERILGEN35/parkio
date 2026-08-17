@@ -1,0 +1,15 @@
+{
+  "$schema": "https://schema.management.azure.com/schemas/2019-04-01/deploymentParameters.json#",
+  "contentVersion": "1.0.0.0",
+  "parameters": {
+    "operatorObjectId": {
+      "value": "REPLACE_WITH_ENTRA_OPERATOR_OBJECT_ID"
+    },
+    "sshPublicKey": {
+      "value": "REPLACE_WITH_OPENSSH_PUBLIC_KEY"
+    },
+    "administratorLoginPassword": {
+      "value": "REPLACE_WITH_SECURE_RUNTIME_VALUE"
+    }
+  }
+}

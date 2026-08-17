@@ -44,6 +44,21 @@ PARKIO_AZURE_REQUIRED_HEALTHY=(
   ai-validation-service analytics-service web caddy
 )
 
+PARKIO_INVITE_RUNTIME_SERVICES=(
+  redis kafka kafka-exporter blackbox-exporter node-exporter
+  minio minio-setup clamav prometheus grafana alertmanager
+  auth-service user-service parking-service media-service gamification-service
+  notification-service moderation-service ai-validation-service analytics-service
+  gateway-service web caddy
+)
+
+PARKIO_INVITE_REQUIRED_HEALTHY=(
+  kafka redis minio clamav prometheus grafana alertmanager
+  gateway-service auth-service user-service parking-service media-service
+  gamification-service notification-service moderation-service ai-validation-service
+  analytics-service web caddy
+)
+
 PARKIO_RUNTIME_SERVICES=()
 PARKIO_DISABLED_SERVICES=()
 
@@ -75,8 +90,14 @@ parkio_configure_deployment_profile() {
       PARKIO_DISABLED_SERVICES=(alertmanager loki promtail tempo)
       PARKIO_REQUIRED_HEALTHY=("${PARKIO_AZURE_REQUIRED_HEALTHY[@]}")
       ;;
+    invite-production)
+      PARKIO_COMPOSE_FILES="-f docker/docker-compose.yml -f docker/docker-compose.apps.yml -f docker/docker-compose.images.yml -f docker/docker-compose.hosted-beta.yml -f docker/docker-compose.managed-db.yml"
+      PARKIO_RUNTIME_SERVICES=("${PARKIO_INVITE_RUNTIME_SERVICES[@]}")
+      PARKIO_DISABLED_SERVICES=(postgres-auth postgres-gateway postgres-user postgres-parking postgres-media postgres-gamification postgres-notification postgres-moderation postgres-analytics postgres-ai-validation loki promtail tempo)
+      PARKIO_REQUIRED_HEALTHY=("${PARKIO_INVITE_REQUIRED_HEALTHY[@]}")
+      ;;
     *)
-      echo "ERROR: unsupported PARKIO_DEPLOYMENT_PROFILE='$requested' (expected hosted-beta or azure-hosted-beta)" >&2
+      echo "ERROR: unsupported PARKIO_DEPLOYMENT_PROFILE='$requested' (expected hosted-beta, azure-hosted-beta, or invite-production)" >&2
       return 2
       ;;
   esac
@@ -160,7 +181,8 @@ parkio_compose_up() {
 }
 
 parkio_default_gateway_url() {
-  if [ "${PARKIO_DEPLOYMENT_PROFILE:-hosted-beta}" = "azure-hosted-beta" ]; then
+  if [ "${PARKIO_DEPLOYMENT_PROFILE:-hosted-beta}" = "azure-hosted-beta" ] \
+    || [ "${PARKIO_DEPLOYMENT_PROFILE:-hosted-beta}" = "invite-production" ]; then
     echo "https://api.parkio.dev"
   else
     echo "http://127.0.0.1:8080"
@@ -185,6 +207,55 @@ parkio_disabled_services_json() {
   done
   out+="]"
   echo "$out"
+}
+
+parkio_image_digests_json() {
+  local image_tag="$1" out="{" first=1 svc ref digest
+  for svc in "${PARKIO_APP_SERVICES[@]}"; do
+    ref="$(parkio_image_ref "$svc" "$image_tag")"
+    digest="$(docker image inspect --format '{{.Id}}' "$ref" 2>/dev/null || true)"
+    if [ "$first" -eq 1 ]; then first=0; else out+=","; fi
+    if [ -n "$digest" ]; then
+      out+="\"${svc}\":\"${digest}\""
+    else
+      out+="\"${svc}\":null"
+    fi
+  done
+  out+="}"
+  echo "$out"
+}
+
+parkio_feature_flags_json() {
+  local env_file="$1"
+  jq -n \
+    --arg accountErasure "$(parkio_env_value "$env_file" PARKIO_ACCOUNT_ERASURE_ENABLED)" \
+    --arg municipal "$(parkio_env_value "$env_file" PARKIO_MUNICIPAL_ENABLED)" \
+    --arg izum "$(parkio_env_value "$env_file" PARKIO_MUNICIPAL_IZUM_ENABLED)" \
+    --arg ispark "$(parkio_env_value "$env_file" PARKIO_MUNICIPAL_ISPARK_ENABLED)" \
+    --arg anpark "$(parkio_env_value "$env_file" PARKIO_MUNICIPAL_ANPARK_ENABLED)" \
+    --arg konya "$(parkio_env_value "$env_file" PARKIO_MUNICIPAL_KONYA_ENABLED)" \
+    --arg kayseri "$(parkio_env_value "$env_file" PARKIO_MUNICIPAL_KAYSERI_ENABLED)" \
+    --arg osm "$(parkio_env_value "$env_file" PARKIO_MUNICIPAL_OSM_IMPORT_ENABLED)" \
+    --arg recommendations "$(parkio_env_value "$env_file" PARKIO_SPA_RECOMMENDATIONS_ENABLED)" \
+    --arg strategy "$(parkio_env_value "$env_file" PARKIO_SPA_RANKING_STRATEGY)" \
+    --arg shadow "$(parkio_env_value "$env_file" PARKIO_SPA_RANKING_SHADOW_ENABLED)" \
+    --arg evaluation "$(parkio_env_value "$env_file" PARKIO_SPA_RANKING_EVALUATION_ENABLED)" \
+    --arg rollup "$(parkio_env_value "$env_file" PARKIO_SPA_RANKING_EVALUATION_ROLLUP_ENABLED)" \
+    '{
+      PARKIO_ACCOUNT_ERASURE_ENABLED: $accountErasure,
+      PARKIO_MUNICIPAL_ENABLED: $municipal,
+      PARKIO_MUNICIPAL_IZUM_ENABLED: $izum,
+      PARKIO_MUNICIPAL_ISPARK_ENABLED: $ispark,
+      PARKIO_MUNICIPAL_ANPARK_ENABLED: $anpark,
+      PARKIO_MUNICIPAL_KONYA_ENABLED: $konya,
+      PARKIO_MUNICIPAL_KAYSERI_ENABLED: $kayseri,
+      PARKIO_MUNICIPAL_OSM_IMPORT_ENABLED: $osm,
+      PARKIO_SPA_RECOMMENDATIONS_ENABLED: $recommendations,
+      PARKIO_SPA_RANKING_STRATEGY: $strategy,
+      PARKIO_SPA_RANKING_SHADOW_ENABLED: $shadow,
+      PARKIO_SPA_RANKING_EVALUATION_ENABLED: $evaluation,
+      PARKIO_SPA_RANKING_EVALUATION_ROLLUP_ENABLED: $rollup
+    }'
 }
 
 parkio_wait_healthy() {
@@ -275,12 +346,14 @@ parkio_write_manifest() {
   local created="$8"
   local version="$9"
   local previous_manifest="${10:-}"
-  local compose_files_json images_json migrations_json runtime_services_json disabled_services_json svc first rollback_target
+  local compose_files_json images_json image_digests_json migrations_json runtime_services_json disabled_services_json feature_flags_json svc first rollback_target
 
   compose_files_json="$(parkio_compose_files_json)"
   migrations_json="$(parkio_migration_versions_json)"
   runtime_services_json="$(parkio_runtime_services_json)"
   disabled_services_json="$(parkio_disabled_services_json)"
+  image_digests_json="$(parkio_image_digests_json "$image_tag")"
+  feature_flags_json="$(parkio_feature_flags_json "$env_file")"
   images_json="{"
   first=1
   for svc in "${PARKIO_APP_SERVICES[@]}"; do
@@ -295,6 +368,11 @@ parkio_write_manifest() {
     rollback_target="<previous-manifest.json>"
   fi
 
+  local rollback_script="./scripts/rollback-hosted-beta.sh"
+  if [ "$PARKIO_DEPLOYMENT_PROFILE" = "invite-production" ]; then
+    rollback_script="./scripts/rollback-invite-production.sh"
+  fi
+
   jq -n \
     --arg action "$action" \
     --arg gitSha "$git_sha" \
@@ -304,12 +382,16 @@ parkio_write_manifest() {
     --arg imageVersion "$version" \
     --arg envProfile "$env_file" \
     --arg deploymentProfile "$PARKIO_DEPLOYMENT_PROFILE" \
+    --arg databaseServer "$(parkio_env_value "$env_file" PARKIO_PG_HOST)" \
     --arg operator "$operator" \
     --arg previousManifest "$previous_manifest" \
     --arg rollbackTarget "$rollback_target" \
+    --arg rollbackScript "$rollback_script" \
     --argjson composeFiles "$compose_files_json" \
     --argjson images "$images_json" \
+    --argjson imageDigests "$image_digests_json" \
     --argjson migrationVersions "$migrations_json" \
+    --argjson featureFlags "$feature_flags_json" \
     --argjson runtimeServices "$runtime_services_json" \
     --argjson disabledServices "$disabled_services_json" \
     '{
@@ -323,13 +405,16 @@ parkio_write_manifest() {
       composeFiles: $composeFiles,
       envProfile: $envProfile,
       deploymentProfile: $deploymentProfile,
+      databaseServer: (if $databaseServer == "" then null else $databaseServer end),
       operator: $operator,
       previousManifest: (if $previousManifest == "" then null else $previousManifest end),
       images: $images,
+      imageDigests: $imageDigests,
       migrationVersions: $migrationVersions,
+      featureFlags: $featureFlags,
       runtimeServices: $runtimeServices,
       disabledServices: $disabledServices,
       migrationNote: "Flyway runs automatically on service startup (readiness requires successful migrate). migrationVersions lists scripts present in source at deploy time.",
-      rollbackCommand: ("PARKIO_DEPLOYMENT_PROFILE=" + $deploymentProfile + " PARKIO_ENV_FILE=" + $envProfile + " ./scripts/rollback-hosted-beta.sh --manifest " + $rollbackTarget)
+      rollbackCommand: ("PARKIO_DEPLOYMENT_PROFILE=" + $deploymentProfile + " PARKIO_ENV_FILE=" + $envProfile + " " + $rollbackScript + " --manifest " + $rollbackTarget)
     }' > "$manifest_path"
 }

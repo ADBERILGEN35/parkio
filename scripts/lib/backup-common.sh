@@ -86,7 +86,7 @@ parkio_backup_load_env() {
 parkio_backup_validate_deployment_profile() {
   local profile="${PARKIO_DEPLOYMENT_PROFILE:-hosted-beta}"
   case "$profile" in
-    hosted-beta|azure-hosted-beta|managed-postgres) ;;
+    hosted-beta|azure-hosted-beta|managed-postgres|invite-production) ;;
     *)
       echo "ERROR: unsupported PARKIO_DEPLOYMENT_PROFILE='$profile' for backup/restore." >&2
       return 2
@@ -111,7 +111,7 @@ parkio_backup_production_mode() {
 
 # Dual dump path: Docker socket (hosted-beta) or managed PostgreSQL over TLS.
 # PARKIO_PG_MODE=managed requires PARKIO_PG_HOST and per-service POSTGRES_*_PASSWORD
-# (or PARKIO_PG_PASSWORD). Never logs credentials. sslmode defaults to require.
+# (or PARKIO_PG_PASSWORD). Never logs credentials. sslmode defaults to verify-full.
 parkio_pg_mode() {
   echo "${PARKIO_PG_MODE:-docker}"
 }
@@ -125,7 +125,7 @@ parkio_pg_dump_stream() {
   if [ "${mode}" = "managed" ]; then
     : "${PARKIO_PG_HOST:?PARKIO_PG_HOST required when PARKIO_PG_MODE=managed}"
     local port="${PARKIO_PG_PORT:-5432}"
-    local sslmode="${PARKIO_PG_SSLMODE:-require}"
+    local sslmode="${PARKIO_PG_SSLMODE:-verify-full}"
     if [ "${sslmode}" = "disable" ]; then
       echo "ERROR: PARKIO_PG_SSLMODE=disable is not allowed." >&2
       return 2
@@ -148,16 +148,28 @@ parkio_pg_dump_stream() {
       return 2
     fi
     if command -v pg_dump >/dev/null 2>&1; then
-      PGPASSWORD="${pw}" PGSSLMODE="${sslmode}" pg_dump \
+      PGPASSWORD="${pw}" PGSSLMODE="${sslmode}" PGSSLROOTCERT="${PARKIO_PG_SSLROOTCERT:-}" pg_dump \
         -h "${PARKIO_PG_HOST}" -p "${port}" -U "${user}" -d "${db}" \
         --no-owner --clean --if-exists
     else
-      docker run --rm \
-        -e PGPASSWORD="${pw}" \
-        -e PGSSLMODE="${sslmode}" \
-        postgres:16-alpine \
-        pg_dump -h "${PARKIO_PG_HOST}" -p "${port}" -U "${user}" -d "${db}" \
-          --no-owner --clean --if-exists
+      local -a docker_args
+      docker_args=(
+        run --rm
+        -e "PGPASSWORD=${pw}"
+        -e "PGSSLMODE=${sslmode}"
+      )
+      if [ -n "${PARKIO_PG_SSLROOTCERT:-}" ]; then
+        docker_args+=(
+          -e "PGSSLROOTCERT=${PARKIO_PG_SSLROOTCERT}"
+          -v "${PARKIO_PG_SSLROOTCERT}:${PARKIO_PG_SSLROOTCERT}:ro"
+        )
+      fi
+      docker_args+=(
+        postgres:16-alpine
+        pg_dump -h "${PARKIO_PG_HOST}" -p "${port}" -U "${user}" -d "${db}"
+        --no-owner --clean --if-exists
+      )
+      docker "${docker_args[@]}"
     fi
     return $?
   fi

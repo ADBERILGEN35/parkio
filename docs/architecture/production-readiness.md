@@ -5,13 +5,22 @@
 > this document — it is a proposal. It does not change application business logic
 > or public APIs.
 
+> **PROD-READINESS-03 (2026-08-17):** CONTROLLED FIRST PRODUCTION INVITE =
+> **CONDITIONAL GO**. BROAD PUBLIC PRODUCTION = **NO-GO**. Parkio is **not** safe
+> to invite real users today. Full matrix and P0 list:
+> `deploy-artifacts/prod-readiness-03/FINAL-GO-NO-GO.md` (gitignored). Do **not**
+> treat hosted-beta as production proof. `PROD-DEPLOY-01A` was separately
+> authorized on 2026-08-17 and provisioned the dark invite foundation; it did
+> not authorize DNS switching, data migration, user traffic, or invitations.
+
 ## Executive verdict
 
 | Question | Answer |
 |----------|--------|
-| **GO / NO-GO for hosted (closed/invite) beta** | **GO — conditional** on the *hosted-beta blockers* below. The application layer is ready; the deployment/ops layer needs a thin, well-scoped hardening pass. |
-| **GO / NO-GO for public production** | **NO-GO** until the *public-production blockers* are closed (HA + backups/PITR for data, secrets manager + rotation, CD with rollback, alerting + on-call, load/security testing). |
-| **Recommended deployment path** | **Phase 1 (hosted beta):** Docker Compose on a single right-sized VPS, gateway behind a TLS reverse proxy. **Phase 2 (public prod):** managed container platform + **managed Postgres (PITR + PostGIS)** + **managed Kafka/Redpanda (RF≥3)** + **managed S3-compatible storage**. **Defer Kubernetes** until team/scale justify it (see §2). |
+| **GO / NO-GO for hosted (closed/invite) beta** | **GO — conditional** on the *hosted-beta blockers* below. Hosted-beta is **not** first production invite. |
+| **GO / NO-GO for controlled first production invite** | **CONDITIONAL GO** (PROD-READINESS-03). Close invite P0s (managed DB, secrets, Alertmanager runtime, backup cron, deploy/cutover path, erasure ON, gateway exposure proof) before PROD-DEPLOY-01. |
+| **GO / NO-GO for public production** | **NO-GO** until the *public-production blockers* are closed (zone-redundant HA, Kafka RF≥3, secrets manager + rotation, CD with rollback, alerting always-on, load/security testing, private networking proven). |
+| **Recommended deployment path** | **Phase 1 (hosted beta):** Docker Compose on a single right-sized VPS, gateway behind a TLS reverse proxy. **Phase 2 (invite production):** managed Postgres (PITR + PostGIS; HA deferred with accepted risk) + production secrets + Alertmanager Slack + backup cron — only after PROD-DEPLOY-01 entry criteria. **Phase 3 (public prod):** managed container platform + **ZR HA Postgres** + **managed Kafka/Redpanda (RF≥3)** + **managed S3-compatible storage**. **Defer Kubernetes** until team/scale justify it (see §2). |
 
 ### What is already strong (do not redo)
 
@@ -45,8 +54,12 @@ The codebase is unusually deployment-aware for its stage:
 
 ### The deployment-layer gap in one sentence
 
-> The **app** is production-shaped; the **platform** is local-only — no IaC, no TLS, single-broker Kafka,
-> single-node Postgres/MinIO with no backups/PITR, no CD, no alerting, no tracing aggregation.
+> The **app** is production-shaped; **invite production** now has its isolated
+> managed-DB/Key Vault/host landing zone, but still requires operator-owned
+> third-party secrets, full Spring/Alertmanager/backup runtime acceptance, exact-SHA
+> CI, and external exposure proof. Hosted-beta remains single-host
+> Compose (container Postgres, Kafka RF=1). Public production additionally requires
+> ZR HA, Kafka RF≥3, secrets manager + rotation, and CD with rollback.
 
 ---
 

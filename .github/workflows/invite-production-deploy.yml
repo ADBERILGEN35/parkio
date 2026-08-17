@@ -1,0 +1,154 @@
+name: Invite-production deploy
+
+on:
+  workflow_dispatch:
+    inputs:
+      action:
+        description: "build | deploy | rollback"
+        required: true
+        type: choice
+        options:
+          - build
+          - deploy
+          - rollback
+        default: build
+      manifest_artifact:
+        description: "For rollback: workflow artifact containing a deploy manifest"
+        required: false
+        type: string
+
+permissions:
+  contents: read
+  packages: write
+
+concurrency:
+  group: invite-production-deploy
+  cancel-in-progress: false
+
+jobs:
+  build-images:
+    name: Build images + dry-run manifest
+    if: ${{ github.event.inputs.action == 'build' || github.event.inputs.action == 'deploy' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    outputs:
+      git_sha: ${{ steps.meta.outputs.git_sha }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Meta
+        id: meta
+        run: |
+          echo "git_sha=${GITHUB_SHA}" >> "$GITHUB_OUTPUT"
+
+      - name: Install jq
+        run: sudo apt-get update && sudo apt-get install -y jq
+
+      - name: Dry-run invite-production deploy
+        run: |
+          set -euo pipefail
+          chmod +x scripts/deploy-invite-production.sh scripts/preflight-invite-production.sh scripts/rollback-invite-production.sh scripts/smoke-hosted-beta.sh
+          cp docker/.env.invite-production.example docker/.env.ci-invite-production
+          openssl genpkey -algorithm RSA -pkeyopt rsa_keygen_bits:2048 -out /tmp/parkio-invite-ci-jwt.pem 2>/dev/null
+          python3 - <<'PY'
+          from pathlib import Path
+
+          path = Path("docker/.env.ci-invite-production")
+          jwt = Path("/tmp/parkio-invite-ci-jwt.pem").read_text().strip().replace("\n", "\\n")
+          exact = {
+              "PARKIO_PG_HOST": "pg-invite-ci.postgres.database.azure.com",
+              "PARKIO_JWT_PRIVATE_KEY_PEM": f'"{jwt}"',
+              "PARKIO_ACME_EMAIL": "ops@parkio.dev",
+              "VITE_MAPTILER_KEY": "ci-public-map-key",
+              "PARKIO_RESEND_API_KEY": "re_ci_validation_only",
+              "PARKIO_EXPO_ACCESS_TOKEN": "ci-expo-validation-only",
+              "PARKIO_ALERT_SLACK_WEBHOOK_URL": "",
+              "KAFKA_CLUSTER_ID": "Q0lJbnZpdGVQcm9kMDFBQQ",
+          }
+          lines = []
+          for line in path.read_text().splitlines():
+              if not line or line.lstrip().startswith("#") or "=" not in line:
+                  lines.append(line)
+                  continue
+              key, value = line.split("=", 1)
+              if key in exact:
+                  lines.append(f"{key}={exact[key]}")
+              elif "REPLACE_ME" in value:
+                  lines.append(f'{key}="ci-validation-{key.lower()}-0123456789abcdef"')
+              else:
+                  lines.append(line)
+          path.write_text("\n".join(lines) + "\n")
+          PY
+          PARKIO_ENV_FILE=docker/.env.ci-invite-production \
+            PARKIO_DEPLOY_ARTIFACT_DIR=deploy-artifacts/invite-production \
+            PARKIO_DEPLOY_OPERATOR=github-actions \
+            PARKIO_PREFLIGHT_ALLOW_NO_ALERT_WEBHOOK=1 \
+            ./scripts/deploy-invite-production.sh --dry-run --allow-dirty
+
+      - name: Upload manifest artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: invite-production-manifest-${{ steps.meta.outputs.git_sha }}
+          path: deploy-artifacts/invite-production/
+          retention-days: 90
+
+  deploy:
+    name: Deploy invite-production
+    if: ${{ github.event.inputs.action == 'deploy' }}
+    needs: build-images
+    runs-on: [self-hosted, parkio-invite-production]
+    timeout-minutes: 120
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Materialize secrets from Key Vault
+        run: |
+          set -euo pipefail
+          chmod +x scripts/azure/render-invite-production-env.sh
+          ./scripts/azure/render-invite-production-env.sh
+
+      - name: Deploy current commit
+        env:
+          PARKIO_ENV_FILE: docker/.env.invite-production
+          PARKIO_DEPLOY_OPERATOR: github-actions
+          PARKIO_SMOKE_EXPECT_DIRECT_BLOCKED: "1"
+        run: |
+          set -euo pipefail
+          chmod +x scripts/deploy-invite-production.sh scripts/preflight-invite-production.sh scripts/smoke-hosted-beta.sh
+          ./scripts/deploy-invite-production.sh
+
+  rollback:
+    name: Rollback invite-production
+    if: ${{ github.event.inputs.action == 'rollback' }}
+    runs-on: [self-hosted, parkio-invite-production]
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Materialize secrets from Key Vault
+        run: |
+          set -euo pipefail
+          chmod +x scripts/azure/render-invite-production-env.sh
+          ./scripts/azure/render-invite-production-env.sh
+
+      - name: Download manifest artifact
+        if: ${{ github.event.inputs.manifest_artifact != '' }}
+        uses: actions/download-artifact@v4
+        with:
+          name: ${{ github.event.inputs.manifest_artifact }}
+          path: deploy-artifacts/invite-production/
+
+      - name: Rollback
+        env:
+          PARKIO_ENV_FILE: docker/.env.invite-production
+          PARKIO_DEPLOY_OPERATOR: github-actions
+          PARKIO_SMOKE_EXPECT_DIRECT_BLOCKED: "1"
+        run: |
+          set -euo pipefail
+          chmod +x scripts/rollback-invite-production.sh scripts/smoke-hosted-beta.sh
+          manifest="$(ls -1 deploy-artifacts/invite-production/deploy-*.json deploy-artifacts/invite-production/current.json 2>/dev/null | head -1 || true)"
+          if [ -z "$manifest" ]; then
+            echo "ERROR: no invite-production manifest found."
+            exit 2
+          fi
+          ./scripts/rollback-invite-production.sh --manifest "$manifest"

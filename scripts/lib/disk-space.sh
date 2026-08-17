@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Hosted-beta deployment disk capacity helpers.
+# Parkio deployment disk capacity helpers.
 # shellcheck shell=bash
 
 # Default minimum free space before image builds: 12 GiB.
@@ -86,7 +86,7 @@ parkio_require_free_disk() {
     return 0
   fi
 
-  echo "ERROR: insufficient free disk for hosted-beta deploy" >&2
+  echo "ERROR: insufficient free disk for Parkio deploy" >&2
   echo "       freeBytes=$avail requiredBytes=$required path=$path" >&2
   echo "       reclaim Docker build cache / unreferenced images per docs/operations/hosted-beta-disk-cleanup.md" >&2
   echo "       or expand the VM disk; do not auto-prune from deploy" >&2

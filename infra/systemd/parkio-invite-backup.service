@@ -1,0 +1,25 @@
+[Unit]
+Description=Parkio invite-production encrypted offsite backup
+Wants=network-online.target docker.service
+After=network-online.target docker.service
+
+[Service]
+Type=oneshot
+User=root
+Group=root
+WorkingDirectory=/opt/parkio
+Environment=PARKIO_ENV_FILE=/opt/parkio/docker/.env.invite-production
+Environment=PARKIO_BACKUP_OPERATOR=systemd:parkio-invite-backup
+Environment=PARKIO_BACKUP_ARTIFACT_DIR=backup-artifacts/invite-production
+ExecStartPre=/usr/bin/az login --identity --allow-no-subscriptions --output none
+ExecStart=/opt/parkio/scripts/backup-hosted-beta.sh --env-file /opt/parkio/docker/.env.invite-production --artifact-dir backup-artifacts/invite-production --operator systemd:parkio-invite-backup
+Nice=10
+IOSchedulingClass=best-effort
+IOSchedulingPriority=7
+TimeoutStartSec=2h
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectHome=true
+
+[Install]
+WantedBy=multi-user.target
