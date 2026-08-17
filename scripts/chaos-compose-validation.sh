@@ -111,7 +111,7 @@ wait_required_stack() {
 }
 
 collect_artifacts() {
-  local label="$1"
+  local label="$1" svc
   compose ps > "${ARTIFACT_DIR}/compose-ps-${label}.txt" 2>&1 || true
   compose ps --format json > "${ARTIFACT_DIR}/compose-ps-${label}.json" 2>&1 || true
   for svc in $(compose config --services); do

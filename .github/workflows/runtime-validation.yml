@@ -212,44 +212,52 @@ jobs:
 
           for svc in "${!ports[@]}"; do
             port="${ports[$svc]}"
+            container_artifact="/tmp/${svc}-readiness.json"
             docker compose --env-file "$COMPOSE_ENV_FILE" $COMPOSE_FILES exec -T "$svc" \
-              curl -fsS "http://localhost:${port}/actuator/health/readiness" \
-              > "runtime-validation-artifacts/${svc}-readiness.json"
+              curl -fsS -o "$container_artifact" "http://localhost:${port}/actuator/health/readiness"
+            docker compose --env-file "$COMPOSE_ENV_FILE" $COMPOSE_FILES cp \
+              "${svc}:${container_artifact}" "runtime-validation-artifacts/${svc}-readiness.json"
           done
 
           docker compose --env-file "$COMPOSE_ENV_FILE" $COMPOSE_FILES exec -T gateway-service \
-            curl -fsS http://localhost:8080/api/v1/auth/.well-known/jwks.json \
-            > runtime-validation-artifacts/gateway-jwks.json
+            curl -fsS -o /tmp/gateway-jwks.json \
+            http://localhost:8080/api/v1/auth/.well-known/jwks.json
+          docker compose --env-file "$COMPOSE_ENV_FILE" $COMPOSE_FILES cp \
+            gateway-service:/tmp/gateway-jwks.json runtime-validation-artifacts/gateway-jwks.json
 
-          status="$(docker compose --env-file "$COMPOSE_ENV_FILE" $COMPOSE_FILES exec -T gateway-service \
-            curl -sS -o runtime-validation-artifacts/gateway-protected-401.json -w '%{http_code}' \
+          capture_status() {
+            local service="$1" artifact="$2" url="$3" container_artifact status
+            container_artifact="/tmp/${artifact}"
+            status="$(docker compose --env-file "$COMPOSE_ENV_FILE" $COMPOSE_FILES exec -T "$service" \
+              curl -sS -o "$container_artifact" -w '%{http_code}' "$url")"
+            docker compose --env-file "$COMPOSE_ENV_FILE" $COMPOSE_FILES cp \
+              "${service}:${container_artifact}" "runtime-validation-artifacts/${artifact}" >/dev/null
+            printf '%s' "$status"
+          }
+
+          status="$(capture_status gateway-service gateway-protected-401.json \
             'http://localhost:8080/api/v1/parking/spots/nearby?latitude=41.0&longitude=29.0&radiusMeters=1000')"
           test "$status" = "401"
 
-          status="$(docker compose --env-file "$COMPOSE_ENV_FILE" $COMPOSE_FILES exec -T gateway-service \
-            curl -sS -o runtime-validation-artifacts/gateway-geocoding-401.json -w '%{http_code}' \
+          status="$(capture_status gateway-service gateway-geocoding-401.json \
             'http://localhost:8080/api/v1/parking/geocode/reverse?latitude=41.0&longitude=29.0')"
           test "$status" = "401"
 
-          status="$(docker compose --env-file "$COMPOSE_ENV_FILE" $COMPOSE_FILES exec -T parking-service \
-            curl -sS -o runtime-validation-artifacts/direct-parking-gateway-auth-required.json -w '%{http_code}' \
+          status="$(capture_status parking-service direct-parking-gateway-auth-required.json \
             'http://localhost:8083/api/v1/parking/spots/nearby?latitude=41.0&longitude=29.0&radiusMeters=1000')"
           test "$status" = "401"
           grep -q "GATEWAY_AUTH_REQUIRED" runtime-validation-artifacts/direct-parking-gateway-auth-required.json
 
-          status="$(docker compose --env-file "$COMPOSE_ENV_FILE" $COMPOSE_FILES exec -T gateway-service \
-            curl -sS -o runtime-validation-artifacts/gateway-traversal-400.json -w '%{http_code}' \
+          status="$(capture_status gateway-service gateway-traversal-400.json \
             'http://localhost:8080/api/v1/analytics/users/../overview')"
           test "$status" = "400"
           grep -q "INVALID_REQUEST_PATH" runtime-validation-artifacts/gateway-traversal-400.json
 
-          status="$(docker compose --env-file "$COMPOSE_ENV_FILE" $COMPOSE_FILES exec -T gateway-service \
-            curl -sS -o runtime-validation-artifacts/gateway-encoded-traversal-400.json -w '%{http_code}' \
+          status="$(capture_status gateway-service gateway-encoded-traversal-400.json \
             'http://localhost:8080/api/v1/parking/%2e%2e/%2e%2e/internal')"
           test "$status" = "400"
 
-          status="$(docker compose --env-file "$COMPOSE_ENV_FILE" $COMPOSE_FILES exec -T gateway-service \
-            curl -sS -o runtime-validation-artifacts/gateway-valid-route.json -w '%{http_code}' \
+          status="$(capture_status gateway-service gateway-valid-route.json \
             'http://localhost:8080/api/v1/auth/.well-known/jwks.json')"
           test "$status" = "200"
 
