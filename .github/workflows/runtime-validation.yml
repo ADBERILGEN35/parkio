@@ -101,6 +101,7 @@ jobs:
               "PARKIO_MEDIA_DOMAIN": "media.runtime-validation.localhost",
               "PARKIO_ACME_EMAIL": "ops@example.invalid",
               "VITE_API_BASE_URL": "https://api.runtime-validation.localhost/api/v1",
+              "VITE_MAPTILER_KEY": "ci-public-map-key",
               "PARKIO_IMAGE_TAG": "ci-runtime",
               "PARKIO_GIT_SHA": "ci-runtime",
               "PARKIO_IMAGE_CREATED": "1970-01-01T00:00:00Z",
