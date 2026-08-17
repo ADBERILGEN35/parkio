@@ -623,12 +623,23 @@ class TrustShadowPersistencePostgresIT {
         @Bean
         @Primary
         TrustSnapshotWritePort controllableTrustSnapshotWrites(TrustSnapshotRepositoryAdapter adapter) {
-            return snapshot -> {
-                if (FAIL_NEXT_SNAPSHOT_UPSERT.compareAndSet(true, false)) {
-                    throw new TrustShadowProjectionConflictException(
-                            "forced test conflict", new RuntimeException("forced"));
+            return new TrustSnapshotWritePort() {
+                @Override
+                public void upsert(TrustSnapshot snapshot) {
+                    replaceLocked(snapshot.subject(), snapshot.domain(), () -> snapshot);
                 }
-                adapter.upsert(snapshot);
+
+                @Override
+                public void replaceLocked(
+                        TrustSubject subject,
+                        TrustDomain domain,
+                        java.util.function.Supplier<TrustSnapshot> nextSnapshot) {
+                    if (FAIL_NEXT_SNAPSHOT_UPSERT.compareAndSet(true, false)) {
+                        throw new TrustShadowProjectionConflictException(
+                                "forced test conflict", new RuntimeException("forced"));
+                    }
+                    adapter.replaceLocked(subject, domain, nextSnapshot);
+                }
             };
         }
     }

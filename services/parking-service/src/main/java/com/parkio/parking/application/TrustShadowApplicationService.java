@@ -22,7 +22,9 @@ import java.nio.charset.StandardCharsets;
 import java.time.Clock;
 import java.time.Duration;
 import java.time.Instant;
+import java.util.ArrayList;
 import java.util.List;
+import java.util.stream.Collectors;
 import java.util.Objects;
 import java.util.UUID;
 import org.springframework.stereotype.Service;
@@ -63,42 +65,46 @@ public class TrustShadowApplicationService {
                 observer.recordEvidenceSkipped(evidence);
                 return TrustShadowProcessingResult.skipped(candidate.outcomeRecord().recordId());
             }
+            TrustEvidence accepted = evidence;
             TrustEvaluationContext context = new TrustEvaluationContext(
                     candidate.outcomeRecord().evaluatedAt(),
                     TrustPolicyConfig.POLICY_VERSION,
                     TrustSnapshotSchemaVersion.V1);
-            TrustDomain domain = evidence.domain();
-            UUID ledgerEntryId = deterministicId("trust-ledger|" + evidence.evidenceId());
-            List<TrustLedgerEntry> existing = ledger.findBySubject(evidence.subject()).stream()
+            TrustDomain domain = accepted.domain();
+            UUID ledgerEntryId = deterministicId("trust-ledger|" + accepted.evidenceId());
+            List<TrustLedgerEntry> existing = ledger.findBySubject(accepted.subject()).stream()
                     .filter(entry -> entry.domain() == domain)
                     .sorted(TrustShadowApplicationService::compareEntries)
                     .toList();
-            TrustSnapshot previous = foldBefore(evidence, context, ledgerEntryId, existing);
-            TrustEvaluation evaluation = engine.evaluate(previous, evidence, context);
+            TrustSnapshot previous = foldBefore(accepted, context, ledgerEntryId, existing);
+            TrustEvaluation evaluation = engine.evaluate(previous, accepted, context);
             TrustLedgerEntry entry = new TrustLedgerEntry(
                     ledgerEntryId,
-                    deterministicId("trust-evaluation|" + evidence.evidenceId()),
-                    evidence.subject(),
-                    evidence.domain(),
+                    deterministicId("trust-evaluation|" + accepted.evidenceId()),
+                    accepted.subject(),
+                    accepted.domain(),
                     TrustPolicyConfig.POLICY_VERSION,
                     TrustSnapshotSchemaVersion.V1,
-                    evidence.attributionMappingVersion(),
-                    evidence.sourceOutcomeRecordId(),
-                    evidence.evidenceId(),
-                    evidence.evidenceGroupId(),
-                    evidence.evidenceType(),
-                    evidence.contributionRole(),
-                    evidence.attributionQuality(),
-                    evidence.eligibility(),
+                    accepted.attributionMappingVersion(),
+                    accepted.sourceOutcomeRecordId(),
+                    accepted.evidenceId(),
+                    accepted.evidenceGroupId(),
+                    accepted.evidenceType(),
+                    accepted.contributionRole(),
+                    accepted.attributionQuality(),
+                    accepted.eligibility(),
                     evaluation.direction(),
                     evaluation.resultingSnapshot().level(),
                     evaluation.evaluatedAt(),
                     clock.instant(),
-                    evidence,
+                    accepted,
                     previous,
                     evaluation);
             ledger.append(entry);
-            snapshotWrites.upsert(foldAfter(evaluation.resultingSnapshot(), context, ledgerEntryId, existing));
+            snapshotWrites.replaceLocked(
+                    accepted.subject(),
+                    accepted.domain(),
+                    () -> foldAll(accepted, context, visibleLedger(accepted, entry)));
             Duration duration = Duration.ofNanos(System.nanoTime() - started);
             observer.recordUpdateSuccess(evaluation, duration);
             var replay = replayer.replay(entry);
@@ -136,6 +142,36 @@ public class TrustShadowApplicationService {
      * Concurrent distinct evidence can persist a later row first; fold already-durable
      * earlier rows as previous, then re-apply later rows so the projection matches replay.
      */
+    private List<TrustLedgerEntry> visibleLedger(TrustEvidence evidence, TrustLedgerEntry incoming) {
+        List<TrustLedgerEntry> durable = ledger.findBySubject(evidence.subject()).stream()
+                .filter(entry -> entry.domain() == evidence.domain())
+                .sorted(TrustShadowApplicationService::compareEntries)
+                .collect(Collectors.toCollection(ArrayList::new));
+        if (durable.stream().noneMatch(entry -> entry.ledgerEntryId().equals(incoming.ledgerEntryId()))) {
+            durable.add(incoming);
+            durable.sort(TrustShadowApplicationService::compareEntries);
+        }
+        return List.copyOf(durable);
+    }
+
+    private TrustSnapshot foldAll(
+            TrustEvidence evidence,
+            TrustEvaluationContext incomingContext,
+            List<TrustLedgerEntry> ordered) {
+        if (ordered.isEmpty()) {
+            return engine.initialSnapshot(evidence.subject(), evidence.domain(), incomingContext);
+        }
+        TrustEvaluationContext initialContext = new TrustEvaluationContext(
+                ordered.get(0).evaluatedAt(),
+                ordered.get(0).trustPolicyVersion(),
+                ordered.get(0).snapshotSchemaVersion());
+        TrustSnapshot snapshot = engine.initialSnapshot(evidence.subject(), evidence.domain(), initialContext);
+        for (TrustLedgerEntry entry : ordered) {
+            snapshot = apply(snapshot, entry);
+        }
+        return snapshot;
+    }
+
     private TrustSnapshot foldBefore(
             TrustEvidence evidence,
             TrustEvaluationContext incomingContext,
@@ -153,20 +189,6 @@ public class TrustShadowApplicationService {
         TrustSnapshot snapshot = engine.initialSnapshot(evidence.subject(), evidence.domain(), initialContext);
         for (TrustLedgerEntry entry : before) {
             snapshot = apply(snapshot, entry);
-        }
-        return snapshot;
-    }
-
-    private TrustSnapshot foldAfter(
-            TrustSnapshot afterIncoming,
-            TrustEvaluationContext incomingContext,
-            UUID incomingLedgerId,
-            List<TrustLedgerEntry> existing) {
-        TrustSnapshot snapshot = afterIncoming;
-        for (TrustLedgerEntry entry : existing) {
-            if (compareCanonical(entry, incomingContext.evaluatedAt(), incomingLedgerId) > 0) {
-                snapshot = apply(snapshot, entry);
-            }
         }
         return snapshot;
     }

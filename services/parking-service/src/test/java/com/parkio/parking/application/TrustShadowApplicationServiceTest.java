@@ -272,5 +272,13 @@ class TrustShadowApplicationServiceTest {
         public void upsert(TrustSnapshot snapshot) {
             this.current = snapshot;
         }
+
+        @Override
+        public void replaceLocked(
+                TrustSubject subject,
+                TrustDomain domain,
+                java.util.function.Supplier<TrustSnapshot> nextSnapshot) {
+            upsert(nextSnapshot.get());
+        }
     }
 }
