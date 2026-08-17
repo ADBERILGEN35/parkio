@@ -435,7 +435,15 @@ services:
       - promtail-positions:/tmp
     networks: [parkio-observability]
     healthcheck:
-      test: ["CMD", "wget", "--quiet", "--tries=1", "--spider", "http://localhost:9080/ready"]
+      test:
+        - CMD
+        - bash
+        - -ec
+        - >-
+          exec 3<>/dev/tcp/127.0.0.1/9080;
+          printf 'GET /ready HTTP/1.0\r\n\r\n' >&3;
+          IFS=' ' read -r protocol status message <&3;
+          test "$$status" = 200
       interval: 15s
       timeout: 5s
       retries: 5
