@@ -169,6 +169,35 @@ Official list prices vary; calculator: https://azure.microsoft.com/pricing/detai
 | Zone-redundant HA | typically ~2× compute |
 | Geo-redundant backup | extra backup GB |
 
+## Remote certification (CI-TRUST-SHADOW-01)
+
+PP-01 PITR acceptance on `69c5a70` was blocked by a **pre-existing** Backend
+Integration failure in `TrustShadowPersistencePostgresIT` (outside the PP-01
+managed-PostgreSQL diff). CI-TRUST-SHADOW-01 stabilized trust-shadow concurrent
+persistence without changing PP-01 datasource, Flyway, or Azure PITR evidence.
+
+| Item | Result |
+|------|--------|
+| Candidate SHA | `34ac67811ede2767b1b2b08901ea91ab448d500c` |
+| PP-01 PITR evidence SHA | `69c5a70207fb2ccea214150a44aa0b2abe3aceaf` (unchanged; RG deleted) |
+| Backend CI | **SUCCESS** — run `32011855518` |
+| Backend integration | **SUCCESS** — run `32011858519` |
+| Security CI | **SUCCESS** — run `32011861845` |
+| PITR | **CLOSED** (prior disposable Azure proof stands) |
+| HA | **DEFERRED WITH ACCEPTED RISK** for first invite rollout |
+| Hosted-beta cutover | **Not executed** |
+| Parkio overall | **NO-GO** (public production) |
+
+**Root cause:** concurrent distinct evidence could persist a later `evaluatedAt`
+first; incremental apply then rejected earlier evidence (`trust evaluations must
+be replayed in canonical order`) and/or published a snapshot folded from a stale
+ledger view under optimistic snapshot races.
+
+**Fix:** fold the durable ledger in canonical `(evaluatedAt, ledgerEntryId)`
+order; take a pessimistic write lock on the subject snapshot row before
+fold+upsert so concurrent writers cannot omit newer ledger rows from the
+projection.
+
 ## Cleanup
 
 Acceptance RG is **deleted after certification**. Do not retain unknown billable

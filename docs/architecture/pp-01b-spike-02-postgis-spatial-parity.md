@@ -35,7 +35,7 @@ No public API/DTO/business-rule/Flyway migration **content** changes. Linking re
 ### Mode A non-blocking notes
 
 1. Official `postgis/postgis` has no reproducible `16-3.6` tag; Target B used pinned `imresamu/postgis:16-3.6.1-bookworm` (digest recorded) — community build, not Microsoft-managed binaries.
-2. Under full `integrationTest` load on Target B, `TrustShadowPersistencePostgresIT.concurrentDistinctEvidence…` intermittently failed (`APPENDED` vs `FAILED`); **isolated re-runs PASS**. Not spatial/nearby/KNN/Flyway. Classified suite-load concurrency flake.
+2. Under full `integrationTest` load on Target B, `TrustShadowPersistencePostgresIT.concurrentDistinctEvidence…` intermittently failed (`APPENDED` vs `FAILED`); **isolated re-runs PASS**. Not spatial/nearby/KNN/Flyway. **Remediated** in CI-TRUST-SHADOW-01 (`34ac678`) — canonical ledger fold + pessimistic snapshot lock; no PostGIS change.
 3. `OsmRealIzmirImportValidationIT` is env-gated (optional; not required Mode A).
 4. Shadow-migration tip assertions updated `26` → current tip `33` (test harness only).
 

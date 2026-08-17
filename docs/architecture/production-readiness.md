@@ -172,10 +172,12 @@ PostGIS is required by `parking-service`; everything else is plain Postgres 16.
     (`PARKIO_ACCOUNT_ERASURE_ENABLED=false`). Hosted-beta public deletion was
     not enabled.     See `docs/architecture/priv-001-account-data-erasure.md`.
     Parkio is **not** overall production-ready.
-  - **PROD-READINESS-02 managed PostgreSQL + PITR (PP-01) — PITR CLOSED; HA DEFERRED WITH ACCEPTED RISK.**
+  - **PROD-READINESS-02 managed PostgreSQL + PITR (PP-01) — PITR CLOSED; HA DEFERRED WITH ACCEPTED RISK; REMOTELY CERTIFIED.**
     Disposable Flexible Server empty-schema Flyway + real PITR restore + PRIV-001 tombstone
     replay after restore: [pp-01-managed-postgresql-pitr-ha.md](pp-01-managed-postgresql-pitr-ha.md).
-    Hosted-beta was **not** migrated. Public production remains **NO-GO**.
+    Azure PITR evidence SHA `69c5a70`; exact-SHA blocking CI green on
+    `34ac678` (CI-TRUST-SHADOW-01 trust-shadow concurrency fix; pre-existing,
+    outside PP-01 DB diff). Hosted-beta was **not** migrated. Public production remains **NO-GO**.
   - **PROD-READINESS-02 backup blockers (PROD-BACKUP-OFFSITE-01):**
     - **B. OFFSITE — PARTIALLY CLOSED.** Encrypted stamp uploads to Azure Blob (`rg-parkio-backups`,
       westeurope, separate from francecentral VM). CI protocol uses ephemeral MinIO (same GHA VM —
