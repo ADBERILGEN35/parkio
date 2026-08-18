@@ -1,5 +1,6 @@
 [Unit]
 Description=Parkio invite-production encrypted offsite backup
+Documentation=file:///opt/parkio/invite-production/VERSION
 Wants=network-online.target docker.service
 After=network-online.target docker.service
 
@@ -7,19 +8,33 @@ After=network-online.target docker.service
 Type=oneshot
 User=root
 Group=root
-WorkingDirectory=/opt/parkio
-Environment=PARKIO_ENV_FILE=/opt/parkio/docker/.env.invite-production
+WorkingDirectory=/opt/parkio/invite-production
+
+# No production secret is named here. The wrapper mints a short-lived env from
+# Key Vault through the VM managed identity on every run and destroys it via a
+# trap, so nothing production-secret exists in this unit, in the process
+# arguments, in the journal, or on persistent disk (PROD-DEPLOY-01A-R3 / D2).
 Environment=PARKIO_BACKUP_OPERATOR=systemd:parkio-invite-backup
 Environment=PARKIO_BACKUP_ARTIFACT_DIR=backup-artifacts/invite-production
-ExecStartPre=/usr/bin/az login --identity --allow-no-subscriptions --output none
-ExecStart=/opt/parkio/scripts/backup-hosted-beta.sh --env-file /opt/parkio/docker/.env.invite-production --artifact-dir backup-artifacts/invite-production --operator systemd:parkio-invite-backup
+ExecStart=/opt/parkio/invite-production/scripts/azure/invite-production-backup-run.sh
+
 Nice=10
 IOSchedulingClass=best-effort
 IOSchedulingPriority=7
 TimeoutStartSec=2h
+
+# Hardening. Deliberately NOT enabled: PrivateTmp (the wrapper needs the real
+# /dev/shm for the ephemeral env), ProtectSystem=strict and PrivateNetwork (the
+# run needs Key Vault, managed PostgreSQL, Azure Storage and the Docker socket).
 NoNewPrivileges=true
-PrivateTmp=true
 ProtectHome=true
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectControlGroups=true
+RestrictSUIDSGID=true
+RestrictRealtime=true
+LockPersonality=true
+UMask=0077
 
 [Install]
 WantedBy=multi-user.target

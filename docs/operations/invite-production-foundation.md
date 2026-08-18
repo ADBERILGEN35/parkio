@@ -134,6 +134,29 @@ orchestrator is `parkio-invite-backup.timer`:
 - 14-day artifact retention plus 30-day blob delete protection/versioning;
 - Prometheus textfile success/failure metrics; operations owner is Parkio on-call.
 
+The scheduler runs from a versioned operational payload at
+`/opt/parkio/invite-production/`, installed by
+`scripts/azure/install-invite-production-backup-scheduler.sh`. That payload is
+the backup execution closure and nothing else — it is not a repository checkout —
+and it records the revision it came from in `VERSION` plus checksums in
+`MANIFEST.sha256`.
+
+There is deliberately **no persistent production `.env` on the VM**. Each
+scheduled run calls `scripts/azure/invite-production-backup-run.sh`, which
+authenticates with the VM managed identity, renders the env from Key Vault into
+`/dev/shm` at mode 0600, runs the canonical backup, and shreds the env on every
+exit path (success, failure, or signal). The run fails closed if Key Vault is
+unreachable, a secret is missing, or the rendered env has the wrong mode.
+
+Installing the payload never enables the timer. Enablement is an explicit
+backup-acceptance step:
+
+```bash
+sudo scripts/azure/install-invite-production-backup-scheduler.sh          # install/upgrade
+sudo scripts/azure/install-invite-production-backup-scheduler.sh --enable # enable at acceptance
+sudo scripts/azure/install-invite-production-backup-scheduler.sh --disable # rollback
+```
+
 ## Feature policy
 
 ON: core auth, municipal discovery, IZUM, ISPARK, recommendations, Saved Places,

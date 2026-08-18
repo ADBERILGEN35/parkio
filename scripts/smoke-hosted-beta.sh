@@ -17,19 +17,23 @@ SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 # shellcheck source=staging/lib/json-helper.sh
 source "${SCRIPT_DIR}/staging/lib/json-helper.sh"
 json_require_python
+# Strict allowlist for the invite-production dark endpoint (PROD-DEPLOY-01A / D1).
+# shellcheck source=lib/dark-gateway-url.sh
+source "${SCRIPT_DIR}/lib/dark-gateway-url.sh"
 
 PROFILE="${PARKIO_DEPLOYMENT_PROFILE:-hosted-beta}"
 case "$PROFILE" in
   azure-hosted-beta) DEFAULT_GATEWAY_URL="https://api.parkio.dev" ;;
   hosted-beta) DEFAULT_GATEWAY_URL="http://127.0.0.1:8080" ;;
-  invite-production) DEFAULT_GATEWAY_URL="" ;;
+  invite-production) DEFAULT_GATEWAY_URL="$PARKIO_DARK_GATEWAY_ALLOWED_URL" ;;
   *) echo "ERROR: unsupported PARKIO_DEPLOYMENT_PROFILE='$PROFILE'" >&2; exit 2 ;;
 esac
 GATEWAY_URL="${PARKIO_GATEWAY_URL:-$DEFAULT_GATEWAY_URL}"
-if [ "$PROFILE" = "invite-production" ] && [ -z "$GATEWAY_URL" ]; then
-  echo "ERROR: invite-production smoke requires an explicit dark-runtime PARKIO_GATEWAY_URL." >&2
-  echo "       It never defaults to the public api.parkio.dev route." >&2
-  exit 2
+if [ "$PROFILE" = "invite-production" ]; then
+  # Fail closed on anything but the single published dark endpoint. This is what
+  # stops smoke from silently accepting a public Parkio host (which resolves to
+  # the hosted-beta VM) and reporting a false green.
+  parkio_validate_dark_gateway_url "$GATEWAY_URL" || exit 2
 fi
 if [ "$PROFILE" = "azure-hosted-beta" ] && [ "$GATEWAY_URL" != "https://api.parkio.dev" ]; then
   echo "ERROR: Azure hosted-beta smoke must target https://api.parkio.dev" >&2
@@ -42,9 +46,10 @@ EXPECT_DIRECT_BLOCKED="${PARKIO_SMOKE_EXPECT_DIRECT_BLOCKED:-0}"
 CLIENT_HEADER="X-Parkio-Client: mobile"
 SMOKE_BODY="${TMPDIR:-/tmp}/parkio-smoke-body.$$.json"
 SMOKE_DIRECT="${TMPDIR:-/tmp}/parkio-smoke-direct.$$.json"
+SMOKE_HEADERS="${TMPDIR:-/tmp}/parkio-smoke-headers.$$.txt"
 
 cleanup() {
-  rm -f -- "$SMOKE_BODY" "$SMOKE_DIRECT"
+  rm -f -- "$SMOKE_BODY" "$SMOKE_DIRECT" "$SMOKE_HEADERS"
   ACCESS=""
   REFRESH=""
   AUTH=""
@@ -57,13 +62,57 @@ fail=0
 ok() { echo "PASS: $1"; pass=$((pass + 1)); }
 bad() { echo "FAIL: $1" >&2; fail=$((fail + 1)); }
 
+# `--max-redirs 0` is belt-and-braces: no call here passes -L, so curl already
+# refuses to follow. Stating it explicitly makes "smoke never leaves the host it
+# was pointed at" a property a regression test can assert rather than a habit.
 http_code() {
   local url="$1"
   shift
-  curl -sS -o "$SMOKE_BODY" -w '%{http_code}' "$@" "$url" || echo "000"
+  curl -sS --max-redirs 0 -D "$SMOKE_HEADERS" -o "$SMOKE_BODY" -w '%{http_code}' "$@" "$url" || echo "000"
+}
+
+# Last Location: header seen by http_code (empty when the response was not a
+# redirect). Used by the invite-production guard below.
+last_location() {
+  [ -f "$SMOKE_HEADERS" ] || return 0
+  tr -d '\r' < "$SMOKE_HEADERS" | awk 'tolower($1) == "location:" { print $2 }' | tail -1
 }
 
 echo "=== Parkio smoke ($GATEWAY_URL) ==="
+
+# --------------------------------------------------------------------------- #
+# Invite-production dark runtime identity (PROD-DEPLOY-01A / D1).              #
+# The URL allowlist already makes it impossible to point at another host, but  #
+# prove positively that the process answering on the dark endpoint really is   #
+# THIS invite-production deployment before trusting any later assertion.       #
+# --------------------------------------------------------------------------- #
+if [ "$PROFILE" = "invite-production" ]; then
+  echo "=== invite-production dark runtime identity ==="
+  code="$(http_code "$GATEWAY_URL/actuator/info" -H "$CLIENT_HEADER")"
+
+  if ! parkio_assert_dark_redirect_target "$(last_location)"; then
+    bad "dark gateway identity redirected off ${PARKIO_DARK_GATEWAY_ALLOWED_URL}"
+  elif [ "$code" != "200" ]; then
+    bad "dark runtime identity unavailable (/actuator/info -> $code)"
+  else
+    runtime_env="$(json_get "$SMOKE_BODY" deployment.environment)"
+    runtime_sha="$(json_get "$SMOKE_BODY" deployment.gitSha)"
+    if [ "$runtime_env" != "invite-production" ]; then
+      bad "dark runtime environment is '${runtime_env:-<absent>}', expected invite-production"
+    else
+      ok "dark runtime environment (invite-production)"
+    fi
+    if [ -n "${PARKIO_EXPECTED_GIT_SHA:-}" ]; then
+      if [ "$runtime_sha" != "$PARKIO_EXPECTED_GIT_SHA" ]; then
+        bad "dark runtime gitSha is '${runtime_sha:-<absent>}', expected ${PARKIO_EXPECTED_GIT_SHA}"
+      else
+        ok "dark runtime gitSha (${runtime_sha:0:12})"
+      fi
+    else
+      echo "SKIP: dark runtime gitSha (PARKIO_EXPECTED_GIT_SHA not set)"
+    fi
+  fi
+fi
 
 # Gateway health (actuator may be on gateway root)
 code="$(http_code "$GATEWAY_URL/actuator/health" -H "$CLIENT_HEADER")"

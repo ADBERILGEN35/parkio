@@ -135,6 +135,103 @@ class InviteProductionDeploySafetyTest(unittest.TestCase):
             self.assertEqual(manifest_json["gitSha"], sha)
             self.assertEqual(manifest_json["composeStructure"], structure)
 
+    def test_public_gateway_target_refuses_before_artifact_creation(self) -> None:
+        """PROD-DEPLOY-01A / D1: the deploy itself must fail closed on a target
+        that is not the dark endpoint, before it builds or starts anything.
+
+        Every URL below satisfied the old `!= https://api.parkio.dev` check while
+        resolving to the live hosted-beta VM or somewhere else entirely.
+        """
+        refused = (
+            "https://api.parkio.dev",
+            "https://api.parkio.dev/",
+            "https://api.parkio.dev:443",
+            "http://api.parkio.dev",
+            "https://app.parkio.dev",
+            "https://media.parkio.dev",
+            "http://localhost:8080",
+            "http://127.0.0.1:80",
+            "http://127.0.0.1:8081",
+            "http://10.0.0.5:8080",
+            "http://user:pass@127.0.0.1:8080",
+            "https://evil.example.com",
+        )
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            env_file = root / "input.env"
+            write_fixture_env(env_file)
+
+            for url in refused:
+                artifact_dir = root / f"artifacts-{abs(hash(url))}"
+                environment = os.environ.copy()
+                environment.update(
+                    {
+                        "PARKIO_PREFLIGHT_ALLOW_NO_ALERT_WEBHOOK": "1",
+                        "PARKIO_DISK_FREE_BYTES_FOR_TEST": str(50 * 1024**3),
+                        "PARKIO_GATEWAY_URL": url,
+                    }
+                )
+                result = subprocess.run(
+                    [
+                        str(DEPLOY),
+                        "--dry-run",
+                        "--allow-dirty",
+                        "--env-file",
+                        str(env_file),
+                        "--artifact-dir",
+                        str(artifact_dir),
+                    ],
+                    cwd=ROOT,
+                    env=environment,
+                    text=True,
+                    capture_output=True,
+                    check=False,
+                )
+                self.assertNotEqual(result.returncode, 0, f"deploy accepted {url!r}")
+                # The guard — not some unrelated error — must be what refused.
+                # Credential-bearing URLs get a distinct message that never echoes
+                # the userinfo back, so match the shared prefix.
+                self.assertIn(
+                    "dark gateway url",
+                    (result.stderr + result.stdout).lower(),
+                    f"deploy did not explain its refusal of {url!r}",
+                )
+                self.assertFalse(artifact_dir.exists(), f"artifacts written for {url!r}")
+
+    def test_dark_gateway_target_is_accepted(self) -> None:
+        """The one intended endpoint must still get through the same guard."""
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            env_file = root / "input.env"
+            artifact_dir = root / "artifacts"
+            write_fixture_env(env_file)
+            environment = os.environ.copy()
+            environment.update(
+                {
+                    "PARKIO_PREFLIGHT_ALLOW_NO_ALERT_WEBHOOK": "1",
+                    "PARKIO_DISK_FREE_BYTES_FOR_TEST": str(50 * 1024**3),
+                    "PARKIO_GATEWAY_URL": "http://127.0.0.1:8080",
+                    "PARKIO_IMAGE_CREATED": "1970-01-01T00:00:00Z",
+                }
+            )
+            result = subprocess.run(
+                [
+                    str(DEPLOY),
+                    "--dry-run",
+                    "--allow-dirty",
+                    "--env-file",
+                    str(env_file),
+                    "--artifact-dir",
+                    str(artifact_dir),
+                ],
+                cwd=ROOT,
+                env=environment,
+                text=True,
+                capture_output=True,
+                check=False,
+            )
+            self.assertNotIn("refusing dark gateway url", result.stderr.lower())
+
     def test_wrong_sha_refuses_before_artifact_creation(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)

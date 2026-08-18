@@ -58,11 +58,20 @@ DNS switching, data migration, traffic, or invitations.
   proxy semantics pass; no credentialed wildcard.
 - [ ] DNS remains unchanged in 01A; certificate/renewal configuration is ready
   for the separately authorized 01B DNS window.
+- [ ] `docker/docker-compose.invite-dark.yml` is dropped from the compose set
+  before public DNS cutover. It is a dark-acceptance affordance: it publishes the
+  gateway on loopback and sets `PARKIO_GIT_SHA`, which `/actuator/info` serves as
+  `deployment.gitSha` on a route that is public (`PublicEndpoints`). Removing the
+  overlay closes the loopback endpoint and returns that field to `unknown`.
 - [ ] Immutable web build contains the production API URL, no hosted-beta URL or
   debug flag, and is tied to the candidate SHA/digest.
 
 ## Backup, providers, and policy
 
+- [ ] The backup payload is installed at `/opt/parkio/invite-production/` and its
+  `MANIFEST.sha256` verifies against the deployed SHA recorded in `VERSION`.
+- [ ] No persistent production `.env` exists on the VM (the scheduler renders one
+  per run into `/dev/shm` and shreds it).
 - [ ] `parkio-invite-backup.timer` is enabled as the only scheduler.
 - [ ] One real production-mode synthetic/empty backup proves managed TLS, ten
   encrypted DB artifacts, MinIO copy, manifest/checksum, offsite OAuth upload,

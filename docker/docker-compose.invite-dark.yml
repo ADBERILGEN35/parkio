@@ -1,0 +1,58 @@
+# docker-compose.invite-dark.yml
+#
+# Invite-production DARK ACCEPTANCE overlay — PROD-DEPLOY-01A.
+#
+# Why this exists
+# ---------------
+# docker-compose.hosted-beta.yml applies `ports: !reset []` to gateway-service so
+# Caddy stays the ONLY public entrypoint and X-User-* identity headers cannot be
+# forged by reaching the gateway directly. That is correct for public traffic.
+#
+# It also leaves the dark invite-production runtime with no acceptance target:
+# Caddy serves only the {$PARKIO_DOMAIN} / {$PARKIO_WEB_DOMAIN} /
+# {$PARKIO_MEDIA_DOMAIN} vhosts, and those names resolve to the hosted-beta VM
+# until the PROD-DEPLOY-01B DNS cutover. Pointing acceptance at them would test
+# the wrong environment (a false green against live hosted-beta), and no
+# certificate can be issued for them on this VM before cutover.
+#
+# So dark acceptance gets a loopback-only gateway endpoint instead. This does not
+# weaken the public boundary: 127.0.0.1 is not routable, the VM NSG allows only
+# 443 inbound, and Caddy remains the sole path for anything off-host.
+#
+# Ordering
+# --------
+# This file MUST be listed AFTER docker-compose.hosted-beta.yml so the
+# `!override` below wins over that file's `!reset []`. scripts/lib/deploy-common.sh
+# owns the order; scripts/test-invite-dark-gateway.sh asserts it.
+#
+# Invariants (enforced by scripts/test-invite-dark-gateway.sh)
+# -----------------------------------------------------------
+#   * gateway-service binds 127.0.0.1 only — never 0.0.0.0, never ::, never a
+#     routable address
+#   * gateway-service is the ONLY service this overlay publishes
+#   * no database / Redis / Kafka / MinIO / Prometheus / Grafana / admin port is
+#     opened here
+#   * the Caddy public boundary is untouched
+name: parkio
+
+services:
+  gateway-service:
+    # !override (not a plain list) because Compose CONCATENATES `ports:` across
+    # files — a plain list would leave the hosted-beta `!reset []` semantics
+    # ambiguous. `!override` replaces the published-port list outright.
+    ports: !override
+      - "127.0.0.1:8080:8080"
+    environment:
+      # Non-secret deployment identity so dark smoke can prove it is talking to
+      # THIS runtime and not another Parkio environment. Surfaced by
+      # application.yml at /actuator/info as deployment.environment /
+      # deployment.gitSha.
+      #
+      # /actuator/info is a PUBLIC gateway route (see PublicEndpoints), so the
+      # commit would be publicly readable if this overlay were still active after
+      # DNS cutover. It is deliberately set here and not in the shared app env:
+      # dropping this overlay at cutover closes the loopback endpoint and returns
+      # deployment.gitSha to "unknown" in the same step. The pre-cutover
+      # checklist gates on exactly that.
+      PARKIO_ENVIRONMENT: ${PARKIO_ENVIRONMENT:-local}
+      PARKIO_GIT_SHA: ${PARKIO_GIT_SHA:-unknown}

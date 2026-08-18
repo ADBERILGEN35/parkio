@@ -85,6 +85,10 @@ if [ "$PARKIO_DEPLOYMENT_PROFILE" != "invite-production" ]; then
   exit 2
 fi
 
+# Fail closed on the acceptance target BEFORE building or starting anything, so a
+# bad target can never reach a running stack (PROD-DEPLOY-01A / D1).
+parkio_validate_dark_gateway_url "${PARKIO_GATEWAY_URL:-$(parkio_default_gateway_url)}" || exit 2
+
 export PARKIO_IMAGE_TAG="$IMAGE_TAG"
 export PARKIO_GIT_SHA="$GIT_SHA"
 export PARKIO_IMAGE_CREATED="$CREATED"
@@ -143,6 +147,30 @@ if [ "$DRY_RUN" -eq 1 ]; then
   exit 0
 fi
 
+# Operational payload for the scheduled backup (PROD-DEPLOY-01A-R3 / D2). This
+# runs BEFORE the stack starts so the backup runtime is versioned alongside the
+# deployed commit, and it never enables the timer — enablement is an explicit
+# backup-acceptance decision, not a deploy side effect.
+SCHEDULER_INSTALLER="$ROOT/scripts/azure/install-invite-production-backup-scheduler.sh"
+if [ "${PARKIO_INSTALL_BACKUP_SCHEDULER:-0}" = "1" ]; then
+  echo "Installing invite-production backup scheduler payload (timer stays disabled)..."
+  if [ "$(id -u)" -eq 0 ]; then
+    "$SCHEDULER_INSTALLER"
+  elif sudo -n true 2>/dev/null; then
+    sudo -n "$SCHEDULER_INSTALLER"
+  else
+    echo "ERROR: PARKIO_INSTALL_BACKUP_SCHEDULER=1 requires root or passwordless sudo." >&2
+    exit 3
+  fi
+  python3 "$ROOT/scripts/assert-invite-production-artifacts-safe.py" \
+    --env-file "$ENV_FILE" /opt/parkio/invite-production
+else
+  echo "Backup scheduler payload not installed (PARKIO_INSTALL_BACKUP_SCHEDULER unset)."
+  echo "  Install it as root during backup acceptance:"
+  echo "    $SCHEDULER_INSTALLER"
+  echo "  Then enable the timer explicitly: $SCHEDULER_INSTALLER --enable"
+fi
+
 echo "Building images from current source..."
 for svc in "${PARKIO_APP_SERVICES[@]}"; do
   echo "=== Building $svc ==="
@@ -170,6 +198,7 @@ if [ "$SKIP_SMOKE" -ne 1 ]; then
   PARKIO_ENV_FILE="$ENV_FILE" \
     PARKIO_DEPLOYMENT_PROFILE="$PARKIO_DEPLOYMENT_PROFILE" \
     PARKIO_GATEWAY_URL="${PARKIO_GATEWAY_URL:-$(parkio_default_gateway_url)}" \
+    PARKIO_EXPECTED_GIT_SHA="$GIT_SHA" \
     PARKIO_SMOKE_EXPECT_DIRECT_BLOCKED="${PARKIO_SMOKE_EXPECT_DIRECT_BLOCKED:-1}" \
     "$ROOT/scripts/smoke-hosted-beta.sh" | tee "$ARTIFACT_DIR/smoke-${GIT_SHA:0:12}.log"
 fi

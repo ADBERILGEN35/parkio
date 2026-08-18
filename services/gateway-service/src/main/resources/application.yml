@@ -208,6 +208,12 @@ management:
     health:
       probes:
         enabled: true
+  info:
+    env:
+      # Surface the `info.*` properties below at /actuator/info. Scoped to the
+      # `info.` prefix only — this does NOT expose the environment, and
+      # /actuator/env stays unexposed (see the exposure include above).
+      enabled: true
   metrics:
     tags:
       # Tag every metric with the service name (kept in sync with the scrape label).
@@ -228,6 +234,14 @@ info:
   app:
     name: gateway-service
     description: Parkio gateway-service
+  # Non-secret deployment identity. PROD-DEPLOY-01A dark acceptance reads this to
+  # prove the process answering on the loopback dark endpoint really is THIS
+  # invite-production deployment at the expected commit, rather than some other
+  # Parkio environment. Both values are already-public build/deploy metadata; do
+  # not add anything here that is not safe to serve unauthenticated.
+  deployment:
+    environment: ${PARKIO_ENVIRONMENT:local}
+    gitSha: ${PARKIO_GIT_SHA:unknown}
 
 parkio:
   security:

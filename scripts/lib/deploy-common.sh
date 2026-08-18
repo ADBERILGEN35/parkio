@@ -62,6 +62,11 @@ PARKIO_INVITE_REQUIRED_HEALTHY=(
 PARKIO_RUNTIME_SERVICES=()
 PARKIO_DISABLED_SERVICES=()
 
+# Invite-production dark acceptance endpoint (PROD-DEPLOY-01A / D1). Sourced here
+# so deploy, rollback and smoke all agree on the single allowed target.
+# shellcheck source=dark-gateway-url.sh
+source "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/dark-gateway-url.sh"
+
 parkio_env_value() {
   local env_file="$1"
   local key="$2"
@@ -91,7 +96,10 @@ parkio_configure_deployment_profile() {
       PARKIO_REQUIRED_HEALTHY=("${PARKIO_AZURE_REQUIRED_HEALTHY[@]}")
       ;;
     invite-production)
-      PARKIO_COMPOSE_FILES="-f docker/docker-compose.yml -f docker/docker-compose.apps.yml -f docker/docker-compose.images.yml -f docker/docker-compose.hosted-beta.yml -f docker/docker-compose.managed-db.yml"
+      # docker-compose.invite-dark.yml MUST stay last: it re-publishes
+      # gateway-service on 127.0.0.1:8080 with `!override`, which only wins if it
+      # is merged after the hosted-beta overlay's `ports: !reset []`.
+      PARKIO_COMPOSE_FILES="-f docker/docker-compose.yml -f docker/docker-compose.apps.yml -f docker/docker-compose.images.yml -f docker/docker-compose.hosted-beta.yml -f docker/docker-compose.managed-db.yml -f docker/docker-compose.invite-dark.yml"
       PARKIO_RUNTIME_SERVICES=("${PARKIO_INVITE_RUNTIME_SERVICES[@]}")
       PARKIO_DISABLED_SERVICES=(postgres-auth postgres-gateway postgres-user postgres-parking postgres-media postgres-gamification postgres-notification postgres-moderation postgres-analytics postgres-ai-validation loki promtail tempo)
       PARKIO_REQUIRED_HEALTHY=("${PARKIO_INVITE_REQUIRED_HEALTHY[@]}")
@@ -181,12 +189,21 @@ parkio_compose_up() {
 }
 
 parkio_default_gateway_url() {
-  if [ "${PARKIO_DEPLOYMENT_PROFILE:-hosted-beta}" = "azure-hosted-beta" ] \
-    || [ "${PARKIO_DEPLOYMENT_PROFILE:-hosted-beta}" = "invite-production" ]; then
-    echo "https://api.parkio.dev"
-  else
-    echo "http://127.0.0.1:8080"
-  fi
+  case "${PARKIO_DEPLOYMENT_PROFILE:-hosted-beta}" in
+    azure-hosted-beta)
+      echo "https://api.parkio.dev"
+      ;;
+    invite-production)
+      # NEVER the public route. api.parkio.dev resolves to the hosted-beta VM
+      # until the PROD-DEPLOY-01B cutover, so defaulting there would point dark
+      # acceptance at live hosted-beta. The dark topology publishes exactly one
+      # endpoint (docker/docker-compose.invite-dark.yml) and this is it.
+      echo "$PARKIO_DARK_GATEWAY_ALLOWED_URL"
+      ;;
+    *)
+      echo "http://127.0.0.1:8080"
+      ;;
+  esac
 }
 
 parkio_runtime_services_json() {

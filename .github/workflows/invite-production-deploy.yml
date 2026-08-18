@@ -28,7 +28,7 @@ on:
         required: true
         type: string
       dark_gateway_url:
-        description: "Explicit non-public gateway URL required only for dark deploy/rollback"
+        description: "Dark acceptance endpoint. Leave blank: the invite-production topology publishes exactly one (http://127.0.0.1:8080)."
         required: false
         type: string
       manifest_artifact:
@@ -71,11 +71,17 @@ jobs:
         run: sudo apt-get update && sudo apt-get install -y jq
 
       - name: Invite-production configuration and secret-safety tests
+        env:
+          # The dark-endpoint binding must be proven against the real merged
+          # Compose model, not just the overlay source (PROD-DEPLOY-01A / D1).
+          PARKIO_REQUIRE_COMPOSE_MODEL: "1"
         run: |
           set -euo pipefail
           python3 scripts/azure/test_render_invite_production_env.py
           bash scripts/test-preflight-invite-production.sh
           bash scripts/test-invite-production-runner-guards.sh
+          bash scripts/test-invite-dark-gateway.sh
+          bash scripts/test-invite-production-backup-scheduler.sh
           python3 scripts/test_assert_invite_production_artifacts_safe.py
           python3 scripts/test_invite_production_deploy_safety.py
           node --test scripts/lib/sanitize-compose-config.test.mjs
@@ -297,14 +303,24 @@ jobs:
 
       - name: Verify trusted ref and clean checkout
         working-directory: ${{ env.PARKIO_SOURCE_DIR }}
+        env:
+          # Never interpolate operator input straight into a shell body.
+          PARKIO_DARK_GATEWAY_INPUT: ${{ inputs.dark_gateway_url }}
         run: |
           set -euo pipefail
           ./scripts/verify-invite-production-ref.sh \
             --expected-sha '${{ inputs.git_sha }}' \
             --ref-sha '${{ github.sha }}' \
             --ref-name '${{ github.ref }}'
-          test -n '${{ inputs.dark_gateway_url }}'
-          test '${{ inputs.dark_gateway_url }}' != 'https://api.parkio.dev'
+          # The dark endpoint is a fixed property of the invite-production
+          # topology, so blank means "the certified one". A supplied value is held
+          # to the same allowlist — a literal != api.parkio.dev check let
+          # https://api.parkio.dev:443 (live hosted-beta) through.
+          source ./scripts/lib/dark-gateway-url.sh
+          resolved="${PARKIO_DARK_GATEWAY_INPUT:-$PARKIO_DARK_GATEWAY_ALLOWED_URL}"
+          parkio_validate_dark_gateway_url "$resolved"
+          echo "PARKIO_GATEWAY_URL=$resolved" >> "$GITHUB_ENV"
+          echo "Dark acceptance endpoint: $resolved"
 
       - name: Materialize secrets into tmpfs through VM managed identity
         working-directory: ${{ env.PARKIO_SOURCE_DIR }}
@@ -319,7 +335,6 @@ jobs:
         env:
           PARKIO_DEPLOY_OPERATOR: github-actions
           PARKIO_SMOKE_EXPECT_DIRECT_BLOCKED: "1"
-          PARKIO_GATEWAY_URL: ${{ inputs.dark_gateway_url }}
         run: |
           set -euo pipefail
           set +e
@@ -371,6 +386,8 @@ jobs:
 
       - name: Verify trusted ref and clean checkout
         working-directory: ${{ env.PARKIO_SOURCE_DIR }}
+        env:
+          PARKIO_DARK_GATEWAY_INPUT: ${{ inputs.dark_gateway_url }}
         run: |
           set -euo pipefail
           ./scripts/verify-invite-production-ref.sh \
@@ -378,8 +395,10 @@ jobs:
             --ref-sha '${{ github.sha }}' \
             --ref-name '${{ github.ref }}'
           test -n '${{ inputs.manifest_artifact }}'
-          test -n '${{ inputs.dark_gateway_url }}'
-          test '${{ inputs.dark_gateway_url }}' != 'https://api.parkio.dev'
+          source ./scripts/lib/dark-gateway-url.sh
+          resolved="${PARKIO_DARK_GATEWAY_INPUT:-$PARKIO_DARK_GATEWAY_ALLOWED_URL}"
+          parkio_validate_dark_gateway_url "$resolved"
+          echo "PARKIO_GATEWAY_URL=$resolved" >> "$GITHUB_ENV"
 
       - name: Materialize secrets into tmpfs through VM managed identity
         working-directory: ${{ env.PARKIO_SOURCE_DIR }}
@@ -400,7 +419,6 @@ jobs:
         env:
           PARKIO_DEPLOY_OPERATOR: github-actions
           PARKIO_SMOKE_EXPECT_DIRECT_BLOCKED: "1"
-          PARKIO_GATEWAY_URL: ${{ inputs.dark_gateway_url }}
         run: |
           set -euo pipefail
           manifest="$(find deploy-artifacts/invite-production -maxdepth 1 -type f -name 'deploy-*.json' -print -quit)"

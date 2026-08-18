@@ -29,3 +29,32 @@ and final integrity proof in the incident record.
 The repository rollback script handles only image/config rollback to a recorded
 manifest. It must refuse to claim data rollback and does not reverse migrations
 or erasure semantics.
+
+## Dark acceptance endpoint and backup scheduler (PROD-DEPLOY-01A-R3)
+
+Two rollbacks are independent of image/config rollback and of each other.
+
+**Dark gateway endpoint (D1).** Drop
+`docker/docker-compose.invite-dark.yml` from the invite-production compose set in
+`scripts/lib/deploy-common.sh` and redeploy. `gateway-service` returns to its
+unpublished state, reachable only as `gateway-service:8080` inside the Docker
+network, and Caddy is again the sole entrypoint. Dark acceptance is unavailable
+after this — that is the intended trade, not a regression. The public boundary is
+untouched either way: the overlay only ever binds loopback.
+
+**Backup scheduler (D2).**
+
+```bash
+sudo scripts/azure/install-invite-production-backup-scheduler.sh --disable
+```
+
+This stops the service if it is mid-run and disables the timer. It deliberately
+leaves the installed payload in place so the previous revision stays auditable,
+and it never touches `/var/backups/parkio` or the offsite container — valid
+encrypted backups are never deleted by a rollback. To go back to an earlier
+payload revision, re-run the installer from that revision's checkout; `VERSION`
+records which revision is currently installed.
+
+Rollback must never recreate a persistent plaintext production env. If one is
+found at `/opt/parkio/docker/.env.invite-production`, it is residue from the
+pre-R3 model: shred it. The installer refuses to run while it exists.

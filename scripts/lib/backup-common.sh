@@ -22,6 +22,13 @@ parkio_backup_repo_root() {
 }
 
 parkio_backup_git_sha() {
+  # The scheduled invite-production runtime root is a versioned operational
+  # payload, not a git checkout, so it reports the revision it was installed from
+  # (see scripts/azure/install-invite-production-backup-scheduler.sh).
+  if [ -n "${PARKIO_BACKUP_GIT_SHA:-}" ]; then
+    echo "${PARKIO_BACKUP_GIT_SHA}"
+    return 0
+  fi
   git -C "$(parkio_backup_repo_root)" rev-parse HEAD 2>/dev/null || echo "unknown"
 }
 
