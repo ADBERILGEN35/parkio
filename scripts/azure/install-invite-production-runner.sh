@@ -82,7 +82,10 @@ runuser -u "$RUNNER_USER" -- env \
     --replace
 
 unset GITHUB_RUNNER_REGISTRATION_TOKEN
-"$RUNNER_DIR/svc.sh" install "$RUNNER_USER"
+(
+  cd "$RUNNER_DIR"
+  ./svc.sh install "$RUNNER_USER"
+)
 
 service_name="$(systemctl list-unit-files --type=service --no-legend \
   | awk '$1 ~ /^actions\.runner\.ADBERILGEN35-parkio\.parkio-invite-prod-01\.service$/ {print $1}')"
