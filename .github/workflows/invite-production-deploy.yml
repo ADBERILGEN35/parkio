@@ -246,7 +246,7 @@ jobs:
           trap 'rm -f -- "$tls_log"' EXIT
           timeout 15 openssl s_client -starttls postgres \
             -connect "$pg_host:5432" -servername "$pg_host" \
-            -CAfile /opt/parkio/certs/azure-postgres-root.crt \
+            -CApath /etc/ssl/certs \
             -verify_return_error < /dev/null > "$tls_log" 2>&1
           grep -q 'Verify return code: 0 (ok)' "$tls_log"
           echo "PostgreSQL TCP/TLS verify-full prerequisite: PASS"
