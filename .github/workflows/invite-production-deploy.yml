@@ -14,11 +14,12 @@ on:
   workflow_dispatch:
     inputs:
       action:
-        description: "build | deploy | rollback"
+        description: "build | runner-acceptance | deploy | rollback"
         required: true
         type: choice
         options:
           - build
+          - runner-acceptance
           - deploy
           - rollback
         default: build
@@ -158,6 +159,119 @@ jobs:
             deploy-artifacts/invite-production/compose-structure.json
           if-no-files-found: error
           retention-days: 90
+
+  runner-acceptance:
+    name: Non-deploy production runner acceptance
+    if: ${{ github.event_name == 'workflow_dispatch' && inputs.action == 'runner-acceptance' && github.ref == 'refs/heads/api' && inputs.git_sha == github.sha }}
+    environment: invite-production
+    runs-on: [self-hosted, linux, x64, parkio-invite-production]
+    timeout-minutes: 20
+    env:
+      PARKIO_SOURCE_DIR: ${{ github.workspace }}/source-${{ github.run_id }}-${{ github.run_attempt }}
+      PARKIO_ENV_FILE: /dev/shm/parkio-invite-production-${{ github.run_id }}-${{ github.run_attempt }}.env
+      AZURE_CONFIG_DIR: /dev/shm/parkio-azure-${{ github.run_id }}-${{ github.run_attempt }}
+    steps:
+      - name: Checkout exact api SHA into a unique workspace
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.git_sha }}
+          fetch-depth: 0
+          clean: true
+          persist-credentials: false
+          path: source-${{ github.run_id }}-${{ github.run_attempt }}
+
+      - name: Verify trusted ref and clean checkout
+        working-directory: ${{ env.PARKIO_SOURCE_DIR }}
+        run: |
+          set -euo pipefail
+          ./scripts/verify-invite-production-ref.sh \
+            --expected-sha '${{ inputs.git_sha }}' \
+            --ref-sha '${{ github.sha }}' \
+            --ref-name '${{ github.ref }}'
+
+      - name: Verify dedicated host and Docker
+        run: |
+          set -euo pipefail
+          test "$(id -un)" = parkio-runner
+          test "$(hostname)" = vm-parkio-invite-prod
+          docker version --format 'Docker server {{.Server.Version}}'
+          docker compose version
+          test ! -e "$PARKIO_ENV_FILE"
+
+      - name: Verify managed identity and production resource identities
+        working-directory: ${{ env.PARKIO_SOURCE_DIR }}
+        run: |
+          set -euo pipefail
+          install -d -m 700 "$AZURE_CONFIG_DIR"
+          az login --identity --allow-no-subscriptions --output none
+
+          vm_name="$(az deployment group show \
+            --resource-group rg-parkio-invite-production-we \
+            --name prod-deploy-01a-foundation \
+            --query properties.outputs.vmName.value -o tsv --only-show-errors)"
+          vault_name="$(az deployment group show \
+            --resource-group rg-parkio-invite-production-we \
+            --name prod-deploy-01a-foundation \
+            --query properties.outputs.keyVaultName.value -o tsv --only-show-errors)"
+          pg_host="$(az deployment group show \
+            --resource-group rg-parkio-invite-production-we \
+            --name prod-deploy-01a-foundation \
+            --query properties.outputs.postgresqlFqdn.value -o tsv --only-show-errors)"
+
+          test "$vm_name" = vm-parkio-invite-prod
+          test "$vault_name" = kvparkioinvjcvgwc
+          test "$pg_host" = pg-parkio-invite-jcvgwc.postgres.database.azure.com
+          echo "Foundation identities: PASS"
+
+          names="$(az keyvault secret list --vault-name "$vault_name" \
+            --query '[].name' -o tsv --only-show-errors)"
+          for name in acme-contact-email maptiler-public-key resend-api-key slack-webhook-url; do
+            printf '%s\n' "$names" | grep -Fxq "$name"
+            echo "$name PRESENT"
+          done
+          if printf '%s\n' "$names" | grep -Fxq expo-access-token; then
+            echo "ERROR: expo-access-token must not be provisioned for invite-production" >&2
+            exit 3
+          fi
+          echo "expo-access-token ABSENT_NOT_REQUIRED"
+
+          resolved="$(getent ahostsv4 "$pg_host" | awk 'NR == 1 {print $1}')"
+          case "$resolved" in
+            10.*|172.16.*|172.17.*|172.18.*|172.19.*|172.2?.*|172.30.*|172.31.*|192.168.*) ;;
+            *) echo "ERROR: PostgreSQL did not resolve to a private IPv4 address" >&2; exit 3 ;;
+          esac
+          echo "PostgreSQL private DNS: PASS"
+
+          tls_log="/dev/shm/parkio-pg-tls-${{ github.run_id }}-${{ github.run_attempt }}.log"
+          trap 'rm -f -- "$tls_log"' EXIT
+          timeout 15 openssl s_client -starttls postgres \
+            -connect "$pg_host:5432" -servername "$pg_host" \
+            -CAfile /opt/parkio/certs/azure-postgres-root.crt \
+            -verify_return_error < /dev/null > "$tls_log" 2>&1
+          grep -q 'Verify return code: 0 (ok)' "$tls_log"
+          echo "PostgreSQL TCP/TLS verify-full prerequisite: PASS"
+
+      - name: Prove no runtime or migration action occurred
+        run: |
+          set -euo pipefail
+          test -z "$(docker ps -q)"
+          test ! -e "$PARKIO_ENV_FILE"
+          echo "No containers, no rendered env, no Flyway action: PASS"
+
+      - name: Cleanup per-job source and credentials
+        if: ${{ always() }}
+        run: |
+          set -euo pipefail
+          cleanup="$PARKIO_SOURCE_DIR/scripts/cleanup-invite-production-job.sh"
+          if [ -x "$cleanup" ]; then
+            "$cleanup"
+          else
+            case "$PARKIO_SOURCE_DIR" in "$GITHUB_WORKSPACE"/source-[0-9]*-[0-9]*) ;; *) exit 2 ;; esac
+            case "$PARKIO_ENV_FILE" in /dev/shm/parkio-invite-production-[0-9]*-[0-9]*.env) ;; *) exit 2 ;; esac
+            case "$AZURE_CONFIG_DIR" in /dev/shm/parkio-azure-[0-9]*-[0-9]*) ;; *) exit 2 ;; esac
+            rm -f -- "$PARKIO_ENV_FILE"
+            rm -rf -- "$AZURE_CONFIG_DIR" "$PARKIO_SOURCE_DIR"
+          fi
 
   deploy:
     name: Deploy invite-production
