@@ -346,7 +346,8 @@ parkio_write_manifest() {
   local created="$8"
   local version="$9"
   local previous_manifest="${10:-}"
-  local compose_files_json images_json image_digests_json migrations_json runtime_services_json disabled_services_json feature_flags_json svc first rollback_target
+  local compose_structure_path="${11:-}"
+  local compose_files_json compose_structure_json images_json image_digests_json migrations_json runtime_services_json disabled_services_json feature_flags_json svc first rollback_target
 
   compose_files_json="$(parkio_compose_files_json)"
   migrations_json="$(parkio_migration_versions_json)"
@@ -354,6 +355,17 @@ parkio_write_manifest() {
   disabled_services_json="$(parkio_disabled_services_json)"
   image_digests_json="$(parkio_image_digests_json "$image_tag")"
   feature_flags_json="$(parkio_feature_flags_json "$env_file")"
+  compose_structure_json="null"
+  if [ -n "$compose_structure_path" ]; then
+    if [ ! -f "$compose_structure_path" ]; then
+      echo "ERROR: sanitized Compose structure not found: $compose_structure_path" >&2
+      return 2
+    fi
+    compose_structure_json="$(jq -c . "$compose_structure_path")" || {
+      echo "ERROR: sanitized Compose structure is not valid JSON" >&2
+      return 2
+    }
+  fi
   images_json="{"
   first=1
   for svc in "${PARKIO_APP_SERVICES[@]}"; do
@@ -388,6 +400,7 @@ parkio_write_manifest() {
     --arg rollbackTarget "$rollback_target" \
     --arg rollbackScript "$rollback_script" \
     --argjson composeFiles "$compose_files_json" \
+    --argjson composeStructure "$compose_structure_json" \
     --argjson images "$images_json" \
     --argjson imageDigests "$image_digests_json" \
     --argjson migrationVersions "$migrations_json" \
@@ -403,6 +416,7 @@ parkio_write_manifest() {
       imageTag: $imageTag,
       imageVersion: $imageVersion,
       composeFiles: $composeFiles,
+      composeStructure: $composeStructure,
       envProfile: $envProfile,
       deploymentProfile: $deploymentProfile,
       databaseServer: (if $databaseServer == "" then null else $databaseServer end),

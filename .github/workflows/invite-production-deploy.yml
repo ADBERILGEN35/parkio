@@ -22,22 +22,29 @@ on:
           - deploy
           - rollback
         default: build
+      git_sha:
+        description: "Exact 40-character SHA currently at api"
+        required: true
+        type: string
+      dark_gateway_url:
+        description: "Explicit non-public gateway URL required only for dark deploy/rollback"
+        required: false
+        type: string
       manifest_artifact:
-        description: "For rollback: workflow artifact containing a deploy manifest"
+        description: "For rollback: workflow artifact containing a secret-free deploy manifest"
         required: false
         type: string
 
 permissions:
   contents: read
-  packages: write
 
 concurrency:
-  group: invite-production-deploy
+  group: invite-production-runner
   cancel-in-progress: false
 
 jobs:
   build-images:
-    name: Build images + dry-run manifest
+    name: Build images + secret-safe dry-run manifest
     if: ${{ github.event_name == 'pull_request' || github.event.inputs.action == 'build' || github.event.inputs.action == 'deploy' }}
     runs-on: ubuntu-latest
     timeout-minutes: 90
@@ -45,45 +52,73 @@ jobs:
       git_sha: ${{ steps.meta.outputs.git_sha }}
     steps:
       - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event_name == 'workflow_dispatch' && inputs.git_sha || github.sha }}
+          fetch-depth: 0
+          persist-credentials: false
 
-      - name: Invite-production configuration contract tests
+      - name: Verify manual build pin
+        if: ${{ github.event_name == 'workflow_dispatch' }}
         run: |
           set -euo pipefail
-          python3 scripts/azure/test_render_invite_production_env.py
-          bash scripts/test-preflight-invite-production.sh
-          node --test \
-            frontend/apps/web/scripts/validate-build-env.test.mjs \
-            frontend/apps/web/scripts/verify-bundle-env.test.mjs
-
-      - name: Meta
-        id: meta
-        run: |
-          echo "git_sha=${GITHUB_SHA}" >> "$GITHUB_OUTPUT"
+          ./scripts/verify-invite-production-ref.sh \
+            --expected-sha '${{ inputs.git_sha }}' \
+            --ref-sha '${{ github.sha }}' \
+            --ref-name '${{ github.ref }}'
 
       - name: Install jq
         run: sudo apt-get update && sudo apt-get install -y jq
 
-      - name: Dry-run invite-production deploy
+      - name: Invite-production configuration and secret-safety tests
         run: |
           set -euo pipefail
-          chmod +x scripts/deploy-invite-production.sh scripts/preflight-invite-production.sh scripts/rollback-invite-production.sh scripts/smoke-hosted-beta.sh
-          cp docker/.env.invite-production.example docker/.env.ci-invite-production
-          openssl genpkey -algorithm RSA -pkeyopt rsa_keygen_bits:2048 -out /tmp/parkio-invite-ci-jwt.pem 2>/dev/null
-          python3 - <<'PY'
-          from pathlib import Path
+          python3 scripts/azure/test_render_invite_production_env.py
+          bash scripts/test-preflight-invite-production.sh
+          bash scripts/test-invite-production-runner-guards.sh
+          python3 scripts/test_assert_invite_production_artifacts_safe.py
+          python3 scripts/test_invite_production_deploy_safety.py
+          node --test scripts/lib/sanitize-compose-config.test.mjs
+          node --test frontend/apps/web/scripts/validate-build-env.test.mjs
+          node --test frontend/apps/web/scripts/verify-bundle-env.test.mjs
 
-          path = Path("docker/.env.ci-invite-production")
-          jwt = Path("/tmp/parkio-invite-ci-jwt.pem").read_text().strip().replace("\n", "\\n")
+      - name: Meta
+        id: meta
+        run: echo "git_sha=$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
+
+      - name: Dry-run invite-production deploy without secret-bearing evidence
+        env:
+          PARKIO_ENV_FILE: ${{ runner.temp }}/parkio-invite-ci-${{ github.run_id }}.env
+          PARKIO_DEPLOY_ARTIFACT_DIR: deploy-artifacts/invite-production
+          PARKIO_DEPLOY_OPERATOR: github-actions
+          PARKIO_PREFLIGHT_ALLOW_NO_ALERT_WEBHOOK: "1"
+          PARKIO_EXPECTED_GIT_SHA: ${{ steps.meta.outputs.git_sha }}
+        run: |
+          set -euo pipefail
+          jwt_file="$RUNNER_TEMP/parkio-invite-ci-jwt-${GITHUB_RUN_ID}.pem"
+          dry_run_log="$RUNNER_TEMP/parkio-invite-dry-run-${GITHUB_RUN_ID}.log"
+          cleanup() { rm -f -- "$PARKIO_ENV_FILE" "$jwt_file" "$dry_run_log"; }
+          trap cleanup EXIT HUP INT TERM
+
+          cp docker/.env.invite-production.example "$PARKIO_ENV_FILE"
+          chmod 600 "$PARKIO_ENV_FILE"
+          openssl genpkey -algorithm RSA -pkeyopt rsa_keygen_bits:2048 -out "$jwt_file" 2>/dev/null
+          python3 - "$PARKIO_ENV_FILE" "$jwt_file" <<'PY'
+          from pathlib import Path
+          import sys
+
+          path = Path(sys.argv[1])
+          jwt = Path(sys.argv[2]).read_text().strip().replace("\n", "\\n")
           exact = {
               "PARKIO_PG_HOST": "pg-invite-ci.postgres.database.azure.com",
               "PARKIO_JWT_PRIVATE_KEY_PEM": f'"{jwt}"',
               "PARKIO_ACME_EMAIL": "ops@parkio.dev",
-              "VITE_MAPTILER_KEY": "ci-public-map-key",
-              "PARKIO_RESEND_API_KEY": "re_ci_validation_only",
+              "VITE_MAPTILER_KEY": "SECRET_SENTINEL_MAPTILER_PUBLIC_KEY",
+              "PARKIO_RESEND_API_KEY": "re_SECRET_SENTINEL_RESEND_KEY",
               "PARKIO_PUSH_DELIVERY_ENABLED": "false",
               "PARKIO_PUSH_DELIVERY_PROVIDER": "noop",
               "PARKIO_EXPO_ACCESS_TOKEN": "",
-              "PARKIO_ALERT_SLACK_WEBHOOK_URL": "",
+              "PARKIO_ALERT_SLACK_WEBHOOK_URL": "https://hooks.slack.com/services/SECRET_SENTINEL_SLACK_URL/fixture/fixture",
+              "PARKIO_ALERT_WEBHOOK_URL": "https://alerts.parkio.dev/test-receiver",
               "KAFKA_CLUSTER_ID": "Q0lJbnZpdGVQcm9kMDFBQQ",
           }
           lines = []
@@ -95,81 +130,188 @@ jobs:
               if key in exact:
                   lines.append(f"{key}={exact[key]}")
               elif "REPLACE_ME" in value:
-                  lines.append(f'{key}="ci-validation-{key.lower()}-0123456789abcdef"')
+                  lines.append(f'{key}="SECRET_SENTINEL_{key}_0123456789abcdef"')
               else:
                   lines.append(line)
           path.write_text("\n".join(lines) + "\n")
           PY
-          PARKIO_ENV_FILE=docker/.env.ci-invite-production \
-            PARKIO_DEPLOY_ARTIFACT_DIR=deploy-artifacts/invite-production \
-            PARKIO_DEPLOY_OPERATOR=github-actions \
-            PARKIO_PREFLIGHT_ALLOW_NO_ALERT_WEBHOOK=1 \
-            ./scripts/deploy-invite-production.sh --dry-run --allow-dirty
 
-      - name: Upload manifest artifact
+          set +e
+          ./scripts/deploy-invite-production.sh \
+            --dry-run --allow-dirty --expected-sha "$PARKIO_EXPECTED_GIT_SHA" \
+            > "$dry_run_log" 2>&1
+          deploy_status=$?
+          set -e
+
+          python3 scripts/assert-invite-production-artifacts-safe.py \
+            --env-file "$PARKIO_ENV_FILE" \
+            "$PARKIO_DEPLOY_ARTIFACT_DIR" "$dry_run_log"
+          sed 's/^/[invite-dry-run] /' "$dry_run_log"
+          test "$deploy_status" -eq 0
+
+      - name: Upload secret-free manifest evidence
         uses: actions/upload-artifact@v4
         with:
           name: invite-production-manifest-${{ steps.meta.outputs.git_sha }}
-          path: deploy-artifacts/invite-production/
+          path: |
+            deploy-artifacts/invite-production/deploy-*.json
+            deploy-artifacts/invite-production/compose-structure.json
+          if-no-files-found: error
           retention-days: 90
 
   deploy:
     name: Deploy invite-production
-    if: ${{ github.event.inputs.action == 'deploy' }}
+    if: ${{ github.event_name == 'workflow_dispatch' && inputs.action == 'deploy' && github.ref == 'refs/heads/api' && inputs.git_sha == github.sha }}
     needs: build-images
-    runs-on: [self-hosted, parkio-invite-production]
+    environment: invite-production
+    runs-on: [self-hosted, linux, x64, parkio-invite-production]
     timeout-minutes: 120
+    env:
+      PARKIO_SOURCE_DIR: ${{ github.workspace }}/source-${{ github.run_id }}-${{ github.run_attempt }}
+      PARKIO_ENV_FILE: /dev/shm/parkio-invite-production-${{ github.run_id }}-${{ github.run_attempt }}.env
+      AZURE_CONFIG_DIR: /dev/shm/parkio-azure-${{ github.run_id }}-${{ github.run_attempt }}
+      PARKIO_JOB_LOG: /dev/shm/parkio-deploy-${{ github.run_id }}-${{ github.run_attempt }}.log
     steps:
-      - uses: actions/checkout@v4
+      - name: Checkout exact api SHA into a unique workspace
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.git_sha }}
+          fetch-depth: 0
+          clean: true
+          persist-credentials: false
+          path: source-${{ github.run_id }}-${{ github.run_attempt }}
 
-      - name: Materialize secrets from Key Vault
+      - name: Verify trusted ref and clean checkout
+        working-directory: ${{ env.PARKIO_SOURCE_DIR }}
         run: |
           set -euo pipefail
-          chmod +x scripts/azure/render-invite-production-env.sh
-          ./scripts/azure/render-invite-production-env.sh
+          ./scripts/verify-invite-production-ref.sh \
+            --expected-sha '${{ inputs.git_sha }}' \
+            --ref-sha '${{ github.sha }}' \
+            --ref-name '${{ github.ref }}'
+          test -n '${{ inputs.dark_gateway_url }}'
+          test '${{ inputs.dark_gateway_url }}' != 'https://api.parkio.dev'
 
-      - name: Deploy current commit
+      - name: Materialize secrets into tmpfs through VM managed identity
+        working-directory: ${{ env.PARKIO_SOURCE_DIR }}
+        run: |
+          set -euo pipefail
+          install -d -m 700 "$AZURE_CONFIG_DIR"
+          ./scripts/azure/render-invite-production-env.sh --output "$PARKIO_ENV_FILE"
+          test "$(stat -c '%a' "$PARKIO_ENV_FILE")" = 600
+
+      - name: Deploy exact commit with quarantined log
+        working-directory: ${{ env.PARKIO_SOURCE_DIR }}
         env:
-          PARKIO_ENV_FILE: docker/.env.invite-production
           PARKIO_DEPLOY_OPERATOR: github-actions
           PARKIO_SMOKE_EXPECT_DIRECT_BLOCKED: "1"
+          PARKIO_GATEWAY_URL: ${{ inputs.dark_gateway_url }}
         run: |
           set -euo pipefail
-          chmod +x scripts/deploy-invite-production.sh scripts/preflight-invite-production.sh scripts/smoke-hosted-beta.sh
-          ./scripts/deploy-invite-production.sh
+          set +e
+          ./scripts/deploy-invite-production.sh --expected-sha '${{ inputs.git_sha }}' \
+            > "$PARKIO_JOB_LOG" 2>&1
+          status=$?
+          set -e
+          python3 scripts/assert-invite-production-artifacts-safe.py \
+            --env-file "$PARKIO_ENV_FILE" deploy-artifacts/invite-production "$PARKIO_JOB_LOG"
+          sed 's/^/[invite-deploy] /' "$PARKIO_JOB_LOG"
+          exit "$status"
+
+      - name: Cleanup per-job source and credentials
+        if: ${{ always() }}
+        run: |
+          set -euo pipefail
+          cleanup="$PARKIO_SOURCE_DIR/scripts/cleanup-invite-production-job.sh"
+          rm -f -- "$PARKIO_JOB_LOG"
+          if [ -x "$cleanup" ]; then
+            "$cleanup"
+          else
+            case "$PARKIO_SOURCE_DIR" in "$GITHUB_WORKSPACE"/source-[0-9]*-[0-9]*) ;; *) exit 2 ;; esac
+            case "$PARKIO_ENV_FILE" in /dev/shm/parkio-invite-production-[0-9]*-[0-9]*.env) ;; *) exit 2 ;; esac
+            case "$AZURE_CONFIG_DIR" in /dev/shm/parkio-azure-[0-9]*-[0-9]*) ;; *) exit 2 ;; esac
+            rm -f -- "$PARKIO_ENV_FILE"
+            rm -rf -- "$AZURE_CONFIG_DIR" "$PARKIO_SOURCE_DIR"
+          fi
 
   rollback:
     name: Rollback invite-production
-    if: ${{ github.event.inputs.action == 'rollback' }}
-    runs-on: [self-hosted, parkio-invite-production]
+    if: ${{ github.event_name == 'workflow_dispatch' && inputs.action == 'rollback' && github.ref == 'refs/heads/api' && inputs.git_sha == github.sha }}
+    environment: invite-production
+    runs-on: [self-hosted, linux, x64, parkio-invite-production]
     timeout-minutes: 60
+    env:
+      PARKIO_SOURCE_DIR: ${{ github.workspace }}/source-${{ github.run_id }}-${{ github.run_attempt }}
+      PARKIO_ENV_FILE: /dev/shm/parkio-invite-production-${{ github.run_id }}-${{ github.run_attempt }}.env
+      AZURE_CONFIG_DIR: /dev/shm/parkio-azure-${{ github.run_id }}-${{ github.run_attempt }}
+      PARKIO_JOB_LOG: /dev/shm/parkio-rollback-${{ github.run_id }}-${{ github.run_attempt }}.log
     steps:
-      - uses: actions/checkout@v4
+      - name: Checkout exact api SHA into a unique workspace
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.git_sha }}
+          fetch-depth: 0
+          clean: true
+          persist-credentials: false
+          path: source-${{ github.run_id }}-${{ github.run_attempt }}
 
-      - name: Materialize secrets from Key Vault
+      - name: Verify trusted ref and clean checkout
+        working-directory: ${{ env.PARKIO_SOURCE_DIR }}
         run: |
           set -euo pipefail
-          chmod +x scripts/azure/render-invite-production-env.sh
-          ./scripts/azure/render-invite-production-env.sh
+          ./scripts/verify-invite-production-ref.sh \
+            --expected-sha '${{ inputs.git_sha }}' \
+            --ref-sha '${{ github.sha }}' \
+            --ref-name '${{ github.ref }}'
+          test -n '${{ inputs.manifest_artifact }}'
+          test -n '${{ inputs.dark_gateway_url }}'
+          test '${{ inputs.dark_gateway_url }}' != 'https://api.parkio.dev'
 
-      - name: Download manifest artifact
-        if: ${{ github.event.inputs.manifest_artifact != '' }}
+      - name: Materialize secrets into tmpfs through VM managed identity
+        working-directory: ${{ env.PARKIO_SOURCE_DIR }}
+        run: |
+          set -euo pipefail
+          install -d -m 700 "$AZURE_CONFIG_DIR"
+          ./scripts/azure/render-invite-production-env.sh --output "$PARKIO_ENV_FILE"
+          test "$(stat -c '%a' "$PARKIO_ENV_FILE")" = 600
+
+      - name: Download secret-free rollback manifest
         uses: actions/download-artifact@v4
         with:
-          name: ${{ github.event.inputs.manifest_artifact }}
-          path: deploy-artifacts/invite-production/
+          name: ${{ inputs.manifest_artifact }}
+          path: source-${{ github.run_id }}-${{ github.run_attempt }}/deploy-artifacts/invite-production
 
-      - name: Rollback
+      - name: Rollback exact environment with quarantined log
+        working-directory: ${{ env.PARKIO_SOURCE_DIR }}
         env:
-          PARKIO_ENV_FILE: docker/.env.invite-production
           PARKIO_DEPLOY_OPERATOR: github-actions
           PARKIO_SMOKE_EXPECT_DIRECT_BLOCKED: "1"
+          PARKIO_GATEWAY_URL: ${{ inputs.dark_gateway_url }}
         run: |
           set -euo pipefail
-          chmod +x scripts/rollback-invite-production.sh scripts/smoke-hosted-beta.sh
-          manifest="$(ls -1 deploy-artifacts/invite-production/deploy-*.json deploy-artifacts/invite-production/current.json 2>/dev/null | head -1 || true)"
-          if [ -z "$manifest" ]; then
-            echo "ERROR: no invite-production manifest found."
-            exit 2
+          manifest="$(find deploy-artifacts/invite-production -maxdepth 1 -type f -name 'deploy-*.json' -print -quit)"
+          test -n "$manifest"
+          set +e
+          ./scripts/rollback-invite-production.sh --manifest "$manifest" > "$PARKIO_JOB_LOG" 2>&1
+          status=$?
+          set -e
+          python3 scripts/assert-invite-production-artifacts-safe.py \
+            --env-file "$PARKIO_ENV_FILE" deploy-artifacts/invite-production "$PARKIO_JOB_LOG"
+          sed 's/^/[invite-rollback] /' "$PARKIO_JOB_LOG"
+          exit "$status"
+
+      - name: Cleanup per-job source and credentials
+        if: ${{ always() }}
+        run: |
+          set -euo pipefail
+          cleanup="$PARKIO_SOURCE_DIR/scripts/cleanup-invite-production-job.sh"
+          rm -f -- "$PARKIO_JOB_LOG"
+          if [ -x "$cleanup" ]; then
+            "$cleanup"
+          else
+            case "$PARKIO_SOURCE_DIR" in "$GITHUB_WORKSPACE"/source-[0-9]*-[0-9]*) ;; *) exit 2 ;; esac
+            case "$PARKIO_ENV_FILE" in /dev/shm/parkio-invite-production-[0-9]*-[0-9]*.env) ;; *) exit 2 ;; esac
+            case "$AZURE_CONFIG_DIR" in /dev/shm/parkio-azure-[0-9]*-[0-9]*) ;; *) exit 2 ;; esac
+            rm -f -- "$PARKIO_ENV_FILE"
+            rm -rf -- "$AZURE_CONFIG_DIR" "$PARKIO_SOURCE_DIR"
           fi
-          ./scripts/rollback-invite-production.sh --manifest "$manifest"

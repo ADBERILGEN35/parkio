@@ -22,9 +22,15 @@ PROFILE="${PARKIO_DEPLOYMENT_PROFILE:-hosted-beta}"
 case "$PROFILE" in
   azure-hosted-beta) DEFAULT_GATEWAY_URL="https://api.parkio.dev" ;;
   hosted-beta) DEFAULT_GATEWAY_URL="http://127.0.0.1:8080" ;;
+  invite-production) DEFAULT_GATEWAY_URL="" ;;
   *) echo "ERROR: unsupported PARKIO_DEPLOYMENT_PROFILE='$PROFILE'" >&2; exit 2 ;;
 esac
 GATEWAY_URL="${PARKIO_GATEWAY_URL:-$DEFAULT_GATEWAY_URL}"
+if [ "$PROFILE" = "invite-production" ] && [ -z "$GATEWAY_URL" ]; then
+  echo "ERROR: invite-production smoke requires an explicit dark-runtime PARKIO_GATEWAY_URL." >&2
+  echo "       It never defaults to the public api.parkio.dev route." >&2
+  exit 2
+fi
 if [ "$PROFILE" = "azure-hosted-beta" ] && [ "$GATEWAY_URL" != "https://api.parkio.dev" ]; then
   echo "ERROR: Azure hosted-beta smoke must target https://api.parkio.dev" >&2
   exit 2
@@ -34,6 +40,16 @@ EMAIL="${PARKIO_REAL_USER_EMAIL:-user@real-e2e.parkio.local}"
 PASSWORD="${PARKIO_REAL_USER_PASSWORD:-StrongParkio123}"
 EXPECT_DIRECT_BLOCKED="${PARKIO_SMOKE_EXPECT_DIRECT_BLOCKED:-0}"
 CLIENT_HEADER="X-Parkio-Client: mobile"
+SMOKE_BODY="${TMPDIR:-/tmp}/parkio-smoke-body.$$.json"
+SMOKE_DIRECT="${TMPDIR:-/tmp}/parkio-smoke-direct.$$.json"
+
+cleanup() {
+  rm -f -- "$SMOKE_BODY" "$SMOKE_DIRECT"
+  ACCESS=""
+  REFRESH=""
+  AUTH=""
+}
+trap cleanup EXIT HUP INT TERM
 
 pass=0
 fail=0
@@ -44,7 +60,7 @@ bad() { echo "FAIL: $1" >&2; fail=$((fail + 1)); }
 http_code() {
   local url="$1"
   shift
-  curl -sS -o /tmp/parkio-smoke-body.json -w '%{http_code}' "$@" "$url" || echo "000"
+  curl -sS -o "$SMOKE_BODY" -w '%{http_code}' "$@" "$url" || echo "000"
 }
 
 echo "=== Parkio smoke ($GATEWAY_URL) ==="
@@ -55,7 +71,7 @@ if [ "$code" = "200" ]; then ok "gateway health ($code)"; else bad "gateway heal
 
 code="$(http_code "$API/auth/.well-known/jwks.json" -H "$CLIENT_HEADER")"
 if [ "$code" = "200" ]; then
-  if json_assert_jwks /tmp/parkio-smoke-body.json >/dev/null 2>&1; then
+  if json_assert_jwks "$SMOKE_BODY" >/dev/null 2>&1; then
     ok "auth JWKS"
   else
     bad "auth JWKS empty body"
@@ -72,8 +88,8 @@ if [ "$code" = "401" ]; then ok "nearby requires auth ($code)"; else bad "nearby
 code="$(http_code "$API/auth/login" -H "$CLIENT_HEADER" -H "Content-Type: application/json" \
   -d "{\"email\":\"$EMAIL\",\"password\":\"$PASSWORD\"}")"
 if [ "$code" = "200" ]; then
-  ACCESS="$(json_get /tmp/parkio-smoke-body.json accessToken)"
-  REFRESH="$(json_get /tmp/parkio-smoke-body.json refreshToken)"
+  ACCESS="$(json_get "$SMOKE_BODY" accessToken)"
+  REFRESH="$(json_get "$SMOKE_BODY" refreshToken)"
   if [ -n "$ACCESS" ] && [ "$ACCESS" != "null" ]; then
     ok "login"
   else
@@ -93,7 +109,7 @@ if [ -n "${ACCESS:-}" ]; then
     code="$(http_code "$API/auth/refresh-token" -H "$CLIENT_HEADER" -H "Content-Type: application/json" \
       -d "{\"refreshToken\":\"$REFRESH\"}")"
     if [ "$code" = "200" ]; then
-      ACCESS="$(json_get /tmp/parkio-smoke-body.json accessToken)"
+      ACCESS="$(json_get "$SMOKE_BODY" accessToken)"
       AUTH="Authorization: Bearer $ACCESS"
       ok "refresh"
     else
@@ -152,7 +168,7 @@ fi
 # Direct service access: on hosted-beta ports are not published (connection fails).
 # On local apps overlay, parking requires gateway auth header (not a bare 200).
 if [ "$EXPECT_DIRECT_BLOCKED" = "1" ]; then
-  code="$(curl -sS -o /tmp/parkio-smoke-direct.json -w '%{http_code}' --connect-timeout 2 \
+  code="$(curl -sS -o "$SMOKE_DIRECT" -w '%{http_code}' --connect-timeout 2 \
     "http://127.0.0.1:8083/api/v1/parking/spots/nearby?lat=41.0&lng=29.0&radius=1000&limit=5" || true)"
   if [ "$code" = "000" ] || [ "$code" = "403" ] || [ "$code" = "401" ]; then
     ok "direct service access blocked ($code)"
@@ -160,7 +176,7 @@ if [ "$EXPECT_DIRECT_BLOCKED" = "1" ]; then
     bad "direct service access unexpected ($code)"
   fi
 else
-  code="$(curl -sS -o /tmp/parkio-smoke-direct.json -w '%{http_code}' --connect-timeout 2 \
+  code="$(curl -sS -o "$SMOKE_DIRECT" -w '%{http_code}' --connect-timeout 2 \
     "http://127.0.0.1:8083/api/v1/parking/spots/nearby?lat=41.0&lng=29.0&radius=1000&limit=5" || true)"
   if [ "$code" = "401" ] || [ "$code" = "403" ] || [ "$code" = "000" ]; then
     ok "direct parking without gateway auth rejected ($code)"
