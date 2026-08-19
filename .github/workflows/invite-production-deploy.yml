@@ -183,6 +183,13 @@ jobs:
     runs-on: [self-hosted, linux, x64, parkio-invite-production]
     timeout-minutes: 20
     env:
+      # actions/checkout resolves `path` against GITHUB_WORKSPACE, and
+      # actions/setup-node resolves `node-version-file` with
+      # path.join(GITHUB_WORKSPACE, input): an absolute input duplicates the
+      # workspace prefix instead of overriding it. Every action input that
+      # names the checkout must therefore use this workspace-relative path,
+      # while PARKIO_SOURCE_DIR stays absolute for shell working-directory use.
+      PARKIO_SOURCE_PATH: source-${{ github.run_id }}-${{ github.run_attempt }}
       PARKIO_SOURCE_DIR: ${{ github.workspace }}/source-${{ github.run_id }}-${{ github.run_attempt }}
       PARKIO_ENV_FILE: /dev/shm/parkio-invite-production-${{ github.run_id }}-${{ github.run_attempt }}.env
       AZURE_CONFIG_DIR: /dev/shm/parkio-azure-${{ github.run_id }}-${{ github.run_attempt }}
@@ -194,7 +201,7 @@ jobs:
           fetch-depth: 0
           clean: true
           persist-credentials: false
-          path: source-${{ github.run_id }}-${{ github.run_attempt }}
+          path: ${{ env.PARKIO_SOURCE_PATH }}
 
       - name: Verify trusted ref and clean checkout
         working-directory: ${{ env.PARKIO_SOURCE_DIR }}
@@ -208,7 +215,7 @@ jobs:
       - name: Set up pinned Node runtime
         uses: actions/setup-node@v4
         with:
-          node-version-file: ${{ env.PARKIO_SOURCE_DIR }}/.node-version
+          node-version-file: ${{ env.PARKIO_SOURCE_PATH }}/.node-version
 
       - name: Verify production runner toolchain
         working-directory: ${{ env.PARKIO_SOURCE_DIR }}
@@ -306,6 +313,13 @@ jobs:
     runs-on: [self-hosted, linux, x64, parkio-invite-production]
     timeout-minutes: 120
     env:
+      # actions/checkout resolves `path` against GITHUB_WORKSPACE, and
+      # actions/setup-node resolves `node-version-file` with
+      # path.join(GITHUB_WORKSPACE, input): an absolute input duplicates the
+      # workspace prefix instead of overriding it. Every action input that
+      # names the checkout must therefore use this workspace-relative path,
+      # while PARKIO_SOURCE_DIR stays absolute for shell working-directory use.
+      PARKIO_SOURCE_PATH: source-${{ github.run_id }}-${{ github.run_attempt }}
       PARKIO_SOURCE_DIR: ${{ github.workspace }}/source-${{ github.run_id }}-${{ github.run_attempt }}
       PARKIO_ENV_FILE: /dev/shm/parkio-invite-production-${{ github.run_id }}-${{ github.run_attempt }}.env
       AZURE_CONFIG_DIR: /dev/shm/parkio-azure-${{ github.run_id }}-${{ github.run_attempt }}
@@ -318,7 +332,7 @@ jobs:
           fetch-depth: 0
           clean: true
           persist-credentials: false
-          path: source-${{ github.run_id }}-${{ github.run_attempt }}
+          path: ${{ env.PARKIO_SOURCE_PATH }}
 
       - name: Verify trusted ref and clean checkout
         working-directory: ${{ env.PARKIO_SOURCE_DIR }}
@@ -344,7 +358,7 @@ jobs:
       - name: Set up pinned Node runtime
         uses: actions/setup-node@v4
         with:
-          node-version-file: ${{ env.PARKIO_SOURCE_DIR }}/.node-version
+          node-version-file: ${{ env.PARKIO_SOURCE_PATH }}/.node-version
 
       - name: Verify production runner toolchain
         working-directory: ${{ env.PARKIO_SOURCE_DIR }}
@@ -398,6 +412,13 @@ jobs:
     runs-on: [self-hosted, linux, x64, parkio-invite-production]
     timeout-minutes: 60
     env:
+      # actions/checkout resolves `path` against GITHUB_WORKSPACE, and
+      # actions/setup-node resolves `node-version-file` with
+      # path.join(GITHUB_WORKSPACE, input): an absolute input duplicates the
+      # workspace prefix instead of overriding it. Every action input that
+      # names the checkout must therefore use this workspace-relative path,
+      # while PARKIO_SOURCE_DIR stays absolute for shell working-directory use.
+      PARKIO_SOURCE_PATH: source-${{ github.run_id }}-${{ github.run_attempt }}
       PARKIO_SOURCE_DIR: ${{ github.workspace }}/source-${{ github.run_id }}-${{ github.run_attempt }}
       PARKIO_ENV_FILE: /dev/shm/parkio-invite-production-${{ github.run_id }}-${{ github.run_attempt }}.env
       AZURE_CONFIG_DIR: /dev/shm/parkio-azure-${{ github.run_id }}-${{ github.run_attempt }}
@@ -410,7 +431,7 @@ jobs:
           fetch-depth: 0
           clean: true
           persist-credentials: false
-          path: source-${{ github.run_id }}-${{ github.run_attempt }}
+          path: ${{ env.PARKIO_SOURCE_PATH }}
 
       - name: Verify trusted ref and clean checkout
         working-directory: ${{ env.PARKIO_SOURCE_DIR }}
@@ -431,7 +452,7 @@ jobs:
       - name: Set up pinned Node runtime
         uses: actions/setup-node@v4
         with:
-          node-version-file: ${{ env.PARKIO_SOURCE_DIR }}/.node-version
+          node-version-file: ${{ env.PARKIO_SOURCE_PATH }}/.node-version
 
       - name: Verify production runner toolchain
         working-directory: ${{ env.PARKIO_SOURCE_DIR }}
@@ -449,7 +470,7 @@ jobs:
         uses: actions/download-artifact@v4
         with:
           name: ${{ inputs.manifest_artifact }}
-          path: source-${{ github.run_id }}-${{ github.run_attempt }}/deploy-artifacts/invite-production
+          path: ${{ env.PARKIO_SOURCE_PATH }}/deploy-artifacts/invite-production
 
       - name: Rollback exact environment with quarantined log
         working-directory: ${{ env.PARKIO_SOURCE_DIR }}

@@ -64,6 +64,18 @@ GitHub-hosted dry-run uses the same `.node-version` contract. No npm dependency
 cache is configured, so the shared runner tool cache contains the pinned Node
 distribution only and cannot ingest production env or job output.
 
+Because the self-hosted jobs check out into `source-<run>-<attempt>` rather
+than the workspace root, action inputs that name that directory must stay
+workspace-relative. `actions/setup-node` resolves `node-version-file` with
+`path.join(GITHUB_WORKSPACE, input)`, which concatenates instead of letting an
+absolute input win, so an absolute path produces a duplicated workspace prefix
+and the step fails before any toolchain check. The jobs therefore publish
+`PARKIO_SOURCE_PATH` (workspace-relative) for `actions/checkout`,
+`actions/setup-node`, and `actions/download-artifact`, and keep the absolute
+`PARKIO_SOURCE_DIR` for shell `working-directory` and cleanup, which resolve
+absolute paths correctly. `test_invite_production_node_runtime.py` pins both
+halves of that contract against the real runner workspace.
+
 ## Azure and Key Vault access
 
 Jobs use the VM system-assigned managed identity with a per-job
