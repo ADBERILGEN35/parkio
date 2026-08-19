@@ -20,7 +20,11 @@ Option A consequences:
 - CORS: the sole credentialed browser origin is `https://app.parkio.dev`; no
   wildcard is permitted.
 - certificates: Caddy is the renewal mechanism, but public certificate issuance
-  cannot be accepted until DNS authorization/routing is performed in 01B.
+  cannot be accepted until DNS authorization/routing is performed in 01B. The
+  01A dark runtime therefore does **not** start Caddy at all: its automatic
+  HTTPS would open production Let's Encrypt orders for api/app/media.parkio.dev
+  while those names still resolve to hosted-beta, which cannot validate and
+  burns the failed-validation budget 01B needs. See "Dark runtime and Caddy".
 - web build: `VITE_API_BASE_URL=https://api.parkio.dev/api/v1` is immutable in
   the candidate image.
 - auth callbacks and transactional links: `https://app.parkio.dev`; provider
@@ -30,11 +34,15 @@ Option A consequences:
 
 ## Network topology
 
+The diagram below is the **01B** (post-cutover) topology. During 01A the stack
+runs dark: Caddy is not started, nothing binds beyond loopback, and the only
+acceptance endpoint is `http://127.0.0.1:8080`.
+
 ```text
 Internet
   -> Azure Standard public IP
   -> app-subnet NSG: TCP 443 only
-  -> Caddy TLS edge
+  -> Caddy TLS edge                     (01B only; not started in 01A dark mode)
        -> web
        -> gateway-service
             -> internal Docker services only
@@ -167,6 +175,38 @@ ranking shadow/evaluation/rollup, learned ranking, AI ranking authority, and
 unfinished provider experiments.
 
 The exact strategy is `DETERMINISTIC_V1`; defaults are not relied on.
+
+## Dark runtime and Caddy
+
+PROD-DEPLOY-01A deploys a **dark** runtime: the stack runs on
+`vm-parkio-invite-prod` while `api.parkio.dev`, `app.parkio.dev` and
+`media.parkio.dev` still resolve to the hosted-beta VM.
+
+`docker/caddy/Caddyfile` enables Caddy's automatic HTTPS against production
+Let's Encrypt for exactly those three names. Starting Caddy in dark mode would
+therefore emit public ACME orders the runtime cannot validate — an externally
+visible side effect of a supposedly dark deploy, and one that consumes the
+Let's Encrypt failed-validation budget the 01B cutover depends on.
+
+Caddy is consequently **excluded from the invite-production runtime and
+required-healthy lists** and declared in `PARKIO_DISABLED_SERVICES`, so the
+omission is explicit and lands in the deploy manifest. Nothing in dark
+acceptance needs it: no service declares `depends_on: caddy`, smoke never
+contacts it, and the dark endpoint is `gateway-service` on `127.0.0.1:8080`.
+Omitting it makes the no-ACME property structural rather than configurational —
+the ACME client is never started, so no config edit or overlay-ordering change
+can re-enable issuance.
+
+`docker/caddy/Caddyfile` itself is unchanged: automatic HTTPS for all three
+hostnames remains intact, and 01B starts Caddy normally by deploying without the
+dark runtime-set restriction.
+
+`scripts/assert-invite-dark-acme-isolation.sh` enforces both halves and runs
+from `scripts/deploy-invite-production.sh` before anything starts, so the deploy
+fails closed rather than issuing a certificate request. It is source/config
+inspection only — it never resolves DNS, opens a socket, or contacts an ACME
+directory. Regression coverage lives in
+`scripts/test-invite-dark-acme-isolation.sh`.
 
 ## HA and retained risk
 

@@ -81,6 +81,7 @@ jobs:
           bash scripts/test-preflight-invite-production.sh
           bash scripts/test-invite-production-runner-guards.sh
           bash scripts/test-invite-dark-gateway.sh
+          bash scripts/test-invite-dark-acme-isolation.sh
           bash scripts/test-invite-production-backup-scheduler.sh
           python3 scripts/test_assert_invite_production_artifacts_safe.py
           python3 scripts/test_invite_production_deploy_safety.py

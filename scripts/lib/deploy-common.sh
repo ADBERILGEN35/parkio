@@ -44,19 +44,37 @@ PARKIO_AZURE_REQUIRED_HEALTHY=(
   ai-validation-service analytics-service web caddy
 )
 
+# PROD-DEPLOY-01A-R4. Caddy is deliberately ABSENT from the dark runtime.
+#
+# docker/caddy/Caddyfile enables Caddy's automatic HTTPS against production
+# Let's Encrypt for {$PARKIO_DOMAIN}/{$PARKIO_WEB_DOMAIN}/{$PARKIO_MEDIA_DOMAIN},
+# which the invite-production env renders to the real api/app/media.parkio.dev.
+# Those names still resolve to the hosted-beta VM, so starting Caddy here would
+# make the dark runtime issue public ACME orders for production hostnames it
+# cannot validate — an externally visible side effect that also burns the
+# Let's Encrypt failed-validation budget needed for the PROD-DEPLOY-01B cutover.
+#
+# Nothing in dark acceptance needs Caddy: no service declares `depends_on:
+# caddy`, smoke never contacts it, and the dark endpoint is gateway-service on
+# 127.0.0.1:8080. Omitting it makes the no-ACME invariant structural rather than
+# configurational — the ACME client is never started, so no config edit or
+# overlay-ordering change can re-enable issuance. The production Caddy path is
+# untouched and stays available for PROD-DEPLOY-01B.
+#
+# Enforced by scripts/assert-invite-dark-acme-isolation.sh.
 PARKIO_INVITE_RUNTIME_SERVICES=(
   redis kafka kafka-exporter blackbox-exporter node-exporter
   minio minio-setup clamav prometheus grafana alertmanager
   auth-service user-service parking-service media-service gamification-service
   notification-service moderation-service ai-validation-service analytics-service
-  gateway-service web caddy
+  gateway-service web
 )
 
 PARKIO_INVITE_REQUIRED_HEALTHY=(
   kafka redis minio clamav prometheus grafana alertmanager
   gateway-service auth-service user-service parking-service media-service
   gamification-service notification-service moderation-service ai-validation-service
-  analytics-service web caddy
+  analytics-service web
 )
 
 PARKIO_RUNTIME_SERVICES=()
@@ -101,7 +119,9 @@ parkio_configure_deployment_profile() {
       # is merged after the hosted-beta overlay's `ports: !reset []`.
       PARKIO_COMPOSE_FILES="-f docker/docker-compose.yml -f docker/docker-compose.apps.yml -f docker/docker-compose.images.yml -f docker/docker-compose.hosted-beta.yml -f docker/docker-compose.managed-db.yml -f docker/docker-compose.invite-dark.yml"
       PARKIO_RUNTIME_SERVICES=("${PARKIO_INVITE_RUNTIME_SERVICES[@]}")
-      PARKIO_DISABLED_SERVICES=(postgres-auth postgres-gateway postgres-user postgres-parking postgres-media postgres-gamification postgres-notification postgres-moderation postgres-analytics postgres-ai-validation loki promtail tempo)
+      # `caddy` is listed so the dark omission is explicit in the deploy
+      # manifest and asserted, never a silent gap (PROD-DEPLOY-01A-R4).
+      PARKIO_DISABLED_SERVICES=(postgres-auth postgres-gateway postgres-user postgres-parking postgres-media postgres-gamification postgres-notification postgres-moderation postgres-analytics postgres-ai-validation loki promtail tempo caddy)
       PARKIO_REQUIRED_HEALTHY=("${PARKIO_INVITE_REQUIRED_HEALTHY[@]}")
       ;;
     *)

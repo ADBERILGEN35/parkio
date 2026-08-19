@@ -89,6 +89,15 @@ fi
 # bad target can never reach a running stack (PROD-DEPLOY-01A / D1).
 parkio_validate_dark_gateway_url "${PARKIO_GATEWAY_URL:-$(parkio_default_gateway_url)}" || exit 2
 
+# Fail closed on public ACME BEFORE starting anything (PROD-DEPLOY-01A-R4 / D3).
+# api/app/media.parkio.dev still resolve to hosted-beta, so a dark stack that
+# starts Caddy would emit ACME orders it cannot validate — an externally visible
+# side effect that also burns the failed-validation budget PROD-DEPLOY-01B needs.
+if ! "$ROOT/scripts/assert-invite-dark-acme-isolation.sh" --env-file "$ENV_FILE"; then
+  echo "ERROR: dark ACME isolation failed; refusing to start the invite-production stack." >&2
+  exit 3
+fi
+
 export PARKIO_IMAGE_TAG="$IMAGE_TAG"
 export PARKIO_GIT_SHA="$GIT_SHA"
 export PARKIO_IMAGE_CREATED="$CREATED"
