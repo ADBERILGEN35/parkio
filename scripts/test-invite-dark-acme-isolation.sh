@@ -153,6 +153,44 @@ else
   bad "guard rejects the current (isolated) dark configuration"
 fi
 
+# The guard must not READ the test-harness flag PARKIO_REQUIRE_COMPOSE_MODEL.
+# It did in the first R4 attempt: the CI step exports that flag for the test
+# suites, `deploy-invite-production.sh --dry-run` runs inside the same step, and
+# the guard inherited it — turning a sandbox model that was never meant to
+# resolve into a hard deploy failure. Matching a variable EXPANSION (not a
+# mention) keeps the explanatory comment in the guard legal.
+if grep -Eq '\$\{?PARKIO_REQUIRE_COMPOSE_MODEL' "$GUARD"; then
+  bad "guard reads the test-harness flag PARKIO_REQUIRE_COMPOSE_MODEL; a dry-run deploy would inherit it"
+else
+  ok "guard does not read the test-harness flag PARKIO_REQUIRE_COMPOSE_MODEL"
+fi
+
+# Under that flag, with no model obtainable, the guard must still pass on an
+# isolated configuration — this is the exact case that broke CI.
+if PARKIO_REQUIRE_COMPOSE_MODEL=1 "$GUARD" --env-file "$ENV_EXAMPLE" \
+     --model /nonexistent/model.json >/dev/null 2>&1; then
+  ok "guard passes under PARKIO_REQUIRE_COMPOSE_MODEL with no renderable model"
+else
+  bad "guard fails under PARKIO_REQUIRE_COMPOSE_MODEL with no renderable model (the R4 CI regression)"
+fi
+
+# --require-model must fail closed when no model can be produced, so a real
+# deploy can never silently skip the merged-model proof.
+if PARKIO_REQUIRE_DARK_ACME_MODEL=1 "$GUARD" --env-file "$ENV_EXAMPLE" \
+     --model /nonexistent/model.json >/dev/null 2>&1; then
+  bad "--require-model accepted a missing merged model"
+else
+  ok "--require-model fails closed when the merged model is unavailable"
+fi
+
+# A real (non-dry-run) deploy must pass --require-model; a dry run must not.
+if grep -q 'acme_guard_args+=(--require-model)' scripts/deploy-invite-production.sh &&
+   grep -q 'if \[ "$DRY_RUN" -ne 1 \]; then' scripts/deploy-invite-production.sh; then
+  ok "real deploy demands the merged-model proof, dry-run does not"
+else
+  bad "deploy script must pass --require-model for a real deploy only"
+fi
+
 # Negative: put caddy back into the start set and require a non-zero exit. The
 # stub library mirrors the real one so the guard's own logic is what is tested.
 stub_dir="$(mktemp -d)"
@@ -247,7 +285,8 @@ if [ -n "$compose_bin" ]; then
     model_checked=1
     if PARKIO_START_SET="${PARKIO_RUNTIME_SERVICES[*]}" \
        PARKIO_PUBLIC_HOSTS="api.parkio.dev app.parkio.dev media.parkio.dev" \
-       python3 "$ROOT/scripts/lib/check_dark_acme_model.py" "$model" >/dev/null 2>&1; then
+       python3 "$ROOT/scripts/lib/check_dark_acme_model.py" "$model" >/dev/null 2>&1 &&
+       "$GUARD" --env-file "$ENV_EXAMPLE" --model "$model" --require-model >/dev/null 2>&1; then
       ok "merged dark model starts no ACME client and publishes loopback only"
     else
       bad "merged dark model still permits a public ACME path or a non-loopback publish"

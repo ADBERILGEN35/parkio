@@ -16,12 +16,23 @@
 # contacts an ACME directory.
 #
 # Usage: assert-invite-dark-acme-isolation.sh [--env-file FILE] [--model FILE]
+#                                              [--require-model]
 #
-#   --env-file  env file used to resolve the deployment profile (default:
-#               docker/.env.invite-production)
-#   --model     pre-rendered `docker compose config --format json` model. When
-#               omitted the guard renders one if docker compose is available and
-#               otherwise relies on the static assertions.
+#   --env-file       env file used to resolve the deployment profile (default:
+#                    docker/.env.invite-production)
+#   --model          pre-rendered `docker compose config --format json` model.
+#                    When omitted the guard renders one if docker compose is
+#                    available and otherwise relies on the static assertions.
+#   --require-model  fail if the merged model cannot be rendered. A real deploy
+#                    passes this: on the production runner an unresolvable model
+#                    means the guard cannot see what will start, which must never
+#                    be treated as "isolated". A --dry-run deploy does NOT, because
+#                    it runs against a synthetic env whose model may not resolve,
+#                    and the static assertions already catch a reintroduced edge.
+#                    Equivalent: PARKIO_REQUIRE_DARK_ACME_MODEL=1. Deliberately
+#                    NOT the test-harness flag PARKIO_REQUIRE_COMPOSE_MODEL —
+#                    inheriting that turned an unrenderable sandbox model into a
+#                    deploy failure (PROD-DEPLOY-01A-R4 / D3 follow-up).
 #
 # Exit 0 = isolated. Exit 4 = a public-ACME path survives. Exit 2 = usage/bug.
 #
@@ -32,6 +43,7 @@ cd "$ROOT"
 
 ENV_FILE="${PARKIO_ENV_FILE:-docker/.env.invite-production}"
 MODEL=""
+REQUIRE_MODEL="${PARKIO_REQUIRE_DARK_ACME_MODEL:-0}"
 CADDYFILE="docker/caddy/Caddyfile"
 
 # The hostnames that must never appear in a dark ACME order. These are the real
@@ -42,6 +54,7 @@ while [ "$#" -gt 0 ]; do
   case "$1" in
     --env-file) ENV_FILE="${2:-}"; shift 2 ;;
     --model) MODEL="${2:-}"; shift 2 ;;
+    --require-model) REQUIRE_MODEL=1; shift ;;
     -h|--help) sed -n '2,26p' "$0"; exit 0 ;;
     *) echo "ERROR: unknown argument '$1'" >&2; exit 2 ;;
   esac
@@ -165,10 +178,10 @@ if [ -n "$MODEL" ] && [ -s "$MODEL" ]; then
 fi
 
 if [ "$model_checked" -eq 0 ]; then
-  if [ "${PARKIO_REQUIRE_COMPOSE_MODEL:-0}" = "1" ]; then
-    bad "merged-model ACME assertions are required (PARKIO_REQUIRE_COMPOSE_MODEL=1) but could not run"
+  if [ "$REQUIRE_MODEL" = "1" ]; then
+    bad "merged-model ACME assertions are required (--require-model) but the model could not be rendered"
   else
-    echo "  SKIP: docker compose unavailable; static assertions only"
+    echo "  SKIP: merged model unavailable; static assertions only"
   fi
 fi
 

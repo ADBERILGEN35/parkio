@@ -93,7 +93,15 @@ parkio_validate_dark_gateway_url "${PARKIO_GATEWAY_URL:-$(parkio_default_gateway
 # api/app/media.parkio.dev still resolve to hosted-beta, so a dark stack that
 # starts Caddy would emit ACME orders it cannot validate — an externally visible
 # side effect that also burns the failed-validation budget PROD-DEPLOY-01B needs.
-if ! "$ROOT/scripts/assert-invite-dark-acme-isolation.sh" --env-file "$ENV_FILE"; then
+# A real deploy demands the merged-model proof: on the production runner an
+# unresolvable model means the guard cannot see what will start. --dry-run runs
+# against a synthetic env whose model need not resolve, and its static
+# assertions already catch a reintroduced ACME edge.
+acme_guard_args=(--env-file "$ENV_FILE")
+if [ "$DRY_RUN" -ne 1 ]; then
+  acme_guard_args+=(--require-model)
+fi
+if ! "$ROOT/scripts/assert-invite-dark-acme-isolation.sh" "${acme_guard_args[@]}"; then
   echo "ERROR: dark ACME isolation failed; refusing to start the invite-production stack." >&2
   exit 3
 fi
