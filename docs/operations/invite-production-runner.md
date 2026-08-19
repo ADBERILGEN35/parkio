@@ -54,6 +54,16 @@ private `/tmp`, `NoNewPrivileges`, protected home directories, and umask 0077.
 The runner opens no listening port; it establishes outbound HTTPS connections
 to GitHub. Azure NSG ingress remains unchanged.
 
+The host does not provide a mutable user-profile Node installation. Every
+invite-production workflow job provisions the exact repository version from
+`.node-version` with `actions/setup-node@v4`, then runs
+`verify-invite-production-toolchain.sh` before any secret materialization or
+runtime action. The verifier rejects a missing or different Node version and
+checks the remaining deploy executables plus Docker/Compose availability. The
+GitHub-hosted dry-run uses the same `.node-version` contract. No npm dependency
+cache is configured, so the shared runner tool cache contains the pinned Node
+distribution only and cannot ingest production env or job output.
+
 ## Azure and Key Vault access
 
 Jobs use the VM system-assigned managed identity with a per-job
@@ -88,10 +98,10 @@ never written to the workspace, artifacts, or logs.
 ## Acceptance and stop boundary
 
 The manual runner-acceptance workflow verifies the exact `api` SHA, dedicated
-user/host, Docker, VM managed identity, required Key Vault names only, private
-PostgreSQL DNS, and certificate-validated PostgreSQL TLS negotiation. It does
-not render the live env, start containers, authenticate to a database, or run
-Flyway.
+user/host, exact repository-pinned Node runtime, the complete deploy toolchain,
+Docker, VM managed identity, required Key Vault names only, private PostgreSQL
+DNS, and certificate-validated PostgreSQL TLS negotiation. It does not render
+the live env, start containers, authenticate to a database, or run Flyway.
 
 Successful runner acceptance does not authorize dark-runtime dispatch. The
 deploy action remains a separate operator-approved PROD-DEPLOY-01A gate.

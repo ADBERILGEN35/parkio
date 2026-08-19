@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import json
 import os
+import shutil
 import stat
 import subprocess
 import tempfile
@@ -61,6 +62,19 @@ def write_fixture_env(target: Path) -> None:
     target.chmod(0o600)
 
 
+def write_node_wrapper(target: Path) -> None:
+    real_node = shutil.which("node")
+    if real_node is None:
+        raise RuntimeError("Node is required to exercise the Compose sanitizer")
+    expected = (ROOT / ".node-version").read_text().strip()
+    target.write_text(
+        "#!/usr/bin/env sh\n"
+        f"if [ \"${{1:-}}\" = --version ]; then printf '%s\\n' 'v{expected}'; exit 0; fi\n"
+        f"exec '{real_node}' \"$@\"\n"
+    )
+    target.chmod(target.stat().st_mode | stat.S_IXUSR)
+
+
 class InviteProductionDeploySafetyTest(unittest.TestCase):
     def test_dry_run_persists_only_sanitized_evidence(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
@@ -71,6 +85,9 @@ class InviteProductionDeploySafetyTest(unittest.TestCase):
             fake_bin.mkdir()
             write_fixture_env(env_file)
 
+            fake_node = fake_bin / "node"
+            write_node_wrapper(fake_node)
+
             fake_docker = fake_bin / "docker"
             fake_docker.write_text(
                 "#!/usr/bin/env sh\n"
@@ -79,6 +96,8 @@ class InviteProductionDeploySafetyTest(unittest.TestCase):
                 "  *\"config --format json\"*)\n"
                 "    printf '%s\\n' '{\"name\":\"parkio\",\"services\":{\"api\":{\"image\":\"parkio/api:sha-test\",\"environment\":{\"POSTGRES_PASSWORD\":\"SECRET_SENTINEL_DB_PASSWORD\",\"PARKIO_ALERT_SLACK_WEBHOOK_URL\":\"SECRET_SENTINEL_SLACK_URL\",\"PARKIO_RESEND_API_KEY\":\"SECRET_SENTINEL_RESEND_KEY\"},\"ports\":[{\"host_ip\":\"127.0.0.1\",\"published\":\"8080\",\"target\":8080}],\"healthcheck\":{\"test\":[\"CMD-SHELL\",\"probe SECRET_SENTINEL_DB_PASSWORD\"]}}}}' ;;\n"
                 "  *\"image inspect\"*) exit 1 ;;\n"
+                "  \"version --format Docker server {{.Server.Version}}\") exit 0 ;;\n"
+                "  \"compose version\") exit 0 ;;\n"
                 "  *) echo \"unexpected fake docker invocation\" >&2; exit 9 ;;\n"
                 "esac\n"
             )
@@ -98,6 +117,7 @@ class InviteProductionDeploySafetyTest(unittest.TestCase):
                     "PARKIO_DISK_FREE_BYTES_FOR_TEST": str(50 * 1024**3),
                     "PARKIO_IMAGE_TAG": f"sha-{sha}",
                     "PARKIO_IMAGE_CREATED": "1970-01-01T00:00:00Z",
+                    "PARKIO_NODE_BINARY": str(fake_node),
                 }
             )
             result = subprocess.run(
@@ -160,6 +180,8 @@ class InviteProductionDeploySafetyTest(unittest.TestCase):
             root = Path(directory)
             env_file = root / "input.env"
             write_fixture_env(env_file)
+            fake_node = root / "node"
+            write_node_wrapper(fake_node)
 
             for url in refused:
                 artifact_dir = root / f"artifacts-{abs(hash(url))}"
@@ -169,6 +191,7 @@ class InviteProductionDeploySafetyTest(unittest.TestCase):
                         "PARKIO_PREFLIGHT_ALLOW_NO_ALERT_WEBHOOK": "1",
                         "PARKIO_DISK_FREE_BYTES_FOR_TEST": str(50 * 1024**3),
                         "PARKIO_GATEWAY_URL": url,
+                        "PARKIO_NODE_BINARY": str(fake_node),
                     }
                 )
                 result = subprocess.run(
@@ -205,6 +228,8 @@ class InviteProductionDeploySafetyTest(unittest.TestCase):
             env_file = root / "input.env"
             artifact_dir = root / "artifacts"
             write_fixture_env(env_file)
+            fake_node = root / "node"
+            write_node_wrapper(fake_node)
             environment = os.environ.copy()
             environment.update(
                 {
@@ -212,6 +237,7 @@ class InviteProductionDeploySafetyTest(unittest.TestCase):
                     "PARKIO_DISK_FREE_BYTES_FOR_TEST": str(50 * 1024**3),
                     "PARKIO_GATEWAY_URL": "http://127.0.0.1:8080",
                     "PARKIO_IMAGE_CREATED": "1970-01-01T00:00:00Z",
+                    "PARKIO_NODE_BINARY": str(fake_node),
                 }
             )
             result = subprocess.run(
@@ -238,6 +264,8 @@ class InviteProductionDeploySafetyTest(unittest.TestCase):
             env_file = root / "input.env"
             artifact_dir = root / "artifacts"
             write_fixture_env(env_file)
+            fake_node = root / "node"
+            write_node_wrapper(fake_node)
             result = subprocess.run(
                 [
                     str(DEPLOY),
@@ -251,11 +279,67 @@ class InviteProductionDeploySafetyTest(unittest.TestCase):
                     str(artifact_dir),
                 ],
                 cwd=ROOT,
+                env={**os.environ, "PARKIO_NODE_BINARY": str(fake_node)},
                 text=True,
                 capture_output=True,
                 check=False,
             )
             self.assertEqual(result.returncode, 2)
+            self.assertFalse(artifact_dir.exists())
+
+    def test_missing_node_refuses_before_artifact_creation(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            env_file = root / "input.env"
+            artifact_dir = root / "artifacts"
+            write_fixture_env(env_file)
+            result = subprocess.run(
+                [
+                    str(DEPLOY),
+                    "--dry-run",
+                    "--allow-dirty",
+                    "--env-file",
+                    str(env_file),
+                    "--artifact-dir",
+                    str(artifact_dir),
+                ],
+                cwd=ROOT,
+                env={**os.environ, "PARKIO_NODE_BINARY": "/nonexistent/parkio-node"},
+                text=True,
+                capture_output=True,
+                check=False,
+            )
+            self.assertEqual(result.returncode, 3)
+            self.assertIn("runtime is unavailable", result.stderr)
+            self.assertFalse(artifact_dir.exists())
+
+    def test_wrong_node_refuses_before_artifact_creation(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            env_file = root / "input.env"
+            artifact_dir = root / "artifacts"
+            wrong_node = root / "node"
+            write_fixture_env(env_file)
+            wrong_node.write_text("#!/usr/bin/env sh\nprintf '%s\\n' 'v22.23.1'\n")
+            wrong_node.chmod(wrong_node.stat().st_mode | stat.S_IXUSR)
+            result = subprocess.run(
+                [
+                    str(DEPLOY),
+                    "--dry-run",
+                    "--allow-dirty",
+                    "--env-file",
+                    str(env_file),
+                    "--artifact-dir",
+                    str(artifact_dir),
+                ],
+                cwd=ROOT,
+                env={**os.environ, "PARKIO_NODE_BINARY": str(wrong_node)},
+                text=True,
+                capture_output=True,
+                check=False,
+            )
+            self.assertEqual(result.returncode, 3)
+            self.assertIn("wrong Node.js runtime", result.stderr)
             self.assertFalse(artifact_dir.exists())
 
 

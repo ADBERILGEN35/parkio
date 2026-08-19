@@ -21,6 +21,7 @@ DRY_RUN=0
 SKIP_SMOKE=0
 HEALTH_TIMEOUT="${PARKIO_DEPLOY_HEALTH_TIMEOUT:-1200}"
 EXPECTED_SHA="${PARKIO_EXPECTED_GIT_SHA:-}"
+NODE_BINARY="${PARKIO_NODE_BINARY:-node}"
 
 while [ "$#" -gt 0 ]; do
   case "$1" in
@@ -37,6 +38,12 @@ while [ "$#" -gt 0 ]; do
 done
 
 cd "$ROOT"
+
+if [ "$DRY_RUN" -eq 1 ]; then
+  PARKIO_NODE_BINARY="$NODE_BINARY" "$ROOT/scripts/verify-node-runtime.sh"
+else
+  PARKIO_NODE_BINARY="$NODE_BINARY" "$ROOT/scripts/verify-invite-production-toolchain.sh"
+fi
 
 CURRENT_SHA="$(parkio_git_sha)"
 if [ -n "$EXPECTED_SHA" ]; then
@@ -144,7 +151,7 @@ COMPOSE_STRUCTURE="$ARTIFACT_DIR/compose-structure.json"
 COMPOSE_STRUCTURE_TMP="$ARTIFACT_DIR/.compose-structure.json.tmp"
 rm -f -- "$COMPOSE_STRUCTURE_TMP"
 if ! parkio_compose "$ENV_FILE" config --format json \
-  | node "$ROOT/scripts/lib/sanitize-compose-config.mjs" > "$COMPOSE_STRUCTURE_TMP"; then
+  | "$NODE_BINARY" "$ROOT/scripts/lib/sanitize-compose-config.mjs" > "$COMPOSE_STRUCTURE_TMP"; then
   rm -f -- "$COMPOSE_STRUCTURE_TMP"
   echo "ERROR: failed to produce secret-free Compose structural evidence." >&2
   exit 3

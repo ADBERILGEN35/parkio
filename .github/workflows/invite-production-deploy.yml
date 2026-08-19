@@ -58,6 +58,14 @@ jobs:
           fetch-depth: 0
           persist-credentials: false
 
+      - name: Set up pinned Node runtime
+        uses: actions/setup-node@v4
+        with:
+          node-version-file: .node-version
+
+      - name: Verify pinned Node runtime
+        run: ./scripts/verify-node-runtime.sh
+
       - name: Verify manual build pin
         if: ${{ github.event_name == 'workflow_dispatch' }}
         run: |
@@ -80,6 +88,7 @@ jobs:
           python3 scripts/azure/test_render_invite_production_env.py
           bash scripts/test-preflight-invite-production.sh
           bash scripts/test-invite-production-runner-guards.sh
+          python3 scripts/test_invite_production_node_runtime.py
           bash scripts/test-invite-dark-gateway.sh
           bash scripts/test-invite-dark-acme-isolation.sh
           bash scripts/test-invite-production-backup-scheduler.sh
@@ -195,6 +204,15 @@ jobs:
             --expected-sha '${{ inputs.git_sha }}' \
             --ref-sha '${{ github.sha }}' \
             --ref-name '${{ github.ref }}'
+
+      - name: Set up pinned Node runtime
+        uses: actions/setup-node@v4
+        with:
+          node-version-file: ${{ env.PARKIO_SOURCE_DIR }}/.node-version
+
+      - name: Verify production runner toolchain
+        working-directory: ${{ env.PARKIO_SOURCE_DIR }}
+        run: ./scripts/verify-invite-production-toolchain.sh
 
       - name: Verify dedicated host and Docker
         run: |
@@ -323,6 +341,15 @@ jobs:
           echo "PARKIO_GATEWAY_URL=$resolved" >> "$GITHUB_ENV"
           echo "Dark acceptance endpoint: $resolved"
 
+      - name: Set up pinned Node runtime
+        uses: actions/setup-node@v4
+        with:
+          node-version-file: ${{ env.PARKIO_SOURCE_DIR }}/.node-version
+
+      - name: Verify production runner toolchain
+        working-directory: ${{ env.PARKIO_SOURCE_DIR }}
+        run: ./scripts/verify-invite-production-toolchain.sh
+
       - name: Materialize secrets into tmpfs through VM managed identity
         working-directory: ${{ env.PARKIO_SOURCE_DIR }}
         run: |
@@ -400,6 +427,15 @@ jobs:
           resolved="${PARKIO_DARK_GATEWAY_INPUT:-$PARKIO_DARK_GATEWAY_ALLOWED_URL}"
           parkio_validate_dark_gateway_url "$resolved"
           echo "PARKIO_GATEWAY_URL=$resolved" >> "$GITHUB_ENV"
+
+      - name: Set up pinned Node runtime
+        uses: actions/setup-node@v4
+        with:
+          node-version-file: ${{ env.PARKIO_SOURCE_DIR }}/.node-version
+
+      - name: Verify production runner toolchain
+        working-directory: ${{ env.PARKIO_SOURCE_DIR }}
+        run: ./scripts/verify-invite-production-toolchain.sh
 
       - name: Materialize secrets into tmpfs through VM managed identity
         working-directory: ${{ env.PARKIO_SOURCE_DIR }}

@@ -83,6 +83,30 @@ expect_status "unsafe cleanup target rejected" 2 env \
   AZURE_CONFIG_DIR="$SECURE/parkio-azure-123-1" \
   "$ROOT/scripts/cleanup-invite-production-job.sh"
 
+# A setup-node/version failure happens after checkout but before env/Azure
+# materialization. The always() cleanup path must still remove that checkout and
+# tolerate the two secure-temp targets never having been created.
+DEPENDENCY_SOURCE="$WORKSPACE/source-456-1"
+DEPENDENCY_ENV="$SECURE/parkio-invite-production-456-1.env"
+DEPENDENCY_AZURE="$SECURE/parkio-azure-456-1"
+mkdir -p "$DEPENDENCY_SOURCE"
+printf '%s\n' checkout-only > "$DEPENDENCY_SOURCE/fixture.txt"
+expect_status "cleanup succeeds after pre-secret dependency failure" 0 env \
+  GITHUB_WORKSPACE="$WORKSPACE" \
+  PARKIO_SECURE_TMP_ROOT="$SECURE" \
+  PARKIO_SOURCE_DIR="$DEPENDENCY_SOURCE" \
+  PARKIO_ENV_FILE="$DEPENDENCY_ENV" \
+  AZURE_CONFIG_DIR="$DEPENDENCY_AZURE" \
+  "$ROOT/scripts/cleanup-invite-production-job.sh"
+
+TESTS=$((TESTS + 1))
+if [ ! -e "$DEPENDENCY_SOURCE" ] && [ ! -e "$DEPENDENCY_ENV" ] && [ ! -e "$DEPENDENCY_AZURE" ]; then
+  echo "PASS dependency failure cleanup leaves no source, env, or Azure cache"
+else
+  echo "FAIL dependency failure cleanup left per-job material"
+  FAILED=$((FAILED + 1))
+fi
+
 if [ "$FAILED" -ne 0 ]; then
   echo "RESULT: FAIL ($FAILED/$TESTS)"
   exit 1
