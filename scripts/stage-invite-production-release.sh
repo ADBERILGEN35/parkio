@@ -60,6 +60,22 @@ fi
 RELEASE="$(parkio_release_dir "$SHA")"
 parkio_assert_release_is_stable "$RELEASE"
 
+# The runner service runs with PrivateTmp=yes, which gives it a private /tmp
+# mount namespace. dockerd lives in the host namespace, so a release staged
+# under /tmp is INVISIBLE to it: every bind mount would silently auto-create an
+# empty directory at the target instead of binding the config. That is exactly
+# how acceptance run 32340585156 produced six misleading "cannot read" failures.
+# Fail closed rather than deploy a runtime whose config the daemon cannot see.
+case "$RUNTIME_ROOT" in
+  /tmp/*|/var/tmp/*)
+    if [ "${PARKIO_ALLOW_EPHEMERAL_ROOT:-0}" != "1" ]; then
+      echo "ERROR: refusing to stage a runtime release under $RUNTIME_ROOT" >&2
+      echo "       PrivateTmp=yes makes this path invisible to dockerd." >&2
+      exit 3
+    fi
+    ;;
+esac
+
 install -d -m "$PARKIO_RELEASE_DIR_MODE" "$RELEASES"
 
 if [ "$PRUNE_ONLY" -eq 0 ]; then

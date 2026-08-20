@@ -139,6 +139,47 @@ check "bootstrap fails closed on non-private PostgreSQL addresses" \
 check "bootstrap scopes PostGIS to parkio_parking" \
   "grep -q 'dbname=parkio_parking' '$boot'"
 
+echo "== R8-I: the live gate cannot repeat the run-32340585156 harness defects =="
+live="$ROOT/scripts/test-invite-production-release-containers.sh"
+check "live gate proves dockerd can see the staging path before asserting" \
+  "grep -q 'dockerd sees the staging path' '$live'"
+check "live gate refuses to fall back to /tmp on the runner" \
+  "grep -q 'Refusing to fall back to /tmp' '$live'"
+check "live gate verifies file CONTENT, not mere readability" \
+  "grep -q 'sha256sum /probe' '$live'"
+check "live gate probes nobody, 10001 and 472" \
+  "grep -q '10001|grafana/loki' '$live' && grep -q '472|grafana/grafana' '$live' && grep -q 'nobody|prom/prometheus' '$live'"
+check "live gate derives the image tag the way production does" \
+  "grep -q parkio_image_tag_for_sha '$live'"
+check "live gate uses the canonical compose file list" \
+  "grep -q parkio_configure_deployment_profile '$live'"
+check "live gate hard-codes no -f compose list" \
+  "! grep -qE \"^ *-f docker/docker-compose\" '$live'"
+check "live gate asserts the exact candidate image tag" \
+  "grep -q 'model pins the exact candidate image tag' '$live'"
+check "live gate asserts zero running _work mounts" \
+  "grep -q 'no running container bind-mounts the runner _work tree' '$live'"
+check "production staging refuses PrivateTmp roots" \
+  "grep -q 'PrivateTmp=yes makes this path invisible to dockerd' '$ROOT/scripts/stage-invite-production-release.sh'"
+
+echo "== R8-J: the workspace-mount migration is tightly scoped =="
+mig="$ROOT/scripts/migrate-invite-production-workspace-mounts.sh"
+check "migration exists" "[ -x '$mig' ]"
+check "migration scopes to the two known exporters only" \
+  "grep -q 'MIGRATE_SERVICES=(node-exporter blackbox-exporter)' '$mig'"
+check "migration recreates with --no-deps" \
+  "grep -q 'up -d --no-deps --force-recreate' '$mig'"
+check "migration never runs compose down" \
+  "! sed 's/#.*//' '$mig' | grep -qE 'compose[^|]*down|down -v'"
+check "migration refuses out-of-scope containers" \
+  "grep -q 'Refusing to act outside the audited migration scope' '$mig'"
+check "migration is invite-production only" \
+  "grep -q 'this migration is invite-production only' '$mig'"
+check "migration requires a staged stable release" \
+  "grep -q 'no stable runtime release staged for' '$mig'"
+check "migration proves zero _work mounts afterwards" \
+  "grep -q 'still bind-mount the runner workspace' '$mig'"
+
 echo
 echo "PROD-DEPLOY-01A-R8 regression gates: $PASS passed, $FAIL failed"
 [ "$FAIL" -eq 0 ]
