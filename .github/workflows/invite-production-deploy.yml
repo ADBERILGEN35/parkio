@@ -14,12 +14,13 @@ on:
   workflow_dispatch:
     inputs:
       action:
-        description: "build | runner-acceptance | deploy | rollback"
+        description: "build | runner-acceptance | workspace-migration | deploy | rollback"
         required: true
         type: choice
         options:
           - build
           - runner-acceptance
+          - workspace-migration
           - deploy
           - rollback
         default: build
@@ -306,6 +307,69 @@ jobs:
             case "$PARKIO_SOURCE_DIR" in "$GITHUB_WORKSPACE"/source-[0-9]*-[0-9]*) ;; *) exit 2 ;; esac
             case "$PARKIO_ENV_FILE" in /dev/shm/parkio-invite-production-[0-9]*-[0-9]*.env) ;; *) exit 2 ;; esac
             case "$AZURE_CONFIG_DIR" in /dev/shm/parkio-azure-[0-9]*-[0-9]*) ;; *) exit 2 ;; esac
+            rm -f -- "$PARKIO_ENV_FILE"
+            rm -rf -- "$AZURE_CONFIG_DIR" "$PARKIO_SOURCE_DIR"
+          fi
+
+  workspace-migration:
+    name: Migrate legacy workspace bind mounts
+    # One-time remediation for the containers the failed R7 deploy left bound to
+    # the deleted per-job checkout (PROD-DEPLOY-01A-R8.1). Scoped to node-exporter
+    # and blackbox-exporter; it recreates only those two services from the stable
+    # release and refuses to act if anything else is affected.
+    if: ${{ github.event_name == 'workflow_dispatch' && inputs.action == 'workspace-migration' && github.ref == 'refs/heads/api' && inputs.git_sha == github.sha }}
+    environment: invite-production
+    runs-on: [self-hosted, linux, x64, parkio-invite-production]
+    timeout-minutes: 30
+    env:
+      PARKIO_SOURCE_PATH: source-${{ github.run_id }}-${{ github.run_attempt }}
+      PARKIO_SOURCE_DIR: ${{ github.workspace }}/source-${{ github.run_id }}-${{ github.run_attempt }}
+      PARKIO_ENV_FILE: /dev/shm/parkio-invite-production-${{ github.run_id }}-${{ github.run_attempt }}.env
+      AZURE_CONFIG_DIR: /dev/shm/parkio-azure-${{ github.run_id }}-${{ github.run_attempt }}
+    steps:
+      - name: Checkout exact api SHA into a unique workspace
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.git_sha }}
+          fetch-depth: 0
+          clean: true
+          persist-credentials: false
+          path: ${{ env.PARKIO_SOURCE_PATH }}
+
+      - name: Verify trusted ref and clean checkout
+        working-directory: ${{ env.PARKIO_SOURCE_DIR }}
+        run: |
+          set -euo pipefail
+          ./scripts/verify-invite-production-ref.sh \
+            --expected-sha '${{ inputs.git_sha }}' \
+            --ref-sha '${{ github.sha }}' \
+            --ref-name '${{ github.ref }}'
+
+      - name: Stage the stable runtime release
+        working-directory: ${{ env.PARKIO_SOURCE_DIR }}
+        run: ./scripts/stage-invite-production-release.sh --sha '${{ inputs.git_sha }}'
+
+      - name: Materialize secrets into tmpfs through VM managed identity
+        working-directory: ${{ env.PARKIO_SOURCE_DIR }}
+        run: |
+          set -euo pipefail
+          install -d -m 700 "$AZURE_CONFIG_DIR"
+          ./scripts/azure/render-invite-production-env.sh --output "$PARKIO_ENV_FILE"
+          test "$(stat -c '%a' "$PARKIO_ENV_FILE")" = 600
+
+      - name: Rebind legacy workspace mounts onto the stable release
+        working-directory: ${{ env.PARKIO_SOURCE_DIR }}
+        run: ./scripts/migrate-invite-production-workspace-mounts.sh --sha '${{ inputs.git_sha }}'
+
+      - name: Cleanup per-job source and credentials
+        if: ${{ always() }}
+        run: |
+          set -euo pipefail
+          cleanup="$PARKIO_SOURCE_DIR/scripts/cleanup-invite-production-job.sh"
+          if [ -x "$cleanup" ]; then
+            "$cleanup"
+          else
+            case "$PARKIO_SOURCE_DIR" in "$GITHUB_WORKSPACE"/source-[0-9]*-[0-9]*) ;; *) exit 2 ;; esac
             rm -f -- "$PARKIO_ENV_FILE"
             rm -rf -- "$AZURE_CONFIG_DIR" "$PARKIO_SOURCE_DIR"
           fi

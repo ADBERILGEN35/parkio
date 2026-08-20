@@ -181,6 +181,15 @@ check "migration is invite-production only" \
   "grep -q 'this migration is invite-production only' '$mig'"
 check "migration requires a staged stable release" \
   "grep -q 'no stable runtime release staged for' '$mig'"
+wf="$ROOT/.github/workflows/invite-production-deploy.yml"
+check "workspace-migration is an explicit operator-triggered action" \
+  "grep -q \"inputs.action == 'workspace-migration'\" '$wf'"
+check "workspace-migration is environment-protected" \
+  "awk '/^  workspace-migration:/,/^  deploy:/' '$wf' | grep -q 'environment: invite-production'"
+check "workspace-migration stages the stable release before rebinding" \
+  "awk '/^  workspace-migration:/,/^  deploy:/' '$wf' | grep -q 'stage-invite-production-release.sh'"
+check "workspace-migration cleans up per-job secrets" \
+  "awk '/^  workspace-migration:/,/^  deploy:/' '$wf' | grep -q 'cleanup-invite-production-job.sh'"
 check "migration proves zero _work mounts afterwards" \
   "grep -q 'still bind-mount the runner workspace' '$mig'"
 
