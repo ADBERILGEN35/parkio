@@ -143,6 +143,22 @@ check "bootstrap fails closed on non-private PostgreSQL addresses" \
 check "bootstrap scopes PostGIS to parkio_parking" \
   "grep -q 'dbname=parkio_parking' '$boot'"
 
+echo "== R8-K: scripts invoked directly must be committed executable =="
+# core.fileMode=false on the WSL development checkout silently records new
+# scripts as 100644. The deploy and the workflow invoke these by path, not via
+# `bash`, so a non-executable mode is a deploy-blocking defect that only shows up
+# on the runner. Assert the mode git actually recorded, not the local file bit.
+for direct in \
+  scripts/stage-invite-production-release.sh \
+  scripts/migrate-invite-production-workspace-mounts.sh \
+  scripts/azure/install-invite-production-runtime-root.sh \
+  scripts/azure/install-invite-production-runner.sh \
+  scripts/cleanup-invite-production-job.sh \
+  scripts/deploy-invite-production.sh ; do
+  mode="$(git -C "$ROOT" ls-files -s -- "$direct" | awk '{print $1}')"
+  check "$direct is committed executable (got ${mode:-missing})" "[ \"$mode\" = 100755 ]"
+done
+
 echo "== R8-I: the live gate cannot repeat the run-32340585156 harness defects =="
 live="$ROOT/scripts/test-invite-production-release-containers.sh"
 check "live gate proves dockerd can see the staging path before asserting" \
