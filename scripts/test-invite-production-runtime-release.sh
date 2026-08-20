@@ -42,6 +42,10 @@ check "runner installer does not chmod 777" \
   "! grep -qE 'chmod +(-R +)?777' '$installer'"
 check "runtime-root provisioning does not chmod 777" \
   "! grep -qE 'chmod +(-R +)?777' '$ROOT/scripts/azure/install-invite-production-runtime-root.sh'"
+check "runtime-root provisioning creates a runner-owned acceptance area" \
+  "grep -q 'RUNTIME_ROOT/acceptance' '$ROOT/scripts/azure/install-invite-production-runtime-root.sh'"
+check "runtime-root provisioning re-asserts runner ownership" \
+  "grep -q 'chown \"\$RUNNER_USER\"' '$ROOT/scripts/azure/install-invite-production-runtime-root.sh'"
 check "runtime-root provisioning keeps certs restricted" \
   "grep -q 'chmod 0750 \"\$restricted\"' '$ROOT/scripts/azure/install-invite-production-runtime-root.sh'"
 

@@ -67,6 +67,17 @@ done
 
 install -d -o "$RUNNER_USER" -g "$RUNNER_USER" -m 0755 "$RUNTIME_ROOT"
 install -d -o "$RUNNER_USER" -g "$RUNNER_USER" -m 0755 "$RUNTIME_ROOT/releases"
+# Non-deploy acceptance stages a throwaway release here. It must live on the same
+# host-visible filesystem as a real release — /tmp is unusable because the runner
+# service runs with PrivateTmp=yes and dockerd cannot see into that namespace.
+install -d -o "$RUNNER_USER" -g "$RUNNER_USER" -m 0755 "$RUNTIME_ROOT/acceptance"
+
+# Ownership is re-asserted, not just created: a root-run diagnostic can leave one
+# of these directories root-owned, which silently blocks the sudo-less runner.
+for d in "$RUNTIME_ROOT" "$RUNTIME_ROOT/releases" "$RUNTIME_ROOT/acceptance"; do
+  chown "$RUNNER_USER":"$RUNNER_USER" "$d"
+  chmod 0755 "$d"
+done
 
 # Prove the traversal chain a non-root container UID actually walks.
 dir="$RUNTIME_ROOT/releases"
@@ -82,4 +93,5 @@ done
 echo "Invite-production runtime root provisioned."
 stat -c 'runtimeRoot=%n owner=%U:%G mode=%a' "$RUNTIME_ROOT"
 stat -c 'releases=%n owner=%U:%G mode=%a' "$RUNTIME_ROOT/releases"
+stat -c 'acceptance=%n owner=%U:%G mode=%a' "$RUNTIME_ROOT/acceptance"
 stat -c 'parkioBase=%n owner=%U:%G mode=%a' "$PARKIO_BASE"
