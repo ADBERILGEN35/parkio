@@ -100,6 +100,36 @@ else
   bad "promtool check config failed against the staged release"
 fi
 
+echo "== the Compose model resolves from the release (which has no services/ tree) =="
+# The release deliberately contains config only, so docker-compose.apps.yml's
+# `context: ..` points at the release root rather than a source tree. Runtime
+# Compose must still load and must resolve every bind mount into the release.
+envfile="$TMP/model.env"
+cp "$ROOT/docker/.env.invite-production.example" "$envfile"
+model="$TMP/model.json"
+if ( cd "$RELEASE" && docker compose --env-file "$envfile" \
+       -f docker/docker-compose.yml \
+       -f docker/docker-compose.apps.yml \
+       -f docker/docker-compose.images.yml \
+       -f docker/docker-compose.hosted-beta.yml \
+       -f docker/docker-compose.managed-db.yml \
+       -f docker/docker-compose.invite-dark.yml \
+       config --format json ) > "$model" 2>"$TMP/model.err"; then
+  ok "Compose model loads from the staged release"
+  if grep -qE '"[^"]*/_work/|"[^"]*/source-[0-9]+-[0-9]+/' "$model"; then
+    bad "the resolved model still references the Actions workspace"
+  else
+    ok "no resolved bind mount points into the Actions workspace"
+  fi
+  if grep -q "$RELEASE/docker/prometheus/prometheus.yml" "$model"; then
+    ok "Prometheus config resolves into the stable release"
+  else
+    bad "Prometheus config did not resolve into the stable release"
+  fi
+else
+  bad "Compose model failed to load from the staged release: $(tail -3 "$TMP/model.err" | tr '\n' ' ')"
+fi
+
 echo
 echo "R8-D live container gate: $PASS passed, $FAIL failed"
 [ "$FAIL" -eq 0 ]
