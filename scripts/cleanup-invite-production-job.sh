@@ -45,4 +45,27 @@ fi
 [ ! -e "$AZURE_DIR" ] || fail "Azure token-cache cleanup failed"
 [ ! -e "$SOURCE_DIR" ] || fail "per-run source cleanup failed"
 
+# Cleanup must never invalidate the live runtime (PROD-DEPLOY-01A-R8 / DEFECT-2).
+# Deleting the checkout used to remove the bind-mount sources of the running
+# stack; Docker then re-created them as empty directories and the observability
+# containers could not restart at all. Prove no running container depends on
+# anything we just deleted.
+if command -v docker >/dev/null 2>&1; then
+  dangling=""
+  for cid in $(docker ps -q 2>/dev/null || true); do
+    while IFS= read -r src; do
+      [ -n "$src" ] || continue
+      case "$src" in
+        "$SOURCE_DIR"/*|"$SOURCE_DIR"|"$WORKSPACE_ROOT"/*|*/_work/*)
+          dangling="$dangling
+  $(docker inspect -f '{{.Name}}' "$cid" 2>/dev/null | sed 's|^/||'): $src"
+          ;;
+      esac
+    done < <(docker inspect -f '{{range .Mounts}}{{println .Source}}{{end}}' "$cid" 2>/dev/null || true)
+  done
+  if [ -n "$dangling" ]; then
+    fail "running containers bind-mount paths from the ephemeral workspace:$dangling"
+  fi
+fi
+
 echo "Invite-production job cleanup passed."

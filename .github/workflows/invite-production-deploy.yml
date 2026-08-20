@@ -92,6 +92,7 @@ jobs:
           bash scripts/test-invite-dark-gateway.sh
           bash scripts/test-invite-dark-acme-isolation.sh
           bash scripts/test-invite-production-backup-scheduler.sh
+          bash scripts/test-invite-production-runtime-release.sh
           python3 scripts/test_assert_invite_production_artifacts_safe.py
           python3 scripts/test_invite_production_deploy_safety.py
           node --test scripts/lib/sanitize-compose-config.test.mjs
@@ -229,6 +230,10 @@ jobs:
           docker version --format 'Docker server {{.Server.Version}}'
           docker compose version
           test ! -e "$PARKIO_ENV_FILE"
+
+      - name: Runtime release is consumable by non-root containers
+        working-directory: ${{ env.PARKIO_SOURCE_DIR }}
+        run: bash scripts/test-invite-production-release-containers.sh
 
       - name: Verify managed identity and production resource identities
         working-directory: ${{ env.PARKIO_SOURCE_DIR }}

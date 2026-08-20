@@ -161,11 +161,33 @@ parkio_image_ref() {
   echo "parkio/${1}:${2}"
 }
 
+# Runtime Compose. When PARKIO_COMPOSE_BASE_DIR is set (the invite-production
+# deploy points it at the stable runtime release) every relative bind mount in
+# the model resolves against that stable directory instead of the ephemeral
+# Actions checkout — see scripts/lib/runtime-release.sh for why that matters.
+# Compose keys the project off `name: parkio` in the model, so changing the base
+# directory never forks the project identity.
 parkio_compose() {
   local env_file="$1"
   shift
+  local base="${PARKIO_COMPOSE_BASE_DIR:-}"
+  if [ -n "$base" ]; then
+    # shellcheck disable=SC2086
+    (cd "$base" && docker compose --env-file "$env_file" $PARKIO_COMPOSE_FILES "$@")
+    return
+  fi
   # shellcheck disable=SC2086
   docker compose --env-file "$env_file" $PARKIO_COMPOSE_FILES "$@"
+}
+
+# Build Compose. Builds need the source tree (`context: ..` reaches the repo
+# root), so they always run against the checkout, never against a release — a
+# release deliberately contains config only.
+parkio_compose_build() {
+  local env_file="$1"
+  shift
+  # shellcheck disable=SC2086
+  (cd "$(parkio_repo_root)" && docker compose --env-file "$env_file" $PARKIO_COMPOSE_FILES "$@")
 }
 
 # Compose v2.24+ omits inactive-profile services from the resolved model

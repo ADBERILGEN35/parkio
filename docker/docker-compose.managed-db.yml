@@ -92,6 +92,38 @@ services:
       SPRING_DATASOURCE_URL: jdbc:postgresql://${PARKIO_PG_HOST}:5432/${POSTGRES_PARKING_DB:-parkio_parking}?${PARKIO_PG_JDBC_QUERY:-sslmode=verify-full}
       SPRING_FLYWAY_USER: ${POSTGRES_PARKING_MIGRATION_USER:-parkio_parking_migrator}
       SPRING_FLYWAY_PASSWORD: ${POSTGRES_PARKING_MIGRATION_PASSWORD}
+      # PostGIS is INFRASTRUCTURE, not an application privilege
+      # (PROD-DEPLOY-01A-R8 / DEFECT-3).
+      #
+      # scripts/azure/bootstrap-invite-production-databases.sh already creates
+      # the extension as the `parkioops` administrator before any service runs,
+      # and its evidence file records postgis=3.6.1 against parkio_parking.
+      # Despite that, V1__enable_postgis.sql still crash-looped parking-service:
+      #
+      #   ERROR: Because postgis isn't a trusted extension, only members of
+      #          "azure_pg_admin" are allowed to use CREATE EXTENSION postgis
+      #
+      # That is the decisive datum. On Azure Flexible Server the extension guard
+      # is a utility hook that fires on the CREATE EXTENSION statement itself,
+      # *before* PostgreSQL's own "already exists, skipping" short-circuit — so
+      # even `CREATE EXTENSION IF NOT EXISTS` is rejected for a non-admin role on
+      # a database where the extension is already installed. V1 can therefore
+      # never execute here, no matter how idempotent its SQL is.
+      #
+      # V1's file is deliberately left byte-identical instead of being rewritten:
+      # it has already been applied successfully on environments that run a local
+      # PostgreSQL as owner (hosted-beta), where its checksum is recorded in
+      # flyway_schema_history. Editing it would break those environments with a
+      # validation failure, so the fix is scoped to the managed-DB profile that
+      # actually has the privilege constraint.
+      #
+      # Baselining at version 1 records `<< Flyway Baseline >>` and applies V2+.
+      # It only engages when there is no schema history at all, so it cannot skip
+      # migrations on an already-migrated database. If PostGIS were ever missing,
+      # V2's geography column fails loudly rather than corrupting anything.
+      SPRING_FLYWAY_BASELINE_ON_MIGRATE: "true"
+      SPRING_FLYWAY_BASELINE_VERSION: "1"
+      SPRING_FLYWAY_BASELINE_DESCRIPTION: "PostGIS preprovisioned by infrastructure bootstrap"
     volumes:
       - ${PARKIO_PG_SSLROOTCERT_HOST:-/opt/parkio/certs/azure-postgres-root.crt}:/opt/parkio/certs/azure-postgres-root.crt:ro
     depends_on: !override

@@ -12,6 +12,7 @@ set -euo pipefail
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 source "$ROOT/scripts/lib/deploy-common.sh"
 source "$ROOT/scripts/lib/disk-space.sh"
+source "$ROOT/scripts/lib/runtime-release.sh"
 
 ENV_FILE="${PARKIO_ENV_FILE:-docker/.env.invite-production}"
 ARTIFACT_DIR="${PARKIO_DEPLOY_ARTIFACT_DIR:-deploy-artifacts/invite-production}"
@@ -144,6 +145,20 @@ if ! parkio_require_free_disk /; then
   exit 3
 fi
 
+# Stage the stable runtime release BEFORE any Compose command touches the model
+# (PROD-DEPLOY-01A-R8 / DEFECT-1 + DEFECT-2). From here on every runtime Compose
+# invocation resolves its relative bind mounts against the release, so the live
+# stack never depends on the Actions checkout that cleanup deletes, and every
+# config file is readable by the non-root UIDs the observability images use.
+if [ "$DRY_RUN" -ne 1 ]; then
+  echo "Staging stable runtime release..."
+  "$ROOT/scripts/stage-invite-production-release.sh" --sha "$GIT_SHA" --source "$ROOT"
+  RELEASE_DIR="$(parkio_release_dir "$GIT_SHA")"
+  parkio_assert_release_is_stable "$RELEASE_DIR"
+  export PARKIO_COMPOSE_BASE_DIR="$RELEASE_DIR"
+  echo "composeBaseDir=$PARKIO_COMPOSE_BASE_DIR"
+fi
+
 echo "Rendering compose config..."
 mkdir -p "$ARTIFACT_DIR"
 parkio_compose "$ENV_FILE" config --quiet
@@ -198,7 +213,7 @@ fi
 echo "Building images from current source..."
 for svc in "${PARKIO_APP_SERVICES[@]}"; do
   echo "=== Building $svc ==="
-  parkio_compose "$ENV_FILE" build "$svc"
+  parkio_compose_build "$ENV_FILE" build "$svc"
 done
 
 echo "Tagging invite-production-latest..."
@@ -216,6 +231,12 @@ parkio_compose_up "$ENV_FILE"
 
 echo "Waiting for health checks..."
 parkio_wait_healthy "$ENV_FILE" "$HEALTH_TIMEOUT"
+
+# Activate only after health: `current` must always name a release that was
+# proven to start, so rollback has a trustworthy previous target.
+echo "Activating runtime release..."
+parkio_activate_release "$GIT_SHA"
+"$ROOT/scripts/stage-invite-production-release.sh" --sha "$GIT_SHA" --prune-only
 
 if [ "$SKIP_SMOKE" -ne 1 ]; then
   echo "Running smoke checks..."

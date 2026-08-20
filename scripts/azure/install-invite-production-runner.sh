@@ -54,6 +54,12 @@ passwd -l "$RUNNER_USER" >/dev/null
 install -d -o "$RUNNER_USER" -g "$RUNNER_USER" -m 0750 "$RUNNER_HOME"
 install -d -o "$RUNNER_USER" -g "$RUNNER_USER" -m 0750 "$RUNNER_DIR"
 
+# The stable runtime root must exist before the first deploy: the runner has no
+# sudo and cannot create it later (PROD-DEPLOY-01A-R8). Kept in its own script so
+# an already-registered host can be provisioned without re-running registration.
+PARKIO_RUNNER_USER="$RUNNER_USER" \
+  "$(dirname "$0")/install-invite-production-runtime-root.sh"
+
 archive="$(mktemp "/tmp/${RUNNER_ARCHIVE}.XXXXXX")"
 cleanup() {
   rm -f -- "$archive"

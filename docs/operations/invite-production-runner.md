@@ -36,6 +36,47 @@ The account has no sudo grant. It belongs to the Docker group solely for the
 future separately authorized deploy job. It cannot read unrelated operator home
 directories through any Parkio-created permission.
 
+## Stable runtime root and permission model
+
+The runner service is hardened with `UMask=0077`, so everything
+`actions/checkout` writes into `_work` is mode `0600` and every directory it
+creates is `0700`. Containers that drop to a non-root UID cannot read those
+files. That is the correct hardening, and it is not relaxed.
+
+The consequence is that the long-lived runtime must not be served out of the
+workspace at all. Non-secret runtime configuration is staged into an immutable,
+SHA-addressed release under a stable root that is provisioned once, as root, by
+`scripts/azure/install-invite-production-runtime-root.sh`:
+
+```
+/opt/parkio                                    parkioops   0755  (traversal only)
+/opt/parkio/certs                              parkioops   0750  (unchanged)
+/opt/parkio/deploy-artifacts                   parkioops   0750  (unchanged)
+/opt/parkio/invite-production                  parkio-runner 0755
+/opt/parkio/invite-production/releases/<sha>/  parkio-runner 0755  dirs
+    docker/**                                                0644  files
+    docker/**/*.sh                                           0755  scripts
+/opt/parkio/invite-production/current -> releases/<sha>
+```
+
+- `/opt/parkio` is `0755` so non-root container UIDs can traverse to a release.
+  Only the directory listing is exposed; the secret-bearing children keep `0750`
+  and the provisioning script re-asserts that on every run.
+- Release modes are set explicitly with `install`, never inherited from the
+  umask, so the runner's `0077` cannot silently re-tighten a file a container
+  must read.
+- Releases contain no env material. `.env*` is excluded at staging time and the
+  absence is asserted; secrets stay in the per-job `/dev/shm` env file and are
+  interpolated by Compose at `up` time.
+- The deploy runner still has no sudo. It can write releases because the root
+  was pre-created with runner ownership — it can never create or re-permission
+  the root itself.
+
+Releases are immutable: staging an existing SHA is a no-op rather than a
+rebuild, because running containers bind-mount directly into the release tree.
+Retention keeps the most recent releases and never reclaims the active release,
+the release named by `current`, or one still mounted by a running container.
+
 ## Installation and registration
 
 `scripts/azure/install-invite-production-runner.sh` pins the official GitHub
