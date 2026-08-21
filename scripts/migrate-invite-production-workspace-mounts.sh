@@ -71,18 +71,35 @@ echo "=== Legacy workspace bind-mount migration ==="
 echo "release=$RELEASE"
 echo "services=${MIGRATE_SERVICES[*]}"
 
-stale_before() {
-  local cid name
-  for cid in $(docker ps -q 2>/dev/null || true); do
-    name="$(docker inspect -f '{{.Name}}' "$cid" | sed 's|^/||')"
-    docker inspect -f '{{range .Mounts}}{{println .Source}}{{end}}' "$cid" 2>/dev/null \
-      | grep -q '/_work/' && echo "$name"
-  done | sort -u
-}
-
 echo "--- running containers bind-mounting _work (before) ---"
-before="$(stale_before)"
+before="$(parkio_stale_work_mounts)"
 [ -n "$before" ] && echo "$before" || echo "(none)"
+
+# Idempotency. The migration is a state convergence, not a scheduled restart:
+# once nothing bind-mounts the workspace there is nothing to converge, and
+# recreating the exporters anyway would be an unnecessary production mutation.
+# Re-running the action at a new SHA to certify the fixed code must therefore be
+# a proven no-op, not a repeat of the original change.
+if [ -z "$before" ]; then
+  echo "Already migrated: no running container bind-mounts the runner workspace."
+  echo "No service will be recreated, restarted, or replaced."
+  for svc in "${MIGRATE_SERVICES[@]}"; do
+    cid="$(parkio_compose "$ENV_FILE" ps -q "$svc" 2>/dev/null || true)"
+    if [ -z "$cid" ]; then
+      echo "ERROR: $svc is not running; refusing to report a clean no-op" >&2
+      exit 3
+    fi
+    if ! docker inspect -f '{{range .Mounts}}{{println .Source}}{{end}}' "$cid" \
+         | grep -q "^$RELEASE/"; then
+      echo "ERROR: $svc does not bind the stable release $RELEASE" >&2
+      exit 3
+    fi
+    echo "--- $svc (unchanged) ---"
+    docker inspect -f '  id={{slice .Id 0 12}} state={{.State.Status}} started={{.State.StartedAt}} restarts={{.RestartCount}}' "$cid"
+  done
+  echo "Legacy workspace bind-mount migration passed (no-op: already migrated)."
+  exit 0
+fi
 
 # Refuse to migrate anything we did not explicitly scope. If a container other
 # than the two known exporters is affected, that is new information and needs a
@@ -111,7 +128,7 @@ echo "--- recreating scoped services from the stable release ---"
 parkio_compose "$ENV_FILE" up -d --no-deps --force-recreate "${MIGRATE_SERVICES[@]}"
 
 echo "--- running containers bind-mounting _work (after) ---"
-after="$(stale_before)"
+after="$(parkio_stale_work_mounts)"
 if [ -n "$after" ]; then
   echo "$after"
   echo "ERROR: running containers still bind-mount the runner workspace." >&2

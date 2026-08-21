@@ -200,6 +200,45 @@ parkio_assert_release_readable() {
   echo "Release $sha is readable by non-root container UIDs."
 }
 
+# Names of running containers that still bind-mount the runner workspace.
+#
+# EMPTY OUTPUT IS SUCCESS. That is the migrated steady state, and it must exit 0
+# (PROD-DEPLOY-01A-R8.2). The previous formulation ended the loop body with
+# `grep -q ... && echo "$name"`, so with `set -euo pipefail` a zero-match scan
+# returned 1 and killed the caller at the exact moment migration had succeeded —
+# the helper could only "pass" while the defect it checks for was still present.
+#
+# A Docker failure is emphatically NOT the same as "no matches": it returns 2 so
+# the caller fails closed instead of concluding the workspace is clean. That is
+# why there is no blanket `|| true` here — silencing docker would turn an
+# inspection outage into a false all-clear.
+parkio_stale_work_mounts() {
+  local ids cid name sources found=""
+  if ! ids="$(docker ps -q)"; then
+    echo "ERROR: unable to list running containers" >&2
+    return 2
+  fi
+  for cid in $ids; do
+    if ! sources="$(docker inspect -f '{{range .Mounts}}{{println .Source}}{{end}}' "$cid")"; then
+      echo "ERROR: unable to inspect container $cid" >&2
+      return 2
+    fi
+    case "$sources" in
+      *"/_work/"*)
+        if ! name="$(docker inspect -f '{{slice .Name 1}}' "$cid")"; then
+          echo "ERROR: unable to read the name of container $cid" >&2
+          return 2
+        fi
+        found="$found$name
+"
+        ;;
+    esac
+  done
+  # No matches: emit nothing and succeed.
+  [ -n "$found" ] || return 0
+  printf '%s' "$found" | sort -u
+}
+
 # A release must never be reachable from the Actions workspace, or DEFECT-2 is
 # back: cleanup would delete the live runtime's bind-mount sources.
 parkio_assert_release_is_stable() {

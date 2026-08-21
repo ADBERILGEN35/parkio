@@ -94,6 +94,7 @@ jobs:
           bash scripts/test-invite-dark-acme-isolation.sh
           bash scripts/test-invite-production-backup-scheduler.sh
           bash scripts/test-invite-production-runtime-release.sh
+          bash scripts/test-invite-production-workspace-migration.sh
           python3 scripts/test_assert_invite_production_artifacts_safe.py
           python3 scripts/test_invite_production_deploy_safety.py
           node --test scripts/lib/sanitize-compose-config.test.mjs
