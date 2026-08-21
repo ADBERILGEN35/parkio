@@ -32,6 +32,49 @@ source "$ROOT/scripts/lib/runtime-release.sh"
 # this is a one-time migration, not a general restart tool.
 MIGRATE_SERVICES=(node-exporter blackbox-exporter)
 
+# Mount type each exporter consumes from a release, so the verifier can reject a
+# file/directory mix-up rather than just checking the path shape.
+parkio_expected_mount_type() {
+  case "$1" in
+    node-exporter)     echo dir ;;   # prometheus/textfile collector directory
+    blackbox-exporter) echo file ;;  # blackbox/blackbox.yml
+    *) echo "ERROR: no expected mount type for '$1'" >&2; return 1 ;;
+  esac
+}
+
+# Report the release each target exporter is bound to, validating that the mount
+# is a genuine immutable SHA-addressed release. Emits "<service> <sha>" per line.
+parkio_verify_exporter_release() {
+  local svc="$1" cid="$2" want_type src sha ok=1
+  want_type="$(parkio_expected_mount_type "$svc")" || return 1
+  local sources
+  if ! sources="$(docker inspect -f '{{range .Mounts}}{{println .Source}}{{end}}' "$cid")"; then
+    echo "ERROR: unable to inspect $svc ($cid)" >&2
+    return 2
+  fi
+  while IFS= read -r src; do
+    [ -n "$src" ] || continue
+    case "$src" in
+      /proc|/sys|/|/proc/*|/sys/*) continue ;;   # host telemetry mounts, not config
+    esac
+    if sha="$(parkio_release_sha_for_mount "$src" "$want_type" 2>/dev/null)"; then
+      printf '%s %s\n' "$svc" "$sha"
+      ok=0
+    fi
+  done <<<"$sources"
+  if [ "$ok" -ne 0 ]; then
+    echo "ERROR: $svc has no valid immutable stable-release mount" >&2
+    # Surface why the candidate paths were rejected.
+    while IFS= read -r src; do
+      [ -n "$src" ] || continue
+      case "$src" in /proc|/sys|/|/proc/*|/sys/*) continue ;; esac
+      parkio_release_sha_for_mount "$src" "$want_type" >/dev/null || true
+    done <<<"$sources"
+    return 1
+  fi
+  return 0
+}
+
 ENV_FILE="${PARKIO_ENV_FILE:-}"
 SHA=""
 DRY_RUN=0
@@ -83,19 +126,24 @@ before="$(parkio_stale_work_mounts)"
 if [ -z "$before" ]; then
   echo "Already migrated: no running container bind-mounts the runner workspace."
   echo "No service will be recreated, restarted, or replaced."
+  # An already-migrated exporter keeps whatever valid release it was migrated
+  # onto. It does NOT have to adopt the candidate: requiring that would make
+  # every commit force a recreate, contradicting this very code path.
+  # node-exporter and blackbox-exporter mount independent config, so they are
+  # each validated on their own and are permitted to sit on different releases.
   for svc in "${MIGRATE_SERVICES[@]}"; do
     cid="$(parkio_compose "$ENV_FILE" ps -q "$svc" 2>/dev/null || true)"
     if [ -z "$cid" ]; then
       echo "ERROR: $svc is not running; refusing to report a clean no-op" >&2
       exit 3
     fi
-    if ! docker inspect -f '{{range .Mounts}}{{println .Source}}{{end}}' "$cid" \
-         | grep -q "^$RELEASE/"; then
-      echo "ERROR: $svc does not bind the stable release $RELEASE" >&2
+    if ! bound="$(parkio_verify_exporter_release "$svc" "$cid")"; then
+      echo "ERROR: $svc is not on a valid immutable stable release" >&2
       exit 3
     fi
     echo "--- $svc (unchanged) ---"
     docker inspect -f '  id={{slice .Id 0 12}} state={{.State.Status}} started={{.State.StartedAt}} restarts={{.RestartCount}}' "$cid"
+    echo "$bound" | sed 's/^/  boundRelease=/'
   done
   echo "Legacy workspace bind-mount migration passed (no-op: already migrated)."
   exit 0
@@ -136,13 +184,22 @@ if [ -n "$after" ]; then
 fi
 echo "(none)"
 
+# A RECREATED exporter is different from an already-stable one: it was just
+# rebuilt from the candidate model, so it must land on the candidate release.
 for svc in "${MIGRATE_SERVICES[@]}"; do
   cid="$(parkio_compose "$ENV_FILE" ps -q "$svc" 2>/dev/null || true)"
   [ -n "$cid" ] || { echo "ERROR: $svc is not running after migration" >&2; exit 3; }
   echo "--- $svc ---"
-  docker inspect -f '  state={{.State.Status}} restarts={{.RestartCount}}' "$cid"
-  docker inspect -f '{{range .Mounts}}  mount {{.Source}} -> {{.Destination}}{{println}}{{end}}' "$cid" \
-    | grep -v '^\s*$' || true
+  docker inspect -f '  id={{slice .Id 0 12}} state={{.State.Status}} restarts={{.RestartCount}}' "$cid"
+  if ! bound="$(parkio_verify_exporter_release "$svc" "$cid")"; then
+    echo "ERROR: $svc is not on a valid immutable stable release after migration" >&2
+    exit 3
+  fi
+  echo "$bound" | sed 's/^/  boundRelease=/'
+  if ! grep -q " $SHA\$" <<<"$bound"; then
+    echo "ERROR: recreated $svc did not adopt the candidate release $SHA" >&2
+    exit 3
+  fi
 done
 
 echo "Legacy workspace bind-mount migration passed."

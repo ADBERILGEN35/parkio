@@ -111,8 +111,8 @@ check "zero-stale path exits 0 as an explicit no-op" \
   "grep -q 'no-op: already migrated' '$mig'"
 check "zero-stale path recreates nothing" \
   "grep -q 'No service will be recreated, restarted, or replaced' '$mig'"
-check "no-op still proves both exporters bind the stable release" \
-  "grep -q 'does not bind the stable release' '$mig'"
+check "no-op still proves both exporters are on a valid stable release" \
+  "grep -q 'is not on a valid immutable stable release' '$mig'"
 check "stale path still recreates only the authorized exporters" \
   "grep -q 'up -d --no-deps --force-recreate \"\${MIGRATE_SERVICES\[@\]}\"' '$mig'"
 check "scope stays the two exporters" \
@@ -130,6 +130,150 @@ echo "== 8. cleanup still proves zero _work mounts =="
 check "cleanup asserts no running container mounts the workspace" \
   "grep -q 'bind-mount paths from the ephemeral workspace' '$ROOT/scripts/cleanup-invite-production-job.sh'"
 
+# ---------------------------------------------------------------------------
+# R8.3 stable-release mount verifier state matrix.
+#
+# Models the exact production state that failed run 32460819264: the exporters
+# sit on an OLDER valid release while a NEWER candidate has just been staged.
+# The old verifier demanded the candidate and rejected the correct state.
+# ---------------------------------------------------------------------------
 echo
-echo "R8.2 workspace-migration gates: $PASS passed, $FAIL failed"
+echo "== R8.3 stable-release mount verifier =="
+
+RROOT="$TMP/opt/parkio/invite-production"
+export PARKIO_RUNTIME_ROOT="$RROOT"
+OLD_SHA="7c2c8b80fa6429129c9cf3c008d7ca8443795365"
+NEW_SHA="ad6c3ebcb6494650e01d6295a7a355928a6fe2c4"
+mk_release() {
+  local sha="$1"
+  local d="$RROOT/releases/$sha"
+  install -d -m 0755 "$d/docker/prometheus/textfile" "$d/docker/blackbox"
+  install -m 0644 /dev/null "$d/docker/docker-compose.yml"
+  install -m 0644 /dev/null "$d/docker/blackbox/blackbox.yml"
+}
+install -d -m 0755 "$RROOT/releases" "$RROOT/acceptance"
+mk_release "$OLD_SHA"
+mk_release "$NEW_SHA"
+
+vok()  { # expect success and a specific SHA
+  local desc="$1" src="$2" typ="$3" want="$4" got
+  if got="$(parkio_release_sha_for_mount "$src" "$typ" 2>/dev/null)" && [ "$got" = "$want" ]; then
+    ok "$desc"
+  else
+    bad "$desc (got '${got:-<fail>}', wanted '$want')"
+  fi
+}
+vfail() { # expect rejection
+  local desc="$1" src="$2" typ="$3"
+  if parkio_release_sha_for_mount "$src" "$typ" >/dev/null 2>&1; then
+    bad "$desc (was accepted)"
+  else
+    ok "$desc"
+  fi
+}
+
+echo "-- L/D: already stable on an OLDER release while a newer candidate exists --"
+vok "older release blackbox mount accepted, reports its own SHA" \
+  "$RROOT/releases/$OLD_SHA/docker/blackbox/blackbox.yml" file "$OLD_SHA"
+vok "older release node textfile dir accepted" \
+  "$RROOT/releases/$OLD_SHA/docker/prometheus/textfile" dir "$OLD_SHA"
+vok "candidate release also accepted" \
+  "$RROOT/releases/$NEW_SHA/docker/blackbox/blackbox.yml" file "$NEW_SHA"
+
+echo "-- E: two exporters on DIFFERENT valid releases are each independently valid --"
+a="$(parkio_release_sha_for_mount "$RROOT/releases/$OLD_SHA/docker/prometheus/textfile" dir)"
+b="$(parkio_release_sha_for_mount "$RROOT/releases/$NEW_SHA/docker/blackbox/blackbox.yml" file)"
+{ [ "$a" = "$OLD_SHA" ] && [ "$b" = "$NEW_SHA" ]; } \
+  && ok "different release SHAs per exporter both validate (no shared-release requirement)" \
+  || bad "mixed-release validation failed ($a / $b)"
+
+echo "-- F/G/H/I: malformed and escaping sources are rejected --"
+install -d -m 0755 "$RROOT/releases/not-a-sha/docker"
+install -m 0644 /dev/null "$RROOT/releases/not-a-sha/docker/blackbox.yml"
+vfail "non-SHA release directory rejected" "$RROOT/releases/not-a-sha/docker/blackbox.yml" file
+vfail "short/invalid SHA rejected" "$RROOT/releases/abc123/docker/blackbox.yml" file
+install -d -m 0755 "$RROOT/acceptance/999/releases/$OLD_SHA/docker/blackbox"
+install -m 0644 /dev/null "$RROOT/acceptance/999/releases/$OLD_SHA/docker/blackbox/blackbox.yml"
+vfail "acceptance scratch path rejected" \
+  "$RROOT/acceptance/999/releases/$OLD_SHA/docker/blackbox/blackbox.yml" file
+vfail "runner _work path rejected" \
+  "/opt/actions-runner/parkio-invite-production/_work/parkio/parkio/source-1-1/docker/blackbox/blackbox.yml" file
+ln -sfn "$RROOT" "$RROOT/current" 2>/dev/null || true
+vfail "mount through the mutable 'current' pointer rejected" \
+  "$RROOT/current/docker/blackbox/blackbox.yml" file
+printf 'x\n' > "$TMP/outside.yml"
+ln -sfn "$TMP/outside.yml" "$RROOT/releases/$OLD_SHA/docker/escape.yml"
+vfail "symlink escaping the release root rejected" \
+  "$RROOT/releases/$OLD_SHA/docker/escape.yml" file
+vfail "missing source rejected" "$RROOT/releases/$OLD_SHA/docker/absent.yml" file
+vfail "arbitrary directory under /opt/parkio rejected" "$RROOT/docker/blackbox.yml" file
+vfail "release root itself is not a valid mount" "$RROOT/releases/$OLD_SHA" dir
+
+echo "-- type contract --"
+vfail "file expected but a directory supplied" \
+  "$RROOT/releases/$OLD_SHA/docker/prometheus/textfile" file
+vfail "directory expected but a file supplied" \
+  "$RROOT/releases/$OLD_SHA/docker/blackbox/blackbox.yml" dir
+
+echo "-- release completeness (backward compatible: structure, not metadata) --"
+install -d -m 0755 "$RROOT/releases/bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb/docker/blackbox"
+install -m 0644 /dev/null "$RROOT/releases/bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb/docker/blackbox/blackbox.yml"
+vfail "SHA-named directory without a staged compose model rejected" \
+  "$RROOT/releases/bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb/docker/blackbox/blackbox.yml" file
+check2() { if eval "$2"; then ok "$1"; else bad "$1"; fi; }
+check2 "pre-R8.3 releases stay valid without retrofitted metadata" \
+  "[ ! -e '$RROOT/releases/$OLD_SHA/release.json' ]"
+
+echo "-- A/B/C: migration script distinguishes the two paths --"
+check2 "no-op path accepts any valid stable release" \
+  "grep -q 'does NOT have to adopt the candidate' '$mig'"
+check2 "no-op path logs the actual bound release SHA" \
+  "grep -q 'boundRelease=' '$mig'"
+check2 "recreated exporters must adopt the candidate release" \
+  "grep -q 'did not adopt the candidate release' '$mig'"
+check2 "per-service mount type is asserted" \
+  "grep -q 'parkio_expected_mount_type' '$mig'"
+check2 "stale path still recreates only authorized exporters" \
+  "grep -q 'up -d --no-deps --force-recreate' '$mig'"
+check2 "verifier is shared, not duplicated between layers" \
+  "grep -q 'parkio_release_sha_for_mount' '$ROOT/scripts/lib/runtime-release.sh'"
+check2 "no weak substring test for releases/" \
+  "! grep -q \"grep -q .releases/\" '$mig'"
+
+echo "-- MANDATORY: the exact state that failed run 32460819264 --"
+# candidate = ad6c3eb..., exporters already stable on 7c2c8b80..., zero _work.
+# Exercised through parkio_verify_exporter_release, the function the migration
+# script actually calls on its no-op path.
+# shellcheck source=/dev/null
+mig_fns="$(sed -n '/^parkio_expected_mount_type()/,/^}/p;/^parkio_verify_exporter_release()/,/^}/p' "$mig")"
+eval "$mig_fns"
+
+export PARKIO_FAKE_IDS="nx bx"
+export PARKIO_FAKE_NAME_nx="parkio-node-exporter"
+export PARKIO_FAKE_NAME_bx="parkio-blackbox-exporter"
+export PARKIO_FAKE_MOUNTS_nx="/proc
+/sys
+/
+$RROOT/releases/$OLD_SHA/docker/prometheus/textfile"
+export PARKIO_FAKE_MOUNTS_bx="$RROOT/releases/$OLD_SHA/docker/blackbox/blackbox.yml"
+
+set +e
+nx_out="$(parkio_verify_exporter_release node-exporter nx 2>/dev/null)"; nx_rc=$?
+bx_out="$(parkio_verify_exporter_release blackbox-exporter bx 2>/dev/null)"; bx_rc=$?
+set -e
+[ "$nx_rc" -eq 0 ] && ok "node-exporter on the older release verifies SUCCESS"   || bad "node-exporter rejected (rc=$nx_rc) — run 32460819264 defect still present"
+[ "$bx_out" = "blackbox-exporter $OLD_SHA" ] && ok "blackbox-exporter reports boundRelease=$OLD_SHA"   || bad "blackbox-exporter reported '$bx_out'"
+[ "$nx_out" = "node-exporter $OLD_SHA" ] && ok "node-exporter reports boundRelease=$OLD_SHA (not the candidate)"   || bad "node-exporter reported '$nx_out'"
+# Host telemetry mounts (/proc, /sys, /) must not be mistaken for config.
+grep -q '/proc' <<<"$nx_out" && bad "host telemetry mount leaked into the release report"   || ok "host /proc,/sys,/ mounts ignored, not treated as release config"
+
+echo "-- a genuinely stale exporter is still rejected as unmigrated --"
+export PARKIO_FAKE_MOUNTS_bx="/opt/actions-runner/parkio-invite-production/_work/parkio/parkio/source-1-1/docker/blackbox/blackbox.yml"
+set +e
+parkio_verify_exporter_release blackbox-exporter bx >/dev/null 2>&1; rc=$?
+set -e
+[ "$rc" -ne 0 ] && ok "exporter still on _work fails verification" || bad "_work exporter passed verification"
+
+echo
+echo "R8.2/R8.3 workspace-migration gates: $PASS passed, $FAIL failed"
 [ "$FAIL" -eq 0 ]

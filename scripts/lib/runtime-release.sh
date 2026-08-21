@@ -200,6 +200,104 @@ parkio_assert_release_readable() {
   echo "Release $sha is readable by non-root container UIDs."
 }
 
+# Canonicalize a path, failing if it does not exist.
+parkio_realpath() {
+  if command -v realpath >/dev/null 2>&1; then
+    realpath -e -- "$1" 2>/dev/null
+  else
+    local r
+    r="$(readlink -f -- "$1" 2>/dev/null)" || return 1
+    [ -e "$r" ] || return 1
+    printf '%s\n' "$r"
+  fi
+}
+
+# Validate that a bind-mount source is a genuine immutable release path, and echo
+# the release SHA it belongs to (PROD-DEPLOY-01A-R8.3).
+#
+#   $1 mount source, exactly as Docker recorded it
+#   $2 expected type: "file" or "dir"
+#
+# The invariant is deliberately NOT "binds the candidate release". A migrated
+# exporter may legitimately stay on the release it was migrated onto, and
+# demanding the newest SHA would force a recreate on every commit — which is the
+# opposite of the no-op contract. That confusion is what failed run 32460819264.
+# What actually matters is that the source is an immutable, SHA-addressed,
+# structurally complete release and not the ephemeral workspace.
+#
+# A substring test for "releases/" would be far too weak, so each property is
+# checked explicitly.
+parkio_release_sha_for_mount() {
+  local src="$1" want_type="${2:-file}"
+  local root root_real sha rest release release_real src_real
+
+  # The literal path matters, not just where it resolves: `current` is a mutable
+  # pointer, so a container recorded against it has no attributable release even
+  # though the kernel pinned it at mount time. Require immutable provenance.
+  case "$src" in
+    */_work/*)      echo "ERROR: mount is under the runner workspace: $src" >&2; return 1 ;;
+    */acceptance/*) echo "ERROR: mount is under the acceptance scratch area: $src" >&2; return 1 ;;
+    */current/*)    echo "ERROR: mount goes through the mutable 'current' pointer: $src" >&2; return 1 ;;
+  esac
+
+  root="$(parkio_releases_dir)"
+  case "$src" in
+    "$root"/*) ;;
+    *) echo "ERROR: mount is not under the releases root $root: $src" >&2; return 1 ;;
+  esac
+
+  rest="${src#"$root"/}"
+  sha="${rest%%/*}"
+  if ! [[ "$sha" =~ ^[0-9a-f]{40}$ ]]; then
+    echo "ERROR: release component '$sha' is not a 40-hex commit SHA: $src" >&2
+    return 1
+  fi
+  if [ "$rest" = "$sha" ]; then
+    echo "ERROR: mount points at a release root rather than a file inside it: $src" >&2
+    return 1
+  fi
+
+  if ! src_real="$(parkio_realpath "$src")"; then
+    echo "ERROR: mount source does not exist: $src" >&2
+    return 1
+  fi
+
+  release="$root/$sha"
+  if ! release_real="$(parkio_realpath "$release")"; then
+    echo "ERROR: release directory does not exist: $release" >&2
+    return 1
+  fi
+  root_real="$(parkio_realpath "$root")" || root_real="$root"
+
+  # After following every symlink the source must still live inside its release,
+  # or a symlink inside the tree could smuggle in arbitrary host content.
+  case "$src_real/" in
+    "$release_real"/*) ;;
+    *) echo "ERROR: mount escapes its release after canonicalization: $src -> $src_real" >&2; return 1 ;;
+  esac
+  case "$release_real/" in
+    "$root_real"/*) ;;
+    *) echo "ERROR: release escapes the releases root after canonicalization: $release" >&2; return 1 ;;
+  esac
+
+  case "$want_type" in
+    file) [ -f "$src_real" ] || { echo "ERROR: expected a file: $src" >&2; return 1; } ;;
+    dir)  [ -d "$src_real" ] || { echo "ERROR: expected a directory: $src" >&2; return 1; } ;;
+    *)    echo "ERROR: unknown expected type '$want_type'" >&2; return 1 ;;
+  esac
+
+  # Distinguish a real staged release from any directory that merely happens to
+  # be named like a SHA. Releases staged before R8.3 carry no manifest, so this
+  # validates structure rather than metadata — deliberately backward compatible,
+  # so the healthy 7c2c8b80 mounts stay valid without retrofitting anything.
+  if [ ! -f "$release_real/docker/docker-compose.yml" ]; then
+    echo "ERROR: $release is not a complete staged release (no docker/docker-compose.yml)" >&2
+    return 1
+  fi
+
+  printf '%s\n' "$sha"
+}
+
 # Names of running containers that still bind-mount the runner workspace.
 #
 # EMPTY OUTPUT IS SUCCESS. That is the migrated steady state, and it must exit 0
