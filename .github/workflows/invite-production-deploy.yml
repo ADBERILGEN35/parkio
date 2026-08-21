@@ -95,6 +95,7 @@ jobs:
           bash scripts/test-invite-production-backup-scheduler.sh
           bash scripts/test-invite-production-runtime-release.sh
           bash scripts/test-invite-production-workspace-migration.sh
+          bash scripts/test-invite-production-runtime-snapshot.sh
           python3 scripts/test_assert_invite_production_artifacts_safe.py
           python3 scripts/test_invite_production_deploy_safety.py
           node --test scripts/lib/sanitize-compose-config.test.mjs
@@ -224,6 +225,10 @@ jobs:
         working-directory: ${{ env.PARKIO_SOURCE_DIR }}
         run: ./scripts/verify-invite-production-toolchain.sh
 
+      - name: Capture runtime snapshot before acceptance
+        working-directory: ${{ env.PARKIO_SOURCE_DIR }}
+        run: ./scripts/snapshot-invite-production-runtime.sh capture "$RUNNER_TEMP/runtime-before.txt"
+
       - name: Verify dedicated host and Docker
         run: |
           set -euo pipefail
@@ -291,11 +296,20 @@ jobs:
           echo "PostgreSQL TCP/TLS verify-full prerequisite: PASS"
 
       - name: Prove no runtime or migration action occurred
+        working-directory: ${{ env.PARKIO_SOURCE_DIR }}
         run: |
           set -euo pipefail
-          test -z "$(docker ps -q)"
+          # The invariant is "acceptance changed nothing", NOT "nothing exists".
+          # `test -z "$(docker ps -q)"` encoded the latter and became impossible
+          # once the preserved dark runtime existed (run 32476161001), since the
+          # only way to satisfy it was to destroy what it protects.
+          ./scripts/snapshot-invite-production-runtime.sh capture "$RUNNER_TEMP/runtime-after.txt"
+          ./scripts/snapshot-invite-production-runtime.sh compare \
+            "$RUNNER_TEMP/runtime-before.txt" "$RUNNER_TEMP/runtime-after.txt"
+          # Retained independently of the snapshot comparison: a rendered env
+          # file is per-job secret material, not runtime topology.
           test ! -e "$PARKIO_ENV_FILE"
-          echo "No containers, no rendered env, no Flyway action: PASS"
+          echo "No runtime mutation, no rendered env, no Flyway action: PASS"
 
       - name: Cleanup per-job source and credentials
         if: ${{ always() }}
@@ -311,6 +325,23 @@ jobs:
             rm -f -- "$PARKIO_ENV_FILE"
             rm -rf -- "$AZURE_CONFIG_DIR" "$PARKIO_SOURCE_DIR"
           fi
+
+      - name: Prove cleanup itself mutated no runtime
+        run: |
+          set -euo pipefail
+          # Cleanup runs after the comparison and removes the checkout, so the
+          # snapshot script is no longer on disk; inline the same sanitized
+          # structural fields and re-compare against the BEFORE snapshot.
+          for cid in $(docker ps -aq); do
+            docker inspect -f '{{slice .Name 1}}|{{slice .Id 0 12}}|{{.Config.Image}}|{{.State.Status}}|{{.State.StartedAt}}|{{.RestartCount}}' "$cid"
+          done | grep '^parkio-' | sed 's/^/PROTECTED-/' | LC_ALL=C sort \
+            > "$RUNNER_TEMP/runtime-final.txt"
+          diff <(grep '^PROTECTED-' "$RUNNER_TEMP/runtime-before.txt") \
+               "$RUNNER_TEMP/runtime-final.txt"
+          test ! -e "$PARKIO_ENV_FILE"
+          test ! -e "$AZURE_CONFIG_DIR"
+          test ! -e "$PARKIO_SOURCE_DIR"
+          echo "Post-cleanup runtime and residue verification: PASS"
 
   workspace-migration:
     name: Migrate legacy workspace bind mounts

@@ -209,6 +209,9 @@ check "workspace-migration cleans up per-job secrets" \
 check "migration proves zero _work mounts afterwards" \
   "grep -q 'still bind-mount the runner workspace' '$mig'"
 
+check "runtime snapshot helper is committed executable" \
+  "[ \"\$(git -C '$ROOT' ls-files -s -- scripts/snapshot-invite-production-runtime.sh | awk '{print \$1}')\" = 100755 ]"
+
 echo
 echo "PROD-DEPLOY-01A-R8 regression gates: $PASS passed, $FAIL failed"
 [ "$FAIL" -eq 0 ]
