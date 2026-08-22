@@ -28,6 +28,7 @@ not asserted.
 | [Backup & Restore](backup-restore.md) | Data durability status (not volume = backup) |
 | [Disaster Recovery](disaster-recovery.md) | DR scenarios and sequencing |
 | [Database Migration Policy](database-migration-policy.md) | Flyway safety and expand/contract |
+| [Managed Parking Flyway Baseline](managed-parking-flyway-baseline.md) | Why `parkio_parking` begins at V2 on Azure, and the one-time preparation |
 | [Capacity & Load Plan](capacity-and-load-plan.md) | Baselines and load profiles |
 | [Security Operational Readiness](security-operational-readiness.md) | Ops security controls audit |
 

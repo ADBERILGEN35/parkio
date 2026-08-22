@@ -120,8 +120,14 @@ check "release survives deletion of the ephemeral checkout" \
 
 echo "== R8-E: parking application role never issues CREATE EXTENSION =="
 managed="$ROOT/docker/docker-compose.managed-db.yml"
+# R8.5: baselineOnMigrate was proven ineffective on the managed profile (Flyway skips it for a
+# schema whose only contents are extension-owned), so the flag must be gone and the explicit
+# fail-closed baseline armed in its place.
 check "parking baselines Flyway past V1 on the managed profile" \
-  "grep -q 'SPRING_FLYWAY_BASELINE_ON_MIGRATE: \"true\"' '$managed'"
+  "grep -q 'PARKIO_PARKING_FLYWAY_MANAGED_BASELINE_ENABLED: \"true\"' '$managed'"
+# Matches an actual YAML key, not the prose above it that explains why the flag was removed.
+check "the ineffective baselineOnMigrate flag is not reintroduced" \
+  "! grep -qE '^[[:space:]]*SPRING_FLYWAY_BASELINE_ON_MIGRATE:' '$managed'"
 check "parking baseline version is 1" \
   "grep -q 'SPRING_FLYWAY_BASELINE_VERSION: \"1\"' '$managed'"
 v1="$ROOT/services/parking-service/src/main/resources/db/migration/V1__enable_postgis.sql"

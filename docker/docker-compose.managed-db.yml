@@ -93,35 +93,41 @@ services:
       SPRING_FLYWAY_USER: ${POSTGRES_PARKING_MIGRATION_USER:-parkio_parking_migrator}
       SPRING_FLYWAY_PASSWORD: ${POSTGRES_PARKING_MIGRATION_PASSWORD}
       # PostGIS is INFRASTRUCTURE, not an application privilege
-      # (PROD-DEPLOY-01A-R8 / DEFECT-3).
+      # (PROD-DEPLOY-01A-R8 / DEFECT-3, mechanism corrected in R8.5).
       #
-      # scripts/azure/bootstrap-invite-production-databases.sh already creates
-      # the extension as the `parkioops` administrator before any service runs,
-      # and its evidence file records postgis=3.6.1 against parkio_parking.
-      # Despite that, V1__enable_postgis.sql still crash-looped parking-service:
+      # scripts/azure/bootstrap-invite-production-databases.sh creates the
+      # extension as the `parkioops` administrator before any service runs, and
+      # its evidence file records postgis=3.6.1 against parkio_parking. Despite
+      # that, V1__enable_postgis.sql crash-looped parking-service:
       #
       #   ERROR: Because postgis isn't a trusted extension, only members of
       #          "azure_pg_admin" are allowed to use CREATE EXTENSION postgis
       #
-      # That is the decisive datum. On Azure Flexible Server the extension guard
-      # is a utility hook that fires on the CREATE EXTENSION statement itself,
-      # *before* PostgreSQL's own "already exists, skipping" short-circuit — so
-      # even `CREATE EXTENSION IF NOT EXISTS` is rejected for a non-admin role on
-      # a database where the extension is already installed. V1 can therefore
-      # never execute here, no matter how idempotent its SQL is.
+      # On Azure Flexible Server the extension guard is a utility hook that fires
+      # on the CREATE EXTENSION statement itself, *before* PostgreSQL's own
+      # "already exists, skipping" short-circuit — so even
+      # `CREATE EXTENSION IF NOT EXISTS` is rejected for a non-admin role on a
+      # database where the extension is already installed. V1 can therefore never
+      # execute here, no matter how idempotent its SQL is.
       #
-      # V1's file is deliberately left byte-identical instead of being rewritten:
-      # it has already been applied successfully on environments that run a local
-      # PostgreSQL as owner (hosted-beta), where its checksum is recorded in
-      # flyway_schema_history. Editing it would break those environments with a
-      # validation failure, so the fix is scoped to the managed-DB profile that
-      # actually has the privilege constraint.
+      # V1's file stays byte-identical rather than being rewritten: it has already
+      # been applied on environments that run PostgreSQL as owner (hosted-beta,
+      # local), where its checksum is recorded in flyway_schema_history. Editing
+      # it would fail their validate() on the next boot.
       #
-      # Baselining at version 1 records `<< Flyway Baseline >>` and applies V2+.
-      # It only engages when there is no schema history at all, so it cannot skip
-      # migrations on an already-migrated database. If PostGIS were ever missing,
-      # V2's geography column fails loudly rather than corrupting anything.
-      SPRING_FLYWAY_BASELINE_ON_MIGRATE: "true"
+      # R8 set SPRING_FLYWAY_BASELINE_ON_MIGRATE here. R8.5 proved against a real
+      # PostGIS and a real unprivileged role (ManagedParkingFlywayBaselineIT) that
+      # the flag cannot do this job: Flyway baselines on migrate only for a
+      # NON-EMPTY schema with no history table, and its emptiness check excludes
+      # extension-owned objects — so a managed `public` holding nothing but PostGIS
+      # reads as empty, the flag never engages, and V1 is attempted anyway. The
+      # attempt then leaves the history table behind with its failed row rolled
+      # back, and the table's mere existence suppresses baselining permanently.
+      # That is how live parkio_parking reached an empty history table.
+      #
+      # The flag is therefore removed and replaced by an explicit, fail-closed
+      # call to Flyway's supported baseline() operation, armed only here:
+      PARKIO_PARKING_FLYWAY_MANAGED_BASELINE_ENABLED: "true"
       SPRING_FLYWAY_BASELINE_VERSION: "1"
       SPRING_FLYWAY_BASELINE_DESCRIPTION: "PostGIS preprovisioned by infrastructure bootstrap"
     volumes:

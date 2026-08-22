@@ -75,6 +75,10 @@ spring:
   flyway:
     enabled: true
     locations: classpath:db/migration
+    # Baseline identity used when the managed-DB profile establishes the baseline explicitly.
+    # Inert everywhere else: nothing baselines unless managed-baseline-enabled is true.
+    baseline-version: ${SPRING_FLYWAY_BASELINE_VERSION:1}
+    baseline-description: ${SPRING_FLYWAY_BASELINE_DESCRIPTION:PostGIS preprovisioned by infrastructure bootstrap}
 
 server:
   port: ${SERVER_PORT:8083}
@@ -421,6 +425,12 @@ parkio:
       connect-timeout: ${PARKIO_USER_CLIENT_CONNECT_TIMEOUT:1s}
       read-timeout: ${PARKIO_USER_CLIENT_READ_TIMEOUT:2s}
   parking:
+    flyway:
+      # PROD-DEPLOY-01A-R8.5: managed PostgreSQL (Azure Flexible Server) forbids CREATE EXTENSION
+      # for the migration role, so V1__enable_postgis.sql can never run there and the chain must
+      # begin at V2 behind an explicit Flyway baseline. Only docker-compose.managed-db.yml sets
+      # this; local/hosted-beta keep the normal V1 path.
+      managed-baseline-enabled: ${PARKIO_PARKING_FLYWAY_MANAGED_BASELINE_ENABLED:false}
     # One-shot legacy inventory reset. Keep disabled except on an explicit operator run.
     legacy-policy-reset:
       enabled: ${PARKIO_PARKING_LEGACY_POLICY_RESET_ENABLED:false}
