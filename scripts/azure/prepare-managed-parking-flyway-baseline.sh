@@ -50,6 +50,8 @@ MIGRATION_SECRET="postgres-parking-migration-password"
 ROOT_CERT="${PARKIO_PG_SSLROOTCERT:-/opt/parkio/certs/azure-postgres-root.crt}"
 EVIDENCE_DIR="${PARKIO_EVIDENCE_DIR:-/var/lib/parkio/evidence}"
 EVIDENCE_FILE="$EVIDENCE_DIR/managed-parking-flyway-baseline.txt"
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+CENSUS_SQL="$SCRIPT_DIR/sql/managed-parking-public-census.sql"
 
 MODE=report
 case "${1:-}" in
@@ -160,30 +162,28 @@ if [ "$HISTORY_TABLE" = "true" ]; then
   fi
 fi
 
-# Application tables: ordinary/partitioned relations in public that no extension owns, excluding
-# Flyway's own. PostGIS objects are extension-owned and correctly ignored here.
-APP_TABLES="$(psql_scalar "
-  SELECT count(*) FROM pg_class c
-  JOIN pg_namespace n ON n.oid = c.relnamespace
-  LEFT JOIN pg_depend d ON d.objid = c.oid AND d.deptype = 'e'
-  WHERE n.nspname = 'public' AND c.relkind IN ('r','p') AND d.objid IS NULL
-    AND c.relname NOT LIKE 'flyway_schema_history%'")"
+# Every object in public, each positively attributed to PostGIS, to Flyway, or to nothing.
+#
+# R8.5 asked only whether a pg_class row carried a deptype='e' dependency. PostGIS records the
+# membership of its composite types (geometry_dump, valid_detail) against pg_type instead, and an
+# index belongs to an extension only through the table it indexes — so that question returned two
+# false positives against live invite-production and blocked a valid preparation. The census SQL is
+# now shared verbatim with ManagedParkingPublicCensusIT, which runs it against a real PostGIS.
+[ -r "$CENSUS_SQL" ] || die "census SQL not found at $CENSUS_SQL"
+CENSUS="$(psql "$CONN" --set=ON_ERROR_STOP=1 --tuples-only --no-align --quiet -f "$CENSUS_SQL")" \
+  || die "public-schema census failed."
 
-# Anything else in public that neither PostGIS nor Flyway accounts for: stray views, sequences,
-# materialized views, routines. Their presence means the schema is not the state we certified.
-UNEXPECTED_OBJECTS="$(psql_scalar "
-  SELECT (
-    SELECT count(*) FROM pg_class c
-    JOIN pg_namespace n ON n.oid = c.relnamespace
-    LEFT JOIN pg_depend d ON d.objid = c.oid AND d.deptype = 'e'
-    WHERE n.nspname = 'public' AND d.objid IS NULL AND c.relkind NOT IN ('i','I')
-      AND c.relname NOT LIKE 'flyway_schema_history%'
-  ) + (
-    SELECT count(*) FROM pg_proc p
-    JOIN pg_namespace n ON n.oid = p.pronamespace
-    LEFT JOIN pg_depend d ON d.objid = p.oid AND d.deptype = 'e'
-    WHERE n.nspname = 'public' AND d.objid IS NULL
-  )")"
+# Fail closed: an empty census means the query did not run, not that the schema is clean.
+[ -n "$CENSUS" ] || die "public-schema census returned no rows; refusing to interpret that as clean."
+
+UNEXPECTED_LIST="$(printf '%s\n' "$CENSUS" | awk -F'|' '$3 == "UNATTRIBUTED" { print $1 ":" $2 }')"
+UNEXPECTED_OBJECTS="$(printf '%s' "$UNEXPECTED_LIST" | grep -c . || true)"
+
+# Application relations specifically: ordinary/partitioned tables nothing accounts for. Reported
+# separately because "there is Parkio schema here" is a different, more alarming finding than a
+# stray view or type.
+APP_TABLES="$(printf '%s\n' "$CENSUS" \
+  | awk -F'|' '$3 == "UNATTRIBUTED" && ($1 == "r" || $1 == "p") { print }' | grep -c . || true)"
 
 # ---------------------------------------------------------------------------
 # 4. Verdict. Fail closed: anything not explicitly recognised is BLOCKED.
@@ -198,15 +198,24 @@ if [ "${#BLOCKERS[@]}" -eq 0 ]; then
   if [ "$HISTORY_TABLE" = "true" ] && [ "$HISTORY_ROWS" -gt 0 ]; then
     VERDICT=CONVERGED
   elif [ "$APP_TABLES" -ne 0 ]; then
-    BLOCKERS+=("$APP_TABLES application table(s) present with no migration lineage")
+    BLOCKERS+=("$APP_TABLES application table(s) present with no migration lineage:" \
+      "$(printf '%s\n' "$CENSUS" | awk -F'|' '$3 == "UNATTRIBUTED" && ($1 == "r" || $1 == "p") { printf "%s ", $2 }')")
   elif [ "$UNEXPECTED_OBJECTS" -ne 0 ]; then
-    BLOCKERS+=("$UNEXPECTED_OBJECTS schema object(s) beyond the accepted PostGIS/Flyway set")
+    BLOCKERS+=("$UNEXPECTED_OBJECTS schema object(s) beyond the accepted PostGIS/Flyway set:" \
+      "$(printf '%s' "$UNEXPECTED_LIST" | tr '\n' ' ')")
   elif [ "$HISTORY_TABLE" != "true" ]; then
     VERDICT=ALREADY_PREPARED
   elif [ "$HISTORY_ROWS" -eq 0 ]; then
     VERDICT=READY
   fi
 fi
+
+# Evidence directory is created explicitly, the way bootstrap-invite-production-databases.sh does
+# it. R8.5 wrote straight into the directory and merely warned when it was absent, so an operator
+# could finish a run believing evidence had been recorded when none had. Mode 0750, idempotent,
+# and a hard failure if it cannot be created.
+install -d -m 0750 "$EVIDENCE_DIR" \
+  || die "cannot create evidence directory $EVIDENCE_DIR"
 
 {
   echo "timestamp=$(date -u +%Y-%m-%dT%H:%M:%SZ)"
@@ -217,26 +226,21 @@ fi
   echo "database=$ACTUAL_DATABASE"
   echo "identity=$MIGRATION_ROLE"
   echo "postgis=$POSTGIS_VERSION"
+  echo "postgisPresent=$([ "$POSTGIS_VERSION" != "ABSENT" ] && echo true || echo false)"
   echo "historyTable=$HISTORY_TABLE"
   echo "historyRows=$HISTORY_ROWS"
   echo "historyFailed=$HISTORY_FAILED"
   echo "historyFirstRowType=$HISTORY_FIRST_TYPE"
   echo "historyHeadVersion=$HISTORY_HEAD"
-  echo "applicationTables=$APP_TABLES"
+  echo "applicationRelations=$APP_TABLES"
+  echo "censusedObjects=$(printf '%s\n' "$CENSUS" | grep -c . || true)"
   echo "unexpectedObjects=$UNEXPECTED_OBJECTS"
+  for object in ${UNEXPECTED_LIST:+$UNEXPECTED_LIST}; do echo "unexpectedObject=$object"; done
   echo "verdict=$VERDICT"
   for blocker in ${BLOCKERS+"${BLOCKERS[@]}"}; do echo "blocker=$blocker"; done
-} > "$EVIDENCE_DIR/.managed-parking-flyway-baseline.$$" 2>/dev/null && {
-  mv "$EVIDENCE_DIR/.managed-parking-flyway-baseline.$$" "$EVIDENCE_FILE"
-  chmod 0640 "$EVIDENCE_FILE" 2>/dev/null || true
-  cat "$EVIDENCE_FILE"
-} || {
-  echo "WARNING: evidence directory $EVIDENCE_DIR is not writable; reporting to stdout only." >&2
-  echo "verdict=$VERDICT"
-  echo "postgis=$POSTGIS_VERSION historyTable=$HISTORY_TABLE historyRows=$HISTORY_ROWS"
-  echo "historyFailed=$HISTORY_FAILED applicationTables=$APP_TABLES unexpectedObjects=$UNEXPECTED_OBJECTS"
-  for blocker in ${BLOCKERS+"${BLOCKERS[@]}"}; do echo "blocker=$blocker"; done
-}
+} > "$EVIDENCE_FILE" || die "cannot write evidence file $EVIDENCE_FILE"
+chmod 0640 "$EVIDENCE_FILE" || die "cannot secure evidence file $EVIDENCE_FILE"
+cat "$EVIDENCE_FILE"
 
 case "$VERDICT" in
   CONVERGED)

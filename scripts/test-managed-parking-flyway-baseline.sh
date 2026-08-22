@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 #
-# PROD-DEPLOY-01A-R8.5 — fail-closed contract of the managed parking baseline preparation tool.
+# PROD-DEPLOY-01A-R8.5/R8.6 — fail-closed contract of the managed parking baseline preparation tool.
 #
 # az/psql/getent are faked, so every branch — including the ones that must refuse — is exercised
 # deterministically on any machine, without an Azure subscription and without touching a database.
@@ -9,6 +9,13 @@
 #
 # The mechanism these preconditions guard is proven separately against a real PostGIS in
 # services/parking-service/.../ManagedParkingFlywayBaselineIT.java.
+#
+# R8.6 SCOPE NOTE. Faking psql cannot prove catalog semantics, and pretending otherwise is exactly
+# what let R8.5 ship a census that mis-classified PostGIS composite types: this harness fed the
+# result in as FAKE_UNEXPECTED=0, so the query itself was never executed anywhere. Catalog truth
+# now belongs to ManagedParkingPublicCensusIT, which runs the shipped SQL against a real PostGIS.
+# What this harness owns is the contract around it — that the tool runs that file, interprets its
+# output correctly, and fails closed on every ambiguous answer.
 
 set -euo pipefail
 
@@ -52,9 +59,21 @@ cat > "$TMP/bin/psql" <<'FAKE'
 set -u
 printf '%s\n' "psql $*" >> "$PARKIO_FAKE_ARGV_LOG"
 sql=""
+census_file=""
+prev=""
 for arg in "$@"; do
   case "$arg" in --command=*) sql="${arg#--command=}" ;; esac
+  [ "$prev" = "-f" ] && census_file="$arg"
+  prev="$arg"
 done
+# The census is executed from a file. Record the path so the harness can assert the script runs
+# the shipped SQL rather than an inline copy, and answer with the canned census.
+if [ -n "$census_file" ]; then
+  printf '%s\n' "$census_file" >> "$PARKIO_FAKE_CENSUS_LOG"
+  printf '%s' "${FAKE_CENSUS-$DEFAULT_CENSUS}"
+  [ -n "${FAKE_CENSUS-$DEFAULT_CENSUS}" ] && printf '\n'
+  exit "${FAKE_CENSUS_EXIT:-0}"
+fi
 if [ -z "$sql" ]; then
   sql="$(cat)"
   printf '%s\n' "$sql" >> "$PARKIO_FAKE_SQL_LOG"
@@ -79,11 +98,28 @@ chmod +x "$TMP/bin/az" "$TMP/bin/getent" "$TMP/bin/psql"
 export PATH="$TMP/bin:$PATH"
 
 # Baseline environment: the certified READY state on the real invite-production target.
+# A clean certified STATE B census: PostGIS objects (including the composite types and the index
+# that produced R8.5's false positive) plus Flyway's own table, nothing unattributed.
+DEFAULT_CENSUS='c|geometry_dump|extension:postgis
+c|valid_detail|extension:postgis
+i|flyway_schema_history_pk|flyway
+i|flyway_schema_history_s_idx|flyway
+i|spatial_ref_sys_pkey|extension:postgis
+r|flyway_schema_history|flyway
+r|spatial_ref_sys|extension:postgis
+type|geography|extension:postgis
+type|geometry|extension:postgis
+v|geography_columns|extension:postgis
+v|geometry_columns|extension:postgis'
+export DEFAULT_CENSUS
+
 reset_env() {
   export PARKIO_FAKE_ARGV_LOG="$TMP/argv.log"
   export PARKIO_FAKE_SQL_LOG="$TMP/sql.log"
+  export PARKIO_FAKE_CENSUS_LOG="$TMP/census.log"
   : > "$PARKIO_FAKE_ARGV_LOG"
   : > "$PARKIO_FAKE_SQL_LOG"
+  : > "$PARKIO_FAKE_CENSUS_LOG"
   export PARKIO_DEPLOYMENT_PROFILE=invite-production
   export PARKIO_PG_SSLROOTCERT="$TMP/root.crt"
   export PARKIO_EVIDENCE_DIR="$TMP/evidence"
@@ -95,11 +131,10 @@ reset_env() {
   export FAKE_HISTORY_TABLE="true"
   export FAKE_HISTORY_ROWS="0"
   export FAKE_HISTORY_FAILED="0"
-  export FAKE_APP_TABLES="0"
-  export FAKE_UNEXPECTED="0"
   export FAKE_HEAD="40"
   export FAKE_FIRST_TYPE="BASELINE"
   unset PARKIO_BASELINE_PREPARE_CONFIRM PARKIO_PG_HOST FAKE_MUTATION_EXIT || true
+  unset FAKE_CENSUS FAKE_CENSUS_EXIT || true
 }
 
 # Run the tool, capturing status and combined output.
@@ -113,13 +148,13 @@ run_tool() {
 expect_status() {
   local want="$1" what="$2"
   if [ "$STATUS" -eq "$want" ]; then ok "$what (exit $want)"; else
-    bad "$what: expected exit $want, got $STATUS"; echo "$OUT" | sed 's/^/        /' >&2
+    bad "$what: expected exit $want, got $STATUS"; echo "$OUT" | awk '{ print "        " $0 }' >&2
   fi
 }
 
 expect_output() {
   if printf '%s' "$OUT" | grep -qF "$1"; then ok "$2"; else
-    bad "$2: output did not contain '$1'"; echo "$OUT" | sed 's/^/        /' >&2
+    bad "$2: output did not contain '$1'"; echo "$OUT" | awk '{ print "        " $0 }' >&2
   fi
 }
 
@@ -186,15 +221,43 @@ run_tool
 expect_status 4 "a recorded failed migration is blocked"
 expect_output "failed migration row(s) recorded" "failed-migration blocker is reported"
 
-reset_env; export FAKE_HISTORY_TABLE="false" FAKE_APP_TABLES="12"
+reset_env; export FAKE_HISTORY_TABLE="false"
+export FAKE_CENSUS="$DEFAULT_CENSUS
+r|parking_spots|UNATTRIBUTED
+i|parking_spots_pkey|UNATTRIBUTED"
 run_tool
 expect_status 4 "application tables without migration lineage are blocked"
 expect_output "application table(s) present" "unexplained-table blocker is reported"
+expect_output "parking_spots" "the blocker names the offending application relation"
 
-reset_env; export FAKE_HISTORY_TABLE="false" FAKE_UNEXPECTED="2"
+reset_env; export FAKE_HISTORY_TABLE="false"
+export FAKE_CENSUS="$DEFAULT_CENSUS
+v|mystery_view|UNATTRIBUTED
+type|mystery_enum|UNATTRIBUTED"
 run_tool
 expect_status 4 "unexpected schema objects are blocked"
 expect_output "beyond the accepted PostGIS/Flyway set" "unexpected-object blocker is reported"
+expect_output "v:mystery_view" "the blocker names each unattributed object"
+expect_output "type:mystery_enum" "the blocker names unattributed types too"
+
+# R8.6 regression: PostGIS composite types and the spatial_ref_sys index must NOT block. This is
+# the exact live shape that made the R8.5 tool refuse a valid database.
+reset_env
+run_tool
+expect_output "unexpectedObjects=0" \
+  "PostGIS composite types and inherited indexes do not count as unexpected (R8.6 regression)"
+
+# Fail closed when the census cannot be trusted rather than reading silence as cleanliness.
+reset_env; export FAKE_CENSUS=""
+run_tool
+expect_status 3 "an empty census is refused"
+expect_output "refusing to interpret that as clean" "empty-census refusal is explicit"
+expect_no_drop "an empty census mutates nothing"
+
+reset_env; export FAKE_CENSUS_EXIT="1"
+run_tool
+expect_status 3 "a failing census is refused"
+expect_no_drop "a failing census mutates nothing"
 
 echo "== verdicts =="
 
@@ -265,6 +328,58 @@ for forbidden in 'CREATE EXTENSION' 'GRANT ' 'ALTER ROLE' 'DELETE FROM' 'INSERT 
 done
 ok "no extension, grant, role or history-row statement is ever issued"
 
+echo "== census SQL contract (R8.6) =="
+
+reset_env
+run_tool
+if grep -q 'scripts/azure/sql/managed-parking-public-census.sql' "$PARKIO_FAKE_CENSUS_LOG"; then
+  ok "the tool executes the shipped census SQL file, not an inline copy"
+else
+  bad "the tool did not run scripts/azure/sql/managed-parking-public-census.sql"
+  awk '{ print "        " $0 }' "$PARKIO_FAKE_CENSUS_LOG" >&2
+fi
+if [ -r "$ROOT/scripts/azure/sql/managed-parking-public-census.sql" ]; then
+  ok "the shipped census SQL exists in the repository"
+else
+  bad "scripts/azure/sql/managed-parking-public-census.sql is missing"
+fi
+# Catalog semantics are proven by ManagedParkingPublicCensusIT against a real PostGIS; this
+# harness only pins that the tool consumes that file and interprets its output correctly.
+if grep -q 'pg_type' "$ROOT/scripts/azure/sql/managed-parking-public-census.sql" \
+   && grep -q 'pg_index' "$ROOT/scripts/azure/sql/managed-parking-public-census.sql"; then
+  ok "the census traces composite types via pg_type and indexes via pg_index"
+else
+  bad "the census SQL lost its pg_type / pg_index attribution"
+fi
+
+reset_env
+export PARKIO_EVIDENCE_DIR="$TMP/fresh-evidence-dir/nested"
+run_tool
+expect_status 0 "the tool creates a missing evidence directory rather than warning"
+if [ -f "$TMP/fresh-evidence-dir/nested/managed-parking-flyway-baseline.txt" ]; then
+  ok "evidence file is written into the created directory"
+else
+  bad "evidence file was not written"
+fi
+perms="$(stat -c '%a' "$TMP/fresh-evidence-dir/nested" 2>/dev/null)"
+if [ "$perms" = "750" ]; then ok "evidence directory mode is 0750"; else
+  bad "evidence directory mode is '$perms', expected 750"; fi
+for key in "verdict=READY" "unexpectedObjects=0" "historyRows=0" "applicationRelations=0" \
+           "postgisPresent=true" "censusedObjects="; do
+  if grep -q "$key" "$TMP/fresh-evidence-dir/nested/managed-parking-flyway-baseline.txt"; then
+    ok "evidence records $key"
+  else
+    bad "evidence is missing $key"
+  fi
+done
+
+reset_env
+export PARKIO_EVIDENCE_DIR="/proc/parkio-cannot-create-here"
+run_tool
+expect_status 3 "an uncreatable evidence directory fails clearly instead of warning"
+expect_output "cannot create evidence directory" "the failure names the directory problem"
+expect_no_drop "an evidence-directory failure mutates nothing"
+
 echo "== credential handling =="
 
 reset_env; export PARKIO_BASELINE_PREPARE_CONFIRM="DROP-EMPTY-FLYWAY-HISTORY/parkio_parking"
@@ -283,5 +398,5 @@ if grep -q 'sslmode=verify-full' "$PARKIO_FAKE_ARGV_LOG"; then
 else bad "a psql connection did not pin verify-full TLS"; fi
 
 echo
-echo "PROD-DEPLOY-01A-R8.5 managed parking baseline preparation gates: $PASS passed, $FAIL failed"
+echo "PROD-DEPLOY-01A-R8.6 managed parking baseline preparation gates: $PASS passed, $FAIL failed"
 [ "$FAIL" -eq 0 ]

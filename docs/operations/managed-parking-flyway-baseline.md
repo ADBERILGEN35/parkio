@@ -91,6 +91,27 @@ and refuses to proceed unless all of the following hold:
 
 Any deviation exits non-zero without mutating anything.
 
+### How objects are attributed (R8.6)
+
+The precondition "no schema objects beyond the accepted PostGIS/Flyway set" is answered by
+`scripts/azure/sql/managed-parking-public-census.sql`, which the tool executes and
+`ManagedParkingPublicCensusIT` runs against a real PostGIS. Attribution is **positive**: every
+object in `public` must be tied to an extension or to Flyway, or it blocks.
+
+R8.5 asked only whether a `pg_class` row carried a `deptype='e'` dependency, and that question has
+two blind spots which together refused a valid live database:
+
+| Object | Why the `pg_class` join missed it |
+|---|---|
+| `geometry_dump`, `valid_detail` | composite types — membership is on their `pg_type` row |
+| `spatial_ref_sys_pkey` | an index belongs to the extension only via the table it indexes |
+
+The census therefore traces `pg_class → reltype → pg_depend` for composite types and
+`pg_index → indrelid` for indexes, and lets identity/serial sequences inherit from their table.
+`relkind='c'` is never blanket-ignored: an unknown composite type — including one named to look
+like PostGIS — is still reported. Blockers now name the offending objects rather than only
+counting them.
+
 ### Procedure
 
 ```bash
@@ -142,5 +163,8 @@ No privilege is granted by any part of this mechanism.
 - `ManagedFlywayBaselineDecisionTest` — the decision table, Docker-free.
 - `ManagedFlywayBaselineConfigurationTest` — the strategy is off unless the managed profile arms it.
 - `ParkingMigrationV1ImmutabilityTest` — V1 bytes and checksum are frozen.
+- `ManagedParkingPublicCensusIT` — the shipped census SQL against a real PostGIS: PostGIS objects
+  attributed, and unknown tables/views/sequences/composite types/indexes/enums/domains/routines
+  still detected.
 - `scripts/test-managed-parking-flyway-baseline.sh` — the preparation tool's fail-closed contract,
-  with `az`/`psql`/`getent` faked.
+  with `az`/`psql`/`getent` faked. Deliberately does not own catalog semantics.
