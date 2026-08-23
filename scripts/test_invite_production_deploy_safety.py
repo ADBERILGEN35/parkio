@@ -118,6 +118,10 @@ class InviteProductionDeploySafetyTest(unittest.TestCase):
                     "PARKIO_IMAGE_TAG": f"sha-{sha}",
                     "PARKIO_IMAGE_CREATED": "1970-01-01T00:00:00Z",
                     "PARKIO_NODE_BINARY": str(fake_node),
+                    "PARKIO_REQUESTED_DARK_GATEWAY_URL_INPUT_EVIDENCE": "<blank>",
+                    "PARKIO_RAW_DARK_GATEWAY_INPUT_BLANK": "true",
+                    "PARKIO_EFFECTIVE_DARK_GATEWAY_URL": "http://127.0.0.1:8080",
+                    "PARKIO_DARK_GATEWAY_INPUT_SOURCE": "workflow_dispatch",
                 }
             )
             result = subprocess.run(
@@ -154,6 +158,12 @@ class InviteProductionDeploySafetyTest(unittest.TestCase):
             manifest_json = json.loads(manifest.read_text())
             self.assertEqual(manifest_json["gitSha"], sha)
             self.assertEqual(manifest_json["composeStructure"], structure)
+            self.assertEqual(manifest_json["requestedDarkGatewayUrlInput"], "<blank>")
+            self.assertIs(manifest_json["rawDarkGatewayInputBlank"], True)
+            self.assertEqual(
+                manifest_json["effectiveDarkGatewayUrl"], "http://127.0.0.1:8080"
+            )
+            self.assertEqual(manifest_json["darkGatewayInputSource"], "workflow_dispatch")
 
     def test_public_gateway_target_refuses_before_artifact_creation(self) -> None:
         """PROD-DEPLOY-01A / D1: the deploy itself must fail closed on a target

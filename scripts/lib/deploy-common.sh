@@ -407,6 +407,22 @@ parkio_write_manifest() {
   local previous_manifest="${10:-}"
   local compose_structure_path="${11:-}"
   local compose_files_json compose_structure_json images_json image_digests_json migrations_json runtime_services_json disabled_services_json feature_flags_json svc first rollback_target
+  local requested_dark_gateway_input raw_dark_gateway_input_blank effective_dark_gateway_url dark_gateway_input_source
+
+  requested_dark_gateway_input="${PARKIO_REQUESTED_DARK_GATEWAY_URL_INPUT_EVIDENCE:-}"
+  raw_dark_gateway_input_blank="${PARKIO_RAW_DARK_GATEWAY_INPUT_BLANK:-}"
+  effective_dark_gateway_url="${PARKIO_EFFECTIVE_DARK_GATEWAY_URL:-}"
+  dark_gateway_input_source="${PARKIO_DARK_GATEWAY_INPUT_SOURCE:-}"
+
+  if [ -n "$requested_dark_gateway_input$raw_dark_gateway_input_blank$effective_dark_gateway_url$dark_gateway_input_source" ]; then
+    if [ "$requested_dark_gateway_input" != "<blank>" ] \
+      || [ "$raw_dark_gateway_input_blank" != "true" ] \
+      || [ "$effective_dark_gateway_url" != "$PARKIO_DARK_GATEWAY_ALLOWED_URL" ] \
+      || [ "$dark_gateway_input_source" != "workflow_dispatch" ]; then
+      echo "ERROR: incomplete or invalid dark gateway dispatch attestation." >&2
+      return 2
+    fi
+  fi
 
   compose_files_json="$(parkio_compose_files_json)"
   migrations_json="$(parkio_migration_versions_json)"
@@ -458,6 +474,10 @@ parkio_write_manifest() {
     --arg previousManifest "$previous_manifest" \
     --arg rollbackTarget "$rollback_target" \
     --arg rollbackScript "$rollback_script" \
+    --arg requestedDarkGatewayUrlInput "$requested_dark_gateway_input" \
+    --arg rawDarkGatewayInputBlank "$raw_dark_gateway_input_blank" \
+    --arg effectiveDarkGatewayUrl "$effective_dark_gateway_url" \
+    --arg darkGatewayInputSource "$dark_gateway_input_source" \
     --argjson composeFiles "$compose_files_json" \
     --argjson composeStructure "$compose_structure_json" \
     --argjson images "$images_json" \
@@ -489,5 +509,10 @@ parkio_write_manifest() {
       disabledServices: $disabledServices,
       migrationNote: "Flyway runs automatically on service startup (readiness requires successful migrate). migrationVersions lists scripts present in source at deploy time.",
       rollbackCommand: ("PARKIO_DEPLOYMENT_PROFILE=" + $deploymentProfile + " PARKIO_ENV_FILE=" + $envProfile + " " + $rollbackScript + " --manifest " + $rollbackTarget)
-    }' > "$manifest_path"
+    } + (if $requestedDarkGatewayUrlInput == "" then {} else {
+      requestedDarkGatewayUrlInput: $requestedDarkGatewayUrlInput,
+      rawDarkGatewayInputBlank: ($rawDarkGatewayInputBlank == "true"),
+      effectiveDarkGatewayUrl: $effectiveDarkGatewayUrl,
+      darkGatewayInputSource: $darkGatewayInputSource
+    } end)' > "$manifest_path"
 }

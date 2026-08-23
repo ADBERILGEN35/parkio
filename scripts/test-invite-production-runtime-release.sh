@@ -155,6 +155,7 @@ echo "== R8-K: scripts invoked directly must be committed executable =="
 # `bash`, so a non-executable mode is a deploy-blocking defect that only shows up
 # on the runner. Assert the mode git actually recorded, not the local file bit.
 for direct in \
+  scripts/attest-invite-production-dark-gateway-input.sh \
   scripts/stage-invite-production-release.sh \
   scripts/migrate-invite-production-workspace-mounts.sh \
   scripts/azure/install-invite-production-runtime-root.sh \

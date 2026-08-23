@@ -76,6 +76,14 @@ jobs:
             --ref-sha '${{ github.sha }}' \
             --ref-name '${{ github.ref }}'
 
+      - name: Attest blank dark gateway dispatch input
+        if: ${{ github.event_name == 'workflow_dispatch' && inputs.action == 'deploy' }}
+        env:
+          # Pass operator input through the environment, never interpolate it in shell source.
+          PARKIO_DISPATCH_ACTION: ${{ inputs.action }}
+          PARKIO_DARK_GATEWAY_INPUT: ${{ inputs.dark_gateway_url }}
+        run: ./scripts/attest-invite-production-dark-gateway-input.sh
+
       - name: Install jq
         run: sudo apt-get update && sudo apt-get install -y jq
 
@@ -91,6 +99,7 @@ jobs:
           bash scripts/test-invite-production-runner-guards.sh
           python3 scripts/test_invite_production_node_runtime.py
           bash scripts/test-invite-dark-gateway.sh
+          python3 scripts/test_invite_production_dispatch_input.py
           bash scripts/test-invite-dark-acme-isolation.sh
           bash scripts/test-invite-production-backup-scheduler.sh
           bash scripts/test-invite-production-runtime-release.sh
@@ -440,6 +449,7 @@ jobs:
         working-directory: ${{ env.PARKIO_SOURCE_DIR }}
         env:
           # Never interpolate operator input straight into a shell body.
+          PARKIO_DISPATCH_ACTION: ${{ inputs.action }}
           PARKIO_DARK_GATEWAY_INPUT: ${{ inputs.dark_gateway_url }}
         run: |
           set -euo pipefail
@@ -447,15 +457,7 @@ jobs:
             --expected-sha '${{ inputs.git_sha }}' \
             --ref-sha '${{ github.sha }}' \
             --ref-name '${{ github.ref }}'
-          # The dark endpoint is a fixed property of the invite-production
-          # topology, so blank means "the certified one". A supplied value is held
-          # to the same allowlist — a literal != api.parkio.dev check let
-          # https://api.parkio.dev:443 (live hosted-beta) through.
-          source ./scripts/lib/dark-gateway-url.sh
-          resolved="${PARKIO_DARK_GATEWAY_INPUT:-$PARKIO_DARK_GATEWAY_ALLOWED_URL}"
-          parkio_validate_dark_gateway_url "$resolved"
-          echo "PARKIO_GATEWAY_URL=$resolved" >> "$GITHUB_ENV"
-          echo "Dark acceptance endpoint: $resolved"
+          ./scripts/attest-invite-production-dark-gateway-input.sh
 
       - name: Set up pinned Node runtime
         uses: actions/setup-node@v4
