@@ -19,6 +19,8 @@ public class RankingProperties implements InitializingBean {
     public static final double WEIGHT_SUM_TOLERANCE = 0.01;
 
     private boolean enabled = false;
+    /** The only production ranking implementation currently supported. */
+    private RankingVersion strategy = RankingVersion.DETERMINISTIC_V1;
     private boolean favouritesEnabled = true;
     private double distanceWeight = 0.35;
     private double freshnessWeight = 0.25;
@@ -55,6 +57,9 @@ public class RankingProperties implements InitializingBean {
     /** Validate weights. Invalid config disables ranking (fail-safe). */
     public void validate() {
         try {
+            if (strategy != RankingVersion.DETERMINISTIC_V1) {
+                throw new IllegalStateException("strategy must be DETERMINISTIC_V1");
+            }
             requireFiniteNonNegative("distanceWeight", distanceWeight);
             requireFiniteNonNegative("freshnessWeight", freshnessWeight);
             requireFiniteNonNegative("capacityWeight", capacityWeight);
@@ -90,6 +95,14 @@ public class RankingProperties implements InitializingBean {
 
     public void setEnabled(boolean enabled) {
         this.enabled = enabled;
+    }
+
+    public RankingVersion getStrategy() {
+        return strategy;
+    }
+
+    public void setStrategy(RankingVersion strategy) {
+        this.strategy = strategy;
     }
 
     public boolean isFavouritesEnabled() {

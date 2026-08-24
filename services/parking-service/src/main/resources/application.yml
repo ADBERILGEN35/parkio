@@ -132,8 +132,8 @@ info:
 
 parkio:
   municipal:
-    enabled: false
-    manual-sync-enabled: false
+    enabled: ${PARKIO_MUNICIPAL_ENABLED:false}
+    manual-sync-enabled: ${PARKIO_MUNICIPAL_MANUAL_SYNC_ENABLED:false}
     discovery:
       # DATA-WP-12: nearby duplicate-presentation (canonical default on).
       # Production profile pins false until a separate rollout approval.
@@ -155,45 +155,45 @@ parkio:
       # DATA-WP-10: ingest provenance writes (default on). Independent of publication.
       provenance-ingest-write-enabled: ${PARKIO_MUNICIPAL_REGISTRY_PROVENANCE_INGEST_WRITE_ENABLED:true}
     izum:
-      enabled: false
+      enabled: ${PARKIO_MUNICIPAL_IZUM_ENABLED:false}
       operating-mode: ${PARKIO_MUNICIPAL_IZUM_OPERATING_MODE:SCHEDULED}
       base-url: https://openapi.izmir.bel.tr
       path: /api/ibb/izum/otoparklar
       connect-timeout: 2s
       read-timeout: 5s
       max-retries: 2
-      scheduler-enabled: false
+      scheduler-enabled: ${PARKIO_MUNICIPAL_IZUM_SCHEDULER_ENABLED:false}
       fixed-delay-ms: 120000
       user-agent: ParkioParkingService/1.0 (+https://parkio.dev)
     ispark:
       # PROVIDER-ISTANBUL-01: İstanbul / İSPARK. Default dark; enable independently of İZUM.
-      enabled: false
+      enabled: ${PARKIO_MUNICIPAL_ISPARK_ENABLED:false}
       operating-mode: ${PARKIO_MUNICIPAL_ISPARK_OPERATING_MODE:SCHEDULED}
       base-url: https://api.ibb.gov.tr
       path: /ispark/Park
       connect-timeout: 2s
       read-timeout: 10s
       max-retries: 1
-      scheduler-enabled: false
+      scheduler-enabled: ${PARKIO_MUNICIPAL_ISPARK_SCHEDULER_ENABLED:false}
       fixed-delay-ms: 120000
       user-agent: ParkioParkingService/1.0 (+https://parkio.dev)
     anpark:
       # PROVIDER-ANKARA-01: Ankara / ANPARK inventory only. Default dark.
       # LEGAL REVIEW REQUIRED before production enablement.
-      enabled: false
+      enabled: ${PARKIO_MUNICIPAL_ANPARK_ENABLED:false}
       operating-mode: ${PARKIO_MUNICIPAL_ANPARK_OPERATING_MODE:SCHEDULED}
       base-url: https://www.anpark.com.tr
       path: /wp-json/anpark/v1/parks
       connect-timeout: 2s
       read-timeout: 10s
       max-retries: 1
-      scheduler-enabled: false
+      scheduler-enabled: ${PARKIO_MUNICIPAL_ANPARK_SCHEDULER_ENABLED:false}
       # 6h — inventory-only; no live occupancy polling cadence.
       fixed-delay-ms: 21600000
       user-agent: ParkioParkingService/1.0 (+https://parkio.dev)
     konya:
       # PROVIDER-KONYA-01: Konya / Otopark Bilgileri inventory only. Default dark.
-      enabled: false
+      enabled: ${PARKIO_MUNICIPAL_KONYA_ENABLED:false}
       operating-mode: ${PARKIO_MUNICIPAL_KONYA_OPERATING_MODE:SCHEDULED}
       base-url: https://acikveri.konya.bel.tr
       path: /api/3/action/datastore_search
@@ -204,13 +204,13 @@ parkio:
       connect-timeout: 5s
       read-timeout: 30s
       max-retries: 1
-      scheduler-enabled: false
+      scheduler-enabled: ${PARKIO_MUNICIPAL_KONYA_SCHEDULER_ENABLED:false}
       # 24h — static/stale inventory; no live occupancy polling cadence.
       fixed-delay-ms: 86400000
       user-agent: ParkioParkingService/1.0 (+https://parkio.dev)
     kayseri:
       # PROVIDER-KAYSERI-01: Kayseri / Otoparklar GeoJSON inventory only. Default dark.
-      enabled: false
+      enabled: ${PARKIO_MUNICIPAL_KAYSERI_ENABLED:false}
       operating-mode: ${PARKIO_MUNICIPAL_KAYSERI_OPERATING_MODE:SCHEDULED}
       base-url: https://acikveri.kayseri.bel.tr
       path: /uploads/data/2024/10/7/otoparklar-456371.geojson
@@ -218,7 +218,7 @@ parkio:
       connect-timeout: 5s
       read-timeout: 30s
       max-retries: 1
-      scheduler-enabled: false
+      scheduler-enabled: ${PARKIO_MUNICIPAL_KAYSERI_SCHEDULER_ENABLED:false}
       # 24h — static inventory; no live occupancy polling cadence.
       fixed-delay-ms: 86400000
       user-agent: ParkioParkingService/1.0 (+https://parkio.dev)
@@ -241,13 +241,13 @@ parkio:
       stale-run-watchdog-enabled: ${PARKIO_MUNICIPAL_SYNC_STALE_RUN_WATCHDOG_ENABLED:true}
       stale-run-watchdog-fixed-delay-ms: ${PARKIO_MUNICIPAL_SYNC_STALE_RUN_WATCHDOG_FIXED_DELAY_MS:120000}
     osm:
-      import-enabled: false
-      scheduler-enabled: false
+      import-enabled: ${PARKIO_MUNICIPAL_OSM_IMPORT_ENABLED:false}
+      scheduler-enabled: ${PARKIO_MUNICIPAL_OSM_SCHEDULER_ENABLED:false}
       operating-mode: ${PARKIO_MUNICIPAL_OSM_OPERATING_MODE:OPERATOR_IMPORTED}
       conflation-enabled: false
       auto-match-enabled: false
       publish-restricted: false
-      publication-enabled: false
+      publication-enabled: ${PARKIO_MUNICIPAL_OSM_PUBLICATION_ENABLED:false}
       local-input-path: ""
       allowed-input-dir: ""
       max-input-bytes: 52428800
@@ -389,6 +389,7 @@ parkio:
     ranking:
       # WP-SPA-06 deterministic ranking. Default off — preserves SPA-05 distance order.
       enabled: ${PARKIO_SPA_RANKING_ENABLED:false}
+      strategy: ${PARKIO_SPA_RANKING_STRATEGY:DETERMINISTIC_V1}
       favourites-enabled: ${PARKIO_SPA_RANKING_FAVOURITES_ENABLED:true}
       distance-weight: ${PARKIO_SPA_RANKING_DISTANCE_WEIGHT:0.35}
       freshness-weight: ${PARKIO_SPA_RANKING_FRESHNESS_WEIGHT:0.25}

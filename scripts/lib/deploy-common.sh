@@ -296,6 +296,7 @@ parkio_feature_flags_json() {
     --arg kayseri "$(parkio_env_value "$env_file" PARKIO_MUNICIPAL_KAYSERI_ENABLED)" \
     --arg osm "$(parkio_env_value "$env_file" PARKIO_MUNICIPAL_OSM_IMPORT_ENABLED)" \
     --arg recommendations "$(parkio_env_value "$env_file" PARKIO_SPA_RECOMMENDATIONS_ENABLED)" \
+    --arg ranking "$(parkio_env_value "$env_file" PARKIO_SPA_RANKING_ENABLED)" \
     --arg strategy "$(parkio_env_value "$env_file" PARKIO_SPA_RANKING_STRATEGY)" \
     --arg shadow "$(parkio_env_value "$env_file" PARKIO_SPA_RANKING_SHADOW_ENABLED)" \
     --arg evaluation "$(parkio_env_value "$env_file" PARKIO_SPA_RANKING_EVALUATION_ENABLED)" \
@@ -310,11 +311,21 @@ parkio_feature_flags_json() {
       PARKIO_MUNICIPAL_KAYSERI_ENABLED: $kayseri,
       PARKIO_MUNICIPAL_OSM_IMPORT_ENABLED: $osm,
       PARKIO_SPA_RECOMMENDATIONS_ENABLED: $recommendations,
+      PARKIO_SPA_RANKING_ENABLED: $ranking,
       PARKIO_SPA_RANKING_STRATEGY: $strategy,
       PARKIO_SPA_RANKING_SHADOW_ENABLED: $shadow,
       PARKIO_SPA_RANKING_EVALUATION_ENABLED: $evaluation,
       PARKIO_SPA_RANKING_EVALUATION_ROLLUP_ENABLED: $rollup
     }'
+}
+
+# Resolve the real merged Compose model, validate the controlled-invite matrix,
+# and retain only an explicit allowlist of non-secret feature values. The raw
+# resolved model may contain secrets and is therefore streamed, never persisted.
+parkio_effective_feature_configuration_json() {
+  local env_file="$1"
+  parkio_compose "$env_file" config --format json \
+    | python3 "$(parkio_repo_root)/scripts/lib/assert-invite-production-feature-config.py" --evidence
 }
 
 parkio_wait_healthy() {
@@ -406,7 +417,7 @@ parkio_write_manifest() {
   local version="$9"
   local previous_manifest="${10:-}"
   local compose_structure_path="${11:-}"
-  local compose_files_json compose_structure_json images_json image_digests_json migrations_json runtime_services_json disabled_services_json feature_flags_json svc first rollback_target
+  local compose_files_json compose_structure_json images_json image_digests_json migrations_json runtime_services_json disabled_services_json feature_flags_json effective_feature_configuration_json svc first rollback_target
   local requested_dark_gateway_input raw_dark_gateway_input_blank effective_dark_gateway_url dark_gateway_input_source
 
   requested_dark_gateway_input="${PARKIO_REQUESTED_DARK_GATEWAY_URL_INPUT_EVIDENCE:-}"
@@ -430,6 +441,13 @@ parkio_write_manifest() {
   disabled_services_json="$(parkio_disabled_services_json)"
   image_digests_json="$(parkio_image_digests_json "$image_tag")"
   feature_flags_json="$(parkio_feature_flags_json "$env_file")"
+  effective_feature_configuration_json="null"
+  if [ "$PARKIO_DEPLOYMENT_PROFILE" = "invite-production" ]; then
+    effective_feature_configuration_json="$(parkio_effective_feature_configuration_json "$env_file")" || {
+      echo "ERROR: resolved invite-production feature configuration is invalid." >&2
+      return 2
+    }
+  fi
   compose_structure_json="null"
   if [ -n "$compose_structure_path" ]; then
     if [ ! -f "$compose_structure_path" ]; then
@@ -484,6 +502,7 @@ parkio_write_manifest() {
     --argjson imageDigests "$image_digests_json" \
     --argjson migrationVersions "$migrations_json" \
     --argjson featureFlags "$feature_flags_json" \
+    --argjson effectiveFeatureConfiguration "$effective_feature_configuration_json" \
     --argjson runtimeServices "$runtime_services_json" \
     --argjson disabledServices "$disabled_services_json" \
     '{
@@ -505,6 +524,7 @@ parkio_write_manifest() {
       imageDigests: $imageDigests,
       migrationVersions: $migrationVersions,
       featureFlags: $featureFlags,
+      effectiveFeatureConfiguration: $effectiveFeatureConfiguration,
       runtimeServices: $runtimeServices,
       disabledServices: $disabledServices,
       migrationNote: "Flyway runs automatically on service startup (readiness requires successful migrate). migrationVersions lists scripts present in source at deploy time.",

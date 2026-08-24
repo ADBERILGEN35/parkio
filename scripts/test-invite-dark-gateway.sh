@@ -165,10 +165,11 @@ if grep -Eq '0\.0\.0\.0:8080|"8080:8080"|\[::\]:8080' docker/docker-compose.invi
 else
   ok "overlay declares no wildcard bind"
 fi
-if [ "$(grep -cE '^\s{2}[a-z0-9-]+:' docker/docker-compose.invite-dark.yml)" -eq 1 ]; then
-  ok "overlay touches exactly one service"
+overlay_services="$(grep -E '^  [a-z0-9-]+:' docker/docker-compose.invite-dark.yml | sed -E 's/^  ([a-z0-9-]+):.*/\1/' | sort)"
+if [ "$overlay_services" = $'gateway-service\nparking-service' ]; then
+  ok "overlay touches only gateway-service and parking-service"
 else
-  bad "overlay must touch only gateway-service"
+  bad "overlay may touch only gateway-service and parking-service (found: $(tr '\n' ' ' <<<"$overlay_services"))"
 fi
 
 # --------------------------------------------------------------------------- #

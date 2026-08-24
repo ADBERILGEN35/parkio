@@ -6,11 +6,14 @@ from __future__ import annotations
 import json
 import os
 import shutil
+import shlex
 import stat
 import subprocess
 import tempfile
 import unittest
 from pathlib import Path
+
+from lib.assert_invite_production_feature_config_fixture import valid_model
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -89,12 +92,31 @@ class InviteProductionDeploySafetyTest(unittest.TestCase):
             write_node_wrapper(fake_node)
 
             fake_docker = fake_bin / "docker"
+            compose_model = valid_model()
+            compose_model["name"] = "parkio"
+            compose_model["services"]["api"] = {
+                "image": "parkio/api:sha-test",
+                "environment": {
+                    "POSTGRES_PASSWORD": SENTINELS[0],
+                    "PARKIO_ALERT_SLACK_WEBHOOK_URL": SENTINELS[1],
+                    "PARKIO_RESEND_API_KEY": SENTINELS[2],
+                },
+                "ports": [
+                    {"host_ip": "127.0.0.1", "published": "8080", "target": 8080}
+                ],
+                "healthcheck": {
+                    "test": ["CMD-SHELL", f"probe {SENTINELS[0]}"]
+                },
+            }
+            compose_model_json = shlex.quote(
+                json.dumps(compose_model, separators=(",", ":"))
+            )
             fake_docker.write_text(
                 "#!/usr/bin/env sh\n"
                 "case \"$*\" in\n"
                 "  *\"config --quiet\"*) exit 0 ;;\n"
                 "  *\"config --format json\"*)\n"
-                "    printf '%s\\n' '{\"name\":\"parkio\",\"services\":{\"api\":{\"image\":\"parkio/api:sha-test\",\"environment\":{\"POSTGRES_PASSWORD\":\"SECRET_SENTINEL_DB_PASSWORD\",\"PARKIO_ALERT_SLACK_WEBHOOK_URL\":\"SECRET_SENTINEL_SLACK_URL\",\"PARKIO_RESEND_API_KEY\":\"SECRET_SENTINEL_RESEND_KEY\"},\"ports\":[{\"host_ip\":\"127.0.0.1\",\"published\":\"8080\",\"target\":8080}],\"healthcheck\":{\"test\":[\"CMD-SHELL\",\"probe SECRET_SENTINEL_DB_PASSWORD\"]}}}}' ;;\n"
+                f"    printf '%s\\n' {compose_model_json} ;;\n"
                 "  *\"image inspect\"*) exit 1 ;;\n"
                 "  \"version --format Docker server {{.Server.Version}}\") exit 0 ;;\n"
                 "  \"compose version\") exit 0 ;;\n"
@@ -158,6 +180,15 @@ class InviteProductionDeploySafetyTest(unittest.TestCase):
             manifest_json = json.loads(manifest.read_text())
             self.assertEqual(manifest_json["gitSha"], sha)
             self.assertEqual(manifest_json["composeStructure"], structure)
+            self.assertEqual(
+                manifest_json["effectiveFeatureConfiguration"]["source"],
+                "resolved-compose-model",
+            )
+            self.assertEqual(
+                manifest_json["effectiveFeatureConfiguration"]["parkingEnvironment"]
+                ["PARKIO_MUNICIPAL_ENABLED"],
+                "true",
+            )
             self.assertEqual(manifest_json["requestedDarkGatewayUrlInput"], "<blank>")
             self.assertIs(manifest_json["rawDarkGatewayInputBlank"], True)
             self.assertEqual(

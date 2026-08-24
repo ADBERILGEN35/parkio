@@ -14,6 +14,7 @@ class RankingPropertiesTest {
         props.validate();
         assertTrue(props.isConfigurationValid());
         assertFalse(props.isEnabled());
+        assertEquals(RankingVersion.DETERMINISTIC_V1, props.getStrategy());
         RankingProperties.RankingConfiguration snap = props.snapshot();
         assertFalse(snap.enabled());
         double sum = snap.distanceWeight()
@@ -90,5 +91,16 @@ class RankingPropertiesTest {
         props.validate();
         assertFalse(props.isConfigurationValid());
         assertFalse(props.isEnabled());
+    }
+
+    @Test
+    void unsupportedStrategyDisablesRanking() {
+        RankingProperties props = new RankingProperties();
+        props.setEnabled(true);
+        props.setStrategy(RankingVersion.DISTANCE_BASELINE_V1);
+        props.validate();
+        assertFalse(props.isConfigurationValid());
+        assertFalse(props.isEnabled());
+        assertEquals("strategy must be DETERMINISTIC_V1", props.getConfigurationError());
     }
 }

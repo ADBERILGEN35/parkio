@@ -99,6 +99,8 @@ jobs:
           bash scripts/test-invite-production-runner-guards.sh
           python3 scripts/test_invite_production_node_runtime.py
           bash scripts/test-invite-production-clamav-runtime.sh
+          python3 scripts/test_invite_production_feature_config.py
+          bash scripts/test-invite-production-feature-config.sh
           bash scripts/test-invite-dark-gateway.sh
           bash scripts/test-invite-production-login-smoke.sh
           python3 scripts/test_invite_production_dispatch_input.py
