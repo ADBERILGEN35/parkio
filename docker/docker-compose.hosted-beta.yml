@@ -301,9 +301,11 @@ services:
     stop_grace_period: 30s
   clamav:
     # Anti-malware daemon stays private; reachable only by media-service in-network.
-    # ClamAV loads the full signature DB into RAM (~1.3 GB) — the dominant single consumer.
+    # ClamD keeps the signature DB resident while FreshClam's default TestDatabases
+    # validation loads an updated DB concurrently. Keep the upstream-recommended
+    # 3 GiB minimum so a routine signature update cannot OOM-kill ClamD.
     ports: !reset []
-    mem_limit: 1536m
+    mem_limit: 3g
     cpus: "2.0"
     pids_limit: 256
 
