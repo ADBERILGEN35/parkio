@@ -227,9 +227,12 @@ if [ "$PARKIO_DEPLOYMENT_PROFILE" = "azure-hosted-beta" ]; then
       limit="$(jq -r --arg svc "$svc" '.services[$svc].mem_limit // 0' "$rendered")"
       total_memory=$((total_memory + limit))
     done
-    max_memory=$((14 * 1024 * 1024 * 1024))
+    # The certified hosted/invite ClamAV limit is 3 GiB so FreshClam database
+    # validation can overlap ClamD without an OOM. The complete Azure model now
+    # resolves to 15.5 GiB of container limits; keep a hard 16 GiB ceiling.
+    max_memory=$((16 * 1024 * 1024 * 1024))
     [ "$total_memory" -le "$max_memory" ] || {
-      echo "ERROR: Azure configured memory total $total_memory exceeds 14 GiB target $max_memory" >&2
+      echo "ERROR: Azure configured memory total $total_memory exceeds 16 GiB ceiling $max_memory" >&2
       exit 4
     }
 

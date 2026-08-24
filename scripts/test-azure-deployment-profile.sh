@@ -98,10 +98,19 @@ fi
 pass "parking-service operator asset mounts are present and read-only"
 
 memory_total="$({
+  # Normalize CRLF for NTFS-backed checkouts and handle both MiB/GiB Compose
+  # units so the certified ClamAV 3g limit is counted as 3072 MiB, never 3.
+  tr -d '\r' < docker/docker-compose.hosted-beta.yml |
   awk '
+    function to_mib(raw, value) {
+      value=raw
+      if (value ~ /g$/) { sub(/g$/, "", value); return value * 1024 }
+      sub(/m$/, "", value)
+      return value + 0
+    }
     /^  [a-zA-Z0-9_-]+:$/ { svc=$1; sub(":$", "", svc) }
     /    mem_limit:/ {
-      value=$2; sub("m$", "", value)
+      value=to_mib($2)
       if (svc != "alertmanager" && svc != "loki" && svc != "promtail" && svc != "tempo") {
         if (svc == "web") value=64
         if (svc == "caddy") value=96
@@ -112,15 +121,20 @@ memory_total="$({
       }
     }
     END { print sum + 64 }
-  ' docker/docker-compose.hosted-beta.yml
+  '
 })"
-[ "$memory_total" -eq 14336 ] || fail "expected 14336 MiB configured memory, got $memory_total"
-pass "configured Azure memory total is 14336 MiB with 2048 MiB host headroom"
+[ "$memory_total" -eq 15872 ] || fail "expected 15872 MiB configured memory, got $memory_total"
+pass "configured Azure memory total is 15872 MiB within the 16 GiB ceiling"
 
-grep -q '^PARKIO_DOMAIN=api.parkio.dev$' docker/.env.azure-hosted-beta.example || fail "canonical API host"
-grep -q '^VITE_API_BASE_URL=https://api.parkio.dev/api/v1$' docker/.env.azure-hosted-beta.example || fail "web API URL"
-grep -q '^EXPO_PUBLIC_API_BASE_URL=https://api.parkio.dev/api/v1$' docker/.env.azure-hosted-beta.example || fail "mobile API URL"
-grep -q '^VITE_WAITLIST_INTAKE_MODE=api$' docker/.env.azure-hosted-beta.example || fail "Azure waitlist mode"
+env_has_exact() {
+  awk -v expected="$1" '{ sub(/\r$/, "") } $0 == expected { found=1 } END { exit !found }' \
+    docker/.env.azure-hosted-beta.example
+}
+
+env_has_exact 'PARKIO_DOMAIN=api.parkio.dev' || fail "canonical API host"
+env_has_exact 'VITE_API_BASE_URL=https://api.parkio.dev/api/v1' || fail "web API URL"
+env_has_exact 'EXPO_PUBLIC_API_BASE_URL=https://api.parkio.dev/api/v1' || fail "mobile API URL"
+env_has_exact 'VITE_WAITLIST_INTAKE_MODE=api' || fail "Azure waitlist mode"
 pass "Azure web/mobile hostname and waitlist mode are canonical"
 
 for script in backup-databases.sh restore-database.sh verify-backup.sh restore-drill.sh; do

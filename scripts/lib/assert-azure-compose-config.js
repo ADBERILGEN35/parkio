@@ -148,9 +148,10 @@ function main() {
   for (const svc of runtimeServices) {
     totalMemory += Number(data.services[svc].mem_limit == null ? 0 : data.services[svc].mem_limit);
   }
-  const maxMemory = 14 * 1024 * 1024 * 1024;
+  // ClamAV's certified 3 GiB limit brings the resolved model to 15.5 GiB.
+  const maxMemory = 16 * 1024 * 1024 * 1024;
   if (totalMemory > maxMemory) {
-    fail('Azure configured memory total ' + totalMemory + ' exceeds 14 GiB target ' + maxMemory);
+    fail('Azure configured memory total ' + totalMemory + ' exceeds 16 GiB ceiling ' + maxMemory);
   }
 
   const badPorts = [];
