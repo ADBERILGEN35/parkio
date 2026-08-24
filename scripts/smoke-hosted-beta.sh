@@ -40,8 +40,31 @@ if [ "$PROFILE" = "azure-hosted-beta" ] && [ "$GATEWAY_URL" != "https://api.park
   exit 2
 fi
 API="$GATEWAY_URL/api/v1"
-EMAIL="${PARKIO_REAL_USER_EMAIL:-user@real-e2e.parkio.local}"
-PASSWORD="${PARKIO_REAL_USER_PASSWORD:-StrongParkio123}"
+EXPLICIT_EMAIL="${PARKIO_REAL_USER_EMAIL:-}"
+EXPLICIT_PASSWORD="${PARKIO_REAL_USER_PASSWORD:-}"
+if [ "$PROFILE" = "invite-production" ]; then
+  if { [ -n "$EXPLICIT_EMAIL" ] && [ -z "$EXPLICIT_PASSWORD" ]; } \
+      || { [ -z "$EXPLICIT_EMAIL" ] && [ -n "$EXPLICIT_PASSWORD" ]; }; then
+    echo "ERROR: invite-production smoke credentials must provide both identifier and password." >&2
+    exit 2
+  fi
+  if [ -n "$EXPLICIT_EMAIL" ]; then
+    LOGIN_MODE="configured-positive"
+    EMAIL="$EXPLICIT_EMAIL"
+    PASSWORD="$EXPLICIT_PASSWORD"
+  else
+    # A clean controlled-invite production database intentionally has no synthetic
+    # users. Prove the live login path rejects credentials without silently
+    # inheriting hosted-beta's seeded real-E2E account contract.
+    LOGIN_MODE="clean-production-negative"
+    EMAIL="invite-production-smoke@parkio.invalid"
+    PASSWORD="ParkioInviteNegativeProbe-Not-A-Secret"
+  fi
+else
+  LOGIN_MODE="seeded-positive"
+  EMAIL="${EXPLICIT_EMAIL:-user@real-e2e.parkio.local}"
+  PASSWORD="${EXPLICIT_PASSWORD:-StrongParkio123}"
+fi
 EXPECT_DIRECT_BLOCKED="${PARKIO_SMOKE_EXPECT_DIRECT_BLOCKED:-0}"
 CLIENT_HEADER="X-Parkio-Client: mobile"
 SMOKE_BODY="${TMPDIR:-/tmp}/parkio-smoke-body.$$.json"
@@ -133,10 +156,21 @@ fi
 code="$(http_code "$API/parking/spots/nearby?lat=41.0&lng=29.0&radius=1000&limit=5" -H "$CLIENT_HEADER")"
 if [ "$code" = "401" ]; then ok "nearby requires auth ($code)"; else bad "nearby unauth expected 401 got $code"; fi
 
-# Login
+# Login. Invite-production has no implicit synthetic principal: without an
+# explicitly configured credential pair, assert the negative authentication
+# contract instead of failing deployment because hosted-beta seed data is absent.
 code="$(http_code "$API/auth/login" -H "$CLIENT_HEADER" -H "Content-Type: application/json" \
   -d "{\"email\":\"$EMAIL\",\"password\":\"$PASSWORD\"}")"
-if [ "$code" = "200" ]; then
+if [ "$LOGIN_MODE" = "clean-production-negative" ]; then
+  error_code="$(json_get "$SMOKE_BODY" code)"
+  if [ "$code" = "401" ] && [ "$error_code" = "INVALID_CREDENTIALS" ]; then
+    ok "clean-production login rejects unprovisioned credentials (401 INVALID_CREDENTIALS)"
+  else
+    bad "clean-production login rejection expected 401 INVALID_CREDENTIALS, got ${code} ${error_code:-<no-code>}"
+  fi
+  ACCESS=""
+  REFRESH=""
+elif [ "$code" = "200" ]; then
   ACCESS="$(json_get "$SMOKE_BODY" accessToken)"
   REFRESH="$(json_get "$SMOKE_BODY" refreshToken)"
   if [ -n "$ACCESS" ] && [ "$ACCESS" != "null" ]; then
@@ -146,7 +180,11 @@ if [ "$code" = "200" ]; then
     ACCESS=""
   fi
 else
-  bad "login ($code) — seed accounts with scripts/seed-real-e2e.sh if needed"
+  if [ "$PROFILE" = "invite-production" ]; then
+    bad "configured invite-production login ($code)"
+  else
+    bad "login ($code) — seed accounts with scripts/seed-real-e2e.sh if needed"
+  fi
   ACCESS=""
   REFRESH=""
 fi

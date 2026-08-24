@@ -100,6 +100,7 @@ jobs:
           python3 scripts/test_invite_production_node_runtime.py
           bash scripts/test-invite-production-clamav-runtime.sh
           bash scripts/test-invite-dark-gateway.sh
+          bash scripts/test-invite-production-login-smoke.sh
           python3 scripts/test_invite_production_dispatch_input.py
           bash scripts/test-invite-dark-acme-isolation.sh
           bash scripts/test-invite-production-backup-scheduler.sh
