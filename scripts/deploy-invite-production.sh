@@ -207,7 +207,7 @@ if [ "${PARKIO_INSTALL_BACKUP_SCHEDULER:-0}" = "1" ]; then
     exit 3
   fi
   python3 "$ROOT/scripts/assert-invite-production-artifacts-safe.py" \
-    --env-file "$ENV_FILE" /opt/parkio/invite-production
+    --env-file "$ENV_FILE" /opt/parkio/invite-production-backup
 else
   echo "Backup scheduler payload not installed (PARKIO_INSTALL_BACKUP_SCHEDULER unset)."
   echo "  Install it as root during backup acceptance:"

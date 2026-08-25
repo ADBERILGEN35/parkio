@@ -49,11 +49,16 @@ sudo scripts/azure/install-invite-production-backup-scheduler.sh --disable
 ```
 
 This stops the service if it is mid-run and disables the timer. It deliberately
-leaves the installed payload in place so the previous revision stays auditable,
+leaves the dedicated payload at `/opt/parkio/invite-production-backup` in place
+so the previous revision stays auditable,
 and it never touches `/var/backups/parkio` or the offsite container — valid
 encrypted backups are never deleted by a rollback. To go back to an earlier
 payload revision, re-run the installer from that revision's checkout; `VERSION`
 records which revision is currently installed.
+
+The application runtime root `/opt/parkio/invite-production` is not scheduler
+state. Backup disable, upgrade, or rollback must never rename, replace, or delete
+its `current/`, `releases/`, or `acceptance/` paths.
 
 Rollback must never recreate a persistent plaintext production env. If one is
 found at `/opt/parkio/docker/.env.invite-production`, it is residue from the

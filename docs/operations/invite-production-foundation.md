@@ -143,11 +143,24 @@ orchestrator is `parkio-invite-backup.timer`:
 - Prometheus textfile success/failure metrics; operations owner is Parkio on-call.
 
 The scheduler runs from a versioned operational payload at
-`/opt/parkio/invite-production/`, installed by
+`/opt/parkio/invite-production-backup/`, installed by
 `scripts/azure/install-invite-production-backup-scheduler.sh`. That payload is
 the backup execution closure and nothing else — it is not a repository checkout —
 and it records the revision it came from in `VERSION` plus checksums in
 `MANIFEST.sha256`.
+
+The three storage boundaries are deliberately disjoint:
+
+- `/opt/parkio/invite-production` is the application runtime root and owns
+  `current/`, `releases/`, and `acceptance/`;
+- `/opt/parkio/invite-production-backup` is scheduler code only;
+- `/var/backups/parkio` contains successful local backup data, while
+  `invite-production-backups` is the production offsite container.
+
+Never pass the application runtime root (or one of its children) as the backup
+installer destination. The installer rejects runtime markers, symlink/traversal
+paths, protected parents, transient paths, and the backup-data root before it
+stages or removes anything.
 
 There is deliberately **no persistent production `.env` on the VM**. Each
 scheduled run calls `scripts/azure/invite-production-backup-run.sh`, which

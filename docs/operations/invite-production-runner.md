@@ -57,6 +57,9 @@ SHA-addressed release under a stable root that is provisioned once, as root, by
     docker/**                                                0644  files
     docker/**/*.sh                                           0755  scripts
 /opt/parkio/invite-production/current -> releases/<sha>
+/opt/parkio/invite-production-backup           root         0750
+    VERSION, MANIFEST.sha256, docker/, scripts/              audited payload
+/var/backups/parkio                            root         0700  backup data
 ```
 
 - `/opt/parkio` is `0755` so non-root container UIDs can traverse to a release.
@@ -71,6 +74,10 @@ SHA-addressed release under a stable root that is provisioned once, as root, by
 - The deploy runner still has no sudo. It can write releases because the root
   was pre-created with runner ownership — it can never create or re-permission
   the root itself.
+- The root-owned scheduler payload is structurally separate from both the
+  application release root and backup data. Its installer must never rename or
+  remove `/opt/parkio/invite-production`, and scheduler upgrades never operate
+  on `/var/backups/parkio`.
 
 Releases are immutable: staging an existing SHA is a no-op rather than a
 rebuild, because running containers bind-mount directly into the release tree.

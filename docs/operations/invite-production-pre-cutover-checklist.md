@@ -68,8 +68,12 @@ DNS switching, data migration, traffic, or invitations.
 
 ## Backup, providers, and policy
 
-- [ ] The backup payload is installed at `/opt/parkio/invite-production/` and its
+- [ ] The backup payload is installed at
+  `/opt/parkio/invite-production-backup/` and its
   `MANIFEST.sha256` verifies against the deployed SHA recorded in `VERSION`.
+- [ ] The application runtime root `/opt/parkio/invite-production` still owns
+  `current/`, `releases/`, and `acceptance/`; it was never used as the scheduler
+  installer destination.
 - [ ] No persistent production `.env` exists on the VM (the scheduler renders one
   per run into `/dev/shm` and shreds it).
 - [ ] `parkio-invite-backup.timer` is enabled as the only scheduler.

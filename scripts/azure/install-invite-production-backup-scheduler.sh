@@ -11,10 +11,10 @@
 # persisting a plaintext production env — the exact thing the secret-residue
 # policy forbids.
 #
-# The fix is a small, versioned operational payload at a stable path, plus a
-# wrapper that mints its env per run (see invite-production-backup-run.sh):
+# The fix is a small, versioned operational payload at a dedicated stable path,
+# plus a wrapper that mints its env per run (see invite-production-backup-run.sh):
 #
-#   /opt/parkio/invite-production/
+#   /opt/parkio/invite-production-backup/
 #     VERSION                  gitSha + installedAt (non-secret)
 #     MANIFEST.sha256          checksums of every installed file
 #     docker/.env.invite-production.example
@@ -33,7 +33,10 @@ set -euo pipefail
 
 ROOT="$(cd "$(dirname "$0")/../.." && pwd)"
 
-PREFIX="/opt/parkio/invite-production"
+DEFAULT_PREFIX="/opt/parkio/invite-production-backup"
+RUNTIME_ROOT="/opt/parkio/invite-production"
+BACKUP_DATA_ROOT="/var/backups/parkio"
+PREFIX="$DEFAULT_PREFIX"
 UNIT_DIR="/etc/systemd/system"
 DRY_RUN=0
 ENABLE_TIMER=0
@@ -82,6 +85,84 @@ if [ "$DRY_RUN" -eq 0 ] && [ "$(id -u)" -ne 0 ]; then
   exit 2
 fi
 
+fail_path() {
+  echo "ERROR: unsafe scheduler payload destination '$PREFIX': $1" >&2
+  exit 3
+}
+
+# Validate the destination before staging, replacing, or removing anything.
+# Test fixtures may use /tmp only through --dry-run; a real installation must
+# remain on persistent storage. Requiring the spelling to equal realpath -m also
+# rejects symlink parents, symlink destinations, and lexical traversal.
+validate_payload_destination() {
+  [ -n "$PREFIX" ] || fail_path "destination is empty"
+  case "$PREFIX" in
+    /*) ;;
+    *) fail_path "destination must be an absolute path" ;;
+  esac
+  case "$PREFIX" in
+    *[!A-Za-z0-9_./-]*) fail_path "destination contains unsupported characters" ;;
+  esac
+
+  command -v realpath >/dev/null 2>&1 \
+    || fail_path "realpath is required for canonical path validation"
+  local canonical
+  canonical="$(realpath -m -- "$PREFIX")" \
+    || fail_path "destination could not be canonicalized"
+  [ "$canonical" = "$PREFIX" ] \
+    || fail_path "destination must be canonical and must not traverse symlinks"
+
+  case "$canonical" in
+    /|/opt|/opt/parkio)
+      fail_path "destination is a protected root/parent"
+      ;;
+    "$RUNTIME_ROOT"|"$RUNTIME_ROOT"/*)
+      fail_path "application runtime root and its children are runtime-owned"
+      ;;
+    "$BACKUP_DATA_ROOT"|"$BACKUP_DATA_ROOT"/*)
+      fail_path "backup data must remain separate from scheduler code"
+      ;;
+    */_work|*/_work/*)
+      fail_path "Actions _work paths are transient"
+      ;;
+    /dev/shm|/dev/shm/*)
+      fail_path "tmpfs is reserved for ephemeral credentials"
+      ;;
+    /tmp|/tmp/*)
+      [ "$DRY_RUN" -eq 1 ] || fail_path "real installations may not use /tmp"
+      ;;
+  esac
+
+  local marker
+  for marker in current releases acceptance; do
+    if [ -e "$PREFIX/$marker" ] || [ -L "$PREFIX/$marker" ]; then
+      fail_path "runtime marker '$marker' is present"
+    fi
+  done
+}
+
+assert_owned_payload() {
+  local path="$1"
+  [ ! -L "$path" ] || { echo "ERROR: refusing symlinked scheduler payload '$path'." >&2; return 1; }
+  [ -f "$path/VERSION" ] && [ -f "$path/MANIFEST.sha256" ] \
+    || { echo "ERROR: '$path' is not a recognized scheduler payload." >&2; return 1; }
+  local marker
+  for marker in current releases acceptance; do
+    if [ -e "$path/$marker" ] || [ -L "$path/$marker" ]; then
+      echo "ERROR: runtime marker '$marker' found under scheduler payload '$path'." >&2
+      return 1
+    fi
+  done
+  (cd "$path" && sha256sum --quiet --check MANIFEST.sha256) \
+    || { echo "ERROR: scheduler payload checksum validation failed at '$path'." >&2; return 1; }
+}
+
+remove_owned_payload() {
+  local path="$1"
+  assert_owned_payload "$path" || return 1
+  rm -rf -- "$path"
+}
+
 # ----------------------------------------------------------------------------- #
 # Rollback path                                                                  #
 # ----------------------------------------------------------------------------- #
@@ -93,6 +174,8 @@ if [ "$DISABLE_TIMER" -eq 1 ]; then
   echo "Installed payload and existing encrypted backups were intentionally left in place."
   exit 0
 fi
+
+validate_payload_destination
 
 # ----------------------------------------------------------------------------- #
 # Refuse to co-exist with a second orchestrator or a legacy persistent env        #
@@ -116,9 +199,13 @@ fi
 # Stage the payload, then swap atomically so a failed install leaves no partial   #
 # tree behind and a re-run is a no-op on content (idempotent).                    #
 # ----------------------------------------------------------------------------- #
-STAGE="$(mktemp -d "${TMPDIR:-/tmp}/parkio-invite-scheduler-XXXXXXXX")"
+install -d -m 0750 "$(dirname "$PREFIX")"
+STAGE="$(mktemp -d "$(dirname "$PREFIX")/.$(basename "$PREFIX").stage.XXXXXXXX")"
+chmod 0750 "$STAGE"
 cleanup() {
-  rm -rf -- "$STAGE"
+  if [ -n "${STAGE:-}" ] && [ -d "$STAGE" ]; then
+    rm -rf -- "$STAGE"
+  fi
 }
 trap cleanup EXIT HUP INT TERM
 
@@ -184,56 +271,80 @@ while IFS= read -r dotenv; do
   fi
 done < <(find "$STAGE" -type f -name '.env*' -print)
 
-if [ "$DRY_RUN" -eq 1 ]; then
-  # Mirror the real path's replace-don't-merge semantics so a staging check
-  # cannot pass while leaving stale files from an older payload behind. Only ever
-  # clear a directory that is recognisably one of ours.
-  if [ -e "$PREFIX" ]; then
-    if [ -f "$PREFIX/VERSION" ] && [ -f "$PREFIX/MANIFEST.sha256" ]; then
-      rm -rf -- "$PREFIX"
-    elif [ -n "$(ls -A "$PREFIX" 2>/dev/null)" ]; then
-      echo "ERROR: --prefix '$PREFIX' is non-empty and is not a scheduler payload." >&2
-      exit 3
-    fi
+# The staged closure must be internally valid before it can displace a working
+# scheduler payload.
+assert_owned_payload "$STAGE"
+
+PREVIOUS=""
+if [ -e "$PREFIX" ] || [ -L "$PREFIX" ]; then
+  if [ -d "$PREFIX" ] && [ -z "$(ls -A "$PREFIX" 2>/dev/null)" ]; then
+    rmdir -- "$PREFIX"
+  else
+    assert_owned_payload "$PREFIX"
   fi
-  install -d -m 0750 "$PREFIX"
-  cp -a "$STAGE/." "$PREFIX/"
-  install -d -m 0755 "$UNIT_DIR"
-  sed "s#/opt/parkio/invite-production#${PREFIX}#g" \
-    "$ROOT/infra/systemd/parkio-invite-backup.service" > "$UNIT_DIR/parkio-invite-backup.service"
-  cp "$ROOT/infra/systemd/parkio-invite-backup.timer" "$UNIT_DIR/parkio-invite-backup.timer"
-  chmod 0644 "$UNIT_DIR/parkio-invite-backup.service" "$UNIT_DIR/parkio-invite-backup.timer"
+fi
+if [ -d "$PREFIX" ]; then
+  PREVIOUS="${PREFIX}.previous"
+  if [ -e "$PREVIOUS" ] || [ -L "$PREVIOUS" ]; then
+    remove_owned_payload "$PREVIOUS"
+  fi
+  mv -- "$PREFIX" "$PREVIOUS"
+fi
+if ! mv -- "$STAGE" "$PREFIX"; then
+  echo "ERROR: payload install failed; restoring the previous revision." >&2
+  [ -n "$PREVIOUS" ] && mv -- "$PREVIOUS" "$PREFIX"
+  exit 3
+fi
+STAGE=""
+
+rollback_payload() {
+  local status="${1:-3}"
+  echo "ERROR: scheduler activation failed; restoring the previous payload." >&2
+  if [ -d "$PREFIX" ]; then
+    remove_owned_payload "$PREFIX" || true
+  fi
+  if [ -n "$PREVIOUS" ] && [ -d "$PREVIOUS" ]; then
+    mv -- "$PREVIOUS" "$PREFIX"
+  fi
+  return "$status"
+}
+
+install -d -m 0755 "$UNIT_DIR"
+escaped_prefix="${PREFIX//&/\\&}"
+if ! sed "s#${DEFAULT_PREFIX}#${escaped_prefix}#g" \
+    "$ROOT/infra/systemd/parkio-invite-backup.service" > "$UNIT_DIR/parkio-invite-backup.service" \
+  || ! install -m 0644 "$ROOT/infra/systemd/parkio-invite-backup.timer" "$UNIT_DIR/parkio-invite-backup.timer" \
+  || ! chmod 0644 "$UNIT_DIR/parkio-invite-backup.service" "$UNIT_DIR/parkio-invite-backup.timer"; then
+  rollback_payload 3
+  exit 3
+fi
+
+if [ "$DRY_RUN" -eq 1 ]; then
+  [ -z "$PREVIOUS" ] || remove_owned_payload "$PREVIOUS"
   echo "DRY-RUN: staged payload to $PREFIX and units to $UNIT_DIR."
   echo "DRY-RUN: systemd was not contacted and no timer was enabled."
   exit 0
 fi
 
-install -d -m 0750 "$(dirname "$PREFIX")"
-PREVIOUS=""
-if [ -d "$PREFIX" ]; then
-  PREVIOUS="${PREFIX}.previous"
-  rm -rf -- "$PREVIOUS"
-  mv -- "$PREFIX" "$PREVIOUS"
-fi
-if ! install -d -m 0750 "$PREFIX" || ! cp -a "$STAGE/." "$PREFIX/"; then
-  echo "ERROR: payload install failed; restoring the previous revision." >&2
-  rm -rf -- "$PREFIX"
-  [ -n "$PREVIOUS" ] && mv -- "$PREVIOUS" "$PREFIX"
+if ! systemctl daemon-reload; then
+  rollback_payload 3
   exit 3
 fi
-
-install -m 0644 "$ROOT/infra/systemd/parkio-invite-backup.service" "$UNIT_DIR/parkio-invite-backup.service"
-install -m 0644 "$ROOT/infra/systemd/parkio-invite-backup.timer" "$UNIT_DIR/parkio-invite-backup.timer"
-systemctl daemon-reload
 
 # Verify what systemd actually parsed before offering to enable it.
 if ! systemd-analyze verify "$UNIT_DIR/parkio-invite-backup.timer" 2>&1 | grep -vq 'Failed'; then
   : # systemd-analyze is advisory here; a hard failure is reported below.
 fi
-systemctl cat parkio-invite-backup.timer >/dev/null
+if ! systemctl cat parkio-invite-backup.timer >/dev/null; then
+  rollback_payload 3
+  exit 3
+fi
 
 if [ "$ENABLE_TIMER" -eq 1 ]; then
-  systemctl enable --now parkio-invite-backup.timer
+  if ! systemctl enable --now parkio-invite-backup.timer; then
+    rollback_payload 3
+    exit 3
+  fi
   echo "Canonical backup timer installed and enabled."
   systemctl list-timers parkio-invite-backup.timer --no-pager
 else
@@ -244,6 +355,6 @@ else
   echo "  systemctl enable --now parkio-invite-backup.timer"
 fi
 
-rm -rf -- "${PREFIX}.previous"
+[ -z "$PREVIOUS" ] || remove_owned_payload "$PREVIOUS"
 echo "Installed revision: ${GIT_SHA}"
 echo "Payload: $PREFIX (see VERSION and MANIFEST.sha256)"

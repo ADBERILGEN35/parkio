@@ -17,13 +17,13 @@
 #                 -> /dev/shm env (0600) -> canonical backup -> shred
 #
 # Usage (normally invoked by parkio-invite-backup.service):
-#   /opt/parkio/invite-production/scripts/azure/invite-production-backup-run.sh
+#   /opt/parkio/invite-production-backup/scripts/azure/invite-production-backup-run.sh
 #   ... --dry-run     render + validate wiring, run no backup
 #
 set -euo pipefail
 
 # Resolve the installed runtime root from this script's own location, so the
-# same file works from a repo checkout and from /opt/parkio/invite-production.
+# same file works from a repo checkout and from the dedicated backup payload.
 ROOT="$(cd "$(dirname "$0")/../.." && pwd)"
 
 DRY_RUN=0

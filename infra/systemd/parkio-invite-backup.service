@@ -1,6 +1,6 @@
 [Unit]
 Description=Parkio invite-production encrypted offsite backup
-Documentation=file:///opt/parkio/invite-production/VERSION
+Documentation=file:///opt/parkio/invite-production-backup/VERSION
 Wants=network-online.target docker.service
 After=network-online.target docker.service
 
@@ -8,7 +8,7 @@ After=network-online.target docker.service
 Type=oneshot
 User=root
 Group=root
-WorkingDirectory=/opt/parkio/invite-production
+WorkingDirectory=/opt/parkio/invite-production-backup
 
 # No production secret is named here. The wrapper mints a short-lived env from
 # Key Vault through the VM managed identity on every run and destroys it via a
@@ -16,7 +16,7 @@ WorkingDirectory=/opt/parkio/invite-production
 # arguments, in the journal, or on persistent disk (PROD-DEPLOY-01A-R3 / D2).
 Environment=PARKIO_BACKUP_OPERATOR=systemd:parkio-invite-backup
 Environment=PARKIO_BACKUP_ARTIFACT_DIR=backup-artifacts/invite-production
-ExecStart=/opt/parkio/invite-production/scripts/azure/invite-production-backup-run.sh
+ExecStart=/opt/parkio/invite-production-backup/scripts/azure/invite-production-backup-run.sh
 
 Nice=10
 IOSchedulingClass=best-effort

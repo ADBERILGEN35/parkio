@@ -37,6 +37,14 @@ bad() { echo "FAIL: $1" >&2; fail=$((fail + 1)); }
 
 has() { grep -Fq "$1" "$2"; }
 
+tree_fingerprint() {
+  local root="$1"
+  {
+    find "$root" -mindepth 1 -printf '%P|%y|%m|%l\n' | LC_ALL=C sort
+    find "$root" -type f -print0 | LC_ALL=C sort -z | xargs -0 -r sha256sum
+  } | sha256sum | awk '{print $1}'
+}
+
 # --------------------------------------------------------------------------- #
 # 1. Timer policy                                                              #
 # --------------------------------------------------------------------------- #
@@ -82,10 +90,20 @@ else
   ok "service unit carries no secret-shaped Environment= values"
 fi
 
-if grep -Eq '^ExecStart=/opt/parkio/invite-production/scripts/azure/invite-production-backup-run\.sh' "$SERVICE_UNIT"; then
+if grep -Eq '^ExecStart=/opt/parkio/invite-production-backup/scripts/azure/invite-production-backup-run\.sh' "$SERVICE_UNIT"; then
   ok "service ExecStart is an absolute stable path"
 else
-  bad "service ExecStart must be the absolute installed wrapper path"
+  bad "service ExecStart must use the dedicated scheduler payload"
+fi
+if grep -Eq '/opt/parkio/invite-production/(current|releases|acceptance)(/|$)' "$SERVICE_UNIT"; then
+  bad "service must not reference a runtime-owned path"
+else
+  ok "service references no runtime-owned path"
+fi
+if grep -Eq '/_work(/|$)' "$SERVICE_UNIT"; then
+  bad "service must not reference Actions _work"
+else
+  ok "service references no Actions _work path"
 fi
 if grep -Eq '^Exec[A-Za-z]*=(?!/)' "$SERVICE_UNIT" 2>/dev/null \
   || grep -E '^Exec[A-Za-z]*=' "$SERVICE_UNIT" | grep -qv '=[-+!@]*/'; then
@@ -244,8 +262,85 @@ fi
 echo
 echo "=== installation ==="
 
-PREFIX="$WORK/opt/parkio/invite-production"
+RUNTIME_ROOT="$WORK/opt/parkio/invite-production"
+PREFIX="$WORK/opt/parkio/invite-production-backup"
 UNITS="$WORK/etc/systemd/system"
+BACKUP_DATA="$WORK/var/backups/parkio"
+
+has 'DEFAULT_PREFIX="/opt/parkio/invite-production-backup"' "$INSTALLER" \
+  && ok "installer defaults to the dedicated payload root" \
+  || bad "installer must default to /opt/parkio/invite-production-backup"
+if grep -Fq '/opt/parkio/invite-production-backup' "$ROOT/scripts/deploy-invite-production.sh" \
+  && ! grep -Eq 'artifacts-safe\.py.* /opt/parkio/invite-production$' "$ROOT/scripts/deploy-invite-production.sh"; then
+  ok "deploy integration scans the dedicated scheduler payload"
+else
+  bad "deploy integration must use the dedicated scheduler payload"
+fi
+
+# Model the certified live layout exactly. The non-dry-run invocation is safe in
+# this fixture because systemctl/id are stubbed. Reverting only the installer to
+# the pre-R10A implementation makes this regression fail: that implementation
+# exits zero after replacing RUNTIME_ROOT with the scheduler payload.
+mkdir -p "$RUNTIME_ROOT/releases/70f7ca8" "$RUNTIME_ROOT/acceptance" "$BACKUP_DATA/certified-success"
+printf 'runtime-release\n' > "$RUNTIME_ROOT/releases/70f7ca8/runtime-marker"
+printf 'acceptance-state\n' > "$RUNTIME_ROOT/acceptance/acceptance-marker"
+printf 'successful-backup\n' > "$BACKUP_DATA/certified-success/COMPLETE"
+ln -s releases/70f7ca8 "$RUNTIME_ROOT/current"
+runtime_before="$(tree_fingerprint "$RUNTIME_ROOT")"
+backup_before="$(tree_fingerprint "$BACKUP_DATA")"
+
+id() { if [ "${1:-}" = "-u" ]; then printf '0\n'; else command id "$@"; fi; }
+systemctl() { return 0; }
+export -f id systemctl
+
+set +e
+"$INSTALLER" --prefix "$RUNTIME_ROOT" --unit-dir "$UNITS" >"$WORK/runtime-root-override.log" 2>&1
+runtime_override_status=$?
+set -e
+if [ "$runtime_override_status" -ne 0 ] \
+  && [ -L "$RUNTIME_ROOT/current" ] \
+  && [ -f "$RUNTIME_ROOT/releases/70f7ca8/runtime-marker" ] \
+  && [ -f "$RUNTIME_ROOT/acceptance/acceptance-marker" ] \
+  && [ "$(tree_fingerprint "$RUNTIME_ROOT")" = "$runtime_before" ]; then
+  ok "real installer refuses the live runtime-root layout without changing it"
+else
+  bad "real installer must fail closed before replacing current/releases/acceptance"
+fi
+
+# Destination guard matrix. These calls must fail before staging or copying.
+for unsafe in \
+  "" \
+  "relative/invite-production-backup" \
+  "$WORK/opt/parkio/backup/../invite-production-backup" \
+  "$WORK/_work/repo/invite-production-backup" \
+  "/opt/parkio/invite-production" \
+  "/opt/parkio/invite-production/releases/candidate" \
+  "/var/backups/parkio" \
+  "/dev/shm/parkio-invite-production-backup" \
+  "/" \
+  "/opt/parkio"; do
+  set +e
+  "$INSTALLER" --dry-run --prefix "$unsafe" --unit-dir "$UNITS" >"$WORK/unsafe.log" 2>&1
+  unsafe_status=$?
+  set -e
+  if [ "$unsafe_status" -ne 0 ]; then
+    ok "unsafe destination rejected: $unsafe"
+  else
+    bad "unsafe destination must be rejected: $unsafe"
+  fi
+done
+
+mkdir -p "$WORK/symlink-target"
+ln -s "$WORK/symlink-target" "$WORK/symlink-prefix"
+set +e
+"$INSTALLER" --dry-run --prefix "$WORK/symlink-prefix" --unit-dir "$UNITS" >"$WORK/symlink.log" 2>&1
+symlink_status=$?
+set -e
+if [ "$symlink_status" -ne 0 ]; then
+  ok "symlinked destination is rejected"
+else
+  bad "symlinked destination must be rejected"
+fi
 
 "$INSTALLER" --dry-run --prefix "$PREFIX" --unit-dir "$UNITS" >"$WORK/install1.log" 2>&1 \
   && ok "first install succeeds" || bad "first install failed: $(tail -3 "$WORK/install1.log")"
@@ -266,6 +361,11 @@ ok "payload contains the full backup execution closure"
 
 [ -x "$PREFIX/scripts/azure/invite-production-backup-run.sh" ] \
   && ok "wrapper is installed executable" || bad "wrapper must be installed executable"
+if [ "$(stat -c '%a' "$PREFIX")" = "750" ]; then
+  ok "payload root is installed mode 0750"
+else
+  bad "payload root must be mode 0750"
+fi
 [ -f "$PREFIX/VERSION" ] && grep -q '^gitSha=' "$PREFIX/VERSION" \
   && ok "payload records its source revision" || bad "payload must record gitSha in VERSION"
 [ -f "$PREFIX/MANIFEST.sha256" ] \
@@ -289,6 +389,11 @@ if grep -RIq -E 'BEGIN [A-Z ]*PRIVATE KEY|hooks\.slack\.com/services/[A-Za-z0-9]
 else
   ok "payload contains no secret-shaped material"
 fi
+if grep -RIq -E '(^|/)_work(/|$)' "$PREFIX" 2>/dev/null; then
+  bad "payload must not contain an Actions _work reference"
+else
+  ok "payload contains no Actions _work reference"
+fi
 
 # Units: rendered for the prefix, and the timer is never auto-enabled.
 [ -f "$UNITS/parkio-invite-backup.service" ] && [ -f "$UNITS/parkio-invite-backup.timer" ] \
@@ -298,6 +403,20 @@ if grep -q 'DRY-RUN' "$WORK/install1.log" && ! grep -q 'enable --now' "$WORK/ins
 else
   bad "installation must not enable the timer as a side effect"
 fi
+if grep -Fq "$PREFIX/scripts/azure/invite-production-backup-run.sh" "$UNITS/parkio-invite-backup.service" \
+  && ! grep -Eq '/_work(/|$)|/invite-production/(current|releases|acceptance)(/|$)' "$UNITS/parkio-invite-backup.service"; then
+  ok "rendered service points only to the dedicated payload"
+else
+  bad "rendered service must point only to the dedicated payload"
+fi
+
+runtime_after_first="$(tree_fingerprint "$RUNTIME_ROOT")"
+[ "$runtime_after_first" = "$runtime_before" ] \
+  && ok "dedicated first install leaves runtime root byte-for-byte unchanged" \
+  || bad "dedicated first install changed the runtime root"
+[ "$(tree_fingerprint "$BACKUP_DATA")" = "$backup_before" ] \
+  && ok "dedicated first install preserves successful backups" \
+  || bad "dedicated first install changed backup data"
 
 # Idempotency: a second install must converge to identical content. VERSION is
 # excluded because it records installedAt, which is expected to move; everything
@@ -324,32 +443,72 @@ else
   bad "installation must not duplicate the timer unit"
 fi
 
+# Upgrade a recognized SHA-A payload to the candidate SHA B. VERSION is changed
+# together with its manifest entry so the old payload remains valid before swap.
+sed -i 's/^gitSha=.*/gitSha=fixture-sha-a/' "$PREFIX/VERSION"
+(cd "$PREFIX" && find . -type f ! -name MANIFEST.sha256 -print0 \
+  | sort -z | xargs -0 sha256sum > MANIFEST.sha256)
+"$INSTALLER" --dry-run --prefix "$PREFIX" --unit-dir "$UNITS" >"$WORK/upgrade.log" 2>&1 \
+  && ok "upgrade from payload SHA A to candidate SHA B succeeds" \
+  || bad "payload SHA upgrade failed"
+if grep -q '^gitSha=fixture-sha-a$' "$PREFIX/VERSION"; then
+  bad "upgrade must replace the old payload revision"
+else
+  ok "upgrade replaces only the old scheduler payload revision"
+fi
+
 # Failed install cleanup: a missing payload file must abort before touching the
 # prefix, and must not leave a staging directory behind.
-stage_before="$(find "${TMPDIR:-/tmp}" -maxdepth 1 -name 'parkio-invite-scheduler-*' 2>/dev/null | wc -l)"
+stage_before="$(find "$(dirname "$PREFIX")" -maxdepth 1 -name ".$(basename "$PREFIX").stage.*" 2>/dev/null | wc -l)"
 BROKEN="$WORK/broken"
 mkdir -p "$BROKEN/scripts/azure" "$BROKEN/scripts/lib" "$BROKEN/docker" "$BROKEN/infra/systemd"
 cp "$INSTALLER" "$BROKEN/scripts/azure/"
+# Model a valid SHA-A payload and prove a broken B never changes it.
+sed -i 's/^gitSha=.*/gitSha=fixture-sha-a/' "$PREFIX/VERSION"
+(cd "$PREFIX" && find . -type f ! -name MANIFEST.sha256 -print0 \
+  | sort -z | xargs -0 sha256sum > MANIFEST.sha256)
+payload_a_before="$(tree_fingerprint "$PREFIX")"
 set +e
 "$BROKEN/scripts/azure/install-invite-production-backup-scheduler.sh" \
-  --dry-run --prefix "$WORK/broken-prefix" --unit-dir "$WORK/broken-units" >"$WORK/broken.log" 2>&1
+  --dry-run --prefix "$PREFIX" --unit-dir "$UNITS" >"$WORK/broken.log" 2>&1
 broken_status=$?
 set -e
-stage_after="$(find "${TMPDIR:-/tmp}" -maxdepth 1 -name 'parkio-invite-scheduler-*' 2>/dev/null | wc -l)"
+stage_after="$(find "$(dirname "$PREFIX")" -maxdepth 1 -name ".$(basename "$PREFIX").stage.*" 2>/dev/null | wc -l)"
 if [ "$broken_status" -ne 0 ]; then
   ok "install aborts when the payload closure is incomplete"
 else
   bad "install must abort when a payload file is missing"
 fi
-if [ ! -d "$WORK/broken-prefix" ]; then
-  ok "failed install leaves no partial prefix"
+if (cd "$PREFIX" && sha256sum --quiet --check MANIFEST.sha256) >/dev/null 2>&1 \
+  && [ "$(tree_fingerprint "$PREFIX")" = "$payload_a_before" ] \
+  && grep -q '^gitSha=fixture-sha-a$' "$PREFIX/VERSION"; then
+  ok "failed SHA-B upgrade preserves the old valid SHA-A payload"
 else
-  bad "failed install must not leave a partial prefix"
+  bad "failed SHA-B upgrade must preserve the old valid SHA-A payload"
 fi
 if [ "$stage_before" -eq "$stage_after" ]; then
   ok "failed install removes its staging directory"
 else
   bad "failed install leaked a staging directory"
+fi
+
+# --disable may contact only systemd. It must preserve the dedicated payload,
+# runtime release tree, and successful backup artifacts.
+payload_before_disable="$(tree_fingerprint "$PREFIX")"
+"$INSTALLER" --disable --prefix "$PREFIX" --unit-dir "$UNITS" >"$WORK/disable.log" 2>&1 \
+  && ok "disable path succeeds with stubbed systemd" || bad "disable path failed"
+[ "$(tree_fingerprint "$PREFIX")" = "$payload_before_disable" ] \
+  && ok "disable preserves scheduler payload" || bad "disable changed scheduler payload"
+[ "$(tree_fingerprint "$RUNTIME_ROOT")" = "$runtime_before" ] \
+  && ok "disable preserves runtime current/releases/acceptance" || bad "disable changed runtime root"
+[ "$(tree_fingerprint "$BACKUP_DATA")" = "$backup_before" ] \
+  && ok "disable preserves successful backup data" || bad "disable changed backup data"
+
+if [ "$(find "$(dirname "$PREFIX")" -maxdepth 1 -name ".$(basename "$PREFIX").stage.*" | wc -l)" -eq 0 ] \
+  && [ ! -e "${PREFIX}.previous" ]; then
+  ok "installation leaves no stale stage or previous payload"
+else
+  bad "installation left stale stage/previous payload"
 fi
 
 # --------------------------------------------------------------------------- #
