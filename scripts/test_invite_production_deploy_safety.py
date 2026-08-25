@@ -94,7 +94,50 @@ class InviteProductionDeploySafetyTest(unittest.TestCase):
             fake_docker = fake_bin / "docker"
             compose_model = valid_model()
             compose_model["name"] = "parkio"
-            compose_model["services"]["api"] = {
+            memory_mib = {
+                "ai-validation-service": 640,
+                "alertmanager": 128,
+                "analytics-service": 640,
+                "auth-service": 768,
+                "blackbox-exporter": 64,
+                "caddy": 256,
+                "clamav": 3072,
+                "gamification-service": 640,
+                "gateway-service": 640,
+                "grafana": 384,
+                "kafka": 1280,
+                "kafka-exporter": 128,
+                "loki": 512,
+                "media-service": 768,
+                "minio": 512,
+                "moderation-service": 640,
+                "node-exporter": 64,
+                "notification-service": 640,
+                "parking-service": 768,
+                "prometheus": 1024,
+                "promtail": 128,
+                "redis": 384,
+                "tempo": 512,
+                "user-service": 640,
+                "web": 128,
+            }
+            for service, memory in memory_mib.items():
+                compose_model["services"].setdefault(service, {})
+                compose_model["services"][service]["mem_limit"] = memory * 1024**2
+            compose_model["services"]["minio-setup"] = {
+                "depends_on": {"minio": {}}
+            }
+            compose_model["services"]["grafana"]["depends_on"] = {
+                "loki": {},
+                "prometheus": {},
+                "tempo": {},
+            }
+            compose_model["services"]["media-service"]["depends_on"] = {
+                "clamav": {},
+                "minio": {},
+                "minio-setup": {},
+            }
+            compose_model["services"]["ai-validation-service"].update({
                 "image": "parkio/api:sha-test",
                 "environment": {
                     "POSTGRES_PASSWORD": SENTINELS[0],
@@ -107,7 +150,7 @@ class InviteProductionDeploySafetyTest(unittest.TestCase):
                 "healthcheck": {
                     "test": ["CMD-SHELL", f"probe {SENTINELS[0]}"]
                 },
-            }
+            })
             compose_model_json = shlex.quote(
                 json.dumps(compose_model, separators=(",", ":"))
             )
@@ -169,6 +212,19 @@ class InviteProductionDeploySafetyTest(unittest.TestCase):
             for sentinel in SENTINELS:
                 self.assertNotIn(sentinel, evidence)
             self.assertFalse((artifact_dir / "compose-config.rendered.yml").exists())
+
+            resource_budget = json.loads(
+                (artifact_dir / "resource-budget.json").read_text()
+            )
+            self.assertEqual(resource_budget["resourceBudgetProfile"], "invite-production")
+            self.assertEqual(resource_budget["configuredMemoryMiB"], 15360)
+            self.assertEqual(resource_budget["continuousRuntimeMemoryMiB"], 14976)
+            self.assertEqual(resource_budget["resourceCeilingMiB"], 16384)
+            self.assertEqual(resource_budget["configuredHeadroomMiB"], 1024)
+            self.assertIs(resource_budget["resourceBudgetWithinCeiling"], True)
+            self.assertEqual(resource_budget["clamavMemoryMiB"], 3072)
+            self.assertEqual(resource_budget["expectedContinuousServiceCount"], 23)
+            self.assertEqual(resource_budget["resolvedContinuousServiceCount"], 23)
 
             structure = json.loads((artifact_dir / "compose-structure.json").read_text())
             self.assertEqual(structure["services"][0]["environmentNames"], [

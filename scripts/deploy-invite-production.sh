@@ -162,6 +162,11 @@ fi
 echo "Rendering compose config..."
 mkdir -p "$ARTIFACT_DIR"
 parkio_compose "$ENV_FILE" config --quiet
+RESOURCE_BUDGET_EVIDENCE="$ARTIFACT_DIR/resource-budget.json"
+echo "Verifying invite-production resource budget..."
+"$ROOT/scripts/assert-invite-production-resource-budget.sh" \
+  --env-file "$ENV_FILE" \
+  --evidence "$RESOURCE_BUDGET_EVIDENCE"
 COMPOSE_STRUCTURE="$ARTIFACT_DIR/compose-structure.json"
 COMPOSE_STRUCTURE_TMP="$ARTIFACT_DIR/.compose-structure.json.tmp"
 rm -f -- "$COMPOSE_STRUCTURE_TMP"

@@ -121,7 +121,9 @@ parkio_configure_deployment_profile() {
       PARKIO_RUNTIME_SERVICES=("${PARKIO_INVITE_RUNTIME_SERVICES[@]}")
       # `caddy` is listed so the dark omission is explicit in the deploy
       # manifest and asserted, never a silent gap (PROD-DEPLOY-01A-R4).
-      PARKIO_DISABLED_SERVICES=(postgres-auth postgres-gateway postgres-user postgres-parking postgres-media postgres-gamification postgres-notification postgres-moderation postgres-analytics postgres-ai-validation loki promtail tempo caddy)
+      # Loki and Tempo are not explicit roots but Grafana starts both through
+      # depends_on, so only Promtail is absent from the observability runtime.
+      PARKIO_DISABLED_SERVICES=(postgres-auth postgres-gateway postgres-user postgres-parking postgres-media postgres-gamification postgres-notification postgres-moderation postgres-analytics postgres-ai-validation promtail caddy)
       PARKIO_REQUIRED_HEALTHY=("${PARKIO_INVITE_REQUIRED_HEALTHY[@]}")
       ;;
     *)

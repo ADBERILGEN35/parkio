@@ -144,16 +144,6 @@ function main() {
     );
   }
 
-  let totalMemory = 0;
-  for (const svc of runtimeServices) {
-    totalMemory += Number(data.services[svc].mem_limit == null ? 0 : data.services[svc].mem_limit);
-  }
-  // ClamAV's certified 3 GiB limit brings the resolved model to 15.5 GiB.
-  const maxMemory = 16 * 1024 * 1024 * 1024;
-  if (totalMemory > maxMemory) {
-    fail('Azure configured memory total ' + totalMemory + ' exceeds 16 GiB ceiling ' + maxMemory);
-  }
-
   const badPorts = [];
   for (const [key, svc] of Object.entries(data.services || {})) {
     for (const p of svc.ports || []) {
@@ -191,9 +181,7 @@ function main() {
   }
 
   console.log(
-    'OK: Azure runtime services=32 disabled=4 memoryBytes=' +
-      totalMemory +
-      ' publicPorts=80,443 tracing=false registryLinkingFlags=false provenancePublication=true duplicatePresentation=true spaFlags=false',
+    'OK: Azure runtime services=32 disabled=4 publicPorts=80,443 tracing=false registryLinkingFlags=false provenancePublication=true duplicatePresentation=true spaFlags=false',
   );
 }
 

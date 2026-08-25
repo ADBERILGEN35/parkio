@@ -102,6 +102,10 @@ if [ "$PARKIO_DEPLOYMENT_PROFILE" = "azure-hosted-beta" ]; then
   # Prefer system jq when present; otherwise use the Node guardrail so clean
   # Windows checkouts (Git Bash without jq) still validate the full Azure chain.
   printf '%s\n' "${PARKIO_RUNTIME_SERVICES[@]}" > "$runtime_list"
+  node scripts/lib/assert-compose-resource-budget.mjs \
+    --profile azure-hosted-beta \
+    --runtime-services-file "$runtime_list" \
+    < "$rendered"
   if command -v jq >/dev/null 2>&1; then
     [ "${#PARKIO_RUNTIME_SERVICES[@]}" -eq 32 ] || {
       echo "ERROR: Azure runtime service count must be 32, got ${#PARKIO_RUNTIME_SERVICES[@]}" >&2
@@ -222,20 +226,6 @@ if [ "$PARKIO_DEPLOYMENT_PROFILE" = "azure-hosted-beta" ]; then
       exit 4
     }
 
-    total_memory=0
-    for svc in "${PARKIO_RUNTIME_SERVICES[@]}"; do
-      limit="$(jq -r --arg svc "$svc" '.services[$svc].mem_limit // 0' "$rendered")"
-      total_memory=$((total_memory + limit))
-    done
-    # The certified hosted/invite ClamAV limit is 3 GiB so FreshClam database
-    # validation can overlap ClamD without an OOM. The complete Azure model now
-    # resolves to 15.5 GiB of container limits; keep a hard 16 GiB ceiling.
-    max_memory=$((16 * 1024 * 1024 * 1024))
-    [ "$total_memory" -le "$max_memory" ] || {
-      echo "ERROR: Azure configured memory total $total_memory exceeds 16 GiB ceiling $max_memory" >&2
-      exit 4
-    }
-
     jq -e '
       [.services | to_entries[] as $service | $service.value.ports[]? |
         select((.host_ip // "") != "127.0.0.1") |
@@ -259,7 +249,7 @@ if [ "$PARKIO_DEPLOYMENT_PROFILE" = "azure-hosted-beta" ]; then
 
     jq -e '.services.prometheus.command | index("--storage.tsdb.retention.time=7d") != null' "$rendered" >/dev/null
     jq -e '.services.grafana.depends_on | keys == ["prometheus"]' "$rendered" >/dev/null
-    echo "OK: Azure runtime services=32 disabled=4 memoryBytes=$total_memory publicPorts=80,443 tracing=false registryFlags=false operatorMounts=wp02b,wp08,wp19"
+    echo "OK: Azure runtime services=32 disabled=4 publicPorts=80,443 tracing=false registryFlags=false operatorMounts=wp02b,wp08,wp19"
   else
     if ! command -v node >/dev/null 2>&1; then
       echo "ERROR: jq or node is required for Azure compose post-checks" >&2

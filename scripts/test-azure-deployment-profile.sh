@@ -97,34 +97,11 @@ if grep -q -- '/opt/parkio/ops:/opt/parkio/ops' docker/docker-compose.azure-host
 fi
 pass "parking-service operator asset mounts are present and read-only"
 
-memory_total="$({
-  # Normalize CRLF for NTFS-backed checkouts and handle both MiB/GiB Compose
-  # units so the certified ClamAV 3g limit is counted as 3072 MiB, never 3.
-  tr -d '\r' < docker/docker-compose.hosted-beta.yml |
-  awk '
-    function to_mib(raw, value) {
-      value=raw
-      if (value ~ /g$/) { sub(/g$/, "", value); return value * 1024 }
-      sub(/m$/, "", value)
-      return value + 0
-    }
-    /^  [a-zA-Z0-9_-]+:$/ { svc=$1; sub(":$", "", svc) }
-    /    mem_limit:/ {
-      value=to_mib($2)
-      if (svc != "alertmanager" && svc != "loki" && svc != "promtail" && svc != "tempo") {
-        if (svc == "web") value=64
-        if (svc == "caddy") value=96
-        if (svc == "kafka") value=1024
-        if (svc == "prometheus") value=576
-        if (svc == "grafana") value=224
-        sum += value
-      }
-    }
-    END { print sum + 64 }
-  '
-})"
-[ "$memory_total" -eq 15872 ] || fail "expected 15872 MiB configured memory, got $memory_total"
-pass "configured Azure memory total is 15872 MiB within the 16 GiB ceiling"
+grep -q 'assert-compose-resource-budget.mjs' scripts/validate-hosted-beta-compose.sh \
+  || fail "Azure merged-model validation must use the shared resource helper"
+grep -q -- '--profile azure-hosted-beta' scripts/validate-hosted-beta-compose.sh \
+  || fail "Azure merged-model validation must select its own profile inventory"
+pass "Azure resource budget uses the shared parser with a separate profile inventory"
 
 env_has_exact() {
   awk -v expected="$1" '{ sub(/\r$/, "") } $0 == expected { found=1 } END { exit !found }' \
