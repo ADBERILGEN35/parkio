@@ -107,6 +107,7 @@ jobs:
           bash scripts/test-invite-dark-acme-isolation.sh
           bash scripts/test-invite-production-backup-scheduler.sh
           bash scripts/test-invite-production-runtime-release.sh
+          bash scripts/test-invite-production-failure-evidence.sh
           bash scripts/test-invite-production-workspace-migration.sh
           bash scripts/test-managed-parking-flyway-baseline.sh
           bash scripts/test-invite-production-runtime-snapshot.sh
@@ -187,13 +188,16 @@ jobs:
             --dry-run --allow-dirty --expected-sha "$PARKIO_EXPECTED_GIT_SHA" \
             > "$dry_run_log" 2>&1
           deploy_status=$?
-          set -e
-
-          python3 scripts/assert-invite-production-artifacts-safe.py \
+          set +e
+          ./scripts/finalize-invite-production-quarantined-evidence.sh \
+            --deploy-status "$deploy_status" \
             --env-file "$PARKIO_ENV_FILE" \
-            "$PARKIO_DEPLOY_ARTIFACT_DIR" "$dry_run_log"
-          sed 's/^/[invite-dry-run] /' "$dry_run_log"
-          test "$deploy_status" -eq 0
+            --artifact-dir "$PARKIO_DEPLOY_ARTIFACT_DIR" \
+            --job-log "$dry_run_log" \
+            --log-prefix '[invite-dry-run] '
+          finalize_status=$?
+          set -e
+          exit "$finalize_status"
 
       - name: Upload secret-free manifest evidence
         uses: actions/upload-artifact@v4
@@ -503,16 +507,23 @@ jobs:
           ./scripts/deploy-invite-production.sh --expected-sha '${{ inputs.git_sha }}' \
             > "$PARKIO_JOB_LOG" 2>&1
           status=$?
+          set +e
+          ./scripts/finalize-invite-production-quarantined-evidence.sh \
+            --deploy-status "$status" \
+            --env-file "$PARKIO_ENV_FILE" \
+            --artifact-dir deploy-artifacts/invite-production \
+            --job-log "$PARKIO_JOB_LOG" \
+            --log-prefix '[invite-deploy] '
+          finalize_status=$?
           set -e
-          python3 scripts/assert-invite-production-artifacts-safe.py \
-            --env-file "$PARKIO_ENV_FILE" deploy-artifacts/invite-production "$PARKIO_JOB_LOG"
-          sed 's/^/[invite-deploy] /' "$PARKIO_JOB_LOG"
-          exit "$status"
+          exit "$finalize_status"
 
       - name: Cleanup per-job source and credentials
         if: ${{ always() }}
         run: |
           set -euo pipefail
+          # Quarantined log is deleted only after finalize has scanned and
+          # (when safe) released it in the deploy step above.
           cleanup="$PARKIO_SOURCE_DIR/scripts/cleanup-invite-production-job.sh"
           rm -f -- "$PARKIO_JOB_LOG"
           if [ -x "$cleanup" ]; then
@@ -604,11 +615,16 @@ jobs:
           set +e
           ./scripts/rollback-invite-production.sh --manifest "$manifest" > "$PARKIO_JOB_LOG" 2>&1
           status=$?
+          set +e
+          ./scripts/finalize-invite-production-quarantined-evidence.sh \
+            --deploy-status "$status" \
+            --env-file "$PARKIO_ENV_FILE" \
+            --artifact-dir deploy-artifacts/invite-production \
+            --job-log "$PARKIO_JOB_LOG" \
+            --log-prefix '[invite-rollback] '
+          finalize_status=$?
           set -e
-          python3 scripts/assert-invite-production-artifacts-safe.py \
-            --env-file "$PARKIO_ENV_FILE" deploy-artifacts/invite-production "$PARKIO_JOB_LOG"
-          sed 's/^/[invite-rollback] /' "$PARKIO_JOB_LOG"
-          exit "$status"
+          exit "$finalize_status"
 
       - name: Cleanup per-job source and credentials
         if: ${{ always() }}

@@ -42,6 +42,16 @@ parkio_validate_sha "$SHA"
 RUNTIME_ROOT="$(parkio_runtime_root)"
 RELEASES="$(parkio_releases_dir)"
 
+PARENT_ROOT="$(dirname "$RUNTIME_ROOT")"
+if [ -d "$PARENT_ROOT" ] && [ ! -x "$PARENT_ROOT" ]; then
+  cat >&2 <<MSG
+ERROR: runtime root is unreachable because its parent is not traversable: $PARENT_ROOT
+       observed=$(stat -c 'mode=%a owner=%U:%G' "$PARENT_ROOT" 2>/dev/null || echo unavailable)
+       required: $PARENT_ROOT must be mode 0755 so parkio-runner can stage releases unde
+       $RUNTIME_ROOT without sudo (see scripts/azure/install-invite-production-runtime-root.sh).
+MSG
+  exit 3
+fi
 if [ ! -d "$RUNTIME_ROOT" ]; then
   cat >&2 <<MSG
 ERROR: runtime root does not exist: $RUNTIME_ROOT
@@ -54,6 +64,7 @@ MSG
 fi
 if [ ! -w "$RUNTIME_ROOT" ]; then
   echo "ERROR: runtime root is not writable by $(id -un): $RUNTIME_ROOT" >&2
+  echo "       observed=$(stat -c 'mode=%a owner=%U:%G' "$RUNTIME_ROOT" 2>/dev/null || echo unavailable)" >&2
   exit 3
 fi
 

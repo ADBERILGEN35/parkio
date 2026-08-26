@@ -60,6 +60,18 @@ class ArtifactScannerTest(unittest.TestCase):
             self.assertNotEqual(result.returncode, 0)
             self.assertIn("forbidden resolved Compose artifact", result.stdout)
 
+    def test_direct_scanner_still_errors_on_missing_path(self) -> None:
+        """Workflow must skip missing evidence via finalize; scanner stays strict."""
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            env = root / "input.env"
+            env.write_text("POSTGRES_PASSWORD=safe-fixture-password\n")
+            missing = root / "deploy-artifacts" / "invite-production"
+            result = self.run_scan(env, missing)
+            self.assertNotEqual(result.returncode, 0)
+            combined = result.stdout + result.stderr
+            self.assertIn("evidence path does not exist", combined)
+
 
 if __name__ == "__main__":
     unittest.main()

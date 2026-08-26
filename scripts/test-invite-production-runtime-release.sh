@@ -48,6 +48,10 @@ check "runtime-root provisioning re-asserts runner ownership" \
   "grep -q 'chown \"\$RUNNER_USER\"' '$ROOT/scripts/azure/install-invite-production-runtime-root.sh'"
 check "runtime-root provisioning keeps certs restricted" \
   "grep -q 'chmod 0750 \"\$restricted\"' '$ROOT/scripts/azure/install-invite-production-runtime-root.sh'"
+check "runtime-root provisioning widens /opt/parkio for runner traverse" \
+  "grep -q 'chmod 0755 \"\$PARKIO_BASE\"' '$ROOT/scripts/azure/install-invite-production-runtime-root.sh'"
+check "staging diagnoses a non-traversable /opt/parkio parent" \
+  "grep -q 'parent is not traversable' '$ROOT/scripts/stage-invite-production-release.sh'"
 
 echo "== R8-B: runtime release lives outside the Actions workspace =="
 check "release root default is under /opt/parkio" \
@@ -158,6 +162,7 @@ for direct in \
   scripts/attest-invite-production-dark-gateway-input.sh \
   scripts/stage-invite-production-release.sh \
   scripts/migrate-invite-production-workspace-mounts.sh \
+  scripts/finalize-invite-production-quarantined-evidence.sh \
   scripts/azure/install-invite-production-runtime-root.sh \
   scripts/azure/install-invite-production-runner.sh \
   scripts/cleanup-invite-production-job.sh \
