@@ -1,8 +1,11 @@
 {
   "invite-production": {
-    "configuredExpectedMemoryMiB": 15360,
+    "configuredExpectedMemoryMiB": 15872,
     "resourceCeilingMiB": 16384,
     "clamavRequiredMemoryMiB": 3072,
+    "minimumServiceMemoryMiB": {
+      "tempo": 1024
+    },
     "runtimeTargets": [
       "redis",
       "kafka",

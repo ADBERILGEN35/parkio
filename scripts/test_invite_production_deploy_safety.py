@@ -117,7 +117,7 @@ class InviteProductionDeploySafetyTest(unittest.TestCase):
                 "prometheus": 1024,
                 "promtail": 128,
                 "redis": 384,
-                "tempo": 512,
+                "tempo": 1024,
                 "user-service": 640,
                 "web": 128,
             }
@@ -217,12 +217,13 @@ class InviteProductionDeploySafetyTest(unittest.TestCase):
                 (artifact_dir / "resource-budget.json").read_text()
             )
             self.assertEqual(resource_budget["resourceBudgetProfile"], "invite-production")
-            self.assertEqual(resource_budget["configuredMemoryMiB"], 15360)
-            self.assertEqual(resource_budget["continuousRuntimeMemoryMiB"], 14976)
+            self.assertEqual(resource_budget["configuredMemoryMiB"], 15872)
+            self.assertEqual(resource_budget["continuousRuntimeMemoryMiB"], 15488)
             self.assertEqual(resource_budget["resourceCeilingMiB"], 16384)
-            self.assertEqual(resource_budget["configuredHeadroomMiB"], 1024)
+            self.assertEqual(resource_budget["configuredHeadroomMiB"], 512)
             self.assertIs(resource_budget["resourceBudgetWithinCeiling"], True)
             self.assertEqual(resource_budget["clamavMemoryMiB"], 3072)
+            self.assertEqual(resource_budget["tempoMemoryMiB"], 1024)
             self.assertEqual(resource_budget["expectedContinuousServiceCount"], 23)
             self.assertEqual(resource_budget["resolvedContinuousServiceCount"], 23)
 

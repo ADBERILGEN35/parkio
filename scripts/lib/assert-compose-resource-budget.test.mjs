@@ -39,7 +39,7 @@ const inviteMemory = {
   prometheus: '1g',
   promtail: '128m',
   redis: '384m',
-  tempo: '512m',
+  tempo: '1g',
   'user-service': '640m',
   web: '128m',
 };
@@ -121,14 +121,28 @@ test('reconciles the invite merged model and continuous runtime closure', () => 
     'invite-production',
     profiles['invite-production'].runtimeTargets,
   );
-  assert.equal(evidence.configuredMemoryMiB, 15360);
-  assert.equal(evidence.continuousRuntimeMemoryMiB, 14976);
-  assert.equal(evidence.configuredHeadroomMiB, 1024);
+  assert.equal(evidence.configuredMemoryMiB, 15872);
+  assert.equal(evidence.continuousRuntimeMemoryMiB, 15488);
+  assert.equal(evidence.configuredHeadroomMiB, 512);
   assert.equal(evidence.clamavMemoryMiB, 3072);
+  assert.equal(evidence.tempoMemoryMiB, 1024);
   assert.equal(evidence.expectedContinuousServiceCount, 23);
   assert.equal(evidence.resolvedContinuousServiceCount, 23);
   assert.equal(evidence.oneShotServiceCount, 1);
   assert.equal(evidence.absentByProfileServiceCount, 2);
+});
+
+// TEMPO_MEMORY_LIMIT_DEFECT (PROD-DEPLOY-01A-R11D/R11E): invite-production's
+// monolithic Tempo (ingester + metrics-generator + compaction) OOMed at the
+// shared hosted-beta 512 MiB memcg ceiling. Aggregate arithmetic must not be
+// able to hide a Tempo=512 MiB regression by moving memory to another service.
+test('rejects the proven TEMPO_MEMORY_LIMIT_DEFECT 512 MiB limit even when total memory is unchanged', () => {
+  const model = inviteModel();
+  model.services.tempo.mem_limit = '512m';
+  model.services.caddy.mem_limit = '768m';
+  const result = runCli(model);
+  assert.notEqual(result.status, 0);
+  assert.match(result.stderr, /tempo mem_limit must be at least 1024 MiB, got 512 MiB/);
 });
 
 test('keeps the hosted-beta 15872 MiB contract in its own merged-model profile', () => {
@@ -145,6 +159,17 @@ test('keeps the hosted-beta 15872 MiB contract in its own merged-model profile',
 test('fails closed when configured memory exceeds the ceiling', () => {
   const model = inviteModel();
   model.services.caddy.mem_limit = '2g';
+  const result = runCli(model);
+  assert.notEqual(result.status, 0);
+  assert.match(result.stderr, /exceeds 16384 MiB ceiling/);
+});
+
+// Tempo alone must not be allowed to push the invite configured total past the
+// hard 16 GiB ceiling (do not raise resourceCeilingMiB to accommodate Tempo).
+test('fails closed when a Tempo increase alone would exceed the 16384 MiB ceiling', () => {
+  const model = inviteModel();
+  // 15872 - 1024 + 2048 = 16896 > 16384
+  model.services.tempo.mem_limit = '2g';
   const result = runCli(model);
   assert.notEqual(result.status, 0);
   assert.match(result.stderr, /exceeds 16384 MiB ceiling/);

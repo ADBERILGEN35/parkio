@@ -32,12 +32,24 @@
 #   * gateway-service is the ONLY service this overlay publishes
 #   * no database / Redis / Kafka / MinIO / Prometheus / Grafana / admin port is
 #     opened here
+#   * Tempo receives the invite-production-only 1 GiB cgroup limit certified
+#     after R11D proved recurring kernel memcg OOM kills at the shared 512 MiB
+#     hosted-beta limit
 #   * the Caddy public boundary is untouched
 #   * parking-service receives the explicit controlled-invite feature policy;
 #     none of these values are inherited from the Azure hosted-beta overlay
 name: parkio
 
 services:
+  tempo:
+    # PROD-DEPLOY-01A-R11E (TEMPO_MEMORY_LIMIT_DEFECT): the monolithic Tempo
+    # process (ingester, compactor, querier, and metrics-generator) repeatedly
+    # reached the shared hosted-beta 512 MiB cgroup ceiling during block
+    # flush/compaction. R11D classified all 14 historical restarts as kernel
+    # CONSTRAINT_MEMCG OOM kills (exit 137). Keep the shared hosted-beta limit
+    # independent; invite-production requires the certified 1 GiB minimum.
+    mem_limit: 1g
+
   gateway-service:
     # !override (not a plain list) because Compose CONCATENATES `ports:` across
     # files — a plain list would leave the hosted-beta `!reset []` semantics

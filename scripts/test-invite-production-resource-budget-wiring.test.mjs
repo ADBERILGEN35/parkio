@@ -27,7 +27,7 @@ test('GitHub-hosted pre-reviewer job invokes and uploads the canonical guard', (
   assert.match(deployJob, /environment: invite-production/);
 });
 
-test('legacy source-only 15872 arithmetic cannot return', () => {
+test('legacy source-only Azure arithmetic cannot return despite the new invite total', () => {
   const sourceTest = fs.readFileSync(
     path.join(root, 'scripts/test-azure-deployment-profile.sh'),
     'utf8',

@@ -97,7 +97,7 @@ if [ -n "$COMPOSE_BIN" ]; then
   if "$COMPOSE_BIN" compose --env-file docker/.env.invite-production.example \
       $PARKIO_COMPOSE_FILES config --format json > "$model" 2>/dev/null; then
     compose_model_checked=1
-    python3 - "$model" <<'PY' && ok "merged model binds gateway-service to 127.0.0.1:8080 only" || bad "merged model published-port assertions failed"
+    python3 - "$model" <<'PY' && ok "merged model binds gateway to loopback and resolves Tempo to 1 GiB" || bad "merged model dark-runtime assertions failed"
 import json
 import sys
 
@@ -117,6 +117,10 @@ published = [
 errors = []
 if published != [("127.0.0.1", "8080", "8080")]:
     errors.append(f"gateway-service published ports are {published}, expected [('127.0.0.1','8080','8080')]")
+
+tempo_memory = services.get("tempo", {}).get("mem_limit")
+if str(tempo_memory) != str(1024 * 1024 * 1024):
+    errors.append(f"tempo mem_limit is {tempo_memory}, expected {1024 * 1024 * 1024} bytes")
 
 # Nothing anywhere in the model may bind a wildcard address on 8080, and no
 # internal/admin service may become non-loopback because of this overlay.
@@ -166,10 +170,10 @@ else
   ok "overlay declares no wildcard bind"
 fi
 overlay_services="$(grep -E '^  [a-z0-9-]+:' docker/docker-compose.invite-dark.yml | sed -E 's/^  ([a-z0-9-]+):.*/\1/' | sort)"
-if [ "$overlay_services" = $'gateway-service\nparking-service' ]; then
-  ok "overlay touches only gateway-service and parking-service"
+if [ "$overlay_services" = $'gateway-service\nparking-service\ntempo' ]; then
+  ok "overlay touches only gateway-service, parking-service, and Tempo"
 else
-  bad "overlay may touch only gateway-service and parking-service (found: $(tr '\n' ' ' <<<"$overlay_services"))"
+  bad "overlay may touch only gateway-service, parking-service, and Tempo (found: $(tr '\n' ' ' <<<"$overlay_services"))"
 fi
 
 # --------------------------------------------------------------------------- #

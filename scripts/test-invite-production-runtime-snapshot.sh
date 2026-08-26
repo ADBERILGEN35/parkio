@@ -68,6 +68,36 @@ cmp_ok "$TMP/before" "$TMP/after" "unchanged 15-running/6-exited runtime passes"
   && ok "all 21 Parkio containers captured (running and exited)" \
   || bad "captured $(grep -c '^PROTECTED-' "$TMP/before") rows, expected 21"
 
+echo "== A2: classified historical Tempo RestartCount 14 is stable -> PASS =="
+reset_fixture
+export PARKIO_FAKE_ROW_r1='parkio-tempo|aaaaaaaaaa1|grafana/tempo:2.6.1|running|2026-08-26T05:44:31Z|14'
+cap "$TMP/before"; cap "$TMP/after"
+cmp_ok "$TMP/before" "$TMP/after" "historical Tempo RestartCount 14 passes when unchanged"
+
+echo "== A3: Tempo RestartCount 14 -> 15 -> FAIL =="
+reset_fixture
+export PARKIO_FAKE_ROW_r1='parkio-tempo|aaaaaaaaaa1|grafana/tempo:2.6.1|running|2026-08-26T05:44:31Z|14'
+cap "$TMP/before"
+export PARKIO_FAKE_ROW_r1='parkio-tempo|aaaaaaaaaa1|grafana/tempo:2.6.1|running|2026-08-26T05:44:31Z|15'
+cap "$TMP/after"
+cmp_fail "$TMP/before" "$TMP/after" "Tempo restart delta is detected"
+
+echo "== A4: Tempo recreation cannot clear historical restart count -> FAIL =="
+reset_fixture
+export PARKIO_FAKE_ROW_r1='parkio-tempo|aaaaaaaaaa1|grafana/tempo:2.6.1|running|2026-08-26T05:44:31Z|14'
+cap "$TMP/before"
+export PARKIO_FAKE_ROW_r1='parkio-tempo|dddddddddd1|grafana/tempo:2.6.1|running|2026-08-26T08:00:00Z|0'
+cap "$TMP/after"
+cmp_fail "$TMP/before" "$TMP/after" "Tempo recreation and counter reset are detected"
+
+echo "== A5: Tempo StartedAt drift is detected -> FAIL =="
+reset_fixture
+export PARKIO_FAKE_ROW_r1='parkio-tempo|aaaaaaaaaa1|grafana/tempo:2.6.1|running|2026-08-26T05:44:31Z|14'
+cap "$TMP/before"
+export PARKIO_FAKE_ROW_r1='parkio-tempo|aaaaaaaaaa1|grafana/tempo:2.6.1|running|2026-08-26T08:00:00Z|14'
+cap "$TMP/after"
+cmp_fail "$TMP/before" "$TMP/after" "Tempo StartedAt drift is detected"
+
 echo "== the OLD assertion fails this same valid state =="
 if [ -z "$(printf '%s' "${PARKIO_FAKE_IDS}")" ]; then
   bad "fixture is empty; cannot demonstrate the obsolete rule"

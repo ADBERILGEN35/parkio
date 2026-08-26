@@ -122,6 +122,23 @@ export function evaluateResourceBudget(model, profileName, runtimeTargets) {
     serviceMemoryMiB.set(name, memoryToMiB(raw, name));
   }
 
+  const minimumServiceMemoryMiB = contract.minimumServiceMemoryMiB ?? {};
+  if (!minimumServiceMemoryMiB || typeof minimumServiceMemoryMiB !== 'object' || Array.isArray(minimumServiceMemoryMiB)) {
+    fail(`${profileName} minimumServiceMemoryMiB must be an object`);
+  }
+  for (const [name, minimumMiB] of Object.entries(minimumServiceMemoryMiB)) {
+    if (!serviceMemoryMiB.has(name)) {
+      fail(`minimum memory contract references unclassified service '${name}'`);
+    }
+    if (!Number.isSafeInteger(minimumMiB) || minimumMiB <= 0) {
+      fail(`${name} minimum memory must be a positive whole MiB`);
+    }
+    const actualMiB = serviceMemoryMiB.get(name);
+    if (actualMiB < minimumMiB) {
+      fail(`${name} mem_limit must be at least ${minimumMiB} MiB, got ${actualMiB} MiB`);
+    }
+  }
+
   const configuredMemoryMiB = actualModelServices.reduce(
     (total, name) => total + serviceMemoryMiB.get(name),
     0,
@@ -131,6 +148,7 @@ export function evaluateResourceBudget(model, profileName, runtimeTargets) {
     0,
   );
   const clamavMemoryMiB = serviceMemoryMiB.get('clamav');
+  const tempoMemoryMiB = serviceMemoryMiB.get('tempo') ?? null;
   const configuredHeadroomMiB = contract.resourceCeilingMiB - configuredMemoryMiB;
   const resourceBudgetWithinCeiling = configuredMemoryMiB <= contract.resourceCeilingMiB;
 
@@ -153,6 +171,7 @@ export function evaluateResourceBudget(model, profileName, runtimeTargets) {
     configuredHeadroomMiB,
     resourceBudgetWithinCeiling,
     clamavMemoryMiB,
+    tempoMemoryMiB,
     expectedContinuousServiceCount: continuous.length,
     resolvedContinuousServiceCount: closure.filter((name) => !oneShot.includes(name)).length,
     oneShotServiceCount: oneShot.length,
