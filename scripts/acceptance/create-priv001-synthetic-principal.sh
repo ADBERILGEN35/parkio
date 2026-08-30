@@ -25,7 +25,17 @@
 # shellcheck shell=bash
 set -euo pipefail
 
-ROOT="$(cd "$(dirname "$0")/../.." && pwd)"
+# Resolve the immutable release root (or repo root in development). From
+# scripts/acceptance/<tool>.sh this is ../.. — never the Actions _work tree,
+# never a .git-dependent lookup.
+SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+ROOT="$(cd "${SCRIPT_DIR}/../.." && pwd)"
+if [ -f "${ROOT}/VERSION" ]; then
+  # Prefer staged release identity over git when present.
+  # shellcheck disable=SC1091
+  PARKIO_RELEASE_GIT_SHA="$(sed -n 's/^gitSha=//p' "${ROOT}/VERSION" | head -1 || true)"
+  export PARKIO_RELEASE_GIT_SHA
+fi
 # shellcheck source=scripts/lib/dark-gateway-url.sh
 source "${ROOT}/scripts/lib/dark-gateway-url.sh"
 # shellcheck source=scripts/lib/priv001-synthetic.sh

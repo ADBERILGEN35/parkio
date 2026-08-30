@@ -116,7 +116,13 @@ for required in \
   docker/loki/loki.yml \
   docker/tempo/tempo.yml \
   docker/blackbox/blackbox.yml \
-  docker/grafana/provisioning ; do
+  docker/grafana/provisioning \
+  scripts/acceptance/create-priv001-synthetic-principal.sh \
+  scripts/acceptance/inspect-priv001-synthetic-residue.sh \
+  scripts/lib/priv001-synthetic.sh \
+  scripts/lib/dark-gateway-url.sh \
+  VERSION \
+  release-integrity.sha256 ; do
   [ "${#required_list[@]}" -eq 0 ] && break
   if [ ! -e "$RELEASE/$required" ]; then
     echo "ERROR: staged release is missing $required" >&2
@@ -124,6 +130,35 @@ for required in \
   fi
 done
 [ "$missing" -eq 0 ] || exit 3
+
+if [ "$PRUNE_ONLY" -eq 0 ]; then
+  # Fail closed if the release grew unexpected top-level trees beyond docker/
+  # and the narrow PRIV-001A operator tooling.
+  unexpected="$(find "$RELEASE" -mindepth 1 -maxdepth 1 ! -name docker ! -name scripts ! -name VERSION ! -name release-integrity.sha256 -printf '%f\n' 2>/dev/null || true)"
+  if [ -n "$unexpected" ]; then
+    echo "ERROR: staged release contains unexpected top-level entries:" >&2
+    printf '%s\n' "$unexpected" >&2
+    exit 3
+  fi
+  # scripts/ must contain only the allowlisted acceptance + lib files.
+  if [ -d "$RELEASE/scripts" ]; then
+    while IFS= read -r -d '' f; do
+      rel="${f#"$RELEASE"/}"
+      case "$rel" in
+        scripts/acceptance/create-priv001-synthetic-principal.sh|\
+        scripts/acceptance/inspect-priv001-synthetic-residue.sh|\
+        scripts/lib/priv001-synthetic.sh|\
+        scripts/lib/dark-gateway-url.sh)
+          ;;
+        *)
+          echo "ERROR: staged release contains non-allowlisted script path: $rel" >&2
+          missing=1
+          ;;
+      esac
+    done < <(find "$RELEASE/scripts" -type f -print0)
+  fi
+  [ "$missing" -eq 0 ] || exit 3
+fi
 
 # No resolved secret material may ever land in a release.
 if find "$RELEASE" -name '.env' -o -name '.env.*' | grep -q .; then

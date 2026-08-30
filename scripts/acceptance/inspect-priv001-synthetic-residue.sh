@@ -14,7 +14,12 @@
 # shellcheck shell=bash
 set -euo pipefail
 
-ROOT="$(cd "$(dirname "$0")/../.." && pwd)"
+SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+ROOT="$(cd "${SCRIPT_DIR}/../.." && pwd)"
+if [ -f "${ROOT}/VERSION" ]; then
+  PARKIO_RELEASE_GIT_SHA="$(sed -n 's/^gitSha=//p' "${ROOT}/VERSION" | head -1 || true)"
+  export PARKIO_RELEASE_GIT_SHA
+fi
 # shellcheck source=scripts/lib/priv001-synthetic.sh
 source "${ROOT}/scripts/lib/priv001-synthetic.sh"
 

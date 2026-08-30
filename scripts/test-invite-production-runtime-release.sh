@@ -84,6 +84,16 @@ check "staged config is world-readable despite umask 0077" \
   "parkio_assert_release_readable '$SHA' >/dev/null"
 check "alertmanager render script stays executable" \
   "[ -x '$RELEASE/docker/alertmanager/render-config.sh' ]"
+check "PRIV-001A create harness is staged" \
+  "[ -f '$RELEASE/scripts/acceptance/create-priv001-synthetic-principal.sh' ]"
+check "PRIV-001A inspect harness is staged" \
+  "[ -f '$RELEASE/scripts/acceptance/inspect-priv001-synthetic-residue.sh' ]"
+check "PRIV-001A synthetic lib is staged" \
+  "[ -f '$RELEASE/scripts/lib/priv001-synthetic.sh' ]"
+check "PRIV-001A dark-gateway dependency is staged" \
+  "[ -f '$RELEASE/scripts/lib/dark-gateway-url.sh' ]"
+check "release VERSION records exact SHA" \
+  "grep -q \"^gitSha=$SHA\$\" '$RELEASE/VERSION'"
 check "no env material was staged" \
   "! find '$RELEASE' -name '.env' -o -name '.env.*' | grep -q ."
 check "compose build context (..) exists in the release" "[ -d '$RELEASE' ]"

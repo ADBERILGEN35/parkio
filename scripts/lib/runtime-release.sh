@@ -32,6 +32,8 @@
 # that actually have to read it:
 #
 #     <root>/releases/<sha>/docker/...      staged config, 0755 dirs / 0644 files
+#     <root>/releases/<sha>/scripts/...     narrow PRIV-001A operator tooling only
+#     <root>/releases/<sha>/VERSION         exact gitSha + autoExecuteHarness=false
 #     <root>/current -> releases/<sha>      atomic activation symlink
 #
 # The runner's UMask=0077 hardening stays exactly as it is — every mode here is
@@ -85,12 +87,135 @@ parkio_release_is_excluded() {
   return 1
 }
 
+# Explicit additional tracked paths staged into every invite-production release
+# beyond docker/**. Narrow allowlist only — never scripts/** or the whole repo.
+#
+# PRIV-001A operator tooling (not auto-executed). create-priv001 sources
+# dark-gateway-url.sh + priv001-synthetic.sh; inspect sources priv001-synthetic.sh.
+PARKIO_RUNTIME_RELEASE_EXTRA_TRACKED_PATHS=(
+  scripts/acceptance/create-priv001-synthetic-principal.sh
+  scripts/acceptance/inspect-priv001-synthetic-residue.sh
+  scripts/lib/priv001-synthetic.sh
+  scripts/lib/dark-gateway-url.sh
+)
+
+# parkio_release_assert_stageable_path <repo> <rel>
+# Fail-closed validation for an explicit allowlisted relative path.
+parkio_release_assert_stageable_path() {
+  local repo="$1" rel="$2"
+  local src repo_real src_real
+
+  case "$rel" in
+    ""|/*|*..*)
+      echo "ERROR: release allowlist path is empty, absolute, or contains '..': '$rel'" >&2
+      return 2
+      ;;
+  esac
+  case "$rel" in
+    *$'\n'*|*$'\r'*|*$'\t'*)
+      echo "ERROR: release allowlist path contains control whitespace: '$rel'" >&2
+      return 2
+      ;;
+  esac
+  case "$rel" in
+    *../*|*/..|../*|..)
+      echo "ERROR: release allowlist path must not contain '..': '$rel'" >&2
+      return 2
+      ;;
+  esac
+
+  src="$repo/$rel"
+  if [ ! -e "$src" ]; then
+    echo "ERROR: required release path missing from checkout: $rel" >&2
+    return 2
+  fi
+  if [ -L "$src" ]; then
+    echo "ERROR: release path must not be a symlink: $rel" >&2
+    return 2
+  fi
+  if [ ! -f "$src" ]; then
+    echo "ERROR: release path must be a regular file: $rel" >&2
+    return 2
+  fi
+
+  if ! git -C "$repo" ls-files --error-unmatch -- "$rel" >/dev/null 2>&1; then
+    echo "ERROR: release path is not git-tracked: $rel" >&2
+    return 2
+  fi
+
+  repo_real="$(parkio_realpath "$repo")" || {
+    echo "ERROR: cannot resolve repository root: $repo" >&2
+    return 2
+  }
+  src_real="$(parkio_realpath "$src")" || {
+    echo "ERROR: cannot resolve release path: $rel" >&2
+    return 2
+  }
+  case "$src_real/" in
+    "$repo_real"/*) ;;
+    *)
+      echo "ERROR: release path escapes repository after canonicalization: $rel -> $src_real" >&2
+      return 2
+      ;;
+  esac
+  return 0
+}
+
+# parkio_release_stage_file <repo> <staged_root> <rel>
+parkio_release_stage_file() {
+  local repo="$1" staged="$2" rel="$3"
+  local src dst mode
+  parkio_release_assert_stageable_path "$repo" "$rel" || return $?
+  src="$repo/$rel"
+  dst="$staged/$rel"
+  install -d -m "$PARKIO_RELEASE_DIR_MODE" "$(dirname "$dst")"
+  mode="$PARKIO_RELEASE_FILE_MODE"
+  case "$rel" in *.sh) mode="$PARKIO_RELEASE_EXEC_MODE" ;; esac
+  install -m "$mode" "$src" "$dst"
+}
+
+# parkio_release_write_identity <staged_root> <sha>
+# Non-secret VERSION + integrity digests so operators can prove release identity
+# without a .git directory.
+parkio_release_write_identity() {
+  local staged="$1" sha="$2"
+  local version_file integrity_file
+  version_file="$staged/VERSION"
+  integrity_file="$staged/release-integrity.sha256"
+
+  {
+    printf 'gitSha=%s\n' "$sha"
+    printf 'stagedAt=%s\n' "$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+    printf 'operatorTooling=priv001a\n'
+    printf 'autoExecuteHarness=false\n'
+  } > "$version_file"
+  chmod "$PARKIO_RELEASE_FILE_MODE" "$version_file"
+
+  : > "$integrity_file"
+  (
+    cd "$staged" || exit 1
+    # Sorted relative digests of every staged regular file (no secrets staged).
+    if command -v sha256sum >/dev/null 2>&1; then
+      find . -type f ! -name 'release-integrity.sha256' -print0 \
+        | sort -z \
+        | xargs -0 sha256sum
+    else
+      # Portable fallback (BusyBox / older hosts): openssl dgst per file.
+      while IFS= read -r -d '' f; do
+        digest="$(openssl dgst -sha256 "$f" | awk '{print $NF}')"
+        printf '%s  %s\n' "$digest" "$f"
+      done < <(find . -type f ! -name 'release-integrity.sha256' -print0 | sort -z)
+    fi
+  ) > "$integrity_file"
+  chmod "$PARKIO_RELEASE_FILE_MODE" "$integrity_file"
+}
+
 # Stage the non-secret runtime config of a checkout into an immutable release.
 #   $1 repo root (the ephemeral Actions checkout)
 #   $2 commit SHA
 parkio_stage_runtime_release() {
   local repo="$1" sha="$2"
-  local release staged rel src dst mode
+  local release staged rel src dst mode extra
   parkio_validate_sha "$sha" || return 2
   [ -d "$repo/docker" ] || { echo "ERROR: no docker/ directory in $repo" >&2; return 2; }
 
@@ -116,6 +241,11 @@ parkio_stage_runtime_release() {
     parkio_release_is_excluded "$rel" && continue
     src="$repo/$rel"
     [ -f "$src" ] || continue
+    if [ -L "$src" ]; then
+      echo "ERROR: refusing to stage symlink under docker/: $rel" >&2
+      rm -rf -- "$staged"
+      return 2
+    fi
     dst="$staged/$rel"
     install -d -m "$PARKIO_RELEASE_DIR_MODE" "$(dirname "$dst")"
     mode="$PARKIO_RELEASE_FILE_MODE"
@@ -124,6 +254,19 @@ parkio_stage_runtime_release() {
     case "$rel" in *.sh) mode="$PARKIO_RELEASE_EXEC_MODE" ;; esac
     install -m "$mode" "$src" "$dst"
   done < <(git -C "$repo" ls-files -z -- docker)
+
+  # Narrow PRIV-001A (and future explicit) operator tooling — never scripts/**
+  for extra in "${PARKIO_RUNTIME_RELEASE_EXTRA_TRACKED_PATHS[@]}"; do
+    parkio_release_stage_file "$repo" "$staged" "$extra" || {
+      rm -rf -- "$staged"
+      return 2
+    }
+  done
+
+  parkio_release_write_identity "$staged" "$sha" || {
+    rm -rf -- "$staged"
+    return 2
+  }
 
   # `context: ..` in docker-compose.apps.yml resolves to the release root. It is
   # never built from here (builds run against the checkout), but the path must

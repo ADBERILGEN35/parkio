@@ -108,7 +108,9 @@ later, separately authorized runtime package can exercise
 | Item | Contract |
 |------|----------|
 | Purpose | Safe create → verify → login path for PRIV-001 runtime acceptance |
-| Scripts | `scripts/acceptance/create-priv001-synthetic-principal.sh`, `scripts/acceptance/inspect-priv001-synthetic-residue.sh`, `scripts/lib/priv001-synthetic.sh` |
+| Scripts | `scripts/acceptance/create-priv001-synthetic-principal.sh`, `scripts/acceptance/inspect-priv001-synthetic-residue.sh`, `scripts/lib/priv001-synthetic.sh` (+ runtime dep `scripts/lib/dark-gateway-url.sh`) |
+| Immutable release | Staged under `/opt/parkio/invite-production/releases/<sha>/` via narrow allowlist in `parkio_stage_runtime_release` (`docker/**` + those four paths only). Operator copies only — not auto-executed on deploy, startup, Compose, systemd, cron, or post-deploy hooks. Production runtime acceptance remains a separate authorization. |
+| Staging regression | `scripts/test-invite-production-priv001-release-staging.sh` (positive layout, negative path guards, no-auto-execution proof) |
 | Synthetic domain | Exact `priv001a-<id>@priv001a.parkio.invalid` (IANA `.invalid`; not `real-e2e.parkio.local`) |
 | Registration | Canonical `POST /api/v1/auth/register` only |
 | Verification | Allowlisted managed-auth SQL inside the reviewed lib (not a public API) |
