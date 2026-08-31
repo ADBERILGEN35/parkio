@@ -452,31 +452,29 @@ CREATE TABLE erasure_requests (id uuid PRIMARY KEY, auth_user_id uuid NOT NULL);
 INSERT INTO auth_users (email, email_verified, status)
 VALUES ('priv001a-20260830120000abcd@priv001a.parkio.invalid', false, 'PENDING_VERIFICATION');
 SQL
-      saved_path="$REAL_PATH_SAVE"
-      export PATH="$saved_path"
-      export PARKIO_PG_MODE=managed
-      export PARKIO_PG_HOST=127.0.0.1
-      export PARKIO_PG_PORT="$pg_port"
-      export PARKIO_PG_SSLMODE=prefer
-      export PARKIO_PG_USER=parkio_auth
-      export PARKIO_PG_DB=parkio_auth
-      export PGPASSWORD=pgitsecret
+      export PATH="$REAL_PATH_SAVE"
+      export PARKIO_PG_MODE=local
+      export PARKIO_AUTH_PG_CONTAINER="$pg_cname"
+      unset PARKIO_PG_HOST PARKIO_PG_PORT PARKIO_PG_SSLMODE PARKIO_PG_SSLROOTCERT || true
       export PARKIO_PRIV001_ENVIRONMENT=invite-production
       export PARKIO_PRIV001_CONFIRM_SYNTHETIC_ONLY=yes
       export PARKIO_DEPLOYMENT_PROFILE=invite-production
       IT_EMAIL='priv001a-20260830120000abcd@priv001a.parkio.invalid'
-      IT_UUID="$(parkio_priv001_mark_verified "$IT_EMAIL" 900)"
-      IT_STATUS="$(PGPASSWORD=pgitsecret psql -h 127.0.0.1 -p "$pg_port" -U parkio_auth -d parkio_auth -t -A \
-        -c "SELECT status FROM auth_users WHERE id='${IT_UUID}'::uuid;")"
-      if [ "$IT_STATUS" = "ACTIVE" ]; then
-        echo "PASS: managed postgres mark_verified end-to-end"
-        pass=$((pass + 1))
+      if IT_UUID="$(parkio_priv001_mark_verified "$IT_EMAIL" 900)"; then
+        IT_STATUS="$(docker exec "$pg_cname" psql -U parkio_auth -d parkio_auth -t -A \
+          -c "SELECT status FROM auth_users WHERE id='${IT_UUID}'::uuid;")"
+        if [ "$IT_STATUS" = "ACTIVE" ]; then
+          echo "PASS: managed postgres mark_verified end-to-end"
+          pass=$((pass + 1))
+        else
+          echo "FAIL: managed postgres mark_verified status=$IT_STATUS" >&2
+          fail=$((fail + 1))
+        fi
       else
-        echo "FAIL: managed postgres mark_verified status=$IT_STATUS" >&2
+        echo "FAIL: managed postgres mark_verified invocation" >&2
         fail=$((fail + 1))
       fi
-      # Prove f1b9d6f psql-variable path fails on real postgres when variables are not expanded.
-      if PGPASSWORD=pgitsecret psql -h 127.0.0.1 -p "$pg_port" -U parkio_auth -d parkio_auth \
+      if docker exec "$pg_cname" psql -U parkio_auth -d parkio_auth \
           --set=ON_ERROR_STOP=1 -t -A \
           -v email="$IT_EMAIL" \
           -c "SELECT email = :'email' FROM auth_users LIMIT 1;" >/dev/null 2>&1; then
