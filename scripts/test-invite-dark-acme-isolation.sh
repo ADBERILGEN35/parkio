@@ -38,9 +38,9 @@ ENV_EXAMPLE="docker/.env.invite-production.example"
 CADDYFILE="docker/caddy/Caddyfile"
 
 # --------------------------------------------------------------------------- #
-# 1. Dark runtime composition                                                  #
+# 1. Non-ACME runtime composition (dark or public-staged)                      #
 # --------------------------------------------------------------------------- #
-echo "=== dark runtime excludes the ACME edge ==="
+echo "=== non-ACME runtime excludes the ACME edge ==="
 
 PARKIO_DEPLOYMENT_PROFILE=invite-production
 # shellcheck source=lib/deploy-common.sh
@@ -55,7 +55,7 @@ fi
 if [[ " ${PARKIO_RUNTIME_SERVICES[*]} " == *" caddy "* ]]; then
   bad "caddy must not be in the invite-production runtime service list"
 else
-  ok "caddy is not started by the dark runtime"
+  ok "caddy is not started by the non-ACME runtime (public-staged example)"
 fi
 
 if [[ " ${PARKIO_REQUIRED_HEALTHY[*]} " == *" caddy "* ]]; then
@@ -63,6 +63,23 @@ if [[ " ${PARKIO_REQUIRED_HEALTHY[*]} " == *" caddy "* ]]; then
 else
   ok "caddy is not required-healthy in dark mode"
 fi
+
+# Explicit dark mode must still omit caddy from the start set.
+PARKIO_INVITE_EDGE_MODE=dark
+parkio_configure_deployment_profile "$ENV_EXAMPLE" >/dev/null 2>&1 || true
+if [[ " ${PARKIO_RUNTIME_SERVICES[*]} " == *" caddy "* ]]; then
+  bad "caddy must not be in the dark runtime service list"
+else
+  ok "caddy is not started by explicit dark mode"
+fi
+case "$PARKIO_COMPOSE_FILES" in
+  *docker/docker-compose.invite-dark.yml*) ok "invite-dark overlay active in dark mode" ;;
+  *) bad "invite-dark overlay missing when PARKIO_INVITE_EDGE_MODE=dark" ;;
+esac
+
+# Restore example profile for remaining checks (public-staged).
+unset PARKIO_INVITE_EDGE_MODE
+parkio_configure_deployment_profile "$ENV_EXAMPLE" >/dev/null 2>&1 || true
 
 if [[ " ${PARKIO_DISABLED_SERVICES[*]} " == *" caddy "* ]]; then
   ok "caddy omission is declared, not silent"
@@ -148,9 +165,9 @@ echo
 echo "=== guard behaviour ==="
 
 if "$GUARD" --env-file "$ENV_EXAMPLE" >/dev/null 2>&1; then
-  ok "guard passes on the isolated dark configuration"
+  ok "guard passes on the isolated non-ACME configuration (public-staged)"
 else
-  bad "guard rejects the current (isolated) dark configuration"
+  bad "guard rejects the current (isolated) non-ACME configuration"
 fi
 
 # The guard must not READ the test-harness flag PARKIO_REQUIRE_COMPOSE_MODEL.
@@ -287,9 +304,9 @@ if [ -n "$compose_bin" ]; then
        PARKIO_PUBLIC_HOSTS="api.parkio.dev app.parkio.dev media.parkio.dev" \
        python3 "$ROOT/scripts/lib/check_dark_acme_model.py" "$model" >/dev/null 2>&1 &&
        "$GUARD" --env-file "$ENV_EXAMPLE" --model "$model" --require-model >/dev/null 2>&1; then
-      ok "merged dark model starts no ACME client and publishes loopback only"
+      ok "merged non-ACME model starts no ACME client and publishes loopback only"
     else
-      bad "merged dark model still permits a public ACME path or a non-loopback publish"
+      bad "merged non-ACME model still permits a public ACME path or a non-loopback publish"
     fi
 
     # Caddy must remain defined in the model (cutover) while staying out of the

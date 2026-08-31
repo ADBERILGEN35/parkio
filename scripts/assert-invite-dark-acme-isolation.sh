@@ -76,17 +76,42 @@ if [ "${PARKIO_DEPLOYMENT_PROFILE:-}" != "invite-production" ]; then
   exit 0
 fi
 
-echo "=== invite-production dark ACME isolation ==="
+echo "=== invite-production ACME isolation (dark or public-staged) ==="
 
 # --------------------------------------------------------------------------- #
-# 1. The dark overlay must actually be active, and last.                       #
+# 1. A non-ACME overlay must be active: either invite-dark (Level-A) or       #
+#    invite-public-staged (Level-B dark-stage). Both keep Caddy out of the      #
+#    start set while production hostnames still resolve to hosted-beta.         #
 # --------------------------------------------------------------------------- #
+staged_overlay=0
 case "$PARKIO_COMPOSE_FILES" in
   *docker/docker-compose.invite-dark.yml*)
     note "invite-dark overlay active" ;;
+  *docker/docker-compose.invite-public-staged.yml*)
+    staged_overlay=1
+    note "invite-public-staged overlay active (public edge staged, ACME disabled)" ;;
   *)
-    bad "invite-dark overlay missing from the invite-production compose set" ;;
+    bad "invite-production must include invite-dark or invite-public-staged overlay; neither found in compose set" ;;
 esac
+
+if [ "$staged_overlay" -eq 1 ]; then
+  case "$PARKIO_COMPOSE_FILES" in
+    *docker/docker-compose.invite-public.yml*)
+      note "invite-public overlay present for staged public edge" ;;
+    *)
+      bad "invite-public-staged requires invite-public overlay in the compose set" ;;
+  esac
+  if [ "${PARKIO_INVITE_EDGE_MODE:-}" != "public" ]; then
+    bad "invite-public-staged requires PARKIO_INVITE_EDGE_MODE=public"
+  else
+    note "edge mode is public (staged)"
+  fi
+  if [ "${PARKIO_INVITE_ACME_AUTHORIZED:-}" = "true" ]; then
+    bad "invite-public-staged requires PARKIO_INVITE_ACME_AUTHORIZED=false"
+  else
+    note "ACME is not authorized for this deploy"
+  fi
+fi
 
 # --------------------------------------------------------------------------- #
 # 2. Caddy must not be started, and the omission must be declared.             #
@@ -94,21 +119,21 @@ esac
 if [ "${#PARKIO_RUNTIME_SERVICES[@]}" -eq 0 ]; then
   bad "invite-production must use an explicit runtime service list; an empty list starts every service including caddy"
 elif [[ " ${PARKIO_RUNTIME_SERVICES[*]} " == *" caddy "* ]]; then
-  bad "caddy is in the invite-production runtime service list; the dark stack would run Caddy's ACME client against ${PARKIO_PUBLIC_HOSTNAMES[*]}"
+  bad "caddy is in the invite-production runtime service list; the stack would run Caddy's ACME client against ${PARKIO_PUBLIC_HOSTNAMES[*]}"
 else
-  note "caddy absent from the dark runtime service list"
+  note "caddy absent from the runtime service list (will not start)"
 fi
 
 if [[ " ${PARKIO_REQUIRED_HEALTHY[*]} " == *" caddy "* ]]; then
   bad "caddy is in the invite-production required-healthy list but is never started; the deploy would wait forever"
 else
-  note "caddy absent from the dark required-healthy list"
+  note "caddy absent from the required-healthy list"
 fi
 
 if [[ " ${PARKIO_DISABLED_SERVICES[*]} " == *" caddy "* ]]; then
-  note "caddy declared in the dark disabled-service list (omission is explicit)"
+  note "caddy declared in the disabled-service list (omission is explicit)"
 else
-  bad "caddy must be listed in PARKIO_DISABLED_SERVICES so the dark omission is explicit and lands in the deploy manifest"
+  bad "caddy must be listed in PARKIO_DISABLED_SERVICES so the omission is explicit and lands in the deploy manifest"
 fi
 
 # --------------------------------------------------------------------------- #
@@ -171,9 +196,9 @@ if [ -n "$MODEL" ] && [ -s "$MODEL" ]; then
   if PARKIO_START_SET="${PARKIO_RUNTIME_SERVICES[*]}" \
      PARKIO_PUBLIC_HOSTS="${PARKIO_PUBLIC_HOSTNAMES[*]}" \
      python3 "$ROOT/scripts/lib/check_dark_acme_model.py" "$MODEL"; then
-    note "merged model: dark start set contains no ACME client and no non-loopback publish"
+    note "merged model: runtime start set contains no ACME client and no non-loopback publish"
   else
-    bad "merged compose model still permits a public ACME path in dark mode"
+    bad "merged compose model still permits a public ACME path in the effective start set"
   fi
 fi
 

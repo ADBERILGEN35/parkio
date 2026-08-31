@@ -136,7 +136,10 @@ parkio_configure_deployment_profile() {
           # (PROD-DEPLOY-01B-02). Omit this overlay once ACME is authorized.
           PARKIO_COMPOSE_FILES="${PARKIO_COMPOSE_FILES} -f docker/docker-compose.invite-public-staged.yml"
         fi
-        PARKIO_RUNTIME_SERVICES=("${PARKIO_INVITE_RUNTIME_SERVICES[@]}" caddy)
+        PARKIO_RUNTIME_SERVICES=("${PARKIO_INVITE_RUNTIME_SERVICES[@]}")
+        if [ "$acme_authorized" = "true" ]; then
+          PARKIO_RUNTIME_SERVICES+=(caddy)
+        fi
         PARKIO_DISABLED_SERVICES=("${disabled_common[@]}")
         if [ "$acme_authorized" != "true" ]; then
           PARKIO_DISABLED_SERVICES+=(caddy)
