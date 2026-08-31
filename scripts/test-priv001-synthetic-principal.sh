@@ -424,16 +424,16 @@ if command -v docker >/dev/null 2>&1 && docker info >/dev/null 2>&1; then
   fi
   if [ -n "$pg_cname" ]; then
     ready=0
-    for _ in $(seq 1 30); do
-      if docker exec "$pg_cname" pg_isready -U parkio_auth -d parkio_auth >/dev/null 2>&1; then
+    for _ in $(seq 1 60); do
+      if docker exec "$pg_cname" pg_isready -U parkio_auth -d parkio_auth >/dev/null 2>&1 \
+          && docker exec "$pg_cname" psql -U parkio_auth -d parkio_auth -t -A -c 'SELECT 1' >/dev/null 2>&1; then
         ready=1
         break
       fi
       sleep 1
     done
     if [ "$ready" = "1" ]; then
-      docker exec -i "$pg_cname" psql -U parkio_auth -d parkio_auth -v ON_ERROR_STOP=1 <<'SQL'
-CREATE EXTENSION IF NOT EXISTS pgcrypto;
+      if ! docker exec -i "$pg_cname" psql -U parkio_auth -d parkio_auth -v ON_ERROR_STOP=1 <<'SQL'
 CREATE TABLE auth_users (
   id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
   email text NOT NULL,
@@ -452,6 +452,10 @@ CREATE TABLE erasure_requests (id uuid PRIMARY KEY, auth_user_id uuid NOT NULL);
 INSERT INTO auth_users (email, email_verified, status)
 VALUES ('priv001a-20260830120000abcd@priv001a.parkio.invalid', false, 'PENDING_VERIFICATION');
 SQL
+      then
+        echo "FAIL: ephemeral postgres schema bootstrap" >&2
+        fail=$((fail + 1))
+      else
       export PATH="$REAL_PATH_SAVE"
       export PARKIO_PG_MODE=local
       export PARKIO_AUTH_PG_CONTAINER="$pg_cname"
@@ -483,6 +487,7 @@ SQL
       else
         echo "PASS: psql :'email' variable binding fails on managed-style invocation"
         pass=$((pass + 1))
+      fi
       fi
     else
       echo "SKIP: ephemeral postgres not ready"
