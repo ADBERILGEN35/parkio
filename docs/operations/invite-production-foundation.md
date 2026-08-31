@@ -57,6 +57,13 @@ There is no public SSH rule. Ports 8081-8089, 5432, 6379, 9092, 9000/9001,
 9090/9093, and 3000 have no Azure public allow rule. The database has
 `publicNetworkAccess=Disabled`; internal clients use its FQDN, never an IP.
 
+App-subnet NSG `nsg-parkio-invite-app` (IaC in `main.bicep`) allows Internet
+inbound TCP **443** (`Allow-Https-From-Internet`, priority 100) and TCP **80**
+(`Allow-Http-From-Internet`, priority 110). Port 80 exists only for a later
+public-edge package (ACME HTTP-01 + HTTP→HTTPS redirect). NSG allow does not
+mean a listener exists, Caddy is running, ACME is authorized, or DNS has moved.
+Those remain separately gated; public edge stays dark until those gates pass.
+
 ## Provisioned resources
 
 The reproducible definition is `infra/azure/invite-production/main.bicep`.

@@ -7,8 +7,12 @@ The template creates, in `rg-parkio-invite-production-we` / West Europe:
 
 - one `Standard_E4bds_v5` Linux VM (4 vCPU, 32 GiB) with 128 GiB OS and
   256 GiB Premium SSD data storage;
-- a static public IP whose NSG permits inbound TCP 443 only (no SSH rule and no
-  public ports 8081-8089);
+- a static public IP whose NSG permits inbound TCP **443** and TCP **80** only
+  (no SSH rule and no public ports 8081-8089). TCP :80 is IaC-owned
+  (`Allow-Http-From-Internet`, priority 110) for a later Caddy ACME HTTP-01 /
+  HTTP→HTTPS redirect activation; an NSG allow does **not** imply a host
+  listener, Caddy start, ACME authorization, or DNS cutover. Those remain
+  separately gated. Until Caddy is live, public application edge remains off;
 - one PostgreSQL 16 Flexible Server, General Purpose `Standard_D2ds_v5`, 128
   GiB auto-growing storage, 30-day PITR, HA disabled for the tiny invite;
 - a delegated database subnet and linked private DNS zone; the server has

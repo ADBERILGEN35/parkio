@@ -71,6 +71,21 @@ resource appNsg 'Microsoft.Network/networkSecurityGroups@2024-05-01' = {
           destinationAddressPrefix: '*'
         }
       }
+      // PROD-DEPLOY-01B-03C1: TCP :80 for future Caddy ACME HTTP-01 + HTTP->HTTPS
+      // redirect only. NSG allow does not start Caddy, authorize ACME, or cut over DNS.
+      {
+        name: 'Allow-Http-From-Internet'
+        properties: {
+          priority: 110
+          access: 'Allow'
+          direction: 'Inbound'
+          protocol: 'Tcp'
+          sourcePortRange: '*'
+          destinationPortRange: '80'
+          sourceAddressPrefix: 'Internet'
+          destinationAddressPrefix: '*'
+        }
+      }
     ]
   }
 }

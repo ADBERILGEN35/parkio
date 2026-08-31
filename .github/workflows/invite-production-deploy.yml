@@ -134,6 +134,7 @@ jobs:
           bash scripts/test-invite-dark-acme-isolation.sh
           bash scripts/test-invite-production-edge-mode.sh
           bash scripts/test-invite-production-edge-resource-budget.sh
+          bash scripts/test-invite-production-nsg-ingress.sh
           bash scripts/test-invite-production-backup-scheduler.sh
           bash scripts/test-invite-production-runtime-release.sh
           bash scripts/test-invite-production-failure-evidence.sh
@@ -146,6 +147,7 @@ jobs:
           node --test scripts/lib/assert-invite-production-compose-ports.test.mjs
           node --test scripts/lib/assert-invite-production-runtime-identity.test.mjs
           node --test scripts/lib/assert-invite-production-public-surface.test.mjs
+          node --test scripts/lib/assert-invite-production-nsg-ingress.test.mjs
           node --test scripts/test-invite-production-resource-budget-wiring.test.mjs
           node --test scripts/test-invite-production-edge-resource-budget-wiring.test.mjs
           node --test scripts/test-invite-production-runtime-identity-wiring.test.mjs
