@@ -144,8 +144,10 @@ jobs:
           python3 scripts/test_invite_production_deploy_safety.py
           node --test scripts/lib/assert-compose-resource-budget.test.mjs
           node --test scripts/lib/assert-invite-production-compose-ports.test.mjs
+          node --test scripts/lib/assert-invite-production-runtime-identity.test.mjs
           node --test scripts/test-invite-production-resource-budget-wiring.test.mjs
           node --test scripts/test-invite-production-edge-resource-budget-wiring.test.mjs
+          node --test scripts/test-invite-production-runtime-identity-wiring.test.mjs
           node --test scripts/lib/sanitize-compose-config.test.mjs
           node --test frontend/apps/web/scripts/validate-build-env.test.mjs
           node --test frontend/apps/web/scripts/verify-bundle-env.test.mjs

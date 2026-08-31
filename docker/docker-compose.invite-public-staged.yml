@@ -7,6 +7,10 @@
 # Keeps the loopback-only gateway acceptance endpoint while Caddy remains
 # disabled and DNS still points at hosted-beta. When ACME is authorized at
 # cutover, this overlay is omitted and gateway-service stays internal-only.
+#
+# Runtime identity (PARKIO_ENVIRONMENT / PARKIO_GIT_SHA) is mapped on
+# invite-public.yml and inherited here — do not reintroduce a ports-only gap
+# that leaves /actuator/info at local/unknown (PROD-DEPLOY-01B-02D).
 name: parkio
 
 services:

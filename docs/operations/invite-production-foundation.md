@@ -289,6 +289,30 @@ allows `priv001a-*@priv001a.parkio.invalid` only when explicitly enabled.
 - `PARKIO_GATEWAY_PUBLIC_ACTUATOR_INFO_ENABLED`: set `false` on public cutover
   to block `/actuator/info`; dark loopback acceptance keeps `true`.
 
+### Runtime identity (`/actuator/info`)
+
+Gateway surfaces non-secret deployment identity at `/actuator/info`:
+
+| Field | Env | Required value |
+|-------|-----|----------------|
+| `deployment.environment` | `PARKIO_ENVIRONMENT` | `invite-production` |
+| `deployment.gitSha` | `PARKIO_GIT_SHA` | exact deploy SHA |
+
+All invite-production edge overlays that start `gateway-service` must map both
+variables into the container:
+
+- `docker-compose.invite-dark.yml`
+- `docker-compose.invite-public.yml` (inherited by `invite-public-staged`)
+
+Dark loopback smoke (`scripts/smoke-hosted-beta.sh`) and public-staged
+acceptance read identity on `http://127.0.0.1:8080/actuator/info`. Public edge
+cutover must keep `/actuator/info` blocked via
+`PARKIO_GATEWAY_PUBLIC_ACTUATOR_INFO_ENABLED=false` — identity wiring does not
+make that endpoint public.
+
+Regression guard:
+`./scripts/assert-invite-production-runtime-identity.sh`.
+
 ### Resource budgets
 
 | Profile | Continuous MiB | Caddy |

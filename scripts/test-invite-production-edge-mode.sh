@@ -8,6 +8,12 @@ cd "$ROOT"
 bash "$ROOT/scripts/validate-invite-production-edge.sh" --env-file docker/.env.invite-production.example --mode dark
 bash "$ROOT/scripts/validate-invite-production-edge.sh" --env-file docker/.env.invite-production.example --mode public
 
+# Gateway runtime identity must resolve for dark, public-staged, and public
+# candidate (PROD-DEPLOY-01B-02D). This is the regression for the 01B-02C
+# local/unknown smoke failure.
+bash "$ROOT/scripts/assert-invite-production-runtime-identity.sh" \
+  --env-file docker/.env.invite-production.example
+
 # HSTS staging contract in Caddyfile
 grep -q 'PARKIO_HSTS_HEADER_VALUE' docker/caddy/Caddyfile
 

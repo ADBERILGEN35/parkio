@@ -21,6 +21,17 @@ services:
 
   gateway-service:
     ports: !override []
+    environment:
+      # Non-secret deployment identity for invite-production edge modes.
+      # Same contract as invite-dark.yml: smoke reads /actuator/info as
+      # deployment.environment / deployment.gitSha. Required (not soft-defaulted)
+      # because this overlay is invite-production only — a missing deploy export
+      # must fail Compose resolution instead of silently reporting local/unknown
+      # (PROD-DEPLOY-01B-02C / 01B-02D). Public cutover still disables public
+      # actuator info via PARKIO_GATEWAY_PUBLIC_ACTUATOR_INFO_ENABLED=false;
+      # loopback acceptance (invite-public-staged) keeps info readable.
+      PARKIO_ENVIRONMENT: ${PARKIO_ENVIRONMENT:?invite-production requires PARKIO_ENVIRONMENT}
+      PARKIO_GIT_SHA: ${PARKIO_GIT_SHA:?invite-production requires PARKIO_GIT_SHA}
 
   parking-service:
     environment:
