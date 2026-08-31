@@ -136,7 +136,9 @@ export function evaluateInviteComposePorts(model, options) {
     case 'dark':
       assertGatewayLoopbackOnly(services);
       assertInternalServicesNotPublished(services);
-      assertNoHostPublish(services, 'caddy', 'caddy');
+      // Caddy may remain defined in the merged model (hosted-beta) with 80/443 for
+      // the future cutover; dark isolation is enforced by the runtime start set
+      // and assert-invite-dark-acme-isolation.sh, not by deleting the service.
       assertNoHostPublish(services, 'web', 'web');
       assertNoHostPublish(services, 'minio', 'minio');
       break;
