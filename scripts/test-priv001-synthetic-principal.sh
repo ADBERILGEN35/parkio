@@ -138,79 +138,135 @@ else
   pass=$((pass + 1))
 fi
 
+echo "=== PRIV-001A psql option-ordering regression (f1b9d6f defect) ==="
+
+# GNU psql clusters -tAc as -t -A -c; the next argv becomes SQL for -c.
+# Broken harness: psql ... -tAc -v email=x -c "$sql" → SQL executed is "-v".
+simulate_tAc_sql() {
+  local next="${1-}"
+  printf '%s' "$next"
+}
+BROKEN_SQL="$(simulate_tAc_sql '-v')"
+[ "$BROKEN_SQL" = '-v' ]
+echo "PASS: -tAc clusters consume following argv as -c SQL (root cause)"
+pass=$((pass + 1))
+
 echo "=== PRIV-001A verification SQL contract (fake psql) ==="
 
 mkdir -p "$tmp/bin"
 cat > "$tmp/bin/psql" <<'FAKE_PSQL'
 #!/usr/bin/env bash
 set -euo pipefail
-# Refuse arbitrary -c that looks like operator paste of DROP / multi-statement abuse
-# beyond the harness transaction. Record argv for assertions.
 printf '%s\0' "$@" > "${PARKIO_TEST_PSQL_ARGV}"
-email=""
-max_age=""
-uid=""
+orig="$*"
+case "$orig" in
+  *-tAc\ -v*)
+    if [ "${PARKIO_TEST_PSQL_MODE:-}" = "old_tAc_pattern" ]; then
+      echo "ERROR: syntax error at or near \"-\"" >&2
+      exit 1
+    fi
+    ;;
+esac
+
+on_error_stop=0
+use_t=0
+use_a=0
+use_tac=0
 sql=""
+email=""
+uid=""
 while [ "$#" -gt 0 ]; do
   case "$1" in
+    --set=ON_ERROR_STOP=1) on_error_stop=1; shift ;;
     -v)
-      case "$2" in
+      case "${2-}" in
         email=*) email="${2#email=}" ;;
-        max_age=*) max_age="${2#max_age=}" ;;
+        max_age=*) ;;
         uid=*) uid="${2#uid=}" ;;
+        ON_ERROR_STOP=*) on_error_stop=1 ;;
       esac
       shift 2
       ;;
-    -c) sql="$2"; shift 2 ;;
+    -t) use_t=1; shift ;;
+    -A) use_a=1; shift ;;
+    -tAc)
+      use_tac=1
+      use_t=1
+      use_a=1
+      if [ -n "${2-}" ]; then
+        sql="$2"
+        shift 2
+      else
+        shift
+      fi
+      ;;
+    -c) sql="${2-}"; shift 2 ;;
+    -h|-p|-U|-d) shift 2 ;;
     *) shift ;;
   esac
 done
 
-# Simulate multi-row / precondition failures via env.
 case "${PARKIO_TEST_PSQL_MODE:-ok}" in
+  old_tAc_pattern)
+    if [ "$use_tac" = "1" ] && [ "$sql" = "-v" ]; then
+      echo "ERROR: syntax error at or near \"-\"" >&2
+      exit 1
+    fi
+    echo "FAIL: old_tAc_pattern should have failed" >&2
+    exit 1
+    ;;
   multi)
     echo "ERROR: more than one row returned by a subquery used as an expression" >&2
     exit 1
     ;;
   zero)
-    # empty returning
     exit 0
     ;;
-  already_verified)
-    echo "ERROR: PRIV001_VERIFY_PRECONDITION_FAILED" >&2
-    exit 1
-    ;;
-  erased)
+  already_verified|erased)
     echo "ERROR: PRIV001_VERIFY_PRECONDITION_FAILED" >&2
     exit 1
     ;;
   inspect)
+    [ "$on_error_stop" = "1" ] || exit 1
+    [ "$use_t" = "1" ] && [ "$use_a" = "1" ] || exit 1
+    [ "$use_tac" = "0" ] || exit 1
+    printf '%s' "$sql" | grep -q "11111111-1111-4111-8111-111111111111" || exit 1
+    printf '%s' "$sql" | grep -q ":'uid'" && exit 1
     printf '%s\n' '{"auth_state":"ERASED","email_verified":"false","auth_row_count":1,"erasure_request_count":1,"participant_ack_count":8,"tombstone_count":1,"hard_delete_residue_count":0,"deidentified_residue_count":1,"forbidden_user_id_hits":0,"media_object_count":0,"cross_service_sql":"NOT_EXECUTED_BY_CONTRACT"}'
     exit 0
     ;;
   *)
-    # Prove SQL is bounded and parameterized (no raw email concatenation of attacker SQL).
-    printf '%s' "$sql" | grep -q "email = :'email'"
-    printf '%s' "$sql" | grep -q "PENDING_VERIFICATION"
-    printf '%s' "$sql" | grep -Fq "FOR UPDATE"
-    printf '%s' "$sql" | grep -q "erased_user_tombstones"
-    printf '%s' "$sql" | grep -q "erasure_requests"
-    # No arbitrary operator SQL channel: harness never accepts --sql.
+    [ "$on_error_stop" = "1" ] || { echo "ERROR: ON_ERROR_STOP not set" >&2; exit 1; }
+    [ "$use_tac" = "0" ] || { echo "ERROR: deprecated -tAc clustering" >&2; exit 1; }
+    [ "$use_t" = "1" ] && [ "$use_a" = "1" ] || { echo "ERROR: expected -t -A output flags" >&2; exit 1; }
+    printf '%s' "$sql" | grep -q "PENDING_VERIFICATION" || exit 1
+    printf '%s' "$sql" | grep -Fq "FOR UPDATE" || exit 1
+    printf '%s' "$sql" | grep -q "erased_user_tombstones" || exit 1
+    printf '%s' "$sql" | grep -q "erasure_requests" || exit 1
+    printf '%s' "$sql" | grep -q ":'email'" && exit 1
     case "$sql" in
       *DROP\ *|*TRUNCATE\ *) exit 1 ;;
     esac
-    if [ -z "$email" ] && [ -z "$uid" ]; then
-      exit 1
+    if [ -n "$uid" ]; then
+      printf '%s' "$sql" | grep -q "$uid" || exit 1
+      exit 0
     fi
     if [ -n "$email" ]; then
+      printf '%s' "$sql" | grep -q "email = '${email}'" || exit 1
       printf '%s\n' '11111111-1111-4111-8111-111111111111'
+      exit 0
     fi
-    exit 0
+    if printf '%s' "$sql" | grep -q "email = 'priv001a-"; then
+      printf '%s\n' '11111111-1111-4111-8111-111111111111'
+      exit 0
+    fi
+    exit 1
     ;;
 esac
 FAKE_PSQL
 chmod +x "$tmp/bin/psql"
 
+REAL_PATH_SAVE="$PATH"
 export PATH="$tmp/bin:$PATH"
 export PARKIO_PG_MODE=managed
 export PARKIO_PG_HOST=pg.example.postgres.database.azure.com
@@ -220,18 +276,29 @@ export PARKIO_PRIV001_ENVIRONMENT=invite-production
 export PARKIO_PRIV001_CONFIRM_SYNTHETIC_ONLY=yes
 export PARKIO_DEPLOYMENT_PROFILE=invite-production
 export PARKIO_TEST_PSQL_ARGV="$tmp/psql.argv"
-export PARKIO_TEST_PSQL_MODE=ok
+export PARKIO_TEST_PSQL_MODE=old_tAc_pattern
+assert_fail "f1b9d6f -tAc option-ordering fails closed" \
+  parkio_priv001_auth_psql -tAc -v email='priv001a-20260830120000abcd@priv001a.parkio.invalid' -c "BEGIN; SELECT 1;"
 
+export PARKIO_TEST_PSQL_MODE=ok
 GOOD_EMAIL='priv001a-20260830120000abcd@priv001a.parkio.invalid'
 VERIFIED="$(parkio_priv001_mark_verified "$GOOD_EMAIL" 900)"
 [ "$VERIFIED" = '11111111-1111-4111-8111-111111111111' ]
-echo "PASS: mark_verified happy path"
+tr '\0' ' ' < "$tmp/psql.argv" | grep -q -- '--set=ON_ERROR_STOP=1'
+tr '\0' ' ' < "$tmp/psql.argv" | grep -q -- '-t'
+tr '\0' ' ' < "$tmp/psql.argv" | grep -q -- '-A'
+tr '\0' ' ' < "$tmp/psql.argv" | grep -qv -- '-tAc'
+echo "PASS: mark_verified hotfix invocation (-t -A, --set=ON_ERROR_STOP=1, allowlist literal)"
 pass=$((pass + 1))
 
 assert_fail "gmail cannot be verified" \
   parkio_priv001_mark_verified 'attacker@gmail.com' 900
-assert_fail "arbitrary uuid email rejected" \
+assert_fail "arbitrary domain rejected" \
   parkio_priv001_mark_verified 'priv001a-abc@evil.com' 900
+assert_fail "sql-injection local-part rejected before psql" \
+  parkio_priv001_mark_verified "priv001a-';DROP TABLE auth_users;--@priv001a.parkio.invalid" 900
+assert_fail "email-as-psql-option rejected" \
+  parkio_priv001_mark_verified 'priv001a-abc@priv001a.parkio.invalid -c DROP' 900
 
 export PARKIO_TEST_PSQL_MODE=multi
 assert_fail "multi-row update rejected" \
@@ -249,7 +316,6 @@ export PARKIO_TEST_PSQL_MODE=erased
 assert_fail "erased user rejected" \
   parkio_priv001_mark_verified "$GOOD_EMAIL" 900
 
-# SSL disable refused
 export PARKIO_PG_SSLMODE=disable
 export PARKIO_TEST_PSQL_MODE=ok
 assert_fail "sslmode=disable refused" \
@@ -270,6 +336,16 @@ else
 fi
 
 echo "=== PRIV-001A inspect tooling ==="
+if grep -En '^\s*(INSERT|UPDATE|DELETE|DROP|TRUNCATE|ALTER)\b' \
+    scripts/acceptance/inspect-priv001-synthetic-residue.sh \
+    | grep -vE '^[0-9]+:#'; then
+  echo "FAIL: inspect script contains mutating SQL" >&2
+  fail=$((fail + 1))
+else
+  echo "PASS: inspect script read-only (no mutating SQL)"
+  pass=$((pass + 1))
+fi
+
 export PARKIO_TEST_PSQL_MODE=inspect
 bash scripts/acceptance/inspect-priv001-synthetic-residue.sh \
   --environment invite-production \
@@ -330,6 +406,97 @@ if grep -RniE 'PARKIO_EMAIL_VERIFICATION_BYPASS|email.verification.bypass|DISABL
 else
   echo "PASS: no global verification bypass"
   pass=$((pass + 1))
+fi
+
+echo "=== PRIV-001A managed psql integration (ephemeral postgres) ==="
+if command -v docker >/dev/null 2>&1 && docker info >/dev/null 2>&1; then
+  pg_cname="priv001-pg-it-$$"
+  pg_port="55432"
+  if docker run -d --rm --name "$pg_cname" \
+      -e POSTGRES_PASSWORD=pgitsecret \
+      -e POSTGRES_USER=parkio_auth \
+      -e POSTGRES_DB=parkio_auth \
+      -p "127.0.0.1:${pg_port}:5432" \
+      postgres:16-alpine >/dev/null 2>&1; then
+    trap 'docker rm -f "$pg_cname" >/dev/null 2>&1 || true' EXIT
+  else
+    pg_cname=""
+  fi
+  if [ -n "$pg_cname" ]; then
+    ready=0
+    for _ in $(seq 1 30); do
+      if docker exec "$pg_cname" pg_isready -U parkio_auth -d parkio_auth >/dev/null 2>&1; then
+        ready=1
+        break
+      fi
+      sleep 1
+    done
+    if [ "$ready" = "1" ]; then
+      docker exec -i "$pg_cname" psql -U parkio_auth -d parkio_auth -v ON_ERROR_STOP=1 <<'SQL'
+CREATE EXTENSION IF NOT EXISTS pgcrypto;
+CREATE TABLE auth_users (
+  id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  email text NOT NULL,
+  email_verified boolean NOT NULL DEFAULT false,
+  status text NOT NULL,
+  created_at timestamptz NOT NULL DEFAULT now(),
+  email_verified_at timestamptz,
+  email_verification_token_hash text,
+  email_verification_expires_at timestamptz,
+  email_verification_sent_at timestamptz,
+  version int NOT NULL DEFAULT 1,
+  updated_at timestamptz NOT NULL DEFAULT now()
+);
+CREATE TABLE erased_user_tombstones (auth_user_id uuid PRIMARY KEY);
+CREATE TABLE erasure_requests (id uuid PRIMARY KEY, auth_user_id uuid NOT NULL);
+INSERT INTO auth_users (email, email_verified, status)
+VALUES ('priv001a-20260830120000abcd@priv001a.parkio.invalid', false, 'PENDING_VERIFICATION');
+SQL
+      saved_path="$REAL_PATH_SAVE"
+      export PATH="$saved_path"
+      export PARKIO_PG_MODE=managed
+      export PARKIO_PG_HOST=127.0.0.1
+      export PARKIO_PG_PORT="$pg_port"
+      export PARKIO_PG_SSLMODE=prefer
+      export PARKIO_PG_USER=parkio_auth
+      export PARKIO_PG_DB=parkio_auth
+      export PGPASSWORD=pgitsecret
+      export PARKIO_PRIV001_ENVIRONMENT=invite-production
+      export PARKIO_PRIV001_CONFIRM_SYNTHETIC_ONLY=yes
+      export PARKIO_DEPLOYMENT_PROFILE=invite-production
+      IT_EMAIL='priv001a-20260830120000abcd@priv001a.parkio.invalid'
+      IT_UUID="$(parkio_priv001_mark_verified "$IT_EMAIL" 900)"
+      IT_STATUS="$(PGPASSWORD=pgitsecret psql -h 127.0.0.1 -p "$pg_port" -U parkio_auth -d parkio_auth -t -A \
+        -c "SELECT status FROM auth_users WHERE id='${IT_UUID}'::uuid;")"
+      if [ "$IT_STATUS" = "ACTIVE" ]; then
+        echo "PASS: managed postgres mark_verified end-to-end"
+        pass=$((pass + 1))
+      else
+        echo "FAIL: managed postgres mark_verified status=$IT_STATUS" >&2
+        fail=$((fail + 1))
+      fi
+      # Prove f1b9d6f psql-variable path fails on real postgres when variables are not expanded.
+      if PGPASSWORD=pgitsecret psql -h 127.0.0.1 -p "$pg_port" -U parkio_auth -d parkio_auth \
+          --set=ON_ERROR_STOP=1 -t -A \
+          -v email="$IT_EMAIL" \
+          -c "SELECT email = :'email' FROM auth_users LIMIT 1;" >/dev/null 2>&1; then
+        echo "FAIL: psql :'email' variable unexpectedly expanded" >&2
+        fail=$((fail + 1))
+      else
+        echo "PASS: psql :'email' variable binding fails on managed-style invocation"
+        pass=$((pass + 1))
+      fi
+    else
+      echo "SKIP: ephemeral postgres not ready"
+    fi
+    docker rm -f "$pg_cname" >/dev/null 2>&1 || true
+    trap - EXIT
+    export PATH="$REAL_PATH_SAVE"
+  else
+    echo "SKIP: could not start ephemeral postgres"
+  fi
+else
+  echo "SKIP: docker unavailable for managed psql integration"
 fi
 
 echo "=== summary pass=${pass} fail=${fail} ==="

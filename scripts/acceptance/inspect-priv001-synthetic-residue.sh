@@ -74,33 +74,33 @@ if [ -n "$EMAIL" ]; then
 fi
 
 # Parameterized inspection. Never SELECT email/password_hash/token columns into output.
-SQL=$(cat <<'SQL'
+SQL=$(cat <<SQL
 SELECT json_build_object(
-  'auth_state', COALESCE((SELECT status FROM auth_users WHERE id = :'uid'::uuid), 'ABSENT'),
-  'email_verified', COALESCE((SELECT email_verified::text FROM auth_users WHERE id = :'uid'::uuid), 'ABSENT'),
-  'auth_row_count', (SELECT count(*)::int FROM auth_users WHERE id = :'uid'::uuid),
-  'erasure_request_count', (SELECT count(*)::int FROM erasure_requests WHERE auth_user_id = :'uid'::uuid),
+  'auth_state', COALESCE((SELECT status FROM auth_users WHERE id = '${AUTH_USER_ID}'::uuid), 'ABSENT'),
+  'email_verified', COALESCE((SELECT email_verified::text FROM auth_users WHERE id = '${AUTH_USER_ID}'::uuid), 'ABSENT'),
+  'auth_row_count', (SELECT count(*)::int FROM auth_users WHERE id = '${AUTH_USER_ID}'::uuid),
+  'erasure_request_count', (SELECT count(*)::int FROM erasure_requests WHERE auth_user_id = '${AUTH_USER_ID}'::uuid),
   'participant_ack_count', (
       SELECT count(*)::int
       FROM erasure_service_acks a
       JOIN erasure_requests r ON r.id = a.erasure_request_id
-      WHERE r.auth_user_id = :'uid'::uuid
+      WHERE r.auth_user_id = '${AUTH_USER_ID}'::uuid
   ),
-  'tombstone_count', (SELECT count(*)::int FROM erased_user_tombstones WHERE auth_user_id = :'uid'::uuid),
+  'tombstone_count', (SELECT count(*)::int FROM erased_user_tombstones WHERE auth_user_id = '${AUTH_USER_ID}'::uuid),
   'hard_delete_residue_count', (
       SELECT count(*)::int FROM auth_users
-      WHERE id = :'uid'::uuid
+      WHERE id = '${AUTH_USER_ID}'::uuid
         AND status NOT IN ('ERASED', 'ERASURE_IN_PROGRESS')
         AND email_verified = TRUE
   ),
   'deidentified_residue_count', (
       SELECT count(*)::int FROM auth_users
-      WHERE id = :'uid'::uuid
+      WHERE id = '${AUTH_USER_ID}'::uuid
         AND status = 'ERASED'
   ),
   'forbidden_user_id_hits', (
       SELECT count(*)::int FROM auth_users
-      WHERE id = :'uid'::uuid
+      WHERE id = '${AUTH_USER_ID}'::uuid
         AND email NOT LIKE 'erased-%@invalid.localhost'
         AND status = 'ERASED'
   ),
@@ -110,7 +110,7 @@ SELECT json_build_object(
 SQL
 )
 
-OUT="$(parkio_priv001_auth_psql -tAc -v uid="$AUTH_USER_ID" -c "$SQL")"
+OUT="$(parkio_priv001_auth_psql -t -A -c "$SQL")"
 # Validate JSON-ish and scan for secrets.
 printf '%s\n' "$OUT" | parkio_priv001_json_loads_stdin >/dev/null
 TMP="$(mktemp)"

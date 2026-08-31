@@ -131,13 +131,13 @@ parkio_priv001_auth_psql() {
     fi
     PGPASSWORD="$pw" PGSSLMODE="$sslmode" PGSSLROOTCERT="${PARKIO_PG_SSLROOTCERT:-}" \
       psql -h "${PARKIO_PG_HOST}" -p "${PARKIO_PG_PORT:-5432}" \
-      -U "$user" -d "$db" -v ON_ERROR_STOP=1 "$@"
+      -U "$user" -d "$db" --set=ON_ERROR_STOP=1 "$@"
     return $?
   fi
 
   # Local docker fallback for CI fakes / developer stacks only.
   local container="${PARKIO_AUTH_PG_CONTAINER:-parkio-postgres-auth}"
-  docker exec -i "$container" psql -v ON_ERROR_STOP=1 -U "$user" -d "$db" "$@"
+  docker exec -i "$container" psql --set=ON_ERROR_STOP=1 -U "$user" -d "$db" "$@"
 }
 
 # parkio_priv001_mark_verified <email> [max_age_seconds]
@@ -160,14 +160,13 @@ parkio_priv001_mark_verified() {
     return 2
   fi
 
-  # Parameterized SQL via psql -v. Email is validated allowlist-only before binding.
-  # Preconditions (all required):
-  #   exact email, PENDING_VERIFICATION, unverified, created within window,
-  #   exactly one matching row (PG rejects multi-row scalar subquery),
-  #   no erasure tombstone, no erasure_request.
-  # Multi-row match → ERROR (fail closed). Zero-row → empty RETURNING → bash fails.
+  # Email is allowlist-validated above; bind as a safe SQL literal (not a psql :variable,
+  # which is unreliable across psql -c flag ordering on managed hosts).
+  local escaped_email
+  escaped_email="$(printf '%s' "$email" | sed "s/'/''/g")"
+
   local sql
-  sql=$(cat <<'SQL'
+  sql=$(cat <<SQL
 BEGIN;
 UPDATE auth_users
 SET email_verified = TRUE,
@@ -181,10 +180,10 @@ SET email_verified = TRUE,
 WHERE id = (
   SELECT id
   FROM auth_users
-  WHERE email = :'email'
+  WHERE email = '${escaped_email}'
     AND email_verified = FALSE
     AND status = 'PENDING_VERIFICATION'
-    AND created_at > (now() - (:'max_age' || ' seconds')::interval)
+    AND created_at > (now() - (${max_age} || ' seconds')::interval)
     AND NOT EXISTS (
           SELECT 1 FROM erased_user_tombstones t WHERE t.auth_user_id = auth_users.id
         )
@@ -199,10 +198,7 @@ SQL
 )
 
   local out
-  if ! out="$(parkio_priv001_auth_psql -tAc \
-      -v email="$email" \
-      -v max_age="$max_age" \
-      -c "$sql" 2>&1)"; then
+  if ! out="$(parkio_priv001_auth_psql -t -A -c "$sql" 2>&1)"; then
     echo "ERROR: synthetic verification mutation failed (fail-closed)." >&2
     # Strip any accidental secret-looking material from error echo.
     printf '%s\n' "$out" | sed -E 's/(password|token|hash|secret)=[^ ]+/\1=***REDACTED***/gi' >&2

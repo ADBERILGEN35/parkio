@@ -125,7 +125,7 @@ later, separately authorized runtime package can exercise
 | Resend | `ResendEmailSender` skips outbound send for the exact synthetic suffix only; account stays `PENDING_VERIFICATION` until the allowlisted mutation |
 | Cleanup | Harness does **not** delete rows; runtime acceptance uses canonical erasure |
 | Inspection | Read-only counts/classifications; no email/hash/token dumps |
-| Runtime status | This document does **not** claim live PRIV-001 acceptance complete |
+| Runtime status | Harness hotfix source remediated on `api`; live acceptance complete for erasure semantics; **final PROD-DEPLOY-01A closure blocked** until hotfix deploy |
 
 Managed-DB verification guards (all required, fail-closed):
 
@@ -138,6 +138,75 @@ Managed-DB verification guards (all required, fail-closed):
 - `sslmode=disable` refused; credentials via env (`PGPASSWORD`), never argv
 
 Regression: `scripts/test-priv001-synthetic-principal.sh` (wired into invite-production deploy preflight). CI erasure semantics remain covered by `AccountErasureHttpIntegrationTest`.
+
+### PRIV-001A harness hotfix (managed psql defects — source remediation)
+
+**Status (2026-08-31):** PRIV-001 **erasure semantics** were accepted live on release
+`f1b9d6fa0c0ccf13bf1b0e643c7dc95c751b0735`, but the **harness release gate** was
+reopened because execution required a runtime file overlay not represented in that
+immutable release. Source remediation is committed on `api` after this hotfix; final
+PROD-DEPLOY-01A closure remains blocked until a **separate hotfix deploy** stages the
+corrected harness at an exact committed SHA (no runtime overlays).
+
+#### Live acceptance evidence (preserved — do not reproduce)
+
+| Field | Value |
+|-------|-------|
+| Acceptance ID | `PRIV001A-20260831T083909Z-a2190516` |
+| Auth user ID | `64d95ca8-acef-445b-bf71-6b640533ced4` |
+| Erasure request | `06318805-967e-4eba-84a2-0edc6afbb84b` |
+| Register / verify / login / DELETE | PASS |
+| Participant acks | 8/8 SUCCESS |
+| Coordinator | COMPLETE |
+| Final auth | ERASED |
+| Forbidden recoverable residue | 0 |
+| Real users touched | 0 |
+| Runtime restart delta | 0 |
+
+#### Failed-attempt orphan (separate from authorized acceptance)
+
+A prior harness failure on the same release left one **abandoned** synthetic principal
+(`3a393ab3-67f9-42c4-94f4-aef6ba952a7c`) in `ACTIVE` state. It was remediated through
+**canonical DELETE** (not ad-hoc SQL) before the successful acceptance principal was
+created. Accounting:
+
+- `ORPHAN_SYNTHETIC_CREATED_BY_FAILED_ATTEMPT = 1`
+- `ORPHAN_CANONICAL_ERASURE = COMPLETE`
+- `REAL_USERS_TOUCHED = 0`
+
+The **authorized** acceptance retained the one-principal budget
+(`PRIV001A-20260831T083909Z-a2190516`). Production exercise totals may show **two**
+erasure lifecycles when orphan remediation is included; only one counts as the
+certified acceptance principal.
+
+#### Discovered harness defects (release `f1b9d6f`)
+
+1. **psql option ordering (`-tAc`)** — Clustering `-tAc` makes the next argv the `-c`
+   SQL body. The broken pattern `psql … -tAc -v email=… -c "$sql"` caused `-c` to
+   consume `-v` as SQL (`syntax error at or near "-"`).
+   **Fix:** use separate `-t -A` flags before `-c`.
+
+2. **psql variable expansion (`:'email'`)** — With managed `psql -c` invocation,
+   `-v ON_ERROR_STOP=1` plus `:'email'` / `:'uid'` psql variables did not expand
+   reliably on the production host path.
+   **Fix:** `--set=ON_ERROR_STOP=1`; bind allowlist-validated email and numeric
+   `max_age` as SQL literals after validation (not shell-interpolated arbitrary input);
+   inspector embeds regex-validated UUID literals.
+
+#### Immutable-release principle
+
+- Live erasure semantics remain valid product evidence.
+- Operator harness execution for **final closure** must use a **committed exact-SHA**
+  immutable release with passing `release-integrity.sha256`.
+- **Runtime file overlays** (deploying harness bytes outside the certified digest) are
+  **not** acceptable as final closure evidence.
+
+#### Regression coverage
+
+`scripts/test-priv001-synthetic-principal.sh` adds deterministic regressions for:
+option-ordering failure mode, hotfix invocation shape, allowlist-before-SQL injection
+guards, ON_ERROR_STOP, multi-row rejection, inspector read-only proof, and (when Docker
+is available in CI) ephemeral PostgreSQL managed-psql integration.
 
 ## Non-goals
 
