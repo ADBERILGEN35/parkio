@@ -258,8 +258,8 @@ certificates, opens NSG ports, or mutates production.
 
 | Mode | Default | Caddy | Gateway publish | ACME |
 |------|---------|-------|-----------------|------|
-| `dark` | yes | absent / disabled | `127.0.0.1:8080` | not authorized |
-| `public` | no | staged in compose | internal only | requires `PARKIO_INVITE_ACME_AUTHORIZED=true` |
+| `dark` | yes (legacy) | absent / disabled | `127.0.0.1:8080` | not authorized |
+| `public` | no (01B-02+) | staged / disabled until ACME gate | loopback until cutover | requires `PARKIO_INVITE_ACME_AUTHORIZED=true` |
 
 Unknown values fail closed. Validation:
 `./scripts/validate-invite-production-edge.sh`.
@@ -294,6 +294,24 @@ allows `priv001a-*@priv001a.parkio.invalid` only when explicitly enabled.
 | Profile | Continuous MiB | Caddy |
 |---------|----------------|-------|
 | `invite-production` (dark) | 15488 | absent |
-| `invite-production-public` | 15744 | present |
+| `invite-production-public` | 15744 continuous / 15872 configured | present |
 
 Ceiling remains 16384 MiB. ClamAV >= 3072 MiB, Tempo >= 1024 MiB.
+
+Resolved-compose certification:
+`./scripts/assert-invite-production-edge-resource-budget.sh` produces
+`invite-edge-resource-budget.json` with dark, public-candidate, and
+public-staged profiles.
+
+## PROD-DEPLOY-01B-02 dark-stage deploy
+
+Production template default edge mode is `public` with
+`PARKIO_INVITE_ACME_AUTHORIZED=false`. The `invite-public-staged` overlay keeps
+loopback gateway acceptance while Caddy remains disabled. Live continuous memory
+stays at 15488 MiB (23 services); the 15744 MiB public candidate applies only
+after ACME authorization at cutover.
+
+Deploy workflow inputs must be:
+`invite_edge_mode=public`, `invite_acme_authorized=false`,
+`registration_mode=closed`. Human approval on the `invite-production`
+environment is required before any deploy mutation.

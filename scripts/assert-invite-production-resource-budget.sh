@@ -22,6 +22,7 @@ cd "$ROOT"
 
 [ -f "$ENV_FILE" ] || { echo "ERROR: env file not found: $ENV_FILE" >&2; exit 2; }
 export PARKIO_DEPLOYMENT_PROFILE=invite-production
+export PARKIO_INVITE_EDGE_MODE=dark
 export PARKIO_IMAGE_TAG="${PARKIO_IMAGE_TAG:-sha-resource-budget}"
 export PARKIO_GIT_SHA="${PARKIO_GIT_SHA:-resource-budget}"
 export PARKIO_IMAGE_CREATED="${PARKIO_IMAGE_CREATED:-1970-01-01T00:00:00Z}"

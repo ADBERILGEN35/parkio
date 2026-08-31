@@ -155,6 +155,13 @@ export function evaluateResourceBudget(model, profileName, runtimeTargets) {
   if (clamavMemoryMiB !== contract.clamavRequiredMemoryMiB) {
     fail(`clamav mem_limit must be ${contract.clamavRequiredMemoryMiB} MiB, got ${clamavMemoryMiB} MiB`);
   }
+  const caddyRequired = contract.caddyRequiredMemoryMiB;
+  if (caddyRequired != null) {
+    const caddyMemoryMiB = serviceMemoryMiB.get('caddy');
+    if (caddyMemoryMiB !== caddyRequired) {
+      fail(`caddy mem_limit must be ${caddyRequired} MiB, got ${caddyMemoryMiB} MiB`);
+    }
+  }
   if (!resourceBudgetWithinCeiling) {
     fail(`configured memory ${configuredMemoryMiB} MiB exceeds ${contract.resourceCeilingMiB} MiB ceiling`);
   }

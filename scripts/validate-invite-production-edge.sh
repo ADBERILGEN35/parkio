@@ -94,6 +94,11 @@ else
       echo "ERROR: public mode without ACME authorization must keep caddy disabled" >&2
       exit 4
     fi
+    if ! printf '%s' "$PARKIO_COMPOSE_FILES" | grep -q invite-public-staged; then
+      echo "ERROR: public staged mode must include invite-public-staged overlay" >&2
+      exit 4
+    fi
+    echo "compose_staged_overlay=invite-public-staged"
   fi
 fi
 

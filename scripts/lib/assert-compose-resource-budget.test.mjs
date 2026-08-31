@@ -115,6 +115,19 @@ test('normalizes supported units to MiB and tolerates CRLF whitespace', () => {
   assert.throws(() => memoryToMiB('1.5g'), /unsupported or ambiguous unit/);
 });
 
+test('reconciles the invite public merged model and continuous runtime closure', () => {
+  const evidence = evaluateResourceBudget(
+    inviteModel(),
+    'invite-production-public',
+    profiles['invite-production-public'].runtimeTargets,
+  );
+  assert.equal(evidence.configuredMemoryMiB, 15872);
+  assert.equal(evidence.continuousRuntimeMemoryMiB, 15744);
+  assert.equal(evidence.configuredHeadroomMiB, 512);
+  assert.equal(evidence.expectedContinuousServiceCount, 24);
+  assert.equal(evidence.resolvedContinuousServiceCount, 24);
+});
+
 test('reconciles the invite merged model and continuous runtime closure', () => {
   const evidence = evaluateResourceBudget(
     inviteModel(),

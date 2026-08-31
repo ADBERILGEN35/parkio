@@ -79,9 +79,10 @@
     ]
   },
   "invite-production-public": {
-    "configuredExpectedMemoryMiB": 15744,
+    "configuredExpectedMemoryMiB": 15872,
     "resourceCeilingMiB": 16384,
     "clamavRequiredMemoryMiB": 3072,
+    "caddyRequiredMemoryMiB": 256,
     "minimumServiceMemoryMiB": {
       "tempo": 1024
     },

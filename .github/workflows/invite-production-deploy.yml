@@ -36,6 +36,31 @@ on:
         description: "For rollback: workflow artifact containing a secret-free deploy manifest"
         required: false
         type: string
+      invite_edge_mode:
+        description: "01B-02 dark-stage deploy requires public"
+        required: false
+        type: choice
+        options:
+          - public
+          - dark
+        default: public
+      invite_acme_authorized:
+        description: "01B-02 dark-stage deploy requires false"
+        required: false
+        type: choice
+        options:
+          - "false"
+          - "true"
+        default: "false"
+      registration_mode:
+        description: "01B-02 dark-stage deploy requires closed"
+        required: false
+        type: choice
+        options:
+          - closed
+          - invite
+          - open
+        default: closed
 
 permissions:
   contents: read
@@ -108,6 +133,7 @@ jobs:
           python3 scripts/test_invite_production_dispatch_input.py
           bash scripts/test-invite-dark-acme-isolation.sh
           bash scripts/test-invite-production-edge-mode.sh
+          bash scripts/test-invite-production-edge-resource-budget.sh
           bash scripts/test-invite-production-backup-scheduler.sh
           bash scripts/test-invite-production-runtime-release.sh
           bash scripts/test-invite-production-failure-evidence.sh
@@ -117,7 +143,9 @@ jobs:
           python3 scripts/test_assert_invite_production_artifacts_safe.py
           python3 scripts/test_invite_production_deploy_safety.py
           node --test scripts/lib/assert-compose-resource-budget.test.mjs
+          node --test scripts/lib/assert-invite-production-compose-ports.test.mjs
           node --test scripts/test-invite-production-resource-budget-wiring.test.mjs
+          node --test scripts/test-invite-production-edge-resource-budget-wiring.test.mjs
           node --test scripts/lib/sanitize-compose-config.test.mjs
           node --test frontend/apps/web/scripts/validate-build-env.test.mjs
           node --test frontend/apps/web/scripts/verify-bundle-env.test.mjs
@@ -134,6 +162,16 @@ jobs:
           ./scripts/assert-invite-production-resource-budget.sh \
             --env-file docker/.env.invite-production.example \
             --evidence "$PARKIO_DEPLOY_ARTIFACT_DIR/resource-budget.json"
+
+      - name: Verify invite-production edge resource budgets
+        env:
+          PARKIO_DEPLOY_ARTIFACT_DIR: deploy-artifacts/invite-production
+        run: |
+          set -euo pipefail
+          ./scripts/assert-invite-production-edge-resource-budget.sh \
+            --env-file docker/.env.invite-production.example \
+            --candidate-sha "$(git rev-parse HEAD)" \
+            --evidence "$PARKIO_DEPLOY_ARTIFACT_DIR/invite-edge-resource-budget.json"
 
       - name: Dry-run invite-production deploy without secret-bearing evidence
         env:
@@ -210,6 +248,7 @@ jobs:
             deploy-artifacts/invite-production/deploy-*.json
             deploy-artifacts/invite-production/compose-structure.json
             deploy-artifacts/invite-production/resource-budget.json
+            deploy-artifacts/invite-production/invite-edge-resource-budget.json
           if-no-files-found: error
           retention-days: 90
 
@@ -498,6 +537,33 @@ jobs:
           install -d -m 700 "$AZURE_CONFIG_DIR"
           ./scripts/azure/render-invite-production-env.sh --output "$PARKIO_ENV_FILE"
           test "$(stat -c '%a' "$PARKIO_ENV_FILE")" = 600
+
+      - name: Attest 01B-02 dark-stage deploy inputs
+        if: ${{ github.event_name == 'workflow_dispatch' && inputs.action == 'deploy' }}
+        working-directory: ${{ env.PARKIO_SOURCE_DIR }}
+        env:
+          PARKIO_DISPATCH_INVITE_EDGE_MODE: ${{ inputs.invite_edge_mode }}
+          PARKIO_DISPATCH_INVITE_ACME_AUTHORIZED: ${{ inputs.invite_acme_authorized }}
+          PARKIO_DISPATCH_REGISTRATION_MODE: ${{ inputs.registration_mode }}
+        run: |
+          set -euo pipefail
+          if [ "$PARKIO_DISPATCH_INVITE_EDGE_MODE" != "public" ]; then
+            echo "ERROR: deploy requires invite_edge_mode=public" >&2
+            exit 4
+          fi
+          if [ "$PARKIO_DISPATCH_INVITE_ACME_AUTHORIZED" != "false" ]; then
+            echo "ERROR: deploy requires invite_acme_authorized=false" >&2
+            exit 4
+          fi
+          if [ "$PARKIO_DISPATCH_REGISTRATION_MODE" != "closed" ]; then
+            echo "ERROR: deploy requires registration_mode=closed" >&2
+            exit 4
+          fi
+          ./scripts/attest-invite-production-dark-stage-deploy.sh --env-file "$PARKIO_ENV_FILE"
+          ./scripts/assert-invite-production-edge-resource-budget.sh \
+            --env-file "$PARKIO_ENV_FILE" \
+            --candidate-sha '${{ inputs.git_sha }}' \
+            --evidence deploy-artifacts/invite-production/invite-edge-resource-budget.json
 
       - name: Deploy exact commit with quarantined log
         working-directory: ${{ env.PARKIO_SOURCE_DIR }}

@@ -109,6 +109,8 @@ for required in \
   docker/docker-compose.hosted-beta.yml \
   docker/docker-compose.managed-db.yml \
   docker/docker-compose.invite-dark.yml \
+  docker/docker-compose.invite-public.yml \
+  docker/docker-compose.invite-public-staged.yml \
   docker/prometheus/prometheus.yml \
   docker/prometheus/alerts.yml \
   docker/alertmanager/alertmanager.yml \

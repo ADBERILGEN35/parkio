@@ -131,6 +131,11 @@ parkio_configure_deployment_profile() {
         # PUBLIC candidate: Caddy is the sole public edge; gateway stays internal.
         # Caddy remains disabled until PARKIO_INVITE_ACME_AUTHORIZED=true (01B-03 gate).
         PARKIO_COMPOSE_FILES="${invite_base} -f docker/docker-compose.invite-public.yml"
+        if [ "$acme_authorized" != "true" ]; then
+          # Pre-cutover staging keeps loopback acceptance while Caddy stays off
+          # (PROD-DEPLOY-01B-02). Omit this overlay once ACME is authorized.
+          PARKIO_COMPOSE_FILES="${PARKIO_COMPOSE_FILES} -f docker/docker-compose.invite-public-staged.yml"
+        fi
         PARKIO_RUNTIME_SERVICES=("${PARKIO_INVITE_RUNTIME_SERVICES[@]}" caddy)
         PARKIO_DISABLED_SERVICES=("${disabled_common[@]}")
         if [ "$acme_authorized" != "true" ]; then
