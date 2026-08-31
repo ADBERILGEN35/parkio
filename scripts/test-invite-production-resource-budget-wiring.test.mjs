@@ -47,7 +47,10 @@ test('invite manifest disabled inventory agrees with the runtime dependency clos
     common.indexOf('    invite-production)'),
     common.indexOf('    *)', common.indexOf('    invite-production)')),
   );
-  assert.match(inviteCase, /PARKIO_DISABLED_SERVICES=\([^\n]*promtail caddy\)/);
+  assert.match(inviteCase, /disabled_common=\(/);
+  assert.match(inviteCase, /postgres-ai-validation promtail/);
+  assert.match(inviteCase, /PARKIO_DISABLED_SERVICES=\("\$\{disabled_common\[@\]\}" caddy\)/);
+  assert.match(inviteCase, /PARKIO_INVITE_EDGE_MODE/);
   assert.doesNotMatch(inviteCase, /PARKIO_DISABLED_SERVICES=\([^\n]*\bloki\b/);
   assert.doesNotMatch(inviteCase, /PARKIO_DISABLED_SERVICES=\([^\n]*\btempo\b/);
 });
