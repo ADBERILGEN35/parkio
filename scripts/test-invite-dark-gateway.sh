@@ -170,10 +170,10 @@ else
   ok "overlay declares no wildcard bind"
 fi
 overlay_services="$(grep -E '^  [a-z0-9-]+:' docker/docker-compose.invite-dark.yml | sed -E 's/^  ([a-z0-9-]+):.*/\1/' | sort)"
-if [ "$overlay_services" = $'gateway-service\nparking-service\ntempo' ]; then
-  ok "overlay touches only gateway-service, parking-service, and Tempo"
+if [ "$overlay_services" = $'auth-service\ngateway-service\nparking-service\ntempo' ]; then
+  ok "overlay touches only auth-service, gateway-service, parking-service, and Tempo"
 else
-  bad "overlay may touch only gateway-service, parking-service, and Tempo (found: $(tr '\n' ' ' <<<"$overlay_services"))"
+  bad "overlay may touch only auth-service, gateway-service, parking-service, and Tempo (found: $(tr '\n' ' ' <<<"$overlay_services"))"
 fi
 
 # --------------------------------------------------------------------------- #

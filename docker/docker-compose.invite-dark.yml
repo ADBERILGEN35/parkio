@@ -29,7 +29,8 @@
 # -----------------------------------------------------------
 #   * gateway-service binds 127.0.0.1 only — never 0.0.0.0, never ::, never a
 #     routable address
-#   * gateway-service is the ONLY service this overlay publishes
+#   * this overlay may touch gateway-service, auth-service (explicit CLOSED
+#     registration), parking-service (feature policy), and Tempo only
 #   * no database / Redis / Kafka / MinIO / Prometheus / Grafana / admin port is
 #     opened here
 #   * Tempo receives the invite-production-only 1 GiB cgroup limit certified
@@ -38,6 +39,7 @@
 #   * the Caddy public boundary is untouched
 #   * parking-service receives the explicit controlled-invite feature policy;
 #     none of these values are inherited from the Azure hosted-beta overlay
+#   * auth-service receives explicit PARKIO_REGISTRATION_MODE (fail-closed)
 name: parkio
 
 services:
