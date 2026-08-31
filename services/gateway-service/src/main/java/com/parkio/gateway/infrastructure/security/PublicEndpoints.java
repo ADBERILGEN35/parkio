@@ -1,6 +1,8 @@
 package com.parkio.gateway.infrastructure.security;
 
 import com.parkio.gateway.infrastructure.config.GatewayPublicSurfaceProperties;
+import java.net.InetAddress;
+import java.net.InetSocketAddress;
 import java.util.ArrayList;
 import java.util.List;
 import org.springframework.http.HttpMethod;
@@ -17,6 +19,12 @@ import org.springframework.web.util.pattern.PathPatternParser;
  * <p>Only the auth bootstrap endpoints (register/login/refresh/logout), JWKS
  * discovery, and the gateway's own health/info actuator endpoints are public.
  * Note: any other {@code /api/v1/auth/**} endpoint is protected by default.
+ *
+ * <p>When {@code parkio.gateway.public-surface.actuator-info-enabled} is false,
+ * {@code /actuator/info} is not on the internet-facing public surface. Loopback
+ * peers (invite-production dark / public-staged smoke) may still read identity
+ * without a token so internal acceptance keeps working after Level-B sets the
+ * flag to false (PROD-DEPLOY-01B-03B).
  */
 @Component
 public class PublicEndpoints {
@@ -29,9 +37,13 @@ public class PublicEndpoints {
     }
 
     private final List<Rule> rules;
+    private final PathPattern actuatorInfoPattern;
+    private final boolean actuatorInfoPublic;
 
     public PublicEndpoints(GatewayPublicSurfaceProperties publicSurface) {
         PathPatternParser parser = PathPatternParser.defaultInstance;
+        this.actuatorInfoPattern = parser.parse("/actuator/info");
+        this.actuatorInfoPublic = publicSurface.isActuatorInfoEnabled();
         List<Rule> built = new ArrayList<>(List.of(
                 new Rule(HttpMethod.POST, parser.parse("/api/v1/auth/register")),
                 new Rule(HttpMethod.POST, parser.parse("/api/v1/auth/login")),
@@ -44,8 +56,8 @@ public class PublicEndpoints {
                 new Rule(HttpMethod.GET, parser.parse("/api/v1/auth/.well-known/jwks.json")),
                 new Rule(HttpMethod.POST, parser.parse("/api/v1/waitlist")),
                 new Rule(null, parser.parse("/actuator/health/**"))));
-        if (publicSurface.isActuatorInfoEnabled()) {
-            built.add(new Rule(null, parser.parse("/actuator/info")));
+        if (actuatorInfoPublic) {
+            built.add(new Rule(null, actuatorInfoPattern));
         }
         this.rules = List.copyOf(built);
     }
@@ -53,6 +65,22 @@ public class PublicEndpoints {
     public boolean isPublic(ServerHttpRequest request) {
         PathContainer path = request.getPath().pathWithinApplication();
         HttpMethod method = request.getMethod();
-        return rules.stream().anyMatch(rule -> rule.matches(method, path));
+        if (rules.stream().anyMatch(rule -> rule.matches(method, path))) {
+            return true;
+        }
+        // Public-surface disabled: still allow loopback identity probes used by
+        // invite-production dark / public-staged smoke (127.0.0.1:8080).
+        return !actuatorInfoPublic
+                && actuatorInfoPattern.matches(path)
+                && isLoopback(request);
+    }
+
+    static boolean isLoopback(ServerHttpRequest request) {
+        InetSocketAddress remote = request.getRemoteAddress();
+        if (remote == null) {
+            return false;
+        }
+        InetAddress address = remote.getAddress();
+        return address != null && address.isLoopbackAddress();
     }
 }

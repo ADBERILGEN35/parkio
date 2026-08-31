@@ -43,11 +43,28 @@ acme_authorized="$(parkio_invite_acme_authorized_from_env "$ENV_FILE")" || exit 
 parkio_configure_deployment_profile "$ENV_FILE"
 
 registration_mode="$(parkio_env_value "$ENV_FILE" PARKIO_REGISTRATION_MODE || true)"
-registration_mode="${registration_mode:-closed}"
+if [ -z "$registration_mode" ]; then
+  echo "ERROR: PARKIO_REGISTRATION_MODE is required for invite-production (fail-closed)" >&2
+  exit 4
+fi
 case "$registration_mode" in
-  closed|invite|open) ;;
+  closed) ;;
+  invite|open)
+    echo "ERROR: Level-B invite-production requires PARKIO_REGISTRATION_MODE=closed (got '$registration_mode')" >&2
+    exit 4
+    ;;
   *) echo "ERROR: unsupported PARKIO_REGISTRATION_MODE='$registration_mode'" >&2; exit 4 ;;
 esac
+
+public_actuator="$(parkio_env_value "$ENV_FILE" PARKIO_GATEWAY_PUBLIC_ACTUATOR_INFO_ENABLED || true)"
+if [ -z "$public_actuator" ]; then
+  echo "ERROR: PARKIO_GATEWAY_PUBLIC_ACTUATOR_INFO_ENABLED is required for invite-production (fail-closed)" >&2
+  exit 4
+fi
+if [ "$public_actuator" != "false" ]; then
+  echo "ERROR: Level-B invite-production requires PARKIO_GATEWAY_PUBLIC_ACTUATOR_INFO_ENABLED=false (got '$public_actuator')" >&2
+  exit 4
+fi
 
 cors_origin="$(parkio_env_value "$ENV_FILE" PARKIO_CORS_ALLOWED_ORIGINS || true)"
 media_public="$(parkio_env_value "$ENV_FILE" PARKIO_MEDIA_STORAGE_PUBLIC_ENDPOINT || true)"
@@ -59,6 +76,7 @@ max_upload="${max_upload:-25MB}"
 echo "edge_mode=$edge_mode"
 echo "acme_authorized=$acme_authorized"
 echo "registration_mode=$registration_mode"
+echo "public_actuator_info_enabled=$public_actuator"
 echo "cors_origin=$cors_origin"
 echo "media_public_endpoint=$media_public"
 echo "hsts_header_value=${hsts:-max-age=86400}"

@@ -268,9 +268,18 @@ Unknown values fail closed. Validation:
 
 | Mode | invite-production default | Behaviour |
 |------|-------------------------|-----------|
-| `closed` | yes | registration denied |
+| `closed` | yes (explicit) | registration denied |
 | `invite` | future cohort | opaque single-use hashed invite required |
 | `open` | hosted-beta only | canonical open registration |
+
+Invite-production edge overlays (`invite-dark`, `invite-public`, inherited by
+`invite-public-staged`) map `PARKIO_REGISTRATION_MODE` with Compose
+fail-closed `${…:?}` interpolation. Level-B requires the resolved value
+`closed`. Missing the env key fails Compose resolution before the human
+reviewer; the application default alone is not sufficient for public cutover
+(PROD-DEPLOY-01B-03B). Pre-reviewer guards:
+`./scripts/validate-invite-production-edge.sh` and
+`./scripts/assert-invite-production-public-surface.sh`.
 
 Invite tokens: Flyway `V22__create_registration_invites.sql`, SHA-256 hash at
 rest, atomic consume in the same transaction as user creation. Operator
@@ -286,8 +295,11 @@ allows `priv001a-*@priv001a.parkio.invalid` only when explicitly enabled.
   fronts the gateway in public mode.
 - `PARKIO_HSTS_HEADER_VALUE`: initial public cutover uses `max-age=86400` (no
   preload / includeSubDomains by default).
-- `PARKIO_GATEWAY_PUBLIC_ACTUATOR_INFO_ENABLED`: set `false` on public cutover
-  to block `/actuator/info`; dark loopback acceptance keeps `true`.
+- `PARKIO_GATEWAY_PUBLIC_ACTUATOR_INFO_ENABLED`: Level-B invite-production sets
+  `false` explicitly on gateway-service (fail-closed Compose `${…:?}`). That
+  blocks unauthenticated `/actuator/info` on the public (non-loopback) surface.
+  Loopback identity smoke on `127.0.0.1:8080` remains allowed via
+  `PublicEndpoints` when the peer is loopback. Hosted-beta is unchanged.
 
 ### Runtime identity (`/actuator/info`)
 
@@ -306,12 +318,13 @@ variables into the container:
 
 Dark loopback smoke (`scripts/smoke-hosted-beta.sh`) and public-staged
 acceptance read identity on `http://127.0.0.1:8080/actuator/info`. Public edge
-cutover must keep `/actuator/info` blocked via
+cutover keeps `/actuator/info` off the internet-facing surface via
 `PARKIO_GATEWAY_PUBLIC_ACTUATOR_INFO_ENABLED=false` — identity wiring does not
-make that endpoint public.
+make that endpoint public to Caddy/Internet peers.
 
-Regression guard:
-`./scripts/assert-invite-production-runtime-identity.sh`.
+Regression guards:
+`./scripts/assert-invite-production-runtime-identity.sh` and
+`./scripts/assert-invite-production-public-surface.sh`.
 
 ### Resource budgets
 

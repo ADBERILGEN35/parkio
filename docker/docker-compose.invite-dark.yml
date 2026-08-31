@@ -70,6 +70,15 @@ services:
       # checklist gates on exactly that.
       PARKIO_ENVIRONMENT: ${PARKIO_ENVIRONMENT:-local}
       PARKIO_GIT_SHA: ${PARKIO_GIT_SHA:-unknown}
+      # Dark keeps the public-surface flag required so Level-B env templates that
+      # set false still resolve; loopback peers remain readable for smoke
+      # (PROD-DEPLOY-01B-03B).
+      PARKIO_GATEWAY_PUBLIC_ACTUATOR_INFO_ENABLED: ${PARKIO_GATEWAY_PUBLIC_ACTUATOR_INFO_ENABLED:?invite-production requires PARKIO_GATEWAY_PUBLIC_ACTUATOR_INFO_ENABLED}
+
+  auth-service:
+    environment:
+      # Explicit CLOSED registration for invite-production dark (01B-03B).
+      PARKIO_REGISTRATION_MODE: ${PARKIO_REGISTRATION_MODE:?invite-production requires PARKIO_REGISTRATION_MODE}
 
   parking-service:
     environment:

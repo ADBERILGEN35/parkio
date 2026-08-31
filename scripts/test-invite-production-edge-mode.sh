@@ -14,6 +14,10 @@ bash "$ROOT/scripts/validate-invite-production-edge.sh" --env-file docker/.env.i
 bash "$ROOT/scripts/assert-invite-production-runtime-identity.sh" \
   --env-file docker/.env.invite-production.example
 
+# Explicit CLOSED registration + public actuator false (PROD-DEPLOY-01B-03B).
+bash "$ROOT/scripts/assert-invite-production-public-surface.sh" \
+  --env-file docker/.env.invite-production.example
+
 # HSTS staging contract in Caddyfile
 grep -q 'PARKIO_HSTS_HEADER_VALUE' docker/caddy/Caddyfile
 

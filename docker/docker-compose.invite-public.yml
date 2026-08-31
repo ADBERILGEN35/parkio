@@ -27,11 +27,21 @@ services:
       # deployment.environment / deployment.gitSha. Required (not soft-defaulted)
       # because this overlay is invite-production only — a missing deploy export
       # must fail Compose resolution instead of silently reporting local/unknown
-      # (PROD-DEPLOY-01B-02C / 01B-02D). Public cutover still disables public
-      # actuator info via PARKIO_GATEWAY_PUBLIC_ACTUATOR_INFO_ENABLED=false;
-      # loopback acceptance (invite-public-staged) keeps info readable.
+      # (PROD-DEPLOY-01B-02C / 01B-02D).
       PARKIO_ENVIRONMENT: ${PARKIO_ENVIRONMENT:?invite-production requires PARKIO_ENVIRONMENT}
       PARKIO_GIT_SHA: ${PARKIO_GIT_SHA:?invite-production requires PARKIO_GIT_SHA}
+      # Level-B public surface: /actuator/info must not be unauthenticated on the
+      # internet-facing edge (PROD-DEPLOY-01B-03B). Missing value fails Compose
+      # resolution — never soft-default to true. Loopback identity smoke remains
+      # allowed by PublicEndpoints when the peer is loopback.
+      PARKIO_GATEWAY_PUBLIC_ACTUATOR_INFO_ENABLED: ${PARKIO_GATEWAY_PUBLIC_ACTUATOR_INFO_ENABLED:?invite-production requires PARKIO_GATEWAY_PUBLIC_ACTUATOR_INFO_ENABLED}
+
+  auth-service:
+    environment:
+      # Explicit CLOSED registration for controlled invite-production. Do not rely
+      # on the application default alone (PROD-DEPLOY-01B-03B). Missing value fails
+      # Compose resolution; unknown modes fail closed in RegistrationMode.parse.
+      PARKIO_REGISTRATION_MODE: ${PARKIO_REGISTRATION_MODE:?invite-production requires PARKIO_REGISTRATION_MODE}
 
   parking-service:
     environment:

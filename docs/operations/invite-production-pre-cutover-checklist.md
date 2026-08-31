@@ -56,13 +56,20 @@ DNS switching, data migration, traffic, or invitations.
   Redis, and MinIO internal/admin ports.
 - [ ] CORS is exactly `https://app.parkio.dev`; forwarded scheme/host and trusted
   proxy semantics pass; no credentialed wildcard.
+- [ ] Controlled Level-B registration is explicitly `PARKIO_REGISTRATION_MODE=closed`
+  in auth-service (Compose fail-closed; not application-default alone).
+- [ ] Public actuator info is explicitly
+  `PARKIO_GATEWAY_PUBLIC_ACTUATOR_INFO_ENABLED=false` on gateway-service;
+  loopback identity smoke on `127.0.0.1:8080/actuator/info` remains internal-only;
+  public edge must not expose diagnostic actuator info. Pre-reviewer guards:
+  `validate-invite-production-edge.sh` and `assert-invite-production-public-surface.sh`.
 - [ ] DNS remains unchanged in 01A; certificate/renewal configuration is ready
   for the separately authorized 01B DNS window.
 - [ ] `docker/docker-compose.invite-dark.yml` is dropped from the compose set
   before public DNS cutover. It is a dark-acceptance affordance: it publishes the
   gateway on loopback and sets `PARKIO_GIT_SHA`, which `/actuator/info` serves as
-  `deployment.gitSha` on a route that is public (`PublicEndpoints`). Removing the
-  overlay closes the loopback endpoint and returns that field to `unknown`.
+  `deployment.gitSha` for loopback peers. Removing the overlay closes the
+  loopback endpoint. Public-surface flag remains `false` for Level-B.
 - [ ] Immutable web build contains the production API URL, no hosted-beta URL or
   debug flag, and is tied to the candidate SHA/digest.
 

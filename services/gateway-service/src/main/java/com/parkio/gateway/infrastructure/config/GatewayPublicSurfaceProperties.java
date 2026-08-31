@@ -4,14 +4,15 @@ import org.springframework.boot.context.properties.ConfigurationProperties;
 
 /**
  * Controls which gateway endpoints are reachable without authentication on the public
- * edge. Dark invite-production acceptance reads {@code /actuator/info} on the loopback
- * gateway; public cutover should disable that surface.
+ * edge. Invite-production Level-B sets this false so internet clients (via Caddy) cannot
+ * read {@code /actuator/info}. Loopback peers used by dark / public-staged smoke remain
+ * readable via {@link com.parkio.gateway.infrastructure.security.PublicEndpoints}.
  */
 @ConfigurationProperties(prefix = "parkio.gateway.public-surface")
 public class GatewayPublicSurfaceProperties {
 
     /**
-     * When false, {@code /actuator/info} requires authentication like any protected route.
+     * When false, {@code /actuator/info} is not on the public (non-loopback) surface.
      * Health probes remain public via {@link com.parkio.gateway.infrastructure.security.PublicEndpoints}.
      */
     private boolean actuatorInfoEnabled = true;

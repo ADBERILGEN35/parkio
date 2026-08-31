@@ -23,7 +23,7 @@ source "$ROOT/scripts/lib/invite-edge-mode.sh"
 edge_mode="$(parkio_invite_edge_mode_from_env "$ENV_FILE")" || exit 2
 acme_authorized="$(parkio_invite_acme_authorized_from_env "$ENV_FILE")" || exit 2
 registration_mode="$(parkio_env_value "$ENV_FILE" PARKIO_REGISTRATION_MODE || true)"
-registration_mode="${registration_mode:-closed}"
+public_actuator="$(parkio_env_value "$ENV_FILE" PARKIO_GATEWAY_PUBLIC_ACTUATOR_INFO_ENABLED || true)"
 
 if [ "$edge_mode" != "public" ]; then
   echo "ERROR: 01B-02 requires PARKIO_INVITE_EDGE_MODE=public (got '$edge_mode')" >&2
@@ -33,8 +33,12 @@ if [ "$acme_authorized" = "true" ]; then
   echo "ERROR: 01B-02 requires PARKIO_INVITE_ACME_AUTHORIZED=false" >&2
   exit 4
 fi
-if [ "$registration_mode" != "closed" ]; then
-  echo "ERROR: 01B-02 requires PARKIO_REGISTRATION_MODE=closed (got '$registration_mode')" >&2
+if [ -z "$registration_mode" ] || [ "$registration_mode" != "closed" ]; then
+  echo "ERROR: requires PARKIO_REGISTRATION_MODE=closed (got '${registration_mode:-<missing>}')" >&2
+  exit 4
+fi
+if [ -z "$public_actuator" ] || [ "$public_actuator" != "false" ]; then
+  echo "ERROR: requires PARKIO_GATEWAY_PUBLIC_ACTUATOR_INFO_ENABLED=false (got '${public_actuator:-<missing>}')" >&2
   exit 4
 fi
 
@@ -60,6 +64,7 @@ fi
 echo "invite_edge_mode=$edge_mode"
 echo "invite_acme_authorized=$acme_authorized"
 echo "registration_mode=$registration_mode"
+echo "public_actuator_info_enabled=$public_actuator"
 echo "compose_overlay=invite-public+invite-public-staged"
 echo "caddy_runtime_state=disabled"
 echo "invite_production_dark_stage_attest=PASS"
