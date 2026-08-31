@@ -6,6 +6,7 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import com.parkio.auth.application.AuthApplicationService;
 import com.parkio.auth.application.LoginFailureTracker;
 import com.parkio.auth.application.PasswordResetLimiter;
+import com.parkio.auth.application.RegistrationGateService;
 import com.parkio.auth.application.VerificationResendLimiter;
 import com.parkio.auth.application.event.UserRestoredEvent;
 import com.parkio.auth.application.event.UserSuspendedEvent;
@@ -20,6 +21,7 @@ import com.parkio.auth.application.port.PasswordResetEmailSender;
 import com.parkio.auth.application.port.PasswordResetRepository;
 import com.parkio.auth.application.port.RefreshTokenHasher;
 import com.parkio.auth.application.port.RefreshTokenRepository;
+import com.parkio.auth.application.port.RegistrationInviteRepository;
 import com.parkio.auth.application.port.RoleRepository;
 import com.parkio.auth.application.port.SecureTokenGenerator;
 import com.parkio.auth.application.result.AdminUserSummary;
@@ -29,14 +31,17 @@ import com.parkio.auth.domain.AuthUser;
 import com.parkio.auth.domain.AuthUserStatus;
 import com.parkio.auth.domain.EmailLocale;
 import com.parkio.auth.domain.RefreshToken;
+import com.parkio.auth.domain.RegistrationInvite;
 import com.parkio.auth.domain.Role;
 import com.parkio.auth.domain.RoleName;
+import com.parkio.auth.domain.RegistrationMode;
 import com.parkio.auth.domain.admin.AdminAuditAction;
 import com.parkio.auth.domain.admin.AdminAuditEvent;
 import com.parkio.auth.domain.admin.AdminAuditResult;
 import com.parkio.auth.domain.event.UserRegisteredEvent;
 import com.parkio.auth.domain.exception.AuthErrorCode;
 import com.parkio.auth.domain.exception.AuthException;
+import com.parkio.auth.infrastructure.config.RegistrationProperties;
 import com.parkio.auth.infrastructure.metrics.AdminMetrics;
 import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
 import java.time.Clock;
@@ -202,11 +207,22 @@ class AdminApplicationServiceTest {
                 new FakeEmailVerificationSender(),
                 new FakePasswordResetEmailSender(),
                 new com.parkio.auth.application.PasswordPolicy(),
+                openRegistrationGate(),
                 Clock.fixed(NOW, ZoneOffset.UTC),
                 Duration.ofDays(30),
                 Duration.ofDays(90),
                 Duration.ofHours(24),
                 Duration.ofHours(1));
+    }
+
+    private static RegistrationGateService openRegistrationGate() {
+        RegistrationProperties properties = new RegistrationProperties();
+        properties.setMode(RegistrationMode.OPEN);
+        return new RegistrationGateService(
+                properties,
+                new NoopRegistrationInviteRepository(),
+                new FakeRefreshTokenHasher(),
+                Clock.fixed(NOW, ZoneOffset.UTC));
     }
 
     private UUID seedUser(String email, Set<Role> roles, AuthUserStatus status, boolean verified) {
@@ -424,6 +440,18 @@ class AdminApplicationServiceTest {
         @Override
         public boolean tryClaim(UUID eventId, String eventType, Instant processedAt) {
             return claimed.add(eventId);
+        }
+    }
+
+    private static final class NoopRegistrationInviteRepository implements RegistrationInviteRepository {
+        @Override
+        public RegistrationInvite save(RegistrationInvite invite) {
+            return invite;
+        }
+
+        @Override
+        public boolean consumeIfValid(String tokenHash, Instant now) {
+            return false;
         }
     }
 

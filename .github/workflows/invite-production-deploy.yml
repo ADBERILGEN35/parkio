@@ -107,6 +107,7 @@ jobs:
           bash scripts/test-invite-production-priv001-release-staging.sh
           python3 scripts/test_invite_production_dispatch_input.py
           bash scripts/test-invite-dark-acme-isolation.sh
+          bash scripts/test-invite-production-edge-mode.sh
           bash scripts/test-invite-production-backup-scheduler.sh
           bash scripts/test-invite-production-runtime-release.sh
           bash scripts/test-invite-production-failure-evidence.sh

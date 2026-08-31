@@ -1,5 +1,7 @@
 package com.parkio.gateway.infrastructure.security;
 
+import com.parkio.gateway.infrastructure.config.GatewayPublicSurfaceProperties;
+import java.util.ArrayList;
 import java.util.List;
 import org.springframework.http.HttpMethod;
 import org.springframework.http.server.PathContainer;
@@ -28,9 +30,9 @@ public class PublicEndpoints {
 
     private final List<Rule> rules;
 
-    public PublicEndpoints() {
+    public PublicEndpoints(GatewayPublicSurfaceProperties publicSurface) {
         PathPatternParser parser = PathPatternParser.defaultInstance;
-        this.rules = List.of(
+        List<Rule> built = new ArrayList<>(List.of(
                 new Rule(HttpMethod.POST, parser.parse("/api/v1/auth/register")),
                 new Rule(HttpMethod.POST, parser.parse("/api/v1/auth/login")),
                 new Rule(HttpMethod.POST, parser.parse("/api/v1/auth/verify-email")),
@@ -41,8 +43,11 @@ public class PublicEndpoints {
                 new Rule(HttpMethod.POST, parser.parse("/api/v1/auth/logout")),
                 new Rule(HttpMethod.GET, parser.parse("/api/v1/auth/.well-known/jwks.json")),
                 new Rule(HttpMethod.POST, parser.parse("/api/v1/waitlist")),
-                new Rule(null, parser.parse("/actuator/health/**")),
-                new Rule(null, parser.parse("/actuator/info")));
+                new Rule(null, parser.parse("/actuator/health/**"))));
+        if (publicSurface.isActuatorInfoEnabled()) {
+            built.add(new Rule(null, parser.parse("/actuator/info")));
+        }
+        this.rules = List.copyOf(built);
     }
 
     public boolean isPublic(ServerHttpRequest request) {

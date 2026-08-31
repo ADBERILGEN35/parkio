@@ -84,6 +84,8 @@ PARKIO_DISABLED_SERVICES=()
 # so deploy, rollback and smoke all agree on the single allowed target.
 # shellcheck source=dark-gateway-url.sh
 source "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/dark-gateway-url.sh"
+# shellcheck source=invite-edge-mode.sh
+source "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/invite-edge-mode.sh"
 
 parkio_env_value() {
   local env_file="$1"
@@ -114,17 +116,45 @@ parkio_configure_deployment_profile() {
       PARKIO_REQUIRED_HEALTHY=("${PARKIO_AZURE_REQUIRED_HEALTHY[@]}")
       ;;
     invite-production)
-      # docker-compose.invite-dark.yml MUST stay last: it re-publishes
-      # gateway-service on 127.0.0.1:8080 with `!override`, which only wins if it
-      # is merged after the hosted-beta overlay's `ports: !reset []`.
-      PARKIO_COMPOSE_FILES="-f docker/docker-compose.yml -f docker/docker-compose.apps.yml -f docker/docker-compose.images.yml -f docker/docker-compose.hosted-beta.yml -f docker/docker-compose.managed-db.yml -f docker/docker-compose.invite-dark.yml"
-      PARKIO_RUNTIME_SERVICES=("${PARKIO_INVITE_RUNTIME_SERVICES[@]}")
-      # `caddy` is listed so the dark omission is explicit in the deploy
-      # manifest and asserted, never a silent gap (PROD-DEPLOY-01A-R4).
-      # Loki and Tempo are not explicit roots but Grafana starts both through
-      # depends_on, so only Promtail is absent from the observability runtime.
-      PARKIO_DISABLED_SERVICES=(postgres-auth postgres-gateway postgres-user postgres-parking postgres-media postgres-gamification postgres-notification postgres-moderation postgres-analytics postgres-ai-validation promtail caddy)
-      PARKIO_REQUIRED_HEALTHY=("${PARKIO_INVITE_REQUIRED_HEALTHY[@]}")
+      local edge_mode acme_authorized
+      edge_mode="$(parkio_invite_edge_mode_from_env "$env_file")" || return 2
+      acme_authorized="$(parkio_invite_acme_authorized_from_env "$env_file")" || return 2
+
+      local invite_base="-f docker/docker-compose.yml -f docker/docker-compose.apps.yml -f docker/docker-compose.images.yml -f docker/docker-compose.hosted-beta.yml -f docker/docker-compose.managed-db.yml"
+      local disabled_common=(
+        postgres-auth postgres-gateway postgres-user postgres-parking postgres-media
+        postgres-gamification postgres-notification postgres-moderation postgres-analytics
+        postgres-ai-validation promtail
+      )
+
+      if [ "$edge_mode" = "public" ]; then
+        # PUBLIC candidate: Caddy is the sole public edge; gateway stays internal.
+        # Caddy remains disabled until PARKIO_INVITE_ACME_AUTHORIZED=true (01B-03 gate).
+        PARKIO_COMPOSE_FILES="${invite_base} -f docker/docker-compose.invite-public.yml"
+        PARKIO_RUNTIME_SERVICES=("${PARKIO_INVITE_RUNTIME_SERVICES[@]}" caddy)
+        PARKIO_DISABLED_SERVICES=("${disabled_common[@]}")
+        if [ "$acme_authorized" != "true" ]; then
+          PARKIO_DISABLED_SERVICES+=(caddy)
+        fi
+        PARKIO_REQUIRED_HEALTHY=("${PARKIO_INVITE_REQUIRED_HEALTHY[@]}")
+        if [ "$acme_authorized" = "true" ]; then
+          PARKIO_REQUIRED_HEALTHY+=(caddy)
+        fi
+      else
+        # DARK (default): docker-compose.invite-dark.yml MUST stay last — it re-publishes
+        # gateway-service on 127.0.0.1:8080 with `!override`, which only wins if it
+        # is merged after the hosted-beta overlay's `ports: !reset []`.
+        PARKIO_COMPOSE_FILES="${invite_base} -f docker/docker-compose.invite-dark.yml"
+        PARKIO_RUNTIME_SERVICES=("${PARKIO_INVITE_RUNTIME_SERVICES[@]}")
+        # `caddy` is listed so the dark omission is explicit in the deploy
+        # manifest and asserted, never a silent gap (PROD-DEPLOY-01A-R4).
+        # Loki and Tempo are not explicit roots but Grafana starts both through
+        # depends_on, so only Promtail is absent from the observability runtime.
+        PARKIO_DISABLED_SERVICES=("${disabled_common[@]}" caddy)
+        PARKIO_REQUIRED_HEALTHY=("${PARKIO_INVITE_REQUIRED_HEALTHY[@]}")
+      fi
+      export PARKIO_INVITE_EDGE_MODE="$edge_mode"
+      export PARKIO_INVITE_ACME_AUTHORIZED="$acme_authorized"
       ;;
     *)
       echo "ERROR: unsupported PARKIO_DEPLOYMENT_PROFILE='$requested' (expected hosted-beta, azure-hosted-beta, or invite-production)" >&2

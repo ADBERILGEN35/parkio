@@ -41,6 +41,7 @@ export interface RegisterRequest {
   email: string;
   password: string;
   locale?: 'tr' | 'en' | null;
+  inviteToken?: string | null;
 }
 
 export interface VerifyEmailRequest {

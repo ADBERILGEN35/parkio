@@ -23,6 +23,7 @@ import com.parkio.auth.application.port.PasswordResetEmailSender;
 import com.parkio.auth.application.port.PasswordResetRepository;
 import com.parkio.auth.application.port.RefreshTokenHasher;
 import com.parkio.auth.application.port.RefreshTokenRepository;
+import com.parkio.auth.application.port.RegistrationInviteRepository;
 import com.parkio.auth.application.port.RoleRepository;
 import com.parkio.auth.application.port.SecureTokenGenerator;
 import com.parkio.auth.application.result.AuthResult;
@@ -33,12 +34,15 @@ import com.parkio.auth.domain.AuthUserStatus;
 import com.parkio.auth.domain.EmailLocale;
 import com.parkio.auth.domain.PasswordResetToken;
 import com.parkio.auth.domain.RefreshToken;
+import com.parkio.auth.domain.RegistrationInvite;
+import com.parkio.auth.domain.RegistrationMode;
 import com.parkio.auth.domain.RefreshTokenRevocationReason;
 import com.parkio.auth.domain.Role;
 import com.parkio.auth.domain.RoleName;
 import com.parkio.auth.domain.event.UserRegisteredEvent;
 import com.parkio.auth.domain.exception.AuthErrorCode;
 import com.parkio.auth.domain.exception.AuthException;
+import com.parkio.auth.infrastructure.config.RegistrationProperties;
 import java.time.Clock;
 import java.time.Duration;
 import java.time.Instant;
@@ -69,6 +73,7 @@ class AuthApplicationServiceTest {
     private FakeAuthUserRepository authUsers;
     private FakeRefreshTokenRepository refreshTokens;
     private FakePasswordResetRepository passwordResetTokens;
+    private FakeRegistrationInviteRepository registrationInvites;
     private FakeOutboxEventAppender outbox;
     private FakeInboxEventRepository inbox;
     private FakePasswordHasher passwordHasher;
@@ -86,6 +91,7 @@ class AuthApplicationServiceTest {
         authUsers = new FakeAuthUserRepository();
         refreshTokens = new FakeRefreshTokenRepository();
         passwordResetTokens = new FakePasswordResetRepository();
+        registrationInvites = new FakeRegistrationInviteRepository();
         outbox = new FakeOutboxEventAppender();
         inbox = new FakeInboxEventRepository();
         passwordHasher = new FakePasswordHasher();
@@ -95,15 +101,25 @@ class AuthApplicationServiceTest {
         passwordResetLimiter = new FakePasswordResetLimiter();
         emailVerificationSender = new FakeEmailVerificationSender();
         passwordResetEmailSender = new FakePasswordResetEmailSender();
+        clock = new MutableClock(NOW);
+        service = buildService(RegistrationMode.OPEN, false);
+    }
+
+    private AuthApplicationService buildService(RegistrationMode mode, boolean priv001Bypass) {
+        RegistrationProperties registrationProperties = new RegistrationProperties();
+        registrationProperties.setMode(mode);
+        registrationProperties.setPriv001aSyntheticBypass(priv001Bypass);
+        registrationProperties.setInviteTtl(Duration.ofDays(7));
+        RegistrationGateService registrationGate = new RegistrationGateService(
+                registrationProperties, registrationInvites, refreshTokenHasher, clock);
         RoleRepository roles = name -> name == RoleName.USER ? Optional.of(USER_ROLE) : Optional.empty();
         AccessTokenIssuer accessTokenIssuer = user -> new IssuedAccessToken("access-" + user.id(), NOW.plusSeconds(900));
         SecureTokenGenerator tokenGenerator = new FakeSecureTokenGenerator();
-        clock = new MutableClock(NOW);
-        service = new AuthApplicationService(authUsers, roles, refreshTokens, passwordResetTokens, outbox, inbox,
+        return new AuthApplicationService(authUsers, roles, refreshTokens, passwordResetTokens, outbox, inbox,
                 passwordHasher, accessTokenIssuer, refreshTokenHasher, tokenGenerator, loginFailures,
                 verificationResendLimiter, passwordResetLimiter, emailVerificationSender, passwordResetEmailSender,
-                new PasswordPolicy(), clock, Duration.ofDays(30), Duration.ofDays(90), Duration.ofHours(24),
-                Duration.ofHours(1));
+                new PasswordPolicy(), registrationGate, clock, Duration.ofDays(30), Duration.ofDays(90),
+                Duration.ofHours(24), Duration.ofHours(1));
     }
 
     @Test
@@ -137,6 +153,61 @@ class AuthApplicationServiceTest {
         RegisterResult result = service.register(new RegisterCommand("roles@example.com", VALID_PASSWORD));
 
         assertThat(result.user().roles()).extracting(r -> r.name().name()).containsExactly("USER");
+    }
+
+    @Test
+    void registerRejectsWhenRegistrationClosed() {
+        service = buildService(RegistrationMode.CLOSED, false);
+
+        assertThatThrownBy(() -> service.register(new RegisterCommand("closed@example.com", VALID_PASSWORD)))
+                .isInstanceOf(AuthException.class)
+                .extracting(e -> ((AuthException) e).errorCode())
+                .isEqualTo(AuthErrorCode.REGISTRATION_CLOSED);
+    }
+
+    @Test
+    void registerRequiresInviteWhenInviteModeEnabled() {
+        service = buildService(RegistrationMode.INVITE, false);
+
+        assertThatThrownBy(() -> service.register(new RegisterCommand("invite@example.com", VALID_PASSWORD)))
+                .isInstanceOf(AuthException.class)
+                .extracting(e -> ((AuthException) e).errorCode())
+                .isEqualTo(AuthErrorCode.REGISTRATION_INVITE_REQUIRED);
+    }
+
+    @Test
+    void registerRejectsInvalidInviteToken() {
+        service = buildService(RegistrationMode.INVITE, false);
+
+        assertThatThrownBy(() -> service.register(
+                        new RegisterCommand("invite@example.com", VALID_PASSWORD, EmailLocale.TR, "bad-token")))
+                .isInstanceOf(AuthException.class)
+                .extracting(e -> ((AuthException) e).errorCode())
+                .isEqualTo(AuthErrorCode.REGISTRATION_INVITE_INVALID);
+    }
+
+    @Test
+    void registerSucceedsWithValidInviteToken() {
+        service = buildService(RegistrationMode.INVITE, false);
+        String rawInvite = "invite-token-1";
+        registrationInvites.save(RegistrationInvite.issue(
+                refreshTokenHasher.hash(rawInvite), NOW.plus(Duration.ofDays(7)), NOW, "operator"));
+
+        RegisterResult result = service.register(
+                new RegisterCommand("invite@example.com", VALID_PASSWORD, EmailLocale.TR, rawInvite));
+
+        assertThat(result.user().email()).isEqualTo("invite@example.com");
+        assertThat(registrationInvites.consumeCount(rawInvite)).isEqualTo(1);
+    }
+
+    @Test
+    void registerAllowsPriv001SyntheticEmailWhenBypassEnabled() {
+        service = buildService(RegistrationMode.CLOSED, true);
+
+        RegisterResult result = service.register(new RegisterCommand(
+                "priv001a-abcdef@priv001a.parkio.invalid", VALID_PASSWORD));
+
+        assertThat(result.user().email()).isEqualTo("priv001a-abcdef@priv001a.parkio.invalid");
     }
 
     @Test
@@ -1010,6 +1081,33 @@ class AuthApplicationServiceTest {
                 }
             }
             return consumed;
+        }
+    }
+
+    private static final class FakeRegistrationInviteRepository implements RegistrationInviteRepository {
+        private final Map<String, RegistrationInvite> byHash = new HashMap<>();
+        private final Map<String, Integer> consumeCounts = new HashMap<>();
+
+        @Override
+        public RegistrationInvite save(RegistrationInvite invite) {
+            byHash.put(invite.tokenHash(), invite);
+            return invite;
+        }
+
+        @Override
+        public boolean consumeIfValid(String tokenHash, Instant now) {
+            RegistrationInvite invite = byHash.get(tokenHash);
+            if (invite == null || !invite.isActive(now)) {
+                return false;
+            }
+            invite.consume(now);
+            consumeCounts.merge(tokenHash, 1, Integer::sum);
+            return true;
+        }
+
+        int consumeCount(String rawToken) {
+            FakeRefreshTokenHasher hasher = new FakeRefreshTokenHasher();
+            return consumeCounts.getOrDefault(hasher.hash(rawToken), 0);
         }
     }
 

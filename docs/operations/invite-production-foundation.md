@@ -247,3 +247,53 @@ The single authoritative readiness checklist is
 The prepared, unexecuted cutover and rollback procedures are
 [`invite-production-cutover-runbook.md`](invite-production-cutover-runbook.md)
 and [`invite-production-rollback-runbook.md`](invite-production-rollback-runbook.md).
+
+## PROD-DEPLOY-01B-01 public edge source foundation
+
+`PROD-DEPLOY-01B-01` adds source-only contracts for Level B (public-edge
+controlled invite). Nothing in this package starts Caddy, issues ACME
+certificates, opens NSG ports, or mutates production.
+
+### Edge mode (`PARKIO_INVITE_EDGE_MODE`)
+
+| Mode | Default | Caddy | Gateway publish | ACME |
+|------|---------|-------|-----------------|------|
+| `dark` | yes | absent / disabled | `127.0.0.1:8080` | not authorized |
+| `public` | no | staged in compose | internal only | requires `PARKIO_INVITE_ACME_AUTHORIZED=true` |
+
+Unknown values fail closed. Validation:
+`./scripts/validate-invite-production-edge.sh`.
+
+### Registration (`PARKIO_REGISTRATION_MODE`)
+
+| Mode | invite-production default | Behaviour |
+|------|-------------------------|-----------|
+| `closed` | yes | registration denied |
+| `invite` | future cohort | opaque single-use hashed invite required |
+| `open` | hosted-beta only | canonical open registration |
+
+Invite tokens: Flyway `V22__create_registration_invites.sql`, SHA-256 hash at
+rest, atomic consume in the same transaction as user creation. Operator
+creation: `./scripts/create-registration-invite.sh` (internal route only; disabled
+unless `PARKIO_REGISTRATION_INVITE_CREATION_ENABLED=true`).
+
+PRIV-001 synthetic harness: `PARKIO_REGISTRATION_PRIV001A_SYNTHETIC_BYPASS`
+allows `priv001a-*@priv001a.parkio.invalid` only when explicitly enabled.
+
+### Trusted proxy and HSTS
+
+- `PARKIO_TRUSTED_PROXIES`: empty in dark mode; Docker/proxy CIDRs when Caddy
+  fronts the gateway in public mode.
+- `PARKIO_HSTS_HEADER_VALUE`: initial public cutover uses `max-age=86400` (no
+  preload / includeSubDomains by default).
+- `PARKIO_GATEWAY_PUBLIC_ACTUATOR_INFO_ENABLED`: set `false` on public cutover
+  to block `/actuator/info`; dark loopback acceptance keeps `true`.
+
+### Resource budgets
+
+| Profile | Continuous MiB | Caddy |
+|---------|----------------|-------|
+| `invite-production` (dark) | 15488 | absent |
+| `invite-production-public` | 15744 | present |
+
+Ceiling remains 16384 MiB. ClamAV >= 3072 MiB, Tempo >= 1024 MiB.

@@ -1,10 +1,10 @@
 import { zodResolver } from '@hookform/resolvers/zod';
 import { passwordRequirementState, type RegisterProfileFormValues } from '@parkio/validation';
 import { Button, ErrorMessage, Icon, Input } from '@parkio/ui';
-import { useMemo, useState } from 'react';
+import { useMemo, useState, useEffect } from 'react';
 import { useForm } from 'react-hook-form';
 import { useTranslation } from 'react-i18next';
-import { Link, useNavigate } from 'react-router-dom';
+import { Link, useNavigate, useSearchParams } from 'react-router-dom';
 import { describeAuthError } from '@/api/error-messages';
 import { useParkioSdk } from '@/app/AppRuntimeContext';
 import { AuthSplitLayout } from '@/pages/auth/AuthSplitLayout';
@@ -19,6 +19,8 @@ export function RegisterPage() {
   const { authApi } = useParkioSdk();
   const { t, i18n } = useTranslation(['auth', 'common', 'validation', 'errors']);
   const navigate = useNavigate();
+  const [searchParams, setSearchParams] = useSearchParams();
+  const [inviteToken, setInviteToken] = useState<string | null>(null);
   const [apiError, setApiError] = useState<string | null>(null);
   const [traceId, setTraceId] = useState<string | undefined>();
 
@@ -45,6 +47,17 @@ export function RegisterPage() {
   const passwordValue = watch('password') ?? '';
   const passwordState = passwordRequirementState(passwordValue);
 
+  useEffect(() => {
+    const token = searchParams.get('invite')?.trim();
+    if (!token) {
+      return;
+    }
+    setInviteToken(token);
+    const next = new URLSearchParams(searchParams);
+    next.delete('invite');
+    setSearchParams(next, { replace: true });
+  }, [searchParams, setSearchParams]);
+
   const onSubmit = handleSubmit(async (values) => {
     setApiError(null);
     setTraceId(undefined);
@@ -53,6 +66,7 @@ export function RegisterPage() {
         email: values.email,
         password: values.password,
         locale: i18n.language === 'en' ? 'en' : 'tr',
+        inviteToken: inviteToken ?? undefined,
       });
       setPendingProfile({
         displayName: values.displayName.trim(),

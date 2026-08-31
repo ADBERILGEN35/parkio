@@ -3,6 +3,7 @@ package com.parkio.gateway.infrastructure.security;
 import static org.assertj.core.api.Assertions.assertThat;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.parkio.gateway.infrastructure.config.GatewayPublicSurfaceProperties;
 import com.parkio.gateway.infrastructure.web.GatewayErrorResponseWriter;
 import com.parkio.gateway.shared.GatewayHeaders;
 import io.jsonwebtoken.JwtException;
@@ -138,7 +139,7 @@ class AuthenticationGlobalFilterTest {
         JwtTokenValidator validator = new JwtTokenValidator(
                 properties, resolver, new ObjectMapper().findAndRegisterModules());
         return new AuthenticationGlobalFilter(
-                new PublicEndpoints(),
+                new PublicEndpoints(new GatewayPublicSurfaceProperties()),
                 validator,
                 new GatewayErrorResponseWriter(
                         new ObjectMapper().findAndRegisterModules(),

@@ -25,7 +25,7 @@
 	encode zstd gzip
 
 	header {
-		Strict-Transport-Security "max-age=31536000; includeSubDomains"
+		Strict-Transport-Security "{$PARKIO_HSTS_HEADER_VALUE:max-age=31536000; includeSubDomains}"
 		Content-Security-Policy "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob: https:; font-src 'self' data:; worker-src 'self' blob:; connect-src 'self' https://{$PARKIO_DOMAIN} https://{$PARKIO_MEDIA_DOMAIN} {$PARKIO_MAP_CONNECT_SRC:https://api.maptiler.com}; object-src 'none'; base-uri 'self'; frame-ancestors 'none'; form-action 'self'; upgrade-insecure-requests"
 		X-Content-Type-Options "nosniff"
 		Referrer-Policy "strict-origin-when-cross-origin"
@@ -51,7 +51,7 @@
 
 	# Baseline security headers (defense in depth; the SPA is hosted separately).
 	header {
-		Strict-Transport-Security "max-age=31536000; includeSubDomains"
+		Strict-Transport-Security "{$PARKIO_HSTS_HEADER_VALUE:max-age=31536000; includeSubDomains}"
 		X-Content-Type-Options "nosniff"
 		Referrer-Policy "strict-origin-when-cross-origin"
 		-Server
@@ -72,7 +72,7 @@
 	encode zstd gzip
 
 	header {
-		Strict-Transport-Security "max-age=31536000; includeSubDomains"
+		Strict-Transport-Security "{$PARKIO_HSTS_HEADER_VALUE:max-age=31536000; includeSubDomains}"
 		X-Content-Type-Options "nosniff"
 		-Server
 	}

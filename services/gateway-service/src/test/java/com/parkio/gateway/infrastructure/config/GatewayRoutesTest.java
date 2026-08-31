@@ -2,6 +2,7 @@ package com.parkio.gateway.infrastructure.config;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
+import com.parkio.gateway.infrastructure.config.GatewayPublicSurfaceProperties;
 import com.parkio.gateway.infrastructure.security.PublicEndpoints;
 import java.util.List;
 import org.junit.jupiter.api.Test;
@@ -26,7 +27,7 @@ import org.springframework.test.context.ActiveProfiles;
 @ActiveProfiles("test")
 class GatewayRoutesTest {
 
-    private final PublicEndpoints publicEndpoints = new PublicEndpoints();
+    private final PublicEndpoints publicEndpoints = new PublicEndpoints(new GatewayPublicSurfaceProperties());
 
     @Autowired
     private RouteDefinitionLocator routeDefinitionLocator;

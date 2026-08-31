@@ -221,6 +221,12 @@ parkio:
     bootstrap:
       enabled: ${PARKIO_ADMIN_BOOTSTRAP_ENABLED:false}
       token: ${PARKIO_ADMIN_BOOTSTRAP_TOKEN:}
+  registration:
+    mode: ${PARKIO_REGISTRATION_MODE:closed}
+    priv001a-synthetic-bypass: ${PARKIO_REGISTRATION_PRIV001A_SYNTHETIC_BYPASS:false}
+    invite-ttl: ${PARKIO_REGISTRATION_INVITE_TTL:P7D}
+    invite-creation-enabled: ${PARKIO_REGISTRATION_INVITE_CREATION_ENABLED:false}
+    invite-operator-token: ${PARKIO_REGISTRATION_INVITE_OPERATOR_TOKEN:}
   privacy:
     account-erasure:
       enabled: ${PARKIO_ACCOUNT_ERASURE_ENABLED:false}
