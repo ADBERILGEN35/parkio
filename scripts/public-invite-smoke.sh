@@ -57,7 +57,7 @@ verify_tls_host() {
     return 1
   fi
   case "$issuer" in
-    *Let's\ Encrypt*|*letsencrypt*|*R3*|*E1*|*R10*|*R11*) ok "public CA issuer for $host" ;;
+    *"Let's Encrypt"*|*letsencrypt*|*R3*|*E1*|*R10*|*R11*) ok "public CA issuer for $host" ;;
     *) bad "unexpected certificate issuer for $host: $issuer"; return 1 ;;
   esac
   case "$subject" in
