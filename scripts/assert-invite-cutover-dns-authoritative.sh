@@ -42,7 +42,7 @@ while [ "$#" -gt 0 ]; do
 done
 
 errors=0
-note() { echo "  $1"; }
+note() { echo "  $1" >&2; }
 bad() { echo "ERROR: $1" >&2; errors=$((errors + 1)); }
 
 if [ -z "$EXPECTED_IP" ]; then
