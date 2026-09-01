@@ -97,20 +97,17 @@ fi
 # bad target can never reach a running stack (PROD-DEPLOY-01A / D1).
 parkio_validate_dark_gateway_url "${PARKIO_GATEWAY_URL:-$(parkio_default_gateway_url)}" || exit 2
 
-# Fail closed on public ACME BEFORE starting anything (PROD-DEPLOY-01A-R4 / D3).
-# api/app/media.parkio.dev still resolve to hosted-beta, so a dark stack that
-# starts Caddy would emit ACME orders it cannot validate — an externally visible
-# side effect that also burns the failed-validation budget PROD-DEPLOY-01B needs.
-# A real deploy demands the merged-model proof: on the production runner an
-# unresolvable model means the guard cannot see what will start. --dry-run runs
-# against a synthetic env whose model need not resolve, and its static
-# assertions already catch a reintroduced ACME edge.
-acme_guard_args=(--env-file "$ENV_FILE")
+# Mode-aware edge guard BEFORE starting anything (PROD-DEPLOY-01A-R4 / 03E-A1).
+# dark/public-staged: Caddy must stay absent while production names may still
+# resolve to hosted-beta. public-cutover: Caddy is required, but only after
+# authoritative DNS points at invite-production. A real deploy demands the
+# merged-model proof; --dry-run keeps static assertions only.
+edge_guard_args=(--env-file "$ENV_FILE")
 if [ "$DRY_RUN" -ne 1 ]; then
-  acme_guard_args+=(--require-model)
+  edge_guard_args+=(--require-model)
 fi
-if ! "$ROOT/scripts/assert-invite-dark-acme-isolation.sh" "${acme_guard_args[@]}"; then
-  echo "ERROR: dark ACME isolation failed; refusing to start the invite-production stack." >&2
+if ! "$ROOT/scripts/assert-invite-production-edge-guard.sh" "${edge_guard_args[@]}"; then
+  echo "ERROR: invite-production edge guard failed; refusing to start the stack." >&2
   exit 3
 fi
 

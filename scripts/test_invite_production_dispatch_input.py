@@ -12,7 +12,9 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
 ATTEST = ROOT / "scripts" / "attest-invite-production-dark-gateway-input.sh"
+DISPATCH_ATTEST = ROOT / "scripts" / "attest-invite-production-deploy-dispatch.sh"
 WORKFLOW = ROOT / ".github" / "workflows" / "invite-production-deploy.yml"
+CUTOVER_TOKEN = "PROD-DEPLOY-01B-03E-B"
 
 
 def job_block(workflow: str, job: str, next_job: str | None) -> str:
@@ -88,6 +90,49 @@ class DispatchInputEvidenceTest(unittest.TestCase):
         self.assertIn("environment: invite-production", deploy)
         self.assertIn(attestation, deploy)
         self.assertNotIn("continue-on-error:", build)
+
+    def test_cutover_dispatch_requires_authorization_token(self) -> None:
+        env = {
+            "PARKIO_DISPATCH_INVITE_EDGE_MODE": "public",
+            "PARKIO_DISPATCH_INVITE_ACME_AUTHORIZED": "true",
+            "PARKIO_DISPATCH_REGISTRATION_MODE": "closed",
+        }
+        missing = subprocess.run(
+            [str(DISPATCH_ATTEST)],
+            cwd=ROOT,
+            env={**os.environ, **env},
+            text=True,
+            capture_output=True,
+            check=False,
+        )
+        self.assertEqual(missing.returncode, 4, missing.stdout + missing.stderr)
+
+        wrong = subprocess.run(
+            [str(DISPATCH_ATTEST)],
+            cwd=ROOT,
+            env={**os.environ, **env, "PARKIO_DISPATCH_CUTOVER_AUTHORIZATION": "WRONG"},
+            text=True,
+            capture_output=True,
+            check=False,
+        )
+        self.assertEqual(wrong.returncode, 4, wrong.stdout + wrong.stderr)
+
+        accepted = subprocess.run(
+            [str(DISPATCH_ATTEST)],
+            cwd=ROOT,
+            env={**os.environ, **env, "PARKIO_DISPATCH_CUTOVER_AUTHORIZATION": CUTOVER_TOKEN},
+            text=True,
+            capture_output=True,
+            check=False,
+        )
+        self.assertEqual(accepted.returncode, 0, accepted.stdout + accepted.stderr)
+        self.assertIn("invite_dispatch_profile=public-cutover", accepted.stdout)
+
+    def test_workflow_exposes_cutover_authorization_input(self) -> None:
+        workflow = WORKFLOW.read_text()
+        self.assertIn("cutover_authorization:", workflow)
+        self.assertIn("PARKIO_DISPATCH_CUTOVER_AUTHORIZATION: ${{ inputs.cutover_authorization }}", workflow)
+        self.assertIn("./scripts/attest-invite-production-deploy-dispatch.sh", workflow)
 
 
 if __name__ == "__main__":

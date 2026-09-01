@@ -45,7 +45,7 @@ on:
           - dark
         default: public
       invite_acme_authorized:
-        description: "01B-02 dark-stage deploy requires false"
+        description: "false for public-staged; true only with cutover_authorization for public cutover"
         required: false
         type: choice
         options:
@@ -61,6 +61,11 @@ on:
           - invite
           - open
         default: closed
+      cutover_authorization:
+        description: "Required for public cutover (acme=true): PROD-DEPLOY-01B-03E-B"
+        required: false
+        type: string
+        default: ""
 
 permissions:
   contents: read
@@ -132,6 +137,7 @@ jobs:
           bash scripts/test-invite-production-priv001-release-staging.sh
           python3 scripts/test_invite_production_dispatch_input.py
           bash scripts/test-invite-dark-acme-isolation.sh
+          bash scripts/test-invite-production-public-cutover-deploy.sh
           bash scripts/test-invite-production-edge-mode.sh
           bash scripts/test-invite-production-edge-resource-budget.sh
           bash scripts/test-invite-production-nsg-ingress.sh
@@ -545,28 +551,19 @@ jobs:
           ./scripts/azure/render-invite-production-env.sh --output "$PARKIO_ENV_FILE"
           test "$(stat -c '%a' "$PARKIO_ENV_FILE")" = 600
 
-      - name: Attest 01B-02 dark-stage deploy inputs
+      - name: Attest invite-production deploy dispatch inputs
         if: ${{ github.event_name == 'workflow_dispatch' && inputs.action == 'deploy' }}
         working-directory: ${{ env.PARKIO_SOURCE_DIR }}
         env:
           PARKIO_DISPATCH_INVITE_EDGE_MODE: ${{ inputs.invite_edge_mode }}
           PARKIO_DISPATCH_INVITE_ACME_AUTHORIZED: ${{ inputs.invite_acme_authorized }}
           PARKIO_DISPATCH_REGISTRATION_MODE: ${{ inputs.registration_mode }}
+          PARKIO_DISPATCH_CUTOVER_AUTHORIZATION: ${{ inputs.cutover_authorization }}
+          PARKIO_EXPECTED_GIT_SHA: ${{ inputs.git_sha }}
+          PARKIO_DEPLOY_ARTIFACT_DIR: deploy-artifacts/invite-production
         run: |
           set -euo pipefail
-          if [ "$PARKIO_DISPATCH_INVITE_EDGE_MODE" != "public" ]; then
-            echo "ERROR: deploy requires invite_edge_mode=public" >&2
-            exit 4
-          fi
-          if [ "$PARKIO_DISPATCH_INVITE_ACME_AUTHORIZED" != "false" ]; then
-            echo "ERROR: deploy requires invite_acme_authorized=false" >&2
-            exit 4
-          fi
-          if [ "$PARKIO_DISPATCH_REGISTRATION_MODE" != "closed" ]; then
-            echo "ERROR: deploy requires registration_mode=closed" >&2
-            exit 4
-          fi
-          ./scripts/attest-invite-production-dark-stage-deploy.sh --env-file "$PARKIO_ENV_FILE"
+          ./scripts/attest-invite-production-deploy-dispatch.sh --env-file "$PARKIO_ENV_FILE"
           ./scripts/assert-invite-production-edge-resource-budget.sh \
             --env-file "$PARKIO_ENV_FILE" \
             --candidate-sha '${{ inputs.git_sha }}' \

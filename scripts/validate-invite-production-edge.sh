@@ -130,8 +130,12 @@ if [ -n "$media_public" ] && ! printf '%s' "$media_public" | grep -q '^https://'
   exit 4
 fi
 
-if [ "$acme_authorized" != "true" ] && [ "$edge_mode" = "dark" ]; then
-  "$ROOT/scripts/assert-invite-dark-acme-isolation.sh" --env-file "$ENV_FILE" || exit 4
+if [ "$acme_authorized" != "true" ]; then
+  if [ "$edge_mode" = "dark" ]; then
+    "$ROOT/scripts/assert-invite-dark-acme-isolation.sh" --env-file "$ENV_FILE" || exit 4
+  else
+    "$ROOT/scripts/assert-invite-production-edge-guard.sh" --env-file "$ENV_FILE" || exit 4
+  fi
 fi
 
 echo "invite_production_edge_validation=PASS"

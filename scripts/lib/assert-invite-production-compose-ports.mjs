@@ -143,6 +143,7 @@ export function evaluateInviteComposePorts(model, options) {
       assertNoHostPublish(services, 'minio', 'minio');
       break;
     case 'public-candidate':
+    case 'public-cutover':
       assertInvitePublicPresent(composeFiles);
       assertInviteDarkAbsent(composeFiles);
       assertCaddyDefined(services);
@@ -150,6 +151,15 @@ export function evaluateInviteComposePorts(model, options) {
       assertNoHostPublish(services, 'web', 'web');
       assertNoHostPublish(services, 'minio', 'minio');
       assertInternalServicesNotPublished(services);
+      if (mode === 'public-cutover') {
+        const caddyPorts = publishedPorts(services, 'caddy');
+        const publishedTcp = caddyPorts
+          .filter((p) => (p.protocol === 'tcp' || p.protocol === '') && (p.hostIp === '' || p.hostIp === '0.0.0.0'))
+          .map((p) => p.published);
+        if (!publishedTcp.includes('80') || !publishedTcp.includes('443')) {
+          fail(`caddy must publish public 80/tcp and 443/tcp, got ${JSON.stringify(caddyPorts)}`);
+        }
+      }
       break;
     case 'public-staged':
       assertInvitePublicPresent(composeFiles);
@@ -171,7 +181,7 @@ export function evaluateInviteComposePorts(model, options) {
   return {
     mode,
     gatewayHostBinding:
-      mode === 'public-candidate'
+      mode === 'public-candidate' || mode === 'public-cutover'
         ? 'none'
         : '127.0.0.1:8080',
     caddyDefined: Boolean(services.caddy),

@@ -201,7 +201,7 @@ else
 fi
 
 # A real (non-dry-run) deploy must pass --require-model; a dry run must not.
-if grep -q 'acme_guard_args+=(--require-model)' scripts/deploy-invite-production.sh &&
+if grep -q 'edge_guard_args+=(--require-model)' scripts/deploy-invite-production.sh &&
    grep -q 'if \[ "$DRY_RUN" -ne 1 \]; then' scripts/deploy-invite-production.sh; then
   ok "real deploy demands the merged-model proof, dry-run does not"
 else

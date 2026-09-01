@@ -373,3 +373,44 @@ Deploy workflow inputs must be:
 `invite_edge_mode=public`, `invite_acme_authorized=false`,
 `registration_mode=closed`. Human approval on the `invite-production`
 environment is required before any deploy mutation.
+
+## PROD-DEPLOY-01B-03E public cutover deploy path
+
+Three certified invite-production edge profiles exist:
+
+| Profile | `PARKIO_INVITE_EDGE_MODE` | `PARKIO_INVITE_ACME_AUTHORIZED` | Caddy | Services | Memory |
+|---------|---------------------------|----------------------------------|-------|----------|--------|
+| dark | `dark` | `false` | disabled | 23 | 15488 MiB |
+| public-staged | `public` | `false` | disabled | 23 | 15488 MiB |
+| public-cutover | `public` | `true` | enabled | 24 | 15744 MiB |
+
+`invite_acme_authorized=true` is never sufficient alone. Workflow dispatch
+also requires:
+
+- `registration_mode=closed`
+- `cutover_authorization=PROD-DEPLOY-01B-03E-B`
+- GitHub `invite-production` environment reviewer approval
+- Authoritative DNS for `app/api/media.parkio.dev` resolving to the
+  invite-production public IP (`pip-parkio-invite-prod`) before Caddy may start
+
+Guards:
+
+- `scripts/assert-invite-production-edge-guard.sh` — mode-aware dispatcher
+- `scripts/assert-invite-public-cutover-deploy.sh` — public+Caddy contract
+- `scripts/assert-invite-cutover-dns-authoritative.sh` — DNS precondition
+- `scripts/attest-invite-production-deploy-dispatch.sh` — workflow dispatch
+- `scripts/public-invite-smoke.sh` — post-cutover acceptance (opt-in)
+
+Cutover operator sequence (human gates, not automated in source):
+
+1. **Gate 1:** Hostinger DNS A records → invite-production public IP
+2. Authoritative DNS verification (`dig @hermes.dns-parking.com`)
+3. **Gate 2:** Workflow dispatch with `acme=true`, closed registration, and
+   `cutover_authorization=PROD-DEPLOY-01B-03E-B`
+4. Environment reviewer approval
+5. Caddy starts, ACME issues certificates
+6. `PARKIO_PUBLIC_SMOKE_CONFIRM=1 ./scripts/public-invite-smoke.sh`
+7. Observation window — no invite until separate gate
+
+Rollback `acme=false` restores public-staged profile (Caddy removed, staged
+overlay restored) without DB rollback.
