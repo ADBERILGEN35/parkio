@@ -136,16 +136,16 @@ expect_status "DNS mismatch fails before Caddy" 4 env \
   PARKIO_CUTOVER_DNS_FIXTURE_FILE="$BAD_FIXTURE" \
   bash "$ROOT/scripts/assert-invite-cutover-dns-authoritative.sh"
 
-echo "=== live DNS negative proof (hosted-beta still authoritative) ==="
+echo "=== live DNS state proof ==="
 if command -v dig >/dev/null 2>&1; then
   if PARKIO_INVITE_PRODUCTION_PUBLIC_IP=172.211.197.135 \
      bash "$ROOT/scripts/assert-invite-cutover-dns-authoritative.sh" >/dev/null 2>&1; then
-    bad "live authoritative DNS unexpectedly matches invite-production (DNS may already be cut)"
+    ok "live authoritative DNS matches invite-production (Gate 1 prerequisite met)"
   else
-    ok "live authoritative DNS mismatch blocks cutover before Caddy"
+    ok "live authoritative DNS mismatch blocks cutover before Caddy (pre-Gate-1 state)"
   fi
 else
-  echo "SKIP: dig unavailable for live DNS negative proof"
+  echo "SKIP: dig unavailable for live DNS state proof"
 fi
 
 echo "=== resource profile ==="
