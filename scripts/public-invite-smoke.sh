@@ -108,6 +108,19 @@ for path in /actuator/info /actuator/env /actuator/configprops; do
   fi
 done
 
+for path in /actuator/info /actuator/env /actuator/configprops; do
+  spoof_status="$(curl -sS -o /dev/null -w '%{http_code}' \
+    -H 'X-Forwarded-For: 127.0.0.1' \
+    -H 'X-Real-IP: 127.0.0.1' \
+    -H 'Forwarded: for=127.0.0.1' \
+    "$API_BASE$path")"
+  if [ "$spoof_status" = "200" ]; then
+    bad "api $path must stay blocked with spoofed forwarding headers (got 200)"
+  else
+    ok "api $path blocked with spoofed forwarding headers ($spoof_status)"
+  fi
+done
+
 login_status="$(curl -sS -o /dev/null -w '%{http_code}' \
   -X POST "$API_BASE/api/v1/auth/login" \
   -H 'Content-Type: application/json' \

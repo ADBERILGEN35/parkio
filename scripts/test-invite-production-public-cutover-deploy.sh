@@ -172,6 +172,13 @@ else
   ok "public smoke remains opt-in"
 fi
 
+echo "=== public smoke syntax ==="
+if bash -n "$ROOT/scripts/public-invite-smoke.sh"; then
+  ok "public-invite-smoke.sh passes bash -n"
+else
+  bad "public-invite-smoke.sh has shell syntax errors"
+fi
+
 echo
 echo "invite-production public cutover tests: $pass passed, $fail failed"
 [ "$fail" -eq 0 ]

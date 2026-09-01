@@ -93,9 +93,21 @@ if [ "$PARKIO_DEPLOYMENT_PROFILE" != "invite-production" ]; then
   exit 2
 fi
 
+# shellcheck source=lib/invite-edge-mode.sh
+source "$ROOT/scripts/lib/invite-edge-mode.sh"
+# shellcheck source=lib/invite-deploy-profile.sh
+source "$ROOT/scripts/lib/invite-deploy-profile.sh"
+INVITE_EDGE_MODE="$(parkio_invite_edge_mode_from_env "$ENV_FILE")" || exit 2
+INVITE_ACME_AUTHORIZED="$(parkio_invite_acme_authorized_from_env "$ENV_FILE")" || exit 2
+INVITE_DEPLOY_PROFILE="$(parkio_invite_deploy_profile_label "$INVITE_EDGE_MODE" "$INVITE_ACME_AUTHORIZED")" || exit 4
+echo "inviteDeployProfile=$INVITE_DEPLOY_PROFILE"
+
 # Fail closed on the acceptance target BEFORE building or starting anything, so a
-# bad target can never reach a running stack (PROD-DEPLOY-01A / D1).
-parkio_validate_dark_gateway_url "${PARKIO_GATEWAY_URL:-$(parkio_default_gateway_url)}" || exit 2
+# bad target can never reach a running stack (PROD-DEPLOY-01A / D1). Public-cutover
+# has no host-published loopback gateway; public smoke runs after Caddy is live.
+if [ "$INVITE_DEPLOY_PROFILE" != "public-cutover" ]; then
+  parkio_validate_dark_gateway_url "${PARKIO_GATEWAY_URL:-$(parkio_default_gateway_url)}" || exit 2
+fi
 
 # Mode-aware edge guard BEFORE starting anything (PROD-DEPLOY-01A-R4 / 03E-A1).
 # dark/public-staged: Caddy must stay absent while production names may still
@@ -242,12 +254,31 @@ parkio_activate_release "$GIT_SHA"
 
 if [ "$SKIP_SMOKE" -ne 1 ]; then
   echo "Running smoke checks..."
-  PARKIO_ENV_FILE="$ENV_FILE" \
-    PARKIO_DEPLOYMENT_PROFILE="$PARKIO_DEPLOYMENT_PROFILE" \
-    PARKIO_GATEWAY_URL="${PARKIO_GATEWAY_URL:-$(parkio_default_gateway_url)}" \
-    PARKIO_EXPECTED_GIT_SHA="$GIT_SHA" \
-    PARKIO_SMOKE_EXPECT_DIRECT_BLOCKED="${PARKIO_SMOKE_EXPECT_DIRECT_BLOCKED:-1}" \
-    "$ROOT/scripts/smoke-hosted-beta.sh" | tee "$ARTIFACT_DIR/smoke-${GIT_SHA:0:12}.log"
+  if [ "$INVITE_DEPLOY_PROFILE" = "public-cutover" ]; then
+    echo "=== invite-production public-cutover internal runtime identity ==="
+    internal_body="$(parkio_compose "$ENV_FILE" exec -T gateway-service \
+      curl -fsS -H 'X-Parkio-Client: smoke' http://127.0.0.1:8080/actuator/info)"
+    runtime_env="$(printf '%s' "$internal_body" | python3 -c 'import json,sys; print(json.load(sys.stdin).get("deployment",{}).get("environment",""))')"
+    runtime_sha="$(printf '%s' "$internal_body" | python3 -c 'import json,sys; print(json.load(sys.stdin).get("deployment",{}).get("gitSha",""))')"
+    if [ "$runtime_env" != "invite-production" ]; then
+      echo "ERROR: internal runtime environment is '${runtime_env:-<absent>}', expected invite-production" >&2
+      exit 3
+    fi
+    if [ "$runtime_sha" != "$GIT_SHA" ]; then
+      echo "ERROR: internal runtime gitSha is '${runtime_sha:-<absent>}', expected $GIT_SHA" >&2
+      exit 3
+    fi
+    echo "PASS: internal runtime identity (invite-production @ ${runtime_sha:0:12})"
+    PARKIO_PUBLIC_SMOKE_CONFIRM=1 \
+      "$ROOT/scripts/public-invite-smoke.sh" | tee "$ARTIFACT_DIR/smoke-${GIT_SHA:0:12}.log"
+  else
+    PARKIO_ENV_FILE="$ENV_FILE" \
+      PARKIO_DEPLOYMENT_PROFILE="$PARKIO_DEPLOYMENT_PROFILE" \
+      PARKIO_GATEWAY_URL="${PARKIO_GATEWAY_URL:-$(parkio_default_gateway_url)}" \
+      PARKIO_EXPECTED_GIT_SHA="$GIT_SHA" \
+      PARKIO_SMOKE_EXPECT_DIRECT_BLOCKED="${PARKIO_SMOKE_EXPECT_DIRECT_BLOCKED:-1}" \
+      "$ROOT/scripts/smoke-hosted-beta.sh" | tee "$ARTIFACT_DIR/smoke-${GIT_SHA:0:12}.log"
+  fi
 fi
 
 python3 "$ROOT/scripts/assert-invite-production-artifacts-safe.py" \

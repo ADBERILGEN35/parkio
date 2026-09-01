@@ -24,7 +24,9 @@ import org.springframework.web.util.pattern.PathPatternParser;
  * {@code /actuator/info} is not on the internet-facing public surface. Loopback
  * peers (invite-production dark / public-staged smoke) may still read identity
  * without a token so internal acceptance keeps working after Level-B sets the
- * flag to false (PROD-DEPLOY-01B-03B).
+ * flag to false (PROD-DEPLOY-01B-03B). Non-loopback blocking is enforced at
+ * the WebFlux layer by {@link ActuatorPublicSurfaceWebFilter} because Spring Boot
+ * actuator endpoints bypass the gateway filter chain.
  */
 @Component
 public class PublicEndpoints {

@@ -163,6 +163,20 @@ else
   if grep -Eq '\*\.|{\*}' "$CADDYFILE"; then
     bad "Caddyfile must not define wildcard site blocks"
   fi
+  if ! grep -q '@blocked_actuator' "$CADDYFILE"; then
+    bad "Caddyfile must define @blocked_actuator matcher for sensitive actuator paths"
+  elif ! grep -A3 '@blocked_actuator' "$CADDYFILE" | grep -q '/actuator/info'; then
+    bad "Caddyfile @blocked_actuator must include /actuator/info"
+  elif ! grep -A5 '@blocked_actuator' "$CADDYFILE" | grep -q '/actuator/env'; then
+    bad "Caddyfile @blocked_actuator must include /actuator/env"
+  elif ! grep -A8 '@blocked_actuator' "$CADDYFILE" | grep -q '/actuator/configprops'; then
+    bad "Caddyfile @blocked_actuator must include /actuator/configprops"
+  else
+    note "Caddyfile blocks public sensitive actuator paths"
+  fi
+  if ! grep -A2 'handle @blocked_actuator' "$CADDYFILE" | grep -q 'respond 404'; then
+    bad "Caddyfile must respond 404 for blocked actuator paths"
+  fi
 fi
 
 if [ ! -f "$HOSTED_BETA_COMPOSE" ]; then
