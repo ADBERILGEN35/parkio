@@ -29,7 +29,18 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 const arm = JSON.parse(fs.readFileSync(process.argv[1], 'utf8'));
 const resources = Array.isArray(arm.resources) ? arm.resources : Object.values(arm.resources || {});
-const nsgRes = resources.find((r) => String(r.type).includes('networkSecurityGroups'));
+function findNsgResource(items) {
+  for (const r of items) {
+    if (String(r.type).includes('networkSecurityGroups')) return r;
+    const nested = r.properties?.template?.resources;
+    if (Array.isArray(nested)) {
+      const hit = findNsgResource(nested);
+      if (hit) return hit;
+    }
+  }
+  return null;
+}
+const nsgRes = findNsgResource(resources);
 assert.ok(nsgRes, 'compiled ARM missing networkSecurityGroups resource');
 const rules = nsgRes.properties?.securityRules || [];
 assert.equal(rules.length, 2, 'expected 2 securityRules, got ' + rules.length);

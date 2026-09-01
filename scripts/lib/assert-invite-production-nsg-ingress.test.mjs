@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 /**
- * Deterministic invite-production NSG ingress assertions (PROD-DEPLOY-01B-03C1).
- * Parses infra/azure/invite-production/main.bicep securityRules without Azure.
+ * Deterministic invite-production NSG ingress assertions (PROD-DEPLOY-01B-03C1/03C2).
+ * Parses the canonical modules/app-nsg.bicep securityRules without Azure.
  */
 
 import assert from 'node:assert/strict';
@@ -11,7 +11,10 @@ import test from 'node:test';
 import { fileURLToPath } from 'node:url';
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../..');
-const bicepPath = path.join(root, 'infra/azure/invite-production/main.bicep');
+const modulePath = path.join(root, 'infra/azure/invite-production/modules/app-nsg.bicep');
+const mainPath = path.join(root, 'infra/azure/invite-production/main.bicep');
+const scopedPath = path.join(root, 'infra/azure/invite-production/nsg-only.bicep');
+const scopedScriptPath = path.join(root, 'scripts/azure/provision-invite-production-nsg.sh');
 
 const FORBIDDEN_PUBLIC_PORTS = [
   '22', '8080', '5432', '6379', '9092', '9000', '9001',
@@ -24,7 +27,7 @@ function extractSecurityRules(source) {
     /resource appNsg[\s\S]*?securityRules:\s*\[([\s\S]*?)\]\s*\n\s*\}\s*\n\}/,
   );
   if (!nsgMatch) {
-    throw new Error('appNsg securityRules block not found in main.bicep');
+    throw new Error('appNsg securityRules block not found');
   }
   const body = nsgMatch[1];
   const rules = [];
@@ -53,9 +56,7 @@ function extractSecurityRules(source) {
   return rules;
 }
 
-test('invite-production NSG has exactly HTTPS 443 + HTTP 80 Internet allows', () => {
-  const source = fs.readFileSync(bicepPath, 'utf8');
-  const rules = extractSecurityRules(source);
+function assertCanonicalRules(rules) {
   assert.equal(rules.length, 2, `expected exactly 2 custom rules, got ${rules.length}`);
 
   const https = rules.find((r) => r.name === 'Allow-Https-From-Internet');
@@ -108,10 +109,33 @@ test('invite-production NSG has exactly HTTPS 443 + HTTP 80 Internet allows', ()
       destinationAddressPrefix: '*',
     },
   );
+}
+
+test('canonical NSG module has exactly HTTPS 443 + HTTP 80 Internet allows', () => {
+  const source = fs.readFileSync(modulePath, 'utf8');
+  assertCanonicalRules(extractSecurityRules(source));
+});
+
+test('full main.bicep consumes canonical NSG module', () => {
+  const source = fs.readFileSync(mainPath, 'utf8');
+  assert.match(source, /module appNsg 'modules\/app-nsg\.bicep'/);
+  assert.match(source, /appNsg\.outputs\.nsgId/);
+  assert.doesNotMatch(source, /resource appNsg 'Microsoft\.Network\/networkSecurityGroups/);
+});
+
+test('scoped nsg-only.bicep deploys only canonical NSG module', () => {
+  const source = fs.readFileSync(scopedPath, 'utf8');
+  assert.match(source, /module appNsg 'modules\/app-nsg\.bicep'/);
+  assert.doesNotMatch(source, /Microsoft\.Compute\/virtualMachines/);
+  assert.doesNotMatch(source, /Microsoft\.DBforPostgreSQL/);
+  assert.doesNotMatch(source, /Microsoft\.KeyVault/);
+  assert.doesNotMatch(source, /Microsoft\.Storage/);
+  assert.doesNotMatch(source, /Microsoft\.Authorization\/roleAssignments/);
+  assert.doesNotMatch(source, /Microsoft\.Network\/virtualNetworks/);
 });
 
 test('invite-production NSG does not open forbidden public ports', () => {
-  const source = fs.readFileSync(bicepPath, 'utf8');
+  const source = fs.readFileSync(modulePath, 'utf8');
   const rules = extractSecurityRules(source);
   for (const rule of rules) {
     if (rule.access !== 'Allow' || rule.direction !== 'Inbound') continue;
@@ -124,8 +148,18 @@ test('invite-production NSG does not open forbidden public ports', () => {
 });
 
 test('HTTPS priority remains 100 and HTTP is adjacent unused 110', () => {
-  const source = fs.readFileSync(bicepPath, 'utf8');
+  const source = fs.readFileSync(modulePath, 'utf8');
   const rules = extractSecurityRules(source);
   const priorities = rules.map((r) => r.priority).sort((a, b) => a - b);
   assert.deepEqual(priorities, [100, 110]);
+});
+
+test('scoped provision script requires explicit apply confirmation', () => {
+  const source = fs.readFileSync(scopedScriptPath, 'utf8');
+  assert.match(source, /--apply/);
+  assert.match(source, /--confirm/);
+  assert.match(source, /PROD-DEPLOY-01B-03C3/);
+  assert.match(source, /rg-parkio-invite-production-we/);
+  assert.match(source, /nsg-parkio-invite-app/);
+  assert.match(source, /validate_scoped_what_if_output/);
 });

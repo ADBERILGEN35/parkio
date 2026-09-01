@@ -52,41 +52,11 @@ var commonTags = {
   package: 'PROD-DEPLOY-01A'
 }
 
-resource appNsg 'Microsoft.Network/networkSecurityGroups@2024-05-01' = {
-  name: 'nsg-parkio-invite-app'
-  location: location
-  tags: commonTags
-  properties: {
-    securityRules: [
-      {
-        name: 'Allow-Https-From-Internet'
-        properties: {
-          priority: 100
-          access: 'Allow'
-          direction: 'Inbound'
-          protocol: 'Tcp'
-          sourcePortRange: '*'
-          destinationPortRange: '443'
-          sourceAddressPrefix: 'Internet'
-          destinationAddressPrefix: '*'
-        }
-      }
-      // PROD-DEPLOY-01B-03C1: TCP :80 for future Caddy ACME HTTP-01 + HTTP->HTTPS
-      // redirect only. NSG allow does not start Caddy, authorize ACME, or cut over DNS.
-      {
-        name: 'Allow-Http-From-Internet'
-        properties: {
-          priority: 110
-          access: 'Allow'
-          direction: 'Inbound'
-          protocol: 'Tcp'
-          sourcePortRange: '*'
-          destinationPortRange: '80'
-          sourceAddressPrefix: 'Internet'
-          destinationAddressPrefix: '*'
-        }
-      }
-    ]
+module appNsg 'modules/app-nsg.bicep' = {
+  name: 'inviteProductionAppNsg'
+  params: {
+    location: location
+    tags: commonTags
   }
 }
 
@@ -109,7 +79,7 @@ resource appSubnet 'Microsoft.Network/virtualNetworks/subnets@2024-05-01' = {
   properties: {
     addressPrefix: '10.42.1.0/24'
     networkSecurityGroup: {
-      id: appNsg.id
+      id: appNsg.outputs.nsgId
     }
     serviceEndpoints: [
       {

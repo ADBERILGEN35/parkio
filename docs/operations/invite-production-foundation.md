@@ -64,6 +64,20 @@ public-edge package (ACME HTTP-01 + HTTP→HTTPS redirect). NSG allow does not
 mean a listener exists, Caddy is running, ACME is authorized, or DNS has moved.
 Those remain separately gated; public edge stays dark until those gates pass.
 
+### Scoped NSG deployment (PROD-DEPLOY-01B-03C2)
+
+Canonical NSG rules are defined once in `infra/azure/invite-production/modules/app-nsg.bicep`
+and consumed by both `main.bicep` (full foundation) and `nsg-only.bicep` (scoped).
+Operator path: `scripts/azure/provision-invite-production-nsg.sh` (`--validate`,
+`--what-if`, future `--apply --confirm PROD-DEPLOY-01B-03C3`). Full-foundation
+what-if may show unrelated deferred drift; scoped what-if targets only
+`nsg-parkio-invite-app`.
+
+**Deferred (not remediated in 03C2):** `INVITE-PRODUCTION FOUNDATION DRIFT
+RECONCILIATION` — role assignments, subnet `privateEndpointNetworkPolicies` /
+service endpoints, VM disk metadata, PostgreSQL property payloads, NIC/public-IP
+payload differences, storage/blob property differences.
+
 ## Provisioned resources
 
 The reproducible definition is `infra/azure/invite-production/main.bicep`.

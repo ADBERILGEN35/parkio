@@ -58,5 +58,19 @@ parameter document, generates the initial PostgreSQL administrator password,
 passes it as a secure ARM parameter, has ARM store it directly in Key Vault,
 and removes the temporary material without printing it.
 
+For NSG-only changes (for example adding TCP :80 without full-foundation apply),
+use the scoped path:
+
+```bash
+scripts/azure/provision-invite-production-nsg.sh --validate
+scripts/azure/provision-invite-production-nsg.sh --what-if
+# Future human-gated apply (03C3):
+# scripts/azure/provision-invite-production-nsg.sh --apply --confirm PROD-DEPLOY-01B-03C3
+```
+
+Canonical NSG rules live in `modules/app-nsg.bicep` and are consumed by both
+`main.bicep` and `nsg-only.bicep`. Full-foundation what-if may still show
+unrelated deferred drift; use the scoped script to preview NSG-only changes.
+
 The checked-in `main.parameters.example.json` is documentation only. Never put a
 real password or private key into it.
