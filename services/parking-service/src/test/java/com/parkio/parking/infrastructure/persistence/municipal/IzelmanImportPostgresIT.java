@@ -9,12 +9,19 @@ import com.parkio.parking.externalsource.izelman.SourceAgeClassification;
 import com.parkio.parking.externalsource.izelman.TariffCurrentness;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.time.Clock;
+import java.time.Instant;
+import java.time.ZoneOffset;
 import java.util.UUID;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
+import org.springframework.boot.test.context.TestConfiguration;
+import org.springframework.context.annotation.Bean;
+import org.springframework.context.annotation.Import;
+import org.springframework.context.annotation.Primary;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.test.context.DynamicPropertyRegistry;
 import org.springframework.test.context.DynamicPropertySource;
@@ -27,7 +34,9 @@ import org.testcontainers.utility.DockerImageName;
 @Tag("integration")
 @Testcontainers(disabledWithoutDocker = true)
 @SpringBootTest
+@Import(IzelmanImportPostgresIT.FixedClockConfiguration.class)
 class IzelmanImportPostgresIT {
+    private static final Instant TEST_NOW = Instant.parse("2026-07-30T00:00:00Z");
     private static final DockerImageName POSTGIS =
             PostgisTestImages.dockerImageName();
 
@@ -41,6 +50,7 @@ class IzelmanImportPostgresIT {
 
     @Autowired IzelmanImportApplicationService importService;
     @Autowired JdbcTemplate jdbc;
+    @Autowired Clock clock;
 
     @DynamicPropertySource
     static void properties(DynamicPropertyRegistry registry) {
@@ -126,6 +136,8 @@ class IzelmanImportPostgresIT {
 
     @Test
     void officialTariffMatrixDryRunProjectsPlansAndBandsWithoutCanonicalWrites() throws Exception {
+        assertThat(clock.instant()).isEqualTo(TEST_NOW);
+
         Path fixtures = Path.of("src/test/resources/fixtures/municipal/izelman").toAbsolutePath();
         if (!Files.isDirectory(fixtures)) {
             fixtures = Path.of("services/parking-service/src/test/resources/fixtures/municipal/izelman")
@@ -179,6 +191,15 @@ class IzelmanImportPostgresIT {
                 UUID.randomUUID(), sourceId, "lock-" + UUID.randomUUID());
         var skipped = importService.importConfigured(IzelmanSourceKeys.OPEN, false);
         assertThat(skipped.status()).isEqualTo(MunicipalSyncRunStatus.SKIPPED);
+    }
+
+    @TestConfiguration(proxyBeanMethods = false)
+    static class FixedClockConfiguration {
+        @Bean
+        @Primary
+        Clock izelmanImportTestClock() {
+            return Clock.fixed(TEST_NOW, ZoneOffset.UTC);
+        }
     }
 
     private static Path createInputDir() {
