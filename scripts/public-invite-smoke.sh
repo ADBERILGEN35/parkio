@@ -137,9 +137,15 @@ case "$media_status" in
   *) bad "media anonymous root returned $media_status" ;;
 esac
 
-console_status="$(curl -sS -o /dev/null -w '%{http_code}' --connect-timeout 5 "$MEDIA_BASE:9001/" 2>/dev/null || echo 000)"
-if [ "$console_status" = "000" ] || [ "$console_status" = "403" ] || [ "$console_status" = "404" ]; then
-  ok "MinIO console :9001 not publicly exposed"
+console_status="$(
+  curl -sS -o /dev/null -w '%{http_code}' \
+    --connect-timeout 5 \
+    "$MEDIA_BASE:9001/" \
+    2>/dev/null || true
+)"
+console_status="${console_status:-000}"
+if [ "$console_status" = "000" ]; then
+  ok "MinIO console :9001 not publicly exposed ($console_status)"
 else
   bad "unexpected response from media :9001 ($console_status)"
 fi

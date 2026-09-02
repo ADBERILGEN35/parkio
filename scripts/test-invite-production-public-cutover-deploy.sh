@@ -179,6 +179,9 @@ else
   bad "public-invite-smoke.sh has shell syntax errors"
 fi
 
+echo "=== public smoke regression ==="
+bash "$ROOT/scripts/test-public-invite-smoke.sh"
+
 echo
 echo "invite-production public cutover tests: $pass passed, $fail failed"
 [ "$fail" -eq 0 ]
