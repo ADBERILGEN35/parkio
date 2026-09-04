@@ -18,6 +18,7 @@
     "e2e": "playwright test",
     "e2e:ui": "playwright test --ui",
     "e2e:real": "playwright test -c playwright.real.config.ts",
+    "test:marketing": "node ../../../scripts/validate-marketing-site.mjs && playwright test -c playwright.marketing.config.ts",
     "verify:bundle-env": "node scripts/verify-bundle-env.mjs",
     "smoke:image": "node scripts/smoke-image.mjs",
     "test:release-gates": "node --test scripts/validate-build-env.test.mjs scripts/verify-bundle-env.test.mjs scripts/smoke-image.test.mjs"

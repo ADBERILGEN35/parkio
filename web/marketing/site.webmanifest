@@ -1,7 +1,7 @@
 {
   "name": "Parkio",
   "short_name": "Parkio",
-  "description": "Community and municipal parking intelligence.",
+  "description": "Founder-led parking discovery and intelligence.",
   "start_url": "/",
   "display": "standalone",
   "background_color": "#f6f8fb",

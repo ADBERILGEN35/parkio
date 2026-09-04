@@ -19,11 +19,17 @@ on:
   pull_request:
     paths:
       - "frontend/**"
+      - "web/marketing/**"
+      - "scripts/serve-marketing-site.mjs"
+      - "scripts/validate-marketing-site.mjs"
       - ".github/workflows/frontend-ci.yml"
   push:
     branches: [master]
     paths:
       - "frontend/**"
+      - "web/marketing/**"
+      - "scripts/serve-marketing-site.mjs"
+      - "scripts/validate-marketing-site.mjs"
       - ".github/workflows/frontend-ci.yml"
   workflow_dispatch:
 
@@ -68,6 +74,9 @@ jobs:
 
       - name: Install focused browser
         run: pnpm --filter @parkio/web exec playwright install --with-deps chromium
+
+      - name: Marketing static and responsive validation
+        run: pnpm --filter @parkio/web test:marketing
 
       - name: Architecture guardrails
         run: pnpm guardrails
