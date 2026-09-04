@@ -1,0 +1,48 @@
+PARKIO WEBSITE — DEPLOYMENT NOTES
+=================================
+
+Purpose
+-------
+A crawler-friendly, static Parkio company/startup website designed to present a clear,
+truthful, functional product identity before an AWS Activate Founders re-application.
+It does NOT guarantee AWS approval.
+
+Upload
+------
+1. Back up the current contents of Hostinger public_html.
+2. IMPORTANT: remove the old landing-page build before uploading this one, especially old index.html, sw.js, offline.html, manifest.webmanifest and old landing-page assets. An old service worker can keep serving the previous page. Do not delete files that belong to app.parkio.dev if that subdomain uses a separate document root.
+3. Upload the CONTENTS of this folder into public_html (not the parent folder itself).
+4. Confirm these URLs return HTTP 200 without authentication:
+   https://parkio.dev/
+   https://parkio.dev/privacy/
+   https://parkio.dev/terms/
+   https://parkio.dev/robots.txt
+   https://parkio.dev/sitemap.xml
+5. Confirm the main CTA opens https://app.parkio.dev/ successfully.
+6. Test on desktop + mobile and in an incognito window.
+7. Keep info@parkio.dev active and able to receive mail.
+
+Important consistency
+---------------------
+Startup name: Parkio
+Business domain: parkio.dev
+Company/startup website: https://parkio.dev/
+Product URL: https://app.parkio.dev/
+Business email: info@parkio.dev
+Funding: Self-funded / bootstrapped
+AWS Activate path: Founders
+
+Why this version is safer for automated review
+----------------------------------------------
+- Real content exists directly in index.html; the page does not depend on JavaScript rendering.
+- The product is clearly described.
+- The public web beta has a direct working CTA.
+- Business email and domain match.
+- Privacy and Terms are functional public pages.
+- No "TBD", "not live yet", paused waitlist, fake traction, funding, or partnership claims.
+- Municipal data is explicitly distinguished from official partnership/endorsement.
+
+Before re-applying
+------------------
+Do not submit the AWS Activate application immediately after deployment. First verify the
+live site from a separate network/incognito session and run a final consistency audit.
