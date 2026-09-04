@@ -3,6 +3,7 @@ export * from './locale';
 export * from './auth';
 export * from './parking';
 export * from './municipal';
+export * from './public-explore';
 export * from './parking-session-lifecycle';
 export * from './media';
 export * from './user';

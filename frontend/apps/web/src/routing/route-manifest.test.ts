@@ -64,6 +64,7 @@ describe('canonical route inventory', () => {
       '/verify-email',
       '/terms',
       '/privacy',
+      '/explore',
       '/',
       '/preparing',
       '/map',
@@ -276,6 +277,7 @@ describe('canonical route inventory', () => {
       ['/verify-email', 'titles.verifyEmail'],
       ['/terms', 'titles.terms'],
       ['/privacy', 'titles.privacy'],
+      ['/explore', 'titles.explore'],
       ['/', 'titles.home'],
       ['/preparing', 'titles.preparing'],
       ['/map', 'titles.map'],
@@ -321,6 +323,7 @@ describe('canonical route inventory', () => {
       ROUTE_IDS.RESET_PASSWORD,
       ROUTE_IDS.CHECK_EMAIL,
       ROUTE_IDS.VERIFY_EMAIL,
+      ROUTE_IDS.PUBLIC_EXPLORE,
       ROUTE_IDS.PREPARING,
     ]);
     for (const path of [
@@ -330,6 +333,7 @@ describe('canonical route inventory', () => {
       '/reset-password',
       '/check-email',
       '/verify-email',
+      '/explore',
       '/preparing',
     ]) {
       expect(isNavigationInterruptionBypassPath(path)).toBe(true);
@@ -540,6 +544,7 @@ describe('derived route classifications', () => {
       ROUTE_IDS.VERIFY_EMAIL,
       ROUTE_IDS.TERMS,
       ROUTE_IDS.PRIVACY,
+      ROUTE_IDS.PUBLIC_EXPLORE,
       ROUTE_IDS.NOT_FOUND,
     ]);
 
@@ -552,6 +557,7 @@ describe('derived route classifications', () => {
       '/verify-email',
       '/terms',
       '/privacy',
+      '/explore',
       '/unknown',
     ]) {
       expect(classifyRoutePath(path)).toBe('public');
@@ -661,7 +667,7 @@ describe('manifest snapshot', () => {
 
     expect(projection).toMatchInlineSnapshot(`
       {
-        "fingerprint": "d6aac4d7",
+        "fingerprint": "c530de9e",
         "graph": [
           "routing.root|root|pathless",
           "auth.login|routing.root|/login",
@@ -672,6 +678,7 @@ describe('manifest snapshot', () => {
           "auth.verify-email|routing.root|/verify-email",
           "legal.terms|routing.root|/terms",
           "legal.privacy|routing.root|/privacy",
+          "public.explore|routing.root|/explore",
           "routing.protected|routing.root|pathless",
           "app.entry|routing.protected|/",
           "account.preparing|routing.protected|/preparing",
@@ -702,7 +709,7 @@ describe('manifest snapshot', () => {
           "admin.system|shell.admin|system",
           "routing.not-found|routing.root|*",
         ],
-        "total": 38,
+        "total": 39,
       }
     `);
   });

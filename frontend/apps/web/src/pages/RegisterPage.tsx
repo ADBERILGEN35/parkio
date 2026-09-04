@@ -14,6 +14,7 @@ import {
   getPasswordRequirements,
 } from '@/lib/validation/localized-schemas';
 import { showError, showSuccess } from '@/lib/toast';
+import { useRegistrationMode } from '@/auth/useRegistrationMode';
 
 export function RegisterPage() {
   const { authApi } = useParkioSdk();
@@ -23,6 +24,7 @@ export function RegisterPage() {
   const [inviteToken, setInviteToken] = useState<string | null>(null);
   const [apiError, setApiError] = useState<string | null>(null);
   const [traceId, setTraceId] = useState<string | undefined>();
+  const registrationMode = useRegistrationMode();
 
   const schema = useMemo(() => createRegisterProfileSchema(t), [t]);
   const requirements = useMemo(() => getPasswordRequirements(t), [t]);
@@ -86,6 +88,27 @@ export function RegisterPage() {
       });
     }
   });
+
+  if (registrationMode === 'CLOSED') {
+    return (
+      <AuthSplitLayout title={t('auth:register.closedTitle')} subtitle={t('auth:register.closedMessage')}>
+        <div className="flex flex-col gap-sm">
+          <Link
+            to="/explore"
+            className="inline-flex min-h-11 items-center justify-center rounded-full bg-primary px-lg py-sm text-label-md font-semibold text-on-primary"
+          >
+            {t('auth:register.exploreLive')}
+          </Link>
+          <Link
+            to="/login"
+            className="inline-flex min-h-11 items-center justify-center rounded-full border border-outline px-lg py-sm text-label-md font-semibold text-on-surface"
+          >
+            {t('auth:register.signInLink')}
+          </Link>
+        </div>
+      </AuthSplitLayout>
+    );
+  }
 
   return (
     <AuthSplitLayout title={t('auth:register.title')} subtitle={t('auth:register.subtitle')}>
@@ -152,13 +175,13 @@ export function RegisterPage() {
             />
             <span>
               {t('auth:register.termsPrefix')}{' '}
-              <Link to="/terms" className="font-semibold text-primary hover:underline">
+              <a href="https://parkio.dev/terms/" className="font-semibold text-primary hover:underline">
                 {t('auth:register.terms')}
-              </Link>{' '}
+              </a>{' '}
               {t('auth:register.termsAnd')}{' '}
-              <Link to="/privacy" className="font-semibold text-primary hover:underline">
+              <a href="https://parkio.dev/privacy/" className="font-semibold text-primary hover:underline">
                 {t('auth:register.privacy')}
-              </Link>
+              </a>
               .
             </span>
           </label>

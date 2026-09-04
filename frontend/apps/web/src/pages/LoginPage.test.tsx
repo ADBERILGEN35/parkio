@@ -183,6 +183,23 @@ describe('LoginPage', () => {
     expect(screen.getByText(/HttpOnly refresh cookie/)).toBeInTheDocument();
   });
 
+  it('uses neutral auth-layout copy without unsupported social proof', () => {
+    renderLogin();
+
+    expect(screen.getByText('Built to make everyday parking decisions clearer.')).toBeInTheDocument();
+    expect(screen.queryByText(/Trusted by drivers across the city/i)).not.toBeInTheDocument();
+    expect(screen.queryByLabelText(/five star/i)).not.toBeInTheDocument();
+  });
+
+  it('removes the registration CTA when registration is closed', async () => {
+    server.use(
+      http.get(`${API_BASE}/auth/registration-mode`, () => HttpResponse.json({ mode: 'CLOSED' })),
+    );
+    renderLogin();
+
+    await waitFor(() => expect(screen.queryByRole('link', { name: 'Register' })).not.toBeInTheDocument());
+  });
+
   it('shows a friendly error with traceId on invalid credentials', async () => {
     server.use(
       http.post(`${API_BASE}/auth/login`, () =>

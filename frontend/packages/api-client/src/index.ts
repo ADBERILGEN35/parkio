@@ -6,6 +6,7 @@ export {
   type ApiClientOptions,
 } from './client';
 export { createAuthApi, type AuthApi } from './auth';
+export { createPublicExploreApi, type PublicExploreApi } from './public-explore';
 export { createUsersApi, type UsersApi } from './users';
 export { createParkingApi, type ParkingApi } from './parking';
 export { createMediaApi, type MediaApi, type MediaFilePart, type UploadMediaOptions } from './media';

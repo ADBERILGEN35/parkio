@@ -2,6 +2,7 @@ import { z } from 'zod';
 
 export type AppEnvironment = 'development' | 'test' | 'hosted-beta' | 'invite-production' | 'production';
 export type FrontendErrorReportingProvider = 'disabled' | 'console';
+export type RegistrationMode = 'CLOSED' | 'INVITE' | 'OPEN';
 
 const LOCAL_API_BASE_URL = 'http://localhost:8080/api/v1';
 const LOCAL_MAP_TILE_URL = 'https://tile.openstreetmap.org/{z}/{x}/{y}.png';
@@ -32,6 +33,10 @@ const rawEnvSchema = z.object({
   VITE_WEB_MUNICIPAL_DISCOVERY_ENABLED: z.enum(['true', 'false']).optional(),
   /** WP-SPA-08 — web Smart Parking Assistant. Explicit opt-in only. */
   VITE_SMART_PARKING_ASSISTANT_ENABLED: z.enum(['true', 'false']).optional(),
+  /** GOOGLE-STARTUP-REAPPLY-01C — anonymous read-only explore. */
+  VITE_PUBLIC_EXPLORE_ENABLED: z.enum(['true', 'false']).optional(),
+  /** Safe first paint while the runtime registration mode is fetched. */
+  VITE_REGISTRATION_MODE: z.enum(['CLOSED', 'INVITE', 'OPEN', 'closed', 'invite', 'open']).optional(),
 });
 
 export interface FrontendConfig {
@@ -47,6 +52,7 @@ export interface FrontendConfig {
   errorReporting: {
     provider: FrontendErrorReportingProvider;
   };
+  registrationModeBootstrap: RegistrationMode;
   features: {
     smartReturn: boolean;
     /**
@@ -61,6 +67,7 @@ export interface FrontendConfig {
      * (`VITE_SMART_PARKING_ASSISTANT_ENABLED`). Default false; independent of municipalDiscovery.
      */
     smartParkingAssistant: boolean;
+    publicExplore: boolean;
   };
 }
 
@@ -107,6 +114,11 @@ export function createFrontendConfig(env: ImportMetaEnv): FrontendConfig {
     errorReporting: {
       provider: raw.VITE_FRONTEND_ERROR_REPORTING ?? 'disabled',
     },
+    registrationModeBootstrap: raw.VITE_REGISTRATION_MODE
+      ? (raw.VITE_REGISTRATION_MODE.toUpperCase() as RegistrationMode)
+      : raw.MODE === 'test'
+        ? 'OPEN'
+        : 'CLOSED',
     features: {
       smartReturn: raw.VITE_SMART_RETURN_ENABLED === undefined
         ? !isProductionLike
@@ -114,6 +126,7 @@ export function createFrontendConfig(env: ImportMetaEnv): FrontendConfig {
       // Explicit opt-in only — never default on for a production-like environment.
       municipalDiscovery: raw.VITE_WEB_MUNICIPAL_DISCOVERY_ENABLED === 'true',
       smartParkingAssistant: raw.VITE_SMART_PARKING_ASSISTANT_ENABLED === 'true',
+      publicExplore: raw.VITE_PUBLIC_EXPLORE_ENABLED === 'true',
     },
   };
 }

@@ -76,3 +76,8 @@ export interface MobileTokenRequest {
 export type RefreshTokenRequest = MobileTokenRequest | undefined;
 
 export type LogoutRequest = MobileTokenRequest | undefined;
+export const REGISTRATION_MODES = ['CLOSED', 'INVITE', 'OPEN'] as const;
+export type RegistrationMode = (typeof REGISTRATION_MODES)[number];
+export interface RegistrationModeResponse {
+  mode: RegistrationMode;
+}

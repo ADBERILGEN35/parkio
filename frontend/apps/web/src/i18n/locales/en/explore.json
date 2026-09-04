@@ -1,0 +1,19 @@
+{
+  "liveBeta": "Live public beta",
+  "readOnly": "Read-only",
+  "noAccount": "No account required",
+  "title": "Live public parking explore",
+  "description": "Explore source-labelled municipal parking availability around Konak, Izmir. This public view is non-personalised and read-only.",
+  "signIn": "Sign in",
+  "loading": "Loading current municipal parking data…",
+  "unavailableTitle": "Parking data is temporarily unavailable.",
+  "unavailableBody": "Please try again later. No facilities are shown until live public data is available.",
+  "facilityPanel": "Selected parking facility",
+  "selectFacility": "Select a marker to view public facility details.",
+  "municipalFacility": "Municipal parking",
+  "unnamed": "Parking facility",
+  "available": "Available spaces",
+  "capacity": "Total capacity",
+  "freshness": "Availability freshness",
+  "type": "Facility type"
+}

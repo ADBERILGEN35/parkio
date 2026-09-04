@@ -164,4 +164,19 @@ describe('createFrontendConfig', () => {
     );
     expect(config.features.smartParkingAssistant).toBe(false);
   });
+
+  it('keeps public explore disabled unless explicitly enabled at build time', () => {
+    expect(createFrontendConfig(env()).features.publicExplore).toBe(false);
+    expect(createFrontendConfig(env({ VITE_PUBLIC_EXPLORE_ENABLED: 'false' })).features.publicExplore)
+      .toBe(false);
+    expect(createFrontendConfig(env({ VITE_PUBLIC_EXPLORE_ENABLED: 'true' })).features.publicExplore)
+      .toBe(true);
+  });
+
+  it('fails registration mode bootstrap closed outside tests and preserves open test UX', () => {
+    expect(createFrontendConfig(env()).registrationModeBootstrap).toBe('CLOSED');
+    expect(createFrontendConfig(env({ MODE: 'test' })).registrationModeBootstrap).toBe('OPEN');
+    expect(createFrontendConfig(env({ VITE_REGISTRATION_MODE: 'invite' })).registrationModeBootstrap)
+      .toBe('INVITE');
+  });
 });

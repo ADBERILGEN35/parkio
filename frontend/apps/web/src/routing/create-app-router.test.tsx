@@ -46,6 +46,11 @@ import { RuntimeRouteRoot } from './RuntimeRouteRoot';
 vi.mock('@/pages/MapPage', () => ({
   MapPage: () => <span data-testid="lazy-route-marker">map-page</span>,
 }));
+vi.mock('@/pages/PublicExplorePage', () => ({
+  PublicExplorePage: () => (
+    <span data-testid="lazy-route-marker">public-explore-page</span>
+  ),
+}));
 vi.mock('@/pages/SpotDetailPage', () => ({
   SpotDetailPage: () => (
     <span data-testid="lazy-route-marker">spot-detail-page</span>
@@ -141,6 +146,7 @@ const EXPECTED_COMPONENT_KEYS = {
   [ROUTE_IDS.VERIFY_EMAIL]: ROUTE_COMPONENT_KEYS.VERIFY_EMAIL_PAGE,
   [ROUTE_IDS.TERMS]: ROUTE_COMPONENT_KEYS.TERMS_PAGE,
   [ROUTE_IDS.PRIVACY]: ROUTE_COMPONENT_KEYS.PRIVACY_PAGE,
+  [ROUTE_IDS.PUBLIC_EXPLORE]: ROUTE_COMPONENT_KEYS.PUBLIC_EXPLORE_PAGE,
   [ROUTE_IDS.PROTECTED_BOUNDARY]: ROUTE_COMPONENT_KEYS.PROTECTED_BOUNDARY,
   [ROUTE_IDS.AUTHENTICATED_ENTRY]: ROUTE_COMPONENT_KEYS.REDIRECT,
   [ROUTE_IDS.PREPARING]: ROUTE_COMPONENT_KEYS.ACCOUNT_PREPARING_PAGE,
@@ -197,6 +203,7 @@ const EXPECTED_EAGER_COMPONENTS: Partial<
 };
 
 const EXPECTED_LAZY_MARKERS: Partial<Record<RouteComponentKey, string>> = {
+  [ROUTE_COMPONENT_KEYS.PUBLIC_EXPLORE_PAGE]: 'public-explore-page',
   [ROUTE_COMPONENT_KEYS.MAP_PAGE]: 'map-page',
   [ROUTE_COMPONENT_KEYS.SPOT_DETAIL_PAGE]: 'spot-detail-page',
   [ROUTE_COMPONENT_KEYS.FACILITY_DETAIL_PAGE]: 'facility-detail-page',

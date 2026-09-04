@@ -1,0 +1,19 @@
+{
+  "liveBeta": "Canlı herkese açık beta",
+  "readOnly": "Salt okunur",
+  "noAccount": "Hesap gerekmez",
+  "title": "Canlı herkese açık otopark keşfi",
+  "description": "Konak, İzmir çevresindeki kaynağı belirtilen belediye otopark uygunluğunu keşfedin. Bu herkese açık görünüm kişiselleştirilmez ve salt okunurdur.",
+  "signIn": "Giriş yap",
+  "loading": "Güncel belediye otopark verileri yükleniyor…",
+  "unavailableTitle": "Otopark verileri geçici olarak kullanılamıyor.",
+  "unavailableBody": "Lütfen daha sonra tekrar deneyin. Canlı herkese açık veri kullanılabilir olana kadar tesis gösterilmez.",
+  "facilityPanel": "Seçilen otopark tesisi",
+  "selectFacility": "Herkese açık tesis ayrıntılarını görmek için bir işaret seçin.",
+  "municipalFacility": "Belediye otoparkı",
+  "unnamed": "Otopark tesisi",
+  "available": "Boş alan",
+  "capacity": "Toplam kapasite",
+  "freshness": "Uygunluk güncelliği",
+  "type": "Tesis türü"
+}
