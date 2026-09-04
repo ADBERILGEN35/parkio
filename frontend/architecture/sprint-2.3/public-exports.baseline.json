@@ -161,6 +161,11 @@
       "source": "./places"
     },
     {
+      "name": "PublicExploreApi",
+      "kind": "type",
+      "source": "./public-explore"
+    },
+    {
       "name": "RateLimitError",
       "kind": "value",
       "source": "./errors"
@@ -419,6 +424,11 @@
       "name": "createPlacesApi",
       "kind": "value",
       "source": "./places"
+    },
+    {
+      "name": "createPublicExploreApi",
+      "kind": "value",
+      "source": "./public-explore"
     },
     {
       "name": "createRequestId",
