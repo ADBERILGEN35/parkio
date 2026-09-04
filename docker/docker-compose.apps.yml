@@ -140,6 +140,7 @@ services:
       PARKIO_CORS_ALLOW_CREDENTIALS: ${PARKIO_CORS_ALLOW_CREDENTIALS:-true}
       PARKIO_JWT_AUDIENCE: ${PARKIO_JWT_AUDIENCE:-parkio-api}
       PARKIO_JWT_CLOCK_SKEW_SECONDS: ${PARKIO_JWT_CLOCK_SKEW_SECONDS:-30}
+      PARKIO_PUBLIC_EXPLORE_ENABLED: ${PARKIO_PUBLIC_EXPLORE_ENABLED:-false}
     healthcheck:
       <<: *app-healthcheck
       test: ["CMD", "curl", "-fsS", "http://localhost:8080/actuator/health/readiness"]
@@ -246,6 +247,8 @@ services:
       PARKIO_MEDIA_SERVICE_URI: http://media-service:8084
       # Favourite status lookup for ranking boosts (parkio.user.client.base-url).
       PARKIO_USER_SERVICE_URI: http://user-service:8082
+      PARKIO_PUBLIC_EXPLORE_ENABLED: ${PARKIO_PUBLIC_EXPLORE_ENABLED:-false}
+      PARKIO_PUBLIC_EXPLORE_ALLOWED_SOURCE_FAMILIES: ${PARKIO_PUBLIC_EXPLORE_ALLOWED_SOURCE_FAMILIES:-}
     healthcheck:
       <<: *app-healthcheck
       test: ["CMD", "curl", "-fsS", "http://localhost:8083/actuator/health/readiness"]

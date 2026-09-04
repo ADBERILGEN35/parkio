@@ -76,6 +76,7 @@ services:
       # set false still resolve; loopback peers remain readable for smoke
       # (PROD-DEPLOY-01B-03B).
       PARKIO_GATEWAY_PUBLIC_ACTUATOR_INFO_ENABLED: ${PARKIO_GATEWAY_PUBLIC_ACTUATOR_INFO_ENABLED:?invite-production requires PARKIO_GATEWAY_PUBLIC_ACTUATOR_INFO_ENABLED}
+      PARKIO_PUBLIC_EXPLORE_ENABLED: ${PARKIO_PUBLIC_EXPLORE_ENABLED:?invite-production requires PARKIO_PUBLIC_EXPLORE_ENABLED}
 
   auth-service:
     environment:
@@ -87,6 +88,8 @@ services:
       # Controlled-invite feature policy. These values are deliberately
       # required rather than defaulted: a missing rendered-env key must stop
       # Compose resolution instead of silently disabling an approved feature.
+      PARKIO_PUBLIC_EXPLORE_ENABLED: ${PARKIO_PUBLIC_EXPLORE_ENABLED:?invite-production requires PARKIO_PUBLIC_EXPLORE_ENABLED}
+      PARKIO_PUBLIC_EXPLORE_ALLOWED_SOURCE_FAMILIES: ${PARKIO_PUBLIC_EXPLORE_ALLOWED_SOURCE_FAMILIES?invite-production requires PARKIO_PUBLIC_EXPLORE_ALLOWED_SOURCE_FAMILIES}
       PARKIO_MUNICIPAL_ENABLED: ${PARKIO_MUNICIPAL_ENABLED:?invite-production requires PARKIO_MUNICIPAL_ENABLED}
       PARKIO_MUNICIPAL_MANUAL_SYNC_ENABLED: ${PARKIO_MUNICIPAL_MANUAL_SYNC_ENABLED:?invite-production requires PARKIO_MUNICIPAL_MANUAL_SYNC_ENABLED}
       PARKIO_MUNICIPAL_DISCOVERY_DUPLICATE_PRESENTATION_ENABLED: ${PARKIO_MUNICIPAL_DISCOVERY_DUPLICATE_PRESENTATION_ENABLED:?invite-production requires PARKIO_MUNICIPAL_DISCOVERY_DUPLICATE_PRESENTATION_ENABLED}

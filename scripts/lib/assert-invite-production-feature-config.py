@@ -14,6 +14,8 @@ from typing import Any
 
 
 PARKING_EXPECTED = {
+    "PARKIO_PUBLIC_EXPLORE_ENABLED": "false",
+    "PARKIO_PUBLIC_EXPLORE_ALLOWED_SOURCE_FAMILIES": "",
     "PARKIO_MUNICIPAL_ENABLED": "true",
     "PARKIO_MUNICIPAL_MANUAL_SYNC_ENABLED": "false",
     "PARKIO_MUNICIPAL_DISCOVERY_DUPLICATE_PRESENTATION_ENABLED": "true",
@@ -38,7 +40,12 @@ PARKING_EXPECTED = {
     "PARKIO_SPA_RANKING_EVALUATION_ENABLED": "false",
     "PARKIO_SPA_RANKING_EVALUATION_ROLLUP_ENABLED": "false",
 }
-WEB_EXPECTED = {"VITE_WEB_MUNICIPAL_DISCOVERY_ENABLED": "true"}
+GATEWAY_EXPECTED = {"PARKIO_PUBLIC_EXPLORE_ENABLED": "false"}
+WEB_EXPECTED = {
+    "VITE_WEB_MUNICIPAL_DISCOVERY_ENABLED": "true",
+    "VITE_PUBLIC_EXPLORE_ENABLED": "false",
+    "VITE_REGISTRATION_MODE": "closed",
+}
 
 
 def require_mapping(value: Any, description: str) -> dict[str, Any]:
@@ -51,6 +58,8 @@ def validate(model: dict[str, Any]) -> dict[str, Any]:
     services = require_mapping(model.get("services"), "services")
     parking = require_mapping(services.get("parking-service"), "parking-service")
     parking_env = require_mapping(parking.get("environment"), "parking-service.environment")
+    gateway = require_mapping(services.get("gateway-service"), "gateway-service")
+    gateway_env = require_mapping(gateway.get("environment"), "gateway-service.environment")
     web = require_mapping(services.get("web"), "web")
     web_build = require_mapping(web.get("build"), "web.build")
     web_args = require_mapping(web_build.get("args"), "web.build.args")
@@ -71,6 +80,14 @@ def validate(model: dict[str, Any]) -> dict[str, Any]:
             errors.append(
                 f"web.build.args.{key} expected {expected!r}, got {str(web_args[key])!r}"
             )
+    for key, expected in GATEWAY_EXPECTED.items():
+        if key not in gateway_env:
+            errors.append(f"gateway-service.environment.{key} is absent")
+        elif str(gateway_env[key]) != expected:
+            errors.append(
+                f"gateway-service.environment.{key} expected {expected!r}, "
+                f"got {str(gateway_env[key])!r}"
+            )
 
     # Explicit parity guard: a flag-on web bundle cannot be paired with a
     # backend that has municipal discovery absent or disabled.
@@ -87,6 +104,7 @@ def validate(model: dict[str, Any]) -> dict[str, Any]:
         "schemaVersion": 1,
         "source": "resolved-compose-model",
         "parkingEnvironment": {key: str(parking_env[key]) for key in PARKING_EXPECTED},
+        "gatewayEnvironment": {key: str(gateway_env[key]) for key in GATEWAY_EXPECTED},
         "webBuildArguments": {key: str(web_args[key]) for key in WEB_EXPECTED},
     }
 

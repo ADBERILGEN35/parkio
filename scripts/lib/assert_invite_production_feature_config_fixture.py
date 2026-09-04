@@ -22,6 +22,7 @@ def valid_model() -> dict:
                     "DATABASE_PASSWORD": "must-never-appear-in-evidence",
                 }
             },
+            "gateway-service": {"environment": dict(MODULE.GATEWAY_EXPECTED)},
             "web": {"build": {"args": dict(MODULE.WEB_EXPECTED)}},
         }
     }

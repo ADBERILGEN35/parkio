@@ -34,6 +34,14 @@ class InviteProductionFeatureConfigTest(unittest.TestCase):
             evidence["parkingEnvironment"]["PARKIO_SPA_RANKING_STRATEGY"],
             "DETERMINISTIC_V1",
         )
+        self.assertEqual(
+            evidence["gatewayEnvironment"]["PARKIO_PUBLIC_EXPLORE_ENABLED"],
+            "false",
+        )
+        self.assertEqual(
+            evidence["webBuildArguments"]["VITE_PUBLIC_EXPLORE_ENABLED"],
+            "false",
+        )
         self.assertNotIn("DATABASE_PASSWORD", result.stdout)
 
     def test_missing_required_on_key_fails_closed(self) -> None:
@@ -55,6 +63,27 @@ class InviteProductionFeatureConfigTest(unittest.TestCase):
         result = self.run_assertion(model)
         self.assertNotEqual(result.returncode, 0)
         self.assertIn("frontend/backend parity is broken", result.stderr)
+
+    def test_public_explore_must_remain_off_at_all_three_layers(self) -> None:
+        for service, section, key in [
+            ("parking-service", "environment", "PARKIO_PUBLIC_EXPLORE_ENABLED"),
+            ("gateway-service", "environment", "PARKIO_PUBLIC_EXPLORE_ENABLED"),
+            ("web", "args", "VITE_PUBLIC_EXPLORE_ENABLED"),
+        ]:
+            model = valid_model()
+            target = model["services"][service]
+            values = target["build"][section] if service == "web" else target[section]
+            values[key] = "true"
+            result = self.run_assertion(model)
+            self.assertNotEqual(result.returncode, 0, service)
+
+    def test_public_source_allowlist_must_be_empty_while_production_is_off(self) -> None:
+        model = valid_model()
+        model["services"]["parking-service"]["environment"][
+            "PARKIO_PUBLIC_EXPLORE_ALLOWED_SOURCE_FAMILIES"
+        ] = "izum"
+        result = self.run_assertion(model)
+        self.assertNotEqual(result.returncode, 0)
 
 
 if __name__ == "__main__":
