@@ -116,6 +116,60 @@ public class MunicipalFacilityRepositoryAdapter implements MunicipalFacilityRepo
     }
 
     @Override
+    public List<Facility> publicExploreIzumNearby(double lat, double lng, int radiusMeters, int limit) {
+        return jdbc.sql("""
+                SELECT f.id, f.display_name, f.operator_name, f.facility_type, f.address_text,
+                       f.latitude, f.longitude, f.capacity_total, f.is_paid, f.nonstop,
+                       f.access_classification,
+                       s.publisher, s.attribution_text, s.aging_after_seconds, s.stale_after_seconds,
+                       f.primary_source_key, s.source_key AS linked_source_keys,
+                       ST_Distance(f.location, ST_SetSRID(ST_MakePoint(:lng,:lat),4326)::geography) AS dist
+                FROM municipal_parking_facilities f
+                JOIN municipal_data_sources s
+                  ON s.active=true AND s.source_key='izmir-izum-otoparklar'
+                WHERE f.active=true
+                  AND EXISTS (
+                    SELECT 1 FROM municipal_facility_source_links l
+                    WHERE l.facility_id=f.id AND l.source_id=s.id AND l.active=true
+                  )
+                  AND f.latitude BETWEEN -90 AND 90
+                  AND f.longitude BETWEEN -180 AND 180
+                  AND f.location IS NOT NULL
+                  AND ST_DWithin(f.location, ST_SetSRID(ST_MakePoint(:lng,:lat),4326)::geography, :radius)
+                ORDER BY dist ASC, f.id ASC
+                LIMIT LEAST(:limit, 20)
+                """).param("lat", lat).param("lng", lng).param("radius", radiusMeters).param("limit", limit)
+                .query(this::map).list();
+    }
+
+    @Override
+    public Optional<Facility> findPublicExploreIzumById(
+            UUID id, double lat, double lng, int radiusMeters) {
+        return jdbc.sql("""
+                SELECT f.id, f.display_name, f.operator_name, f.facility_type, f.address_text,
+                       f.latitude, f.longitude, f.capacity_total, f.is_paid, f.nonstop,
+                       f.access_classification,
+                       s.publisher, s.attribution_text, s.aging_after_seconds, s.stale_after_seconds,
+                       f.primary_source_key, s.source_key AS linked_source_keys
+                FROM municipal_parking_facilities f
+                JOIN municipal_data_sources s
+                  ON s.active=true AND s.source_key='izmir-izum-otoparklar'
+                WHERE f.id=:id
+                  AND f.active=true
+                  AND EXISTS (
+                    SELECT 1 FROM municipal_facility_source_links l
+                    WHERE l.facility_id=f.id AND l.source_id=s.id AND l.active=true
+                  )
+                  AND f.latitude BETWEEN -90 AND 90
+                  AND f.longitude BETWEEN -180 AND 180
+                  AND f.location IS NOT NULL
+                  AND ST_DWithin(f.location, ST_SetSRID(ST_MakePoint(:lng,:lat),4326)::geography, :radius)
+                LIMIT 1
+                """).param("id", id).param("lat", lat).param("lng", lng).param("radius", radiusMeters)
+                .query(this::map).optional();
+    }
+
+    @Override
     public long count() {
         return jdbc.sql("SELECT count(*) FROM municipal_parking_facilities").query(Long.class).single();
     }

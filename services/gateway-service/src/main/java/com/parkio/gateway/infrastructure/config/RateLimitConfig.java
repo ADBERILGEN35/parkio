@@ -4,6 +4,7 @@ import com.parkio.gateway.shared.GatewayHeaders;
 import org.springframework.cloud.gateway.filter.ratelimit.KeyResolver;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
+import org.springframework.context.annotation.Primary;
 import reactor.core.publisher.Mono;
 
 /**
@@ -30,6 +31,7 @@ public class RateLimitConfig {
     }
 
     @Bean
+    @Primary
     public KeyResolver userOrIpKeyResolver(ClientIpResolver clientIpResolver) {
         return exchange -> {
             String userId = exchange.getRequest().getHeaders().getFirst(GatewayHeaders.USER_ID);
@@ -38,6 +40,15 @@ public class RateLimitConfig {
             }
             String clientIp = clientIpResolver.resolve(exchange.getRequest());
             return Mono.just("ip:" + (clientIp != null ? clientIp : "unknown"));
+        };
+    }
+
+    /** Public explore is always limited by resolved IP, regardless of incidental credentials. */
+    @Bean
+    public KeyResolver publicExploreIpKeyResolver(ClientIpResolver clientIpResolver) {
+        return exchange -> {
+            String clientIp = clientIpResolver.resolve(exchange.getRequest());
+            return Mono.just("public-explore-ip:" + (clientIp != null ? clientIp : "unknown"));
         };
     }
 }

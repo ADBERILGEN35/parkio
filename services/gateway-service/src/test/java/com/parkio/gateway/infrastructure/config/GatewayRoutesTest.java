@@ -2,7 +2,6 @@ package com.parkio.gateway.infrastructure.config;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
-import com.parkio.gateway.infrastructure.config.GatewayPublicSurfaceProperties;
 import com.parkio.gateway.infrastructure.security.PublicEndpoints;
 import java.util.List;
 import org.junit.jupiter.api.Test;
@@ -42,9 +41,80 @@ class GatewayRoutesTest {
                 // the geocoding route (parking-service behind a dedicated path + RL tier)
                 .contains("geocoding-service")
                 .contains("account-erasure")
+                .contains("public-explore")
                 // and the previously-wired routes are still present
                 .contains("auth-service", "user-service", "places-service", "parking-service", "media-service",
                         "gamification-service", "notification-service", "moderation-service");
+    }
+
+    @Test
+    void publicExploreRouteIsExactGetOnlyAndRateLimitedAtOnePerSecondBurstFive() {
+        RouteDefinition route = routeDefinitionLocator.getRouteDefinitions()
+                .filter(candidate -> "public-explore".equals(candidate.getId()))
+                .blockFirst();
+
+        assertThat(route).isNotNull();
+        assertThat(route.getPredicates().stream().filter(predicate -> "Method".equals(predicate.getName())))
+                .singleElement()
+                .satisfies(predicate -> assertThat(predicate.getArgs()).containsValue("GET"));
+        assertThat(route.getPredicates().stream().filter(predicate -> "Path".equals(predicate.getName())))
+                .singleElement()
+                .satisfies(predicate -> assertThat(predicate.getArgs().values())
+                        .contains("/api/v1/public/explore/facilities")
+                        .contains("/api/v1/public/explore/facilities/{facilityId}"));
+        assertThat(route.getFilters()).singleElement().satisfies(filter -> {
+            assertThat(filter.getName()).isEqualTo("RequestRateLimiter");
+            assertThat(filter.getArgs()).containsEntry("redis-rate-limiter.replenishrate", "1")
+                    .containsEntry("redis-rate-limiter.burstcapacity", "5")
+                    .containsValue("#{@publicExploreIpKeyResolver}");
+        });
+    }
+
+    @Test
+    void publicExploreAnonymousRulesAreFlaggedAndGetOnly() {
+        GatewayPublicSurfaceProperties enabled = new GatewayPublicSurfaceProperties();
+        enabled.setPublicExploreEnabled(true);
+        PublicEndpoints endpoints = new PublicEndpoints(enabled);
+
+        assertThat(endpoints.isPublic(MockServerHttpRequest.get("/api/v1/public/explore/facilities").build()))
+                .isTrue();
+        assertThat(endpoints.isPublic(MockServerHttpRequest.get(
+                "/api/v1/public/explore/facilities/00000000-0000-0000-0000-000000000001").build()))
+                .isTrue();
+        for (HttpMethod method : List.of(HttpMethod.POST, HttpMethod.PUT, HttpMethod.PATCH, HttpMethod.DELETE)) {
+            assertThat(endpoints.isPublic(MockServerHttpRequest
+                    .method(method, "/api/v1/public/explore/facilities").build())).isFalse();
+        }
+        assertThat(endpoints.isPublic(MockServerHttpRequest
+                .get("/api/v1/public/explore/facilities/not-a-uuid/extra").build())).isFalse();
+        assertThat(publicEndpoints.isPublic(MockServerHttpRequest
+                .get("/api/v1/public/explore/facilities").build())).isFalse();
+        assertThat(publicEndpoints.isPublic(MockServerHttpRequest
+                .get("/api/v1/parking/facilities/nearby").build())).isFalse();
+    }
+
+    @Test
+    void registrationModeBootstrapIsPublicReadOnly() {
+        assertThat(publicEndpoints.isPublic(MockServerHttpRequest
+                .get("/api/v1/auth/registration-mode").build())).isTrue();
+        assertThat(publicEndpoints.isPublic(MockServerHttpRequest
+                .post("/api/v1/auth/registration-mode").build())).isFalse();
+    }
+
+    @Test
+    void existingPrivateProductAndOperatorSurfacesRemainAuthenticated() {
+        for (var request : List.of(
+                MockServerHttpRequest.get("/api/v1/parking/spots").build(),
+                MockServerHttpRequest.get("/api/v1/parking/facilities/nearby").build(),
+                MockServerHttpRequest.get("/api/v1/places/favourites/parking").build(),
+                MockServerHttpRequest.get("/api/v1/users/me").build(),
+                MockServerHttpRequest.get("/api/v1/parking/sessions/current").build(),
+                MockServerHttpRequest.post("/api/v1/parking/recommendations").build(),
+                MockServerHttpRequest.get("/api/v1/admin/dashboard").build(),
+                MockServerHttpRequest.post("/api/v1/parking/municipal/sync").build(),
+                MockServerHttpRequest.post("/api/v1/admin/invites").build())) {
+            assertThat(publicEndpoints.isPublic(request)).isFalse();
+        }
     }
 
     @Test

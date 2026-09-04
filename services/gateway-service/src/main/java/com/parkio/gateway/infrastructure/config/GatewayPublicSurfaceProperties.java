@@ -16,6 +16,7 @@ public class GatewayPublicSurfaceProperties {
      * Health probes remain public via {@link com.parkio.gateway.infrastructure.security.PublicEndpoints}.
      */
     private boolean actuatorInfoEnabled = true;
+    private boolean publicExploreEnabled;
 
     public boolean isActuatorInfoEnabled() {
         return actuatorInfoEnabled;
@@ -23,5 +24,13 @@ public class GatewayPublicSurfaceProperties {
 
     public void setActuatorInfoEnabled(boolean actuatorInfoEnabled) {
         this.actuatorInfoEnabled = actuatorInfoEnabled;
+    }
+
+    public boolean isPublicExploreEnabled() {
+        return publicExploreEnabled;
+    }
+
+    public void setPublicExploreEnabled(boolean publicExploreEnabled) {
+        this.publicExploreEnabled = publicExploreEnabled;
     }
 }

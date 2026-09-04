@@ -24,7 +24,7 @@ import org.springframework.test.context.bean.override.mockito.MockitoBean;
 import org.springframework.test.web.reactive.server.WebTestClient;
 import reactor.core.publisher.Mono;
 
-@SpringBootTest
+@SpringBootTest(properties = "parkio.gateway.public-surface.public-explore-enabled=true")
 @AutoConfigureWebTestClient
 @ActiveProfiles("test")
 class ParkingSessionResponsePolicyIntegrationTest {
@@ -86,6 +86,14 @@ class ParkingSessionResponsePolicyIntegrationTest {
                 .jsonPath("$.message").isEqualTo("Too many requests. Try again later.")
                 .jsonPath("$.traceId").isNotEmpty()
                 .jsonPath("$.timestamp").isNotEmpty();
+    }
+
+    @Test
+    void anonymousPublicExploreRateLimitFailureReturns429() {
+        webTestClient.get()
+                .uri("/api/v1/public/explore/facilities")
+                .exchange()
+                .expectStatus().isEqualTo(429);
     }
 
     @Test

@@ -131,6 +131,9 @@ info:
     description: Parkio parking-service
 
 parkio:
+  public-explore:
+    enabled: ${PARKIO_PUBLIC_EXPLORE_ENABLED:false}
+    allowed-source-families: ${PARKIO_PUBLIC_EXPLORE_ALLOWED_SOURCE_FAMILIES:}
   municipal:
     enabled: ${PARKIO_MUNICIPAL_ENABLED:false}
     manual-sync-enabled: ${PARKIO_MUNICIPAL_MANUAL_SYNC_ENABLED:false}

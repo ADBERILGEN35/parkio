@@ -20,5 +20,7 @@ public interface MunicipalFacilityRepository {
     Upserted upsert(UUID sourceId, NormalizedMunicipalFacility facility, Instant now);
     List<Facility> nearby(double lat, double lng, int radiusMeters, int limit);
     Optional<Facility> findById(UUID id);
+    List<Facility> publicExploreIzumNearby(double lat, double lng, int radiusMeters, int limit);
+    Optional<Facility> findPublicExploreIzumById(UUID id, double lat, double lng, int radiusMeters);
     long count();
 }

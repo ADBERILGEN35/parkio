@@ -18,7 +18,7 @@ class RateLimitMetricsGlobalFilterTest {
     @Test
     void countsRateLimitedRequests() {
         MockServerWebExchange exchange = MockServerWebExchange.from(
-                MockServerHttpRequest.get("/api/v1/parking/spots").build());
+                MockServerHttpRequest.get("/api/v1/public/explore/facilities").build());
 
         filter.filter(exchange, ex -> {
             ex.getResponse().setStatusCode(HttpStatus.TOO_MANY_REQUESTS);

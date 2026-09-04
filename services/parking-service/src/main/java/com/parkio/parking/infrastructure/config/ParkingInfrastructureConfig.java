@@ -43,7 +43,7 @@ import org.springframework.scheduling.annotation.EnableScheduling;
 @Configuration
 @EnableConfigurationProperties({
         ParkingProperties.class, GeocodingProperties.class, MunicipalSourceProperties.class,
-        RegistryProperties.class,
+        RegistryProperties.class, PublicExploreProperties.class,
         com.parkio.parking.application.recommendation.ranking.RankingProperties.class,
         com.parkio.parking.application.recommendation.ranking.shadow.ShadowRankingProperties.class,
         com.parkio.parking.application.recommendation.ranking.evaluation.RankingEvaluationProperties.class
@@ -132,6 +132,17 @@ public class ParkingInfrastructureConfig {
                 izelmanProperties,
                 discoveryDuplicatePresentationMetrics,
                 clock);
+    }
+
+    @Bean
+    @ConditionalOnProperty(prefix = "parkio.public-explore", name = "enabled", havingValue = "true")
+    public com.parkio.parking.application.PublicExploreQueryService publicExploreQueryService(
+            MunicipalFacilityRepository facilities,
+            MunicipalOccupancySnapshotRepository snapshots,
+            PublicExploreProperties properties,
+            Clock clock) {
+        return new com.parkio.parking.application.PublicExploreQueryService(
+                facilities, snapshots, properties, clock);
     }
 
     @Bean

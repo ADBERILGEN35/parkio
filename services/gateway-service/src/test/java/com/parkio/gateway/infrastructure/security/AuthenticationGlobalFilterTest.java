@@ -83,6 +83,41 @@ class AuthenticationGlobalFilterTest {
     }
 
     @Test
+    void publicExploreFlagOffReturnsCanonicalMissingToken() {
+        var exchange = MockServerWebExchange.from(MockServerHttpRequest
+                .get("/api/v1/public/explore/facilities").build());
+        var chain = new CapturingChain();
+
+        filter().filter(exchange, chain).block();
+
+        assertThat(chain.wasInvoked()).isFalse();
+        assertThat(exchange.getResponse().getStatusCode()).isEqualTo(HttpStatus.UNAUTHORIZED);
+    }
+
+    @Test
+    void publicExploreFlagOnIsCredentialInvariantAndStripsForgedIdentity() {
+        GatewayPublicSurfaceProperties properties = new GatewayPublicSurfaceProperties();
+        properties.setPublicExploreEnabled(true);
+        var filter = filter(properties);
+        String normalUserToken = validToken(UUID.randomUUID(), "rider@parkio.test", List.of("USER"));
+
+        var anonymousChain = new CapturingChain();
+        filter.filter(MockServerWebExchange.from(MockServerHttpRequest
+                .get("/api/v1/public/explore/facilities").build()), anonymousChain).block();
+
+        var credentialedChain = new CapturingChain();
+        filter.filter(MockServerWebExchange.from(MockServerHttpRequest
+                .get("/api/v1/public/explore/facilities")
+                .header(HttpHeaders.AUTHORIZATION, "Bearer " + normalUserToken)
+                .header(GatewayHeaders.USER_ID, "forged-user")
+                .build()), credentialedChain).block();
+
+        assertThat(anonymousChain.wasInvoked()).isTrue();
+        assertThat(credentialedChain.wasInvoked()).isTrue();
+        assertThat(forwardedHeader(credentialedChain, GatewayHeaders.USER_ID)).isNull();
+    }
+
+    @Test
     void protectedRouteWithoutTokenIsRejected() {
         var exchange = MockServerWebExchange.from(MockServerHttpRequest
                 .get("/api/v1/users/me").build());
@@ -128,6 +163,10 @@ class AuthenticationGlobalFilterTest {
     }
 
     private static AuthenticationGlobalFilter filter() {
+        return filter(new GatewayPublicSurfaceProperties());
+    }
+
+    private static AuthenticationGlobalFilter filter(GatewayPublicSurfaceProperties publicSurface) {
         JwtProperties properties = new JwtProperties();
         properties.setIssuer(ISSUER);
         properties.setAudience(AUDIENCE);
@@ -139,7 +178,7 @@ class AuthenticationGlobalFilterTest {
         JwtTokenValidator validator = new JwtTokenValidator(
                 properties, resolver, new ObjectMapper().findAndRegisterModules());
         return new AuthenticationGlobalFilter(
-                new PublicEndpoints(new GatewayPublicSurfaceProperties()),
+                new PublicEndpoints(publicSurface),
                 validator,
                 new GatewayErrorResponseWriter(
                         new ObjectMapper().findAndRegisterModules(),
