@@ -57,6 +57,9 @@ set -euo pipefail
 case " ${*} " in
   *" s_client "*) printf '%s\n' 'mock certificate' ;;
   *" x509 "*)
+    # Consume the upstream s_client fixture before exiting. Without this, the
+    # pipe can close early and make s_client fail with SIGPIPE under pipefail.
+    cat >/dev/null
     case " ${*} " in
       *" -subject "*) printf '%s\n' 'subject=DNS:app.parkio.dev,DNS:api.parkio.dev,DNS:media.parkio.dev' ;;
     esac
