@@ -216,6 +216,9 @@ class MockWp03Backend {
           body: JSON.stringify(data),
         });
 
+      if (method === 'GET' && path === '/auth/registration-mode') {
+        return json({ mode: 'OPEN' });
+      }
       if (method === 'POST' && path === '/auth/refresh-token') {
         this.refreshCount += 1;
         await this.bootstrapGate?.promise;
@@ -935,6 +938,7 @@ test.describe('WP-03 canonical routing acceptance', () => {
       '/verify-email': 'Verify your email',
       '/privacy': 'Privacy Policy',
       '/terms': 'Terms of Service',
+      '/explore': 'Live public parking explore',
     };
 
     expect(publicRoutes.map((route) => route.path).sort()).toEqual(
@@ -947,6 +951,7 @@ test.describe('WP-03 canonical routing acceptance', () => {
         '/verify-email',
         '/privacy',
         '/terms',
+        '/explore',
       ].sort(),
     );
 
@@ -994,6 +999,7 @@ test.describe('WP-03 canonical routing acceptance', () => {
         '/check-email',
         '/verify-email',
         '/preparing',
+        '/explore',
       ].sort(),
     );
     expect(bypassRoutes.every((route) => route.bypass)).toBe(true);
@@ -1006,6 +1012,7 @@ test.describe('WP-03 canonical routing acceptance', () => {
       '/check-email': 'Check your email',
       '/verify-email': 'Verify your email',
       '/preparing': /Preparing your account|Parkio/,
+      '/explore': 'Live public parking explore',
     };
 
     for (const route of bypassRoutes) {
