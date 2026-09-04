@@ -2,7 +2,7 @@
 
 interface ImportMetaEnv {
   readonly VITE_API_BASE_URL: string;
-  readonly VITE_APP_ENV?: 'development' | 'test' | 'hosted-beta' | 'production';
+  readonly VITE_APP_ENV?: 'development' | 'test' | 'hosted-beta' | 'invite-production' | 'production';
   /** MapTiler API key — enables vector tiles. Absent ⇒ OSM raster fallback. */
   readonly VITE_MAPTILER_KEY?: string;
   /** MapTiler vector style id (default `streets-v2`). Prepared for style switching. */
@@ -13,6 +13,10 @@ interface ImportMetaEnv {
   readonly VITE_MAP_TILE_ATTRIBUTION?: string;
   readonly VITE_FRONTEND_ERROR_REPORTING?: 'disabled' | 'console';
   readonly VITE_SMART_RETURN_ENABLED?: 'true' | 'false';
+  /** WEB-MUNI-01 client flag (`WEB_MUNICIPAL_DISCOVERY_ENABLED`). Default off. */
+  readonly VITE_WEB_MUNICIPAL_DISCOVERY_ENABLED?: 'true' | 'false';
+  /** WP-SPA-08 web Smart Parking Assistant. Explicit `'true'` only; default off. */
+  readonly VITE_SMART_PARKING_ASSISTANT_ENABLED?: 'true' | 'false';
 }
 
 interface ImportMeta {

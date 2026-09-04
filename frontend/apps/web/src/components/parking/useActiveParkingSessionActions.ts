@@ -19,6 +19,7 @@ import { activeParkingSessionQueryOptions } from '@/data/query-options/parking';
 import { useParkingSessionLifecycleConfigQuery } from '@/data/hooks/useParkingSessionQueries';
 import { needsActiveConfirmation } from '@/lib/parkingSessionStale';
 import { showError, showInfo, showSuccess } from '@/lib/toast';
+import { trackParkingSessionEnded, trackReturnToCarStarted } from '@/services/spaTelemetry';
 import { openParkingLocationInMaps } from './openParkingMaps';
 import { shareParkingLocation } from './shareParkingLocation';
 import { useNowTicker } from './useNowTicker';
@@ -141,6 +142,7 @@ export function useActiveParkingSessionActions(options: {
 
   const findMyCar = useCallback(() => {
     if (terminalBusy || requiresActiveConfirmation) return;
+    trackReturnToCarStarted();
     onFocusCar();
   }, [onFocusCar, requiresActiveConfirmation, terminalBusy]);
 
@@ -155,6 +157,7 @@ export function useActiveParkingSessionActions(options: {
       }
       return;
     }
+    trackReturnToCarStarted();
     const opened = openParkingLocationInMaps(session.latitude, session.longitude);
     if (!opened) {
       showError(t('parkingSession.maps.failed'));
@@ -265,6 +268,7 @@ export function useActiveParkingSessionActions(options: {
             ? t('parkingSession.complete.success')
             : t('parkingSession.cancel.success'),
         );
+        trackParkingSessionEnded(op === 'complete' ? 'completed' : 'cancelled');
         setPhase('idle');
       } catch (error) {
         if (sessionIdRef.current !== targetId) {

@@ -13,7 +13,7 @@ DATA-WP-02 must import OSM `amenity=parking` facilities for İzmir without depen
 1. **Production input**: Official Geofabrik Türkiye PBF (`https://download.geofabrik.de/europe/turkey.html`), clipped offline.
 2. **In-app interchange**: Parkio normalized GeoJSON FeatureCollection (`osm-parking-geojson-v1`) read from a configured local path.
 3. **Offline prep tool**: `osmium` (extract + export) documented for operators. The JVM does **not** parse PBF.
-4. **Clip**: Versioned `izmir-bbox-v1` metropolitan bbox (documented temporary fallback). Clip id is recorded on every import run.
+4. **Clip**: Versioned `izmir-admin-izbb-2024-10-18-v1` administrative polygon (DATA-WP-08). Legacy `izmir-bbox-v1` metropolitan bbox retained for rollback. Clip id is recorded on every import run.
 5. **Registry**: Reuse DATA-WP-01 `municipal_data_sources` / links / sync runs with source key `osm-geofabrik-turkey` (`OPEN_DATA_FILE`). Municipal naming is retained as a known limitation.
 
 ## Rejected alternatives

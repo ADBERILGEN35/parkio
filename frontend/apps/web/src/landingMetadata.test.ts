@@ -6,67 +6,67 @@ import { describe, expect, it } from 'vitest';
 const appDir = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 const publicDir = resolve(appDir, 'public');
 
-function readAppHtml() {
-  return readFileSync(resolve(appDir, 'index.html'), 'utf8');
+function readHtml(path = 'index.html') {
+  return readFileSync(resolve(appDir, path), 'utf8');
 }
 
-describe('landing metadata', () => {
-  it('keeps launch SEO metadata aligned with parkio.dev', () => {
-    const html = readAppHtml();
+describe('app metadata and crawler surface', () => {
+  it('keeps the authenticated app root out of the index and uses reachable app assets', () => {
+    const html = readHtml();
 
-    expect(html).toContain('<title>Parkio</title>');
-    expect(html).toContain('lang="tr"');
-    expect(html).toContain('name="description"');
-    expect(html).toContain('Parkio');
-    expect(html).toContain('topluluk destekli park yeri');
-    expect(html).toContain('park yeri bul');
-    expect(html).toContain('park yeri bul, paylaş ve doğrula');
-    expect(html).not.toContain('Community-powered parking for drivers');
-    expect(html).toContain('Turkish-default');
-    expect(html).toContain('canonical product language');
-    expect(html).toContain('<link rel="canonical" href="https://parkio.dev/" />');
-    expect(html).toContain('<meta name="robots" content="index, follow" />');
-    expect(html).toContain('<meta property="og:url" content="https://parkio.dev/" />');
-    expect(html).toContain('<meta name="theme-color" content="#0050CB" />');
+    expect(html).toContain('<title>Parkio App</title>');
+    expect(html).toContain('lang="en"');
+    expect(html).toContain('<link rel="canonical" href="https://app.parkio.dev/" />');
+    expect(html).toContain('<meta name="robots" content="noindex,follow" />');
+    expect(html).toContain('<meta property="og:url" content="https://app.parkio.dev/" />');
     expect(html).toContain(
-      '<meta property="og:image" content="https://parkio.dev/og-parkio.png" />',
+      '<meta property="og:image" content="https://app.parkio.dev/og-parkio.png" />',
     );
-    expect(html).toContain('<meta name="twitter:card" content="summary_large_image" />');
     expect(html).toContain(
-      '<meta name="twitter:image" content="https://parkio.dev/social-preview.png" />',
+      '<meta name="twitter:image" content="https://app.parkio.dev/social-preview.png" />',
     );
-    expect(html).not.toContain('Community-Powered Parking Intelligence');
+    expect(html).not.toContain('Founder');
+    expect(html).not.toContain('sameAs');
   });
 
-  it('ships parseable JSON-LD for the public landing page', () => {
-    const html = readAppHtml();
+  it('ships meaningful static explore HTML without a facility snapshot', () => {
+    const html = readHtml('explore/index.html');
+
+    expect(html).toContain('<title>Parkio — Live Public Parking Explore</title>');
+    expect(html).toContain('<link rel="canonical" href="https://app.parkio.dev/explore" />');
+    expect(html).toContain('<meta name="robots" content="index,follow" />');
+    expect(html).toContain('<meta property="og:url" content="https://app.parkio.dev/explore" />');
+    expect(html).toContain('Live public parking explore');
+    expect(html).toContain('Read-only municipal parking discovery');
+    expect(html).toContain('source-labelled availability');
+    expect(html).toContain('Controlled public beta');
+    expect(html).toContain('No account required');
+    expect(html).not.toMatch(/fixture|mock|snapshot/i);
+
     const jsonLd = html.match(/<script type="application\/ld\+json">([\s\S]*?)<\/script>/)?.[1];
-
-    expect(jsonLd).toBeTruthy();
-    const parsed = JSON.parse(jsonLd ?? '{}') as {
-      '@graph': Array<{ '@type': string; url?: string; description?: string }>;
-    };
-
-    expect(parsed['@graph'].map((entry) => entry['@type'])).toEqual([
-      'Organization',
-      'WebSite',
-      'SoftwareApplication',
-    ]);
-    expect(parsed['@graph'].every((entry) => entry.url === 'https://parkio.dev/')).toBe(true);
-    const software = parsed['@graph'].find((entry) => entry['@type'] === 'SoftwareApplication');
-    expect(software?.description).toContain('park yeri bul');
+    const parsed = JSON.parse(jsonLd ?? '{}') as { '@type': string; url: string };
+    expect(parsed).toMatchObject({
+      '@type': 'WebApplication',
+      url: 'https://app.parkio.dev/explore',
+    });
   });
 
-  it('publishes crawler entry points for the public pages only', () => {
+  it('publishes an exact single-URL sitemap and disallows private routes', () => {
     const robots = readFileSync(resolve(publicDir, 'robots.txt'), 'utf8');
     const sitemap = readFileSync(resolve(publicDir, 'sitemap.xml'), 'utf8');
 
-    expect(robots).toContain('User-agent: *');
-    expect(robots).toContain('Allow: /');
-    expect(robots).toContain('Sitemap: https://parkio.dev/sitemap.xml');
-    expect(sitemap).toContain('<loc>https://parkio.dev/</loc>');
-    expect(sitemap).toContain('<loc>https://parkio.dev/privacy</loc>');
-    expect(sitemap).toContain('<loc>https://parkio.dev/terms</loc>');
-    expect(sitemap).not.toContain('/map');
+    expect(robots).toContain('Allow: /explore');
+    for (const path of [
+      '/login', '/register', '/forgot-password', '/reset-password', '/check-email',
+      '/verify-email', '/map', '/spots/', '/facilities/', '/my-spots', '/upload',
+      '/profile', '/reports', '/notifications', '/gamification', '/leaderboard',
+      '/moderation', '/admin',
+    ]) {
+      expect(robots).toContain(`Disallow: ${path}`);
+    }
+    expect(robots).toContain('Sitemap: https://app.parkio.dev/sitemap.xml');
+    expect(sitemap.match(/<loc>/g)).toHaveLength(1);
+    expect(sitemap).toContain('<loc>https://app.parkio.dev/explore</loc>');
+    expect(sitemap).not.toMatch(/login|register|\/map|profile|admin/);
   });
 });

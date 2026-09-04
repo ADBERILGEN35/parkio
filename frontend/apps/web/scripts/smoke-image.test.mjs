@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { spawnSync } from 'node:child_process';
@@ -40,18 +40,30 @@ function buildFixtureImage(scenario) {
   const image = `parkio/web-smoke-fixture:${runId}-${scenario}`;
   writeFileSync(
     join(context, 'Dockerfile'),
-    'FROM nginx:1.27-alpine\nCOPY default.conf /etc/nginx/conf.d/default.conf\nCOPY index.html /usr/share/nginx/html/index.html\nCOPY app.js /usr/share/nginx/html/assets/app.js\nCOPY env.js /usr/share/nginx/html/assets/env.js\n',
+    'FROM nginx:1.27-alpine\nCOPY default.conf /etc/nginx/conf.d/default.conf\nCOPY public/ /usr/share/nginx/html/\n',
   );
   writeFileSync(
     join(context, 'default.conf'),
-    'server { listen 80; root /usr/share/nginx/html; location / { try_files $uri $uri/ /index.html; } }\n',
+    'server { listen 80; root /usr/share/nginx/html; location = /privacy { return 302 https://parkio.dev/privacy/; } location = /terms { return 302 https://parkio.dev/terms/; } location = /explore { try_files /explore/index.html =404; } location / { try_files $uri $uri/ /index.html; } }\n',
   );
+  const publicDir = join(context, 'public');
+  mkdirSync(join(publicDir, 'assets'), { recursive: true });
+  mkdirSync(join(publicDir, 'icons'), { recursive: true });
+  mkdirSync(join(publicDir, 'explore'), { recursive: true });
   writeFileSync(
-    join(context, 'index.html'),
+    join(publicDir, 'index.html'),
     '<!doctype html><html><body><div id="root"></div><script type="module" src="/assets/app.js"></script></body></html>',
   );
-  writeFileSync(join(context, 'app.js'), fixtureSource(scenario));
-  writeFileSync(join(context, 'env.js'), fixtureEnvSource(scenario));
+  writeFileSync(join(publicDir, 'assets', 'app.js'), fixtureSource(scenario));
+  writeFileSync(join(publicDir, 'assets', 'env.js'), fixtureEnvSource(scenario));
+  writeFileSync(join(publicDir, 'explore', 'index.html'), 'Live public parking explore');
+  for (const path of [
+    'robots.txt', 'sitemap.xml', 'og-parkio.png', 'social-preview.png',
+    'manifest.webmanifest', 'sw.js', 'icons/favicon-32.png',
+    'icons/parkio-icon-192.png', 'icons/parkio-icon-512.png',
+  ]) {
+    writeFileSync(join(publicDir, path), 'fixture');
+  }
   const result = command(docker, ['build', '--quiet', '--tag', image, context]);
   rmSync(context, { recursive: true, force: true });
   assert.equal(result.status, 0, `fixture build failed: ${result.stderr}`);

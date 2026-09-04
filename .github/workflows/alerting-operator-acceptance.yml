@@ -1,0 +1,57 @@
+# Operator Slack paging acceptance (PROD-ALERTING-01A).
+# Injects PARKIO_ALERT_SLACK_WEBHOOK_URL from GitHub Actions secrets.
+# Never echoes the secret, never uploads Alertmanager runtime config.
+name: Alerting operator acceptance
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [api]
+    paths:
+      - "docker/alertmanager/**"
+      - "docker/docker-compose.alerting-acceptance.yml"
+      - "docker/prometheus/alerts.yml"
+      - "docker/prometheus/alerting-acceptance/**"
+      - "scripts/alerting-operator-acceptance.sh"
+      - ".github/workflows/alerting-operator-acceptance.yml"
+
+permissions:
+  contents: read
+
+jobs:
+  slack-operator:
+    name: Slack operator delivery
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    env:
+      PARKIO_ALERT_SLACK_WEBHOOK_URL: ${{ secrets.PARKIO_ALERT_SLACK_WEBHOOK_URL }}
+      PARKIO_ALERT_SLACK_CHANNEL: "#parkio-alert"
+      PARKIO_ALERT_GROUP_WAIT: "5s"
+      PARKIO_ALERT_GROUP_WAIT_CRITICAL: "5s"
+      PARKIO_ALERT_GROUP_INTERVAL: "10s"
+      PARKIO_ALERT_RESOLVE_TIMEOUT: "30s"
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Secret presence
+        run: |
+          set -euo pipefail
+          if [ -z "${PARKIO_ALERT_SLACK_WEBHOOK_URL}" ]; then
+            echo "BLOCKED — OPERATOR NOTIFICATION SECRET NOT AVAILABLE"
+            exit 2
+          fi
+          echo "secret=PRESENT"
+
+      - name: Operator Slack firing and resolved notify
+        run: |
+          set -euo pipefail
+          chmod +x scripts/alerting-operator-acceptance.sh docker/alertmanager/render-config.sh
+          ./scripts/alerting-operator-acceptance.sh
+          test -s docker/.alerting-acceptance-receipts/operator-evidence.txt
+          grep -q 'HUMAN_GATE: reply FIRING RECEIVED' docker/.alerting-acceptance-receipts/operator-evidence.txt
+          grep -q 'HUMAN_GATE: reply RESOLVED RECEIVED' docker/.alerting-acceptance-receipts/operator-evidence.txt
+          grep -q 'OPERATOR_SLACK_NOTIFY_PASS' docker/.alerting-acceptance-receipts/operator-evidence.txt
+          if grep -Ei 'hooks\.slack\.com|xox[bp]-' docker/.alerting-acceptance-receipts/operator-evidence.txt; then
+            echo "FAIL: credential-like string in operator evidence" >&2
+            exit 1
+          fi

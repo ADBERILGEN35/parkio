@@ -76,6 +76,31 @@ async function fillAndSubmit(overrides: FormOverrides = {}) {
 }
 
 describe('RegisterPage', () => {
+  it('renders no signup form or submit control when registration is closed', async () => {
+    server.use(
+      http.get(`${API_BASE}/auth/registration-mode`, () => HttpResponse.json({ mode: 'CLOSED' })),
+    );
+    renderRegister();
+
+    expect(await screen.findByText(/Registration is currently closed\. Parkio is operating/)).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Create account' })).not.toBeInTheDocument();
+    expect(screen.queryByLabelText('Email')).not.toBeInTheDocument();
+    expect(screen.getByRole('link', { name: 'Explore live Parkio' })).toHaveAttribute('href', '/explore');
+    expect(screen.getByRole('link', { name: 'Sign in' })).toHaveAttribute('href', '/login');
+  });
+
+  it('fails safe to the closed experience when registration mode is unavailable', async () => {
+    server.use(
+      http.get(`${API_BASE}/auth/registration-mode`, () =>
+        HttpResponse.json({ code: 'UNAVAILABLE' }, { status: 503 })),
+    );
+    renderRegister();
+
+    expect(await screen.findByText(/Registration is currently closed\. Parkio is operating/)).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Create account' })).not.toBeInTheDocument();
+    expect(screen.queryByLabelText('Email')).not.toBeInTheDocument();
+  });
+
   it('requires a display name', async () => {
     let registerCalls = 0;
     server.use(

@@ -107,6 +107,41 @@ async function readServedEnv() {
   throw new Error('could not find the injected import.meta.env object in any served asset');
 }
 
+async function checkPublicStaticSurface() {
+  const required = [
+    '/robots.txt',
+    '/sitemap.xml',
+    '/icons/favicon-32.png',
+    '/icons/parkio-icon-192.png',
+    '/icons/parkio-icon-512.png',
+    '/og-parkio.png',
+    '/social-preview.png',
+    '/manifest.webmanifest',
+    '/sw.js',
+  ];
+  for (const path of required) {
+    const response = await fetch(`${baseUrl}${path}`);
+    console.log(`smoke-image: static ${path} = HTTP ${response.status}`);
+    if (!response.ok) failures.push(`required static resource ${path} returned HTTP ${response.status}`);
+  }
+
+  const explore = await fetch(`${baseUrl}/explore`);
+  const exploreHtml = await explore.text();
+  if (!explore.ok || !exploreHtml.includes('Live public parking explore')) {
+    failures.push('/explore did not return the crawler-readable public entry');
+  }
+
+  for (const [path, location] of [
+    ['/privacy', 'https://parkio.dev/privacy/'],
+    ['/terms', 'https://parkio.dev/terms/'],
+  ]) {
+    const response = await fetch(`${baseUrl}${path}`, { redirect: 'manual' });
+    if (response.status !== 302 || response.headers.get('location') !== location) {
+      failures.push(`${path} did not return the authoritative 302 redirect`);
+    }
+  }
+}
+
 async function checkMount() {
   let chromium;
   try {
@@ -183,7 +218,10 @@ async function main() {
       if (status !== 'PRESENT') failures.push(`${key} is ${status} in the served bundle`);
     }
 
-    // ---- 4: the SPA must actually mount ----
+    // ---- 4: crawler/static files and legal redirects must be readable in the image ----
+    await checkPublicStaticSurface();
+
+    // ---- 5: the SPA must actually mount ----
     const mount = await checkMount();
     if (mount.skipped) {
       failures.push(

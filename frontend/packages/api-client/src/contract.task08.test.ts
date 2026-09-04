@@ -54,43 +54,85 @@ describe('Task 8 api-client contract', () => {
     }
   });
 
-  it('serializes nearby query params and maps PublicSpot responses', async () => {
-    let seenUrl = '';
-    server.use(
-      http.get(`${BASE}/parking/spots/nearby`, ({ request }) => {
-        seenUrl = request.url;
-        return HttpResponse.json([
-          {
-            id: 'spot-1',
-            latitude: 41.01,
-            longitude: 29.01,
-            status: 'ACTIVE',
-            expiresAt: '2026-07-24T12:00:00Z',
-          },
-        ]);
-      }),
-    );
+    it('serializes nearby query params and maps PublicSpot responses', async () => {
+      let seenUrl = '';
+      server.use(
+        http.get(`${BASE}/parking/spots/nearby`, ({ request }) => {
+          seenUrl = request.url;
+          return HttpResponse.json([
+            {
+              id: 'spot-1',
+              latitude: 41.01,
+              longitude: 29.01,
+              status: 'ACTIVE',
+              expiresAt: '2026-07-24T12:00:00Z',
+            },
+          ]);
+        }),
+      );
 
-    const client = createApiClient({
-      baseURL: BASE,
-      tokenStorage: new MemoryTokenStorage(),
-    });
-    const parking = createParkingApi(client);
-    const spots = await parking.getNearbySpots({
-      lat: 41.01,
-      lng: 29.01,
-      radius: 500,
-      limit: 10,
+      const client = createApiClient({
+        baseURL: BASE,
+        tokenStorage: new MemoryTokenStorage(),
+      });
+      const parking = createParkingApi(client);
+      const spots = await parking.getNearbySpots({
+        lat: 41.01,
+        lng: 29.01,
+        radius: 500,
+        limit: 10,
+      });
+
+      expect(seenUrl).toContain('lat=41.01');
+      expect(seenUrl).toContain('lng=29.01');
+      expect(seenUrl).toContain('radius=500');
+      expect(seenUrl).toContain('limit=10');
+      expect(spots).toHaveLength(1);
+      expect(spots[0]?.id).toBe('spot-1');
+      expect(spots[0]?.status).toBe('ACTIVE');
     });
 
-    expect(seenUrl).toContain('lat=41.01');
-    expect(seenUrl).toContain('lng=29.01');
-    expect(seenUrl).toContain('radius=500');
-    expect(seenUrl).toContain('limit=10');
-    expect(spots).toHaveLength(1);
-    expect(spots[0]?.id).toBe('spot-1');
-    expect(spots[0]?.status).toBe('ACTIVE');
-  });
+    it('maps municipal nearby radius to canonical radiusMeters', async () => {
+      let seenUrl = '';
+      server.use(
+        http.get(`${BASE}/parking/facilities/nearby`, ({ request }) => {
+          seenUrl = request.url;
+          return HttpResponse.json([]);
+        }),
+      );
+
+      const client = createApiClient({
+        baseURL: BASE,
+        tokenStorage: new MemoryTokenStorage(),
+      });
+      const parking = createParkingApi(client);
+
+      await parking.getNearbyMunicipalFacilities({
+        lat: 38.42,
+        lng: 27.14,
+        radiusMeters: 2500,
+        limit: 20,
+      });
+      expect(seenUrl).toContain('radiusMeters=2500');
+      expect(seenUrl).not.toContain('radius=2500');
+
+      await parking.getNearbyMunicipalFacilities({
+        lat: 38.42,
+        lng: 27.14,
+        radius: 1500,
+      });
+      expect(seenUrl).toContain('radiusMeters=1500');
+      expect(seenUrl).not.toMatch(/[?&]radius=1500(?:&|$)/);
+
+      await parking.getNearbyMunicipalFacilities({
+        lat: 38.42,
+        lng: 27.14,
+        radiusMeters: 3000,
+        radius: 1000,
+      });
+      expect(seenUrl).toContain('radiusMeters=3000');
+      expect(seenUrl).not.toMatch(/[?&]radius=1000(?:&|$)/);
+    });
 
   it('propagates Authorization and Idempotency-Key on verify/claim/create', async () => {
     const seen: Array<{ path: string; auth: string | null; idem: string | null }> = [];

@@ -513,7 +513,7 @@ Verify:
 
 - `backup-artifacts/backup-current.json` exists.
 - `docker/prometheus/textfile/parkio_backup.prom` updated.
-- Prometheus alert `BackupFailedOrStale` is not firing.
+- Prometheus alerts `BackupFailed` / `BackupStale` / `BackupOffsiteFailed` are not firing.
 - Offsite upload works if `BACKUP_MC_DEST` is configured.
 
 ## Restore Checklist

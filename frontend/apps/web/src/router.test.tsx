@@ -18,6 +18,9 @@ import {
 vi.mock('@/pages/MapPage', () => ({
   MapPage: () => <div>Map page stub</div>,
 }));
+vi.mock('@/pages/PublicExplorePage', () => ({
+  PublicExplorePage: () => <div>Public explore page stub</div>,
+}));
 
 function renderAt(path: string, roles?: string[]) {
   const runtime = createTestAppRuntimeWithAppRouter(undefined, [path]);
@@ -59,5 +62,15 @@ describe('default route (/)', () => {
 
     const registerLink = await screen.findByRole('link', { name: 'Register' });
     expect(registerLink).toHaveAttribute('href', '/register');
+  });
+});
+
+describe('public explore route', () => {
+  it('is independently reachable without authentication and does not redirect to login', async () => {
+    const router = renderAt('/explore');
+
+    expect(await screen.findByText('Public explore page stub')).toBeInTheDocument();
+    expect(router.state.location.pathname).toBe('/explore');
+    expect(screen.queryByRole('heading', { name: 'Welcome back' })).not.toBeInTheDocument();
   });
 });

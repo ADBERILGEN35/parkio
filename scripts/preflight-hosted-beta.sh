@@ -15,7 +15,7 @@
 #
 # Options:
 #   --env-file <path>   env file to validate (default: $PARKIO_ENV_FILE or docker/.env)
-#   --deployment-profile <name>  hosted-beta or azure-hosted-beta
+#   --deployment-profile <name>  hosted-beta, azure-hosted-beta, or invite-production
 #   --skip-compose      skip the docker-compose render (no docker needed; used by
 #                       fixture tests and by deploy-hosted-beta.sh, which renders
 #                       the compose config itself immediately afterwards)
@@ -99,7 +99,7 @@ if [ -z "$DEPLOYMENT_PROFILE" ]; then
 fi
 DEPLOYMENT_PROFILE=${DEPLOYMENT_PROFILE:-hosted-beta}
 case "$DEPLOYMENT_PROFILE" in
-  hosted-beta|azure-hosted-beta) ;;
+  hosted-beta|azure-hosted-beta|invite-production) ;;
   *)
     echo "ERROR: unsupported PARKIO_DEPLOYMENT_PROFILE='$DEPLOYMENT_PROFILE'" >&2
     exit 2
@@ -286,11 +286,18 @@ else
   esac
 fi
 
-EXPO_TOKEN=$(env_get PARKIO_EXPO_ACCESS_TOKEN)
-if [ -z "$EXPO_TOKEN" ] || is_placeholder "$EXPO_TOKEN"; then
-  fail "PARKIO_EXPO_ACCESS_TOKEN" "missing or placeholder" "create an access token at expo.dev (Account settings -> Access tokens)"
-else
+# Expo remains mandatory for hosted environments that intentionally include
+# mobile push. The web-only invite-production profile enforces disabled/noop in
+# its dedicated wrapper instead.
+if [ "$DEPLOYMENT_PROFILE" = "invite-production" ]; then
   ok
+else
+  EXPO_TOKEN=$(env_get PARKIO_EXPO_ACCESS_TOKEN)
+  if [ -z "$EXPO_TOKEN" ] || is_placeholder "$EXPO_TOKEN"; then
+    fail "PARKIO_EXPO_ACCESS_TOKEN" "missing or placeholder" "create an access token at expo.dev (Account settings -> Access tokens)"
+  else
+    ok
+  fi
 fi
 
 SLACK_URL=$(env_get PARKIO_ALERT_SLACK_WEBHOOK_URL)
@@ -484,7 +491,10 @@ else
 fi
 
 PUSH_PROVIDER=$(env_get PARKIO_PUSH_DELIVERY_PROVIDER)
-if [ "$PUSH_PROVIDER" = "expo" ]; then
+if [ "$DEPLOYMENT_PROFILE" = "invite-production" ]; then
+  # Exact disabled/noop semantics are checked by preflight-invite-production.sh.
+  ok
+elif [ "$PUSH_PROVIDER" = "expo" ]; then
   ok
 elif [ "$ALLOW_PROVIDER" = "1" ] && [ -n "$PUSH_PROVIDER" ] && [ "$PUSH_PROVIDER" != "noop" ]; then
   warn "PARKIO_PUSH_DELIVERY_PROVIDER" "'$PUSH_PROVIDER' (non-default) explicitly allowed — document the rationale in the deploy notes"
@@ -548,15 +558,23 @@ else
 fi
 
 ENVIRONMENT=$(env_get PARKIO_ENVIRONMENT)
-if [ "$ENVIRONMENT" != "hosted-beta" ]; then
-  fail "PARKIO_ENVIRONMENT" "'${ENVIRONMENT:-<unset -> compose default 'local'>}' — observability labels and alert routing key off this" "set PARKIO_ENVIRONMENT=hosted-beta"
+EXPECTED_ENVIRONMENT="hosted-beta"
+if [ "$DEPLOYMENT_PROFILE" = "invite-production" ]; then
+  EXPECTED_ENVIRONMENT="invite-production"
+fi
+if [ "$ENVIRONMENT" != "$EXPECTED_ENVIRONMENT" ]; then
+  fail "PARKIO_ENVIRONMENT" "'${ENVIRONMENT:-<unset -> compose default 'local'>}' — observability labels and alert routing key off this" "set PARKIO_ENVIRONMENT=$EXPECTED_ENVIRONMENT"
 else
   ok
 fi
 
 APP_ENV=$(env_get VITE_APP_ENV)
-if [ -n "$APP_ENV" ] && [ "$APP_ENV" != "hosted-beta" ]; then
-  fail "VITE_APP_ENV" "'$APP_ENV' — the web build must be a hosted-beta build" "set VITE_APP_ENV=hosted-beta (or leave unset; overlay default)"
+EXPECTED_APP_ENV="hosted-beta"
+if [ "$DEPLOYMENT_PROFILE" = "invite-production" ]; then
+  EXPECTED_APP_ENV="invite-production"
+fi
+if [ -n "$APP_ENV" ] && [ "$APP_ENV" != "$EXPECTED_APP_ENV" ]; then
+  fail "VITE_APP_ENV" "'$APP_ENV' — the web build must match the deployment environment" "set VITE_APP_ENV=$EXPECTED_APP_ENV"
 else
   ok
 fi

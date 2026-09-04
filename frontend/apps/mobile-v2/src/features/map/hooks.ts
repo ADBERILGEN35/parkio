@@ -1,11 +1,15 @@
+import { useQuery } from '@tanstack/react-query';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import * as Location from 'expo-location';
-import { useQuery } from '@tanstack/react-query';
-import type { LatLng } from '@parkio/geo';
+import { DEFAULT_NEARBY_RADIUS_M, type LatLng } from '@parkio/geo';
 import type { GeocodeResult } from '@parkio/types';
+import { appConfig } from '@/config/env';
 import { accessPolicyQueryOptions } from '@/data/query-options/gamification';
 import { placeSearchQueryOptions } from '@/data/query-options/geocoding';
-import { nearbySpotsQueryOptions } from '@/data/query-options/parking';
+import {
+  nearbyMunicipalFacilitiesQueryOptions,
+  nearbySpotsQueryOptions,
+} from '@/data/query-options/parking';
 import { readJson, writeJson } from '@/services/jsonStore';
 
 /** Foreground location permission + one-shot position. */
@@ -98,6 +102,30 @@ export function useNearbySpots(center: LatLng | null, radius: number | undefined
     }),
     enabled: center !== null,
     refetchInterval: 30_000,
+  });
+}
+
+/**
+ * Nearby municipal facilities for the map layer (MOBILE-MUNI-V2-02 / V2-04).
+ * Radius is caller-owned (municipal filter store) and independent of community nearby radius.
+ * Flag-off / missing center / layer-off (null center) → query disabled (no request).
+ */
+export function useNearbyMunicipalFacilities(
+  center: LatLng | null,
+  radiusMeters: number | undefined,
+  limit: number | undefined,
+) {
+  const resolvedRadius = radiusMeters ?? DEFAULT_NEARBY_RADIUS_M;
+  return useQuery({
+    ...nearbyMunicipalFacilitiesQueryOptions({
+      lat: center?.lat ?? 0,
+      lng: center?.lng ?? 0,
+      radiusMeters: resolvedRadius,
+      ...(limit !== undefined ? { limit } : {}),
+    }),
+    // Foundation queryOptions already gates on the feature flag; center is map-owned.
+    enabled: appConfig.features.municipalDiscovery && center !== null,
+    refetchInterval: appConfig.features.municipalDiscovery ? 30_000 : false,
   });
 }
 

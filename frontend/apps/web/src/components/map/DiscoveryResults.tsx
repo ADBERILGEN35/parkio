@@ -29,7 +29,13 @@ export interface DiscoveryResultsProps {
   sortOptions: SpotSort[];
   selectedId: string | null;
   onSelect: (id: string | null) => void;
+  selectionFromMap?: boolean;
   userVehicleType?: VehicleType | null;
+  /**
+   * When true, community fetched-empty copy is subordinate to a healthy sibling
+   * inventory (WEB-MUNI-06). Hidden inventories must not set this.
+   */
+  siblingInventoryHasResults?: boolean;
 }
 
 /**
@@ -50,7 +56,9 @@ export function DiscoveryResults({
   sortOptions,
   selectedId,
   onSelect,
+  selectionFromMap = false,
   userVehicleType = null,
+  siblingInventoryHasResults = false,
 }: DiscoveryResultsProps) {
   const { t } = useTranslation('map');
 
@@ -90,8 +98,16 @@ export function DiscoveryResults({
     return (
       <EmptyState
         icon="location_off"
-        title={t('discovery.emptyTitle')}
-        description={t('discovery.emptyDescription')}
+        title={
+          siblingInventoryHasResults
+            ? t('discovery.emptyWithMunicipalTitle')
+            : t('discovery.emptyTitle')
+        }
+        description={
+          siblingInventoryHasResults
+            ? t('discovery.emptyWithMunicipalDescription')
+            : t('discovery.emptyDescription')
+        }
       />
     );
   }
@@ -129,6 +145,7 @@ export function DiscoveryResults({
               spot={spot}
               userVehicleType={userVehicleType}
               selected={spot.id === selectedId}
+              selectionFromMap={selectionFromMap}
               onSelect={() => onSelect(spot.id)}
             />
           ))}
@@ -142,11 +159,13 @@ function SpotListItem({
   spot,
   userVehicleType,
   selected,
+  selectionFromMap,
   onSelect,
 }: {
   spot: SpotWithDistance;
   userVehicleType: VehicleType | null;
   selected: boolean;
+  selectionFromMap: boolean;
   onSelect: () => void;
 }) {
   const ref = useRef<HTMLLIElement>(null);
@@ -154,8 +173,10 @@ function SpotListItem({
   // Keep the selected card in view when selection is driven from the map marker.
   // `scrollIntoView` is not implemented in jsdom, hence the optional call.
   useEffect(() => {
-    if (selected) ref.current?.scrollIntoView?.({ block: 'nearest', behavior: 'smooth' });
-  }, [selected]);
+    if (selected && selectionFromMap) {
+      ref.current?.scrollIntoView?.({ block: 'nearest', behavior: 'smooth' });
+    }
+  }, [selected, selectionFromMap]);
 
   return (
     <li ref={ref}>

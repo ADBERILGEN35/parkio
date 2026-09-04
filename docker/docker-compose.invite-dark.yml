@@ -1,0 +1,115 @@
+# docker-compose.invite-dark.yml
+#
+# Invite-production DARK ACCEPTANCE overlay — PROD-DEPLOY-01A.
+#
+# Why this exists
+# ---------------
+# docker-compose.hosted-beta.yml applies `ports: !reset []` to gateway-service so
+# Caddy stays the ONLY public entrypoint and X-User-* identity headers cannot be
+# forged by reaching the gateway directly. That is correct for public traffic.
+#
+# It also leaves the dark invite-production runtime with no acceptance target:
+# Caddy serves only the {$PARKIO_DOMAIN} / {$PARKIO_WEB_DOMAIN} /
+# {$PARKIO_MEDIA_DOMAIN} vhosts, and those names resolve to the hosted-beta VM
+# until the PROD-DEPLOY-01B DNS cutover. Pointing acceptance at them would test
+# the wrong environment (a false green against live hosted-beta), and no
+# certificate can be issued for them on this VM before cutover.
+#
+# So dark acceptance gets a loopback-only gateway endpoint instead. This does not
+# weaken the public boundary: 127.0.0.1 is not routable, the VM NSG allows only
+# 443 inbound, and Caddy remains the sole path for anything off-host.
+#
+# Ordering
+# --------
+# This file MUST be listed AFTER docker-compose.hosted-beta.yml so the
+# `!override` below wins over that file's `!reset []`. scripts/lib/deploy-common.sh
+# owns the order; scripts/test-invite-dark-gateway.sh asserts it.
+#
+# Invariants (enforced by scripts/test-invite-dark-gateway.sh)
+# -----------------------------------------------------------
+#   * gateway-service binds 127.0.0.1 only — never 0.0.0.0, never ::, never a
+#     routable address
+#   * this overlay may touch gateway-service, auth-service (explicit CLOSED
+#     registration), parking-service (feature policy), and Tempo only
+#   * no database / Redis / Kafka / MinIO / Prometheus / Grafana / admin port is
+#     opened here
+#   * Tempo receives the invite-production-only 1 GiB cgroup limit certified
+#     after R11D proved recurring kernel memcg OOM kills at the shared 512 MiB
+#     hosted-beta limit
+#   * the Caddy public boundary is untouched
+#   * parking-service receives the explicit controlled-invite feature policy;
+#     none of these values are inherited from the Azure hosted-beta overlay
+#   * auth-service receives explicit PARKIO_REGISTRATION_MODE (fail-closed)
+name: parkio
+
+services:
+  tempo:
+    # PROD-DEPLOY-01A-R11E (TEMPO_MEMORY_LIMIT_DEFECT): the monolithic Tempo
+    # process (ingester, compactor, querier, and metrics-generator) repeatedly
+    # reached the shared hosted-beta 512 MiB cgroup ceiling during block
+    # flush/compaction. R11D classified all 14 historical restarts as kernel
+    # CONSTRAINT_MEMCG OOM kills (exit 137). Keep the shared hosted-beta limit
+    # independent; invite-production requires the certified 1 GiB minimum.
+    mem_limit: 1g
+
+  gateway-service:
+    # !override (not a plain list) because Compose CONCATENATES `ports:` across
+    # files — a plain list would leave the hosted-beta `!reset []` semantics
+    # ambiguous. `!override` replaces the published-port list outright.
+    ports: !override
+      - "127.0.0.1:8080:8080"
+    environment:
+      # Non-secret deployment identity so dark smoke can prove it is talking to
+      # THIS runtime and not another Parkio environment. Surfaced by
+      # application.yml at /actuator/info as deployment.environment /
+      # deployment.gitSha.
+      #
+      # /actuator/info is a PUBLIC gateway route (see PublicEndpoints), so the
+      # commit would be publicly readable if this overlay were still active after
+      # DNS cutover. It is deliberately set here and not in the shared app env:
+      # dropping this overlay at cutover closes the loopback endpoint and returns
+      # deployment.gitSha to "unknown" in the same step. The pre-cutover
+      # checklist gates on exactly that.
+      PARKIO_ENVIRONMENT: ${PARKIO_ENVIRONMENT:-local}
+      PARKIO_GIT_SHA: ${PARKIO_GIT_SHA:-unknown}
+      # Dark keeps the public-surface flag required so Level-B env templates that
+      # set false still resolve; loopback peers remain readable for smoke
+      # (PROD-DEPLOY-01B-03B).
+      PARKIO_GATEWAY_PUBLIC_ACTUATOR_INFO_ENABLED: ${PARKIO_GATEWAY_PUBLIC_ACTUATOR_INFO_ENABLED:?invite-production requires PARKIO_GATEWAY_PUBLIC_ACTUATOR_INFO_ENABLED}
+      PARKIO_PUBLIC_EXPLORE_ENABLED: ${PARKIO_PUBLIC_EXPLORE_ENABLED:?invite-production requires PARKIO_PUBLIC_EXPLORE_ENABLED}
+
+  auth-service:
+    environment:
+      # Explicit CLOSED registration for invite-production dark (01B-03B).
+      PARKIO_REGISTRATION_MODE: ${PARKIO_REGISTRATION_MODE:?invite-production requires PARKIO_REGISTRATION_MODE}
+
+  parking-service:
+    environment:
+      # Controlled-invite feature policy. These values are deliberately
+      # required rather than defaulted: a missing rendered-env key must stop
+      # Compose resolution instead of silently disabling an approved feature.
+      PARKIO_PUBLIC_EXPLORE_ENABLED: ${PARKIO_PUBLIC_EXPLORE_ENABLED:?invite-production requires PARKIO_PUBLIC_EXPLORE_ENABLED}
+      PARKIO_PUBLIC_EXPLORE_ALLOWED_SOURCE_FAMILIES: ${PARKIO_PUBLIC_EXPLORE_ALLOWED_SOURCE_FAMILIES?invite-production requires PARKIO_PUBLIC_EXPLORE_ALLOWED_SOURCE_FAMILIES}
+      PARKIO_MUNICIPAL_ENABLED: ${PARKIO_MUNICIPAL_ENABLED:?invite-production requires PARKIO_MUNICIPAL_ENABLED}
+      PARKIO_MUNICIPAL_MANUAL_SYNC_ENABLED: ${PARKIO_MUNICIPAL_MANUAL_SYNC_ENABLED:?invite-production requires PARKIO_MUNICIPAL_MANUAL_SYNC_ENABLED}
+      PARKIO_MUNICIPAL_DISCOVERY_DUPLICATE_PRESENTATION_ENABLED: ${PARKIO_MUNICIPAL_DISCOVERY_DUPLICATE_PRESENTATION_ENABLED:?invite-production requires PARKIO_MUNICIPAL_DISCOVERY_DUPLICATE_PRESENTATION_ENABLED}
+      PARKIO_MUNICIPAL_IZUM_ENABLED: ${PARKIO_MUNICIPAL_IZUM_ENABLED:?invite-production requires PARKIO_MUNICIPAL_IZUM_ENABLED}
+      PARKIO_MUNICIPAL_IZUM_SCHEDULER_ENABLED: ${PARKIO_MUNICIPAL_IZUM_SCHEDULER_ENABLED:?invite-production requires PARKIO_MUNICIPAL_IZUM_SCHEDULER_ENABLED}
+      PARKIO_MUNICIPAL_ISPARK_ENABLED: ${PARKIO_MUNICIPAL_ISPARK_ENABLED:?invite-production requires PARKIO_MUNICIPAL_ISPARK_ENABLED}
+      PARKIO_MUNICIPAL_ISPARK_SCHEDULER_ENABLED: ${PARKIO_MUNICIPAL_ISPARK_SCHEDULER_ENABLED:?invite-production requires PARKIO_MUNICIPAL_ISPARK_SCHEDULER_ENABLED}
+      PARKIO_MUNICIPAL_ANPARK_ENABLED: ${PARKIO_MUNICIPAL_ANPARK_ENABLED:?invite-production requires PARKIO_MUNICIPAL_ANPARK_ENABLED}
+      PARKIO_MUNICIPAL_ANPARK_SCHEDULER_ENABLED: ${PARKIO_MUNICIPAL_ANPARK_SCHEDULER_ENABLED:?invite-production requires PARKIO_MUNICIPAL_ANPARK_SCHEDULER_ENABLED}
+      PARKIO_MUNICIPAL_KONYA_ENABLED: ${PARKIO_MUNICIPAL_KONYA_ENABLED:?invite-production requires PARKIO_MUNICIPAL_KONYA_ENABLED}
+      PARKIO_MUNICIPAL_KONYA_SCHEDULER_ENABLED: ${PARKIO_MUNICIPAL_KONYA_SCHEDULER_ENABLED:?invite-production requires PARKIO_MUNICIPAL_KONYA_SCHEDULER_ENABLED}
+      PARKIO_MUNICIPAL_KAYSERI_ENABLED: ${PARKIO_MUNICIPAL_KAYSERI_ENABLED:?invite-production requires PARKIO_MUNICIPAL_KAYSERI_ENABLED}
+      PARKIO_MUNICIPAL_KAYSERI_SCHEDULER_ENABLED: ${PARKIO_MUNICIPAL_KAYSERI_SCHEDULER_ENABLED:?invite-production requires PARKIO_MUNICIPAL_KAYSERI_SCHEDULER_ENABLED}
+      PARKIO_MUNICIPAL_OSM_IMPORT_ENABLED: ${PARKIO_MUNICIPAL_OSM_IMPORT_ENABLED:?invite-production requires PARKIO_MUNICIPAL_OSM_IMPORT_ENABLED}
+      PARKIO_MUNICIPAL_OSM_SCHEDULER_ENABLED: ${PARKIO_MUNICIPAL_OSM_SCHEDULER_ENABLED:?invite-production requires PARKIO_MUNICIPAL_OSM_SCHEDULER_ENABLED}
+      PARKIO_MUNICIPAL_OSM_PUBLICATION_ENABLED: ${PARKIO_MUNICIPAL_OSM_PUBLICATION_ENABLED:?invite-production requires PARKIO_MUNICIPAL_OSM_PUBLICATION_ENABLED}
+      PARKIO_SPA_RECOMMENDATIONS_ENABLED: ${PARKIO_SPA_RECOMMENDATIONS_ENABLED:?invite-production requires PARKIO_SPA_RECOMMENDATIONS_ENABLED}
+      PARKIO_SPA_RANKING_ENABLED: ${PARKIO_SPA_RANKING_ENABLED:?invite-production requires PARKIO_SPA_RANKING_ENABLED}
+      PARKIO_SPA_RANKING_STRATEGY: ${PARKIO_SPA_RANKING_STRATEGY:?invite-production requires PARKIO_SPA_RANKING_STRATEGY}
+      PARKIO_SPA_RANKING_SHADOW_ENABLED: ${PARKIO_SPA_RANKING_SHADOW_ENABLED:?invite-production requires PARKIO_SPA_RANKING_SHADOW_ENABLED}
+      PARKIO_SPA_RANKING_SHADOW_SAMPLE_RATE: ${PARKIO_SPA_RANKING_SHADOW_SAMPLE_RATE:?invite-production requires PARKIO_SPA_RANKING_SHADOW_SAMPLE_RATE}
+      PARKIO_SPA_RANKING_EVALUATION_ENABLED: ${PARKIO_SPA_RANKING_EVALUATION_ENABLED:?invite-production requires PARKIO_SPA_RANKING_EVALUATION_ENABLED}
+      PARKIO_SPA_RANKING_EVALUATION_ROLLUP_ENABLED: ${PARKIO_SPA_RANKING_EVALUATION_ROLLUP_ENABLED:?invite-production requires PARKIO_SPA_RANKING_EVALUATION_ROLLUP_ENABLED}

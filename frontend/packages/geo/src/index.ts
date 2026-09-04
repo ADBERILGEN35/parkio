@@ -25,6 +25,47 @@ export {
   availableStatuses,
 } from './discovery';
 export {
+  type MunicipalAvailabilityFilter,
+  type MunicipalFacilityFilters,
+  MUNICIPAL_AVAILABILITY_FILTERS,
+  EMPTY_MUNICIPAL_FILTERS,
+  hasActiveMunicipalFilters,
+  municipalAvailabilityBucket,
+  hasMunicipalProvenance,
+  availableMunicipalSourceLabels,
+  availableMunicipalFacilityTypes,
+  filterMunicipalFacilities,
+} from './municipalDiscovery';
+export {
+  MUNICIPAL_CANONICAL_LABEL_IZUM,
+  MUNICIPAL_CANONICAL_LABEL_ISPARK,
+  MUNICIPAL_CANONICAL_LABEL_ANPARK,
+  MUNICIPAL_CANONICAL_LABEL_KONYA,
+  MUNICIPAL_CANONICAL_LABEL_KAYSERI,
+  MUNICIPAL_CANONICAL_LABEL_OSM,
+  MUNICIPAL_SOURCE_KEY_IZUM,
+  MUNICIPAL_SOURCE_KEY_ISPARK,
+  MUNICIPAL_SOURCE_KEY_ANPARK,
+  MUNICIPAL_SOURCE_KEY_KONYA,
+  MUNICIPAL_SOURCE_KEY_KAYSERI,
+  MUNICIPAL_SOURCE_KEY_OSM,
+  type MunicipalSourceFamily,
+  municipalSourceFamily,
+  canonicalLabelForSourceKey,
+  canonicalLabelForSourceLabel,
+  municipalDataSourceLabels,
+  formatMunicipalDataSourcesLine,
+  displaySourceLabelForFilter,
+} from './municipalSourcePresentation';
+export {
+  type MunicipalOccupancyPresentationKind,
+  type MunicipalOccupancySummary,
+  municipalOccupancyPresentationKind,
+  municipalAvailabilityCopyKey,
+  municipalFreshnessCopyKey,
+  summarizeMunicipalOccupancy,
+} from './municipalOccupancyPresentation';
+export {
   type Availability,
   type ConfidenceTier,
   type SpotPresentation,

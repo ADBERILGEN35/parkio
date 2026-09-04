@@ -1,0 +1,36 @@
+{
+  "schemaVersion": 1,
+  "action": "deploy",
+  "gitSha": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+  "branch": "fixture",
+  "buildTime": "1970-01-01T00:00:00Z",
+  "imageTag": "sha-bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+  "imageVersion": "0.0.1-SNAPSHOT",
+  "composeFiles": [
+    "docker/docker-compose.yml",
+    "docker/docker-compose.apps.yml",
+    "docker/docker-compose.images.yml",
+    "docker/docker-compose.hosted-beta.yml"
+  ],
+  "envProfile": "docker/.env.hosted-beta.example",
+  "deploymentProfile": "hosted-beta",
+  "operator": "prod-muni-01-fixture",
+  "previousManifest": null,
+  "images": {
+    "gateway-service": "parkio/gateway-service:sha-aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+    "auth-service": "parkio/auth-service:sha-aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+    "user-service": "parkio/user-service:sha-aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+    "parking-service": "parkio/parking-service:sha-aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+    "media-service": "parkio/media-service:sha-aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+    "gamification-service": "parkio/gamification-service:sha-aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+    "notification-service": "parkio/notification-service:sha-aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+    "moderation-service": "parkio/moderation-service:sha-aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+    "ai-validation-service": "parkio/ai-validation-service:sha-aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+    "analytics-service": "parkio/analytics-service:sha-aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+    "web": "parkio/web:sha-bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+  },
+  "migrationVersions": {},
+  "runtimeServices": [],
+  "disabledServices": [],
+  "rollbackCommand": "PARKIO_DEPLOYMENT_PROFILE=hosted-beta PARKIO_ENV_FILE=docker/.env.hosted-beta.example ./scripts/rollback-hosted-beta.sh --manifest <previous>"
+}

@@ -9,8 +9,12 @@ import { describeAuthError } from '@/api/error-messages';
 import { useParkioSdk } from '@/app/AppRuntimeContext';
 import { AuthSplitLayout } from '@/pages/auth/AuthSplitLayout';
 import { getPendingProfile } from '@/auth/pendingProfile';
-import { sanitizeInternalRedirect } from '@/auth/redirect';
+import {
+  AUTH_RETURN_QUERY_PARAM,
+  sanitizeInternalRedirect,
+} from '@/auth/redirect';
 import { useAuthStore } from '@/auth/store';
+import { useRegistrationMode } from '@/auth/useRegistrationMode';
 import { createLoginSchema } from '@/lib/validation/localized-schemas';
 import { showError, showSuccess } from '@/lib/toast';
 
@@ -25,6 +29,7 @@ export function LoginPage() {
   const beginProvisioning = useAuthStore((s) => s.beginProvisioning);
   const [apiError, setApiError] = useState<string | null>(null);
   const [traceId, setTraceId] = useState<string | undefined>();
+  const registrationMode = useRegistrationMode();
 
   const schema = useMemo(() => createLoginSchema(t), [t]);
   const {
@@ -49,7 +54,9 @@ export function LoginPage() {
         navigate('/preparing');
       } else {
         const from = (location.state as { from?: unknown } | null)?.from;
-        navigate(sanitizeInternalRedirect(from));
+        navigate(
+          sanitizeInternalRedirect(searchParams.get(AUTH_RETURN_QUERY_PARAM), from),
+        );
       }
     } catch (error) {
       const friendly = describeAuthError(error, t('errors:auth.loginFailed'), t);
@@ -102,12 +109,14 @@ export function LoginPage() {
         </Button>
       </form>
 
-      <p className="m-0 mt-md text-center text-body-md text-on-surface-variant">
-        {t('auth:login.noAccount')}{' '}
-        <Link to="/register" className="font-semibold text-primary hover:underline">
-          {t('auth:login.registerLink')}
-        </Link>
-      </p>
+      {registrationMode !== 'CLOSED' ? (
+        <p className="m-0 mt-md text-center text-body-md text-on-surface-variant">
+          {t('auth:login.noAccount')}{' '}
+          <Link to="/register" className="font-semibold text-primary hover:underline">
+            {t('auth:login.registerLink')}
+          </Link>
+        </p>
+      ) : null}
     </AuthSplitLayout>
   );
 }

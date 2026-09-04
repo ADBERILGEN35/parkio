@@ -24,6 +24,10 @@
 
 set -euo pipefail
 
+SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+# shellcheck source=lib/backup-common.sh
+source "${SCRIPT_DIR}/lib/backup-common.sh"
+
 SERVICE=""
 DUMP_FILE=""
 ENV_FILE="${PARKIO_ENV_FILE:-}"
@@ -53,14 +57,7 @@ if [ ! -f "${DUMP_FILE}" ]; then
   exit 2
 fi
 
-if [ -n "${ENV_FILE}" ]; then
-  if [ -f "${ENV_FILE}" ]; then
-    set -a; # shellcheck disable=SC1090
-    . "${ENV_FILE}"; set +a
-  else
-    echo "WARN: env file '${ENV_FILE}' not found; relying on current environment." >&2
-  fi
-fi
+parkio_backup_load_env "${ENV_FILE}"
 
 resolve() {
   case "$1" in

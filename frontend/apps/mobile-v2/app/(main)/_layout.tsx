@@ -28,6 +28,7 @@ export default function MainLayout() {
         }}
       />
       <Stack.Screen name="spots/[id]" options={{ animation: 'slide_from_right' }} />
+      <Stack.Screen name="facilities/[id]" options={{ animation: 'slide_from_right' }} />
     </Stack>
   );
 }

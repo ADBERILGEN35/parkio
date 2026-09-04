@@ -19,6 +19,9 @@ kafkaClients = "3.9.2"
 # CycloneDX Gradle plugin — generates a per-service CycloneDX SBOM (build/reports/bom.json).
 # Applied by the convention plugin; consumed by buildSrc. Not part of any BOM.
 cyclonedx = "1.10.0"
+commonsCsv = "1.11.0"
+# LocationTech JTS — OGC-faithful prepared geometry for municipal district coverage (DATA-WP-19).
+jts = "1.20.0"
 
 [libraries]
 # Spring Boot starters. Concrete versions are supplied by the Spring Boot BOM,
@@ -74,6 +77,8 @@ resilience4j-spring-boot3 = { module = "io.github.resilience4j:resilience4j-spri
 postgresql = { module = "org.postgresql:postgresql" }
 flyway-core = { module = "org.flywaydb:flyway-core" }
 flyway-database-postgresql = { module = "org.flywaydb:flyway-database-postgresql" }
+commons-csv = { module = "org.apache.commons:commons-csv", version.ref = "commonsCsv" }
+jts-core = { module = "org.locationtech.jts:jts-core", version.ref = "jts" }
 
 # Object storage (S3-compatible, used by media-service).
 minio = { module = "io.minio:minio", version.ref = "minio" }

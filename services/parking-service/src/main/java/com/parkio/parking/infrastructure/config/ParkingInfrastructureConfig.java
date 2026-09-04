@@ -6,14 +6,21 @@ import com.parkio.parking.application.ExposureShadowSettings;
 import com.parkio.parking.application.ParkingSearchSettings;
 import com.parkio.parking.application.MunicipalFacilityQueryService;
 import com.parkio.parking.application.MunicipalFacilitySyncService;
+import com.parkio.parking.application.MunicipalSourceHealthService;
+import com.parkio.parking.application.MunicipalSourceSlaPolicy;
 import com.parkio.parking.application.port.MunicipalDataSourceRepository;
 import com.parkio.parking.application.port.MunicipalFacilityRepository;
 import com.parkio.parking.application.port.MunicipalOccupancySnapshotRepository;
-import com.parkio.parking.application.port.MunicipalSourceLinkRepository;
 import com.parkio.parking.application.port.MunicipalSourceSyncRunRepository;
+import com.parkio.parking.application.port.OsmImportSupportRepository;
 import com.parkio.parking.application.port.DecisionAuditWriteObserver;
 import com.parkio.parking.application.port.DecisionShadowObserverPort;
 import com.parkio.parking.externalsource.MunicipalParkingSourceAdapter;
+import com.parkio.parking.externalsource.provider.ParkingProviderRegistry;
+import com.parkio.parking.infrastructure.fake.FakeTestMunicipalParkingAdapter;
+import com.parkio.parking.infrastructure.izum.IzumMunicipalParkingAdapter;
+import com.parkio.parking.infrastructure.metrics.DiscoveryDuplicatePresentationMetrics;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import com.parkio.parking.decision.application.EvidenceCollectionService;
 import com.parkio.parking.decision.policy.DecisionEngine;
 import com.parkio.parking.decision.port.DecisionAuditPort;
@@ -22,6 +29,7 @@ import com.parkio.parking.domain.ModerationPolicy;
 import com.parkio.parking.domain.ParkingSessionStalePolicy;
 import java.time.Clock;
 import java.util.List;
+import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.boot.context.properties.EnableConfigurationProperties;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
@@ -34,7 +42,11 @@ import org.springframework.scheduling.annotation.EnableScheduling;
  */
 @Configuration
 @EnableConfigurationProperties({
-        ParkingProperties.class, GeocodingProperties.class, MunicipalSourceProperties.class
+        ParkingProperties.class, GeocodingProperties.class, MunicipalSourceProperties.class,
+        RegistryProperties.class, PublicExploreProperties.class,
+        com.parkio.parking.application.recommendation.ranking.RankingProperties.class,
+        com.parkio.parking.application.recommendation.ranking.shadow.ShadowRankingProperties.class,
+        com.parkio.parking.application.recommendation.ranking.evaluation.RankingEvaluationProperties.class
 })
 @EnableScheduling
 public class ParkingInfrastructureConfig {
@@ -45,20 +57,92 @@ public class ParkingInfrastructureConfig {
     }
 
     @Bean
-    public MunicipalFacilitySyncService municipalFacilitySyncService(
-            List<MunicipalParkingSourceAdapter> adapters,
-            MunicipalDataSourceRepository sources,
-            MunicipalFacilityRepository facilities,
-            MunicipalSourceLinkRepository links,
-            MunicipalOccupancySnapshotRepository snapshots,
-            MunicipalSourceSyncRunRepository runs,
-            Clock clock) {
-        return new MunicipalFacilitySyncService(adapters, sources, facilities, links, snapshots, runs, clock);
+    public ParkingProviderRegistry parkingProviderRegistry(List<MunicipalParkingSourceAdapter> adapters) {
+        return new ParkingProviderRegistry(adapters);
     }
 
     @Bean
-    public MunicipalFacilityQueryService municipalFacilityQueryService(MunicipalFacilityRepository facilities, MunicipalOccupancySnapshotRepository snapshots, MunicipalSourceProperties municipalSourceProperties, Clock clock) {
-        return new MunicipalFacilityQueryService(facilities, snapshots, municipalSourceProperties, clock);
+    @ConditionalOnProperty(prefix = "parkio.municipal.fake-test", name = "enabled", havingValue = "true")
+    public FakeTestMunicipalParkingAdapter fakeTestMunicipalParkingAdapter(ObjectMapper objectMapper) {
+        return new FakeTestMunicipalParkingAdapter(objectMapper);
+    }
+
+    @Bean
+    public MunicipalFacilitySyncService municipalFacilitySyncService(
+            List<MunicipalParkingSourceAdapter> adapters,
+            MunicipalDataSourceRepository sources,
+            MunicipalSourceSyncRunRepository runs,
+            com.parkio.parking.application.MunicipalFacilityIngestWriter ingestWriter,
+            OsmImportSupportRepository setReconciliation,
+            Clock clock) {
+        return new MunicipalFacilitySyncService(
+                adapters, sources, runs, ingestWriter, setReconciliation, clock);
+    }
+
+    @Bean
+    public com.parkio.parking.application.MunicipalSyncRunRecoveryService municipalSyncRunRecoveryService(
+            MunicipalSourceSyncRunRepository runs,
+            MunicipalSourceProperties properties,
+            com.parkio.parking.infrastructure.metrics.MunicipalSourceMetrics metrics,
+            Clock clock) {
+        return new com.parkio.parking.application.MunicipalSyncRunRecoveryService(
+                runs, properties, metrics, clock);
+    }
+
+    @Bean
+    public MunicipalSourceHealthService municipalSourceHealthService(
+            MunicipalDataSourceRepository sources,
+            MunicipalSourceSyncRunRepository runs,
+            MunicipalOccupancySnapshotRepository occupancySnapshots,
+            Clock clock,
+            MunicipalSourceProperties properties) {
+        MunicipalSourceProperties.Sla sla = properties.getSla();
+        MunicipalSourceSlaPolicy.Thresholds thresholds = new MunicipalSourceSlaPolicy.Thresholds(
+                sla.getWarningConsecutiveFailures(),
+                sla.getCriticalConsecutiveFailures(),
+                sla.getWarningSecondsSinceSuccess(),
+                sla.getCriticalSecondsSinceSuccess(),
+                sla.getStaleRunningAfterSeconds(),
+                sla.getRecoveringWindowSeconds());
+        return new MunicipalSourceHealthService(
+                sources,
+                runs,
+                occupancySnapshots,
+                clock,
+                thresholds,
+                properties,
+                properties.isEnabled(),
+                properties.getIzum().isEnabled(),
+                properties.getIzum().isSchedulerEnabled(),
+                IzumMunicipalParkingAdapter.SOURCE_KEY);
+    }
+
+    @Bean
+    public MunicipalFacilityQueryService municipalFacilityQueryService(
+            MunicipalFacilityRepository facilities,
+            MunicipalOccupancySnapshotRepository snapshots,
+            MunicipalSourceProperties municipalSourceProperties,
+            IzelmanProperties izelmanProperties,
+            DiscoveryDuplicatePresentationMetrics discoveryDuplicatePresentationMetrics,
+            Clock clock) {
+        return new MunicipalFacilityQueryService(
+                facilities,
+                snapshots,
+                municipalSourceProperties,
+                izelmanProperties,
+                discoveryDuplicatePresentationMetrics,
+                clock);
+    }
+
+    @Bean
+    @ConditionalOnProperty(prefix = "parkio.public-explore", name = "enabled", havingValue = "true")
+    public com.parkio.parking.application.PublicExploreQueryService publicExploreQueryService(
+            MunicipalFacilityRepository facilities,
+            MunicipalOccupancySnapshotRepository snapshots,
+            PublicExploreProperties properties,
+            Clock clock) {
+        return new com.parkio.parking.application.PublicExploreQueryService(
+                facilities, snapshots, properties, clock);
     }
 
     @Bean

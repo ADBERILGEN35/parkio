@@ -79,6 +79,11 @@ export const ROUTE_ELEMENT_REGISTRY: Readonly<
   [ROUTE_COMPONENT_KEYS.VERIFY_EMAIL_PAGE]: eager(VerifyEmailPage),
   [ROUTE_COMPONENT_KEYS.TERMS_PAGE]: eager(TermsPage),
   [ROUTE_COMPONENT_KEYS.PRIVACY_PAGE]: eager(PrivacyPage),
+  [ROUTE_COMPONENT_KEYS.PUBLIC_EXPLORE_PAGE]: lazyComponent(() =>
+    import('@/pages/PublicExplorePage').then((module) => ({
+      default: module.PublicExplorePage,
+    })),
+  ),
   [ROUTE_COMPONENT_KEYS.PROTECTED_BOUNDARY]: eager(RoutePolicyBoundary),
   [ROUTE_COMPONENT_KEYS.REDIRECT]: Object.freeze({}),
   [ROUTE_COMPONENT_KEYS.ACCOUNT_PREPARING_PAGE]: eager(AccountPreparingPage),
@@ -92,6 +97,11 @@ export const ROUTE_ELEMENT_REGISTRY: Readonly<
   [ROUTE_COMPONENT_KEYS.SPOT_DETAIL_PAGE]: lazyComponent(() =>
     import('@/pages/SpotDetailPage').then((module) => ({
       default: module.SpotDetailPage,
+    })),
+  ),
+  [ROUTE_COMPONENT_KEYS.FACILITY_DETAIL_PAGE]: lazyComponent(() =>
+    import('@/pages/MunicipalFacilityDetailPage').then((module) => ({
+      default: module.MunicipalFacilityDetailPage,
     })),
   ),
   [ROUTE_COMPONENT_KEYS.MY_SPOTS_PAGE]: lazyComponent(() =>

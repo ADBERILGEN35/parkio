@@ -7,9 +7,29 @@ import java.util.Set;
 /** Bounded allowlisted OSM tags retained for audit/remap. */
 public final class OsmTagAllowlist {
     public static final Set<String> KEYS = Set.of(
-            "amenity", "name", "operator", "brand", "parking", "capacity", "capacity:disabled",
-            "fee", "access", "opening_hours", "maxstay", "park_ride", "supervised", "covered",
-            "underground", "layer", "building", "wheelchair", "source", "note");
+            "amenity",
+            "name",
+            "name:tr",
+            "official_name",
+            "short_name",
+            "operator",
+            "brand",
+            "parking",
+            "capacity",
+            "capacity:disabled",
+            "fee",
+            "access",
+            "opening_hours",
+            "maxstay",
+            "park_ride",
+            "supervised",
+            "covered",
+            "underground",
+            "layer",
+            "building",
+            "wheelchair",
+            "source",
+            "note");
 
     private OsmTagAllowlist() {}
 

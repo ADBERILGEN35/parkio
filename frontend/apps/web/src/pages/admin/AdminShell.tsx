@@ -29,7 +29,7 @@ export function AdminShell() {
               {email ?? t('shell.administratorFallback')}
             </p>
             <div className="mt-sm flex flex-wrap gap-xs">
-              <SoftBadge tone={env === 'hosted-beta' || env === 'production' ? 'warning' : 'neutral'}>
+              <SoftBadge tone={frontendConfig.isProductionLike ? 'warning' : 'neutral'}>
                 {env}
               </SoftBadge>
               {hasSuperAdminRole(roles) ? (

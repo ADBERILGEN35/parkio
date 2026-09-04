@@ -24,7 +24,8 @@ public class MunicipalDataSourceRepositoryAdapter implements MunicipalDataSource
     public Optional<Source> findBySourceKey(String sourceKey) {
         return jdbc.sql("""
                 SELECT id, source_key, publisher, attribution_text,
-                       aging_after_seconds, stale_after_seconds, last_successful_sync_at
+                       aging_after_seconds, stale_after_seconds, last_successful_sync_at,
+                       COALESCE(complete_snapshot, true) AS complete_snapshot
                 FROM municipal_data_sources WHERE source_key = :key AND active = true
                 """).param("key", sourceKey).query((rs, row) -> {
             Timestamp last = rs.getTimestamp("last_successful_sync_at");
@@ -32,7 +33,8 @@ public class MunicipalDataSourceRepositoryAdapter implements MunicipalDataSource
                     rs.getObject("id", UUID.class), rs.getString("source_key"), rs.getString("publisher"),
                     rs.getString("attribution_text"), rs.getLong("aging_after_seconds"),
                     rs.getLong("stale_after_seconds"),
-                    last == null ? null : last.toInstant());
+                    last == null ? null : last.toInstant(),
+                    rs.getBoolean("complete_snapshot"));
         }).optional();
     }
 

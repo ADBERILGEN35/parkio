@@ -21,6 +21,10 @@ ARG VITE_MAPTILER_KEY=
 ARG VITE_MAPTILER_STYLE=streets-v2
 ARG VITE_FRONTEND_ERROR_REPORTING=disabled
 ARG VITE_WAITLIST_INTAKE_MODE=api
+ARG VITE_WEB_MUNICIPAL_DISCOVERY_ENABLED=false
+ARG VITE_SMART_PARKING_ASSISTANT_ENABLED=false
+ARG VITE_PUBLIC_EXPLORE_ENABLED=false
+ARG VITE_REGISTRATION_MODE=closed
 
 ENV VITE_API_BASE_URL=$VITE_API_BASE_URL \
     VITE_APP_ENV=$VITE_APP_ENV \
@@ -28,7 +32,11 @@ ENV VITE_API_BASE_URL=$VITE_API_BASE_URL \
     VITE_MAPTILER_KEY=$VITE_MAPTILER_KEY \
     VITE_MAPTILER_STYLE=$VITE_MAPTILER_STYLE \
     VITE_FRONTEND_ERROR_REPORTING=$VITE_FRONTEND_ERROR_REPORTING \
-    VITE_WAITLIST_INTAKE_MODE=$VITE_WAITLIST_INTAKE_MODE
+    VITE_WAITLIST_INTAKE_MODE=$VITE_WAITLIST_INTAKE_MODE \
+    VITE_WEB_MUNICIPAL_DISCOVERY_ENABLED=$VITE_WEB_MUNICIPAL_DISCOVERY_ENABLED \
+    VITE_SMART_PARKING_ASSISTANT_ENABLED=$VITE_SMART_PARKING_ASSISTANT_ENABLED \
+    VITE_PUBLIC_EXPLORE_ENABLED=$VITE_PUBLIC_EXPLORE_ENABLED \
+    VITE_REGISTRATION_MODE=$VITE_REGISTRATION_MODE
 
 # Pre-build gate. A production-shaped build must never bake an empty required public value:
 # src/config/env.ts validates during module evaluation, so the SPA throws before React
@@ -64,6 +72,8 @@ LABEL org.opencontainers.image.title="parkio-web" \
 
 COPY frontend/apps/web/nginx.conf /etc/nginx/conf.d/default.conf
 COPY --from=build /workspace/apps/web/dist /usr/share/nginx/html
+RUN find /usr/share/nginx/html -type d -exec chmod 0755 {} \; \
+ && find /usr/share/nginx/html -type f -exec chmod 0644 {} \;
 
 EXPOSE 80
 

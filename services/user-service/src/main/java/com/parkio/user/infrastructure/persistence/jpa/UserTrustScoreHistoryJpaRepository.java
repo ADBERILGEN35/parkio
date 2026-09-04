@@ -5,4 +5,6 @@ import java.util.UUID;
 import org.springframework.data.jpa.repository.JpaRepository;
 
 public interface UserTrustScoreHistoryJpaRepository extends JpaRepository<UserTrustScoreHistoryEntity, UUID> {
+
+    void deleteByUserProfileId(UUID userProfileId);
 }

@@ -14,7 +14,9 @@
       "env": {
         "EXPO_PUBLIC_APP_ENV": "development",
         "EXPO_PUBLIC_API_BASE_URL": "http://10.0.2.2:8080/api/v1",
-        "EXPO_PUBLIC_SMART_RETURN_ENABLED": "true"
+        "EXPO_PUBLIC_SMART_RETURN_ENABLED": "true",
+        "EXPO_PUBLIC_MUNICIPAL_DISCOVERY_ENABLED": "false",
+        "EXPO_PUBLIC_SMART_PARKING_ASSISTANT_ENABLED": "false"
       }
     },
     "preview": {
@@ -26,7 +28,9 @@
       "env": {
         "EXPO_PUBLIC_APP_ENV": "hosted-beta",
         "EXPO_PUBLIC_API_BASE_URL": "https://api.parkio.dev/api/v1",
-        "EXPO_PUBLIC_SMART_RETURN_ENABLED": "true"
+        "EXPO_PUBLIC_SMART_RETURN_ENABLED": "true",
+        "EXPO_PUBLIC_MUNICIPAL_DISCOVERY_ENABLED": "false",
+        "EXPO_PUBLIC_SMART_PARKING_ASSISTANT_ENABLED": "false"
       }
     },
     "hosted-beta": {
@@ -38,7 +42,9 @@
       "env": {
         "EXPO_PUBLIC_APP_ENV": "hosted-beta",
         "EXPO_PUBLIC_API_BASE_URL": "https://api.parkio.dev/api/v1",
-        "EXPO_PUBLIC_SMART_RETURN_ENABLED": "true"
+        "EXPO_PUBLIC_SMART_RETURN_ENABLED": "true",
+        "EXPO_PUBLIC_MUNICIPAL_DISCOVERY_ENABLED": "false",
+        "EXPO_PUBLIC_SMART_PARKING_ASSISTANT_ENABLED": "false"
       }
     },
     "production": {
@@ -48,7 +54,9 @@
       "env": {
         "EXPO_PUBLIC_APP_ENV": "production",
         "EXPO_PUBLIC_API_BASE_URL": "https://api.parkio.dev/api/v1",
-        "EXPO_PUBLIC_SMART_RETURN_ENABLED": "false"
+        "EXPO_PUBLIC_SMART_RETURN_ENABLED": "false",
+        "EXPO_PUBLIC_MUNICIPAL_DISCOVERY_ENABLED": "false",
+        "EXPO_PUBLIC_SMART_PARKING_ASSISTANT_ENABLED": "false"
       }
     }
   }

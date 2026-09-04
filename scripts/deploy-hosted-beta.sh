@@ -19,6 +19,8 @@ set -euo pipefail
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 # shellcheck source=lib/deploy-common.sh
 source "$ROOT/scripts/lib/deploy-common.sh"
+# shellcheck source=lib/disk-space.sh
+source "$ROOT/scripts/lib/disk-space.sh"
 
 ENV_FILE="${PARKIO_ENV_FILE:-docker/.env}"
 ARTIFACT_DIR="${PARKIO_DEPLOY_ARTIFACT_DIR:-deploy-artifacts}"
@@ -111,6 +113,14 @@ echo "disabledServices=${PARKIO_DISABLED_SERVICES[*]:-none}"
 echo "manifest=$MANIFEST_PATH"
 echo "dryRun=$DRY_RUN"
 
+# Fail closed before compose render / image builds when root free space is
+# below the hosted-beta capacity gate (default 12 GiB). Does not auto-prune.
+echo "Checking free disk capacity..."
+if ! parkio_require_free_disk /; then
+  echo "ERROR: disk preflight failed — deployment aborted before build." >&2
+  exit 3
+fi
+
 echo "Rendering compose config..."
 mkdir -p "$ARTIFACT_DIR"
 parkio_compose "$ENV_FILE" config > "$ARTIFACT_DIR/compose-config.rendered.yml"
@@ -156,6 +166,14 @@ if [ "$SKIP_SMOKE" -ne 1 ]; then
     PARKIO_GATEWAY_URL="${PARKIO_GATEWAY_URL:-$(parkio_default_gateway_url)}" \
     PARKIO_SMOKE_EXPECT_DIRECT_BLOCKED="${PARKIO_SMOKE_EXPECT_DIRECT_BLOCKED:-0}" \
     "$ROOT/scripts/smoke-hosted-beta.sh" | tee "$ARTIFACT_DIR/smoke-${GIT_SHA:0:12}.log"
+  # PROD-MUNI-01 / M1: optional municipal facilities smoke (opt-in; does not alter stack).
+  if [ "${PARKIO_SMOKE_MUNICIPAL:-0}" = "1" ]; then
+    echo "Running municipal smoke (PARKIO_SMOKE_MUNICIPAL=1)..."
+    PARKIO_ENV_FILE="$ENV_FILE" \
+      PARKIO_DEPLOYMENT_PROFILE="$PARKIO_DEPLOYMENT_PROFILE" \
+      PARKIO_GATEWAY_URL="${PARKIO_GATEWAY_URL:-$(parkio_default_gateway_url)}" \
+      "$ROOT/scripts/prod-muni-01/smoke-municipal.sh" | tee "$ARTIFACT_DIR/smoke-municipal-${GIT_SHA:0:12}.log"
+  fi
 fi
 
 cp "$MANIFEST_PATH" "$ARTIFACT_DIR/current.json"

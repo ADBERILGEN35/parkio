@@ -45,8 +45,33 @@ public class ResendEmailSender implements EmailVerificationSender, PasswordReset
         this.resetUrl = resetUrl;
     }
 
+    /**
+     * Reserved PRIV-001A operator acceptance domain ({@code @priv001a.parkio.invalid}).
+     * Skipping Resend here prevents real-provider delivery / billing for synthetic
+     * principals. This is <strong>not</strong> an email-verification bypass: accounts
+     * remain {@code PENDING_VERIFICATION} until the operator harness performs its
+     * allowlisted verification-state mutation (or a real token is verified).
+     */
+    static final String PRIV001A_SYNTHETIC_EMAIL_SUFFIX = "@priv001a.parkio.invalid";
+
+    static boolean isPriv001aSyntheticEmail(String email) {
+        if (email == null || email.isBlank()) {
+            return false;
+        }
+        String normalized = email.trim().toLowerCase(java.util.Locale.ROOT);
+        return normalized.endsWith(PRIV001A_SYNTHETIC_EMAIL_SUFFIX)
+                && normalized.matches("^priv001a-[a-z0-9]{6,64}@priv001a\\.parkio\\.invalid$");
+    }
+
     @Override
     public void sendVerificationLink(String recipientEmail, String rawToken, EmailLocale locale) {
+        if (isPriv001aSyntheticEmail(recipientEmail)) {
+            metrics.verificationSent();
+            log.info(
+                    "Skipping Resend for PRIV-001A synthetic principal; template=email_verification, emailHash={}",
+                    emailHash(recipientEmail));
+            return;
+        }
         String link = appendToken(verificationUrl, rawToken);
         TransactionalEmailCopy.Copy copy = TransactionalEmailCopy.verification(locale);
         String text = """
@@ -81,6 +106,12 @@ public class ResendEmailSender implements EmailVerificationSender, PasswordReset
 
     @Override
     public void sendResetLink(String recipientEmail, String rawToken, EmailLocale locale) {
+        if (isPriv001aSyntheticEmail(recipientEmail)) {
+            log.info(
+                    "Skipping Resend for PRIV-001A synthetic principal; template=password_reset, emailHash={}",
+                    emailHash(recipientEmail));
+            return;
+        }
         String link = appendToken(resetUrl, rawToken);
         TransactionalEmailCopy.Copy copy = TransactionalEmailCopy.passwordReset(locale);
         String text = """

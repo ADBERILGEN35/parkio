@@ -75,6 +75,10 @@ spring:
   flyway:
     enabled: true
     locations: classpath:db/migration
+    # Baseline identity used when the managed-DB profile establishes the baseline explicitly.
+    # Inert everywhere else: nothing baselines unless managed-baseline-enabled is true.
+    baseline-version: ${SPRING_FLYWAY_BASELINE_VERSION:1}
+    baseline-description: ${SPRING_FLYWAY_BASELINE_DESCRIPTION:PostGIS preprovisioned by infrastructure bootstrap}
 
 server:
   port: ${SERVER_PORT:8083}
@@ -127,30 +131,172 @@ info:
     description: Parkio parking-service
 
 parkio:
+  public-explore:
+    enabled: ${PARKIO_PUBLIC_EXPLORE_ENABLED:false}
+    allowed-source-families: ${PARKIO_PUBLIC_EXPLORE_ALLOWED_SOURCE_FAMILIES:}
   municipal:
-    enabled: false
-    manual-sync-enabled: false
+    enabled: ${PARKIO_MUNICIPAL_ENABLED:false}
+    manual-sync-enabled: ${PARKIO_MUNICIPAL_MANUAL_SYNC_ENABLED:false}
+    discovery:
+      # DATA-WP-12: nearby duplicate-presentation (canonical default on).
+      # Production profile pins false until a separate rollout approval.
+      duplicate-presentation-enabled: ${PARKIO_MUNICIPAL_DISCOVERY_DUPLICATE_PRESENTATION_ENABLED:true}
+      duplicate-radius-meters: ${PARKIO_MUNICIPAL_DISCOVERY_DUPLICATE_RADIUS_METERS:100}
+      overfetch-factor: ${PARKIO_MUNICIPAL_DISCOVERY_OVERFETCH_FACTOR:2}
+      overfetch-absolute-max: ${PARKIO_MUNICIPAL_DISCOVERY_OVERFETCH_ABSOLUTE_MAX:200}
+      supported-pairs:
+        - IZUM_OSM
+    registry:
+      candidate-generation-enabled: ${PARKIO_MUNICIPAL_REGISTRY_CANDIDATE_GENERATION_ENABLED:false}
+      review-api-enabled: ${PARKIO_MUNICIPAL_REGISTRY_REVIEW_API_ENABLED:false}
+      reviewed-linking-enabled: ${PARKIO_MUNICIPAL_REGISTRY_REVIEWED_LINKING_ENABLED:false}
+      # Intentionally hardcoded off. RegistryProperties rejects any attempt to bind true.
+      automatic-linking-enabled: false
+      # DATA-WP-11: public nearby/detail provenance (canonical default on).
+      # Production profile pins false until a separate rollout approval.
+      provenance-publication-enabled: ${PARKIO_MUNICIPAL_REGISTRY_PROVENANCE_PUBLICATION_ENABLED:true}
+      # DATA-WP-10: ingest provenance writes (default on). Independent of publication.
+      provenance-ingest-write-enabled: ${PARKIO_MUNICIPAL_REGISTRY_PROVENANCE_INGEST_WRITE_ENABLED:true}
     izum:
-      enabled: false
+      enabled: ${PARKIO_MUNICIPAL_IZUM_ENABLED:false}
+      operating-mode: ${PARKIO_MUNICIPAL_IZUM_OPERATING_MODE:SCHEDULED}
       base-url: https://openapi.izmir.bel.tr
       path: /api/ibb/izum/otoparklar
       connect-timeout: 2s
       read-timeout: 5s
       max-retries: 2
-      scheduler-enabled: false
+      scheduler-enabled: ${PARKIO_MUNICIPAL_IZUM_SCHEDULER_ENABLED:false}
       fixed-delay-ms: 120000
       user-agent: ParkioParkingService/1.0 (+https://parkio.dev)
+    ispark:
+      # PROVIDER-ISTANBUL-01: İstanbul / İSPARK. Default dark; enable independently of İZUM.
+      enabled: ${PARKIO_MUNICIPAL_ISPARK_ENABLED:false}
+      operating-mode: ${PARKIO_MUNICIPAL_ISPARK_OPERATING_MODE:SCHEDULED}
+      base-url: https://api.ibb.gov.tr
+      path: /ispark/Park
+      connect-timeout: 2s
+      read-timeout: 10s
+      max-retries: 1
+      scheduler-enabled: ${PARKIO_MUNICIPAL_ISPARK_SCHEDULER_ENABLED:false}
+      fixed-delay-ms: 120000
+      user-agent: ParkioParkingService/1.0 (+https://parkio.dev)
+    anpark:
+      # PROVIDER-ANKARA-01: Ankara / ANPARK inventory only. Default dark.
+      # LEGAL REVIEW REQUIRED before production enablement.
+      enabled: ${PARKIO_MUNICIPAL_ANPARK_ENABLED:false}
+      operating-mode: ${PARKIO_MUNICIPAL_ANPARK_OPERATING_MODE:SCHEDULED}
+      base-url: https://www.anpark.com.tr
+      path: /wp-json/anpark/v1/parks
+      connect-timeout: 2s
+      read-timeout: 10s
+      max-retries: 1
+      scheduler-enabled: ${PARKIO_MUNICIPAL_ANPARK_SCHEDULER_ENABLED:false}
+      # 6h — inventory-only; no live occupancy polling cadence.
+      fixed-delay-ms: 21600000
+      user-agent: ParkioParkingService/1.0 (+https://parkio.dev)
+    konya:
+      # PROVIDER-KONYA-01: Konya / Otopark Bilgileri inventory only. Default dark.
+      enabled: ${PARKIO_MUNICIPAL_KONYA_ENABLED:false}
+      operating-mode: ${PARKIO_MUNICIPAL_KONYA_OPERATING_MODE:SCHEDULED}
+      base-url: https://acikveri.konya.bel.tr
+      path: /api/3/action/datastore_search
+      resource-id: 707d3cb9-1264-49dc-98a0-b9863766ab39
+      page-size: 100
+      max-pages: 10
+      max-records: 500
+      connect-timeout: 5s
+      read-timeout: 30s
+      max-retries: 1
+      scheduler-enabled: ${PARKIO_MUNICIPAL_KONYA_SCHEDULER_ENABLED:false}
+      # 24h — static/stale inventory; no live occupancy polling cadence.
+      fixed-delay-ms: 86400000
+      user-agent: ParkioParkingService/1.0 (+https://parkio.dev)
+    kayseri:
+      # PROVIDER-KAYSERI-01: Kayseri / Otoparklar GeoJSON inventory only. Default dark.
+      enabled: ${PARKIO_MUNICIPAL_KAYSERI_ENABLED:false}
+      operating-mode: ${PARKIO_MUNICIPAL_KAYSERI_OPERATING_MODE:SCHEDULED}
+      base-url: https://acikveri.kayseri.bel.tr
+      path: /uploads/data/2024/10/7/otoparklar-456371.geojson
+      max-records: 100
+      connect-timeout: 5s
+      read-timeout: 30s
+      max-retries: 1
+      scheduler-enabled: ${PARKIO_MUNICIPAL_KAYSERI_SCHEDULER_ENABLED:false}
+      # 24h — static inventory; no live occupancy polling cadence.
+      fixed-delay-ms: 86400000
+      user-agent: ParkioParkingService/1.0 (+https://parkio.dev)
+    fake-test:
+      # WP-SPA-13: architecture-only fake provider. Never enable outside tests.
+      enabled: false
+      publication-enabled: false
+    sla:
+      warning-consecutive-failures: ${PARKIO_MUNICIPAL_SLA_WARNING_CONSECUTIVE_FAILURES:3}
+      critical-consecutive-failures: ${PARKIO_MUNICIPAL_SLA_CRITICAL_CONSECUTIVE_FAILURES:5}
+      warning-seconds-since-success: ${PARKIO_MUNICIPAL_SLA_WARNING_SECONDS_SINCE_SUCCESS:600}
+      critical-seconds-since-success: ${PARKIO_MUNICIPAL_SLA_CRITICAL_SECONDS_SINCE_SUCCESS:1800}
+      stale-running-after-seconds: ${PARKIO_MUNICIPAL_SLA_STALE_RUNNING_AFTER_SECONDS:600}
+      recovering-window-seconds: ${PARKIO_MUNICIPAL_SLA_RECOVERING_WINDOW_SECONDS:900}
+      failure-window-seconds: ${PARKIO_MUNICIPAL_SLA_FAILURE_WINDOW_SECONDS:86400}
+    # MUNI-SYNC-RESILIENCE-01: actionable stale RUNNING recovery (≠ SLA observe-only threshold).
+    sync:
+      stale-run-recovery-enabled: ${PARKIO_MUNICIPAL_SYNC_STALE_RUN_RECOVERY_ENABLED:true}
+      stale-running-threshold: ${PARKIO_MUNICIPAL_SYNC_STALE_RUNNING_THRESHOLD:20m}
+      stale-run-watchdog-enabled: ${PARKIO_MUNICIPAL_SYNC_STALE_RUN_WATCHDOG_ENABLED:true}
+      stale-run-watchdog-fixed-delay-ms: ${PARKIO_MUNICIPAL_SYNC_STALE_RUN_WATCHDOG_FIXED_DELAY_MS:120000}
     osm:
-      import-enabled: false
-      scheduler-enabled: false
+      import-enabled: ${PARKIO_MUNICIPAL_OSM_IMPORT_ENABLED:false}
+      scheduler-enabled: ${PARKIO_MUNICIPAL_OSM_SCHEDULER_ENABLED:false}
+      operating-mode: ${PARKIO_MUNICIPAL_OSM_OPERATING_MODE:OPERATOR_IMPORTED}
       conflation-enabled: false
       auto-match-enabled: false
       publish-restricted: false
-      publication-enabled: false
+      publication-enabled: ${PARKIO_MUNICIPAL_OSM_PUBLICATION_ENABLED:false}
       local-input-path: ""
       allowed-input-dir: ""
       max-input-bytes: 52428800
-      clip-version: izmir-bbox-v1
+      clip-version: ${PARKIO_MUNICIPAL_OSM_CLIP_VERSION:izmir-admin-izbb-2024-10-18-v1}
+      # DATA-WP-13: osm-label-v1 (default) or legacy technical IDs
+      label-policy: ${PARKIO_MUNICIPAL_OSM_LABEL_POLICY:osm-label-v1}
+      boundary-dir: ${PARKIO_MUNICIPAL_OSM_BOUNDARY_DIR:}
+      boundary-geojson-filename: ${PARKIO_MUNICIPAL_OSM_BOUNDARY_GEOJSON_FILENAME:izmir-admin-boundary.geojson}
+      boundary-poly-filename: ${PARKIO_MUNICIPAL_OSM_BOUNDARY_POLY_FILENAME:izmir-admin-boundary.poly}
+      boundary-geojson-sha256: ${PARKIO_MUNICIPAL_OSM_BOUNDARY_GEOJSON_SHA256:}
+      boundary-source-sha256: ${PARKIO_MUNICIPAL_OSM_BOUNDARY_SOURCE_SHA256:6f4f43e4ce8139ddca4606582d903f047cb7c73810f8b876541a1ec3994ffd89}
+    izelman:
+      enabled: ${PARKIO_MUNICIPAL_IZELMAN_ENABLED:false}
+      facility-import-enabled: ${PARKIO_MUNICIPAL_IZELMAN_FACILITY_IMPORT_ENABLED:false}
+      roadside-import-enabled: ${PARKIO_MUNICIPAL_IZELMAN_ROADSIDE_IMPORT_ENABLED:false}
+      tariff-import-enabled: ${PARKIO_MUNICIPAL_IZELMAN_TARIFF_IMPORT_ENABLED:false}
+      facility-publication-enabled: ${PARKIO_MUNICIPAL_IZELMAN_FACILITY_PUBLICATION_ENABLED:false}
+      roadside-publication-enabled: ${PARKIO_MUNICIPAL_IZELMAN_ROADSIDE_PUBLICATION_ENABLED:false}
+      tariff-publication-enabled: ${PARKIO_MUNICIPAL_IZELMAN_TARIFF_PUBLICATION_ENABLED:false}
+      scheduler-enabled: ${PARKIO_MUNICIPAL_IZELMAN_SCHEDULER_ENABLED:false}
+      candidate-generation-enabled: ${PARKIO_MUNICIPAL_IZELMAN_CANDIDATE_GENERATION_ENABLED:false}
+      auto-match-enabled: false
+      allowed-input-dir: ${PARKIO_MUNICIPAL_IZELMAN_ALLOWED_INPUT_DIR:}
+      max-input-bytes: ${PARKIO_MUNICIPAL_IZELMAN_MAX_INPUT_BYTES:5242880}
+      aging-after-days: ${PARKIO_MUNICIPAL_IZELMAN_AGING_AFTER_DAYS:180}
+      historical-after-days: ${PARKIO_MUNICIPAL_IZELMAN_HISTORICAL_AFTER_DAYS:730}
+    ops:
+      # DATA-WP-15: admin quality/coverage report API (canonical default off; leave-on is DATA-WP-15A).
+      quality-report-enabled: ${PARKIO_MUNICIPAL_OPS_QUALITY_REPORT_ENABLED:false}
+      # DATA-WP-16: source-mode-aware SLA (canonical default off; leave-on is DATA-WP-16A).
+      source-mode-sla-enabled: ${PARKIO_MUNICIPAL_OPS_SOURCE_MODE_SLA_ENABLED:false}
+      # DATA-WP-18: district coverage section (canonical default off; leave-on is DATA-WP-18A).
+      district-coverage-enabled: ${PARKIO_MUNICIPAL_OPS_DISTRICT_COVERAGE_ENABLED:false}
+      recent-run-limit-default: ${PARKIO_MUNICIPAL_OPS_QUALITY_REPORT_RECENT_RUN_LIMIT_DEFAULT:20}
+      recent-run-limit-max: ${PARKIO_MUNICIPAL_OPS_QUALITY_REPORT_RECENT_RUN_LIMIT_MAX:100}
+      district-coverage:
+        asset-path: ${PARKIO_MUNICIPAL_OPS_DISTRICT_COVERAGE_ASSET_PATH:}
+        expected-sha256: ${PARKIO_MUNICIPAL_OPS_DISTRICT_COVERAGE_EXPECTED_SHA256:6f4f43e4ce8139ddca4606582d903f047cb7c73810f8b876541a1ec3994ffd89}
+        name-property: ${PARKIO_MUNICIPAL_OPS_DISTRICT_COVERAGE_NAME_PROPERTY:adi}
+        expected-count: ${PARKIO_MUNICIPAL_OPS_DISTRICT_COVERAGE_EXPECTED_COUNT:30}
+        max-facilities: ${PARKIO_MUNICIPAL_OPS_DISTRICT_COVERAGE_MAX_FACILITIES:10000}
+        cache-ttl-seconds: ${PARKIO_MUNICIPAL_OPS_DISTRICT_COVERAGE_CACHE_TTL_SECONDS:45}
+        topology-policy-enabled: ${PARKIO_MUNICIPAL_OPS_DISTRICT_COVERAGE_TOPOLOGY_POLICY_ENABLED:false}
+        topology-policy-version: ${PARKIO_MUNICIPAL_OPS_DISTRICT_COVERAGE_TOPOLOGY_POLICY_VERSION:izmir-district-topology-v1}
+        normalized-asset-path: ${PARKIO_MUNICIPAL_OPS_DISTRICT_COVERAGE_NORMALIZED_ASSET_PATH:}
+        normalized-asset-sha256: ${PARKIO_MUNICIPAL_OPS_DISTRICT_COVERAGE_NORMALIZED_ASSET_SHA256:0c7457122d13fa02eba1258b6cda5cc28bfb7d64150e4e7db131f40611a655ec}
   openapi:
     enabled: ${PARKIO_OPENAPI_ENABLED:true}
   idempotency:
@@ -202,6 +348,9 @@ parkio:
       inbox-retention: ${PARKIO_INBOX_RETENTION:P30D}
       fixed-delay-ms: ${PARKIO_RETENTION_FIXED_DELAY_MS:3600000}
       batch-size: ${PARKIO_RETENTION_BATCH_SIZE:1000}
+  auth:
+    client:
+      base-url: ${PARKIO_AUTH_SERVICE_URI:http://localhost:8081}
   gateway:
     # Shared secret required on every inbound request (X-Gateway-Auth) so only
     # gateway-originated traffic is accepted. No default â†’ fail closed if unset.
@@ -236,7 +385,56 @@ parkio:
     cache:
       positive-ttl: ${PARKIO_GEOCODING_CACHE_POSITIVE_TTL:24h}
       negative-ttl: ${PARKIO_GEOCODING_CACHE_NEGATIVE_TTL:5m}
+  spa:
+    recommendations:
+      # WP-SPA-05 destination parking recommendations. Default off; schema-free kill switch.
+      enabled: ${PARKIO_SPA_RECOMMENDATIONS_ENABLED:false}
+    ranking:
+      # WP-SPA-06 deterministic ranking. Default off — preserves SPA-05 distance order.
+      enabled: ${PARKIO_SPA_RANKING_ENABLED:false}
+      strategy: ${PARKIO_SPA_RANKING_STRATEGY:DETERMINISTIC_V1}
+      favourites-enabled: ${PARKIO_SPA_RANKING_FAVOURITES_ENABLED:true}
+      distance-weight: ${PARKIO_SPA_RANKING_DISTANCE_WEIGHT:0.35}
+      freshness-weight: ${PARKIO_SPA_RANKING_FRESHNESS_WEIGHT:0.25}
+      capacity-weight: ${PARKIO_SPA_RANKING_CAPACITY_WEIGHT:0.15}
+      confidence-weight: ${PARKIO_SPA_RANKING_CONFIDENCE_WEIGHT:0.15}
+      favourite-weight: ${PARKIO_SPA_RANKING_FAVOURITE_WEIGHT:0.10}
+      distance-cap-meters: ${PARKIO_SPA_RANKING_DISTANCE_CAP_METERS:1200}
+      # WP-SPA-14 AI ranking shadow FRAMEWORK (local challenger). Default off; never mutates public order.
+      shadow:
+        enabled: ${PARKIO_SPA_RANKING_SHADOW_ENABLED:false}
+        sample-rate: ${PARKIO_SPA_RANKING_SHADOW_SAMPLE_RATE:0.0}
+        timeout-ms: ${PARKIO_SPA_RANKING_SHADOW_TIMEOUT_MS:500}
+        max-candidates: ${PARKIO_SPA_RANKING_SHADOW_MAX_CANDIDATES:10}
+        max-concurrent: ${PARKIO_SPA_RANKING_SHADOW_MAX_CONCURRENT:4}
+      # WP-SPA-14B privacy-safe ranking evaluation correlation. Default off.
+      evaluation:
+        enabled: ${PARKIO_SPA_RANKING_EVALUATION_ENABLED:false}
+        retention-hours: ${PARKIO_SPA_RANKING_EVALUATION_RETENTION_HOURS:24}
+        cleanup-enabled: ${PARKIO_SPA_RANKING_EVALUATION_CLEANUP_ENABLED:true}
+        cleanup-fixed-delay-ms: ${PARKIO_SPA_RANKING_EVALUATION_CLEANUP_FIXED_DELAY_MS:900000}
+        cleanup-batch-size: ${PARKIO_SPA_RANKING_EVALUATION_CLEANUP_BATCH_SIZE:500}
+        # WP-SPA-14D privacy-safe long-horizon rollups. Default off.
+        rollup-enabled: ${PARKIO_SPA_RANKING_EVALUATION_ROLLUP_ENABLED:false}
+        rollup-retention-days: ${PARKIO_SPA_RANKING_EVALUATION_ROLLUP_RETENTION_DAYS:90}
+        rollup-grace-minutes: ${PARKIO_SPA_RANKING_EVALUATION_ROLLUP_GRACE_MINUTES:60}
+        rollup-fixed-delay-ms: ${PARKIO_SPA_RANKING_EVALUATION_ROLLUP_FIXED_DELAY_MS:900000}
+        rollup-max-slices-per-pass: ${PARKIO_SPA_RANKING_EVALUATION_ROLLUP_MAX_SLICES_PER_PASS:24}
+        rollup-cleanup-enabled: ${PARKIO_SPA_RANKING_EVALUATION_ROLLUP_CLEANUP_ENABLED:true}
+  user:
+    client:
+      # Internal base URL of user-service for favourite parking status (WP-SPA-06).
+      # Fail-open; short timeouts so ranking continues with favourite=0 on outage.
+      base-url: ${PARKIO_USER_SERVICE_URI:http://localhost:8082}
+      connect-timeout: ${PARKIO_USER_CLIENT_CONNECT_TIMEOUT:1s}
+      read-timeout: ${PARKIO_USER_CLIENT_READ_TIMEOUT:2s}
   parking:
+    flyway:
+      # PROD-DEPLOY-01A-R8.5: managed PostgreSQL (Azure Flexible Server) forbids CREATE EXTENSION
+      # for the migration role, so V1__enable_postgis.sql can never run there and the chain must
+      # begin at V2 behind an explicit Flyway baseline. Only docker-compose.managed-db.yml sets
+      # this; local/hosted-beta keep the normal V1 path.
+      managed-baseline-enabled: ${PARKIO_PARKING_FLYWAY_MANAGED_BASELINE_ENABLED:false}
     # One-shot legacy inventory reset. Keep disabled except on an explicit operator run.
     legacy-policy-reset:
       enabled: ${PARKIO_PARKING_LEGACY_POLICY_RESET_ENABLED:false}

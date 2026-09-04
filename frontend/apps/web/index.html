@@ -1,78 +1,72 @@
 <!doctype html>
-<html lang="tr">
+<html lang="en">
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>Parkio</title>
-    <!--
-      Runtime i18n may update <html lang>, but static Open Graph / Twitter / JSON-LD
-      stay Turkish-default (canonical product language). Crawlers often execute little
-      or no JS at scrape time, so bilingual static metadata would still be English-first
-      for many bots — ship Turkish defaults instead.
-    -->
+    <title>Parkio App</title>
     <meta
       name="description"
-      content="Parkio — park yeri bul, paylaş ve doğrula."
+      content="Parkio account application. Sign in to access authenticated parking tools."
     />
     <meta
       name="keywords"
-      content="Parkio, park yeri, topluluk destekli park, park yeri bul, park doğrulama, Smart Return, parking intelligence"
+      content="Parkio, parking application"
     />
-    <meta name="robots" content="index, follow" />
+    <meta name="robots" content="noindex,follow" />
     <meta name="theme-color" content="#0050CB" />
-    <link rel="canonical" href="https://parkio.dev/" />
+    <link rel="canonical" href="https://app.parkio.dev/" />
     <link rel="manifest" href="/manifest.webmanifest" />
     <link rel="icon" href="/icons/favicon-32.png" type="image/png" sizes="32x32" />
     <link rel="icon" href="/icons/parkio-icon.svg" type="image/svg+xml" />
     <link rel="apple-touch-icon" href="/icons/apple-touch-icon.png" sizes="180x180" />
-    <meta property="og:title" content="Parkio — topluluk destekli park yeri" />
+    <meta property="og:title" content="Parkio App" />
     <meta
       property="og:description"
-      content="Parkio — park yeri bul, paylaş ve doğrula."
+      content="Parkio account application and authenticated parking tools."
     />
-    <meta property="og:url" content="https://parkio.dev/" />
+    <meta property="og:url" content="https://app.parkio.dev/" />
     <meta property="og:type" content="website" />
-    <meta property="og:image" content="https://parkio.dev/og-parkio.png" />
+    <meta property="og:image" content="https://app.parkio.dev/og-parkio.png" />
     <meta property="og:image:width" content="1200" />
     <meta property="og:image:height" content="630" />
     <meta name="twitter:card" content="summary_large_image" />
-    <meta name="twitter:title" content="Parkio — topluluk destekli park yeri" />
+    <meta name="twitter:title" content="Parkio App" />
     <meta
       name="twitter:description"
-      content="Parkio — park yeri bul, paylaş ve doğrula."
+      content="Parkio account application and authenticated parking tools."
     />
-    <meta name="twitter:image" content="https://parkio.dev/social-preview.png" />
+    <meta name="twitter:image" content="https://app.parkio.dev/social-preview.png" />
     <script type="application/ld+json">
       {
         "@context": "https://schema.org",
         "@graph": [
           {
             "@type": "Organization",
-            "@id": "https://parkio.dev/#organization",
+            "@id": "https://app.parkio.dev/#organization",
             "name": "Parkio",
-            "url": "https://parkio.dev/",
-            "logo": "https://parkio.dev/brand/parkio-logo-mark.png"
+            "url": "https://app.parkio.dev/",
+            "logo": "https://app.parkio.dev/brand/parkio-logo-mark.png"
           },
           {
             "@type": "WebSite",
-            "@id": "https://parkio.dev/#website",
+            "@id": "https://app.parkio.dev/#website",
             "name": "Parkio",
-            "url": "https://parkio.dev/",
+            "url": "https://app.parkio.dev/",
             "publisher": {
-              "@id": "https://parkio.dev/#organization"
+              "@id": "https://app.parkio.dev/#organization"
             }
           },
           {
             "@type": "SoftwareApplication",
-            "@id": "https://parkio.dev/#software",
+            "@id": "https://app.parkio.dev/#software",
             "name": "Parkio",
             "applicationCategory": "TravelApplication",
             "operatingSystem": "Web, iOS, Android",
-            "url": "https://parkio.dev/",
-            "description": "Parkio — park yeri bul, paylaş ve doğrula.",
+            "url": "https://app.parkio.dev/",
+            "description": "Parkio account application and authenticated parking tools.",
             "isAccessibleForFree": true,
             "publisher": {
-              "@id": "https://parkio.dev/#organization"
+              "@id": "https://app.parkio.dev/#organization"
             }
           }
         ]

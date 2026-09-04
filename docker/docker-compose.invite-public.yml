@@ -1,0 +1,78 @@
+# docker-compose.invite-public.yml
+#
+# Invite-production PUBLIC EDGE overlay — PROD-DEPLOY-01B.
+#
+# Replaces docker-compose.invite-dark.yml when PARKIO_INVITE_EDGE_MODE=public.
+# Caddy is the sole public entrypoint; gateway-service stays on the Docker network
+# only (no host-published port). Parking feature policy and Tempo sizing match the
+# certified invite-production contract.
+#
+# ACME against production hostnames requires PARKIO_INVITE_ACME_AUTHORIZED=true and
+# a separately authorized DNS cutover (PROD-DEPLOY-01B-03+). Deploy tooling must
+# not start Caddy against production names before that gate.
+#
+# Ordering: MUST be listed AFTER docker-compose.hosted-beta.yml and MUST NOT be
+# merged together with docker-compose.invite-dark.yml.
+name: parkio
+
+services:
+  tempo:
+    mem_limit: 1g
+
+  gateway-service:
+    ports: !override []
+    environment:
+      # Non-secret deployment identity for invite-production edge modes.
+      # Same contract as invite-dark.yml: smoke reads /actuator/info as
+      # deployment.environment / deployment.gitSha. Required (not soft-defaulted)
+      # because this overlay is invite-production only — a missing deploy export
+      # must fail Compose resolution instead of silently reporting local/unknown
+      # (PROD-DEPLOY-01B-02C / 01B-02D).
+      PARKIO_ENVIRONMENT: ${PARKIO_ENVIRONMENT:?invite-production requires PARKIO_ENVIRONMENT}
+      PARKIO_GIT_SHA: ${PARKIO_GIT_SHA:?invite-production requires PARKIO_GIT_SHA}
+      # Level-B public surface: /actuator/info must not be unauthenticated on the
+      # internet-facing edge (PROD-DEPLOY-01B-03B). Missing value fails Compose
+      # resolution — never soft-default to true. Loopback identity smoke remains
+      # allowed by PublicEndpoints when the peer is loopback.
+      PARKIO_GATEWAY_PUBLIC_ACTUATOR_INFO_ENABLED: ${PARKIO_GATEWAY_PUBLIC_ACTUATOR_INFO_ENABLED:?invite-production requires PARKIO_GATEWAY_PUBLIC_ACTUATOR_INFO_ENABLED}
+      PARKIO_PUBLIC_EXPLORE_ENABLED: ${PARKIO_PUBLIC_EXPLORE_ENABLED:?invite-production requires PARKIO_PUBLIC_EXPLORE_ENABLED}
+
+  auth-service:
+    environment:
+      # Explicit CLOSED registration for controlled invite-production. Do not rely
+      # on the application default alone (PROD-DEPLOY-01B-03B). Missing value fails
+      # Compose resolution; unknown modes fail closed in RegistrationMode.parse.
+      PARKIO_REGISTRATION_MODE: ${PARKIO_REGISTRATION_MODE:?invite-production requires PARKIO_REGISTRATION_MODE}
+
+  parking-service:
+    environment:
+      PARKIO_PUBLIC_EXPLORE_ENABLED: ${PARKIO_PUBLIC_EXPLORE_ENABLED:?invite-production requires PARKIO_PUBLIC_EXPLORE_ENABLED}
+      PARKIO_PUBLIC_EXPLORE_ALLOWED_SOURCE_FAMILIES: ${PARKIO_PUBLIC_EXPLORE_ALLOWED_SOURCE_FAMILIES?invite-production requires PARKIO_PUBLIC_EXPLORE_ALLOWED_SOURCE_FAMILIES}
+      PARKIO_MUNICIPAL_ENABLED: ${PARKIO_MUNICIPAL_ENABLED:?invite-production requires PARKIO_MUNICIPAL_ENABLED}
+      PARKIO_MUNICIPAL_MANUAL_SYNC_ENABLED: ${PARKIO_MUNICIPAL_MANUAL_SYNC_ENABLED:?invite-production requires PARKIO_MUNICIPAL_MANUAL_SYNC_ENABLED}
+      PARKIO_MUNICIPAL_DISCOVERY_DUPLICATE_PRESENTATION_ENABLED: ${PARKIO_MUNICIPAL_DISCOVERY_DUPLICATE_PRESENTATION_ENABLED:?invite-production requires PARKIO_MUNICIPAL_DISCOVERY_DUPLICATE_PRESENTATION_ENABLED}
+      PARKIO_MUNICIPAL_IZUM_ENABLED: ${PARKIO_MUNICIPAL_IZUM_ENABLED:?invite-production requires PARKIO_MUNICIPAL_IZUM_ENABLED}
+      PARKIO_MUNICIPAL_IZUM_SCHEDULER_ENABLED: ${PARKIO_MUNICIPAL_IZUM_SCHEDULER_ENABLED:?invite-production requires PARKIO_MUNICIPAL_IZUM_SCHEDULER_ENABLED}
+      PARKIO_MUNICIPAL_ISPARK_ENABLED: ${PARKIO_MUNICIPAL_ISPARK_ENABLED:?invite-production requires PARKIO_MUNICIPAL_ISPARK_ENABLED}
+      PARKIO_MUNICIPAL_ISPARK_SCHEDULER_ENABLED: ${PARKIO_MUNICIPAL_ISPARK_SCHEDULER_ENABLED:?invite-production requires PARKIO_MUNICIPAL_ISPARK_SCHEDULER_ENABLED}
+      PARKIO_MUNICIPAL_ANPARK_ENABLED: ${PARKIO_MUNICIPAL_ANPARK_ENABLED:?invite-production requires PARKIO_MUNICIPAL_ANPARK_ENABLED}
+      PARKIO_MUNICIPAL_ANPARK_SCHEDULER_ENABLED: ${PARKIO_MUNICIPAL_ANPARK_SCHEDULER_ENABLED:?invite-production requires PARKIO_MUNICIPAL_ANPARK_SCHEDULER_ENABLED}
+      PARKIO_MUNICIPAL_KONYA_ENABLED: ${PARKIO_MUNICIPAL_KONYA_ENABLED:?invite-production requires PARKIO_MUNICIPAL_KONYA_ENABLED}
+      PARKIO_MUNICIPAL_KONYA_SCHEDULER_ENABLED: ${PARKIO_MUNICIPAL_KONYA_SCHEDULER_ENABLED:?invite-production requires PARKIO_MUNICIPAL_KONYA_SCHEDULER_ENABLED}
+      PARKIO_MUNICIPAL_KAYSERI_ENABLED: ${PARKIO_MUNICIPAL_KAYSERI_ENABLED:?invite-production requires PARKIO_MUNICIPAL_KAYSERI_ENABLED}
+      PARKIO_MUNICIPAL_KAYSERI_SCHEDULER_ENABLED: ${PARKIO_MUNICIPAL_KAYSERI_SCHEDULER_ENABLED:?invite-production requires PARKIO_MUNICIPAL_KAYSERI_SCHEDULER_ENABLED}
+      PARKIO_MUNICIPAL_OSM_IMPORT_ENABLED: ${PARKIO_MUNICIPAL_OSM_IMPORT_ENABLED:?invite-production requires PARKIO_MUNICIPAL_OSM_IMPORT_ENABLED}
+      PARKIO_MUNICIPAL_OSM_SCHEDULER_ENABLED: ${PARKIO_MUNICIPAL_OSM_SCHEDULER_ENABLED:?invite-production requires PARKIO_MUNICIPAL_OSM_SCHEDULER_ENABLED}
+      PARKIO_MUNICIPAL_OSM_PUBLICATION_ENABLED: ${PARKIO_MUNICIPAL_OSM_PUBLICATION_ENABLED:?invite-production requires PARKIO_MUNICIPAL_OSM_PUBLICATION_ENABLED}
+      PARKIO_SPA_RECOMMENDATIONS_ENABLED: ${PARKIO_SPA_RECOMMENDATIONS_ENABLED:?invite-production requires PARKIO_SPA_RECOMMENDATIONS_ENABLED}
+      PARKIO_SPA_RANKING_ENABLED: ${PARKIO_SPA_RANKING_ENABLED:?invite-production requires PARKIO_SPA_RANKING_ENABLED}
+      PARKIO_SPA_RANKING_STRATEGY: ${PARKIO_SPA_RANKING_STRATEGY:?invite-production requires PARKIO_SPA_RANKING_STRATEGY}
+      PARKIO_SPA_RANKING_SHADOW_ENABLED: ${PARKIO_SPA_RANKING_SHADOW_ENABLED:?invite-production requires PARKIO_SPA_RANKING_SHADOW_ENABLED}
+      PARKIO_SPA_RANKING_SHADOW_SAMPLE_RATE: ${PARKIO_SPA_RANKING_SHADOW_SAMPLE_RATE:?invite-production requires PARKIO_SPA_RANKING_SHADOW_SAMPLE_RATE}
+      PARKIO_SPA_RANKING_EVALUATION_ENABLED: ${PARKIO_SPA_RANKING_EVALUATION_ENABLED:?invite-production requires PARKIO_SPA_RANKING_EVALUATION_ENABLED}
+      PARKIO_SPA_RANKING_EVALUATION_ROLLUP_ENABLED: ${PARKIO_SPA_RANKING_EVALUATION_ROLLUP_ENABLED:?invite-production requires PARKIO_SPA_RANKING_EVALUATION_ROLLUP_ENABLED}
+
+  caddy:
+    environment:
+      PARKIO_HSTS_HEADER_VALUE: ${PARKIO_HSTS_HEADER_VALUE:-max-age=86400}
+      PARKIO_INVITE_ACME_AUTHORIZED: ${PARKIO_INVITE_ACME_AUTHORIZED:-false}

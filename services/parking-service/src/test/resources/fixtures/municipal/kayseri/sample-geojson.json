@@ -1,0 +1,109 @@
+{
+  "type": "FeatureCollection",
+  "features": [
+    {
+      "type": "Feature",
+      "properties": {
+        "CBNO": 2723,
+        "ILCE_CBNO": 4,
+        "MAH_CBNO": 195,
+        "ADI": "TACETTİN VELİ KATLI OTOPARKI",
+        "KATEGORI": 3,
+        "ALTKATEGOR": 5,
+        "KAT_ID": 22,
+        "KISA_ADI": "TACETTİN VELİ KATLI OTOPARKI",
+        "lat_DD": 38.715748,
+        "lon_DD": 35.491699
+      },
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          35.4916986962372,
+          38.71574768732533
+        ]
+      }
+    },
+    {
+      "type": "Feature",
+      "properties": {
+        "CBNO": 2724,
+        "ILCE_CBNO": 4,
+        "MAH_CBNO": 111,
+        "ADI": "HUNAT KATLI OTOPARKI",
+        "KATEGORI": 3,
+        "ALTKATEGOR": 5,
+        "KAT_ID": 22,
+        "KISA_ADI": "HUNAT KATLI OTOPARKI",
+        "lat_DD": 38.722065,
+        "lon_DD": 35.493657
+      },
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          35.49365675982883,
+          38.722065335152124
+        ]
+      }
+    },
+    {
+      "type": "Feature",
+      "properties": {
+        "CBNO": 2726,
+        "ILCE_CBNO": 4,
+        "MAH_CBNO": 37,
+        "ADI": "YOĞUNBURÇ OTOPARKI",
+        "KATEGORI": 3,
+        "ALTKATEGOR": 5,
+        "KAT_ID": 22,
+        "KISA_ADI": "YOĞUNBURÇ OTOPARKI",
+        "lat_DD": 38.718832,
+        "lon_DD": 35.491398
+      },
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          35.491397759979236,
+          38.718832276288104
+        ]
+      }
+    },
+    {
+      "type": "Feature",
+      "properties": {
+        "CBNO": 9999,
+        "ADI": "BAD COORD",
+        "KISA_ADI": "BAD",
+        "lat_DD": 41,
+        "lon_DD": 29,
+        "ILCE_CBNO": 1,
+        "MAH_CBNO": 1,
+        "KATEGORI": 3,
+        "ALTKATEGOR": 5,
+        "KAT_ID": 22
+      },
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          29,
+          41
+        ]
+      }
+    },
+    {
+      "type": "Feature",
+      "properties": {
+        "CBNO": null,
+        "ADI": "NO ID",
+        "lat_DD": 38.72,
+        "lon_DD": 35.49
+      },
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          35.49,
+          38.72
+        ]
+      }
+    }
+  ]
+}

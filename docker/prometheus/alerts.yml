@@ -4,8 +4,9 @@
 # DBs) — they detect production-impacting failure, not micro-optimisation. Tune per traffic.
 #
 # Prometheus routes firing alerts to Alertmanager (see docker/prometheus/prometheus.yml).
-# Hosted beta uses Alertmanager's no-op receiver unless PARKIO_ALERT_SLACK_WEBHOOK_URL
-# is configured in the environment.
+# Hosted beta / production-intended Alertmanager uses a no-op receiver unless
+# PARKIO_ALERT_SLACK_WEBHOOK_URL or PARKIO_ALERT_WEBHOOK_URL is set in the
+# environment (never commit the value). Dashboard visibility is not paging.
 #
 # Metric catalogue: docs/architecture/observability-metrics.md. Counters render with a
 # `_total` suffix; dots become underscores (parkio.outbox.deadlettered.count ->
@@ -66,6 +67,7 @@ groups:
         annotations:
           summary: "Outbox not draining in {{ $labels.service }}"
           description: "Oldest unpublished outbox row in {{ $labels.service }} is {{ $value | humanizeDuration }} old. Check Kafka health and the relay logs."
+          runbook_url: "docs/operations/alert-response-runbook.md#outboxbacklog"
 
       - alert: DatabaseConnectionPoolExhausted
         # Threads are blocked waiting for a HikariCP connection for 5m -> pool exhausted
@@ -154,7 +156,7 @@ groups:
           runbook_url: "docs/operations/alert-response-runbook.md#gatewaydown"
 
       - alert: CoreServiceDown
-        expr: up{job="parkio-services",service=~"auth-service|user-service|parking-service|media-service|notification-service|gamification-service"} == 0
+        expr: up{job="parkio-services",service=~"auth-service|user-service|parking-service|media-service|notification-service|gamification-service|moderation-service|analytics-service|ai-validation-service"} == 0
         for: 2m
         labels:
           severity: critical
@@ -226,17 +228,76 @@ groups:
           description: "TCP probe to {{ $labels.component }}:5432 failed for >2m."
           runbook_url: "docs/operations/alert-response-runbook.md#postgresdown"
 
-      - alert: BackupFailedOrStale
-        expr: |
-          parkio_backup_last_success{scope="hosted-beta"} == 0
-            or (time() - parkio_backup_last_timestamp_seconds{scope="hosted-beta"}) > 90000
+      - alert: BackupFailed
+        expr: parkio_backup_last_success{scope=~"hosted-beta|azure-hosted-beta"} == 0
         for: 1h
         labels:
           severity: critical
         annotations:
-          summary: "Hosted-beta backup failed or is stale"
-          description: "Last successful hosted-beta backup is missing or older than ~25h. Run scripts/backup-hosted-beta.sh and inspect backup-artifacts/."
+          summary: "Hosted-beta backup last run failed"
+          description: "parkio_backup_last_success is 0 for scope {{ $labels.scope }}. The last backup attempt did not meet success (databases + MinIO + required offsite). Inspect the backup log; do not treat a local directory as success."
           runbook_url: "docs/operations/backup-runbook.md#failed-backups"
+
+      - alert: BackupStale
+        expr: (time() - parkio_backup_last_timestamp_seconds{scope=~"hosted-beta|azure-hosted-beta"}) > 90000
+        for: 1h
+        labels:
+          severity: critical
+        annotations:
+          summary: "Hosted-beta backup is stale"
+          description: "Last backup attempt timestamp for scope {{ $labels.scope }} is older than ~25h. Nightly cadence was missed. Run scripts/backup-hosted-beta.sh after checking why cron/job did not run."
+          runbook_url: "docs/operations/backup-runbook.md#failed-backups"
+
+      - alert: BackupOffsiteFailed
+        expr: |
+          parkio_backup_production_mode{scope=~"hosted-beta|azure-hosted-beta"} == 1
+            and parkio_backup_offsite_last_success{scope=~"hosted-beta|azure-hosted-beta"} == 0
+        for: 1h
+        labels:
+          severity: critical
+        annotations:
+          summary: "Production-mode offsite backup failed"
+          description: "BACKUP_PRODUCTION_MODE is on for scope {{ $labels.scope }} but parkio_backup_offsite_last_success is 0. Local stamp existence is not offsite protection. Check Azure/S3 credentials and backup-offsite logs."
+          runbook_url: "docs/operations/backup-runbook.md#failed-backups"
+
+      - alert: BackupOffsiteStale
+        expr: |
+          parkio_backup_production_mode{scope=~"hosted-beta|azure-hosted-beta"} == 1
+            and (time() - parkio_backup_last_timestamp_seconds{scope=~"hosted-beta|azure-hosted-beta"}) > 90000
+        for: 1h
+        labels:
+          severity: critical
+        annotations:
+          summary: "Production-mode offsite backup is stale"
+          description: "Production-intended backups for scope {{ $labels.scope }} have no attempt newer than ~25h, so the offsite copy is also stale. There is no separate offsite timestamp — cadence uses parkio_backup_last_timestamp_seconds."
+          runbook_url: "docs/operations/backup-runbook.md#failed-backups"
+
+      - alert: BackupEncryptionDisabledInProduction
+        expr: |
+          parkio_backup_production_mode{scope=~"hosted-beta|azure-hosted-beta"} == 1
+            and parkio_backup_encryption_enabled{scope=~"hosted-beta|azure-hosted-beta"} == 0
+        for: 15m
+        labels:
+          severity: critical
+        annotations:
+          summary: "Backup encryption disabled in production mode"
+          description: "parkio_backup_production_mode is 1 for scope {{ $labels.scope }} but parkio_backup_encryption_enabled is 0. Production-intended dumps must be encrypted. Do not continue relying on plaintext stamps."
+          runbook_url: "docs/operations/backup-runbook.md#failed-backups"
+
+      - alert: ParkioAlertingAcceptanceTest
+        # Synthetic plumbing probe. Disabled unless parkio_alerting_acceptance_test==1
+        # is deliberately exported (isolated acceptance stack or a temporary textfile).
+        # Never leave this series at 1 on hosted-beta.
+        # max() so one armed gauge cannot fan out into N alerts if the same
+        # unlabeled series is scraped by multiple jobs (acceptance fixture).
+        expr: max(parkio_alerting_acceptance_test) == 1
+        for: 15s
+        labels:
+          severity: critical
+        annotations:
+          summary: "Parkio alerting acceptance test is armed"
+          description: "Synthetic alert ParkioAlertingAcceptanceTest is active. This is not a production outage. Disarm the series (set to 0 or remove the textfile) after confirming operator notification plumbing."
+          runbook_url: "docs/operations/alerting.md#synthetic-acceptance"
 
   # ===================================================================== #
   # WARNING — investigate soon; not necessarily an outage.                 #
@@ -255,6 +316,7 @@ groups:
         annotations:
           summary: "High heap usage in {{ $labels.service }}"
           description: "{{ $labels.service }} heap is above 90% of max for >10m. Risk of GC thrash / OOM — review memory limits (JAVA_TOOL_OPTIONS MaxRAMPercentage) and load."
+          runbook_url: "docs/operations/alert-response-runbook.md#highjvmmemoryusage"
 
       - alert: OutboxPublishFailuresElevated
         # The relay is failing to publish rows (transient broker/network errors) well before
@@ -587,3 +649,15 @@ groups:
           summary: "Sustained parking-session scheduler failures"
           description: "More than 3 stale-session scheduler failures in 6h. Auto-complete and reminders may be stalled. See parking-session-stale-runbook.md (scheduler stuck)."
           runbook_url: "docs/operations/parking-session-stale-runbook.md"
+
+  - name: parkio-account-erasure
+    rules:
+      - alert: AccountErasureStuck
+        expr: parkio_erasure_stuck > 0
+        for: 15m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Account erasure incomplete beyond operational SLA"
+          description: "{{ $value }} erasure request(s) still incomplete after 1h SLA. Check auth-service erasure_requests and participant acks. Do not reverse completed deletions."
+          runbook_url: "docs/architecture/priv-001-account-data-erasure.md"

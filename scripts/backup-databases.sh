@@ -3,18 +3,22 @@
 # Parkio — nightly per-database backup for the hosted-beta single-VPS stack.
 #
 # Dumps each service's PostgreSQL database (database-per-service) with pg_dump via
-# `docker exec`, gzips it, optionally encrypts it (AES-256), optionally uploads it to a
-# remote S3-compatible bucket via the MinIO client `mc`, and prunes old local backups.
+# `docker exec` (default) or managed PostgreSQL over TLS when PARKIO_PG_MODE=managed.
+# Then gzips, optionally encrypts (AES-256), optionally uploads to offsite, and prunes.
 #
-# It connects over the container's local socket (the official postgres image trusts local
-# connections), so no DB password is needed here.
+# Docker mode connects over the container's local socket (no password). Managed mode
+# requires PARKIO_PG_HOST and sslmode=require (disable is rejected).
 #
 # Usage:
 #   # load the same .env the stack uses, then run:
 #   PARKIO_ENV_FILE=docker/.env ./scripts/backup-databases.sh
 #
-# Schedule nightly via cron on the VPS, e.g. (03:30, log to syslog):
-#   30 3 * * * cd /opt/parkio && PARKIO_ENV_FILE=docker/.env ./scripts/backup-databases.sh >> /var/log/parkio-backup.log 2>&1
+# Canonical nightly schedule is the orchestrator (DB + MinIO + metrics), not this
+# script alone. See docs/operations/backup-runbook.md:
+#   30 3 * * * cd /opt/parkio && BACKUP_PRODUCTION_MODE=1 PARKIO_ENV_FILE=docker/.env.azure-hosted-beta ./scripts/backup-hosted-beta.sh >> /var/log/parkio-backup.log 2>&1
+#
+# This script is the Postgres dump step. Running it standalone uploads dumps only
+# (no MinIO). Prefer backup-hosted-beta.sh so offsite includes object storage.
 #
 # Restore a single database with the companion script (handles gzip/encryption + safety prompt):
 #   ./scripts/restore-database.sh auth /var/backups/parkio/<stamp>/auth.sql.gz
@@ -30,17 +34,17 @@
 
 set -euo pipefail
 
+SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+# shellcheck source=lib/backup-common.sh
+source "${SCRIPT_DIR}/lib/backup-common.sh"
+
 # Optionally load an env file (so POSTGRES_*_USER/DB, BACKUP_* are available).
+# Non-empty BACKUP_ENCRYPT_PASSPHRASE / BACKUP_MC_DEST already in the environment
+# win over blank .env placeholders.
 ENV_FILE="${PARKIO_ENV_FILE:-}"
-if [ -n "${ENV_FILE}" ]; then
-  if [ -f "${ENV_FILE}" ]; then
-    set -a
-    # shellcheck disable=SC1090
-    . "${ENV_FILE}"
-    set +a
-  else
-    echo "WARN: PARKIO_ENV_FILE='${ENV_FILE}' not found; relying on current environment." >&2
-  fi
+parkio_backup_load_env "${ENV_FILE}"
+if ! parkio_backup_preflight; then
+  exit 2
 fi
 
 BACKUP_DIR="${BACKUP_DIR:-./backups}"
@@ -74,7 +78,7 @@ failures=0
 for entry in "${SERVICES[@]}"; do
   IFS=":" read -r name container user db <<< "${entry}"
 
-  if ! docker inspect "${container}" >/dev/null 2>&1; then
+  if [ "$(parkio_pg_mode)" != "managed" ] && ! docker inspect "${container}" >/dev/null 2>&1; then
     echo "  SKIP ${name}: container '${container}' not found" >&2
     failures=$((failures + 1))
     continue
@@ -86,33 +90,46 @@ for entry in "${SERVICES[@]}"; do
   # pg_dump (plain SQL, restore-friendly) | gzip [ | openssl encrypt ]
   if [ -n "${ENCRYPT_PASSPHRASE}" ]; then
     out="${out}.enc"
-    if docker exec "${container}" pg_dump -U "${user}" -d "${db}" --no-owner --clean --if-exists \
+    if parkio_pg_dump_stream "${user}" "${db}" "${container}" \
       | gzip -9 \
       | openssl enc -aes-256-cbc -pbkdf2 -salt -pass env:BACKUP_ENCRYPT_PASSPHRASE > "${out}" \
       && [ -s "${out}" ]; then
       echo "OK -> $(basename "${out}") ($(du -h "${out}" | cut -f1))"
+      parkio_backup_write_checksum "${out}" || { echo "FAILED (checksum)" >&2; failures=$((failures + 1)); }
     else
       echo "FAILED (dump errored or empty)" >&2; failures=$((failures + 1)); rm -f "${out}"
     fi
   else
-    if docker exec "${container}" pg_dump -U "${user}" -d "${db}" --no-owner --clean --if-exists \
+    if parkio_backup_production_mode; then
+      echo "ERROR: BACKUP_PRODUCTION_MODE forbids plaintext dumps." >&2
+      failures=$((failures + 1))
+      continue
+    fi
+    if parkio_pg_dump_stream "${user}" "${db}" "${container}" \
       | gzip -9 > "${out}" \
       && [ -s "${out}" ]; then
       echo "OK -> $(basename "${out}") ($(du -h "${out}" | cut -f1))"
+      parkio_backup_write_checksum "${out}" || { echo "FAILED (checksum)" >&2; failures=$((failures + 1)); }
     else
       echo "FAILED (dump errored or empty)" >&2; failures=$((failures + 1)); rm -f "${out}"
     fi
   fi
 done
 
-# Optional off-box upload to S3-compatible storage via the MinIO client.
-if [ -n "${MC_DEST}" ]; then
-  if command -v mc >/dev/null 2>&1; then
-    echo "Uploading ${DEST_DIR} -> ${MC_DEST}/${STAMP}"
-    mc cp --recursive "${DEST_DIR}" "${MC_DEST}/${STAMP}" || { echo "WARN: mc upload failed" >&2; failures=$((failures + 1)); }
-  else
-    echo "WARN: BACKUP_MC_DEST set but 'mc' not installed; keeping local copy only." >&2
-  fi
+# PRIV-001: copy live erasure tombstones beside dumps (ids + timestamps only).
+# Restores must replay this ledger; do not mutate historical dump files.
+# shellcheck source=lib/erasure-tombstones.sh
+source "${SCRIPT_DIR}/lib/erasure-tombstones.sh"
+parkio_export_erasure_tombstones "${DEST_DIR}" || true
+
+# Optional off-box upload. The hosted-beta orchestrator sets BACKUP_SKIP_MC_UPLOAD=1
+# and uploads AFTER MinIO mirror so object storage is included in the same stamp.
+if [ -z "${BACKUP_SKIP_MC_UPLOAD:-}" ] && [ "$(parkio_backup_offsite_kind)" != "none" ]; then
+  parkio_backup_write_stamp_integrity "${DEST_DIR}" "${STAMP}" \
+    && parkio_backup_offsite_upload "${DEST_DIR}" "${MC_DEST}" "${STAMP}" \
+    || { echo "ERROR: offsite upload failed" >&2; failures=$((failures + 1)); }
+elif [ -n "${BACKUP_SKIP_MC_UPLOAD:-}" ]; then
+  echo "Offsite upload deferred to orchestrator (BACKUP_SKIP_MC_UPLOAD=1)."
 fi
 
 # Prune local backups older than the retention window.

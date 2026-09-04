@@ -1,5 +1,6 @@
 package com.parkio.auth.infrastructure.config;
 
+import com.parkio.auth.infrastructure.config.RegistrationProperties;
 import com.parkio.auth.infrastructure.security.JwtProperties;
 import java.time.Clock;
 import org.springframework.boot.context.properties.EnableConfigurationProperties;
@@ -13,7 +14,7 @@ import org.springframework.scheduling.annotation.EnableScheduling;
  * logic (token expiry) is injectable and testable.
  */
 @Configuration
-@EnableConfigurationProperties(JwtProperties.class)
+@EnableConfigurationProperties({JwtProperties.class, RegistrationProperties.class})
 @EnableScheduling
 public class AuthInfrastructureConfig {
 
