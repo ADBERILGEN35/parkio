@@ -117,6 +117,10 @@ fi
 edge_guard_args=(--env-file "$ENV_FILE")
 if [ "$DRY_RUN" -ne 1 ]; then
   edge_guard_args+=(--require-model)
+else
+  # Source-only dry runs must not need production Azure credentials or DNS.
+  # The reviewed live path above still requires both model and DNS proof.
+  edge_guard_args+=(--skip-dns)
 fi
 if ! "$ROOT/scripts/assert-invite-production-edge-guard.sh" "${edge_guard_args[@]}"; then
   echo "ERROR: invite-production edge guard failed; refusing to start the stack." >&2
@@ -127,6 +131,10 @@ export PARKIO_IMAGE_TAG="$IMAGE_TAG"
 export PARKIO_GIT_SHA="$GIT_SHA"
 export PARKIO_IMAGE_CREATED="$CREATED"
 export PARKIO_IMAGE_VERSION="$VERSION"
+
+# Validate intended mode against the merged model before release staging or
+# activation, not only when the deployment manifest is emitted later.
+parkio_effective_feature_configuration_json "$ENV_FILE" >/dev/null || exit 3
 
 PREVIOUS=""
 if [ -f "$ARTIFACT_DIR/current.json" ]; then

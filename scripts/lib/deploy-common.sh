@@ -365,7 +365,9 @@ parkio_feature_flags_json() {
 parkio_effective_feature_configuration_json() {
   local env_file="$1"
   parkio_compose "$env_file" config --format json \
-    | python3 "$(parkio_repo_root)/scripts/lib/assert-invite-production-feature-config.py" --evidence
+    | python3 "$(parkio_repo_root)/scripts/lib/assert-invite-production-feature-config.py" --evidence \
+        --public-explore-mode "${PARKIO_DISPATCH_PUBLIC_EXPLORE_MODE:-off}" \
+        --public-explore-authorization "${PARKIO_DISPATCH_PUBLIC_EXPLORE_AUTHORIZATION:-}"
 }
 
 parkio_wait_healthy() {

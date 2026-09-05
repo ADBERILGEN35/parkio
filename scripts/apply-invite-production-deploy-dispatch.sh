@@ -24,7 +24,7 @@ registration_mode="${PARKIO_DISPATCH_REGISTRATION_MODE:-}"
 
 profile="$(parkio_validate_invite_dispatch_inputs)" || exit 4
 
-python3 - "$ENV_FILE" "$edge_mode" "$acme_authorized" "$registration_mode" <<'PY'
+python3 - "$ENV_FILE" "$edge_mode" "$acme_authorized" "$registration_mode" "${PARKIO_DISPATCH_PUBLIC_EXPLORE_MODE:-off}" <<'PY'
 import pathlib
 import sys
 
@@ -33,6 +33,10 @@ updates = {
     "PARKIO_INVITE_EDGE_MODE": sys.argv[2],
     "PARKIO_INVITE_ACME_AUTHORIZED": sys.argv[3],
     "PARKIO_REGISTRATION_MODE": sys.argv[4],
+    "VITE_REGISTRATION_MODE": "closed",
+    "PARKIO_PUBLIC_EXPLORE_ENABLED": "true" if sys.argv[5] == "izum-readonly" else "false",
+    "PARKIO_PUBLIC_EXPLORE_ALLOWED_SOURCE_FAMILIES": "izum" if sys.argv[5] == "izum-readonly" else "",
+    "VITE_PUBLIC_EXPLORE_ENABLED": "true" if sys.argv[5] == "izum-readonly" else "false",
 }
 lines = path.read_text().splitlines()
 seen = set()

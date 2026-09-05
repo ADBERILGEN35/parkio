@@ -16,6 +16,7 @@ SPEC.loader.exec_module(MODULE)
 def valid_model() -> dict:
     return {
         "services": {
+            "auth-service": {"environment": {"PARKIO_REGISTRATION_MODE": "closed"}},
             "parking-service": {
                 "environment": {
                     **MODULE.PARKING_EXPECTED,

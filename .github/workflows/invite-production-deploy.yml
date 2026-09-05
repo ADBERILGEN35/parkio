@@ -66,6 +66,19 @@ on:
         required: false
         type: string
         default: ""
+      public_explore_mode:
+        description: "off (default/rollback) | explicitly authorized IZUM-only read-only cutover"
+        required: false
+        type: choice
+        options:
+          - off
+          - izum-readonly
+        default: off
+      public_explore_authorization:
+        description: "Only for izum-readonly: GOOGLE-STARTUP-REAPPLY-01E-B; production reviewer approval still required"
+        required: false
+        type: string
+        default: ""
 
 permissions:
   contents: read
@@ -117,6 +130,17 @@ jobs:
       - name: Install jq
         run: sudo apt-get update && sudo apt-get install -y jq
 
+      - name: Validate explore dispatch before production reviewer gate
+        if: ${{ github.event_name == 'workflow_dispatch' && inputs.action == 'deploy' }}
+        env:
+          PARKIO_DISPATCH_INVITE_EDGE_MODE: ${{ inputs.invite_edge_mode }}
+          PARKIO_DISPATCH_INVITE_ACME_AUTHORIZED: ${{ inputs.invite_acme_authorized }}
+          PARKIO_DISPATCH_REGISTRATION_MODE: ${{ inputs.registration_mode }}
+          PARKIO_DISPATCH_CUTOVER_AUTHORIZATION: ${{ inputs.cutover_authorization }}
+          PARKIO_DISPATCH_PUBLIC_EXPLORE_MODE: ${{ inputs.public_explore_mode || 'off' }}
+          PARKIO_DISPATCH_PUBLIC_EXPLORE_AUTHORIZATION: ${{ inputs.public_explore_authorization }}
+        run: ./scripts/attest-invite-production-deploy-dispatch.sh
+
       - name: Invite-production configuration and secret-safety tests
         env:
           # The dark-endpoint binding must be proven against the real merged
@@ -136,6 +160,7 @@ jobs:
           bash scripts/test-priv001-synthetic-principal.sh
           bash scripts/test-invite-production-priv001-release-staging.sh
           python3 scripts/test_invite_production_dispatch_input.py
+          python3 scripts/test_public_explore_deploy_mode.py
           bash scripts/test-invite-dark-acme-isolation.sh
           bash scripts/test-invite-production-public-cutover-deploy.sh
           bash scripts/test-invite-production-edge-mode.sh
@@ -188,6 +213,13 @@ jobs:
 
       - name: Dry-run invite-production deploy without secret-bearing evidence
         env:
+          PARKIO_DISPATCH_ACTION: ${{ inputs.action }}
+          PARKIO_DISPATCH_INVITE_EDGE_MODE: ${{ inputs.invite_edge_mode }}
+          PARKIO_DISPATCH_INVITE_ACME_AUTHORIZED: ${{ inputs.invite_acme_authorized }}
+          PARKIO_DISPATCH_REGISTRATION_MODE: ${{ inputs.registration_mode }}
+          PARKIO_DISPATCH_CUTOVER_AUTHORIZATION: ${{ inputs.cutover_authorization }}
+          PARKIO_DISPATCH_PUBLIC_EXPLORE_MODE: ${{ inputs.public_explore_mode || 'off' }}
+          PARKIO_DISPATCH_PUBLIC_EXPLORE_AUTHORIZATION: ${{ inputs.public_explore_authorization }}
           PARKIO_ENV_FILE: ${{ runner.temp }}/parkio-invite-ci-${{ github.run_id }}.env
           PARKIO_DEPLOY_ARTIFACT_DIR: deploy-artifacts/invite-production
           PARKIO_DEPLOY_OPERATOR: github-actions
@@ -236,6 +268,12 @@ jobs:
                   lines.append(line)
           path.write_text("\n".join(lines) + "\n")
           PY
+
+          if [ "$PARKIO_DISPATCH_ACTION" = deploy ]; then
+            # Input guards already passed above. Render the same mode into the
+            # CI-only env; live Azure/DNS attestation remains in the reviewed job.
+            ./scripts/apply-invite-production-deploy-dispatch.sh --env-file "$PARKIO_ENV_FILE"
+          fi
 
           set +e
           ./scripts/deploy-invite-production.sh \
@@ -499,6 +537,8 @@ jobs:
     runs-on: [self-hosted, linux, x64, parkio-invite-production]
     timeout-minutes: 120
     env:
+      PARKIO_DISPATCH_PUBLIC_EXPLORE_MODE: ${{ inputs.public_explore_mode || 'off' }}
+      PARKIO_DISPATCH_PUBLIC_EXPLORE_AUTHORIZATION: ${{ inputs.public_explore_authorization }}
       # actions/checkout resolves `path` against GITHUB_WORKSPACE, and
       # actions/setup-node resolves `node-version-file` with
       # path.join(GITHUB_WORKSPACE, input): an absolute input duplicates the

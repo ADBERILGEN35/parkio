@@ -21,6 +21,7 @@ echo "invite_dispatch_profile=$profile"
 echo "invite_edge_mode=${PARKIO_DISPATCH_INVITE_EDGE_MODE}"
 echo "invite_acme_authorized=${PARKIO_DISPATCH_INVITE_ACME_AUTHORIZED}"
 echo "registration_mode=${PARKIO_DISPATCH_REGISTRATION_MODE}"
+echo "public_explore_mode=${PARKIO_DISPATCH_PUBLIC_EXPLORE_MODE:-off}"
 
 if [ -n "${PARKIO_DISPATCH_CUTOVER_AUTHORIZATION:-}" ]; then
   echo "cutover_authorization_present=true"

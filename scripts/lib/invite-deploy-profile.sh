@@ -111,5 +111,34 @@ parkio_validate_invite_dispatch_inputs() {
     return 4
   fi
 
+  parkio_validate_public_explore_dispatch || return $?
   printf '%s' "$profile"
+}
+
+# Separate from the historical public-edge authorization. This is a non-secret
+# acknowledgement, NOT a substitute for the invite-production environment reviewer.
+parkio_validate_public_explore_dispatch() {
+  local mode="${PARKIO_DISPATCH_PUBLIC_EXPLORE_MODE:-off}"
+  local authorization="${PARKIO_DISPATCH_PUBLIC_EXPLORE_AUTHORIZATION:-}"
+  case "$mode" in
+    off)
+      [ -z "$authorization" ] || {
+        echo "ERROR: public explore authorization is only valid for izum-readonly" >&2
+        return 4
+      }
+      ;;
+    izum-readonly)
+      if [ "$authorization" != "GOOGLE-STARTUP-REAPPLY-01E-B" ]; then
+        echo "ERROR: izum-readonly requires dedicated public explore authorization" >&2
+        return 4
+      fi
+      if [ "${PARKIO_DISPATCH_INVITE_EDGE_MODE:-}" != public ] \
+          || [ "${PARKIO_DISPATCH_INVITE_ACME_AUTHORIZED:-}" != true ] \
+          || [ "${PARKIO_DISPATCH_REGISTRATION_MODE:-}" != closed ]; then
+        echo "ERROR: izum-readonly requires the public edge and closed registration" >&2
+        return 4
+      fi
+      ;;
+    *) echo "ERROR: unsupported public explore mode" >&2; return 2 ;;
+  esac
 }
