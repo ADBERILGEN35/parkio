@@ -67,11 +67,14 @@ const exactContent = [
   'How Parkio works as a business',
   'Roadmap',
   'Parkio today',
-  'Account registration remains controlled.',
-  'Public access is prepared and remains disabled',
+  'Account registration remains closed',
+  'no account required',
   'mailto:info@parkio.dev',
   'href="/privacy/"',
   'href="/terms/"',
+  'https://www.linkedin.com/in/oguzhan-tasyaran/',
+  'https://www.linkedin.com/company/parkio-app',
+  'https://app.parkio.dev/explore',
 ];
 exactContent.forEach((value) => check(index.includes(value), `Required marketing content missing: ${value}`));
 
@@ -81,10 +84,19 @@ for (const anchor of ['#product', '#how', '#trust', '#business', '#roadmap', '#a
 }
 
 for (const ctaId of ['header-product-cta', 'primary-product-cta', 'today-product-cta']) {
-  const pattern = new RegExp(`<a[^>]*id="${ctaId}"[^>]*href="https://app\\.parkio\\.dev/"[^>]*>\\s*Open Parkio`, 'i');
-  check(pattern.test(index), `Pre-enable CTA contract failed for ${ctaId}.`);
+  const pattern = new RegExp(
+    `<a[^>]*id="${ctaId}"[^>]*href="https://app\\.parkio\\.dev/explore"[^>]*>\\s*Explore parking`,
+    'i',
+  );
+  check(pattern.test(index), `Post-enable Explore CTA contract failed for ${ctaId}.`);
 }
-check(!index.includes('https://app.parkio.dev/explore'), 'Pre-enable marketing must not link to /explore.');
+check(
+  /href="https:\/\/app\.parkio\.dev\/"[^>]*>\s*Sign in/i.test(index),
+  'Secondary Sign in link to app.parkio.dev is required.',
+);
+check(!/Pre-enable product state/i.test(index), 'Pre-enable product state copy must be removed.');
+check(!/pending final enablement/i.test(index), 'Pending enablement copy must be removed.');
+check(!/Public access is prepared and remains disabled/i.test(index), 'Disabled public-access copy must be removed.');
 
 const bannedSignals = [
   /\billustrative\b/i,
@@ -95,18 +107,29 @@ const bannedSignals = [
   /\bunder construction\b/i,
   /\bwaitlist\b/i,
   /\brequest (?:a )?demo\b/i,
+  /\bjoin waitlist\b/i,
+  /\bcreate account\b/i,
+  /\bsign up now\b/i,
+  /\bget started free\b/i,
   /\btrusted by\b/i,
   /\bdrivers across\b/i,
   /\bthousands of\b/i,
   /\bfive[- ]star\b/i,
   /\btestimonial(?:s)?\b/i,
   /\bmunicipal partner(?:ship)?\b/i,
-  /\bpublic explore is live\b/i,
+  /\breal[- ]time parking availability\b/i,
 ];
 bannedSignals.forEach((pattern) => check(!pattern.test(publicCopy), `Unsupported public signal found: ${pattern}`));
 
 check(!/href\s*=\s*["'](?:|#)["']/i.test(index), 'Empty or fragment-only href found.');
-check(!/linkedin\.com/i.test(index), 'LinkedIn URL must be absent until operator input is supplied.');
+check(
+  (index.match(/https:\/\/www\.linkedin\.com\/in\/oguzhan-tasyaran\//g) ?? []).length >= 2,
+  'Founder LinkedIn must appear in visible HTML and structured data.',
+);
+check(
+  (index.match(/https:\/\/www\.linkedin\.com\/company\/parkio-app/g) ?? []).length >= 2,
+  'Company LinkedIn must appear in visible HTML and Organization sameAs.',
+);
 
 const jsonLdMatch = index.match(/<script type="application\/ld\+json">([\s\S]*?)<\/script>/i);
 check(Boolean(jsonLdMatch), 'Organization JSON-LD is missing.');
@@ -114,9 +137,24 @@ if (jsonLdMatch) {
   try {
     const graph = JSON.parse(jsonLdMatch[1])['@graph'];
     const organization = graph.find((entry) => entry['@type'] === 'Organization');
+    const webApp = graph.find((entry) => entry['@type'] === 'WebApplication');
     check(organization?.founder?.name === 'Oğuzhan Taşyaran', 'JSON-LD founder name is incorrect.');
     check(organization?.founder?.jobTitle === 'Founder', 'JSON-LD founder jobTitle is incorrect.');
-    check(!Object.hasOwn(organization?.founder ?? {}, 'sameAs'), 'JSON-LD founder.sameAs must be omitted without operator input.');
+    const founderSameAs = [].concat(organization?.founder?.sameAs ?? []);
+    check(
+      founderSameAs.includes('https://www.linkedin.com/in/oguzhan-tasyaran/'),
+      'JSON-LD founder.sameAs must include the founder LinkedIn URL.',
+    );
+    check(
+      !founderSameAs.includes('https://www.linkedin.com/company/parkio-app'),
+      'Company LinkedIn must not appear in founder.sameAs.',
+    );
+    const orgSameAs = [].concat(organization?.sameAs ?? []);
+    check(
+      orgSameAs.includes('https://www.linkedin.com/company/parkio-app'),
+      'JSON-LD Organization.sameAs must include the company LinkedIn URL.',
+    );
+    check(webApp?.url === 'https://app.parkio.dev/explore', 'JSON-LD WebApplication.url must be Explore.');
   } catch (error) {
     failures.push(`Invalid JSON-LD: ${error.message}`);
   }

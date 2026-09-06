@@ -4,8 +4,11 @@ const REQUIRED_CRAWLER_COPY = [
   'Oğuzhan Taşyaran',
   'How Parkio works as a business',
   'Roadmap',
-  'production infrastructure is live',
-  'Public access is prepared and remains disabled',
+  'production infrastructure and web product are live',
+  'no account required',
+  'https://www.linkedin.com/in/oguzhan-tasyaran/',
+  'https://www.linkedin.com/company/parkio-app',
+  'https://app.parkio.dev/explore',
 ] as const;
 
 test('serves the complete static marketing surface with correct content types', async ({ request: api }) => {
@@ -58,7 +61,9 @@ test('remains substantive with JavaScript disabled', async ({ browser, baseURL }
     await expect(page.getByRole('heading', { level: 1 })).toBeVisible();
     await expect(page.getByRole('heading', { name: 'How Parkio works as a business' })).toBeVisible();
     await expect(page.getByRole('heading', { name: 'Oğuzhan Taşyaran' })).toBeVisible();
-    await expect(page.getByText('Public access is prepared and remains disabled', { exact: false })).toBeVisible();
+    await expect(page.getByRole('link', { name: 'Oğuzhan Taşyaran on LinkedIn' })).toBeVisible();
+    await expect(page.getByRole('link', { name: 'Explore parking' }).first()).toBeVisible();
+    await expect(page.getByText('no account required', { exact: false }).first()).toBeVisible();
   } finally {
     await context.close();
   }

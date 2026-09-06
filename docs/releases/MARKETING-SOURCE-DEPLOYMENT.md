@@ -21,46 +21,31 @@ The exact pre-01D live package was imported without copy edits in commit:
 The 01D candidate is the final exact SHA named by the 01D certification report. Do not
 deploy an intermediate commit or infer the candidate from a local branch name.
 
-## Human inputs required before 01E
+## Operator-confirmed identity inputs (01E-B2-A)
 
 ```text
-FOUNDER_LINKEDIN_URL = HUMAN INPUT REQUIRED
-PARKIO_COMPANY_LINKEDIN_URL = OPTIONAL / NOT PROVIDED
+FOUNDER_LINKEDIN_URL = https://www.linkedin.com/in/oguzhan-tasyaran/
+PARKIO_COMPANY_LINKEDIN_URL = https://www.linkedin.com/company/parkio-app
 ```
 
-After the operator supplies the founder's authentic personal URL, validate only that it
-uses HTTPS and a `linkedin.com/in/` path. Operator confirmation, not URL syntax or a web
-search, establishes ownership. Add the confirmed URL to:
+These URLs are committed in the visible founder/contact/footer surface and in JSON-LD
+(`founder.sameAs` for the personal URL; Organization `sameAs` for the company URL). Do not
+guess additional social profiles.
 
-- the visible founder section in `web/marketing/index.html`;
-- `founder.sameAs` in the Organization JSON-LD;
-- the footer verification link only if it improves navigation.
+## CTA state after public Explore enablement (01E-B2-A)
 
-Until then, render no LinkedIn anchor and omit `sameAs` entirely. Never commit an empty,
-fragment, example, or guessed URL.
-
-## CTA state transition owned by 01E
-
-The committed 01D page is deliberately the pre-enable state:
+Public Explore is live. Marketing CTAs must use:
 
 ```text
-CTA: Open Parkio
-Target: https://app.parkio.dev/
-Context: Account registration remains controlled.
-```
-
-Only after 01E enables and externally verifies the production public explore API and page,
-change the marketing CTA state to:
-
-```text
-CTA: Explore live Parkio
+CTA: Explore parking
 Target: https://app.parkio.dev/explore
-Context: Read-only public explore · no account required.
+Context: Account registration remains closed. · no account required for Explore.
+Secondary: Sign in → https://app.parkio.dev/
 ```
 
-Apply that change consistently to the header, hero, Parkio-today panel, footer, and 404
-page. Capture a real production screenshot only after the live public route is verified;
-01D intentionally contains no product screenshot.
+Apply that CTA consistently to the header, hero, Parkio-today panel, footer, and 404
+page. Do not use waitlist, signup, or “create account” as the primary acquisition CTA.
+Product screenshots remain optional; the live Explore route is the product evidence.
 
 ## Manual deployment boundary
 
