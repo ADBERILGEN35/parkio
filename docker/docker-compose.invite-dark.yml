@@ -30,7 +30,8 @@
 #   * gateway-service binds 127.0.0.1 only — never 0.0.0.0, never ::, never a
 #     routable address
 #   * this overlay may touch gateway-service, auth-service (explicit CLOSED
-#     registration), parking-service (feature policy), and Tempo only
+#     registration), parking-service (feature policy), Tempo, and the exact
+#     read-only node-exporter textfile mount only
 #   * no database / Redis / Kafka / MinIO / Prometheus / Grafana / admin port is
 #     opened here
 #   * Tempo receives the invite-production-only 1 GiB cgroup limit certified

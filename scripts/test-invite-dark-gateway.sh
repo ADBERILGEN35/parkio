@@ -97,6 +97,8 @@ if [ -n "$COMPOSE_BIN" ]; then
   if "$COMPOSE_BIN" compose --env-file docker/.env.invite-production.example \
       $PARKIO_COMPOSE_FILES config --format json > "$model" 2>/dev/null; then
     compose_model_checked=1
+    python3 scripts/lib/assert-invite-textfile-mount.py docker/docker-compose.invite-dark.yml --model "$model" \
+      && ok "merged model permits only the approved exporter mounts" || bad "merged textfile mount contract failed"
     python3 - "$model" <<'PY' && ok "merged model binds gateway to loopback and resolves Tempo to 1 GiB" || bad "merged model dark-runtime assertions failed"
 import json
 import sys
@@ -169,12 +171,10 @@ if grep -Eq '0\.0\.0\.0:8080|"8080:8080"|\[::\]:8080' docker/docker-compose.invi
 else
   ok "overlay declares no wildcard bind"
 fi
-overlay_services="$(grep -E '^  [a-z0-9-]+:' docker/docker-compose.invite-dark.yml | sed -E 's/^  ([a-z0-9-]+):.*/\1/' | sort)"
-if [ "$overlay_services" = $'auth-service\ngateway-service\nparking-service\ntempo' ]; then
-  ok "overlay touches only auth-service, gateway-service, parking-service, and Tempo"
-else
-  bad "overlay may touch only auth-service, gateway-service, parking-service, and Tempo (found: $(tr '\n' ' ' <<<"$overlay_services"))"
-fi
+python3 scripts/lib/assert-invite-textfile-mount.py docker/docker-compose.invite-dark.yml \
+  && ok "overlay preserves the service allowlist plus the exact exporter mount" || bad "overlay scope or mount changed"
+python3 scripts/test_invite_textfile_mount.py \
+  && ok "textfile mount negative tests" || bad "textfile mount negative tests failed"
 
 # --------------------------------------------------------------------------- #
 # 3. Dark gateway URL allowlist                                                #
