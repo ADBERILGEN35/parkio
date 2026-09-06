@@ -6,15 +6,15 @@
 # ---------------
 # The invite-production deploy used to run Compose straight out of the Actions
 # checkout, so every relative bind mount (`./prometheus/prometheus.yml`, ...)
-# resolved under
+# resolved unde
 #
-#     /opt/actions-runner/parkio-invite-production/_work/parkio/parkio/source-<run>-<attempt>/docker
+#     /opt/actions-runner/parkio-invite-production/_work/parkio/parkio/source-<run>-<attempt>/docke
 #
 # That broke the deploy twice over:
 #
-#   DEFECT-1  The runner service is hardened with UMask=0077, so the runner
+#   DEFECT-1  The runner service is hardened with UMask=0077, so the runne
 #             creates `_work`, `_work/<owner>`, `_work/<owner>/<repo>` as 0700.
-#             Containers that drop to a non-root UID (prometheus/alertmanager
+#             Containers that drop to a non-root UID (prometheus/alertmanage
 #             run as `nobody`, loki/tempo as 10001, grafana as 472) cannot
 #             *traverse* that chain and every config open() returns EACCES.
 #             Root-running containers were unaffected, which is exactly why only
@@ -77,12 +77,19 @@ parkio_validate_sha() {
   fi
 }
 
-# Runtime config that must never carry resolved secret values. `.env*` is
-# excluded outright: the deploy renders secrets into a per-job tmpfs file and
-# passes it with --env-file, so no env material has any business in a release.
+# Runtime config that must never carry resolved secret values. Rendered `.env*`
+# files are excluded: the deploy writes secrets into per-job tmpfs and passes
+# them with --env-file. Committed dotenv *templates* (`*.example`) are allowed
+# because the backup scheduler installer copies
+# `docker/.env.invite-production.example` into its stable payload.
 parkio_release_is_excluded() {
   case "${1##*/}" in
-    .env|.env.*) return 0 ;;
+    .env|.env.*)
+      case "${1##*/}" in
+        *.example) return 1 ;;
+      esac
+      return 0
+      ;;
   esac
   return 1
 }
@@ -92,11 +99,28 @@ parkio_release_is_excluded() {
 #
 # PRIV-001A operator tooling (not auto-executed). create-priv001 sources
 # dark-gateway-url.sh + priv001-synthetic.sh; inspect sources priv001-synthetic.sh.
+#
+# Backup scheduler installer closure (GOOGLE-STARTUP-REAPPLY-01E-B1-M1A): only the
+# files required to invoke install-invite-production-backup-scheduler.sh from the
+# activated release. Keep in sync with that installer's PAYLOAD_FILES plus the
+# installer script and its systemd unit sources.
 PARKIO_RUNTIME_RELEASE_EXTRA_TRACKED_PATHS=(
   scripts/acceptance/create-priv001-synthetic-principal.sh
   scripts/acceptance/inspect-priv001-synthetic-residue.sh
   scripts/lib/priv001-synthetic.sh
   scripts/lib/dark-gateway-url.sh
+  scripts/azure/install-invite-production-backup-scheduler.sh
+  scripts/azure/invite-production-backup-run.sh
+  scripts/azure/render-invite-production-env.sh
+  scripts/azure/render-invite-production-env.py
+  scripts/backup-hosted-beta.sh
+  scripts/backup-databases.sh
+  scripts/backup-minio.sh
+  scripts/lib/backup-common.sh
+  scripts/lib/backup-metrics.py
+  scripts/lib/erasure-tombstones.sh
+  infra/systemd/parkio-invite-backup.service
+  infra/systemd/parkio-invite-backup.time
 )
 
 # parkio_release_assert_stageable_path <repo> <rel>
@@ -223,8 +247,8 @@ parkio_stage_runtime_release() {
   staged="$release.staging.$$"
 
   # A release is immutable and content-addressed by commit, so an existing one is
-  # by definition already correct. Never delete and re-create it: a re-deploy or
-  # a prune pass would otherwise yank the bind-mount sources out from under
+  # by definition already correct. Never delete and re-create it: a re-deploy o
+  # a prune pass would otherwise yank the bind-mount sources out from unde
   # containers that are currently running against this very release — exactly the
   # failure mode (DEFECT-2) this module exists to prevent.
   if [ -d "$release" ]; then
@@ -255,7 +279,7 @@ parkio_stage_runtime_release() {
     install -m "$mode" "$src" "$dst"
   done < <(git -C "$repo" ls-files -z -- docker)
 
-  # Narrow PRIV-001A (and future explicit) operator tooling — never scripts/**
+  # Narrow explicit operator tooling + backup installer closure — never scripts/**
   for extra in "${PARKIO_RUNTIME_RELEASE_EXTRA_TRACKED_PATHS[@]}"; do
     parkio_release_stage_file "$repo" "$staged" "$extra" || {
       rm -rf -- "$staged"
@@ -348,7 +372,7 @@ parkio_realpath() {
   if command -v realpath >/dev/null 2>&1; then
     realpath -e -- "$1" 2>/dev/null
   else
-    local r
+    local 
     r="$(readlink -f -- "$1" 2>/dev/null)" || return 1
     [ -e "$r" ] || return 1
     printf '%s\n' "$r"

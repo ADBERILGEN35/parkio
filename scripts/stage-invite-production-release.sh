@@ -123,6 +123,19 @@ for required in \
   scripts/acceptance/inspect-priv001-synthetic-residue.sh \
   scripts/lib/priv001-synthetic.sh \
   scripts/lib/dark-gateway-url.sh \
+  scripts/azure/install-invite-production-backup-scheduler.sh \
+  scripts/azure/invite-production-backup-run.sh \
+  scripts/azure/render-invite-production-env.sh \
+  scripts/azure/render-invite-production-env.py \
+  scripts/backup-hosted-beta.sh \
+  scripts/backup-databases.sh \
+  scripts/backup-minio.sh \
+  scripts/lib/backup-common.sh \
+  scripts/lib/backup-metrics.py \
+  scripts/lib/erasure-tombstones.sh \
+  infra/systemd/parkio-invite-backup.service \
+  infra/systemd/parkio-invite-backup.timer \
+  docker/.env.invite-production.example \
   VERSION \
   release-integrity.sha256 ; do
   [ "${#required_list[@]}" -eq 0 ] && break
@@ -134,15 +147,15 @@ done
 [ "$missing" -eq 0 ] || exit 3
 
 if [ "$PRUNE_ONLY" -eq 0 ]; then
-  # Fail closed if the release grew unexpected top-level trees beyond docker/
-  # and the narrow PRIV-001A operator tooling.
-  unexpected="$(find "$RELEASE" -mindepth 1 -maxdepth 1 ! -name docker ! -name scripts ! -name VERSION ! -name release-integrity.sha256 -printf '%f\n' 2>/dev/null || true)"
+  # Fail closed if the release grew unexpected top-level trees beyond docker/,
+  # scripts/, infra/ (backup unit sources), and identity files.
+  unexpected="$(find "$RELEASE" -mindepth 1 -maxdepth 1 ! -name docker ! -name scripts ! -name infra ! -name VERSION ! -name release-integrity.sha256 -printf '%f\n' 2>/dev/null || true)"
   if [ -n "$unexpected" ]; then
     echo "ERROR: staged release contains unexpected top-level entries:" >&2
     printf '%s\n' "$unexpected" >&2
     exit 3
   fi
-  # scripts/ must contain only the allowlisted acceptance + lib files.
+  # scripts/ must contain only the allowlisted PRIV-001A + backup installer paths.
   if [ -d "$RELEASE/scripts" ]; then
     while IFS= read -r -d '' f; do
       rel="${f#"$RELEASE"/}"
@@ -150,7 +163,17 @@ if [ "$PRUNE_ONLY" -eq 0 ]; then
         scripts/acceptance/create-priv001-synthetic-principal.sh|\
         scripts/acceptance/inspect-priv001-synthetic-residue.sh|\
         scripts/lib/priv001-synthetic.sh|\
-        scripts/lib/dark-gateway-url.sh)
+        scripts/lib/dark-gateway-url.sh|\
+        scripts/azure/install-invite-production-backup-scheduler.sh|\
+        scripts/azure/invite-production-backup-run.sh|\
+        scripts/azure/render-invite-production-env.sh|\
+        scripts/azure/render-invite-production-env.py|\
+        scripts/backup-hosted-beta.sh|\
+        scripts/backup-databases.sh|\
+        scripts/backup-minio.sh|\
+        scripts/lib/backup-common.sh|\
+        scripts/lib/backup-metrics.py|\
+        scripts/lib/erasure-tombstones.sh)
           ;;
         *)
           echo "ERROR: staged release contains non-allowlisted script path: $rel" >&2
@@ -159,11 +182,27 @@ if [ "$PRUNE_ONLY" -eq 0 ]; then
       esac
     done < <(find "$RELEASE/scripts" -type f -print0)
   fi
+  # infra/ must contain only the two backup systemd unit sources.
+  if [ -d "$RELEASE/infra" ]; then
+    while IFS= read -r -d '' f; do
+      rel="${f#"$RELEASE"/}"
+      case "$rel" in
+        infra/systemd/parkio-invite-backup.service|\
+        infra/systemd/parkio-invite-backup.timer)
+          ;;
+        *)
+          echo "ERROR: staged release contains non-allowlisted infra path: $rel" >&2
+          missing=1
+          ;;
+      esac
+    done < <(find "$RELEASE/infra" -type f -print0)
+  fi
   [ "$missing" -eq 0 ] || exit 3
 fi
 
-# No resolved secret material may ever land in a release.
-if find "$RELEASE" -name '.env' -o -name '.env.*' | grep -q .; then
+# No resolved secret material may ever land in a release. Committed dotenv
+# templates (*.example) are required by the backup installer closure.
+if find "$RELEASE" \( -name '.env' -o -name '.env.*' \) ! -name '*.example' | grep -q .; then
   echo "ERROR: staged release contains env material" >&2
   exit 3
 fi

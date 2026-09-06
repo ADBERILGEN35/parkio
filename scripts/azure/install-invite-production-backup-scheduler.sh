@@ -25,7 +25,7 @@
 #
 # Usage:
 #   install-invite-production-backup-scheduler.sh                 install/upgrade, timer left disabled
-#   install-invite-production-backup-scheduler.sh --enable        install and enable the timer
+#   install-invite-production-backup-scheduler.sh --enable        install and enable the time
 #   install-invite-production-backup-scheduler.sh --disable       rollback: stop + disable, keep backups
 #   install-invite-production-backup-scheduler.sh --dry-run --prefix DIR --unit-dir DIR
 #
@@ -134,7 +134,7 @@ validate_payload_destination() {
       ;;
   esac
 
-  local marker
+  local marke
   for marker in current releases acceptance; do
     if [ -e "$PREFIX/$marker" ] || [ -L "$PREFIX/$marker" ]; then
       fail_path "runtime marker '$marker' is present"
@@ -147,7 +147,7 @@ assert_owned_payload() {
   [ ! -L "$path" ] || { echo "ERROR: refusing symlinked scheduler payload '$path'." >&2; return 1; }
   [ -f "$path/VERSION" ] && [ -f "$path/MANIFEST.sha256" ] \
     || { echo "ERROR: '$path' is not a recognized scheduler payload." >&2; return 1; }
-  local marker
+  local marke
   for marker in current releases acceptance; do
     if [ -e "$path/$marker" ] || [ -L "$path/$marker" ]; then
       echo "ERROR: runtime marker '$marker' found under scheduler payload '$path'." >&2
@@ -221,7 +221,15 @@ for relative in "${EXECUTABLE_FILES[@]}"; do
   chmod 0755 "$STAGE/$relative"
 done
 
-GIT_SHA="$(git -C "$ROOT" rev-parse HEAD 2>/dev/null || echo unknown)"
+# Prefer the staged release VERSION (SHA-addressed runtime releases have no .git),
+# then fall back to a checkout's git HEAD. Unknown only if neither is available.
+GIT_SHA=""
+if [ -r "$ROOT/VERSION" ]; then
+  GIT_SHA="$(awk -F= '$1 == "gitSha" { print $2; exit }' "$ROOT/VERSION")"
+fi
+if [ -z "${GIT_SHA:-}" ]; then
+  GIT_SHA="$(git -C "$ROOT" rev-parse HEAD 2>/dev/null || echo unknown)"
+fi
 cat > "$STAGE/VERSION" <<EOF
 gitSha=${GIT_SHA}
 installedAt=$(date -u +%Y-%m-%dT%H:%M:%SZ)
@@ -249,7 +257,7 @@ fi
 #     to match any shape above.
 #
 #     Booleans, numbers and short values are exempt: several flags are named
-#     *_LOG_TOKEN / *_PASSWORD_* but hold `false`, and every value the renderer
+#     *_LOG_TOKEN / *_PASSWORD_* but hold `false`, and every value the rendere
 #     substitutes (Key Vault secrets, PEMs, webhook URLs) is far longer than the
 #     12-character floor below.
 while IFS= read -r dotenv; do
@@ -347,7 +355,7 @@ if [ "$ENABLE_TIMER" -eq 1 ]; then
     exit 3
   fi
   echo "Canonical backup timer installed and enabled."
-  systemctl list-timers parkio-invite-backup.timer --no-pager
+  systemctl list-timers parkio-invite-backup.timer --no-page
 else
   # Enablement is an acceptance-phase decision, not an installation side effect.
   systemctl disable parkio-invite-backup.timer 2>/dev/null || true

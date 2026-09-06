@@ -63,9 +63,26 @@ check "no services tree staged" \
 check "no frontend tree staged" \
   "[ ! -e '$RELEASE/frontend' ]"
 check "only allowlisted scripts under scripts/" \
-  "! find '$RELEASE/scripts' -type f ! -path '*/create-priv001-synthetic-principal.sh' ! -path '*/inspect-priv001-synthetic-residue.sh' ! -path '*/priv001-synthetic.sh' ! -path '*/dark-gateway-url.sh' | grep -q ."
-check "no env material staged" \
-  "! find '$RELEASE' -name '.env' -o -name '.env.*' | grep -q ."
+  "! find '$RELEASE/scripts' -type f \
+    ! -path '*/create-priv001-synthetic-principal.sh' \
+    ! -path '*/inspect-priv001-synthetic-residue.sh' \
+    ! -path '*/priv001-synthetic.sh' \
+    ! -path '*/dark-gateway-url.sh' \
+    ! -path '*/install-invite-production-backup-scheduler.sh' \
+    ! -path '*/invite-production-backup-run.sh' \
+    ! -path '*/render-invite-production-env.sh' \
+    ! -path '*/render-invite-production-env.py' \
+    ! -path '*/backup-hosted-beta.sh' \
+    ! -path '*/backup-databases.sh' \
+    ! -path '*/backup-minio.sh' \
+    ! -path '*/backup-common.sh' \
+    ! -path '*/backup-metrics.py' \
+    ! -path '*/erasure-tombstones.sh' \
+    | grep -q ."
+check "no rendered env material staged" \
+  "! find '$RELEASE' \( -name '.env' -o -name '.env.*' \) ! -name '*.example' | grep -q ."
+check "invite dotenv example staged for backup installer" \
+  "[ -f '$RELEASE/docker/.env.invite-production.example' ]"
 check "harness dry-run works from release root" \
   "PARKIO_DEPLOYMENT_PROFILE=invite-production bash '$RELEASE/scripts/acceptance/create-priv001-synthetic-principal.sh' --environment invite-production --confirm-synthetic-only --dry-run-guards >/dev/null"
 
@@ -120,8 +137,10 @@ check "workflow only runs harness regression test (not live create)" \
   "grep -q 'test-priv001-synthetic-principal.sh' '$ROOT/.github/workflows/invite-production-deploy.yml' && ! grep -q 'create-priv001-synthetic-principal.sh' '$ROOT/.github/workflows/invite-production-deploy.yml'"
 check "allowlist is explicit (no scripts/** glob)" \
   "! grep -E 'ls-files -z -- scripts($| )|ls-files -z -- scripts/\\*\\*' '$ROOT/scripts/lib/runtime-release.sh'"
-check "allowlist array names the four required paths" \
+check "allowlist array names the PRIV-001 required paths" \
   "grep -q 'scripts/acceptance/create-priv001-synthetic-principal.sh' '$ROOT/scripts/lib/runtime-release.sh' && grep -q 'scripts/lib/dark-gateway-url.sh' '$ROOT/scripts/lib/runtime-release.sh'"
+check "allowlist array names the backup installer" \
+  "grep -q 'scripts/azure/install-invite-production-backup-scheduler.sh' '$ROOT/scripts/lib/runtime-release.sh'"
 
 echo "== PRIV-001A-STAGING: immutability preserved =="
 inode_before="$(stat -c '%i' "$RELEASE/scripts/lib/priv001-synthetic.sh")"

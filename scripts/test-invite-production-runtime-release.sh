@@ -94,8 +94,14 @@ check "PRIV-001A dark-gateway dependency is staged" \
   "[ -f '$RELEASE/scripts/lib/dark-gateway-url.sh' ]"
 check "release VERSION records exact SHA" \
   "grep -q \"^gitSha=$SHA\$\" '$RELEASE/VERSION'"
-check "no env material was staged" \
-  "! find '$RELEASE' -name '.env' -o -name '.env.*' | grep -q ."
+check "no rendered env material was staged" \
+  "! find '$RELEASE' \\( -name '.env' -o -name '.env.*' \\) ! -name '*.example' | grep -q ."
+check "invite dotenv example was staged" \
+  "[ -f '$RELEASE/docker/.env.invite-production.example' ]"
+check "backup installer was staged" \
+  "[ -x '$RELEASE/scripts/azure/install-invite-production-backup-scheduler.sh' ]"
+check "backup systemd unit sources were staged" \
+  "[ -f '$RELEASE/infra/systemd/parkio-invite-backup.service' ] && [ -f '$RELEASE/infra/systemd/parkio-invite-backup.timer' ]"
 check "compose build context (..) exists in the release" "[ -d '$RELEASE' ]"
 
 echo "== R8-H: a staged release is immutable and never re-created in place =="

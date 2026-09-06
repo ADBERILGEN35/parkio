@@ -159,6 +159,7 @@ jobs:
           bash scripts/test-invite-production-login-smoke.sh
           bash scripts/test-priv001-synthetic-principal.sh
           bash scripts/test-invite-production-priv001-release-staging.sh
+          bash scripts/test-invite-production-backup-installer-staging.sh
           python3 scripts/test_invite_production_dispatch_input.py
           python3 scripts/test_public_explore_deploy_mode.py
           bash scripts/test-invite-dark-acme-isolation.sh
