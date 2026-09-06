@@ -22,6 +22,8 @@ on:
       - "scripts/backup-hosted-beta.sh"
       - "scripts/restore-hosted-beta.sh"
       - "scripts/lib/backup-common.sh"
+      - "scripts/lib/backup-metrics.py"
+      - "scripts/test_backup_metrics.py"
       - "scripts/lib/erasure-tombstones.sh"
       - "scripts/lib/restore-drill-services.sh"
       - "scripts/restore-database.sh"
@@ -46,6 +48,8 @@ on:
       - "scripts/backup-hosted-beta.sh"
       - "scripts/restore-hosted-beta.sh"
       - "scripts/lib/backup-common.sh"
+      - "scripts/lib/backup-metrics.py"
+      - "scripts/test_backup_metrics.py"
       - "scripts/lib/erasure-tombstones.sh"
       - "scripts/lib/restore-drill-services.sh"
       - "scripts/restore-database.sh"
@@ -88,6 +92,9 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v4
+
+      - name: Backup metric publication contract
+        run: python3 scripts/test_backup_metrics.py
 
       # docker/.env.example ships usable local-dev passwords — fine for a throwaway
       # CI database stack that is torn down (down -v) at the end.

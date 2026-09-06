@@ -229,7 +229,7 @@ groups:
           runbook_url: "docs/operations/alert-response-runbook.md#postgresdown"
 
       - alert: BackupFailed
-        expr: parkio_backup_last_success{scope=~"hosted-beta|azure-hosted-beta"} == 0
+        expr: parkio_backup_last_success{scope=~"hosted-beta|azure-hosted-beta|invite-production"} == 0
         for: 1h
         labels:
           severity: critical
@@ -239,7 +239,7 @@ groups:
           runbook_url: "docs/operations/backup-runbook.md#failed-backups"
 
       - alert: BackupStale
-        expr: (time() - parkio_backup_last_timestamp_seconds{scope=~"hosted-beta|azure-hosted-beta"}) > 90000
+        expr: (time() - parkio_backup_last_timestamp_seconds{scope=~"hosted-beta|azure-hosted-beta|invite-production"}) > 90000
         for: 1h
         labels:
           severity: critical
@@ -250,8 +250,8 @@ groups:
 
       - alert: BackupOffsiteFailed
         expr: |
-          parkio_backup_production_mode{scope=~"hosted-beta|azure-hosted-beta"} == 1
-            and parkio_backup_offsite_last_success{scope=~"hosted-beta|azure-hosted-beta"} == 0
+          parkio_backup_production_mode{scope=~"hosted-beta|azure-hosted-beta|invite-production"} == 1
+            and parkio_backup_offsite_last_success{scope=~"hosted-beta|azure-hosted-beta|invite-production"} == 0
         for: 1h
         labels:
           severity: critical
@@ -262,8 +262,8 @@ groups:
 
       - alert: BackupOffsiteStale
         expr: |
-          parkio_backup_production_mode{scope=~"hosted-beta|azure-hosted-beta"} == 1
-            and (time() - parkio_backup_last_timestamp_seconds{scope=~"hosted-beta|azure-hosted-beta"}) > 90000
+          parkio_backup_production_mode{scope=~"hosted-beta|azure-hosted-beta|invite-production"} == 1
+            and (time() - parkio_backup_last_timestamp_seconds{scope=~"hosted-beta|azure-hosted-beta|invite-production"}) > 90000
         for: 1h
         labels:
           severity: critical
@@ -274,8 +274,8 @@ groups:
 
       - alert: BackupEncryptionDisabledInProduction
         expr: |
-          parkio_backup_production_mode{scope=~"hosted-beta|azure-hosted-beta"} == 1
-            and parkio_backup_encryption_enabled{scope=~"hosted-beta|azure-hosted-beta"} == 0
+          parkio_backup_production_mode{scope=~"hosted-beta|azure-hosted-beta|invite-production"} == 1
+            and parkio_backup_encryption_enabled{scope=~"hosted-beta|azure-hosted-beta|invite-production"} == 0
         for: 15m
         labels:
           severity: critical

@@ -40,19 +40,22 @@ while [ "$#" -gt 0 ]; do
   esac
 done
 
-if [ ! -d /dev/shm ]; then
-  echo "ERROR: /dev/shm is unavailable; refusing to render production secrets to disk." >&2
-  exit 3
-fi
-
 ENV_FILE=""
 AZURE_CONFIG_DIR=""
+export PARKIO_PROMETHEUS_TEXTFILE_DIR="${PARKIO_PROMETHEUS_TEXTFILE_DIR:-/var/lib/parkio/observability/textfile}"
+METRICS_STARTED="$(date -u +%s.%N)"
 
 # Fail-closed cleanup: whatever happens — success, backup failure, Key Vault
 # outage, SIGTERM from a systemd timeout — the ephemeral env and the Azure token
 # cache go away. Backup artifacts are encrypted and are deliberately left alone.
 cleanup() {
   local status=$?
+  if [ "$status" -ne 0 ] && [ "$DRY_RUN" -eq 0 ]; then
+    # A Key Vault/preflight/early backup failure must replace stale green state.
+    # Preserve the backup exit status even if the metrics volume itself fails.
+    python3 "$ROOT/scripts/lib/backup-metrics.py" --failure \
+      "$PARKIO_PROMETHEUS_TEXTFILE_DIR" "$METRICS_STARTED" || true
+  fi
   if [ -n "$ENV_FILE" ] && [ -e "$ENV_FILE" ]; then
     rm -f -- "$ENV_FILE"
   fi
@@ -63,6 +66,11 @@ cleanup() {
 }
 trap cleanup EXIT
 trap 'exit 143' HUP INT TERM
+
+if [ ! -d /dev/shm ]; then
+  echo "ERROR: /dev/shm is unavailable; refusing to render production secrets to disk." >&2
+  exit 3
+fi
 
 ENV_FILE="$(mktemp /dev/shm/parkio-invite-backup-XXXXXXXX.env)"
 chmod 600 "$ENV_FILE"

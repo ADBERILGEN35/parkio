@@ -16,6 +16,10 @@
 name: parkio
 
 services:
+  node-exporter:
+    volumes:
+      - /var/lib/parkio/observability/textfile:/textfile-collector:ro
+
   tempo:
     mem_limit: 1g
 

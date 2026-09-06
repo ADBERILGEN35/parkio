@@ -53,6 +53,7 @@ PAYLOAD_FILES=(
   "scripts/backup-databases.sh"
   "scripts/backup-minio.sh"
   "scripts/lib/backup-common.sh"
+  "scripts/lib/backup-metrics.py"
   "scripts/lib/erasure-tombstones.sh"
 )
 

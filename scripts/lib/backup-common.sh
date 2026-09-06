@@ -226,39 +226,19 @@ parkio_backup_write_metrics() {
   local encrypt_on="${7:-0}"
   local backup_bytes="${8:-0}"
   local textfile_dir="${PARKIO_PROMETHEUS_TEXTFILE_DIR:-docker/prometheus/textfile}"
+  if [ "$scope" = invite-production ]; then
+    textfile_dir="${PARKIO_PROMETHEUS_TEXTFILE_DIR:-/var/lib/parkio/observability/textfile}"
+  fi
   local prod_mode=0
   if parkio_backup_production_mode; then
     prod_mode=1
   fi
   local root
   root="$(parkio_backup_repo_root)"
-  mkdir -p "${root}/${textfile_dir}"
-  cat > "${root}/${textfile_dir}/parkio_backup.prom" <<EOF
-# HELP parkio_backup_last_success 1 when the last hosted-beta backup succeeded.
-# TYPE parkio_backup_last_success gauge
-parkio_backup_last_success{scope="${scope}"} ${success}
-# HELP parkio_backup_last_timestamp_seconds Unix epoch of the last backup attempt.
-# TYPE parkio_backup_last_timestamp_seconds gauge
-parkio_backup_last_timestamp_seconds{scope="${scope}"} ${stamp_epoch}
-# HELP parkio_backup_databases_failed Number of database dumps that failed in the last run.
-# TYPE parkio_backup_databases_failed gauge
-parkio_backup_databases_failed{scope="${scope}"} ${db_failed}
-# HELP parkio_backup_minio_objects Object count in the mirrored MinIO bucket when known.
-# TYPE parkio_backup_minio_objects gauge
-parkio_backup_minio_objects{scope="${scope}",bucket="${MINIO_BUCKET:-parkio-media}"} ${minio_objects}
-# HELP parkio_backup_offsite_last_success 1 when the last offsite upload succeeded.
-# TYPE parkio_backup_offsite_last_success gauge
-parkio_backup_offsite_last_success{scope="${scope}"} ${offsite_ok}
-# HELP parkio_backup_encryption_enabled 1 when DB dumps were encrypted.
-# TYPE parkio_backup_encryption_enabled gauge
-parkio_backup_encryption_enabled{scope="${scope}"} ${encrypt_on}
-# HELP parkio_backup_last_bytes Approximate local stamp size in bytes.
-# TYPE parkio_backup_last_bytes gauge
-parkio_backup_last_bytes{scope="${scope}"} ${backup_bytes}
-# HELP parkio_backup_production_mode 1 when BACKUP_PRODUCTION_MODE was set for the last run.
-# TYPE parkio_backup_production_mode gauge
-parkio_backup_production_mode{scope="${scope}"} ${prod_mode}
-EOF
+  case "$textfile_dir" in /*) ;; *) textfile_dir="$root/$textfile_dir" ;; esac
+  python3 "$root/scripts/lib/backup-metrics.py" "$textfile_dir" "$scope" \
+    "$success" "$stamp_epoch" "$db_failed" "$minio_objects" "$offsite_ok" \
+    "$encrypt_on" "$backup_bytes" "$prod_mode" "${MINIO_BUCKET:-parkio-media}"
 }
 
 parkio_backup_write_manifest() {

@@ -28,6 +28,7 @@ INSTALLER="$ROOT/scripts/azure/install-invite-production-backup-scheduler.sh"
 WRAPPER="$ROOT/scripts/azure/invite-production-backup-run.sh"
 
 WORK="$(mktemp -d "${TMPDIR:-/tmp}/parkio-scheduler-test-XXXXXXXX")"
+export PARKIO_PROMETHEUS_TEXTFILE_DIR="$WORK/metrics"
 trap 'rm -rf -- "$WORK"' EXIT HUP INT TERM
 
 pass=0
@@ -180,7 +181,8 @@ fi
 
 # Missing-secret failure: render fails -> wrapper exits 3 and removes the env.
 STUB_ROOT="$WORK/stubroot"
-mkdir -p "$STUB_ROOT/scripts/azure" "$STUB_ROOT/scripts"
+mkdir -p "$STUB_ROOT/scripts/azure" "$STUB_ROOT/scripts/lib"
+cp "$ROOT/scripts/lib/backup-metrics.py" "$STUB_ROOT/scripts/lib/backup-metrics.py"
 cp "$WRAPPER" "$STUB_ROOT/scripts/azure/invite-production-backup-run.sh"
 chmod +x "$STUB_ROOT/scripts/azure/invite-production-backup-run.sh"
 cat > "$STUB_ROOT/scripts/azure/render-invite-production-env.sh" <<'STUB'
@@ -208,6 +210,11 @@ if [ "$missing_status" -eq 3 ]; then
   ok "missing Key Vault secret fails closed (exit 3)"
 else
   bad "missing Key Vault secret must fail closed with exit 3 (got $missing_status)"
+fi
+if grep -q 'parkio_backup_last_success{scope="invite-production"} 0' "$WORK/metrics/parkio_backup.prom"; then
+  ok "early render failure publishes non-secret failure metrics"
+else
+  bad "early render failure must replace previous green metrics"
 fi
 if [ "$shm_before" -eq "$shm_after" ]; then
   ok "ephemeral env removed after a failed render"
@@ -353,6 +360,7 @@ for relative in \
   scripts/backup-databases.sh \
   scripts/backup-minio.sh \
   scripts/lib/backup-common.sh \
+  scripts/lib/backup-metrics.py \
   scripts/lib/erasure-tombstones.sh \
   docker/.env.invite-production.example; do
   [ -f "$PREFIX/$relative" ] || bad "payload missing $relative"

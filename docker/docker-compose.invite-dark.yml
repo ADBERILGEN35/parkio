@@ -43,6 +43,10 @@
 name: parkio
 
 services:
+  node-exporter:
+    volumes:
+      - /var/lib/parkio/observability/textfile:/textfile-collector:ro
+
   tempo:
     # PROD-DEPLOY-01A-R11E (TEMPO_MEMORY_LIMIT_DEFECT): the monolithic Tempo
     # process (ingester, compactor, querier, and metrics-generator) repeatedly

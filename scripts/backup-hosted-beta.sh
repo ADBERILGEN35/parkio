@@ -114,7 +114,7 @@ parkio_backup_write_manifest "${MANIFEST_PATH}" "${STAMP}" "${GIT_SHA}" "${OPERA
   "${ENV_FILE:-<env>}" "${DEST_DIR}" "${DB_OK}" "${DB_FAILED}" "${MINIO_OK}" "${MINIO_OBJECTS}"
 BACKUP_BYTES="$(du -sb "${DEST_DIR}" 2>/dev/null | awk '{print $1}')"
 BACKUP_BYTES="${BACKUP_BYTES:-0}"
-parkio_backup_write_metrics "${PARKIO_DEPLOYMENT_PROFILE}" "${SUCCESS}" "${STAMP_EPOCH}" \
+parkio_backup_write_metrics "${PARKIO_DEPLOYMENT_PROFILE}" "${SUCCESS}" "$(date -u +%s)" \
   "${DB_FAILED}" "${MINIO_OBJECTS}" "${PARKIO_BACKUP_OFFSITE_UPLOADED}" "${ENCRYPT_ON}" "${BACKUP_BYTES}"
 
 cp "${MANIFEST_PATH}" "${ROOT}/${ARTIFACT_DIR}/backup-current.json" 2>/dev/null || true

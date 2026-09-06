@@ -16,6 +16,7 @@ WorkingDirectory=/opt/parkio/invite-production-backup
 # arguments, in the journal, or on persistent disk (PROD-DEPLOY-01A-R3 / D2).
 Environment=PARKIO_BACKUP_OPERATOR=systemd:parkio-invite-backup
 Environment=PARKIO_BACKUP_ARTIFACT_DIR=backup-artifacts/invite-production
+Environment=PARKIO_PROMETHEUS_TEXTFILE_DIR=/var/lib/parkio/observability/textfile
 ExecStart=/opt/parkio/invite-production-backup/scripts/azure/invite-production-backup-run.sh
 
 Nice=10

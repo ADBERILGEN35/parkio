@@ -31,6 +31,7 @@ done
 
 echo "==> promtool test rules"
 promtool test rules /etc/prometheus/tests/alerts.test.yml
+promtool test rules /etc/prometheus/tests/backup-invite.test.yml
 
 echo "==> Alertmanager check-config (null receiver / no webhook)"
 docker run --rm \
