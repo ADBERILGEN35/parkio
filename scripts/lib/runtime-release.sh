@@ -120,7 +120,7 @@ PARKIO_RUNTIME_RELEASE_EXTRA_TRACKED_PATHS=(
   scripts/lib/backup-metrics.py
   scripts/lib/erasure-tombstones.sh
   infra/systemd/parkio-invite-backup.service
-  infra/systemd/parkio-invite-backup.time
+  infra/systemd/parkio-invite-backup.timer
 )
 
 # parkio_release_assert_stageable_path <repo> <rel>
