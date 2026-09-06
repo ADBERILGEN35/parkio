@@ -71,9 +71,9 @@ on:
         required: false
         type: choice
         options:
-          - off
+          - "off"
           - izum-readonly
-        default: off
+        default: "off"
       public_explore_authorization:
         description: "Only for izum-readonly: GOOGLE-STARTUP-REAPPLY-01E-B; production reviewer approval still required"
         required: false

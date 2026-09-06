@@ -101,6 +101,11 @@ INVITE_EDGE_MODE="$(parkio_invite_edge_mode_from_env "$ENV_FILE")" || exit 2
 INVITE_ACME_AUTHORIZED="$(parkio_invite_acme_authorized_from_env "$ENV_FILE")" || exit 2
 INVITE_DEPLOY_PROFILE="$(parkio_invite_deploy_profile_label "$INVITE_EDGE_MODE" "$INVITE_ACME_AUTHORIZED")" || exit 4
 echo "inviteDeployProfile=$INVITE_DEPLOY_PROFILE"
+if [ "${PARKIO_DISPATCH_PUBLIC_EXPLORE_MODE:-off}" = izum-readonly ] \
+    && [ "$INVITE_DEPLOY_PROFILE" != public-cutover ]; then
+  echo "ERROR: izum-readonly requires the public-cutover deployment profile" >&2
+  exit 4
+fi
 
 # Fail closed on the acceptance target BEFORE building or starting anything, so a
 # bad target can never reach a running stack (PROD-DEPLOY-01A / D1). Public-cutover

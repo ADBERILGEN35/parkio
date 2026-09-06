@@ -4,6 +4,7 @@ import json
 import os
 from pathlib import Path
 import shutil
+import shlex
 import subprocess
 import tempfile
 import unittest
@@ -142,7 +143,7 @@ class ExploreDeployModeTest(unittest.TestCase):
         workflow = (ROOT / ".github/workflows/invite-production-deploy.yml").read_text()
         build = workflow.split("  build-images:\n", 1)[1].split("  runner-acceptance:\n", 1)[0]
         deploy = workflow.split("  deploy:\n", 1)[1].split("  rollback:\n", 1)[0]
-        self.assertIn("default: off", workflow)
+        self.assertIn('default: "off"', workflow)
         self.assertIn("Validate explore dispatch before production reviewer gate", build)
         self.assertIn("./scripts/apply-invite-production-deploy-dispatch.sh --env-file", build)
         self.assertIn("needs: build-images", deploy)
@@ -151,6 +152,23 @@ class ExploreDeployModeTest(unittest.TestCase):
         script = (ROOT / "scripts/deploy-invite-production.sh").read_text()
         self.assertLess(script.index('parkio_effective_feature_configuration_json "$ENV_FILE"'),
                         script.index('"$ROOT/scripts/stage-invite-production-release.sh"'))
+        self.assertLess(script.index('izum-readonly requires the public-cutover deployment profile'),
+                        script.index('"$ROOT/scripts/stage-invite-production-release.sh"'))
+
+    def test_manifest_feature_evidence_uses_the_explicit_mode_and_authorization(self):
+        for mode, token, model in [("off", "", valid_model()), ("izum-readonly", TOKEN, on_model())]:
+            # Execute the canonical manifest helper, replacing only Compose I/O.
+            # No env file is rendered and no deployment operation is invoked.
+            source = "source scripts/lib/deploy-common.sh; "
+            source += "parkio_compose() { printf '%s' " + shlex.quote(json.dumps(model)) + "; }; "
+            source += 'parkio_effective_feature_configuration_json unused-test-env'
+            result = subprocess.run(["bash", "-c", source], cwd=ROOT,
+                                    env=self.dispatch_env(mode, token), capture_output=True, text=True)
+            self.assertEqual(result.returncode, 0, result.stderr)
+            evidence = json.loads(result.stdout)
+            self.assertEqual(evidence["publicExploreMode"], mode)
+            self.assertEqual(evidence["registrationMode"], "closed")
+            self.assertNotIn("DATABASE_PASSWORD", result.stdout)
 
 
 if __name__ == "__main__":
