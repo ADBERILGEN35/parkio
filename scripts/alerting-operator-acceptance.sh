@@ -5,6 +5,7 @@
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
+bash "${ROOT}/scripts/lib/assert-real-slack-acceptance.sh"
 COMPOSE=(docker compose -f "${ROOT}/docker/docker-compose.alerting-acceptance.yml" --project-name parkio-alert-operator)
 PROM_URL="${PARKIO_ALERT_ACCEPT_PROM_URL:-http://127.0.0.1:19090}"
 AM_URL="${PARKIO_ALERT_ACCEPT_AM_URL:-http://127.0.0.1:19093}"

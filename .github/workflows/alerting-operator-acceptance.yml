@@ -5,25 +5,35 @@ name: Alerting operator acceptance
 
 on:
   workflow_dispatch:
-  push:
-    branches: [api]
-    paths:
-      - "docker/alertmanager/**"
-      - "docker/docker-compose.alerting-acceptance.yml"
-      - "docker/prometheus/alerts.yml"
-      - "docker/prometheus/alerting-acceptance/**"
-      - "scripts/alerting-operator-acceptance.sh"
-      - ".github/workflows/alerting-operator-acceptance.yml"
+    inputs:
+      confirm_real_slack_delivery:
+        description: "Explicit real FIRING + RESOLVED delivery: ALERTING-REAL-SLACK-ACCEPTANCE"
+        type: string
+        required: true
+        default: ""
 
 permissions:
   contents: read
 
 jobs:
+  authorize:
+    name: Validate explicit real-delivery intent (no secrets)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Require manual dispatch and exact confirmation
+        env:
+          PARKIO_CONFIRM_REAL_SLACK_DELIVERY: ${{ inputs.confirm_real_slack_delivery }}
+        run: bash scripts/lib/assert-real-slack-acceptance.sh
+
   slack-operator:
+    needs: authorize
+    if: ${{ github.event_name == 'workflow_dispatch' && inputs.confirm_real_slack_delivery == 'ALERTING-REAL-SLACK-ACCEPTANCE' }}
     name: Slack operator delivery
     runs-on: ubuntu-latest
     timeout-minutes: 20
     env:
+      PARKIO_CONFIRM_REAL_SLACK_DELIVERY: ${{ inputs.confirm_real_slack_delivery }}
       PARKIO_ALERT_SLACK_WEBHOOK_URL: ${{ secrets.PARKIO_ALERT_SLACK_WEBHOOK_URL }}
       PARKIO_ALERT_SLACK_CHANNEL: "#parkio-alert"
       PARKIO_ALERT_GROUP_WAIT: "5s"
@@ -43,6 +53,7 @@ jobs:
           echo "secret=PRESENT"
 
       - name: Operator Slack firing and resolved notify
+        if: ${{ github.event_name == 'workflow_dispatch' && inputs.confirm_real_slack_delivery == 'ALERTING-REAL-SLACK-ACCEPTANCE' }}
         run: |
           set -euo pipefail
           chmod +x scripts/alerting-operator-acceptance.sh docker/alertmanager/render-config.sh
