@@ -7,13 +7,15 @@ const appDir = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 const publicDir = resolve(appDir, 'public');
 
 describe('app SEO assets', () => {
-  it('keeps account application metadata non-indexable and correctly scoped', () => {
+  it('keeps SPA shell metadata non-indexable while describing public Explore truthfully', () => {
     const indexHtml = readFileSync(resolve(appDir, 'index.html'), 'utf8');
 
-    expect(indexHtml).toContain('<title>Parkio App</title>');
+    expect(indexHtml).toContain('<title>Parkio — Public Parking Explore</title>');
     expect(indexHtml).toContain('lang="en"');
     expect(indexHtml).toContain('content="noindex,follow"');
-    expect(indexHtml).toContain('https://app.parkio.dev/');
+    expect(indexHtml).toContain('https://app.parkio.dev/explore');
+    expect(indexHtml).toContain('Anonymous read-only Explore is available at /explore without an account');
+    expect(indexHtml).not.toContain('Sign in to access authenticated parking tools.');
     expect(indexHtml).toContain('og:image');
     expect(indexHtml).toContain('twitter:card');
     expect(indexHtml).toContain('application/ld+json');

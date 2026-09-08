@@ -39,13 +39,12 @@ function renderAt(path: string, roles?: string[]) {
 }
 
 describe('default route (/)', () => {
-  it('sends unauthenticated visitors to the login entry experience', async () => {
+  it('sends unauthenticated visitors to public Explore instead of a login wall', async () => {
     const router = renderAt('/');
 
-    expect(
-      await screen.findByRole('heading', { name: 'Welcome back' }),
-    ).toBeInTheDocument();
-    expect(router.state.location.pathname).toBe('/login');
+    expect(await screen.findByText('Public explore page stub')).toBeInTheDocument();
+    expect(router.state.location.pathname).toBe('/explore');
+    expect(screen.queryByRole('heading', { name: 'Welcome back' })).not.toBeInTheDocument();
   });
 
   it('sends authenticated users to the map product home', async () => {
@@ -58,10 +57,19 @@ describe('default route (/)', () => {
   });
 
   it('keeps registration reachable from the login entry', async () => {
-    renderAt('/');
+    renderAt('/login');
 
     const registerLink = await screen.findByRole('link', { name: 'Register' });
     expect(registerLink).toHaveAttribute('href', '/register');
+  });
+
+  it('exposes an Explore escape hatch on the login page', async () => {
+    renderAt('/login');
+
+    const exploreLink = await screen.findByRole('link', {
+      name: 'Explore without an account',
+    });
+    expect(exploreLink).toHaveAttribute('href', '/explore');
   });
 });
 

@@ -37,6 +37,11 @@ const TEST_ROUTES: readonly RouteObject[] = [
         element: <div>Login route</div>,
       },
       {
+        id: ROUTE_IDS.PUBLIC_EXPLORE,
+        path: getRoutePath(ROUTE_IDS.PUBLIC_EXPLORE),
+        element: <div>Public explore route</div>,
+      },
+      {
         id: ROUTE_IDS.CHECK_EMAIL,
         path: getRoutePath(ROUTE_IDS.CHECK_EMAIL),
         element: <div>Check email route</div>,
@@ -50,6 +55,11 @@ const TEST_ROUTES: readonly RouteObject[] = [
         id: ROUTE_IDS.PROTECTED_BOUNDARY,
         element: <RoutePolicyBoundary />,
         children: [
+          {
+            id: ROUTE_IDS.AUTHENTICATED_ENTRY,
+            path: '/',
+            element: <div>Authenticated entry route</div>,
+          },
           {
             id: ROUTE_IDS.MAP,
             path: getRoutePath(ROUTE_IDS.MAP),
@@ -156,6 +166,22 @@ describe('RoutePolicyBoundary lifecycle policy', () => {
     expect(
       screen.queryByText('This area requires an admin role.'),
     ).not.toBeInTheDocument();
+  });
+
+  it('sends anonymous app-root visitors to public Explore instead of login', async () => {
+    const runtime = createPolicyRuntime('/');
+    settleAnonymous(runtime);
+
+    renderRuntimeRouter(runtime);
+
+    await waitFor(() =>
+      expect(runtime.router.state.location.pathname).toBe(
+        getRoutePath(ROUTE_IDS.PUBLIC_EXPLORE),
+      ),
+    );
+    expect(runtime.router.state.historyAction).toBe('REPLACE');
+    expect(screen.getByText('Public explore route')).toBeInTheDocument();
+    expect(screen.queryByText('Login route')).not.toBeInTheDocument();
   });
 
   it('preserves smartReturn, municipal params, and unrelated params on anonymous map redirects', async () => {

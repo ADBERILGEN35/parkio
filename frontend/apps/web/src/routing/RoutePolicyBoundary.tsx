@@ -17,6 +17,7 @@ import { RouteFallback } from '@/components/RouteFallback';
 import { AccountSuspendedPage } from '@/pages/AccountSuspendedPage';
 import {
   AUTH_LIFECYCLE_DESTINATIONS,
+  ROUTE_IDS,
   ROUTE_MANIFEST,
   getRoutePath,
   type RouteLifecyclePolicy,
@@ -119,6 +120,21 @@ export function RoutePolicyBoundary() {
   }
 
   if (lifecycle === 'anonymous') {
+    // App root (`/`) is an authenticated-entry redirect for signed-in users,
+    // but anonymous reviewers must reach the public Explore product — not a
+    // login wall — so Google Filter 1 does not treat the app domain as gated.
+    const isAnonymousAppRoot = matches.some(
+      (match) => match.id === ROUTE_IDS.AUTHENTICATED_ENTRY,
+    );
+    if (isAnonymousAppRoot) {
+      return (
+        <Navigate
+          to={getRoutePath(ROUTE_IDS.PUBLIC_EXPLORE)}
+          replace
+        />
+      );
+    }
+
     const returnPath = sanitizeInternalRedirect({
       pathname: location.pathname,
       search: location.search,

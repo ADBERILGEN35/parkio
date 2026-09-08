@@ -11,14 +11,16 @@ function readHtml(path = 'index.html') {
 }
 
 describe('app metadata and crawler surface', () => {
-  it('keeps the authenticated app root out of the index and uses reachable app assets', () => {
+  it('keeps the SPA shell truthful about public Explore while leaving private routes noindex', () => {
     const html = readHtml();
 
-    expect(html).toContain('<title>Parkio App</title>');
+    expect(html).toContain('<title>Parkio — Public Parking Explore</title>');
     expect(html).toContain('lang="en"');
-    expect(html).toContain('<link rel="canonical" href="https://app.parkio.dev/" />');
+    expect(html).toContain('<link rel="canonical" href="https://app.parkio.dev/explore" />');
     expect(html).toContain('<meta name="robots" content="noindex,follow" />');
-    expect(html).toContain('<meta property="og:url" content="https://app.parkio.dev/" />');
+    expect(html).toContain('<meta property="og:url" content="https://app.parkio.dev/explore" />');
+    expect(html).toContain('Anonymous read-only Explore is available at /explore without an account');
+    expect(html).not.toContain('Sign in to access authenticated parking tools.');
     expect(html).toContain(
       '<meta property="og:image" content="https://app.parkio.dev/og-parkio.png" />',
     );

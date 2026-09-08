@@ -109,8 +109,14 @@ export function LoginPage() {
         </Button>
       </form>
 
+      <p className="m-0 mt-md text-center text-body-md text-on-surface-variant">
+        <Link to="/explore" className="font-semibold text-primary hover:underline">
+          {t('auth:login.exploreWithoutAccount')}
+        </Link>
+      </p>
+
       {registrationMode !== 'CLOSED' ? (
-        <p className="m-0 mt-md text-center text-body-md text-on-surface-variant">
+        <p className="m-0 mt-sm text-center text-body-md text-on-surface-variant">
           {t('auth:login.noAccount')}{' '}
           <Link to="/register" className="font-semibold text-primary hover:underline">
             {t('auth:login.registerLink')}

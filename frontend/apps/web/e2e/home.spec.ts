@@ -50,19 +50,22 @@ async function installMockApi(page: Page, { hasSession }: { hasSession: boolean 
 }
 
 test.describe('default route (/)', () => {
-  test('sends unauthenticated visitors to the login entry with registration reachable', async ({
+  test('sends unauthenticated visitors to public Explore instead of a login wall', async ({
     page,
   }) => {
     await installMockApi(page, { hasSession: false });
+    await page.route('**/api/v1/public/explore/facilities**', (route) =>
+      route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify([]),
+      }),
+    );
 
     await page.goto('/');
 
-    await expect(page).toHaveURL(/\/login$/);
-    await expect(page.getByRole('heading', { name: 'Welcome back' })).toBeVisible();
-
-    await page.getByRole('link', { name: 'Register' }).click();
-    await expect(page).toHaveURL(/\/register$/);
-    await expect(page.getByRole('button', { name: 'Create account' })).toBeVisible();
+    await expect(page).toHaveURL(/\/explore$/);
+    await expect(page.getByRole('heading', { name: 'Live public parking explore' })).toBeVisible();
   });
 
   test('restores a returning session at / and lands on the map product home', async ({ page }) => {
@@ -74,11 +77,12 @@ test.describe('default route (/)', () => {
     await expect(page.getByLabel('Search location')).toBeVisible();
   });
 
-  test('signs in from the entry flow and reaches the product home', async ({ page }) => {
+  test('keeps login available and reaches the product home after sign-in', async ({ page }) => {
     await installMockApi(page, { hasSession: false });
 
-    await page.goto('/');
+    await page.goto('/login');
     await expect(page).toHaveURL(/\/login$/);
+    await expect(page.getByRole('link', { name: 'Explore without an account' })).toBeVisible();
 
     await page.getByLabel('Email').fill(user.email);
     await page.getByLabel('Password').fill('StrongParkio123');
@@ -87,7 +91,7 @@ test.describe('default route (/)', () => {
     await expect(page).toHaveURL(/\/map$/);
   });
 
-  test('keeps public legal pages reachable while / stays the product entry', async ({ page }) => {
+  test('keeps public legal pages reachable while /map stays protected', async ({ page }) => {
     await installMockApi(page, { hasSession: false });
 
     await page.goto('/terms');
@@ -97,6 +101,6 @@ test.describe('default route (/)', () => {
     await expect(page.getByRole('heading', { name: 'Privacy Policy' })).toBeVisible();
 
     await page.goto('/map');
-    await expect(page).toHaveURL(/\/login$/);
+    await expect(page).toHaveURL(/\/login/);
   });
 });

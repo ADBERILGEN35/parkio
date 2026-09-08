@@ -200,6 +200,21 @@ describe('LoginPage', () => {
     await waitFor(() => expect(screen.queryByRole('link', { name: 'Register' })).not.toBeInTheDocument());
   });
 
+  it('always exposes an Explore-without-account escape hatch', async () => {
+    renderWithProviders(
+      <Routes>
+        <Route path="/login" element={<LoginPage />} />
+        <Route path="/explore" element={<div>Public explore page stub</div>} />
+      </Routes>,
+      { initialEntries: ['/login'] },
+    );
+
+    const exploreLink = await screen.findByRole('link', {
+      name: 'Explore without an account',
+    });
+    expect(exploreLink).toHaveAttribute('href', '/explore');
+  });
+
   it('shows a friendly error with traceId on invalid credentials', async () => {
     server.use(
       http.post(`${API_BASE}/auth/login`, () =>
