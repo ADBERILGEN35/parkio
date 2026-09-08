@@ -20,6 +20,11 @@ export interface SelectedMunicipalFacilityPreviewProps {
   className?: string;
   /** Hide Park Here while an ACTIVE session already exists. */
   parkHereEnabled?: boolean;
+  /**
+   * When set, "View details" invokes this instead of navigating to the
+   * facility detail route (anonymous auth-gate / custom owners).
+   */
+  onViewDetails?: () => void;
 }
 
 /**
@@ -32,6 +37,7 @@ export function SelectedMunicipalFacilityPreview({
   onClose,
   className,
   parkHereEnabled = true,
+  onViewDetails,
 }: SelectedMunicipalFacilityPreviewProps) {
   const { t } = useTranslation('map');
   const isAuthenticated = useAuthStore((s) => s.isAuthenticated);
@@ -153,18 +159,30 @@ export function SelectedMunicipalFacilityPreview({
         />
       ) : null}
 
-      <Link
-        to={
-          distanceMeters != null && Number.isFinite(distanceMeters)
-            ? `/facilities/${facility.id}?d=${Math.round(distanceMeters)}`
-            : `/facilities/${facility.id}`
-        }
-        data-testid="municipal-facility-view-details"
-        className="mt-sm inline-flex w-full items-center justify-center gap-xs rounded-full bg-secondary px-lg py-md text-label-md font-semibold text-on-secondary no-underline shadow-md transition-colors hover:bg-secondary-container focus:outline-none focus-visible:ring-4 focus-visible:ring-secondary/30"
-      >
-        <Icon name="arrow_forward" className="text-[18px] leading-none" />
-        {t('municipal.viewFacilityDetails')}
-      </Link>
+      {onViewDetails ? (
+        <button
+          type="button"
+          data-testid="municipal-facility-view-details"
+          onClick={onViewDetails}
+          className="mt-sm inline-flex w-full items-center justify-center gap-xs rounded-full bg-secondary px-lg py-md text-label-md font-semibold text-on-secondary shadow-md transition-colors hover:bg-secondary-container focus:outline-none focus-visible:ring-4 focus-visible:ring-secondary/30"
+        >
+          <Icon name="arrow_forward" className="text-[18px] leading-none" />
+          {t('municipal.viewFacilityDetails')}
+        </button>
+      ) : (
+        <Link
+          to={
+            distanceMeters != null && Number.isFinite(distanceMeters)
+              ? `/facilities/${facility.id}?d=${Math.round(distanceMeters)}`
+              : `/facilities/${facility.id}`
+          }
+          data-testid="municipal-facility-view-details"
+          className="mt-sm inline-flex w-full items-center justify-center gap-xs rounded-full bg-secondary px-lg py-md text-label-md font-semibold text-on-secondary no-underline shadow-md transition-colors hover:bg-secondary-container focus:outline-none focus-visible:ring-4 focus-visible:ring-secondary/30"
+        >
+          <Icon name="arrow_forward" className="text-[18px] leading-none" />
+          {t('municipal.viewFacilityDetails')}
+        </Link>
+      )}
     </div>
   );
 }

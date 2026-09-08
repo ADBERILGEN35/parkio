@@ -5,10 +5,6 @@ import { API_BASE, server } from '@/test/server';
 import { renderWithProviders } from '@/test/utils';
 import { PublicExplorePage } from './PublicExplorePage';
 
-vi.mock('@/components/explore/PublicExploreMap', () => ({
-  PublicExploreMap: () => <div>map must not render while disabled</div>,
-}));
-
 describe('PublicExplorePage flag off', () => {
   it('renders no real product data and does not call the API', async () => {
     const apiCalled = vi.fn();
@@ -19,9 +15,11 @@ describe('PublicExplorePage flag off', () => {
       }),
     );
 
+    // Default test env keeps publicExplore off unless a suite opts in.
     renderWithProviders(<PublicExplorePage />, { initialEntries: ['/explore'] });
 
     expect(screen.getByText('Parking data is temporarily unavailable.')).toBeInTheDocument();
+    expect(screen.queryByTestId('public-explore-product')).toBeInTheDocument();
     await waitFor(() => expect(apiCalled).not.toHaveBeenCalled());
   });
 });

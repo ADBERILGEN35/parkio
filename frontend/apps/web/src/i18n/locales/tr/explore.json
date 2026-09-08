@@ -15,5 +15,7 @@
   "available": "Boş alan",
   "capacity": "Toplam kapasite",
   "freshness": "Uygunluk güncelliği",
-  "type": "Tesis türü"
+  "type": "Tesis türü",
+  "mapAria": "Parkio herkese açık otopark haritası",
+  "mapDescription": "Haritayı kaydırın ve yakınlaştırın. Önizleme için bir belediye otopark işaretini seçin. Tam ayrıntılar için giriş yapmanız gerekir."
 }

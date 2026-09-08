@@ -15,5 +15,7 @@
   "available": "Available spaces",
   "capacity": "Total capacity",
   "freshness": "Availability freshness",
-  "type": "Facility type"
+  "type": "Facility type",
+  "mapAria": "Parkio public parking map",
+  "mapDescription": "Pan and zoom the map. Select a municipal parking marker for a preview. Full details require signing in."
 }

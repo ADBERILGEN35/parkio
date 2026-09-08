@@ -65,7 +65,9 @@ test.describe('default route (/)', () => {
     await page.goto('/');
 
     await expect(page).toHaveURL(/\/explore$/);
+    await expect(page.getByTestId('public-explore-product')).toBeVisible();
     await expect(page.getByRole('heading', { name: 'Live public parking explore' })).toBeVisible();
+    await expect(page.getByRole('link', { name: 'Sign in' })).toBeVisible();
   });
 
   test('restores a returning session at / and lands on the map product home', async ({ page }) => {

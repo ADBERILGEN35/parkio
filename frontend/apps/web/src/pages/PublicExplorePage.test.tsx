@@ -1,5 +1,5 @@
 import { http, HttpResponse } from 'msw';
-import { screen } from '@testing-library/react';
+import { screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { API_BASE, server } from '@/test/server';
@@ -17,14 +17,22 @@ vi.mock('@/config/env', async (importOriginal) => {
   };
 });
 
-vi.mock('@/components/explore/PublicExploreMap', () => ({
-  PublicExploreMap: ({ facilities, onSelect }: {
-    facilities: Array<{ id: string; displayName: string }>;
-    onSelect: (id: string) => void;
+vi.mock('@/components/map/NearbySpotsMap', () => ({
+  NearbySpotsMap: ({
+    municipalFacilities,
+    onSelectMunicipalFacility,
+  }: {
+    municipalFacilities: Array<{ id: string; displayName: string | null }>;
+    onSelectMunicipalFacility?: (id: string | null) => void;
   }) => (
-    <div aria-label="read-only map">
-      {facilities.map((facility) => (
-        <button key={facility.id} type="button" onClick={() => onSelect(facility.id)}>
+    <div aria-label="Parkio public parking map">
+      {municipalFacilities.map((facility) => (
+        <button
+          key={facility.id}
+          type="button"
+          data-testid="municipal-facility-marker"
+          onClick={() => onSelectMunicipalFacility?.(facility.id)}
+        >
           {facility.displayName}
         </button>
       ))}
@@ -60,7 +68,7 @@ describe('PublicExplorePage', () => {
     });
   });
 
-  it('loads only the fixed public list and supports read-only marker selection', async () => {
+  it('renders the canonical product map and gates full detail behind AuthGate', async () => {
     const listCalls = vi.fn();
     server.use(
       http.get(`${API_BASE}/public/explore/facilities`, ({ request }) => {
@@ -71,12 +79,25 @@ describe('PublicExplorePage', () => {
 
     renderWithProviders(<PublicExplorePage />, { initialEntries: ['/explore'] });
 
-    expect(await screen.findByText('Live public beta')).toBeInTheDocument();
+    expect(await screen.findByTestId('public-explore-product')).toBeInTheDocument();
     expect(screen.getByText('Read-only')).toBeInTheDocument();
-    expect(screen.getByText('No account required')).toBeInTheDocument();
     await userEvent.click(await screen.findByRole('button', { name: facility.displayName }));
-    expect(screen.getByTestId('public-explore-facility-panel')).toHaveTextContent(facility.displayName);
-    expect(screen.getByTestId('public-explore-facility-panel')).toHaveTextContent(facility.attribution);
+    expect(await screen.findByTestId('selected-municipal-facility-preview')).toHaveTextContent(
+      facility.displayName,
+    );
+
+    await userEvent.click(screen.getByTestId('municipal-facility-view-details'));
+    expect(await screen.findByTestId('auth-gate-dialog')).toBeInTheDocument();
+    expect(screen.getByTestId('auth-gate-login')).toHaveAttribute(
+      'href',
+      expect.stringContaining('/login'),
+    );
+    expect(screen.getByTestId('auth-gate-login')).toHaveAttribute(
+      'href',
+      expect.stringContaining(encodeURIComponent(`/facilities/${facility.id}`)),
+    );
+    expect(screen.getByTestId('auth-gate-register-status')).toHaveAttribute('href', '/register');
+
     expect(listCalls).toHaveBeenCalledExactlyOnceWith('');
     expect(getCurrentPosition).not.toHaveBeenCalled();
 
@@ -86,9 +107,9 @@ describe('PublicExplorePage', () => {
       /admin/i, /sync/i, /import/i,
     ]) {
       expect(screen.queryByRole('button', { name })).not.toBeInTheDocument();
-      expect(screen.queryByRole('link', { name })).not.toBeInTheDocument();
     }
-    expect(screen.getByRole('link', { name: 'Sign in' })).toHaveAttribute('href', '/login');
+    const headerSignIn = screen.getAllByRole('link', { name: 'Sign in' })[0];
+    expect(headerSignIn).toHaveAttribute('href', '/login');
   });
 
   it('never substitutes fixtures when the public API is unavailable', async () => {
@@ -102,5 +123,8 @@ describe('PublicExplorePage', () => {
 
     expect(await screen.findByText('Parking data is temporarily unavailable.')).toBeInTheDocument();
     expect(screen.queryByText(facility.displayName)).not.toBeInTheDocument();
+    await waitFor(() => {
+      expect(screen.queryByTestId('selected-municipal-facility-preview')).not.toBeInTheDocument();
+    });
   });
 });

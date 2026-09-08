@@ -1,18 +1,30 @@
-import type { PublicExploreFacility } from '@parkio/types';
-import { Icon } from '@parkio/ui';
+import { SoftBadge, MapSearchSkeleton } from '@parkio/ui';
 import { useQuery } from '@tanstack/react-query';
-import { useMemo, useState } from 'react';
+import { lazy, Suspense, useMemo, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { Link } from 'react-router-dom';
 import { useParkioSdk } from '@/app/AppRuntimeContext';
+import { useRequireAuth } from '@/components/auth/useRequireAuth';
 import { BrandMark } from '@/components/brand/BrandMark';
-import { PublicExploreMap } from '@/components/explore/PublicExploreMap';
+import { SelectedMunicipalFacilityPreview } from '@/components/map/SelectedMunicipalFacilityPreview';
+import { DEFAULT_MAP_CENTER, DEFAULT_MAP_ZOOM } from '@/components/map/mapConfig';
 import { frontendConfig } from '@/config/env';
+import { toMunicipalFacilityFromPublicExplore } from '@/lib/publicExploreFacilityAdapter';
 
+const NearbySpotsMap = lazy(() =>
+  import('@/components/map/NearbySpotsMap').then((m) => ({ default: m.NearbySpotsMap })),
+);
+
+/**
+ * Anonymous public product surface — same MapLibre product map as authenticated
+ * {@link MapPage}, IZUM-only public data, detail/actions via AuthGate.
+ */
 export function PublicExplorePage() {
   const { publicExploreApi } = useParkioSdk();
-  const { t } = useTranslation('explore');
+  const { t } = useTranslation(['explore', 'navigation', 'map']);
+  const { requireAuth, authGate } = useRequireAuth();
   const [selectedId, setSelectedId] = useState<string | null>(null);
+
   const query = useQuery({
     queryKey: ['public-explore', 'facilities'],
     queryFn: ({ signal }) => publicExploreApi.list(signal),
@@ -20,91 +32,106 @@ export function PublicExplorePage() {
     staleTime: 30_000,
     retry: false,
   });
-  const facilities = useMemo(() => (query.data ?? []).slice(0, 20), [query.data]);
-  const selected = facilities.find((facility) => facility.id === selectedId) ?? null;
-  const unavailable = !frontendConfig.features.publicExplore || query.isError || (!query.isLoading && facilities.length === 0);
+
+  const municipalFacilities = useMemo(
+    () => (query.data ?? []).map(toMunicipalFacilityFromPublicExplore),
+    [query.data],
+  );
+  const selected =
+    municipalFacilities.find((facility) => facility.id === selectedId) ?? null;
+  const unavailable =
+    !frontendConfig.features.publicExplore ||
+    query.isError ||
+    (!query.isLoading && municipalFacilities.length === 0);
 
   return (
-    <main className="min-h-screen bg-background text-on-background">
-      <header className="border-b border-outline-variant/30 bg-surface-container-lowest">
-        <div className="mx-auto flex max-w-7xl items-center justify-between px-md py-md md:px-xl">
-          <Link to="/explore" className="flex items-center gap-xs text-on-surface no-underline">
-            <BrandMark size={32} />
-            <span className="text-title-lg font-bold">Parkio</span>
+    <div
+      className="relative h-dvh overflow-hidden bg-background text-on-background"
+      data-testid="public-explore-product"
+    >
+      <h1 className="sr-only">{t('explore:title')}</h1>
+      {/* Product-family top chrome (AppShell DesktopNav visual language). */}
+      <header className="absolute inset-x-0 top-0 z-50 h-16 border-b border-outline-variant/20 bg-surface/70 shadow-sm backdrop-blur-xl">
+        <div className="mx-auto flex h-full max-w-7xl items-center justify-between gap-sm px-md">
+          <Link
+            to="/explore"
+            className="flex shrink-0 items-center gap-xs text-headline-md font-bold text-primary no-underline"
+            aria-label={t('navigation:homeAria')}
+          >
+            <BrandMark size={28} className="select-none" />
+            {t('navigation:brand')}
           </Link>
-          <Link to="/login" className="rounded-full px-md py-sm text-label-md font-semibold text-primary hover:bg-primary/10">
-            {t('signIn')}
-          </Link>
+          <div className="flex items-center gap-sm">
+            <SoftBadge tone="neutral" className="hidden sm:inline-flex">
+              {t('explore:readOnly')}
+            </SoftBadge>
+            <Link
+              to="/login"
+              className="rounded-full px-md py-sm text-label-md font-semibold text-primary hover:bg-primary/10"
+            >
+              {t('explore:signIn')}
+            </Link>
+          </div>
         </div>
       </header>
 
-      <section className="mx-auto max-w-7xl px-md py-xl md:px-xl">
-        <div className="mb-lg max-w-3xl">
-          <div className="mb-sm flex flex-wrap gap-xs text-label-sm font-semibold uppercase tracking-wider">
-            <span className="rounded-full bg-primary/10 px-sm py-xs text-primary">{t('liveBeta')}</span>
-            <span className="rounded-full bg-secondary/10 px-sm py-xs text-secondary">{t('readOnly')}</span>
-            <span className="rounded-full bg-surface-container px-sm py-xs text-on-surface-variant">{t('noAccount')}</span>
-          </div>
-          <h1 className="m-0 text-headline-lg-mobile text-on-surface md:text-headline-lg">{t('title')}</h1>
-          <p className="m-0 mt-sm text-body-lg text-on-surface-variant">{t('description')}</p>
-        </div>
-
+      <div className="absolute inset-x-0 bottom-0 top-16 z-0 overflow-hidden">
         {query.isLoading && frontendConfig.features.publicExplore ? (
-          <p role="status" className="rounded-2xl bg-surface-container px-lg py-md">{t('loading')}</p>
+          <div className="flex h-full items-center justify-center p-lg">
+            <p role="status" className="rounded-2xl bg-surface-container px-lg py-md">
+              {t('explore:loading')}
+            </p>
+          </div>
         ) : null}
 
-        {unavailable ? (
-          <div role="status" className="rounded-3xl border border-outline-variant/30 bg-surface-container-low p-lg">
-            <h2 className="m-0 text-title-lg text-on-surface">{t('unavailableTitle')}</h2>
-            <p className="m-0 mt-xs text-body-md text-on-surface-variant">{t('unavailableBody')}</p>
+        {unavailable && !query.isLoading ? (
+          <div className="flex h-full items-center justify-center p-lg">
+            <div
+              role="status"
+              className="max-w-lg rounded-3xl border border-outline-variant/30 bg-surface-container-low p-lg"
+            >
+              <h2 className="m-0 text-title-lg text-on-surface">{t('explore:unavailableTitle')}</h2>
+              <p className="m-0 mt-xs text-body-md text-on-surface-variant">
+                {t('explore:unavailableBody')}
+              </p>
+            </div>
           </div>
         ) : null}
 
         {!query.isLoading && !unavailable ? (
-          <div className="grid gap-lg lg:grid-cols-[minmax(0,1fr)_360px]">
-            <PublicExploreMap facilities={facilities} selectedId={selectedId} onSelect={setSelectedId} />
-            <aside aria-label={t('facilityPanel')} className="rounded-3xl bg-surface-container-lowest p-lg shadow-card">
-              {selected ? <FacilityPanel facility={selected} /> : (
-                <div className="flex h-full min-h-48 flex-col items-center justify-center text-center text-on-surface-variant">
-                  <Icon name="touch_app" className="text-[32px] leading-none" />
-                  <p className="m-0 mt-sm text-body-md">{t('selectFacility')}</p>
-                </div>
-              )}
-            </aside>
+          <Suspense fallback={<MapSearchSkeleton />}>
+            <NearbySpotsMap
+              center={DEFAULT_MAP_CENTER}
+              zoom={DEFAULT_MAP_ZOOM}
+              spots={[]}
+              municipalFacilities={municipalFacilities}
+              onPickCenter={() => undefined}
+              selectedId={null}
+              selectedMunicipalId={selectedId}
+              onSelectMunicipalFacility={setSelectedId}
+              height="100%"
+              showFloatingControls={selectedId === null}
+              ariaLabel={t('explore:mapAria')}
+              ariaDescription={t('explore:mapDescription')}
+            />
+          </Suspense>
+        ) : null}
+
+        {selected ? (
+          <div className="pointer-events-none absolute inset-x-0 bottom-0 z-40 p-md pb-[max(1rem,env(safe-area-inset-bottom))] md:inset-x-auto md:bottom-md md:right-md md:w-[380px] md:p-0">
+            <SelectedMunicipalFacilityPreview
+              facility={selected}
+              parkHereEnabled={false}
+              onClose={() => setSelectedId(null)}
+              onViewDetails={() => {
+                requireAuth(`/facilities/${selected.id}`);
+              }}
+            />
           </div>
         ) : null}
-      </section>
-    </main>
-  );
-}
-
-function FacilityPanel({ facility }: { facility: PublicExploreFacility }) {
-  const { t } = useTranslation('explore');
-  return (
-    <div data-testid="public-explore-facility-panel">
-      <p className="m-0 text-label-sm font-semibold uppercase tracking-wider text-secondary">{t('municipalFacility')}</p>
-      <h2 className="m-0 mt-xs text-headline-sm text-on-surface">{facility.displayName || t('unnamed')}</h2>
-      {facility.operatorName ? <p className="m-0 mt-xs text-body-md text-on-surface-variant">{facility.operatorName}</p> : null}
-      {facility.addressText ? <p className="m-0 mt-md text-body-md text-on-surface">{facility.addressText}</p> : null}
-      <dl className="mt-lg grid grid-cols-2 gap-md">
-        <Metric label={t('available')} value={facility.availableSpaces ?? '—'} />
-        <Metric label={t('capacity')} value={facility.capacityTotal ?? '—'} />
-        <Metric label={t('freshness')} value={facility.availabilityFreshness} />
-        <Metric label={t('type')} value={facility.facilityType.replaceAll('_', ' ')} />
-      </dl>
-      <div className="mt-lg border-t border-outline-variant/30 pt-md">
-        <p className="m-0 text-label-md font-semibold text-on-surface">{facility.sourceLabel}</p>
-        <p className="m-0 mt-xs text-label-sm text-on-surface-variant">{facility.attribution}</p>
       </div>
-    </div>
-  );
-}
 
-function Metric({ label, value }: { label: string; value: string | number }) {
-  return (
-    <div>
-      <dt className="text-label-sm text-on-surface-variant">{label}</dt>
-      <dd className="m-0 mt-xs text-title-md font-semibold text-on-surface">{value}</dd>
+      {authGate}
     </div>
   );
 }
