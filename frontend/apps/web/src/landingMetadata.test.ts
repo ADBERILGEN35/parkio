@@ -19,7 +19,8 @@ describe('app metadata and crawler surface', () => {
     expect(html).toContain('<link rel="canonical" href="https://app.parkio.dev/explore" />');
     expect(html).toContain('<meta name="robots" content="noindex,follow" />');
     expect(html).toContain('<meta property="og:url" content="https://app.parkio.dev/explore" />');
-    expect(html).toContain('Anonymous read-only Explore is available at /explore without an account');
+    expect(html).toContain('Explore is available at /explore without an account');
+    expect(html).not.toMatch(/read-only|salt okunur/i);
     expect(html).not.toContain('Sign in to access authenticated parking tools.');
     expect(html).toContain(
       '<meta property="og:image" content="https://app.parkio.dev/og-parkio.png" />',
@@ -34,15 +35,16 @@ describe('app metadata and crawler surface', () => {
   it('ships meaningful static explore HTML without a facility snapshot', () => {
     const html = readHtml('explore/index.html');
 
-    expect(html).toContain('<title>Parkio — Live Public Parking Explore</title>');
+    expect(html).toContain('<title>Parkio — Public parking explore</title>');
     expect(html).toContain('<link rel="canonical" href="https://app.parkio.dev/explore" />');
     expect(html).toContain('<meta name="robots" content="index,follow" />');
     expect(html).toContain('<meta property="og:url" content="https://app.parkio.dev/explore" />');
-    expect(html).toContain('Live public parking explore');
-    expect(html).toContain('Read-only municipal parking discovery');
+    expect(html).toContain('Public parking explore');
+    expect(html).toContain('Municipal parking discovery');
     expect(html).toContain('source-labelled availability');
     expect(html).toContain('Controlled public beta');
     expect(html).toContain('No account required');
+    expect(html).not.toMatch(/read-only|salt okunur/i);
     expect(html).not.toMatch(/fixture|mock|snapshot/i);
 
     const jsonLd = html.match(/<script type="application\/ld\+json">([\s\S]*?)<\/script>/)?.[1];

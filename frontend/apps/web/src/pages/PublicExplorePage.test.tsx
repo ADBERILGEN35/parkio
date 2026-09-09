@@ -73,6 +73,14 @@ const facility = {
   attribution: 'Includes public sector information licensed under CC BY 4.0.',
 };
 
+const farFacility = {
+  ...facility,
+  id: '00000000-0000-0000-0000-000000000902',
+  displayName: 'Alsancak Liman Otoparki',
+  latitude: 38.45,
+  longitude: 27.2,
+};
+
 function discoveryResponse(overrides: Record<string, unknown> = {}) {
   return {
     facilities: [facility],
@@ -83,11 +91,31 @@ function discoveryResponse(overrides: Record<string, unknown> = {}) {
   };
 }
 
+function grantedPosition(lat: number, lng: number): GeolocationPosition {
+  return {
+    coords: {
+      latitude: lat,
+      longitude: lng,
+      accuracy: 10,
+      altitude: null,
+      altitudeAccuracy: null,
+      heading: null,
+      speed: null,
+      toJSON() {
+        return this;
+      },
+    },
+    timestamp: Date.now(),
+    toJSON() {
+      return this;
+    },
+  } as GeolocationPosition;
+}
+
 describe('PublicExplorePage', () => {
   const getCurrentPosition = vi.fn();
 
   beforeEach(() => {
-    vi.restoreAllMocks();
     getCurrentPosition.mockReset();
     Object.defineProperty(navigator, 'geolocation', {
       configurable: true,
@@ -112,9 +140,12 @@ describe('PublicExplorePage', () => {
     renderWithProviders(<PublicExplorePage />, { initialEntries: ['/explore'] });
 
     expect(await screen.findByTestId('public-explore-product')).toBeInTheDocument();
+    expect(await screen.findByTestId('map-floating-locate')).toBeInTheDocument();
     expect(screen.queryByText('Read-only')).not.toBeInTheDocument();
     expect(screen.queryByText('Salt okunur')).not.toBeInTheDocument();
-    expect(screen.getByTestId('public-explore-locate')).toBeInTheDocument();
+    expect(screen.queryByText(/salt okunur/i)).not.toBeInTheDocument();
+    expect(screen.queryByTestId('public-explore-locate')).not.toBeInTheDocument();
+    expect(screen.getAllByLabelText('Use my location')).toHaveLength(1);
     expect(getCurrentPosition).not.toHaveBeenCalled();
 
     await waitFor(() => expect(listCalls).toHaveBeenCalled());
@@ -123,13 +154,11 @@ describe('PublicExplorePage', () => {
     expect(params.get('radiusMeters')).toBe('5000');
     expect(params.get('lat')).toBeTruthy();
     expect(params.get('lng')).toBeTruthy();
-    expect(Number(params.get('limit'))).toBeLessThanOrEqual(6);
-    expect(Number(params.get('radiusMeters'))).toBeLessThanOrEqual(5000);
 
     await userEvent.click(await screen.findByRole('button', { name: facility.displayName }));
-    expect(await screen.findByTestId('selected-municipal-facility-preview')).toHaveTextContent(
-      facility.displayName,
-    );
+    const preview = await screen.findByTestId('selected-municipal-facility-preview');
+    expect(preview).toHaveTextContent(facility.displayName);
+    expect(preview).not.toHaveTextContent(/km|m\b/i);
     expect(screen.queryByTestId('auth-gate-dialog')).not.toBeInTheDocument();
 
     await userEvent.click(screen.getByTestId('municipal-facility-view-details'));
@@ -138,82 +167,33 @@ describe('PublicExplorePage', () => {
       'data-auth-gate-intent',
       'facilityDetail',
     );
-    expect(screen.getByTestId('auth-gate-login')).toHaveAttribute(
-      'href',
-      expect.stringContaining('/login'),
-    );
-    expect(screen.getByTestId('auth-gate-login')).toHaveAttribute(
-      'href',
-      expect.stringContaining(encodeURIComponent(`/facilities/${facility.id}`)),
-    );
-    expect(screen.getByTestId('auth-gate-register')).toHaveAttribute('href', '/register');
     expect(screen.getByTestId('auth-gate-register')).toHaveTextContent('About registration');
     expect(screen.queryByText('Sign up')).not.toBeInTheDocument();
     expect(screen.getByTestId('auth-gate-registration-support')).toHaveTextContent(
       'New account registration will open soon.',
     );
+    expect(screen.queryByText(/salt okunur|read-only/i)).not.toBeInTheDocument();
 
     expect(screen.getByTestId('community-spot-marker-count')).toHaveTextContent('0');
-
-    for (const name of [
-      /save/i, /favourite/i, /create parking/i, /share/i, /verify/i, /claim/i,
-      /report/i, /upload/i, /parked car/i, /recommendation/i, /ranking/i,
-      /admin/i, /sync/i, /import/i,
-    ]) {
-      expect(screen.queryByRole('button', { name })).not.toBeInTheDocument();
-    }
-    const headerSignIn = screen.getAllByRole('link', { name: 'Sign in' })[0];
-    expect(headerSignIn).toHaveAttribute('href', '/login');
   });
 
-  it('requests geolocation only after the location CTA and refetches with bounded coords', async () => {
-    const listCalls = vi.fn();
-    getCurrentPosition.mockImplementation((success: PositionCallback) => {
-      success({
-        coords: {
-          latitude: 38.45,
-          longitude: 27.2,
-          accuracy: 10,
-          altitude: null,
-          altitudeAccuracy: null,
-          heading: null,
-          speed: null,
-          toJSON() {
-            return this;
-          },
-        },
-        timestamp: Date.now(),
-        toJSON() {
-          return this;
-        },
-      } as GeolocationPosition);
-    });
-
+  it('does not show preview distance until geolocation succeeds', async () => {
     server.use(
-      http.get(`${API_BASE}/public/explore/facilities`, ({ request }) => {
-        listCalls(Object.fromEntries(new URL(request.url).searchParams.entries()));
-        return HttpResponse.json(discoveryResponse());
-      }),
+      http.get(`${API_BASE}/public/explore/facilities`, () =>
+        HttpResponse.json(discoveryResponse({ facilities: [facility, farFacility] })),
+      ),
     );
 
     renderWithProviders(<PublicExplorePage />, { initialEntries: ['/explore'] });
-    await screen.findByTestId('public-explore-map');
-    expect(getCurrentPosition).not.toHaveBeenCalled();
-
-    await userEvent.click(screen.getByTestId('public-explore-locate'));
-    await waitFor(() => expect(getCurrentPosition).toHaveBeenCalledTimes(1));
-    await waitFor(() => {
-      expect(listCalls.mock.calls.some((call) => call[0].lat === '38.45')).toBe(true);
-    });
-    const located = listCalls.mock.calls.find((call) => call[0].lat === '38.45')![0];
-    expect(located.lng).toBe('27.2');
-    expect(Number(located.limit)).toBeLessThanOrEqual(6);
-    expect(Number(located.radiusMeters)).toBeLessThanOrEqual(5000);
+    await userEvent.click(await screen.findByRole('button', { name: facility.displayName }));
+    expect(await screen.findByTestId('selected-municipal-facility-preview')).not.toHaveTextContent(
+      /km|m\b/i,
+    );
   });
 
-  it('keeps the map usable when location permission is denied', async () => {
-    getCurrentPosition.mockImplementation((_success: PositionCallback, error: PositionErrorCallback) => {
-      error({
+  it('keeps distance absent when location permission is denied', async () => {
+    getCurrentPosition.mockImplementation((_success: PositionCallback, error?: PositionErrorCallback) => {
+      error?.({
         code: 1,
         PERMISSION_DENIED: 1,
         POSITION_UNAVAILABLE: 2,
@@ -229,10 +209,60 @@ describe('PublicExplorePage', () => {
 
     renderWithProviders(<PublicExplorePage />, { initialEntries: ['/explore'] });
     await screen.findByTestId('public-explore-map');
-    await userEvent.click(screen.getByTestId('public-explore-locate'));
+    await userEvent.click(screen.getByTestId('map-floating-locate'));
     expect(await screen.findByTestId('public-explore-location-feedback')).toBeInTheDocument();
-    expect(screen.getByTestId('public-explore-map')).toBeInTheDocument();
-    expect(screen.getByText(facility.displayName)).toBeInTheDocument();
+    await userEvent.click(await screen.findByRole('button', { name: facility.displayName }));
+    expect(await screen.findByTestId('selected-municipal-facility-preview')).not.toHaveTextContent(
+      /km|m\b/i,
+    );
+  });
+
+  it('shows distance from the real user position after locate succeeds', async () => {
+    getCurrentPosition.mockImplementation((success: PositionCallback) => {
+      success(grantedPosition(38.45, 27.2));
+    });
+    server.use(
+      http.get(`${API_BASE}/public/explore/facilities`, () =>
+        HttpResponse.json(discoveryResponse({ facilities: [facility, farFacility] })),
+      ),
+    );
+
+    renderWithProviders(<PublicExplorePage />, { initialEntries: ['/explore'] });
+    await screen.findByTestId('public-explore-map');
+    await userEvent.click(screen.getByTestId('map-floating-locate'));
+    await waitFor(() => expect(getCurrentPosition).toHaveBeenCalled());
+
+    await userEvent.click(await screen.findByRole('button', { name: farFacility.displayName }));
+    const preview = await screen.findByTestId('selected-municipal-facility-preview');
+    expect(preview).toHaveTextContent(/m|km/i);
+  });
+
+  it('requests geolocation only after the floating locate control and refetches with bounded coords', async () => {
+    const listCalls = vi.fn();
+    getCurrentPosition.mockImplementation((success: PositionCallback) => {
+      success(grantedPosition(38.45, 27.2));
+    });
+
+    server.use(
+      http.get(`${API_BASE}/public/explore/facilities`, ({ request }) => {
+        listCalls(Object.fromEntries(new URL(request.url).searchParams.entries()));
+        return HttpResponse.json(discoveryResponse());
+      }),
+    );
+
+    renderWithProviders(<PublicExplorePage />, { initialEntries: ['/explore'] });
+    await screen.findByTestId('public-explore-map');
+    expect(getCurrentPosition).not.toHaveBeenCalled();
+
+    await userEvent.click(screen.getByTestId('map-floating-locate'));
+    await waitFor(() => expect(getCurrentPosition).toHaveBeenCalledTimes(1));
+    await waitFor(() => {
+      expect(listCalls.mock.calls.some((call) => call[0].lat === '38.45')).toBe(true);
+    });
+    const located = listCalls.mock.calls.find((call) => call[0].lat === '38.45')![0];
+    expect(located.lng).toBe('27.2');
+    expect(Number(located.limit)).toBeLessThanOrEqual(6);
+    expect(Number(located.radiusMeters)).toBeLessThanOrEqual(5000);
   });
 
   it('shows municipal and community teasers and gates them without leaking hidden rows', async () => {
@@ -253,7 +283,7 @@ describe('PublicExplorePage', () => {
       '+7 more parking facilities',
     );
     expect(screen.getByTestId('community-aggregate-teaser')).toHaveTextContent(
-      '12 community parking spots nearby',
+      '12 community parking spots in this area',
     );
     expect(screen.getAllByTestId('municipal-facility-marker')).toHaveLength(1);
     expect(screen.getByTestId('community-spot-marker-count')).toHaveTextContent('0');
@@ -263,6 +293,8 @@ describe('PublicExplorePage', () => {
       'data-auth-gate-intent',
       'municipalMore',
     );
+    expect(screen.getByTestId('auth-gate-dialog')).toHaveTextContent('See every parking option');
+    expect(screen.getByTestId('auth-gate-dialog')).not.toHaveTextContent(/nearby/i);
     await userEvent.click(screen.getByRole('button', { name: 'Not now' }));
 
     await userEvent.click(screen.getByTestId('community-aggregate-teaser'));

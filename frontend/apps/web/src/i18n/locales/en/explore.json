@@ -9,7 +9,7 @@
   "unavailableBody": "Please try again later. The map stays available when live public data returns.",
   "emptyMunicipal": "No municipal parking facilities in this area yet. Try another location or zoom out after signing in.",
   "municipalMore": "+{{count}} more parking facilities",
-  "communityCount": "{{count}} community parking spots nearby",
+  "communityCount": "{{count}} community parking spots in this area",
   "facilityPanel": "Selected parking facility",
   "selectFacility": "Select a marker to view public facility details.",
   "municipalFacility": "Municipal parking",

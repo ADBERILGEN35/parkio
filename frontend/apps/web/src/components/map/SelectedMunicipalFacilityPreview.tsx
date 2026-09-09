@@ -77,7 +77,10 @@ export function SelectedMunicipalFacilityPreview({
               <SoftBadge tone="success" icon="garage" className="mb-xs">
                 {t('municipal.inventoryLabel')}
               </SoftBadge>
-              <p className="m-0 truncate text-body-md font-semibold text-on-surface" title={title}>
+              <p
+                className="m-0 line-clamp-2 text-body-md font-semibold text-on-surface"
+                title={title}
+              >
                 {title}
               </p>
             </div>

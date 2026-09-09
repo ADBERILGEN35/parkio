@@ -56,7 +56,7 @@ function buildFixtureImage(scenario) {
   );
   writeFileSync(join(publicDir, 'assets', 'app.js'), fixtureSource(scenario));
   writeFileSync(join(publicDir, 'assets', 'env.js'), fixtureEnvSource(scenario));
-  writeFileSync(join(publicDir, 'explore', 'index.html'), 'Live public parking explore');
+  writeFileSync(join(publicDir, 'explore', 'index.html'), 'Public parking explore');
   for (const path of [
     'robots.txt', 'sitemap.xml', 'og-parkio.png', 'social-preview.png',
     'manifest.webmanifest', 'sw.js', 'icons/favicon-32.png',

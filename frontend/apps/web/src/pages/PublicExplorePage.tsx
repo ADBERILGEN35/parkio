@@ -29,6 +29,10 @@ const PUBLIC_EXPLORE_RADIUS_METERS = 5_000;
 /**
  * Anonymous public product surface — same MapLibre product map as authenticated
  * {@link MapPage}, IZUM-only public data, detail/actions via AuthGate.
+ *
+ * Distance ownership: only {@link userLocation} (successful browser geolocation)
+ * may drive preview distance. {@link discoveryOrigin} is for API scope/map framing
+ * and must never be treated as the visitor's position.
  */
 export function PublicExplorePage() {
   const { publicExploreApi } = useParkioSdk();
@@ -37,7 +41,10 @@ export function PublicExplorePage() {
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [mapCenter, setMapCenter] = useState<LatLng>(DEFAULT_MAP_CENTER);
   const [mapZoom, setMapZoom] = useState(DEFAULT_MAP_ZOOM);
+  /** API discovery / map framing origin (defaults to Konak; not user position). */
   const [discoveryOrigin, setDiscoveryOrigin] = useState<LatLng>(DEFAULT_MAP_CENTER);
+  /** Real browser geolocation only — null until locate succeeds. */
+  const [userLocation, setUserLocation] = useState<LatLng | null>(null);
   const [locating, setLocating] = useState(false);
   const [locationFeedback, setLocationFeedback] = useState<string | null>(null);
 
@@ -73,12 +80,13 @@ export function PublicExplorePage() {
   const communitySpotCountInScope = query.data?.communitySpotCountInScope ?? null;
   const selected =
     municipalFacilities.find((facility) => facility.id === selectedId) ?? null;
-  const selectedDistanceMeters = selected
-    ? haversineMeters(discoveryOrigin, {
-        lat: selected.latitude,
-        lng: selected.longitude,
-      })
-    : null;
+  const selectedDistanceMeters =
+    selected && userLocation
+      ? haversineMeters(userLocation, {
+          lat: selected.latitude,
+          lng: selected.longitude,
+        })
+      : null;
 
   const flagOff = !frontendConfig.features.publicExplore;
   const hardUnavailable = flagOff || query.isError;
@@ -105,6 +113,7 @@ export function PublicExplorePage() {
       lat: Number(result.latitude.toFixed(6)),
       lng: Number(result.longitude.toFixed(6)),
     };
+    setUserLocation(next);
     setMapCenter(next);
     setMapZoom(LOCATED_ZOOM);
     setDiscoveryOrigin(next);
@@ -158,19 +167,6 @@ export function PublicExplorePage() {
           <>
             <div className="pointer-events-none absolute inset-x-0 top-0 z-30 flex flex-col items-stretch gap-sm p-md md:items-start">
               <div className="pointer-events-auto flex flex-wrap items-center gap-sm">
-                <button
-                  type="button"
-                  data-testid="public-explore-locate"
-                  aria-label={t('map:locateAria')}
-                  disabled={locating}
-                  onClick={() => {
-                    void locate();
-                  }}
-                  className="inline-flex items-center gap-xs rounded-full bg-surface-container-lowest px-md py-sm text-label-md font-semibold text-primary shadow-md ring-1 ring-outline-variant/20 transition-colors hover:bg-surface-container focus:outline-none focus-visible:ring-4 focus-visible:ring-primary/30 disabled:opacity-60"
-                >
-                  <Icon name="my_location" className="text-[18px] leading-none" />
-                  {locating ? t('map:locating') : t('map:useMyLocation')}
-                </button>
                 {municipalHiddenCount > 0 ? (
                   <button
                     type="button"

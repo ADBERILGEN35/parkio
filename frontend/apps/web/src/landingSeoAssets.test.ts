@@ -14,7 +14,8 @@ describe('app SEO assets', () => {
     expect(indexHtml).toContain('lang="en"');
     expect(indexHtml).toContain('content="noindex,follow"');
     expect(indexHtml).toContain('https://app.parkio.dev/explore');
-    expect(indexHtml).toContain('Anonymous read-only Explore is available at /explore without an account');
+    expect(indexHtml).toContain('Explore is available at /explore without an account');
+    expect(indexHtml).not.toMatch(/read-only|salt okunur/i);
     expect(indexHtml).not.toContain('Sign in to access authenticated parking tools.');
     expect(indexHtml).toContain('og:image');
     expect(indexHtml).toContain('twitter:card');

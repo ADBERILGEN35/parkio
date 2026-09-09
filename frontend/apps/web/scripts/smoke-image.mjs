@@ -127,7 +127,7 @@ async function checkPublicStaticSurface() {
 
   const explore = await fetch(`${baseUrl}/explore`);
   const exploreHtml = await explore.text();
-  if (!explore.ok || !exploreHtml.includes('Live public parking explore')) {
+  if (!explore.ok || !exploreHtml.includes('Public parking explore')) {
     failures.push('/explore did not return the crawler-readable public entry');
   }
 
