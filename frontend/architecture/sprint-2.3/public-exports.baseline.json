@@ -166,6 +166,11 @@
       "source": "./public-explore"
     },
     {
+      "name": "PublicGeocodingApi",
+      "kind": "type",
+      "source": "./public-geocoding"
+    },
+    {
       "name": "RateLimitError",
       "kind": "value",
       "source": "./errors"
@@ -429,6 +434,11 @@
       "name": "createPublicExploreApi",
       "kind": "value",
       "source": "./public-explore"
+    },
+    {
+      "name": "createPublicGeocodingApi",
+      "kind": "value",
+      "source": "./public-geocoding"
     },
     {
       "name": "createRequestId",
