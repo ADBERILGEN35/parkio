@@ -36,6 +36,11 @@ export interface NearbySpotsMapProps {
   onLocate?: () => void;
   locating?: boolean;
   showFloatingControls?: boolean;
+  /**
+   * When true, floating controls shift left for the MapPage results sidebar.
+   * Public Explore has no sidebar — pass false so locate/zoom stay map-anchored.
+   */
+  floatingControlsSidebarOpen?: boolean;
   /** ACTIVE Parking Session coordinates for the dedicated parked-car marker. */
   parkedCar?: ParkedCarMapState | null;
   /** Visual emphasis for the parked-car marker (shared with the Active card focus). */
@@ -133,6 +138,7 @@ export function NearbySpotsMap({
   onLocate,
   locating = false,
   showFloatingControls = false,
+  floatingControlsSidebarOpen = true,
   parkedCar = null,
   parkedCarSelected = false,
   onSelectParkedCar,
@@ -235,7 +241,7 @@ export function NearbySpotsMap({
           <MapFloatingControls
             onLocate={onLocate}
             locating={locating}
-            sidebarOpen
+            sidebarOpen={floatingControlsSidebarOpen}
             onFocusParkedCar={showParkedCar ? onFocusParkedCar : undefined}
           />
         ) : null}

@@ -115,7 +115,7 @@ export function AuthGateDialog({
 
   return (
     <div
-      className="fixed inset-0 z-[80] flex items-end justify-center bg-inverse-surface/40 p-md sm:items-center"
+      className="fixed inset-0 z-[80] flex items-end justify-center bg-inverse-surface/30 p-md pb-[max(1rem,env(safe-area-inset-bottom))] sm:items-center"
       role="presentation"
       data-testid="auth-gate-dialog"
       data-auth-gate-intent={intent}
@@ -132,25 +132,25 @@ export function AuthGateDialog({
         tabIndex={-1}
         onKeyDown={onKeyDown}
         className={cn(
-          'w-full max-w-md min-w-0 rounded-2xl border border-outline-variant/30 bg-surface-container-lowest p-lg shadow-deep',
+          'w-full max-w-sm min-w-0 rounded-2xl border border-outline-variant/25 bg-surface-container-lowest px-md py-md shadow-deep sm:px-lg sm:py-lg',
           'animate-fade-in-up',
         )}
       >
-        <h2 id={titleId} className="m-0 text-title-lg text-on-surface">
+        <h2 id={titleId} className="m-0 text-title-lg font-semibold text-on-surface">
           {t(titleKey)}
         </h2>
-        <p id={descriptionId} className="m-0 mt-sm text-body-md text-on-surface-variant">
+        <p id={descriptionId} className="m-0 mt-xs text-body-md text-on-surface-variant">
           {t(bodyKey)}
         </p>
         {!registrationOpen ? (
           <p
-            className="m-0 mt-sm text-label-sm text-on-surface-variant"
+            className="m-0 mt-xs text-label-sm text-on-surface-variant/80"
             data-testid="auth-gate-registration-support"
           >
             {t('authGate.registerComingSoon')}
           </p>
         ) : null}
-        <div className="mt-lg flex flex-col gap-sm">
+        <div className="mt-md flex flex-col gap-xs sm:mt-lg sm:gap-sm">
           <Link
             to={loginTo}
             data-testid="auth-gate-login"
@@ -162,11 +162,16 @@ export function AuthGateDialog({
             to="/register"
             data-testid="auth-gate-register"
             data-registration-mode={registrationMode}
-            className="inline-flex w-full items-center justify-center rounded-full px-lg py-md text-label-md font-semibold text-primary no-underline hover:bg-primary/10 focus:outline-none focus-visible:ring-4 focus-visible:ring-primary/30"
+            className="inline-flex w-full items-center justify-center rounded-full px-lg py-sm text-label-md font-medium text-on-surface-variant no-underline hover:bg-on-surface/5 focus:outline-none focus-visible:ring-4 focus-visible:ring-primary/30"
           >
             {registerLabel}
           </Link>
-          <Button type="button" variant="ghost" className="w-full" onClick={onClose}>
+          <Button
+            type="button"
+            variant="ghost"
+            className="w-full text-label-sm font-medium text-on-surface-variant/80"
+            onClick={onClose}
+          >
             {t('authGate.dismiss')}
           </Button>
         </div>

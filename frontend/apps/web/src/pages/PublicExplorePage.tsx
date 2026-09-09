@@ -165,35 +165,59 @@ export function PublicExplorePage() {
 
         {showMap ? (
           <>
-            <div className="pointer-events-none absolute inset-x-0 top-0 z-30 flex flex-col items-stretch gap-sm p-md md:items-start">
-              <div className="pointer-events-auto flex flex-wrap items-center gap-sm">
-                {municipalHiddenCount > 0 ? (
-                  <button
-                    type="button"
-                    data-testid="municipal-hidden-teaser"
-                    onClick={() => {
-                      requireAuth('/map', 'municipalMore');
-                    }}
-                    className="inline-flex items-center gap-xs rounded-full bg-secondary/15 px-md py-sm text-label-md font-semibold text-secondary shadow-sm ring-1 ring-secondary/20 transition-colors hover:bg-secondary/25 focus:outline-none focus-visible:ring-4 focus-visible:ring-secondary/30"
-                  >
-                    <Icon name="garage" className="text-[18px] leading-none" />
-                    {t('explore:municipalMore', { count: municipalHiddenCount })}
-                  </button>
-                ) : null}
-                {communitySpotCountInScope != null && communitySpotCountInScope >= 3 ? (
-                  <button
-                    type="button"
-                    data-testid="community-aggregate-teaser"
-                    onClick={() => {
-                      requireAuth('/map', 'community');
-                    }}
-                    className="inline-flex items-center gap-xs rounded-full bg-tertiary/15 px-md py-sm text-label-md font-semibold text-tertiary shadow-sm ring-1 ring-tertiary/20 transition-colors hover:bg-tertiary/25 focus:outline-none focus-visible:ring-4 focus-visible:ring-tertiary/30"
-                  >
-                    <Icon name="groups" className="text-[18px] leading-none" />
-                    {t('explore:communityCount', { count: communitySpotCountInScope })}
-                  </button>
-                ) : null}
-              </div>
+            <div className="pointer-events-none absolute inset-x-0 top-0 z-30 flex flex-col items-stretch gap-sm px-md pt-md md:max-w-sm md:items-start">
+              {/* Coherent discovery stack — visible count + optional membership teasers. */}
+              {!query.isLoading && municipalFacilities.length > 0 ? (
+                <div
+                  data-testid="public-explore-discovery-summary"
+                  className="pointer-events-auto inline-flex max-w-full flex-col gap-1.5"
+                >
+                  <div className="inline-flex max-w-full items-center gap-1.5 rounded-2xl bg-surface-container-lowest/95 px-md py-sm text-label-md text-on-surface shadow-sm ring-1 ring-outline-variant/25 backdrop-blur-sm">
+                    <Icon
+                      name="garage"
+                      className="shrink-0 text-[18px] leading-none text-secondary"
+                    />
+                    <span className="min-w-0 truncate font-medium">
+                      {t('explore:municipalVisible', { count: municipalFacilities.length })}
+                    </span>
+                    {municipalHiddenCount > 0 ? (
+                      <>
+                        <span
+                          className="shrink-0 text-on-surface-variant/70"
+                          aria-hidden="true"
+                        >
+                          •
+                        </span>
+                        <button
+                          type="button"
+                          data-testid="municipal-hidden-teaser"
+                          onClick={() => {
+                            requireAuth('/map', 'municipalMore');
+                          }}
+                          className="shrink-0 rounded-full px-1.5 py-0.5 font-semibold text-secondary transition-colors hover:bg-secondary/15 focus:outline-none focus-visible:ring-4 focus-visible:ring-secondary/30"
+                        >
+                          {t('explore:municipalMore', { count: municipalHiddenCount })}
+                        </button>
+                      </>
+                    ) : null}
+                  </div>
+                  {communitySpotCountInScope != null && communitySpotCountInScope >= 3 ? (
+                    <button
+                      type="button"
+                      data-testid="community-aggregate-teaser"
+                      onClick={() => {
+                        requireAuth('/map', 'community');
+                      }}
+                      className="inline-flex max-w-full items-center gap-xs self-start rounded-2xl bg-surface-container-lowest/95 px-md py-sm text-label-md font-medium text-tertiary shadow-sm ring-1 ring-outline-variant/25 backdrop-blur-sm transition-colors hover:bg-tertiary/10 focus:outline-none focus-visible:ring-4 focus-visible:ring-tertiary/30"
+                    >
+                      <Icon name="groups" className="shrink-0 text-[18px] leading-none" />
+                      <span className="min-w-0 truncate">
+                        {t('explore:communityCount', { count: communitySpotCountInScope })}
+                      </span>
+                    </button>
+                  ) : null}
+                </div>
+              ) : null}
               {locationFeedback ? (
                 <p
                   role="status"
@@ -226,6 +250,7 @@ export function PublicExplorePage() {
                 onSelectMunicipalFacility={setSelectedId}
                 height="100%"
                 showFloatingControls={selectedId === null}
+                floatingControlsSidebarOpen={false}
                 onLocate={() => {
                   void locate();
                 }}

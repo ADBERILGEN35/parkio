@@ -279,9 +279,10 @@ describe('PublicExplorePage', () => {
     );
 
     renderWithProviders(<PublicExplorePage />, { initialEntries: ['/explore'] });
-    expect(await screen.findByTestId('municipal-hidden-teaser')).toHaveTextContent(
-      '+7 more parking facilities',
+    expect(await screen.findByTestId('public-explore-discovery-summary')).toHaveTextContent(
+      '1 parking facilities',
     );
+    expect(screen.getByTestId('municipal-hidden-teaser')).toHaveTextContent('+7 more');
     expect(screen.getByTestId('community-aggregate-teaser')).toHaveTextContent(
       '12 community parking spots in this area',
     );
@@ -318,6 +319,9 @@ describe('PublicExplorePage', () => {
 
     renderWithProviders(<PublicExplorePage />, { initialEntries: ['/explore'] });
     await screen.findByTestId('public-explore-map');
+    expect(await screen.findByTestId('public-explore-discovery-summary')).toHaveTextContent(
+      '1 parking facilities',
+    );
     expect(screen.queryByTestId('community-aggregate-teaser')).not.toBeInTheDocument();
     expect(screen.queryByTestId('municipal-hidden-teaser')).not.toBeInTheDocument();
     expect(screen.queryByText(/0 community/i)).not.toBeInTheDocument();
