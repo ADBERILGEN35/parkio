@@ -118,6 +118,43 @@ class AuthenticationGlobalFilterTest {
     }
 
     @Test
+    void publicGeocodingFlagOffReturnsCanonicalMissingToken() {
+        var exchange = MockServerWebExchange.from(MockServerHttpRequest
+                .get("/api/v1/public/geocoding/search").build());
+        var chain = new CapturingChain();
+
+        filter().filter(exchange, chain).block();
+
+        assertThat(chain.wasInvoked()).isFalse();
+        assertThat(exchange.getResponse().getStatusCode()).isEqualTo(HttpStatus.UNAUTHORIZED);
+    }
+
+    @Test
+    void publicGeocodingFlagOnIsCredentialInvariantAndStripsForgedIdentity() {
+        GatewayPublicSurfaceProperties properties = new GatewayPublicSurfaceProperties();
+        properties.setPublicExploreEnabled(true);
+        var filter = filter(properties);
+        String normalUserToken = validToken(UUID.randomUUID(), "rider@parkio.test", List.of("USER"));
+
+        var anonymousChain = new CapturingChain();
+        filter.filter(MockServerWebExchange.from(MockServerHttpRequest
+                .get("/api/v1/public/geocoding/search").build()), anonymousChain).block();
+
+        var credentialedChain = new CapturingChain();
+        filter.filter(MockServerWebExchange.from(MockServerHttpRequest
+                .get("/api/v1/public/geocoding/search")
+                .header(HttpHeaders.AUTHORIZATION, "Bearer " + normalUserToken)
+                .header(GatewayHeaders.USER_ID, "forged-user")
+                .header(GatewayHeaders.USER_ROLES, "ADMIN")
+                .build()), credentialedChain).block();
+
+        assertThat(anonymousChain.wasInvoked()).isTrue();
+        assertThat(credentialedChain.wasInvoked()).isTrue();
+        assertThat(forwardedHeader(credentialedChain, GatewayHeaders.USER_ID)).isNull();
+        assertThat(forwardedHeader(credentialedChain, GatewayHeaders.USER_ROLES)).isNull();
+    }
+
+    @Test
     void protectedRouteWithoutTokenIsRejected() {
         var exchange = MockServerWebExchange.from(MockServerHttpRequest
                 .get("/api/v1/users/me").build());

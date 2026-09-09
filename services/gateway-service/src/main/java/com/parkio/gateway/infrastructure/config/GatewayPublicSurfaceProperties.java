@@ -16,6 +16,11 @@ public class GatewayPublicSurfaceProperties {
      * Health probes remain public via {@link com.parkio.gateway.infrastructure.security.PublicEndpoints}.
      */
     private boolean actuatorInfoEnabled = true;
+    /**
+     * When true, anonymous Public Explore surfaces are allow-listed:
+     * {@code GET /api/v1/public/explore/facilities} and
+     * {@code GET /api/v1/public/geocoding/search}. Missing/false fails closed.
+     */
     private boolean publicExploreEnabled;
 
     public boolean isActuatorInfoEnabled() {

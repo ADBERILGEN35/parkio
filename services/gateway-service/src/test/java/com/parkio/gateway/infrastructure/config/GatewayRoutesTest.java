@@ -42,6 +42,7 @@ class GatewayRoutesTest {
                 .contains("geocoding-service")
                 .contains("account-erasure")
                 .contains("public-explore")
+                .contains("public-geocoding")
                 // and the previously-wired routes are still present
                 .contains("auth-service", "user-service", "places-service", "parking-service", "media-service",
                         "gamification-service", "notification-service", "moderation-service");
@@ -91,6 +92,50 @@ class GatewayRoutesTest {
                 .get("/api/v1/public/explore/facilities").build())).isFalse();
         assertThat(publicEndpoints.isPublic(MockServerHttpRequest
                 .get("/api/v1/parking/facilities/nearby").build())).isFalse();
+    }
+
+    @Test
+    void publicGeocodingRouteIsExactGetOnlyAndRateLimitedAtOnePerSecondBurstFive() {
+        RouteDefinition route = routeDefinitionLocator.getRouteDefinitions()
+                .filter(candidate -> "public-geocoding".equals(candidate.getId()))
+                .blockFirst();
+
+        assertThat(route).isNotNull();
+        assertThat(route.getPredicates().stream().filter(predicate -> "Method".equals(predicate.getName())))
+                .singleElement()
+                .satisfies(predicate -> assertThat(predicate.getArgs()).containsValue("GET"));
+        assertThat(route.getPredicates().stream().filter(predicate -> "Path".equals(predicate.getName())))
+                .singleElement()
+                .satisfies(predicate -> assertThat(predicate.getArgs().values())
+                        .containsExactly("/api/v1/public/geocoding/search"));
+        assertThat(route.getFilters()).singleElement().satisfies(filter -> {
+            assertThat(filter.getName()).isEqualTo("RequestRateLimiter");
+            assertThat(filter.getArgs()).containsEntry("redis-rate-limiter.replenishrate", "1")
+                    .containsEntry("redis-rate-limiter.burstcapacity", "5")
+                    .containsValue("#{@publicGeocodingIpKeyResolver}");
+        });
+    }
+
+    @Test
+    void publicGeocodingAnonymousRulesAreFlaggedAndGetOnly() {
+        GatewayPublicSurfaceProperties enabled = new GatewayPublicSurfaceProperties();
+        enabled.setPublicExploreEnabled(true);
+        PublicEndpoints endpoints = new PublicEndpoints(enabled);
+
+        assertThat(endpoints.isPublic(MockServerHttpRequest.get("/api/v1/public/geocoding/search").build()))
+                .isTrue();
+        for (HttpMethod method : List.of(HttpMethod.POST, HttpMethod.PUT, HttpMethod.PATCH, HttpMethod.DELETE)) {
+            assertThat(endpoints.isPublic(MockServerHttpRequest
+                    .method(method, "/api/v1/public/geocoding/search").build())).isFalse();
+        }
+        assertThat(endpoints.isPublic(MockServerHttpRequest
+                .get("/api/v1/public/geocoding/search/extra").build())).isFalse();
+        assertThat(endpoints.isPublic(MockServerHttpRequest
+                .get("/api/v1/public/geocoding").build())).isFalse();
+        assertThat(publicEndpoints.isPublic(MockServerHttpRequest
+                .get("/api/v1/public/geocoding/search").build())).isFalse();
+        assertThat(publicEndpoints.isPublic(MockServerHttpRequest
+                .get("/api/v1/geocoding/search").build())).isFalse();
     }
 
     @Test

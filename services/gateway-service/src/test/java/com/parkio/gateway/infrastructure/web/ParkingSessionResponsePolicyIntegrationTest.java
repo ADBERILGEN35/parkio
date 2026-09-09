@@ -97,6 +97,14 @@ class ParkingSessionResponsePolicyIntegrationTest {
     }
 
     @Test
+    void anonymousPublicGeocodingRateLimitFailureReturns429() {
+        webTestClient.get()
+                .uri("/api/v1/public/geocoding/search?q=Alsancak")
+                .exchange()
+                .expectStatus().isEqualTo(429);
+    }
+
+    @Test
     void communityClaimAuthenticationFailureCarriesNoStoreAtThePublicEdge() {
         webTestClient.post()
                 .uri("/api/v1/parking/spots/2b371445-8ab4-4a23-a1bd-9eb084187cf7/claim")

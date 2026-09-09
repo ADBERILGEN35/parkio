@@ -51,4 +51,16 @@ public class RateLimitConfig {
             return Mono.just("public-explore-ip:" + (clientIp != null ? clientIp : "unknown"));
         };
     }
+
+    /**
+     * Public destination geocoding is always limited by resolved IP (separate bucket from
+     * explore), regardless of incidental credentials or spoofed identity headers.
+     */
+    @Bean
+    public KeyResolver publicGeocodingIpKeyResolver(ClientIpResolver clientIpResolver) {
+        return exchange -> {
+            String clientIp = clientIpResolver.resolve(exchange.getRequest());
+            return Mono.just("public-geocoding-ip:" + (clientIp != null ? clientIp : "unknown"));
+        };
+    }
 }

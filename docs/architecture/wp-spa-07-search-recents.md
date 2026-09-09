@@ -113,13 +113,21 @@ Label-only matches do **not** merge. Turkish matching via `tr-TR` case fold.
 
 ## Geocoding behavior
 
-Unchanged server contract (`GET /api/v1/geocoding/search`, min 3, limit ≤10).
+Authenticated contract (`GET /api/v1/geocoding/search`, min 3, limit ≤10) unchanged.
+
+Anonymous Public Explore companion (R6G-A): `GET /api/v1/public/geocoding/search`
+gated by `PARKIO_PUBLIC_EXPLORE_ENABLED`, reuses the same `GeocodingService` →
+Nominatim path, accepts only `q` + `limit`, returns `{ results: GeocodeResult[] }`,
+no saved/favourites/recents, IP rate-limited separately (`public-geocoding-ip`,
+1/s burst 5). Provider remains server-side (ADR-014).
+
 Client foundations reuse existing debounce patterns (web ~350ms, mobile-v2 ~300ms)
 and RQ cancellation/`signal` / stale guards. No geocode call for blank query.
 
 ## Privacy / security
 
 - Private user history; no public recents APIs.
+- Public destination geocoding is stateless place/address search only (no account history).
 - No raw query persistence by default.
 - No labels/coordinates in routine application logs for confirm/record.
 - Individual delete + clear-all.

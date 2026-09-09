@@ -64,6 +64,8 @@ public class PublicEndpoints {
         }
         if (publicSurface.isPublicExploreEnabled()) {
             built.add(new Rule(HttpMethod.GET, parser.parse("/api/v1/public/explore/facilities")));
+            // Companion anonymous destination search for Public Explore (R6G-A).
+            built.add(new Rule(HttpMethod.GET, parser.parse("/api/v1/public/geocoding/search")));
         }
         this.rules = List.copyOf(built);
     }
