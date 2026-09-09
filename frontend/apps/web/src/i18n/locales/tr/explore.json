@@ -20,5 +20,8 @@
   "freshness": "Uygunluk güncelliği",
   "type": "Tesis türü",
   "mapAria": "Parkio herkese açık otopark haritası",
-  "mapDescription": "Haritayı kaydırın ve yakınlaştırın. Önizleme için bir belediye otopark işaretini seçin. Tam ayrıntılar için giriş yapmanız gerekir."
+  "mapDescription": "Haritayı kaydırın ve yakınlaştırın. Önizleme için bir belediye otopark işaretini seçin. Tam ayrıntılar için giriş yapmanız gerekir.",
+  "destinationSearchLabel": "Hedef ara",
+  "destinationSearchPlaceholder": "Nereye gideceksiniz?",
+  "destinationSearchClear": "Hedefi temizle"
 }

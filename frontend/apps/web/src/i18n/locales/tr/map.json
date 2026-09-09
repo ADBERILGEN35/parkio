@@ -119,6 +119,7 @@
   "placeSearchSearchingAria": "Yerler aranıyor",
   "placeSearchSearching": "Aranıyor…",
   "placeSearchError": "Öneriler yüklenemedi",
+  "placeSearchRateLimited": "Biraz bekleyip tekrar deneyin.",
   "placeSearchEmpty": "Yer bulunamadı",
   "marker": {
     "parkingSpot": "Topluluk park yeri, {{status}}",

@@ -25,12 +25,14 @@ vi.mock('@/components/map/NearbySpotsMap', () => ({
     onLocate,
     locating,
     spots,
+    destinationMarker,
   }: {
     municipalFacilities: Array<{ id: string; displayName: string | null }>;
     onSelectMunicipalFacility?: (id: string | null) => void;
     onLocate?: () => void;
     locating?: boolean;
     spots: unknown[];
+    destinationMarker?: { latitude: number; longitude: number; label: string } | null;
   }) => (
     <div aria-label="Parkio public parking map" data-testid="public-explore-map">
       <button
@@ -43,6 +45,9 @@ vi.mock('@/components/map/NearbySpotsMap', () => ({
         Locate
       </button>
       <span data-testid="community-spot-marker-count">{spots.length}</span>
+      {destinationMarker ? (
+        <div data-testid="destination-marker">{destinationMarker.label}</div>
+      ) : null}
       {municipalFacilities.map((facility) => (
         <button
           key={facility.id}
@@ -341,5 +346,266 @@ describe('PublicExplorePage', () => {
     await waitFor(() => {
       expect(screen.queryByTestId('selected-municipal-facility-preview')).not.toBeInTheDocument();
     });
+  });
+
+  it('shows destination search with certified public copy and does not call private search APIs', async () => {
+    const geocodeCalls = vi.fn();
+    const privateGeocode = vi.fn();
+    const privatePlaces = vi.fn();
+    server.use(
+      http.get(`${API_BASE}/public/explore/facilities`, () =>
+        HttpResponse.json(discoveryResponse()),
+      ),
+      http.get(`${API_BASE}/public/geocoding/search`, ({ request }) => {
+        geocodeCalls(Object.fromEntries(new URL(request.url).searchParams.entries()));
+        return HttpResponse.json({
+          results: [
+            {
+              id: 'dest-1',
+              displayName: 'Alsancak Garı, İzmir',
+              primary: 'Alsancak Garı',
+              secondary: 'Alsancak, İzmir',
+              lat: 38.455,
+              lng: 27.15,
+            },
+          ],
+        });
+      }),
+      http.get(`${API_BASE}/geocoding/search`, () => {
+        privateGeocode();
+        return HttpResponse.json({ results: [] });
+      }),
+      http.get(`${API_BASE}/places/recents/destinations`, () => {
+        privatePlaces();
+        return HttpResponse.json([]);
+      }),
+      http.get(`${API_BASE}/places/saved`, () => {
+        privatePlaces();
+        return HttpResponse.json([]);
+      }),
+      http.get(`${API_BASE}/places/favourites/destinations`, () => {
+        privatePlaces();
+        return HttpResponse.json([]);
+      }),
+    );
+
+    renderWithProviders(<PublicExplorePage />, { initialEntries: ['/explore'] });
+    expect(await screen.findByTestId('public-explore-destination-search')).toBeInTheDocument();
+    expect(screen.getByPlaceholderText('Where are you going?')).toBeInTheDocument();
+
+    const input = screen.getByRole('combobox', { name: 'Search destination' });
+    await userEvent.type(input, 'ab');
+    await new Promise((resolve) => setTimeout(resolve, 450));
+    expect(geocodeCalls).not.toHaveBeenCalled();
+
+    await userEvent.type(input, 'c');
+    await waitFor(() => expect(geocodeCalls).toHaveBeenCalled());
+    expect(geocodeCalls.mock.calls[0]![0].q).toBe('abc');
+    expect(geocodeCalls.mock.calls[0]![0].limit).toBe('5');
+    expect(privateGeocode).not.toHaveBeenCalled();
+    expect(privatePlaces).not.toHaveBeenCalled();
+    expect(screen.queryByTestId('auth-gate-dialog')).not.toBeInTheDocument();
+  });
+
+  it('selects a destination, renders marker, rediscovers parking, and keeps distance absent without geolocation', async () => {
+    const listCalls = vi.fn();
+    server.use(
+      http.get(`${API_BASE}/public/explore/facilities`, ({ request }) => {
+        listCalls(Object.fromEntries(new URL(request.url).searchParams.entries()));
+        return HttpResponse.json(
+          discoveryResponse({
+            facilities: [farFacility],
+            municipalHiddenCount: 4,
+            communitySpotCountInScope: 9,
+          }),
+        );
+      }),
+      http.get(`${API_BASE}/public/geocoding/search`, () =>
+        HttpResponse.json({
+          results: [
+            {
+              id: 'dest-alsancak',
+              displayName: 'Alsancak Garı, İzmir',
+              primary: 'Alsancak Garı',
+              secondary: 'Alsancak, İzmir',
+              lat: 38.455,
+              lng: 27.15,
+            },
+          ],
+        }),
+      ),
+    );
+
+    renderWithProviders(<PublicExplorePage />, { initialEntries: ['/explore'] });
+    await screen.findByTestId('public-explore-map');
+    const input = screen.getByRole('combobox', { name: 'Search destination' });
+    await userEvent.click(input);
+    await userEvent.type(input, 'Alsancak');
+    expect(await screen.findByRole('option', { name: /Alsancak Garı/i })).toBeInTheDocument();
+    await userEvent.keyboard('{ArrowDown}{Enter}');
+
+    expect(await screen.findByTestId('destination-marker')).toHaveTextContent('Alsancak Garı');
+    await waitFor(() => {
+      expect(listCalls.mock.calls.some((call) => call[0].lat === '38.455')).toBe(true);
+    });
+    const destinationCall = listCalls.mock.calls.find((call) => call[0].lat === '38.455')![0];
+    expect(destinationCall.lng).toBe('27.15');
+    expect(Number(destinationCall.limit)).toBeLessThanOrEqual(6);
+    expect(Number(destinationCall.radiusMeters)).toBeLessThanOrEqual(5000);
+
+    expect(await screen.findByTestId('public-explore-discovery-summary')).toHaveTextContent(
+      '+4 more',
+    );
+    expect(screen.getByTestId('community-aggregate-teaser')).toBeInTheDocument();
+    expect(screen.getByTestId('community-spot-marker-count')).toHaveTextContent('0');
+
+    await userEvent.click(await screen.findByRole('button', { name: farFacility.displayName }));
+    expect(await screen.findByTestId('selected-municipal-facility-preview')).not.toHaveTextContent(
+      /km|m\b/i,
+    );
+    expect(screen.queryByTestId('auth-gate-dialog')).not.toBeInTheDocument();
+  });
+
+  it('clears destination back to default origin and locate clears destination for user rediscovery', async () => {
+    const listCalls = vi.fn();
+    getCurrentPosition.mockImplementation((success: PositionCallback) => {
+      success(grantedPosition(38.45, 27.2));
+    });
+    server.use(
+      http.get(`${API_BASE}/public/explore/facilities`, ({ request }) => {
+        listCalls(Object.fromEntries(new URL(request.url).searchParams.entries()));
+        return HttpResponse.json(discoveryResponse());
+      }),
+      http.get(`${API_BASE}/public/geocoding/search`, () =>
+        HttpResponse.json({
+          results: [
+            {
+              id: 'dest-1',
+              displayName: 'Forum Bornova',
+              primary: 'Forum Bornova',
+              secondary: 'Bornova, İzmir',
+              lat: 38.46,
+              lng: 27.22,
+            },
+          ],
+        }),
+      ),
+    );
+
+    renderWithProviders(<PublicExplorePage />, { initialEntries: ['/explore'] });
+    await screen.findByTestId('public-explore-map');
+    const input = screen.getByRole('combobox', { name: 'Search destination' });
+    await userEvent.click(input);
+    await userEvent.type(input, 'Forum');
+    expect(await screen.findByRole('option', { name: /Forum Bornova/i })).toBeInTheDocument();
+    await userEvent.keyboard('{ArrowDown}{Enter}');
+    expect(await screen.findByTestId('destination-marker')).toBeInTheDocument();
+
+    await userEvent.click(screen.getByTestId('place-search-clear'));
+    await waitFor(() => {
+      expect(screen.queryByTestId('destination-marker')).not.toBeInTheDocument();
+    });
+    await waitFor(() => {
+      expect(listCalls.mock.calls.some((call) => call[0].lat === '38.4237')).toBe(true);
+    });
+
+    const inputAgain = screen.getByRole('combobox', { name: 'Search destination' });
+    await userEvent.click(inputAgain);
+    await userEvent.type(inputAgain, 'Forum');
+    expect(await screen.findByRole('option', { name: /Forum Bornova/i })).toBeInTheDocument();
+    await userEvent.keyboard('{ArrowDown}{Enter}');
+    expect(await screen.findByTestId('destination-marker')).toBeInTheDocument();
+
+    await userEvent.click(screen.getByTestId('map-floating-locate'));
+    await waitFor(() => expect(getCurrentPosition).toHaveBeenCalled());
+    await waitFor(() => {
+      expect(screen.queryByTestId('destination-marker')).not.toBeInTheDocument();
+    });
+    await waitFor(() => {
+      expect(listCalls.mock.calls.some((call) => call[0].lat === '38.45')).toBe(true);
+    });
+  });
+
+  it('keeps user-distance after geolocation when a destination is later selected', async () => {
+    getCurrentPosition.mockImplementation((success: PositionCallback) => {
+      success(grantedPosition(38.42, 27.14));
+    });
+    server.use(
+      http.get(`${API_BASE}/public/explore/facilities`, () =>
+        HttpResponse.json(discoveryResponse({ facilities: [facility, farFacility] })),
+      ),
+      http.get(`${API_BASE}/public/geocoding/search`, () =>
+        HttpResponse.json({
+          results: [
+            {
+              id: 'dest-1',
+              displayName: 'Alsancak',
+              primary: 'Alsancak',
+              secondary: 'İzmir',
+              lat: 38.455,
+              lng: 27.15,
+            },
+          ],
+        }),
+      ),
+    );
+
+    renderWithProviders(<PublicExplorePage />, { initialEntries: ['/explore'] });
+    await screen.findByTestId('public-explore-map');
+    await userEvent.click(screen.getByTestId('map-floating-locate'));
+    await waitFor(() => expect(getCurrentPosition).toHaveBeenCalled());
+
+    const input = screen.getByRole('combobox', { name: 'Search destination' });
+    await userEvent.click(input);
+    await userEvent.type(input, 'Alsancak');
+    expect(await screen.findByRole('option', { name: /Alsancak/i })).toBeInTheDocument();
+    await userEvent.keyboard('{ArrowDown}{Enter}');
+    expect(await screen.findByTestId('destination-marker')).toBeInTheDocument();
+
+    await userEvent.click(await screen.findByRole('button', { name: farFacility.displayName }));
+    expect(await screen.findByTestId('selected-municipal-facility-preview')).toHaveTextContent(
+      /m|km/i,
+    );
+  });
+
+  it('renders hostile suggestion labels safely and handles 429 without auth', async () => {
+    server.use(
+      http.get(`${API_BASE}/public/explore/facilities`, () =>
+        HttpResponse.json(discoveryResponse()),
+      ),
+      http.get(`${API_BASE}/public/geocoding/search`, () =>
+        HttpResponse.json({
+          results: [
+            {
+              id: 'xss-1',
+              displayName: '<script>alert(1)</script>',
+              primary: '<img src=x onerror=alert(1)>',
+              secondary: '"quoted" & <b>bold</b>',
+              lat: 38.42,
+              lng: 27.14,
+            },
+          ],
+        }),
+      ),
+    );
+
+    renderWithProviders(<PublicExplorePage />, { initialEntries: ['/explore'] });
+    const input = await screen.findByRole('combobox', { name: 'Search destination' });
+    await userEvent.type(input, 'Als');
+    const option = await screen.findByRole('option');
+    expect(option.textContent).toContain('<img src=x onerror=alert(1)>');
+    expect(option.querySelector('img')).toBeNull();
+    expect(option.querySelector('script')).toBeNull();
+    expect(screen.queryByTestId('auth-gate-dialog')).not.toBeInTheDocument();
+
+    server.use(
+      http.get(`${API_BASE}/public/geocoding/search`, () =>
+        HttpResponse.json({ code: 'RATE_LIMITED', message: 'Too many requests' }, { status: 429 }),
+      ),
+    );
+    await userEvent.clear(input);
+    await userEvent.type(input, 'Konak');
+    expect(await screen.findByText('Please wait a moment and try again.')).toBeInTheDocument();
+    expect(screen.queryByText(/429|Nominatim|Rate limit/i)).not.toBeInTheDocument();
   });
 });

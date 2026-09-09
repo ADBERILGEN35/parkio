@@ -119,6 +119,7 @@
   "placeSearchSearchingAria": "Searching places",
   "placeSearchSearching": "Searching…",
   "placeSearchError": "Could not load suggestions",
+  "placeSearchRateLimited": "Please wait a moment and try again.",
   "placeSearchEmpty": "No places found",
   "marker": {
     "parkingSpot": "Community parking spot, {{status}}",

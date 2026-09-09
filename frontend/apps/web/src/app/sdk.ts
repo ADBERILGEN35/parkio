@@ -11,6 +11,7 @@ import {
   type ParkingApi,
   type PlacesApi,
   type PublicExploreApi,
+  type PublicGeocodingApi,
   type UsersApi,
   createAdminApi,
   createAnalyticsApi,
@@ -24,6 +25,7 @@ import {
   createParkingApi,
   createPlacesApi,
   createPublicExploreApi,
+  createPublicGeocodingApi,
   createUsersApi,
 } from '@parkio/api-client';
 
@@ -41,6 +43,7 @@ export interface ParkioSdk {
   readonly geocodingApi: GeocodingApi;
   readonly placesApi: PlacesApi;
   readonly publicExploreApi: PublicExploreApi;
+  readonly publicGeocodingApi: PublicGeocodingApi;
 }
 
 export function createParkioSdk(options: ApiClientOptions): ParkioSdk {
@@ -59,5 +62,6 @@ export function createParkioSdk(options: ApiClientOptions): ParkioSdk {
     geocodingApi: createGeocodingApi(transport),
     placesApi: createPlacesApi(transport),
     publicExploreApi: createPublicExploreApi(transport),
+    publicGeocodingApi: createPublicGeocodingApi(transport),
   });
 }

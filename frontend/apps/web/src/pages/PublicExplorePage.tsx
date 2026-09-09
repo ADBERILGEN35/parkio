@@ -7,16 +7,20 @@ import { Link } from 'react-router-dom';
 import { useParkioSdk } from '@/app/AppRuntimeContext';
 import { useRequireAuth } from '@/components/auth/useRequireAuth';
 import { BrandMark } from '@/components/brand/BrandMark';
+import { PlaceSearch } from '@/components/map/PlaceSearch';
 import { SelectedMunicipalFacilityPreview } from '@/components/map/SelectedMunicipalFacilityPreview';
 import {
   DEFAULT_MAP_CENTER,
   DEFAULT_MAP_ZOOM,
+  DEFAULT_PICKER_ZOOM,
   LOCATED_ZOOM,
   type LatLng,
 } from '@/components/map/mapConfig';
 import { acquireBrowserPosition } from '@/components/parking/acquireBrowserPosition';
 import { frontendConfig } from '@/config/env';
+import { GEOCODING_RESULT_LIMIT, type GeocodeResult } from '@/lib/geocoding';
 import { toMunicipalFacilityFromPublicExplore } from '@/lib/publicExploreFacilityAdapter';
+import { PUBLIC_AUTOCOMPLETE_DEBOUNCE_MS } from '@/lib/usePlaceAutocomplete';
 
 const NearbySpotsMap = lazy(() =>
   import('@/components/map/NearbySpotsMap').then((m) => ({ default: m.NearbySpotsMap })),
@@ -26,6 +30,16 @@ const NearbySpotsMap = lazy(() =>
 const PUBLIC_EXPLORE_LIMIT = 6;
 const PUBLIC_EXPLORE_RADIUS_METERS = 5_000;
 
+/** Destination framing: enough context for nearby municipal markers without over-zoom. */
+const DESTINATION_ZOOM = DEFAULT_PICKER_ZOOM;
+
+interface SelectedDestination {
+  id: string;
+  label: string;
+  lat: number;
+  lng: number;
+}
+
 /**
  * Anonymous public product surface — same MapLibre product map as authenticated
  * {@link MapPage}, IZUM-only public data, detail/actions via AuthGate.
@@ -33,9 +47,12 @@ const PUBLIC_EXPLORE_RADIUS_METERS = 5_000;
  * Distance ownership: only {@link userLocation} (successful browser geolocation)
  * may drive preview distance. {@link discoveryOrigin} is for API scope/map framing
  * and must never be treated as the visitor's position.
+ * {@link selectedDestination} is the searched place and must never become userLocation.
+ *
+ * Locate rule: pressing locate clears selectedDestination and rediscovers around user.
  */
 export function PublicExplorePage() {
-  const { publicExploreApi } = useParkioSdk();
+  const { publicExploreApi, publicGeocodingApi } = useParkioSdk();
   const { t } = useTranslation(['explore', 'navigation', 'map']);
   const { requireAuth, authGate } = useRequireAuth();
   const [selectedId, setSelectedId] = useState<string | null>(null);
@@ -45,8 +62,20 @@ export function PublicExplorePage() {
   const [discoveryOrigin, setDiscoveryOrigin] = useState<LatLng>(DEFAULT_MAP_CENTER);
   /** Real browser geolocation only — null until locate succeeds. */
   const [userLocation, setUserLocation] = useState<LatLng | null>(null);
+  /** Searched destination — independent of userLocation. */
+  const [selectedDestination, setSelectedDestination] = useState<SelectedDestination | null>(
+    null,
+  );
+  /** Remount search when locate clears destination so the field resets. */
+  const [searchResetKey, setSearchResetKey] = useState(0);
   const [locating, setLocating] = useState(false);
   const [locationFeedback, setLocationFeedback] = useState<string | null>(null);
+
+  const publicSearchFn = useCallback(
+    (query: string, signal: AbortSignal) =>
+      publicGeocodingApi.searchPlaces(query, GEOCODING_RESULT_LIMIT, signal),
+    [publicGeocodingApi],
+  );
 
   const query = useQuery({
     queryKey: [
@@ -71,9 +100,10 @@ export function PublicExplorePage() {
   });
 
   const municipalFacilities = useMemo(
-    () => (query.data?.facilities ?? []).slice(0, PUBLIC_EXPLORE_LIMIT).map(
-      toMunicipalFacilityFromPublicExplore,
-    ),
+    () =>
+      (query.data?.facilities ?? [])
+        .slice(0, PUBLIC_EXPLORE_LIMIT)
+        .map(toMunicipalFacilityFromPublicExplore),
     [query.data],
   );
   const municipalHiddenCount = query.data?.municipalHiddenCount ?? 0;
@@ -88,9 +118,50 @@ export function PublicExplorePage() {
         })
       : null;
 
+  const destinationMarker = useMemo(
+    () =>
+      selectedDestination
+        ? {
+            latitude: selectedDestination.lat,
+            longitude: selectedDestination.lng,
+            label: selectedDestination.label,
+          }
+        : null,
+    [selectedDestination],
+  );
+
   const flagOff = !frontendConfig.features.publicExplore;
   const hardUnavailable = flagOff || query.isError;
   const showMap = frontendConfig.features.publicExplore && !query.isError;
+
+  const clearDestination = useCallback(() => {
+    setSelectedDestination(null);
+    setSelectedId(null);
+    if (userLocation) {
+      setDiscoveryOrigin(userLocation);
+      setMapCenter(userLocation);
+      setMapZoom(LOCATED_ZOOM);
+    } else {
+      setDiscoveryOrigin(DEFAULT_MAP_CENTER);
+      setMapCenter(DEFAULT_MAP_CENTER);
+      setMapZoom(DEFAULT_MAP_ZOOM);
+    }
+  }, [userLocation]);
+
+  const selectDestination = useCallback((result: GeocodeResult) => {
+    const next: SelectedDestination = {
+      id: result.id,
+      label: result.primary,
+      lat: result.lat,
+      lng: result.lng,
+    };
+    // Never assign destination coordinates to userLocation.
+    setSelectedDestination(next);
+    setDiscoveryOrigin({ lat: next.lat, lng: next.lng });
+    setMapCenter({ lat: next.lat, lng: next.lng });
+    setMapZoom(DESTINATION_ZOOM);
+    setSelectedId(null);
+  }, []);
 
   const locate = useCallback(async () => {
     setLocating(true);
@@ -113,6 +184,9 @@ export function PublicExplorePage() {
       lat: Number(result.latitude.toFixed(6)),
       lng: Number(result.longitude.toFixed(6)),
     };
+    // Locate means "parking around me" — clear any active destination.
+    setSelectedDestination(null);
+    setSearchResetKey((key) => key + 1);
     setUserLocation(next);
     setMapCenter(next);
     setMapZoom(LOCATED_ZOOM);
@@ -165,7 +239,26 @@ export function PublicExplorePage() {
 
         {showMap ? (
           <>
-            <div className="pointer-events-none absolute inset-x-0 top-0 z-30 flex flex-col items-stretch gap-sm px-md pt-md md:max-w-sm md:items-start">
+            <div className="pointer-events-none absolute inset-x-0 top-0 z-30 flex flex-col items-stretch gap-sm px-md pt-md md:max-w-[440px] md:items-start">
+              <div
+                data-testid="public-explore-destination-search"
+                className="pointer-events-auto w-full max-w-full rounded-2xl bg-surface-container-lowest/95 p-sm shadow-sm ring-1 ring-outline-variant/25 backdrop-blur-sm md:w-[400px]"
+              >
+                <PlaceSearch
+                  key={searchResetKey}
+                  compact
+                  label={t('explore:destinationSearchLabel')}
+                  placeholder={t('explore:destinationSearchPlaceholder')}
+                  searchFn={publicSearchFn}
+                  debounceMs={PUBLIC_AUTOCOMPLETE_DEBOUNCE_MS}
+                  retry={false}
+                  showClear
+                  clearLabel={t('explore:destinationSearchClear')}
+                  onSelect={selectDestination}
+                  onClear={clearDestination}
+                />
+              </div>
+
               {/* Coherent discovery stack — visible count + optional membership teasers. */}
               {!query.isLoading && municipalFacilities.length > 0 ? (
                 <div
@@ -244,6 +337,7 @@ export function PublicExplorePage() {
                 zoom={mapZoom}
                 spots={[]}
                 municipalFacilities={municipalFacilities}
+                destinationMarker={destinationMarker}
                 onPickCenter={() => undefined}
                 selectedId={null}
                 selectedMunicipalId={selectedId}
