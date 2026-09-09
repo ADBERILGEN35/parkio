@@ -58,7 +58,12 @@ test.describe('default route (/)', () => {
       route.fulfill({
         status: 200,
         contentType: 'application/json',
-        body: JSON.stringify([]),
+        body: JSON.stringify({
+          facilities: [],
+          municipalTotalInScope: 0,
+          municipalHiddenCount: 0,
+          communitySpotCountInScope: null,
+        }),
       }),
     );
 

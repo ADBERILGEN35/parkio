@@ -64,7 +64,6 @@ public class PublicEndpoints {
         }
         if (publicSurface.isPublicExploreEnabled()) {
             built.add(new Rule(HttpMethod.GET, parser.parse("/api/v1/public/explore/facilities")));
-            built.add(new Rule(HttpMethod.GET, parser.parse("/api/v1/public/explore/facilities/{facilityId}")));
         }
         this.rules = List.copyOf(built);
     }

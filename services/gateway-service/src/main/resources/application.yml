@@ -47,7 +47,7 @@
         - id: public-explore
           uri: ${PARKIO_PARKING_SERVICE_URI:http://localhost:8083}
           predicates:
-            - Path=/api/v1/public/explore/facilities,/api/v1/public/explore/facilities/{facilityId}
+            - Path=/api/v1/public/explore/facilities
             - Method=GET
           filters:
             - name: RequestRateLimiter

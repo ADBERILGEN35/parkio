@@ -34,7 +34,7 @@ export function PublicExplorePage() {
   });
 
   const municipalFacilities = useMemo(
-    () => (query.data ?? []).map(toMunicipalFacilityFromPublicExplore),
+    () => (query.data?.facilities ?? []).map(toMunicipalFacilityFromPublicExplore),
     [query.data],
   );
   const selected =

@@ -13,6 +13,7 @@ import com.parkio.parking.application.port.MunicipalFacilityRepository;
 import com.parkio.parking.application.port.MunicipalOccupancySnapshotRepository;
 import com.parkio.parking.application.port.MunicipalSourceSyncRunRepository;
 import com.parkio.parking.application.port.OsmImportSupportRepository;
+import com.parkio.parking.application.port.ParkingSpotRepository;
 import com.parkio.parking.application.port.DecisionAuditWriteObserver;
 import com.parkio.parking.application.port.DecisionShadowObserverPort;
 import com.parkio.parking.externalsource.MunicipalParkingSourceAdapter;
@@ -139,10 +140,11 @@ public class ParkingInfrastructureConfig {
     public com.parkio.parking.application.PublicExploreQueryService publicExploreQueryService(
             MunicipalFacilityRepository facilities,
             MunicipalOccupancySnapshotRepository snapshots,
+            ParkingSpotRepository spots,
             PublicExploreProperties properties,
             Clock clock) {
         return new com.parkio.parking.application.PublicExploreQueryService(
-                facilities, snapshots, properties, clock);
+                facilities, snapshots, spots, properties, clock);
     }
 
     @Bean

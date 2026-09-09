@@ -137,9 +137,30 @@ public class MunicipalFacilityRepositoryAdapter implements MunicipalFacilityRepo
                   AND f.location IS NOT NULL
                   AND ST_DWithin(f.location, ST_SetSRID(ST_MakePoint(:lng,:lat),4326)::geography, :radius)
                 ORDER BY dist ASC, f.id ASC
-                LIMIT LEAST(:limit, 20)
+                LIMIT LEAST(:limit, 6)
                 """).param("lat", lat).param("lng", lng).param("radius", radiusMeters).param("limit", limit)
                 .query(this::map).list();
+    }
+
+    @Override
+    public long countPublicExploreIzumNearby(double lat, double lng, int radiusMeters) {
+        Long count = jdbc.sql("""
+                SELECT count(*)
+                FROM municipal_parking_facilities f
+                JOIN municipal_data_sources s
+                  ON s.active=true AND s.source_key='izmir-izum-otoparklar'
+                WHERE f.active=true
+                  AND EXISTS (
+                    SELECT 1 FROM municipal_facility_source_links l
+                    WHERE l.facility_id=f.id AND l.source_id=s.id AND l.active=true
+                  )
+                  AND f.latitude BETWEEN -90 AND 90
+                  AND f.longitude BETWEEN -180 AND 180
+                  AND f.location IS NOT NULL
+                  AND ST_DWithin(f.location, ST_SetSRID(ST_MakePoint(:lng,:lat),4326)::geography, :radius)
+                """).param("lat", lat).param("lng", lng).param("radius", radiusMeters)
+                .query(Long.class).single();
+        return count == null ? 0L : count;
     }
 
     @Override

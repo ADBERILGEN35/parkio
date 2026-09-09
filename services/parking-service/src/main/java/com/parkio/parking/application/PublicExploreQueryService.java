@@ -2,6 +2,7 @@ package com.parkio.parking.application;
 
 import com.parkio.parking.application.port.MunicipalFacilityRepository;
 import com.parkio.parking.application.port.MunicipalOccupancySnapshotRepository;
+import com.parkio.parking.application.port.ParkingSpotRepository;
 import com.parkio.parking.externalsource.MunicipalFacilityType;
 import com.parkio.parking.externalsource.MunicipalOccupancyFreshness;
 import com.parkio.parking.externalsource.MunicipalSourceIdentity;
@@ -12,15 +13,22 @@ import java.time.Clock;
 import java.time.Duration;
 import java.time.Instant;
 import java.util.List;
-import java.util.Optional;
 import java.util.UUID;
 
-/** Fixed-shape, IZUM-only query used exclusively by anonymous public explore. */
+/**
+ * Bounded IZUM-only anonymous public discovery. Visible municipal rows are capped
+ * server-side; community exposure is aggregate-count only with a privacy threshold.
+ */
 public class PublicExploreQueryService {
     public static final double CENTER_LATITUDE = 38.4237;
     public static final double CENTER_LONGITUDE = 27.1428;
-    public static final int RADIUS_METERS = 5_000;
-    public static final int MAX_RESULTS = 20;
+    /** Default and hard ceiling for anonymous radius (certified public scope). */
+    public static final int DEFAULT_RADIUS_METERS = 5_000;
+    public static final int MAX_RADIUS_METERS = 5_000;
+    public static final int DEFAULT_LIMIT = 6;
+    public static final int MAX_LIMIT = 6;
+    /** Below this, communitySpotCountInScope is suppressed ({@code null}). */
+    public static final int COMMUNITY_PUBLIC_MIN_COUNT = 3;
 
     public record FacilityView(
             UUID id,
@@ -37,41 +45,87 @@ public class PublicExploreQueryService {
             String sourceLabel,
             String attribution) {}
 
+    public record DiscoveryQuery(Double latitude, Double longitude, Integer radiusMeters, Integer limit) {}
+
+    public record DiscoveryResult(
+            List<FacilityView> facilities,
+            long municipalTotalInScope,
+            long municipalHiddenCount,
+            Integer communitySpotCountInScope) {}
+
     private final MunicipalFacilityRepository facilities;
     private final MunicipalOccupancySnapshotRepository snapshots;
+    private final ParkingSpotRepository spots;
     private final PublicExploreProperties properties;
     private final Clock clock;
 
     public PublicExploreQueryService(
             MunicipalFacilityRepository facilities,
             MunicipalOccupancySnapshotRepository snapshots,
+            ParkingSpotRepository spots,
             PublicExploreProperties properties,
             Clock clock) {
         this.facilities = facilities;
         this.snapshots = snapshots;
+        this.spots = spots;
         this.properties = properties;
         this.clock = clock;
     }
 
-    public List<FacilityView> list() {
+    public DiscoveryResult discover(DiscoveryQuery query) {
         if (!properties.isIzumAllowed()) {
-            return List.of();
+            return new DiscoveryResult(List.of(), 0L, 0L, null);
         }
-        return facilities.publicExploreIzumNearby(
-                        CENTER_LATITUDE, CENTER_LONGITUDE, RADIUS_METERS, MAX_RESULTS)
+        ResolvedScope scope = resolveScope(query);
+        long municipalTotal = facilities.countPublicExploreIzumNearby(
+                scope.latitude(), scope.longitude(), scope.radiusMeters());
+        List<FacilityView> visible = facilities
+                .publicExploreIzumNearby(
+                        scope.latitude(), scope.longitude(), scope.radiusMeters(), scope.limit())
                 .stream()
-                .limit(MAX_RESULTS)
+                .limit(scope.limit())
                 .map(this::project)
                 .toList();
+        long hidden = Math.max(municipalTotal - visible.size(), 0L);
+        Integer community = suppressCommunityBelowThreshold(spots.countNearbyVisible(
+                scope.latitude(), scope.longitude(), scope.radiusMeters()));
+        return new DiscoveryResult(visible, municipalTotal, hidden, community);
     }
 
-    public Optional<FacilityView> findById(UUID id) {
-        if (!properties.isIzumAllowed()) {
-            return Optional.empty();
+    static Integer suppressCommunityBelowThreshold(long rawCount) {
+        if (rawCount < COMMUNITY_PUBLIC_MIN_COUNT) {
+            return null;
         }
-        return facilities.findPublicExploreIzumById(
-                        id, CENTER_LATITUDE, CENTER_LONGITUDE, RADIUS_METERS)
-                .map(this::project);
+        if (rawCount > Integer.MAX_VALUE) {
+            return Integer.MAX_VALUE;
+        }
+        return (int) rawCount;
+    }
+
+    private ResolvedScope resolveScope(DiscoveryQuery query) {
+        boolean hasLat = query.latitude() != null;
+        boolean hasLng = query.longitude() != null;
+        if (hasLat != hasLng) {
+            throw new IllegalArgumentException("lat and lng must be supplied together");
+        }
+        double lat = hasLat ? query.latitude() : CENTER_LATITUDE;
+        double lng = hasLng ? query.longitude() : CENTER_LONGITUDE;
+        if (!Double.isFinite(lat) || lat < -90.0 || lat > 90.0) {
+            throw new IllegalArgumentException("latitude must be a finite value between -90 and 90");
+        }
+        if (!Double.isFinite(lng) || lng < -180.0 || lng > 180.0) {
+            throw new IllegalArgumentException("longitude must be a finite value between -180 and 180");
+        }
+        int radius = query.radiusMeters() == null ? DEFAULT_RADIUS_METERS : query.radiusMeters();
+        if (radius < 1 || radius > MAX_RADIUS_METERS) {
+            throw new IllegalArgumentException(
+                    "radiusMeters must be between 1 and " + MAX_RADIUS_METERS);
+        }
+        int limit = query.limit() == null ? DEFAULT_LIMIT : query.limit();
+        if (limit < 1 || limit > MAX_LIMIT) {
+            throw new IllegalArgumentException("limit must be between 1 and " + MAX_LIMIT);
+        }
+        return new ResolvedScope(lat, lng, radius, limit);
     }
 
     private FacilityView project(MunicipalFacilityRepository.Facility facility) {
@@ -113,4 +167,6 @@ public class PublicExploreQueryService {
                 ParkingProviderCatalog.IZUM_DISPLAY_NAME,
                 ParkingProviderCatalog.IZUM_ATTRIBUTION);
     }
+
+    private record ResolvedScope(double latitude, double longitude, int radiusMeters, int limit) {}
 }

@@ -60,8 +60,7 @@ class GatewayRoutesTest {
         assertThat(route.getPredicates().stream().filter(predicate -> "Path".equals(predicate.getName())))
                 .singleElement()
                 .satisfies(predicate -> assertThat(predicate.getArgs().values())
-                        .contains("/api/v1/public/explore/facilities")
-                        .contains("/api/v1/public/explore/facilities/{facilityId}"));
+                        .containsExactly("/api/v1/public/explore/facilities"));
         assertThat(route.getFilters()).singleElement().satisfies(filter -> {
             assertThat(filter.getName()).isEqualTo("RequestRateLimiter");
             assertThat(filter.getArgs()).containsEntry("redis-rate-limiter.replenishrate", "1")
@@ -78,9 +77,10 @@ class GatewayRoutesTest {
 
         assertThat(endpoints.isPublic(MockServerHttpRequest.get("/api/v1/public/explore/facilities").build()))
                 .isTrue();
+        // Detail path is intentionally NOT anonymous-public (R6 membership gate).
         assertThat(endpoints.isPublic(MockServerHttpRequest.get(
                 "/api/v1/public/explore/facilities/00000000-0000-0000-0000-000000000001").build()))
-                .isTrue();
+                .isFalse();
         for (HttpMethod method : List.of(HttpMethod.POST, HttpMethod.PUT, HttpMethod.PATCH, HttpMethod.DELETE)) {
             assertThat(endpoints.isPublic(MockServerHttpRequest
                     .method(method, "/api/v1/public/explore/facilities").build())).isFalse();

@@ -82,36 +82,40 @@ class PublicExploreRepositoryPostgresIT {
     }
 
     @Test
-    void listIsIzumOnlyGeographicallyBoundedActivePublishableAndHardClampedToTwenty() {
+    void listIsIzumOnlyGeographicallyBoundedActivePublishableAndHardClampedToSix() {
         var result = facilities.publicExploreIzumNearby(
                 PublicExploreQueryService.CENTER_LATITUDE,
                 PublicExploreQueryService.CENTER_LONGITUDE,
-                PublicExploreQueryService.RADIUS_METERS,
+                PublicExploreQueryService.MAX_RADIUS_METERS,
                 500);
 
-        assertThat(result).hasSize(PublicExploreQueryService.MAX_RESULTS);
+        assertThat(result).hasSize(PublicExploreQueryService.MAX_LIMIT);
         assertThat(result).allSatisfy(facility -> {
             assertThat(included).contains(facility.id());
             assertThat(facility.linkedSourceKeys()).containsExactly(MunicipalSourceIdentity.IZUM);
         });
         assertThat(result).extracting(MunicipalFacilityRepository.Facility::id)
                 .doesNotContain(NON_IZUM, OUTSIDE, INACTIVE, UNPUBLISHABLE);
+        assertThat(facilities.countPublicExploreIzumNearby(
+                PublicExploreQueryService.CENTER_LATITUDE,
+                PublicExploreQueryService.CENTER_LONGITUDE,
+                PublicExploreQueryService.MAX_RADIUS_METERS)).isEqualTo(22L);
     }
 
     @Test
-    void detailReturnsNotFoundForEveryExcludedRecord() {
+    void detailLookupRemainsScopedButIsNotExposedByPublicHttpContract() {
         for (UUID id : List.of(NON_IZUM, OUTSIDE, INACTIVE, UNPUBLISHABLE)) {
             assertThat(facilities.findPublicExploreIzumById(
                     id,
                     PublicExploreQueryService.CENTER_LATITUDE,
                     PublicExploreQueryService.CENTER_LONGITUDE,
-                    PublicExploreQueryService.RADIUS_METERS)).isEmpty();
+                    PublicExploreQueryService.MAX_RADIUS_METERS)).isEmpty();
         }
         assertThat(facilities.findPublicExploreIzumById(
                 included.getFirst(),
                 PublicExploreQueryService.CENTER_LATITUDE,
                 PublicExploreQueryService.CENTER_LONGITUDE,
-                PublicExploreQueryService.RADIUS_METERS)).isPresent();
+                PublicExploreQueryService.MAX_RADIUS_METERS)).isPresent();
     }
 
     private void insertFacility(UUID id, double latitude, double longitude, boolean active) {

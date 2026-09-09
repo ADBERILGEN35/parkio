@@ -73,7 +73,12 @@ describe('PublicExplorePage', () => {
     server.use(
       http.get(`${API_BASE}/public/explore/facilities`, ({ request }) => {
         listCalls(new URL(request.url).search);
-        return HttpResponse.json([facility]);
+        return HttpResponse.json({
+          facilities: [facility],
+          municipalTotalInScope: 1,
+          municipalHiddenCount: 0,
+          communitySpotCountInScope: null,
+        });
       }),
     );
 

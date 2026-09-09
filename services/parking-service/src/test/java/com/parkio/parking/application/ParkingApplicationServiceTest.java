@@ -1137,6 +1137,11 @@ class ParkingApplicationServiceTest {
             // so the application-layer visibility filter can be asserted.
             return new ArrayList<>(byId.values());
         }
+
+        @Override
+        public long countNearbyVisible(double latitude, double longitude, double radiusMeters) {
+            return findNearby(latitude, longitude, radiusMeters, Integer.MAX_VALUE).size();
+        }
     }
 
     private static final class FakeVerificationRepository implements ParkingSpotVerificationRepository {

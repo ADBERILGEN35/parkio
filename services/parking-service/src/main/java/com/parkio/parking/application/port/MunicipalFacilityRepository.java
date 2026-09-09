@@ -21,6 +21,10 @@ public interface MunicipalFacilityRepository {
     List<Facility> nearby(double lat, double lng, int radiusMeters, int limit);
     Optional<Facility> findById(UUID id);
     List<Facility> publicExploreIzumNearby(double lat, double lng, int radiusMeters, int limit);
+
+    /** Count of IZUM public-explore facilities in the same bounded scope (no row disclosure). */
+    long countPublicExploreIzumNearby(double lat, double lng, int radiusMeters);
+
     Optional<Facility> findPublicExploreIzumById(UUID id, double lat, double lng, int radiusMeters);
     long count();
 }
