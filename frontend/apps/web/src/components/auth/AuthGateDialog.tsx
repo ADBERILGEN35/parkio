@@ -8,24 +8,37 @@ import {
 import { useTranslation } from 'react-i18next';
 import { Link } from 'react-router-dom';
 import { createSanitizedLoginReturnSearch } from '@/auth/redirect';
+import { useRegistrationMode } from '@/auth/useRegistrationMode';
+
+/** Contextual gate intents — copy varies; chrome stays the same. */
+export type AuthGateIntent =
+  | 'facilityDetail'
+  | 'municipalMore'
+  | 'community'
+  | 'generic';
 
 export interface AuthGateDialogProps {
   open: boolean;
   onClose: () => void;
   /** Internal path to resume after login (e.g. facility detail). */
   returnPath?: string | null;
+  /** Which restricted action opened the gate. */
+  intent?: AuthGateIntent;
 }
 
 /**
  * Centralized anonymous→auth gate using the same dialog chrome as ConfirmDialog.
- * Registration CTA always routes to /register, which truthfully reflects CLOSED.
+ * Secondary CTA reflects registration mode: CLOSED/INVITE → about registration;
+ * OPEN → Sign up. Never implies open registration while CLOSED.
  */
 export function AuthGateDialog({
   open,
   onClose,
   returnPath = null,
+  intent = 'generic',
 }: AuthGateDialogProps) {
   const { t } = useTranslation('auth');
+  const registrationMode = useRegistrationMode();
   const titleId = useId();
   const descriptionId = useId();
   const panelRef = useRef<HTMLDivElement>(null);
@@ -35,6 +48,28 @@ export function AuthGateDialog({
     ? createSanitizedLoginReturnSearch(returnPath)
     : '';
   const loginTo = loginSearch ? `/login${loginSearch}` : '/login';
+
+  const titleKey =
+    intent === 'facilityDetail'
+      ? 'authGate.facilityDetailTitle'
+      : intent === 'municipalMore'
+        ? 'authGate.municipalMoreTitle'
+        : intent === 'community'
+          ? 'authGate.communityTitle'
+          : 'authGate.title';
+  const bodyKey =
+    intent === 'facilityDetail'
+      ? 'authGate.facilityDetailBody'
+      : intent === 'municipalMore'
+        ? 'authGate.municipalMoreBody'
+        : intent === 'community'
+          ? 'authGate.communityBody'
+          : 'authGate.body';
+
+  const registrationOpen = registrationMode === 'OPEN';
+  const registerLabel = registrationOpen
+    ? t('authGate.register')
+    : t('authGate.registerAbout');
 
   useEffect(() => {
     if (!open) return;
@@ -83,6 +118,7 @@ export function AuthGateDialog({
       className="fixed inset-0 z-[80] flex items-end justify-center bg-inverse-surface/40 p-md sm:items-center"
       role="presentation"
       data-testid="auth-gate-dialog"
+      data-auth-gate-intent={intent}
       onMouseDown={(event) => {
         if (event.target === event.currentTarget) onClose();
       }}
@@ -101,11 +137,19 @@ export function AuthGateDialog({
         )}
       >
         <h2 id={titleId} className="m-0 text-title-lg text-on-surface">
-          {t('authGate.title')}
+          {t(titleKey)}
         </h2>
         <p id={descriptionId} className="m-0 mt-sm text-body-md text-on-surface-variant">
-          {t('authGate.body')}
+          {t(bodyKey)}
         </p>
+        {!registrationOpen ? (
+          <p
+            className="m-0 mt-sm text-label-sm text-on-surface-variant"
+            data-testid="auth-gate-registration-support"
+          >
+            {t('authGate.registerComingSoon')}
+          </p>
+        ) : null}
         <div className="mt-lg flex flex-col gap-sm">
           <Link
             to={loginTo}
@@ -116,10 +160,11 @@ export function AuthGateDialog({
           </Link>
           <Link
             to="/register"
-            data-testid="auth-gate-register-status"
+            data-testid="auth-gate-register"
+            data-registration-mode={registrationMode}
             className="inline-flex w-full items-center justify-center rounded-full px-lg py-md text-label-md font-semibold text-primary no-underline hover:bg-primary/10 focus:outline-none focus-visible:ring-4 focus-visible:ring-primary/30"
           >
-            {t('authGate.registerStatus')}
+            {registerLabel}
           </Link>
           <Button type="button" variant="ghost" className="w-full" onClick={onClose}>
             {t('authGate.dismiss')}

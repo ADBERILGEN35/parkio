@@ -13,6 +13,7 @@ vi.mock('@/config/env', async (importOriginal) => {
     frontendConfig: {
       ...actual.frontendConfig,
       features: { ...actual.frontendConfig.features, publicExplore: true },
+      registrationModeBootstrap: 'CLOSED',
     },
   };
 });
@@ -21,11 +22,27 @@ vi.mock('@/components/map/NearbySpotsMap', () => ({
   NearbySpotsMap: ({
     municipalFacilities,
     onSelectMunicipalFacility,
+    onLocate,
+    locating,
+    spots,
   }: {
     municipalFacilities: Array<{ id: string; displayName: string | null }>;
     onSelectMunicipalFacility?: (id: string | null) => void;
+    onLocate?: () => void;
+    locating?: boolean;
+    spots: unknown[];
   }) => (
-    <div aria-label="Parkio public parking map">
+    <div aria-label="Parkio public parking map" data-testid="public-explore-map">
+      <button
+        type="button"
+        data-testid="map-floating-locate"
+        aria-label="Use my location"
+        disabled={locating}
+        onClick={() => onLocate?.()}
+      >
+        Locate
+      </button>
+      <span data-testid="community-spot-marker-count">{spots.length}</span>
       {municipalFacilities.map((facility) => (
         <button
           key={facility.id}
@@ -56,6 +73,16 @@ const facility = {
   attribution: 'Includes public sector information licensed under CC BY 4.0.',
 };
 
+function discoveryResponse(overrides: Record<string, unknown> = {}) {
+  return {
+    facilities: [facility],
+    municipalTotalInScope: 1,
+    municipalHiddenCount: 0,
+    communitySpotCountInScope: null,
+    ...overrides,
+  };
+}
+
 describe('PublicExplorePage', () => {
   const getCurrentPosition = vi.fn();
 
@@ -66,33 +93,51 @@ describe('PublicExplorePage', () => {
       configurable: true,
       value: { getCurrentPosition },
     });
+    server.use(
+      http.get(`${API_BASE}/auth/registration-mode`, () =>
+        HttpResponse.json({ mode: 'CLOSED' }),
+      ),
+    );
   });
 
   it('renders the canonical product map and gates full detail behind AuthGate', async () => {
     const listCalls = vi.fn();
     server.use(
       http.get(`${API_BASE}/public/explore/facilities`, ({ request }) => {
-        listCalls(new URL(request.url).search);
-        return HttpResponse.json({
-          facilities: [facility],
-          municipalTotalInScope: 1,
-          municipalHiddenCount: 0,
-          communitySpotCountInScope: null,
-        });
+        listCalls(new URL(request.url).searchParams);
+        return HttpResponse.json(discoveryResponse());
       }),
     );
 
     renderWithProviders(<PublicExplorePage />, { initialEntries: ['/explore'] });
 
     expect(await screen.findByTestId('public-explore-product')).toBeInTheDocument();
-    expect(screen.getByText('Read-only')).toBeInTheDocument();
+    expect(screen.queryByText('Read-only')).not.toBeInTheDocument();
+    expect(screen.queryByText('Salt okunur')).not.toBeInTheDocument();
+    expect(screen.getByTestId('public-explore-locate')).toBeInTheDocument();
+    expect(getCurrentPosition).not.toHaveBeenCalled();
+
+    await waitFor(() => expect(listCalls).toHaveBeenCalled());
+    const params = listCalls.mock.calls[0]![0] as URLSearchParams;
+    expect(params.get('limit')).toBe('6');
+    expect(params.get('radiusMeters')).toBe('5000');
+    expect(params.get('lat')).toBeTruthy();
+    expect(params.get('lng')).toBeTruthy();
+    expect(Number(params.get('limit'))).toBeLessThanOrEqual(6);
+    expect(Number(params.get('radiusMeters'))).toBeLessThanOrEqual(5000);
+
     await userEvent.click(await screen.findByRole('button', { name: facility.displayName }));
     expect(await screen.findByTestId('selected-municipal-facility-preview')).toHaveTextContent(
       facility.displayName,
     );
+    expect(screen.queryByTestId('auth-gate-dialog')).not.toBeInTheDocument();
 
     await userEvent.click(screen.getByTestId('municipal-facility-view-details'));
     expect(await screen.findByTestId('auth-gate-dialog')).toBeInTheDocument();
+    expect(screen.getByTestId('auth-gate-dialog')).toHaveAttribute(
+      'data-auth-gate-intent',
+      'facilityDetail',
+    );
     expect(screen.getByTestId('auth-gate-login')).toHaveAttribute(
       'href',
       expect.stringContaining('/login'),
@@ -101,10 +146,14 @@ describe('PublicExplorePage', () => {
       'href',
       expect.stringContaining(encodeURIComponent(`/facilities/${facility.id}`)),
     );
-    expect(screen.getByTestId('auth-gate-register-status')).toHaveAttribute('href', '/register');
+    expect(screen.getByTestId('auth-gate-register')).toHaveAttribute('href', '/register');
+    expect(screen.getByTestId('auth-gate-register')).toHaveTextContent('About registration');
+    expect(screen.queryByText('Sign up')).not.toBeInTheDocument();
+    expect(screen.getByTestId('auth-gate-registration-support')).toHaveTextContent(
+      'New account registration will open soon.',
+    );
 
-    expect(listCalls).toHaveBeenCalledExactlyOnceWith('');
-    expect(getCurrentPosition).not.toHaveBeenCalled();
+    expect(screen.getByTestId('community-spot-marker-count')).toHaveTextContent('0');
 
     for (const name of [
       /save/i, /favourite/i, /create parking/i, /share/i, /verify/i, /claim/i,
@@ -115,6 +164,131 @@ describe('PublicExplorePage', () => {
     }
     const headerSignIn = screen.getAllByRole('link', { name: 'Sign in' })[0];
     expect(headerSignIn).toHaveAttribute('href', '/login');
+  });
+
+  it('requests geolocation only after the location CTA and refetches with bounded coords', async () => {
+    const listCalls = vi.fn();
+    getCurrentPosition.mockImplementation((success: PositionCallback) => {
+      success({
+        coords: {
+          latitude: 38.45,
+          longitude: 27.2,
+          accuracy: 10,
+          altitude: null,
+          altitudeAccuracy: null,
+          heading: null,
+          speed: null,
+          toJSON() {
+            return this;
+          },
+        },
+        timestamp: Date.now(),
+        toJSON() {
+          return this;
+        },
+      } as GeolocationPosition);
+    });
+
+    server.use(
+      http.get(`${API_BASE}/public/explore/facilities`, ({ request }) => {
+        listCalls(Object.fromEntries(new URL(request.url).searchParams.entries()));
+        return HttpResponse.json(discoveryResponse());
+      }),
+    );
+
+    renderWithProviders(<PublicExplorePage />, { initialEntries: ['/explore'] });
+    await screen.findByTestId('public-explore-map');
+    expect(getCurrentPosition).not.toHaveBeenCalled();
+
+    await userEvent.click(screen.getByTestId('public-explore-locate'));
+    await waitFor(() => expect(getCurrentPosition).toHaveBeenCalledTimes(1));
+    await waitFor(() => {
+      expect(listCalls.mock.calls.some((call) => call[0].lat === '38.45')).toBe(true);
+    });
+    const located = listCalls.mock.calls.find((call) => call[0].lat === '38.45')![0];
+    expect(located.lng).toBe('27.2');
+    expect(Number(located.limit)).toBeLessThanOrEqual(6);
+    expect(Number(located.radiusMeters)).toBeLessThanOrEqual(5000);
+  });
+
+  it('keeps the map usable when location permission is denied', async () => {
+    getCurrentPosition.mockImplementation((_success: PositionCallback, error: PositionErrorCallback) => {
+      error({
+        code: 1,
+        PERMISSION_DENIED: 1,
+        POSITION_UNAVAILABLE: 2,
+        TIMEOUT: 3,
+        message: 'denied',
+      } as GeolocationPositionError);
+    });
+    server.use(
+      http.get(`${API_BASE}/public/explore/facilities`, () =>
+        HttpResponse.json(discoveryResponse()),
+      ),
+    );
+
+    renderWithProviders(<PublicExplorePage />, { initialEntries: ['/explore'] });
+    await screen.findByTestId('public-explore-map');
+    await userEvent.click(screen.getByTestId('public-explore-locate'));
+    expect(await screen.findByTestId('public-explore-location-feedback')).toBeInTheDocument();
+    expect(screen.getByTestId('public-explore-map')).toBeInTheDocument();
+    expect(screen.getByText(facility.displayName)).toBeInTheDocument();
+  });
+
+  it('shows municipal and community teasers and gates them without leaking hidden rows', async () => {
+    server.use(
+      http.get(`${API_BASE}/public/explore/facilities`, () =>
+        HttpResponse.json(
+          discoveryResponse({
+            municipalTotalInScope: 10,
+            municipalHiddenCount: 7,
+            communitySpotCountInScope: 12,
+          }),
+        ),
+      ),
+    );
+
+    renderWithProviders(<PublicExplorePage />, { initialEntries: ['/explore'] });
+    expect(await screen.findByTestId('municipal-hidden-teaser')).toHaveTextContent(
+      '+7 more parking facilities',
+    );
+    expect(screen.getByTestId('community-aggregate-teaser')).toHaveTextContent(
+      '12 community parking spots nearby',
+    );
+    expect(screen.getAllByTestId('municipal-facility-marker')).toHaveLength(1);
+    expect(screen.getByTestId('community-spot-marker-count')).toHaveTextContent('0');
+
+    await userEvent.click(screen.getByTestId('municipal-hidden-teaser'));
+    expect(await screen.findByTestId('auth-gate-dialog')).toHaveAttribute(
+      'data-auth-gate-intent',
+      'municipalMore',
+    );
+    await userEvent.click(screen.getByRole('button', { name: 'Not now' }));
+
+    await userEvent.click(screen.getByTestId('community-aggregate-teaser'));
+    expect(await screen.findByTestId('auth-gate-dialog')).toHaveAttribute(
+      'data-auth-gate-intent',
+      'community',
+    );
+  });
+
+  it('suppresses community count when the privacy threshold returns null', async () => {
+    server.use(
+      http.get(`${API_BASE}/public/explore/facilities`, () =>
+        HttpResponse.json(
+          discoveryResponse({
+            municipalHiddenCount: 0,
+            communitySpotCountInScope: null,
+          }),
+        ),
+      ),
+    );
+
+    renderWithProviders(<PublicExplorePage />, { initialEntries: ['/explore'] });
+    await screen.findByTestId('public-explore-map');
+    expect(screen.queryByTestId('community-aggregate-teaser')).not.toBeInTheDocument();
+    expect(screen.queryByTestId('municipal-hidden-teaser')).not.toBeInTheDocument();
+    expect(screen.queryByText(/0 community/i)).not.toBeInTheDocument();
   });
 
   it('never substitutes fixtures when the public API is unavailable', async () => {
