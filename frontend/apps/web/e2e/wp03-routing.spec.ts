@@ -938,7 +938,7 @@ test.describe('WP-03 canonical routing acceptance', () => {
       '/verify-email': 'Verify your email',
       '/privacy': 'Privacy Policy',
       '/terms': 'Terms of Service',
-      '/explore': 'Live public parking explore',
+      '/explore': 'Parkio public parking explore',
     };
 
     expect(publicRoutes.map((route) => route.path).sort()).toEqual(
@@ -1012,7 +1012,7 @@ test.describe('WP-03 canonical routing acceptance', () => {
       '/check-email': 'Check your email',
       '/verify-email': 'Verify your email',
       '/preparing': /Preparing your account|Parkio/,
-      '/explore': 'Live public parking explore',
+      '/explore': 'Parkio public parking explore',
     };
 
     for (const route of bypassRoutes) {
