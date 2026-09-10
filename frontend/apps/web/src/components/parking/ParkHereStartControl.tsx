@@ -15,6 +15,7 @@ import { useStartParkingSessionMutation } from '@/data/hooks/useParkingSessionMu
 import { isActiveParkingSessionConflict } from '@/data/parking/sessionErrors';
 import { activeParkingSessionQueryOptions } from '@/data/query-options/parking';
 import { showError, showInfo, showSuccess } from '@/lib/toast';
+import { trackParkHereFailed, trackParkingSessionStarted } from '@/services/spaTelemetry';
 import {
   acquireBrowserPosition,
   type BrowserGeolocationFailure,
@@ -93,6 +94,7 @@ export function ParkHereStartControl({ className }: ParkHereStartControlProps) {
           latitude: position.latitude,
           longitude: position.longitude,
         });
+        trackParkingSessionStarted('map_location');
         showSuccess(t('parkingSession.start.success'));
         setPhase('idle');
       } catch (error) {
@@ -102,18 +104,21 @@ export function ParkHereStartControl({ className }: ParkHereStartControlProps) {
           } catch {
             // Cache may still be empty; toast still explains the conflict.
           }
+          trackParkHereFailed('conflict', 'map_location');
           showInfo(t('parkingSession.start.alreadyActive'));
           setPhase('idle');
           return;
         }
 
         if (error instanceof UnauthorizedError) {
+          trackParkHereFailed('error', 'map_location');
           showError(t('parkingSession.start.unauthorized'));
           setPhase('idle');
           return;
         }
 
         if (error instanceof NetworkError || error instanceof TimeoutError) {
+          trackParkHereFailed('error', 'map_location');
           showError(t('parkingSession.start.networkError'));
           setPhase('idle');
           return;

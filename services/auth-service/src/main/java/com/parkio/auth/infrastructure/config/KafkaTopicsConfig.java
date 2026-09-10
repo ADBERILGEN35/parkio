@@ -24,6 +24,7 @@ public class KafkaTopicsConfig {
 
     public static final String AUTH_USER = "parkio.auth.user";
     public static final String MODERATION_ACTION = "parkio.moderation.action";
+    public static final String PRIVACY_ERASURE = "parkio.privacy.erasure";
     public static final String DLT_AUTH = "parkio.dlt.auth";
 
     private final int replicas;
@@ -42,6 +43,11 @@ public class KafkaTopicsConfig {
      * kafka-transport.md): poison records from {@code parkio.moderation.action} land
      * here. 14d retention allows triage/redrive.
      */
+    @Bean
+    NewTopic privacyErasureTopic() {
+        return topic(PRIVACY_ERASURE, 3, Duration.ofDays(14));
+    }
+
     @Bean
     NewTopic authDeadLetterTopic() {
         return topic(DLT_AUTH, 3, Duration.ofDays(14));

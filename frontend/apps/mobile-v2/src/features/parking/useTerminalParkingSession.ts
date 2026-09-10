@@ -13,6 +13,7 @@ import type { ParkingSessionResponse } from '@parkio/types';
 import { parkingKeys } from '@/data/keys';
 import { activeParkingSessionQueryOptions } from '@/data/query-options/parking';
 import { parkingApi } from '@/services/api';
+import { trackParkingSessionEnded } from '@/services/spaTelemetry';
 import { useAuthStore } from '@/state/authStore';
 
 /** Stable domain codes for terminal transitions that are no longer actionable. */
@@ -184,6 +185,7 @@ export function useTerminalParkingSession(sessionId: string | null): TerminalPar
         if (result.status !== 'ACTIVE') {
           clearActiveCache();
           clearAttempt();
+          trackParkingSessionEnded(op === 'complete' ? 'completed' : 'cancelled');
           return;
         }
 

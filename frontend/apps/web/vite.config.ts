@@ -23,6 +23,10 @@ export default defineConfig({
     modulePreload: false,
     chunkSizeWarningLimit: 650,
     rollupOptions: {
+      input: {
+        app: path.resolve(__dirname, 'index.html'),
+        explore: path.resolve(__dirname, 'explore/index.html'),
+      },
       output: {
         manualChunks(id) {
           if (id.includes('vite/preload-helper')) {

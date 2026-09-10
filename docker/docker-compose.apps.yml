@@ -93,6 +93,8 @@ x-app-common: &app-common
     PARKIO_GATEWAY_INTERNAL_ACCEPTED_SECRETS: ${PARKIO_GATEWAY_INTERNAL_ACCEPTED_SECRETS:-}
     # OpenAPI/Swagger UI. Default true for local dev; set false on hosted-beta/production.
     PARKIO_OPENAPI_ENABLED: ${PARKIO_OPENAPI_ENABLED:-true}
+    PARKIO_AUTH_SERVICE_URI: ${PARKIO_AUTH_SERVICE_URI:-http://auth-service:8081}
+    PARKIO_ACCOUNT_ERASURE_ENABLED: ${PARKIO_ACCOUNT_ERASURE_ENABLED:-false}
 
 x-datasource-depends: &datasource-depends
   kafka:
@@ -138,6 +140,7 @@ services:
       PARKIO_CORS_ALLOW_CREDENTIALS: ${PARKIO_CORS_ALLOW_CREDENTIALS:-true}
       PARKIO_JWT_AUDIENCE: ${PARKIO_JWT_AUDIENCE:-parkio-api}
       PARKIO_JWT_CLOCK_SKEW_SECONDS: ${PARKIO_JWT_CLOCK_SKEW_SECONDS:-30}
+      PARKIO_PUBLIC_EXPLORE_ENABLED: ${PARKIO_PUBLIC_EXPLORE_ENABLED:-false}
     healthcheck:
       <<: *app-healthcheck
       test: ["CMD", "curl", "-fsS", "http://localhost:8080/actuator/health/readiness"]
@@ -242,6 +245,10 @@ services:
       # Internal client for POST /internal/media/{id}/access-url (parkio.media.client.base-url).
       # Defaults to localhost:8084 (IDE dev); inside compose must be the service DNS name.
       PARKIO_MEDIA_SERVICE_URI: http://media-service:8084
+      # Favourite status lookup for ranking boosts (parkio.user.client.base-url).
+      PARKIO_USER_SERVICE_URI: http://user-service:8082
+      PARKIO_PUBLIC_EXPLORE_ENABLED: ${PARKIO_PUBLIC_EXPLORE_ENABLED:-false}
+      PARKIO_PUBLIC_EXPLORE_ALLOWED_SOURCE_FAMILIES: ${PARKIO_PUBLIC_EXPLORE_ALLOWED_SOURCE_FAMILIES:-}
     healthcheck:
       <<: *app-healthcheck
       test: ["CMD", "curl", "-fsS", "http://localhost:8083/actuator/health/readiness"]
@@ -337,6 +344,7 @@ services:
       PARKIO_SMART_RETURN_TEST_HOOKS_ENABLED: ${PARKIO_SMART_RETURN_TEST_HOOKS_ENABLED:-false}
       PARKIO_USER_SERVICE_URI: http://user-service:8082
       PARKIO_PARKING_SERVICE_URI: http://parking-service:8083
+      PARKIO_PUSH_DELIVERY_ENABLED: ${PARKIO_PUSH_DELIVERY_ENABLED:-true}
       PARKIO_PUSH_DELIVERY_PROVIDER: ${PARKIO_PUSH_DELIVERY_PROVIDER:-noop}
       PARKIO_EXPO_ACCESS_TOKEN: ${PARKIO_EXPO_ACCESS_TOKEN:-}
     healthcheck:

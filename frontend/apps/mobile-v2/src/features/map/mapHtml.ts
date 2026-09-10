@@ -54,6 +54,19 @@ export interface MapSpotMarker {
   warning?: boolean;
 }
 
+/**
+ * Municipal facility marker payload — separate inventory from {@link MapSpotMarker}.
+ * Never passed through setSpots.
+ */
+export interface MapMunicipalMarkerPayload {
+  id: string;
+  lat: number;
+  lng: number;
+  /** live | aging | stale_live | static | invalid */
+  occupancyKind: string;
+  accessibilityLabel?: string;
+}
+
 export function buildMapHtml(options: MapHtmlOptions): string {
   const { center, zoom, mode, colors } = options;
   const style = buildRasterStyle();
@@ -114,9 +127,82 @@ export function buildMapHtml(options: MapHtmlOptions): string {
     }
     @media (prefers-reduced-motion: reduce) { .pk-pulse { animation: none; } }
     .pk-selected .pk-pill { outline: 2px solid var(--pulse); }
+    .pk-recommended .pk-pill { box-shadow: 0 0 0 3px rgba(0, 128, 105, 0.45); }
+    .pk-recommended-top .pk-pill { box-shadow: 0 0 0 4px rgba(0, 128, 105, 0.7); }
+    .pk-dest {
+      position: relative; display: flex; flex-direction: column; align-items: center;
+      pointer-events: none;
+    }
+    .pk-dest-pin {
+      width: 28px; height: 28px; border-radius: 6px; transform: rotate(45deg);
+      background: #008069; border: 2px solid #ffffff;
+      box-shadow: 0 2px 8px rgba(0,0,0,0.28);
+    }
+    .pk-dest-label {
+      margin-top: 8px; transform: none;
+      font: 600 11px/14px system-ui, sans-serif;
+      color: var(--pill-text); background: var(--pill-bg);
+      padding: 2px 6px; border-radius: 6px;
+      max-width: 140px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+      box-shadow: 0 1px 4px rgba(0,0,0,0.18);
+    }
+    .pk-parked {
+      position: relative; display: flex; flex-direction: column; align-items: center;
+      pointer-events: none; z-index: 14;
+    }
+    .pk-parked-pin {
+      width: 28px; height: 28px; border-radius: 50%;
+      background: #0F766E; border: 3px solid #ffffff;
+      box-shadow: 0 2px 10px rgba(15,118,110,0.45);
+    }
+    .pk-parked-label {
+      margin-top: 6px;
+      font: 600 11px/14px system-ui, sans-serif;
+      color: var(--pill-text); background: var(--pill-bg);
+      padding: 2px 6px; border-radius: 6px;
+      max-width: 140px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+      box-shadow: 0 1px 4px rgba(0,0,0,0.18);
+    }
+    .pk-muni-recommended .pk-muni-pin { box-shadow: 0 0 0 3px rgba(0, 128, 105, 0.45); }
+    .pk-muni-recommended-top .pk-muni-pin { box-shadow: 0 0 0 4px rgba(0, 128, 105, 0.7); }
 
     .pk-user { width: 16px; height: 16px; border-radius: 50%; background: var(--user-dot);
       border: 3px solid #fff; box-shadow: 0 0 0 6px var(--user-halo), 0 2px 6px rgba(0,0,0,0.25); }
+
+    /* Municipal facility markers — square garage pin (not community freshness pill). */
+    .pk-muni { position: relative; display: flex; flex-direction: column; align-items: center; cursor: pointer; }
+    .pk-muni-pin {
+      width: 34px; height: 34px; border-radius: 10px;
+      display: flex; align-items: center; justify-content: center;
+      background: var(--pill-bg); color: var(--muni-accent);
+      border: 2px solid var(--muni-accent);
+      box-shadow: 0 4px 14px rgba(0,0,0,0.14);
+    }
+    .pk-muni-caret {
+      width: 0; height: 0; margin-top: -1px;
+      border-left: 5px solid transparent; border-right: 5px solid transparent;
+      border-top: 6px solid var(--pill-bg);
+      filter: drop-shadow(0 2px 2px rgba(0,0,0,0.08));
+    }
+    .pk-muni-kind-live, .pk-muni-kind-aging { --muni-accent: ${colors.fresh}; }
+    .pk-muni-kind-stale_live { --muni-accent: ${colors.aging}; }
+    .pk-muni-kind-static, .pk-muni-kind-invalid { --muni-accent: ${colors.muted}; }
+    .pk-muni-selected .pk-muni-pin {
+      outline: 2px solid var(--pulse);
+      transform: scale(1.1);
+    }
+    .pk-muni-selected .pk-muni-pulse { display: block !important; }
+    .pk-muni-pulse {
+      display: none; position: absolute; top: 50%; left: 50%;
+      width: 52px; height: 52px; margin: -32px 0 0 -26px;
+      border-radius: 12px; border: 1.5px solid var(--pulse); opacity: 0.45;
+      pointer-events: none;
+      animation: pk-pulse 2.2s ease-out infinite;
+    }
+    @media (prefers-reduced-motion: reduce) {
+      .pk-muni-pulse { animation: none; }
+      .pk-muni-selected .pk-muni-pin { transform: none; }
+    }
   </style>
 </head>
 <body>
@@ -155,8 +241,16 @@ export function buildMapHtml(options: MapHtmlOptions): string {
       });
       map.touchZoomRotate.disableRotation();
 
-      var markers = {};   // id -> { marker, el, data }
+      var markers = {};   // id -> { marker, el, data }  (community spots)
+      var muniMarkers = {}; // id -> { marker, el, data } (municipal facilities)
       var selectedId = null;
+      var selectedMunicipalId = null;
+      var recommendedCommunity = {}; // id -> true
+      var recommendedMunicipal = {}; // id -> true
+      var topCommunityId = null;
+      var topMunicipalId = null;
+      var destinationMarker = null;
+      var parkedCarMarker = null;
       var userMarker = null;
       var suppressMoveEvent = false;
 
@@ -253,10 +347,165 @@ export function buildMapHtml(options: MapHtmlOptions): string {
         Object.keys(markers).forEach(function (id) {
           var entry = markers[id];
           var isSelected = id === selectedId;
+          var isRecommended = Boolean(recommendedCommunity[id]);
+          var isTop = id === topCommunityId;
           entry.el.classList.toggle('pk-selected', isSelected);
+          entry.el.classList.toggle('pk-recommended', isRecommended);
+          entry.el.classList.toggle('pk-recommended-top', isTop);
           entry.el.querySelector('.pk-pulse').style.display = isSelected ? '' : 'none';
-          entry.el.style.zIndex = isSelected ? '10' : '1';
+          entry.el.style.zIndex = isSelected ? '10' : isTop ? '8' : isRecommended ? '6' : '1';
         });
+        Object.keys(muniMarkers).forEach(function (id) {
+          var entry = muniMarkers[id];
+          var isSelected = id === selectedMunicipalId;
+          var isRecommended = Boolean(recommendedMunicipal[id]);
+          var isTop = id === topMunicipalId;
+          entry.el.classList.toggle('pk-muni-selected', isSelected);
+          entry.el.classList.toggle('pk-muni-recommended', isRecommended);
+          entry.el.classList.toggle('pk-muni-recommended-top', isTop);
+          entry.el.style.zIndex = isSelected ? '11' : isTop ? '9' : isRecommended ? '7' : '2';
+        });
+      }
+
+      function setDestinationMarker(marker) {
+        if (destinationMarker) {
+          destinationMarker.remove();
+          destinationMarker = null;
+        }
+        if (!marker || typeof marker.lat !== 'number' || typeof marker.lng !== 'number') return;
+        if (!isFinite(marker.lat) || !isFinite(marker.lng)) return;
+        var el = document.createElement('div');
+        el.className = 'pk-dest';
+        var label = typeof marker.label === 'string' ? marker.label : '';
+        el.setAttribute('role', 'img');
+        if (label) el.setAttribute('aria-label', label);
+        el.innerHTML =
+          '<div class="pk-dest-pin" aria-hidden="true"></div>' +
+          (label
+            ? '<div class="pk-dest-label">' +
+              String(label)
+                .replace(/&/g, '&amp;')
+                .replace(/</g, '&lt;')
+                .replace(/>/g, '&gt;')
+                .replace(/"/g, '&quot;') +
+              '</div>'
+            : '');
+        destinationMarker = new maplibregl.Marker({ element: el, anchor: 'center' })
+          .setLngLat([marker.lng, marker.lat])
+          .addTo(map);
+      }
+
+      function setParkedCarMarker(marker) {
+        if (parkedCarMarker) {
+          parkedCarMarker.remove();
+          parkedCarMarker = null;
+        }
+        if (!marker || typeof marker.lat !== 'number' || typeof marker.lng !== 'number') return;
+        if (!isFinite(marker.lat) || !isFinite(marker.lng)) return;
+        var el = document.createElement('div');
+        el.className = 'pk-parked';
+        var label = typeof marker.label === 'string' ? marker.label : '';
+        el.setAttribute('role', 'img');
+        if (label) el.setAttribute('aria-label', label);
+        el.innerHTML =
+          '<div class="pk-parked-pin" aria-hidden="true"></div>' +
+          (label
+            ? '<div class="pk-parked-label">' +
+              String(label)
+                .replace(/&/g, '&amp;')
+                .replace(/</g, '&lt;')
+                .replace(/>/g, '&gt;')
+                .replace(/"/g, '&quot;') +
+              '</div>'
+            : '');
+        parkedCarMarker = new maplibregl.Marker({ element: el, anchor: 'center' })
+          .setLngLat([marker.lng, marker.lat])
+          .addTo(map);
+      }
+
+      function setRecommendedHighlights(payload) {
+        recommendedCommunity = {};
+        recommendedMunicipal = {};
+        topCommunityId = null;
+        topMunicipalId = null;
+        if (payload) {
+          (payload.communityIds || []).forEach(function (id) {
+            if (typeof id === 'string') recommendedCommunity[id] = true;
+          });
+          (payload.municipalIds || []).forEach(function (id) {
+            if (typeof id === 'string') recommendedMunicipal[id] = true;
+          });
+          if (typeof payload.topCommunityId === 'string') topCommunityId = payload.topCommunityId;
+          if (typeof payload.topMunicipalId === 'string') topMunicipalId = payload.topMunicipalId;
+        }
+        applySelection();
+      }
+
+      function muniKindClass(kind) {
+        var allowed = {
+          live: 1, aging: 1, stale_live: 1, static: 1, invalid: 1
+        };
+        return allowed[kind] ? kind : 'static';
+      }
+
+      function muniMarkerHtml(kind) {
+        return (
+          '<div class="pk-muni-pulse"></div>' +
+          '<div class="pk-muni-pin pk-muni-kind-' + muniKindClass(kind) + '" aria-hidden="true">' +
+            '<svg width="18" height="18" viewBox="0 0 24 24" focusable="false">' +
+              '<path fill="currentColor" d="M13 3H6v18h4v-6h3c3.31 0 6-2.69 6-6s-2.69-6-6-6zm.2 8H10V7h3.2c1.1 0 2 .9 2 2s-.9 2-2 2z"/>' +
+            '</svg>' +
+          '</div>' +
+          '<div class="pk-muni-caret"></div>'
+        );
+      }
+
+      function setMunicipalFacilities(facilities) {
+        var seen = {};
+        (facilities || []).forEach(function (data) {
+          if (!data || typeof data.id !== 'string') return;
+          if (typeof data.lat !== 'number' || typeof data.lng !== 'number') return;
+          if (!isFinite(data.lat) || !isFinite(data.lng)) return;
+          seen[data.id] = true;
+          var entry = muniMarkers[data.id];
+          var kind = typeof data.occupancyKind === 'string' ? data.occupancyKind : 'static';
+          if (!entry) {
+            var el = document.createElement('div');
+            el.className = 'pk-muni';
+            el.innerHTML = muniMarkerHtml(kind);
+            if (typeof data.accessibilityLabel === 'string' && data.accessibilityLabel) {
+              el.setAttribute('role', 'button');
+              el.setAttribute('aria-label', data.accessibilityLabel);
+            }
+            if (INTERACTIVE) {
+              el.addEventListener('click', function (event) {
+                event.stopPropagation();
+                post({ type: 'municipalTap', id: data.id });
+              });
+            }
+            var marker = new maplibregl.Marker({ element: el, anchor: 'bottom' })
+              .setLngLat([data.lng, data.lat])
+              .addTo(map);
+            entry = muniMarkers[data.id] = { marker: marker, el: el, data: data };
+          } else {
+            entry.data = data;
+            entry.marker.setLngLat([data.lng, data.lat]);
+            var pin = entry.el.querySelector('.pk-muni-pin');
+            if (pin) {
+              pin.className = 'pk-muni-pin pk-muni-kind-' + muniKindClass(kind);
+            }
+            if (typeof data.accessibilityLabel === 'string' && data.accessibilityLabel) {
+              entry.el.setAttribute('aria-label', data.accessibilityLabel);
+            }
+          }
+        });
+        Object.keys(muniMarkers).forEach(function (id) {
+          if (!seen[id]) {
+            muniMarkers[id].marker.remove();
+            delete muniMarkers[id];
+          }
+        });
+        applySelection();
       }
 
       function setUserLocation(loc) {
@@ -302,6 +551,14 @@ export function buildMapHtml(options: MapHtmlOptions): string {
           var message = typeof json === 'string' ? JSON.parse(json) : json;
           if (message.op === 'setSpots') setSpots(message.spots || []);
           else if (message.op === 'setSelected') { selectedId = message.id || null; applySelection(); }
+          else if (message.op === 'setMunicipalFacilities') setMunicipalFacilities(message.facilities || []);
+          else if (message.op === 'setSelectedMunicipal') {
+            selectedMunicipalId = message.id || null;
+            applySelection();
+          }
+          else if (message.op === 'setDestinationMarker') setDestinationMarker(message.marker || null);
+          else if (message.op === 'setParkedCarMarker') setParkedCarMarker(message.marker || null);
+          else if (message.op === 'setRecommendedHighlights') setRecommendedHighlights(message.payload || null);
           else if (message.op === 'flyTo') {
             suppressMoveEvent = Boolean(message.silent);
             map.flyTo({ center: [message.lng, message.lat], zoom: message.zoom || map.getZoom(), duration: 650 });

@@ -22,7 +22,7 @@ Microsoft Founders Hub credits would help Parkio complete hosted-beta deployment
 
 - Azure VM: initial hosted-beta or staging host.
 - Azure Container Apps: managed service container path after single-host beta.
-- Azure Database for PostgreSQL: managed PostgreSQL/PostGIS path, subject to extension support validation.
+- Azure Database for PostgreSQL **Flexible Server**: managed PostgreSQL/PostGIS path selected by [ADR-PP-01A](../architecture/adr/ADR-PP-01A-managed-postgresql.md) (**ACCEPTED WITH CONDITIONS**). Extension support and HA/PITR region/SKU proof remain PP-01B sandbox spikes; PP-01 implementation remains open; does not authorize public production GO or municipal production enablement.
 - Azure Blob Storage: media object storage alternative.
 - Azure Cache for Redis: managed Redis for rate limiting and runtime support.
 - Azure Monitor: platform metrics and alerting.

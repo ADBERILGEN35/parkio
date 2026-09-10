@@ -1,5 +1,9 @@
 import { infiniteQueryOptions, keepPreviousData, queryOptions } from '@tanstack/react-query';
-import type { NearbySearchParams, ParkingSessionHistoryResponse } from '@parkio/types';
+import type {
+  MunicipalFacilityNearbyParams,
+  NearbySearchParams,
+  ParkingSessionHistoryResponse,
+} from '@parkio/types';
 import type { ParkioSdk } from '@/app/sdk';
 import { parkingKeys, type NearbyParkingFilters } from '../keys';
 
@@ -20,6 +24,30 @@ export function nearbySpotsQueryOptions(sdk: ParkioSdk, filters: NearbyParkingFi
       sdk.parkingApi.getNearbySpots(filters as NearbySearchParams, signal),
     placeholderData: keepPreviousData,
     staleTime: 30_000,
+  });
+}
+
+/** Municipal facility nearby — separate query key from community spots. */
+export function nearbyMunicipalFacilitiesQueryOptions(
+  sdk: ParkioSdk,
+  filters: NearbyParkingFilters,
+) {
+  return queryOptions({
+    queryKey: parkingKeys.municipalNearby(filters),
+    queryFn: ({ signal }) =>
+      sdk.parkingApi.getNearbyMunicipalFacilities(
+        filters as MunicipalFacilityNearbyParams,
+        signal,
+      ),
+    placeholderData: keepPreviousData,
+    staleTime: 30_000,
+  });
+}
+
+export function municipalFacilityDetailQueryOptions(sdk: ParkioSdk, facilityId: string) {
+  return queryOptions({
+    queryKey: parkingKeys.municipalFacility(facilityId),
+    queryFn: ({ signal }) => sdk.parkingApi.getMunicipalFacility(facilityId, { signal }),
   });
 }
 

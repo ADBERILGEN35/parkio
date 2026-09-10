@@ -1,0 +1,54 @@
+[
+  {
+    "parkID": 1001,
+    "parkName": "Kadıköy Açık Otopark",
+    "lat": "40.9901",
+    "lng": "29.0292",
+    "capacity": 120,
+    "emptyCapacity": 45,
+    "workHours": "08:00-22:00",
+    "parkType": "AÇIK OTOPARK",
+    "freeTime": 15,
+    "district": "KADIKÖY",
+    "isOpen": 1
+  },
+  {
+    "parkID": 1002,
+    "parkName": "Beşiktaş Kapalı Otopark",
+    "lat": "41.0422",
+    "lng": "29.0067",
+    "capacity": 200,
+    "emptyCapacity": 0,
+    "workHours": "24 Saat",
+    "parkType": "KAPALI OTOPARK",
+    "freeTime": 0,
+    "district": "BEŞİKTAŞ",
+    "isOpen": 1
+  },
+  {
+    "parkID": 1003,
+    "parkName": "Şişli Yol Üstü",
+    "lat": "41.0602",
+    "lng": "28.9876",
+    "capacity": 40,
+    "emptyCapacity": 12,
+    "workHours": "08:00-20:00",
+    "parkType": "YOL ÜSTÜ",
+    "freeTime": 0,
+    "district": "ŞİŞLİ",
+    "isOpen": 1
+  },
+  {
+    "parkID": 1004,
+    "parkName": "Kapalı Gece Otoparkı",
+    "lat": "41.0100",
+    "lng": "28.9700",
+    "capacity": 80,
+    "emptyCapacity": 80,
+    "workHours": "Kapalı",
+    "parkType": "KAPALI OTOPARK",
+    "freeTime": 0,
+    "district": "FATİH",
+    "isOpen": 0
+  }
+]

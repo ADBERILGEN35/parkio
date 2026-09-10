@@ -1,8 +1,17 @@
 import { infiniteQueryOptions, keepPreviousData, queryOptions } from '@tanstack/react-query';
-import { isUsableSpot } from '@parkio/geo';
-import type { NearbySearchParams, ParkingSessionHistoryResponse } from '@parkio/types';
+import { isUsableSpot, isValidLatLng } from '@parkio/geo';
+import type {
+  MunicipalFacility,
+  NearbySearchParams,
+  ParkingSessionHistoryResponse,
+} from '@parkio/types';
+import { appConfig } from '@/config/env';
 import { parkingApi } from '@/services/api';
-import { parkingKeys, type NearbyParkingFilters } from '../keys';
+import {
+  parkingKeys,
+  type NearbyMunicipalFilters,
+  type NearbyParkingFilters,
+} from '../keys';
 
 /** Default page size for ParkingSession history (backend allows 1–100). */
 export const PARKING_SESSION_HISTORY_PAGE_SIZE = 20;
@@ -80,5 +89,53 @@ export function spotMediaAccessUrlQueryOptions(spotId: string) {
     queryFn: ({ signal }) => parkingApi.getSpotMediaAccessUrl(spotId, { signal }),
     staleTime: 3 * 60_000,
     gcTime: 4 * 60_000,
+  });
+}
+
+function isUsableMunicipalRadius(radiusMeters: number): boolean {
+  return typeof radiusMeters === 'number' && Number.isFinite(radiusMeters) && radiusMeters > 0;
+}
+
+/**
+ * Nearby municipal facilities (MOBILE-MUNI-V2-01).
+ * Separate inventory from {@link nearbySpotsQueryOptions} — never fuse results.
+ * Disabled when the feature flag is off or coordinates/radius are invalid → no request.
+ */
+export function nearbyMunicipalFacilitiesQueryOptions(filters: NearbyMunicipalFilters) {
+  const enabled =
+    appConfig.features.municipalDiscovery &&
+    isValidLatLng(filters.lat, filters.lng) &&
+    isUsableMunicipalRadius(filters.radiusMeters);
+
+  return queryOptions({
+    queryKey: parkingKeys.municipalNearby(filters),
+    queryFn: ({ signal }): Promise<MunicipalFacility[]> =>
+      parkingApi.getNearbyMunicipalFacilities(
+        {
+          lat: filters.lat,
+          lng: filters.lng,
+          radiusMeters: filters.radiusMeters,
+          ...(filters.limit !== undefined ? { limit: filters.limit } : {}),
+        },
+        signal,
+      ),
+    enabled,
+    placeholderData: keepPreviousData,
+    staleTime: 10_000,
+  });
+}
+
+/**
+ * Municipal facility detail — same {@link MunicipalFacility} DTO as nearby items.
+ * No field stripping: occupiedSpaces / capacity / freshness remain for later UI.
+ */
+export function municipalFacilityDetailQueryOptions(facilityId: string) {
+  const id = facilityId.trim();
+  return queryOptions({
+    queryKey: parkingKeys.municipalFacility(id),
+    queryFn: ({ signal }): Promise<MunicipalFacility> =>
+      parkingApi.getMunicipalFacility(id, { signal }),
+    enabled: appConfig.features.municipalDiscovery && id.length > 0,
+    staleTime: 10_000,
   });
 }

@@ -283,8 +283,10 @@ PARKIO_DEPLOYMENT_PROFILE=azure-hosted-beta PARKIO_ENV_FILE=docker/.env.azure-ho
 PARKIO_DEPLOYMENT_PROFILE=azure-hosted-beta PARKIO_ENV_FILE=docker/.env.azure-hosted-beta ./scripts/restore-hosted-beta.sh \
   --manifest backup-artifacts/backup-current.json --dry-run
 PARKIO_DEPLOYMENT_PROFILE=azure-hosted-beta PARKIO_ENV_FILE=docker/.env.azure-hosted-beta ./scripts/restore-drill.sh --service parking --keep-backups
-PARKIO_DEPLOYMENT_PROFILE=azure-hosted-beta PARKIO_ENV_FILE=docker/.env.azure-hosted-beta ./scripts/rollback-hosted-beta.sh \
+PARKIO_DEPLOYMENT_PROFILE=azure-hosted-beta PARKIO_ENV_FILE=docker/.env.azure-hosted-beta \
+  bash ./scripts/rollback-hosted-beta.sh \
   --manifest deploy-artifacts/current.json --dry-run
+# Prefer `bash ./scripts/...` when the script lacks the executable bit (+x).
 ```
 
 Copy the encrypted backup set, backup/deploy manifests, and restore-drill evidence to an operator-controlled machine immediately. A live rollback test requires a second known-good release manifest and retained images; schedule it before opening the beta. Repository estimate: 3-8 minutes when images exist locally. A database restore is not a release rollback and must not be used for ordinary bad code.

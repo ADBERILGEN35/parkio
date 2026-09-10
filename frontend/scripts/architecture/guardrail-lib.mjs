@@ -380,6 +380,7 @@ const SDK_COMPOSITION_FACTORIES = new Set([
   'createModerationApi',
   'createNotificationsApi',
   'createParkingApi',
+  'createPlacesApi',
   'createUsersApi',
 ]);
 

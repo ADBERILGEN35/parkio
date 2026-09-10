@@ -291,6 +291,11 @@ class DecisionAuthorityApplicationServiceTest {
         public List<ParkingSpot> findNearby(double latitude, double longitude, double radiusMeters, int limit) {
             return List.of();
         }
+
+        @Override
+        public long countNearbyVisible(double latitude, double longitude, double radiusMeters) {
+            return 0L;
+        }
     }
 
     private static final class FakeHistory implements ParkingSpotStatusHistoryRepository {

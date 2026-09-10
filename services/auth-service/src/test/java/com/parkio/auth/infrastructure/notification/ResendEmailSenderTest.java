@@ -155,6 +155,34 @@ class ResendEmailSenderTest {
     }
 
     @Test
+    void skipsResendForPriv001aSyntheticEmailWithoutCallingProvider(CapturedOutput output) {
+        String synthetic = "priv001a-20260830120000abcd@priv001a.parkio.invalid";
+
+        sender.sendVerificationLink(synthetic, TOKEN, EmailLocale.EN);
+
+        server.verify(); // no expectations → no HTTP calls
+        assertThat(registry.counter("email_sent").count()).isZero();
+        assertThat(registry.counter("email_verification_sent").count()).isEqualTo(1.0);
+        assertThat(registry.counter("email_failed").count()).isZero();
+        assertThat(output).doesNotContain(TOKEN).doesNotContain(API_KEY).doesNotContain(synthetic);
+        assertThat(ResendEmailSender.isPriv001aSyntheticEmail(synthetic)).isTrue();
+        assertThat(ResendEmailSender.isPriv001aSyntheticEmail("user@gmail.com")).isFalse();
+        assertThat(ResendEmailSender.isPriv001aSyntheticEmail("priv001a-abc@evil.priv001a.parkio.invalid"))
+                .isFalse();
+    }
+
+    @Test
+    void skipsPasswordResetResendForPriv001aSyntheticEmail() {
+        String synthetic = "priv001a-20260830120000abcd@priv001a.parkio.invalid";
+
+        sender.sendResetLink(synthetic, TOKEN, EmailLocale.EN);
+
+        server.verify();
+        assertThat(registry.counter("email_sent").count()).isZero();
+        assertThat(registry.counter("email_failed").count()).isZero();
+    }
+
+    @Test
     void recordsFailureWithoutLeakingTokenOrApiKey(CapturedOutput output) {
         server.expect(requestTo("https://api.resend.test/emails"))
                 .andRespond(withServerError());

@@ -19,7 +19,7 @@ import java.util.UUID;
 public final class AuthUser {
 
     private final UUID id;
-    private final String email;
+    private String email;
     private String passwordHash;
     private AuthUserStatus status;
     private Instant statusChangedAt;
@@ -196,12 +196,50 @@ public final class AuthUser {
      */
     private boolean applyModerationStatus(AuthUserStatus target, Instant occurredAt) {
         Objects.requireNonNull(occurredAt, "occurredAt");
+        if (status.isErasureLocked()) {
+            return false;
+        }
         if (statusChangedAt != null && occurredAt.isBefore(statusChangedAt)) {
             return false;
         }
         this.status = target;
         this.statusChangedAt = occurredAt;
         return true;
+    }
+
+    /**
+     * Locks the account for erasure: no further login or moderation restore.
+     * Returns {@code false} when already locked.
+     */
+    public boolean beginErasure(Instant now) {
+        Objects.requireNonNull(now, "now");
+        if (status.isErasureLocked()) {
+            return false;
+        }
+        this.status = AuthUserStatus.ERASURE_IN_PROGRESS;
+        this.statusChangedAt = now;
+        bumpSessionEpoch();
+        this.emailVerificationTokenHash = null;
+        this.emailVerificationExpiresAt = null;
+        this.emailVerificationSentAt = null;
+        return true;
+    }
+
+    /** Irreversibly replaces login identifiers. Call only after downstream erasure completes. */
+    public void finishErasure(String tombstoneEmail, String replacementPasswordHash, Instant now) {
+        Objects.requireNonNull(tombstoneEmail, "tombstoneEmail");
+        Objects.requireNonNull(replacementPasswordHash, "replacementPasswordHash");
+        Objects.requireNonNull(now, "now");
+        this.email = normalizeEmail(tombstoneEmail);
+        this.passwordHash = replacementPasswordHash;
+        this.status = AuthUserStatus.ERASED;
+        this.statusChangedAt = now;
+        this.emailVerified = false;
+        this.emailVerifiedAt = null;
+        this.emailVerificationTokenHash = null;
+        this.emailVerificationExpiresAt = null;
+        this.emailVerificationSentAt = null;
+        bumpSessionEpoch();
     }
 
     /**

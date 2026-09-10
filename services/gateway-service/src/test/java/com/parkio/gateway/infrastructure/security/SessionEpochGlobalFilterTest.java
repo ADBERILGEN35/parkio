@@ -9,6 +9,7 @@ import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.parkio.gateway.infrastructure.config.GatewayPublicSurfaceProperties;
 import com.parkio.gateway.infrastructure.client.SessionEpochCache;
 import com.parkio.gateway.infrastructure.client.SessionEpochClient;
 import com.parkio.gateway.infrastructure.client.SessionEpochProperties;
@@ -42,7 +43,7 @@ class SessionEpochGlobalFilterTest {
     private final SessionEpochClient client = mock(SessionEpochClient.class);
     private final SessionEpochCache cache = new SessionEpochCache(CLOCK, new SessionEpochProperties());
     private final SessionEpochGlobalFilter filter = new SessionEpochGlobalFilter(
-            new PublicEndpoints(), client, cache,
+            new PublicEndpoints(new GatewayPublicSurfaceProperties()), client, cache,
             new GatewayErrorResponseWriter(new ObjectMapper().findAndRegisterModules(), CLOCK));
 
     @Test

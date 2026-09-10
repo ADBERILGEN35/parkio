@@ -119,6 +119,28 @@ if [ "$missing" -ne 0 ]; then
   exit 2
 fi
 
+# Roll back against the STABLE runtime release for the target commit, never the
+# Actions checkout (PROD-DEPLOY-01A-R8 / DEFECT-2). Releases are SHA-addressed
+# and retained precisely so a rollback never has to reconstruct config from a
+# workspace that has already been cleaned up. hosted-beta has no runtime root and
+# is unaffected.
+if [ "${PARKIO_DEPLOYMENT_PROFILE:-}" = "invite-production" ]; then
+  source "$ROOT/scripts/lib/runtime-release.sh"
+  ROLLBACK_RELEASE="$(parkio_release_dir "$GIT_SHA")"
+  if [ ! -d "$ROLLBACK_RELEASE" ]; then
+    echo "ERROR: no stable runtime release staged for $GIT_SHA" >&2
+    echo "       expected: $ROLLBACK_RELEASE" >&2
+    echo "       Rollback refuses to run the previous images against another" >&2
+    echo "       commit's configuration." >&2
+    exit 3
+  fi
+  parkio_assert_release_is_stable "$ROLLBACK_RELEASE" || exit 3
+  parkio_assert_release_readable "$GIT_SHA" >/dev/null || exit 3
+  export PARKIO_COMPOSE_BASE_DIR="$ROLLBACK_RELEASE"
+  echo "composeBaseDir=$PARKIO_COMPOSE_BASE_DIR"
+  parkio_activate_release "$GIT_SHA"
+fi
+
 echo "Starting previous images (no rebuild)..."
 parkio_compose_up "$ENV_FILE"
 

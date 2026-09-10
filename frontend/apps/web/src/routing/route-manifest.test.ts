@@ -64,10 +64,12 @@ describe('canonical route inventory', () => {
       '/verify-email',
       '/terms',
       '/privacy',
+      '/explore',
       '/',
       '/preparing',
       '/map',
       '/spots/:spotId',
+      '/facilities/:facilityId',
       '/my-spots',
       '/upload',
       '/profile',
@@ -275,11 +277,14 @@ describe('canonical route inventory', () => {
       ['/verify-email', 'titles.verifyEmail'],
       ['/terms', 'titles.terms'],
       ['/privacy', 'titles.privacy'],
+      ['/explore', 'titles.explore'],
       ['/', 'titles.home'],
       ['/preparing', 'titles.preparing'],
       ['/map', 'titles.map'],
       [`/spots/${validUuid}`, 'titles.spotDetails'],
       ['/spots/not-a-uuid', 'titles.spotDetails'],
+      [`/facilities/${validUuid}`, 'titles.facilityDetails'],
+      ['/facilities/not-a-uuid', 'titles.facilityDetails'],
       ['/my-spots', 'titles.mySpots'],
       ['/upload', 'titles.upload'],
       ['/profile', 'titles.profile'],
@@ -318,6 +323,7 @@ describe('canonical route inventory', () => {
       ROUTE_IDS.RESET_PASSWORD,
       ROUTE_IDS.CHECK_EMAIL,
       ROUTE_IDS.VERIFY_EMAIL,
+      ROUTE_IDS.PUBLIC_EXPLORE,
       ROUTE_IDS.PREPARING,
     ]);
     for (const path of [
@@ -327,6 +333,7 @@ describe('canonical route inventory', () => {
       '/reset-password',
       '/check-email',
       '/verify-email',
+      '/explore',
       '/preparing',
     ]) {
       expect(isNavigationInterruptionBypassPath(path)).toBe(true);
@@ -537,6 +544,7 @@ describe('derived route classifications', () => {
       ROUTE_IDS.VERIFY_EMAIL,
       ROUTE_IDS.TERMS,
       ROUTE_IDS.PRIVACY,
+      ROUTE_IDS.PUBLIC_EXPLORE,
       ROUTE_IDS.NOT_FOUND,
     ]);
 
@@ -549,6 +557,7 @@ describe('derived route classifications', () => {
       '/verify-email',
       '/terms',
       '/privacy',
+      '/explore',
       '/unknown',
     ]) {
       expect(classifyRoutePath(path)).toBe('public');
@@ -611,6 +620,7 @@ describe('derived route classifications', () => {
       ROUTE_IDS.PREPARING,
       ROUTE_IDS.MAP,
       ROUTE_IDS.SPOT_DETAIL,
+      ROUTE_IDS.FACILITY_DETAIL,
       ROUTE_IDS.MY_SPOTS,
       ROUTE_IDS.UPLOAD,
       ROUTE_IDS.PROFILE,
@@ -657,7 +667,7 @@ describe('manifest snapshot', () => {
 
     expect(projection).toMatchInlineSnapshot(`
       {
-        "fingerprint": "ec6a749f",
+        "fingerprint": "c530de9e",
         "graph": [
           "routing.root|root|pathless",
           "auth.login|routing.root|/login",
@@ -668,6 +678,7 @@ describe('manifest snapshot', () => {
           "auth.verify-email|routing.root|/verify-email",
           "legal.terms|routing.root|/terms",
           "legal.privacy|routing.root|/privacy",
+          "public.explore|routing.root|/explore",
           "routing.protected|routing.root|pathless",
           "app.entry|routing.protected|/",
           "account.preparing|routing.protected|/preparing",
@@ -675,6 +686,7 @@ describe('manifest snapshot', () => {
           "shell.application|routing.protected|pathless",
           "app.map|shell.application|/map",
           "app.spot-detail|shell.application|/spots/:spotId",
+          "app.facility-detail|shell.application|/facilities/:facilityId",
           "app.my-spots|shell.application|/my-spots",
           "app.upload|shell.application|/upload",
           "app.profile|shell.application|/profile",
@@ -697,7 +709,7 @@ describe('manifest snapshot', () => {
           "admin.system|shell.admin|system",
           "routing.not-found|routing.root|*",
         ],
-        "total": 37,
+        "total": 39,
       }
     `);
   });

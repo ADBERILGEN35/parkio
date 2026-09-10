@@ -34,6 +34,9 @@ dependencies {
 
     implementation(libs.flyway.core)
     implementation(libs.flyway.database.postgresql)
+    implementation(libs.commons.csv)
+    // DATA-WP-19: PreparedGeometry.covers for district assignment (replaces defective even-odd PIP).
+    implementation(libs.jts.core)
 
     // Asynchronous event transport (Kafka). Topic provisioning + config now;
     // outbox relay and consumers are added later.
@@ -48,4 +51,19 @@ dependencies {
     testImplementation(libs.testcontainers.postgresql)
     testRuntimeOnly(libs.h2)
     testRuntimeOnly(libs.junit.platform.launcher)
+}
+
+// PP-01B-SPIKE-02 Mode A: forward optional PostGIS image override into the test JVM.
+// Usage: ./gradlew :services:parking-service:integrationTest -Dparkio.postgis.image=<pinned-image>
+tasks.named<Test>("integrationTest") {
+    val image = providers.systemProperty("parkio.postgis.image")
+        .orElse(providers.gradleProperty("parkio.postgis.image"))
+    if (image.isPresent) {
+        systemProperty("parkio.postgis.image", image.get())
+    }
+    // Capture at configuration time so the Test task action stays configuration-cache safe.
+    val evidenceDir = providers.environmentVariable("PARKIO_SPIKE02_EVIDENCE_DIR")
+    if (evidenceDir.isPresent) {
+        environment("PARKIO_SPIKE02_EVIDENCE_DIR", evidenceDir.get())
+    }
 }

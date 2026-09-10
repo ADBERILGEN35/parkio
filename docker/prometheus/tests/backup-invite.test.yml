@@ -1,0 +1,47 @@
+rule_files:
+  - ../alerts.yml
+evaluation_interval: 1m
+tests:
+  - name: invite production failures reach existing backup alerts
+    interval: 1m
+    input_series:
+      - series: 'parkio_backup_last_success{scope="invite-production"}'
+        values: '0+0x70'
+      - series: 'parkio_backup_production_mode{scope="invite-production"}'
+        values: '1+0x70'
+      - series: 'parkio_backup_offsite_last_success{scope="invite-production"}'
+        values: '0+0x70'
+      - series: 'parkio_backup_encryption_enabled{scope="invite-production"}'
+        values: '0+0x70'
+    promql_expr_test:
+      - expr: 'ALERTS{alertname=~"BackupFailed|BackupOffsiteFailed|BackupEncryptionDisabledInProduction",alertstate="firing"}'
+        eval_time: 65m
+        exp_samples:
+          - labels: 'ALERTS{alertname="BackupFailed",alertstate="firing",scope="invite-production",severity="critical"}'
+            value: 1
+          - labels: 'ALERTS{alertname="BackupOffsiteFailed",alertstate="firing",scope="invite-production",severity="critical"}'
+            value: 1
+          - labels: 'ALERTS{alertname="BackupEncryptionDisabledInProduction",alertstate="firing",scope="invite-production",severity="critical"}'
+            value: 1
+  - name: stopped backup timer cannot leave an old success green forever
+    interval: 1m
+    input_series:
+      - series: 'parkio_backup_last_success{scope="invite-production"}'
+        values: '1+0x1700'
+      - series: 'parkio_backup_last_timestamp_seconds{scope="invite-production"}'
+        values: '0+0x1700'
+      - series: 'parkio_backup_production_mode{scope="invite-production"}'
+        values: '1+0x1700'
+      - series: 'parkio_backup_offsite_last_success{scope="invite-production"}'
+        values: '1+0x1700'
+    promql_expr_test:
+      - expr: 'ALERTS{alertname=~"BackupStale|BackupOffsiteStale",alertstate="firing"}'
+        eval_time: 27h
+        exp_samples:
+          - labels: 'ALERTS{alertname="BackupStale",alertstate="firing",scope="invite-production",severity="critical"}'
+            value: 1
+          - labels: 'ALERTS{alertname="BackupOffsiteStale",alertstate="firing",scope="invite-production",severity="critical"}'
+            value: 1
+      - expr: 'ALERTS{alertname="BackupStale",alertstate="firing"}'
+        eval_time: 24h
+        exp_samples: []

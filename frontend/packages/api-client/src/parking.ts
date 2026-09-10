@@ -1,26 +1,33 @@
-import type { AxiosInstance } from 'axios';
-import {
-  parkingSessionHistoryResponseSchema,
-  parkingSessionLifecycleConfigSchema,
-  parkingSessionResponseSchema,
-} from '@parkio/validation';
 import type {
   CreateSpotRequest,
+  MunicipalFacility,
+  MunicipalFacilityNearbyParams,
   NearbySearchParams,
   ParkingSessionHistoryParams,
   ParkingSessionHistoryResponse,
   ParkingSessionLifecycleConfig,
   ParkingSessionResponse,
   PublicSpot,
+  RankingEvaluationOutcomeRequest,
+  RankingEvaluationOutcomeResponse,
+  RecommendationRequest,
+  RecommendationResponse,
   Spot,
   SpotMediaAccessUrl,
   StartParkingSessionRequest,
   VerifySpotRequest,
 } from '@parkio/types';
+import {
+  parkingSessionHistoryResponseSchema,
+  parkingSessionLifecycleConfigSchema,
+  parkingSessionResponseSchema,
+  rankingEvaluationOutcomeResponseSchema,
+  recommendationResponseSchema,
+} from '@parkio/validation';
 import { ContractValidationError } from './errors';
 import { IDEMPOTENCY_HEADER } from './idempotency';
 import type { RequestOptions } from './request-options';
-
+import type { AxiosInstance } from 'axios';
 type ContractSchema<T> = {
   safeParse(
     data: unknown,
@@ -54,6 +61,76 @@ export function createParkingApi(client: AxiosInstance) {
     getNearbySpots(params: NearbySearchParams, signal?: AbortSignal): Promise<PublicSpot[]> {
       return client
         .get<PublicSpot[]>('/parking/spots/nearby', { params, signal })
+        .then((r) => r.data);
+    },
+
+    /**
+     * Municipal facility nearby discovery (WEB-MUNI-01).
+     * Separate inventory from community spots — never fuse responses.
+     * Always sends canonical {@code radiusMeters} (maps legacy {@code radius} when needed).
+     */
+    getNearbyMunicipalFacilities(
+      params: MunicipalFacilityNearbyParams,
+      signal?: AbortSignal,
+    ): Promise<MunicipalFacility[]> {
+      const resolvedRadius = params.radiusMeters ?? params.radius;
+      const query: {
+        lat: number;
+        lng: number;
+        limit?: number;
+        radiusMeters?: number;
+      } = {
+        lat: params.lat,
+        lng: params.lng,
+        ...(params.limit !== undefined ? { limit: params.limit } : {}),
+        ...(resolvedRadius !== undefined ? { radiusMeters: resolvedRadius } : {}),
+      };
+      return client
+        .get<MunicipalFacility[]>('/parking/facilities/nearby', { params: query, signal })
+        .then((r) => r.data);
+    },
+
+    /**
+     * Destination-scoped parking recommendations (WP-SPA-05 / WP-SPA-06).
+     * Distance baseline when ranking disabled; deterministic ranking when enabled.
+     */
+    recommendParking(
+      body: RecommendationRequest,
+      options?: RequestOptions,
+    ): Promise<RecommendationResponse> {
+      return client
+        .post<RecommendationResponse>('/parking/recommendations', body, {
+          signal: options?.signal,
+        })
+        .then((r) => parseContract(recommendationResponseSchema, r.data));
+    },
+
+    /**
+     * Privacy-safe ranking evaluation outcome (WP-SPA-14B).
+     * Correlates evaluationId + candidate ordinal to an explicit user action.
+     */
+    recordRankingEvaluationOutcome(
+      body: RankingEvaluationOutcomeRequest,
+      options?: RequestOptions,
+    ): Promise<RankingEvaluationOutcomeResponse> {
+      return client
+        .post<unknown>('/parking/recommendations/evaluation-outcomes', body, {
+          signal: options?.signal,
+        })
+        .then((r) =>
+          parseContract<RankingEvaluationOutcomeResponse>(
+            rankingEvaluationOutcomeResponseSchema,
+            r.data,
+          ),
+        );
+    },
+
+    /** Municipal facility detail — same DTO as nearby items. */
+    getMunicipalFacility(facilityId: string, options?: RequestOptions): Promise<MunicipalFacility> {
+      return client
+        .get<MunicipalFacility>(`/parking/facilities/${encodeURIComponent(facilityId)}`, {
+          signal: options?.signal,
+        })
         .then((r) => r.data);
     },
 

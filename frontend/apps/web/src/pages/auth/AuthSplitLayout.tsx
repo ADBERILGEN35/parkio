@@ -1,4 +1,3 @@
-import { Icon } from '@parkio/ui';
 import { useState, type ReactNode } from 'react';
 import { useTranslation } from 'react-i18next';
 import { BrandMark } from '@/components/brand/BrandMark';
@@ -6,8 +5,8 @@ import { BrandMark } from '@/components/brand/BrandMark';
 /**
  * Stitch auth split (`DESIGN_SYSTEM.md` §2.7 "Auth split"): a centered elevated
  * card with a 50/50 photo/form split on desktop. The photo pane carries the
- * brand logo (top-left), a gradient scrim and a glass info card with community
- * social proof (bottom-left). On mobile the hero collapses to a short top banner
+ * brand logo (top-left), a gradient scrim and a neutral product statement (bottom-left).
+ * On mobile the hero collapses to a short top banner
  * and the form becomes the primary focus. Ambient blurred blobs sit behind the
  * card per the spec's decoration vocabulary.
  */
@@ -53,7 +52,7 @@ export function AuthSplitLayout({
 const HERO_IMAGE_URL =
   'https://images.unsplash.com/photo-1506521781263-d8422e82f27a?auto=format&fit=crop&w=1100&q=60';
 
-/** Full-height photo panel with brand lockup + glass social-proof card. */
+/** Full-height photo panel with brand lockup and a neutral glass information card. */
 function AuthHero() {
   const { t } = useTranslation(['auth', 'common']);
   const [imageOk, setImageOk] = useState(true);
@@ -86,42 +85,8 @@ function AuthHero() {
         <div className="glass-panel rounded-3xl p-lg shadow-deep">
           <p className="m-0 text-title-lg font-semibold text-on-surface">{t('auth:layout.tagline')}</p>
           <p className="m-0 mt-xs text-body-md text-on-surface-variant">{t('auth:layout.description')}</p>
-          <div className="mt-md flex items-center gap-sm">
-            <AvatarStack />
-            <div>
-              <div className="flex items-center gap-[1px] text-tertiary" aria-hidden>
-                {Array.from({ length: 5 }).map((_, i) => (
-                  <Icon key={i} name="star" filled className="text-[14px] leading-none" />
-                ))}
-              </div>
-              <p className="m-0 mt-xs text-label-sm text-on-surface-variant">
-                {t('auth:layout.trustedBy')}
-              </p>
-            </div>
-          </div>
         </div>
       </div>
     </aside>
-  );
-}
-
-/** Decorative overlapping avatar discs (brand chrome, not backed by real users). */
-function AvatarStack() {
-  const tones = [
-    'bg-primary-container text-on-primary-container',
-    'bg-secondary-container text-on-secondary-container',
-    'bg-tertiary-container text-on-tertiary-container',
-  ];
-  return (
-    <div className="flex -space-x-2" aria-hidden>
-      {tones.map((tone, i) => (
-        <span
-          key={i}
-          className={`flex h-8 w-8 items-center justify-center rounded-full border-2 border-surface-container-lowest text-label-sm font-semibold ${tone}`}
-        >
-          <Icon name="person" filled className="text-[16px] leading-none" />
-        </span>
-      ))}
-    </div>
   );
 }

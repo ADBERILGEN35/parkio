@@ -5,6 +5,9 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import com.parkio.parking.externalsource.MunicipalParkingSourceAdapter;
 import com.parkio.parking.externalsource.NormalizedMunicipalFacility;
 import com.parkio.parking.externalsource.NormalizedMunicipalOccupancy;
+import com.parkio.parking.externalsource.provider.ParkingDataProviderId;
+import com.parkio.parking.externalsource.provider.ProviderCapability;
+import com.parkio.parking.externalsource.provider.ReconciliationMode;
 import com.parkio.parking.externalsource.schema.SchemaFingerprint;
 import com.parkio.parking.infrastructure.client.IzumParkingClient;
 import java.time.Instant;
@@ -34,6 +37,22 @@ public class IzumMunicipalParkingAdapter implements MunicipalParkingSourceAdapte
     }
 
     @Override public String sourceKey() { return SOURCE_KEY; }
+
+    @Override
+    public ParkingDataProviderId providerId() {
+        return ParkingDataProviderId.IZUM;
+    }
+
+    @Override
+    public Set<ProviderCapability> capabilities() {
+        return Set.of(ProviderCapability.FACILITY_INVENTORY, ProviderCapability.LIVE_OCCUPANCY);
+    }
+
+    @Override
+    public ReconciliationMode reconciliationMode() {
+        return ReconciliationMode.AUTHORITATIVE_FULL_SET;
+    }
+
     @Override public JsonNode fetch() { return client.fetch(); }
 
     @Override

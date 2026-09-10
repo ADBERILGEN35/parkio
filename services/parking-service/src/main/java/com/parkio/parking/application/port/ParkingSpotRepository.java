@@ -29,4 +29,11 @@ public interface ParkingSpotRepository {
      * layer still enforces visibility as the authoritative rule.
      */
     List<ParkingSpot> findNearby(double latitude, double longitude, double radiusMeters, int limit);
+
+    /**
+     * Count of community spots that match authenticated nearby pre-filter semantics
+     * (ACTIVE/VERIFIED, not illegal/risky, not expired) inside {@code radiusMeters}.
+     * Aggregate only — never returns rows.
+     */
+    long countNearbyVisible(double latitude, double longitude, double radiusMeters);
 }

@@ -5,6 +5,7 @@ import {
   meKeys,
   normalizeNearbyFilters,
   parkingKeys,
+  recommendationKeys,
 } from './keys';
 import {
   clearUserSessionQueries,
@@ -17,6 +18,7 @@ describe('canonical query keys', () => {
     expect(meKeys.smartReturn()).toEqual(['me', 'smart-return']);
     expect(parkingKeys.mySpots()).toEqual(['parking', 'my-spots']);
     expect(parkingKeys.spot('spot-1')).toEqual(['parking', 'spot', 'spot-1']);
+    expect(recommendationKeys.all).toEqual(['parking', 'recommendations']);
   });
 
   it('builds user-scoped ParkingSession keys under a shared sessions root', () => {

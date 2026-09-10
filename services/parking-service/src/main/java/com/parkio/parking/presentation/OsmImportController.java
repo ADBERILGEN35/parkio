@@ -3,6 +3,7 @@ package com.parkio.parking.presentation;
 import com.parkio.parking.application.OsmImportApplicationService;
 import com.parkio.parking.application.OsmImportResult;
 import com.parkio.parking.infrastructure.config.MunicipalSourceProperties;
+import com.parkio.parking.infrastructure.metrics.MunicipalSourceMetrics;
 import com.parkio.parking.infrastructure.metrics.OsmImportMetrics;
 import java.time.Duration;
 import java.time.Instant;
@@ -32,14 +33,17 @@ public class OsmImportController {
     private static final Set<String> ADMIN_ROLES = Set.of("ADMIN", "SUPER_ADMIN");
     private final OsmImportApplicationService service;
     private final OsmImportMetrics metrics;
+    private final MunicipalSourceMetrics municipalSourceMetrics;
     private final MunicipalSourceProperties properties;
 
     public OsmImportController(
             OsmImportApplicationService service,
             OsmImportMetrics metrics,
+            MunicipalSourceMetrics municipalSourceMetrics,
             MunicipalSourceProperties properties) {
         this.service = service;
         this.metrics = metrics;
+        this.municipalSourceMetrics = municipalSourceMetrics;
         this.properties = properties;
     }
 
@@ -60,10 +64,13 @@ public class OsmImportController {
         try {
             OsmImportResult result = service.importFromConfiguredPath(dryRun);
             metrics.record(result, Duration.between(started, Instant.now()));
+            municipalSourceMetrics.refreshOsmFromHistory();
             return result;
         } catch (IllegalArgumentException ex) {
+            municipalSourceMetrics.refreshOsmFromHistory();
             throw new ResponseStatusException(HttpStatus.BAD_REQUEST, ex.getMessage());
         } catch (IllegalStateException ex) {
+            municipalSourceMetrics.refreshOsmFromHistory();
             throw new ResponseStatusException(HttpStatus.CONFLICT, ex.getMessage());
         }
     }

@@ -1,0 +1,21 @@
+groups:
+  - name: parkio-municipal-source-health-recording
+    interval: 30s
+    rules:
+      - record: parkio:municipal_source:consecutive_failures
+        expr: parkio_municipal_source_consecutive_failures
+      - record: parkio:municipal_source:seconds_since_success
+        expr: parkio_municipal_source_seconds_since_success
+      - record: parkio:municipal_source:stale_running_operations
+        expr: parkio_municipal_source_stale_running_operations
+      - record: parkio:municipal_source:failure_rate5m
+        expr: |
+          sum by (source_key) (rate(parkio_municipal_sync_runs_total{status="FAILED"}[5m]))
+          /
+          clamp_min(sum by (source_key) (rate(parkio_municipal_sync_runs_total{status=~"SUCCESS|PARTIAL_SUCCESS|FAILED"}[5m])), 1)
+      - record: parkio:municipal_source:operational_critical
+        expr: parkio_municipal_source_operational_state{state="CRITICAL"}
+      - record: parkio:municipal_source:seconds_since_success_scheduled
+        expr: parkio_municipal_source_seconds_since_success{source_mode="SCHEDULED"}
+      - record: parkio:municipal_source:recoveries_total
+        expr: parkio_municipal_source_recoveries_total

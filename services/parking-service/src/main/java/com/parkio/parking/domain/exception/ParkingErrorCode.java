@@ -19,5 +19,19 @@ public enum ParkingErrorCode {
     MISSING_USER_ID,
     MEDIA_ACCESS_UNAVAILABLE,
     /** The referenced media is missing or has not passed media-service safety checks (not READY). */
-    MEDIA_NOT_READY
+    MEDIA_NOT_READY,
+    /** WP-SPA-05 recommendations feature flag is off. */
+    RECOMMENDATIONS_DISABLED,
+    INVALID_DESTINATION,
+    INVALID_RECOMMENDATION_RADIUS,
+    INVALID_RECOMMENDATION_LIMIT,
+    INVENTORY_SELECTION_REQUIRED,
+    /** Both requested recommendation inventories failed. */
+    RECOMMENDATION_INVENTORIES_UNAVAILABLE,
+    /** WP-SPA-14B ranking evaluation token not found. */
+    RANKING_EVALUATION_NOT_FOUND,
+    /** WP-SPA-14B ranking evaluation token expired. */
+    RANKING_EVALUATION_EXPIRED,
+    /** WP-SPA-14B invalid ranking evaluation outcome payload. */
+    INVALID_RANKING_EVALUATION_OUTCOME
 }

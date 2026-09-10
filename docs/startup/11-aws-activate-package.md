@@ -39,7 +39,10 @@ Parkio's current beta risk is mostly infrastructure maturity, not missing applic
 
 - Host a staging and hosted-beta environment.
 - Run application containers on EC2 first, or ECS/ECR when ready for managed container operations.
-- Move PostgreSQL/PostGIS workloads to RDS with backups and PITR.
+- Move PostgreSQL/PostGIS workloads to RDS with backups and PITR when AWS is the landing zone.
+  Per [ADR-PP-01A](../architecture/adr/ADR-PP-01A-managed-postgresql.md), **AWS RDS for PostgreSQL**
+  is the **approved alternate** (Azure Flexible Server is primary). ADR acceptance does not close
+  PP-01 or public production NO-GO.
 - Store media in S3 with private buckets and signed access.
 - Evaluate MSK or a managed Kafka-compatible alternative.
 - Use ElastiCache for Redis if moving beyond single-host beta.
@@ -52,7 +55,7 @@ Parkio's current beta risk is mostly infrastructure maturity, not missing applic
 
 - EC2.
 - ECS and ECR.
-- RDS for PostgreSQL/PostGIS.
+- RDS for PostgreSQL/PostGIS (ADR-PP-01A approved alternate).
 - S3.
 - MSK or managed Kafka-compatible streaming.
 - ElastiCache for Redis.

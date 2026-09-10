@@ -74,6 +74,28 @@ class PushDeliveryWorkerTest {
     }
 
     @Test
+    void disabledWorkerDoesNotClaimOrSyntheticallyDeliverPendingAttempt() {
+        NotificationDeliveryAttempt attempt = persistPendingAttempt();
+        AtomicInteger sends = new AtomicInteger();
+        PushDeliveryWorker worker = worker(message -> {
+            sends.incrementAndGet();
+            return PushSendResult.sent("must-not-be-used");
+        }, 5, false);
+
+        worker.tick();
+        int processed = worker.processPendingBatch();
+
+        assertThat(processed).isZero();
+        assertThat(sends).hasValue(0);
+        NotificationDeliveryAttempt unchanged = attempts.byId.get(attempt.id());
+        assertThat(unchanged.status()).isEqualTo(DeliveryStatus.PENDING);
+        assertThat(unchanged.attemptCount()).isZero();
+        assertThat(unchanged.providerMessageId()).isNull();
+        assertThat(meterRegistry.counter("parkio.notification.delivery.worker.success.count").count())
+                .isZero();
+    }
+
+    @Test
     void workerCountersTrackSuccessAndFailure() {
         persistPendingAttempt();
         worker(new NoopPushNotificationSender(), 5).processPendingBatch();
@@ -254,8 +276,12 @@ class PushDeliveryWorkerTest {
     }
 
     private PushDeliveryWorker worker(PushNotificationSender sender, int maxAttempts) {
+        return worker(sender, maxAttempts, true);
+    }
+
+    private PushDeliveryWorker worker(PushNotificationSender sender, int maxAttempts, boolean enabled) {
         return new PushDeliveryWorker(attempts, deviceTokens, notifications, sender, clock, meterRegistry,
-                true, 100, maxAttempts, BASE_BACKOFF_MS);
+                enabled, 100, maxAttempts, BASE_BACKOFF_MS);
     }
 
     private NotificationDeliveryAttempt persistPendingAttempt() {

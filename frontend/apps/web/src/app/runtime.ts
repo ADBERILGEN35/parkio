@@ -10,6 +10,10 @@ import {
   createAppRouter,
   type AppRouter,
 } from '@/routing/create-app-router';
+import {
+  clearRankingEvaluation,
+  configureRankingEvaluationApi,
+} from '@/services/rankingEvaluationCorrelation';
 
 export interface WebAppRuntime {
   readonly sdk: ParkioSdk;
@@ -67,6 +71,7 @@ export function createWebAppRuntime(options: WebAppRuntimeOptions = {}): WebAppR
     authStore,
   });
   setRefreshHandler(authSession.refreshThroughSdk);
+  configureRankingEvaluationApi(sdk.parkingApi);
 
   let disposed = false;
   return Object.freeze({
@@ -83,6 +88,8 @@ export function createWebAppRuntime(options: WebAppRuntimeOptions = {}): WebAppR
       unsubscribeFromAuth();
       tokenStorage.clearTokens();
       setRefreshHandler(null);
+      configureRankingEvaluationApi(null);
+      clearRankingEvaluation();
     },
   });
 }

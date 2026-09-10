@@ -121,6 +121,9 @@ public class PushDeliveryWorker {
      */
     @Transactional
     public int processPendingBatch() {
+        if (!enabled) {
+            return 0;
+        }
         Instant now = clock.instant();
         List<NotificationDeliveryAttempt> claimed = attempts.claimDue(now, batchSize);
         for (NotificationDeliveryAttempt attempt : claimed) {

@@ -2,9 +2,12 @@ package com.parkio.parking.presentation.dto;
 
 import com.fasterxml.jackson.annotation.JsonInclude;
 import com.parkio.parking.application.MunicipalFacilityQueryService;
+import com.parkio.parking.application.RegistryPublicationService;
 import com.parkio.parking.externalsource.MunicipalFacilityType;
 import com.parkio.parking.externalsource.MunicipalOccupancyFreshness;
 import java.time.Instant;
+import java.util.List;
+import java.util.Map;
 import java.util.UUID;
 
 @JsonInclude(JsonInclude.Include.ALWAYS)
@@ -18,14 +21,48 @@ public record MunicipalFacilityResponse(
         double longitude,
         Integer capacityTotal,
         Integer availableSpaces,
+        /** Optional; published only with live/aging occupancy (never invented). */
+        Integer occupiedSpaces,
         MunicipalOccupancyFreshness freshness,
         String attribution,
         String sourceLabel,
-        Instant lastUpdatedAt) {
+        Instant lastUpdatedAt,
+        List<String> contributingSourceKeys,
+        Map<String, String> selectedFieldProvenanceSummary,
+        /** Retained for JSON compatibility; DATA-WP-09 never publishes a value (always null). */
+        String registryConfidenceOrReviewStatus,
+        String availabilitySource,
+        MunicipalOccupancyFreshness availabilityFreshness,
+        Instant availabilityObservationTimestamp) {
+
     public static MunicipalFacilityResponse from(MunicipalFacilityQueryService.FacilityView view) {
-        return new MunicipalFacilityResponse(view.id(), view.displayName(), view.operatorName(),
-                view.facilityType(), view.addressText(), view.latitude(), view.longitude(),
-                view.capacityTotal(), view.availableSpaces(), view.freshness(), view.attribution(),
-                view.sourceLabel(), view.lastUpdatedAt());
+        return from(view, RegistryPublicationService.Enrichment.hidden());
+    }
+
+    public static MunicipalFacilityResponse from(
+            MunicipalFacilityQueryService.FacilityView view,
+            RegistryPublicationService.Enrichment enrichment) {
+        boolean hasAvailability = view.availableSpaces() != null;
+        return new MunicipalFacilityResponse(
+                view.id(),
+                view.displayName(),
+                view.operatorName(),
+                view.facilityType(),
+                view.addressText(),
+                view.latitude(),
+                view.longitude(),
+                view.capacityTotal(),
+                view.availableSpaces(),
+                view.occupiedSpaces(),
+                view.freshness(),
+                view.attribution(),
+                view.sourceLabel(),
+                view.lastUpdatedAt(),
+                enrichment.contributingSourceKeys(),
+                enrichment.selectedFieldProvenanceSummary(),
+                enrichment.registryConfidenceOrReviewStatus(),
+                hasAvailability ? view.availabilitySource() : null,
+                hasAvailability ? view.freshness() : null,
+                hasAvailability ? view.lastUpdatedAt() : null);
     }
 }

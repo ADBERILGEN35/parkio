@@ -26,14 +26,14 @@ import org.springframework.test.context.DynamicPropertySource;
 import org.testcontainers.containers.PostgreSQLContainer;
 import org.testcontainers.junit.jupiter.Container;
 import org.testcontainers.junit.jupiter.Testcontainers;
+import com.parkio.parking.testsupport.PostgisTestImages;
 import org.testcontainers.utility.DockerImageName;
 
 @Tag("integration")
 @Testcontainers(disabledWithoutDocker = true)
 @SpringBootTest
 class IzumMunicipalSyncIntegrationTest {
-    private static final DockerImageName POSTGIS_IMAGE =
-            DockerImageName.parse("postgis/postgis:16-3.4").asCompatibleSubstituteFor("postgres");
+    private static final DockerImageName POSTGIS_IMAGE = PostgisTestImages.dockerImageName();
 
     @Container
     static final PostgreSQLContainer<?> POSTGRES = new PostgreSQLContainer<>(POSTGIS_IMAGE)
@@ -95,11 +95,28 @@ class IzumMunicipalSyncIntegrationTest {
         assertThat(occupancyCount).isPositive();
         assertThat(linkCount).isEqualTo(facilityCount);
 
+        long provenanceAfterFirst = jdbc.queryForObject(
+                "SELECT count(*) FROM municipal_facility_field_provenance", Long.class);
+        assertThat(provenanceAfterFirst).isPositive();
+        assertThat(jdbc.queryForObject(
+                """
+                SELECT count(*) FROM municipal_facility_field_provenance
+                WHERE source_key = 'izmir-izum-otoparklar'
+                  AND field_name IN ('NAME','COORDINATES','ADDRESS','OPERATOR','FACILITY_TYPE','STATIC_CAPACITY','ATTRIBUTION')
+                """,
+                Long.class)).isEqualTo(provenanceAfterFirst);
+        assertThat(jdbc.queryForObject(
+                "SELECT count(*) FROM municipal_facility_field_provenance WHERE field_name NOT IN ('NAME','COORDINATES','ADDRESS','OPERATOR','FACILITY_TYPE','STATIC_CAPACITY','ATTRIBUTION')",
+                Long.class)).isZero();
+
         var second = sync.sync(IzumMunicipalParkingAdapter.SOURCE_KEY);
         assertThat(facilities.count()).isEqualTo(facilityCount);
         assertThat(second.recordsInserted()).isZero();
         // New fetch timestamps create new observation rows; inventory stays stable.
         assertThat(snapshots.count()).isGreaterThanOrEqualTo(occupancyCount);
+        assertThat(jdbc.queryForObject(
+                "SELECT count(*) FROM municipal_facility_field_provenance", Long.class))
+                .isEqualTo(provenanceAfterFirst);
 
         long beforeDedupe = snapshots.count();
         jdbc.update("""
@@ -149,13 +166,20 @@ class IzumMunicipalSyncIntegrationTest {
         RESPONSE_STATUS.set(500);
         var failed = sync.sync(IzumMunicipalParkingAdapter.SOURCE_KEY);
         assertThat(failed.status()).isEqualTo(MunicipalSyncRunStatus.FAILED);
+        assertThat(failed.errorCategory()).isEqualTo("upstream_5xx");
         assertThat(facilities.count()).isEqualTo(facilityCount);
+        assertThat(jdbc.queryForObject(
+                "SELECT count(*) FROM municipal_facility_field_provenance", Long.class))
+                .isEqualTo(provenanceAfterFirst);
+        assertThat(jdbc.queryForObject("SELECT count(*) FROM municipal_link_candidates", Long.class)).isZero();
+        assertThat(jdbc.queryForObject("SELECT count(*) FROM municipal_facility_aliases", Long.class)).isZero();
+        assertThat(jdbc.queryForObject("SELECT count(*) FROM municipal_tariff_assignments", Long.class)).isZero();
 
         RESPONSE_STATUS.set(200);
         RESPONSE_BODY.set("[{}]".getBytes(StandardCharsets.UTF_8));
         var contractFailed = sync.sync(IzumMunicipalParkingAdapter.SOURCE_KEY);
         assertThat(contractFailed.status()).isEqualTo(MunicipalSyncRunStatus.FAILED);
-        assertThat(contractFailed.errorCategory()).isEqualTo("contract");
+        assertThat(contractFailed.errorCategory()).isEqualTo("schema_contract");
         assertThat(facilities.count()).isEqualTo(facilityCount);
 
         RESPONSE_BODY.set(fixture("/fixtures/municipal/izum/otoparklar-sample.json"));
@@ -165,6 +189,102 @@ class IzumMunicipalSyncIntegrationTest {
         var afterRecovery = query.findById(live.id()).orElseThrow();
         assertThat(afterRecovery.freshness()).isEqualTo(MunicipalOccupancyFreshness.LIVE);
         assertThat(afterRecovery.availableSpaces()).isNotNull();
+    }
+
+    @Test
+    void authoritativeSetShrinksDeactivatesMissingAndReactivatesWithoutDuplication() throws Exception {
+        RESPONSE_STATUS.set(200);
+        RESPONSE_BODY.set(fixture("/fixtures/municipal/izum/otoparklar-sample.json"));
+        var full = sync.sync(IzumMunicipalParkingAdapter.SOURCE_KEY);
+        assertThat(full.status()).isEqualTo(MunicipalSyncRunStatus.SUCCESS);
+        assertThat(full.recordsAccepted()).isEqualTo(12);
+        assertThat(full.activeLinkCount()).isEqualTo(12);
+
+        long activeBeforeShrink = jdbc.queryForObject(
+                """
+                SELECT count(*) FROM municipal_facility_source_links l
+                JOIN municipal_data_sources d ON d.id=l.source_id
+                WHERE d.source_key=? AND l.active=true
+                """,
+                Long.class,
+                IzumMunicipalParkingAdapter.SOURCE_KEY);
+        assertThat(activeBeforeShrink).isEqualTo(12);
+
+        RESPONSE_BODY.set(fixture("/fixtures/municipal/izum/otoparklar-sample-shrunk.json"));
+        var shrunk = sync.sync(IzumMunicipalParkingAdapter.SOURCE_KEY);
+        assertThat(shrunk.status()).isEqualTo(MunicipalSyncRunStatus.SUCCESS);
+        assertThat(shrunk.recordsAccepted()).isEqualTo(11);
+        assertThat(shrunk.recordsDeactivated()).isEqualTo(1);
+        assertThat(shrunk.activeLinkCount()).isEqualTo(11);
+
+        assertThat(jdbc.queryForObject(
+                """
+                SELECT l.active FROM municipal_facility_source_links l
+                JOIN municipal_data_sources d ON d.id=l.source_id
+                WHERE d.source_key=? AND l.external_id='CPS-TR-IZM-M2-04'
+                """,
+                Boolean.class,
+                IzumMunicipalParkingAdapter.SOURCE_KEY)).isFalse();
+        assertThat(jdbc.queryForObject(
+                """
+                SELECT f.active FROM municipal_parking_facilities f
+                JOIN municipal_facility_source_links l ON l.facility_id=f.id
+                JOIN municipal_data_sources d ON d.id=l.source_id
+                WHERE d.source_key=? AND l.external_id='CPS-TR-IZM-M2-04'
+                """,
+                Boolean.class,
+                IzumMunicipalParkingAdapter.SOURCE_KEY)).isFalse();
+
+        long facilityRows = facilities.count();
+        RESPONSE_STATUS.set(500);
+        var failed = sync.sync(IzumMunicipalParkingAdapter.SOURCE_KEY);
+        assertThat(failed.status()).isEqualTo(MunicipalSyncRunStatus.FAILED);
+        assertThat(failed.recordsDeactivated()).isZero();
+        assertThat(jdbc.queryForObject(
+                """
+                SELECT count(*) FROM municipal_facility_source_links l
+                JOIN municipal_data_sources d ON d.id=l.source_id
+                WHERE d.source_key=? AND l.active=true
+                """,
+                Long.class,
+                IzumMunicipalParkingAdapter.SOURCE_KEY)).isEqualTo(11);
+
+        RESPONSE_STATUS.set(200);
+        RESPONSE_BODY.set("[]".getBytes(StandardCharsets.UTF_8));
+        var empty = sync.sync(IzumMunicipalParkingAdapter.SOURCE_KEY);
+        // Empty payload is never an authoritative shrink trigger.
+        assertThat(empty.recordsDeactivated()).isZero();
+        assertThat(jdbc.queryForObject(
+                """
+                SELECT count(*) FROM municipal_facility_source_links l
+                JOIN municipal_data_sources d ON d.id=l.source_id
+                WHERE d.source_key=? AND l.active=true
+                """,
+                Long.class,
+                IzumMunicipalParkingAdapter.SOURCE_KEY)).isEqualTo(11);
+
+        RESPONSE_BODY.set(fixture("/fixtures/municipal/izum/otoparklar-sample.json"));
+        var restored = sync.sync(IzumMunicipalParkingAdapter.SOURCE_KEY);
+        assertThat(restored.status()).isEqualTo(MunicipalSyncRunStatus.SUCCESS);
+        assertThat(restored.recordsReactivated()).isGreaterThanOrEqualTo(1);
+        assertThat(restored.activeLinkCount()).isEqualTo(12);
+        assertThat(facilities.count()).isEqualTo(facilityRows);
+        assertThat(jdbc.queryForObject(
+                """
+                SELECT l.active FROM municipal_facility_source_links l
+                JOIN municipal_data_sources d ON d.id=l.source_id
+                WHERE d.source_key=? AND l.external_id='CPS-TR-IZM-M2-04'
+                """,
+                Boolean.class,
+                IzumMunicipalParkingAdapter.SOURCE_KEY)).isTrue();
+        assertThat(jdbc.queryForObject(
+                """
+                SELECT count(*) FROM municipal_facility_source_links l
+                JOIN municipal_data_sources d ON d.id=l.source_id
+                WHERE d.source_key=? AND l.external_id='CPS-TR-IZM-M2-04'
+                """,
+                Long.class,
+                IzumMunicipalParkingAdapter.SOURCE_KEY)).isEqualTo(1);
     }
 
     private static byte[] fixture(String path) throws IOException {

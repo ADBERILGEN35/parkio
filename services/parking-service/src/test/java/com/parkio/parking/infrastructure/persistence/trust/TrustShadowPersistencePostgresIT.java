@@ -1,14 +1,13 @@
 package com.parkio.parking.infrastructure.persistence.trust;
 
 import static org.assertj.core.api.Assertions.assertThat;
-import static org.mockito.ArgumentMatchers.any;
-import static org.mockito.Mockito.doAnswer;
 
 import com.parkio.parking.application.TrustShadowProjectionConflictException;
 import com.parkio.parking.application.TrustShadowRowProcessor;
 import com.parkio.parking.application.port.ParkingSpotRepository;
 import com.parkio.parking.application.port.TrustLedgerPort;
 import com.parkio.parking.application.port.TrustSnapshotReadPort;
+import com.parkio.parking.application.port.TrustSnapshotWritePort;
 import com.parkio.parking.application.trust.TrustShadowFailureStage;
 import com.parkio.parking.application.trust.TrustShadowProcessingResult;
 import com.parkio.parking.application.trust.ValidatedOutcomeForTrust;
@@ -57,16 +56,18 @@ import java.util.concurrent.atomic.AtomicBoolean;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.Test;
-import org.mockito.Mockito;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
-import org.springframework.boot.test.mock.mockito.SpyBean;
+import org.springframework.boot.test.context.TestConfiguration;
+import org.springframework.context.annotation.Bean;
+import org.springframework.context.annotation.Primary;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.test.context.DynamicPropertyRegistry;
 import org.springframework.test.context.DynamicPropertySource;
 import org.testcontainers.containers.PostgreSQLContainer;
 import org.testcontainers.junit.jupiter.Container;
 import org.testcontainers.junit.jupiter.Testcontainers;
+import com.parkio.parking.testsupport.PostgisTestImages;
 import org.testcontainers.utility.DockerImageName;
 
 @Tag("integration")
@@ -74,8 +75,7 @@ import org.testcontainers.utility.DockerImageName;
 @SpringBootTest
 class TrustShadowPersistencePostgresIT {
 
-    private static final DockerImageName POSTGIS_IMAGE =
-            DockerImageName.parse("postgis/postgis:16-3.4").asCompatibleSubstituteFor("postgres");
+    private static final DockerImageName POSTGIS_IMAGE = PostgisTestImages.dockerImageName();
 
     @Container
     static final PostgreSQLContainer<?> POSTGIS = new PostgreSQLContainer<>(POSTGIS_IMAGE)
@@ -128,12 +128,11 @@ class TrustShadowPersistencePostgresIT {
     @Autowired
     private JdbcTemplate jdbc;
 
-    @SpyBean
-    private TrustSnapshotRepositoryAdapter snapshots;
+    private static final AtomicBoolean FAIL_NEXT_SNAPSHOT_UPSERT = new AtomicBoolean(false);
 
     @BeforeEach
     void cleanDatabase() {
-        Mockito.reset(snapshots);
+        FAIL_NEXT_SNAPSHOT_UPSERT.set(false);
         jdbc.update("DELETE FROM trust_snapshot");
         jdbc.update("DELETE FROM trust_ledger");
         jdbc.update("DELETE FROM outcome_history");
@@ -211,13 +210,7 @@ class TrustShadowPersistencePostgresIT {
                 95,
                 Instant.parse("2026-07-28T10:00:00Z"));
 
-        AtomicBoolean failOnce = new AtomicBoolean(true);
-        doAnswer(invocation -> {
-            if (failOnce.compareAndSet(true, false)) {
-                throw new TrustShadowProjectionConflictException("forced test conflict", new RuntimeException("forced"));
-            }
-            return invocation.callRealMethod();
-        }).when(snapshots).upsert(any(TrustSnapshot.class));
+        FAIL_NEXT_SNAPSHOT_UPSERT.set(true);
 
         TrustShadowProcessingResult result = processor.process(candidate);
 
@@ -295,21 +288,149 @@ class TrustShadowPersistencePostgresIT {
             });
             start.countDown();
 
-            TrustShadowProcessingResult leftResult = left.get(30, TimeUnit.SECONDS);
-            TrustShadowProcessingResult rightResult = right.get(30, TimeUnit.SECONDS);
-            // Concurrent projection updates may exhaust SNAPSHOT_CONFLICT retries under load;
-            // reprocess any conflict survivor so both distinct evidence rows are durable.
-            if (leftResult.status() == TrustShadowProcessingResult.Status.FAILED
-                    && leftResult.failureStage().orElse(null) == TrustShadowFailureStage.SNAPSHOT_CONFLICT) {
-                leftResult = processor.process(first);
-            }
-            if (rightResult.status() == TrustShadowProcessingResult.Status.FAILED
-                    && rightResult.failureStage().orElse(null) == TrustShadowFailureStage.SNAPSHOT_CONFLICT) {
-                rightResult = processor.process(second);
-            }
-            assertThat(leftResult.status()).isEqualTo(TrustShadowProcessingResult.Status.APPENDED);
-            assertThat(rightResult.status()).isEqualTo(TrustShadowProcessingResult.Status.APPENDED);
+            TrustShadowProcessingResult leftResult = reprocessIfSnapshotConflict(left.get(30, TimeUnit.SECONDS), first);
+            TrustShadowProcessingResult rightResult = reprocessIfSnapshotConflict(right.get(30, TimeUnit.SECONDS), second);
+            assertAppended(leftResult, "left/earlier evidence");
+            assertAppended(rightResult, "right/later evidence");
             assertThat(ledgerPort.findBySubject(subject(reporter))).hasSize(3);
+            assertThat(snapshot(first)).isEqualTo(rebuild(subject(reporter)));
+        } finally {
+            pool.shutdownNow();
+        }
+    }
+
+    @Test
+    void sequentialLaterThenEarlierEvidencePreservesBothAndMatchesReplay() {
+        UUID reporter = fixedReporter();
+        ValidatedOutcomeForTrust seed = candidate(
+                reporter,
+                OutcomeClassification.CONFIRMED_CORRECT,
+                OutcomeReason.MULTIPLE_AVAILABLE_VERIFICATIONS,
+                95,
+                Instant.parse("2026-07-28T09:55:00Z"));
+        ValidatedOutcomeForTrust later = candidate(
+                reporter,
+                OutcomeClassification.CONFIRMED_CORRECT,
+                OutcomeReason.COMMUNITY_CLAIM_CONFIRMED,
+                95,
+                Instant.parse("2026-07-28T10:05:00Z"));
+        ValidatedOutcomeForTrust earlier = candidate(
+                reporter,
+                OutcomeClassification.LIKELY_CORRECT,
+                OutcomeReason.SINGLE_AVAILABLE_VERIFICATION,
+                80,
+                Instant.parse("2026-07-28T10:00:00Z"));
+
+        assertAppended(processor.process(seed), "seed");
+        assertAppended(processor.process(later), "later evidence first");
+        assertAppended(processor.process(earlier), "earlier evidence after later");
+        assertThat(processor.process(earlier).status()).isEqualTo(TrustShadowProcessingResult.Status.DUPLICATE);
+        assertThat(ledgerPort.findBySubject(subject(reporter))).hasSize(3);
+        assertThat(snapshot(earlier)).isEqualTo(rebuild(subject(reporter)));
+    }
+
+    @Test
+    void concurrentDistinctEvidenceReversedSubmitOrderPreservesBothAndMatchesReplay() throws Exception {
+        UUID reporter = fixedReporter();
+        ValidatedOutcomeForTrust seed = candidate(
+                reporter,
+                OutcomeClassification.CONFIRMED_CORRECT,
+                OutcomeReason.MULTIPLE_AVAILABLE_VERIFICATIONS,
+                95,
+                Instant.parse("2026-07-28T09:55:00Z"));
+        processor.process(seed);
+
+        ValidatedOutcomeForTrust first = candidate(
+                reporter,
+                OutcomeClassification.LIKELY_CORRECT,
+                OutcomeReason.SINGLE_AVAILABLE_VERIFICATION,
+                80,
+                Instant.parse("2026-07-28T10:00:00Z"));
+        ValidatedOutcomeForTrust second = candidate(
+                reporter,
+                OutcomeClassification.CONFIRMED_CORRECT,
+                OutcomeReason.COMMUNITY_CLAIM_CONFIRMED,
+                95,
+                Instant.parse("2026-07-28T10:05:00Z"));
+
+        ExecutorService pool = Executors.newFixedThreadPool(2);
+        CountDownLatch start = new CountDownLatch(1);
+        try {
+            Future<TrustShadowProcessingResult> right = pool.submit(() -> {
+                start.await(5, TimeUnit.SECONDS);
+                return processor.process(second);
+            });
+            Future<TrustShadowProcessingResult> left = pool.submit(() -> {
+                start.await(5, TimeUnit.SECONDS);
+                return processor.process(first);
+            });
+            start.countDown();
+
+            TrustShadowProcessingResult leftResult = reprocessIfSnapshotConflict(left.get(30, TimeUnit.SECONDS), first);
+            TrustShadowProcessingResult rightResult = reprocessIfSnapshotConflict(right.get(30, TimeUnit.SECONDS), second);
+            assertAppended(leftResult, "reversed-submit earlier evidence");
+            assertAppended(rightResult, "reversed-submit later evidence");
+            assertThat(ledgerPort.findBySubject(subject(reporter))).hasSize(3);
+            assertThat(snapshot(first)).isEqualTo(rebuild(subject(reporter)));
+        } finally {
+            pool.shutdownNow();
+        }
+    }
+
+    @Test
+    void concurrentThreeDistinctEvidencePreservesAllAndMatchesReplay() throws Exception {
+        UUID reporter = fixedReporter();
+        ValidatedOutcomeForTrust seed = candidate(
+                reporter,
+                OutcomeClassification.CONFIRMED_CORRECT,
+                OutcomeReason.MULTIPLE_AVAILABLE_VERIFICATIONS,
+                95,
+                Instant.parse("2026-07-28T09:55:00Z"));
+        processor.process(seed);
+
+        ValidatedOutcomeForTrust first = candidate(
+                reporter,
+                OutcomeClassification.LIKELY_CORRECT,
+                OutcomeReason.SINGLE_AVAILABLE_VERIFICATION,
+                80,
+                Instant.parse("2026-07-28T10:00:00Z"));
+        ValidatedOutcomeForTrust second = candidate(
+                reporter,
+                OutcomeClassification.CONFIRMED_CORRECT,
+                OutcomeReason.COMMUNITY_CLAIM_CONFIRMED,
+                95,
+                Instant.parse("2026-07-28T10:05:00Z"));
+        ValidatedOutcomeForTrust third = candidate(
+                reporter,
+                OutcomeClassification.LIKELY_CORRECT,
+                OutcomeReason.SINGLE_AVAILABLE_VERIFICATION,
+                82,
+                Instant.parse("2026-07-28T10:10:00Z"));
+
+        ExecutorService pool = Executors.newFixedThreadPool(3);
+        CountDownLatch start = new CountDownLatch(1);
+        try {
+            Future<TrustShadowProcessingResult> one = pool.submit(() -> {
+                start.await(5, TimeUnit.SECONDS);
+                return processor.process(first);
+            });
+            Future<TrustShadowProcessingResult> two = pool.submit(() -> {
+                start.await(5, TimeUnit.SECONDS);
+                return processor.process(second);
+            });
+            Future<TrustShadowProcessingResult> three = pool.submit(() -> {
+                start.await(5, TimeUnit.SECONDS);
+                return processor.process(third);
+            });
+            start.countDown();
+
+            TrustShadowProcessingResult firstResult = reprocessIfSnapshotConflict(one.get(30, TimeUnit.SECONDS), first);
+            TrustShadowProcessingResult secondResult = reprocessIfSnapshotConflict(two.get(30, TimeUnit.SECONDS), second);
+            TrustShadowProcessingResult thirdResult = reprocessIfSnapshotConflict(three.get(30, TimeUnit.SECONDS), third);
+            assertAppended(firstResult, "three-way first");
+            assertAppended(secondResult, "three-way second");
+            assertAppended(thirdResult, "three-way third");
+            assertThat(ledgerPort.findBySubject(subject(reporter))).hasSize(4);
             assertThat(snapshot(first)).isEqualTo(rebuild(subject(reporter)));
         } finally {
             pool.shutdownNow();
@@ -346,6 +467,22 @@ class TrustShadowPersistencePostgresIT {
         assertThat(trustLedgerJpa.count()).isEqualTo(ledgerCount);
         assertThat(snapshot(second)).isEqualTo(stored);
         assertThat(rebuilt.score().basisPoints() + 1).isNotEqualTo(stored.score().basisPoints());
+    }
+
+    private TrustShadowProcessingResult reprocessIfSnapshotConflict(
+            TrustShadowProcessingResult result,
+            ValidatedOutcomeForTrust candidate) {
+        if (result.status() == TrustShadowProcessingResult.Status.FAILED
+                && result.failureStage().orElse(null) == TrustShadowFailureStage.SNAPSHOT_CONFLICT) {
+            return processor.process(candidate);
+        }
+        return result;
+    }
+
+    private static void assertAppended(TrustShadowProcessingResult result, String label) {
+        assertThat(result.status())
+                .as("%s status=%s stage=%s", label, result.status(), result.failureStage())
+                .isEqualTo(TrustShadowProcessingResult.Status.APPENDED);
     }
 
     private TrustSnapshot rebuild(TrustSubject subject) {
@@ -479,5 +616,31 @@ class TrustShadowPersistencePostgresIT {
 
     private static UUID fixedReporter() {
         return UUID.fromString("11111111-1111-1111-1111-111111111111");
+    }
+
+    @TestConfiguration
+    static class ControllableSnapshotWriteConfig {
+        @Bean
+        @Primary
+        TrustSnapshotWritePort controllableTrustSnapshotWrites(TrustSnapshotRepositoryAdapter adapter) {
+            return new TrustSnapshotWritePort() {
+                @Override
+                public void upsert(TrustSnapshot snapshot) {
+                    replaceLocked(snapshot.subject(), snapshot.domain(), () -> snapshot);
+                }
+
+                @Override
+                public void replaceLocked(
+                        TrustSubject subject,
+                        TrustDomain domain,
+                        java.util.function.Supplier<TrustSnapshot> nextSnapshot) {
+                    if (FAIL_NEXT_SNAPSHOT_UPSERT.compareAndSet(true, false)) {
+                        throw new TrustShadowProjectionConflictException(
+                                "forced test conflict", new RuntimeException("forced"));
+                    }
+                    adapter.replaceLocked(subject, domain, nextSnapshot);
+                }
+            };
+        }
     }
 }

@@ -10,6 +10,7 @@ import enAuth from './locales/en/auth.json';
 import enCommon from './locales/en/common.json';
 import enErrors from './locales/en/errors.json';
 import enLegal from './locales/en/legal.json';
+import enExplore from './locales/en/explore.json';
 import enMap from './locales/en/map.json';
 import enMedia from './locales/en/media.json';
 import enModeration from './locales/en/moderation.json';
@@ -24,6 +25,7 @@ import trAuth from './locales/tr/auth.json';
 import trCommon from './locales/tr/common.json';
 import trErrors from './locales/tr/errors.json';
 import trLegal from './locales/tr/legal.json';
+import trExplore from './locales/tr/explore.json';
 import trMap from './locales/tr/map.json';
 import trMedia from './locales/tr/media.json';
 import trModeration from './locales/tr/moderation.json';
@@ -47,6 +49,7 @@ const resources = {
     errors: trErrors,
     validation: trValidation,
     legal: trLegal,
+    explore: trExplore,
   },
   en: {
     common: enCommon,
@@ -62,6 +65,7 @@ const resources = {
     errors: enErrors,
     validation: enValidation,
     legal: enLegal,
+    explore: enExplore,
   },
 } as const;
 

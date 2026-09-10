@@ -1,6 +1,8 @@
 import type { PublicSpot } from '@parkio/types';
 import { fireEvent, screen } from '@testing-library/react';
+import { axe } from 'jest-axe';
 import { describe, expect, it, vi } from 'vitest';
+import { makeMunicipalFacility } from '@/test/municipalFixtures';
 import { renderWithProviders } from '@/test/utils';
 import { NearbySpotsMap } from './NearbySpotsMap';
 
@@ -51,6 +53,25 @@ const spots: PublicSpot[] = [
 ];
 
 describe('NearbySpotsMap', () => {
+  it('exposes the map as an accessible region with instructions and a live selection summary', async () => {
+    const { container } = renderWithProviders(
+      <NearbySpotsMap
+        center={{ lat: 41, lng: 29 }}
+        spots={spots}
+        onPickCenter={() => undefined}
+        ariaLabel="Interactive parking discovery map"
+        ariaDescription="Use Tab to move to map markers."
+        selectionSummary="Selected community spot: First Spot"
+      />,
+    );
+
+    expect(
+      screen.getByRole('region', { name: 'Interactive parking discovery map' }),
+    ).toHaveAccessibleDescription('Use Tab to move to map markers. Selected community spot: First Spot');
+    expect(screen.getByRole('status')).toHaveTextContent('Selected community spot: First Spot');
+    expect(await axe(container)).toHaveNoViolations();
+  });
+
   it('renders a marker for each spot plus the search-center indicator', () => {
     renderWithProviders(
       <NearbySpotsMap center={{ lat: 41, lng: 29 }} spots={spots} onPickCenter={() => undefined} />,
@@ -140,16 +161,28 @@ describe('NearbySpotsMap', () => {
     expect(onSelectSpot).not.toHaveBeenCalled();
   });
 
-  it('omits the parked-car marker when coordinates are invalid', () => {
+  it('renders municipal facility markers distinctly from community spots', () => {
+    const onSelectMunicipal = vi.fn();
+    const facilities = [
+      makeMunicipalFacility({ id: 'fac-a', latitude: 38.4, longitude: 27.1, displayName: 'Lot A' }),
+    ];
+
     renderWithProviders(
       <NearbySpotsMap
         center={{ lat: 41, lng: 29 }}
-        spots={[]}
+        spots={spots}
+        municipalFacilities={facilities}
         onPickCenter={() => undefined}
-        parkedCar={{ latitude: 999, longitude: 27.14 }}
+        onSelectMunicipalFacility={onSelectMunicipal}
       />,
     );
 
-    expect(screen.queryByTestId('parked-car-marker')).not.toBeInTheDocument();
+    // 2 spots + 1 center + 1 municipal
+    expect(screen.getAllByTestId('marker')).toHaveLength(4);
+    expect(screen.getByTestId('municipal-facility-marker')).toBeInTheDocument();
+    expect(screen.getAllByTestId('community-spot-marker')).toHaveLength(2);
+
+    fireEvent.click(screen.getByTestId('municipal-facility-marker'));
+    expect(onSelectMunicipal).toHaveBeenCalledWith('fac-a');
   });
 });

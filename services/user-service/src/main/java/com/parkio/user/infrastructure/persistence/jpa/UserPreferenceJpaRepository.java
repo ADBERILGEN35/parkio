@@ -14,6 +14,8 @@ public interface UserPreferenceJpaRepository extends JpaRepository<UserPreferenc
 
     Optional<UserPreferenceEntity> findByUserProfileId(UUID userProfileId);
 
+    void deleteByUserProfileId(UUID userProfileId);
+
     @Query(value = """
             SELECT * FROM user_preferences
             WHERE smart_return_enabled = true

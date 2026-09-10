@@ -11,9 +11,15 @@ public enum AuthUserStatus {
     PENDING_VERIFICATION,
     ACTIVE,
     SUSPENDED,
-    BANNED;
+    BANNED,
+    ERASURE_IN_PROGRESS,
+    ERASED;
 
     public boolean canAuthenticate() {
         return this == ACTIVE;
+    }
+
+    public boolean isErasureLocked() {
+        return this == ERASURE_IN_PROGRESS || this == ERASED;
     }
 }
