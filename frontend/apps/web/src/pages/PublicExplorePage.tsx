@@ -367,10 +367,20 @@ export function PublicExplorePage() {
                 data-testid="public-explore-contribute-cta"
                 aria-label={t('explore:contributeCtaAria')}
                 onClick={openContributeGate}
-                className="pointer-events-auto inline-flex max-w-full items-center gap-xs self-start rounded-2xl bg-surface-container-lowest/95 px-md py-sm text-label-md font-semibold text-primary shadow-sm ring-1 ring-outline-variant/25 backdrop-blur-sm transition-colors hover:bg-primary/10 focus:outline-none focus-visible:ring-4 focus-visible:ring-primary/30"
+                className="pointer-events-auto inline-flex max-w-full items-center gap-xs self-start rounded-2xl bg-surface-container-lowest/95 px-md py-sm text-left text-primary shadow-sm ring-1 ring-outline-variant/25 backdrop-blur-sm transition-colors hover:bg-primary/10 focus:outline-none focus-visible:ring-4 focus-visible:ring-primary/30"
               >
                 <Icon name="add_location_alt" className="shrink-0 text-[18px] leading-none" />
-                <span className="min-w-0 truncate">{t('explore:contributeCta')}</span>
+                <span className="min-w-0">
+                  <span className="block truncate text-label-md font-semibold">
+                    {t('explore:contributeCta')}
+                  </span>
+                  <span
+                    data-testid="public-explore-contribute-support"
+                    className="mt-0.5 block truncate text-label-sm font-medium text-on-surface-variant"
+                  >
+                    {t('explore:contributeSupport')}
+                  </span>
+                </span>
               </button>
             </div>
 

@@ -3,7 +3,7 @@ import { screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { API_BASE, server } from '@/test/server';
-import { renderWithProviders } from '@/test/utils';
+import { renderWithProviders, withLocale } from '@/test/utils';
 import { PublicExplorePage } from './PublicExplorePage';
 
 vi.mock('@/config/env', async (importOriginal) => {
@@ -158,17 +158,24 @@ describe('PublicExplorePage', () => {
     expect(await screen.findByTestId('public-explore-contribute-cta')).toHaveTextContent(
       'Report a parking spot',
     );
+    expect(screen.getByTestId('public-explore-contribute-support')).toHaveTextContent(
+      'Contribute to the community',
+    );
     await userEvent.click(screen.getByTestId('public-explore-contribute-cta'));
     expect(await screen.findByTestId('auth-gate-dialog')).toHaveAttribute(
       'data-auth-gate-intent',
       'contribute',
     );
     expect(screen.getByTestId('auth-gate-dialog')).toHaveTextContent('Report a parking spot');
+    expect(screen.getByTestId('auth-gate-dialog')).toHaveTextContent(
+      'Add a new parking spot to the Parkio community and discover spots reported by other users. Sign in to continue.',
+    );
     expect(screen.getByTestId('auth-gate-register')).toHaveTextContent('About registration');
     expect(screen.queryByText(/^Sign up$/)).not.toBeInTheDocument();
     expect(privateNearby).not.toHaveBeenCalled();
     expect(privateUpload).not.toHaveBeenCalled();
     expect(screen.getByTestId('community-spot-marker-count')).toHaveTextContent('0');
+    expect(screen.queryByTestId('community-aggregate-teaser')).not.toBeInTheDocument();
   });
 
   it('counts only renderable municipal markers and never shows a mismatched visible summary', async () => {
@@ -399,6 +406,39 @@ describe('PublicExplorePage', () => {
     expect(screen.queryByTestId('community-aggregate-teaser')).not.toBeInTheDocument();
     expect(screen.queryByTestId('municipal-hidden-teaser')).not.toBeInTheDocument();
     expect(screen.queryByText(/0 community/i)).not.toBeInTheDocument();
+    expect(screen.getByTestId('public-explore-contribute-support')).toHaveTextContent(
+      'Contribute to the community',
+    );
+  });
+
+  it('shows Turkish contribution CTA and AuthGate community explanation', async () => {
+    await withLocale('tr');
+    try {
+      server.use(
+        http.get(`${API_BASE}/public/explore/facilities`, () =>
+          HttpResponse.json(discoveryResponse({ communitySpotCountInScope: null })),
+        ),
+      );
+
+      renderWithProviders(<PublicExplorePage />, { initialEntries: ['/explore'] });
+      expect(await screen.findByTestId('public-explore-contribute-cta')).toHaveTextContent(
+        'Park yeri bildir',
+      );
+      expect(screen.getByTestId('public-explore-contribute-support')).toHaveTextContent(
+        'Topluluğa katkıda bulun',
+      );
+      await userEvent.click(screen.getByTestId('public-explore-contribute-cta'));
+      expect(await screen.findByTestId('auth-gate-dialog')).toHaveTextContent('Park yeri bildir');
+      expect(screen.getByTestId('auth-gate-dialog')).toHaveTextContent(
+        'Parkio topluluğuna yeni bir park noktası ekleyebilir ve diğer kullanıcıların bildirdiği noktaları görebilirsiniz. Devam etmek için giriş yapın.',
+      );
+      expect(screen.getByTestId('auth-gate-login')).toHaveTextContent('Giriş yap');
+      expect(screen.getByTestId('auth-gate-register')).toHaveTextContent('Kayıt hakkında bilgi');
+      expect(screen.getByRole('button', { name: 'Şimdi değil' })).toBeInTheDocument();
+      expect(screen.queryByText(/^Kayıt ol$/)).not.toBeInTheDocument();
+    } finally {
+      await withLocale('en');
+    }
   });
 
   it('never substitutes fixtures when the public API is unavailable', async () => {

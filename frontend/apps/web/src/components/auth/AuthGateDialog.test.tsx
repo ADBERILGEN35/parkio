@@ -69,7 +69,7 @@ describe('AuthGateDialog', () => {
     );
     expect(screen.getByTestId('auth-gate-dialog')).toHaveTextContent('Report a parking spot');
     expect(screen.getByTestId('auth-gate-dialog')).toHaveTextContent(
-      'Sign in to add a new parking spot for the community.',
+      'Add a new parking spot to the Parkio community and discover spots reported by other users. Sign in to continue.',
     );
     expect(screen.getByTestId('auth-gate-login')).toHaveAttribute('href', '/login?return=%2Fupload');
     expect(screen.queryByText(/^Sign up$/)).not.toBeInTheDocument();
