@@ -76,6 +76,8 @@ export function PublicExplorePage() {
   const [searchResetKey, setSearchResetKey] = useState(0);
   const [locating, setLocating] = useState(false);
   const [locationFeedback, setLocationFeedback] = useState<string | null>(null);
+  /** Autocomplete open — hide competing discovery chrome (presentation only). */
+  const [searchInteractionActive, setSearchInteractionActive] = useState(false);
 
   const publicSearchFn = useCallback(
     (query: string, signal: AbortSignal) =>
@@ -288,9 +290,13 @@ export function PublicExplorePage() {
                   clearLabel={t('explore:destinationSearchClear')}
                   onSelect={selectDestination}
                   onClear={clearDestination}
+                  onInteractionChange={setSearchInteractionActive}
                 />
               </div>
 
+              {/* Discovery chrome — suppressed while autocomplete is actively open. */}
+              {!searchInteractionActive ? (
+                <>
               {/* Coherent discovery stack — visible count + optional membership teasers. */}
               {discoverySettled && municipalFacilities.length > 0 ? (
                 <div
@@ -382,6 +388,8 @@ export function PublicExplorePage() {
                   </span>
                 </span>
               </button>
+                </>
+              ) : null}
             </div>
 
             <Suspense fallback={<MapSearchSkeleton />}>

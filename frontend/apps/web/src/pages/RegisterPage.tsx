@@ -105,6 +105,14 @@ export function RegisterPage() {
           >
             {t('auth:register.signInLink')}
           </Link>
+          <a
+            href="https://parkio.dev/"
+            target="_blank"
+            rel="noopener noreferrer"
+            className="mt-xs self-center text-center text-label-sm font-medium text-on-surface-variant underline-offset-2 hover:text-on-surface hover:underline focus:outline-none focus-visible:rounded-sm focus-visible:ring-2 focus-visible:ring-primary/40"
+          >
+            {t('auth:register.learnMoreAboutParkio')}
+          </a>
         </div>
       </AuthSplitLayout>
     );

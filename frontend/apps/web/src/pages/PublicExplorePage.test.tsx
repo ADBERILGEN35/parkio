@@ -516,6 +516,62 @@ describe('PublicExplorePage', () => {
     expect(screen.queryByTestId('auth-gate-dialog')).not.toBeInTheDocument();
   });
 
+  it('hides discovery chrome while autocomplete is active and restores after select or clear', async () => {
+    server.use(
+      http.get(`${API_BASE}/public/explore/facilities`, () =>
+        HttpResponse.json(
+          discoveryResponse({
+            facilities: [facility, farFacility],
+            municipalHiddenCount: 4,
+            communitySpotCountInScope: 9,
+          }),
+        ),
+      ),
+      http.get(`${API_BASE}/public/geocoding/search`, () =>
+        HttpResponse.json({
+          results: [
+            {
+              id: 'dest-alsancak',
+              displayName: 'Alsancak Garı, İzmir',
+              primary: 'Alsancak Garı',
+              secondary: 'Alsancak, İzmir',
+              lat: 38.455,
+              lng: 27.15,
+            },
+          ],
+        }),
+      ),
+    );
+
+    renderWithProviders(<PublicExplorePage />, { initialEntries: ['/explore'] });
+    expect(await screen.findByTestId('public-explore-discovery-summary')).toBeInTheDocument();
+    expect(screen.getByTestId('public-explore-contribute-cta')).toBeInTheDocument();
+    expect(screen.getByTestId('public-explore-contribute-support')).toBeInTheDocument();
+    expect(screen.getByTestId('community-aggregate-teaser')).toBeInTheDocument();
+
+    const input = screen.getByRole('combobox', { name: 'Search destination' });
+    await userEvent.type(input, 'Als');
+    expect(await screen.findByRole('option', { name: /Alsancak Garı/i })).toBeInTheDocument();
+    expect(screen.queryByTestId('public-explore-discovery-summary')).not.toBeInTheDocument();
+    expect(screen.queryByTestId('public-explore-contribute-cta')).not.toBeInTheDocument();
+    expect(screen.queryByTestId('community-aggregate-teaser')).not.toBeInTheDocument();
+
+    await userEvent.keyboard('{ArrowDown}{Enter}');
+    expect(await screen.findByTestId('destination-marker')).toHaveTextContent('Alsancak Garı');
+    expect(await screen.findByTestId('public-explore-discovery-summary')).toBeInTheDocument();
+    expect(screen.getByTestId('public-explore-contribute-cta')).toBeInTheDocument();
+
+    await userEvent.clear(input);
+    await userEvent.type(input, 'Als');
+    expect(await screen.findByRole('option', { name: /Alsancak Garı/i })).toBeInTheDocument();
+    expect(screen.queryByTestId('public-explore-discovery-summary')).not.toBeInTheDocument();
+
+    await userEvent.click(screen.getByTestId('place-search-clear'));
+    expect(await screen.findByTestId('public-explore-discovery-summary')).toBeInTheDocument();
+    expect(screen.getByTestId('public-explore-contribute-cta')).toBeInTheDocument();
+    expect(screen.queryByRole('option', { name: /Alsancak Garı/i })).not.toBeInTheDocument();
+  });
+
   it('selects a destination, renders marker, rediscovers parking, and keeps distance absent without geolocation', async () => {
     const listCalls = vi.fn();
     server.use(

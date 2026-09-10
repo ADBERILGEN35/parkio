@@ -82,11 +82,16 @@ describe('RegisterPage', () => {
     );
     renderRegister();
 
-    expect(await screen.findByText(/Registration is currently closed\. Parkio is operating/)).toBeInTheDocument();
+    expect(await screen.findByText(/New account registrations are currently closed/)).toBeInTheDocument();
+    expect(screen.queryByText(/beta/i)).not.toBeInTheDocument();
     expect(screen.queryByRole('button', { name: 'Create account' })).not.toBeInTheDocument();
     expect(screen.queryByLabelText('Email')).not.toBeInTheDocument();
     expect(screen.getByRole('link', { name: 'Explore live Parkio' })).toHaveAttribute('href', '/explore');
     expect(screen.getByRole('link', { name: 'Sign in' })).toHaveAttribute('href', '/login');
+    const learnMore = screen.getByRole('link', { name: 'Learn more about Parkio' });
+    expect(learnMore).toHaveAttribute('href', 'https://parkio.dev/');
+    expect(learnMore).toHaveAttribute('target', '_blank');
+    expect(learnMore).toHaveAttribute('rel', expect.stringContaining('noopener'));
   });
 
   it('fails safe to the closed experience when registration mode is unavailable', async () => {
@@ -96,9 +101,14 @@ describe('RegisterPage', () => {
     );
     renderRegister();
 
-    expect(await screen.findByText(/Registration is currently closed\. Parkio is operating/)).toBeInTheDocument();
+    expect(await screen.findByText(/New account registrations are currently closed/)).toBeInTheDocument();
+    expect(screen.queryByText(/beta/i)).not.toBeInTheDocument();
     expect(screen.queryByRole('button', { name: 'Create account' })).not.toBeInTheDocument();
     expect(screen.queryByLabelText('Email')).not.toBeInTheDocument();
+    expect(screen.getByRole('link', { name: 'Learn more about Parkio' })).toHaveAttribute(
+      'href',
+      'https://parkio.dev/',
+    );
   });
 
   it('requires a display name', async () => {

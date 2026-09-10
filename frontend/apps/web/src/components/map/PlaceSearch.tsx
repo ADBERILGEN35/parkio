@@ -44,6 +44,12 @@ export interface PlaceSearchProps {
   showClear?: boolean;
   /** Accessible name for the clear control. */
   clearLabel?: string;
+  /**
+   * Fired when the autocomplete interaction opens or closes (loading / results /
+   * empty / error / rate-limited vs idle or dismissed). Consumers may hide
+   * competing discovery chrome without mutating map state.
+   */
+  onInteractionChange?: (active: boolean) => void;
 }
 
 /**
@@ -66,6 +72,7 @@ export function PlaceSearch({
   onClear,
   showClear = false,
   clearLabel,
+  onInteractionChange,
 }: PlaceSearchProps) {
   const { t } = useTranslation('map');
   const resolvedLabel = label ?? t('placeSearchLabel');
@@ -82,6 +89,16 @@ export function PlaceSearch({
   const autocomplete = usePlaceAutocomplete({ searchFn, debounceMs, retry });
   const suggestions = autocomplete.results;
   const showDropdown = dropdownOpen && autocomplete.status !== 'idle';
+
+  useEffect(() => {
+    onInteractionChange?.(showDropdown);
+  }, [showDropdown, onInteractionChange]);
+
+  useEffect(() => {
+    return () => {
+      onInteractionChange?.(false);
+    };
+  }, [onInteractionChange]);
 
   const closeDropdown = () => {
     setDropdownOpen(false);
