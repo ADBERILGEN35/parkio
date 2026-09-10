@@ -15,6 +15,7 @@ export type AuthGateIntent =
   | 'facilityDetail'
   | 'municipalMore'
   | 'community'
+  | 'contribute'
   | 'generic';
 
 export interface AuthGateDialogProps {
@@ -56,7 +57,9 @@ export function AuthGateDialog({
         ? 'authGate.municipalMoreTitle'
         : intent === 'community'
           ? 'authGate.communityTitle'
-          : 'authGate.title';
+          : intent === 'contribute'
+            ? 'authGate.contributeTitle'
+            : 'authGate.title';
   const bodyKey =
     intent === 'facilityDetail'
       ? 'authGate.facilityDetailBody'
@@ -64,7 +67,9 @@ export function AuthGateDialog({
         ? 'authGate.municipalMoreBody'
         : intent === 'community'
           ? 'authGate.communityBody'
-          : 'authGate.body';
+          : intent === 'contribute'
+            ? 'authGate.contributeBody'
+            : 'authGate.body';
 
   const registrationOpen = registrationMode === 'OPEN';
   const registerLabel = registrationOpen

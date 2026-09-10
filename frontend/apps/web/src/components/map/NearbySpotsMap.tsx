@@ -6,6 +6,7 @@ import { useTranslation } from 'react-i18next';
 import Map, { Marker } from 'react-map-gl/maplibre';
 import { freshnessLabel, spotStatusLabel } from '@/lib/localized-status';
 import { MapFloatingControls } from './MapFloatingControls';
+import { FitDiscoveryFrame, type FitDiscoveryFrameProps } from './FitDiscoveryFrame';
 import { MunicipalFacilityMarker } from './MunicipalFacilityMarker';
 import { ParkedCarFocus } from './ParkedCarFocus';
 import { ParkedCarMarker } from './ParkedCarMarker';
@@ -61,6 +62,11 @@ export interface NearbySpotsMapProps {
   destinationMarker?: { latitude: number; longitude: number; label: string } | null;
   /** Community/municipal ref ids that appear in current recommendations. */
   recommendedRefIds?: ReadonlySet<string>;
+  /**
+   * Public Explore: fit map to discovery anchor + visible municipal pins so
+   * summary counts match on-screen green markers after locate/destination.
+   */
+  discoveryFrame?: Omit<FitDiscoveryFrameProps, 'enabled'> & { enabled?: boolean };
 }
 
 /** Premium, status-aware marker shown for each real spot. */
@@ -149,6 +155,7 @@ export function NearbySpotsMap({
   selectionSummary = null,
   destinationMarker = null,
   recommendedRefIds,
+  discoveryFrame,
 }: NearbySpotsMapProps) {
   const { t } = useTranslation('map');
   const descriptionId = useId();
@@ -236,6 +243,14 @@ export function NearbySpotsMap({
         style={{ height: '100%', width: '100%' }}
       >
         <Recenter lat={center.lat} lng={center.lng} zoom={zoom} />
+        {discoveryFrame ? (
+          <FitDiscoveryFrame
+            anchor={discoveryFrame.anchor}
+            points={discoveryFrame.points}
+            revision={discoveryFrame.revision}
+            enabled={discoveryFrame.enabled !== false}
+          />
+        ) : null}
         <ParkedCarFocus request={parkedCarFocusRequest} />
         {showFloatingControls && onLocate ? (
           <MapFloatingControls

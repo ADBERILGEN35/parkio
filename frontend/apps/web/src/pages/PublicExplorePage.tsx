@@ -1,9 +1,9 @@
 import { Icon, MapSearchSkeleton } from '@parkio/ui';
-import { haversineMeters } from '@parkio/geo';
+import { haversineMeters, isValidLatLng } from '@parkio/geo';
 import { useQuery } from '@tanstack/react-query';
 import { lazy, Suspense, useCallback, useMemo, useState } from 'react';
 import { useTranslation } from 'react-i18next';
-import { Link } from 'react-router-dom';
+import { Link, useNavigate } from 'react-router-dom';
 import { useParkioSdk } from '@/app/AppRuntimeContext';
 import { useRequireAuth } from '@/components/auth/useRequireAuth';
 import { BrandMark } from '@/components/brand/BrandMark';
@@ -50,10 +50,16 @@ interface SelectedDestination {
  * {@link selectedDestination} is the searched place and must never become userLocation.
  *
  * Locate rule: pressing locate clears selectedDestination and rediscovers around user.
+ *
+ * Marker semantics (preserved): municipal = green parking pin; community blue P only
+ * when authenticated (public payload is aggregate-only — no anonymous precise pins).
+ *
+ * Count invariant: displayed visible count == renderable green marker count.
  */
 export function PublicExplorePage() {
   const { publicExploreApi, publicGeocodingApi } = useParkioSdk();
   const { t } = useTranslation(['explore', 'navigation', 'map']);
+  const navigate = useNavigate();
   const { requireAuth, authGate } = useRequireAuth();
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [mapCenter, setMapCenter] = useState<LatLng>(DEFAULT_MAP_CENTER);
@@ -99,11 +105,13 @@ export function PublicExplorePage() {
     retry: false,
   });
 
+  /** Only facilities with usable coordinates may count or render as green pins. */
   const municipalFacilities = useMemo(
     () =>
       (query.data?.facilities ?? [])
         .slice(0, PUBLIC_EXPLORE_LIMIT)
-        .map(toMunicipalFacilityFromPublicExplore),
+        .map(toMunicipalFacilityFromPublicExplore)
+        .filter((facility) => isValidLatLng(facility.latitude, facility.longitude)),
     [query.data],
   );
   const municipalHiddenCount = query.data?.municipalHiddenCount ?? 0;
@@ -130,9 +138,33 @@ export function PublicExplorePage() {
     [selectedDestination],
   );
 
+  const discoveryFramePoints = useMemo(
+    () =>
+      municipalFacilities.map((facility) => ({
+        lat: facility.latitude,
+        lng: facility.longitude,
+      })),
+    [municipalFacilities],
+  );
+
+  const discoveryFrameRevision = useMemo(
+    () =>
+      `${discoveryOrigin.lat.toFixed(6)},${discoveryOrigin.lng.toFixed(6)}:${municipalFacilities
+        .map((facility) => facility.id)
+        .join(',')}`,
+    [discoveryOrigin.lat, discoveryOrigin.lng, municipalFacilities],
+  );
+
   const flagOff = !frontendConfig.features.publicExplore;
   const hardUnavailable = flagOff || query.isError;
   const showMap = frontendConfig.features.publicExplore && !query.isError;
+  const discoverySettled = !query.isLoading && !query.isFetching;
+
+  const openContributeGate = useCallback(() => {
+    if (requireAuth('/upload', 'contribute')) {
+      navigate('/upload');
+    }
+  }, [navigate, requireAuth]);
 
   const clearDestination = useCallback(() => {
     setSelectedDestination(null);
@@ -260,7 +292,7 @@ export function PublicExplorePage() {
               </div>
 
               {/* Coherent discovery stack — visible count + optional membership teasers. */}
-              {!query.isLoading && municipalFacilities.length > 0 ? (
+              {discoverySettled && municipalFacilities.length > 0 ? (
                 <div
                   data-testid="public-explore-discovery-summary"
                   className="pointer-events-auto inline-flex max-w-full flex-col gap-1.5"
@@ -320,7 +352,7 @@ export function PublicExplorePage() {
                   {locationFeedback}
                 </p>
               ) : null}
-              {!query.isLoading && municipalFacilities.length === 0 ? (
+              {discoverySettled && municipalFacilities.length === 0 ? (
                 <p
                   role="status"
                   data-testid="public-explore-empty"
@@ -329,6 +361,17 @@ export function PublicExplorePage() {
                   {t('explore:emptyMunicipal')}
                 </p>
               ) : null}
+              {/* Contribution discoverability — AuthGate only; registration stays CLOSED. */}
+              <button
+                type="button"
+                data-testid="public-explore-contribute-cta"
+                aria-label={t('explore:contributeCtaAria')}
+                onClick={openContributeGate}
+                className="pointer-events-auto inline-flex max-w-full items-center gap-xs self-start rounded-2xl bg-surface-container-lowest/95 px-md py-sm text-label-md font-semibold text-primary shadow-sm ring-1 ring-outline-variant/25 backdrop-blur-sm transition-colors hover:bg-primary/10 focus:outline-none focus-visible:ring-4 focus-visible:ring-primary/30"
+              >
+                <Icon name="add_location_alt" className="shrink-0 text-[18px] leading-none" />
+                <span className="min-w-0 truncate">{t('explore:contributeCta')}</span>
+              </button>
             </div>
 
             <Suspense fallback={<MapSearchSkeleton />}>
@@ -338,6 +381,12 @@ export function PublicExplorePage() {
                 spots={[]}
                 municipalFacilities={municipalFacilities}
                 destinationMarker={destinationMarker}
+                discoveryFrame={{
+                  anchor: discoveryOrigin,
+                  points: discoveryFramePoints,
+                  revision: discoveryFrameRevision,
+                  enabled: discoverySettled && discoveryFramePoints.length > 0,
+                }}
                 onPickCenter={() => undefined}
                 selectedId={null}
                 selectedMunicipalId={selectedId}
@@ -355,7 +404,7 @@ export function PublicExplorePage() {
             </Suspense>
 
             {selected ? (
-              <div className="pointer-events-none absolute inset-x-0 bottom-0 z-40 p-md pb-[max(1rem,env(safe-area-inset-bottom))] md:inset-x-auto md:bottom-md md:right-md md:w-[380px] md:p-0">
+              <div className="pointer-events-none absolute inset-x-0 bottom-0 z-40 p-md pb-[max(1rem,env(safe-area-inset-bottom))] md:inset-x-auto md:bottom-md md:left-md md:right-auto md:w-[380px] md:p-0">
                 <SelectedMunicipalFacilityPreview
                   facility={selected}
                   distanceMeters={selectedDistanceMeters}

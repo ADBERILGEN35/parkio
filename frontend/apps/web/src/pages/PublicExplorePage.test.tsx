@@ -133,6 +133,75 @@ describe('PublicExplorePage', () => {
     );
   });
 
+  it('shows contribution CTA that opens AuthGate without private route fetches', async () => {
+    const privateUpload = vi.fn();
+    const privateNearby = vi.fn();
+    server.use(
+      http.get(`${API_BASE}/public/explore/facilities`, () =>
+        HttpResponse.json(discoveryResponse()),
+      ),
+      http.get(`${API_BASE}/parking/spots/nearby`, () => {
+        privateNearby();
+        return HttpResponse.json([]);
+      }),
+      http.get(`${API_BASE}/media/upload*`, () => {
+        privateUpload();
+        return HttpResponse.json({});
+      }),
+      http.post(`${API_BASE}/parking/spots`, () => {
+        privateUpload();
+        return HttpResponse.json({});
+      }),
+    );
+
+    renderWithProviders(<PublicExplorePage />, { initialEntries: ['/explore'] });
+    expect(await screen.findByTestId('public-explore-contribute-cta')).toHaveTextContent(
+      'Report a parking spot',
+    );
+    await userEvent.click(screen.getByTestId('public-explore-contribute-cta'));
+    expect(await screen.findByTestId('auth-gate-dialog')).toHaveAttribute(
+      'data-auth-gate-intent',
+      'contribute',
+    );
+    expect(screen.getByTestId('auth-gate-dialog')).toHaveTextContent('Report a parking spot');
+    expect(screen.getByTestId('auth-gate-register')).toHaveTextContent('About registration');
+    expect(screen.queryByText(/^Sign up$/)).not.toBeInTheDocument();
+    expect(privateNearby).not.toHaveBeenCalled();
+    expect(privateUpload).not.toHaveBeenCalled();
+    expect(screen.getByTestId('community-spot-marker-count')).toHaveTextContent('0');
+  });
+
+  it('counts only renderable municipal markers and never shows a mismatched visible summary', async () => {
+    server.use(
+      http.get(`${API_BASE}/public/explore/facilities`, () =>
+        HttpResponse.json(
+          discoveryResponse({
+            facilities: [
+              facility,
+              farFacility,
+              {
+                ...facility,
+                id: '00000000-0000-0000-0000-000000000903',
+                displayName: 'Broken coords',
+                latitude: Number.NaN,
+                longitude: 27.1,
+              },
+            ],
+            municipalTotalInScope: 9,
+            municipalHiddenCount: 5,
+          }),
+        ),
+      ),
+    );
+
+    renderWithProviders(<PublicExplorePage />, { initialEntries: ['/explore'] });
+    expect(await screen.findByTestId('public-explore-discovery-summary')).toHaveTextContent(
+      '2 parking facilities',
+    );
+    expect(screen.getByTestId('municipal-hidden-teaser')).toHaveTextContent('+5 more');
+    expect(screen.getAllByTestId('municipal-facility-marker')).toHaveLength(2);
+  });
+
   it('renders the canonical product map and gates full detail behind AuthGate', async () => {
     const listCalls = vi.fn();
     server.use(

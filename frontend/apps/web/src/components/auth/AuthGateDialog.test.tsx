@@ -52,6 +52,30 @@ describe('AuthGateDialog', () => {
     expect(onClose).toHaveBeenCalled();
   });
 
+  it('shows contribution AuthGate copy without implying open registration', async () => {
+    server.use(
+      http.get(`${API_BASE}/auth/registration-mode`, () =>
+        HttpResponse.json({ mode: 'CLOSED' }),
+      ),
+    );
+    renderWithProviders(
+      <AuthGateDialog open onClose={() => undefined} returnPath="/upload" intent="contribute" />,
+      { initialEntries: ['/explore'] },
+    );
+
+    expect(screen.getByTestId('auth-gate-dialog')).toHaveAttribute(
+      'data-auth-gate-intent',
+      'contribute',
+    );
+    expect(screen.getByTestId('auth-gate-dialog')).toHaveTextContent('Report a parking spot');
+    expect(screen.getByTestId('auth-gate-dialog')).toHaveTextContent(
+      'Sign in to add a new parking spot for the community.',
+    );
+    expect(screen.getByTestId('auth-gate-login')).toHaveAttribute('href', '/login?return=%2Fupload');
+    expect(screen.queryByText(/^Sign up$/)).not.toBeInTheDocument();
+    expect(await screen.findByTestId('auth-gate-register')).toHaveTextContent('About registration');
+  });
+
   it('uses Sign up secondary CTA when registration is OPEN', async () => {
     server.use(
       http.get(`${API_BASE}/auth/registration-mode`, () =>
