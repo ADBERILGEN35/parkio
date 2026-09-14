@@ -43,10 +43,18 @@ export default function WelcomeScreen() {
         </View>
       </View>
       <View style={styles.actions}>
-        <Button label={t('onboarding.welcome.signIn')} onPress={() => router.push('/(auth)/login')} />
+        <Button
+          label={t('onboarding.welcome.explore')}
+          onPress={() => router.replace('/(public)/explore')}
+        />
+        <Button
+          label={t('onboarding.welcome.signIn')}
+          variant="tonal"
+          onPress={() => router.push('/(auth)/login')}
+        />
         <Button
           label={t('onboarding.welcome.register')}
-          variant="tonal"
+          variant="ghost"
           onPress={() => router.push('/(auth)/register')}
         />
       </View>

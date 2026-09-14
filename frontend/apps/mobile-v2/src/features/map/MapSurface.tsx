@@ -39,6 +39,16 @@ export interface MapSurfaceHandle {
   ) => void;
   flyTo: (target: LatLng & { zoom?: number; silent?: boolean }) => void;
   jumpTo: (target: LatLng & { zoom?: number; silent?: boolean }) => void;
+  /** Fit camera to a geographic bounding box (public Explore framing). */
+  fitBounds: (bounds: {
+    west: number;
+    south: number;
+    east: number;
+    north: number;
+    maxZoom?: number;
+    padding?: { top: number; bottom: number; left: number; right: number };
+    silent?: boolean;
+  }) => void;
   setUserLocation: (location: LatLng | null) => void;
 }
 
@@ -136,6 +146,17 @@ export const MapSurface = forwardRef<MapSurfaceHandle, MapSurfaceProps>(function
         dispatch({ op: 'setRecommendedHighlights', payload }),
       flyTo: ({ lat, lng, zoom, silent }) => dispatch({ op: 'flyTo', lat, lng, zoom, silent }),
       jumpTo: ({ lat, lng, zoom, silent }) => dispatch({ op: 'jumpTo', lat, lng, zoom, silent }),
+      fitBounds: ({ west, south, east, north, maxZoom, padding, silent }) =>
+        dispatch({
+          op: 'fitBounds',
+          west,
+          south,
+          east,
+          north,
+          maxZoom,
+          padding,
+          silent,
+        }),
       setUserLocation: (location) => dispatch({ op: 'setUserLocation', location }),
     }),
     [dispatch],

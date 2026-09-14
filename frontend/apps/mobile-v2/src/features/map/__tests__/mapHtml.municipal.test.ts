@@ -33,6 +33,11 @@ describe('buildMapHtml municipal bridge', () => {
     expect(html).toContain('muniMarkers');
   });
 
+  it('supports fitBounds for public Explore framing', () => {
+    expect(html).toContain("message.op === 'fitBounds'");
+    expect(html).toContain('fitBounds(bounds');
+  });
+
   it('posts municipalTap separately from spotTap', () => {
     expect(html).toContain("type: 'municipalTap'");
     expect(html).toContain("type: 'spotTap'");

@@ -108,6 +108,37 @@ export const geocodingKeys = {
   places: (query: string) => ['geocoding', 'places', query] as const,
 };
 
+/** Anonymous public Explore filters — separate from private municipal nearby keys. */
+export interface PublicExploreFilters {
+  lat: number;
+  lng: number;
+  radiusMeters: number;
+  limit: number;
+}
+
+export function normalizePublicExploreFilters(filters: PublicExploreFilters) {
+  return {
+    lat: filters.lat,
+    lng: filters.lng,
+    radiusMeters: filters.radiusMeters,
+    limit: filters.limit,
+  } as const;
+}
+
+/**
+ * Public Explore hierarchy (MOBILE-V2-PUBLIC-DISCOVERY-W1).
+ * Sibling of private parking municipal keys — never share the `nearby` segment.
+ */
+export const publicExploreKeys = {
+  all: ['public-explore'] as const,
+  facilitiesRoot: () => [...publicExploreKeys.all, 'facilities'] as const,
+  facilities: (filters: PublicExploreFilters) =>
+    [
+      ...publicExploreKeys.facilitiesRoot(),
+      normalizePublicExploreFilters(filters),
+    ] as const,
+};
+
 /** User-scoped places hierarchy — clear on logout / user switch with session caches. */
 export const placesKeys = {
   all: ['places'] as const,

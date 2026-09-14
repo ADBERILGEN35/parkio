@@ -122,6 +122,19 @@ export const tr = {
   'onboarding.welcome.tagline': 'Gerçek sürücülerden gerçek park zekâsı.',
   'onboarding.welcome.signIn': 'Giriş yap',
   'onboarding.welcome.register': 'Hesap oluştur',
+  'onboarding.welcome.explore': 'Haritada keşfet',
+
+  // ── Public Explore (anonymous) ────────────────────────────────────────────
+  'publicExplore.title': 'Parkio',
+  'publicExplore.subtitle': 'Yakındaki belediye otoparklarını keşfet',
+  'publicExplore.signIn': 'Giriş yap',
+  'publicExplore.summary.loading': 'Otoparklar yükleniyor…',
+  'publicExplore.summary.total': '{count} otopark',
+  'publicExplore.summary.empty': 'Bu bölgede gösterilecek belediye otoparkı yok',
+  'publicExplore.summary.error': 'Otoparklar yüklenemedi. Bağlantını kontrol et.',
+  'publicExplore.location.prompt': 'Yakınındakileri görmek için konumunu kullan',
+  'publicExplore.location.denied': 'Konum kapalı — İzmir civarı gösteriliyor',
+  'publicExplore.location.allow': 'Konumu aç',
 
   // ── Auth ─────────────────────────────────────────────────────────────────
   'auth.email': 'E-posta',
@@ -1015,6 +1028,18 @@ export const en: Record<TranslationKey, string> = {
   'onboarding.welcome.tagline': 'Parking intelligence powered by real drivers.',
   'onboarding.welcome.signIn': 'Sign in',
   'onboarding.welcome.register': 'Create account',
+  'onboarding.welcome.explore': 'Explore the map',
+
+  'publicExplore.title': 'Parkio',
+  'publicExplore.subtitle': 'Discover nearby municipal parking',
+  'publicExplore.signIn': 'Sign in',
+  'publicExplore.summary.loading': 'Loading parking…',
+  'publicExplore.summary.total': '{count} parking facilities',
+  'publicExplore.summary.empty': 'No municipal parking to show in this area',
+  'publicExplore.summary.error': 'Could not load parking. Check your connection.',
+  'publicExplore.location.prompt': 'Use your location to see what’s nearby',
+  'publicExplore.location.denied': 'Location off — showing the İzmir area',
+  'publicExplore.location.allow': 'Enable location',
 
   'auth.email': 'Email',
   'auth.emailPlaceholder': 'you@example.com',

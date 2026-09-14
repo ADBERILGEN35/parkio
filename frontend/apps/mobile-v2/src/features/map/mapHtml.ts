@@ -567,6 +567,19 @@ export function buildMapHtml(options: MapHtmlOptions): string {
             suppressMoveEvent = Boolean(message.silent);
             map.jumpTo({ center: [message.lng, message.lat], zoom: message.zoom || map.getZoom() });
           }
+          else if (message.op === 'fitBounds') {
+            suppressMoveEvent = Boolean(message.silent);
+            var pad = message.padding || { top: 80, bottom: 80, left: 48, right: 48 };
+            var bounds = new maplibregl.LngLatBounds(
+              [message.west, message.south],
+              [message.east, message.north]
+            );
+            map.fitBounds(bounds, {
+              padding: pad,
+              maxZoom: typeof message.maxZoom === 'number' ? message.maxZoom : 15,
+              duration: 700,
+            });
+          }
           else if (message.op === 'setUserLocation') setUserLocation(message.location);
         } catch (error) {
           fail('dispatch-failed');

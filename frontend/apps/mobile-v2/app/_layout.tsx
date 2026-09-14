@@ -106,6 +106,7 @@ function RootNavigator() {
         <Stack.Screen name="index" />
         <Stack.Screen name="(onboarding)" />
         <Stack.Screen name="(auth)" />
+        <Stack.Screen name="(public)" />
         <Stack.Screen name="(main)" />
       </Stack>
       {/* Floating overlay pill — rendered after the Stack so it paints on top. */}
