@@ -51,25 +51,28 @@ export function PublicExploreScreen() {
   const location = useLocation();
   const mapRef = useRef<MapSurfaceHandle>(null);
   const framedRevisionRef = useRef<string | null>(null);
-  const locatedOnceRef = useRef(false);
 
   const [mapCenter, setMapCenter] = useState<LatLng>(DEFAULT_MAP_CENTER);
   const [discoveryOrigin, setDiscoveryOrigin] = useState<LatLng>(DEFAULT_MAP_CENTER);
   const [selectedDestination, setSelectedDestination] = useState<GeocodeResult | null>(null);
+  const [gpsAdopted, setGpsAdopted] = useState(false);
   const [searchActive, setSearchActive] = useState(false);
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [mapReady, setMapReady] = useState(false);
 
   const userLocation = location.position;
+  const [prevUserLocation, setPrevUserLocation] = useState(userLocation);
 
   // Promote granted GPS into discovery origin once — never overwrite an active destination.
-  useEffect(() => {
-    if (!userLocation || locatedOnceRef.current) return;
-    if (selectedDestination) return;
-    locatedOnceRef.current = true;
-    setDiscoveryOrigin(userLocation);
-    setMapCenter(userLocation);
-  }, [userLocation, selectedDestination]);
+  // Adjust during render when location changes (React-recommended alternative to syncing effects).
+  if (userLocation !== prevUserLocation) {
+    setPrevUserLocation(userLocation);
+    if (userLocation && !gpsAdopted && !selectedDestination) {
+      setGpsAdopted(true);
+      setDiscoveryOrigin(userLocation);
+      setMapCenter(userLocation);
+    }
+  }
 
   const exploreQuery = useQuery(
     publicExploreQueryOptions({
@@ -209,7 +212,7 @@ export function PublicExploreScreen() {
     }
     // Successful locate clears destination and rediscovers around user.
     setSelectedDestination(null);
-    locatedOnceRef.current = true;
+    setGpsAdopted(true);
     applyDiscoveryOrigin(position);
     mapRef.current?.setUserLocation(position);
     mapRef.current?.flyTo({ ...position, zoom: LOCATED_ZOOM, silent: true });
