@@ -34,8 +34,7 @@ describe('Wave 3 i18n keys', () => {
 
   it('uses required TR product phrases', () => {
     expect(TR_SLICE).toContain("'Tesis detayını gör'");
-    expect(TR_SLICE).toContain("'+{count} daha'");
-    expect(TR_SLICE).not.toContain("'+{count} otopark daha'");
+    expect(TR_SLICE).toContain("'+{count} otopark daha'");
     expect(TR_SLICE).toContain("'Bu bölgede {count} topluluk park noktası var'");
     expect(TR_SLICE).toContain("'Park yeri bildir'");
     expect(TR_SLICE).toContain("'Topluluğa katkıda bulun'");
@@ -45,7 +44,10 @@ describe('Wave 3 i18n keys', () => {
     expect(TR_SLICE).toContain("'Topluluk park noktaları'");
     expect(TR_SLICE).toContain('topluluğun bildirdiği noktaları görebilirsiniz');
     expect(TR_SLICE).toContain("'Yakındaki park seçeneklerini keşfet'");
-    expect(TR_SLICE).toContain("'{count} belediye otoparkı'");
+    expect(TR_SLICE).toContain("'Konumunuza yakın {count} belediye otoparkı'");
+    expect(TR_SLICE).toContain("'Bu bölgede {count} belediye otoparkı'");
+    expect(TR_SLICE).toContain("'{count} topluluk park noktası da mevcut'");
+    expect(TR_SLICE).toContain("'Parkio ile daha fazlasını keşfedin'");
     expect(TR_SLICE).toContain("'Kayıt hakkında bilgi'");
     expect(TR_SLICE).toMatch(/Parkio.ya giriş yap/);
   });

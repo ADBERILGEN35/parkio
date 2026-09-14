@@ -35,7 +35,6 @@ import {
 } from '@/features/public-explore/fitDiscoveryFrame';
 import { PublicExploreContributeCta } from '@/features/public-explore/PublicExploreContributeCta';
 import { PublicExploreSummary } from '@/features/public-explore/PublicExploreSummary';
-import { PublicExploreTeasers } from '@/features/public-explore/PublicExploreTeasers';
 import { PublicMapSearchOverlay } from '@/features/public-explore/PublicMapSearchOverlay';
 import { toRenderablePublicFacilities } from '@/features/public-explore/renderablePublicFacilities';
 import { toMunicipalFacilityFromPublicExplore } from '@/features/public-explore/toMunicipalFacilityFromPublicExplore';
@@ -250,6 +249,10 @@ export function PublicExploreScreen() {
   const showLocationHint =
     !searchActive && (location.status === 'denied' || location.status === 'unknown');
 
+  // Truthful summary origin: never label destination/default as "near you".
+  const summaryOrigin =
+    selectedDestination == null && userLocation != null ? 'user-location' : 'area';
+
   return (
     <View style={[styles.container, { backgroundColor: theme.colors.background }]}>
       <MapSurface
@@ -297,15 +300,12 @@ export function PublicExploreScreen() {
           loading={exploreQuery.isFetching}
           error={exploreQuery.isError}
           visibleCount={markers.length}
+          origin={summaryOrigin}
+          communitySpotCountInScope={communitySpotCountInScope}
           municipalHiddenCount={municipalHiddenCount}
           onMunicipalHiddenPress={() => openAuthGate('municipal-hidden')}
-          onRetry={() => void exploreQuery.refetch()}
-        />
-
-        <PublicExploreTeasers
-          visible={showDiscoveryChrome}
-          communitySpotCountInScope={communitySpotCountInScope}
           onCommunityPress={() => openAuthGate('community-teaser')}
+          onRetry={() => void exploreQuery.refetch()}
         />
 
         <PublicExploreContributeCta

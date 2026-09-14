@@ -2,6 +2,7 @@ import type { MunicipalFacility } from '@parkio/types';
 import { fireEvent } from '@testing-library/react-native';
 import { NotFoundError } from '@parkio/api-client';
 import { renderWithProviders } from '@/test/renderWithProviders';
+import { useAuthStore } from '@/state/authStore';
 
 const mockFacilityId = '70db58f2-4cca-4010-9315-fa46b30fba1e';
 const mockMunicipalDiscovery = jest.fn(() => true);
@@ -82,6 +83,26 @@ describe('MunicipalFacilityDetailScreen', () => {
     jest.clearAllMocks();
     mockMunicipalDiscovery.mockReturnValue(true);
     mockParams.mockReturnValue({ id: mockFacilityId });
+    useAuthStore.setState({ status: 'authenticated', user: { id: 'u1' } as never });
+  });
+
+  afterEach(() => {
+    useAuthStore.setState({ status: 'anonymous', user: null });
+  });
+
+  it('redirects anonymous users to public Explore without enabling private query', () => {
+    useAuthStore.setState({ status: 'anonymous', user: null });
+    mockUseQuery.mockReturnValue({
+      data: undefined,
+      isPending: false,
+      isError: false,
+      error: null,
+      refetch: jest.fn(),
+    });
+    const { getByTestId } = renderWithProviders(<MunicipalFacilityDetailScreen />);
+    expect(getByTestId('redirect').props.children).toBe('/(public)/explore');
+    const options = mockUseQuery.mock.calls[0]?.[0] as { enabled?: boolean };
+    expect(options.enabled).toBe(false);
   });
 
   it('redirects when municipal discovery flag is off', () => {

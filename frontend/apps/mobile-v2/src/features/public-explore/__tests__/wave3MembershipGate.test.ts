@@ -3,7 +3,6 @@ import { join } from 'node:path';
 
 const ROOT = join(__dirname, '..');
 const SCREEN = readFileSync(join(ROOT, 'PublicExploreScreen.tsx'), 'utf8');
-const TEASERS = readFileSync(join(ROOT, 'PublicExploreTeasers.tsx'), 'utf8');
 const AUTH_GATE = readFileSync(
   join(__dirname, '../../auth/AuthGate.tsx'),
   'utf8',
@@ -17,14 +16,12 @@ describe('Wave 3 public membership network + privacy gates', () => {
     expect(SCREEN).toContain('parkHereEnabled={false}');
   });
 
-  it('uses server envelope fields for teasers and summary only', () => {
+  it('uses server envelope fields on contextual summary', () => {
     expect(SCREEN).toContain('municipalHiddenCount');
     expect(SCREEN).toContain('communitySpotCountInScope');
-    expect(SCREEN).toContain('PublicExploreTeasers');
     expect(SCREEN).toContain('PublicExploreSummary');
     expect(SCREEN).toContain('onMunicipalHiddenPress');
-    expect(TEASERS).toContain('communitySpotCountInScope != null');
-    expect(TEASERS).not.toContain('municipalHiddenCount');
+    expect(SCREEN).toContain('onCommunityPress');
   });
 
   it('suppresses teasers while search or preview sheet is active', () => {
@@ -35,7 +32,7 @@ describe('Wave 3 public membership network + privacy gates', () => {
 
   it('never creates anonymous community markers from aggregate', () => {
     expect(SCREEN).toContain('setSpots([])');
-    expect(TEASERS).not.toMatch(/setSpots|latitude|longitude|blue/);
+    expect(SCREEN).not.toMatch(/setSpots\(\s*\[(?!\])/);
   });
 
   it('AuthGate omits misleading signup CTA; CLOSED may link to registration info', () => {

@@ -28,12 +28,14 @@ import { useLocale, useT } from '@/i18n/LocaleProvider';
 import { describeApiError } from '@/lib/apiErrors';
 import { formatDistance, formatShortDuration } from '@/lib/time';
 import { useToast } from '@/providers/ToastProvider';
+import { useAuthStore } from '@/state/authStore';
 import { useTheme } from '@/theme/ThemeProvider';
 import { useNowTick } from '@/components/spots/FreshnessRing';
 
 /**
  * Municipal facility detail — Pencil / Living Signal.
  * Dedicated screen (not spots/[id]). Flag-off → redirect; blank id → not-found.
+ * Anonymous / non-authenticated → public Explore (no private GET).
  */
 export function MunicipalFacilityDetailScreen() {
   const theme = useTheme();
@@ -45,6 +47,7 @@ export function MunicipalFacilityDetailScreen() {
   const now = useNowTick(60_000);
   const params = useLocalSearchParams<{ id?: string | string[]; distanceMeters?: string | string[] }>();
   const { colors } = theme;
+  const authStatus = useAuthStore((s) => s.status);
 
   const facilityId = parseFacilityRouteId(
     Array.isArray(params.id) ? params.id[0] : params.id,
@@ -54,10 +57,12 @@ export function MunicipalFacilityDetailScreen() {
   );
 
   const municipalDiscovery = appConfig.features.municipalDiscovery;
+  const authenticated = authStatus === 'authenticated';
 
   const detailQuery = useQuery({
     ...municipalFacilityDetailQueryOptions(facilityId),
-    enabled: municipalDiscovery && facilityId.length > 0,
+    // Hard gate: never call private facility detail before auth.
+    enabled: authenticated && municipalDiscovery && facilityId.length > 0,
     retry: false,
   });
 
@@ -90,6 +95,22 @@ export function MunicipalFacilityDetailScreen() {
       distanceMeters,
     });
   }, [detailQuery.data, distanceMeters, t]);
+
+  if (authStatus === 'anonymous') {
+    return <Redirect href="/(public)/explore" />;
+  }
+
+  if (authStatus === 'bootstrapping' || authStatus === 'suspended') {
+    return (
+      <SafeAreaView style={[styles.safe, { backgroundColor: colors.background }]} edges={['top']}>
+        <ScreenHeader title={t('map.municipal.detail.title')} onBack={() => router.back()} />
+        <View style={styles.loading}>
+          <Skeleton height={24} width="60%" />
+          <Skeleton height={16} width="40%" />
+        </View>
+      </SafeAreaView>
+    );
+  }
 
   if (!municipalDiscovery) {
     return <Redirect href="/(main)/(tabs)/map" />;

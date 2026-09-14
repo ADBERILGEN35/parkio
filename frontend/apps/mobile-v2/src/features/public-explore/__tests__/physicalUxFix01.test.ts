@@ -7,7 +7,6 @@ const AUTH = join(__dirname, '../../auth');
 const APP_AUTH = join(__dirname, '../../../../app/(auth)');
 const SCREEN = readFileSync(join(ROOT, 'PublicExploreScreen.tsx'), 'utf8');
 const SUMMARY = readFileSync(join(ROOT, 'PublicExploreSummary.tsx'), 'utf8');
-const TEASERS = readFileSync(join(ROOT, 'PublicExploreTeasers.tsx'), 'utf8');
 const CONTRIBUTE = readFileSync(join(ROOT, 'PublicExploreContributeCta.tsx'), 'utf8');
 const LOGIN = readFileSync(join(APP_AUTH, 'login.tsx'), 'utf8');
 const REGISTER = readFileSync(join(APP_AUTH, 'register.tsx'), 'utf8');
@@ -20,23 +19,24 @@ const MAP_HTML = readFileSync(join(__dirname, '../../map/mapHtml.ts'), 'utf8');
  */
 describe('MOBILE-V2-PHYSICAL-UX-FIX-01', () => {
   it('A/B: summary uses municipal semantics and renderable visibleCount', () => {
-    expect(tr['publicExplore.summary.total']).toBe('{count} belediye otoparkı');
-    expect(en['publicExplore.summary.total']).toBe('{count} municipal parking facilities');
-    expect(SUMMARY).toContain("t('publicExplore.summary.total', { count: visibleCount })");
+    expect(tr['publicExplore.summary.nearYou']).toContain('belediye otoparkı');
+    expect(tr['publicExplore.summary.inArea']).toContain('belediye otoparkı');
+    expect(en['publicExplore.summary.nearYou']).toContain('municipal parking facilities');
+    expect(SUMMARY).toContain('publicExplore.summary.nearYou');
+    expect(SUMMARY).toContain('publicExplore.summary.inArea');
     expect(SUMMARY).not.toMatch(/municipalTotalInScope\s*[=:]/);
     expect(SCREEN).toContain('visibleCount={markers.length}');
   });
 
   it('C: hiddenCount > 0 uses compact +M on summary with separate press target', () => {
-    expect(tr['publicExplore.teaser.municipalHidden']).toBe('+{count} daha');
-    expect(en['publicExplore.teaser.municipalHidden']).toBe('+{count} more');
+    expect(tr['publicExplore.teaser.municipalHidden']).toBe('+{count} otopark daha');
+    expect(en['publicExplore.teaser.municipalHidden']).toBe('+{count} more parking facilities');
     expect(SUMMARY).toContain('municipalHiddenCount');
     expect(SUMMARY).toContain('onMunicipalHiddenPress');
     expect(SCREEN).toContain("openAuthGate('municipal-hidden')");
   });
 
-  it('D: teasers never fetch hidden municipal rows anonymously', () => {
-    expect(TEASERS).not.toMatch(/getMunicipal|facilities\/|useQuery|fetch\(/);
+  it('D: summary never fetch hidden municipal rows anonymously', () => {
     expect(SUMMARY).not.toMatch(/getMunicipal|facilities\/|useQuery|fetch\(/);
   });
 
@@ -57,7 +57,6 @@ describe('MOBILE-V2-PHYSICAL-UX-FIX-01', () => {
   it('H: anonymous community precise disclosure remains none', () => {
     expect(SCREEN).toContain('setSpots([])');
     expect(MAP_HTML).toContain('pk-muni-p');
-    expect(TEASERS).not.toMatch(/setSpots|latitude|longitude|blue/);
   });
 
   it('I/J: login title is neutral (no welcome-back assumption)', () => {

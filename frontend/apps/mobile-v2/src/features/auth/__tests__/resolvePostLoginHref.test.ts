@@ -13,10 +13,14 @@ describe('resolvePostLoginHref', () => {
     expect(resolvePostLoginHref({ intent: 'contribute' })).toBe('/(main)/share');
   });
 
-  it('falls back to map for other AuthGate intents', () => {
-    expect(resolvePostLoginHref({ intent: 'facility-detail', facilityId: 'f1' })).toBe(
-      '/(main)/(tabs)/map',
+  it('resumes facility-detail with public facility id into authenticated detail', () => {
+    expect(resolvePostLoginHref({ intent: 'facility-detail', facilityId: 'fac-1' })).toBe(
+      '/(main)/facilities/fac-1',
     );
+  });
+
+  it('falls back to map when facility-detail lacks id or for other intents', () => {
+    expect(resolvePostLoginHref({ intent: 'facility-detail' })).toBe('/(main)/(tabs)/map');
     expect(resolvePostLoginHref({ intent: 'municipal-hidden' })).toBe('/(main)/(tabs)/map');
     expect(resolvePostLoginHref({ intent: 'community-teaser' })).toBe('/(main)/(tabs)/map');
     expect(resolvePostLoginHref(null)).toBe('/(main)/(tabs)/map');
