@@ -135,6 +135,12 @@ export const tr = {
   'publicExplore.location.prompt': 'Yakınındakileri görmek için konumunu kullan',
   'publicExplore.location.denied': 'Konum kapalı — İzmir civarı gösteriliyor',
   'publicExplore.location.allow': 'Konumu aç',
+  'publicExplore.search.placeholder': 'Nereye gideceksiniz?',
+  'publicExplore.search.minLengthHint': 'En az 3 karakter yaz',
+  'publicExplore.search.noResults': 'Yer bulunamadı',
+  'publicExplore.search.rateLimited': 'Biraz bekleyip tekrar deneyin.',
+  'publicExplore.search.error': 'Arama şu an yapılamadı. Lütfen tekrar dene.',
+  'publicExplore.search.clearDestination': 'Hedefi temizle',
 
   // ── Auth ─────────────────────────────────────────────────────────────────
   'auth.email': 'E-posta',
@@ -1040,6 +1046,12 @@ export const en: Record<TranslationKey, string> = {
   'publicExplore.location.prompt': 'Use your location to see what’s nearby',
   'publicExplore.location.denied': 'Location off — showing the İzmir area',
   'publicExplore.location.allow': 'Enable location',
+  'publicExplore.search.placeholder': 'Where are you going?',
+  'publicExplore.search.minLengthHint': 'Type at least 3 characters',
+  'publicExplore.search.noResults': 'No places found',
+  'publicExplore.search.rateLimited': 'Please wait a moment and try again.',
+  'publicExplore.search.error': 'Search is unavailable right now. Please try again.',
+  'publicExplore.search.clearDestination': 'Clear destination',
 
   'auth.email': 'Email',
   'auth.emailPlaceholder': 'you@example.com',

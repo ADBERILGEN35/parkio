@@ -10,7 +10,7 @@ import {
   haversineMeters,
   type LatLng,
 } from '@parkio/geo';
-import type { MunicipalFacility } from '@parkio/types';
+import type { GeocodeResult, MunicipalFacility } from '@parkio/types';
 import { AppText } from '@/components/ui/AppText';
 import { Button } from '@/components/ui/Button';
 import { Glass } from '@/components/ui/Glass';
@@ -32,6 +32,7 @@ import {
   discoveryFrameRevision,
 } from '@/features/public-explore/fitDiscoveryFrame';
 import { PublicExploreSummary } from '@/features/public-explore/PublicExploreSummary';
+import { PublicMapSearchOverlay } from '@/features/public-explore/PublicMapSearchOverlay';
 import { toRenderablePublicFacilities } from '@/features/public-explore/renderablePublicFacilities';
 import { toMunicipalFacilityFromPublicExplore } from '@/features/public-explore/toMunicipalFacilityFromPublicExplore';
 import { selectPublicFacilityForPreview } from '@/features/public-explore/selectPublicFacilityForPreview';
@@ -39,8 +40,8 @@ import { useT } from '@/i18n/LocaleProvider';
 import { useTheme } from '@/theme/ThemeProvider';
 
 /**
- * Anonymous public Explore map — municipal facilities from
- * GET /public/explore/facilities only. Never calls private parking nearby/detail.
+ * Anonymous public Explore — municipal facilities from public explore +
+ * destination search via public geocoding. Never calls private parking/geocoding.
  */
 export function PublicExploreScreen() {
   const theme = useTheme();
@@ -54,18 +55,21 @@ export function PublicExploreScreen() {
 
   const [mapCenter, setMapCenter] = useState<LatLng>(DEFAULT_MAP_CENTER);
   const [discoveryOrigin, setDiscoveryOrigin] = useState<LatLng>(DEFAULT_MAP_CENTER);
+  const [selectedDestination, setSelectedDestination] = useState<GeocodeResult | null>(null);
+  const [searchActive, setSearchActive] = useState(false);
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [mapReady, setMapReady] = useState(false);
 
   const userLocation = location.position;
 
-  // Promote granted GPS into discovery origin once (does not track live GPS continuously).
+  // Promote granted GPS into discovery origin once — never overwrite an active destination.
   useEffect(() => {
     if (!userLocation || locatedOnceRef.current) return;
+    if (selectedDestination) return;
     locatedOnceRef.current = true;
     setDiscoveryOrigin(userLocation);
     setMapCenter(userLocation);
-  }, [userLocation]);
+  }, [userLocation, selectedDestination]);
 
   const exploreQuery = useQuery(
     publicExploreQueryOptions({
@@ -137,7 +141,20 @@ export function PublicExploreScreen() {
     mapRef.current?.setUserLocation(userLocation);
   }, [mapReady, userLocation]);
 
-  // Fit anchor + renderable municipal pins after each discovery response.
+  useEffect(() => {
+    if (!mapReady) return;
+    if (selectedDestination) {
+      mapRef.current?.setDestinationMarker({
+        lat: selectedDestination.lat,
+        lng: selectedDestination.lng,
+        label: selectedDestination.primary,
+      });
+    } else {
+      mapRef.current?.setDestinationMarker(null);
+    }
+  }, [mapReady, selectedDestination]);
+
+  // Fit discoveryOrigin (user or destination) + renderable municipal pins.
   useEffect(() => {
     if (!mapReady || exploreQuery.isFetching) return;
     if (markers.length === 0) return;
@@ -155,22 +172,48 @@ export function PublicExploreScreen() {
     mapRef.current?.fitBounds({ ...frame, silent: true });
   }, [mapReady, exploreQuery.isFetching, discoveryOrigin, markers]);
 
+  const applyDiscoveryOrigin = useCallback((origin: LatLng) => {
+    setDiscoveryOrigin(origin);
+    setMapCenter(origin);
+    framedRevisionRef.current = null;
+  }, []);
+
+  const onPickPlace = useCallback(
+    (place: GeocodeResult) => {
+      setSelectedDestination(place);
+      setSelectedId(null);
+      applyDiscoveryOrigin({ lat: place.lat, lng: place.lng });
+    },
+    [applyDiscoveryOrigin],
+  );
+
+  const onClearDestination = useCallback(() => {
+    setSelectedDestination(null);
+    const origin = userLocation ?? DEFAULT_MAP_CENTER;
+    applyDiscoveryOrigin(origin);
+    if (userLocation) {
+      mapRef.current?.flyTo({ ...userLocation, zoom: LOCATED_ZOOM, silent: true });
+    } else {
+      mapRef.current?.flyTo({ ...DEFAULT_MAP_CENTER, zoom: DEFAULT_MAP_ZOOM, silent: true });
+    }
+  }, [applyDiscoveryOrigin, userLocation]);
+
   const locate = useCallback(async () => {
     const position = (await location.request()) ?? (await location.refresh());
     if (!position) {
-      // Denial / unavailable — keep Explore usable on fallback origin.
-      setDiscoveryOrigin(DEFAULT_MAP_CENTER);
-      setMapCenter(DEFAULT_MAP_CENTER);
-      framedRevisionRef.current = null;
+      // Denial / unavailable — do not silently clear a valid destination.
+      if (selectedDestination) return;
+      applyDiscoveryOrigin(DEFAULT_MAP_CENTER);
       mapRef.current?.flyTo({ ...DEFAULT_MAP_CENTER, zoom: DEFAULT_MAP_ZOOM, silent: true });
       return;
     }
-    setDiscoveryOrigin(position);
-    setMapCenter(position);
-    framedRevisionRef.current = null;
+    // Successful locate clears destination and rediscovers around user.
+    setSelectedDestination(null);
+    locatedOnceRef.current = true;
+    applyDiscoveryOrigin(position);
     mapRef.current?.setUserLocation(position);
     mapRef.current?.flyTo({ ...position, zoom: LOCATED_ZOOM, silent: true });
-  }, [location]);
+  }, [applyDiscoveryOrigin, location, selectedDestination]);
 
   const onMunicipalTap = useCallback((id: string) => {
     setSelectedId(id);
@@ -181,7 +224,9 @@ export function PublicExploreScreen() {
   }, []);
 
   const sheetOpen = selectedFacility != null;
-  const showSummary = !sheetOpen;
+  const showSummary = !sheetOpen && !searchActive;
+  const showLocationHint =
+    !searchActive && (location.status === 'denied' || location.status === 'unknown');
 
   return (
     <View style={[styles.container, { backgroundColor: theme.colors.background }]}>
@@ -198,22 +243,32 @@ export function PublicExploreScreen() {
       />
 
       <View style={[styles.topOverlay, { top: insets.top + 8 }]} pointerEvents="box-none">
-        <Glass radius={20} style={styles.headerGlass} contentStyle={styles.headerContent}>
-          <View style={styles.headerText}>
-            <AppText variant="titleMd" accessibilityRole="header">
-              {t('publicExplore.title')}
-            </AppText>
-            <AppText variant="bodySm" color={theme.colors.onSurfaceVariant} numberOfLines={2}>
-              {t('publicExplore.subtitle')}
-            </AppText>
-          </View>
-          <Button
-            label={t('publicExplore.signIn')}
-            variant="tonal"
-            size="sm"
-            onPress={() => router.push('/(auth)/login')}
-          />
-        </Glass>
+        {!searchActive ? (
+          <Glass radius={20} style={styles.headerGlass} contentStyle={styles.headerContent}>
+            <View style={styles.headerText}>
+              <AppText variant="titleMd" accessibilityRole="header">
+                {t('publicExplore.title')}
+              </AppText>
+              <AppText variant="bodySm" color={theme.colors.onSurfaceVariant} numberOfLines={2}>
+                {t('publicExplore.subtitle')}
+              </AppText>
+            </View>
+            <Button
+              label={t('publicExplore.signIn')}
+              variant="tonal"
+              size="sm"
+              onPress={() => router.push('/(auth)/login')}
+            />
+          </Glass>
+        ) : null}
+
+        <PublicMapSearchOverlay
+          selectedDestination={selectedDestination}
+          onPickPlace={onPickPlace}
+          onClearDestination={onClearDestination}
+          onLocate={() => void locate()}
+          onSearchActiveChange={setSearchActive}
+        />
 
         <PublicExploreSummary
           visible={showSummary}
@@ -223,7 +278,7 @@ export function PublicExploreScreen() {
           onRetry={() => void exploreQuery.refetch()}
         />
 
-        {location.status === 'denied' || location.status === 'unknown' ? (
+        {showLocationHint ? (
           <Glass radius={16} style={styles.locationHint} contentStyle={styles.locationHintContent}>
             <AppText variant="bodySm" color={theme.colors.onSurfaceVariant}>
               {location.status === 'denied'
@@ -242,7 +297,7 @@ export function PublicExploreScreen() {
         ) : null}
       </View>
 
-      {!sheetOpen ? (
+      {!sheetOpen && !searchActive ? (
         <View
           style={[styles.fabColumn, { bottom: insets.bottom + 24 }]}
           pointerEvents="box-none"
@@ -262,7 +317,6 @@ export function PublicExploreScreen() {
         facility={selectedFacility}
         distanceMeters={selectedDistance}
         onClose={clearSelection}
-        // Wave 1: no private detail / park-here — preview only from public DTO.
         parkHereEnabled={false}
       />
     </View>

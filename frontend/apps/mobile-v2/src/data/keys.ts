@@ -139,6 +139,12 @@ export const publicExploreKeys = {
     ] as const,
 };
 
+/** Anonymous public geocoding — separate from private geocodingKeys.places. */
+export const publicGeocodingKeys = {
+  all: ['public-geocoding'] as const,
+  places: (query: string) => [...publicGeocodingKeys.all, 'places', query] as const,
+};
+
 /** User-scoped places hierarchy — clear on logout / user switch with session caches. */
 export const placesKeys = {
   all: ['places'] as const,

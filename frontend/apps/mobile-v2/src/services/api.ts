@@ -11,6 +11,7 @@ import {
   createParkingApi,
   createPlacesApi,
   createPublicExploreApi,
+  createPublicGeocodingApi,
   createUsersApi,
   setRefreshHandler,
 } from '@parkio/api-client';
@@ -51,6 +52,8 @@ export const moderationApi = createModerationApi(apiClient);
 export const analyticsApi = createAnalyticsApi(apiClient);
 /** Anonymous public Explore — no auth required; never fuse with private municipal nearby. */
 export const publicExploreApi = createPublicExploreApi(apiClient);
+/** Anonymous public destination search — never fuse with private /geocoding/search. */
+export const publicGeocodingApi = createPublicGeocodingApi(apiClient);
 
 /**
  * Single-flight refresh implementation. Concurrent 401s collapse into one
