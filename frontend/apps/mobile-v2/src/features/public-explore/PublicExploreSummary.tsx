@@ -1,4 +1,4 @@
-import { StyleSheet } from 'react-native';
+import { Pressable, StyleSheet, View } from 'react-native';
 import { AppText } from '@/components/ui/AppText';
 import { Glass } from '@/components/ui/Glass';
 import { useT } from '@/i18n/LocaleProvider';
@@ -10,6 +10,9 @@ export interface PublicExploreSummaryProps {
   error: boolean;
   /** Renderable marker count — never municipalTotalInScope. */
   visibleCount: number;
+  /** Server-owned municipalHiddenCount — compact +M when > 0 (auth-gated). */
+  municipalHiddenCount?: number;
+  onMunicipalHiddenPress?: () => void;
   onRetry?: () => void;
 }
 
@@ -19,6 +22,8 @@ export function PublicExploreSummary({
   loading,
   error,
   visibleCount,
+  municipalHiddenCount = 0,
+  onMunicipalHiddenPress,
   onRetry,
 }: PublicExploreSummaryProps) {
   const t = useT();
@@ -68,18 +73,48 @@ export function PublicExploreSummary({
     );
   }
 
-  const label = t('publicExplore.summary.total', { count: visibleCount });
+  const totalLabel = t('publicExplore.summary.total', { count: visibleCount });
+  const showHidden = municipalHiddenCount > 0;
+  const hiddenLabel = showHidden
+    ? t('publicExplore.teaser.municipalHidden', { count: municipalHiddenCount })
+    : null;
+  const a11yLabel = showHidden && hiddenLabel ? `${totalLabel} • ${hiddenLabel}` : totalLabel;
+
   return (
     <Glass radius={16} style={styles.host} contentStyle={styles.content}>
-      <AppText
-        variant="bodySm"
-        color={colors.onSurface}
+      <View
+        style={styles.row}
         accessibilityLiveRegion="polite"
         accessibilityRole="summary"
-        accessibilityLabel={label}
+        accessibilityLabel={a11yLabel}
       >
-        {label}
-      </AppText>
+        <AppText variant="bodySm" color={colors.onSurface}>
+          {totalLabel}
+        </AppText>
+        {showHidden && hiddenLabel ? (
+          <>
+            <AppText variant="bodySm" color={colors.onSurfaceVariant}>
+              {' • '}
+            </AppText>
+            {onMunicipalHiddenPress ? (
+              <Pressable
+                onPress={onMunicipalHiddenPress}
+                accessibilityRole="button"
+                accessibilityLabel={hiddenLabel}
+                hitSlop={8}
+              >
+                <AppText variant="bodySm" color={colors.primary}>
+                  {hiddenLabel}
+                </AppText>
+              </Pressable>
+            ) : (
+              <AppText variant="bodySm" color={colors.onSurfaceVariant}>
+                {hiddenLabel}
+              </AppText>
+            )}
+          </>
+        ) : null}
+      </View>
     </Glass>
   );
 }
@@ -87,4 +122,5 @@ export function PublicExploreSummary({
 const styles = StyleSheet.create({
   host: { alignSelf: 'stretch' },
   content: { paddingHorizontal: 12, paddingVertical: 10, gap: 6 },
+  row: { flexDirection: 'row', flexWrap: 'wrap', alignItems: 'center' },
 });

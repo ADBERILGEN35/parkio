@@ -297,14 +297,14 @@ export function PublicExploreScreen() {
           loading={exploreQuery.isFetching}
           error={exploreQuery.isError}
           visibleCount={markers.length}
+          municipalHiddenCount={municipalHiddenCount}
+          onMunicipalHiddenPress={() => openAuthGate('municipal-hidden')}
           onRetry={() => void exploreQuery.refetch()}
         />
 
         <PublicExploreTeasers
           visible={showDiscoveryChrome}
-          municipalHiddenCount={municipalHiddenCount}
           communitySpotCountInScope={communitySpotCountInScope}
-          onMunicipalHiddenPress={() => openAuthGate('municipal-hidden')}
           onCommunityPress={() => openAuthGate('community-teaser')}
         />
 

@@ -65,11 +65,24 @@ describe('MOBILE-V2-PUBLIC-DISCOVERY-W6 registration closed + public entry', () 
     expect(REGISTER).toContain('stashPendingProfile');
   });
 
-  it('AuthGate has no misleading signup CTA', () => {
-    expect(AUTHGATE).not.toContain('register');
-    expect(AUTHGATE).not.toContain('Kayıt');
+  it('AuthGate has no misleading signup CTA; CLOSED may show registration info', () => {
+    expect(AUTHGATE).not.toMatch(/Kayıt ol|Sign up|auth\.login\.registerLink/);
     expect(AUTHGATE).toContain('authGate.login');
     expect(AUTHGATE).toContain('authGate.dismiss');
+    expect(AUTHGATE).toContain('authGate.registrationAbout');
+    expect(AUTHGATE).toContain("router.push('/(auth)/register')");
+  });
+
+  it('CLOSED login shows registration-about route without signup CTA', () => {
+    expect(LOGIN).toContain('auth.login.registrationAbout');
+    expect(LOGIN).toContain("router.push('/(auth)/register')");
+    expect(tr['auth.login.registrationAbout']).toBe('Kayıt hakkında bilgi');
+    expect(en['auth.login.registrationAbout']).toBe('About registration');
+  });
+
+  it('login title is neutral (no welcome-back assumption)', () => {
+    expect(tr['auth.login.title']).toBe("Parkio'ya giriş yap");
+    expect(en['auth.login.title']).toBe('Sign in to Parkio');
   });
 
   it('welcome hides register CTA while CLOSED and removes beta chip', () => {

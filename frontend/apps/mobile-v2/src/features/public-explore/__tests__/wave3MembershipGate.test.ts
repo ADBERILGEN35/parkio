@@ -17,12 +17,14 @@ describe('Wave 3 public membership network + privacy gates', () => {
     expect(SCREEN).toContain('parkHereEnabled={false}');
   });
 
-  it('uses server envelope fields for teasers only', () => {
+  it('uses server envelope fields for teasers and summary only', () => {
     expect(SCREEN).toContain('municipalHiddenCount');
     expect(SCREEN).toContain('communitySpotCountInScope');
     expect(SCREEN).toContain('PublicExploreTeasers');
-    expect(TEASERS).toContain('municipalHiddenCount > 0');
+    expect(SCREEN).toContain('PublicExploreSummary');
+    expect(SCREEN).toContain('onMunicipalHiddenPress');
     expect(TEASERS).toContain('communitySpotCountInScope != null');
+    expect(TEASERS).not.toContain('municipalHiddenCount');
   });
 
   it('suppresses teasers while search or preview sheet is active', () => {
@@ -36,12 +38,13 @@ describe('Wave 3 public membership network + privacy gates', () => {
     expect(TEASERS).not.toMatch(/setSpots|latitude|longitude|blue/);
   });
 
-  it('AuthGate omits misleading signup CTA and routes only to login', () => {
+  it('AuthGate omits misleading signup CTA; CLOSED may link to registration info', () => {
     expect(AUTH_GATE).toContain('authGate.login');
     expect(AUTH_GATE).toContain('authGate.dismiss');
-    expect(AUTH_GATE).not.toMatch(/authGate\.register|Kayıt ol|Sign up/);
+    expect(AUTH_GATE).not.toMatch(/Kayıt ol|Sign up|auth\.login\.registerLink/);
     expect(AUTH_GATE).toContain("router.push('/(auth)/login')");
-    expect(AUTH_GATE).not.toMatch(/\/\(auth\)\/register/);
+    expect(AUTH_GATE).toContain('authGate.registrationAbout');
+    expect(AUTH_GATE).toContain("router.push('/(auth)/register')");
   });
 
   it('keeps public municipal limit at 6', () => {

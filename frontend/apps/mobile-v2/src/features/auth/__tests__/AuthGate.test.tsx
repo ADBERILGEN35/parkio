@@ -59,4 +59,16 @@ describe('AuthGate', () => {
     expect(onDismiss).toHaveBeenCalled();
     expect(mockPush).toHaveBeenCalledWith('/(auth)/login');
   });
+
+  it('CLOSED registration-about routes to register without stashing pending intent', () => {
+    const onDismiss = jest.fn();
+    const { getByText } = renderWithProviders(
+      <AuthGate visible intent="contribute" onDismiss={onDismiss} />,
+    );
+    expect(getByText('Kayıt hakkında bilgi')).toBeTruthy();
+    fireEvent.press(getByText('Kayıt hakkında bilgi'));
+    expect(peekPendingAuthGateIntent()).toBeNull();
+    expect(onDismiss).toHaveBeenCalled();
+    expect(mockPush).toHaveBeenCalledWith('/(auth)/register');
+  });
 });

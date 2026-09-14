@@ -127,7 +127,13 @@ export default function LoginScreen() {
             </AppText>
           </Link>
         </View>
-      ) : null}
+      ) : (
+        <Button
+          label={t('auth.login.registrationAbout')}
+          variant="ghost"
+          onPress={() => router.push('/(auth)/register')}
+        />
+      )}
     </AuthScreen>
   );
 }
