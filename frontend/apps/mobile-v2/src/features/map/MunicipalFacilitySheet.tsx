@@ -30,6 +30,8 @@ export interface MunicipalFacilitySheetProps {
    * When omitted, no detail CTA is rendered (avoids a dead button).
    */
   onOpenDetail?: (facilityId: string) => void;
+  /** Override detail CTA label (public Explore uses a membership-oriented string). */
+  openDetailLabel?: string;
   /** Explicit municipal Park Here when authenticated and no ACTIVE session. */
   parkHereEnabled?: boolean;
 }
@@ -45,6 +47,7 @@ export function MunicipalFacilitySheet({
   distanceMeters,
   onClose,
   onOpenDetail,
+  openDetailLabel,
   parkHereEnabled = false,
 }: MunicipalFacilitySheetProps) {
   const theme = useTheme();
@@ -291,7 +294,7 @@ export function MunicipalFacilitySheet({
 
         {onOpenDetail ? (
           <Button
-            label={t('map.municipal.openDetail')}
+            label={openDetailLabel ?? t('map.municipal.openDetail')}
             variant="ghost"
             size="md"
             icon="chevron-right"

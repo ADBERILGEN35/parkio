@@ -16,6 +16,8 @@ import { Button } from '@/components/ui/Button';
 import { Glass } from '@/components/ui/Glass';
 import { IconButton } from '@/components/ui/IconButton';
 import { publicExploreQueryOptions } from '@/data/query-options/publicExplore';
+import { AuthGate } from '@/features/auth/AuthGate';
+import type { AuthGateIntent } from '@/features/auth/authGateIntents';
 import { MapSurface, type MapSurfaceHandle } from '@/features/map/MapSurface';
 import { MunicipalFacilitySheet } from '@/features/map/MunicipalFacilitySheet';
 import { useLocation } from '@/features/map/hooks';
@@ -32,6 +34,7 @@ import {
   discoveryFrameRevision,
 } from '@/features/public-explore/fitDiscoveryFrame';
 import { PublicExploreSummary } from '@/features/public-explore/PublicExploreSummary';
+import { PublicExploreTeasers } from '@/features/public-explore/PublicExploreTeasers';
 import { PublicMapSearchOverlay } from '@/features/public-explore/PublicMapSearchOverlay';
 import { toRenderablePublicFacilities } from '@/features/public-explore/renderablePublicFacilities';
 import { toMunicipalFacilityFromPublicExplore } from '@/features/public-explore/toMunicipalFacilityFromPublicExplore';
@@ -59,6 +62,10 @@ export function PublicExploreScreen() {
   const [searchActive, setSearchActive] = useState(false);
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [mapReady, setMapReady] = useState(false);
+  const [authGate, setAuthGate] = useState<{
+    intent: AuthGateIntent;
+    facilityId?: string;
+  } | null>(null);
 
   const userLocation = location.position;
   const [prevUserLocation, setPrevUserLocation] = useState(userLocation);
@@ -83,11 +90,10 @@ export function PublicExploreScreen() {
     }),
   );
 
-  // Envelope fields retained for Wave 3 (+N / community aggregate) — not shown yet.
   const envelope = exploreQuery.data;
+  const municipalHiddenCount = envelope?.municipalHiddenCount ?? 0;
+  const communitySpotCountInScope = envelope?.communitySpotCountInScope ?? null;
   void envelope?.municipalTotalInScope;
-  void envelope?.municipalHiddenCount;
-  void envelope?.communitySpotCountInScope;
 
   const renderable = useMemo(
     () => toRenderablePublicFacilities(envelope?.facilities ?? []),
@@ -226,8 +232,20 @@ export function PublicExploreScreen() {
     setSelectedId(null);
   }, []);
 
+  const openAuthGate = useCallback((intent: AuthGateIntent, facilityId?: string) => {
+    setAuthGate(facilityId ? { intent, facilityId } : { intent });
+  }, []);
+
+  const onOpenFacilityDetailGate = useCallback(
+    (facilityId: string) => {
+      // AuthGate only — never call private facility detail anonymously.
+      openAuthGate('facility-detail', facilityId);
+    },
+    [openAuthGate],
+  );
+
   const sheetOpen = selectedFacility != null;
-  const showSummary = !sheetOpen && !searchActive;
+  const showDiscoveryChrome = !sheetOpen && !searchActive;
   const showLocationHint =
     !searchActive && (location.status === 'denied' || location.status === 'unknown');
 
@@ -274,11 +292,19 @@ export function PublicExploreScreen() {
         />
 
         <PublicExploreSummary
-          visible={showSummary}
+          visible={showDiscoveryChrome}
           loading={exploreQuery.isFetching}
           error={exploreQuery.isError}
           visibleCount={markers.length}
           onRetry={() => void exploreQuery.refetch()}
+        />
+
+        <PublicExploreTeasers
+          visible={showDiscoveryChrome}
+          municipalHiddenCount={municipalHiddenCount}
+          communitySpotCountInScope={communitySpotCountInScope}
+          onMunicipalHiddenPress={() => openAuthGate('municipal-hidden')}
+          onCommunityPress={() => openAuthGate('community-teaser')}
         />
 
         {showLocationHint ? (
@@ -321,6 +347,15 @@ export function PublicExploreScreen() {
         distanceMeters={selectedDistance}
         onClose={clearSelection}
         parkHereEnabled={false}
+        openDetailLabel={t('publicExplore.preview.viewDetails')}
+        onOpenDetail={onOpenFacilityDetailGate}
+      />
+
+      <AuthGate
+        visible={authGate != null}
+        intent={authGate?.intent ?? 'facility-detail'}
+        resume={authGate?.facilityId ? { facilityId: authGate.facilityId } : undefined}
+        onDismiss={() => setAuthGate(null)}
       />
     </View>
   );

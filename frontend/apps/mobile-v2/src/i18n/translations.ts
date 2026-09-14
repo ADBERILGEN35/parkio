@@ -141,6 +141,22 @@ export const tr = {
   'publicExplore.search.rateLimited': 'Biraz bekleyip tekrar deneyin.',
   'publicExplore.search.error': 'Arama şu an yapılamadı. Lütfen tekrar dene.',
   'publicExplore.search.clearDestination': 'Hedefi temizle',
+  'publicExplore.preview.viewDetails': 'Tesis detayını gör',
+  'publicExplore.teaser.municipalHidden': '+{count} otopark daha',
+  'publicExplore.teaser.community': 'Bu bölgede {count} topluluk park noktası var',
+  'authGate.login': 'Giriş yap',
+  'authGate.dismiss': 'Şimdi değil',
+  'authGate.facilityDetail.title': 'Tesis detayları',
+  'authGate.facilityDetail.body': 'Tesis detaylarını görmek için giriş yapın.',
+  'authGate.municipalHidden.title': 'Tüm park seçeneklerini görün',
+  'authGate.municipalHidden.body':
+    'Bölgedeki diğer park seçeneklerini görmek için giriş yapın.',
+  'authGate.community.title': 'Topluluk park noktaları',
+  'authGate.community.body':
+    'Topluluk tarafından bildirilen park noktalarını görmek için giriş yapın.',
+  'authGate.contribute.title': 'Park yeri bildir',
+  'authGate.contribute.body':
+    'Parkio topluluğuna park noktası eklemek için giriş yapın.',
 
   // ── Auth ─────────────────────────────────────────────────────────────────
   'auth.email': 'E-posta',
@@ -1052,6 +1068,19 @@ export const en: Record<TranslationKey, string> = {
   'publicExplore.search.rateLimited': 'Please wait a moment and try again.',
   'publicExplore.search.error': 'Search is unavailable right now. Please try again.',
   'publicExplore.search.clearDestination': 'Clear destination',
+  'publicExplore.preview.viewDetails': 'View facility details',
+  'publicExplore.teaser.municipalHidden': '+{count} more parking facilities',
+  'publicExplore.teaser.community': '{count} community-reported parking spots in this area',
+  'authGate.login': 'Sign in',
+  'authGate.dismiss': 'Not now',
+  'authGate.facilityDetail.title': 'Facility details',
+  'authGate.facilityDetail.body': 'Sign in to view full facility details.',
+  'authGate.municipalHidden.title': 'See every parking option',
+  'authGate.municipalHidden.body': 'Sign in to see other parking options in this area.',
+  'authGate.community.title': 'Community parking spots',
+  'authGate.community.body': 'Sign in to see community-reported parking spots.',
+  'authGate.contribute.title': 'Report a parking spot',
+  'authGate.contribute.body': 'Sign in to add a parking spot for the Parkio community.',
 
   'auth.email': 'Email',
   'auth.emailPlaceholder': 'you@example.com',
