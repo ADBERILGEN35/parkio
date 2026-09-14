@@ -249,6 +249,7 @@ export const tr = {
 
   // Municipal facility map preview (MOBILE-MUNI-V2-02)
   'map.municipal.unnamed': 'Belediye otoparkı',
+  'map.community.markerA11y': 'Topluluk park noktası',
   'map.municipal.occupancy.live': 'Canlı',
   'map.municipal.occupancy.aging': 'Canlı',
   'map.municipal.occupancy.staleLive': 'Güncel değil',
@@ -1172,6 +1173,7 @@ export const en: Record<TranslationKey, string> = {
   'map.radiusChip': '{radius} · Lv {level}',
 
   'map.municipal.unnamed': 'Municipal parking',
+  'map.community.markerA11y': 'Community parking spot',
   'map.municipal.occupancy.live': 'Live',
   'map.municipal.occupancy.aging': 'Live',
   'map.municipal.occupancy.staleLive': 'Out of date',

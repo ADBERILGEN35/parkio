@@ -30,10 +30,12 @@ function buildAccessibilityLabel(
   presented: MunicipalFacilityPresentation,
   options: MunicipalMarkerBuildOptions,
 ): string {
-  const name = presented.displayName?.trim() || options.unnamedLabel;
+  const name = presented.displayName?.trim();
+  // Product a11y: "Belediye otoparkı: {name}" (unnamedLabel carries the category phrase).
+  const title = name ? `${options.unnamedLabel}: ${name}` : options.unnamedLabel;
   const occupancy = options.occupancyLabels[presented.occupancyKind];
   const source = presented.sourceLine ?? '';
-  return [name, occupancy, source].filter((part) => part.length > 0).join(', ');
+  return [title, occupancy, source].filter((part) => part.length > 0).join(', ');
 }
 
 /**

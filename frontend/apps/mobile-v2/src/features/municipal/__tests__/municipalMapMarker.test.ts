@@ -57,6 +57,7 @@ describe('toMapMunicipalMarkers', () => {
       lat: 38.4237,
       lng: 27.1428,
     });
+    expect(marker?.accessibilityLabel).toContain('Municipal parking: Test Facility');
     expect(marker?.accessibilityLabel).toContain('Live');
     expect(marker?.accessibilityLabel).toContain('İzmir Büyükşehir Belediyesi / İZUM');
     expect(marker?.accessibilityLabel).not.toContain('izmir-izum');
@@ -97,7 +98,7 @@ describe('toMapMunicipalMarkers', () => {
     });
     const markers = toMapMunicipalMarkers([first, second], labelOptions);
     expect(markers).toHaveLength(1);
-    expect(markers[0]?.accessibilityLabel).toContain('First');
+    expect(markers[0]?.accessibilityLabel).toContain('Municipal parking: First');
   });
 
   it('keeps municipal marker ids as facility UUIDs without spot-model fields', () => {

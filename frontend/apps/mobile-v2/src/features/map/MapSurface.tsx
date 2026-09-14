@@ -115,6 +115,9 @@ export const MapSurface = forwardRef<MapSurfaceHandle, MapSurfaceProps>(function
         primary: dark ? '#4D8DFF' : '#0050CB',
         userDot: dark ? '#4D8DFF' : '#0050CB',
         userHalo: dark ? 'rgba(77,141,255,0.25)' : 'rgba(0,80,203,0.18)',
+        municipal: theme.colors.secondary,
+        municipalGlyph: dark ? '#0B1626' : '#FFFFFF',
+        communityGlyph: '#FFFFFF',
       },
     });
     // The map keeps its own camera; only a theme flip warrants a rebuild.

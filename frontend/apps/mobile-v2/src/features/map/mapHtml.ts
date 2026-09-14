@@ -6,30 +6,39 @@ import { buildRasterStyle, type LatLng } from '@parkio/geo';
  * `window.__parkio_dispatch(json)` inbound, `ReactNativeWebView.postMessage`
  * outbound.
  *
- * Design notes (pen `mob/map`): the OSM raster basemap is desaturated to the
- * calm pale look via a CSS filter (dark mode inverts to deep navy); spots are
- * DOM markers — a white pill with a live Freshness Ring + mm:ss countdown and
- * a caret, pulsing halo when selected. Result counts are level-capped (≤50),
- * so DOM markers stay cheap and pixel-match the design.
+ * Marker semantics (product language):
+ * - Municipal = GREEN P (category color; occupancy is secondary opacity)
+ * - Community = BLUE P (authenticated only; freshness ring is secondary chrome)
+ * - Destination / user location remain visually distinct
+ *
+ * Design notes (pen `mob/map`): desaturated OSM raster; DOM markers sized for
+ * mobile hit targets; selection uses scale/outline/halo without recoloring
+ * category. Result counts stay level-capped (≤50).
  */
 
 /** MapLibre GL JS version — matches the web app's dependency line. */
 const MAPLIBRE_VERSION = '4.7.1';
 
 export interface MapHtmlColors {
-  /** Freshness ramp. */
+  /** Freshness ramp (secondary chrome on community markers). */
   fresh: string;
   aging: string;
   expiring: string;
-  /** Ring track + pill chrome. */
+  /** Ring track + chrome. */
   track: string;
   pillBg: string;
   pillText: string;
   muted: string;
-  /** Selected pulse + user dot. */
+  /** Selected pulse + user dot + community category (BLUE P). */
   primary: string;
   userDot: string;
   userHalo: string;
+  /** Municipal category fill (GREEN P) — theme secondary. */
+  municipal: string;
+  /** Glyph on municipal fill (white in light, dark ink in dark). */
+  municipalGlyph: string;
+  /** Glyph on community blue fill. */
+  communityGlyph: string;
 }
 
 export interface MapHtmlOptions {
@@ -48,10 +57,12 @@ export interface MapSpotMarker {
   createdAt: string;
   /** Null while pending moderation — map markers for live spots always have a value. */
   expiresAt: string | null;
-  /** Live statuses tick the ring; others render a static muted pill. */
+  /** Live statuses tick the secondary freshness ring; others mute the ring. */
   live: boolean;
   /** Suspicious flag renders the warning glyph. */
   warning?: boolean;
+  /** Screen-reader label (authenticated community context only). */
+  accessibilityLabel?: string;
 }
 
 /**
@@ -95,23 +106,36 @@ export function buildMapHtml(options: MapHtmlOptions): string {
     .maplibregl-ctrl-bottom-left { display: none; }
 
     .pk-marker { position: relative; display: flex; flex-direction: column; align-items: center; cursor: pointer; }
-    .pk-pill {
-      display: flex; align-items: center; gap: 4px;
-      background: var(--pill-bg); color: var(--pill-text);
-      border-radius: 999px; padding: 4px 8px 4px 4px;
-      box-shadow: 0 4px 14px rgba(0,0,0,0.14);
-      font: 600 11px -apple-system, 'Inter', system-ui, sans-serif;
-      font-variant-numeric: tabular-nums;
-      white-space: nowrap;
+    /* Community = BLUE P (primary); freshness ring is secondary chrome. */
+    .pk-spot-pin {
+      position: relative;
+      width: 34px; height: 34px; border-radius: 50%;
+      display: flex; align-items: center; justify-content: center;
+      background: var(--community-accent); color: var(--community-glyph);
+      border: 2.5px solid #ffffff;
+      box-shadow: 0 4px 14px rgba(0,0,0,0.16);
+    }
+    .pk-spot-p {
+      font: 700 15px/1 -apple-system, 'Inter', system-ui, sans-serif;
+      letter-spacing: -0.02em;
+      position: relative; z-index: 1;
+    }
+    .pk-spot-ring {
+      position: absolute; inset: -5px; pointer-events: none;
+    }
+    .pk-warn {
+      position: absolute; top: -4px; right: -4px; z-index: 2;
+      font-size: 9px; line-height: 1;
+      background: var(--pill-bg); border-radius: 999px;
+      padding: 2px 3px;
+      box-shadow: 0 1px 3px rgba(0,0,0,0.18);
     }
     .pk-caret {
       width: 0; height: 0; margin-top: -1px;
       border-left: 5px solid transparent; border-right: 5px solid transparent;
-      border-top: 6px solid var(--pill-bg);
+      border-top: 6px solid var(--community-accent);
       filter: drop-shadow(0 2px 2px rgba(0,0,0,0.08));
     }
-    .pk-ring { display: block; }
-    .pk-warn { font-size: 10px; margin-left: 1px; }
     .pk-pulse, .pk-pulse::before, .pk-pulse::after { position: absolute; border-radius: 999px; pointer-events: none; }
     .pk-pulse {
       top: 50%; left: 50%; width: 64px; height: 64px; margin: -38px 0 0 -32px;
@@ -126,9 +150,15 @@ export function buildMapHtml(options: MapHtmlOptions): string {
       100% { transform: scale(1.2); opacity: 0; }
     }
     @media (prefers-reduced-motion: reduce) { .pk-pulse { animation: none; } }
-    .pk-selected .pk-pill { outline: 2px solid var(--pulse); }
-    .pk-recommended .pk-pill { box-shadow: 0 0 0 3px rgba(0, 128, 105, 0.45); }
-    .pk-recommended-top .pk-pill { box-shadow: 0 0 0 4px rgba(0, 128, 105, 0.7); }
+    .pk-selected .pk-spot-pin {
+      outline: 2px solid var(--pulse);
+      transform: scale(1.1);
+    }
+    .pk-recommended .pk-spot-pin { box-shadow: 0 0 0 3px rgba(0, 128, 105, 0.45); }
+    .pk-recommended-top .pk-spot-pin { box-shadow: 0 0 0 4px rgba(0, 128, 105, 0.7); }
+    @media (prefers-reduced-motion: reduce) {
+      .pk-selected .pk-spot-pin { transform: none; }
+    }
     .pk-dest {
       position: relative; display: flex; flex-direction: column; align-items: center;
       pointer-events: none;
@@ -169,24 +199,30 @@ export function buildMapHtml(options: MapHtmlOptions): string {
     .pk-user { width: 16px; height: 16px; border-radius: 50%; background: var(--user-dot);
       border: 3px solid #fff; box-shadow: 0 0 0 6px var(--user-halo), 0 2px 6px rgba(0,0,0,0.25); }
 
-    /* Municipal facility markers — square garage pin (not community freshness pill). */
-    .pk-muni { position: relative; display: flex; flex-direction: column; align-items: center; cursor: pointer; }
+    /* Municipal = GREEN P (category); occupancy kind only adjusts secondary opacity. */
+    .pk-muni {
+      position: relative; display: flex; flex-direction: column; align-items: center; cursor: pointer;
+      --muni-accent: ${colors.municipal};
+    }
     .pk-muni-pin {
       width: 34px; height: 34px; border-radius: 10px;
       display: flex; align-items: center; justify-content: center;
-      background: var(--pill-bg); color: var(--muni-accent);
-      border: 2px solid var(--muni-accent);
-      box-shadow: 0 4px 14px rgba(0,0,0,0.14);
+      background: var(--muni-accent); color: var(--muni-glyph);
+      border: 2.5px solid #ffffff;
+      box-shadow: 0 4px 14px rgba(0,0,0,0.16);
+    }
+    .pk-muni-p {
+      font: 700 15px/1 -apple-system, 'Inter', system-ui, sans-serif;
+      letter-spacing: -0.02em;
     }
     .pk-muni-caret {
       width: 0; height: 0; margin-top: -1px;
       border-left: 5px solid transparent; border-right: 5px solid transparent;
-      border-top: 6px solid var(--pill-bg);
+      border-top: 6px solid var(--muni-accent);
       filter: drop-shadow(0 2px 2px rgba(0,0,0,0.08));
     }
-    .pk-muni-kind-live, .pk-muni-kind-aging { --muni-accent: ${colors.fresh}; }
-    .pk-muni-kind-stale_live { --muni-accent: ${colors.aging}; }
-    .pk-muni-kind-static, .pk-muni-kind-invalid { --muni-accent: ${colors.muted}; }
+    .pk-muni-kind-stale_live { opacity: 0.88; }
+    .pk-muni-kind-static, .pk-muni-kind-invalid { opacity: 0.72; }
     .pk-muni-selected .pk-muni-pin {
       outline: 2px solid var(--pulse);
       transform: scale(1.1);
@@ -211,7 +247,7 @@ export function buildMapHtml(options: MapHtmlOptions): string {
     (function () {
       var COLORS = ${colorsJson};
       var INTERACTIVE = ${interactive ? 'true' : 'false'};
-      var RING_R = 6.5;
+      var RING_R = 15;
       var RING_C = 2 * Math.PI * RING_R;
 
       document.documentElement.style.setProperty('--pill-bg', COLORS.pillBg);
@@ -219,6 +255,9 @@ export function buildMapHtml(options: MapHtmlOptions): string {
       document.documentElement.style.setProperty('--pulse', COLORS.primary);
       document.documentElement.style.setProperty('--user-dot', COLORS.userDot);
       document.documentElement.style.setProperty('--user-halo', COLORS.userHalo);
+      document.documentElement.style.setProperty('--community-accent', COLORS.fresh);
+      document.documentElement.style.setProperty('--community-glyph', COLORS.communityGlyph);
+      document.documentElement.style.setProperty('--muni-glyph', COLORS.municipalGlyph);
 
       function post(payload) {
         if (window.ReactNativeWebView) {
@@ -260,23 +299,16 @@ export function buildMapHtml(options: MapHtmlOptions): string {
         return COLORS.expiring;
       }
 
-      function fmt(ms) {
-        var total = Math.max(0, Math.floor(ms / 1000));
-        var m = Math.floor(total / 60);
-        var s = total % 60;
-        return (m < 10 ? '0' + m : '' + m) + ':' + (s < 10 ? '0' + s : '' + s);
-      }
-
       function markerHtml(data) {
         return (
           '<div class="pk-pulse" style="display:none"></div>' +
-          '<div class="pk-pill">' +
-            '<svg class="pk-ring" width="18" height="18" viewBox="0 0 18 18">' +
-              '<circle cx="9" cy="9" r="' + RING_R + '" fill="none" stroke="' + COLORS.track + '" stroke-width="2"></circle>' +
-              '<circle class="pk-arc" cx="9" cy="9" r="' + RING_R + '" fill="none" stroke="' + COLORS.fresh + '" stroke-width="2" stroke-linecap="round" stroke-dasharray="' + RING_C + ' ' + RING_C + '" transform="rotate(-90 9 9)"></circle>' +
+          '<div class="pk-spot-pin" aria-hidden="true">' +
+            '<svg class="pk-spot-ring" width="44" height="44" viewBox="0 0 44 44">' +
+              '<circle cx="22" cy="22" r="' + RING_R + '" fill="none" stroke="' + COLORS.track + '" stroke-width="2.5"></circle>' +
+              '<circle class="pk-arc" cx="22" cy="22" r="' + RING_R + '" fill="none" stroke="' + COLORS.fresh + '" stroke-width="2.5" stroke-linecap="round" stroke-dasharray="' + RING_C + ' ' + RING_C + '" transform="rotate(-90 22 22)"></circle>' +
             '</svg>' +
+            '<span class="pk-spot-p">P</span>' +
             (data.warning ? '<span class="pk-warn">⚠︎</span>' : '') +
-            '<span class="pk-time">--:--</span>' +
           '</div>' +
           '<div class="pk-caret"></div>'
         );
@@ -285,10 +317,9 @@ export function buildMapHtml(options: MapHtmlOptions): string {
       function updateMarkerEl(entry, now) {
         var data = entry.data;
         var el = entry.el;
-        var timeEl = el.querySelector('.pk-time');
         var arcEl = el.querySelector('.pk-arc');
+        if (!arcEl) return;
         if (!data.live || !data.expiresAt) {
-          timeEl.textContent = '—';
           arcEl.setAttribute('stroke', COLORS.muted);
           arcEl.setAttribute('stroke-dashoffset', String(RING_C * 0.25));
           return;
@@ -302,9 +333,7 @@ export function buildMapHtml(options: MapHtmlOptions): string {
         }
         el.style.display = '';
         var fraction = Math.max(0, Math.min(1, remaining / Math.max(1, expires - created)));
-        timeEl.textContent = fmt(remaining);
         var color = freshColor(fraction);
-        timeEl.style.color = color;
         arcEl.setAttribute('stroke', color);
         arcEl.setAttribute('stroke-dashoffset', String(RING_C * (1 - fraction)));
       }
@@ -318,6 +347,10 @@ export function buildMapHtml(options: MapHtmlOptions): string {
             var el = document.createElement('div');
             el.className = 'pk-marker';
             el.innerHTML = markerHtml(data);
+            if (typeof data.accessibilityLabel === 'string' && data.accessibilityLabel) {
+              el.setAttribute('role', 'button');
+              el.setAttribute('aria-label', data.accessibilityLabel);
+            }
             if (INTERACTIVE) {
               el.addEventListener('click', function (event) {
                 event.stopPropagation();
@@ -331,6 +364,9 @@ export function buildMapHtml(options: MapHtmlOptions): string {
           } else {
             entry.data = data;
             entry.marker.setLngLat([data.lng, data.lat]);
+            if (typeof data.accessibilityLabel === 'string' && data.accessibilityLabel) {
+              entry.el.setAttribute('aria-label', data.accessibilityLabel);
+            }
           }
           updateMarkerEl(entry, Date.now());
         });
@@ -452,9 +488,7 @@ export function buildMapHtml(options: MapHtmlOptions): string {
         return (
           '<div class="pk-muni-pulse"></div>' +
           '<div class="pk-muni-pin pk-muni-kind-' + muniKindClass(kind) + '" aria-hidden="true">' +
-            '<svg width="18" height="18" viewBox="0 0 24 24" focusable="false">' +
-              '<path fill="currentColor" d="M13 3H6v18h4v-6h3c3.31 0 6-2.69 6-6s-2.69-6-6-6zm.2 8H10V7h3.2c1.1 0 2 .9 2 2s-.9 2-2 2z"/>' +
-            '</svg>' +
+            '<span class="pk-muni-p">P</span>' +
           '</div>' +
           '<div class="pk-muni-caret"></div>'
         );

@@ -214,9 +214,10 @@ export default function MapScreen() {
       expiresAt: spot.expiresAt,
       live: isLiveStatus(spot.status),
       warning: spot.status === 'SUSPICIOUS',
+      accessibilityLabel: t('map.community.markerA11y'),
     }));
     mapRef.current?.setSpots(markers);
-  }, [spots]);
+  }, [spots, t]);
 
   useEffect(() => {
     if (!municipalDiscovery) {
