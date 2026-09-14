@@ -9,7 +9,12 @@ import { TextField } from '@/components/ui/TextField';
 import { AuthScreen } from '@/features/auth/AuthScreen';
 import { applyPendingProfile } from '@/features/auth/pendingProfile';
 import { consumePendingAuthGateIntent } from '@/features/auth/authGateIntents';
+import { escapeToPublicExplore } from '@/features/auth/escapeToPublicExplore';
 import { resolvePostLoginHref } from '@/features/auth/resolvePostLoginHref';
+import {
+  isRegistrationSignupAllowed,
+  useRegistrationMode,
+} from '@/features/auth/useRegistrationMode';
 import { useLocale, useT } from '@/i18n/LocaleProvider';
 import { describeApiError } from '@/lib/apiErrors';
 import { authApi } from '@/services/api';
@@ -23,6 +28,8 @@ export default function LoginScreen() {
   const { locale } = useLocale();
   const router = useRouter();
   const toast = useToast();
+  const registrationMode = useRegistrationMode();
+  const signupAllowed = isRegistrationSignupAllowed(registrationMode);
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [submitting, setSubmitting] = useState(false);
@@ -104,16 +111,23 @@ export default function LoginScreen() {
         </Link>
       </View>
       <Button label={t('auth.login.cta')} onPress={submit} loading={submitting} />
-      <View style={styles.footerRow}>
-        <AppText variant="bodyMd" color={theme.colors.onSurfaceVariant}>
-          {t('auth.login.noAccount')}{' '}
-        </AppText>
-        <Link href="/(auth)/register" replace asChild>
-          <AppText variant="bodyMd" color={theme.colors.primary}>
-            {t('auth.login.registerLink')}
+      <Button
+        label={t('auth.login.exploreWithoutAccount')}
+        variant="ghost"
+        onPress={() => escapeToPublicExplore(router)}
+      />
+      {signupAllowed ? (
+        <View style={styles.footerRow}>
+          <AppText variant="bodyMd" color={theme.colors.onSurfaceVariant}>
+            {t('auth.login.noAccount')}{' '}
           </AppText>
-        </Link>
-      </View>
+          <Link href="/(auth)/register" replace asChild>
+            <AppText variant="bodyMd" color={theme.colors.primary}>
+              {t('auth.login.registerLink')}
+            </AppText>
+          </Link>
+        </View>
+      ) : null}
     </AuthScreen>
   );
 }

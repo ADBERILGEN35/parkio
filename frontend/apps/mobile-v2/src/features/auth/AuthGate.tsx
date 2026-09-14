@@ -19,7 +19,8 @@ export interface AuthGateProps {
 
 /**
  * Native mobile AuthGate — sign-in primary, dismiss tertiary.
- * Registration CTA omitted until registration mode is verified OPEN (Wave 6).
+ * No signup CTA while registration mode is CLOSED (Wave 6).
+ * Optional "learn about registration" omitted — login + dismiss stays cleaner on mobile.
  */
 export function AuthGate({ visible, intent, resume, onDismiss }: AuthGateProps) {
   const t = useT();
