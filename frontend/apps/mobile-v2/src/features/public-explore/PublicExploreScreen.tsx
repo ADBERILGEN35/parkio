@@ -33,6 +33,7 @@ import {
   buildFitDiscoveryFrame,
   discoveryFrameRevision,
 } from '@/features/public-explore/fitDiscoveryFrame';
+import { PublicExploreContributeCta } from '@/features/public-explore/PublicExploreContributeCta';
 import { PublicExploreSummary } from '@/features/public-explore/PublicExploreSummary';
 import { PublicExploreTeasers } from '@/features/public-explore/PublicExploreTeasers';
 import { PublicMapSearchOverlay } from '@/features/public-explore/PublicMapSearchOverlay';
@@ -305,6 +306,11 @@ export function PublicExploreScreen() {
           communitySpotCountInScope={communitySpotCountInScope}
           onMunicipalHiddenPress={() => openAuthGate('municipal-hidden')}
           onCommunityPress={() => openAuthGate('community-teaser')}
+        />
+
+        <PublicExploreContributeCta
+          visible={showDiscoveryChrome}
+          onPress={() => openAuthGate('contribute')}
         />
 
         {showLocationHint ? (

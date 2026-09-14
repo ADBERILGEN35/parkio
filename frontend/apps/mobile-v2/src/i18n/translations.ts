@@ -144,6 +144,8 @@ export const tr = {
   'publicExplore.preview.viewDetails': 'Tesis detayını gör',
   'publicExplore.teaser.municipalHidden': '+{count} otopark daha',
   'publicExplore.teaser.community': 'Bu bölgede {count} topluluk park noktası var',
+  'publicExplore.contribute.cta': 'Park yeri bildir',
+  'publicExplore.contribute.support': 'Topluluğa katkıda bulun',
   'authGate.login': 'Giriş yap',
   'authGate.dismiss': 'Şimdi değil',
   'authGate.facilityDetail.title': 'Tesis detayları',
@@ -156,7 +158,7 @@ export const tr = {
     'Topluluk tarafından bildirilen park noktalarını görmek için giriş yapın.',
   'authGate.contribute.title': 'Park yeri bildir',
   'authGate.contribute.body':
-    'Parkio topluluğuna park noktası eklemek için giriş yapın.',
+    'Parkio topluluğuna yeni park noktaları ekleyebilir ve topluluğun bildirdiği noktaları görebilirsiniz. Devam etmek için giriş yapın.',
 
   // ── Auth ─────────────────────────────────────────────────────────────────
   'auth.email': 'E-posta',
@@ -1071,6 +1073,8 @@ export const en: Record<TranslationKey, string> = {
   'publicExplore.preview.viewDetails': 'View facility details',
   'publicExplore.teaser.municipalHidden': '+{count} more parking facilities',
   'publicExplore.teaser.community': '{count} community-reported parking spots in this area',
+  'publicExplore.contribute.cta': 'Report a parking spot',
+  'publicExplore.contribute.support': 'Contribute to the community',
   'authGate.login': 'Sign in',
   'authGate.dismiss': 'Not now',
   'authGate.facilityDetail.title': 'Facility details',
@@ -1080,7 +1084,8 @@ export const en: Record<TranslationKey, string> = {
   'authGate.community.title': 'Community parking spots',
   'authGate.community.body': 'Sign in to see community-reported parking spots.',
   'authGate.contribute.title': 'Report a parking spot',
-  'authGate.contribute.body': 'Sign in to add a parking spot for the Parkio community.',
+  'authGate.contribute.body':
+    'You can add new parking spots for the Parkio community and see spots others report. Sign in to continue.',
 
   'auth.email': 'Email',
   'auth.emailPlaceholder': 'you@example.com',

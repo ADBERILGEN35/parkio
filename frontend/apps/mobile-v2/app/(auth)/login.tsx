@@ -8,6 +8,8 @@ import { Button } from '@/components/ui/Button';
 import { TextField } from '@/components/ui/TextField';
 import { AuthScreen } from '@/features/auth/AuthScreen';
 import { applyPendingProfile } from '@/features/auth/pendingProfile';
+import { consumePendingAuthGateIntent } from '@/features/auth/authGateIntents';
+import { resolvePostLoginHref } from '@/features/auth/resolvePostLoginHref';
 import { useLocale, useT } from '@/i18n/LocaleProvider';
 import { describeApiError } from '@/lib/apiErrors';
 import { authApi } from '@/services/api';
@@ -40,7 +42,8 @@ export default function LoginScreen() {
       const response = await authApi.login(parsed.data);
       adoptSession(response);
       void applyPendingProfile(response.user.email);
-      router.replace('/(main)/(tabs)/map');
+      const pending = consumePendingAuthGateIntent();
+      router.replace(resolvePostLoginHref(pending));
     } catch (raw) {
       if (raw instanceof AccountNotVerifiedError) {
         setNotVerified(true);

@@ -11,6 +11,8 @@ describe('Wave 3 i18n keys', () => {
     'publicExplore.preview.viewDetails',
     'publicExplore.teaser.municipalHidden',
     'publicExplore.teaser.community',
+    'publicExplore.contribute.cta',
+    'publicExplore.contribute.support',
     'authGate.login',
     'authGate.dismiss',
     'authGate.facilityDetail.title',
@@ -19,6 +21,8 @@ describe('Wave 3 i18n keys', () => {
     'authGate.municipalHidden.body',
     'authGate.community.title',
     'authGate.community.body',
+    'authGate.contribute.title',
+    'authGate.contribute.body',
   ];
 
   it('defines TR and EN membership copy keys', () => {
@@ -32,9 +36,12 @@ describe('Wave 3 i18n keys', () => {
     expect(TR_SLICE).toContain("'Tesis detayını gör'");
     expect(TR_SLICE).toContain("'+{count} otopark daha'");
     expect(TR_SLICE).toContain("'Bu bölgede {count} topluluk park noktası var'");
+    expect(TR_SLICE).toContain("'Park yeri bildir'");
+    expect(TR_SLICE).toContain("'Topluluğa katkıda bulun'");
     expect(TR_SLICE).toContain("'Giriş yap'");
     expect(TR_SLICE).toContain("'Şimdi değil'");
     expect(TR_SLICE).toContain("'Tüm park seçeneklerini görün'");
     expect(TR_SLICE).toContain("'Topluluk park noktaları'");
+    expect(TR_SLICE).toContain('topluluğun bildirdiği noktaları görebilirsiniz');
   });
 });
