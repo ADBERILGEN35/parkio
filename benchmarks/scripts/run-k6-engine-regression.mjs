@@ -42,6 +42,12 @@ function mountPath(hostPath) {
 function runK6OnNetwork({ network, scriptRel, baseUrl, summaryPath, withCredentials = true, extraEnv = {} }) {
   const outDir = path.dirname(summaryPath);
   fs.mkdirSync(outDir, { recursive: true });
+  // grafana/k6 runs as UID 12345; only this disposable out dir needs write access.
+  try {
+    fs.chmodSync(outDir, 0o777);
+  } catch {
+    // Best-effort on platforms that ignore chmod.
+  }
   const hostSummary = path.join(outDir, 'summary.json');
   if (fs.existsSync(hostSummary)) fs.unlinkSync(hostSummary);
 
