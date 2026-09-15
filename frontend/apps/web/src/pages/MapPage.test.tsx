@@ -797,9 +797,9 @@ describe('MapPage Parking Session (ACTIVE restore)', () => {
 
     act(() => {
       resetAuth(runtime);
-      // Production mounts SessionQueryCacheSync; mirror logout teardown here.
-      clearUserSessionQueries(queryClient);
     });
+    // Production mounts SessionQueryCacheSync; mirror logout teardown here.
+    await clearUserSessionQueries(queryClient);
 
     await waitFor(() => {
       expect(screen.queryByTestId('active-parking-session-card')).not.toBeInTheDocument();
@@ -1084,8 +1084,8 @@ describe('MapPage municipal discovery (WEB-MUNI-01)', () => {
     stubGeolocation(undefined);
   });
 
-  afterEach(() => {
-    clearUserSessionQueries(runtime.queryClient);
+  afterEach(async () => {
+    await clearUserSessionQueries(runtime.queryClient);
     resetAuth(runtime);
     restoreGeolocation();
   });
@@ -1297,8 +1297,8 @@ describe('MapPage dual-inventory layer visibility (WEB-MUNI-05)', () => {
     stubGeolocation(undefined);
   });
 
-  afterEach(() => {
-    clearUserSessionQueries(runtime.queryClient);
+  afterEach(async () => {
+    await clearUserSessionQueries(runtime.queryClient);
     resetAuth(runtime);
     restoreGeolocation();
     window.history.replaceState(null, '', '/');
@@ -1731,8 +1731,8 @@ describe('MapPage dual-inventory empty chrome (WEB-MUNI-06)', () => {
     stubGeolocation(undefined);
   });
 
-  afterEach(() => {
-    clearUserSessionQueries(runtime.queryClient);
+  afterEach(async () => {
+    await clearUserSessionQueries(runtime.queryClient);
     resetAuth(runtime);
     restoreGeolocation();
   });

@@ -19,7 +19,7 @@ import { openGoogleMapsDirections } from '@/features/municipal/googleMapsDirecti
 import { useLocale, useT } from '@/i18n/LocaleProvider';
 import { describeApiError } from '@/lib/apiErrors';
 import { authApi } from '@/services/api';
-import { adoptSession } from '@/services/auth';
+import { adoptSession, SessionPersistenceFailure } from '@/services/auth';
 import { useTheme } from '@/theme/ThemeProvider';
 import { useToast } from '@/providers/ToastProvider';
 
@@ -48,7 +48,7 @@ export default function LoginScreen() {
     setNotVerified(false);
     try {
       const response = await authApi.login(parsed.data);
-      adoptSession(response);
+      await adoptSession(response);
       void applyPendingProfile(response.user.email);
       const pending = consumePendingAuthGateIntent();
       if (pending?.intent === 'google-maps') {
@@ -62,6 +62,8 @@ export default function LoginScreen() {
       if (raw instanceof AccountNotVerifiedError) {
         setNotVerified(true);
         setError({ message: t('auth.login.notVerified'), traceId: null });
+      } else if (raw instanceof SessionPersistenceFailure) {
+        setError({ message: t('auth.login.persistenceFailed'), traceId: null });
       } else {
         setError(describeApiError(raw, t));
       }

@@ -55,6 +55,8 @@ export const parkingKeys = {
   nearbyRoot: () => [...parkingKeys.all, 'nearby'] as const,
   mySpots: () => [...parkingKeys.all, 'my-spots'] as const,
   spot: (spotId: string) => [...parkingKeys.all, 'spot', spotId] as const,
+  /** Prefix covering spot detail + nested media-access-url. */
+  spotRoot: () => [...parkingKeys.all, 'spot'] as const,
   spotMediaAccessUrl: (spotId: string) =>
     [...parkingKeys.spot(spotId), 'media-access-url'] as const,
   /**
@@ -105,7 +107,8 @@ export const gamificationKeys = {
 };
 
 export const geocodingKeys = {
-  places: (query: string) => ['geocoding', 'places', query] as const,
+  all: ['geocoding'] as const,
+  places: (query: string) => [...geocodingKeys.all, 'places', query] as const,
 };
 
 /** Anonymous public Explore filters — separate from private municipal nearby keys. */

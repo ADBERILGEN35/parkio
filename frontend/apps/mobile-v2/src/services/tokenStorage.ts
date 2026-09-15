@@ -1,58 +1,173 @@
 import type { StoredTokens, TokenStorage } from '@parkio/api-client';
-import { secureStore } from './secureStore';
+import {
+  PersistenceError,
+  beginTerminalPersistenceGeneration,
+  getSecureStoreGeneration,
+  secureStore,
+  type PersistedSessionRecord,
+} from './secureStore';
+
+export type TokenPersistenceResult =
+  | { ok: true; record: PersistedSessionRecord }
+  | { ok: false; error: PersistenceError };
 
 /**
- * Mobile {@link TokenStorage}.
+ * Mobile {@link TokenStorage} with durable SecureStore coordination (PA-03).
  *
- * The shared api-client reads the access token *synchronously* inside its
- * request interceptor, but the secure keystore is *asynchronous*. Bridge:
- * both tokens are kept in memory (the synchronous source of truth) and every
- * write is mirrored to `expo-secure-store`. {@link hydrate} reloads the
- * in-memory cache on cold start so a returning user can be refreshed before
- * the first network call.
- *
- * Unlike web (HttpOnly cookie), native clients hold the raw refresh token:
- * the backend returns it in the login/refresh body for
- * `X-Parkio-Client: mobile` requests and we replay it in refresh/logout
- * bodies. It lives ONLY in the keystore and this cache.
+ * Memory remains the synchronous interceptor source of truth AFTER a durable
+ * write succeeds. Terminal logout clears memory immediately and invalidates
+ * the persistence generation so late saves cannot resurrect the session.
  */
 class SecureTokenStorage implements TokenStorage {
   private accessToken: string | null = null;
   private refreshToken: string | null = null;
+  private userId: string | null = null;
+  private lastError: PersistenceError | null = null;
 
-  /** Synchronous — used by the api-client request interceptor on every call. */
   getAccessToken(): string | null {
     return this.accessToken;
   }
 
-  /** Synchronous — read by the refresh handler to build the request body. */
   getRefreshToken(): string | null {
     return this.refreshToken;
   }
 
+  getUserId(): string | null {
+    return this.userId;
+  }
+
+  getLastPersistenceError(): PersistenceError | null {
+    return this.lastError;
+  }
+
+  /**
+   * Synchronous memory update used only after durable persist, or for
+   * interceptor-safe clears. Prefer {@link persistSession} / {@link clearDurable}.
+   */
   setTokens(tokens: StoredTokens): void {
     this.accessToken = tokens.accessToken;
     if (tokens.refreshToken !== undefined) {
       this.refreshToken = tokens.refreshToken ?? null;
     }
-    // Fire-and-forget mirror to the keystore; in-memory stays authoritative.
-    void secureStore.saveSession({
-      accessToken: tokens.accessToken,
-      ...(tokens.refreshToken !== undefined ? { refreshToken: tokens.refreshToken } : {}),
-    });
   }
 
   clearTokens(): void {
+    beginTerminalPersistenceGeneration();
     this.accessToken = null;
     this.refreshToken = null;
-    void secureStore.clearSession();
+    this.userId = null;
+    void secureStore.clearSession({ bumpGeneration: false }).catch((error) => {
+      this.lastError =
+        error instanceof PersistenceError
+          ? error
+          : new PersistenceError('delete_failed');
+    });
   }
 
-  /** Cold-start restore from the keystore into the synchronous cache. */
+  /**
+   * Durable persist then adopt into memory. Fails closed on storage errors /
+   * stale generation. Pass {@link expectedGeneration} captured before any
+   * network work so a logout during refresh cannot resurrect the session.
+   */
+  async persistSession(input: {
+    accessToken: string;
+    refreshToken: string;
+    userId?: string | null;
+    accessTokenExpiresAt?: number | null;
+    expectedGeneration?: number;
+  }): Promise<TokenPersistenceResult> {
+    const expectedGeneration = input.expectedGeneration ?? getSecureStoreGeneration();
+    if (expectedGeneration !== getSecureStoreGeneration()) {
+      this.accessToken = null;
+      this.refreshToken = null;
+      this.userId = null;
+      const error = new PersistenceError('stale_generation');
+      this.lastError = error;
+      return { ok: false, error };
+    }
+    try {
+      const record = await secureStore.saveSession(
+        {
+          accessToken: input.accessToken,
+          refreshToken: input.refreshToken,
+          userId: input.userId ?? this.userId,
+          accessTokenExpiresAt: input.accessTokenExpiresAt ?? null,
+        },
+        { expectedGeneration },
+      );
+      if (getSecureStoreGeneration() !== expectedGeneration) {
+        this.accessToken = null;
+        this.refreshToken = null;
+        this.userId = null;
+        await secureStore.clearSession();
+        const error = new PersistenceError('stale_generation');
+        this.lastError = error;
+        return { ok: false, error };
+      }
+      this.accessToken = record.accessToken;
+      this.refreshToken = record.refreshToken;
+      this.userId = record.userId;
+      this.lastError = null;
+      return { ok: true, record };
+    } catch (error) {
+      const persistenceError =
+        error instanceof PersistenceError
+          ? error
+          : new PersistenceError('storage_unavailable');
+      this.lastError = persistenceError;
+      this.accessToken = null;
+      this.refreshToken = null;
+      this.userId = null;
+      return { ok: false, error: persistenceError };
+    }
+  }
+
+  /**
+   * Terminal local logout: invalidate writers, clear memory, await durable clear.
+   */
+  async clearDurable(): Promise<{ ok: true } | { ok: false; error: PersistenceError }> {
+    beginTerminalPersistenceGeneration();
+    this.accessToken = null;
+    this.refreshToken = null;
+    this.userId = null;
+    try {
+      await secureStore.clearSession({ bumpGeneration: false });
+      this.lastError = null;
+      return { ok: true };
+    } catch (error) {
+      const persistenceError =
+        error instanceof PersistenceError
+          ? error
+          : new PersistenceError('delete_failed');
+      this.lastError = persistenceError;
+      return { ok: false, error: persistenceError };
+    }
+  }
+
+  /** Cold-start restore from the authoritative record (with legacy migration). */
   async hydrate(): Promise<void> {
-    const session = await secureStore.loadSession();
-    this.accessToken = session.accessToken;
-    this.refreshToken = session.refreshToken;
+    try {
+      const session = await secureStore.loadSession();
+      if (!session) {
+        this.accessToken = null;
+        this.refreshToken = null;
+        this.userId = null;
+        return;
+      }
+      this.accessToken = session.accessToken;
+      this.refreshToken = session.refreshToken;
+      this.userId = session.userId;
+      this.lastError = null;
+    } catch (error) {
+      this.lastError =
+        error instanceof PersistenceError
+          ? error
+          : new PersistenceError('storage_unavailable');
+      this.accessToken = null;
+      this.refreshToken = null;
+      this.userId = null;
+      await secureStore.clearSession().catch(() => undefined);
+    }
   }
 }
 

@@ -42,6 +42,8 @@ export const parkingKeys = {
     [...parkingKeys.all, 'municipal-facility', facilityId] as const,
   mySpots: () => [...parkingKeys.all, 'my-spots'] as const,
   spot: (spotId: string) => [...parkingKeys.all, 'spot', spotId] as const,
+  /** Prefix covering spot detail + nested media-access-url. */
+  spotRoot: () => [...parkingKeys.all, 'spot'] as const,
   spotMediaAccessUrl: (spotId: string) =>
     [...parkingKeys.spot(spotId), 'media-access-url'] as const,
   /** User-scoped ParkingSession hierarchy (precise coordinates — cleared on logout). */
