@@ -1,17 +1,13 @@
 import { useCallback, useEffect, useMemo, useRef } from 'react';
-import { Platform, StyleSheet, View } from 'react-native';
+import { StyleSheet, View } from 'react-native';
 import BottomSheet, { BottomSheetScrollView } from '@gorhom/bottom-sheet';
 import { MaterialCommunityIcons } from '@expo/vector-icons';
-import * as Linking from 'expo-linking';
 import type { MunicipalFacility } from '@parkio/types';
 import { AppText } from '@/components/ui/AppText';
 import { Badge } from '@/components/ui/Badge';
 import { Button } from '@/components/ui/Button';
 import { presentMunicipalFacility } from '@/features/municipal/presentMunicipalFacility';
-import {
-  buildParkingMapsHttpsUrl,
-  buildParkingNavigationUrl,
-} from '@/features/parking/parkingLocationLinks';
+import { openGoogleMapsDirections } from '@/features/municipal/googleMapsDirections';
 import { useParkHereAtTarget } from '@/features/parking/useParkHereAtTarget';
 import { municipalParkTarget } from '@parkio/validation';
 import { useLocale, useT } from '@/i18n/LocaleProvider';
@@ -32,6 +28,13 @@ export interface MunicipalFacilitySheetProps {
   onOpenDetail?: (facilityId: string) => void;
   /** Override detail CTA label (public Explore uses a membership-oriented string). */
   openDetailLabel?: string;
+  /**
+   * Anonymous Explore: Google Maps action must AuthGate instead of Linking.openURL.
+   * When set, external maps never open before authentication.
+   */
+  onRequireAuthForGoogleMaps?: (
+    facility: Pick<MunicipalFacility, 'id' | 'latitude' | 'longitude'>,
+  ) => void;
   /** Explicit municipal Park Here when authenticated and no ACTIVE session. */
   parkHereEnabled?: boolean;
 }
@@ -48,6 +51,7 @@ export function MunicipalFacilitySheet({
   onClose,
   onOpenDetail,
   openDetailLabel,
+  onRequireAuthForGoogleMaps,
   parkHereEnabled = false,
 }: MunicipalFacilitySheetProps) {
   const theme = useTheme();
@@ -75,27 +79,22 @@ export function MunicipalFacilitySheet({
     [onClose],
   );
 
-  const openInMaps = useCallback(async () => {
+  const openInGoogleMaps = useCallback(async () => {
     if (!facility) return;
-    const label = facility.displayName?.trim() || t('map.municipal.unnamed');
-    const platform =
-      Platform.OS === 'ios' ? 'ios' : Platform.OS === 'android' ? 'android' : 'default';
+    if (onRequireAuthForGoogleMaps) {
+      onRequireAuthForGoogleMaps({
+        id: facility.id,
+        latitude: facility.latitude,
+        longitude: facility.longitude,
+      });
+      return;
+    }
     trackNavigationStarted('MUNICIPAL_FACILITY');
-    try {
-      const primary = buildParkingNavigationUrl(
-        facility.latitude,
-        facility.longitude,
-        platform,
-        label,
-      );
-      const canOpen = await Linking.canOpenURL(primary);
-      await Linking.openURL(
-        canOpen ? primary : buildParkingMapsHttpsUrl(facility.latitude, facility.longitude),
-      );
-    } catch {
+    const result = await openGoogleMapsDirections(facility.latitude, facility.longitude);
+    if (result !== 'opened') {
       toast.show(t('map.municipal.openInMapsFailed'), 'error');
     }
-  }, [facility, t, toast]);
+  }, [facility, onRequireAuthForGoogleMaps, t, toast]);
 
   const onParkHere = useCallback(async () => {
     if (!facility) return;
@@ -288,7 +287,7 @@ export function MunicipalFacilitySheet({
           variant="tonal"
           size="md"
           icon="map-outline"
-          onPress={() => void openInMaps()}
+          onPress={() => void openInGoogleMaps()}
           accessibilityHint={t('map.municipal.openInMapsHint')}
         />
 

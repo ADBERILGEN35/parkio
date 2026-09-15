@@ -1,10 +1,9 @@
 import { useCallback, useMemo } from 'react';
-import { Platform, ScrollView, StyleSheet, View } from 'react-native';
+import { ScrollView, StyleSheet, View } from 'react-native';
 import { Redirect, useLocalSearchParams, useRouter } from 'expo-router';
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useQuery } from '@tanstack/react-query';
 import { MaterialCommunityIcons } from '@expo/vector-icons';
-import * as Linking from 'expo-linking';
 import { NotFoundError, isParkioApiError } from '@parkio/api-client';
 import { appConfig } from '@/config/env';
 import { AppText } from '@/components/ui/AppText';
@@ -20,10 +19,7 @@ import {
   parseFacilityRouteId,
   parseOptionalDistanceMeters,
 } from '@/features/municipal/municipalFacilityDetailFields';
-import {
-  buildParkingMapsHttpsUrl,
-  buildParkingNavigationUrl,
-} from '@/features/parking/parkingLocationLinks';
+import { openGoogleMapsDirections } from '@/features/municipal/googleMapsDirections';
 import { useLocale, useT } from '@/i18n/LocaleProvider';
 import { describeApiError } from '@/lib/apiErrors';
 import { formatDistance, formatShortDuration } from '@/lib/time';
@@ -66,24 +62,11 @@ export function MunicipalFacilityDetailScreen() {
     retry: false,
   });
 
-  const openInMaps = useCallback(async () => {
+  const openInGoogleMaps = useCallback(async () => {
     const facility = detailQuery.data;
     if (!facility) return;
-    const label = facility.displayName?.trim() || t('map.municipal.unnamed');
-    const platform =
-      Platform.OS === 'ios' ? 'ios' : Platform.OS === 'android' ? 'android' : 'default';
-    try {
-      const primary = buildParkingNavigationUrl(
-        facility.latitude,
-        facility.longitude,
-        platform,
-        label,
-      );
-      const canOpen = await Linking.canOpenURL(primary);
-      await Linking.openURL(
-        canOpen ? primary : buildParkingMapsHttpsUrl(facility.latitude, facility.longitude),
-      );
-    } catch {
+    const result = await openGoogleMapsDirections(facility.latitude, facility.longitude);
+    if (result !== 'opened') {
       toast.show(t('map.municipal.openInMapsFailed'), 'error');
     }
   }, [detailQuery.data, t, toast]);
@@ -315,7 +298,7 @@ export function MunicipalFacilityDetailScreen() {
                   variant="tonal"
                   size="md"
                   icon="map-outline"
-                  onPress={() => void openInMaps()}
+                  onPress={() => void openInGoogleMaps()}
                   accessibilityHint={t('map.municipal.openInMapsHint')}
                 />
               ) : null}

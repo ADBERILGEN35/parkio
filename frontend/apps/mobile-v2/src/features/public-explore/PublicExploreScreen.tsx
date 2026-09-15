@@ -65,6 +65,8 @@ export function PublicExploreScreen() {
   const [authGate, setAuthGate] = useState<{
     intent: AuthGateIntent;
     facilityId?: string;
+    latitude?: number;
+    longitude?: number;
   } | null>(null);
 
   const userLocation = location.position;
@@ -232,14 +234,32 @@ export function PublicExploreScreen() {
     setSelectedId(null);
   }, []);
 
-  const openAuthGate = useCallback((intent: AuthGateIntent, facilityId?: string) => {
-    setAuthGate(facilityId ? { intent, facilityId } : { intent });
-  }, []);
+  const openAuthGate = useCallback(
+    (
+      intent: AuthGateIntent,
+      resume?: { facilityId?: string; latitude?: number; longitude?: number },
+    ) => {
+      setAuthGate({ intent, ...resume });
+    },
+    [],
+  );
 
   const onOpenFacilityDetailGate = useCallback(
     (facilityId: string) => {
       // AuthGate only — never call private facility detail anonymously.
-      openAuthGate('facility-detail', facilityId);
+      openAuthGate('facility-detail', { facilityId });
+    },
+    [openAuthGate],
+  );
+
+  const onRequireAuthForGoogleMaps = useCallback(
+    (facility: Pick<MunicipalFacility, 'id' | 'latitude' | 'longitude'>) => {
+      // AuthGate only — never open external maps anonymously.
+      openAuthGate('google-maps', {
+        facilityId: facility.id,
+        latitude: facility.latitude,
+        longitude: facility.longitude,
+      });
     },
     [openAuthGate],
   );
@@ -355,12 +375,21 @@ export function PublicExploreScreen() {
         parkHereEnabled={false}
         openDetailLabel={t('publicExplore.preview.viewDetails')}
         onOpenDetail={onOpenFacilityDetailGate}
+        onRequireAuthForGoogleMaps={onRequireAuthForGoogleMaps}
       />
 
       <AuthGate
         visible={authGate != null}
         intent={authGate?.intent ?? 'facility-detail'}
-        resume={authGate?.facilityId ? { facilityId: authGate.facilityId } : undefined}
+        resume={
+          authGate
+            ? {
+                facilityId: authGate.facilityId,
+                latitude: authGate.latitude,
+                longitude: authGate.longitude,
+              }
+            : undefined
+        }
         onDismiss={() => setAuthGate(null)}
       />
     </View>

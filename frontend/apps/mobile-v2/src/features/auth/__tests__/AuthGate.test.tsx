@@ -71,4 +71,27 @@ describe('AuthGate', () => {
     expect(onDismiss).toHaveBeenCalled();
     expect(mockPush).toHaveBeenCalledWith('/(auth)/register');
   });
+
+  it('google-maps intent stores validated coordinates and never Kayıt ol', () => {
+    const onDismiss = jest.fn();
+    const { getByText, queryByText } = renderWithProviders(
+      <AuthGate
+        visible
+        intent="google-maps"
+        resume={{ facilityId: 'fac-gm', latitude: 38.4, longitude: 27.1 }}
+        onDismiss={onDismiss}
+      />,
+    );
+    expect(getByText("Google Maps'te aç")).toBeTruthy();
+    expect(getByText(/Google Maps'te açmak ve yol tarifi/)).toBeTruthy();
+    expect(queryByText('Kayıt ol')).toBeNull();
+    fireEvent.press(getByText('Giriş yap'));
+    expect(peekPendingAuthGateIntent()).toEqual({
+      intent: 'google-maps',
+      facilityId: 'fac-gm',
+      latitude: 38.4,
+      longitude: 27.1,
+    });
+    expect(mockPush).toHaveBeenCalledWith('/(auth)/login');
+  });
 });

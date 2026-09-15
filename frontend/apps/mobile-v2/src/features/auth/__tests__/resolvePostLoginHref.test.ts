@@ -19,8 +19,20 @@ describe('resolvePostLoginHref', () => {
     );
   });
 
+  it('resumes google-maps with public facility id into authenticated detail', () => {
+    expect(
+      resolvePostLoginHref({
+        intent: 'google-maps',
+        facilityId: 'fac-gm',
+        latitude: 38.4,
+        longitude: 27.1,
+      }),
+    ).toBe('/(main)/facilities/fac-gm');
+  });
+
   it('falls back to map when facility-detail lacks id or for other intents', () => {
     expect(resolvePostLoginHref({ intent: 'facility-detail' })).toBe('/(main)/(tabs)/map');
+    expect(resolvePostLoginHref({ intent: 'google-maps' })).toBe('/(main)/(tabs)/map');
     expect(resolvePostLoginHref({ intent: 'municipal-hidden' })).toBe('/(main)/(tabs)/map');
     expect(resolvePostLoginHref({ intent: 'community-teaser' })).toBe('/(main)/(tabs)/map');
     expect(resolvePostLoginHref(null)).toBe('/(main)/(tabs)/map');

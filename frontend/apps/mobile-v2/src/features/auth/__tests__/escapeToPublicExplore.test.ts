@@ -31,6 +31,17 @@ describe('escapeToPublicExplore', () => {
     expect(peekPendingAuthGateIntent()).toBeNull();
   });
 
+  it('clears pending google-maps intent on Hesap olmadan keşfet', () => {
+    setPendingAuthGateIntent({
+      intent: 'google-maps',
+      facilityId: 'fac-gm',
+      latitude: 38.4,
+      longitude: 27.1,
+    });
+    escapeToPublicExplore({ replace: jest.fn() });
+    expect(peekPendingAuthGateIntent()).toBeNull();
+  });
+
   it('prevents stale contribute resume after explore escape', () => {
     setPendingAuthGateIntent({ intent: 'contribute' });
     escapeToPublicExplore({ replace: jest.fn() });

@@ -15,6 +15,7 @@ import {
   isRegistrationSignupAllowed,
   useRegistrationMode,
 } from '@/features/auth/useRegistrationMode';
+import { openGoogleMapsDirections } from '@/features/municipal/googleMapsDirections';
 import { useLocale, useT } from '@/i18n/LocaleProvider';
 import { describeApiError } from '@/lib/apiErrors';
 import { authApi } from '@/services/api';
@@ -50,6 +51,12 @@ export default function LoginScreen() {
       adoptSession(response);
       void applyPendingProfile(response.user.email);
       const pending = consumePendingAuthGateIntent();
+      if (pending?.intent === 'google-maps') {
+        const mapsResult = await openGoogleMapsDirections(pending.latitude, pending.longitude);
+        if (mapsResult !== 'opened') {
+          toast.show(t('map.municipal.openInMapsFailed'), 'error');
+        }
+      }
       router.replace(resolvePostLoginHref(pending));
     } catch (raw) {
       if (raw instanceof AccountNotVerifiedError) {

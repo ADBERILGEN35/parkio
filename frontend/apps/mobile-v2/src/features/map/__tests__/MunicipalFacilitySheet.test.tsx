@@ -9,7 +9,6 @@ jest.mock('@/providers/ToastProvider', () => ({
 }));
 
 jest.mock('expo-linking', () => ({
-  canOpenURL: jest.fn(async () => true),
   openURL: jest.fn(async () => undefined),
 }));
 
@@ -115,7 +114,7 @@ describe('MunicipalFacilitySheet', () => {
     expect(getByText('Konak, İzmir')).toBeTruthy();
   });
 
-  it('exposes Open in Maps and optional detail CTA only when provided', () => {
+  it('exposes Open in Google Maps and optional detail CTA only when provided', () => {
     const onOpenDetail = jest.fn();
     const { getByText, queryByText, rerender } = renderWithProviders(
       <MunicipalFacilitySheet
@@ -124,7 +123,7 @@ describe('MunicipalFacilitySheet', () => {
         onClose={jest.fn()}
       />,
     );
-    expect(getByText('Haritada aç')).toBeTruthy();
+    expect(getByText("Google Maps'te aç")).toBeTruthy();
     expect(queryByText('Detayları gör')).toBeNull();
 
     rerender(
@@ -137,5 +136,58 @@ describe('MunicipalFacilitySheet', () => {
     );
     fireEvent.press(getByText('Detayları gör'));
     expect(onOpenDetail).toHaveBeenCalledWith('70db58f2-4cca-4010-9315-fa46b30fba1e');
+  });
+
+  it('authenticated path opens Google Maps URL via Linking', async () => {
+    const Linking = jest.requireMock('expo-linking') as {
+      openURL: jest.Mock;
+    };
+    Linking.openURL.mockClear();
+
+    const { getByText } = renderWithProviders(
+      <MunicipalFacilitySheet
+        facility={makeFacility()}
+        distanceMeters={null}
+        onClose={jest.fn()}
+      />,
+    );
+
+    fireEvent.press(getByText("Google Maps'te aç"));
+    await Promise.resolve();
+    await Promise.resolve();
+
+    expect(Linking.openURL).toHaveBeenCalledTimes(1);
+    const url = Linking.openURL.mock.calls[0][0] as string;
+    expect(url).toMatch(/^https:\/\/www\.google\.com\/maps\/dir\/\?/);
+    expect(url).toContain('api=1');
+    expect(url).toContain('destination=');
+    expect(url).not.toContain('openstreetmap.org');
+  });
+
+  it('anonymous AuthGate path does not call Linking.openURL', async () => {
+    const Linking = jest.requireMock('expo-linking') as {
+      openURL: jest.Mock;
+    };
+    Linking.openURL.mockClear();
+    const onRequireAuthForGoogleMaps = jest.fn();
+
+    const { getByText } = renderWithProviders(
+      <MunicipalFacilitySheet
+        facility={makeFacility()}
+        distanceMeters={null}
+        onClose={jest.fn()}
+        onRequireAuthForGoogleMaps={onRequireAuthForGoogleMaps}
+      />,
+    );
+
+    fireEvent.press(getByText("Google Maps'te aç"));
+    await Promise.resolve();
+
+    expect(onRequireAuthForGoogleMaps).toHaveBeenCalledWith({
+      id: '70db58f2-4cca-4010-9315-fa46b30fba1e',
+      latitude: 38.4237,
+      longitude: 27.1428,
+    });
+    expect(Linking.openURL).not.toHaveBeenCalled();
   });
 });

@@ -163,6 +163,9 @@ export const tr = {
   'authGate.contribute.title': 'Park yeri bildir',
   'authGate.contribute.body':
     'Parkio topluluğuna yeni park noktaları ekleyebilir ve topluluğun bildirdiği noktaları görebilirsiniz. Devam etmek için giriş yapın.',
+  'authGate.googleMaps.title': "Google Maps'te aç",
+  'authGate.googleMaps.body':
+    "Bu otoparkı Google Maps'te açmak ve yol tarifi almak için giriş yapın.",
 
   // ── Auth ─────────────────────────────────────────────────────────────────
   'auth.email': 'E-posta',
@@ -272,9 +275,9 @@ export const tr = {
   'map.municipal.availableOnly': '{available} boş yer',
   'map.municipal.type.onStreet': 'Yol üzeri',
   'map.municipal.type.offStreet': 'Kapalı / saha',
-  'map.municipal.openInMaps': 'Haritada aç',
-  'map.municipal.openInMapsHint': 'Harita uygulamasında konumu açar',
-  'map.municipal.openInMapsFailed': 'Harita açılamadı',
+  'map.municipal.openInMaps': "Google Maps'te aç",
+  'map.municipal.openInMapsHint': "Google Maps'te yol tarifi açar",
+  'map.municipal.openInMapsFailed': 'Google Maps açılamadı.',
   'map.municipal.openDetail': 'Detayları gör',
 
   // Municipal facility detail (MOBILE-MUNI-V2-03)
@@ -1102,6 +1105,9 @@ export const en: Record<TranslationKey, string> = {
   'authGate.contribute.title': 'Report a parking spot',
   'authGate.contribute.body':
     'You can add new parking spots for the Parkio community and see spots others report. Sign in to continue.',
+  'authGate.googleMaps.title': 'Open in Google Maps',
+  'authGate.googleMaps.body':
+    'Sign in to open this parking facility in Google Maps and get directions.',
 
   'auth.email': 'Email',
   'auth.emailPlaceholder': 'you@example.com',
@@ -1207,9 +1213,9 @@ export const en: Record<TranslationKey, string> = {
   'map.municipal.availableOnly': '{available} open spaces',
   'map.municipal.type.onStreet': 'On-street',
   'map.municipal.type.offStreet': 'Off-street',
-  'map.municipal.openInMaps': 'Open in Maps',
-  'map.municipal.openInMapsHint': 'Opens this location in a maps app',
-  'map.municipal.openInMapsFailed': 'Could not open maps',
+  'map.municipal.openInMaps': 'Open in Google Maps',
+  'map.municipal.openInMapsHint': 'Opens directions in Google Maps',
+  'map.municipal.openInMapsFailed': "Google Maps couldn't be opened.",
   'map.municipal.openDetail': 'View details',
 
   'map.municipal.detail.title': 'Municipal parking',

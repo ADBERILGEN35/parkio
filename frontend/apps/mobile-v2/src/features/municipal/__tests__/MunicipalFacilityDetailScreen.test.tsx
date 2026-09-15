@@ -150,7 +150,7 @@ describe('MunicipalFacilityDetailScreen', () => {
     expect(getByText('Toplam kapasite')).toBeTruthy();
     expect(getByText('59')).toBeTruthy();
     expect(getByText('Konak, İzmir')).toBeTruthy();
-    expect(getByText('Haritada aç')).toBeTruthy();
+    expect(getByText("Google Maps'te aç")).toBeTruthy();
     expect(queryByText(/osm-geofabrik/)).toBeNull();
     expect(queryByText(/izmir-izum/)).toBeNull();
     expect(queryByText('38.4237')).toBeNull();
