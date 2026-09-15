@@ -81,7 +81,7 @@ if [ "${KIND}" = "none" ] || [ "${KIND}" = "s3" ]; then
       docker run -d --name "${OFFSITE_NAME}" --network "${NETWORK}" \
         -e MINIO_ROOT_USER="${BACKUP_MC_ACCESS_KEY:-offsiteadmin}" \
         -e MINIO_ROOT_PASSWORD="${BACKUP_MC_SECRET_KEY:-offsite-ci-not-prod-minio}" \
-        minio/minio:RELEASE.2024-09-22T00-33-43Z server /data >/dev/null
+        quay.io/minio/minio@sha256:7d80fd232a2f7108aa6f133fcfe5fade3f1626d92d31ae1318076e7aa61928a2 server /data >/dev/null
       STARTED_OFFSITE=1
       ready=0
       for _ in $(seq 1 30); do

@@ -21,6 +21,10 @@ concurrency:
   cancel-in-progress: true
 
 env:
+  COMPOSE_PROJECT_NAME: parkio-ci-${{ github.run_id }}-${{ github.run_attempt }}
+  # CI-only: preserve the existing server/mc releases from the official publisher.
+  MINIO_IMAGE: quay.io/minio/minio@sha256:cd04ea408e185cb50076ea1c3988d444119b19aaae15aab45387ccf14b2a2f86
+  MINIO_MC_IMAGE: quay.io/minio/mc@sha256:a5399b66b88543efac8afb08eb2bdcce5904e548ea6fe1a921600cd74f766668
   COMPOSE_ENV_FILE: docker/.env.runtime-validation
 
 jobs:
