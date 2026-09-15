@@ -1,4 +1,10 @@
 import { buildRasterStyle, type LatLng } from '@parkio/geo';
+import {
+  MAPLIBRE_RUNTIME_CSS,
+  MAPLIBRE_RUNTIME_JS,
+  MAPLIBRE_RUNTIME_VERSION,
+} from './vendor/maplibreRuntime.generated';
+import { safeJsonForHtmlScript } from './safeJsonForHtmlScript';
 
 /**
  * Self-contained HTML document hosting MapLibre GL JS inside a WebView — the
@@ -14,10 +20,12 @@ import { buildRasterStyle, type LatLng } from '@parkio/geo';
  * Design notes (pen `mob/map`): desaturated OSM raster; DOM markers sized for
  * mobile hit targets; selection uses scale/outline/halo without recoloring
  * category. Result counts stay level-capped (≤50).
+ *
+ * MapLibre JS/CSS are packaged from npm maplibre-gl (no runtime CDN fetch).
  */
 
-/** MapLibre GL JS version — matches the web app's dependency line. */
-const MAPLIBRE_VERSION = '4.7.1';
+/** Packaged MapLibre GL JS version (see vendor/maplibre-runtime.manifest.json). */
+export const MAPLIBRE_VERSION = MAPLIBRE_RUNTIME_VERSION;
 
 export interface MapHtmlColors {
   /** Freshness ramp (secondary chrome on community markers). */
@@ -78,11 +86,31 @@ export interface MapMunicipalMarkerPayload {
   accessibilityLabel?: string;
 }
 
+function assertFiniteCamera(center: LatLng, zoom: number): { lat: number; lng: number; zoom: number } {
+  if (
+    typeof center.lat !== 'number' ||
+    typeof center.lng !== 'number' ||
+    !Number.isFinite(center.lat) ||
+    !Number.isFinite(center.lng) ||
+    center.lat < -90 ||
+    center.lat > 90 ||
+    center.lng < -180 ||
+    center.lng > 180
+  ) {
+    throw new Error('buildMapHtml: invalid initial center');
+  }
+  if (typeof zoom !== 'number' || !Number.isFinite(zoom) || zoom < 0 || zoom > 22) {
+    throw new Error('buildMapHtml: invalid initial zoom');
+  }
+  return { lat: center.lat, lng: center.lng, zoom };
+}
+
 export function buildMapHtml(options: MapHtmlOptions): string {
-  const { center, zoom, mode, colors } = options;
+  const { mode, colors } = options;
+  const camera = assertFiniteCamera(options.center, options.zoom);
   const style = buildRasterStyle();
-  const styleJson = JSON.stringify(style);
-  const colorsJson = JSON.stringify(colors);
+  const styleJson = safeJsonForHtmlScript(style);
+  const colorsJson = safeJsonForHtmlScript(colors);
   const interactive = options.interactiveSpots !== false;
 
   const canvasFilter =
@@ -90,13 +118,18 @@ export function buildMapHtml(options: MapHtmlOptions): string {
       ? 'invert(1) hue-rotate(200deg) saturate(0.22) brightness(0.82) contrast(0.9)'
       : 'saturate(0.32) contrast(0.94) brightness(1.05)';
 
+  // Local MapLibre runtime — never fetched from a CDN at map startup.
+  const maplibreCss = MAPLIBRE_RUNTIME_CSS;
+  const maplibreJs = MAPLIBRE_RUNTIME_JS;
+
   return `<!DOCTYPE html>
 <html>
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no" />
-  <link href="https://unpkg.com/maplibre-gl@${MAPLIBRE_VERSION}/dist/maplibre-gl.css" rel="stylesheet" />
-  <script src="https://unpkg.com/maplibre-gl@${MAPLIBRE_VERSION}/dist/maplibre-gl.js"></script>
+  <meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'unsafe-inline' blob:; style-src 'unsafe-inline'; img-src data: https://a.tile.openstreetmap.org https://b.tile.openstreetmap.org https://c.tile.openstreetmap.org; connect-src https://a.tile.openstreetmap.org https://b.tile.openstreetmap.org https://c.tile.openstreetmap.org; worker-src blob:; child-src blob:; frame-src 'none'; object-src 'none'; base-uri 'none'; form-action 'none'; navigate-to 'none';" />
+  <style>${maplibreCss}</style>
+  <script>${maplibreJs}</script>
   <style>
     html, body, #map { margin: 0; padding: 0; height: 100%; width: 100%; background: ${
       mode === 'dark' ? '#0B1626' : '#ECEFF3'
@@ -271,8 +304,8 @@ export function buildMapHtml(options: MapHtmlOptions): string {
       var map = new maplibregl.Map({
         container: 'map',
         style: ${styleJson},
-        center: [${center.lng}, ${center.lat}],
-        zoom: ${zoom},
+        center: [${camera.lng}, ${camera.lat}],
+        zoom: ${camera.zoom},
         attributionControl: { compact: true },
         dragRotate: false,
         pitchWithRotate: false,
