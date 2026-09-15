@@ -1,0 +1,36 @@
+assetVersion: izmir-admin-izbb-2024-10-18-v1
+provider: Izmir Buyuksehir Belediyesi
+publisherUnit: IzBB Cografi Bilgi Sistemleri Sube Mudurlugu
+datasetTitle: Izmir Sehir Haritasi
+resourceId: c4b1da96-c547-4cca-a9a7-4053d0fee54f
+packageId: 9292e9ab-3832-45a7-99e6-b1c5c6e35264
+sourceUrl: https://acikveri.bizizmir.com/dataset/9292e9ab-3832-45a7-99e6-b1c5c6e35264/resource/c4b1da96-c547-4cca-a9a7-4053d0fee54f/download/ilceler.geojson
+sourceFormat: GeoJSON
+sourceAdministrativeScope: Izmir province districts (ilceler)
+derivedAdministrativeScope: Izmir metropolitan municipality administrative boundary
+license: CC-BY-4.0
+attribution: >-
+  Contains public sector information licensed under Attribution 4.0 International
+  (CC BY 4.0) by Izmir Metropolitan Municipality (Izmir Sehir Haritasi / ilceler).
+redistributionStoragePermission: Allowed with attribution under CC BY 4.0; large geometry operator-managed.
+sourceUpdatedAt: 2024-10-18T16:33:00+03:00
+acquisitionDate: 2026-07-31
+sourceSha256: 6f4f43e4ce8139ddca4606582d903f047cb7c73810f8b876541a1ec3994ffd89
+sourceCrs: EPSG:4326
+normalizedCrs: EPSG:4326
+sourceGeometryTypes: [Polygon]
+normalizedGeometryType: MultiPolygon
+featureCount: 30
+districtCount: 30
+districtNameField: adi
+islandsInclusionResult: preserved
+coastalGeometryInclusionResult: preserved
+enclaveExclaveHandling: none beyond coastal/island components
+validationStatus: ACCEPTED
+approvedForParkioDataWp08: true
+clipVersion: izmir-admin-izbb-2024-10-18-v1
+derivedGeojsonSha256: ddd5664064a6bad22920d64a9f83c5c11c3ba85e4fb0e55a17bd3a26c31d2b61
+derivedPolySha256: 5b20558b28e93c1fb7f2bcda2e36142b186846e63a7151285dae76bb19f5d7b1
+operatorPaths:
+  windowsExample: D:/parkio-ops/data-wp-08/boundary/
+  hostedBetaLinux: /opt/parkio/ops/data-wp-08/boundary/

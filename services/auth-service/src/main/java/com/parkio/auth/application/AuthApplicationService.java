@@ -79,6 +79,7 @@ public class AuthApplicationService {
     private final EmailVerificationSender emailVerificationSender;
     private final PasswordResetEmailSender passwordResetEmailSender;
     private final PasswordPolicy passwordPolicy;
+    private final RegistrationGateService registrationGate;
     private final Clock clock;
     private final Duration refreshTokenTtl;
     private final Duration refreshAbsoluteTtl;
@@ -101,6 +102,7 @@ public class AuthApplicationService {
                                   EmailVerificationSender emailVerificationSender,
                                   PasswordResetEmailSender passwordResetEmailSender,
                                   PasswordPolicy passwordPolicy,
+                                  RegistrationGateService registrationGate,
                                   Clock clock,
                                   @Value("${parkio.security.jwt.refresh-token-ttl}") Duration refreshTokenTtl,
                                   @Value("${parkio.security.jwt.refresh-absolute-ttl:P90D}")
@@ -125,6 +127,7 @@ public class AuthApplicationService {
         this.emailVerificationSender = emailVerificationSender;
         this.passwordResetEmailSender = passwordResetEmailSender;
         this.passwordPolicy = passwordPolicy;
+        this.registrationGate = registrationGate;
         this.clock = clock;
         this.refreshTokenTtl = refreshTokenTtl;
         this.refreshAbsoluteTtl = refreshAbsoluteTtl;
@@ -135,6 +138,7 @@ public class AuthApplicationService {
     public RegisterResult register(RegisterCommand command) {
         String email = AuthUser.normalizeEmail(command.email());
         passwordPolicy.validate(command.rawPassword());
+        registrationGate.assertRegistrationAllowed(email, command.inviteToken());
 
         if (authUsers.existsByEmail(email)) {
             throw new AuthException(AuthErrorCode.EMAIL_ALREADY_EXISTS);
@@ -144,6 +148,8 @@ public class AuthApplicationService {
                 .orElseThrow(() -> new IllegalStateException("USER role is not seeded"));
 
         Instant now = clock.instant();
+        registrationGate.consumeInviteIfRequired(email, command.inviteToken());
+
         String rawVerificationToken = tokenGenerator.generate();
         Instant verificationExpiresAt = now.plus(emailVerificationTtl);
         String passwordHash = passwordHasher.hash(command.rawPassword());

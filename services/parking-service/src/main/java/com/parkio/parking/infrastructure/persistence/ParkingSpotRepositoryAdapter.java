@@ -57,4 +57,9 @@ public class ParkingSpotRepositoryAdapter implements ParkingSpotRepository {
                 .map(ParkingPersistenceMapper::toDomain)
                 .toList();
     }
+
+    @Override
+    public long countNearbyVisible(double latitude, double longitude, double radiusMeters) {
+        return jpa.countNearbyVisible(latitude, longitude, radiusMeters);
+    }
 }

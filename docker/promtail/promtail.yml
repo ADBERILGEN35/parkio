@@ -7,6 +7,10 @@ positions:
 
 clients:
   - url: http://loki:3100/loki/api/v1/push
+    # Loki rejects streams without labels. Keep a static collector label even
+    # when a newly discovered container has no usable Docker metadata yet.
+    external_labels:
+      collector: promtail
 
 scrape_configs:
   - job_name: docker

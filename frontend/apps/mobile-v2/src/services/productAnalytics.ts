@@ -1,18 +1,27 @@
 /**
- * Mobile-v2 product analytics seam (S1-P0-10).
- * Closed union — only intentional client interaction events.
+ * Mobile-v2 product analytics seam (S1-P0-10 + WP-SPA-12).
+ * Closed union — intentional client interaction + SPA funnel events.
  *
  * Never attach precise coordinates, maps URLs, share message text, session
  * UUIDs, tokens, or free-text errors as parameters.
  *
- * Authoritative ParkingSession lifecycle facts (parking_session_started /
- * completed / cancelled) are backend-only and must not be emitted here.
+ * Backend Kafka remains authoritative for domain ParkingSession lifecycle;
+ * client `parking_session_*` events are privacy-safe funnel proxies only
+ * (no session IDs / coordinates).
  *
  * Transport: __DEV__ logs to console; release buffers into a queue that a
- * vendor SDK drains once wired (same pattern as legacy mobile analytics).
+ * vendor SDK drains once wired.
  */
 
+import {
+  SPA_TELEMETRY_EVENT_NAMES,
+  type SpaTelemetryEventName,
+  type SpaTelemetryParams,
+} from '@parkio/types';
+import { sanitizeSpaTelemetryParams } from '@parkio/validation';
+
 export type ProductAnalyticsEventName =
+  | SpaTelemetryEventName
   | 'return_to_car_clicked'
   | 'parking_location_shared'
   | 'parking_action_failed';
@@ -26,7 +35,7 @@ export type ParkingActionFailureReason =
   | 'unknown';
 
 /** Coarse, non-identifying parameters only. */
-export type ProductAnalyticsParams = {
+export type ProductAnalyticsParams = Omit<SpaTelemetryParams, 'platform'> & {
   platform?: string;
   action?: 'navigation' | 'share';
   reason?: ParkingActionFailureReason;
@@ -44,11 +53,17 @@ const queue: QueuedEvent[] = [];
 type VendorTransport = (name: ProductAnalyticsEventName, params?: ProductAnalyticsParams) => void;
 let vendorTransport: VendorTransport | null = null;
 
+const SPA_NAME_SET = new Set<string>(SPA_TELEMETRY_EVENT_NAMES as readonly string[]);
+
 /** Wire a vendor SDK. Flushes the in-memory release queue immediately. */
 export function setProductAnalyticsTransport(transport: VendorTransport): void {
   vendorTransport = transport;
   for (const event of queue.splice(0)) {
-    transport(event.name, event.params);
+    try {
+      transport(event.name, event.params);
+    } catch {
+      // fail-open
+    }
   }
 }
 
@@ -61,26 +76,48 @@ export function resetProductAnalyticsForTests(): void {
 export function trackProductEvent(
   name: ProductAnalyticsEventName,
   params?: ProductAnalyticsParams,
+  options?: { strict?: boolean },
 ): void {
-  assertPrivacySafeParams(params);
-  if (__DEV__) {
-    console.info('[product-analytics]', name, params ?? '');
+  let safe: ProductAnalyticsParams | undefined = params;
+  try {
+    if (SPA_NAME_SET.has(name)) {
+      const { platform: _legacyPlatform, action: _a, reason: _r, ...spaParams } = params ?? {};
+      void _legacyPlatform;
+      void _a;
+      void _r;
+      const sanitized = sanitizeSpaTelemetryParams(spaParams as SpaTelemetryParams);
+      safe = {
+        ...(sanitized ?? {}),
+        ...(params?.platform !== undefined ? { platform: params.platform } : {}),
+      };
+    } else {
+      assertLegacyPrivacySafeParams(params);
+    }
+  } catch (error) {
+    if (options?.strict) throw error;
     return;
   }
-  if (vendorTransport) {
-    vendorTransport(name, params);
-    return;
-  }
-  queue.push({ name, params, at: Date.now() });
-  if (queue.length > MAX_QUEUED) {
-    queue.shift();
+
+  try {
+    if (vendorTransport) {
+      vendorTransport(name, safe);
+      return;
+    }
+    if (__DEV__) {
+      console.info('[product-analytics]', name, safe ?? '');
+      return;
+    }
+    queue.push({ name, params: safe, at: Date.now() });
+    if (queue.length > MAX_QUEUED) {
+      queue.shift();
+    }
+  } catch {
+    // fail-open
   }
 }
 
-function assertPrivacySafeParams(params?: ProductAnalyticsParams): void {
-  if (!params) {
-    return;
-  }
+function assertLegacyPrivacySafeParams(params?: ProductAnalyticsParams): void {
+  if (!params) return;
   const forbiddenKeys = new Set([
     'latitude',
     'longitude',

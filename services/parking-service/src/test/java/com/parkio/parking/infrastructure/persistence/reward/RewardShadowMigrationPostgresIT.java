@@ -13,14 +13,14 @@ import org.junit.jupiter.api.Test;
 import org.testcontainers.containers.PostgreSQLContainer;
 import org.testcontainers.junit.jupiter.Container;
 import org.testcontainers.junit.jupiter.Testcontainers;
+import com.parkio.parking.testsupport.PostgisTestImages;
 import org.testcontainers.utility.DockerImageName;
 
 @Tag("integration")
 @Testcontainers(disabledWithoutDocker = true)
 class RewardShadowMigrationPostgresIT {
 
-    private static final DockerImageName POSTGIS_IMAGE =
-            DockerImageName.parse("postgis/postgis:16-3.4").asCompatibleSubstituteFor("postgres");
+    private static final DockerImageName POSTGIS_IMAGE = PostgisTestImages.dockerImageName();
 
     @Container
     static final PostgreSQLContainer<?> POSTGRES = new PostgreSQLContainer<>(POSTGIS_IMAGE)
@@ -35,7 +35,7 @@ class RewardShadowMigrationPostgresIT {
         flyway.migrate();
 
         try (Connection connection = openConnection()) {
-            assertThat(currentFlywayVersion(connection)).isEqualTo("26");
+            assertThat(currentFlywayVersion(connection)).isEqualTo("40");
             assertThat(tableExists(connection, "pending_reward_ledger")).isTrue();
             assertThat(uniqueConstraintExists(connection, "pending_reward_ledger", "uq_pending_reward_ledger_evaluation"))
                     .isTrue();
@@ -62,7 +62,7 @@ class RewardShadowMigrationPostgresIT {
         full.migrate();
 
         try (Connection connection = openConnection()) {
-            assertThat(currentFlywayVersion(connection)).isEqualTo("26");
+            assertThat(currentFlywayVersion(connection)).isEqualTo("40");
             assertThat(tableExists(connection, "pending_reward_ledger")).isTrue();
             assertThat(foreignKeyExists(connection, "pending_reward_ledger", "fk_pending_reward_ledger_outcome")).isTrue();
             assertThat(foreignKeyExists(connection, "pending_reward_ledger", "fk_pending_reward_ledger_spot")).isTrue();

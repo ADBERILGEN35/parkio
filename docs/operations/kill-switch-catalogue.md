@@ -50,6 +50,10 @@ Exact configuration keys, defaults, and disable behavior. Source:
 | `parkio.municipal.enabled` | `false` | Master gate for municipal integration |
 | `parkio.municipal.izum.enabled` | `false` | Live IZUM HTTP fetch path |
 | `parkio.municipal.izum.scheduler-enabled` | `false` | Scheduled sync job |
+| `parkio.municipal.kayseri.enabled` | `false` | Keep OFF until hosted-beta egress is allowlisted |
+| `parkio.municipal.kayseri.scheduler-enabled` | `false` | Do not leave daily timeout jobs enabled |
+| `parkio.municipal.konya.enabled` | `false` | Keep OFF; Cloudflare 403 from Azure |
+| `parkio.municipal.konya.scheduler-enabled` | `false` | Do not leave daily challenge jobs enabled |
 | `parkio.municipal.manual-sync-enabled` | `false` | Admin manual sync endpoint |
 
 Disabling IZUM leaves facility inventory intact; occupancy ages to STALE and
@@ -81,8 +85,79 @@ See [rollback-runbook.md](rollback-runbook.md).
 
 | Key | Default | Scope |
 |-----|---------|-------|
-| parkio.municipal.osm.import-enabled | alse | Admin GeoJSON import |
-| parkio.municipal.osm.scheduler-enabled | alse | Reserved; unused in WP-02 |
-| parkio.municipal.osm.conflation-enabled | alse | Candidate generation |
-| parkio.municipal.osm.auto-match-enabled | alse | Automatic link merge |
-| parkio.municipal.osm.publication-enabled | alse | Future publication gate |
+| parkio.municipal.osm.import-enabled | false | Admin GeoJSON import |
+| parkio.municipal.osm.scheduler-enabled | false | Reserved; unused in WP-02 |
+| parkio.municipal.osm.conflation-enabled | false | Candidate generation |
+| parkio.municipal.osm.auto-match-enabled | false | Automatic link merge |
+| parkio.municipal.osm.publication-enabled | false | Future publication gate |
+| parkio.municipal.osm.clip-version | izmir-admin-izbb-2024-10-18-v1 | DATA-WP-08; rollback `izmir-bbox-v1` |
+| parkio.municipal.osm.boundary-dir | empty | Operator boundary dir; empty = envelope fallback |
+| parkio.municipal.osm.label-policy | osm-label-v1 | DATA-WP-13 display labels; kill-switch `legacy` |
+
+Independent of import/publication/linking. Env: `PARKIO_MUNICIPAL_OSM_LABEL_POLICY`.
+Reimport required after changing policy for existing rows to refresh `display_name`.
+
+## DATA-WP-03 IZELMAN (default OFF)
+
+| Flag | Default | Effect |
+|------|---------|--------|
+| parkio.municipal.izelman.enabled | false | Master gate for IZELMAN admin controller |
+| parkio.municipal.izelman.facility-import-enabled | false | Facility CSV import |
+| parkio.municipal.izelman.roadside-import-enabled | false | Roadside CSV import |
+| parkio.municipal.izelman.tariff-import-enabled | false | Tariff CSV import |
+| parkio.municipal.izelman.facility-publication-enabled | false | Hide IZELMAN-attributed facilities from public discovery |
+| parkio.municipal.izelman.roadside-publication-enabled | false | Disable roadside nearby controller |
+| parkio.municipal.izelman.tariff-publication-enabled | false | Do not expose tariffs as public current prices |
+| parkio.municipal.izelman.scheduler-enabled | false | No scheduled IZELMAN import |
+| parkio.municipal.izelman.candidate-generation-enabled | false | No automatic candidate linking |
+| parkio.municipal.izelman.auto-match-enabled | false | Unsupported; must remain false |
+
+Hosted-beta Compose maps PARKIO_MUNICIPAL_IZELMAN_* with defaults false.
+
+## DATA-WP-04 canonical registry (default OFF)
+
+| Flag | Default | Effect |
+|------|---------|--------|
+| `parkio.municipal.registry.candidate-generation-enabled` | `false` | Generate conservative review candidates |
+| `parkio.municipal.registry.review-api-enabled` | `false` | Register admin review endpoints; disabled is HTTP 404 |
+| `parkio.municipal.registry.reviewed-linking-enabled` | `false` | Permit explicit ADMIN/SUPER_ADMIN decisions |
+| `parkio.municipal.registry.automatic-linking-enabled` | `false` | Prohibited; binding `true` fails startup |
+| `parkio.municipal.registry.provenance-publication-enabled` | `true` | Add bounded provenance to public facility responses (DATA-WP-11; kill-switch to `false` restores null fields; production profile pins false) |
+| `parkio.municipal.registry.provenance-ingest-write-enabled` | `true` | Kill-switch for DATA-WP-10/14 ingest provenance selection **and** same-source stale withdrawal (does not control publication) |
+
+## DATA-WP-07 / DATA-WP-12 nearby duplicate-presentation
+
+| Flag | Default | Effect |
+|------|---------|--------|
+| `parkio.municipal.discovery.duplicate-presentation-enabled` | `true` | Nearby-only presentation suppression (DATA-WP-12; kill-switch to `false` restores legacy nearby result set/order; production profile pins false) |
+
+Independent of provenance publication, candidate generation, review API, linking, and
+İZELMAN publication. Detail lookup is never suppressed. Zero suppressions is valid;
+thresholds stay conservative. Do not enable in production without separate approval.
+
+Disable publication first, then reviewed linking, review API, and candidate generation.
+Ingest-write kill-switch is independent: set it false to stop new provenance selections without changing publication.
+These switches do not stop IZUM availability. IZELMAN publication stays independently disabled.
+
+## DATA-WP-15 municipal quality & coverage report (default OFF)
+
+| Flag | Env | Default | Effect |
+|------|-----|---------|--------|
+| `parkio.municipal.ops.quality-report-enabled` | `PARKIO_MUNICIPAL_OPS_QUALITY_REPORT_ENABLED` | `false` | Registers the read-only ADMIN quality/coverage report endpoints; disabled is HTTP 404 |
+| `parkio.municipal.ops.source-mode-sla-enabled` | `PARKIO_MUNICIPAL_OPS_SOURCE_MODE_SLA_ENABLED` | `false` | Mode-aware SLA (DATA-WP-16); false restores legacy age-based CRITICAL for operator-imported OSM |
+| `parkio.municipal.ops.district-coverage-enabled` | `PARKIO_MUNICIPAL_OPS_DISTRICT_COVERAGE_ENABLED` | `false` | DATA-WP-18 district coverage section; independent kill-switch; disabled → `districtCoverage.status=DISABLED` |
+| `parkio.municipal.ops.district-coverage.topology-policy-enabled` | `PARKIO_MUNICIPAL_OPS_DISTRICT_COVERAGE_TOPOLOGY_POLICY_ENABLED` | `false` | DATA-WP-19 JTS topology + normalized asset; independent of coverage enable; off → legacy WP-18 interpretation |
+| `parkio.municipal.ops.recent-run-limit-default` | `PARKIO_MUNICIPAL_OPS_QUALITY_REPORT_RECENT_RUN_LIMIT_DEFAULT` | `20` | Default recent-run window on source detail |
+| `parkio.municipal.ops.recent-run-limit-max` | `PARKIO_MUNICIPAL_OPS_QUALITY_REPORT_RECENT_RUN_LIMIT_MAX` | `100` | Hard cap on the `limit` query parameter |
+
+Read-only aggregates. The report triggers no sync, import, conflation or linking, adds no
+scheduler, and does not change İZELMAN publication. It reports coverage and freshness facts
+only — no global quality score, trust score, linking readiness or production-readiness verdict.
+Default is false in canonical `application.yml`, the `prod` profile and hosted-beta Compose;
+the leave-on gate is DATA-WP-15A and is not started by this package.
+
+DATA-WP-05 adds the bounded ADMIN generation endpoint behind the existing
+`candidate-generation-enabled` switch; it adds no scheduler or new enablement
+flag. Disabling the switch removes the controller (HTTP 404) after restart.
+Generation never applies links. All hosted-beta registry values remain `false`,
+and DATA-WP-05A is not started.

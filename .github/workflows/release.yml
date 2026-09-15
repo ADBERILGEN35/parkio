@@ -331,7 +331,7 @@ jobs:
           set -euo pipefail
           missing=0
           case "$WEB_APP_ENV" in
-            hosted-beta|production)
+            hosted-beta|invite-production|production)
               if [ -z "${WEB_API_BASE_URL}" ]; then
                 echo "::error::WEB_API_BASE_URL repository variable is empty but VITE_APP_ENV=$WEB_APP_ENV requires it."
                 missing=1

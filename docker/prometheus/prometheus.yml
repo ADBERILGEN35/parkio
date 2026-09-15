@@ -25,6 +25,8 @@ rule_files:
   - /etc/prometheus/continuous-calibration-recording-rules.yml
   - /etc/prometheus/operational-readiness-recording-rules.yml
   - /etc/prometheus/operational-readiness-alert-rules.yml
+  - /etc/prometheus/municipal-source-health-recording-rules.yml
+  - /etc/prometheus/municipal-source-health-alert-rules.yml
 
 alerting:
   alertmanagers:
@@ -103,6 +105,10 @@ scrape_configs:
           - clamav:3310
         labels:
           component: clamav
+      - targets:
+          - postgres-gateway:5432
+        labels:
+          component: postgres-gateway
       - targets:
           - postgres-auth:5432
         labels:

@@ -33,13 +33,11 @@ public class OsmImportSupportRepositoryAdapter implements OsmImportSupportReposi
     }
 
     @Override
-    public int deactivateMissing(UUID sourceId, Set<String> seenExternalIds, Instant now) {
-        if (seenExternalIds.isEmpty()) {
-            return jdbc.sql("""
-                    UPDATE municipal_facility_source_links
-                    SET active=false, updated_at=:now
-                    WHERE source_id=:sourceId AND active=true
-                    """).param("sourceId", sourceId).param("now", Timestamp.from(now)).update();
+    public int deactivateMissing(
+            UUID sourceId, Set<String> seenExternalIds, Instant now, boolean trustedAuthoritativeEmptySet) {
+        // Refuse mass wipe on an empty seen-set unless the caller proved a trustworthy authoritative snapshot.
+        if (seenExternalIds.isEmpty() && !trustedAuthoritativeEmptySet) {
+            return 0;
         }
         // Deactivate active links not in seen set via NOT IN is awkward for large sets;
         // use temp strategy: mark all unseen by excluding matched ids in Java-sized batches.

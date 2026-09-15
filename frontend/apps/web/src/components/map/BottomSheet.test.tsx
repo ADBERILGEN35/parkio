@@ -9,8 +9,20 @@ function Harness({ initial = 'collapsed' as SheetState }) {
   return (
     <div>
       <span data-testid="state">{state}</span>
-      <BottomSheet state={state} onStateChange={setState} ariaLabel="Results">
-        <p>Sheet body content</p>
+      <button
+        type="button"
+        onMouseDown={(event) => event.preventDefault()}
+        onClick={() => setState('collapsed')}
+      >
+        collapse-sheet
+      </button>
+      <BottomSheet
+        state={state}
+        onStateChange={setState}
+        ariaLabel="Results"
+        handleAriaLabel={`Results, ${state}. Drag or use arrow keys to resize.`}
+      >
+        <button type="button">Sheet body content</button>
       </BottomSheet>
     </div>
   );
@@ -32,9 +44,12 @@ function dispatchPointer(
 }
 
 describe('BottomSheet', () => {
-  it('always renders its content (present in DOM regardless of snap state)', () => {
+  it('keeps its content mounted but hidden from the accessibility tree while collapsed', () => {
     render(<Harness />);
-    expect(screen.getByText('Sheet body content')).toBeInTheDocument();
+    const content = screen.getByRole('button', { name: 'Sheet body content', hidden: true });
+    expect(content).toBeInTheDocument();
+    expect(content.parentElement).toHaveAttribute('aria-hidden', 'true');
+    expect(content.parentElement).toHaveAttribute('inert', '');
   });
 
   it('cycles snap states when the handle is tapped', async () => {
@@ -95,5 +110,18 @@ describe('BottomSheet', () => {
     expect(handle()).toHaveAttribute('aria-expanded', 'false');
     await user.click(handle());
     expect(handle()).toHaveAttribute('aria-expanded', 'true');
+  });
+
+  it('returns focus to the handle when collapsing from focused sheet content', async () => {
+    const user = userEvent.setup();
+    render(<Harness initial="half" />);
+
+    const content = screen.getByRole('button', { name: 'Sheet body content' });
+    content.focus();
+    expect(content).toHaveFocus();
+
+    await user.click(screen.getByRole('button', { name: 'collapse-sheet' }));
+    expect(handle()).toHaveFocus();
+    expect(screen.getByTestId('state')).toHaveTextContent('collapsed');
   });
 });

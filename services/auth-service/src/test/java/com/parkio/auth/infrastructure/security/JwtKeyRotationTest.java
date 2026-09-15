@@ -47,7 +47,7 @@ class JwtKeyRotationTest {
         KeyPair active = rsa();
         KeyPair previous = rsa();
         RsaKeyProvider provider = providerWith(active, previous);
-        JwtService jwtService = new JwtService(properties(), provider, CLOCK);
+        JwtService jwtService = new JwtService(properties(), provider, CLOCK, MAPPER);
 
         // JWKS contains both kids, all public (no private material).
         List<JwkResponse> jwks = new JwksController(provider).jwks().keys();
@@ -70,7 +70,7 @@ class JwtKeyRotationTest {
         KeyPair active = rsa();
         KeyPair previous = rsa();
         RsaKeyProvider provider = providerWith(active, previous);
-        JwtService jwtService = new JwtService(properties(), provider, CLOCK);
+        JwtService jwtService = new JwtService(properties(), provider, CLOCK, MAPPER);
 
         // A token signed by the *previous* key (kid) must still verify (old token, mid-rotation).
         String oldToken = tokenSignedBy(previous, PREVIOUS_KID);
@@ -83,7 +83,7 @@ class JwtKeyRotationTest {
         KeyPair active = rsa();
         KeyPair previous = rsa();
         RsaKeyProvider provider = providerWith(active, previous);
-        JwtService jwtService = new JwtService(properties(), provider, CLOCK);
+        JwtService jwtService = new JwtService(properties(), provider, CLOCK, MAPPER);
 
         KeyPair stranger = rsa();
         String forged = tokenSignedBy(stranger, "attacker-key");

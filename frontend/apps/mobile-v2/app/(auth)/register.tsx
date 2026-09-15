@@ -9,6 +9,11 @@ import { TextField } from '@/components/ui/TextField';
 import { AuthScreen } from '@/features/auth/AuthScreen';
 import { PasswordChecklist } from '@/features/auth/PasswordChecklist';
 import { stashPendingProfile } from '@/features/auth/pendingProfile';
+import { escapeToPublicExplore } from '@/features/auth/escapeToPublicExplore';
+import {
+  isRegistrationSignupAllowed,
+  useRegistrationMode,
+} from '@/features/auth/useRegistrationMode';
 import { useLocale, useT } from '@/i18n/LocaleProvider';
 import { describeApiError } from '@/lib/apiErrors';
 import { authApi } from '@/services/api';
@@ -19,6 +24,8 @@ export default function RegisterScreen() {
   const t = useT();
   const { locale } = useLocale();
   const router = useRouter();
+  const registrationMode = useRegistrationMode();
+  const signupAllowed = isRegistrationSignupAllowed(registrationMode);
   const [displayName, setDisplayName] = useState('');
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
@@ -29,6 +36,10 @@ export default function RegisterScreen() {
   const [nameError, setNameError] = useState<string | null>(null);
 
   const submit = async () => {
+    // Hard gate: never POST register while mode is CLOSED.
+    if (!isRegistrationSignupAllowed(registrationMode)) {
+      return;
+    }
     setError(null);
     setConsentError(false);
     setNameError(null);
@@ -61,6 +72,22 @@ export default function RegisterScreen() {
       setSubmitting(false);
     }
   };
+
+  if (!signupAllowed) {
+    return (
+      <AuthScreen title={t('auth.register.closedTitle')} subtitle={t('auth.register.closedBody')}>
+        <Button
+          label={t('auth.register.exploreLive')}
+          onPress={() => escapeToPublicExplore(router)}
+        />
+        <Button
+          label={t('auth.register.loginLink')}
+          variant="tonal"
+          onPress={() => router.replace('/(auth)/login')}
+        />
+      </AuthScreen>
+    );
+  }
 
   return (
     <AuthScreen title={t('auth.register.title')} subtitle={t('auth.register.verifyNote')}>

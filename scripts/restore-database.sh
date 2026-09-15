@@ -28,6 +28,10 @@
 
 set -euo pipefail
 
+SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+# shellcheck source=lib/backup-common.sh
+source "${SCRIPT_DIR}/lib/backup-common.sh"
+
 SERVICE=""
 DUMP_FILE=""
 ASSUME_YES="no"
@@ -59,15 +63,8 @@ if [ ! -f "${DUMP_FILE}" ]; then
   exit 2
 fi
 
-# ---- optional env file ----
-if [ -n "${ENV_FILE}" ]; then
-  if [ -f "${ENV_FILE}" ]; then
-    set -a; # shellcheck disable=SC1090
-    . "${ENV_FILE}"; set +a
-  else
-    echo "WARN: env file '${ENV_FILE}' not found; relying on current environment." >&2
-  fi
-fi
+# ---- optional env file (caller secrets win over blank placeholders) ----
+parkio_backup_load_env "${ENV_FILE}"
 
 # ---- resolve service -> container:user:db ----
 # Mirrors docker/docker-compose.yml container_name + POSTGRES_* env (defaults match .env.example).

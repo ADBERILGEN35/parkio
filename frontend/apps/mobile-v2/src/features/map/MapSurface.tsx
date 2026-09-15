@@ -5,17 +5,56 @@ import {
   useMemo,
   useRef,
 } from 'react';
-import { StyleSheet, View, type StyleProp, type ViewStyle } from 'react-native';
+import { Platform, StyleSheet, View, type StyleProp, type ViewStyle } from 'react-native';
 import { WebView, type WebViewMessageEvent } from 'react-native-webview';
 import type { LatLng } from '@parkio/geo';
 import { useTheme } from '@/theme/ThemeProvider';
-import { buildMapHtml, type MapSpotMarker } from './mapHtml';
+import { decodeMapBridgeMessage } from './mapBridgeDecode';
+import {
+  buildMapHtml,
+  type MapMunicipalMarkerPayload,
+  type MapSpotMarker,
+} from './mapHtml';
+import {
+  shouldAllowMapWebViewNavigation,
+  shouldAllowMapWebViewOpenWindow,
+} from './mapWebViewNavigation';
+import { buildParkioDispatchScript } from './safeJsonForHtmlScript';
 
 export interface MapSurfaceHandle {
   setSpots: (spots: MapSpotMarker[]) => void;
   setSelected: (id: string | null) => void;
+  setMunicipalFacilities: (facilities: MapMunicipalMarkerPayload[]) => void;
+  setSelectedMunicipal: (id: string | null) => void;
+  /** Destination pin for Smart Parking Assistant — distinct from parking markers. */
+  setDestinationMarker: (
+    marker: { lat: number; lng: number; label: string } | null,
+  ) => void;
+  /** Active ParkingSession pin — distinct from destination / municipal / community. */
+  setParkedCarMarker: (
+    marker: { lat: number; lng: number; label: string } | null,
+  ) => void;
+  /** Highlight recommended facility/spot ids already on the map (no duplicates). */
+  setRecommendedHighlights: (
+    payload: {
+      communityIds: string[];
+      municipalIds: string[];
+      topCommunityId?: string | null;
+      topMunicipalId?: string | null;
+    } | null,
+  ) => void;
   flyTo: (target: LatLng & { zoom?: number; silent?: boolean }) => void;
   jumpTo: (target: LatLng & { zoom?: number; silent?: boolean }) => void;
+  /** Fit camera to a geographic bounding box (public Explore framing). */
+  fitBounds: (bounds: {
+    west: number;
+    south: number;
+    east: number;
+    north: number;
+    maxZoom?: number;
+    padding?: { top: number; bottom: number; left: number; right: number };
+    silent?: boolean;
+  }) => void;
   setUserLocation: (location: LatLng | null) => void;
 }
 
@@ -31,6 +70,7 @@ export interface MapSurfaceProps {
   interactiveSpots?: boolean;
   onReady?: () => void;
   onSpotTap?: (id: string) => void;
+  onMunicipalTap?: (id: string) => void;
   onMapTap?: () => void;
   onMoveEnd?: (event: MapMoveEvent) => void;
   /** Continuous move stream (center pin tracking). */
@@ -50,6 +90,7 @@ export const MapSurface = forwardRef<MapSurfaceHandle, MapSurfaceProps>(function
     interactiveSpots = true,
     onReady,
     onSpotTap,
+    onMunicipalTap,
     onMapTap,
     onMoveEnd,
     onMove,
@@ -80,6 +121,9 @@ export const MapSurface = forwardRef<MapSurfaceHandle, MapSurfaceProps>(function
         primary: dark ? '#4D8DFF' : '#0050CB',
         userDot: dark ? '#4D8DFF' : '#0050CB',
         userHalo: dark ? 'rgba(77,141,255,0.25)' : 'rgba(0,80,203,0.18)',
+        municipal: theme.colors.secondary,
+        municipalGlyph: dark ? '#0B1626' : '#FFFFFF',
+        communityGlyph: '#FFFFFF',
       },
     });
     // The map keeps its own camera; only a theme flip warrants a rebuild.
@@ -87,14 +131,12 @@ export const MapSurface = forwardRef<MapSurfaceHandle, MapSurfaceProps>(function
   }, [theme.mode]);
 
   const dispatch = useCallback((payload: Record<string, unknown>) => {
-    const json = JSON.stringify(payload);
+    const script = buildParkioDispatchScript(payload);
     if (!readyRef.current) {
-      queueRef.current.push(json);
+      queueRef.current.push(script);
       return;
     }
-    webViewRef.current?.injectJavaScript(
-      `window.__parkio_dispatch(${JSON.stringify(json)}); true;`,
-    );
+    webViewRef.current?.injectJavaScript(script);
   }, []);
 
   useImperativeHandle(
@@ -102,8 +144,26 @@ export const MapSurface = forwardRef<MapSurfaceHandle, MapSurfaceProps>(function
     () => ({
       setSpots: (spots) => dispatch({ op: 'setSpots', spots }),
       setSelected: (id) => dispatch({ op: 'setSelected', id }),
+      setMunicipalFacilities: (facilities) =>
+        dispatch({ op: 'setMunicipalFacilities', facilities }),
+      setSelectedMunicipal: (id) => dispatch({ op: 'setSelectedMunicipal', id }),
+      setDestinationMarker: (marker) => dispatch({ op: 'setDestinationMarker', marker }),
+      setParkedCarMarker: (marker) => dispatch({ op: 'setParkedCarMarker', marker }),
+      setRecommendedHighlights: (payload) =>
+        dispatch({ op: 'setRecommendedHighlights', payload }),
       flyTo: ({ lat, lng, zoom, silent }) => dispatch({ op: 'flyTo', lat, lng, zoom, silent }),
       jumpTo: ({ lat, lng, zoom, silent }) => dispatch({ op: 'jumpTo', lat, lng, zoom, silent }),
+      fitBounds: ({ west, south, east, north, maxZoom, padding, silent }) =>
+        dispatch({
+          op: 'fitBounds',
+          west,
+          south,
+          east,
+          north,
+          maxZoom,
+          padding,
+          silent,
+        }),
       setUserLocation: (location) => dispatch({ op: 'setUserLocation', location }),
     }),
     [dispatch],
@@ -111,59 +171,68 @@ export const MapSurface = forwardRef<MapSurfaceHandle, MapSurfaceProps>(function
 
   const handleMessage = useCallback(
     (event: WebViewMessageEvent) => {
-      let message: { type?: string; [key: string]: unknown };
       try {
-        message = JSON.parse(event.nativeEvent.data) as { type?: string };
-      } catch {
-        return;
-      }
-      switch (message.type) {
-        case 'ready': {
-          readyRef.current = true;
-          const queued = queueRef.current;
-          queueRef.current = [];
-          for (const json of queued) {
-            webViewRef.current?.injectJavaScript(
-              `window.__parkio_dispatch(${JSON.stringify(json)}); true;`,
-            );
-          }
-          onReady?.();
-          break;
+        const decoded = decodeMapBridgeMessage(event.nativeEvent.data);
+        if (!decoded.ok) {
+          return;
         }
-        case 'spotTap':
-          if (typeof message.id === 'string') {
-            onSpotTap?.(message.id);
+        const message = decoded.message;
+        switch (message.type) {
+          case 'ready': {
+            readyRef.current = true;
+            const queued = queueRef.current;
+            queueRef.current = [];
+            for (const script of queued) {
+              webViewRef.current?.injectJavaScript(script);
+            }
+            onReady?.();
+            break;
           }
-          break;
-        case 'mapTap':
-          onMapTap?.();
-          break;
-        case 'moveEnd':
-          if (typeof message.lat === 'number' && typeof message.lng === 'number') {
+          case 'boot':
+            // Informational only — readiness is gated on MapLibre `load` → ready.
+            break;
+          case 'spotTap':
+            onSpotTap?.(message.id);
+            break;
+          case 'municipalTap':
+            onMunicipalTap?.(message.id);
+            break;
+          case 'mapTap':
+            onMapTap?.();
+            break;
+          case 'moveEnd':
             onMoveEnd?.({
               lat: message.lat,
               lng: message.lng,
-              zoom: typeof message.zoom === 'number' ? message.zoom : initialZoom,
-              byGesture: Boolean(message.byGesture),
+              zoom: message.zoom,
+              byGesture: message.byGesture,
             });
-          }
-          break;
-        case 'move':
-          if (typeof message.lat === 'number' && typeof message.lng === 'number') {
+            break;
+          case 'move':
             onMove?.({ lat: message.lat, lng: message.lng });
-          }
-          break;
-        case 'error':
-          console.warn('[map] webview error:', message.code);
-          break;
-        case 'debug':
-          console.log('[map]', message.message);
-          break;
-        default:
-          break;
+            break;
+          case 'error':
+            console.warn('[map] webview error:', message.code);
+            break;
+          case 'debug':
+            if (__DEV__) {
+              console.log('[map]', message.message);
+            }
+            break;
+          default:
+            break;
+        }
+      } catch {
+        // Never let untrusted WebView input crash the native handler.
       }
     },
-    [initialZoom, onMapTap, onMove, onMoveEnd, onReady, onSpotTap],
+    [onMapTap, onMove, onMoveEnd, onMunicipalTap, onReady, onSpotTap],
+  );
+
+  const onShouldStartLoadWithRequest = useCallback(
+    (request: { url: string; isTopFrame?: boolean }) =>
+      shouldAllowMapWebViewNavigation(request),
+    [],
   );
 
   return (
@@ -172,16 +241,34 @@ export const MapSurface = forwardRef<MapSurfaceHandle, MapSurfaceProps>(function
         ref={webViewRef}
         source={{ html }}
         onMessage={handleMessage}
-        originWhitelist={['*']}
+        onShouldStartLoadWithRequest={onShouldStartLoadWithRequest}
+        onOpenWindow={() => {
+          // Block window.open / target=_blank from becoming an external browser.
+          void shouldAllowMapWebViewOpenWindow();
+        }}
+        // Inline HTML document only — no remote top-level origins.
+        originWhitelist={['about:blank']}
         javaScriptEnabled
-        domStorageEnabled
+        // MapLibre DOM markers / localStorage not required; keep false for surface area.
+        domStorageEnabled={false}
         allowsBackForwardNavigationGestures={false}
         setSupportMultipleWindows={false}
+        javaScriptCanOpenWindowsAutomatically={false}
+        allowFileAccess={false}
+        allowFileAccessFromFileURLs={false}
+        allowUniversalAccessFromFileURLs={false}
+        mixedContentMode="never"
         overScrollMode="never"
         bounces={false}
         style={styles.webview}
         containerStyle={styles.webview}
         androidLayerType="hardware"
+        {...(Platform.OS === 'android'
+          ? {
+              // Android: deny geolocation prompts from the map document.
+              geolocationEnabled: false,
+            }
+          : {})}
       />
     </View>
   );

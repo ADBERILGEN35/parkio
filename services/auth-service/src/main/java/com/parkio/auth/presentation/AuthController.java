@@ -81,7 +81,8 @@ public class AuthController {
                 new RegisterCommand(
                         request.email(),
                         request.password(),
-                        EmailLocale.fromNullable(request.locale())));
+                        EmailLocale.fromNullable(request.locale()),
+                        request.inviteToken()));
         return ResponseEntity.status(HttpStatus.CREATED).body(AuthResponse.pendingVerification(result));
     }
 

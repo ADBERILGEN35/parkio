@@ -24,6 +24,7 @@ import {
 import { useAuthStore } from '@/state/authStore';
 import { useOnboardingStore } from '@/state/onboardingStore';
 import { useShareDraftStore } from '@/features/share/state/shareDraftStore';
+import { useMunicipalFilterStore } from '@/features/municipal/municipalFilterStore';
 import { useTheme } from '@/theme/ThemeProvider';
 
 // Foreground notifications render as a banner instead of being swallowed.
@@ -57,6 +58,7 @@ function RootNavigator() {
     void bootstrapSession();
     void useOnboardingStore.getState().hydrate();
     void useShareDraftStore.getState().hydrate();
+    void useMunicipalFilterStore.getState().hydrate();
   }, []);
 
   const ready = fontsLoaded && authStatus !== 'bootstrapping' && onboardingHydrated;
@@ -104,6 +106,7 @@ function RootNavigator() {
         <Stack.Screen name="index" />
         <Stack.Screen name="(onboarding)" />
         <Stack.Screen name="(auth)" />
+        <Stack.Screen name="(public)" />
         <Stack.Screen name="(main)" />
       </Stack>
       {/* Floating overlay pill — rendered after the Stack so it paints on top. */}

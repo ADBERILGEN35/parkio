@@ -22,6 +22,12 @@ const PUBLIC_KEYS = [
   'EXPO_PUBLIC_APP_ENV',
   'EXPO_PUBLIC_API_BASE_URL',
   'EXPO_PUBLIC_SMART_RETURN_ENABLED',
+  // Feature flags must be written into the gitignored `.env` so babel-preset-expo
+  // can inline them during `:app:createBundleReleaseJsAndAssets`. Omitting these
+  // left municipal/SPA permanently dark in local release APKs even when set in
+  // eas.json / `.env.<profile>` / process env (MOBILE-V2-RELEASE-01).
+  'EXPO_PUBLIC_MUNICIPAL_DISCOVERY_ENABLED',
+  'EXPO_PUBLIC_SMART_PARKING_ASSISTANT_ENABLED',
 ];
 
 function loadEasProfile(profileName) {

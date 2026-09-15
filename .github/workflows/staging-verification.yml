@@ -45,7 +45,7 @@ jobs:
       - uses: actions/checkout@v4
 
       - name: Make staging scripts executable
-        run: chmod +x scripts/staging/*.sh scripts/staging/lib/*.sh scripts/*.sh
+        run: chmod +x gradlew scripts/staging/*.sh scripts/staging/lib/*.sh scripts/*.sh
 
       - name: Bash syntax check
         run: |

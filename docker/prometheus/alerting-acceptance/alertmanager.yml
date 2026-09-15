@@ -1,0 +1,40 @@
+# Isolated Alertmanager for alerting-acceptance. Webhook target is the
+# in-compose catcher (not a secret, not an operator destination).
+
+global:
+  resolve_timeout: 2m
+
+route:
+  receiver: "operator"
+  group_by: ["alertname", "service", "severity", "component"]
+  group_wait: 5s
+  group_interval: 10s
+  repeat_interval: 1h
+  routes:
+    - matchers:
+        - severity="critical"
+      receiver: "operator"
+      group_wait: 5s
+      repeat_interval: 15m
+    - matchers:
+        - severity="warning"
+      receiver: "operator"
+      repeat_interval: 1h
+
+inhibit_rules:
+  - source_matchers:
+      - severity="critical"
+    target_matchers:
+      - severity="warning"
+    equal: ["alertname", "service", "component"]
+  - source_matchers:
+      - alertname="CoreServiceDown"
+    target_matchers:
+      - alertname="ServiceDown"
+    equal: ["service"]
+
+receivers:
+  - name: "operator"
+    webhook_configs:
+      - url: "http://alerting-webhook:8080/webhook"
+        send_resolved: true
