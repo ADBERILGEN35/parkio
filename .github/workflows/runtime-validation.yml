@@ -8,6 +8,9 @@ on:
       - "services/**/Dockerfile"
       - "services/**/src/main/resources/application*.yml"
       - ".github/workflows/runtime-validation.yml"
+      - "benchmarks/scripts/wait-http-ready.mjs"
+      - "benchmarks/scripts/wait-tempo-ready.mjs"
+      - "benchmarks/scripts/ci-result-integrity.test.mjs"
   schedule:
     # Weekly runtime drift check, after the security and backup jobs.
     - cron: "41 5 * * 1"
@@ -308,9 +311,13 @@ jobs:
             sleep 10
           done
 
+      - name: Verify CI result-integrity unit gates
+        run: node --test benchmarks/scripts/ci-result-integrity.test.mjs
+
       - name: Observability smoke checks
         run: |
           set -euo pipefail
+          mkdir -p runtime-validation-artifacts
           curl -fsS http://127.0.0.1:9090/-/ready | tee runtime-validation-artifacts/prometheus-ready.txt
           curl -fsS http://127.0.0.1:3000/api/health | tee runtime-validation-artifacts/grafana-health.json
           curl -fsS http://127.0.0.1:3100/ready | tee runtime-validation-artifacts/loki-ready.txt
@@ -319,12 +326,12 @@ jobs:
           head -50 runtime-validation-artifacts/kafka-exporter-metrics.txt
           curl -fsS http://127.0.0.1:9100/metrics -o runtime-validation-artifacts/node-exporter-metrics.txt
           head -50 runtime-validation-artifacts/node-exporter-metrics.txt
-          if curl -fsS http://127.0.0.1:3200/ready -o runtime-validation-artifacts/tempo-ready.txt; then
-            cat runtime-validation-artifacts/tempo-ready.txt
-          else
-            curl -fsS http://127.0.0.1:3200/status -o runtime-validation-artifacts/tempo-ready.txt
-            cat runtime-validation-artifacts/tempo-ready.txt
-          fi
+          # Tempo: bounded /ready polling only. /status is diagnostic and must never
+          # be accepted as readiness evidence (CI-TEMPO-01).
+          TEMPO_EVIDENCE_DIR=runtime-validation-artifacts \
+          TEMPO_READY_TIMEOUT_MS=180000 \
+          TEMPO_READY_INTERVAL_MS=5000 \
+            node benchmarks/scripts/wait-tempo-ready.mjs
 
       - name: Collect runtime artifacts
         if: always()
