@@ -139,6 +139,30 @@ test('Tempo becomes ready within deadline -> readiness succeeds', async () => {
   assert.equal(assertTempoReadinessResult(result).ok, true);
 });
 
+test('real k6 0.53 summary-export Rate/Counter shape validates', () => {
+  // Captured from grafana/k6:0.53.0 --summary-export (engine regression positive fixture).
+  const summary = {
+    metrics: {
+      parkio_critical_login_ok: { passes: 1, fails: 0, value: 1 },
+      parkio_critical_refresh_ok: { passes: 1, fails: 0, value: 1 },
+      parkio_critical_login_samples: { count: 1, rate: 10 },
+      parkio_critical_refresh_samples: { count: 1, rate: 10 },
+    },
+  };
+  const result = validateK6SummaryObject(summary);
+  assert.equal(result.ok, true);
+  assert.equal(result.loginSamples, 1);
+  assert.equal(result.refreshSamples, 1);
+});
+
+test('nonfinite Rate value is not accepted as success', () => {
+  const summary = passingSummary();
+  summary.metrics.parkio_critical_refresh_ok = { value: Number.NaN };
+  const result = validateK6SummaryObject(summary);
+  assert.equal(result.ok, false);
+  assert.ok(result.errors.includes('critical_refresh_rate_failed'));
+});
+
 test('diagnostic collection does not turn failed validation into success', () => {
   const failed = assertTempoReadinessResult({
     ok: false,

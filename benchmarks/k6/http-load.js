@@ -1,6 +1,7 @@
 import http from 'k6/http';
 import { check, fail, group, sleep } from 'k6';
 import { Counter, Rate, Trend } from 'k6/metrics';
+import { criticalAuthThresholds } from './critical-auth-gates.js';
 
 /**
  * Parkio k6 smoke — native mobile auth transport.
@@ -74,12 +75,8 @@ export const options = {
     parkio_geocoding_latency: ['p(95)<2500'],
     parkio_profile_latency: ['p(95)<1000'],
     // Critical auth lifecycle — must execute and succeed; cannot pass vacuously.
-    parkio_critical_login_ok: ['rate==1'],
-    parkio_critical_refresh_ok: ['rate==1'],
-    parkio_critical_login_samples: ['count>0'],
-    parkio_critical_refresh_samples: ['count>0'],
-    'checks{critical:login}': ['rate==1', 'count>0'],
-    'checks{critical:refresh}': ['rate==1', 'count>0'],
+    // Rate metrics: rate only. Nonzero execution is gated by Counter *_samples.
+    ...criticalAuthThresholds(),
   },
   summaryTrendStats: ['min', 'avg', 'med', 'p(90)', 'p(95)', 'p(99)', 'max'],
 };

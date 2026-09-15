@@ -39,6 +39,12 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
+      - name: Verify CI result-integrity unit gates
+        run: node --test benchmarks/scripts/ci-result-integrity.test.mjs
+
+      - name: Verify k6 engine threshold compatibility
+        run: node benchmarks/scripts/run-k6-engine-regression.mjs
+
       - name: Prepare CI-only env
         run: |
           set -euo pipefail

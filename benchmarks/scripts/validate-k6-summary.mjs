@@ -113,8 +113,12 @@ function metricCount(metric) {
 
 function metricRate(metric) {
   if (!metric || typeof metric !== 'object') return null;
-  if (typeof metric.rate === 'number') return metric.rate;
-  if (typeof metric.values?.rate === 'number') return metric.values.rate;
+  if (typeof metric.rate === 'number' && Number.isFinite(metric.rate)) return metric.rate;
+  if (typeof metric.values?.rate === 'number' && Number.isFinite(metric.values.rate)) {
+    return metric.values.rate;
+  }
+  // grafana/k6:0.53.0 summary-export uses `value` for Rate metrics.
+  if (typeof metric.value === 'number' && Number.isFinite(metric.value)) return metric.value;
   if (typeof metric.passes === 'number' && typeof metric.fails === 'number') {
     const total = metric.passes + metric.fails;
     return total === 0 ? null : metric.passes / total;
