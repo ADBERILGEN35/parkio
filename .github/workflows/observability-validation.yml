@@ -174,9 +174,13 @@ jobs:
                   if expr:
                       municipal_exprs.append(expr)
           assert any("parkio_municipal_source_consecutive_failures" in expr for expr in municipal_exprs)
+          assert any("istanbul-ispark-parks" in expr for expr in municipal_exprs), "ISPARK panels missing from municipal dashboard"
           assert "parkio-municipal-source-health.json" in dashboards_yml
           assert "./prometheus/municipal-source-health-recording-rules.yml:/etc/prometheus/municipal-source-health-recording-rules.yml:ro" in compose
           assert "./prometheus/municipal-source-health-alert-rules.yml:/etc/prometheus/municipal-source-health-alert-rules.yml:ro" in compose
+          alert_rules = Path("docker/prometheus/municipal-source-health-alert-rules.yml").read_text(encoding="utf-8")
+          assert "MunicipalIsparkSecondsSinceSuccessWarning" in alert_rules
+          assert 'source_key="istanbul-ispark-parks"' in alert_rules
           hub = Path("docs/operations/wp-06-01-operational-readiness-production-governance.md")
           assert hub.is_file(), "WP-06.1 hub document missing"
           PY

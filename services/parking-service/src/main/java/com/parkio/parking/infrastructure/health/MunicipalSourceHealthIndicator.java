@@ -2,6 +2,8 @@ package com.parkio.parking.infrastructure.health;
 
 import com.parkio.parking.application.MunicipalSourceHealthService;
 import com.parkio.parking.application.MunicipalSourceSlaPolicy;
+import com.parkio.parking.infrastructure.config.MunicipalSourceProperties;
+import com.parkio.parking.infrastructure.ispark.IsparkMunicipalParkingAdapter;
 import org.springframework.boot.actuate.health.Health;
 import org.springframework.boot.actuate.health.HealthIndicator;
 import org.springframework.stereotype.Component;
@@ -13,9 +15,13 @@ import org.springframework.stereotype.Component;
 @Component("municipalSources")
 public class MunicipalSourceHealthIndicator implements HealthIndicator {
     private final MunicipalSourceHealthService healthService;
+    private final MunicipalSourceProperties properties;
 
-    public MunicipalSourceHealthIndicator(MunicipalSourceHealthService healthService) {
+    public MunicipalSourceHealthIndicator(
+            MunicipalSourceHealthService healthService,
+            MunicipalSourceProperties properties) {
         this.healthService = healthService;
+        this.properties = properties;
     }
 
     @Override
@@ -23,37 +29,47 @@ public class MunicipalSourceHealthIndicator implements HealthIndicator {
         Health.Builder builder = Health.up();
         try {
             MunicipalSourceHealthService.Snapshot snapshot = healthService.izumSnapshot();
-            MunicipalSourceSlaPolicy.Evaluation evaluation = snapshot.evaluation();
+            appendSourceDetails(builder, "izum", snapshot);
+            MunicipalSourceHealthService.Snapshot ispark = healthService.snapshot(
+                    IsparkMunicipalParkingAdapter.SOURCE_KEY,
+                    properties.getIspark().isEnabled(),
+                    properties.getIspark().isSchedulerEnabled());
+            appendSourceDetails(builder, "ispark", ispark);
             builder.withDetail("municipalEnabled", snapshot.municipalEnabled());
-            builder.withDetail("izumEnabled", snapshot.sourceEnabled());
-            builder.withDetail("izumSchedulerEnabled", snapshot.schedulerEnabled());
-            builder.withDetail("izumSourceMode", snapshot.operatingMode().name());
-            builder.withDetail("izumOperationalState", evaluation.operationalState().name());
-            builder.withDetail("izumOccupancyFreshness", snapshot.occupancyFreshness().name());
-            builder.withDetail("izumConsecutiveFailures", evaluation.consecutiveFailures());
-            builder.withDetail("izumSecondsSinceSuccess", evaluation.secondsSinceSuccess());
-            builder.withDetail("izumFailuresInWindow", evaluation.failuresInWindow());
-            builder.withDetail("izumStaleRunningOperations", evaluation.staleRunningOperations());
-            builder.withDetail("izumRecovered", evaluation.recovered());
-            if (evaluation.lastRunStatus() != null) {
-                builder.withDetail("izumLastRunStatus", evaluation.lastRunStatus());
-            }
-            if (evaluation.lastRunAt() != null) {
-                builder.withDetail("izumLastRunTimestamp", evaluation.lastRunAt().toString());
-            }
-            if (evaluation.lastSuccessAt() != null) {
-                builder.withDetail("izumLastSuccessTimestamp", evaluation.lastSuccessAt().toString());
-                builder.withDetail("izumLastSuccessfulSyncAgeSeconds",
-                        Math.max(0, evaluation.secondsSinceSuccess()));
-            }
-            if (evaluation.lastFailureCategory() != null) {
-                builder.withDetail("izumLastErrorCategory", evaluation.lastFailureCategory());
-            }
-            builder.withDetail("izumStatus", mapLegacyStatus(snapshot));
             return builder.build();
         } catch (RuntimeException ex) {
             return builder.withDetail("izumStatus", "probe_error").build();
         }
+    }
+
+    private static void appendSourceDetails(
+            Health.Builder builder, String prefix, MunicipalSourceHealthService.Snapshot snapshot) {
+        MunicipalSourceSlaPolicy.Evaluation evaluation = snapshot.evaluation();
+        builder.withDetail(prefix + "Enabled", snapshot.sourceEnabled());
+        builder.withDetail(prefix + "SchedulerEnabled", snapshot.schedulerEnabled());
+        builder.withDetail(prefix + "SourceMode", snapshot.operatingMode().name());
+        builder.withDetail(prefix + "OperationalState", evaluation.operationalState().name());
+        builder.withDetail(prefix + "OccupancyFreshness", snapshot.occupancyFreshness().name());
+        builder.withDetail(prefix + "ConsecutiveFailures", evaluation.consecutiveFailures());
+        builder.withDetail(prefix + "SecondsSinceSuccess", evaluation.secondsSinceSuccess());
+        builder.withDetail(prefix + "FailuresInWindow", evaluation.failuresInWindow());
+        builder.withDetail(prefix + "StaleRunningOperations", evaluation.staleRunningOperations());
+        builder.withDetail(prefix + "Recovered", evaluation.recovered());
+        if (evaluation.lastRunStatus() != null) {
+            builder.withDetail(prefix + "LastRunStatus", evaluation.lastRunStatus());
+        }
+        if (evaluation.lastRunAt() != null) {
+            builder.withDetail(prefix + "LastRunTimestamp", evaluation.lastRunAt().toString());
+        }
+        if (evaluation.lastSuccessAt() != null) {
+            builder.withDetail(prefix + "LastSuccessTimestamp", evaluation.lastSuccessAt().toString());
+            builder.withDetail(prefix + "LastSuccessfulSyncAgeSeconds",
+                    Math.max(0, evaluation.secondsSinceSuccess()));
+        }
+        if (evaluation.lastFailureCategory() != null) {
+            builder.withDetail(prefix + "LastErrorCategory", evaluation.lastFailureCategory());
+        }
+        builder.withDetail(prefix + "Status", mapLegacyStatus(snapshot));
     }
 
     private static String mapLegacyStatus(MunicipalSourceHealthService.Snapshot snapshot) {

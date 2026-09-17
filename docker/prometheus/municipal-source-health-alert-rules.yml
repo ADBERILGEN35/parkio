@@ -95,6 +95,102 @@ groups:
           description: IZUM completed a successful sync after a failure streak. Confirm occupancy freshness returned to LIVE or AGING.
           runbook_url: docs/operations/municipal-parking-source-runbook.md
 
+      # --- SCHEDULED source (İSPARK): same SLA windows as İZUM (2-minute fixedDelay) ---
+      # Warning age 600s ≈ 5 missed cycles; critical 1800s ≈ 15 missed cycles.
+      # for: 5m avoids paging on a single transient upstream blip.
+      - alert: MunicipalIsparkConsecutiveFailuresWarning
+        expr: |
+          parkio_municipal_source_consecutive_failures{source_key="istanbul-ispark-parks",source_mode="SCHEDULED"} >= 3
+          and on(source_key)
+          parkio_municipal_source_operational_state{source_key="istanbul-ispark-parks",state="DISABLED"} == 0
+        for: 5m
+        labels:
+          severity: warning
+          owner: parking
+          source_key: istanbul-ispark-parks
+          source_mode: SCHEDULED
+        annotations:
+          summary: ISPARK consecutive failures reached warning threshold
+          description: ISPARK sync consecutive failures are elevated. Check operational SLA state and bounded error category via actuator health details.
+          runbook_url: docs/operations/municipal-parking-source-runbook.md
+
+      - alert: MunicipalIsparkConsecutiveFailuresCritical
+        expr: |
+          parkio_municipal_source_consecutive_failures{source_key="istanbul-ispark-parks",source_mode="SCHEDULED"} >= 5
+          and on(source_key)
+          parkio_municipal_source_operational_state{source_key="istanbul-ispark-parks",state="DISABLED"} == 0
+        for: 5m
+        labels:
+          severity: critical
+          owner: parking
+          source_key: istanbul-ispark-parks
+          source_mode: SCHEDULED
+        annotations:
+          summary: ISPARK consecutive failures reached critical threshold
+          description: ISPARK sync consecutive failures are critical. Distinguish upstream timeout from schema_contract using bounded error_category.
+          runbook_url: docs/operations/municipal-parking-source-runbook.md
+
+      - alert: MunicipalIsparkSecondsSinceSuccessWarning
+        expr: |
+          parkio_municipal_source_seconds_since_success{source_key="istanbul-ispark-parks",source_mode="SCHEDULED"} >= 600
+          and on(source_key)
+          parkio_municipal_source_operational_state{source_key="istanbul-ispark-parks",state="DISABLED"} == 0
+        for: 5m
+        labels:
+          severity: warning
+          owner: parking
+          source_key: istanbul-ispark-parks
+          source_mode: SCHEDULED
+        annotations:
+          summary: ISPARK seconds since last success reached warning threshold
+          description: ISPARK has not completed a successful sync within the warning SLA window (600s / ~5 missed 2-minute cycles).
+          runbook_url: docs/operations/municipal-parking-source-runbook.md
+
+      - alert: MunicipalIsparkSecondsSinceSuccessCritical
+        expr: |
+          parkio_municipal_source_seconds_since_success{source_key="istanbul-ispark-parks",source_mode="SCHEDULED"} >= 1800
+          and on(source_key)
+          parkio_municipal_source_operational_state{source_key="istanbul-ispark-parks",state="DISABLED"} == 0
+        for: 5m
+        labels:
+          severity: critical
+          owner: parking
+          source_key: istanbul-ispark-parks
+          source_mode: SCHEDULED
+        annotations:
+          summary: ISPARK seconds since last success reached critical threshold
+          description: ISPARK has not completed a successful sync within the critical SLA window (1800s). Public occupancy may already be STALE/null.
+          runbook_url: docs/operations/municipal-parking-source-runbook.md
+
+      - alert: MunicipalIsparkStaleRunningOperation
+        expr: |
+          parkio_municipal_source_stale_running_operations{source_key="istanbul-ispark-parks",source_mode="SCHEDULED"} > 0
+          and on(source_key)
+          parkio_municipal_source_operational_state{source_key="istanbul-ispark-parks",state="DISABLED"} == 0
+        for: 10m
+        labels:
+          severity: warning
+          owner: parking
+          source_key: istanbul-ispark-parks
+          source_mode: SCHEDULED
+        annotations:
+          summary: ISPARK has a stale RUNNING synchronization operation
+          description: An ISPARK sync run remained RUNNING beyond the stale-running SLA threshold.
+          runbook_url: docs/operations/municipal-parking-source-runbook.md
+
+      - alert: MunicipalIsparkRecovered
+        expr: increase(parkio_municipal_source_recoveries_total{source_key="istanbul-ispark-parks"}[15m]) > 0
+        for: 0m
+        labels:
+          severity: info
+          owner: parking
+          source_key: istanbul-ispark-parks
+          source_mode: SCHEDULED
+        annotations:
+          summary: ISPARK recovered after consecutive failures
+          description: ISPARK completed a successful sync after a failure streak. Confirm occupancy freshness returned to LIVE or AGING.
+          runbook_url: docs/operations/municipal-parking-source-runbook.md
+
       # --- OPERATOR_IMPORTED source (OSM): failures + stale RUNNING only (no age-only alerts) ---
       - alert: MunicipalOsmConsecutiveFailuresWarning
         expr: |

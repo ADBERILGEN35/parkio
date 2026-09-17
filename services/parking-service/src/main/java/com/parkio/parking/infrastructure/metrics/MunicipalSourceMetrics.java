@@ -9,6 +9,7 @@ import com.parkio.parking.externalsource.MunicipalSourceOperationalState;
 import com.parkio.parking.externalsource.MunicipalSyncResult;
 import com.parkio.parking.externalsource.MunicipalSyncRunStatus;
 import com.parkio.parking.infrastructure.config.MunicipalSourceProperties;
+import com.parkio.parking.infrastructure.ispark.IsparkMunicipalParkingAdapter;
 import com.parkio.parking.infrastructure.izum.IzumMunicipalParkingAdapter;
 import io.micrometer.core.instrument.Gauge;
 import io.micrometer.core.instrument.MeterRegistry;
@@ -28,6 +29,7 @@ import org.springframework.stereotype.Component;
 @Component
 public class MunicipalSourceMetrics {
     private static final String IZUM = IzumMunicipalParkingAdapter.SOURCE_KEY;
+    private static final String ISPARK = IsparkMunicipalParkingAdapter.SOURCE_KEY;
     private static final String OSM = MunicipalSourceIdentity.OSM;
 
     private final MeterRegistry registry;
@@ -35,6 +37,7 @@ public class MunicipalSourceMetrics {
     private final MunicipalSourceProperties properties;
 
     private final SourceGaugeState izum = new SourceGaugeState();
+    private final SourceGaugeState ispark = new SourceGaugeState();
     private final SourceGaugeState osm = new SourceGaugeState();
 
     public MunicipalSourceMetrics(
@@ -49,6 +52,7 @@ public class MunicipalSourceMetrics {
     @PostConstruct
     void registerGauges() {
         registerSourceGauges(IZUM, MunicipalSourceOperatingMode.SCHEDULED, izum);
+        registerSourceGauges(ISPARK, MunicipalSourceOperatingMode.SCHEDULED, ispark);
         registerSourceGauges(OSM, MunicipalSourceOperatingMode.OPERATOR_IMPORTED, osm);
         refreshFromHistory();
     }
@@ -190,6 +194,8 @@ public class MunicipalSourceMetrics {
     public void refreshFromHistory() {
         applySnapshot(izum, healthService.izumSnapshot());
         izum.previousConsecutiveFailures.set(izum.consecutiveFailures.get());
+        applySnapshot(ispark, isparkSnapshot());
+        ispark.previousConsecutiveFailures.set(ispark.consecutiveFailures.get());
         applySnapshot(osm, osmSnapshot());
         osm.previousConsecutiveFailures.set(osm.consecutiveFailures.get());
     }
@@ -230,10 +236,20 @@ public class MunicipalSourceMetrics {
         if (IZUM.equals(sourceKey)) {
             return healthService.izumSnapshot();
         }
+        if (ISPARK.equals(sourceKey)) {
+            return isparkSnapshot();
+        }
         if (OSM.equals(sourceKey)) {
             return osmSnapshot();
         }
         return null;
+    }
+
+    private MunicipalSourceHealthService.Snapshot isparkSnapshot() {
+        return healthService.snapshot(
+                ISPARK,
+                properties.getIspark().isEnabled(),
+                properties.getIspark().isSchedulerEnabled());
     }
 
     private MunicipalSourceHealthService.Snapshot osmSnapshot() {
@@ -246,6 +262,9 @@ public class MunicipalSourceMetrics {
     private SourceGaugeState stateFor(String sourceKey) {
         if (IZUM.equals(sourceKey)) {
             return izum;
+        }
+        if (ISPARK.equals(sourceKey)) {
+            return ispark;
         }
         if (OSM.equals(sourceKey)) {
             return osm;
