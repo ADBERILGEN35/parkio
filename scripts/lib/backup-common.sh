@@ -453,8 +453,9 @@ parkio_backup_azure_resolve_auth() {
       echo "ERROR: Azure SAS token is empty after normalization." >&2
       return 2
     fi
-    if ! printf '%s' "${sas}" | grep -Eq '^sv='; then
-      echo "ERROR: Azure SAS token failed shape check (expected sv=...)." >&2
+    if ! printf '%s' "${sas}" | grep -Eq '(^|[?&])sv=' \
+      || ! printf '%s' "${sas}" | grep -Eq '(^|[?&])sig='; then
+      echo "ERROR: Azure SAS token failed shape check (expected sv= and sig= params)." >&2
       return 2
     fi
     export AZURE_STORAGE_SAS_TOKEN="${sas}"

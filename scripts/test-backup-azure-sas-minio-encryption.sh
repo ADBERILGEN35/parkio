@@ -72,6 +72,15 @@ if parkio_backup_azure_resolve_auth >/dev/null 2>&1; then
 else
   ok "malformed SAS rejected"
 fi
+# Portal-style order (sp=...&sv=...&sig=...) must be accepted.
+export BACKUP_AZURE_SAS_TOKEN='sp=rcwl&sv=2022-11-02&sr=c&sig=FAKE_NOT_A_LIVE_SIGNATURE'
+unset BACKUP_AZURE_STORAGE_KEY AZURE_STORAGE_KEY
+parkio_backup_azure_resolve_auth
+if [ "${PARKIO_AZURE_AUTH_MODE}" = "SAS" ]; then
+  ok "Portal-order SAS (sp before sv) accepted"
+else
+  bad "Portal-order SAS rejected"
+fi
 unset BACKUP_AZURE_SAS_TOKEN BACKUP_AZURE_STORAGE_KEY
 
 # --- Secret never printed ---
