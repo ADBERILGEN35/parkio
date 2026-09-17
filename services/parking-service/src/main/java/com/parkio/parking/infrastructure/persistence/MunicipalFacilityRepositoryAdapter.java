@@ -9,6 +9,7 @@ import java.sql.Timestamp;
 import java.time.Instant;
 import java.util.List;
 import java.util.Optional;
+import java.util.Set;
 import java.util.UUID;
 import org.springframework.jdbc.core.simple.JdbcClient;
 import org.springframework.stereotype.Repository;
@@ -116,78 +117,127 @@ public class MunicipalFacilityRepositoryAdapter implements MunicipalFacilityRepo
     }
 
     @Override
-    public List<Facility> publicExploreIzumNearby(double lat, double lng, int radiusMeters, int limit) {
+    public List<Facility> publicExploreNearby(
+            double lat, double lng, int radiusMeters, int limit, Set<String> allowedSourceKeys) {
+        Set<String> keys = MunicipalSourceIdentity.normalizeKeys(allowedSourceKeys);
+        if (keys.isEmpty()) {
+            return List.of();
+        }
+        // DISTINCT ON avoids duplicate facility rows when co-linked to multiple allowed sources;
+        // publishing source prefers primary_source_key, then stable source_key order.
         return jdbc.sql("""
-                SELECT f.id, f.display_name, f.operator_name, f.facility_type, f.address_text,
-                       f.latitude, f.longitude, f.capacity_total, f.is_paid, f.nonstop,
-                       f.access_classification,
-                       s.publisher, s.attribution_text, s.aging_after_seconds, s.stale_after_seconds,
-                       f.primary_source_key, s.source_key AS linked_source_keys,
-                       ST_Distance(f.location, ST_SetSRID(ST_MakePoint(:lng,:lat),4326)::geography) AS dist
-                FROM municipal_parking_facilities f
-                JOIN municipal_data_sources s
-                  ON s.active=true AND s.source_key='izmir-izum-otoparklar'
-                WHERE f.active=true
-                  AND EXISTS (
-                    SELECT 1 FROM municipal_facility_source_links l
-                    WHERE l.facility_id=f.id AND l.source_id=s.id AND l.active=true
-                  )
-                  AND f.latitude BETWEEN -90 AND 90
-                  AND f.longitude BETWEEN -180 AND 180
-                  AND f.location IS NOT NULL
-                  AND ST_DWithin(f.location, ST_SetSRID(ST_MakePoint(:lng,:lat),4326)::geography, :radius)
-                ORDER BY dist ASC, f.id ASC
+                SELECT id, display_name, operator_name, facility_type, address_text,
+                       latitude, longitude, capacity_total, is_paid, nonstop,
+                       access_classification,
+                       publisher, attribution_text, aging_after_seconds, stale_after_seconds,
+                       primary_source_key, linked_source_keys
+                FROM (
+                  SELECT DISTINCT ON (f.id)
+                         f.id, f.display_name, f.operator_name, f.facility_type, f.address_text,
+                         f.latitude, f.longitude, f.capacity_total, f.is_paid, f.nonstop,
+                         f.access_classification,
+                         s.publisher, s.attribution_text, s.aging_after_seconds, s.stale_after_seconds,
+                         f.primary_source_key, s.source_key AS linked_source_keys,
+                         ST_Distance(f.location, ST_SetSRID(ST_MakePoint(:lng,:lat),4326)::geography) AS dist
+                  FROM municipal_parking_facilities f
+                  JOIN municipal_facility_source_links l
+                    ON l.facility_id=f.id AND l.active=true
+                  JOIN municipal_data_sources s
+                    ON s.id=l.source_id AND s.active=true AND s.source_key IN (:sourceKeys)
+                  WHERE f.active=true
+                    AND f.latitude BETWEEN -90 AND 90
+                    AND f.longitude BETWEEN -180 AND 180
+                    AND f.location IS NOT NULL
+                    AND ST_DWithin(f.location, ST_SetSRID(ST_MakePoint(:lng,:lat),4326)::geography, :radius)
+                  ORDER BY f.id,
+                           CASE WHEN s.source_key = f.primary_source_key THEN 0 ELSE 1 END,
+                           s.source_key ASC
+                ) ranked
+                ORDER BY dist ASC, id ASC
                 LIMIT LEAST(:limit, 6)
-                """).param("lat", lat).param("lng", lng).param("radius", radiusMeters).param("limit", limit)
-                .query(this::map).list();
+                """)
+                .param("lat", lat)
+                .param("lng", lng)
+                .param("radius", radiusMeters)
+                .param("limit", limit)
+                .param("sourceKeys", keys)
+                .query(this::map)
+                .list();
     }
 
     @Override
-    public long countPublicExploreIzumNearby(double lat, double lng, int radiusMeters) {
+    public long countPublicExploreNearby(
+            double lat, double lng, int radiusMeters, Set<String> allowedSourceKeys) {
+        Set<String> keys = MunicipalSourceIdentity.normalizeKeys(allowedSourceKeys);
+        if (keys.isEmpty()) {
+            return 0L;
+        }
         Long count = jdbc.sql("""
-                SELECT count(*)
+                SELECT count(DISTINCT f.id)
                 FROM municipal_parking_facilities f
+                JOIN municipal_facility_source_links l
+                  ON l.facility_id=f.id AND l.active=true
                 JOIN municipal_data_sources s
-                  ON s.active=true AND s.source_key='izmir-izum-otoparklar'
+                  ON s.id=l.source_id AND s.active=true AND s.source_key IN (:sourceKeys)
                 WHERE f.active=true
-                  AND EXISTS (
-                    SELECT 1 FROM municipal_facility_source_links l
-                    WHERE l.facility_id=f.id AND l.source_id=s.id AND l.active=true
-                  )
                   AND f.latitude BETWEEN -90 AND 90
                   AND f.longitude BETWEEN -180 AND 180
                   AND f.location IS NOT NULL
                   AND ST_DWithin(f.location, ST_SetSRID(ST_MakePoint(:lng,:lat),4326)::geography, :radius)
-                """).param("lat", lat).param("lng", lng).param("radius", radiusMeters)
-                .query(Long.class).single();
+                """)
+                .param("lat", lat)
+                .param("lng", lng)
+                .param("radius", radiusMeters)
+                .param("sourceKeys", keys)
+                .query(Long.class)
+                .single();
         return count == null ? 0L : count;
     }
 
     @Override
-    public Optional<Facility> findPublicExploreIzumById(
-            UUID id, double lat, double lng, int radiusMeters) {
+    public Optional<Facility> findPublicExploreById(
+            UUID id, double lat, double lng, int radiusMeters, Set<String> allowedSourceKeys) {
+        Set<String> keys = MunicipalSourceIdentity.normalizeKeys(allowedSourceKeys);
+        if (keys.isEmpty()) {
+            return Optional.empty();
+        }
         return jdbc.sql("""
-                SELECT f.id, f.display_name, f.operator_name, f.facility_type, f.address_text,
-                       f.latitude, f.longitude, f.capacity_total, f.is_paid, f.nonstop,
-                       f.access_classification,
-                       s.publisher, s.attribution_text, s.aging_after_seconds, s.stale_after_seconds,
-                       f.primary_source_key, s.source_key AS linked_source_keys
-                FROM municipal_parking_facilities f
-                JOIN municipal_data_sources s
-                  ON s.active=true AND s.source_key='izmir-izum-otoparklar'
-                WHERE f.id=:id
-                  AND f.active=true
-                  AND EXISTS (
-                    SELECT 1 FROM municipal_facility_source_links l
-                    WHERE l.facility_id=f.id AND l.source_id=s.id AND l.active=true
-                  )
-                  AND f.latitude BETWEEN -90 AND 90
-                  AND f.longitude BETWEEN -180 AND 180
-                  AND f.location IS NOT NULL
-                  AND ST_DWithin(f.location, ST_SetSRID(ST_MakePoint(:lng,:lat),4326)::geography, :radius)
+                SELECT id, display_name, operator_name, facility_type, address_text,
+                       latitude, longitude, capacity_total, is_paid, nonstop,
+                       access_classification,
+                       publisher, attribution_text, aging_after_seconds, stale_after_seconds,
+                       primary_source_key, linked_source_keys
+                FROM (
+                  SELECT DISTINCT ON (f.id)
+                         f.id, f.display_name, f.operator_name, f.facility_type, f.address_text,
+                         f.latitude, f.longitude, f.capacity_total, f.is_paid, f.nonstop,
+                         f.access_classification,
+                         s.publisher, s.attribution_text, s.aging_after_seconds, s.stale_after_seconds,
+                         f.primary_source_key, s.source_key AS linked_source_keys
+                  FROM municipal_parking_facilities f
+                  JOIN municipal_facility_source_links l
+                    ON l.facility_id=f.id AND l.active=true
+                  JOIN municipal_data_sources s
+                    ON s.id=l.source_id AND s.active=true AND s.source_key IN (:sourceKeys)
+                  WHERE f.id=:id
+                    AND f.active=true
+                    AND f.latitude BETWEEN -90 AND 90
+                    AND f.longitude BETWEEN -180 AND 180
+                    AND f.location IS NOT NULL
+                    AND ST_DWithin(f.location, ST_SetSRID(ST_MakePoint(:lng,:lat),4326)::geography, :radius)
+                  ORDER BY f.id,
+                           CASE WHEN s.source_key = f.primary_source_key THEN 0 ELSE 1 END,
+                           s.source_key ASC
+                ) ranked
                 LIMIT 1
-                """).param("id", id).param("lat", lat).param("lng", lng).param("radius", radiusMeters)
-                .query(this::map).optional();
+                """)
+                .param("id", id)
+                .param("lat", lat)
+                .param("lng", lng)
+                .param("radius", radiusMeters)
+                .param("sourceKeys", keys)
+                .query(this::map)
+                .optional();
     }
 
     @Override

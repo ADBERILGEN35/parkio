@@ -20,11 +20,20 @@ public interface MunicipalFacilityRepository {
     Upserted upsert(UUID sourceId, NormalizedMunicipalFacility facility, Instant now);
     List<Facility> nearby(double lat, double lng, int radiusMeters, int limit);
     Optional<Facility> findById(UUID id);
-    List<Facility> publicExploreIzumNearby(double lat, double lng, int radiusMeters, int limit);
 
-    /** Count of IZUM public-explore facilities in the same bounded scope (no row disclosure). */
-    long countPublicExploreIzumNearby(double lat, double lng, int radiusMeters);
+    /**
+     * Anonymous Public Explore nearby rows for an already-validated reviewed source-key set.
+     * Global limit ceiling remains enforced in SQL ({@code LEAST(:limit, 6)}).
+     */
+    List<Facility> publicExploreNearby(
+            double lat, double lng, int radiusMeters, int limit, Set<String> allowedSourceKeys);
 
-    Optional<Facility> findPublicExploreIzumById(UUID id, double lat, double lng, int radiusMeters);
+    /** Count of public-explore facilities in the same bounded scope across allowed sources. */
+    long countPublicExploreNearby(
+            double lat, double lng, int radiusMeters, Set<String> allowedSourceKeys);
+
+    Optional<Facility> findPublicExploreById(
+            UUID id, double lat, double lng, int radiusMeters, Set<String> allowedSourceKeys);
+
     long count();
 }

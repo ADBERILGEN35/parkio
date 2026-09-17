@@ -42,7 +42,7 @@ interface SelectedDestination {
 
 /**
  * Anonymous public product surface — same MapLibre product map as authenticated
- * {@link MapPage}, IZUM-only public data, detail/actions via AuthGate.
+ * {@link MapPage}, reviewed municipal public data (provider-agnostic DTO), detail/actions via AuthGate.
  *
  * Distance ownership: only {@link userLocation} (successful browser geolocation)
  * may drive preview distance. {@link discoveryOrigin} is for API scope/map framing

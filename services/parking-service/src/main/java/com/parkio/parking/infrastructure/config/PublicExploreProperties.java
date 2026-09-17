@@ -1,14 +1,23 @@
 package com.parkio.parking.infrastructure.config;
 
+import com.parkio.parking.externalsource.PublicExplorePublicationPolicy;
+import com.parkio.parking.externalsource.PublicExplorePublicationPolicy.ReviewedPublicFamily;
 import java.util.List;
-import java.util.Locale;
+import java.util.Set;
 import org.springframework.boot.context.properties.ConfigurationProperties;
 
-/** Fail-closed configuration for the anonymous read-only product surface. */
+/**
+ * Fail-closed configuration for the anonymous read-only product surface.
+ *
+ * <p>Allowed families are parsed through {@link PublicExplorePublicationPolicy}: only reviewed
+ * families (IZUM, ISPARK) may be configured. Empty allowlist → no municipal public rows.
+ * Ingestion enablement is a separate gate and does not imply publication.
+ */
 @ConfigurationProperties(prefix = "parkio.public-explore")
 public class PublicExploreProperties {
     private boolean enabled;
     private List<String> allowedSourceFamilies = List.of();
+    private Set<ReviewedPublicFamily> reviewedFamilies = Set.of();
 
     public boolean isEnabled() {
         return enabled;
@@ -25,20 +34,35 @@ public class PublicExploreProperties {
     public void setAllowedSourceFamilies(List<String> allowedSourceFamilies) {
         if (allowedSourceFamilies == null) {
             this.allowedSourceFamilies = List.of();
+            this.reviewedFamilies = Set.of();
             return;
         }
-        List<String> normalized = allowedSourceFamilies.stream()
-                .filter(value -> value != null && !value.isBlank())
-                .map(value -> value.trim().toUpperCase(Locale.ROOT))
-                .toList();
-        if (normalized.stream().anyMatch(value -> !"IZUM".equals(value))) {
-            throw new IllegalArgumentException(
-                    "Public explore supports only the reviewed IZUM source family");
-        }
-        this.allowedSourceFamilies = List.copyOf(normalized);
+        Set<ReviewedPublicFamily> parsed =
+                PublicExplorePublicationPolicy.parseAllowedFamilies(allowedSourceFamilies);
+        this.reviewedFamilies = parsed;
+        this.allowedSourceFamilies = parsed.stream().map(Enum::name).sorted().toList();
     }
 
+    /** True when the reviewed IZUM family is on the publication allowlist. */
     public boolean isIzumAllowed() {
-        return allowedSourceFamilies.contains("IZUM");
+        return reviewedFamilies.contains(ReviewedPublicFamily.IZUM);
+    }
+
+    /** True when the reviewed ISPARK family is on the publication allowlist. */
+    public boolean isIsparkAllowed() {
+        return reviewedFamilies.contains(ReviewedPublicFamily.ISPARK);
+    }
+
+    public boolean hasAllowedSources() {
+        return !reviewedFamilies.isEmpty();
+    }
+
+    public Set<ReviewedPublicFamily> reviewedFamilies() {
+        return reviewedFamilies;
+    }
+
+    /** Validated source keys for repository queries; never raw HTTP input. */
+    public Set<String> resolvedSourceKeys() {
+        return PublicExplorePublicationPolicy.sourceKeysFor(reviewedFamilies);
     }
 }

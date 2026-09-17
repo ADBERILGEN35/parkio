@@ -5,21 +5,25 @@ import com.parkio.parking.application.port.MunicipalOccupancySnapshotRepository;
 import com.parkio.parking.application.port.ParkingSpotRepository;
 import com.parkio.parking.externalsource.MunicipalFacilityType;
 import com.parkio.parking.externalsource.MunicipalOccupancyFreshness;
-import com.parkio.parking.externalsource.MunicipalSourceIdentity;
 import com.parkio.parking.externalsource.OccupancyFreshnessPolicy;
+import com.parkio.parking.externalsource.provider.ParkingDataSourceDescriptor;
 import com.parkio.parking.externalsource.provider.ParkingProviderCatalog;
 import com.parkio.parking.infrastructure.config.PublicExploreProperties;
 import java.time.Clock;
 import java.time.Duration;
 import java.time.Instant;
 import java.util.List;
+import java.util.Set;
 import java.util.UUID;
 
 /**
- * Bounded IZUM-only anonymous public discovery. Visible municipal rows are capped
- * server-side; community exposure is aggregate-count only with a privacy threshold.
+ * Bounded anonymous public discovery across reviewed municipal publication sources.
+ * Visible municipal rows are capped server-side; community exposure is aggregate-count
+ * only with a privacy threshold. Source selection comes from validated publication policy,
+ * never from anonymous query parameters.
  */
 public class PublicExploreQueryService {
+    /** Client UX fallback center only; server honors supplied lat/lng when present. */
     public static final double CENTER_LATITUDE = 38.4237;
     public static final double CENTER_LONGITUDE = 27.1428;
     /** Default and hard ceiling for anonymous radius (certified public scope). */
@@ -73,18 +77,23 @@ public class PublicExploreQueryService {
     }
 
     public DiscoveryResult discover(DiscoveryQuery query) {
-        if (!properties.isIzumAllowed()) {
+        Set<String> allowedKeys = properties.resolvedSourceKeys();
+        if (allowedKeys.isEmpty()) {
             return new DiscoveryResult(List.of(), 0L, 0L, null);
         }
         ResolvedScope scope = resolveScope(query);
-        long municipalTotal = facilities.countPublicExploreIzumNearby(
-                scope.latitude(), scope.longitude(), scope.radiusMeters());
+        long municipalTotal = facilities.countPublicExploreNearby(
+                scope.latitude(), scope.longitude(), scope.radiusMeters(), allowedKeys);
         List<FacilityView> visible = facilities
-                .publicExploreIzumNearby(
-                        scope.latitude(), scope.longitude(), scope.radiusMeters(), scope.limit())
+                .publicExploreNearby(
+                        scope.latitude(),
+                        scope.longitude(),
+                        scope.radiusMeters(),
+                        scope.limit(),
+                        allowedKeys)
                 .stream()
                 .limit(scope.limit())
-                .map(this::project)
+                .map(facility -> project(facility, allowedKeys))
                 .toList();
         long hidden = Math.max(municipalTotal - visible.size(), 0L);
         Integer community = suppressCommunityBelowThreshold(spots.countNearbyVisible(
@@ -128,14 +137,18 @@ public class PublicExploreQueryService {
         return new ResolvedScope(lat, lng, radius, limit);
     }
 
-    private FacilityView project(MunicipalFacilityRepository.Facility facility) {
+    private FacilityView project(MunicipalFacilityRepository.Facility facility, Set<String> allowedKeys) {
+        String publishingKey = resolvePublishingSourceKey(facility, allowedKeys);
+        ParkingDataSourceDescriptor presentation = ParkingProviderCatalog.find(publishingKey)
+                .orElseThrow(() -> new IllegalStateException(
+                        "Public explore facility missing reviewed catalog source"));
+
         MunicipalOccupancyFreshness freshness = MunicipalOccupancyFreshness.UNAVAILABLE;
         Integer availableSpaces = null;
         Integer capacityTotal = facility.capacityTotal();
         Instant dataUpdatedAt = null;
 
-        var snapshot = snapshots.latestForFacilityAndSourceKey(
-                facility.id(), MunicipalSourceIdentity.IZUM);
+        var snapshot = snapshots.latestForFacilityAndSourceKey(facility.id(), publishingKey);
         if (snapshot.isPresent()) {
             var value = snapshot.get();
             freshness = new OccupancyFreshnessPolicy(
@@ -164,8 +177,28 @@ public class PublicExploreQueryService {
                 availableSpaces,
                 freshness,
                 dataUpdatedAt,
-                ParkingProviderCatalog.IZUM_DISPLAY_NAME,
-                ParkingProviderCatalog.IZUM_ATTRIBUTION);
+                presentation.displayName(),
+                presentation.attribution());
+    }
+
+    /**
+     * Occupancy and attribution bind to the facility's publishing source key from the
+     * public query join (linked keys), never a global provider-latest snapshot.
+     */
+    static String resolvePublishingSourceKey(
+            MunicipalFacilityRepository.Facility facility, Set<String> allowedKeys) {
+        Set<String> linked = facility.linkedSourceKeys() == null ? Set.of() : facility.linkedSourceKeys();
+        if (facility.primarySourceKey() != null
+                && allowedKeys.contains(facility.primarySourceKey())
+                && (linked.isEmpty() || linked.contains(facility.primarySourceKey()))) {
+            return facility.primarySourceKey();
+        }
+        return linked.stream()
+                .filter(allowedKeys::contains)
+                .sorted()
+                .findFirst()
+                .orElseThrow(() -> new IllegalStateException(
+                        "Public explore facility has no allowed publishing source key"));
     }
 
     private record ResolvedScope(double latitude, double longitude, int radiusMeters, int limit) {}
