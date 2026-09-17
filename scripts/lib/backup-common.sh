@@ -48,6 +48,8 @@ parkio_backup_load_env() {
     local _saved_azure_acct="${BACKUP_AZURE_STORAGE_ACCOUNT-}"
     local _saved_azure_ct="${BACKUP_AZURE_CONTAINER-}"
     local _saved_azure_key="${BACKUP_AZURE_STORAGE_KEY-}"
+    local _saved_azure_sas="${BACKUP_AZURE_SAS_TOKEN-}"
+    local _saved_azure_sas_native="${AZURE_STORAGE_SAS_TOKEN-}"
     local _saved_mc_url="${BACKUP_MC_URL-}"
     local _saved_mc_access="${BACKUP_MC_ACCESS_KEY-}"
     local _saved_mc_secret="${BACKUP_MC_SECRET_KEY-}"
@@ -75,6 +77,12 @@ parkio_backup_load_env() {
     fi
     if [ -n "${_saved_azure_key}" ]; then
       export BACKUP_AZURE_STORAGE_KEY="${_saved_azure_key}"
+    fi
+    if [ -n "${_saved_azure_sas}" ]; then
+      export BACKUP_AZURE_SAS_TOKEN="${_saved_azure_sas}"
+    fi
+    if [ -n "${_saved_azure_sas_native}" ]; then
+      export AZURE_STORAGE_SAS_TOKEN="${_saved_azure_sas_native}"
     fi
     if [ -n "${_saved_mc_url}" ]; then
       export BACKUP_MC_URL="${_saved_mc_url}"
@@ -263,7 +271,25 @@ parkio_backup_write_manifest() {
   done
   databases_json+="]"
 
-  minio_json="{\"bucket\":\"${MINIO_BUCKET:-parkio-media}\",\"objectCount\":${minio_objects},\"path\":\"${dest_dir}/minio\"}"
+  local minio_enc=0
+  local minio_artifact="none"
+  local minio_algo="none"
+  if [ -f "${dest_dir}/minio.tar.gz.enc" ]; then
+    minio_enc=1
+    minio_artifact="minio.tar.gz.enc"
+    minio_algo="aes-256-cbc-pbkdf2"
+  elif [ -d "${dest_dir}/minio" ]; then
+    minio_artifact="minio/"
+    minio_algo="none"
+  fi
+  minio_json="$(jq -n \
+    --arg bucket "${MINIO_BUCKET:-parkio-media}" \
+    --argjson objectCount "${minio_objects}" \
+    --arg path "${dest_dir}/minio" \
+    --argjson clientSideEncryption "${minio_enc}" \
+    --arg artifact "${minio_artifact}" \
+    --arg algorithm "${minio_algo}" \
+    '{bucket:$bucket,objectCount:$objectCount,path:$path,clientSideEncryption:($clientSideEncryption==1),artifact:$artifact,algorithm:$algorithm}')"
 
   mkdir -p "$(dirname "${manifest_path}")"
   local retention="${BACKUP_RETENTION_DAYS:-14}"
@@ -293,7 +319,7 @@ parkio_backup_write_manifest() {
     --argjson offsiteUploaded "${offsite_uploaded}" \
     --arg encryptionAlgorithm "$( [ "${encrypt_on}" -eq 1 ] && echo aes-256-cbc-pbkdf2 || echo none )" \
   '{
-    schemaVersion: 2,
+    schemaVersion: 3,
     action: $action,
     timestamp: $stamp,
     gitSha: $gitSha,
@@ -385,6 +411,178 @@ parkio_backup_assert_encrypted_dumps() {
   fi
 }
 
+# Strip a single leading '?' from a SAS token. Never log the token value.
+parkio_backup_normalize_sas_token() {
+  local raw="${1-}"
+  if [ -z "${raw}" ]; then
+    echo ""
+    return 0
+  fi
+  case "${raw}" in
+    \?\?*)
+      echo "ERROR: malformed SAS token (double '?')." >&2
+      return 2
+      ;;
+    \?*)
+      printf '%s' "${raw#?}"
+      ;;
+    *)
+      printf '%s' "${raw}"
+      ;;
+  esac
+}
+
+# Resolve Azure auth without printing secrets.
+# Precedence: BACKUP_AZURE_SAS_TOKEN > AZURE_STORAGE_SAS_TOKEN > BACKUP_AZURE_STORAGE_KEY >
+# AZURE_STORAGE_KEY > --auth-mode login.
+# For SAS, exports AZURE_STORAGE_SAS_TOKEN (CLI preferred env; avoids --sas-token argv).
+# Sets PARKIO_AZURE_AUTH_MODE to one of: SAS | ACCOUNT_KEY | LOGIN
+# (Do not capture stdout via $() — export side effects must remain in the caller shell.)
+parkio_backup_azure_resolve_auth() {
+  PARKIO_AZURE_AUTH_MODE=""
+  local sas_raw=""
+  if [ -n "${BACKUP_AZURE_SAS_TOKEN:-}" ]; then
+    sas_raw="${BACKUP_AZURE_SAS_TOKEN}"
+  elif [ -n "${AZURE_STORAGE_SAS_TOKEN:-}" ]; then
+    sas_raw="${AZURE_STORAGE_SAS_TOKEN}"
+  fi
+  if [ -n "${sas_raw}" ]; then
+    local sas
+    sas="$(parkio_backup_normalize_sas_token "${sas_raw}")" || return 2
+    if [ -z "${sas}" ]; then
+      echo "ERROR: Azure SAS token is empty after normalization." >&2
+      return 2
+    fi
+    if ! printf '%s' "${sas}" | grep -Eq '^sv='; then
+      echo "ERROR: Azure SAS token failed shape check (expected sv=...)." >&2
+      return 2
+    fi
+    export AZURE_STORAGE_SAS_TOKEN="${sas}"
+    # Prefer SAS over any ambient account key for this process.
+    unset AZURE_STORAGE_KEY 2>/dev/null || true
+    PARKIO_AZURE_AUTH_MODE="SAS"
+    export PARKIO_AZURE_AUTH_MODE
+    return 0
+  fi
+  if [ -n "${BACKUP_AZURE_STORAGE_KEY:-}" ] || [ -n "${AZURE_STORAGE_KEY:-}" ]; then
+    PARKIO_AZURE_AUTH_MODE="ACCOUNT_KEY"
+    export PARKIO_AZURE_AUTH_MODE
+    return 0
+  fi
+  PARKIO_AZURE_AUTH_MODE="LOGIN"
+  export PARKIO_AZURE_AUTH_MODE
+  return 0
+}
+
+# Seal mirrored MinIO tree with the same AES-256-CBC PBKDF2 passphrase as DB dumps.
+# Leaves minio.tar.gz.enc (+ .sha256) and minio-encryption.json; removes plaintext minio/.
+parkio_backup_seal_minio() {
+  local dest_dir="$1"
+  local plain="${dest_dir}/minio"
+  local enc="${dest_dir}/minio.tar.gz.enc"
+  local meta="${dest_dir}/minio-encryption.json"
+
+  if [ -z "${BACKUP_ENCRYPT_PASSPHRASE:-}" ]; then
+    return 0
+  fi
+  if [ -f "${enc}" ]; then
+    echo "MinIO already sealed."
+    return 0
+  fi
+  if [ ! -d "${plain}" ]; then
+    return 0
+  fi
+
+  local work
+  work="$(mktemp -d "${dest_dir}/.minio-seal.XXXXXX")"
+  chmod 700 "${work}"
+
+  if ! tar -C "${dest_dir}" -czf "${work}/minio.tar.gz" minio; then
+    echo "ERROR: failed to archive MinIO backup tree." >&2
+    rm -rf "${work}"
+    return 1
+  fi
+  chmod 600 "${work}/minio.tar.gz"
+  if ! openssl enc -aes-256-cbc -pbkdf2 -salt \
+      -pass env:BACKUP_ENCRYPT_PASSPHRASE \
+      -in "${work}/minio.tar.gz" -out "${enc}"; then
+    echo "ERROR: MinIO client-side encryption failed." >&2
+    rm -f "${enc}"
+    rm -rf "${work}"
+    return 1
+  fi
+  chmod 600 "${enc}"
+  if ! parkio_backup_write_checksum "${enc}"; then
+    rm -f "${enc}" "${enc}.sha256"
+    rm -rf "${work}"
+    return 1
+  fi
+  printf '%s\n' '{"schemaVersion":1,"clientSideEncryption":true,"algorithm":"aes-256-cbc-pbkdf2","artifact":"minio.tar.gz.enc","format":"tar.gz.enc"}' \
+    > "${meta}"
+  chmod 600 "${meta}"
+
+  chmod -R u+w "${plain}" 2>/dev/null || true
+  rm -rf "${plain}"
+  rm -rf "${work}"
+  echo "MinIO sealed -> minio.tar.gz.enc (aes-256-cbc-pbkdf2)"
+}
+
+# Decrypt/extract MinIO backup into out_parent (creates out_parent/minio/...).
+# Supports historical plaintext dest_dir/minio/ trees.
+parkio_backup_unseal_minio() {
+  local dest_dir="$1"
+  local out_parent="$2"
+  mkdir -p "${out_parent}"
+
+  if [ -f "${dest_dir}/minio.tar.gz.enc" ]; then
+    if [ -z "${BACKUP_ENCRYPT_PASSPHRASE:-}" ]; then
+      echo "ERROR: BACKUP_ENCRYPT_PASSPHRASE required to decrypt MinIO backup." >&2
+      return 1
+    fi
+    local work
+    work="$(mktemp -d "${out_parent}/.minio-unseal.XXXXXX")"
+    chmod 700 "${work}"
+    if ! openssl enc -d -aes-256-cbc -pbkdf2 \
+        -pass env:BACKUP_ENCRYPT_PASSPHRASE \
+        -in "${dest_dir}/minio.tar.gz.enc" -out "${work}/minio.tar.gz"; then
+      echo "ERROR: MinIO decrypt failed." >&2
+      rm -rf "${work}"
+      return 1
+    fi
+    if ! tar -xzf "${work}/minio.tar.gz" -C "${out_parent}"; then
+      echo "ERROR: MinIO archive extract failed." >&2
+      rm -rf "${work}"
+      return 1
+    fi
+    rm -rf "${work}"
+    if [ ! -d "${out_parent}/minio" ]; then
+      echo "ERROR: decrypted MinIO archive missing minio/ root." >&2
+      return 1
+    fi
+    return 0
+  fi
+
+  if [ -d "${dest_dir}/minio" ]; then
+    # Historical plaintext stamp (pre client-side MinIO encryption).
+    cp -a "${dest_dir}/minio" "${out_parent}/"
+    return 0
+  fi
+
+  echo "ERROR: no MinIO backup artifact in ${dest_dir}" >&2
+  return 1
+}
+
+# Offsite must never receive a plaintext MinIO tree.
+parkio_backup_assert_minio_offsite_safe() {
+  local dest_dir="$1"
+  if [ -d "${dest_dir}/minio" ]; then
+    echo "ERROR: refusing offsite upload of plaintext MinIO tree at ${dest_dir}/minio" >&2
+    echo "ERROR: set BACKUP_ENCRYPT_PASSPHRASE so MinIO is sealed to minio.tar.gz.enc first." >&2
+    return 1
+  fi
+  return 0
+}
+
 # Upload a completed stamp directory AFTER MinIO mirror + COMPLETE marker.
 # Empty dest is skip unless BACKUP_PRODUCTION_MODE (preflight already rejected that).
 parkio_backup_offsite_upload() {
@@ -401,6 +599,7 @@ parkio_backup_offsite_upload() {
     echo "ERROR: refusing to upload incomplete stamp (no COMPLETE): ${dest_dir}" >&2
     return 1
   fi
+  parkio_backup_assert_minio_offsite_safe "${dest_dir}" || return 1
   case "${kind}" in
     azure) parkio_backup_offsite_upload_azure "${dest_dir}" "${stamp}" ;;
     s3) parkio_backup_offsite_upload_s3 "${dest_dir}" "${mc_dest}" "${stamp}" ;;
@@ -521,17 +720,32 @@ parkio_backup_offsite_upload_azure() {
     echo "ERROR: Azure offsite requires the Azure CLI (az)." >&2
     return 1
   fi
-  echo "Uploading ${dest_dir} -> azure://${container}/${stamp} (account configured, TLS on)"
+  local auth_mode
+  parkio_backup_azure_resolve_auth || return 2
+  auth_mode="${PARKIO_AZURE_AUTH_MODE}"
+  echo "Uploading ${dest_dir} -> azure://${container}/${stamp} (account configured, TLS on, auth=${auth_mode})"
   local complete_tmp
   complete_tmp="$(mktemp "${TMPDIR:-/tmp}/parkio-complete.XXXXXX")"
   mv "${dest_dir}/COMPLETE" "${complete_tmp}"
   local extra=()
-  if [ -n "${AZURE_STORAGE_KEY:-}" ] || [ -n "${BACKUP_AZURE_STORAGE_KEY:-}" ]; then
-    extra+=(--account-key "${AZURE_STORAGE_KEY:-${BACKUP_AZURE_STORAGE_KEY}}")
-  else
-    extra+=(--auth-mode login)
-  fi
+  case "${auth_mode}" in
+    SAS)
+      # AZURE_STORAGE_SAS_TOKEN already exported; avoid --sas-token argv exposure.
+      ;;
+    ACCOUNT_KEY)
+      extra+=(--account-key "${AZURE_STORAGE_KEY:-${BACKUP_AZURE_STORAGE_KEY}}")
+      ;;
+    LOGIN)
+      extra+=(--auth-mode login)
+      ;;
+    *)
+      echo "ERROR: unknown Azure auth mode." >&2
+      mv "${complete_tmp}" "${dest_dir}/COMPLETE"
+      return 1
+      ;;
+  esac
   local rc=0
+  # Intentionally no set -x around az (secrets may be in env/argv).
   az storage blob upload-batch \
     --account-name "${account}" \
     --destination "${container}/${stamp}" \
@@ -561,12 +775,21 @@ parkio_backup_offsite_pull() {
     azure)
       local account="${BACKUP_AZURE_STORAGE_ACCOUNT:-}"
       local container="${BACKUP_AZURE_CONTAINER:-}"
+      local auth_mode
+      parkio_backup_azure_resolve_auth || return 2
+      auth_mode="${PARKIO_AZURE_AUTH_MODE}"
+      echo "Azure offsite pull auth=${auth_mode}"
       local extra=()
-      if [ -n "${AZURE_STORAGE_KEY:-}" ] || [ -n "${BACKUP_AZURE_STORAGE_KEY:-}" ]; then
-        extra+=(--account-key "${AZURE_STORAGE_KEY:-${BACKUP_AZURE_STORAGE_KEY}}")
-      else
-        extra+=(--auth-mode login)
-      fi
+      case "${auth_mode}" in
+        SAS) ;;
+        ACCOUNT_KEY)
+          extra+=(--account-key "${AZURE_STORAGE_KEY:-${BACKUP_AZURE_STORAGE_KEY}}")
+          ;;
+        LOGIN)
+          extra+=(--auth-mode login)
+          ;;
+      esac
+      # Intentionally no set -x around az (secrets may be in env/argv).
       az storage blob download-batch \
         --account-name "${account}" \
         --source "${container}" \

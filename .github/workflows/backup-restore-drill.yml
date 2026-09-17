@@ -33,6 +33,7 @@ on:
       - "scripts/restore-drill-failure-modes.sh"
       - "scripts/restore-drill-offsite.sh"
       - "scripts/backup-offsite-pull.sh"
+      - "scripts/test-backup-azure-sas-minio-encryption.sh"
       - "scripts/staging/**"
       - "docker/docker-compose.staging-verification.yml"
       - "docker/docker-compose.restore-drill.yml"
@@ -59,6 +60,7 @@ on:
       - "scripts/restore-drill-failure-modes.sh"
       - "scripts/restore-drill-offsite.sh"
       - "scripts/backup-offsite-pull.sh"
+      - "scripts/test-backup-azure-sas-minio-encryption.sh"
       - "scripts/staging/**"
       - "docker/docker-compose.staging-verification.yml"
       - "docker/docker-compose.restore-drill.yml"
@@ -112,6 +114,9 @@ jobs:
 
       - name: Make scripts executable
         run: chmod +x scripts/*.sh scripts/lib/*.sh
+
+      - name: Azure SAS + MinIO encryption unit tests (offline)
+        run: ./scripts/test-backup-azure-sas-minio-encryption.sh
 
       # Authoritative 10-DB set from scripts/lib/restore-drill-services.sh plus MinIO.
       - name: Start database + MinIO stack

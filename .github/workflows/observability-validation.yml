@@ -205,12 +205,15 @@ jobs:
         run: |
           set -euo pipefail
           chmod +x scripts/backup-*.sh scripts/restore-hosted-beta.sh scripts/lib/backup-common.sh \
-            scripts/observability-validate.sh scripts/alerting-acceptance.sh
+            scripts/observability-validate.sh scripts/alerting-acceptance.sh \
+            scripts/test-backup-azure-sas-minio-encryption.sh
           for f in scripts/backup-hosted-beta.sh scripts/backup-minio.sh scripts/restore-hosted-beta.sh \
-            scripts/lib/backup-common.sh scripts/observability-validate.sh scripts/alerting-acceptance.sh; do
+            scripts/lib/backup-common.sh scripts/observability-validate.sh scripts/alerting-acceptance.sh \
+            scripts/test-backup-azure-sas-minio-encryption.sh; do
             bash -n "$f"
           done
           python3 -m py_compile scripts/alerting-acceptance-receiver.py
+          ./scripts/test-backup-azure-sas-minio-encryption.sh
 
       - name: Backup dry-run manifest
         run: |

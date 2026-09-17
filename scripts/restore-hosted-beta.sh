@@ -98,26 +98,51 @@ restore_databases() {
 
 restore_minio() {
   local restore_bucket="${MINIO_RESTORE_BUCKET:-${BUCKET}}"
-  local mirror_src="${DEST_DIR}/minio/${BUCKET}"
-  if [ ! -d "${mirror_src}" ]; then
-    # retrieved stamps store the bucket tree under minio/<bucket>
-    local alt
-    alt="$(find "${DEST_DIR}/minio" -mindepth 1 -maxdepth 1 -type d 2>/dev/null | head -1 || true)"
-    if [ -n "${alt}" ]; then
-      mirror_src="${alt}"
+  local stage=""
+  local mirror_src=""
+  local cleanup_stage=0
+
+  if [ -f "${DEST_DIR}/minio.tar.gz.enc" ] || [ -d "${DEST_DIR}/minio" ]; then
+    stage="$(mktemp -d "${TMPDIR:-/tmp}/parkio-restore-minio.XXXXXX")"
+    chmod 700 "${stage}"
+    cleanup_stage=1
+    if ! parkio_backup_unseal_minio "${DEST_DIR}" "${stage}"; then
+      rm -rf "${stage}"
+      return 1
+    fi
+    mirror_src="${stage}/minio/${BUCKET}"
+    if [ ! -d "${mirror_src}" ]; then
+      local alt
+      alt="$(find "${stage}/minio" -mindepth 1 -maxdepth 1 -type d 2>/dev/null | head -1 || true)"
+      if [ -n "${alt}" ]; then
+        mirror_src="${alt}"
+      fi
+    fi
+  else
+    mirror_src="${DEST_DIR}/minio/${BUCKET}"
+    if [ ! -d "${mirror_src}" ]; then
+      local alt
+      alt="$(find "${DEST_DIR}/minio" -mindepth 1 -maxdepth 1 -type d 2>/dev/null | head -1 || true)"
+      if [ -n "${alt}" ]; then
+        mirror_src="${alt}"
+      fi
     fi
   fi
+
   if [ "$DRY_RUN" -eq 1 ]; then
     echo "DRY-RUN: would mirror ${mirror_src} -> local/${restore_bucket}"
+    if [ "${cleanup_stage}" -eq 1 ]; then rm -rf "${stage}"; fi
     return 0
   fi
   if [ ! -d "${mirror_src}" ]; then
     echo "ERROR: MinIO mirror not found: ${mirror_src}" >&2
+    if [ "${cleanup_stage}" -eq 1 ]; then rm -rf "${stage}"; fi
     return 1
   fi
   if [ "${restore_bucket}" = "${BUCKET}" ] && [ "${PARKIO_ALLOW_LIVE_MINIO_RESTORE:-}" != "yes" ]; then
     echo "ERROR: refusing to overwrite live bucket '${BUCKET}'." >&2
     echo "Set MINIO_RESTORE_BUCKET to an isolated bucket, or PARKIO_ALLOW_LIVE_MINIO_RESTORE=yes after operator confirmation." >&2
+    if [ "${cleanup_stage}" -eq 1 ]; then rm -rf "${stage}"; fi
     return 2
   fi
   local network mc_image minio_container
@@ -139,6 +164,7 @@ restore_minio() {
       mc mirror --overwrite /restore "local/${BUCKET}"
     '
   echo "MinIO restore completed from ${mirror_src} -> ${restore_bucket}"
+  if [ "${cleanup_stage}" -eq 1 ]; then rm -rf "${stage}"; fi
 }
 
 if [ "${ASSUME_YES}" != "yes" ] && [ "$DRY_RUN" -ne 1 ]; then

@@ -80,6 +80,10 @@ fi
 
 if [ -n "${BACKUP_ENCRYPT_PASSPHRASE:-}" ]; then
   parkio_backup_assert_encrypted_dumps "${DEST_DIR}" || exit 1
+  if ! parkio_backup_seal_minio "${DEST_DIR}"; then
+    echo "ERROR: MinIO client-side encryption failed." >&2
+    MINIO_OK=0
+  fi
 fi
 
 ENCRYPT_ON=0

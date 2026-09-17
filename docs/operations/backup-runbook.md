@@ -83,12 +83,18 @@ MinIO objects are **not** client-side encrypted by backup scripts. Protection = 
 | `BACKUP_RETENTION_DAYS` | Local prune | `14` |
 | `BACKUP_OFFSITE_RETENTION_DAYS` | Documented offsite lifecycle | `14` |
 | `BACKUP_PRODUCTION_MODE` | Fail-closed encrypt+offsite | `0` (dev) |
-| `BACKUP_ENCRYPT_PASSPHRASE` | AES-256-CBC for **DB dumps** | empty (off) |
+| `BACKUP_ENCRYPT_PASSPHRASE` | AES-256-CBC PBKDF2 for **DB dumps** and **MinIO** offsite artifact | empty (off) |
 | `BACKUP_OFFSITE_KIND` | `s3` / `azure` / empty=auto | auto |
 | `BACKUP_MC_DEST` | `mc` alias/bucket | empty |
 | `BACKUP_AZURE_STORAGE_ACCOUNT` | Azure account | empty |
 | `BACKUP_AZURE_CONTAINER` | Azure container | empty |
+| `BACKUP_AZURE_SAS_TOKEN` | Preferred Azure auth (container SAS, rcwl) | empty |
+| `AZURE_STORAGE_SAS_TOKEN` | Native Azure CLI SAS env (fallback) | empty |
+| `BACKUP_AZURE_STORAGE_KEY` | Legacy account-key fallback | empty |
 | `MINIO_ROOT_PASSWORD` | MinIO mirror | — |
+
+Azure auth precedence: `BACKUP_AZURE_SAS_TOKEN` → `AZURE_STORAGE_SAS_TOKEN` → `BACKUP_AZURE_STORAGE_KEY` / `AZURE_STORAGE_KEY` → `az login`.
+MinIO offsite uploads are client-side sealed to `minio.tar.gz.enc` (same passphrase); plaintext `minio/` is never uploaded.
 
 ## Isolated verification (no live overwrite)
 

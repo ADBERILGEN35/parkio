@@ -162,9 +162,17 @@ PARKIO_ENV_FILE="${ENV_FILE}" BACKUP_ENCRYPT_PASSPHRASE="${BACKUP_ENCRYPT_PASSPH
   "${ROOT}/scripts/restore-drill.sh" --from-dir "${PULL}"
 
 # 9) MinIO object from retrieved tree into an isolated bucket.
-MIRROR="${PULL}/minio/${BUCKET}"
+MINIO_STAGE="$(mktemp -d "${TMPDIR:-/tmp}/parkio-offsite-minio-stage.XXXXXX")"
+chmod 700 "${MINIO_STAGE}"
+if ! parkio_backup_unseal_minio "${PULL}" "${MINIO_STAGE}"; then
+  echo "ERROR: failed to unseal/recover MinIO artifact from retrieved stamp." >&2
+  rm -rf "${MINIO_STAGE}"
+  exit 1
+fi
+MIRROR="${MINIO_STAGE}/minio/${BUCKET}"
 if [ ! -d "${MIRROR}" ]; then
   echo "ERROR: retrieved stamp has no MinIO tree ${MIRROR}" >&2
+  rm -rf "${MINIO_STAGE}"
   exit 1
 fi
 DST_BUCKET="drill-offsite-$(echo "${STAMP}" | tr '[:upper:]' '[:lower:]' | tr -c 'a-z0-9' '-' | tr -s '-' | sed 's/-$//')"
@@ -207,11 +215,20 @@ docker run --rm --network "${NETWORK}" --entrypoint /bin/sh \
     mc rb --force "local/${DST_BUCKET}" >/dev/null 2>&1
     exit 0
   ' || true
+rm -rf "${MINIO_STAGE}"
 if [ "${GOT_SHA}" != "${OBJ_SHA}" ]; then
   echo "FAIL: MinIO offsite object checksum mismatch." >&2
   exit 1
 fi
 echo "    MinIO retrieved object sha256=${GOT_SHA}"
+if [ ! -f "${PULL}/minio.tar.gz.enc" ]; then
+  echo "FAIL: retrieved stamp missing client-side encrypted MinIO artifact." >&2
+  exit 1
+fi
+if [ -d "${PULL}/minio" ]; then
+  echo "FAIL: retrieved stamp still has plaintext MinIO tree." >&2
+  exit 1
+fi
 
 # 10) Failure modes (fail-closed).
 echo "==> Offsite failure modes"
@@ -254,6 +271,49 @@ if [ -n "${ENC}" ]; then
       "${ROOT}/scripts/verify-backup.sh" parking "${ENC}"
 fi
 rm -rf "${WRONG_PULL}"
+
+MINIO_WRONG="$(mktemp -d "${TMPDIR:-/tmp}/parkio-minio-wrong.XXXXXX")"
+if [ -f "${PULL}/minio.tar.gz.enc" ]; then
+  expect_nonzero "wrong MinIO encryption key" \
+    env BACKUP_ENCRYPT_PASSPHRASE="definitely-not-the-drill-passphrase" \
+      bash -c "source '${ROOT}/scripts/lib/backup-common.sh'; parkio_backup_unseal_minio '${PULL}' '${MINIO_WRONG}'"
+  expect_nonzero "missing MinIO encryption key" \
+    env -u BACKUP_ENCRYPT_PASSPHRASE \
+      bash -c "source '${ROOT}/scripts/lib/backup-common.sh'; parkio_backup_unseal_minio '${PULL}' '${MINIO_WRONG}'"
+  MINIO_CORRUPT="$(mktemp -d "${TMPDIR:-/tmp}/parkio-minio-corrupt.XXXXXX")"
+  cp -a "${PULL}/." "${MINIO_CORRUPT}/"
+  dd if=/dev/zero of="${MINIO_CORRUPT}/minio.tar.gz.enc" bs=32 count=1 conv=notrunc >/dev/null 2>&1 || true
+  expect_nonzero "corrupted encrypted MinIO artifact" \
+    env BACKUP_ENCRYPT_PASSPHRASE="${BACKUP_ENCRYPT_PASSPHRASE}" \
+      bash -c "source '${ROOT}/scripts/lib/backup-common.sh'; parkio_backup_unseal_minio '${MINIO_CORRUPT}' '${MINIO_WRONG}'"
+  # Corrupt checksum must fail stamp verify (SHA256 of encrypted bytes).
+  printf 'deadbeef  minio.tar.gz.enc\n' > "${MINIO_CORRUPT}/minio.tar.gz.enc.sha256"
+  expect_nonzero "MinIO encrypted checksum mismatch" \
+    env PARKIO_ENV_FILE="${ENV_FILE}" bash -c "cd '${MINIO_CORRUPT}' && sha256sum -c minio.tar.gz.enc.sha256 --strict"
+  rm -rf "${MINIO_CORRUPT}"
+fi
+# Historical plaintext MinIO tree remains recoverable.
+HIST="$(mktemp -d "${TMPDIR:-/tmp}/parkio-minio-hist.XXXXXX")"
+mkdir -p "${HIST}/minio/${BUCKET}"
+printf 'legacy\n' > "${HIST}/minio/${BUCKET}/legacy.txt"
+HIST_OUT="$(mktemp -d "${TMPDIR:-/tmp}/parkio-minio-hist-out.XXXXXX")"
+if parkio_backup_unseal_minio "${HIST}" "${HIST_OUT}" \
+  && [ -f "${HIST_OUT}/minio/${BUCKET}/legacy.txt" ]; then
+  echo "OK: historical plaintext MinIO compatibility"
+else
+  echo "FAIL: historical plaintext MinIO compatibility" >&2
+  FAILED=1
+fi
+rm -rf "${HIST}" "${HIST_OUT}" "${MINIO_WRONG}"
+
+# No remote-delete helper may exist in backup-common.
+if grep -En 'blob delete|az storage blob delete|remote.?prune|offsite.?delete' \
+  "${ROOT}/scripts/lib/backup-common.sh" >/dev/null 2>&1; then
+  echo "FAIL: remote delete/prune command present in backup-common" >&2
+  FAILED=1
+else
+  echo "OK: no remote-delete command"
+fi
 
 if [ "${BACKUP_OFFSITE_KIND}" = "s3" ] && [ -n "${BACKUP_MC_URL:-}" ]; then
   expect_nonzero "invalid offsite credentials" \
