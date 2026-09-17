@@ -17,4 +17,18 @@ vulnerabilities:
       a container image. Build tooling expands only repo-controlled glob patterns, so
       there is no untrusted input path. Owner: Parkio release engineering. Remediation:
       drop when eslint's transitive minimatch reaches >= 10, or when a 1.x backport ships.
-    expired_at: 2026-08-31
+    expired_at: 2026-10-31
+  - id: CVE-2026-85061
+    paths:
+      - "frontend/pnpm-lock.yaml"
+    statement: >-
+      maplibre-gl 4.7.1 XSS sanitizer bypass (DOM.sanitize live NamedNodeMap). Web app
+      already declares maplibre-gl 6.4.1 (fixed). The remaining 4.7.1 lock entry is the
+      intentional PA-04/PA-05 mobile-v2 pin plus vendored UMD runtime (no CDN). Mobile
+      does not feed untrusted third-party style attribution strings into MapLibre
+      attribution controls on the anonymous public explore path. Major mobile MapLibre
+      4.x to 6.x upgrade is a separate compatibility package (bridge, WebView, vendor
+      bundle, APK rebuild) and must not be folded into municipal Public Explore work.
+      Owner: Parkio mobile runtime. Remediation: upgrade mobile-v2 maplibre-gl to >=6.4.1
+      with PA-04/05 regression re-cert, then remove this exception.
+    expired_at: 2026-10-31
