@@ -21,10 +21,22 @@ A local copy on the same VM disk is **staging**, not disaster recovery.
 
 ```bash
 # /etc/cron.d/parkio-backup
-30 3 * * * root cd /opt/parkio && \
+30 3 * * * root flock -n /var/lock/parkio-backup.lock \
+  /opt/parkio/scripts/run-production-backup.sh >> /var/log/parkio-backup.log 2>&1
+```
+
+`run-production-backup.sh` sets `PARKIO_ENV_FILE=docker/.env.azure-hosted-beta` and
+`BACKUP_PRODUCTION_MODE=1`, then execs `backup-hosted-beta.sh`. Overlap protection is
+`flock -n /var/lock/parkio-backup.lock` (second concurrent start exits immediately).
+
+Equivalent inline form (avoid bare `%` in cron.d command text):
+
+```bash
+# /etc/cron.d/parkio-backup
+30 3 * * * root flock -n /var/lock/parkio-backup.lock -c 'cd /opt/parkio && \
   PARKIO_ENV_FILE=docker/.env.azure-hosted-beta \
   BACKUP_PRODUCTION_MODE=1 \
-  ./scripts/backup-hosted-beta.sh >> /var/log/parkio-backup.log 2>&1
+  ./scripts/backup-hosted-beta.sh >> /var/log/parkio-backup.log 2>&1'
 ```
 
 Do **not** cron `backup-databases.sh` alone.
