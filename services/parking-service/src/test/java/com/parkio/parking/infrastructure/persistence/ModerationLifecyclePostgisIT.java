@@ -11,10 +11,15 @@ import com.parkio.parking.domain.ParkingContext;
 import com.parkio.parking.domain.ParkingSpot;
 import com.parkio.parking.domain.ParkingSpotStatus;
 import com.parkio.parking.domain.VehicleType;
+import com.parkio.parking.infrastructure.persistence.entity.ParkingSpotEntity;
+import com.parkio.parking.infrastructure.persistence.jpa.ParkingSpotJpaRepository;
+import com.parkio.parking.testsupport.PostgisTestImages;
 import java.time.Instant;
+import java.time.temporal.ChronoUnit;
 import java.util.List;
 import java.util.Set;
 import java.util.UUID;
+import java.util.stream.Collectors;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.Test;
@@ -22,12 +27,12 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.boot.test.mock.mockito.MockBean;
 import org.springframework.jdbc.core.JdbcTemplate;
+import org.springframework.transaction.annotation.Transactional;
 import org.springframework.test.context.DynamicPropertyRegistry;
 import org.springframework.test.context.DynamicPropertySource;
 import org.testcontainers.containers.PostgreSQLContainer;
 import org.testcontainers.junit.jupiter.Container;
 import org.testcontainers.junit.jupiter.Testcontainers;
-import com.parkio.parking.testsupport.PostgisTestImages;
 import org.testcontainers.utility.DockerImageName;
 
 /**
@@ -81,6 +86,9 @@ class ModerationLifecyclePostgisIT {
 
     @Autowired
     private ParkingSpotRepository spots;
+
+    @Autowired
+    private ParkingSpotJpaRepository spotJpa;
 
     @Autowired
     private JdbcTemplate jdbc;
@@ -222,13 +230,15 @@ class ModerationLifecyclePostgisIT {
     void overdueValidationIsClaimedRetriedThenFailedTerminally() {
         ParkingSpot created = parking.createSpot(command());
 
-        // maxValidationAttempts=2, so two retries then a terminal failure.
-        assertThat(parking.processModerationTimeouts(100)).isEqualTo(1);
-        assertThat(parking.processModerationTimeouts(100)).isEqualTo(1);
+        // maxValidationAttempts=2 → two retries then terminal failure. Each step waits
+        // until wall-clock is strictly past the stored deadline so a 1ms IT window cannot
+        // silently no-op when processModerationTimeouts is called in a tight loop.
+        processOneOverdueTimeout(created.id(), 0);
+        processOneOverdueTimeout(created.id(), 1);
         assertThat(reload(created.id()).moderationAttempts()).isEqualTo(2);
         assertThat(reload(created.id()).status()).isEqualTo(ParkingSpotStatus.PENDING_VALIDATION);
 
-        assertThat(parking.processModerationTimeouts(100)).isEqualTo(1);
+        processOneOverdueTimeout(created.id(), 2);
         assertThat(reload(created.id()).status()).isEqualTo(ParkingSpotStatus.REVIEW_FAILED);
 
         // Retry requests and the terminal failure both travel through the outbox — the
@@ -240,16 +250,85 @@ class ModerationLifecyclePostgisIT {
     @Test
     void reviewFailedSpotCannotBeResurrectedByALaterVerdict() {
         ParkingSpot created = parking.createSpot(command());
-        for (int i = 0; i < 3; i++) {
-            parking.processModerationTimeouts(100);
-        }
-        assertThat(reload(created.id()).status()).isEqualTo(ParkingSpotStatus.REVIEW_FAILED);
+        drivePendingValidationToReviewFailed(created.id());
 
         parking.approveSpotByModerator(created.id(), UUID.randomUUID(), Instant.now());
         parking.applyAiValidationResult(created.id(), "PASSED", List.of(),
                 UUID.randomUUID(), Instant.now());
 
         assertThat(reload(created.id()).status()).isEqualTo(ParkingSpotStatus.REVIEW_FAILED);
+    }
+
+    /**
+     * Proves the native claim SQL bound against real PostgreSQL timestamps — not domain
+     * helpers and not a wall-clock wait past the deadline. Three isolated pending rows share
+     * one query clock {@code now}:
+     * <ul>
+     *   <li>{@code deadline < now} — overdue, must be claimed</li>
+     *   <li>{@code deadline == now} — overdue under domain {@code now >= deadline}; requires {@code <=}</li>
+     *   <li>{@code deadline > now} — not yet due, must not be claimed</li>
+     * </ul>
+     * An exclusive {@code <} (previous predicate) leaves the exact-deadline row unclaimable.
+     */
+    @Test
+    @Transactional
+    void claimQueryIncludesExactDeadlineAndExcludesFutureDeadline() {
+        Instant now = Instant.parse("2026-09-18T12:00:00.000Z");
+        Instant deadlinePast = now.minus(1, ChronoUnit.MILLIS);
+        Instant deadlineExact = now;
+        Instant deadlineFuture = now.plus(1, ChronoUnit.MILLIS);
+
+        UUID idPast = UUID.randomUUID();
+        UUID idExact = UUID.randomUUID();
+        UUID idFuture = UUID.randomUUID();
+        UUID idActiveNoise = UUID.randomUUID();
+
+        insertPendingWithDeadline(idPast, deadlinePast);
+        insertPendingWithDeadline(idExact, deadlineExact);
+        insertPendingWithDeadline(idFuture, deadlineFuture);
+        // Unrelated eligibility: ACTIVE must never be claimed by the moderation timeout query.
+        insertRawSpot(idActiveNoise, "ACTIVE", now.minusSeconds(60), now.plusSeconds(600), now.minusSeconds(60));
+        jdbc.update("UPDATE parking_spots SET moderation_deadline_at = ? WHERE id = ?",
+                java.sql.Timestamp.from(deadlinePast), idActiveNoise);
+
+        List<UUID> claimed = spotJpa.findModerationTimeoutCandidates(now, 100).stream()
+                .map(ParkingSpotEntity::getId)
+                .collect(Collectors.toList());
+
+        assertThat(claimed)
+                .as("repository claim at now=%s (SQL moderation_deadline_at <= :now)", now)
+                .containsExactlyInAnyOrder(idPast, idExact)
+                .doesNotContain(idFuture, idActiveNoise);
+
+        // Old exclusive predicate: exact deadline is NOT eligible (regression witness).
+        List<UUID> oldExclusive = jdbc.queryForList(
+                """
+                SELECT id FROM parking_spots
+                WHERE status IN ('PENDING_VALIDATION', 'PENDING_REVIEW')
+                  AND moderation_deadline_at < ?
+                ORDER BY moderation_deadline_at
+                """,
+                UUID.class,
+                java.sql.Timestamp.from(now));
+        assertThat(oldExclusive)
+                .as("old predicate < leaves exact-deadline unclaimable")
+                .containsExactly(idPast)
+                .doesNotContain(idExact, idFuture);
+
+        // Closed bound matching the repository / domain contract.
+        List<UUID> closedBound = jdbc.queryForList(
+                """
+                SELECT id FROM parking_spots
+                WHERE status IN ('PENDING_VALIDATION', 'PENDING_REVIEW')
+                  AND moderation_deadline_at <= ?
+                ORDER BY moderation_deadline_at
+                """,
+                UUID.class,
+                java.sql.Timestamp.from(now));
+        assertThat(closedBound)
+                .as("closed predicate <= matches repository")
+                .containsExactlyInAnyOrder(idPast, idExact)
+                .doesNotContain(idFuture);
     }
 
     @Test
@@ -286,6 +365,13 @@ class ModerationLifecyclePostgisIT {
         assertThat(outboxEventTypes()).contains("ParkingSpotActivated");
     }
 
+    private void insertPendingWithDeadline(UUID id, Instant deadline) {
+        Instant createdAt = deadline.minusSeconds(30);
+        insertRawSpot(id, "PENDING_VALIDATION", createdAt, null, null);
+        jdbc.update("UPDATE parking_spots SET moderation_deadline_at = ? WHERE id = ?",
+                java.sql.Timestamp.from(deadline), id);
+    }
+
     private void insertRawSpot(UUID id, String status, Instant createdAt, Instant expiresAt,
                                Instant activatedAt) {
         jdbc.update("""
@@ -313,6 +399,50 @@ class ModerationLifecyclePostgisIT {
 
     private ParkingSpot reload(UUID spotId) {
         return spots.findById(spotId).orElseThrow();
+    }
+
+    /**
+     * maxValidationAttempts=2 → two retries + one terminal failure. Must not ignore a
+     * zero-handled processModerationTimeouts call: under 1ms IT windows a tight loop can
+     * race the extended deadline (and the claim query's exclusive bound) and leave the
+     * spot still PENDING_VALIDATION.
+     */
+    private void drivePendingValidationToReviewFailed(UUID spotId) {
+        for (int step = 0; step < 3; step++) {
+            processOneOverdueTimeout(spotId, step);
+        }
+        assertThat(reload(spotId).status())
+                .as("after retries exhausted")
+                .isEqualTo(ParkingSpotStatus.REVIEW_FAILED);
+    }
+
+    private void processOneOverdueTimeout(UUID spotId, int step) {
+        ParkingSpot before = reload(spotId);
+        awaitStrictlyPast(before.moderationDeadlineAt(), step);
+        int handled = parking.processModerationTimeouts(100);
+        ParkingSpot after = reload(spotId);
+        assertThat(handled)
+                .as("timeout step %s expected one claim; status=%s attempts=%s deadline=%s now=%s",
+                        step, after.status(), after.moderationAttempts(),
+                        after.moderationDeadlineAt(), Instant.now())
+                .isEqualTo(1);
+    }
+
+    /** Condition-based wait: wall clock must pass {@code deadline} (bounded, no fixed sleep). */
+    private static void awaitStrictlyPast(Instant deadline, int step) {
+        Instant giveUp = Instant.now().plusSeconds(3);
+        while (!Instant.now().isAfter(deadline)) {
+            if (Instant.now().isAfter(giveUp)) {
+                throw new AssertionError("wall clock did not pass deadline=" + deadline
+                        + " within 3s at step " + step + "; now=" + Instant.now());
+            }
+            try {
+                Thread.sleep(2L);
+            } catch (InterruptedException e) {
+                Thread.currentThread().interrupt();
+                throw new AssertionError("interrupted waiting past deadline at step " + step, e);
+            }
+        }
     }
 
     private int expiredBeforeApprovedRows() {
