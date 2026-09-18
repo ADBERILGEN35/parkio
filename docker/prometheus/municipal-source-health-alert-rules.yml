@@ -252,3 +252,30 @@ groups:
           summary: OSM operator import recovered after consecutive failures
           description: OSM completed a successful import after a failure streak.
           runbook_url: docs/operations/municipal-parking-source-runbook.md
+
+      # --- Occupancy retention (7d + latest preserve) ---
+      # Expected cadence: daily at 04:00 UTC after 03:30 backup. Warn if no success for 36h.
+      - alert: MunicipalOccupancyRetentionStale
+        expr: |
+          (time() - parkio_municipal_occupancy_retention_last_success_unixtime) > 129600
+          and on()
+          parkio_municipal_occupancy_retention_last_success_unixtime > 0
+        for: 30m
+        labels:
+          severity: warning
+          owner: parking
+        annotations:
+          summary: Municipal occupancy retention has not succeeded recently
+          description: No successful municipal occupancy retention cleanup within 36 hours while the gauge has previously succeeded. Check backup gate and parking-service logs.
+          runbook_url: docs/operations/municipal-parking-source-runbook.md
+
+      - alert: MunicipalOccupancyRetentionFailures
+        expr: increase(parkio_municipal_occupancy_retention_failures_total[1h]) >= 1
+        for: 0m
+        labels:
+          severity: warning
+          owner: parking
+        annotations:
+          summary: Municipal occupancy retention reported a failure
+          description: Retention cleanup threw an error. Ingestion and Public Explore should continue; investigate parking-service logs.
+          runbook_url: docs/operations/municipal-parking-source-runbook.md

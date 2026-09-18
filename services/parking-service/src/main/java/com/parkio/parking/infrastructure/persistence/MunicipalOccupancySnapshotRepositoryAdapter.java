@@ -3,6 +3,7 @@ package com.parkio.parking.infrastructure.persistence;
 import com.parkio.parking.application.port.MunicipalOccupancySnapshotRepository;
 import com.parkio.parking.externalsource.NormalizedMunicipalOccupancy;
 import java.sql.Timestamp;
+import java.time.Instant;
 import java.util.Optional;
 import java.util.UUID;
 import org.springframework.jdbc.core.simple.JdbcClient;
@@ -92,5 +93,46 @@ public class MunicipalOccupancySnapshotRepositoryAdapter implements MunicipalOcc
     @Override
     public long count() {
         return jdbc.sql("SELECT count(*) FROM municipal_occupancy_snapshots").query(Long.class).single();
+    }
+
+    @Override
+    public long countExpiredExcludingLatest(Instant cutoff) {
+        Long count = jdbc.sql("""
+                WITH ranked AS (
+                    SELECT id, fetched_at,
+                           ROW_NUMBER() OVER (
+                               PARTITION BY facility_id, source_id
+                               ORDER BY fetched_at DESC, id DESC
+                           ) AS rn
+                    FROM municipal_occupancy_snapshots
+                )
+                SELECT count(*)::bigint
+                FROM ranked
+                WHERE rn > 1 AND fetched_at < :cutoff
+                """).param("cutoff", Timestamp.from(cutoff)).query(Long.class).optional().orElse(0L);
+        return count == null ? 0L : count;
+    }
+
+    @Override
+    public int deleteExpiredExcludingLatest(Instant cutoff, int batchSize) {
+        if (batchSize <= 0) {
+            return 0;
+        }
+        return jdbc.sql("""
+                DELETE FROM municipal_occupancy_snapshots
+                WHERE id IN (
+                    SELECT id FROM (
+                        SELECT id, fetched_at,
+                               ROW_NUMBER() OVER (
+                                   PARTITION BY facility_id, source_id
+                                   ORDER BY fetched_at DESC, id DESC
+                               ) AS rn
+                        FROM municipal_occupancy_snapshots
+                    ) ranked
+                    WHERE rn > 1 AND fetched_at < :cutoff
+                    ORDER BY fetched_at ASC, id ASC
+                    LIMIT :batchSize
+                )
+                """).param("cutoff", Timestamp.from(cutoff)).param("batchSize", batchSize).update();
     }
 }

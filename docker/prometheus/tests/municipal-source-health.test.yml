@@ -60,3 +60,21 @@ tests:
               summary: Municipal source consecutive failures reached warning threshold
               description: IZUM sync consecutive failures are elevated. Check operational SLA state and bounded error category via actuator health details.
               runbook_url: docs/operations/municipal-parking-source-runbook.md
+
+  - name: occupancy retention failure alert fires
+    interval: 1m
+    input_series:
+      - series: 'parkio_municipal_occupancy_retention_failures_total'
+        values: "0 1 1 1 1 1"
+    alert_rule_test:
+      - eval_time: 2m
+        alertname: MunicipalOccupancyRetentionFailures
+        exp_alerts:
+          - exp_labels:
+              alertname: MunicipalOccupancyRetentionFailures
+              severity: warning
+              owner: parking
+            exp_annotations:
+              summary: Municipal occupancy retention reported a failure
+              description: Retention cleanup threw an error. Ingestion and Public Explore should continue; investigate parking-service logs.
+              runbook_url: docs/operations/municipal-parking-source-runbook.md

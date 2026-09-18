@@ -348,6 +348,18 @@ parkio:
       inbox-retention: ${PARKIO_INBOX_RETENTION:P30D}
       fixed-delay-ms: ${PARKIO_RETENTION_FIXED_DELAY_MS:3600000}
       batch-size: ${PARKIO_RETENTION_BATCH_SIZE:1000}
+    municipal-occupancy-retention:
+      # Fail-closed: no production deletes until explicitly enabled after CI + backup gate.
+      enabled: ${PARKIO_MUNICIPAL_OCCUPANCY_RETENTION_ENABLED:false}
+      run-on-startup: ${PARKIO_MUNICIPAL_OCCUPANCY_RETENTION_RUN_ON_STARTUP:false}
+      retention: ${PARKIO_MUNICIPAL_OCCUPANCY_RETENTION:P7D}
+      batch-size: ${PARKIO_MUNICIPAL_OCCUPANCY_RETENTION_BATCH_SIZE:1000}
+      max-batches-per-run: ${PARKIO_MUNICIPAL_OCCUPANCY_RETENTION_MAX_BATCHES:500}
+      require-backup-gate: ${PARKIO_MUNICIPAL_OCCUPANCY_RETENTION_REQUIRE_BACKUP_GATE:true}
+      backup-stamp-dir: ${PARKIO_MUNICIPAL_OCCUPANCY_RETENTION_BACKUP_STAMP_DIR:/var/backups/parkio}
+      backup-max-age: ${PARKIO_MUNICIPAL_OCCUPANCY_RETENTION_BACKUP_MAX_AGE:PT36H}
+      # After daily backup at 03:30 UTC (observed ~4s). Avoids overlap with backup flock.
+      cron: ${PARKIO_MUNICIPAL_OCCUPANCY_RETENTION_CRON:0 0 4 * * *}
   auth:
     client:
       base-url: ${PARKIO_AUTH_SERVICE_URI:http://localhost:8081}
