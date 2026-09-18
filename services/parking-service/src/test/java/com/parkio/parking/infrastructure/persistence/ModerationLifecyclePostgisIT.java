@@ -11,10 +11,15 @@ import com.parkio.parking.domain.ParkingContext;
 import com.parkio.parking.domain.ParkingSpot;
 import com.parkio.parking.domain.ParkingSpotStatus;
 import com.parkio.parking.domain.VehicleType;
+import com.parkio.parking.infrastructure.persistence.entity.ParkingSpotEntity;
+import com.parkio.parking.infrastructure.persistence.jpa.ParkingSpotJpaRepository;
+import com.parkio.parking.testsupport.PostgisTestImages;
 import java.time.Instant;
+import java.time.temporal.ChronoUnit;
 import java.util.List;
 import java.util.Set;
 import java.util.UUID;
+import java.util.stream.Collectors;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.Test;
@@ -22,12 +27,12 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.boot.test.mock.mockito.MockBean;
 import org.springframework.jdbc.core.JdbcTemplate;
+import org.springframework.transaction.annotation.Transactional;
 import org.springframework.test.context.DynamicPropertyRegistry;
 import org.springframework.test.context.DynamicPropertySource;
 import org.testcontainers.containers.PostgreSQLContainer;
 import org.testcontainers.junit.jupiter.Container;
 import org.testcontainers.junit.jupiter.Testcontainers;
-import com.parkio.parking.testsupport.PostgisTestImages;
 import org.testcontainers.utility.DockerImageName;
 
 /**
@@ -81,6 +86,9 @@ class ModerationLifecyclePostgisIT {
 
     @Autowired
     private ParkingSpotRepository spots;
+
+    @Autowired
+    private ParkingSpotJpaRepository spotJpa;
 
     @Autowired
     private JdbcTemplate jdbc;
@@ -251,6 +259,78 @@ class ModerationLifecyclePostgisIT {
         assertThat(reload(created.id()).status()).isEqualTo(ParkingSpotStatus.REVIEW_FAILED);
     }
 
+    /**
+     * Proves the native claim SQL bound against real PostgreSQL timestamps — not domain
+     * helpers and not a wall-clock wait past the deadline. Three isolated pending rows share
+     * one query clock {@code now}:
+     * <ul>
+     *   <li>{@code deadline < now} — overdue, must be claimed</li>
+     *   <li>{@code deadline == now} — overdue under domain {@code now >= deadline}; requires {@code <=}</li>
+     *   <li>{@code deadline > now} — not yet due, must not be claimed</li>
+     * </ul>
+     * An exclusive {@code <} (previous predicate) leaves the exact-deadline row unclaimable.
+     */
+    @Test
+    @Transactional
+    void claimQueryIncludesExactDeadlineAndExcludesFutureDeadline() {
+        Instant now = Instant.parse("2026-09-18T12:00:00.000Z");
+        Instant deadlinePast = now.minus(1, ChronoUnit.MILLIS);
+        Instant deadlineExact = now;
+        Instant deadlineFuture = now.plus(1, ChronoUnit.MILLIS);
+
+        UUID idPast = UUID.randomUUID();
+        UUID idExact = UUID.randomUUID();
+        UUID idFuture = UUID.randomUUID();
+        UUID idActiveNoise = UUID.randomUUID();
+
+        insertPendingWithDeadline(idPast, deadlinePast);
+        insertPendingWithDeadline(idExact, deadlineExact);
+        insertPendingWithDeadline(idFuture, deadlineFuture);
+        // Unrelated eligibility: ACTIVE must never be claimed by the moderation timeout query.
+        insertRawSpot(idActiveNoise, "ACTIVE", now.minusSeconds(60), now.plusSeconds(600), now.minusSeconds(60));
+        jdbc.update("UPDATE parking_spots SET moderation_deadline_at = ? WHERE id = ?",
+                java.sql.Timestamp.from(deadlinePast), idActiveNoise);
+
+        List<UUID> claimed = spotJpa.findModerationTimeoutCandidates(now, 100).stream()
+                .map(ParkingSpotEntity::getId)
+                .collect(Collectors.toList());
+
+        assertThat(claimed)
+                .as("repository claim at now=%s (SQL moderation_deadline_at <= :now)", now)
+                .containsExactlyInAnyOrder(idPast, idExact)
+                .doesNotContain(idFuture, idActiveNoise);
+
+        // Old exclusive predicate: exact deadline is NOT eligible (regression witness).
+        List<UUID> oldExclusive = jdbc.queryForList(
+                """
+                SELECT id FROM parking_spots
+                WHERE status IN ('PENDING_VALIDATION', 'PENDING_REVIEW')
+                  AND moderation_deadline_at < ?
+                ORDER BY moderation_deadline_at
+                """,
+                UUID.class,
+                java.sql.Timestamp.from(now));
+        assertThat(oldExclusive)
+                .as("old predicate < leaves exact-deadline unclaimable")
+                .containsExactly(idPast)
+                .doesNotContain(idExact, idFuture);
+
+        // Closed bound matching the repository / domain contract.
+        List<UUID> closedBound = jdbc.queryForList(
+                """
+                SELECT id FROM parking_spots
+                WHERE status IN ('PENDING_VALIDATION', 'PENDING_REVIEW')
+                  AND moderation_deadline_at <= ?
+                ORDER BY moderation_deadline_at
+                """,
+                UUID.class,
+                java.sql.Timestamp.from(now));
+        assertThat(closedBound)
+                .as("closed predicate <= matches repository")
+                .containsExactlyInAnyOrder(idPast, idExact)
+                .doesNotContain(idFuture);
+    }
+
     @Test
     void duplicateVerdictsDoNotRestartTheLifetime() {
         ParkingSpot created = parking.createSpot(command());
@@ -283,6 +363,13 @@ class ModerationLifecyclePostgisIT {
         assertThat(published.activatedAt()).isNotNull();
         assertThat(published.expiresAt()).isAfter(published.activatedAt());
         assertThat(outboxEventTypes()).contains("ParkingSpotActivated");
+    }
+
+    private void insertPendingWithDeadline(UUID id, Instant deadline) {
+        Instant createdAt = deadline.minusSeconds(30);
+        insertRawSpot(id, "PENDING_VALIDATION", createdAt, null, null);
+        jdbc.update("UPDATE parking_spots SET moderation_deadline_at = ? WHERE id = ?",
+                java.sql.Timestamp.from(deadline), id);
     }
 
     private void insertRawSpot(UUID id, String status, Instant createdAt, Instant expiresAt,
