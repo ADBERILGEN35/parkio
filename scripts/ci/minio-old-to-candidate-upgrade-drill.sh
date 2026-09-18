@@ -3,7 +3,6 @@
 # GitHub-hosted / local Docker only. Synthetic buckets. No production volumes.
 set -euo pipefail
 
-ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 OLD_SERVER="${MINIO_OLD_IMAGE:-quay.io/minio/minio@sha256:cd04ea408e185cb50076ea1c3988d444119b19aaae15aab45387ccf14b2a2f86}"
 NEW_SERVER="${MINIO_IMAGE:-quay.io/minio/minio@sha256:cf3dadcfa1fb0324f43958bad1abba986d53c4ecc04d4d50b46c7dcda28bd3cd}"
 OLD_MC="${MINIO_OLD_MC_IMAGE:-quay.io/minio/mc@sha256:a5399b66b88543efac8afb08eb2bdcce5904e548ea6fe1a921600cd74f766668}"
@@ -27,7 +26,11 @@ cleanup() {
   docker rm -f "${PROJECT}-minio" >/dev/null 2>&1
   docker network rm "${NETWORK}" >/dev/null 2>&1
   docker volume rm "${PROJECT}-data" >/dev/null 2>&1
-  rm -rf "${WORK}"
+  # mc mirror writes root-owned files into the bind mount
+  docker run --rm --user 0 --entrypoint /bin/sh \
+    -v "${WORK}:/work" \
+    "${NEW_MC}" -c 'rm -rf /work/*' >/dev/null 2>&1 || true
+  rm -rf "${WORK}" 2>/dev/null || true
 }
 trap cleanup EXIT
 
@@ -96,36 +99,41 @@ echo "==> 3) In-place upgrade: stop OLD, start NEW on same volume"
 docker rm -f "${PROJECT}-minio" >/dev/null
 start_minio "${NEW_SERVER}"
 wait_ready "${NEW_MC}"
+# mc image lacks awk; compute sha256 on the runner host
+GOT_FILE="${WORK}/post-upgrade.bin"
 docker run --rm --network "${NETWORK}" --entrypoint /bin/sh \
+  -v "${WORK}:/out" \
   -e MINIO_ROOT_USER="${USER_NAME}" -e MINIO_ROOT_PASSWORD="${PASS}" \
-  -e BUCKET="${BUCKET}" -e OBJ="${OBJ}" -e EXPECT="${CHECKSUM}" \
+  -e BUCKET="${BUCKET}" -e OBJ="${OBJ}" \
   "${NEW_MC}" -c '
     set -eu
     mc alias set local http://minio:9000 "$MINIO_ROOT_USER" "$MINIO_ROOT_PASSWORD"
     mc stat "local/${BUCKET}/${OBJ}"
-    mc cat "local/${BUCKET}/${OBJ}" | sha256sum | awk "{print \$1}" > /tmp/got
-    got=$(cat /tmp/got)
-    echo "post-upgrade checksum=$got expect=$EXPECT"
-    test "$got" = "$EXPECT"
+    mc cp "local/${BUCKET}/${OBJ}" /out/post-upgrade.bin
   '
+GOT="$(sha256sum "${GOT_FILE}" | awk '{print $1}')"
+echo "post-upgrade checksum=${GOT} expect=${CHECKSUM}"
+test "${GOT}" = "${CHECKSUM}"
 
 echo "==> 4) Restore mirror into disposable bucket on NEW"
 DST="drill-dst-${RUN_ID}"
+RESTORE_FILE="${WORK}/restored.bin"
 docker run --rm --network "${NETWORK}" --entrypoint /bin/sh \
   -v "${BACKUP}:/backup:ro" \
+  -v "${WORK}:/out" \
   -e MINIO_ROOT_USER="${USER_NAME}" -e MINIO_ROOT_PASSWORD="${PASS}" \
-  -e DST="${DST}" -e OBJ="${OBJ}" -e EXPECT="${CHECKSUM}" \
+  -e DST="${DST}" -e OBJ="${OBJ}" \
   "${NEW_MC}" -c '
     set -eu
     mc alias set local http://minio:9000 "$MINIO_ROOT_USER" "$MINIO_ROOT_PASSWORD"
     mc mb -p "local/${DST}"
     mc mirror --overwrite /backup "local/${DST}"
-    mc cat "local/${DST}/${OBJ}" | sha256sum | awk "{print \$1}" > /tmp/got
-    got=$(cat /tmp/got)
-    echo "restore checksum=$got expect=$EXPECT"
-    test "$got" = "$EXPECT"
+    mc cp "local/${DST}/${OBJ}" /out/restored.bin
     mc rb --force "local/${DST}" || true
   '
+GOT="$(sha256sum "${RESTORE_FILE}" | awk '{print $1}')"
+echo "restore checksum=${GOT} expect=${CHECKSUM}"
+test "${GOT}" = "${CHECKSUM}"
 
 echo "==> 5) Downgrade probe (volume already written by NEW) — not assumed safe"
 docker rm -f "${PROJECT}-minio" >/dev/null
