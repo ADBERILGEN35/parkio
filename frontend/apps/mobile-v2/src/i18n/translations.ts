@@ -280,6 +280,13 @@ export const tr = {
   'map.municipal.openInMapsHint': "Google Maps'te yol tarifi açar",
   'map.municipal.openInMapsFailed': 'Google Maps açılamadı.',
   'map.municipal.openDetail': 'Detayları gör',
+  'map.initError.title': 'Harita yüklenemedi',
+  'map.initError.body':
+    'Harita başlatılamadı. Bağlantını kontrol edip yeniden dene. Uygulamanın geri kalanını kullanmaya devam edebilirsin.',
+  'map.initError.webglTitle': 'Harita desteklenmiyor',
+  'map.initError.webglBody':
+    'Bu cihaz harita için gereken grafik desteğini sunmuyor. Diğer ekranları kullanmaya devam edebilirsin.',
+  'map.initError.retry': 'Yeniden dene',
 
   // Municipal facility detail (MOBILE-MUNI-V2-03)
   'map.municipal.detail.title': 'Belediye otoparkı',
@@ -1219,6 +1226,13 @@ export const en: Record<TranslationKey, string> = {
   'map.municipal.openInMapsHint': 'Opens directions in Google Maps',
   'map.municipal.openInMapsFailed': "Google Maps couldn't be opened.",
   'map.municipal.openDetail': 'View details',
+  'map.initError.title': 'Map could not load',
+  'map.initError.body':
+    'The map failed to start. Check your connection and try again. You can keep using the rest of the app.',
+  'map.initError.webglTitle': 'Map not supported',
+  'map.initError.webglBody':
+    'This device does not provide the graphics support required for the map. You can keep using other screens.',
+  'map.initError.retry': 'Try again',
 
   'map.municipal.detail.title': 'Municipal parking',
   'map.municipal.detail.occupancySection': 'Occupancy',

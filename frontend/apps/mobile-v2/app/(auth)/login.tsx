@@ -8,7 +8,10 @@ import { Button } from '@/components/ui/Button';
 import { TextField } from '@/components/ui/TextField';
 import { AuthScreen } from '@/features/auth/AuthScreen';
 import { applyPendingProfile } from '@/features/auth/pendingProfile';
-import { consumePendingAuthGateIntent } from '@/features/auth/authGateIntents';
+import {
+  clearPendingAuthGateIntent,
+  peekPendingAuthGateIntent,
+} from '@/features/auth/authGateIntents';
 import { escapeToPublicExplore } from '@/features/auth/escapeToPublicExplore';
 import { resolvePostLoginHref } from '@/features/auth/resolvePostLoginHref';
 import {
@@ -47,10 +50,12 @@ export default function LoginScreen() {
     setError(null);
     setNotVerified(false);
     try {
+      // Snapshot resume before adoptSession: AuthLayout may sync-redirect on setSession.
+      const pending = peekPendingAuthGateIntent();
       const response = await authApi.login(parsed.data);
       await adoptSession(response);
       void applyPendingProfile(response.user.email);
-      const pending = consumePendingAuthGateIntent();
+      clearPendingAuthGateIntent();
       if (pending?.intent === 'google-maps') {
         const mapsResult = await openGoogleMapsDirections(pending.latitude, pending.longitude);
         if (mapsResult !== 'opened') {

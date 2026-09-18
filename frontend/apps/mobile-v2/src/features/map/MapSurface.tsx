@@ -4,10 +4,13 @@ import {
   useImperativeHandle,
   useMemo,
   useRef,
+  useState,
 } from 'react';
-import { Platform, StyleSheet, View, type StyleProp, type ViewStyle } from 'react-native';
+import { Platform, Pressable, StyleSheet, View, type StyleProp, type ViewStyle } from 'react-native';
 import { WebView, type WebViewMessageEvent } from 'react-native-webview';
 import type { LatLng } from '@parkio/geo';
+import { AppText } from '@/components/ui/AppText';
+import { useT } from '@/i18n/LocaleProvider';
 import { useTheme } from '@/theme/ThemeProvider';
 import { decodeMapBridgeMessage } from './mapBridgeDecode';
 import {
@@ -99,9 +102,14 @@ export const MapSurface = forwardRef<MapSurfaceHandle, MapSurfaceProps>(function
   ref,
 ) {
   const theme = useTheme();
+  const t = useT();
   const webViewRef = useRef<WebView>(null);
   const readyRef = useRef(false);
   const queueRef = useRef<string[]>([]);
+  const [webViewEpoch, setWebViewEpoch] = useState(0);
+  const [mapErrorCode, setMapErrorCode] = useState<string | null>(null);
+  // Test-only injection (EXPO_PUBLIC_FORCE_MAP_INIT_FAIL=true). Not actual GPU probe.
+  const forceInitFailure = process.env.EXPO_PUBLIC_FORCE_MAP_INIT_FAIL === 'true';
 
   const html = useMemo(() => {
     const dark = theme.mode === 'dark';
@@ -110,6 +118,7 @@ export const MapSurface = forwardRef<MapSurfaceHandle, MapSurfaceProps>(function
       zoom: initialZoom,
       mode: theme.mode,
       interactiveSpots,
+      forceInitFailure,
       colors: {
         fresh: dark ? '#4D8DFF' : '#0050CB',
         aging: dark ? '#FFB955' : '#A06500',
@@ -126,9 +135,9 @@ export const MapSurface = forwardRef<MapSurfaceHandle, MapSurfaceProps>(function
         communityGlyph: '#FFFFFF',
       },
     });
-    // The map keeps its own camera; only a theme flip warrants a rebuild.
+    // Theme flip or forced-init test flag warrants a rebuild.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [theme.mode]);
+  }, [theme.mode, forceInitFailure, webViewEpoch]);
 
   const dispatch = useCallback((payload: Record<string, unknown>) => {
     const script = buildParkioDispatchScript(payload);
@@ -137,6 +146,13 @@ export const MapSurface = forwardRef<MapSurfaceHandle, MapSurfaceProps>(function
       return;
     }
     webViewRef.current?.injectJavaScript(script);
+  }, []);
+
+  const retryMap = useCallback(() => {
+    readyRef.current = false;
+    queueRef.current = [];
+    setMapErrorCode(null);
+    setWebViewEpoch((epoch) => epoch + 1);
   }, []);
 
   useImperativeHandle(
@@ -180,6 +196,7 @@ export const MapSurface = forwardRef<MapSurfaceHandle, MapSurfaceProps>(function
         switch (message.type) {
           case 'ready': {
             readyRef.current = true;
+            setMapErrorCode(null);
             const queued = queueRef.current;
             queueRef.current = [];
             for (const script of queued) {
@@ -213,6 +230,8 @@ export const MapSurface = forwardRef<MapSurfaceHandle, MapSurfaceProps>(function
             break;
           case 'error':
             console.warn('[map] webview error:', message.code);
+            readyRef.current = false;
+            setMapErrorCode(message.code);
             break;
           case 'debug':
             if (__DEV__) {
@@ -235,9 +254,19 @@ export const MapSurface = forwardRef<MapSurfaceHandle, MapSurfaceProps>(function
     [],
   );
 
+  const errorTitle =
+    mapErrorCode === 'webgl-unavailable'
+      ? t('map.initError.webglTitle')
+      : t('map.initError.title');
+  const errorBody =
+    mapErrorCode === 'webgl-unavailable'
+      ? t('map.initError.webglBody')
+      : t('map.initError.body');
+
   return (
     <View style={[styles.container, style]}>
       <WebView
+        key={webViewEpoch}
         ref={webViewRef}
         source={{ html }}
         onMessage={handleMessage}
@@ -270,6 +299,31 @@ export const MapSurface = forwardRef<MapSurfaceHandle, MapSurfaceProps>(function
             }
           : {})}
       />
+      {mapErrorCode ? (
+        <View
+          style={[styles.errorOverlay, { backgroundColor: theme.colors.background }]}
+          accessibilityRole="alert"
+          testID="map-init-error"
+        >
+          <AppText variant="titleMd" style={styles.errorTitle}>
+            {errorTitle}
+          </AppText>
+          <AppText variant="bodySm" color={theme.colors.onSurfaceVariant} style={styles.errorBody}>
+            {errorBody}
+          </AppText>
+          <Pressable
+            accessibilityRole="button"
+            accessibilityLabel={t('map.initError.retry')}
+            testID="map-init-retry"
+            onPress={retryMap}
+            style={[styles.retryButton, { backgroundColor: theme.colors.primary }]}
+          >
+            <AppText variant="labelMd" color={theme.colors.onPrimary}>
+              {t('map.initError.retry')}
+            </AppText>
+          </Pressable>
+        </View>
+      ) : null}
     </View>
   );
 });
@@ -277,4 +331,19 @@ export const MapSurface = forwardRef<MapSurfaceHandle, MapSurfaceProps>(function
 const styles = StyleSheet.create({
   container: { flex: 1, overflow: 'hidden' },
   webview: { flex: 1, backgroundColor: 'transparent' },
+  errorOverlay: {
+    ...StyleSheet.absoluteFillObject,
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingHorizontal: 24,
+    gap: 12,
+  },
+  errorTitle: { textAlign: 'center' },
+  errorBody: { textAlign: 'center', maxWidth: 320 },
+  retryButton: {
+    marginTop: 8,
+    paddingHorizontal: 20,
+    paddingVertical: 12,
+    borderRadius: 12,
+  },
 });
