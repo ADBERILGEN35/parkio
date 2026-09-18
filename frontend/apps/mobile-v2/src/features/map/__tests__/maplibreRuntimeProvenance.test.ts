@@ -39,11 +39,11 @@ describe('MapLibre local runtime provenance (PA-05)', () => {
     runtimeMode: string;
   };
 
-  it('pins exact MapLibre 4.7.1 with official integrity', () => {
-    expect(MAPLIBRE_VERSION).toBe('4.7.1');
-    expect(MAPLIBRE_RUNTIME_VERSION).toBe('4.7.1');
-    expect(manifest.version).toBe('4.7.1');
-    expect(manifest.runtimeMode).toBe('bundled');
+  it('pins exact MapLibre 6.4.1 with official integrity', () => {
+    expect(MAPLIBRE_VERSION).toBe('6.4.1');
+    expect(MAPLIBRE_RUNTIME_VERSION).toBe('6.4.1');
+    expect(manifest.version).toBe('6.4.1');
+    expect(manifest.runtimeMode).toBe('esbuild-iife-from-esm');
     expect(MAPLIBRE_RUNTIME_PACKAGE_INTEGRITY).toBe(manifest.packageIntegrity);
     expect(manifest.packageIntegrity).toMatch(/^sha512-/);
   });
@@ -83,7 +83,7 @@ describe('MapLibre local runtime provenance (PA-05)', () => {
     expect(html).toContain('<script>');
     expect(html).toContain('maplibregl');
     expect(html).toContain('Content-Security-Policy');
-    // Packaged runtime is present (UMD factory / maplibregl global).
+    // Packaged runtime is present (esbuild IIFE / maplibregl global).
     expect(html.includes(MAPLIBRE_RUNTIME_JS.slice(0, 80))).toBe(true);
     expect(html).toContain('© OpenStreetMap contributors');
   });
@@ -99,7 +99,7 @@ describe('MapLibre local runtime provenance (PA-05)', () => {
     for (const host of blocked) {
       expect(html.toLowerCase()).not.toContain(host);
     }
-    // Local UMD still defines maplibregl — shell can initialize without CDN JS.
+    // Local IIFE still defines maplibregl — shell can initialize without CDN JS.
     expect(MAPLIBRE_RUNTIME_JS).toMatch(/maplibregl|maplibre/i);
   });
 });
