@@ -9,10 +9,17 @@ import type {
   ResetPasswordRequest,
   User,
   VerifyEmailRequest,
+  RegistrationModeResponse,
 } from '@parkio/types';
 
 export function createAuthApi(client: AxiosInstance) {
   return {
+    getRegistrationMode(signal?: AbortSignal): Promise<RegistrationModeResponse> {
+      return client
+        .get<RegistrationModeResponse>('/auth/registration-mode', { signal })
+        .then((response) => response.data);
+    },
+
     register(body: RegisterRequest): Promise<AuthResponse> {
       return client
         .post<AuthResponse>('/auth/register', body, { withCredentials: true })

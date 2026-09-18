@@ -5,29 +5,34 @@ BASE_CONFIG=/etc/alertmanager/alertmanager.yml
 RUNTIME_CONFIG=/tmp/alertmanager.yml
 
 SLACK_URL="${PARKIO_ALERT_SLACK_WEBHOOK_URL:-}"
-SLACK_CHANNEL="${PARKIO_ALERT_SLACK_CHANNEL:-#parkio-alerts}"
+SLACK_CHANNEL="${PARKIO_ALERT_SLACK_CHANNEL:-#parkio-alert}"
 WEBHOOK_URL="${PARKIO_ALERT_WEBHOOK_URL:-}"
 WEBHOOK_SECRET="${PARKIO_ALERT_WEBHOOK_SECRET:-}"
 REPEAT_CRITICAL="${PARKIO_ALERT_REPEAT_CRITICAL:-1h}"
 REPEAT_WARNING="${PARKIO_ALERT_REPEAT_WARNING:-4h}"
+GROUP_WAIT="${PARKIO_ALERT_GROUP_WAIT:-30s}"
+GROUP_WAIT_CRITICAL="${PARKIO_ALERT_GROUP_WAIT_CRITICAL:-15s}"
+GROUP_INTERVAL="${PARKIO_ALERT_GROUP_INTERVAL:-5m}"
+RESOLVE_TIMEOUT="${PARKIO_ALERT_RESOLVE_TIMEOUT:-5m}"
 
 if [ -z "$SLACK_URL" ] && [ -z "$WEBHOOK_URL" ]; then
   cp "$BASE_CONFIG" "$RUNTIME_CONFIG"
 else
   cat > "$RUNTIME_CONFIG" <<EOF
 global:
-  resolve_timeout: 5m
+  resolve_timeout: ${RESOLVE_TIMEOUT}
 
 route:
   receiver: "warning"
   group_by: ["alertname", "service", "severity", "component"]
-  group_wait: 30s
-  group_interval: 5m
+  group_wait: ${GROUP_WAIT}
+  group_interval: ${GROUP_INTERVAL}
   repeat_interval: ${REPEAT_WARNING}
   routes:
     - matchers:
         - severity="critical"
       receiver: "critical"
+      group_wait: ${GROUP_WAIT_CRITICAL}
       repeat_interval: ${REPEAT_CRITICAL}
     - matchers:
         - severity="warning"
@@ -40,6 +45,39 @@ inhibit_rules:
     target_matchers:
       - severity="warning"
     equal: ["alertname", "service", "component"]
+  - source_matchers:
+      - alertname="GatewayDown"
+    target_matchers:
+      - alertname=~"ServiceDown|GatewayHigh5xxRate|Gateway5xxElevated|GatewayHighLatencyP95|GatewayLatencyP95High"
+    equal: ["service"]
+  - source_matchers:
+      - alertname="CoreServiceDown"
+    target_matchers:
+      - alertname="ServiceDown"
+    equal: ["service"]
+  - source_matchers:
+      - alertname="PostgresDown"
+    target_matchers:
+      - alertname="DatabaseConnectionPoolExhausted"
+  - source_matchers:
+      - alertname="KafkaBrokerUnavailable"
+    target_matchers:
+      - alertname=~"KafkaConsumerLagHigh|KafkaConsumerLagSustained|KafkaDltMessagesPresent|KafkaDltGrowing"
+  - source_matchers:
+      - alertname="HostDiskSpaceCritical"
+    target_matchers:
+      - alertname=~"HostDiskSpaceLow|HostDiskWillFillSoon"
+    equal: ["instance", "mountpoint"]
+  - source_matchers:
+      - alertname="BackupFailed"
+    target_matchers:
+      - alertname="BackupStale"
+    equal: ["scope"]
+  - source_matchers:
+      - alertname="BackupOffsiteFailed"
+    target_matchers:
+      - alertname="BackupOffsiteStale"
+    equal: ["scope"]
 
 receivers:
 EOF
@@ -52,14 +90,14 @@ EOF
         channel: '${SLACK_CHANNEL}'
         send_resolved: true
         title: '[{{ .Status | toUpper }}] {{ .CommonLabels.severity }}: {{ .CommonLabels.alertname }}'
-        text: '{{ range .Alerts }}*{{ .Annotations.summary }}*{{ "\\n" }}{{ .Annotations.description }}{{ "\\n" }}{{ if .Annotations.runbook_url }}Runbook: {{ .Annotations.runbook_url }}{{ "\\n" }}{{ end }}{{ end }}'
+        text: 'environment={{ .CommonLabels.environment }} monitor={{ .CommonLabels.monitor }}{{ "\\n" }}{{ range .Alerts }}*{{ .Annotations.summary }}*{{ "\\n" }}{{ if eq .Status "resolved" }}The condition has cleared. This alert is no longer firing.{{ else }}{{ .Annotations.description }}{{ end }}{{ "\\n" }}started={{ .StartsAt }}{{ "\\n" }}{{ if .Annotations.runbook_url }}Runbook: {{ .Annotations.runbook_url }}{{ "\\n" }}{{ end }}{{ end }}'
   - name: "warning"
     slack_configs:
       - api_url: '${SLACK_URL}'
         channel: '${SLACK_CHANNEL}'
         send_resolved: true
         title: '[{{ .Status | toUpper }}] {{ .CommonLabels.severity }}: {{ .CommonLabels.alertname }}'
-        text: '{{ range .Alerts }}*{{ .Annotations.summary }}*{{ "\\n" }}{{ .Annotations.description }}{{ "\\n" }}{{ if .Annotations.runbook_url }}Runbook: {{ .Annotations.runbook_url }}{{ "\\n" }}{{ end }}{{ end }}'
+        text: 'environment={{ .CommonLabels.environment }} monitor={{ .CommonLabels.monitor }}{{ "\\n" }}{{ range .Alerts }}*{{ .Annotations.summary }}*{{ "\\n" }}{{ if eq .Status "resolved" }}The condition has cleared. This alert is no longer firing.{{ else }}{{ .Annotations.description }}{{ end }}{{ "\\n" }}started={{ .StartsAt }}{{ "\\n" }}{{ if .Annotations.runbook_url }}Runbook: {{ .Annotations.runbook_url }}{{ "\\n" }}{{ end }}{{ end }}'
 EOF
   else
     if [ -n "$WEBHOOK_SECRET" ]; then

@@ -17,6 +17,10 @@ const SKIPPED_DIRECTORIES = new Set([
   'coverage',
   'dist',
   'node_modules',
+  // Generated third-party runtimes (e.g. MapLibre IIFE vendor). Application
+  // code must not live here; scanning them for app HTTP/boundary rules produces
+  // false positives on upstream fetch/XHR implementations.
+  'vendor',
 ]);
 
 const DIRECT_HTTP_PACKAGES = [
@@ -380,6 +384,7 @@ const SDK_COMPOSITION_FACTORIES = new Set([
   'createModerationApi',
   'createNotificationsApi',
   'createParkingApi',
+  'createPlacesApi',
   'createUsersApi',
 ]);
 

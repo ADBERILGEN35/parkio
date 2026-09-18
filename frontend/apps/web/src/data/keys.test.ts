@@ -5,6 +5,7 @@ import {
   meKeys,
   normalizeNearbyFilters,
   parkingKeys,
+  recommendationKeys,
 } from './keys';
 import {
   clearUserSessionQueries,
@@ -17,6 +18,7 @@ describe('canonical query keys', () => {
     expect(meKeys.smartReturn()).toEqual(['me', 'smart-return']);
     expect(parkingKeys.mySpots()).toEqual(['parking', 'my-spots']);
     expect(parkingKeys.spot('spot-1')).toEqual(['parking', 'spot', 'spot-1']);
+    expect(recommendationKeys.all).toEqual(['parking', 'recommendations']);
   });
 
   it('builds user-scoped ParkingSession keys under a shared sessions root', () => {
@@ -54,7 +56,7 @@ describe('canonical query keys', () => {
 });
 
 describe('clearUserSessionQueries', () => {
-  it('cancels and removes every user-scoped root while preserving nearby discovery', () => {
+  it('cancels and removes SESSION_PRIVATE roots including nearby; public explore stays', async () => {
     const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
     const cancel = vi.spyOn(client, 'cancelQueries');
     const remove = vi.spyOn(client, 'removeQueries');
@@ -62,28 +64,34 @@ describe('clearUserSessionQueries', () => {
     client.setQueryData(meKeys.profile(), { id: 'p1' });
     client.setQueryData(parkingKeys.mySpots(), [{ id: 's1' }]);
     client.setQueryData(parkingKeys.nearby({ lat: 1, lng: 2 }), [{ id: 'n1' }]);
+    client.setQueryData(parkingKeys.spotMediaAccessUrl('spot-1'), {
+      url: 'https://signed.example/private',
+    });
+    client.setQueryData(['public-explore', 'facilities'], [{ id: 'pub' }]);
 
-    clearUserSessionQueries(client);
+    await clearUserSessionQueries(client);
 
     expect(cancel).toHaveBeenCalledTimes(USER_SESSION_QUERY_ROOTS.length);
     expect(remove).toHaveBeenCalledTimes(USER_SESSION_QUERY_ROOTS.length);
     expect(client.getQueryData(meKeys.profile())).toBeUndefined();
     expect(client.getQueryData(parkingKeys.mySpots())).toBeUndefined();
-    expect(client.getQueryData(parkingKeys.nearby({ lat: 1, lng: 2 }))).toEqual([{ id: 'n1' }]);
+    expect(client.getQueryData(parkingKeys.nearby({ lat: 1, lng: 2 }))).toBeUndefined();
+    expect(client.getQueryData(parkingKeys.spotMediaAccessUrl('spot-1'))).toBeUndefined();
+    expect(client.getQueryData(['public-explore', 'facilities'])).toEqual([{ id: 'pub' }]);
   });
 
-  it('clears precise ParkingSession state (active + history) on logout', () => {
+  it('clears precise ParkingSession state (active + history) on logout', async () => {
     const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
     client.setQueryData(parkingKeys.activeSession(), { id: 'sess-1', status: 'ACTIVE' });
     client.setQueryData(parkingKeys.sessionHistory(20), { pages: [], pageParams: [] });
 
-    clearUserSessionQueries(client);
+    await clearUserSessionQueries(client);
 
     expect(client.getQueryData(parkingKeys.activeSession())).toBeUndefined();
     expect(client.getQueryData(parkingKeys.sessionHistory(20))).toBeUndefined();
   });
 
-  it('prevents User A profile from remaining after clear before User B loads', () => {
+  it('prevents User A profile from remaining after clear before User B loads', async () => {
     const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
     const userA: Profile = {
       id: 'profile-a',
@@ -96,7 +104,7 @@ describe('clearUserSessionQueries', () => {
       createdAt: '2026-01-01T00:00:00.000Z',
     };
     client.setQueryData(meKeys.profile(), userA);
-    clearUserSessionQueries(client);
+    await clearUserSessionQueries(client);
     expect(client.getQueryData(meKeys.profile())).toBeUndefined();
   });
 });

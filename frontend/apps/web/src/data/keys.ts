@@ -34,8 +34,16 @@ export const parkingKeys = {
   nearby: (filters: NearbyParkingFilters) =>
     [...parkingKeys.all, 'nearby', normalizeNearbyFilters(filters)] as const,
   nearbyRoot: () => [...parkingKeys.all, 'nearby'] as const,
+  /** Municipal facilities nearby — separate cache tree from community spots. */
+  municipalNearby: (filters: NearbyParkingFilters) =>
+    [...parkingKeys.all, 'municipal-nearby', normalizeNearbyFilters(filters)] as const,
+  municipalNearbyRoot: () => [...parkingKeys.all, 'municipal-nearby'] as const,
+  municipalFacility: (facilityId: string) =>
+    [...parkingKeys.all, 'municipal-facility', facilityId] as const,
   mySpots: () => [...parkingKeys.all, 'my-spots'] as const,
   spot: (spotId: string) => [...parkingKeys.all, 'spot', spotId] as const,
+  /** Prefix covering spot detail + nested media-access-url. */
+  spotRoot: () => [...parkingKeys.all, 'spot'] as const,
   spotMediaAccessUrl: (spotId: string) =>
     [...parkingKeys.spot(spotId), 'media-access-url'] as const,
   /** User-scoped ParkingSession hierarchy (precise coordinates — cleared on logout). */
@@ -91,6 +99,44 @@ export const analyticsKeys = {
   parking: () => [...analyticsKeys.all, 'parking'] as const,
   metrics: () => [...analyticsKeys.all, 'metrics'] as const,
   user: (userId: string) => [...analyticsKeys.all, 'user', userId] as const,
+};
+
+/** User-scoped places hierarchy — clear on logout / user switch with session caches. */
+export const placesKeys = {
+  all: ['places'] as const,
+  savedRoot: () => [...placesKeys.all, 'saved'] as const,
+  saved: () => [...placesKeys.savedRoot(), 'list'] as const,
+  favouritesRoot: () => [...placesKeys.all, 'favourites'] as const,
+  favouriteDestinations: () => [...placesKeys.favouritesRoot(), 'destinations'] as const,
+  favouriteParking: () => [...placesKeys.favouritesRoot(), 'parking'] as const,
+  recentsRoot: () => [...placesKeys.all, 'recents'] as const,
+  recentDestinations: () => [...placesKeys.recentsRoot(), 'destinations'] as const,
+  recentParking: () => [...placesKeys.recentsRoot(), 'parking'] as const,
+};
+
+/** Destination-scoped parking recommendations (WP-SPA-05/06/08). */
+export type RecommendationFilters = {
+  destKey: string;
+  radiusMeters: number;
+  limit: number;
+  includeCommunity: boolean;
+  includeMunicipal: boolean;
+};
+
+export function normalizeRecommendationFilters(filters: RecommendationFilters) {
+  return {
+    destKey: filters.destKey,
+    radiusMeters: filters.radiusMeters,
+    limit: filters.limit,
+    includeCommunity: filters.includeCommunity,
+    includeMunicipal: filters.includeMunicipal,
+  } as const;
+}
+
+export const recommendationKeys = {
+  all: ['parking', 'recommendations'] as const,
+  list: (filters: RecommendationFilters) =>
+    [...recommendationKeys.all, 'list', normalizeRecommendationFilters(filters)] as const,
 };
 
 export const adminKeys = {

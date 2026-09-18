@@ -17,4 +17,4 @@ vulnerabilities:
       a container image. Build tooling expands only repo-controlled glob patterns, so
       there is no untrusted input path. Owner: Parkio release engineering. Remediation:
       drop when eslint's transitive minimatch reaches >= 10, or when a 1.x backport ships.
-    expired_at: 2026-08-31
+    expired_at: 2026-10-31

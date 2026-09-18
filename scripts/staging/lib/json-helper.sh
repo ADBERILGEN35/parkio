@@ -3,17 +3,28 @@
 # Usage: source this file; call json_require_python / json_get / json_assert_jwks
 
 json_require_python() {
-  if ! command -v python3 >/dev/null 2>&1; then
-    echo "ERROR: python3 is required for JSON parsing in staging/smoke scripts (jq is not used)." >&2
-    exit 2
+  if command -v python3 >/dev/null 2>&1; then
+    PARKIO_JSON_PYTHON=python3
+    return 0
   fi
+  if command -v python >/dev/null 2>&1; then
+    PARKIO_JSON_PYTHON=python
+    return 0
+  fi
+  if command -v py >/dev/null 2>&1; then
+    PARKIO_JSON_PYTHON="py -3"
+    return 0
+  fi
+  echo "ERROR: python3 (or python/py) is required for JSON parsing in staging/smoke scripts (jq is not used)." >&2
+  exit 2
 }
 
 # json_get <file> <dotted.path>  — prints scalar/string or empty; fails on invalid JSON
 json_get() {
   local file="$1" path="$2"
   json_require_python
-  python3 - "$file" "$path" <<'PY'
+  # shellcheck disable=SC2086
+  $PARKIO_JSON_PYTHON - "$file" "$path" <<'PY'
 import json, sys
 path = sys.argv[2].split(".")
 with open(sys.argv[1], encoding="utf-8") as fh:
@@ -40,7 +51,8 @@ PY
 json_assert_jwks() {
   local file="$1"
   json_require_python
-  python3 - "$file" <<'PY'
+  # shellcheck disable=SC2086
+  $PARKIO_JSON_PYTHON - "$file" <<'PY'
 import json, sys
 raw = open(sys.argv[1], encoding="utf-8").read()
 if not raw.strip():
@@ -64,7 +76,8 @@ PY
 json_array_contains_id() {
   local file="$1" spot_id="$2"
   json_require_python
-  python3 - "$file" "$spot_id" <<'PY'
+  # shellcheck disable=SC2086
+  $PARKIO_JSON_PYTHON - "$file" "$spot_id" <<'PY'
 import json, sys
 doc = json.load(open(sys.argv[1], encoding="utf-8"))
 want = sys.argv[2]

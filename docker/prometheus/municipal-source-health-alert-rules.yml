@@ -1,0 +1,281 @@
+groups:
+  - name: parkio-municipal-source-health-alerts
+    rules:
+      # --- SCHEDULED source (İZUM): age + failure + stale RUNNING ---
+      - alert: MunicipalSourceConsecutiveFailuresWarning
+        expr: |
+          parkio_municipal_source_consecutive_failures{source_key="izmir-izum-otoparklar",source_mode="SCHEDULED"} >= 3
+          and on(source_key)
+          parkio_municipal_source_operational_state{source_key="izmir-izum-otoparklar",state="DISABLED"} == 0
+        for: 5m
+        labels:
+          severity: warning
+          owner: parking
+          source_key: izmir-izum-otoparklar
+          source_mode: SCHEDULED
+        annotations:
+          summary: Municipal source consecutive failures reached warning threshold
+          description: IZUM sync consecutive failures are elevated. Check operational SLA state and bounded error category via actuator health details.
+          runbook_url: docs/operations/municipal-parking-source-runbook.md
+
+      - alert: MunicipalSourceConsecutiveFailuresCritical
+        expr: |
+          parkio_municipal_source_consecutive_failures{source_key="izmir-izum-otoparklar",source_mode="SCHEDULED"} >= 5
+          and on(source_key)
+          parkio_municipal_source_operational_state{source_key="izmir-izum-otoparklar",state="DISABLED"} == 0
+        for: 5m
+        labels:
+          severity: critical
+          owner: parking
+          source_key: izmir-izum-otoparklar
+          source_mode: SCHEDULED
+        annotations:
+          summary: Municipal source consecutive failures reached critical threshold
+          description: IZUM sync consecutive failures are critical. Distinguish upstream timeout from schema_contract using bounded error_category.
+          runbook_url: docs/operations/municipal-parking-source-runbook.md
+
+      - alert: MunicipalSourceSecondsSinceSuccessWarning
+        expr: |
+          parkio_municipal_source_seconds_since_success{source_key="izmir-izum-otoparklar",source_mode="SCHEDULED"} >= 600
+          and on(source_key)
+          parkio_municipal_source_operational_state{source_key="izmir-izum-otoparklar",state="DISABLED"} == 0
+        for: 5m
+        labels:
+          severity: warning
+          owner: parking
+          source_key: izmir-izum-otoparklar
+          source_mode: SCHEDULED
+        annotations:
+          summary: Municipal source seconds since last success reached warning threshold
+          description: IZUM has not completed a successful sync within the warning SLA window. Age alerts apply only to SCHEDULED sources.
+          runbook_url: docs/operations/municipal-parking-source-runbook.md
+
+      - alert: MunicipalSourceSecondsSinceSuccessCritical
+        expr: |
+          parkio_municipal_source_seconds_since_success{source_key="izmir-izum-otoparklar",source_mode="SCHEDULED"} >= 1800
+          and on(source_key)
+          parkio_municipal_source_operational_state{source_key="izmir-izum-otoparklar",state="DISABLED"} == 0
+        for: 5m
+        labels:
+          severity: critical
+          owner: parking
+          source_key: izmir-izum-otoparklar
+          source_mode: SCHEDULED
+        annotations:
+          summary: Municipal source seconds since last success reached critical threshold
+          description: IZUM has not completed a successful sync within the critical SLA window. Public occupancy may already be STALE/null. OPERATOR_IMPORTED sources are intentionally excluded from age-only alerts.
+          runbook_url: docs/operations/municipal-parking-source-runbook.md
+
+      - alert: MunicipalSourceStaleRunningOperation
+        expr: |
+          parkio_municipal_source_stale_running_operations{source_key="izmir-izum-otoparklar",source_mode="SCHEDULED"} > 0
+          and on(source_key)
+          parkio_municipal_source_operational_state{source_key="izmir-izum-otoparklar",state="DISABLED"} == 0
+        for: 10m
+        labels:
+          severity: warning
+          owner: parking
+          source_key: izmir-izum-otoparklar
+          source_mode: SCHEDULED
+        annotations:
+          summary: Municipal source has a stale RUNNING synchronization operation
+          description: A municipal sync run remained RUNNING beyond the stale-running SLA threshold.
+          runbook_url: docs/operations/municipal-parking-source-runbook.md
+
+      - alert: MunicipalSourceRecovered
+        expr: increase(parkio_municipal_source_recoveries_total{source_key="izmir-izum-otoparklar"}[15m]) > 0
+        for: 0m
+        labels:
+          severity: info
+          owner: parking
+          source_key: izmir-izum-otoparklar
+          source_mode: SCHEDULED
+        annotations:
+          summary: Municipal source recovered after consecutive failures
+          description: IZUM completed a successful sync after a failure streak. Confirm occupancy freshness returned to LIVE or AGING.
+          runbook_url: docs/operations/municipal-parking-source-runbook.md
+
+      # --- SCHEDULED source (İSPARK): same SLA windows as İZUM (2-minute fixedDelay) ---
+      # Warning age 600s ≈ 5 missed cycles; critical 1800s ≈ 15 missed cycles.
+      # for: 5m avoids paging on a single transient upstream blip.
+      - alert: MunicipalIsparkConsecutiveFailuresWarning
+        expr: |
+          parkio_municipal_source_consecutive_failures{source_key="istanbul-ispark-parks",source_mode="SCHEDULED"} >= 3
+          and on(source_key)
+          parkio_municipal_source_operational_state{source_key="istanbul-ispark-parks",state="DISABLED"} == 0
+        for: 5m
+        labels:
+          severity: warning
+          owner: parking
+          source_key: istanbul-ispark-parks
+          source_mode: SCHEDULED
+        annotations:
+          summary: ISPARK consecutive failures reached warning threshold
+          description: ISPARK sync consecutive failures are elevated. Check operational SLA state and bounded error category via actuator health details.
+          runbook_url: docs/operations/municipal-parking-source-runbook.md
+
+      - alert: MunicipalIsparkConsecutiveFailuresCritical
+        expr: |
+          parkio_municipal_source_consecutive_failures{source_key="istanbul-ispark-parks",source_mode="SCHEDULED"} >= 5
+          and on(source_key)
+          parkio_municipal_source_operational_state{source_key="istanbul-ispark-parks",state="DISABLED"} == 0
+        for: 5m
+        labels:
+          severity: critical
+          owner: parking
+          source_key: istanbul-ispark-parks
+          source_mode: SCHEDULED
+        annotations:
+          summary: ISPARK consecutive failures reached critical threshold
+          description: ISPARK sync consecutive failures are critical. Distinguish upstream timeout from schema_contract using bounded error_category.
+          runbook_url: docs/operations/municipal-parking-source-runbook.md
+
+      - alert: MunicipalIsparkSecondsSinceSuccessWarning
+        expr: |
+          parkio_municipal_source_seconds_since_success{source_key="istanbul-ispark-parks",source_mode="SCHEDULED"} >= 600
+          and on(source_key)
+          parkio_municipal_source_operational_state{source_key="istanbul-ispark-parks",state="DISABLED"} == 0
+        for: 5m
+        labels:
+          severity: warning
+          owner: parking
+          source_key: istanbul-ispark-parks
+          source_mode: SCHEDULED
+        annotations:
+          summary: ISPARK seconds since last success reached warning threshold
+          description: ISPARK has not completed a successful sync within the warning SLA window (600s / ~5 missed 2-minute cycles).
+          runbook_url: docs/operations/municipal-parking-source-runbook.md
+
+      - alert: MunicipalIsparkSecondsSinceSuccessCritical
+        expr: |
+          parkio_municipal_source_seconds_since_success{source_key="istanbul-ispark-parks",source_mode="SCHEDULED"} >= 1800
+          and on(source_key)
+          parkio_municipal_source_operational_state{source_key="istanbul-ispark-parks",state="DISABLED"} == 0
+        for: 5m
+        labels:
+          severity: critical
+          owner: parking
+          source_key: istanbul-ispark-parks
+          source_mode: SCHEDULED
+        annotations:
+          summary: ISPARK seconds since last success reached critical threshold
+          description: ISPARK has not completed a successful sync within the critical SLA window (1800s). Public occupancy may already be STALE/null.
+          runbook_url: docs/operations/municipal-parking-source-runbook.md
+
+      - alert: MunicipalIsparkStaleRunningOperation
+        expr: |
+          parkio_municipal_source_stale_running_operations{source_key="istanbul-ispark-parks",source_mode="SCHEDULED"} > 0
+          and on(source_key)
+          parkio_municipal_source_operational_state{source_key="istanbul-ispark-parks",state="DISABLED"} == 0
+        for: 10m
+        labels:
+          severity: warning
+          owner: parking
+          source_key: istanbul-ispark-parks
+          source_mode: SCHEDULED
+        annotations:
+          summary: ISPARK has a stale RUNNING synchronization operation
+          description: An ISPARK sync run remained RUNNING beyond the stale-running SLA threshold.
+          runbook_url: docs/operations/municipal-parking-source-runbook.md
+
+      - alert: MunicipalIsparkRecovered
+        expr: increase(parkio_municipal_source_recoveries_total{source_key="istanbul-ispark-parks"}[15m]) > 0
+        for: 0m
+        labels:
+          severity: info
+          owner: parking
+          source_key: istanbul-ispark-parks
+          source_mode: SCHEDULED
+        annotations:
+          summary: ISPARK recovered after consecutive failures
+          description: ISPARK completed a successful sync after a failure streak. Confirm occupancy freshness returned to LIVE or AGING.
+          runbook_url: docs/operations/municipal-parking-source-runbook.md
+
+      # --- OPERATOR_IMPORTED source (OSM): failures + stale RUNNING only (no age-only alerts) ---
+      - alert: MunicipalOsmConsecutiveFailuresWarning
+        expr: |
+          parkio_municipal_source_consecutive_failures{source_key="osm-geofabrik-turkey",source_mode="OPERATOR_IMPORTED"} >= 3
+          and on(source_key)
+          parkio_municipal_source_operational_state{source_key="osm-geofabrik-turkey",state="DISABLED"} == 0
+        for: 5m
+        labels:
+          severity: warning
+          owner: parking
+          source_key: osm-geofabrik-turkey
+          source_mode: OPERATOR_IMPORTED
+        annotations:
+          summary: OSM operator import consecutive failures reached warning threshold
+          description: OSM import failures are elevated. Seconds-since-success remains observational for OPERATOR_IMPORTED sources and does not page.
+          runbook_url: docs/operations/municipal-parking-source-runbook.md
+
+      - alert: MunicipalOsmConsecutiveFailuresCritical
+        expr: |
+          parkio_municipal_source_consecutive_failures{source_key="osm-geofabrik-turkey",source_mode="OPERATOR_IMPORTED"} >= 5
+          and on(source_key)
+          parkio_municipal_source_operational_state{source_key="osm-geofabrik-turkey",state="DISABLED"} == 0
+        for: 5m
+        labels:
+          severity: critical
+          owner: parking
+          source_key: osm-geofabrik-turkey
+          source_mode: OPERATOR_IMPORTED
+        annotations:
+          summary: OSM operator import consecutive failures reached critical threshold
+          description: OSM import consecutive failures are critical. Age-only CRITICAL is not used for OPERATOR_IMPORTED sources.
+          runbook_url: docs/operations/municipal-parking-source-runbook.md
+
+      - alert: MunicipalOsmStaleRunningOperation
+        expr: |
+          parkio_municipal_source_stale_running_operations{source_key="osm-geofabrik-turkey",source_mode="OPERATOR_IMPORTED"} > 0
+          and on(source_key)
+          parkio_municipal_source_operational_state{source_key="osm-geofabrik-turkey",state="DISABLED"} == 0
+        for: 10m
+        labels:
+          severity: warning
+          owner: parking
+          source_key: osm-geofabrik-turkey
+          source_mode: OPERATOR_IMPORTED
+        annotations:
+          summary: OSM operator import has a stale RUNNING operation
+          description: An OSM import run remained RUNNING beyond the stale-running SLA threshold.
+          runbook_url: docs/operations/municipal-parking-source-runbook.md
+
+      - alert: MunicipalOsmRecovered
+        expr: increase(parkio_municipal_source_recoveries_total{source_key="osm-geofabrik-turkey"}[15m]) > 0
+        for: 0m
+        labels:
+          severity: info
+          owner: parking
+          source_key: osm-geofabrik-turkey
+          source_mode: OPERATOR_IMPORTED
+        annotations:
+          summary: OSM operator import recovered after consecutive failures
+          description: OSM completed a successful import after a failure streak.
+          runbook_url: docs/operations/municipal-parking-source-runbook.md
+
+      # --- Occupancy retention (7d + latest preserve) ---
+      # Expected cadence: daily at 04:00 UTC after 03:30 backup. Warn if no success for 36h.
+      - alert: MunicipalOccupancyRetentionStale
+        expr: |
+          (time() - parkio_municipal_occupancy_retention_last_success_unixtime) > 129600
+          and on()
+          parkio_municipal_occupancy_retention_last_success_unixtime > 0
+        for: 30m
+        labels:
+          severity: warning
+          owner: parking
+        annotations:
+          summary: Municipal occupancy retention has not succeeded recently
+          description: No successful municipal occupancy retention cleanup within 36 hours while the gauge has previously succeeded. Check backup gate and parking-service logs.
+          runbook_url: docs/operations/municipal-parking-source-runbook.md
+
+      - alert: MunicipalOccupancyRetentionFailures
+        expr: increase(parkio_municipal_occupancy_retention_failures_total[1h]) >= 1
+        for: 0m
+        labels:
+          severity: warning
+          owner: parking
+        annotations:
+          summary: Municipal occupancy retention reported a failure
+          description: Retention cleanup threw an error. Ingestion and Public Explore should continue; investigate parking-service logs.
+          runbook_url: docs/operations/municipal-parking-source-runbook.md

@@ -37,11 +37,12 @@ public interface ParkingSpotJpaRepository extends JpaRepository<ParkingSpotEntit
     /**
      * Spots whose moderation deadline elapsed while still pending, claimed in bounded
      * lock-safe batches. Backed by {@code idx_parking_spots_moderation_deadline}.
+     * Uses {@code <= :now} to match {@code ParkingSpot#isModerationOverdue} ({@code now >= deadline}).
      */
     @Query(value = """
             SELECT * FROM parking_spots
             WHERE status IN ('PENDING_VALIDATION', 'PENDING_REVIEW')
-              AND moderation_deadline_at < :now
+              AND moderation_deadline_at <= :now
             ORDER BY moderation_deadline_at
             LIMIT :batchSize
             FOR UPDATE SKIP LOCKED
@@ -79,4 +80,19 @@ public interface ParkingSpotJpaRepository extends JpaRepository<ParkingSpotEntit
                                        @Param("lng") double longitude,
                                        @Param("radiusMeters") double radiusMeters,
                                        @Param("resultLimit") int resultLimit);
+
+    /**
+     * Aggregate-only count mirroring {@link #findNearby} visibility pre-filter
+     * (no rows, no coordinates).
+     */
+    @Query(value = """
+            SELECT count(*) FROM parking_spots
+            WHERE status IN ('ACTIVE', 'VERIFIED')
+              AND legal_status <> 'ILLEGAL_OR_RISKY'
+              AND expires_at > now()
+              AND ST_DWithin(location, ST_SetSRID(ST_MakePoint(:lng, :lat), 4326)::geography, :radiusMeters)
+            """, nativeQuery = true)
+    long countNearbyVisible(@Param("lat") double latitude,
+                            @Param("lng") double longitude,
+                            @Param("radiusMeters") double radiusMeters);
 }

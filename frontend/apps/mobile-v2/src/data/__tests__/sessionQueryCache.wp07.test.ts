@@ -3,7 +3,7 @@ import { clearUserSessionQueries } from '../sessionQueryCache';
 import { meKeys, parkingKeys, reportsKeys } from '../keys';
 
 describe('WP-07 session query cache isolation', () => {
-  it('removes user-scoped roots and preserves nearby discovery', () => {
+  it('removes user-scoped roots including authenticated nearby (PA-02)', async () => {
     const client = new QueryClient();
     const remove = jest.spyOn(client, 'removeQueries');
     const cancel = jest.spyOn(client, 'cancelQueries');
@@ -12,16 +12,17 @@ describe('WP-07 session query cache isolation', () => {
     client.setQueryData(parkingKeys.mySpots(), []);
     client.setQueryData(parkingKeys.activeSession(), { id: 'sess', latitude: 41, longitude: 29 });
     client.setQueryData(reportsKeys.all, []);
-    client.setQueryData(parkingKeys.nearby({ lat: 1, lng: 2 }), []);
+    client.setQueryData(parkingKeys.nearby({ lat: 1, lng: 2 }), [{ id: 'community' }]);
 
-    clearUserSessionQueries(client);
+    await clearUserSessionQueries(client);
 
     expect(cancel).toHaveBeenCalled();
     expect(remove).toHaveBeenCalledWith({ queryKey: meKeys.all });
     expect(remove).toHaveBeenCalledWith({ queryKey: parkingKeys.mySpots() });
     expect(remove).toHaveBeenCalledWith({ queryKey: parkingKeys.sessionsRoot() });
+    expect(remove).toHaveBeenCalledWith({ queryKey: parkingKeys.nearbyRoot() });
     expect(remove).toHaveBeenCalledWith({ queryKey: reportsKeys.all });
     expect(client.getQueryData(parkingKeys.activeSession())).toBeUndefined();
-    expect(client.getQueryData(parkingKeys.nearby({ lat: 1, lng: 2 }))).toEqual([]);
+    expect(client.getQueryData(parkingKeys.nearby({ lat: 1, lng: 2 }))).toBeUndefined();
   });
 });

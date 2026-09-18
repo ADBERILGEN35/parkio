@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
+import { RateLimitError } from '@parkio/api-client';
 import { useParkioSdk } from '@/app/AppRuntimeContext';
 import { geocodePlaces, type GeocodeResult } from './geocoding';
 
@@ -8,11 +9,35 @@ export const AUTOCOMPLETE_MIN_CHARS = 3;
 /** Debounce window for typeahead requests — keeps backend/provider usage polite. */
 export const AUTOCOMPLETE_DEBOUNCE_MS = 350;
 
+/**
+ * Slightly calmer debounce for the anonymous public geocoding tier
+ * (1/s replenish, burst 5). Still cancellation-first; does not globally change /map.
+ */
+export const PUBLIC_AUTOCOMPLETE_DEBOUNCE_MS = 400;
+
 /** One fast retry smooths over transient gateway/network failures without hiding real outages. */
 const AUTOCOMPLETE_RETRY_ATTEMPTS = 1;
 const AUTOCOMPLETE_RETRY_DELAY_MS = 150;
 
-export type AutocompleteStatus = 'idle' | 'loading' | 'success' | 'error';
+export type AutocompleteStatus = 'idle' | 'loading' | 'success' | 'error' | 'rateLimited';
+
+export type PlaceSearchFn = (query: string, signal: AbortSignal) => Promise<GeocodeResult[]>;
+
+export interface PlaceAutocompleteOptions {
+  /**
+   * Override the geocoding lookup. Defaults to authenticated
+   * {@code GET /api/v1/geocoding/search}. Public Explore injects the certified
+   * {@code GET /api/v1/public/geocoding/search} client.
+   */
+  searchFn?: PlaceSearchFn;
+  /** Debounce override; omit to keep {@link AUTOCOMPLETE_DEBOUNCE_MS}. */
+  debounceMs?: number;
+  /**
+   * When false, never retry failed lookups (preferred for anonymous public
+   * rate-limited geocoding). Defaults to true for authenticated search.
+   */
+  retry?: boolean;
+}
 
 export interface PlaceAutocomplete {
   status: AutocompleteStatus;
@@ -29,15 +54,17 @@ export interface PlaceAutocomplete {
  * Typeahead place search over Parkio's backend geocoding endpoint.
  *
  * Responsibilities:
- * - Debounce keystrokes ({@link AUTOCOMPLETE_DEBOUNCE_MS}) and only fire at/above
- *   {@link AUTOCOMPLETE_MIN_CHARS}.
+ * - Debounce keystrokes and only fire at/above {@link AUTOCOMPLETE_MIN_CHARS}.
  * - Cancel pending debounce timers and in-flight requests when the query changes,
  *   a suggestion is selected, Escape closes the menu, or the component unmounts.
  * - Ignore stale responses so a slow earlier request never overwrites a newer one.
- * - Retry one transient failure; aborts are treated as cancellation, not errors.
+ * - Retry one transient failure by default; never retry 429; aborts are cancellation.
  */
-export function usePlaceAutocomplete(): PlaceAutocomplete {
+export function usePlaceAutocomplete(options: PlaceAutocompleteOptions = {}): PlaceAutocomplete {
   const { geocodingApi } = useParkioSdk();
+  const searchFn = options.searchFn;
+  const debounceMs = options.debounceMs ?? AUTOCOMPLETE_DEBOUNCE_MS;
+  const retryEnabled = options.retry !== false;
   const [status, setStatus] = useState<AutocompleteStatus>('idle');
   const [results, setResults] = useState<GeocodeResult[]>([]);
 
@@ -62,30 +89,36 @@ export function usePlaceAutocomplete(): PlaceAutocomplete {
     setResults([]);
   }, [cancelPending]);
 
-  const runRequest = useCallback((query: string): Promise<GeocodeResult[]> => {
-    const requestId = (requestIdRef.current += 1);
-    const controller = new AbortController();
-    abortRef.current = controller;
+  const runRequest = useCallback(
+    (query: string): Promise<GeocodeResult[]> => {
+      const requestId = (requestIdRef.current += 1);
+      const controller = new AbortController();
+      abortRef.current = controller;
 
-    setStatus('loading');
+      setStatus('loading');
 
-    return geocodePlacesWithRetry(geocodingApi, query, controller.signal)
-      .then((places) => {
-        if (requestId !== requestIdRef.current) return [];
-        abortRef.current = null;
-        setResults(places);
-        setStatus('success');
-        return places;
-      })
-      .catch((error: unknown) => {
-        if (requestId !== requestIdRef.current) return [];
-        abortRef.current = null;
-        if (isAbortError(error)) return [];
-        setResults([]);
-        setStatus('error');
-        return [];
-      });
-  }, [geocodingApi]);
+      const lookup: PlaceSearchFn =
+        searchFn ?? ((q, signal) => geocodePlaces(geocodingApi, q, signal));
+
+      return runGeocodeWithOptionalRetry(lookup, query, controller.signal, retryEnabled)
+        .then((places) => {
+          if (requestId !== requestIdRef.current) return [];
+          abortRef.current = null;
+          setResults(places);
+          setStatus('success');
+          return places;
+        })
+        .catch((error: unknown) => {
+          if (requestId !== requestIdRef.current) return [];
+          abortRef.current = null;
+          if (isAbortError(error)) return [];
+          setResults([]);
+          setStatus(isRateLimited(error) ? 'rateLimited' : 'error');
+          return [];
+        });
+    },
+    [geocodingApi, retryEnabled, searchFn],
+  );
 
   const suggest = useCallback(
     (raw: string) => {
@@ -100,9 +133,9 @@ export function usePlaceAutocomplete(): PlaceAutocomplete {
       setStatus('loading');
       debounceRef.current = setTimeout(() => {
         void runRequest(query);
-      }, AUTOCOMPLETE_DEBOUNCE_MS);
+      }, debounceMs);
     },
-    [cancelPending, runRequest],
+    [cancelPending, debounceMs, runRequest],
   );
 
   const flush = useCallback(
@@ -128,26 +161,34 @@ export function usePlaceAutocomplete(): PlaceAutocomplete {
   return { status, results, suggest, flush, clear };
 }
 
-async function geocodePlacesWithRetry(
-  geocodingApi: import('@parkio/api-client').GeocodingApi,
+async function runGeocodeWithOptionalRetry(
+  searchFn: PlaceSearchFn,
   query: string,
   signal: AbortSignal,
+  retryEnabled: boolean,
 ): Promise<GeocodeResult[]> {
+  const attempts = retryEnabled ? AUTOCOMPLETE_RETRY_ATTEMPTS : 0;
   let lastError: unknown;
 
-  for (let attempt = 0; attempt <= AUTOCOMPLETE_RETRY_ATTEMPTS; attempt += 1) {
+  for (let attempt = 0; attempt <= attempts; attempt += 1) {
     try {
-      return await geocodePlaces(geocodingApi, query, signal);
+      return await searchFn(query, signal);
     } catch (error) {
       if (isAbortError(error) || signal.aborted) throw error;
+      // Never retry rate limits — wait for the next user-driven search.
+      if (isRateLimited(error)) throw error;
       lastError = error;
-      if (attempt < AUTOCOMPLETE_RETRY_ATTEMPTS) {
+      if (attempt < attempts) {
         await abortableDelay(AUTOCOMPLETE_RETRY_DELAY_MS, signal);
       }
     }
   }
 
   throw lastError;
+}
+
+function isRateLimited(error: unknown): boolean {
+  return error instanceof RateLimitError;
 }
 
 function abortableDelay(ms: number, signal: AbortSignal): Promise<void> {

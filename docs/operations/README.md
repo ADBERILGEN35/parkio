@@ -21,11 +21,14 @@ not asserted.
 | [Release Readiness Checklist](release-readiness-checklist.md) | RC evidence model |
 | [Progressive Delivery](progressive-delivery.md) | Staged rollout model (no auto-canary) |
 | [Kill Switch Catalogue](kill-switch-catalogue.md) | Exact configuration keys and defaults |
+| [Municipal registry review runbook](municipal-registry-review-runbook.md) | DATA-WP-04 conservative link review (dark by default) |
+| [Hosted-beta disk cleanup](hosted-beta-disk-cleanup.md) | Safe reclaim + 12 GiB deploy disk gate |
 | [Rollback Runbook](rollback-runbook.md) | Code, config, policy, database rollback |
 | [Incident Management](incident-management.md) | Severity, roles, escalation |
 | [Backup & Restore](backup-restore.md) | Data durability status (not volume = backup) |
 | [Disaster Recovery](disaster-recovery.md) | DR scenarios and sequencing |
 | [Database Migration Policy](database-migration-policy.md) | Flyway safety and expand/contract |
+| [Managed Parking Flyway Baseline](managed-parking-flyway-baseline.md) | Why `parkio_parking` begins at V2 on Azure, and the one-time preparation |
 | [Capacity & Load Plan](capacity-and-load-plan.md) | Baselines and load profiles |
 | [Security Operational Readiness](security-operational-readiness.md) | Ops security controls audit |
 
@@ -49,6 +52,10 @@ action, diagnostics, recovery, and escalation.
 | [Outcome Validation Runbook](outcome-validation-runbook.md) | WP-05.10 outcome job |
 | [DLQ Redrive Runbook](dlq-redrive-runbook.md) | Kafka DLT recovery |
 | [Municipal Parking Source Runbook](municipal-parking-source-runbook.md) | DATA-WP-01 İZUM sync / stale / rollback |
+| [Municipal open-data egress](municipal-open-data-egress.md) | Hosted-beta reachability policy; Kayseri/Konya blockers |
+| [DATA-WP-06 source health / SLA / recovery (spec)](../architecture/wp-data-06-engineering-specification.md) | Municipal DATA package; not ops WP-06 |
+| [DATA-WP-07 discovery duplicate-presentation](../architecture/wp-data-07-engineering-specification.md) | Policy closed (07/07A); defaults enabled by DATA-WP-12; not mobile WP-07 |
+| [DATA-WP-12 enable duplicate-presentation default](../architecture/wp-data-12-engineering-specification.md) | Canonical/hosted-beta default true; prod pins false; 12A leave-on not started |
 
 ## Related Architecture
 
@@ -68,3 +75,4 @@ Decision authority, enables WP-05 schedulers by default, or claims production la
 - [WP-06.2B.2 final-state re-execution & sign-off gate](wp-06-02b-2-final-state-reexecution-signoff-gate.md)
 
 - Municipal/OSM sources: [municipal-parking-source-runbook.md](municipal-parking-source-runbook.md)
+- İZELMAN inventory/tariff safety: [DATA-WP-03 architecture](../architecture/wp-data-03-izelman-inventory-tariffs.md)

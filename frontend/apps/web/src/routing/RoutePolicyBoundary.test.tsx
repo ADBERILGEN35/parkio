@@ -23,6 +23,7 @@ import {
   getRoutePath,
 } from './route-manifest';
 import { RoutePolicyBoundary } from './RoutePolicyBoundary';
+import { AUTH_RETURN_QUERY_PARAM } from '@/auth/redirect';
 
 const TEST_ROUTES: readonly RouteObject[] = [
   {
@@ -34,6 +35,11 @@ const TEST_ROUTES: readonly RouteObject[] = [
         id: ROUTE_IDS.LOGIN,
         path: getRoutePath(ROUTE_IDS.LOGIN),
         element: <div>Login route</div>,
+      },
+      {
+        id: ROUTE_IDS.PUBLIC_EXPLORE,
+        path: getRoutePath(ROUTE_IDS.PUBLIC_EXPLORE),
+        element: <div>Public explore route</div>,
       },
       {
         id: ROUTE_IDS.CHECK_EMAIL,
@@ -49,6 +55,11 @@ const TEST_ROUTES: readonly RouteObject[] = [
         id: ROUTE_IDS.PROTECTED_BOUNDARY,
         element: <RoutePolicyBoundary />,
         children: [
+          {
+            id: ROUTE_IDS.AUTHENTICATED_ENTRY,
+            path: '/',
+            element: <div>Authenticated entry route</div>,
+          },
           {
             id: ROUTE_IDS.MAP,
             path: getRoutePath(ROUTE_IDS.MAP),
@@ -134,9 +145,9 @@ describe('RoutePolicyBoundary lifecycle policy', () => {
     );
   });
 
-  it('replaces anonymous protected access with login and a sanitized return path', async () => {
+  it('replaces anonymous protected access with login and preserves safe query state', async () => {
     const runtime = createPolicyRuntime(
-      `${getRoutePath(ROUTE_IDS.ADMIN_ANALYTICS)}?unsafe=1#fragment`,
+      `${getRoutePath(ROUTE_IDS.ADMIN_ANALYTICS)}?tab=security#fragment`,
     );
     settleAnonymous(runtime);
 
@@ -148,14 +159,49 @@ describe('RoutePolicyBoundary lifecycle policy', () => {
       ),
     );
     expect(runtime.router.state.historyAction).toBe('REPLACE');
-    expect(runtime.router.state.location.state).toEqual({
-      from: {
-        pathname: getRoutePath(ROUTE_IDS.ADMIN_ANALYTICS),
-      },
-    });
+    const loginParams = new URLSearchParams(runtime.router.state.location.search);
+    expect(loginParams.get(AUTH_RETURN_QUERY_PARAM)).toBe(
+      `${getRoutePath(ROUTE_IDS.ADMIN_ANALYTICS)}?tab=security`,
+    );
     expect(
       screen.queryByText('This area requires an admin role.'),
     ).not.toBeInTheDocument();
+  });
+
+  it('sends anonymous app-root visitors to public Explore instead of login', async () => {
+    const runtime = createPolicyRuntime('/');
+    settleAnonymous(runtime);
+
+    renderRuntimeRouter(runtime);
+
+    await waitFor(() =>
+      expect(runtime.router.state.location.pathname).toBe(
+        getRoutePath(ROUTE_IDS.PUBLIC_EXPLORE),
+      ),
+    );
+    expect(runtime.router.state.historyAction).toBe('REPLACE');
+    expect(screen.getByText('Public explore route')).toBeInTheDocument();
+    expect(screen.queryByText('Login route')).not.toBeInTheDocument();
+  });
+
+  it('preserves smartReturn, municipal params, and unrelated params on anonymous map redirects', async () => {
+    const runtime = createPolicyRuntime(
+      '/map?smartReturn=1&communityLayer=0&municipalAvailability=available&foo=bar#gone',
+    );
+    settleAnonymous(runtime);
+
+    renderRuntimeRouter(runtime);
+
+    await waitFor(() =>
+      expect(runtime.router.state.location.pathname).toBe(
+        getRoutePath(AUTH_LIFECYCLE_DESTINATIONS.anonymous),
+      ),
+    );
+
+    const loginParams = new URLSearchParams(runtime.router.state.location.search);
+    expect(loginParams.get(AUTH_RETURN_QUERY_PARAM)).toBe(
+      '/map?smartReturn=1&communityLayer=0&municipalAvailability=available&foo=bar',
+    );
   });
 
   it('renders the account-not-active surface at the requested protected URL', () => {

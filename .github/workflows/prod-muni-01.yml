@@ -1,0 +1,76 @@
+# PROD-MUNI-01 — municipal production-readiness executable gates.
+#
+# Static / fixture drills only. Does not deploy. Does not enable production
+# municipal discovery. Does not run PP-01…PP-06 platform work.
+
+name: PROD-MUNI-01 readiness
+
+on:
+  pull_request:
+    paths:
+      - "scripts/prod-muni-01/**"
+      - "frontend/apps/web/scripts/validate-build-env.*"
+      - "frontend/apps/web/scripts/verify-bundle-env.*"
+      - "frontend/apps/web/Dockerfile"
+      - "frontend/apps/web/src/config/env.ts"
+      - "docker/docker-compose.images.yml"
+      - "docker/docker-compose.hosted-beta.yml"
+      - "docker/docker-compose.azure-hosted-beta.yml"
+      - "docker/.env.hosted-beta.example"
+      - "docker/.env.azure-hosted-beta.example"
+      - "services/parking-service/src/main/resources/application-prod.yml"
+      - "services/parking-service/src/main/resources/application.yml"
+      - ".github/workflows/prod-muni-01.yml"
+  push:
+    branches: [master]
+    paths:
+      - "scripts/prod-muni-01/**"
+      - "frontend/apps/web/scripts/validate-build-env.*"
+      - "frontend/apps/web/scripts/verify-bundle-env.*"
+      - "frontend/apps/web/Dockerfile"
+      - "docker/docker-compose*.yml"
+      - "services/parking-service/src/main/resources/application*.yml"
+      - ".github/workflows/prod-muni-01.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: prod-muni-01-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  prod-muni-01:
+    name: M3–M7 executable gates
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js 20
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+
+      - name: Make scripts executable
+        run: chmod +x scripts/prod-muni-01/*.sh scripts/prod-muni-01/lib/*.sh
+
+      - name: Node release-gate unit tests (M3 bake guard)
+        working-directory: frontend/apps/web
+        run: node --test scripts/validate-build-env.test.mjs scripts/verify-bundle-env.test.mjs
+
+      - name: Run PROD-MUNI-01 evidence runner
+        run: |
+          PARKIO_PROD_MUNI_EVIDENCE_DIR="$RUNNER_TEMP/prod-muni-01" \
+            ./scripts/prod-muni-01/run-evidence.sh
+
+      - name: Upload evidence bundle
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: prod-muni-01-evidence
+          path: ${{ runner.temp }}/prod-muni-01/
+          retention-days: 14
+          if-no-files-found: warn

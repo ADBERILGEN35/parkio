@@ -2,8 +2,6 @@ package com.parkio.parking.application;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.parkio.parking.application.port.MunicipalDataSourceRepository;
-import com.parkio.parking.application.port.MunicipalFacilityRepository;
-import com.parkio.parking.application.port.MunicipalSourceLinkRepository;
 import com.parkio.parking.application.port.MunicipalSourceSyncRunRepository;
 import com.parkio.parking.application.port.OsmImportSupportRepository;
 import com.parkio.parking.externalsource.MunicipalAccessClassification;
@@ -14,10 +12,13 @@ import com.parkio.parking.externalsource.osm.ConflationDecision;
 import com.parkio.parking.externalsource.osm.ConflationPolicy;
 import com.parkio.parking.externalsource.osm.IzmirClip;
 import com.parkio.parking.externalsource.osm.OsmAccessMapper;
+import com.parkio.parking.externalsource.osm.OsmDisplayLabelPolicy;
+import com.parkio.parking.externalsource.osm.OsmDisplayLabelSelection;
 import com.parkio.parking.externalsource.osm.OsmGeoJsonParkingParser;
 import com.parkio.parking.externalsource.osm.OsmParkingFeature;
 import com.parkio.parking.infrastructure.config.MunicipalSourceProperties;
 import com.parkio.parking.infrastructure.izum.IzumMunicipalParkingAdapter;
+import com.parkio.parking.infrastructure.metrics.OsmDisplayLabelMetrics;
 import com.parkio.parking.infrastructure.osm.OsmGeofabrikSourceKeys;
 import java.nio.file.Files;
 import java.nio.file.Path;
@@ -44,32 +45,32 @@ public class OsmImportApplicationService {
 
     private final MunicipalSourceProperties properties;
     private final MunicipalDataSourceRepository sources;
-    private final MunicipalFacilityRepository facilities;
-    private final MunicipalSourceLinkRepository links;
     private final MunicipalSourceSyncRunRepository runs;
     private final OsmImportSupportRepository support;
     private final OsmGeoJsonParkingParser parser;
     private final ObjectMapper objectMapper;
+    private final MunicipalFacilityIngestWriter ingestWriter;
+    private final OsmDisplayLabelMetrics labelMetrics;
     private final Clock clock;
 
     public OsmImportApplicationService(
             MunicipalSourceProperties properties,
             MunicipalDataSourceRepository sources,
-            MunicipalFacilityRepository facilities,
-            MunicipalSourceLinkRepository links,
             MunicipalSourceSyncRunRepository runs,
             OsmImportSupportRepository support,
             OsmGeoJsonParkingParser parser,
             ObjectMapper objectMapper,
+            MunicipalFacilityIngestWriter ingestWriter,
+            OsmDisplayLabelMetrics labelMetrics,
             Clock clock) {
         this.properties = properties;
         this.sources = sources;
-        this.facilities = facilities;
-        this.links = links;
         this.runs = runs;
         this.support = support;
         this.parser = parser;
         this.objectMapper = objectMapper;
+        this.ingestWriter = ingestWriter;
+        this.labelMetrics = labelMetrics;
         this.clock = clock;
     }
 
@@ -103,8 +104,9 @@ public class OsmImportApplicationService {
                 throw new IllegalArgumentException("input exceeds max size");
             }
             String sha = sha256(bytes);
+            String clipVersion = resolveClipVersion();
             log.info("osm_import_start sourceKey={} file={} bytes={} sha256={} dryRun={} clip={}",
-                    OsmGeofabrikSourceKeys.SOURCE_KEY, path.getFileName(), bytes.length, sha, dryRun, IzmirClip.CLIP_VERSION);
+                    OsmGeofabrikSourceKeys.SOURCE_KEY, path.getFileName(), bytes.length, sha, dryRun, clipVersion);
 
             List<OsmParkingFeature> features = parser.parse(bytes);
             int rejected = 0;
@@ -119,8 +121,10 @@ public class OsmImportApplicationService {
             int hardConflicts = 0;
             Set<String> seen = new HashSet<>();
             Map<String, Integer> rejectReasons = new HashMap<>();
+            Map<String, Integer> labelOutcomes = new LinkedHashMap<>();
             int named = 0;
             int capacityKnown = 0;
+            String labelPolicy = OsmDisplayLabelPolicy.normalizePolicyVersion(properties.getOsm().getLabelPolicy());
 
             for (OsmParkingFeature feature : features) {
                 if (!feature.valid()) {
@@ -135,7 +139,10 @@ public class OsmImportApplicationService {
                     continue;
                 }
                 seen.add(feature.externalId());
-                if (feature.name() != null) {
+                OsmDisplayLabelSelection label = OsmDisplayLabelPolicy.select(
+                        labelPolicy, feature.externalId(), feature.allowlistedTags());
+                labelOutcomes.merge(label.outcome().metricOutcome(), 1, Integer::sum);
+                if (label.nameBearing()) {
                     named++;
                 }
                 if (feature.capacity() != null) {
@@ -152,13 +159,15 @@ public class OsmImportApplicationService {
                 metadata.put("brand", feature.brand());
                 metadata.put("fee", feature.fee());
                 metadata.put("openingHours", feature.openingHours());
-                metadata.put("clipVersion", IzmirClip.CLIP_VERSION);
+                metadata.put("clipVersion", clipVersion);
+                metadata.put("labelPolicyVersion", label.policyVersion());
+                metadata.put("labelOutcome", label.outcome().metricOutcome());
                 metadata.put("attribution", OsmGeofabrikSourceKeys.ATTRIBUTION);
                 NormalizedMunicipalFacility normalized = new NormalizedMunicipalFacility(
                         feature.externalId(),
                         feature.operator(),
                         feature.facilityType(),
-                        feature.name() == null ? "OSM parking " + feature.externalId() : feature.name(),
+                        label.displayLabel(),
                         null,
                         feature.latitude(),
                         feature.longitude(),
@@ -166,19 +175,20 @@ public class OsmImportApplicationService {
                         feature.access(),
                         metadata,
                         feature.rawRecordHash());
-                var upserted = facilities.upsert(source.id(), normalized, started);
+                var upserted = ingestWriter.persistOsmFacility(
+                        source.id(), normalized, label.nameBearing(), started);
+                labelMetrics.record(label);
                 if (upserted.inserted()) {
                     inserted++;
                 } else if (upserted.changed()) {
                     updated++;
                 } else {
                     unchanged++;
+                    labelMetrics.recordUnchanged(labelPolicy);
                 }
-                links.upsert(upserted.id(), source.id(), normalized, started);
-
 
                 if (properties.getOsm().isConflationEnabled()) {
-                    ConflationOutcome outcome = conflate(feature, upserted.id(), dryRun, started);
+                    ConflationOutcome outcome = conflate(feature, upserted.facilityId(), dryRun, started);
                     candidates += outcome.candidate() ? 1 : 0;
                     autoMatched += outcome.auto() ? 1 : 0;
                     reviewRequired += outcome.review() ? 1 : 0;
@@ -190,6 +200,12 @@ public class OsmImportApplicationService {
             int deactivated = 0;
             boolean completeSuccess = !dryRun;
             if (!dryRun && completeSuccess) {
+                if (!runs.isRunning(runId.get())) {
+                    log.warn("osm_import_ownership_lost sourceKey={} runId={} phase=before_reconcile",
+                            OsmGeofabrikSourceKeys.SOURCE_KEY, runId.get());
+                    return empty(MunicipalSyncRunStatus.FAILED, dryRun, path.getFileName().toString(), null,
+                            "ownership_lost", "run ownership lost");
+                }
                 deactivated = support.deactivateMissing(source.id(), seen, started);
             }
 
@@ -198,7 +214,9 @@ public class OsmImportApplicationService {
             report.put("unnamed", Math.max(0, seen.size() - named));
             report.put("capacityKnown", capacityKnown);
             report.put("rejectReasons", rejectReasons);
-            report.put("clipVersion", IzmirClip.CLIP_VERSION);
+            report.put("clipVersion", clipVersion);
+            report.put("labelPolicyVersion", labelPolicy);
+            report.put("labelOutcomes", labelOutcomes);
             String reportJson = objectMapper.writeValueAsString(report);
 
             OsmImportSupportRepository.ImportRunStats stats = new OsmImportSupportRepository.ImportRunStats(
@@ -208,28 +226,37 @@ public class OsmImportApplicationService {
             MunicipalSyncResult syncResult = new MunicipalSyncResult(
                     MunicipalSyncRunStatus.SUCCESS,
                     features.size(), seen.size(), rejected, inserted, updated, unchanged, 0, null, null);
-            runs.complete(runId.get(), clock.instant(), syncResult, null, sha);
+            if (!runs.complete(runId.get(), clock.instant(), syncResult, null, sha)) {
+                log.warn("osm_import_complete_ignored sourceKey={} runId={} reason=ownership_lost",
+                        OsmGeofabrikSourceKeys.SOURCE_KEY, runId.get());
+                return empty(MunicipalSyncRunStatus.FAILED, dryRun, path.getFileName().toString(), sha,
+                        "ownership_lost", "run ownership lost");
+            }
             if (!dryRun) {
                 sources.markSuccessful(source.id(), clock.instant());
             }
             support.saveImportRun(
                     UUID.randomUUID(), runId.get(), path.getFileName().toString(),
                     OsmGeofabrikSourceKeys.CANONICAL_URL, started, (long) bytes.length, sha,
-                    OsmGeofabrikSourceKeys.IMPORT_CONFIG_VERSION, IzmirClip.CLIP_VERSION, dryRun, stats, clock.instant());
+                    OsmGeofabrikSourceKeys.IMPORT_CONFIG_VERSION, clipVersion, dryRun, stats, clock.instant());
 
             log.info("osm_import_complete sourceKey={} extracted={} rejected={} inserted={} updated={} deactivated={} autoMatched={} review={}",
                     OsmGeofabrikSourceKeys.SOURCE_KEY, seen.size(), rejected, inserted, updated, deactivated, autoMatched, reviewRequired);
 
             return new OsmImportResult(
-                    MunicipalSyncRunStatus.SUCCESS, dryRun, path.getFileName().toString(), sha, IzmirClip.CLIP_VERSION,
+                    MunicipalSyncRunStatus.SUCCESS, dryRun, path.getFileName().toString(), sha, clipVersion,
                     features.size(), seen.size(), rejected, inserted, updated, unchanged, deactivated, reactivated,
                     candidates, autoMatched, reviewRequired, rejectedMatches, hardConflicts, null, null, reportJson);
         } catch (Exception ex) {
             MunicipalSyncResult failed = new MunicipalSyncResult(
                     MunicipalSyncRunStatus.FAILED, 0, 0, 0, 0, 0, 0, 0, category(ex), truncate(ex.getMessage()));
-            runs.complete(runId.get(), clock.instant(), failed, null, null);
-            log.warn("osm_import_failed sourceKey={} runId={} category={} summary={}",
-                    OsmGeofabrikSourceKeys.SOURCE_KEY, runId.get(), failed.errorCategory(), failed.errorSummary());
+            if (!runs.complete(runId.get(), clock.instant(), failed, null, null)) {
+                log.warn("osm_import_complete_ignored sourceKey={} runId={} reason=ownership_lost",
+                        OsmGeofabrikSourceKeys.SOURCE_KEY, runId.get());
+            } else {
+                log.warn("osm_import_failed sourceKey={} runId={} category={} summary={}",
+                        OsmGeofabrikSourceKeys.SOURCE_KEY, runId.get(), failed.errorCategory(), failed.errorSummary());
+            }
             return empty(MunicipalSyncRunStatus.FAILED, dryRun, path.getFileName().toString(), null,
                     failed.errorCategory(), failed.errorSummary());
         }
@@ -340,10 +367,18 @@ public class OsmImportApplicationService {
         }
     }
 
-    private static OsmImportResult empty(
+    private String resolveClipVersion() {
+        String configured = properties.getOsm().getClipVersion();
+        if (configured == null || configured.isBlank()) {
+            return IzmirClip.CLIP_VERSION;
+        }
+        return configured.trim();
+    }
+
+    private OsmImportResult empty(
             MunicipalSyncRunStatus status, boolean dryRun, String file, String sha,
             String category, String summary) {
-        return new OsmImportResult(status, dryRun, file, sha, IzmirClip.CLIP_VERSION,
+        return new OsmImportResult(status, dryRun, file, sha, resolveClipVersion(),
                 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, category, summary, null);
     }
 

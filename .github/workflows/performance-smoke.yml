@@ -9,6 +9,7 @@ on:
       - "services/**/Dockerfile"
       - "services/**/src/main/resources/application*.yml"
       - ".github/workflows/performance-smoke.yml"
+      - "benchmarks/scripts/**"
   schedule:
     - cron: "17 6 * * 2"
 
@@ -20,6 +21,10 @@ concurrency:
   cancel-in-progress: true
 
 env:
+  COMPOSE_PROJECT_NAME: parkio-ci-${{ github.run_id }}-${{ github.run_attempt }}
+  # CI-only: preserve the existing server/mc releases from the official publisher.
+  MINIO_IMAGE: quay.io/minio/minio@sha256:cd04ea408e185cb50076ea1c3988d444119b19aaae15aab45387ccf14b2a2f86
+  MINIO_MC_IMAGE: quay.io/minio/mc@sha256:a5399b66b88543efac8afb08eb2bdcce5904e548ea6fe1a921600cd74f766668
   COMPOSE_ENV_FILE: docker/.env.performance-smoke
   COMPOSE_FILES: >-
     -f docker/docker-compose.yml
@@ -33,6 +38,17 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v4
+
+      - name: Assert MinIO image pin parity (compose/CI/scripts)
+        run: |
+          chmod +x scripts/ci/assert-minio-image-pins.sh
+          ./scripts/ci/assert-minio-image-pins.sh
+
+      - name: Verify CI result-integrity unit gates
+        run: node --test benchmarks/scripts/ci-result-integrity.test.mjs
+
+      - name: Verify k6 engine threshold compatibility
+        run: node benchmarks/scripts/run-k6-engine-regression.mjs
 
       - name: Prepare CI-only env
         run: |
@@ -137,6 +153,9 @@ jobs:
           PARKIO_REAL_USER_PASSWORD: StrongParkio123
         run: ./scripts/seed-real-e2e.sh --target local
 
+      - name: Verify CI result-integrity unit gates
+        run: node --test benchmarks/scripts/ci-result-integrity.test.mjs
+
       - name: Run k6 smoke
         env:
           PARKIO_BASE_URL: http://127.0.0.1:8080
@@ -147,8 +166,18 @@ jobs:
           PARKIO_K6_AUTH_RATE: "1"
         run: |
           set -euo pipefail
+          mkdir -p benchmarks/reports
+          # Dedicated writable export dir (not the whole repo). grafana/k6 runs as UID 12345.
+          K6_OUT="$(mktemp -d "${RUNNER_TEMP}/parkio-k6-out.XXXXXX")"
+          # Narrow permission: only this disposable directory is world-writable for the container UID.
+          chmod 777 "$K6_OUT"
+          SUMMARY_HOST="benchmarks/reports/http-load-summary.json"
+          rm -f "$SUMMARY_HOST"
+
+          set +e
           docker run --rm --network host \
-            -v "$PWD/benchmarks:/benchmarks" \
+            -v "$PWD/benchmarks/k6:/scripts:ro" \
+            -v "$K6_OUT:/out" \
             -e PARKIO_BASE_URL \
             -e PARKIO_K6_EMAIL \
             -e PARKIO_K6_PASSWORD \
@@ -156,8 +185,17 @@ jobs:
             -e PARKIO_K6_DURATION \
             -e PARKIO_K6_AUTH_RATE \
             grafana/k6:0.53.0 run \
-              --summary-export /benchmarks/reports/http-load-summary.json \
-              /benchmarks/k6/http-load.js
+              --summary-export /out/http-load-summary.json \
+              /scripts/http-load.js
+          K6_EXIT=$?
+          set -e
+
+          if [ -f "$K6_OUT/http-load-summary.json" ]; then
+            cp "$K6_OUT/http-load-summary.json" "$SUMMARY_HOST"
+          fi
+          # Artifact validation is independent of upload/cleanup and must fail the job when missing.
+          node benchmarks/scripts/validate-k6-summary.mjs "$SUMMARY_HOST" "$K6_EXIT"
+          exit "$K6_EXIT"
 
       - name: Collect Prometheus baseline
         if: always()
@@ -169,6 +207,7 @@ jobs:
         if: always()
         run: |
           set +e
+          mkdir -p benchmarks/reports
           docker compose --env-file "$COMPOSE_ENV_FILE" $COMPOSE_FILES ps > benchmarks/reports/performance-compose-ps.txt
           mkdir -p benchmarks/reports/container-logs
           for cid in $(docker compose --env-file "$COMPOSE_ENV_FILE" $COMPOSE_FILES ps -q); do

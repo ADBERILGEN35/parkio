@@ -379,8 +379,8 @@ limits. Defaults come from compose files.
 | `KAFKA_EXPORTER_IMAGE` | Optional | `danielqsj/kafka-exporter:v1.8.0` | No |
 | `BLACKBOX_EXPORTER_IMAGE` | Optional | `prom/blackbox-exporter:v0.25.0` | No |
 | `NODE_EXPORTER_IMAGE` | Optional | `prom/node-exporter:v1.8.2` | No |
-| `MINIO_IMAGE` | Optional | `minio/minio:RELEASE.2024-09-13T20-26-02Z` | No |
-| `MINIO_MC_IMAGE` | Optional | `minio/mc:RELEASE.2024-09-16T17-43-14Z` | No |
+| `MINIO_IMAGE` | Optional | `quay.io/minio/minio@sha256:cd04ea408e185cb50076ea1c3988d444119b19aaae15aab45387ccf14b2a2f86` | No |
+| `MINIO_MC_IMAGE` | Optional | `quay.io/minio/mc@sha256:a5399b66b88543efac8afb08eb2bdcce5904e548ea6fe1a921600cd74f766668` | No |
 | `CLAMAV_IMAGE` | Optional | compose default | No |
 | `CADDY_IMAGE` | Optional | `caddy:2.8-alpine` | No |
 | `PROMETHEUS_IMAGE` | Optional | compose default | No |
@@ -513,7 +513,7 @@ Verify:
 
 - `backup-artifacts/backup-current.json` exists.
 - `docker/prometheus/textfile/parkio_backup.prom` updated.
-- Prometheus alert `BackupFailedOrStale` is not firing.
+- Prometheus alerts `BackupFailed` / `BackupStale` / `BackupOffsiteFailed` are not firing.
 - Offsite upload works if `BACKUP_MC_DEST` is configured.
 
 ## Restore Checklist

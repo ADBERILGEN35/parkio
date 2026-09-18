@@ -8,10 +8,21 @@ import { Button } from '@/components/ui/Button';
 import { TextField } from '@/components/ui/TextField';
 import { AuthScreen } from '@/features/auth/AuthScreen';
 import { applyPendingProfile } from '@/features/auth/pendingProfile';
+import {
+  clearPendingAuthGateIntent,
+  peekPendingAuthGateIntent,
+} from '@/features/auth/authGateIntents';
+import { escapeToPublicExplore } from '@/features/auth/escapeToPublicExplore';
+import { resolvePostLoginHref } from '@/features/auth/resolvePostLoginHref';
+import {
+  isRegistrationSignupAllowed,
+  useRegistrationMode,
+} from '@/features/auth/useRegistrationMode';
+import { openGoogleMapsDirections } from '@/features/municipal/googleMapsDirections';
 import { useLocale, useT } from '@/i18n/LocaleProvider';
 import { describeApiError } from '@/lib/apiErrors';
 import { authApi } from '@/services/api';
-import { adoptSession } from '@/services/auth';
+import { adoptSession, SessionPersistenceFailure } from '@/services/auth';
 import { useTheme } from '@/theme/ThemeProvider';
 import { useToast } from '@/providers/ToastProvider';
 
@@ -21,6 +32,8 @@ export default function LoginScreen() {
   const { locale } = useLocale();
   const router = useRouter();
   const toast = useToast();
+  const registrationMode = useRegistrationMode();
+  const signupAllowed = isRegistrationSignupAllowed(registrationMode);
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [submitting, setSubmitting] = useState(false);
@@ -37,14 +50,25 @@ export default function LoginScreen() {
     setError(null);
     setNotVerified(false);
     try {
+      // Snapshot resume before adoptSession: AuthLayout may sync-redirect on setSession.
+      const pending = peekPendingAuthGateIntent();
       const response = await authApi.login(parsed.data);
-      adoptSession(response);
+      await adoptSession(response);
       void applyPendingProfile(response.user.email);
-      router.replace('/(main)/(tabs)/map');
+      clearPendingAuthGateIntent();
+      if (pending?.intent === 'google-maps') {
+        const mapsResult = await openGoogleMapsDirections(pending.latitude, pending.longitude);
+        if (mapsResult !== 'opened') {
+          toast.show(t('map.municipal.openInMapsFailed'), 'error');
+        }
+      }
+      router.replace(resolvePostLoginHref(pending));
     } catch (raw) {
       if (raw instanceof AccountNotVerifiedError) {
         setNotVerified(true);
         setError({ message: t('auth.login.notVerified'), traceId: null });
+      } else if (raw instanceof SessionPersistenceFailure) {
+        setError({ message: t('auth.login.persistenceFailed'), traceId: null });
       } else {
         setError(describeApiError(raw, t));
       }
@@ -101,16 +125,29 @@ export default function LoginScreen() {
         </Link>
       </View>
       <Button label={t('auth.login.cta')} onPress={submit} loading={submitting} />
-      <View style={styles.footerRow}>
-        <AppText variant="bodyMd" color={theme.colors.onSurfaceVariant}>
-          {t('auth.login.noAccount')}{' '}
-        </AppText>
-        <Link href="/(auth)/register" replace asChild>
-          <AppText variant="bodyMd" color={theme.colors.primary}>
-            {t('auth.login.registerLink')}
+      <Button
+        label={t('auth.login.exploreWithoutAccount')}
+        variant="ghost"
+        onPress={() => escapeToPublicExplore(router)}
+      />
+      {signupAllowed ? (
+        <View style={styles.footerRow}>
+          <AppText variant="bodyMd" color={theme.colors.onSurfaceVariant}>
+            {t('auth.login.noAccount')}{' '}
           </AppText>
-        </Link>
-      </View>
+          <Link href="/(auth)/register" replace asChild>
+            <AppText variant="bodyMd" color={theme.colors.primary}>
+              {t('auth.login.registerLink')}
+            </AppText>
+          </Link>
+        </View>
+      ) : (
+        <Button
+          label={t('auth.login.registrationAbout')}
+          variant="ghost"
+          onPress={() => router.push('/(auth)/register')}
+        />
+      )}
     </AuthScreen>
   );
 }
