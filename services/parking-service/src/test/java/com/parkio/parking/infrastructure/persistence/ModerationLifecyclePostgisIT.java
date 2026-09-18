@@ -222,13 +222,15 @@ class ModerationLifecyclePostgisIT {
     void overdueValidationIsClaimedRetriedThenFailedTerminally() {
         ParkingSpot created = parking.createSpot(command());
 
-        // maxValidationAttempts=2, so two retries then a terminal failure.
-        assertThat(parking.processModerationTimeouts(100)).isEqualTo(1);
-        assertThat(parking.processModerationTimeouts(100)).isEqualTo(1);
+        // maxValidationAttempts=2 → two retries then terminal failure. Each step waits
+        // until wall-clock is strictly past the stored deadline so a 1ms IT window cannot
+        // silently no-op when processModerationTimeouts is called in a tight loop.
+        processOneOverdueTimeout(created.id(), 0);
+        processOneOverdueTimeout(created.id(), 1);
         assertThat(reload(created.id()).moderationAttempts()).isEqualTo(2);
         assertThat(reload(created.id()).status()).isEqualTo(ParkingSpotStatus.PENDING_VALIDATION);
 
-        assertThat(parking.processModerationTimeouts(100)).isEqualTo(1);
+        processOneOverdueTimeout(created.id(), 2);
         assertThat(reload(created.id()).status()).isEqualTo(ParkingSpotStatus.REVIEW_FAILED);
 
         // Retry requests and the terminal failure both travel through the outbox — the
@@ -240,10 +242,7 @@ class ModerationLifecyclePostgisIT {
     @Test
     void reviewFailedSpotCannotBeResurrectedByALaterVerdict() {
         ParkingSpot created = parking.createSpot(command());
-        for (int i = 0; i < 3; i++) {
-            parking.processModerationTimeouts(100);
-        }
-        assertThat(reload(created.id()).status()).isEqualTo(ParkingSpotStatus.REVIEW_FAILED);
+        drivePendingValidationToReviewFailed(created.id());
 
         parking.approveSpotByModerator(created.id(), UUID.randomUUID(), Instant.now());
         parking.applyAiValidationResult(created.id(), "PASSED", List.of(),
@@ -313,6 +312,50 @@ class ModerationLifecyclePostgisIT {
 
     private ParkingSpot reload(UUID spotId) {
         return spots.findById(spotId).orElseThrow();
+    }
+
+    /**
+     * maxValidationAttempts=2 → two retries + one terminal failure. Must not ignore a
+     * zero-handled processModerationTimeouts call: under 1ms IT windows a tight loop can
+     * race the extended deadline (and the claim query's exclusive bound) and leave the
+     * spot still PENDING_VALIDATION.
+     */
+    private void drivePendingValidationToReviewFailed(UUID spotId) {
+        for (int step = 0; step < 3; step++) {
+            processOneOverdueTimeout(spotId, step);
+        }
+        assertThat(reload(spotId).status())
+                .as("after retries exhausted")
+                .isEqualTo(ParkingSpotStatus.REVIEW_FAILED);
+    }
+
+    private void processOneOverdueTimeout(UUID spotId, int step) {
+        ParkingSpot before = reload(spotId);
+        awaitStrictlyPast(before.moderationDeadlineAt(), step);
+        int handled = parking.processModerationTimeouts(100);
+        ParkingSpot after = reload(spotId);
+        assertThat(handled)
+                .as("timeout step %s expected one claim; status=%s attempts=%s deadline=%s now=%s",
+                        step, after.status(), after.moderationAttempts(),
+                        after.moderationDeadlineAt(), Instant.now())
+                .isEqualTo(1);
+    }
+
+    /** Condition-based wait: wall clock must pass {@code deadline} (bounded, no fixed sleep). */
+    private static void awaitStrictlyPast(Instant deadline, int step) {
+        Instant giveUp = Instant.now().plusSeconds(3);
+        while (!Instant.now().isAfter(deadline)) {
+            if (Instant.now().isAfter(giveUp)) {
+                throw new AssertionError("wall clock did not pass deadline=" + deadline
+                        + " within 3s at step " + step + "; now=" + Instant.now());
+            }
+            try {
+                Thread.sleep(2L);
+            } catch (InterruptedException e) {
+                Thread.currentThread().interrupt();
+                throw new AssertionError("interrupted waiting past deadline at step " + step, e);
+            }
+        }
     }
 
     private int expiredBeforeApprovedRows() {
