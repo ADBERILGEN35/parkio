@@ -307,15 +307,17 @@ export function buildMapHtml(options: MapHtmlOptions): string {
       if (!window.maplibregl) { fail('maplibre-failed-to-load'); return; }
       ${options.forceInitFailure ? "fail('map-init-failed'); return;" : ''}
 
-      function hasWebGl() {
+      // MapLibre GL JS 6.4.1 requests webgl2 only (GPUInitializationError if absent).
+      // Do not treat legacy WebGL1 as sufficient.
+      function hasWebGl2() {
         try {
           var probe = document.createElement('canvas');
-          return !!(probe.getContext('webgl2') || probe.getContext('webgl'));
+          return !!probe.getContext('webgl2');
         } catch (probeError) {
           return false;
         }
       }
-      if (!hasWebGl()) { fail('webgl-unavailable'); return; }
+      if (!hasWebGl2()) { fail('webgl-unavailable'); return; }
 
       var map;
       try {

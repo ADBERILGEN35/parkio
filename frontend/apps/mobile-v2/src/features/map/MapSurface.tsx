@@ -108,8 +108,11 @@ export const MapSurface = forwardRef<MapSurfaceHandle, MapSurfaceProps>(function
   const queueRef = useRef<string[]>([]);
   const [webViewEpoch, setWebViewEpoch] = useState(0);
   const [mapErrorCode, setMapErrorCode] = useState<string | null>(null);
-  // Test-only injection (EXPO_PUBLIC_FORCE_MAP_INIT_FAIL=true). Not actual GPU probe.
-  const forceInitFailure = process.env.EXPO_PUBLIC_FORCE_MAP_INIT_FAIL === 'true';
+  // Test-only injection. __DEV__ hard-gate: never active in release/production bundles
+  // even if EXPO_PUBLIC_FORCE_MAP_INIT_FAIL is somehow present at build time.
+  // Not actual GPU capability loss — see mapHtml hasWebGl2 probe for that path.
+  const forceInitFailure =
+    __DEV__ && process.env.EXPO_PUBLIC_FORCE_MAP_INIT_FAIL === 'true';
 
   const html = useMemo(() => {
     const dark = theme.mode === 'dark';
@@ -332,7 +335,7 @@ const styles = StyleSheet.create({
   container: { flex: 1, overflow: 'hidden' },
   webview: { flex: 1, backgroundColor: 'transparent' },
   errorOverlay: {
-    ...StyleSheet.absoluteFillObject,
+    ...StyleSheet.absoluteFill,
     alignItems: 'center',
     justifyContent: 'center',
     paddingHorizontal: 24,
