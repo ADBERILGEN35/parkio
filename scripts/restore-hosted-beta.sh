@@ -148,7 +148,7 @@ restore_minio() {
   local network mc_image minio_container
   minio_container="${PARKIO_MINIO_CONTAINER:-parkio-minio}"
   network="$(parkio_backup_backend_network "${minio_container}")"
-  mc_image="${MINIO_MC_IMAGE:-minio/mc:RELEASE.2024-09-16T17-43-14Z}"
+  mc_image="${MINIO_MC_IMAGE:-quay.io/minio/mc@sha256:a5399b66b88543efac8afb08eb2bdcce5904e548ea6fe1a921600cd74f766668}"
   docker run --rm \
     --network "${network}" \
     --entrypoint /bin/sh \

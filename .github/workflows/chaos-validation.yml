@@ -37,6 +37,11 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
+      - name: Assert MinIO image pin parity (compose/CI/scripts)
+        run: |
+          chmod +x scripts/ci/assert-minio-image-pins.sh
+          ./scripts/ci/assert-minio-image-pins.sh
+
       - name: Prepare CI-only hosted-beta env
         env:
           WEB_MAPTILER_KEY: ${{ secrets.WEB_MAPTILER_KEY }}

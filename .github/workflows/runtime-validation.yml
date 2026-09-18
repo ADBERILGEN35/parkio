@@ -43,6 +43,11 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
+      - name: Assert MinIO image pin parity (compose/CI/scripts)
+        run: |
+          chmod +x scripts/ci/assert-minio-image-pins.sh
+          ./scripts/ci/assert-minio-image-pins.sh
+
       - name: Set up JDK 21
         uses: actions/setup-java@v4
         with:
