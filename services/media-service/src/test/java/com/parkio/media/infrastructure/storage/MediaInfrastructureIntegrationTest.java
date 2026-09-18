@@ -65,8 +65,8 @@ class MediaInfrastructureIntegrationTest {
     @Container
     static final GenericContainer<?> MINIO =
             new GenericContainer<>(DockerImageName.parse(
-                    // RELEASE.2024-09-13T20-26-02Z; same publisher digest as CI Compose.
-                    "quay.io/minio/minio@sha256:cd04ea408e185cb50076ea1c3988d444119b19aaae15aab45387ccf14b2a2f86"))
+                    // RELEASE.2025-09-07T16-13-09Z.hotfix.7aa24e772; same publisher digest as CI Compose.
+                    "quay.io/minio/minio@sha256:cf3dadcfa1fb0324f43958bad1abba986d53c4ecc04d4d50b46c7dcda28bd3cd"))
                     .withEnv("MINIO_ROOT_USER", ACCESS_KEY)
                     .withEnv("MINIO_ROOT_PASSWORD", SECRET_KEY)
                     .withCommand("server", "/data")
