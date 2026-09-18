@@ -261,10 +261,14 @@ parkio_wait_healthy "$ENV_FILE" "$HEALTH_TIMEOUT"
 
 # Activate only after health: `current` must always name a release that was
 # proven to start, so rollback has a trustworthy previous target.
+PREVIOUS_RELEASE_SHA="$(parkio_active_release_sha 2>/dev/null || true)"
 echo "Activating runtime release..."
 parkio_activate_release "$GIT_SHA"
-"$ROOT/scripts/stage-invite-production-release.sh" --sha "$GIT_SHA" --prune-only
 
+# PA-12: smoke + durable current.json BEFORE prune. A prune permission /
+# inventory failure must not skip verification or claim a successful release
+# without smoke evidence. Cleanup status is recorded separately; non-zero
+# cleanup exit (4) fails the job after artifacts are already written.
 if [ "$SKIP_SMOKE" -ne 1 ]; then
   echo "Running smoke checks..."
   if [ "$INVITE_DEPLOY_PROFILE" = "public-cutover" ]; then
@@ -297,9 +301,31 @@ fi
 python3 "$ROOT/scripts/assert-invite-production-artifacts-safe.py" \
   --env-file "$ENV_FILE" "$ARTIFACT_DIR"
 
-cp "$MANIFEST_PATH" "$ARTIFACT_DIR/current.json"
+# Atomic current pointer: write temp then rename so readers never see a partial file.
+CURRENT_TMP="$ARTIFACT_DIR/current.json.tmp.$$"
+cp "$MANIFEST_PATH" "$CURRENT_TMP"
+mv -f -- "$CURRENT_TMP" "$ARTIFACT_DIR/current.json"
 echo "Invite-production foundation deployed at commit: $GIT_SHA"
 echo "Manifest: $MANIFEST_PATH"
 echo "Current pointer: $ARTIFACT_DIR/current.json"
 echo "Rollback command:"
 jq -r .rollbackCommand "$MANIFEST_PATH"
+
+CLEANUP_STATUS="$ARTIFACT_DIR/cleanup-${GIT_SHA:0:12}.json"
+set +e
+PARKIO_PREVIOUS_RELEASE_SHA="${PREVIOUS_RELEASE_SHA:-}" \
+  PARKIO_DEPLOY_ARTIFACT_DIR="$ARTIFACT_DIR" \
+  "$ROOT/scripts/stage-invite-production-release.sh" \
+    --sha "$GIT_SHA" --prune-only --cleanup-status "$CLEANUP_STATUS"
+prune_rc=$?
+set -e
+echo "Cleanup status: $CLEANUP_STATUS (rc=$prune_rc)"
+if [ -f "$CLEANUP_STATUS" ]; then
+  python3 -c 'import json,sys; d=json.load(open(sys.argv[1],encoding="utf-8")); print({k:d.get(k) for k in ("outcome","dryRun","deleted","protected","error")})' \
+    "$CLEANUP_STATUS" || true
+fi
+if [ "$prune_rc" -ne 0 ]; then
+  echo "ERROR: release prune failed with rc=$prune_rc after successful smoke/manifest." >&2
+  echo "       Runtime activation and current.json remain durable; fix prune and re-run --prune-only." >&2
+  exit 4
+fi

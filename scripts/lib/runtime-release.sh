@@ -524,3 +524,331 @@ parkio_assert_release_is_stable() {
   fi
   return 0
 }
+
+# ---------------------------------------------------------------------------
+# Release prune inventory (PA-12)
+# Fail-closed: docker/inventory errors abort deletion (exit 3). Never treat a
+# failed inspect as an empty in-use set.
+# Protected SHAs always include: active symlink, candidate SHA, container bind
+# mounts under the release root, explicit PARKIO_PROTECTED_RELEASE_SHAS,
+# PARKIO_PREVIOUS_RELEASE_SHA (rollback target), and gitSha from
+# PARKIO_DEPLOY_ARTIFACT_DIR/current.json when present.
+# ---------------------------------------------------------------------------
+
+parkio_release_sha_from_path() {
+  local path="$1"
+  local root resolved
+  root="$(parkio_releases_dir)"
+  case "$path" in
+    "$root"/*)
+      resolved="${path#"$root"/}"
+      resolved="${resolved%%/*}"
+      if [[ "$resolved" =~ ^[0-9a-f]{40}$ ]]; then
+        printf '%s\n' "$resolved"
+      fi
+      ;;
+  esac
+}
+
+# Print one SHA per line for every release directory currently bind-mounted by
+# a running container. Returns 2 if docker inventory cannot be trusted.
+parkio_release_mount_shas() {
+  local root cid mounts mount sha ids
+  root="$(parkio_releases_dir)"
+  if ! command -v docker >/dev/null 2>&1; then
+    echo "ERROR: docker is required to inventory in-use release mounts" >&2
+    return 2
+  fi
+  if ! ids="$(docker ps -q 2>/dev/null)"; then
+    echo "ERROR: docker ps failed; refuse prune" >&2
+    return 2
+  fi
+  while IFS= read -r cid; do
+    [ -n "$cid" ] || continue
+    if ! mounts="$(docker inspect -f '{{range .Mounts}}{{println .Source}}{{end}}' "$cid" 2>/dev/null)"; then
+      echo "ERROR: docker inspect failed for container $cid; refuse prune" >&2
+      return 2
+    fi
+    while IFS= read -r mount; do
+      [ -n "$mount" ] || continue
+      case "$mount" in
+        "$root"/*)
+          sha="$(parkio_release_sha_from_path "$mount")"
+          [ -n "$sha" ] && printf '%s\n' "$sha"
+          ;;
+      esac
+    done <<< "$mounts"
+  done <<< "$ids"
+}
+
+# Merge protected SHA sources into a unique sorted list on stdout.
+# Returns 2 if inventory is incomplete.
+parkio_protected_release_shas() {
+  local candidate="${1:-}"
+  local sha active artifact_dir previous
+  local -a protected=()
+
+  if [ -n "$candidate" ]; then
+    protected+=("$candidate")
+  fi
+
+  active="$(parkio_active_release_sha 2>/dev/null || true)"
+  if [ -n "$active" ]; then
+    protected+=("$active")
+  fi
+
+  previous="${PARKIO_PREVIOUS_RELEASE_SHA:-}"
+  if [ -n "$previous" ]; then
+    protected+=("$previous")
+  fi
+
+  # Explicit operator / scheduler overrides (space or comma separated).
+  if [ -n "${PARKIO_PROTECTED_RELEASE_SHAS:-}" ]; then
+    # shellcheck disable=SC2086
+    for sha in ${PARKIO_PROTECTED_RELEASE_SHAS//,/ }; do
+      [ -n "$sha" ] && protected+=("$sha")
+    done
+  fi
+
+  artifact_dir="${PARKIO_DEPLOY_ARTIFACT_DIR:-}"
+  if [ -n "$artifact_dir" ] && [ -f "$artifact_dir/current.json" ]; then
+    sha="$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1],encoding="utf-8")).get("gitSha") or "")' \
+      "$artifact_dir/current.json" 2>/dev/null || true)"
+    if [ -n "$sha" ] && [ "$sha" != "null" ]; then
+      protected+=("$sha")
+    fi
+    prev_path="$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1],encoding="utf-8")).get("previousManifest") or "")' \
+      "$artifact_dir/current.json" 2>/dev/null || true)"
+    if [ -n "$prev_path" ] && [ -f "$prev_path" ]; then
+      sha="$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1],encoding="utf-8")).get("gitSha") or "")' \
+        "$prev_path" 2>/dev/null || true)"
+      if [ -n "$sha" ] && [ "$sha" != "null" ]; then
+        protected+=("$sha")
+      fi
+    fi
+  fi
+
+  # Fail-closed bind-mount inventory.
+  local mount_shas
+  if ! mount_shas="$(parkio_release_mount_shas)"; then
+    return 2
+  fi
+  while IFS= read -r sha; do
+    [ -n "$sha" ] && protected+=("$sha")
+  done <<< "$mount_shas"
+
+  if [ "${#protected[@]}" -eq 0 ]; then
+    return 0
+  fi
+  printf '%s\n' "${protected[@]}" | sort -u
+}
+
+# Write a machine-readable cleanup status JSON (always when status_path set).
+parkio_write_cleanup_status() {
+  local status_path="$1"
+  local outcome="$2"
+  local keep="$3"
+  local dry_run="$4"
+  local deleted_json="$5"
+  local protected_json="$6"
+  local error_msg="${7:-}"
+  local tmp
+  [ -n "$status_path" ] || return 0
+  mkdir -p "$(dirname "$status_path")"
+  tmp="${status_path}.tmp.$$"
+  PARKIO_CLEANUP_OUTCOME="$outcome" \
+  PARKIO_CLEANUP_KEEP="$keep" \
+  PARKIO_CLEANUP_DRY_RUN="$dry_run" \
+  PARKIO_CLEANUP_DELETED_JSON="$deleted_json" \
+  PARKIO_CLEANUP_PROTECTED_JSON="$protected_json" \
+  PARKIO_CLEANUP_ERROR="$error_msg" \
+  PARKIO_CLEANUP_RECORDED_AT="$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
+  python3 - "$tmp" <<'PY'
+import json, os, sys
+path = sys.argv[1]
+doc = {
+  "outcome": os.environ["PARKIO_CLEANUP_OUTCOME"],
+  "keep": int(os.environ["PARKIO_CLEANUP_KEEP"]),
+  "dryRun": int(os.environ["PARKIO_CLEANUP_DRY_RUN"]),
+  "deleted": json.loads(os.environ["PARKIO_CLEANUP_DELETED_JSON"]),
+  "protected": json.loads(os.environ["PARKIO_CLEANUP_PROTECTED_JSON"]),
+  "error": os.environ["PARKIO_CLEANUP_ERROR"] or None,
+  "recordedAt": os.environ["PARKIO_CLEANUP_RECORDED_AT"],
+}
+with open(path, "w", encoding="utf-8") as fh:
+  json.dump(doc, fh, indent=2)
+  fh.write("\n")
+PY
+  mv -f "$tmp" "$status_path"
+}
+
+parkio_json_string_array() {
+  if [ "$#" -eq 0 ]; then
+    printf '%s\n' '[]'
+    return 0
+  fi
+  printf '%s\n' "$@" | python3 -c 'import json,sys; print(json.dumps([ln.rstrip("\n") for ln in sys.stdin if ln.strip()]))'
+}
+
+# Prune old release directories under parkio_releases_dir.
+# Exit: 0 ok, 2 usage, 3 inventory fail (nothing deleted), 4 deletion errors.
+parkio_prune_releases() {
+  local keep="${1:-5}"
+  local dry_run="${2:-0}"
+  local candidate="${3:-}"
+  local status_path="${4:-}"
+  local root d sha kept=0 skip=0 protected_raw="" lock_fd
+  local -a protected_list=() candidates=() deleted=()
+  local protected_json='[]' deleted_json='[]'
+  local line rc=0
+
+  if ! [[ "$keep" =~ ^[0-9]+$ ]] || [ "$keep" -lt 1 ]; then
+    echo "ERROR: --keep must be a positive integer (got: $keep)" >&2
+    return 2
+  fi
+
+  root="$(parkio_releases_dir)"
+  if [ ! -d "$root" ]; then
+    parkio_write_cleanup_status "$status_path" "noop" "$keep" "$dry_run" '[]' '[]' ""
+    echo "No release root at $root; nothing to prune."
+    return 0
+  fi
+
+  # Serialize prune decisions so concurrent deploys share one protection snapshot.
+  # Always unlock on return so repeated prune calls in the same shell do not stall.
+  lock_fd=""
+  _parkio_prune_unlock() {
+    if [ -n "${lock_fd:-}" ]; then
+      flock -u "$lock_fd" 2>/dev/null || true
+      eval "exec ${lock_fd}>&-" 2>/dev/null || true
+      lock_fd=""
+    fi
+  }
+  if command -v flock >/dev/null 2>&1; then
+    exec {lock_fd}>"${root}/.prune.lock"
+    if ! flock -w 120 "$lock_fd"; then
+      _parkio_prune_unlock
+      parkio_write_cleanup_status "$status_path" "lock_failed" "$keep" "$dry_run" '[]' '[]' \
+        "could not acquire prune lock"
+      echo "ERROR: could not acquire prune lock under $root" >&2
+      return 3
+    fi
+  fi
+
+  if ! protected_raw="$(parkio_protected_release_shas "$candidate")"; then
+    _parkio_prune_unlock
+    parkio_write_cleanup_status "$status_path" "inventory_failed" "$keep" "$dry_run" '[]' '[]' \
+      "protected release inventory failed; refuse deletion"
+    echo "ERROR: protected release inventory failed; refuse deletion" >&2
+    return 3
+  fi
+  if [ -n "$protected_raw" ]; then
+    mapfile -t protected_list <<< "$protected_raw"
+    protected_json="$(parkio_json_string_array "${protected_list[@]}")"
+  fi
+  echo "Protected release SHAs: ${protected_list[*]:-<none>}"
+
+  # Newest-first candidates that are not protected.
+  while IFS= read -r d; do
+    [ -n "$d" ] || continue
+    sha="$(basename "$d")"
+    [[ "$sha" =~ ^[0-9a-f]{40}$ ]] || continue
+    skip=0
+    for line in "${protected_list[@]:-}"; do
+      if [ "$line" = "$sha" ]; then
+        skip=1
+        break
+      fi
+    done
+    if [ "$skip" -eq 1 ]; then
+      echo "Protecting in-use/active/rollback release: $sha"
+      continue
+    fi
+    candidates+=("$d")
+  done < <(find "$root" -mindepth 1 -maxdepth 1 -type d -printf '%T@ %p\n' 2>/dev/null | sort -nr | awk '{print $2}')
+
+  for d in "${candidates[@]:-}"; do
+    if [ "$kept" -lt "$keep" ]; then
+      echo "Keeping recent release: $(basename "$d")"
+      kept=$((kept + 1))
+      continue
+    fi
+    sha="$(basename "$d")"
+    if [ "$dry_run" -eq 1 ]; then
+      echo "DRY-RUN: would remove $d"
+      deleted+=("$sha")
+      continue
+    fi
+    echo "Removing old release: $d"
+    if rm -rf --one-file-system "$d"; then
+      deleted+=("$sha")
+    else
+      echo "ERROR: failed to remove $d" >&2
+      rc=4
+    fi
+  done
+
+  if [ "${#deleted[@]}" -gt 0 ]; then
+    deleted_json="$(parkio_json_string_array "${deleted[@]}")"
+  fi
+
+  if [ "$rc" -eq 4 ]; then
+    parkio_write_cleanup_status "$status_path" "partial_failure" "$keep" "$dry_run" \
+      "$deleted_json" "$protected_json" "one or more release deletions failed"
+    _parkio_prune_unlock
+    return 4
+  fi
+  if [ "$dry_run" -eq 1 ]; then
+    parkio_write_cleanup_status "$status_path" "dry_run" "$keep" "$dry_run" \
+      "$deleted_json" "$protected_json" ""
+  else
+    parkio_write_cleanup_status "$status_path" "ok" "$keep" "$dry_run" \
+      "$deleted_json" "$protected_json" ""
+  fi
+  _parkio_prune_unlock
+  return 0
+}
+
+# Refuse image/config rollback when the live schema has advanced past the
+# target manifest's recorded migrations. Image rollback ≠ DB restore.
+parkio_assert_rollback_schema_compatible() {
+  local target_manifest="$1"
+  local current_manifest="${2:-}"
+
+  if [ -z "$current_manifest" ] || [ ! -f "$current_manifest" ]; then
+    echo "WARN: no current manifest for schema comparison; operator must confirm DB compatibility." >&2
+    return 0
+  fi
+
+  python3 - "$target_manifest" "$current_manifest" <<'PY'
+import json, sys
+
+target_path, current_path = sys.argv[1], sys.argv[2]
+with open(target_path, encoding="utf-8") as fh:
+    target = json.load(fh)
+with open(current_path, encoding="utf-8") as fh:
+    current = json.load(fh)
+
+if "migrations" not in target:
+    print("ERROR: target manifest missing migrations; refuse rollback without schema evidence.", file=sys.stderr)
+    sys.exit(3)
+if "migrations" not in current:
+    print("WARN: current manifest missing migrations; operator must confirm DB compatibility.", file=sys.stderr)
+    sys.exit(0)
+
+extra = []
+for service, cur_list in (current.get("migrations") or {}).items():
+    tgt_set = set(target.get("migrations", {}).get(service) or [])
+    for mig in cur_list or []:
+        if mig not in tgt_set:
+            extra.append({"service": service, "migration": mig})
+
+if extra:
+    print("ERROR: live schema has migrations not present in the rollback target.", file=sys.stderr)
+    print("       Image/config rollback would leave an incompatible database.", file=sys.stderr)
+    print("       This is not a DB restore. Refusing automatic rollback.", file=sys.stderr)
+    print("       Extra migrations:", json.dumps(extra), file=sys.stderr)
+    sys.exit(3)
+sys.exit(0)
+PY
+}

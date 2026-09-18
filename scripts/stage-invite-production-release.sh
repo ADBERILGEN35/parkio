@@ -9,6 +9,7 @@
 # Usage:
 #   scripts/stage-invite-production-release.sh --sha <40hex> [--source DIR]
 #       [--root DIR] [--activate] [--prune] [--keep N]
+#       [--prune-only] [--dry-run] [--cleanup-status PATH]
 
 set -euo pipefail
 
@@ -20,7 +21,9 @@ SHA=""
 ACTIVATE=0
 PRUNE=0
 PRUNE_ONLY=0
+DRY_RUN=0
 KEEP="${PARKIO_RELEASE_KEEP:-5}"
+CLEANUP_STATUS=""
 
 while [ "$#" -gt 0 ]; do
   case "$1" in
@@ -30,8 +33,10 @@ while [ "$#" -gt 0 ]; do
     --activate) ACTIVATE=1; shift ;;
     --prune) PRUNE=1; shift ;;
     --prune-only) PRUNE=1; PRUNE_ONLY=1; shift ;;
+    --dry-run) DRY_RUN=1; shift ;;
+    --cleanup-status) CLEANUP_STATUS="${2:-}"; shift 2 ;;
     --keep) KEEP="${2:-}"; shift 2 ;;
-    -h|--help) sed -n '2,12p' "$0"; exit 0 ;;
+    -h|--help) sed -n '2,14p' "$0"; exit 0 ;;
     *) echo "ERROR: unknown argument '$1'" >&2; exit 2 ;;
   esac
 done
@@ -79,7 +84,9 @@ parkio_assert_release_is_stable "$RELEASE"
 # Fail closed rather than deploy a runtime whose config the daemon cannot see.
 case "$RUNTIME_ROOT" in
   /tmp/*|/var/tmp/*)
-    if [ "${PARKIO_ALLOW_EPHEMERAL_ROOT:-0}" != "1" ]; then
+    # Prune-only never stages bind-mount sources for dockerd; ephemeral roots
+    # are fine for retention fixtures and isolated tests.
+    if [ "$PRUNE_ONLY" -eq 0 ] && [ "${PARKIO_ALLOW_EPHEMERAL_ROOT:-0}" != "1" ]; then
       echo "ERROR: refusing to stage a runtime release under $RUNTIME_ROOT" >&2
       echo "       PrivateTmp=yes makes this path invisible to dockerd." >&2
       exit 3
@@ -216,26 +223,9 @@ if [ "$PRUNE" -eq 1 ]; then
     echo "ERROR: --keep must be an integer >= 2 (active + rollback)" >&2
     exit 2
   fi
-  active="$(parkio_active_release_sha 2>/dev/null || true)"
-  # Never reclaim a release that a running container still bind-mounts.
-  in_use="$(docker ps -q 2>/dev/null | xargs -r docker inspect \
-    -f '{{range .Mounts}}{{println .Source}}{{end}}' 2>/dev/null \
-    | sed -n "s#^$RELEASES/\([0-9a-f]\{40\}\)/.*#\1#p" | sort -u || true)"
-  kept=0
-  while IFS= read -r dir; do
-    sha_dir="$(basename "$dir")"
-    [[ "$sha_dir" =~ ^[0-9a-f]{40}$ ]] || continue
-    if [ "$sha_dir" = "$active" ] || [ "$sha_dir" = "$SHA" ] \
-       || grep -qx "$sha_dir" <<<"$in_use"; then
-      continue
-    fi
-    kept=$((kept + 1))
-    if [ "$kept" -ge "$KEEP" ]; then
-      echo "Pruning superseded release $sha_dir"
-      rm -rf -- "$dir"
-    fi
-  done < <(find "$RELEASES" -mindepth 1 -maxdepth 1 -type d -printf '%T@ %p\n' \
-             | sort -rn | cut -d' ' -f2-)
+  # PA-12: fail-closed inventory, protect active/candidate/rollback/mounts,
+  # and never treat docker inspect failure as an empty in-use set.
+  parkio_prune_releases "$KEEP" "$DRY_RUN" "$SHA" "$CLEANUP_STATUS"
 fi
 
 if [ "$PRUNE_ONLY" -eq 1 ]; then echo "Release retention pass complete."; else echo "Staged release: $RELEASE"; fi

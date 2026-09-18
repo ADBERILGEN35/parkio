@@ -105,6 +105,13 @@ if [ "$DRY_RUN" -eq 1 ]; then
   exit 0
 fi
 
+# Image/config rollback is not a DB restore. Refuse when live schema migrations
+# have advanced past the target manifest (PA-12 / G03).
+if [ -n "$PREVIOUS" ] && [ -f "$PREVIOUS" ]; then
+  source "$ROOT/scripts/lib/runtime-release.sh"
+  parkio_assert_rollback_schema_compatible "$MANIFEST" "$PREVIOUS" || exit 3
+fi
+
 # Verify images exist locally (live rollback only)
 missing=0
 for svc in "${PARKIO_APP_SERVICES[@]}"; do

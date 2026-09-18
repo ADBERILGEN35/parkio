@@ -171,6 +171,7 @@ jobs:
           bash scripts/test-invite-production-backup-scheduler.sh
           python3 scripts/test_backup_metrics.py
           bash scripts/test-invite-production-runtime-release.sh
+          bash scripts/test-deploy-prune-rollback-integrity.sh
           bash scripts/test-invite-production-failure-evidence.sh
           bash scripts/test-invite-production-workspace-migration.sh
           bash scripts/test-managed-parking-flyway-baseline.sh
