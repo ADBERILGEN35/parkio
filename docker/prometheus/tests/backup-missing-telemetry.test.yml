@@ -52,7 +52,7 @@ tests:
         values: "0x90"
       # Far in the past relative to eval_time so (time()-ts) > 90000.
       - series: 'parkio_backup_last_timestamp_seconds{scope="azure-hosted-beta"}'
-        values: "0x90"
+        values: "1e15x90"
       - series: 'parkio_backup_production_mode{scope="azure-hosted-beta"}'
         values: "1x90"
       - series: 'parkio_backup_offsite_last_success{scope="azure-hosted-beta"}'
@@ -72,15 +72,15 @@ tests:
               description: "parkio_backup_last_success is 0 for scope azure-hosted-beta. The last backup attempt did not meet success (databases + MinIO + required offsite). Inspect the backup log; do not treat a local directory as success."
               runbook_url: "docs/operations/backup-runbook.md#failed-backups"
       - eval_time: 65m
-        alertname: BackupStale
+        alertname: BackupOffsiteFailed
         exp_alerts:
           - exp_labels:
-              alertname: BackupStale
+              alertname: BackupOffsiteFailed
               severity: critical
               scope: azure-hosted-beta
             exp_annotations:
-              summary: "Hosted-beta backup is stale"
-              description: "Last backup attempt timestamp for scope azure-hosted-beta is older than ~25h. Nightly cadence was missed. Run scripts/backup-hosted-beta.sh after checking why cron/job did not run."
+              summary: "Production-mode offsite backup failed"
+              description: "BACKUP_PRODUCTION_MODE is on for scope azure-hosted-beta but parkio_backup_offsite_last_success is 0. Local stamp existence is not offsite protection. Check Azure/S3 credentials and backup-offsite logs."
               runbook_url: "docs/operations/backup-runbook.md#failed-backups"
       - eval_time: 65m
         alertname: BackupTelemetryAbsent
