@@ -1,0 +1,87 @@
+# Blackbox exporter vs probe-target failure coverage.
+rule_files:
+  - ../alerts.yml
+
+evaluation_interval: 1m
+
+tests:
+  - name: blackbox exporter up and probes success stay quiet
+    interval: 1m
+    input_series:
+      - series: 'up{job="blackbox-exporter",service="blackbox-exporter"}'
+        values: "1x10"
+      - series: 'probe_success{component="minio"}'
+        values: "1x10"
+      - series: 'probe_success{component="redis"}'
+        values: "1x10"
+      - series: 'probe_success{component="clamav"}'
+        values: "1x10"
+      - series: 'probe_success{component="postgres-auth"}'
+        values: "1x10"
+    alert_rule_test:
+      - eval_time: 5m
+        alertname: BlackboxExporterDown
+        exp_alerts: []
+      - eval_time: 5m
+        alertname: MinIODown
+        exp_alerts: []
+      - eval_time: 5m
+        alertname: RedisDown
+        exp_alerts: []
+
+  - name: blackbox exporter down fires even when probe_success absent
+    interval: 1m
+    input_series:
+      - series: 'up{job="blackbox-exporter",service="blackbox-exporter"}'
+        values: "0x10"
+      # No probe_success series — mirrors production when exporter DNS fails.
+    alert_rule_test:
+      - eval_time: 1m
+        alertname: BlackboxExporterDown
+        exp_alerts: []
+      - eval_time: 5m
+        alertname: BlackboxExporterDown
+        exp_alerts:
+          - exp_labels:
+              alertname: BlackboxExporterDown
+              severity: critical
+              job: blackbox-exporter
+              service: blackbox-exporter
+            exp_annotations:
+              summary: "Blackbox exporter is down"
+              description: "Prometheus cannot scrape blackbox-exporter:9115 for >2m. Infra probe alerts (MinIO/Redis/ClamAV/Postgres) are blind until the exporter is restored — this is not itself a MinIO/Redis outage."
+              runbook_url: "docs/operations/alert-response-runbook.md"
+      - eval_time: 5m
+        alertname: MinIODown
+        exp_alerts: []
+      - eval_time: 5m
+        alertname: RedisDown
+        exp_alerts: []
+
+  - name: probe target failure with exporter up fires MinIODown not BlackboxExporterDown
+    interval: 1m
+    input_series:
+      - series: 'up{job="blackbox-exporter",service="blackbox-exporter"}'
+        values: "1x10"
+      - series: 'probe_success{component="minio"}'
+        values: "0x10"
+      - series: 'probe_success{component="redis"}'
+        values: "1x10"
+    alert_rule_test:
+      - eval_time: 5m
+        alertname: BlackboxExporterDown
+        exp_alerts: []
+      - eval_time: 5m
+        alertname: MinIODown
+        exp_alerts:
+          - exp_labels:
+              alertname: MinIODown
+              severity: critical
+              component: minio
+            exp_annotations:
+              summary: "MinIO is down"
+              description: "Blackbox probe to MinIO health endpoint failed for >2m. Media uploads and presigned GETs will fail."
+              runbook_url: "docs/operations/alert-response-runbook.md#miniodown"
+      - eval_time: 5m
+        alertname: RedisDown
+        exp_alerts: []

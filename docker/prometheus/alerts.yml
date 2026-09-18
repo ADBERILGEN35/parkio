@@ -92,6 +92,18 @@ groups:
           description: "Prometheus cannot scrape kafka-exporter for >2m. Kafka lag and DLT-depth alerts are unavailable until the exporter is restored."
           runbook_url: "docs/architecture/observability-metrics.md#runbook--kafkaexporterdown"
 
+      - alert: BlackboxExporterDown
+        # Without blackbox, MinIO/Redis/ClamAV/Postgres probe_success series disappear and
+        # threshold alerts on empty vectors stay silent (same class as PA-16 for backup).
+        expr: up{job="blackbox-exporter"} == 0
+        for: 2m
+        labels:
+          severity: critical
+        annotations:
+          summary: "Blackbox exporter is down"
+          description: "Prometheus cannot scrape blackbox-exporter:9115 for >2m. Infra probe alerts (MinIO/Redis/ClamAV/Postgres) are blind until the exporter is restored — this is not itself a MinIO/Redis outage."
+          runbook_url: "docs/operations/alert-response-runbook.md"
+
       - alert: KafkaBrokerUnavailable
         # danielqsj/kafka-exporter exposes kafka_brokers as the broker count it can see.
         expr: kafka_brokers < 1

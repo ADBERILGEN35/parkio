@@ -73,6 +73,14 @@ scrape_configs:
       - targets: ["kafka-exporter:9308"]
         labels: { service: kafka-exporter }
 
+  # blackbox-exporter process scrape (distinct from /probe jobs below).
+  # up{job="blackbox-exporter"} detects exporter/scrape failure; probe_success
+  # on blackbox-infra/tcp detects target failure while the exporter is healthy.
+  - job_name: blackbox-exporter
+    static_configs:
+      - targets: ["blackbox-exporter:9115"]
+        labels: { service: blackbox-exporter }
+
   # node-exporter — host-level metrics (CPU/memory/disk/filesystem/inodes) for the single VPS.
   # Scraped in-network; the exporter is never publicly exposed (loopback-only host bind).
   - job_name: node-exporter

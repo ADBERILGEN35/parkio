@@ -35,6 +35,7 @@ promtool test rules /etc/prometheus/tests/backup-invite.test.yml
 promtool test rules /etc/prometheus/tests/backup-missing-telemetry.test.yml
 promtool test rules /etc/prometheus/tests/municipal-source-health.test.yml
 promtool test rules /etc/prometheus/tests/operational-readiness-availability.test.yml
+promtool test rules /etc/prometheus/tests/blackbox-exporter.test.yml
 
 echo "==> Alertmanager check-config (null receiver / no webhook)"
 docker run --rm \
