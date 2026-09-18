@@ -374,9 +374,11 @@ jobs:
           CODEQL_ENABLED: ${{ vars.CODEQL_ENABLED }}
         run: |
           if [ "${CODEQL_ENABLED}" = "true" ]; then
-            codeql_line="**enabled** (result: ${CODEQL_RESULT}) — SARIF uploaded to Code Scanning"
+            codeql_line="**enabled** (result: ${CODEQL_RESULT}) — SARIF uploaded to Code Scanning when available"
           else
-            codeql_line="**skipped** (CODEQL_ENABLED is not \"true\"; Code Scanning unavailable on this repo)"
+            # Distinguishes intentional gate-off from platform unavailability. Public repos
+            # can run CodeQL without GHAS; this skip is a configuration choice, not a PASS.
+            codeql_line="**skipped by configuration** (CODEQL_ENABLED is not \"true\"; not a SAST PASS)"
           fi
 
           {
