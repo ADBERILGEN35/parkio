@@ -109,6 +109,15 @@ tests:
       - eval_time: 15m
         alertname: ParkioAlertingAcceptanceTest
         exp_alerts: []
+      - eval_time: 15m
+        alertname: BackupTelemetryAbsent
+        exp_alerts: []
+      - eval_time: 15m
+        alertname: BackupRequiredSeriesMissing
+        exp_alerts: []
+      - eval_time: 15m
+        alertname: BackupTextfileCollectorError
+        exp_alerts: []
 
   - name: service down pending then firing then recovered
     interval: 1m

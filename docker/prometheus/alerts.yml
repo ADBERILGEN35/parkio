@@ -284,6 +284,69 @@ groups:
           description: "parkio_backup_production_mode is 1 for scope {{ $labels.scope }} but parkio_backup_encryption_enabled is 0. Production-intended dumps must be encrypted. Do not continue relying on plaintext stamps."
           runbook_url: "docs/operations/backup-runbook.md#failed-backups"
 
+      # PA-16 — exporter healthy while expected backup textfile series disappear.
+      # Distinct from BackupFailed/Stale (those need a present vector) and from
+      # NodeExporterDown (up==0). Scope regex matches production-intended backups only.
+      - alert: BackupTelemetryAbsent
+        expr: |
+          up{job="node-exporter"} == 1
+            and on()
+              absent_over_time(
+                parkio_backup_last_success{scope=~"hosted-beta|azure-hosted-beta|invite-production"}[30m]
+              )
+        for: 30m
+        labels:
+          severity: critical
+          component: backup
+        annotations:
+          summary: "Backup telemetry missing while node-exporter is up"
+          description: "node-exporter is scrapeable but no parkio_backup_last_success series for production scopes (hosted-beta|azure-hosted-beta|invite-production) existed in the last 30m. Threshold alerts on empty vectors stay silent — check textfile mount, parkio_backup.prom, and collector parse errors."
+          runbook_url: "docs/operations/backup-runbook.md#failed-backups"
+
+      - alert: BackupRequiredSeriesMissing
+        # A scope already advertising production_mode must also export the paired
+        # success/timestamp/offsite/encryption gauges. One healthy scope must not
+        # mask another scope that lost a required series.
+        expr: |
+          (
+            parkio_backup_production_mode{scope=~"hosted-beta|azure-hosted-beta|invite-production"} == 1
+              unless on(scope) parkio_backup_last_success
+          )
+          or
+          (
+            parkio_backup_production_mode{scope=~"hosted-beta|azure-hosted-beta|invite-production"} == 1
+              unless on(scope) parkio_backup_last_timestamp_seconds
+          )
+          or
+          (
+            parkio_backup_production_mode{scope=~"hosted-beta|azure-hosted-beta|invite-production"} == 1
+              unless on(scope) parkio_backup_offsite_last_success
+          )
+          or
+          (
+            parkio_backup_production_mode{scope=~"hosted-beta|azure-hosted-beta|invite-production"} == 1
+              unless on(scope) parkio_backup_encryption_enabled
+          )
+        for: 30m
+        labels:
+          severity: critical
+          component: backup
+        annotations:
+          summary: "Required backup metric missing for scope {{ $labels.scope }}"
+          description: "parkio_backup_production_mode is present for scope {{ $labels.scope }} but at least one required paired series (last_success, last_timestamp_seconds, offsite_last_success, encryption_enabled) is absent. Another scope remaining healthy does not clear this."
+          runbook_url: "docs/operations/backup-runbook.md#failed-backups"
+
+      - alert: BackupTextfileCollectorError
+        expr: node_textfile_scrape_error{job="node-exporter"} > 0
+        for: 15m
+        labels:
+          severity: critical
+          component: backup
+        annotations:
+          summary: "node-exporter textfile collector parse error"
+          description: "node_textfile_scrape_error > 0 on {{ $labels.instance }}. Backup .prom files may be unreadable or malformed — parkio_backup_* series can disappear while the exporter stays up."
+          runbook_url: "docs/operations/backup-runbook.md#failed-backups"
+
       - alert: ParkioAlertingAcceptanceTest
         # Synthetic plumbing probe. Disabled unless parkio_alerting_acceptance_test==1
         # is deliberately exported (isolated acceptance stack or a temporary textfile).

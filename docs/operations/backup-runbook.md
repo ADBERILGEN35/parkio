@@ -137,7 +137,7 @@ PARKIO_ENV_FILE=docker/.env ./scripts/restore-drill-offsite.sh
 - `parkio_backup_last_timestamp_seconds`
 - `parkio_backup_production_mode`
 
-Alerts (see [alerting.md](./alerting.md)): **BackupFailed**, **BackupStale**, **BackupOffsiteFailed**, **BackupOffsiteStale**, **BackupEncryptionDisabledInProduction**. Do not put credentials or secret paths in labels.
+Alerts (see [alerting.md](./alerting.md)): **BackupFailed**, **BackupStale**, **BackupOffsiteFailed**, **BackupOffsiteStale**, **BackupEncryptionDisabledInProduction**, **BackupTelemetryAbsent** (PA-16: node-exporter up but production backup series gone), **BackupRequiredSeriesMissing**, **BackupTextfileCollectorError**. Do not put credentials or secret paths in labels.
 
 ## Failed backups {#failed-backups}
 
