@@ -28,7 +28,9 @@ describe('Wave 4 contribution discoverability gates', () => {
   });
 
   it('resumes contribute after login into existing share flow', () => {
-    expect(LOGIN).toContain('consumePendingAuthGateIntent');
+    // Peek before adoptSession (AuthLayout may Redirect), then clear — not consume.
+    expect(LOGIN).toContain('peekPendingAuthGateIntent');
+    expect(LOGIN).toContain('clearPendingAuthGateIntent');
     expect(LOGIN).toContain('resolvePostLoginHref');
     expect(RESOLVE).toContain("'/(main)/share'");
     expect(RESOLVE).toContain("intent === 'contribute'");

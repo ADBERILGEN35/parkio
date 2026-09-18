@@ -56,6 +56,11 @@ export interface MapHtmlOptions {
   colors: MapHtmlColors;
   /** Show interactive spot markers (main map). Pickers pass false. */
   interactiveSpots?: boolean;
+  /**
+   * Test-only: fail before MapLibre Map construction (injected init failure).
+   * Used for acceptance of the native error UI — not actual GPU capability.
+   */
+  forceInitFailure?: boolean;
 }
 
 export interface MapSpotMarker {
@@ -300,17 +305,36 @@ export function buildMapHtml(options: MapHtmlOptions): string {
 
       function fail(code) { post({ type: 'error', code: code }); }
       if (!window.maplibregl) { fail('maplibre-failed-to-load'); return; }
+      ${options.forceInitFailure ? "fail('map-init-failed'); return;" : ''}
 
-      var map = new maplibregl.Map({
-        container: 'map',
-        style: ${styleJson},
-        center: [${camera.lng}, ${camera.lat}],
-        zoom: ${camera.zoom},
-        attributionControl: { compact: true },
-        dragRotate: false,
-        pitchWithRotate: false,
-        touchPitch: false,
-      });
+      // MapLibre GL JS 6.4.1 requests webgl2 only (GPUInitializationError if absent).
+      // Do not treat legacy WebGL1 as sufficient.
+      function hasWebGl2() {
+        try {
+          var probe = document.createElement('canvas');
+          return !!probe.getContext('webgl2');
+        } catch (probeError) {
+          return false;
+        }
+      }
+      if (!hasWebGl2()) { fail('webgl-unavailable'); return; }
+
+      var map;
+      try {
+        map = new maplibregl.Map({
+          container: 'map',
+          style: ${styleJson},
+          center: [${camera.lng}, ${camera.lat}],
+          zoom: ${camera.zoom},
+          attributionControl: { compact: true },
+          dragRotate: false,
+          pitchWithRotate: false,
+          touchPitch: false,
+        });
+      } catch (initError) {
+        fail('map-init-failed');
+        return;
+      }
       map.touchZoomRotate.disableRotation();
 
       var markers = {};   // id -> { marker, el, data }  (community spots)

@@ -101,7 +101,9 @@ describe('MOBILE-V2-PHYSICAL-UX-FIX-02', () => {
 
   it('facility auth resume uses public facility id only', () => {
     expect(RESUME).toContain("intent === 'facility-detail'");
-    expect(RESUME).toContain('encodeURIComponent(facilityId)');
+    // Expo Router object href so useLocalSearchParams().id is populated.
+    expect(RESUME).toContain("pathname: '/(main)/facilities/[id]'");
+    expect(RESUME).toContain('params: { id: facilityId }');
     expect(RESUME).toContain('/(main)/facilities/');
   });
 });

@@ -14,9 +14,10 @@ describe('resolvePostLoginHref', () => {
   });
 
   it('resumes facility-detail with public facility id into authenticated detail', () => {
-    expect(resolvePostLoginHref({ intent: 'facility-detail', facilityId: 'fac-1' })).toBe(
-      '/(main)/facilities/fac-1',
-    );
+    expect(resolvePostLoginHref({ intent: 'facility-detail', facilityId: 'fac-1' })).toEqual({
+      pathname: '/(main)/facilities/[id]',
+      params: { id: 'fac-1' },
+    });
   });
 
   it('resumes google-maps with public facility id into authenticated detail', () => {
@@ -27,7 +28,10 @@ describe('resolvePostLoginHref', () => {
         latitude: 38.4,
         longitude: 27.1,
       }),
-    ).toBe('/(main)/facilities/fac-gm');
+    ).toEqual({
+      pathname: '/(main)/facilities/[id]',
+      params: { id: 'fac-gm' },
+    });
   });
 
   it('falls back to map when facility-detail lacks id or for other intents', () => {
