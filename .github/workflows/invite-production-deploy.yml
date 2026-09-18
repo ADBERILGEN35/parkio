@@ -4,6 +4,10 @@ on:
   pull_request:
     branches:
       - master
+      # api-targeted PRs (e.g. pin/parity) get the github-hosted secret-safe dry-run
+      # + fixture behavior suite only. Deploy/rollback/prune-apply jobs remain
+      # workflow_dispatch + refs/heads/api gated and never run on pull_request.
+      - api
     paths:
       - ".github/workflows/invite-production-deploy.yml"
       - "docker/**"
