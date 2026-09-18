@@ -37,6 +37,7 @@ on:
       - "scripts/staging/**"
       - "docker/docker-compose.staging-verification.yml"
       - "docker/docker-compose.restore-drill.yml"
+      - "scripts/ci/**"
       - "docker/docker-compose.yml"
       - "services/parking-service/src/main/resources/db/migration/**"
       - "services/gateway-service/src/main/resources/db/migration/**"
@@ -64,6 +65,7 @@ on:
       - "scripts/staging/**"
       - "docker/docker-compose.staging-verification.yml"
       - "docker/docker-compose.restore-drill.yml"
+      - "scripts/ci/**"
       - "docker/docker-compose.yml"
       - "services/parking-service/src/main/resources/db/migration/**"
       - "services/gateway-service/src/main/resources/db/migration/**"
@@ -100,6 +102,11 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v4
+
+      - name: Assert MinIO image pin parity (compose/CI/scripts)
+        run: |
+          chmod +x scripts/ci/assert-minio-image-pins.sh
+          ./scripts/ci/assert-minio-image-pins.sh
 
       - name: Backup metric publication contract
         run: python3 scripts/test_backup_metrics.py

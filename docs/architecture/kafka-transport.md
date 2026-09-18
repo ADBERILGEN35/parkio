@@ -392,7 +392,7 @@ are tagged `integration`, so they are opt-in:
   `./gradlew :services:media-service:integrationTest`, etc.
 - Images currently match local Compose: Kafka `confluentinc/cp-kafka:7.7.1`,
   PostGIS `postgis/postgis:16-3.4`, PostgreSQL `postgres:16-alpine`, and MinIO
-  `minio/minio:RELEASE.2024-09-13T20-26-02Z`.
+  `quay.io/minio/minio@sha256:cd04ea408e185cb50076ea1c3988d444119b19aaae15aab45387ccf14b2a2f86`.
 - **Docker handling:** without Docker, container suites are discovered and
   **skipped** (not failed) — convenient locally. CI passes
   `-Pparkio.integrationTest.requireDocker=true`, which makes the `integrationTest`
