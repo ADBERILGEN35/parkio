@@ -50,8 +50,9 @@ tests:
         values: "1x90"
       - series: 'parkio_backup_last_success{scope="azure-hosted-beta"}'
         values: "0x90"
+      # Far in the past relative to eval_time so (time()-ts) > 90000.
       - series: 'parkio_backup_last_timestamp_seconds{scope="azure-hosted-beta"}'
-        values: "1x90"
+        values: "0x90"
       - series: 'parkio_backup_production_mode{scope="azure-hosted-beta"}'
         values: "1x90"
       - series: 'parkio_backup_offsite_last_success{scope="azure-hosted-beta"}'
@@ -182,7 +183,6 @@ tests:
               severity: critical
               component: backup
               job: node-exporter
-              service: node-exporter
               instance: "node-exporter:9100"
             exp_annotations:
               summary: "node-exporter textfile collector parse error"
@@ -214,14 +214,14 @@ tests:
         alertname: BackupFailed
         exp_alerts: []
 
-  - name: expected target disappearing leaves NodeExporterDown not silent threshold alerts
+  - name: expected target reports down after scrape failure
     interval: 1m
     input_series:
-      # Present for 10m then gone from discovery (no further samples).
+      # Healthy then explicitly down (discovery still present with up=0).
       - series: 'up{job="node-exporter",service="node-exporter"}'
-        values: "1 1 1 1 1 1 1 1 1 1 _x80"
+        values: "1x10 0x80"
       - series: 'parkio_backup_last_success{scope="azure-hosted-beta"}'
-        values: "1 1 1 1 1 1 1 1 1 1 _x80"
+        values: "1x10 1x80"
     alert_rule_test:
       - eval_time: 5m
         alertname: NodeExporterDown
@@ -238,6 +238,9 @@ tests:
               summary: "Host node-exporter is down"
               description: "Prometheus cannot scrape node-exporter for >2m. Host disk/memory/CPU/inode alerts are unavailable until it is restored. Check `docker compose ps node-exporter`."
               runbook_url: "docs/architecture/observability-metrics.md#runbook--nodeexporterdown"
+      - eval_time: 20m
+        alertname: BackupTelemetryAbsent
+        exp_alerts: []
 
   - name: startup grace before BackupTelemetryAbsent
     interval: 1m
@@ -280,18 +283,18 @@ tests:
     interval: 1m
     input_series:
       - series: 'up{job="node-exporter",service="node-exporter"}'
-        values: "1x90"
-      # Absent for first 50m, then restored.
+        values: "1x120"
+      # Absent for 70m (covers 30m absent_over_time + 30m for), then restored.
       - series: 'parkio_backup_last_success{scope="azure-hosted-beta"}'
-        values: "_x50 1x40"
+        values: "_x70 1x50"
       - series: 'parkio_backup_last_timestamp_seconds{scope="azure-hosted-beta"}'
-        values: "_x50 1e15x40"
+        values: "_x70 1e15x50"
       - series: 'parkio_backup_production_mode{scope="azure-hosted-beta"}'
-        values: "_x50 1x40"
+        values: "_x70 1x50"
       - series: 'parkio_backup_offsite_last_success{scope="azure-hosted-beta"}'
-        values: "_x50 1x40"
+        values: "_x70 1x50"
       - series: 'parkio_backup_encryption_enabled{scope="azure-hosted-beta"}'
-        values: "_x50 1x40"
+        values: "_x70 1x50"
     alert_rule_test:
       - eval_time: 65m
         alertname: BackupTelemetryAbsent
@@ -306,6 +309,6 @@ tests:
               summary: "Backup telemetry missing while node-exporter is up"
               description: "node-exporter is scrapeable but no parkio_backup_last_success series for production scopes (hosted-beta|azure-hosted-beta|invite-production) existed in the last 30m. Threshold alerts on empty vectors stay silent — check textfile mount, parkio_backup.prom, and collector parse errors."
               runbook_url: "docs/operations/backup-runbook.md#failed-backups"
-      - eval_time: 90m
+      - eval_time: 110m
         alertname: BackupTelemetryAbsent
         exp_alerts: []
