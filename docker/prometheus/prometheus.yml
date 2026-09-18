@@ -1,14 +1,20 @@
-# Prometheus scrape configuration for the Parkio local stack.
+# Prometheus scrape configuration for Parkio (local compose and Civo production).
 #
 # Service targets are resolved over the parkio-backend Docker network. Every service
 # ships `micrometer-registry-prometheus` and exposes /actuator/prometheus (see
 # docs/architecture/observability-metrics.md for the metric catalogue).
+#
+# external_labels.monitor identifies THIS Prometheus instance in Alertmanager
+# templates — it is not proof of where the agent or operator laptop sits.
+# Civo production uses parkio-civo-prod; local compose may override via a local
+# overlay if needed.
 
 global:
   scrape_interval: 15s
   evaluation_interval: 15s
   external_labels:
-    monitor: parkio-local
+    monitor: parkio-civo-prod
+    environment: civo-prod
 
 # Alert rules (docker/prometheus/alerts.yml, mounted at /etc/prometheus/alerts.yml).
 # Absolute path: Prometheus resolves rule_files against its working directory, not the
