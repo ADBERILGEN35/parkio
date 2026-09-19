@@ -13,7 +13,6 @@ import static org.mockito.Mockito.when;
 
 import com.parkio.parking.application.port.MunicipalFacilityRepository;
 import com.parkio.parking.application.port.MunicipalOccupancySnapshotRepository;
-import com.parkio.parking.application.port.ParkingSpotRepository;
 import com.parkio.parking.externalsource.MunicipalAccessClassification;
 import com.parkio.parking.externalsource.MunicipalFacilityType;
 import com.parkio.parking.externalsource.MunicipalOccupancyFreshness;
@@ -42,21 +41,19 @@ class PublicExploreQueryServiceTest {
     void defaultDiscoveryUsesFixedIzmirCenterRadiusAndLimitSix() {
         var facilities = mock(MunicipalFacilityRepository.class);
         var snapshots = mock(MunicipalOccupancySnapshotRepository.class);
-        var spots = mock(ParkingSpotRepository.class);
         when(facilities.countPublicExploreNearby(38.4237, 27.1428, 5_000, IZUM_KEYS)).thenReturn(13L);
         when(facilities.publicExploreNearby(38.4237, 27.1428, 5_000, 6, IZUM_KEYS))
                 .thenReturn(IntStream.range(0, 6)
                         .mapToObj(i -> facility(UUID.randomUUID(), 38.4237, 27.1428, MunicipalSourceIdentity.IZUM))
                         .toList());
-        when(spots.countNearbyVisible(38.4237, 27.1428, 5_000)).thenReturn(23L);
 
-        var result = service(facilities, snapshots, spots, enabledFamilies("izum"))
+        var result = service(facilities, snapshots, enabledFamilies("izum"))
                 .discover(new PublicExploreQueryService.DiscoveryQuery(null, null, null, null));
 
         assertThat(result.facilities()).hasSize(6);
         assertThat(result.municipalTotalInScope()).isEqualTo(13L);
         assertThat(result.municipalHiddenCount()).isEqualTo(7L);
-        assertThat(result.communitySpotCountInScope()).isEqualTo(23);
+        assertThat(result.communitySpotCountInScope()).isNull();
         verify(facilities).publicExploreNearby(38.4237, 27.1428, 5_000, 6, IZUM_KEYS);
         verify(facilities, never()).nearby(anyDouble(), anyDouble(), anyInt(), anyInt());
     }
@@ -65,13 +62,11 @@ class PublicExploreQueryServiceTest {
     void locationQueryChangesMunicipalProximityScope() {
         var facilities = mock(MunicipalFacilityRepository.class);
         var snapshots = mock(MunicipalOccupancySnapshotRepository.class);
-        var spots = mock(ParkingSpotRepository.class);
         when(facilities.countPublicExploreNearby(38.45, 27.15, 1_500, IZUM_KEYS)).thenReturn(4L);
         when(facilities.publicExploreNearby(38.45, 27.15, 1_500, 6, IZUM_KEYS))
                 .thenReturn(List.of(facility(UUID.randomUUID(), 38.45, 27.15, MunicipalSourceIdentity.IZUM)));
-        when(spots.countNearbyVisible(38.45, 27.15, 1_500)).thenReturn(0L);
 
-        var result = service(facilities, snapshots, spots, enabledFamilies("izum"))
+        var result = service(facilities, snapshots, enabledFamilies("izum"))
                 .discover(new PublicExploreQueryService.DiscoveryQuery(38.45, 27.15, 1_500, null));
 
         assertThat(result.facilities()).hasSize(1);
@@ -86,16 +81,14 @@ class PublicExploreQueryServiceTest {
         double kadikoyLng = 29.0290;
         var facilities = mock(MunicipalFacilityRepository.class);
         var snapshots = mock(MunicipalOccupancySnapshotRepository.class);
-        var spots = mock(ParkingSpotRepository.class);
         UUID id = UUID.randomUUID();
         when(facilities.countPublicExploreNearby(kadikoyLat, kadikoyLng, 5_000, BOTH_KEYS)).thenReturn(2L);
         when(facilities.publicExploreNearby(kadikoyLat, kadikoyLng, 5_000, 6, BOTH_KEYS))
                 .thenReturn(List.of(facility(id, kadikoyLat, kadikoyLng, MunicipalSourceIdentity.ISPARK)));
-        when(spots.countNearbyVisible(kadikoyLat, kadikoyLng, 5_000)).thenReturn(0L);
         when(snapshots.latestForFacilityAndSourceKey(id, MunicipalSourceIdentity.ISPARK))
                 .thenReturn(Optional.empty());
 
-        var result = service(facilities, snapshots, spots, enabledFamilies("IZUM", "ISPARK"))
+        var result = service(facilities, snapshots, enabledFamilies("IZUM", "ISPARK"))
                 .discover(new PublicExploreQueryService.DiscoveryQuery(kadikoyLat, kadikoyLng, null, null));
 
         assertThat(result.facilities()).hasSize(1);
@@ -112,7 +105,6 @@ class PublicExploreQueryServiceTest {
     void mixedProvidersRespectGlobalLimitAndRowSpecificAttribution() {
         var facilities = mock(MunicipalFacilityRepository.class);
         var snapshots = mock(MunicipalOccupancySnapshotRepository.class);
-        var spots = mock(ParkingSpotRepository.class);
         UUID izumId = UUID.fromString("00000000-0000-0000-0000-000000000001");
         UUID isparkId = UUID.fromString("00000000-0000-0000-0000-000000000002");
         when(facilities.countPublicExploreNearby(40.99, 29.03, 5_000, BOTH_KEYS)).thenReturn(9L);
@@ -120,7 +112,6 @@ class PublicExploreQueryServiceTest {
                 .thenReturn(List.of(
                         facility(izumId, 40.9902, 29.0291, MunicipalSourceIdentity.IZUM),
                         facility(isparkId, 40.9903, 29.0292, MunicipalSourceIdentity.ISPARK)));
-        when(spots.countNearbyVisible(40.99, 29.03, 5_000)).thenReturn(0L);
         when(snapshots.latestForFacilityAndSourceKey(izumId, MunicipalSourceIdentity.IZUM))
                 .thenReturn(Optional.of(new MunicipalOccupancySnapshotRepository.Snapshot(
                         100, 20, 50, NOW.minusSeconds(5), 5L, true)));
@@ -128,7 +119,7 @@ class PublicExploreQueryServiceTest {
                 .thenReturn(Optional.of(new MunicipalOccupancySnapshotRepository.Snapshot(
                         200, 40, 80, NOW.minusSeconds(5), 5L, true)));
 
-        var result = service(facilities, snapshots, spots, enabledFamilies("IZUM", "ISPARK"))
+        var result = service(facilities, snapshots, enabledFamilies("IZUM", "ISPARK"))
                 .discover(new PublicExploreQueryService.DiscoveryQuery(40.99, 29.03, null, null));
 
         assertThat(result.facilities()).hasSize(2);
@@ -150,12 +141,11 @@ class PublicExploreQueryServiceTest {
     void ingestionEnabledDoesNotImplyPublicationWithoutAllowlist() {
         var facilities = mock(MunicipalFacilityRepository.class);
         var snapshots = mock(MunicipalOccupancySnapshotRepository.class);
-        var spots = mock(ParkingSpotRepository.class);
         PublicExploreProperties properties = new PublicExploreProperties();
         properties.setEnabled(true);
         properties.setAllowedSourceFamilies(List.of("IZUM"));
 
-        service(facilities, snapshots, spots, properties)
+        service(facilities, snapshots, properties)
                 .discover(new PublicExploreQueryService.DiscoveryQuery(40.99, 29.03, null, null));
 
         verify(facilities).publicExploreNearby(anyDouble(), anyDouble(), anyInt(), anyInt(), eq(IZUM_KEYS));
@@ -167,7 +157,6 @@ class PublicExploreQueryServiceTest {
     void hiddenMunicipalRowsAreNeverReturnedBeyondVisibleCap() {
         var facilities = mock(MunicipalFacilityRepository.class);
         var snapshots = mock(MunicipalOccupancySnapshotRepository.class);
-        var spots = mock(ParkingSpotRepository.class);
         List<MunicipalFacilityRepository.Facility> visible = IntStream.range(0, 6)
                 .mapToObj(i -> facility(
                         UUID.fromString("00000000-0000-0000-0000-00000000000" + i),
@@ -177,9 +166,8 @@ class PublicExploreQueryServiceTest {
                 .toList();
         when(facilities.countPublicExploreNearby(38.4237, 27.1428, 5_000, IZUM_KEYS)).thenReturn(13L);
         when(facilities.publicExploreNearby(38.4237, 27.1428, 5_000, 6, IZUM_KEYS)).thenReturn(visible);
-        when(spots.countNearbyVisible(38.4237, 27.1428, 5_000)).thenReturn(3L);
 
-        var result = service(facilities, snapshots, spots, enabledFamilies("izum"))
+        var result = service(facilities, snapshots, enabledFamilies("izum"))
                 .discover(new PublicExploreQueryService.DiscoveryQuery(null, null, null, 6));
 
         assertThat(result.facilities()).hasSize(6);
@@ -193,16 +181,14 @@ class PublicExploreQueryServiceTest {
         UUID id = UUID.randomUUID();
         var facilities = mock(MunicipalFacilityRepository.class);
         var snapshots = mock(MunicipalOccupancySnapshotRepository.class);
-        var spots = mock(ParkingSpotRepository.class);
         when(facilities.countPublicExploreNearby(38.4237, 27.1428, 5_000, IZUM_KEYS)).thenReturn(1L);
         when(facilities.publicExploreNearby(38.4237, 27.1428, 5_000, 6, IZUM_KEYS))
                 .thenReturn(List.of(facility(id, 38.4237, 27.1428, MunicipalSourceIdentity.IZUM)));
-        when(spots.countNearbyVisible(38.4237, 27.1428, 5_000)).thenReturn(0L);
 
         when(snapshots.latestForFacilityAndSourceKey(id, MunicipalSourceIdentity.IZUM))
                 .thenReturn(Optional.of(new MunicipalOccupancySnapshotRepository.Snapshot(
                         120, 30, 90, NOW.minusSeconds(10), 10L, true)));
-        var live = service(facilities, snapshots, spots, enabledFamilies("izum"))
+        var live = service(facilities, snapshots, enabledFamilies("izum"))
                 .discover(new PublicExploreQueryService.DiscoveryQuery(null, null, null, null))
                 .facilities()
                 .getFirst();
@@ -212,7 +198,7 @@ class PublicExploreQueryServiceTest {
         when(snapshots.latestForFacilityAndSourceKey(id, MunicipalSourceIdentity.IZUM))
                 .thenReturn(Optional.of(new MunicipalOccupancySnapshotRepository.Snapshot(
                         120, 30, 90, NOW.minusSeconds(40), 30L, true)));
-        var aging = service(facilities, snapshots, spots, enabledFamilies("izum"))
+        var aging = service(facilities, snapshots, enabledFamilies("izum"))
                 .discover(new PublicExploreQueryService.DiscoveryQuery(null, null, null, null))
                 .facilities()
                 .getFirst();
@@ -222,7 +208,7 @@ class PublicExploreQueryServiceTest {
         when(snapshots.latestForFacilityAndSourceKey(id, MunicipalSourceIdentity.IZUM))
                 .thenReturn(Optional.of(new MunicipalOccupancySnapshotRepository.Snapshot(
                         120, 30, 90, NOW.minusSeconds(60), 60L, true)));
-        var stale = service(facilities, snapshots, spots, enabledFamilies("izum"))
+        var stale = service(facilities, snapshots, enabledFamilies("izum"))
                 .discover(new PublicExploreQueryService.DiscoveryQuery(null, null, null, null))
                 .facilities()
                 .getFirst();
@@ -232,7 +218,7 @@ class PublicExploreQueryServiceTest {
         when(snapshots.latestForFacilityAndSourceKey(id, MunicipalSourceIdentity.IZUM))
                 .thenReturn(Optional.of(new MunicipalOccupancySnapshotRepository.Snapshot(
                         120, 30, 90, NOW.minusSeconds(10), 10L, false)));
-        var invalid = service(facilities, snapshots, spots, enabledFamilies("izum"))
+        var invalid = service(facilities, snapshots, enabledFamilies("izum"))
                 .discover(new PublicExploreQueryService.DiscoveryQuery(null, null, null, null))
                 .facilities()
                 .getFirst();
@@ -241,7 +227,7 @@ class PublicExploreQueryServiceTest {
 
         when(snapshots.latestForFacilityAndSourceKey(id, MunicipalSourceIdentity.IZUM))
                 .thenReturn(Optional.empty());
-        var unavailable = service(facilities, snapshots, spots, enabledFamilies("izum"))
+        var unavailable = service(facilities, snapshots, enabledFamilies("izum"))
                 .discover(new PublicExploreQueryService.DiscoveryQuery(null, null, null, null))
                 .facilities()
                 .getFirst();
@@ -253,28 +239,31 @@ class PublicExploreQueryServiceTest {
     void emptySourceAllowlistReturnsNoDataAndDoesNotQueryRepository() {
         var facilities = mock(MunicipalFacilityRepository.class);
         var snapshots = mock(MunicipalOccupancySnapshotRepository.class);
-        var spots = mock(ParkingSpotRepository.class);
         PublicExploreProperties properties = new PublicExploreProperties();
         properties.setEnabled(true);
 
-        var result = service(facilities, snapshots, spots, properties)
+        var result = service(facilities, snapshots, properties)
                 .discover(new PublicExploreQueryService.DiscoveryQuery(null, null, null, null));
 
         assertThat(result.facilities()).isEmpty();
         assertThat(result.municipalTotalInScope()).isZero();
         assertThat(result.communitySpotCountInScope()).isNull();
         verify(facilities, never()).publicExploreNearby(anyDouble(), anyDouble(), anyInt(), anyInt(), any());
-        verify(spots, never()).countNearbyVisible(anyDouble(), anyDouble(), anyDouble());
     }
 
     @Test
-    void communityPrivacyThresholdSuppressesBelowThree() {
-        assertThat(PublicExploreQueryService.suppressCommunityBelowThreshold(0)).isNull();
-        assertThat(PublicExploreQueryService.suppressCommunityBelowThreshold(1)).isNull();
-        assertThat(PublicExploreQueryService.suppressCommunityBelowThreshold(2)).isNull();
-        assertThat(PublicExploreQueryService.suppressCommunityBelowThreshold(3)).isEqualTo(3);
-        assertThat(PublicExploreQueryService.suppressCommunityBelowThreshold(4)).isEqualTo(4);
-        assertThat(PublicExploreQueryService.suppressCommunityBelowThreshold(10)).isEqualTo(10);
+    void communityAggregateAlwaysWithheldOnPublicDiscover() {
+        assertThat(PublicExploreQueryService.withholdCommunityAggregate()).isNull();
+        var facilities = mock(MunicipalFacilityRepository.class);
+        var snapshots = mock(MunicipalOccupancySnapshotRepository.class);
+        when(facilities.countPublicExploreNearby(38.4237, 27.1428, 5_000, IZUM_KEYS)).thenReturn(13L);
+        when(facilities.publicExploreNearby(38.4237, 27.1428, 5_000, 6, IZUM_KEYS))
+                .thenReturn(List.of(facility(UUID.randomUUID(), 38.4237, 27.1428, MunicipalSourceIdentity.IZUM)));
+        var result = service(facilities, snapshots, enabledFamilies("izum"))
+                .discover(new PublicExploreQueryService.DiscoveryQuery(null, null, null, null));
+        assertThat(result.communitySpotCountInScope()).isNull();
+        assertThat(result.facilities()).hasSize(1);
+        assertThat(result.municipalTotalInScope()).isEqualTo(13L);
     }
 
     @ParameterizedTest
@@ -283,7 +272,6 @@ class PublicExploreQueryServiceTest {
         assertThatThrownBy(() -> service(
                         mock(MunicipalFacilityRepository.class),
                         mock(MunicipalOccupancySnapshotRepository.class),
-                        mock(ParkingSpotRepository.class),
                         enabledFamilies("izum"))
                 .discover(new PublicExploreQueryService.DiscoveryQuery(null, null, null, limit)))
                 .isInstanceOf(IllegalArgumentException.class);
@@ -295,7 +283,6 @@ class PublicExploreQueryServiceTest {
         assertThatThrownBy(() -> service(
                         mock(MunicipalFacilityRepository.class),
                         mock(MunicipalOccupancySnapshotRepository.class),
-                        mock(ParkingSpotRepository.class),
                         enabledFamilies("izum"))
                 .discover(new PublicExploreQueryService.DiscoveryQuery(38.42, 27.14, radius, null)))
                 .isInstanceOf(IllegalArgumentException.class);
@@ -306,7 +293,6 @@ class PublicExploreQueryServiceTest {
         var svc = service(
                 mock(MunicipalFacilityRepository.class),
                 mock(MunicipalOccupancySnapshotRepository.class),
-                mock(ParkingSpotRepository.class),
                 enabledFamilies("izum"));
         assertThatThrownBy(() -> svc.discover(new PublicExploreQueryService.DiscoveryQuery(38.42, null, null, null)))
                 .isInstanceOf(IllegalArgumentException.class);
@@ -344,9 +330,8 @@ class PublicExploreQueryServiceTest {
     private static PublicExploreQueryService service(
             MunicipalFacilityRepository facilities,
             MunicipalOccupancySnapshotRepository snapshots,
-            ParkingSpotRepository spots,
             PublicExploreProperties properties) {
         return new PublicExploreQueryService(
-                facilities, snapshots, spots, properties, Clock.fixed(NOW, ZoneOffset.UTC));
+                facilities, snapshots, properties, Clock.fixed(NOW, ZoneOffset.UTC));
     }
 }

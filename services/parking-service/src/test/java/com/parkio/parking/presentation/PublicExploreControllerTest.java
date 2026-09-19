@@ -13,7 +13,6 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 import com.parkio.parking.application.PublicExploreQueryService;
 import com.parkio.parking.application.port.MunicipalFacilityRepository;
 import com.parkio.parking.application.port.MunicipalOccupancySnapshotRepository;
-import com.parkio.parking.application.port.ParkingSpotRepository;
 import com.parkio.parking.externalsource.MunicipalFacilityType;
 import com.parkio.parking.externalsource.MunicipalOccupancyFreshness;
 import com.parkio.parking.infrastructure.config.PublicExploreProperties;
@@ -144,7 +143,6 @@ class PublicExploreControllerTest {
         return new PublicExploreQueryService(
                 mock(MunicipalFacilityRepository.class),
                 mock(MunicipalOccupancySnapshotRepository.class),
-                mock(ParkingSpotRepository.class),
                 props,
                 Clock.systemUTC());
     }
