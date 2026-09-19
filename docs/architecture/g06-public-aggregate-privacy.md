@@ -33,3 +33,9 @@ Rate limit, row suppression, and k=3 alone do **not** close free-geometry differ
 - Keeps DTO field for older clients (null = unavailable/withheld, already ≠ zero in UI).
 - Preserves municipal discovery.
 - Does not invent differential privacy / fixed cells in this package (those remain future product work if a community teaser is reintroduced).
+
+## Product / privacy contract (G06A)
+- This is **withholding the community teaser**, not a privacy-preserving numeric estimate.
+- No differential privacy claim; no fixed-cell / coarse-bucket reintroduction in PR #50.
+- Municipal facility discovery remains public-by-design.
+- Authenticated community nearby APIs remain separate and authorized.
