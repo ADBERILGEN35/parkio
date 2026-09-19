@@ -19,7 +19,9 @@ export interface PublicExploreFacility {
 
 /**
  * Anonymous discovery envelope. Hidden municipal rows are never included.
- * communitySpotCountInScope is null when below the privacy threshold (< 3).
+ * communitySpotCountInScope is always null on the public surface (withheld —
+ * not a factual zero). Exact community counts under free lat/lng/radius were
+ * removed for PA-06 / G06 aggregate-privacy remediation.
  */
 export interface PublicExploreDiscovery {
   facilities: PublicExploreFacility[];

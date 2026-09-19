@@ -2,7 +2,6 @@ package com.parkio.parking.application;
 
 import com.parkio.parking.application.port.MunicipalFacilityRepository;
 import com.parkio.parking.application.port.MunicipalOccupancySnapshotRepository;
-import com.parkio.parking.application.port.ParkingSpotRepository;
 import com.parkio.parking.externalsource.MunicipalFacilityType;
 import com.parkio.parking.externalsource.MunicipalOccupancyFreshness;
 import com.parkio.parking.externalsource.OccupancyFreshnessPolicy;
@@ -18,9 +17,12 @@ import java.util.UUID;
 
 /**
  * Bounded anonymous public discovery across reviewed municipal publication sources.
- * Visible municipal rows are capped server-side; community exposure is aggregate-count
- * only with a privacy threshold. Source selection comes from validated publication policy,
- * never from anonymous query parameters.
+ * Visible municipal rows are capped server-side. Community parking spots are never
+ * published as rows or as spatial aggregates on this path (PA-06 / G06): free
+ * center/radius plus an exact count enabled differencing of otherwise undisclosed
+ * spots. {@code communitySpotCountInScope} is always {@code null} for anonymous
+ * Explore. Source selection comes from validated publication policy, never from
+ * anonymous query parameters.
  */
 public class PublicExploreQueryService {
     /** Client UX fallback center only; server honors supplied lat/lng when present. */
@@ -31,8 +33,6 @@ public class PublicExploreQueryService {
     public static final int MAX_RADIUS_METERS = 5_000;
     public static final int DEFAULT_LIMIT = 6;
     public static final int MAX_LIMIT = 6;
-    /** Below this, communitySpotCountInScope is suppressed ({@code null}). */
-    public static final int COMMUNITY_PUBLIC_MIN_COUNT = 3;
 
     public record FacilityView(
             UUID id,
@@ -59,19 +59,16 @@ public class PublicExploreQueryService {
 
     private final MunicipalFacilityRepository facilities;
     private final MunicipalOccupancySnapshotRepository snapshots;
-    private final ParkingSpotRepository spots;
     private final PublicExploreProperties properties;
     private final Clock clock;
 
     public PublicExploreQueryService(
             MunicipalFacilityRepository facilities,
             MunicipalOccupancySnapshotRepository snapshots,
-            ParkingSpotRepository spots,
             PublicExploreProperties properties,
             Clock clock) {
         this.facilities = facilities;
         this.snapshots = snapshots;
-        this.spots = spots;
         this.properties = properties;
         this.clock = clock;
     }
@@ -96,19 +93,18 @@ public class PublicExploreQueryService {
                 .map(facility -> project(facility, allowedKeys))
                 .toList();
         long hidden = Math.max(municipalTotal - visible.size(), 0L);
-        Integer community = suppressCommunityBelowThreshold(spots.countNearbyVisible(
-                scope.latitude(), scope.longitude(), scope.radiusMeters()));
-        return new DiscoveryResult(visible, municipalTotal, hidden, community);
+        // PA-06: do not publish community aggregates under free lat/lng/radius.
+        // Authenticated clients use separate authorized nearby APIs.
+        return new DiscoveryResult(visible, municipalTotal, hidden, withholdCommunityAggregate());
     }
 
-    static Integer suppressCommunityBelowThreshold(long rawCount) {
-        if (rawCount < COMMUNITY_PUBLIC_MIN_COUNT) {
-            return null;
-        }
-        if (rawCount > Integer.MAX_VALUE) {
-            return Integer.MAX_VALUE;
-        }
-        return (int) rawCount;
+    /**
+     * Anonymous Explore never publishes a community count. {@code null} means
+     * unavailable/withheld — not a factual zero. Older clients already treat null
+     * as “do not show teaser”.
+     */
+    static Integer withholdCommunityAggregate() {
+        return null;
     }
 
     private ResolvedScope resolveScope(DiscoveryQuery query) {
