@@ -6,9 +6,9 @@
 |-------|-------|
 | API BASELINE / OBSERVED CURRENT SHA | `4a9ba2184e867b8ea8b927f7c3f8bcb137c2760a` / same (delta NONE) |
 | FEATURE BRANCH | `y03-slack-notification-core` |
-| FULL HEAD | *(set after commit)* |
+| FULL HEAD | `cafaa2d1061f37f861ae2575a083276788d9b1d8` (evidence commit may add +1) |
 | BASE | `4a9ba2184e867b8ea8b927f7c3f8bcb137c2760a` |
-| DRAFT PR | *(set after gh pr create)* |
+| DRAFT PR | see PR after push |
 | PR52 | draft OPEN head `22158518acfeddcf4c0b932674579d1b5a0579d8` — CI fixture; no Y03 dep |
 | PR53 | draft OPEN head `cf86a47c2082078b620b55295ed509ce59cc32cd` — NR pilot; no Y03 dep; real NR NOT_EXECUTED |
 | REUSED INFRA | auth outbox `UserRegistered`; backup metrics hook; Alertmanager left intact; **not** notification-service |
