@@ -241,7 +241,14 @@ jobs:
 
           cp docker/.env.invite-production.example "$PARKIO_ENV_FILE"
           chmod 600 "$PARKIO_ENV_FILE"
-          openssl genpkey -algorithm RSA -pkeyopt rsa_keygen_bits:2048 -out "$jwt_file" 2>/dev/null
+          # CI dry-run only: deterministic non-production PEM fixture (same shape
+          # as scripts/test_invite_production_deploy_safety.py). Never openssl-
+          # generate here — random PKCS#8 base64 can trip broad placeholder
+          # heuristics, and this path must not mint deployable signing material.
+          printf '%s\n' \
+            '-----BEGIN PRIVATE KEY-----' \
+            'fixture-only-ci-dry-run-not-for-deploy' \
+            '-----END PRIVATE KEY-----' > "$jwt_file"
           python3 - "$PARKIO_ENV_FILE" "$jwt_file" <<'PY'
           from pathlib import Path
           import sys
