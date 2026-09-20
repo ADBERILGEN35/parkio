@@ -8,7 +8,7 @@ import {
   type PreferencesUpdateFormValues,
 } from '@parkio/validation';
 import { useMutation, useQueryClient } from '@tanstack/react-query';
-import { useEffect } from 'react';
+import { useEffect, useState } from 'react';
 import { useForm } from 'react-hook-form';
 import { useTranslation } from 'react-i18next';
 import { useParkioSdk } from '@/app/AppRuntimeContext';
@@ -19,6 +19,10 @@ import { useMyPreferencesQuery } from '@/data/hooks/useMeQueries';
 import { meKeys } from '@/data/keys';
 import { useLocaleStore } from '@/i18n/localeStore';
 import { showError, showSuccess } from '@/lib/toast';
+import {
+  getProductAnalyticsConsent,
+  setProductAnalyticsConsent,
+} from '@/services/productAnalytics';
 
 export function PreferencesCard() {
   const { t } = useTranslation('settings');
@@ -81,6 +85,9 @@ function PreferencesForm({ preferences }: { preferences: UserPreference }) {
   });
 
   const preferredLocale = watch('preferredLocale') ?? locale;
+  const [analyticsOptIn, setAnalyticsOptIn] = useState(
+    () => getProductAnalyticsConsent() === 'granted',
+  );
 
   const onLocaleChange = (next: ParkioLocale) => {
     setValue('preferredLocale', next, { shouldDirty: true, shouldValidate: true });
@@ -88,6 +95,11 @@ function PreferencesForm({ preferences }: { preferences: UserPreference }) {
     if (isAuthenticated) {
       mutation.mutate({ preferredLocale: next });
     }
+  };
+
+  const onAnalyticsConsentChange = (checked: boolean) => {
+    setAnalyticsOptIn(checked);
+    void setProductAnalyticsConsent(checked ? 'granted' : 'denied');
   };
 
   const onSubmit = handleSubmit((values) => mutation.mutate(values));
@@ -185,6 +197,18 @@ function PreferencesForm({ preferences }: { preferences: UserPreference }) {
             {...register('notificationsEnabled')}
           />
           {t('preferences.notificationsEnabled')}
+        </label>
+        <label className="flex items-center gap-sm text-body-md text-on-surface">
+          <input
+            type="checkbox"
+            className="h-4 w-4 rounded border-outline-variant text-primary focus:ring-primary"
+            checked={analyticsOptIn}
+            onChange={(event) => onAnalyticsConsentChange(event.target.checked)}
+            data-testid="product-analytics-consent"
+          />
+          {locale === 'tr'
+            ? 'Anonim ürün analitikleri (isteğe bağlı)'
+            : 'Anonymous product analytics (optional)'}
         </label>
         {mutation.isError ? <FriendlyApiErrorMessage error={mutation.error} /> : null}
         {mutation.isSuccess ? (

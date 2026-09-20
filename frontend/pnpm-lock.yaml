@@ -203,6 +203,9 @@ importers:
       '@parkio/geo':
         specifier: workspace:*
         version: link:../../packages/geo
+      '@parkio/product-analytics':
+        specifier: workspace:*
+        version: link:../../packages/product-analytics
       '@parkio/types':
         specifier: workspace:*
         version: link:../../packages/types
@@ -375,6 +378,9 @@ importers:
       '@parkio/geo':
         specifier: workspace:*
         version: link:../../packages/geo
+      '@parkio/product-analytics':
+        specifier: workspace:*
+        version: link:../../packages/product-analytics
       '@parkio/types':
         specifier: workspace:*
         version: link:../../packages/types
@@ -561,6 +567,25 @@ importers:
       typescript-eslint:
         specifier: ^8.18.1
         version: 8.61.0(eslint@9.39.4(jiti@1.21.7))(typescript@5.9.3)
+      vitest:
+        specifier: ^3.0.5
+        version: 3.2.6(@types/node@22.19.20)(jiti@1.21.7)(jsdom@26.1.0)(lightningcss@1.32.0)(msw@2.14.6(@types/node@22.19.20)(typescript@5.9.3))(terser@5.48.0)(yaml@2.9.0)
+
+  packages/product-analytics:
+    dependencies:
+      '@parkio/types':
+        specifier: workspace:*
+        version: link:../types
+      '@parkio/validation':
+        specifier: workspace:*
+        version: link:../validation
+    devDependencies:
+      '@parkio/config':
+        specifier: workspace:*
+        version: link:../config
+      typescript:
+        specifier: ^5.7.2
+        version: 5.9.3
       vitest:
         specifier: ^3.0.5
         version: 3.2.6(@types/node@22.19.20)(jiti@1.21.7)(jsdom@26.1.0)(lightningcss@1.32.0)(msw@2.14.6(@types/node@22.19.20)(typescript@5.9.3))(terser@5.48.0)(yaml@2.9.0)
@@ -9119,9 +9144,7 @@ snapshots:
       metro-runtime: 0.84.4
     transitivePeerDependencies:
       - '@babel/core'
-      - bufferutil
       - supports-color
-      - utf-8-validate
 
   '@react-native/normalize-colors@0.74.89': {}
 

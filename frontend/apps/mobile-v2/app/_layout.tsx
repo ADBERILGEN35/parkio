@@ -6,15 +6,22 @@ import {
   Inter_700Bold,
   useFonts,
 } from '@expo-google-fonts/inter';
-import { Stack, useRouter } from 'expo-router';
+import { Stack, usePathname, useRouter, useSegments } from 'expo-router';
 import * as SplashScreen from 'expo-splash-screen';
 import { StatusBar } from 'expo-status-bar';
 import { useEffect } from 'react';
+import { AppState, type AppStateStatus } from 'react-native';
 import { OfflineBanner } from '@/components/feedback/OfflineBanner';
 import { AppProviders } from '@/providers/AppProviders';
 // Importing the api module wires the single-flight refresh handler exactly once.
 import '@/services/api';
 import { bootstrapSession } from '@/services/auth';
+import {
+  initProductAnalytics,
+  setAnalyticsFocused,
+  setAnalyticsForeground,
+  trackScreenViewed,
+} from '@/services/productAnalytics';
 import {
   addNotificationTapListener,
   configureForegroundHandling,
@@ -43,6 +50,8 @@ export default function RootLayout() {
 
 function RootNavigator() {
   const router = useRouter();
+  const pathname = usePathname();
+  const segments = useSegments();
   const theme = useTheme();
   const [fontsLoaded] = useFonts({
     Inter_400Regular,
@@ -59,7 +68,30 @@ function RootNavigator() {
     void useOnboardingStore.getState().hydrate();
     void useShareDraftStore.getState().hydrate();
     void useMunicipalFilterStore.getState().hydrate();
+    void initProductAnalytics();
   }, []);
+
+  useEffect(() => {
+    const onChange = (state: AppStateStatus) => {
+      const active = state === 'active';
+      setAnalyticsForeground(active);
+      // Root layout has no screen focus effect; treat foreground as focused.
+      setAnalyticsFocused(active);
+    };
+    onChange(AppState.currentState);
+    const sub = AppState.addEventListener('change', onChange);
+    return () => sub.remove();
+  }, []);
+
+  useEffect(() => {
+    const route =
+      pathname && pathname.length > 0
+        ? pathname
+        : segments.length > 0
+          ? `/${segments.join('/')}`
+          : '/';
+    trackScreenViewed(route);
+  }, [pathname, segments]);
 
   const ready = fontsLoaded && authStatus !== 'bootstrapping' && onboardingHydrated;
 

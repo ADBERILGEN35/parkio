@@ -28,6 +28,7 @@
     "@gorhom/bottom-sheet": "^5.2.14",
     "@parkio/api-client": "workspace:*",
     "@parkio/geo": "workspace:*",
+    "@parkio/product-analytics": "workspace:*",
     "@parkio/types": "workspace:*",
     "@parkio/validation": "workspace:*",
     "@react-native-community/netinfo": "12.0.1",

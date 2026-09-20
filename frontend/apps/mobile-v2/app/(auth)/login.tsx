@@ -23,6 +23,7 @@ import { useLocale, useT } from '@/i18n/LocaleProvider';
 import { describeApiError } from '@/lib/apiErrors';
 import { authApi } from '@/services/api';
 import { adoptSession, SessionPersistenceFailure } from '@/services/auth';
+import { trackProductEvent } from '@/services/productAnalytics';
 import { useTheme } from '@/theme/ThemeProvider';
 import { useToast } from '@/providers/ToastProvider';
 
@@ -43,17 +44,21 @@ export default function LoginScreen() {
   const submit = async () => {
     const parsed = loginSchema.safeParse({ email: email.trim(), password });
     if (!parsed.success) {
+      trackProductEvent('auth_login_attempted');
+      trackProductEvent('auth_login_failed', { authFailureReason: 'validation' });
       setError({ message: t('auth.login.invalid'), traceId: null });
       return;
     }
     setSubmitting(true);
     setError(null);
     setNotVerified(false);
+    trackProductEvent('auth_login_attempted');
     try {
       // Snapshot resume before adoptSession: AuthLayout may sync-redirect on setSession.
       const pending = peekPendingAuthGateIntent();
       const response = await authApi.login(parsed.data);
       await adoptSession(response);
+      trackProductEvent('auth_login_api_succeeded');
       void applyPendingProfile(response.user.email);
       clearPendingAuthGateIntent();
       if (pending?.intent === 'google-maps') {
@@ -65,11 +70,14 @@ export default function LoginScreen() {
       router.replace(resolvePostLoginHref(pending));
     } catch (raw) {
       if (raw instanceof AccountNotVerifiedError) {
+        trackProductEvent('auth_login_failed', { authFailureReason: 'not_verified' });
         setNotVerified(true);
         setError({ message: t('auth.login.notVerified'), traceId: null });
       } else if (raw instanceof SessionPersistenceFailure) {
+        trackProductEvent('auth_login_failed', { authFailureReason: 'persistence' });
         setError({ message: t('auth.login.persistenceFailed'), traceId: null });
       } else {
+        trackProductEvent('auth_login_failed', { authFailureReason: 'unknown' });
         setError(describeApiError(raw, t));
       }
     } finally {

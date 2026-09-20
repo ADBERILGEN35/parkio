@@ -11,6 +11,7 @@ import { WebView, type WebViewMessageEvent } from 'react-native-webview';
 import type { LatLng } from '@parkio/geo';
 import { AppText } from '@/components/ui/AppText';
 import { useT } from '@/i18n/LocaleProvider';
+import { trackProductEvent } from '@/services/productAnalytics';
 import { useTheme } from '@/theme/ThemeProvider';
 import { decodeMapBridgeMessage } from './mapBridgeDecode';
 import {
@@ -72,6 +73,8 @@ export interface MapSurfaceProps {
   /** Interactive spot markers (main map); pickers pass false. */
   interactiveSpots?: boolean;
   onReady?: () => void;
+  /** Fired when the WebView map reports an init/runtime error. */
+  onError?: (code: string) => void;
   onSpotTap?: (id: string) => void;
   onMunicipalTap?: (id: string) => void;
   onMapTap?: () => void;
@@ -92,6 +95,7 @@ export const MapSurface = forwardRef<MapSurfaceHandle, MapSurfaceProps>(function
     initialZoom,
     interactiveSpots = true,
     onReady,
+    onError,
     onSpotTap,
     onMunicipalTap,
     onMapTap,
@@ -106,6 +110,7 @@ export const MapSurface = forwardRef<MapSurfaceHandle, MapSurfaceProps>(function
   const webViewRef = useRef<WebView>(null);
   const readyRef = useRef(false);
   const queueRef = useRef<string[]>([]);
+  const retryPendingRef = useRef(false);
   const [webViewEpoch, setWebViewEpoch] = useState(0);
   const [mapErrorCode, setMapErrorCode] = useState<string | null>(null);
   // Test-only injection. __DEV__ hard-gate: never active in release/production bundles
@@ -152,6 +157,8 @@ export const MapSurface = forwardRef<MapSurfaceHandle, MapSurfaceProps>(function
   }, []);
 
   const retryMap = useCallback(() => {
+    trackProductEvent('retry_attempted');
+    retryPendingRef.current = true;
     readyRef.current = false;
     queueRef.current = [];
     setMapErrorCode(null);
@@ -205,6 +212,10 @@ export const MapSurface = forwardRef<MapSurfaceHandle, MapSurfaceProps>(function
             for (const script of queued) {
               webViewRef.current?.injectJavaScript(script);
             }
+            if (retryPendingRef.current) {
+              retryPendingRef.current = false;
+              trackProductEvent('retry_outcome', { retryOutcome: 'succeeded' });
+            }
             onReady?.();
             break;
           }
@@ -235,6 +246,11 @@ export const MapSurface = forwardRef<MapSurfaceHandle, MapSurfaceProps>(function
             console.warn('[map] webview error:', message.code);
             readyRef.current = false;
             setMapErrorCode(message.code);
+            if (retryPendingRef.current) {
+              retryPendingRef.current = false;
+              trackProductEvent('retry_outcome', { retryOutcome: 'failed' });
+            }
+            onError?.(message.code);
             break;
           case 'debug':
             if (__DEV__) {
@@ -248,7 +264,7 @@ export const MapSurface = forwardRef<MapSurfaceHandle, MapSurfaceProps>(function
         // Never let untrusted WebView input crash the native handler.
       }
     },
-    [onMapTap, onMove, onMoveEnd, onMunicipalTap, onReady, onSpotTap],
+    [onError, onMapTap, onMove, onMoveEnd, onMunicipalTap, onReady, onSpotTap],
   );
 
   const onShouldStartLoadWithRequest = useCallback(

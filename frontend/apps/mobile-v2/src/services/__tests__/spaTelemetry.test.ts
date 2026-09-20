@@ -1,5 +1,6 @@
 import {
   resetProductAnalyticsForTests,
+  setProductAnalyticsConsent,
   setProductAnalyticsTransport,
   trackProductEvent,
 } from '../productAnalytics';
@@ -14,9 +15,10 @@ import {
 import type { RecommendationResponse } from '@parkio/types';
 
 describe('mobile spa telemetry', () => {
-  beforeEach(() => {
+  beforeEach(async () => {
     resetProductAnalyticsForTests();
     resetSpaTelemetryForTests();
+    await setProductAnalyticsConsent('granted');
   });
 
   it('keeps legacy parking action events', () => {

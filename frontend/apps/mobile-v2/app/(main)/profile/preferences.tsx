@@ -1,6 +1,7 @@
 import { ScrollView, StyleSheet, View } from 'react-native';
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import { useState } from 'react';
 import type { UserPreference } from '@parkio/types';
 import { AppText } from '@/components/ui/AppText';
 import { Card } from '@/components/ui/Card';
@@ -11,9 +12,13 @@ import { Toggle } from '@/components/ui/Toggle';
 import { meKeys } from '@/data/keys';
 import { myPreferencesQueryOptions } from '@/data/query-options/me';
 import { useAccessPolicy } from '@/features/map/hooks';
-import { useT } from '@/i18n/LocaleProvider';
+import { useLocale, useT } from '@/i18n/LocaleProvider';
 import { describeApiError } from '@/lib/apiErrors';
 import { usersApi } from '@/services/api';
+import {
+  getProductAnalyticsConsent,
+  setProductAnalyticsConsent,
+} from '@/services/productAnalytics';
 import { useToast } from '@/providers/ToastProvider';
 import { useTheme } from '@/theme/ThemeProvider';
 
@@ -26,10 +31,14 @@ function formatRadius(meters: number): string {
 export default function PreferencesScreen() {
   const theme = useTheme();
   const t = useT();
+  const { locale } = useLocale();
   const toast = useToast();
   const queryClient = useQueryClient();
   const insets = useSafeAreaInsets();
   const { colors } = theme;
+  const [analyticsOptIn, setAnalyticsOptIn] = useState(
+    () => getProductAnalyticsConsent() === 'granted',
+  );
 
   const prefs = useQuery(myPreferencesQueryOptions());
   const policy = useAccessPolicy();
@@ -45,6 +54,10 @@ export default function PreferencesScreen() {
   });
 
   const maxRadius = policy.data?.searchRadiusMeters ?? 2500;
+  const analyticsLabel =
+    locale === 'tr'
+      ? 'Anonim ürün analitikleri (isteğe bağlı)'
+      : 'Anonymous product analytics (optional)';
 
   return (
     <SafeAreaView style={[styles.safe, { backgroundColor: colors.background }]} edges={['top']}>
@@ -68,6 +81,23 @@ export default function PreferencesScreen() {
                 value={prefs.data.notificationsEnabled}
                 onValueChange={(value) => update.mutate({ notificationsEnabled: value })}
                 accessibilityLabel={t('profile.prefs.enabled')}
+              />
+            </View>
+          </Card>
+
+          <Card style={styles.card}>
+            <View style={styles.rowBetween}>
+              <View style={styles.rowLabels}>
+                <AppText variant="titleMd">{analyticsLabel}</AppText>
+              </View>
+              <Toggle
+                value={analyticsOptIn}
+                onValueChange={(value) => {
+                  setAnalyticsOptIn(value);
+                  void setProductAnalyticsConsent(value ? 'granted' : 'denied');
+                }}
+                accessibilityLabel={analyticsLabel}
+                testID="product-analytics-consent"
               />
             </View>
           </Card>

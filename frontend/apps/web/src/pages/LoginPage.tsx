@@ -1,3 +1,8 @@
+import {
+  AccountNotVerifiedError,
+  UnauthorizedError,
+  isParkioApiError,
+} from '@parkio/api-client';
 import { zodResolver } from '@hookform/resolvers/zod';
 import type { LoginFormValues } from '@parkio/validation';
 import { Button, ErrorMessage, Icon, Input } from '@parkio/ui';
@@ -17,6 +22,15 @@ import { useAuthStore } from '@/auth/store';
 import { useRegistrationMode } from '@/auth/useRegistrationMode';
 import { createLoginSchema } from '@/lib/validation/localized-schemas';
 import { showError, showSuccess } from '@/lib/toast';
+import { trackProductEvent } from '@/services/productAnalytics';
+
+function mapLoginFailureReason(error: unknown): 'invalid_credentials' | 'not_verified' | 'validation' | 'network' | 'unknown' {
+  if (error instanceof AccountNotVerifiedError) return 'not_verified';
+  if (error instanceof UnauthorizedError) return 'invalid_credentials';
+  if (isParkioApiError(error) && error.fieldErrors?.length) return 'validation';
+  if (error instanceof TypeError) return 'network';
+  return 'unknown';
+}
 
 export function LoginPage() {
   const { authApi } = useParkioSdk();
@@ -42,12 +56,14 @@ export function LoginPage() {
   const onSubmit = handleSubmit(async (values) => {
     setApiError(null);
     setTraceId(undefined);
+    trackProductEvent('auth_login_attempted');
     try {
       const result = await authApi.login(values);
       if (!result.accessToken) {
         throw new Error(t('auth:login.missingToken'));
       }
       setSession(result.accessToken, result.user);
+      trackProductEvent('auth_login_api_succeeded');
       showSuccess(t('auth:login.success'));
       if (getPendingProfile()) {
         beginProvisioning();
@@ -59,6 +75,9 @@ export function LoginPage() {
         );
       }
     } catch (error) {
+      trackProductEvent('auth_login_failed', {
+        authFailureReason: mapLoginFailureReason(error),
+      });
       const friendly = describeAuthError(error, t('errors:auth.loginFailed'), t);
       setApiError(friendly.message);
       setTraceId(friendly.traceId);

@@ -20,6 +20,7 @@ import { ParkHereAtFacilityButton } from '@/features/parked-car';
 import { formatRelativeAgo } from '@/lib/format';
 import { formatDistance } from '@/lib/spotDiscovery';
 import { isValidRouteParameter } from '@/routing/route-manifest';
+import { trackProductEvent } from '@/services/productAnalytics';
 import { MunicipalFacilityLocationSection } from './MunicipalFacilityLocationSection';
 
 function facilityTypeLabelKey(type: MunicipalFacilityType): string | null {
@@ -371,6 +372,9 @@ export function MunicipalFacilityDetailPage({
       <nav className="mb-lg">
         <Link
           to="/map"
+          onClick={() => {
+            trackProductEvent('returned_to_map');
+          }}
           className={cn(
             'inline-flex items-center gap-xs rounded-full px-sm py-xs text-label-md',
             'text-on-surface-variant no-underline transition-colors duration-std',

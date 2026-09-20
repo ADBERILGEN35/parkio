@@ -69,10 +69,20 @@ import { useT } from '@/i18n/LocaleProvider';
 import { apiErrorCode } from '@/lib/apiErrors';
 import { formatClock } from '@/lib/time';
 import { readJson, writeJson } from '@/services/jsonStore';
+import { trackProductEvent } from '@/services/productAnalytics';
 import { trackAssistantOpened, trackReturnToCarStarted } from '@/services/spaTelemetry';
 import { useAuthStore } from '@/state/authStore';
 
 const SEARCH_AREA_THRESHOLD_M = 250;
+
+function mapBridgeErrorToCode(
+  code: string,
+): 'load_failed' | 'style_failed' | 'bridge_error' | 'timeout' | 'unknown' {
+  if (code.includes('webgl') || code.includes('load')) return 'load_failed';
+  if (code.includes('style')) return 'style_failed';
+  if (code.includes('timeout')) return 'timeout';
+  return 'bridge_error';
+}
 
 function isViewLimitCode(code: string | null): boolean {
   return Boolean(code && /VIEW/.test(code) && /LIMIT/.test(code));
@@ -89,10 +99,43 @@ export default function MapScreen() {
   const spaEnabled = appConfig.features.smartParkingAssistant;
   const municipalFilters = useMunicipalMapFilters();
   const setMunicipalLayerEnabled = useMunicipalFilterStore((s) => s.setLayerEnabled);
-  const setMunicipalSource = useMunicipalFilterStore((s) => s.setSource);
-  const setMunicipalOccupancy = useMunicipalFilterStore((s) => s.setOccupancy);
-  const setMunicipalRadiusMeters = useMunicipalFilterStore((s) => s.setRadiusMeters);
-  const resetMunicipalFilters = useMunicipalFilterStore((s) => s.resetFilters);
+  const setMunicipalSourceRaw = useMunicipalFilterStore((s) => s.setSource);
+  const setMunicipalOccupancyRaw = useMunicipalFilterStore((s) => s.setOccupancy);
+  const setMunicipalRadiusMetersRaw = useMunicipalFilterStore((s) => s.setRadiusMeters);
+  const resetMunicipalFiltersRaw = useMunicipalFilterStore((s) => s.resetFilters);
+
+  const setMunicipalSource = useCallback(
+    (source: Parameters<typeof setMunicipalSourceRaw>[0]) => {
+      trackProductEvent('filter_applied', { filterKind: 'source' });
+      setMunicipalSourceRaw(source);
+    },
+    [setMunicipalSourceRaw],
+  );
+  const setMunicipalOccupancy = useCallback(
+    (occupancy: Parameters<typeof setMunicipalOccupancyRaw>[0]) => {
+      trackProductEvent('filter_applied', { filterKind: 'availability' });
+      setMunicipalOccupancyRaw(occupancy);
+    },
+    [setMunicipalOccupancyRaw],
+  );
+  const setMunicipalRadiusMeters = useCallback(
+    (radiusMeters: Parameters<typeof setMunicipalRadiusMetersRaw>[0]) => {
+      trackProductEvent('filter_applied', { filterKind: 'radius' });
+      setMunicipalRadiusMetersRaw(radiusMeters);
+    },
+    [setMunicipalRadiusMetersRaw],
+  );
+  const resetMunicipalFilters = useCallback(() => {
+    trackProductEvent('filter_applied', { filterKind: 'reset' });
+    resetMunicipalFiltersRaw();
+  }, [resetMunicipalFiltersRaw]);
+  const onLayerEnabledChange = useCallback(
+    (enabled: boolean) => {
+      trackProductEvent('filter_applied', { filterKind: enabled ? 'other' : 'community' });
+      setMunicipalLayerEnabled(enabled);
+    },
+    [setMunicipalLayerEnabled],
+  );
 
   const location = useLocation();
   const policy = useAccessPolicy();
@@ -386,6 +429,7 @@ export default function MapScreen() {
     (id: string) => {
       setSelectedSpotId(null);
       setSelectedMunicipalId(id);
+      trackProductEvent('facility_preview_opened', { selectionOrigin: 'map' });
       if (spaEnabled && assistant.destination) {
         const match = assistant.recommendations.data?.candidates.find(
           (c) => c.channel === 'MUNICIPAL_FACILITY' && c.refId === id,
@@ -505,6 +549,12 @@ export default function MapScreen() {
         ref={mapRef}
         initialCenter={DEFAULT_MAP_CENTER}
         initialZoom={DEFAULT_MAP_ZOOM}
+        onReady={() => {
+          trackProductEvent('map_ready');
+        }}
+        onError={(code) => {
+          trackProductEvent('map_init_failed', { mapErrorCode: mapBridgeErrorToCode(code) });
+        }}
         onSpotTap={selectSpot}
         onMunicipalTap={municipalLayerActive ? selectMunicipal : undefined}
         onMapTap={clearSelection}
@@ -644,6 +694,7 @@ export default function MapScreen() {
             !activeParkingSession.isPending
           }
           onOpenDetail={(facilityId) => {
+            trackProductEvent('facility_detail_opened', { selectionOrigin: 'map' });
             setSelectedMunicipalId(null);
             router.push({
               pathname: '/(main)/facilities/[id]',
@@ -663,7 +714,7 @@ export default function MapScreen() {
           visible={municipalFilterSheetOpen}
           onClose={() => setMunicipalFilterSheetOpen(false)}
           filters={municipalFilters}
-          onLayerEnabledChange={setMunicipalLayerEnabled}
+          onLayerEnabledChange={onLayerEnabledChange}
           onSourceChange={setMunicipalSource}
           onOccupancyChange={setMunicipalOccupancy}
           onRadiusChange={setMunicipalRadiusMeters}

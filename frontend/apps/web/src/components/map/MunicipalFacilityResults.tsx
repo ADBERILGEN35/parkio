@@ -18,6 +18,7 @@ import {
   type MunicipalAvailabilityFilter,
   type MunicipalFacilityFilters,
 } from '@/lib/spotDiscovery';
+import { trackProductEvent } from '@/services/productAnalytics';
 
 export interface MunicipalFacilityResultsProps {
   search: UseQueryResult<MunicipalFacility[], Error>;
@@ -276,10 +277,12 @@ function MunicipalFilterBar({
   const active = hasActiveMunicipalFilters(filters);
 
   const setAvailability = (availability: MunicipalAvailabilityFilter) => {
+    trackProductEvent('filter_applied', { filterKind: 'availability' });
     onFiltersChange({ ...filters, availability });
   };
 
   const toggleSource = (label: string) => {
+    trackProductEvent('filter_applied', { filterKind: 'source' });
     const next = filters.sourceLabels.includes(label)
       ? filters.sourceLabels.filter((value) => value !== label)
       : [...filters.sourceLabels, label];
@@ -287,6 +290,7 @@ function MunicipalFilterBar({
   };
 
   const toggleType = (type: MunicipalFacilityType) => {
+    trackProductEvent('filter_applied', { filterKind: 'type' });
     const next = filters.facilityTypes.includes(type)
       ? filters.facilityTypes.filter((value) => value !== type)
       : [...filters.facilityTypes, type];
@@ -347,7 +351,10 @@ function MunicipalFilterBar({
 
       <FilterChip
         pressed={filters.provenanceOnly}
-        onClick={() => onFiltersChange({ ...filters, provenanceOnly: !filters.provenanceOnly })}
+        onClick={() => {
+          trackProductEvent('filter_applied', { filterKind: 'other' });
+          onFiltersChange({ ...filters, provenanceOnly: !filters.provenanceOnly });
+        }}
         testId="municipal-filter-provenance"
       >
         <Icon name="info" className="text-[14px] leading-none" />
@@ -358,7 +365,10 @@ function MunicipalFilterBar({
         <button
           type="button"
           data-testid="municipal-filter-clear"
-          onClick={() => onFiltersChange(EMPTY_MUNICIPAL_FILTERS)}
+          onClick={() => {
+            trackProductEvent('filter_applied', { filterKind: 'reset' });
+            onFiltersChange(EMPTY_MUNICIPAL_FILTERS);
+          }}
           className="ml-auto inline-flex shrink-0 items-center gap-0.5 whitespace-nowrap rounded-full px-sm py-xs text-label-sm font-semibold text-secondary hover:bg-secondary/10 focus:outline-none focus-visible:ring-2 focus-visible:ring-secondary"
         >
           <Icon name="close" className="text-[14px] leading-none" />
