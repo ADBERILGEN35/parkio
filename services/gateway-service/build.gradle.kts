@@ -27,6 +27,13 @@ dependencies {
     runtimeOnly(libs.jjwt.jackson)
     runtimeOnly(libs.postgresql)
 
+    // spring-cloud-starter hardcodes bcprov 1.80.2; raise floor to catalog ≥1.85 (CVE-2026-8763).
+    constraints {
+        implementation(libs.bouncycastle.bcprov) {
+            because("CVE-2026-8763: bcprov-jdk18on before 1.85 is blocked by Security CI CRITICAL policy")
+        }
+    }
+
     testImplementation(libs.spring.boot.starter.test)
     testRuntimeOnly(libs.h2)
     testRuntimeOnly(libs.junit.platform.launcher)
