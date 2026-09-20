@@ -1,4 +1,5 @@
 import { zodResolver } from '@hookform/resolvers/zod';
+import { isParkioApiError } from '@parkio/api-client';
 import { passwordRequirementState, type RegisterProfileFormValues } from '@parkio/validation';
 import { Button, ErrorMessage, Icon, Input } from '@parkio/ui';
 import { useMemo, useState, useEffect } from 'react';
@@ -15,6 +16,13 @@ import {
 } from '@/lib/validation/localized-schemas';
 import { showError, showSuccess } from '@/lib/toast';
 import { useRegistrationMode } from '@/auth/useRegistrationMode';
+import { trackProductEvent } from '@/services/productAnalytics';
+
+function mapSignupFailureReason(error: unknown): 'validation' | 'network' | 'unknown' {
+  if (isParkioApiError(error) && error.fieldErrors?.length) return 'validation';
+  if (error instanceof TypeError) return 'network';
+  return 'unknown';
+}
 
 export function RegisterPage() {
   const { authApi } = useParkioSdk();
@@ -63,6 +71,7 @@ export function RegisterPage() {
   const onSubmit = handleSubmit(async (values) => {
     setApiError(null);
     setTraceId(undefined);
+    trackProductEvent('auth_signup_attempted');
     try {
       await authApi.register({
         email: values.email,
@@ -74,9 +83,13 @@ export function RegisterPage() {
         displayName: values.displayName.trim(),
         phoneNumber: values.phoneNumber?.trim() || undefined,
       });
+      trackProductEvent('auth_signup_api_succeeded');
       showSuccess(t('auth:register.success'));
       navigate(`/check-email?email=${encodeURIComponent(values.email.trim())}`);
     } catch (error) {
+      trackProductEvent('auth_signup_failed', {
+        authFailureReason: mapSignupFailureReason(error),
+      });
       const friendly = describeAuthError(error, t('errors:auth.registrationFailed'), t);
       setApiError(friendly.message);
       setTraceId(friendly.traceId);

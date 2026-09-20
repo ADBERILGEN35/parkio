@@ -11,6 +11,7 @@ import { MunicipalFacilityMarker } from './MunicipalFacilityMarker';
 import { ParkedCarFocus } from './ParkedCarFocus';
 import { ParkedCarMarker } from './ParkedCarMarker';
 import { isUsableParkedCoordinate, type ParkedCarFocusRequest } from './parkedCarCoords';
+import { trackProductEvent } from '@/services/productAnalytics';
 import { DEFAULT_MAP_ZOOM, getMapStyle, type LatLng } from './mapConfig';
 import { Recenter } from './Recenter';
 
@@ -235,6 +236,12 @@ export function NearbySpotsMap({
         mapStyle={getMapStyle()}
         dragRotate={false}
         pitchWithRotate={false}
+        onLoad={() => {
+          trackProductEvent('map_ready');
+        }}
+        onError={() => {
+          trackProductEvent('map_init_failed', { mapErrorCode: 'load_failed' });
+        }}
         onClick={(event) => {
           onSelectSpot?.(null);
           onSelectMunicipalFacility?.(null);

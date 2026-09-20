@@ -29,6 +29,7 @@
     "@hookform/resolvers": "^3.9.1",
     "@parkio/api-client": "workspace:*",
     "@parkio/geo": "workspace:*",
+    "@parkio/product-analytics": "workspace:*",
     "@parkio/types": "workspace:*",
     "@parkio/ui": "workspace:*",
     "@parkio/validation": "workspace:*",

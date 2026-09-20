@@ -4,6 +4,9 @@ import { runRegisteredSessionQueryCleanup } from '@/data/sessionQueryCleanup';
 import { clearPendingAuthGateIntent } from '@/features/auth/authGateIntents';
 import { useAuthStore } from '@/state/authStore';
 import { authApi } from './api';
+import {
+  resetProductAnalyticsIdentity,
+} from './productAnalytics';
 import { PersistenceError, getSecureStoreGeneration } from './secureStore';
 import { tokenStorage } from './tokenStorage';
 
@@ -80,6 +83,7 @@ export async function signOut(options?: { allDevices?: boolean }): Promise<void>
 
   const durable = tokenStorage.clearDurable();
   await runRegisteredSessionQueryCleanup();
+  await resetProductAnalyticsIdentity();
   useAuthStore.getState().clearSession();
   clearPendingAuthGateIntent();
 

@@ -17,6 +17,7 @@ import {
 import { useLocale, useT } from '@/i18n/LocaleProvider';
 import { describeApiError } from '@/lib/apiErrors';
 import { authApi } from '@/services/api';
+import { trackProductEvent } from '@/services/productAnalytics';
 import { useTheme } from '@/theme/ThemeProvider';
 
 export default function RegisterScreen() {
@@ -46,27 +47,36 @@ export default function RegisterScreen() {
 
     const trimmedName = displayName.trim();
     if (trimmedName.length < 2 || trimmedName.length > 50) {
+      trackProductEvent('auth_signup_attempted');
+      trackProductEvent('auth_signup_failed', { authFailureReason: 'validation' });
       setNameError(t('common.requiredField'));
       return;
     }
     const parsed = registerSchema.safeParse({ email: email.trim(), password });
     if (!parsed.success || !isStrongPassword(password)) {
+      trackProductEvent('auth_signup_attempted');
+      trackProductEvent('auth_signup_failed', { authFailureReason: 'validation' });
       setError({ message: t('common.error.generic'), traceId: null });
       return;
     }
     if (!consent) {
+      trackProductEvent('auth_signup_attempted');
+      trackProductEvent('auth_signup_failed', { authFailureReason: 'validation' });
       setConsentError(true);
       return;
     }
 
     setSubmitting(true);
+    trackProductEvent('auth_signup_attempted');
     try {
       await authApi.register({ ...parsed.data, locale });
       // Display name is applied via PATCH /users/me after the first login
       // (registration alone cannot authenticate — email must be verified).
       await stashPendingProfile({ email: parsed.data.email, displayName: trimmedName });
+      trackProductEvent('auth_signup_api_succeeded');
       router.replace({ pathname: '/(auth)/check-email', params: { email: parsed.data.email } });
     } catch (raw) {
+      trackProductEvent('auth_signup_failed', { authFailureReason: 'unknown' });
       setError(describeApiError(raw, t));
     } finally {
       setSubmitting(false);

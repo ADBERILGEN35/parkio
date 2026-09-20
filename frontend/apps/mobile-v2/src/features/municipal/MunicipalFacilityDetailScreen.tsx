@@ -24,6 +24,7 @@ import { useLocale, useT } from '@/i18n/LocaleProvider';
 import { describeApiError } from '@/lib/apiErrors';
 import { formatDistance, formatShortDuration } from '@/lib/time';
 import { useToast } from '@/providers/ToastProvider';
+import { trackProductEvent } from '@/services/productAnalytics';
 import { useAuthStore } from '@/state/authStore';
 import { useTheme } from '@/theme/ThemeProvider';
 import { useNowTick } from '@/components/spots/FreshnessRing';
@@ -71,6 +72,11 @@ export function MunicipalFacilityDetailScreen() {
     }
   }, [detailQuery.data, t, toast]);
 
+  const backToMap = useCallback(() => {
+    trackProductEvent('returned_to_map');
+    router.replace('/(main)/(tabs)/map');
+  }, [router]);
+
   const fields = useMemo(() => {
     if (!detailQuery.data) return null;
     return buildMunicipalFacilityDetailFields(detailQuery.data, {
@@ -86,7 +92,7 @@ export function MunicipalFacilityDetailScreen() {
   if (authStatus === 'bootstrapping' || authStatus === 'suspended') {
     return (
       <SafeAreaView style={[styles.safe, { backgroundColor: colors.background }]} edges={['top']}>
-        <ScreenHeader title={t('map.municipal.detail.title')} onBack={() => router.back()} />
+        <ScreenHeader title={t('map.municipal.detail.title')} onBack={backToMap} />
         <View style={styles.loading}>
           <Skeleton height={24} width="60%" />
           <Skeleton height={16} width="40%" />
@@ -149,6 +155,7 @@ export function MunicipalFacilityDetailScreen() {
     <SafeAreaView style={[styles.safe, { backgroundColor: colors.background }]} edges={['top']}>
       <ScreenHeader
         title={fields?.title ?? t('map.municipal.detail.title')}
+        onBack={backToMap}
       />
 
       {showLoading ? (

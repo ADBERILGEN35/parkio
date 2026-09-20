@@ -20,6 +20,7 @@ import { useForm } from 'react-hook-form';
 import { useTranslation } from 'react-i18next';
 import { Link, useSearchParams } from 'react-router-dom';
 import { useAuthStore } from '@/auth/store';
+import { trackProductEvent } from '@/services/productAnalytics';
 import { BottomSheet, COLLAPSED_PEEK, type SheetState } from '@/components/map/BottomSheet';
 import { DiscoveryResults } from '@/components/map/DiscoveryResults';
 import { MapLayerVisibilityControls } from '@/components/map/MapLayerVisibilityControls';
@@ -393,6 +394,9 @@ export function MapPage({
       if (id !== null) {
         setSelectedId(null);
         setParkedCarSelected(false);
+        trackProductEvent('facility_preview_opened', {
+          selectionOrigin: origin === 'map' || origin === 'list' ? origin : 'unknown',
+        });
       }
       if (id !== null && !isDesktop) setSheetState('collapsed');
     },

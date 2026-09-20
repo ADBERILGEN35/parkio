@@ -70,6 +70,20 @@ const ALLOWED_PARAM_KEYS = new Set<string>([
   'sessionOutcome',
   'timeToChoiceBucket',
   'journeyId',
+  // Y04 product analytics
+  'schemaVersion',
+  'screenName',
+  'previousScreenName',
+  'selectionOrigin',
+  'filterKind',
+  'mapErrorCode',
+  'authFailureReason',
+  'retryOutcome',
+  'sessionEndReason',
+  'activeDurationMs',
+  'incomplete',
+  'deferred',
+  'checkpointSeq',
 ]);
 
 export function isSpaTelemetryEventName(value: unknown): value is SpaTelemetryEventName {

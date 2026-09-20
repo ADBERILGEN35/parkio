@@ -1,5 +1,6 @@
 import {
   resetProductAnalyticsForTests,
+  setProductAnalyticsConsent,
   setProductAnalyticsTransport,
   trackProductEvent,
 } from '../productAnalytics';
@@ -9,7 +10,8 @@ describe('productAnalytics privacy', () => {
     resetProductAnalyticsForTests();
   });
 
-  it('accepts coarse interaction params', () => {
+  it('accepts coarse interaction params', async () => {
+    await setProductAnalyticsConsent('granted');
     const transport = jest.fn();
     setProductAnalyticsTransport(transport);
     const prevDev = (global as { __DEV__?: boolean }).__DEV__;
@@ -51,7 +53,8 @@ describe('productAnalytics privacy', () => {
     ).toThrow(/Forbidden/);
   });
 
-  it('allows SPA funnel names as product events', () => {
+  it('allows SPA funnel names as product events', async () => {
+    await setProductAnalyticsConsent('granted');
     const transport = jest.fn();
     setProductAnalyticsTransport(transport);
     (global as { __DEV__?: boolean }).__DEV__ = false;
