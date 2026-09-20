@@ -1,93 +1,71 @@
-# Parkio Slack business notifications (Y03)
+# Parkio Slack business notifications (Y03 / Y03A)
 
-**Status:** Implemented delivery core + three event families. **Disabled by default.**  
-**Real Slack delivery:** NOT activated by this package.  
-**Alertmanager:** Unchanged; continues to own metric/probe paging via `PARKIO_ALERT_SLACK_*`.
+**Status:** Delivery core + three event families + Y03A reliability corrections.  
+**Disabled by default.** Real Slack: NOT activated.  
+**Alertmanager:** Unchanged (`PARKIO_ALERT_SLACK_*`).
 
-## What this is
+## Guarantees (honest)
 
-An async, durable **biz/ops narrative** relay under `scripts/slack_biz/`:
+| Claim | Actual |
+|-------|--------|
+| At-least-once to Slack | **Best-effort** with durable queue; **not** exactly-once |
+| Ambiguous timeout | **Bounded retry with duplicate risk**, then terminal `delivery_unknown` — **never** confirmed `delivered` |
+| Dedup admission | Separate from delivery outcome; 168h retention window |
+| Workers | **Single worker enforced** (SQLite `worker_lock`); second worker rejected |
+| Registration path | Envelope adapter + **file-inbox consumer** implemented; **live Kafka consumer ABSENT** unless bootstrap + kafka-python |
 
-| Family | Source | Route |
-|--------|--------|-------|
-| `registration.completed` | Committed auth outbox `UserRegistered` Kafka envelope | `biz-growth` |
-| `incident.opened` / `incident.recovered` | Internal incident adapter (explicit recovery only) | `ops-alerts` |
-| `backup.local` / `backup.offsite` | Backup script completion signals (separate planes) | `ops-alerts` |
+## Delivery states
 
-Other Y01 catalog families remain **deferred** (see matrix in docs / PR evidence).
+`queued` → `in_flight` → `delivered` | `retry` | `dead` | `delivery_unknown`
 
-## Why not notification-service?
+- `delivered`: confirmed HTTP success (`ok`)
+- `delivery_unknown`: ambiguous exhausted; operator-visible (`--list-unknown`, `--resolve-unknown`)
+- Lease expiry returns `in_flight` → `retry` (crash recovery)
 
-`notification-service` is Expo push / in-app. Extending it for Slack would mix mobile delivery with ops/biz paging. The smallest reliable fit is this thin Python relay using repository-native durable queue (SQLite) + optional backup hook.
+## Configuration
 
-## Transport
-
-**Incoming webhook** (`PARKIO_SLACK_BIZ_WEBHOOK_URL`).
-
-| Capability | Support |
-|------------|---------|
-| Post text message | Yes |
-| Thread update / `chat.update` | **Deferred** (needs bot token + stored `ts`) |
-| Recovery correlation | Separate message with same `fingerprint` |
-| Permissions | Incoming webhook URL only — no workspace-read scopes |
-
-Do **not** reuse `PARKIO_ALERT_SLACK_WEBHOOK_URL` for biz events (worker refuses equality when `PARKIO_SLACK_BIZ_FORBID_ALERTMANAGER_WEBHOOK=1`).
-
-## Configuration (activation)
+See env vars in prior Y03 docs plus:
 
 | Variable | Default | Meaning |
 |----------|---------|---------|
-| `PARKIO_SLACK_BIZ_ENABLED` | unset/false | Master switch |
-| `PARKIO_SLACK_BIZ_WEBHOOK_URL` | empty | Destination (required to activate) |
-| `PARKIO_SLACK_BIZ_WEBHOOK_URL_BIZ` | empty | Optional biz-growth override |
-| `PARKIO_SLACK_BIZ_WEBHOOK_URL_OPS` | empty | Optional ops-alerts override |
-| `PARKIO_SLACK_BIZ_DATA_DIR` | `.parkio/slack-biz` | Queue / dedup / DLT SQLite |
-| `PARKIO_SLACK_BIZ_MAX_ATTEMPTS` | `5` | Bound before DLT |
-| `PARKIO_SLACK_BIZ_HTTP_TIMEOUT` | `5` | Seconds |
-| `PARKIO_SLACK_BIZ_DEDUP_RETENTION_HOURS` | `168` | Dedup key retention |
-| `PARKIO_SLACK_BIZ_ENVIRONMENT` | `local` | Rendered env label |
-| `PARKIO_SLACK_BIZ_DIAGNOSTIC_BASE_URL` | empty | Optional link base (no invented dashboards) |
-| `PARKIO_SLACK_BIZ_TRUSTED_PRODUCERS` | auth-outbox,backup-script,incident-adapter,acceptance-harness | Allow-list |
+| `PARKIO_SLACK_BIZ_AMBIGUOUS_RETRY_BASE` | `2` | Base delay for ambiguous retries |
+| `PARKIO_SLACK_BIZ_LEASE_SECONDS` | `30` | Claim lease |
+| `PARKIO_SLACK_BIZ_WORKER_STALE_SECONDS` | `60` | Steal stale worker lock |
+| `PARKIO_SLACK_BIZ_REGISTRATION_INBOX` | unset | File inbox for `UserRegistered` envelopes |
+| `PARKIO_SLACK_BIZ_KAFKA_BOOTSTRAP` | unset | Optional live Kafka |
+| `PARKIO_SLACK_BIZ_KAFKA_TOPIC` | `parkio.auth.user` | Auth outbox topic |
+| `PARKIO_SLACK_BIZ_KAFKA_GROUP` | `parkio-slack-biz-registration` | Consumer group |
+| `PARKIO_SLACK_BIZ_KAFKA_AUTO_OFFSET_RESET` | `latest` | Avoid historical flood on first enable |
 
-Activation requires **both** `ENABLED=true` **and** a webhook URL. Enabling without a URL performs no outbound delivery.
+## Registration connectivity
 
-### External Slack setup (operator; not done by this package)
-
-1. Create a dedicated Incoming Webhook for biz/ops narrative channels (not the Alertmanager webhook).
-2. Set env vars on the host / compose overlay.
-3. Run `python scripts/slack_biz/worker.py --loop`.
-4. For registration: feed committed `UserRegistered` envelopes via `enqueue.py --kind registration` (Kafka consumer wiring is a follow-on; outbox event already exists post-commit).
-5. For incidents: enqueue explicit `phase=opened|recovered` JSON until a runtime producer exists (**production producer gap**).
-6. Backup scripts auto-enqueue when enabled (see `parkio_backup_enqueue_slack_biz`).
-
-## Dedup / retry / DLT
-
-- **Dedup key examples:** `biz:UserRegistered:{event_id}`, `incident:{service}:{fingerprint}:open|recovered`, `backup:{local|offsite}:{scope}:{date}:{outcome}`
-- **Retention:** 168h default; terminal rows purged only after expiry. In-flight/queued keys are never purged.
-- **Retry:** exponential backoff + jitter; `Retry-After` honored on HTTP 429.
-- **Ambiguous timeout:** classified `ambiguous`; treated as delivered for dedup (Slack may have accepted). Metric: `slack_biz_delivered_total{ambiguous=true}`. **Not** exactly-once.
-- **DLT:** `python scripts/slack_biz/worker.py --list-dlt`
-- **Replay:** re-enqueue only after intentional dedup clear / new event_id; do not delete dedup while Kafka may redeliver.
-
-## Rollback / disable
-
-1. Set `PARKIO_SLACK_BIZ_ENABLED=false` (or unset).
-2. Stop the worker process.
-3. Leave Alertmanager vars untouched.
-4. Queue rows remain durable for later inspection; no production Slack calls occur while disabled.
-
-## Isolated acceptance
-
-```bash
-python scripts/slack_biz/run_acceptance.py
+```
+register() TX + outbox UserRegistered
+  → AuthOutboxRelay → parkio.auth.user
+  → [file inbox | optional Kafka consumer]
+  → durable SQLite enqueue
+  → THEN ack/commit offset
+  → worker → Slack webhook
 ```
 
-Uses a local mock HTTP server. Refuses `*.slack.com` destinations.
+Disabled integration: worker sends nothing; queue may retain backlog. Do not enable with `earliest` against a populated topic.
 
-## Failure of the notification channel
+## Operator resolve (uncertain)
 
-A broken Slack integration cannot reliably report its own outage via Slack. Inspect local metrics (`worker.py --metrics`), DLT, and host logs / Prometheus textfile backups instead.
+```bash
+python scripts/slack_biz/worker.py --list-unknown
+python scripts/slack_biz/worker.py --resolve-unknown EVENT_ID --resolution accept_as_delivered|requeue|discard --operator alice
+```
 
-## G01 / G02
+`requeue` may duplicate a Slack message.
 
-This package does **not** close G01-R1, G01-R2, or G02-R1.
+## Acceptance
+
+```bash
+python scripts/slack_biz/run_acceptance.py              # Y03 mock 15/15
+python scripts/slack_biz/run_reliability_acceptance.py  # Y03A fault injection
+```
+
+## Incident production producer
+
+Still an **explicit gap** (synthetic/adapter only).

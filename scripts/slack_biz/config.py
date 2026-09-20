@@ -40,6 +40,18 @@ class SlackBizConfig:
     trusted_producers: frozenset[str]
     # Never inherit Alertmanager webhook accidentally in tests
     forbid_alertmanager_webhook: bool
+    # Ambiguous timeout: base delay before duplicate-risk retry
+    ambiguous_retry_base_seconds: float
+    # Lease / single-worker
+    lease_seconds: float
+    worker_stale_seconds: float
+    # Kafka registration consumer (optional)
+    kafka_bootstrap: str | None
+    kafka_topic: str
+    kafka_group: str
+    kafka_auto_offset_reset: str
+    # File inbox for registration envelopes (local/CI)
+    registration_inbox_dir: Path | None
 
     @property
     def db_path(self) -> Path:
@@ -97,5 +109,27 @@ def load_config(environ: dict[str, str] | None = None) -> SlackBizConfig:
         trusted_producers=frozenset(p.strip() for p in trusted.split(",") if p.strip()),
         forbid_alertmanager_webhook=_truthy(
             env.get("PARKIO_SLACK_BIZ_FORBID_ALERTMANAGER_WEBHOOK", "1")
+        ),
+        ambiguous_retry_base_seconds=float(
+            env.get("PARKIO_SLACK_BIZ_AMBIGUOUS_RETRY_BASE", "2")
+        ),
+        lease_seconds=float(env.get("PARKIO_SLACK_BIZ_LEASE_SECONDS", "30")),
+        worker_stale_seconds=float(
+            env.get("PARKIO_SLACK_BIZ_WORKER_STALE_SECONDS", "60")
+        ),
+        kafka_bootstrap=(env.get("PARKIO_SLACK_BIZ_KAFKA_BOOTSTRAP") or "").strip()
+        or None,
+        kafka_topic=env.get("PARKIO_SLACK_BIZ_KAFKA_TOPIC", "parkio.auth.user"),
+        kafka_group=env.get(
+            "PARKIO_SLACK_BIZ_KAFKA_GROUP", "parkio-slack-biz-registration"
+        ),
+        # earliest only for disposable/local; production must use latest or committed offsets
+        kafka_auto_offset_reset=env.get(
+            "PARKIO_SLACK_BIZ_KAFKA_AUTO_OFFSET_RESET", "latest"
+        ),
+        registration_inbox_dir=(
+            Path(env["PARKIO_SLACK_BIZ_REGISTRATION_INBOX"])
+            if env.get("PARKIO_SLACK_BIZ_REGISTRATION_INBOX")
+            else None
         ),
     )

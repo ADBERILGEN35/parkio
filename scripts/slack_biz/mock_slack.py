@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import threading
+import time
 from dataclasses import dataclass, field
 from http.server import BaseHTTPRequestHandler, HTTPServer
 from typing import Any
@@ -22,16 +23,19 @@ class CapturedRequest:
 @dataclass
 class MockSlackState:
     requests: list[CapturedRequest] = field(default_factory=list)
-    status_sequence: list[tuple[int, str, dict[str, str]]] = field(default_factory=list)
+    # (status, body, headers, mode) mode: normal | drop_connection | hang
+    status_sequence: list[tuple[int, str, dict[str, str], str]] = field(
+        default_factory=list
+    )
     default_status: int = 200
     default_body: str = "ok"
     lock: threading.Lock = field(default_factory=threading.Lock)
 
-    def next_response(self) -> tuple[int, str, dict[str, str]]:
+    def next_response(self) -> tuple[int, str, dict[str, str], str]:
         with self.lock:
             if self.status_sequence:
                 return self.status_sequence.pop(0)
-            return self.default_status, self.default_body, {}
+            return self.default_status, self.default_body, {}, "normal"
 
     def record(self, req: CapturedRequest) -> None:
         with self.lock:
@@ -68,7 +72,17 @@ class MockSlackServer:
                         json_body=parsed if isinstance(parsed, dict) else None,
                     )
                 )
-                status, resp_body, extra_headers = parent.state.next_response()
+                status, resp_body, extra_headers, mode = parent.state.next_response()
+                if mode == "drop_connection":
+                    # Accept/read request then close without HTTP response → client ambiguous
+                    try:
+                        self.connection.close()
+                    except OSError:
+                        pass
+                    return
+                if mode == "hang":
+                    time.sleep(30)
+                    return
                 payload = resp_body.encode("utf-8")
                 self.send_response(status)
                 self.send_header("Content-Type", "text/plain")
@@ -102,9 +116,18 @@ class MockSlackServer:
             self._thread.join(timeout=5)
 
     def enqueue_response(
-        self, status: int, body: str = "ok", headers: dict[str, str] | None = None
+        self,
+        status: int,
+        body: str = "ok",
+        headers: dict[str, str] | None = None,
+        *,
+        mode: str = "normal",
     ) -> None:
-        self.state.status_sequence.append((status, body, headers or {}))
+        self.state.status_sequence.append((status, body, headers or {}, mode))
+
+    def enqueue_drop_connection(self) -> None:
+        """Accept/read body then close without HTTP response (ambiguous)."""
+        self.enqueue_response(200, "ok", mode="drop_connection")
 
 
 def assert_no_real_slack_url(url: str) -> None:

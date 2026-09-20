@@ -89,15 +89,40 @@ class SlackWebhookTransport:
                 ambiguous=True,
             )
         except urllib.error.URLError as exc:
-            reason = str(getattr(exc, "reason", exc))
-            # Connection refused / DNS → transient
+            reason = getattr(exc, "reason", exc)
+            reason_s = str(reason)
+            # Connection reset / incomplete response after send → ambiguous
+            if _looks_like_lost_response(reason):
+                return TransportResult(
+                    TransportClass.AMBIGUOUS,
+                    None,
+                    None,
+                    f"lost_response:{reason_s}",
+                    ambiguous=True,
+                )
             return TransportResult(
                 TransportClass.TRANSIENT,
                 None,
                 None,
-                f"url_error:{reason}",
+                f"url_error:{reason_s}",
+            )
+        except (ConnectionResetError, BrokenPipeError, ConnectionAbortedError) as exc:
+            return TransportResult(
+                TransportClass.AMBIGUOUS,
+                None,
+                None,
+                f"conn_reset:{exc}",
+                ambiguous=True,
             )
         except OSError as exc:
+            if _looks_like_lost_response(exc):
+                return TransportResult(
+                    TransportClass.AMBIGUOUS,
+                    None,
+                    None,
+                    f"lost_response:{exc}",
+                    ambiguous=True,
+                )
             return TransportResult(
                 TransportClass.TRANSIENT,
                 None,
@@ -168,3 +193,20 @@ def build_webhook_payload(*, text: str, username: str = "Parkio") -> dict[str, A
         # mrkdwn enabled for monospace fields; untrusted text already escaped
         "mrkdwn": True,
     }
+
+
+def _looks_like_lost_response(exc: object) -> bool:
+    """True when the request may have left our process but the response did not return."""
+    name = type(exc).__name__
+    text = f"{name}:{exc}".lower()
+    markers = (
+        "remotedisconnected",
+        "incompleteread",
+        "connectionreset",
+        "connection aborted",
+        "brokenpipe",
+        "forcibly closed",
+        "remote end closed",
+        "eof occurred",
+    )
+    return any(m in text for m in markers)

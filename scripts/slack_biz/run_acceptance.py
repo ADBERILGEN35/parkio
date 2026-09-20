@@ -122,10 +122,16 @@ def run_suite() -> SuiteReport:
         try:
             config = load_config()
             assert_no_real_slack_url(config.webhook_url or "")
-            store = DeliveryStore(config.db_path, dedup_retention_hours=config.dedup_retention_hours)
+            store = DeliveryStore(
+                config.db_path,
+                dedup_retention_hours=config.dedup_retention_hours,
+                lease_seconds=config.lease_seconds,
+                worker_stale_seconds=config.worker_stale_seconds,
+            )
             transport = SlackWebhookTransport(timeout_seconds=config.http_timeout_seconds)
             worker = DeliveryWorker(
-                config, store, transport, worker_id="accept-1", rng=random.Random(0)
+                config, store, transport, worker_id="accept-1", rng=random.Random(0),
+                acquire_lock=True,
             )
 
             def drain():
@@ -254,13 +260,17 @@ def run_suite() -> SuiteReport:
                 assert store.enqueue(ev) == "queued"
                 pending_before = store.pending_count()
                 assert pending_before >= 1
-                # Simulate restart: new store handle on same db
+                # Simulate restart: release worker lock, reopen store
+                worker.close()
                 store.close()
                 store = DeliveryStore(
-                    config.db_path, dedup_retention_hours=config.dedup_retention_hours
+                    config.db_path, dedup_retention_hours=config.dedup_retention_hours,
+                    lease_seconds=config.lease_seconds,
+                    worker_stale_seconds=config.worker_stale_seconds,
                 )
                 worker = DeliveryWorker(
-                    config, store, transport, worker_id="accept-restart", rng=random.Random(1)
+                    config, store, transport, worker_id="accept-restart", rng=random.Random(1),
+                    acquire_lock=True,
                 )
                 assert store.pending_count() >= 1
                 drain()
@@ -526,7 +536,9 @@ def run_suite() -> SuiteReport:
                     Path(tmp) / "disabled.sqlite3",
                     dedup_retention_hours=cfg_off.dedup_retention_hours,
                 )
-                w_off = DeliveryWorker(cfg_off, store_off, transport, worker_id="off")
+                w_off = DeliveryWorker(
+                    cfg_off, store_off, transport, worker_id="off", acquire_lock=True
+                )
                 ev = from_user_registered_envelope(
                     _user_registered_envelope(),
                     load_config({**disabled_env, "PARKIO_SLACK_BIZ_ENABLED": "true"}),
@@ -539,6 +551,7 @@ def run_suite() -> SuiteReport:
                 w_off.process_once()
                 assert len(mock.state.requests) == before
                 assert store_off.pending_count() >= 1
+                w_off.close()
                 store_off.close()
                 report.add(ScenarioResult("13", "disabled_no_outbound", "PASS"))
             except Exception as exc:
