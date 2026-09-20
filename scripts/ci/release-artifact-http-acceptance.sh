@@ -99,11 +99,14 @@ status="$(capture parking-service parking-direct-401.json \
 assert_http "$status" "401" "parking direct without gateway auth"
 
 echo "=== Gateway routes to candidate parking (public explore via gateway) ==="
-# Already proven by 200 on gateway explore; also check parking direct explore.
+# Direct parking without X-Gateway-Auth must fail closed (not a public bypass).
 status="$(capture parking-service parking-explore-direct.json \
   'http://localhost:8083/api/v1/public/explore/facilities')"
-assert_http "$status" "200" "parking direct public explore"
-assert_json_null_field "${EVIDENCE_DIR}/parking-explore-direct.json" "communitySpotCountInScope"
+assert_http "$status" "401" "parking direct explore without gateway auth"
+if ! grep -q "GATEWAY_AUTH_REQUIRED" "${EVIDENCE_DIR}/parking-explore-direct.json" 2>/dev/null; then
+  echo "WARN: GATEWAY_AUTH_REQUIRED marker not found in parking direct body (status was 401)"
+fi
+# Gateway path already returned 200 with PA-06 null above — that is the public surface.
 
 echo "=== Candidate health ==="
 for pair in "gateway-service:8080" "parking-service:8083" "media-service:8084"; do
