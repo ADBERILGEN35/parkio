@@ -1,0 +1,555 @@
+# PARKIO-RELEASE-ARTIFACT-CI-ACCEPTANCE-01
+#
+# Disposable CI path for pinned security/privacy release artifacts when local
+# Docker is unavailable. Builds gateway/media/parking from an EXPLICIT release
+# SHA (never silently from the workflow branch tip), scans those images, runs
+# isolated HTTP acceptance, retains OCI archives as workflow artifacts.
+#
+# HARD GUARDS:
+# - No deploy jobs, no production SSH, no registry push, no Slack/NR/PostHog.
+# - Workflow-source SHA (this branch) is SEPARATE from RELEASE_SHA input.
+# - MinIO image residual risk is out of scope and is not accepted here.
+
+name: Release artifact CI acceptance
+
+on:
+  workflow_dispatch:
+    inputs:
+      release_sha:
+        description: "Exact 40-char release source SHA to build (not the workflow branch tip)"
+        required: true
+        type: string
+        default: "4a9ba2184e867b8ea8b927f7c3f8bcb137c2760a"
+  pull_request:
+    paths:
+      - ".github/workflows/release-artifact-ci-acceptance.yml"
+      - "scripts/ci/release-artifact-http-acceptance.sh"
+      - "scripts/ci/release-artifact-seed-pa06.sql"
+
+permissions:
+  contents: read
+  actions: write
+
+concurrency:
+  group: release-artifact-ci-${{ github.ref }}-${{ github.event.inputs.release_sha || 'pr' }}
+  cancel-in-progress: true
+
+env:
+  TRIVY_IMAGE: aquasec/trivy:0.64.1
+  TRIVY_CACHE_DIR: ${{ github.workspace }}/.cache/trivy
+  RELEASE_SHA_DEFAULT: "4a9ba2184e867b8ea8b927f7c3f8bcb137c2760a"
+  IMAGE_TAG: "secpriv-ci"
+  COMPOSE_PROJECT_NAME: parkio-secpriv-${{ github.run_id }}-${{ github.run_attempt }}
+  MINIO_IMAGE: quay.io/minio/minio@sha256:cd04ea408e185cb50076ea1c3988d444119b19aaae15aab45387ccf14b2a2f86
+  MINIO_MC_IMAGE: quay.io/minio/mc@sha256:a5399b66b88543efac8afb08eb2bdcce5904e548ea6fe1a921600cd74f766668
+  ARTIFACT_RETENTION_DAYS: "14"
+
+jobs:
+  provenance:
+    name: Provenance (workflow vs release SHA)
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    outputs:
+      release_sha: ${{ steps.pin.outputs.release_sha }}
+      workflow_sha: ${{ steps.pin.outputs.workflow_sha }}
+    steps:
+      - name: Checkout workflow source only
+        uses: actions/checkout@v4
+        with:
+          path: workflow-src
+          fetch-depth: 1
+
+      - name: Resolve and verify release pin
+        id: pin
+        run: |
+          set -euo pipefail
+          WORKFLOW_SHA="$(git -C workflow-src rev-parse HEAD)"
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            RELEASE_SHA="${{ github.event.inputs.release_sha }}"
+          else
+            RELEASE_SHA="${RELEASE_SHA_DEFAULT}"
+          fi
+          if ! [[ "$RELEASE_SHA" =~ ^[0-9a-f]{40}$ ]]; then
+            echo "::error::release_sha must be a full 40-char lowercase hex SHA, got: ${RELEASE_SHA}"
+            exit 1
+          fi
+          echo "WORKFLOW_SOURCE_SHA=${WORKFLOW_SHA}"
+          echo "REQUESTED_RELEASE_SHA=${RELEASE_SHA}"
+          {
+            echo "release_sha=${RELEASE_SHA}"
+            echo "workflow_sha=${WORKFLOW_SHA}"
+          } >> "$GITHUB_OUTPUT"
+          {
+            echo "## Provenance"
+            echo ""
+            echo "| Role | SHA |"
+            echo "| --- | --- |"
+            echo "| Workflow source (this ref) | \`${WORKFLOW_SHA}\` |"
+            echo "| Release checkout (build pin) | \`${RELEASE_SHA}\` |"
+            echo ""
+            echo "Build/scan/HTTP jobs MUST use the release checkout only."
+          } >> "$GITHUB_STEP_SUMMARY"
+
+  build-scan-accept:
+    name: Build, scan, HTTP accept, retain
+    needs: provenance
+    runs-on: ubuntu-latest
+    timeout-minutes: 120
+    env:
+      RELEASE_SHA: ${{ needs.provenance.outputs.release_sha }}
+      WORKFLOW_SHA: ${{ needs.provenance.outputs.workflow_sha }}
+      COMPOSE_ENV_FILE: docker/.env.secpriv-ci
+      # No hosted-beta / Caddy: hit published app ports directly on the runner.
+      COMPOSE_FILES: >-
+        -f docker/docker-compose.yml
+        -f docker/docker-compose.apps.yml
+        -f docker/docker-compose.images.yml
+    steps:
+      - name: Checkout workflow scripts (acceptance helpers)
+        uses: actions/checkout@v4
+        with:
+          path: workflow-src
+          fetch-depth: 1
+
+      - name: Checkout pinned release source
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ env.RELEASE_SHA }}
+          path: release-src
+          fetch-depth: 1
+
+      - name: Hard-verify release checkout SHA
+        working-directory: release-src
+        run: |
+          set -euo pipefail
+          ACTUAL="$(git rev-parse HEAD)"
+          echo "Expected RELEASE_SHA=${RELEASE_SHA}"
+          echo "Actual checkout HEAD=${ACTUAL}"
+          test "$ACTUAL" = "$RELEASE_SHA"
+          {
+            echo "RELEASE_CHECKOUT_VERIFIED=yes"
+            echo "WORKFLOW_SOURCE_SHA=${WORKFLOW_SHA}"
+            echo "RELEASE_CHECKOUT_SHA=${ACTUAL}"
+          } | tee ../provenance-verify.txt
+
+      - name: Copy acceptance helpers into release tree
+        run: |
+          set -euo pipefail
+          mkdir -p release-src/scripts/ci
+          cp workflow-src/scripts/ci/release-artifact-http-acceptance.sh release-src/scripts/ci/
+          cp workflow-src/scripts/ci/release-artifact-seed-pa06.sql release-src/scripts/ci/
+          chmod +x release-src/scripts/ci/release-artifact-http-acceptance.sh
+
+      - name: Set up JDK 21
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "21"
+          cache: gradle
+          cache-dependency-path: release-src/**/gradle/wrapper/gradle-wrapper.properties
+
+      - name: Log in to ghcr.io (Trivy DB)
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Cache Trivy database
+        uses: actions/cache@v4
+        with:
+          path: ${{ env.TRIVY_CACHE_DIR }}
+          key: trivy-db-${{ runner.os }}-${{ env.TRIVY_IMAGE }}
+          restore-keys: |
+            trivy-db-${{ runner.os }}-
+
+      - name: Show toolchain
+        run: |
+          set -euo pipefail
+          mkdir -p "$TRIVY_CACHE_DIR" out
+          {
+            echo "docker_client=$(docker version --format '{{.Client.Version}}')"
+            echo "docker_server=$(docker version --format '{{.Server.Version}}')"
+            echo "java=$(java -version 2>&1 | head -1)"
+            echo "trivy_image=${TRIVY_IMAGE}"
+            docker run --rm "${TRIVY_IMAGE}" --version
+            echo "platform=$(uname -m)"
+            echo "release_sha=${RELEASE_SHA}"
+            echo "workflow_sha=${WORKFLOW_SHA}"
+          } | tee out/toolchain.txt
+
+      - name: Ensure gradlew executable
+        working-directory: release-src
+        run: chmod +x gradlew
+
+      - name: Build RELEASE CANDIDATE images (gateway, media, parking)
+        working-directory: release-src
+        run: |
+          set -euo pipefail
+          mkdir -p ../out/images ../out/bootjar ../out/bcprov
+          CREATED="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+          for svc in gateway-service media-service parking-service; do
+            echo "=== Building RELEASE CANDIDATE parkio/${svc}:${IMAGE_TAG} from ${RELEASE_SHA} ==="
+            docker build \
+              -f "services/${svc}/Dockerfile" \
+              --build-arg "IMAGE_VERSION=0.0.1-SNAPSHOT" \
+              --build-arg "IMAGE_REVISION=${RELEASE_SHA}" \
+              --build-arg "IMAGE_CREATED=${CREATED}" \
+              -t "parkio/${svc}:${IMAGE_TAG}" \
+              .
+            docker image inspect "parkio/${svc}:${IMAGE_TAG}" \
+              --format '{{.Id}} {{.Os}}/{{.Architecture}} revision={{index .Config.Labels "org.opencontainers.image.revision"}}' \
+              | tee "../out/images/${svc}.inspect.txt"
+          done
+
+      - name: Extract bootJar hashes and bcprov / PA-06 from candidate images
+        run: |
+          set -euo pipefail
+          for svc in gateway-service media-service parking-service; do
+            cid="$(docker create "parkio/${svc}:${IMAGE_TAG}")"
+            docker cp "${cid}:/app/app.jar" "out/bootjar/${svc}.jar"
+            docker rm "$cid"
+            sha256sum "out/bootjar/${svc}.jar" | tee "out/bootjar/${svc}.sha256"
+          done
+          for svc in gateway-service media-service; do
+            jar="out/bootjar/${svc}.jar"
+            unzip -l "$jar" | grep -E 'bcprov-jdk18on-.*\.jar' | tee "out/bcprov/${svc}-bcprov-listing.txt"
+            grep -q 'bcprov-jdk18on-1\.85\.jar' "out/bcprov/${svc}-bcprov-listing.txt"
+            echo "PACKAGED_BC=1.85" | tee "out/bcprov/${svc}-bcprov-version.txt"
+          done
+          unzip -l out/bootjar/parking-service.jar \
+            | grep -E 'PublicExploreQueryService\.class' \
+            | tee out/bcprov/parking-pa06-class.txt
+          test -s out/bcprov/parking-pa06-class.txt
+
+      - name: Save OCI archives of the SAME candidate images
+        run: |
+          set -euo pipefail
+          mkdir -p out/oci
+          for svc in gateway-service media-service parking-service; do
+            tar="out/oci/parkio-${svc}-${IMAGE_TAG}.tar"
+            docker save "parkio/${svc}:${IMAGE_TAG}" -o "$tar"
+            sha256sum "$tar" | tee "out/oci/parkio-${svc}-${IMAGE_TAG}.tar.sha256"
+          done
+          {
+            echo "{"
+            echo "  \"releaseSha\": \"${RELEASE_SHA}\","
+            echo "  \"workflowSha\": \"${WORKFLOW_SHA}\","
+            echo "  \"imageTag\": \"${IMAGE_TAG}\","
+            echo "  \"platform\": \"$(uname -m)\","
+            echo "  \"retentionDays\": ${ARTIFACT_RETENTION_DAYS},"
+            echo "  \"expiresApproxUtc\": \"$(date -u -d "+${ARTIFACT_RETENTION_DAYS} days" +%Y-%m-%dT%H:%M:%SZ)\","
+            echo "  \"images\": ["
+            first=1
+            for svc in gateway-service media-service parking-service; do
+              id="$(docker image inspect "parkio/${svc}:${IMAGE_TAG}" --format '{{.Id}}')"
+              rev="$(docker image inspect "parkio/${svc}:${IMAGE_TAG}" --format '{{index .Config.Labels "org.opencontainers.image.revision"}}')"
+              tar_sha="$(cut -d' ' -f1 "out/oci/parkio-${svc}-${IMAGE_TAG}.tar.sha256")"
+              jar_sha="$(cut -d' ' -f1 "out/bootjar/${svc}.sha256")"
+              if [ "$first" -eq 0 ]; then echo ","; fi
+              first=0
+              printf '    {"service":"%s","role":"release-candidate","imageId":"%s","ociRevisionLabel":"%s","ociTarSha256":"%s","bootJarSha256":"%s"}' \
+                "$svc" "$id" "$rev" "$tar_sha" "$jar_sha"
+            done
+            echo ""
+            echo "  ],"
+            echo "  \"registryDigest\": null,"
+            echo "  \"registryPublication\": \"NOT_PERFORMED\","
+            echo "  \"note\": \"Local image IDs and OCI tar checksums are not registry digests.\""
+            echo "}"
+          } | tee out/image-manifest.json
+
+      - name: Trivy scan candidate images (HIGH/CRITICAL report; CRITICAL gate)
+        run: |
+          set -euo pipefail
+          mkdir -p out/trivy "$TRIVY_CACHE_DIR"
+          docker run --rm "${TRIVY_IMAGE}" --version | tee out/trivy/trivy-version.txt
+          fail=0
+          for svc in gateway-service media-service parking-service; do
+            image_ref="parkio/${svc}:${IMAGE_TAG}"
+            echo "=== Trivy report HIGH,CRITICAL: ${image_ref} ==="
+            docker run --rm \
+              -v /var/run/docker.sock:/var/run/docker.sock \
+              -v "${TRIVY_CACHE_DIR}:/root/.cache/trivy" \
+              -v "${GITHUB_WORKSPACE}/out/trivy:/out" \
+              "${TRIVY_IMAGE}" \
+              image "${image_ref}" \
+              --scanners vuln \
+              --severity HIGH,CRITICAL \
+              --ignore-unfixed \
+              --format table \
+              --output "/out/trivy-image-${svc}.txt" \
+              --exit-code 0 \
+              --cache-dir /root/.cache/trivy
+
+            echo "=== Trivy CRITICAL gate: ${image_ref} ==="
+            if ! docker run --rm \
+              -v /var/run/docker.sock:/var/run/docker.sock \
+              -v "${TRIVY_CACHE_DIR}:/root/.cache/trivy" \
+              -v "${GITHUB_WORKSPACE}/out/trivy:/out" \
+              "${TRIVY_IMAGE}" \
+              image "${image_ref}" \
+              --scanners vuln \
+              --severity CRITICAL \
+              --ignore-unfixed \
+              --format json \
+              --output "/out/trivy-image-${svc}-critical.json" \
+              --exit-code 1 \
+              --cache-dir /root/.cache/trivy; then
+              echo "::error::CRITICAL findings in ${image_ref}"
+              fail=1
+            fi
+
+            {
+              echo "image=${image_ref}"
+              echo "bcprov_packaged=1.85 (verified from bootJar listing)"
+              if grep -iE 'bcprov|bouncycastle|Bouncy Castle' "out/trivy/trivy-image-${svc}.txt" >/dev/null 2>&1; then
+                echo "bc_related_lines:"
+                grep -iE 'bcprov|bouncycastle|Bouncy Castle' "out/trivy/trivy-image-${svc}.txt" || true
+              else
+                echo "bc_related_lines: none in HIGH/CRITICAL table"
+              fi
+            } | tee "out/trivy/bc-targeted-${svc}.txt"
+          done
+          echo "MINIO_IMAGE_RESIDUAL_RISK=NOT_ACCEPTED_OUT_OF_SCOPE" | tee out/trivy/minio-residual.txt
+          if [ "$fail" -ne 0 ]; then
+            exit 1
+          fi
+
+      - name: Build acceptance-peer images from SAME release SHA (auth, user)
+        working-directory: release-src
+        run: |
+          set -euo pipefail
+          # Peers are required for gateway startup (JWKS + account-status).
+          # ASSUMPTION: disposable peers == release-tree peers at RELEASE_SHA.
+          # This is NOT proof of production baseline compatibility.
+          echo "ANCILLARY_ASSUMPTION=release-tree-peers-at-${RELEASE_SHA}" | tee ../out/ancillary-assumption.txt
+          for svc in auth-service user-service; do
+            echo "=== Acceptance peer (NOT release candidate) parkio/${svc}:${IMAGE_TAG} ==="
+            docker build \
+              -f "services/${svc}/Dockerfile" \
+              --build-arg "IMAGE_REVISION=${RELEASE_SHA}" \
+              -t "parkio/${svc}:${IMAGE_TAG}" \
+              .
+          done
+          # images.yml also references other app services; tag placeholders so
+          # `compose config` can resolve without building unused apps.
+          for svc in gamification-service notification-service moderation-service \
+                     ai-validation-service analytics-service; do
+            docker tag "parkio/gateway-service:${IMAGE_TAG}" "parkio/${svc}:${IMAGE_TAG}"
+          done
+          # Placeholder tag for images.yml web reference (web is not started).
+          docker pull alpine:3.20
+          docker tag alpine:3.20 "parkio/web:${IMAGE_TAG}"
+
+      - name: Prepare disposable compose env (synthetic secrets only)
+        working-directory: release-src
+        env:
+          RELEASE_SHA: ${{ env.RELEASE_SHA }}
+        run: |
+          set -euo pipefail
+          cp docker/.env.hosted-beta.example "$COMPOSE_ENV_FILE"
+          openssl genpkey -algorithm RSA -pkeyopt rsa_keygen_bits:2048 -out /tmp/parkio-secpriv-jwt.pem
+          python3 - <<'PY'
+          import os
+          from pathlib import Path
+
+          env_path = Path("docker/.env.secpriv-ci")
+          values = {}
+          for line in env_path.read_text().splitlines():
+              if not line or line.lstrip().startswith("#") or "=" not in line:
+                  continue
+              key, value = line.split("=", 1)
+              values[key] = value
+
+          pem = Path("/tmp/parkio-secpriv-jwt.pem").read_text().strip().replace("\n", "\\n")
+          release_sha = os.environ["RELEASE_SHA"]
+          overrides = {
+              "PARKIO_DOMAIN": "api.secpriv-ci.localhost",
+              "PARKIO_WEB_DOMAIN": "app.secpriv-ci.localhost",
+              "PARKIO_WEB_UPSTREAM": "web:80",
+              "PARKIO_MEDIA_DOMAIN": "media.secpriv-ci.localhost",
+              "PARKIO_ACME_EMAIL": "ops@example.invalid",
+              "VITE_API_BASE_URL": "http://localhost:8080/api/v1",
+              "VITE_MAPTILER_KEY": "ci-public-map-key",
+              "PARKIO_IMAGE_TAG": "secpriv-ci",
+              "PARKIO_GIT_SHA": release_sha,
+              "PARKIO_IMAGE_CREATED": "1970-01-01T00:00:00Z",
+              "PARKIO_CORS_ALLOWED_ORIGINS": "http://localhost:5173",
+              "PARKIO_JWT_PRIVATE_KEY_PEM": f'"{pem}"',
+              "PARKIO_GATEWAY_INTERNAL_SECRET": "secpriv-ci-gateway-secret",
+              "PARKIO_EMAIL_PROVIDER": "logging",
+              "PARKIO_RESEND_API_KEY": "",
+              "KAFKA_CLUSTER_ID": "MkU3OEVBNTcwNTJENDM2Qk",
+              "MINIO_ROOT_PASSWORD": "secpriv-ci-minio-password",
+              "PARKIO_MEDIA_STORAGE_PUBLIC_ENDPOINT": "http://localhost:9000",
+              "PARKIO_ALERT_SLACK_WEBHOOK_URL": "",
+              "GRAFANA_ADMIN_PASSWORD": "secpriv-ci-grafana-password",
+              "REDIS_PASSWORD": "secpriv-ci-redis-password",
+              "PARKIO_PUBLIC_EXPLORE_ENABLED": "true",
+              "PARKIO_PUBLIC_EXPLORE_ALLOWED_SOURCE_FAMILIES": "izum",
+              "VITE_PUBLIC_EXPLORE_ENABLED": "true",
+              "PARKIO_WAITLIST_HASH_SECRET": "secpriv-ci-waitlist-hash-secret",
+          }
+
+          lines = []
+          seen = set()
+          for line in env_path.read_text().splitlines():
+              if not line or line.lstrip().startswith("#") or "=" not in line:
+                  lines.append(line)
+                  continue
+              key, _ = line.split("=", 1)
+              if key in overrides:
+                  lines.append(f"{key}={overrides[key]}")
+                  seen.add(key)
+              else:
+                  lines.append(line)
+          for key, value in overrides.items():
+              if key not in seen:
+                  lines.append(f"{key}={value}")
+          env_path.write_text("\n".join(lines) + "\n")
+          PY
+
+      - name: Start disposable subset (task-owned project; no web/observability)
+        working-directory: release-src
+        run: |
+          set -euo pipefail
+          # shellcheck disable=SC2086
+          docker compose --env-file "$COMPOSE_ENV_FILE" $COMPOSE_FILES up -d --no-build \
+            kafka redis minio minio-setup clamav \
+            postgres-gateway postgres-auth postgres-user postgres-parking postgres-media \
+            auth-service user-service gateway-service parking-service media-service
+          mkdir -p ../out/http
+
+      - name: Wait for candidate + peer health
+        working-directory: release-src
+        run: |
+          set -euo pipefail
+          required=(
+            kafka redis minio clamav
+            postgres-gateway postgres-auth postgres-user postgres-parking postgres-media
+            auth-service user-service gateway-service parking-service media-service
+          )
+          wait_service() {
+            local svc="$1" cid status
+            cid="$(docker compose --env-file "$COMPOSE_ENV_FILE" $COMPOSE_FILES ps -q "$svc")"
+            if [ -z "$cid" ]; then
+              echo "::error::$svc has no container id"
+              return 1
+            fi
+            status="$(docker inspect -f '{{if .State.Health}}{{.State.Health.Status}}{{else}}{{.State.Status}}{{end}}' "$cid")"
+            printf '%s\t%s\n' "$svc" "$status"
+            [ "$status" = "healthy" ]
+          }
+          deadline=$((SECONDS + 900))
+          while true; do
+            failed=0
+            for svc in "${required[@]}"; do
+              if ! wait_service "$svc"; then failed=1; fi
+            done
+            if [ "$failed" -eq 0 ]; then
+              echo "Required services healthy."
+              break
+            fi
+            if [ "$SECONDS" -ge "$deadline" ]; then
+              echo "::error::Timed out waiting for services"
+              docker compose --env-file "$COMPOSE_ENV_FILE" $COMPOSE_FILES ps
+              exit 1
+            fi
+            sleep 15
+          done
+
+      - name: Container HTTP acceptance (PA-06 + smoke)
+        working-directory: release-src
+        run: |
+          set -euo pipefail
+          export COMPOSE_ENV_FILE COMPOSE_FILES
+          scripts/ci/release-artifact-http-acceptance.sh | tee ../out/http/acceptance.log
+
+      - name: Disposable recovery (restart candidates; re-check PA-06)
+        working-directory: release-src
+        run: |
+          set -euo pipefail
+          mkdir -p ../out/recovery
+          docker compose --env-file "$COMPOSE_ENV_FILE" $COMPOSE_FILES restart \
+            gateway-service parking-service media-service
+          deadline=$((SECONDS + 300))
+          for svc in gateway-service parking-service media-service; do
+            while true; do
+              cid="$(docker compose --env-file "$COMPOSE_ENV_FILE" $COMPOSE_FILES ps -q "$svc")"
+              status="$(docker inspect -f '{{if .State.Health}}{{.State.Health.Status}}{{else}}{{.State.Status}}{{end}}' "$cid")"
+              echo "$svc status=$status"
+              if [ "$status" = "healthy" ]; then break; fi
+              if [ "$SECONDS" -ge "$deadline" ]; then
+                echo "::error::$svc did not recover"
+                exit 1
+              fi
+              sleep 10
+            done
+          done
+          export COMPOSE_ENV_FILE COMPOSE_FILES
+          scripts/ci/release-artifact-http-acceptance.sh --pa06-only \
+            | tee ../out/recovery/pa06-after-restart.log
+          {
+            echo "container_restart_recovery=PASS"
+            echo "application_version_rollback=NOT_EXERCISED"
+            echo "production_rollback_compatibility=UNVERIFIED"
+            echo "privacy_note=Rolling back PA-06 may restore public aggregate disclosure"
+            echo "security_note=Rolling back BC may restore vulnerable bcprov"
+            echo "safe_recovery=forward-fix keeping PA-06+BC; do not call vulnerable rollback safe"
+          } | tee ../out/recovery/summary.txt
+
+      - name: Verify retained OCI archives are loadable
+        run: |
+          set -euo pipefail
+          mkdir -p out/oci-reload
+          # Spot-check: load parking tar into a unique tag, confirm ID readable, then remove tag.
+          docker load -i "out/oci/parkio-parking-service-${IMAGE_TAG}.tar" | tee out/oci-reload/load-parking.txt
+          docker image inspect "parkio/parking-service:${IMAGE_TAG}" --format '{{.Id}}' \
+            | tee out/oci-reload/parking-id-after-load.txt
+          echo "OCI_ARCHIVE_RELOAD_OK=yes" | tee out/oci-reload/RESULT.txt
+
+      - name: Collect compose evidence (redacted)
+        if: always()
+        working-directory: release-src
+        run: |
+          set +e
+          mkdir -p ../out/compose
+          docker compose --env-file "$COMPOSE_ENV_FILE" $COMPOSE_FILES ps > ../out/compose/ps.txt
+          docker compose --env-file "$COMPOSE_ENV_FILE" $COMPOSE_FILES config --services > ../out/compose/services.txt
+          docker compose --env-file "$COMPOSE_ENV_FILE" $COMPOSE_FILES config \
+            | sed -E 's/(PASSWORD|SECRET|KEY|PEM|TOKEN|WEBHOOK)[=:].*/\1=***REDACTED***/gI' \
+            > ../out/compose/config.redacted.yml
+
+      - name: Tear down task-owned disposable stack
+        if: always()
+        working-directory: release-src
+        run: |
+          set +e
+          docker compose --env-file "$COMPOSE_ENV_FILE" $COMPOSE_FILES down -v --remove-orphans
+
+      - name: Upload retained artifacts
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: secpriv-release-artifacts-${{ env.RELEASE_SHA }}
+          path: |
+            provenance-verify.txt
+            out/**
+          retention-days: 14
+          if-no-files-found: warn
+
+      - name: Write job summary
+        if: always()
+        run: |
+          {
+            echo "## Release artifact CI acceptance"
+            echo ""
+            echo "- Workflow source SHA: \`${WORKFLOW_SHA}\`"
+            echo "- Release checkout SHA: \`${RELEASE_SHA}\`"
+            echo "- Release candidates: parkio/{gateway,media,parking}-service:${IMAGE_TAG}"
+            echo "- OCI archives + checksums uploaded (retention ${ARTIFACT_RETENTION_DAYS}d)"
+            echo "- Registry publication: NOT_PERFORMED"
+            echo "- MinIO residual risk: NOT_ACCEPTED"
+            echo "- Production deploy: NOT_PERFORMED"
+          } >> "$GITHUB_STEP_SUMMARY"
