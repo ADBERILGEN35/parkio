@@ -1,3 +1,4 @@
+import { trimTrailingAsciiSlashes } from './pathTrim';
 import type { AnalyticsTransport, CapturedAnalyticsEvent } from './types';
 
 export interface PostHogCaptureConfig {
@@ -116,7 +117,7 @@ export class PostHogHttpTransport implements AnalyticsTransport {
       throw new Error('posthog_invalid_project_api_key');
     }
     this.apiKey = config.apiKey.trim();
-    this.host = config.host.replace(/\/+$/, '');
+    this.host = trimTrailingAsciiSlashes(config.host);
     this.fetchImpl = config.fetchImpl ?? fetch.bind(globalThis);
     this.batchSize = config.batchSize ?? 20;
     this.timeoutMs = config.timeoutMs ?? 8_000;

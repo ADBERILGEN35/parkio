@@ -2,6 +2,7 @@ import { describe, expect, it, vi } from 'vitest';
 import { ActiveTimeTracker } from './activeTime';
 import { ProductAnalyticsClient, createMemoryStorage } from './client';
 import { normalizeAnalyticsScreenName } from './normalizeScreen';
+import { trimAsciiSlashes, trimTrailingAsciiSlashes } from './pathTrim';
 import { PostHogHttpTransport } from './posthogHttp';
 
 describe('normalizeAnalyticsScreenName', () => {
@@ -11,6 +12,47 @@ describe('normalizeAnalyticsScreenName', () => {
     expect(normalizeAnalyticsScreenName('/(auth)/login')).toBe('login');
     expect(normalizeAnalyticsScreenName('/(main)/(tabs)/map')).toBe('map');
     expect(normalizeAnalyticsScreenName('/profile/preferences')).toBe('preferences');
+  });
+
+  it('trims leading/trailing slashes without leaking path segments as screen names', () => {
+    expect(normalizeAnalyticsScreenName('///map///')).toBe('map');
+    expect(normalizeAnalyticsScreenName('/profile/')).toBe('profile');
+    expect(normalizeAnalyticsScreenName('')).toBe('other');
+  });
+
+  it('rejects oversized route input without hanging', () => {
+    const huge = `/${'/'.repeat(10_000)}map${'/'.repeat(10_000)}`;
+    const started = performance.now();
+    expect(normalizeAnalyticsScreenName(huge)).toBe('other');
+    expect(performance.now() - started).toBeLessThan(50);
+  });
+
+  it('does not treat coordinate query canaries as screen identity', () => {
+    const screen = normalizeAnalyticsScreenName(
+      '/facilities/11111111-1111-4111-8111-111111111102?lat=38.4382&lng=27.1421',
+    );
+    expect(screen).toBe('facility_detail');
+    expect(screen).not.toContain('38');
+    expect(screen).not.toContain('11111111');
+  });
+});
+
+describe('pathTrim (ReDoS-safe slash stripping)', () => {
+  it('strips leading and trailing slashes in linear time', () => {
+    expect(trimAsciiSlashes('///a/b///')).toBe('a/b');
+    expect(trimAsciiSlashes('a/b')).toBe('a/b');
+    expect(trimAsciiSlashes('////')).toBe('');
+    expect(trimTrailingAsciiSlashes('https://eu.i.posthog.com///')).toBe(
+      'https://eu.i.posthog.com',
+    );
+  });
+
+  it('completes on adversarial slash-only input within a tight budget', () => {
+    const adversarial = '/'.repeat(200_000);
+    const started = performance.now();
+    expect(trimAsciiSlashes(adversarial)).toBe('');
+    expect(trimTrailingAsciiSlashes(adversarial)).toBe('');
+    expect(performance.now() - started).toBeLessThan(100);
   });
 });
 
@@ -269,6 +311,25 @@ describe('PostHogHttpTransport', () => {
     expect(body.batch[0].properties.$autocapture_disabled).toBe(true);
     expect(body.batch[0].properties.$process_person_profile).toBe(false);
     expect(body.batch[0].event).toBe('map_ready');
+  });
+
+  it('normalizes trailing host slashes without regex', async () => {
+    const fetchImpl = vi.fn(async () => new Response('{"status":1}', { status: 200 }));
+    const transport = new PostHogHttpTransport({
+      apiKey: 'phc_testOnlyKey123',
+      host: 'https://eu.i.posthog.com///',
+      fetchImpl: fetchImpl as unknown as typeof fetch,
+    });
+    await transport.send([
+      {
+        name: 'map_ready',
+        occurredAtMs: 1_700_000_000_000,
+        seq: 1,
+        analyticsSessionId: 'as_1',
+      },
+    ]);
+    const [url] = fetchImpl.mock.calls[0] as [string, RequestInit];
+    expect(url).toBe('https://eu.i.posthog.com/batch/');
   });
 
   it('rejects personal/management API keys', () => {

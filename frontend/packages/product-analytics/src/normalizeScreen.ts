@@ -1,4 +1,8 @@
 import type { AnalyticsScreenName } from '@parkio/types';
+import { trimAsciiSlashes } from './pathTrim';
+
+/** Hard cap — router paths are short; rejects pathological library input early. */
+const MAX_ROUTE_CHARS = 512;
 
 /**
  * Normalize pathname / Expo route segments to a closed screen inventory.
@@ -8,9 +12,10 @@ export function normalizeAnalyticsScreenName(
   pathOrRoute: string | null | undefined,
 ): AnalyticsScreenName {
   if (!pathOrRoute) return 'other';
-  // Strip query/hash and leading/trailing slashes.
+  // Strip query/hash before length bound so `?…` cannot inflate matching work.
   const bare = pathOrRoute.split('?')[0]?.split('#')[0] ?? '';
-  const path = bare.replace(/^\/+|\/+$/g, '').toLowerCase();
+  if (bare.length > MAX_ROUTE_CHARS) return 'other';
+  const path = trimAsciiSlashes(bare).toLowerCase();
 
   if (path === '' || path === 'map' || path.endsWith('/(tabs)/map') || path.includes('(tabs)/map')) {
     return 'map';

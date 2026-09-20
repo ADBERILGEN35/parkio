@@ -7,6 +7,7 @@ import { sanitizeSpaTelemetryParams } from '@parkio/validation';
 import { ActiveTimeTracker } from './activeTime';
 import { LocalCaptureTransport, NullTransport } from './localCapture';
 import { normalizeAnalyticsScreenName } from './normalizeScreen';
+import { trimTrailingAsciiSlashes } from './pathTrim';
 import { PostHogHttpTransport, PostHogSendError, isPostHogProjectApiKey } from './posthogHttp';
 import type {
   AnalyticsConsentState,
@@ -441,7 +442,7 @@ export class ProductAnalyticsClient {
       this.transport.dispose?.();
     }
 
-    const host = (this.config.posthog?.host ?? '').replace(/\/+$/, '');
+    const host = trimTrailingAsciiSlashes(this.config.posthog?.host ?? '');
     const apiKey = this.config.posthog?.apiKey ?? '';
     let hostname = '';
     try {
