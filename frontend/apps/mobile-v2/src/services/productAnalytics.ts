@@ -105,10 +105,12 @@ function ensureClient(): ProductAnalyticsClient {
   const vendorEnabled = readExtra('EXPO_PUBLIC_PRODUCT_ANALYTICS_VENDOR_ENABLED') === 'true';
   const apiKey = readExtra('EXPO_PUBLIC_POSTHOG_KEY');
   const host = readExtra('EXPO_PUBLIC_POSTHOG_HOST');
+  const allowTestSink = readExtra('EXPO_PUBLIC_PRODUCT_ANALYTICS_ALLOW_TEST_SINK') === 'true';
   client = new ProductAnalyticsClient({
     platform: 'mobile_v2',
     storage: createJsonStoreAdapter(),
     vendorEnabled,
+    allowTestSink,
     posthog: apiKey && host ? { apiKey, host } : undefined,
     idleTimeoutMs: 60_000,
     heartbeatIntervalMs: 0,
@@ -120,7 +122,11 @@ function ensureClient(): ProductAnalyticsClient {
 export async function initProductAnalytics(): Promise<void> {
   if (bootstrapped) return;
   bootstrapped = true;
-  await ensureClient().init();
+  const c = ensureClient();
+  if (readExtra('EXPO_PUBLIC_PRODUCT_ANALYTICS_ALLOW_TEST_SINK') === 'true') {
+    c.useLocalCapture();
+  }
+  await c.init();
 }
 
 export function getProductAnalyticsClient(): ProductAnalyticsClient {

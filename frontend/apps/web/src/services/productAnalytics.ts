@@ -47,10 +47,14 @@ function ensureClient(): ProductAnalyticsClient {
   const vendorEnabled = readEnv('VITE_PRODUCT_ANALYTICS_VENDOR_ENABLED') === 'true';
   const apiKey = readEnv('VITE_POSTHOG_KEY');
   const host = readEnv('VITE_POSTHOG_HOST');
+  // Never honor test sink in production builds.
+  const allowTestSink =
+    !import.meta.env.PROD && readEnv('VITE_PRODUCT_ANALYTICS_ALLOW_TEST_SINK') === 'true';
   client = new ProductAnalyticsClient({
     platform: 'web',
     storage: typeof localStorage === 'undefined' ? createMemoryStorage() : createWebLocalStorage(),
     vendorEnabled,
+    allowTestSink,
     posthog: apiKey && host ? { apiKey, host } : undefined,
     idleTimeoutMs: 60_000,
     heartbeatIntervalMs: 0,
@@ -59,11 +63,46 @@ function ensureClient(): ProductAnalyticsClient {
   return client;
 }
 
+function exposeTestHooks(): void {
+  if (typeof window === 'undefined') return;
+  const allowTestSink =
+    !import.meta.env.PROD && readEnv('VITE_PRODUCT_ANALYTICS_ALLOW_TEST_SINK') === 'true';
+  if (!allowTestSink && !import.meta.env.DEV) return;
+  const w = window as Window & {
+    __PARKIO_ANALYTICS__?: {
+      getConsent: () => AnalyticsConsentState;
+      getLocalEvents: () => CapturedAnalyticsEvent[];
+      getQueue: () => readonly CapturedAnalyticsEvent[];
+      persistIncomplete: () => Promise<void>;
+    };
+  };
+  w.__PARKIO_ANALYTICS__ = {
+    getConsent: () => ensureClient().getConsent(),
+    getLocalEvents: () => [...(ensureClient().getLocalCapture()?.events ?? [])],
+    getQueue: () => ensureClient().getQueuedForTests(),
+    persistIncomplete: () => ensureClient().persistIncompleteCheckpoint(),
+  };
+}
+
 /** Call once from bootstrap. Safe to call repeatedly. */
 export async function initProductAnalytics(): Promise<void> {
   if (bootstrapped) return;
   bootstrapped = true;
-  await ensureClient().init();
+  const c = ensureClient();
+  if (readEnv('VITE_PRODUCT_ANALYTICS_ALLOW_TEST_SINK') === 'true') {
+    c.useLocalCapture();
+  }
+  await c.init();
+  exposeTestHooks();
+  if (typeof window !== 'undefined') {
+    const onHide = () => {
+      void ensureClient().persistIncompleteCheckpoint();
+    };
+    window.addEventListener('pagehide', onHide);
+    document.addEventListener('visibilitychange', () => {
+      if (document.visibilityState === 'hidden') onHide();
+    });
+  }
 }
 
 export function getProductAnalyticsClient(): ProductAnalyticsClient {

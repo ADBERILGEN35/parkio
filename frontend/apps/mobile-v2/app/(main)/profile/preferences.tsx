@@ -97,6 +97,7 @@ export default function PreferencesScreen() {
                   void setProductAnalyticsConsent(value ? 'granted' : 'denied');
                 }}
                 accessibilityLabel={analyticsLabel}
+                testID="product-analytics-consent"
               />
             </View>
           </Card>

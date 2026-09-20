@@ -7,7 +7,7 @@ import { sanitizeSpaTelemetryParams } from '@parkio/validation';
 import { ActiveTimeTracker } from './activeTime';
 import { LocalCaptureTransport, NullTransport } from './localCapture';
 import { normalizeAnalyticsScreenName } from './normalizeScreen';
-import { PostHogHttpTransport } from './posthogHttp';
+import { PostHogHttpTransport, PostHogSendError, isPostHogProjectApiKey } from './posthogHttp';
 import type {
   AnalyticsConsentState,
   AnalyticsStorage,
@@ -20,6 +20,10 @@ import type {
 const CONSENT_KEY = 'parkio.analytics.consent.v1';
 const SESSION_KEY = 'parkio.analytics.session.v1';
 const DISTINCT_KEY = 'parkio.analytics.distinct.v1';
+/** Durable incomplete engagement — written on abrupt background/hide; never invents wall-clock on restart. */
+const INCOMPLETE_KEY = 'parkio.analytics.incomplete_engagement.v1';
+
+const TEST_SINK_HOST = /(^|\.)parkio-y04a-sink\.test$/i;
 
 function createId(prefix: string): string {
   const bytes = new Uint8Array(16);
@@ -104,6 +108,7 @@ export class ProductAnalyticsClient {
 
     this.rebuildTransport();
     if (this.consent === 'granted') {
+      await this.recoverIncompleteEngagement();
       this.track('analytics_session_started', { schemaVersion: CLIENT_ANALYTICS_SCHEMA_VERSION });
     }
   }
@@ -270,16 +275,44 @@ export class ProductAnalyticsClient {
   }
 
   setForeground(active: boolean): void {
+    if (!active) {
+      void this.persistIncompleteCheckpoint();
+    }
     this.activeTime.setForeground(active);
   }
 
   setFocused(focused: boolean): void {
+    if (!focused) {
+      void this.persistIncompleteCheckpoint();
+    }
     this.activeTime.setFocused(focused);
+  }
+
+  /**
+   * Persist a bounded incomplete engagement snapshot (not a network heartbeat).
+   * On relaunch, emit `screen_engagement_summary` with incomplete=true using the
+   * stored activeDurationMs — never fabricate full wall-clock since last open.
+   */
+  async persistIncompleteCheckpoint(): Promise<void> {
+    if (this.consent !== 'granted') return;
+    const snap = this.activeTime.snapshot();
+    if (!snap || snap.activeDurationMs <= 0) return;
+    const payload = JSON.stringify({
+      screenName: snap.screenName,
+      activeDurationMs: snap.activeDurationMs,
+      checkpointSeq: snap.checkpointSeq,
+      analyticsSessionId: this.analyticsSessionId,
+      occurredAtMs: this.wallNow(),
+    });
+    await this.storage.setItem(INCOMPLETE_KEY, payload);
   }
 
   flushActiveScreen(incomplete = false): void {
     const snap = this.activeTime.exitScreen({ incomplete });
-    if (snap) this.emitEngagement(snap);
+    if (snap) {
+      this.emitEngagement(snap);
+      void this.storage.removeItem(INCOMPLETE_KEY);
+    }
   }
 
   applyOutOfOrderCheckpoint(seq: number, activeDurationMs: number): void {
@@ -320,10 +353,38 @@ export class ProductAnalyticsClient {
     });
   }
 
+  private async recoverIncompleteEngagement(): Promise<void> {
+    const raw = await this.storage.getItem(INCOMPLETE_KEY);
+    await this.storage.removeItem(INCOMPLETE_KEY);
+    if (!raw) return;
+    try {
+      const parsed = JSON.parse(raw) as {
+        screenName?: ScreenActiveTimeSnapshot['screenName'];
+        activeDurationMs?: number;
+        checkpointSeq?: number;
+      };
+      if (!parsed.screenName || !Number.isFinite(parsed.activeDurationMs)) return;
+      this.track('screen_engagement_summary', {
+        screenName: parsed.screenName,
+        activeDurationMs: Math.max(0, Math.round(parsed.activeDurationMs!)),
+        incomplete: true,
+        checkpointSeq: parsed.checkpointSeq ?? 0,
+        schemaVersion: CLIENT_ANALYTICS_SCHEMA_VERSION,
+      });
+    } catch {
+      // corrupt checkpoint — drop
+    }
+  }
+
   private async dispatch(event: CapturedAnalyticsEvent): Promise<void> {
     try {
       await this.transport.send([event]);
-    } catch {
+    } catch (error) {
+      if (error instanceof PostHogSendError && error.kind === 'http_4xx' && error.status !== 429) {
+        // Permanent client error — do not retry forever.
+        this.dropCount += 1;
+        return;
+      }
       event.deferred = true;
       this.enqueue(event);
     }
@@ -343,24 +404,39 @@ export class ProductAnalyticsClient {
       this.transport.dispose?.();
     }
 
-    const host = this.config.posthog?.host ?? '';
+    const host = (this.config.posthog?.host ?? '').replace(/\/+$/, '');
+    const apiKey = this.config.posthog?.apiKey ?? '';
+    let hostname = '';
+    try {
+      hostname = new URL(host.includes('://') ? host : `https://${host}`).hostname;
+    } catch {
+      hostname = '';
+    }
+    const isTestSink = TEST_SINK_HOST.test(hostname);
     const blockedHost =
       host.length === 0 ||
-      /example\.invalid|analytics\.test|0\.0\.0\.0/i.test(host);
+      hostname.length === 0 ||
+      /example\.invalid$|analytics\.test$|0\.0\.0\.0/i.test(hostname) ||
+      (isTestSink && this.config.allowTestSink !== true);
 
     const canVendor =
       this.consent === 'granted' &&
       this.config.vendorEnabled === true &&
-      !!this.config.posthog?.apiKey &&
+      isPostHogProjectApiKey(apiKey) &&
       !blockedHost;
 
     if (canVendor && this.config.posthog) {
-      this.transport = new PostHogHttpTransport({
-        apiKey: this.config.posthog.apiKey,
-        host: this.config.posthog.host,
-      });
-      if (this.distinctId) this.transport.identify?.(this.distinctId);
-      return;
+      try {
+        this.transport = new PostHogHttpTransport({
+          apiKey: this.config.posthog.apiKey,
+          host: this.config.posthog.host,
+        });
+        if (this.distinctId) this.transport.identify?.(this.distinctId);
+        return;
+      } catch {
+        this.transport = new NullTransport();
+        return;
+      }
     }
 
     // Default outbound is null. Local capture remains a separate mirror.

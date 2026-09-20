@@ -44,6 +44,11 @@ export interface ProductAnalyticsConfig {
     apiKey: string;
     host: string;
   };
+  /**
+   * When true, permits host `*.parkio-y04a-sink.test` for Playwright/local
+   * protocol mocks. Must never be set in release builds that ship to users.
+   */
+  allowTestSink?: boolean;
   /** Max events held while offline / before opt-in flush. */
   maxQueueSize?: number;
   /** Idle stop after this many ms without interaction (default 60_000). */

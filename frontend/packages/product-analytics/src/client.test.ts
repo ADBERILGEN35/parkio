@@ -238,10 +238,10 @@ describe('ProductAnalyticsClient consent and isolation', () => {
 });
 
 describe('PostHogHttpTransport', () => {
-  it('posts batch payload without autocapture/session replay flags enabled', async () => {
-    const fetchImpl = vi.fn(async () => new Response(null, { status: 200 }));
+  it('posts protocol-faithful batch envelope', async () => {
+    const fetchImpl = vi.fn(async () => new Response('{"status":1}', { status: 200 }));
     const transport = new PostHogHttpTransport({
-      apiKey: 'phc_test',
+      apiKey: 'phc_testOnlyKey123',
       host: 'https://eu.i.posthog.com',
       fetchImpl: fetchImpl as unknown as typeof fetch,
     });
@@ -254,11 +254,71 @@ describe('PostHogHttpTransport', () => {
         params: { platform: 'web', schemaVersion: 1 },
       },
     ]);
-    expect(fetchImpl).toHaveBeenCalledOnce();
-    const [, init] = fetchImpl.mock.calls[0]!;
-    const body = JSON.parse(String((init as RequestInit).body));
+    expect(fetchImpl).toHaveBeenCalledTimes(1);
+    const [url, init] = fetchImpl.mock.calls[0] as [string, RequestInit];
+    expect(url).toBe('https://eu.i.posthog.com/batch/');
+    const body = JSON.parse(String(init.body));
+    expect(body.api_key).toBe('phc_testOnlyKey123');
+    expect(body.historical_migration).toBe(false);
+    expect(body.batch[0].distinct_id).toBe('as_1');
+    expect(body.batch[0].timestamp).toBe('2023-11-14T22:13:20.000Z');
+    expect(body.batch[0].uuid).toMatch(
+      /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i,
+    );
     expect(body.batch[0].properties.$session_recording_enabled).toBe(false);
     expect(body.batch[0].properties.$autocapture_disabled).toBe(true);
+    expect(body.batch[0].properties.$process_person_profile).toBe(false);
     expect(body.batch[0].event).toBe('map_ready');
+  });
+
+  it('rejects personal/management API keys', () => {
+    expect(
+      () =>
+        new PostHogHttpTransport({
+          apiKey: 'phx_personal_key',
+          host: 'https://eu.i.posthog.com',
+        }),
+    ).toThrow(/posthog_invalid_project_api_key/);
+  });
+});
+
+describe('incomplete engagement checkpoint', () => {
+  it('recovers incomplete duration without fabricating wall-clock', async () => {
+    const storage = createMemoryStorage();
+    let now = 1_000;
+    const client = new ProductAnalyticsClient({
+      platform: 'web',
+      storage,
+      vendorEnabled: false,
+      now: () => now,
+      monotonicNow: () => now,
+    });
+    client.useLocalCapture();
+    await client.init();
+    await client.setConsent('granted');
+    client.setForeground(true);
+    client.setFocused(true);
+    client.trackScreenViewed('/map');
+    client.noteInteraction();
+    now += 12_000;
+    await client.persistIncompleteCheckpoint();
+    client.dispose();
+
+    now += 3_600_000;
+    const client2 = new ProductAnalyticsClient({
+      platform: 'web',
+      storage,
+      vendorEnabled: false,
+      now: () => now,
+      monotonicNow: () => now,
+    });
+    const capture2 = client2.useLocalCapture();
+    await client2.init();
+    const incomplete = capture2.events.filter(
+      (e) => e.name === 'screen_engagement_summary' && e.params?.incomplete === true,
+    );
+    expect(incomplete.length).toBeGreaterThanOrEqual(1);
+    expect(incomplete[0]?.params?.activeDurationMs).toBe(12_000);
+    expect(incomplete[0]?.params?.activeDurationMs).toBeLessThan(3_600_000);
   });
 });
