@@ -247,6 +247,48 @@ parkio_backup_write_metrics() {
   python3 "$root/scripts/lib/backup-metrics.py" "$textfile_dir" "$scope" \
     "$success" "$stamp_epoch" "$db_failed" "$minio_objects" "$offsite_ok" \
     "$encrypt_on" "$backup_bytes" "$prod_mode" "${MINIO_BUCKET:-parkio-media}"
+  # Optional async Slack-biz enqueue (disabled unless PARKIO_SLACK_BIZ_ENABLED=true).
+  # Never blocks backup success on Slack; failures are logged and ignored.
+  parkio_backup_enqueue_slack_biz "$scope" "$success" "$offsite_ok" || true
+}
+
+# Enqueue distinct local/offsite backup status events for the Y03 Slack biz relay.
+# Requires PARKIO_SLACK_BIZ_ENABLED=true and a configured PARKIO_SLACK_BIZ_WEBHOOK_URL*.
+# Does not imply watchdog coverage. Local success does not imply offsite success.
+parkio_backup_enqueue_slack_biz() {
+  case "${PARKIO_SLACK_BIZ_ENABLED:-}" in
+    1|true|TRUE|yes|YES|on|ON) ;;
+    *) return 0 ;;
+  esac
+  local scope="$1"
+  local success="$2"
+  local offsite_ok="$3"
+  local root
+  root="$(parkio_backup_repo_root)"
+  local local_outcome=failed
+  if [ "$success" = "1" ]; then
+    local_outcome=success
+  fi
+  local offsite_outcome=not_observed
+  local offsite_reason=not_observed
+  if [ "$offsite_ok" = "1" ]; then
+    offsite_outcome=success
+    offsite_reason=n/a
+  elif [ "$offsite_ok" = "0" ] && [ "$success" = "1" ]; then
+    # Local completed but offsite metric is 0 → failed upload (not merely unknown)
+    offsite_outcome=failed
+    offsite_reason=upload
+  fi
+  local date_utc
+  date_utc="$(date -u +%Y-%m-%d)"
+  local payload
+  payload="$(printf '{"scope":"%s","date":"%s","local_outcome":"%s","offsite_outcome":"%s","offsite_reason":"%s","occurred_at":"%s"}' \
+    "$scope" "$date_utc" "$local_outcome" "$offsite_outcome" "$offsite_reason" "$(date -u +%Y-%m-%dT%H:%M:%SZ)")"
+  if ! printf '%s\n' "$payload" | python3 "$root/scripts/slack_biz/enqueue.py" --kind backup >/dev/null 2>&1; then
+    echo "WARN: slack-biz backup enqueue failed (backup itself unaffected)" >&2
+    return 0
+  fi
+  return 0
 }
 
 parkio_backup_write_manifest() {

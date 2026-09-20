@@ -112,6 +112,13 @@ is_placeholder() {
   echo "$1" | grep -qiE 'CHANGE_ME|CHANGEME|CHANGE-ME|PLACEHOLDER|REPLACE_ME|REPLACEME|YOUR_|<[A-Za-z_-]+>|DUMMY|SAMPLE_|TODO|FIXME|00000000-0000-0000-0000-000000000000'
 }
 
+# is_jwt_pem_placeholder VALUE -> 0 only for known env-template markers.
+# Short tokens (TODO/FIXME/YOUR_/DUMMY/SAMPLE_) must NOT be used on PKCS#8 PEM
+# bodies: they collide with random base64 and false-fail CI dry-run fixtures.
+is_jwt_pem_placeholder() {
+  echo "$1" | grep -qiE 'CHANGE_ME|CHANGEME|CHANGE-ME|PLACEHOLDER|REPLACE_ME|REPLACEME|<[A-Za-z_-]+>|00000000-0000-0000-0000-000000000000'
+}
+
 # Known committed local-dev values that must never reach a hosted environment.
 is_local_dev_value() {
   case "$1" in
@@ -224,7 +231,7 @@ fi
 JWT_PEM=$(env_get PARKIO_JWT_PRIVATE_KEY_PEM)
 if [ -z "$JWT_PEM" ]; then
   fail "PARKIO_JWT_PRIVATE_KEY_PEM" "JWT private key is empty" "openssl genpkey -algorithm RSA -pkeyopt rsa_keygen_bits:2048 — store as one double-quoted line with \\n escapes"
-elif is_placeholder "$JWT_PEM"; then
+elif is_jwt_pem_placeholder "$JWT_PEM"; then
   fail "PARKIO_JWT_PRIVATE_KEY_PEM" "JWT private key is a placeholder" "generate a real PKCS#8 key (see .env.hosted-beta.example)"
 else
   case "$JWT_PEM" in

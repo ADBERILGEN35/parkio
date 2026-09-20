@@ -950,3 +950,15 @@ the outbox relay, Loki and MinIO simultaneously, so act before the critical (<10
 | parkio.municipal.osm.label | counter | DATA-WP-13; labels: outcome, source_family, policy_version, fallback_type |
 
 No OSM element IDs, facility IDs, file paths, name text, or exception messages as labels.
+
+## New Relic log pilot (Y02, opt-in)
+
+Optional Fluent Bit to New Relic Logs (or mock Log API) path for **gateway / auth / parking** only.
+Does **not** replace Promtail to Loki or Alertmanager. Default-off compose profile `nr-log-pilot`.
+
+- Config: `docker/fluent-bit/`
+- Overlay: `docker/docker-compose.newrelic-log-pilot.yml`
+- Operator guide: `docs/operations/new-relic-log-pilot.md`
+- Contract: Y01 `ops.log.v1` (evidence under `agent-tools/parkio-y01-telemetry-event-contract-01/`)
+
+APM/tracing are not required for log search. Production remains disabled by default.

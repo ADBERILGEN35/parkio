@@ -1,0 +1,32 @@
+# Opt-in Slack business notification worker (Y03)
+#
+# Usage (does not start unless profile enabled):
+#   docker compose -f docker/docker-compose.yml \
+#     -f docker/docker-compose.slack-biz.yml --profile slack-biz up -d slack-biz-worker
+#
+# Disabled by default. Requires PARKIO_SLACK_BIZ_ENABLED=true and a webhook URL.
+# Never set PARKIO_SLACK_BIZ_WEBHOOK_URL equal to PARKIO_ALERT_SLACK_WEBHOOK_URL.
+# This overlay does not modify Alertmanager services.
+
+services:
+  slack-biz-worker:
+    profiles: ["slack-biz"]
+    image: python:3.12-alpine
+    working_dir: /workspace
+    volumes:
+      - ..:/workspace:ro
+      - slack_biz_data:/data
+    environment:
+      PARKIO_SLACK_BIZ_ENABLED: ${PARKIO_SLACK_BIZ_ENABLED:-false}
+      PARKIO_SLACK_BIZ_WEBHOOK_URL: ${PARKIO_SLACK_BIZ_WEBHOOK_URL:-}
+      PARKIO_SLACK_BIZ_WEBHOOK_URL_BIZ: ${PARKIO_SLACK_BIZ_WEBHOOK_URL_BIZ:-}
+      PARKIO_SLACK_BIZ_WEBHOOK_URL_OPS: ${PARKIO_SLACK_BIZ_WEBHOOK_URL_OPS:-}
+      PARKIO_SLACK_BIZ_DATA_DIR: /data
+      PARKIO_SLACK_BIZ_ENVIRONMENT: ${PARKIO_SLACK_BIZ_ENVIRONMENT:-local}
+      PARKIO_SLACK_BIZ_FORBID_ALERTMANAGER_WEBHOOK: "1"
+      PARKIO_ALERT_SLACK_WEBHOOK_URL: ${PARKIO_ALERT_SLACK_WEBHOOK_URL:-}
+    command: ["python", "scripts/slack_biz/worker.py", "--loop", "--interval", "2"]
+    restart: unless-stopped
+
+volumes:
+  slack_biz_data:
