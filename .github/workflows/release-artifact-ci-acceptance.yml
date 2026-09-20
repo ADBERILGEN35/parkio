@@ -316,6 +316,15 @@ jobs:
             exit 1
           fi
 
+      - name: Verify retained OCI archives are loadable
+        run: |
+          set -euo pipefail
+          mkdir -p out/oci-reload
+          docker load -i "out/oci/parkio-parking-service-${IMAGE_TAG}.tar" | tee out/oci-reload/load-parking.txt
+          docker image inspect "parkio/parking-service:${IMAGE_TAG}" --format '{{.Id}}' \
+            | tee out/oci-reload/parking-id-after-load.txt
+          echo "OCI_ARCHIVE_RELOAD_OK=yes" | tee out/oci-reload/RESULT.txt
+
       - name: Build acceptance-peer images from SAME release SHA (auth, user)
         working-directory: release-src
         run: |
@@ -389,7 +398,10 @@ jobs:
               "PARKIO_PUBLIC_EXPLORE_ENABLED": "true",
               "PARKIO_PUBLIC_EXPLORE_ALLOWED_SOURCE_FAMILIES": "izum",
               "VITE_PUBLIC_EXPLORE_ENABLED": "true",
-              "PARKIO_WAITLIST_HASH_SECRET": "secpriv-ci-waitlist-hash-secret",
+              # WaitlistHasher requires >= 32 characters.
+              "PARKIO_WAITLIST_HASH_SECRET": "secpriv-ci-waitlist-hash-secret-32+",
+              "PARKIO_TRACING_ENABLED": "false",
+              "JAVA_TOOL_OPTIONS": "-XX:MaxRAMPercentage=50.0 -XX:InitialRAMPercentage=25.0 -XX:MaxMetaspaceSize=192m -XX:+UseG1GC -XX:+ExitOnOutOfMemoryError",
           }
 
           lines = []
@@ -454,6 +466,11 @@ jobs:
             if [ "$SECONDS" -ge "$deadline" ]; then
               echo "::error::Timed out waiting for services"
               docker compose --env-file "$COMPOSE_ENV_FILE" $COMPOSE_FILES ps
+              mkdir -p ../out/compose
+              docker compose --env-file "$COMPOSE_ENV_FILE" $COMPOSE_FILES logs --no-color --tail=200 gateway-service \
+                > ../out/compose/gateway-service.tail.log 2>&1 || true
+              docker compose --env-file "$COMPOSE_ENV_FILE" $COMPOSE_FILES logs --no-color --tail=80 auth-service \
+                > ../out/compose/auth-service.tail.log 2>&1 || true
               exit 1
             fi
             sleep 15
@@ -498,16 +515,6 @@ jobs:
             echo "security_note=Rolling back BC may restore vulnerable bcprov"
             echo "safe_recovery=forward-fix keeping PA-06+BC; do not call vulnerable rollback safe"
           } | tee ../out/recovery/summary.txt
-
-      - name: Verify retained OCI archives are loadable
-        run: |
-          set -euo pipefail
-          mkdir -p out/oci-reload
-          # Spot-check: load parking tar into a unique tag, confirm ID readable, then remove tag.
-          docker load -i "out/oci/parkio-parking-service-${IMAGE_TAG}.tar" | tee out/oci-reload/load-parking.txt
-          docker image inspect "parkio/parking-service:${IMAGE_TAG}" --format '{{.Id}}' \
-            | tee out/oci-reload/parking-id-after-load.txt
-          echo "OCI_ARCHIVE_RELOAD_OK=yes" | tee out/oci-reload/RESULT.txt
 
       - name: Collect compose evidence (redacted)
         if: always()
