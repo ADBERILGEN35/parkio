@@ -6,7 +6,7 @@
 |-------|-------|
 | API baseline | `4a9ba2184e867b8ea8b927f7c3f8bcb137c2760a` |
 | PR54 initial head | `535c12afe1dcf1eff4c946ad15ce2321ef551b89` |
-| PR54 final head | *(after push)* |
+| PR54 final head | $head |
 | Ambiguous finding | **CONFIRMED DEFECT** — was marked delivered; fixed to retry → `delivery_unknown` |
 | Delivery policy | Bounded ambiguous retry + duplicate risk; never confirm uncertain |
 | SQLite / claim | Single-worker lock; lease reclaim; HTTP outside TX |
