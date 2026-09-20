@@ -46,7 +46,20 @@ export class ActiveTimeTracker {
     this.onHeartbeat = options.onHeartbeat;
   }
 
+  /** Currently tracked screen, or null when none. */
+  getCurrentScreen(): AnalyticsScreenName | null {
+    return this.screenName;
+  }
+
+  /**
+   * Enter a screen. Same-screen re-entry is a no-op (StrictMode remount /
+   * redundant effects) — does not restart engagement or imply a new visit.
+   * Returns the previous screen snapshot when transitioning away.
+   */
   enterScreen(screenName: AnalyticsScreenName): ScreenActiveTimeSnapshot | null {
+    if (this.screenName === screenName) {
+      return null;
+    }
     const previous = this.exitScreen({ incomplete: false });
     this.screenName = screenName;
     this.accumulatedMs = 0;

@@ -1,6 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import {
   resetProductAnalyticsForTests,
+  setProductAnalyticsConsent,
   setProductAnalyticsTransport,
   trackProductEvent,
 } from './productAnalytics';
@@ -15,9 +16,10 @@ import {
 import type { ParkingCandidate, RecommendationResponse } from '@parkio/types';
 
 describe('web spa telemetry', () => {
-  beforeEach(() => {
+  beforeEach(async () => {
     resetProductAnalyticsForTests();
     resetSpaTelemetryForTests();
+    await setProductAnalyticsConsent('granted');
   });
 
   afterEach(() => {

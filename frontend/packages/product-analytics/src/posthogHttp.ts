@@ -18,18 +18,49 @@ export interface PostHogCaptureConfig {
   maxBodyBytes?: number;
 }
 
-export type PostHogSendFailureKind = 'network' | 'timeout' | 'http_4xx' | 'http_5xx' | 'payload';
+export type PostHogSendFailureKind =
+  | 'network'
+  | 'timeout'
+  | 'http_4xx'
+  | 'http_429'
+  | 'http_5xx'
+  | 'payload';
 
 export class PostHogSendError extends Error {
   readonly kind: PostHogSendFailureKind;
   readonly status?: number;
+  /** Parsed Retry-After delay in ms when kind is http_429 (if header present). */
+  readonly retryAfterMs?: number;
 
-  constructor(kind: PostHogSendFailureKind, message: string, status?: number) {
+  constructor(
+    kind: PostHogSendFailureKind,
+    message: string,
+    status?: number,
+    retryAfterMs?: number,
+  ) {
     super(message);
     this.name = 'PostHogSendError';
     this.kind = kind;
     this.status = status;
+    this.retryAfterMs = retryAfterMs;
   }
+}
+
+/** Parse Retry-After as delta-seconds or HTTP-date. Returns undefined when absent/invalid. */
+export function parseRetryAfterMs(
+  header: string | null,
+  nowMs: number = Date.now(),
+): number | undefined {
+  if (!header) return undefined;
+  const trimmed = header.trim();
+  if (/^\d+$/.test(trimmed)) {
+    const seconds = Number(trimmed);
+    if (!Number.isFinite(seconds) || seconds < 0) return undefined;
+    return Math.min(seconds * 1000, 600_000);
+  }
+  const when = Date.parse(trimmed);
+  if (Number.isNaN(when)) return undefined;
+  return Math.min(Math.max(0, when - nowMs), 600_000);
 }
 
 /** True when key looks like a PostHog project ingestion token. */
@@ -161,9 +192,20 @@ export class PostHogHttpTransport implements AnalyticsTransport {
           signal: controller.signal,
         });
         if (!response.ok) {
+          if (response.status === 429) {
+            const retryAfterMs = parseRetryAfterMs(response.headers.get('Retry-After'));
+            // Rate limit is retryable — never treated as permanent 4xx drop.
+            throw new PostHogSendError(
+              'http_429',
+              'posthog_http_429',
+              429,
+              retryAfterMs,
+            );
+          }
           const kind: PostHogSendFailureKind =
             response.status >= 500 ? 'http_5xx' : 'http_4xx';
-          // 4xx (except 429) treated as permanent — caller should drop; 5xx/429 retry via queue.
+          // Permanent client errors (auth/payload rejection): caller drops.
+          // Ambiguous after network/timeout: caller requeues (possible duplicate).
           throw new PostHogSendError(kind, `posthog_http_${response.status}`, response.status);
         }
         // Note: PostHog may return 200 even when individual events lack distinct_id
@@ -173,6 +215,7 @@ export class PostHogHttpTransport implements AnalyticsTransport {
         if (error instanceof Error && error.name === 'AbortError') {
           throw new PostHogSendError('timeout', 'posthog_timeout');
         }
+        // Delivery may already have been accepted server-side — requeue can duplicate.
         throw new PostHogSendError('network', 'posthog_batch_failed');
       } finally {
         clearTimeout(timer);

@@ -10,6 +10,7 @@ export {
   PostHogHttpTransport,
   PostHogSendError,
   isPostHogProjectApiKey,
+  parseRetryAfterMs,
 } from './posthogHttp';
 export type { PostHogCaptureConfig, PostHogSendFailureKind } from './posthogHttp';
 export type {

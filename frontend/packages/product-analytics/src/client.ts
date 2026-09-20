@@ -62,6 +62,8 @@ export class ProductAnalyticsClient {
   private initialized = false;
   /** When true, LocalCapture mirrors every granted event even if vendor is null. */
   private mirrorLocal = false;
+  /** Earliest wall-clock ms to attempt vendor send after HTTP 429 (0 = no hold). */
+  private retryNotBeforeMs = 0;
 
   constructor(config: ProductAnalyticsConfig) {
     this.config = config;
@@ -151,6 +153,7 @@ export class ProductAnalyticsClient {
     if (next === 'denied' || next === 'unset') {
       // Discard unsent queue before flipping consent so nothing flushes.
       this.queue.length = 0;
+      this.retryNotBeforeMs = 0;
       this.consent = next;
       await this.storage.setItem(CONSENT_KEY, next);
       this.distinctId = null;
@@ -260,6 +263,11 @@ export class ProductAnalyticsClient {
 
   trackScreenViewed(pathOrRoute: string): void {
     const screenName = normalizeAnalyticsScreenName(pathOrRoute);
+    // Idempotent for same-screen re-entry (React StrictMode remount / duplicate
+    // effects). Genuine leave→return still emits because exit clears current screen.
+    if (this.activeTime.getCurrentScreen() === screenName) {
+      return;
+    }
     const previous = this.activeTime.enterScreen(screenName);
     if (previous) this.emitEngagement(previous);
     this.track('screen_viewed', {
@@ -321,16 +329,24 @@ export class ProductAnalyticsClient {
 
   async flush(): Promise<void> {
     if (this.consent !== 'granted' || this.queue.length === 0) return;
+    if (this.retryNotBeforeMs > this.wallNow()) return;
     const batch = this.queue.splice(0);
     for (const event of batch) {
       event.deferred = true;
     }
     try {
       await this.transport.send(batch);
-      if (this.mirrorLocal && this.localCapture && !this.localCapture.disposed) {
-        // already mirrored at capture time
+    } catch (error) {
+      if (error instanceof PostHogSendError) {
+        if (error.kind === 'http_4xx' || error.kind === 'payload') {
+          this.dropCount += batch.length;
+          return;
+        }
+        if (error.kind === 'http_429') {
+          const delay = error.retryAfterMs ?? 5_000;
+          this.retryNotBeforeMs = Math.max(this.retryNotBeforeMs, this.wallNow() + delay);
+        }
       }
-    } catch {
       for (const event of batch) {
         this.enqueue(event);
       }
@@ -376,15 +392,36 @@ export class ProductAnalyticsClient {
     }
   }
 
+  /** Earliest wall time to attempt vendor flush after a 429 (0 = immediately). */
+  getRetryNotBeforeMs(): number {
+    return this.retryNotBeforeMs;
+  }
+
   private async dispatch(event: CapturedAnalyticsEvent): Promise<void> {
+    if (this.retryNotBeforeMs > this.wallNow()) {
+      event.deferred = true;
+      this.enqueue(event);
+      return;
+    }
     try {
       await this.transport.send([event]);
     } catch (error) {
-      if (error instanceof PostHogSendError && error.kind === 'http_4xx' && error.status !== 429) {
-        // Permanent client error — do not retry forever.
-        this.dropCount += 1;
-        return;
+      if (error instanceof PostHogSendError) {
+        if (error.kind === 'http_4xx' || error.kind === 'payload') {
+          // Permanent auth/payload rejection — do not retry indefinitely.
+          this.dropCount += 1;
+          return;
+        }
+        if (error.kind === 'http_429') {
+          // Rate limited: keep queued; honor Retry-After when present (cap 10m).
+          const delay = error.retryAfterMs ?? 5_000;
+          this.retryNotBeforeMs = Math.max(this.retryNotBeforeMs, this.wallNow() + delay);
+          event.deferred = true;
+          this.enqueue(event);
+          return;
+        }
       }
+      // network / timeout / 5xx — requeue. Ambiguous delivery may duplicate.
       event.deferred = true;
       this.enqueue(event);
     }

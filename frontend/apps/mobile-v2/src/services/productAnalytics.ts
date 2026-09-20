@@ -83,29 +83,47 @@ function createJsonStoreAdapter(): AnalyticsStorage {
   };
 }
 
-function readExtra(name: string): string | undefined {
-  try {
-    const extra = Constants.expoConfig?.extra as Record<string, unknown> | undefined;
-    const fromExtra = extra?.[name];
-    if (typeof fromExtra === 'string' && fromExtra.length > 0) return fromExtra;
-  } catch {
-    // ignore
-  }
-  try {
-    const env = process.env as Record<string, string | undefined>;
-    const value = env[name];
-    return typeof value === 'string' && value.length > 0 ? value : undefined;
-  } catch {
-    return undefined;
-  }
+/**
+ * Static `process.env.EXPO_PUBLIC_*` member expressions only — babel-preset-expo
+ * inlines these at bundle time. Dynamic `process.env[name]` is always undefined
+ * in release / export:embed builds (see src/config/env.ts).
+ */
+function readPublicAnalyticsEnv(): {
+  vendorEnabled: boolean;
+  allowTestSink: boolean;
+  apiKey: string | undefined;
+  host: string | undefined;
+} {
+  const fromExtra = (name: string): string | undefined => {
+    try {
+      const extra = Constants.expoConfig?.extra as Record<string, unknown> | undefined;
+      const value = extra?.[name];
+      return typeof value === 'string' && value.length > 0 ? value : undefined;
+    } catch {
+      return undefined;
+    }
+  };
+  const pick = (staticValue: string | undefined, extraName: string): string | undefined => {
+    if (typeof staticValue === 'string' && staticValue.length > 0) return staticValue;
+    return fromExtra(extraName);
+  };
+  return {
+    vendorEnabled:
+      pick(process.env.EXPO_PUBLIC_PRODUCT_ANALYTICS_VENDOR_ENABLED, 'EXPO_PUBLIC_PRODUCT_ANALYTICS_VENDOR_ENABLED') ===
+      'true',
+    allowTestSink:
+      pick(
+        process.env.EXPO_PUBLIC_PRODUCT_ANALYTICS_ALLOW_TEST_SINK,
+        'EXPO_PUBLIC_PRODUCT_ANALYTICS_ALLOW_TEST_SINK',
+      ) === 'true',
+    apiKey: pick(process.env.EXPO_PUBLIC_POSTHOG_KEY, 'EXPO_PUBLIC_POSTHOG_KEY'),
+    host: pick(process.env.EXPO_PUBLIC_POSTHOG_HOST, 'EXPO_PUBLIC_POSTHOG_HOST'),
+  };
 }
 
 function ensureClient(): ProductAnalyticsClient {
   if (client) return client;
-  const vendorEnabled = readExtra('EXPO_PUBLIC_PRODUCT_ANALYTICS_VENDOR_ENABLED') === 'true';
-  const apiKey = readExtra('EXPO_PUBLIC_POSTHOG_KEY');
-  const host = readExtra('EXPO_PUBLIC_POSTHOG_HOST');
-  const allowTestSink = readExtra('EXPO_PUBLIC_PRODUCT_ANALYTICS_ALLOW_TEST_SINK') === 'true';
+  const { vendorEnabled, allowTestSink, apiKey, host } = readPublicAnalyticsEnv();
   client = new ProductAnalyticsClient({
     platform: 'mobile_v2',
     storage: createJsonStoreAdapter(),
@@ -123,7 +141,7 @@ export async function initProductAnalytics(): Promise<void> {
   if (bootstrapped) return;
   bootstrapped = true;
   const c = ensureClient();
-  if (readExtra('EXPO_PUBLIC_PRODUCT_ANALYTICS_ALLOW_TEST_SINK') === 'true') {
+  if (readPublicAnalyticsEnv().allowTestSink) {
     c.useLocalCapture();
   }
   await c.init();
