@@ -1,5 +1,5 @@
-# Parkio GMP release pins — authorized production deploy 2026-09-21
-# Source SHA: 4a9ba2184e867b8ea8b927f7c3f8bcb137c2760a
+# Parkio GMP release pins — W01L waitlist consent + branded email (2026-09-21)
+# Source SHA: 1f3fb1d1241fd412d6c3531164edea7da8af73b7
 # ONLY gateway/media/parking image references. Do not broaden.
 # Applied last in the production compose file set.
 # Recreate with: scripts/parkio-prod-compose.sh up -d --no-build --no-deps <service>
@@ -7,11 +7,12 @@
 # Production (parkio-civo-prod) compose file set does NOT use docker-compose.images.yml;
 # see docker/compose.production.files. When azure-hosted-beta tooling also loads
 # docker-compose.images.yml, this overlay must remain last so digest pins win.
+# Gateway digest matches live Civo after W01L V3 deploy; media/parking unchanged.
 name: parkio
 
 services:
   gateway-service:
-    image: ghcr.io/adberilgen35/parkio/gateway-service@sha256:7ac5a32b7cb3d08e49b5873af6837b4b79a78ff1f4489920ecdd8ac14c09556f
+    image: ghcr.io/adberilgen35/parkio/gateway-service@sha256:51a0867038b1e437c7e130243e23d0a427835c1f14d0294a5394b0dc57081284
 
   media-service:
     image: ghcr.io/adberilgen35/parkio/media-service@sha256:62f49d04087fb7aa475db0a42c7f8d1e7d1511f84e6b496a58c5beda58f864ec
