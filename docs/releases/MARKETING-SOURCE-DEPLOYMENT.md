@@ -108,8 +108,10 @@ Required order:
 1. Source merge of waitlist containment + recovery work into the authorized deploy branch.
 2. Build/scan/publish a new **gateway** image; update only the gateway digest in
    `docker/docker-compose.gmp-release-pins.yml` (preserve media and parking pins).
-   Retain a second V2-compatible recovery digest (same schema generation) for
-   application recovery — the pre-V2 pin is **not** a safe post-V2 rollback.
+   That digest is a V2-compatible candidate and same-version restart/redeploy
+   artifact (and a containment vehicle when admissions are disabled). It is **not**
+   independent application rollback. A defective binary requires a newly built
+   accepted V2 digest — the pre-V2 pin remains unsafe after migration.
 3. Deploy gateway with Flyway V1→V2 on `parkio_gateway`, CORS including
    `https://parkio.dev`, `PARKIO_WAITLIST_EMAIL_PROVIDER=resend`,
    `PARKIO_WAITLIST_ALLOW_LOGGING_PROVIDER=false`, and admissions initially
@@ -122,10 +124,11 @@ Rollback / containment:
 
 - **Containment:** set `PARKIO_WAITLIST_ADMISSIONS_ENABLED=false` and restart gateway
   (and/or hide the Hostinger form). Form hide alone does not stop direct API writes.
-- **Restart recovery:** restart the same V2-compatible gateway artifact.
-- **Application recovery:** redeploy a previously accepted V2-compatible gateway
-  digest (not the pre-V2 pin). Do not run destructive down-migrations; preserve
-  `waitlist_interest` rows.
+- **Same-digest restart/redeploy:** restart or redeploy the accepted V2-compatible
+  gateway digest (not the pre-V2 pin). Do not run destructive down-migrations;
+  preserve `waitlist_interest` rows.
+- **Defective binary:** build/scan/accept a new V2-compatible digest from fixed
+  source — do not treat same-digest redeploy as general application rollback.
 
 
 
