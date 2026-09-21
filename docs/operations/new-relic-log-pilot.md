@@ -1,9 +1,14 @@
 # New Relic log pilot — supported, bounded activation handoff
 
-**Status:** implementation-ready, synthetic acceptance only, production
-activation deferred. No production helper or collector has been installed or
-started, no application container has been changed, and no real log has been
-sent to New Relic.
+**Status:** synthetic end-to-end acceptance passed. The operator subsequently
+authorized one bounded real-log pilot on 2026-09-21, with a 26,214,400-byte
+persistent transport budget and a one-hour maximum. Its execution evidence,
+searchability observations and teardown status are recorded in
+[the real-pilot report](new-relic-real-pilot-2026-09-21.md).
+The run is complete, collection is OFF and teardown passed. Parking searchable
+delivery was confirmed by the operator; gateway/auth were quiet.
+No application container was changed. This does not authorize permanent
+collection or another pilot run.
 
 This is a log-only one-hour pilot for `gateway-service`, `auth-service` and
 `parking-service`. It installs no APM agent and enables no tracing, session
@@ -197,9 +202,10 @@ change that disagrees with persisted `max_bytes` fails closed at gate startup.
 
 This is **not** an exact New Relic billable-ingest cap. It excludes HTTP/TLS
 headers and counts uncompressed serialized request bodies per attempt, while
-New Relic billing semantics may differ. The earlier 25 MiB number is only a
-configurable synthetic test value; it is not measured production demand or an
-approved owner budget.
+New Relic billing semantics may differ. The earlier 25 MiB proposal originated
+as a configurable synthetic test value, not measured production demand. The
+operator subsequently explicitly approved that numeric transport ceiling for
+the single 2026-09-21 real pilot; it is not a standing budget authorization.
 
 ## Resource controls
 
@@ -283,8 +289,9 @@ full-platform user; effective log retention was 30 days with zero days extended
 retention; and Billing showed neither payment-method details nor billing
 records. These observations do **not** establish a vendor-enforced spending
 cap. The ingest license key was installed through hidden input for the bounded
-synthetic proof. The remaining real-log input is an owner-approved numeric
-one-hour value for `PARKIO_NR_BUDGET_BYTES`.
+synthetic proof. The operator subsequently approved
+`PARKIO_NR_BUDGET_BYTES=26214400` for the single one-hour real pilot documented
+above. Account observations remain user-observed, not proof of a vendor cap.
 
 Never paste the key into chat, a command argument, shell history, Git, a ticket
 or rendered Compose output. In an interactive production terminal with xtrace
@@ -348,8 +355,8 @@ that exact marker is searchable in the EU account's Logs UI.
 ## Required synthetic-only EU proof
 
 **Status: END-TO-END PASS (transport plus user-observed EU Logs search). This
-completes only the synthetic prerequisite; real-log activation and its one-hour
-budget remain separately unauthorized.**
+completed the synthetic prerequisite and was reused without resending the
+marker for the separately authorized 2026-09-21 real pilot.**
 Do not start or install the production source helper first. The proof binds a
 new empty source directory, uses a distinct persistent 16 KiB serialized-body
 test budget and starts a separate Compose project. Fluent Bit's one-sample
@@ -388,7 +395,7 @@ if sudo find "$synthetic_root" -mindepth 1 -print -quit | grep -q .; then
 fi
 
 # Non-secret runtime values. The 16 KiB test budget is persistent and separate
-# from the still-unapproved real-log pilot budget.
+# from any separately authorized real-log pilot budget.
 sudo install -m 0600 -o root -g root /dev/null "$run_dir/synthetic.env"
 {
   printf 'PARKIO_NR_UPSTREAM_BASE_URI=%s\n' 'https://log-api.eu.newrelic.com/log/v1'
@@ -520,6 +527,16 @@ its project is stopped, the gateway deployment has settled and a separate
 real-log activation decision is recorded. These commands are reviewable handoff,
 not an authorization to execute them.
 
+Host-specific lessons from the completed activation preparation: `PrivateTmp`
+hides host `/tmp` and `/var/tmp` helper paths, and this host mounts `/run` with
+`noexec`. Keep the host helper package at a root-controlled non-private path
+and invoke its Python/shell files through `/usr/bin/python3` and `/bin/bash`.
+Container configuration binds must independently be verified readable; this
+run used byte-identical container sources under `/var/tmp` and host helper
+sources under `/run`. Do not disable mount protections. Run the operator shell
+from a protected file, not an SSH stdin stream that Docker Compose can consume.
+The exact execution paths and startup interruptions are in the real-pilot report.
+
 Create bounded state directories and capture fresh identities:
 
 ```bash
@@ -549,6 +566,20 @@ PARKIO_COLLECTOR_SOURCE_SHA=EXACT_REVIEWED_PR_HEAD
 PARKIO_NR_PILOT_MARKER=p02-UNIQUE-NONSECRET-MARKER
 ```
 
+Arm and verify the independent stop **before the helper first attaches**, not
+merely before the collector starts. This example reserves one minute for
+shutdown within the one-hour collection limit. Never reset this timer on retry
+or restart; record the original absolute deadline:
+
+```bash
+sudo systemd-run --unit=parkio-nr-log-pilot-autostop --on-active=59m \
+  --timer-property=AccuracySec=1s \
+  /usr/bin/env PARKIO_NR_PILOT_PROJECT=parkio-nr-log-pilot \
+  /bin/bash "$checkout/scripts/newrelic_log_pilot/stop_pilot.sh"
+sudo systemctl is-active --quiet parkio-nr-log-pilot-autostop.timer
+sudo systemctl list-timers parkio-nr-log-pilot-autostop.timer --no-pager
+```
+
 Start only the host helper, then require fresh identity/spool proof:
 
 ```bash
@@ -567,15 +598,6 @@ sudo "$checkout/scripts/newrelic_log_pilot/resolve_production_sources.sh" \
 Any missing/stale identity, non-`attached` status or unreadable spool is a hard
 stop. Resolve again after any application recreation; never reuse saved IDs.
 
-Arm the independent stop before collector start:
-
-```bash
-sudo systemd-run --unit=parkio-nr-log-pilot-autostop --on-active=1h \
-  /usr/bin/env PARKIO_NR_PILOT_PROJECT=parkio-nr-log-pilot \
-  "$checkout/scripts/newrelic_log_pilot/stop_pilot.sh"
-sudo systemctl is-active --quiet parkio-nr-log-pilot-autostop.timer
-```
-
 Then start only the two pilot containers in their dedicated project:
 
 ```bash
@@ -584,7 +606,7 @@ sudo docker compose \
   --env-file "$run_dir/sources.env" -p parkio-nr-log-pilot \
   -f docker/docker-compose.newrelic-log-pilot.yml \
   -f docker/docker-compose.newrelic-log-pilot.production.yml \
-  --profile nr-log-pilot up -d nr-budget-gate fluent-bit-nr-pilot
+  --profile nr-log-pilot up -d nr-budget-gate fluent-bit-nr-pilot </dev/null
 ```
 
 Immediately repeat `--check-helper` and inspect only container health and gate
