@@ -159,12 +159,13 @@ public class AuthApplicationService {
                 refreshTokenHasher.hash(rawVerificationToken),
                 verificationExpiresAt,
                 now,
+                command.locale(),
                 Set.of(userRole),
                 now);
         AuthUser saved = authUsers.save(user);
 
         outbox.append(UserRegisteredEvent.of(saved.id(), saved.email(), now));
-        emailVerificationSender.sendVerificationLink(saved.email(), rawVerificationToken, command.locale());
+        emailVerificationSender.sendVerificationLink(saved.email(), rawVerificationToken, saved.preferredLocale());
 
         return new RegisterResult(saved, verificationExpiresAt);
     }
@@ -222,12 +223,12 @@ public class AuthApplicationService {
 
         authUsers.findByEmail(email)
                 .filter(user -> !user.emailVerified())
-                .ifPresent(user -> issueAndSendVerificationToken(user, command.locale()));
+                .ifPresent(user -> issueAndSendVerificationToken(user, user.preferredLocale()));
     }
 
     /**
      * Admin-triggered resend for a known user. Throws when already verified; still
-     * respects the per-email cooldown.
+     * respects the per-email cooldown. Uses the locale stored at registration.
      */
     public void resendVerificationForUser(AuthUser user) {
         if (user.emailVerified()) {
@@ -236,7 +237,7 @@ public class AuthApplicationService {
         if (!verificationResendLimiter.tryAcquire(user.email())) {
             throw new AuthException(AuthErrorCode.INVALID_ADMIN_ACTION, "Verification resend is on cooldown.");
         }
-        issueAndSendVerificationToken(user, EmailLocale.TR);
+        issueAndSendVerificationToken(user, user.preferredLocale());
     }
 
     private void issueAndSendVerificationToken(AuthUser user, EmailLocale locale) {

@@ -28,6 +28,7 @@ public final class AuthUser {
     private String emailVerificationTokenHash;
     private Instant emailVerificationExpiresAt;
     private Instant emailVerificationSentAt;
+    private EmailLocale preferredLocale;
     private long sessionEpoch;
     private final Set<Role> roles;
     private final Instant createdAt;
@@ -43,6 +44,7 @@ public final class AuthUser {
                     String emailVerificationTokenHash,
                     Instant emailVerificationExpiresAt,
                     Instant emailVerificationSentAt,
+                    EmailLocale preferredLocale,
                     long sessionEpoch,
                     Set<Role> roles,
                     Instant createdAt,
@@ -57,6 +59,7 @@ public final class AuthUser {
         this.emailVerificationTokenHash = emailVerificationTokenHash;
         this.emailVerificationExpiresAt = emailVerificationExpiresAt;
         this.emailVerificationSentAt = emailVerificationSentAt;
+        this.preferredLocale = preferredLocale == null ? EmailLocale.TR : preferredLocale;
         this.sessionEpoch = sessionEpoch;
         this.roles = new LinkedHashSet<>(Objects.requireNonNull(roles, "roles"));
         this.createdAt = Objects.requireNonNull(createdAt, "createdAt");
@@ -82,6 +85,7 @@ public final class AuthUser {
                 null,
                 null,
                 null,
+                EmailLocale.TR,
                 0L,
                 roles,
                 createdAt,
@@ -90,13 +94,14 @@ public final class AuthUser {
 
     /**
      * Registers a new account pending email verification. Email is normalised to
-     * lowercase.
+     * lowercase. {@code preferredLocale} is retained for verification (and resend) emails.
      */
     public static AuthUser register(String email,
                                     String passwordHash,
                                     String emailVerificationTokenHash,
                                     Instant emailVerificationExpiresAt,
                                     Instant emailVerificationSentAt,
+                                    EmailLocale preferredLocale,
                                     Set<Role> initialRoles,
                                     Instant now) {
         return new AuthUser(
@@ -110,6 +115,7 @@ public final class AuthUser {
                 Objects.requireNonNull(emailVerificationTokenHash, "emailVerificationTokenHash"),
                 Objects.requireNonNull(emailVerificationExpiresAt, "emailVerificationExpiresAt"),
                 Objects.requireNonNull(emailVerificationSentAt, "emailVerificationSentAt"),
+                preferredLocale == null ? EmailLocale.TR : preferredLocale,
                 0L,
                 initialRoles,
                 now,
@@ -294,6 +300,11 @@ public final class AuthUser {
 
     public Instant emailVerificationSentAt() {
         return emailVerificationSentAt;
+    }
+
+    /** Locale chosen at registration; drives verification email + verify-page language on resend. */
+    public EmailLocale preferredLocale() {
+        return preferredLocale;
     }
 
     /** When the last applied moderation status event occurred; null if none yet. */

@@ -370,6 +370,23 @@ class AuthApplicationServiceTest {
     }
 
     @Test
+    void registerPersistsPreferredLocaleAndResendIgnoresRequestLocaleOverride() {
+        RegisterResult result = service.register(new RegisterCommand(
+                "locale@example.com", VALID_PASSWORD, EmailLocale.EN));
+        assertThat(result.user().preferredLocale()).isEqualTo(EmailLocale.EN);
+        assertThat(emailVerificationSender.localeFor("locale@example.com")).isEqualTo(EmailLocale.EN);
+
+        AuthUser stored = authUsers.findByEmail("locale@example.com").orElseThrow();
+        assertThat(stored.preferredLocale()).isEqualTo(EmailLocale.EN);
+
+        verificationResendLimiter.allow("locale@example.com");
+        // Client asks for TR, but registration locale EN must be preserved for resend.
+        service.resendVerification(new com.parkio.auth.application.command.ResendVerificationCommand(
+                "locale@example.com", EmailLocale.TR));
+        assertThat(emailVerificationSender.localeFor("locale@example.com")).isEqualTo(EmailLocale.EN);
+    }
+
+    @Test
     void forgotPasswordIsEnumerationSafeAndStoresOnlyResetTokenHash() {
         registerVerified("reset@example.com");
 
@@ -1166,14 +1183,20 @@ class AuthApplicationServiceTest {
 
     private static final class FakeEmailVerificationSender implements EmailVerificationSender {
         private final Map<String, String> tokens = new HashMap<>();
+        private final Map<String, EmailLocale> locales = new HashMap<>();
 
         @Override
         public void sendVerificationLink(String email, String rawToken, EmailLocale locale) {
             tokens.put(email, rawToken);
+            locales.put(email, locale);
         }
 
         String tokenFor(String email) {
             return tokens.get(email);
+        }
+
+        EmailLocale localeFor(String email) {
+            return locales.get(email);
         }
     }
 
