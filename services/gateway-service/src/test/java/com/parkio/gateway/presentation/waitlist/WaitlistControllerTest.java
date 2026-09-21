@@ -63,11 +63,8 @@ class WaitlistControllerTest {
         when(tokenValidator.validate("super-token")).thenReturn(Mono.just(
                 new AuthenticatedUser(UUID.randomUUID().toString(), "super@parkio.test",
                         List.of("SUPER_ADMIN"), "ACTIVE", 0L)));
-<<<<<<< HEAD
-=======
         when(tokenValidator.validate("expired-token"))
                 .thenReturn(Mono.error(new IllegalArgumentException("expired")));
->>>>>>> origin/api
         lastVerificationToken.set(null);
         lastWithdrawToken.set(null);
         org.mockito.Mockito.doAnswer(invocation -> {
@@ -384,10 +381,7 @@ class WaitlistControllerTest {
                 .exchange()
                 .expectStatus().isAccepted();
 
-<<<<<<< HEAD
         // WaitlistAdminSecurityWebFilter enforces ADMIN JWT on the local controller path.
-=======
->>>>>>> origin/api
         Integer confirmed = jdbcTemplate.queryForObject(
                 "SELECT COUNT(*) FROM waitlist_interest WHERE status = 'CONFIRMED'",
                 Integer.class);
@@ -402,10 +396,7 @@ class WaitlistControllerTest {
                 .header(HttpHeaders.AUTHORIZATION, "Bearer admin-token")
                 .exchange()
                 .expectStatus().isOk()
-<<<<<<< HEAD
                 .expectHeader().valueEquals(HttpHeaders.CACHE_CONTROL, "no-store")
-=======
->>>>>>> origin/api
                 .expectBody(String.class)
                 .returnResult()
                 .getResponseBody();
@@ -416,50 +407,41 @@ class WaitlistControllerTest {
 
         webTestClient.get()
                 .uri("/api/v1/waitlist/export")
-<<<<<<< HEAD
                 .exchange()
                 .expectStatus().isUnauthorized()
                 .expectBody()
                 .jsonPath("$.code").isEqualTo("MISSING_TOKEN");
-=======
-                .header(HttpHeaders.AUTHORIZATION, "Bearer super-token")
-                .exchange()
-                .expectStatus().isOk();
-
-        webTestClient.get()
-                .uri("/api/v1/waitlist/export")
-                .exchange()
-                .expectStatus().isUnauthorized()
-                .expectBody()
-                .jsonPath("$.code").isEqualTo("MISSING_TOKEN")
-                .jsonPath("$.message").value(msg ->
-                        org.assertj.core.api.Assertions.assertThat((String) msg)
-                                .doesNotContain("will-confirm@parkio.dev"));
-
-        webTestClient.get()
-                .uri("/api/v1/waitlist/export/")
-                .exchange()
-                .expectStatus().isUnauthorized();
->>>>>>> origin/api
 
         webTestClient.get()
                 .uri("/api/v1/waitlist/export")
                 .header(HttpHeaders.AUTHORIZATION, "Bearer user-token")
                 .exchange()
-<<<<<<< HEAD
                 .expectStatus().isForbidden();
-=======
-                .expectStatus().isForbidden()
-                .expectBody()
-                .jsonPath("$.code").isEqualTo("FORBIDDEN");
->>>>>>> origin/api
 
         webTestClient.get()
                 .uri("/api/v1/waitlist/export")
                 .header(HttpHeaders.AUTHORIZATION, "Bearer moderator-token")
                 .exchange()
                 .expectStatus().isForbidden();
-<<<<<<< HEAD
+
+        webTestClient.get()
+                .uri("/api/v1/waitlist/export/")
+                .exchange()
+                .expectStatus().isUnauthorized();
+
+        webTestClient.get()
+                .uri("/api/v1/waitlist/export")
+                .header(HttpHeaders.AUTHORIZATION, "Bearer expired-token")
+                .exchange()
+                .expectStatus().isUnauthorized()
+                .expectBody()
+                .jsonPath("$.code").isEqualTo("INVALID_TOKEN");
+
+        webTestClient.get()
+                .uri("/api/v1/waitlist/export")
+                .header(HttpHeaders.AUTHORIZATION, "Bearer super-token")
+                .exchange()
+                .expectStatus().isOk();
     }
 
     @Test
@@ -500,23 +482,10 @@ class WaitlistControllerTest {
                 .exchange()
                 .expectStatus().isOk();
 
-=======
-
-        webTestClient.get()
-                .uri("/api/v1/waitlist/export")
-                .header(HttpHeaders.AUTHORIZATION, "Bearer expired-token")
-                .exchange()
-                .expectStatus().isUnauthorized()
-                .expectBody()
-                .jsonPath("$.code").isEqualTo("INVALID_TOKEN");
-
-        // Intended admin family is denied even when the controller route is not yet present.
->>>>>>> origin/api
         webTestClient.get()
                 .uri("/api/v1/waitlist/admin/summary")
                 .exchange()
                 .expectStatus().isUnauthorized();
-<<<<<<< HEAD
 
         webTestClient.get()
                 .uri("/api/v1/waitlist/admin/summary")
@@ -571,8 +540,6 @@ class WaitlistControllerTest {
                 .jsonPath("$.content.length()").isEqualTo(0)
                 .jsonPath("$.totalElements").isEqualTo(0)
                 .jsonPath("$.totalPages").isEqualTo(0);
-=======
->>>>>>> origin/api
     }
 
     private void postAccepted(String email) {
