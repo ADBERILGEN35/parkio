@@ -16,11 +16,16 @@ import ssl
 import subprocess
 import sys
 import tempfile
+import threading
 import time
 import urllib.error
 import urllib.request
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Callable
+from unittest import mock
+
+from docker_log_source import BoundedWriter, SERVICES
 
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -39,16 +44,27 @@ def free_port() -> int:
 
 MOCK_PORT = int(os.environ.get("PARKIO_MOCK_NR_HOST_PORT", str(free_port())))
 FLUENT_PORT = int(os.environ.get("PARKIO_NR_FLUENT_HTTP_PORT", str(free_port())))
+GATE_PORT = int(os.environ.get("PARKIO_NR_GATE_HTTP_PORT", str(free_port())))
 ENV = {
     **os.environ,
     "PARKIO_MOCK_NR_HOST_PORT": str(MOCK_PORT),
     "PARKIO_NR_FLUENT_HTTP_PORT": str(FLUENT_PORT),
+    "PARKIO_NR_GATE_HTTP_PORT": str(GATE_PORT),
     "PARKIO_NR_LOG_API_KEY": API_KEY,
+    "PARKIO_NR_GATE_TEST_CONTROL": "on",
+    "PARKIO_NR_BUDGET_BYTES": str(256 * 1024 * 1024),
     "PARKIO_ENVIRONMENT": "isolated-p02-validation",
     "PARKIO_RELEASE_ID": "synthetic-app-release",
     "PARKIO_COLLECTOR_SOURCE_SHA": "synthetic-under-test",
     "PARKIO_NR_PILOT_MARKER": "p02-harness-startup",
 }
+_forwarded = [
+    "PARKIO_MOCK_NR_HOST_PORT", "PARKIO_NR_FLUENT_HTTP_PORT", "PARKIO_NR_GATE_HTTP_PORT",
+    "PARKIO_NR_LOG_API_KEY", "PARKIO_NR_GATE_TEST_CONTROL", "PARKIO_NR_BUDGET_BYTES",
+    "PARKIO_ENVIRONMENT", "PARKIO_RELEASE_ID", "PARKIO_COLLECTOR_SOURCE_SHA",
+    "PARKIO_NR_PILOT_MARKER",
+]
+ENV["WSLENV"] = ":".join(filter(None, [os.environ.get("WSLENV", ""), *_forwarded]))
 
 
 def run(args: list[str], *, check: bool = True, capture: bool = False, data: str | None = None) -> subprocess.CompletedProcess[str]:
@@ -84,13 +100,16 @@ def compose(*args: str, check: bool = True, capture: bool = False) -> subprocess
     )
 
 
-def http_json(path: str, *, method: str = "GET", payload: dict | None = None, port: int | None = None) -> tuple[int, object]:
+def http_json(path: str, *, method: str = "GET", payload: dict | None = None, port: int | None = None,
+              headers: dict[str, str] | None = None) -> tuple[int, object]:
     target_port = MOCK_PORT if port is None else port
     scheme = "https" if port is None else "http"
     data = json.dumps(payload).encode() if payload is not None else None
     request = urllib.request.Request(f"{scheme}://127.0.0.1:{target_port}{path}", data=data, method=method)
     if data is not None:
         request.add_header("Content-Type", "application/json")
+    for name, value in (headers or {}).items():
+        request.add_header(name, value)
     try:
         context = ssl._create_unverified_context() if scheme == "https" else None
         with urllib.request.urlopen(request, timeout=5, context=context) as response:
@@ -106,6 +125,11 @@ def http_json(path: str, *, method: str = "GET", payload: dict | None = None, po
     except urllib.error.HTTPError as exc:
         body = exc.read().decode()
         return exc.code, json.loads(body) if body else {}
+
+
+def gate_json(path: str, *, method: str = "GET", payload: dict | None = None) -> tuple[int, object]:
+    headers = {"X-License-Key": "gate-internal-not-a-secret"} if path == "/log/v1" else None
+    return http_json(path, method=method, payload=payload, port=GATE_PORT, headers=headers)
 
 
 def wait_until(predicate: Callable[[], bool], timeout: float, label: str) -> None:
@@ -200,16 +224,140 @@ def add_result(results: dict[str, str], name: str, condition: bool, detail: str 
     results[name] = "PASS" if condition else f"FAIL{': ' + detail if detail else ''}"
 
 
+def atomic_state(path: Path, state: dict) -> None:
+    temporary = path.with_suffix(".tmp")
+    temporary.write_text(json.dumps(state), encoding="utf-8")
+    os.replace(temporary, path)
+
+
+def source_helper_acceptance(results: dict[str, str], metrics: dict[str, object]) -> None:
+    fake = ROOT / "scripts" / "newrelic_log_pilot" / "fake_docker.py"
+    helper_path = ROOT / "scripts" / "newrelic_log_pilot" / "docker_log_source.py"
+    with tempfile.TemporaryDirectory(prefix="parkio-p02-source-") as directory:
+        base = Path(directory)
+        output = base / "logs"
+        source_state = base / "cursor"
+        docker_state = base / "docker.json"
+        ids = {
+            "gateway-service": "a" * 64,
+            "auth-service": "b" * 64,
+            "parking-service": "c" * 64,
+            "media-service": "d" * 64,
+        }
+        state = {
+            "project": "parkio-test",
+            "connected": True,
+            "containers": {name: {"id": value, "running": True, "driver": "json-file"} for name, value in ids.items()},
+            "events": [],
+        }
+        atomic_state(docker_state, state)
+        wrapper = base / "docker"
+        wrapper.write_text(
+            "#!/bin/sh\nexec " + json.dumps(sys.executable) + " " + json.dumps(str(fake)) + " \"$@\"\n",
+            encoding="utf-8",
+        )
+        wrapper.chmod(0o700)
+        process_env = {**os.environ, "PARKIO_FAKE_DOCKER_STATE": str(docker_state)}
+        process = subprocess.Popen(
+            [
+                sys.executable, str(helper_path), "--docker", str(wrapper), "--project", "parkio-test",
+                "--output", str(output), "--state", str(source_state), "--max-file-bytes", "4096",
+                "--max-files", "3", "--poll-seconds", "0.1", "--docker-timeout", "2",
+            ],
+            cwd=ROOT, env=process_env, stdout=subprocess.DEVNULL, stderr=subprocess.PIPE, text=True,
+        )
+
+        def add_event(service: str, marker: str, stream: str = "stdout", seconds: int = 1) -> None:
+            current = json.loads(docker_state.read_text(encoding="utf-8"))
+            timestamp = (datetime.now(timezone.utc) + timedelta(seconds=seconds)).isoformat(timespec="microseconds").replace("+00:00", "Z")
+            current["events"].append({
+                "container_id": current["containers"][service]["id"],
+                "timestamp": timestamp,
+                "stream": stream,
+                "message": f"INFO synthetic {marker}",
+            })
+            atomic_state(docker_state, current)
+
+        def source_blob() -> str:
+            pieces = []
+            for path in output.glob("*/*"):
+                if path.is_file():
+                    pieces.append(path.read_text(encoding="utf-8", errors="replace"))
+            return "".join(pieces)
+
+        try:
+            wait_until(lambda: all((source_state / f"{service}.json").parent.exists() for service in SERVICES), 3, "source helper startup")
+            add_event("gateway-service", "source-initial")
+            add_event("auth-service", "source-stderr", "stderr")
+            wait_until(lambda: "source-initial" in source_blob() and "source-stderr" in source_blob(), 10, "source initial records")
+
+            current = json.loads(docker_state.read_text(encoding="utf-8"))
+            current["connected"] = False
+            atomic_state(docker_state, current)
+            time.sleep(0.5)
+            current = json.loads(docker_state.read_text(encoding="utf-8"))
+            current["connected"] = True
+            atomic_state(docker_state, current)
+            add_event("parking-service", "source-reconnected", seconds=2)
+            wait_until(lambda: "source-reconnected" in source_blob(), 10, "source reconnect")
+
+            current = json.loads(docker_state.read_text(encoding="utf-8"))
+            current["containers"]["gateway-service"]["id"] = "e" * 64
+            atomic_state(docker_state, current)
+            add_event("gateway-service", "source-replaced", seconds=3)
+            wait_until(lambda: "source-replaced" in source_blob(), 10, "source replacement")
+            blob = source_blob()
+            add_result(results, "supported_source_disconnect_reconnect", "source-reconnected" in blob)
+            add_result(results, "supported_source_container_replacement", "source-replaced" in blob)
+            add_result(
+                results, "supported_source_scope_and_envelope",
+                not (output / "media-service").exists() and '"stream":"stderr"' in blob and '"time":"' in blob,
+            )
+
+            for index in range(180):
+                add_event("auth-service", f"rotation-{index}-" + "x" * 80, seconds=4 + index)
+            wait_until(lambda: (output / "auth-service" / "source-json.log.1").exists(), 15, "source spool rotation")
+            files = list((output / "auth-service").glob("source-json.log*"))
+            total = sum(path.stat().st_size for path in files)
+            add_result(results, "bounded_source_spool", len(files) <= 3 and total <= 3 * 4096, f"files={len(files)} bytes={total}")
+            metrics["source_spool_test_bytes"] = total
+
+            writer = BoundedWriter(base / "full-test", "gateway-service", 4096, 3)
+            with mock.patch("os.write", side_effect=OSError(28, "No space left on device")):
+                full_safe = writer.write(utc_timestamp(), "stdout", "synthetic full storage") is False
+            add_result(results, "source_full_storage_safe_drop", full_safe)
+        finally:
+            process.terminate()
+            try:
+                _, stderr = process.communicate(timeout=5)
+            except subprocess.TimeoutExpired:
+                process.kill()
+                _, stderr = process.communicate(timeout=5)
+            metrics["source_helper_exit"] = process.returncode
+            metrics["source_helper_events"] = {
+                event: stderr.count(f"source-helper {event}")
+                for event in ("ATTACHED", "DISCONNECTED", "REPLACED", "DROP")
+            }
+            add_result(results, "supported_source_disconnect_visible", "source-helper DISCONNECTED" in stderr)
+            add_result(results, "supported_source_replacement_visible", "source-helper REPLACED" in stderr)
+
+
+def utc_timestamp() -> str:
+    return datetime.now(timezone.utc).isoformat(timespec="microseconds").replace("+00:00", "Z")
+
+
 def main() -> int:
     results: dict[str, str] = {}
     metrics: dict[str, object] = {
         "project": PROJECT,
         "mock_port": MOCK_PORT,
         "fluent_port": FLUENT_PORT,
+        "gate_port": GATE_PORT,
     }
     tls_temp: tempfile.TemporaryDirectory[str] | None = None
     compose("down", "-v", check=False)
     try:
+        source_helper_acceptance(results, metrics)
         compose("create", "mock-nr-receiver")
         tls_temp = tempfile.TemporaryDirectory(prefix="parkio-p02-nr-tls-")
         tls_path = Path(tls_temp.name)
@@ -238,6 +386,7 @@ def main() -> int:
             "mkdir -p /dest/$s; : > /dest/$s/container-json.log; done"
         )
         compose("up", "-d", "fluent-bit-nr-pilot")
+        wait_until(lambda: gate_json("/health")[0] == 200, 30, "budget gate health")
         wait_until(lambda: http_json("/api/v1/health", port=FLUENT_PORT)[0] == 200, 30, "collector health")
 
         append(
@@ -411,6 +560,57 @@ def main() -> int:
         )
         final_leaks = [value for value in canaries if value in final_blob]
         add_result(results, "no_prohibited_canary_outbound", not final_leaks, f"leaked={final_leaks}")
+
+        budget_max = int(ENV["PARKIO_NR_BUDGET_BYTES"])
+        budget_payload = [{"logs": [{"timestamp": 1789980000000, "message": "synthetic budget probe"}]}]
+        budget_serialized = len(json.dumps(budget_payload).encode())
+        reset_code, _ = gate_json(
+            "/test/reset", method="POST",
+            payload={"spent_bytes": budget_max - budget_serialized - 1},
+        )
+        healthy_one, _ = gate_json("/log/v1", method="POST", payload=budget_payload)
+        healthy_two, healthy_two_body = gate_json("/log/v1", method="POST", payload=budget_payload)
+        healthy_budget = gate_json("/stats")[1]
+        add_result(
+            results, "budget_exhaustion_healthy_delivery",
+            reset_code == 200 and healthy_one == 202 and healthy_two == 202
+            and bool(healthy_two_body.get("budget_exhausted"))
+            and healthy_budget.get("exhausted") is True
+            and int(healthy_budget.get("forwarded_attempts", -1)) == 1
+            and int(healthy_budget.get("rejected_attempts", -1)) == 1
+            and int(healthy_budget.get("spent_bytes", budget_max + 1)) <= budget_max,
+            str(healthy_budget),
+        )
+
+        gate_json(
+            "/test/reset", method="POST",
+            payload={"spent_bytes": budget_max - (2 * budget_serialized) - 1},
+        )
+        inject(503, persistent=True)
+        retry_statuses = [gate_json("/log/v1", method="POST", payload=budget_payload)[0] for _ in range(3)]
+        retry_budget = gate_json("/stats")[1]
+        add_result(
+            results, "budget_exhaustion_retry_storm",
+            retry_statuses == [503, 503, 202]
+            and retry_budget.get("exhausted") is True
+            and int(retry_budget.get("retry_attempts", 0)) >= 2
+            and int(retry_budget.get("spent_bytes", budget_max + 1)) <= budget_max,
+            f"statuses={retry_statuses} stats={retry_budget}",
+        )
+        inject(202)
+
+        exhausted_before = gate_json("/stats")[1]
+        compose("restart", "nr-budget-gate")
+        wait_until(lambda: gate_json("/health")[0] == 507, 30, "persisted exhausted gate")
+        exhausted_after = gate_json("/stats")[1]
+        add_result(
+            results, "budget_restart_fail_closed",
+            exhausted_after.get("exhausted") is True
+            and exhausted_after.get("spent_bytes") == exhausted_before.get("spent_bytes")
+            and exhausted_after.get("attempts") == exhausted_before.get("attempts"),
+            f"before={exhausted_before} after={exhausted_after}",
+        )
+        metrics["budget_gate_final"] = exhausted_after
 
     except Exception as exc:
         results["harness_exception"] = f"FAIL: {type(exc).__name__}: {exc}"

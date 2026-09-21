@@ -16,7 +16,10 @@ x-logging: &default-logging
 services:
   mock-nr-receiver:
     profiles: ["nr-log-pilot-mock"]
-    image: ${PARKIO_NR_MOCK_RECEIVER_IMAGE:-python:3.12-alpine}
+    # python:3.12-alpine index and selected linux/amd64 child:
+    # sha256:9b8dad7f66b5c7751df6cb7a64a07812e86bed85d0116efe82b3a11209f1440d
+    image: ${PARKIO_NR_MOCK_RECEIVER_IMAGE:-python:3.12-alpine@sha256:c4634f578a412db396771b61b064c6e546c9d6414c7fb5b1b05d5871f1885f7b}
+    platform: linux/amd64
     restart: unless-stopped
     logging: *default-logging
     working_dir: /opt/parkio
@@ -45,11 +48,53 @@ services:
     security_opt:
       - no-new-privileges:true
 
+  nr-budget-gate:
+    profiles: ["nr-log-pilot"]
+    # python:3.12-alpine index and selected linux/amd64 child:
+    # sha256:9b8dad7f66b5c7751df6cb7a64a07812e86bed85d0116efe82b3a11209f1440d
+    image: python:3.12-alpine@sha256:c4634f578a412db396771b61b064c6e546c9d6414c7fb5b1b05d5871f1885f7b
+    platform: linux/amd64
+    restart: unless-stopped
+    stop_grace_period: 10s
+    logging: *default-logging
+    read_only: true
+    working_dir: /opt/parkio
+    command: ["python", "/opt/parkio/scripts/newrelic_log_pilot/budget_gate.py"]
+    environment:
+      PARKIO_NR_GATE_PORT: "8090"
+      PARKIO_NR_UPSTREAM_BASE_URI: ${PARKIO_NR_UPSTREAM_BASE_URI:-https://mock-nr-receiver:8089/log/v1}
+      PARKIO_NR_LOG_API_KEY: ${PARKIO_NR_LOG_API_KEY:-mock-not-a-real-license}
+      PARKIO_NR_BUDGET_STATE_DB: /var/lib/parkio-nr-budget/budget.db
+      # Local acceptance capacity only; production overlay requires an explicit
+      # owner-approved value and has no default.
+      PARKIO_NR_BUDGET_BYTES: ${PARKIO_NR_BUDGET_BYTES:-268435456}
+      PARKIO_NR_GATE_MAX_REQUEST_BYTES: ${PARKIO_NR_GATE_MAX_REQUEST_BYTES:-1048576}
+      PARKIO_NR_UPSTREAM_TLS_VERIFY: ${PARKIO_NR_UPSTREAM_TLS_VERIFY:-off}
+      PARKIO_NR_GATE_TEST_CONTROL: ${PARKIO_NR_GATE_TEST_CONTROL:-off}
+      PARKIO_NR_GATE_INTERNAL_KEY: gate-internal-not-a-secret
+    volumes:
+      - ../scripts/newrelic_log_pilot/budget_gate.py:/opt/parkio/scripts/newrelic_log_pilot/budget_gate.py:ro
+      - nr-budget-state:/var/lib/parkio-nr-budget
+    ports:
+      - "127.0.0.1:${PARKIO_NR_GATE_HTTP_PORT:-18090}:8090"
+    networks: [parkio-nr-pilot]
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8090/health')"]
+      interval: 2s
+      timeout: 2s
+      retries: 15
+    mem_limit: 64m
+    cpus: 0.25
+    pids_limit: 64
+    cap_drop: ["ALL"]
+    security_opt:
+      - no-new-privileges:true
+
   fluent-bit-nr-pilot:
     profiles: ["nr-log-pilot"]
-    # Fluent Bit 3.2.10 multi-platform manifest digest. The selected amd64 child
-    # digest is sha256:41370c4edd3a09db6565271ef647a5f69808007cf6c8ce5f205e056a77a18f41.
-    image: fluent/fluent-bit:3.2.10@sha256:d6dec000c4929a439562525728c708f6e99800d7ddc82efd6aa4f45f3a20b562
+    # Fluent Bit 5.0.10 index. The selected linux/amd64 child is
+    # sha256:3fa4a4919f1814f23d27a0108de041e93f6f21d9dc7bbe912d8c44ecd8e7cf20.
+    image: fluent/fluent-bit:5.0.10@sha256:ea0734ecb445c9805ec1fcbfb3430c8607d502fe7ce773b27e362551c02e3fd9
     platform: linux/amd64
     restart: unless-stopped
     stop_grace_period: 30s
@@ -70,9 +115,8 @@ services:
       PARKIO_COLLECTOR_SOURCE_SHA: ${PARKIO_COLLECTOR_SOURCE_SHA:-unknown}
       PARKIO_NR_PILOT_MARKER: ${PARKIO_NR_PILOT_MARKER:-p02-local-startup}
       PARKIO_NR_LOG_FLUENT_LOG_LEVEL: ${PARKIO_NR_LOG_FLUENT_LOG_LEVEL:-info}
-      PARKIO_NR_LOG_BASE_URI: ${PARKIO_NR_LOG_BASE_URI:-https://mock-nr-receiver:8089/log/v1}
-      PARKIO_NR_LOG_API_KEY: ${PARKIO_NR_LOG_API_KEY:-mock-not-a-real-license}
-      PARKIO_NR_TLS_VERIFY: ${PARKIO_NR_TLS_VERIFY:-off}
+      PARKIO_NR_LOG_BASE_URI: http://nr-budget-gate:8090/log/v1
+      PARKIO_NR_LOG_API_KEY: gate-internal-not-a-secret
     ports:
       - "127.0.0.1:${PARKIO_NR_FLUENT_HTTP_PORT:-2020}:2020"
     networks: [parkio-nr-pilot]
@@ -90,6 +134,9 @@ services:
     cap_drop: ["ALL"]
     security_opt:
       - no-new-privileges:true
+    depends_on:
+      nr-budget-gate:
+        condition: service_healthy
 
 networks:
   parkio-nr-pilot:
@@ -98,5 +145,6 @@ networks:
 volumes:
   nr-pilot-logs:
   nr-pilot-state:
+  nr-budget-state:
   nr-mock-received:
   nr-mock-tls:

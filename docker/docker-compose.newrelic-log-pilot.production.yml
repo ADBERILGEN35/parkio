@@ -1,8 +1,21 @@
-# Collector-only production overlay. Apply only after the three read-only source
-# directories have been resolved with `docker inspect --format '{{.LogPath}}'`.
+# Collector-only production overlay. Apply only after the supported host helper
+# has resolved the three approved services and populated its bounded spool.
 # This file defines no application service and therefore starts/stops independently.
 
 services:
+  nr-budget-gate:
+    restart: "no"
+    environment:
+      PARKIO_NR_UPSTREAM_BASE_URI: ${PARKIO_NR_UPSTREAM_BASE_URI:?set the EU Log API endpoint}
+      PARKIO_NR_LOG_API_KEY: ${PARKIO_NR_LOG_API_KEY:?supply a New Relic ingest license key out of band}
+      PARKIO_NR_BUDGET_BYTES: ${PARKIO_NR_BUDGET_BYTES:?set the approved whole-pilot serialized-byte budget}
+      PARKIO_NR_UPSTREAM_TLS_VERIFY: "on"
+      PARKIO_NR_GATE_TEST_CONTROL: "off"
+    volumes: !override
+      - ../scripts/newrelic_log_pilot/budget_gate.py:/opt/parkio/scripts/newrelic_log_pilot/budget_gate.py:ro
+      - ${PARKIO_NR_BUDGET_STATE_ROOT:?set the persistent budget-state directory}:/var/lib/parkio-nr-budget
+    ports: !override []
+
   fluent-bit-nr-pilot:
     # A one-hour pilot must remain stopped after an operator stop, Docker daemon
     # restart or host restart. A later durable service needs a separate decision.
@@ -12,16 +25,11 @@ services:
       PARKIO_RELEASE_ID: ${PARKIO_RELEASE_ID:?set the deployed application source or release identity}
       PARKIO_COLLECTOR_SOURCE_SHA: ${PARKIO_COLLECTOR_SOURCE_SHA:?set the reviewed collector source SHA}
       PARKIO_NR_PILOT_MARKER: ${PARKIO_NR_PILOT_MARKER:?set a unique non-secret activation marker}
-      PARKIO_NR_LOG_BASE_URI: ${PARKIO_NR_LOG_BASE_URI:?set the account-region Log API endpoint}
-      PARKIO_NR_LOG_API_KEY: ${PARKIO_NR_LOG_API_KEY:?supply a New Relic license key out of band}
-      PARKIO_NR_TLS_VERIFY: "on"
     volumes: !override
       - ./fluent-bit/fluent-bit.conf:/fluent-bit/etc/fluent-bit.conf:ro
       - ./fluent-bit/parsers.conf:/fluent-bit/etc/parkio/parsers.conf:ro
       - ./fluent-bit/parkio_filters.lua:/fluent-bit/etc/parkio/parkio_filters.lua:ro
-      - nr-pilot-state:/var/fluent-bit/state
-      # Mount the PARENT DIRECTORY of each container's Docker LogPath. The
-      # service-specific target path is the trusted source of the service field.
-      - ${PARKIO_NR_GATEWAY_LOG_DIR:?set gateway Docker log directory}:/var/log/parkio-pilot/gateway-service:ro
-      - ${PARKIO_NR_AUTH_LOG_DIR:?set auth Docker log directory}:/var/log/parkio-pilot/auth-service:ro
-      - ${PARKIO_NR_PARKING_LOG_DIR:?set parking Docker log directory}:/var/log/parkio-pilot/parking-service:ro
+      - ${PARKIO_NR_COLLECTOR_STATE_ROOT:?set the collector-state directory}:/var/fluent-bit/state
+      # This is the helper-owned spool, not Docker's private json-file storage.
+      - ${PARKIO_NR_SOURCE_ROOT:?set the reviewed helper spool path}:/var/log/parkio-pilot:ro
+    ports: !override []

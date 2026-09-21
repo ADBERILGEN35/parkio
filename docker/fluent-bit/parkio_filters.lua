@@ -199,7 +199,7 @@ function process_record(tag, timestamp, record)
     message = message,
     parse_status = parse_status,
     redaction = changed and "applied" or "none",
-    source_kind = record["synthetic_pilot"] == "true" and "synthetic" or "docker-json-file",
+    source_kind = record["synthetic_pilot"] == "true" and "synthetic" or "docker-logs-api",
   }
   if record["stream"] == "stdout" or record["stream"] == "stderr" then
     out["source_stream"] = record["stream"]
