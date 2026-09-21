@@ -169,6 +169,15 @@
     "viewFacilityDetails": "Tesis detayını gör",
     "facilityTypeLabel": "Tesis türü",
     "freshnessLabel": "Doluluk durumu",
+    "access": {
+      "PUBLIC": "Herkese açık",
+      "CUSTOMERS": "Yalnızca müşteriler",
+      "PERMISSIVE": "İzinli erişim",
+      "PRIVATE": "Özel",
+      "RESIDENTS": "Yalnızca sakinler",
+      "RESTRICTED": "Kısıtlı / abone",
+      "UNKNOWN": "Erişim bilinmiyor"
+    },
     "capacity": "Kapasite",
     "coordinates": "Koordinatlar",
     "lastUpdated": "Son güncelleme",

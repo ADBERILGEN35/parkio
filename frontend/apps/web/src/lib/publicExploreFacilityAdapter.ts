@@ -29,5 +29,6 @@ export function toMunicipalFacilityFromPublicExplore(
     availabilitySource: null,
     availabilityFreshness: facility.availabilityFreshness,
     availabilityObservationTimestamp: facility.dataUpdatedAt,
+    accessClassification: null,
   };
 }

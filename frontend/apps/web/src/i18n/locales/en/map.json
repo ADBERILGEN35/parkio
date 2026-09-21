@@ -169,6 +169,15 @@
     "viewFacilityDetails": "View facility details",
     "facilityTypeLabel": "Facility type",
     "freshnessLabel": "Occupancy status",
+    "access": {
+      "PUBLIC": "Public access",
+      "CUSTOMERS": "Customers only",
+      "PERMISSIVE": "Permissive access",
+      "PRIVATE": "Private",
+      "RESIDENTS": "Residents only",
+      "RESTRICTED": "Restricted / subscribers",
+      "UNKNOWN": "Access unknown"
+    },
     "capacity": "Capacity",
     "coordinates": "Coordinates",
     "lastUpdated": "Last updated",
