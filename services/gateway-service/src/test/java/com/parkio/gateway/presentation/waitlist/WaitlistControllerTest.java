@@ -6,13 +6,19 @@ import static org.mockito.Mockito.when;
 import com.parkio.gateway.application.waitlist.WaitlistEmailSender;
 import com.parkio.gateway.application.waitlist.WaitlistRateLimitExceededException;
 import com.parkio.gateway.application.waitlist.WaitlistRateLimiter;
+import com.parkio.gateway.infrastructure.security.AuthenticatedUser;
+import com.parkio.gateway.infrastructure.security.JwtTokenValidator;
+import java.util.List;
+import java.util.UUID;
 import java.util.concurrent.atomic.AtomicReference;
+import java.time.Instant;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.autoconfigure.web.reactive.AutoConfigureWebTestClient;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.boot.test.mock.mockito.MockBean;
+import org.springframework.http.HttpHeaders;
 import org.springframework.http.MediaType;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.test.context.ActiveProfiles;
@@ -36,12 +42,29 @@ class WaitlistControllerTest {
     @MockBean
     private WaitlistEmailSender emailSender;
 
+    @MockBean
+    private JwtTokenValidator tokenValidator;
+
     private final AtomicReference<String> lastVerificationToken = new AtomicReference<>();
     private final AtomicReference<String> lastWithdrawToken = new AtomicReference<>();
 
     @BeforeEach
     void setUp() {
         when(rateLimiter.check(anyString(), anyString())).thenReturn(Mono.empty());
+        when(tokenValidator.validate("admin-token")).thenReturn(Mono.just(
+                new AuthenticatedUser(UUID.randomUUID().toString(), "admin@parkio.test",
+                        List.of("ADMIN"), "ACTIVE", 0L)));
+        when(tokenValidator.validate("user-token")).thenReturn(Mono.just(
+                new AuthenticatedUser(UUID.randomUUID().toString(), "user@parkio.test",
+                        List.of("USER"), "ACTIVE", 0L)));
+        when(tokenValidator.validate("moderator-token")).thenReturn(Mono.just(
+                new AuthenticatedUser(UUID.randomUUID().toString(), "mod@parkio.test",
+                        List.of("MODERATOR"), "ACTIVE", 0L)));
+        when(tokenValidator.validate("super-token")).thenReturn(Mono.just(
+                new AuthenticatedUser(UUID.randomUUID().toString(), "super@parkio.test",
+                        List.of("SUPER_ADMIN"), "ACTIVE", 0L)));
+        when(tokenValidator.validate("expired-token"))
+                .thenReturn(Mono.error(new IllegalArgumentException("expired")));
         lastVerificationToken.set(null);
         lastWithdrawToken.set(null);
         org.mockito.Mockito.doAnswer(invocation -> {
@@ -60,10 +83,10 @@ class WaitlistControllerTest {
                 .bodyValue("""
                         {
                           "email": "not-an-email",
-                          "consentTimestamp": "2026-07-08T00:00:00Z",
+                          "consentTimestamp": "%s",
                           "source": "parkio.dev-landing"
                         }
-                        """)
+                        """.formatted(java.time.Instant.now().minusSeconds(5)))
                 .exchange()
                 .expectStatus().isBadRequest()
                 .expectBody()
@@ -84,7 +107,66 @@ class WaitlistControllerTest {
                 .exchange()
                 .expectStatus().isBadRequest()
                 .expectBody()
-                .jsonPath("$.code").isEqualTo("VALIDATION_ERROR");
+                .jsonPath("$.code").isEqualTo("WAITLIST_CONSENT_TIMESTAMP_INVALID");
+    }
+
+    @Test
+    void rejectsExcessiveFutureConsentTimestamp() {
+        String future = java.time.Instant.now().plus(java.time.Duration.ofMinutes(30)).toString();
+        webTestClient.post()
+                .uri("/api/v1/waitlist")
+                .contentType(MediaType.APPLICATION_JSON)
+                .bodyValue("""
+                        {
+                          "email": "future-skew@parkio.dev",
+                          "consentTimestamp": "%s",
+                          "source": "parkio.dev-landing",
+                          "locale": "en"
+                        }
+                        """.formatted(future))
+                .exchange()
+                .expectStatus().isBadRequest()
+                .expectBody()
+                .jsonPath("$.code").isEqualTo("WAITLIST_CONSENT_TIMESTAMP_INVALID");
+    }
+
+    @Test
+    void acceptsSmallFutureClockSkewWithinPolicy() {
+        String slightlyAhead = java.time.Instant.now().plusSeconds(30).toString();
+        webTestClient.post()
+                .uri("/api/v1/waitlist")
+                .contentType(MediaType.APPLICATION_JSON)
+                .bodyValue("""
+                        {
+                          "email": "small-skew@parkio.dev",
+                          "consentTimestamp": "%s",
+                          "source": "parkio.dev-landing",
+                          "locale": "en"
+                        }
+                        """.formatted(slightlyAhead))
+                .exchange()
+                .expectStatus().isAccepted()
+                .expectBody()
+                .jsonPath("$.status").isEqualTo("accepted");
+
+        Instant storedConsent = jdbcTemplate.queryForObject(
+                "SELECT consent_timestamp FROM waitlist_interest WHERE email = ?",
+                Instant.class,
+                "small-skew@parkio.dev");
+        Instant clientConsent = jdbcTemplate.queryForObject(
+                "SELECT client_consent_timestamp FROM waitlist_interest WHERE email = ?",
+                Instant.class,
+                "small-skew@parkio.dev");
+        org.assertj.core.api.Assertions.assertThat(storedConsent).isNotNull();
+        org.assertj.core.api.Assertions.assertThat(clientConsent).isNotNull();
+        // Postgres timestamptz may truncate nanos; compare to microsecond precision.
+        org.assertj.core.api.Assertions.assertThat(clientConsent.getEpochSecond())
+                .isEqualTo(Instant.parse(slightlyAhead).getEpochSecond());
+        // Authoritative consent evidence is server receipt (at/near now), not a silent backdate.
+        org.assertj.core.api.Assertions.assertThat(storedConsent)
+                .isBeforeOrEqualTo(Instant.now().plusSeconds(5));
+        org.assertj.core.api.Assertions.assertThat(storedConsent)
+                .isAfter(Instant.now().minusSeconds(60));
     }
 
     @Test
@@ -299,8 +381,7 @@ class WaitlistControllerTest {
                 .exchange()
                 .expectStatus().isAccepted();
 
-        // Export requires auth in production filters; controller method itself is reachable in
-        // WebTestClient without the global auth filter stack for this slice — assert repository filter.
+        // WaitlistAdminSecurityWebFilter enforces ADMIN JWT on the local controller path.
         Integer confirmed = jdbcTemplate.queryForObject(
                 "SELECT COUNT(*) FROM waitlist_interest WHERE status = 'CONFIRMED'",
                 Integer.class);
@@ -309,6 +390,156 @@ class WaitlistControllerTest {
                 Integer.class);
         org.assertj.core.api.Assertions.assertThat(confirmed).isEqualTo(1);
         org.assertj.core.api.Assertions.assertThat(pending).isEqualTo(1);
+
+        String body = webTestClient.get()
+                .uri("/api/v1/waitlist/export")
+                .header(HttpHeaders.AUTHORIZATION, "Bearer admin-token")
+                .exchange()
+                .expectStatus().isOk()
+                .expectHeader().valueEquals(HttpHeaders.CACHE_CONTROL, "no-store")
+                .expectBody(String.class)
+                .returnResult()
+                .getResponseBody();
+        org.assertj.core.api.Assertions.assertThat(body).contains("will-confirm@parkio.dev");
+        org.assertj.core.api.Assertions.assertThat(body).doesNotContain("only-pending@parkio.dev");
+        org.assertj.core.api.Assertions.assertThat(body).doesNotContain("verification_token");
+        org.assertj.core.api.Assertions.assertThat(body).doesNotContain("email_hash");
+
+        webTestClient.get()
+                .uri("/api/v1/waitlist/export")
+                .exchange()
+                .expectStatus().isUnauthorized()
+                .expectBody()
+                .jsonPath("$.code").isEqualTo("MISSING_TOKEN");
+
+        webTestClient.get()
+                .uri("/api/v1/waitlist/export")
+                .header(HttpHeaders.AUTHORIZATION, "Bearer user-token")
+                .exchange()
+                .expectStatus().isForbidden();
+
+        webTestClient.get()
+                .uri("/api/v1/waitlist/export")
+                .header(HttpHeaders.AUTHORIZATION, "Bearer moderator-token")
+                .exchange()
+                .expectStatus().isForbidden();
+
+        webTestClient.get()
+                .uri("/api/v1/waitlist/export/")
+                .exchange()
+                .expectStatus().isUnauthorized();
+
+        webTestClient.get()
+                .uri("/api/v1/waitlist/export")
+                .header(HttpHeaders.AUTHORIZATION, "Bearer expired-token")
+                .exchange()
+                .expectStatus().isUnauthorized()
+                .expectBody()
+                .jsonPath("$.code").isEqualTo("INVALID_TOKEN");
+
+        webTestClient.get()
+                .uri("/api/v1/waitlist/export")
+                .header(HttpHeaders.AUTHORIZATION, "Bearer super-token")
+                .exchange()
+                .expectStatus().isOk();
+    }
+
+    @Test
+    void adminSummaryAndListReflectStatusesAndFilters() {
+        postAccepted("pending-a@parkio.dev");
+        postAccepted("confirm-a@parkio.dev");
+        String confirmToken = lastVerificationToken.get();
+        webTestClient.post()
+                .uri("/api/v1/waitlist/confirm")
+                .contentType(MediaType.APPLICATION_JSON)
+                .bodyValue("{\"token\":\"" + confirmToken + "\"}")
+                .exchange()
+                .expectStatus().isAccepted();
+
+        postAccepted("withdraw-a@parkio.dev");
+        webTestClient.post()
+                .uri("/api/v1/waitlist/withdraw")
+                .contentType(MediaType.APPLICATION_JSON)
+                .bodyValue("{\"token\":\"" + lastWithdrawToken.get() + "\"}")
+                .exchange()
+                .expectStatus().isAccepted();
+
+        webTestClient.get()
+                .uri("/api/v1/waitlist/admin/summary")
+                .header(HttpHeaders.AUTHORIZATION, "Bearer admin-token")
+                .exchange()
+                .expectStatus().isOk()
+                .expectHeader().valueEquals(HttpHeaders.CACHE_CONTROL, "no-store")
+                .expectBody()
+                .jsonPath("$.pending").isEqualTo(1)
+                .jsonPath("$.confirmed").isEqualTo(1)
+                .jsonPath("$.withdrawn").isEqualTo(1)
+                .jsonPath("$.total").isEqualTo(3);
+
+        webTestClient.get()
+                .uri("/api/v1/waitlist/admin/summary")
+                .header(HttpHeaders.AUTHORIZATION, "Bearer super-token")
+                .exchange()
+                .expectStatus().isOk();
+
+        webTestClient.get()
+                .uri("/api/v1/waitlist/admin/summary")
+                .exchange()
+                .expectStatus().isUnauthorized();
+
+        webTestClient.get()
+                .uri("/api/v1/waitlist/admin/summary")
+                .header(HttpHeaders.AUTHORIZATION, "Bearer user-token")
+                .exchange()
+                .expectStatus().isForbidden();
+
+        webTestClient.get()
+                .uri(uriBuilder -> uriBuilder
+                        .path("/api/v1/waitlist/admin")
+                        .queryParam("status", "CONFIRMED")
+                        .queryParam("page", "0")
+                        .queryParam("size", "20")
+                        .build())
+                .header(HttpHeaders.AUTHORIZATION, "Bearer admin-token")
+                .exchange()
+                .expectStatus().isOk()
+                .expectBody()
+                .jsonPath("$.totalElements").isEqualTo(1)
+                .jsonPath("$.content[0].email").isEqualTo("confirm-a@parkio.dev")
+                .jsonPath("$.content[0].status").isEqualTo("CONFIRMED")
+                .jsonPath("$.content[0].locale").isEqualTo("tr")
+                .jsonPath("$.content[0].source").isEqualTo("parkio.dev-landing")
+                .jsonPath("$.content[0].confirmedAt").exists()
+                .jsonPath("$.content[0].verificationTokenHash").doesNotExist()
+                .jsonPath("$.content[0].emailHash").doesNotExist()
+                .jsonPath("$.content[0].ipHash").doesNotExist();
+
+        webTestClient.get()
+                .uri("/api/v1/waitlist/admin?status=WITHDRAWN")
+                .header(HttpHeaders.AUTHORIZATION, "Bearer admin-token")
+                .exchange()
+                .expectStatus().isOk()
+                .expectBody()
+                .jsonPath("$.totalElements").isEqualTo(1)
+                .jsonPath("$.content[0].status").isEqualTo("WITHDRAWN")
+                .jsonPath("$.content[0].email").value(email ->
+                        org.assertj.core.api.Assertions.assertThat((String) email)
+                                .startsWith("withdrawn-")
+                                .endsWith("@invalid.local"));
+    }
+
+    @Test
+    void adminListEmptyStateIsUsable() {
+        webTestClient.get()
+                .uri("/api/v1/waitlist/admin")
+                .header(HttpHeaders.AUTHORIZATION, "Bearer admin-token")
+                .exchange()
+                .expectStatus().isOk()
+                .expectBody()
+                .jsonPath("$.content").isArray()
+                .jsonPath("$.content.length()").isEqualTo(0)
+                .jsonPath("$.totalElements").isEqualTo(0)
+                .jsonPath("$.totalPages").isEqualTo(0);
     }
 
     private void postAccepted(String email) {
@@ -326,12 +557,12 @@ class WaitlistControllerTest {
         return """
                 {
                   "email": "%s",
-                  "consentTimestamp": "2026-07-08T00:00:00Z",
+                  "consentTimestamp": "%s",
                   "city": "Izmir",
                   "role": "tester",
                   "source": "parkio.dev-landing",
                   "locale": "tr"
                 }
-                """.formatted(email);
+                """.formatted(email, java.time.Instant.now().minusSeconds(5).toString());
     }
 }

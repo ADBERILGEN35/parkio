@@ -166,6 +166,11 @@ export const ROUTE_ELEMENT_REGISTRY: Readonly<
       default: module.AdminUserDetailPage,
     })),
   ),
+  [ROUTE_COMPONENT_KEYS.ADMIN_WAITLIST_PAGE]: lazyComponent(() =>
+    import('@/pages/admin/AdminWaitlistPage').then((module) => ({
+      default: module.AdminWaitlistPage,
+    })),
+  ),
   [ROUTE_COMPONENT_KEYS.ADMIN_SECURITY_PAGE]: lazyComponent(() =>
     import('@/pages/admin/AdminSecurityPage').then((module) => ({
       default: module.AdminSecurityPage,

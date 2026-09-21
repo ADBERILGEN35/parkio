@@ -7,6 +7,7 @@
 | Concern | Owner |
 |---------|--------|
 | Admin user/search/sessions/roles/audit/bootstrap | **auth-service** (`/api/v1/admin/**`) |
+| Waitlist subscription visibility + confirmed CSV | **gateway-service** (`/api/v1/waitlist/admin/**`, `/api/v1/waitlist/export`) |
 | Platform KPIs | **analytics-service** (`/api/v1/analytics/**`) |
 | Moderation queue | **moderation-service** (`/api/v1/moderation/**`) |
 | Edge RBAC | **gateway** (`RouteAuthorizationRules`) |
@@ -56,6 +57,7 @@ The script POSTs to `/internal/auth/admin/bootstrap-super-admin` with `X-Gateway
 |------|------|
 | `/admin` | ADMIN+ dashboard |
 | `/admin/users`, `/admin/users/:id` | user management |
+| `/admin/waitlist` | notification waitlist visibility (not application accounts) |
 | `/admin/security` | security summary |
 | `/admin/audit` | audit trail |
 | `/admin/system` | env / observability guidance |
@@ -95,7 +97,11 @@ Legacy `/analytics` and `/moderation` redirect into `/admin/*`.
 ## Security notes
 
 - Authorization is server-side on every admin endpoint.
+- Waitlist export/list/summary are served by the gateway's local `@RestController` and are enforced by `WaitlistAdminSecurityWebFilter` (WebFlux), not only by Spring Cloud Gateway GlobalFilters.
 - Gateway strips client `X-User-*` and re-injects from JWT.
 - Internal bootstrap never routed publicly.
 - Audit APIs do not allow edit/delete.
 - Passwords, token hashes, and raw refresh tokens are never returned.
+- Waitlist admin/export never returns verification/withdrawal tokens or hash fields; CSV is confirmed-only with formula-injection escaping and `Cache-Control: no-store`.
+- Waitlist subscriptions are not application accounts; do not treat confirmed waitlist rows as `UserRegistered`.
+- Summary counts on `/admin/waitlist` are **global** (all statuses); table filters do not change those totals.

@@ -115,6 +115,11 @@ vi.mock('@/pages/admin/AdminUserDetailPage', () => ({
     <span data-testid="lazy-route-marker">admin-user-detail-page</span>
   ),
 }));
+vi.mock('@/pages/admin/AdminWaitlistPage', () => ({
+  AdminWaitlistPage: () => (
+    <span data-testid="lazy-route-marker">admin-waitlist-page</span>
+  ),
+}));
 vi.mock('@/pages/admin/AdminSecurityPage', () => ({
   AdminSecurityPage: () => (
     <span data-testid="lazy-route-marker">admin-security-page</span>
@@ -175,6 +180,7 @@ const EXPECTED_COMPONENT_KEYS = {
   [ROUTE_IDS.ADMIN_USERS]: ROUTE_COMPONENT_KEYS.ADMIN_USERS_PAGE,
   [ROUTE_IDS.ADMIN_USER_DETAIL]:
     ROUTE_COMPONENT_KEYS.ADMIN_USER_DETAIL_PAGE,
+  [ROUTE_IDS.ADMIN_WAITLIST]: ROUTE_COMPONENT_KEYS.ADMIN_WAITLIST_PAGE,
   [ROUTE_IDS.ADMIN_SECURITY]: ROUTE_COMPONENT_KEYS.ADMIN_SECURITY_PAGE,
   [ROUTE_IDS.ADMIN_ANALYTICS]: ROUTE_COMPONENT_KEYS.ANALYTICS_PAGE,
   [ROUTE_IDS.ADMIN_AUDIT]: ROUTE_COMPONENT_KEYS.ADMIN_AUDIT_PAGE,
@@ -218,6 +224,7 @@ const EXPECTED_LAZY_MARKERS: Partial<Record<RouteComponentKey, string>> = {
   [ROUTE_COMPONENT_KEYS.ADMIN_DASHBOARD_PAGE]: 'admin-dashboard-page',
   [ROUTE_COMPONENT_KEYS.ADMIN_USERS_PAGE]: 'admin-users-page',
   [ROUTE_COMPONENT_KEYS.ADMIN_USER_DETAIL_PAGE]: 'admin-user-detail-page',
+  [ROUTE_COMPONENT_KEYS.ADMIN_WAITLIST_PAGE]: 'admin-waitlist-page',
   [ROUTE_COMPONENT_KEYS.ADMIN_SECURITY_PAGE]: 'admin-security-page',
   [ROUTE_COMPONENT_KEYS.ANALYTICS_PAGE]: 'analytics-page',
   [ROUTE_COMPONENT_KEYS.ADMIN_AUDIT_PAGE]: 'admin-audit-page',

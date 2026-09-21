@@ -46,6 +46,13 @@ public class WaitlistApplicationService {
         if (!properties.isAdmissionsEnabled()) {
             return Mono.error(new WaitlistAdmissionsDisabledException("WAITLIST_ADMISSIONS_DISABLED"));
         }
+        Instant now = clock.instant();
+        Instant clientConsentAt;
+        try {
+            clientConsentAt = requireClientConsentTimestamp(command.consentTimestamp(), now);
+        } catch (WaitlistConsentTimestampException ex) {
+            return Mono.error(ex);
+        }
         String email = normalizeEmail(command.email());
         String locale = normalizeLocale(command.locale());
         String city = normalizeOptional(command.city());
@@ -54,16 +61,18 @@ public class WaitlistApplicationService {
         String emailHash = hasher.hash(email);
         String ipHash = hasher.hash(command.clientIp() == null ? "unknown" : command.clientIp());
         String userAgentHash = userAgent == null ? null : hasher.hash(userAgent);
-        Instant now = clock.instant();
         String verificationToken = newToken();
         String withdrawToken = newToken();
         // verification_sent_at stays null until outbound delivery succeeds so failed
         // first sends are immediately retryable (not blocked by resend cooldown).
+        // consent_timestamp = server receipt (authoritative). clientConsentTimestamp =
+        // skew-validated browser assertion preserved separately.
         WaitlistInterest interest = new WaitlistInterest(
                 UUID.randomUUID(),
                 email,
                 emailHash,
-                command.consentTimestamp(),
+                now,
+                clientConsentAt,
                 city,
                 role,
                 command.source(),
@@ -91,6 +100,22 @@ public class WaitlistApplicationService {
                         })
                         .subscribeOn(Schedulers.boundedElastic()))
                 .then();
+    }
+
+    /**
+     * Validates client-asserted consent event time against gateway UTC with a
+     * documented bounded skew window. Does not silently rewrite the client value.
+     */
+    Instant requireClientConsentTimestamp(Instant clientConsentAt, Instant now) {
+        if (clientConsentAt == null) {
+            throw new WaitlistConsentTimestampException("WAITLIST_CONSENT_TIMESTAMP_INVALID");
+        }
+        Instant earliest = now.minus(properties.getConsentMaxPastAge());
+        Instant latest = now.plus(properties.getConsentMaxFutureSkew());
+        if (clientConsentAt.isBefore(earliest) || clientConsentAt.isAfter(latest)) {
+            throw new WaitlistConsentTimestampException("WAITLIST_CONSENT_TIMESTAMP_INVALID");
+        }
+        return clientConsentAt;
     }
 
     public Mono<Void> confirm(String rawToken) {
@@ -159,6 +184,21 @@ public class WaitlistApplicationService {
 
     public Mono<List<WaitlistExportRow>> export(Instant createdFrom, Instant createdTo) {
         return Mono.fromCallable(() -> repository.exportConfirmed(createdFrom, createdTo))
+                .subscribeOn(Schedulers.boundedElastic());
+    }
+
+    public Mono<WaitlistAdminCounts> adminCounts() {
+        return Mono.fromCallable(repository::countByStatus)
+                .subscribeOn(Schedulers.boundedElastic());
+    }
+
+    public Mono<WaitlistAdminPage> adminList(
+            WaitlistStatus status,
+            Instant createdFrom,
+            Instant createdTo,
+            int page,
+            int size) {
+        return Mono.fromCallable(() -> repository.findAdminPage(status, createdFrom, createdTo, page, size))
                 .subscribeOn(Schedulers.boundedElastic());
     }
 

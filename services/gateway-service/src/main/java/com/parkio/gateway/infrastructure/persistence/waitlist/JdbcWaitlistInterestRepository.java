@@ -1,5 +1,8 @@
 package com.parkio.gateway.infrastructure.persistence.waitlist;
 
+import com.parkio.gateway.application.waitlist.WaitlistAdminCounts;
+import com.parkio.gateway.application.waitlist.WaitlistAdminEntry;
+import com.parkio.gateway.application.waitlist.WaitlistAdminPage;
 import com.parkio.gateway.application.waitlist.WaitlistExportRow;
 import com.parkio.gateway.application.waitlist.WaitlistInterest;
 import com.parkio.gateway.application.waitlist.WaitlistInterestRepository;
@@ -30,17 +33,18 @@ public class JdbcWaitlistInterestRepository implements WaitlistInterestRepositor
         try {
             jdbcTemplate.update("""
                     INSERT INTO waitlist_interest (
-                        id, email, email_hash, consent_timestamp, city, role, source, locale,
+                        id, email, email_hash, consent_timestamp, client_consent_timestamp, city, role, source, locale,
                         status, verification_token_hash, withdraw_token_hash, verification_expires_at,
                         verification_sent_at, resend_count, confirmed_at, withdrawn_at,
                         ip_hash, user_agent_hash, created_at
                     )
-                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                     """,
                     interest.id(),
                     interest.email(),
                     interest.emailHash(),
                     Timestamp.from(interest.consentTimestamp()),
+                    toTimestamp(interest.clientConsentTimestamp()),
                     interest.city(),
                     interest.role(),
                     interest.source(),
@@ -182,6 +186,71 @@ public class JdbcWaitlistInterestRepository implements WaitlistInterestRepositor
                 rs.getTimestamp("consent_timestamp").toInstant()), args.toArray());
     }
 
+    @Override
+    public WaitlistAdminCounts countByStatus() {
+        Long pending = jdbcTemplate.queryForObject(
+                "SELECT COUNT(*) FROM waitlist_interest WHERE status = 'PENDING'", Long.class);
+        Long confirmed = jdbcTemplate.queryForObject(
+                "SELECT COUNT(*) FROM waitlist_interest WHERE status = 'CONFIRMED'", Long.class);
+        Long withdrawn = jdbcTemplate.queryForObject(
+                "SELECT COUNT(*) FROM waitlist_interest WHERE status = 'WITHDRAWN'", Long.class);
+        long p = pending == null ? 0L : pending;
+        long c = confirmed == null ? 0L : confirmed;
+        long w = withdrawn == null ? 0L : withdrawn;
+        return new WaitlistAdminCounts(p, c, w, p + c + w);
+    }
+
+    @Override
+    public WaitlistAdminPage findAdminPage(
+            WaitlistStatus status,
+            Instant createdFrom,
+            Instant createdTo,
+            int page,
+            int size) {
+        int safePage = Math.max(page, 0);
+        int safeSize = Math.min(Math.max(size, 1), 100);
+        List<Object> args = new ArrayList<>();
+        StringBuilder where = new StringBuilder(" WHERE 1=1");
+        if (status != null) {
+            where.append(" AND status = ?");
+            args.add(status.name());
+        }
+        if (createdFrom != null) {
+            where.append(" AND created_at >= ?");
+            args.add(Timestamp.from(createdFrom));
+        }
+        if (createdTo != null) {
+            where.append(" AND created_at < ?");
+            args.add(Timestamp.from(createdTo));
+        }
+        Long total = jdbcTemplate.queryForObject(
+                "SELECT COUNT(*) FROM waitlist_interest" + where, Long.class, args.toArray());
+        long totalElements = total == null ? 0L : total;
+        int totalPages = totalElements == 0 ? 0 : (int) Math.ceil((double) totalElements / safeSize);
+        List<Object> pageArgs = new ArrayList<>(args);
+        pageArgs.add(safeSize);
+        pageArgs.add(safePage * safeSize);
+        List<WaitlistAdminEntry> content = jdbcTemplate.query(
+                """
+                SELECT id, email, status, locale, source, created_at, confirmed_at, withdrawn_at
+                FROM waitlist_interest
+                """ + where + """
+                 ORDER BY created_at DESC
+                 LIMIT ? OFFSET ?
+                """,
+                (rs, rowNum) -> new WaitlistAdminEntry(
+                        UUID.fromString(rs.getString("id")),
+                        rs.getString("email"),
+                        WaitlistStatus.valueOf(rs.getString("status")),
+                        rs.getString("locale"),
+                        rs.getString("source"),
+                        rs.getTimestamp("created_at").toInstant(),
+                        toInstant(rs.getTimestamp("confirmed_at")),
+                        toInstant(rs.getTimestamp("withdrawn_at"))),
+                pageArgs.toArray());
+        return new WaitlistAdminPage(content, safePage, safeSize, totalElements, totalPages);
+    }
+
     private Optional<WaitlistInterest> queryOne(String sql, String arg) {
         List<WaitlistInterest> rows = jdbcTemplate.query(sql, (rs, rowNum) -> mapRow(rs), arg);
         return rows.stream().findFirst();
@@ -193,6 +262,7 @@ public class JdbcWaitlistInterestRepository implements WaitlistInterestRepositor
                 rs.getString("email"),
                 rs.getString("email_hash"),
                 rs.getTimestamp("consent_timestamp").toInstant(),
+                toInstant(rs.getTimestamp("client_consent_timestamp")),
                 rs.getString("city"),
                 rs.getString("role"),
                 rs.getString("source"),

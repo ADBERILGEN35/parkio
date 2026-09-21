@@ -76,11 +76,24 @@ test('language switch persists and updates waitlist copy', async ({ page, baseUR
   await expect(page.locator('html')).toHaveAttribute('lang', 'tr');
   await page.getByRole('button', { name: 'EN', exact: true }).click();
   await expect(page.locator('html')).toHaveAttribute('lang', 'en');
-  await expect(page.getByRole('button', { name: /Join the notification list/i })).toBeVisible();
+  await expect(page.getByRole('button', { name: /Join the waitlist/i })).toBeVisible();
   await page.reload();
   await expect(page.locator('html')).toHaveAttribute('lang', 'en');
   await page.getByRole('button', { name: 'TR', exact: true }).click();
   await expect(page.locator('html')).toHaveAttribute('lang', 'tr');
+});
+
+test('hero waitlist CTA targets the form and nav uses waitlist labels', async ({ page, baseURL }) => {
+  await page.goto(baseURL ?? '/');
+  const heroCta = page.locator('#hero-waitlist-cta');
+  await expect(heroCta).toBeVisible();
+  await expect(heroCta).toHaveAttribute('href', '#waitlist');
+  await expect(heroCta).toHaveText(/Bekleme listesine katıl/i);
+  await expect(page.getByRole('navigation', { name: /Ana navigasyon|Primary navigation/i }).getByRole('link', { name: /Bekleme listesi/i })).toBeVisible();
+  await expect(page.locator('#primary-product-cta')).toBeVisible();
+  await expect(page.getByRole('contentinfo').getByRole('link', { name: /Giriş yap/i })).toBeVisible();
+  await heroCta.click();
+  await expect(page.locator('#waitlist-form')).toBeInViewport();
 });
 
 test('waitlist mock submit via explicit meta shows success without claiming live provider', async ({

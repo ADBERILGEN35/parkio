@@ -17,11 +17,13 @@
       'nav.business': 'İş modeli',
       'nav.roadmap': 'Yol haritası',
       'nav.founder': 'Kurucu',
-      'nav.waitlist': 'Kayıt bildirimi',
+      'nav.waitlist': 'Bekleme listesi',
       'brand.tagline': 'Park zekâsı',
       'cta.explore': 'Park alanı keşfet',
+      'cta.waitlist': 'Bekleme listesine katıl',
       'cta.signin': 'Giriş yap',
-      'cta.context': 'Hesap kaydı kapalıdır. Kişisel ve katkı özellikleri giriş gerektirir.',
+      'cta.context':
+        'Bekleme listesi bir uygulama hesabı oluşturmaz. Hesap kaydı kapalıdır; mevcut kullanıcılar giriş yapabilir.',
       'lang.aria': 'Dil seçimi',
       'lang.tr': 'TR',
       'lang.en': 'EN',
@@ -104,19 +106,21 @@
       'today.l3': 'Belediye park keşfi atıfla yayımlanır.',
       'today.l4': 'Yayımlanan müsaitlik kaynak ve tazelik bağlamı taşır.',
       'today.l5': 'Hesap kaydı kapalı kalır.',
-      'waitlist.kicker': 'Kayıt bildirimi',
+      'waitlist.kicker': 'Bekleme listesi',
       'waitlist.h2': 'Kayıtlar açıldığında haber verin.',
       'waitlist.intro':
         'Hesap oluşturmadan yalnızca e-posta adresinizi bırakın. Amacımız: kayıtlar açıldığında sizi bilgilendirmek. Başka pazarlama aboneliği yapılmaz.',
       'waitlist.email': 'E-posta adresi',
       'waitlist.consent':
         'Kayıtlar açıldığında Parkio’nun beni e-posta ile bilgilendirmesini kabul ediyorum. Onay için e-postamdaki bağlantıyı kullanacağım.',
-      'waitlist.submit': 'Bildirim listesine katıl',
+      'waitlist.submit': 'Bekleme listesine katıl',
       'waitlist.submitting': 'Gönderiliyor…',
       'waitlist.success':
         'Teşekkürler. Adresiniz alındı. Listede kalmak için e-postanızdaki onay bağlantısını açıp Onayla’ya basın.',
       'waitlist.error.invalid': 'Geçerli bir e-posta adresi girin.',
       'waitlist.error.consent': 'Devam etmek için bilgilendirme onayını işaretleyin.',
+      'waitlist.error.consentTime':
+        'Onay zamanı geçersiz veya cihaz saati çok sapmış. Saat ayarlarınızı kontrol edip tekrar deneyin.',
       'waitlist.error.network': 'Bağlantı hatası. Lütfen tekrar deneyin.',
       'waitlist.error.rate': 'Çok fazla deneme. Lütfen daha sonra tekrar deneyin.',
       'waitlist.error.delivery':
@@ -127,6 +131,24 @@
       'waitlist.mockNote': 'Yerel yalıtılmış mod: kalıcı sağlayıcı çalıştırılmıyor.',
       'waitlist.unavailable':
         'Kayıt bildirim listesi henüz açık değil. Onay veya çıkış bağlantınız varsa ilgili sayfayı kullanabilirsiniz.',
+      'waitlist.page.kicker': 'Kayıt bildirimi',
+      'waitlist.page.confirm.title': 'Parkio | Bildirim listesi onayı',
+      'waitlist.page.confirm.h1': 'E-posta onayını tamamlayın',
+      'waitlist.page.confirm.lede':
+        'Bağlantı önizlemeleri kaydı otomatik onaylamaz. Listede kalmak için aşağıdaki düğmeye basın.',
+      'waitlist.page.confirm.cta': 'Onayla',
+      'waitlist.page.confirm.note':
+        'Kaydınızı tamamlamak için onay düğmesine basın. Destek: info@parkio.dev',
+      'waitlist.page.confirm.success':
+        'E-posta adresiniz kayıt bildirim listesinde onaylandı.',
+      'waitlist.page.withdraw.title': 'Parkio | Bildirim listesinden çıkış',
+      'waitlist.page.withdraw.h1': 'Bildirim listesinden çıkın',
+      'waitlist.page.withdraw.lede':
+        'Bu işlem e-posta adresinizi kayıt bildirim listesinden siler. Hesap oluşturulmaz veya silinmez; yalnızca bildirim kaydı etkilenir.',
+      'waitlist.page.withdraw.cta': 'Listeden çıkar',
+      'waitlist.page.withdraw.note': 'Destek veya silme talepleri için: info@parkio.dev',
+      'waitlist.page.withdraw.success':
+        'E-posta adresiniz bildirim listesinden silindi.',
       'business.kicker': 'İş modeli',
       'business.h2': 'Parkio bir iş olarak nasıl ilerliyor',
       'business.intro':
@@ -218,11 +240,13 @@
       'nav.business': 'Business',
       'nav.roadmap': 'Roadmap',
       'nav.founder': 'Founder',
-      'nav.waitlist': 'Registration updates',
+      'nav.waitlist': 'Waitlist',
       'brand.tagline': 'Parking intelligence',
       'cta.explore': 'Explore parking',
+      'cta.waitlist': 'Join the waitlist',
       'cta.signin': 'Sign in',
-      'cta.context': 'Account registration remains closed. Personal and contribution features stay behind sign-in.',
+      'cta.context':
+        'Joining the waitlist does not create an app account. Registration remains closed; existing users can sign in.',
       'lang.aria': 'Language',
       'lang.tr': 'TR',
       'lang.en': 'EN',
@@ -305,19 +329,21 @@
       'today.l3': 'Municipal parking discovery is published with attribution.',
       'today.l4': 'Published availability carries source and freshness context.',
       'today.l5': 'Account registration remains closed.',
-      'waitlist.kicker': 'Registration updates',
+      'waitlist.kicker': 'Waitlist',
       'waitlist.h2': 'Get notified when registration opens.',
       'waitlist.intro':
         'Leave only your email — no account is created. Purpose: notify you when registrations become available. You are not silently subscribed to unrelated marketing.',
       'waitlist.email': 'Email address',
       'waitlist.consent':
         'I agree that Parkio may email me when registrations open. I will confirm via the link in my email.',
-      'waitlist.submit': 'Join the notification list',
+      'waitlist.submit': 'Join the waitlist',
       'waitlist.submitting': 'Submitting…',
       'waitlist.success':
         'Thanks. Your address was received. Open the confirmation link in your email and press Confirm to stay on the list.',
       'waitlist.error.invalid': 'Enter a valid email address.',
       'waitlist.error.consent': 'Please accept the notification consent to continue.',
+      'waitlist.error.consentTime':
+        'Consent time is invalid or your device clock is too far off. Check your clock and try again.',
       'waitlist.error.network': 'Network error. Please try again.',
       'waitlist.error.rate': 'Too many attempts. Please try again later.',
       'waitlist.error.delivery':
@@ -328,6 +354,24 @@
       'waitlist.mockNote': 'Local isolated mode: durable provider is NOT_EXECUTED.',
       'waitlist.unavailable':
         'The registration notification list is not open yet. If you have a confirmation or withdrawal link, use that page.',
+      'waitlist.page.kicker': 'Registration notice',
+      'waitlist.page.confirm.title': 'Parkio | Confirm notification list',
+      'waitlist.page.confirm.h1': 'Complete email confirmation',
+      'waitlist.page.confirm.lede':
+        'Link previews do not confirm your signup. Press the button below to stay on the list.',
+      'waitlist.page.confirm.cta': 'Confirm',
+      'waitlist.page.confirm.note':
+        'Press Confirm to complete your subscription. Support: info@parkio.dev',
+      'waitlist.page.confirm.success':
+        'Your email is confirmed on the registration notification list.',
+      'waitlist.page.withdraw.title': 'Parkio | Leave notification list',
+      'waitlist.page.withdraw.h1': 'Leave the notification list',
+      'waitlist.page.withdraw.lede':
+        'This removes your email from the registration notification list. No application account is created or deleted.',
+      'waitlist.page.withdraw.cta': 'Remove me',
+      'waitlist.page.withdraw.note': 'For support or deletion requests: info@parkio.dev',
+      'waitlist.page.withdraw.success':
+        'Your email was removed from the notification list.',
       'business.kicker': 'Business',
       'business.h2': 'How Parkio works as a business',
       'business.intro':
@@ -419,6 +463,17 @@
     return 'tr';
   }
 
+  function linkLocale() {
+    try {
+      const params = new URLSearchParams(global.location && global.location.search ? global.location.search : '');
+      const linkLang = params.get('lang');
+      if (linkLang === 'en' || linkLang === 'tr') return linkLang;
+    } catch (_) {
+      /* ignore */
+    }
+    return null;
+  }
+
   function t(locale, key) {
     return (DICT[locale] && DICT[locale][key]) || (DICT.tr && DICT.tr[key]) || key;
   }
@@ -454,12 +509,16 @@
   }
 
   function init() {
-    const locale = resolveLocale();
+    // Email/confirm links may carry ?lang=; that seeds the initial page language
+    // even when an older storage preference differs. After that, the language
+    // switcher updates storage and wins for feedback re-renders.
+    const fromLink = linkLocale();
+    const locale = fromLink || resolveLocale();
     applyLocale(locale);
     document.querySelectorAll('[data-lang-option]').forEach((btn) => {
       btn.addEventListener('click', () => applyLocale(btn.getAttribute('data-lang-option')));
     });
   }
 
-  global.ParkioI18n = { DICT, STORAGE_KEY, resolveLocale, applyLocale, t, init };
+  global.ParkioI18n = { DICT, STORAGE_KEY, resolveLocale, linkLocale, applyLocale, t, init };
 })(typeof window !== 'undefined' ? window : globalThis);

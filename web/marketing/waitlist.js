@@ -69,7 +69,14 @@
       return { ok: false, code: 'EMAIL_DELIVERY_FAILED' };
     }
     if (response.status >= 400 && response.status < 500) {
+      const body = await response.json().catch(() => ({}));
+      if (body && body.code === 'WAITLIST_CONSENT_TIMESTAMP_INVALID') {
+        return { ok: false, code: 'CONSENT_TIMESTAMP_INVALID' };
+      }
       return { ok: false, code: 'VALIDATION_ERROR' };
+    }
+    if (response.status >= 500) {
+      return { ok: false, code: 'SERVER_ERROR' };
     }
     return { ok: false, code: 'NETWORK_ERROR' };
   }
@@ -113,11 +120,70 @@
     return { ok: true, status: 'withdrawn', mock: true };
   }
 
-  function setFeedback(el, message, kind) {
+  /**
+   * Store a semantic i18n key on the feedback node and render with the
+   * currently active locale. Re-rendered on parkio:locale without refetch.
+   */
+  function setFeedbackKey(el, key, kind) {
     if (!el) return;
-    el.textContent = message || '';
+    if (!key) {
+      delete el.dataset.feedbackKey;
+      el.textContent = '';
+      el.dataset.kind = '';
+      el.hidden = true;
+      return;
+    }
+    el.dataset.feedbackKey = key;
     el.dataset.kind = kind || '';
-    el.hidden = !message;
+    el.textContent = tr(key);
+    el.hidden = false;
+  }
+
+  function refreshFeedback(el) {
+    if (!el || !el.dataset.feedbackKey) return;
+    el.textContent = tr(el.dataset.feedbackKey);
+  }
+
+  function refreshBusyButtons() {
+    document.querySelectorAll('[data-waitlist-busy="1"]').forEach((btn) => {
+      btn.textContent = tr('waitlist.submitting');
+    });
+  }
+
+  function refreshLocalizedUi() {
+    document.querySelectorAll('[data-waitlist-feedback]').forEach(refreshFeedback);
+    const unavailable = document.querySelector('[data-waitlist-unavailable-note]');
+    if (unavailable && !unavailable.hidden) {
+      unavailable.textContent = tr('waitlist.unavailable');
+    }
+    refreshBusyButtons();
+  }
+
+  function submitFeedbackKey(result) {
+    if (result && result.ok) return 'waitlist.success';
+    switch (result && result.code) {
+      case 'RATE_LIMITED':
+        return 'waitlist.error.rate';
+      case 'ADMISSIONS_DISABLED':
+        return 'waitlist.unavailable';
+      case 'EMAIL_DELIVERY_FAILED':
+        return 'waitlist.error.delivery';
+      case 'CONSENT_TIMESTAMP_INVALID':
+        return 'waitlist.error.consentTime';
+      case 'VALIDATION_ERROR':
+        return 'waitlist.error.invalid';
+      case 'SERVER_ERROR':
+        return 'waitlist.error.generic';
+      default:
+        return 'waitlist.error.network';
+    }
+  }
+
+  function tokenFeedbackKey(kind, result) {
+    if (result && result.ok) {
+      return kind === 'confirm' ? 'waitlist.page.confirm.success' : 'waitlist.page.withdraw.success';
+    }
+    return 'waitlist.error.generic';
   }
 
   function applyUnavailableUi(form) {
@@ -159,15 +225,15 @@
 
     form.addEventListener('submit', async (event) => {
       event.preventDefault();
-      setFeedback(feedback, '', '');
+      setFeedbackKey(feedback, '', '');
       const email = normalizeEmail(emailInput && emailInput.value);
       if (!isValidEmail(email)) {
-        setFeedback(feedback, tr('waitlist.error.invalid'), 'error');
+        setFeedbackKey(feedback, 'waitlist.error.invalid', 'error');
         emailInput && emailInput.focus();
         return;
       }
       if (!consentInput || !consentInput.checked) {
-        setFeedback(feedback, tr('waitlist.error.consent'), 'error');
+        setFeedbackKey(feedback, 'waitlist.error.consent', 'error');
         consentInput && consentInput.focus();
         return;
       }
@@ -180,29 +246,22 @@
       };
 
       submitBtn.disabled = true;
-      const previousLabel = submitBtn.textContent;
+      submitBtn.dataset.waitlistBusy = '1';
       submitBtn.textContent = tr('waitlist.submitting');
       try {
         const result = mode === 'mock' ? await submitMock(payload) : await submitApi(payload);
+        // Render with whatever locale is active when the response is shown.
+        const key = submitFeedbackKey(result);
+        setFeedbackKey(feedback, key, result.ok ? 'success' : 'error');
         if (result.ok) {
-          setFeedback(feedback, tr('waitlist.success'), 'success');
           form.reset();
-        } else if (result.code === 'RATE_LIMITED') {
-          setFeedback(feedback, tr('waitlist.error.rate'), 'error');
-        } else if (result.code === 'ADMISSIONS_DISABLED') {
-          setFeedback(feedback, tr('waitlist.unavailable'), 'error');
-        } else if (result.code === 'EMAIL_DELIVERY_FAILED') {
-          setFeedback(feedback, tr('waitlist.error.delivery'), 'error');
-        } else if (result.code === 'VALIDATION_ERROR') {
-          setFeedback(feedback, tr('waitlist.error.invalid'), 'error');
-        } else {
-          setFeedback(feedback, tr('waitlist.error.network'), 'error');
         }
       } catch (_) {
-        setFeedback(feedback, tr('waitlist.error.network'), 'error');
+        setFeedbackKey(feedback, 'waitlist.error.network', 'error');
       } finally {
         submitBtn.disabled = false;
-        submitBtn.textContent = previousLabel;
+        delete submitBtn.dataset.waitlistBusy;
+        submitBtn.textContent = tr('waitlist.submit');
       }
     });
   }
@@ -214,13 +273,16 @@
     const params = new URLSearchParams(global.location.search);
     const token = params.get('token') || '';
     const mode = detectMode();
+    const idleKey = kind === 'confirm' ? 'waitlist.page.confirm.cta' : 'waitlist.page.withdraw.cta';
     form.addEventListener('submit', async (event) => {
       event.preventDefault();
       if (!token) {
-        setFeedback(feedback, tr('waitlist.error.generic'), 'error');
+        setFeedbackKey(feedback, 'waitlist.error.generic', 'error');
         return;
       }
       button.disabled = true;
+      button.dataset.waitlistBusy = '1';
+      button.textContent = tr('waitlist.submitting');
       try {
         let result;
         if (kind === 'confirm') {
@@ -228,25 +290,14 @@
         } else {
           result = mode === 'mock' ? await withdrawMock(token) : await withdrawApi(token);
         }
-        if (result.ok) {
-          setFeedback(
-            feedback,
-            kind === 'confirm'
-              ? currentLocale() === 'en'
-                ? 'Your email is confirmed on the registration notification list.'
-                : 'E-posta adresiniz kayıt bildirim listesinde onaylandı.'
-              : currentLocale() === 'en'
-                ? 'Your email was removed from the notification list.'
-                : 'E-posta adresiniz bildirim listesinden silindi.',
-            'success',
-          );
-        } else {
-          setFeedback(feedback, tr('waitlist.error.generic'), 'error');
-        }
+        const key = tokenFeedbackKey(kind, result);
+        setFeedbackKey(feedback, key, result.ok ? 'success' : 'error');
       } catch (_) {
-        setFeedback(feedback, tr('waitlist.error.network'), 'error');
+        setFeedbackKey(feedback, 'waitlist.error.network', 'error');
       } finally {
         button.disabled = false;
+        delete button.dataset.waitlistBusy;
+        button.textContent = tr(idleKey);
       }
     });
   }
@@ -255,6 +306,10 @@
     bindForm(document.getElementById('waitlist-form'));
     bindTokenAction(document.getElementById('waitlist-confirm-form'), 'confirm');
     bindTokenAction(document.getElementById('waitlist-withdraw-form'), 'withdraw');
+    if (!global.__parkioWaitlistLocaleBound) {
+      global.__parkioWaitlistLocaleBound = true;
+      document.addEventListener('parkio:locale', refreshLocalizedUi);
+    }
   }
 
   global.ParkioWaitlist = {
@@ -266,6 +321,10 @@
     confirmApi,
     withdrawApi,
     init,
+    setFeedbackKey,
+    refreshLocalizedUi,
+    submitFeedbackKey,
+    tokenFeedbackKey,
     _mockStore: mockStore,
   };
 })(typeof window !== 'undefined' ? window : globalThis);
