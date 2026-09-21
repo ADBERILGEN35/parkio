@@ -63,6 +63,8 @@ class WaitlistControllerTest {
         when(tokenValidator.validate("super-token")).thenReturn(Mono.just(
                 new AuthenticatedUser(UUID.randomUUID().toString(), "super@parkio.test",
                         List.of("SUPER_ADMIN"), "ACTIVE", 0L)));
+        when(tokenValidator.validate("expired-token"))
+                .thenReturn(Mono.error(new IllegalArgumentException("expired")));
         lastVerificationToken.set(null);
         lastWithdrawToken.set(null);
         org.mockito.Mockito.doAnswer(invocation -> {
@@ -421,6 +423,25 @@ class WaitlistControllerTest {
                 .header(HttpHeaders.AUTHORIZATION, "Bearer moderator-token")
                 .exchange()
                 .expectStatus().isForbidden();
+
+        webTestClient.get()
+                .uri("/api/v1/waitlist/export/")
+                .exchange()
+                .expectStatus().isUnauthorized();
+
+        webTestClient.get()
+                .uri("/api/v1/waitlist/export")
+                .header(HttpHeaders.AUTHORIZATION, "Bearer expired-token")
+                .exchange()
+                .expectStatus().isUnauthorized()
+                .expectBody()
+                .jsonPath("$.code").isEqualTo("INVALID_TOKEN");
+
+        webTestClient.get()
+                .uri("/api/v1/waitlist/export")
+                .header(HttpHeaders.AUTHORIZATION, "Bearer super-token")
+                .exchange()
+                .expectStatus().isOk();
     }
 
     @Test

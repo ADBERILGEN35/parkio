@@ -22,13 +22,16 @@ import org.springframework.web.util.pattern.PathPatternParser;
 import reactor.core.publisher.Mono;
 
 /**
- * Protects waitlist operator endpoints that are served by the gateway's own
+ * Protects waitlist operator endpoints served by the gateway's own
  * {@code @RestController} (not proxied through Spring Cloud Gateway routes).
  *
  * <p>{@link AuthenticationGlobalFilter} / {@link AuthorizationGlobalFilter} only run on
- * the gateway filter chain. Local WebFlux controllers bypass that chain, so ADMIN-only
- * waitlist export/list must be enforced here at the WebFilter layer (same rationale as
- * {@link ActuatorPublicSurfaceWebFilter}).
+ * the Spring Cloud Gateway filter chain. Local WebFlux controllers bypass that chain, so
+ * ADMIN-only waitlist export (and the intended admin route family) must be enforced here
+ * at the WebFilter layer — same rationale as {@link ActuatorPublicSurfaceWebFilter}.
+ *
+ * <p>Client-supplied {@code X-User-*} headers are stripped before JWT validation. Roles are
+ * taken only from a validated token.
  */
 @Component
 @Order(Ordered.HIGHEST_PRECEDENCE + 5)
@@ -39,6 +42,7 @@ public class WaitlistAdminSecurityWebFilter implements WebFilter {
     private static final PathPatternParser PARSER = PathPatternParser.defaultInstance;
     private static final List<PathPattern> PROTECTED = List.of(
             PARSER.parse("/api/v1/waitlist/export"),
+            PARSER.parse("/api/v1/waitlist/export/"),
             PARSER.parse("/api/v1/waitlist/admin"),
             PARSER.parse("/api/v1/waitlist/admin/**"));
 
