@@ -358,3 +358,4 @@ parkio:
       from: ${PARKIO_WAITLIST_EMAIL_FROM:${PARKIO_EMAIL_FROM:}}
       reply-to: ${PARKIO_WAITLIST_EMAIL_REPLY_TO:${PARKIO_EMAIL_REPLY_TO:}}
       resend-api-key: ${PARKIO_WAITLIST_RESEND_API_KEY:${PARKIO_RESEND_API_KEY:}}
+      resend-base-url: ${PARKIO_WAITLIST_RESEND_BASE_URL:https://api.resend.com}

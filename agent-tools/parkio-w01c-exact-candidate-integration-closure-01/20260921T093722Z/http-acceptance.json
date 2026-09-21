@@ -1,0 +1,79 @@
+{
+  "results": [
+    {
+      "name": "registration_creates_pending",
+      "ok": true,
+      "detail": "http=202 db=PENDING"
+    },
+    {
+      "name": "concurrent_duplicates_single_row",
+      "ok": true,
+      "detail": "count=1 statuses=202,202,202"
+    },
+    {
+      "name": "provider_failure_keeps_retryable_pending",
+      "ok": true,
+      "detail": "http=503 code=WAITLIST_EMAIL_DELIVERY_FAILED sent_null=t"
+    },
+    {
+      "name": "provider_retry_accepted",
+      "ok": true,
+      "detail": "http=202"
+    },
+    {
+      "name": "mock_captured_tokens",
+      "ok": true,
+      "detail": "redacted"
+    },
+    {
+      "name": "get_confirm_rejected",
+      "ok": true,
+      "detail": "http=405"
+    },
+    {
+      "name": "post_confirm_works",
+      "ok": true,
+      "detail": "http=202 db=CONFIRMED"
+    },
+    {
+      "name": "confirm_replay_idempotent",
+      "ok": true,
+      "detail": "http=202"
+    },
+    {
+      "name": "expired_token_no_transition",
+      "ok": true,
+      "detail": "http=400 db=PENDING"
+    },
+    {
+      "name": "superseded_token_rejected_current_works",
+      "ok": true,
+      "detail": "sub=202 resend=202 rotated=true old=400 new=202"
+    },
+    {
+      "name": "withdraw_and_reregister",
+      "ok": true,
+      "detail": "sub=202 withdraw=202 again=202 pending=1"
+    },
+    {
+      "name": "redis_rate_limit_trips",
+      "ok": true,
+      "detail": "statuses=202,202,202,202,202,202,202,202,429,429,429,429"
+    },
+    {
+      "name": "cors_allowed_origin",
+      "ok": true,
+      "detail": "acao=https://parkio.dev"
+    },
+    {
+      "name": "cors_disallowed_origin",
+      "ok": true,
+      "detail": "acao=null"
+    },
+    {
+      "name": "pre_restart_rows_recorded",
+      "ok": true,
+      "detail": "count=15"
+    }
+  ]
+}

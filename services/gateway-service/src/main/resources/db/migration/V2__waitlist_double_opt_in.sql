@@ -17,11 +17,9 @@ ALTER TABLE waitlist_interest
 ALTER TABLE waitlist_interest
     ADD COLUMN withdrawn_at TIMESTAMP WITH TIME ZONE;
 
-UPDATE waitlist_interest
-SET status = 'CONFIRMED',
-    confirmed_at = COALESCE(confirmed_at, created_at)
-WHERE status = 'PENDING'
-  AND verification_token_hash IS NULL;
+-- Legacy V1 rows stay PENDING without verification tokens. Do not invent
+-- confirmed consent for pre-double-opt-in records; visitors must re-submit
+-- (or use a controlled re-invite) to obtain a confirmation token.
 
 ALTER TABLE waitlist_interest
     ADD CONSTRAINT chk_waitlist_interest_status

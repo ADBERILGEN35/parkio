@@ -158,6 +158,9 @@ public class WaitlistProperties {
 
         private String resendApiKey = "";
 
+        /** Override only for isolated mocks; production keeps the Resend API host. */
+        private String resendBaseUrl = "https://api.resend.com";
+
         public String getProvider() {
             return provider;
         }
@@ -196,6 +199,14 @@ public class WaitlistProperties {
 
         public void setResendApiKey(String resendApiKey) {
             this.resendApiKey = resendApiKey;
+        }
+
+        public String getResendBaseUrl() {
+            return resendBaseUrl;
+        }
+
+        public void setResendBaseUrl(String resendBaseUrl) {
+            this.resendBaseUrl = resendBaseUrl;
         }
     }
 }

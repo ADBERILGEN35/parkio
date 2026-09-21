@@ -33,13 +33,13 @@ public class ResendWaitlistEmailSender implements WaitlistEmailSender {
     private final WaitlistHasher hasher;
 
     public ResendWaitlistEmailSender(
-            RestClient.Builder restClientBuilder,
+            RestClient.Builder waitlistRestClientBuilder,
             WaitlistProperties properties,
             WaitlistHasher hasher) {
         this.properties = properties;
         this.hasher = hasher;
-        this.restClient = restClientBuilder
-                .baseUrl("https://api.resend.com")
+        this.restClient = waitlistRestClientBuilder
+                .baseUrl(properties.getEmail().getResendBaseUrl())
                 .defaultHeader("Authorization", "Bearer " + properties.getEmail().getResendApiKey())
                 .build();
     }
