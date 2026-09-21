@@ -50,6 +50,22 @@ def do_inspect(args: list[str]) -> int:
         print("no such container", file=sys.stderr)
         return 1
     item = state["containers"][service]
+    if "--format" in args:
+        template = args[args.index("--format") + 1]
+        values = {
+            "{{.Id}}": item["id"],
+            "{{.State.Status}}": "running" if item.get("running", True) else "exited",
+            '{{index .Config.Labels "com.docker.compose.project"}}': state["project"],
+            '{{index .Config.Labels "com.docker.compose.service"}}': service,
+            "{{.HostConfig.LogConfig.Type}}": item.get("driver", "json-file"),
+            '{{index .HostConfig.LogConfig.Config "max-size"}}': item.get("max_size", "10m"),
+            '{{index .HostConfig.LogConfig.Config "max-file"}}': item.get("max_file", "5"),
+        }
+        if template not in values:
+            print(f"unsupported inspect template: {template}", file=sys.stderr)
+            return 2
+        print(values[template])
+        return 0
     print(json.dumps([{
         "Id": item["id"],
         "Name": f"/{state['project']}-{service}-1",
@@ -66,6 +82,9 @@ def do_inspect(args: list[str]) -> int:
 def do_logs(args: list[str]) -> int:
     container_id = args[-1]
     since = args[args.index("--since") + 1]
+    if "--follow" not in args and "--tail" in args and args[args.index("--tail") + 1] == "0":
+        state = load()
+        return 0 if state.get("connected", True) and service_for_id(state, container_id) else 1
     emitted = 0
     while True:
         state = load()

@@ -207,18 +207,19 @@ python3 scripts/newrelic_log_pilot/run_isolated_validation.py
 ```
 
 The suite uses task-specific ports, network, volumes and synthetic logs only.
-The current candidate passed **30/30** assertions covering the New Relic HTTP
+The current candidate passed **31/31** assertions covering the New Relic HTTP
 contract, 401/404/429, network interruption/recovery, retry pressure, bounded
 buffering, collector restart/checkpoint, rotation, Java multiline parsing,
 allowlisted fields, redaction and prohibited-canary absence. Added source/gate
 coverage verifies helper disconnect/reconnect, visible container replacement,
 service scope, timestamp/stream envelopes, bounded rotation, ENOSPC handling,
-healthy-delivery exhaustion, retry-storm exhaustion and persisted exhaustion
-after gate restart. Record the exact JSON output and source SHA in the PR.
+activation-time identity/spool guarding, healthy-delivery exhaustion,
+retry-storm exhaustion and persisted exhaustion after gate restart. Record the
+exact JSON output and source SHA in the PR.
 
 The local measured sample is useful only for estimating serialized record size;
-it is not production traffic. The final run exported 68 records, 345,347
-uncompressed JSON bytes at the mock, with mean flattened-record size 5,093.2
+it is not production traffic. The final run exported 58 records, 278,857
+uncompressed JSON bytes at the mock, with mean flattened-record size 4,819.1
 bytes and maximum 6,683 bytes. Backpressure injected 22,588,890 source bytes;
 the collector state measured 82,120 bytes after bounded eviction. The local
 256 MiB gate setting existed only to keep recovery tests from prematurely

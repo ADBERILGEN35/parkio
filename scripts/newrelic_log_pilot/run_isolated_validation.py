@@ -294,12 +294,22 @@ def source_helper_acceptance(results: dict[str, str], metrics: dict[str, object]
             current = json.loads(docker_state.read_text(encoding="utf-8"))
             current["connected"] = False
             atomic_state(docker_state, current)
-            time.sleep(0.5)
+            wait_until(
+                lambda: json.loads((source_state / "gateway-service.status.json").read_text())["status"] == "disconnected",
+                10, "source disconnect status",
+            )
             current = json.loads(docker_state.read_text(encoding="utf-8"))
             current["connected"] = True
             atomic_state(docker_state, current)
             add_event("parking-service", "source-reconnected", seconds=2)
             wait_until(lambda: "source-reconnected" in source_blob(), 10, "source reconnect")
+            wait_until(
+                lambda: (
+                    json.loads((source_state / "gateway-service.status.json").read_text())["status"] == "attached"
+                    and json.loads((source_state / "gateway-service.status.json").read_text())["container_id"] == ids["gateway-service"]
+                ),
+                10, "source reattachment to original identity",
+            )
 
             current = json.loads(docker_state.read_text(encoding="utf-8"))
             current["containers"]["gateway-service"]["id"] = "e" * 64
@@ -321,6 +331,36 @@ def source_helper_acceptance(results: dict[str, str], metrics: dict[str, object]
             total = sum(path.stat().st_size for path in files)
             add_result(results, "bounded_source_spool", len(files) <= 3 and total <= 3 * 4096, f"files={len(files)} bytes={total}")
             metrics["source_spool_test_bytes"] = total
+
+            wait_until(
+                lambda: json.loads((source_state / "gateway-service.status.json").read_text())["status"] == "attached",
+                10, "replacement attachment status",
+            )
+            resolver_env = {
+                **process_env,
+                "PATH": f"{base}:{os.environ.get('PATH', '')}",
+                "PARKIO_NR_COMPOSE_PROJECT": "parkio-test",
+                "PARKIO_NR_SOURCE_ROOT": str(output),
+                "PARKIO_NR_SOURCE_STATE_ROOT": str(source_state),
+            }
+            resolved = subprocess.run(
+                ["bash", str(ROOT / "scripts" / "newrelic_log_pilot" / "resolve_production_sources.sh")],
+                cwd=ROOT, env=resolver_env, text=True, check=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+            )
+            source_env = base / "sources.env"
+            source_env.write_text(resolved.stdout, encoding="utf-8")
+            checked = subprocess.run(
+                [
+                    "bash", str(ROOT / "scripts" / "newrelic_log_pilot" / "resolve_production_sources.sh"),
+                    "--check-helper", str(source_env),
+                ],
+                cwd=ROOT, env=resolver_env, text=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+            )
+            add_result(
+                results, "activation_source_resolution_and_mount_guard",
+                checked.returncode == 0 and checked.stderr.count("helper=attached") == 3,
+                checked.stderr.strip(),
+            )
 
             writer = BoundedWriter(base / "full-test", "gateway-service", 4096, 3)
             with mock.patch("os.write", side_effect=OSError(28, "No space left on device")):
