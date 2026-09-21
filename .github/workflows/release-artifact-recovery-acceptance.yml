@@ -1,0 +1,366 @@
+# PARKIO-PRODUCTION-BASELINE-AND-ARTIFACT-RECOVERY-01
+#
+# Downloads the retained release artifact from the accepted CI run, reloads the
+# SAME OCI images, verifies identity against the recorded manifest, then runs
+# authenticated nearby + media functional acceptance in disposable infra.
+#
+# HARD GUARDS:
+# - No rebuild of gateway/media/parking candidates (load retained archives).
+# - No deploy, registry publish, production SSH mutation, Slack/NR/PostHog.
+# - Peers (auth/user) built from RELEASE_SHA → candidate-stack acceptance.
+
+name: Release artifact recovery acceptance
+
+on:
+  workflow_dispatch:
+    inputs:
+      source_run_id:
+        description: "Actions run id that retains the accepted OCI artifact"
+        required: true
+        type: string
+        default: "35534690974"
+      artifact_name:
+        description: "Artifact name within the source run"
+        required: true
+        type: string
+        default: "secpriv-release-artifacts-4a9ba2184e867b8ea8b927f7c3f8bcb137c2760a"
+      release_sha:
+        description: "Expected release pin (40-char SHA)"
+        required: true
+        type: string
+        default: "4a9ba2184e867b8ea8b927f7c3f8bcb137c2760a"
+  pull_request:
+    paths:
+      - ".github/workflows/release-artifact-recovery-acceptance.yml"
+      - "scripts/ci/release-artifact-auth-media-acceptance.sh"
+
+permissions:
+  contents: read
+  actions: write
+
+concurrency:
+  group: release-artifact-recovery-${{ github.ref }}-${{ github.event.inputs.source_run_id || 'pr' }}
+  cancel-in-progress: true
+
+env:
+  IMAGE_TAG: "secpriv-ci"
+  COMPOSE_PROJECT_NAME: parkio-secpriv-rec-${{ github.run_id }}-${{ github.run_attempt }}
+  RELEASE_SHA_DEFAULT: "4a9ba2184e867b8ea8b927f7c3f8bcb137c2760a"
+  SOURCE_RUN_DEFAULT: "35534690974"
+  ARTIFACT_NAME_DEFAULT: "secpriv-release-artifacts-4a9ba2184e867b8ea8b927f7c3f8bcb137c2760a"
+  EXPECTED_GATEWAY_ID: "sha256:c2728e5f893012728262c8da7ed6965f496f0a7adf430023bdfc75951059bdaa"
+  EXPECTED_MEDIA_ID: "sha256:9c363ca4f13260bb05f21f4d11e79b2a02c9a2b2397bcacf82719a230511fb2d"
+  EXPECTED_PARKING_ID: "sha256:8ec3697de9b9a3e44be297e990e0c4e1795b3cecc63f1c3a28d6e569b304693f"
+
+jobs:
+  recover-and-accept:
+    name: Download retained artifact, load, auth+media accept
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    env:
+      COMPOSE_ENV_FILE: docker/.env.secpriv-ci
+      COMPOSE_FILES: >-
+        -f docker/docker-compose.yml
+        -f docker/docker-compose.apps.yml
+        -f docker/docker-compose.images.yml
+    steps:
+      - name: Resolve inputs
+        id: pin
+        run: |
+          set -euo pipefail
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            RELEASE_SHA="${{ github.event.inputs.release_sha }}"
+            SOURCE_RUN="${{ github.event.inputs.source_run_id }}"
+            ARTIFACT_NAME="${{ github.event.inputs.artifact_name }}"
+          else
+            RELEASE_SHA="${RELEASE_SHA_DEFAULT}"
+            SOURCE_RUN="${SOURCE_RUN_DEFAULT}"
+            ARTIFACT_NAME="${ARTIFACT_NAME_DEFAULT}"
+          fi
+          if ! [[ "$RELEASE_SHA" =~ ^[0-9a-f]{40}$ ]]; then
+            echo "::error::release_sha must be 40-char hex"
+            exit 1
+          fi
+          {
+            echo "release_sha=${RELEASE_SHA}"
+            echo "source_run=${SOURCE_RUN}"
+            echo "artifact_name=${ARTIFACT_NAME}"
+          } >> "$GITHUB_OUTPUT"
+
+      - name: Checkout workflow helpers
+        uses: actions/checkout@v4
+        with:
+          path: workflow-src
+          fetch-depth: 1
+
+      - name: Checkout pinned release source (compose + peer Dockerfiles only)
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ steps.pin.outputs.release_sha }}
+          path: release-src
+          fetch-depth: 1
+
+      - name: Verify release checkout
+        working-directory: release-src
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "${{ steps.pin.outputs.release_sha }}"
+          mkdir -p scripts/ci
+          cp ../workflow-src/scripts/ci/release-artifact-auth-media-acceptance.sh scripts/ci/
+          chmod +x scripts/ci/release-artifact-auth-media-acceptance.sh scripts/seed-real-e2e.sh
+
+      - name: Download retained artifact from source run
+        uses: actions/download-artifact@v4
+        with:
+          name: ${{ steps.pin.outputs.artifact_name }}
+          run-id: ${{ steps.pin.outputs.source_run }}
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          path: retained
+
+      - name: Inventory retained archive (no secrets)
+        run: |
+          set -euo pipefail
+          mkdir -p out/retrieval
+          {
+            echo "source_run_id=${{ steps.pin.outputs.source_run }}"
+            echo "artifact_name=${{ steps.pin.outputs.artifact_name }}"
+            echo "release_sha=${{ steps.pin.outputs.release_sha }}"
+            find retained -type f | sort
+          } | tee out/retrieval/inventory.txt
+          # Artifact zip may nest out/oci or oci/
+          OCI_DIR="$(find retained -type d -name oci | head -1)"
+          test -n "$OCI_DIR"
+          echo "oci_dir=${OCI_DIR}" | tee out/retrieval/oci-dir.txt
+          for svc in gateway-service media-service parking-service; do
+            tar="${OCI_DIR}/parkio-${svc}-${IMAGE_TAG}.tar"
+            side="${tar}.sha256"
+            test -f "$tar"
+            test -f "$side"
+            actual="$(sha256sum "$tar" | awk '{print $1}')"
+            expected="$(awk '{print $1}' "$side")"
+            echo "${svc} expected=${expected} actual=${actual}"
+            test "$actual" = "$expected"
+            # Format: OCI archive (blobs/ layout) vs docker save
+            if tar -tf "$tar" | head -5 | grep -q '^blobs/'; then
+              echo "${svc}_format=OCI_ARCHIVE"
+            else
+              echo "${svc}_format=DOCKER_ARCHIVE_OR_OTHER"
+            fi
+          done | tee out/retrieval/sha256-verify.txt
+          if [ -f retained/out/image-manifest.json ]; then
+            cp retained/out/image-manifest.json out/retrieval/image-manifest.json
+          elif [ -f retained/image-manifest.json ]; then
+            cp retained/image-manifest.json out/retrieval/image-manifest.json
+          fi
+          echo "ARTIFACT_SHA256_VERIFY=PASS" | tee out/retrieval/RESULT.txt
+
+      - name: Load OCI archives and verify local image IDs
+        run: |
+          set -euo pipefail
+          mkdir -p out/load
+          OCI_DIR="$(find retained -type d -name oci | head -1)"
+          for svc in gateway-service media-service parking-service; do
+            echo "=== docker load ${svc} ==="
+            docker load -i "${OCI_DIR}/parkio-${svc}-${IMAGE_TAG}.tar" | tee "out/load/load-${svc}.txt"
+            id="$(docker image inspect "parkio/${svc}:${IMAGE_TAG}" --format '{{.Id}}')"
+            plat="$(docker image inspect "parkio/${svc}:${IMAGE_TAG}" --format '{{.Os}}/{{.Architecture}}')"
+            rev="$(docker image inspect "parkio/${svc}:${IMAGE_TAG}" --format '{{index .Config.Labels "org.opencontainers.image.revision"}}')"
+            echo "${svc} id=${id} platform=${plat} revision=${rev}" | tee "out/load/${svc}.txt"
+          done
+          gw="$(docker image inspect "parkio/gateway-service:${IMAGE_TAG}" --format '{{.Id}}')"
+          md="$(docker image inspect "parkio/media-service:${IMAGE_TAG}" --format '{{.Id}}')"
+          pk="$(docker image inspect "parkio/parking-service:${IMAGE_TAG}" --format '{{.Id}}')"
+          test "$gw" = "$EXPECTED_GATEWAY_ID"
+          test "$md" = "$EXPECTED_MEDIA_ID"
+          test "$pk" = "$EXPECTED_PARKING_ID"
+          {
+            echo "loaded_gateway_image_id=${gw}"
+            echo "loaded_media_image_id=${md}"
+            echo "loaded_parking_image_id=${pk}"
+            echo "registry_digest=NOT_APPLICABLE_NOT_PUBLISHED"
+            echo "correspondence=MATCHES_ORIGINAL_RUN_MANIFEST_LOCAL_IMAGE_IDS"
+            echo "LOAD_IDENTITY_VERIFY=PASS"
+          } | tee out/load/RESULT.txt
+
+      - name: Build acceptance-peer images (auth, user) from RELEASE_SHA
+        working-directory: release-src
+        run: |
+          set -euo pipefail
+          RELEASE_SHA="${{ steps.pin.outputs.release_sha }}"
+          echo "ANCILLARY_ASSUMPTION=release-tree-peers-at-${RELEASE_SHA}" | tee ../out/ancillary-assumption.txt
+          echo "ACCEPTANCE_CLASS=CANDIDATE_STACK" | tee -a ../out/ancillary-assumption.txt
+          echo "NOTE=Production peer digests differ; this is not mixed-version prod compatibility proof." \
+            | tee -a ../out/ancillary-assumption.txt
+          for svc in auth-service user-service; do
+            docker build \
+              -f "services/${svc}/Dockerfile" \
+              --build-arg "IMAGE_REVISION=${RELEASE_SHA}" \
+              -t "parkio/${svc}:${IMAGE_TAG}" \
+              .
+          done
+          for svc in gamification-service notification-service moderation-service \
+                     ai-validation-service analytics-service; do
+            docker tag "parkio/gateway-service:${IMAGE_TAG}" "parkio/${svc}:${IMAGE_TAG}"
+          done
+          docker pull alpine:3.20
+          docker tag alpine:3.20 "parkio/web:${IMAGE_TAG}"
+
+      - name: Prepare disposable compose env
+        working-directory: release-src
+        env:
+          RELEASE_SHA: ${{ steps.pin.outputs.release_sha }}
+        run: |
+          set -euo pipefail
+          cp docker/.env.hosted-beta.example "$COMPOSE_ENV_FILE"
+          openssl genpkey -algorithm RSA -pkeyopt rsa_keygen_bits:2048 -out /tmp/parkio-secpriv-jwt.pem
+          python3 - <<'PY'
+          import os
+          from pathlib import Path
+
+          env_path = Path("docker/.env.secpriv-ci")
+          pem = Path("/tmp/parkio-secpriv-jwt.pem").read_text().strip().replace("\n", "\\n")
+          release_sha = os.environ["RELEASE_SHA"]
+          overrides = {
+              "PARKIO_DOMAIN": "api.secpriv-ci.localhost",
+              "PARKIO_WEB_DOMAIN": "app.secpriv-ci.localhost",
+              "PARKIO_WEB_UPSTREAM": "web:80",
+              "PARKIO_MEDIA_DOMAIN": "media.secpriv-ci.localhost",
+              "PARKIO_ACME_EMAIL": "ops@example.invalid",
+              "VITE_API_BASE_URL": "http://localhost:8080/api/v1",
+              "VITE_MAPTILER_KEY": "ci-public-map-key",
+              "PARKIO_IMAGE_TAG": "secpriv-ci",
+              "PARKIO_GIT_SHA": release_sha,
+              "PARKIO_IMAGE_CREATED": "1970-01-01T00:00:00Z",
+              "PARKIO_CORS_ALLOWED_ORIGINS": "http://localhost:5173",
+              "PARKIO_JWT_PRIVATE_KEY_PEM": f'"{pem}"',
+              "PARKIO_GATEWAY_INTERNAL_SECRET": "secpriv-ci-gateway-secret",
+              "PARKIO_EMAIL_PROVIDER": "logging",
+              "PARKIO_RESEND_API_KEY": "",
+              "KAFKA_CLUSTER_ID": "MkU3OEVBNTcwNTJENDM2Qk",
+              "MINIO_ROOT_PASSWORD": "secpriv-ci-minio-password",
+              "PARKIO_MEDIA_STORAGE_PUBLIC_ENDPOINT": "http://localhost:9000",
+              "PARKIO_ALERT_SLACK_WEBHOOK_URL": "",
+              "GRAFANA_ADMIN_PASSWORD": "secpriv-ci-grafana-password",
+              "REDIS_PASSWORD": "secpriv-ci-redis-password",
+              "PARKIO_PUBLIC_EXPLORE_ENABLED": "true",
+              "PARKIO_PUBLIC_EXPLORE_ALLOWED_SOURCE_FAMILIES": "izum",
+              "VITE_PUBLIC_EXPLORE_ENABLED": "true",
+              "PARKIO_WAITLIST_HASH_SECRET": "secpriv-ci-waitlist-hash-secret-32+",
+              "PARKIO_TRACING_ENABLED": "false",
+              "JAVA_TOOL_OPTIONS": "-XX:MaxRAMPercentage=50.0 -XX:InitialRAMPercentage=25.0 -XX:MaxMetaspaceSize=192m -XX:+UseG1GC -XX:+ExitOnOutOfMemoryError",
+          }
+          lines = []
+          seen = set()
+          for line in env_path.read_text().splitlines():
+              if not line or line.lstrip().startswith("#") or "=" not in line:
+                  lines.append(line)
+                  continue
+              key, _ = line.split("=", 1)
+              if key in overrides:
+                  lines.append(f"{key}={overrides[key]}")
+                  seen.add(key)
+              else:
+                  lines.append(line)
+          for key, value in overrides.items():
+              if key not in seen:
+                  lines.append(f"{key}={value}")
+          env_path.write_text("\n".join(lines) + "\n")
+          PY
+
+      - name: Start disposable subset
+        working-directory: release-src
+        run: |
+          set -euo pipefail
+          # shellcheck disable=SC2086
+          docker compose --env-file "$COMPOSE_ENV_FILE" $COMPOSE_FILES up -d --no-build \
+            kafka redis minio minio-setup clamav \
+            postgres-gateway postgres-auth postgres-user postgres-parking postgres-media \
+            auth-service user-service gateway-service parking-service media-service
+
+      - name: Wait for health
+        working-directory: release-src
+        run: |
+          set -euo pipefail
+          required=(
+            kafka redis minio clamav
+            postgres-gateway postgres-auth postgres-user postgres-parking postgres-media
+            auth-service user-service gateway-service parking-service media-service
+          )
+          wait_service() {
+            local svc="$1" cid status
+            cid="$(docker compose --env-file "$COMPOSE_ENV_FILE" $COMPOSE_FILES ps -q "$svc")"
+            [ -n "$cid" ]
+            status="$(docker inspect -f '{{if .State.Health}}{{.State.Health.Status}}{{else}}{{.State.Status}}{{end}}' "$cid")"
+            printf '%s\t%s\n' "$svc" "$status"
+            [ "$status" = "healthy" ]
+          }
+          deadline=$((SECONDS + 900))
+          while true; do
+            failed=0
+            for svc in "${required[@]}"; do
+              if ! wait_service "$svc"; then failed=1; fi
+            done
+            if [ "$failed" -eq 0 ]; then
+              echo "Required services healthy."
+              break
+            fi
+            if [ "$SECONDS" -ge "$deadline" ]; then
+              echo "::error::Timed out waiting for services"
+              docker compose --env-file "$COMPOSE_ENV_FILE" $COMPOSE_FILES ps
+              docker compose --env-file "$COMPOSE_ENV_FILE" $COMPOSE_FILES logs --no-color --tail=120 gateway-service || true
+              docker compose --env-file "$COMPOSE_ENV_FILE" $COMPOSE_FILES logs --no-color --tail=80 auth-service || true
+              docker compose --env-file "$COMPOSE_ENV_FILE" $COMPOSE_FILES logs --no-color --tail=80 media-service || true
+              exit 1
+            fi
+            sleep 15
+          done
+
+      - name: Authenticated nearby + media functional acceptance
+        working-directory: release-src
+        env:
+          ANCILLARY_ASSUMPTION: release-tree-peers-at-${{ steps.pin.outputs.release_sha }}
+          EVIDENCE_DIR: ../out/http-auth-media
+        run: |
+          set -euo pipefail
+          export COMPOSE_ENV_FILE COMPOSE_FILES ANCILLARY_ASSUMPTION EVIDENCE_DIR
+          scripts/ci/release-artifact-auth-media-acceptance.sh | tee ../out/http-auth-media/acceptance.log
+
+      - name: Collect evidence (redacted)
+        if: always()
+        working-directory: release-src
+        run: |
+          set +e
+          mkdir -p ../out/compose
+          docker compose --env-file "$COMPOSE_ENV_FILE" $COMPOSE_FILES ps > ../out/compose/ps.txt
+          docker compose --env-file "$COMPOSE_ENV_FILE" $COMPOSE_FILES config --services > ../out/compose/services.txt
+
+      - name: Tear down
+        if: always()
+        working-directory: release-src
+        run: |
+          set +e
+          docker compose --env-file "$COMPOSE_ENV_FILE" $COMPOSE_FILES down -v --remove-orphans
+
+      - name: Upload recovery evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: secpriv-recovery-acceptance-${{ steps.pin.outputs.release_sha }}
+          path: |
+            out/**
+          retention-days: 14
+          if-no-files-found: warn
+
+      - name: Summary
+        if: always()
+        run: |
+          {
+            echo "## Release artifact recovery acceptance"
+            echo ""
+            echo "- Source run: \`${{ steps.pin.outputs.source_run }}\`"
+            echo "- Artifact: \`${{ steps.pin.outputs.artifact_name }}\`"
+            echo "- Release SHA: \`${{ steps.pin.outputs.release_sha }}\`"
+            echo "- Candidate rebuild: NOT_PERFORMED (loaded retained OCI)"
+            echo "- Registry publication: NOT_PERFORMED"
+            echo "- Acceptance class: CANDIDATE_STACK (release-tree peers)"
+          } >> "$GITHUB_STEP_SUMMARY"
