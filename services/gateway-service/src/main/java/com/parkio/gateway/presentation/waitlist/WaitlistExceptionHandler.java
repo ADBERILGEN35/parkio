@@ -1,5 +1,6 @@
 package com.parkio.gateway.presentation.waitlist;
 
+import com.parkio.gateway.application.waitlist.WaitlistAdmissionsDisabledException;
 import com.parkio.gateway.application.waitlist.WaitlistEmailDeliveryException;
 import com.parkio.gateway.application.waitlist.WaitlistRateLimitExceededException;
 import com.parkio.gateway.application.waitlist.WaitlistTokenException;
@@ -32,6 +33,15 @@ public class WaitlistExceptionHandler {
     public Mono<ApiError> rateLimit(ServerWebExchange exchange) {
         exchange.getResponse().setStatusCode(HttpStatus.TOO_MANY_REQUESTS);
         return Mono.just(error(exchange, "RATE_LIMITED", "Too many waitlist submissions. Try again later."));
+    }
+
+    @ExceptionHandler(WaitlistAdmissionsDisabledException.class)
+    public Mono<ApiError> admissionsDisabled(ServerWebExchange exchange) {
+        exchange.getResponse().setStatusCode(HttpStatus.SERVICE_UNAVAILABLE);
+        return Mono.just(error(
+                exchange,
+                "WAITLIST_ADMISSIONS_DISABLED",
+                "Waitlist registration is temporarily unavailable. Please try again later."));
     }
 
     @ExceptionHandler(WaitlistTokenException.class)

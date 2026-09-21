@@ -43,6 +43,9 @@ public class WaitlistApplicationService {
     }
 
     public Mono<Void> submit(SubmitWaitlistCommand command) {
+        if (!properties.isAdmissionsEnabled()) {
+            return Mono.error(new WaitlistAdmissionsDisabledException("WAITLIST_ADMISSIONS_DISABLED"));
+        }
         String email = normalizeEmail(command.email());
         String locale = normalizeLocale(command.locale());
         String city = normalizeOptional(command.city());
@@ -91,6 +94,8 @@ public class WaitlistApplicationService {
     }
 
     public Mono<Void> confirm(String rawToken) {
+        // Confirmation remains available during containment so already-issued tokens
+        // can complete double opt-in. No new outbound email is sent here.
         return Mono.fromCallable(() -> {
                     String tokenHash = hasher.hash(requireToken(rawToken));
                     Instant now = clock.instant();
@@ -110,6 +115,10 @@ public class WaitlistApplicationService {
     }
 
     public Mono<Void> withdraw(String rawToken) {
+        // Withdrawal remains available during admissions containment so existing
+        // subscribers can leave. Withdrawal notice email may still be attempted;
+        // provider failures are logged without revealing subscriber PII and do not
+        // roll back the withdrawal.
         return Mono.fromCallable(() -> {
                     String tokenHash = hasher.hash(requireToken(rawToken));
                     Instant now = clock.instant();
@@ -133,6 +142,9 @@ public class WaitlistApplicationService {
     }
 
     public Mono<Void> resend(String emailRaw, String clientIp) {
+        if (!properties.isAdmissionsEnabled()) {
+            return Mono.error(new WaitlistAdmissionsDisabledException("WAITLIST_ADMISSIONS_DISABLED"));
+        }
         String email = normalizeEmail(emailRaw);
         String emailHash = hasher.hash(email);
         String ipHash = hasher.hash(clientIp == null ? "unknown" : clientIp);
