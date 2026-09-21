@@ -264,8 +264,10 @@ Docker Hub's authentication endpoint timed out while the job was pulling
 component or assertion ran. This is not recorded as a pilot functional failure
 or as a PASS; its terminal job evidence is
 [run 35636817533 / job 106456765308](https://github.com/ADBERILGEN35/parkio/actions/runs/35636817533/job/106456765308).
-The Full Docker Compose runtime validation was still in progress at this
-observation and must be recorded separately when it reaches a terminal state.
+The Full Docker Compose runtime validation for that implementation head was
+later canceled when the documentation-only head superseded it while `Build and
+start full stack` was running. It therefore provides neither a runtime PASS nor
+a pilot failure; the replacement-head check remains the authoritative CI run.
 
 ## Account inputs and hidden key installation
 
