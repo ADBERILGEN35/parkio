@@ -125,13 +125,26 @@ public class MunicipalFacilitySyncService {
                             sourceKey, runId.get());
                     return ownershipLost();
                 }
-                deactivated = setReconciliation.deactivateMissing(
-                        source.id(), seen, fetchedAt, true);
-                if (previouslyActive.size() > 0
-                        && deactivated > previouslyActive.size() * LARGE_SHRINK_RATIO) {
+                // A successful non-empty but smaller payload than the known active set is treated
+                // as a suspected incomplete snapshot (IZUM has oscillated 5–8 rows). Mass
+                // soft-deactivation would hide still-real facilities (e.g. Hatay Katlı Pazaryeri).
+                // Equal-cardinality swaps may still deactivate. accepted==0 remains allowed for
+                // trustworthy all-inactive authoritative feeds.
+                if (accepted > 0 && accepted < previouslyActive.size()) {
                     log.warn(
-                            "municipal_sync_large_shrink sourceKey={} previouslyActive={} deactivated={} accepted={}",
-                            sourceKey, previouslyActive.size(), deactivated, accepted);
+                            "municipal_sync_skip_reconcile_incomplete_snapshot sourceKey={} "
+                                    + "previouslyActive={} accepted={} received={}",
+                            sourceKey, previouslyActive.size(), accepted, received);
+                } else {
+                    deactivated = setReconciliation.deactivateMissing(
+                            source.id(), seen, fetchedAt, true);
+                    if (previouslyActive.size() > 0
+                            && deactivated > previouslyActive.size() * LARGE_SHRINK_RATIO) {
+                        log.warn(
+                                "municipal_sync_large_shrink sourceKey={} previouslyActive={} "
+                                        + "deactivated={} accepted={}",
+                                sourceKey, previouslyActive.size(), deactivated, accepted);
+                    }
                 }
             }
 

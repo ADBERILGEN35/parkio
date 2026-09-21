@@ -80,23 +80,50 @@ class MunicipalFacilitySyncServiceSetReconciliationTest {
     }
 
     @Test
-    void successfulShrinkDeactivatesMissingLinks() {
+    void smallerAcceptedSetSkipsMassDeactivation() {
+        // IZUM-style incomplete snapshot: previously 3 active, feed returns 2 valid rows.
         ArrayNode payload = mapper.createArrayNode();
         payload.add(record("A"));
         payload.add(record("B"));
         stubSuccessfulFetch(payload, List.of(facility("A"), facility("B")), Set.of("A", "B", "C"));
-        when(setReconciliation.deactivateMissing(eq(SOURCE_ID), eq(Set.of("A", "B")), eq(NOW), eq(true))).thenReturn(1);
         when(setReconciliation.activeExternalIds(SOURCE_ID))
                 .thenReturn(Set.of("A", "B", "C"))
-                .thenReturn(Set.of("A", "B"));
+                .thenReturn(Set.of("A", "B", "C"));
 
         var result = service.sync(IzumMunicipalParkingAdapter.SOURCE_KEY);
 
         assertThat(result.status()).isEqualTo(MunicipalSyncRunStatus.SUCCESS);
         assertThat(result.recordsAccepted()).isEqualTo(2);
+        assertThat(result.recordsDeactivated()).isZero();
+        assertThat(result.activeLinkCount()).isEqualTo(3);
+        verify(setReconciliation, never()).deactivateMissing(any(), any(), any(), anyBoolean());
+        verify(sources).markSuccessful(SOURCE_ID, NOW);
+    }
+
+    @Test
+    void equalCardinalitySwapStillDeactivatesMissingLinks() {
+        ArrayNode payload = mapper.createArrayNode();
+        payload.add(record("A"));
+        payload.add(record("B"));
+        payload.add(record("D"));
+        stubSuccessfulFetch(
+                payload,
+                List.of(facility("A"), facility("B"), facility("D")),
+                Set.of("A", "B", "C"));
+        when(setReconciliation.deactivateMissing(
+                        eq(SOURCE_ID), eq(Set.of("A", "B", "D")), eq(NOW), eq(true)))
+                .thenReturn(1);
+        when(setReconciliation.activeExternalIds(SOURCE_ID))
+                .thenReturn(Set.of("A", "B", "C"))
+                .thenReturn(Set.of("A", "B", "D"));
+
+        var result = service.sync(IzumMunicipalParkingAdapter.SOURCE_KEY);
+
+        assertThat(result.status()).isEqualTo(MunicipalSyncRunStatus.SUCCESS);
+        assertThat(result.recordsAccepted()).isEqualTo(3);
         assertThat(result.recordsDeactivated()).isEqualTo(1);
-        assertThat(result.activeLinkCount()).isEqualTo(2);
-        verify(setReconciliation).deactivateMissing(SOURCE_ID, Set.of("A", "B"), NOW, true);
+        assertThat(result.activeLinkCount()).isEqualTo(3);
+        verify(setReconciliation).deactivateMissing(SOURCE_ID, Set.of("A", "B", "D"), NOW, true);
         verify(sources).markSuccessful(SOURCE_ID, NOW);
     }
 
