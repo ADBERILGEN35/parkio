@@ -187,6 +187,21 @@ public class WaitlistApplicationService {
                 .subscribeOn(Schedulers.boundedElastic());
     }
 
+    public Mono<WaitlistAdminCounts> adminCounts() {
+        return Mono.fromCallable(repository::countByStatus)
+                .subscribeOn(Schedulers.boundedElastic());
+    }
+
+    public Mono<WaitlistAdminPage> adminList(
+            WaitlistStatus status,
+            Instant createdFrom,
+            Instant createdTo,
+            int page,
+            int size) {
+        return Mono.fromCallable(() -> repository.findAdminPage(status, createdFrom, createdTo, page, size))
+                .subscribeOn(Schedulers.boundedElastic());
+    }
+
     private void maybeResendPending(String emailHash, String email) {
         Optional<WaitlistInterest> existing = repository.findByEmailHash(emailHash);
         if (existing.isEmpty() || existing.get().status() != WaitlistStatus.PENDING) {

@@ -180,6 +180,29 @@ class AuthenticationGlobalFilterTest {
     }
 
     @Test
+    void waitlistAdminAndExportRequireAuthentication() {
+        for (String path : List.of(
+                "/api/v1/waitlist/admin",
+                "/api/v1/waitlist/admin/summary",
+                "/api/v1/waitlist/export")) {
+            var exchange = MockServerWebExchange.from(MockServerHttpRequest.get(path).build());
+            var chain = new CapturingChain();
+            filter().filter(exchange, chain).block();
+            assertThat(chain.wasInvoked()).as(path).isFalse();
+            assertThat(exchange.getResponse().getStatusCode()).as(path).isEqualTo(HttpStatus.UNAUTHORIZED);
+        }
+    }
+
+    @Test
+    void publicWaitlistSubmitRemainsAnonymous() {
+        var exchange = MockServerWebExchange.from(MockServerHttpRequest
+                .post("/api/v1/waitlist").build());
+        var chain = new CapturingChain();
+        filter().filter(exchange, chain).block();
+        assertThat(chain.wasInvoked()).isTrue();
+    }
+
+    @Test
     void protectedRouteWithInvalidTokenIsRejected() {
         var exchange = MockServerWebExchange.from(MockServerHttpRequest
                 .get("/api/v1/users/me")

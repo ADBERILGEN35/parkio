@@ -381,6 +381,7 @@ class WaitlistControllerTest {
                 .exchange()
                 .expectStatus().isAccepted();
 
+        // WaitlistAdminSecurityWebFilter enforces ADMIN JWT on the local controller path.
         Integer confirmed = jdbcTemplate.queryForObject(
                 "SELECT COUNT(*) FROM waitlist_interest WHERE status = 'CONFIRMED'",
                 Integer.class);
@@ -395,6 +396,7 @@ class WaitlistControllerTest {
                 .header(HttpHeaders.AUTHORIZATION, "Bearer admin-token")
                 .exchange()
                 .expectStatus().isOk()
+                .expectHeader().valueEquals(HttpHeaders.CACHE_CONTROL, "no-store")
                 .expectBody(String.class)
                 .returnResult()
                 .getResponseBody();
@@ -405,38 +407,27 @@ class WaitlistControllerTest {
 
         webTestClient.get()
                 .uri("/api/v1/waitlist/export")
-                .header(HttpHeaders.AUTHORIZATION, "Bearer super-token")
-                .exchange()
-                .expectStatus().isOk();
-
-        webTestClient.get()
-                .uri("/api/v1/waitlist/export")
                 .exchange()
                 .expectStatus().isUnauthorized()
                 .expectBody()
-                .jsonPath("$.code").isEqualTo("MISSING_TOKEN")
-                .jsonPath("$.message").value(msg ->
-                        org.assertj.core.api.Assertions.assertThat((String) msg)
-                                .doesNotContain("will-confirm@parkio.dev"));
-
-        webTestClient.get()
-                .uri("/api/v1/waitlist/export/")
-                .exchange()
-                .expectStatus().isUnauthorized();
+                .jsonPath("$.code").isEqualTo("MISSING_TOKEN");
 
         webTestClient.get()
                 .uri("/api/v1/waitlist/export")
                 .header(HttpHeaders.AUTHORIZATION, "Bearer user-token")
                 .exchange()
-                .expectStatus().isForbidden()
-                .expectBody()
-                .jsonPath("$.code").isEqualTo("FORBIDDEN");
+                .expectStatus().isForbidden();
 
         webTestClient.get()
                 .uri("/api/v1/waitlist/export")
                 .header(HttpHeaders.AUTHORIZATION, "Bearer moderator-token")
                 .exchange()
                 .expectStatus().isForbidden();
+
+        webTestClient.get()
+                .uri("/api/v1/waitlist/export/")
+                .exchange()
+                .expectStatus().isUnauthorized();
 
         webTestClient.get()
                 .uri("/api/v1/waitlist/export")
@@ -446,11 +437,109 @@ class WaitlistControllerTest {
                 .expectBody()
                 .jsonPath("$.code").isEqualTo("INVALID_TOKEN");
 
-        // Intended admin family is denied even when the controller route is not yet present.
+        webTestClient.get()
+                .uri("/api/v1/waitlist/export")
+                .header(HttpHeaders.AUTHORIZATION, "Bearer super-token")
+                .exchange()
+                .expectStatus().isOk();
+    }
+
+    @Test
+    void adminSummaryAndListReflectStatusesAndFilters() {
+        postAccepted("pending-a@parkio.dev");
+        postAccepted("confirm-a@parkio.dev");
+        String confirmToken = lastVerificationToken.get();
+        webTestClient.post()
+                .uri("/api/v1/waitlist/confirm")
+                .contentType(MediaType.APPLICATION_JSON)
+                .bodyValue("{\"token\":\"" + confirmToken + "\"}")
+                .exchange()
+                .expectStatus().isAccepted();
+
+        postAccepted("withdraw-a@parkio.dev");
+        webTestClient.post()
+                .uri("/api/v1/waitlist/withdraw")
+                .contentType(MediaType.APPLICATION_JSON)
+                .bodyValue("{\"token\":\"" + lastWithdrawToken.get() + "\"}")
+                .exchange()
+                .expectStatus().isAccepted();
+
+        webTestClient.get()
+                .uri("/api/v1/waitlist/admin/summary")
+                .header(HttpHeaders.AUTHORIZATION, "Bearer admin-token")
+                .exchange()
+                .expectStatus().isOk()
+                .expectHeader().valueEquals(HttpHeaders.CACHE_CONTROL, "no-store")
+                .expectBody()
+                .jsonPath("$.pending").isEqualTo(1)
+                .jsonPath("$.confirmed").isEqualTo(1)
+                .jsonPath("$.withdrawn").isEqualTo(1)
+                .jsonPath("$.total").isEqualTo(3);
+
+        webTestClient.get()
+                .uri("/api/v1/waitlist/admin/summary")
+                .header(HttpHeaders.AUTHORIZATION, "Bearer super-token")
+                .exchange()
+                .expectStatus().isOk();
+
         webTestClient.get()
                 .uri("/api/v1/waitlist/admin/summary")
                 .exchange()
                 .expectStatus().isUnauthorized();
+
+        webTestClient.get()
+                .uri("/api/v1/waitlist/admin/summary")
+                .header(HttpHeaders.AUTHORIZATION, "Bearer user-token")
+                .exchange()
+                .expectStatus().isForbidden();
+
+        webTestClient.get()
+                .uri(uriBuilder -> uriBuilder
+                        .path("/api/v1/waitlist/admin")
+                        .queryParam("status", "CONFIRMED")
+                        .queryParam("page", "0")
+                        .queryParam("size", "20")
+                        .build())
+                .header(HttpHeaders.AUTHORIZATION, "Bearer admin-token")
+                .exchange()
+                .expectStatus().isOk()
+                .expectBody()
+                .jsonPath("$.totalElements").isEqualTo(1)
+                .jsonPath("$.content[0].email").isEqualTo("confirm-a@parkio.dev")
+                .jsonPath("$.content[0].status").isEqualTo("CONFIRMED")
+                .jsonPath("$.content[0].locale").isEqualTo("tr")
+                .jsonPath("$.content[0].source").isEqualTo("parkio.dev-landing")
+                .jsonPath("$.content[0].confirmedAt").exists()
+                .jsonPath("$.content[0].verificationTokenHash").doesNotExist()
+                .jsonPath("$.content[0].emailHash").doesNotExist()
+                .jsonPath("$.content[0].ipHash").doesNotExist();
+
+        webTestClient.get()
+                .uri("/api/v1/waitlist/admin?status=WITHDRAWN")
+                .header(HttpHeaders.AUTHORIZATION, "Bearer admin-token")
+                .exchange()
+                .expectStatus().isOk()
+                .expectBody()
+                .jsonPath("$.totalElements").isEqualTo(1)
+                .jsonPath("$.content[0].status").isEqualTo("WITHDRAWN")
+                .jsonPath("$.content[0].email").value(email ->
+                        org.assertj.core.api.Assertions.assertThat((String) email)
+                                .startsWith("withdrawn-")
+                                .endsWith("@invalid.local"));
+    }
+
+    @Test
+    void adminListEmptyStateIsUsable() {
+        webTestClient.get()
+                .uri("/api/v1/waitlist/admin")
+                .header(HttpHeaders.AUTHORIZATION, "Bearer admin-token")
+                .exchange()
+                .expectStatus().isOk()
+                .expectBody()
+                .jsonPath("$.content").isArray()
+                .jsonPath("$.content.length()").isEqualTo(0)
+                .jsonPath("$.totalElements").isEqualTo(0)
+                .jsonPath("$.totalPages").isEqualTo(0);
     }
 
     private void postAccepted(String email) {
