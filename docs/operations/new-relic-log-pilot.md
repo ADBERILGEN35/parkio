@@ -347,8 +347,9 @@ that exact marker is searchable in the EU account's Logs UI.
 
 ## Required synthetic-only EU proof
 
-**Status: TRANSPORT PASS / NEW RELIC SEARCH PENDING. This remains a hard
-prerequisite for real-log activation until the exact marker is searchable.**
+**Status: END-TO-END PASS (transport plus user-observed EU Logs search). This
+completes only the synthetic prerequisite; real-log activation and its one-hour
+budget remain separately unauthorized.**
 Do not start or install the production source helper first. The proof binds a
 new empty source directory, uses a distinct persistent 16 KiB serialized-body
 test budget and starts a separate Compose project. Fluent Bit's one-sample
@@ -499,13 +500,18 @@ next section unless this proof is PASS and the synthetic project is stopped.
 - Persistent gate: 16,384 maximum; 755 uncompressed serialized bytes spent;
   15,629 remaining; one attempt and one forwarded record; zero retries,
   rejections or rejected records; 438 compressed wire bytes; not exhausted.
-- HTTP/gate acceptance PASS. This is not searchable-ingestion proof.
+- HTTP/gate acceptance PASS. By itself this was not searchable-ingestion proof.
 - Teardown PASS: containers, network and timer were absent; production
   application container identities were unchanged. The dedicated budget state
   remains at
   `/var/lib/parkio-nr-synthetic-p02-synthetic-20260921T193552Z-32c17439b290`.
-- End-to-end result remains **PENDING** until the exact marker query returns one
-  record in the EU Logs UI. Zero or more than one is FAIL.
+- User-observed New Relic EU Logs UI verification PASS: the exact marker query
+  returned one record with `collector = 'fluent-bit-5.0.10'`,
+  `collector_source_sha = '82f295f1dae869b83853571a7db2f3ceb0589aeb'`,
+  `environment = 'production-synthetic-only'`, `source_kind = 'synthetic'` and
+  `event_name = 'nr_log_pilot.synthetic_probe'`.
+- End-to-end synthetic acceptance is **PASS**. Do not resend this marker or
+  repeat the test without a new concrete risk or source change.
 
 ## Deferred production install and activation
 
