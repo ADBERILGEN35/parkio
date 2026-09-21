@@ -192,7 +192,7 @@ class IzumMunicipalSyncIntegrationTest {
     }
 
     @Test
-    void authoritativeSetShrinksDeactivatesMissingAndReactivatesWithoutDuplication() throws Exception {
+    void incompleteSmallerSnapshotKeepsMissingActiveAndFullFeedRemainsStable() throws Exception {
         RESPONSE_STATUS.set(200);
         RESPONSE_BODY.set(fixture("/fixtures/municipal/izum/otoparklar-sample.json"));
         var full = sync.sync(IzumMunicipalParkingAdapter.SOURCE_KEY);
@@ -214,8 +214,9 @@ class IzumMunicipalSyncIntegrationTest {
         var shrunk = sync.sync(IzumMunicipalParkingAdapter.SOURCE_KEY);
         assertThat(shrunk.status()).isEqualTo(MunicipalSyncRunStatus.SUCCESS);
         assertThat(shrunk.recordsAccepted()).isEqualTo(11);
-        assertThat(shrunk.recordsDeactivated()).isEqualTo(1);
-        assertThat(shrunk.activeLinkCount()).isEqualTo(11);
+        // Incomplete smaller SUCCESS snapshot must not mass soft-deactivate.
+        assertThat(shrunk.recordsDeactivated()).isZero();
+        assertThat(shrunk.activeLinkCount()).isEqualTo(12);
 
         assertThat(jdbc.queryForObject(
                 """
@@ -224,7 +225,7 @@ class IzumMunicipalSyncIntegrationTest {
                 WHERE d.source_key=? AND l.external_id='CPS-TR-IZM-M2-04'
                 """,
                 Boolean.class,
-                IzumMunicipalParkingAdapter.SOURCE_KEY)).isFalse();
+                IzumMunicipalParkingAdapter.SOURCE_KEY)).isTrue();
         assertThat(jdbc.queryForObject(
                 """
                 SELECT f.active FROM municipal_parking_facilities f
@@ -233,7 +234,7 @@ class IzumMunicipalSyncIntegrationTest {
                 WHERE d.source_key=? AND l.external_id='CPS-TR-IZM-M2-04'
                 """,
                 Boolean.class,
-                IzumMunicipalParkingAdapter.SOURCE_KEY)).isFalse();
+                IzumMunicipalParkingAdapter.SOURCE_KEY)).isTrue();
 
         long facilityRows = facilities.count();
         RESPONSE_STATUS.set(500);
@@ -247,7 +248,7 @@ class IzumMunicipalSyncIntegrationTest {
                 WHERE d.source_key=? AND l.active=true
                 """,
                 Long.class,
-                IzumMunicipalParkingAdapter.SOURCE_KEY)).isEqualTo(11);
+                IzumMunicipalParkingAdapter.SOURCE_KEY)).isEqualTo(12);
 
         RESPONSE_STATUS.set(200);
         RESPONSE_BODY.set("[]".getBytes(StandardCharsets.UTF_8));
@@ -261,12 +262,13 @@ class IzumMunicipalSyncIntegrationTest {
                 WHERE d.source_key=? AND l.active=true
                 """,
                 Long.class,
-                IzumMunicipalParkingAdapter.SOURCE_KEY)).isEqualTo(11);
+                IzumMunicipalParkingAdapter.SOURCE_KEY)).isEqualTo(12);
 
         RESPONSE_BODY.set(fixture("/fixtures/municipal/izum/otoparklar-sample.json"));
         var restored = sync.sync(IzumMunicipalParkingAdapter.SOURCE_KEY);
         assertThat(restored.status()).isEqualTo(MunicipalSyncRunStatus.SUCCESS);
-        assertThat(restored.recordsReactivated()).isGreaterThanOrEqualTo(1);
+        // Link stayed active through the incomplete shrink; no reactivation required.
+        assertThat(restored.recordsReactivated()).isZero();
         assertThat(restored.activeLinkCount()).isEqualTo(12);
         assertThat(facilities.count()).isEqualTo(facilityRows);
         assertThat(jdbc.queryForObject(

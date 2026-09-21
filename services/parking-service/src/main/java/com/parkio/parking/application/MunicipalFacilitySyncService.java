@@ -14,6 +14,7 @@ import com.parkio.parking.externalsource.NormalizedMunicipalOccupancy;
 import com.parkio.parking.externalsource.provider.ParkingProviderCatalog;
 import com.parkio.parking.externalsource.provider.ReconciliationMode;
 import com.parkio.parking.externalsource.schema.SchemaFingerprint;
+import com.parkio.parking.infrastructure.izum.IzumMunicipalParkingAdapter;
 import java.time.Clock;
 import java.time.Instant;
 import java.util.HashSet;
@@ -125,16 +126,26 @@ public class MunicipalFacilitySyncService {
                             sourceKey, runId.get());
                     return ownershipLost();
                 }
-                // A successful non-empty but smaller payload than the known active set is treated
-                // as a suspected incomplete snapshot (IZUM has oscillated 5–8 rows). Mass
-                // soft-deactivation would hide still-real facilities (e.g. Hatay Katlı Pazaryeri).
+                // IZUM-only incomplete snapshot guard: intermittent smaller SUCCESS feeds
+                // (historically 5–8 rows) must not mass soft-deactivate still-real facilities
+                // (e.g. Hatay Katlı Pazaryeri). Other AUTHORS (ANPARK active=false filtering,
+                // ISPARK shrinks) keep normal missing-set reconciliation because their fetch
+                // path already encodes intentional absence.
                 // Equal-cardinality swaps may still deactivate. accepted==0 remains allowed for
                 // trustworthy all-inactive authoritative feeds.
-                if (accepted > 0 && accepted < previouslyActive.size()) {
+                if (IzumMunicipalParkingAdapter.SOURCE_KEY.equals(sourceKey)
+                        && accepted > 0
+                        && accepted < previouslyActive.size()
+                        && authoritativeValidUniqueExternalIds <= accepted) {
                     log.warn(
                             "municipal_sync_skip_reconcile_incomplete_snapshot sourceKey={} "
-                                    + "previouslyActive={} accepted={} received={}",
-                            sourceKey, previouslyActive.size(), accepted, received);
+                                    + "previouslyActive={} accepted={} received={} "
+                                    + "authoritativeValid={}",
+                            sourceKey,
+                            previouslyActive.size(),
+                            accepted,
+                            received,
+                            authoritativeValidUniqueExternalIds);
                 } else {
                     deactivated = setReconciliation.deactivateMissing(
                             source.id(), seen, fetchedAt, true);
