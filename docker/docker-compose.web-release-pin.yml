@@ -8,6 +8,9 @@
 #   ghcr.io/adberilgen35/parkio/web@sha256:89762aa71d3f4766c9bd27706acfbb54a150d82c58f8919070e8b5d4baad22ae
 # Applied last in docker/compose.production.files via scripts/parkio-prod-compose.sh.
 # Recreate with: scripts/parkio-prod-compose.sh up -d --no-build --no-deps --force-recreate web
+#
+# Practical digest update: change ONLY the services.web.image line below.
+# Guards parse the effective image value; digests mentioned only in comments do not count.
 name: parkio
 
 services:

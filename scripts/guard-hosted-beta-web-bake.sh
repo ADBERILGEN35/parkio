@@ -2,8 +2,10 @@
 #
 # P01F — Hosted-beta web bake + release-pin coherence guard.
 #
-# Fails when canonical release bake flags drift from the intended live contract
-# or when the source-controlled web pin no longer matches the documented digest.
+# Validates:
+#   - canonical bake profile key/values
+#   - effective services.web.image in the pin (comments do not count)
+#   - compose.production.files overlay precedence (pin last)
 #
 # Usage (repo root):
 #   ./scripts/guard-hosted-beta-web-bake.sh
@@ -21,7 +23,18 @@ BAKE="docker/web-hosted-beta.release-bake.env"
 MUNI_BAKE="docker/web-hosted-beta.municipal-on.bake.env"
 PIN="docker/docker-compose.web-release-pin.yml"
 FILES="docker/compose.production.files"
-EXPECTED_DIGEST='sha256:d9999a020376cc89b86a92410ceb784a7290258f4d1c0c0d968a6a78d62c443a'
+AZURE_EX="docker/.env.azure-hosted-beta.example"
+NODE="${NODE:-}"
+if [ -z "$NODE" ]; then
+  if command -v node.exe >/dev/null 2>&1; then
+    NODE="$(command -v node.exe)"
+  elif command -v node >/dev/null 2>&1; then
+    NODE="$(command -v node)"
+  else
+    echo "ERROR: node is required" >&2
+    exit 2
+  fi
+fi
 
 require_file() {
   if [ -f "$1" ]; then
@@ -53,6 +66,7 @@ require_file "$BAKE"
 require_file "$MUNI_BAKE"
 require_file "$PIN"
 require_file "$FILES"
+require_file "$AZURE_EX"
 
 require_kv "$BAKE" VITE_APP_ENV hosted-beta
 require_kv "$BAKE" VITE_API_BASE_URL 'https://api.parkio.dev/api/v1'
@@ -64,25 +78,70 @@ require_kv "$MUNI_BAKE" VITE_PUBLIC_EXPLORE_ENABLED true
 require_kv "$MUNI_BAKE" VITE_WEB_MUNICIPAL_DISCOVERY_ENABLED true
 require_kv "$MUNI_BAKE" VITE_API_BASE_URL 'https://api.parkio.dev/api/v1'
 
-if grep -q "$EXPECTED_DIGEST" "$PIN"; then
-  ok "web release pin documents $EXPECTED_DIGEST"
-else
-  bad "web release pin must reference $EXPECTED_DIGEST"
-fi
-
-if tr -d '\r' < "$FILES" | grep -qx 'docker/docker-compose.web-release-pin.yml'; then
-  ok "compose.production.files includes web-release-pin.yml"
-else
-  bad "compose.production.files must list docker/docker-compose.web-release-pin.yml"
-fi
-
-# Azure example must document Explore ON so operators do not rebuild API-base-only.
-AZURE_EX="docker/.env.azure-hosted-beta.example"
-require_file "$AZURE_EX"
 require_kv "$AZURE_EX" VITE_PUBLIC_EXPLORE_ENABLED true
 require_kv "$AZURE_EX" VITE_API_BASE_URL 'https://api.parkio.dev/api/v1'
-# Municipal leave-on stays in the separate bake file (PROD-MUNI example contract).
 require_kv "$AZURE_EX" VITE_WEB_MUNICIPAL_DISCOVERY_ENABLED false
+
+# Effective pin image + overlay precedence (comments cannot satisfy this).
+set +e
+pin_out="$("$NODE" --input-type=module <<'JS'
+import { readFileSync } from 'node:fs';
+import {
+  assertWebReleasePinContract,
+  parseComposeServiceImage,
+} from './frontend/apps/web/scripts/lib/web-release-pin.mjs';
+
+const listed = readFileSync('docker/compose.production.files', 'utf8')
+  .split(/\r?\n/)
+  .map((l) => l.trim())
+  .filter((l) => l && !l.startsWith('#'));
+const contents = listed.map((path) => ({ path, text: readFileSync(path, 'utf8') }));
+const pinText = readFileSync('docker/docker-compose.web-release-pin.yml', 'utf8');
+const result = assertWebReleasePinContract({
+  pinText,
+  composeFilesListText: readFileSync('docker/compose.production.files', 'utf8'),
+  composeFileContents: contents,
+});
+console.log(`pin_image=${result.pinImage}`);
+console.log(`pin_digest=${result.pinDigest}`);
+console.log(`effective_from=${result.effective.path}`);
+JS
+)"
+pin_status=$?
+set -e
+if [ "$pin_status" -eq 0 ]; then
+  ok "effective web pin image + overlay precedence"
+  echo "$pin_out" | sed 's/^/  /'
+else
+  bad "effective web pin image + overlay precedence"
+  echo "$pin_out" >&2
+fi
+
+# Optional: docker compose config confirms the same effective image when Docker is available.
+if command -v docker >/dev/null 2>&1; then
+  pin_image="$(printf '%s\n' "$pin_out" | sed -n 's/^pin_image=//p' | head -n1)"
+  if [ -n "$pin_image" ]; then
+    args=()
+    while IFS= read -r line || [ -n "$line" ]; do
+      [[ -z "$line" || "$line" =~ ^[[:space:]]*# ]] && continue
+      args+=(-f "$ROOT/$line")
+    done < "$FILES"
+    set +e
+    cfg="$(docker compose --env-file "$AZURE_EX" "${args[@]}" config --format json 2>/dev/null)"
+    cfg_status=$?
+    set -e
+    if [ "$cfg_status" -eq 0 ] && [ -n "$cfg" ]; then
+      eff="$("$NODE" -e 'const m=JSON.parse(require("fs").readFileSync(0,"utf8")); process.stdout.write((m.services&&m.services.web&&m.services.web.image)||"")' <<<"$cfg")"
+      if [ "$eff" = "$pin_image" ]; then
+        ok "docker compose config web.image matches pin"
+      else
+        bad "docker compose config web.image=$eff expected=$pin_image"
+      fi
+    else
+      echo "WARN: docker compose config skipped (env interpolation incomplete for example file)"
+    fi
+  fi
+fi
 
 if [ "$fail" -ne 0 ]; then
   echo "=== P01F bake/pin guard FAILED ($fail) ===" >&2

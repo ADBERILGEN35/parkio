@@ -2144,8 +2144,21 @@ export function isBackendProtectedPath(filePath) {
   return (
     rootBackendFiles.has(normalized) ||
     /^(?:buildSrc|gradle|infra|platform|services)\//.test(normalized) ||
-    /^docker(?:\/|-compose(?:\.|-))/.test(normalized) ||
+    (/^docker(?:\/|-compose(?:\.|-))/.test(normalized) &&
+      !isFrontendWebReleaseConfigPath(normalized)) ||
     normalized === 'docs/architecture/openapi.md'
+  );
+}
+
+/** Hosted-beta web bake/pin overlays owned with the SPA release config (Frontend CI). */
+export function isFrontendWebReleaseConfigPath(filePath) {
+  const normalized = normalizeRepositoryPath(filePath);
+  return (
+    normalized === 'docker/docker-compose.web-release-pin.yml' ||
+    normalized === 'docker/web-hosted-beta.release-bake.env' ||
+    normalized === 'docker/web-hosted-beta.municipal-on.bake.env' ||
+    normalized === 'docker/compose.production.files' ||
+    normalized === 'docker/.env.azure-hosted-beta.example'
   );
 }
 

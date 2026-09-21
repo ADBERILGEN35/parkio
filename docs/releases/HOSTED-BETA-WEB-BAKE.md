@@ -9,13 +9,23 @@ the fact. Dockerfile / compose defaults remain `false` (fail-closed).
 | File | Role |
 | --- | --- |
 | `docker/web-hosted-beta.release-bake.env` | Intended live bake (Explore ON, municipal OFF) |
-| `docker/docker-compose.web-release-pin.yml` | Source-controlled digest pin for `web` |
-| `docker/compose.production.files` | Includes the web pin after GMP pins |
-| `docker/web-hosted-beta.municipal-on.bake.env` | Prepared next bake (Explore ON + municipal ON) — not deployed |
+| `docker/docker-compose.web-release-pin.yml` | Source-controlled digest pin for `web` (`services.web.image` only) |
+| `docker/compose.production.files` | Includes the web pin **last** (overlay precedence) |
+| `docker/web-hosted-beta.municipal-on.bake.env` | Prepared next bake (Explore ON + municipal ON) — not the live pin |
 
-Live pin (P01F recovery):
+Live pin digest is whatever appears on the effective `services.web.image` line.
+Update that single line for a reviewed digest change; comments are ignored by the guard.
 
-`ghcr.io/adberilgen35/parkio/web@sha256:d9999a020376cc89b86a92410ceb784a7290258f4d1c0c0d968a6a78d62c443a`
+## Release build consumption
+
+`.github/workflows/release.yml` loads `docker/web-hosted-beta.release-bake.env` for
+web build-args (including `VITE_PUBLIC_EXPLORE_ENABLED`) and sets
+`VERIFY_REQUIRE_PUBLIC_EXPLORE=true` so the Dockerfile post-build gate checks the
+**compiled** bundle. Local equivalent:
+
+```bash
+VITE_MAPTILER_KEY=... ./scripts/build-web-from-bake.sh docker/web-hosted-beta.release-bake.env
+```
 
 ## Required bake values (live)
 
@@ -31,14 +41,19 @@ Live pin (P01F recovery):
 bundle targets `https://api.parkio.dev/api/v1` but bakes public Explore off.
 That is the P01F failure mode (API-base rebuild that omitted Explore).
 
+Pin coherence uses effective `services.web.image` parsing (not substring/grep):
+
+```bash
+node --test frontend/apps/web/scripts/assert-hosted-beta-web-bake.test.mjs
+./scripts/guard-hosted-beta-web-bake.sh
+```
+
 Explicit checks:
 
 ```bash
 node frontend/apps/web/scripts/verify-bundle-env.mjs \
   --dist dist --app-env hosted-beta \
   --require-public-explore true
-
-./scripts/guard-hosted-beta-web-bake.sh
 ```
 
 ## Municipal `/map` enablement (prepared, not deployed)
