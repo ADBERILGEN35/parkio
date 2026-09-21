@@ -75,6 +75,9 @@
       }
       return { ok: false, code: 'VALIDATION_ERROR' };
     }
+    if (response.status >= 500) {
+      return { ok: false, code: 'SERVER_ERROR' };
+    }
     return { ok: false, code: 'NETWORK_ERROR' };
   }
 
@@ -201,6 +204,8 @@
           setFeedback(feedback, tr('waitlist.error.consentTime'), 'error');
         } else if (result.code === 'VALIDATION_ERROR') {
           setFeedback(feedback, tr('waitlist.error.invalid'), 'error');
+        } else if (result.code === 'SERVER_ERROR') {
+          setFeedback(feedback, tr('waitlist.error.generic'), 'error');
         } else {
           setFeedback(feedback, tr('waitlist.error.network'), 'error');
         }

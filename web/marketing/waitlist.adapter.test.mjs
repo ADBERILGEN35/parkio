@@ -86,7 +86,7 @@ test('submitApi maps known gateway outcomes without treating them as network fai
     [503, { code: 'WAITLIST_ADMISSIONS_DISABLED' }, { ok: false, code: 'ADMISSIONS_DISABLED' }],
     [503, { code: 'EMAIL_DELIVERY_FAILED' }, { ok: false, code: 'EMAIL_DELIVERY_FAILED' }],
     [400, { code: 'VALIDATION_ERROR' }, { ok: false, code: 'VALIDATION_ERROR' }],
-    [500, {}, { ok: false, code: 'NETWORK_ERROR' }],
+    [500, {}, { ok: false, code: 'SERVER_ERROR' }],
   ];
   for (const [status, body, expected] of cases) {
     const api = loadWaitlist({
@@ -146,10 +146,12 @@ test('form uses live consentTimestamp without silent backdating', () => {
 test('hero CTA and nav waitlist copy are present in canonical marketing', () => {
   assert.match(indexHtml, /id="hero-waitlist-cta"/);
   assert.match(indexHtml, /href="#waitlist"[^>]*data-i18n="cta\.waitlist"/);
-  assert.match(indexHtml, /i18n\.js\?v=w01l4/);
+  assert.match(indexHtml, /i18n\.js\?v=w01l5/);
+  assert.match(indexHtml, /styles\.css\?v=w01l5/);
   assert.match(i18n, /'cta\.waitlist': 'Bekleme listesine katıl'/);
   assert.match(i18n, /'cta\.waitlist': 'Join the waitlist'/);
   assert.match(i18n, /'nav\.waitlist': 'Bekleme listesi'/);
   assert.match(i18n, /'nav\.waitlist': 'Waitlist'/);
   assert.match(i18n, /waitlist\.error\.consentTime/);
+  assert.match(i18n, /params\.get\('lang'\)/);
 });

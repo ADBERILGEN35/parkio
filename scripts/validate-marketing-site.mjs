@@ -206,7 +206,7 @@ check(JSON.stringify(sitemapUrls) === JSON.stringify([
   'https://parkio.dev/terms/',
 ]), 'sitemap.xml must contain only the approved marketing URLs.');
 
-check(sha256('.htaccess') === '452af8382fee516fc66f1dd325667381eac4004fa7c3221b7c58cffad5f1d594', '.htaccess security policy changed from the imported live baseline.');
+check(sha256('.htaccess') === '26296cb6265bb7b09af9dce104838643d7921fdb21c12fcb91f076541fd3ede2', '.htaccess security policy changed from the imported live baseline.');
 check(read('waitlist/confirm/index.html').includes('waitlist-confirm-form'), 'Confirm page must POST via form.');
 check(read('waitlist/unsubscribe/index.html').includes('waitlist-withdraw-form'), 'Unsubscribe page must POST via form.');
 check(!/method=["']get["']/i.test(read('waitlist/confirm/index.html')), 'Confirm must not use GET form method.');

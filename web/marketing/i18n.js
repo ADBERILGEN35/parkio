@@ -418,6 +418,15 @@
   };
 
   function resolveLocale() {
+    // Explicit link locale (?lang=tr|en) wins over stored preference so email
+    // confirmation/withdrawal pages open in the subscriber's selected language.
+    try {
+      const params = new URLSearchParams(global.location && global.location.search ? global.location.search : '');
+      const linkLang = params.get('lang');
+      if (linkLang === 'en' || linkLang === 'tr') return linkLang;
+    } catch (_) {
+      /* ignore */
+    }
     try {
       const saved = localStorage.getItem(STORAGE_KEY);
       if (saved === 'en' || saved === 'tr') return saved;

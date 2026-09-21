@@ -41,7 +41,19 @@ class WaitlistConsentTimestampPolicyTest {
     }
 
     @Test
-    void rejectsExcessiveFutureAndStalePast() {
+    void acceptsExactFutureAndPastBoundaries() {
+        assertThat(service.requireClientConsentTimestamp(NOW.plus(Duration.ofMinutes(2)), NOW))
+                .isEqualTo(NOW.plus(Duration.ofMinutes(2)));
+        assertThat(service.requireClientConsentTimestamp(NOW.minus(Duration.ofDays(7)), NOW))
+                .isEqualTo(NOW.minus(Duration.ofDays(7)));
+    }
+
+    @Test
+    void rejectsJustBeyondBoundariesAndMissing() {
+        assertThatThrownBy(() -> service.requireClientConsentTimestamp(NOW.plus(Duration.ofMinutes(2)).plusMillis(1), NOW))
+                .isInstanceOf(WaitlistConsentTimestampException.class);
+        assertThatThrownBy(() -> service.requireClientConsentTimestamp(NOW.minus(Duration.ofDays(7)).minusMillis(1), NOW))
+                .isInstanceOf(WaitlistConsentTimestampException.class);
         assertThatThrownBy(() -> service.requireClientConsentTimestamp(NOW.plus(Duration.ofMinutes(5)), NOW))
                 .isInstanceOf(WaitlistConsentTimestampException.class);
         assertThatThrownBy(() -> service.requireClientConsentTimestamp(NOW.minus(Duration.ofDays(8)), NOW))
