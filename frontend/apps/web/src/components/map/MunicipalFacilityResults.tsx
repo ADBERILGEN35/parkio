@@ -205,6 +205,15 @@ export function MunicipalFacilityResults({
               ? t('municipal.resultsOf', { visible: facilities.length, total: totalCount })
               : t('municipal.resultsCount', { count: totalCount })}
           </p>
+          {!filtersActive && params?.limit != null && totalCount >= params.limit ? (
+            <p
+              className="m-0 text-label-sm text-on-surface-variant"
+              data-testid="municipal-results-capped"
+              role="status"
+            >
+              {t('municipal.resultsCapped', { limit: params.limit })}
+            </p>
+          ) : null}
           {!filtersActive && occupancySummary.total > 0 ? (
             <p
               className="m-0 text-label-sm text-on-surface-variant"
@@ -327,6 +336,11 @@ function MunicipalFacilityListItem({
           <span className="mt-xs flex flex-wrap items-center gap-xs text-label-sm text-on-surface-variant">
             <span className="font-semibold text-secondary">{formatDistance(distance)}</span>
             {source ? <span title={source}>· {source}</span> : null}
+            {facility.accessClassification ? (
+              <span data-testid="municipal-access-restriction" title={t(`municipal.access.${facility.accessClassification}`)}>
+                · {t(`municipal.access.${facility.accessClassification}`)}
+              </span>
+            ) : null}
           </span>
         </span>
       </button>

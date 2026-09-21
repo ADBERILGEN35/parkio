@@ -13,6 +13,7 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 import com.parkio.parking.application.PublicExploreQueryService;
 import com.parkio.parking.application.port.MunicipalFacilityRepository;
 import com.parkio.parking.application.port.MunicipalOccupancySnapshotRepository;
+import com.parkio.parking.externalsource.MunicipalAccessClassification;
 import com.parkio.parking.externalsource.MunicipalFacilityType;
 import com.parkio.parking.externalsource.MunicipalOccupancyFreshness;
 import com.parkio.parking.infrastructure.config.PublicExploreProperties;
@@ -110,7 +111,8 @@ class PublicExploreControllerTest {
                 "Konak Otopark", "IZELMAN A.S.", MunicipalFacilityType.OFF_STREET,
                 "Konak, Izmir", 38.4237, 27.1428, 100, 42,
                 MunicipalOccupancyFreshness.LIVE, Instant.parse("2026-09-04T10:00:00Z"),
-                "Izmir Buyuksehir Belediyesi / IZUM", "CC BY 4.0 attribution");
+                "Izmir Buyuksehir Belediyesi / IZUM", "CC BY 4.0 attribution",
+                MunicipalAccessClassification.PUBLIC);
         when(service.discover(any())).thenReturn(new PublicExploreQueryService.DiscoveryResult(
                 List.of(view), 1L, 0L, null));
 

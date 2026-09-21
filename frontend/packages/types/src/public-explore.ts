@@ -1,6 +1,6 @@
 import type { MunicipalFacilityType, MunicipalOccupancyFreshness } from './municipal';
 
-/** Exact anonymous public explore facility row (unchanged 13-field allowlist). */
+/** Anonymous public explore facility row (reviewed municipal sources only). */
 export interface PublicExploreFacility {
   id: string;
   displayName: string | null;
@@ -15,6 +15,8 @@ export interface PublicExploreFacility {
   dataUpdatedAt: string | null;
   sourceLabel: string;
   attribution: string;
+  /** Missing access metadata is UNKNOWN — never implied public. */
+  accessClassification?: string | null;
 }
 
 /**

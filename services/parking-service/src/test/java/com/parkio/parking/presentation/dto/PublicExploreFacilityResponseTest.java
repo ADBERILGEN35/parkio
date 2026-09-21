@@ -5,6 +5,7 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.parkio.parking.application.PublicExploreQueryService;
+import com.parkio.parking.externalsource.MunicipalAccessClassification;
 import com.parkio.parking.externalsource.MunicipalFacilityType;
 import com.parkio.parking.externalsource.MunicipalOccupancyFreshness;
 import java.time.Instant;
@@ -17,7 +18,8 @@ class PublicExploreFacilityResponseTest {
     private static final Set<String> EXACT_FIELDS = Set.of(
             "id", "displayName", "operatorName", "facilityType", "addressText",
             "latitude", "longitude", "capacityTotal", "availableSpaces",
-            "availabilityFreshness", "dataUpdatedAt", "sourceLabel", "attribution");
+            "availabilityFreshness", "dataUpdatedAt", "sourceLabel", "attribution",
+            "accessClassification");
 
     @Test
     void serializedContractIsTheExactReviewedAllowlist() throws Exception {
@@ -53,6 +55,6 @@ class PublicExploreFacilityResponseTest {
                 "Konak Otopark", "IZELMAN A.S.", MunicipalFacilityType.OFF_STREET,
                 "Konak, Izmir", 38.4237, 27.1428, 100, 42,
                 MunicipalOccupancyFreshness.LIVE, Instant.parse("2026-09-04T10:00:00Z"),
-                label, attribution);
+                label, attribution, MunicipalAccessClassification.PUBLIC);
     }
 }

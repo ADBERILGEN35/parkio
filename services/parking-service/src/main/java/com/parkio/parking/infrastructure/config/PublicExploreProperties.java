@@ -10,8 +10,8 @@ import org.springframework.boot.context.properties.ConfigurationProperties;
  * Fail-closed configuration for the anonymous read-only product surface.
  *
  * <p>Allowed families are parsed through {@link PublicExplorePublicationPolicy}: only reviewed
- * families (IZUM, ISPARK) may be configured. Empty allowlist → no municipal public rows.
- * Ingestion enablement is a separate gate and does not imply publication.
+ * families (IZUM, ISPARK, IZELMAN, OSM) may be configured. Empty allowlist → no municipal public
+ * rows. Ingestion enablement is a separate gate and does not imply publication.
  */
 @ConfigurationProperties(prefix = "parkio.public-explore")
 public class PublicExploreProperties {

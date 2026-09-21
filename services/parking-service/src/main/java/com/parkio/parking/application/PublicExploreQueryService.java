@@ -2,6 +2,7 @@ package com.parkio.parking.application;
 
 import com.parkio.parking.application.port.MunicipalFacilityRepository;
 import com.parkio.parking.application.port.MunicipalOccupancySnapshotRepository;
+import com.parkio.parking.externalsource.MunicipalAccessClassification;
 import com.parkio.parking.externalsource.MunicipalFacilityType;
 import com.parkio.parking.externalsource.MunicipalOccupancyFreshness;
 import com.parkio.parking.externalsource.OccupancyFreshnessPolicy;
@@ -47,7 +48,8 @@ public class PublicExploreQueryService {
             MunicipalOccupancyFreshness availabilityFreshness,
             Instant dataUpdatedAt,
             String sourceLabel,
-            String attribution) {}
+            String attribution,
+            MunicipalAccessClassification accessClassification) {}
 
     public record DiscoveryQuery(Double latitude, Double longitude, Integer radiusMeters, Integer limit) {}
 
@@ -174,7 +176,10 @@ public class PublicExploreQueryService {
                 freshness,
                 dataUpdatedAt,
                 presentation.displayName(),
-                presentation.attribution());
+                presentation.attribution(),
+                facility.accessClassification() == null
+                        ? MunicipalAccessClassification.UNKNOWN
+                        : facility.accessClassification());
     }
 
     /**

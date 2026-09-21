@@ -29,6 +29,7 @@ export function toMunicipalFacilityFromPublicExplore(
     availabilitySource: null,
     availabilityFreshness: facility.availabilityFreshness,
     availabilityObservationTimestamp: facility.dataUpdatedAt,
-    accessClassification: null,
+    accessClassification:
+      (facility.accessClassification as MunicipalFacility['accessClassification']) ?? 'UNKNOWN',
   };
 }

@@ -147,6 +147,7 @@
     "filteredEmptyDescription": "Clear or adjust municipal filters to see official parking facilities again.",
     "resultsOf": "{{visible}} of {{total}} facilities",
     "resultsCount": "{{count}} facilities",
+    "resultsCapped": "Showing the nearest {{limit}} facilities — zoom in or reduce the search radius for denser coverage. This is not a complete inventory of the area.",
     "resultAria": "{{inventory}}: {{name}}, {{distance}}",
     "filterResultsAria": "Filter municipal facilities",
     "filterStateAria": "{{count}} municipal facilities shown after filters",

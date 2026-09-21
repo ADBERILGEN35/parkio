@@ -1,0 +1,14 @@
+2026-09-22 — İzmir coverage expansion prep (PR #71)
+
+Status: PREPARATION COMPLETE — production deploy/import/publication NOT executed.
+
+Live parking: @sha256:e353baed… (does NOT include merged PR #70).
+RC local image: sha256:be790a871b093664a773a9c0eedee044031a9ec96c0c6202d53cbd1b967cee57
+RC bootJar SHA-256: F0EACE14E426AD44000E848A3709EC57BA4A73F23BB54521F6B99D851589E1D5
+
+IZELMAN isolated (all 4): open 11, closed 23, barrier 17, roadside 48; unique facilities 51; occupancy 0; idempotent.
+OSM isolated: 1634 raw → 1442 accepted; 192 access rejected; idempotent; 1 auto-match / 2 review.
+Centers (IZELMAN candidate): all six Explore+/map covered; map never capped at 100 without OSM.
+With OSM at 5km: all six centers exceed 100 — zoom/radius continuation required.
+
+See RELEASE-DECISION-PACKAGE.md

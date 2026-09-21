@@ -101,13 +101,20 @@ export function SelectedMunicipalFacilityPreview({
                 {formatDistance(distanceMeters)}
               </span>
             ) : null}
-            {facility.accessClassification
-            && facility.accessClassification !== 'PUBLIC' ? (
+            {facility.accessClassification ? (
               <span
                 className="inline-flex items-center gap-xs rounded-full bg-surface-container px-sm py-xs font-semibold"
                 data-testid="municipal-access-restriction"
               >
-                <Icon name="lock" className="text-[14px] leading-none" />
+                <Icon
+                  name={
+                    facility.accessClassification === 'PUBLIC'
+                    || facility.accessClassification === 'PERMISSIVE'
+                      ? 'lock_open'
+                      : 'lock'
+                  }
+                  className="text-[14px] leading-none"
+                />
                 {t(`municipal.access.${facility.accessClassification}`)}
               </span>
             ) : null}
