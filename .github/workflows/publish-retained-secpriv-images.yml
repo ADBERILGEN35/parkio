@@ -1,0 +1,155 @@
+# Authorized one-shot: publish retained secpriv OCI artifacts to GHCR.
+# Does NOT rebuild. Does NOT overwrite differing tags. Does NOT deploy.
+name: Publish retained secpriv images
+
+on:
+  workflow_dispatch:
+    inputs:
+      source_run_id:
+        description: Actions run retaining the accepted OCI artifact
+        required: true
+        type: string
+        default: "35534690974"
+      artifact_name:
+        description: Artifact name
+        required: true
+        type: string
+        default: "secpriv-release-artifacts-4a9ba2184e867b8ea8b927f7c3f8bcb137c2760a"
+      release_sha:
+        description: Expected release pin
+        required: true
+        type: string
+        default: "4a9ba2184e867b8ea8b927f7c3f8bcb137c2760a"
+      immutable_tag:
+        description: Destination tag (must not overwrite divergent content)
+        required: true
+        type: string
+        default: "4a9ba218-secpriv"
+
+permissions:
+  contents: read
+  packages: write
+  actions: read
+
+concurrency:
+  group: publish-retained-secpriv-${{ github.ref }}
+  cancel-in-progress: false
+
+env:
+  REGISTRY: ghcr.io
+  IMAGE_OWNER: adberilgen35/parkio
+  IMAGE_TAG_LOCAL: secpriv-ci
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    steps:
+      - name: Download retained artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: ${{ inputs.artifact_name }}
+          run-id: ${{ inputs.source_run_id }}
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          path: retained
+
+      - name: Verify OCI tar checksums and load
+        id: load
+        run: |
+          set -euo pipefail
+          mkdir -p out
+          OCI_DIR="$(find retained -type d -name oci | head -1)"
+          test -n "$OCI_DIR"
+          declare -A EXPECT_TAR=(
+            [gateway-service]=95395cffbc5605e9f1c38be0d8bf0dc3e0de457fb724406ba5914c656ddb4807
+            [media-service]=6e7d6949d380b0f3e0bf43e29d2e868b837b3d7caa07f630573d88fceedc525a
+            [parking-service]=f102e8b5bf4a307732ee316cc8b47b6bcc0ffdb8129c6ecd7274e409311c4c54
+          )
+          declare -A EXPECT_JAR=(
+            [gateway-service]=e915f6e674b51c054dca3b94fcff481ee7dd8398cc61a201d5868cf1b358c215
+            [media-service]=2e0f802b9622e1026f70ab6fb7ddcbc4d6a5b7aeb077364614f96ff6f538baea
+            [parking-service]=246d2b8e9911496199d0b68af578421b36ed663c8aca513ca803ac87cd09edd8
+          )
+          for svc in gateway-service media-service parking-service; do
+            tar="${OCI_DIR}/parkio-${svc}-${IMAGE_TAG_LOCAL}.tar"
+            actual="$(sha256sum "$tar" | awk '{print $1}')"
+            echo "${svc}_tar expected=${EXPECT_TAR[$svc]} actual=${actual}"
+            test "$actual" = "${EXPECT_TAR[$svc]}"
+            docker load -i "$tar"
+            cid="$(docker create "parkio/${svc}:${IMAGE_TAG_LOCAL}")"
+            docker cp "${cid}:/app/app.jar" "/tmp/${svc}.jar"
+            docker rm "$cid" >/dev/null
+            jar_h="$(sha256sum "/tmp/${svc}.jar" | awk '{print $1}')"
+            echo "${svc}_bootJar expected=${EXPECT_JAR[$svc]} actual=${jar_h}"
+            test "$jar_h" = "${EXPECT_JAR[$svc]}"
+            rev="$(docker image inspect "parkio/${svc}:${IMAGE_TAG_LOCAL}" --format '{{index .Config.Labels "org.opencontainers.image.revision"}}')"
+            echo "${svc}_revision=${rev}"
+            test "$rev" = "${{ inputs.release_sha }}"
+          done
+          echo "LOAD_VERIFY=PASS" | tee out/load-verify.txt
+
+      - name: Log in to GHCR
+        uses: docker/login-action@v3
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Publish if absent or identical
+        run: |
+          set -euo pipefail
+          mkdir -p out/publish
+          TAG="${{ inputs.immutable_tag }}"
+          for svc in gateway-service media-service parking-service; do
+            DEST="${REGISTRY}/${IMAGE_OWNER}/${svc}:${TAG}"
+            LOCAL="parkio/${svc}:${IMAGE_TAG_LOCAL}"
+            echo "=== ${svc} -> ${DEST} ===" | tee "out/publish/${svc}.txt"
+            set +e
+            EXISTING="$(docker buildx imagetools inspect "$DEST" --format '{{json .Manifest}}' 2>/tmp/inspect-err.txt)"
+            INSPECT_RC=$?
+            set -e
+            if [ "$INSPECT_RC" -eq 0 ] && [ -n "$EXISTING" ]; then
+              echo "TAG_EXISTS=yes" | tee -a "out/publish/${svc}.txt"
+              # Compare by pulling existing and checking bootJar
+              docker pull "$DEST"
+              cid="$(docker create "$DEST")"
+              docker cp "${cid}:/app/app.jar" "/tmp/${svc}-remote.jar"
+              docker rm "$cid" >/dev/null
+              remote_h="$(sha256sum "/tmp/${svc}-remote.jar" | awk '{print $1}')"
+              local_h="$(sha256sum "/tmp/${svc}.jar" | awk '{print $1}')"
+              echo "remote_bootJar=${remote_h}" | tee -a "out/publish/${svc}.txt"
+              echo "local_bootJar=${local_h}" | tee -a "out/publish/${svc}.txt"
+              if [ "$remote_h" = "$local_h" ]; then
+                echo "ACTION=REUSE_IDENTICAL" | tee -a "out/publish/${svc}.txt"
+              else
+                echo "ACTION=ABORT_DIVERGENT_TAG" | tee -a "out/publish/${svc}.txt"
+                echo "::error::Tag ${DEST} exists with different bootJar; refusing overwrite"
+                exit 1
+              fi
+            else
+              echo "TAG_EXISTS=no" | tee -a "out/publish/${svc}.txt"
+              cat /tmp/inspect-err.txt | tee -a "out/publish/${svc}.txt" || true
+              docker tag "$LOCAL" "$DEST"
+              docker push "$DEST"
+              echo "ACTION=PUSHED" | tee -a "out/publish/${svc}.txt"
+            fi
+            # Record registry digest
+            DIGEST="$(docker buildx imagetools inspect "$DEST" --format '{{printf "%s" .Manifest.Digest}}' 2>/dev/null || true)"
+            if [ -z "$DIGEST" ]; then
+              DIGEST="$(docker buildx imagetools inspect "$DEST" 2>/dev/null | awk '/^Digest:/ {print $2; exit}')"
+            fi
+            echo "REGISTRY_DIGEST=${DIGEST}" | tee -a "out/publish/${svc}.txt"
+            echo "${svc}=${REGISTRY}/${IMAGE_OWNER}/${svc}@${DIGEST}" | tee -a out/publish/digest-pins.txt
+            # Platform
+            docker buildx imagetools inspect "$DEST" | tee "out/publish/${svc}-inspect.txt" | head -40
+          done
+          echo "PUBLISH_COMPLETE" | tee out/publish/RESULT.txt
+
+      - name: Upload publication evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: secpriv-ghcr-publication-${{ inputs.release_sha }}
+          path: out/**
+          retention-days: 14
+          if-no-files-found: warn
