@@ -1160,6 +1160,50 @@ describe('MapPage municipal discovery (WEB-MUNI-01)', () => {
     expect(screen.getByText('Stub Address 7')).toBeInTheDocument();
   });
 
+  it('keeps community parking, session actions, attribution and freshness when municipal is on', async () => {
+    const facility = makeMunicipalFacility({
+      id: 'fac-coexist',
+      displayName: 'Coexist Municipal Lot',
+      latitude: 38.42,
+      longitude: 27.14,
+      availableSpaces: 12,
+      freshness: 'LIVE',
+      availabilityFreshness: 'LIVE',
+      availabilitySource: 'izmir-izum-otoparklar',
+      contributingSourceKeys: ['izmir-izum-otoparklar'],
+      sourceLabel: 'Izmir Buyuksehir Belediyesi / IZUM',
+      attribution: 'Izmir Buyuksehir Belediyesi / IZUM',
+    });
+
+    server.use(
+      http.get(`${API_BASE}/parking/spots/nearby`, () => HttpResponse.json([spot])),
+      http.get(`${API_BASE}/parking/facilities/nearby`, () => HttpResponse.json([facility])),
+      http.get(`${API_BASE}/parking/sessions/active`, () => new HttpResponse(null, { status: 204 })),
+    );
+
+    renderWithProviders(<MapPage municipalDiscoveryEnabled />);
+    const user = userEvent.setup();
+    await openSearchOptions(user);
+    await user.type(screen.getByLabelText('Latitude'), '38.42');
+    await user.type(screen.getByLabelText('Longitude'), '27.14');
+    await user.click(screen.getByRole('button', { name: 'Search nearby' }));
+
+    expect(await screen.findByText('Stub Address 7')).toBeInTheDocument();
+    expect(screen.getByTestId('stub-spot-count')).toHaveTextContent('1');
+    await expectMunicipalFacilityLoaded('Coexist Municipal Lot', '1');
+    expect(screen.getByTestId('map-layer-community')).toBeInTheDocument();
+    expect(screen.getByTestId('map-layer-municipal')).toBeInTheDocument();
+    expect(screen.getByTestId('municipal-filter-availability-available')).toBeInTheDocument();
+
+    await user.click(await screen.findByRole('button', { name: 'stub-select-first-facility' }));
+    const preview = await screen.findByTestId('selected-municipal-facility-preview');
+    expect(preview).toHaveTextContent('Coexist Municipal Lot');
+    expect(screen.getByTestId('municipal-occupancy-status')).toHaveTextContent(/Live occupancy/i);
+    expect(preview).toHaveTextContent(/İZUM|IZUM|Büyükşehir|Buyuksehir/i);
+    expect(screen.getByTestId('park-here-at-facility')).toBeInTheDocument();
+    expect(screen.getByText('Stub Address 7')).toBeInTheDocument();
+  });
+
   it('shows municipal error state while community spots still render', async () => {
     server.use(
       http.get(`${API_BASE}/parking/spots/nearby`, () => HttpResponse.json([spot])),

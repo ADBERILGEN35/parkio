@@ -442,7 +442,8 @@ jobs:
         working-directory: frontend/apps/web
         run: |
           set -euo pipefail
-          node --test scripts/validate-build-env.test.mjs scripts/verify-bundle-env.test.mjs scripts/smoke-image.test.mjs
+          node --test scripts/validate-build-env.test.mjs scripts/verify-bundle-env.test.mjs scripts/assert-hosted-beta-web-bake.test.mjs scripts/smoke-image.test.mjs
+          bash ../../../scripts/guard-hosted-beta-web-bake.sh
 
       # ---- Web image smoke: prove the SPA MOUNTS, not just that nginx answers ----
       # rc5's blank-page image satisfied every HTTP-level check (index.html and every asset
