@@ -4,6 +4,9 @@
 
 services:
   fluent-bit-nr-pilot:
+    # A one-hour pilot must remain stopped after an operator stop, Docker daemon
+    # restart or host restart. A later durable service needs a separate decision.
+    restart: "no"
     environment:
       PARKIO_ENVIRONMENT: ${PARKIO_ENVIRONMENT:?set the exact production environment label}
       PARKIO_RELEASE_ID: ${PARKIO_RELEASE_ID:?set the deployed application source or release identity}
