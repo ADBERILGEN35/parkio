@@ -1,9 +1,12 @@
 # Bounded New Relic real-log pilot — 2026-09-21
 
 Execution evidence for PR #66. **Status: bounded run completed; collection OFF,
-teardown PASS.** Parking searchable delivery is user-observed PASS for 42
-matching records at an intermediate observation. Gateway/auth were quiet;
-their real-log searchability and the final parking UI total are not proven.
+teardown PASS.** Final exact-window EU Logs UI verification is user-observed
+**searchable-delivery/count reconciliation PASS**: parking-service 88, matching
+88 source records; gateway-service and auth-service each no row, consistent
+with their zero source counts. Matching aggregate counts do not prove record-level
+uniqueness, exactly-once delivery, or absence of offsetting loss and duplication.
+Gateway/auth real-log searchability remains unexercised because they were quiet.
 No extension, restart after scheduled shutdown or permanent activation is authorized.
 
 ## Authorization and identities
@@ -47,13 +50,19 @@ The source-set hash includes the approved container identities and spool paths.
 ## Required checks and security policy
 
 Live branch protection required `Build & unit tests` and `Secret scan`; both
-passed before activation. Current-head CodeQL, security summary, all application
+passed before activation. Activated-head (`a156ecf8`) CodeQL, security summary, all application
 image scans, configuration checks, integration tests, k6 and Full Compose
 runtime subsequently reached PASS. The non-required recovery drill failed while
 building shared application images because Maven Central returned HTTP 429 for
 Kotlin dependencies. This is an infrastructure/dependency-fetch failure, not a
 collector acceptance failure, and was not relabeled PASS:
 [failed job](https://github.com/ADBERILGEN35/parkio/actions/runs/35647196945/job/106490885068).
+
+Terminal CI must be associated with its exact SHA, not inherited by a later
+documentation commit. The PR's final CI evidence records the documentation head
+and each terminal result separately from activated-head evidence above. This
+final UI-reconciliation update changes no runtime files and does not rerun the
+unchanged isolated 31/31 collector acceptance or synthetic ingestion proof.
 
 A fresh exact-collector-image Trivy 0.64.1 scan before activation retained six
 HIGH and zero CRITICAL findings. Existing repository image policy reports HIGH
@@ -170,6 +179,8 @@ within the helper cgroup; it was not host memory exhaustion or a proven loss.
 | Gate retry / rejected attempts | 0 / 0 |
 | Records admitted / rejected | 90 / 0; includes two distinct real-run startup markers |
 | Real source records | parking 88; gateway 0; auth 0 |
+| Final user-observed EU Logs UI, exact window | parking 88; gateway no row; auth no row |
+| Searchable delivery / aggregate count reconciliation | PASS for parking; record-level uniqueness not established |
 | Source spool | 41,263 bytes; no rotation during this low-volume observation |
 | Ledger integrity / exhaustion | `PRAGMA integrity_check=ok` / false |
 | Final helper drops / disconnects / replacements | 0 / 0 / 0; three attachments in the uninterrupted run |
@@ -221,10 +232,40 @@ root lockfile, shared CI, Cursor worktree or PR #61/#62 change was made. The PR
 remains draft and unmerged. The six HIGH findings remain open under existing
 policy. Any later real-log run requires a new bounded activation decision.
 
+## Final UI reconciliation and next readiness decision
+
+After teardown, the operator reported the final exact pilot-window EU query:
+parking-service 88, gateway-service no row, auth-service no row. Parking's
+searchable count equals the 88 source records. This completes searchable-delivery
+and aggregate count reconciliation, beyond HTTP/gate acceptance alone. It does
+not prove record-by-record identity, uniqueness or exactly-once delivery; equal
+counts can conceal offsetting losses and duplicates. No per-record comparison
+was performed, and no records were resent to obtain this result.
+
+A subsequent read-only host check at 2026-09-21 21:23Z confirmed zero pilot
+containers/networks, inactive helper and all three stop timers, and the protected
+ledger still 0600 root:root. The original timestamped teardown and unchanged
+application-health/identity evidence above remain preserved. Collection stays OFF.
+
+The next readiness decision must explicitly retain, not treat this limited pilot
+as resolving:
+
+- Helper memory-limit pressure: 64 MiB peak, `memory.events.max=8`, zero OOM/kills.
+- Forced gate shutdown: exit 137 after 30-second stop grace, `OOMKilled=false`;
+  ledger integrity passed, but graceful gate termination was not demonstrated.
+- Six collector HIGH findings: five OPEN-NO-FIX and one OPEN-FIX-AVAILABLE,
+  enumerated above. The image is not clean and existing security policy still applies.
+- Quiet gateway/auth delivery remains unexercised; aggregate count agreement is
+  not record-level uniqueness proof. Startup coverage interruptions and regex
+  redaction limitations remain as documented.
+
+No restart, extension, merge or permanent activation follows from this result.
+
 ## Real-log search
 
-Run this in the EU account after the window. It excludes both startup markers
-and the previously completed synthetic proof:
+Retained exact-window query for the completed user-observed verification. It
+excludes both startup markers and the previously completed synthetic proof;
+no repeat ingestion or query is required to accept the reported counts:
 
 ```sql
 FROM Log

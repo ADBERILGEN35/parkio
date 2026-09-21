@@ -5,8 +5,12 @@ authorized one bounded real-log pilot on 2026-09-21, with a 26,214,400-byte
 persistent transport budget and a one-hour maximum. Its execution evidence,
 searchability observations and teardown status are recorded in
 [the real-pilot report](new-relic-real-pilot-2026-09-21.md).
-The run is complete, collection is OFF and teardown passed. Parking searchable
-delivery was confirmed by the operator; gateway/auth were quiet.
+The run is complete, collection is OFF and teardown passed. Final exact-window
+parking searchable-delivery/count reconciliation passed: 88 UI records / 88
+source records, user-observed. Gateway/auth had no UI rows and zero source
+records. Equal counts do not establish record-level uniqueness or exactly-once
+delivery. Helper memory pressure, forced gate shutdown and six HIGH findings
+remain explicitly open for the next readiness decision in the real-pilot report.
 No application container was changed. This does not authorize permanent
 collection or another pilot run.
 
