@@ -76,7 +76,7 @@
       <a href="#product" data-i18n="nav.product">Ürün</a>
       <a href="#how" data-i18n="nav.how">Nasıl çalışır</a>
       <a href="#trust" data-i18n="nav.trust">Güven</a>
-      <a href="#waitlist" data-i18n="nav.waitlist">Kayıt bildirimi</a>
+      <a href="#waitlist" data-i18n="nav.waitlist">Bekleme listesi</a>
       <a href="#business" data-i18n="nav.business">İş modeli</a>
       <a href="#roadmap" data-i18n="nav.roadmap">Yol haritası</a>
       <a href="#about" data-i18n="nav.founder">Kurucu</a>
@@ -98,9 +98,9 @@
         <p class="hero-lede" data-i18n="hero.lede">Parkio, sürücülerin topluluk bilgisi ve mevcut belediye park verisiyle park yeri keşfetmesine yardımcı olur. Gerçek, salt okunur bir Explore deneyimi şu anda kullanılabilir — hesap gerekmez.</p>
         <div class="hero-actions">
           <a class="btn btn-primary" id="primary-product-cta" href="https://app.parkio.dev/explore" target="_blank" rel="noopener"><span data-i18n="cta.explore">Park alanı keşfet</span> <span class="arrow" aria-hidden="true">↗</span></a>
-          <a class="btn btn-secondary" href="https://app.parkio.dev/" target="_blank" rel="noopener" data-i18n="cta.signin">Giriş yap</a>
+          <a class="btn btn-secondary" id="hero-waitlist-cta" href="#waitlist" data-i18n="cta.waitlist">Bekleme listesine katıl</a>
         </div>
-        <p class="cta-context" data-i18n="cta.context">Hesap kaydı kapalıdır. Kişisel ve katkı özellikleri giriş gerektirir.</p>
+        <p class="cta-context" data-i18n="cta.context">Bekleme listesi bir uygulama hesabı oluşturmaz. Hesap kaydı kapalıdır; mevcut kullanıcılar giriş yapabilir.</p>
         <div class="hero-proof" aria-label="Parkio status">
           <div class="proof-item"><div class="proof-label" data-i18n="proof.explore.label">Explore</div><div class="proof-value" data-i18n="proof.explore.value">Anonim · salt okunur</div></div>
           <div class="proof-item"><div class="proof-label" data-i18n="proof.data.label">Veri</div><div class="proof-value" data-i18n="proof.data.value">Kaynak etiketli</div></div>
@@ -240,7 +240,7 @@
   <section class="section section-white" id="waitlist">
     <div class="container waitlist-grid">
       <div>
-        <div class="kicker" data-i18n="waitlist.kicker">Kayıt bildirimi</div>
+        <div class="kicker" data-i18n="waitlist.kicker">Bekleme listesi</div>
         <h2 data-i18n="waitlist.h2">Kayıtlar açıldığında haber verin.</h2>
         <p class="section-intro" data-i18n="waitlist.intro">Hesap oluşturmadan yalnızca e-posta adresinizi bırakın. Amacımız: kayıtlar açıldığında sizi bilgilendirmek. Başka pazarlama aboneliği yapılmaz.</p>
         <p class="waitlist-withdraw-hint" data-i18n="waitlist.withdraw">Çekilme veya silme talebi için onay e-postasındaki bağlantıyı veya info@parkio.dev adresini kullanın.</p>
@@ -255,7 +255,7 @@
           <input id="waitlist-consent" name="consent" type="checkbox" required aria-required="true">
           <label for="waitlist-consent" data-i18n="waitlist.consent">Kayıtlar açıldığında Parkio’nun beni e-posta ile bilgilendirmesini kabul ediyorum. Onay için e-postamdaki bağlantıyı kullanacağım.</label>
         </div>
-        <button class="btn btn-primary" type="submit" data-i18n="waitlist.submit">Bildirim listesine katıl</button>
+        <button class="btn btn-primary" type="submit" data-i18n="waitlist.submit">Bekleme listesine katıl</button>
         <p class="waitlist-feedback" data-waitlist-feedback role="status" aria-live="polite" hidden></p>
         <p class="waitlist-isolated" data-waitlist-isolated-note data-i18n="waitlist.mockNote" hidden>Yerel yalıtılmış mod: kalıcı sağlayıcı çalıştırılmıyor.</p>
       </form>
@@ -287,7 +287,7 @@
         <div class="footer-brand"><span class="brand-mark"><img src="/assets/parkio-logo.png" alt="" width="38" height="38"></span><strong>Parkio</strong></div>
         <p class="footer-copy" data-i18n="footer.copy">Kurucu liderliğinde park keşfi; canlı anonim Explore. Kayıt kapalıdır. İsterseniz kayıt bildirimi için e-posta bırakabilirsiniz.</p>
       </div>
-      <nav class="footer-links" aria-label="Alt bilgi navigasyonu" data-i18n-attr="aria-label" data-i18n="footer.nav"><a href="https://app.parkio.dev/explore" target="_blank" rel="noopener" data-i18n="cta.explore">Park alanı keşfet</a><a href="#waitlist" data-i18n="nav.waitlist">Kayıt bildirimi</a><a href="https://app.parkio.dev/" target="_blank" rel="noopener" data-i18n="cta.signin">Giriş yap</a><a href="#business">Business</a><a href="#roadmap">Roadmap</a><a href="#about">Founder</a><a href="https://www.linkedin.com/in/oguzhan-tasyaran/" target="_blank" rel="noopener noreferrer">Founder LinkedIn</a><a href="https://www.linkedin.com/company/parkio-app" target="_blank" rel="noopener noreferrer">Company LinkedIn</a><a href="mailto:info@parkio.dev">Contact</a><a href="/privacy/">Privacy</a><a href="/terms/">Terms</a></nav>
+      <nav class="footer-links" aria-label="Alt bilgi navigasyonu" data-i18n-attr="aria-label" data-i18n="footer.nav"><a href="https://app.parkio.dev/explore" target="_blank" rel="noopener" data-i18n="cta.explore">Park alanı keşfet</a><a href="#waitlist" data-i18n="nav.waitlist">Bekleme listesi</a><a href="https://app.parkio.dev/" target="_blank" rel="noopener" data-i18n="cta.signin">Giriş yap</a><a href="#business">Business</a><a href="#roadmap">Roadmap</a><a href="#about">Founder</a><a href="https://www.linkedin.com/in/oguzhan-tasyaran/" target="_blank" rel="noopener noreferrer">Founder LinkedIn</a><a href="https://www.linkedin.com/company/parkio-app" target="_blank" rel="noopener noreferrer">Company LinkedIn</a><a href="mailto:info@parkio.dev">Contact</a><a href="/privacy/">Privacy</a><a href="/terms/">Terms</a></nav>
     </div>
     <div class="footer-bottom"><span data-i18n="footer.rights">© 2026 Parkio. Tüm hakları saklıdır.</span><span>parkio.dev · info@parkio.dev</span></div>
   </div>
