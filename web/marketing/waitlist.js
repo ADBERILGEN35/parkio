@@ -1,7 +1,9 @@
 /**
  * Waitlist client for parkio.dev marketing.
- * Real mode: POST to gateway /waitlist (durable persistence on API).
- * Mock mode (?waitlistMock=1 or meta parkio-waitlist-mode=mock): in-memory only — NOT live.
+ * Modes (meta parkio-waitlist-mode):
+ *   api         — POST to gateway (production launch). Ignores ?waitlistMock=1.
+ *   unavailable — signup closed; no simulated success (production staged).
+ *   mock        — local/test only; in-memory. Must be set explicitly via meta.
  */
 (function (global) {
   const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
@@ -17,17 +19,21 @@
     return email.length > 3 && email.length <= 254 && EMAIL_RE.test(email);
   }
 
+  function metaContent(name) {
+    const meta = document.querySelector(`meta[name="${name}"]`);
+    return meta && meta.content ? String(meta.content).trim() : '';
+  }
+
   function detectMode() {
-    const params = new URLSearchParams(global.location ? global.location.search : '');
-    if (params.get('waitlistMock') === '1') return 'mock';
-    const meta = document.querySelector('meta[name="parkio-waitlist-mode"]');
-    if (meta && meta.content === 'mock') return 'mock';
+    const mode = metaContent('parkio-waitlist-mode') || 'api';
+    if (mode === 'unavailable' || mode === 'hidden') return 'unavailable';
+    if (mode === 'mock') return 'mock';
+    // Production/api bundles must never honor ?waitlistMock=1.
     return 'api';
   }
 
   function apiBase() {
-    const meta = document.querySelector('meta[name="parkio-waitlist-api"]');
-    return (meta && meta.content) || 'https://api.parkio.dev/api/v1';
+    return metaContent('parkio-waitlist-api') || 'https://api.parkio.dev/api/v1';
   }
 
   function currentLocale() {
@@ -56,6 +62,10 @@
       return { ok: false, code: 'RATE_LIMITED' };
     }
     if (response.status === 503) {
+      const body = await response.json().catch(() => ({}));
+      if (body && body.code === 'WAITLIST_ADMISSIONS_DISABLED') {
+        return { ok: false, code: 'ADMISSIONS_DISABLED' };
+      }
       return { ok: false, code: 'EMAIL_DELIVERY_FAILED' };
     }
     if (response.status >= 400 && response.status < 500) {
@@ -65,7 +75,7 @@
   }
 
   async function submitMock(payload) {
-    // Isolated mock — session memory only. Do not present as live waitlist.
+    // Isolated mock — session memory only. Local/test meta=mock only.
     mockStore.add(payload.email);
     await new Promise((r) => setTimeout(r, 120));
     return { ok: true, status: 'accepted', mock: true };
@@ -110,6 +120,27 @@
     el.hidden = !message;
   }
 
+  function applyUnavailableUi(form) {
+    if (!form) return;
+    form.setAttribute('aria-disabled', 'true');
+    form.dataset.waitlistUnavailable = '1';
+    const inputs = form.querySelectorAll('input, button');
+    inputs.forEach((el) => {
+      el.disabled = true;
+    });
+    form.hidden = true;
+    let notice = document.querySelector('[data-waitlist-unavailable-note]');
+    if (!notice) {
+      notice = document.createElement('p');
+      notice.className = 'waitlist-unavailable';
+      notice.setAttribute('data-waitlist-unavailable-note', '');
+      notice.setAttribute('role', 'status');
+      form.parentNode && form.parentNode.insertBefore(notice, form.nextSibling);
+    }
+    notice.hidden = false;
+    notice.textContent = tr('waitlist.unavailable');
+  }
+
   function bindForm(form) {
     if (!form) return;
     const emailInput = form.querySelector('#waitlist-email');
@@ -120,6 +151,10 @@
     const mode = detectMode();
     if (mockNote) {
       mockNote.hidden = mode !== 'mock';
+    }
+    if (mode === 'unavailable') {
+      applyUnavailableUi(form);
+      return;
     }
 
     form.addEventListener('submit', async (event) => {
@@ -154,6 +189,8 @@
           form.reset();
         } else if (result.code === 'RATE_LIMITED') {
           setFeedback(feedback, tr('waitlist.error.rate'), 'error');
+        } else if (result.code === 'ADMISSIONS_DISABLED') {
+          setFeedback(feedback, tr('waitlist.unavailable'), 'error');
         } else if (result.code === 'EMAIL_DELIVERY_FAILED') {
           setFeedback(feedback, tr('waitlist.error.delivery'), 'error');
         } else if (result.code === 'VALIDATION_ERROR') {

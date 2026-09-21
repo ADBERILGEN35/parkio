@@ -79,6 +79,15 @@ After rollback, verify the same critical URLs and hashes before declaring recove
 Do not publish a live-looking waitlist form on Hostinger before the gateway waitlist
 API and email path are operational.
 
+**Staged Hostinger packaging** (`scripts/package-marketing-waitlist-bundles.sh staged`):
+landing meta `parkio-waitlist-mode=unavailable` hides the signup form and never
+simulates registration success. Confirmation and withdrawal pages stay `api`.
+`?waitlistMock=1` cannot enable fake success when meta is `api` or `unavailable`.
+
+**Launch packaging** (`… launch`): landing meta `api` posts to the real gateway.
+Mock mode requires an explicit local `meta content="mock"` and must not ship in
+production bundles.
+
 **Logging-only delivery cannot satisfy live waitlist acceptance.** Production must use
 `PARKIO_WAITLIST_EMAIL_PROVIDER=resend` with a verified sender domain and
 `PARKIO_WAITLIST_ALLOW_LOGGING_PROVIDER=false`. A logging provider (even when

@@ -83,14 +83,50 @@ test('language switch persists and updates waitlist copy', async ({ page, baseUR
   await expect(page.locator('html')).toHaveAttribute('lang', 'tr');
 });
 
-test('waitlist mock submit shows success without claiming live provider', async ({ page, baseURL }) => {
-  await page.goto(`${baseURL ?? '/'}?waitlistMock=1#waitlist`);
+test('waitlist mock submit via explicit meta shows success without claiming live provider', async ({
+  page,
+  baseURL,
+}) => {
+  // Production bundles use meta=api|unavailable and ignore ?waitlistMock=1.
+  // Local/test mock requires rewriting the mode meta before scripts bind.
+  await page.route('**/*', async (route) => {
+    const request = route.request();
+    if (request.resourceType() !== 'document') {
+      await route.continue();
+      return;
+    }
+    const response = await route.fetch();
+    const headers = response.headers();
+    let body = await response.text();
+    body = body.replace(
+      /(<meta name="parkio-waitlist-mode" content=")[^"]*(")/,
+      '$1mock$2',
+    );
+    await route.fulfill({
+      status: response.status(),
+      headers,
+      body,
+    });
+  });
+
+  await page.goto(`${baseURL ?? '/'}#waitlist`);
   await page.locator('#waitlist-email').fill('synthetic-w01a@example.com');
   await page.locator('#waitlist-consent').check();
   await page.locator('#waitlist-form button[type="submit"]').click();
   await expect(page.locator('[data-waitlist-feedback]')).toBeVisible();
   await expect(page.locator('[data-waitlist-feedback]')).toContainText(/Teşekkürler|Thanks/i);
   await expect(page.locator('[data-waitlist-isolated-note]')).toBeVisible();
+});
+
+test('waitlist query mock bypass cannot fake success when meta remains api', async ({ page, baseURL }) => {
+  await page.goto(`${baseURL ?? '/'}?waitlistMock=1#waitlist`);
+  await page.locator('#waitlist-email').fill('synthetic-w01a-bypass@example.com');
+  await page.locator('#waitlist-consent').check();
+  await page.locator('#waitlist-form button[type="submit"]').click();
+  await expect(page.locator('[data-waitlist-feedback]')).toBeVisible();
+  // API call fails in static marketing harness — must not show mock success.
+  await expect(page.locator('[data-waitlist-feedback]')).not.toContainText(/Teşekkürler|Thanks/i);
+  await expect(page.locator('[data-waitlist-isolated-note]')).toBeHidden();
 });
 
 for (const width of [360, 390, 768, 1440]) {
