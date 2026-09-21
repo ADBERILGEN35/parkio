@@ -1,0 +1,24 @@
+# Collector-only production overlay. Apply only after the three read-only source
+# directories have been resolved with `docker inspect --format '{{.LogPath}}'`.
+# This file defines no application service and therefore starts/stops independently.
+
+services:
+  fluent-bit-nr-pilot:
+    environment:
+      PARKIO_ENVIRONMENT: ${PARKIO_ENVIRONMENT:?set the exact production environment label}
+      PARKIO_RELEASE_ID: ${PARKIO_RELEASE_ID:?set the deployed application source or release identity}
+      PARKIO_COLLECTOR_SOURCE_SHA: ${PARKIO_COLLECTOR_SOURCE_SHA:?set the reviewed collector source SHA}
+      PARKIO_NR_PILOT_MARKER: ${PARKIO_NR_PILOT_MARKER:?set a unique non-secret activation marker}
+      PARKIO_NR_LOG_BASE_URI: ${PARKIO_NR_LOG_BASE_URI:?set the account-region Log API endpoint}
+      PARKIO_NR_LOG_API_KEY: ${PARKIO_NR_LOG_API_KEY:?supply a New Relic license key out of band}
+      PARKIO_NR_TLS_VERIFY: "on"
+    volumes: !override
+      - ./fluent-bit/fluent-bit.conf:/fluent-bit/etc/fluent-bit.conf:ro
+      - ./fluent-bit/parsers.conf:/fluent-bit/etc/parkio/parsers.conf:ro
+      - ./fluent-bit/parkio_filters.lua:/fluent-bit/etc/parkio/parkio_filters.lua:ro
+      - nr-pilot-state:/var/fluent-bit/state
+      # Mount the PARENT DIRECTORY of each container's Docker LogPath. The
+      # service-specific target path is the trusted source of the service field.
+      - ${PARKIO_NR_GATEWAY_LOG_DIR:?set gateway Docker log directory}:/var/log/parkio-pilot/gateway-service:ro
+      - ${PARKIO_NR_AUTH_LOG_DIR:?set auth Docker log directory}:/var/log/parkio-pilot/auth-service:ro
+      - ${PARKIO_NR_PARKING_LOG_DIR:?set parking Docker log directory}:/var/log/parkio-pilot/parking-service:ro

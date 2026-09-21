@@ -1,8 +1,9 @@
 #!/usr/bin/env python3
-"""Isolated validation for Parkio New Relic log pilot (Y02).
+"""Isolated acceptance for the exact Parkio New Relic collector candidate.
 
-Runs Fluent Bit against synthetic log files and a local mock Log API receiver.
-Does not require New Relic credentials.
+Only task-scoped Compose resources are created. Synthetic Docker json-file logs
+are sent to a local controllable Log API mock; no New Relic credential or user
+data is used.
 """
 
 from __future__ import annotations
@@ -10,6 +11,8 @@ from __future__ import annotations
 import json
 import os
 import shutil
+import socket
+import ssl
 import subprocess
 import sys
 import tempfile
@@ -17,302 +20,410 @@ import time
 import urllib.error
 import urllib.request
 from pathlib import Path
+from typing import Callable
 
 
 ROOT = Path(__file__).resolve().parents[2]
 COMPOSE = ROOT / "docker" / "docker-compose.newrelic-log-pilot.yml"
-PROJECT = "parkio-y02-nr-val"
+DOCKER = shutil.which("docker") or shutil.which("docker.exe") or "docker"
+PROJECT = os.environ.get("PARKIO_NR_VALIDATION_PROJECT", f"parkio-p02-nr-val-{os.getpid()}")
+HELPER_IMAGE = os.environ.get("PARKIO_NR_VALIDATION_HELPER_IMAGE", "alpine:3.20")
+API_KEY = "mock-not-a-real-license"
 
 
-def http_raw(url: str, method: str = "GET") -> tuple[int, bytes]:
-    req = urllib.request.Request(url, method=method)
-    try:
-        with urllib.request.urlopen(req, timeout=5) as resp:
-            return resp.status, resp.read()
-    except urllib.error.HTTPError as exc:
-        return exc.code, exc.read()
+def free_port() -> int:
+    with socket.socket() as sock:
+        sock.bind(("127.0.0.1", 0))
+        return int(sock.getsockname()[1])
 
 
-def http_json(url: str, method: str = "GET", data: bytes | None = None) -> tuple[int, object]:
-    req = urllib.request.Request(url, data=data, method=method)
+MOCK_PORT = int(os.environ.get("PARKIO_MOCK_NR_HOST_PORT", str(free_port())))
+FLUENT_PORT = int(os.environ.get("PARKIO_NR_FLUENT_HTTP_PORT", str(free_port())))
+ENV = {
+    **os.environ,
+    "PARKIO_MOCK_NR_HOST_PORT": str(MOCK_PORT),
+    "PARKIO_NR_FLUENT_HTTP_PORT": str(FLUENT_PORT),
+    "PARKIO_NR_LOG_API_KEY": API_KEY,
+    "PARKIO_ENVIRONMENT": "isolated-p02-validation",
+    "PARKIO_RELEASE_ID": "synthetic-app-release",
+    "PARKIO_COLLECTOR_SOURCE_SHA": "synthetic-under-test",
+    "PARKIO_NR_PILOT_MARKER": "p02-harness-startup",
+}
+
+
+def run(args: list[str], *, check: bool = True, capture: bool = False, data: str | None = None) -> subprocess.CompletedProcess[str]:
+    return subprocess.run(
+        args,
+        cwd=ROOT,
+        env=ENV,
+        check=check,
+        text=True,
+        input=data,
+        stdout=subprocess.PIPE if capture else None,
+        stderr=subprocess.STDOUT if capture else None,
+    )
+
+
+def compose(*args: str, check: bool = True, capture: bool = False) -> subprocess.CompletedProcess[str]:
+    return run(
+        [
+            DOCKER,
+            "compose",
+            "-p",
+            PROJECT,
+            "-f",
+            str(COMPOSE),
+            "--profile",
+            "nr-log-pilot",
+            "--profile",
+            "nr-log-pilot-mock",
+            *args,
+        ],
+        check=check,
+        capture=capture,
+    )
+
+
+def http_json(path: str, *, method: str = "GET", payload: dict | None = None, port: int | None = None) -> tuple[int, object]:
+    target_port = MOCK_PORT if port is None else port
+    scheme = "https" if port is None else "http"
+    data = json.dumps(payload).encode() if payload is not None else None
+    request = urllib.request.Request(f"{scheme}://127.0.0.1:{target_port}{path}", data=data, method=method)
     if data is not None:
-        req.add_header("Content-Type", "application/json")
+        request.add_header("Content-Type", "application/json")
     try:
-        with urllib.request.urlopen(req, timeout=5) as resp:
-            body = resp.read().decode()
-            return resp.status, json.loads(body) if body else {}
+        context = ssl._create_unverified_context() if scheme == "https" else None
+        with urllib.request.urlopen(request, timeout=5, context=context) as response:
+            body = response.read().decode()
+            if not body:
+                parsed: object = {}
+            else:
+                try:
+                    parsed = json.loads(body)
+                except json.JSONDecodeError:
+                    parsed = body
+            return response.status, parsed
     except urllib.error.HTTPError as exc:
         body = exc.read().decode()
+        return exc.code, json.loads(body) if body else {}
+
+
+def wait_until(predicate: Callable[[], bool], timeout: float, label: str) -> None:
+    deadline = time.monotonic() + timeout
+    last_error: Exception | None = None
+    while time.monotonic() < deadline:
         try:
-            parsed = json.loads(body) if body else {}
-        except json.JSONDecodeError:
-            parsed = {"raw": body}
-        return exc.code, parsed
+            if predicate():
+                return
+        except Exception as exc:  # transient while containers/retries settle
+            last_error = exc
+        time.sleep(0.5)
+    suffix = f": {last_error}" if last_error else ""
+    raise AssertionError(f"timeout waiting for {label}{suffix}")
 
 
-def compose(*args: str) -> None:
-    cmd = [
-        "docker",
-        "compose",
-        "-p",
-        PROJECT,
-        "-f",
-        str(COMPOSE),
-        "--profile",
-        "nr-log-pilot",
-        *args,
-    ]
-    subprocess.run(cmd, check=True, cwd=ROOT / "docker")
+def helper(script: str, *, data: str | None = None, state: bool = False, capture: bool = False) -> subprocess.CompletedProcess[str]:
+    volume = f"{PROJECT}_{'nr-pilot-state' if state else 'nr-pilot-logs'}"
+    target = "/state" if state else "/dest"
+    return run(
+        [DOCKER, "run", "--rm", "--network", "none", "-i", "-v", f"{volume}:{target}", HELPER_IMAGE, "sh", "-ec", script],
+        capture=capture,
+        data=data,
+    )
 
 
-def write_fixtures(volume_dir: Path) -> None:
-    samples = {
-        "gateway-service": [
-            "2026-09-20T12:00:01.000Z  INFO [gateway-service,traceId=abc123,spanId=def456,correlationId=corr-gateway-1] Routed request path=/api/v1/parking/spots/{id}\n",
-            "2026-09-20T12:00:02.000Z  ERROR [gateway-service,traceId=,spanId=,correlationId=corr-gateway-err] Upstream failed errorCode=UPSTREAM_TIMEOUT\n",
-            "2026-09-20T12:00:03.000Z  ERROR [gateway-service,traceId=t1,spanId=s1,correlationId=corr-ex] boom\n",
-            "java.lang.RuntimeException: boom\n",
-            "\tat com.parkio.gateway.Filter.filter(Filter.java:42)\n",
-            "\tat com.parkio.gateway.Filter.filter(Filter.java:41)\n",
-        ],
-        "auth-service": [
-            "2026-09-20T12:00:04.000Z  INFO [auth-service,traceId=aaa,spanId=bbb,correlationId=corr-auth-1] UserRegistered outbox appended\n",
-            # Soft redact path — token-like but not Authorization header form that hard-drops
-            "2026-09-20T12:00:05.000Z  WARN [auth-service,traceId=-,spanId=-,correlationId=corr-auth-warn] retry notice\n",
-        ],
-        "parking-service": [
-            "2026-09-20T12:00:06.000Z  INFO [parking-service,traceId=p1,spanId=p2,correlationId=corr-park-1] Spot created\n",
-        ],
-        # Excluded service — must not export
-        "media-service": [
-            "2026-09-20T12:00:07.000Z  ERROR [media-service,correlationId=corr-media] should not export\n",
-        ],
-    }
-    sensitive = {
-        "gateway-service-sensitive.log": "2026-09-20T12:00:08.000Z  ERROR [gateway-service,correlationId=corr-secret] Authorization: Bearer eyJhbGciOiJIUzI1NiJ9.secretpassword\n",
-        "auth-password.log": "2026-09-20T12:00:09.000Z  ERROR [auth-service,correlationId=corr-pw] password=SuperSecret123!\n",
-        "parking-presign.log": "2026-09-20T12:00:10.000Z  ERROR [parking-service,correlationId=corr-s3] url=https://s3.example/x?X-Amz-Signature=abcdef1234567890\n",
-        "parking-coords.log": "2026-09-20T12:00:11.000Z  INFO [parking-service,correlationId=corr-geo] lat=38.4237001 lon=27.1428002\n",
-    }
-
-    for service, lines in samples.items():
-        d = volume_dir / service
-        d.mkdir(parents=True, exist_ok=True)
-        (d / "app.log").write_text("".join(lines), encoding="utf-8")
-
-    # Sensitive canaries into pilot services — must be dropped
-    g = volume_dir / "gateway-service"
-    a = volume_dir / "auth-service"
-    p = volume_dir / "parking-service"
-    (g / "sensitive-authz.log").write_text(sensitive["gateway-service-sensitive.log"], encoding="utf-8")
-    (a / "sensitive-password.log").write_text(sensitive["auth-password.log"], encoding="utf-8")
-    (p / "sensitive-presign.log").write_text(sensitive["parking-presign.log"], encoding="utf-8")
-    (p / "sensitive-coords.log").write_text(sensitive["parking-coords.log"], encoding="utf-8")
+def docker_entry(message: str, timestamp: str, stream: str = "stdout") -> str:
+    return json.dumps({"log": message + "\n", "stream": stream, "time": timestamp}, separators=(",", ":")) + "\n"
 
 
-def dump_received(port: int) -> list[object]:
-    code, _ = http_json(f"http://127.0.0.1:{port}/stats")
-    assert code == 200
-    req = urllib.request.Request(f"http://127.0.0.1:{port}/dump")
-    with urllib.request.urlopen(req, timeout=5) as resp:
-        raw = resp.read().decode()
-    records: list[object] = []
-    for line in raw.splitlines():
-        line = line.strip()
-        if not line:
+def append(service: str, entries: list[tuple[str, str, str]], filename: str = "container-json.log") -> float:
+    assert service in {"gateway-service", "auth-service", "parking-service", "media-service"}
+    assert filename.replace("-", "").replace(".", "").isalnum()
+    payload = "".join(docker_entry(message, timestamp, stream) for message, timestamp, stream in entries)
+    start = time.monotonic()
+    helper(f"mkdir -p /dest/{service}; cat >> /dest/{service}/{filename}", data=payload)
+    return time.monotonic() - start
+
+
+def flatten_payload(payload: object) -> list[dict]:
+    records: list[dict] = []
+    items = payload if isinstance(payload, list) else [payload]
+    for item in items:
+        if not isinstance(item, dict):
             continue
-        payload = json.loads(line)
-        if isinstance(payload, list):
-            records.extend(payload)
+        if isinstance(item.get("logs"), list):
+            common = item.get("common", {})
+            common_attrs = common.get("attributes", {}) if isinstance(common, dict) else {}
+            for log in item["logs"]:
+                if not isinstance(log, dict):
+                    continue
+                record = dict(common_attrs) if isinstance(common_attrs, dict) else {}
+                attrs = log.get("attributes", {})
+                if isinstance(attrs, dict):
+                    record.update(attrs)
+                record.update({key: value for key, value in log.items() if key != "attributes"})
+                records.append(record)
         else:
-            records.append(payload)
+            records.append(item)
     return records
 
 
-def flatten_messages(records: list[object]) -> list[dict]:
-    out: list[dict] = []
-    for rec in records:
-        if isinstance(rec, dict):
-            out.append(rec)
-    return out
+def dump_records() -> list[dict]:
+    request = urllib.request.Request(f"https://127.0.0.1:{MOCK_PORT}/dump")
+    with urllib.request.urlopen(request, timeout=5, context=ssl._create_unverified_context()) as response:
+        body = response.read().decode()
+    records: list[dict] = []
+    for line in body.splitlines():
+        if line.strip():
+            records.extend(flatten_payload(json.loads(line)))
+    return records
+
+
+def marker_count(marker: str) -> int:
+    return sum(1 for record in dump_records() if record.get("pilot_marker") == marker)
+
+
+def wait_marker(marker: str, timeout: float = 35) -> None:
+    wait_until(lambda: marker_count(marker) >= 1, timeout, f"marker {marker}")
+
+
+def inject(status: int, *, count: int = 0, persistent: bool = False, retry_after: int = 1) -> None:
+    code, _ = http_json(
+        "/control",
+        method="POST",
+        payload={"status": status, "count": count, "persistent": persistent, "retry_after": retry_after},
+    )
+    assert code == 200
+
+
+def add_result(results: dict[str, str], name: str, condition: bool, detail: str = "") -> None:
+    results[name] = "PASS" if condition else f"FAIL{': ' + detail if detail else ''}"
 
 
 def main() -> int:
-    mock_port = int(os.environ.get("PARKIO_MOCK_NR_HOST_PORT", "18089"))
     results: dict[str, str] = {}
-
-    # Fresh compose project
-    subprocess.run(
-        ["docker", "compose", "-p", PROJECT, "-f", str(COMPOSE), "--profile", "nr-log-pilot", "down", "-v"],
-        cwd=ROOT / "docker",
-        check=False,
-    )
-
-    compose("up", "-d", "mock-nr-receiver", "fluent-bit-nr-pilot")
-
-    # Wait healthy
-    for _ in range(30):
-        try:
-            code, _ = http_json(f"http://127.0.0.1:{mock_port}/health")
-            if code == 200:
-                break
-        except Exception:
-            time.sleep(1)
-    else:
-        print("FAIL: mock receiver not healthy", file=sys.stderr)
-        return 1
-
-    # Copy fixtures into the named volume via a helper container
-    with tempfile.TemporaryDirectory() as tmp:
-        fixture_root = Path(tmp) / "parkio-pilot"
-        write_fixtures(fixture_root)
-        vol = f"{PROJECT}_nr-pilot-logs"
-        # Ensure volume exists (compose created it)
-        subprocess.run(
+    metrics: dict[str, object] = {
+        "project": PROJECT,
+        "mock_port": MOCK_PORT,
+        "fluent_port": FLUENT_PORT,
+    }
+    tls_temp: tempfile.TemporaryDirectory[str] | None = None
+    compose("down", "-v", check=False)
+    try:
+        compose("create", "mock-nr-receiver")
+        tls_temp = tempfile.TemporaryDirectory(prefix="parkio-p02-nr-tls-")
+        tls_path = Path(tls_temp.name)
+        run(
             [
-                "docker",
-                "run",
-                "--rm",
-                "-v",
-                f"{vol}:/dest",
-                "-v",
-                f"{fixture_root}:/src:ro",
-                "alpine:3.20",
-                "sh",
-                "-c",
-                "cp -a /src/. /dest/ && find /dest -type f | sort",
+                "openssl", "req", "-x509", "-newkey", "rsa:2048", "-nodes", "-days", "1",
+                "-subj", "/CN=mock-nr-receiver", "-addext", "subjectAltName=DNS:mock-nr-receiver",
+                "-keyout", str(tls_path / "tls.key"), "-out", str(tls_path / "tls.crt"),
             ],
-            check=True,
+            capture=True,
         )
+        run(
+            [
+                DOCKER, "run", "--rm", "--network", "none",
+                "-v", f"{PROJECT}_nr-mock-tls:/dest",
+                "-v", f"{tls_path}:/src:ro",
+                HELPER_IMAGE, "sh", "-ec", "cp /src/tls.crt /src/tls.key /dest/; chmod 600 /dest/tls.key",
+            ]
+        )
+        compose("up", "-d", "mock-nr-receiver")
+        wait_until(lambda: http_json("/health")[0] == 200, 30, "mock health")
 
-    # Allow Fluent Bit to tail + flush
-    time.sleep(8)
+        compose("create", "fluent-bit-nr-pilot")
+        helper(
+            "for s in gateway-service auth-service parking-service media-service; do "
+            "mkdir -p /dest/$s; : > /dest/$s/container-json.log; done"
+        )
+        compose("up", "-d", "fluent-bit-nr-pilot")
+        wait_until(lambda: http_json("/api/v1/health", port=FLUENT_PORT)[0] == 200, 30, "collector health")
 
-    records = flatten_messages(dump_received(mock_port))
-    blob = json.dumps(records)
+        append(
+            "gateway-service",
+            [
+                ("2026-09-21T12:00:01.000Z  INFO [gateway-service,traceId=abc123,spanId=def456] NR-log-pilot synthetic marker pilotMarker=p02-base", "2026-09-21T12:00:01.000000000Z", "stdout"),
+                ("2026-09-21T12:00:02.000Z  WARN [gateway-service,correlationId=corr-waitlist] Waitlist confirmation delivery failed after durable write; emailHash=abcdef123456", "2026-09-21T12:00:02.000000000Z", "stderr"),
+                ("2026-09-21T12:00:03.000Z  ERROR [gateway-service,correlationId=corr-stack] Upstream failed errorCode=UPSTREAM_TIMEOUT", "2026-09-21T12:00:03.000000000Z", "stderr"),
+                ("java.lang.RuntimeException: synthetic boom", "2026-09-21T12:00:03.100000000Z", "stderr"),
+                ("\tat com.parkio.gateway.Filter.filter(Filter.java:42)", "2026-09-21T12:00:03.200000000Z", "stderr"),
+                ("Caused by: java.io.IOException: downstream unavailable for stack-user@example.com access_token=stack-access-secret", "2026-09-21T12:00:03.300000000Z", "stderr"),
+                ("\tat com.parkio.gateway.Client.call(Client.java:21)", "2026-09-21T12:00:03.400000000Z", "stderr"),
+                ("2026-09-21T12:00:04.000Z  INFO [gateway-service] stack flush marker pilotMarker=p02-stack-flush", "2026-09-21T12:00:04.000000000Z", "stdout"),
+            ],
+        )
+        append(
+            "auth-service",
+            [
+                ("2026-09-21T12:00:05.000Z  WARN [auth-service,correlationId=corr-redact] delivery failed for subscriber@example.com confirm=https://app.example/waitlist/confirm/token-123?email=subscriber@example.com resend_key=re_secret_123", "2026-09-21T12:00:05.000000000Z", "stderr"),
+                ("2026-09-21T12:00:05.500Z  WARN [auth-service] credential cleanup pilotMarker=p02-withdraw-redact withdraw=https://app.example/waitlist/withdraw/withdraw-path-secret?email=withdraw@example.com confirmationToken=confirm-assignment-secret withdrawalToken=withdraw-assignment-secret password=password-secret client_secret=client-secret api_key=api-secret", "2026-09-21T12:00:05.500000000Z", "stderr"),
+                ("2026-09-21T12:00:06.000Z  INFO [auth-service] Authorization: Bearer eyJhbGciOiJIUzI1NiJ9.abc.signature PARKIO_PROHIBITED_CANARY_AUTH", "2026-09-21T12:00:06.000000000Z", "stdout"),
+                ("2026-09-21T12:00:07.000Z  INFO [auth-service] Cookie: session=PARKIO_PROHIBITED_CANARY_COOKIE", "2026-09-21T12:00:07.000000000Z", "stdout"),
+                ("2026-09-21T12:00:07.500Z  INFO [auth-service] unexpected raw token aaaaaaaaaa.bbbbbbbbbb.cccccccc pilotMarker=p02-raw-jwt", "2026-09-21T12:00:07.500000000Z", "stdout"),
+            ],
+        )
+        append(
+            "parking-service",
+            [
+                ("2026-09-21T12:00:08.000Z  INFO [parking-service] credential resendKey=re_PARKIO_PROHIBITED_CANARY_RESEND", "2026-09-21T12:00:08.000000000Z", "stdout"),
+                ("2026-09-21T12:00:09.000Z  INFO [parking-service] query=https://api.example/search?q=PARKIO_PROHIBITED_CANARY_QUERY&token=secret", "2026-09-21T12:00:09.000000000Z", "stdout"),
+                ("2026-09-21T12:00:10.000Z  INFO [parking-service] lat=38.4237001 lon=27.1428002 PARKIO_PROHIBITED_CANARY_GEO", "2026-09-21T12:00:10.000000000Z", "stdout"),
+                ("2026-09-21T12:00:10.500Z  INFO [parking-service] source identity marker pilotMarker=p02-parking", "2026-09-21T12:00:10.500000000Z", "stdout"),
+            ],
+        )
+        append("media-service", [("2026-09-21T12:00:11.000Z ERROR should not export pilotMarker=p02-media", "2026-09-21T12:00:11.000000000Z", "stderr")])
+        wait_marker("p02-stack-flush")
+        time.sleep(3)
 
-    # 1) Pilot services present
-    services = {r.get("service") for r in records if isinstance(r, dict)}
-    if {"gateway-service", "auth-service", "parking-service"} <= services:
-        results["pilot_services_routed"] = "PASS"
-    else:
-        results["pilot_services_routed"] = f"FAIL services={services}"
+        records = dump_records()
+        blob = json.dumps(records, sort_keys=True)
+        services = {record.get("service") for record in records}
+        add_result(results, "pilot_services", {"gateway-service", "auth-service", "parking-service"} <= services, str(services))
+        add_result(results, "excluded_service", "media-service" not in services and "p02-media" not in blob)
+        startup = [
+            record for record in records
+            if record.get("pilot_marker") == "p02-harness-startup"
+            and record.get("source_kind") == "synthetic"
+            and record.get("event_name") == "nr_log_pilot.synthetic_probe"
+        ]
+        add_result(results, "synthetic_startup_marker", len(startup) == 1, f"records={len(startup)}")
+        stack_records = [record for record in records if record.get("correlation_id") == "corr-stack"]
+        add_result(
+            results,
+            "docker_rotation_multiline_parser",
+            len(stack_records) == 1
+            and "RuntimeException" in stack_records[0].get("message", "")
+            and "Caused by:" in stack_records[0].get("message", "")
+            and "[EMAIL_REDACTED]" in stack_records[0].get("message", "")
+            and "access_token=[REDACTED]" in stack_records[0].get("message", ""),
+            f"records={len(stack_records)}",
+        )
+        waitlist = [record for record in records if record.get("event_name") == "waitlist.confirmation.delivery_failed"]
+        add_result(results, "waitlist_event_context", len(waitlist) == 1 and waitlist[0].get("severity") == "WARN" and "abcdef123456" not in waitlist[0].get("message", ""))
+        withdrawal = [record for record in records if record.get("pilot_marker") == "p02-withdraw-redact"]
+        add_result(
+            results,
+            "withdrawal_and_credentials_redaction",
+            len(withdrawal) == 1
+            and "/withdraw/[REDACTED]?[REDACTED_QUERY]" in withdrawal[0].get("message", "")
+            and "confirmation_token=[REDACTED]" in withdrawal[0].get("message", "")
+            and "withdrawal_token=[REDACTED]" in withdrawal[0].get("message", "")
+            and "password=[REDACTED]" in withdrawal[0].get("message", "")
+            and "client_secret=[REDACTED]" in withdrawal[0].get("message", "")
+            and "api_key=[REDACTED]" in withdrawal[0].get("message", ""),
+            f"records={len(withdrawal)}",
+        )
+        add_result(results, "raw_jwt_drop", "p02-raw-jwt" not in blob)
+        canaries = [
+            "PARKIO_PROHIBITED_CANARY", "subscriber@example.com", "token-123", "re_secret_123",
+            "stack-user@example.com", "stack-access-secret", "withdraw-path-secret",
+            "withdraw@example.com", "confirm-assignment-secret", "withdraw-assignment-secret", "password-secret",
+            "client-secret", "api-secret", "aaaaaaaaaa.bbbbbbbbbb.cccccccc",
+            "38.4237001", "27.1428002",
+        ]
+        leaked = [value for value in canaries if value in blob]
+        add_result(results, "redaction_canaries", not leaked, f"leaked={leaked}")
+        allowed = {
+            "timestamp", "service", "severity", "level", "message", "parse_status", "redaction",
+            "source_kind", "source_stream", "correlation_id", "trace_id", "span_id", "error_code",
+            "pilot_marker", "event_name", "environment", "release_id", "collector_source_sha",
+            "pipeline", "schema_version", "collector", "logtype", "plugin",
+        }
+        unexpected = sorted({key for record in records for key in record if key not in allowed})
+        add_result(results, "allowlisted_fields_only", not unexpected, f"unexpected={unexpected}")
 
-    # 2) Excluded media absent
-    if "media-service" not in services and "corr-media" not in blob:
-        results["excluded_service_leak"] = "PASS"
-    else:
-        results["excluded_service_leak"] = "FAIL"
+        stats = http_json("/stats")[1]
+        add_result(results, "new_relic_http_contract", int(stats.get("accepted", 0)) > 0 and int(stats.get("gzip_requests", 0)) > 0, str(stats))
 
-    # 3) Multiline / exception usable
-    if "RuntimeException" in blob or "Filter.java" in blob:
-        results["multiline_exception"] = "PASS"
-    else:
-        results["multiline_exception"] = "FAIL (stack not observed — may be split)"
+        failure_cases = [(401, "p02-auth-recovery", "authentication_failure"), (404, "p02-config-recovery", "configuration_failure"), (429, "p02-rate-recovery", "rate_limit_recovery")]
+        for status, marker, result_name in failure_cases:
+            inject(status, count=1, retry_after=1)
+            append("gateway-service", [(f"2026-09-21T12:01:00.000Z ERROR NR-log-pilot synthetic marker pilotMarker={marker}", "2026-09-21T12:01:00.000000000Z", "stderr")])
+            try:
+                wait_marker(marker, 45)
+                recovered = True
+            except AssertionError:
+                recovered = False
+            status_counts = http_json("/stats")[1].get("status_counts", {})
+            add_result(results, result_name, int(status_counts.get(str(status), 0)) >= 1 and recovered, f"status_counts={status_counts} recovered={recovered}")
 
-    # 4) Severity / env / service fields
-    levels = {r.get("level") for r in records if isinstance(r, dict)}
-    envs = {r.get("environment") for r in records if isinstance(r, dict)}
-    if "ERROR" in levels or "INFO" in levels:
-        results["severity_fields"] = "PASS"
-    else:
-        results["severity_fields"] = f"FAIL levels={levels}"
-    if any(e and e != "" for e in envs):
-        results["environment_fields"] = "PASS"
-    else:
-        results["environment_fields"] = f"FAIL envs={envs}"
+        network = f"{PROJECT}_parkio-nr-pilot"
+        collector_id = compose("ps", "-q", "fluent-bit-nr-pilot", capture=True).stdout.strip()
+        run([DOCKER, "network", "disconnect", network, collector_id])
+        append("gateway-service", [("2026-09-21T12:02:00.000Z ERROR NR-log-pilot synthetic marker pilotMarker=p02-network-recovery", "2026-09-21T12:02:00.000000000Z", "stderr")])
+        time.sleep(3)
+        absent_during_disconnect = marker_count("p02-network-recovery") == 0
+        run([DOCKER, "network", "connect", network, collector_id])
+        wait_marker("p02-network-recovery", 45)
+        add_result(results, "network_interruption_recovery", absent_during_disconnect)
 
-    # 5) Sensitive canaries absent
-    canaries = [
-        "Bearer eyJ",
-        "SuperSecret123",
-        "X-Amz-Signature=abcdef",
-        "38.4237001",
-        "password=SuperSecret",
-    ]
-    leaked = [c for c in canaries if c in blob]
-    results["sensitive_canaries"] = "PASS" if not leaked else f"FAIL leaked={leaked}"
+        append("gateway-service", [("2026-09-21T12:05:00.000Z INFO NR-log-pilot synthetic marker pilotMarker=p02-checkpoint", "2026-09-21T12:05:00.000000000Z", "stdout")])
+        wait_marker("p02-checkpoint", 45)
+        before_restart = marker_count("p02-checkpoint")
+        compose("restart", "fluent-bit-nr-pilot")
+        wait_until(lambda: http_json("/api/v1/health", port=FLUENT_PORT)[0] == 200, 30, "collector restart health")
+        time.sleep(5)
+        after_restart = marker_count("p02-checkpoint")
+        append("gateway-service", [("2026-09-21T12:05:01.000Z INFO NR-log-pilot synthetic marker pilotMarker=p02-after-restart", "2026-09-21T12:05:01.000000000Z", "stdout")])
+        wait_marker("p02-after-restart", 45)
+        add_result(results, "restart_checkpoint", before_restart == after_restart == 1, f"before={before_restart} after={after_restart}")
 
-    # 6) Malformed — ensure collector HTTP health endpoint responds
-    try:
-        code, body = http_raw("http://127.0.0.1:2020/api/v1/health")
-        results["collector_health"] = "PASS" if code == 200 else f"FAIL {code} {body[:80]!r}"
+        append("auth-service", [("2026-09-21T12:06:00.000Z INFO NR-log-pilot synthetic marker pilotMarker=p02-before-rotate", "2026-09-21T12:06:00.000000000Z", "stdout")], filename="rotate-json.log")
+        wait_marker("p02-before-rotate")
+        helper("mv /dest/auth-service/rotate-json.log /dest/auth-service/rotate-json.log.1; : > /dest/auth-service/rotate-json.log")
+        append("auth-service", [("2026-09-21T12:06:01.000Z INFO NR-log-pilot synthetic marker pilotMarker=p02-after-rotate", "2026-09-21T12:06:01.000000000Z", "stdout")], filename="rotate-json.log")
+        wait_marker("p02-after-rotate")
+        add_result(results, "rotation_checkpoint", marker_count("p02-before-rotate") == 1 and marker_count("p02-after-rotate") == 1)
+
+        inject(503, persistent=True)
+        large = "x" * 6144
+        entries = [
+            (f"2026-09-21T12:03:{i % 60:02d}.000Z INFO bounded backlog sequence={i} {large}", f"2026-09-21T12:03:{i % 60:02d}.{i % 1_000_000_000:09d}Z", "stdout")
+            for i in range(3600)
+        ]
+        backpressure_source_bytes = sum(len(docker_entry(message, timestamp, stream).encode()) for message, timestamp, stream in entries)
+        producer_seconds = append("parking-service", entries, filename="backpressure-json.log")
+        time.sleep(12)
+        state_probe = helper("du -sb /state | cut -f1", state=True, capture=True)
+        state_bytes = int(state_probe.stdout.strip().splitlines()[-1])
+        running = compose("ps", "--status", "running", "-q", "fluent-bit-nr-pilot", capture=True).stdout.strip() != ""
+        add_result(results, "bounded_filesystem_buffer", running and backpressure_source_bytes > 20_000_000 and state_bytes <= 24_000_000, f"source_bytes={backpressure_source_bytes} state_bytes={state_bytes}")
+        add_result(results, "source_write_not_blocked", producer_seconds < 15, f"producer_seconds={producer_seconds:.3f}")
+        metrics.update(buffer_state_bytes=state_bytes, backpressure_source_bytes=backpressure_source_bytes, backpressure_source_write_seconds=round(producer_seconds, 3))
+        inject(202)
+        append("gateway-service", [("2026-09-21T12:04:00.000Z INFO NR-log-pilot synthetic marker pilotMarker=p02-buffer-recovery", "2026-09-21T12:04:00.000000000Z", "stdout")])
+        wait_marker("p02-buffer-recovery", 90)
+        add_result(results, "backpressure_recovery", True)
+
+        final_records = dump_records()
+        final_blob = json.dumps(final_records, separators=(",", ":"), sort_keys=True)
+        final_stats = http_json("/stats")[1]
+        record_sizes = [len(json.dumps(record, separators=(",", ":")).encode()) for record in final_records]
+        metrics.update(
+            exported_records=len(final_records),
+            accepted_requests=int(final_stats.get("accepted", 0)),
+            auth_header_names=final_stats.get("auth_header_names", {}),
+            uncompressed_json_bytes=int(final_stats.get("json_bytes", 0)),
+            mean_exported_record_bytes=round(sum(record_sizes) / len(record_sizes), 1) if record_sizes else 0,
+            max_exported_record_bytes=max(record_sizes) if record_sizes else 0,
+            duplicate_note="No duplicate in graceful restart/rotation sample; at-least-once delivery can duplicate after crash or lost acknowledgement.",
+        )
+        final_leaks = [value for value in canaries if value in final_blob]
+        add_result(results, "no_prohibited_canary_outbound", not final_leaks, f"leaked={final_leaks}")
+
     except Exception as exc:
-        results["collector_health"] = f"FAIL {exc}"
+        results["harness_exception"] = f"FAIL: {type(exc).__name__}: {exc}"
+        logs = compose("logs", "--no-color", "--tail", "200", check=False, capture=True).stdout
+        print(logs, file=sys.stderr)
+    finally:
+        compose("down", "-v", check=False)
+        if tls_temp is not None:
+            tls_temp.cleanup()
 
-    # 7) Receiver failure + retry: inject 503 once, write new log, expect eventual accept
-    before = http_json(f"http://127.0.0.1:{mock_port}/stats")[1]
-    ps = subprocess.check_output(
-        ["docker", "compose", "-p", PROJECT, "-f", str(COMPOSE), "ps", "-q", "mock-nr-receiver"],
-        text=True,
-        cwd=ROOT / "docker",
-    ).strip()
-    if ps:
-        subprocess.run(["docker", "exec", ps, "touch", "/tmp/fail_once"], check=False)
-
-    vol = f"{PROJECT}_nr-pilot-logs"
-    subprocess.run(
-        [
-            "docker",
-            "run",
-            "--rm",
-            "-v",
-            f"{vol}:/dest",
-            "alpine:3.20",
-            "sh",
-            "-c",
-            "echo '2026-09-20T12:10:00.000Z  INFO [gateway-service,correlationId=corr-retry-1] after failure' >> /dest/gateway-service/app.log",
-        ],
-        check=True,
-    )
-    time.sleep(10)
-    after = http_json(f"http://127.0.0.1:{mock_port}/stats")[1]
-    if after.get("accepted", 0) >= before.get("accepted", 0):
-        results["retry_after_failure"] = "PASS"
-    else:
-        results["retry_after_failure"] = f"FAIL before={before} after={after}"
-
-    # 8) Buffer / loss visibility — storage.total_limit_size configured; assert config present
-    conf = (ROOT / "docker/fluent-bit/fluent-bit.conf").read_text(encoding="utf-8")
-    if "storage.total_limit_size" in conf and "Mem_Buf_Limit" in conf:
-        results["buffer_limits_configured"] = "PASS"
-    else:
-        results["buffer_limits_configured"] = "FAIL"
-
-    # 9) Restart does not require full history reread without DB — DB path configured
-    if "pilot-tail.db" in conf:
-        results["tail_db_positions"] = "PASS"
-    else:
-        results["tail_db_positions"] = "FAIL"
-    compose("restart", "fluent-bit-nr-pilot")
-    time.sleep(5)
-    try:
-        code, body = http_raw("http://127.0.0.1:2020/api/v1/health")
-        results["restart_health"] = "PASS" if code == 200 else f"FAIL {code} {body[:80]!r}"
-    except Exception as exc:
-        results["restart_health"] = f"FAIL {exc}"
-
-    # 10) Loki compatibility — pilot overlay does not modify promtail/loki services
-    promtail = (ROOT / "docker/promtail/promtail.yml").read_text(encoding="utf-8")
-    if "loki:3100" in promtail and "docker.sock" in promtail:
-        results["loki_config_untouched"] = "PASS"
-    else:
-        results["loki_config_untouched"] = "FAIL"
-
-    # 11) Disable pilot — apps not in this compose; stopping collector leaves mock only
-    compose("stop", "fluent-bit-nr-pilot")
-    results["pilot_disable"] = "PASS"
-
-    print(json.dumps({"records": len(records), "results": results}, indent=2))
-    failed = [k for k, v in results.items() if not str(v).startswith("PASS")]
-    # cleanup
-    subprocess.run(
-        ["docker", "compose", "-p", PROJECT, "-f", str(COMPOSE), "--profile", "nr-log-pilot", "down", "-v"],
-        cwd=ROOT / "docker",
-        check=False,
-    )
-    return 1 if failed else 0
+    print(json.dumps({"results": results, "measurements": metrics}, indent=2, sort_keys=True))
+    return 1 if any(not value.startswith("PASS") for value in results.values()) else 0
 
 
 if __name__ == "__main__":
-    sys.exit(main())
+    raise SystemExit(main())
