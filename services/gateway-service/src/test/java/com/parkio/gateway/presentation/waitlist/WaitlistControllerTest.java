@@ -6,6 +6,10 @@ import static org.mockito.Mockito.when;
 import com.parkio.gateway.application.waitlist.WaitlistEmailSender;
 import com.parkio.gateway.application.waitlist.WaitlistRateLimitExceededException;
 import com.parkio.gateway.application.waitlist.WaitlistRateLimiter;
+import com.parkio.gateway.infrastructure.security.AuthenticatedUser;
+import com.parkio.gateway.infrastructure.security.JwtTokenValidator;
+import java.util.List;
+import java.util.UUID;
 import java.util.concurrent.atomic.AtomicReference;
 import java.time.Instant;
 import org.junit.jupiter.api.BeforeEach;
@@ -14,6 +18,7 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.autoconfigure.web.reactive.AutoConfigureWebTestClient;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.boot.test.mock.mockito.MockBean;
+import org.springframework.http.HttpHeaders;
 import org.springframework.http.MediaType;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.test.context.ActiveProfiles;
@@ -37,12 +42,29 @@ class WaitlistControllerTest {
     @MockBean
     private WaitlistEmailSender emailSender;
 
+    @MockBean
+    private JwtTokenValidator tokenValidator;
+
     private final AtomicReference<String> lastVerificationToken = new AtomicReference<>();
     private final AtomicReference<String> lastWithdrawToken = new AtomicReference<>();
 
     @BeforeEach
     void setUp() {
         when(rateLimiter.check(anyString(), anyString())).thenReturn(Mono.empty());
+        when(tokenValidator.validate("admin-token")).thenReturn(Mono.just(
+                new AuthenticatedUser(UUID.randomUUID().toString(), "admin@parkio.test",
+                        List.of("ADMIN"), "ACTIVE", 0L)));
+        when(tokenValidator.validate("user-token")).thenReturn(Mono.just(
+                new AuthenticatedUser(UUID.randomUUID().toString(), "user@parkio.test",
+                        List.of("USER"), "ACTIVE", 0L)));
+        when(tokenValidator.validate("moderator-token")).thenReturn(Mono.just(
+                new AuthenticatedUser(UUID.randomUUID().toString(), "mod@parkio.test",
+                        List.of("MODERATOR"), "ACTIVE", 0L)));
+        when(tokenValidator.validate("super-token")).thenReturn(Mono.just(
+                new AuthenticatedUser(UUID.randomUUID().toString(), "super@parkio.test",
+                        List.of("SUPER_ADMIN"), "ACTIVE", 0L)));
+        when(tokenValidator.validate("expired-token"))
+                .thenReturn(Mono.error(new IllegalArgumentException("expired")));
         lastVerificationToken.set(null);
         lastWithdrawToken.set(null);
         org.mockito.Mockito.doAnswer(invocation -> {
@@ -359,8 +381,6 @@ class WaitlistControllerTest {
                 .exchange()
                 .expectStatus().isAccepted();
 
-        // Export requires auth in production filters; controller method itself is reachable in
-        // WebTestClient without the global auth filter stack for this slice — assert repository filter.
         Integer confirmed = jdbcTemplate.queryForObject(
                 "SELECT COUNT(*) FROM waitlist_interest WHERE status = 'CONFIRMED'",
                 Integer.class);
@@ -369,6 +389,68 @@ class WaitlistControllerTest {
                 Integer.class);
         org.assertj.core.api.Assertions.assertThat(confirmed).isEqualTo(1);
         org.assertj.core.api.Assertions.assertThat(pending).isEqualTo(1);
+
+        String body = webTestClient.get()
+                .uri("/api/v1/waitlist/export")
+                .header(HttpHeaders.AUTHORIZATION, "Bearer admin-token")
+                .exchange()
+                .expectStatus().isOk()
+                .expectBody(String.class)
+                .returnResult()
+                .getResponseBody();
+        org.assertj.core.api.Assertions.assertThat(body).contains("will-confirm@parkio.dev");
+        org.assertj.core.api.Assertions.assertThat(body).doesNotContain("only-pending@parkio.dev");
+        org.assertj.core.api.Assertions.assertThat(body).doesNotContain("verification_token");
+        org.assertj.core.api.Assertions.assertThat(body).doesNotContain("email_hash");
+
+        webTestClient.get()
+                .uri("/api/v1/waitlist/export")
+                .header(HttpHeaders.AUTHORIZATION, "Bearer super-token")
+                .exchange()
+                .expectStatus().isOk();
+
+        webTestClient.get()
+                .uri("/api/v1/waitlist/export")
+                .exchange()
+                .expectStatus().isUnauthorized()
+                .expectBody()
+                .jsonPath("$.code").isEqualTo("MISSING_TOKEN")
+                .jsonPath("$.message").value(msg ->
+                        org.assertj.core.api.Assertions.assertThat((String) msg)
+                                .doesNotContain("will-confirm@parkio.dev"));
+
+        webTestClient.get()
+                .uri("/api/v1/waitlist/export/")
+                .exchange()
+                .expectStatus().isUnauthorized();
+
+        webTestClient.get()
+                .uri("/api/v1/waitlist/export")
+                .header(HttpHeaders.AUTHORIZATION, "Bearer user-token")
+                .exchange()
+                .expectStatus().isForbidden()
+                .expectBody()
+                .jsonPath("$.code").isEqualTo("FORBIDDEN");
+
+        webTestClient.get()
+                .uri("/api/v1/waitlist/export")
+                .header(HttpHeaders.AUTHORIZATION, "Bearer moderator-token")
+                .exchange()
+                .expectStatus().isForbidden();
+
+        webTestClient.get()
+                .uri("/api/v1/waitlist/export")
+                .header(HttpHeaders.AUTHORIZATION, "Bearer expired-token")
+                .exchange()
+                .expectStatus().isUnauthorized()
+                .expectBody()
+                .jsonPath("$.code").isEqualTo("INVALID_TOKEN");
+
+        // Intended admin family is denied even when the controller route is not yet present.
+        webTestClient.get()
+                .uri("/api/v1/waitlist/admin/summary")
+                .exchange()
+                .expectStatus().isUnauthorized();
     }
 
     private void postAccepted(String email) {
