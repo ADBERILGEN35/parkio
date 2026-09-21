@@ -17,6 +17,7 @@ if (!Number.isInteger(port) || port < 0 || port > 65535) {
 const contentTypes = new Map([
   ['.css', 'text/css; charset=utf-8'],
   ['.html', 'text/html; charset=utf-8'],
+  ['.js', 'text/javascript; charset=utf-8'],
   ['.png', 'image/png'],
   ['.txt', 'text/plain; charset=utf-8'],
   ['.webmanifest', 'application/manifest+json; charset=utf-8'],

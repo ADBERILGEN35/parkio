@@ -15,5 +15,6 @@ public record SubmitWaitlistRequest(
         @Pattern(regexp = "^(?!\\s*[+-]?\\d+(?:\\.\\d+)?\\s*,\\s*[+-]?\\d+(?:\\.\\d+)?\\s*$).*$")
         String city,
         @Pattern(regexp = "driver|tester|partner") String role,
-        @NotBlank @Pattern(regexp = "parkio\\.dev-landing") String source) {
+        @NotBlank @Pattern(regexp = "parkio\\.dev-landing") String source,
+        @Pattern(regexp = "tr|en") String locale) {
 }

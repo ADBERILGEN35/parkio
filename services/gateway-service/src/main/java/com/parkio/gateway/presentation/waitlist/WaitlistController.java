@@ -27,6 +27,8 @@ import reactor.core.publisher.Mono;
 public class WaitlistController {
 
     private static final WaitlistAcceptedResponse ACCEPTED = new WaitlistAcceptedResponse("accepted");
+    private static final WaitlistAcceptedResponse CONFIRMED = new WaitlistAcceptedResponse("confirmed");
+    private static final WaitlistAcceptedResponse WITHDRAWN = new WaitlistAcceptedResponse("withdrawn");
 
     private final WaitlistApplicationService waitlistService;
     private final ClientIpResolver clientIpResolver;
@@ -48,9 +50,31 @@ public class WaitlistController {
                 request.city(),
                 request.role(),
                 request.source(),
+                request.locale(),
                 clientIp,
                 userAgent);
         return waitlistService.submit(command)
+                .thenReturn(ResponseEntity.status(HttpStatus.ACCEPTED).body(ACCEPTED));
+    }
+
+    @PostMapping("/api/v1/waitlist/confirm")
+    public Mono<ResponseEntity<WaitlistAcceptedResponse>> confirm(@Valid @RequestBody WaitlistTokenRequest request) {
+        return waitlistService.confirm(request.token())
+                .thenReturn(ResponseEntity.status(HttpStatus.ACCEPTED).body(CONFIRMED));
+    }
+
+    @PostMapping("/api/v1/waitlist/withdraw")
+    public Mono<ResponseEntity<WaitlistAcceptedResponse>> withdraw(@Valid @RequestBody WaitlistTokenRequest request) {
+        return waitlistService.withdraw(request.token())
+                .thenReturn(ResponseEntity.status(HttpStatus.ACCEPTED).body(WITHDRAWN));
+    }
+
+    @PostMapping("/api/v1/waitlist/resend")
+    public Mono<ResponseEntity<WaitlistAcceptedResponse>> resend(
+            @Valid @RequestBody ResendWaitlistRequest request,
+            ServerWebExchange exchange) {
+        String clientIp = clientIpResolver.resolve(exchange.getRequest());
+        return waitlistService.resend(request.email(), clientIp)
                 .thenReturn(ResponseEntity.status(HttpStatus.ACCEPTED).body(ACCEPTED));
     }
 

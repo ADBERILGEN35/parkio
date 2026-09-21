@@ -37,15 +37,18 @@ guess additional social profiles.
 Public Explore is live. Marketing CTAs must use:
 
 ```text
-CTA: Explore parking
+CTA: Explore parking / Park alanı keşfet
 Target: https://app.parkio.dev/explore
 Context: Account registration remains closed. · no account required for Explore.
 Secondary: Sign in → https://app.parkio.dev/
+Secondary (registration notify): waitlist section → POST https://api.parkio.dev/api/v1/waitlist
 ```
 
-Apply that CTA consistently to the header, hero, Parkio-today panel, footer, and 404
-page. Do not use waitlist, signup, or “create account” as the primary acquisition CTA.
-Product screenshots remain optional; the live Explore route is the product evidence.
+Turkish is the default document language for a fresh visit. Persist explicit language choice in
+`localStorage` key `parkio.marketing.locale`. Keep Explore as the primary acquisition CTA.
+The waitlist collects email only for “notify when registration opens” with double opt-in via
+gateway APIs (`/waitlist`, `/waitlist/confirm`, `/waitlist/withdraw`). Do not use create-account
+as the primary CTA.
 
 ## Manual deployment boundary
 
@@ -71,7 +74,26 @@ Downloads ZIP, is the canonical rollback source after 01D.
 
 After rollback, verify the same critical URLs and hashes before declaring recovery.
 
-## Local limitation
+## Waitlist / gateway publication sequencing (W01B)
+
+Do not publish a live-looking waitlist form on Hostinger before the gateway waitlist
+API and email path are operational.
+
+Required order:
+
+1. Source merge of the waitlist PR into the authorized deploy branch (when approved).
+2. Build/scan/publish a new **gateway** image; update only the gateway digest in
+   `docker/docker-compose.gmp-release-pins.yml` (preserve media and parking pins).
+3. Deploy gateway with Flyway V1→V2 on `parkio_gateway`, CORS including
+   `https://parkio.dev`, and `PARKIO_WAITLIST_EMAIL_PROVIDER=resend` with
+   `PARKIO_WAITLIST_ALLOW_LOGGING_PROVIDER=false`.
+4. Authorized live email + persistence acceptance with a test address.
+5. Hostinger upload of `web/marketing/` from the exact approved SHA.
+
+Rollback: revert Hostinger static tree and/or gateway image pin independently.
+Do not run destructive down-migrations; preserve `waitlist_interest` rows.
+
+
 
 The deterministic validator checks the required `.htaccess` directives statically. Its
 local Node server validates routes, content types, links, assets, crawler equivalence, and

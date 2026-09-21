@@ -341,9 +341,21 @@ parkio:
       request-timeout: ${PARKIO_SESSION_EPOCH_TIMEOUT:PT2S}
   waitlist:
     hash-secret: ${PARKIO_WAITLIST_HASH_SECRET:${PARKIO_GATEWAY_INTERNAL_SECRET:}}
+    confirm-base-url: ${PARKIO_WAITLIST_CONFIRM_URL:https://parkio.dev/waitlist/confirm/}
+    withdraw-base-url: ${PARKIO_WAITLIST_WITHDRAW_URL:https://parkio.dev/waitlist/unsubscribe/}
+    token-ttl: ${PARKIO_WAITLIST_TOKEN_TTL:PT48H}
+    max-resends: ${PARKIO_WAITLIST_MAX_RESENDS:5}
+    resend-cooldown: ${PARKIO_WAITLIST_RESEND_COOLDOWN:PT5M}
     ip-rate-limit:
       max-attempts: ${PARKIO_WAITLIST_IP_RATE_LIMIT_MAX:10}
       window: ${PARKIO_WAITLIST_IP_RATE_LIMIT_WINDOW:PT1H}
     email-rate-limit:
       max-attempts: ${PARKIO_WAITLIST_EMAIL_RATE_LIMIT_MAX:3}
       window: ${PARKIO_WAITLIST_EMAIL_RATE_LIMIT_WINDOW:PT1H}
+    email:
+      provider: ${PARKIO_WAITLIST_EMAIL_PROVIDER:logging}
+      allow-logging-provider: ${PARKIO_WAITLIST_ALLOW_LOGGING_PROVIDER:true}
+      from: ${PARKIO_WAITLIST_EMAIL_FROM:${PARKIO_EMAIL_FROM:}}
+      reply-to: ${PARKIO_WAITLIST_EMAIL_REPLY_TO:${PARKIO_EMAIL_REPLY_TO:}}
+      resend-api-key: ${PARKIO_WAITLIST_RESEND_API_KEY:${PARKIO_RESEND_API_KEY:}}
+      resend-base-url: ${PARKIO_WAITLIST_RESEND_BASE_URL:https://api.resend.com}

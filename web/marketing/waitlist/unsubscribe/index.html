@@ -1,0 +1,49 @@
+<!doctype html>
+<html lang="tr">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>Parkio | Bildirim listesinden çıkış</title>
+  <meta name="robots" content="noindex,nofollow">
+  <meta name="parkio-waitlist-api" content="https://api.parkio.dev/api/v1">
+  <meta name="parkio-waitlist-mode" content="api">
+  <link rel="icon" type="image/png" sizes="32x32" href="/assets/favicon-32.png">
+  <link rel="stylesheet" href="/styles.css">
+</head>
+<body>
+<a class="skip-link" href="#main">İçeriğe atla</a>
+<header class="site-header"><div class="container nav"><a class="brand" href="/" aria-label="Parkio home"><span class="brand-mark"><img src="/assets/parkio-logo.png" alt="Parkio logo" width="44" height="44"></span><span class="brand-copy"><span class="brand-name">Parkio</span><span class="brand-tagline">Park zekâsı</span></span></a>
+<div class="lang-switch" role="group" aria-label="Dil seçimi"><button type="button" class="lang-btn is-active" data-lang-option="tr" aria-pressed="true">TR</button><button type="button" class="lang-btn" data-lang-option="en" aria-pressed="false">EN</button></div>
+<a class="btn btn-secondary btn-sm" href="/">Parkio</a></div></header>
+<main id="main" class="legal">
+  <div class="container legal-wrap">
+    <div class="kicker">Kayıt bildirimi</div>
+    <h1>Bildirim listesinden çıkın</h1>
+    <p>Bu işlem e-posta adresinizi kayıt bildirim listesinden siler. Hesap oluşturulmaz veya silinmez; yalnızca bildirim kaydı etkilenir.</p>
+    <form id="waitlist-withdraw-form" class="waitlist-panel" novalidate>
+      <button class="btn btn-primary" type="submit">Listeden çıkar</button>
+      <p class="waitlist-feedback" data-waitlist-feedback role="status" aria-live="polite" hidden></p>
+      <p class="waitlist-isolated" data-waitlist-isolated-note hidden></p>
+    </form>
+    <p class="legal-note">Alternatif silme talepleri: <a href="mailto:info@parkio.dev">info@parkio.dev</a>.</p>
+  </div>
+</main>
+<script src="/i18n.js" defer></script>
+<script src="/waitlist.js" defer></script>
+<script>
+document.addEventListener('DOMContentLoaded', function () {
+  function applyCopy(locale) {
+    var tr = locale !== 'en';
+    document.title = tr ? 'Parkio | Bildirim listesinden çıkış' : 'Parkio | Leave notification list';
+    document.querySelector('h1').textContent = tr ? 'Bildirim listesinden çıkın' : 'Leave the notification list';
+    document.querySelector('main p').textContent = tr
+      ? 'Bu işlem e-posta adresinizi kayıt bildirim listesinden siler. Hesap oluşturulmaz veya silinmez; yalnızca bildirim kaydı etkilenir.'
+      : 'This removes your email from the registration notification list. No application account is created or deleted.';
+    document.querySelector('#waitlist-withdraw-form button').textContent = tr ? 'Listeden çıkar' : 'Remove me';
+  }
+  document.addEventListener('parkio:locale', function (e) { applyCopy(e.detail.locale); });
+  applyCopy(window.ParkioI18n ? window.ParkioI18n.resolveLocale() : 'tr');
+});
+</script>
+</body>
+</html>

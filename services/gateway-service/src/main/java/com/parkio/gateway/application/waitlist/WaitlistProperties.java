@@ -1,6 +1,7 @@
 package com.parkio.gateway.application.waitlist;
 
 import jakarta.validation.Valid;
+import jakarta.validation.constraints.Email;
 import jakarta.validation.constraints.Min;
 import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.NotNull;
@@ -15,6 +16,21 @@ public class WaitlistProperties {
     @NotBlank
     private String hashSecret;
 
+    @NotBlank
+    private String confirmBaseUrl = "https://parkio.dev/waitlist/confirm/";
+
+    @NotBlank
+    private String withdrawBaseUrl = "https://parkio.dev/waitlist/unsubscribe/";
+
+    @NotNull
+    private Duration tokenTtl = Duration.ofHours(48);
+
+    @Min(1)
+    private int maxResends = 5;
+
+    @NotNull
+    private Duration resendCooldown = Duration.ofMinutes(5);
+
     @Valid
     @NotNull
     private RateLimit ipRateLimit = new RateLimit();
@@ -23,12 +39,56 @@ public class WaitlistProperties {
     @NotNull
     private RateLimit emailRateLimit = new RateLimit();
 
+    @Valid
+    @NotNull
+    private Email email = new Email();
+
     public String getHashSecret() {
         return hashSecret;
     }
 
     public void setHashSecret(String hashSecret) {
         this.hashSecret = hashSecret;
+    }
+
+    public String getConfirmBaseUrl() {
+        return confirmBaseUrl;
+    }
+
+    public void setConfirmBaseUrl(String confirmBaseUrl) {
+        this.confirmBaseUrl = confirmBaseUrl;
+    }
+
+    public String getWithdrawBaseUrl() {
+        return withdrawBaseUrl;
+    }
+
+    public void setWithdrawBaseUrl(String withdrawBaseUrl) {
+        this.withdrawBaseUrl = withdrawBaseUrl;
+    }
+
+    public Duration getTokenTtl() {
+        return tokenTtl;
+    }
+
+    public void setTokenTtl(Duration tokenTtl) {
+        this.tokenTtl = tokenTtl;
+    }
+
+    public int getMaxResends() {
+        return maxResends;
+    }
+
+    public void setMaxResends(int maxResends) {
+        this.maxResends = maxResends;
+    }
+
+    public Duration getResendCooldown() {
+        return resendCooldown;
+    }
+
+    public void setResendCooldown(Duration resendCooldown) {
+        this.resendCooldown = resendCooldown;
     }
 
     public RateLimit getIpRateLimit() {
@@ -45,6 +105,14 @@ public class WaitlistProperties {
 
     public void setEmailRateLimit(RateLimit emailRateLimit) {
         this.emailRateLimit = emailRateLimit;
+    }
+
+    public Email getEmail() {
+        return email;
+    }
+
+    public void setEmail(Email email) {
+        this.email = email;
     }
 
     public static class RateLimit {
@@ -69,6 +137,76 @@ public class WaitlistProperties {
 
         public void setWindow(Duration window) {
             this.window = window;
+        }
+    }
+
+    public static class Email {
+
+        /** logging (default for local/test) or resend */
+        @NotBlank
+        private String provider = "logging";
+
+        /**
+         * When false, provider=logging refuses to start. Production must set
+         * PARKIO_WAITLIST_ALLOW_LOGGING_PROVIDER=false and use provider=resend.
+         */
+        private boolean allowLoggingProvider = true;
+
+        private String from = "";
+
+        private String replyTo = "";
+
+        private String resendApiKey = "";
+
+        /** Override only for isolated mocks; production keeps the Resend API host. */
+        private String resendBaseUrl = "https://api.resend.com";
+
+        public String getProvider() {
+            return provider;
+        }
+
+        public void setProvider(String provider) {
+            this.provider = provider;
+        }
+
+        public boolean isAllowLoggingProvider() {
+            return allowLoggingProvider;
+        }
+
+        public void setAllowLoggingProvider(boolean allowLoggingProvider) {
+            this.allowLoggingProvider = allowLoggingProvider;
+        }
+
+        public String getFrom() {
+            return from;
+        }
+
+        public void setFrom(String from) {
+            this.from = from;
+        }
+
+        public String getReplyTo() {
+            return replyTo;
+        }
+
+        public void setReplyTo(String replyTo) {
+            this.replyTo = replyTo;
+        }
+
+        public String getResendApiKey() {
+            return resendApiKey;
+        }
+
+        public void setResendApiKey(String resendApiKey) {
+            this.resendApiKey = resendApiKey;
+        }
+
+        public String getResendBaseUrl() {
+            return resendBaseUrl;
+        }
+
+        public void setResendBaseUrl(String resendBaseUrl) {
+            this.resendBaseUrl = resendBaseUrl;
         }
     }
 }

@@ -84,10 +84,23 @@ else
   note "public actuator info disabled"
 fi
 
-if [ "$cors_origin" != "https://app.parkio.dev" ]; then
-  bad "PARKIO_CORS_ALLOWED_ORIGINS must be https://app.parkio.dev (got '${cors_origin:-<missing>}')"
+# App SPA origin is required. Apex marketing origin may be added for waitlist CORS.
+cors_ok=0
+IFS=',' read -r -a cors_parts <<< "$cors_origin"
+declare -A cors_set=()
+for part in "${cors_parts[@]}"; do
+  trimmed="$(printf '%s' "$part" | sed 's/^[[:space:]]*//;s/[[:space:]]*$//')"
+  [ -n "$trimmed" ] || continue
+  cors_set["$trimmed"]=1
+done
+if [ "${cors_set[https://app.parkio.dev]+x}" ] \
+  && { [ "${#cors_set[@]}" -eq 1 ] || { [ "${#cors_set[@]}" -eq 2 ] && [ "${cors_set[https://parkio.dev]+x}" ]; }; }; then
+  cors_ok=1
+fi
+if [ "$cors_ok" != "1" ]; then
+  bad "PARKIO_CORS_ALLOWED_ORIGINS must be https://app.parkio.dev or https://app.parkio.dev,https://parkio.dev (got '${cors_origin:-<missing>}')"
 else
-  note "CORS origin is https://app.parkio.dev"
+  note "CORS origins include https://app.parkio.dev (marketing apex optional)"
 fi
 
 case "$hsts" in
