@@ -247,7 +247,8 @@ jobs:
               "VITE_PUBLIC_EXPLORE_ENABLED": "true",
               "PARKIO_WAITLIST_HASH_SECRET": "secpriv-ci-waitlist-hash-secret-32+",
               "PARKIO_TRACING_ENABLED": "false",
-              "JAVA_TOOL_OPTIONS": "-XX:MaxRAMPercentage=50.0 -XX:InitialRAMPercentage=25.0 -XX:MaxMetaspaceSize=192m -XX:+UseG1GC -XX:+ExitOnOutOfMemoryError",
+              # Quoted so `set -a; . envfile` in seed-real-e2e.sh does not split on spaces.
+              "JAVA_TOOL_OPTIONS": '"-XX:MaxRAMPercentage=50.0 -XX:InitialRAMPercentage=25.0 -XX:MaxMetaspaceSize=192m -XX:+UseG1GC -XX:+ExitOnOutOfMemoryError"',
           }
           lines = []
           seen = set()
@@ -322,6 +323,7 @@ jobs:
           EVIDENCE_DIR: ../out/http-auth-media
         run: |
           set -euo pipefail
+          mkdir -p ../out/http-auth-media
           export COMPOSE_ENV_FILE COMPOSE_FILES ANCILLARY_ASSUMPTION EVIDENCE_DIR
           scripts/ci/release-artifact-auth-media-acceptance.sh | tee ../out/http-auth-media/acceptance.log
 

@@ -59,9 +59,22 @@ echo "USER_PG=${USER_PG}" | tee -a "${EVIDENCE_DIR}/seed-containers.txt"
 echo "=== Seed synthetic identity via auth DB (seed-real-e2e) ==="
 export PARKIO_REAL_USER_EMAIL="$EMAIL"
 export PARKIO_REAL_USER_PASSWORD="$PASSWORD"
-export PARKIO_ENV_FILE="$COMPOSE_ENV_FILE"
+# Prefer explicit DB names over sourcing the full compose env (JAVA_TOOL_OPTIONS
+# and PEM multiline values are unsafe under `set -a; . envfile`).
+export PARKIO_ENV_FILE=""
 export PARKIO_AUTH_PG_CONTAINER="$AUTH_PG"
 export PARKIO_USER_PG_CONTAINER="$USER_PG"
+# shellcheck disable=SC1091
+if [ -f "$COMPOSE_ENV_FILE" ]; then
+  POSTGRES_AUTH_USER="$(grep -E '^POSTGRES_AUTH_USER=' "$COMPOSE_ENV_FILE" | head -1 | cut -d= -f2- || true)"
+  POSTGRES_AUTH_DB="$(grep -E '^POSTGRES_AUTH_DB=' "$COMPOSE_ENV_FILE" | head -1 | cut -d= -f2- || true)"
+  POSTGRES_USER_USER="$(grep -E '^POSTGRES_USER_USER=' "$COMPOSE_ENV_FILE" | head -1 | cut -d= -f2- || true)"
+  POSTGRES_USER_DB="$(grep -E '^POSTGRES_USER_DB=' "$COMPOSE_ENV_FILE" | head -1 | cut -d= -f2- || true)"
+  export POSTGRES_AUTH_USER="${POSTGRES_AUTH_USER:-parkio_auth}"
+  export POSTGRES_AUTH_DB="${POSTGRES_AUTH_DB:-parkio_auth}"
+  export POSTGRES_USER_USER="${POSTGRES_USER_USER:-parkio_user}"
+  export POSTGRES_USER_DB="${POSTGRES_USER_DB:-parkio_user}"
+fi
 scripts/seed-real-e2e.sh --target local --update-passwords \
   | tee "${EVIDENCE_DIR}/seed-real-e2e.log"
 
