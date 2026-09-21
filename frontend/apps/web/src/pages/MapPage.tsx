@@ -1,5 +1,6 @@
 import { zodResolver } from '@hookform/resolvers/zod';
 import type {
+  MunicipalFacilityNearbyParams,
   NearbySearchParams,
   Destination,
   DestinationSearchItem,
@@ -86,6 +87,11 @@ import {
   type AssistantUrlState,
 } from '@/lib/assistantUrlState';
 import { ASSISTANT_RECOMMEND_RADIUS_METERS } from '@/lib/recommendationPresentation';
+import {
+  DEFAULT_MUNICIPAL_RADIUS_METERS,
+  clampMunicipalRadiusMeters,
+  isValidMunicipalRadiusMeters,
+} from '@/lib/municipalDiscoveryRadius';
 import {
   AssistantEntryControl,
   DestinationSearchPanel,
@@ -179,6 +185,10 @@ export function MapPage({
   });
   const smartReturnMode = searchParams.get('smartReturn') === '1';
   const [params, setParams] = useState<NearbySearchParams | null>(null);
+  /** Municipal discovery radius — independent of community form `radius`. */
+  const [municipalRadiusMeters, setMunicipalRadiusMeters] = useState(
+    DEFAULT_MUNICIPAL_RADIUS_METERS,
+  );
   const [geoStatus, setGeoStatus] = useState<GeoStatus>('idle');
   const [geoError, setGeoError] = useState<string | null>(null);
   const [mapZoom, setMapZoom] = useState(DEFAULT_MAP_ZOOM);
@@ -219,9 +229,23 @@ export function MapPage({
   // Nearby hook keeps prior results via placeholderData while a re-search loads
   // (new center/radius/"use my location") instead of flashing the skeleton.
   const search = useNearbySpotsQuery(params);
-  const municipalSearch = useNearbyMunicipalFacilitiesQuery(params, {
+  const municipalParams = useMemo((): MunicipalFacilityNearbyParams | null => {
+    if (!params) return null;
+    return {
+      lat: params.lat,
+      lng: params.lng,
+      radiusMeters: municipalRadiusMeters,
+      ...(params.limit !== undefined ? { limit: params.limit } : {}),
+    };
+  }, [municipalRadiusMeters, params]);
+  const municipalSearch = useNearbyMunicipalFacilitiesQuery(municipalParams, {
     enabled: municipalDiscoveryEnabled,
   });
+
+  const handleMunicipalRadiusMetersChange = useCallback((next: number) => {
+    if (!isValidMunicipalRadiusMeters(next)) return;
+    setMunicipalRadiusMeters(clampMunicipalRadiusMeters(next));
+  }, []);
 
   const activeSessionQuery = useActiveParkingSessionQuery({ enabled: isAuthenticated });
   const lifecycleConfigQuery = useParkingSessionLifecycleConfigQuery({ enabled: isAuthenticated });
@@ -823,7 +847,9 @@ export function MapPage({
       {municipalDiscoveryEnabled && municipalLayerVisible ? (
         <MunicipalFacilityResults
           search={municipalSearch}
-          params={params}
+          params={municipalParams}
+          radiusMeters={municipalRadiusMeters}
+          onRadiusMetersChange={handleMunicipalRadiusMetersChange}
           facilities={visibleMunicipalFacilities}
           totalCount={municipalFacilities.length}
           filters={municipalFilters}

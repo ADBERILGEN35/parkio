@@ -1,6 +1,7 @@
 import { useQuery } from '@tanstack/react-query';
-import type { NearbySearchParams } from '@parkio/types';
+import type { MunicipalFacilityNearbyParams, NearbySearchParams } from '@parkio/types';
 import { useParkioSdk } from '@/app/AppRuntimeContext';
+import { DEFAULT_MUNICIPAL_RADIUS_METERS } from '@/lib/municipalDiscoveryRadius';
 import {
   municipalFacilityDetailQueryOptions,
   mySpotsQueryOptions,
@@ -28,12 +29,15 @@ export function useNearbySpotsQuery(params: NearbySearchParams | null) {
 
 /** Municipal facilities nearby — enable only when WEB-MUNI discovery flag is on. */
 export function useNearbyMunicipalFacilitiesQuery(
-  params: NearbySearchParams | null,
+  params: MunicipalFacilityNearbyParams | null,
   options?: { enabled?: boolean },
 ) {
   const sdk = useParkioSdk();
   return useQuery({
-    ...nearbyMunicipalFacilitiesQueryOptions(sdk, params ?? { lat: 0, lng: 0 }),
+    ...nearbyMunicipalFacilitiesQueryOptions(
+      sdk,
+      params ?? { lat: 0, lng: 0, radiusMeters: DEFAULT_MUNICIPAL_RADIUS_METERS },
+    ),
     enabled: (options?.enabled ?? true) && params !== null,
   });
 }

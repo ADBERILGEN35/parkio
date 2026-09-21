@@ -30,15 +30,11 @@ export function nearbySpotsQueryOptions(sdk: ParkioSdk, filters: NearbyParkingFi
 /** Municipal facility nearby — separate query key from community spots. */
 export function nearbyMunicipalFacilitiesQueryOptions(
   sdk: ParkioSdk,
-  filters: NearbyParkingFilters,
+  filters: MunicipalFacilityNearbyParams,
 ) {
   return queryOptions({
     queryKey: parkingKeys.municipalNearby(filters),
-    queryFn: ({ signal }) =>
-      sdk.parkingApi.getNearbyMunicipalFacilities(
-        filters as MunicipalFacilityNearbyParams,
-        signal,
-      ),
+    queryFn: ({ signal }) => sdk.parkingApi.getNearbyMunicipalFacilities(filters, signal),
     placeholderData: keepPreviousData,
     staleTime: 30_000,
   });
