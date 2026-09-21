@@ -119,6 +119,8 @@
         'Teşekkürler. Adresiniz alındı. Listede kalmak için e-postanızdaki onay bağlantısını açıp Onayla’ya basın.',
       'waitlist.error.invalid': 'Geçerli bir e-posta adresi girin.',
       'waitlist.error.consent': 'Devam etmek için bilgilendirme onayını işaretleyin.',
+      'waitlist.error.consentTime':
+        'Onay zamanı geçersiz veya cihaz saati çok sapmış. Saat ayarlarınızı kontrol edip tekrar deneyin.',
       'waitlist.error.network': 'Bağlantı hatası. Lütfen tekrar deneyin.',
       'waitlist.error.rate': 'Çok fazla deneme. Lütfen daha sonra tekrar deneyin.',
       'waitlist.error.delivery':
@@ -322,6 +324,8 @@
         'Thanks. Your address was received. Open the confirmation link in your email and press Confirm to stay on the list.',
       'waitlist.error.invalid': 'Enter a valid email address.',
       'waitlist.error.consent': 'Please accept the notification consent to continue.',
+      'waitlist.error.consentTime':
+        'Consent time is invalid or your device clock is too far off. Check your clock and try again.',
       'waitlist.error.network': 'Network error. Please try again.',
       'waitlist.error.rate': 'Too many attempts. Please try again later.',
       'waitlist.error.delivery':

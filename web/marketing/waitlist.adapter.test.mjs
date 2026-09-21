@@ -117,35 +117,39 @@ test('CSP allows connect-src to api.parkio.dev (W01L root cause)', () => {
   );
 });
 
-test('submit payload uses past consentTimestamp to tolerate clock skew', async () => {
-  let seenBody = null;
+test('submitApi maps consent timestamp failures distinctly from email validation', async () => {
   const api = loadWaitlist({
     modeMeta: 'api',
-    fetchImpl: async (_url, init) => {
-      seenBody = JSON.parse(init.body);
-      return jsonResponse(202, { status: 'accepted' });
-    },
+    fetchImpl: async () =>
+      jsonResponse(400, {
+        code: 'WAITLIST_CONSENT_TIMESTAMP_INVALID',
+        message: 'Waitlist consent timestamp is missing or outside the accepted time window.',
+      }),
   });
-  const before = Date.now();
-  await api.submitApi({
+  const result = await api.submitApi({
     email: 'synthetic@example.com',
-    consentTimestamp: new Date(Date.now() - 120_000).toISOString(),
+    consentTimestamp: new Date().toISOString(),
     source: 'parkio.dev-landing',
     locale: 'tr',
   });
-  // Unit calls submitApi with explicit payload; assert helper used by form stays skewed in source.
+  assert.equal(result.ok, false);
+  assert.equal(result.code, 'CONSENT_TIMESTAMP_INVALID');
+});
+
+test('form uses live consentTimestamp without silent backdating', () => {
   const sourceJs = readFileSync(resolve(root, 'waitlist.js'), 'utf8');
-  assert.match(sourceJs, /Date\.now\(\)\s*-\s*120_000/);
-  assert.ok(seenBody);
-  assert.ok(Date.parse(seenBody.consentTimestamp) <= before - 60_000);
+  assert.match(sourceJs, /consentTimestamp:\s*new Date\(\)\.toISOString\(\)/);
+  assert.doesNotMatch(sourceJs, /Date\.now\(\)\s*-\s*120_000/);
+  assert.match(sourceJs, /CONSENT_TIMESTAMP_INVALID/);
 });
 
 test('hero CTA and nav waitlist copy are present in canonical marketing', () => {
   assert.match(indexHtml, /id="hero-waitlist-cta"/);
   assert.match(indexHtml, /href="#waitlist"[^>]*data-i18n="cta\.waitlist"/);
-  assert.match(indexHtml, /i18n\.js\?v=w01l2/);
+  assert.match(indexHtml, /i18n\.js\?v=w01l4/);
   assert.match(i18n, /'cta\.waitlist': 'Bekleme listesine katıl'/);
   assert.match(i18n, /'cta\.waitlist': 'Join the waitlist'/);
   assert.match(i18n, /'nav\.waitlist': 'Bekleme listesi'/);
   assert.match(i18n, /'nav\.waitlist': 'Waitlist'/);
+  assert.match(i18n, /waitlist\.error\.consentTime/);
 });

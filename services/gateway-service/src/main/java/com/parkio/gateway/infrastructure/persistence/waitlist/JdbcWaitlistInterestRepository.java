@@ -30,17 +30,18 @@ public class JdbcWaitlistInterestRepository implements WaitlistInterestRepositor
         try {
             jdbcTemplate.update("""
                     INSERT INTO waitlist_interest (
-                        id, email, email_hash, consent_timestamp, city, role, source, locale,
+                        id, email, email_hash, consent_timestamp, client_consent_timestamp, city, role, source, locale,
                         status, verification_token_hash, withdraw_token_hash, verification_expires_at,
                         verification_sent_at, resend_count, confirmed_at, withdrawn_at,
                         ip_hash, user_agent_hash, created_at
                     )
-                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                     """,
                     interest.id(),
                     interest.email(),
                     interest.emailHash(),
                     Timestamp.from(interest.consentTimestamp()),
+                    toTimestamp(interest.clientConsentTimestamp()),
                     interest.city(),
                     interest.role(),
                     interest.source(),
@@ -193,6 +194,7 @@ public class JdbcWaitlistInterestRepository implements WaitlistInterestRepositor
                 rs.getString("email"),
                 rs.getString("email_hash"),
                 rs.getTimestamp("consent_timestamp").toInstant(),
+                toInstant(rs.getTimestamp("client_consent_timestamp")),
                 rs.getString("city"),
                 rs.getString("role"),
                 rs.getString("source"),

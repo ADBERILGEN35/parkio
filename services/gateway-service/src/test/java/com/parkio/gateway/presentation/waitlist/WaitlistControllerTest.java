@@ -7,6 +7,7 @@ import com.parkio.gateway.application.waitlist.WaitlistEmailSender;
 import com.parkio.gateway.application.waitlist.WaitlistRateLimitExceededException;
 import com.parkio.gateway.application.waitlist.WaitlistRateLimiter;
 import java.util.concurrent.atomic.AtomicReference;
+import java.time.Instant;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -60,10 +61,10 @@ class WaitlistControllerTest {
                 .bodyValue("""
                         {
                           "email": "not-an-email",
-                          "consentTimestamp": "2026-07-08T00:00:00Z",
+                          "consentTimestamp": "%s",
                           "source": "parkio.dev-landing"
                         }
-                        """)
+                        """.formatted(java.time.Instant.now().minusSeconds(5)))
                 .exchange()
                 .expectStatus().isBadRequest()
                 .expectBody()
@@ -84,7 +85,66 @@ class WaitlistControllerTest {
                 .exchange()
                 .expectStatus().isBadRequest()
                 .expectBody()
-                .jsonPath("$.code").isEqualTo("VALIDATION_ERROR");
+                .jsonPath("$.code").isEqualTo("WAITLIST_CONSENT_TIMESTAMP_INVALID");
+    }
+
+    @Test
+    void rejectsExcessiveFutureConsentTimestamp() {
+        String future = java.time.Instant.now().plus(java.time.Duration.ofMinutes(30)).toString();
+        webTestClient.post()
+                .uri("/api/v1/waitlist")
+                .contentType(MediaType.APPLICATION_JSON)
+                .bodyValue("""
+                        {
+                          "email": "future-skew@parkio.dev",
+                          "consentTimestamp": "%s",
+                          "source": "parkio.dev-landing",
+                          "locale": "en"
+                        }
+                        """.formatted(future))
+                .exchange()
+                .expectStatus().isBadRequest()
+                .expectBody()
+                .jsonPath("$.code").isEqualTo("WAITLIST_CONSENT_TIMESTAMP_INVALID");
+    }
+
+    @Test
+    void acceptsSmallFutureClockSkewWithinPolicy() {
+        String slightlyAhead = java.time.Instant.now().plusSeconds(30).toString();
+        webTestClient.post()
+                .uri("/api/v1/waitlist")
+                .contentType(MediaType.APPLICATION_JSON)
+                .bodyValue("""
+                        {
+                          "email": "small-skew@parkio.dev",
+                          "consentTimestamp": "%s",
+                          "source": "parkio.dev-landing",
+                          "locale": "en"
+                        }
+                        """.formatted(slightlyAhead))
+                .exchange()
+                .expectStatus().isAccepted()
+                .expectBody()
+                .jsonPath("$.status").isEqualTo("accepted");
+
+        Instant storedConsent = jdbcTemplate.queryForObject(
+                "SELECT consent_timestamp FROM waitlist_interest WHERE email = ?",
+                Instant.class,
+                "small-skew@parkio.dev");
+        Instant clientConsent = jdbcTemplate.queryForObject(
+                "SELECT client_consent_timestamp FROM waitlist_interest WHERE email = ?",
+                Instant.class,
+                "small-skew@parkio.dev");
+        org.assertj.core.api.Assertions.assertThat(storedConsent).isNotNull();
+        org.assertj.core.api.Assertions.assertThat(clientConsent).isNotNull();
+        // Postgres timestamptz may truncate nanos; compare to microsecond precision.
+        org.assertj.core.api.Assertions.assertThat(clientConsent.getEpochSecond())
+                .isEqualTo(Instant.parse(slightlyAhead).getEpochSecond());
+        // Authoritative consent evidence is server receipt (at/near now), not a silent backdate.
+        org.assertj.core.api.Assertions.assertThat(storedConsent)
+                .isBeforeOrEqualTo(Instant.now().plusSeconds(5));
+        org.assertj.core.api.Assertions.assertThat(storedConsent)
+                .isAfter(Instant.now().minusSeconds(60));
     }
 
     @Test
@@ -326,12 +386,12 @@ class WaitlistControllerTest {
         return """
                 {
                   "email": "%s",
-                  "consentTimestamp": "2026-07-08T00:00:00Z",
+                  "consentTimestamp": "%s",
                   "city": "Izmir",
                   "role": "tester",
                   "source": "parkio.dev-landing",
                   "locale": "tr"
                 }
-                """.formatted(email);
+                """.formatted(email, java.time.Instant.now().minusSeconds(5).toString());
     }
 }

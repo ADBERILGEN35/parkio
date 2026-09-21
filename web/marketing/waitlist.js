@@ -69,6 +69,10 @@
       return { ok: false, code: 'EMAIL_DELIVERY_FAILED' };
     }
     if (response.status >= 400 && response.status < 500) {
+      const body = await response.json().catch(() => ({}));
+      if (body && body.code === 'WAITLIST_CONSENT_TIMESTAMP_INVALID') {
+        return { ok: false, code: 'CONSENT_TIMESTAMP_INVALID' };
+      }
       return { ok: false, code: 'VALIDATION_ERROR' };
     }
     return { ok: false, code: 'NETWORK_ERROR' };
@@ -174,8 +178,7 @@
 
       const payload = {
         email,
-        // Gateway validates @PastOrPresent Instant; allow small client/server clock skew.
-        consentTimestamp: new Date(Date.now() - 120_000).toISOString(),
+        consentTimestamp: new Date().toISOString(),
         source: 'parkio.dev-landing',
         locale: currentLocale(),
       };
@@ -194,6 +197,8 @@
           setFeedback(feedback, tr('waitlist.unavailable'), 'error');
         } else if (result.code === 'EMAIL_DELIVERY_FAILED') {
           setFeedback(feedback, tr('waitlist.error.delivery'), 'error');
+        } else if (result.code === 'CONSENT_TIMESTAMP_INVALID') {
+          setFeedback(feedback, tr('waitlist.error.consentTime'), 'error');
         } else if (result.code === 'VALIDATION_ERROR') {
           setFeedback(feedback, tr('waitlist.error.invalid'), 'error');
         } else {

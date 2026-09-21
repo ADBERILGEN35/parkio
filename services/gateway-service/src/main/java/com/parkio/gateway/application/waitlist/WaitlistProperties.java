@@ -39,6 +39,21 @@ public class WaitlistProperties {
     @NotNull
     private Duration resendCooldown = Duration.ofMinutes(5);
 
+    /**
+     * How far ahead of gateway UTC a client-asserted consentTimestamp may be.
+     * Covers typical browser/NTP skew and request latency without accepting
+     * arbitrary future dates.
+     */
+    @NotNull
+    private Duration consentMaxFutureSkew = Duration.ofMinutes(2);
+
+    /**
+     * How far in the past a client-asserted consentTimestamp may be relative to
+     * gateway UTC. Beyond this, treat as invalid (stale form / replay).
+     */
+    @NotNull
+    private Duration consentMaxPastAge = Duration.ofDays(7);
+
     @Valid
     @NotNull
     private RateLimit ipRateLimit = new RateLimit();
@@ -105,6 +120,22 @@ public class WaitlistProperties {
 
     public void setResendCooldown(Duration resendCooldown) {
         this.resendCooldown = resendCooldown;
+    }
+
+    public Duration getConsentMaxFutureSkew() {
+        return consentMaxFutureSkew;
+    }
+
+    public void setConsentMaxFutureSkew(Duration consentMaxFutureSkew) {
+        this.consentMaxFutureSkew = consentMaxFutureSkew;
+    }
+
+    public Duration getConsentMaxPastAge() {
+        return consentMaxPastAge;
+    }
+
+    public void setConsentMaxPastAge(Duration consentMaxPastAge) {
+        this.consentMaxPastAge = consentMaxPastAge;
     }
 
     public RateLimit getIpRateLimit() {

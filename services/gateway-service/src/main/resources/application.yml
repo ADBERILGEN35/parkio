@@ -349,6 +349,10 @@ parkio:
     token-ttl: ${PARKIO_WAITLIST_TOKEN_TTL:PT48H}
     max-resends: ${PARKIO_WAITLIST_MAX_RESENDS:5}
     resend-cooldown: ${PARKIO_WAITLIST_RESEND_COOLDOWN:PT5M}
+    # Client-asserted consentTimestamp: bounded skew vs gateway UTC (not silent backdate).
+    # Authoritative persisted consent_timestamp is server receipt time; client value stored separately.
+    consent-max-future-skew: ${PARKIO_WAITLIST_CONSENT_MAX_FUTURE_SKEW:PT2M}
+    consent-max-past-age: ${PARKIO_WAITLIST_CONSENT_MAX_PAST_AGE:P7D}
     ip-rate-limit:
       max-attempts: ${PARKIO_WAITLIST_IP_RATE_LIMIT_MAX:10}
       window: ${PARKIO_WAITLIST_IP_RATE_LIMIT_WINDOW:PT1H}
