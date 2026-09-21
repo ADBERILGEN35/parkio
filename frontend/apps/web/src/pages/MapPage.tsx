@@ -235,7 +235,8 @@ export function MapPage({
       lat: params.lat,
       lng: params.lng,
       radiusMeters: municipalRadiusMeters,
-      ...(params.limit !== undefined ? { limit: params.limit } : {}),
+      // Independent of community spot limit — dense inventory must not silently truncate at 20.
+      limit: 100,
     };
   }, [municipalRadiusMeters, params]);
   const municipalSearch = useNearbyMunicipalFacilitiesQuery(municipalParams, {
