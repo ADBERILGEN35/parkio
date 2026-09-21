@@ -65,7 +65,13 @@ for (const [key, expected] of Object.entries(NON_SECRET_EXPECTED)) {
 }
 
 const cors = String(env.PARKIO_CORS_ALLOWED_ORIGINS || '');
-if (!cors.includes('https://parkio.dev') || !cors.includes('https://app.parkio.dev')) {
+const corsOrigins = new Set(
+  cors
+    .split(',')
+    .map((part) => part.trim())
+    .filter(Boolean),
+);
+if (!corsOrigins.has('https://parkio.dev') || !corsOrigins.has('https://app.parkio.dev')) {
   errors.push('PARKIO_CORS_ALLOWED_ORIGINS must include app.parkio.dev and parkio.dev');
 }
 
