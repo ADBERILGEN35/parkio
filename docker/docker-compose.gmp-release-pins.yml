@@ -1,5 +1,5 @@
 # Parkio GMP release pins — authorized production deploy 2026-09-21
-# Source SHA: 4a9ba2184e867b8ea8b927f7c3f8bcb137c2760a
+# Source SHA: bf9cad5182f9e669cdd555bac6c0c64a2d7500fd
 # ONLY gateway/media/parking image references. Do not broaden.
 # Applied last in the production compose file set.
 # Recreate with: scripts/parkio-prod-compose.sh up -d --no-build --no-deps <service>
@@ -11,7 +11,7 @@ name: parkio
 
 services:
   gateway-service:
-    image: ghcr.io/adberilgen35/parkio/gateway-service@sha256:7ac5a32b7cb3d08e49b5873af6837b4b79a78ff1f4489920ecdd8ac14c09556f
+    image: ghcr.io/adberilgen35/parkio/gateway-service@sha256:4215f379a15a8a967e883adbce119815e45ef0df87f1fd966c876e98644e98c7
 
   media-service:
     image: ghcr.io/adberilgen35/parkio/media-service@sha256:62f49d04087fb7aa475db0a42c7f8d1e7d1511f84e6b496a58c5beda58f864ec
