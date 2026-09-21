@@ -125,6 +125,8 @@
       'waitlist.privacy': 'Gizlilik politikası',
       'waitlist.withdraw': 'Çekilme veya silme talebi için onay e-postasındaki bağlantıyı veya info@parkio.dev adresini kullanın.',
       'waitlist.mockNote': 'Yerel yalıtılmış mod: kalıcı sağlayıcı çalıştırılmıyor.',
+      'waitlist.unavailable':
+        'Kayıt bildirim listesi henüz açık değil. Onay veya çıkış bağlantınız varsa ilgili sayfayı kullanabilirsiniz.',
       'business.kicker': 'İş modeli',
       'business.h2': 'Parkio bir iş olarak nasıl ilerliyor',
       'business.intro':
@@ -324,6 +326,8 @@
       'waitlist.privacy': 'Privacy policy',
       'waitlist.withdraw': 'To withdraw or request deletion, use the link in the confirmation email or contact info@parkio.dev.',
       'waitlist.mockNote': 'Local isolated mode: durable provider is NOT_EXECUTED.',
+      'waitlist.unavailable':
+        'The registration notification list is not open yet. If you have a confirmation or withdrawal link, use that page.',
       'business.kicker': 'Business',
       'business.h2': 'How Parkio works as a business',
       'business.intro':

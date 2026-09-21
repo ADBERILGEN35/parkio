@@ -116,7 +116,17 @@ services:
       SPRING_DATASOURCE_URL: jdbc:postgresql://postgres-gateway:5432/${POSTGRES_GATEWAY_DB:-parkio_gateway}
       SPRING_DATASOURCE_USERNAME: ${POSTGRES_GATEWAY_USER:-parkio_gateway}
       SPRING_DATASOURCE_PASSWORD: ${POSTGRES_GATEWAY_PASSWORD}
+      # Waitlist (gateway-owned). Compose --env-file substitutes into this block;
+      # unlisted keys never reach the container. Keep admissions false until cutover.
       PARKIO_WAITLIST_HASH_SECRET: ${PARKIO_WAITLIST_HASH_SECRET}
+      PARKIO_WAITLIST_ADMISSIONS_ENABLED: ${PARKIO_WAITLIST_ADMISSIONS_ENABLED:-false}
+      PARKIO_WAITLIST_EMAIL_PROVIDER: ${PARKIO_WAITLIST_EMAIL_PROVIDER:-logging}
+      PARKIO_WAITLIST_ALLOW_LOGGING_PROVIDER: ${PARKIO_WAITLIST_ALLOW_LOGGING_PROVIDER:-true}
+      PARKIO_WAITLIST_EMAIL_FROM: ${PARKIO_WAITLIST_EMAIL_FROM:-}
+      PARKIO_WAITLIST_EMAIL_REPLY_TO: ${PARKIO_WAITLIST_EMAIL_REPLY_TO:-}
+      PARKIO_WAITLIST_CONFIRM_URL: ${PARKIO_WAITLIST_CONFIRM_URL:-https://parkio.dev/waitlist/confirm/}
+      PARKIO_WAITLIST_WITHDRAW_URL: ${PARKIO_WAITLIST_WITHDRAW_URL:-https://parkio.dev/waitlist/unsubscribe/}
+      PARKIO_WAITLIST_RESEND_API_KEY: ${PARKIO_WAITLIST_RESEND_API_KEY:-}
       PARKIO_AUTH_JWKS_URI: http://auth-service:8081/api/v1/auth/.well-known/jwks.json
       # Downstream route targets. The gateway resolves each ${PARKIO_*_SERVICE_URI}
       # placeholder in application.yml; their defaults are localhost:808x (dev-from-IDE),
