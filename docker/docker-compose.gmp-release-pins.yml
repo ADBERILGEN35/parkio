@@ -1,5 +1,5 @@
-# Parkio GMP release pins â€” P01C combined waitlist admin candidate (2026-09-21)
-# Source SHA: e3d9ba2dfc95774c3145280d02b899d88d19e23f
+# Parkio GMP release pins Ã¢â‚¬â€ P01C combined waitlist admin candidate (2026-09-21)
+# Source SHA: 0422a414d259c66b4728c05ee818e253f551b22e
 # ONLY gateway/media/parking image references. Do not broaden.
 # Applied last in the production compose file set.
 # Recreate with: scripts/parkio-prod-compose.sh up -d --no-build --no-deps <service>
@@ -8,7 +8,7 @@
 # see docker/compose.production.files. When azure-hosted-beta tooling also loads
 # docker-compose.images.yml, this overlay must remain last so digest pins win.
 # Gateway digest matches live Civo after P01B export WebFilter deploy; media/parking unchanged.
-# Do NOT reintroduce sha256:51a08670â€¦ (anonymous export gap) or any pre-WebFilter gateway.
+# Do NOT reintroduce sha256:51a08670Ã¢â‚¬Â¦ (anonymous export gap) or any pre-WebFilter gateway.
 name: parkio
 
 services:
