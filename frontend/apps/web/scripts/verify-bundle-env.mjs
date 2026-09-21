@@ -263,6 +263,20 @@ function main() {
     );
   }
 
+  // Hosted-beta live API must also keep authenticated municipal discovery on.
+  // Omitting VITE_WEB_MUNICIPAL_DISCOVERY_ENABLED defaults to false and silently
+  // disables /map municipal UI after an Explore-only or API-base-only rebuild.
+  if (
+    appEnv === 'hosted-beta' &&
+    apiBase === LIVE_HOSTED_BETA_API_BASE &&
+    !municipalEnabled
+  ) {
+    failures.push(
+      'VITE_WEB_MUNICIPAL_DISCOVERY_ENABLED must be true when hosted-beta targets ' +
+        `${LIVE_HOSTED_BETA_API_BASE} (hosted-beta municipal discovery recurrence guard)`,
+    );
+  }
+
   if (!productionLike) {
     console.log(
       'verify-bundle-env: app env is not production-like; required-value checks are not applicable.',

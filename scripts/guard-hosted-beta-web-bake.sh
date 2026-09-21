@@ -71,13 +71,14 @@ require_file "$AZURE_EX"
 require_kv "$BAKE" VITE_APP_ENV hosted-beta
 require_kv "$BAKE" VITE_API_BASE_URL 'https://api.parkio.dev/api/v1'
 require_kv "$BAKE" VITE_PUBLIC_EXPLORE_ENABLED true
-require_kv "$BAKE" VITE_WEB_MUNICIPAL_DISCOVERY_ENABLED false
+require_kv "$BAKE" VITE_WEB_MUNICIPAL_DISCOVERY_ENABLED true
 require_kv "$BAKE" PARKIO_PUBLIC_EXPLORE_ENABLED true
 
 require_kv "$MUNI_BAKE" VITE_PUBLIC_EXPLORE_ENABLED true
 require_kv "$MUNI_BAKE" VITE_WEB_MUNICIPAL_DISCOVERY_ENABLED true
 require_kv "$MUNI_BAKE" VITE_API_BASE_URL 'https://api.parkio.dev/api/v1'
 
+# Example env stays fail-closed for municipal (omit/false); live release-bake is on.
 require_kv "$AZURE_EX" VITE_PUBLIC_EXPLORE_ENABLED true
 require_kv "$AZURE_EX" VITE_API_BASE_URL 'https://api.parkio.dev/api/v1'
 require_kv "$AZURE_EX" VITE_WEB_MUNICIPAL_DISCOVERY_ENABLED false
