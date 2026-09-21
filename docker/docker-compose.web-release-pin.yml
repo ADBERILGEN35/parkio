@@ -1,11 +1,13 @@
-# Parkio hosted-beta web release pin — P01F Explore recurrence recovery (2026-09-21)
+# Parkio hosted-beta web release pin — PR #69 municipal-on + Explore (2026-09-21)
 # Live digest reconciles host-only pin into source control.
 # Bake profile: docker/web-hosted-beta.release-bake.env
 #   VITE_API_BASE_URL=https://api.parkio.dev/api/v1
 #   VITE_PUBLIC_EXPLORE_ENABLED=true
-#   VITE_WEB_MUNICIPAL_DISCOVERY_ENABLED=false (municipal-on is a separate bake)
-# Previous broken explore-off pin:
-#   ghcr.io/adberilgen35/parkio/web@sha256:89762aa71d3f4766c9bd27706acfbb54a150d82c58f8919070e8b5d4baad22ae
+#   VITE_WEB_MUNICIPAL_DISCOVERY_ENABLED=true
+# SPA content SHA: 38595c99899364c1c61c9b31d7c90ee6364a75ce (main-BJsurxIR.js)
+# Local image ID == registry manifest digest for this single-arch push.
+# Previous explore-on / municipal-off pin (rollback):
+#   ghcr.io/adberilgen35/parkio/web@sha256:d9999a020376cc89b86a92410ceb784a7290258f4d1c0c0d968a6a78d62c443a
 # Applied last in docker/compose.production.files via scripts/parkio-prod-compose.sh.
 # Recreate with: scripts/parkio-prod-compose.sh up -d --no-build --no-deps --force-recreate web
 #
@@ -15,4 +17,4 @@ name: parkio
 
 services:
   web:
-    image: ghcr.io/adberilgen35/parkio/web@sha256:d9999a020376cc89b86a92410ceb784a7290258f4d1c0c0d968a6a78d62c443a
+    image: ghcr.io/adberilgen35/parkio/web@sha256:7202058c2d75537a5578acd07f65c645d6237e3eaaef89e5be49a6b785e82761
