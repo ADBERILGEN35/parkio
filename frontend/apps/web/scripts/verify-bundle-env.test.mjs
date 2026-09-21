@@ -149,3 +149,82 @@ test('PROD-MUNI-01 require-municipal true accepts municipal-on bundle', () => {
   );
   assert.equal(result.status, 0, `${result.stdout}${result.stderr}`);
 });
+
+test('P01F rejects hosted-beta live API bake with public Explore off', () => {
+  const result = runVerifier(
+    {
+      VITE_APP_ENV: 'hosted-beta',
+      VITE_API_BASE_URL: 'https://api.parkio.dev/api/v1',
+      VITE_MAPTILER_KEY: placeholder,
+      VITE_PUBLIC_EXPLORE_ENABLED: 'false',
+      VITE_WEB_MUNICIPAL_DISCOVERY_ENABLED: 'true',
+    },
+    'hosted-beta',
+  );
+  assert.notEqual(result.status, 0);
+  assert.match(`${result.stdout}${result.stderr}`, /P01F public Explore recurrence/);
+});
+
+test('hosted-beta live API bake rejects municipal discovery off', () => {
+  const result = runVerifier(
+    {
+      VITE_APP_ENV: 'hosted-beta',
+      VITE_API_BASE_URL: 'https://api.parkio.dev/api/v1',
+      VITE_MAPTILER_KEY: placeholder,
+      VITE_PUBLIC_EXPLORE_ENABLED: 'true',
+      VITE_WEB_MUNICIPAL_DISCOVERY_ENABLED: 'false',
+    },
+    'hosted-beta',
+  );
+  assert.notEqual(result.status, 0);
+  assert.match(
+    `${result.stdout}${result.stderr}`,
+    /hosted-beta municipal discovery recurrence/,
+  );
+});
+
+test('P01F accepts hosted-beta live API bake with Explore and municipal on', () => {
+  const result = runVerifier(
+    {
+      VITE_APP_ENV: 'hosted-beta',
+      VITE_API_BASE_URL: 'https://api.parkio.dev/api/v1',
+      VITE_MAPTILER_KEY: placeholder,
+      VITE_PUBLIC_EXPLORE_ENABLED: 'true',
+      VITE_WEB_MUNICIPAL_DISCOVERY_ENABLED: 'true',
+    },
+    'hosted-beta',
+  );
+  assert.equal(result.status, 0, `${result.stdout}${result.stderr}`);
+  assert.match(result.stdout, /VITE_PUBLIC_EXPLORE_ENABLED = true/);
+  assert.match(result.stdout, /VITE_WEB_MUNICIPAL_DISCOVERY_ENABLED = true/);
+});
+
+test('require-public-explore true rejects Explore-off bundle', () => {
+  const result = runVerifier(
+    {
+      VITE_APP_ENV: 'hosted-beta',
+      VITE_API_BASE_URL: 'https://api.fixture.invalid/api/v1',
+      VITE_MAPTILER_KEY: placeholder,
+      VITE_PUBLIC_EXPLORE_ENABLED: 'false',
+    },
+    'hosted-beta',
+    ['--require-public-explore', 'true'],
+  );
+  assert.notEqual(result.status, 0);
+  assert.match(`${result.stdout}${result.stderr}`, /VITE_PUBLIC_EXPLORE_ENABLED must be true/);
+});
+
+test('require-public-explore false rejects Explore-on bundle', () => {
+  const result = runVerifier(
+    {
+      VITE_APP_ENV: 'hosted-beta',
+      VITE_API_BASE_URL: 'https://api.fixture.invalid/api/v1',
+      VITE_MAPTILER_KEY: placeholder,
+      VITE_PUBLIC_EXPLORE_ENABLED: 'true',
+    },
+    'hosted-beta',
+    ['--require-public-explore', 'false'],
+  );
+  assert.notEqual(result.status, 0);
+  assert.match(`${result.stdout}${result.stderr}`, /must be false/);
+});

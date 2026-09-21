@@ -3,6 +3,7 @@ import { QueryClient } from '@tanstack/react-query';
 import { describe, expect, it, vi } from 'vitest';
 import {
   meKeys,
+  normalizeMunicipalNearbyFilters,
   normalizeNearbyFilters,
   parkingKeys,
   recommendationKeys,
@@ -45,6 +46,22 @@ describe('canonical query keys', () => {
     expect(parkingKeys.nearby({ lat: 41, lng: 29, limit: 10 })).not.toEqual(
       parkingKeys.nearby({ lat: 41, lng: 29, limit: 20 }),
     );
+  });
+
+  it('keys municipal nearby on radiusMeters independently of community radius', () => {
+    expect(
+      parkingKeys.municipalNearby({ lat: 38.4, lng: 27.1, radiusMeters: 5000 }),
+    ).not.toEqual(parkingKeys.municipalNearby({ lat: 38.4, lng: 27.1, radiusMeters: 1000 }));
+    expect(normalizeMunicipalNearbyFilters({ lat: 1, lng: 2, radiusMeters: 5000 })).toEqual({
+      lat: 1,
+      lng: 2,
+      radiusMeters: 5000,
+    });
+    expect(normalizeMunicipalNearbyFilters({ lat: 1, lng: 2, radius: 3000 })).toEqual({
+      lat: 1,
+      lng: 2,
+      radiusMeters: 3000,
+    });
   });
 
   it('omits undefined optionals so accidental undefined does not fork the cache', () => {

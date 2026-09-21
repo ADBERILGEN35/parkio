@@ -1,4 +1,8 @@
-import type { MunicipalFacility, MunicipalFacilityType, NearbySearchParams } from '@parkio/types';
+import type {
+  MunicipalFacility,
+  MunicipalFacilityNearbyParams,
+  MunicipalFacilityType,
+} from '@parkio/types';
 import {
   displaySourceLabelForFilter,
   formatMunicipalDataSourcesLine,
@@ -9,6 +13,12 @@ import type { UseQueryResult } from '@tanstack/react-query';
 import { useEffect, useMemo, useRef } from 'react';
 import { useTranslation } from 'react-i18next';
 import { FriendlyApiErrorMessage } from '@/components/FriendlyApiErrorMessage';
+import {
+  DEFAULT_MUNICIPAL_RADIUS_METERS,
+  MUNICIPAL_RADIUS_PRESETS_METERS,
+  formatMunicipalRadiusLabel,
+  nextMunicipalRadiusMeters,
+} from '@/lib/municipalDiscoveryRadius';
 import {
   EMPTY_MUNICIPAL_FILTERS,
   MUNICIPAL_AVAILABILITY_FILTERS,
@@ -22,7 +32,10 @@ import { trackProductEvent } from '@/services/productAnalytics';
 
 export interface MunicipalFacilityResultsProps {
   search: UseQueryResult<MunicipalFacility[], Error>;
-  params: NearbySearchParams | null;
+  params: MunicipalFacilityNearbyParams | null;
+  /** Active municipal search radius (always sent as radiusMeters). */
+  radiusMeters?: number;
+  onRadiusMetersChange?: (radiusMeters: number) => void;
   /** Already filtered facilities ready to render. */
   facilities: MunicipalFacility[];
   /** Count before presentation filters (for "x of y"). */
@@ -57,6 +70,8 @@ function facilityTypeLabelKey(type: MunicipalFacilityType): string {
 export function MunicipalFacilityResults({
   search,
   params,
+  radiusMeters = DEFAULT_MUNICIPAL_RADIUS_METERS,
+  onRadiusMetersChange,
   facilities,
   totalCount,
   filters,
@@ -73,6 +88,15 @@ export function MunicipalFacilityResults({
     () => summarizeMunicipalOccupancy(search.data ?? []),
     [search.data],
   );
+  const activeRadius =
+    params?.radiusMeters ?? params?.radius ?? radiusMeters ?? DEFAULT_MUNICIPAL_RADIUS_METERS;
+  const expandTo = nextMunicipalRadiusMeters(activeRadius);
+  const radiusLabel = formatMunicipalRadiusLabel(activeRadius);
+  const selectValue = MUNICIPAL_RADIUS_PRESETS_METERS.includes(
+    activeRadius as (typeof MUNICIPAL_RADIUS_PRESETS_METERS)[number],
+  )
+    ? String(activeRadius)
+    : String(DEFAULT_MUNICIPAL_RADIUS_METERS);
 
   if (params === null) {
     return null;
@@ -88,10 +112,43 @@ export function MunicipalFacilityResults({
         <span className="flex h-8 w-8 items-center justify-center rounded-lg bg-secondary/15 text-secondary">
           <Icon name="garage" className="text-[18px] leading-none" filled />
         </span>
-        <div className="min-w-0">
+        <div className="min-w-0 flex-1">
           <h2 className="m-0 text-title-md text-on-surface">{t('municipal.sectionTitle')}</h2>
           <p className="m-0 text-label-sm text-on-surface-variant">{t('municipal.sectionSubtitle')}</p>
         </div>
+      </div>
+
+      <div className="flex flex-wrap items-center gap-sm" data-testid="municipal-radius-controls">
+        <label
+          htmlFor="municipal-radius-select"
+          className="text-label-sm font-medium text-on-surface"
+        >
+          {t('municipal.radiusLabel')}
+        </label>
+        <select
+          id="municipal-radius-select"
+          data-testid="municipal-radius-select"
+          aria-label={t('municipal.radiusSelectAria')}
+          className="rounded-full border border-outline-variant/40 bg-surface-container-lowest px-sm py-xs text-label-sm text-on-surface focus:outline-none focus-visible:ring-2 focus-visible:ring-secondary"
+          value={selectValue}
+          disabled={!onRadiusMetersChange || search.isPending}
+          onChange={(event) => {
+            const next = Number(event.target.value);
+            onRadiusMetersChange?.(next);
+          }}
+        >
+          {MUNICIPAL_RADIUS_PRESETS_METERS.map((preset) => (
+            <option key={preset} value={preset}>
+              {formatMunicipalRadiusLabel(preset)}
+            </option>
+          ))}
+        </select>
+        <span
+          className="text-label-sm text-on-surface-variant"
+          data-testid="municipal-radius-active"
+        >
+          {t('municipal.radiusActive', { radius: radiusLabel })}
+        </span>
       </div>
 
       {search.isPending ? (
@@ -117,8 +174,23 @@ export function MunicipalFacilityResults({
           <EmptyState
             icon="garage"
             title={t('municipal.emptyTitle')}
-            description={t('municipal.emptyDescription')}
+            description={t('municipal.emptyDescriptionWithRadius', { radius: radiusLabel })}
           />
+          {expandTo != null && onRadiusMetersChange ? (
+            <div className="mt-sm">
+              <button
+                type="button"
+                data-testid="municipal-radius-expand"
+                className="inline-flex items-center gap-xs rounded-full border border-secondary/40 bg-secondary/10 px-md py-xs text-label-sm font-semibold text-secondary hover:bg-secondary/15 focus:outline-none focus-visible:ring-2 focus-visible:ring-secondary"
+                onClick={() => onRadiusMetersChange(expandTo)}
+              >
+                <Icon name="zoom_out_map" className="text-[16px] leading-none" />
+                {t('municipal.expandRadius', {
+                  radius: formatMunicipalRadiusLabel(expandTo),
+                })}
+              </button>
+            </div>
+          ) : null}
         </div>
       ) : null}
 
@@ -203,7 +275,7 @@ function MunicipalFacilityListItem({
   onSelect,
 }: {
   facility: MunicipalFacility;
-  params: NearbySearchParams;
+  params: MunicipalFacilityNearbyParams;
   selected: boolean;
   selectionFromMap: boolean;
   onSelect: () => void;
