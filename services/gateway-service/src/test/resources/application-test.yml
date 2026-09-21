@@ -13,6 +13,7 @@ parkio:
     cors:
       allowed-origins: http://localhost:3000
   waitlist:
+    admissions-enabled: true
     hash-secret: test-only-waitlist-hash-secret-0123456789
     confirm-base-url: http://127.0.0.1:5194/waitlist/confirm/
     withdraw-base-url: http://127.0.0.1:5194/waitlist/unsubscribe/

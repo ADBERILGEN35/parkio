@@ -74,24 +74,59 @@ Downloads ZIP, is the canonical rollback source after 01D.
 
 After rollback, verify the same critical URLs and hashes before declaring recovery.
 
-## Waitlist / gateway publication sequencing (W01B)
+## Waitlist / gateway publication sequencing (W01B / W01F)
 
 Do not publish a live-looking waitlist form on Hostinger before the gateway waitlist
 API and email path are operational.
 
+**Logging-only delivery cannot satisfy live waitlist acceptance.** Production must use
+`PARKIO_WAITLIST_EMAIL_PROVIDER=resend` with a verified sender domain and
+`PARKIO_WAITLIST_ALLOW_LOGGING_PROVIDER=false`. A logging provider (even when
+temporarily allowed in local/dev) never proves real email delivery.
+
+(Note: PR #58 release narrative still carried earlier “if not logging-only”
+phrasing in agent evidence; that wording is outdated — logging-only is not an
+accepted live path.)
+
+### Server-side admissions containment
+
+`parkio.waitlist.admissions-enabled` / `PARKIO_WAITLIST_ADMISSIONS_ENABLED`
+defaults to **false**. While disabled, `POST /api/v1/waitlist` and
+`POST /api/v1/waitlist/resend` return HTTP 503 `WAITLIST_ADMISSIONS_DISABLED`
+before any waitlist DB write or confirmation-email provider call. Direct HTTP
+clients cannot bypass this. Confirmation of already-issued tokens and
+withdrawal remain available. The property is bound at process start — changing
+it requires a **gateway restart** (not hot-switched).
+
+In-flight requests that already passed the admissions check may still complete
+DB writes or provider calls after an operator decides to disable admissions;
+restart after setting `false` to ensure the process loads the new value.
+Withdrawal notice emails may still be attempted for successful withdrawals.
+
 Required order:
 
-1. Source merge of the waitlist PR into the authorized deploy branch (when approved).
+1. Source merge of waitlist containment + recovery work into the authorized deploy branch.
 2. Build/scan/publish a new **gateway** image; update only the gateway digest in
    `docker/docker-compose.gmp-release-pins.yml` (preserve media and parking pins).
+   Retain a second V2-compatible recovery digest (same schema generation) for
+   application recovery — the pre-V2 pin is **not** a safe post-V2 rollback.
 3. Deploy gateway with Flyway V1→V2 on `parkio_gateway`, CORS including
-   `https://parkio.dev`, and `PARKIO_WAITLIST_EMAIL_PROVIDER=resend` with
-   `PARKIO_WAITLIST_ALLOW_LOGGING_PROVIDER=false`.
-4. Authorized live email + persistence acceptance with a test address.
+   `https://parkio.dev`, `PARKIO_WAITLIST_EMAIL_PROVIDER=resend`,
+   `PARKIO_WAITLIST_ALLOW_LOGGING_PROVIDER=false`, and admissions initially
+   **disabled** until cutover.
+4. Authorized live email + persistence acceptance with a test address after
+   setting `PARKIO_WAITLIST_ADMISSIONS_ENABLED=true` and restarting.
 5. Hostinger upload of `web/marketing/` from the exact approved SHA.
 
-Rollback: revert Hostinger static tree and/or gateway image pin independently.
-Do not run destructive down-migrations; preserve `waitlist_interest` rows.
+Rollback / containment:
+
+- **Containment:** set `PARKIO_WAITLIST_ADMISSIONS_ENABLED=false` and restart gateway
+  (and/or hide the Hostinger form). Form hide alone does not stop direct API writes.
+- **Restart recovery:** restart the same V2-compatible gateway artifact.
+- **Application recovery:** redeploy a previously accepted V2-compatible gateway
+  digest (not the pre-V2 pin). Do not run destructive down-migrations; preserve
+  `waitlist_interest` rows.
+
 
 
 

@@ -1,0 +1,20 @@
+{
+  "results": [
+    {
+      "name": "disabled_submit_no_write_no_email",
+      "ok": true,
+      "detail": "http=503 code=WAITLIST_ADMISSIONS_DISABLED count=0 sends=0"
+    },
+    {
+      "name": "disabled_resend_no_email",
+      "ok": true,
+      "detail": "http=503 sends=0"
+    },
+    {
+      "name": "health_up_during_containment",
+      "ok": true,
+      "detail": "http=200"
+    }
+  ],
+  "note": "phase A before admissions enable restart"
+}

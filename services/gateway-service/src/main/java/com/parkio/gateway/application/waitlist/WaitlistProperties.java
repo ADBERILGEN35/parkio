@@ -13,6 +13,14 @@ import org.springframework.validation.annotation.Validated;
 @ConfigurationProperties(prefix = "parkio.waitlist")
 public class WaitlistProperties {
 
+    /**
+     * When false (default), new waitlist registrations and confirmation-email
+     * resends are rejected before database mutation or provider dispatch.
+     * Confirmation of already-issued tokens and withdrawal remain available.
+     * Bound at process start — changing the env var requires a gateway restart.
+     */
+    private boolean admissionsEnabled = false;
+
     @NotBlank
     private String hashSecret;
 
@@ -42,6 +50,14 @@ public class WaitlistProperties {
     @Valid
     @NotNull
     private Email email = new Email();
+
+    public boolean isAdmissionsEnabled() {
+        return admissionsEnabled;
+    }
+
+    public void setAdmissionsEnabled(boolean admissionsEnabled) {
+        this.admissionsEnabled = admissionsEnabled;
+    }
 
     public String getHashSecret() {
         return hashSecret;

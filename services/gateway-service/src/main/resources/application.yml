@@ -340,6 +340,9 @@ parkio:
       cache-ttl: ${PARKIO_SESSION_EPOCH_CACHE_TTL:PT30S}
       request-timeout: ${PARKIO_SESSION_EPOCH_TIMEOUT:PT2S}
   waitlist:
+    # Default false: reject submit/resend until explicitly enabled for go-live.
+    # Bound at process start — changing PARKIO_WAITLIST_ADMISSIONS_ENABLED requires a gateway restart.
+    admissions-enabled: ${PARKIO_WAITLIST_ADMISSIONS_ENABLED:false}
     hash-secret: ${PARKIO_WAITLIST_HASH_SECRET:${PARKIO_GATEWAY_INTERNAL_SECRET:}}
     confirm-base-url: ${PARKIO_WAITLIST_CONFIRM_URL:https://parkio.dev/waitlist/confirm/}
     withdraw-base-url: ${PARKIO_WAITLIST_WITHDRAW_URL:https://parkio.dev/waitlist/unsubscribe/}
