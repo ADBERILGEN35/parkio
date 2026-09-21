@@ -110,7 +110,10 @@ parkio_configure_deployment_profile() {
       PARKIO_DISABLED_SERVICES=()
       ;;
     azure-hosted-beta)
-      PARKIO_COMPOSE_FILES="-f docker/docker-compose.yml -f docker/docker-compose.apps.yml -f docker/docker-compose.images.yml -f docker/docker-compose.hosted-beta.yml -f docker/docker-compose.azure-hosted-beta.yml"
+      # gmp-release-pins.yml is last so digest-pinned gateway/media/parking win over
+      # docker-compose.images.yml tags. Production ops prefer scripts/parkio-prod-compose.sh
+      # (compose.production.files — no images.yml). Do not omit the pins overlay.
+      PARKIO_COMPOSE_FILES="-f docker/docker-compose.yml -f docker/docker-compose.apps.yml -f docker/docker-compose.images.yml -f docker/docker-compose.hosted-beta.yml -f docker/docker-compose.azure-hosted-beta.yml -f docker/docker-compose.gmp-release-pins.yml"
       PARKIO_RUNTIME_SERVICES=("${PARKIO_AZURE_RUNTIME_SERVICES[@]}")
       PARKIO_DISABLED_SERVICES=(alertmanager loki promtail tempo)
       PARKIO_REQUIRED_HEALTHY=("${PARKIO_AZURE_REQUIRED_HEALTHY[@]}")
