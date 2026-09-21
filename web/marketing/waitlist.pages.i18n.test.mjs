@@ -50,8 +50,8 @@ test('confirm and withdraw pages wire all visible copy through i18n keys', () =>
   for (const html of [confirmHtml, withdrawHtml]) {
     assert.match(html, /data-i18n="brand\.tagline"/);
     assert.match(html, /data-i18n="waitlist\.page\.kicker"/);
-    assert.match(html, /i18n\.js\?v=w01l6/);
-    assert.match(html, /waitlist\.js\?v=w01l6/);
+    assert.match(html, /i18n\.js\?v=w01l7/);
+    assert.match(html, /waitlist\.js\?v=w01l7/);
     assert.doesNotMatch(html, /GET istekleri/);
     assert.doesNotMatch(html, /Alternatif silme talepleri/);
   }
@@ -61,6 +61,7 @@ test('confirm and withdraw pages wire all visible copy through i18n keys', () =>
 
 test('EN dictionary localizes confirm/withdraw chrome without HTTP jargon', () => {
   const i18n = loadI18n('?lang=en');
+  i18n.applyLocale(i18n.linkLocale() || 'en');
   assert.equal(i18n.resolveLocale(), 'en');
   assert.equal(i18n.t('en', 'brand.tagline'), 'Parking intelligence');
   assert.equal(i18n.t('en', 'waitlist.page.kicker'), 'Registration notice');
@@ -81,6 +82,7 @@ test('EN dictionary localizes confirm/withdraw chrome without HTTP jargon', () =
 
 test('TR dictionary keeps confirm/withdraw guidance without implementation terms', () => {
   const i18n = loadI18n('?lang=tr');
+  i18n.applyLocale(i18n.linkLocale() || 'tr');
   assert.equal(i18n.resolveLocale(), 'tr');
   assert.equal(i18n.t('tr', 'brand.tagline'), 'Park zekâsı');
   assert.equal(i18n.t('tr', 'waitlist.page.kicker'), 'Kayıt bildirimi');
@@ -94,10 +96,12 @@ test('token action success copy comes from i18n keys', () => {
   assert.doesNotMatch(waitlistJs, /Your email is confirmed on the registration notification list/);
 });
 
-test('link lang query wins over stored preference', () => {
+test('link lang seeds initial locale; switcher can change afterward', () => {
   const i18n = loadI18n('?lang=en');
+  // Simulate init seed from link then a user switch.
+  i18n.applyLocale(i18n.linkLocale() || 'tr');
+  assert.equal(i18n.resolveLocale(), 'en');
   i18n.applyLocale('tr');
-  // Fresh load with lang=en should still resolve en from URL before storage
-  const again = loadI18n('?token=fixture&lang=en');
-  assert.equal(again.resolveLocale(), 'en');
+  assert.equal(i18n.resolveLocale(), 'tr');
+  assert.equal(i18n.linkLocale(), 'en');
 });

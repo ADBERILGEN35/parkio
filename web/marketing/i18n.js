@@ -454,15 +454,6 @@
   };
 
   function resolveLocale() {
-    // Explicit link locale (?lang=tr|en) wins over stored preference so email
-    // confirmation/withdrawal pages open in the subscriber's selected language.
-    try {
-      const params = new URLSearchParams(global.location && global.location.search ? global.location.search : '');
-      const linkLang = params.get('lang');
-      if (linkLang === 'en' || linkLang === 'tr') return linkLang;
-    } catch (_) {
-      /* ignore */
-    }
     try {
       const saved = localStorage.getItem(STORAGE_KEY);
       if (saved === 'en' || saved === 'tr') return saved;
@@ -470,6 +461,17 @@
       /* ignore */
     }
     return 'tr';
+  }
+
+  function linkLocale() {
+    try {
+      const params = new URLSearchParams(global.location && global.location.search ? global.location.search : '');
+      const linkLang = params.get('lang');
+      if (linkLang === 'en' || linkLang === 'tr') return linkLang;
+    } catch (_) {
+      /* ignore */
+    }
+    return null;
   }
 
   function t(locale, key) {
@@ -507,12 +509,16 @@
   }
 
   function init() {
-    const locale = resolveLocale();
+    // Email/confirm links may carry ?lang=; that seeds the initial page language
+    // even when an older storage preference differs. After that, the language
+    // switcher updates storage and wins for feedback re-renders.
+    const fromLink = linkLocale();
+    const locale = fromLink || resolveLocale();
     applyLocale(locale);
     document.querySelectorAll('[data-lang-option]').forEach((btn) => {
       btn.addEventListener('click', () => applyLocale(btn.getAttribute('data-lang-option')));
     });
   }
 
-  global.ParkioI18n = { DICT, STORAGE_KEY, resolveLocale, applyLocale, t, init };
+  global.ParkioI18n = { DICT, STORAGE_KEY, resolveLocale, linkLocale, applyLocale, t, init };
 })(typeof window !== 'undefined' ? window : globalThis);
