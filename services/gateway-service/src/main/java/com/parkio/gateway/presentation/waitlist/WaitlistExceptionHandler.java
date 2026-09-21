@@ -1,6 +1,7 @@
 package com.parkio.gateway.presentation.waitlist;
 
 import com.parkio.gateway.application.waitlist.WaitlistAdmissionsDisabledException;
+import com.parkio.gateway.application.waitlist.WaitlistConsentTimestampException;
 import com.parkio.gateway.application.waitlist.WaitlistEmailDeliveryException;
 import com.parkio.gateway.application.waitlist.WaitlistRateLimitExceededException;
 import com.parkio.gateway.application.waitlist.WaitlistTokenException;
@@ -8,6 +9,7 @@ import com.parkio.gateway.shared.ApiError;
 import com.parkio.gateway.shared.GatewayHeaders;
 import java.time.Clock;
 import org.springframework.http.HttpStatus;
+import org.springframework.validation.FieldError;
 import org.springframework.web.bind.support.WebExchangeBindException;
 import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.RestControllerAdvice;
@@ -24,9 +26,33 @@ public class WaitlistExceptionHandler {
     }
 
     @ExceptionHandler(WebExchangeBindException.class)
-    public Mono<ApiError> validation(ServerWebExchange exchange) {
+    public Mono<ApiError> validation(WebExchangeBindException ex, ServerWebExchange exchange) {
         exchange.getResponse().setStatusCode(HttpStatus.BAD_REQUEST);
+        boolean consentField = ex.getFieldErrors().stream()
+                .map(FieldError::getField)
+                .anyMatch("consentTimestamp"::equals);
+        boolean emailField = ex.getFieldErrors().stream()
+                .map(FieldError::getField)
+                .anyMatch("email"::equals);
+        if (consentField && !emailField) {
+            return Mono.just(error(
+                    exchange,
+                    "WAITLIST_CONSENT_TIMESTAMP_INVALID",
+                    "Waitlist consent timestamp is missing or outside the accepted time window."));
+        }
+        if (emailField) {
+            return Mono.just(error(exchange, "VALIDATION_ERROR", "Waitlist request is invalid."));
+        }
         return Mono.just(error(exchange, "VALIDATION_ERROR", "Waitlist request is invalid."));
+    }
+
+    @ExceptionHandler(WaitlistConsentTimestampException.class)
+    public Mono<ApiError> consentTimestamp(ServerWebExchange exchange) {
+        exchange.getResponse().setStatusCode(HttpStatus.BAD_REQUEST);
+        return Mono.just(error(
+                exchange,
+                "WAITLIST_CONSENT_TIMESTAMP_INVALID",
+                "Waitlist consent timestamp is missing or outside the accepted time window."));
     }
 
     @ExceptionHandler(WaitlistRateLimitExceededException.class)

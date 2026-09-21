@@ -5,8 +5,6 @@ import com.parkio.gateway.application.waitlist.WaitlistEmailSender;
 import com.parkio.gateway.application.waitlist.WaitlistHasher;
 import com.parkio.gateway.application.waitlist.WaitlistProperties;
 import jakarta.annotation.PostConstruct;
-import java.net.URLEncoder;
-import java.nio.charset.StandardCharsets;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
@@ -59,55 +57,32 @@ public class ResendWaitlistEmailSender implements WaitlistEmailSender {
 
     @Override
     public void sendConfirmation(String email, String verificationToken, String withdrawToken, String locale) {
-        String confirmUrl = joinUrl(properties.getConfirmBaseUrl(), verificationToken);
-        boolean turkish = !"en".equalsIgnoreCase(locale);
-        String subject = turkish
-                ? "Parkio kayıt bildirim listesini onaylayın"
-                : "Confirm your Parkio registration waitlist signup";
-        StringBuilder text = new StringBuilder();
-        if (turkish) {
-            text.append("Parkio kayıtlar açıldığında sizi bilgilendirmek için e-posta adresinizi doğrulamanız gerekiyor.\n\n");
-            text.append("Onaylamak için bu sayfayı açın ve Onayla düğmesine basın:\n");
-            text.append(confirmUrl).append("\n\n");
-            if (withdrawToken != null && !withdrawToken.isBlank()) {
-                text.append("Listeden çıkmak için:\n");
-                text.append(joinUrl(properties.getWithdrawBaseUrl(), withdrawToken)).append("\n\n");
-            }
-            text.append("Bu isteği siz yapmadıysanız bu e-postayı yok sayabilirsiniz.");
-        } else {
-            text.append("Please confirm your email so Parkio can notify you when registrations open.\n\n");
-            text.append("Open this page and press Confirm:\n");
-            text.append(confirmUrl).append("\n\n");
-            if (withdrawToken != null && !withdrawToken.isBlank()) {
-                text.append("To withdraw:\n");
-                text.append(joinUrl(properties.getWithdrawBaseUrl(), withdrawToken)).append("\n\n");
-            }
-            text.append("If you did not request this, you can ignore this email.");
-        }
-        send(email, subject, text.toString());
-        log.info("Waitlist confirmation emailed; emailHash={}, locale={}", hasher.hash(email), locale);
+        String lang = WaitlistEmailTemplates.normalizeLocale(locale);
+        String confirmUrl = WaitlistEmailTemplates.pageUrl(properties.getConfirmBaseUrl(), verificationToken, lang);
+        String withdrawUrl = withdrawToken == null || withdrawToken.isBlank()
+                ? null
+                : WaitlistEmailTemplates.pageUrl(properties.getWithdrawBaseUrl(), withdrawToken, lang);
+        WaitlistEmailTemplates.Copy copy = WaitlistEmailTemplates.confirmation(lang, confirmUrl, withdrawUrl);
+        send(email, copy.subject(), WaitlistEmailTemplates.renderText(copy), WaitlistEmailTemplates.renderHtml(copy));
+        log.info("Waitlist confirmation emailed; emailHash={}, locale={}", hasher.hash(email), lang);
     }
 
     @Override
     public void sendWithdrawalNotice(String email, String locale) {
-        boolean turkish = !"en".equalsIgnoreCase(locale);
-        String subject = turkish
-                ? "Parkio bildirim listesi kaydınız silindi"
-                : "Your Parkio waitlist signup was removed";
-        String text = turkish
-                ? "E-posta adresiniz Parkio kayıt bildirim listesinden silindi."
-                : "Your email was removed from the Parkio registration waitlist.";
-        send(email, subject, text);
-        log.info("Waitlist withdrawal emailed; emailHash={}, locale={}", hasher.hash(email), locale);
+        String lang = WaitlistEmailTemplates.normalizeLocale(locale);
+        WaitlistEmailTemplates.Copy copy = WaitlistEmailTemplates.withdrawal(lang);
+        send(email, copy.subject(), WaitlistEmailTemplates.renderText(copy), WaitlistEmailTemplates.renderHtml(copy));
+        log.info("Waitlist withdrawal emailed; emailHash={}, locale={}", hasher.hash(email), lang);
     }
 
-    private void send(String email, String subject, String text) {
+    private void send(String email, String subject, String text, String html) {
         WaitlistProperties.Email emailProps = properties.getEmail();
         Map<String, Object> body = new HashMap<>();
         body.put("from", emailProps.getFrom());
         body.put("to", List.of(email));
         body.put("subject", subject);
         body.put("text", text);
+        body.put("html", html);
         if (emailProps.getReplyTo() != null && !emailProps.getReplyTo().isBlank()) {
             body.put("reply_to", emailProps.getReplyTo());
         }
@@ -121,10 +96,5 @@ public class ResendWaitlistEmailSender implements WaitlistEmailSender {
         } catch (RestClientException ex) {
             throw new WaitlistEmailDeliveryException("WAITLIST_EMAIL_DELIVERY_FAILED", ex);
         }
-    }
-
-    private static String joinUrl(String base, String rawToken) {
-        String separator = base.contains("?") ? "&" : "?";
-        return base + separator + "token=" + URLEncoder.encode(rawToken, StandardCharsets.UTF_8);
     }
 }
