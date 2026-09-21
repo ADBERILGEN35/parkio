@@ -139,6 +139,7 @@ Criteria reference: `PUBLICATION-CRITERIA.md`, `SOURCE-INVENTORY.md`.
 | Live Hatay/Konak presence on prod IZUM | Depends on post-#70 deploy + sync; İZELMAN closed CSV is recovery inventory |
 | Dense OSM at 5 km | Will hit limit 100 — continuation is zoom/radius, not pagination |
 | PR #68 / New Relic | Kept separate |
+| Security CI summary on tip `f526df3d` | Failed only because unrelated `ai-validation` / `gamification` Trivy **artifact upload 403**; parking container scan, Backend unit, Integration, Frontend, Mobile-v2 all **pass** |
 
 ---
 
