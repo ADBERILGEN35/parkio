@@ -116,12 +116,27 @@ minimum is 3.0.4 and its separate affected New Relic external plugin is not
 loaded here.
 
 An exact-image Trivy scan on 2026-09-21 reported Debian 13.6 with **0 CRITICAL
-and 6 HIGH** OS findings for the selected 5.0.10 digest: four libcurl findings
-without a packaged fix, one libsystemd finding without a packaged fix, and one
-libssh2 finding with a Debian fix available. This is not a zero-vulnerability
-claim. The prior 3.2.10 image reported 59 HIGH and 4 CRITICAL and is no longer a
-candidate. Re-run the digest scan immediately before approval because the
-vulnerability database changes over time.
+and 6 HIGH** OS findings for the selected 5.0.10 digest. The image is not clean
+and none of these findings is removed from the inventory merely because its
+known trigger is absent. Package policy uses `OPEN-NO-FIX` when Trivy reports no
+Debian fixed version and `OPEN-FIX-AVAILABLE` when a Debian package fix exists.
+Reachability is a separate statement about this exact configuration:
+
+| Finding | Package / scanner status | Policy | Reviewed configuration reachability |
+| --- | --- | --- | --- |
+| `CVE-2026-12064` | `libcurl4t64` 8.14.1-2+deb13u4; HIGH, affected; no packaged fix | `OPEN-NO-FIX` | Not reached: affects curl CLI schemeless SFTP/SCP with `--proto-default`; the pipeline executes neither curl CLI nor SSH file transfer. |
+| `CVE-2026-8286` | `libcurl4t64` 8.14.1-2+deb13u4; HIGH, affected; no packaged fix | `OPEN-NO-FIX` | Not reached: requires STARTTLS IMAP/POP3/SMTP/FTP/LDAP connection reuse; the collector uses only plain HTTP to the private gate. |
+| `CVE-2026-8458` | `libcurl4t64` 8.14.1-2+deb13u4; HIGH, affected; no packaged fix | `OPEN-NO-FIX` | Not reached: requires Negotiate authentication and differing service names; neither is configured. |
+| `CVE-2026-8927` | `libcurl4t64` 8.14.1-2+deb13u4; HIGH, affected; no packaged fix | `OPEN-NO-FIX` | Not reached: requires environment-selected proxies, proxy changes and Digest proxy authentication; the collector has no proxy configuration or proxy credential. |
+| `CVE-2026-58050` | `libssh2-1t64` 1.11.1-1+deb13u1; HIGH, fix available in 1.11.1-1+deb13u2 | `OPEN-FIX-AVAILABLE` | Not reached: requires a malicious SSH server response in the public-key subsystem; no SSH plugin or destination is enabled. |
+| `CVE-2026-16742` | `libsystemd0` 257.13-1~deb13u1; HIGH, affected; no packaged fix | `OPEN-NO-FIX` | Not reached: requires a running `systemd-homed` local authentication path; the collector container runs Fluent Bit directly and has no systemd/homed service. |
+
+These are configuration-specific reachability assessments, not waivers. A
+plugin, proxy, protocol, entrypoint or base-image change invalidates them. The
+`OPEN-FIX-AVAILABLE` libssh2 finding and all `OPEN-NO-FIX` findings remain
+visible activation evidence and must be rescanned immediately before the
+synthetic proof and again before real-log activation. The prior 3.2.10 image
+reported 59 HIGH and 4 CRITICAL and is no longer a candidate.
 
 References:
 
@@ -129,6 +144,12 @@ References:
 - [Fluent Bit releases](https://github.com/fluent/fluent-bit/releases)
 - [Secure Forward advisory](https://github.com/fluent/fluent-bit/security/advisories/GHSA-jrp8-r9hx-gf73)
 - [New Relic NR24-01](https://docs.newrelic.com/docs/security/new-relic-security/security-bulletins/security-bulletin-nr24-01/)
+- [curl CVE-2026-12064](https://curl.se/docs/CVE-2026-12064.html)
+- [curl CVE-2026-8286](https://curl.se/docs/CVE-2026-8286.html)
+- [curl CVE-2026-8458](https://curl.se/docs/CVE-2026-8458.html)
+- [curl CVE-2026-8927](https://curl.se/docs/CVE-2026-8927.html)
+- [Debian CVE-2026-58050 status](https://security-tracker.debian.org/tracker/CVE-2026-58050)
+- [Debian systemd security status](https://security-tracker.debian.org/tracker/source-package/systemd)
 
 ## Redaction and exported fields
 
@@ -227,6 +248,25 @@ exhausting it. Do not extrapolate any of these synthetic measurements into an
 owner budget or expected production rate; production demand remains unknown
 because reading or transmitting production content was intentionally avoided.
 
+### PR CI evidence
+
+For implementation head `6ed1dc2808d5ec57e323d1fb182eb1ea584f2429`, the
+terminal checks available on 2026-09-21 were PASS for build/unit tests,
+configuration and scripts, integration tests, k6 smoke, CodeQL Java/Kotlin and
+JavaScript/TypeScript, dependency and secret scans, the security summary, the
+PR Trivy check, all ten application-container scans, and the secret-safe
+non-deploy manifest. Production deploy, migration, rollback and runner jobs
+were skipped as expected for this PR.
+
+The separate Compose dependency recovery drill was **FAIL (infrastructure)**:
+Docker Hub's authentication endpoint timed out while the job was pulling
+`grafana/tempo:2.6.1`, during shared-stack startup and before any pilot
+component or assertion ran. This is not recorded as a pilot functional failure
+or as a PASS; its terminal job evidence is
+[run 35636817533 / job 106456765308](https://github.com/ADBERILGEN35/parkio/actions/runs/35636817533/job/106456765308).
+The Full Docker Compose runtime validation was still in progress at this
+observation and must be recorded separately when it reaches a terminal state.
+
 ## Account inputs and hidden key installation
 
 Confirmed: an EU New Relic account exists, Logs UI is accessible, and an ingest
@@ -246,8 +286,8 @@ sudo install -d -m 0700 -o root -g root /run/parkio-nr-log-pilot
 sudo python3 - <<'PY'
 import getpass, os, re
 path = "/run/parkio-nr-log-pilot/secret.env"
-key = getpass.getpass("New Relic EU ingest license key: ")
-if not re.fullmatch(r"[A-Za-z0-9_-]{20,}", key):
+key = getpass.getpass("New Relic EU Ingest - License key: ")
+if not re.fullmatch(r"[0-9A-Fa-f]{40}", key):
     raise SystemExit("key format rejected; nothing installed")
 fd = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW, 0o600)
 with os.fdopen(fd, "w", encoding="utf-8") as handle:
@@ -255,6 +295,8 @@ with os.fdopen(fd, "w", encoding="utf-8") as handle:
 key = ""
 PY
 sudo test "$(sudo stat -c '%a:%U:%G' /run/parkio-nr-log-pilot/secret.env)" = 600:root:root
+sudo grep -Eq '^PARKIO_NR_LOG_API_KEY=[0-9A-Fa-f]{40}$' \
+  /run/parkio-nr-log-pilot/secret.env
 ```
 
 The format check does not prove key type or entitlement. Do not `cat` the file
@@ -288,16 +330,156 @@ WHERE pipeline = 'nr-log-pilot'
 SINCE 1 hour ago LIMIT MAX
 ```
 
-Synthetic proof: filter `event_name = 'nr_log_pilot.synthetic_probe'` and the
-unique non-secret `pilot_marker`. Success requires exactly one expected startup
-marker, all three filter dimensions, useful redacted error context, no canary,
-no unexpected service, and gate usage below the approved budget.
+The required pre-production proof below uses `event_name =
+'nr_log_pilot.synthetic_probe'` plus a unique non-secret `pilot_marker`. HTTP
+202 and gate counters alone are transport evidence; the proof passes only when
+that exact marker is searchable in the EU account's Logs UI.
+
+## Required synthetic-only EU proof
+
+**Status: NOT_EXECUTED. This is a hard prerequisite for real-log activation.**
+Do not start or install the production source helper first. The proof binds a
+new empty source directory, uses a distinct persistent 16 KiB serialized-body
+test budget and starts a separate Compose project. Fluent Bit's one-sample
+`dummy` input is the only source record.
+
+Run only after billing/retention is confirmed and the hidden key procedure above
+has completed under a separate authorization:
+
+```bash
+set -euo pipefail
+set +x
+checkout=/path/to/reviewed/parkio
+run_dir=/run/parkio-nr-log-pilot
+synthetic_project=parkio-nr-log-pilot-synthetic
+cd "$checkout"
+candidate_sha="$(git rev-parse HEAD)"
+marker="p02-synthetic-$(date -u +%Y%m%dT%H%M%SZ)-$(openssl rand -hex 6)"
+synthetic_root="$run_dir/empty-source-$marker"
+synthetic_state="/var/lib/parkio-nr-synthetic-$marker"
+
+# Hard source-isolation preconditions.
+if sudo systemctl is-active --quiet parkio-nr-log-source.service; then
+  printf 'production source helper is active; refusing synthetic proof\n' >&2
+  exit 1
+fi
+if sudo docker ps -q --filter label=com.docker.compose.project=parkio-nr-log-pilot \
+  | grep -q .; then
+  printf 'production pilot project is running; refusing synthetic proof\n' >&2
+  exit 1
+fi
+sudo install -d -m 0750 -o root -g root \
+  "$synthetic_root" "$synthetic_state/collector" "$synthetic_state/budget"
+if sudo find "$synthetic_root" -mindepth 1 -print -quit | grep -q .; then
+  printf 'synthetic source is not empty; refusing start\n' >&2
+  exit 1
+fi
+
+# Non-secret runtime values. The 16 KiB test budget is persistent and separate
+# from the still-unapproved real-log pilot budget.
+sudo install -m 0600 -o root -g root /dev/null "$run_dir/synthetic.env"
+{
+  printf 'PARKIO_NR_UPSTREAM_BASE_URI=%s\n' 'https://log-api.eu.newrelic.com/log/v1'
+  printf 'PARKIO_NR_BUDGET_BYTES=%s\n' '16384'
+  printf 'PARKIO_NR_BUDGET_STATE_ROOT=%s\n' "$synthetic_state/budget"
+  printf 'PARKIO_NR_COLLECTOR_STATE_ROOT=%s\n' "$synthetic_state/collector"
+  printf 'PARKIO_NR_SOURCE_ROOT=%s\n' "$synthetic_root"
+  printf 'PARKIO_ENVIRONMENT=%s\n' 'production-synthetic-only'
+  printf 'PARKIO_RELEASE_ID=%s\n' 'synthetic-no-production-source'
+  printf 'PARKIO_COLLECTOR_SOURCE_SHA=%s\n' "$candidate_sha"
+  printf 'PARKIO_NR_PILOT_MARKER=%s\n' "$marker"
+} | sudo tee "$run_dir/synthetic.env" >/dev/null
+sudo chmod 600 "$run_dir/synthetic.env"
+
+compose=(sudo docker compose
+  --env-file "$run_dir/secret.env"
+  --env-file "$run_dir/synthetic.env"
+  -p "$synthetic_project"
+  -f docker/docker-compose.newrelic-log-pilot.yml
+  -f docker/docker-compose.newrelic-log-pilot.production.yml
+  --profile nr-log-pilot)
+
+# Independent fail-safe stop; failure to arm it means do not start.
+sudo systemctl stop parkio-nr-log-pilot-synthetic-autostop.timer \
+  parkio-nr-log-pilot-synthetic-autostop.service 2>/dev/null || true
+sudo systemctl reset-failed parkio-nr-log-pilot-synthetic-autostop.timer \
+  parkio-nr-log-pilot-synthetic-autostop.service 2>/dev/null || true
+sudo systemd-run --unit=parkio-nr-log-pilot-synthetic-autostop --on-active=10m \
+  /usr/bin/env PARKIO_NR_PILOT_PROJECT="$synthetic_project" \
+  PARKIO_NR_SOURCE_HELPER_UNIT=parkio-nr-log-source-synthetic-none.service \
+  "$checkout/scripts/newrelic_log_pilot/stop_pilot.sh"
+sudo systemctl is-active --quiet parkio-nr-log-pilot-synthetic-autostop.timer
+
+"${compose[@]}" up -d nr-budget-gate fluent-bit-nr-pilot
+collector_id="$("${compose[@]}" ps -q fluent-bit-nr-pilot)"
+gate_id="$("${compose[@]}" ps -q nr-budget-gate)"
+[ -n "$collector_id" ] && [ -n "$gate_id" ]
+[ "$(sudo docker inspect --format '{{range .Mounts}}{{if eq .Destination "/var/log/parkio-pilot"}}{{.Source}}{{end}}{{end}}' "$collector_id")" = "$synthetic_root" ]
+[ -z "$(sudo docker inspect --format '{{range .Mounts}}{{if eq .Destination "/var/run/docker.sock"}}{{.Source}}{{end}}{{end}}' "$collector_id" "$gate_id")" ]
+
+# Require one healthy upstream attempt and one forwarded synthetic record.
+sleep 5
+"${compose[@]}" exec -T nr-budget-gate python - <<'PY'
+import json, urllib.request
+stats = json.load(urllib.request.urlopen("http://127.0.0.1:8090/stats", timeout=5))
+assert stats["max_bytes"] == 16384, stats
+assert stats["forwarded_attempts"] == 1, stats
+assert stats["records_forwarded"] == 1, stats
+assert stats["rejected_attempts"] == 0, stats
+assert stats["exhausted"] is False, stats
+print(json.dumps({key: stats[key] for key in (
+    "max_bytes", "spent_bytes", "remaining_bytes", "attempts",
+    "forwarded_attempts", "records_forwarded", "exhausted"
+)}, sort_keys=True))
+PY
+printf 'Search this non-secret marker in New Relic Logs: %s\n' "$marker"
+```
+
+In the EU Logs UI, run this query with the printed marker:
+
+```sql
+FROM Log SELECT count(*)
+WHERE pipeline = 'nr-log-pilot'
+  AND environment = 'production-synthetic-only'
+  AND source_kind = 'synthetic'
+  AND event_name = 'nr_log_pilot.synthetic_probe'
+  AND pilot_marker = 'REPLACE_WITH_PRINTED_MARKER'
+SINCE 30 minutes ago
+```
+
+The proof passes only if the exact marker is searchable and the result is one
+record with `collector = 'fluent-bit-5.0.10'` and the expected
+`collector_source_sha`. Zero results is **FAIL**, even if New Relic returned HTTP
+202. More than one result is also **FAIL** for this one-record proof and must be
+recorded as a duplicate investigation.
+
+Whether the query passes or fails, stop and remove the synthetic project
+immediately while retaining its dedicated state directory as evidence:
+
+```bash
+cd /path/to/reviewed/parkio
+compose=(sudo docker compose
+  --env-file /run/parkio-nr-log-pilot/secret.env
+  --env-file /run/parkio-nr-log-pilot/synthetic.env
+  -p parkio-nr-log-pilot-synthetic
+  -f docker/docker-compose.newrelic-log-pilot.yml
+  -f docker/docker-compose.newrelic-log-pilot.production.yml
+  --profile nr-log-pilot)
+"${compose[@]}" down --timeout 30
+sudo systemctl stop parkio-nr-log-pilot-synthetic-autostop.timer 2>/dev/null || true
+test -z "$(sudo docker ps -q --filter label=com.docker.compose.project=parkio-nr-log-pilot-synthetic)"
+```
+
+Record the marker, query result, gate counter subset, exact source SHA, image
+digests, start/stop timestamps and the six HIGH findings. Do not proceed to the
+next section unless this proof is PASS and the synthetic project is stopped.
 
 ## Deferred production install and activation
 
-Do not run this section until the gateway deployment has settled and a separate
-activation decision is recorded. These commands are reviewable handoff, not an
-authorization to execute them.
+Do not run this section until the required synthetic-only EU proof above is PASS,
+its project is stopped, the gateway deployment has settled and a separate
+real-log activation decision is recorded. These commands are reviewable handoff,
+not an authorization to execute them.
 
 Create bounded state directories and capture fresh identities:
 
@@ -366,52 +548,12 @@ sudo docker compose \
   --profile nr-log-pilot up -d nr-budget-gate fluent-bit-nr-pilot
 ```
 
-Immediately repeat `--check-helper`, inspect only container health and gate
-`/stats`, and search for the unique synthetic marker. Do not display log
-payloads or resolved environment. Stop on helper mismatch, gate health 507,
-unexpected service, canary exposure, host pressure, or the one-hour deadline.
+Immediately repeat `--check-helper` and inspect only container health and gate
+`/stats`. Do not display log payloads or resolved environment. Stop on helper
+mismatch, gate health 507, unexpected service, canary exposure, host pressure,
+or the one-hour deadline.
 
-## Synthetic-only external proof and rollback
-
-A pre-activation New Relic proof may start the gate and collector against an
-empty task-scoped source volume and emit only the built-in marker. It must use a
-separate Compose project and a deliberately tiny approved test budget. Do not
-mount the helper spool or any production log. This step remains unexecuted until
-the key is installed out of band and billing/retention plus a numeric test
-budget are confirmed.
-
-Exact synthetic-only procedure (replace the two approval placeholders first):
-
-```bash
-set -euo pipefail
-synthetic_root=/run/parkio-nr-log-pilot/synthetic-empty-source
-sudo install -d -m 0750 -o root -g root "$synthetic_root" \
-  /var/lib/parkio-nr-synthetic-collector-state \
-  /var/lib/parkio-nr-synthetic-budget-state
-sudo sh -c 'umask 077; cat > /run/parkio-nr-log-pilot/synthetic.env' <<'EOF'
-PARKIO_NR_UPSTREAM_BASE_URI=https://log-api.eu.newrelic.com/log/v1
-PARKIO_NR_BUDGET_BYTES=OWNER_APPROVED_SYNTHETIC_BYTE_BUDGET
-PARKIO_NR_BUDGET_STATE_ROOT=/var/lib/parkio-nr-synthetic-budget-state
-PARKIO_NR_COLLECTOR_STATE_ROOT=/var/lib/parkio-nr-synthetic-collector-state
-PARKIO_NR_SOURCE_ROOT=/run/parkio-nr-log-pilot/synthetic-empty-source
-PARKIO_ENVIRONMENT=production-synthetic-only
-PARKIO_RELEASE_ID=synthetic-no-application-source
-PARKIO_COLLECTOR_SOURCE_SHA=EXACT_REVIEWED_PR_HEAD
-PARKIO_NR_PILOT_MARKER=p02-synthetic-UNIQUE-NONSECRET-MARKER
-EOF
-sudo docker compose \
-  --env-file /run/parkio-nr-log-pilot/secret.env \
-  --env-file /run/parkio-nr-log-pilot/synthetic.env \
-  -p parkio-nr-log-pilot-synthetic \
-  -f docker/docker-compose.newrelic-log-pilot.yml \
-  -f docker/docker-compose.newrelic-log-pilot.production.yml \
-  --profile nr-log-pilot up -d nr-budget-gate fluent-bit-nr-pilot
-```
-
-Confirm exactly the unique marker in New Relic, capture gate counters without
-payloads, then stop the two synthetic containers immediately. The empty source
-root and absence of the host helper are the controls that prevent real log
-collection. Do not leave this proof running for the one-hour production window.
+## Real-log rollback
 
 Rollback is application-independent:
 
