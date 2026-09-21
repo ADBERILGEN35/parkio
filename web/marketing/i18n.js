@@ -131,6 +131,24 @@
       'waitlist.mockNote': 'Yerel yalıtılmış mod: kalıcı sağlayıcı çalıştırılmıyor.',
       'waitlist.unavailable':
         'Kayıt bildirim listesi henüz açık değil. Onay veya çıkış bağlantınız varsa ilgili sayfayı kullanabilirsiniz.',
+      'waitlist.page.kicker': 'Kayıt bildirimi',
+      'waitlist.page.confirm.title': 'Parkio | Bildirim listesi onayı',
+      'waitlist.page.confirm.h1': 'E-posta onayını tamamlayın',
+      'waitlist.page.confirm.lede':
+        'Bağlantı önizlemeleri kaydı otomatik onaylamaz. Listede kalmak için aşağıdaki düğmeye basın.',
+      'waitlist.page.confirm.cta': 'Onayla',
+      'waitlist.page.confirm.note':
+        'Kaydınızı tamamlamak için onay düğmesine basın. Destek: info@parkio.dev',
+      'waitlist.page.confirm.success':
+        'E-posta adresiniz kayıt bildirim listesinde onaylandı.',
+      'waitlist.page.withdraw.title': 'Parkio | Bildirim listesinden çıkış',
+      'waitlist.page.withdraw.h1': 'Bildirim listesinden çıkın',
+      'waitlist.page.withdraw.lede':
+        'Bu işlem e-posta adresinizi kayıt bildirim listesinden siler. Hesap oluşturulmaz veya silinmez; yalnızca bildirim kaydı etkilenir.',
+      'waitlist.page.withdraw.cta': 'Listeden çıkar',
+      'waitlist.page.withdraw.note': 'Destek veya silme talepleri için: info@parkio.dev',
+      'waitlist.page.withdraw.success':
+        'E-posta adresiniz bildirim listesinden silindi.',
       'business.kicker': 'İş modeli',
       'business.h2': 'Parkio bir iş olarak nasıl ilerliyor',
       'business.intro':
@@ -336,6 +354,24 @@
       'waitlist.mockNote': 'Local isolated mode: durable provider is NOT_EXECUTED.',
       'waitlist.unavailable':
         'The registration notification list is not open yet. If you have a confirmation or withdrawal link, use that page.',
+      'waitlist.page.kicker': 'Registration notice',
+      'waitlist.page.confirm.title': 'Parkio | Confirm notification list',
+      'waitlist.page.confirm.h1': 'Complete email confirmation',
+      'waitlist.page.confirm.lede':
+        'Link previews do not confirm your signup. Press the button below to stay on the list.',
+      'waitlist.page.confirm.cta': 'Confirm',
+      'waitlist.page.confirm.note':
+        'Press Confirm to complete your subscription. Support: info@parkio.dev',
+      'waitlist.page.confirm.success':
+        'Your email is confirmed on the registration notification list.',
+      'waitlist.page.withdraw.title': 'Parkio | Leave notification list',
+      'waitlist.page.withdraw.h1': 'Leave the notification list',
+      'waitlist.page.withdraw.lede':
+        'This removes your email from the registration notification list. No application account is created or deleted.',
+      'waitlist.page.withdraw.cta': 'Remove me',
+      'waitlist.page.withdraw.note': 'For support or deletion requests: info@parkio.dev',
+      'waitlist.page.withdraw.success':
+        'Your email was removed from the notification list.',
       'business.kicker': 'Business',
       'business.h2': 'How Parkio works as a business',
       'business.intro':
@@ -418,15 +454,6 @@
   };
 
   function resolveLocale() {
-    // Explicit link locale (?lang=tr|en) wins over stored preference so email
-    // confirmation/withdrawal pages open in the subscriber's selected language.
-    try {
-      const params = new URLSearchParams(global.location && global.location.search ? global.location.search : '');
-      const linkLang = params.get('lang');
-      if (linkLang === 'en' || linkLang === 'tr') return linkLang;
-    } catch (_) {
-      /* ignore */
-    }
     try {
       const saved = localStorage.getItem(STORAGE_KEY);
       if (saved === 'en' || saved === 'tr') return saved;
@@ -434,6 +461,17 @@
       /* ignore */
     }
     return 'tr';
+  }
+
+  function linkLocale() {
+    try {
+      const params = new URLSearchParams(global.location && global.location.search ? global.location.search : '');
+      const linkLang = params.get('lang');
+      if (linkLang === 'en' || linkLang === 'tr') return linkLang;
+    } catch (_) {
+      /* ignore */
+    }
+    return null;
   }
 
   function t(locale, key) {
@@ -471,12 +509,16 @@
   }
 
   function init() {
-    const locale = resolveLocale();
+    // Email/confirm links may carry ?lang=; that seeds the initial page language
+    // even when an older storage preference differs. After that, the language
+    // switcher updates storage and wins for feedback re-renders.
+    const fromLink = linkLocale();
+    const locale = fromLink || resolveLocale();
     applyLocale(locale);
     document.querySelectorAll('[data-lang-option]').forEach((btn) => {
       btn.addEventListener('click', () => applyLocale(btn.getAttribute('data-lang-option')));
     });
   }
 
-  global.ParkioI18n = { DICT, STORAGE_KEY, resolveLocale, applyLocale, t, init };
+  global.ParkioI18n = { DICT, STORAGE_KEY, resolveLocale, linkLocale, applyLocale, t, init };
 })(typeof window !== 'undefined' ? window : globalThis);
