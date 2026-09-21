@@ -13,9 +13,9 @@
 | --- | --- | --- |
 | Merged PR #70 (IZUM incomplete-snapshot guard) | `f0abf765` on `api` | **Merged ≠ deployed** |
 | Live production parking pin | `ghcr.io/adberilgen35/parkio/parking-service@sha256:e353baed3f464849208ef8852314ad8c469663d20ad8c2f755ac236bd1452dfe` | Pre-#70; still in `docker/docker-compose.gmp-release-pins.yml` |
-| Candidate branch HEAD (pre-final-push) | includes `f0abf765` + nearby/access/Explore family work | See git after push |
+| Candidate branch HEAD | `4abbf326` (contains `f0abf765` / #70 + coverage prep) | PR #71 tip |
 | Local RC bootJar SHA-256 | `F0EACE14E426AD44000E848A3709EC57BA4A73F23BB54521F6B99D851589E1D5` | `parking-service-0.0.1-SNAPSHOT.jar` |
-| Local RC image (buildx manifest) | `sha256:be790a871b093664a773a9c0eedee044031a9ec96c0c6202d53cbd1b967cee57` | Tag `parkio/parking-service:izmir-coverage-rc-<shortsha>`; **not pushed to ghcr** |
+| Local RC image (buildx manifest) | `sha256:c0b4d858cedbfacc122ea29fd422ddd838d652fa18911ac1050fa15dae668f86` | Tag `parkio/parking-service:izmir-coverage-rc-4abbf326`; **not pushed to ghcr** |
 | OSM clip asset | `izmir-admin-izbb-2024-10-18-v1` | Boundary SHA match in `osm-ops/boundary/validation-report.json` |
 | OSM GeoJSON SHA-256 | `2344db92b21d72ebe252d02b858837ccc964db222faca17236588fdf7eabd81c` | 1634 features → 1442 publishable |
 
