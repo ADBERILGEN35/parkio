@@ -269,14 +269,22 @@ later canceled when the documentation-only head superseded it while `Build and
 start full stack` was running. It therefore provides neither a runtime PASS nor
 a pilot failure; the replacement-head check remains the authoritative CI run.
 
+Replacement documentation head `82f295f1dae869b83853571a7db2f3ceb0589aeb`
+then reached terminal PASS for every applicable check, including the Compose
+dependency recovery drill and Full Docker Compose runtime validation. This
+distinguishes the earlier Docker Hub timeout as infrastructure-transient while
+preserving its failed job record; it does not rewrite that job as a pilot PASS.
+
 ## Account inputs and hidden key installation
 
-Confirmed: an EU New Relic account exists, Logs UI is accessible, and an ingest
-license key is ready. Three operator inputs remain:
-
-1. confirm billing/free-tier and retention conditions;
-2. approve a numeric one-hour value for `PARKIO_NR_BUDGET_BYTES`; and
-3. install the ready ingest license key using the hidden procedure below.
+Confirmed by the account operator: an EU New Relic account and Logs UI are
+accessible; Plan Summary showed Free with 0 / 100 GB ingested and one free
+full-platform user; effective log retention was 30 days with zero days extended
+retention; and Billing showed neither payment-method details nor billing
+records. These observations do **not** establish a vendor-enforced spending
+cap. The ingest license key was installed through hidden input for the bounded
+synthetic proof. The remaining real-log input is an owner-approved numeric
+one-hour value for `PARKIO_NR_BUDGET_BYTES`.
 
 Never paste the key into chat, a command argument, shell history, Git, a ticket
 or rendered Compose output. In an interactive production terminal with xtrace
@@ -286,18 +294,18 @@ off, create a reboot-ephemeral root-only env file:
 set +x
 sudo install -d -m 0700 -o root -g root /run/parkio-nr-log-pilot
 sudo python3 - <<'PY'
-import getpass, os, re
+import getpass, os
 path = "/run/parkio-nr-log-pilot/secret.env"
 key = getpass.getpass("New Relic EU Ingest - License key: ")
-if not re.fullmatch(r"[0-9A-Fa-f]{40}", key):
-    raise SystemExit("key format rejected; nothing installed")
+if not key or any(character in key for character in "\r\n\0"):
+    raise SystemExit("empty or line-unsafe key rejected; nothing installed")
 fd = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW, 0o600)
 with os.fdopen(fd, "w", encoding="utf-8") as handle:
     handle.write("PARKIO_NR_LOG_API_KEY=" + key + "\n")
 key = ""
 PY
 sudo test "$(sudo stat -c '%a:%U:%G' /run/parkio-nr-log-pilot/secret.env)" = 600:root:root
-sudo grep -Eq '^PARKIO_NR_LOG_API_KEY=[0-9A-Fa-f]{40}$' \
+sudo grep -Eq '^PARKIO_NR_LOG_API_KEY=[^[:space:]]+$' \
   /run/parkio-nr-log-pilot/secret.env
 ```
 
@@ -339,7 +347,8 @@ that exact marker is searchable in the EU account's Logs UI.
 
 ## Required synthetic-only EU proof
 
-**Status: NOT_EXECUTED. This is a hard prerequisite for real-log activation.**
+**Status: TRANSPORT PASS / NEW RELIC SEARCH PENDING. This remains a hard
+prerequisite for real-log activation until the exact marker is searchable.**
 Do not start or install the production source helper first. The proof binds a
 new empty source directory, uses a distinct persistent 16 KiB serialized-body
 test budget and starts a separate Compose project. Fluent Bit's one-sample
@@ -475,6 +484,28 @@ test -z "$(sudo docker ps -q --filter label=com.docker.compose.project=parkio-nr
 Record the marker, query result, gate counter subset, exact source SHA, image
 digests, start/stop timestamps and the six HIGH findings. Do not proceed to the
 next section unless this proof is PASS and the synthetic project is stopped.
+
+### 2026-09-21 synthetic execution evidence
+
+- Marker: `p02-synthetic-20260921T193552Z-32c17439b290`
+- Candidate source: `82f295f1dae869b83853571a7db2f3ceb0589aeb`; runtime
+  files were unchanged from the 31/31-tested `6ed1dc2808d5ec57e323d1fb182eb1ea584f2429`.
+- Start/stop: `2026-09-21T19:35:52Z` / `2026-09-21T19:36:42Z`.
+- Source isolation PASS: production helper and production pilot were inactive;
+  the source mount was a new empty directory; neither container had
+  `docker.sock`; only the gate and collector services ran.
+- Exact Fluent Bit index digest:
+  `sha256:ea0734ecb445c9805ec1fcbfb3430c8607d502fe7ce773b27e362551c02e3fd9`.
+- Persistent gate: 16,384 maximum; 755 uncompressed serialized bytes spent;
+  15,629 remaining; one attempt and one forwarded record; zero retries,
+  rejections or rejected records; 438 compressed wire bytes; not exhausted.
+- HTTP/gate acceptance PASS. This is not searchable-ingestion proof.
+- Teardown PASS: containers, network and timer were absent; production
+  application container identities were unchanged. The dedicated budget state
+  remains at
+  `/var/lib/parkio-nr-synthetic-p02-synthetic-20260921T193552Z-32c17439b290`.
+- End-to-end result remains **PENDING** until the exact marker query returns one
+  record in the EU Logs UI. Zero or more than one is FAIL.
 
 ## Deferred production install and activation
 
