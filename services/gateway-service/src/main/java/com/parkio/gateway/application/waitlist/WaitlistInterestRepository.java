@@ -31,4 +31,13 @@ public interface WaitlistInterestRepository {
     void markVerificationSent(String emailHash, Instant sentAt, int resendCount);
 
     List<WaitlistExportRow> exportConfirmed(Instant createdFrom, Instant createdTo);
+
+    WaitlistAdminCounts countByStatus();
+
+    WaitlistAdminPage findAdminPage(
+            WaitlistStatus status,
+            Instant createdFrom,
+            Instant createdTo,
+            int page,
+            int size);
 }

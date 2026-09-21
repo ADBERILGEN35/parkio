@@ -80,6 +80,26 @@ class AuthorizationGlobalFilterTest {
     }
 
     @Test
+    void waitlistAdminVisibilityIsAdminOnly() {
+        CapturingChain userChain = new CapturingChain();
+        ServerWebExchange user = exchange(HttpMethod.GET, "/api/v1/waitlist/admin", "USER");
+        filter.filter(user, userChain).block();
+        assertThat(userChain.wasInvoked()).isFalse();
+        assertThat(user.getResponse().getStatusCode()).isEqualTo(HttpStatus.FORBIDDEN);
+
+        CapturingChain moderatorChain = new CapturingChain();
+        ServerWebExchange moderator = exchange(HttpMethod.GET, "/api/v1/waitlist/admin/summary", "MODERATOR");
+        filter.filter(moderator, moderatorChain).block();
+        assertThat(moderatorChain.wasInvoked()).isFalse();
+        assertThat(moderator.getResponse().getStatusCode()).isEqualTo(HttpStatus.FORBIDDEN);
+
+        CapturingChain adminChain = new CapturingChain();
+        ServerWebExchange admin = exchange(HttpMethod.GET, "/api/v1/waitlist/admin", "ADMIN");
+        filter.filter(admin, adminChain).block();
+        assertThat(adminChain.wasInvoked()).isTrue();
+    }
+
+    @Test
     void normalUserCannotAccessAdminApi() {
         CapturingChain chain = new CapturingChain();
         ServerWebExchange exchange = exchange(HttpMethod.GET, "/api/v1/admin/dashboard", "USER");

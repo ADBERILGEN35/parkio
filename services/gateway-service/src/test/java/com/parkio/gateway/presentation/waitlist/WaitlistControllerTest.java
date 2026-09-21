@@ -14,6 +14,7 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.autoconfigure.web.reactive.AutoConfigureWebTestClient;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.boot.test.mock.mockito.MockBean;
+import org.springframework.http.HttpHeaders;
 import org.springframework.http.MediaType;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.test.context.ActiveProfiles;
@@ -369,6 +370,96 @@ class WaitlistControllerTest {
                 Integer.class);
         org.assertj.core.api.Assertions.assertThat(confirmed).isEqualTo(1);
         org.assertj.core.api.Assertions.assertThat(pending).isEqualTo(1);
+
+        String body = webTestClient.get()
+                .uri("/api/v1/waitlist/export")
+                .exchange()
+                .expectStatus().isOk()
+                .expectHeader().valueEquals(HttpHeaders.CACHE_CONTROL, "no-store")
+                .expectBody(String.class)
+                .returnResult()
+                .getResponseBody();
+        org.assertj.core.api.Assertions.assertThat(body).contains("will-confirm@parkio.dev");
+        org.assertj.core.api.Assertions.assertThat(body).doesNotContain("only-pending@parkio.dev");
+        org.assertj.core.api.Assertions.assertThat(body).doesNotContain("verification_token");
+        org.assertj.core.api.Assertions.assertThat(body).doesNotContain("email_hash");
+    }
+
+    @Test
+    void adminSummaryAndListReflectStatusesAndFilters() {
+        postAccepted("pending-a@parkio.dev");
+        postAccepted("confirm-a@parkio.dev");
+        String confirmToken = lastVerificationToken.get();
+        webTestClient.post()
+                .uri("/api/v1/waitlist/confirm")
+                .contentType(MediaType.APPLICATION_JSON)
+                .bodyValue("{\"token\":\"" + confirmToken + "\"}")
+                .exchange()
+                .expectStatus().isAccepted();
+
+        postAccepted("withdraw-a@parkio.dev");
+        webTestClient.post()
+                .uri("/api/v1/waitlist/withdraw")
+                .contentType(MediaType.APPLICATION_JSON)
+                .bodyValue("{\"token\":\"" + lastWithdrawToken.get() + "\"}")
+                .exchange()
+                .expectStatus().isAccepted();
+
+        webTestClient.get()
+                .uri("/api/v1/waitlist/admin/summary")
+                .exchange()
+                .expectStatus().isOk()
+                .expectHeader().valueEquals(HttpHeaders.CACHE_CONTROL, "no-store")
+                .expectBody()
+                .jsonPath("$.pending").isEqualTo(1)
+                .jsonPath("$.confirmed").isEqualTo(1)
+                .jsonPath("$.withdrawn").isEqualTo(1)
+                .jsonPath("$.total").isEqualTo(3);
+
+        webTestClient.get()
+                .uri(uriBuilder -> uriBuilder
+                        .path("/api/v1/waitlist/admin")
+                        .queryParam("status", "CONFIRMED")
+                        .queryParam("page", "0")
+                        .queryParam("size", "20")
+                        .build())
+                .exchange()
+                .expectStatus().isOk()
+                .expectBody()
+                .jsonPath("$.totalElements").isEqualTo(1)
+                .jsonPath("$.content[0].email").isEqualTo("confirm-a@parkio.dev")
+                .jsonPath("$.content[0].status").isEqualTo("CONFIRMED")
+                .jsonPath("$.content[0].locale").isEqualTo("tr")
+                .jsonPath("$.content[0].source").isEqualTo("parkio.dev-landing")
+                .jsonPath("$.content[0].confirmedAt").exists()
+                .jsonPath("$.content[0].verificationTokenHash").doesNotExist()
+                .jsonPath("$.content[0].emailHash").doesNotExist()
+                .jsonPath("$.content[0].ipHash").doesNotExist();
+
+        webTestClient.get()
+                .uri("/api/v1/waitlist/admin?status=WITHDRAWN")
+                .exchange()
+                .expectStatus().isOk()
+                .expectBody()
+                .jsonPath("$.totalElements").isEqualTo(1)
+                .jsonPath("$.content[0].status").isEqualTo("WITHDRAWN")
+                .jsonPath("$.content[0].email").value(email ->
+                        org.assertj.core.api.Assertions.assertThat((String) email)
+                                .startsWith("withdrawn-")
+                                .endsWith("@invalid.local"));
+    }
+
+    @Test
+    void adminListEmptyStateIsUsable() {
+        webTestClient.get()
+                .uri("/api/v1/waitlist/admin")
+                .exchange()
+                .expectStatus().isOk()
+                .expectBody()
+                .jsonPath("$.content").isArray()
+                .jsonPath("$.content.length()").isEqualTo(0)
+                .jsonPath("$.totalElements").isEqualTo(0)
+                .jsonPath("$.totalPages").isEqualTo(0);
     }
 
     private void postAccepted(String email) {

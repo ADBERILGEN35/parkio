@@ -147,4 +147,7 @@ export const adminKeys = {
     [...adminKeys.all, 'users', q, status, page] as const,
   userDetail: (id: string) => [...adminKeys.all, 'users', id] as const,
   audit: (page: number, result: string) => [...adminKeys.all, 'audit', page, result] as const,
+  waitlistSummary: () => [...adminKeys.all, 'waitlist', 'summary'] as const,
+  waitlist: (status: string, createdFrom: string, createdTo: string, page: number) =>
+    [...adminKeys.all, 'waitlist', status, createdFrom, createdTo, page] as const,
 };

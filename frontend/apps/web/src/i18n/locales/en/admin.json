@@ -7,6 +7,7 @@
     "nav": {
       "dashboard": "Dashboard",
       "users": "Users",
+      "waitlist": "Waitlist",
       "security": "Security",
       "moderation": "Moderation",
       "analytics": "Analytics",
@@ -177,6 +178,45 @@
     "emptyDescription": "Administrative actions will appear here.",
     "eventActor": "actor {{actorId}} ({{roles}})",
     "eventTarget": "target {{type}}{{id}}"
+  },
+  "waitlist": {
+    "title": "Notification waitlist",
+    "subtitle": "Who joined, confirmed, or left the registration notification list.",
+    "distinction": "These are email notification subscriptions only — not Parkio application accounts. Confirmed waitlist status does not grant product login.",
+    "countsTitle": "Counts",
+    "counts": {
+      "pending": "Pending: {{count}}",
+      "confirmed": "Confirmed: {{count}}",
+      "withdrawn": "Withdrawn: {{count}}",
+      "total": "Total: {{count}}"
+    },
+    "filters": "Filters",
+    "statusLabel": "Status",
+    "createdFrom": "Registered from",
+    "createdTo": "Registered before",
+    "exportConfirmed": "Export confirmed CSV",
+    "exporting": "Exporting…",
+    "exportNote": "Export includes confirmed subscriptions only. Tokens and abuse hashes are never exported.",
+    "subscriptions": "Subscriptions",
+    "emptyTitle": "No subscriptions match",
+    "emptyDescription": "Adjust status or date filters, or wait for new signups.",
+    "sourceUnknown": "Unknown",
+    "pageLabel": "Page {{page}} of {{pages}} ({{total}} total)",
+    "status": {
+      "all": "All statuses",
+      "PENDING": "Pending",
+      "CONFIRMED": "Confirmed",
+      "WITHDRAWN": "Withdrawn"
+    },
+    "table": {
+      "email": "Email",
+      "status": "Status",
+      "locale": "Language",
+      "source": "Source",
+      "created": "Registered",
+      "confirmed": "Confirmed",
+      "withdrawn": "Withdrawn"
+    }
   },
   "system": {
     "title": "System",
