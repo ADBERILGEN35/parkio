@@ -117,9 +117,33 @@ test('CSP allows connect-src to api.parkio.dev (W01L root cause)', () => {
   );
 });
 
+test('submit payload uses past consentTimestamp to tolerate clock skew', async () => {
+  let seenBody = null;
+  const api = loadWaitlist({
+    modeMeta: 'api',
+    fetchImpl: async (_url, init) => {
+      seenBody = JSON.parse(init.body);
+      return jsonResponse(202, { status: 'accepted' });
+    },
+  });
+  const before = Date.now();
+  await api.submitApi({
+    email: 'synthetic@example.com',
+    consentTimestamp: new Date(Date.now() - 120_000).toISOString(),
+    source: 'parkio.dev-landing',
+    locale: 'tr',
+  });
+  // Unit calls submitApi with explicit payload; assert helper used by form stays skewed in source.
+  const sourceJs = readFileSync(resolve(root, 'waitlist.js'), 'utf8');
+  assert.match(sourceJs, /Date\.now\(\)\s*-\s*120_000/);
+  assert.ok(seenBody);
+  assert.ok(Date.parse(seenBody.consentTimestamp) <= before - 60_000);
+});
+
 test('hero CTA and nav waitlist copy are present in canonical marketing', () => {
   assert.match(indexHtml, /id="hero-waitlist-cta"/);
   assert.match(indexHtml, /href="#waitlist"[^>]*data-i18n="cta\.waitlist"/);
+  assert.match(indexHtml, /i18n\.js\?v=w01l2/);
   assert.match(i18n, /'cta\.waitlist': 'Bekleme listesine katıl'/);
   assert.match(i18n, /'cta\.waitlist': 'Join the waitlist'/);
   assert.match(i18n, /'nav\.waitlist': 'Bekleme listesi'/);

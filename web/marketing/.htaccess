@@ -15,4 +15,12 @@ ErrorDocument 404 /404.html
   ExpiresActive On
   ExpiresByType image/png "access plus 30 days"
   ExpiresByType text/css "access plus 7 days"
+  ExpiresByType application/javascript "access plus 5 minutes"
+  ExpiresByType text/javascript "access plus 5 minutes"
+</IfModule>
+
+<IfModule mod_headers.c>
+  <FilesMatch "\.(js)$">
+    Header set Cache-Control "public, max-age=300"
+  </FilesMatch>
 </IfModule>

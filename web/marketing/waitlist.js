@@ -174,7 +174,8 @@
 
       const payload = {
         email,
-        consentTimestamp: new Date().toISOString(),
+        // Gateway validates @PastOrPresent Instant; allow small client/server clock skew.
+        consentTimestamp: new Date(Date.now() - 120_000).toISOString(),
         source: 'parkio.dev-landing',
         locale: currentLocale(),
       };
