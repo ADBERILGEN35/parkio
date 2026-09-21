@@ -42,12 +42,12 @@ function productionComposeContents() {
   return listed.map((path) => ({ path, text: read(path) }));
 }
 
-test('release bake keeps live API + Explore on + municipal off', () => {
+test('release bake keeps live API + Explore on + municipal on', () => {
   const bake = readKv('docker/web-hosted-beta.release-bake.env');
   assert.equal(bake.VITE_APP_ENV, 'hosted-beta');
   assert.equal(bake.VITE_API_BASE_URL, 'https://api.parkio.dev/api/v1');
   assert.equal(bake.VITE_PUBLIC_EXPLORE_ENABLED, 'true');
-  assert.equal(bake.VITE_WEB_MUNICIPAL_DISCOVERY_ENABLED, 'false');
+  assert.equal(bake.VITE_WEB_MUNICIPAL_DISCOVERY_ENABLED, 'true');
   assert.equal(bake.PARKIO_PUBLIC_EXPLORE_ENABLED, 'true');
 });
 
