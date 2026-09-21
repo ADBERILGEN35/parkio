@@ -8,6 +8,8 @@ import java.util.List;
 import java.util.Locale;
 import java.util.Optional;
 import java.util.UUID;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
 import reactor.core.publisher.Mono;
 import reactor.core.scheduler.Schedulers;
@@ -15,6 +17,7 @@ import reactor.core.scheduler.Schedulers;
 @Service
 public class WaitlistApplicationService {
 
+    private static final Logger log = LoggerFactory.getLogger(WaitlistApplicationService.class);
     private static final SecureRandom SECURE_RANDOM = new SecureRandom();
 
     private final WaitlistInterestRepository repository;
@@ -51,6 +54,8 @@ public class WaitlistApplicationService {
         Instant now = clock.instant();
         String verificationToken = newToken();
         String withdrawToken = newToken();
+        // verification_sent_at stays null until outbound delivery succeeds so failed
+        // first sends are immediately retryable (not blocked by resend cooldown).
         WaitlistInterest interest = new WaitlistInterest(
                 UUID.randomUUID(),
                 email,
@@ -64,7 +69,7 @@ public class WaitlistApplicationService {
                 hasher.hash(verificationToken),
                 hasher.hash(withdrawToken),
                 now.plus(properties.getTokenTtl()),
-                now,
+                null,
                 0,
                 null,
                 null,
@@ -75,8 +80,10 @@ public class WaitlistApplicationService {
                 .then(Mono.fromCallable(() -> {
                             boolean inserted = repository.insertPendingIfAbsent(interest);
                             if (inserted) {
-                                emailSender.sendConfirmation(email, verificationToken, withdrawToken, locale);
+                                deliverConfirmation(email, verificationToken, withdrawToken, locale, emailHash, 0);
+                                return true;
                             }
+                            maybeResendPending(emailHash, email);
                             return true;
                         })
                         .subscribeOn(Schedulers.boundedElastic()))
@@ -91,7 +98,10 @@ public class WaitlistApplicationService {
                         return true;
                     }
                     Optional<WaitlistInterest> byVerify = repository.findByVerificationTokenHash(tokenHash);
-                    return byVerify.isPresent() && byVerify.get().status() == WaitlistStatus.CONFIRMED;
+                    if (byVerify.isPresent() && byVerify.get().status() == WaitlistStatus.CONFIRMED) {
+                        return true;
+                    }
+                    return false;
                 })
                 .subscribeOn(Schedulers.boundedElastic())
                 .flatMap(ok -> Boolean.TRUE.equals(ok)
@@ -106,7 +116,13 @@ public class WaitlistApplicationService {
                     Optional<WaitlistInterest> before = repository.findByWithdrawTokenHash(tokenHash);
                     boolean withdrawn = repository.withdrawByTokenHash(tokenHash, now);
                     if (withdrawn && before.isPresent()) {
-                        emailSender.sendWithdrawalNotice(before.get().email(), before.get().locale());
+                        try {
+                            emailSender.sendWithdrawalNotice(before.get().email(), before.get().locale());
+                        } catch (RuntimeException ex) {
+                            log.warn(
+                                    "Waitlist withdrawal notice delivery failed; emailHash={}",
+                                    before.get().emailHash());
+                        }
                     }
                     return withdrawn;
                 })
@@ -122,31 +138,7 @@ public class WaitlistApplicationService {
         String ipHash = hasher.hash(clientIp == null ? "unknown" : clientIp);
         return rateLimiter.check(ipHash, emailHash)
                 .then(Mono.fromCallable(() -> {
-                            Optional<WaitlistInterest> existing = repository.findByEmailHash(emailHash);
-                            if (existing.isEmpty() || existing.get().status() != WaitlistStatus.PENDING) {
-                                return true;
-                            }
-                            WaitlistInterest row = existing.get();
-                            Instant now = clock.instant();
-                            if (row.resendCount() >= properties.getMaxResends()) {
-                                return true;
-                            }
-                            if (row.verificationSentAt() != null
-                                    && row.verificationSentAt()
-                                            .plus(properties.getResendCooldown())
-                                            .isAfter(now)) {
-                                return true;
-                            }
-                            String verificationToken = newToken();
-                            boolean refreshed = repository.refreshPendingVerification(
-                                    emailHash,
-                                    hasher.hash(verificationToken),
-                                    now.plus(properties.getTokenTtl()),
-                                    now,
-                                    row.resendCount() + 1);
-                            if (refreshed) {
-                                emailSender.sendConfirmation(row.email(), verificationToken, null, row.locale());
-                            }
+                            maybeResendPending(emailHash, email);
                             return true;
                         })
                         .subscribeOn(Schedulers.boundedElastic()))
@@ -156,6 +148,52 @@ public class WaitlistApplicationService {
     public Mono<List<WaitlistExportRow>> export(Instant createdFrom, Instant createdTo) {
         return Mono.fromCallable(() -> repository.exportConfirmed(createdFrom, createdTo))
                 .subscribeOn(Schedulers.boundedElastic());
+    }
+
+    private void maybeResendPending(String emailHash, String email) {
+        Optional<WaitlistInterest> existing = repository.findByEmailHash(emailHash);
+        if (existing.isEmpty() || existing.get().status() != WaitlistStatus.PENDING) {
+            return;
+        }
+        WaitlistInterest row = existing.get();
+        Instant now = clock.instant();
+        if (row.resendCount() >= properties.getMaxResends()) {
+            return;
+        }
+        if (row.verificationSentAt() != null
+                && row.verificationSentAt().plus(properties.getResendCooldown()).isAfter(now)) {
+            return;
+        }
+        String verificationToken = newToken();
+        String withdrawToken = newToken();
+        int nextResendCount = row.resendCount() + (row.verificationSentAt() == null ? 0 : 1);
+        // Rotate tokens first; mark sent only after delivery so failures remain retryable.
+        boolean refreshed = repository.refreshPendingVerification(
+                emailHash,
+                hasher.hash(verificationToken),
+                hasher.hash(withdrawToken),
+                now.plus(properties.getTokenTtl()),
+                row.verificationSentAt(),
+                row.resendCount());
+        if (refreshed) {
+            deliverConfirmation(email, verificationToken, withdrawToken, row.locale(), emailHash, nextResendCount);
+        }
+    }
+
+    private void deliverConfirmation(
+            String email,
+            String verificationToken,
+            String withdrawToken,
+            String locale,
+            String emailHash,
+            int resendCountAfterSuccess) {
+        try {
+            emailSender.sendConfirmation(email, verificationToken, withdrawToken, locale);
+            repository.markVerificationSent(emailHash, clock.instant(), resendCountAfterSuccess);
+        } catch (RuntimeException ex) {
+            log.warn("Waitlist confirmation delivery failed after durable write; emailHash={}", emailHash);
+            throw new WaitlistEmailDeliveryException("WAITLIST_EMAIL_DELIVERY_FAILED", ex);
+        }
     }
 
     private static String requireToken(String rawToken) {

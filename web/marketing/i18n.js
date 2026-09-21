@@ -119,6 +119,8 @@
       'waitlist.error.consent': 'Devam etmek için bilgilendirme onayını işaretleyin.',
       'waitlist.error.network': 'Bağlantı hatası. Lütfen tekrar deneyin.',
       'waitlist.error.rate': 'Çok fazla deneme. Lütfen daha sonra tekrar deneyin.',
+      'waitlist.error.delivery':
+        'Kaydınız alındı ancak onay e-postası gönderilemedi. Lütfen kısa süre sonra tekrar deneyin.',
       'waitlist.error.generic': 'Şu anda kaydedilemedi. Lütfen tekrar deneyin.',
       'waitlist.privacy': 'Gizlilik politikası',
       'waitlist.withdraw': 'Çekilme veya silme talebi için onay e-postasındaki bağlantıyı veya info@parkio.dev adresini kullanın.',
@@ -316,6 +318,8 @@
       'waitlist.error.consent': 'Please accept the notification consent to continue.',
       'waitlist.error.network': 'Network error. Please try again.',
       'waitlist.error.rate': 'Too many attempts. Please try again later.',
+      'waitlist.error.delivery':
+        'Your signup was saved but the confirmation email could not be sent. Please try again shortly.',
       'waitlist.error.generic': 'Could not save right now. Please try again.',
       'waitlist.privacy': 'Privacy policy',
       'waitlist.withdraw': 'To withdraw or request deletion, use the link in the confirmation email or contact info@parkio.dev.',

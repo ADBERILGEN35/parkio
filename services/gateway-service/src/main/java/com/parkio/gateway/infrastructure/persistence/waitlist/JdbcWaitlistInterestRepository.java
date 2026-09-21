@@ -79,12 +79,12 @@ public class JdbcWaitlistInterestRepository implements WaitlistInterestRepositor
 
     @Override
     public boolean confirmByTokenHash(String tokenHash, Instant now) {
+        // Keep verification_token_hash after confirm so a second POST (scanner-safe button
+        // retry) is idempotent; GET confirm remains unimplemented on the controller.
         int updated = jdbcTemplate.update("""
                 UPDATE waitlist_interest
                 SET status = 'CONFIRMED',
-                    confirmed_at = ?,
-                    verification_token_hash = NULL,
-                    verification_expires_at = NULL
+                    confirmed_at = COALESCE(confirmed_at, ?)
                 WHERE verification_token_hash = ?
                   AND status = 'PENDING'
                   AND verification_expires_at IS NOT NULL
@@ -119,12 +119,14 @@ public class JdbcWaitlistInterestRepository implements WaitlistInterestRepositor
     public boolean refreshPendingVerification(
             String emailHash,
             String verificationTokenHash,
+            String withdrawTokenHash,
             Instant expiresAt,
             Instant sentAt,
             int resendCount) {
         int updated = jdbcTemplate.update("""
                 UPDATE waitlist_interest
                 SET verification_token_hash = ?,
+                    withdraw_token_hash = ?,
                     verification_expires_at = ?,
                     verification_sent_at = ?,
                     resend_count = ?
@@ -132,11 +134,26 @@ public class JdbcWaitlistInterestRepository implements WaitlistInterestRepositor
                   AND status = 'PENDING'
                 """,
                 verificationTokenHash,
+                withdrawTokenHash,
                 Timestamp.from(expiresAt),
-                Timestamp.from(sentAt),
+                toTimestamp(sentAt),
                 resendCount,
                 emailHash);
         return updated > 0;
+    }
+
+    @Override
+    public void markVerificationSent(String emailHash, Instant sentAt, int resendCount) {
+        jdbcTemplate.update("""
+                UPDATE waitlist_interest
+                SET verification_sent_at = ?,
+                    resend_count = ?
+                WHERE email_hash = ?
+                  AND status = 'PENDING'
+                """,
+                Timestamp.from(sentAt),
+                resendCount,
+                emailHash);
     }
 
     @Override

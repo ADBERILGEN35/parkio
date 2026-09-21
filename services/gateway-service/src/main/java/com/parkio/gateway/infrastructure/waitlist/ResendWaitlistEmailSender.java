@@ -1,10 +1,13 @@
 package com.parkio.gateway.infrastructure.waitlist;
 
+import com.parkio.gateway.application.waitlist.WaitlistEmailDeliveryException;
 import com.parkio.gateway.application.waitlist.WaitlistEmailSender;
 import com.parkio.gateway.application.waitlist.WaitlistHasher;
 import com.parkio.gateway.application.waitlist.WaitlistProperties;
+import jakarta.annotation.PostConstruct;
 import java.net.URLEncoder;
 import java.nio.charset.StandardCharsets;
+import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import org.slf4j.Logger;
@@ -13,9 +16,11 @@ import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.http.MediaType;
 import org.springframework.stereotype.Component;
 import org.springframework.web.client.RestClient;
+import org.springframework.web.client.RestClientException;
 
 /**
- * Optional Resend-backed waitlist mailer. Activated only when explicitly configured.
+ * Resend-backed waitlist mailer (https://resend.com/docs/api-reference/emails).
+ * Activated only when {@code parkio.waitlist.email.provider=resend}.
  */
 @Component
 @ConditionalOnProperty(prefix = "parkio.waitlist.email", name = "provider", havingValue = "resend")
@@ -37,6 +42,19 @@ public class ResendWaitlistEmailSender implements WaitlistEmailSender {
                 .baseUrl("https://api.resend.com")
                 .defaultHeader("Authorization", "Bearer " + properties.getEmail().getResendApiKey())
                 .build();
+    }
+
+    @PostConstruct
+    void assertConfigured() {
+        WaitlistProperties.Email email = properties.getEmail();
+        if (email.getResendApiKey() == null || email.getResendApiKey().isBlank()) {
+            throw new IllegalStateException(
+                    "parkio.waitlist.email.provider=resend requires PARKIO_WAITLIST_RESEND_API_KEY (or PARKIO_RESEND_API_KEY).");
+        }
+        if (email.getFrom() == null || email.getFrom().isBlank()) {
+            throw new IllegalStateException(
+                    "parkio.waitlist.email.provider=resend requires PARKIO_WAITLIST_EMAIL_FROM (or PARKIO_EMAIL_FROM).");
+        }
     }
 
     @Override
@@ -85,17 +103,24 @@ public class ResendWaitlistEmailSender implements WaitlistEmailSender {
 
     private void send(String email, String subject, String text) {
         WaitlistProperties.Email emailProps = properties.getEmail();
-        restClient.post()
-                .uri("/emails")
-                .contentType(MediaType.APPLICATION_JSON)
-                .body(Map.of(
-                        "from", emailProps.getFrom(),
-                        "to", List.of(email),
-                        "reply_to", emailProps.getReplyTo() == null ? "" : emailProps.getReplyTo(),
-                        "subject", subject,
-                        "text", text))
-                .retrieve()
-                .toBodilessEntity();
+        Map<String, Object> body = new HashMap<>();
+        body.put("from", emailProps.getFrom());
+        body.put("to", List.of(email));
+        body.put("subject", subject);
+        body.put("text", text);
+        if (emailProps.getReplyTo() != null && !emailProps.getReplyTo().isBlank()) {
+            body.put("reply_to", emailProps.getReplyTo());
+        }
+        try {
+            restClient.post()
+                    .uri("/emails")
+                    .contentType(MediaType.APPLICATION_JSON)
+                    .body(body)
+                    .retrieve()
+                    .toBodilessEntity();
+        } catch (RestClientException ex) {
+            throw new WaitlistEmailDeliveryException("WAITLIST_EMAIL_DELIVERY_FAILED", ex);
+        }
     }
 
     private static String joinUrl(String base, String rawToken) {

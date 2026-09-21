@@ -142,9 +142,15 @@ public class WaitlistProperties {
 
     public static class Email {
 
-        /** logging (default) or resend */
+        /** logging (default for local/test) or resend */
         @NotBlank
         private String provider = "logging";
+
+        /**
+         * When false, provider=logging refuses to start. Production must set
+         * PARKIO_WAITLIST_ALLOW_LOGGING_PROVIDER=false and use provider=resend.
+         */
+        private boolean allowLoggingProvider = true;
 
         private String from = "";
 
@@ -158,6 +164,14 @@ public class WaitlistProperties {
 
         public void setProvider(String provider) {
             this.provider = provider;
+        }
+
+        public boolean isAllowLoggingProvider() {
+            return allowLoggingProvider;
+        }
+
+        public void setAllowLoggingProvider(boolean allowLoggingProvider) {
+            this.allowLoggingProvider = allowLoggingProvider;
         }
 
         public String getFrom() {

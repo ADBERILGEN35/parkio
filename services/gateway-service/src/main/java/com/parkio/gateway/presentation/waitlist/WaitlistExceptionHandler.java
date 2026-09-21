@@ -1,5 +1,6 @@
 package com.parkio.gateway.presentation.waitlist;
 
+import com.parkio.gateway.application.waitlist.WaitlistEmailDeliveryException;
 import com.parkio.gateway.application.waitlist.WaitlistRateLimitExceededException;
 import com.parkio.gateway.application.waitlist.WaitlistTokenException;
 import com.parkio.gateway.shared.ApiError;
@@ -37,6 +38,16 @@ public class WaitlistExceptionHandler {
     public Mono<ApiError> token(ServerWebExchange exchange) {
         exchange.getResponse().setStatusCode(HttpStatus.BAD_REQUEST);
         return Mono.just(error(exchange, "WAITLIST_TOKEN_INVALID", "Waitlist token is invalid or expired."));
+    }
+
+    @ExceptionHandler(WaitlistEmailDeliveryException.class)
+    public Mono<ApiError> delivery(ServerWebExchange exchange) {
+        // Durable pending row remains; client may retry. Do not claim confirmed delivery.
+        exchange.getResponse().setStatusCode(HttpStatus.SERVICE_UNAVAILABLE);
+        return Mono.just(error(
+                exchange,
+                "WAITLIST_EMAIL_DELIVERY_FAILED",
+                "Waitlist signup was saved but confirmation email could not be sent. Please try again."));
     }
 
     private ApiError error(ServerWebExchange exchange, String code, String message) {

@@ -27,6 +27,7 @@ parkio:
       window: PT1H
     email:
       provider: logging
+      allow-logging-provider: true
 
 spring:
   datasource:

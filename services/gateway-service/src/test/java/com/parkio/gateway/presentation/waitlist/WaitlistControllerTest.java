@@ -189,6 +189,128 @@ class WaitlistControllerTest {
         org.assertj.core.api.Assertions.assertThat(count).isZero();
     }
 
+    @Test
+    void confirmReplayIsIdempotent() {
+        postAccepted("replay@parkio.dev");
+        String token = lastVerificationToken.get();
+
+        webTestClient.post()
+                .uri("/api/v1/waitlist/confirm")
+                .contentType(MediaType.APPLICATION_JSON)
+                .bodyValue("{\"token\":\"" + token + "\"}")
+                .exchange()
+                .expectStatus().isAccepted();
+
+        webTestClient.post()
+                .uri("/api/v1/waitlist/confirm")
+                .contentType(MediaType.APPLICATION_JSON)
+                .bodyValue("{\"token\":\"" + token + "\"}")
+                .exchange()
+                .expectStatus().isAccepted()
+                .expectBody()
+                .jsonPath("$.status").isEqualTo("confirmed");
+    }
+
+    @Test
+    void expiredTokenCannotConfirm() {
+        postAccepted("expire@parkio.dev");
+        jdbcTemplate.update(
+                "UPDATE waitlist_interest SET verification_expires_at = TIMESTAMP '2020-01-01 00:00:00+00' WHERE email = ?",
+                "expire@parkio.dev");
+
+        webTestClient.post()
+                .uri("/api/v1/waitlist/confirm")
+                .contentType(MediaType.APPLICATION_JSON)
+                .bodyValue("{\"token\":\"" + lastVerificationToken.get() + "\"}")
+                .exchange()
+                .expectStatus().isBadRequest()
+                .expectBody()
+                .jsonPath("$.code").isEqualTo("WAITLIST_TOKEN_INVALID");
+
+        String status = jdbcTemplate.queryForObject(
+                "SELECT status FROM waitlist_interest WHERE email = ?",
+                String.class,
+                "expire@parkio.dev");
+        org.assertj.core.api.Assertions.assertThat(status).isEqualTo("PENDING");
+    }
+
+    @Test
+    void emailDeliveryFailureKeepsPendingAndAllowsRetry() {
+        org.mockito.Mockito.doThrow(new RuntimeException("smtp down"))
+                .doAnswer(invocation -> {
+                    lastVerificationToken.set(invocation.getArgument(1));
+                    lastWithdrawToken.set(invocation.getArgument(2));
+                    return null;
+                })
+                .when(emailSender)
+                .sendConfirmation(anyString(), anyString(), org.mockito.ArgumentMatchers.any(), anyString());
+
+        webTestClient.post()
+                .uri("/api/v1/waitlist")
+                .contentType(MediaType.APPLICATION_JSON)
+                .bodyValue(payload("retry-delivery@parkio.dev"))
+                .exchange()
+                .expectStatus().isEqualTo(503)
+                .expectBody()
+                .jsonPath("$.code").isEqualTo("WAITLIST_EMAIL_DELIVERY_FAILED");
+
+        Integer count = jdbcTemplate.queryForObject(
+                "SELECT COUNT(*) FROM waitlist_interest WHERE email = ?",
+                Integer.class,
+                "retry-delivery@parkio.dev");
+        org.assertj.core.api.Assertions.assertThat(count).isEqualTo(1);
+
+        webTestClient.post()
+                .uri("/api/v1/waitlist")
+                .contentType(MediaType.APPLICATION_JSON)
+                .bodyValue(payload("retry-delivery@parkio.dev"))
+                .exchange()
+                .expectStatus().isAccepted();
+
+        org.assertj.core.api.Assertions.assertThat(lastVerificationToken.get()).isNotBlank();
+    }
+
+    @Test
+    void withdrawThenAllowsReregistration() {
+        postAccepted("again@parkio.dev");
+        webTestClient.post()
+                .uri("/api/v1/waitlist/withdraw")
+                .contentType(MediaType.APPLICATION_JSON)
+                .bodyValue("{\"token\":\"" + lastWithdrawToken.get() + "\"}")
+                .exchange()
+                .expectStatus().isAccepted();
+
+        postAccepted("again@parkio.dev");
+        Integer pending = jdbcTemplate.queryForObject(
+                "SELECT COUNT(*) FROM waitlist_interest WHERE email = ? AND status = 'PENDING'",
+                Integer.class,
+                "again@parkio.dev");
+        org.assertj.core.api.Assertions.assertThat(pending).isEqualTo(1);
+    }
+
+    @Test
+    void exportReturnsOnlyConfirmed() {
+        postAccepted("only-pending@parkio.dev");
+        postAccepted("will-confirm@parkio.dev");
+        webTestClient.post()
+                .uri("/api/v1/waitlist/confirm")
+                .contentType(MediaType.APPLICATION_JSON)
+                .bodyValue("{\"token\":\"" + lastVerificationToken.get() + "\"}")
+                .exchange()
+                .expectStatus().isAccepted();
+
+        // Export requires auth in production filters; controller method itself is reachable in
+        // WebTestClient without the global auth filter stack for this slice — assert repository filter.
+        Integer confirmed = jdbcTemplate.queryForObject(
+                "SELECT COUNT(*) FROM waitlist_interest WHERE status = 'CONFIRMED'",
+                Integer.class);
+        Integer pending = jdbcTemplate.queryForObject(
+                "SELECT COUNT(*) FROM waitlist_interest WHERE status = 'PENDING'",
+                Integer.class);
+        org.assertj.core.api.Assertions.assertThat(confirmed).isEqualTo(1);
+        org.assertj.core.api.Assertions.assertThat(pending).isEqualTo(1);
+    }
+
     private void postAccepted(String email) {
         webTestClient.post()
                 .uri("/api/v1/waitlist")

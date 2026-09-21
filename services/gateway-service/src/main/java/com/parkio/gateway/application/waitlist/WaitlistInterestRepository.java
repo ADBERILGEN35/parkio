@@ -22,9 +22,13 @@ public interface WaitlistInterestRepository {
     boolean refreshPendingVerification(
             String emailHash,
             String verificationTokenHash,
+            String withdrawTokenHash,
             Instant expiresAt,
             Instant sentAt,
             int resendCount);
+
+    /** Records a successful outbound confirmation attempt (after delivery succeeds). */
+    void markVerificationSent(String emailHash, Instant sentAt, int resendCount);
 
     List<WaitlistExportRow> exportConfirmed(Instant createdFrom, Instant createdTo);
 }

@@ -55,6 +55,9 @@
     if (response.status === 429) {
       return { ok: false, code: 'RATE_LIMITED' };
     }
+    if (response.status === 503) {
+      return { ok: false, code: 'EMAIL_DELIVERY_FAILED' };
+    }
     if (response.status >= 400 && response.status < 500) {
       return { ok: false, code: 'VALIDATION_ERROR' };
     }
@@ -151,6 +154,8 @@
           form.reset();
         } else if (result.code === 'RATE_LIMITED') {
           setFeedback(feedback, tr('waitlist.error.rate'), 'error');
+        } else if (result.code === 'EMAIL_DELIVERY_FAILED') {
+          setFeedback(feedback, tr('waitlist.error.delivery'), 'error');
         } else if (result.code === 'VALIDATION_ERROR') {
           setFeedback(feedback, tr('waitlist.error.invalid'), 'error');
         } else {
