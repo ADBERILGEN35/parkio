@@ -13,8 +13,9 @@ SOURCE_COMPLETE + ISOLATED_ACCEPTANCE_PASS. Not READY_FOR_PUBLICATION_DECISION (
 ## SOURCE BASE / FINAL FULL HEAD / DRAFT PR OR PREVIEW
 - Worktree: `C:\Users\ADBERILGEN\Documents\parkio-w01a`
 - Branch: `feat/w01a-bilingual-landing-waitlist`
-- Base at branch start: `3da97afb8c2417e850db3f9222a1d04932d414ee` (origin/api at start)
-- origin/api later moved (see `origin-api.txt`); PR targets `api`
+- Base (api at PR creation): `297b02ab10b3096b186016f35675d3cc3aedbc1c`
+- Final full head: `e4f784d632233e76802c51b74e5ed3afcbb4ec87`
+- Draft PR: https://github.com/ADBERILGEN35/parkio/pull/58 (base `api`)
 - Local preview: `node scripts/serve-marketing-site.mjs --port 5197` → http://127.0.0.1:5197/
 - Mock waitlist only: `?waitlistMock=1` (NOT live provider)
 
