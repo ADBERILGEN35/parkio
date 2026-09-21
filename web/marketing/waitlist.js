@@ -243,12 +243,8 @@
           setFeedback(
             feedback,
             kind === 'confirm'
-              ? currentLocale() === 'en'
-                ? 'Your email is confirmed on the registration notification list.'
-                : 'E-posta adresiniz kayıt bildirim listesinde onaylandı.'
-              : currentLocale() === 'en'
-                ? 'Your email was removed from the notification list.'
-                : 'E-posta adresiniz bildirim listesinden silindi.',
+              ? tr('waitlist.page.confirm.success')
+              : tr('waitlist.page.withdraw.success'),
             'success',
           );
         } else {
