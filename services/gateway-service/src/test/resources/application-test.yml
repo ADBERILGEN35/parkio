@@ -14,12 +14,19 @@ parkio:
       allowed-origins: http://localhost:3000
   waitlist:
     hash-secret: test-only-waitlist-hash-secret-0123456789
+    confirm-base-url: http://127.0.0.1:5194/waitlist/confirm/
+    withdraw-base-url: http://127.0.0.1:5194/waitlist/unsubscribe/
+    token-ttl: PT48H
+    max-resends: 5
+    resend-cooldown: PT0S
     ip-rate-limit:
       max-attempts: 2
       window: PT1H
     email-rate-limit:
       max-attempts: 2
       window: PT1H
+    email:
+      provider: logging
 
 spring:
   datasource:

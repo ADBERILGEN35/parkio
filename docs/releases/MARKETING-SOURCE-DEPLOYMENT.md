@@ -37,15 +37,18 @@ guess additional social profiles.
 Public Explore is live. Marketing CTAs must use:
 
 ```text
-CTA: Explore parking
+CTA: Explore parking / Park alanı keşfet
 Target: https://app.parkio.dev/explore
 Context: Account registration remains closed. · no account required for Explore.
 Secondary: Sign in → https://app.parkio.dev/
+Secondary (registration notify): waitlist section → POST https://api.parkio.dev/api/v1/waitlist
 ```
 
-Apply that CTA consistently to the header, hero, Parkio-today panel, footer, and 404
-page. Do not use waitlist, signup, or “create account” as the primary acquisition CTA.
-Product screenshots remain optional; the live Explore route is the product evidence.
+Turkish is the default document language for a fresh visit. Persist explicit language choice in
+`localStorage` key `parkio.marketing.locale`. Keep Explore as the primary acquisition CTA.
+The waitlist collects email only for “notify when registration opens” with double opt-in via
+gateway APIs (`/waitlist`, `/waitlist/confirm`, `/waitlist/withdraw`). Do not use create-account
+as the primary CTA.
 
 ## Manual deployment boundary
 

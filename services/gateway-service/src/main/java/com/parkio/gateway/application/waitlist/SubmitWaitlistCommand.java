@@ -8,6 +8,7 @@ public record SubmitWaitlistCommand(
         String city,
         String role,
         String source,
+        String locale,
         String clientIp,
         String userAgent) {
 }

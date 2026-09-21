@@ -33,8 +33,12 @@ function walk(directory) {
 const requiredFiles = [
   'index.html',
   'styles.css',
+  'i18n.js',
+  'waitlist.js',
   'privacy/index.html',
   'terms/index.html',
+  'waitlist/confirm/index.html',
+  'waitlist/unsubscribe/index.html',
   'robots.txt',
   'sitemap.xml',
   '404.html',
@@ -51,12 +55,23 @@ requiredFiles.forEach((relative) => check(existsSync(join(root, relative)), `Mis
 const index = read('index.html');
 const notFound = read('404.html');
 const manifest = read('site.webmanifest');
-const publicCopy = `${index}\n${notFound}\n${manifest}`;
+const privacy = read('privacy/index.html');
+const publicCopy = `${index}\n${notFound}\n${manifest}\n${privacy}`;
 
 check((index.match(/<h1(?:\s|>)/gi) ?? []).length === 1, 'Marketing index must contain exactly one h1.');
 for (const semanticTag of ['nav', 'main', 'footer']) {
   check(new RegExp(`<${semanticTag}(?:\\s|>)`, 'i').test(index), `Marketing index must contain semantic <${semanticTag}>.`);
 }
+
+check(/lang=["']tr["']/i.test(index), 'Fresh-visit default document language must be Turkish (lang=tr).');
+check(index.includes('data-lang-option="tr"') && index.includes('data-lang-option="en"'), 'Language switcher buttons missing.');
+check(index.includes('parkio.marketing.locale') || read('i18n.js').includes('parkio.marketing.locale'), 'Locale persistence key missing.');
+check(index.includes('id="waitlist-form"'), 'Waitlist form missing.');
+check(index.includes('id="waitlist-email"') && index.includes('for="waitlist-email"'), 'Waitlist email label/input missing.');
+check(index.includes('id="waitlist-consent"'), 'Waitlist consent checkbox missing.');
+check(index.includes('aria-live="polite"'), 'Waitlist feedback live region missing.');
+check(privacy.includes('Registration notification list') || privacy.includes('bildirim listesi'), 'Privacy must describe waitlist.');
+check(privacy.includes('info@parkio.dev'), 'Privacy must include contact for deletion.');
 
 const exactContent = [
   '<link rel="canonical" href="https://parkio.dev/">',
@@ -64,34 +79,31 @@ const exactContent = [
   '<meta property="og:image" content="https://parkio.dev/assets/social-preview.png">',
   '<meta name="twitter:image" content="https://parkio.dev/assets/social-preview.png">',
   'Oğuzhan Taşyaran',
-  'How Parkio works as a business',
-  'Roadmap',
-  'Parkio today',
-  'Account registration remains closed',
-  'no account required',
   'mailto:info@parkio.dev',
   'href="/privacy/"',
   'href="/terms/"',
   'https://www.linkedin.com/in/oguzhan-tasyaran/',
   'https://www.linkedin.com/company/parkio-app',
   'https://app.parkio.dev/explore',
+  'id="waitlist"',
+  'Park alanı keşfet',
 ];
 exactContent.forEach((value) => check(index.includes(value), `Required marketing content missing: ${value}`));
 
-for (const anchor of ['#product', '#how', '#trust', '#business', '#roadmap', '#about']) {
+for (const anchor of ['#product', '#how', '#trust', '#business', '#roadmap', '#about', '#waitlist']) {
   check(index.includes(`href="${anchor}"`), `Primary navigation target missing: ${anchor}`);
   check(index.includes(`id="${anchor.slice(1)}"`), `Section id missing: ${anchor}`);
 }
 
 for (const ctaId of ['header-product-cta', 'primary-product-cta', 'today-product-cta']) {
   const pattern = new RegExp(
-    `<a[^>]*id="${ctaId}"[^>]*href="https://app\\.parkio\\.dev/explore"[^>]*>\\s*Explore parking`,
+    `<a[^>]*id="${ctaId}"[^>]*href="https://app\\.parkio\\.dev/explore"[^>]*>[\\s\\S]*?Park alanı keşfet`,
     'i',
   );
   check(pattern.test(index), `Post-enable Explore CTA contract failed for ${ctaId}.`);
 }
 check(
-  /href="https:\/\/app\.parkio\.dev\/"[^>]*>\s*Sign in/i.test(index),
+  /href="https:\/\/app\.parkio\.dev\/"[^>]*>[\s\S]*?Giriş yap/i.test(index),
   'Secondary Sign in link to app.parkio.dev is required.',
 );
 check(!/Pre-enable product state/i.test(index), 'Pre-enable product state copy must be removed.');
@@ -105,9 +117,7 @@ const bannedSignals = [
   /\bplaceholder\b/i,
   /\bcoming soon\b/i,
   /\bunder construction\b/i,
-  /\bwaitlist\b/i,
   /\brequest (?:a )?demo\b/i,
-  /\bjoin waitlist\b/i,
   /\bcreate account\b/i,
   /\bsign up now\b/i,
   /\bget started free\b/i,
@@ -196,9 +206,10 @@ check(JSON.stringify(sitemapUrls) === JSON.stringify([
   'https://parkio.dev/terms/',
 ]), 'sitemap.xml must contain only the approved marketing URLs.');
 
-check(sha256('privacy/index.html') === 'ff42df98361959c6eda1667c97ee2b5740147a9ec89b43ca5ba1e0148a1e98d8', 'Privacy policy changed from the imported live baseline.');
-check(sha256('terms/index.html') === '3bd15878f4c1c3928722cfb0ddf5b1e8232307cfebe4c7d3f4f9c6193e4e8403', 'Terms changed from the imported live baseline.');
 check(sha256('.htaccess') === '452af8382fee516fc66f1dd325667381eac4004fa7c3221b7c58cffad5f1d594', '.htaccess security policy changed from the imported live baseline.');
+check(read('waitlist/confirm/index.html').includes('waitlist-confirm-form'), 'Confirm page must POST via form.');
+check(read('waitlist/unsubscribe/index.html').includes('waitlist-withdraw-form'), 'Unsubscribe page must POST via form.');
+check(!/method=["']get["']/i.test(read('waitlist/confirm/index.html')), 'Confirm must not use GET form method.');
 
 if (failures.length > 0) {
   failures.forEach((failure) => process.stderr.write(`FAIL: ${failure}\n`));

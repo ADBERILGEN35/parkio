@@ -58,6 +58,9 @@ public class PublicEndpoints {
                 new Rule(HttpMethod.GET, parser.parse("/api/v1/auth/registration-mode")),
                 new Rule(HttpMethod.GET, parser.parse("/api/v1/auth/.well-known/jwks.json")),
                 new Rule(HttpMethod.POST, parser.parse("/api/v1/waitlist")),
+                new Rule(HttpMethod.POST, parser.parse("/api/v1/waitlist/confirm")),
+                new Rule(HttpMethod.POST, parser.parse("/api/v1/waitlist/withdraw")),
+                new Rule(HttpMethod.POST, parser.parse("/api/v1/waitlist/resend")),
                 new Rule(null, parser.parse("/actuator/health/**"))));
         if (actuatorInfoPublic) {
             built.add(new Rule(null, actuatorInfoPattern));

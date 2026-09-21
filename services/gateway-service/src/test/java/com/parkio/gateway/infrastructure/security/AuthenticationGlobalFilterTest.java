@@ -83,6 +83,19 @@ class AuthenticationGlobalFilterTest {
     }
 
     @Test
+    void waitlistConfirmWithdrawAndResendArePublic() {
+        for (String path : List.of(
+                "/api/v1/waitlist/confirm",
+                "/api/v1/waitlist/withdraw",
+                "/api/v1/waitlist/resend")) {
+            var request = MockServerHttpRequest.post(path).build();
+            var chain = new CapturingChain();
+            filter().filter(MockServerWebExchange.from(request), chain).block();
+            assertThat(chain.wasInvoked()).as(path).isTrue();
+        }
+    }
+
+    @Test
     void publicExploreFlagOffReturnsCanonicalMissingToken() {
         var exchange = MockServerWebExchange.from(MockServerHttpRequest
                 .get("/api/v1/public/explore/facilities").build());

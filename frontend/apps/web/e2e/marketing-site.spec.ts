@@ -2,13 +2,11 @@ import { expect, request, test, type Browser } from '@playwright/test';
 
 const REQUIRED_CRAWLER_COPY = [
   'Oğuzhan Taşyaran',
-  'How Parkio works as a business',
-  'Roadmap',
-  'production infrastructure and web product are live',
-  'no account required',
+  'Park alanı keşfet',
   'https://www.linkedin.com/in/oguzhan-tasyaran/',
   'https://www.linkedin.com/company/parkio-app',
   'https://app.parkio.dev/explore',
+  'Kayıtlar açıldığında',
 ] as const;
 
 test('serves the complete static marketing surface with correct content types', async ({ request: api }) => {
@@ -16,6 +14,10 @@ test('serves the complete static marketing surface with correct content types', 
     ['/', 200, /^text\/html/],
     ['/privacy/', 200, /^text\/html/],
     ['/terms/', 200, /^text\/html/],
+    ['/waitlist/confirm/', 200, /^text\/html/],
+    ['/waitlist/unsubscribe/', 200, /^text\/html/],
+    ['/i18n.js', 200, /javascript/],
+    ['/waitlist.js', 200, /javascript/],
     ['/robots.txt', 200, /^text\/plain/],
     ['/sitemap.xml', 200, /^application\/xml/],
     ['/404.html', 200, /^text\/html/],
@@ -46,27 +48,49 @@ test('returns equivalent server HTML to browser and crawler user agents', async 
     for (const copy of REQUIRED_CRAWLER_COPY) {
       expect(browserHtml).toContain(copy);
     }
+    expect(browserHtml).toMatch(/lang=["']tr["']/i);
   } finally {
     await browserClient.dispose();
     await crawlerClient.dispose();
   }
 });
 
-test('remains substantive with JavaScript disabled', async ({ browser, baseURL }) => {
+test('remains substantive with JavaScript disabled in Turkish', async ({ browser, baseURL }) => {
   const context = await browser.newContext({ javaScriptEnabled: false });
   const page = await context.newPage();
 
   try {
     await page.goto(baseURL ?? '/');
     await expect(page.getByRole('heading', { level: 1 })).toBeVisible();
-    await expect(page.getByRole('heading', { name: 'How Parkio works as a business' })).toBeVisible();
     await expect(page.getByRole('heading', { name: 'Oğuzhan Taşyaran' })).toBeVisible();
-    await expect(page.getByRole('link', { name: 'Oğuzhan Taşyaran on LinkedIn' })).toBeVisible();
-    await expect(page.getByRole('link', { name: 'Explore parking' }).first()).toBeVisible();
-    await expect(page.getByText('no account required', { exact: false }).first()).toBeVisible();
+    await expect(page.getByRole('link', { name: /Park alanı keşfet/i }).first()).toBeVisible();
+    await expect(page.locator('#waitlist-form')).toBeVisible();
+    await expect(page.locator('#waitlist-email')).toBeVisible();
   } finally {
     await context.close();
   }
+});
+
+test('language switch persists and updates waitlist copy', async ({ page, baseURL }) => {
+  await page.goto(baseURL ?? '/');
+  await expect(page.locator('html')).toHaveAttribute('lang', 'tr');
+  await page.getByRole('button', { name: 'EN', exact: true }).click();
+  await expect(page.locator('html')).toHaveAttribute('lang', 'en');
+  await expect(page.getByRole('button', { name: /Join the notification list/i })).toBeVisible();
+  await page.reload();
+  await expect(page.locator('html')).toHaveAttribute('lang', 'en');
+  await page.getByRole('button', { name: 'TR', exact: true }).click();
+  await expect(page.locator('html')).toHaveAttribute('lang', 'tr');
+});
+
+test('waitlist mock submit shows success without claiming live provider', async ({ page, baseURL }) => {
+  await page.goto(`${baseURL ?? '/'}?waitlistMock=1#waitlist`);
+  await page.locator('#waitlist-email').fill('synthetic-w01a@example.com');
+  await page.locator('#waitlist-consent').check();
+  await page.locator('#waitlist-form button[type="submit"]').click();
+  await expect(page.locator('[data-waitlist-feedback]')).toBeVisible();
+  await expect(page.locator('[data-waitlist-feedback]')).toContainText(/Teşekkürler|Thanks/i);
+  await expect(page.locator('[data-waitlist-isolated-note]')).toBeVisible();
 });
 
 for (const width of [360, 390, 768, 1440]) {
