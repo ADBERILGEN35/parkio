@@ -83,6 +83,7 @@ describe('canonical route inventory', () => {
       '/admin',
       '/admin/users',
       '/admin/users/:id',
+      '/admin/waitlist',
       '/admin/security',
       '/admin/analytics',
       '/admin/audit',
@@ -205,7 +206,7 @@ describe('canonical route inventory', () => {
       {
         id: ROUTE_IDS.ADMIN_MODERATION,
         labelKey: 'admin:shell.nav.moderation',
-        order: 3,
+        order: 4,
         end: false,
       },
       {
@@ -221,27 +222,33 @@ describe('canonical route inventory', () => {
         end: false,
       },
       {
+        id: ROUTE_IDS.ADMIN_WAITLIST,
+        labelKey: 'admin:shell.nav.waitlist',
+        order: 2,
+        end: false,
+      },
+      {
         id: ROUTE_IDS.ADMIN_SECURITY,
         labelKey: 'admin:shell.nav.security',
-        order: 2,
+        order: 3,
         end: false,
       },
       {
         id: ROUTE_IDS.ADMIN_ANALYTICS,
         labelKey: 'admin:shell.nav.analytics',
-        order: 4,
+        order: 5,
         end: false,
       },
       {
         id: ROUTE_IDS.ADMIN_AUDIT,
         labelKey: 'admin:shell.nav.audit',
-        order: 5,
+        order: 6,
         end: false,
       },
       {
         id: ROUTE_IDS.ADMIN_SYSTEM,
         labelKey: 'admin:shell.nav.system',
-        order: 6,
+        order: 7,
         end: false,
       },
     ]);
@@ -299,6 +306,7 @@ describe('canonical route inventory', () => {
       ['/admin/users', 'titles.adminUsers'],
       [`/admin/users/${validUuid}`, 'titles.adminUser'],
       ['/admin/users/not-a-uuid', 'titles.adminUser'],
+      ['/admin/waitlist', 'titles.adminWaitlist'],
       ['/admin/security', 'titles.adminSecurity'],
       ['/admin/analytics', 'titles.analytics'],
       ['/admin/audit', 'titles.adminAudit'],
@@ -634,6 +642,7 @@ describe('derived route classifications', () => {
       ROUTE_IDS.ADMIN_DASHBOARD,
       ROUTE_IDS.ADMIN_USERS,
       ROUTE_IDS.ADMIN_USER_DETAIL,
+      ROUTE_IDS.ADMIN_WAITLIST,
       ROUTE_IDS.ADMIN_SECURITY,
       ROUTE_IDS.ADMIN_ANALYTICS,
       ROUTE_IDS.ADMIN_AUDIT,
@@ -667,7 +676,7 @@ describe('manifest snapshot', () => {
 
     expect(projection).toMatchInlineSnapshot(`
       {
-        "fingerprint": "c530de9e",
+        "fingerprint": "f7b9d17e",
         "graph": [
           "routing.root|root|pathless",
           "auth.login|routing.root|/login",
@@ -703,13 +712,14 @@ describe('manifest snapshot', () => {
           "admin.dashboard|shell.admin|index",
           "admin.users|shell.admin|users",
           "admin.user-detail|shell.admin|users/:id",
+          "admin.waitlist|shell.admin|waitlist",
           "admin.security|shell.admin|security",
           "admin.analytics|shell.admin|analytics",
           "admin.audit|shell.admin|audit",
           "admin.system|shell.admin|system",
           "routing.not-found|routing.root|*",
         ],
-        "total": 39,
+        "total": 40,
       }
     `);
   });

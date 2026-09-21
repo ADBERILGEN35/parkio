@@ -183,7 +183,8 @@
     "title": "Notification waitlist",
     "subtitle": "Who joined, confirmed, or left the registration notification list.",
     "distinction": "These are email notification subscriptions only — not Parkio application accounts. Confirmed waitlist status does not grant product login.",
-    "countsTitle": "Counts",
+    "countsTitle": "Counts (all subscriptions)",
+    "countsNote": "These totals include every notification-list subscription and ignore the filters below. Filters apply only to the table and confirmed CSV export date range.",
     "counts": {
       "pending": "Pending: {{count}}",
       "confirmed": "Confirmed: {{count}}",

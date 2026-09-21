@@ -97,6 +97,15 @@ class AuthorizationGlobalFilterTest {
         ServerWebExchange admin = exchange(HttpMethod.GET, "/api/v1/waitlist/admin", "ADMIN");
         filter.filter(admin, adminChain).block();
         assertThat(adminChain.wasInvoked()).isTrue();
+
+        CapturingChain superChain = new CapturingChain();
+        ServerWebExchange superAdmin = exchange(HttpMethod.GET, "/api/v1/waitlist/admin/summary", "SUPER_ADMIN");
+        filter.filter(superAdmin, superChain).block();
+        assertThat(superChain.wasInvoked()).isTrue();
+
+        CapturingChain exportSuper = new CapturingChain();
+        filter.filter(exchange(HttpMethod.GET, "/api/v1/waitlist/export", "SUPER_ADMIN"), exportSuper).block();
+        assertThat(exportSuper.wasInvoked()).isTrue();
     }
 
     @Test

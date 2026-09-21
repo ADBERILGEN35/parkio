@@ -97,6 +97,7 @@ export function AdminWaitlistPage() {
       <p className="mb-lg mt-0 text-body-sm text-on-surface-variant">{t('waitlist.distinction')}</p>
 
       <Card title={t('waitlist.countsTitle')} className="mb-lg">
+        <p className="mb-sm mt-0 text-body-sm text-on-surface-variant">{t('waitlist.countsNote')}</p>
         {summaryQuery.isPending ? (
           <LoadingState label={t('common:actions.loading')} />
         ) : summaryQuery.isError ? (
