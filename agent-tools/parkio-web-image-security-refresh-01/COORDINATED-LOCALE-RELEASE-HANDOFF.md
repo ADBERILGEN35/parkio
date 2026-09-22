@@ -1,4 +1,4 @@
-﻿# Coordinated web security + registration locale release handoff
+# Coordinated web security + registration locale release handoff
 
 Snapshot: 2026-09-22 (updated after PR #82 resend-copy follow-up). Coordination plan only — not a combined candidate record.
 
@@ -17,6 +17,8 @@ The PR #81 image is **not** the coordinated candidate. Do not publish, pin, or d
 ## Locale + check-email dependency (PR #82)
 
 Cursor owns branch `fix/register-invite-lang-locale` → PR #82 (`https://github.com/ADBERILGEN35/parkio/pull/82`).
+
+Reviewed dependency head for combined-candidate prep: `6d4272a12cd94510b6cf46df6ab54d573b7b12db` (update this SHA if PR #82 receives further commits).
 
 At this snapshot the branch carries:
 
