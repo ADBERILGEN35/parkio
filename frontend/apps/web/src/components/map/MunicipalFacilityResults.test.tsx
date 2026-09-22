@@ -254,4 +254,36 @@ describe('MunicipalFacilityResults', () => {
       Element.prototype.scrollIntoView = previous;
     }
   });
+
+  it('shows capped notice and reduce-radius action that changes the search radius', () => {
+    const onRadius = vi.fn();
+    const facilities = Array.from({ length: 100 }, (_, i) =>
+      makeMunicipalFacility({ id: `fac-${i}`, latitude: 38.42, longitude: 27.14 }),
+    );
+    renderResults({
+      search: queryResult({ isSuccess: true, status: 'success', data: facilities }),
+      params: { lat: 38.4237, lng: 27.1428, radiusMeters: 5000, limit: 100 },
+      radiusMeters: 5000,
+      onRadiusMetersChange: onRadius,
+      facilities,
+      totalCount: 100,
+      resultsCapped: true,
+    });
+    expect(screen.getByTestId('municipal-results-capped')).toBeInTheDocument();
+    fireEvent.click(screen.getByTestId('municipal-radius-reduce'));
+    expect(onRadius).toHaveBeenCalledWith(3000);
+  });
+
+  it('radius select change invokes radius callback for API continuation', () => {
+    const onRadius = vi.fn();
+    renderResults({
+      radiusMeters: 5000,
+      onRadiusMetersChange: onRadius,
+      params: { lat: 38.4237, lng: 27.1428, radiusMeters: 5000, limit: 100 },
+    });
+    fireEvent.change(screen.getByTestId('municipal-radius-select'), {
+      target: { value: '2000' },
+    });
+    expect(onRadius).toHaveBeenCalledWith(2000);
+  });
 });

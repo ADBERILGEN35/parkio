@@ -28,8 +28,10 @@ public final class PublicExplorePublicationPolicy {
         IZUM(MunicipalSourceIdentity.IZUM),
         ISPARK(MunicipalSourceIdentity.ISPARK),
         /**
-         * İZELMAN facility inventory (open / closed / barrier). Roadside and tariffs are
-         * separate surfaces — not anonymous facility Explore rows.
+         * İZELMAN facility inventory (open / closed / barrier). When this family is
+         * allowlisted, published roadside segments are also merged into Public Explore
+         * as on-street projections (UNKNOWN access, UNAVAILABLE occupancy) — they remain
+         * a separate table/API, not facility rows.
          */
         IZELMAN(
                 IzelmanSourceKeys.OPEN,

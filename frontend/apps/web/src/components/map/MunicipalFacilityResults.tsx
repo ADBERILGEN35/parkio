@@ -18,6 +18,7 @@ import {
   MUNICIPAL_RADIUS_PRESETS_METERS,
   formatMunicipalRadiusLabel,
   nextMunicipalRadiusMeters,
+  previousMunicipalRadiusMeters,
 } from '@/lib/municipalDiscoveryRadius';
 import {
   EMPTY_MUNICIPAL_FILTERS,
@@ -40,6 +41,11 @@ export interface MunicipalFacilityResultsProps {
   facilities: MunicipalFacility[];
   /** Count before presentation filters (for "x of y"). */
   totalCount: number;
+  /**
+   * True when the facility nearby API hit its limit (independent of roadside merge).
+   * Drives the continuation control that changes {@code radiusMeters}.
+   */
+  resultsCapped?: boolean;
   filters: MunicipalFacilityFilters;
   onFiltersChange: (filters: MunicipalFacilityFilters) => void;
   /** Exact sourceLabel values present in the unfiltered set. */
@@ -74,6 +80,7 @@ export function MunicipalFacilityResults({
   onRadiusMetersChange,
   facilities,
   totalCount,
+  resultsCapped = false,
   filters,
   onFiltersChange,
   availableSourceLabels,
@@ -91,12 +98,16 @@ export function MunicipalFacilityResults({
   const activeRadius =
     params?.radiusMeters ?? params?.radius ?? radiusMeters ?? DEFAULT_MUNICIPAL_RADIUS_METERS;
   const expandTo = nextMunicipalRadiusMeters(activeRadius);
+  const reduceTo = previousMunicipalRadiusMeters(activeRadius);
   const radiusLabel = formatMunicipalRadiusLabel(activeRadius);
   const selectValue = MUNICIPAL_RADIUS_PRESETS_METERS.includes(
     activeRadius as (typeof MUNICIPAL_RADIUS_PRESETS_METERS)[number],
   )
     ? String(activeRadius)
     : String(DEFAULT_MUNICIPAL_RADIUS_METERS);
+  const showCapped =
+    resultsCapped
+    || (!filtersActive && params?.limit != null && totalCount >= params.limit);
 
   if (params === null) {
     return null;
@@ -205,14 +216,29 @@ export function MunicipalFacilityResults({
               ? t('municipal.resultsOf', { visible: facilities.length, total: totalCount })
               : t('municipal.resultsCount', { count: totalCount })}
           </p>
-          {!filtersActive && params?.limit != null && totalCount >= params.limit ? (
-            <p
-              className="m-0 text-label-sm text-on-surface-variant"
-              data-testid="municipal-results-capped"
-              role="status"
-            >
-              {t('municipal.resultsCapped', { limit: params.limit })}
-            </p>
+          {!filtersActive && showCapped ? (
+            <div className="flex flex-col gap-xs">
+              <p
+                className="m-0 text-label-sm text-on-surface-variant"
+                data-testid="municipal-results-capped"
+                role="status"
+              >
+                {t('municipal.resultsCapped', { limit: params?.limit ?? 100 })}
+              </p>
+              {reduceTo != null && onRadiusMetersChange ? (
+                <button
+                  type="button"
+                  data-testid="municipal-radius-reduce"
+                  className="inline-flex items-center gap-xs self-start rounded-full border border-secondary/40 bg-secondary/10 px-md py-xs text-label-sm font-semibold text-secondary hover:bg-secondary/15 focus:outline-none focus-visible:ring-2 focus-visible:ring-secondary"
+                  onClick={() => onRadiusMetersChange(reduceTo)}
+                >
+                  <Icon name="zoom_out_map" className="text-[16px] leading-none" />
+                  {t('municipal.reduceRadius', {
+                    radius: formatMunicipalRadiusLabel(reduceTo),
+                  })}
+                </button>
+              ) : null}
+            </div>
           ) : null}
           {!filtersActive && occupancySummary.total > 0 ? (
             <p

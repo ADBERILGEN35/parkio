@@ -1,5 +1,5 @@
 {
-  "startedAt" : "2026-09-22T07:05:28.942064500Z",
+  "startedAt" : "2026-09-22T07:31:23.262493700Z",
   "autoMatchEnabled" : false,
   "izumActive" : 12,
   "osmExtracted" : 1442,
@@ -14,7 +14,8 @@
   "roadsidePublished" : 48,
   "roadsideDiscoverableNearbyApi" : 48,
   "roadsideWithoutGeometry" : 0,
-  "roadsideSurface" : "Independent /api/v1/parking/roadside/nearby — not facility map rows, not Explore facilities.",
+  "roadsideSurface" : "Published roadside segments surface via /api/v1/parking/roadside/nearby and are merged into Public Explore + authenticated /map when IZELMAN is allowlisted (ON_STREET, UNKNOWN access, UNAVAILABLE occupancy). Not municipal_facility rows.",
+  "uniqueFacilityRecordsNote" : "uniqueActiveFacilities counts distinct facility table rows across sources (IZUM+İZELMAN facilities+OSM). It is not a count of unique physical parking locations; unresolved cross-source duplicates may remain when auto-match-enabled=false. Roadside (48) is counted separately.",
   "osmLinksSharingFacilityWithIzum" : 0,
   "conflationDecisions" : [ {
     "decision" : "AUTO_MATCHED",
@@ -40,80 +41,92 @@
     "center" : "Hatay",
     "lat" : 38.4036,
     "lng" : 27.11,
-    "exploreTotal" : 250,
+    "exploreTotal" : 296,
     "exploreVisible" : 6,
+    "exploreRoadsideVisibleIds" : [ ],
+    "representativeRoadsideIdsInRadius" : [ "d8234d99-0c30-4372-ba03-86650142850c", "00d81520-1c86-448e-9ed9-f7d68d4edabb", "fb7bbc24-f4aa-41c4-a9da-d5658800600b" ],
     "exploreFamiliesSample" : [ "IZELMAN inventory (unpublished by default)", "Izmir Buyuksehir Belediyesi / IZUM", "OSM" ],
     "mapCount" : 100,
     "mapCappedAt100" : true,
     "mapFamiliesSample" : [ "IZELMAN", "Izmir Buyuksehir Belediyesi / IZUM", "OSM" ],
     "accessClassificationsSeen" : [ "PUBLIC", "UNKNOWN", "RESTRICTED", "PERMISSIVE" ],
     "roadsideWithGeometryInRadius" : 46,
-    "continuation" : "zoom_in_or_reduce_radius — first 100 is not complete coverage"
+    "continuation" : "reduce_radius_via_municipal_radius_control — first 100 nearest facilities; map zoom alone does not change the API search"
   }, {
     "center" : "Konak",
     "lat" : 38.4192,
     "lng" : 27.1285,
-    "exploreTotal" : 298,
+    "exploreTotal" : 346,
     "exploreVisible" : 6,
+    "exploreRoadsideVisibleIds" : [ ],
+    "representativeRoadsideIdsInRadius" : [ "d8234d99-0c30-4372-ba03-86650142850c", "00d81520-1c86-448e-9ed9-f7d68d4edabb", "fb7bbc24-f4aa-41c4-a9da-d5658800600b" ],
     "exploreFamiliesSample" : [ "OSM" ],
     "mapCount" : 100,
     "mapCappedAt100" : true,
     "mapFamiliesSample" : [ "OSM", "IZELMAN", "Izmir Buyuksehir Belediyesi / IZUM" ],
     "accessClassificationsSeen" : [ "UNKNOWN", "PUBLIC", "RESTRICTED" ],
     "roadsideWithGeometryInRadius" : 48,
-    "continuation" : "zoom_in_or_reduce_radius — first 100 is not complete coverage"
+    "continuation" : "reduce_radius_via_municipal_radius_control — first 100 nearest facilities; map zoom alone does not change the API search"
   }, {
     "center" : "Alsancak",
     "lat" : 38.438,
     "lng" : 27.142,
-    "exploreTotal" : 287,
+    "exploreTotal" : 335,
     "exploreVisible" : 6,
-    "exploreFamiliesSample" : [ "OSM" ],
+    "exploreRoadsideVisibleIds" : [ "3611ffcb-2205-4894-9fe3-f14d6e518e9d", "8e16b9a2-1dec-42a3-a032-514cfdc27480" ],
+    "representativeRoadsideIdsInRadius" : [ "3611ffcb-2205-4894-9fe3-f14d6e518e9d", "8e16b9a2-1dec-42a3-a032-514cfdc27480", "b9ec702b-f40a-4f12-acd1-1b4b43962ebc" ],
+    "exploreFamiliesSample" : [ "IZELMAN", "OSM" ],
     "mapCount" : 100,
     "mapCappedAt100" : true,
     "mapFamiliesSample" : [ "OSM", "Izmir Buyuksehir Belediyesi / IZUM", "IZELMAN" ],
     "accessClassificationsSeen" : [ "UNKNOWN", "PUBLIC", "PERMISSIVE" ],
     "roadsideWithGeometryInRadius" : 48,
-    "continuation" : "zoom_in_or_reduce_radius — first 100 is not complete coverage"
+    "continuation" : "reduce_radius_via_municipal_radius_control — first 100 nearest facilities; map zoom alone does not change the API search"
   }, {
     "center" : "Karsiyaka",
     "lat" : 38.4554,
     "lng" : 27.1202,
-    "exploreTotal" : 306,
+    "exploreTotal" : 354,
     "exploreVisible" : 6,
+    "exploreRoadsideVisibleIds" : [ ],
+    "representativeRoadsideIdsInRadius" : [ "7716e0ec-4272-4ae9-9e24-aca23c609e70", "8e16b9a2-1dec-42a3-a032-514cfdc27480", "3611ffcb-2205-4894-9fe3-f14d6e518e9d" ],
     "exploreFamiliesSample" : [ "IZELMAN inventory (unpublished by default)", "OSM" ],
     "mapCount" : 100,
     "mapCappedAt100" : true,
     "mapFamiliesSample" : [ "IZELMAN", "OSM" ],
     "accessClassificationsSeen" : [ "PUBLIC", "UNKNOWN", "PERMISSIVE" ],
     "roadsideWithGeometryInRadius" : 48,
-    "continuation" : "zoom_in_or_reduce_radius — first 100 is not complete coverage"
+    "continuation" : "reduce_radius_via_municipal_radius_control — first 100 nearest facilities; map zoom alone does not change the API search"
   }, {
     "center" : "Bornova",
     "lat" : 38.4622,
     "lng" : 27.22,
     "exploreTotal" : 189,
     "exploreVisible" : 6,
+    "exploreRoadsideVisibleIds" : [ ],
+    "representativeRoadsideIdsInRadius" : [ ],
     "exploreFamiliesSample" : [ "OSM" ],
     "mapCount" : 100,
     "mapCappedAt100" : true,
     "mapFamiliesSample" : [ "OSM", "IZELMAN" ],
     "accessClassificationsSeen" : [ "UNKNOWN", "PUBLIC", "PERMISSIVE" ],
     "roadsideWithGeometryInRadius" : 0,
-    "continuation" : "zoom_in_or_reduce_radius — first 100 is not complete coverage"
+    "continuation" : "reduce_radius_via_municipal_radius_control — first 100 nearest facilities; map zoom alone does not change the API search"
   }, {
     "center" : "Buca",
     "lat" : 38.386,
     "lng" : 27.174,
-    "exploreTotal" : 210,
+    "exploreTotal" : 211,
     "exploreVisible" : 6,
+    "exploreRoadsideVisibleIds" : [ ],
+    "representativeRoadsideIdsInRadius" : [ "352cb99f-6551-4e17-a012-335b9f4637dc" ],
     "exploreFamiliesSample" : [ "OSM", "IZELMAN inventory (unpublished by default)" ],
     "mapCount" : 100,
     "mapCappedAt100" : true,
     "mapFamiliesSample" : [ "OSM", "IZELMAN" ],
     "accessClassificationsSeen" : [ "UNKNOWN", "PUBLIC" ],
     "roadsideWithGeometryInRadius" : 1,
-    "continuation" : "zoom_in_or_reduce_radius — first 100 is not complete coverage"
+    "continuation" : "reduce_radius_via_municipal_radius_control — first 100 nearest facilities; map zoom alone does not change the API search"
   } ],
-  "finishedAt" : "2026-09-22T07:05:42.441080700Z"
+  "finishedAt" : "2026-09-22T07:31:36.973116100Z"
 }

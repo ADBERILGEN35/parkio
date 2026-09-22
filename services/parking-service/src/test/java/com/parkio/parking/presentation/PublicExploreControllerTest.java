@@ -145,6 +145,7 @@ class PublicExploreControllerTest {
         return new PublicExploreQueryService(
                 mock(MunicipalFacilityRepository.class),
                 mock(MunicipalOccupancySnapshotRepository.class),
+                mock(com.parkio.parking.application.port.RoadsideDiscoveryQueryPort.class),
                 props,
                 Clock.systemUTC());
     }

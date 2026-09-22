@@ -12,6 +12,8 @@ import type {
   RankingEvaluationOutcomeResponse,
   RecommendationRequest,
   RecommendationResponse,
+  RoadsideSegment,
+  RoadsideSegmentNearbyParams,
   Spot,
   SpotMediaAccessUrl,
   StartParkingSessionRequest,
@@ -87,6 +89,30 @@ export function createParkingApi(client: AxiosInstance) {
       };
       return client
         .get<MunicipalFacility[]>('/parking/facilities/nearby', { params: query, signal })
+        .then((r) => r.data);
+    },
+
+    /**
+     * İZELMAN roadside nearby discovery — separate inventory from facility nearby.
+     * Max radius 5000 m / limit 50 (server-enforced).
+     */
+    getNearbyRoadsideSegments(
+      params: RoadsideSegmentNearbyParams,
+      signal?: AbortSignal,
+    ): Promise<RoadsideSegment[]> {
+      const query: {
+        lat: number;
+        lng: number;
+        limit?: number;
+        radiusMeters?: number;
+      } = {
+        lat: params.lat,
+        lng: params.lng,
+        ...(params.limit !== undefined ? { limit: params.limit } : {}),
+        ...(params.radiusMeters !== undefined ? { radiusMeters: params.radiusMeters } : {}),
+      };
+      return client
+        .get<RoadsideSegment[]>('/parking/roadside/nearby', { params: query, signal })
         .then((r) => r.data);
     },
 

@@ -11,6 +11,7 @@ import com.parkio.parking.application.OsmImportApplicationService;
 import com.parkio.parking.application.OsmImportResult;
 import com.parkio.parking.application.PublicExploreQueryService;
 import com.parkio.parking.externalsource.MunicipalAccessClassification;
+import com.parkio.parking.externalsource.MunicipalFacilityType;
 import com.parkio.parking.externalsource.MunicipalOccupancyFreshness;
 import com.parkio.parking.externalsource.MunicipalSyncRunStatus;
 import com.parkio.parking.externalsource.izelman.IzelmanSourceKeys;
@@ -216,7 +217,14 @@ class CombinedIzmirCoverageCandidateIT {
         report.put("roadsideDiscoverableNearbyApi", roadsideDiscoverable);
         report.put("roadsideWithoutGeometry", roadsideNoGeom);
         report.put("roadsideSurface",
-                "Independent /api/v1/parking/roadside/nearby — not facility map rows, not Explore facilities.");
+                "Published roadside segments surface via /api/v1/parking/roadside/nearby and are "
+                        + "merged into Public Explore + authenticated /map when IZELMAN is allowlisted "
+                        + "(ON_STREET, UNKNOWN access, UNAVAILABLE occupancy). Not municipal_facility rows.");
+        report.put("uniqueFacilityRecordsNote",
+                "uniqueActiveFacilities counts distinct facility table rows across sources "
+                        + "(IZUM+İZELMAN facilities+OSM). It is not a count of unique physical parking "
+                        + "locations; unresolved cross-source duplicates may remain when "
+                        + "auto-match-enabled=false. Roadside (48) is counted separately.");
         assertThat(roadsideWithGeom).isEqualTo(48);
         assertThat(roadsidePublished).isEqualTo(48);
         assertThat(roadsideDiscoverable).isEqualTo(48);
@@ -273,6 +281,9 @@ class CombinedIzmirCoverageCandidateIT {
                     .count();
 
             assertThat(exploreHit.municipalTotalInScope()).isGreaterThan(0);
+            if (roadsideNear > 0) {
+                assertThat(exploreHit.municipalTotalInScope()).isGreaterThanOrEqualTo(roadsideNear);
+            }
             assertThat(exploreHit.facilities().size()).isLessThanOrEqualTo(6);
             assertThat(mapHit.size()).isGreaterThan(0);
             assertThat(mapHit.size()).isLessThanOrEqualTo(100);
@@ -282,6 +293,30 @@ class CombinedIzmirCoverageCandidateIT {
                 assertThat(f.accessClassification()).isNotNull();
                 assertThat(f.attribution()).isNotBlank();
             });
+            List<String> exploreRoadsideIds = exploreHit.facilities().stream()
+                    .filter(f -> PublicExploreQueryService.IZELMAN_ROADSIDE_SOURCE_LABEL.equals(f.sourceLabel()))
+                    .map(f -> f.id().toString())
+                    .toList();
+            exploreHit.facilities().stream()
+                    .filter(f -> PublicExploreQueryService.IZELMAN_ROADSIDE_SOURCE_LABEL.equals(f.sourceLabel()))
+                    .forEach(f -> {
+                        assertThat(f.facilityType()).isEqualTo(MunicipalFacilityType.ON_STREET);
+                        assertThat(f.accessClassification()).isEqualTo(MunicipalAccessClassification.UNKNOWN);
+                        assertThat(f.availabilityFreshness()).isEqualTo(MunicipalOccupancyFreshness.UNAVAILABLE);
+                        assertThat(f.availableSpaces()).isNull();
+                        assertThat(f.attribution())
+                                .isEqualTo(PublicExploreQueryService.IZELMAN_ROADSIDE_ATTRIBUTION);
+                    });
+            List<String> representativeRoadsideIds = jdbc.query(
+                    """
+                    SELECT s.id::text FROM municipal_roadside_segments s
+                    WHERE s.active=true AND s.publication_status='PUBLISHED' AND s.location IS NOT NULL
+                      AND ST_DWithin(s.location, ST_SetSRID(ST_MakePoint(?,?),4326)::geography, 5000)
+                    ORDER BY ST_Distance(s.location, ST_SetSRID(ST_MakePoint(?,?),4326)::geography)
+                    LIMIT 3
+                    """,
+                    (rs, rowNum) -> rs.getString(1),
+                    lng, lat, lng, lat);
 
             boolean capped = mapHit.size() == 100;
             Map<String, Object> row = new LinkedHashMap<>();
@@ -290,6 +325,8 @@ class CombinedIzmirCoverageCandidateIT {
             row.put("lng", lng);
             row.put("exploreTotal", exploreHit.municipalTotalInScope());
             row.put("exploreVisible", exploreHit.facilities().size());
+            row.put("exploreRoadsideVisibleIds", exploreRoadsideIds);
+            row.put("representativeRoadsideIdsInRadius", representativeRoadsideIds);
             row.put("exploreFamiliesSample", exploreFamilies);
             row.put("mapCount", mapHit.size());
             row.put("mapCappedAt100", capped);
@@ -297,7 +334,8 @@ class CombinedIzmirCoverageCandidateIT {
             row.put("accessClassificationsSeen", accessSeen);
             row.put("roadsideWithGeometryInRadius", roadsideNear);
             row.put("continuation", capped
-                    ? "zoom_in_or_reduce_radius — first 100 is not complete coverage"
+                    ? "reduce_radius_via_municipal_radius_control — first 100 nearest facilities; "
+                            + "map zoom alone does not change the API search"
                     : "within_cap");
             centers.add(row);
             System.out.printf(

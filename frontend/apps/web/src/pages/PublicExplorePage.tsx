@@ -20,6 +20,7 @@ import { acquireBrowserPosition } from '@/components/parking/acquireBrowserPosit
 import { frontendConfig } from '@/config/env';
 import { GEOCODING_RESULT_LIMIT, type GeocodeResult } from '@/lib/geocoding';
 import { toMunicipalFacilityFromPublicExplore } from '@/lib/publicExploreFacilityAdapter';
+import { isIzelmanRoadsideFacility } from '@/lib/roadsideInventory';
 import { PUBLIC_AUTOCOMPLETE_DEBOUNCE_MS } from '@/lib/usePlaceAutocomplete';
 
 const NearbySpotsMap = lazy(() =>
@@ -431,6 +432,11 @@ export function PublicExplorePage() {
                   parkHereEnabled={false}
                   onClose={() => setSelectedId(null)}
                   onViewDetails={() => {
+                    // Roadside has no facility detail route — gate to authenticated /map.
+                    if (isIzelmanRoadsideFacility(selected)) {
+                      requireAuth('/map', 'facilityDetail');
+                      return;
+                    }
                     requireAuth(`/facilities/${selected.id}`, 'facilityDetail');
                   }}
                 />
