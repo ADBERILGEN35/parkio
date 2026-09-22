@@ -2,7 +2,7 @@
 
 **PR:** https://github.com/ADBERILGEN35/parkio/pull/84 (draft)  
 **Branch:** `feat/waitlist-full-name-readable-slack`  
-**Decision head:** `05041de85bcd749d7b0f8a4df4ad1dad98c2350c` (final PR tip)  
+**Decision head:** `ea3748ca631b01ec1f1cf9e028e9827b137ce601` (PR tip; code identity `05041de8`)  
 **Base:** `origin/api`  
 **Scope:** draft only — no merge, no prod migrate/deploy, no real Slack/email, no secret/NR changes, registration CLOSED, provider=resend.
 
@@ -62,19 +62,16 @@ Turkish AM titles distinguish warning / critical / mixed (firing+resolved) / ful
 
 Evidence dir: `agent-tools/parkio-waitlist-name-slack-readable-01/`.
 
-## CI status (final tip `05041de8`)
+## CI status (final tip — all applicable green)
 
-**Green (applicable):** Backend CI · Backend integration (PostgresIT V5) · Frontend CI · Observability · slack_biz acceptance · Security (CodeQL + Trivy container scans incl. gateway) · Performance k6 · Mobile-v2 · Backup restore · Staging safety.
+**Green:** Backend CI · Backend integration (PostgresIT V5) · Frontend CI · Observability · slack_biz acceptance · Security (CodeQL + Trivy container scans incl. gateway) · Performance k6 · Full Docker Compose runtime · Chaos · Mobile-v2 · Backup restore · Staging safety.
 
-**Runtime validation:** one failure from Maven Central HTTP 429 building unrelated `ai-validation-service`; re-run in progress (not a waitlist defect). Dedicated Integration + Backend CI already green.
-
-**Advisory:** Legacy mobile CI fails (pre-existing advisory lane).
+**Advisory only:** Legacy mobile CI fails (pre-existing advisory lane).
 
 **Image digests:** scans green on tip; record publish digests only at authorized deploy.
 
 ## Remaining blockers before merge/deploy authorization
 
-- Confirm Runtime re-run green (or explicitly waive Maven 429 infra flake)
-- Explicit operator approval for merge + ordered rollout
+- Explicit operator approval for merge + ordered rollout (relay → V5 gateway → contract-version=2 → Hostinger marketing → full-name-required=true → admin web pin)
 - No production Flyway/migrate/deploy/restart/secrets/Slack/NR in this step
 - Candidate image digests recorded only when images are published
