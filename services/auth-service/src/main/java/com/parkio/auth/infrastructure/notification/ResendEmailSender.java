@@ -148,9 +148,11 @@ public class ResendEmailSender implements EmailVerificationSender, PasswordReset
     }
 
     /**
-     * Stable per exact send attempt. Retries of the same template/recipient/token
-     * reuse the provider response (24h). Different tokens intentionally mint a new key.
-     * Fingerprint is a truncated SHA-256 of the raw token — never the raw token itself.
+     * Stable per exact send attempt for a given template/recipient/raw-token.
+     * Retries of that same triple reuse the provider response (24h). A new
+     * registration or resend that mints a different token intentionally uses a
+     * new key. Fingerprint is a truncated SHA-256 of the raw token — never the
+     * raw token itself.
      */
     static String idempotencyKey(String template, String recipientEmail, String rawToken) {
         return "auth/" + template + "/" + emailHash(recipientEmail) + "/" + tokenFingerprint(rawToken);

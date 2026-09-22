@@ -92,8 +92,10 @@ public class GlobalExceptionHandler {
 
     /**
      * Provider rejection or transport failure during synchronous transactional email.
-     * The request transaction rolls back (no committed token/account change). Clients
-     * see a generic unavailable signal — never provider payloads or tokens.
+     * Used for paths that must surface delivery failure (register, admin resend).
+     * Public resend-verification / forgot-password catch {@link EmailDeliveryException}
+     * in the controller so HTTP responses stay enumeration-safe while the service
+     * transaction still rolls back.
      */
     @ExceptionHandler(EmailDeliveryException.class)
     public ResponseEntity<ApiError> handleEmailDelivery(EmailDeliveryException ex) {

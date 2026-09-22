@@ -56,41 +56,68 @@ Evidence: `prod-readonly-probe-v3.txt`, `prod-readonly-probe-db-v2.txt`
 
 | File | Change |
 |---|---|
-| `ResendEmailSender.java` | Resend `Idempotency-Key` (`auth/<template>/<emailHash>/<tokenFingerprint>`, ≤256 chars, 24h provider retention); HTTP status class in safe failure messages (`auth` / `rate_limited` / `provider_5xx` / `client_4xx`); no raw token/API key in logs |
-| `ResendEmailSenderTest.java` | Coverage for Idempotency-Key, 401, 403, 429, 5xx, timeout/transport failure, no secret leakage |
-| `GlobalExceptionHandler.java` | Map `EmailDeliveryException` → `503 EMAIL_DELIVERY_UNAVAILABLE` (transaction still rolls back) |
-| `services/auth-service/README.md` | Document send-failure / ambiguous-acceptance token+account semantics; clarify no app-level retry loop |
+| `ResendEmailSender.java` | Resend `Idempotency-Key` (`auth/<template>/<emailHash>/<tokenFingerprint>`, ≤256 chars, 24h provider retention); HTTP status class in safe failure messages (`auth` / `rate_limited` / `provider_5xx` / `client_4xx`); no raw token/API key in logs. **Same sender serves verification and password-reset.** |
+| `ResendEmailSenderTest.java` | Coverage for Idempotency-Key, 401, 403, 429, 5xx, mock timeout/transport failure, no secret leakage |
+| `ResendEmailSenderBoundedTimeoutTest.java` | Finite default connect/read timeouts; **real** hanging-socket read-timeout bound (distinct from mock `SocketTimeoutException`) |
+| `AuthController.java` | Public `resend-verification` / `forgot-password` catch `EmailDeliveryException` **after** service exit (TX already rolled back) → always `202` / `200` |
+| `GlobalExceptionHandler.java` | Map uncaught `EmailDeliveryException` → `503 EMAIL_DELIVERY_UNAVAILABLE` for register / admin (not public enumeration paths) |
+| `PublicEmailDeliveryEnumerationHttpTest.java` | Endpoint-level proof: eligible / unknown / ineligible share identical public responses under provider failure |
+| `EmailDeliveryTransactionalPostgresIT.java` | Real Spring `@Transactional` + PostgreSQL rollback evidence (not Mockito-only) |
+| `services/auth-service/README.md` | Correct idempotency scope; document public enumeration + rollback semantics for verification **and** password-reset |
 
-**Preserved:** PT24H verification TTL, PT1H reset TTL, single-use tokens, resend cooldown, stored `preferred_locale`, enumeration-safe public resend, PRIV-001A synthetic skip, fail-closed config validation, no delivery webhooks, no unbounded retries.
+**Preserved:** PT24H verification TTL, PT1H reset TTL, single-use tokens, resend cooldown, stored `preferred_locale`, enumeration-safe public resend/forgot-password, PRIV-001A synthetic skip, fail-closed config validation, no delivery webhooks, no unbounded retries, no email-outbox redesign.
 
 ### Failed / ambiguous send → account & token state
 
 | Outcome | State after request |
 |---|---|
-| Provider 4xx/5xx or transport error | `EmailDeliveryException`; `@Transactional` **rolls back** — register creates no account; resend keeps prior verification hash |
+| Provider 4xx/5xx or transport error | `EmailDeliveryException`; `@Transactional` **rolls back** — register: no account, no verification hash, no `UserRegistered` outbox row; resend: previous verification hash kept; forgot-password: prior active reset token kept (consume+new insert rolled back) |
 | Provider HTTP 2xx | Token hash (and pending account on register) **committed**. This is **API acceptance**, not inbox proof |
 | Timeout after provider may have accepted | Transaction **rolls back**. Any delivered message carries a rolled-back token and cannot verify; treat as failed send |
 
-Auth does **not** auto-retry. Idempotency-Key only protects identical template/recipient/token retries (e.g. client/network replay).
+**Idempotency (corrected):** Key deduplicates retries of the **same** template + recipient + raw token only. A new registration/resend that mints another token uses a **new** key.
+
+**Password-reset impact:** `ResendEmailSender` implements both verification and reset ports. Public forgot-password stays enumeration-safe under provider failure; admin/register still surface `503`. Rollback semantics above apply to reset tokens as proven in Postgres IT.
+
+Auth does **not** auto-retry.
 
 ---
 
-## 3. Isolated acceptance (mock only — no real email)
+## 3. Isolated acceptance (no real email / no prod accounts)
+
+### Unit / HTTP (H2 SpringBootTest where applicable)
 
 ```
-ResendEmailSenderTest                 14 / 14 PASS
-EmailDeliveryConfigTest               10 / 10 PASS
-AuthTransactionalEmailTemplatesTest    5 / 5 PASS
-LoggingEmailVerificationSenderTest     1 / 1 PASS
-AuthApplicationServiceTest            51 / 51 PASS
+ResendEmailSenderTest                         14 / 14 PASS
+ResendEmailSenderBoundedTimeoutTest            2 / 2 PASS
+EmailDeliveryConfigTest                       10 / 10 PASS
+AuthTransactionalEmailTemplatesTest            5 / 5 PASS
+LoggingEmailVerificationSenderTest             1 / 1 PASS
+AuthApplicationServiceTest                    51 / 51 PASS
+AuthLoginMetricsTest                           6 / 6 PASS
+PublicEmailDeliveryEnumerationHttpTest         3 / 3 PASS
 ```
+
+### Transaction evidence (PostgreSQL Testcontainers — `integrationTest`)
+
+```
+EmailDeliveryTransactionalPostgresIT           4 / 4 PASS
+```
+
+Proven against real DB + Spring TX boundary:
+
+- failed registration → no `auth_users` row, no `UserRegistered` outbox payload
+- failed resend → previous verification hash preserved; attempted new token cannot verify
+- failed password-reset send → prior active reset token preserved (single active row)
+- ambiguous send-failure after attempted new token → rolled-back token not usable
 
 Covered behaviours (synthetic / mock provider):
 
 - register → payload creation (TR/EN HTML+text) → verify; resend uses stored locale; unsupported locale → TR
 - expired / invalid / reused tokens; CLOSED registration gate
-- provider rejection (401/403/429/5xx), timeout/transport; metrics; no token/API key in logs
-- PRIV-001A synthetic skip without calling Resend
+- provider rejection (401/403/429/5xx), mock transport failure **and** bounded real read-timeout
+- public enumeration uniformity under delivery failure; register still `503`
+- metrics; no token/API key in logs; PRIV-001A synthetic skip
 
 **Not claimed:** Resend provider acceptance in production, or inbox delivery.
 
@@ -185,13 +212,13 @@ This branch adds Idempotency-Key + safer failure mapping. Prefer deploying the *
 
 ### Path B — config-only on deployed PR #68 image
 
-If operators explicitly choose not to take the Idempotency-Key fix first: switch `PARKIO_EMAIL_PROVIDER=resend` on digest `c9875b41…` is mechanically possible (key/FROM/URLs already set). **Trade-off:** no Idempotency-Key, weaker status-class diagnostics, EmailDeliveryException still surfaces as generic 500. Prefer Path A.
+If operators explicitly choose not to take this branch first: switch `PARKIO_EMAIL_PROVIDER=resend` on digest `c9875b41…` is mechanically possible (key/FROM/URLs already set). **Trade-off:** no Idempotency-Key, weaker diagnostics, public enumeration leak under delivery `503`, no password-reset rollback evidence from this prep. Prefer Path A.
 
 ### Rollback to logging
 
 1. Set `PARKIO_EMAIL_PROVIDER=logging`.
 2. Restart auth only.
-3. Outstanding verification links issued while on Resend remain valid until TTL/single-use rules expire — rollback does **not** invalidate already-committed token hashes.
+3. Outstanding verification **and** password-reset links issued while on Resend remain valid until TTL/single-use rules expire — rollback does **not** invalidate already-committed token hashes.
 4. Links that never committed (failed/ambiguous send) were never valid.
 5. Do not touch NR continuous, gateway, or web pins during auth email rollback.
 
@@ -201,13 +228,18 @@ If operators explicitly choose not to take the Idempotency-Key fix first: switch
 
 | Artifact | Value |
 |---|---|
-| Branch tip | `78e0a93852471cc570cb604d65a7ad94e1d53d96` |
-| Local candidate tag | `parkio/auth-service:prep-auth-resend-78e0a938` |
-| Image ID (manifest list) | `sha256:c72c68a22800f6870d8ba8d3308d397bf117550f04e5769bd4c57ca8a1c0bec9` |
+| Branch tip | *(filled after final commit + rebuild)* |
+| Local candidate tag | `parkio/auth-service:prep-auth-resend-<shortsha>` |
+| Image ID (manifest list) | *(filled after rebuild from tip)* |
+| Source equivalence | Prior local image was built from working tree before commit `78e0a938`; docs tip `d21413c9` did not change runtime jars. **Final candidate is rebuilt from the tip that includes enumeration + Postgres IT sources** so image source ≡ PR head. |
 | GHCR digest | *not pushed* (local candidate only until release decision) |
-| Trivy | See `trivy-auth-candidate.txt` (HIGH,CRITICAL --ignore-unfixed) |
+| Trivy (no `--ignore-unfixed`) | See §7.1 |
 
-Rebuild was required because runtime code changed. Do not rebuild merely to flip the provider string.
+Rebuild is required because runtime code changed. Do not rebuild merely to flip the provider string.
+
+### 7.1 Exact-image Trivy (HIGH,CRITICAL — unfixed included)
+
+*(filled after final scan)*
 
 ---
 
@@ -225,3 +257,9 @@ None required for the provider switch: PR #68 web verify-email `lang` handling i
 4. **Domain confirmation:** operator confirms `parkio.dev` (for `verify@parkio.dev`) is verified in the Resend account owning `PARKIO_RESEND_API_KEY` (not assumed from waitlist).
 
 No additional approval gates invented beyond these concrete items.
+
+---
+
+## 10. Terminal CI on final head
+
+*(filled after push of final tip)*
