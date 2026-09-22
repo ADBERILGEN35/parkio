@@ -33,18 +33,20 @@ public class JdbcWaitlistInterestRepository implements WaitlistInterestRepositor
         try {
             jdbcTemplate.update("""
                     INSERT INTO waitlist_interest (
-                        id, email, email_hash, consent_timestamp, client_consent_timestamp, city, role, source, locale,
+                        id, email, email_hash, consent_timestamp, client_consent_timestamp, full_name,
+                        city, role, source, locale,
                         status, verification_token_hash, withdraw_token_hash, verification_expires_at,
                         verification_sent_at, resend_count, confirmed_at, withdrawn_at,
                         ip_hash, user_agent_hash, created_at
                     )
-                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                     """,
                     interest.id(),
                     interest.email(),
                     interest.emailHash(),
                     Timestamp.from(interest.consentTimestamp()),
                     toTimestamp(interest.clientConsentTimestamp()),
+                    interest.fullName(),
                     interest.city(),
                     interest.role(),
                     interest.source(),
@@ -108,6 +110,7 @@ public class JdbcWaitlistInterestRepository implements WaitlistInterestRepositor
                     withdrawn_at = ?,
                     email = CONCAT('withdrawn-', REPLACE(CAST(id AS VARCHAR), '-', ''), '@invalid.local'),
                     email_hash = CONCAT('withdrawn-', REPLACE(CAST(id AS VARCHAR), '-', '')),
+                    full_name = NULL,
                     verification_token_hash = NULL,
                     withdraw_token_hash = NULL,
                     verification_expires_at = NULL
@@ -164,7 +167,7 @@ public class JdbcWaitlistInterestRepository implements WaitlistInterestRepositor
     public List<WaitlistExportRow> exportConfirmed(Instant createdFrom, Instant createdTo) {
         List<Object> args = new ArrayList<>();
         StringBuilder sql = new StringBuilder("""
-                SELECT email, city, role, source, created_at, consent_timestamp
+                SELECT email, full_name, city, role, source, created_at, consent_timestamp
                 FROM waitlist_interest
                 WHERE status = 'CONFIRMED'
                 """);
@@ -179,6 +182,7 @@ public class JdbcWaitlistInterestRepository implements WaitlistInterestRepositor
         sql.append(" ORDER BY created_at ASC");
         return jdbcTemplate.query(sql.toString(), (rs, rowNum) -> new WaitlistExportRow(
                 rs.getString("email"),
+                rs.getString("full_name"),
                 rs.getString("city"),
                 rs.getString("role"),
                 rs.getString("source"),
@@ -232,7 +236,7 @@ public class JdbcWaitlistInterestRepository implements WaitlistInterestRepositor
         pageArgs.add(safePage * safeSize);
         List<WaitlistAdminEntry> content = jdbcTemplate.query(
                 """
-                SELECT id, email, status, locale, source, created_at, confirmed_at, withdrawn_at
+                SELECT id, email, full_name, status, locale, source, created_at, confirmed_at, withdrawn_at
                 FROM waitlist_interest
                 """ + where + """
                  ORDER BY created_at DESC
@@ -241,6 +245,7 @@ public class JdbcWaitlistInterestRepository implements WaitlistInterestRepositor
                 (rs, rowNum) -> new WaitlistAdminEntry(
                         UUID.fromString(rs.getString("id")),
                         rs.getString("email"),
+                        rs.getString("full_name"),
                         WaitlistStatus.valueOf(rs.getString("status")),
                         rs.getString("locale"),
                         rs.getString("source"),
@@ -249,6 +254,30 @@ public class JdbcWaitlistInterestRepository implements WaitlistInterestRepositor
                         toInstant(rs.getTimestamp("withdrawn_at"))),
                 pageArgs.toArray());
         return new WaitlistAdminPage(content, safePage, safeSize, totalElements, totalPages);
+    }
+
+    @Override
+    public Optional<WaitlistInterest> findById(UUID id) {
+        return queryOne("SELECT * FROM waitlist_interest WHERE id = ?", id.toString());
+    }
+
+    @Override
+    public long countConfirmed() {
+        Long count = jdbcTemplate.queryForObject(
+                "SELECT COUNT(*) FROM waitlist_interest WHERE status = 'CONFIRMED'", Long.class);
+        return count == null ? 0L : count;
+    }
+
+    @Override
+    public long countConfirmedSince(Instant sinceInclusive) {
+        Long count = jdbcTemplate.queryForObject(
+                """
+                SELECT COUNT(*) FROM waitlist_interest
+                WHERE status = 'CONFIRMED' AND confirmed_at IS NOT NULL AND confirmed_at >= ?
+                """,
+                Long.class,
+                Timestamp.from(sinceInclusive));
+        return count == null ? 0L : count;
     }
 
     private Optional<WaitlistInterest> queryOne(String sql, String arg) {
@@ -263,6 +292,7 @@ public class JdbcWaitlistInterestRepository implements WaitlistInterestRepositor
                 rs.getString("email_hash"),
                 rs.getTimestamp("consent_timestamp").toInstant(),
                 toInstant(rs.getTimestamp("client_consent_timestamp")),
+                rs.getString("full_name"),
                 rs.getString("city"),
                 rs.getString("role"),
                 rs.getString("source"),

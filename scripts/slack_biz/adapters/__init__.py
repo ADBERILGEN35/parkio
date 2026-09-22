@@ -308,7 +308,7 @@ def from_backup_status(
 # ---------------------------------------------------------------------------
 
 WAITLIST_PRODUCER = "gateway-waitlist-outbox"
-WAITLIST_ENVELOPE_KEYS = frozenset(
+WAITLIST_BASE_KEYS = frozenset(
     {
         "contractVersion",
         "eventId",
@@ -319,8 +319,21 @@ WAITLIST_ENVELOPE_KEYS = frozenset(
         "dedupKey",
     }
 )
+WAITLIST_V2_EXTRA_KEYS = frozenset(
+    {
+        "fullName",
+        "confirmedTotal",
+        "confirmedTodayIstanbul",
+    }
+)
+WAITLIST_ENVELOPE_KEYS_V1 = WAITLIST_BASE_KEYS
+WAITLIST_ENVELOPE_KEYS_V2 = WAITLIST_BASE_KEYS | WAITLIST_V2_EXTRA_KEYS
+# Back-compat alias used by older callers/tests
+WAITLIST_ENVELOPE_KEYS = WAITLIST_ENVELOPE_KEYS_V1
 _WAITLIST_DEDUP_RE = re.compile(r"^waitlist:subscription_confirmed:[0-9a-f]{64}\Z")
 _ISO_UTC_SECONDS_RE = re.compile(r"^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z\Z")
+WAITLIST_FULL_NAME_MAX = 100
+ADMIN_WAITLIST_URL = "https://app.parkio.dev/admin/waitlist"
 
 
 class WaitlistEnvelopeRejected(ValueError):
@@ -346,6 +359,8 @@ class WaitlistEnvelopeRejected(ValueError):
             "bad_event_id",
             "bad_occurred_at",
             "bad_dedup_key",
+            "bad_full_name",
+            "bad_confirmed_count",
         }
     )
 
@@ -362,6 +377,33 @@ def refuse_non_confirmation_waitlist_signal(event_type: object) -> None:
         raise WaitlistEnvelopeRejected("unsupported_event_type")
 
 
+def _parse_waitlist_full_name(raw: object) -> str | None:
+    """Allowlisted optional fullName: JSON null or non-empty string."""
+    if raw is None:
+        return None
+    if not isinstance(raw, str):
+        raise WaitlistEnvelopeRejected("bad_full_name")
+    name = raw.strip()
+    if not name or len(name) > WAITLIST_FULL_NAME_MAX:
+        raise WaitlistEnvelopeRejected("bad_full_name")
+    if not any(ch.isalpha() for ch in name):
+        raise WaitlistEnvelopeRejected("bad_full_name")
+    lowered = name.lower()
+    if "@" in name or "<" in name or ">" in name or "http://" in lowered or "https://" in lowered:
+        raise WaitlistEnvelopeRejected("bad_full_name")
+    return name
+
+
+def _parse_waitlist_count(raw: object) -> int | None:
+    if raw is None:
+        return None
+    if isinstance(raw, bool) or not isinstance(raw, int):
+        raise WaitlistEnvelopeRejected("bad_confirmed_count")
+    if raw < 0:
+        raise WaitlistEnvelopeRejected("bad_confirmed_count")
+    return raw
+
+
 def from_waitlist_ops_envelope(
     envelope: Any,
     config: SlackBizConfig,
@@ -369,21 +411,30 @@ def from_waitlist_ops_envelope(
     producer: str = WAITLIST_PRODUCER,
 ) -> SlackBizEvent:
     """
-    Accept only committed gateway waitlist confirmation envelopes.
+    Accept committed gateway waitlist confirmation envelopes (contract v1 or v2).
 
-    The envelope is a closed allow-list: any extra key rejects the whole
-    envelope (it is not stripped and forwarded). Rejections carry a bounded
+    v1: exactly the 7 base keys (no PII).
+    v2: base keys plus allowlisted ``fullName`` (string|null),
+    ``confirmedTotal`` and ``confirmedTodayIstanbul`` (non-negative ints).
+    Any other key rejects the whole envelope. Rejections carry a bounded
     category only (WaitlistEnvelopeRejected.category), never key names or values.
     """
     if not isinstance(envelope, dict):
         raise WaitlistEnvelopeRejected("not_object")
     keys = set(envelope)
-    if keys - WAITLIST_ENVELOPE_KEYS:
-        raise WaitlistEnvelopeRejected("unknown_field")
-    if WAITLIST_ENVELOPE_KEYS - keys:
-        raise WaitlistEnvelopeRejected("missing_field")
-    if envelope["contractVersion"] != 1 or isinstance(envelope["contractVersion"], bool):
+    version = envelope.get("contractVersion")
+    if isinstance(version, bool) or not isinstance(version, int):
         raise WaitlistEnvelopeRejected("bad_contract_version")
+    if version == 1:
+        allowed = WAITLIST_ENVELOPE_KEYS_V1
+    elif version == 2:
+        allowed = WAITLIST_ENVELOPE_KEYS_V2
+    else:
+        raise WaitlistEnvelopeRejected("bad_contract_version")
+    if keys - allowed:
+        raise WaitlistEnvelopeRejected("unknown_field")
+    if allowed - keys:
+        raise WaitlistEnvelopeRejected("missing_field")
     refuse_non_confirmation_waitlist_signal(envelope["eventType"])
     if envelope["producer"] != producer:
         raise WaitlistEnvelopeRejected("producer_mismatch")
@@ -401,22 +452,45 @@ def from_waitlist_ops_envelope(
     if not isinstance(dedup, str) or not _WAITLIST_DEDUP_RE.match(dedup):
         raise WaitlistEnvelopeRejected("bad_dedup_key")
 
+    full_name: str | None = None
+    confirmed_total: int | None = None
+    confirmed_today: int | None = None
+    if version == 2:
+        full_name = _parse_waitlist_full_name(envelope["fullName"])
+        confirmed_total = _parse_waitlist_count(envelope["confirmedTotal"])
+        confirmed_today = _parse_waitlist_count(envelope["confirmedTodayIstanbul"])
+        if confirmed_total is None or confirmed_today is None:
+            raise WaitlistEnvelopeRejected("bad_confirmed_count")
+
+    body: list[str] = []
+    if full_name:
+        body.append(f"name={full_name}")
+    else:
+        body.append("name=Ad belirtilmemiş")
+    if confirmed_total is not None and confirmed_today is not None:
+        body.append(f"confirmed_total={confirmed_total}")
+        body.append(f"confirmed_today_istanbul={confirmed_today}")
+    body.append(f"admin={ADMIN_WAITLIST_URL}")
+
     return SlackBizEvent(
         event_id=event_id,
         event_type=FAMILY_WAITLIST_CONFIRMED,
-        contract_version=CONTRACT_VERSION,
+        contract_version=version,
         environment=config.environment,
         occurred_at=occurred,
         severity=Severity.INFO.value,
         producer=producer,
-        # Internal pseudonymous metadata (HMAC of subscriber row id): stored in the
-        # relay queue for dedup only; render_message never shows it.
         dedup_key=dedup,
         route=route_for_event_type(FAMILY_WAITLIST_CONFIRMED, config),
         service="gateway-service",
-        title="Bekleme listesi aboneliği onaylandı",
-        body_lines=("olay=`e-posta onayı tamamlandı (çift onay)`",),
+        title="🎉 Yeni bekleme listesi kaydı onaylandı",
+        body_lines=tuple(body),
         correlation_key=None,
         subject_ref=None,
-        context={},
+        context={
+            "full_name": full_name,
+            "confirmed_total": confirmed_total,
+            "confirmed_today_istanbul": confirmed_today,
+            "readable_waitlist": True,
+        },
     )

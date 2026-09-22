@@ -3,11 +3,14 @@ package com.parkio.gateway.application.waitlist;
 import java.time.Instant;
 import java.util.List;
 import java.util.Optional;
+import java.util.UUID;
 
 public interface WaitlistInterestRepository {
 
     /** @return true when a new pending row was inserted */
     boolean insertPendingIfAbsent(WaitlistInterest interest);
+
+    Optional<WaitlistInterest> findById(UUID id);
 
     Optional<WaitlistInterest> findByEmailHash(String emailHash);
 
@@ -33,6 +36,11 @@ public interface WaitlistInterestRepository {
     List<WaitlistExportRow> exportConfirmed(Instant createdFrom, Instant createdTo);
 
     WaitlistAdminCounts countByStatus();
+
+    long countConfirmed();
+
+    /** Confirmed subscribers with {@code confirmed_at >= sinceInclusive}. */
+    long countConfirmedSince(Instant sinceInclusive);
 
     WaitlistAdminPage findAdminPage(
             WaitlistStatus status,

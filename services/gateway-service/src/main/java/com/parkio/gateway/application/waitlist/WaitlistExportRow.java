@@ -4,6 +4,7 @@ import java.time.Instant;
 
 public record WaitlistExportRow(
         String email,
+        String fullName,
         String city,
         String role,
         String source,

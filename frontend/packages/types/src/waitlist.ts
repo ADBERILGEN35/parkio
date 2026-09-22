@@ -7,6 +7,8 @@ export type WaitlistRoleValue = (typeof WAITLIST_ROLE_VALUES)[number];
 export type WaitlistSubscriptionStatus = 'PENDING' | 'CONFIRMED' | 'WITHDRAWN';
 
 export interface SubmitWaitlistRequest {
+  /** Optional until gateway `full-name-required` is flipped; marketing always sends it. */
+  fullName?: string | null;
   email: string;
   consentTimestamp: string;
   city?: string | null;
@@ -22,6 +24,7 @@ export interface WaitlistAcceptedResponse {
 export interface WaitlistAdminEntry {
   id: string;
   email: string;
+  fullName: string | null;
   status: WaitlistSubscriptionStatus;
   locale: string | null;
   source: string | null;

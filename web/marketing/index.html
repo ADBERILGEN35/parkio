@@ -248,8 +248,14 @@
       </div>
       <form id="waitlist-form" class="waitlist-panel" novalidate>
         <div class="field">
+          <label for="waitlist-full-name" data-i18n="waitlist.fullName">Ad soyad</label>
+          <input id="waitlist-full-name" name="fullName" type="text" autocomplete="name" maxlength="100" required aria-required="true" aria-describedby="waitlist-full-name-error">
+          <p id="waitlist-full-name-error" class="field-error" data-waitlist-full-name-error role="alert" hidden></p>
+        </div>
+        <div class="field">
           <label for="waitlist-email" data-i18n="waitlist.email">E-posta adresi</label>
-          <input id="waitlist-email" name="email" type="email" autocomplete="email" inputmode="email" maxlength="254" required aria-required="true">
+          <input id="waitlist-email" name="email" type="email" autocomplete="email" inputmode="email" maxlength="254" required aria-required="true" aria-describedby="waitlist-email-error">
+          <p id="waitlist-email-error" class="field-error" data-waitlist-email-error role="alert" hidden></p>
         </div>
         <div class="field field-check">
           <input id="waitlist-consent" name="consent" type="checkbox" required aria-required="true">

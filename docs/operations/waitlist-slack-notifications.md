@@ -47,12 +47,15 @@ slack_biz/worker.py            (relay host, existing)
   └─ Slack incoming webhook (PARKIO_SLACK_BIZ_WEBHOOK_URL_BIZ; route biz-growth)
 ```
 
-### Envelope contract (gateway → relay, v1)
+### Envelope contract (gateway → relay, v1 and v2)
 
-The relay accepts **exactly** these keys. Any other key rejects the whole
-envelope. Unknown keys are not stripped and forwarded. A rejection is recorded
-only as a bounded category (see [Rejections](#rejections)), and by default the
-rejected file is deleted, not kept.
+The relay accepts **v1** (exactly 7 keys, no PII) and **v2** (those keys plus
+allowlisted `fullName` / `confirmedTotal` / `confirmedTodayIstanbul`). Any other
+key rejects the whole envelope. Unknown keys are not stripped and forwarded.
+A rejection is recorded only as a bounded category (see [Rejections](#rejections)),
+and by default the rejected file is deleted, not kept.
+
+**v1**
 
 ```json
 {
@@ -66,6 +69,26 @@ rejected file is deleted, not kept.
 }
 ```
 
+**v2** (produced after the relay is dual-read capable)
+
+```json
+{
+  "contractVersion": 2,
+  "eventId": "<random outbox UUID — not the subscriber id>",
+  "eventType": "waitlist.subscription_confirmed",
+  "occurredAt": "2026-09-22T11:04:05Z",
+  "environment": "production",
+  "producer": "gateway-waitlist-outbox",
+  "dedupKey": "waitlist:subscription_confirmed:<HMAC-SHA256 hex>",
+  "fullName": "Ayşe Yılmaz",
+  "confirmedTotal": 17,
+  "confirmedTodayIstanbul": 2
+}
+```
+
+`fullName` may be JSON `null` for legacy rows. Counts are a **current DB snapshot
+at export/render time** (not event-time, not incremented by retries).
+
 `dedupKey` is `HMAC-SHA256(parkio.waitlist.hash-secret, "waitlist.subscription_confirmed:" + subscriberRowId)`.
 This is **pseudonymous internal metadata, not anonymous data**. Anyone holding
 the waitlist hash secret and the subscriber table can recompute it and link it
@@ -74,32 +97,34 @@ Slack**. See [Data inventory](#data-inventory) for exactly where it is stored.
 
 ## Example Slack messages (Turkish, synthetic data)
 
-Rendered by `render_message` from a synthetic envelope
-(`run_waitlist_acceptance.py` prints the same text):
+Rendered by the dedicated waitlist renderer (`render_waitlist_message`) from a
+synthetic envelope (`run_waitlist_acceptance.py` prints the same text):
 
 ```
-*Bekleme listesi aboneliği onaylandı*
-type=`waitlist.subscription_confirmed` severity=`info`
-env=`production` service=`gateway-service`
-at=`2026-09-22T11:04:05Z`
-olay=`e-posta onayı tamamlandı (çift onay)`
+*🎉 Yeni bekleme listesi kaydı onaylandı*
+Ad soyad: Ad belirtilmemiş
+Onay zamanı: 2026-09-22 14:04 (Türkiye saati)
+Yönetim: https://app.parkio.dev/admin/waitlist
+Ortam: `acceptance` (üretim dışı)
 ```
 
-Staging/acceptance look the same apart from `env=`:
+Contract v2 with a name and snapshot counts:
 
 ```
-*Bekleme listesi aboneliği onaylandı*
-type=`waitlist.subscription_confirmed` severity=`info`
-env=`acceptance` service=`gateway-service`
-at=`2026-09-22T11:04:05Z`
-olay=`e-posta onayı tamamlandı (çift onay)`
+*🎉 Yeni bekleme listesi kaydı onaylandı*
+Ad soyad: Ayşe Yılmaz
+Onay zamanı: 2026-09-22 14:04 (Türkiye saati)
+Yönetim: https://app.parkio.dev/admin/waitlist
+Anlık özet (veritabanı anlık görüntüsü): onaylı toplam=17, bugün (İstanbul günü)=2
+_Sayımlar olay anına kilitli değildir; her gönderimde yeniden okunur._
 ```
 
-The messages do not contain: email, name, city/role, IP, tokens,
-confirm/withdraw URLs, subscriber id, email hash, `dedupKey`, `eventId`, or
-provider payload. Email, name, IP, tokens, URLs, subscriber id and provider
-data are never part of the envelope at all. `dedupKey` and `eventId` are in the
-envelope and relay state (internal metadata) but are not rendered into Slack.
+The messages do not contain: email, IP, tokens, confirm/withdraw URLs,
+subscriber id, email hash, `dedupKey`, `eventId`, or provider payload.
+`fullName` is allowlisted for the biz waitlist body only (after `sanitize_text`).
+Generic sensitive-key stripping still treats `full_name` / similar keys as
+sensitive outside this allow-list path. Logs must not print names or rejected
+payloads.
 
 Terminal email failure message: **none**, because the event is not implemented.
 If it is added later (see [Remaining decisions](#remaining-decisions)), it must

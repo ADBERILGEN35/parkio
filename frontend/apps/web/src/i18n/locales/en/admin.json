@@ -210,6 +210,8 @@
       "WITHDRAWN": "Withdrawn"
     },
     "table": {
+      "fullName": "Full name",
+      "nameNotProvided": "Name not provided",
       "email": "Email",
       "status": "Status",
       "locale": "Language",

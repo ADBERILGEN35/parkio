@@ -75,16 +75,17 @@ public class JdbcWaitlistOpsNotificationOutbox implements WaitlistOpsNotifier {
             savepoint.executeWithoutResult(status -> jdbcTemplate.update("""
                     INSERT INTO waitlist_ops_notification_outbox (
                         id, event_type, dedup_key, occurred_at, status, attempts,
-                        next_attempt_at, created_at
+                        next_attempt_at, created_at, interest_id
                     )
-                    VALUES (?, ?, ?, ?, 'PENDING', 0, ?, ?)
+                    VALUES (?, ?, ?, ?, 'PENDING', 0, ?, ?, ?)
                     """,
                     UUID.randomUUID(),
                     EVENT_SUBSCRIPTION_CONFIRMED,
                     dedupKey,
                     Timestamp.from(confirmedAt),
                     Timestamp.from(now),
-                    Timestamp.from(now)));
+                    Timestamp.from(now),
+                    interestId));
             count("recorded");
         } catch (DuplicateKeyException ex) {
             count("duplicate_suppressed");
@@ -97,7 +98,7 @@ public class JdbcWaitlistOpsNotificationOutbox implements WaitlistOpsNotifier {
 
     List<OutboxRow> findDue(Instant now, int limit) {
         return jdbcTemplate.query("""
-                SELECT id, event_type, dedup_key, occurred_at, attempts
+                SELECT id, event_type, dedup_key, occurred_at, attempts, interest_id
                 FROM waitlist_ops_notification_outbox
                 WHERE status = 'PENDING' AND next_attempt_at <= ?
                 ORDER BY next_attempt_at ASC, created_at ASC
@@ -108,7 +109,8 @@ public class JdbcWaitlistOpsNotificationOutbox implements WaitlistOpsNotifier {
                         rs.getString("event_type"),
                         rs.getString("dedup_key"),
                         rs.getTimestamp("occurred_at").toInstant(),
-                        rs.getInt("attempts")),
+                        rs.getInt("attempts"),
+                        rs.getObject("interest_id", UUID.class)),
                 Timestamp.from(now),
                 limit);
     }
@@ -154,6 +156,7 @@ public class JdbcWaitlistOpsNotificationOutbox implements WaitlistOpsNotifier {
         meterRegistry.counter(METRIC, "outcome", outcome).increment();
     }
 
-    record OutboxRow(UUID id, String eventType, String dedupKey, Instant occurredAt, int attempts) {
+    record OutboxRow(
+            UUID id, String eventType, String dedupKey, Instant occurredAt, int attempts, UUID interestId) {
     }
 }

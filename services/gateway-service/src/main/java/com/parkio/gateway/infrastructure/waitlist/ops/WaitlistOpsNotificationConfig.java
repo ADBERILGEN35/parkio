@@ -1,5 +1,6 @@
 package com.parkio.gateway.infrastructure.waitlist.ops;
 
+import com.parkio.gateway.application.waitlist.WaitlistInterestRepository;
 import io.micrometer.core.instrument.MeterRegistry;
 import java.time.Clock;
 import org.slf4j.Logger;
@@ -20,12 +21,13 @@ public class WaitlistOpsNotificationConfig {
     @Bean
     WaitlistOpsNotificationExporter waitlistOpsNotificationExporter(
             JdbcWaitlistOpsNotificationOutbox outbox,
+            WaitlistInterestRepository interests,
             WaitlistOpsNotificationProperties properties,
             Clock clock,
             MeterRegistry meterRegistry) {
         if (!outbox.isActive()) {
             log.warn("Waitlist ops notifications enabled without export-dir; nothing will be recorded.");
         }
-        return new WaitlistOpsNotificationExporter(outbox, properties, clock, meterRegistry);
+        return new WaitlistOpsNotificationExporter(outbox, interests, properties, clock, meterRegistry);
     }
 }

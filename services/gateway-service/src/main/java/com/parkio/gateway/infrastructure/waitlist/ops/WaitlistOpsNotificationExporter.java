@@ -2,6 +2,8 @@ package com.parkio.gateway.infrastructure.waitlist.ops;
 
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.parkio.gateway.application.waitlist.WaitlistInterest;
+import com.parkio.gateway.application.waitlist.WaitlistInterestRepository;
 import java.io.IOException;
 import java.nio.file.AtomicMoveNotSupportedException;
 import java.nio.file.DirectoryStream;
@@ -12,6 +14,8 @@ import java.nio.file.StandardCopyOption;
 import java.time.Clock;
 import java.time.Duration;
 import java.time.Instant;
+import java.time.LocalDate;
+import java.time.ZoneId;
 import java.time.temporal.ChronoUnit;
 import java.util.LinkedHashMap;
 import java.util.List;
@@ -33,20 +37,20 @@ import org.springframework.scheduling.annotation.Scheduled;
  * with bounded exponential backoff and become {@code FAILED} after
  * {@code maxExportAttempts}; they are never retried indefinitely.
  *
- * <p>Backpressure: when the inbox already holds {@code maxInboxBacklog}
- * unconsumed envelopes (relay down or deferring) or its filesystem has less
- * than {@code minFreeBytes} usable space, the poll exports nothing. Rows stay
- * {@code PENDING} without consuming an attempt, so nothing is dropped or
- * deleted; the confirmation path only ever inserts one small row.
+ * <p>Contract version 2 allow-lists {@code fullName} (nullable),
+ * {@code confirmedTotal}, and {@code confirmedTodayIstanbul} as current DB
+ * snapshots at export time (retries re-query; they do not invent increments).
  */
 public class WaitlistOpsNotificationExporter {
 
     static final String PRODUCER = "gateway-waitlist-outbox";
-    static final int CONTRACT_VERSION = 1;
+    static final int CONTRACT_VERSION = 2;
+    static final ZoneId ISTANBUL = ZoneId.of("Europe/Istanbul");
 
     private static final Logger log = LoggerFactory.getLogger(WaitlistOpsNotificationExporter.class);
 
     private final JdbcWaitlistOpsNotificationOutbox outbox;
+    private final WaitlistInterestRepository interests;
     private final WaitlistOpsNotificationProperties properties;
     private final Clock clock;
     private final ObjectMapper objectMapper = new ObjectMapper();
@@ -56,10 +60,12 @@ public class WaitlistOpsNotificationExporter {
 
     public WaitlistOpsNotificationExporter(
             JdbcWaitlistOpsNotificationOutbox outbox,
+            WaitlistInterestRepository interests,
             WaitlistOpsNotificationProperties properties,
             Clock clock,
             MeterRegistry meterRegistry) {
         this.outbox = outbox;
+        this.interests = interests;
         this.properties = properties;
         this.clock = clock;
         Gauge.builder("parkio.waitlist.ops.outbox.pending", pendingRows, AtomicLong::get)
@@ -107,7 +113,7 @@ public class WaitlistOpsNotificationExporter {
         int retried = 0;
         int failed = 0;
         for (JdbcWaitlistOpsNotificationOutbox.OutboxRow row : due) {
-            String category = writeEnvelope(dir, row);
+            String category = writeEnvelope(dir, row, now);
             if (category == null) {
                 outbox.markExported(row.id(), clock.instant());
                 outbox.count("exported");
@@ -167,10 +173,10 @@ public class WaitlistOpsNotificationExporter {
     }
 
     /** @return null on success, otherwise a bounded error category */
-    private String writeEnvelope(Path dir, JdbcWaitlistOpsNotificationOutbox.OutboxRow row) {
+    private String writeEnvelope(Path dir, JdbcWaitlistOpsNotificationOutbox.OutboxRow row, Instant now) {
         byte[] json;
         try {
-            json = objectMapper.writeValueAsBytes(envelope(row));
+            json = objectMapper.writeValueAsBytes(envelope(row, now));
         } catch (JsonProcessingException ex) {
             return "serialization_error";
         }
@@ -199,7 +205,7 @@ public class WaitlistOpsNotificationExporter {
         }
     }
 
-    private Map<String, Object> envelope(JdbcWaitlistOpsNotificationOutbox.OutboxRow row) {
+    Map<String, Object> envelope(JdbcWaitlistOpsNotificationOutbox.OutboxRow row, Instant now) {
         // Allow-listed fields only. The relay rejects any additional key.
         Map<String, Object> envelope = new LinkedHashMap<>();
         envelope.put("contractVersion", CONTRACT_VERSION);
@@ -209,6 +215,16 @@ public class WaitlistOpsNotificationExporter {
         envelope.put("environment", properties.getEnvironment());
         envelope.put("producer", PRODUCER);
         envelope.put("dedupKey", row.dedupKey());
+        String fullName = null;
+        if (row.interestId() != null) {
+            fullName = interests.findById(row.interestId()).map(WaitlistInterest::fullName).orElse(null);
+        }
+        envelope.put("fullName", fullName);
+        Instant istanbulDayStart = LocalDate.now(clock.withZone(ISTANBUL))
+                .atStartOfDay(ISTANBUL)
+                .toInstant();
+        envelope.put("confirmedTotal", interests.countConfirmed());
+        envelope.put("confirmedTodayIstanbul", interests.countConfirmedSince(istanbulDayStart));
         return envelope;
     }
 

@@ -210,6 +210,8 @@
       "WITHDRAWN": "Çekilmiş"
     },
     "table": {
+      "fullName": "Ad soyad",
+      "nameNotProvided": "Ad belirtilmemiş",
       "email": "E-posta",
       "status": "Durum",
       "locale": "Dil",

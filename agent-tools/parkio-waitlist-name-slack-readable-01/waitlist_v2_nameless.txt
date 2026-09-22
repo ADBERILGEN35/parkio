@@ -1,0 +1,6 @@
+*🎉 Yeni bekleme listesi kaydı onaylandı*
+Ad soyad: Ad belirtilmemiş
+Onay zamanı: 2026-09-22 14:04 (Türkiye saati)
+Yönetim: https://app.parkio.dev/admin/waitlist
+Anlık özet (veritabanı anlık görüntüsü): onaylı toplam=42, bugün (İstanbul günü)=3
+_Sayımlar olay anına kilitli değildir; her gönderimde yeniden okunur._

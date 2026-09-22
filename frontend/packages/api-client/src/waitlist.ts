@@ -11,6 +11,7 @@ export const WAITLIST_ROLES = ['driver', 'tester', 'partner'] as const;
 export type WaitlistRole = (typeof WAITLIST_ROLES)[number];
 
 export interface WaitlistPayload {
+  fullName?: string;
   email: string;
   city?: string;
   role?: WaitlistRole;

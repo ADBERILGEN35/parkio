@@ -69,7 +69,7 @@ PROHIBITED = (
 
 
 def gateway_envelope(**overrides) -> dict:
-    """Same keys/format as WaitlistOpsNotificationExporter#envelope."""
+    """Same keys/format as WaitlistOpsNotificationExporter#envelope (v1 by default)."""
     digest = hashlib.sha256(uuid.uuid4().bytes).hexdigest()
     env = {
         "contractVersion": 1,
@@ -82,6 +82,18 @@ def gateway_envelope(**overrides) -> dict:
     }
     env.update(overrides)
     return env
+
+
+def gateway_envelope_v2(**overrides) -> dict:
+    """Contract v2 envelope with allowlisted fullName + snapshot counts."""
+    base = {
+        "contractVersion": 2,
+        "fullName": None,
+        "confirmedTotal": 42,
+        "confirmedTodayIstanbul": 3,
+    }
+    base.update(overrides)
+    return gateway_envelope(**base)
 
 
 class Harness:
@@ -243,9 +255,12 @@ def run(evidence_dir: Path | None) -> dict:
         body = mock.state.requests[0].json_body
         assert set(body) == {"text", "username", "mrkdwn"}, body
         text = body["text"]
-        assert "Bekleme listesi aboneliği onaylandı" in text
-        assert "type=`waitlist.subscription_confirmed`" in text
-        assert f"env=`{ENV_NAME}`" in text and "at=`2026-09-22T11:04:05Z`" in text
+        assert "Yeni bekleme listesi kaydı onaylandı" in text
+        assert "Ad belirtilmemiş" in text
+        assert "Türkiye saati" in text
+        assert "https://app.parkio.dev/admin/waitlist" in text
+        assert "type=`waitlist.subscription_confirmed`" not in text
+        assert f"Ortam: `{ENV_NAME}`" in text
         assert env["dedupKey"].split(":")[-1] not in text, "dedup hash must not reach Slack"
         assert env["eventId"] not in text
         messages["confirmed"] = text
@@ -593,6 +608,37 @@ def run(evidence_dir: Path | None) -> dict:
             assert "/services/" not in text
         return "webhook URL absent from queue/DLT/metrics/logs"
 
+    @scenario("W20", "contract v2 fullName + counts → readable Turkish Slack")
+    def _w20(h: Harness):
+        env = gateway_envelope_v2(fullName="Ayşe Yılmaz", confirmedTotal=17, confirmedTodayIstanbul=2)
+        h.drop(env)
+        r = h.consumer.poll_once()
+        assert r.enqueued == 1 and r.acked == 1, r
+        h.worker.process_once()
+        text = mock.state.requests[0].json_body["text"]
+        assert "Ayşe Yılmaz" in text
+        assert "onaylı toplam=17" in text
+        assert "bugün (İstanbul günü)=2" in text
+        assert "Ad belirtilmemiş" not in text
+        assert SYNTHETIC_EMAIL not in text and env["dedupKey"] not in text
+        messages["confirmed_v2"] = text
+        return "v2 name+counts rendered"
+
+    @scenario("W21", "v1 historical + v2 null fullName both render nameless label")
+    def _w21(h: Harness):
+        v1 = gateway_envelope()
+        v2 = gateway_envelope_v2(fullName=None)
+        h.drop(v1, "v1.json")
+        h.drop(v2, "v2.json")
+        assert h.consumer.poll_once().enqueued == 2
+        h.worker.process_once()
+        h.worker.process_once()
+        assert len(mock.state.requests) == 2
+        for req in mock.state.requests:
+            assert "Ad belirtilmemiş" in req.json_body["text"]
+        messages["confirmed_nameless"] = mock.state.requests[-1].json_body["text"]
+        return "v1+v2 nameless dual-read"
+
     logging.getLogger().removeHandler(handler)
     mock.stop()
 
@@ -609,10 +655,20 @@ def run(evidence_dir: Path | None) -> dict:
 
     # Turkish example messages rendered from synthetic data with production-like env.
     example_cfg = load_config({"PARKIO_SLACK_BIZ_ENVIRONMENT": "production"})
-    example = from_waitlist_ops_envelope(
+    example_v1 = from_waitlist_ops_envelope(
         gateway_envelope(environment="production"), example_cfg
     )
-    messages["confirmed_production_example"] = render_message(example, example_cfg)
+    messages["confirmed_production_example"] = render_message(example_v1, example_cfg)
+    example_v2 = from_waitlist_ops_envelope(
+        gateway_envelope_v2(
+            environment="production",
+            fullName="Ayşe Yılmaz",
+            confirmedTotal=17,
+            confirmedTodayIstanbul=2,
+        ),
+        example_cfg,
+    )
+    messages["confirmed_production_v2_example"] = render_message(example_v2, example_cfg)
 
     summary = {"PASS": 0, "FAIL": 0}
     for r in results:

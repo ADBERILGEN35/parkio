@@ -146,11 +146,16 @@ class WaitlistOpsNotificationOutboxTest {
         @SuppressWarnings("unchecked")
         Map<String, Object> envelope = objectMapper.readValue(raw, Map.class);
         assertThat(envelope).containsOnlyKeys(
-                "contractVersion", "eventId", "eventType", "occurredAt", "environment", "producer", "dedupKey");
+                "contractVersion", "eventId", "eventType", "occurredAt", "environment", "producer", "dedupKey",
+                "fullName", "confirmedTotal", "confirmedTodayIstanbul");
+        assertThat(envelope.get("contractVersion")).isEqualTo(2);
         assertThat(envelope.get("eventType")).isEqualTo("waitlist.subscription_confirmed");
         assertThat(envelope.get("environment")).isEqualTo("acceptance");
         assertThat(envelope.get("producer")).isEqualTo("gateway-waitlist-outbox");
         assertThat((String) envelope.get("dedupKey")).matches("waitlist:subscription_confirmed:[0-9a-f]{64}");
+        assertThat(envelope.get("fullName")).isEqualTo("Ayşe Yılmaz");
+        assertThat(((Number) envelope.get("confirmedTotal")).longValue()).isGreaterThanOrEqualTo(1L);
+        assertThat(((Number) envelope.get("confirmedTodayIstanbul")).longValue()).isGreaterThanOrEqualTo(1L);
 
         assertNoProhibitedValues(raw);
         assertNoProhibitedValues(output.getAll());
@@ -340,7 +345,7 @@ class WaitlistOpsNotificationOutboxTest {
 
     private void submitPending() {
         service.submit(new SubmitWaitlistCommand(
-                EMAIL, Instant.now(), "Izmir", "driver", "parkio.dev-landing", "tr",
+                EMAIL, Instant.now(), "Ayşe Yılmaz", "Izmir", "driver", "parkio.dev-landing", "tr",
                 "198.51.100.23", "synthetic-agent")).block();
         assertThat(verificationToken.get()).isNotNull();
     }
@@ -349,6 +354,7 @@ class WaitlistOpsNotificationOutboxTest {
         WaitlistInterest row = repository.findByEmailHash(hasher.hash(EMAIL)).orElse(null);
         assertThat(text).doesNotContain(EMAIL, "198.51.100.23", "Izmir", verificationToken.get(), withdrawToken.get());
         assertThat(text).doesNotContain("waitlist/confirm", "waitlist/unsubscribe");
+        // Envelope JSON may include fullName (allowlisted for Slack). Assert no email/IP/tokens.
         if (row != null) {
             assertThat(text).doesNotContain(row.id().toString(), row.emailHash());
         }

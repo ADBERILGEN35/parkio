@@ -265,7 +265,7 @@ class WaitlistOpsNotificationPostgresIT {
     private String submit(String email) {
         token.set(null);
         service.submit(new SubmitWaitlistCommand(
-                email, Instant.now(), null, null, "parkio.dev-landing", "tr", "198.51.100.40", null)).block();
+                email, Instant.now(), null, null, null, "parkio.dev-landing", "tr", "198.51.100.40", null)).block();
         assertThat(token.get()).isNotNull();
         return token.get();
     }
