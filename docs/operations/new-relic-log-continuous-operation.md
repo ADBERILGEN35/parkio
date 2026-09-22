@@ -14,8 +14,8 @@ fixed below; production activation remains a separate decision.
 ## Release identity and image policy
 
 PR #66 was reconciled without force-push with current `api` commit
-`e113a151d5f9cee12c5fa5a3e97f53a80429329f`, which includes merged PR #71 and
-the subsequent parking timestamp fix. The published artifact was built from
+`73bfeb96d2c33c1a6f114396b982332661c412a0`, which includes merged PR #71, the
+subsequent parking timestamp fix and the ISPARK allowlist correction. The published artifact was built from
 release-source commit `a41f2f7d7fe2997f5bd270f1f1ef8938002e1b1e`; the
 release-package content commit is
 `73bc2af5259213b15e77a1d557f2b8914b709961`. The terminal integration head and
