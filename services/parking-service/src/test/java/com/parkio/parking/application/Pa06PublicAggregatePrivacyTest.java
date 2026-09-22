@@ -103,7 +103,11 @@ class Pa06PublicAggregatePrivacyTest {
                 .thenReturn(List.of(facility(UUID.randomUUID(), 38.42, 27.14)));
 
         PublicExploreQueryService svc = new PublicExploreQueryService(
-                facilities, snapshots, enabledIzum(), Clock.fixed(NOW, ZoneOffset.UTC));
+                facilities,
+                snapshots,
+                mock(com.parkio.parking.application.port.RoadsideDiscoveryQueryPort.class),
+                enabledIzum(),
+                Clock.fixed(NOW, ZoneOffset.UTC));
 
         List<PublicExploreQueryService.DiscoveryQuery> queries = List.of(
                 new PublicExploreQueryService.DiscoveryQuery(38.42, 27.14, 99, null),
@@ -135,7 +139,11 @@ class Pa06PublicAggregatePrivacyTest {
                 .thenReturn(List.of(facility(UUID.randomUUID(), 38.4237, 27.1428)));
 
         var result = new PublicExploreQueryService(
-                        facilities, snapshots, enabledIzum(), Clock.fixed(NOW, ZoneOffset.UTC))
+                        facilities,
+                        snapshots,
+                        mock(com.parkio.parking.application.port.RoadsideDiscoveryQueryPort.class),
+                        enabledIzum(),
+                        Clock.fixed(NOW, ZoneOffset.UTC))
                 .discover(new PublicExploreQueryService.DiscoveryQuery(null, null, null, null));
 
         assertThat(result.communitySpotCountInScope()).isNull();

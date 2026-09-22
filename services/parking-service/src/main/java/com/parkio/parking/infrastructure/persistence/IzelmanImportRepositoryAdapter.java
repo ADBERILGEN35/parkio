@@ -23,7 +23,7 @@ public class IzelmanImportRepositoryAdapter {
 
     public UpsertOutcome upsertRoadside(
             UUID sourceId, NormalizedRoadsideSegment row, Instant contentAt,
-            SourceAgeClassification age, Instant now) throws Exception {
+            SourceAgeClassification age, Instant now, boolean roadsidePublicationEnabled) throws Exception {
         var existing = jdbc.sql("SELECT l.segment_id,l.raw_record_hash FROM municipal_roadside_source_links l "
                         + "WHERE l.source_id=:source AND l.external_id=:external")
                 .param("source", sourceId).param("external", row.externalId())
@@ -35,17 +35,20 @@ public class IzelmanImportRepositoryAdapter {
             return UpsertOutcome.UNCHANGED;
         }
         UUID id = existing.map(Existing::id).orElseGet(UUID::randomUUID);
+        String publicationStatus = roadsidePublicationEnabled ? "PUBLISHED" : "UNPUBLISHED";
         if (existing.isEmpty()) {
             jdbc.sql("INSERT INTO municipal_roadside_segments(id,display_name,district,neighborhood,"
                             + "address_or_description,opening_hours_json,latitude,longitude,capacity_total,geometry_kind,"
-                            + "payment_required,source_content_at,source_age_classification,created_at,updated_at) "
+                            + "payment_required,source_content_at,source_age_classification,publication_status,"
+                            + "created_at,updated_at) "
                             + "VALUES(:id,:name,:district,:neighborhood,:address,:hours,:lat,:lng,:capacity,:kind,"
-                            + ":payment,:content,:age,:now,:now)")
+                            + ":payment,:content,:age,:publication,:now,:now)")
                     .param("id", id).param("name", row.displayName()).param("district", row.district())
                     .param("neighborhood", row.neighborhood()).param("address", row.addressOrDescription())
                     .param("hours", row.openingHoursJson()).param("lat", row.latitude()).param("lng", row.longitude())
                     .param("capacity", row.capacityTotal()).param("kind", row.geometryKind().name())
                     .param("payment", row.paymentRequired()).param("content", contentAt == null ? null : Timestamp.from(contentAt)).param("age", age.name())
+                    .param("publication", publicationStatus)
                     .param("now", Timestamp.from(now)).update();
             jdbc.sql("INSERT INTO municipal_roadside_source_links(id,segment_id,source_id,external_id,raw_record_hash,"
                             + "source_metadata_json,first_seen_at,last_seen_at,created_at,updated_at) "
@@ -58,12 +61,14 @@ public class IzelmanImportRepositoryAdapter {
         jdbc.sql("UPDATE municipal_roadside_segments SET display_name=:name,district=:district,neighborhood=:neighborhood,"
                         + "address_or_description=:address,opening_hours_json=:hours,latitude=:lat,longitude=:lng,"
                         + "capacity_total=:capacity,geometry_kind=:kind,payment_required=:payment,source_content_at=:content,"
-                        + "source_age_classification=:age,active=true,updated_at=:now,version=version+1 WHERE id=:id")
+                        + "source_age_classification=:age,publication_status=:publication,active=true,updated_at=:now,"
+                        + "version=version+1 WHERE id=:id")
                 .param("id", id).param("name", row.displayName()).param("district", row.district())
                 .param("neighborhood", row.neighborhood()).param("address", row.addressOrDescription())
                 .param("hours", row.openingHoursJson()).param("lat", row.latitude()).param("lng", row.longitude())
                 .param("capacity", row.capacityTotal()).param("kind", row.geometryKind().name())
                 .param("payment", row.paymentRequired()).param("content", contentAt == null ? null : Timestamp.from(contentAt)).param("age", age.name())
+                .param("publication", publicationStatus)
                 .param("now", Timestamp.from(now)).update();
         jdbc.sql("UPDATE municipal_roadside_source_links SET raw_record_hash=:hash,source_metadata_json=:metadata,"
                         + "last_seen_at=:now,active=true,updated_at=:now WHERE source_id=:source AND external_id=:external")

@@ -1,0 +1,38 @@
+{
+  "attributes": {
+    "type": true,
+    "id": true,
+    "version": false,
+    "changeset": false,
+    "timestamp": false,
+    "uid": false,
+    "user": false,
+    "way_nodes": false
+  },
+  "linear_tags": true,
+  "area_tags": true,
+  "exclude_tags": [],
+  "include_tags": [
+    "amenity",
+    "name",
+    "name:tr",
+    "name:en",
+    "operator",
+    "brand",
+    "access",
+    "fee",
+    "capacity",
+    "parking",
+    "building",
+    "covered",
+    "surface",
+    "layer",
+    "level",
+    "ref",
+    "opening_hours",
+    "wheelchair",
+    "maxstay",
+    "park_ride",
+    "supervised"
+  ]
+}

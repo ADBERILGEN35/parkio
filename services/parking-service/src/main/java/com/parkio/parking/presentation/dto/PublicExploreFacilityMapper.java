@@ -24,6 +24,9 @@ public final class PublicExploreFacilityMapper {
                 view.availabilityFreshness(),
                 view.dataUpdatedAt(),
                 view.sourceLabel(),
-                view.attribution());
+                view.attribution(),
+                view.accessClassification() == null
+                        ? "UNKNOWN"
+                        : view.accessClassification().name());
     }
 }

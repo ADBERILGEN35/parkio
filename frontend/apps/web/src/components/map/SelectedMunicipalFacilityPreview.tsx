@@ -26,6 +26,8 @@ export interface SelectedMunicipalFacilityPreviewProps {
    * facility detail route (anonymous auth-gate / custom owners).
    */
   onViewDetails?: () => void;
+  /** Hide the facility detail CTA (e.g. roadside has no facility detail route). */
+  showViewDetails?: boolean;
 }
 
 /**
@@ -39,6 +41,7 @@ export function SelectedMunicipalFacilityPreview({
   className,
   parkHereEnabled = true,
   onViewDetails,
+  showViewDetails = true,
 }: SelectedMunicipalFacilityPreviewProps) {
   const { t } = useTranslation('map');
   const isAuthenticated = useAuthStore((s) => s.isAuthenticated);
@@ -99,6 +102,23 @@ export function SelectedMunicipalFacilityPreview({
               <span className="inline-flex items-center gap-xs rounded-full bg-secondary/10 px-sm py-xs font-semibold text-secondary">
                 <Icon name="near_me" className="text-[14px] leading-none" />
                 {formatDistance(distanceMeters)}
+              </span>
+            ) : null}
+            {facility.accessClassification ? (
+              <span
+                className="inline-flex items-center gap-xs rounded-full bg-surface-container px-sm py-xs font-semibold"
+                data-testid="municipal-access-restriction"
+              >
+                <Icon
+                  name={
+                    facility.accessClassification === 'PUBLIC'
+                    || facility.accessClassification === 'PERMISSIVE'
+                      ? 'lock_open'
+                      : 'lock'
+                  }
+                  className="text-[14px] leading-none"
+                />
+                {t(`municipal.access.${facility.accessClassification}`)}
               </span>
             ) : null}
             <span
@@ -163,36 +183,38 @@ export function SelectedMunicipalFacilityPreview({
         />
       ) : null}
 
-      {onViewDetails ? (
-        <button
-          type="button"
-          data-testid="municipal-facility-view-details"
-          onClick={() => {
-            trackProductEvent('facility_detail_opened', { selectionOrigin: 'map' });
-            onViewDetails();
-          }}
-          className="mt-sm inline-flex w-full items-center justify-center gap-xs rounded-full bg-secondary px-lg py-md text-label-md font-semibold text-on-secondary shadow-md transition-colors hover:bg-secondary-container focus:outline-none focus-visible:ring-4 focus-visible:ring-secondary/30"
-        >
-          <Icon name="arrow_forward" className="text-[18px] leading-none" />
-          {t('municipal.viewFacilityDetails')}
-        </button>
-      ) : (
-        <Link
-          to={
-            distanceMeters != null && Number.isFinite(distanceMeters)
-              ? `/facilities/${facility.id}?d=${Math.round(distanceMeters)}`
-              : `/facilities/${facility.id}`
-          }
-          data-testid="municipal-facility-view-details"
-          onClick={() => {
-            trackProductEvent('facility_detail_opened', { selectionOrigin: 'map' });
-          }}
-          className="mt-sm inline-flex w-full items-center justify-center gap-xs rounded-full bg-secondary px-lg py-md text-label-md font-semibold text-on-secondary no-underline shadow-md transition-colors hover:bg-secondary-container focus:outline-none focus-visible:ring-4 focus-visible:ring-secondary/30"
-        >
-          <Icon name="arrow_forward" className="text-[18px] leading-none" />
-          {t('municipal.viewFacilityDetails')}
-        </Link>
-      )}
+      {showViewDetails ? (
+        onViewDetails ? (
+          <button
+            type="button"
+            data-testid="municipal-facility-view-details"
+            onClick={() => {
+              trackProductEvent('facility_detail_opened', { selectionOrigin: 'map' });
+              onViewDetails();
+            }}
+            className="mt-sm inline-flex w-full items-center justify-center gap-xs rounded-full bg-secondary px-lg py-md text-label-md font-semibold text-on-secondary shadow-md transition-colors hover:bg-secondary-container focus:outline-none focus-visible:ring-4 focus-visible:ring-secondary/30"
+          >
+            <Icon name="arrow_forward" className="text-[18px] leading-none" />
+            {t('municipal.viewFacilityDetails')}
+          </button>
+        ) : (
+          <Link
+            to={
+              distanceMeters != null && Number.isFinite(distanceMeters)
+                ? `/facilities/${facility.id}?d=${Math.round(distanceMeters)}`
+                : `/facilities/${facility.id}`
+            }
+            data-testid="municipal-facility-view-details"
+            onClick={() => {
+              trackProductEvent('facility_detail_opened', { selectionOrigin: 'map' });
+            }}
+            className="mt-sm inline-flex w-full items-center justify-center gap-xs rounded-full bg-secondary px-lg py-md text-label-md font-semibold text-on-secondary no-underline shadow-md transition-colors hover:bg-secondary-container focus:outline-none focus-visible:ring-4 focus-visible:ring-secondary/30"
+          >
+            <Icon name="arrow_forward" className="text-[18px] leading-none" />
+            {t('municipal.viewFacilityDetails')}
+          </Link>
+        )
+      ) : null}
     </div>
   );
 }

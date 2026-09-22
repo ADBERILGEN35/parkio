@@ -126,7 +126,9 @@ public class IzelmanImportApplicationService {
                         if (!seen.add(externalId)) { rejected++; rejectReasons.merge("duplicate", 1, Integer::sum); continue; }
                         accepted++;
                         if (dryRun) continue;
-                        outcome = repository.upsertRoadside(source.id(), mapped, contentAt, age, now);
+                        outcome = repository.upsertRoadside(
+                                source.id(), mapped, contentAt, age, now,
+                                properties.isRoadsidePublicationEnabled());
                     } else {
                         var mapped = tariffMapper.map(row, contentAt, now);
                         externalId = mapped.externalId();

@@ -1,0 +1,131 @@
+{
+  "clipVersion": "izmir-admin-izbb-2024-10-18-v1",
+  "sourcePath": "/data/ilceler.geojson",
+  "sourceSha256": "6f4f43e4ce8139ddca4606582d903f047cb7c73810f8b876541a1ec3994ffd89",
+  "sourceFeatureCount": 30,
+  "districtCount": 30,
+  "districtNameField": "adi",
+  "districtNamesSorted": [
+    "ALİAĞA",
+    "BALÇOVA",
+    "BAYINDIR",
+    "BAYRAKLI",
+    "BERGAMA",
+    "BEYDAĞ",
+    "BORNOVA",
+    "BUCA",
+    "DİKİLİ",
+    "FOÇA",
+    "GAZİEMİR",
+    "GÜZELBAHÇE",
+    "KARABAĞLAR",
+    "KARABURUN",
+    "KARŞIYAKA",
+    "KEMALPAŞA",
+    "KINIK",
+    "KONAK",
+    "KİRAZ",
+    "MENDERES",
+    "MENEMEN",
+    "NARLIDERE",
+    "SEFERİHİSAR",
+    "SELÇUK",
+    "TORBALI",
+    "TİRE",
+    "URLA",
+    "ÇEŞME",
+    "ÇİĞLİ",
+    "ÖDEMİŞ"
+  ],
+  "repairs": [
+    {
+      "feature": "URLA",
+      "originalInvalidity": "Hole lies outside shell (island rings encoded as Polygon holes)",
+      "repairMethod": "Promote exterior island rings to MultiPolygon components",
+      "reportedInvalidPolygonAreaDeg2": 0.06801801898366981,
+      "ringAreaSumDeg2": 0.07328094088047783,
+      "areaAfterDeg2": 0.07328094088047783,
+      "areaDeltaRatioVsRingSum": 0.0,
+      "accepted": true
+    },
+    {
+      "feature": "DİKİLİ",
+      "originalInvalidity": "Hole lies outside shell (island rings encoded as Polygon holes)",
+      "repairMethod": "Promote exterior island rings to MultiPolygon components",
+      "reportedInvalidPolygonAreaDeg2": 0.05691196401337611,
+      "ringAreaSumDeg2": 0.057015766439568676,
+      "areaAfterDeg2": 0.057015766439568676,
+      "areaDeltaRatioVsRingSum": 0.0,
+      "accepted": true
+    }
+  ],
+  "unionValid": true,
+  "geometryType": "MULTIPOLYGON",
+  "componentCount": 3,
+  "ringCount": 29,
+  "bbox": {
+    "west": 26.2302474,
+    "east": 28.4930441,
+    "south": 37.815253,
+    "north": 39.3854527
+  },
+  "areaKm2Projected": 11665.297821402855,
+  "sourceAreaDeg2Sum": 1.2370347072909917,
+  "derivedAreaDeg2": 1.2370346963947532,
+  "sourceVsDerivedAreaDeltaRatio": 8.808353164112991e-09,
+  "districtCoverageMissingCentroids": [],
+  "sanityPoints": {
+    "Konak": {
+      "lon": 27.1285,
+      "lat": 38.4192,
+      "containsOrTouches": true,
+      "intersects": true
+    },
+    "Karsiyaka": {
+      "lon": 27.1167,
+      "lat": 38.455,
+      "containsOrTouches": true,
+      "intersects": true
+    },
+    "Bornova": {
+      "lon": 27.22,
+      "lat": 38.47,
+      "containsOrTouches": true,
+      "intersects": true
+    },
+    "Cesme": {
+      "lon": 26.3058,
+      "lat": 38.322,
+      "containsOrTouches": true,
+      "intersects": true
+    },
+    "Bergama": {
+      "lon": 27.18,
+      "lat": 39.12,
+      "containsOrTouches": true,
+      "intersects": true
+    },
+    "Selcuk": {
+      "lon": 27.368,
+      "lat": 37.95,
+      "containsOrTouches": true,
+      "intersects": true
+    },
+    "Manisa_center": {
+      "lon": 27.428,
+      "lat": 38.6191,
+      "containsOrTouches": false,
+      "intersects": false
+    }
+  },
+  "islandsCoastal": {
+    "urlaIslandPromoted": true,
+    "dikiliIslandPromoted": true,
+    "componentCountIncludesIslands": true
+  },
+  "derivedGeojsonSha256": "ddd5664064a6bad22920d64a9f83c5c11c3ba85e4fb0e55a17bd3a26c31d2b61",
+  "derivedPolySha256": "5b20558b28e93c1fb7f2bcda2e36142b186846e63a7151285dae76bb19f5d7b1",
+  "boundaryEdgePolicy": "Contains OR Touches (points exactly on boundary are included)",
+  "validationStatus": "ACCEPTED",
+  "approvedForParkioDataWp08": true
+}

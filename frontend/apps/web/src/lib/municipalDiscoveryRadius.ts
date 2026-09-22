@@ -60,6 +60,21 @@ export function nextMunicipalRadiusMeters(current: number): number | null {
   return null;
 }
 
+/**
+ * Next smaller preset below {@code current}, or null when already at the smallest preset.
+ * Used when facility nearby is capped so users can re-query a denser neighborhood.
+ */
+export function previousMunicipalRadiusMeters(current: number): number | null {
+  const clamped = clampMunicipalRadiusMeters(current);
+  for (let i = MUNICIPAL_RADIUS_PRESETS_METERS.length - 1; i >= 0; i -= 1) {
+    const preset = MUNICIPAL_RADIUS_PRESETS_METERS[i];
+    if (preset < clamped) {
+      return preset;
+    }
+  }
+  return null;
+}
+
 /** Human-facing label: meters under 1000, otherwise whole kilometers when divisible. */
 export function formatMunicipalRadiusLabel(meters: number): string {
   const value = clampMunicipalRadiusMeters(meters);

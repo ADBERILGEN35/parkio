@@ -3,6 +3,7 @@ import type {
   MunicipalFacilityNearbyParams,
   NearbySearchParams,
   ParkingSessionHistoryResponse,
+  RoadsideSegmentNearbyParams,
 } from '@parkio/types';
 import type { ParkioSdk } from '@/app/sdk';
 import { parkingKeys, type NearbyParkingFilters } from '../keys';
@@ -35,6 +36,19 @@ export function nearbyMunicipalFacilitiesQueryOptions(
   return queryOptions({
     queryKey: parkingKeys.municipalNearby(filters),
     queryFn: ({ signal }) => sdk.parkingApi.getNearbyMunicipalFacilities(filters, signal),
+    placeholderData: keepPreviousData,
+    staleTime: 30_000,
+  });
+}
+
+/** İZELMAN roadside nearby — separate inventory; cap radius at API max 5000 m. */
+export function nearbyRoadsideSegmentsQueryOptions(
+  sdk: ParkioSdk,
+  filters: RoadsideSegmentNearbyParams,
+) {
+  return queryOptions({
+    queryKey: parkingKeys.roadsideNearby(filters),
+    queryFn: ({ signal }) => sdk.parkingApi.getNearbyRoadsideSegments(filters, signal),
     placeholderData: keepPreviousData,
     staleTime: 30_000,
   });

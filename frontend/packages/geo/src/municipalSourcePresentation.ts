@@ -15,6 +15,8 @@ export const MUNICIPAL_CANONICAL_LABEL_ANPARK = 'Ankara Büyükşehir Belediyesi
 export const MUNICIPAL_CANONICAL_LABEL_KONYA = 'Konya Büyükşehir Belediyesi';
 export const MUNICIPAL_CANONICAL_LABEL_KAYSERI = 'Kayseri Büyükşehir Belediyesi';
 export const MUNICIPAL_CANONICAL_LABEL_OSM = 'OpenStreetMap';
+export const MUNICIPAL_CANONICAL_LABEL_IZELMAN = 'İzmir Büyükşehir Belediyesi / İZELMAN';
+export const MUNICIPAL_CANONICAL_LABEL_IZELMAN_ROADSIDE = 'İZELMAN roadside';
 
 const SOURCE_KEY_SORT_ORDER: Record<string, number> = {
   [MUNICIPAL_SOURCE_KEY_IZUM]: 0,
@@ -23,6 +25,7 @@ const SOURCE_KEY_SORT_ORDER: Record<string, number> = {
   [MUNICIPAL_SOURCE_KEY_KONYA]: 3,
   [MUNICIPAL_SOURCE_KEY_KAYSERI]: 4,
   [MUNICIPAL_SOURCE_KEY_OSM]: 5,
+  'izelman-roadside-parking': 6,
 };
 
 export type MunicipalSourceFamily =
@@ -63,6 +66,18 @@ export function canonicalLabelForSourceKey(sourceKey: string): string | null {
       return MUNICIPAL_CANONICAL_LABEL_KAYSERI;
     case 'osm':
       return MUNICIPAL_CANONICAL_LABEL_OSM;
+    case 'izelman':
+      if (sourceKey === 'izelman-roadside-parking') {
+        return MUNICIPAL_CANONICAL_LABEL_IZELMAN_ROADSIDE;
+      }
+      if (
+        sourceKey === 'izelman-open-parking-facilities'
+        || sourceKey === 'izelman-closed-parking-facilities'
+        || sourceKey === 'izelman-barrier-parking-facilities'
+      ) {
+        return MUNICIPAL_CANONICAL_LABEL_IZELMAN;
+      }
+      return null;
     default:
       return null;
   }
@@ -75,6 +90,12 @@ export function canonicalLabelForSourceKey(sourceKey: string): string | null {
 export function canonicalLabelForSourceLabel(sourceLabel: string | null | undefined): string | null {
   if (sourceLabel == null || !sourceLabel.trim()) return null;
   const folded = sourceLabel.trim().toUpperCase();
+  if (folded.includes('IZELMAN') && folded.includes('ROADSIDE')) {
+    return MUNICIPAL_CANONICAL_LABEL_IZELMAN_ROADSIDE;
+  }
+  if (folded.includes('IZELMAN')) {
+    return MUNICIPAL_CANONICAL_LABEL_IZELMAN;
+  }
   if (folded.includes('ISPARK') || (folded.includes('ISTANBUL') && folded.includes('BELEDIY'))) {
     return MUNICIPAL_CANONICAL_LABEL_ISPARK;
   }

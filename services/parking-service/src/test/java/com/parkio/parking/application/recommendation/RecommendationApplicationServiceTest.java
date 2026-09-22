@@ -39,6 +39,7 @@ import com.parkio.parking.domain.exception.ParkingErrorCode;
 import com.parkio.parking.domain.exception.ParkingException;
 import com.parkio.parking.domain.place.Destination;
 import com.parkio.parking.domain.place.DestinationSource;
+import com.parkio.parking.externalsource.MunicipalAccessClassification;
 import com.parkio.parking.externalsource.MunicipalFacilityType;
 import com.parkio.parking.externalsource.MunicipalOccupancyFreshness;
 import com.parkio.parking.externalsource.MunicipalSourceIdentity;
@@ -386,6 +387,7 @@ class RecommendationApplicationServiceTest {
                 "attr",
                 freshness == MunicipalOccupancyFreshness.LIVE ? "IZUM" : "OSM",
                 NOW,
-                freshness == MunicipalOccupancyFreshness.LIVE ? MunicipalSourceIdentity.IZUM : null);
+                freshness == MunicipalOccupancyFreshness.LIVE ? MunicipalSourceIdentity.IZUM : null,
+                MunicipalAccessClassification.PUBLIC);
     }
 }
