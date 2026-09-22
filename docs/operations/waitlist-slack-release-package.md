@@ -13,7 +13,7 @@ Deferred work: [waitlist-slack-follow-ups.md](waitlist-slack-follow-ups.md).
 
 | Item | Exact identity |
 |---|---|
-| Reconciled base | `origin/api` @ `2b107967792b981f82d720a333c8fa2c52ebf6af` (merged PR #78) |
+| Reconciled base | `origin/api` @ `e851f133c90330572f26ecc0eeeb0acfb92db1ed` (merged PR #78 and its PR #79 auth release pin) |
 | Final code-bearing source / candidate build source | `008a6b2077f64d82a83da6d88e7bb6efeeafb498` |
 | Local gateway candidate | `parkio-gateway-waitlist-candidate:008a6b2077f6`; image/index id and local digest `sha256:16f7d5249763008c0856c0c1c3310eb8b17137ae50069b99dc09a489504651a1`; OCI revision `008a6b20…`; `linux/amd64`; `USER parkio`; real `services/gateway-service/Dockerfile`; not pushed |
 | Deployable candidate | **Not produced.** The release pipeline must build it from the eventual merge SHA. Accept only a digest whose OCI revision equals that SHA. |
