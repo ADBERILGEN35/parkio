@@ -25,10 +25,11 @@ describe('pendingProfile', () => {
     expect(pendingProfileStorageContainsPhoneForTests()).toBe(false);
     expect(JSON.parse(sessionStorage.getItem(STORAGE_KEY)!)).toEqual({
       displayName: 'Ada',
+      needsPhoneReentry: true,
     });
   });
 
-  it('persists displayName alone across a simulated reload (memory cleared)', () => {
+  it('persists displayName alone across a simulated reload and marks phone re-entry', () => {
     setPendingProfile({ displayName: 'Ada', phoneNumber: '5551234567' });
     // Full page reload: module memory is gone; sessionStorage remains.
     resetPendingProfileMemoryForTests();
@@ -36,11 +37,12 @@ describe('pendingProfile', () => {
     expect(getPendingProfile()).toEqual({
       displayName: 'Ada',
       phoneNumber: undefined,
+      needsPhoneReentry: true,
     });
     expect(pendingProfileStorageContainsPhoneForTests()).toBe(false);
   });
 
-  it('scrubs legacy phoneNumber from sessionStorage on read', () => {
+  it('scrubs legacy phoneNumber from sessionStorage on read and requests re-entry', () => {
     sessionStorage.setItem(
       STORAGE_KEY,
       JSON.stringify({ displayName: 'Legacy', phoneNumber: '5559998888' }),
@@ -49,10 +51,12 @@ describe('pendingProfile', () => {
     expect(getPendingProfile()).toEqual({
       displayName: 'Legacy',
       phoneNumber: undefined,
+      needsPhoneReentry: true,
     });
     expect(pendingProfileStorageContainsPhoneForTests()).toBe(false);
     expect(JSON.parse(sessionStorage.getItem(STORAGE_KEY)!)).toEqual({
       displayName: 'Legacy',
+      needsPhoneReentry: true,
     });
   });
 
@@ -62,8 +66,15 @@ describe('pendingProfile', () => {
     expect(sessionStorage.getItem(STORAGE_KEY)).toBeNull();
 
     sessionStorage.setItem(STORAGE_KEY, JSON.stringify({ phoneNumber: '555' }));
-    expect(getPendingProfile()).toBeNull();
-    expect(sessionStorage.getItem(STORAGE_KEY)).toBeNull();
+    // Legacy phone-only payload → scrubbed to re-entry flag only (no phone value).
+    expect(getPendingProfile()).toEqual({
+      phoneNumber: undefined,
+      needsPhoneReentry: true,
+    });
+    expect(JSON.parse(sessionStorage.getItem(STORAGE_KEY)!)).toEqual({
+      needsPhoneReentry: true,
+    });
+    clearPendingProfile();
 
     sessionStorage.setItem(STORAGE_KEY, JSON.stringify([]));
     expect(getPendingProfile()).toBeNull();
@@ -82,7 +93,9 @@ describe('pendingProfile', () => {
     const pending = getPendingProfile();
     expect(hasPendingProfile(pending)).toBe(true);
     expect(pending?.phoneNumber).toBe('5551234567');
-    expect(sessionStorage.getItem(STORAGE_KEY)).toBeNull();
+    expect(JSON.parse(sessionStorage.getItem(STORAGE_KEY)!)).toEqual({
+      needsPhoneReentry: true,
+    });
   });
 
   it('setPendingProfile overwrites and does not leave prior phone in storage', () => {
@@ -93,6 +106,7 @@ describe('pendingProfile', () => {
     setPendingProfile({ displayName: 'New', phoneNumber: '222' });
     expect(JSON.parse(sessionStorage.getItem(STORAGE_KEY)!)).toEqual({
       displayName: 'New',
+      needsPhoneReentry: true,
     });
     expect(getPendingProfile()?.phoneNumber).toBe('222');
   });

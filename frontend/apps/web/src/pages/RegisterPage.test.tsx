@@ -226,9 +226,10 @@ describe('RegisterPage', () => {
     expect(await screen.findByText('Check your email')).toBeInTheDocument();
     expect(getPendingProfile()).toEqual({ displayName: 'New Driver', phoneNumber: '5551234567' });
     // Phone stays in memory only — never in sessionStorage (CodeQL sensitive storage).
-    expect(sessionStorage.getItem('parkio.pendingProfile')).toBe(
-      JSON.stringify({ displayName: 'New Driver' }),
-    );
+    expect(JSON.parse(sessionStorage.getItem('parkio.pendingProfile')!)).toEqual({
+      displayName: 'New Driver',
+      needsPhoneReentry: true,
+    });
     expect(runtime.authStore.getState().provisioning).toBe(false);
   });
 

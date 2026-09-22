@@ -8,21 +8,26 @@
  *   can still complete the non-sensitive profile field.
  * - `phoneNumber` is held in module memory only for the current JS realm. It is
  *   never written to sessionStorage, localStorage, IndexedDB, cookies, URLs, or
- *   logs. A full page reload drops the phone; the user can add it later from
- *   Profile. Legacy payloads that still contain `phoneNumber` are scrubbed on
- *   every read/write.
+ *   logs. A full page reload drops the phone; a non-sensitive
+ *   `needsPhoneReentry` flag may remain so the preparing screen can ask the
+ *   user to re-enter the phone from Profile. Legacy payloads that still contain
+ *   `phoneNumber` are scrubbed on every read/write (and set the re-entry flag).
  */
 const STORAGE_KEY = 'parkio.pendingProfile';
 
 /** Persisted shape — never include phoneNumber. */
 interface PersistedPendingProfile {
   displayName?: string;
+  /** True when a phone was captured (or scrubbed from legacy storage) but is not in memory. */
+  needsPhoneReentry?: boolean;
 }
 
 export interface PendingProfile {
   displayName?: string;
   /** In-memory only for the current page session; not browser-persisted. */
   phoneNumber?: string;
+  /** Non-sensitive hint that phone must be re-entered (e.g. after reload). */
+  needsPhoneReentry?: boolean;
 }
 
 let memoryPhoneNumber: string | undefined;
@@ -42,14 +47,14 @@ function sanitizePhone(value: unknown): string | undefined {
 /** Write only non-sensitive fields; drop any legacy phone key. */
 function writePersisted(persisted: PersistedPendingProfile): void {
   try {
-    if (!persisted.displayName) {
+    if (!persisted.displayName && !persisted.needsPhoneReentry) {
       sessionStorage.removeItem(STORAGE_KEY);
       return;
     }
-    sessionStorage.setItem(
-      STORAGE_KEY,
-      JSON.stringify({ displayName: persisted.displayName } satisfies PersistedPendingProfile),
-    );
+    const payload: PersistedPendingProfile = {};
+    if (persisted.displayName) payload.displayName = persisted.displayName;
+    if (persisted.needsPhoneReentry) payload.needsPhoneReentry = true;
+    sessionStorage.setItem(STORAGE_KEY, JSON.stringify(payload));
   } catch {
     // Non-fatal: registration still succeeds without the deferred profile save.
   }
@@ -80,14 +85,20 @@ function readAndScrubPersisted(): PersistedPendingProfile | null {
     const record = parsed as Record<string, unknown>;
     const displayName = sanitizeDisplayName(record.displayName);
     const hadLegacyPhone = Object.prototype.hasOwnProperty.call(record, 'phoneNumber');
-    const extraKeys = Object.keys(record).filter((k) => k !== 'displayName');
+    const needsPhoneReentry =
+      record.needsPhoneReentry === true || hadLegacyPhone;
+    const allowed = new Set(['displayName', 'needsPhoneReentry']);
+    const extraKeys = Object.keys(record).filter((k) => !allowed.has(k));
 
-    if (!displayName) {
+    if (!displayName && !needsPhoneReentry) {
       sessionStorage.removeItem(STORAGE_KEY);
       return null;
     }
 
-    const clean: PersistedPendingProfile = { displayName };
+    const clean: PersistedPendingProfile = {};
+    if (displayName) clean.displayName = displayName;
+    if (needsPhoneReentry) clean.needsPhoneReentry = true;
+
     if (hadLegacyPhone || extraKeys.length > 0) {
       // Rewrite so phone (and any stray keys) do not remain on disk.
       writePersisted(clean);
@@ -101,23 +112,33 @@ function readAndScrubPersisted(): PersistedPendingProfile | null {
 export function setPendingProfile(profile: PendingProfile): void {
   const displayName = sanitizeDisplayName(profile.displayName);
   memoryPhoneNumber = sanitizePhone(profile.phoneNumber);
-  writePersisted(displayName ? { displayName } : {});
+  const needsPhoneReentry = Boolean(memoryPhoneNumber) || profile.needsPhoneReentry === true;
+  writePersisted({
+    displayName,
+    needsPhoneReentry: needsPhoneReentry || undefined,
+  });
 }
 
 export function getPendingProfile(): PendingProfile | null {
   const persisted = readAndScrubPersisted();
   const phoneNumber = memoryPhoneNumber;
-  if (!persisted?.displayName && !phoneNumber) {
+  if (!persisted?.displayName && !phoneNumber && !persisted?.needsPhoneReentry) {
     return null;
   }
   return {
     displayName: persisted?.displayName,
     phoneNumber,
+    // If phone is still in memory, re-entry is not needed yet.
+    ...(Boolean(persisted?.needsPhoneReentry) && !phoneNumber
+      ? { needsPhoneReentry: true as const }
+      : {}),
   };
 }
 
 export function hasPendingProfile(profile: PendingProfile | null): profile is PendingProfile {
-  return Boolean(profile && (profile.displayName || profile.phoneNumber));
+  return Boolean(
+    profile && (profile.displayName || profile.phoneNumber || profile.needsPhoneReentry),
+  );
 }
 
 export function clearPendingProfile(): void {
