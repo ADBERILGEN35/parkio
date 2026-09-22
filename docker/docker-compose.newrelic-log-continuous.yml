@@ -27,7 +27,7 @@ services:
     pids_limit: 64
 
   fluent-bit-nr-pilot:
-    image: ${PARKIO_NR_COLLECTOR_IMAGE:?set the exact remediated collector image digest}
+    image: ghcr.io/adberilgen35/parkio/fluent-bit-nr@sha256:1fc39bab4984ade1fef732d0b5892963aae8c67af00f21ca8bbb643dcb181fee
     restart: unless-stopped
     stop_grace_period: 30s
     environment:

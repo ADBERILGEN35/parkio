@@ -8,13 +8,17 @@ The bounded pilot remains accepted only within its demonstrated scope. Its quiet
 gateway/auth sources are not used to estimate demand. The continuous candidate
 adds restart-safe UTC daily/monthly transport budgets, bounded local queues, a
 live source-identity guard, graceful gate shutdown and a remediated collector
-image. The exact production budgets and image publication remain owner decisions.
+image. The initial transport budgets and private collector artifact are now
+fixed below; production activation remains a separate decision.
 
 ## Release identity and image policy
 
-The reviewed source identity must be the final PR #66 head recorded after CI.
-Build `docker/Dockerfile.fluent-bit-nr` from that checkout. Its immutable inputs
-are:
+PR #66 was reconciled without force-push with settled `api` commit
+`9eaba3ea6386c50dcfd154b5b6135c970d2e3220` (merged PR #71). The published
+artifact was built from release-source commit
+`a41f2f7d7fe2997f5bd270f1f1ef8938002e1b1e`; the final documentation/Compose
+head is recorded after CI. `docker/Dockerfile.fluent-bit-nr` has these immutable
+inputs:
 
 - upstream Fluent Bit 5.1.2 manifest-list digest
   `sha256:d792375ca8e53be72fc25716c28f291f32c6fc6f4f31d12d0d14bc78cefe9226`;
@@ -25,19 +29,25 @@ are:
 - exact fixed package `libssh2-1t64=1.11.1-1+deb13u2`, archive SHA-256
   `dbb1024c192d4d292b7cfa902b96076cfe81b56a5eed4fb28da36e8bf543e49a`.
 
-The locally tested image is
-`parkio/fluent-bit-nr:5.1.2-libssh2-deb13u2` with local OCI index/image ID
-`sha256:09c3829bae0b250321745bd056df9600e58165a4327c7c78d6dcd4417ed0ab0f`
-and `linux/amd64` runtime manifest
-`sha256:5aab2bc30f06c0a2ac964042f835fc62024b24364e3d007158dab93517df1d70`.
-It reports Fluent Bit 5.1.2. This local identity is evidence, not a deployable
-registry reference. Before installation, publish the reviewed build to an
-approved registry, verify its `linux/amd64` platform digest, rescan that exact
-digest and set `PARKIO_NR_COLLECTOR_IMAGE` to the registry digest. Tag-only use
-is prohibited.
+The private published artifact and immutable deployment pin are:
 
-An exact filesystem scan of the final local candidate found **0 CRITICAL and 5
-HIGH** OS findings. The prior fix-available sixth HIGH,
+```text
+ghcr.io/adberilgen35/parkio/fluent-bit-nr@sha256:1fc39bab4984ade1fef732d0b5892963aae8c67af00f21ca8bbb643dcb181fee
+```
+
+Both tags `sha-a41f2f7d7fe2997f5bd270f1f1ef8938002e1b1e` and
+`5.1.2-libssh2-deb13u2` resolve to that OCI index. Its `linux/amd64` runtime
+manifest is
+`sha256:ace21c25374a43de693de3d37354f15e9f650d27430422d4a258b9f618792a83`.
+The attached attestation manifest
+`sha256:a61dd835703d32b984df89604dfa8b5c7ca9a4d8bdbfe9e3fb640a9a3ce49ebb`
+references that runtime manifest and contains an SPDX document plus SLSA v1
+provenance. OCI labels report the source repository, release-source commit and
+version. GitHub reports package `parkio/fluent-bit-nr` as `private`. Compose pins
+the index digest directly; tags are evidence only and are not deployment input.
+
+An exact Trivy scan of the digest-pulled private GHCR artifact found **0
+CRITICAL and 5 HIGH** OS findings on Debian 13.6. The prior fix-available sixth HIGH,
 `CVE-2026-58050` in `libssh2-1t64`, is removed by Debian's `deb13u2` package.
 The image is not clean. `readelf` confirms that `libcurl.so.4` and
 `libsystemd.so.0` remain dynamic dependencies of Fluent Bit, so the five
@@ -55,6 +65,17 @@ Only `tail`, `lua`, `record_modifier` and `nrlogs` are enabled. Fluent Bit sends
 plain HTTP only to the private gate; the Python gate performs the EU HTTPS
 request. A plugin, protocol, proxy, entrypoint, base-image or package change
 invalidates the exposure review and requires a rebuild, scan and acceptance.
+
+Repository policy in `.github/workflows/security-ci.yml` reports fixable
+HIGH/CRITICAL image findings and blocks on fixable CRITICAL image findings; both
+commands use `--ignore-unfixed`. It separately blocks fixable HIGH/CRITICAL
+dependency findings. The explicit collector scan intentionally omits
+`--ignore-unfixed` so the five findings remain visible. Therefore this exact
+artifact, with zero CRITICAL and five inventoried no-fix HIGH findings,
+satisfies the existing automated image gate. This is a policy classification,
+not a waiver or a claim that the image is clean. Any fixed version appearing
+later, any new CRITICAL, or any change that reaches the affected protocols
+blocks reuse pending rebuild and review.
 
 References: [Fluent Bit releases](https://github.com/fluent/fluent-bit/releases),
 [Fluent Bit security policy](https://github.com/fluent/fluent-bit/security),
@@ -101,27 +122,39 @@ again because a lost response cannot prove that New Relic rejected the prior
 attempt. Records and compressed wire bytes are counters only. A rejected batch
 increments attempted/rejected counters but consumes no transport-byte budget and
 is acknowledged locally with HTTP 202 so Fluent Bit cannot build an unbounded
-retry storm. The gate health endpoint returns 507 while a window is exhausted.
+retry storm. That acknowledgment means the rejected batch is **dropped
+permanently**, the Fluent Bit checkpoint advances, and it is not retained for
+the next budget window. Records arriving while a daily or monthly window is
+exhausted are likewise filtered/redacted, presented to the gate and dropped;
+there is no next-day/month backfill. The gate health endpoint returns 507 while
+a window is exhausted, but application services remain unaffected.
 
 Daily and monthly UTC window key, configured limits, spent bytes, exhaustion,
 attempt/retry/record counters and lifetime totals live in one SQLite database
 with full synchronous writes. Restart preserves them. A changed configured limit
 fails startup rather than resetting the ledger. Daily exhaustion fails closed
 until the next UTC date; monthly exhaustion fails closed until the next UTC
-month. Exact-fill exhaustion has no byte overshoot. Concurrent reservation is
-serialized. An already admitted request can finish during graceful shutdown;
-it was charged before transmission.
+month. On the first request after the UTC boundary—or a health/stats read—the
+persisted window rolls, health returns 200 if no other window is exhausted, and
+only subsequent records can be delivered. Restart is neither required nor able
+to reset an exhausted current window. Monthly exhaustion continues to dominate
+across daily resets until the next UTC month. Exact-fill exhaustion has no byte
+overshoot. Concurrent reservation is serialized. An already admitted request
+can finish during graceful shutdown; it was charged before transmission. If an
+upstream attempt fails after reservation, Fluent Bit may retry it and every
+admitted retry is charged again; exhaustion can therefore convert the eventual
+retry into a permanent local drop.
 
-Proposed governance values—not approved traffic forecasts or New Relic billable
-caps—are:
+The initial configured transport values—not traffic forecasts or New Relic
+billable caps—are:
 
 - `PARKIO_NR_DAILY_BUDGET_BYTES=26214400` (25 MiB/day);
 - `PARKIO_NR_MONTHLY_BUDGET_BYTES=524288000` (500 MiB/month).
 
 The daily value reuses the previously approved one-hour transport ceiling as a
 conservative configurable envelope; it is not extrapolated from the quiet pilot.
-The monthly value permits at most twenty fully saturated daily windows and needs
-explicit owner approval. New Relic measures billable stored data differently
+The monthly value permits at most twenty fully saturated daily windows. New
+Relic measures billable stored data differently
 from these uncompressed attempted request bodies, so neither value guarantees a
 vendor invoice or entitlement ceiling. New Relic documents a 1 MB request limit;
 the gate enforces 1,000,000 uncompressed bytes, including after gzip expansion.
@@ -138,13 +171,24 @@ Local bounds are distinct:
 | Container logs | 10m x 3 for each of two containers | At most about 60 MB of Docker JSON log files, separate from the state guards. |
 | Host floor | 5 GiB available | Guard stops transport below the floor. |
 
-The guard runs every minute, so directory and host thresholds can overshoot
-between checks and filesystem allocation is not the same as logical file length.
-These are stop controls, not filesystem quotas. A strict hard disk quota requires
-a dedicated quota-enabled filesystem/project quota and remains an operator
-decision. Fluent Bit's logical queue can discard data before the directory guard;
-the source helper likewise loses oldest data under prolonged downstream failure.
-No application request waits on these components.
+The guard runs every minute, so directory and host thresholds can overshoot by
+all writes made between checks; filesystem allocation is also not the same as
+logical file length. On detection it stops only the helper, collector and gate,
+leaves their state in place and requires an explicit operator start after the
+cause is resolved. These are stop controls, not filesystem quotas. Fluent Bit's
+logical queue can discard data before the directory guard; the source helper
+likewise rotates away its oldest data under prolonged downstream failure. No
+application request waits on these components.
+
+No repository policy requiring a filesystem/project quota was found. The
+bounded pilot demonstrated only 82,120 bytes of collector state and the isolated
+helper test stayed within its file-count/size limit; the production preflight
+also had a large free-space margin. Those observations do not prove future
+demand, but they do not demonstrate a host risk requiring a hard quota for this
+bounded initial setup. The 18 MiB source rotation, 20 MB logical output queue,
+allocation guards, container-log rotation and 5 GiB host floor are the selected
+initial controls. Reassess a real quota if an allocation stop occurs, the host
+free-space margin changes materially, or policy later mandates one.
 
 References: [Fluent Bit backpressure and queue limits](https://docs.fluentbit.io/manual/administration/backpressure),
 [New Relic Log API limits](https://docs.newrelic.com/docs/logs/log-api/introduction-log-api/),
@@ -152,11 +196,20 @@ and [New Relic data ingest billing](https://docs.newrelic.com/docs/accounts/acco
 
 ## Prepared installation and lifecycle (do not execute yet)
 
-Install a reviewed immutable checkout under
-`/opt/parkio-nr-log-continuous/releases/<source-sha>` and atomically point
-`current` to it. Copy the four unit files from
-`scripts/newrelic_log_pilot/systemd/` to `/etc/systemd/system/`. Create these
-root-owned directories with mode 0750:
+From the reviewed PR checkout, install an immutable archive and units without
+starting or enabling them:
+
+```bash
+release_sha="$(git rev-parse HEAD)"
+test -n "$release_sha"
+sudo install -d -m 0755 -o root -g root "/opt/parkio-nr-log-continuous/releases/$release_sha"
+git archive "$release_sha" | sudo tar -x -C "/opt/parkio-nr-log-continuous/releases/$release_sha"
+sudo ln -sfn "/opt/parkio-nr-log-continuous/releases/$release_sha" /opt/parkio-nr-log-continuous/current
+sudo install -m 0644 -o root -g root scripts/newrelic_log_pilot/systemd/*.service scripts/newrelic_log_pilot/systemd/*.timer /etc/systemd/system/
+sudo install -d -m 0750 -o root -g root /var/lib/parkio-nr-log-continuous/source/logs /var/lib/parkio-nr-log-continuous/source/state /var/lib/parkio-nr-log-continuous/collector /var/lib/parkio-nr-log-continuous/budget
+```
+
+The four persistent directories are:
 
 ```text
 /var/lib/parkio-nr-log-continuous/source/logs
@@ -167,9 +220,14 @@ root-owned directories with mode 0750:
 
 Create `/etc/parkio-nr-log-continuous/runtime.env` as root mode 0600 with:
 
+```bash
+sudo install -d -m 0700 -o root -g root /etc/parkio-nr-log-continuous
+sudo install -m 0600 -o root -g root /dev/null /etc/parkio-nr-log-continuous/runtime.env
+sudoedit /etc/parkio-nr-log-continuous/runtime.env
+```
+
 ```dotenv
 PARKIO_NR_UPSTREAM_BASE_URI=https://log-api.eu.newrelic.com/log/v1
-PARKIO_NR_COLLECTOR_IMAGE=<approved-registry>@sha256:<linux-amd64-digest>
 PARKIO_ENVIRONMENT=production
 PARKIO_RELEASE_ID=<current-application-release-id>
 PARKIO_COLLECTOR_SOURCE_SHA=<final-pr-66-source-sha>
@@ -196,26 +254,71 @@ sudo install -d -m 0700 -o root -g root /etc/parkio-nr-log-continuous
 sudo bash -c 'set -euo pipefail; umask 077; test ! -e /etc/parkio-nr-log-continuous/secret.env; IFS= read -r -s -p "New Relic ingest license key: " key; printf "\n" >&2; test -n "$key"; printf "PARKIO_NR_LOG_API_KEY=%s\n" "$key" > /etc/parkio-nr-log-continuous/secret.env; unset key; chown root:root /etc/parkio-nr-log-continuous/secret.env; chmod 0600 /etc/parkio-nr-log-continuous/secret.env'
 ```
 
-After later authorization, activation order is deliberately fail-closed:
+The private image requires a production-host GHCR credential with only
+`read:packages`. Install it without command-line/history exposure; do not paste
+it into chat:
 
 ```bash
+sudo bash -c 'set -euo pipefail; IFS= read -r -s -p "GHCR read token: " token; printf "\n" >&2; test -n "$token"; printf "%s" "$token" | docker login ghcr.io -u ADBERILGEN35 --password-stdin >/dev/null; unset token'
+sudo docker pull ghcr.io/adberilgen35/parkio/fluent-bit-nr@sha256:1fc39bab4984ade1fef732d0b5892963aae8c67af00f21ca8bbb643dcb181fee
+sudo docker image inspect ghcr.io/adberilgen35/parkio/fluent-bit-nr@sha256:1fc39bab4984ade1fef732d0b5892963aae8c67af00f21ca8bbb643dcb181fee --format 'platform={{.Os}}/{{.Architecture}} revision={{index .Config.Labels "org.opencontainers.image.revision"}}'
+```
+
+Expected output is `platform=linux/amd64` and revision
+`a41f2f7d7fe2997f5bd270f1f1ef8938002e1b1e`. Before any later authorized
+activation, wait for application deployment activity to settle and resolve a
+fresh source set; all IDs recorded before PR #71 are stale:
+
+```bash
+sudo install -d -m 0700 -o root -g root /run/parkio-nr-log-continuous
+sudo bash -c 'set -euo pipefail; umask 077; PARKIO_NR_COMPOSE_PROJECT=parkio PARKIO_NR_SOURCE_ROOT=/var/lib/parkio-nr-log-continuous/source/logs PARKIO_NR_SOURCE_STATE_ROOT=/var/lib/parkio-nr-log-continuous/source/state /opt/parkio-nr-log-continuous/current/scripts/newrelic_log_pilot/resolve_production_sources.sh > /run/parkio-nr-log-continuous/sources.env'
 sudo systemctl daemon-reload
 sudo systemctl start parkio-nr-log-source.service
+sudo env PARKIO_NR_COMPOSE_PROJECT=parkio PARKIO_NR_SOURCE_ROOT=/var/lib/parkio-nr-log-continuous/source/logs PARKIO_NR_SOURCE_STATE_ROOT=/var/lib/parkio-nr-log-continuous/source/state /opt/parkio-nr-log-continuous/current/scripts/newrelic_log_pilot/resolve_production_sources.sh --check-helper /run/parkio-nr-log-continuous/sources.env
+```
+
+The last check must print exactly three `helper=attached` results and no
+unexpected source. Immediately before collector start, activation is
+deliberately fail-closed:
+
+```bash
+sudo env PARKIO_NR_COMPOSE_PROJECT=parkio PARKIO_NR_SOURCE_ROOT=/var/lib/parkio-nr-log-continuous/source/logs PARKIO_NR_SOURCE_STATE_ROOT=/var/lib/parkio-nr-log-continuous/source/state /opt/parkio-nr-log-continuous/current/scripts/newrelic_log_pilot/resolve_production_sources.sh --check-live-helper
 sudo systemctl start parkio-nr-log-continuous.service
 sudo systemctl start parkio-nr-log-continuous-guard.timer
 sudo systemctl start parkio-nr-log-continuous-guard.service
 ```
 
-The collector start has a live source-identity precheck. The guard then repeats
-identity, allowlist, OOM, directory-allocation and host-free-space checks every
+The collector unit repeats the live source-identity precheck. The guard then
+repeats identity, allowlist, OOM, directory-allocation and host-free-space checks every
 minute. Do not enable the units until a separate permanence decision. Inspect
 only content-free status/counters; never print raw spooled or exported records.
+
+Content-free health verification commands are:
+
+```bash
+sudo systemctl is-active parkio-nr-log-source.service parkio-nr-log-continuous.service parkio-nr-log-continuous-guard.timer
+sudo env PARKIO_NR_COMPOSE_PROJECT=parkio PARKIO_NR_SOURCE_ROOT=/var/lib/parkio-nr-log-continuous/source/logs PARKIO_NR_SOURCE_STATE_ROOT=/var/lib/parkio-nr-log-continuous/source/state /opt/parkio-nr-log-continuous/current/scripts/newrelic_log_pilot/resolve_production_sources.sh --check-live-helper
+sudo docker ps --filter label=com.docker.compose.project=parkio-nr-log-continuous --format '{{.Label "com.docker.compose.service"}} {{.Status}}'
+gate_id="$(sudo docker ps -q --filter label=com.docker.compose.project=parkio-nr-log-continuous --filter label=com.docker.compose.service=nr-budget-gate)"
+collector_id="$(sudo docker ps -q --filter label=com.docker.compose.project=parkio-nr-log-continuous --filter label=com.docker.compose.service=fluent-bit-nr-pilot)"
+sudo docker inspect "$gate_id" "$collector_id" --format '{{index .Config.Labels "com.docker.compose.service"}} running={{.State.Running}} oom={{.State.OOMKilled}} health={{if .State.Health}}{{.State.Health.Status}}{{else}}none{{end}}'
+gate_ip="$(sudo docker inspect "$gate_id" --format '{{range .NetworkSettings.Networks}}{{.IPAddress}}{{end}}')"
+collector_ip="$(sudo docker inspect "$collector_id" --format '{{range .NetworkSettings.Networks}}{{.IPAddress}}{{end}}')"
+curl --fail --silent --show-error "http://${gate_ip}:8090/stats"
+curl --fail --silent --show-error "http://${collector_ip}:2020/api/v1/health"
+```
+
+`/stats` contains counters and budgets, not log bodies. HTTP 507 from gate
+health means a budget window is exhausted; it is an expected fail-closed state,
+not application failure.
 
 Rollback is application-independent:
 
 ```bash
 sudo systemctl stop parkio-nr-log-continuous-guard.timer parkio-nr-log-continuous-guard.service
 sudo systemctl stop parkio-nr-log-continuous.service parkio-nr-log-source.service
+if sudo docker ps -q --filter label=com.docker.compose.project=parkio-nr-log-continuous | grep -q .; then echo 'rollback FAIL: transport container remains' >&2; exit 1; fi
+sudo env PARKIO_NR_COMPOSE_PROJECT=parkio PARKIO_NR_SOURCE_ROOT=/var/lib/parkio-nr-log-continuous/source/logs PARKIO_NR_SOURCE_STATE_ROOT=/var/lib/parkio-nr-log-continuous/source/state /opt/parkio-nr-log-continuous/current/scripts/newrelic_log_pilot/resolve_production_sources.sh --check-env /run/parkio-nr-log-continuous/sources.env
 ```
 
 Stop leaves source cursors, Fluent Bit checkpoints and budget ledger protected
@@ -237,8 +340,19 @@ Local results for the final prepared runtime manifest on 2026-09-22 were:
 - helper resource/replacement run: 29.7 MiB peak sampled cgroup usage, all three
   sources attached after replacement, zero reported drops, clean exit and no
   OOM under a 128 MiB maximum; and
-- exact-image Trivy scan: Debian 13.6, **0 CRITICAL / 5 HIGH**, as inventoried
-  above; continuous Compose render: PASS.
+- digest-pulled private GHCR artifact: Fluent Bit 5.1.2, `linux/amd64`, fixed
+  `libssh2-1t64` package and OCI revision label verified; Trivy 0.74.0 with DB
+  updated 2026-09-22 reported **0 CRITICAL / 5 HIGH**; provenance/SBOM
+  attestation presence and subject link verified; and
+- continuous Compose render with the immutable registry pin: PASS.
+
+After the 33/33 functional run, the only runtime-image change was OCI metadata
+and the only Compose change was replacing the image variable with the exact
+registry digest; collector binary, fixed package filesystem and pipeline config
+were unchanged. The relevant validation was therefore exact registry pull,
+platform/label/package/version inspection, full no-fix-filter Trivy scan,
+attestation inspection, 7/7 budget/lifecycle tests and Compose render. The
+33/33 transport suite was not repeated without a behavioral change.
 
 The exact pipeline suite includes:
 
@@ -256,16 +370,15 @@ redaction only. They do not prove production traffic volume or future behavior.
 The existing allowlisted structured export and redaction limitations in
 `new-relic-log-pilot.md` remain unchanged.
 
-Before any permanent activation, an owner must decide:
+Remaining decisions before any permanent activation are:
 
-1. whether to approve or revise the proposed daily/monthly transport budgets;
-2. where to publish the exact image and which resulting platform digest to pin;
-3. whether the five `OPEN-NO-FIX` linked-library findings meet image policy at
-   activation-time scan, or require waiting for a rebuilt upstream base;
-4. whether one-minute stop controls are sufficient or a hard filesystem quota is
-   required; and
-5. when to migrate the classic Fluent Bit `.conf` format to YAML, because Fluent
-   Bit marks classic configuration deprecated with end-of-support at the end of
+1. authorize the activation window and select its operator/on-call owner;
+2. provision and lifecycle-manage the production host's read-only GHCR
+   credential and the already prepared New Relic ingest-key file;
+3. repeat the exact-digest scan at activation time and stop if the image-policy
+   result changes; and
+4. schedule migration of the classic Fluent Bit `.conf` format to YAML, because
+   Fluent Bit marks classic configuration deprecated with end-of-support at the end of
    2026.
 
 Reference: [Fluent Bit configuration formats](https://docs.fluentbit.io/manual/administration/configuring-fluent-bit).
