@@ -1,70 +1,127 @@
 # Release package — waitlist Slack operational notifications (PR #74)
 
-**Verdict:** ready for human review and merge decision. **Not authorised for
-activation.** No production change, real Slack message, email, merge or
-deployment has been made. New Relic and PR #68 were not touched.
+**Verdict:** source preparation is ready for terminal CI and human review.
+**Not authorised for activation.** No production mutation, package install,
+real Slack/email send, merge, deployment, secret change or feature activation
+was performed. Registration remains closed and New Relic was not restarted or
+changed.
 
-Design, guarantees and runbooks: [waitlist-slack-notifications.md](waitlist-slack-notifications.md).
-Evidence bundle: `agent-tools/parkio-waitlist-slack-release-prep-01/20260922T114456Z/`.
+Design and runbook: [waitlist-slack-notifications.md](waitlist-slack-notifications.md).
+Deferred work: [waitlist-slack-follow-ups.md](waitlist-slack-follow-ups.md).
 
-## 1. Identities
+## Identities
 
-| Item | Identity |
+| Item | Exact identity |
 |---|---|
-| Base | `origin/api` @ `3d3ff3c9` (includes merged PR #68) |
-| Code under test (gateway + relay runtime) | `0d256394163a4d9ab78836b4af772a0125eb842b`. Later commits on the branch change only e2e/test tooling, the Civo deploy package, docs and evidence: `git diff --stat 0d256394 <head> -- services scripts/slack_biz` lists only `deploy/civo/*` and `waitlist-e2e/*`. |
-| Gateway image under test (local build, real `services/gateway-service/Dockerfile`, not pushed) | `parkio-gateway-waitlist-e2e:0d256394163a`, image id `sha256:ce14047f904c8e01173482218e498ed4cf61561299f7c00506fa3c7bc15bde18`, label `org.opencontainers.image.revision=0d256394…`, `USER parkio` (uid 10001) |
-| Previous production gateway (rollback target) | `ghcr.io/adberilgen35/parkio/gateway-service@sha256:5c66e0fb010c25dc2029a93f0dab146caee1f442ba74140f66cd397a1e721e2c`, revision `efe241952a106ff126edc7b6ede97e4e7a982904` (current pin in `docker/docker-compose.gmp-release-pins.yml`) |
-| Deployable gateway image | **Not produced yet.** It must come from the release pipeline at the merged SHA. Accept it only if its `org.opencontainers.image.revision` equals that SHA. Image bytes are not reproducible, so the digest will differ from the local test build. |
-| PostgreSQL | `postgres:16-alpine` (production default `POSTGRES_IMAGE`). Tested `postgres@sha256:721873c34ceb9f8d8fc265984940dc982404c105f19ad51be9fdc5970a6080ea` = server 16.15 (IT and e2e). An earlier IT run on 16.14 also passed. The live Civo server version was **not probed**. |
-| Relay runtime | Python stdlib only. e2e `python:3.12-alpine` (`sha256:4c47124a…`); systemd check Ubuntu 24.04, Python 3.12.3, systemd 255 |
-| Redis (e2e only) | `redis:7-alpine` (`sha256:858f009f…`) |
+| Reconciled base | `origin/api` @ `2b107967792b981f82d720a333c8fa2c52ebf6af` (merged PR #78) |
+| Final code-bearing source / candidate build source | `008a6b2077f64d82a83da6d88e7bb6efeeafb498` |
+| Local gateway candidate | `parkio-gateway-waitlist-candidate:008a6b2077f6`; image/index id and local digest `sha256:16f7d5249763008c0856c0c1c3310eb8b17137ae50069b99dc09a489504651a1`; OCI revision `008a6b20…`; `linux/amd64`; `USER parkio`; real `services/gateway-service/Dockerfile`; not pushed |
+| Deployable candidate | **Not produced.** The release pipeline must build it from the eventual merge SHA. Accept only a digest whose OCI revision equals that SHA. |
+| Live rollback target (read-only verified) | `ghcr.io/adberilgen35/parkio/gateway-service@sha256:8b8a08ba974aeec91ec690ada406552a474c2319880752d4d4ea5ff1798028aa`; revision `83fa625b9e37d6c0819862459d5570e305dd5121`; `linux/amd64` |
+| Live gateway database | `postgres:16-alpine` (`sha256:cf78e76683b9…`), PostgreSQL `16.15`; Flyway history `1:true,2:true,3:true`; V4 absent before release |
 
-## 2. Verification results
+The repository/host GMP pin still names stale digest `5c66e0fb…`; it is not
+the rollback target. The running digest above is authoritative for rollback.
 
-| Suite | Result | Evidence |
-|---|---|---|
-| Gateway unit tests (`:services:gateway-service:test`) | 210 / 0 failures | `postgres-it/gradle-summary.txt` |
-| **PostgreSQL IT** `WaitlistOpsNotificationPostgresIT` (Flyway V1–V4, Spring `JdbcTransactionManager`) | 6 / 0 failures: committed → 1 row · outer rollback → neither · PostgreSQL-raised error inside savepoint → confirmation committed + `record_failed` · repeat + replay → 1 row · V4 constraints enforced · retention keeps `PENDING` | `postgres-it/TEST-…PostgresIT.xml` |
-| Negative control (savepoint removed) | Fails as expected with `UnexpectedRollbackException`; code restored | `postgres-it/negative-control-*` |
-| Relay acceptance `run_waitlist_acceptance.py` | 18/18 | `relay-acceptance/` |
-| Existing relay suites (PR #54) | 15/15; 13 PASS + 1 NOT_EXECUTED (live Kafka, unchanged) | `relay-acceptance/y03*` |
-| **Isolated Docker e2e** `run-e2e.sh` (internal network, mock Slack) | 11/11: UID/perms · committed · duplicate · relay restart · crash between export and mark · SIGKILL recovery · relay disabled · gateway disabled · **rollback to previous artifact** · roll-forward · privacy scan | `e2e/e2e-summary.md`, `e2e/*.log`, `e2e/slack-*.json*` |
-| **Civo package under systemd** `run-civo-systemd-check.sh` | 11/11; exposure consumer 0.6 SAFE, worker 1.3 OK | `civo-systemd/` |
-| CI on PR #74 | See the PR checks. The new PostgreSQL IT runs in the existing "Integration tests (Testcontainers)" job. The relay Python suites have no CI job; adding one needs a shared-workflow change (not done here). | GitHub |
+## Exact-image security
 
-## 3. Runtime wiring required (owners outside this PR)
+Trivy `v1.22.0`, vulnerability scanner, no `--ignore-unfixed`, scanned the
+exact local candidate `sha256:16f7d524…` after the final code merge:
 
-1. **Gateway Compose (Compose owner):** `docker-compose.apps.yml` passes only the env keys it lists, so an overlay or the apps file must add:
-   `PARKIO_WAITLIST_OPS_NOTIFICATIONS_ENABLED` (default `false`),
-   `PARKIO_WAITLIST_OPS_NOTIFICATIONS_EXPORT_DIR=/var/lib/parkio/waitlist-ops-inbox`,
-   `PARKIO_ENVIRONMENT`; `group_add: [<gid of parkio-waitlist-inbox>]`;
-   bind mount `/var/lib/parkio/waitlist-ops-inbox:/var/lib/parkio/waitlist-ops-inbox:rw`.
-   Template: `scripts/slack_biz/deploy/civo/gateway-waitlist-ops.overlay.example.yml`.
-2. **Civo host (operator):** check out the release SHA at `/opt/parkio`, then run `install-relay.sh` (dry run), then `--apply`. Do not run the compose `slack-biz` profile worker at the same time.
-3. **Secret (named owner):** webhook only in `/etc/parkio/slack-biz.secret.env` (0600 root). See "Secret ownership and rotation".
+- HIGH/CRITICAL policy view: `0 HIGH`, `0 CRITICAL`, including unfixed.
+- Full severity inventory: `80` package occurrences — `76 MEDIUM`, `4 LOW`,
+  `0 UNKNOWN`, `0 HIGH`, `0 CRITICAL`.
+- `61` occurrences are unfixed (`57 MEDIUM`, `4 LOW`; 47 unique advisory ids).
+  `19` occurrences have a fixed version available (18 unique advisory ids).
+- Target split: Ubuntu 26.04 packages `73`; `app.jar` dependencies `7`;
+  `/usr/bin/pebble` `0`.
 
-## 4. Retention (summary)
+These unfixed MEDIUM/LOW findings are disclosed, not waived as absent. The
+local digest is evidence only; the eventual release-built digest needs its own
+terminal scan.
 
-Gateway outbox terminal rows: 30 d. Inbox `.acked`: 24 h. Rejected files:
-not kept (opt-in 72 h, 0600). Relay terminal rows and dedup keys: 168 h dedup
-window. DLT: 720 h. Pending work is never purged at any stage. Full table in
-the ops doc.
+## Acceptance
 
-## 5. Enable / disable / rollback (summary)
+| Check | Result / scope |
+|---|---|
+| Gateway unit tests at pre-merge code tip `89e58aef…` | `212/212`, 0 skipped/failures/errors |
+| PostgreSQL integration test | `6/6`, PostgreSQL 16.15, V1–V4, real `JdbcTransactionManager`; includes savepoint failure isolation and a failing negative control with savepoint removed |
+| Final candidate Docker build at `008a6b20…` | PASS; `bootJar`, 16 tasks, clean OCI revision/platform identity |
+| Waitlist relay acceptance after base reconciliation | `19/19`, including queue-full and low-disk admission refusal/resume with pending work preserved |
+| Existing relay acceptance | `15/15` |
+| Existing relay reliability | `13 PASS`, `0 FAIL`, `1 NOT_EXECUTED` (live Kafka, unchanged) |
+| Production Compose integration against `origin/api` | PASS; 32 services and all auth/web/GMP images unchanged; only two default-off gateway env keys; activation overlay changes only gateway group/mount/export-dir and refuses a missing gid |
+| Disposable Civo systemd acceptance | `18/18`; hidden-input mock webhook install, non-Slack refusal, Alertmanager-webhook refusal, secret unchanged after refusals, root `0600`, waitlist-only units, registration path refused; consumer exposure `0.6 SAFE`, worker `1.3 OK` |
+| Final candidate → relay → mock Slack e2e | `11/11`; synthetic data/internal Docker network; includes crash recovery, disabled paths and privacy scan |
+| **Current live rollback image on V4** | PASS (E09): `8b8a08ba…` became healthy on PostgreSQL 16.15, validated four migrations, reported schema 4 newer than its V3 code, applied nothing, confirmation succeeded, and history stayed `1:true,2:true,3:true,4:true`; final candidate roll-forward passed (E10) |
 
-- **Enable:** a five-step gated sequence. Delivery stays off until the owner authorises the webhook (ops doc "Enable procedure").
-- **Disable:** relay `PARKIO_SLACK_BIZ_ENABLED=false` (sending stops, queue kept) and/or gateway flag false (recording stops, confirmation unaffected).
-- **Discard backlog:** gateway `PENDING` rows → inbox `*.json` → relay `worker.py --discard-backlog waitlist.subscription_confirmed`.
-- **Rollback:** redeploy the pinned previous gateway digest. Proven on a V4 schema (Flyway 11.7.2 reports a future version and makes no change; no Flyway overrides in the production file set). The V4 table stays and is unused.
+Evidence bundles:
 
-## 6. Open items and decisions
+- `agent-tools/parkio-waitlist-slack-release-prep-01/20260922T114456Z/`
+- `agent-tools/parkio-waitlist-slack-release-prep-02/20260922T161335Z/`
+- `agent-tools/parkio-waitlist-slack-release-prep-03/20260922T164000Z/e2e/`
 
-| # | Item | Owner |
-|---|---|---|
-| 1 | Name the webhook owner; create the webhook only when activation is authorised | Ops owner |
-| 2 | Apply the gateway Compose wiring (section 3.1) | Compose owner |
-| 3 | Confirm the live Civo `parkio_gateway` PostgreSQL major version is 16 before deploy (not probed) | Operator |
-| 4 | Where to track: the Resend client timeout observation, the deferred daily digest, the deferred signed Resend webhooks. This repository is **public** and has no issues yet, so no public issue was filed without approval. | Maintainer |
-| 5 | Follow-up: the PR #54 registration file-inbox consumer still logs file names and exception text and keeps `.invalid/` files verbatim. The waitlist path does not use it. | slack_biz owner |
-| 6 | Optional: CI job for `scripts/slack_biz` acceptance suites (shared workflow) | CI owner |
+The base merge changed auth-owned files only. Gateway/relay implementation was
+unchanged, so focused relay/Compose checks and a final candidate build were
+rerun; the unchanged PostgreSQL/systemd results were reused. Terminal PR CI on
+the pushed final documentation head must still be recorded in the PR handoff.
+
+## Effective default-off runtime wiring
+
+- Production file set passes only
+  `PARKIO_WAITLIST_OPS_NOTIFICATIONS_ENABLED=false` and the dedicated
+  environment key. No export directory, group or inbox mount exists by default.
+- `docker/docker-compose.waitlist-ops-inbox.yml` is deliberately outside
+  `docker/compose.production.files`. An operator adds it only during the
+  separately authorised configure-relay phase; it requires the dedicated host
+  group gid and uses `create_host_path: false`.
+- The gateway has no Slack/webhook secret and never contacts Slack.
+- `install-relay.sh` installs only the waitlist consumer and single worker under
+  `parkio-slackbiz`; it refuses legacy registration/Kafka settings and unexpected
+  `parkio-slack-biz-*` units.
+- The repository owner/operator installs the webhook with
+  `install-webhook.sh` through hidden input. It is atomically stored only in
+  `/etc/parkio/slack-biz.secret.env` as `root:root 0600`; installation does not
+  enable delivery.
+
+## Backlog, retention and monitoring
+
+- Terminal gateway rows: 30 days; inbox `.acked`: 24 hours; rejected envelopes:
+  deleted by default (optional bounded 72-hour forensic retention); relay
+  terminal/dedup: 168 hours; DLT: 720 hours.
+- Pending work is never silently purged. Relay admission refuses at 5,000
+  pending rows or below 256 MiB free and leaves files in the inbox. Gateway
+  export defers at 5,000 inbox files or below 512 MiB free and leaves rows
+  `PENDING` without consuming an attempt. This can delay or ultimately forfeit
+  the Slack notification if an operator explicitly discards the backlog, but
+  it does not roll back an already committed confirmation.
+- Pending gateway rows remain count-unbounded by design (~250 B each); if the
+  PostgreSQL filesystem itself fills, confirmations can fail. Existing host
+  disk/inode/read-only alerts and the new gateway pending/backpressure metrics
+  provide the operational warning path. Dedicated metric alerts remain WSN-F5.
+- The legacy registration consumer remains OFF and uninstalled. Its raw
+  rejected-file/logging issue is tracked separately as WSN-F4.
+
+## Rollout and rollback gates
+
+1. Deploy the release-built gateway **disabled**, without the inbox overlay;
+   verify health and Flyway V4.
+2. Reconcile the host checkout, install the waitlist-only relay package, add
+   group/mount wiring, and verify queueing while Slack delivery remains off.
+3. The repository owner separately installs the webhook and explicitly enables
+   the worker. Activation is not implied by deployment.
+4. Disable Slack delivery by setting the relay flag false and restarting only
+   its worker. Stop production by setting the gateway flag false and recreating
+   only gateway-service. Neither action restarts unrelated applications or New
+   Relic.
+5. Code rollback uses live digest `8b8a08ba…`; V4 remains in place and unused.
+
+## Remaining release gates
+
+- Terminal required/applicable CI must pass on the final pushed PR head.
+- The eventual release-built gateway digest must carry the merge SHA and pass
+  exact-image scanning.
+- Before any production action, reconcile `/opt/parkio` host drift and replace
+  the stale gateway pin with the release digest while preserving auth/web pins.
+- Production installation, deploy, configuration and activation remain separate
+  operator decisions outside this source-preparation handoff.

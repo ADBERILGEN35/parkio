@@ -349,8 +349,8 @@ Synthetic data only; local mock Slack receivers; no real Slack or email.
 |---|---|
 | `./gradlew :services:gateway-service:test` | All green (see release package for counts) |
 | `./gradlew :services:gateway-service:integrationTest` → `WaitlistOpsNotificationPostgresIT` (postgres:16-alpine, Flyway V1–V4, `JdbcTransactionManager`) | 6/6: V4 applied and constraints enforced · committed → 1 row · outer rollback → neither · server-raised SQL error in savepoint → confirmation committed + `record_failed` · repeat + replay → 1 row, replay confined to savepoint · retention keeps `PENDING`. Negative control without savepoint fails as expected. |
-| `python3 scripts/slack_biz/run_waitlist_acceptance.py` | 18/18 (W01–W18) |
-| `scripts/slack_biz/waitlist-e2e/run-e2e.sh` (Docker, internal network, PR image + previous artifact) | 11/11 (E01–E11) |
+| `python3 scripts/slack_biz/run_waitlist_acceptance.py` | 19/19 (W01–W19) |
+| `scripts/slack_biz/waitlist-e2e/run-e2e.sh` (Docker, internal network, final code candidate + live rollback artifact) | 11/11 (E01–E11); evidence `agent-tools/parkio-waitlist-slack-release-prep-03/20260922T164000Z/e2e/` |
 | `scripts/slack_biz/waitlist-e2e/run-civo-systemd-check.sh` | 18/18 |
 | Existing `run_acceptance.py` / `run_reliability_acceptance.py` | 15/15 and 13 PASS + 1 NOT_EXECUTED (Kafka, unchanged from PR #54) |
 
