@@ -60,3 +60,8 @@ cached clients expire; already cached public responses cannot be recalled.
 Founder LinkedIn, legal IZUM enablement, MapTiler origin/quota, Hostinger access,
 and production deploy approval all remain pending. No provider or freshness
 policy changes accompany this contract.
+
+## Related
+
+- `docs/releases/HOSTED-BETA-WEB-BAKE.md` — live bake flags + P01F recurrence guard
+- `docs/architecture/public-explore-access-boundary.md` — anonymous preview vs AuthGate detail

@@ -1,5 +1,5 @@
 import type { ComponentProps } from 'react';
-import type { MunicipalFacility, NearbySearchParams } from '@parkio/types';
+import type { MunicipalFacility, MunicipalFacilityNearbyParams } from '@parkio/types';
 import { fireEvent, screen } from '@testing-library/react';
 import type { UseQueryResult } from '@tanstack/react-query';
 import { axe } from 'jest-axe';
@@ -25,7 +25,11 @@ function queryResult(
   } as UseQueryResult<MunicipalFacility[], Error>;
 }
 
-const params: NearbySearchParams = { lat: 38.4237, lng: 27.1428, radius: 1000 };
+const params: MunicipalFacilityNearbyParams = {
+  lat: 38.4237,
+  lng: 27.1428,
+  radiusMeters: 5000,
+};
 
 const RAW_OSM_SOURCE_LABEL = 'OpenStreetMap contributors / Geofabrik GmbH';
 
@@ -60,17 +64,40 @@ describe('MunicipalFacilityResults', () => {
     expect(screen.getByTestId('municipal-facility-loading')).toBeInTheDocument();
   });
 
-  it('shows empty state', () => {
+  it('shows empty state with searched radius and expand action', () => {
+    const onRadius = vi.fn();
     renderResults({
       search: queryResult({ isSuccess: true, status: 'success', data: [] }),
       facilities: [],
       totalCount: 0,
+      params: { lat: 38.4237, lng: 27.1428, radiusMeters: 5000 },
+      radiusMeters: 5000,
+      onRadiusMetersChange: onRadius,
     });
     expect(screen.getByTestId('municipal-facility-empty')).toBeInTheDocument();
     expect(screen.getByText('No municipal facilities nearby')).toBeInTheDocument();
+    expect(
+      screen.getByText(/No official parking facilities found within 5 km/i),
+    ).toBeInTheDocument();
+    expect(screen.getByTestId('municipal-radius-active')).toHaveTextContent(/5 km/i);
+    fireEvent.click(screen.getByTestId('municipal-radius-expand'));
+    expect(onRadius).toHaveBeenCalledWith(10_000);
   });
 
-  it('shows error state', () => {
+  it('does not offer expansion at the API maximum radius', () => {
+    renderResults({
+      search: queryResult({ isSuccess: true, status: 'success', data: [] }),
+      facilities: [],
+      totalCount: 0,
+      params: { lat: 38.42, lng: 27.14, radiusMeters: 50_000 },
+      radiusMeters: 50_000,
+      onRadiusMetersChange: vi.fn(),
+    });
+    expect(screen.getByTestId('municipal-facility-empty')).toBeInTheDocument();
+    expect(screen.queryByTestId('municipal-radius-expand')).not.toBeInTheDocument();
+  });
+
+  it('shows error state separately from empty', () => {
     renderResults({
       search: queryResult({
         isError: true,
@@ -81,6 +108,8 @@ describe('MunicipalFacilityResults', () => {
       totalCount: 0,
     });
     expect(screen.getByTestId('municipal-facility-error')).toBeInTheDocument();
+    expect(screen.queryByTestId('municipal-facility-empty')).not.toBeInTheDocument();
+    expect(screen.queryByTestId('municipal-facility-loading')).not.toBeInTheDocument();
   });
 
   it('lists facilities and selects on click', () => {

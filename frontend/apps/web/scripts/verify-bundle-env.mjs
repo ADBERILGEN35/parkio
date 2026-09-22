@@ -15,9 +15,12 @@
  *
  * Usage:
  *   node scripts/verify-bundle-env.mjs [--dist <dir>] [--app-env <env>]
+ *     [--require-municipal true|false] [--require-public-explore true|false]
  *
  * --app-env defaults to the VITE_APP_ENV baked into the bundle. Passing it explicitly also
  * asserts the bundle was built for that environment, which catches build-arg mis-wiring.
+ * Hosted-beta bundles targeting https://api.parkio.dev/api/v1 must bake public Explore on
+ * (P01F recurrence guard).
  */
 
 import { readFileSync, readdirSync, existsSync, statSync } from 'node:fs';
@@ -29,8 +32,16 @@ const PRODUCTION_LIKE = new Set(['hosted-beta', 'invite-production', 'production
 /** Public vars that src/config/env.ts throws on when absent in a production-like build. */
 const REQUIRED_IN_PRODUCTION_LIKE = ['VITE_API_BASE_URL', 'VITE_MAPTILER_KEY'];
 
+/** Live hosted-beta API base — P01F Explore recurrence guard target. */
+const LIVE_HOSTED_BETA_API_BASE = 'https://api.parkio.dev/api/v1';
+
 function parseArgs(argv) {
-  const out = { dist: 'dist', appEnv: undefined, requireMunicipal: undefined };
+  const out = {
+    dist: 'dist',
+    appEnv: undefined,
+    requireMunicipal: undefined,
+    requirePublicExplore: undefined,
+  };
   for (let i = 0; i < argv.length; i += 1) {
     if (argv[i] === '--dist') out.dist = argv[++i];
     else if (argv[i] === '--app-env') out.appEnv = argv[++i];
@@ -40,6 +51,12 @@ function parseArgs(argv) {
         throw new Error('--require-municipal must be true or false');
       }
       out.requireMunicipal = value;
+    } else if (argv[i] === '--require-public-explore') {
+      const value = argv[++i];
+      if (value !== 'true' && value !== 'false') {
+        throw new Error('--require-public-explore must be true or false');
+      }
+      out.requirePublicExplore = value;
     } else throw new Error(`unknown argument: ${argv[i]}`);
   }
   return out;
@@ -115,7 +132,12 @@ function extractInjectedEnv(source) {
 }
 
 function main() {
-  const { dist, appEnv: expectedAppEnv, requireMunicipal } = parseArgs(process.argv.slice(2));
+  const {
+    dist,
+    appEnv: expectedAppEnv,
+    requireMunicipal,
+    requirePublicExplore,
+  } = parseArgs(process.argv.slice(2));
   const distDir = resolve(dist);
 
   if (!existsSync(distDir)) {
@@ -162,6 +184,9 @@ function main() {
   const checked = productionLike ? REQUIRED_IN_PRODUCTION_LIKE : [];
   const municipalRaw = (env.VITE_WEB_MUNICIPAL_DISCOVERY_ENABLED ?? '').trim();
   const municipalEnabled = municipalRaw === 'true';
+  const publicExploreRaw = (env.VITE_PUBLIC_EXPLORE_ENABLED ?? '').trim();
+  const publicExploreEnabled = publicExploreRaw === 'true';
+  const apiBase = (env.VITE_API_BASE_URL ?? '').trim();
 
   for (const key of checked) {
     if (!(key in env)) failures.push(`${key} is MISSING from the bundle`);
@@ -184,6 +209,15 @@ function main() {
           ? 'true'
           : municipalRaw;
   console.log(`verify-bundle-env:   VITE_WEB_MUNICIPAL_DISCOVERY_ENABLED = ${municipalStatus}`);
+  const publicExploreStatus =
+    !('VITE_PUBLIC_EXPLORE_ENABLED' in env)
+      ? 'MISSING'
+      : publicExploreRaw === ''
+        ? 'EMPTY'
+        : publicExploreEnabled
+          ? 'true'
+          : publicExploreRaw;
+  console.log(`verify-bundle-env:   VITE_PUBLIC_EXPLORE_ENABLED = ${publicExploreStatus}`);
 
   // PROD-MUNI-01 / M3: refuse production bundles that bake municipal discovery on.
   if (appEnv === 'production' && municipalEnabled) {
@@ -201,6 +235,45 @@ function main() {
   if (requireMunicipal === 'false' && municipalEnabled) {
     failures.push(
       'VITE_WEB_MUNICIPAL_DISCOVERY_ENABLED must be false/off for this verification',
+    );
+  }
+
+  // Optional explicit public-explore contract.
+  if (requirePublicExplore === 'true' && !publicExploreEnabled) {
+    failures.push(
+      `VITE_PUBLIC_EXPLORE_ENABLED must be true (got ${publicExploreStatus})`,
+    );
+  }
+  if (requirePublicExplore === 'false' && publicExploreEnabled) {
+    failures.push(
+      'VITE_PUBLIC_EXPLORE_ENABLED must be false/off for this verification',
+    );
+  }
+
+  // P01F recurrence: hosted-beta builds targeting the live API must keep Explore on.
+  // An API-base-only rebuild that omits VITE_PUBLIC_EXPLORE_ENABLED defaults to false.
+  if (
+    appEnv === 'hosted-beta' &&
+    apiBase === LIVE_HOSTED_BETA_API_BASE &&
+    !publicExploreEnabled
+  ) {
+    failures.push(
+      'VITE_PUBLIC_EXPLORE_ENABLED must be true when hosted-beta targets ' +
+        `${LIVE_HOSTED_BETA_API_BASE} (P01F public Explore recurrence guard)`,
+    );
+  }
+
+  // Hosted-beta live API must also keep authenticated municipal discovery on.
+  // Omitting VITE_WEB_MUNICIPAL_DISCOVERY_ENABLED defaults to false and silently
+  // disables /map municipal UI after an Explore-only or API-base-only rebuild.
+  if (
+    appEnv === 'hosted-beta' &&
+    apiBase === LIVE_HOSTED_BETA_API_BASE &&
+    !municipalEnabled
+  ) {
+    failures.push(
+      'VITE_WEB_MUNICIPAL_DISCOVERY_ENABLED must be true when hosted-beta targets ' +
+        `${LIVE_HOSTED_BETA_API_BASE} (hosted-beta municipal discovery recurrence guard)`,
     );
   }
 

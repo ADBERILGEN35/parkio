@@ -194,6 +194,8 @@ jobs:
           node --test scripts/lib/sanitize-compose-config.test.mjs
           node --test frontend/apps/web/scripts/validate-build-env.test.mjs
           node --test frontend/apps/web/scripts/verify-bundle-env.test.mjs
+          node --test frontend/apps/web/scripts/assert-hosted-beta-web-bake.test.mjs
+          bash scripts/guard-hosted-beta-web-bake.sh
 
       - name: Meta
         id: meta
