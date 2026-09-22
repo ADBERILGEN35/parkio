@@ -273,14 +273,14 @@ No additional approval gates invented beyond these concrete items.
 ## 10. Terminal CI on final head
 
 PR: https://github.com/ADBERILGEN35/parkio/pull/78 (draft)  
-Head: `970ec7699bd90c778834c03e50c64511ffa0b7cd`  
-Evidence: `ci-pr78-final-head.txt`
+Head: `56014b2341de173a545741b5cf493d32246563eb` (docs tip; runtime image tip remains `b10c1f7c`)  
+Evidence: `ci-pr78-final-head.txt` (also re-verified green on this tip)
 
 | Check | Result |
 |---|---|
-| Build & unit tests | **pass** ([run](https://github.com/ADBERILGEN35/parkio/actions/runs/35749628082/job/106820062710)) |
-| Integration tests (Testcontainers) | **pass** ([run](https://github.com/ADBERILGEN35/parkio/actions/runs/35749627931/job/106820069540)) |
-| Security CI summary (+ CodeQL, secret, dep, container scans incl. auth) | **pass** ([summary](https://github.com/ADBERILGEN35/parkio/actions/runs/35749628121/job/106825670726)) |
+| Build & unit tests | **pass** ([run](https://github.com/ADBERILGEN35/parkio/actions/runs/35751367386/job/106826059161)) |
+| Integration tests (Testcontainers) | **pass** ([run](https://github.com/ADBERILGEN35/parkio/actions/runs/35751367373/job/106826059472)) |
+| Security CI summary (+ CodeQL, secret, dep, container scans incl. auth) | **pass** ([summary](https://github.com/ADBERILGEN35/parkio/actions/runs/35751367367/job/106828969725)) |
 | Build images + secret-safe dry-run manifest | **pass** |
 | Invite-production deploy / rollback / non-deploy acceptance | **skipped** (expected for draft/non-deploy) |
 | Trivy (GitHub) | **pass** |
