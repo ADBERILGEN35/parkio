@@ -1,4 +1,11 @@
-﻿source_tip=78e0a93852471cc570cb604d65a7ad94e1d53d96
-local_tag=parkio/auth-service:prep-auth-resend-78e0a938
-image_id=sha256:c72c68a22800f6870d8ba8d3308d397bf117550f04e5769bd4c57ca8a1c0bec9
-note=Image layers built from working tree immediately before commit 78e0a938; content matches committed auth-service changes.
+﻿source_tip=b10c1f7cda85693c4af9ea6d32b81f2b3f0a7449
+local_tag=parkio/auth-service:prep-auth-resend-b10c1f7c
+image_id=sha256:a4410a45634b73246e13c3054dc3b1d0c8069baa7c0738258ecf9774ca72514e
+runtime_equivalence=rebuilt_from_tip_b10c1f7c_includes_enumeration_and_postgres_it
+prior_note=earlier_c72c68a2_image_matched_78e0a938_runtime_only;_docs_d21413c9_did_not_change_jars
+trivy_no_ignore_unfixed_high=0
+trivy_no_ignore_unfixed_critical=0
+trivy_fixable_high=0
+trivy_fixable_critical=0
+trivy_unfixed_high=0
+trivy_unfixed_critical=0

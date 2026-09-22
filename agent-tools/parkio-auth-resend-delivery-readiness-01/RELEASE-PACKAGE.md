@@ -228,19 +228,28 @@ If operators explicitly choose not to take this branch first: switch `PARKIO_EMA
 
 | Artifact | Value |
 |---|---|
-| Branch tip | *(filled after final commit + rebuild)* |
-| Local candidate tag | `parkio/auth-service:prep-auth-resend-<shortsha>` |
-| Image ID (manifest list) | *(filled after rebuild from tip)* |
-| Source equivalence | Prior local image was built from working tree before commit `78e0a938`; docs tip `d21413c9` did not change runtime jars. **Final candidate is rebuilt from the tip that includes enumeration + Postgres IT sources** so image source ≡ PR head. |
+| Branch tip (runtime) | `b10c1f7cda85693c4af9ea6d32b81f2b3f0a7449` |
+| Local candidate tag | `parkio/auth-service:prep-auth-resend-b10c1f7c` |
+| Image ID (manifest list) | `sha256:a4410a45634b73246e13c3054dc3b1d0c8069baa7c0738258ecf9774ca72514e` |
+| Source equivalence | **Rebuilt from tip `b10c1f7c`** after enumeration + Postgres IT sources landed. Prior local image `c72c68a2…` matched runtime sources of `78e0a938` only; docs commit `d21413c9` did not change jars. Final candidate ≡ PR head runtime inputs. |
 | GHCR digest | *not pushed* (local candidate only until release decision) |
-| Trivy (no `--ignore-unfixed`) | See §7.1 |
 
 Rebuild is required because runtime code changed. Do not rebuild merely to flip the provider string.
 
-### 7.1 Exact-image Trivy (HIGH,CRITICAL — unfixed included)
+### 7.1 Exact-image Trivy (HIGH,CRITICAL — **without** `--ignore-unfixed`)
 
-*(filled after final scan)*
+Evidence: `trivy-auth-candidate-no-ignore-unfixed.txt` / `.json`
 
+| Metric | Count |
+|---|---|
+| Total HIGH | **0** |
+| Total CRITICAL | **0** |
+| Fixable HIGH (`FixedVersion` present) | 0 |
+| Fixable CRITICAL | 0 |
+| Unfixed HIGH | 0 |
+| Unfixed CRITICAL | 0 |
+
+Targets scanned: ubuntu 26.04 OS packages, `app/app.jar`, `usr/bin/pebble` — all clean at HIGH/CRITICAL including unfixed advisories.
 ---
 
 ## 8. Frontend dependency (record only — not changed here)
