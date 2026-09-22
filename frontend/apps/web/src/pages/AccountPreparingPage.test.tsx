@@ -239,6 +239,32 @@ describe('AccountPreparingPage', () => {
     ]);
   });
 
+  it('PATCHes in-memory phone without ever persisting it to sessionStorage', async () => {
+    let patchBody: Record<string, unknown> | null = null;
+    setPendingProfile({ displayName: 'New Driver', phoneNumber: '5551234567' });
+    expect(sessionStorage.getItem('parkio.pendingProfile')).toBe(
+      JSON.stringify({ displayName: 'New Driver' }),
+    );
+
+    server.use(
+      http.get(`${API_BASE}/auth/me`, () => HttpResponse.json(meUser)),
+      http.patch(`${API_BASE}/users/me`, async ({ request }) => {
+        patchBody = (await request.json()) as Record<string, unknown>;
+        return HttpResponse.json({});
+      }),
+    );
+
+    const { runtime } = renderPreparing();
+
+    expect(await screen.findByText('Map page stub')).toBeInTheDocument();
+    expect(patchBody).toEqual({
+      displayName: 'New Driver',
+      phoneNumber: '5551234567',
+    });
+    expect(sessionStorage.getItem('parkio.pendingProfile')).toBeNull();
+    expect(runtime.authStore.getState().lifecycle).toBe('authenticated');
+  });
+
   it('shows the preparing state and never marks suspended while provisioning', async () => {
     server.use(http.get(`${API_BASE}/auth/me`, () => notActive()));
 
