@@ -237,6 +237,7 @@ class AdminApplicationServiceTest {
                 null,
                 null,
                 null,
+                EmailLocale.TR,
                 0L,
                 roles,
                 NOW.minus(Duration.ofDays(1)),

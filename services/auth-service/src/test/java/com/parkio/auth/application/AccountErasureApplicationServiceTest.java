@@ -16,6 +16,7 @@ import com.parkio.auth.application.port.PasswordResetRepository;
 import com.parkio.auth.application.port.RefreshTokenRepository;
 import com.parkio.auth.domain.AuthUser;
 import com.parkio.auth.domain.AuthUserStatus;
+import com.parkio.auth.domain.EmailLocale;
 import com.parkio.auth.domain.RefreshTokenRevocationReason;
 import com.parkio.auth.domain.Role;
 import com.parkio.auth.domain.RoleName;
@@ -83,6 +84,7 @@ class AccountErasureApplicationServiceTest {
                 "vhash",
                 NOW.plusSeconds(3600),
                 NOW,
+                EmailLocale.TR,
                 Set.of(new Role(UUID.randomUUID(), RoleName.USER)),
                 NOW);
         user.verifyEmail(NOW);

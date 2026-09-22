@@ -27,7 +27,7 @@ class ResendEmailSenderTest {
 
     private static final String API_KEY = "re_test_secret_key";
     private static final String TOKEN = "raw-verification-token";
-    private static final String TR_VERIFY_SUBJECT = "Parkio e-posta adresinizi doğrulayın";
+    private static final String TR_VERIFY_SUBJECT = "Parkio uygulama hesabınızı doğrulayın";
     private static final String TR_RESET_SUBJECT = "Parkio şifrenizi sıfırlayın";
 
     private SimpleMeterRegistry registry;
@@ -68,10 +68,14 @@ class ResendEmailSenderTest {
                 .andExpect(jsonPath("$.reply_to").value("support@example.com"))
                 .andExpect(jsonPath("$.subject").value(TR_VERIFY_SUBJECT))
                 .andExpect(jsonPath("$.text").value(Matchers.containsString("verify-email?token=" + TOKEN)))
+                .andExpect(jsonPath("$.text").value(Matchers.containsString("lang=tr")))
                 .andExpect(jsonPath("$.text").value(Matchers.not(Matchers.containsString(
                         "\n\nVerification token:\n" + TOKEN))))
                 .andExpect(jsonPath("$.html").value(Matchers.not(Matchers.containsString("{{"))))
-                .andExpect(jsonPath("$.html").value(Matchers.containsString("E-posta adresini doğrula")))
+                .andExpect(jsonPath("$.html").value(Matchers.containsString("Uygulama hesabını doğrula")))
+                .andExpect(jsonPath("$.html").value(Matchers.containsString(AuthTransactionalEmailTemplates.LOGO_URL)))
+                .andExpect(jsonPath("$.html").value(Matchers.containsString(AuthTransactionalEmailTemplates.BRAND_BLUE)))
+                .andExpect(jsonPath("$.html").value(Matchers.containsString("bekleme listesi kaydı değildir")))
                 .andRespond(withSuccess("{\"id\":\"email_123\"}", MediaType.APPLICATION_JSON));
 
         sender.sendVerificationLink("user@example.com", TOKEN);
@@ -86,9 +90,11 @@ class ResendEmailSenderTest {
     @Test
     void sendsVerificationEmailInEnglishWhenRequested() {
         server.expect(requestTo("https://api.resend.test/emails"))
-                .andExpect(jsonPath("$.subject").value("Verify your Parkio email"))
-                .andExpect(jsonPath("$.html").value(Matchers.containsString("Verify email")))
+                .andExpect(jsonPath("$.subject").value("Verify your Parkio application account"))
+                .andExpect(jsonPath("$.html").value(Matchers.containsString("Verify application account")))
+                .andExpect(jsonPath("$.html").value(Matchers.containsString("not a waitlist signup")))
                 .andExpect(jsonPath("$.text").value(Matchers.containsString("verify-email?token=" + TOKEN)))
+                .andExpect(jsonPath("$.text").value(Matchers.containsString("lang=en")))
                 .andRespond(withSuccess("{\"id\":\"email_en\"}", MediaType.APPLICATION_JSON));
 
         sender.sendVerificationLink("user@example.com", TOKEN, EmailLocale.EN);

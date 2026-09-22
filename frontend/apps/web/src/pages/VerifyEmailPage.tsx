@@ -4,19 +4,36 @@ import { useTranslation } from 'react-i18next';
 import { useNavigate, useSearchParams } from 'react-router-dom';
 import { describeAuthError } from '@/api/error-messages';
 import { useParkioSdk } from '@/app/AppRuntimeContext';
+import { useLocaleStore } from '@/i18n/localeStore';
+import type { ParkioLocale } from '@parkio/types';
 import { AuthSplitLayout } from '@/pages/auth/AuthSplitLayout';
 import { showError, showSuccess } from '@/lib/toast';
 
 type VerifyState = 'verifying' | 'success' | 'error';
+
+function localeFromSearchParam(raw: string | null): ParkioLocale | null {
+  if (!raw) return null;
+  const normalized = raw.trim().toLowerCase();
+  if (normalized === 'en' || normalized === 'tr') return normalized;
+  return null;
+}
 
 export function VerifyEmailPage() {
   const { authApi } = useParkioSdk();
   const { t } = useTranslation(['auth', 'common', 'errors']);
   const navigate = useNavigate();
   const [searchParams] = useSearchParams();
+  const setLocale = useLocaleStore((s) => s.setLocale);
   const [state, setState] = useState<VerifyState>('verifying');
   const [apiError, setApiError] = useState<string | null>(null);
   const [traceId, setTraceId] = useState<string | undefined>();
+
+  useEffect(() => {
+    const linkLocale = localeFromSearchParam(searchParams.get('lang'));
+    if (linkLocale) {
+      setLocale(linkLocale);
+    }
+  }, [searchParams, setLocale]);
 
   useEffect(() => {
     const token = searchParams.get('token');

@@ -1,6 +1,7 @@
 package com.parkio.auth.infrastructure.persistence.mapper;
 
 import com.parkio.auth.domain.AuthUser;
+import com.parkio.auth.domain.EmailLocale;
 import com.parkio.auth.domain.PasswordResetToken;
 import com.parkio.auth.domain.RefreshToken;
 import com.parkio.auth.domain.RegistrationInvite;
@@ -46,6 +47,7 @@ public final class AuthPersistenceMapper {
                 entity.getEmailVerificationTokenHash(),
                 entity.getEmailVerificationExpiresAt(),
                 entity.getEmailVerificationSentAt(),
+                EmailLocale.fromNullable(entity.getPreferredLocale()),
                 entity.getSessionEpoch(),
                 roles,
                 entity.getCreatedAt(),
@@ -67,6 +69,7 @@ public final class AuthPersistenceMapper {
                 user.emailVerificationTokenHash(),
                 user.emailVerificationExpiresAt(),
                 user.emailVerificationSentAt(),
+                user.preferredLocale().code(),
                 user.sessionEpoch(),
                 roles,
                 user.createdAt(),
