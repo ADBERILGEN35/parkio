@@ -1,0 +1,15 @@
+# EXAMPLE ONLY — not part of docker/compose.production.files and not loaded by
+# any script. The Compose owner applies the equivalent to the production file
+# set when activation is authorised. Values are placeholders.
+#
+# <INBOX_GID> = numeric gid of host group parkio-waitlist-inbox
+#               (getent group parkio-waitlist-inbox | cut -d: -f3)
+services:
+  gateway-service:
+    group_add: ["<INBOX_GID>"]
+    environment:
+      PARKIO_WAITLIST_OPS_NOTIFICATIONS_ENABLED: ${PARKIO_WAITLIST_OPS_NOTIFICATIONS_ENABLED:-false}
+      PARKIO_WAITLIST_OPS_NOTIFICATIONS_EXPORT_DIR: /var/lib/parkio/waitlist-ops-inbox
+      PARKIO_ENVIRONMENT: ${PARKIO_ENVIRONMENT:-production}
+    volumes:
+      - /var/lib/parkio/waitlist-ops-inbox:/var/lib/parkio/waitlist-ops-inbox:rw

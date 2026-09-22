@@ -24,7 +24,8 @@ No real Slack message or email was sent while building or testing this.
 This reuses the existing slack_biz relay (`scripts/slack_biz`, PR #54: durable
 SQLite queue, dedup, single worker, 429/5xx/timeout handling, DLT and
 `delivery_unknown`). The gateway never talks to Slack and never holds a
-webhook secret.
+webhook secret. On Civo the relay runs as two hardened systemd units under a
+dedicated service user (see [Civo relay deployment](#civo-relay-deployment)).
 
 ```
 POST /api/v1/waitlist/confirm
@@ -47,8 +48,10 @@ slack_biz/worker.py            (relay host, existing)
 
 ### Envelope contract (gateway → relay, v1)
 
-The relay accepts **exactly** these keys. Any other key rejects the envelope
-into `.invalid/`. Unknown keys are not stripped.
+The relay accepts **exactly** these keys. Any other key rejects the whole
+envelope. Unknown keys are not stripped and forwarded. A rejection is recorded
+only as a bounded category (see [Rejections](#rejections)), and by default the
+rejected file is deleted, not kept.
 
 ```json
 {
@@ -62,10 +65,11 @@ into `.invalid/`. Unknown keys are not stripped.
 }
 ```
 
-`dedupKey` is `HMAC(parkio.waitlist.hash-secret, "waitlist.subscription_confirmed:" + subscriberRowId)`.
-It cannot be reversed or joined to the subscriber without the hash secret. It
-is used for dedup only and is not shown in Slack. The outbox table has no FK
-and no subscriber columns.
+`dedupKey` is `HMAC-SHA256(parkio.waitlist.hash-secret, "waitlist.subscription_confirmed:" + subscriberRowId)`.
+This is **pseudonymous internal metadata, not anonymous data**. Anyone holding
+the waitlist hash secret and the subscriber table can recompute it and link it
+back to one subscriber. It is used only for dedup and is **never sent to
+Slack**. See [Data inventory](#data-inventory) for exactly where it is stored.
 
 ## Example Slack messages (Turkish, synthetic data)
 
@@ -91,8 +95,10 @@ olay=`e-posta onayı tamamlandı (çift onay)`
 ```
 
 The messages do not contain: email, name, city/role, IP, tokens,
-confirm/withdraw URLs, subscriber id, dedup hash, outbox id, or provider
-payload. These are not only filtered out; they are never part of the envelope.
+confirm/withdraw URLs, subscriber id, email hash, `dedupKey`, `eventId`, or
+provider payload. Email, name, IP, tokens, URLs, subscriber id and provider
+data are never part of the envelope at all. `dedupKey` and `eventId` are in the
+envelope and relay state (internal metadata) but are not rendered into Slack.
 
 Terminal email failure message: **none**, because the event is not implemented.
 If it is added later (see [Remaining decisions](#remaining-decisions)), it must
@@ -118,25 +124,69 @@ no delivery status was invented.
 Side observation (not changed here): `WaitlistRestClientConfig` builds the
 Resend `RestClient` without an explicit connect/read timeout.
 
+## Data inventory
+
+| Field | Gateway outbox (Postgres) | Envelope file (inbox) | Relay SQLite (queue / dedup / DLT) | Sent to Slack |
+|---|---|---|---|---|
+| event type | yes | yes | yes | **yes** |
+| environment | no (config) | yes | yes | **yes** |
+| occurred-at timestamp (UTC seconds) | yes | yes | yes | **yes** |
+| service name `gateway-service` | no | no | yes | **yes** |
+| `dedupKey` (pseudonymous HMAC) | yes | yes | yes | no |
+| `eventId` (random outbox UUID) | yes (`id`) | yes | yes | no |
+| export attempts / bounded error category | yes | no | no | no |
+| email, name, city, role, IP, UA, tokens, URLs, subscriber id, email hash, provider payload | **no** | **no** | **no** | **no** |
+
+Classification: `dedupKey` is pseudonymous personal-data-linked metadata. It is
+covered by the retention below and is not treated as anonymous.
+
 ## Duplicate, loss and storm guarantees
 
-| Guard | Where |
+| Guard | Where / evidence |
 |---|---|
-| One outbox row per subscriber confirmation | Emitted only when the conditional `UPDATE` changed a row. `UNIQUE(dedup_key)` catches a replayed application event (`duplicate_suppressed`). |
-| Rolled-back confirmation → nothing | Outbox insert runs in the same transaction. |
-| Outbox failure never fails the visitor | Savepoint (`PROPAGATION_NESTED`). On error the transaction rolls back to the savepoint, the confirmation still commits, and the `record_failed` counter increments. |
-| Re-export after crash | Deterministic file name plus relay `dedupKey` dedup (168 h window) → `duplicate_suppressed`. |
-| Burst of confirmations | Gateway exports at most `batch-size` (20) envelopes per `poll-interval` (30 s). The relay worker claims at most 20 per cycle and honours `Retry-After` on 429. The backlog is delayed, not dropped. |
-| Bounded retries | Gateway export: `max-export-attempts` (5), exponential 30 s → 15 min cap, then `FAILED`. Relay: `PARKIO_SLACK_BIZ_MAX_ATTEMPTS` (5); 4xx permanent → DLT immediately. |
+| One outbox row per subscriber confirmation | Emitted only when the conditional `UPDATE … WHERE status='PENDING'` changed a row. `UNIQUE(dedup_key)` catches a replayed application event (`duplicate_suppressed`). Proven on PostgreSQL 16 (`WaitlistOpsNotificationPostgresIT`) and in e2e E03. |
+| Rolled-back confirmation → nothing | Same transaction. Outer rollback removes both writes (PostgreSQL IT). |
+| Outbox failure never fails the visitor | Savepoint (`PROPAGATION_NESTED`, `JdbcTransactionManager`). A PostgreSQL-raised error in the outbox INSERT is rolled back to the savepoint, the confirmation commits, and `record_failed` increments (PostgreSQL IT). Negative control: without the savepoint the confirmation is lost (`UnexpectedRollbackException`). |
+| Crash between file write and `markExported` | The row stays `PENDING`, and the same file name is re-exported after restart. The relay suppresses it by `dedupKey` (e2e E05). |
+| Hard kill with a committed row | The row survives `SIGKILL` as `PENDING` and is exported after restart (e2e E06). |
+| Relay down / restarted | Files wait in the inbox and are delivered after the relay restarts (e2e E04). |
+| Burst of confirmations | Gateway exports at most `batch-size` (20) per `poll-interval` (30 s). The worker claims at most 20 per cycle and honours `Retry-After`. Backlog is delayed, not dropped. |
+| Bounded retries | Gateway export: 5 attempts, backoff 30 s → 15 min, then `FAILED`. Relay: `PARKIO_SLACK_BIZ_MAX_ATTEMPTS` (5); 4xx permanent → DLT immediately; ambiguous timeout exhausted → `delivery_unknown`. |
 
-Remaining limitations, stated plainly:
+Remaining limitations:
 
-- **At-least-once, not exactly-once.** A Slack timeout is ambiguous. The relay retries a bounded number of times, so a message can occasionally appear twice. When retries are exhausted it records `delivery_unknown`, never `delivered` (existing Y03A behaviour).
-- **Dedup window.** Relay dedup lasts 168 h. A gateway envelope re-exported after that window would post again. In practice the gateway marks rows `EXPORTED` right after the write, so only a crash between the write and the mark causes a re-export.
-- **Record-failure loss.** If the outbox insert itself fails, that confirmation gets no notification. The `parkio_waitlist_ops_notifications_total{outcome="record_failed"}` counter shows it. The confirmation is still correct.
-- **One message per confirmation.** There is no digest or coalescing. At launch-scale volumes the channel gets one line per confirmation, rate-shaped but not summarised. A daily digest is a remaining decision.
-- **Multiple gateway replicas.** There is no row locking. Two exporters may write the same row, but the relay suppresses the duplicate by `dedupKey`. The invite production runs a single gateway.
-- **Quarantine retention.** Rejected envelopes are kept verbatim in `<inbox>/.invalid/` for operators. The gateway producer cannot emit PII, but anything written into the inbox by another process stays there until an operator deletes it.
+- **At-least-once, not exactly-once.** A Slack timeout is ambiguous. The bounded retry can post a message twice, and after exhaustion the relay records `delivery_unknown`, never `delivered`.
+- **Dedup window 168 h.** Terminal relay rows and dedup keys are purged after the window. An envelope re-exported after that would post again. Only the crash window above re-exports, and it does so within seconds.
+- **Record failure drops that notification.** This is visible as `parkio_waitlist_ops_notifications_total{outcome="record_failed"}`.
+- **One message per confirmation**, by decision for the initial release. A digest is deferred.
+- **Multiple gateway replicas** have no row locking. Duplicate exports are suppressed by the relay. Production runs a single gateway.
+
+## Rejections
+
+`WaitlistInboxConsumer` treats the inbox as an untrusted boundary:
+
+- **Bounded categories only:** `invalid_json`, `too_large` (> 4 KiB), `unreadable`, `not_object`, `unknown_field`, `missing_field`, `bad_contract_version`, `unsupported_event_type`, `producer_mismatch`, `untrusted_producer`, `environment_mismatch`, `bad_event_id`, `bad_occurred_at`, `bad_dedup_key`.
+- A rejection increments `slack_biz_waitlist_rejected_total{category}` and logs `waitlist envelope rejected category=<category>`. File names, JSON key names and values are never logged or stored.
+- **Rejected files are deleted by default.** For forensics only, `PARKIO_SLACK_BIZ_WAITLIST_RETAIN_REJECTED=true` moves them to `<inbox>/.invalid/` (dir 0700, file 0600, hashed name). They are pruned after `PARKIO_SLACK_BIZ_WAITLIST_REJECTED_RETENTION_HOURS` (72). Switching retention off clears the directory on the next prune.
+- Acceptance W11 plants secrets in field **names**, field **values** and the **file name**, then checks that none appear in logs, relay state, metrics or leftover files.
+- The pre-existing registration file-inbox consumer (PR #54, `registration_consumer.py`) still logs file names and exception text and keeps `.invalid/` files. It is not used by this feature and was left unchanged. It is tracked as a follow-up.
+
+## Retention
+
+| Data | Bound | Mechanism | Pending work |
+|---|---|---|---|
+| Gateway outbox `EXPORTED` / `FAILED` rows | 30 days (`retention`) | Every exporter poll | `PENDING` never purged |
+| Inbox `.acked/` files | 24 h (`PARKIO_SLACK_BIZ_WAITLIST_ACKED_RETENTION_HOURS`; 0 = delete on ack) | Consumer, every 10 min / `consume_waitlist.py --prune` | Unacked `*.json` never pruned |
+| Rejected files | Not kept (default); 72 h if opted in | Consumer | — |
+| Relay `delivered` / `dead` / `delivery_unknown` rows + dedup keys | 168 h dedup window (`PARKIO_SLACK_BIZ_DEDUP_RETENTION_HOURS`) | Worker, every 10 min / `worker.py --prune`, and on enqueue | `queued` / `retry` / `in_flight` never purged |
+| Relay DLT copies | 720 h (`PARKIO_SLACK_BIZ_DLT_RETENTION_HOURS`) | Worker / `--prune` | — |
+| Relay metrics table | Bounded by label cardinality (categories and routes) | — | — |
+| systemd journal | Host journald policy | — | — |
+
+Note: `delivery_unknown` rows are also purged after the dedup window. Operators
+must resolve them (`--list-unknown`, `--resolve-unknown`) within 7 days if a
+decision is needed. Acceptance W16 checks that pending work is kept and that
+in-window re-exports are still suppressed after pruning.
 
 ## Configuration
 
@@ -145,83 +195,107 @@ Remaining limitations, stated plainly:
 | Env var | Default | Meaning |
 |---|---|---|
 | `PARKIO_WAITLIST_OPS_NOTIFICATIONS_ENABLED` | `false` | Master switch. When false, nothing is recorded and there is no exporter bean or scheduler. |
-| `PARKIO_WAITLIST_OPS_NOTIFICATIONS_EXPORT_DIR` | *(empty)* | slack_biz waitlist inbox as seen from inside the container. Empty means nothing is recorded, even when enabled (a warning is logged). |
-| `PARKIO_ENVIRONMENT` | `local` | Goes into the envelope. It must equal the relay's environment or the relay rejects the envelope. |
+| `PARKIO_WAITLIST_OPS_NOTIFICATIONS_EXPORT_DIR` | *(empty)* | Inbox path inside the container. Empty means nothing is recorded, even when enabled (a warning is logged). |
+| `PARKIO_ENVIRONMENT` | `local` | Envelope environment. It must equal the relay's `PARKIO_SLACK_BIZ_ENVIRONMENT`. |
 | `PARKIO_WAITLIST_OPS_NOTIFICATIONS_POLL_INTERVAL` | `PT30S` | Export poll period. |
 | `PARKIO_WAITLIST_OPS_NOTIFICATIONS_BATCH_SIZE` | `20` | Maximum envelopes per poll (1–500). |
-| `PARKIO_WAITLIST_OPS_NOTIFICATIONS_MAX_EXPORT_ATTEMPTS` | `5` | After this many attempts the row becomes `FAILED` (1–20). |
+| `PARKIO_WAITLIST_OPS_NOTIFICATIONS_MAX_EXPORT_ATTEMPTS` | `5` | After this many attempts the row becomes `FAILED`. |
 
 The gateway needs no secret for this feature. Metric:
 `parkio_waitlist_ops_notifications_total{outcome=recorded|duplicate_suppressed|record_failed|exported|export_retry|export_failed}`.
 
-### Relay (`scripts/slack_biz`)
+### Relay
 
-| Env var | Meaning |
+Non-secret settings go in `/etc/parkio/slack-biz.conf.env`
+(template `scripts/slack_biz/deploy/civo/slack-biz.conf.env.example`). The
+webhook goes only in `/etc/parkio/slack-biz.secret.env`.
+
+## Civo relay deployment
+
+Package: `scripts/slack_biz/deploy/civo/`
+
+| File | Purpose |
 |---|---|
-| `PARKIO_SLACK_BIZ_ENABLED` | Relay master switch (default false). |
-| `PARKIO_SLACK_BIZ_WAITLIST_INBOX` | Same host directory the gateway writes to. |
-| `PARKIO_SLACK_BIZ_ENVIRONMENT` / `PARKIO_ENVIRONMENT` | Must match the gateway's `PARKIO_ENVIRONMENT`. |
-| `PARKIO_SLACK_BIZ_WEBHOOK_URL_BIZ` | **Secret.** Incoming webhook for the business channel. Waitlist uses route `biz-growth`. |
-| `PARKIO_SLACK_BIZ_TRUSTED_PRODUCERS` | If you override it, include `gateway-waitlist-outbox` (it is in the default). |
+| `install-relay.sh` | Dry run by default; `--apply` (root) is idempotent. Creates the system user `parkio-slackbiz` (nologin, no home), the group `parkio-waitlist-inbox`, `/var/lib/parkio/slack-biz` (0700), `/var/lib/parkio/waitlist-ops-inbox` (2770 setgid), the conf file (enabled=false) and an empty secret file (0600 root). It installs and enables the units but does **not** start delivery. It refuses to run if a compose `slack-biz-worker` container is running (single-worker rule). |
+| `parkio-slack-biz-waitlist-consumer.service` | Reads the inbox. `PrivateNetwork=yes`, `ProtectSystem=strict`, no capabilities, write access only to state and inbox. Never loads the secret file. |
+| `parkio-slack-biz-worker.service` | The only process that holds the webhook. Loads the 0600 root secret file through systemd (the service user cannot read the file itself). The inbox is inaccessible to it. |
+| `gateway-waitlist-ops.overlay.example.yml` | Example Compose wiring for the Compose owner: `group_add` inbox gid, env, bind mount. Not loaded by anything. |
 
-### Hidden-secret setup (webhook)
+Verified in a disposable systemd 255 / Ubuntu 24.04 / Python 3.12 container
+(`scripts/slack_biz/waitlist-e2e/run-civo-systemd-check.sh`, 11/11): install
+and idempotent re-install, ownership and modes, both units active under
+hardening, service user cannot read the secret, uid 10001 with the inbox group
+can write while uid 20000 cannot, delivery to a local mock, no webhook URL in
+the journal. `systemd-analyze security` exposure: consumer 0.6 (SAFE), worker
+1.3 (OK).
 
-1. A Slack workspace admin creates an incoming webhook bound to the intended business channel. It must **not** be the Alertmanager webhook: `worker.py` refuses to start if `PARKIO_SLACK_BIZ_WEBHOOK_URL*` equals `PARKIO_ALERT_SLACK_WEBHOOK_URL`.
-2. Store it only in a root-owned env file on the relay host, for example `/etc/parkio/slack-biz.env` with mode `0600`. Never put it in the repo, Compose files, CI variables printed in logs, or a shell history (use `read -rs` and write the file with `install -m 600`).
-3. The relay never logs the URL. Transport errors keep only the HTTP status and the Slack response body (acceptance W13 checks queue, DLT, metrics and logs for the URL).
-4. Rotation: revoke the webhook in Slack, replace the file, and restart the relay. The gateway is unaffected.
+Code on the host: a root-owned read-only checkout at the release SHA under
+`/opt/parkio` (the same tree the production compose file set uses). Units run
+`/usr/bin/python3` (≥ 3.10) with the standard library only. No pip packages.
+
+## Secret ownership and rotation
+
+- **Owner:** the Parkio operations owner (the same role that holds `PARKIO_ALERT_SLACK_*`). A named person must be recorded before activation. Only a Slack workspace admin can create the webhook.
+- **Scope:** one incoming webhook bound to the business-notification channel. It must never equal the Alertmanager webhook; the worker refuses to start if it does.
+- **Storage:** only `/etc/parkio/slack-biz.secret.env` (0600 root:root) on the Civo host. Not in the repo, Compose, CI, gateway env, chat or tickets. Edit it with `sudoedit` and never pass the URL on a command line.
+- **Install (future, authorised):** `sudoedit /etc/parkio/slack-biz.secret.env`, then `sudo systemctl restart parkio-slack-biz-worker`.
+- **Rotate:** create the new webhook, replace the value, restart the worker, confirm one delivery (or `--once` against the queue), then revoke the old webhook in Slack. The gateway and consumer are unaffected.
+- **Suspected leak:** revoke in Slack first (stops abuse immediately), then set `PARKIO_SLACK_BIZ_ENABLED=false` and restart the worker until a new webhook is installed. The queue is kept.
+- **Logging:** the relay never logs the URL. Transport errors keep only the HTTP status and Slack's short response body (acceptance W13, e2e E11, systemd-check journal scan).
 
 ## Enable procedure (not authorised yet; record of the steps)
 
-1. Merge this PR and deploy a gateway image that contains it. V4 creates the empty `waitlist_ops_notification_outbox` table. The feature stays off.
-2. Apply the shared-file integration below (Compose volume and relay runtime) through its owners.
-3. Start the relay consumer and worker with `PARKIO_SLACK_BIZ_ENABLED=false`, then set the gateway `…_ENABLED=true` and `…_EXPORT_DIR` and restart the gateway. Confirm that envelopes queue in the relay without being sent (`worker.py --once` reports `enabled:false, pending:N`).
-4. Only with explicit owner approval, set `PARKIO_SLACK_BIZ_ENABLED=true` and restart the relay.
+1. Merge PR #74, then release and deploy a gateway image built from the release SHA. V4 creates the empty outbox table and the feature stays off.
+2. On Civo: check out the same SHA under `/opt/parkio`, then run `sudo scripts/slack_biz/deploy/civo/install-relay.sh` (review the dry run), then `--apply`.
+3. The Compose owner applies the gateway wiring (env keys, `group_add`, bind mount; see the example overlay). `PARKIO_WAITLIST_OPS_NOTIFICATIONS_ENABLED` stays false.
+4. Start both units with `PARKIO_SLACK_BIZ_ENABLED=false`. Set the gateway flag to true and recreate `gateway-service`. Confirm that envelopes reach the relay queue without being sent (`sudo -u parkio-slackbiz … worker.py --once` shows `enabled:false, pending:N`).
+5. Only after explicit owner authorisation: install the webhook, set `PARKIO_SLACK_BIZ_ENABLED=true`, and restart the worker.
 
-## Disable and rollback
+## Disable, discard and rollback
 
 | Goal | Action | Effect |
 |---|---|---|
-| Stop Slack posts immediately | Relay `PARKIO_SLACK_BIZ_ENABLED=false` and restart the worker | The queue is kept and nothing is sent. |
-| Stop producing events | Gateway `PARKIO_WAITLIST_OPS_NOTIFICATIONS_ENABLED=false` and restart | No new outbox rows. Existing `PENDING` rows stay and are exported only if re-enabled. |
-| Drop backlog | `DELETE FROM waitlist_ops_notification_outbox WHERE status='PENDING';` and empty the inbox dir | The backlog is gone. Waitlist data is untouched. |
-| Code rollback | Deploy the previous gateway image | Safe. The applied V4 is a "future" migration for the older image, and Flyway's default `ignoreMigrationPatterns=*:future` accepts it. The table stays and is unused. |
+| Stop Slack posts now | `PARKIO_SLACK_BIZ_ENABLED=false` in the conf file, then `systemctl restart parkio-slack-biz-worker` | The queue is kept and nothing is sent (e2e E07). |
+| Stop producing events | Gateway `PARKIO_WAITLIST_OPS_NOTIFICATIONS_ENABLED=false`, then recreate the gateway | No new outbox rows. Confirmation still works (e2e E08). |
+| **Discard the whole backlog** (all three stages, in this order) | 1. Gateway: `DELETE FROM waitlist_ops_notification_outbox WHERE status='PENDING';` 2. Inbox: `sudo find /var/lib/parkio/waitlist-ops-inbox -maxdepth 1 -name '*.json' -delete` 3. Relay queue: `sudo -u parkio-slackbiz env $(grep -v '^#' /etc/parkio/slack-biz.conf.env \| xargs) python3 /opt/parkio/scripts/slack_biz/worker.py --discard-backlog waitlist.subscription_confirmed --operator <name>` | Queued and retry relay rows become `dead` (no send). Their dedup keys are kept for 168 h, so a late re-export is suppressed (acceptance W17). `in_flight` rows are reported and finish under their lease. Waitlist data is untouched. |
+| Code rollback | Deploy the previous gateway image | Verified with the actual pinned artifact (next section). |
 
-Waitlist admission, confirmation and withdrawal behave identically whichever
-way these switches are set.
+## Rollback verification
 
-## Integration requirements outside this PR (not modified here)
+The previous production gateway artifact is
+`ghcr.io/adberilgen35/parkio/gateway-service@sha256:5c66e0fb010c25dc2029a93f0dab146caee1f442ba74140f66cd397a1e721e2c`
+(revision `efe241952a106ff126edc7b6ede97e4e7a982904`, pinned in `docker/docker-compose.gmp-release-pins.yml`).
 
-These files belong to other owners or are shared. The exact requirements:
+Effective Flyway settings, from that artifact and the production file set:
 
-1. **Compose (invite-production / hosted-beta gateway service)**:
-   - env: `PARKIO_WAITLIST_OPS_NOTIFICATIONS_ENABLED=${PARKIO_WAITLIST_OPS_NOTIFICATIONS_ENABLED:-false}`, `PARKIO_WAITLIST_OPS_NOTIFICATIONS_EXPORT_DIR=/var/lib/parkio/waitlist-ops-inbox`
-   - volume: `${PARKIO_WAITLIST_OPS_INBOX_HOST_DIR:-/var/lib/parkio/slack-biz/waitlist-inbox}:/var/lib/parkio/waitlist-ops-inbox:rw`
-   - The host dir must be writable by container uid `10001` (gateway `USER parkio`) and readable and movable by the relay user. Suggested: group-owned dir with mode `2770`.
-2. **Relay runtime on the host** (also needed by the existing PR #54 families, not deployed today): long-running `python3 scripts/slack_biz/consume_waitlist.py --loop` and `python3 scripts/slack_biz/worker.py --loop` (a systemd unit or timer), with `EnvironmentFile=/etc/parkio/slack-biz.env`. Only **one** worker (enforced by SQLite lock).
-3. **`.env.*.example` files** (optional): document the gateway variables above with `false`/empty defaults.
+- Bundled Flyway `flyway-core-11.7.2`. Bundled migrations V1–V3 only.
+- `BOOT-INF/classes/application.yml`: `spring.flyway.enabled=true`, `locations=classpath:db/migration`. No `ignore-migration-patterns`, `validate-on-migrate` or `out-of-order` override.
+- No `SPRING_FLYWAY_*` / `FLYWAY_*` variable in any file of `docker/compose.production.files` or the env examples. The managed-db overlay that sets `SPRING_FLYWAY_USER` is not in the production set.
+
+Empirical result (e2e E09): on a PostgreSQL 16 database migrated to V4 by the
+PR image, the previous artifact started healthy and logged
+`Successfully validated 4 migrations`, `Schema "public" has a version (4) that
+is newer than the latest available migration (3) !` and
+`Schema "public" is up to date. No migration necessary.` It served a
+confirmation, and left `flyway_schema_history` unchanged. Rolling forward again
+(E10) was healthy. The V4 table stays and is unused by the old code.
 
 ## Validation performed
 
-All with synthetic data. Local mock Slack receiver only; no real Slack or email.
+Synthetic data only; local mock Slack receivers; no real Slack or email.
 
 | Suite | Result |
 |---|---|
-| `./gradlew :services:gateway-service:test` → `WaitlistOpsNotificationOutboxTest` (H2, PostgreSQL mode) | committed confirmation → one envelope with allow-listed keys only · repeat confirm + replayed event → one row / one file · rolled-back transaction → no row, no file · failure after status update → confirmation and notification both rolled back · outbox write failure → confirmation still succeeds (`record_failed`) · missing export dir → backoff, then `FAILED`, never retried again · bounded backoff · batch cap · runtime-disabled → no rows · invalid token → no row · envelope and captured logs contain no email/IP/city/tokens/URLs/subscriber id/email hash |
-| `WaitlistOpsNotificationDisabledTest` | Default config: no exporter bean, confirmation works, no rows |
-| Full `:services:gateway-service:test` | 210 tests, 0 failures, 0 errors |
-| `python3 scripts/slack_biz/run_waitlist_acceptance.py` | 14/14 PASS: committed, rollback (idle relay), duplicate, disabled, timeout→retry, timeouts exhausted→`delivery_unknown`, 429 + Retry-After, 5xx→retry, 5xx exhausted→DLT, 400/404 permanent→DLT with no retry, prohibited-field envelopes rejected, non-confirmation / env-mismatch / malformed rejected, webhook URL absent from state and logs, relay logs free of prohibited values |
-| `run_acceptance.py` / `run_reliability_acceptance.py` (existing) | 15/15 and 13 PASS + 1 NOT_EXECUTED (Kafka, unchanged from PR #54) |
+| `./gradlew :services:gateway-service:test` | All green (see release package for counts) |
+| `./gradlew :services:gateway-service:integrationTest` → `WaitlistOpsNotificationPostgresIT` (postgres:16-alpine, Flyway V1–V4, `JdbcTransactionManager`) | 6/6: V4 applied and constraints enforced · committed → 1 row · outer rollback → neither · server-raised SQL error in savepoint → confirmation committed + `record_failed` · repeat + replay → 1 row, replay confined to savepoint · retention keeps `PENDING`. Negative control without savepoint fails as expected. |
+| `python3 scripts/slack_biz/run_waitlist_acceptance.py` | 18/18 (W01–W18) |
+| `scripts/slack_biz/waitlist-e2e/run-e2e.sh` (Docker, internal network, PR image + previous artifact) | 11/11 (E01–E11) |
+| `scripts/slack_biz/waitlist-e2e/run-civo-systemd-check.sh` | 11/11 |
+| Existing `run_acceptance.py` / `run_reliability_acceptance.py` | 15/15 and 13 PASS + 1 NOT_EXECUTED (Kafka, unchanged from PR #54) |
 
-Not executed: PostgreSQL run of V4 and of the savepoint path (tests use H2 in
-PostgreSQL mode; the SQL is standard and savepoints are supported by the
-PostgreSQL JDBC driver), and a gateway-container → host-volume → relay run
-(it needs the Compose change above).
+## Planning decisions (recorded)
 
-## Remaining decisions
-
-1. **Terminal email failure.** Should Parkio add Resend webhooks (signed, Svix) with a persisted Resend message id, as a separate task? Only then can `bounce_hard` / `complaint` / `suppressed` be reported truthfully.
-2. **Channel and volume.** Should confirmations go per-event to `biz-growth`, or should a daily count digest replace them at launch?
-3. **Relay hosting.** Which host and user run the slack_biz consumer and worker, and who owns the webhook secret?
-4. **Compose owner** applies the volume and env wiring above.
-5. **Production enablement** (gateway flag, relay flag, real webhook) needs separate explicit authorisation.
+- One message per confirmed subscription for the initial release.
+- Daily digest and signed Resend delivery webhooks are deferred to separate tasks. Terminal email failure stays unimplemented until then.
+- The relay is Civo-hosted under a dedicated least-privilege user with systemd units. The webhook is never given to the gateway.
+- The Resend client timeout observation is tracked separately, outside this PR.
