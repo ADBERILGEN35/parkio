@@ -18,7 +18,7 @@ The PR #81 image is **not** the coordinated candidate. Do not publish, pin, or d
 
 Cursor owns branch `fix/register-invite-lang-locale` → PR #82 (`https://github.com/ADBERILGEN35/parkio/pull/82`).
 
-Reviewed dependency head for combined-candidate prep: `6d4272a12cd94510b6cf46df6ab54d573b7b12db` (update this SHA if PR #82 receives further commits).
+Reviewed dependency tip for combined-candidate prep: `e0fede576c039050011326ad013da3e33ceb23fe`; its latest code commit is `6d4272a12cd94510b6cf46df6ab54d573b7b12db`.
 
 At this snapshot the branch carries:
 
