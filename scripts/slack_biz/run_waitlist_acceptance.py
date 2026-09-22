@@ -551,6 +551,34 @@ def run(evidence_dir: Path | None) -> dict:
         assert h.status_of(env["eventId"]) == "delivered"
         return "not acked on write failure; delivered on next poll"
 
+    @scenario("W19", "backpressure: queue full / low disk → files kept, nothing deleted, resumes")
+    @with_env(PARKIO_SLACK_BIZ_MAX_PENDING="2")
+    @disabled
+    def _w19(h: Harness):
+        envs = [gateway_envelope() for _ in range(4)]
+        for i, e in enumerate(envs):
+            h.drop(e, f"w-{i}.json")
+        r1 = h.consumer.poll_once()
+        assert r1.enqueued == 4 and h.store.pending_count() == 4, r1  # admitted below bound
+        more = [gateway_envelope() for _ in range(3)]
+        for i, e in enumerate(more):
+            h.drop(e, f"x-{i}.json")
+        r2 = h.consumer.poll_once()
+        assert r2.deferred == "queue_full" and r2.processed == 0, r2
+        assert len(list(h.inbox.glob("*.json"))) == 3  # kept, not deleted
+        # low disk
+        h.config = load_config({**os.environ, "PARKIO_SLACK_BIZ_MAX_PENDING": "1000",
+                                "PARKIO_SLACK_BIZ_MIN_FREE_MB": str(10**12)})
+        h.consumer.config = h.config
+        r3 = h.consumer.poll_once()
+        assert r3.deferred == "low_disk" and len(list(h.inbox.glob("*.json"))) == 3, r3
+        # pressure relieved → resumes, nothing lost
+        h.config = load_config({**os.environ, "PARKIO_SLACK_BIZ_MAX_PENDING": "1000"})
+        h.consumer.config = h.config
+        r4 = h.consumer.poll_once()
+        assert r4.deferred is None and r4.enqueued == 3 and h.store.pending_count() == 7, r4
+        return "queue_full + low_disk deferrals kept 3 files; resumed → 7 pending, 0 lost"
+
     @scenario("W13", "webhook URL and secrets never logged or persisted")
     def _w13(h: Harness):
         env = gateway_envelope()

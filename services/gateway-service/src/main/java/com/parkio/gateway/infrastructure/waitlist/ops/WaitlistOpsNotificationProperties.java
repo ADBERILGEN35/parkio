@@ -47,6 +47,14 @@ public class WaitlistOpsNotificationProperties {
     @NotNull
     private Duration retryMaxDelay = Duration.ofMinutes(15);
 
+    /** Stop exporting while the inbox holds this many unconsumed envelopes. */
+    @Min(1)
+    private int maxInboxBacklog = 5000;
+
+    /** Stop exporting while the inbox filesystem has less usable space than this. */
+    @Min(0)
+    private long minFreeBytes = 512L * 1024 * 1024;
+
     /** EXPORTED / FAILED rows older than this are purged. */
     @NotNull
     private Duration retention = Duration.ofDays(30);
@@ -113,6 +121,22 @@ public class WaitlistOpsNotificationProperties {
 
     public void setRetryMaxDelay(Duration retryMaxDelay) {
         this.retryMaxDelay = retryMaxDelay;
+    }
+
+    public int getMaxInboxBacklog() {
+        return maxInboxBacklog;
+    }
+
+    public void setMaxInboxBacklog(int maxInboxBacklog) {
+        this.maxInboxBacklog = maxInboxBacklog;
+    }
+
+    public long getMinFreeBytes() {
+        return minFreeBytes;
+    }
+
+    public void setMinFreeBytes(long minFreeBytes) {
+        this.minFreeBytes = minFreeBytes;
     }
 
     public Duration getRetention() {

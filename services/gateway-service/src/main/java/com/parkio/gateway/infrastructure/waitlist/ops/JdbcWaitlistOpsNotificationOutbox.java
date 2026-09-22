@@ -113,6 +113,12 @@ public class JdbcWaitlistOpsNotificationOutbox implements WaitlistOpsNotifier {
                 limit);
     }
 
+    long countPending() {
+        Long count = jdbcTemplate.queryForObject(
+                "SELECT COUNT(*) FROM waitlist_ops_notification_outbox WHERE status = 'PENDING'", Long.class);
+        return count == null ? 0 : count;
+    }
+
     void markExported(UUID id, Instant now) {
         jdbcTemplate.update("""
                 UPDATE waitlist_ops_notification_outbox

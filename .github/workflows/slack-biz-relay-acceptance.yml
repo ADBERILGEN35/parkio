@@ -1,0 +1,95 @@
+# slack_biz relay acceptance (Slack business/ops notification relay).
+#
+# Runs the relay's Python acceptance suites against LOCAL mock Slack receivers
+# only: no secrets, no real webhook, no network egress beyond the runner.
+#   * run_waitlist_acceptance.py      — waitlist confirmation family (PR #74)
+#   * run_acceptance.py               — Y03 families (PR #54)
+#   * run_reliability_acceptance.py   — Y03A delivery reliability (PR #54)
+# plus static checks of the Civo relay package (shell syntax, systemd unit
+# verification) and the production Compose integration (synthetic env only).
+#
+# Scoped to the relay and its integration points; other PRs are unaffected.
+
+name: slack_biz relay acceptance
+
+on:
+  pull_request:
+    paths:
+      - "scripts/slack_biz/**"
+      - "docker/docker-compose.apps.yml"
+      - "docker/docker-compose.waitlist-ops-inbox.yml"
+      - "docker/compose.production.files"
+      - "docker/.env.azure-hosted-beta.example"
+      - "services/gateway-service/src/main/java/com/parkio/gateway/infrastructure/waitlist/ops/**"
+      - "docs/operations/waitlist-slack-*.md"
+      - ".github/workflows/slack-biz-relay-acceptance.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: slack-biz-relay-acceptance-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  relay-acceptance:
+    name: slack_biz relay acceptance (mock Slack)
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    env:
+      # Belt and braces: nothing in this job may hold a real destination.
+      PARKIO_SLACK_BIZ_WEBHOOK_URL: ""
+      PARKIO_SLACK_BIZ_WEBHOOK_URL_BIZ: ""
+      PARKIO_SLACK_BIZ_WEBHOOK_URL_OPS: ""
+      PARKIO_ALERT_SLACK_WEBHOOK_URL: ""
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Set up Python 3.12
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Waitlist confirmation acceptance
+        working-directory: scripts
+        run: python slack_biz/run_waitlist_acceptance.py --evidence-dir "$RUNNER_TEMP/slack-biz-evidence"
+
+      - name: Y03 family acceptance
+        working-directory: scripts
+        run: python slack_biz/run_acceptance.py
+
+      - name: Y03A reliability acceptance
+        working-directory: scripts
+        run: python slack_biz/run_reliability_acceptance.py
+
+      - name: Civo relay package static checks
+        run: |
+          set -euo pipefail
+          for f in scripts/slack_biz/deploy/civo/*.sh scripts/slack_biz/waitlist-e2e/*.sh; do bash -n "$f"; done
+          for u in scripts/slack_biz/deploy/civo/*.service; do
+            out="$(systemd-analyze verify "$u" 2>&1 || true)"
+            echo "$out"
+            # Only host-specific paths (python/env files absent on the runner) are tolerated.
+            if echo "$out" | grep -v -E 'python3|EnvironmentFile|No such file|not executable|/opt/parkio|/etc/parkio' | grep -q -E "$(basename "$u").*(Unknown|Invalid|Failed|error)"; then
+              echo "::error::systemd unit $u failed verification"; exit 1
+            fi
+          done
+          ./scripts/slack_biz/deploy/civo/install-relay.sh --help >/dev/null
+
+      - name: Production Compose integration (synthetic env)
+        run: |
+          base="origin/${{ github.base_ref || 'api' }}"
+          ./scripts/slack_biz/deploy/civo/validate-compose-integration.sh "$base"
+
+      - name: Upload acceptance evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: slack-biz-acceptance-evidence
+          path: ${{ runner.temp }}/slack-biz-evidence
+          if-no-files-found: ignore
+          retention-days: 14

@@ -8,7 +8,10 @@ Privacy rules (the inbox directory is an untrusted input boundary):
   * acked files are pruned after a bounded period (the durable queue already
     holds the event);
   * a file is acked only after durable enqueue (or deterministic dedup
-    suppression); a queue write failure leaves it in place for the next poll.
+    suppression); a queue write failure leaves it in place for the next poll;
+  * backpressure: at max_pending queued rows or below min_free_mb free space
+    the poll admits nothing — files stay in the inbox (the gateway then stops
+    exporting and keeps rows PENDING). Pending work is never deleted.
 """
 
 from __future__ import annotations
@@ -17,6 +20,7 @@ import hashlib
 import json
 import logging
 import os
+import shutil
 import time
 from dataclasses import dataclass
 from pathlib import Path
@@ -29,6 +33,7 @@ log = logging.getLogger("parkio.slack_biz.waitlist_inbox")
 
 MAX_ENVELOPE_BYTES = 4096
 REJECTED_METRIC = "slack_biz_waitlist_rejected_total"
+DEFERRED_METRIC = "slack_biz_waitlist_consume_deferred_total"
 
 
 @dataclass
@@ -39,6 +44,7 @@ class WaitlistPollResult:
     rejected: int = 0
     write_failures: int = 0
     acked: int = 0
+    deferred: str | None = None
 
 
 class WaitlistInboxConsumer:
@@ -56,6 +62,7 @@ class WaitlistInboxConsumer:
         self.acked = self.inbox / ".acked"
         self.invalid = self.inbox / ".invalid"
         self.max_files_per_poll = max_files_per_poll
+        self._last_deferral: str | None = None
         self.acked.mkdir(parents=True, exist_ok=True)
         if config.waitlist_retain_rejected:
             self.invalid.mkdir(parents=True, exist_ok=True)
@@ -63,6 +70,17 @@ class WaitlistInboxConsumer:
 
     def poll_once(self) -> WaitlistPollResult:
         result = WaitlistPollResult()
+        deferral = self._backpressure()
+        if deferral:
+            result.deferred = deferral
+            self.store.bump_metric(DEFERRED_METRIC, {"reason": deferral})
+            if deferral != self._last_deferral:
+                log.warning("waitlist consume deferred reason=%s (files kept in inbox)", deferral)
+            self._last_deferral = deferral
+            return result
+        if self._last_deferral:
+            log.info("waitlist consume resumed after deferral reason=%s", self._last_deferral)
+            self._last_deferral = None
         for path in sorted(self.inbox.glob("*.json"))[: self.max_files_per_poll]:
             if not path.is_file():
                 continue
@@ -106,6 +124,17 @@ class WaitlistInboxConsumer:
         return removed
 
     # ------------------------------------------------------------------ helpers
+    def _backpressure(self) -> str | None:
+        if self.store.pending_count() >= self.config.max_pending:
+            return "queue_full"
+        try:
+            free = shutil.disk_usage(self.config.data_dir).free
+        except OSError:
+            return None
+        if free < self.config.min_free_mb * 1024 * 1024:
+            return "low_disk"
+        return None
+
     @staticmethod
     def _read(path: Path) -> object:
         try:

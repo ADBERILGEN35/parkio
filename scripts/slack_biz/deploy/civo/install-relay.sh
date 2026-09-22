@@ -41,6 +41,24 @@ if command -v docker >/dev/null 2>&1 && docker ps --format '{{.Names}}' 2>/dev/n
   exit 1
 fi
 
+# Isolation: this package installs ONLY the waitlist consumer + worker. The
+# legacy registration consumer (file inbox / Kafka) stays out of scope and OFF.
+for f in "$ETC/slack-biz.conf.env" "$ETC/slack-biz.secret.env"; do
+  if [ -r "$f" ] && grep -Eq '^(PARKIO_SLACK_BIZ_REGISTRATION_INBOX|PARKIO_SLACK_BIZ_KAFKA_BOOTSTRAP)=.+' "$f"; then
+    echo "refusing: $f enables the registration consumer path (out of scope for this package)" >&2
+    exit 1
+  fi
+done
+if [ -r "$ETC/slack-biz.conf.env" ] && grep -Eq '^PARKIO_SLACK_BIZ_TRUSTED_PRODUCERS=' "$ETC/slack-biz.conf.env" \
+   && ! grep -Eq '^PARKIO_SLACK_BIZ_TRUSTED_PRODUCERS=gateway-waitlist-outbox$' "$ETC/slack-biz.conf.env"; then
+  echo "refusing: PARKIO_SLACK_BIZ_TRUSTED_PRODUCERS must be exactly gateway-waitlist-outbox" >&2
+  exit 1
+fi
+if ls /etc/systemd/system/parkio-slack-biz-*.service 2>/dev/null | grep -v -E '/(parkio-slack-biz-waitlist-consumer|parkio-slack-biz-worker)\.service$' | grep -q .; then
+  echo "refusing: unexpected parkio-slack-biz unit present (only waitlist consumer + worker are allowed)" >&2
+  exit 1
+fi
+
 getent group "$INBOX_GROUP" >/dev/null || run groupadd --system "$INBOX_GROUP"
 if ! id "$SVC_USER" >/dev/null 2>&1; then
   run useradd --system --user-group --no-create-home --home-dir /nonexistent \

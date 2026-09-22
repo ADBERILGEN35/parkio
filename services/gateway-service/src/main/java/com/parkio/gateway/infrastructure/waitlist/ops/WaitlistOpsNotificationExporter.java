@@ -4,6 +4,7 @@ import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import java.io.IOException;
 import java.nio.file.AtomicMoveNotSupportedException;
+import java.nio.file.DirectoryStream;
 import java.nio.file.Files;
 import java.nio.file.NoSuchFileException;
 import java.nio.file.Path;
@@ -16,6 +17,9 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import org.slf4j.Logger;
+import io.micrometer.core.instrument.Gauge;
+import io.micrometer.core.instrument.MeterRegistry;
+import java.util.concurrent.atomic.AtomicLong;
 import org.slf4j.LoggerFactory;
 import org.springframework.scheduling.annotation.Scheduled;
 
@@ -28,6 +32,12 @@ import org.springframework.scheduling.annotation.Scheduled;
  * the relay suppresses the repeat by {@code dedupKey}. Export failures retry
  * with bounded exponential backoff and become {@code FAILED} after
  * {@code maxExportAttempts}; they are never retried indefinitely.
+ *
+ * <p>Backpressure: when the inbox already holds {@code maxInboxBacklog}
+ * unconsumed envelopes (relay down or deferring) or its filesystem has less
+ * than {@code minFreeBytes} usable space, the poll exports nothing. Rows stay
+ * {@code PENDING} without consuming an attempt, so nothing is dropped or
+ * deleted; the confirmation path only ever inserts one small row.
  */
 public class WaitlistOpsNotificationExporter {
 
@@ -40,14 +50,24 @@ public class WaitlistOpsNotificationExporter {
     private final WaitlistOpsNotificationProperties properties;
     private final Clock clock;
     private final ObjectMapper objectMapper = new ObjectMapper();
+    private final AtomicLong pendingRows = new AtomicLong();
+    private final AtomicLong inboxBacklog = new AtomicLong();
+    private volatile String lastDeferral;
 
     public WaitlistOpsNotificationExporter(
             JdbcWaitlistOpsNotificationOutbox outbox,
             WaitlistOpsNotificationProperties properties,
-            Clock clock) {
+            Clock clock,
+            MeterRegistry meterRegistry) {
         this.outbox = outbox;
         this.properties = properties;
         this.clock = clock;
+        Gauge.builder("parkio.waitlist.ops.outbox.pending", pendingRows, AtomicLong::get)
+                .description("Committed waitlist ops notifications not yet exported")
+                .register(meterRegistry);
+        Gauge.builder("parkio.waitlist.ops.inbox.backlog", inboxBacklog, AtomicLong::get)
+                .description("Unconsumed envelopes in the slack_biz waitlist inbox")
+                .register(meterRegistry);
     }
 
     @Scheduled(
@@ -63,11 +83,25 @@ public class WaitlistOpsNotificationExporter {
 
     public ExportResult exportDue() {
         if (!outbox.isActive()) {
-            return new ExportResult(0, 0, 0);
+            return new ExportResult(0, 0, 0, null);
         }
         Instant now = clock.instant();
         outbox.purgeTerminalBefore(now.minus(properties.getRetention()));
+        pendingRows.set(outbox.countPending());
         Path dir = Path.of(properties.getExportDir());
+        String deferral = backpressure(dir);
+        if (deferral != null) {
+            outbox.count("export_deferred_" + deferral);
+            if (!deferral.equals(lastDeferral)) {
+                log.warn("Waitlist ops notification export deferred; reason={}, pendingRows={}", deferral, pendingRows.get());
+            }
+            lastDeferral = deferral;
+            return new ExportResult(0, 0, 0, deferral);
+        }
+        if (lastDeferral != null) {
+            log.info("Waitlist ops notification export resumed after deferral; reason={}", lastDeferral);
+            lastDeferral = null;
+        }
         List<JdbcWaitlistOpsNotificationOutbox.OutboxRow> due = outbox.findDue(now, properties.getBatchSize());
         int exported = 0;
         int retried = 0;
@@ -92,7 +126,38 @@ public class WaitlistOpsNotificationExporter {
                 retried++;
             }
         }
-        return new ExportResult(exported, retried, failed);
+        pendingRows.set(outbox.countPending());
+        return new ExportResult(exported, retried, failed, null);
+    }
+
+    /** @return null when exporting may proceed, otherwise a bounded deferral reason */
+    String backpressure(Path dir) {
+        if (!Files.isDirectory(dir)) {
+            return null; // per-row path records export_dir_missing with bounded retries
+        }
+        long backlog = 0;
+        try (DirectoryStream<Path> files = Files.newDirectoryStream(dir, "*.json")) {
+            for (Path ignored : files) {
+                backlog++;
+                if (backlog >= properties.getMaxInboxBacklog()) {
+                    break;
+                }
+            }
+        } catch (IOException ex) {
+            return null;
+        }
+        inboxBacklog.set(backlog);
+        if (backlog >= properties.getMaxInboxBacklog()) {
+            return "inbox_backlog";
+        }
+        try {
+            if (Files.getFileStore(dir).getUsableSpace() < properties.getMinFreeBytes()) {
+                return "low_disk";
+            }
+        } catch (IOException ex) {
+            return null;
+        }
+        return null;
     }
 
     Duration backoff(int attempts) {
@@ -147,6 +212,6 @@ public class WaitlistOpsNotificationExporter {
         return envelope;
     }
 
-    public record ExportResult(int exported, int retried, int failed) {
+    public record ExportResult(int exported, int retried, int failed, String deferred) {
     }
 }

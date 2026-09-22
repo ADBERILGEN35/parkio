@@ -247,6 +247,59 @@ class WaitlistOpsNotificationOutboxTest {
     }
 
     @Test
+    void inboxBacklogDefersExportWithoutConsumingAttemptsOrDroppingRows() throws Exception {
+        int previous = properties.getMaxInboxBacklog();
+        properties.setMaxInboxBacklog(3);
+        try {
+            submitPending();
+            service.confirm(verificationToken.get()).block();
+            for (int i = 0; i < 3; i++) {
+                Files.writeString(inbox.resolve("unconsumed-" + i + ".json"), "{}");
+            }
+            for (int poll = 0; poll < 10; poll++) {
+                WaitlistOpsNotificationExporter.ExportResult r = exporter.exportDue();
+                assertThat(r.deferred()).isEqualTo("inbox_backlog");
+                assertThat(r.exported() + r.retried() + r.failed()).isZero();
+            }
+            assertThat(outboxStatus()).isEqualTo("PENDING");
+            assertThat(jdbcTemplate.queryForObject(
+                    "SELECT attempts FROM waitlist_ops_notification_outbox", Integer.class)).isZero();
+            assertThat(meterRegistry.get("parkio.waitlist.ops.outbox.pending").gauge().value()).isEqualTo(1.0);
+            assertThat(meterRegistry.get("parkio.waitlist.ops.inbox.backlog").gauge().value()).isEqualTo(3.0);
+            assertThat(counter("export_deferred_inbox_backlog")).isGreaterThanOrEqualTo(10.0);
+
+            Files.delete(inbox.resolve("unconsumed-0.json")); // relay drains below the bound
+            WaitlistOpsNotificationExporter.ExportResult resumed = exporter.exportDue();
+            assertThat(resumed.deferred()).isNull();
+            assertThat(resumed.exported()).isEqualTo(1);
+            assertThat(meterRegistry.get("parkio.waitlist.ops.outbox.pending").gauge().value()).isZero();
+        } finally {
+            properties.setMaxInboxBacklog(previous);
+        }
+    }
+
+    @Test
+    void lowDiskDefersExportAndConfirmationStillSucceeds() {
+        long previous = properties.getMinFreeBytes();
+        properties.setMinFreeBytes(Long.MAX_VALUE);
+        try {
+            submitPending();
+            service.confirm(verificationToken.get()).block();
+            assertThat(interestStatus()).isEqualTo("CONFIRMED");
+            for (int poll = 0; poll < properties.getMaxExportAttempts() + 3; poll++) {
+                assertThat(exporter.exportDue().deferred()).isEqualTo("low_disk");
+            }
+            assertThat(outboxStatus()).isEqualTo("PENDING");
+            assertThat(jdbcTemplate.queryForObject(
+                    "SELECT attempts FROM waitlist_ops_notification_outbox", Integer.class)).isZero();
+            assertThat(inboxFiles()).isEmpty();
+        } finally {
+            properties.setMinFreeBytes(previous);
+        }
+        assertThat(exporter.exportDue().exported()).isEqualTo(1);
+    }
+
+    @Test
     void backoffIsBounded() {
         assertThat(exporter.backoff(1)).isEqualTo(properties.getRetryBaseDelay());
         assertThat(exporter.backoff(2)).isEqualTo(properties.getRetryBaseDelay().multipliedBy(2));

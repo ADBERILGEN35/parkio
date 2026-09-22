@@ -61,6 +61,15 @@ x 'cat /root/mock-requests.jsonl' > "$EVIDENCE_DIR/civo-systemd-mock-request.jso
 x 'journalctl -u parkio-slack-biz-waitlist-consumer -u parkio-slack-biz-worker --no-pager' > "$EVIDENCE_DIR/civo-systemd-journal.log"
 check "journal has no webhook URL" "! grep -q 'CIVOCHECK' \"$EVIDENCE_DIR/civo-systemd-journal.log\""
 check "consumer has no network (PrivateNetwork)" "x 'systemctl show -p PrivateNetwork parkio-slack-biz-waitlist-consumer' | grep -q yes"
+# Isolation: only the waitlist consumer + worker exist; registration path OFF.
+units="$(x "systemctl list-unit-files 'parkio-slack-biz*' --no-legend | awk '{print \$1\":\"\$2}' | sort | paste -sd, -")"
+log "slack-biz units: $units"
+check "only waitlist consumer + worker installed/enabled" "[ \"\$units\" = 'parkio-slack-biz-waitlist-consumer.service:enabled,parkio-slack-biz-worker.service:enabled' ]"
+reg='{"eventId":"11111111-1111-4111-8111-111111111111","eventType":"UserRegistered","payload":{"userId":"22222222-2222-4222-8222-222222222222"}}'
+check "registration events rejected by trusted-producer allow-list" "! x \"cd /opt/parkio/scripts && printf '%s' '\$reg' | runuser -u parkio-slackbiz -- env \\\$(grep -v '^#' /etc/parkio/slack-biz.conf.env | xargs) python3 slack_biz/enqueue.py --kind registration\" >/dev/null 2>&1"
+x "cp /etc/parkio/slack-biz.conf.env /root/conf.bak && echo PARKIO_SLACK_BIZ_REGISTRATION_INBOX=/tmp/x >> /etc/parkio/slack-biz.conf.env"
+check "installer refuses registration-consumer config" "! x '/opt/parkio/scripts/slack_biz/deploy/civo/install-relay.sh --apply' >/dev/null 2>&1"
+x "cp /root/conf.bak /etc/parkio/slack-biz.conf.env"
 x 'systemd-analyze security parkio-slack-biz-waitlist-consumer.service parkio-slack-biz-worker.service --no-pager' > "$EVIDENCE_DIR/civo-systemd-security.txt" 2>&1
 log "$(grep -E 'Overall exposure' "$EVIDENCE_DIR/civo-systemd-security.txt")"
 x 'systemctl stop parkio-slack-biz-worker parkio-slack-biz-waitlist-consumer'

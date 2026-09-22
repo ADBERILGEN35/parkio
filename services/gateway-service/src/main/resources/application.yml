@@ -371,8 +371,12 @@ parkio:
     # export-dir (the slack_biz relay's waitlist inbox); it never holds a Slack webhook.
     ops-notifications:
       enabled: ${PARKIO_WAITLIST_OPS_NOTIFICATIONS_ENABLED:false}
-      environment: ${PARKIO_ENVIRONMENT:local}
+      # Dedicated key so enabling this never changes info.deployment.environment.
+      environment: ${PARKIO_WAITLIST_OPS_NOTIFICATIONS_ENVIRONMENT:${PARKIO_ENVIRONMENT:local}}
       export-dir: ${PARKIO_WAITLIST_OPS_NOTIFICATIONS_EXPORT_DIR:}
       poll-interval: ${PARKIO_WAITLIST_OPS_NOTIFICATIONS_POLL_INTERVAL:PT30S}
       batch-size: ${PARKIO_WAITLIST_OPS_NOTIFICATIONS_BATCH_SIZE:20}
       max-export-attempts: ${PARKIO_WAITLIST_OPS_NOTIFICATIONS_MAX_EXPORT_ATTEMPTS:5}
+      # Backpressure: export pauses (rows stay PENDING, nothing dropped) above these bounds.
+      max-inbox-backlog: ${PARKIO_WAITLIST_OPS_NOTIFICATIONS_MAX_INBOX_BACKLOG:5000}
+      min-free-bytes: ${PARKIO_WAITLIST_OPS_NOTIFICATIONS_MIN_FREE_BYTES:536870912}
