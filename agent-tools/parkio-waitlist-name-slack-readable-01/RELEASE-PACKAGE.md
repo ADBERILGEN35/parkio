@@ -7,9 +7,9 @@
 | Item | Value |
 | --- | --- |
 | Feature branch | `feat/waitlist-full-name-readable-slack` |
-| Branch HEAD (pre-commit) | `bada97023af99f40b51d515e83e0599a19b25441` |
+| Feature commit | `f1de140f8e3f16205694c3e2b2289cd9c7a4d2d0` |
 | Base | `origin/api` @ `bada97023af99f40b51d515e83e0599a19b25441` |
-| Draft PR | (filled after gh pr create --draft) |
+| Draft PR | https://github.com/ADBERILGEN35/parkio/pull/84 (draft) |
 
 Exact post-commit SHAs are recorded in the PR description after push.
 
