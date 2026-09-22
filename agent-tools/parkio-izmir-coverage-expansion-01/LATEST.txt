@@ -1,18 +1,15 @@
-2026-09-22 — Roadside product UI + release package (PR #71 tip 3b7fdc8f / follow-up)
+2026-09-22 — Roadside product UI + release package (PR #71 tip 7595f47d)
 
-Core requirement: 48 İZELMAN roadside records discoverable in Explore + /map (not only
-/parking/roadside/nearby). Candidate Alsancak Explore returns visible roadside IDs
-3611ffcb-… and 8e16b9a2-… (see roadside-ui-candidate-evidence.json).
+Core: 48 İZELMAN roadside discoverable in Explore + /map. Candidate Alsancak Explore
+visible roadside IDs: 3611ffcb-2205-4894-9fe3-f14d6e518e9d, 8e16b9a2-1dec-42a3-a032-514cfdc27480
+(roadside-ui-candidate-evidence.json). AuthGate preserved for anonymous detail.
 
-1505 = distinct facility table records across sources — not unique physical locations.
-Roadside 48 counted separately; auto-match remains OFF.
+1505 = distinct facility table records (not unique physical places). Roadside 48 separate.
+Auto-match OFF. Capped searches: radius control changes API; zoom alone does not.
 
-Capped facility nearby: radius control / Tighten search changes radiusMeters API query;
-map zoom alone does not.
-
-RC images (local, not ghcr):
+RC (local, not ghcr):
   parking @sha256:4f35e1eddb9c6f74ca312255d2d9a86fbed8e998c2cd2545b8b80642715582c4
-  web     @sha256:054349a32374c7d0cd03d3056d437a6fbffbd1ad4816c105dc5df6a11b25772b
-  (web rebuild after geo label fix if tip advances)
+  web     @sha256:7a00a214ab61bebd9c2d3d7cf83b4523dab80cc4d5b6c9761188e11b1cfc8d7a
 
+CI tip 7595f47d: Backend/Integration/Frontend/Mobile-v2/Security green; legacy mobile advisory fail only.
 No production mutation. See RELEASE-DECISION-PACKAGE.md

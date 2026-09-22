@@ -2,7 +2,7 @@
 
 **Date:** 2026-09-22  
 **PR:** [#71](https://github.com/ADBERILGEN35/parkio/pull/71) `feat/izmir-parking-coverage-expansion`  
-**Final tip (this package):** `3b7fdc8f59d1d091be7b5d3c75aec4434c4e6b17`  
+**Final tip (this package):** `7595f47dde752a6441b7c4759f939d1792213d56`  
 **Production mutation:** **not executed** — reversible preparation only.  
 **Out of scope:** PR #68, New Relic, Hostinger gateway flips.
 
@@ -25,17 +25,17 @@ Evidence: `runtime-image-identities.txt`
 
 Merged PR #70 (`f0abf765` on `api`) is **not** in the running parking image (`e353baed…` is pre-#70).
 
-### 1.2 Candidate artifacts (local; not on ghcr) — tip `3b7fdc8f`
+### 1.2 Candidate artifacts (local; not on ghcr) — tip `7595f47d`
 
 | Artifact | Identity | Notes |
 | --- | --- | --- |
-| Source | `3b7fdc8f59d1d091be7b5d3c75aec4434c4e6b17` | Roadside Explore+/map UI + radius continuation + count wording |
-| Parking RC (local) | `parkio/parking-service:izmir-coverage-rc-3b7fdc8f59d1` `@sha256:4f35e1eddb9c6f74ca312255d2d9a86fbed8e998c2cd2545b8b80642715582c4` | Rebuilt for this tip; **not on ghcr** |
-| Web RC (local) | `parkio/web:izmir-coverage-rc-3b7fdc8f59d1` `@sha256:054349a32374c7d0cd03d3056d437a6fbffbd1ad4816c105dc5df6a11b25772b` | Explore+municipal ON; MapTiler present; roadside inventory chunk baked; **not on ghcr** |
+| Source | `7595f47dde752a6441b7c4759f939d1792213d56` | Roadside Explore+/map UI + radius continuation + count wording + known-key IZELMAN labels |
+| Parking RC (local) | `parkio/parking-service:izmir-coverage-rc-7595f47dde75` `@sha256:4f35e1eddb9c6f74ca312255d2d9a86fbed8e998c2cd2545b8b80642715582c4` | Built from `3b7fdc8f` parking code; retagged to final tip (no parking delta); **not on ghcr** |
+| Web RC (local) | `parkio/web:izmir-coverage-rc-7595f47dde75` `@sha256:7a00a214ab61bebd9c2d3d7cf83b4523dab80cc4d5b6c9761188e11b1cfc8d7a` | Rebuilt for final tip; Explore+municipal ON; MapTiler present; **not on ghcr** |
 | Web bake profile | `web-izmir-coverage.candidate-bake.env` | Server families at flip: `IZUM,IZELMAN,OSM` |
 | OSM clip | `izmir-admin-izbb-2024-10-18-v1` | GeoJSON SHA `2344db92…` |
 
-Evidence: `parking-rc-image.txt`, `web-rc-image.txt`, `parking-rc-docker-build-roadside-ui.txt`, `web-rc-docker-build-roadside-ui.txt`.
+Evidence: `parking-rc-image.txt`, `web-rc-image.txt`, `parking-rc-docker-build-roadside-ui.txt`, `web-rc-docker-build-final.txt`.
 
 **ghcr publish of parking+web RC images = remaining release action** (not done in this step).
 
@@ -129,11 +129,18 @@ When facility nearby returns the limit (100):
 
 ---
 
-## 4. CI status (tip `3b7fdc8f`)
+## 4. CI status (tip `7595f47d`)
 
-Terminal capture: `ci-71-roadside-ui.txt` (filled when `gh pr checks 71 --watch` completes).
+Terminal capture: `ci-71-final.txt`
 
-Expected required gates for this tip: Backend unit, Integration, Frontend, Security (incl. parking Trivy scan). Legacy mobile remains advisory. Mobile-v2 status recorded from the same tip run.
+| Check | Result |
+| --- | --- |
+| Backend unit / Integration / Frontend / Mobile-v2 | **pass** |
+| Container scan (parking-service) + Security CI summary | **pass** |
+| All other container scans + CodeQL + Secret scan | **pass** |
+| Legacy mobile (advisory) | fail (advisory only) |
+
+Required gates green on final tip. `gh pr checks` exits non-zero solely due to advisory legacy mobile.
 
 ---
 
@@ -143,7 +150,7 @@ Expected required gates for this tip: Backend unit, Integration, Frontend, Secur
 
 1. **Backup** `municipal_*` (+ roadside + conflation tables).
 2. **Deploy parking** RC `@sha256:4f35e1ed…`; update GMP pin off `e353baed…`.
-3. **Deploy web** RC `@sha256:054349a3…` (Explore+municipal bake; roadside merge + radius continuation).
+3. **Deploy web** RC `@sha256:7a00a214…` (Explore+municipal bake; roadside merge + radius continuation).
 4. Set parking Explore allowlist still **IZUM-only** until inventories imported.
 5. **Import (publication false for facilities where applicable):** IZUM → İZELMAN×4 → OSM (auto-match **disabled**).
 6. Manual review of 2 REVIEW_REQUIRED pairs; optional accept of the 1 high-score proposal.
@@ -163,4 +170,4 @@ Expected required gates for this tip: Backend unit, Integration, Frontend, Secur
 
 ## Decision ask
 
-Approve ghcr publish + pin update for parking and web RCs (`4f35e1ed…` / `054349a3…`), then staged import/publish per §5. Until then: **no production deploy, import, or publication.**
+Approve ghcr publish + pin update for parking and web RCs (`4f35e1ed…` / `7a00a214…`), then staged import/publish per §5. Until then: **no production deploy, import, or publication.**
