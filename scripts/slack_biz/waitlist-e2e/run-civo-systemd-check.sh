@@ -23,7 +23,7 @@ for _ in $(seq 1 30); do x 'systemctl is-system-running 2>/dev/null' | grep -Eq 
 x 'apt-get update -qq >/dev/null && DEBIAN_FRONTEND=noninteractive apt-get install -y -qq python3 >/dev/null' || { log "apt failed"; exit 1; }
 x 'mkdir -p /opt/parkio/scripts'
 docker cp "$SRC" "$C:/opt/parkio/scripts/slack_biz"
-x 'chown -R root:root /opt/parkio && find /opt/parkio -type d -exec chmod 755 {} + && find /opt/parkio -type f -exec chmod 644 {} + && chmod 755 /opt/parkio/scripts/slack_biz/deploy/civo/install-relay.sh'
+x 'chown -R root:root /opt/parkio && find /opt/parkio -type d -exec chmod 755 {} + && find /opt/parkio -type f -exec chmod 644 {} + && chmod 755 /opt/parkio/scripts/slack_biz/deploy/civo/install-relay.sh /opt/parkio/scripts/slack_biz/deploy/civo/install-webhook.sh'
 log "python: $(x 'python3 --version')  systemd: $(x 'systemctl --version | head -1')"
 
 x '/opt/parkio/scripts/slack_biz/deploy/civo/install-relay.sh --apply' >> "$OUT" 2>&1
@@ -43,7 +43,14 @@ MOCK_SLACK_LOG=/root/mock-requests.jsonl
 E
 systemd-run --unit=mock-slack --property=EnvironmentFile=/tmp/mock.env /usr/bin/python3 /opt/parkio/scripts/slack_biz/waitlist-e2e/mock_slack_server.py' >/dev/null
 x "sed -i 's/^PARKIO_SLACK_BIZ_ENABLED=.*/PARKIO_SLACK_BIZ_ENABLED=true/; s/^PARKIO_SLACK_BIZ_ENVIRONMENT=.*/PARKIO_SLACK_BIZ_ENVIRONMENT=civo-check/' /etc/parkio/slack-biz.conf.env"
-x "sed -i 's#^PARKIO_SLACK_BIZ_WEBHOOK_URL_BIZ=.*#PARKIO_SLACK_BIZ_WEBHOOK_URL_BIZ=http://127.0.0.1:18099/services/CIVOCHECK/MOCK/not-real#' /etc/parkio/slack-biz.secret.env"
+# Secret via the hidden-input installer (stdin test mode, local mock endpoint only).
+wh_out="$(x "printf '%s\n' 'http://127.0.0.1:18099/services/CIVOCHECK/MOCK/not-real' | /opt/parkio/scripts/slack_biz/deploy/civo/install-webhook.sh --stdin --allow-local-test-endpoint" 2>&1)"
+log "$wh_out"
+check "webhook installer sets secret without echoing it" "echo \"\$wh_out\" | grep -q 'SET (value not shown)' && ! echo \"\$wh_out\" | grep -q CIVOCHECK && echo \"\$wh_out\" | grep -q 'secret.env root:root 600'"
+check "webhook installer rejects non-Slack URL" "! x \"printf '%s\\n' 'https://evil.example/x' | /opt/parkio/scripts/slack_biz/deploy/civo/install-webhook.sh --stdin\" >/dev/null 2>&1"
+x "mkdir -p /opt/parkio/docker && printf 'PARKIO_ALERT_SLACK_WEBHOOK_URL=https://hooks.slack.com/services/TALERT/BALERT/samealert\n' > /opt/parkio/docker/.env.azure-hosted-beta"
+check "webhook installer rejects the Alertmanager webhook" "! x \"printf '%s\\n' 'https://hooks.slack.com/services/TALERT/BALERT/samealert' | /opt/parkio/scripts/slack_biz/deploy/civo/install-webhook.sh --stdin\" >/dev/null 2>&1"
+check "secret unchanged after refusals" "x 'grep -q CIVOCHECK /etc/parkio/slack-biz.secret.env'"
 x 'systemctl start parkio-slack-biz-waitlist-consumer.service parkio-slack-biz-worker.service'
 sleep 4
 check "both units active" "[ \"\$(x 'systemctl is-active parkio-slack-biz-waitlist-consumer parkio-slack-biz-worker' | tr '\n' ' ')\" = 'active active ' ]"
