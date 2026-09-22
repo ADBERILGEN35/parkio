@@ -2,7 +2,7 @@
 
 **PR:** https://github.com/ADBERILGEN35/parkio/pull/84 (draft)  
 **Branch:** `feat/waitlist-full-name-readable-slack`  
-**Decision head (pre-this-commit):** `d1f8d0120fa0a496f574a86fa7456929af327a63`  
+**Decision head:** `cbd8dc23b0c07e2836b09cd2614aa94ddb54d42d` (release-prep)  
 **Base:** `origin/api`  
 **Scope:** draft only — no merge, no prod migrate/deploy, no real Slack/email, no secret/NR changes, registration CLOSED, provider=resend.
 
@@ -11,7 +11,7 @@
 | Item | Value |
 | --- | --- |
 | Draft PR | https://github.com/ADBERILGEN35/parkio/pull/84 |
-| Feature commits | `f1de140f`, `d1f8d012`, + follow-up release-prep commit |
+| Feature commits | `f1de140f` (implementation), `d1f8d012` (PR link), `cbd8dc23` (release-prep) |
 | Marketing deploy path | Hostinger `web/marketing/` → parkio.dev (separate from app web) |
 | Admin UI deploy path | GHCR web image pin / app.parkio.dev (separate step) |
 | Gateway / Flyway | V4 → additive V5 (`full_name` nullable + indexes) |
