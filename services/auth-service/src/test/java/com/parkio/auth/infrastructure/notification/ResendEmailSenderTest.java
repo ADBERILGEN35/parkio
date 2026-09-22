@@ -6,11 +6,14 @@ import static org.springframework.test.web.client.match.MockRestRequestMatchers.
 import static org.springframework.test.web.client.match.MockRestRequestMatchers.jsonPath;
 import static org.springframework.test.web.client.match.MockRestRequestMatchers.method;
 import static org.springframework.test.web.client.match.MockRestRequestMatchers.requestTo;
+import static org.springframework.test.web.client.response.MockRestResponseCreators.withException;
 import static org.springframework.test.web.client.response.MockRestResponseCreators.withServerError;
+import static org.springframework.test.web.client.response.MockRestResponseCreators.withStatus;
 import static org.springframework.test.web.client.response.MockRestResponseCreators.withSuccess;
 
 import com.parkio.auth.domain.EmailLocale;
 import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
+import java.net.SocketTimeoutException;
 import org.hamcrest.Matchers;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -18,6 +21,7 @@ import org.junit.jupiter.api.extension.ExtendWith;
 import org.springframework.boot.test.system.CapturedOutput;
 import org.springframework.boot.test.system.OutputCaptureExtension;
 import org.springframework.http.HttpMethod;
+import org.springframework.http.HttpStatus;
 import org.springframework.http.MediaType;
 import org.springframework.test.web.client.MockRestServiceServer;
 import org.springframework.web.client.RestClient;
@@ -60,9 +64,12 @@ class ResendEmailSenderTest {
 
     @Test
     void sendsVerificationEmailInTurkishByDefault(CapturedOutput output) {
+        String expectedKey = ResendEmailSender.idempotencyKey(
+                "email_verification", "user@example.com", TOKEN);
         server.expect(requestTo("https://api.resend.test/emails"))
                 .andExpect(method(HttpMethod.POST))
                 .andExpect(header("Authorization", "Bearer " + API_KEY))
+                .andExpect(header("Idempotency-Key", expectedKey))
                 .andExpect(jsonPath("$.from").value("Parkio <verify@example.com>"))
                 .andExpect(jsonPath("$.to[0]").value("user@example.com"))
                 .andExpect(jsonPath("$.reply_to").value("support@example.com"))
@@ -85,11 +92,15 @@ class ResendEmailSenderTest {
         assertThat(registry.counter("email_verification_sent").count()).isEqualTo(1.0);
         assertThat(registry.counter("email_failed").count()).isZero();
         assertThat(output).doesNotContain(TOKEN).doesNotContain(API_KEY);
+        assertThat(expectedKey).startsWith("auth/email_verification/");
+        assertThat(expectedKey.length()).isLessThanOrEqualTo(256);
     }
 
     @Test
     void sendsVerificationEmailInEnglishWhenRequested() {
         server.expect(requestTo("https://api.resend.test/emails"))
+                .andExpect(header("Idempotency-Key", ResendEmailSender.idempotencyKey(
+                        "email_verification", "user@example.com", TOKEN)))
                 .andExpect(jsonPath("$.subject").value("Verify your Parkio application account"))
                 .andExpect(jsonPath("$.html").value(Matchers.containsString("Verify application account")))
                 .andExpect(jsonPath("$.html").value(Matchers.containsString("not a waitlist signup")))
@@ -105,6 +116,8 @@ class ResendEmailSenderTest {
     @Test
     void sendsPasswordResetInTurkishByDefault() {
         server.expect(requestTo("https://api.resend.test/emails"))
+                .andExpect(header("Idempotency-Key", ResendEmailSender.idempotencyKey(
+                        "password_reset", "user@example.com", TOKEN)))
                 .andExpect(jsonPath("$.subject").value(TR_RESET_SUBJECT))
                 .andExpect(jsonPath("$.html").value(Matchers.containsString("Şifreyi sıfırla")))
                 .andExpect(jsonPath("$.text").value(Matchers.containsString("reset-password?token=" + TOKEN)))
@@ -194,12 +207,88 @@ class ResendEmailSenderTest {
                 .andRespond(withServerError());
 
         assertThatThrownBy(() -> sender.sendResetLink("user@example.com", TOKEN))
-                .isInstanceOf(EmailDeliveryException.class);
+                .isInstanceOf(EmailDeliveryException.class)
+                .hasMessageContaining("provider_5xx");
 
         server.verify();
         assertThat(registry.counter("email_sent").count()).isZero();
         assertThat(registry.counter("email_failed").count()).isEqualTo(1.0);
         assertThat(registry.counter("email_verification_sent").count()).isZero();
         assertThat(output).doesNotContain(TOKEN).doesNotContain(API_KEY);
+        assertThat(output.getOut() + output.getErr()).contains("provider_5xx");
+    }
+
+    @Test
+    void mapsUnauthorizedRejectionWithoutLeakingSecrets(CapturedOutput output) {
+        server.expect(requestTo("https://api.resend.test/emails"))
+                .andRespond(withStatus(HttpStatus.UNAUTHORIZED));
+
+        assertThatThrownBy(() -> sender.sendVerificationLink("user@example.com", TOKEN))
+                .isInstanceOf(EmailDeliveryException.class)
+                .hasMessageContaining("401")
+                .hasMessageContaining("auth");
+
+        server.verify();
+        assertThat(registry.counter("email_failed").count()).isEqualTo(1.0);
+        assertThat(registry.counter("email_verification_sent").count()).isZero();
+        assertThat(output).doesNotContain(TOKEN).doesNotContain(API_KEY);
+    }
+
+    @Test
+    void mapsForbiddenRejectionAsAuthClass(CapturedOutput output) {
+        server.expect(requestTo("https://api.resend.test/emails"))
+                .andRespond(withStatus(HttpStatus.FORBIDDEN));
+
+        assertThatThrownBy(() -> sender.sendVerificationLink("user@example.com", TOKEN))
+                .isInstanceOf(EmailDeliveryException.class)
+                .hasMessageContaining("403")
+                .hasMessageContaining("auth");
+
+        assertThat(registry.counter("email_failed").count()).isEqualTo(1.0);
+        assertThat(output).doesNotContain(TOKEN).doesNotContain(API_KEY);
+    }
+
+    @Test
+    void mapsRateLimitRejection(CapturedOutput output) {
+        server.expect(requestTo("https://api.resend.test/emails"))
+                .andRespond(withStatus(HttpStatus.TOO_MANY_REQUESTS));
+
+        assertThatThrownBy(() -> sender.sendVerificationLink("user@example.com", TOKEN))
+                .isInstanceOf(EmailDeliveryException.class)
+                .hasMessageContaining("429")
+                .hasMessageContaining("rate_limited");
+
+        assertThat(registry.counter("email_failed").count()).isEqualTo(1.0);
+        assertThat(output).doesNotContain(TOKEN).doesNotContain(API_KEY);
+    }
+
+    @Test
+    void mapsNetworkTimeoutWithoutRetry(CapturedOutput output) {
+        server.expect(requestTo("https://api.resend.test/emails"))
+                .andRespond(withException(new SocketTimeoutException("Read timed out")));
+
+        assertThatThrownBy(() -> sender.sendVerificationLink("user@example.com", TOKEN))
+                .isInstanceOf(EmailDeliveryException.class)
+                .hasMessageContaining("delivery failed");
+
+        server.verify();
+        assertThat(registry.counter("email_sent").count()).isZero();
+        assertThat(registry.counter("email_failed").count()).isEqualTo(1.0);
+        assertThat(registry.counter("email_verification_sent").count()).isZero();
+        assertThat(output).doesNotContain(TOKEN).doesNotContain(API_KEY);
+        // RestClient wraps transport timeouts as ResourceAccessException; we log that
+        // simple class name only (never nested messages that might carry URLs).
+        assertThat(output.getOut() + output.getErr()).contains("ResourceAccessException");
+    }
+
+    @Test
+    void idempotencyKeyIsStableForSameTemplateRecipientAndToken() {
+        String first = ResendEmailSender.idempotencyKey("email_verification", "User@Example.com", TOKEN);
+        String second = ResendEmailSender.idempotencyKey("email_verification", "User@Example.com", TOKEN);
+        String otherToken = ResendEmailSender.idempotencyKey("email_verification", "User@Example.com", TOKEN + "-b");
+
+        assertThat(first).isEqualTo(second);
+        assertThat(first).isNotEqualTo(otherToken);
+        assertThat(first).doesNotContain(TOKEN);
     }
 }

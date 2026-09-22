@@ -1,8 +1,14 @@
 package com.parkio.auth.infrastructure.notification;
 
+import com.fasterxml.jackson.annotation.JsonInclude;
+import com.fasterxml.jackson.annotation.JsonProperty;
 import com.parkio.auth.application.port.EmailVerificationSender;
 import com.parkio.auth.application.port.PasswordResetEmailSender;
 import com.parkio.auth.domain.EmailLocale;
+import java.nio.charset.StandardCharsets;
+import java.security.MessageDigest;
+import java.security.NoSuchAlgorithmException;
+import java.util.HexFormat;
 import java.util.List;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -11,9 +17,6 @@ import org.springframework.http.HttpStatusCode;
 import org.springframework.stereotype.Component;
 import org.springframework.web.client.RestClient;
 import org.springframework.web.client.RestClientException;
-
-import com.fasterxml.jackson.annotation.JsonInclude;
-import com.fasterxml.jackson.annotation.JsonProperty;
 
 /** Resend-backed transactional email sender. Auth flows depend only on sender ports. */
 @Component
@@ -73,7 +76,11 @@ public class ResendEmailSender implements EmailVerificationSender, PasswordReset
         }
         String link = AuthTransactionalEmailTemplates.pageUrl(verificationUrl, rawToken, locale);
         AuthTransactionalEmailTemplates.Copy copy = AuthTransactionalEmailTemplates.verification(locale, link);
-        send("email_verification", recipientEmail, copy.subject(),
+        send(
+                "email_verification",
+                recipientEmail,
+                rawToken,
+                copy.subject(),
                 AuthTransactionalEmailTemplates.renderText(copy),
                 AuthTransactionalEmailTemplates.renderHtml(copy));
         metrics.verificationSent();
@@ -89,21 +96,38 @@ public class ResendEmailSender implements EmailVerificationSender, PasswordReset
         }
         String link = AuthTransactionalEmailTemplates.pageUrl(resetUrl, rawToken, locale);
         AuthTransactionalEmailTemplates.Copy copy = AuthTransactionalEmailTemplates.passwordReset(locale, link);
-        send("password_reset", recipientEmail, copy.subject(),
+        send(
+                "password_reset",
+                recipientEmail,
+                rawToken,
+                copy.subject(),
                 AuthTransactionalEmailTemplates.renderText(copy),
                 AuthTransactionalEmailTemplates.renderHtml(copy));
     }
 
-    private void send(String template, String recipientEmail, String subject, String text, String html) {
+    private void send(
+            String template,
+            String recipientEmail,
+            String rawToken,
+            String subject,
+            String text,
+            String html) {
+        String idempotencyKey = idempotencyKey(template, recipientEmail, rawToken);
         try {
             resend.post()
                     .uri("/emails")
+                    .header("Idempotency-Key", idempotencyKey)
                     .body(ResendEmailRequest.create(
                             email.getFrom(), recipientEmail, email.getReplyTo(), subject, text, html))
                     .retrieve()
                     .onStatus(HttpStatusCode::isError, (request, response) -> {
+                        HttpStatusCode status = response.getStatusCode();
                         throw new EmailDeliveryException(
-                                "Resend rejected transactional email with status " + response.getStatusCode(),
+                                "Resend rejected transactional email with status "
+                                        + status.value()
+                                        + " ("
+                                        + statusClass(status)
+                                        + ")",
                                 null);
                     })
                     .toBodilessEntity();
@@ -123,8 +147,46 @@ public class ResendEmailSender implements EmailVerificationSender, PasswordReset
         }
     }
 
+    /**
+     * Stable per exact send attempt for a given template/recipient/raw-token.
+     * Retries of that same triple reuse the provider response (24h). A new
+     * registration or resend that mints a different token intentionally uses a
+     * new key. Fingerprint is a truncated SHA-256 of the raw token — never the
+     * raw token itself.
+     */
+    static String idempotencyKey(String template, String recipientEmail, String rawToken) {
+        return "auth/" + template + "/" + emailHash(recipientEmail) + "/" + tokenFingerprint(rawToken);
+    }
+
+    private static String statusClass(HttpStatusCode status) {
+        int code = status.value();
+        if (code == 401 || code == 403) {
+            return "auth";
+        }
+        if (code == 429) {
+            return "rate_limited";
+        }
+        if (code >= 500) {
+            return "provider_5xx";
+        }
+        if (code >= 400) {
+            return "client_4xx";
+        }
+        return "other";
+    }
+
     private static String emailHash(String email) {
         return Integer.toHexString(email.hashCode());
+    }
+
+    private static String tokenFingerprint(String rawToken) {
+        try {
+            byte[] digest = MessageDigest.getInstance("SHA-256")
+                    .digest(rawToken.getBytes(StandardCharsets.UTF_8));
+            return HexFormat.of().formatHex(digest, 0, 8);
+        } catch (NoSuchAlgorithmException ex) {
+            throw new IllegalStateException("SHA-256 unavailable", ex);
+        }
     }
 
     @JsonInclude(JsonInclude.Include.NON_NULL)
