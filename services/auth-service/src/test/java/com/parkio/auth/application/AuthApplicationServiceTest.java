@@ -349,6 +349,21 @@ class AuthApplicationServiceTest {
     }
 
     @Test
+    void resendVerificationDoesNotIssueTokenWhenAlreadyVerified() {
+        service.register(new RegisterCommand("already-verified@example.com", VALID_PASSWORD));
+        String first = emailVerificationSender.tokenFor("already-verified@example.com");
+        service.verifyEmail(new VerifyEmailCommand(first));
+        int sendsBefore = emailVerificationSender.sendCount("already-verified@example.com");
+
+        verificationResendLimiter.allow("already-verified@example.com");
+        service.resendVerification(new com.parkio.auth.application.command.ResendVerificationCommand(
+                "already-verified@example.com", EmailLocale.EN));
+
+        assertThat(emailVerificationSender.sendCount("already-verified@example.com")).isEqualTo(sendsBefore);
+        assertThat(emailVerificationSender.tokenFor("already-verified@example.com")).isEqualTo(first);
+    }
+
+    @Test
     void resendVerificationRotatesTokenAndIsEnumerationSafeWhenLimitedOrUnknown() {
         service.register(new RegisterCommand("resend@example.com", VALID_PASSWORD));
         String first = emailVerificationSender.tokenFor("resend@example.com");
@@ -359,10 +374,12 @@ class AuthApplicationServiceTest {
         String second = emailVerificationSender.tokenFor("resend@example.com");
 
         assertThat(second).isNotEqualTo(first);
+        int sendsAfterRotate = emailVerificationSender.sendCount("resend@example.com");
         verificationResendLimiter.deny("resend@example.com");
         service.resendVerification(new com.parkio.auth.application.command.ResendVerificationCommand(
                 "resend@example.com"));
         assertThat(emailVerificationSender.tokenFor("resend@example.com")).isEqualTo(second);
+        assertThat(emailVerificationSender.sendCount("resend@example.com")).isEqualTo(sendsAfterRotate);
 
         service.resendVerification(new com.parkio.auth.application.command.ResendVerificationCommand(
                 "unknown@example.com"));
@@ -1184,11 +1201,13 @@ class AuthApplicationServiceTest {
     private static final class FakeEmailVerificationSender implements EmailVerificationSender {
         private final Map<String, String> tokens = new HashMap<>();
         private final Map<String, EmailLocale> locales = new HashMap<>();
+        private final Map<String, Integer> sendCounts = new HashMap<>();
 
         @Override
         public void sendVerificationLink(String email, String rawToken, EmailLocale locale) {
             tokens.put(email, rawToken);
             locales.put(email, locale);
+            sendCounts.merge(email, 1, Integer::sum);
         }
 
         String tokenFor(String email) {
@@ -1197,6 +1216,10 @@ class AuthApplicationServiceTest {
 
         EmailLocale localeFor(String email) {
             return locales.get(email);
+        }
+
+        int sendCount(String email) {
+            return sendCounts.getOrDefault(email, 0);
         }
     }
 

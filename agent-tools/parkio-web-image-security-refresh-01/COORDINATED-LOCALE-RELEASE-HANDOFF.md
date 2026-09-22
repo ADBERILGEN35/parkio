@@ -1,6 +1,6 @@
 # Coordinated web security + registration locale release handoff
 
-Snapshot: 2026-09-22. This is a coordination plan, not a combined candidate record.
+Snapshot: 2026-09-22 (updated after PR #82 resend-copy follow-up). Coordination plan only — not a combined candidate record.
 
 ## Current release boundary
 
@@ -12,36 +12,35 @@ PR #81 remains a completed, security-only draft. Preserve these historical ident
 - PR #81 platform manifest: `sha256:3fd448b599600fddab049cd19ed996ab5899580b029b8883fba75d27ac36f333`.
 - Reported production/rollback image: `ghcr.io/adberilgen35/parkio/web@sha256:daba786490be9b6015572fbc2a5ba7efd72a4bcdad860372792c0f12b31b59be`.
 
-The PR #81 image is **not** the coordinated candidate. Do not publish, pin, or deploy it because it predates the registration-locale correction.
+The PR #81 image is **not** the coordinated candidate. Do not publish, pin, or deploy it because it predates the registration-locale correction and the check-email resend copy fix.
 
-## Locale dependency observed read-only
+## Locale + check-email dependency (PR #82)
 
-Cursor owns local branch `fix/register-invite-lang-locale` in `C:\Users\ADBERILGEN\Documents\parkio-wt-auth-resend-ready`. At this snapshot:
+Cursor owns branch `fix/register-invite-lang-locale` → PR #82 (`https://github.com/ADBERILGEN35/parkio/pull/82`).
 
-- local HEAD is still `9e95fa64c3327c3f96c146453522a0e231497bf0` (`origin/api`);
-- no `origin/fix/register-invite-lang-locale` head exists;
-- no open PR exists for that head;
-- the worktree contains uncommitted modifications to:
-  - `frontend/apps/web/src/pages/RegisterPage.test.tsx`
-  - `frontend/apps/web/src/pages/RegisterPage.tsx`
-  - `frontend/apps/web/src/pages/VerifyEmailPage.tsx`
-  - `scripts/create-registration-invite.sh`
-- the worktree also contains untracked locale helper/tests and handoff documents;
-- an active agent process exists, so the worktree must remain untouched.
+Reviewed dependency head for combined-candidate prep: `6d4272a12cd94510b6cf46df6ab54d573b7b12db` (update this SHA if PR #82 receives further commits).
 
-The Cursor-authored draft diagnosis says the intended fix parses an allowlisted `lang` query parameter, applies it before registration, strips it from the browser URL, reuses the helper on verification, and adds explicit EN/TR registration tests. That description is informational only: it is neither a committed source identity nor reviewed evidence yet.
+At this snapshot the branch carries:
+
+1. Invite handoff `lang=tr|en` so registration UI and `preferred_locale` match the invite language.
+2. Enumeration-safe check-email / RegisterPage resend feedback: conditional TR/EN copy (no definitive "email sent"), with sign-in guidance if already verified.
+3. Isolated auth unit coverage: verified accounts issue no new verification email/token; pending-account cooldown suppresses repeat delivery (`sendCount` + token identity).
+
+Auth HTTP public responses are unchanged. No production deploy, Slack, or New Relic changes are part of this dependency.
 
 ### Exact readiness dependency
 
-Combined preparation is blocked until Cursor produces all of the following through the repository workflow:
+Combined preparation is blocked until:
 
-1. a committed locale source revision on `fix/register-invite-lang-locale`;
-2. a pushed immutable remote head and focused PR targeting `api`;
-3. a reviewable diff with the explicit TR/EN invite-handoff contract and no unrelated auth/provider or production changes;
-4. terminal applicable CI and focused locale evidence for that exact head;
-5. either a normal merge to `api`, or an explicitly reviewed remote head that can be normally merged into an isolated integration branch without rebase or force-push.
+1. PR #82 has a pushed immutable remote head with terminal applicable CI;
+2. focused evidence is green for that exact head:
+   - locale parser / RegisterPage / VerifyEmailPage invite-lang tests;
+   - `CheckEmailPage.test.tsx` EN/TR conditional resend copy;
+   - RegisterPage resend assertion against the conditional EN string;
+   - `AuthApplicationServiceTest` verified no-send + limited pending cooldown;
+3. either a normal merge to `api`, or an explicitly reviewed remote head that can be normally merged into an isolated integration branch without rebase or force-push.
 
-Do not reconstruct the locale change from this document or from Cursor's dirty worktree.
+Do not reconstruct locale or copy changes from a dirty worktree.
 
 ## Required TR/EN invite handoff
 
@@ -58,22 +57,23 @@ Requirements:
 - the consumed `invite` and `lang` parameters are removed according to the reviewed page behavior;
 - verification links retain the appropriate explicit locale;
 - registration remains CLOSED outside the separately authorized invite flow;
-- provider selection and stored-locale recovery for already-created accounts remain outside this web-image release.
+- provider selection and stored-locale recovery for already-created accounts remain outside this web-image release;
+- check-email / resend UI must use the conditional enumeration-safe TR/EN copy (not definitive send confirmation).
 
 ## One combined candidate procedure
 
 After the dependency above is ready:
 
 1. Create a new isolated worktree and integration branch from freshly fetched `origin/api`. Do not reuse PR #81's worktree or Cursor's locale worktree.
-2. Bring both reviewed changes in through normal repository history: PR #81's Nginx runtime/header commits and the exact reviewed locale commit. Do not rebase or force-push.
-3. Verify the integration diff contains only the expected web runtime/header, registration locale, focused test, invite-handoff script, and release-evidence files. Do not modify shared Compose, production pins, gateway, auth-service, parking-service, Slack, or New Relic.
+2. Bring both reviewed changes in through normal repository history: PR #81's Nginx runtime/header commits and the exact reviewed PR #82 head. Do not rebase or force-push.
+3. Verify the integration diff contains only the expected web runtime/header, registration locale, check-email resend copy, focused tests, invite-handoff script, and release-evidence files. Do not modify shared Compose, production pins, gateway, parking-service, Slack, or New Relic. Auth-service changes in the combined image are not required for the web candidate (auth unit proofs stay on PR #82); do not alter auth HTTP contracts.
 4. Build one new `linux/amd64` image from the combined runtime source using the unchanged canonical `docker/web-hosted-beta.release-bake.env` and the existing secret-safe public MapTiler input procedure.
 5. Record a new source SHA, OCI image/index identity, platform manifest/config identities, resolved Nginx base digest, and scan timestamp. Never reuse PR #81's candidate digest as the combined identity.
 6. Add coordinated evidence only after the runtime source is fixed. Keep any later documentation-only head distinct from the combined runtime source.
 
 ## Configuration invariants
 
-The combined image must compile and verify the same release values as PR #81 except for the reviewed request-time locale behavior:
+The combined image must compile and verify the same release values as PR #81 except for the reviewed request-time locale behavior and check-email copy:
 
 | Input | Required value |
 | --- | --- |
@@ -99,14 +99,22 @@ Rerun on the combined runtime source/image:
 
 - locale parser tests and the reviewed RegisterPage/VerifyEmailPage tests;
 - explicit prior-TR-browser to EN-invite and prior-EN-browser to TR-invite cases;
+- `CheckEmailPage` EN/TR conditional resend feedback (no definitive "email sent");
 - invite-generation script tests or synthetic acceptance proving both `lang=tr` and `lang=en` URLs without exposing tokens;
 - PR #76 pending-profile phone/sessionStorage regression tests;
 - compiled release-bundle flag guards;
-- actual-image startup/health and Chromium SPA acceptance for `/login`, `/register`, `/explore`, `/map`, and `/verify-email` with production API mocked and other external origins blocked;
+- actual-image startup/health and Chromium SPA acceptance for `/login`, `/register`, `/check-email`, `/explore`, `/map`, and `/verify-email` with production API mocked and other external origins blocked;
 - JS/CSS MIME, cache policy, CSP and the other security headers, plus root-master/non-root-worker behavior;
 - exact combined-image Trivy scan without `--ignore-unfixed`, using a recorded DB snapshot and reporting all severities.
 
-The PR #81 results that are unrelated to locale source changes can be referenced as historical evidence, but the final combined image identity, bundle guards, headers/SPA acceptance, and scan must be fresh.
+The PR #81 results that are unrelated to locale/copy source changes can be referenced as historical evidence, but the final combined image identity, bundle guards, headers/SPA acceptance, and scan must be fresh.
+
+## Operator acceptance notes (not image evidence)
+
+See `agent-tools/parkio-auth-resend-delivery-readiness-01/ACCEPTANCE-OBSERVATIONS.md`:
+
+- Password reset + login with new password: **PASS** (tested account only; do not assume both locales).
+- Pending-account resend cooldown in production: **NOT OBSERVED** (verified-account resend is not cooldown evidence).
 
 ## Open build-chain exposure and separate task
 
