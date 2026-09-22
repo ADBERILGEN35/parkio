@@ -4,19 +4,12 @@ import { useTranslation } from 'react-i18next';
 import { useNavigate, useSearchParams } from 'react-router-dom';
 import { describeAuthError } from '@/api/error-messages';
 import { useParkioSdk } from '@/app/AppRuntimeContext';
+import { localeFromSearchParam } from '@/i18n/localeFromSearchParam';
 import { useLocaleStore } from '@/i18n/localeStore';
-import type { ParkioLocale } from '@parkio/types';
 import { AuthSplitLayout } from '@/pages/auth/AuthSplitLayout';
 import { showError, showSuccess } from '@/lib/toast';
 
 type VerifyState = 'verifying' | 'success' | 'error';
-
-function localeFromSearchParam(raw: string | null): ParkioLocale | null {
-  if (!raw) return null;
-  const normalized = raw.trim().toLowerCase();
-  if (normalized === 'en' || normalized === 'tr') return normalized;
-  return null;
-}
 
 export function VerifyEmailPage() {
   const { authApi } = useParkioSdk();

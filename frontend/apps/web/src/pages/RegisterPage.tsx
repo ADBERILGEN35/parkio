@@ -1,5 +1,6 @@
 import { zodResolver } from '@hookform/resolvers/zod';
 import { isParkioApiError } from '@parkio/api-client';
+import type { ParkioLocale } from '@parkio/types';
 import { passwordRequirementState, type RegisterProfileFormValues } from '@parkio/validation';
 import { Button, ErrorMessage, Icon, Input } from '@parkio/ui';
 import { useMemo, useState, useEffect } from 'react';
@@ -10,6 +11,8 @@ import { describeAuthError } from '@/api/error-messages';
 import { useParkioSdk } from '@/app/AppRuntimeContext';
 import { AuthSplitLayout } from '@/pages/auth/AuthSplitLayout';
 import { setPendingProfile } from '@/auth/pendingProfile';
+import { localeFromSearchParam } from '@/i18n/localeFromSearchParam';
+import { useLocaleStore } from '@/i18n/localeStore';
 import {
   createRegisterProfileSchema,
   getPasswordRequirements,
@@ -17,6 +20,11 @@ import {
 import { showError, showSuccess } from '@/lib/toast';
 import { useRegistrationMode } from '@/auth/useRegistrationMode';
 import { trackProductEvent } from '@/services/productAnalytics';
+
+function registrationLocale(linkLocale: ParkioLocale | null, language: string): ParkioLocale {
+  if (linkLocale) return linkLocale;
+  return language === 'en' ? 'en' : 'tr';
+}
 
 function mapSignupFailureReason(error: unknown): 'validation' | 'network' | 'unknown' {
   if (isParkioApiError(error) && error.fieldErrors?.length) return 'validation';
@@ -29,7 +37,10 @@ export function RegisterPage() {
   const { t, i18n } = useTranslation(['auth', 'common', 'validation', 'errors']);
   const navigate = useNavigate();
   const [searchParams, setSearchParams] = useSearchParams();
+  const setLocale = useLocaleStore((s) => s.setLocale);
   const [inviteToken, setInviteToken] = useState<string | null>(null);
+  /** Explicit `lang` from the invite URL; wins over persisted browser language. */
+  const [linkLocale, setLinkLocale] = useState<ParkioLocale | null>(null);
   const [apiError, setApiError] = useState<string | null>(null);
   const [traceId, setTraceId] = useState<string | undefined>();
   const registrationMode = useRegistrationMode();
@@ -58,15 +69,28 @@ export function RegisterPage() {
   const passwordState = passwordRequirementState(passwordValue);
 
   useEffect(() => {
-    const token = searchParams.get('invite')?.trim();
-    if (!token) {
+    const token = searchParams.get('invite')?.trim() || null;
+    const lang = localeFromSearchParam(searchParams.get('lang'));
+    if (!token && !lang) {
       return;
     }
-    setInviteToken(token);
     const next = new URLSearchParams(searchParams);
-    next.delete('invite');
-    setSearchParams(next, { replace: true });
-  }, [searchParams, setSearchParams]);
+    let changed = false;
+    if (token) {
+      setInviteToken(token);
+      next.delete('invite');
+      changed = true;
+    }
+    if (lang) {
+      setLinkLocale(lang);
+      setLocale(lang);
+      next.delete('lang');
+      changed = true;
+    }
+    if (changed) {
+      setSearchParams(next, { replace: true });
+    }
+  }, [searchParams, setSearchParams, setLocale]);
 
   const onSubmit = handleSubmit(async (values) => {
     setApiError(null);
@@ -76,7 +100,7 @@ export function RegisterPage() {
       await authApi.register({
         email: values.email,
         password: values.password,
-        locale: i18n.language === 'en' ? 'en' : 'tr',
+        locale: registrationLocale(linkLocale, i18n.language),
         inviteToken: inviteToken ?? undefined,
       });
       setPendingProfile({
