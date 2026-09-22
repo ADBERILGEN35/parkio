@@ -1,4 +1,4 @@
-# İzmir parking coverage — release decision package (prep complete)
+# İzmir parking coverage — release decision package
 
 **Date:** 2026-09-22  
 **PR:** [#71](https://github.com/ADBERILGEN35/parkio/pull/71) `feat/izmir-parking-coverage-expansion`  
@@ -7,142 +7,138 @@
 
 ---
 
-## 1. Exact code / image identities
+## 1. Production vs candidate identities
 
-| Identity | Value | Notes |
+### 1.1 Verified runtime (SSH, `StrictHostKeyChecking=yes`)
+
+Probed `2026-09-22T06:54:27Z` as `civo@api.parkio.dev` on host `parkio-civo-prod`  
+Evidence: `runtime-image-identities.txt`
+
+| Service | Running identity | Status |
 | --- | --- | --- |
-| Merged PR #70 (IZUM incomplete-snapshot guard) | `f0abf765` on `api` | **Merged ≠ deployed** |
-| Live production parking pin | `ghcr.io/adberilgen35/parkio/parking-service@sha256:e353baed3f464849208ef8852314ad8c469663d20ad8c2f755ac236bd1452dfe` | Pre-#70; still in `docker/docker-compose.gmp-release-pins.yml` |
-| Candidate branch HEAD | `4abbf326` (contains `f0abf765` / #70 + coverage prep) | PR #71 tip |
-| Local RC bootJar SHA-256 | `F0EACE14E426AD44000E848A3709EC57BA4A73F23BB54521F6B99D851589E1D5` | `parking-service-0.0.1-SNAPSHOT.jar` |
-| Local RC image (buildx manifest) | `sha256:c0b4d858cedbfacc122ea29fd422ddd838d652fa18911ac1050fa15dae668f86` | Tag `parkio/parking-service:izmir-coverage-rc-4abbf326`; **not pushed to ghcr** |
-| OSM clip asset | `izmir-admin-izbb-2024-10-18-v1` | Boundary SHA match in `osm-ops/boundary/validation-report.json` |
-| OSM GeoJSON SHA-256 | `2344db92b21d72ebe252d02b858837ccc964db222faca17236588fdf7eabd81c` | 1634 features → 1442 publishable |
+| parking-service | `ghcr.io/adberilgen35/parkio/parking-service@sha256:e353baed3f464849208ef8852314ad8c469663d20ad8c2f755ac236bd1452dfe` | **verified running** |
+| web | `ghcr.io/adberilgen35/parkio/web@sha256:7202058c2d75537a5578acd07f65c645d6237e3eaaef89e5be49a6b785e82761` | **verified running** |
+| Host compose pin file | `/opt/parkio/docker/docker-compose.gmp-release-pins.yml` parking pin = same `e353baed…` | matches runtime |
 
-**Verdict:** Production does **not** include PR #70. The release candidate **must** ship a parking image built from this PR (which already contains #70). Do not claim #70 is live until the pin moves off `e353baed…`.
+**Wording:** The local repo pin (`docker/docker-compose.gmp-release-pins.yml`) is the **expected configuration**. Runtime was separately verified above and currently matches that pin for parking. Do not treat a pin file alone as runtime proof without the SSH probe.
+
+Merged PR #70 (`f0abf765` on `api`) is **not** in the running parking image (`e353baed…` is pre-#70).
+
+### 1.2 Candidate artifacts (local; not on ghcr)
+
+| Artifact | Identity | Notes |
+| --- | --- | --- |
+| Source | PR #71 tip after this package commit | Includes #70 + Explore families + access/cap UX + roadside PUBLISHED-on-import |
+| Parking RC (local) | `parkio/parking-service:izmir-coverage-rc-*` `@sha256:bea7c5501894d8b6faf0ebd449998b25f5989bc588b8affeb5dfb8d6721a6fa0` | Rebuild after tip push; **not on ghcr** |
+| Web RC (local) | `parkio/web:izmir-coverage-rc-*` `@sha256:e04d19aa4179ac25ffc2a34e68ea3c71951566656ca033a1fe375f271695bf7e` | Explore+municipal ON; MapTiler present; **not on ghcr** |
+| Web bake profile | `web-izmir-coverage.candidate-bake.env` | Server families at flip: `IZUM,IZELMAN,OSM` |
+| OSM clip | `izmir-admin-izbb-2024-10-18-v1` | GeoJSON SHA `2344db92…` |
+
+**ghcr publish of parking+web RC images = remaining release action** (not done in this step).
 
 ---
 
-## 2. Before / after unique publishable counts
+## 2. Combined candidate inventory (IZUM + İZELMAN×4 + OSM)
 
-### Production today (live pin `e353baed…`)
+Evidence: `combined-candidate-coverage-report.json`  
+IT: `CombinedIzmirCoverageCandidateIT` (`auto-match-enabled=false`)
 
-| Source | Unique publishable (approx) | Occupancy authority |
+| Layer | Count | Discoverability |
 | --- | --- | --- |
-| IZUM live poll | ~6 active rows (incomplete vs historical inventory) | LIVE when snapshot valid |
-| İZELMAN | not published | n/a |
-| OSM | not published | n/a |
+| IZUM active facilities (fixture sync) | 12 | Facility nearby + Explore |
+| İZELMAN facilities (open+closed+barrier) | **51** | Facility nearby + Explore |
+| OSM accepted facilities | **1442** (1634 raw − 192 access rejects) | Facility nearby + Explore |
+| **Unique active facilities (no auto-merge applied)** | **1505** (= 12+51+1442) | Map `/facilities/nearby` |
+| İZELMAN roadside segments | **48** | **Separate** `/api/v1/parking/roadside/nearby` |
+| OSM↔IZUM link merges applied | **0** | Auto-match proposals recorded only |
 
-### Isolated candidate stack (Testcontainers — not production)
+### 2.1 How 99 İZELMAN rows become 51 + 48
 
-#### İZELMAN (all four datasets) — evidence `izelman-all4-system-out.txt`
+| Dataset | Raw rows | Product surface |
+| --- | --- | --- |
+| open | 11 | Facility inventory |
+| closed | 23 | Facility inventory |
+| barrier | 17 | Facility inventory (RESTRICTED access) |
+| **Facility subtotal** | **51** | Authenticated `/map` facilities + Explore (when family allowlisted) |
+| roadside | 48 | **Independent roadside API** — not facility rows, not Explore facilities |
+| **Total CSV rows** | **99** | 51 + 48 |
 
-| Dataset | Raw rows | Unique accepted | Publishable facilities / segments | 2nd import |
+Roadside is **not linked into** `municipal_parking_facilities`. With `roadside-publication-enabled=true`, import now sets `publication_status=PUBLISHED` and PostGIS `location` from ENLEM/BOYLAM so `/parking/roadside/nearby` returns them (fix landed in this prep window — previously rows stayed `UNPUBLISHED` and were invisible to the nearby API).
+
+Street-parking coverage is therefore **retained** on the roadside surface; it must be wired in product UX to that endpoint (not assumed inside facility map markers).
+
+### 2.2 Six-center combined probes (5 km)
+
+| Center | Explore total / visible | Map count / capped@100 | Roadside in radius | Families on map |
 | --- | --- | --- | --- | --- |
-| open | 11 | 11 | 11 facilities | 11 unchanged/updated, 0 inserted |
-| closed | 23 | 23 | 23 facilities | 23 unchanged/updated, 0 inserted |
-| barrier | 17 | 17 | 17 facilities (RESTRICTED) | 17 unchanged/updated, 0 inserted |
-| roadside | 48 | 48 | 48 roadside segments | 48 unchanged/updated, 0 inserted |
-| **Facility total** | **51** | **51** | **51 unique facility ids** | idempotent |
-| Occupancy snapshots | — | — | **0** | historical CSV never invents occupancy |
+| Hatay | 250 / 6 | 100 / yes | 46 | IZELMAN, IZUM, OSM |
+| Konak | 298 / 6 | 100 / yes | 48 | OSM, IZELMAN, IZUM |
+| Alsancak | 287 / 6 | 100 / yes | 48 | OSM, IZUM, IZELMAN |
+| Karşıyaka | 306 / 6 | 100 / yes | 48 | IZELMAN, OSM |
+| Bornova | 189 / 6 | 100 / yes | 0 | OSM, IZELMAN |
+| Buca | 210 / 6 | 100 / yes | 1 | OSM, IZELMAN |
 
-Closed CSV stable identities verified: **KONAK KATLI**, **HATAY PAZAR YERİ KATLI** (external_id + coords, not name-only).
+Access labels observed: PUBLIC, UNKNOWN, RESTRICTED, PERMISSIVE.  
+İZELMAN/OSM occupancy spaces stay null (no LIVE/AGING leak). Attribution present.  
+When map returns 100: continuation = **zoom in or reduce radius** — not complete coverage.
 
-#### OSM İzmir clip — evidence `osm-ops/data/data-wp-02a-controlled-import-report.json`
+---
 
-| Metric | Count |
+## 3. Conflation disposition (conservative)
+
+| Decision | OSM id | IZUM id | Score | Production disposition |
+| --- | --- | --- | --- | --- |
+| AUTO_MATCHED (proposal) | `way/601644098` | `CPS-TR-IZM-M2-04` | 0.95 | **Proposal only** — `auto-match-enabled=false`; no link reassignment |
+| REVIEW_REQUIRED | `way/1559185892` | `NEDAP-TR-IZM-008` | 0.50 | Manual review queue; do not auto-merge |
+| REVIEW_REQUIRED | `way/1557918177` | `NEDAP-TR-IZM-024` | 0.45 | Manual review queue; do not auto-merge |
+
+**Do not** enable broad automatic production matching because the isolated IT recorded these proposals.
+
+---
+
+## 4. CI status (distinguish scan vs upload)
+
+On tip `ab822004` (docs commit after prior tip):
+
+| Check | Result |
 | --- | --- |
-| Raw GeoJSON features | 1634 |
-| Rejected (`access_not_publishable`) | 192 |
-| Accepted / inserted (1st import) | 1442 |
-| 2nd import unchanged | 1442 (idempotent) |
-| Auto-match vs IZUM seed | 1 |
-| Review-required | 2 |
-| OSM occupancy snapshots | 0 |
-| Missing OSM `access` tag | mapped to **UNKNOWN** (not PUBLIC); still publishable for discovery |
+| Backend unit / Integration / Frontend / Mobile-v2 | **pass** |
+| Container scan (parking-service) | **pass** (actual Trivy scan) |
+| All other container scans + Security CI summary | **pass** |
+| Legacy mobile (advisory) | fail (advisory only) |
 
-#### District-oriented center probes (İZELMAN facilities only, 5 km, candidate DB)
-
-| Center | Explore total / visible (limit 6) | Authenticated map count (limit 100) | Capped at 100? |
-| --- | --- | --- | --- |
-| Hatay / Karantina / Göztepe | 34 / 6 | 34 | no |
-| Konak | 42 / 6 | 42 | no |
-| Alsancak | 29 / 6 | 29 | no |
-| Karşıyaka | 20 / 6 | 20 | no |
-| Bornova | 3 / 3 | 3 | no |
-| Buca | 8 / 6 | 8 | no |
-
-With **OSM published**, geometric density at 5 km exceeds 100 at every listed center (see `limit-100-density-assessment.txt`). UX must treat the first 100 as a bounded nearest set, not complete coverage.
+Prior tip had Trivy **artifact-upload 403** on ai-validation/gamification (evidence upload failure, not scan CVE fail). **Resolved on subsequent push** — Security CI summary green. Do not label an earlier tip’s full suite PASS.
 
 ---
 
-## 3. Source dates and publication criteria
+## 5. Deploy → import → publish → acceptance → rollback
 
-| Source | Source date / clip | Age class | Publication criteria (candidate → prod flip) |
-| --- | --- | --- | --- |
-| IZUM | live feed | CURRENT when poll succeeds | Already reviewed Explore family; incomplete SUCCESS must not mass soft-deactivate (#70) |
-| İZELMAN open/closed/barrier | 2022-11-25/28 CSVs | HISTORICAL | Facility publication flags; Explore family `IZELMAN` when allowlisted; no occupancy |
-| İZELMAN roadside | 2022-11-25 | HISTORICAL | Roadside publication separate; **not** Explore facility rows |
-| İZELMAN tariffs | — | unsuitable | No geometry / not CURRENT — leave off |
-| OSM Geofabrik Turkey × İzmir clip | clip `izmir-admin-izbb-2024-10-18-v1` | CURRENT map extract, static inventory | ODbL attribution; publication flag; Explore family `OSM`; access PRIVATE/CUSTOMERS/NO/PERMIT rejected; missing access → UNKNOWN |
+**Still unexecuted.** Exact sequence when approved:
 
-Criteria reference: `PUBLICATION-CRITERIA.md`, `SOURCE-INVENTORY.md`.
-
----
-
-## 4. Source-specific import / publication order (when approved)
-
-1. **Backup** `municipal_*` (+ related links/snapshots/runs).
-2. Deploy parking image containing **#70 + #71** (replace `e353baed…`).
-3. IZUM sync → confirm Hatay/Konak recovery path (reactivate by stable IZUM id if still missing).
-4. İZELMAN import **publication=false** → record checksums → flip facility publication.
-5. OSM import **publication=false** → review conflation (1 auto / 2 review from isolated run) → flip publication.
-6. Set Explore allowlist to intended families, e.g. `IZUM,IZELMAN,OSM` (preview limit stays 6; AuthGate unchanged).
-7. Post-deploy acceptance: six centers Explore + `/map`; Hatay/Konak by stable ids; access chips visible; capped banner when count==100.
+1. **Backup** `municipal_*` (+ roadside + conflation tables).
+2. **Deploy parking** RC image (contains #70 + coverage + roadside publish fix); update GMP pin off `e353baed…`.
+3. **Deploy web** RC image (Explore+municipal bake; access + resultsCapped UX).
+4. Set parking Explore allowlist still **IZUM-only** until inventories imported.
+5. **Import (publication false for facilities where applicable):**
+   - IZUM sync (confirm Hatay/Konak by stable ids).
+   - İZELMAN open → closed → barrier → roadside (checksums).
+   - OSM GeoJSON clip (auto-match **disabled**).
+6. Manual review of 2 REVIEW_REQUIRED pairs; optional accept of the 1 high-score proposal.
+7. **Publish flips:** facility İZELMAN → OSM → widen Explore to `IZUM,IZELMAN,OSM`; roadside already PUBLISHED when flag on at import.
+8. **Acceptance:** six centers Explore + `/map` + roadside nearby; access chips; capped banner at 100; no fake occupancy.
+9. **Rollback:** re-pin previous digests; publication flags false; Explore allowlist previous; roadside `publication_status` can be bulk-set UNPUBLISHED if needed.
 
 ---
 
-## 5. Backups, rollback, post-deploy acceptance
+## 6. Remaining release actions (not this step)
 
-**Backups:** full `municipal_*` dump before any import/publication flip.
-
-**Rollback:**
-- Re-pin parking to previous digest (`e353baed…` only if #70 never needed for recovered inventory — prefer forward pin with publication flags false).
-- Publication flags → false per source.
-- Explore allowlist → previous value (fail-closed empty or IZUM-only).
-
-**Post-deploy acceptance (not run in this prep):**
-- Health + municipal nearby at six centers.
-- Explore returns multi-family inventory with limit=6 preview and AuthGate on detail.
-- No fabricated occupancy on İZELMAN/OSM.
-- accessClassification visible on list, preview, and detail.
-- When map returns 100 rows, `municipal-results-capped` messaging shown (zoom / reduce radius).
-
----
-
-## 6. Product prep completed on candidate (code)
-
-- Authenticated nearby default/max **100**; web `/map` requests 100.
-- Explore preview **limit 6** remains; source family allowlist can include **IZELMAN + OSM** (not IZUM-only).
-- `accessClassification` on municipal + Explore DTOs; shown on list, selected preview, and detail (PUBLIC / RESTRICTED / UNKNOWN distinguishable; missing ≠ PUBLIC).
-- Truncation UX: `municipal.resultsCapped` (en/tr) when `totalCount >= limit`.
-
----
-
-## 7. Unresolved blockers / decisions still required
-
-| Item | Status |
-| --- | --- |
-| Push RC image to ghcr + update GMP pin | **Blocked on release decision** (prep image built locally only) |
-| Production İZELMAN/OSM import + publication | **Not executed** |
-| Registry IZUM↔İZELMAN auto-pair | Still disabled in code — manual review for duplicates |
-| Live Hatay/Konak presence on prod IZUM | Depends on post-#70 deploy + sync; İZELMAN closed CSV is recovery inventory |
-| Dense OSM at 5 km | Will hit limit 100 — continuation is zoom/radius, not pagination |
-| PR #68 / New Relic | Kept separate |
-| Security CI summary on tip `f526df3d` | Failed only because unrelated `ai-validation` / `gamification` Trivy **artifact upload 403**; parking container scan, Backend unit, Integration, Frontend, Mobile-v2 all **pass** |
+- Push parking + web RC images to **ghcr** and update compose pins.
+- Production import / publication / Explore family widen.
+- Product UX for roadside nearby (if not already surfaced on `/map`).
+- Manual conflation review of the two REVIEW_REQUIRED pairs.
 
 ---
 
 ## Decision ask
 
-Approve (1) parking pin update to RC containing #70+#71, then (2) staged imports/publication per §4. Until then: **no production deploy, import, or publication.**
+Approve ghcr publish + pin update for parking and web RCs, then staged import/publish per §5. Until then: **no production deploy, import, or publication.**

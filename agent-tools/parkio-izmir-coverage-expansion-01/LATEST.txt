@@ -1,16 +1,14 @@
-2026-09-22 — İzmir coverage expansion prep (PR #71)
+2026-09-22 — İzmir coverage release evidence close-out (PR #71)
 
-Status: PREPARATION COMPLETE — production deploy/import/publication NOT executed.
+Runtime (SSH StrictHostKeyChecking=yes, 2026-09-22T06:54:27Z):
+  parking RUNNING: @sha256:e353baed3f464849208ef8852314ad8c469663d20ad8c2f755ac236bd1452dfe
+  web RUNNING:     @sha256:7202058c2d75537a5578acd07f65c645d6237e3eaaef89e5be49a6b785e82761
+  (local pin = expected config; runtime verified separately and matches parking pin)
 
-Live parking: @sha256:e353baed… (does NOT include merged PR #70).
-Candidate HEAD: 4abbf326
-RC local image: sha256:c0b4d858cedbfacc122ea29fd422ddd838d652fa18911ac1050fa15dae668f86
-  tag parkio/parking-service:izmir-coverage-rc-4abbf326 (not on ghcr)
-RC bootJar SHA-256: F0EACE14E426AD44000E848A3709EC57BA4A73F23BB54521F6B99D851589E1D5
+Combined candidate: unique facilities 1505 = IZUM 12 + IZELMAN 51 + OSM 1442 (no auto-merge).
+Roadside 48 independently discoverable via /parking/roadside/nearby after publish-status fix.
+Conflation: 1 AUTO_MATCHED proposal + 2 REVIEW_REQUIRED; auto-match left OFF.
+Six centers: map capped at 100 everywhere with OSM; Explore multi-family; access labels OK.
 
-IZELMAN isolated (all 4): open 11, closed 23, barrier 17, roadside 48; unique facilities 51; occupancy 0; idempotent.
-OSM isolated: 1634 raw → 1442 accepted; 192 access rejected; idempotent; 1 auto-match / 2 review.
-Centers (IZELMAN candidate): all six Explore+/map covered; map never capped at 100 without OSM.
-With OSM at 5km: all six centers exceed 100 — zoom/radius continuation required.
-
-See RELEASE-DECISION-PACKAGE.md
+CI on ab822004: Security/Trivy green (prior upload-403 cleared). Legacy mobile advisory fail only.
+RC images local only — ghcr publish remains release action. See RELEASE-DECISION-PACKAGE.md
