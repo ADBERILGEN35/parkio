@@ -15,6 +15,7 @@ import { AppRuntimeProvider } from '@/app/AppRuntimeProvider';
 import { createWebAppRuntime } from '@/app/runtime';
 import {
   clearPendingProfile,
+  resetPendingProfileMemoryForTests,
   setPendingProfile,
 } from '@/auth/pendingProfile';
 import i18n from '@/i18n';
@@ -237,6 +238,66 @@ describe('AccountPreparingPage', () => {
         historyAction: 'REPLACE',
       },
     ]);
+  });
+
+  it('PATCHes in-memory phone without ever persisting it to sessionStorage', async () => {
+    let patchBody: Record<string, unknown> | null = null;
+    setPendingProfile({ displayName: 'New Driver', phoneNumber: '5551234567' });
+    expect(JSON.parse(sessionStorage.getItem('parkio.pendingProfile')!)).toEqual({
+      displayName: 'New Driver',
+      needsPhoneReentry: true,
+    });
+
+    server.use(
+      http.get(`${API_BASE}/auth/me`, () => HttpResponse.json(meUser)),
+      http.patch(`${API_BASE}/users/me`, async ({ request }) => {
+        patchBody = (await request.json()) as Record<string, unknown>;
+        return HttpResponse.json({});
+      }),
+    );
+
+    const { runtime } = renderPreparing();
+
+    expect(await screen.findByText('Map page stub')).toBeInTheDocument();
+    expect(patchBody).toEqual({
+      displayName: 'New Driver',
+      phoneNumber: '5551234567',
+    });
+    expect(sessionStorage.getItem('parkio.pendingProfile')).toBeNull();
+    expect(runtime.authStore.getState().lifecycle).toBe('authenticated');
+  });
+
+  it('asks for phone re-entry after reload when phone was lost from memory', async () => {
+    setPendingProfile({ displayName: 'New Driver', phoneNumber: '5551234567' });
+    // Simulate reload: memory gone, non-sensitive re-entry flag remains.
+    resetPendingProfileMemoryForTests();
+
+    let patchBody: Record<string, unknown> | null = null;
+    server.use(
+      http.get(`${API_BASE}/auth/me`, () => HttpResponse.json(meUser)),
+      http.patch(`${API_BASE}/users/me`, async ({ request }) => {
+        patchBody = (await request.json()) as Record<string, unknown>;
+        return HttpResponse.json({});
+      }),
+    );
+
+    const { runtime, navigationTransitions } = renderPreparing();
+
+    expect(
+      await screen.findByText(
+        'For security, your phone number was not kept across the page reload. Please add it again from Profile when you are ready.',
+      ),
+    ).toBeInTheDocument();
+    expect(patchBody).toEqual({
+      displayName: 'New Driver',
+    });
+    expect(sessionStorage.getItem('parkio.pendingProfile')).toBeNull();
+    expect(runtime.authStore.getState().lifecycle).toBe('provisioning');
+    expect(navigationTransitions).toEqual([]);
+
+    fireEvent.click(screen.getByRole('button', { name: 'Continue to Parkio' }));
+    expect(await screen.findByText('Map page stub')).toBeInTheDocument();
+    expect(runtime.authStore.getState().lifecycle).toBe('authenticated');
   });
 
   it('shows the preparing state and never marks suspended while provisioning', async () => {
