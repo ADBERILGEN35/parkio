@@ -228,10 +228,11 @@ If operators explicitly choose not to take this branch first: switch `PARKIO_EMA
 
 | Artifact | Value |
 |---|---|
-| Branch tip (runtime) | `b10c1f7cda85693c4af9ea6d32b81f2b3f0a7449` |
+| Branch tip (docs / PR head) | `a25ebde4ac7f50ad56cccff5204952afcee1b0d5` (candidate identity + Trivy evidence only) |
+| Branch tip (runtime image) | `b10c1f7cda85693c4af9ea6d32b81f2b3f0a7449` |
 | Local candidate tag | `parkio/auth-service:prep-auth-resend-b10c1f7c` |
 | Image ID (manifest list) | `sha256:a4410a45634b73246e13c3054dc3b1d0c8069baa7c0738258ecf9774ca72514e` |
-| Source equivalence | **Rebuilt from tip `b10c1f7c`** after enumeration + Postgres IT sources landed. Prior local image `c72c68a2…` matched runtime sources of `78e0a938` only; docs commit `d21413c9` did not change jars. Final candidate ≡ PR head runtime inputs. |
+| Source equivalence | **Rebuilt from runtime tip `b10c1f7c`**. Docs tip `a25ebde4` does not change jars. Earlier `c72c68a2…` matched `78e0a938` runtime only; `d21413c9` was docs-only. |
 | GHCR digest | *not pushed* (local candidate only until release decision) |
 
 Rebuild is required because runtime code changed. Do not rebuild merely to flip the provider string.
