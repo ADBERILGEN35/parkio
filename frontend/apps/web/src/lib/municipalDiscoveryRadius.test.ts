@@ -6,6 +6,7 @@ import {
   formatMunicipalRadiusLabel,
   isValidMunicipalRadiusMeters,
   nextMunicipalRadiusMeters,
+  previousMunicipalRadiusMeters,
 } from './municipalDiscoveryRadius';
 
 describe('municipalDiscoveryRadius', () => {
@@ -34,6 +35,13 @@ describe('municipalDiscoveryRadius', () => {
     expect(nextMunicipalRadiusMeters(25_000)).toBe(50_000);
     expect(nextMunicipalRadiusMeters(50_000)).toBeNull();
     expect(nextMunicipalRadiusMeters(49_999)).toBe(50_000);
+  });
+
+  it('offers reduction for capped searches while a smaller preset exists', () => {
+    expect(previousMunicipalRadiusMeters(5000)).toBe(3000);
+    expect(previousMunicipalRadiusMeters(1000)).toBeNull();
+    expect(previousMunicipalRadiusMeters(2000)).toBe(1000);
+    expect(previousMunicipalRadiusMeters(50_000)).toBe(25_000);
   });
 
   it('formats labels for UI', () => {

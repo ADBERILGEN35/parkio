@@ -1,4 +1,8 @@
-import type { MunicipalFacilityNearbyParams, NearbySearchParams } from '@parkio/types';
+import type {
+  MunicipalFacilityNearbyParams,
+  NearbySearchParams,
+  RoadsideSegmentNearbyParams,
+} from '@parkio/types';
 
 /**
  * Canonical React Query key factories for Web server state (WP-04).
@@ -43,6 +47,15 @@ export function normalizeMunicipalNearbyFilters(filters: MunicipalFacilityNearby
   } as const;
 }
 
+export function normalizeRoadsideNearbyFilters(filters: RoadsideSegmentNearbyParams) {
+  return {
+    lat: filters.lat,
+    lng: filters.lng,
+    ...(filters.radiusMeters !== undefined ? { radiusMeters: filters.radiusMeters } : {}),
+    ...(filters.limit !== undefined ? { limit: filters.limit } : {}),
+  } as const;
+}
+
 export const parkingKeys = {
   all: ['parking'] as const,
   nearby: (filters: NearbyParkingFilters) =>
@@ -52,6 +65,9 @@ export const parkingKeys = {
   municipalNearby: (filters: MunicipalFacilityNearbyParams) =>
     [...parkingKeys.all, 'municipal-nearby', normalizeMunicipalNearbyFilters(filters)] as const,
   municipalNearbyRoot: () => [...parkingKeys.all, 'municipal-nearby'] as const,
+  roadsideNearby: (filters: RoadsideSegmentNearbyParams) =>
+    [...parkingKeys.all, 'roadside-nearby', normalizeRoadsideNearbyFilters(filters)] as const,
+  roadsideNearbyRoot: () => [...parkingKeys.all, 'roadside-nearby'] as const,
   municipalFacility: (facilityId: string) =>
     [...parkingKeys.all, 'municipal-facility', facilityId] as const,
   mySpots: () => [...parkingKeys.all, 'my-spots'] as const,

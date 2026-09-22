@@ -10,6 +10,19 @@ export const MUNICIPAL_FACILITY_TYPES = ['ON_STREET', 'OFF_STREET', 'UNKNOWN'] a
 
 export type MunicipalFacilityType = (typeof MUNICIPAL_FACILITY_TYPES)[number];
 
+/** Access restriction — mirrors `MunicipalAccessClassification`. */
+export const MUNICIPAL_ACCESS_CLASSIFICATIONS = [
+  'PUBLIC',
+  'CUSTOMERS',
+  'PERMISSIVE',
+  'PRIVATE',
+  'RESIDENTS',
+  'RESTRICTED',
+  'UNKNOWN',
+] as const;
+
+export type MunicipalAccessClassification = (typeof MUNICIPAL_ACCESS_CLASSIFICATIONS)[number];
+
 /**
  * Occupancy / availability freshness — mirrors `MunicipalOccupancyFreshness`.
  * OSM inventory typically publishes UNAVAILABLE for live occupancy.
@@ -65,6 +78,8 @@ export interface MunicipalFacility {
   availabilitySource: string | null;
   availabilityFreshness: MunicipalOccupancyFreshness | null;
   availabilityObservationTimestamp: string | null;
+  /** Access restriction — prefer showing before the user chooses a facility. */
+  accessClassification?: MunicipalAccessClassification | null;
 }
 
 export type MunicipalFacilityResponse = MunicipalFacility;

@@ -66,4 +66,30 @@ tasks.named<Test>("integrationTest") {
     if (evidenceDir.isPresent) {
         environment("PARKIO_SPIKE02_EVIDENCE_DIR", evidenceDir.get())
     }
+    // Opt-in combined İzmir candidate coverage (IZUM+İZELMAN+OSM).
+    listOf(
+        "parkio.combined.izmir.candidate",
+        "parkio.osm.real.izmir.geojson",
+        "parkio.izelman.official.dir",
+        "parkio.combined.report.dir",
+    ).forEach { key ->
+        val value = providers.systemProperty(key)
+        if (value.isPresent) {
+            systemProperty(key, value.get())
+        }
+    }
+    // Also forward env-based OSM/İZELMAN paths used by opt-in ITs.
+    listOf(
+        "PARKIO_OSM_REAL_IZMIR_VALIDATION",
+        "PARKIO_OSM_REAL_IZMIR_GEOJSON",
+        "PARKIO_OSM_REAL_IZMIR_REPORT_DIR",
+        "PARKIO_IZELMAN_OFFICIAL_DIR",
+        "PARKIO_COMBINED_IZMIR_CANDIDATE",
+        "PARKIO_COMBINED_REPORT_DIR",
+    ).forEach { key ->
+        val value = providers.environmentVariable(key)
+        if (value.isPresent) {
+            environment(key, value.get())
+        }
+    }
 }

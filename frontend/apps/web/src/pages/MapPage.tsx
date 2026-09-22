@@ -6,6 +6,7 @@ import type {
   DestinationSearchItem,
   ParkingCandidate,
   AssistantDestinationOrigin,
+  RoadsideSegmentNearbyParams,
 } from '@parkio/types';
 import {
   Button,
@@ -46,6 +47,7 @@ import { frontendConfig } from '@/config/env';
 import { useMySmartReturnQuery, useMyVehicleQuery } from '@/data/hooks/useMeQueries';
 import {
   useNearbyMunicipalFacilitiesQuery,
+  useNearbyRoadsideSegmentsQuery,
   useNearbySpotsQuery,
 } from '@/data/hooks/useParkingQueries';
 import { useActiveParkingSessionQuery, useParkingSessionLifecycleConfigQuery } from '@/data/hooks/useParkingSessionQueries';
@@ -92,6 +94,10 @@ import {
   clampMunicipalRadiusMeters,
   isValidMunicipalRadiusMeters,
 } from '@/lib/municipalDiscoveryRadius';
+import {
+  isIzelmanRoadsideFacility,
+  toMunicipalFacilityFromRoadside,
+} from '@/lib/roadsideInventory';
 import {
   AssistantEntryControl,
   DestinationSearchPanel,
@@ -235,10 +241,24 @@ export function MapPage({
       lat: params.lat,
       lng: params.lng,
       radiusMeters: municipalRadiusMeters,
-      ...(params.limit !== undefined ? { limit: params.limit } : {}),
+      // Independent of community spot limit — dense inventory must not silently truncate at 20.
+      limit: 100,
     };
   }, [municipalRadiusMeters, params]);
   const municipalSearch = useNearbyMunicipalFacilitiesQuery(municipalParams, {
+    enabled: municipalDiscoveryEnabled,
+  });
+  /** Roadside API max radius is 5 km — clamp independently of facility radius presets. */
+  const roadsideParams = useMemo((): RoadsideSegmentNearbyParams | null => {
+    if (!params) return null;
+    return {
+      lat: params.lat,
+      lng: params.lng,
+      radiusMeters: Math.min(municipalRadiusMeters, 5_000),
+      limit: 50,
+    };
+  }, [municipalRadiusMeters, params]);
+  const roadsideSearch = useNearbyRoadsideSegmentsQuery(roadsideParams, {
     enabled: municipalDiscoveryEnabled,
   });
 
@@ -335,9 +355,26 @@ export function MapPage({
     [spotsWithDistance, selectedId],
   );
 
-  const municipalFacilities = useMemo(
-    () => (municipalDiscoveryEnabled ? (municipalSearch.data ?? []) : []),
-    [municipalDiscoveryEnabled, municipalSearch.data],
+  const municipalFacilities = useMemo(() => {
+    if (!municipalDiscoveryEnabled) return [];
+    const facilities = municipalSearch.data ?? [];
+    const roadside = (roadsideSearch.data ?? [])
+      .map(toMunicipalFacilityFromRoadside)
+      .filter((facility) => isValidLatLng(facility.latitude, facility.longitude));
+    if (roadside.length === 0) return facilities;
+    const seen = new Set(facilities.map((facility) => facility.id));
+    const merged = [...facilities];
+    for (const segment of roadside) {
+      if (seen.has(segment.id)) continue;
+      seen.add(segment.id);
+      merged.push(segment);
+    }
+    return merged;
+  }, [municipalDiscoveryEnabled, municipalSearch.data, roadsideSearch.data]);
+  /** Facility API hit the limit — radius continuation must change radiusMeters. */
+  const municipalFacilityResultsCapped = Boolean(
+    municipalParams?.limit != null
+      && (municipalSearch.data?.length ?? 0) >= municipalParams.limit,
   );
   const municipalSourceLabels = useMemo(
     () => availableMunicipalSourceLabels(municipalFacilities),
@@ -852,6 +889,7 @@ export function MapPage({
           onRadiusMetersChange={handleMunicipalRadiusMetersChange}
           facilities={visibleMunicipalFacilities}
           totalCount={municipalFacilities.length}
+          resultsCapped={municipalFacilityResultsCapped}
           filters={municipalFilters}
           onFiltersChange={setMunicipalFilters}
           availableSourceLabels={municipalSourceLabels}
@@ -1311,7 +1349,10 @@ export function MapPage({
                 facility={selectedMunicipalFacility}
                 distanceMeters={selectedMunicipalDistance}
                 onClose={() => selectMunicipalFacility(null)}
-                parkHereEnabled={!activeSession}
+                parkHereEnabled={
+                  !activeSession && !isIzelmanRoadsideFacility(selectedMunicipalFacility)
+                }
+                showViewDetails={!isIzelmanRoadsideFacility(selectedMunicipalFacility)}
               />
             ) : null}
           </div>

@@ -1,0 +1,55 @@
+{
+  "evidenceKind": "candidate-explore-roadside-ui",
+  "producedAt": "2026-09-22T07:31:37Z",
+  "surface": "GET /api/v1/public/explore/facilities (PublicExploreQueryService merge)",
+  "center": {
+    "center": "Alsancak",
+    "lat": 38.438,
+    "lng": 27.142,
+    "exploreTotal": 335,
+    "exploreVisible": 6,
+    "exploreRoadsideVisibleIds": [
+      "3611ffcb-2205-4894-9fe3-f14d6e518e9d",
+      "8e16b9a2-1dec-42a3-a032-514cfdc27480"
+    ],
+    "representativeRoadsideIdsInRadius": [
+      "3611ffcb-2205-4894-9fe3-f14d6e518e9d",
+      "8e16b9a2-1dec-42a3-a032-514cfdc27480",
+      "b9ec702b-f40a-4f12-acd1-1b4b43962ebc"
+    ],
+    "exploreFamiliesSample": [
+      "IZELMAN",
+      "OSM"
+    ],
+    "mapCount": 100,
+    "mapCappedAt100": true,
+    "mapFamiliesSample": [
+      "OSM",
+      "Izmir Buyuksehir Belediyesi / IZUM",
+      "IZELMAN"
+    ],
+    "accessClassificationsSeen": [
+      "UNKNOWN",
+      "PUBLIC",
+      "PERMISSIVE"
+    ],
+    "roadsideWithGeometryInRadius": 48,
+    "continuation": "reduce_radius_via_municipal_radius_control — first 100 nearest facilities; map zoom alone does not change the API search"
+  },
+  "assertions": [
+    "exploreTotal includes roadsideNear (335 = facilities + roadside in radius)",
+    "visible Explore rows can include İZELMAN roadside sourceLabel",
+    "roadside projections: ON_STREET, UNKNOWN access, UNAVAILABLE occupancy",
+    "anonymous detail remains AuthGate (FE PublicExplorePage.test)"
+  ],
+  "mapSurface": "authenticated /map merges GET /parking/roadside/nearby (limit 50, r<=5km) with facilities/nearby",
+  "representativeRoadsideIds": [
+    "3611ffcb-2205-4894-9fe3-f14d6e518e9d",
+    "8e16b9a2-1dec-42a3-a032-514cfdc27480",
+    "b9ec702b-f40a-4f12-acd1-1b4b43962ebc"
+  ],
+  "exploreRoadsideVisibleIds": [
+    "3611ffcb-2205-4894-9fe3-f14d6e518e9d",
+    "8e16b9a2-1dec-42a3-a032-514cfdc27480"
+  ]
+}

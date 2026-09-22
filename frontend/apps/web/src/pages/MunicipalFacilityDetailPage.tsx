@@ -127,6 +127,27 @@ function FacilityOccupancySection({
           {t(`municipal.freshness.${municipalFreshnessCopyKey(occupancyKind)}`)}
         </SoftBadge>
 
+        {facility.accessClassification ? (
+          <SoftBadge
+            tone={
+              facility.accessClassification === 'PUBLIC' || facility.accessClassification === 'PERMISSIVE'
+                ? 'success'
+                : facility.accessClassification === 'UNKNOWN'
+                  ? 'neutral'
+                  : 'warning'
+            }
+            icon={
+              facility.accessClassification === 'PUBLIC' || facility.accessClassification === 'PERMISSIVE'
+                ? 'lock_open'
+                : 'lock'
+            }
+            className="w-fit"
+            data-testid="municipal-access-restriction"
+          >
+            {t(`municipal.access.${facility.accessClassification}`)}
+          </SoftBadge>
+        ) : null}
+
         {isLive && facility.availableSpaces != null ? (
           <div
             className="grid grid-cols-1 gap-sm sm:grid-cols-3"

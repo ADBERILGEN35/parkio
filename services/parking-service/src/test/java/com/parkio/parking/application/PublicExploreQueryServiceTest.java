@@ -13,6 +13,7 @@ import static org.mockito.Mockito.when;
 
 import com.parkio.parking.application.port.MunicipalFacilityRepository;
 import com.parkio.parking.application.port.MunicipalOccupancySnapshotRepository;
+import com.parkio.parking.application.port.RoadsideDiscoveryQueryPort;
 import com.parkio.parking.externalsource.MunicipalAccessClassification;
 import com.parkio.parking.externalsource.MunicipalFacilityType;
 import com.parkio.parking.externalsource.MunicipalOccupancyFreshness;
@@ -125,12 +126,14 @@ class PublicExploreQueryServiceTest {
         assertThat(result.facilities()).hasSize(2);
         assertThat(result.municipalTotalInScope()).isEqualTo(9L);
         assertThat(result.municipalHiddenCount()).isEqualTo(7L);
-        assertThat(result.facilities().get(0).sourceLabel())
-                .isEqualTo(ParkingProviderCatalog.IZUM_DISPLAY_NAME);
-        assertThat(result.facilities().get(0).availableSpaces()).isEqualTo(50);
-        assertThat(result.facilities().get(1).sourceLabel())
-                .isEqualTo(ParkingProviderCatalog.ISPARK_DISPLAY_NAME);
-        assertThat(result.facilities().get(1).availableSpaces()).isEqualTo(80);
+        var byId = result.facilities().stream()
+                .collect(java.util.stream.Collectors.toMap(
+                        PublicExploreQueryService.FacilityView::id,
+                        java.util.function.Function.identity()));
+        assertThat(byId.get(izumId).sourceLabel()).isEqualTo(ParkingProviderCatalog.IZUM_DISPLAY_NAME);
+        assertThat(byId.get(izumId).availableSpaces()).isEqualTo(50);
+        assertThat(byId.get(isparkId).sourceLabel()).isEqualTo(ParkingProviderCatalog.ISPARK_DISPLAY_NAME);
+        assertThat(byId.get(isparkId).availableSpaces()).isEqualTo(80);
         verify(snapshots).latestForFacilityAndSourceKey(izumId, MunicipalSourceIdentity.IZUM);
         verify(snapshots).latestForFacilityAndSourceKey(isparkId, MunicipalSourceIdentity.ISPARK);
         verify(snapshots, never()).latestForFacilityAndSourceKey(izumId, MunicipalSourceIdentity.ISPARK);
@@ -327,11 +330,84 @@ class PublicExploreQueryServiceTest {
         return properties;
     }
 
+    @Test
+    void izelmanAllowlistMergesPublishedRoadsideWithUnknownAccessAndUnavailableOccupancy() {
+        var facilities = mock(MunicipalFacilityRepository.class);
+        var snapshots = mock(MunicipalOccupancySnapshotRepository.class);
+        var roadside = mock(RoadsideDiscoveryQueryPort.class);
+        Set<String> izelmanKeys = Set.of(
+                "izelman-open-parking-facilities",
+                "izelman-closed-parking-facilities",
+                "izelman-barrier-parking-facilities");
+        UUID roadsideId = UUID.fromString("00000000-0000-0000-0000-00000000abcd");
+        when(facilities.countPublicExploreNearby(38.42, 27.14, 5_000, izelmanKeys)).thenReturn(2L);
+        when(facilities.publicExploreNearby(38.42, 27.14, 5_000, 6, izelmanKeys))
+                .thenReturn(List.of(facility(
+                        UUID.fromString("00000000-0000-0000-0000-0000000000aa"),
+                        38.421,
+                        27.141,
+                        "izelman-open-parking-facilities")));
+        when(roadside.countNearby(38.42, 27.14, 5_000)).thenReturn(48L);
+        when(roadside.nearby(38.42, 27.14, 5_000, 6))
+                .thenReturn(List.of(new RoadsideDiscoveryQueryPort.RoadsideSegment(
+                        roadsideId,
+                        "Alsancak roadside sample",
+                        "Alsancak",
+                        38.4201,
+                        27.1401,
+                        12,
+                        NOW)));
+
+        var result = service(facilities, snapshots, roadside, enabledFamilies("IZELMAN"))
+                .discover(new PublicExploreQueryService.DiscoveryQuery(38.42, 27.14, 5_000, null));
+
+        assertThat(result.municipalTotalInScope()).isEqualTo(50L);
+        assertThat(result.facilities()).extracting(PublicExploreQueryService.FacilityView::id)
+                .contains(roadsideId);
+        var roadsideView = result.facilities().stream()
+                .filter(view -> view.id().equals(roadsideId))
+                .findFirst()
+                .orElseThrow();
+        assertThat(roadsideView.sourceLabel())
+                .isEqualTo(PublicExploreQueryService.IZELMAN_ROADSIDE_SOURCE_LABEL);
+        assertThat(roadsideView.attribution())
+                .isEqualTo(PublicExploreQueryService.IZELMAN_ROADSIDE_ATTRIBUTION);
+        assertThat(roadsideView.facilityType()).isEqualTo(MunicipalFacilityType.ON_STREET);
+        assertThat(roadsideView.accessClassification()).isEqualTo(MunicipalAccessClassification.UNKNOWN);
+        assertThat(roadsideView.availabilityFreshness()).isEqualTo(MunicipalOccupancyFreshness.UNAVAILABLE);
+        assertThat(roadsideView.availableSpaces()).isNull();
+        verify(roadside).nearby(38.42, 27.14, 5_000, 6);
+    }
+
+    @Test
+    void izumOnlyAllowlistDoesNotQueryRoadside() {
+        var facilities = mock(MunicipalFacilityRepository.class);
+        var snapshots = mock(MunicipalOccupancySnapshotRepository.class);
+        var roadside = mock(RoadsideDiscoveryQueryPort.class);
+        when(facilities.countPublicExploreNearby(38.4237, 27.1428, 5_000, IZUM_KEYS)).thenReturn(1L);
+        when(facilities.publicExploreNearby(38.4237, 27.1428, 5_000, 6, IZUM_KEYS))
+                .thenReturn(List.of(facility(UUID.randomUUID(), 38.4237, 27.1428, MunicipalSourceIdentity.IZUM)));
+
+        service(facilities, snapshots, roadside, enabledFamilies("izum"))
+                .discover(new PublicExploreQueryService.DiscoveryQuery(null, null, null, null));
+
+        verify(roadside, never()).countNearby(anyDouble(), anyDouble(), anyInt());
+        verify(roadside, never()).nearby(anyDouble(), anyDouble(), anyInt(), anyInt());
+    }
+
     private static PublicExploreQueryService service(
             MunicipalFacilityRepository facilities,
             MunicipalOccupancySnapshotRepository snapshots,
             PublicExploreProperties properties) {
+        return service(facilities, snapshots, mock(RoadsideDiscoveryQueryPort.class), properties);
+    }
+
+    private static PublicExploreQueryService service(
+            MunicipalFacilityRepository facilities,
+            MunicipalOccupancySnapshotRepository snapshots,
+            RoadsideDiscoveryQueryPort roadside,
+            PublicExploreProperties properties) {
         return new PublicExploreQueryService(
-                facilities, snapshots, properties, Clock.fixed(NOW, ZoneOffset.UTC));
+                facilities, snapshots, roadside, properties, Clock.fixed(NOW, ZoneOffset.UTC));
     }
 }

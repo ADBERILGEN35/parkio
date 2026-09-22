@@ -10,6 +10,7 @@ import com.parkio.parking.domain.ParkingContext;
 import com.parkio.parking.domain.ParkingSpot;
 import com.parkio.parking.domain.ParkingSpotStatus;
 import com.parkio.parking.domain.VehicleType;
+import com.parkio.parking.externalsource.MunicipalAccessClassification;
 import com.parkio.parking.externalsource.MunicipalFacilityType;
 import com.parkio.parking.externalsource.MunicipalOccupancyFreshness;
 import com.parkio.parking.externalsource.MunicipalSourceIdentity;
@@ -107,7 +108,8 @@ class ParkingCandidateMapperTest {
                 ParkingProviderCatalog.ISPARK_ATTRIBUTION,
                 ParkingProviderCatalog.ISPARK_DISPLAY_NAME,
                 NOW,
-                MunicipalSourceIdentity.ISPARK);
+                MunicipalSourceIdentity.ISPARK,
+                MunicipalAccessClassification.PUBLIC);
         ParkingCandidate candidate = ParkingCandidateMapper.fromMunicipal(view, 41.0, 29.0);
 
         assertEquals(ParkingCandidateChannel.MUNICIPAL_FACILITY, candidate.channel());
@@ -138,7 +140,8 @@ class ParkingCandidateMapperTest {
                 "attr",
                 sourceLabel,
                 NOW,
-                available == null ? null : MunicipalSourceIdentity.IZUM);
+                available == null ? null : MunicipalSourceIdentity.IZUM,
+                MunicipalAccessClassification.PUBLIC);
     }
 
     private static ParkingSpot communitySpot() {

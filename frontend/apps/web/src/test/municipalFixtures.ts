@@ -28,6 +28,7 @@ export function makeMunicipalFacility(
     availabilitySource: null,
     availabilityFreshness: 'UNAVAILABLE',
     availabilityObservationTimestamp: null,
+    accessClassification: 'PUBLIC',
     ...overrides,
   };
 }

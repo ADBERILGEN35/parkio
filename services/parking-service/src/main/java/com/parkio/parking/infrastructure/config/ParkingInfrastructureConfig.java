@@ -140,10 +140,11 @@ public class ParkingInfrastructureConfig {
     public com.parkio.parking.application.PublicExploreQueryService publicExploreQueryService(
             MunicipalFacilityRepository facilities,
             MunicipalOccupancySnapshotRepository snapshots,
+            com.parkio.parking.application.port.RoadsideDiscoveryQueryPort roadside,
             PublicExploreProperties properties,
             Clock clock) {
         return new com.parkio.parking.application.PublicExploreQueryService(
-                facilities, snapshots, properties, clock);
+                facilities, snapshots, roadside, properties, clock);
     }
 
     @Bean

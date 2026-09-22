@@ -209,6 +209,52 @@ describe('PublicExplorePage', () => {
     expect(screen.getAllByTestId('municipal-facility-marker')).toHaveLength(2);
   });
 
+  it('renders İZELMAN roadside markers with unknown access and AuthGates detail to /map', async () => {
+    const roadside = {
+      id: 'aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee',
+      displayName: 'Alsancak roadside sample',
+      operatorName: 'İZELMAN A.Ş.',
+      facilityType: 'ON_STREET',
+      addressText: 'Alsancak',
+      latitude: 38.438,
+      longitude: 27.142,
+      capacityTotal: 18,
+      availableSpaces: null,
+      availabilityFreshness: 'UNAVAILABLE',
+      dataUpdatedAt: '2022-11-25T00:00:00Z',
+      sourceLabel: 'İZELMAN roadside',
+      attribution: 'İzmir Metropolitan Municipality / İZELMAN A.Ş.',
+      accessClassification: 'UNKNOWN',
+    };
+    server.use(
+      http.get(`${API_BASE}/public/explore/facilities`, () =>
+        HttpResponse.json(
+          discoveryResponse({
+            facilities: [roadside],
+            municipalTotalInScope: 48,
+            municipalHiddenCount: 47,
+          }),
+        ),
+      ),
+    );
+
+    renderWithProviders(<PublicExplorePage />, { initialEntries: ['/explore'] });
+    expect(await screen.findByTestId('municipal-facility-marker')).toHaveTextContent(
+      'Alsancak roadside sample',
+    );
+    await userEvent.click(screen.getByTestId('municipal-facility-marker'));
+    const preview = await screen.findByTestId('selected-municipal-facility-preview');
+    expect(preview).toHaveTextContent('Alsancak roadside sample');
+    expect(screen.getByTestId('municipal-access-restriction')).toBeInTheDocument();
+    expect(screen.getByTestId('municipal-occupancy-status')).toBeInTheDocument();
+    await userEvent.click(screen.getByTestId('municipal-facility-view-details'));
+    expect(await screen.findByTestId('auth-gate-dialog')).toBeInTheDocument();
+    expect(screen.getByTestId('auth-gate-dialog')).toHaveAttribute(
+      'data-auth-gate-intent',
+      'facilityDetail',
+    );
+  });
+
   it('renders the canonical product map and gates full detail behind AuthGate', async () => {
     const listCalls = vi.fn();
     server.use(

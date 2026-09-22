@@ -63,6 +63,7 @@ class Pa06PublicExploreHttpContractTest {
         PublicExploreQueryService service = new PublicExploreQueryService(
                 facilities,
                 mock(MunicipalOccupancySnapshotRepository.class),
+                mock(com.parkio.parking.application.port.RoadsideDiscoveryQueryPort.class),
                 props,
                 Clock.fixed(NOW, ZoneOffset.UTC));
         mvc = MockMvcBuilders.standaloneSetup(new PublicExploreController(service)).build();
@@ -144,13 +145,14 @@ class Pa06PublicExploreHttpContractTest {
     @Test
     void queryServiceConstructorHasNoCommunitySpotRepositoryDependency() {
         Constructor<?> ctor = Stream.of(PublicExploreQueryService.class.getDeclaredConstructors())
-                .filter(c -> c.getParameterCount() == 4)
+                .filter(c -> c.getParameterCount() == 5)
                 .findFirst()
                 .orElseThrow();
         assertThat(ctor.getParameterTypes())
                 .containsExactly(
                         MunicipalFacilityRepository.class,
                         MunicipalOccupancySnapshotRepository.class,
+                        com.parkio.parking.application.port.RoadsideDiscoveryQueryPort.class,
                         PublicExploreProperties.class,
                         Clock.class);
         assertThat(ctor.getParameterTypes())
