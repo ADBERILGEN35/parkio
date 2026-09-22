@@ -70,7 +70,7 @@ tests:
             exp_annotations:
               summary: "Hosted-beta backup last run failed"
               description: "parkio_backup_last_success is 0 for scope azure-hosted-beta. The last backup attempt did not meet success (databases + MinIO + required offsite). Inspect the backup log; do not treat a local directory as success."
-              runbook_url: "docs/operations/backup-runbook.md#failed-backups"
+              runbook_url: "https://github.com/ADBERILGEN35/parkio/blob/api/docs/operations/backup-runbook.md#failed-backups"
       - eval_time: 65m
         alertname: BackupOffsiteFailed
         exp_alerts:
@@ -81,7 +81,7 @@ tests:
             exp_annotations:
               summary: "Production-mode offsite backup failed"
               description: "BACKUP_PRODUCTION_MODE is on for scope azure-hosted-beta but parkio_backup_offsite_last_success is 0. Local stamp existence is not offsite protection. Check Azure/S3 credentials and backup-offsite logs."
-              runbook_url: "docs/operations/backup-runbook.md#failed-backups"
+              runbook_url: "https://github.com/ADBERILGEN35/parkio/blob/api/docs/operations/backup-runbook.md#failed-backups"
       - eval_time: 65m
         alertname: BackupTelemetryAbsent
         exp_alerts: []
@@ -110,7 +110,7 @@ tests:
             exp_annotations:
               summary: "Backup telemetry missing while node-exporter is up"
               description: "node-exporter is scrapeable but no parkio_backup_last_success series for production scopes (hosted-beta|azure-hosted-beta|invite-production) existed in the last 30m. Threshold alerts on empty vectors stay silent — check textfile mount, parkio_backup.prom, and collector parse errors."
-              runbook_url: "docs/operations/backup-runbook.md#failed-backups"
+              runbook_url: "https://github.com/ADBERILGEN35/parkio/blob/api/docs/operations/backup-runbook.md#failed-backups"
       - eval_time: 65m
         alertname: BackupFailed
         exp_alerts: []
@@ -157,7 +157,7 @@ tests:
             exp_annotations:
               summary: "Required backup metric missing for scope azure-hosted-beta"
               description: "parkio_backup_production_mode is present for scope azure-hosted-beta but at least one required paired series (last_success, last_timestamp_seconds, offsite_last_success, encryption_enabled) is absent. Another scope remaining healthy does not clear this."
-              runbook_url: "docs/operations/backup-runbook.md#failed-backups"
+              runbook_url: "https://github.com/ADBERILGEN35/parkio/blob/api/docs/operations/backup-runbook.md#failed-backups"
       - eval_time: 65m
         alertname: BackupTelemetryAbsent
         exp_alerts: []
@@ -187,7 +187,7 @@ tests:
             exp_annotations:
               summary: "node-exporter textfile collector parse error"
               description: "node_textfile_scrape_error > 0 on node-exporter:9100. Backup .prom files may be unreadable or malformed — parkio_backup_* series can disappear while the exporter stays up."
-              runbook_url: "docs/operations/backup-runbook.md#failed-backups"
+              runbook_url: "https://github.com/ADBERILGEN35/parkio/blob/api/docs/operations/backup-runbook.md#failed-backups"
 
   - name: exporter down does not invent BackupTelemetryAbsent
     interval: 1m
@@ -206,7 +206,7 @@ tests:
             exp_annotations:
               summary: "Host node-exporter is down"
               description: "Prometheus cannot scrape node-exporter for >2m. Host disk/memory/CPU/inode alerts are unavailable until it is restored. Check `docker compose ps node-exporter`."
-              runbook_url: "docs/architecture/observability-metrics.md#runbook--nodeexporterdown"
+              runbook_url: "https://github.com/ADBERILGEN35/parkio/blob/api/docs/architecture/observability-metrics.md#runbook--nodeexporterdown"
       - eval_time: 65m
         alertname: BackupTelemetryAbsent
         exp_alerts: []
@@ -237,7 +237,7 @@ tests:
             exp_annotations:
               summary: "Host node-exporter is down"
               description: "Prometheus cannot scrape node-exporter for >2m. Host disk/memory/CPU/inode alerts are unavailable until it is restored. Check `docker compose ps node-exporter`."
-              runbook_url: "docs/architecture/observability-metrics.md#runbook--nodeexporterdown"
+              runbook_url: "https://github.com/ADBERILGEN35/parkio/blob/api/docs/architecture/observability-metrics.md#runbook--nodeexporterdown"
       - eval_time: 20m
         alertname: BackupTelemetryAbsent
         exp_alerts: []
@@ -308,7 +308,7 @@ tests:
             exp_annotations:
               summary: "Backup telemetry missing while node-exporter is up"
               description: "node-exporter is scrapeable but no parkio_backup_last_success series for production scopes (hosted-beta|azure-hosted-beta|invite-production) existed in the last 30m. Threshold alerts on empty vectors stay silent — check textfile mount, parkio_backup.prom, and collector parse errors."
-              runbook_url: "docs/operations/backup-runbook.md#failed-backups"
+              runbook_url: "https://github.com/ADBERILGEN35/parkio/blob/api/docs/operations/backup-runbook.md#failed-backups"
       - eval_time: 110m
         alertname: BackupTelemetryAbsent
         exp_alerts: []

@@ -2,7 +2,7 @@
 
 **PR:** https://github.com/ADBERILGEN35/parkio/pull/84 (draft)  
 **Branch:** `feat/waitlist-full-name-readable-slack`  
-**Decision head:** `cbd8dc23b0c07e2836b09cd2614aa94ddb54d42d` (release-prep)  
+**Decision head:** `c5264dc81f9b53cd92616e8f4e06b68b2f2f1719` (PR tip at package time; release-prep body `cbd8dc23`)  
 **Base:** `origin/api`  
 **Scope:** draft only — no merge, no prod migrate/deploy, no real Slack/email, no secret/NR changes, registration CLOSED, provider=resend.
 
@@ -11,7 +11,7 @@
 | Item | Value |
 | --- | --- |
 | Draft PR | https://github.com/ADBERILGEN35/parkio/pull/84 |
-| Feature commits | `f1de140f` (implementation), `d1f8d012` (PR link), `cbd8dc23` (release-prep) |
+| Feature commits | `f1de140f` (implementation), `d1f8d012` (PR link), `cbd8dc23` (release-prep), `c5264dc8` (decision pin) |
 | Marketing deploy path | Hostinger `web/marketing/` → parkio.dev (separate from app web) |
 | Admin UI deploy path | GHCR web image pin / app.parkio.dev (separate step) |
 | Gateway / Flyway | V4 → additive V5 (`full_name` nullable + indexes) |
@@ -58,7 +58,7 @@ Invalid supplied names are rejected even when the requirement flag is off. Missi
 
 ## CI status (record at package time)
 
-Re-check PR checks after push. Prior head had Frontend marketing waitlist + Observability runbook URL mismatches (addressed in this prep). Backend/Security were still running at last poll.
+Tip push after release-prep. Known fixes in follow-up commit: Prometheus unit tests expect absolute runbook URLs (backup/blackbox/readiness); PostgresIT asserts Flyway **V5**. Prior tip failures on Frontend mock submit (fullName fill) and Observability relative runbook expectations addressed.
 
 ## Remaining blockers before merge/deploy authorization
 

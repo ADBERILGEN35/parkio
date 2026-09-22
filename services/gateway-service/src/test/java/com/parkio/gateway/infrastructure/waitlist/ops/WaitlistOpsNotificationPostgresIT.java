@@ -44,7 +44,7 @@ import org.testcontainers.utility.DockerImageName;
 import reactor.core.publisher.Mono;
 
 /**
- * Real-PostgreSQL proof (production image family postgres:16-alpine, Flyway V1..V4,
+ * Real-PostgreSQL proof (production image family postgres:16-alpine, Flyway V1..V5,
  * Spring Boot's auto-configured JDBC transaction manager) of the confirmation /
  * ops-outbox coupling. H2 cannot prove savepoint recovery: PostgreSQL aborts the
  * whole transaction on any error unless it is rolled back to a savepoint.
@@ -128,17 +128,17 @@ class WaitlistOpsNotificationPostgresIT {
     }
 
     @Test
-    void runsOnRealPostgresWithFlywayV4AndJdbcTransactionManager() {
+    void runsOnRealPostgresWithFlywayV5AndJdbcTransactionManager() {
         String version = jdbcTemplate.queryForObject("SHOW server_version", String.class);
         assertThat(version).startsWith("16.");
         assertThat(jdbcTemplate.queryForObject(
                 "SELECT version FROM flyway_schema_history WHERE success ORDER BY installed_rank DESC LIMIT 1",
-                String.class)).isEqualTo("4");
+                String.class)).isEqualTo("5");
         assertThat(jdbcTemplate.queryForObject(
                 "SELECT COUNT(*) FROM flyway_schema_history WHERE NOT success", Integer.class)).isZero();
         assertThat(transactionManager).isInstanceOf(JdbcTransactionManager.class);
         assertThat(((JdbcTransactionManager) transactionManager).isNestedTransactionAllowed()).isTrue();
-        // Constraints from V4 are really enforced by PostgreSQL.
+        // Constraints from V4+ are really enforced by PostgreSQL.
         assertThatThrownBy(() -> jdbcTemplate.update("""
                 INSERT INTO waitlist_ops_notification_outbox
                     (id, event_type, dedup_key, occurred_at, status, next_attempt_at, created_at)
