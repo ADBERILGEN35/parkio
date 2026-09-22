@@ -304,8 +304,10 @@ reviewer; the application default alone is not sufficient for public cutover
 
 Invite tokens: Flyway `V22__create_registration_invites.sql`, SHA-256 hash at
 rest, atomic consume in the same transaction as user creation. Operator
-creation: `./scripts/create-registration-invite.sh` (internal route only; disabled
-unless `PARKIO_REGISTRATION_INVITE_CREATION_ENABLED=true`).
+creation: `./scripts/create-registration-invite.sh` with required
+`PARKIO_INVITE_UI_LANG=tr|en` so `REGISTER_URL` includes `lang=` (internal route
+only; disabled unless `PARKIO_REGISTRATION_INVITE_CREATION_ENABLED=true`). Do not
+rely on persisted browser language for invite cohort registration.
 
 PRIV-001 synthetic harness: `PARKIO_REGISTRATION_PRIV001A_SYNTHETIC_BYPASS`
 allows `priv001a-*@priv001a.parkio.invalid` only when explicitly enabled.

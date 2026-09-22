@@ -68,10 +68,7 @@ RUN set -e; \
     node apps/web/scripts/verify-bundle-env.mjs ${args}
 
 # ---- runtime stage ----
-FROM nginx:1.27-alpine AS runtime
-
-# Patch known fixed Alpine openssl packages so CRITICAL CVE-2026-31789 does not ship.
-RUN apk upgrade --no-cache libcrypto3 libssl3
+FROM nginx:1.30.5-alpine3.24 AS runtime
 
 ARG IMAGE_VERSION=0.0.1-SNAPSHOT
 ARG IMAGE_REVISION=unknown

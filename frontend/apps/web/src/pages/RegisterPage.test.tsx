@@ -5,7 +5,8 @@ import { Route, Routes } from 'react-router-dom';
 import { describe, expect, it } from 'vitest';
 import { getPendingProfile } from '@/auth/pendingProfile';
 import { API_BASE, apiErrorBody, server } from '@/test/server';
-import { renderWithProviders } from '@/test/utils';
+import { renderWithProviders, withLocale } from '@/test/utils';
+import { useLocaleStore } from '@/i18n/localeStore';
 import { AccountPreparingPage } from './AccountPreparingPage';
 import { CheckEmailPage } from './CheckEmailPage';
 import { RegisterPage } from './RegisterPage';
@@ -261,6 +262,73 @@ describe('RegisterPage', () => {
     expect(runtime.authStore.getState().isAuthenticated).toBe(false);
   });
 
+
+  it('sends locale=en from lang=en invite URL even when the browser was Turkish', async () => {
+    let body: Record<string, unknown> | null = null;
+    server.use(
+      http.get(`${API_BASE}/auth/registration-mode`, () => HttpResponse.json({ mode: 'INVITE' })),
+      http.post(`${API_BASE}/auth/register`, async ({ request }) => {
+        body = (await request.json()) as Record<string, unknown>;
+        return HttpResponse.json(authResponse);
+      }),
+    );
+
+    await withLocale('tr');
+    renderWithProviders(
+      <Routes>
+        <Route path="/register" element={<RegisterPage />} />
+        <Route path="/check-email" element={<CheckEmailPage />} />
+      </Routes>,
+      { initialEntries: ['/register?invite=test-invite-token&lang=en'] },
+    );
+
+    const user = userEvent.setup();
+    await user.type(await screen.findByLabelText('Full name'), 'New Driver');
+    await user.type(screen.getByLabelText('Email'), 'newcomer@parkio.dev');
+    await user.type(screen.getByLabelText('Password'), 'SaferPass123');
+    await user.type(screen.getByLabelText('Confirm password'), 'SaferPass123');
+    await user.click(screen.getByRole('checkbox', { name: /I agree/ }));
+    await user.click(screen.getByRole('button', { name: 'Create account' }));
+
+    await waitFor(() => expect(body).not.toBeNull());
+    expect(body!.locale).toBe('en');
+    expect(body!.inviteToken).toBe('test-invite-token');
+    expect(useLocaleStore.getState().locale).toBe('en');
+  });
+
+  it('sends locale=tr from lang=tr invite URL even when the browser was English', async () => {
+    let body: Record<string, unknown> | null = null;
+    server.use(
+      http.get(`${API_BASE}/auth/registration-mode`, () => HttpResponse.json({ mode: 'INVITE' })),
+      http.post(`${API_BASE}/auth/register`, async ({ request }) => {
+        body = (await request.json()) as Record<string, unknown>;
+        return HttpResponse.json(authResponse);
+      }),
+    );
+
+    await withLocale('en');
+    renderWithProviders(
+      <Routes>
+        <Route path="/register" element={<RegisterPage />} />
+        <Route path="/check-email" element={<CheckEmailPage />} />
+      </Routes>,
+      { initialEntries: ['/register?invite=test-invite-token&lang=tr'] },
+    );
+
+    const user = userEvent.setup();
+    await user.type(await screen.findByLabelText('Ad soyad'), 'Yeni Surucu');
+    await user.type(screen.getByLabelText('E-posta'), 'newcomer@parkio.dev');
+    await user.type(screen.getByLabelText('Şifre'), 'SaferPass123');
+    await user.type(screen.getByLabelText('Şifreyi onayla'), 'SaferPass123');
+    await user.click(screen.getByRole('checkbox', { name: /Kabul ediyorum/i }));
+    await user.click(screen.getByRole('button', { name: 'Hesap oluştur' }));
+
+    await waitFor(() => expect(body).not.toBeNull());
+    expect(body!.locale).toBe('tr');
+    expect(body!.inviteToken).toBe('test-invite-token');
+    expect(useLocaleStore.getState().locale).toBe('tr');
+  });
+
   it('resends verification from the check-email screen', async () => {
     let resendBody: Record<string, unknown> | null = null;
     server.use(
@@ -277,6 +345,10 @@ describe('RegisterPage', () => {
     await userEvent.setup().click(screen.getByRole('button', { name: 'Resend verification' }));
 
     await waitFor(() => expect(resendBody).toEqual({ email: 'newcomer@parkio.dev', locale: 'en' }));
-    expect(screen.getByText('Verification email sent. Please check your inbox.')).toBeInTheDocument();
+    expect(
+      screen.getByText(
+        'If this address still needs verification, check your inbox for a link. If you already verified, sign in instead.',
+      ),
+    ).toBeInTheDocument();
   });
 });
