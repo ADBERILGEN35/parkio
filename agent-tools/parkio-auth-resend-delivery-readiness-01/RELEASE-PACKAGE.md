@@ -228,7 +228,7 @@ If operators explicitly choose not to take this branch first: switch `PARKIO_EMA
 
 | Artifact | Value |
 |---|---|
-| Branch tip (docs / PR head) | `a25ebde4ac7f50ad56cccff5204952afcee1b0d5` (candidate identity + Trivy evidence only) |
+| Branch tip (docs / PR head) | `970ec7699bd90c778834c03e50c64511ffa0b7cd` (package / Trivy evidence only; no jar change vs `a25ebde4`) |
 | Branch tip (runtime image) | `b10c1f7cda85693c4af9ea6d32b81f2b3f0a7449` |
 | Local candidate tag | `parkio/auth-service:prep-auth-resend-b10c1f7c` |
 | Image ID (manifest list) | `sha256:a4410a45634b73246e13c3054dc3b1d0c8069baa7c0738258ecf9774ca72514e` |
@@ -272,4 +272,17 @@ No additional approval gates invented beyond these concrete items.
 
 ## 10. Terminal CI on final head
 
-*(filled after push of final tip)*
+PR: https://github.com/ADBERILGEN35/parkio/pull/78 (draft)  
+Head: `970ec7699bd90c778834c03e50c64511ffa0b7cd`  
+Evidence: `ci-pr78-final-head.txt`
+
+| Check | Result |
+|---|---|
+| Build & unit tests | **pass** ([run](https://github.com/ADBERILGEN35/parkio/actions/runs/35749628082/job/106820062710)) |
+| Integration tests (Testcontainers) | **pass** ([run](https://github.com/ADBERILGEN35/parkio/actions/runs/35749627931/job/106820069540)) |
+| Security CI summary (+ CodeQL, secret, dep, container scans incl. auth) | **pass** ([summary](https://github.com/ADBERILGEN35/parkio/actions/runs/35749628121/job/106825670726)) |
+| Build images + secret-safe dry-run manifest | **pass** |
+| Invite-production deploy / rollback / non-deploy acceptance | **skipped** (expected for draft/non-deploy) |
+| Trivy (GitHub) | **pass** |
+
+No failing applicable checks on the final head. Production remains unchanged (logging, CLOSED, no real email).
