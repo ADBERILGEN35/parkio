@@ -1,0 +1,27 @@
+[Unit]
+Description=Parkio approved-service Docker log source helper
+Requires=docker.service
+After=docker.service
+Before=parkio-nr-log-continuous.service
+
+[Service]
+Type=exec
+EnvironmentFile=/etc/parkio-nr-log-continuous/runtime.env
+ExecStart=/usr/bin/python3 /opt/parkio-nr-log-continuous/current/scripts/newrelic_log_pilot/docker_log_source.py --project parkio --output /var/lib/parkio-nr-log-continuous/source/logs --state /var/lib/parkio-nr-log-continuous/source/state --max-file-bytes 2097152 --max-files 3 --poll-seconds 2 --docker-timeout 10
+Restart=on-failure
+RestartSec=5s
+TimeoutStopSec=15s
+KillMode=control-group
+UMask=0027
+MemoryHigh=100M
+MemoryMax=128M
+CPUQuota=25%
+TasksMax=64
+NoNewPrivileges=yes
+PrivateTmp=yes
+ProtectSystem=strict
+ProtectHome=yes
+ReadWritePaths=/var/lib/parkio-nr-log-continuous/source
+
+[Install]
+WantedBy=multi-user.target

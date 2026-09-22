@@ -14,7 +14,7 @@ readonly services=(gateway-service auth-service parking-service)
 readonly allowed_keys_pattern='^PARKIO_NR_(GATEWAY|AUTH|PARKING)_(CONTAINER_ID|DRIVER|MAX_SIZE|MAX_FILE)$|^PARKIO_NR_SOURCE_(ROOT|STATE_ROOT|SET_SHA256)$'
 
 usage() {
-  printf 'usage: %s [--check-env SOURCE_ENV_FILE | --check-helper SOURCE_ENV_FILE]\n' "$0" >&2
+  printf 'usage: %s [--check-env SOURCE_ENV_FILE | --check-helper SOURCE_ENV_FILE | --check-live-helper]\n' "$0" >&2
 }
 
 fail() {
@@ -140,12 +140,48 @@ check_helper() {
     done
 }
 
+check_live_helper() {
+  local resolved line key value service prefix status_file log_file status_id status_value
+  local -A current=()
+  resolved="$(resolve_sources)"
+  while IFS= read -r line || [ -n "$line" ]; do
+    [ -n "$line" ] || continue
+    key="${line%%=*}"
+    value="${line#*=}"
+    current[$key]="$value"
+  done <<<"$resolved"
+  for service in "${services[@]}"; do
+    prefix="$(service_prefix "$service")"
+    status_file="$source_state_root/$service.status.json"
+    log_file="$source_root/$service/source-json.log"
+    [ -r "$status_file" ] || fail "$service live helper status is missing or unreadable"
+    [ -r "$log_file" ] || fail "$service live helper spool is missing or unreadable"
+    status_id="$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))["container_id"])' "$status_file")"
+    status_value="$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))["status"])' "$status_file")"
+    [ "$status_value" = attached ] || fail "$service live helper status is $status_value, expected attached"
+    [ "$status_id" = "${current[PARKIO_NR_${prefix}_CONTAINER_ID]}" ] || \
+      fail "$service live helper identity does not match the current container"
+    printf 'source-preflight PASS: service=%s live-helper=attached id=%s spool=readable\n' \
+      "$service" "$status_id" >&2
+  done
+  find "$source_root" -mindepth 1 -maxdepth 1 -type d -printf '%f\n' | \
+    while IFS= read -r directory; do
+      case "$directory" in gateway-service|auth-service|parking-service) ;; *) fail "unexpected source directory: $directory" ;; esac
+    done
+}
+
 need docker
 need sha256sum
 need python3
 
 case "$#" in
   0) resolve_sources ;;
+  1)
+    case "$1" in
+      --check-live-helper) check_live_helper ;;
+      *) usage; exit 2 ;;
+    esac
+    ;;
   2)
     case "$1" in
       --check-env) check_expected "$2" ;;

@@ -1,0 +1,12 @@
+[Unit]
+Description=Run Parkio continuous New Relic log guard every minute
+
+[Timer]
+OnBootSec=1min
+OnUnitActiveSec=1min
+AccuracySec=5s
+Persistent=false
+Unit=parkio-nr-log-continuous-guard.service
+
+[Install]
+WantedBy=timers.target

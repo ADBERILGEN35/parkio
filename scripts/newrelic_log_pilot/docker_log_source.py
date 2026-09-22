@@ -53,12 +53,17 @@ class DockerClient:
         self.binary = binary
         self.project = project
         self.timeout = timeout
+        # docker inspect is a Go CLI process whose transient RSS is charged to
+        # the helper's systemd cgroup. Serialize short control-plane commands so
+        # three follower threads cannot create three simultaneous inspect peaks.
+        self._control_lock = threading.Lock()
 
     def _run(self, *args: str) -> str:
-        completed = subprocess.run(
-            [self.binary, *args], check=True, text=True, stdout=subprocess.PIPE,
-            stderr=subprocess.PIPE, timeout=self.timeout,
-        )
+        with self._control_lock:
+            completed = subprocess.run(
+                [self.binary, *args], check=True, text=True, stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE, timeout=self.timeout,
+            )
         return completed.stdout
 
     def resolve(self, service: str) -> Container:

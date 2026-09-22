@@ -1,0 +1,9 @@
+[Unit]
+Description=Parkio continuous New Relic log transport invariant guard
+After=parkio-nr-log-continuous.service
+
+[Service]
+Type=oneshot
+EnvironmentFile=/etc/parkio-nr-log-continuous/runtime.env
+ExecCondition=/usr/bin/systemctl is-active --quiet parkio-nr-log-continuous.service
+ExecStart=/bin/bash /opt/parkio-nr-log-continuous/current/scripts/newrelic_log_pilot/continuous_guard.sh

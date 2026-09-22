@@ -14,6 +14,12 @@ remain explicitly open for the next readiness decision in the real-pilot report.
 No application container was changed. This does not authorize permanent
 collection or another pilot run.
 
+The separately prepared continuous-operation candidate, its changed image,
+resource limits, persistent daily/monthly accounting and remaining decisions are
+documented in
+[New Relic logs — continuous-operation release candidate](new-relic-log-continuous-operation.md).
+That package is preparation-only and does not supersede this pilot evidence.
+
 This is a log-only one-hour pilot for `gateway-service`, `auth-service` and
 `parking-service`. It installs no APM agent and enables no tracing, session
 replay, analytics, alert or Slack integration.

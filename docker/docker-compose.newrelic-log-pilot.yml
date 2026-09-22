@@ -68,7 +68,10 @@ services:
       # Local acceptance capacity only; production overlay requires an explicit
       # owner-approved value and has no default.
       PARKIO_NR_BUDGET_BYTES: ${PARKIO_NR_BUDGET_BYTES:-268435456}
+      PARKIO_NR_DAILY_BUDGET_BYTES: ${PARKIO_NR_DAILY_BUDGET_BYTES:-0}
+      PARKIO_NR_MONTHLY_BUDGET_BYTES: ${PARKIO_NR_MONTHLY_BUDGET_BYTES:-0}
       PARKIO_NR_GATE_MAX_REQUEST_BYTES: ${PARKIO_NR_GATE_MAX_REQUEST_BYTES:-1048576}
+      PARKIO_NR_GATE_UPSTREAM_TIMEOUT_SECONDS: ${PARKIO_NR_GATE_UPSTREAM_TIMEOUT_SECONDS:-10}
       PARKIO_NR_UPSTREAM_TLS_VERIFY: ${PARKIO_NR_UPSTREAM_TLS_VERIFY:-off}
       PARKIO_NR_GATE_TEST_CONTROL: ${PARKIO_NR_GATE_TEST_CONTROL:-off}
       PARKIO_NR_GATE_INTERNAL_KEY: gate-internal-not-a-secret
@@ -92,9 +95,9 @@ services:
 
   fluent-bit-nr-pilot:
     profiles: ["nr-log-pilot"]
-    # Fluent Bit 5.0.10 index. The selected linux/amd64 child is
-    # sha256:3fa4a4919f1814f23d27a0108de041e93f6f21d9dc7bbe912d8c44ecd8e7cf20.
-    image: fluent/fluent-bit:5.0.10@sha256:ea0734ecb445c9805ec1fcbfb3430c8607d502fe7ce773b27e362551c02e3fd9
+    # The pilot keeps its accepted 5.0.10 identity. The continuous-operation
+    # overlay requires the separately built and scanned remediation image.
+    image: ${PARKIO_NR_COLLECTOR_IMAGE:-fluent/fluent-bit:5.0.10@sha256:ea0734ecb445c9805ec1fcbfb3430c8607d502fe7ce773b27e362551c02e3fd9}
     platform: linux/amd64
     restart: unless-stopped
     stop_grace_period: 30s
@@ -115,6 +118,7 @@ services:
       PARKIO_COLLECTOR_SOURCE_SHA: ${PARKIO_COLLECTOR_SOURCE_SHA:-unknown}
       PARKIO_NR_PILOT_MARKER: ${PARKIO_NR_PILOT_MARKER:-p02-local-startup}
       PARKIO_NR_LOG_FLUENT_LOG_LEVEL: ${PARKIO_NR_LOG_FLUENT_LOG_LEVEL:-info}
+      PARKIO_NR_COLLECTOR_ID: ${PARKIO_NR_COLLECTOR_ID:-fluent-bit-5.0.10}
       PARKIO_NR_LOG_BASE_URI: http://nr-budget-gate:8090/log/v1
       PARKIO_NR_LOG_API_KEY: gate-internal-not-a-secret
     ports:

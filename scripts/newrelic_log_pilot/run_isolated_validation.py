@@ -30,7 +30,7 @@ from docker_log_source import BoundedWriter, SERVICES
 
 ROOT = Path(__file__).resolve().parents[2]
 COMPOSE = ROOT / "docker" / "docker-compose.newrelic-log-pilot.yml"
-DOCKER = shutil.which("docker") or shutil.which("docker.exe") or "docker"
+DOCKER = os.environ.get("PARKIO_NR_DOCKER_BIN") or shutil.which("docker") or shutil.which("docker.exe") or "docker"
 PROJECT = os.environ.get("PARKIO_NR_VALIDATION_PROJECT", f"parkio-p02-nr-val-{os.getpid()}")
 HELPER_IMAGE = os.environ.get("PARKIO_NR_VALIDATION_HELPER_IMAGE", "alpine:3.20")
 API_KEY = "mock-not-a-real-license"
@@ -57,14 +57,25 @@ ENV = {
     "PARKIO_RELEASE_ID": "synthetic-app-release",
     "PARKIO_COLLECTOR_SOURCE_SHA": "synthetic-under-test",
     "PARKIO_NR_PILOT_MARKER": "p02-harness-startup",
+    "PARKIO_NR_COLLECTOR_IMAGE": os.environ.get(
+        "PARKIO_NR_COLLECTOR_IMAGE",
+        "fluent/fluent-bit:5.0.10@sha256:ea0734ecb445c9805ec1fcbfb3430c8607d502fe7ce773b27e362551c02e3fd9",
+    ),
+    "PARKIO_NR_COLLECTOR_ID": os.environ.get("PARKIO_NR_COLLECTOR_ID", "fluent-bit-5.0.10"),
 }
 _forwarded = [
     "PARKIO_MOCK_NR_HOST_PORT", "PARKIO_NR_FLUENT_HTTP_PORT", "PARKIO_NR_GATE_HTTP_PORT",
     "PARKIO_NR_LOG_API_KEY", "PARKIO_NR_GATE_TEST_CONTROL", "PARKIO_NR_BUDGET_BYTES",
     "PARKIO_ENVIRONMENT", "PARKIO_RELEASE_ID", "PARKIO_COLLECTOR_SOURCE_SHA",
-    "PARKIO_NR_PILOT_MARKER",
+    "PARKIO_NR_PILOT_MARKER", "PARKIO_NR_COLLECTOR_IMAGE", "PARKIO_NR_COLLECTOR_ID",
 ]
 ENV["WSLENV"] = ":".join(filter(None, [os.environ.get("WSLENV", ""), *_forwarded]))
+
+
+def docker_host_path(path: Path) -> str:
+    if Path(DOCKER).name.lower() == "docker.exe":
+        return subprocess.check_output(["wslpath", "-w", str(path)], text=True).strip()
+    return str(path)
 
 
 def run(args: list[str], *, check: bool = True, capture: bool = False, data: str | None = None) -> subprocess.CompletedProcess[str]:
@@ -88,7 +99,7 @@ def compose(*args: str, check: bool = True, capture: bool = False) -> subprocess
             "-p",
             PROJECT,
             "-f",
-            str(COMPOSE),
+            docker_host_path(COMPOSE),
             "--profile",
             "nr-log-pilot",
             "--profile",
@@ -361,6 +372,18 @@ def source_helper_acceptance(results: dict[str, str], metrics: dict[str, object]
                 checked.returncode == 0 and checked.stderr.count("helper=attached") == 3,
                 checked.stderr.strip(),
             )
+            live_checked = subprocess.run(
+                [
+                    "bash", str(ROOT / "scripts" / "newrelic_log_pilot" / "resolve_production_sources.sh"),
+                    "--check-live-helper",
+                ],
+                cwd=ROOT, env=resolver_env, text=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+            )
+            add_result(
+                results, "continuous_live_source_identity_guard",
+                live_checked.returncode == 0 and live_checked.stderr.count("live-helper=attached") == 3,
+                live_checked.stderr.strip(),
+            )
 
             writer = BoundedWriter(base / "full-test", "gateway-service", 4096, 3)
             with mock.patch("os.write", side_effect=OSError(28, "No space left on device")):
@@ -380,6 +403,7 @@ def source_helper_acceptance(results: dict[str, str], metrics: dict[str, object]
             }
             add_result(results, "supported_source_disconnect_visible", "source-helper DISCONNECTED" in stderr)
             add_result(results, "supported_source_replacement_visible", "source-helper REPLACED" in stderr)
+            add_result(results, "source_helper_graceful_shutdown", process.returncode == 0)
 
 
 def utc_timestamp() -> str:
@@ -413,7 +437,7 @@ def main() -> int:
             [
                 DOCKER, "run", "--rm", "--network", "none",
                 "-v", f"{PROJECT}_nr-mock-tls:/dest",
-                "-v", f"{tls_path}:/src:ro",
+                "-v", f"{docker_host_path(tls_path)}:/src:ro",
                 HELPER_IMAGE, "sh", "-ec", "cp /src/tls.crt /src/tls.key /dest/; chmod 600 /dest/tls.key",
             ]
         )
