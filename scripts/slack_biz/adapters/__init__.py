@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import re
 from datetime import datetime, timezone
 from typing import Any
 
@@ -13,6 +14,7 @@ from ..events import (
     FAMILY_INCIDENT_OPEN,
     FAMILY_INCIDENT_RECOVERY,
     FAMILY_REGISTRATION,
+    FAMILY_WAITLIST_CONFIRMED,
     BackupOutcome,
     Severity,
     SlackBizEvent,
@@ -299,3 +301,105 @@ def from_backup_status(
             _one(FAMILY_BACKUP_OFFSITE, "offsite_outcome", "offsite_reason", "offsite")
         )
     return events
+
+
+# ---------------------------------------------------------------------------
+# Waitlist subscription confirmed — gateway-service ops outbox envelope
+# ---------------------------------------------------------------------------
+
+WAITLIST_PRODUCER = "gateway-waitlist-outbox"
+WAITLIST_ENVELOPE_KEYS = frozenset(
+    {
+        "contractVersion",
+        "eventId",
+        "eventType",
+        "occurredAt",
+        "environment",
+        "producer",
+        "dedupKey",
+    }
+)
+_WAITLIST_DEDUP_RE = re.compile(r"^waitlist:subscription_confirmed:[0-9a-f]{64}$")
+_ISO_UTC_SECONDS_RE = re.compile(r"^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z$")
+
+
+def refuse_non_confirmation_waitlist_signal(event_type: str) -> None:
+    """Guard: submission / resend / email acceptance are not confirmations."""
+    if event_type != FAMILY_WAITLIST_CONFIRMED:
+        raise ValueError(
+            "refused waitlist signal: only waitlist.subscription_confirmed is supported"
+        )
+
+
+def from_waitlist_ops_envelope(
+    envelope: dict[str, Any],
+    config: SlackBizConfig,
+    *,
+    producer: str = WAITLIST_PRODUCER,
+) -> SlackBizEvent:
+    """
+    Accept only committed gateway waitlist confirmation envelopes.
+
+    The envelope is a closed allow-list: any extra key (email, token, ip,
+    subscriber id, provider payload, destination override ...) rejects the
+    whole envelope instead of being stripped, so a producer regression is
+    visible rather than silently forwarded. Error messages never echo values.
+    """
+    if not isinstance(envelope, dict):
+        raise ValueError("waitlist envelope must be an object")
+    unknown = set(envelope) - WAITLIST_ENVELOPE_KEYS
+    if unknown:
+        raise ValueError(
+            "waitlist envelope has non-allow-listed keys: "
+            + ",".join(sorted(k[:40] for k in unknown))
+        )
+    missing = WAITLIST_ENVELOPE_KEYS - set(envelope)
+    if missing:
+        raise ValueError("waitlist envelope missing keys: " + ",".join(sorted(missing)))
+    if envelope["contractVersion"] != 1:
+        raise ValueError("unsupported waitlist contractVersion")
+    refuse_non_confirmation_waitlist_signal(str(envelope["eventType"]))
+    envelope_producer = str(envelope["producer"])
+    if envelope_producer != producer:
+        raise ValueError("waitlist envelope producer mismatch")
+    _require_trusted(producer, config)
+    if str(envelope["environment"]) != config.environment:
+        raise ValueError("waitlist envelope environment does not match relay environment")
+    event_id = str(envelope["eventId"])
+    if not is_uuid(event_id):
+        raise ValueError("waitlist eventId must be a UUID")
+    occurred = str(envelope["occurredAt"])
+    if not _ISO_UTC_SECONDS_RE.match(occurred):
+        raise ValueError("waitlist occurredAt must be ISO-8601 UTC seconds")
+    dedup = str(envelope["dedupKey"])
+    if not _WAITLIST_DEDUP_RE.match(dedup):
+        raise ValueError("waitlist dedupKey has unexpected shape")
+
+    return SlackBizEvent(
+        event_id=event_id,
+        event_type=FAMILY_WAITLIST_CONFIRMED,
+        contract_version=CONTRACT_VERSION,
+        environment=config.environment,
+        occurred_at=occurred,
+        severity=Severity.INFO.value,
+        producer=producer,
+        dedup_key=dedup,
+        route=route_for_event_type(FAMILY_WAITLIST_CONFIRMED, config),
+        service="gateway-service",
+        title="Bekleme listesi aboneliği onaylandı",
+        body_lines=("olay=`e-posta onayı tamamlandı (çift onay)`",),
+        correlation_key=None,
+        subject_ref=None,
+        context={},
+    )
+
+
+def parse_and_enqueue_waitlist(
+    envelope: dict[str, Any],
+    config: SlackBizConfig,
+    store,
+    *,
+    producer: str = WAITLIST_PRODUCER,
+) -> str:
+    """File-inbox hook: validate + durable enqueue (dedup by dedupKey)."""
+    return store.enqueue(from_waitlist_ops_envelope(envelope, config, producer=producer))

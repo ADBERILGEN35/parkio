@@ -366,3 +366,13 @@ parkio:
       reply-to: ${PARKIO_WAITLIST_EMAIL_REPLY_TO:${PARKIO_EMAIL_REPLY_TO:}}
       resend-api-key: ${PARKIO_WAITLIST_RESEND_API_KEY:${PARKIO_RESEND_API_KEY:}}
       resend-base-url: ${PARKIO_WAITLIST_RESEND_BASE_URL:https://api.resend.com}
+    # Operational Slack notifications (docs/operations/waitlist-slack-notifications.md).
+    # Default false. When enabled the gateway only writes sanitized envelopes into
+    # export-dir (the slack_biz relay's waitlist inbox); it never holds a Slack webhook.
+    ops-notifications:
+      enabled: ${PARKIO_WAITLIST_OPS_NOTIFICATIONS_ENABLED:false}
+      environment: ${PARKIO_ENVIRONMENT:local}
+      export-dir: ${PARKIO_WAITLIST_OPS_NOTIFICATIONS_EXPORT_DIR:}
+      poll-interval: ${PARKIO_WAITLIST_OPS_NOTIFICATIONS_POLL_INTERVAL:PT30S}
+      batch-size: ${PARKIO_WAITLIST_OPS_NOTIFICATIONS_BATCH_SIZE:20}
+      max-export-attempts: ${PARKIO_WAITLIST_OPS_NOTIFICATIONS_MAX_EXPORT_ATTEMPTS:5}

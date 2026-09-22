@@ -18,6 +18,8 @@ FAMILY_INCIDENT_OPEN = "incident.opened"
 FAMILY_INCIDENT_RECOVERY = "incident.recovered"
 FAMILY_BACKUP_LOCAL = "backup.local"
 FAMILY_BACKUP_OFFSITE = "backup.offsite"
+# Gateway waitlist double opt-in completed (committed outbox row only)
+FAMILY_WAITLIST_CONFIRMED = "waitlist.subscription_confirmed"
 
 IMPLEMENTED_FAMILIES = frozenset(
     {
@@ -26,6 +28,7 @@ IMPLEMENTED_FAMILIES = frozenset(
         FAMILY_INCIDENT_RECOVERY,
         FAMILY_BACKUP_LOCAL,
         FAMILY_BACKUP_OFFSITE,
+        FAMILY_WAITLIST_CONFIRMED,
     }
 )
 

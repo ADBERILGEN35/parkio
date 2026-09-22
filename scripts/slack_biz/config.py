@@ -52,6 +52,8 @@ class SlackBizConfig:
     kafka_auto_offset_reset: str
     # File inbox for registration envelopes (local/CI)
     registration_inbox_dir: Path | None
+    # File inbox written by gateway-service waitlist ops outbox exporter
+    waitlist_inbox_dir: Path | None = None
 
     @property
     def db_path(self) -> Path:
@@ -88,7 +90,8 @@ def load_config(environ: dict[str, str] | None = None) -> SlackBizConfig:
     )
     trusted = env.get(
         "PARKIO_SLACK_BIZ_TRUSTED_PRODUCERS",
-        "auth-outbox,backup-script,incident-adapter,acceptance-harness",
+        "auth-outbox,backup-script,incident-adapter,acceptance-harness,"
+        "gateway-waitlist-outbox",
     )
     return SlackBizConfig(
         enabled=_truthy(env.get("PARKIO_SLACK_BIZ_ENABLED")),
@@ -130,6 +133,11 @@ def load_config(environ: dict[str, str] | None = None) -> SlackBizConfig:
         registration_inbox_dir=(
             Path(env["PARKIO_SLACK_BIZ_REGISTRATION_INBOX"])
             if env.get("PARKIO_SLACK_BIZ_REGISTRATION_INBOX")
+            else None
+        ),
+        waitlist_inbox_dir=(
+            Path(env["PARKIO_SLACK_BIZ_WAITLIST_INBOX"])
+            if env.get("PARKIO_SLACK_BIZ_WAITLIST_INBOX")
             else None
         ),
     )

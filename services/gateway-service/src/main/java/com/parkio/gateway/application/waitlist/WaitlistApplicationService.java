@@ -11,6 +11,7 @@ import java.util.UUID;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.support.TransactionOperations;
 import reactor.core.publisher.Mono;
 import reactor.core.scheduler.Schedulers;
 
@@ -25,6 +26,8 @@ public class WaitlistApplicationService {
     private final WaitlistRateLimiter rateLimiter;
     private final WaitlistEmailSender emailSender;
     private final WaitlistProperties properties;
+    private final WaitlistOpsNotifier opsNotifier;
+    private final TransactionOperations transactions;
     private final Clock clock;
 
     public WaitlistApplicationService(
@@ -33,12 +36,16 @@ public class WaitlistApplicationService {
             WaitlistRateLimiter rateLimiter,
             WaitlistEmailSender emailSender,
             WaitlistProperties properties,
+            WaitlistOpsNotifier opsNotifier,
+            TransactionOperations transactions,
             Clock clock) {
         this.repository = repository;
         this.hasher = hasher;
         this.rateLimiter = rateLimiter;
         this.emailSender = emailSender;
         this.properties = properties;
+        this.opsNotifier = opsNotifier;
+        this.transactions = transactions;
         this.clock = clock;
     }
 
@@ -124,7 +131,17 @@ public class WaitlistApplicationService {
         return Mono.fromCallable(() -> {
                     String tokenHash = hasher.hash(requireToken(rawToken));
                     Instant now = clock.instant();
-                    if (repository.confirmByTokenHash(tokenHash, now)) {
+                    // The ops notification row commits atomically with the PENDING -> CONFIRMED
+                    // transition, so rolled-back or idempotent repeat confirms emit nothing.
+                    Boolean transitioned = transactions.execute(tx -> {
+                        if (!repository.confirmByTokenHash(tokenHash, now)) {
+                            return false;
+                        }
+                        repository.findByVerificationTokenHash(tokenHash)
+                                .ifPresent(row -> opsNotifier.subscriptionConfirmed(row.id(), now));
+                        return true;
+                    });
+                    if (Boolean.TRUE.equals(transitioned)) {
                         return true;
                     }
                     Optional<WaitlistInterest> byVerify = repository.findByVerificationTokenHash(tokenHash);
