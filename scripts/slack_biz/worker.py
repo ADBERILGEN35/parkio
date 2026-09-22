@@ -39,6 +39,16 @@ def main(argv: list[str] | None = None) -> int:
         default="accept_as_delivered",
     )
     parser.add_argument("--operator", default="operator")
+    parser.add_argument(
+        "--prune",
+        action="store_true",
+        help="Apply relay-state retention (terminal rows after dedup window, DLT) and exit",
+    )
+    parser.add_argument(
+        "--discard-backlog",
+        metavar="EVENT_TYPE",
+        help="Operator: drop queued/retry rows of one event type without sending",
+    )
     args = parser.parse_args(argv)
 
     config = load_config()
@@ -71,6 +81,13 @@ def main(argv: list[str] | None = None) -> int:
             return 0
         if args.metrics:
             print(json.dumps(store.snapshot_metrics(), indent=2))
+            return 0
+        if args.prune:
+            print(json.dumps(store.prune(dlt_retention_hours=config.dlt_retention_hours)))
+            return 0
+        if args.discard_backlog:
+            out = store.discard_backlog(args.discard_backlog, operator=args.operator)
+            print(json.dumps({"event_type": args.discard_backlog, **out}))
             return 0
         if args.resolve_unknown:
             out = store.resolve_unknown(
@@ -125,8 +142,12 @@ def main(argv: list[str] | None = None) -> int:
             )
             return 0
 
+        last_prune = 0.0
         while True:
             worker.process_once()
+            if time.time() - last_prune >= 600:
+                store.prune(dlt_retention_hours=config.dlt_retention_hours)
+                last_prune = time.time()
             time.sleep(args.interval)
     finally:
         if worker is not None:

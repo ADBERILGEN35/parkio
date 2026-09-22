@@ -29,6 +29,8 @@ class MockSlackState:
     )
     default_status: int = 200
     default_body: str = "ok"
+    # Seconds a "hang" response stalls before closing (client timeout testing)
+    hang_seconds: float = 30.0
     lock: threading.Lock = field(default_factory=threading.Lock)
 
     def next_response(self) -> tuple[int, str, dict[str, str], str]:
@@ -81,7 +83,7 @@ class MockSlackServer:
                         pass
                     return
                 if mode == "hang":
-                    time.sleep(30)
+                    time.sleep(parent.state.hang_seconds)
                     return
                 payload = resp_body.encode("utf-8")
                 self.send_response(status)

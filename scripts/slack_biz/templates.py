@@ -9,6 +9,7 @@ from .events import (
     FAMILY_INCIDENT_OPEN,
     FAMILY_INCIDENT_RECOVERY,
     FAMILY_REGISTRATION,
+    FAMILY_WAITLIST_CONFIRMED,
     SlackBizEvent,
 )
 from .safety import sanitize_text
@@ -20,6 +21,7 @@ ROUTE_BY_TYPE = {
     FAMILY_INCIDENT_RECOVERY: "ops-alerts",
     FAMILY_BACKUP_LOCAL: "ops-alerts",
     FAMILY_BACKUP_OFFSITE: "ops-alerts",
+    FAMILY_WAITLIST_CONFIRMED: "biz-growth",
 }
 
 

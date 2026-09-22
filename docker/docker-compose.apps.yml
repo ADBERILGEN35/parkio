@@ -127,6 +127,12 @@ services:
       PARKIO_WAITLIST_CONFIRM_URL: ${PARKIO_WAITLIST_CONFIRM_URL:-https://parkio.dev/waitlist/confirm/}
       PARKIO_WAITLIST_WITHDRAW_URL: ${PARKIO_WAITLIST_WITHDRAW_URL:-https://parkio.dev/waitlist/unsubscribe/}
       PARKIO_WAITLIST_RESEND_API_KEY: ${PARKIO_WAITLIST_RESEND_API_KEY:-}
+      # Waitlist ops (Slack) notifications — OFF by default. With the flag off, or
+      # without the inbox overlay (docker-compose.waitlist-ops-inbox.yml, which sets
+      # EXPORT_DIR and mounts the relay inbox), the gateway records nothing.
+      # See docs/operations/waitlist-slack-notifications.md.
+      PARKIO_WAITLIST_OPS_NOTIFICATIONS_ENABLED: ${PARKIO_WAITLIST_OPS_NOTIFICATIONS_ENABLED:-false}
+      PARKIO_WAITLIST_OPS_NOTIFICATIONS_ENVIRONMENT: ${PARKIO_WAITLIST_OPS_NOTIFICATIONS_ENVIRONMENT:-local}
       PARKIO_AUTH_JWKS_URI: http://auth-service:8081/api/v1/auth/.well-known/jwks.json
       # Downstream route targets. The gateway resolves each ${PARKIO_*_SERVICE_URI}
       # placeholder in application.yml; their defaults are localhost:808x (dev-from-IDE),

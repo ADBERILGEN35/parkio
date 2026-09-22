@@ -52,6 +52,20 @@ class SlackBizConfig:
     kafka_auto_offset_reset: str
     # File inbox for registration envelopes (local/CI)
     registration_inbox_dir: Path | None
+    # File inbox written by gateway-service waitlist ops outbox exporter
+    waitlist_inbox_dir: Path | None = None
+    # Acked waitlist envelopes are kept this long, then deleted (0 = delete on ack)
+    waitlist_acked_retention_hours: float = 24.0
+    # Rejected envelopes are NOT kept by default (bounded category metric only)
+    waitlist_retain_rejected: bool = False
+    waitlist_rejected_retention_hours: float = 72.0
+    # Dead-letter copies of dead events
+    dlt_retention_hours: float = 720.0
+    # Backpressure: the waitlist consumer stops admitting (files stay in the
+    # inbox, nothing is deleted) at this many pending queue rows or below
+    # this much free space on the data-dir filesystem.
+    max_pending: int = 5000
+    min_free_mb: int = 256
 
     @property
     def db_path(self) -> Path:
@@ -88,7 +102,8 @@ def load_config(environ: dict[str, str] | None = None) -> SlackBizConfig:
     )
     trusted = env.get(
         "PARKIO_SLACK_BIZ_TRUSTED_PRODUCERS",
-        "auth-outbox,backup-script,incident-adapter,acceptance-harness",
+        "auth-outbox,backup-script,incident-adapter,acceptance-harness,"
+        "gateway-waitlist-outbox",
     )
     return SlackBizConfig(
         enabled=_truthy(env.get("PARKIO_SLACK_BIZ_ENABLED")),
@@ -132,4 +147,21 @@ def load_config(environ: dict[str, str] | None = None) -> SlackBizConfig:
             if env.get("PARKIO_SLACK_BIZ_REGISTRATION_INBOX")
             else None
         ),
+        waitlist_inbox_dir=(
+            Path(env["PARKIO_SLACK_BIZ_WAITLIST_INBOX"])
+            if env.get("PARKIO_SLACK_BIZ_WAITLIST_INBOX")
+            else None
+        ),
+        waitlist_acked_retention_hours=float(
+            env.get("PARKIO_SLACK_BIZ_WAITLIST_ACKED_RETENTION_HOURS", "24")
+        ),
+        waitlist_retain_rejected=_truthy(
+            env.get("PARKIO_SLACK_BIZ_WAITLIST_RETAIN_REJECTED", "false")
+        ),
+        waitlist_rejected_retention_hours=float(
+            env.get("PARKIO_SLACK_BIZ_WAITLIST_REJECTED_RETENTION_HOURS", "72")
+        ),
+        dlt_retention_hours=float(env.get("PARKIO_SLACK_BIZ_DLT_RETENTION_HOURS", "720")),
+        max_pending=int(env.get("PARKIO_SLACK_BIZ_MAX_PENDING", "5000")),
+        min_free_mb=int(env.get("PARKIO_SLACK_BIZ_MIN_FREE_MB", "256")),
     )

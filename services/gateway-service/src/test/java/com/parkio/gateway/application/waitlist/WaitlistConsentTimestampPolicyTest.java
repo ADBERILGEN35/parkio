@@ -11,6 +11,7 @@ import java.time.Instant;
 import java.time.ZoneOffset;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import org.springframework.transaction.support.TransactionOperations;
 
 class WaitlistConsentTimestampPolicyTest {
 
@@ -30,6 +31,8 @@ class WaitlistConsentTimestampPolicyTest {
                 mock(WaitlistRateLimiter.class),
                 mock(WaitlistEmailSender.class),
                 properties,
+                mock(WaitlistOpsNotifier.class),
+                TransactionOperations.withoutTransaction(),
                 Clock.fixed(NOW, ZoneOffset.UTC));
     }
 

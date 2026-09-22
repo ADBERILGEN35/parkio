@@ -66,6 +66,10 @@ python scripts/slack_biz/run_acceptance.py              # Y03 mock 15/15
 python scripts/slack_biz/run_reliability_acceptance.py  # Y03A fault injection
 ```
 
+## Waitlist confirmations
+
+Gateway waitlist `waitlist.subscription_confirmed` (file inbox `PARKIO_SLACK_BIZ_WAITLIST_INBOX`, `consume_waitlist.py`): see [waitlist-slack-notifications.md](waitlist-slack-notifications.md).
+
 ## Incident production producer
 
 Still an **explicit gap** (synthetic/adapter only).

@@ -531,6 +531,75 @@ class DeliveryStore:
                 return "requeued"
             return "invalid_resolution"
 
+    # ------------------------------------------------------------ retention
+    def bump_metric(self, name: str, labels: dict[str, str], value: float = 1.0) -> None:
+        with self._lock:
+            self._bump_metric(name, labels, value)
+            self._conn.commit()
+
+    def prune(self, *, dlt_retention_hours: float, now: float | None = None) -> dict[str, int]:
+        """
+        Bounded retention for relay state. Never touches queued / retry /
+        in_flight rows. Terminal queue + dedup rows go only after the dedup
+        window (expires_at), so the documented replay-suppression window holds.
+        DLT rows (payload copies of dead events) go after dlt_retention_hours.
+        """
+        now = time.time() if now is None else now
+        with self._lock:
+            before = self._conn.total_changes
+            self._purge_expired_dedup(now)
+            purged_terminal = self._conn.total_changes - before
+            cur = self._conn.execute(
+                "DELETE FROM dlt WHERE created_at < ?",
+                (now - dlt_retention_hours * 3600,),
+            )
+            purged_dlt = cur.rowcount
+            self._conn.commit()
+        return {"terminal_rows": purged_terminal, "dlt_rows": purged_dlt}
+
+    def discard_backlog(self, event_type: str, *, operator: str) -> dict[str, int]:
+        """
+        Operator backlog discard for one event family: queued/retry rows become
+        dead (no Slack send). Their dedup rows stay (status dead) until the
+        dedup window ends, so a re-exported envelope is suppressed, not resent.
+        in_flight rows are left to their worker lease and reported.
+        """
+        now = time.time()
+        note = f"operator:{operator[:64]}:discard_backlog:{int(now)}"
+        with self._lock:
+            rows = self._conn.execute(
+                "SELECT id, dedup_key, status, payload_json FROM delivery_queue "
+                "WHERE status IN (?, ?, ?)",
+                (STATUS_QUEUED, STATUS_RETRY, STATUS_IN_FLIGHT),
+            ).fetchall()
+            discarded = 0
+            in_flight = 0
+            for row in rows:
+                try:
+                    etype = json.loads(row["payload_json"]).get("event_type")
+                except (ValueError, AttributeError):
+                    continue
+                if etype != event_type:
+                    continue
+                if row["status"] == STATUS_IN_FLIGHT:
+                    in_flight += 1
+                    continue
+                self._conn.execute(
+                    "UPDATE delivery_queue SET status=?, last_error=?, updated_at=? WHERE id=?",
+                    (STATUS_DEAD, note, now, row["id"]),
+                )
+                self._conn.execute(
+                    "UPDATE dedup SET status=? WHERE dedup_key=?",
+                    (STATUS_DEAD, row["dedup_key"]),
+                )
+                discarded += 1
+            if discarded:
+                self._bump_metric(
+                    "slack_biz_backlog_discarded_total", {"event_type": event_type}, discarded
+                )
+            self._conn.commit()
+        return {"discarded": discarded, "in_flight_skipped": in_flight}
+
     def get_status(self, event_id: str) -> dict[str, Any] | None:
         with self._lock:
             row = self._conn.execute(

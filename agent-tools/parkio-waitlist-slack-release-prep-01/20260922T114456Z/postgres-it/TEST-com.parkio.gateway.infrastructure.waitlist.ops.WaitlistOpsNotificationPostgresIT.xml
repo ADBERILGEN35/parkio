@@ -1,0 +1,12 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<testsuite name="com.parkio.gateway.infrastructure.waitlist.ops.WaitlistOpsNotificationPostgresIT" tests="6" skipped="0" failures="0" errors="0" timestamp="2026-09-22T12:05:02" hostname="redacted" time="1.579">
+  <properties/>
+  <testcase name="retentionPurgesOnlyOldTerminalRowsAndKeepsPendingWork()" classname="com.parkio.gateway.infrastructure.waitlist.ops.WaitlistOpsNotificationPostgresIT" time="1.121"/>
+  <testcase name="runsOnRealPostgresWithFlywayV4AndJdbcTransactionManager()" classname="com.parkio.gateway.infrastructure.waitlist.ops.WaitlistOpsNotificationPostgresIT" time="0.133"/>
+  <testcase name="duplicateConfirmationAndReplayCreateNoSecondNotification()" classname="com.parkio.gateway.infrastructure.waitlist.ops.WaitlistOpsNotificationPostgresIT" time="0.209"/>
+  <testcase name="genuineSqlFailureInsideSavepointKeepsConfirmationCommittable()" classname="com.parkio.gateway.infrastructure.waitlist.ops.WaitlistOpsNotificationPostgresIT" time="0.013"/>
+  <testcase name="outerRollbackCreatesNeitherConfirmationNorNotification()" classname="com.parkio.gateway.infrastructure.waitlist.ops.WaitlistOpsNotificationPostgresIT" time="0.01"/>
+  <testcase name="committedConfirmationCreatesExactlyOneOutboxRow()" classname="com.parkio.gateway.infrastructure.waitlist.ops.WaitlistOpsNotificationPostgresIT" time="0.081"/>
+  <system-out><![CDATA[IT_EVIDENCE postgres_server_version=16.15 transaction_manager=org.springframework.jdbc.support.JdbcTransactionManager]]></system-out>
+  <system-err><![CDATA[]]></system-err>
+</testsuite>

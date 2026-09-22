@@ -1,0 +1,19 @@
+rejected envelope bad.json: refused non-completion registration signal: RegistrationFailed
+queue write failed for x.json (not acked): queue_write_failed:disk_full
+=== PARKIO-Y03A Slack delivery reliability acceptance ===
+[PASS] 1. registration_commit_vs_rollback
+[PASS] 2. crash_after_enqueue_before_ack
+[PASS] 3. queue_write_fail_no_ack
+[PASS] 4. single_worker_enforced
+[PASS] 5. crash_after_claim_reclaim
+[PASS] 6. accept_then_drop_ambiguous_retry
+[PASS] 7. reject_timeout_not_success
+[PASS] 8. restart_preserves_states
+[PASS] 9. replay_inside_retention
+[PASS] 10. replay_outside_retention
+[PASS] 11. disabled_no_outbound
+[PASS] 12. sensitive_mention_safety
+[PASS] 13. ambiguous_exhaust_delivery_unknown
+[NOT_EXECUTED] 14. kafka_live_consumer — ABSENT
+---
+{"PASS": 13, "FAIL": 0, "NOT_EXECUTED": 1}

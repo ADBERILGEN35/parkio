@@ -1,0 +1,25 @@
+# Waitlist ops (Slack) notifications — ACTIVATION-ONLY gateway overlay.
+#
+# NOT part of docker/compose.production.files by default. Add it (after the pin
+# overlays is fine; it sets no image) only in the "configure relay" rollout
+# step, after scripts/slack_biz/deploy/civo/install-relay.sh --apply created
+# the inbox directory and group. See docs/operations/waitlist-slack-notifications.md.
+#
+# Required in the host env file when this overlay is used:
+#   PARKIO_WAITLIST_OPS_INBOX_GID   numeric gid of host group parkio-waitlist-inbox
+# Delivery still needs PARKIO_WAITLIST_OPS_NOTIFICATIONS_ENABLED=true (gateway)
+# and PARKIO_SLACK_BIZ_ENABLED=true (relay host), each a separate decision.
+services:
+  gateway-service:
+    group_add:
+      - "${PARKIO_WAITLIST_OPS_INBOX_GID:?set PARKIO_WAITLIST_OPS_INBOX_GID (gid of parkio-waitlist-inbox)}"
+    environment:
+      PARKIO_WAITLIST_OPS_NOTIFICATIONS_EXPORT_DIR: /var/lib/parkio/waitlist-ops-inbox
+    volumes:
+      - type: bind
+        source: /var/lib/parkio/waitlist-ops-inbox
+        target: /var/lib/parkio/waitlist-ops-inbox
+        read_only: false
+        bind:
+          # Fail instead of silently creating a root-owned directory.
+          create_host_path: false
