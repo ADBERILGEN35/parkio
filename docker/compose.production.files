@@ -1,10 +1,11 @@
 # Canonical production compose file set for parkio-civo-prod (post GMP pin).
 # Paths relative to repository root (e.g. /opt/parkio).
 # Consumed by scripts/parkio-prod-compose.sh — keep digest pins last.
-# Order: GMP service pins, then web release pin (web-only overlay).
+# Order: GMP service pins, then auth release pin, then web release pin.
 docker/docker-compose.yml
 docker/docker-compose.apps.yml
 docker/docker-compose.hosted-beta.yml
 docker/docker-compose.azure-hosted-beta.yml
 docker/docker-compose.gmp-release-pins.yml
+docker/docker-compose.auth-release-pin.yml
 docker/docker-compose.web-release-pin.yml
