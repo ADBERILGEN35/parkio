@@ -18,6 +18,7 @@ class AuthTransactionalEmailTemplatesTest {
 
         assertThat(copy.subject()).contains("uygulama hesab");
         assertThat(copy.body()).contains("bekleme listesi kaydı değildir");
+        assertThat(copy.instruction()).contains("24 saat");
         assertThat(html).contains(AuthTransactionalEmailTemplates.LOGO_URL);
         assertThat(html).contains(AuthTransactionalEmailTemplates.BRAND_BLUE);
         assertThat(html).contains("Uygulama hesabını doğrula");
@@ -39,9 +40,22 @@ class AuthTransactionalEmailTemplatesTest {
 
         assertThat(copy.subject()).contains("application account");
         assertThat(copy.body()).contains("not a waitlist signup");
+        assertThat(copy.instruction()).contains("24 hours");
         assertThat(html).contains("Verify application account");
         assertThat(html).contains("lang=en");
         assertThat(html).contains("Reply: info@parkio.dev");
+    }
+
+    @Test
+    void passwordResetStatesOneHourExpiryFromPolicy() {
+        AuthTransactionalEmailTemplates.Copy en =
+                AuthTransactionalEmailTemplates.passwordReset(
+                        EmailLocale.EN, "https://app.parkio.dev/reset-password?token=x&lang=en");
+        AuthTransactionalEmailTemplates.Copy tr =
+                AuthTransactionalEmailTemplates.passwordReset(
+                        EmailLocale.TR, "https://app.parkio.dev/reset-password?token=x&lang=tr");
+        assertThat(en.instruction()).contains("1 hour");
+        assertThat(tr.instruction()).contains("1 saat");
     }
 
     @Test

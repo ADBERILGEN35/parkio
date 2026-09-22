@@ -17,13 +17,14 @@ final class AuthTransactionalEmailTemplates {
     private AuthTransactionalEmailTemplates() {}
 
     static Copy verification(EmailLocale locale, String verifyUrl) {
+        // TTL copy must match parkio.security.email-verification.token-ttl default PT24H.
         if (locale == EmailLocale.EN) {
             return new Copy(
                     "Verify your Parkio application account",
                     "Verify your Parkio application account",
                     "Application account verification",
                     "This email verifies the email address for your Parkio application account — not a waitlist signup.",
-                    "Open the page and complete verification to activate sign-in. Link previews do not verify automatically.",
+                    "Open the page and complete verification to activate sign-in. This link expires in 24 hours. Link previews do not verify automatically.",
                     "Verify application account",
                     "Or open this verification page:",
                     "If you did not create a Parkio application account, ignore this email.",
@@ -35,7 +36,7 @@ final class AuthTransactionalEmailTemplates {
                 "Parkio uygulama hesabınızı doğrulayın",
                 "Uygulama hesabı doğrulama",
                 "Bu e-posta, Parkio uygulama hesabınızın e-posta adresini doğrular — bekleme listesi kaydı değildir.",
-                "Giriş yapabilmek için sayfadaki doğrulamayı tamamlayın. Bağlantı önizlemeleri otomatik doğrulamaz.",
+                "Giriş yapabilmek için sayfadaki doğrulamayı tamamlayın. Bu bağlantının süresi 24 saat içinde dolar. Bağlantı önizlemeleri otomatik doğrulamaz.",
                 "Uygulama hesabını doğrula",
                 "Ya da bu doğrulama sayfasını açın:",
                 "Parkio uygulama hesabı oluşturmadıysanız bu e-postayı yok sayın.",
@@ -44,13 +45,14 @@ final class AuthTransactionalEmailTemplates {
     }
 
     static Copy passwordReset(EmailLocale locale, String resetUrl) {
+        // TTL copy must match parkio.security.password-reset.token-ttl default PT1H.
         if (locale == EmailLocale.EN) {
             return new Copy(
                     "Reset your Parkio password",
                     "Reset your Parkio password",
                     "Password reset",
                     "We received a request to reset the password for your Parkio application account.",
-                    "Choose a new password on the page. This link expires soon for your security.",
+                    "Choose a new password on the page. This link expires in 1 hour for your security.",
                     "Reset password",
                     "Or open this password reset page:",
                     "If you did not request a password reset, ignore this email.",
@@ -62,7 +64,7 @@ final class AuthTransactionalEmailTemplates {
                 "Parkio şifrenizi sıfırlayın",
                 "Şifre sıfırlama",
                 "Parkio uygulama hesabınız için bir şifre sıfırlama isteği aldık.",
-                "Sayfada yeni bir şifre seçin. Güvenliğiniz için bu bağlantının süresi yakında dolacak.",
+                "Sayfada yeni bir şifre seçin. Güvenliğiniz için bu bağlantının süresi 1 saat içinde dolar.",
                 "Şifreyi sıfırla",
                 "Ya da bu şifre sıfırlama sayfasını açın:",
                 "Şifre sıfırlama talebinde bulunmadıysanız bu e-postayı yok sayın.",
