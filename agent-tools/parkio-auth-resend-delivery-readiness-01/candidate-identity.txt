@@ -1,0 +1,4 @@
+﻿source_tip=78e0a93852471cc570cb604d65a7ad94e1d53d96
+local_tag=parkio/auth-service:prep-auth-resend-78e0a938
+image_id=sha256:c72c68a22800f6870d8ba8d3308d397bf117550f04e5769bd4c57ca8a1c0bec9
+note=Image layers built from working tree immediately before commit 78e0a938; content matches committed auth-service changes.

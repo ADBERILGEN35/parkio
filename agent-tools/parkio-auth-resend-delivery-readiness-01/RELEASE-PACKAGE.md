@@ -201,12 +201,13 @@ If operators explicitly choose not to take the Idempotency-Key fix first: switch
 
 | Artifact | Value |
 |---|---|
-| Branch tip | *(fill after commit)* |
-| Local candidate tag | `parkio/auth-service:prep-auth-resend-<shortsha>` |
-| Image ID / digest | *(fill after local build + optional GHCR push)* |
-| Trivy | Run `trivy image --severity HIGH,CRITICAL --ignore-unfixed` on exact candidate before release decision |
+| Branch tip | `78e0a93852471cc570cb604d65a7ad94e1d53d96` |
+| Local candidate tag | `parkio/auth-service:prep-auth-resend-78e0a938` |
+| Image ID (manifest list) | `sha256:c72c68a22800f6870d8ba8d3308d397bf117550f04e5769bd4c57ca8a1c0bec9` |
+| GHCR digest | *not pushed* (local candidate only until release decision) |
+| Trivy | See `trivy-auth-candidate.txt` (HIGH,CRITICAL --ignore-unfixed) |
 
-Rebuild is required **because runtime code changed**. Do not rebuild merely to flip the provider string.
+Rebuild was required because runtime code changed. Do not rebuild merely to flip the provider string.
 
 ---
 
