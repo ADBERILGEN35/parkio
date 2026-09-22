@@ -2,7 +2,7 @@
 
 **PR:** https://github.com/ADBERILGEN35/parkio/pull/84 (draft)  
 **Branch:** `feat/waitlist-full-name-readable-slack`  
-**Decision head:** `ea3748ca631b01ec1f1cf9e028e9827b137ce601` (PR tip; code identity `05041de8`)  
+**Decision head:** `4c7224c97aaf7e0c46d1bf38010f300802b509a7` (final PR tip)  
 **Base:** `origin/api`  
 **Scope:** draft only — no merge, no prod migrate/deploy, no real Slack/email, no secret/NR changes, registration CLOSED, provider=resend.
 
