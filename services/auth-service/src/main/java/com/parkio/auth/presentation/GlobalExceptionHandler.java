@@ -2,6 +2,7 @@ package com.parkio.auth.presentation;
 
 import com.parkio.auth.domain.exception.AuthErrorCode;
 import com.parkio.auth.domain.exception.AuthException;
+import com.parkio.auth.infrastructure.notification.EmailDeliveryException;
 import com.parkio.platform.api.ApiError;
 import java.time.Clock;
 import java.util.List;
@@ -87,6 +88,23 @@ public class GlobalExceptionHandler {
         log.warn("Data integrity violation: {}", ex.getMostSpecificCause().getMessage());
         ApiError body = ApiError.of("CONFLICT", "The request conflicts with existing data.", clock.instant());
         return ResponseEntity.status(HttpStatus.CONFLICT).body(body);
+    }
+
+    /**
+     * Provider rejection or transport failure during synchronous transactional email.
+     * Used for paths that must surface delivery failure (register, admin resend).
+     * Public resend-verification / forgot-password catch {@link EmailDeliveryException}
+     * in the controller so HTTP responses stay enumeration-safe while the service
+     * transaction still rolls back.
+     */
+    @ExceptionHandler(EmailDeliveryException.class)
+    public ResponseEntity<ApiError> handleEmailDelivery(EmailDeliveryException ex) {
+        log.warn("Transactional email delivery failed: {}", ex.getMessage());
+        ApiError body = ApiError.of(
+                "EMAIL_DELIVERY_UNAVAILABLE",
+                "Email delivery is temporarily unavailable. Please try again later.",
+                clock.instant());
+        return ResponseEntity.status(HttpStatus.SERVICE_UNAVAILABLE).body(body);
     }
 
     /** Catch-all: anything unmapped becomes a consistent 500 with no leaked detail. */
