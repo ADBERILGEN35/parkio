@@ -345,6 +345,10 @@ describe('RegisterPage', () => {
     await userEvent.setup().click(screen.getByRole('button', { name: 'Resend verification' }));
 
     await waitFor(() => expect(resendBody).toEqual({ email: 'newcomer@parkio.dev', locale: 'en' }));
-    expect(screen.getByText('Verification email sent. Please check your inbox.')).toBeInTheDocument();
+    expect(
+      screen.getByText(
+        'If this address still needs verification, check your inbox for a link. If you already verified, sign in instead.',
+      ),
+    ).toBeInTheDocument();
   });
 });
