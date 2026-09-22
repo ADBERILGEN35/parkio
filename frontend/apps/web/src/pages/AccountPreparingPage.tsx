@@ -40,6 +40,7 @@ export function AccountPreparingPage() {
   const [signingOut, setSigningOut] = useState(false);
   const [phase, setPhase] = useState<Phase>('provisioning');
   const [profileWarning, setProfileWarning] = useState(false);
+  const [phoneReentryNotice, setPhoneReentryNotice] = useState(false);
 
   const activeRef = useRef(true);
   const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -58,6 +59,15 @@ export function AccountPreparingPage() {
       return;
     }
 
+    const requestPhoneReentry = Boolean(pending.needsPhoneReentry && !pending.phoneNumber);
+
+    // Re-entry-only: nothing to PATCH; clear flag and ask the user to add phone from Profile.
+    if (!pending.displayName && !pending.phoneNumber && requestPhoneReentry) {
+      clearPendingProfile();
+      setPhoneReentryNotice(true);
+      return;
+    }
+
     setPhase('saving-profile');
     try {
       await usersApi.updateMyProfile({
@@ -66,6 +76,10 @@ export function AccountPreparingPage() {
       });
       if (!activeRef.current) return;
       clearPendingProfile();
+      if (requestPhoneReentry) {
+        setPhoneReentryNotice(true);
+        return;
+      }
       endProvisioning();
     } catch {
       if (!activeRef.current) return;
@@ -111,6 +125,7 @@ export function AccountPreparingPage() {
   const onRetry = () => {
     clearTimer();
     setProfileWarning(false);
+    setPhoneReentryNotice(false);
     setPhase('provisioning');
     runReadiness();
   };
@@ -130,7 +145,7 @@ export function AccountPreparingPage() {
     }
   };
 
-  if (profileWarning) {
+  if (profileWarning || phoneReentryNotice) {
     return (
       <main className="flex min-h-screen flex-col items-center justify-center gap-lg bg-background px-md py-xl text-on-background">
         <Surface level="card" className="w-full max-w-md p-lg text-center">
@@ -139,7 +154,9 @@ export function AccountPreparingPage() {
           </span>
           <h1 className="m-0 text-headline-md text-on-surface">{t('auth:preparing.readyTitle')}</h1>
           <p className="m-0 mt-sm text-body-md text-on-surface-variant">
-            {t('auth:preparing.profileWarning')}
+            {phoneReentryNotice && !profileWarning
+              ? t('auth:preparing.phoneReentry')
+              : t('auth:preparing.profileWarning')}
           </p>
           <div className="mt-lg flex justify-center">
             <Button onClick={onContinue}>

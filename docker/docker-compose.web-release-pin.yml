@@ -1,20 +1,16 @@
-# Parkio hosted-beta web release pin — PR #69 municipal-on + Explore (2026-09-21)
-# Live digest reconciles host-only pin into source control.
-# Bake profile: docker/web-hosted-beta.release-bake.env
-#   VITE_API_BASE_URL=https://api.parkio.dev/api/v1
-#   VITE_PUBLIC_EXPLORE_ENABLED=true
-#   VITE_WEB_MUNICIPAL_DISCOVERY_ENABLED=true
-# SPA content SHA: 38595c99899364c1c61c9b31d7c90ee6364a75ce (main-BJsurxIR.js)
-# Local image ID == registry manifest digest for this single-arch push.
-# Previous explore-on / municipal-off pin (rollback):
-#   ghcr.io/adberilgen35/parkio/web@sha256:d9999a020376cc89b86a92410ceb784a7290258f4d1c0c0d968a6a78d62c443a
+# Parkio hosted-beta web release pin — PR #76 pending-profile no phone storage (2026-09-22)
+# Source tip: 21e150e5965e33b2b2a05569ec3cf99c3456204e
+# Merge: c284192e8e4cd001605a430c65f6f52c8488cf9c
+# Bake: Explore ON, municipal ON, registration CLOSED (web-izmir-coverage.candidate-bake.env)
+# Local image ID == registry index digest for this single-arch push.
+# Previous PR #68 pin (rollback):
+#   ghcr.io/adberilgen35/parkio/web@sha256:399d716fd0a935a7af90736b3a4fc0e821d80c7694cdcdc29f2e922c4e757015
 # Applied last in docker/compose.production.files via scripts/parkio-prod-compose.sh.
 # Recreate with: scripts/parkio-prod-compose.sh up -d --no-build --no-deps --force-recreate web
 #
 # Practical digest update: change ONLY the services.web.image line below.
-# Guards parse the effective image value; digests mentioned only in comments do not count.
 name: parkio
 
 services:
   web:
-    image: ghcr.io/adberilgen35/parkio/web@sha256:7202058c2d75537a5578acd07f65c645d6237e3eaaef89e5be49a6b785e82761
+    image: ghcr.io/adberilgen35/parkio/web@sha256:daba786490be9b6015572fbc2a5ba7efd72a4bcdad860372792c0f12b31b59be
