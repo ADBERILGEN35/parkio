@@ -2,15 +2,20 @@ package com.parkio.parking.application;
 
 import com.parkio.parking.application.port.MunicipalFacilityRepository;
 import com.parkio.parking.application.port.MunicipalOccupancySnapshotRepository;
+import com.parkio.parking.application.port.RoadsideDiscoveryQueryPort;
+import com.parkio.parking.externalsource.MunicipalAccessClassification;
 import com.parkio.parking.externalsource.MunicipalFacilityType;
 import com.parkio.parking.externalsource.MunicipalOccupancyFreshness;
 import com.parkio.parking.externalsource.OccupancyFreshnessPolicy;
+import com.parkio.parking.externalsource.PublicExplorePublicationPolicy.ReviewedPublicFamily;
 import com.parkio.parking.externalsource.provider.ParkingDataSourceDescriptor;
 import com.parkio.parking.externalsource.provider.ParkingProviderCatalog;
 import com.parkio.parking.infrastructure.config.PublicExploreProperties;
 import java.time.Clock;
 import java.time.Duration;
 import java.time.Instant;
+import java.util.ArrayList;
+import java.util.Comparator;
 import java.util.List;
 import java.util.Set;
 import java.util.UUID;
@@ -23,6 +28,10 @@ import java.util.UUID;
  * spots. {@code communitySpotCountInScope} is always {@code null} for anonymous
  * Explore. Source selection comes from validated publication policy, never from
  * anonymous query parameters.
+ *
+ * <p>When the reviewed {@link ReviewedPublicFamily#IZELMAN} family is allowlisted,
+ * published İZELMAN roadside segments are included as on-street inventory with
+ * UNKNOWN access and UNAVAILABLE occupancy (never live spaces).
  */
 public class PublicExploreQueryService {
     /** Client UX fallback center only; server honors supplied lat/lng when present. */
@@ -33,6 +42,10 @@ public class PublicExploreQueryService {
     public static final int MAX_RADIUS_METERS = 5_000;
     public static final int DEFAULT_LIMIT = 6;
     public static final int MAX_LIMIT = 6;
+
+    public static final String IZELMAN_ROADSIDE_SOURCE_LABEL = "İZELMAN roadside";
+    public static final String IZELMAN_ROADSIDE_ATTRIBUTION =
+            "İzmir Metropolitan Municipality / İZELMAN A.Ş.";
 
     public record FacilityView(
             UUID id,
@@ -47,7 +60,8 @@ public class PublicExploreQueryService {
             MunicipalOccupancyFreshness availabilityFreshness,
             Instant dataUpdatedAt,
             String sourceLabel,
-            String attribution) {}
+            String attribution,
+            MunicipalAccessClassification accessClassification) {}
 
     public record DiscoveryQuery(Double latitude, Double longitude, Integer radiusMeters, Integer limit) {}
 
@@ -59,16 +73,19 @@ public class PublicExploreQueryService {
 
     private final MunicipalFacilityRepository facilities;
     private final MunicipalOccupancySnapshotRepository snapshots;
+    private final RoadsideDiscoveryQueryPort roadside;
     private final PublicExploreProperties properties;
     private final Clock clock;
 
     public PublicExploreQueryService(
             MunicipalFacilityRepository facilities,
             MunicipalOccupancySnapshotRepository snapshots,
+            RoadsideDiscoveryQueryPort roadside,
             PublicExploreProperties properties,
             Clock clock) {
         this.facilities = facilities;
         this.snapshots = snapshots;
+        this.roadside = roadside;
         this.properties = properties;
         this.clock = clock;
     }
@@ -79,9 +96,16 @@ public class PublicExploreQueryService {
             return new DiscoveryResult(List.of(), 0L, 0L, null);
         }
         ResolvedScope scope = resolveScope(query);
-        long municipalTotal = facilities.countPublicExploreNearby(
+        long facilityTotal = facilities.countPublicExploreNearby(
                 scope.latitude(), scope.longitude(), scope.radiusMeters(), allowedKeys);
-        List<FacilityView> visible = facilities
+        boolean includeRoadside = properties.reviewedFamilies().contains(ReviewedPublicFamily.IZELMAN);
+        long roadsideTotal = includeRoadside
+                ? roadside.countNearby(scope.latitude(), scope.longitude(), scope.radiusMeters())
+                : 0L;
+        long municipalTotal = facilityTotal + roadsideTotal;
+
+        List<Scored> scored = new ArrayList<>();
+        facilities
                 .publicExploreNearby(
                         scope.latitude(),
                         scope.longitude(),
@@ -89,20 +113,25 @@ public class PublicExploreQueryService {
                         scope.limit(),
                         allowedKeys)
                 .stream()
-                .limit(scope.limit())
                 .map(facility -> project(facility, allowedKeys))
+                .forEach(view -> scored.add(new Scored(view, distanceMeters(
+                        scope.latitude(), scope.longitude(), view.latitude(), view.longitude()))));
+        if (includeRoadside) {
+            roadside.nearby(scope.latitude(), scope.longitude(), scope.radiusMeters(), scope.limit())
+                    .stream()
+                    .map(PublicExploreQueryService::projectRoadside)
+                    .forEach(view -> scored.add(new Scored(view, distanceMeters(
+                            scope.latitude(), scope.longitude(), view.latitude(), view.longitude()))));
+        }
+        scored.sort(Comparator.comparingDouble(Scored::distanceMeters));
+        List<FacilityView> visible = scored.stream()
+                .limit(scope.limit())
+                .map(Scored::view)
                 .toList();
         long hidden = Math.max(municipalTotal - visible.size(), 0L);
-        // PA-06: do not publish community aggregates under free lat/lng/radius.
-        // Authenticated clients use separate authorized nearby APIs.
         return new DiscoveryResult(visible, municipalTotal, hidden, withholdCommunityAggregate());
     }
 
-    /**
-     * Anonymous Explore never publishes a community count. {@code null} means
-     * unavailable/withheld — not a factual zero. Older clients already treat null
-     * as “do not show teaser”.
-     */
     static Integer withholdCommunityAggregate() {
         return null;
     }
@@ -174,13 +203,30 @@ public class PublicExploreQueryService {
                 freshness,
                 dataUpdatedAt,
                 presentation.displayName(),
-                presentation.attribution());
+                presentation.attribution(),
+                facility.accessClassification() == null
+                        ? MunicipalAccessClassification.UNKNOWN
+                        : facility.accessClassification());
     }
 
-    /**
-     * Occupancy and attribution bind to the facility's publishing source key from the
-     * public query join (linked keys), never a global provider-latest snapshot.
-     */
+    static FacilityView projectRoadside(RoadsideDiscoveryQueryPort.RoadsideSegment segment) {
+        return new FacilityView(
+                segment.id(),
+                segment.displayName(),
+                "İZELMAN A.Ş.",
+                MunicipalFacilityType.ON_STREET,
+                segment.addressText(),
+                segment.latitude(),
+                segment.longitude(),
+                segment.capacityTotal(),
+                null,
+                MunicipalOccupancyFreshness.UNAVAILABLE,
+                segment.updatedAt(),
+                IZELMAN_ROADSIDE_SOURCE_LABEL,
+                IZELMAN_ROADSIDE_ATTRIBUTION,
+                MunicipalAccessClassification.UNKNOWN);
+    }
+
     static String resolvePublishingSourceKey(
             MunicipalFacilityRepository.Facility facility, Set<String> allowedKeys) {
         Set<String> linked = facility.linkedSourceKeys() == null ? Set.of() : facility.linkedSourceKeys();
@@ -197,5 +243,18 @@ public class PublicExploreQueryService {
                         "Public explore facility has no allowed publishing source key"));
     }
 
+    static double distanceMeters(double lat1, double lng1, double lat2, double lng2) {
+        double r = 6_371_000.0;
+        double p1 = Math.toRadians(lat1);
+        double p2 = Math.toRadians(lat2);
+        double dLat = Math.toRadians(lat2 - lat1);
+        double dLng = Math.toRadians(lng2 - lng1);
+        double a = Math.sin(dLat / 2) * Math.sin(dLat / 2)
+                + Math.cos(p1) * Math.cos(p2) * Math.sin(dLng / 2) * Math.sin(dLng / 2);
+        return 2 * r * Math.asin(Math.min(1.0, Math.sqrt(a)));
+    }
+
     private record ResolvedScope(double latitude, double longitude, int radiusMeters, int limit) {}
+
+    private record Scored(FacilityView view, double distanceMeters) {}
 }

@@ -1,4 +1,8 @@
-import type { NearbySearchParams } from '@parkio/types';
+import type {
+  MunicipalFacilityNearbyParams,
+  NearbySearchParams,
+  RoadsideSegmentNearbyParams,
+} from '@parkio/types';
 
 /**
  * Canonical React Query key factories for Web server state (WP-04).
@@ -29,15 +33,41 @@ export function normalizeNearbyFilters(filters: NearbyParkingFilters) {
   } as const;
 }
 
+/**
+ * Municipal nearby identity always keys on canonical {@code radiusMeters}
+ * (never the legacy community {@code radius} alias alone).
+ */
+export function normalizeMunicipalNearbyFilters(filters: MunicipalFacilityNearbyParams) {
+  const radiusMeters = filters.radiusMeters ?? filters.radius;
+  return {
+    lat: filters.lat,
+    lng: filters.lng,
+    ...(radiusMeters !== undefined ? { radiusMeters } : {}),
+    ...(filters.limit !== undefined ? { limit: filters.limit } : {}),
+  } as const;
+}
+
+export function normalizeRoadsideNearbyFilters(filters: RoadsideSegmentNearbyParams) {
+  return {
+    lat: filters.lat,
+    lng: filters.lng,
+    ...(filters.radiusMeters !== undefined ? { radiusMeters: filters.radiusMeters } : {}),
+    ...(filters.limit !== undefined ? { limit: filters.limit } : {}),
+  } as const;
+}
+
 export const parkingKeys = {
   all: ['parking'] as const,
   nearby: (filters: NearbyParkingFilters) =>
     [...parkingKeys.all, 'nearby', normalizeNearbyFilters(filters)] as const,
   nearbyRoot: () => [...parkingKeys.all, 'nearby'] as const,
   /** Municipal facilities nearby — separate cache tree from community spots. */
-  municipalNearby: (filters: NearbyParkingFilters) =>
-    [...parkingKeys.all, 'municipal-nearby', normalizeNearbyFilters(filters)] as const,
+  municipalNearby: (filters: MunicipalFacilityNearbyParams) =>
+    [...parkingKeys.all, 'municipal-nearby', normalizeMunicipalNearbyFilters(filters)] as const,
   municipalNearbyRoot: () => [...parkingKeys.all, 'municipal-nearby'] as const,
+  roadsideNearby: (filters: RoadsideSegmentNearbyParams) =>
+    [...parkingKeys.all, 'roadside-nearby', normalizeRoadsideNearbyFilters(filters)] as const,
+  roadsideNearbyRoot: () => [...parkingKeys.all, 'roadside-nearby'] as const,
   municipalFacility: (facilityId: string) =>
     [...parkingKeys.all, 'municipal-facility', facilityId] as const,
   mySpots: () => [...parkingKeys.all, 'my-spots'] as const,

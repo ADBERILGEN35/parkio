@@ -348,6 +348,46 @@ jobs:
           [ "$missing" -eq 0 ] || exit 1
           echo "Required web build configuration present for VITE_APP_ENV=$WEB_APP_ENV."
 
+      # Hosted-beta release builds must consume the canonical bake profile so an
+      # API-base-only rebuild cannot omit VITE_PUBLIC_EXPLORE_ENABLED (P01F).
+      - name: Load hosted-beta web release bake profile
+        if: ${{ matrix.service == 'web' }}
+        id: web_bake
+        env:
+          WEB_APP_ENV: ${{ vars.WEB_APP_ENV || 'hosted-beta' }}
+          WEB_API_BASE_URL: ${{ vars.WEB_API_BASE_URL || 'https://api.parkio.dev/api/v1' }}
+        run: |
+          set -euo pipefail
+          BAKE="docker/web-hosted-beta.release-bake.env"
+          if [ ! -f "$BAKE" ]; then
+            echo "::error::missing $BAKE"
+            exit 1
+          fi
+          set -a
+          # shellcheck disable=SC1090
+          source "$BAKE"
+          set +a
+          if [ "${WEB_APP_ENV}" = "hosted-beta" ]; then
+            if [ "${VITE_APP_ENV}" != "hosted-beta" ] || \
+               [ "${VITE_API_BASE_URL}" != "${WEB_API_BASE_URL}" ] || \
+               [ "${VITE_PUBLIC_EXPLORE_ENABLED}" != "true" ]; then
+              echo "::error::$BAKE must match hosted-beta live contract (app env, API base, Explore ON)."
+              exit 1
+            fi
+          fi
+          {
+            echo "vite_app_env=${VITE_APP_ENV}"
+            echo "vite_api_base_url=${VITE_API_BASE_URL}"
+            echo "vite_public_explore_enabled=${VITE_PUBLIC_EXPLORE_ENABLED}"
+            echo "vite_web_municipal_discovery_enabled=${VITE_WEB_MUNICIPAL_DISCOVERY_ENABLED}"
+            echo "vite_smart_parking_assistant_enabled=${VITE_SMART_PARKING_ASSISTANT_ENABLED:-false}"
+            echo "vite_smart_return_enabled=${VITE_SMART_RETURN_ENABLED:-true}"
+            echo "vite_waitlist_intake_mode=${VITE_WAITLIST_INTAKE_MODE:-api}"
+            echo "vite_maptiler_style=${VITE_MAPTILER_STYLE:-streets-v2}"
+            echo "vite_frontend_error_reporting=${VITE_FRONTEND_ERROR_REPORTING:-disabled}"
+          } >> "$GITHUB_OUTPUT"
+          echo "Loaded $BAKE for web build-args (MapTiler key still from WEB_MAPTILER_KEY secret)."
+
       - name: Build image (OCI-labelled)
         uses: docker/build-push-action@v6
         id: build
@@ -371,13 +411,24 @@ jobs:
           # domain/origin allow-listing (app.parkio.dev and any preview origins), not by
           # secrecy. It is passed unconditionally: an empty value must reach the Dockerfile
           # so the build fails loudly instead of baking "" (defect I11).
+          #
+          # Hosted-beta feature flags come from docker/web-hosted-beta.release-bake.env
+          # (steps.web_bake) so release builds cannot silently omit public Explore.
           build-args: |
             IMAGE_VERSION=${{ needs.version.outputs.version }}
             IMAGE_REVISION=${{ needs.version.outputs.sha }}
             IMAGE_CREATED=${{ needs.version.outputs.created }}
-            ${{ matrix.service == 'web' && format('VITE_API_BASE_URL={0}', vars.WEB_API_BASE_URL || 'https://api.parkio.dev/api/v1') || '' }}
-            ${{ matrix.service == 'web' && format('VITE_APP_ENV={0}', vars.WEB_APP_ENV || 'hosted-beta') || '' }}
+            ${{ matrix.service == 'web' && format('VITE_API_BASE_URL={0}', steps.web_bake.outputs.vite_api_base_url || vars.WEB_API_BASE_URL || 'https://api.parkio.dev/api/v1') || '' }}
+            ${{ matrix.service == 'web' && format('VITE_APP_ENV={0}', steps.web_bake.outputs.vite_app_env || vars.WEB_APP_ENV || 'hosted-beta') || '' }}
             ${{ matrix.service == 'web' && format('VITE_MAPTILER_KEY={0}', secrets.WEB_MAPTILER_KEY) || '' }}
+            ${{ matrix.service == 'web' && format('VITE_PUBLIC_EXPLORE_ENABLED={0}', steps.web_bake.outputs.vite_public_explore_enabled || 'false') || '' }}
+            ${{ matrix.service == 'web' && format('VITE_WEB_MUNICIPAL_DISCOVERY_ENABLED={0}', steps.web_bake.outputs.vite_web_municipal_discovery_enabled || 'false') || '' }}
+            ${{ matrix.service == 'web' && format('VITE_SMART_PARKING_ASSISTANT_ENABLED={0}', steps.web_bake.outputs.vite_smart_parking_assistant_enabled || 'false') || '' }}
+            ${{ matrix.service == 'web' && format('VITE_SMART_RETURN_ENABLED={0}', steps.web_bake.outputs.vite_smart_return_enabled || 'true') || '' }}
+            ${{ matrix.service == 'web' && format('VITE_WAITLIST_INTAKE_MODE={0}', steps.web_bake.outputs.vite_waitlist_intake_mode || 'api') || '' }}
+            ${{ matrix.service == 'web' && format('VITE_MAPTILER_STYLE={0}', steps.web_bake.outputs.vite_maptiler_style || 'streets-v2') || '' }}
+            ${{ matrix.service == 'web' && format('VITE_FRONTEND_ERROR_REPORTING={0}', steps.web_bake.outputs.vite_frontend_error_reporting || 'disabled') || '' }}
+            ${{ matrix.service == 'web' && 'VERIFY_REQUIRE_PUBLIC_EXPLORE=true' || '' }}
           provenance: false # we attach our own attestations below
 
       # ---- Registry evidence: never trust the runner-local digest alone ----
@@ -442,7 +493,8 @@ jobs:
         working-directory: frontend/apps/web
         run: |
           set -euo pipefail
-          node --test scripts/validate-build-env.test.mjs scripts/verify-bundle-env.test.mjs scripts/smoke-image.test.mjs
+          node --test scripts/validate-build-env.test.mjs scripts/verify-bundle-env.test.mjs scripts/assert-hosted-beta-web-bake.test.mjs scripts/smoke-image.test.mjs
+          bash ../../../scripts/guard-hosted-beta-web-bake.sh
 
       # ---- Web image smoke: prove the SPA MOUNTS, not just that nginx answers ----
       # rc5's blank-page image satisfied every HTTP-level check (index.html and every asset

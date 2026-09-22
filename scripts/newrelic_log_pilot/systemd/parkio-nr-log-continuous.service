@@ -1,0 +1,19 @@
+[Unit]
+Description=Parkio bounded continuous New Relic log transport
+Requires=docker.service parkio-nr-log-source.service
+After=docker.service parkio-nr-log-source.service
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+WorkingDirectory=/opt/parkio-nr-log-continuous/current/docker
+EnvironmentFile=/etc/parkio-nr-log-continuous/runtime.env
+EnvironmentFile=/etc/parkio-nr-log-continuous/secret.env
+ExecStartPre=/usr/bin/env PARKIO_NR_SOURCE_ROOT=/var/lib/parkio-nr-log-continuous/source/logs PARKIO_NR_SOURCE_STATE_ROOT=/var/lib/parkio-nr-log-continuous/source/state /bin/bash /opt/parkio-nr-log-continuous/current/scripts/newrelic_log_pilot/resolve_production_sources.sh --check-live-helper
+ExecStart=/usr/bin/docker compose --env-file /etc/parkio-nr-log-continuous/secret.env --env-file /etc/parkio-nr-log-continuous/runtime.env -p parkio-nr-log-continuous -f docker-compose.newrelic-log-pilot.yml -f docker-compose.newrelic-log-continuous.yml --profile nr-log-pilot up -d --wait nr-budget-gate fluent-bit-nr-pilot
+ExecStop=/usr/bin/env PARKIO_NR_PILOT_PROJECT=parkio-nr-log-continuous PARKIO_NR_SOURCE_HELPER_UNIT=parkio-nr-log-source.service /bin/bash /opt/parkio-nr-log-continuous/current/scripts/newrelic_log_pilot/stop_pilot.sh
+TimeoutStartSec=90s
+TimeoutStopSec=45s
+
+[Install]
+WantedBy=multi-user.target

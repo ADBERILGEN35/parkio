@@ -3,6 +3,7 @@ package com.parkio.parking.presentation.dto;
 import com.fasterxml.jackson.annotation.JsonInclude;
 import com.parkio.parking.application.MunicipalFacilityQueryService;
 import com.parkio.parking.application.RegistryPublicationService;
+import com.parkio.parking.externalsource.MunicipalAccessClassification;
 import com.parkio.parking.externalsource.MunicipalFacilityType;
 import com.parkio.parking.externalsource.MunicipalOccupancyFreshness;
 import java.time.Instant;
@@ -33,7 +34,9 @@ public record MunicipalFacilityResponse(
         String registryConfidenceOrReviewStatus,
         String availabilitySource,
         MunicipalOccupancyFreshness availabilityFreshness,
-        Instant availabilityObservationTimestamp) {
+        Instant availabilityObservationTimestamp,
+        /** Access restriction — shown before the user commits to a facility. */
+        MunicipalAccessClassification accessClassification) {
 
     public static MunicipalFacilityResponse from(MunicipalFacilityQueryService.FacilityView view) {
         return from(view, RegistryPublicationService.Enrichment.hidden());
@@ -63,6 +66,9 @@ public record MunicipalFacilityResponse(
                 enrichment.registryConfidenceOrReviewStatus(),
                 hasAvailability ? view.availabilitySource() : null,
                 hasAvailability ? view.freshness() : null,
-                hasAvailability ? view.lastUpdatedAt() : null);
+                hasAvailability ? view.lastUpdatedAt() : null,
+                view.accessClassification() == null
+                        ? MunicipalAccessClassification.UNKNOWN
+                        : view.accessClassification());
     }
 }

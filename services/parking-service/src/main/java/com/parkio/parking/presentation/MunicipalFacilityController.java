@@ -16,6 +16,9 @@ import org.springframework.web.bind.annotation.RestController;
 @RequestMapping("/api/v1/parking/facilities")
 public class MunicipalFacilityController {
     static final int DEFAULT_RADIUS_METERS = 1000;
+    /** Authenticated nearby default — dense OSM/İZELMAN viewports exceed the old 20 cap. */
+    static final int DEFAULT_NEARBY_LIMIT = 100;
+    static final int MAX_NEARBY_LIMIT = 100;
 
     private final MunicipalFacilityQueryService service;
     private final RegistryPublicationService registryPublication;
@@ -33,9 +36,10 @@ public class MunicipalFacilityController {
             @RequestParam double lng,
             @RequestParam(required = false) Integer radiusMeters,
             @RequestParam(required = false) Integer radius,
-            @RequestParam(defaultValue = "20") int limit) {
+            @RequestParam(required = false) Integer limit) {
         int resolved = resolveRadiusMeters(radiusMeters, radius);
-        return service.nearby(lat, lng, resolved, limit).stream()
+        int resolvedLimit = resolveNearbyLimit(limit);
+        return service.nearby(lat, lng, resolved, resolvedLimit).stream()
                 .map(view -> MunicipalFacilityResponse.from(
                         view, registryPublication.forFacility(view.id())))
                 .toList();
@@ -59,5 +63,17 @@ public class MunicipalFacilityController {
             return DEFAULT_RADIUS_METERS;
         }
         return chosen;
+    }
+
+    /**
+     * Default authenticated nearby limit is {@link #DEFAULT_NEARBY_LIMIT}. Values above
+     * {@link #MAX_NEARBY_LIMIT} are clamped; non-positive values fall back to the default.
+     * Anonymous Public Explore keeps its own hard cap ({@code MAX_LIMIT=6}) on a separate path.
+     */
+    static int resolveNearbyLimit(Integer limit) {
+        if (limit == null || limit <= 0) {
+            return DEFAULT_NEARBY_LIMIT;
+        }
+        return Math.min(limit, MAX_NEARBY_LIMIT);
     }
 }

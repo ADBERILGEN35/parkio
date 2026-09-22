@@ -211,7 +211,8 @@ class FakeTestMunicipalParkingAdapterContractTest {
                 "Parkio test fixture — not a public data source",
                 "Parkio Fake Test Provider",
                 NOW,
-                FakeTestMunicipalParkingAdapter.SOURCE_KEY);
+                FakeTestMunicipalParkingAdapter.SOURCE_KEY,
+                com.parkio.parking.externalsource.MunicipalAccessClassification.PUBLIC);
 
         ParkingCandidate candidate = ParkingCandidateMapper.fromMunicipal(view, 38.45, 27.2);
 

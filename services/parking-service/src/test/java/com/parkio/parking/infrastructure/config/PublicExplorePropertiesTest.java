@@ -44,12 +44,26 @@ class PublicExplorePropertiesTest {
     @Test
     void unknownAndUnreviewedFamiliesFailClosed() {
         PublicExploreProperties properties = new PublicExploreProperties();
-        for (String forbidden : List.of(
-                "ANPARK", "KONYA", "KAYSERI", "OSM", "OPENSTREETMAP", "IZELMAN", "unknown", "FAKE_TEST")) {
+        for (String forbidden : List.of("ANPARK", "KONYA", "KAYSERI", "unknown", "FAKE_TEST")) {
             assertThatThrownBy(() -> properties.setAllowedSourceFamilies(List.of(forbidden)))
                     .isInstanceOf(IllegalArgumentException.class)
                     .hasMessageContaining("Public explore");
         }
+    }
+
+    @Test
+    void reviewedIzelmanAndOsmAreAccepted() {
+        PublicExploreProperties properties = new PublicExploreProperties();
+        properties.setAllowedSourceFamilies(List.of("IZELMAN", "OSM"));
+        assertThat(properties.resolvedSourceKeys())
+                .contains(
+                        "izelman-open-parking-facilities",
+                        "izelman-closed-parking-facilities",
+                        "izelman-barrier-parking-facilities",
+                        "osm-geofabrik-turkey")
+                .doesNotContain("izelman-roadside-parking", "izelman-parking-tariffs");
+        properties.setAllowedSourceFamilies(List.of("OPENSTREETMAP"));
+        assertThat(properties.resolvedSourceKeys()).containsExactly("osm-geofabrik-turkey");
     }
 
     @Test

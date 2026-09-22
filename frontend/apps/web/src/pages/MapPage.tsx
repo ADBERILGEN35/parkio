@@ -1,10 +1,12 @@
 import { zodResolver } from '@hookform/resolvers/zod';
 import type {
+  MunicipalFacilityNearbyParams,
   NearbySearchParams,
   Destination,
   DestinationSearchItem,
   ParkingCandidate,
   AssistantDestinationOrigin,
+  RoadsideSegmentNearbyParams,
 } from '@parkio/types';
 import {
   Button,
@@ -45,6 +47,7 @@ import { frontendConfig } from '@/config/env';
 import { useMySmartReturnQuery, useMyVehicleQuery } from '@/data/hooks/useMeQueries';
 import {
   useNearbyMunicipalFacilitiesQuery,
+  useNearbyRoadsideSegmentsQuery,
   useNearbySpotsQuery,
 } from '@/data/hooks/useParkingQueries';
 import { useActiveParkingSessionQuery, useParkingSessionLifecycleConfigQuery } from '@/data/hooks/useParkingSessionQueries';
@@ -86,6 +89,15 @@ import {
   type AssistantUrlState,
 } from '@/lib/assistantUrlState';
 import { ASSISTANT_RECOMMEND_RADIUS_METERS } from '@/lib/recommendationPresentation';
+import {
+  DEFAULT_MUNICIPAL_RADIUS_METERS,
+  clampMunicipalRadiusMeters,
+  isValidMunicipalRadiusMeters,
+} from '@/lib/municipalDiscoveryRadius';
+import {
+  isIzelmanRoadsideFacility,
+  toMunicipalFacilityFromRoadside,
+} from '@/lib/roadsideInventory';
 import {
   AssistantEntryControl,
   DestinationSearchPanel,
@@ -179,6 +191,10 @@ export function MapPage({
   });
   const smartReturnMode = searchParams.get('smartReturn') === '1';
   const [params, setParams] = useState<NearbySearchParams | null>(null);
+  /** Municipal discovery radius — independent of community form `radius`. */
+  const [municipalRadiusMeters, setMunicipalRadiusMeters] = useState(
+    DEFAULT_MUNICIPAL_RADIUS_METERS,
+  );
   const [geoStatus, setGeoStatus] = useState<GeoStatus>('idle');
   const [geoError, setGeoError] = useState<string | null>(null);
   const [mapZoom, setMapZoom] = useState(DEFAULT_MAP_ZOOM);
@@ -219,9 +235,37 @@ export function MapPage({
   // Nearby hook keeps prior results via placeholderData while a re-search loads
   // (new center/radius/"use my location") instead of flashing the skeleton.
   const search = useNearbySpotsQuery(params);
-  const municipalSearch = useNearbyMunicipalFacilitiesQuery(params, {
+  const municipalParams = useMemo((): MunicipalFacilityNearbyParams | null => {
+    if (!params) return null;
+    return {
+      lat: params.lat,
+      lng: params.lng,
+      radiusMeters: municipalRadiusMeters,
+      // Independent of community spot limit — dense inventory must not silently truncate at 20.
+      limit: 100,
+    };
+  }, [municipalRadiusMeters, params]);
+  const municipalSearch = useNearbyMunicipalFacilitiesQuery(municipalParams, {
     enabled: municipalDiscoveryEnabled,
   });
+  /** Roadside API max radius is 5 km — clamp independently of facility radius presets. */
+  const roadsideParams = useMemo((): RoadsideSegmentNearbyParams | null => {
+    if (!params) return null;
+    return {
+      lat: params.lat,
+      lng: params.lng,
+      radiusMeters: Math.min(municipalRadiusMeters, 5_000),
+      limit: 50,
+    };
+  }, [municipalRadiusMeters, params]);
+  const roadsideSearch = useNearbyRoadsideSegmentsQuery(roadsideParams, {
+    enabled: municipalDiscoveryEnabled,
+  });
+
+  const handleMunicipalRadiusMetersChange = useCallback((next: number) => {
+    if (!isValidMunicipalRadiusMeters(next)) return;
+    setMunicipalRadiusMeters(clampMunicipalRadiusMeters(next));
+  }, []);
 
   const activeSessionQuery = useActiveParkingSessionQuery({ enabled: isAuthenticated });
   const lifecycleConfigQuery = useParkingSessionLifecycleConfigQuery({ enabled: isAuthenticated });
@@ -311,9 +355,26 @@ export function MapPage({
     [spotsWithDistance, selectedId],
   );
 
-  const municipalFacilities = useMemo(
-    () => (municipalDiscoveryEnabled ? (municipalSearch.data ?? []) : []),
-    [municipalDiscoveryEnabled, municipalSearch.data],
+  const municipalFacilities = useMemo(() => {
+    if (!municipalDiscoveryEnabled) return [];
+    const facilities = municipalSearch.data ?? [];
+    const roadside = (roadsideSearch.data ?? [])
+      .map(toMunicipalFacilityFromRoadside)
+      .filter((facility) => isValidLatLng(facility.latitude, facility.longitude));
+    if (roadside.length === 0) return facilities;
+    const seen = new Set(facilities.map((facility) => facility.id));
+    const merged = [...facilities];
+    for (const segment of roadside) {
+      if (seen.has(segment.id)) continue;
+      seen.add(segment.id);
+      merged.push(segment);
+    }
+    return merged;
+  }, [municipalDiscoveryEnabled, municipalSearch.data, roadsideSearch.data]);
+  /** Facility API hit the limit — radius continuation must change radiusMeters. */
+  const municipalFacilityResultsCapped = Boolean(
+    municipalParams?.limit != null
+      && (municipalSearch.data?.length ?? 0) >= municipalParams.limit,
   );
   const municipalSourceLabels = useMemo(
     () => availableMunicipalSourceLabels(municipalFacilities),
@@ -823,9 +884,12 @@ export function MapPage({
       {municipalDiscoveryEnabled && municipalLayerVisible ? (
         <MunicipalFacilityResults
           search={municipalSearch}
-          params={params}
+          params={municipalParams}
+          radiusMeters={municipalRadiusMeters}
+          onRadiusMetersChange={handleMunicipalRadiusMetersChange}
           facilities={visibleMunicipalFacilities}
           totalCount={municipalFacilities.length}
+          resultsCapped={municipalFacilityResultsCapped}
           filters={municipalFilters}
           onFiltersChange={setMunicipalFilters}
           availableSourceLabels={municipalSourceLabels}
@@ -1285,7 +1349,10 @@ export function MapPage({
                 facility={selectedMunicipalFacility}
                 distanceMeters={selectedMunicipalDistance}
                 onClose={() => selectMunicipalFacility(null)}
-                parkHereEnabled={!activeSession}
+                parkHereEnabled={
+                  !activeSession && !isIzelmanRoadsideFacility(selectedMunicipalFacility)
+                }
+                showViewDetails={!isIzelmanRoadsideFacility(selectedMunicipalFacility)}
               />
             ) : null}
           </div>

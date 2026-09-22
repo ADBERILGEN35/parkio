@@ -25,6 +25,9 @@ ARG VITE_WEB_MUNICIPAL_DISCOVERY_ENABLED=false
 ARG VITE_SMART_PARKING_ASSISTANT_ENABLED=false
 ARG VITE_PUBLIC_EXPLORE_ENABLED=false
 ARG VITE_REGISTRATION_MODE=closed
+# Optional post-build verify-bundle-env contracts (release / municipal-on candidates).
+ARG VERIFY_REQUIRE_PUBLIC_EXPLORE=
+ARG VERIFY_REQUIRE_MUNICIPAL=
 
 ENV VITE_API_BASE_URL=$VITE_API_BASE_URL \
     VITE_APP_ENV=$VITE_APP_ENV \
@@ -36,7 +39,9 @@ ENV VITE_API_BASE_URL=$VITE_API_BASE_URL \
     VITE_WEB_MUNICIPAL_DISCOVERY_ENABLED=$VITE_WEB_MUNICIPAL_DISCOVERY_ENABLED \
     VITE_SMART_PARKING_ASSISTANT_ENABLED=$VITE_SMART_PARKING_ASSISTANT_ENABLED \
     VITE_PUBLIC_EXPLORE_ENABLED=$VITE_PUBLIC_EXPLORE_ENABLED \
-    VITE_REGISTRATION_MODE=$VITE_REGISTRATION_MODE
+    VITE_REGISTRATION_MODE=$VITE_REGISTRATION_MODE \
+    VERIFY_REQUIRE_PUBLIC_EXPLORE=$VERIFY_REQUIRE_PUBLIC_EXPLORE \
+    VERIFY_REQUIRE_MUNICIPAL=$VERIFY_REQUIRE_MUNICIPAL
 
 # Pre-build gate. A production-shaped build must never bake an empty required public value:
 # src/config/env.ts validates during module evaluation, so the SPA throws before React
@@ -50,9 +55,17 @@ RUN corepack pnpm --filter @parkio/web build
 # Post-build gate: assert the emitted artifact itself carries non-empty required values and
 # was built for the intended app env. This catches build-arg mis-wiring that the pre-build
 # check cannot see, and it inspects the bundle rather than trusting the build inputs.
-RUN node apps/web/scripts/verify-bundle-env.mjs \
-      --dist apps/web/dist \
-      --app-env "$VITE_APP_ENV"
+# Optional VERIFY_REQUIRE_* env contracts are set by release / municipal-on bake paths.
+RUN set -e; \
+    args="--dist apps/web/dist --app-env ${VITE_APP_ENV}"; \
+    if [ "${VERIFY_REQUIRE_PUBLIC_EXPLORE}" = "true" ]; then \
+      args="${args} --require-public-explore true"; \
+    fi; \
+    if [ "${VERIFY_REQUIRE_MUNICIPAL}" = "true" ]; then \
+      args="${args} --require-municipal true"; \
+    fi; \
+    # shellcheck disable=SC2086 \
+    node apps/web/scripts/verify-bundle-env.mjs ${args}
 
 # ---- runtime stage ----
 FROM nginx:1.27-alpine AS runtime

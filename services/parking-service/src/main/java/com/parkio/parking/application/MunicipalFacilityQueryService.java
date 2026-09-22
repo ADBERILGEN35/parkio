@@ -37,7 +37,8 @@ public class MunicipalFacilityQueryService {
             String addressText, double latitude, double longitude, Integer capacityTotal,
             Integer availableSpaces, Integer occupiedSpaces, MunicipalOccupancyFreshness freshness,
             String attribution, String sourceLabel, Instant lastUpdatedAt,
-            String availabilitySource) {}
+            String availabilitySource,
+            MunicipalAccessClassification accessClassification) {}
 
     private final MunicipalFacilityRepository facilities;
     private final MunicipalOccupancySnapshotRepository snapshots;
@@ -201,7 +202,10 @@ public class MunicipalFacilityQueryService {
                 display.attribution(),
                 display.sourceLabel(),
                 lastUpdated,
-                availabilitySource);
+                availabilitySource,
+                facility.accessClassification() == null
+                        ? MunicipalAccessClassification.UNKNOWN
+                        : facility.accessClassification());
     }
 
     private DisplayProvenance displayProvenance(

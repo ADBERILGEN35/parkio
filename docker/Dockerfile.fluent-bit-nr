@@ -1,0 +1,43 @@
+ARG FLUENT_BIT_BASE=fluent/fluent-bit:5.1.2@sha256:d792375ca8e53be72fc25716c28f291f32c6fc6f4f31d12d0d14bc78cefe9226
+ARG DEBIAN_PATCH_BASE=debian:13-slim@sha256:a99cfc517144bc59b1978475ec53b46ecabec7e43635402ee5b77cc54cd1b20a
+ARG LIBSSH2_DEB_SHA256=dbb1024c192d4d292b7cfa902b96076cfe81b56a5eed4fb28da36e8bf543e49a
+ARG IMAGE_REVISION=unknown
+ARG IMAGE_SOURCE=https://github.com/ADBERILGEN35/parkio
+
+FROM ${FLUENT_BIT_BASE} AS upstream
+
+FROM ${DEBIAN_PATCH_BASE} AS patch
+
+ARG LIBSSH2_DEB_SHA256
+
+COPY --from=upstream /var/lib/dpkg/status.d/libssh2-1t64 /work/status
+
+# The upstream image is distroless. Download and expand the exact Debian
+# security package in a pinned builder, then produce a minimal rootfs overlay.
+RUN apt-get update \
+    && cd /work \
+    && apt-get download libssh2-1t64=1.11.1-1+deb13u2 \
+    && package="$(find /work -maxdepth 1 -name 'libssh2-1t64_*.deb' -print -quit)" \
+    && test -n "$package" \
+    && printf '%s  %s\n' "$LIBSSH2_DEB_SHA256" "$package" | sha256sum -c - \
+    && dpkg-deb --extract "$package" /work/rootfs \
+    && dpkg-deb --control "$package" /work/control \
+    && install -d /work/rootfs/var/lib/dpkg/status.d \
+    && cp /work/control/md5sums /work/rootfs/var/lib/dpkg/status.d/libssh2-1t64.md5sums \
+    && sed -i '/^Package: libssh2-1t64$/,/^$/ s/^Version:.*/Version: 1.11.1-1+deb13u2/' /work/status \
+    && grep -A5 '^Package: libssh2-1t64$' /work/status | grep -qx 'Version: 1.11.1-1+deb13u2' \
+    && rm -rf /var/lib/apt/lists/* /work/*.deb /work/control
+
+FROM ${FLUENT_BIT_BASE}
+
+ARG IMAGE_REVISION
+ARG IMAGE_SOURCE
+
+LABEL org.opencontainers.image.title="Parkio Fluent Bit New Relic collector" \
+      org.opencontainers.image.description="Parkio log-only collector with the fixed Debian libssh2 package" \
+      org.opencontainers.image.source="${IMAGE_SOURCE}" \
+      org.opencontainers.image.revision="${IMAGE_REVISION}" \
+      org.opencontainers.image.version="5.1.2-parkio-libssh2-deb13u2"
+
+COPY --from=patch /work/rootfs/ /
+COPY --from=patch /work/status /var/lib/dpkg/status.d/libssh2-1t64

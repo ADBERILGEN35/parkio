@@ -18,4 +18,6 @@ public record PublicExploreFacilityResponse(
         MunicipalOccupancyFreshness availabilityFreshness,
         Instant dataUpdatedAt,
         String sourceLabel,
-        String attribution) {}
+        String attribution,
+        /** Access restriction — missing metadata stays UNKNOWN, never treated as public. */
+        String accessClassification) {}

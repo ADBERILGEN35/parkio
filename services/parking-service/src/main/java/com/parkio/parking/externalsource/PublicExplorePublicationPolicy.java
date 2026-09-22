@@ -1,5 +1,6 @@
 package com.parkio.parking.externalsource;
 
+import com.parkio.parking.externalsource.izelman.IzelmanSourceKeys;
 import java.util.Collection;
 import java.util.EnumSet;
 import java.util.LinkedHashSet;
@@ -25,7 +26,19 @@ public final class PublicExplorePublicationPolicy {
      */
     public enum ReviewedPublicFamily {
         IZUM(MunicipalSourceIdentity.IZUM),
-        ISPARK(MunicipalSourceIdentity.ISPARK);
+        ISPARK(MunicipalSourceIdentity.ISPARK),
+        /**
+         * İZELMAN facility inventory (open / closed / barrier). When this family is
+         * allowlisted, published roadside segments are also merged into Public Explore
+         * as on-street projections (UNKNOWN access, UNAVAILABLE occupancy) — they remain
+         * a separate table/API, not facility rows.
+         */
+        IZELMAN(
+                IzelmanSourceKeys.OPEN,
+                IzelmanSourceKeys.CLOSED,
+                IzelmanSourceKeys.BARRIER),
+        /** OpenStreetMap Geofabrik Turkey clip — attribution must remain OSM, not municipal. */
+        OSM(MunicipalSourceIdentity.OSM);
 
         private final Set<String> sourceKeys;
 
@@ -42,6 +55,9 @@ public final class PublicExplorePublicationPolicy {
                 return Optional.empty();
             }
             String token = raw.trim().toUpperCase(Locale.ROOT);
+            if ("OPENSTREETMAP".equals(token)) {
+                token = "OSM";
+            }
             for (ReviewedPublicFamily family : values()) {
                 if (family.name().equals(token)) {
                     return Optional.of(family);
@@ -53,7 +69,7 @@ public final class PublicExplorePublicationPolicy {
 
     /** Known municipal family tokens that exist in code but are not reviewed for anonymous publish. */
     private static final Set<String> KNOWN_UNREVIEWED_FAMILY_TOKENS = Set.of(
-            "ANPARK", "KONYA", "KAYSERI", "IZELMAN", "OSM", "OPENSTREETMAP", "FAKE_TEST", "UNKNOWN");
+            "ANPARK", "KONYA", "KAYSERI", "FAKE_TEST", "UNKNOWN");
 
     private PublicExplorePublicationPolicy() {}
 

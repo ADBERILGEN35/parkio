@@ -7,6 +7,8 @@ import {
   MUNICIPAL_CANONICAL_LABEL_KONYA,
   MUNICIPAL_CANONICAL_LABEL_KAYSERI,
   MUNICIPAL_CANONICAL_LABEL_OSM,
+  MUNICIPAL_CANONICAL_LABEL_IZELMAN,
+  MUNICIPAL_CANONICAL_LABEL_IZELMAN_ROADSIDE,
   MUNICIPAL_SOURCE_KEY_IZUM,
   MUNICIPAL_SOURCE_KEY_ISPARK,
   MUNICIPAL_SOURCE_KEY_ANPARK,
@@ -59,7 +61,16 @@ describe('canonicalLabelForSourceKey', () => {
   it('omits unknown keys', () => {
     expect(canonicalLabelForSourceKey('osm-geofabrik-turkey')).toBe(MUNICIPAL_CANONICAL_LABEL_OSM);
     expect(canonicalLabelForSourceKey('unknown-source')).toBeNull();
-    expect(canonicalLabelForSourceKey('izelman-open-parking-facilities')).toBeNull();
+    expect(canonicalLabelForSourceKey('izelman-something')).toBeNull();
+  });
+
+  it('maps reviewed İZELMAN inventory keys', () => {
+    expect(canonicalLabelForSourceKey('izelman-open-parking-facilities')).toBe(
+      MUNICIPAL_CANONICAL_LABEL_IZELMAN,
+    );
+    expect(canonicalLabelForSourceKey('izelman-roadside-parking')).toBe(
+      MUNICIPAL_CANONICAL_LABEL_IZELMAN_ROADSIDE,
+    );
   });
 });
 

@@ -243,13 +243,20 @@ describe('MapPage', () => {
   });
 
   it('auto-fills coordinates and searches when geolocation succeeds on mount', async () => {
-    server.use(http.get(`${API_BASE}/parking/spots/nearby`, () => HttpResponse.json([spot])));
+    const facilityCalls: URLSearchParams[] = [];
+    server.use(
+      http.get(`${API_BASE}/parking/spots/nearby`, () => HttpResponse.json([spot])),
+      http.get(`${API_BASE}/parking/facilities/nearby`, ({ request }) => {
+        facilityCalls.push(new URL(request.url).searchParams);
+        return HttpResponse.json([]);
+      }),
+    );
     stubGeolocation({
       getCurrentPosition: (success) =>
         success({ coords: { latitude: 38.42, longitude: 27.14 } } as GeolocationPosition),
     });
 
-    renderWithProviders(<MapPage />);
+    renderWithProviders(<MapPage municipalDiscoveryEnabled />);
     const user = userEvent.setup();
 
     // Coordinates are still synced, but Q4 keeps them behind the compact
@@ -260,6 +267,8 @@ describe('MapPage', () => {
     // Search ran without the user pressing "Search nearby".
     const cardLink = await screen.findByRole('link', { name: 'Stub Address 7' });
     expect(cardLink).toHaveAttribute('href', `/spots/${spot.id}`);
+    await waitFor(() => expect(facilityCalls.length).toBeGreaterThan(0));
+    expect(facilityCalls[0].get('radiusMeters')).toBe('5000');
   });
 
   it('opens Smart Return map view from the current user saved home area without geolocation', async () => {
@@ -1143,6 +1152,83 @@ describe('MapPage municipal discovery (WEB-MUNI-01)', () => {
     expect(screen.getByText('Municipal parking')).toBeInTheDocument();
   });
 
+  it('sends explicit municipal radiusMeters=5000 without changing community radius query', async () => {
+    const facilityCalls: URLSearchParams[] = [];
+    const spotCalls: URLSearchParams[] = [];
+    const facility = makeMunicipalFacility({
+      id: 'fac-radius-1',
+      latitude: 38.42,
+      longitude: 27.14,
+      displayName: 'Radius Municipal Lot',
+    });
+
+    server.use(
+      http.get(`${API_BASE}/parking/spots/nearby`, ({ request }) => {
+        spotCalls.push(new URL(request.url).searchParams);
+        return HttpResponse.json([spot]);
+      }),
+      http.get(`${API_BASE}/parking/facilities/nearby`, ({ request }) => {
+        facilityCalls.push(new URL(request.url).searchParams);
+        return HttpResponse.json([facility]);
+      }),
+    );
+
+    renderWithProviders(<MapPage municipalDiscoveryEnabled />);
+    const user = userEvent.setup();
+    await openSearchOptions(user);
+    await user.type(screen.getByLabelText('Latitude'), '38.42');
+    await user.type(screen.getByLabelText('Longitude'), '27.14');
+    // Leave community radius blank — must not omit municipal radiusMeters.
+    await user.click(screen.getByRole('button', { name: 'Search nearby' }));
+
+    await expectMunicipalFacilityLoaded('Radius Municipal Lot', '1');
+    expect(facilityCalls.length).toBeGreaterThan(0);
+    const muni = facilityCalls[facilityCalls.length - 1];
+    expect(muni.get('radiusMeters')).toBe('5000');
+    expect(muni.get('radius')).toBeNull();
+    expect(muni.get('lat')).toBe('38.42');
+    expect(muni.get('lng')).toBe('27.14');
+
+    expect(spotCalls.length).toBeGreaterThan(0);
+    const community = spotCalls[spotCalls.length - 1];
+    expect(community.get('radiusMeters')).toBeNull();
+    expect(community.get('radius')).toBeNull();
+    expect(screen.getByTestId('municipal-radius-active')).toHaveTextContent(/5 km/i);
+  });
+
+  it('preserves an explicitly selected municipal radius across re-search', async () => {
+    const facilityCalls: string[] = [];
+    server.use(
+      http.get(`${API_BASE}/parking/spots/nearby`, () => HttpResponse.json([spot])),
+      http.get(`${API_BASE}/parking/facilities/nearby`, ({ request }) => {
+        facilityCalls.push(new URL(request.url).searchParams.get('radiusMeters') ?? 'missing');
+        return HttpResponse.json([]);
+      }),
+    );
+
+    renderWithProviders(<MapPage municipalDiscoveryEnabled />);
+    const user = userEvent.setup();
+    await openSearchOptions(user);
+    await user.type(screen.getByLabelText('Latitude'), '38.40');
+    await user.type(screen.getByLabelText('Longitude'), '27.10');
+    await user.click(screen.getByRole('button', { name: 'Search nearby' }));
+
+    expect(await screen.findByTestId('municipal-facility-empty')).toBeInTheDocument();
+    expect(facilityCalls.at(-1)).toBe('5000');
+
+    await user.selectOptions(screen.getByTestId('municipal-radius-select'), '10000');
+    await waitFor(() => expect(facilityCalls.at(-1)).toBe('10000'));
+
+    // Re-run community+municipal search via map pick + Search nearby; municipal radius must stick.
+    await user.click(screen.getByRole('button', { name: 'stub-pick-center' }));
+    await openSearchOptions(user);
+    await user.click(screen.getByRole('button', { name: 'Search nearby' }));
+    await waitFor(() => {
+      expect(facilityCalls.at(-1)).toBe('10000');
+      expect(facilityCalls.filter((value) => value === '10000').length).toBeGreaterThanOrEqual(2);
+    });
+  });
+
   it('shows municipal empty state without hiding community spots', async () => {
     server.use(
       http.get(`${API_BASE}/parking/spots/nearby`, () => HttpResponse.json([spot])),
@@ -1157,6 +1243,52 @@ describe('MapPage municipal discovery (WEB-MUNI-01)', () => {
     await user.click(screen.getByRole('button', { name: 'Search nearby' }));
 
     expect(await screen.findByTestId('municipal-facility-empty')).toBeInTheDocument();
+    expect(screen.getByTestId('municipal-facility-empty')).toHaveTextContent(/within 5 km/i);
+    expect(screen.getByTestId('municipal-radius-expand')).toBeInTheDocument();
+    expect(screen.getByText('Stub Address 7')).toBeInTheDocument();
+  });
+
+  it('keeps community parking, session actions, attribution and freshness when municipal is on', async () => {
+    const facility = makeMunicipalFacility({
+      id: 'fac-coexist',
+      displayName: 'Coexist Municipal Lot',
+      latitude: 38.42,
+      longitude: 27.14,
+      availableSpaces: 12,
+      freshness: 'LIVE',
+      availabilityFreshness: 'LIVE',
+      availabilitySource: 'izmir-izum-otoparklar',
+      contributingSourceKeys: ['izmir-izum-otoparklar'],
+      sourceLabel: 'Izmir Buyuksehir Belediyesi / IZUM',
+      attribution: 'Izmir Buyuksehir Belediyesi / IZUM',
+    });
+
+    server.use(
+      http.get(`${API_BASE}/parking/spots/nearby`, () => HttpResponse.json([spot])),
+      http.get(`${API_BASE}/parking/facilities/nearby`, () => HttpResponse.json([facility])),
+      http.get(`${API_BASE}/parking/sessions/active`, () => new HttpResponse(null, { status: 204 })),
+    );
+
+    renderWithProviders(<MapPage municipalDiscoveryEnabled />);
+    const user = userEvent.setup();
+    await openSearchOptions(user);
+    await user.type(screen.getByLabelText('Latitude'), '38.42');
+    await user.type(screen.getByLabelText('Longitude'), '27.14');
+    await user.click(screen.getByRole('button', { name: 'Search nearby' }));
+
+    expect(await screen.findByText('Stub Address 7')).toBeInTheDocument();
+    expect(screen.getByTestId('stub-spot-count')).toHaveTextContent('1');
+    await expectMunicipalFacilityLoaded('Coexist Municipal Lot', '1');
+    expect(screen.getByTestId('map-layer-community')).toBeInTheDocument();
+    expect(screen.getByTestId('map-layer-municipal')).toBeInTheDocument();
+    expect(screen.getByTestId('municipal-filter-availability-available')).toBeInTheDocument();
+
+    await user.click(await screen.findByRole('button', { name: 'stub-select-first-facility' }));
+    const preview = await screen.findByTestId('selected-municipal-facility-preview');
+    expect(preview).toHaveTextContent('Coexist Municipal Lot');
+    expect(screen.getByTestId('municipal-occupancy-status')).toHaveTextContent(/Live occupancy/i);
+    expect(preview).toHaveTextContent(/İZUM|IZUM|Büyükşehir|Buyuksehir/i);
+    expect(screen.getByTestId('park-here-at-facility')).toBeInTheDocument();
     expect(screen.getByText('Stub Address 7')).toBeInTheDocument();
   });
 

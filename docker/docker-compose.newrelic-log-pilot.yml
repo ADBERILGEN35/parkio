@@ -1,23 +1,11 @@
-# Opt-in New Relic log pilot (ops.log.v1) — NEVER included by default.
+# Opt-in New Relic log pilot (ops.log.v1). Never included by default.
 #
-# File-input mode (default validation / local pilot):
-#   docker compose -f docker/docker-compose.newrelic-log-pilot.yml \
-#     --profile nr-log-pilot up -d
+# Local synthetic validation:
+#   python3 scripts/newrelic_log_pilot/run_isolated_validation.py
 #
-# Real New Relic (non-prod only; requires securely supplied license key):
-#   export PARKIO_NR_LOG_HOST=log-api.newrelic.com   # or log-api.eu.newrelic.com
-#   export PARKIO_NR_LOG_PORT=443
-#   export PARKIO_NR_LOG_TLS=on
-#   export PARKIO_NR_LOG_URI=/log/v1
-#   export PARKIO_NR_LOG_API_KEY="***"   # license key — never commit
-#   export PARKIO_ENVIRONMENT=nonprod-pilot
-#   export PARKIO_GIT_SHA=$(git rev-parse --short HEAD)
-#
-# Production activation: NOT enabled by this overlay. Hosted/invite compose
-# files do not include this profile.
-#
-# Promtail/Loki remain unchanged. This pilot is a separate NR ingestion path
-# (pipeline=nr-log-pilot). Do not also enable NR infra-agent log forwarding.
+# Production activation requires the separate collector-only overlay:
+#   docker/docker-compose.newrelic-log-pilot.production.yml
+# It does not alter or recreate application services.
 
 x-logging: &default-logging
   driver: json-file
@@ -27,9 +15,11 @@ x-logging: &default-logging
 
 services:
   mock-nr-receiver:
-    profiles: ["nr-log-pilot"]
-    image: ${PARKIO_NR_MOCK_RECEIVER_IMAGE:-python:3.12-alpine}
-    container_name: parkio-mock-nr-receiver
+    profiles: ["nr-log-pilot-mock"]
+    # python:3.12-alpine index and selected linux/amd64 child:
+    # sha256:9b8dad7f66b5c7751df6cb7a64a07812e86bed85d0116efe82b3a11209f1440d
+    image: ${PARKIO_NR_MOCK_RECEIVER_IMAGE:-python:3.12-alpine@sha256:c4634f578a412db396771b61b064c6e546c9d6414c7fb5b1b05d5871f1885f7b}
+    platform: linux/amd64
     restart: unless-stopped
     logging: *default-logging
     working_dir: /opt/parkio
@@ -37,70 +27,128 @@ services:
     environment:
       PARKIO_MOCK_NR_PORT: "8089"
       PARKIO_MOCK_NR_STORE: /var/parkio-mock-nr/received.jsonl
+      PARKIO_MOCK_NR_EXPECTED_KEY: ${PARKIO_NR_LOG_API_KEY:-mock-not-a-real-license}
+      PARKIO_MOCK_NR_TLS_CERT: /var/parkio-mock-nr-tls/tls.crt
+      PARKIO_MOCK_NR_TLS_KEY: /var/parkio-mock-nr-tls/tls.key
     volumes:
       - ../scripts/newrelic_log_pilot/mock_receiver.py:/opt/parkio/scripts/newrelic_log_pilot/mock_receiver.py:ro
       - nr-mock-received:/var/parkio-mock-nr
+      - nr-mock-tls:/var/parkio-mock-nr-tls:ro
     ports:
       - "127.0.0.1:${PARKIO_MOCK_NR_HOST_PORT:-18089}:8089"
     networks: [parkio-nr-pilot]
     healthcheck:
-      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8089/health')"]
-      interval: 5s
-      timeout: 3s
-      retries: 10
+      test: ["CMD", "python", "-c", "import ssl,urllib.request; urllib.request.urlopen('https://127.0.0.1:8089/health', context=ssl._create_unverified_context())"]
+      interval: 2s
+      timeout: 2s
+      retries: 15
+    mem_limit: 64m
+    cpus: 0.25
+    pids_limit: 64
+    security_opt:
+      - no-new-privileges:true
+
+  nr-budget-gate:
+    profiles: ["nr-log-pilot"]
+    # python:3.12-alpine index and selected linux/amd64 child:
+    # sha256:9b8dad7f66b5c7751df6cb7a64a07812e86bed85d0116efe82b3a11209f1440d
+    image: python:3.12-alpine@sha256:c4634f578a412db396771b61b064c6e546c9d6414c7fb5b1b05d5871f1885f7b
+    platform: linux/amd64
+    restart: unless-stopped
+    stop_grace_period: 10s
+    logging: *default-logging
+    read_only: true
+    working_dir: /opt/parkio
+    command: ["python", "/opt/parkio/scripts/newrelic_log_pilot/budget_gate.py"]
+    environment:
+      PARKIO_NR_GATE_PORT: "8090"
+      PARKIO_NR_UPSTREAM_BASE_URI: ${PARKIO_NR_UPSTREAM_BASE_URI:-https://mock-nr-receiver:8089/log/v1}
+      PARKIO_NR_LOG_API_KEY: ${PARKIO_NR_LOG_API_KEY:-mock-not-a-real-license}
+      PARKIO_NR_BUDGET_STATE_DB: /var/lib/parkio-nr-budget/budget.db
+      # Local acceptance capacity only; production overlay requires an explicit
+      # owner-approved value and has no default.
+      PARKIO_NR_BUDGET_BYTES: ${PARKIO_NR_BUDGET_BYTES:-268435456}
+      PARKIO_NR_DAILY_BUDGET_BYTES: ${PARKIO_NR_DAILY_BUDGET_BYTES:-0}
+      PARKIO_NR_MONTHLY_BUDGET_BYTES: ${PARKIO_NR_MONTHLY_BUDGET_BYTES:-0}
+      PARKIO_NR_GATE_MAX_REQUEST_BYTES: ${PARKIO_NR_GATE_MAX_REQUEST_BYTES:-1048576}
+      PARKIO_NR_GATE_UPSTREAM_TIMEOUT_SECONDS: ${PARKIO_NR_GATE_UPSTREAM_TIMEOUT_SECONDS:-10}
+      PARKIO_NR_UPSTREAM_TLS_VERIFY: ${PARKIO_NR_UPSTREAM_TLS_VERIFY:-off}
+      PARKIO_NR_GATE_TEST_CONTROL: ${PARKIO_NR_GATE_TEST_CONTROL:-off}
+      PARKIO_NR_GATE_INTERNAL_KEY: gate-internal-not-a-secret
+    volumes:
+      - ../scripts/newrelic_log_pilot/budget_gate.py:/opt/parkio/scripts/newrelic_log_pilot/budget_gate.py:ro
+      - nr-budget-state:/var/lib/parkio-nr-budget
+    ports:
+      - "127.0.0.1:${PARKIO_NR_GATE_HTTP_PORT:-18090}:8090"
+    networks: [parkio-nr-pilot]
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8090/health')"]
+      interval: 2s
+      timeout: 2s
+      retries: 15
+    mem_limit: 64m
+    cpus: 0.25
+    pids_limit: 64
+    cap_drop: ["ALL"]
+    security_opt:
+      - no-new-privileges:true
 
   fluent-bit-nr-pilot:
     profiles: ["nr-log-pilot"]
-    image: ${FLUENT_BIT_IMAGE:-fluent/fluent-bit:3.2.10}
-    # Pinned digest (linux/amd64) verified 2026-09-20:
-    # sha256:d6dec000c4929a439562525728c708f6e99800d7ddc82efd6aa4f45f3a20b562
-    container_name: parkio-fluent-bit-nr-pilot
+    # The pilot keeps its accepted 5.0.10 identity. The continuous-operation
+    # overlay requires the separately built and scanned remediation image.
+    image: ${PARKIO_NR_COLLECTOR_IMAGE:-fluent/fluent-bit:5.0.10@sha256:ea0734ecb445c9805ec1fcbfb3430c8607d502fe7ce773b27e362551c02e3fd9}
+    platform: linux/amd64
     restart: unless-stopped
+    stop_grace_period: 30s
     logging: *default-logging
     user: "0:0"
-    # No docker.sock in default file mode. Read-only config + bounded state.
     read_only: true
     tmpfs:
-      - /tmp:size=16m
+      - /tmp:size=16m,mode=1777
     volumes:
       - ./fluent-bit/fluent-bit.conf:/fluent-bit/etc/fluent-bit.conf:ro
       - ./fluent-bit/parsers.conf:/fluent-bit/etc/parkio/parsers.conf:ro
       - ./fluent-bit/parkio_filters.lua:/fluent-bit/etc/parkio/parkio_filters.lua:ro
-      - ./fluent-bit/parkio_filters_docker.lua:/fluent-bit/etc/parkio/parkio_filters_docker.lua:ro
       - nr-pilot-logs:/var/log/parkio-pilot:ro
       - nr-pilot-state:/var/fluent-bit/state
     environment:
       PARKIO_ENVIRONMENT: ${PARKIO_ENVIRONMENT:-local-nr-pilot}
-      PARKIO_GIT_SHA: ${PARKIO_GIT_SHA:-unknown}
+      PARKIO_RELEASE_ID: ${PARKIO_RELEASE_ID:-unknown}
+      PARKIO_COLLECTOR_SOURCE_SHA: ${PARKIO_COLLECTOR_SOURCE_SHA:-unknown}
+      PARKIO_NR_PILOT_MARKER: ${PARKIO_NR_PILOT_MARKER:-p02-local-startup}
       PARKIO_NR_LOG_FLUENT_LOG_LEVEL: ${PARKIO_NR_LOG_FLUENT_LOG_LEVEL:-info}
-      # Default destination = in-compose mock (identical JSON path to NR Log API).
-      PARKIO_NR_LOG_HOST: ${PARKIO_NR_LOG_HOST:-mock-nr-receiver}
-      PARKIO_NR_LOG_PORT: ${PARKIO_NR_LOG_PORT:-8089}
-      PARKIO_NR_LOG_URI: ${PARKIO_NR_LOG_URI:-/log/v1}
-      PARKIO_NR_LOG_API_KEY: ${PARKIO_NR_LOG_API_KEY:-mock-not-a-real-license}
-      PARKIO_NR_LOG_TLS: ${PARKIO_NR_LOG_TLS:-off}
-      PARKIO_NR_LOG_TLS_VERIFY: ${PARKIO_NR_LOG_TLS_VERIFY:-off}
-    depends_on:
-      mock-nr-receiver:
-        condition: service_healthy
+      PARKIO_NR_COLLECTOR_ID: ${PARKIO_NR_COLLECTOR_ID:-fluent-bit-5.0.10}
+      PARKIO_NR_LOG_BASE_URI: http://nr-budget-gate:8090/log/v1
+      PARKIO_NR_LOG_API_KEY: gate-internal-not-a-secret
     ports:
       - "127.0.0.1:${PARKIO_NR_FLUENT_HTTP_PORT:-2020}:2020"
     networks: [parkio-nr-pilot]
     healthcheck:
+      # Process/config health. Delivery health is exposed by /api/v1/health and
+      # output metrics; the activation runbook checks both.
       test: ["CMD", "/fluent-bit/bin/fluent-bit", "-V"]
       interval: 30s
       timeout: 5s
       retries: 3
       start_period: 5s
-    mem_limit: 256m
-    cpus: 0.50
+    mem_limit: 128m
+    cpus: 0.25
+    pids_limit: 128
+    cap_drop: ["ALL"]
+    security_opt:
+      - no-new-privileges:true
+    depends_on:
+      nr-budget-gate:
+        condition: service_healthy
 
 networks:
   parkio-nr-pilot:
-    name: parkio-nr-pilot
     driver: bridge
 
 volumes:
   nr-pilot-logs:
   nr-pilot-state:
+  nr-budget-state:
   nr-mock-received:
+  nr-mock-tls:

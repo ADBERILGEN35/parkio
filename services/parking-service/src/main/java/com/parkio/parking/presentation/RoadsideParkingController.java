@@ -47,13 +47,16 @@ public class RoadsideParkingController {
                         + "ORDER BY ST_Distance(s.location, ST_SetSRID(ST_MakePoint(:lng,:lat),4326)::geography) "
                         + "LIMIT :limit")
                 .param("lat", lat).param("lng", lng).param("radius", radiusMeters).param("limit", limit)
-                .query((rs, row) -> new RoadsideView(
+                .query((rs, row) -> {
+                    java.sql.Timestamp updated = rs.getTimestamp("updated_at");
+                    return new RoadsideView(
                         rs.getObject("id", UUID.class), rs.getString("display_name"), rs.getString("district"),
                         rs.getString("neighborhood"), rs.getString("address_or_description"),
                         rs.getDouble("latitude"), rs.getDouble("longitude"),
                         (Integer) rs.getObject("capacity_total"), null, rs.getString("source_age_classification"),
                         "Izmir Metropolitan Municipality / IZELMAN A.S.", true,
-                        rs.getObject("updated_at", Instant.class))).list();
+                        updated == null ? null : updated.toInstant());
+                }).list();
     }
 
     public record RoadsideView(
