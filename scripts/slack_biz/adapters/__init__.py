@@ -324,6 +324,7 @@ WAITLIST_V2_EXTRA_KEYS = frozenset(
         "fullName",
         "confirmedTotal",
         "confirmedTodayIstanbul",
+        "countsSnapshotAt",
     }
 )
 WAITLIST_ENVELOPE_KEYS_V1 = WAITLIST_BASE_KEYS
@@ -395,11 +396,20 @@ def _parse_waitlist_full_name(raw: object) -> str | None:
 
 
 def _parse_waitlist_count(raw: object) -> int | None:
+    """Non-negative int, or JSON null when the exporter could not snapshot."""
     if raw is None:
         return None
     if isinstance(raw, bool) or not isinstance(raw, int):
         raise WaitlistEnvelopeRejected("bad_confirmed_count")
     if raw < 0:
+        raise WaitlistEnvelopeRejected("bad_confirmed_count")
+    return raw
+
+
+def _parse_counts_snapshot_at(raw: object) -> str | None:
+    if raw is None:
+        return None
+    if not isinstance(raw, str) or not _ISO_UTC_SECONDS_RE.match(raw):
         raise WaitlistEnvelopeRejected("bad_confirmed_count")
     return raw
 
@@ -415,7 +425,7 @@ def from_waitlist_ops_envelope(
 
     v1: exactly the 7 base keys (no PII).
     v2: base keys plus allowlisted ``fullName`` (string|null),
-    ``confirmedTotal`` and ``confirmedTodayIstanbul`` (non-negative ints).
+    ``confirmedTotal`` / ``confirmedTodayIstanbul`` (non-negative ints or null) and ``countsSnapshotAt`` (ISO UTC seconds or null).
     Any other key rejects the whole envelope. Rejections carry a bounded
     category only (WaitlistEnvelopeRejected.category), never key names or values.
     """
@@ -455,11 +465,19 @@ def from_waitlist_ops_envelope(
     full_name: str | None = None
     confirmed_total: int | None = None
     confirmed_today: int | None = None
+    counts_snapshot_at: str | None = None
     if version == 2:
         full_name = _parse_waitlist_full_name(envelope["fullName"])
         confirmed_total = _parse_waitlist_count(envelope["confirmedTotal"])
         confirmed_today = _parse_waitlist_count(envelope["confirmedTodayIstanbul"])
-        if confirmed_total is None or confirmed_today is None:
+        counts_snapshot_at = _parse_counts_snapshot_at(envelope["countsSnapshotAt"])
+        # Counts may both be null when the exporter could not snapshot; partial
+        # pairs (one null, one int) are rejected.
+        if (confirmed_total is None) ^ (confirmed_today is None):
+            raise WaitlistEnvelopeRejected("bad_confirmed_count")
+        if confirmed_total is None and counts_snapshot_at is not None:
+            raise WaitlistEnvelopeRejected("bad_confirmed_count")
+        if confirmed_total is not None and counts_snapshot_at is None:
             raise WaitlistEnvelopeRejected("bad_confirmed_count")
 
     body: list[str] = []
@@ -470,6 +488,8 @@ def from_waitlist_ops_envelope(
     if confirmed_total is not None and confirmed_today is not None:
         body.append(f"confirmed_total={confirmed_total}")
         body.append(f"confirmed_today_istanbul={confirmed_today}")
+        if counts_snapshot_at:
+            body.append(f"counts_snapshot_at={counts_snapshot_at}")
     body.append(f"admin={ADMIN_WAITLIST_URL}")
 
     return SlackBizEvent(

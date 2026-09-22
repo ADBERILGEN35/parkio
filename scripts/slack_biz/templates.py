@@ -74,11 +74,16 @@ def render_waitlist_message(event: SlackBizEvent, config: SlackBizConfig) -> str
     total = ctx.get("confirmed_total")
     today = ctx.get("confirmed_today_istanbul")
     if isinstance(total, int) and isinstance(today, int):
+        snap = ctx.get("counts_snapshot_at")
+        snap_bit = f", dışa aktarım anı={sanitize_text(str(snap))}" if snap else ""
         lines.append(
-            f"Anlık özet (veritabanı anlık görüntüsü): onaylı toplam={total}, "
-            f"bugün (İstanbul günü)={today}"
+            f"Dışa aktarım özeti (Europe/Istanbul günü): onaylı toplam={total}, "
+            f"bugün={today}{snap_bit}"
         )
-        lines.append("_Sayımlar olay anına kilitli değildir; her gönderimde yeniden okunur._")
+        lines.append(
+            "_Sayımlar dışa aktarım anındaki veritabanı anlık görüntüsüdür; "
+            "Slack yeniden denemelerinde değişmez._"
+        )
 
     if event.environment and event.environment != "production":
         lines.append(f"Ortam: `{sanitize_text(event.environment)}` (üretim dışı)")

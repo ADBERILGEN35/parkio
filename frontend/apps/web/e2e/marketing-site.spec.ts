@@ -123,6 +123,7 @@ test('waitlist mock submit via explicit meta shows success without claiming live
   });
 
   await page.goto(`${baseURL ?? '/'}#waitlist`);
+  await page.locator('#waitlist-full-name').fill('Ayşe Yılmaz');
   await page.locator('#waitlist-email').fill('synthetic-w01a@example.com');
   await page.locator('#waitlist-consent').check();
   await page.locator('#waitlist-form button[type="submit"]').click();
@@ -133,6 +134,7 @@ test('waitlist mock submit via explicit meta shows success without claiming live
 
 test('waitlist query mock bypass cannot fake success when meta remains api', async ({ page, baseURL }) => {
   await page.goto(`${baseURL ?? '/'}?waitlistMock=1#waitlist`);
+  await page.locator('#waitlist-full-name').fill('Ayşe Yılmaz');
   await page.locator('#waitlist-email').fill('synthetic-w01a-bypass@example.com');
   await page.locator('#waitlist-consent').check();
   await page.locator('#waitlist-form button[type="submit"]').click();

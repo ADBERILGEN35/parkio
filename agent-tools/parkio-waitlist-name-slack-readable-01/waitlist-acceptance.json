@@ -1,7 +1,7 @@
 {
   "suite": "waitlist-slack-notifications",
   "summary": {
-    "PASS": 21,
+    "PASS": 23,
     "FAIL": 0
   },
   "results": [
@@ -45,7 +45,7 @@
       "id": "W07",
       "name": "429 honours Retry-After, then delivers",
       "status": "PASS",
-      "detail": "retry_after≈7.5s then delivered"
+      "detail": "retry_after≈7.0s then delivered"
     },
     {
       "id": "W08",
@@ -114,29 +114,42 @@
       "detail": "webhook URL absent from queue/DLT/metrics/logs"
     },
     {
-      "id": "W17",
+      "id": "W20",
       "name": "contract v2 fullName + counts → readable Turkish Slack",
       "status": "PASS",
       "detail": "v2 name+counts rendered"
     },
     {
-      "id": "W18",
+      "id": "W21",
       "name": "v1 historical + v2 null fullName both render nameless label",
       "status": "PASS",
       "detail": "v1+v2 nameless dual-read"
     },
     {
+      "id": "W22",
+      "name": "adversarial fullName escaped; mention-bearing names rejected",
+      "status": "PASS",
+      "detail": "amp escaped; mention/url name rejected"
+    },
+    {
+      "id": "W23",
+      "name": "unknown v2 field rejected; counts without snapshotAt rejected",
+      "status": "PASS",
+      "detail": "unknown_field + bad_confirmed_count"
+    },
+    {
       "id": "W14",
       "name": "captured relay logs contain no prohibited values",
       "status": "PASS",
-      "detail": "log_bytes=1758"
+      "detail": "log_bytes=1914"
     }
   ],
   "example_messages": {
     "confirmed": "*🎉 Yeni bekleme listesi kaydı onaylandı*\nAd soyad: Ad belirtilmemiş\nOnay zamanı: 2026-09-22 14:04 (Türkiye saati)\nYönetim: https://app.parkio.dev/admin/waitlist\nOrtam: `acceptance` (üretim dışı)",
-    "confirmed_v2": "*🎉 Yeni bekleme listesi kaydı onaylandı*\nAd soyad: Ayşe Yılmaz\nOnay zamanı: 2026-09-22 14:04 (Türkiye saati)\nYönetim: https://app.parkio.dev/admin/waitlist\nAnlık özet (veritabanı anlık görüntüsü): onaylı toplam=17, bugün (İstanbul günü)=2\n_Sayımlar olay anına kilitli değildir; her gönderimde yeniden okunur._\nOrtam: `acceptance` (üretim dışı)",
-    "confirmed_nameless": "*🎉 Yeni bekleme listesi kaydı onaylandı*\nAd soyad: Ad belirtilmemiş\nOnay zamanı: 2026-09-22 14:04 (Türkiye saati)\nYönetim: https://app.parkio.dev/admin/waitlist\nAnlık özet (veritabanı anlık görüntüsü): onaylı toplam=42, bugün (İstanbul günü)=3\n_Sayımlar olay anına kilitli değildir; her gönderimde yeniden okunur._\nOrtam: `acceptance` (üretim dışı)",
+    "confirmed_v2": "*🎉 Yeni bekleme listesi kaydı onaylandı*\nAd soyad: Ayşe Yılmaz\nOnay zamanı: 2026-09-22 14:04 (Türkiye saati)\nYönetim: https://app.parkio.dev/admin/waitlist\nDışa aktarım özeti (Europe/Istanbul günü): onaylı toplam=17, bugün=2\n_Sayımlar dışa aktarım anındaki veritabanı anlık görüntüsüdür; Slack yeniden denemelerinde değişmez._\nOrtam: `acceptance` (üretim dışı)",
+    "confirmed_nameless": "*🎉 Yeni bekleme listesi kaydı onaylandı*\nAd soyad: Ad belirtilmemiş\nOnay zamanı: 2026-09-22 14:04 (Türkiye saati)\nYönetim: https://app.parkio.dev/admin/waitlist\nOrtam: `acceptance` (üretim dışı)",
+    "confirmed_escaped": "*🎉 Yeni bekleme listesi kaydı onaylandı*\nAd soyad: Ayşe &amp; O’Neill\nOnay zamanı: 2026-09-22 14:04 (Türkiye saati)\nYönetim: https://app.parkio.dev/admin/waitlist\nDışa aktarım özeti (Europe/Istanbul günü): onaylı toplam=42, bugün=3\n_Sayımlar dışa aktarım anındaki veritabanı anlık görüntüsüdür; Slack yeniden denemelerinde değişmez._\nOrtam: `acceptance` (üretim dışı)",
     "confirmed_production_example": "*🎉 Yeni bekleme listesi kaydı onaylandı*\nAd soyad: Ad belirtilmemiş\nOnay zamanı: 2026-09-22 14:04 (Türkiye saati)\nYönetim: https://app.parkio.dev/admin/waitlist",
-    "confirmed_production_v2_example": "*🎉 Yeni bekleme listesi kaydı onaylandı*\nAd soyad: Ayşe Yılmaz\nOnay zamanı: 2026-09-22 14:04 (Türkiye saati)\nYönetim: https://app.parkio.dev/admin/waitlist\nAnlık özet (veritabanı anlık görüntüsü): onaylı toplam=17, bugün (İstanbul günü)=2\n_Sayımlar olay anına kilitli değildir; her gönderimde yeniden okunur._"
+    "confirmed_production_v2_example": "*🎉 Yeni bekleme listesi kaydı onaylandı*\nAd soyad: Ayşe Yılmaz\nOnay zamanı: 2026-09-22 14:04 (Türkiye saati)\nYönetim: https://app.parkio.dev/admin/waitlist\nDışa aktarım özeti (Europe/Istanbul günü): onaylı toplam=17, bugün=2\n_Sayımlar dışa aktarım anındaki veritabanı anlık görüntüsüdür; Slack yeniden denemelerinde değişmez._"
   }
 }

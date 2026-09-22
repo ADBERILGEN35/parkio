@@ -19,5 +19,8 @@ class WaitlistCsvTest {
         assertThat(WaitlistCsv.cell("+1+1")).isEqualTo("\"'+1+1\"");
         assertThat(WaitlistCsv.cell("-1+1")).isEqualTo("\"'-1+1\"");
         assertThat(WaitlistCsv.cell("@SUM(A1)")).isEqualTo("\"'@SUM(A1)\"");
+        assertThat(WaitlistCsv.cell("=HYPERLINK(\"http://x\")")).isEqualTo("\"'=HYPERLINK(\"\"http://x\"\")\"");
+        // fullName cells use the same formula-injection guard as email/city.
+        assertThat(WaitlistCsv.cell("=cmd|' /C calc'!A0")).startsWith("\"'");
     }
 }

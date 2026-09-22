@@ -85,12 +85,13 @@ def gateway_envelope(**overrides) -> dict:
 
 
 def gateway_envelope_v2(**overrides) -> dict:
-    """Contract v2 envelope with allowlisted fullName + snapshot counts."""
+    """Contract v2 envelope with allowlisted fullName + export-time counts."""
     base = {
         "contractVersion": 2,
         "fullName": None,
         "confirmedTotal": 42,
         "confirmedTodayIstanbul": 3,
+        "countsSnapshotAt": "2026-09-22T11:04:05Z",
     }
     base.update(overrides)
     return gateway_envelope(**base)
@@ -618,7 +619,8 @@ def run(evidence_dir: Path | None) -> dict:
         text = mock.state.requests[0].json_body["text"]
         assert "Ayşe Yılmaz" in text
         assert "onaylı toplam=17" in text
-        assert "bugün (İstanbul günü)=2" in text
+        assert "bugün=2" in text
+        assert "dışa aktarım anı=" in text or "Dışa aktarım özeti" in text
         assert "Ad belirtilmemiş" not in text
         assert SYNTHETIC_EMAIL not in text and env["dedupKey"] not in text
         messages["confirmed_v2"] = text
@@ -627,7 +629,7 @@ def run(evidence_dir: Path | None) -> dict:
     @scenario("W21", "v1 historical + v2 null fullName both render nameless label")
     def _w21(h: Harness):
         v1 = gateway_envelope()
-        v2 = gateway_envelope_v2(fullName=None)
+        v2 = gateway_envelope_v2(fullName=None, confirmedTotal=None, confirmedTodayIstanbul=None, countsSnapshotAt=None)
         h.drop(v1, "v1.json")
         h.drop(v2, "v2.json")
         assert h.consumer.poll_once().enqueued == 2
@@ -638,6 +640,36 @@ def run(evidence_dir: Path | None) -> dict:
             assert "Ad belirtilmemiş" in req.json_body["text"]
         messages["confirmed_nameless"] = mock.state.requests[-1].json_body["text"]
         return "v1+v2 nameless dual-read"
+
+    @scenario("W22", "adversarial fullName escaped; mention-bearing names rejected")
+    def _w22(h: Harness):
+        safe_hostile = "Ayşe & O’Neill"
+        env = gateway_envelope_v2(fullName=safe_hostile)
+        h.drop(env)
+        assert h.consumer.poll_once().enqueued == 1
+        h.worker.process_once()
+        text = mock.state.requests[0].json_body["text"]
+        assert "Ayşe &amp; O" in text
+        assert "<" not in text.split("Ad soyad:", 1)[-1].split("\n", 1)[0] or "&amp;" in text
+        hostile = "Ayşe <@channel> https://evil.example"
+        h.drop(gateway_envelope_v2(fullName=hostile), "hostile-name.json")
+        r = h.consumer.poll_once()
+        assert r.rejected == 1 and r.enqueued == 0
+        messages["confirmed_escaped"] = text
+        return "amp escaped; mention/url name rejected"
+
+    @scenario("W23", "unknown v2 field rejected; counts without snapshotAt rejected")
+    def _w23(h: Harness):
+        extra = gateway_envelope_v2(email="x@example.com")
+        incomplete = gateway_envelope_v2(countsSnapshotAt=None)
+        h.drop(extra, "extra.json")
+        h.drop(incomplete, "nosnap.json")
+        r = h.consumer.poll_once()
+        assert r.rejected == 2 and r.enqueued == 0
+        cats = rejected_metric(h)
+        assert "unknown_field" in cats
+        assert "bad_confirmed_count" in cats
+        return "unknown_field + bad_confirmed_count"
 
     logging.getLogger().removeHandler(handler)
     mock.stop()
@@ -665,6 +697,7 @@ def run(evidence_dir: Path | None) -> dict:
             fullName="Ayşe Yılmaz",
             confirmedTotal=17,
             confirmedTodayIstanbul=2,
+            countsSnapshotAt="2026-09-22T11:04:05Z",
         ),
         example_cfg,
     )

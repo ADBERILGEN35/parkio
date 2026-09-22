@@ -37,14 +37,19 @@ import org.springframework.scheduling.annotation.Scheduled;
  * with bounded exponential backoff and become {@code FAILED} after
  * {@code maxExportAttempts}; they are never retried indefinitely.
  *
- * <p>Contract version 2 allow-lists {@code fullName} (nullable),
- * {@code confirmedTotal}, and {@code confirmedTodayIstanbul} as current DB
- * snapshots at export time (retries re-query; they do not invent increments).
+ * <p>Contract version is configurable ({@code 1} or {@code 2}). Version 2
+ * allow-lists {@code fullName} (nullable), {@code confirmedTotal},
+ * {@code confirmedTodayIstanbul}, and {@code countsSnapshotAt}. Counts are
+ * <strong>export-time</strong> snapshots (Europe/Istanbul day for "today").
+ * After a successful inbox handoff the serialized file is frozen; export
+ * retries do not rewrite or re-query. Count-query failures export {@code null}
+ * counts (never an invented zero) and still deliver the confirmation notice.
  */
 public class WaitlistOpsNotificationExporter {
 
     static final String PRODUCER = "gateway-waitlist-outbox";
-    static final int CONTRACT_VERSION = 2;
+    /** Documented v2 constant for tests asserting the activated producer. */
+    static final int CONTRACT_VERSION_V2 = 2;
     static final ZoneId ISTANBUL = ZoneId.of("Europe/Istanbul");
 
     private static final Logger log = LoggerFactory.getLogger(WaitlistOpsNotificationExporter.class);
@@ -182,6 +187,10 @@ public class WaitlistOpsNotificationExporter {
         }
         String name = "waitlist-" + row.id() + ".json";
         Path target = dir.resolve(name);
+        // Freeze after successful handoff: keep the first serialized body.
+        if (Files.isRegularFile(target)) {
+            return null;
+        }
         // Dot-prefixed temp name never matches the relay's *.json glob.
         Path temp = dir.resolve("." + name + ".tmp");
         try {
@@ -208,23 +217,47 @@ public class WaitlistOpsNotificationExporter {
     Map<String, Object> envelope(JdbcWaitlistOpsNotificationOutbox.OutboxRow row, Instant now) {
         // Allow-listed fields only. The relay rejects any additional key.
         Map<String, Object> envelope = new LinkedHashMap<>();
-        envelope.put("contractVersion", CONTRACT_VERSION);
+        int version = properties.getContractVersion();
+        envelope.put("contractVersion", version);
         envelope.put("eventId", row.id().toString());
         envelope.put("eventType", row.eventType());
         envelope.put("occurredAt", row.occurredAt().truncatedTo(ChronoUnit.SECONDS).toString());
         envelope.put("environment", properties.getEnvironment());
         envelope.put("producer", PRODUCER);
         envelope.put("dedupKey", row.dedupKey());
+        if (version < 2) {
+            return envelope;
+        }
         String fullName = null;
         if (row.interestId() != null) {
-            fullName = interests.findById(row.interestId()).map(WaitlistInterest::fullName).orElse(null);
+            try {
+                fullName = interests.findById(row.interestId()).map(WaitlistInterest::fullName).orElse(null);
+            } catch (RuntimeException ex) {
+                log.warn("Waitlist ops fullName load failed; category={}", ex.getClass().getSimpleName());
+                fullName = null;
+            }
         }
         envelope.put("fullName", fullName);
-        Instant istanbulDayStart = LocalDate.now(clock.withZone(ISTANBUL))
-                .atStartOfDay(ISTANBUL)
-                .toInstant();
-        envelope.put("confirmedTotal", interests.countConfirmed());
-        envelope.put("confirmedTodayIstanbul", interests.countConfirmedSince(istanbulDayStart));
+        Long confirmedTotal = null;
+        Long confirmedToday = null;
+        String countsSnapshotAt = null;
+        try {
+            Instant istanbulDayStart = LocalDate.now(clock.withZone(ISTANBUL))
+                    .atStartOfDay(ISTANBUL)
+                    .toInstant();
+            confirmedTotal = interests.countConfirmed();
+            confirmedToday = interests.countConfirmedSince(istanbulDayStart);
+            countsSnapshotAt = now.truncatedTo(ChronoUnit.SECONDS).toString();
+        } catch (RuntimeException ex) {
+            // Never invent zero; still export the confirmation notice.
+            log.warn("Waitlist ops count snapshot failed; category={}", ex.getClass().getSimpleName());
+            confirmedTotal = null;
+            confirmedToday = null;
+            countsSnapshotAt = null;
+        }
+        envelope.put("confirmedTotal", confirmedTotal);
+        envelope.put("confirmedTodayIstanbul", confirmedToday);
+        envelope.put("countsSnapshotAt", countsSnapshotAt);
         return envelope;
     }
 

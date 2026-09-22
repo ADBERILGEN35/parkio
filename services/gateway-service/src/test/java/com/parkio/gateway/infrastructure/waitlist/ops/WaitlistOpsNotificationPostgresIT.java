@@ -54,6 +54,7 @@ import reactor.core.publisher.Mono;
 @SpringBootTest(properties = {
         "parkio.waitlist.ops-notifications.enabled=true",
         "parkio.waitlist.ops-notifications.environment=acceptance",
+        "parkio.waitlist.ops-notifications.contract-version=2",
         "parkio.waitlist.ops-notifications.poll-interval=PT1H"
 })
 @ActiveProfiles("test")

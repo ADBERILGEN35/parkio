@@ -23,6 +23,15 @@ public class WaitlistOpsNotificationProperties {
 
     private boolean enabled = false;
 
+    /**
+     * Envelope contract version written by the exporter.
+     * Keep at 1 until the slack_biz relay dual-read (v1+v2) is deployed;
+     * then set to 2 to emit fullName + export-time counts.
+     */
+    @Min(1)
+    @Max(2)
+    private int contractVersion = 1;
+
     @NotBlank
     private String environment = "local";
 
@@ -145,5 +154,13 @@ public class WaitlistOpsNotificationProperties {
 
     public void setRetention(Duration retention) {
         this.retention = retention;
+    }
+
+    public int getContractVersion() {
+        return contractVersion;
+    }
+
+    public void setContractVersion(int contractVersion) {
+        this.contractVersion = contractVersion;
     }
 }

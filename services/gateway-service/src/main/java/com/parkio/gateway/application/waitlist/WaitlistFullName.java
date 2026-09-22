@@ -9,7 +9,7 @@ import java.util.regex.Pattern;
  *   <li>Trim leading/trailing whitespace; reject blank / whitespace-only.</li>
  *   <li>Length after trim: 1–{@link #MAX_LENGTH} characters.</li>
  *   <li>Unicode letters and marks, spaces, apostrophe, right-single-quote, hyphen, period.</li>
- *   <li>Does not require two words or ASCII-only input.</li>
+ *   <li>Does not require two words or an ASCII-only input.</li>
  * </ul>
  */
 public final class WaitlistFullName {
@@ -20,7 +20,7 @@ public final class WaitlistFullName {
      * Letters (any script), combining marks, spaces, ASCII/typographic apostrophe, hyphen, period.
      */
     private static final Pattern ALLOWED = Pattern.compile(
-            "^[\\p{L}\\p{M}][\\p{L}\\p{M} .'\\-’]*$",
+            "^[\\p{L}\\p{M}][\\p{L}\\p{M} .'\\-\u2019]*$",
             Pattern.UNICODE_CHARACTER_CLASS);
 
     private WaitlistFullName() {
@@ -48,6 +48,9 @@ public final class WaitlistFullName {
     /**
      * Normalize and validate. Returns null when absent is allowed; throws when invalid
      * or when required and missing.
+     *
+     * <p>When {@code required} is false, missing/blank still yields null, but a
+     * <em>supplied</em> invalid name is always rejected.
      */
     public static String requireOrOptional(String raw, boolean required) {
         String normalized = normalizeOptional(raw);

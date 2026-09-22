@@ -373,6 +373,8 @@ parkio:
     # export-dir (the slack_biz relay's waitlist inbox); it never holds a Slack webhook.
     ops-notifications:
       enabled: ${PARKIO_WAITLIST_OPS_NOTIFICATIONS_ENABLED:false}
+      # Envelope contract: keep 1 until dual-read slack_biz relay is live; then set 2.
+      contract-version: ${PARKIO_WAITLIST_OPS_NOTIFICATIONS_CONTRACT_VERSION:1}
       # Dedicated key so enabling this never changes info.deployment.environment.
       environment: ${PARKIO_WAITLIST_OPS_NOTIFICATIONS_ENVIRONMENT:${PARKIO_ENVIRONMENT:local}}
       export-dir: ${PARKIO_WAITLIST_OPS_NOTIFICATIONS_EXPORT_DIR:}

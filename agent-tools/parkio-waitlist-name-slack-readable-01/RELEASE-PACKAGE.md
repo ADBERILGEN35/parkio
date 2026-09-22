@@ -1,3 +1,7 @@
+## Decision package
+
+See `RELEASE-DECISION.md` for the go/no-go summary.
+
 # RELEASE PACKAGE — Waitlist full name + readable Slack
 
 **Status:** draft PR only — no production migrate/deploy, no real Slack/email, no secret changes, registration stays CLOSED, provider=resend, NR untouched.

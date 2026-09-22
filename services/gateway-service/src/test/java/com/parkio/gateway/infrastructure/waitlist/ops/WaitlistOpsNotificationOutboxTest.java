@@ -52,6 +52,7 @@ import reactor.core.publisher.Mono;
 @SpringBootTest(properties = {
         "parkio.waitlist.ops-notifications.enabled=true",
         "parkio.waitlist.ops-notifications.environment=acceptance",
+        "parkio.waitlist.ops-notifications.contract-version=2",
         // Scheduler must not race the explicit exportDue() calls below.
         "parkio.waitlist.ops-notifications.poll-interval=PT1H",
         "parkio.waitlist.ops-notifications.max-export-attempts=3"
@@ -127,6 +128,10 @@ class WaitlistOpsNotificationOutboxTest {
     void restore() {
         properties.setExportDir(inbox.toString());
         properties.setEnabled(true);
+        properties.setContractVersion(2);
+        properties.setMinFreeBytes(512L * 1024 * 1024);
+        properties.setMaxInboxBacklog(5000);
+        properties.setBatchSize(20);
     }
 
     @Test
@@ -147,7 +152,7 @@ class WaitlistOpsNotificationOutboxTest {
         Map<String, Object> envelope = objectMapper.readValue(raw, Map.class);
         assertThat(envelope).containsOnlyKeys(
                 "contractVersion", "eventId", "eventType", "occurredAt", "environment", "producer", "dedupKey",
-                "fullName", "confirmedTotal", "confirmedTodayIstanbul");
+                "fullName", "confirmedTotal", "confirmedTodayIstanbul", "countsSnapshotAt");
         assertThat(envelope.get("contractVersion")).isEqualTo(2);
         assertThat(envelope.get("eventType")).isEqualTo("waitlist.subscription_confirmed");
         assertThat(envelope.get("environment")).isEqualTo("acceptance");
@@ -156,9 +161,52 @@ class WaitlistOpsNotificationOutboxTest {
         assertThat(envelope.get("fullName")).isEqualTo("Ayşe Yılmaz");
         assertThat(((Number) envelope.get("confirmedTotal")).longValue()).isGreaterThanOrEqualTo(1L);
         assertThat(((Number) envelope.get("confirmedTodayIstanbul")).longValue()).isGreaterThanOrEqualTo(1L);
+        assertThat((String) envelope.get("countsSnapshotAt")).matches("\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:\\d{2}Z");
 
         assertNoProhibitedValues(raw);
         assertNoProhibitedValues(output.getAll());
+    }
+
+    @Test
+    void successfulHandoffFreezesEnvelopeOnExportRetry() throws Exception {
+        submitPending();
+        service.confirm(verificationToken.get()).block();
+        assertThat(outboxCount()).isEqualTo(1);
+        assertThat(exporter.exportDue().exported()).isEqualTo(1);
+        Path file = inboxFiles().get(0);
+        String first = Files.readString(file);
+        @SuppressWarnings("unchecked")
+        Map<String, Object> firstEnv = objectMapper.readValue(first, Map.class);
+        Object firstSnap = firstEnv.get("countsSnapshotAt");
+
+        // Crash window: inbox file exists, outbox still PENDING.
+        jdbcTemplate.update("UPDATE waitlist_ops_notification_outbox SET status = 'PENDING', exported_at = NULL");
+        makeDue();
+        WaitlistOpsNotificationExporter.ExportResult again = exporter.exportDue();
+        assertThat(again.exported()).isEqualTo(1);
+        assertThat(outboxStatus()).isEqualTo("EXPORTED");
+        assertThat(Files.readString(file)).isEqualTo(first);
+        assertThat(objectMapper.readValue(Files.readString(file), Map.class).get("countsSnapshotAt"))
+                .isEqualTo(firstSnap);
+        assertThat(inboxFiles()).hasSize(1);
+    }
+
+    @Test
+    void contractVersionOneOmitsNameAndCounts() throws Exception {
+        int previous = properties.getContractVersion();
+        properties.setContractVersion(1);
+        try {
+            submitPending();
+            service.confirm(verificationToken.get()).block();
+            assertThat(exporter.exportDue().exported()).isEqualTo(1);
+            @SuppressWarnings("unchecked")
+            Map<String, Object> envelope = objectMapper.readValue(Files.readString(inboxFiles().get(0)), Map.class);
+            assertThat(envelope).containsOnlyKeys(
+                    "contractVersion", "eventId", "eventType", "occurredAt", "environment", "producer", "dedupKey");
+            assertThat(envelope.get("contractVersion")).isEqualTo(1);
+        } finally {
+            properties.setContractVersion(previous);
+        }
     }
 
     @Test
@@ -319,6 +367,7 @@ class WaitlistOpsNotificationOutboxTest {
             for (int i = 0; i < 5; i++) {
                 notifier.subscriptionConfirmed(UUID.randomUUID(), Instant.now());
             }
+            assertThat(outboxCount()).isEqualTo(5);
             assertThat(exporter.exportDue().exported()).isEqualTo(2);
             assertThat(inboxFiles()).hasSize(2);
         } finally {
