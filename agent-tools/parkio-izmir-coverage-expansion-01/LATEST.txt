@@ -1,14 +1,18 @@
-2026-09-22 — İzmir coverage release evidence close-out (PR #71)
+2026-09-22 — Roadside product UI + release package (PR #71 tip 3b7fdc8f / follow-up)
 
-Runtime (SSH StrictHostKeyChecking=yes, 2026-09-22T06:54:27Z):
-  parking RUNNING: @sha256:e353baed3f464849208ef8852314ad8c469663d20ad8c2f755ac236bd1452dfe
-  web RUNNING:     @sha256:7202058c2d75537a5578acd07f65c645d6237e3eaaef89e5be49a6b785e82761
-  (local pin = expected config; runtime verified separately and matches parking pin)
+Core requirement: 48 İZELMAN roadside records discoverable in Explore + /map (not only
+/parking/roadside/nearby). Candidate Alsancak Explore returns visible roadside IDs
+3611ffcb-… and 8e16b9a2-… (see roadside-ui-candidate-evidence.json).
 
-Combined candidate: unique facilities 1505 = IZUM 12 + IZELMAN 51 + OSM 1442 (no auto-merge).
-Roadside 48 independently discoverable via /parking/roadside/nearby after publish-status fix.
-Conflation: 1 AUTO_MATCHED proposal + 2 REVIEW_REQUIRED; auto-match left OFF.
-Six centers: map capped at 100 everywhere with OSM; Explore multi-family; access labels OK.
+1505 = distinct facility table records across sources — not unique physical locations.
+Roadside 48 counted separately; auto-match remains OFF.
 
-CI on ab822004: Security/Trivy green (prior upload-403 cleared). Legacy mobile advisory fail only.
-RC images local only — ghcr publish remains release action. See RELEASE-DECISION-PACKAGE.md
+Capped facility nearby: radius control / Tighten search changes radiusMeters API query;
+map zoom alone does not.
+
+RC images (local, not ghcr):
+  parking @sha256:4f35e1eddb9c6f74ca312255d2d9a86fbed8e998c2cd2545b8b80642715582c4
+  web     @sha256:054349a32374c7d0cd03d3056d437a6fbffbd1ad4816c105dc5df6a11b25772b
+  (web rebuild after geo label fix if tip advances)
+
+No production mutation. See RELEASE-DECISION-PACKAGE.md

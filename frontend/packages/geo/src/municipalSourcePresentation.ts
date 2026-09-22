@@ -67,9 +67,17 @@ export function canonicalLabelForSourceKey(sourceKey: string): string | null {
     case 'osm':
       return MUNICIPAL_CANONICAL_LABEL_OSM;
     case 'izelman':
-      return sourceKey.includes('roadside')
-        ? MUNICIPAL_CANONICAL_LABEL_IZELMAN_ROADSIDE
-        : MUNICIPAL_CANONICAL_LABEL_IZELMAN;
+      if (sourceKey === 'izelman-roadside-parking') {
+        return MUNICIPAL_CANONICAL_LABEL_IZELMAN_ROADSIDE;
+      }
+      if (
+        sourceKey === 'izelman-open-parking-facilities'
+        || sourceKey === 'izelman-closed-parking-facilities'
+        || sourceKey === 'izelman-barrier-parking-facilities'
+      ) {
+        return MUNICIPAL_CANONICAL_LABEL_IZELMAN;
+      }
+      return null;
     default:
       return null;
   }
