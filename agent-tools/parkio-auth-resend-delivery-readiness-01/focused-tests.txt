@@ -1,0 +1,6 @@
+﻿ResendEmailSenderTest 14 PASS
+EmailDeliveryConfigTest 10 PASS
+AuthTransactionalEmailTemplatesTest 5 PASS
+LoggingEmailVerificationSenderTest 1 PASS
+AuthApplicationServiceTest 51 PASS
+total 81 PASS / 0 FAIL

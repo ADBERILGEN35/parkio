@@ -1,0 +1,1 @@
+trivy_not_installed_on_agent_host
