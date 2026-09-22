@@ -76,11 +76,9 @@ class FileInboxRegistrationConsumer:
         inbox: Path,
         *,
         producer: str = "auth-outbox",
-        enqueue_fn: Callable[..., str] | None = None,
     ):
         self.config = config
         self.store = store
-        self.enqueue_fn = enqueue_fn or parse_and_enqueue
         self.inbox = Path(inbox)
         self.acked = self.inbox / ".acked"
         self.invalid = self.inbox / ".invalid"
@@ -101,7 +99,7 @@ class FileInboxRegistrationConsumer:
                 log.warning("invalid envelope file %s: %s", path.name, exc)
                 continue
             try:
-                outcome = self.enqueue_fn(
+                outcome = parse_and_enqueue(
                     envelope, self.config, self.store, producer=self.producer
                 )
             except ValueError as exc:

@@ -54,6 +54,13 @@ class SlackBizConfig:
     registration_inbox_dir: Path | None
     # File inbox written by gateway-service waitlist ops outbox exporter
     waitlist_inbox_dir: Path | None = None
+    # Acked waitlist envelopes are kept this long, then deleted (0 = delete on ack)
+    waitlist_acked_retention_hours: float = 24.0
+    # Rejected envelopes are NOT kept by default (bounded category metric only)
+    waitlist_retain_rejected: bool = False
+    waitlist_rejected_retention_hours: float = 72.0
+    # Dead-letter copies of dead events
+    dlt_retention_hours: float = 720.0
 
     @property
     def db_path(self) -> Path:
@@ -140,4 +147,14 @@ def load_config(environ: dict[str, str] | None = None) -> SlackBizConfig:
             if env.get("PARKIO_SLACK_BIZ_WAITLIST_INBOX")
             else None
         ),
+        waitlist_acked_retention_hours=float(
+            env.get("PARKIO_SLACK_BIZ_WAITLIST_ACKED_RETENTION_HOURS", "24")
+        ),
+        waitlist_retain_rejected=_truthy(
+            env.get("PARKIO_SLACK_BIZ_WAITLIST_RETAIN_REJECTED", "false")
+        ),
+        waitlist_rejected_retention_hours=float(
+            env.get("PARKIO_SLACK_BIZ_WAITLIST_REJECTED_RETENTION_HOURS", "72")
+        ),
+        dlt_retention_hours=float(env.get("PARKIO_SLACK_BIZ_DLT_RETENTION_HOURS", "720")),
     )

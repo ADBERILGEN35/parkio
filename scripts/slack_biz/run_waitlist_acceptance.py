@@ -28,18 +28,14 @@ _ROOT = Path(__file__).resolve().parent
 if str(_ROOT.parent) not in sys.path:
     sys.path.insert(0, str(_ROOT.parent))
 
-from slack_biz.adapters import (  # noqa: E402
-    WAITLIST_PRODUCER,
-    from_waitlist_ops_envelope,
-    parse_and_enqueue_waitlist,
-)
+from slack_biz.adapters import WAITLIST_PRODUCER, from_waitlist_ops_envelope  # noqa: E402
 from slack_biz.config import load_config  # noqa: E402
 from slack_biz.delivery import DeliveryWorker  # noqa: E402
 from slack_biz.mock_slack import MockSlackServer, assert_no_real_slack_url  # noqa: E402
-from slack_biz.registration_consumer import FileInboxRegistrationConsumer  # noqa: E402
 from slack_biz.store import DeliveryStore  # noqa: E402
 from slack_biz.templates import render_message  # noqa: E402
 from slack_biz.transport import SlackWebhookTransport  # noqa: E402
+from slack_biz.waitlist_inbox import REJECTED_METRIC, WaitlistInboxConsumer  # noqa: E402
 
 ENV_NAME = "acceptance"
 
@@ -51,7 +47,16 @@ SYNTHETIC_TOKEN = "SyntheticVerificationToken-0123456789abcdefABCDEF"
 SYNTHETIC_SUBSCRIBER_ID = "5b0c1d2e-3f40-4a5b-8c6d-7e8f90a1b2c3"
 SYNTHETIC_CONFIRM_URL = "https://parkio.dev/waitlist/confirm/" + SYNTHETIC_TOKEN
 SYNTHETIC_PROVIDER_PAYLOAD = "re_synthetic_provider_message_id"
+# Secret-looking material planted in field NAMES (keys) of hostile envelopes.
+SECRET_KEY_NAME = "sk_live_SyntheticSecretInKeyName_9f8e7d"
+SECRET_KEY_NAME_2 = "xoxb-synthetic-slack-token-in-key"
+SECRET_VALUE = "SyntheticSecretValue-4c3b2a19-zz"
+SECRET_FILE_NAME = "sub-sentetik.abone@example.test-token.json"
 PROHIBITED = (
+    SECRET_KEY_NAME,
+    SECRET_KEY_NAME_2,
+    SECRET_VALUE,
+    "sentetik.abone",
     SYNTHETIC_EMAIL,
     SYNTHETIC_NAME,
     SYNTHETIC_IP,
@@ -80,7 +85,14 @@ def gateway_envelope(**overrides) -> dict:
 
 
 class Harness:
-    def __init__(self, root: Path, mock: MockSlackServer, *, enabled: bool = True):
+    def __init__(
+        self,
+        root: Path,
+        mock: MockSlackServer,
+        *,
+        enabled: bool = True,
+        extra_env: dict[str, str] | None = None,
+    ):
         self.root = root
         self.mock = mock
         self.inbox = root / "inbox"
@@ -95,6 +107,7 @@ class Harness:
                 "PARKIO_SLACK_BIZ_MAX_ATTEMPTS": "3",
                 "PARKIO_SLACK_BIZ_HTTP_TIMEOUT": "1",
                 "PARKIO_SLACK_BIZ_AMBIGUOUS_RETRY_BASE": "0",
+                **(extra_env or {}),
             }
         )
         os.environ.pop("PARKIO_ENVIRONMENT", None)
@@ -103,13 +116,8 @@ class Harness:
             self.config.db_path,
             dedup_retention_hours=self.config.dedup_retention_hours,
         )
-        self.consumer = FileInboxRegistrationConsumer(
-            self.config,
-            self.store,
-            self.inbox,
-            producer=WAITLIST_PRODUCER,
-            enqueue_fn=parse_and_enqueue_waitlist,
-        )
+        self.inbox.mkdir(parents=True, exist_ok=True)
+        self.consumer = WaitlistInboxConsumer(self.config, self.store, self.inbox)
         self.worker = DeliveryWorker(
             self.config,
             self.store,
@@ -142,6 +150,7 @@ class Harness:
             parts.extend(json.dumps(dict(r), default=str) for r in rows)
         parts.append(json.dumps(self.store.snapshot_metrics()))
         for p in self.inbox.rglob("*"):
+            parts.append(p.name)
             if p.is_file():
                 parts.append(p.read_text(encoding="utf-8", errors="replace"))
         return "\n".join(parts)
@@ -173,7 +182,12 @@ def run(evidence_dir: Path | None) -> dict:
                 h = None
                 try:
                     with redirect_stdout(stdout_buffer):
-                        h = Harness(Path(tmp), mock, enabled=getattr(fn, "enabled", True))
+                        h = Harness(
+                            Path(tmp),
+                            mock,
+                            enabled=getattr(fn, "enabled", True),
+                            extra_env=getattr(fn, "extra_env", None),
+                        )
                         detail = fn(h) or ""
                         dump = h.state_dump()
                     for text in [dump] + [r.body.decode("utf-8", "replace") for r in mock.state.requests]:
@@ -202,6 +216,20 @@ def run(evidence_dir: Path | None) -> dict:
     def disabled(fn):
         fn.enabled = False
         return fn
+
+    def with_env(**env):
+        def deco(fn):
+            fn.extra_env = env
+            return fn
+
+        return deco
+
+    def rejected_metric(h: Harness) -> dict[str, float]:
+        return {
+            json.loads(m["labels_json"])["category"]: m["value"]
+            for m in h.store.snapshot_metrics()
+            if m["name"] == REJECTED_METRIC
+        }
 
     @scenario("W01", "committed confirmation → one Turkish Slack message")
     def _w01(h: Harness):
@@ -354,29 +382,46 @@ def run(evidence_dir: Path | None) -> dict:
         assert len(mock.state.requests) == 2
         return "posts=2 dead=2 retries=0"
 
-    @scenario("W11", "envelope carrying prohibited fields → rejected, nothing sent")
+    @scenario("W11", "hostile envelopes (secrets in field names AND values) → rejected, not retained, not logged")
     def _w11(h: Harness):
-        bad = [
-            gateway_envelope(email=SYNTHETIC_EMAIL),
-            gateway_envelope(name=SYNTHETIC_NAME),
-            gateway_envelope(ip=SYNTHETIC_IP),
-            gateway_envelope(verificationToken=SYNTHETIC_TOKEN),
-            gateway_envelope(confirmUrl=SYNTHETIC_CONFIRM_URL),
-            gateway_envelope(subscriberId=SYNTHETIC_SUBSCRIBER_ID),
-            gateway_envelope(providerPayload={"id": SYNTHETIC_PROVIDER_PAYLOAD}),
-            gateway_envelope(webhook_url="https://hooks.slack.com/services/X/Y/Z"),
-        ]
-        for i, env in enumerate(bad):
-            h.drop(env, f"bad-{i}.json")
+        bad = {
+            "k-email.json": gateway_envelope(email=SYNTHETIC_EMAIL),
+            "k-name.json": gateway_envelope(name=SYNTHETIC_NAME),
+            "k-ip.json": gateway_envelope(ip=SYNTHETIC_IP),
+            "k-token.json": gateway_envelope(verificationToken=SYNTHETIC_TOKEN),
+            "k-url.json": gateway_envelope(confirmUrl=SYNTHETIC_CONFIRM_URL),
+            "k-sub.json": gateway_envelope(subscriberId=SYNTHETIC_SUBSCRIBER_ID),
+            "k-provider.json": gateway_envelope(providerPayload={"id": SYNTHETIC_PROVIDER_PAYLOAD}),
+            "k-webhook.json": gateway_envelope(webhook_url="https://hooks.slack.com/services/X/Y/Z"),
+            # secret in the field NAME
+            "k-secret-key.json": gateway_envelope(**{SECRET_KEY_NAME: 1}),
+            "k-secret-key2.json": gateway_envelope(**{SECRET_KEY_NAME_2: "x"}),
+            # secrets in VALUES of allow-listed fields
+            "v-env.json": gateway_envelope(environment=SECRET_VALUE),
+            "v-type.json": gateway_envelope(eventType=SECRET_VALUE),
+            "v-dedup.json": gateway_envelope(dedupKey=SECRET_VALUE),
+            "v-id.json": gateway_envelope(eventId=SYNTHETIC_EMAIL),
+            "v-at.json": gateway_envelope(occurredAt=SYNTHETIC_TOKEN),
+            "v-producer.json": gateway_envelope(producer=SECRET_KEY_NAME),
+            # secret-bearing FILE NAME
+            SECRET_FILE_NAME: gateway_envelope(email=SYNTHETIC_EMAIL),
+        }
+        for name, env in bad.items():
+            h.drop(env, name)
         r = h.consumer.poll_once()
-        assert r.invalid == len(bad) and r.enqueued == 0, r
+        assert r.rejected == len(bad) and r.enqueued == 0, r
         h.worker.process_once()
         assert not mock.state.requests
-        # Rejected originals are quarantined as-is for operators, outside the
-        # scanned state: remove them before the leak scan of relay state.
-        for p in (h.inbox / ".invalid").glob("bad-*.json"):
-            p.unlink()
-        return f"rejected={r.invalid}"
+        leftover = [p for p in h.inbox.rglob("*") if p.is_file()]
+        assert not leftover, f"rejected payloads retained by default: {len(leftover)}"
+        assert not (h.inbox / ".invalid").exists()
+        cats = rejected_metric(h)
+        assert set(cats) <= {
+            "unknown_field", "environment_mismatch", "unsupported_event_type",
+            "bad_dedup_key", "bad_event_id", "bad_occurred_at", "producer_mismatch",
+        }, cats
+        assert sum(cats.values()) == len(bad)
+        return "rejected=%d retained=0 categories=%s" % (r.rejected, ",".join(sorted(cats)))
 
     @scenario("W12", "non-confirmation signals / env mismatch / bad shape → rejected")
     def _w12(h: Harness):
@@ -389,13 +434,122 @@ def run(evidence_dir: Path | None) -> dict:
             gateway_envelope(dedupKey="waitlist:subscription_confirmed:not-a-hash"),
             gateway_envelope(occurredAt="yesterday"),
             "{not json",
+            "[1, 2, 3]",
+            json.dumps(gateway_envelope()) + " " * 5000,
+            gateway_envelope(contractVersion=True),
         ]
         for i, env in enumerate(cases):
             h.drop(env, f"case-{i}.json")
         r = h.consumer.poll_once()
-        assert r.invalid == len(cases) and r.enqueued == 0, r
+        assert r.rejected == len(cases) and r.enqueued == 0, r
         assert not mock.state.requests
-        return f"rejected={r.invalid}"
+        cats = rejected_metric(h)
+        for expected in ("unsupported_event_type", "environment_mismatch", "producer_mismatch",
+                         "bad_dedup_key", "bad_occurred_at", "invalid_json", "not_object",
+                         "too_large", "bad_contract_version"):
+            assert expected in cats, (expected, cats)
+        return f"rejected={r.rejected} categories={len(cats)}"
+
+    @scenario("W15", "opt-in forensic retention: 0600, hashed name, pruned after bound")
+    @with_env(PARKIO_SLACK_BIZ_WAITLIST_RETAIN_REJECTED="true",
+              PARKIO_SLACK_BIZ_WAITLIST_REJECTED_RETENTION_HOURS="1")
+    def _w15(h: Harness):
+        h.drop(gateway_envelope(email=SYNTHETIC_EMAIL), SECRET_FILE_NAME)
+        r = h.consumer.poll_once()
+        assert r.rejected == 1
+        kept = list((h.inbox / ".invalid").iterdir())
+        assert len(kept) == 1 and "sentetik" not in kept[0].name
+        if os.name == "posix":
+            assert (kept[0].stat().st_mode & 0o777) == 0o600
+            assert ((h.inbox / ".invalid").stat().st_mode & 0o777) == 0o700
+        assert h.consumer.prune()["rejected"] == 0  # still inside retention
+        import time as _t
+
+        assert h.consumer.prune(now=_t.time() + 2 * 3600)["rejected"] == 1
+        assert not list((h.inbox / ".invalid").iterdir())
+        return "kept=1 (0600, hashed name) → pruned after 1h bound"
+
+    @scenario("W16", "retention: acked files, DLT and terminal rows pruned; pending + dedup window kept")
+    @with_env(PARKIO_SLACK_BIZ_WAITLIST_ACKED_RETENTION_HOURS="1")
+    def _w16(h: Harness):
+        import time as _t
+
+        delivered, dead, pending = gateway_envelope(), gateway_envelope(), gateway_envelope()
+        h.drop(delivered, "a.json")
+        h.drop(dead, "b.json")
+        h.consumer.poll_once()
+        mock.enqueue_response(200, "ok")
+        mock.enqueue_response(404, "no_service")
+        h.worker.process_once()
+        assert h.status_of(delivered["eventId"]) == "delivered"
+        assert h.status_of(dead["eventId"]) == "dead"
+        # Pending item: rate-limited so it waits in retry.
+        h.drop(pending, "c.json")
+        h.consumer.poll_once()
+        mock.enqueue_response(429, "rate_limited", {"Retry-After": "3600"})
+        h.worker.process_once()
+        assert h.status_of(pending["eventId"]) == "retry"
+        assert len(list((h.inbox / ".acked").iterdir())) == 3
+
+        # Inside every window: nothing removed.
+        assert h.consumer.prune() == {"acked": 0, "rejected": 0}
+        assert h.store.prune(dlt_retention_hours=720) == {"terminal_rows": 0, "dlt_rows": 0}
+
+        # After the acked bound but inside the 168h dedup window.
+        later = _t.time() + 2 * 3600
+        assert h.consumer.prune(now=later)["acked"] == 3
+        out = h.store.prune(dlt_retention_hours=1, now=later)
+        assert out["dlt_rows"] == 1 and out["terminal_rows"] == 0, out
+        # Dedup window still suppresses a re-export of the delivered event.
+        h.drop(delivered, "a-again.json")
+        assert h.consumer.poll_once().suppressed == 1
+
+        # After the dedup window: terminal rows go, pending retry row stays.
+        much_later = _t.time() + 169 * 3600
+        out = h.store.prune(dlt_retention_hours=720, now=much_later)
+        assert out["terminal_rows"] >= 2, out
+        assert h.status_of(delivered["eventId"]) is None
+        assert h.status_of(dead["eventId"]) is None
+        assert h.status_of(pending["eventId"]) == "retry"
+        return "acked=3→0, dlt=1→0, terminal after 168h, pending kept, in-window dup suppressed"
+
+    @scenario("W17", "backlog discard empties the durable relay queue without sending")
+    @disabled
+    def _w17(h: Harness):
+        envs = [gateway_envelope() for _ in range(3)]
+        for e in envs:
+            h.drop(e)
+        h.consumer.poll_once()
+        assert h.store.pending_count() == 3
+        out = h.store.discard_backlog("waitlist.subscription_confirmed", operator="acceptance")
+        assert out == {"discarded": 3, "in_flight_skipped": 0}, out
+        assert h.store.pending_count() == 0
+        # Re-enable delivery: nothing is sent, and a re-export is suppressed.
+        h.config = load_config({**os.environ, "PARKIO_SLACK_BIZ_ENABLED": "true"})
+        h.worker.config = h.config
+        h.worker.process_once()
+        assert not mock.state.requests
+        h.drop(envs[0])
+        assert h.consumer.poll_once().suppressed == 1
+        return "discarded=3 sent=0 re-export suppressed"
+
+    @scenario("W18", "queue write failure leaves the envelope in the inbox (no ack, no loss)")
+    def _w18(h: Harness):
+        env = gateway_envelope()
+        path = h.drop(env)
+        original = h.store.enqueue
+
+        def failing(_event):
+            raise OSError("queue_write_failed:synthetic")
+
+        h.store.enqueue = failing
+        r = h.consumer.poll_once()
+        assert r.write_failures == 1 and r.acked == 0 and path.exists()
+        h.store.enqueue = original
+        assert h.consumer.poll_once().enqueued == 1 and not path.exists()
+        h.worker.process_once()
+        assert h.status_of(env["eventId"]) == "delivered"
+        return "not acked on write failure; delivered on next poll"
 
     @scenario("W13", "webhook URL and secrets never logged or persisted")
     def _w13(h: Harness):

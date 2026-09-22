@@ -35,6 +35,10 @@ dependencies {
     }
 
     testImplementation(libs.spring.boot.starter.test)
+    // Real-PostgreSQL proof of waitlist migrations/transactions (`integrationTest`, Docker).
+    testImplementation(libs.testcontainers.junit)
+    testImplementation(libs.testcontainers.postgresql)
+    testRuntimeOnly(libs.postgresql)
     testRuntimeOnly(libs.h2)
     testRuntimeOnly(libs.junit.platform.launcher)
 }
