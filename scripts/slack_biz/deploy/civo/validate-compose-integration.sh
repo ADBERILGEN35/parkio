@@ -65,11 +65,15 @@ else
   missing_gid_fails=true
 fi
 
-python3 - "$TMP" "$missing_gid_fails" "$BASE_REF" "$(git rev-parse --short HEAD)" <<'PY'
-import json, sys
-tmp, missing_gid_fails, base_ref, head = sys.argv[1], sys.argv[2] == "true", sys.argv[3], sys.argv[4]
+python3 - "$TMP" "$missing_gid_fails" "$BASE_REF" "$(git rev-parse --short HEAD)" "$ROOT" <<'PY'
+import json, re, sys
+tmp, missing_gid_fails, base_ref, head, root = sys.argv[1:6]
 load = lambda n: json.load(open(f"{tmp}/{n}.json"))
 base, dis, act = load("base"), load("head-disabled"), load("head-active")
+overlay_source = open(f"{root}/docker/docker-compose.waitlist-ops-inbox.yml", encoding="utf-8").read()
+source_disables_host_path_creation = bool(
+    re.search(r"(?m)^\s+create_host_path:\s*false\s*$", overlay_source)
+)
 fails = []
 def check(name, ok, detail=""):
     print(("PASS " if ok else "FAIL ") + name + (f" — {detail}" if detail else ""))
@@ -114,10 +118,19 @@ check("overlay changes only gateway-service", changed == [], ",".join(changed) o
 g = act["services"]["gateway-service"]
 check("overlay group_add = inbox gid", [str(x) for x in g.get("group_add", [])] == ["10500"], str(g.get("group_add")))
 mounts = [v for v in g.get("volumes", []) if v.get("target") == "/var/lib/parkio/waitlist-ops-inbox"]
+bind_options = mounts[0].get("bind", {}) if len(mounts) == 1 else {}
+# Compose v2 releases differ here: newer versions retain an explicit false in
+# JSON, while older versions validate the field but omit its false value. A
+# rendered true always fails; an omission is accepted only with the exact
+# source declaration present.
+create_host_path_safe = (
+    bind_options.get("create_host_path") is False
+    or ("create_host_path" not in bind_options and source_disables_host_path_creation)
+)
 check("overlay bind mount (create_host_path=false, rw)",
       len(mounts) == 1 and mounts[0].get("type") == "bind"
       and mounts[0].get("source") == "/var/lib/parkio/waitlist-ops-inbox"
-      and mounts[0].get("bind", {}).get("create_host_path") is False
+      and create_host_path_safe
       and not mounts[0].get("read_only"), json.dumps(mounts))
 check("overlay sets EXPORT_DIR", g["environment"].get("PARKIO_WAITLIST_OPS_NOTIFICATIONS_EXPORT_DIR") == "/var/lib/parkio/waitlist-ops-inbox")
 g2 = json.loads(json.dumps(g)); d2 = json.loads(json.dumps(dis["services"]["gateway-service"]))
