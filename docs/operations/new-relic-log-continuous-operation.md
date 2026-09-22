@@ -13,12 +13,14 @@ fixed below; production activation remains a separate decision.
 
 ## Release identity and image policy
 
-PR #66 was reconciled without force-push with settled `api` commit
-`9eaba3ea6386c50dcfd154b5b6135c970d2e3220` (merged PR #71). The published
-artifact was built from release-source commit
-`a41f2f7d7fe2997f5bd270f1f1ef8938002e1b1e`; the final documentation/Compose
-head is recorded after CI. `docker/Dockerfile.fluent-bit-nr` has these immutable
-inputs:
+PR #66 was reconciled without force-push with current `api` commit
+`e113a151d5f9cee12c5fa5a3e97f53a80429329f`, which includes merged PR #71 and
+the subsequent parking timestamp fix. The published artifact was built from
+release-source commit `a41f2f7d7fe2997f5bd270f1f1ef8938002e1b1e`; the
+release-package content commit is
+`73bc2af5259213b15e77a1d557f2b8914b709961`. The terminal integration head and
+CI result are recorded in the PR and release report. `docker/Dockerfile.fluent-bit-nr`
+has these immutable inputs:
 
 - upstream Fluent Bit 5.1.2 manifest-list digest
   `sha256:d792375ca8e53be72fc25716c28f291f32c6fc6f4f31d12d0d14bc78cefe9226`;
@@ -267,7 +269,12 @@ sudo docker image inspect ghcr.io/adberilgen35/parkio/fluent-bit-nr@sha256:1fc39
 Expected output is `platform=linux/amd64` and revision
 `a41f2f7d7fe2997f5bd270f1f1ef8938002e1b1e`. Before any later authorized
 activation, wait for application deployment activity to settle and resolve a
-fresh source set; all IDs recorded before PR #71 are stale:
+fresh source set. The parking container `86542ec9...` was superseded by
+`446fd531...` at `2026-09-22T08:58:10.873072693Z` during the ISPARK allowlist
+correction; that replacement prefix is lifecycle evidence, not a pinned
+activation identity. All previously recorded gateway/auth/parking IDs are
+stale, and all three full identities must be resolved immediately before any
+separately authorized activation:
 
 ```bash
 sudo install -d -m 0700 -o root -g root /run/parkio-nr-log-continuous
