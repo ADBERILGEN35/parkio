@@ -241,8 +241,9 @@ the maximum re-export on restore. Recovery guidance:
 
 | Evidence | Kind | Result |
 |---|---|---|
-| `python3 scripts/test_restore_readiness.py` | Unit tests, synthetic fixtures | 47 cases. Linux CI is authoritative; Windows host skips openssl pipeline and cannot assert Unix 0600 / blocked egress |
+| `python3 scripts/test_restore_readiness.py` | Unit tests, synthetic fixtures | 49 cases. Linux CI is authoritative; Windows host skips openssl pipeline and cannot assert Unix 0600 / blocked egress |
 | `restore-drill-01-procedure.yml` run `35883781803` on merge `29bbbdb0` of #94 | **Executed** on a GitHub-hosted runner | **FAIL** at restore auth: `invalid command \\restrict`. Dump-client was floating `postgres:16-alpine` (`pg_dump` emits `\\restrict`); restore-client was the older `psql` inside `postgis/postgis:16-3.4`. Commands were not stripped. |
+| `restore-drill-01-procedure.yml` run `35887774967` on `0431dfd9` | **Executed** on a GitHub-hosted runner | Restrict accepted. Restore-client `psql` 16.10 (`postgres:16.10`); dump-client parking 16.4; target-server 16.4 (`postgis/postgis:16-3.4`); PostGIS 3.4.3. Auth/gateway/user parity PASS. **FAIL** row-count parity parking: dump COPY of `spatial_ref_sys` / `tiger.pagc_*` was 0 rows; `CREATE EXTENSION` reseeded 8500 / 835 / 2938 / 4354. Application tables were not the mismatch. SQL was not stripped. |
 | `bash -n` on runbook blocks | **Syntax check only.** Nothing is executed | OK |
 
 What the CI execution covers. All data is synthetic; no application service, sender,

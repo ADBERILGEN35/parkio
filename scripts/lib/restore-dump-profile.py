@@ -11,6 +11,12 @@ Subcommands:
                      in a restored database (output: table|count per line).
   compare PROFILE COUNTS
                      compare a profile with `psql -At -F'|'` output of count-sql.
+                     Application tables must match exactly. PostGIS / Tiger /
+                     Topology catalogs that CREATE EXTENSION reseeds are recorded
+                     in extensionCatalogsExcluded when the dump COPY is empty
+                     (pg_dump of unmodified extension members). They are not
+                     treated as application-data mismatches. Customized catalog
+                     rows (dump count > 0) are still compared.
 
 Typical drill use (isolated host only):
   openssl enc -d ... < auth.sql.gz.enc | gunzip | restore-dump-profile.py profile > auth.profile.json
@@ -29,6 +35,13 @@ DUMPER_RE = re.compile(rb"^-- Dumped by pg_dump version (\S+)")
 GRANT_RE = re.compile(rb"^GRANT .+ TO (.+);$")
 FLYWAY_TABLE = "flyway_schema_history"
 SAFE_NAME_RE = re.compile(r'^(?:"[^"]+"|[\w$]+)(?:\.(?:"[^"]+"|[\w$]+))?$')
+# CREATE EXTENSION postgis / postgis_tiger_geocoder / postgis_topology reseeds these.
+# pg_dump of unmodified extension members emits COPY with 0 rows (CI 35887774967).
+EXTENSION_CATALOG_SCHEMAS = frozenset({"tiger", "tiger_data", "topology"})
+EXTENSION_CATALOG_EXCLUDE_REASON = (
+    "CREATE EXTENSION reseeds PostGIS/Tiger/Topology catalogs; "
+    "pg_dump of unmodified extension members emits an empty COPY"
+)
 
 
 def _version_key(value):
@@ -90,6 +103,27 @@ def profile(stream):
     return result
 
 
+def _unquote_ident(part):
+    part = part.strip()
+    if len(part) >= 2 and part[0] == '"' and part[-1] == '"':
+        return part[1:-1].replace('""', '"')
+    return part
+
+
+def relation_parts(name):
+    if "." in name:
+        schema, table = name.split(".", 1)
+        return _unquote_ident(schema), _unquote_ident(table)
+    return None, _unquote_ident(name)
+
+
+def is_extension_catalog(name):
+    schema, table = relation_parts(name)
+    if table == "spatial_ref_sys":
+        return True
+    return schema in EXTENSION_CATALOG_SCHEMAS
+
+
 def count_sql(prof):
     names = sorted(prof["rowCounts"])
     for name in names:
@@ -107,12 +141,27 @@ def compare(prof, counts_text):
         if "|" in line:
             name, value = line.rsplit("|", 1)
             restored[name.strip()] = int(value.strip())
-    mismatches = {n: {"dump": c, "restored": restored.get(n)}
-                  for n, c in prof["rowCounts"].items() if restored.get(n) != c}
+    mismatches = {}
+    excluded = {}
+    for name, dump_count in prof["rowCounts"].items():
+        restored_count = restored.get(name)
+        if restored_count == dump_count:
+            continue
+        if is_extension_catalog(name) and dump_count == 0:
+            excluded[name] = {
+                "dump": dump_count,
+                "restored": restored_count,
+                "reason": EXTENSION_CATALOG_EXCLUDE_REASON,
+            }
+            continue
+        mismatches[name] = {"dump": dump_count, "restored": restored_count}
     ok = not mismatches and not prof.get("truncated")
-    return {"verdict": "PASS" if ok else "FAIL", "tables": len(prof["rowCounts"]),
-            "rowsInDump": sum(prof["rowCounts"].values()),
-            "truncatedDump": bool(prof.get("truncated")), "mismatches": mismatches}
+    result = {"verdict": "PASS" if ok else "FAIL", "tables": len(prof["rowCounts"]),
+              "rowsInDump": sum(prof["rowCounts"].values()),
+              "truncatedDump": bool(prof.get("truncated")), "mismatches": mismatches}
+    if excluded:
+        result["extensionCatalogsExcluded"] = excluded
+    return result
 
 
 def main(argv):

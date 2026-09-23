@@ -256,6 +256,51 @@ class DumpProfileTest(unittest.TestCase):
         self.assertEqual(bad.returncode, 1)
         self.assertEqual(set(report["mismatches"]), {"public.auth_users", "public.empty_table"})
 
+    def test_compare_excludes_empty_postgis_catalogs_reseeding(self):
+        """CI 35887774967: CREATE EXTENSION reseeds catalogs that pg_dump COPY'd as 0."""
+        prof_path = self.work / "parking.json"
+        prof_path.write_text(json.dumps({
+            "rowCounts": {
+                "public.parking_spots": 1,
+                "public.outbox_events": 1,
+                "public.spatial_ref_sys": 0,
+                "tiger.pagc_gaz": 0,
+                "tiger.pagc_lex": 0,
+                "tiger.pagc_rules": 0,
+            }
+        }))
+        counts = self.work / "parking.counts"
+        counts.write_text(
+            "public.parking_spots|1\npublic.outbox_events|1\n"
+            "public.spatial_ref_sys|8500\ntiger.pagc_gaz|835\n"
+            "tiger.pagc_lex|2938\ntiger.pagc_rules|4354\n"
+        )
+        ok = run(PROFILE_TOOL, "compare", prof_path, counts)
+        report = json.loads(ok.stdout)
+        self.assertEqual((ok.returncode, report["verdict"]), (0, "PASS"))
+        self.assertEqual(report["mismatches"], {})
+        self.assertEqual(set(report["extensionCatalogsExcluded"]), {
+            "public.spatial_ref_sys", "tiger.pagc_gaz", "tiger.pagc_lex", "tiger.pagc_rules",
+        })
+        self.assertEqual(report["extensionCatalogsExcluded"]["public.spatial_ref_sys"]["restored"], 8500)
+
+    def test_compare_still_fails_application_and_customized_catalogs(self):
+        prof_path = self.work / "parking.json"
+        prof_path.write_text(json.dumps({
+            "rowCounts": {
+                "public.parking_spots": 1,
+                "public.spatial_ref_sys": 5,
+            }
+        }))
+        counts = self.work / "parking.counts"
+        counts.write_text("public.parking_spots|0\npublic.spatial_ref_sys|8500\n")
+        bad = run(PROFILE_TOOL, "compare", prof_path, counts)
+        report = json.loads(bad.stdout)
+        self.assertEqual(bad.returncode, 1)
+        self.assertEqual(report["verdict"], "FAIL")
+        self.assertEqual(set(report["mismatches"]), {"public.parking_spots", "public.spatial_ref_sys"})
+        self.assertNotIn("extensionCatalogsExcluded", report)
+
     def test_count_sql_refuses_injected_identifier(self):
         prof_path = self.work / "p.json"
         prof_path.write_text(json.dumps({"rowCounts": {"public.x; DROP TABLE y": 1}}))

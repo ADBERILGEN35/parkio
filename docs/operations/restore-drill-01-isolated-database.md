@@ -168,7 +168,11 @@ identifiers, so it stays on the drill host.
 ### Pass criteria
 
 1. `summary.json` verdict `PASS`, exit 0.
-2. Every `<svc>.parity.json` is `PASS`. `parking.profile.json` lists `postgis`.
+2. Every `<svc>.parity.json` is `PASS`. Application-table row counts match the dump.
+   PostGIS / Tiger / Topology catalogs that `CREATE EXTENSION` reseeds are recorded in
+   `extensionCatalogsExcluded` when the dump `COPY` is empty (pg_dump of unmodified
+   extension members). They are not treated as application-data mismatches. Customized
+   catalog rows (dump count > 0) are still compared. `parking.profile.json` lists `postgis`.
    `flywayHead` is recorded and `flywayFailedRows=0` for each DB.
 3. `erasure-set.json` verdict `PASS`. `erasure-replay.txt` shows `active_in_erasure_set_after_replay=0`.
 4. `timings.txt` `total_seconds` plus the §3 transfer time gives the **measured restore duration**.
@@ -186,6 +190,12 @@ identifiers, so it stays on the drill host.
   (`invalid command \\restrict`, CI run 35883781803). Use an identified restore client at least
   as new as that restrict-capable release (`postgres:16.10` in the synthetic workflow). Do **not**
   strip those commands or ignore SQL errors.
+- **Row-count parity failure on application tables:** dump vs restored counts differ for a
+  non-catalog relation. Stop. Do not ignore SQL errors or rewrite the dump to force a match.
+  CI run 35887774967 failed here on PostGIS catalogs (`spatial_ref_sys`, `tiger.pagc_*`)
+  after a successful `ON_ERROR_STOP` restore: dump COPY was empty, `CREATE EXTENSION`
+  reseeded the image catalogs. That case is now recorded, not ignored as an application
+  mismatch. A missing application row is still a fail.
 - **Restore failure:** `~/rd/work/<svc>.restore.err` may quote data, so it stays on the host.
   Record the SQLSTATE and object by hand. Typical causes are a missing role or an extension version mismatch.
 - **Any outbound traffic or non-database container:** stop, destroy the host, report.
@@ -209,8 +219,8 @@ never identifiers:
 - `stamp-preflight.json`, `ledger-stamp-*-preflight.json`
 - `erasure-set.json`, `erasure-replay.txt`
 - `isolation.json`
-- `*.profile.json`, `*.parity.json`
-- `outbox-pending.txt`, `timings.txt`
+- `*.profile.json`, `*.parity.json`, `*.compat.json`
+- `client-tooling.txt`, `outbox-pending.txt`, `timings.txt`
 
 Review it, then commit it under `agent-tools/parkio-restore-drill-01/<UTC>/`. **Never** commit
 or upload stamps, `~/rd/work` (merged ledger, counts, restore errors), SAS tokens or the passphrase.
