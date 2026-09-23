@@ -129,10 +129,13 @@ blob="\n".join((r.get("title") or "")+"\n"+(r.get("text") or "") for r in recs)
 assert 'function "default" not defined' not in blob
 assert "SyntheticRenderFiring" in blob
 assert "Gateway health check failed." not in blob
-assert "Uyarı: SyntheticRenderFiring" in blob
+assert "⚠️ Uyarı — SyntheticRenderFiring" in blob
+assert "Servis: gateway-service" in blob
+assert "Tanı: SyntheticRenderFiring" in blob
+assert "Başlangıç (UTC):" in blob
 print("firing-ok")
 PY
-ok "firing warning renders without | default and without raw description"
+ok "firing warning renders readable fallback without raw description"
 
 post_alerts '[{"labels":{"alertname":"SyntheticRenderFiring","severity":"warning","service":"gateway-service","component":"render-test"},"annotations":{},"startsAt":"2026-09-23T16:00:00.000Z","endsAt":"2026-09-23T16:05:00.000Z"}]'
 wait_receipts 2
@@ -153,7 +156,7 @@ recs=[json.loads(p.read_text(encoding="utf-8")) for p in sorted(pathlib.Path(sys
 grouped=[r for r in recs if "SyntheticRenderGrouped" in ((r.get("title") or "")+(r.get("text") or ""))]
 assert grouped, recs
 text=grouped[-1].get("text") or ""
-assert text.count("SyntheticRenderGrouped") >= 2
+assert text.count("Tanı: SyntheticRenderGrouped") >= 2
 print("grouped-ok")
 PY
 ok "grouped firing renders both alerts"
@@ -182,6 +185,58 @@ assert "bilinmeyen-uyarı" in blob or "media-service" in blob
 print("missing-label-ok")
 PY
 ok "missing alertname / annotations still render"
+
+# Screenshot variants + source/runbook presentation (readable content, not HTTP-only)
+post_alerts '[{"labels":{"alertname":"MunicipalSourceConsecutiveFailuresCritical","severity":"critical","source_key":"izmir-izum-otoparklar","component":"muni-cf-c"},"annotations":{"runbook_url":"docs/operations/municipal-parking-source-runbook.md","operator_action":"Runbook’u açın; actuator health ve kaynak SLA’sını doğrulayın."},"startsAt":"2026-09-23T16:40:00.000Z"}]'
+wait_receipts 6
+post_alerts '[{"labels":{"alertname":"MunicipalSourceConsecutiveFailuresWarning","severity":"warning","source_key":"izmir-izum-otoparklar","component":"muni-cf-w"},"annotations":{"runbook_url":"https://github.com/ADBERILGEN35/parkio/blob/api/docs/operations/municipal-parking-source-runbook.md"},"startsAt":"2026-09-23T16:41:00.000Z"}]'
+wait_receipts 7
+post_alerts '[{"labels":{"alertname":"MunicipalSourceSecondsSinceSuccessWarning","severity":"warning","source_key":"izmir-izum-otoparklar","component":"muni-age-w"},"annotations":{"runbook_url":"https://github.com/ADBERILGEN35/parkio/blob/api/docs/operations/municipal-parking-source-runbook.md"},"startsAt":"2026-09-23T16:42:00.000Z"}]'
+wait_receipts 8
+post_alerts '[{"labels":{"alertname":"MunicipalSourceSecondsSinceSuccessCritical","severity":"critical","source_key":"izmir-izum-otoparklar","component":"muni-age-c"},"annotations":{"runbook_url":"https://github.com/ADBERILGEN35/parkio/blob/api/docs/operations/municipal-parking-source-runbook.md"},"startsAt":"2026-09-23T16:43:00.000Z"}]'
+wait_receipts 9
+post_alerts '[{"labels":{"alertname":"MunicipalIsparkConsecutiveFailuresWarning","severity":"warning","source_key":"istanbul-ispark-parks","component":"ispark"},"annotations":{"runbook_url":"https://github.com/ADBERILGEN35/parkio/blob/api/docs/operations/municipal-parking-source-runbook.md"},"startsAt":"2026-09-23T16:44:00.000Z"}]'
+wait_receipts 10
+post_alerts '[{"labels":{"alertname":"MunicipalOsmConsecutiveFailuresWarning","severity":"warning","source_key":"osm-geofabrik-turkey","component":"osm"},"annotations":{"runbook_url":"https://github.com/ADBERILGEN35/parkio/blob/api/docs/operations/municipal-parking-source-runbook.md"},"startsAt":"2026-09-23T16:45:00.000Z"}]'
+wait_receipts 11
+post_alerts '[{"labels":{"alertname":"UnknownSyntheticAlert","severity":"warning","service":"gateway-service","component":"unknown"},"annotations":{"description":"Gateway health check failed."},"startsAt":"2026-09-23T16:46:00.000Z"}]'
+wait_receipts 12
+"${PYTHON}" - "${RECEIPTS}" <<'PY'
+import json, pathlib, sys
+recs=[json.loads(p.read_text(encoding="utf-8")) for p in sorted(pathlib.Path(sys.argv[1]).glob("*.json"))]
+def blob_for(name):
+    hits=[r for r in recs if name in ((r.get("title") or "")+(r.get("text") or ""))]
+    assert hits, (name, recs)
+    return (hits[-1].get("title") or "")+"\n"+(hits[-1].get("text") or "")
+cf_c=blob_for("MunicipalSourceConsecutiveFailuresCritical")
+assert "🔴 Kritik — İZUM ardışık hatalar" in cf_c
+assert "ardışık hatalar sürüyor" in cf_c
+assert "son başarılı güncellemeden beri" not in cf_c
+assert "Kaynak: İZUM (izmir-izum-otoparklar)" in cf_c
+assert "https://github.com/ADBERILGEN35/parkio/blob/api/docs/operations/municipal-parking-source-runbook.md" in cf_c
+assert "Tanı: MunicipalSourceConsecutiveFailuresCritical" in cf_c
+assert cf_c.index("Kaynak:") < cf_c.index("Tanı:")
+cf_w=blob_for("MunicipalSourceConsecutiveFailuresWarning")
+assert "⚠️ Uyarı — İZUM ardışık hatalar" in cf_w
+age_w=blob_for("MunicipalSourceSecondsSinceSuccessWarning")
+assert "⚠️ Uyarı — İZUM verileri güncellenemiyor" in age_w
+assert "son başarılı güncellemeden beri veri alınamadı" in age_w
+age_c=blob_for("MunicipalSourceSecondsSinceSuccessCritical")
+assert "🔴 Kritik — İZUM verileri güncellenemiyor" in age_c
+ispark=blob_for("MunicipalIsparkConsecutiveFailuresWarning")
+assert "İSPARK ardışık hatalar" in ispark
+assert "İZUM" not in ispark
+osm=blob_for("MunicipalOsmConsecutiveFailuresWarning")
+assert "OSM ardışık hatalar" in osm
+assert "İZUM" not in osm
+assert "canlı doluluk kaynağı değildir" in osm
+unknown=blob_for("UnknownSyntheticAlert")
+assert "⚠️ Uyarı — UnknownSyntheticAlert" in unknown
+assert "Gateway health check failed." not in unknown
+assert "Servis: gateway-service" in unknown
+print("municipal-ok")
+PY
+ok "screenshot municipal variants render readable titles, source, UTC, absolute runbook"
 
 failed="$(curl -fsS "http://127.0.0.1:${AM_PORT}/metrics" | awk -F' ' '/alertmanager_notifications_failed_total\{integration="slack"/ {s+=$2} END {print s+0}')"
 if [ "${failed}" = "0" ]; then
