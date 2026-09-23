@@ -33,6 +33,8 @@ ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 source "${ROOT}/scripts/lib/backup-common.sh"
 # shellcheck source=lib/erasure-tombstones.sh
 source "${ROOT}/scripts/lib/erasure-tombstones.sh"
+# shellcheck source=lib/recovery-coordination.sh
+source "${ROOT}/scripts/lib/recovery-coordination.sh"
 
 STAMP_DIR=""; CUTOFF=""; CONTAINER=""; WORK=""; EVIDENCE=""; ENV_FILE=""
 SUPPLEMENTAL=""; SUPPLEMENTAL_THROUGH=""; MAX_AGE=""; PROBE_EGRESS=0; ALLOW_BLOCKED=0
@@ -99,6 +101,40 @@ done
 
 # ---- 2. authoritative erasure set -----------------------------------------------------
 echo "==> [2] erasure set through ${CUTOFF}"
+PRIVACY="PASS"
+# Optional #102 recover. Never lowers CUTOFF. Directory store is not off-host.
+if [ -n "${PARKIO_OFFHOST_STORE_DIR:-}" ]; then
+  set +e
+  OFFHOST_REPORT="$(parkio_offhost_erasure_supplement "${CUTOFF}" "${STAMP_DIR}" \
+    "${WORK}/offhost-supplement.json" 2>"${WORK}/offhost-recover.err")"
+  offhost_rc=$?
+  set -e
+  printf '%s\n' "${OFFHOST_REPORT}" > "${EVIDENCE}/offhost-erasure-recover.json"
+  case "${offhost_rc}" in
+    0)
+      OFFHOST_THROUGH="$(python3 -c 'import json,sys; print(json.load(sys.stdin).get("coverageThrough") or "")' \
+        <<< "${OFFHOST_REPORT}")"
+      if [ -z "${OFFHOST_THROUGH}" ]; then
+        fail "offhost recover PASS without coverageThrough"
+      fi
+      if [ -n "${SUPPLEMENTAL}" ]; then
+        fail "do not mix a handwritten supplemental with offhost recover"
+      fi
+      SUPPLEMENTAL="${WORK}/offhost-supplement.json"
+      SUPPLEMENTAL_THROUGH="${OFFHOST_THROUGH}"
+      ;;
+    3)
+      PRIVACY="BLOCKED"
+      if [ "${ALLOW_BLOCKED}" -ne 1 ]; then
+        write_summary BLOCKED "offhost erasure coverage does not reach the recovery cutoff"
+        echo "BLOCKED: offhost watermark does not reach ${CUTOFF}; do not lower cutoff; nothing decrypted." >&2
+        exit 3
+      fi
+      echo "WARN: offhost coverage BLOCKED; this copy must never be exposed." >&2
+      ;;
+    *) fail "offhost erasure recover failed" ;;
+  esac
+fi
 ledger_args=(--data-stamp "${STAMP_DIR}" --recovery-cutoff "${CUTOFF}" --out "${WORK}/erasure-set.json")
 for ledger_stamp in "${LEDGER_STAMPS[@]}"; do ledger_args+=(--ledger-stamp "${ledger_stamp}"); done
 if [ -n "${SUPPLEMENTAL}" ]; then
@@ -108,7 +144,6 @@ set +e
 python3 "${LIB}/restore-erasure-ledger.py" "${ledger_args[@]}" > "${EVIDENCE}/erasure-set.json"
 ledger_rc=$?
 set -e
-PRIVACY="PASS"
 case "${ledger_rc}" in
   0) ;;
   3)

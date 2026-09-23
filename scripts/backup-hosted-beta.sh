@@ -11,6 +11,8 @@ set -euo pipefail
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 # shellcheck source=lib/backup-common.sh
 source "$ROOT/scripts/lib/backup-common.sh"
+# shellcheck source=lib/recovery-coordination.sh
+source "$ROOT/scripts/lib/recovery-coordination.sh"
 
 ENV_FILE="${PARKIO_ENV_FILE:-}"
 OPERATOR="${PARKIO_BACKUP_OPERATOR:-${USER:-unknown}}"
@@ -136,3 +138,7 @@ fi
 echo "Backup completed successfully."
 echo "Manifest: ${MANIFEST_PATH}"
 echo "MinIO objects mirrored: ${MINIO_OBJECTS}"
+# Default-off. Failure here must not start previously stopped writers and
+# does not retract this COMPLETE stamp (separate consistency domain).
+parkio_ordinary_ops_snapshot_after_complete "${STAMP}" "${DEST_DIR}" || \
+  echo "WARN: ordinary operational snapshot skipped or failed; pre-state resume only." >&2
