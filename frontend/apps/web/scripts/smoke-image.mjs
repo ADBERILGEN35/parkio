@@ -157,6 +157,18 @@ async function checkMount() {
   const browser = await chromium.launch();
   try {
     const page = await browser.newPage();
+    // CI image acceptance uses the production-shaped public API URL in the bundle,
+    // but must never contact live APIs or map providers. Opt in only for that run.
+    if (process.env.SMOKE_MOCK_EXTERNAL === '1') {
+      await page.route('**/*', (route) => {
+        const url = new URL(route.request().url());
+        if (url.origin === baseUrl) return route.continue();
+        if (url.hostname === 'api.parkio.dev') {
+          return route.fulfill({ status: 401, contentType: 'application/json', body: '{}' });
+        }
+        return route.abort();
+      });
+    }
     const pageErrors = [];
     page.on('pageerror', (error) => pageErrors.push(String(error)));
 
