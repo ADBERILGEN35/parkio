@@ -1,6 +1,7 @@
 # Coordinated integration -- draft release package
 
 **PR target:** `api` (draft only). **Decision: HOLD. Production disabled.**
+**Integration head:** `212d31d7601e2208fd1aa5ea8a6e869eeecdf81b`
 
 ## Included source identities
 
