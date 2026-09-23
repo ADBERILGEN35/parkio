@@ -266,9 +266,13 @@ def persist_complete_snapshot(store, entries, query_time, env=None,
                               visibility_protocol=PROTOCOL_ROWSET):
     """Persist a complete-table snapshot. Coverage advances only for lock protocol.
 
+    This function talks only to the object store. The caller must already have
+    released any database transaction (see offhost_erasure_pg.snapshot_then_publish).
+
     query_time is the lock-held commit watermark when visibility_protocol is
-    table-share-lock. It is not coverage when the protocol is row-set-only.
-    Incremental records must not call this.
+    table-share-lock. It is not coverage when the protocol is row-set-only,
+    and it is not a source-query / wall-clock stamp. Incremental records
+    must not call this.
     """
     if not enabled(env):
         raise DisabledError("PARKIO_OFFHOST_ERASURE_ENABLED is not 1")
@@ -495,7 +499,8 @@ def recover(store, cutoff, stamp_entries=None):
         protocol = covered["seal"]["visibilityProtocol"]
         blocked = coverage_epoch < cutoff_epoch
         reason = (
-            "erasures that committed after coverageThrough are unknown"
+            "erasures that committed after coverageThrough are unknown; "
+            "do not lower recoveryCutoff to obtain PASS"
             if blocked
             else None
         )

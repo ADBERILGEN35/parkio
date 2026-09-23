@@ -127,6 +127,72 @@ class OffhostErasurePostgresTest(unittest.TestCase):
         report = oe.recover(store, later)
         self.assertEqual(report["verdict"], "BLOCKED")
         self.assertGreater(report["uncoveredSeconds"], 0)
+        self.assertEqual(report["recoveryCutoff"], later)
+        self.assertIn("do not lower recoveryCutoff", report["reason"])
+
+    def test_lock_released_before_remote_publish(self):
+        locked = pg.locked_snapshot()
+        pg.psql_one(
+            "INSERT INTO erased_user_tombstones (auth_user_id, erased_at) "
+            f"VALUES ('{C}', '{EARLY}')",
+            tuples_only=False,
+        )
+        store = oe.MemoryStore()
+        env = {"PARKIO_OFFHOST_ERASURE_ENABLED": "1"}
+        oe.persist_complete_snapshot(
+            store, locked["entries"], locked["coveredThrough"], env,
+            visibility_protocol=oe.PROTOCOL_LOCK,
+        )
+        self.assertNotIn(C, {row["authUserId"] for row in locked["entries"]})
+        self.assertEqual(oe.recover(store, locked["coveredThrough"])["verdict"], "PASS")
+
+    def test_long_running_writer_times_out_without_coverage(self):
+        holder = pg.psql_async(
+            "BEGIN; "
+            "INSERT INTO erased_user_tombstones (auth_user_id, erased_at) "
+            f"VALUES ('{B}', '{EARLY}'); "
+            "SELECT pg_sleep(15); "
+            "COMMIT;"
+        )
+        store = oe.MemoryStore()
+        env = {"PARKIO_OFFHOST_ERASURE_ENABLED": "1"}
+        try:
+            time.sleep(0.5)
+            with self.assertRaises(pg.PostgresError):
+                pg.snapshot_then_publish(
+                    store, env, lock_timeout="2s", statement_timeout="4s"
+                )
+            self.assertFalse(any(key.startswith("seals/") for key in store.list()))
+            report = oe.recover(store, "2026-09-23T18:00:00Z")
+            self.assertEqual(report["verdict"], "BLOCKED")
+            pg.psql_one(
+                "INSERT INTO erased_user_tombstones (auth_user_id, erased_at) "
+                f"VALUES ('{C}', '{EARLY}')",
+                tuples_only=False,
+            )
+        finally:
+            holder.wait(timeout=25)
+
+    def test_failed_snapshot_rolls_back_and_cannot_publish(self):
+        store = oe.MemoryStore()
+        env = {"PARKIO_OFFHOST_ERASURE_ENABLED": "1"}
+        holder = pg.psql_async(
+            "BEGIN; "
+            "INSERT INTO erased_user_tombstones (auth_user_id, erased_at) "
+            f"VALUES ('{B}', '{EARLY}'); "
+            "SELECT pg_sleep(8); "
+            "COMMIT;"
+        )
+        try:
+            time.sleep(0.5)
+            with self.assertRaises(pg.PostgresError):
+                pg.locked_snapshot(lock_timeout="1s", statement_timeout="2s")
+            self.assertEqual(store.list(), [])
+        finally:
+            holder.wait(timeout=20)
+        published, snapshot = pg.snapshot_then_publish(store, env)
+        self.assertTrue(published["coverageAdvanced"])
+        self.assertIn(A, {row["authUserId"] for row in snapshot["entries"]})
 
 
 if __name__ == "__main__":

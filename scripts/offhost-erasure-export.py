@@ -6,10 +6,11 @@ Does not read names, emails, tokens, or dump contents. Does not print
 tombstone payloads.
 
 Coverage advances only after a table-share-lock snapshot AND its seal both
-persist. --query-time is coverage only when --visibility-protocol is
-table-share-lock (operator attestation that the ledger was produced by
-offhost-erasure-locked-snapshot.sql). Default row-set-only never advances
-coverage. The persist clock is not coverage.
+persist. --query-time is the lock-held commit watermark from
+offhost-erasure-locked-snapshot.sql (operator attestation), not a
+source-query or wall-clock stamp. Default row-set-only never advances
+coverage. The persist clock is not coverage. The database transaction
+must already be committed before this process writes to the store.
 
 Usage:
   PARKIO_OFFHOST_ERASURE_ENABLED=1 \\
@@ -46,7 +47,10 @@ from offhost_erasure import (  # noqa: E402
 def main(argv=None):
     parser = argparse.ArgumentParser(description=__doc__.split("\n", 1)[0])
     parser.add_argument("--from-ledger", help="JSON array of {authUserId, erasedAt}")
-    parser.add_argument("--query-time", help="lock-held watermark, or unused for row-set-only")
+    parser.add_argument(
+        "--query-time",
+        help="lock-held commit watermark (not an unlocked SELECT query time)",
+    )
     parser.add_argument(
         "--visibility-protocol",
         choices=(PROTOCOL_ROWSET, PROTOCOL_LOCK),

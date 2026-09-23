@@ -10,7 +10,16 @@ import os
 import subprocess
 import time
 
-from offhost_erasure import OffhostError, PROTOCOL_LOCK, PROTOCOL_ROWSET
+from offhost_erasure import (
+    OffhostError,
+    PROTOCOL_LOCK,
+    PROTOCOL_ROWSET,
+    persist_complete_snapshot,
+)
+
+DEFAULT_ISOLATION = "READ COMMITTED"
+DEFAULT_LOCK_TIMEOUT = "12s"
+DEFAULT_STATEMENT_TIMEOUT = "20s"
 
 TABLE_DDL = """
 CREATE TABLE IF NOT EXISTS erased_user_tombstones (
@@ -103,10 +112,17 @@ def unlocked_select_with_client_clock():
     }
 
 
-LOCKED_SNAPSHOT_C = """
+def locked_snapshot_sql(lock_timeout=DEFAULT_LOCK_TIMEOUT,
+                        statement_timeout=DEFAULT_STATEMENT_TIMEOUT):
+    """Body of the lock protocol. Caller wraps it in one transaction."""
+    return f"""
+SET TRANSACTION ISOLATION LEVEL {DEFAULT_ISOLATION};
+SET LOCAL lock_timeout = '{lock_timeout}';
+SET LOCAL statement_timeout = '{statement_timeout}';
 LOCK TABLE erased_user_tombstones IN SHARE MODE;
 SELECT json_build_object(
     'visibilityProtocol', 'table-share-lock',
+    'isolation', 'read committed',
     'coveredThrough', to_char(clock_timestamp() AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS"Z"'),
     'entries', COALESCE((
         SELECT json_agg(json_build_object(
@@ -119,9 +135,17 @@ SELECT json_build_object(
 """
 
 
-def locked_snapshot():
-    """SHARE-lock the table, read it, watermark with lock-held clock_timestamp()."""
-    cmd = _psql_base() + ["--single-transaction", "-t", "-A", "-c", LOCKED_SNAPSHOT_C]
+def locked_snapshot(lock_timeout=DEFAULT_LOCK_TIMEOUT,
+                    statement_timeout=DEFAULT_STATEMENT_TIMEOUT):
+    """SHARE-lock, read, watermark, then COMMIT. Nonzero exit is not coverage.
+
+    The psql process ends (lock released) before this returns. Callers must
+    not persist to a remote store until this function returns successfully.
+    """
+    cmd = _psql_base() + [
+        "--single-transaction", "-t", "-A", "-c",
+        locked_snapshot_sql(lock_timeout, statement_timeout),
+    ]
     try:
         result = subprocess.run(
             cmd, check=False, capture_output=True, text=True, timeout=60
@@ -142,6 +166,20 @@ def locked_snapshot():
     if body.get("visibilityProtocol") != PROTOCOL_LOCK:
         raise PostgresError("locked snapshot missing protocol")
     return body
+
+
+def snapshot_then_publish(store, env, lock_timeout=DEFAULT_LOCK_TIMEOUT,
+                          statement_timeout=DEFAULT_STATEMENT_TIMEOUT):
+    """Release the DB transaction, then persist. Failure never writes a seal."""
+    snapshot = locked_snapshot(lock_timeout, statement_timeout)
+    published = persist_complete_snapshot(
+        store,
+        snapshot["entries"],
+        snapshot["coveredThrough"],
+        env,
+        visibility_protocol=PROTOCOL_LOCK,
+    )
+    return published, snapshot
 
 
 def start_ephemeral_postgres():

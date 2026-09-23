@@ -150,6 +150,8 @@ class OffhostErasureRecoveryTest(unittest.TestCase):
         self.assertEqual(report["verdict"], "BLOCKED")
         self.assertGreater(report["uncoveredSeconds"], 0)
         self.assertEqual(report["coverageThrough"], T1)
+        self.assertEqual(report["recoveryCutoff"], CUTOFF)
+        self.assertIn("do not lower recoveryCutoff", report["reason"])
 
     def test_persist_clock_is_not_coverage(self):
         store = oe.MemoryStore()

@@ -2,123 +2,81 @@
 
 **PR:** https://github.com/ADBERILGEN35/parkio/pull/102
 **Base:** `origin/api` `aa865a255564464bed207a9061244af2641edd3d`
-**First reviewed head:** `c86fd69b825691427a0fa19ee39b56b7b3a6c0bc`
-**Correctness-review head:** `47f0f26810a3aa180e3a8bfa677a9aaad30ae660`
-**Decision:** **HOLD** — standalone tools only. Not production-ready.
+**First head:** `c86fd69b825691427a0fa19ee39b56b7b3a6c0bc`
+**Prior review head:** `c50f2a5fe9a9048baaef4f1b34c93ebb1d664bfa`
+**Closeout head:** *(filled after this commit)*
+**Decision:** **HOLD** — standalone tools only. Production disabled.
 Keep draft. No merge, deploy, enablement, or real recovery.
 
-Sibling Codex PR #101 (`fix/slack-nr-operational-state-backup`) is out of
-scope. No files from that PR were modified.
+Sibling Codex PR #101 (`fix/slack-nr-operational-state-backup`) and NR
+guard work are out of scope. Those files were not modified.
 
-## 1. Exact-head CI (reused, `c86fd69b`)
+## 1. Observed CI
 
-Required on `api` (`strict: true`):
-
-| Check | Result | Run |
-|---|---|---|
-| Build & unit tests | **pass** 6m3s | https://github.com/ADBERILGEN35/parkio/actions/runs/35911784042/job/107353158193 |
-| Secret scan | **pass** 10s | https://github.com/ADBERILGEN35/parkio/actions/runs/35911783929/job/107353158277 |
-
-Affected dedicated workflow:
+### Final prior head `c50f2a5f` (reused)
 
 | Check | Result | Run |
 |---|---|---|
-| Synthetic off-host erasure tests | **pass** 4s | https://github.com/ADBERILGEN35/parkio/actions/runs/35911784177/job/107353159069 |
+| Build & unit tests (required) | **pass** 3m59s | https://github.com/ADBERILGEN35/parkio/actions/runs/35913496303 |
+| Secret scan (required) | **pass** 8s | https://github.com/ADBERILGEN35/parkio/actions/runs/35913496387 |
+| Synthetic off-host erasure tests (dedicated, including Postgres concurrency) | **pass** 41s | https://github.com/ADBERILGEN35/parkio/actions/runs/35913496358 |
 
-Other `c86fd69b` PR checks also passed (CodeQL, container scans, config
-checks, Trivy). Deploy/invite jobs skipped. That suite does **not** include
-the PostgreSQL concurrency tests added in the follow-up commit.
+`api` protection remains `strict` required contexts `Build & unit tests` +
+`Secret scan`. Closeout-head checks are recorded after the follow-up push
+in the PR conversation / this file’s tip SHA.
 
-## 2. Tombstone transaction (inspected, not changed)
+### First head `c86fd69b` (reused, pre-Postgres-workflow)
 
-`AccountErasureApplicationService.requestDeletion` (`@Transactional`):
+Required checks and the original 13-test dedicated job passed. That suite
+did not yet include lock-timeout / rollback tests.
 
-1. `Instant now = clock.instant()` — application clock at request start
-2. `tombstones.save(new ErasedUserTombstoneEntity(user.id(), now))`
-3. request row + outbox event in the **same** transaction
-4. row visible to other sessions only at COMMIT
+## 2. Commit-visibility guarantee
 
-`erased_at` is therefore **not** a commit timestamp.
-`parkio_export_erasure_tombstones` is an unlocked `SELECT` (READ COMMITTED).
-A transaction that starts before the export, writes an earlier `erased_at`,
-and commits afterward is missing from that SELECT. A source-query timestamp
-is not proof of complete cutoff coverage.
+`requestDeletion` assigns `erased_at = clock.instant()` at request start
+and commits the tombstone later in the same transaction. An unlocked
+SELECT plus a source-query or wall-clock stamp is **not** coverage.
 
-## 3. Tested guarantees (narrow)
+A verified `table-share-lock` seal means: every tombstone whose inserting
+transaction **committed before** the lock-held auth-DB `clock_timestamp()`
+is in the snapshot. Isolation is explicit READ COMMITTED. Timeouts are
+bounded (`lock_timeout` 12s, `statement_timeout` 20s). Errors abort; they
+cannot produce publishable coverage. The DB transaction is released
+before any remote persist.
 
-Local `python -m unittest scripts.test_offhost_erasure_recovery -v`:
-**19 OK** after the review commit (publication/retry/protocol cases).
+It does **not** mean every row with `erased_at ≤ coveredThrough` is present.
 
-PostgreSQL tests (`scripts/test_offhost_erasure_pg.py`) are wired to the
-dedicated workflow with `postgres:16.10`. They prove:
+## 3. Recovery limitation
 
-- unlocked SELECT + client `clock_timestamp()` can omit an in-flight
-  insert whose `erased_at` is earlier than that clock;
-- `LOCK TABLE … IN SHARE MODE` waits for that writer and includes it;
-- `row-set-only` persist does not PASS a cutoff;
-- a later insert is not in the lock-held snapshot; later cutoff BLOCKED.
+Periodic snapshots cannot certify erasures committed after the last
+verified watermark. A 15-minute cadence does **not** close that tail.
+Recover stays BLOCKED when the requested cutoff is later than
+`coveredThrough`. **Do not lower the recovery cutoff to obtain PASS.**
 
-Publication tests (no Postgres):
+## 4. Tested tooling (not durability)
 
-- older pending retried after a newer seal is discarded;
-- older concurrent persist raises `StaleSnapshotError` (no regression);
-- interruption between snapshot and seal does not advance coverage;
-- `state.json` pointed at an older seal still recovers the newer ID set;
-- public CLI output contains no `authUserId`.
+Synthetic publication/retry/protocol tests, plus isolated Postgres tests
+for the in-flight commit race, lock release before persist, long-running
+writer timeout, and failed-snapshot rollback. Directory `FileStore` is
+test/local. SHA-256 is integrity of a present object, not authenticity
+or deletion/rollback protection.
 
-**Honest coverage statement:** a verified `table-share-lock` seal means
-every tombstone whose inserting transaction **committed before** the
-lock-held auth-DB `clock_timestamp()` is in the snapshot. It does **not**
-mean every row with `erased_at ≤ coveredThrough` is present.
+## 5. Next integration decisions (not implemented)
 
-## 4. Residual limitations
+1. **Remote storage and authentication** — off-host prefix; already
+   authorized identity; no secret retrieval here. Container/WORM: blocker.
+2. **Publication integrity** — signed seals or immutable versions.
+3. **Exporter scheduling** — independent lock-protocol job, not
+   nightly-backup-only.
+4. **Freshness monitoring** — watermark-age alert; backup COMPLETE ≠ coverage.
+5. **Uncovered tail after host loss** — refuse restore; do not lower cutoff.
 
-- Periodic export is not zero-loss. Uncovered window =
-  `incident_time − last_trusted_coveredThrough`.
-- `--from-ledger --visibility-protocol table-share-lock` is operator
-  attestation, not a cryptographic proof the lock was held.
-- SHA-256 is integrity of present objects, not authenticity, not
-  deletion/rollback protection.
-- Directory backend is test/local unless independently proven off-host.
-- No remote store, no production enablement, no real restore evidence.
-- Nightly backup export remains unlocked; this PR does not change it.
-- Auth/DB clock vs operator incident-time clock are assumed UTC-aligned.
-
-## 5. Concrete remote-storage requirements (blocker)
-
-Before anyone calls this “off-host durable”:
-
-1. Prefix/container **not** on the production VM.
-2. Already-authorized identity; do not retrieve `BACKUP_AZURE_*` here.
-3. Versioning + delete protection (object lock / MFA-delete).
-4. Checksum **and** store version history. Checksums alone are insufficient.
-5. Least privilege; no payload logs; 0600 supplements.
-6. Retention ≥ backup retention and until a newer trusted seal exists.
-
-Azure listing/login is unavailable from this task. Do not invent a
-container or credentials.
-
-## 6. Scoped integration (later; not in this PR)
-
-Do **not** add a scheduler or edit shared backup entrypoints now.
-
-1. Independent lock-protocol exporter, proposed **every 15 minutes**.
-2. Measurable window: `now − coveredThrough`. Freshness fail at **20
-   minutes** if the job should be healthy (interval + 5 minute slack).
-3. Export exit 1/4 or `coverageAdvanced=false` while enabled is a fail.
-4. Recover exit 3 refuses restore when coverage is insufficient.
-5. Nightly-backup-only export does **not** close the between-backups gap
-   and must not be described as doing so.
-6. Optional later: restore-drill calls recover, then
-   `restore-erasure-ledger.py` with the printed `coverageThrough` only.
-
-## 7. Acceptance layers
+## 6. Acceptance layers
 
 | Layer | Status |
 |---|---|
-| Standalone-tool acceptance | Tools + synthetic tests exist; `c86fd69b` dedicated workflow PASS. Follow-up CI must re-run including Postgres tests. |
+| Standalone-tool acceptance | Tools + tests exist; `c50f2a5f` dedicated+required CI PASS |
 | Real off-host durability | **Not accepted** |
-| Production enablement | **Not accepted** (`PARKIO_OFFHOST_ERASURE_ENABLED` off) |
-| Actual recovery acceptance | **Not accepted** (no real export/restore/erasure) |
+| Production enablement | **Not accepted** |
+| Actual recovery acceptance | **Not accepted** |
 
 **HOLD.** Keep #102 draft.
