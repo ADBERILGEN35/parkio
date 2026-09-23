@@ -30,4 +30,18 @@ if [ "${PARKIO_GMP_RECOVERY:-0}" = "1" ]; then
   ARGS+=(-f "$recovery")
 fi
 cd "$ROOT"
+# Narrow deploy-time guard: reject the known CI synthetic MapTiler key / digest.
+# Mock CI image acceptance does not use this wrapper and is unchanged.
+want_up=0
+for arg in "$@"; do
+  if [ "$arg" = "up" ]; then
+    want_up=1
+    break
+  fi
+done
+if [ "$want_up" = "1" ] && [ "${PARKIO_SKIP_WEB_MAP_GUARD:-0}" != "1" ]; then
+  "$ROOT/scripts/guard-web-synthetic-map-deploy.sh" \
+    --env-file "$ENV_FILE" \
+    --pin-file "$ROOT/docker/docker-compose.web-release-pin.yml"
+fi
 exec docker compose --env-file "$ENV_FILE" "${ARGS[@]}" "$@"
