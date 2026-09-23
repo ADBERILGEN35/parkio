@@ -14,7 +14,7 @@ wholesale into `master`.
 |---|---|---|
 | `origin/api` | `b7aaea39eeff38aed645c5d4ddbaad84efd40380` | Includes #99 and #100 |
 | #94 reviewed | `84bae47ba556986a8d6e4c0bad7fe92ebe998412` | Prior reviewed head |
-| #94 refreshed | merge `3cb4bedb` onto `api`, plus the docs/package commit on this branch | Needed because `api` protection is `strict` |
+| #94 refreshed | `da0501e9aeb33fdcaa0c7a361cbf4e570c59eed4` | `api` merged at `3cb4bedb`, then docs/package. Needed because `api` protection is `strict` |
 | #97 reviewed | `5414cf71af0d867f14e4ced64135f58636ba59a2` | Fail-closed scripts |
 | #97 refreshed | `33ae2dc117210129a6477083b566f799ba0a02a8` | `api` merged; Alertmanager render checks kept |
 | #98 | `af2552b0eee54f76801e15680579716d59054bf1` | Unchanged in this step |
