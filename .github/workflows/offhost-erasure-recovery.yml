@@ -1,0 +1,27 @@
+# Dedicated tests for the off-host erasure journal. Does not replace
+# backup-restore-drill.yml or restore-drill-01-procedure.yml.
+name: Off-host erasure recovery
+
+on:
+  pull_request:
+    paths:
+      - "scripts/lib/offhost_erasure.py"
+      - "scripts/offhost-erasure-export.py"
+      - "scripts/offhost-erasure-recover.py"
+      - "scripts/test_offhost_erasure_recovery.py"
+      - "docs/operations/offhost-erasure-recovery.md"
+      - ".github/workflows/offhost-erasure-recovery.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    name: Synthetic off-host erasure tests
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - name: Unit tests
+        run: python3 -m unittest scripts.test_offhost_erasure_recovery -v
