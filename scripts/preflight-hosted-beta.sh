@@ -575,6 +575,15 @@ else
   ok
 fi
 
+# Known CI synthetic MapTiler key must never be selected for a hosted deploy.
+# Mock CI image acceptance still uses this value and does not run this preflight.
+MAP_KEY=$(env_get VITE_MAPTILER_KEY)
+if [ "$MAP_KEY" = "ci-web-build-security-synthetic" ]; then
+  fail "VITE_MAPTILER_KEY" "known CI synthetic test map key must not be deployed" "use the authorized production MapTiler configuration; keep the synthetic key only in mock CI acceptance"
+else
+  ok
+fi
+
 APP_ENV=$(env_get VITE_APP_ENV)
 EXPECTED_APP_ENV="hosted-beta"
 if [ "$DEPLOYMENT_PROFILE" = "invite-production" ]; then
