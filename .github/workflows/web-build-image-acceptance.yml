@@ -19,9 +19,7 @@ concurrency:
 
 jobs:
   web-image:
-    if: >-
-      (github.event.pull_request.number == 87 && github.event.pull_request.head.ref == 'fix/web-build-image-security') ||
-      (github.event.pull_request.number == 91 && github.event.pull_request.base.ref == 'api' && github.event.pull_request.head.ref == 'fix/web-builder-pnpm-security')
+    if: github.event.pull_request.number == 87 || github.event.pull_request.number == 91
     runs-on: ubuntu-latest
     timeout-minutes: 45
     steps:
