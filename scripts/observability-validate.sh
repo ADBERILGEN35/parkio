@@ -37,6 +37,12 @@ promtool test rules /etc/prometheus/tests/municipal-source-health.test.yml
 promtool test rules /etc/prometheus/tests/operational-readiness-availability.test.yml
 promtool test rules /etc/prometheus/tests/blackbox-exporter.test.yml
 
+echo "==> Alertmanager templates reject unsupported | default"
+if grep -E '\|[[:space:]]*default\b' "${ROOT}/docker/alertmanager/render-config.sh"; then
+  echo "ERROR: render-config.sh uses Go-template | default (not in Alertmanager v0.27.0)" >&2
+  exit 1
+fi
+
 echo "==> Alertmanager check-config (null receiver / no webhook)"
 docker run --rm \
   -v "${ROOT}/docker/alertmanager:/etc/alertmanager:ro" \

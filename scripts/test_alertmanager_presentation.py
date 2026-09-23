@@ -18,6 +18,8 @@ def test_policy_and_izum_preview():
     assert "waitlist_display_name" in strip_sensitive_dict({"waitlist_display_name": "Sentetik Abone"})
     preview.assert_policy_unchanged()
     title, text = preview.extract_templates()
+    assert '| default' not in title + text
+    assert preview.RENDER.read_text(encoding='utf-8').count('| default') == 0
     assert 'MunicipalSourceSecondsSinceSuccessCritical' in title
     assert 'Etki: Canlı doluluk bilgileri güncel olmayabilir.' in text
     assert '.Annotations.description' not in text
