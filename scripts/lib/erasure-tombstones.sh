@@ -24,6 +24,35 @@ parkio_erasure_psql() {
   docker exec "${container}" psql -U "${user}" -d "${db}" "$@"
 }
 
+parkio_erasure_production_mode() {
+  case "${BACKUP_PRODUCTION_MODE:-0}" in
+    1|true|yes|on|TRUE|YES|ON) return 0 ;;
+    *) return 1 ;;
+  esac
+}
+
+# Secret-free: file must exist and parse as a JSON array. Does not print entries.
+parkio_erasure_ledger_validate() {
+  local file="$1"
+  if [ ! -f "${file}" ]; then
+    echo "ERROR: erasure ledger missing: ${file}" >&2
+    return 1
+  fi
+  python3 -c '
+import json, sys
+path = sys.argv[1]
+try:
+    with open(path, encoding="utf-8") as handle:
+        data = json.load(handle)
+except Exception as exc:
+    print("ERROR: erasure ledger is not JSON:", type(exc).__name__, file=sys.stderr)
+    sys.exit(1)
+if not isinstance(data, list):
+    print("ERROR: erasure ledger must be a JSON array", file=sys.stderr)
+    sys.exit(1)
+' "${file}"
+}
+
 parkio_export_erasure_tombstones() {
   local dest_dir="$1"
   local container="${2:-parkio-postgres-auth}"
@@ -32,13 +61,25 @@ parkio_export_erasure_tombstones() {
   local out="${dest_dir}/erasure-tombstones.json"
   if ! parkio_erasure_psql "${container}" "${user}" "${db}" -tAc \
       "SELECT to_regclass('public.erased_user_tombstones')" 2>/dev/null | grep -q erased_user_tombstones; then
+    if parkio_erasure_production_mode; then
+      echo "ERROR: erasure tombstone table absent (production mode forbids empty fallback)" >&2
+      return 1
+    fi
     printf '[]\n' > "${out}"
     echo "erasure tombstones: table absent (wrote empty ledger)"
     return 0
   fi
-  parkio_erasure_psql "${container}" "${user}" "${db}" -tAc \
-    "SELECT COALESCE(json_agg(json_build_object('authUserId', auth_user_id, 'erasedAt', erased_at) ORDER BY erased_at), '[]'::json)
-     FROM erased_user_tombstones;" > "${out}"
+  if ! parkio_erasure_psql "${container}" "${user}" "${db}" -tAc \
+      "SELECT COALESCE(json_agg(json_build_object('authUserId', auth_user_id, 'erasedAt', erased_at) ORDER BY erased_at), '[]'::json)
+       FROM erased_user_tombstones;" > "${out}"; then
+    echo "ERROR: erasure tombstone export query failed" >&2
+    rm -f "${out}"
+    return 1
+  fi
+  if ! parkio_erasure_ledger_validate "${out}"; then
+    rm -f "${out}"
+    return 1
+  fi
   echo "erasure tombstones: exported $(wc -c < "${out}") bytes"
 }
 

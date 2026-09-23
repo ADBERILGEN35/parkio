@@ -99,11 +99,16 @@ PARKIO_BACKUP_OFFSITE_UPLOADED=0
 parkio_backup_write_manifest "${MANIFEST_PATH}" "${STAMP}" "${GIT_SHA}" "${OPERATOR}" \
   "${ENV_FILE:-<env>}" "${DEST_DIR}" "${DB_OK}" "${DB_FAILED}" "${MINIO_OK}" "${MINIO_OBJECTS}"
 cp "${MANIFEST_PATH}" "${DEST_DIR}/backup-manifest.json"
-parkio_backup_write_stamp_integrity "${DEST_DIR}" "${STAMP}"
 
-OFFSITE_OK=1
-if ! parkio_backup_offsite_upload "${DEST_DIR}" "${BACKUP_MC_DEST:-}" "$(basename "${DEST_DIR}")"; then
-  OFFSITE_OK=0
+OFFSITE_OK=0
+if parkio_backup_allow_complete "${DEST_DIR}" "${DB_FAILED}"; then
+  parkio_backup_write_stamp_integrity "${DEST_DIR}" "${STAMP}"
+  OFFSITE_OK=1
+  if ! parkio_backup_offsite_upload "${DEST_DIR}" "${BACKUP_MC_DEST:-}" "$(basename "${DEST_DIR}")"; then
+    OFFSITE_OK=0
+  fi
+else
+  echo "ERROR: stamp left incomplete (no COMPLETE, no offsite upload)." >&2
 fi
 if [ "${OFFSITE_OK}" -eq 1 ] && [ "$(parkio_backup_offsite_kind)" != "none" ]; then
   PARKIO_BACKUP_OFFSITE_UPLOADED=1

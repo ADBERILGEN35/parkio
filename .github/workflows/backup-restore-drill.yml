@@ -25,6 +25,7 @@ on:
       - "scripts/lib/backup-metrics.py"
       - "scripts/test_backup_metrics.py"
       - "scripts/lib/erasure-tombstones.sh"
+      - "scripts/test-backup-production-fail-closed.sh"
       - "scripts/lib/restore-drill-services.sh"
       - "scripts/restore-database.sh"
       - "scripts/verify-backup.sh"
@@ -53,6 +54,7 @@ on:
       - "scripts/lib/backup-metrics.py"
       - "scripts/test_backup_metrics.py"
       - "scripts/lib/erasure-tombstones.sh"
+      - "scripts/test-backup-production-fail-closed.sh"
       - "scripts/lib/restore-drill-services.sh"
       - "scripts/restore-database.sh"
       - "scripts/verify-backup.sh"
@@ -124,6 +126,9 @@ jobs:
 
       - name: Azure SAS + MinIO encryption unit tests (offline)
         run: ./scripts/test-backup-azure-sas-minio-encryption.sh
+
+      - name: Production backup fail-closed (COMPLETE / ledger)
+        run: ./scripts/test-backup-production-fail-closed.sh
 
       # Authoritative 10-DB set from scripts/lib/restore-drill-services.sh plus MinIO.
       - name: Start database + MinIO stack

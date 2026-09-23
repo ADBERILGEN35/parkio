@@ -398,6 +398,35 @@ parkio_backup_write_checksum() {
   fi
 }
 
+# COMPLETE and offsite upload require every dump to succeed and a valid ledger.
+# Existing stamps are never rewritten by this check.
+parkio_backup_allow_complete() {
+  local dest_dir="$1"
+  local db_failed="${2:-0}"
+  if [ "${db_failed}" -ne 0 ]; then
+    echo "ERROR: refusing COMPLETE: database dump failures=${db_failed}" >&2
+    return 1
+  fi
+  local ledger="${dest_dir}/erasure-tombstones.json"
+  if [ ! -f "${ledger}" ]; then
+    echo "ERROR: refusing COMPLETE: erasure ledger missing" >&2
+    return 1
+  fi
+  python3 -c '
+import json, sys
+path = sys.argv[1]
+try:
+    with open(path, encoding="utf-8") as handle:
+        data = json.load(handle)
+except Exception as exc:
+    print("ERROR: erasure ledger is not JSON:", type(exc).__name__, file=sys.stderr)
+    sys.exit(1)
+if not isinstance(data, list):
+    print("ERROR: erasure ledger must be a JSON array", file=sys.stderr)
+    sys.exit(1)
+' "${ledger}"
+}
+
 parkio_backup_write_stamp_integrity() {
   local dest_dir="$1"
   local stamp="${2:-$(basename "${dest_dir}")}"

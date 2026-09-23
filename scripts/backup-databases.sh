@@ -118,9 +118,13 @@ done
 
 # PRIV-001: copy live erasure tombstones beside dumps (ids + timestamps only).
 # Restores must replay this ledger; do not mutate historical dump files.
+# Production mode counts a failed or invalid export as a backup failure.
 # shellcheck source=lib/erasure-tombstones.sh
 source "${SCRIPT_DIR}/lib/erasure-tombstones.sh"
-parkio_export_erasure_tombstones "${DEST_DIR}" || true
+if ! parkio_export_erasure_tombstones "${DEST_DIR}"; then
+  echo "ERROR: erasure ledger export failed" >&2
+  failures=$((failures + 1))
+fi
 
 # Optional off-box upload. The hosted-beta orchestrator sets BACKUP_SKIP_MC_UPLOAD=1
 # and uploads AFTER MinIO mirror so object storage is included in the same stamp.
