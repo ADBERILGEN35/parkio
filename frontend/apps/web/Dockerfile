@@ -1,7 +1,7 @@
 # syntax=docker/dockerfile:1
 
 # ---- build stage ----
-FROM node:22-bookworm-slim AS build
+FROM node:22-alpine3.24@sha256:b6f26b36c8ff49624cfdac716b8ea1138d606df02586a77d364bb5536a634f85 AS build
 WORKDIR /workspace
 
 # pnpm via corepack (matches repo toolchain).
