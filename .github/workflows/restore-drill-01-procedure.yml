@@ -134,6 +134,15 @@ jobs:
       - name: Assert restored state and evidence
         run: python3 scripts/ci/assert-restore-drill-01.py "$RUNNER_TEMP/rd/evidence" "$RUNNER_TEMP/rd/expected.env" rd-postgres
 
+      # CI data is synthetic, so restore stderr may be printed here. In a real drill it
+      # stays in the work dir on the drill host (it can quote data).
+      - name: Print synthetic restore errors on failure
+        if: failure()
+        run: |
+          for f in "$RUNNER_TEMP"/rd/work/*.restore.err; do
+            [ -s "$f" ] && { echo "== $(basename "$f")"; head -c 3000 "$f"; echo; }
+          done || true
+
       - name: Print secret-free evidence
         if: always()
         run: |
