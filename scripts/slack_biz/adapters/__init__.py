@@ -508,9 +508,13 @@ def from_waitlist_ops_envelope(
         correlation_key=None,
         subject_ref=None,
         context={
-            "full_name": full_name,
+            # waitlist_display_name is the allowlisted Slack name field.
+            # Do not store it as full_name: generic strip_sensitive_dict
+            # treats full_name / fullname as sensitive and would drop it.
+            "waitlist_display_name": full_name,
             "confirmed_total": confirmed_total,
             "confirmed_today_istanbul": confirmed_today,
+            "counts_snapshot_at": counts_snapshot_at,
             "readable_waitlist": True,
         },
     )

@@ -1,6 +1,5 @@
-✅ Sorun çözüldü: GatewayDown
+✅ Sorun çözüldü
 Ortam: production
-*Gateway is down*
 Durum: sorun çözüldü — koşul artık tetiklenmiyor.
-Başlangıç: 2026-09-22T11:04:05.000Z
-Runbook: https://github.com/ADBERILGEN35/parkio/blob/api/docs/operations/alert-response-runbook.md#gatewaydown
+Başlangıç: 2026-09-22 16:49 UTC
+İzleme / müdahale rehberi: https://github.com/ADBERILGEN35/parkio/blob/api/docs/operations/municipal-parking-source-runbook.md
