@@ -9,7 +9,7 @@ ports in production.
 ## 1. Prerequisites
 
 - **Docker Desktop** (Engine 24+, Compose v2) — running before you start.
-- **Node.js ≥ 20** and **pnpm 9** (`corepack enable`, or use `npx pnpm@9.15.0 ...`)
+- **Node.js ≥ 22.13** and **pnpm 11.18.0** (`corepack enable`, or use `npx pnpm@11.18.0 ...`)
   for the frontend dev server.
 - **Java is NOT required** for the Docker path — each service image builds itself
   via the Gradle wrapper inside Docker.
@@ -100,8 +100,8 @@ containers now carry an Actuator **readiness** healthcheck, so `docker compose p
 
 ```powershell
 cd frontend
-pnpm install              # or: npx pnpm@9.15.0 install
-pnpm dev                  # or: npx pnpm@9.15.0 dev
+pnpm install              # or: npx pnpm@11.18.0 install
+pnpm dev                  # or: npx pnpm@11.18.0 dev
 ```
 
 Open <http://localhost:5173>.
