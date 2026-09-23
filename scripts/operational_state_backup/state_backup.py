@@ -34,6 +34,7 @@ NR_COLUMNS = {"max_bytes", "spent_bytes", "attempts", "retry_attempts", "forward
 DB_NAMES = {"slack/slack_biz.sqlite3", "nr/budget.db"}
 SECRET_NAMES = {".env", "env", "secrets", "credentials"}
 SQLITE_HEADER = b"SQLite format 3\x00"
+SQLITE_SIDECARS = ("-wal", "-shm", "-journal")
 
 
 class SnapshotError(RuntimeError):
@@ -105,6 +106,26 @@ def assert_sqlite_header(path: Path, kind: str) -> None:
         raise SnapshotError(f"{kind}: file is not a SQLite database")
 
 
+def is_sqlite_sidecar(name: str) -> bool:
+    return name.endswith(SQLITE_SIDECARS)
+
+
+def unlink_sqlite_sidecars(path: Path) -> None:
+    for suffix in SQLITE_SIDECARS:
+        sidecar = Path(str(path) + suffix)
+        try:
+            sidecar.unlink()
+        except FileNotFoundError:
+            continue
+
+
+def staged_regular_files(stage: Path) -> list[Path]:
+    # Sidecars next to a staged Online Backup are not a separate domain and
+    # must not enter the archive; committed WAL is already in the main file.
+    return [path for path in sorted(stage.rglob("*"))
+            if path.is_file() and not is_sqlite_sidecar(path.name)]
+
+
 def sqlite_backup(source: Path, destination: Path, kind: str) -> dict:
     # Reject a destroyed main file even when a leftover WAL sidecar remains.
     # WAL replay is for a live committed database, not an overwritten header.
@@ -121,6 +142,7 @@ def sqlite_backup(source: Path, destination: Path, kind: str) -> dict:
     except sqlite3.Error as exc:
         raise SnapshotError(f"{kind}: SQLite backup failed: {exc.__class__.__name__}") from exc
     os.chmod(destination, 0o600)
+    unlink_sqlite_sidecars(destination)
     return info
 
 
@@ -168,7 +190,7 @@ def copy_tree(source: Path, stage: Path, prefix: str, schemas: dict, *, json_onl
             safe_relative(archive_name)
             if json_only and not (name.endswith(".json") or ".json.bad-" in name):
                 raise SnapshotError(f"unexpected inbox file; quiesce producer first: {relative}")
-            if name.endswith(("-wal", "-shm", "-journal")):
+            if is_sqlite_sidecar(name):
                 # SQLite's online backup incorporates committed WAL records.
                 continue
             target = stage / archive_name
@@ -224,9 +246,8 @@ def encrypt_stage(stage: Path, target: Path) -> None:
             assert proc.stdin is not None and proc.stderr is not None
             try:
                 with tarfile.open(fileobj=proc.stdin, mode="w|gz") as archive:
-                    for path in sorted(stage.rglob("*")):
-                        if path.is_file():
-                            archive.add(path, arcname=path.relative_to(stage).as_posix(), recursive=False)
+                    for path in staged_regular_files(stage):
+                        archive.add(path, arcname=path.relative_to(stage).as_posix(), recursive=False)
             finally:
                 proc.stdin.close()
             proc.stderr.read()
@@ -326,7 +347,7 @@ def snapshot(args: argparse.Namespace) -> dict:
             if inbox_inventory(args.slack_inbox) != inbox_before:
                 raise SnapshotError("inbox changed during capture")
             files = {p.relative_to(stage).as_posix(): {"bytes": p.stat().st_size, "sha256": digest(p)}
-                     for p in sorted(stage.rglob("*")) if p.is_file()}
+                     for p in staged_regular_files(stage)}
             manifest = {"format_version": FORMAT, "started_at": started, "finished_at": utc(),
                         "gateway_outbox_backup_id": args.gateway_outbox_backup_id,
                         "consistency": "independent-domains; publishers must remain disabled during recovery",

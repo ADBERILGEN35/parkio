@@ -250,6 +250,19 @@ class CoordinatorLifecycleTest(unittest.TestCase):
             backup.sqlite_backup(db, dest, "slack")
         self.assertFalse(dest.exists())
 
+    def test_staged_sqlite_sidecars_are_not_a_domain(self):
+        from operational_state_backup import state_backup as backup
+        stage = self.root / "stage"
+        (stage / "slack").mkdir(parents=True)
+        (stage / "slack" / "slack_biz.sqlite3").write_bytes(backup.SQLITE_HEADER)
+        (stage / "slack" / "slack_biz.sqlite3-wal").write_bytes(b"sidecar")
+        (stage / "slack" / "slack_biz.sqlite3-shm").write_bytes(b"sidecar")
+        names = [path.relative_to(stage).as_posix() for path in backup.staged_regular_files(stage)]
+        self.assertEqual(names, ["slack/slack_biz.sqlite3"])
+        backup.unlink_sqlite_sidecars(stage / "slack" / "slack_biz.sqlite3")
+        self.assertFalse((stage / "slack" / "slack_biz.sqlite3-wal").exists())
+        self.assertFalse((stage / "slack" / "slack_biz.sqlite3-shm").exists())
+
     def test_individual_pr_helpers_still_present(self):
         self.assertTrue((ROOT / "scripts/operational_state_backup/state_backup.py").is_file())
         self.assertTrue((ROOT / "scripts/newrelic_log_pilot/test_budget_recovery_guard.py").is_file())
