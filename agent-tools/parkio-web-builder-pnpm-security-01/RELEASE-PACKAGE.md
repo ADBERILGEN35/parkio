@@ -48,6 +48,21 @@ prior install-script restriction; no dependency scripts are enabled.
 the 11 importers, 1,431 package records, and 1,444 snapshots are unchanged.
 The nginx stage and all runtime configuration remain untouched.
 
+The first same-DB CI scan on `a547d76b188509fbdcfb98ee1675d0cafc509899`
+reproduced the baseline exactly (0/4/2/1/0) and found 1 CRITICAL,
+21 HIGH, 21 MEDIUM, 3 LOW, 1 UNKNOWN in the candidate builder; both runtimes
+had zero. The added CRITICAL/HIGH records all came from one Go binary at
+`/root/.local/share/pnpm/store/v11/files/e8/fe5565...-exec`, compiled with
+Go 1.23.12. Its SHA-512 matched the official `@esbuild/linux-x64@0.25.9`
+package binary exactly. That version is a direct **mobile-v2** development
+dependency in the shared lockfile; it is not in the web dependency graph.
+The previous web Dockerfile installed every lockfile workspace, including
+mobile development tools. This follow-up now uses pnpm's frozen filtered
+install for `@parkio/web...`, so the actual web builder installs only the web
+workspace graph from the unchanged lockfile. No package is removed after
+installation or before scanning. The next CI scan must verify that this
+install scope removes the unrelated binary and introduces no new findings.
+
 ## CI acceptance and artifacts
 
 The dedicated GitHub Actions workflow checks out the exact PR source and
