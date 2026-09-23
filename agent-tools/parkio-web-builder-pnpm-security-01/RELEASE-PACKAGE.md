@@ -2,18 +2,20 @@
 
 ## Scope and integration
 
-This draft PR is based on the reviewed, unmerged PR #87 head
-`94745782fd7e5b9d7a331f8318d8d1d84bf18b91`. It changes the web build
-toolchain only. PR #87 remains unchanged and draft. Current `origin/api`
-includes PR #90 (`5b8cb938cf96bbc7c9e0efddbc50bb86b938f7c9`); its
-production pin and reconciliation files have no overlap with this follow-up.
-Integrate #87 first, then reconcile this branch with current `api` by the
-repository's normal merge workflow and revalidate the resulting source before
-merging this follow-up. No merge, image publication, or deployment is authorized.
+PR #87's reviewed head was `94745782fd7e5b9d7a331f8318d8d1d84bf18b91`.
+After a normal merge of PR #90's `api` head into #87, its source head
+`59c9e02bf578b69a4ef9b28ea45b5170d59ae512` passed required and web
+checks. PR #87 was marked ready and merged normally into `api` as
+`fecd338f3e2ef0d8d9936b3694da8ebc1ea40c3d`. No intermediate image was
+published or deployed. This draft PR #91 then merged that `api` head normally
+(`feeb6a17f6ba947b9e228d0e7d45b1149279c4ef`) and targets `api`.
+Its comparison with `api` contains only the web build toolchain follow-up.
+PR #90's configuration reconciliation and all production pins are preserved.
+PR #91 remains draft and unmerged pending the final release decision.
 
-The candidate in this follow-up supersedes #87's candidate only if its final
-exact-head CI, same-database scans, and actual-container acceptance pass. The
-release decision also requires review of every residual finding.
+The reconciled candidate supersedes #87's candidate only if final exact-head
+CI, same-database scans, and actual-container acceptance pass. The release
+decision also requires explicit review of the residual LOW finding.
 
 ## Vulnerability and toolchain delta
 
@@ -131,15 +133,31 @@ includes the image archive and full scans. Archive SHA-256:
 its manifest config matches runtime ID
 `sha256:5452aeeb04b89927ae06607c197a309c5cb45ab888ae380d3524f0030b5f470c`.
 
-This documentation and CI invocation edit creates a new PR head. The final
-exact-head artifact and verdict will be recorded in PR #91 after CI finishes;
-the image above is evidence for the prior source, not an exact-image claim
-for the new head.
+The source and acceptance results above predate the `api` reconciliation.
+The final exact-head source, artifact checksum, image/config IDs, and verdict
+will be recorded in PR #91 after CI finishes. The prior image IDs above are
+historical evidence, not exact-image claims for the reconciled head.
 
 ## Release and rollback
 
-If CI passes and residual findings are reviewed, merge #87 first, reconcile
-this follow-up against current `api` by a normal merge, and rerun exact-head
-acceptance. A separately authorized release may then build and publish that
-reconciled source and update the web pin. Rollback would restore the prior
-reviewed web image pin; production pins are untouched here.
+If final-head CI passes, PR #91 is ready for a separate source-merge and
+release decision. Keep it draft and unmerged until that decision. This is one
+combined web release: do not publish or deploy PR #87's intermediate image.
+The source-configured current web rollback identity is
+`ghcr.io/adberilgen35/parkio/web@sha256:32f03b4401d655ae76d465587604a6cc900bafb7938eea4ea718ba21f60316a6`
+(`docker/docker-compose.web-release-pin.yml`); live production identity has
+not been reverified by this task. A later authorized release should merge #91,
+build and publish an immutable web image from the approved combined source,
+record its index and linux/amd64 manifest digests, and change only
+`services.web.image` in a separate production-pin change. Apply that pin with
+`scripts/parkio-prod-compose.sh up -d --no-build --no-deps --force-recreate web`,
+then verify web health, routes, assets, security/cache headers, and the intended
+flags. Roll back by restoring the verified pre-release web pin and recreating
+only `web` with the same command. No publication, pin edit, production access,
+or deployment occurs in this PR.
+
+The LOW `esbuild` advisory has an upstream fix but needs a separate narrow
+Vite compatibility review. It is disclosed for the release decision; this
+package does not silently accept or suppress it. The legacy mobile advisory
+subjob's unchanged Expo SDK mismatches are separate from required and web
+specific CI and do not authorize unrelated mobile dependency changes here.
