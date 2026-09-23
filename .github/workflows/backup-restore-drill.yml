@@ -33,9 +33,10 @@ on:
       - "docker/docker-compose.yml"
       - "services/parking-service/src/main/resources/db/migration/**"
       - ".github/workflows/backup-restore-drill.yml"
-  schedule:
-    # 04:23 UTC every Monday (off the hour to avoid the cron stampede).
-    - cron: "23 4 * * 1"
+  # Schedule removed: default-branch schedules ran this stale master workflow
+  # (no postgres-gateway) every Monday. Weekly runs are dispatched onto api
+  # by scheduled-restore-drills.yml. Keep workflow_dispatch for one-off checks
+  # of this historical file only.
   workflow_dispatch:
 
 permissions:
