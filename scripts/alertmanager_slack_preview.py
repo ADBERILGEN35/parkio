@@ -15,6 +15,11 @@ RUNBOOK = (
     "https://github.com/ADBERILGEN35/parkio/blob/api/docs/operations/"
     "municipal-parking-source-runbook.md"
 )
+REPO = "https://github.com/ADBERILGEN35/parkio/blob/api/"
+SYNTHETIC_PREVIEW = (
+    "SYNTHETIC PREVIEW — StartsAt values are fixture timestamps, "
+    "not historical operator-screenshot times."
+)
 
 ROUTE_MARKERS = (
     'group_by: ["alertname", "service", "severity", "component"]',
@@ -63,6 +68,7 @@ class TemplateData:
     alerts: list
     firing: list = field(default_factory=list)
     resolved: list = field(default_factory=list)
+    common_annotations: dict = field(default_factory=dict)
 
     def __post_init__(self):
         if not self.firing:
@@ -93,59 +99,128 @@ def assert_policy_unchanged(source: str | None = None) -> None:
         raise AssertionError("English default FIRING template leaked into render-config.sh")
     if "parkio_municipal_source_seconds_since_success" in text:
         raise AssertionError("alert expressions must not move into Alertmanager")
+    if "| default" in text:
+        raise AssertionError("unsupported | default leaked back into templates")
+
+
+def source_name(key: str | None) -> str:
+    return {
+        "izmir-izum-otoparklar": "İZUM",
+        "istanbul-ispark-parks": "İSPARK",
+        "osm-geofabrik-turkey": "OSM",
+    }.get(key or "", key or "belediye kaynağı")
+
+
+def abs_url(url: str) -> str:
+    if re.match(r"^https?://", url):
+        return url
+    return REPO + url.lstrip("/")
+
+
+def _sev(labels: dict) -> str:
+    return "🔴 Kritik" if labels.get("severity") == "critical" else "⚠️ Uyarı"
 
 
 def _title(data: TemplateData, title_tmpl: str) -> str:
-    # Evaluate the exact extracted title template by its documented branches.
-    if "{{ if eq .Status \"resolved\" }}" not in title_tmpl:
+    if '{{ if eq .Status "resolved" }}' not in title_tmpl:
         raise AssertionError("title template missing resolved branch")
-    if "MunicipalSourceSecondsSinceSuccessCritical" not in title_tmpl:
-        raise AssertionError("title template missing IZUM critical branch")
+    if "match \"ConsecutiveFailures\"" not in title_tmpl:
+        raise AssertionError("title template missing consecutive-failure branch")
+    if "match \"SecondsSinceSuccess\"" not in title_tmpl:
+        raise AssertionError("title template missing stale-age branch")
+    if "GatewayDown" not in title_tmpl or "Gateway kapalı" not in title_tmpl:
+        raise AssertionError("title template missing GatewayDown Turkish branch")
+    if "bilinmeyen uyarı" not in title_tmpl:
+        raise AssertionError("title template missing generic unknown title")
     if data.status == "resolved":
+        if data.common_labels.get("source_key"):
+            return "✅ Sorun çözüldü — " + source_name(data.common_labels.get("source_key"))
+        if data.common_labels.get("service"):
+            return "✅ Sorun çözüldü — " + data.common_labels["service"]
         return "✅ Sorun çözüldü"
     if data.firing and data.resolved:
         return (
             f"⚠️ Karışık grup ({len(data.firing)} aktif / {len(data.resolved)} çözüldü)"
         )
-    name = data.common_labels.get("alertname") or "bilinmeyen-uyarı"
-    if name == "MunicipalSourceSecondsSinceSuccessCritical":
-        return "🔴 Kritik — İZUM verileri güncellenemiyor"
-    if data.common_labels.get("severity") == "critical":
-        return f"🔴 Kritik — {name}"
-    return f"⚠️ Uyarı — {name}"
+    name = data.common_labels.get("alertname") or ""
+    src = source_name(data.common_labels.get("source_key"))
+    if "ConsecutiveFailures" in name:
+        return f"{_sev(data.common_labels)} — {src} ardışık hatalar"
+    if "SecondsSinceSuccess" in name:
+        return f"{_sev(data.common_labels)} — {src} verileri güncellenemiyor"
+    if "StaleRunning" in name:
+        return f"{_sev(data.common_labels)} — {src} senkron işlemi bitmedi"
+    if re.search(r"Municipal(Source|Ispark|Osm)Recovered", name):
+        return f"✅ {src} toparlandı"
+    if name == "GatewayDown":
+        return "🔴 Kritik — Gateway kapalı"
+    headline = data.common_annotations.get("summary") or "bilinmeyen uyarı"
+    return f"{_sev(data.common_labels)} — {headline}"
+
+
+def _impact(alert: AlertView) -> str:
+    key = alert.labels.get("source_key")
+    if key in ("izmir-izum-otoparklar", "istanbul-ispark-parks"):
+        return "Etki: Canlı doluluk bilgileri güncel olmayabilir."
+    if key == "osm-geofabrik-turkey":
+        return "Etki: Harita veya içe aktarma tarafı etkilenebilir; bu kaynak canlı doluluk kaynağı değildir."
+    if key:
+        return "Etki: Kaynak etkilenebilir; kullanıcı etkisi bu kaynağa göre değişir."
+    if alert.labels.get("service"):
+        return f"Etki: {alert.labels['service']} servisi etkilenebilir."
+    return "Etki: Kullanıcı etkisi bu uyarının etiketlerine göre değişir."
 
 
 def _alert_body(alert: AlertView, text_tmpl: str) -> str:
-    if "Etki: Canlı doluluk bilgileri güncel olmayabilir." not in text_tmpl:
-        raise AssertionError("text template missing IZUM impact line")
+    if "Başlangıç (UTC):" not in text_tmpl:
+        raise AssertionError("text template missing explicit UTC timestamp")
+    if ".StartsAt" not in text_tmpl:
+        raise AssertionError("text template must format each alert StartsAt")
+    if "veri alınamadı" in text_tmpl:
+        raise AssertionError("age copy must not claim no data was received")
     if ".Annotations.description" in text_tmpl:
         raise AssertionError("text template still dumps raw description")
+    if "reReplaceAll" not in text_tmpl:
+        raise AssertionError("text template missing relative runbook conversion")
     lines: list[str] = []
-    name = alert.labels.get("alertname") or "bilinmeyen-uyarı"
-    if name == "MunicipalSourceSecondsSinceSuccessCritical":
-        if alert.status == "resolved":
-            lines.append("Durum: sorun çözüldü — koşul artık tetiklenmiyor.")
-        else:
-            lines.append("Etki: Canlı doluluk bilgileri güncel olmayabilir.")
-            if alert.annotations.get("value"):
-                lines.append("Son başarılı güncelleme: " + alert.annotations["value"])
-        lines.append(f"Başlangıç: {alert.starts_at.format_utc()} UTC")
-        if alert.status != "resolved":
-            lines.append("İlk kontrol: İZUM senkronunu ve parking-service sağlık uçlarını doğrulayın.")
+    name = alert.labels.get("alertname") or ""
+    if alert.labels.get("source_key"):
+        key = alert.labels["source_key"]
+        lines.append(f"Kaynak: {source_name(key)} ({key})")
+    elif alert.labels.get("service"):
+        lines.append("Servis: " + alert.labels["service"])
+    if alert.status == "resolved":
+        lines.append("Durum: sorun çözüldü — koşul artık tetiklenmiyor.")
     else:
-        if alert.status == "resolved":
-            lines.append("Durum: sorun çözüldü — koşul artık tetiklenmiyor.")
+        recovered = bool(re.search(r"Municipal(Source|Ispark|Osm)Recovered", name))
+        if "ConsecutiveFailures" in name:
+            lines.append("Durum: ardışık hatalar sürüyor.")
+        elif "SecondsSinceSuccess" in name:
+            lines.append("Durum: başarılı güncelleme penceresi aşıldı.")
+        elif "StaleRunning" in name:
+            lines.append("Durum: bir senkron işlemi hâlâ RUNNING görünüyor.")
+        elif recovered:
+            lines.append("Durum: kaynak toparlandı.")
+        elif alert.annotations.get("summary"):
+            lines.append("Özet: " + alert.annotations["summary"])
+        if not recovered:
+            lines.append(_impact(alert))
+        if alert.annotations.get("operator_action"):
+            lines.append("İlk kontrol: " + alert.annotations["operator_action"])
+        elif alert.labels.get("source_key"):
+            lines.append("İlk kontrol: Runbook’u açın; parking-service sağlık uçlarını doğrulayın.")
         else:
-            lines.append("Uyarı: " + name)
-            if alert.labels.get("service"):
-                lines.append("Servis: " + alert.labels["service"])
-            if alert.labels.get("source_key"):
-                lines.append("Kaynak: " + alert.labels["source_key"])
-            lines.append(f"Başlangıç: {alert.starts_at.format_utc()} UTC")
             lines.append("İlk kontrol: runbook ve izleme bağlantılarını kullanın.")
-    links = [alert.annotations[k] for k in ("runbook_url", "dashboard_url") if alert.annotations.get(k)]
+    lines.append(f"Başlangıç (UTC): {alert.starts_at.format_utc()}")
+    links = []
+    if alert.annotations.get("runbook_url"):
+        links.append(abs_url(alert.annotations["runbook_url"]))
+    if alert.annotations.get("dashboard_url"):
+        links.append(abs_url(alert.annotations["dashboard_url"]))
     if links:
         lines.append("İzleme / müdahale rehberi: " + " · ".join(links))
+    if name:
+        lines.append("Tanı: " + name)
     return "\n".join(lines)
 
 
@@ -165,25 +240,37 @@ def render_message(data: TemplateData) -> str:
     return "\n".join(lines).strip()
 
 
-def izum_critical(*, status: str = "firing", value: str | None = None) -> TemplateData:
-    annotations = {"runbook_url": RUNBOOK}
-    if value:
-        annotations["value"] = value
+def municipal(
+    alertname: str,
+    *,
+    source_key: str = "izmir-izum-otoparklar",
+    severity: str = "warning",
+    status: str = "firing",
+    runbook: str | None = RUNBOOK,
+    operator_action: str | None = "Runbook’u açın; actuator health ve kaynak SLA’sını doğrulayın.",
+    starts: datetime | None = None,
+) -> TemplateData:
+    annotations = {}
+    if runbook:
+        annotations["runbook_url"] = runbook
+    if operator_action:
+        annotations["operator_action"] = operator_action
     alert = AlertView(
         status="resolved" if status == "resolved" else "firing",
         labels={
-            "alertname": "MunicipalSourceSecondsSinceSuccessCritical",
-            "severity": "critical",
-            "source_key": "izmir-izum-otoparklar",
+            "alertname": alertname,
+            "severity": severity,
+            "source_key": source_key,
         },
         annotations=annotations,
-        starts_at=AmTime(datetime(2026, 9, 22, 16, 49, 47, tzinfo=timezone.utc)),
+        starts_at=AmTime(starts or datetime(2026, 9, 23, 16, 49, 47, tzinfo=timezone.utc)),
     )
     return TemplateData(
         status="resolved" if status == "resolved" else "firing",
         common_labels={
-            "alertname": "MunicipalSourceSecondsSinceSuccessCritical",
-            "severity": "critical",
+            "alertname": alertname,
+            "severity": severity,
+            "source_key": source_key,
             "environment": "production",
         },
         alerts=[alert],
@@ -196,11 +283,12 @@ def preview_suite() -> dict[str, str]:
     assert_policy_unchanged()
     title_tmpl, text_tmpl = extract_templates()
     for required in (
-        "🔴 Kritik — İZUM verileri güncellenemiyor",
-        "Etki: Canlı doluluk bilgileri güncel olmayabilir.",
-        "İzleme / müdahale rehberi:",
-        'StartsAt.UTC.Format "2006-01-02 15:04"',
-        "bilinmeyen-uyarı",
+        'match "ConsecutiveFailures"',
+        'match "SecondsSinceSuccess"',
+        "Başlangıç (UTC):",
+        "blob/api/",
+        "bilinmeyen uyarı",
+        "Karışık grup",
     ):
         if required not in title_tmpl + text_tmpl:
             raise AssertionError("runtime template missing: " + required)
@@ -216,14 +304,57 @@ def preview_suite() -> dict[str, str]:
     )
     recovered = AlertView(
         status="resolved",
-        labels={"alertname": "UnknownSyntheticAlert", "severity": "warning"},
+        labels={"alertname": "UnknownSyntheticAlert", "severity": "warning", "service": "gateway-service"},
         annotations={"description": "Gateway health check failed.", "runbook_url": RUNBOOK},
         starts_at=AmTime(datetime(2026, 9, 22, 11, 4, 5, tzinfo=timezone.utc)),
     )
+    gateway = AlertView(
+        status="firing",
+        labels={"alertname": "GatewayDown", "severity": "critical", "service": "gateway-service"},
+        annotations={
+            "summary": "Gateway is down",
+            "runbook_url": "docs/operations/alert-response-runbook.md#gatewaydown",
+        },
+        starts_at=AmTime(datetime(2026, 9, 23, 12, 0, tzinfo=timezone.utc)),
+    )
     return {
-        "critical": render_message(izum_critical()),
-        "resolved": render_message(izum_critical(status="resolved")),
-        "warning": render_message(
+        "consecutive-critical": render_message(
+            municipal("MunicipalSourceConsecutiveFailuresCritical", severity="critical")
+        ),
+        "consecutive-warning": render_message(
+            municipal("MunicipalSourceConsecutiveFailuresWarning", severity="warning")
+        ),
+        "stale-warning": render_message(
+            municipal("MunicipalSourceSecondsSinceSuccessWarning", severity="warning")
+        ),
+        "stale-critical": render_message(
+            municipal("MunicipalSourceSecondsSinceSuccessCritical", severity="critical")
+        ),
+        "ispark-consecutive": render_message(
+            municipal(
+                "MunicipalIsparkConsecutiveFailuresWarning",
+                source_key="istanbul-ispark-parks",
+                severity="warning",
+            )
+        ),
+        "osm-consecutive": render_message(
+            municipal(
+                "MunicipalOsmConsecutiveFailuresCritical",
+                source_key="osm-geofabrik-turkey",
+                severity="critical",
+            )
+        ),
+        "relative-runbook": render_message(
+            municipal(
+                "MunicipalSourceSecondsSinceSuccessCritical",
+                severity="critical",
+                runbook="docs/operations/municipal-parking-source-runbook.md",
+            )
+        ),
+        "resolved": render_message(
+            municipal("MunicipalSourceSecondsSinceSuccessCritical", severity="critical", status="resolved")
+        ),
+        "unknown": render_message(
             TemplateData(
                 status="firing",
                 common_labels={
@@ -232,6 +363,18 @@ def preview_suite() -> dict[str, str]:
                     "environment": "production",
                 },
                 alerts=[unknown],
+            )
+        ),
+        "gateway-down": render_message(
+            TemplateData(
+                status="firing",
+                common_labels={
+                    "alertname": "GatewayDown",
+                    "severity": "critical",
+                    "service": "gateway-service",
+                },
+                common_annotations={"summary": "Gateway is down"},
+                alerts=[gateway],
             )
         ),
         "mixed": render_message(
@@ -246,8 +389,56 @@ def preview_suite() -> dict[str, str]:
         "grouped": render_message(
             TemplateData(
                 status="firing",
-                common_labels={"severity": "warning", "environment": "production"},
+                common_labels={
+                    "alertname": "UnknownSyntheticAlert",
+                    "severity": "warning",
+                    "environment": "production",
+                },
                 alerts=[unknown, unknown],
+            )
+        ),
+        "missing-annotations": render_message(
+            municipal(
+                "MunicipalSourceConsecutiveFailuresWarning",
+                severity="warning",
+                runbook=None,
+                operator_action=None,
+            )
+        ),
+        "stale-running": render_message(
+            municipal("MunicipalSourceStaleRunningOperation", severity="warning")
+        ),
+        "recovered": render_message(
+            municipal("MunicipalSourceRecovered", severity="warning")
+        ),
+        "occupancy-retention": render_message(
+            TemplateData(
+                status="firing",
+                common_labels={
+                    "alertname": "MunicipalOccupancyRetentionStale",
+                    "severity": "warning",
+                    "environment": "production",
+                },
+                common_annotations={
+                    "summary": "Belediye doluluk saklama yakın zamanda başarılı olmadı"
+                },
+                alerts=[
+                    AlertView(
+                        status="firing",
+                        labels={
+                            "alertname": "MunicipalOccupancyRetentionStale",
+                            "severity": "warning",
+                        },
+                        annotations={
+                            "summary": "Belediye doluluk saklama yakın zamanda başarılı olmadı",
+                            "operator_action": "Runbook’u açın; actuator health ve kaynak SLA’sını doğrulayın.",
+                            "runbook_url": RUNBOOK,
+                        },
+                        starts_at=AmTime(
+                            datetime(2026, 9, 23, 16, 49, 47, tzinfo=timezone.utc)
+                        ),
+                    )
+                ],
             )
         ),
     }
@@ -262,7 +453,7 @@ def main() -> None:
         args.write_dir.mkdir(parents=True, exist_ok=True)
         for name, body in suite.items():
             (args.write_dir / f"alertmanager-preview-{name}.txt").write_text(
-                body + "\n", encoding="utf-8"
+                SYNTHETIC_PREVIEW + "\n" + body + "\n", encoding="utf-8"
             )
     for name, body in suite.items():
         print("===== " + name + " =====")

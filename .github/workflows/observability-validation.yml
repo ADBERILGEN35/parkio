@@ -21,6 +21,10 @@ on:
       - "docker/docker-compose.invite-*.yml"
       - "infra/systemd/parkio-invite-backup.service"
       - "scripts/observability-validate.sh"
+      - "scripts/test-alertmanager-slack-render.sh"
+      - "scripts/ci/alertmanager-slack-mock.py"
+      - "scripts/test_alertmanager_presentation.py"
+      - "scripts/alertmanager_slack_preview.py"
       - "scripts/alerting-acceptance.sh"
       - "scripts/alerting-operator-acceptance.sh"
       - "scripts/lib/assert-real-slack-acceptance.sh"
@@ -49,6 +53,10 @@ on:
       - "docker/docker-compose.invite-*.yml"
       - "infra/systemd/parkio-invite-backup.service"
       - "scripts/observability-validate.sh"
+      - "scripts/test-alertmanager-slack-render.sh"
+      - "scripts/ci/alertmanager-slack-mock.py"
+      - "scripts/test_alertmanager_presentation.py"
+      - "scripts/alertmanager_slack_preview.py"
       - "scripts/alerting-acceptance.sh"
       - "scripts/alerting-operator-acceptance.sh"
       - "scripts/lib/assert-real-slack-acceptance.sh"
@@ -86,6 +94,13 @@ jobs:
           set -euo pipefail
           chmod +x scripts/observability-validate.sh docker/alertmanager/render-config.sh
           ./scripts/observability-validate.sh
+          python3 scripts/test_alertmanager_presentation.py
+
+      - name: Alertmanager Slack template execution (v0.27.0 + mock receiver)
+        run: |
+          set -euo pipefail
+          chmod +x scripts/test-alertmanager-slack-render.sh
+          ./scripts/test-alertmanager-slack-render.sh
 
       - name: Grafana dashboard structure
         run: |
@@ -214,15 +229,17 @@ jobs:
           set -euo pipefail
           chmod +x scripts/backup-*.sh scripts/restore-hosted-beta.sh scripts/lib/backup-common.sh \
             scripts/observability-validate.sh scripts/alerting-acceptance.sh \
+            scripts/test-alertmanager-slack-render.sh \
             scripts/test-backup-azure-sas-minio-encryption.sh \
             scripts/test-backup-production-fail-closed.sh
           for f in scripts/backup-hosted-beta.sh scripts/backup-minio.sh scripts/restore-hosted-beta.sh \
             scripts/lib/backup-common.sh scripts/observability-validate.sh scripts/alerting-acceptance.sh \
+            scripts/test-alertmanager-slack-render.sh \
             scripts/test-backup-azure-sas-minio-encryption.sh \
             scripts/test-backup-production-fail-closed.sh; do
             bash -n "$f"
           done
-          python3 -m py_compile scripts/alerting-acceptance-receiver.py
+          python3 -m py_compile scripts/alerting-acceptance-receiver.py scripts/ci/alertmanager-slack-mock.py
           ./scripts/test-backup-azure-sas-minio-encryption.sh
           ./scripts/test-backup-production-fail-closed.sh
 
