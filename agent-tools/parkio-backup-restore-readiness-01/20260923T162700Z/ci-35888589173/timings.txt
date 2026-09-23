@@ -1,0 +1,11 @@
+auth restore_seconds=1
+gateway restore_seconds=0
+user restore_seconds=0
+parking restore_seconds=1
+media restore_seconds=1
+gamification restore_seconds=1
+notification restore_seconds=0
+moderation restore_seconds=0
+analytics restore_seconds=1
+ai-validation restore_seconds=1
+total_seconds=12

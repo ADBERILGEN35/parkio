@@ -1,0 +1,29 @@
+{
+  "extensionCatalogsExcluded": {
+    "public.spatial_ref_sys": {
+      "dump": 0,
+      "reason": "CREATE EXTENSION reseeds PostGIS/Tiger/Topology catalogs; pg_dump of unmodified extension members emits an empty COPY",
+      "restored": 8500
+    },
+    "tiger.pagc_gaz": {
+      "dump": 0,
+      "reason": "CREATE EXTENSION reseeds PostGIS/Tiger/Topology catalogs; pg_dump of unmodified extension members emits an empty COPY",
+      "restored": 835
+    },
+    "tiger.pagc_lex": {
+      "dump": 0,
+      "reason": "CREATE EXTENSION reseeds PostGIS/Tiger/Topology catalogs; pg_dump of unmodified extension members emits an empty COPY",
+      "restored": 2938
+    },
+    "tiger.pagc_rules": {
+      "dump": 0,
+      "reason": "CREATE EXTENSION reseeds PostGIS/Tiger/Topology catalogs; pg_dump of unmodified extension members emits an empty COPY",
+      "restored": 4354
+    }
+  },
+  "mismatches": {},
+  "rowsInDump": 54,
+  "tables": 52,
+  "truncatedDump": false,
+  "verdict": "PASS"
+}

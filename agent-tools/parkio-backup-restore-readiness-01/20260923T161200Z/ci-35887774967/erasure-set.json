@@ -1,0 +1,22 @@
+{
+  "tool": "restore-erasure-ledger",
+  "schemaVersion": 1,
+  "dataStamp": "2026-09-23T16-18-54Z",
+  "ledgers": [
+    {
+      "stamp": "2026-09-23T16-18-54Z",
+      "tombstones": 1
+    },
+    {
+      "stamp": "2026-09-23T16-18-59Z",
+      "tombstones": 2
+    }
+  ],
+  "supplementalTombstones": 0,
+  "mergedTombstones": 2,
+  "erasedAfterDataStamp": 1,
+  "coverageThrough": "2026-09-23T16:18:59Z",
+  "recoveryCutoff": "2026-09-23T16:18:59Z",
+  "uncoveredSeconds": 0,
+  "verdict": "PASS"
+}

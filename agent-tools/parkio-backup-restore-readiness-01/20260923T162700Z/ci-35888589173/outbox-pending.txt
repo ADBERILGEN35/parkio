@@ -1,0 +1,11 @@
+auth|outbox_events|unpublished|2
+user|outbox_events|unpublished|1
+parking|outbox_events|unpublished|1
+media|outbox_events|unpublished|0
+gamification|outbox_events|unpublished|0
+notification|outbox_events|unpublished|0
+moderation|outbox_events|unpublished|0
+analytics|outbox_events|unpublished|0
+ai-validation|outbox_events|unpublished|0
+gateway|waitlist_ops_notification_outbox|EXPORTED|1
+gateway|waitlist_ops_notification_outbox|PENDING|1
