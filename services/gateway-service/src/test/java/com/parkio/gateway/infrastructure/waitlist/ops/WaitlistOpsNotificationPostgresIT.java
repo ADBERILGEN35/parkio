@@ -7,6 +7,7 @@ import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.Mockito.doAnswer;
 import static org.mockito.Mockito.when;
 
+import com.fasterxml.jackson.databind.ObjectMapper;
 import com.parkio.gateway.application.waitlist.SubmitWaitlistCommand;
 import com.parkio.gateway.application.waitlist.WaitlistApplicationService;
 import com.parkio.gateway.application.waitlist.WaitlistEmailSender;
@@ -22,6 +23,7 @@ import java.nio.file.Path;
 import java.sql.Timestamp;
 import java.time.Instant;
 import java.time.temporal.ChronoUnit;
+import java.util.Map;
 import java.util.UUID;
 import java.util.concurrent.atomic.AtomicReference;
 import org.junit.jupiter.api.BeforeEach;
@@ -125,6 +127,15 @@ class WaitlistOpsNotificationPostgresIT {
         jdbcTemplate.execute("DROP TRIGGER IF EXISTS it_fail_outbox_insert ON waitlist_ops_notification_outbox");
         jdbcTemplate.update("DELETE FROM waitlist_ops_notification_outbox");
         jdbcTemplate.update("DELETE FROM waitlist_interest");
+        if (inbox != null) {
+            try (var files = Files.list(inbox)) {
+                for (Path file : files.toList()) {
+                    Files.deleteIfExists(file);
+                }
+            } catch (Exception ex) {
+                throw new IllegalStateException(ex);
+            }
+        }
     }
 
     @Test
@@ -162,6 +173,51 @@ class WaitlistOpsNotificationPostgresIT {
         assertThat(exporter.exportDue().exported()).isEqualTo(1);
         assertThat(jdbcTemplate.queryForObject(
                 "SELECT status FROM waitlist_ops_notification_outbox", String.class)).isEqualTo("EXPORTED");
+    }
+
+    @Test
+    void namedConfirmationExportsAllowlistedFullNameOnPostgres() throws Exception {
+        token.set(null);
+        service.submit(new SubmitWaitlistCommand(
+                "pg.named@example.test",
+                Instant.now(),
+                "Ayşe Yılmaz",
+                null,
+                null,
+                "parkio.dev-landing",
+                "tr",
+                "198.51.100.40",
+                null)).block();
+        service.confirm(token.get()).block();
+        assertThat(status()).isEqualTo("CONFIRMED");
+        assertThat(repository.findById(interestId()).orElseThrow().fullName())
+                .isEqualTo("Ayşe Yılmaz");
+        assertThat(exporter.exportDue().exported()).isEqualTo(1);
+
+        Path file = exportedEnvelope();
+        @SuppressWarnings("unchecked")
+        Map<String, Object> envelope = new ObjectMapper().readValue(Files.readString(file), Map.class);
+        assertThat(envelope.get("contractVersion")).isEqualTo(2);
+        assertThat(envelope.get("fullName")).isEqualTo("Ayşe Yılmaz");
+        assertThat(envelope.get("eventId")).isNotEqualTo(interestId().toString());
+        String raw = Files.readString(file);
+        assertThat(raw).doesNotContain("pg.named@example.test", "198.51.100.40");
+        copyEnvelopeIfRequested(file, "named-v2.json");
+    }
+
+    @Test
+    void namelessHistoricalConfirmationExportsNullFullNameOnPostgres() throws Exception {
+        String rawToken = submit("pg.nameless@example.test");
+        service.confirm(rawToken).block();
+        assertThat(status()).isEqualTo("CONFIRMED");
+        assertThat(repository.findById(interestId()).orElseThrow().fullName()).isNull();
+        assertThat(exporter.exportDue().exported()).isEqualTo(1);
+
+        @SuppressWarnings("unchecked")
+        Map<String, Object> envelope = new ObjectMapper().readValue(Files.readString(exportedEnvelope()), Map.class);
+        assertThat(envelope.get("contractVersion")).isEqualTo(2);
+        assertThat(envelope.get("fullName")).isNull();
+        copyEnvelopeIfRequested(exportedEnvelope(), "nameless-v2.json");
     }
 
     @Test
@@ -261,6 +317,27 @@ class WaitlistOpsNotificationPostgresIT {
                 VALUES (?, 'waitlist.subscription_confirmed', ?, ?, ?, ?, ?)
                 """, UUID.randomUUID(), "waitlist:subscription_confirmed:" + UUID.randomUUID(),
                 Timestamp.from(createdAt), status, Timestamp.from(createdAt), Timestamp.from(createdAt));
+    }
+
+    private Path exportedEnvelope() throws Exception {
+        try (var files = Files.list(inbox)) {
+            return files.filter(path -> path.getFileName().toString().endsWith(".json"))
+                    .findFirst()
+                    .orElseThrow();
+        }
+    }
+
+    private void copyEnvelopeIfRequested(Path file, String name) throws Exception {
+        String dir = System.getProperty("parkio.waitlist.it.envelopeDir");
+        if (dir == null || dir.isBlank()) {
+            dir = System.getenv("PARKIO_WAITLIST_IT_ENVELOPE_DIR");
+        }
+        if (dir == null || dir.isBlank()) {
+            return;
+        }
+        Path target = Path.of(dir);
+        Files.createDirectories(target);
+        Files.copy(file, target.resolve(name), java.nio.file.StandardCopyOption.REPLACE_EXISTING);
     }
 
     private String submit(String email) {

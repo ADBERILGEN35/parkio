@@ -102,30 +102,35 @@ Rendered by the dedicated waitlist renderer (`render_waitlist_message`) from a
 synthetic envelope (`run_waitlist_acceptance.py` prints the same text):
 
 ```
-*🎉 Yeni bekleme listesi kaydı onaylandı*
+🎉 Yeni bekleme listesi kaydı onaylandı
 Ad soyad: Ad belirtilmemiş
 Onay zamanı: 2026-09-22 14:04 (Türkiye saati)
-Yönetim: https://app.parkio.dev/admin/waitlist
+Bekleme listesini aç → https://app.parkio.dev/admin/waitlist
 Ortam: `acceptance` (üretim dışı)
 ```
 
 Contract v2 with a name and export-time snapshot counts:
 
 ```
-*🎉 Yeni bekleme listesi kaydı onaylandı*
+🎉 Yeni bekleme listesi kaydı onaylandı
 Ad soyad: Ayşe Yılmaz
+Bugün onaylanan: 2 kişi
+Toplam onaylı: 17 kişi
 Onay zamanı: 2026-09-22 14:04 (Türkiye saati)
-Yönetim: https://app.parkio.dev/admin/waitlist
-Dışa aktarım özeti (Europe/Istanbul günü): onaylı toplam=17, bugün=2
-_Sayımlar dışa aktarım anındaki veritabanı anlık görüntüsüdür; Slack yeniden denemelerinde değişmez._
+Bekleme listesini aç → https://app.parkio.dev/admin/waitlist
+Sayımlar: 2026-09-22 14:04 (Türkiye saati) itibarıyla
 ```
+
+Export, inbox freeze, retry, and snapshot mechanics stay in this document — they
+are not repeated in Slack. Count-query failures omit the count lines (never an
+invented zero). Legacy nameless v1/v2 rows keep `Ad belirtilmemiş`.
 
 The messages do not contain: email, IP, tokens, confirm/withdraw URLs,
 subscriber id, email hash, `dedupKey`, `eventId`, or provider payload.
 `fullName` is allowlisted for the biz waitlist body only (escaped / mention-neutralized
-before Slack). Generic sensitive-key stripping still treats `full_name` / similar
-keys as sensitive outside this allow-list path. Logs must not print names or
-rejected payloads.
+before Slack) and stored on the relay as `waitlist_display_name`. Generic
+sensitive-key stripping still treats `full_name` / similar keys as sensitive
+outside this allow-list path. Logs must not print names or rejected payloads.
 
 Terminal email failure message: **none**, because the event is not implemented.
 If it is added later (see [Remaining decisions](#remaining-decisions)), it must

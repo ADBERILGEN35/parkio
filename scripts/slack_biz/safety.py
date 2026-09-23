@@ -13,7 +13,9 @@ _MENTION_RE = re.compile(
     r"|<!everyone>|<!channel>|<!here>"
 )
 
-# Fields that must never appear in Slack payloads
+# Fields that must never appear in Slack payloads.
+# waitlist_display_name is intentionally absent: that key is the allowlisted
+# waitlist name passed to the dedicated renderer only.
 SENSITIVE_KEY_FRAGMENTS = frozenset(
     {
         "email",

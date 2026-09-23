@@ -55,35 +55,49 @@ def _format_istanbul(iso_utc: str) -> str:
         return sanitize_text(iso_utc)
 
 
-def render_waitlist_message(event: SlackBizEvent, config: SlackBizConfig) -> str:
-    """Readable waitlist confirmation — no cluttered type/severity/service lines."""
+def _waitlist_display_name(event: SlackBizEvent) -> str | None:
+    """Allowlisted name only. Dual-read queued context + body for older rows."""
     ctx = event.context or {}
-    full_name = ctx.get("full_name")
-    if isinstance(full_name, str) and full_name.strip():
-        name_line = f"Ad soyad: {sanitize_text(full_name.strip())}"
+    for key in ("waitlist_display_name", "full_name"):
+        raw = ctx.get(key)
+        if isinstance(raw, str) and raw.strip():
+            return raw.strip()
+    for line in event.body_lines or ():
+        if not isinstance(line, str) or not line.startswith("name="):
+            continue
+        value = line[5:].strip()
+        if value and value != "Ad belirtilmemiş":
+            return value
+    return None
+
+
+def render_waitlist_message(event: SlackBizEvent, config: SlackBizConfig) -> str:
+    """Readable waitlist confirmation — name, counts, time, admin link only."""
+    ctx = event.context or {}
+    display_name = _waitlist_display_name(event)
+    if display_name:
+        name_line = f"Ad soyad: {sanitize_text(display_name)}"
     else:
         name_line = "Ad soyad: Ad belirtilmemiş"
 
     lines = [
-        f"*{sanitize_text(event.title)}*",
+        sanitize_text(event.title),
         name_line,
-        f"Onay zamanı: {_format_istanbul(event.occurred_at)}",
-        f"Yönetim: {_ADMIN_WAITLIST_URL}",
     ]
 
     total = ctx.get("confirmed_total")
     today = ctx.get("confirmed_today_istanbul")
     if isinstance(total, int) and isinstance(today, int):
+        lines.append(f"Bugün onaylanan: {today} kişi")
+        lines.append(f"Toplam onaylı: {total} kişi")
+
+    lines.append(f"Onay zamanı: {_format_istanbul(event.occurred_at)}")
+    lines.append(f"Bekleme listesini aç → {_ADMIN_WAITLIST_URL}")
+
+    if isinstance(total, int) and isinstance(today, int):
         snap = ctx.get("counts_snapshot_at")
-        snap_bit = f", dışa aktarım anı={sanitize_text(str(snap))}" if snap else ""
-        lines.append(
-            f"Dışa aktarım özeti (Europe/Istanbul günü): onaylı toplam={total}, "
-            f"bugün={today}{snap_bit}"
-        )
-        lines.append(
-            "_Sayımlar dışa aktarım anındaki veritabanı anlık görüntüsüdür; "
-            "Slack yeniden denemelerinde değişmez._"
-        )
+        if isinstance(snap, str) and snap.strip():
+            lines.append(f"Sayımlar: {_format_istanbul(snap)} itibarıyla")
 
     if event.environment and event.environment != "production":
         lines.append(f"Ortam: `{sanitize_text(event.environment)}` (üretim dışı)")

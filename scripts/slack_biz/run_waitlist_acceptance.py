@@ -58,7 +58,6 @@ PROHIBITED = (
     SECRET_VALUE,
     "sentetik.abone",
     SYNTHETIC_EMAIL,
-    SYNTHETIC_NAME,
     SYNTHETIC_IP,
     SYNTHETIC_TOKEN,
     SYNTHETIC_SUBSCRIBER_ID,
@@ -66,6 +65,9 @@ PROHIBITED = (
     "waitlist/unsubscribe",
     SYNTHETIC_PROVIDER_PAYLOAD,
 )
+# Name is allowlisted for the Slack body only; logs and rejected payloads must
+# still never print it.
+PROHIBITED_IN_LOGS = PROHIBITED + (SYNTHETIC_NAME,)
 
 
 def gateway_envelope(**overrides) -> dict:
@@ -203,9 +205,12 @@ def run(evidence_dir: Path | None) -> dict:
                         )
                         detail = fn(h) or ""
                         dump = h.state_dump()
-                    for text in [dump] + [r.body.decode("utf-8", "replace") for r in mock.state.requests]:
+                    for bad in PROHIBITED:
+                        assert bad not in dump, f"prohibited value leaked into state: {bad[:12]}..."
+                    for req in mock.state.requests:
+                        payload = req.body.decode("utf-8", "replace")
                         for bad in PROHIBITED:
-                            assert bad not in text, f"prohibited value leaked into state/payload: {bad[:12]}..."
+                            assert bad not in payload, f"prohibited value leaked into Slack: {bad[:12]}..."
                     results.append({"id": sid, "name": name, "status": "PASS", "detail": detail})
                 except Exception as exc:  # noqa: BLE001
                     results.append(
@@ -618,11 +623,16 @@ def run(evidence_dir: Path | None) -> dict:
         h.worker.process_once()
         text = mock.state.requests[0].json_body["text"]
         assert "Ayşe Yılmaz" in text
-        assert "onaylı toplam=17" in text
-        assert "bugün=2" in text
-        assert "dışa aktarım anı=" in text or "Dışa aktarım özeti" in text
+        assert "Bugün onaylanan: 2 kişi" in text
+        assert "Toplam onaylı: 17 kişi" in text
+        assert "Bekleme listesini aç → https://app.parkio.dev/admin/waitlist" in text
+        assert "Sayımlar:" in text
+        assert "itibarıyla" in text
+        assert "dışa aktarım" not in text.lower()
+        assert "yeniden deneme" not in text
         assert "Ad belirtilmemiş" not in text
         assert SYNTHETIC_EMAIL not in text and env["dedupKey"] not in text
+        assert env["eventId"] not in text
         messages["confirmed_v2"] = text
         return "v2 name+counts rendered"
 
@@ -671,11 +681,48 @@ def run(evidence_dir: Path | None) -> dict:
         assert "bad_confirmed_count" in cats
         return "unknown_field + bad_confirmed_count"
 
+    @scenario("W24", "committed named confirmation through exporter-shaped envelope → consumer → renderer")
+    def _w24(h: Harness):
+        env = gateway_envelope_v2(
+            fullName=SYNTHETIC_NAME,
+            confirmedTotal=2,
+            confirmedTodayIstanbul=1,
+            countsSnapshotAt="2026-09-23T07:24:44Z",
+        )
+        h.drop(env)
+        r = h.consumer.poll_once()
+        assert r.enqueued == 1 and r.acked == 1 and r.rejected == 0, r
+        h.worker.process_once()
+        assert len(mock.state.requests) == 1
+        text = mock.state.requests[0].json_body["text"]
+        assert SYNTHETIC_NAME in text
+        assert "Ad soyad: " + SYNTHETIC_NAME in text
+        assert "Ad belirtilmemiş" not in text
+        assert "Bugün onaylanan: 1 kişi" in text
+        assert "Toplam onaylı: 2 kişi" in text
+        assert "Bekleme listesini aç → https://app.parkio.dev/admin/waitlist" in text
+        for banned in (
+            "dışa aktarım",
+            "Dışa aktarım",
+            "yeniden deneme",
+            "retry",
+            "eventId",
+            "dedupKey",
+            env["eventId"],
+            env["dedupKey"],
+            SYNTHETIC_EMAIL,
+            SYNTHETIC_TOKEN,
+            SYNTHETIC_SUBSCRIBER_ID,
+        ):
+            assert banned not in text, banned
+        messages["confirmed_named_regression"] = text
+        return "named confirmation reached mock Slack; internals absent"
+
     logging.getLogger().removeHandler(handler)
     mock.stop()
 
     all_logs = log_buffer.getvalue() + stdout_buffer.getvalue()
-    leaks = [p[:12] for p in PROHIBITED if p in all_logs]
+    leaks = [p[:12] for p in PROHIBITED_IN_LOGS if p in all_logs]
     results.append(
         {
             "id": "W14",
