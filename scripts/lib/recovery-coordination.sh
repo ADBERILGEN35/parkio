@@ -17,6 +17,11 @@ parkio_coordinator_enabled() {
 
 # After a COMPLETE stamp: optional ordinary operational snapshot. Failure must
 # resume the pre-existing running set only; it does not retract COMPLETE.
+# Production writer-control orchestration: NOT IMPLEMENTED.
+# Remaining adapter work: inventory host units, pause/resume with pre-state
+# recording, configured budget 15m, hard ceiling 20m, exporter-only pause that
+# does not disable outbox admission, measured drill. Do not remove this refusal
+# to call the package ready.
 parkio_ordinary_ops_snapshot_after_complete() {
   local stamp="$1"
   local dest_dir="$2"
@@ -24,7 +29,7 @@ parkio_ordinary_ops_snapshot_after_complete() {
     echo "operational-state snapshot: skipped (default off)"
     return 0
   fi
-  echo "ERROR: live writer control is not implemented; ordinary ops snapshot stays off." >&2
+  echo "ERROR: production orchestration NOT IMPLEMENTED; live writer control is refused." >&2
   echo "ERROR: refusing to pause production units from this hook." >&2
   return 0
 }

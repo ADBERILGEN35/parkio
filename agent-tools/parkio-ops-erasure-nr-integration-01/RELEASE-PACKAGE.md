@@ -1,41 +1,36 @@
 # Coordinated integration -- draft release package
 
 **PR target:** `api` (draft only). **Decision: HOLD. Production disabled.**
-**Integration head:** `212d31d7601e2208fd1aa5ea8a6e869eeecdf81b`
+**Reported CI head:** `126727c6c41fd54b8b5b1ad7979bbc1aabbaa31a`
+See `PR104-RELEASE-DECISION.md` for the finite blocker table.
 
 ## Included source identities
 
-| Input | SHA | Draft PR |
-|---|---|---|
-| Operational-state backup | `2f04d01636ab23f2e0881bb2f8018fe3eb0ed815` | #101 |
-| Off-host erasure recovery | `15b697fb047f53c7acb88bbcc9fea3a9befd6942` | #102 |
-| NR existing-ledger recovery guard | `cdc0d13c76c9c3a249c9e165d08f9c4cdde20983` | #103 |
-| Base | `aa865a255564464bed207a9061244af2641edd3d` | `origin/api` |
+| Input | SHA | Draft PR | How present on #104 |
+|---|---|---|---|
+| Operational-state backup | `2f04d01636ab23f2e0881bb2f8018fe3eb0ed815` | #101 | merge ancestry `03c6a078` |
+| Off-host erasure recovery | `15b697fb047f53c7acb88bbcc9fea3a9befd6942` | #102 | merge ancestry `14654128` |
+| NR existing-ledger recovery guard | `cdc0d13c76c9c3a249c9e165d08f9c4cdde20983` | #103 | merge ancestry `66e6f7b5` |
+| Base | `aa865a255564464bed207a9061244af2641edd3d` | `origin/api` | ancestor |
 
 Preparation worktrees and PRs are preserved and were not rewritten.
 
 ## Exact scope
 
-New coordination layer (`scripts/recovery_coordination/`),
-`scripts/lib/recovery-coordination.sh`, default-off hooks in
-`backup-hosted-beta.sh` and `restore-drill-01.sh`, this package, and
+Coordination layer, default-off hooks, event-level Slack reconciliation,
+fail-closed SQLite header/sidecar handling, this package, and
 `docs/operations/ops-erasure-nr-coordination.md`.
 
 Does not activate production, provision Azure, retrieve secrets, restart
 services, or weaken #102 cutoff refusal. Directory FileStore is not
-off-host storage. A destroyed SQLite main file is refused even when a
-leftover WAL sidecar remains. Staged `-wal`/`-shm`/`-journal` files
-are not a separate snapshot domain. Domains stay non-atomic.
+off-host storage. Live writer control is **NOT IMPLEMENTED**.
 
-## Dependency / merge order
+## Merge strategy (not authorized)
 
-1. #101 snapshot helper
-2. #102 erasure recover
-3. #103 NR existing-ledger guard
-4. This integration branch (coordinator + hooks)
-
-Do not merge #101/#102/#103 independently after this draft exists without
-re-integrating.
+Merge **only #104** into `api` if a human later authorizes a repository
+merge. Do not merge #101/#102/#103 independently. Close them afterward as
+already included by ancestry. Integration-only commits must not be
+duplicated by copying files.
 
 ## Disabled defaults
 
@@ -43,8 +38,9 @@ re-integrating.
 `PARKIO_OFFHOST_ERASURE_ENABLED`, `PARKIO_NR_BUDGET_RECOVERY_MODE` all
 unset/`0`/`off`.
 
-Expected writer pause: **15 minutes**. Hard ceiling: **20 minutes**
-(abort, discard incomplete artifacts, resume pre-existing running set only).
+Configured pause budget: **900s**. Hard ceiling: **1200s**.
+Measured synthetic success-path: **0s** injected clock.
+Production pause: **unmeasured**.
 
 ## Rollout / rollback
 
@@ -54,7 +50,4 @@ out of scope.
 
 ## Remaining real-storage / real-restore gates
 
-See the coordination doc: dedicated container/prefix decision, identity,
-WORM/versioning, freshness SLA, lock-protocol attestation, isolated
-restore drill, unknown NR spending bound, Slack reconciliation. None
-performed here.
+See the decision package blocker table. None performed here.

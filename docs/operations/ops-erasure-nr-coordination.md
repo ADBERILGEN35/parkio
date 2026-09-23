@@ -19,24 +19,33 @@ off-host durability, production enablement, or real restore acceptance.
 ## 1. Ordinary backup vs disaster recovery
 
 SQLite, inbox files, Fluent Bit tail state, and the gateway PostgreSQL
-outbox are **separate consistency domains**. A successful coordinator
-run pairs them by `gateway_outbox_backup_id` and event counts. It does
-**not** claim an atomic multi-store instant.
+outbox are **separate consistency domains**. Pairing uses
+`gateway_outbox_backup_id` **and event IDs**. Aggregate counts are not
+enough. This is not an atomic multi-store instant.
 
-**Ordinary backup** (optional, after a COMPLETE stamp):
+**Ordinary backup** (optional, after a COMPLETE stamp; live control
+**NOT IMPLEMENTED**):
 
 1. Record which writers are already running.
-2. Pause only those writers. Expected pause **15 minutes**. Hard ceiling
-   **20 minutes** -- abort, discard incomplete artifacts, resume.
-3. Snapshot operational state with the stamp as backup identity. Verify.
+2. Pause only those writers. Configured budget **900s**. Hard ceiling
+   **1200s** -- abort, discard incomplete artifacts, resume pre-existing
+   running set only. 15 minutes is not a measured production expectation.
+3. Snapshot and verify while paused. Encryption of the sealed archive is
+   designed for that window. Remote upload is not implemented. After
+   resume, new writes are outside the archive.
 4. On success or failure: resume **only** the pre-existing running set.
    Never start Fluent Bit, Slack, or the NR gate if they were stopped.
 5. Ops-snapshot failure does not retract the database COMPLETE stamp.
 
+Writers in the pause list (if an adapter existed): `slack_worker`,
+`fluent_bit`, `gateway_exporter`, `inbox_consumer`, `nr_source`,
+`nr_gate`. User-facing HTTP is not paused.
+
 **Disaster recovery:**
 
 1. Fluent Bit and Slack publishers remain stopped.
-2. Stage and verify operational state. Reconcile gateway event IDs.
+2. Stage and verify operational state. Reconcile **event IDs**. Never
+   auto-replay `delivery_unknown` or `in_flight`.
 3. Run #102 recover against the **requested** cutoff. Directory FileStore
    is **not** off-host storage. Do not lower the cutoff to obtain PASS.
    Unknown erasures after the last verified watermark **block exposing**
@@ -45,9 +54,8 @@ run pairs them by `gateway_outbox_backup_id` and event counts. It does
    `PARKIO_NR_BUDGET_RECOVERY_MODE=on` and a verified exhausted ledger.
 5. An exhausted gate may acknowledge logs without forwarding. That is
    **not** lossless buffering. Do not start Fluent Bit.
-6. Explicit spending reconciliation (NR and Slack) plus a documented
-   release step are required before collection/forwarding. Slack stays
-   disabled until that release.
+6. Explicit spending reconciliation (NR and Slack event review) plus a
+   documented release step are required before collection/forwarding.
 
 ## 2. Remote-storage configuration plan (no provisioning)
 
@@ -86,10 +94,16 @@ unset PARKIO_NR_BUDGET_RECOVERY_MODE
 ```
 
 `backup-hosted-beta.sh` calls the ordinary hook only when both coordinator
-and ops-state flags are `1`, and the hook still refuses live writer
-control until a later authorized unit-control implementation.
+and ops-state flags are `1`. The hook labels production orchestration
+**NOT IMPLEMENTED** and refuses live writer control.
 
-## 4. Rollback
+## 4. Merge disposition
+
+#104 contains #101/#102/#103 by **merge ancestry**. Chosen later strategy:
+merge only #104; do not merge the source drafts independently; close them
+as included after #104 lands. Not authorized now.
+
+## 5. Rollback
 
 Leave the flags unset. Revert this integration branch. Preparation PRs
 #101/#102/#103 remain draft and unmodified.

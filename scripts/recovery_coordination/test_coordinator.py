@@ -23,6 +23,7 @@ from coordinator import (  # noqa: E402
     PauseTimeout,
     Clock,
 )
+from slack_reconciliation import reconcile_slack_events, ReconciliationError  # noqa: E402
 
 A = "11111111-1111-4111-8111-111111111111"
 B = "22222222-2222-4222-8222-222222222222"
@@ -94,6 +95,16 @@ class CoordinatorLifecycleTest(unittest.TestCase):
         self.assertFalse(result["atomic"])
         self.assertEqual(result["offhostDurability"], "not-established")
         self.assertEqual(result["hardCeilingSeconds"], HARD_CEILING_SECONDS)
+        self.assertEqual(result["configuredPauseBudgetSeconds"], 15 * 60)
+        self.assertEqual(result["measuredSyntheticPauseSeconds"], 0)
+        self.assertIsNone(result["productionPauseSeconds"])
+        self.assertFalse(result["productionPauseMeasured"])
+        self.assertFalse(result["userFacingRequestsPaused"])
+        self.assertFalse(result["remoteUploadImplemented"])
+        self.assertEqual(result["liveWriterControl"], "NOT_IMPLEMENTED")
+        self.assertEqual(result["writersPaused"],
+                         ["slack_worker", "fluent_bit", "gateway_exporter",
+                          "inbox_consumer", "nr_source", "nr_gate"])
         for name in coord.pre_state:
             self.assertEqual(coord.writers.state[name], "running")
 
@@ -223,6 +234,9 @@ class CoordinatorLifecycleTest(unittest.TestCase):
         self.assertEqual(hold["recoveryCutoff"], CUTOFF)
         self.assertFalse(hold["exposeApplications"])
 
+    def _clean_slack_report(self, event_id="e1"):
+        return reconcile_slack_events([event_id], [(event_id, event_id, "queued")])
+
     def test_explicit_release_sequence(self):
         coord = self.coordinator(prepare=self._prepare_ok, erasure=self._erasure_pass)
         coord.disaster_stage(STAMP, [{"eventId": "e1"}], self.root / "snap",
@@ -230,12 +244,83 @@ class CoordinatorLifecycleTest(unittest.TestCase):
         coord.record_reconciliation(nr_spending_reviewed=True)
         with self.assertRaises(CoordinationError):
             coord.release_collection()
+        with self.assertRaises(CoordinationError):
+            coord.record_reconciliation(nr_spending_reviewed=True, slack_reviewed=True,
+                                        release_authorized=True)
         coord.record_reconciliation(nr_spending_reviewed=True, slack_reviewed=True,
-                                    release_authorized=True)
+                                    release_authorized=True,
+                                    slack_event_report=self._clean_slack_report())
         released = coord.release_collection()
         self.assertEqual(released["verdict"], "RELEASED")
         self.assertTrue(coord.fluent_bit_started)
         self.assertTrue(coord.slack_started)
+
+    def test_equal_count_different_event_sets(self):
+        report = reconcile_slack_events(["gw-a", "gw-b"],
+                                        [("sl-c", "sl-c", "queued"), ("sl-d", "sl-d", "queued")])
+        self.assertTrue(report["equal_count_different_sets"])
+        self.assertEqual(report["counts"]["gateway_without_queue_or_inbox"], 2)
+        self.assertEqual(report["counts"]["slack_without_gateway"], 2)
+        self.assertEqual(report["event_ids"]["gateway_without_queue_or_inbox"], ["gw-a", "gw-b"])
+        self.assertEqual(report["event_ids"]["slack_without_gateway"], ["sl-c", "sl-d"])
+        self.assertFalse(report["identity_and_counts_sufficient"])
+        self.assertEqual(report["auto_replay"], [])
+        coord = self.coordinator(prepare=self._prepare_ok, erasure=self._erasure_pass)
+        coord.disaster_stage(STAMP, [{"eventId": "gw-a"}], self.root / "snap",
+                             self.root / "staged", "store", T1)
+        with self.assertRaises(CoordinationError):
+            coord.record_reconciliation(slack_reviewed=True, slack_event_report=report)
+        accepted = coord.record_reconciliation(slack_reviewed=True, slack_event_report=report,
+                                               review_acknowledged=True)
+        self.assertTrue(accepted["slack_reviewed"])
+
+    def test_missing_events_and_conflicting_states(self):
+        missing = reconcile_slack_events(["keep", "lost"], [("keep", "keep", "queued")])
+        self.assertEqual(missing["event_ids"]["gateway_without_queue_or_inbox"], ["lost"])
+        self.assertEqual(missing["auto_replay"], [])
+        conflict = reconcile_slack_events(
+            ["same"],
+            [("same", "same", "delivered")],
+            pending_ids=["same"],
+        )
+        self.assertEqual(conflict["event_ids"]["conflicting_states"], ["same"])
+        self.assertEqual(conflict["auto_replay"], [])
+        coord = self.coordinator(prepare=self._prepare_ok, erasure=self._erasure_pass)
+        coord.disaster_stage(STAMP, [{"eventId": "same"}], self.root / "snap",
+                             self.root / "staged", "store", T1)
+        with self.assertRaises(CoordinationError):
+            coord.record_reconciliation(slack_reviewed=True, slack_event_report=conflict)
+
+    def test_ambiguous_in_flight_is_never_auto_replayed(self):
+        report = reconcile_slack_events(
+            ["amb-1", "amb-2"],
+            [("amb-1", "amb-1", "delivery_unknown"), ("amb-2", "amb-2", "in_flight")],
+        )
+        self.assertEqual(report["event_ids"]["delivery_unknown"], ["amb-1"])
+        self.assertEqual(report["event_ids"]["in_flight"], ["amb-2"])
+        self.assertEqual(report["auto_replay"], [])
+        self.assertEqual(set(report["replay_refused"]), {"amb-1", "amb-2"})
+        self.assertEqual(report["limits"]["dedup_hours"], 168)
+        self.assertFalse(report["limits"]["atomic"])
+        coord = self.coordinator(prepare=self._prepare_ok, erasure=self._erasure_pass)
+        coord.disaster_stage(STAMP, [{"eventId": "amb-1"}], self.root / "snap",
+                             self.root / "staged", "store", T1)
+        with self.assertRaises(CoordinationError):
+            coord.record_reconciliation(slack_reviewed=True, slack_event_report=report,
+                                        review_acknowledged=True)
+        accepted = coord.record_reconciliation(slack_reviewed=True, slack_event_report=report,
+                                               review_acknowledged=True,
+                                               ambiguous_acknowledged=True)
+        self.assertTrue(accepted["slack_reviewed"])
+        self.assertEqual(report["auto_replay"], [])
+
+    def test_dedup_conflict_is_forensic(self):
+        with self.assertRaises(ReconciliationError):
+            reconcile_slack_events(
+                ["a"],
+                [("a", "shared", "queued")],
+                dedup_rows=[("other", "shared")],
+            )
 
     def test_destroyed_sqlite_header_is_not_masked_by_wal(self):
         from operational_state_backup import state_backup as backup

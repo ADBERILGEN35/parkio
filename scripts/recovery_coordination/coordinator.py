@@ -4,9 +4,10 @@
 Production activation stays off unless an operator sets the documented flags.
 This module does not talk to Slack, New Relic, Azure, or live hosts.
 
-Pause writers, pair a gateway PostgreSQL backup identity with an operational
-snapshot, and reconcile event counts. SQLite, inbox files, and the gateway
-outbox are not one atomic cut.
+Pause writers (in-process simulation only), pair a gateway PostgreSQL backup
+identity with an operational snapshot, and reconcile event IDs. SQLite, inbox
+files, and the gateway outbox are not one atomic cut. Aggregate counts are
+not sufficient.
 
 Ordinary backup: on failure, restore only the pre-existing running set. Never
 start a writer that was already stopped.
@@ -26,8 +27,23 @@ import os
 from pathlib import Path
 import sys
 
-EXPECTED_PAUSE_SECONDS = 15 * 60
+try:
+    from recovery_coordination.slack_reconciliation import (
+        ReconciliationError,
+        assert_no_automatic_replay,
+    )
+except ImportError:  # script / test path layout
+    from slack_reconciliation import (  # type: ignore
+        ReconciliationError,
+        assert_no_automatic_replay,
+    )
+
+# Design budget and abort ceiling only. Production pause duration is unmeasured.
+# Synthetic tests use an injected Clock; elapsed success-path time is 0 unless
+# a test advances it. Do not treat 15 minutes as a measured expectation.
+CONFIGURED_PAUSE_BUDGET_SECONDS = 15 * 60
 HARD_CEILING_SECONDS = 20 * 60
+EXPECTED_PAUSE_SECONDS = CONFIGURED_PAUSE_BUDGET_SECONDS  # alias; not a measurement
 
 WRITERS = (
     "slack_worker",
@@ -112,7 +128,7 @@ def _public(payload):
 
 
 class Coordinator:
-    def __init__(self, writers, clock=None, pause_seconds=EXPECTED_PAUSE_SECONDS,
+    def __init__(self, writers, clock=None, pause_seconds=CONFIGURED_PAUSE_BUDGET_SECONDS,
                  hard_ceiling=HARD_CEILING_SECONDS, snapshot=None, verify=None,
                  prepare_recovery=None, erasure_recover=None, env=None):
         self.writers = writers
@@ -200,12 +216,20 @@ class Coordinator:
                 "atomic": False,
                 "domains": ["gateway-postgres", "slack-sqlite", "slack-inbox", "nr-budget",
                             "nr-source", "nr-collector"],
-                "pauseSeconds": self.clock.time() - started,
-                "expectedPauseSeconds": self.pause_seconds,
+                "configuredPauseBudgetSeconds": self.pause_seconds,
                 "hardCeilingSeconds": self.hard_ceiling,
+                "measuredSyntheticPauseSeconds": self.clock.time() - started,
+                "productionPauseSeconds": None,
+                "productionPauseMeasured": False,
+                "writersPaused": [n for n in PAUSE_ORDER if self.pre_state.get(n) == "running"],
+                "userFacingRequestsPaused": False,
+                "encryptionDuringPause": True,
+                "remoteUploadImplemented": False,
+                "writesAfterResumeExcludedFromArchive": True,
                 "resumed": [n for n in RESUME_ORDER if self.pre_state.get(n) == "running"],
                 "leftStopped": [n for n in WRITERS if self.pre_state.get(n) != "running"],
                 "offhostDurability": "not-established",
+                "liveWriterControl": "NOT_IMPLEMENTED",
             })
         except Exception:
             dest = snapshot_args.get("destination")
@@ -279,7 +303,34 @@ class Coordinator:
                 "losslessBuffering": False, "upstreamForwards": self.upstream_forwards}
 
     def record_reconciliation(self, nr_spending_reviewed=False, slack_reviewed=False,
-                              release_authorized=False):
+                              release_authorized=False, slack_event_report=None,
+                              review_acknowledged=False, ambiguous_acknowledged=False):
+        """Operator marks review complete. Event-level Slack report is required.
+
+        Never treats backup identity or aggregate counts as sufficient.
+        Never automatically replays delivery-ambiguous events.
+        """
+        if slack_reviewed:
+            if not slack_event_report:
+                raise CoordinationError("event-level Slack report is required; counts are not enough")
+            try:
+                assert_no_automatic_replay(slack_event_report)
+            except ReconciliationError as exc:
+                raise CoordinationError(str(exc)) from exc
+            if slack_event_report.get("identity_and_counts_sufficient"):
+                raise CoordinationError("backup identity and aggregate counts are not sufficient")
+            ids = slack_event_report.get("event_ids") or {}
+            if slack_event_report.get("equal_count_different_sets") and not review_acknowledged:
+                raise CoordinationError("equal-count different event sets require explicit review")
+            if (ids.get("gateway_without_queue_or_inbox") or ids.get("slack_without_gateway")) \
+                    and not review_acknowledged:
+                raise CoordinationError("missing or extra event IDs require explicit review")
+            if ids.get("conflicting_states") and not review_acknowledged:
+                raise CoordinationError("conflicting Slack states require explicit review")
+            if slack_event_report.get("replay_refused") and not ambiguous_acknowledged:
+                raise CoordinationError(
+                    "delivery-ambiguous events cannot be auto-replayed; acknowledge them first"
+                )
         self.reconciliation["nr_spending_reviewed"] = bool(nr_spending_reviewed)
         self.reconciliation["slack_reviewed"] = bool(slack_reviewed)
         self.reconciliation["release_authorized"] = bool(release_authorized)

@@ -23,6 +23,14 @@ import tarfile
 import tempfile
 from typing import Iterator
 
+_SCRIPTS = Path(__file__).resolve().parents[1]
+if str(_SCRIPTS) not in sys.path:
+    sys.path.insert(0, str(_SCRIPTS))
+from recovery_coordination.slack_reconciliation import (  # noqa: E402
+    ReconciliationError,
+    reconcile_slack_events,
+)
+
 
 FORMAT = 1
 SLACK_TABLES = {"delivery_queue", "dedup", "dlt", "incident_threads", "metrics", "worker_lock", "schema_meta"}
@@ -402,20 +410,12 @@ def prepare_recovery(args: argparse.Namespace) -> dict:
         pending, acked = envelope_ids(source)
         with sqlite3.connect(source / "slack/slack_biz.sqlite3") as db:
             queue = db.execute("SELECT event_id, dedup_key, status FROM delivery_queue").fetchall()
-            dedup = {r[1]: r[0] for r in db.execute("SELECT event_id, dedup_key FROM dedup")}
-        queue_ids = {r[0] for r in queue}
-        if len(queue_ids) != len(queue):
-            raise SnapshotError("duplicate Slack queue event IDs")
-        collisions = sum(1 for event_id, key, _ in queue if key in dedup and dedup[key] != event_id)
-        counts = {"gateway_without_queue_or_inbox": len(set(gateway_ids) - queue_ids - pending - acked),
-                  "slack_without_gateway": len((queue_ids | pending | acked) - set(gateway_ids)),
-                  "pending_inbox_already_queued": len(pending & queue_ids),
-                  "dedup_conflicts": collisions,
-                  "delivery_unknown": sum(1 for _, _, status in queue if status == "delivery_unknown"),
-                  "in_flight": sum(1 for _, _, status in queue if status == "in_flight"),
-                  "delivered": sum(1 for _, _, status in queue if status == "delivered")}
-        if collisions:
-            raise SnapshotError("Slack queue/dedup conflict; manual forensic review required")
+            dedup_rows = db.execute("SELECT event_id, dedup_key FROM dedup").fetchall()
+        try:
+            slack = reconcile_slack_events(gateway_ids, queue, pending, acked, dedup_rows)
+        except ReconciliationError as exc:
+            raise SnapshotError(str(exc)) from exc
+        counts = slack["counts"]
         args.destination.parent.mkdir(parents=True, exist_ok=True)
         try:
             shutil.copytree(source, args.destination)
@@ -437,10 +437,15 @@ def prepare_recovery(args: argparse.Namespace) -> dict:
                       "staged_nr_budget_sha256": digest(args.destination / "nr/budget.db"),
                       "gateway_backup_id_matches": True, "snapshot_started_at": manifest["started_at"],
                       "snapshot_finished_at": manifest["finished_at"], "counts": counts,
-                      "windows": ["outbox and Slack snapshots are not atomic",
-                                  "Slack HTTP success or timeout after snapshot may be absent from queue",
-                                  "dedup expires after 168h by default; replay can duplicate messages",
-                                  "NR usage after snapshot is unknown across UTC day/month rollover"]}
+                      "event_ids": slack["event_ids"],
+                      "equal_count_different_sets": slack["equal_count_different_sets"],
+                      "identity_and_counts_sufficient": False,
+                      "auto_replay": [],
+                      "replay_refused": slack["replay_refused"],
+                      "replay_policy": slack["replay_policy"],
+                      "limits": slack["limits"],
+                      "windows": slack["limits"]["duplicate_windows"] + slack["limits"]["loss_windows"]
+                                 + ["NR usage after snapshot is unknown across UTC day/month rollover"]}
             private_file(args.destination / "RECOVERY-PLAN.json", json.dumps(report, indent=2).encode())
             return report
         except Exception:
