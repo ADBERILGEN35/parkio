@@ -328,54 +328,89 @@ def opened_snapshot(snapshot: Path, staging_root: Path | None = None) -> Iterato
         yield extracted, manifest
 
 
+def _source_paths(args: argparse.Namespace) -> list[Path]:
+    return [args.slack_db, args.slack_inbox, args.nr_budget_db, args.nr_source_state,
+            args.nr_source_spool, args.nr_collector_state]
+
+
+def discard_plaintext(path: Path | None) -> None:
+    if path is None:
+        return
+    shutil.rmtree(path, ignore_errors=True)
+
+
+def capture_plaintext(args: argparse.Namespace) -> Path:
+    """Copy consistent private files. Not encrypted and not published."""
+    sources = _source_paths(args)
+    staging_parent = Path(args.staging_root) if getattr(args, "staging_root", None) else Path(tempfile.gettempdir())
+    staging_parent.mkdir(parents=True, exist_ok=True)
+    stage = Path(tempfile.mkdtemp(prefix=".parkio-opstate-plaintext-", dir=staging_parent))
+    os.chmod(stage, 0o700)
+    try:
+        schemas: dict = {}
+        started = utc()
+        inbox_before = inbox_inventory(args.slack_inbox)
+        schemas["slack/slack_biz.sqlite3"] = sqlite_backup(args.slack_db, stage / "slack/slack_biz.sqlite3", "slack")
+        schemas["nr/budget.db"] = sqlite_backup(args.nr_budget_db, stage / "nr/budget.db", "nr-budget")
+        copy_tree(args.slack_inbox, stage, "slack/inbox", schemas, json_only=True)
+        copy_tree(args.nr_source_state, stage, "nr/source-state", schemas)
+        copy_tree(args.nr_source_spool, stage, "nr/source-spool", schemas)
+        copy_tree(args.nr_collector_state, stage, "nr/collector-state", schemas)
+        if inbox_inventory(args.slack_inbox) != inbox_before:
+            raise SnapshotError("inbox changed during capture")
+        files = {p.relative_to(stage).as_posix(): {"bytes": p.stat().st_size, "sha256": digest(p)}
+                 for p in staged_regular_files(stage)}
+        manifest = {"format_version": FORMAT, "started_at": started, "finished_at": utc(),
+                    "gateway_outbox_backup_id": args.gateway_outbox_backup_id,
+                    "consistency": "independent-domains; publishers must remain disabled during recovery",
+                    "encryption": "aes-256-cbc-pbkdf2", "sqlite_schemas": schemas, "files": files,
+                    "encrypted": False}
+        private_file(stage / "manifest.json", json.dumps(manifest, sort_keys=True).encode())
+        return stage
+    except Exception:
+        discard_plaintext(stage)
+        raise
+
+
+def publish_encrypted(plaintext: Path, destination: Path, staging_root: Path | None = None) -> dict:
+    """Encrypt a previously captured plaintext stage. Safe to run after resume."""
+    if destination.exists() or destination.is_symlink():
+        raise SnapshotError("destination already exists")
+    destination.parent.mkdir(parents=True, exist_ok=True)
+    work = Path(tempfile.mkdtemp(prefix=".parkio-opstate-incomplete-", dir=destination.parent))
+    os.chmod(work, 0o700)
+    try:
+        manifest = json.loads((plaintext / "manifest.json").read_text(encoding="utf-8"))
+        files = manifest["files"]
+        encrypt_stage(plaintext, work / "snapshot.tar.gz.enc")
+        archive_hash = digest(work / "snapshot.tar.gz.enc")
+        private_file(work / "SHA256SUMS", f"{archive_hash}  snapshot.tar.gz.enc\n".encode())
+        private_file(work / "COMPLETE", f"{archive_hash}\n".encode())
+        with opened_snapshot(work, staging_root):
+            pass
+        work.rename(destination)
+        return {"status": "complete", "archive_sha256": archive_hash, "file_count": len(files),
+                "gateway_outbox_backup_id": manifest["gateway_outbox_backup_id"],
+                "encrypted_after_resume": True}
+    except Exception:
+        shutil.rmtree(work, ignore_errors=True)
+        raise
+    finally:
+        discard_plaintext(plaintext)
+
+
 def snapshot(args: argparse.Namespace) -> dict:
-    sources = [args.slack_db, args.slack_inbox, args.nr_budget_db, args.nr_source_state,
-               args.nr_source_spool, args.nr_collector_state]
+    sources = _source_paths(args)
     destination = args.destination
     if destination.exists() or destination.is_symlink():
         raise SnapshotError("destination already exists")
     if any(destination.resolve().is_relative_to(source.resolve()) for source in sources):
         raise SnapshotError("destination must be outside every source")
-    destination.parent.mkdir(parents=True, exist_ok=True)
-    work = Path(tempfile.mkdtemp(prefix=".parkio-opstate-incomplete-", dir=destination.parent))
-    os.chmod(work, 0o700)
+    plaintext = capture_plaintext(args)
     try:
-        with tempfile.TemporaryDirectory(prefix="parkio-opstate-stage-", dir=args.staging_root) as temporary:
-            stage = Path(temporary)
-            os.chmod(stage, 0o700)
-            schemas: dict = {}
-            started = utc()
-            inbox_before = inbox_inventory(args.slack_inbox)
-            schemas["slack/slack_biz.sqlite3"] = sqlite_backup(args.slack_db, stage / "slack/slack_biz.sqlite3", "slack")
-            schemas["nr/budget.db"] = sqlite_backup(args.nr_budget_db, stage / "nr/budget.db", "nr-budget")
-            copy_tree(args.slack_inbox, stage, "slack/inbox", schemas, json_only=True)
-            copy_tree(args.nr_source_state, stage, "nr/source-state", schemas)
-            copy_tree(args.nr_source_spool, stage, "nr/source-spool", schemas)
-            copy_tree(args.nr_collector_state, stage, "nr/collector-state", schemas)
-            if inbox_inventory(args.slack_inbox) != inbox_before:
-                raise SnapshotError("inbox changed during capture")
-            files = {p.relative_to(stage).as_posix(): {"bytes": p.stat().st_size, "sha256": digest(p)}
-                     for p in staged_regular_files(stage)}
-            manifest = {"format_version": FORMAT, "started_at": started, "finished_at": utc(),
-                        "gateway_outbox_backup_id": args.gateway_outbox_backup_id,
-                        "consistency": "independent-domains; publishers must remain disabled during recovery",
-                        "encryption": "aes-256-cbc-pbkdf2", "sqlite_schemas": schemas, "files": files}
-            private_file(stage / "manifest.json", json.dumps(manifest, sort_keys=True).encode())
-            encrypt_stage(stage, work / "snapshot.tar.gz.enc")
-            if inbox_inventory(args.slack_inbox) != inbox_before:
-                raise SnapshotError("inbox changed during sealing")
-        archive_hash = digest(work / "snapshot.tar.gz.enc")
-        private_file(work / "SHA256SUMS", f"{archive_hash}  snapshot.tar.gz.enc\n".encode())
-        # Check the complete encrypted artifact before publishing the marker.
-        # Verification cannot use opened_snapshot until COMPLETE exists.
-        private_file(work / "COMPLETE", f"{archive_hash}\n".encode())
-        with opened_snapshot(work, args.staging_root):
-            pass
-        work.rename(destination)
-        return {"status": "complete", "archive_sha256": archive_hash, "file_count": len(files),
-                "gateway_outbox_backup_id": args.gateway_outbox_backup_id}
+        return publish_encrypted(plaintext, destination, getattr(args, "staging_root", None))
     except Exception:
-        shutil.rmtree(work, ignore_errors=True)
+        discard_plaintext(plaintext)
         raise
 
 

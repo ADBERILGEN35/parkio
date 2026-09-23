@@ -19,11 +19,13 @@ jobs:
   test:
     name: Synthetic coordination lifecycle
     runs-on: ubuntu-latest
-    timeout-minutes: 10
+    timeout-minutes: 15
     steps:
       - uses: actions/checkout@v4
       - name: Coordinator tests
         run: python3 -m unittest scripts.recovery_coordination.test_coordinator -v
+      - name: Isolated writer-control adapter
+        run: python3 -m unittest scripts.recovery_coordination.test_writer_control -v
       - name: Reuse #102 synthetic tests
         run: python3 -m unittest scripts.test_offhost_erasure_recovery -v
       - name: Reuse #103 recovery-guard tests

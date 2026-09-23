@@ -23,23 +23,30 @@ outbox are **separate consistency domains**. Pairing uses
 `gateway_outbox_backup_id` **and event IDs**. Aggregate counts are not
 enough. This is not an atomic multi-store instant.
 
-**Ordinary backup** (optional, after a COMPLETE stamp; live control
-**NOT IMPLEMENTED**):
+**Ordinary backup** (optional, after a COMPLETE stamp):
 
-1. Record which writers are already running.
-2. Pause only those writers. Configured budget **900s**. Hard ceiling
-   **1200s** -- abort, discard incomplete artifacts, resume pre-existing
-   running set only. 15 minutes is not a measured production expectation.
-3. Snapshot and verify while paused. Encryption of the sealed archive is
-   designed for that window. Remote upload is not implemented. After
-   resume, new writes are outside the archive.
-4. On success or failure: resume **only** the pre-existing running set.
-   Never start Fluent Bit, Slack, or the NR gate if they were stopped.
+1. Fail before any pause if the isolated allowlisted adapter is missing
+   docker compose or the exporter pause-file path.
+2. Record which writers are already running.
+3. Pause only those writers (`slack_worker`, `fluent_bit`,
+   `gateway_exporter`, `inbox_consumer`, `nr_source`, `nr_gate`).
+   Configured budget **900s**. Hard ceiling **1200s**.
+4. Capture consistent **plaintext** files while paused. Resume the
+   pre-existing running set. Encrypt after resume. Wipe plaintext on
+   failure. Remote upload is not implemented.
 5. Ops-snapshot failure does not retract the database COMPLETE stamp.
 
-Writers in the pause list (if an adapter existed): `slack_worker`,
-`fluent_bit`, `gateway_exporter`, `inbox_consumer`, `nr_source`,
-`nr_gate`. User-facing HTTP is not paused.
+User-facing HTTP is not paused. `gateway_exporter` is a pause file, not
+a gateway process stop. Production hook still refuses live host units.
+
+**Later gateway deploy requirement:** set
+`PARKIO_WAITLIST_OPS_NOTIFICATIONS_EXPORT_PAUSE_FILE` on the gateway.
+Until that deploy, production export-only pause cannot be armed. Do not
+flip `ops-notifications.enabled` to pause export.
+
+Isolated adapter only: `PARKIO_WRITER_CONTROL_ISOLATED=1` and compose
+project prefix `parkio-writer-control-isolated-`. Documented production
+projects (`parkio-nr-log-continuous`, `parkio`) are refused.
 
 **Disaster recovery:**
 

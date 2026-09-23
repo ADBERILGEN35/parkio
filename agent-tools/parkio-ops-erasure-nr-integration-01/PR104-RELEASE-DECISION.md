@@ -40,22 +40,28 @@ measured on a host.
 | Configured pause budget | 900s (15 minutes) | Design budget in `CONFIGURED_PAUSE_BUDGET_SECONDS` |
 | Hard ceiling | 1200s (20 minutes) | Abort, discard incomplete artifacts, resume pre-existing running set only |
 
-Writers the coordinator **would** pause, if an adapter existed, and only when
-already running:
+Writers the isolated adapter pauses, only when already running:
 
 `slack_worker`, `fluent_bit`, `gateway_exporter`, `inbox_consumer`,
 `nr_source`, `nr_gate`.
 
-User-facing HTTP (park, waitlist admission, account) is **not** in that list
-and is **not** paused by this code. `WaitlistOpsNotificationExporter` still
-has no exporter-only pause; flipping `ops-notifications.enabled` would also
-disable outbox admission and is not a substitute.
+Identities come from repository unit/compose files. Isolated process and
+compose backends use those names. Production projects
+`parkio-nr-log-continuous` and `parkio` are refused.
 
-Encryption of the operational archive is designed to happen **during** the
-simulated pause. Remote upload/encryption to Azure is **NOT IMPLEMENTED**.
-After writers resume, new writes are excluded from the already-sealed
-archive. If a later adapter uploads after resume, that upload is of the
-sealed artifact only; upload time is not pause time.
+User-facing HTTP is not paused. Export pause is a file gate
+(`export-pause-file` / `PARKIO_WAITLIST_OPS_NOTIFICATIONS_EXPORT_PAUSE_FILE`).
+It does not flip `ops-notifications.enabled` and does not block admission,
+confirmation, or durable outbox writes.
+
+Plaintext capture happens during pause. Encryption runs after resume.
+Remote Azure upload is **NOT IMPLEMENTED**.
+
+Isolated process-backend wall pause on this workstation was **>0s and <60s**
+(`measuredWallPauseSeconds`). That is not a production measurement and is
+not an injected Clock value. Compose-backend smoke is attempted in CI;
+this Windows Docker host hung creating a disposable network and was not
+used as evidence.
 
 ## 3. Event-level Slack reconciliation
 
@@ -88,32 +94,27 @@ Documented limits (unchanged honesty):
 
 | Surface | Status |
 |---|---|
-| Coordinator Python API + `MemoryWriters` | Executable, in-process **simulation** |
-| `state_backup.py` snapshot / verify / prepare-recovery on fixtures | Executable, offline |
+| Coordinator + isolated allowlisted adapter | **Executable** on disposable processes; compose backend when Docker works |
+| Catalog derived from repo unit/compose files | **Executable**; refuses unresolved and production projects |
+| Gateway exporter-only pause file | **Executable** in gateway tests; later deploy must set the env |
+| `state_backup.py` capture then encrypt-after-resume | **Executable** offline |
 | Event-level Slack classification | Executable, offline |
-| #102 recover + cutoff refusal | Executable on FileStore/MemoryStore; directory is **not** off-host |
-| #103 `PARKIO_NR_BUDGET_RECOVERY_MODE=on` existing-ledger guard | Executable in tests; default-off |
-| Restore-drill #102 supplement when flags+dir set | Executable in isolated drill scripts |
-| `release_collection` starting Fluent Bit / Slack | **Simulated** in-memory flags only |
-| Pause timeout via injected `Clock` | **Simulated** |
-| `parkio_ordinary_ops_snapshot_after_complete` live pause | **NOT IMPLEMENTED** (deliberate refusal; returns 0 so COMPLETE is not retracted) |
-| systemd/docker unit inventory and pause/resume adapter | **NOT IMPLEMENTED** |
-| Azure container, credentials, remote write/download | **NOT IMPLEMENTED** (plan only) |
-| Real Slack / NR / email send | **Refused** |
+| #102 recover + cutoff refusal | Executable on FileStore/MemoryStore |
+| #103 NR recovery-mode guard | Executable in tests; default-off |
+| DR release via real control paths + mock upstreams | **Executable** isolated; Fluent Bit/Slack stay down until review |
+| `parkio_ordinary_ops_snapshot_after_complete` | Still **refuses** production units |
+| Production systemd of Civo Slack/NR units | **Not authorized** |
+| Azure container / real backup / Slack/NR send | **Refused** |
 | Auto-replay of delivery-ambiguous Slack events | **Refused** |
-| Production flag enablement | **Refused** |
 
-Production orchestration remaining adapter work (do not remove the hook
-refusal to call this ready):
+Exact isolated deploy scope: dummy allowlisted names under
+`parkio-writer-control-isolated-*` or child processes. Not
+`parkio-nr-log-continuous`, not `/opt/parkio` units.
 
-1. Inventory the real host unit/container names, including any extra queue writers.
-2. Implement pause/resume that records pre-state, honors 900s budget / 1200s ceiling,
-   and resumes only the pre-existing running set.
-3. Add exporter-only pause that does **not** disable outbox admission.
-4. Measure pause duration on a non-production host.
-5. Keep user-facing admission running; prove it.
-6. Decide whether sealed-archive upload happens before resume. Upload after
-   resume is allowed only for the already-sealed file.
+Production-only prerequisites still open: host systemd/compose of the
+documented Civo/NR units; gateway deploy of
+`PARKIO_WAITLIST_OPS_NOTIFICATIONS_EXPORT_PAUSE_FILE`; measured host
+pause; remote storage; real restore.
 
 ## 5. Merge disposition (do not merge now)
 
@@ -148,8 +149,9 @@ readiness cannot.
 
 | Blocker | Remedy | Owner | Access / decision | Acceptance |
 |---|---|---|---|---|
-| Production writer-control adapter **NOT IMPLEMENTED** | Authorized adapter: inventory, pre-state, pause/resume, ceiling; keep hook refusal until then | Integration owner + host operator | Host unit list; no secret change | Non-prod measured pause; user-facing admission still up; failed snapshot resumes pre-state only |
-| Production pause duration unmeasured | Timed drill on a non-prod host | Host operator | Non-prod host; no prod access | Recorded start/stop; 900s budget vs 1200s ceiling vs actual |
+| Production systemd/compose of documented Civo/NR units | Keep hook refusal; isolated adapter only | Host operator | Authorized non-prod host; never this PR | Same unit names as catalog; user-facing HTTP stays up |
+| Gateway export-pause-file not deployed | Set `PARKIO_WAITLIST_OPS_NOTIFICATIONS_EXPORT_PAUSE_FILE` on a later gateway release | Gateway owner | Gateway deploy decision | Pause file stops export only; admission/outbox still work |
+| Production pause duration unmeasured | Timed drill on a non-prod host | Host operator | Non-prod host; no prod access | Wall-clock start/stop; 900s budget vs 1200s ceiling vs actual |
 | No dedicated remote container/prefix or permissions | Written decision: new container vs isolated prefix; do not mix into `BACKUP_AZURE_CONTAINER` | Backup owner | Azure subscription decision; do **not** retrieve `BACKUP_AZURE_*` here | Named container/prefix + identity; no real write in this PR |
 | Authenticity vs SHA-256 | Decide signed seals and/or WORM/object-lock | Backup + security | Policy | Provenance + delete protection stated separately from checksums |
 | Freshness SLA | Alert on erasure `coveredThrough` and ops-archive age | Ops | Threshold decision | Alert exists; nightly COMPLETE is not coverage |

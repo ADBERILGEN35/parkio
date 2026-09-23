@@ -26,6 +26,7 @@ import json
 import os
 from pathlib import Path
 import sys
+import time as time_mod
 
 try:
     from recovery_coordination.slack_reconciliation import (
@@ -110,6 +111,9 @@ class MemoryWriters:
         self.state[name] = "running"
         self.resumed.append(name)
 
+    def start(self, name):
+        self.resume(name)
+
 
 class Clock:
     def __init__(self, start=0):
@@ -130,12 +134,15 @@ def _public(payload):
 class Coordinator:
     def __init__(self, writers, clock=None, pause_seconds=CONFIGURED_PAUSE_BUDGET_SECONDS,
                  hard_ceiling=HARD_CEILING_SECONDS, snapshot=None, verify=None,
-                 prepare_recovery=None, erasure_recover=None, env=None):
+                 prepare_recovery=None, erasure_recover=None, env=None,
+                 capture=None, seal=None):
         self.writers = writers
         self.clock = clock or Clock()
         self.pause_seconds = pause_seconds
         self.hard_ceiling = hard_ceiling
         self.snapshot = snapshot
+        self.capture = capture
+        self.seal = seal
         self.verify = verify
         self.prepare_recovery = prepare_recovery
         self.erasure_recover = erasure_recover
@@ -194,11 +201,25 @@ class Coordinator:
         """Pair a gateway stamp identity with an operational snapshot. Default-off."""
         if not enabled(self.env):
             return {"verdict": "DISABLED", "coverageAdvanced": False}
+        if hasattr(self.writers, "require_capabilities"):
+            self.writers.require_capabilities(PAUSE_ORDER)
         started = self.clock.time()
+        wall_start = time_mod.monotonic()
         self._record_pre_state()
+        encrypted_after_resume = bool(self.capture and self.seal)
         try:
             self._pause_running(started)
-            result = self.snapshot(gateway_backup_id, snapshot_args)
+            if encrypted_after_resume:
+                captured = self.capture(gateway_backup_id, snapshot_args)
+                if captured:
+                    self.artifacts.append(captured)
+                measured_wall = time_mod.monotonic() - wall_start
+                self._resume_preexisting()
+                result = self.seal(captured, gateway_backup_id, snapshot_args)
+            else:
+                result = self.snapshot(gateway_backup_id, snapshot_args)
+                measured_wall = time_mod.monotonic() - wall_start
+                self._resume_preexisting()
             if result.get("destination"):
                 self.artifacts.append(result["destination"])
             if result.get("gateway_outbox_backup_id") != gateway_backup_id:
@@ -208,7 +229,7 @@ class Coordinator:
                 raise CoordinationError("operational snapshot verify failed")
             if verified.get("gateway_outbox_backup_id") not in (None, gateway_backup_id):
                 raise CoordinationError("verified snapshot backup identity mismatch")
-            self._resume_preexisting()
+            live = "allowlisted-isolated" if hasattr(self.writers, "require_capabilities") else "simulated"
             return _public({
                 "verdict": "PASS",
                 "mode": "ordinary",
@@ -219,17 +240,18 @@ class Coordinator:
                 "configuredPauseBudgetSeconds": self.pause_seconds,
                 "hardCeilingSeconds": self.hard_ceiling,
                 "measuredSyntheticPauseSeconds": self.clock.time() - started,
+                "measuredWallPauseSeconds": measured_wall,
                 "productionPauseSeconds": None,
                 "productionPauseMeasured": False,
                 "writersPaused": [n for n in PAUSE_ORDER if self.pre_state.get(n) == "running"],
                 "userFacingRequestsPaused": False,
-                "encryptionDuringPause": True,
+                "encryptionDuringPause": not encrypted_after_resume,
                 "remoteUploadImplemented": False,
                 "writesAfterResumeExcludedFromArchive": True,
                 "resumed": [n for n in RESUME_ORDER if self.pre_state.get(n) == "running"],
                 "leftStopped": [n for n in WRITERS if self.pre_state.get(n) != "running"],
                 "offhostDurability": "not-established",
-                "liveWriterControl": "NOT_IMPLEMENTED",
+                "liveWriterControl": live,
             })
         except Exception:
             dest = snapshot_args.get("destination")
@@ -247,6 +269,10 @@ class Coordinator:
         if self.erasure_recover is None:
             raise CoordinationError("erasure recover is required for disaster staging")
         erasure = self.erasure_recover(erasure_store, recovery_cutoff, stamp_entries or [])
+        inventory = self.writers.inventory()
+        for name in DR_MUST_STAY_STOPPED:
+            if inventory.get(name) == "running":
+                self.writers.pause(name)
         if erasure.get("verdict") != "PASS":
             return _public({
                 "verdict": "BLOCKED",
@@ -263,9 +289,15 @@ class Coordinator:
             snapshot_dir, gateway_backup_id, outbox_events, destination
         )
         self.nr_recovery_mode = "on"
+        if hasattr(self.writers, "start") and self.writers.inventory().get("nr_gate") != "running":
+            self.writers.start("nr_gate")
         self.nr_gate_started = True
         self.fluent_bit_started = False
         self.slack_started = False
+        if self.writers.inventory().get("fluent_bit") == "running":
+            raise CoordinationError("Fluent Bit must stay stopped during the hold")
+        if self.writers.inventory().get("slack_worker") == "running":
+            raise CoordinationError("Slack publishers must stay stopped during the hold")
         self.reconciliation = {
             "complete": False,
             "nr_spending_reviewed": False,
@@ -348,6 +380,9 @@ class Coordinator:
         if self.nr_recovery_mode != "on":
             raise CoordinationError("release requires a prior guarded recovery hold")
         self.nr_recovery_mode = "off"
+        if hasattr(self.writers, "start"):
+            self.writers.start("fluent_bit")
+            self.writers.start("slack_worker")
         self.fluent_bit_started = True
         self.slack_started = True
         return {
@@ -355,7 +390,7 @@ class Coordinator:
             "fluentBit": "started",
             "slackPublishers": "started",
             "nrBudgetRecoveryMode": "off",
-            "note": "synthetic release only; production remains disabled",
+            "note": "isolated or simulated release; production remains disabled",
         }
 
 

@@ -22,8 +22,11 @@ fail-closed SQLite header/sidecar handling, this package, and
 `docs/operations/ops-erasure-nr-coordination.md`.
 
 Does not activate production, provision Azure, retrieve secrets, restart
-services, or weaken #102 cutoff refusal. Directory FileStore is not
-off-host storage. Live writer control is **NOT IMPLEMENTED**.
+production services, or weaken #102 cutoff refusal. Isolated allowlisted
+writer control is executable. The production backup hook still refuses
+host units. Directory FileStore is not off-host storage.
+
+Later gateway deploy: `PARKIO_WAITLIST_OPS_NOTIFICATIONS_EXPORT_PAUSE_FILE`.
 
 ## Merge strategy (not authorized)
 

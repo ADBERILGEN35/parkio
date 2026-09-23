@@ -132,6 +132,41 @@ class WaitlistOpsNotificationOutboxTest {
         properties.setMinFreeBytes(512L * 1024 * 1024);
         properties.setMaxInboxBacklog(5000);
         properties.setBatchSize(20);
+        properties.setExportPaused(false);
+        properties.setExportPauseFile("");
+    }
+
+    @Test
+    void exportPauseFileStopsExportWithoutBlockingAdmission() throws Exception {
+        submitPending();
+        service.confirm(verificationToken.get()).block();
+        assertThat(outboxCount()).isEqualTo(1);
+        assertThat(interestStatus()).isEqualTo("CONFIRMED");
+
+        Path pauseFile = inbox.resolve(".export-paused");
+        Files.writeString(pauseFile, "isolated-exporter-pause\n");
+        properties.setExportPauseFile(pauseFile.toString());
+
+        assertThat(exporter.exportDue().exported()).isZero();
+        assertThat(exporter.exportDue().deferred()).isEqualTo("export_paused");
+        assertThat(outboxStatus()).isEqualTo("PENDING");
+        assertThat(inboxFiles()).isEmpty();
+
+        // A second confirmation still admits and writes the durable outbox.
+        String firstToken = verificationToken.get();
+        service.submit(new SubmitWaitlistCommand(
+                "second.subscriber@example.test", Instant.now(), "Ada Lovelace", "Izmir", "driver",
+                "parkio.dev-landing", "tr", "198.51.100.24", "synthetic-agent")).block();
+        assertThat(verificationToken.get()).isNotEqualTo(firstToken);
+        service.confirm(verificationToken.get()).block();
+        assertThat(outboxCount()).isEqualTo(2);
+        assertThat(exporter.exportDue().deferred()).isEqualTo("export_paused");
+        assertThat(inboxFiles()).isEmpty();
+
+        Files.deleteIfExists(pauseFile);
+        makeDue();
+        assertThat(exporter.exportDue().exported()).isEqualTo(2);
+        assertThat(inboxFiles()).hasSize(2);
     }
 
     @Test

@@ -96,6 +96,10 @@ public class WaitlistOpsNotificationExporter {
         if (!outbox.isActive()) {
             return new ExportResult(0, 0, 0, null);
         }
+        if (properties.exportLoopIsPaused()) {
+            pendingRows.set(outbox.countPending());
+            return new ExportResult(0, 0, 0, "export_paused");
+        }
         Instant now = clock.instant();
         outbox.purgeTerminalBefore(now.minus(properties.getRetention()));
         pendingRows.set(outbox.countPending());

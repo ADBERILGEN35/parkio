@@ -4,6 +4,8 @@ import jakarta.validation.constraints.Max;
 import jakarta.validation.constraints.Min;
 import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.NotNull;
+import java.nio.file.Files;
+import java.nio.file.Path;
 import java.time.Duration;
 import org.springframework.boot.context.properties.ConfigurationProperties;
 import org.springframework.validation.annotation.Validated;
@@ -67,6 +69,17 @@ public class WaitlistOpsNotificationProperties {
     /** EXPORTED / FAILED rows older than this are purged. */
     @NotNull
     private Duration retention = Duration.ofDays(30);
+
+    /**
+     * When this regular file exists, the export loop is paused. Outbox admission,
+     * confirmation, and user-facing HTTP stay enabled. Empty means no file gate.
+     * Later gateway deploy must set
+     * {@code PARKIO_WAITLIST_OPS_NOTIFICATIONS_EXPORT_PAUSE_FILE}.
+     */
+    private String exportPauseFile = "";
+
+    /** In-process pause used by tests and the isolated adapter. Does not disable admission. */
+    private boolean exportPaused = false;
 
     public boolean isEnabled() {
         return enabled;
@@ -162,5 +175,32 @@ public class WaitlistOpsNotificationProperties {
 
     public void setContractVersion(int contractVersion) {
         this.contractVersion = contractVersion;
+    }
+
+    public String getExportPauseFile() {
+        return exportPauseFile;
+    }
+
+    public void setExportPauseFile(String exportPauseFile) {
+        this.exportPauseFile = exportPauseFile;
+    }
+
+    public boolean isExportPaused() {
+        return exportPaused;
+    }
+
+    public void setExportPaused(boolean exportPaused) {
+        this.exportPaused = exportPaused;
+    }
+
+    /** True when the export loop must skip inbox writes without touching admission. */
+    public boolean exportLoopIsPaused() {
+        if (exportPaused) {
+            return true;
+        }
+        if (exportPauseFile == null || exportPauseFile.isBlank()) {
+            return false;
+        }
+        return Files.isRegularFile(Path.of(exportPauseFile));
     }
 }

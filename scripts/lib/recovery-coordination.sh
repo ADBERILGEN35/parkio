@@ -17,11 +17,10 @@ parkio_coordinator_enabled() {
 
 # After a COMPLETE stamp: optional ordinary operational snapshot. Failure must
 # resume the pre-existing running set only; it does not retract COMPLETE.
-# Production writer-control orchestration: NOT IMPLEMENTED.
-# Remaining adapter work: inventory host units, pause/resume with pre-state
-# recording, configured budget 15m, hard ceiling 20m, exporter-only pause that
-# does not disable outbox admission, measured drill. Do not remove this refusal
-# to call the package ready.
+# Production writer-control orchestration: still refused from this hook.
+# Isolated allowlisted compose adapter exists for CI/local fixtures only
+# (PARKIO_WRITER_CONTROL_ISOLATED=1, project prefix
+# parkio-writer-control-isolated-). Do not point this hook at production units.
 parkio_ordinary_ops_snapshot_after_complete() {
   local stamp="$1"
   local dest_dir="$2"
