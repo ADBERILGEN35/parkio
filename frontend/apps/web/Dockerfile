@@ -14,9 +14,11 @@ COPY frontend/package.json frontend/pnpm-lock.yaml frontend/pnpm-workspace.yaml 
 COPY frontend/packages ./packages
 COPY frontend/apps/web ./apps/web
 
-# Install only the web workspace graph. The shared lockfile also contains a
-# mobile-only esbuild binary that is not used to build web assets.
-RUN corepack pnpm@11.18.0 --filter @parkio/web... install --frozen-lockfile
+# The prior image did not copy frontend/.npmrc, so it used pnpm's isolated
+# linker. Preserve that builder layout while keeping the workspace's hoisted
+# linker for developer and CI installs. Install only the web dependency graph.
+RUN corepack pnpm@11.18.0 --config.node-linker=isolated \
+    --filter @parkio/web... install --frozen-lockfile
 
 # Build-time public config (baked into the static bundle).
 ARG VITE_API_BASE_URL

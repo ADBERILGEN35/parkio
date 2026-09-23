@@ -57,11 +57,16 @@ Go 1.23.12. Its SHA-512 matched the official `@esbuild/linux-x64@0.25.9`
 package binary exactly. That version is a direct **mobile-v2** development
 dependency in the shared lockfile; it is not in the web dependency graph.
 The previous web Dockerfile installed every lockfile workspace, including
-mobile development tools. This follow-up now uses pnpm's frozen filtered
-install for `@parkio/web...`, so the actual web builder installs only the web
-workspace graph from the unchanged lockfile. No package is removed after
-installation or before scanning. The next CI scan must verify that this
-install scope removes the unrelated binary and introduces no new findings.
+mobile development tools. A first attempt to filter `@parkio/web...` still
+installed all locked packages because the migrated hoisted linker setting
+applied inside Docker; the scan remained 1/21/21/3/1. The reviewed #87
+Dockerfile did not copy `.npmrc`, so its builder used pnpm's default isolated
+linker. This follow-up explicitly restores the isolated linker for the web
+builder and uses pnpm's frozen filtered install for `@parkio/web...`.
+Developer and CI installs retain their former hoisted setting. No package is
+removed after installation or before scanning. The next CI scan must verify
+that the actual install scope excludes the unrelated binary and introduces
+no new findings.
 
 ## CI acceptance and artifacts
 
