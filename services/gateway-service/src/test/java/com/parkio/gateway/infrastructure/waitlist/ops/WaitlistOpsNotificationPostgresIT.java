@@ -127,6 +127,15 @@ class WaitlistOpsNotificationPostgresIT {
         jdbcTemplate.execute("DROP TRIGGER IF EXISTS it_fail_outbox_insert ON waitlist_ops_notification_outbox");
         jdbcTemplate.update("DELETE FROM waitlist_ops_notification_outbox");
         jdbcTemplate.update("DELETE FROM waitlist_interest");
+        if (inbox != null) {
+            try (var files = Files.list(inbox)) {
+                for (Path file : files.toList()) {
+                    Files.deleteIfExists(file);
+                }
+            } catch (Exception ex) {
+                throw new IllegalStateException(ex);
+            }
+        }
     }
 
     @Test
