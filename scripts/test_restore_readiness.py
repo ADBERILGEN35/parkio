@@ -286,6 +286,114 @@ class DumpProfileTest(unittest.TestCase):
         self.assertNotEqual(wrong.returncode, 0)
 
 
+LEDGER_TOOL = ROOT / "scripts/lib/restore-erasure-ledger.py"
+ERASED_BEFORE = "00000000-0000-4000-a000-0000000000b1"   # tombstoned before the data stamp
+ERASED_AFTER = "00000000-0000-4000-a000-0000000000a1"    # present in data stamp, erased later
+ERASED_MANUAL = "00000000-0000-4000-a000-0000000000c1"   # only in an operator supplement
+
+
+def ledger_stamp(base, name, ids):
+    stamp = Path(base) / name
+    stamp.mkdir()
+    (stamp / "backup-manifest.json").write_text(json.dumps({"timestamp": name}))
+    (stamp / "erasure-tombstones.json").write_text(json.dumps(
+        [{"authUserId": i, "erasedAt": "2026-09-01T00:00:00Z"} for i in ids]))
+    return stamp
+
+
+class ErasureLedgerTest(unittest.TestCase):
+    """Deletion set through a recovery cutoff; synthetic identifiers only."""
+
+    def setUp(self):
+        self.work = Path(tempfile.mkdtemp())
+        self.addCleanup(shutil.rmtree, self.work)
+        self.data = ledger_stamp(self.work, "2026-09-20T03-30-01Z", [ERASED_BEFORE])
+        self.newer = ledger_stamp(self.work, "2026-09-21T03-30-01Z", [ERASED_BEFORE, ERASED_AFTER])
+        self.out = self.work / "merged.json"
+
+    def build(self, *args):
+        result = run(LEDGER_TOOL, "--data-stamp", self.data, "--out", self.out, *args)
+        return result.returncode, json.loads(result.stdout), result.stdout.decode()
+
+    def test_newer_ledger_covers_account_erased_after_backup(self):
+        code, report, text = self.build("--ledger-stamp", self.newer,
+                                        "--recovery-cutoff", "2026-09-21T03:30:01Z")
+        self.assertEqual((code, report["verdict"]), (0, "PASS"), text)
+        self.assertEqual(report["mergedTombstones"], 2)
+        self.assertEqual(report["erasedAfterDataStamp"], 1)
+        merged = {e["authUserId"] for e in json.loads(self.out.read_text())}
+        self.assertEqual(merged, {ERASED_BEFORE, ERASED_AFTER})
+        self.assertEqual(self.out.stat().st_mode & 0o777, 0o600)
+        for identifier in (ERASED_BEFORE, ERASED_AFTER):
+            self.assertNotIn(identifier, text)
+
+    def test_bundled_ledger_alone_is_blocked_for_a_later_cutoff(self):
+        code, report, _ = self.build("--recovery-cutoff", "2026-09-21T03:30:01Z")
+        self.assertEqual((code, report["verdict"]), (3, "BLOCKED"))
+        self.assertEqual(report["uncoveredSeconds"], 86400)
+        self.assertEqual(report["coverageThrough"], "2026-09-20T03:30:01Z")
+
+    def test_incident_after_newest_stamp_is_blocked_without_supplement(self):
+        code, report, _ = self.build("--ledger-stamp", self.newer,
+                                     "--recovery-cutoff", "2026-09-21T15:00:00Z")
+        self.assertEqual((code, report["verdict"]), (3, "BLOCKED"))
+
+    def test_supplement_closes_the_gap(self):
+        supplement = self.work / "supplement.json"
+        supplement.write_text(json.dumps([{"authUserId": ERASED_MANUAL}]))
+        code, report, _ = self.build("--ledger-stamp", self.newer, "--supplemental", supplement,
+                                     "--supplemental-covered-through", "2026-09-21T15:00:00Z",
+                                     "--recovery-cutoff", "2026-09-21T15:00:00Z")
+        self.assertEqual((code, report["verdict"]), (0, "PASS"))
+        self.assertEqual((report["mergedTombstones"], report["supplementalTombstones"]), (3, 1))
+
+    def test_supplement_needs_covered_through(self):
+        supplement = self.work / "supplement.json"
+        supplement.write_text("[]")
+        code, report, _ = self.build("--supplemental", supplement,
+                                     "--recovery-cutoff", "2026-09-20T03:30:01Z")
+        self.assertEqual((code, report["verdict"]), (1, "FAIL"))
+
+    def test_shrinking_ledger_history_fails(self):
+        shrunk = ledger_stamp(self.work, "2026-09-22T03-30-01Z", [ERASED_AFTER])
+        code, report, _ = self.build("--ledger-stamp", self.newer, "--ledger-stamp", shrunk,
+                                     "--recovery-cutoff", "2026-09-22T03:30:01Z")
+        self.assertEqual((code, report["verdict"]), (1, "FAIL"))
+        self.assertFalse(self.out.exists())
+
+    def test_non_uuid_identifier_fails(self):
+        bad = ledger_stamp(self.work, "2026-09-22T03-30-01Z", [ERASED_BEFORE, "x'); DROP TABLE t;--"])
+        code, report, _ = self.build("--ledger-stamp", bad, "--recovery-cutoff", "2026-09-22T03:30:01Z")
+        self.assertEqual((code, report["verdict"]), (1, "FAIL"))
+
+
+class ProcedureEarlyPhaseTest(unittest.TestCase):
+    """restore-drill-01.sh stops before decryption; these phases need no Docker."""
+
+    def setUp(self):
+        self.work = Path(tempfile.mkdtemp())
+        self.addCleanup(shutil.rmtree, self.work)
+        self.stamp = make_stamp(self.work)
+
+    def procedure(self, env_extra, cutoff):
+        env = {"PATH": os.environ.get("PATH", ""), "PARKIO_DRILL_ID": "rd-unit-01", **env_extra}
+        return subprocess.run(["bash", str(ROOT / "scripts/restore-drill-01.sh"), "--stamp", str(self.stamp),
+                               "--recovery-cutoff", cutoff, "--container", "never-used",
+                               "--work", str(self.work / "w"), "--evidence", str(self.work / "e")],
+                              capture_output=True, env=env, check=False)
+
+    def test_missing_passphrase_is_usage_error(self):
+        self.assertEqual(self.procedure({}, "2026-09-20T03:30:01Z").returncode, 2)
+
+    def test_stale_ledger_blocks_before_decryption(self):
+        result = self.procedure({"BACKUP_ENCRYPT_PASSPHRASE": "synthetic"}, "2026-09-21T00:00:00Z")
+        self.assertEqual(result.returncode, 3, result.stderr)
+        summary = json.loads((self.work / "e/summary.json").read_text())
+        self.assertEqual(summary["verdict"], "BLOCKED")
+        self.assertFalse((self.work / "e/isolation.json").exists())
+        self.assertFalse(list((self.work / "e").glob("*.profile.json")))
+
+
 def closed_port():
     with socket.socket() as sock:
         sock.bind(("127.0.0.1", 0))

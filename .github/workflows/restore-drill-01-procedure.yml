@@ -1,0 +1,159 @@
+# Executes the documented restore drill 01 procedure (scripts/restore-drill-01.sh) against
+# real PostgreSQL/PostGIS on a disposable GitHub-hosted runner, using SYNTHETIC encrypted
+# stamps produced by the real production-mode backup path.
+#
+# This is real-stamp-FORMAT validation (encrypted, offsite-retrieved stamps, no canary rows),
+# distinct from backup-restore-drill.yml, which proves the backup scripts with canary rows.
+# Neither restores real production data. No application services, senders, schedulers,
+# relays or external notifications run here. Only secret-free synthetic evidence is uploaded.
+
+name: Restore drill 01 procedure
+
+on:
+  pull_request:
+    paths:
+      - "scripts/restore-drill-01.sh"
+      - "scripts/lib/restore-*.py"
+      - "scripts/test_restore_readiness.py"
+      - "scripts/ci/restore-drill-01-fixture.sh"
+      - "scripts/ci/assert-restore-drill-01.py"
+      - "scripts/lib/backup-common.sh"
+      - "scripts/lib/erasure-tombstones.sh"
+      - "scripts/backup-databases.sh"
+      - "scripts/backup-minio.sh"
+      - "scripts/backup-hosted-beta.sh"
+      - "scripts/backup-offsite-pull.sh"
+      - "docker/docker-compose.yml"
+      - "services/*/src/main/resources/db/migration/**"
+      - ".github/workflows/restore-drill-01-procedure.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: restore-drill-01-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  COMPOSE_PROJECT_NAME: parkio-rd01-${{ github.run_id }}-${{ github.run_attempt }}
+  MINIO_IMAGE: quay.io/minio/minio@sha256:cd04ea408e185cb50076ea1c3988d444119b19aaae15aab45387ccf14b2a2f86
+  MINIO_MC_IMAGE: quay.io/minio/mc@sha256:a5399b66b88543efac8afb08eb2bdcce5904e548ea6fe1a921600cd74f766668
+  TARGET_IMAGE: postgis/postgis:16-3.4
+  PROBE_IMAGE: python:3.12-alpine
+  # Synthetic, CI-only. Never a production value.
+  BACKUP_ENCRYPT_PASSPHRASE: parkio-rd01-synthetic-not-prod
+  PARKIO_DRILL_ID: rd-ci-${{ github.run_id }}
+
+jobs:
+  procedure:
+    name: Encrypted stamp → isolated restore → parity + erasure
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Helper unit tests (synthetic fixtures)
+        run: python3 scripts/test_restore_readiness.py
+
+      - name: Create throwaway env file
+        run: |
+          cp docker/.env.example docker/.env
+          printf '%s\n' "MINIO_IMAGE=$MINIO_IMAGE" "MINIO_MC_IMAGE=$MINIO_MC_IMAGE" >> docker/.env
+          chmod +x scripts/*.sh scripts/lib/*.sh scripts/ci/*.sh
+
+      - name: Start synthetic SOURCE stack (10 PostgreSQL + MinIO)
+        run: |
+          set -euo pipefail
+          source scripts/lib/restore-drill-services.sh
+          docker compose --env-file docker/.env -f docker/docker-compose.yml up -d --wait \
+            "${PARKIO_POSTGRES_COMPOSE_SERVICES[@]}" minio
+          docker compose --env-file docker/.env -f docker/docker-compose.yml up minio-setup
+
+      - name: Build two encrypted stamps via production backup path, retrieve from offsite
+        run: PARKIO_ENV_FILE=docker/.env scripts/ci/restore-drill-01-fixture.sh --out "$RUNNER_TEMP/rd"
+
+      - name: Destroy the source (restore must not depend on it)
+        run: docker compose --env-file docker/.env -f docker/docker-compose.yml down -v
+
+      - name: Start isolated TARGET (internal network, no published ports)
+        run: |
+          set -euo pipefail
+          docker pull -q "$PROBE_IMAGE" >/dev/null
+          docker network create --internal rd-net
+          docker run -d --name rd-postgres --network rd-net --memory 1500m \
+            -e POSTGRES_USER=rd_admin -e POSTGRES_PASSWORD="dummy-$(openssl rand -hex 12)" \
+            -e POSTGRES_DB=rd_admin "$TARGET_IMAGE"
+          for _ in $(seq 1 60); do
+            docker exec rd-postgres pg_isready -U rd_admin -d rd_admin >/dev/null 2>&1 && exit 0
+            sleep 1
+          done
+          echo "target did not become ready" >&2; exit 1
+
+      - name: Egress is denied from the drill network (isolation preflight inside rd-net)
+        run: |
+          docker run --rm --network rd-net -e PARKIO_DRILL_ID -e PARKIO_RESTORE_REQUIRE_ERASURE_LEDGER=1 \
+            -v "$PWD/scripts/lib:/t:ro" "$PROBE_IMAGE" \
+            python /t/restore-drill-isolation-preflight.py --probe-default-egress --timeout 3 --hostname rd-ci-probe
+
+      - name: "Negative control: tampered stamp fails before decryption"
+        run: |
+          set -euo pipefail
+          source "$RUNNER_TEMP/rd/expected.env"
+          cp -r "$RUNNER_TEMP/rd/stamps/$STAMP_S" "$RUNNER_TEMP/rd/tampered"
+          printf 'x' >> "$RUNNER_TEMP/rd/tampered/parking.sql.gz.enc"
+          set +e
+          scripts/restore-drill-01.sh --stamp "$RUNNER_TEMP/rd/tampered" --recovery-cutoff "$STAMP_S" \
+            --container rd-postgres --work "$RUNNER_TEMP/rd/neg1-work" --evidence "$RUNNER_TEMP/rd/neg1"
+          rc=$?
+          set -e
+          test "$rc" = 1
+          test "$(docker exec rd-postgres psql -At -U rd_admin -d rd_admin -c "select count(*) from pg_database where datname like 'parkio_%'")" = 0
+
+      - name: "Negative control: bundled ledger alone is BLOCKED for a later cutoff"
+        run: |
+          set -euo pipefail
+          source "$RUNNER_TEMP/rd/expected.env"
+          set +e
+          scripts/restore-drill-01.sh --stamp "$RUNNER_TEMP/rd/stamps/$STAMP_S" --recovery-cutoff "$STAMP_L" \
+            --container rd-postgres --work "$RUNNER_TEMP/rd/neg2-work" --evidence "$RUNNER_TEMP/rd/neg2"
+          rc=$?
+          set -e
+          test "$rc" = 3
+          grep -q '"verdict": "BLOCKED"' "$RUNNER_TEMP/rd/neg2/erasure-set.json"
+          test "$(docker exec rd-postgres psql -At -U rd_admin -d rd_admin -c "select count(*) from pg_database where datname like 'parkio_%'")" = 0
+
+      - name: Run documented procedure (restore S, erasure set through L)
+        run: |
+          set -euo pipefail
+          source "$RUNNER_TEMP/rd/expected.env"
+          scripts/restore-drill-01.sh --stamp "$RUNNER_TEMP/rd/stamps/$STAMP_S" \
+            --ledger-stamp "$RUNNER_TEMP/rd/stamps/$STAMP_L" --recovery-cutoff "$STAMP_L" \
+            --container rd-postgres --work "$RUNNER_TEMP/rd/work" --evidence "$RUNNER_TEMP/rd/evidence"
+
+      - name: Assert restored state and evidence
+        run: python3 scripts/ci/assert-restore-drill-01.py "$RUNNER_TEMP/rd/evidence" "$RUNNER_TEMP/rd/expected.env" rd-postgres
+
+      - name: Print secret-free evidence
+        if: always()
+        run: |
+          for f in summary.json erasure-set.json erasure-replay.txt outbox-pending.txt timings.txt; do
+            echo "== $f"; cat "$RUNNER_TEMP/rd/evidence/$f" 2>/dev/null || true
+          done
+
+      - name: Upload synthetic evidence (no stamps, no work dir)
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: restore-drill-01-synthetic-evidence
+          path: ${{ runner.temp }}/rd/evidence/
+          if-no-files-found: ignore
+          retention-days: 14
+
+      - name: Tear down (task-owned only)
+        if: always()
+        run: |
+          docker rm -f rd-postgres parkio-rd01-offsite-minio >/dev/null 2>&1 || true
+          docker network rm rd-net >/dev/null 2>&1 || true
+          docker compose --env-file docker/.env -f docker/docker-compose.yml down -v || true
+          rm -rf "$RUNNER_TEMP/rd"
