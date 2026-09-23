@@ -47,12 +47,16 @@ slack_biz/worker.py            (relay host, existing)
   └─ Slack incoming webhook (PARKIO_SLACK_BIZ_WEBHOOK_URL_BIZ; route biz-growth)
 ```
 
-### Envelope contract (gateway → relay, v1)
+### Envelope contract (gateway → relay, v1 and v2)
 
-The relay accepts **exactly** these keys. Any other key rejects the whole
-envelope. Unknown keys are not stripped and forwarded. A rejection is recorded
-only as a bounded category (see [Rejections](#rejections)), and by default the
-rejected file is deleted, not kept.
+The relay accepts **v1** (exactly 7 keys, no name) and **v2** (those keys plus
+allowlisted `fullName` / `confirmedTotal` / `confirmedTodayIstanbul` /
+`countsSnapshotAt`). Any other key rejects the whole envelope. Unknown keys are
+not stripped and forwarded.
+A rejection is recorded only as a bounded category (see [Rejections](#rejections)),
+and by default the rejected file is deleted, not kept.
+
+**v1**
 
 ```json
 {
@@ -66,6 +70,26 @@ rejected file is deleted, not kept.
 }
 ```
 
+**v2** (produced after the relay is dual-read capable)
+
+```json
+{
+  "contractVersion": 2,
+  "eventId": "<random outbox UUID — not the subscriber id>",
+  "eventType": "waitlist.subscription_confirmed",
+  "occurredAt": "2026-09-22T11:04:05Z",
+  "environment": "production",
+  "producer": "gateway-waitlist-outbox",
+  "dedupKey": "waitlist:subscription_confirmed:<HMAC-SHA256 hex>",
+  "fullName": "Ayşe Yılmaz",
+  "confirmedTotal": 17,
+  "confirmedTodayIstanbul": 2,
+  "countsSnapshotAt": "2026-09-22T11:04:05Z"
+}
+```
+
+`fullName` may be JSON `null` for legacy rows. Counts are an **export-time DB snapshot** (Europe/Istanbul day bounds for "today"). After a successful inbox handoff the JSON file is frozen; relay retries do not re-query or mutate it. Count-query failures export `null` counts (never an invented zero) and still deliver the notice.
+
 `dedupKey` is `HMAC-SHA256(parkio.waitlist.hash-secret, "waitlist.subscription_confirmed:" + subscriberRowId)`.
 This is **pseudonymous internal metadata, not anonymous data**. Anyone holding
 the waitlist hash secret and the subscriber table can recompute it and link it
@@ -74,32 +98,34 @@ Slack**. See [Data inventory](#data-inventory) for exactly where it is stored.
 
 ## Example Slack messages (Turkish, synthetic data)
 
-Rendered by `render_message` from a synthetic envelope
-(`run_waitlist_acceptance.py` prints the same text):
+Rendered by the dedicated waitlist renderer (`render_waitlist_message`) from a
+synthetic envelope (`run_waitlist_acceptance.py` prints the same text):
 
 ```
-*Bekleme listesi aboneliği onaylandı*
-type=`waitlist.subscription_confirmed` severity=`info`
-env=`production` service=`gateway-service`
-at=`2026-09-22T11:04:05Z`
-olay=`e-posta onayı tamamlandı (çift onay)`
+*🎉 Yeni bekleme listesi kaydı onaylandı*
+Ad soyad: Ad belirtilmemiş
+Onay zamanı: 2026-09-22 14:04 (Türkiye saati)
+Yönetim: https://app.parkio.dev/admin/waitlist
+Ortam: `acceptance` (üretim dışı)
 ```
 
-Staging/acceptance look the same apart from `env=`:
+Contract v2 with a name and export-time snapshot counts:
 
 ```
-*Bekleme listesi aboneliği onaylandı*
-type=`waitlist.subscription_confirmed` severity=`info`
-env=`acceptance` service=`gateway-service`
-at=`2026-09-22T11:04:05Z`
-olay=`e-posta onayı tamamlandı (çift onay)`
+*🎉 Yeni bekleme listesi kaydı onaylandı*
+Ad soyad: Ayşe Yılmaz
+Onay zamanı: 2026-09-22 14:04 (Türkiye saati)
+Yönetim: https://app.parkio.dev/admin/waitlist
+Dışa aktarım özeti (Europe/Istanbul günü): onaylı toplam=17, bugün=2
+_Sayımlar dışa aktarım anındaki veritabanı anlık görüntüsüdür; Slack yeniden denemelerinde değişmez._
 ```
 
-The messages do not contain: email, name, city/role, IP, tokens,
-confirm/withdraw URLs, subscriber id, email hash, `dedupKey`, `eventId`, or
-provider payload. Email, name, IP, tokens, URLs, subscriber id and provider
-data are never part of the envelope at all. `dedupKey` and `eventId` are in the
-envelope and relay state (internal metadata) but are not rendered into Slack.
+The messages do not contain: email, IP, tokens, confirm/withdraw URLs,
+subscriber id, email hash, `dedupKey`, `eventId`, or provider payload.
+`fullName` is allowlisted for the biz waitlist body only (escaped / mention-neutralized
+before Slack). Generic sensitive-key stripping still treats `full_name` / similar
+keys as sensitive outside this allow-list path. Logs must not print names or
+rejected payloads.
 
 Terminal email failure message: **none**, because the event is not implemented.
 If it is added later (see [Remaining decisions](#remaining-decisions)), it must
@@ -136,7 +162,8 @@ Resend `RestClient` without an explicit connect/read timeout.
 | `dedupKey` (pseudonymous HMAC) | yes | yes | yes | no |
 | `eventId` (random outbox UUID) | yes (`id`) | yes | yes | no |
 | export attempts / bounded error category | yes | no | no | no |
-| email, name, city, role, IP, UA, tokens, URLs, subscriber id, email hash, provider payload | **no** | **no** | **no** | **no** |
+| `fullName` (v2 only; null for legacy) | no (read from `waitlist_interest` at export) | **yes** | **yes** (queued context) | **yes** (biz channel only) |
+| email, city, role, IP, UA, tokens, URLs, subscriber id, email hash, provider payload | **no** | **no** | **no** | **no** |
 
 Classification: `dedupKey` is pseudonymous personal-data-linked metadata. It is
 covered by the retention below and is not treated as anonymous.
@@ -349,7 +376,7 @@ Synthetic data only; local mock Slack receivers; no real Slack or email.
 |---|---|
 | `./gradlew :services:gateway-service:test` | All green (see release package for counts) |
 | `./gradlew :services:gateway-service:integrationTest` → `WaitlistOpsNotificationPostgresIT` (postgres:16-alpine, Flyway V1–V4, `JdbcTransactionManager`) | 6/6: V4 applied and constraints enforced · committed → 1 row · outer rollback → neither · server-raised SQL error in savepoint → confirmation committed + `record_failed` · repeat + replay → 1 row, replay confined to savepoint · retention keeps `PENDING`. Negative control without savepoint fails as expected. |
-| `python3 scripts/slack_biz/run_waitlist_acceptance.py` | 19/19 (W01–W19) |
+| `python3 scripts/slack_biz/run_waitlist_acceptance.py` | 23/23 (W01–W23; W20–W23 cover v2 allowlist, freeze copy, adversarial names, unknown fields) |
 | `scripts/slack_biz/waitlist-e2e/run-e2e.sh` (Docker, internal network, final code candidate + live rollback artifact) | 11/11 (E01–E11); evidence `agent-tools/parkio-waitlist-slack-release-prep-03/20260922T164000Z/e2e/` |
 | `scripts/slack_biz/waitlist-e2e/run-civo-systemd-check.sh` | 18/18 |
 | Existing `run_acceptance.py` / `run_reliability_acceptance.py` | 15/15 and 13 PASS + 1 NOT_EXECUTED (Kafka, unchanged from PR #54) |
@@ -360,3 +387,12 @@ Synthetic data only; local mock Slack receivers; no real Slack or email.
 - Daily digest and signed Resend delivery webhooks are deferred to separate tasks. Terminal email failure stays unimplemented until then.
 - The relay is Civo-hosted under a dedicated least-privilege user with systemd units. The webhook is never given to the gateway.
 - The Resend client timeout observation is tracked separately, outside this PR.
+
+
+## Producer contract switch (safe rollout)
+
+Gateway property `parkio.waitlist.ops-notifications.contract-version` defaults to **1**.
+Deploy the dual-read slack_biz relay first, then set the property (or
+`PARKIO_WAITLIST_OPS_NOTIFICATIONS_CONTRACT_VERSION`) to **2** so the exporter
+emits `fullName` + export-time counts. A v2-producing gateway must not point at a
+v1-only consumer.

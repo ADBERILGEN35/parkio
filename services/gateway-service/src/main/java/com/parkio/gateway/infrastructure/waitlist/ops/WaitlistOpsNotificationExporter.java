@@ -2,6 +2,8 @@ package com.parkio.gateway.infrastructure.waitlist.ops;
 
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.parkio.gateway.application.waitlist.WaitlistInterest;
+import com.parkio.gateway.application.waitlist.WaitlistInterestRepository;
 import java.io.IOException;
 import java.nio.file.AtomicMoveNotSupportedException;
 import java.nio.file.DirectoryStream;
@@ -12,6 +14,8 @@ import java.nio.file.StandardCopyOption;
 import java.time.Clock;
 import java.time.Duration;
 import java.time.Instant;
+import java.time.LocalDate;
+import java.time.ZoneId;
 import java.time.temporal.ChronoUnit;
 import java.util.LinkedHashMap;
 import java.util.List;
@@ -33,20 +37,25 @@ import org.springframework.scheduling.annotation.Scheduled;
  * with bounded exponential backoff and become {@code FAILED} after
  * {@code maxExportAttempts}; they are never retried indefinitely.
  *
- * <p>Backpressure: when the inbox already holds {@code maxInboxBacklog}
- * unconsumed envelopes (relay down or deferring) or its filesystem has less
- * than {@code minFreeBytes} usable space, the poll exports nothing. Rows stay
- * {@code PENDING} without consuming an attempt, so nothing is dropped or
- * deleted; the confirmation path only ever inserts one small row.
+ * <p>Contract version is configurable ({@code 1} or {@code 2}). Version 2
+ * allow-lists {@code fullName} (nullable), {@code confirmedTotal},
+ * {@code confirmedTodayIstanbul}, and {@code countsSnapshotAt}. Counts are
+ * <strong>export-time</strong> snapshots (Europe/Istanbul day for "today").
+ * After a successful inbox handoff the serialized file is frozen; export
+ * retries do not rewrite or re-query. Count-query failures export {@code null}
+ * counts (never an invented zero) and still deliver the confirmation notice.
  */
 public class WaitlistOpsNotificationExporter {
 
     static final String PRODUCER = "gateway-waitlist-outbox";
-    static final int CONTRACT_VERSION = 1;
+    /** Documented v2 constant for tests asserting the activated producer. */
+    static final int CONTRACT_VERSION_V2 = 2;
+    static final ZoneId ISTANBUL = ZoneId.of("Europe/Istanbul");
 
     private static final Logger log = LoggerFactory.getLogger(WaitlistOpsNotificationExporter.class);
 
     private final JdbcWaitlistOpsNotificationOutbox outbox;
+    private final WaitlistInterestRepository interests;
     private final WaitlistOpsNotificationProperties properties;
     private final Clock clock;
     private final ObjectMapper objectMapper = new ObjectMapper();
@@ -56,10 +65,12 @@ public class WaitlistOpsNotificationExporter {
 
     public WaitlistOpsNotificationExporter(
             JdbcWaitlistOpsNotificationOutbox outbox,
+            WaitlistInterestRepository interests,
             WaitlistOpsNotificationProperties properties,
             Clock clock,
             MeterRegistry meterRegistry) {
         this.outbox = outbox;
+        this.interests = interests;
         this.properties = properties;
         this.clock = clock;
         Gauge.builder("parkio.waitlist.ops.outbox.pending", pendingRows, AtomicLong::get)
@@ -107,7 +118,7 @@ public class WaitlistOpsNotificationExporter {
         int retried = 0;
         int failed = 0;
         for (JdbcWaitlistOpsNotificationOutbox.OutboxRow row : due) {
-            String category = writeEnvelope(dir, row);
+            String category = writeEnvelope(dir, row, now);
             if (category == null) {
                 outbox.markExported(row.id(), clock.instant());
                 outbox.count("exported");
@@ -167,15 +178,19 @@ public class WaitlistOpsNotificationExporter {
     }
 
     /** @return null on success, otherwise a bounded error category */
-    private String writeEnvelope(Path dir, JdbcWaitlistOpsNotificationOutbox.OutboxRow row) {
+    private String writeEnvelope(Path dir, JdbcWaitlistOpsNotificationOutbox.OutboxRow row, Instant now) {
         byte[] json;
         try {
-            json = objectMapper.writeValueAsBytes(envelope(row));
+            json = objectMapper.writeValueAsBytes(envelope(row, now));
         } catch (JsonProcessingException ex) {
             return "serialization_error";
         }
         String name = "waitlist-" + row.id() + ".json";
         Path target = dir.resolve(name);
+        // Freeze after successful handoff: keep the first serialized body.
+        if (Files.isRegularFile(target)) {
+            return null;
+        }
         // Dot-prefixed temp name never matches the relay's *.json glob.
         Path temp = dir.resolve("." + name + ".tmp");
         try {
@@ -199,16 +214,50 @@ public class WaitlistOpsNotificationExporter {
         }
     }
 
-    private Map<String, Object> envelope(JdbcWaitlistOpsNotificationOutbox.OutboxRow row) {
+    Map<String, Object> envelope(JdbcWaitlistOpsNotificationOutbox.OutboxRow row, Instant now) {
         // Allow-listed fields only. The relay rejects any additional key.
         Map<String, Object> envelope = new LinkedHashMap<>();
-        envelope.put("contractVersion", CONTRACT_VERSION);
+        int version = properties.getContractVersion();
+        envelope.put("contractVersion", version);
         envelope.put("eventId", row.id().toString());
         envelope.put("eventType", row.eventType());
         envelope.put("occurredAt", row.occurredAt().truncatedTo(ChronoUnit.SECONDS).toString());
         envelope.put("environment", properties.getEnvironment());
         envelope.put("producer", PRODUCER);
         envelope.put("dedupKey", row.dedupKey());
+        if (version < 2) {
+            return envelope;
+        }
+        String fullName = null;
+        if (row.interestId() != null) {
+            try {
+                fullName = interests.findById(row.interestId()).map(WaitlistInterest::fullName).orElse(null);
+            } catch (RuntimeException ex) {
+                log.warn("Waitlist ops fullName load failed; category={}", ex.getClass().getSimpleName());
+                fullName = null;
+            }
+        }
+        envelope.put("fullName", fullName);
+        Long confirmedTotal = null;
+        Long confirmedToday = null;
+        String countsSnapshotAt = null;
+        try {
+            Instant istanbulDayStart = LocalDate.now(clock.withZone(ISTANBUL))
+                    .atStartOfDay(ISTANBUL)
+                    .toInstant();
+            confirmedTotal = interests.countConfirmed();
+            confirmedToday = interests.countConfirmedSince(istanbulDayStart);
+            countsSnapshotAt = now.truncatedTo(ChronoUnit.SECONDS).toString();
+        } catch (RuntimeException ex) {
+            // Never invent zero; still export the confirmation notice.
+            log.warn("Waitlist ops count snapshot failed; category={}", ex.getClass().getSimpleName());
+            confirmedTotal = null;
+            confirmedToday = null;
+            countsSnapshotAt = null;
+        }
+        envelope.put("confirmedTotal", confirmedTotal);
+        envelope.put("confirmedTodayIstanbul", confirmedToday);
+        envelope.put("countsSnapshotAt", countsSnapshotAt);
         return envelope;
     }
 

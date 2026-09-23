@@ -60,7 +60,7 @@ class WaitlistOpsNotificationDisabledTest {
         }).when(emailSender).sendConfirmation(anyString(), anyString(), any(), anyString());
 
         service.submit(new SubmitWaitlistCommand(
-                "disabled.synthetic@example.test", Instant.now(), null, null, "parkio.dev-landing", "tr",
+                "disabled.synthetic@example.test", Instant.now(), null, null, null, "parkio.dev-landing", "tr",
                 "198.51.100.24", null)).block();
         service.confirm(token.get()).block();
 

@@ -1,0 +1,14 @@
+⚠️ Karışık grup (1 aktif / 1 çözüldü): GatewayHigh5xxRate
+Ortam: production
+Grup özeti: 1 aktif, 1 çözüldü (tamamen çözülmüş değil).
+*Gateway 5xx rate elevated*
+Ne oldu: 5xx oranı uyarı eşiğinin üzerinde.
+Servis: gateway-service
+Başlangıç: 2026-09-22T11:04:05.000Z
+İlk işlem: runbook’u açın, etkilenen servisi/ kaynağı doğrulayın.
+Runbook: https://github.com/ADBERILGEN35/parkio/blob/api/docs/architecture/observability-metrics.md#runbook--gatewayhigh5xxrate
+
+*Gateway 5xx rate elevated*
+Durum: sorun çözüldü — koşul artık tetiklenmiyor.
+Başlangıç: 2026-09-22T10:00:00.000Z
+Runbook: https://github.com/ADBERILGEN35/parkio/blob/api/docs/architecture/observability-metrics.md#runbook--gatewayhigh5xxrate

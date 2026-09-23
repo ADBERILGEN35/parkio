@@ -50,7 +50,7 @@ tests:
             exp_annotations:
               summary: "Blackbox exporter is down"
               description: "Prometheus cannot scrape blackbox-exporter:9115 for >2m. Infra probe alerts (MinIO/Redis/ClamAV/Postgres) are blind until the exporter is restored — this is not itself a MinIO/Redis outage."
-              runbook_url: "docs/operations/alert-response-runbook.md"
+              runbook_url: "https://github.com/ADBERILGEN35/parkio/blob/api/docs/operations/alert-response-runbook.md"
       - eval_time: 5m
         alertname: MinIODown
         exp_alerts: []
@@ -81,7 +81,7 @@ tests:
             exp_annotations:
               summary: "MinIO is down"
               description: "Blackbox probe to MinIO health endpoint failed for >2m. Media uploads and presigned GETs will fail."
-              runbook_url: "docs/operations/alert-response-runbook.md#miniodown"
+              runbook_url: "https://github.com/ADBERILGEN35/parkio/blob/api/docs/operations/alert-response-runbook.md#miniodown"
       - eval_time: 5m
         alertname: RedisDown
         exp_alerts: []

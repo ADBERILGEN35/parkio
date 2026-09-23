@@ -21,6 +21,13 @@ public class WaitlistProperties {
      */
     private boolean admissionsEnabled = false;
 
+    /**
+     * When true, new subscription requests must include a valid {@code fullName}.
+     * Default false so the pre-name marketing form on Hostinger remains compatible
+     * until the Hostinger upload and this flag flip are coordinated.
+     */
+    private boolean fullNameRequired = false;
+
     @NotBlank
     private String hashSecret;
 
@@ -72,6 +79,14 @@ public class WaitlistProperties {
 
     public void setAdmissionsEnabled(boolean admissionsEnabled) {
         this.admissionsEnabled = admissionsEnabled;
+    }
+
+    public boolean isFullNameRequired() {
+        return fullNameRequired;
+    }
+
+    public void setFullNameRequired(boolean fullNameRequired) {
+        this.fullNameRequired = fullNameRequired;
     }
 
     public String getHashSecret() {

@@ -1,0 +1,8 @@
+⚠️ Uyarı: MunicipalSourceConsecutiveFailuresWarning
+Ortam: production
+*Belediye kaynağı ardışık hata eşiği (uyarı)*
+Ne oldu: İZUM senkron ardışık hataları yükseldi. Operasyonel SLA durumunu ve sınırlı hata kategorisini actuator health ayrıntılarından kontrol edin.
+Kaynak: izmir-izum-otoparklar
+Başlangıç: 2026-09-22T11:04:05.000Z
+İlk işlem: Runbook’u açın; actuator health ve kaynak SLA’sını doğrulayın.
+Runbook: https://github.com/ADBERILGEN35/parkio/blob/api/docs/operations/municipal-parking-source-runbook.md

@@ -10,6 +10,7 @@ import java.util.UUID;
 public record WaitlistAdminEntry(
         UUID id,
         String email,
+        String fullName,
         WaitlistStatus status,
         String locale,
         String source,

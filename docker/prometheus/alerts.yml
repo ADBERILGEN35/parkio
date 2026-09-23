@@ -27,7 +27,7 @@ groups:
         annotations:
           summary: "Service {{ $labels.service }} is down"
           description: "Prometheus cannot scrape {{ $labels.service }} ({{ $labels.instance }}) for >2m. Check `docker compose ps` and the service logs."
-          runbook_url: "docs/architecture/observability-metrics.md#runbook--servicedown"
+          runbook_url: "https://github.com/ADBERILGEN35/parkio/blob/api/docs/architecture/observability-metrics.md#runbook--servicedown"
 
       - alert: GatewayHigh5xxRate
         # >5% of edge responses are 5xx over 5m, sustained 10m. clamp_min avoids div-by-zero
@@ -42,7 +42,7 @@ groups:
         annotations:
           summary: "Gateway 5xx rate is high"
           description: "More than 5% of gateway responses are 5xx over the last 5m. A downstream service is likely failing — check ServiceDown and per-service 5xx."
-          runbook_url: "docs/architecture/observability-metrics.md#runbook--gatewayhigh5xxrate"
+          runbook_url: "https://github.com/ADBERILGEN35/parkio/blob/api/docs/architecture/observability-metrics.md#runbook--gatewayhigh5xxrate"
 
       - alert: OutboxDeadlettered
         # Any dead-lettered (poison) outbox row is actionable: a publish permanently failed
@@ -54,7 +54,7 @@ groups:
         annotations:
           summary: "Dead-lettered outbox rows in {{ $labels.service }}"
           description: "{{ $labels.service }} has {{ $value }} dead-lettered outbox row(s). Events are NOT being published. Follow the OutboxDeadlettered runbook (inspect failure_reason, fix, redrive)."
-          runbook_url: "docs/architecture/observability-metrics.md#runbook--outboxdeadlettered"
+          runbook_url: "https://github.com/ADBERILGEN35/parkio/blob/api/docs/architecture/observability-metrics.md#runbook--outboxdeadlettered"
 
       - alert: OutboxOldestUnpublishedTooOld
         # The oldest relayable row is older than 5m -> the relay is not draining to Kafka
@@ -67,7 +67,7 @@ groups:
         annotations:
           summary: "Outbox not draining in {{ $labels.service }}"
           description: "Oldest unpublished outbox row in {{ $labels.service }} is {{ $value | humanizeDuration }} old. Check Kafka health and the relay logs."
-          runbook_url: "docs/operations/alert-response-runbook.md#outboxbacklog"
+          runbook_url: "https://github.com/ADBERILGEN35/parkio/blob/api/docs/operations/alert-response-runbook.md#outboxbacklog"
 
       - alert: DatabaseConnectionPoolExhausted
         # Threads are blocked waiting for a HikariCP connection for 5m -> pool exhausted
@@ -79,7 +79,7 @@ groups:
         annotations:
           summary: "DB pool exhausted in {{ $labels.service }} (pool {{ $labels.pool }})"
           description: "{{ $value }} thread(s) waiting for a DB connection in {{ $labels.service }} for >5m. Check for slow queries / connection leaks or raise the pool size."
-          runbook_url: "docs/architecture/observability-metrics.md#runbook--databaseconnectionpoolexhausted"
+          runbook_url: "https://github.com/ADBERILGEN35/parkio/blob/api/docs/architecture/observability-metrics.md#runbook--databaseconnectionpoolexhausted"
 
       - alert: KafkaExporterDown
         # Without the exporter, consumer lag and DLT depth are blind.
@@ -90,7 +90,7 @@ groups:
         annotations:
           summary: "Kafka exporter is down"
           description: "Prometheus cannot scrape kafka-exporter for >2m. Kafka lag and DLT-depth alerts are unavailable until the exporter is restored."
-          runbook_url: "docs/architecture/observability-metrics.md#runbook--kafkaexporterdown"
+          runbook_url: "https://github.com/ADBERILGEN35/parkio/blob/api/docs/architecture/observability-metrics.md#runbook--kafkaexporterdown"
 
       - alert: BlackboxExporterDown
         # Without blackbox, MinIO/Redis/ClamAV/Postgres probe_success series disappear and
@@ -102,7 +102,7 @@ groups:
         annotations:
           summary: "Blackbox exporter is down"
           description: "Prometheus cannot scrape blackbox-exporter:9115 for >2m. Infra probe alerts (MinIO/Redis/ClamAV/Postgres) are blind until the exporter is restored — this is not itself a MinIO/Redis outage."
-          runbook_url: "docs/operations/alert-response-runbook.md"
+          runbook_url: "https://github.com/ADBERILGEN35/parkio/blob/api/docs/operations/alert-response-runbook.md"
 
       - alert: KafkaBrokerUnavailable
         # danielqsj/kafka-exporter exposes kafka_brokers as the broker count it can see.
@@ -113,7 +113,7 @@ groups:
         annotations:
           summary: "Kafka exporter sees no brokers"
           description: "Kafka exporter is reachable but reports zero Kafka brokers. Check parkio-kafka health, listener config, and exporter broker address kafka:9092."
-          runbook_url: "docs/architecture/observability-metrics.md#runbook--kafkabrokerunavailable"
+          runbook_url: "https://github.com/ADBERILGEN35/parkio/blob/api/docs/architecture/observability-metrics.md#runbook--kafkabrokerunavailable"
 
       - alert: KafkaDltMessagesPresent
         # DLT topics are delete-retention topics, so retained offset depth is a practical
@@ -129,7 +129,7 @@ groups:
         annotations:
           summary: "Kafka DLT topic {{ $labels.topic }} has retained messages"
           description: "{{ $labels.topic }} has retained offset depth {{ $value }} for >5m. A consumer poison message was routed to its DLT; inspect and redrive or archive deliberately."
-          runbook_url: "docs/architecture/observability-metrics.md#runbook--kafkadltmessagespresent"
+          runbook_url: "https://github.com/ADBERILGEN35/parkio/blob/api/docs/architecture/observability-metrics.md#runbook--kafkadltmessagespresent"
 
       - alert: OutboxDeadletterAgeHigh
         # A dead-letter row that remains open for hours means inspection/redrive/acknowledgment
@@ -141,7 +141,7 @@ groups:
         annotations:
           summary: "Old outbox dead-letter in {{ $labels.service }}"
           description: "The oldest open dead-lettered outbox row in {{ $labels.service }} is {{ $value | humanizeDuration }} old. Inspect with scripts/outbox-deadletter-recovery.sh and retry or acknowledge deliberately."
-          runbook_url: "docs/operations/dlq-redrive-runbook.md"
+          runbook_url: "https://github.com/ADBERILGEN35/parkio/blob/api/docs/operations/dlq-redrive-runbook.md"
 
       - alert: KafkaConsumerLagSustained
         # Sustained high average lag indicates a stuck/underprovisioned consumer, not just a burst.
@@ -155,7 +155,7 @@ groups:
         annotations:
           summary: "Kafka consumer lag sustained for {{ $labels.consumergroup }} on {{ $labels.topic }}"
           description: "{{ $labels.consumergroup }} has averaged >1000 messages of lag on {{ $labels.topic }} for at least 30m. User-visible projections may be stale."
-          runbook_url: "docs/operations/alert-response-runbook.md#kafkaconsumerlagsustained"
+          runbook_url: "https://github.com/ADBERILGEN35/parkio/blob/api/docs/operations/alert-response-runbook.md#kafkaconsumerlagsustained"
 
       - alert: GatewayDown
         expr: up{job="parkio-services",service="gateway-service"} == 0
@@ -165,7 +165,7 @@ groups:
         annotations:
           summary: "Gateway is down"
           description: "Prometheus cannot scrape gateway-service for >2m. The API edge is unreachable."
-          runbook_url: "docs/operations/alert-response-runbook.md#gatewaydown"
+          runbook_url: "https://github.com/ADBERILGEN35/parkio/blob/api/docs/operations/alert-response-runbook.md#gatewaydown"
 
       - alert: CoreServiceDown
         expr: up{job="parkio-services",service=~"auth-service|user-service|parking-service|media-service|notification-service|gamification-service|moderation-service|analytics-service|ai-validation-service"} == 0
@@ -175,7 +175,7 @@ groups:
         annotations:
           summary: "Core service {{ $labels.service }} is down"
           description: "{{ $labels.service }} is unreachable for >2m. Check docker compose ps and service logs."
-          runbook_url: "docs/operations/alert-response-runbook.md#coreservicedown"
+          runbook_url: "https://github.com/ADBERILGEN35/parkio/blob/api/docs/operations/alert-response-runbook.md#coreservicedown"
 
       - alert: GatewayHighLatencyP95
         expr: |
@@ -188,7 +188,7 @@ groups:
         annotations:
           summary: "Gateway p95 latency is high"
           description: "Gateway p95 request latency exceeds 2s for >10m. Check downstream services and host saturation."
-          runbook_url: "docs/operations/alert-response-runbook.md#gatewayhighlatencyp95"
+          runbook_url: "https://github.com/ADBERILGEN35/parkio/blob/api/docs/operations/alert-response-runbook.md#gatewayhighlatencyp95"
 
       - alert: OutboxUnpublishedBacklogHigh
         expr: parkio_outbox_unpublished_count > 500
@@ -198,7 +198,7 @@ groups:
         annotations:
           summary: "Outbox backlog high in {{ $labels.service }}"
           description: "{{ $labels.service }} has {{ $value }} unpublished outbox rows for >15m. Delivery is falling behind."
-          runbook_url: "docs/operations/alert-response-runbook.md#outboxbacklog"
+          runbook_url: "https://github.com/ADBERILGEN35/parkio/blob/api/docs/operations/alert-response-runbook.md#outboxbacklog"
 
       - alert: MinIODown
         expr: probe_success{component="minio"} == 0
@@ -208,7 +208,7 @@ groups:
         annotations:
           summary: "MinIO is down"
           description: "Blackbox probe to MinIO health endpoint failed for >2m. Media uploads and presigned GETs will fail."
-          runbook_url: "docs/operations/alert-response-runbook.md#miniodown"
+          runbook_url: "https://github.com/ADBERILGEN35/parkio/blob/api/docs/operations/alert-response-runbook.md#miniodown"
 
       - alert: RedisDown
         expr: probe_success{component="redis"} == 0
@@ -218,7 +218,7 @@ groups:
         annotations:
           summary: "Redis is down"
           description: "TCP probe to redis:6379 failed for >2m. Rate limiting and caches may be impaired."
-          runbook_url: "docs/operations/alert-response-runbook.md#redisdown"
+          runbook_url: "https://github.com/ADBERILGEN35/parkio/blob/api/docs/operations/alert-response-runbook.md#redisdown"
 
       - alert: ClamAVDown
         expr: probe_success{component="clamav"} == 0
@@ -228,7 +228,7 @@ groups:
         annotations:
           summary: "ClamAV is down"
           description: "TCP probe to clamav:3310 failed for >5m. media-service fails closed on uploads."
-          runbook_url: "docs/operations/alert-response-runbook.md#clamavdown"
+          runbook_url: "https://github.com/ADBERILGEN35/parkio/blob/api/docs/operations/alert-response-runbook.md#clamavdown"
 
       - alert: PostgresDown
         expr: probe_success{component=~"postgres-.*"} == 0
@@ -238,7 +238,7 @@ groups:
         annotations:
           summary: "Postgres {{ $labels.component }} is down"
           description: "TCP probe to {{ $labels.component }}:5432 failed for >2m."
-          runbook_url: "docs/operations/alert-response-runbook.md#postgresdown"
+          runbook_url: "https://github.com/ADBERILGEN35/parkio/blob/api/docs/operations/alert-response-runbook.md#postgresdown"
 
       - alert: BackupFailed
         expr: parkio_backup_last_success{scope=~"hosted-beta|azure-hosted-beta|invite-production"} == 0
@@ -248,7 +248,7 @@ groups:
         annotations:
           summary: "Hosted-beta backup last run failed"
           description: "parkio_backup_last_success is 0 for scope {{ $labels.scope }}. The last backup attempt did not meet success (databases + MinIO + required offsite). Inspect the backup log; do not treat a local directory as success."
-          runbook_url: "docs/operations/backup-runbook.md#failed-backups"
+          runbook_url: "https://github.com/ADBERILGEN35/parkio/blob/api/docs/operations/backup-runbook.md#failed-backups"
 
       - alert: BackupStale
         expr: (time() - parkio_backup_last_timestamp_seconds{scope=~"hosted-beta|azure-hosted-beta|invite-production"}) > 90000
@@ -258,7 +258,7 @@ groups:
         annotations:
           summary: "Hosted-beta backup is stale"
           description: "Last backup attempt timestamp for scope {{ $labels.scope }} is older than ~25h. Nightly cadence was missed. Run scripts/backup-hosted-beta.sh after checking why cron/job did not run."
-          runbook_url: "docs/operations/backup-runbook.md#failed-backups"
+          runbook_url: "https://github.com/ADBERILGEN35/parkio/blob/api/docs/operations/backup-runbook.md#failed-backups"
 
       - alert: BackupOffsiteFailed
         expr: |
@@ -270,7 +270,7 @@ groups:
         annotations:
           summary: "Production-mode offsite backup failed"
           description: "BACKUP_PRODUCTION_MODE is on for scope {{ $labels.scope }} but parkio_backup_offsite_last_success is 0. Local stamp existence is not offsite protection. Check Azure/S3 credentials and backup-offsite logs."
-          runbook_url: "docs/operations/backup-runbook.md#failed-backups"
+          runbook_url: "https://github.com/ADBERILGEN35/parkio/blob/api/docs/operations/backup-runbook.md#failed-backups"
 
       - alert: BackupOffsiteStale
         expr: |
@@ -282,7 +282,7 @@ groups:
         annotations:
           summary: "Production-mode offsite backup is stale"
           description: "Production-intended backups for scope {{ $labels.scope }} have no attempt newer than ~25h, so the offsite copy is also stale. There is no separate offsite timestamp — cadence uses parkio_backup_last_timestamp_seconds."
-          runbook_url: "docs/operations/backup-runbook.md#failed-backups"
+          runbook_url: "https://github.com/ADBERILGEN35/parkio/blob/api/docs/operations/backup-runbook.md#failed-backups"
 
       - alert: BackupEncryptionDisabledInProduction
         expr: |
@@ -294,7 +294,7 @@ groups:
         annotations:
           summary: "Backup encryption disabled in production mode"
           description: "parkio_backup_production_mode is 1 for scope {{ $labels.scope }} but parkio_backup_encryption_enabled is 0. Production-intended dumps must be encrypted. Do not continue relying on plaintext stamps."
-          runbook_url: "docs/operations/backup-runbook.md#failed-backups"
+          runbook_url: "https://github.com/ADBERILGEN35/parkio/blob/api/docs/operations/backup-runbook.md#failed-backups"
 
       # PA-16 — exporter healthy while expected backup textfile series disappear.
       # Distinct from BackupFailed/Stale (those need a present vector) and from
@@ -313,7 +313,7 @@ groups:
         annotations:
           summary: "Backup telemetry missing while node-exporter is up"
           description: "node-exporter is scrapeable but no parkio_backup_last_success series for production scopes (hosted-beta|azure-hosted-beta|invite-production) existed in the last 30m. Threshold alerts on empty vectors stay silent — check textfile mount, parkio_backup.prom, and collector parse errors."
-          runbook_url: "docs/operations/backup-runbook.md#failed-backups"
+          runbook_url: "https://github.com/ADBERILGEN35/parkio/blob/api/docs/operations/backup-runbook.md#failed-backups"
 
       - alert: BackupRequiredSeriesMissing
         # A scope already advertising production_mode must also export the paired
@@ -346,7 +346,7 @@ groups:
         annotations:
           summary: "Required backup metric missing for scope {{ $labels.scope }}"
           description: "parkio_backup_production_mode is present for scope {{ $labels.scope }} but at least one required paired series (last_success, last_timestamp_seconds, offsite_last_success, encryption_enabled) is absent. Another scope remaining healthy does not clear this."
-          runbook_url: "docs/operations/backup-runbook.md#failed-backups"
+          runbook_url: "https://github.com/ADBERILGEN35/parkio/blob/api/docs/operations/backup-runbook.md#failed-backups"
 
       - alert: BackupTextfileCollectorError
         expr: node_textfile_scrape_error{job="node-exporter"} > 0
@@ -357,7 +357,7 @@ groups:
         annotations:
           summary: "node-exporter textfile collector parse error"
           description: "node_textfile_scrape_error > 0 on {{ $labels.instance }}. Backup .prom files may be unreadable or malformed — parkio_backup_* series can disappear while the exporter stays up."
-          runbook_url: "docs/operations/backup-runbook.md#failed-backups"
+          runbook_url: "https://github.com/ADBERILGEN35/parkio/blob/api/docs/operations/backup-runbook.md#failed-backups"
 
       - alert: ParkioAlertingAcceptanceTest
         # Synthetic plumbing probe. Disabled unless parkio_alerting_acceptance_test==1
@@ -372,7 +372,7 @@ groups:
         annotations:
           summary: "Parkio alerting acceptance test is armed"
           description: "Synthetic alert ParkioAlertingAcceptanceTest is active. This is not a production outage. Disarm the series (set to 0 or remove the textfile) after confirming operator notification plumbing."
-          runbook_url: "docs/operations/alerting.md#synthetic-acceptance"
+          runbook_url: "https://github.com/ADBERILGEN35/parkio/blob/api/docs/operations/alerting.md#synthetic-acceptance"
 
   # ===================================================================== #
   # WARNING — investigate soon; not necessarily an outage.                 #
@@ -391,7 +391,7 @@ groups:
         annotations:
           summary: "High heap usage in {{ $labels.service }}"
           description: "{{ $labels.service }} heap is above 90% of max for >10m. Risk of GC thrash / OOM — review memory limits (JAVA_TOOL_OPTIONS MaxRAMPercentage) and load."
-          runbook_url: "docs/operations/alert-response-runbook.md#highjvmmemoryusage"
+          runbook_url: "https://github.com/ADBERILGEN35/parkio/blob/api/docs/operations/alert-response-runbook.md#highjvmmemoryusage"
 
       - alert: OutboxPublishFailuresElevated
         # The relay is failing to publish rows (transient broker/network errors) well before
@@ -405,7 +405,7 @@ groups:
         annotations:
           summary: "Outbox publish failures elevated in {{ $labels.service }}"
           description: "{{ $labels.service }} outbox relay is failing to publish (~{{ $value | humanize }}/s over 5m). Rows are being retried; check Kafka health and relay logs before they dead-letter."
-          runbook_url: "docs/architecture/observability-metrics.md#runbook--outboxdeadlettered"
+          runbook_url: "https://github.com/ADBERILGEN35/parkio/blob/api/docs/architecture/observability-metrics.md#runbook--outboxdeadlettered"
 
       - alert: OutboxRedriveStillDeadlettered
         # If operators retried rows but open dead-letters remain, the fix did not work or
@@ -419,7 +419,7 @@ groups:
         annotations:
           summary: "Outbox redrive did not clear dead-letters in {{ $labels.service }}"
           description: "{{ $labels.service }} recorded retry actions in the last hour but still has open dead-lettered rows. Stop repeated retries; inspect the failure reason and escalate to a code/config fix if unchanged."
-          runbook_url: "docs/operations/dlq-redrive-runbook.md"
+          runbook_url: "https://github.com/ADBERILGEN35/parkio/blob/api/docs/operations/dlq-redrive-runbook.md"
 
       - alert: MediaUploadFailuresHigh
         # >50% of upload attempts rejected over 15m -> client/integration breakage (some
@@ -436,7 +436,7 @@ groups:
         annotations:
           summary: "Most media uploads are being rejected"
           description: "Over 50% of media upload attempts were rejected in the last 15m. Check validation rules, client behaviour, and media-service logs."
-          runbook_url: "docs/architecture/observability-metrics.md#runbook--mediauploadfailureshigh"
+          runbook_url: "https://github.com/ADBERILGEN35/parkio/blob/api/docs/architecture/observability-metrics.md#runbook--mediauploadfailureshigh"
 
       - alert: AuthLoginFailuresHigh
         # Sustained high absolute login-failure rate (>0.2/s ~= 12/min) for 10m -> likely
@@ -449,7 +449,7 @@ groups:
         annotations:
           summary: "Elevated login failures"
           description: "Login failures exceed ~12/min over 10m. Possible credential stuffing or an auth outage — correlate with GatewayRateLimitSpike and auth-service logs."
-          runbook_url: "docs/architecture/observability-metrics.md#runbook--authloginfailureshigh"
+          runbook_url: "https://github.com/ADBERILGEN35/parkio/blob/api/docs/architecture/observability-metrics.md#runbook--authloginfailureshigh"
 
       - alert: GatewayRateLimitSpike
         # >1/s (~60/min) requests rejected with 429 for 10m -> abuse or misconfigured limits.
@@ -488,7 +488,7 @@ groups:
         annotations:
           summary: "Kafka consumer lag is high for {{ $labels.consumergroup }} on {{ $labels.topic }}"
           description: "{{ $labels.consumergroup }} has >100 messages of lag on {{ $labels.topic }} for >10m. Check the consumer logs before it becomes a sustained backlog."
-          runbook_url: "docs/operations/alert-response-runbook.md#kafkaconsumerlaghigh"
+          runbook_url: "https://github.com/ADBERILGEN35/parkio/blob/api/docs/operations/alert-response-runbook.md#kafkaconsumerlaghigh"
 
       - alert: Gateway5xxElevated
         expr: |
@@ -501,7 +501,7 @@ groups:
         annotations:
           summary: "Gateway 5xx rate elevated"
           description: "More than 1% of gateway responses are 5xx over 5m for >10m."
-          runbook_url: "docs/operations/alert-response-runbook.md#gateway5xx"
+          runbook_url: "https://github.com/ADBERILGEN35/parkio/blob/api/docs/operations/alert-response-runbook.md#gateway5xx"
 
       - alert: GatewayLatencyP95High
         expr: |
@@ -514,7 +514,7 @@ groups:
         annotations:
           summary: "Gateway p95 latency elevated"
           description: "Gateway p95 latency exceeds 1s for >10m."
-          runbook_url: "docs/operations/alert-response-runbook.md#gatewayhighlatencyp95"
+          runbook_url: "https://github.com/ADBERILGEN35/parkio/blob/api/docs/operations/alert-response-runbook.md#gatewayhighlatencyp95"
 
       - alert: OutboxDeadletterGrowing
         expr: increase(parkio_outbox_deadlettered_count[1h]) > 0
@@ -524,7 +524,7 @@ groups:
         annotations:
           summary: "Outbox dead-letters growing in {{ $labels.service }}"
           description: "Dead-letter count increased in the last hour for {{ $labels.service }}."
-          runbook_url: "docs/operations/dlq-redrive-runbook.md"
+          runbook_url: "https://github.com/ADBERILGEN35/parkio/blob/api/docs/operations/dlq-redrive-runbook.md"
 
       - alert: KafkaDltGrowing
         expr: |
@@ -537,7 +537,7 @@ groups:
         annotations:
           summary: "Kafka DLT topic {{ $labels.topic }} is growing"
           description: "DLT offset depth increased in the last hour on {{ $labels.topic }}."
-          runbook_url: "docs/operations/dlq-redrive-runbook.md"
+          runbook_url: "https://github.com/ADBERILGEN35/parkio/blob/api/docs/operations/dlq-redrive-runbook.md"
 
   # ===================================================================== #
   # HOST — single-VPS saturation/exhaustion (node_exporter, job=node-exporter). #
@@ -557,7 +557,7 @@ groups:
         annotations:
           summary: "Host node-exporter is down"
           description: "Prometheus cannot scrape node-exporter for >2m. Host disk/memory/CPU/inode alerts are unavailable until it is restored. Check `docker compose ps node-exporter`."
-          runbook_url: "docs/architecture/observability-metrics.md#runbook--nodeexporterdown"
+          runbook_url: "https://github.com/ADBERILGEN35/parkio/blob/api/docs/architecture/observability-metrics.md#runbook--nodeexporterdown"
 
       - alert: HostFilesystemReadOnly
         # A filesystem flipped read-only almost always means disk/IO failure or corruption —
@@ -569,7 +569,7 @@ groups:
         annotations:
           summary: "Host filesystem {{ $labels.mountpoint }} is read-only"
           description: "{{ $labels.mountpoint }} on {{ $labels.instance }} is mounted read-only. The disk is likely failing or was remounted ro after an error — host writes are failing. Investigate `dmesg`, disk health, and remount immediately."
-          runbook_url: "docs/architecture/observability-metrics.md#runbook--hostfilesystemreadonly"
+          runbook_url: "https://github.com/ADBERILGEN35/parkio/blob/api/docs/architecture/observability-metrics.md#runbook--hostfilesystemreadonly"
 
       - alert: HostDiskSpaceCritical
         # <10% free on a real filesystem -> imminent write failures (Postgres, Loki, MinIO, logs).
@@ -582,7 +582,7 @@ groups:
         annotations:
           summary: "Host disk almost full on {{ $labels.mountpoint }}"
           description: "{{ $labels.mountpoint }} on {{ $labels.instance }} has only {{ $value | printf \"%.1f\" }}% free for >5m. Writes will start failing. Follow the disk-cleanup runbook (Docker logs, old images, Loki retention, backups)."
-          runbook_url: "docs/architecture/observability-metrics.md#runbook--hostdiskspacelow"
+          runbook_url: "https://github.com/ADBERILGEN35/parkio/blob/api/docs/architecture/observability-metrics.md#runbook--hostdiskspacelow"
 
       - alert: HostDiskSpaceLow
         # <20% free -> act before it becomes critical. Sized for a small single-VPS beta.
@@ -595,7 +595,7 @@ groups:
         annotations:
           summary: "Host disk space low on {{ $labels.mountpoint }}"
           description: "{{ $labels.mountpoint }} on {{ $labels.instance }} has {{ $value | printf \"%.1f\" }}% free for >10m. Plan cleanup or resize before it hits the 10% critical threshold."
-          runbook_url: "docs/architecture/observability-metrics.md#runbook--hostdiskspacelow"
+          runbook_url: "https://github.com/ADBERILGEN35/parkio/blob/api/docs/architecture/observability-metrics.md#runbook--hostdiskspacelow"
 
       - alert: HostDiskWillFillSoon
         # Trend-based: project free bytes from the last 6h and warn if the fs would fill within
@@ -612,7 +612,7 @@ groups:
         annotations:
           summary: "Host disk {{ $labels.mountpoint }} will fill within 24h"
           description: "At the current growth rate {{ $labels.mountpoint }} on {{ $labels.instance }} is projected to run out of space within 24h. Find the growth source (Docker logs, Loki/Tempo data, backups, image bloat) before it fills."
-          runbook_url: "docs/architecture/observability-metrics.md#runbook--hostdiskspacelow"
+          runbook_url: "https://github.com/ADBERILGEN35/parkio/blob/api/docs/architecture/observability-metrics.md#runbook--hostdiskspacelow"
 
       - alert: HostInodesCritical
         # Inode exhaustion fails writes even with bytes free (many small files: logs, caches).
@@ -625,7 +625,7 @@ groups:
         annotations:
           summary: "Host inodes almost exhausted on {{ $labels.mountpoint }}"
           description: "{{ $labels.mountpoint }} on {{ $labels.instance }} has only {{ $value | printf \"%.1f\" }}% inodes free for >5m. Writes fail once inodes run out even with bytes free — hunt for directories with huge file counts (logs, tmp, caches)."
-          runbook_url: "docs/architecture/observability-metrics.md#runbook--hostinodeslow"
+          runbook_url: "https://github.com/ADBERILGEN35/parkio/blob/api/docs/architecture/observability-metrics.md#runbook--hostinodeslow"
 
       - alert: HostInodesLow
         expr: |
@@ -637,7 +637,7 @@ groups:
         annotations:
           summary: "Host inodes low on {{ $labels.mountpoint }}"
           description: "{{ $labels.mountpoint }} on {{ $labels.instance }} has {{ $value | printf \"%.1f\" }}% inodes free for >10m. Investigate large file-count directories before it reaches the 10% critical threshold."
-          runbook_url: "docs/architecture/observability-metrics.md#runbook--hostinodeslow"
+          runbook_url: "https://github.com/ADBERILGEN35/parkio/blob/api/docs/architecture/observability-metrics.md#runbook--hostinodeslow"
 
       - alert: HostHighMemoryUsageCritical
         # MemAvailable accounts for reclaimable cache, so this is true memory pressure, not just
@@ -650,7 +650,7 @@ groups:
         annotations:
           summary: "Host memory critically high"
           description: "Host memory usage on {{ $labels.instance }} is {{ $value | printf \"%.1f\" }}% (>95%) for >5m. The kernel OOM killer may start reaping containers (JVMs, Postgres). Check `docker stats`, container memory limits, and recent load."
-          runbook_url: "docs/architecture/observability-metrics.md#runbook--hosthighmemoryusage"
+          runbook_url: "https://github.com/ADBERILGEN35/parkio/blob/api/docs/architecture/observability-metrics.md#runbook--hosthighmemoryusage"
 
       - alert: HostHighMemoryUsage
         expr: |
@@ -661,7 +661,7 @@ groups:
         annotations:
           summary: "Host memory usage high"
           description: "Host memory usage on {{ $labels.instance }} is {{ $value | printf \"%.1f\" }}% (>85%) for >10m. 10 JVMs on one VPS are memory-hungry — review MaxRAMPercentage / container limits before it reaches the 95% critical threshold."
-          runbook_url: "docs/architecture/observability-metrics.md#runbook--hosthighmemoryusage"
+          runbook_url: "https://github.com/ADBERILGEN35/parkio/blob/api/docs/architecture/observability-metrics.md#runbook--hosthighmemoryusage"
 
       - alert: HostHighCpuUsageCritical
         # Non-idle CPU averaged across all cores. Sustained >95% means the box is saturated and
@@ -674,7 +674,7 @@ groups:
         annotations:
           summary: "Host CPU critically saturated"
           description: "Host CPU on {{ $labels.instance }} has averaged {{ $value | printf \"%.1f\" }}% (>95%) for >10m. The VPS is saturated — expect latency and probe failures. Identify the hot container (`docker stats`) and scale or shed load."
-          runbook_url: "docs/architecture/observability-metrics.md#runbook--hosthighcpuusage"
+          runbook_url: "https://github.com/ADBERILGEN35/parkio/blob/api/docs/architecture/observability-metrics.md#runbook--hosthighcpuusage"
 
       - alert: HostHighCpuUsage
         expr: |
@@ -685,7 +685,7 @@ groups:
         annotations:
           summary: "Host CPU usage high"
           description: "Host CPU on {{ $labels.instance }} has averaged {{ $value | printf \"%.1f\" }}% (>85%) for >10m. Check which container is hot (`docker stats`) and whether it is load or a runaway process before it saturates."
-          runbook_url: "docs/architecture/observability-metrics.md#runbook--hosthighcpuusage"
+          runbook_url: "https://github.com/ADBERILGEN35/parkio/blob/api/docs/architecture/observability-metrics.md#runbook--hosthighcpuusage"
 
   # ===================================================================== #
   # Parking session stale lifecycle (parking-service)                       #
@@ -700,7 +700,7 @@ groups:
         annotations:
           summary: "Parking session stale scheduler failures"
           description: "parking-service recorded {{ $value }} stale-session scheduler failure(s) in 30m. Check parking-service logs for AUTO_COMPLETED / REMINDER_SENT / stack traces."
-          runbook_url: "docs/operations/parking-session-stale-runbook.md"
+          runbook_url: "https://github.com/ADBERILGEN35/parkio/blob/api/docs/operations/parking-session-stale-runbook.md"
 
       - alert: ParkingSessionAutoCompleteSpike
         expr: increase(parking_sessions_auto_completed_total{service="parking-service"}[1h]) > 500
@@ -710,7 +710,7 @@ groups:
         annotations:
           summary: "Unusual parking-session auto-completion spike"
           description: "{{ $value }} sessions auto-completed in 1h. Verify confirm-after / auto-complete-after config and that users are not being force-ended unexpectedly."
-          runbook_url: "docs/operations/parking-session-stale-runbook.md"
+          runbook_url: "https://github.com/ADBERILGEN35/parkio/blob/api/docs/operations/parking-session-stale-runbook.md"
 
       - alert: ParkingSessionSchedulerFailuresSustained
         # Repeated scheduler tick failures over 6h (not "idle reminders").
@@ -723,7 +723,7 @@ groups:
         annotations:
           summary: "Sustained parking-session scheduler failures"
           description: "More than 3 stale-session scheduler failures in 6h. Auto-complete and reminders may be stalled. See parking-session-stale-runbook.md (scheduler stuck)."
-          runbook_url: "docs/operations/parking-session-stale-runbook.md"
+          runbook_url: "https://github.com/ADBERILGEN35/parkio/blob/api/docs/operations/parking-session-stale-runbook.md"
 
   - name: parkio-account-erasure
     rules:
@@ -735,4 +735,4 @@ groups:
         annotations:
           summary: "Account erasure incomplete beyond operational SLA"
           description: "{{ $value }} erasure request(s) still incomplete after 1h SLA. Check auth-service erasure_requests and participant acks. Do not reverse completed deletions."
-          runbook_url: "docs/architecture/priv-001-account-data-erasure.md"
+          runbook_url: "https://github.com/ADBERILGEN35/parkio/blob/api/docs/architecture/priv-001-account-data-erasure.md"

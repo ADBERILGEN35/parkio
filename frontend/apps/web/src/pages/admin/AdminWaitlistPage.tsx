@@ -180,6 +180,7 @@ export function AdminWaitlistPage() {
               <table className="w-full min-w-[720px] border-collapse text-left text-body-sm">
                 <thead>
                   <tr className="border-b border-outline-variant/50 text-label-md uppercase tracking-wide text-on-surface-variant">
+                    <th className="px-sm py-xs font-semibold">{t('waitlist.table.fullName')}</th>
                     <th className="px-sm py-xs font-semibold">{t('waitlist.table.email')}</th>
                     <th className="px-sm py-xs font-semibold">{t('waitlist.table.status')}</th>
                     <th className="px-sm py-xs font-semibold">{t('waitlist.table.locale')}</th>
@@ -192,6 +193,11 @@ export function AdminWaitlistPage() {
                 <tbody>
                   {listQuery.data.content.map((row) => (
                     <tr key={row.id} className="border-b border-outline-variant/30">
+                      <td className="px-sm py-sm font-medium">
+                        {row.fullName?.trim()
+                          ? row.fullName
+                          : t('waitlist.table.nameNotProvided')}
+                      </td>
                       <td className="px-sm py-sm font-medium">{row.email}</td>
                       <td className="px-sm py-sm">
                         <SoftBadge>{t(`waitlist.status.${row.status}`)}</SoftBadge>

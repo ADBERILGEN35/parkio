@@ -52,6 +52,7 @@ public class WaitlistController {
         SubmitWaitlistCommand command = new SubmitWaitlistCommand(
                 request.email(),
                 request.consentTimestamp(),
+                request.fullName(),
                 request.city(),
                 request.role(),
                 request.source(),
@@ -126,9 +127,10 @@ public class WaitlistController {
     }
 
     private static String toCsv(List<WaitlistExportRow> rows) {
-        StringBuilder csv = new StringBuilder("email,city,role,source,createdAt,consentTimestamp\n");
+        StringBuilder csv = new StringBuilder("email,fullName,city,role,source,createdAt,consentTimestamp\n");
         for (WaitlistExportRow row : rows) {
             csv.append(WaitlistCsv.cell(row.email())).append(',')
+                    .append(WaitlistCsv.cell(row.fullName())).append(',')
                     .append(WaitlistCsv.cell(row.city())).append(',')
                     .append(WaitlistCsv.cell(row.role())).append(',')
                     .append(WaitlistCsv.cell(row.source())).append(',')

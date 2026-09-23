@@ -3,6 +3,7 @@ package com.parkio.gateway.presentation.waitlist;
 import com.parkio.gateway.application.waitlist.WaitlistAdmissionsDisabledException;
 import com.parkio.gateway.application.waitlist.WaitlistConsentTimestampException;
 import com.parkio.gateway.application.waitlist.WaitlistEmailDeliveryException;
+import com.parkio.gateway.application.waitlist.WaitlistFullNameException;
 import com.parkio.gateway.application.waitlist.WaitlistRateLimitExceededException;
 import com.parkio.gateway.application.waitlist.WaitlistTokenException;
 import com.parkio.gateway.shared.ApiError;
@@ -53,6 +54,16 @@ public class WaitlistExceptionHandler {
                 exchange,
                 "WAITLIST_CONSENT_TIMESTAMP_INVALID",
                 "Waitlist consent timestamp is missing or outside the accepted time window."));
+    }
+
+    @ExceptionHandler(WaitlistFullNameException.class)
+    public Mono<ApiError> fullName(WaitlistFullNameException ex, ServerWebExchange exchange) {
+        exchange.getResponse().setStatusCode(HttpStatus.BAD_REQUEST);
+        String code = ex.code();
+        String message = "WAITLIST_FULL_NAME_REQUIRED".equals(code)
+                ? "Full name is required."
+                : "Full name is invalid.";
+        return Mono.just(error(exchange, code, message));
     }
 
     @ExceptionHandler(WaitlistRateLimitExceededException.class)

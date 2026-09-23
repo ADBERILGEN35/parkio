@@ -9,6 +9,7 @@ public record WaitlistInterest(
         String emailHash,
         Instant consentTimestamp,
         Instant clientConsentTimestamp,
+        String fullName,
         String city,
         String role,
         String source,

@@ -1,0 +1,8 @@
+🚨 Kritik: GatewayDown
+Ortam: production
+*Gateway is down*
+Ne oldu: Gateway health check failed.
+Servis: gateway-service
+Başlangıç: 2026-09-22T11:04:05.000Z
+İlk işlem: runbook’u açın, etkilenen servisi/ kaynağı doğrulayın.
+Runbook: https://github.com/ADBERILGEN35/parkio/blob/api/docs/operations/alert-response-runbook.md#gatewaydown

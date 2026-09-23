@@ -60,6 +60,12 @@ public class WaitlistApplicationService {
         } catch (WaitlistConsentTimestampException ex) {
             return Mono.error(ex);
         }
+        String fullName;
+        try {
+            fullName = WaitlistFullName.requireOrOptional(command.fullName(), properties.isFullNameRequired());
+        } catch (WaitlistFullNameException ex) {
+            return Mono.error(ex);
+        }
         String email = normalizeEmail(command.email());
         String locale = normalizeLocale(command.locale());
         String city = normalizeOptional(command.city());
@@ -80,6 +86,7 @@ public class WaitlistApplicationService {
                 emailHash,
                 now,
                 clientConsentAt,
+                fullName,
                 city,
                 role,
                 command.source(),

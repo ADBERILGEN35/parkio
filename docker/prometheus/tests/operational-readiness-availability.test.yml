@@ -60,7 +60,7 @@ tests:
               owner: parking
             exp_annotations:
               summary: Parking availability below PROPOSED 99% (baselining)
-              runbook_url: docs/operations/runbooks/mutation-failure-rate.md
+              runbook_url: https://github.com/ADBERILGEN35/parkio/blob/api/docs/operations/runbooks/mutation-failure-rate.md
 
   - name: zero traffic yields no availability sample and no baselining fire
     interval: 1m

@@ -7,6 +7,9 @@
  */
 (function (global) {
   const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+  const FULL_NAME_MAX = 100;
+  // Letters (any script), marks, spaces, apostrophe, typographic apostrophe, hyphen, period.
+  const FULL_NAME_RE = /^[\p{L}\p{M}][\p{L}\p{M} .'\-’]*$/u;
 
   function normalizeEmail(value) {
     return String(value || '')
@@ -14,9 +17,20 @@
       .toLowerCase();
   }
 
+  function normalizeFullName(value) {
+    const trimmed = String(value || '').trim();
+    return trimmed.length === 0 ? '' : trimmed;
+  }
+
   function isValidEmail(value) {
     const email = normalizeEmail(value);
     return email.length > 3 && email.length <= 254 && EMAIL_RE.test(email);
+  }
+
+  function isValidFullName(value) {
+    const name = normalizeFullName(value);
+    if (!name || name.length > FULL_NAME_MAX) return false;
+    return FULL_NAME_RE.test(name);
   }
 
   function metaContent(name) {
@@ -72,6 +86,12 @@
       const body = await response.json().catch(() => ({}));
       if (body && body.code === 'WAITLIST_CONSENT_TIMESTAMP_INVALID') {
         return { ok: false, code: 'CONSENT_TIMESTAMP_INVALID' };
+      }
+      if (body && body.code === 'WAITLIST_FULL_NAME_REQUIRED') {
+        return { ok: false, code: 'FULL_NAME_REQUIRED' };
+      }
+      if (body && body.code === 'WAITLIST_FULL_NAME_INVALID') {
+        return { ok: false, code: 'FULL_NAME_INVALID' };
       }
       return { ok: false, code: 'VALIDATION_ERROR' };
     }
@@ -170,6 +190,10 @@
         return 'waitlist.error.delivery';
       case 'CONSENT_TIMESTAMP_INVALID':
         return 'waitlist.error.consentTime';
+      case 'FULL_NAME_REQUIRED':
+        return 'waitlist.error.fullNameRequired';
+      case 'FULL_NAME_INVALID':
+        return 'waitlist.error.fullNameInvalid';
       case 'VALIDATION_ERROR':
         return 'waitlist.error.invalid';
       case 'SERVER_ERROR':
@@ -207,12 +231,38 @@
     notice.textContent = tr('waitlist.unavailable');
   }
 
+  function clearFieldErrors(form) {
+    form.querySelectorAll('[data-waitlist-full-name-error], [data-waitlist-email-error]').forEach((el) => {
+      el.hidden = true;
+      el.textContent = '';
+    });
+    if (form.querySelector('#waitlist-full-name')) {
+      form.querySelector('#waitlist-full-name').removeAttribute('aria-invalid');
+    }
+    if (form.querySelector('#waitlist-email')) {
+      form.querySelector('#waitlist-email').removeAttribute('aria-invalid');
+    }
+  }
+
+  function setFieldError(input, errorEl, key) {
+    if (!errorEl) return;
+    errorEl.textContent = tr(key);
+    errorEl.hidden = false;
+    if (input) {
+      input.setAttribute('aria-invalid', 'true');
+      input.focus();
+    }
+  }
+
   function bindForm(form) {
     if (!form) return;
+    const fullNameInput = form.querySelector('#waitlist-full-name');
     const emailInput = form.querySelector('#waitlist-email');
     const consentInput = form.querySelector('#waitlist-consent');
     const submitBtn = form.querySelector('[type="submit"]');
     const feedback = form.querySelector('[data-waitlist-feedback]');
+    const fullNameError = form.querySelector('[data-waitlist-full-name-error]');
+    const emailError = form.querySelector('[data-waitlist-email-error]');
     const mockNote = form.querySelector('[data-waitlist-isolated-note]');
     const mode = detectMode();
     if (mockNote) {
@@ -226,10 +276,22 @@
     form.addEventListener('submit', async (event) => {
       event.preventDefault();
       setFeedbackKey(feedback, '', '');
+      clearFieldErrors(form);
+      const fullName = normalizeFullName(fullNameInput && fullNameInput.value);
       const email = normalizeEmail(emailInput && emailInput.value);
+      if (!fullName) {
+        setFieldError(fullNameInput, fullNameError, 'waitlist.error.fullNameRequired');
+        setFeedbackKey(feedback, 'waitlist.error.fullNameRequired', 'error');
+        return;
+      }
+      if (!isValidFullName(fullName)) {
+        setFieldError(fullNameInput, fullNameError, 'waitlist.error.fullNameInvalid');
+        setFeedbackKey(feedback, 'waitlist.error.fullNameInvalid', 'error');
+        return;
+      }
       if (!isValidEmail(email)) {
+        setFieldError(emailInput, emailError, 'waitlist.error.invalid');
         setFeedbackKey(feedback, 'waitlist.error.invalid', 'error');
-        emailInput && emailInput.focus();
         return;
       }
       if (!consentInput || !consentInput.checked) {
@@ -239,6 +301,7 @@
       }
 
       const payload = {
+        fullName,
         email,
         consentTimestamp: new Date().toISOString(),
         source: 'parkio.dev-landing',
@@ -250,11 +313,21 @@
       submitBtn.textContent = tr('waitlist.submitting');
       try {
         const result = mode === 'mock' ? await submitMock(payload) : await submitApi(payload);
-        // Render with whatever locale is active when the response is shown.
         const key = submitFeedbackKey(result);
         setFeedbackKey(feedback, key, result.ok ? 'success' : 'error');
         if (result.ok) {
           form.reset();
+          clearFieldErrors(form);
+        } else if (result.code === 'FULL_NAME_REQUIRED' || result.code === 'FULL_NAME_INVALID') {
+          setFieldError(
+            fullNameInput,
+            fullNameError,
+            result.code === 'FULL_NAME_REQUIRED'
+              ? 'waitlist.error.fullNameRequired'
+              : 'waitlist.error.fullNameInvalid',
+          );
+        } else if (result.code === 'VALIDATION_ERROR') {
+          setFieldError(emailInput, emailError, 'waitlist.error.invalid');
         }
       } catch (_) {
         setFeedbackKey(feedback, 'waitlist.error.network', 'error');

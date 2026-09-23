@@ -109,8 +109,9 @@
       'waitlist.kicker': 'Bekleme listesi',
       'waitlist.h2': 'Kayıtlar açıldığında haber verin.',
       'waitlist.intro':
-        'Hesap oluşturmadan yalnızca e-posta adresinizi bırakın. Amacımız: kayıtlar açıldığında sizi bilgilendirmek. Başka pazarlama aboneliği yapılmaz.',
+        'Hesap oluşturmadan ad soyadınızı ve e-posta adresinizi bırakın. Amacımız: kayıtlar açıldığında sizi bilgilendirmek. Başka pazarlama aboneliği yapılmaz.',
       'waitlist.email': 'E-posta adresi',
+      'waitlist.fullName': 'Ad soyad',
       'waitlist.consent':
         'Kayıtlar açıldığında Parkio’nun beni e-posta ile bilgilendirmesini kabul ediyorum. Onay için e-postamdaki bağlantıyı kullanacağım.',
       'waitlist.submit': 'Bekleme listesine katıl',
@@ -118,6 +119,8 @@
       'waitlist.success':
         'Teşekkürler. Adresiniz alındı. Listede kalmak için e-postanızdaki onay bağlantısını açıp Onayla’ya basın.',
       'waitlist.error.invalid': 'Geçerli bir e-posta adresi girin.',
+      'waitlist.error.fullNameRequired': 'Ad soyad zorunludur.',
+      'waitlist.error.fullNameInvalid': 'Ad soyad geçersiz. Harf, boşluk, apostrof ve tire kullanın.',
       'waitlist.error.consent': 'Devam etmek için bilgilendirme onayını işaretleyin.',
       'waitlist.error.consentTime':
         'Onay zamanı geçersiz veya cihaz saati çok sapmış. Saat ayarlarınızı kontrol edip tekrar deneyin.',
@@ -332,8 +335,9 @@
       'waitlist.kicker': 'Waitlist',
       'waitlist.h2': 'Get notified when registration opens.',
       'waitlist.intro':
-        'Leave only your email — no account is created. Purpose: notify you when registrations become available. You are not silently subscribed to unrelated marketing.',
+        'Leave your full name and email — no account is created. Purpose: notify you when registrations become available. You are not silently subscribed to unrelated marketing.',
       'waitlist.email': 'Email address',
+      'waitlist.fullName': 'Full name',
       'waitlist.consent':
         'I agree that Parkio may email me when registrations open. I will confirm via the link in my email.',
       'waitlist.submit': 'Join the waitlist',
@@ -341,6 +345,8 @@
       'waitlist.success':
         'Thanks. Your address was received. Open the confirmation link in your email and press Confirm to stay on the list.',
       'waitlist.error.invalid': 'Enter a valid email address.',
+      'waitlist.error.fullNameRequired': 'Full name is required.',
+      'waitlist.error.fullNameInvalid': 'Full name is invalid. Use letters, spaces, apostrophes, and hyphens.',
       'waitlist.error.consent': 'Please accept the notification consent to continue.',
       'waitlist.error.consentTime':
         'Consent time is invalid or your device clock is too far off. Check your clock and try again.',

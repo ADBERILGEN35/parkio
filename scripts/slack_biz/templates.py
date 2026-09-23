@@ -2,6 +2,9 @@
 
 from __future__ import annotations
 
+from datetime import datetime, timezone
+from zoneinfo import ZoneInfo
+
 from .config import SlackBizConfig
 from .events import (
     FAMILY_BACKUP_LOCAL,
@@ -24,6 +27,9 @@ ROUTE_BY_TYPE = {
     FAMILY_WAITLIST_CONFIRMED: "biz-growth",
 }
 
+_ISTANBUL = None  # resolved lazily in _format_istanbul
+_ADMIN_WAITLIST_URL = "https://app.parkio.dev/admin/waitlist"
+
 
 def route_for_event_type(event_type: str, config: SlackBizConfig) -> str:
     logical = ROUTE_BY_TYPE.get(event_type, "ops-alerts")
@@ -32,7 +38,63 @@ def route_for_event_type(event_type: str, config: SlackBizConfig) -> str:
     return config.route_ops
 
 
+def _format_istanbul(iso_utc: str) -> str:
+    """Render occurred_at as Türkiye saati (Europe/Istanbul)."""
+    try:
+        raw = iso_utc.rstrip("Z")
+        dt = datetime.fromisoformat(raw).replace(tzinfo=timezone.utc)
+        try:
+            local = dt.astimezone(ZoneInfo("Europe/Istanbul"))
+        except Exception:
+            # Fallback when tzdata is unavailable (rare Windows/minimal images).
+            from datetime import timedelta
+
+            local = dt.astimezone(timezone(timedelta(hours=3)))
+        return local.strftime("%Y-%m-%d %H:%M") + " (Türkiye saati)"
+    except Exception:
+        return sanitize_text(iso_utc)
+
+
+def render_waitlist_message(event: SlackBizEvent, config: SlackBizConfig) -> str:
+    """Readable waitlist confirmation — no cluttered type/severity/service lines."""
+    ctx = event.context or {}
+    full_name = ctx.get("full_name")
+    if isinstance(full_name, str) and full_name.strip():
+        name_line = f"Ad soyad: {sanitize_text(full_name.strip())}"
+    else:
+        name_line = "Ad soyad: Ad belirtilmemiş"
+
+    lines = [
+        f"*{sanitize_text(event.title)}*",
+        name_line,
+        f"Onay zamanı: {_format_istanbul(event.occurred_at)}",
+        f"Yönetim: {_ADMIN_WAITLIST_URL}",
+    ]
+
+    total = ctx.get("confirmed_total")
+    today = ctx.get("confirmed_today_istanbul")
+    if isinstance(total, int) and isinstance(today, int):
+        snap = ctx.get("counts_snapshot_at")
+        snap_bit = f", dışa aktarım anı={sanitize_text(str(snap))}" if snap else ""
+        lines.append(
+            f"Dışa aktarım özeti (Europe/Istanbul günü): onaylı toplam={total}, "
+            f"bugün={today}{snap_bit}"
+        )
+        lines.append(
+            "_Sayımlar dışa aktarım anındaki veritabanı anlık görüntüsüdür; "
+            "Slack yeniden denemelerinde değişmez._"
+        )
+
+    if event.environment and event.environment != "production":
+        lines.append(f"Ortam: `{sanitize_text(event.environment)}` (üretim dışı)")
+
+    return "\n".join(lines)
+
+
 def render_message(event: SlackBizEvent, config: SlackBizConfig) -> str:
+    if event.event_type == FAMILY_WAITLIST_CONFIRMED:
+        return render_waitlist_message(event, config)
+
     lines = [
         f"*{sanitize_text(event.title)}*",
         f"type=`{sanitize_text(event.event_type)}` severity=`{sanitize_text(event.severity)}`",

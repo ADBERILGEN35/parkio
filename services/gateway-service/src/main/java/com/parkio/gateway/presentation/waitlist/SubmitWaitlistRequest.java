@@ -1,5 +1,6 @@
 package com.parkio.gateway.presentation.waitlist;
 
+import com.parkio.gateway.application.waitlist.WaitlistFullName;
 import jakarta.validation.constraints.Email;
 import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.NotNull;
@@ -18,6 +19,12 @@ import java.time.Instant;
 public record SubmitWaitlistRequest(
         @NotBlank @Email @Size(max = 254) String email,
         @NotNull Instant consentTimestamp,
+        /**
+         * Optional at the Bean Validation layer for marketing/API rollout compatibility.
+         * When {@code parkio.waitlist.full-name-required=true}, the application service
+         * rejects missing/blank values. Format is always enforced when present.
+         */
+        @Size(max = WaitlistFullName.MAX_LENGTH) String fullName,
         @Size(max = 120)
         @Pattern(regexp = "^(?!\\s*[+-]?\\d+(?:\\.\\d+)?\\s*,\\s*[+-]?\\d+(?:\\.\\d+)?\\s*$).*$")
         String city,
