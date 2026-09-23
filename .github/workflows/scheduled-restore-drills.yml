@@ -1,0 +1,33 @@
+# Dispatch current restore drills from the default branch onto api.
+#
+# GitHub only runs `on: schedule` from the default branch (master). master's
+# backup-restore-drill.yml is stale (no postgres-gateway) and does not prove
+# current code. This dispatcher starts the workflows that live on api.
+#
+# Do not change the default branch. Do not merge api into master.
+name: Scheduled restore drills
+
+on:
+  schedule:
+    - cron: "23 4 * * 1"
+  workflow_dispatch:
+
+permissions:
+  actions: write
+  contents: read
+
+jobs:
+  dispatch:
+    name: Dispatch api restore drills
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Start api workflows
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+        run: |
+          set -euo pipefail
+          gh workflow run backup-restore-drill.yml --ref api
+          gh workflow run restore-drill-01-procedure.yml --ref api
+          echo "Dispatched backup-restore-drill.yml and restore-drill-01-procedure.yml at ref api"
