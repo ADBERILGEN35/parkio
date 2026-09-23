@@ -23,7 +23,8 @@ New coordination layer (`scripts/recovery_coordination/`),
 
 Does not activate production, provision Azure, retrieve secrets, restart
 services, or weaken #102 cutoff refusal. Directory FileStore is not
-off-host storage.
+off-host storage. A destroyed SQLite main file is refused even when a
+leftover WAL sidecar remains; domains stay non-atomic.
 
 ## Dependency / merge order
 

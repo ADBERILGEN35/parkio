@@ -237,6 +237,19 @@ class CoordinatorLifecycleTest(unittest.TestCase):
         self.assertTrue(coord.fluent_bit_started)
         self.assertTrue(coord.slack_started)
 
+    def test_destroyed_sqlite_header_is_not_masked_by_wal(self):
+        from operational_state_backup import state_backup as backup
+        db = self.root / "slack_biz.sqlite3"
+        db.write_bytes(backup.SQLITE_HEADER + b"\x00" * 84)
+        (self.root / "slack_biz.sqlite3-wal").write_bytes(b"leftover-wal")
+        db.write_bytes(b"not SQLite")
+        with self.assertRaises(backup.SnapshotError):
+            backup.assert_sqlite_header(db, "slack")
+        dest = self.root / "copy.sqlite3"
+        with self.assertRaises(backup.SnapshotError):
+            backup.sqlite_backup(db, dest, "slack")
+        self.assertFalse(dest.exists())
+
     def test_individual_pr_helpers_still_present(self):
         self.assertTrue((ROOT / "scripts/operational_state_backup/state_backup.py").is_file())
         self.assertTrue((ROOT / "scripts/newrelic_log_pilot/test_budget_recovery_guard.py").is_file())

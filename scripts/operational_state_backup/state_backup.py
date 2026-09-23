@@ -33,6 +33,7 @@ NR_COLUMNS = {"max_bytes", "spent_bytes", "attempts", "retry_attempts", "forward
               "monthly_limit", "monthly_window", "monthly_spent", "monthly_exhausted"}
 DB_NAMES = {"slack/slack_biz.sqlite3", "nr/budget.db"}
 SECRET_NAMES = {".env", "env", "secrets", "credentials"}
+SQLITE_HEADER = b"SQLite format 3\x00"
 
 
 class SnapshotError(RuntimeError):
@@ -96,8 +97,18 @@ def db_info(db: sqlite3.Connection, kind: str) -> dict:
             "schema_sha256": hashlib.sha256(schema.encode()).hexdigest(), "integrity": "ok"}
 
 
+def assert_sqlite_header(path: Path, kind: str) -> None:
+    source_regular(path)
+    with path.open("rb") as stream:
+        header = stream.read(16)
+    if header != SQLITE_HEADER:
+        raise SnapshotError(f"{kind}: file is not a SQLite database")
+
+
 def sqlite_backup(source: Path, destination: Path, kind: str) -> dict:
-    source_regular(source)
+    # Reject a destroyed main file even when a leftover WAL sidecar remains.
+    # WAL replay is for a live committed database, not an overwritten header.
+    assert_sqlite_header(source, kind)
     destination.parent.mkdir(parents=True, exist_ok=True)
     # mode=ro observes the committed WAL. immutable=1 would incorrectly ignore it.
     uri = source.resolve().as_uri() + "?mode=ro"
