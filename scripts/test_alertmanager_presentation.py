@@ -24,6 +24,9 @@ def test_policy_and_presentation():
     assert 'match "ConsecutiveFailures"' in title
     assert 'match "SecondsSinceSuccess"' in title
     assert 'osm-geofabrik-turkey' in title
+    assert "Gateway kapalı" in title
+    assert "bilinmeyen uyarı" in title
+    assert ".StartsAt" in text
     assert "Başlangıç (UTC):" in text
     assert "reReplaceAll" in text
     raw = preview.RENDER.read_bytes()
@@ -46,7 +49,8 @@ def test_policy_and_presentation():
 
     stale_w = suite["stale-warning"]
     assert stale_w.startswith("⚠️ Uyarı — İZUM verileri güncellenemiyor")
-    assert "son başarılı güncellemeden beri veri alınamadı." in stale_w
+    assert "başarılı güncelleme penceresi aşıldı." in stale_w
+    assert "veri alınamadı" not in stale_w
     assert "ardışık hatalar sürüyor." not in stale_w
 
     stale_c = suite["stale-critical"]
@@ -68,19 +72,23 @@ def test_policy_and_presentation():
     assert relative.count("https://github.com/ADBERILGEN35/parkio/blob/api/docs/operations/municipal-parking-source-runbook.md") == 1
 
     resolved = suite["resolved"]
-    assert resolved.startswith("✅ Sorun çözüldü")
+    assert resolved.startswith("✅ Sorun çözüldü — İZUM")
+    assert "Kaynak: İZUM (izmir-izum-otoparklar)" in resolved
     assert "koşul artık tetiklenmiyor" in resolved
     assert "Başlangıç (UTC):" in resolved
 
     unknown = suite["unknown"]
-    assert unknown.startswith("⚠️ Uyarı — UnknownSyntheticAlert")
+    assert unknown.startswith("⚠️ Uyarı — bilinmeyen uyarı")
+    assert "UnknownSyntheticAlert" in unknown
+    assert unknown.index("⚠️ Uyarı — bilinmeyen uyarı") < unknown.index("Tanı: UnknownSyntheticAlert")
     assert "Gateway health check failed." not in unknown
     assert "Servis: gateway-service" in unknown
     assert "Etki: gateway-service servisi etkilenebilir." in unknown
     assert "Tanı: UnknownSyntheticAlert" in unknown
 
     gateway = suite["gateway-down"]
-    assert gateway.startswith("🔴 Kritik — Gateway is down")
+    assert gateway.startswith("🔴 Kritik — Gateway kapalı")
+    assert "Gateway is down" not in gateway.split("\n", 1)[0]
     assert "alert-response-runbook.md#gatewaydown" in gateway
     assert gateway.count("https://github.com/") >= 1
 
@@ -90,7 +98,7 @@ def test_policy_and_presentation():
     assert "çözüldü" in mixed
 
     grouped = suite["grouped"]
-    assert grouped.startswith("⚠️ Uyarı — UnknownSyntheticAlert")
+    assert grouped.startswith("⚠️ Uyarı — bilinmeyen uyarı")
     assert grouped.count("Tanı: UnknownSyntheticAlert") == 2
 
     missing = suite["missing-annotations"]
@@ -119,5 +127,7 @@ if __name__ == "__main__":
     out.mkdir(parents=True, exist_ok=True)
     suite = preview.preview_suite()
     for name, body in suite.items():
-        (out / f"alertmanager-preview-{name}.txt").write_text(body + "\n", encoding="utf-8")
+        (out / f"alertmanager-preview-{name}.txt").write_text(
+            preview.SYNTHETIC_PREVIEW + "\n" + body + "\n", encoding="utf-8"
+        )
     print("PASS alertmanager presentation")

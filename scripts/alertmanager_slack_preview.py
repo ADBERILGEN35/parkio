@@ -16,6 +16,10 @@ RUNBOOK = (
     "municipal-parking-source-runbook.md"
 )
 REPO = "https://github.com/ADBERILGEN35/parkio/blob/api/"
+SYNTHETIC_PREVIEW = (
+    "SYNTHETIC PREVIEW — StartsAt values are fixture timestamps, "
+    "not historical operator-screenshot times."
+)
 
 ROUTE_MARKERS = (
     'group_by: ["alertname", "service", "severity", "component"]',
@@ -124,7 +128,15 @@ def _title(data: TemplateData, title_tmpl: str) -> str:
         raise AssertionError("title template missing consecutive-failure branch")
     if "match \"SecondsSinceSuccess\"" not in title_tmpl:
         raise AssertionError("title template missing stale-age branch")
+    if "GatewayDown" not in title_tmpl or "Gateway kapalı" not in title_tmpl:
+        raise AssertionError("title template missing GatewayDown Turkish branch")
+    if "bilinmeyen uyarı" not in title_tmpl:
+        raise AssertionError("title template missing generic unknown title")
     if data.status == "resolved":
+        if data.common_labels.get("source_key"):
+            return "✅ Sorun çözüldü — " + source_name(data.common_labels.get("source_key"))
+        if data.common_labels.get("service"):
+            return "✅ Sorun çözüldü — " + data.common_labels["service"]
         return "✅ Sorun çözüldü"
     if data.firing and data.resolved:
         return (
@@ -140,7 +152,9 @@ def _title(data: TemplateData, title_tmpl: str) -> str:
         return f"{_sev(data.common_labels)} — {src} senkron işlemi bitmedi"
     if re.search(r"Municipal(Source|Ispark|Osm)Recovered", name):
         return f"✅ {src} toparlandı"
-    headline = data.common_annotations.get("summary") or name or "bilinmeyen-uyarı"
+    if name == "GatewayDown":
+        return "🔴 Kritik — Gateway kapalı"
+    headline = data.common_annotations.get("summary") or "bilinmeyen uyarı"
     return f"{_sev(data.common_labels)} — {headline}"
 
 
@@ -160,25 +174,29 @@ def _impact(alert: AlertView) -> str:
 def _alert_body(alert: AlertView, text_tmpl: str) -> str:
     if "Başlangıç (UTC):" not in text_tmpl:
         raise AssertionError("text template missing explicit UTC timestamp")
+    if ".StartsAt" not in text_tmpl:
+        raise AssertionError("text template must format each alert StartsAt")
+    if "veri alınamadı" in text_tmpl:
+        raise AssertionError("age copy must not claim no data was received")
     if ".Annotations.description" in text_tmpl:
         raise AssertionError("text template still dumps raw description")
     if "reReplaceAll" not in text_tmpl:
         raise AssertionError("text template missing relative runbook conversion")
     lines: list[str] = []
     name = alert.labels.get("alertname") or ""
+    if alert.labels.get("source_key"):
+        key = alert.labels["source_key"]
+        lines.append(f"Kaynak: {source_name(key)} ({key})")
+    elif alert.labels.get("service"):
+        lines.append("Servis: " + alert.labels["service"])
     if alert.status == "resolved":
         lines.append("Durum: sorun çözüldü — koşul artık tetiklenmiyor.")
     else:
-        if alert.labels.get("source_key"):
-            key = alert.labels["source_key"]
-            lines.append(f"Kaynak: {source_name(key)} ({key})")
-        elif alert.labels.get("service"):
-            lines.append("Servis: " + alert.labels["service"])
         recovered = bool(re.search(r"Municipal(Source|Ispark|Osm)Recovered", name))
         if "ConsecutiveFailures" in name:
             lines.append("Durum: ardışık hatalar sürüyor.")
         elif "SecondsSinceSuccess" in name:
-            lines.append("Durum: son başarılı güncellemeden beri veri alınamadı.")
+            lines.append("Durum: başarılı güncelleme penceresi aşıldı.")
         elif "StaleRunning" in name:
             lines.append("Durum: bir senkron işlemi hâlâ RUNNING görünüyor.")
         elif recovered:
@@ -269,7 +287,7 @@ def preview_suite() -> dict[str, str]:
         'match "SecondsSinceSuccess"',
         "Başlangıç (UTC):",
         "blob/api/",
-        "bilinmeyen-uyarı",
+        "bilinmeyen uyarı",
         "Karışık grup",
     ):
         if required not in title_tmpl + text_tmpl:
@@ -435,7 +453,7 @@ def main() -> None:
         args.write_dir.mkdir(parents=True, exist_ok=True)
         for name, body in suite.items():
             (args.write_dir / f"alertmanager-preview-{name}.txt").write_text(
-                body + "\n", encoding="utf-8"
+                SYNTHETIC_PREVIEW + "\n" + body + "\n", encoding="utf-8"
             )
     for name, body in suite.items():
         print("===== " + name + " =====")

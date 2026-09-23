@@ -129,7 +129,7 @@ blob="\n".join((r.get("title") or "")+"\n"+(r.get("text") or "") for r in recs)
 assert 'function "default" not defined' not in blob
 assert "SyntheticRenderFiring" in blob
 assert "Gateway health check failed." not in blob
-assert "⚠️ Uyarı — SyntheticRenderFiring" in blob
+assert "⚠️ Uyarı — bilinmeyen uyarı" in blob
 assert "Servis: gateway-service" in blob
 assert "Tanı: SyntheticRenderFiring" in blob
 assert "Başlangıç (UTC):" in blob
@@ -144,6 +144,7 @@ import json, pathlib, sys
 recs=[json.loads(p.read_text(encoding="utf-8")) for p in sorted(pathlib.Path(sys.argv[1]).glob("*.json"))]
 blob="\n".join((r.get("title") or "")+"\n"+(r.get("text") or "") for r in recs)
 assert "Sorun çözüldü" in blob or "çözüldü" in blob
+assert "Servis: gateway-service" in blob
 print("resolved-ok")
 PY
 ok "resolved notification renders"
@@ -201,6 +202,8 @@ post_alerts '[{"labels":{"alertname":"MunicipalOsmConsecutiveFailuresWarning","s
 wait_receipts 11
 post_alerts '[{"labels":{"alertname":"UnknownSyntheticAlert","severity":"warning","service":"gateway-service","component":"unknown"},"annotations":{"description":"Gateway health check failed."},"startsAt":"2026-09-23T16:46:00.000Z"}]'
 wait_receipts 12
+post_alerts '[{"labels":{"alertname":"GatewayDown","severity":"critical","service":"gateway-service","component":"gw-down"},"annotations":{"summary":"Gateway is down","runbook_url":"https://github.com/ADBERILGEN35/parkio/blob/api/docs/operations/alert-response-runbook.md#gatewaydown"},"startsAt":"2026-09-23T16:47:00.000Z"}]'
+wait_receipts 13
 "${PYTHON}" - "${RECEIPTS}" <<'PY'
 import json, pathlib, sys
 recs=[json.loads(p.read_text(encoding="utf-8")) for p in sorted(pathlib.Path(sys.argv[1]).glob("*.json"))]
@@ -220,7 +223,8 @@ cf_w=blob_for("MunicipalSourceConsecutiveFailuresWarning")
 assert "⚠️ Uyarı — İZUM ardışık hatalar" in cf_w
 age_w=blob_for("MunicipalSourceSecondsSinceSuccessWarning")
 assert "⚠️ Uyarı — İZUM verileri güncellenemiyor" in age_w
-assert "son başarılı güncellemeden beri veri alınamadı" in age_w
+assert "başarılı güncelleme penceresi aşıldı" in age_w
+assert "veri alınamadı" not in age_w
 age_c=blob_for("MunicipalSourceSecondsSinceSuccessCritical")
 assert "🔴 Kritik — İZUM verileri güncellenemiyor" in age_c
 ispark=blob_for("MunicipalIsparkConsecutiveFailuresWarning")
@@ -231,9 +235,14 @@ assert "OSM ardışık hatalar" in osm
 assert "İZUM" not in osm
 assert "canlı doluluk kaynağı değildir" in osm
 unknown=blob_for("UnknownSyntheticAlert")
-assert "⚠️ Uyarı — UnknownSyntheticAlert" in unknown
+assert "⚠️ Uyarı — bilinmeyen uyarı" in unknown
+assert "Tanı: UnknownSyntheticAlert" in unknown
 assert "Gateway health check failed." not in unknown
 assert "Servis: gateway-service" in unknown
+gw=blob_for("GatewayDown")
+assert "🔴 Kritik — Gateway kapalı" in gw
+assert "Gateway is down" not in (gw.split("\n",1)[0] if gw else "")
+assert "Tanı: GatewayDown" in gw
 print("municipal-ok")
 PY
 ok "screenshot municipal variants render readable titles, source, UTC, absolute runbook"
