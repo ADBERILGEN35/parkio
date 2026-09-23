@@ -1,110 +1,152 @@
 # Off-host erasure recovery (G2)
 
-**Status:** implemented, **production disabled**. Synthetic tests only.
-**Does not** change nightly backup scripts, `restore-drill-01.sh`, or the
-BRR-01 readiness report. Integration steps are listed at the end.
+**Status:** standalone tools implemented, **production disabled**.
+**Does not** change nightly backup scripts, `backup-common.sh`,
+`restore-drill-01.sh`, Slack/NR, or the BRR-01 readiness report.
+
+This document is the contract. A passing unit test is **standalone-tool
+acceptance**, not off-host durability, production enablement, or recovery
+acceptance.
 
 ## 1. Current flow (authoritative record)
 
 | Step | Where | Identifiers | Failure |
 |---|---|---|---|
-| Request | auth `POST` account deletion | password check, then `erased_user_tombstones` insert (`auth_user_id`, `erased_at`) in the same transaction as status → `ERASURE_IN_PROGRESS` | No tombstone if the request is rejected |
-| Fan-out | auth outbox → `parkio.privacy.erasure` | request id + user id | Participants ACK; `FAILED_RETRYING` does **not** remove the tombstone |
-| Replay | `POST /internal/erasure/replay` | walks tombstones, finishes local erasure | DB-level restore replay (`erasure-tombstones.sh`) only forces non-ACTIVE; PII purge still needs the application path |
-| Backup export | `parkio_export_erasure_tombstones` | JSON array `{authUserId, erasedAt}` only | FU-1: production backup refuses `COMPLETE` if this export fails |
-| Restore set | `restore-erasure-ledger.py` | union of the data-stamp ledger, newer stamp ledgers, optional supplement | Exit 3 BLOCKED if coverage &lt; recovery cutoff |
+| Request | auth `AccountErasureApplicationService.requestDeletion` | `clock.instant()` then `erased_user_tombstones` insert (`auth_user_id`, `erased_at`) in the same `@Transactional` method as status → `ERASURE_IN_PROGRESS` | No tombstone if the request is rejected |
+| Commit | auth Postgres | tombstone becomes visible only at COMMIT | In-flight TX is invisible to other sessions |
+| Fan-out | auth outbox → `parkio.privacy.erasure` | request id + user id | `FAILED_RETRYING` does **not** remove the tombstone |
+| Replay | `POST /internal/erasure/replay` | walks tombstones | DB replay only forces non-ACTIVE; PII purge needs the application path |
+| Backup export | `parkio_export_erasure_tombstones` | unlocked `SELECT` of `{authUserId, erasedAt}` | FU-1: production backup refuses `COMPLETE` if this export fails |
+| Restore set | `restore-erasure-ledger.py` | union of stamp ledgers + optional supplement | Exit 3 BLOCKED if coverage &lt; cutoff |
 
-The **authoritative** record is auth `erased_user_tombstones`. It is append-only
-(primary key `auth_user_id`). Nightly stamps copy that table at stamp time.
-Erasures **after** the newest retrievable offsite stamp exist only on the lost
-host unless an off-host journal exists.
+The **authoritative** record is auth `erased_user_tombstones` (append-only
+PK `auth_user_id`). `erased_at` is the **request-start application clock**,
+not the commit timestamp. Nightly stamps copy committed rows at stamp time.
+Erasures after the newest retrievable offsite stamp exist only on the lost
+host unless a **trusted** off-host journal exists.
 
 Retries: participant ACK failures mark `FAILED_RETRYING`; the tombstone stays.
-Duplicates: a second deletion request for the same user returns the existing
-request. Ordering: `erased_at` is the request-time clock.
+Duplicates: a second deletion request returns the existing request.
 
-## 2. What this change adds
+## 2. Why a query timestamp is not coverage
 
-An **opt-in, isolated** complete-table snapshot plus a **coverage seal**, stored
-off the production host.
+Postgres default isolation is READ COMMITTED. The current backup export is
+an unlocked `SELECT`. A concurrent `requestDeletion` can:
 
-- Payload: `{authUserId, erasedAt}` only. Names, emails, tokens, and dump
-  contents are rejected.
-- Coverage advances only when **both** the snapshot and its seal persist.
-- `coveredThrough` is the **source-table read time** (`--query-time`), not the
-  persist clock and not “now” at recovery.
-- Incremental appends are not a coverage mechanism and are not implemented
-  as a seal source.
-- Default: `PARKIO_OFFHOST_ERASURE_ENABLED` unset/`0`. Nothing is exported.
+1. assign `erased_at = T_early` (`clock.instant()`);
+2. `INSERT` the tombstone and continue other work in the same transaction;
+3. remain uncommitted while an exporter `SELECT`s and stamps `now()` / a
+   client query time `T_query` where `T_early < T_query`;
+4. `COMMIT` afterward.
 
-Helpers (new files only):
+The snapshot then lacks a row whose `erased_at` is earlier than the stamped
+time. Isolated PostgreSQL tests in `scripts/test_offhost_erasure_pg.py`
+reproduce this. **Do not certify complete cutoff coverage from wall-clock
+or `--query-time` alone.**
+
+## 3. Visibility protocol
+
+Cutoff-comparable `coveredThrough` is produced only by
+`table-share-lock` (`scripts/lib/offhost-erasure-locked-snapshot.sql`):
+
+1. `BEGIN`
+2. `LOCK TABLE erased_user_tombstones IN SHARE MODE`  
+   (waits for in-flight `INSERT`s; blocks new ones)
+3. read the complete table
+4. `clock_timestamp()` **while the lock is still held**
+5. `COMMIT`
+
+**Guarantee (narrow):** every tombstone whose inserting transaction
+**committed before** that lock-held `clock_timestamp()` on the **auth
+database clock** is in the snapshot.
+
+**Not guaranteed:**
+
+- every row with `erased_at ≤ coveredThrough` (request clock ≠ commit time);
+- erasures that commit after the watermark (measurable uncovered window);
+- authenticity, deletion resistance, or off-host durability of the store;
+- zero data-loss from any periodic export.
+
+`--from-ledger` defaults to `row-set-only`: identifiers may be stored;
+coverage does **not** advance. `--visibility-protocol table-share-lock` on
+a ledger file is **operator attestation** that the file was produced by the
+SQL script. The Python store cannot verify that attestation.
+
+## 4. What this change adds
+
+Isolated, opt-in helpers (new files only):
 
 - `scripts/lib/offhost_erasure.py`
+- `scripts/lib/offhost_erasure_pg.py`
+- `scripts/lib/offhost-erasure-locked-snapshot.sql`
 - `scripts/offhost-erasure-export.py`
 - `scripts/offhost-erasure-recover.py`
 - `scripts/test_offhost_erasure_recovery.py`
+- `scripts/test_offhost_erasure_pg.py`
 
-## 3. Guarantees and limits (honest)
+Rules:
 
-| Claim | True? |
-|---|---|
-| After a verified seal with `coveredThrough` ≥ cutoff, every tombstone that was in the auth table **at that query time** is in the off-host snapshot | **Yes**, if the operator actually exported a complete `SELECT` of `erased_user_tombstones` at that time |
-| A successful PUT / `persistedAt` timestamp means coverage through that time | **No** |
-| Periodic export gives zero data-loss exposure | **No**. Erasures after the last verified `coveredThrough` are unknown after host loss |
-| Incremental “export since last watermark” advances coverage to now | **No** (not offered) |
-| Restore of an unrelated ACTIVE account is changed | **No**; only identifiers in the union set are replayed |
+- Payload: `{authUserId, erasedAt}` only. Names, emails, tokens rejected.
+- `authUserId` is a **sensitive identifier**. CLI and logs print counts and
+  hashes only (`public_result`). Recover writes `--out` only on PASS.
+- Coverage advances only when protocol is `table-share-lock` **and** both
+  snapshot and seal persist.
+- Incremental appends never become a seal source.
+- Default: `PARKIO_OFFHOST_ERASURE_ENABLED` unset/`0`.
 
-**When an erasure becomes durably recoverable off-host:** after it appears in a
-complete-table snapshot that has a matching coverage seal stored off-host, and
-only through that seal’s `coveredThrough`.
+Publication / retry:
 
-**When remote persist fails:** coverage does **not** advance. The payload stays
-in `state.json` `pending` for `--retry`. Restore through a later cutoff stays
-BLOCKED.
+- An older pending snapshot retried after a newer lock-protocol seal is
+  discarded (`stale-pending`). Coverage does not regress.
+- A concurrent older exporter is rejected (`StaleSnapshotError`).
+- Interruption between snapshot and seal does not advance coverage; retry
+  may complete the pair.
+- Recover unions **all** verified lock-protocol snapshots so previously
+  covered identifiers do not disappear if `state.json` points at an older
+  seal. Coverage time is still the newest trusted `coveredThrough`.
+- A newer snapshot that drops an older identifier is rejected.
 
-**Duplicates / ordering:** identifiers are lower-cased; duplicate rows keep the
-earliest `erasedAt`. Snapshot bytes are canonical (sorted keys and ids). A newer
-snapshot that drops an older identifier is rejected.
+## 5. Storage guarantees (directory backend)
 
-**Coverage through cutoff:** a seal exists, its snapshot hash matches, record
-counts match, and `coveredThrough` ≥ cutoff. Otherwise BLOCKED (exit 3) or FAIL
-(exit 1) if seals are present but corrupt. A handwritten `--supplemental-covered-through`
-on `restore-erasure-ledger.py` is **not** sufficient by itself; operators must
-use the `coveredThrough` printed by `offhost-erasure-recover.py`.
+`FileStore` / `--store-dir` is a **test/local backend**. Placing the
+directory on the production VM is not off-host. A directory becomes an
+off-host store only when its durability is **independently** established
+(object store or equivalent that survives host loss, with evidence).
 
-## 4. Storage, access, retention, integrity
+| Property | SHA-256 of snapshot/seal | Directory backend |
+|---|---|---|
+| Detect bitrot / truncation | Yes, if the object is still present | Yes |
+| Authenticity (who wrote it) | **No** (no signature / MAC) | **No** |
+| Protection against deletion | **No** | **No** |
+| Protection against rollback to an older seal | **No** | **No** (recover scans remaining seals; an attacker can delete the newest) |
 
-**Default store (this PR):** a filesystem directory (`--store-dir`). For a real
-off-host copy the directory must be **not** on the production VM (NFS, object
-sync, or a future Azure prefix). This PR does **not** provision that location.
+Minimum requirements before anyone treats this as real off-host durability:
 
-**Azure object store:** not enabled here. Blocker: no dedicated container, no
-login session, and this change must not retrieve `BACKUP_AZURE_*` secrets or
-modify backup upload helpers. A later integration may add an Azure adapter that
-reuses an already-authorized identity and a **separate** prefix; that is out of
-scope.
+1. Location **not** on the production host (separate account/prefix).
+2. Identity with write to that prefix only; no embedding of new secrets in git.
+3. Versioning **and** delete protection (object lock / WORM or MFA-delete).
+4. Independent integrity check (checksum **plus** the store’s own version
+   history). Checksums alone are not authenticity.
+5. Access restricted to backup/restore operators; 0600 on emitted
+   supplements; no payload in logs or tickets.
+6. Retention at least backup retention (14 days documented) **and** until a
+   newer verified lock-protocol seal exists.
 
-**Access:** 0600 on emitted supplemental ledgers. Store objects are hashes of
-content (`snapshots/<sha256>.json`, `seals/<sha256>.json`). No PII fields.
+**Azure:** not enabled. Blocker: no dedicated container, no login from this
+task, and this change must not retrieve `BACKUP_AZURE_*` or modify backup
+upload helpers.
 
-**Retention:** keep every verified seal/snapshot at least as long as backup
-retention (14 days documented) **and** until the next newer verified seal exists.
-Deleting the newest seal re-opens a coverage gap.
-
-**Integrity:** SHA-256 of canonical snapshot JSON; seal points at that digest
-and at `recordCount`. Recover refuses digest mismatch or a truncated JSON array.
-
-## 5. Operator configuration (disabled)
+## 6. Operator configuration (disabled)
 
 ```bash
-# still off
 unset PARKIO_OFFHOST_ERASURE_ENABLED
 
-# synthetic / drill host only
+# drill only, after running the lock-protocol SQL against auth
 export PARKIO_OFFHOST_ERASURE_ENABLED=1
 python3 scripts/offhost-erasure-export.py \
-  --from-ledger /path/to/erasure-tombstones.json \
+  --from-ledger /path/to/locked-snapshot-entries.json \
   --query-time 2026-09-24T03:30:01Z \
+  --visibility-protocol table-share-lock \
   --store-dir /offhost/erasure-journal
 
 python3 scripts/offhost-erasure-recover.py \
@@ -115,42 +157,54 @@ python3 scripts/offhost-erasure-recover.py \
 # exit 3 => do not expose the restored copy
 ```
 
-`offhost-erasure-recover.py` writes `--out` only on PASS. BLOCKED (exit 3) and
-FAIL (exit 1) do not emit a supplement.
+`coveredThrough` in the recover report is the seal watermark, not `date -u`.
 
-`--query-time` must be the time of the complete-table read (for example the
-`statement_timestamp()` of the export query), not `date -u` after upload.
+## 7. Independent export cadence (not implemented here)
 
-Do not schedule this on production until: an off-host directory or object store
-exists, export identity is authorized without embedding new secrets in git, and
-the integration below is merged separately.
+Exporting only after the nightly backup **does not** close the
+between-backups erasure gap. That path also uses an unlocked SELECT today.
 
-## 6. Required integration (not in this PR)
+Proposed later integration (describe-only; **no scheduler and no shared
+backup entrypoint changes in this PR**):
 
-Describe-only. Do **not** apply these in this change.
+1. **Independent exporter** (separate host or job) that runs
+   `offhost-erasure-locked-snapshot.sql` against auth and persists with
+   `--visibility-protocol table-share-lock`.
+2. **Proposed cadence:** every **15 minutes**. Measurable uncovered window
+   after host loss is `incident_time − last_trusted_coveredThrough`, which
+   is about one interval plus export/persist runtime when the job is
+   healthy — **not** zero, and **not** “15 minutes” if the job is failing.
+3. **Failure detection:** export exit 1/4; `coverageAdvanced=false` while
+   enabled; `uncoveredSeconds` / watermark age exceeding **20 minutes**
+   (interval + 5 minute slack) is a coverage-freshness fail. Alert that
+   condition. Do not treat backup COMPLETE as off-host coverage.
+4. **Recovery refusal:** `offhost-erasure-recover.py` exit 3 when cutoff
+   exceeds trusted `coveredThrough` or no lock-protocol seal exists. Do not
+   expose the restored copy. Do not hand-write
+   `--supplemental-covered-through`.
+5. Optional later: restore-drill procedure calls recover, then
+   `restore-erasure-ledger.py`. Still a separate change.
+6. BRR-01 G2 text updates after (1)–(4), not here.
 
-1. `backup-hosted-beta.sh` (after a successful ledger export): optionally invoke
-   `offhost-erasure-export.py --from-ledger "$DEST_DIR/erasure-tombstones.json"
-   --query-time <export-query-time>` when enabled. Failure must **not** be
-   treated as COMPLETE coverage; decide separately whether it fails the backup.
-2. `restore-drill-01.sh` / procedure: run `offhost-erasure-recover.py` and pass
-   its `--out` plus the printed `coverageThrough` into
-   `restore-erasure-ledger.py --supplemental … --supplemental-covered-through`.
-   Refuse if recover exits 3.
-3. BRR-01 readiness report: record G2 as “mechanism present, production off,
-   no live off-host store”.
-4. Optional later: a systemd timer on a **non-production** exporter host that
-   reads auth tombstones (same SELECT as `erasure-tombstones.sh`) and writes
-   off-host. Do not add that timer in this PR.
+**Rollback of this PR:** delete the new files. No cron, host script, or
+secret change to revert.
 
-**Rollback of this PR:** delete the new files. No backup entrypoint, cron, or
-host script changes to revert. Production behavior is unchanged while the flag
-is off.
+## 8. Acceptance layers
 
-## 7. Tests
+| Layer | This PR |
+|---|---|
+| Standalone-tool acceptance | Synthetic + isolated Postgres tests; dedicated workflow |
+| Real off-host durability | **Not accepted.** Directory backend; no provisioned remote store |
+| Production enablement | **Not accepted.** Flag off; no host install |
+| Actual recovery acceptance | **Not accepted.** No real backup download, restore, or erasure |
 
-`python3 -m unittest scripts.test_offhost_erasure_recovery -v`
+## 9. Tests
 
-Covers: backup-then-erase, duplicates/out-of-order, remote write failure +
-retry, missing/corrupt/incomplete off-host objects, unrelated accounts,
-BLOCKED when cutoff exceeds coverage. All synthetic UUIDs.
+```
+python3 -m unittest scripts.test_offhost_erasure_recovery -v
+python3 -m unittest scripts.test_offhost_erasure_pg -v
+```
+
+The Postgres tests start an ephemeral `postgres:16.10` (or use
+`PARKIO_OFFHOST_PG_PSQL` / `PARKIO_OFFHOST_PG_DSN` in CI). They do not
+touch production.

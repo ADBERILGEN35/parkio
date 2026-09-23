@@ -16,7 +16,7 @@ import sys
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "scripts" / "lib"))
-from offhost_erasure import FileStore, recover, write_supplement  # noqa: E402
+from offhost_erasure import FileStore, public_result, recover, write_supplement  # noqa: E402
 
 
 def load_stamp_ledger(directory):
@@ -39,9 +39,8 @@ def main(argv=None):
     except Exception as exc:
         print(json.dumps({"verdict": "FAIL", "reason": type(exc).__name__}))
         return 1
-    public = {k: v for k, v in report.items() if k != "merged"}
-    print(json.dumps(dict({"tool": "offhost-erasure-recover", "schemaVersion": 1}, **public),
-                     indent=2))
+    print(json.dumps(dict({"tool": "offhost-erasure-recover", "schemaVersion": 1},
+                          **public_result(report)), indent=2))
     if report["verdict"] == "PASS":
         write_supplement(args.out, report["merged"])
     return {"PASS": 0, "FAIL": 1, "BLOCKED": 3}[report["verdict"]]

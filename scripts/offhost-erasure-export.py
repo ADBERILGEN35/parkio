@@ -2,15 +2,19 @@
 """Opt-in complete-table export of erasure tombstones to an off-host store.
 
 Disabled unless PARKIO_OFFHOST_ERASURE_ENABLED=1. Does not start from cron.
-Does not read names, emails, tokens, or dump contents.
+Does not read names, emails, tokens, or dump contents. Does not print
+tombstone payloads.
 
-Coverage advances only after a complete snapshot AND its seal both persist.
---query-time is the source-table read time. The persist clock is not coverage.
+Coverage advances only after a table-share-lock snapshot AND its seal both
+persist. --query-time is coverage only when --visibility-protocol is
+table-share-lock (operator attestation that the ledger was produced by
+offhost-erasure-locked-snapshot.sql). Default row-set-only never advances
+coverage. The persist clock is not coverage.
 
 Usage:
   PARKIO_OFFHOST_ERASURE_ENABLED=1 \\
     python3 scripts/offhost-erasure-export.py --from-ledger FILE --query-time TS \\
-      --store-dir DIR
+      --visibility-protocol table-share-lock --store-dir DIR
 
   PARKIO_OFFHOST_ERASURE_ENABLED=1 \\
     python3 scripts/offhost-erasure-export.py --retry --store-dir DIR
@@ -29,8 +33,12 @@ from offhost_erasure import (  # noqa: E402
     DisabledError,
     FileStore,
     OffhostError,
+    PROTOCOL_LOCK,
+    PROTOCOL_ROWSET,
     RemoteWriteError,
+    StaleSnapshotError,
     persist_complete_snapshot,
+    public_result,
     retry_pending,
 )
 
@@ -38,7 +46,13 @@ from offhost_erasure import (  # noqa: E402
 def main(argv=None):
     parser = argparse.ArgumentParser(description=__doc__.split("\n", 1)[0])
     parser.add_argument("--from-ledger", help="JSON array of {authUserId, erasedAt}")
-    parser.add_argument("--query-time", help="UTC time of the complete-table read")
+    parser.add_argument("--query-time", help="lock-held watermark, or unused for row-set-only")
+    parser.add_argument(
+        "--visibility-protocol",
+        choices=(PROTOCOL_ROWSET, PROTOCOL_LOCK),
+        default=PROTOCOL_ROWSET,
+        help="row-set-only never advances cutoff coverage",
+    )
     parser.add_argument("--store-dir", required=True)
     parser.add_argument("--retry", action="store_true")
     args = parser.parse_args(argv)
@@ -53,17 +67,23 @@ def main(argv=None):
                       file=sys.stderr)
                 return 2
             entries = json.loads(Path(args.from_ledger).read_text(encoding="utf-8"))
-            result = persist_complete_snapshot(store, entries, args.query_time, env)
+            result = persist_complete_snapshot(
+                store, entries, args.query_time, env,
+                visibility_protocol=args.visibility_protocol,
+            )
     except DisabledError as exc:
         print(json.dumps({"verdict": "DISABLED", "reason": str(exc)}))
         return 2
     except RemoteWriteError as exc:
         print(json.dumps({"verdict": "RETRY", "reason": str(exc), "coverageAdvanced": False}))
         return 4
+    except StaleSnapshotError as exc:
+        print(json.dumps({"verdict": "STALE", "reason": str(exc), "coverageAdvanced": False}))
+        return 1
     except (OffhostError, ValueError, OSError) as exc:
         print(json.dumps({"verdict": "FAIL", "reason": type(exc).__name__}))
         return 1
-    print(json.dumps(dict({"verdict": "PASS", "coverageAdvanced": True}, **result), indent=2))
+    print(json.dumps(dict({"verdict": "PASS"}, **public_result(result)), indent=2))
     return 0
 
 

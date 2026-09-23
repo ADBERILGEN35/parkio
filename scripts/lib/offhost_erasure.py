@@ -1,13 +1,21 @@
 #!/usr/bin/env python3
-"""Off-host erasure journal: complete snapshots, coverage seals, recover gate.
+"""Off-host erasure journal: lock-protocol snapshots, coverage seals, recover gate.
 
 Authoritative live record remains auth.erased_user_tombstones
-({auth_user_id, erased_at} only). This module persists a complete-table
-snapshot off-host and a separate coverage seal. A persist timestamp is not
-coverage. Incremental appends may be stored for inspection but never advance
-coveredThrough.
+({auth_user_id, erased_at} only). erased_at is the application clock at
+request start (AccountErasureApplicationService.requestDeletion), committed
+later in the same transaction. An unlocked SELECT plus a wall-clock or
+query-time stamp is therefore not proof that every erasure through that
+timestamp is visible.
+
+A cutoff-comparable coveredThrough is produced only by the table-share-lock
+protocol (see offhost-erasure-locked-snapshot.sql): LOCK SHARE, read the
+table, then clock_timestamp() while the lock is still held. That watermark
+is a commit-visibility horizon on the auth database clock, not a bound on
+erased_at values and not authenticity of the store.
 
 Production stays disabled unless PARKIO_OFFHOST_ERASURE_ENABLED=1.
+Logs and CLI reports never include tombstone payloads.
 """
 from __future__ import annotations
 
@@ -27,6 +35,11 @@ TS_RE = re.compile(
 )
 ALLOWED_KEYS = frozenset({"authUserId", "erasedAt"})
 
+PROTOCOL_LOCK = "table-share-lock"
+PROTOCOL_ROWSET = "row-set-only"
+TRUSTED_PROTOCOLS = frozenset({PROTOCOL_LOCK})
+KNOWN_PROTOCOLS = frozenset({PROTOCOL_LOCK, PROTOCOL_ROWSET})
+
 
 class OffhostError(Exception):
     """Invalid evidence or configuration."""
@@ -42,6 +55,10 @@ class RemoteWriteError(OffhostError):
 
 class CoverageBlocked(OffhostError):
     """Cutoff is not covered by a verified seal."""
+
+
+class StaleSnapshotError(OffhostError):
+    """Pending or concurrent snapshot would regress coverage."""
 
 
 def parse_ts(value, label):
@@ -61,6 +78,13 @@ def enabled(env=None):
     return env.get("PARKIO_OFFHOST_ERASURE_ENABLED", "0") == "1"
 
 
+def normalize_protocol(value):
+    protocol = (value or PROTOCOL_ROWSET).strip()
+    if protocol not in KNOWN_PROTOCOLS:
+        raise OffhostError("unknown visibility protocol")
+    return protocol
+
+
 def normalize_entries(raw):
     if not isinstance(raw, list):
         raise OffhostError("ledger is not a JSON array")
@@ -77,7 +101,6 @@ def normalize_entries(raw):
         erased_at = item.get("erasedAt")
         if erased_at is not None:
             parse_ts(str(erased_at), "erasedAt")
-        # Duplicates: keep the earliest erasedAt so order does not change the set.
         previous = entries.get(user_id)
         if previous is None:
             entries[user_id] = erased_at
@@ -99,13 +122,24 @@ def snapshot_sha256(entries):
     return sha256_bytes(canonical_snapshot(entries))
 
 
-def build_seal(entries, covered_through, previous_seal_sha256=None, persisted_at=None):
+def public_result(payload):
+    """Counts and hashes only. Never identifiers."""
+    blocked = {
+        "entries", "merged", "pending", "authUserId", "erasedAt", "payload",
+    }
+    return {key: value for key, value in payload.items() if key not in blocked}
+
+
+def build_seal(entries, covered_through, previous_seal_sha256=None, persisted_at=None,
+               visibility_protocol=PROTOCOL_LOCK):
     parse_ts(covered_through, "coveredThrough")
+    protocol = normalize_protocol(visibility_protocol)
     blob = canonical_snapshot(entries)
     seal = {
         "schemaVersion": 1,
         "kind": "erasure-coverage",
         "source": "complete-table",
+        "visibilityProtocol": protocol,
         "snapshotSha256": sha256_bytes(blob),
         "recordCount": len(normalize_entries(entries)),
         "coveredThrough": covered_through,
@@ -117,7 +151,7 @@ def build_seal(entries, covered_through, previous_seal_sha256=None, persisted_at
 
 
 class FileStore:
-    """Directory-backed object store. Keys are relative POSIX paths."""
+    """Directory-backed object store. Local/test unless durability is proven elsewhere."""
 
     def __init__(self, root):
         self.root = Path(root)
@@ -176,13 +210,16 @@ class MemoryStore:
 class FailingStore:
     """Fails the next fail_times writes, then delegates. Used by tests."""
 
-    def __init__(self, inner, fail_times=1):
+    def __init__(self, inner, fail_times=1, fail_on=None):
         self.inner = inner
         self.fail_times = fail_times
+        self.fail_on = fail_on
         self.attempts = 0
 
     def put(self, key, data):
         if key == STATE_KEY:
+            return self.inner.put(key, data)
+        if self.fail_on and not key.startswith(self.fail_on):
             return self.inner.put(key, data)
         self.attempts += 1
         if self.attempts <= self.fail_times:
@@ -217,54 +254,79 @@ def save_state(store, state):
     store.put(STATE_KEY, json.dumps(state, indent=2, sort_keys=True).encode("utf-8"))
 
 
-def persist_complete_snapshot(store, entries, query_time, env=None):
-    """Persist a complete-table snapshot and advance coverage only if both writes succeed.
+def _seal_protocol(seal):
+    return normalize_protocol(seal.get("visibilityProtocol") or PROTOCOL_ROWSET)
 
-    query_time is the time of the source table read, not the persist clock.
+
+def _is_trusted_seal(seal):
+    return _seal_protocol(seal) in TRUSTED_PROTOCOLS
+
+
+def persist_complete_snapshot(store, entries, query_time, env=None,
+                              visibility_protocol=PROTOCOL_ROWSET):
+    """Persist a complete-table snapshot. Coverage advances only for lock protocol.
+
+    query_time is the lock-held commit watermark when visibility_protocol is
+    table-share-lock. It is not coverage when the protocol is row-set-only.
     Incremental records must not call this.
     """
     if not enabled(env):
         raise DisabledError("PARKIO_OFFHOST_ERASURE_ENABLED is not 1")
     parse_ts(query_time, "query_time")
+    protocol = normalize_protocol(visibility_protocol)
     normalized = normalize_entries(entries)
     state = load_state(store)
-    pending = {"entries": normalized, "queryTime": query_time}
+    pending = {
+        "entries": normalized,
+        "queryTime": query_time,
+        "visibilityProtocol": protocol,
+    }
     state["pending"] = pending
     try:
         save_state(store, state)
     except RemoteWriteError:
         raise
 
+    trusted = latest_verified_coverage(store)
+    query_epoch = parse_ts(query_time, "query_time")
+    if trusted and protocol in TRUSTED_PROTOCOLS and query_epoch <= trusted["epoch"]:
+        state["pending"] = None
+        save_state(store, state)
+        raise StaleSnapshotError("pending snapshot is not newer than verified coverage")
+
+    covered_ids = union_trusted_ids(store)
+    missing = covered_ids - {item["authUserId"] for item in normalized}
+    if missing:
+        raise OffhostError(
+            f"new snapshot lacks {len(missing)} identifiers from previous coverage"
+        )
+
     blob = canonical_snapshot(normalized)
     digest = sha256_bytes(blob)
     snapshot_key = f"{SNAPSHOT_PREFIX}{digest}.json"
+    seal_sha = None
     try:
-        if state.get("lastSealSha256"):
-            previous = load_seal(store, state["lastSealSha256"])
-            previous_snap = load_snapshot(store, previous["snapshotSha256"])
-            missing = {e["authUserId"] for e in previous_snap} - {e["authUserId"] for e in normalized}
-            if missing:
-                raise OffhostError(
-                    f"new snapshot lacks {len(missing)} identifiers from previous coverage"
-                )
         store.put(snapshot_key, blob)
-        seal, seal_sha, seal_blob = build_seal(
-            normalized, query_time, state.get("lastSealSha256")
-        )
-        seal_key = f"{SEAL_PREFIX}{seal_sha}.json"
-        store.put(seal_key, seal_blob)
+        if protocol in TRUSTED_PROTOCOLS:
+            previous = trusted["sealSha256"] if trusted else None
+            seal, seal_sha, seal_blob = build_seal(
+                normalized, query_time, previous, visibility_protocol=protocol
+            )
+            store.put(f"{SEAL_PREFIX}{seal_sha}.json", seal_blob)
     except RemoteWriteError:
-        # Coverage stays at lastSealSha256. Pending remains for retry.
         raise
 
-    state["lastSealSha256"] = seal_sha
     state["pending"] = None
+    if seal_sha and (not trusted or query_epoch >= trusted["epoch"]):
+        state["lastSealSha256"] = seal_sha
     save_state(store, state)
     return {
         "snapshotSha256": digest,
         "sealSha256": seal_sha,
         "recordCount": len(normalized),
-        "coveredThrough": query_time,
+        "coveredThrough": query_time if protocol in TRUSTED_PROTOCOLS else None,
+        "visibilityProtocol": protocol,
+        "coverageAdvanced": protocol in TRUSTED_PROTOCOLS,
     }
 
 
@@ -275,7 +337,25 @@ def retry_pending(store, env=None):
     pending = state.get("pending")
     if not pending:
         return {"retried": False}
-    return persist_complete_snapshot(store, pending["entries"], pending["queryTime"], env)
+    protocol = normalize_protocol(pending.get("visibilityProtocol") or PROTOCOL_ROWSET)
+    query_time = pending["queryTime"]
+    try:
+        trusted = latest_verified_coverage(store)
+    except OffhostError:
+        trusted = None
+    if trusted and protocol in TRUSTED_PROTOCOLS:
+        if parse_ts(query_time, "pending.queryTime") <= trusted["epoch"]:
+            state["pending"] = None
+            save_state(store, state)
+            return {
+                "retried": False,
+                "discarded": "stale-pending",
+                "coverageThrough": trusted["seal"]["coveredThrough"],
+                "coverageAdvanced": False,
+            }
+    return persist_complete_snapshot(
+        store, pending["entries"], query_time, env, visibility_protocol=protocol
+    )
 
 
 def load_snapshot(store, digest):
@@ -302,6 +382,7 @@ def load_seal(store, digest):
     if seal.get("kind") != "erasure-coverage" or seal.get("source") != "complete-table":
         raise OffhostError("object is not a complete-table coverage seal")
     parse_ts(seal.get("coveredThrough"), "seal coveredThrough")
+    _seal_protocol(seal)
     return seal
 
 
@@ -317,15 +398,11 @@ def _verify_pair(store, digest):
         "sealSha256": digest,
         "entries": snapshot,
         "epoch": parse_ts(seal["coveredThrough"], "coverageThrough"),
+        "trusted": _is_trusted_seal(seal),
     }
 
 
-def latest_verified_coverage(store):
-    """Return the newest verified (seal, snapshot) or None if none exist.
-
-    Prefers state.json, then scans seals/. A lone persist timestamp is ignored.
-    If seals exist but none verify, this is FAIL (corrupt), not empty coverage.
-    """
+def iter_verified_pairs(store):
     candidates = []
     state = load_state(store)
     if state.get("lastSealSha256"):
@@ -343,43 +420,82 @@ def latest_verified_coverage(store):
             verified.append(_verify_pair(store, digest))
         except OffhostError as exc:
             errors.append(str(exc))
-    if verified:
-        return max(verified, key=lambda item: item["epoch"])
+    return verified, errors
+
+
+def latest_verified_coverage(store):
+    """Newest verified lock-protocol (seal, snapshot), or None.
+
+    Untrusted / missing-protocol seals never establish cutoff coverage.
+    A persist timestamp is ignored. If seals exist but none verify, FAIL.
+    """
+    verified, errors = iter_verified_pairs(store)
+    trusted = [item for item in verified if item["trusted"]]
+    if trusted:
+        return max(trusted, key=lambda item: item["epoch"])
     if errors and store.list(SEAL_PREFIX):
         raise OffhostError("off-host seals present but none verified: " + errors[0])
     return None
 
 
+def union_trusted_ids(store):
+    verified, _errors = iter_verified_pairs(store)
+    ids = set()
+    for item in verified:
+        if item["trusted"]:
+            ids.update(row["authUserId"] for row in item["entries"])
+    return ids
+
+
+def union_trusted_entries(store):
+    verified, _errors = iter_verified_pairs(store)
+    merged = {}
+    for item in verified:
+        if not item["trusted"]:
+            continue
+        for row in item["entries"]:
+            previous = merged.get(row["authUserId"])
+            erased_at = row.get("erasedAt")
+            if previous is None:
+                merged[row["authUserId"]] = erased_at
+            elif erased_at and (previous is None or str(erased_at) < str(previous)):
+                merged[row["authUserId"]] = erased_at
+    return [{"authUserId": key, "erasedAt": merged[key]} for key in sorted(merged)]
+
+
 def recover(store, cutoff, stamp_entries=None):
     """Build the recoverable erasure set through cutoff.
 
-    Coverage is the seal's coveredThrough, never the current clock and never
-    the persist time alone. Missing/corrupt off-host evidence is FAIL.
-    Uncovered cutoff is BLOCKED (exit 3).
+    Cutoff coverage requires a verified table-share-lock seal whose
+    coveredThrough (lock-held DB clock_timestamp) is >= cutoff. Wall-clock
+    query time on an unlocked SELECT is not sufficient. Missing/corrupt
+    off-host evidence is FAIL. Uncovered or untrusted coverage is BLOCKED.
     """
     cutoff_epoch = parse_ts(cutoff, "recovery-cutoff")
     stamp = normalize_entries(stamp_entries or [])
     try:
         covered = latest_verified_coverage(store)
+        extra = union_trusted_entries(store)
     except OffhostError as exc:
         return {
             "verdict": "FAIL",
             "reason": str(exc),
             "merged": stamp,
             "coverageThrough": None,
+            "visibilityProtocol": None,
             "uncoveredSeconds": None,
         }
     if covered is None:
         coverage_epoch = None
-        extra = []
         blocked = True
-        reason = "no verified off-host coverage seal"
+        protocol = None
+        reason = "no verified table-share-lock coverage seal"
     else:
-        coverage_epoch = parse_ts(covered["seal"]["coveredThrough"], "coverageThrough")
-        extra = covered["entries"]
+        coverage_epoch = covered["epoch"]
+        protocol = covered["seal"]["visibilityProtocol"]
         blocked = coverage_epoch < cutoff_epoch
         reason = (
-            "erasures between coverageThrough and recoveryCutoff are unknown"
+            "erasures that committed after coverageThrough are unknown"
             if blocked
             else None
         )
@@ -387,10 +503,11 @@ def recover(store, cutoff, stamp_entries=None):
     merged = {}
     for item in stamp + extra:
         merged.setdefault(item["authUserId"], item.get("erasedAt"))
-    report = {
+    return {
         "verdict": "BLOCKED" if blocked else "PASS",
         "reason": reason,
         "coverageThrough": None if coverage_epoch is None else iso(coverage_epoch),
+        "visibilityProtocol": protocol,
         "recoveryCutoff": iso(cutoff_epoch),
         "uncoveredSeconds": None if coverage_epoch is None else max(cutoff_epoch - coverage_epoch, 0),
         "stampTombstones": len(stamp),
@@ -399,7 +516,6 @@ def recover(store, cutoff, stamp_entries=None):
         "erasedAfterStamp": len(set(merged) - {e["authUserId"] for e in stamp}),
         "merged": [{"authUserId": k, "erasedAt": v} for k, v in sorted(merged.items())],
     }
-    return report
 
 
 def write_supplement(path, entries):
