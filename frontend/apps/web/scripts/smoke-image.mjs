@@ -164,6 +164,16 @@ async function checkMount() {
         const url = new URL(route.request().url());
         if (url.origin === baseUrl) return route.continue();
         if (url.hostname === 'api.parkio.dev') {
+          if (url.pathname.endsWith('/public/explore/facilities')) {
+            return route.fulfill({
+              status: 200,
+              contentType: 'application/json',
+              body: JSON.stringify({
+                facilities: [], municipalTotalInScope: 0, municipalHiddenCount: 0,
+                communitySpotCountInScope: null,
+              }),
+            });
+          }
           return route.fulfill({ status: 401, contentType: 'application/json', body: '{}' });
         }
         return route.abort();
@@ -192,8 +202,22 @@ async function checkMount() {
 
     const textLength = await page.evaluate(() => document.body.innerText.trim().length);
     const inputCount = await page.locator('input').count();
+    const routes = [];
+    if (process.env.SMOKE_MOCK_EXTERNAL === '1') {
+      for (const path of ['/explore', '/map', '/admin/waitlist', '/register?lang=tr', '/register?lang=en']) {
+        await page.goto(`${baseUrl}${path}`, { waitUntil: 'domcontentloaded', timeout: 45_000 });
+        await page.waitForFunction(
+          () => (document.getElementById('root')?.children.length ?? 0) > 0,
+          undefined,
+          { timeout: 20_000 },
+        );
+        const visible = await page.evaluate(() => document.body.innerText.trim().length);
+        if (visible === 0) throw new Error(`${path} rendered no visible text`);
+        routes.push(path);
+      }
+    }
     await browser.close();
-    return { rootChildren, textLength, inputCount, pageErrors };
+    return { rootChildren, textLength, inputCount, pageErrors, routes };
   } catch (error) {
     await browser.close();
     throw error;
@@ -241,7 +265,7 @@ async function main() {
       );
     } else {
       console.log(
-        `smoke-image: #root children=${mount.rootChildren} bodyText=${mount.textLength} inputs=${mount.inputCount} pageErrors=${mount.pageErrors.length}`,
+        `smoke-image: #root children=${mount.rootChildren} bodyText=${mount.textLength} inputs=${mount.inputCount} pageErrors=${mount.pageErrors.length} routes=${mount.routes.join(',')}`,
       );
       if (mount.rootChildren === 0) {
         failures.push('SPA white-screen: #root received no children (React never mounted)');

@@ -100,8 +100,10 @@ done
 test "$healthy" = true
 docker inspect "$container" > "$out/container-inspect.json"
 docker exec "$container" sh -c 'test "$(stat -c %a /usr/share/nginx/html)" = 755 && test "$(stat -c %a /usr/share/nginx/html/index.html)" = 644 && test ! -e /workspace && ! command -v node && ! command -v npm && ! command -v pnpm'
+css_asset="$(docker exec "$container" sh -c "find /usr/share/nginx/html/assets -name '*.css' -print -quit" | sed 's#^/usr/share/nginx/html##')"
+test -n "$css_asset"
 python3 agent-tools/parkio-web-build-image-security-01/check-served-image.py \
-  http://127.0.0.1:18207 | tee "$out/http-acceptance.txt"
+  http://127.0.0.1:18207 "$css_asset" | tee "$out/http-acceptance.txt"
 
 # Existing production image browser smoke starts this same immutable image ID
 # in a second task-owned container. The opt-in route blocks real API/provider I/O.

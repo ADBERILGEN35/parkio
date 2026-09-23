@@ -6,6 +6,7 @@ import sys
 from urllib.request import urlopen
 
 base = sys.argv[1].rstrip("/")
+css_asset = sys.argv[2]
 security = (
     "content-security-policy",
     "referrer-policy",
@@ -49,6 +50,8 @@ assert "no-cache" in html_headers.get("cache-control", "")
 assets = re.findall(rb'(?:src|href)="(/assets/[^" ]+\.(?:js|css))"', index)
 assert assets, "no JS/CSS assets in index"
 assert any(asset.endswith(b".js") for asset in assets)
+assert css_asset.startswith("/assets/") and css_asset.endswith(".css")
+assets.append(css_asset.encode())
 for asset in assets:
     path = asset.decode()
     body, headers = get(path)
