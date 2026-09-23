@@ -1,13 +1,12 @@
-# Parkio hosted-beta web release pin — PR #81/#82 coordinated security+locale (2026-09-22)
-# Combined runtime source: c0b0451714e1591db79055f140b7d7006466b6aa
-# Reviewed head / PR #81 tip: be6ca18d4aa9ee1dcea91f2cbc1a3558ebfbbd8b
-# Feature merge to api: 2c40d80e4bf44ff6c9f20dcb06807fb5d6cd5f95
-# Index digest: sha256:5915693451ed8d7b6c84ceb795cd685e6cfb68b906d4f46473fc6ba8252dd21b
-# linux/amd64 platform manifest: sha256:dfadf1d263463e889404d33e8ccefdc7f3507a862fec066bcbdc85dcf25f2acc
-# Image config: sha256:c98cb28ab408d7cbc2561a43673fb31a30ccaadb18f5039d0eb2e21d8ae4262f
-# Bake: Explore ON, municipal ON, registration CLOSED (web-hosted-beta.release-bake.env)
+# Parkio hosted-beta web release pin — PR #84 waitlist admin name display (2026-09-23)
+# Runtime source / merge: bf45d0c7b908f221e1049a6fe533b170f97b94ed
+# Reviewed tip: 1869f0a6; runtime code identity: 05041de8
+# Index digest: sha256:32f03b4401d655ae76d465587604a6cc900bafb7938eea4ea718ba21f60316a6
+# linux/amd64 platform manifest: sha256:8505c85bdf81a81e318a2f2bdd2f079392125e2e8f384b6c9da1ffd7d38f5905
+# Bake: Explore ON, municipal ON, registration CLOSED, smart-return ON
+#   (docker/web-hosted-beta.release-bake.env)
 # Previous / rollback pin:
-#   ghcr.io/adberilgen35/parkio/web@sha256:daba786490be9b6015572fbc2a5ba7efd72a4bcdad860372792c0f12b31b59be
+#   ghcr.io/adberilgen35/parkio/web@sha256:5915693451ed8d7b6c84ceb795cd685e6cfb68b906d4f46473fc6ba8252dd21b
 # Applied last in docker/compose.production.files via scripts/parkio-prod-compose.sh.
 # Recreate with: scripts/parkio-prod-compose.sh up -d --no-build --no-deps --force-recreate web
 #
@@ -16,4 +15,4 @@ name: parkio
 
 services:
   web:
-    image: ghcr.io/adberilgen35/parkio/web@sha256:5915693451ed8d7b6c84ceb795cd685e6cfb68b906d4f46473fc6ba8252dd21b
+    image: ghcr.io/adberilgen35/parkio/web@sha256:32f03b4401d655ae76d465587604a6cc900bafb7938eea4ea718ba21f60316a6

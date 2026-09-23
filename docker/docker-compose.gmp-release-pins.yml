@@ -1,9 +1,10 @@
-# Parkio GMP release pins — PR #74 waitlist Slack ops (disabled) 2026-09-22
-# Gateway runtime source tip: 008a6b2077f64d82a83da6d88e7bb6efeeafb498
-# Feature merge: 5de2964dc0d9433fba9c252eef305fc1e92ab1ea
-# Local image ID == registry index digest for this single-arch push.
-# Rollback (live pre-release gateway):
-#   ghcr.io/adberilgen35/parkio/gateway-service@sha256:8b8a08ba974aeec91ec690ada406552a474c2319880752d4d4ea5ff1798028aa
+# Parkio GMP release pins — PR #84 waitlist full name + readable Slack 2026-09-23
+# Gateway runtime source: bf45d0c7b908f221e1049a6fe533b170f97b94ed (merge of 1869f0a6)
+# Reviewed tip: 1869f0a6; runtime code identity: 05041de8
+# Index digest: sha256:0c04d757a381fdf8458aa013f2c26b6df86d6e9ce1fc0a44c92019a8f8d51ff0
+# linux/amd64 platform manifest: sha256:b9c212c0cc13841f3bfdd0516b62dcc90fded43ef4a4426fb78f591fd90e832c
+# Rollback (live pre-PR #84 gateway):
+#   ghcr.io/adberilgen35/parkio/gateway-service@sha256:16f7d5249763008c0856c0c1c3310eb8b17137ae50069b99dc09a489504651a1
 # ONLY gateway/media/parking image references. Do not broaden.
 # Applied via docker/compose.production.files (before auth/web pins).
 # Recreate with:
@@ -16,7 +17,7 @@ name: parkio
 
 services:
   gateway-service:
-    image: ghcr.io/adberilgen35/parkio/gateway-service@sha256:16f7d5249763008c0856c0c1c3310eb8b17137ae50069b99dc09a489504651a1
+    image: ghcr.io/adberilgen35/parkio/gateway-service@sha256:0c04d757a381fdf8458aa013f2c26b6df86d6e9ce1fc0a44c92019a8f8d51ff0
 
   media-service:
     image: ghcr.io/adberilgen35/parkio/media-service@sha256:62f49d04087fb7aa475db0a42c7f8d1e7d1511f84e6b496a58c5beda58f864ec
