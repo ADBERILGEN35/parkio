@@ -133,11 +133,37 @@ python3 "${LIB}/restore-drill-isolation-preflight.py" "${iso_args[@]}" \
   > "${EVIDENCE}/isolation.json" || fail "isolation preflight"
 
 # ---- 4. restore + parity --------------------------------------------------------------
+# Admin queries use the target server's local psql (any patch is fine; they are not dumps).
+# The restore stream uses PARKIO_RESTORE_PSQL_IMAGE when set so \\restrict dumps are
+# applied by an identified client at least as new as the dump client. Dumps are never rewritten.
 q() { docker exec -i "${CONTAINER}" psql -v ON_ERROR_STOP=1 -X -q -U "${ADMIN_USER}" "$@"; }
 dec() {
   openssl enc -d -aes-256-cbc -pbkdf2 -pass env:BACKUP_ENCRYPT_PASSPHRASE \
     < "${STAMP_DIR}/$1.sql.gz.enc" | gunzip
 }
+restore_psql() {
+  local role="$1" db="$2"
+  if [ -n "${PARKIO_RESTORE_PSQL_IMAGE:-}" ]; then
+    docker run --rm -i \
+      --network "${PARKIO_RESTORE_PSQL_NETWORK:-rd-net}" \
+      -e PGPASSWORD=dummy-drill \
+      "${PARKIO_RESTORE_PSQL_IMAGE}" \
+      psql -h "${PARKIO_RESTORE_PSQL_HOST:-${CONTAINER}}" -X -q -v ON_ERROR_STOP=1 \
+        -U "${role}" -d "${db}"
+  else
+    docker exec -i "${CONTAINER}" psql -X -q -v ON_ERROR_STOP=1 -U "${role}" -d "${db}"
+  fi
+}
+if [ -n "${PARKIO_RESTORE_PSQL_IMAGE:-}" ]; then
+  RESTORE_CLIENT_VERSION="$(docker run --rm "${PARKIO_RESTORE_PSQL_IMAGE}" psql --version)"
+else
+  RESTORE_CLIENT_VERSION="$(docker exec "${CONTAINER}" psql --version)"
+fi
+TARGET_SERVER_VERSION="$(q -d postgres -At -c 'show server_version')"
+POSTGIS_AVAILABLE="$(q -d postgres -At -c "select default_version from pg_available_extensions where name='postgis'")"
+printf 'dump_client=(per profile)\nrestore_client=%s\ntarget_server=%s\npostgis_available=%s\nrestore_image=%s\n' \
+  "${RESTORE_CLIENT_VERSION}" "${TARGET_SERVER_VERSION}" "${POSTGIS_AVAILABLE}" \
+  "${PARKIO_RESTORE_PSQL_IMAGE:-container-local}" > "${EVIDENCE}/client-tooling.txt"
 : > "${EVIDENCE}/timings.txt"
 echo "==> [4] restore (auth first)"
 for entry in "${PARKIO_DB_SERVICES[@]}"; do
@@ -147,6 +173,12 @@ for entry in "${PARKIO_DB_SERVICES[@]}"; do
   fi
   dec "${svc}" | python3 "${LIB}/restore-dump-profile.py" profile > "${EVIDENCE}/${svc}.profile.json" \
     || fail "profile ${svc} (decryption, gzip or truncated dump)"
+  python3 "${LIB}/restore-client-compat.py" \
+    --dump-profile "${EVIDENCE}/${svc}.profile.json" \
+    --restore-client-version "${RESTORE_CLIENT_VERSION}" \
+    --target-server-version "${TARGET_SERVER_VERSION}" \
+    --postgis-available-version "${POSTGIS_AVAILABLE}" \
+    > "${EVIDENCE}/${svc}.compat.json" || fail "client compatibility ${svc} (do not strip dump meta-commands)"
   roles="$(python3 -c 'import json,sys; print(" ".join(json.load(open(sys.argv[1]))["grantRoles"]))' \
     "${EVIDENCE}/${svc}.profile.json")"
   for r in ${roles} "${role}"; do
@@ -157,7 +189,7 @@ for entry in "${PARKIO_DB_SERVICES[@]}"; do
   q -d postgres -c "ALTER ROLE \"${role}\" SUPERUSER"
   q -d postgres -c "CREATE DATABASE \"${db}\" OWNER \"${role}\""
   started_svc="$(date -u +%s)"
-  if ! dec "${svc}" | docker exec -i "${CONTAINER}" psql -X -q -v ON_ERROR_STOP=1 -U "${role}" -d "${db}" \
+  if ! dec "${svc}" | restore_psql "${role}" "${db}" \
       > /dev/null 2> "${WORK}/${svc}.restore.err"; then
     fail "restore ${svc} (details in work dir only; may quote data)"
   fi

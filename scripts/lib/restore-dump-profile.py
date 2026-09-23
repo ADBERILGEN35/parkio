@@ -38,7 +38,7 @@ def _version_key(value):
 def profile(stream):
     result = {"serverVersion": None, "pgDumpVersion": None, "extensions": [],
               "createTableCount": 0, "rowCounts": {}, "flywayHead": None,
-              "flywayFailedRows": 0, "grantRoles": []}
+              "flywayFailedRows": 0, "grantRoles": [], "restrictCommands": False}
     copying = None
     flyway_cols = None
     for raw in stream:
@@ -83,6 +83,8 @@ def profile(stream):
                 role = role.strip().strip('"')
                 if role and role.upper() != "PUBLIC" and role not in result["grantRoles"]:
                     result["grantRoles"].append(role)
+        elif line.startswith(b"\\restrict") or line.startswith(b"\\unrestrict"):
+            result["restrictCommands"] = True
     if copying is not None:
         result["truncated"] = True
     return result

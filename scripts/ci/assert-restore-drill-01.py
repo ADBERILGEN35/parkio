@@ -42,6 +42,9 @@ def main(evidence, expected_env, container):
         head = exp.get("FLYWAY_HEAD_" + svc.replace("-", "_"))
         check(profile["flywayHead"] == head and profile["flywayFailedRows"] == 0,
               f"{svc}: Flyway head {profile['flywayHead']} == {head}")
+        compat = json.loads((ev / f"{svc}.compat.json").read_text())
+        check(compat["verdict"] == "PASS", f"{svc}: client compatibility PASS")
+        check(compat.get("restoreClientVersion"), f"{svc}: restore client version recorded")
     parking = json.loads((ev / "parking.profile.json").read_text())
     check("postgis" in parking["extensions"], "parking dump declares postgis")
     check(sql(container, "parkio_parking", "select count(*) from pg_extension where extname='postgis'") == "1",
@@ -53,6 +56,11 @@ def main(evidence, expected_env, container):
 
     for name in ("stamp-preflight.json", "ledger-stamp-1-preflight.json"):
         check(json.loads((ev / name).read_text())["verdict"] == "PASS", f"{name} PASS")
+    tooling = (ev / "client-tooling.txt").read_text()
+    check("restore_client=" in tooling and "target_server=" in tooling,
+          "client-tooling.txt records restore-client and target-server")
+    check("postgres:16.10" in tooling or "restore_image=postgres:16.10" in tooling,
+          "restore client image is the identified postgres:16.10")
     erasure = json.loads((ev / "erasure-set.json").read_text())
     check(erasure["verdict"] == "PASS", "erasure set reaches the recovery cutoff")
     check(erasure["erasedAfterDataStamp"] == 1, "exactly one erasure is newer than the data stamp")

@@ -6,12 +6,16 @@ production. Context and gaps: [backup-restore-readiness.md](backup-restore-readi
 
 ## Why this drill first
 
-It is the smallest drill that proves the chain most likely to break in a real host loss,
-which no drill has exercised yet:
+It is the smallest drill that proves, on real data, the chain most likely to break in a real
+host loss. No real-production restore evidence was found in the reviewed material. The same
+procedure has been **executed** in CI on synthetic encrypted stamps (readiness doc §8):
 
 offsite listing → download of one real `COMPLETE` stamp → integrity → **decryption with the
-escrowed passphrase** → restore of all 10 databases → parity with the dump → erasure-ledger
-replay → measured duration.
+escrowed passphrase** → erasure set through a declared cutoff → restore of all 10 databases →
+parity with the dump → erasure replay before exposure → outbox exposure → measured duration.
+
+The whole procedure is one script, `scripts/restore-drill-01.sh`, so the drill runs exactly
+what CI executed.
 
 It does **not** start any Parkio application service, Kafka, Redis, MinIO, relay or
 scheduler. So no restored outbox, queue, municipal poller or notification path can run.
@@ -45,6 +49,10 @@ docker exec parkio-postgres-parking sh -lc 'psql -U "$POSTGRES_USER" -d "$POSTGR
 # Which secret variable NAMES are set (never values)
 sudo grep -oE '^(BACKUP_ENCRYPT_PASSPHRASE|BACKUP_AZURE_[A-Z_]+|BACKUP_PRODUCTION_MODE|BACKUP_OFFSITE_KIND)=' \
   /opt/parkio/docker/.env.azure-hosted-beta
+
+# Operational state present (names, sizes, unit states only; see readiness §6)
+sudo ls -la /var/lib/parkio/slack-biz /var/lib/parkio-nr-log-continuous/budget 2>&1 | head -20
+systemctl list-units --no-pager 'parkio-slack-biz-*' 'parkio-nr-log-*' | head -20
 ```
 
 From the Azure portal or CLI, as the backup-account owner: container listing of the three
@@ -53,10 +61,19 @@ and any immutability policy. **Answer G1 in writing: where is the backup passphr
 escrowed off-host, and who holds it?** If there is no escrow, stop. Fixing custody comes
 before any drill.
 
+**Answer G2 in writing: the recovery cutoff and the erasure evidence that reaches it.**
+- For this drill, the cutoff is the newest retrievable stamp. Also retrieve that stamp's ledger
+  when an older stamp is being restored.
+- Record the newest stamp time. Record whether any erasure requests arrived after it and where
+  they are recorded.
+- If erasures after the newest stamp cannot be enumerated, a real host-loss recovery would be
+  **BLOCKED** (readiness §5). The drill can still run with cutoff = newest stamp.
+
 ## 1. Authorization and access required
 
 | Item | Required |
 |---|---|
+| Erasure evidence | The cutoff decision and the stamps (or supplement) that reach it, as above |
 | Written authorization | Operator approval to copy **one** real encrypted stamp to a disposable host, decrypt it there, and destroy it afterwards. It names the stamp, the date window, the executor and the data-protection basis for processing personal data in a restore test |
 | Offsite read access | A **new** container SAS with `rl` (read and list) only. Expiry ≤ 4 h, IP-restricted to the drill host. Do **not** reuse the production `rcwl` token, which can write |
 | Passphrase | Retrieved from escrow by its custodian and typed at a hidden prompt on the drill host. Never in a file, env file, shell history, chat, ticket or CI |
@@ -73,155 +90,136 @@ before any drill.
   Postgres needs about 1 GiB of RAM for this drill.
 - **Network:** inbound SSH from the operator IP only. Outbound allowed **only** to the backup
   storage account's blob endpoint during §3, then **all egress denied** before §4.
-- **Engine:** one `postgis/postgis` container matching the live parking image from §0.
-  It serves all ten databases, since a PostGIS image is a superset of `postgres:16`. It runs on an
+- **Engine:** one `postgis/postgis` container matching the live parking image from §0
+  (target **server**). It serves all ten databases, since a PostGIS image is a superset of
+  `postgres:16`. Restore SQL is applied by an **identified client image**
+  (`PARKIO_RESTORE_PSQL_IMAGE`, default in CI: `postgres:16.10`) that understands the dump's
+  meta-commands. The two are not interchangeable: CI run 35883781803 failed when the older
+  in-container `psql` rejected `\\restrict` from a newer `pg_dump`. It runs on an
   `--internal` Docker network with no published ports. If §0 shows the live major version
   is not 16 or PostGIS is not 3.x, stop and re-plan.
 - **Cost:** one small VM for about 4 h, plus blob egress for one stamp's size. Expected to be
   a few US dollars at list prices; confirm on the provider's pricing page before approval.
   Nothing is provisioned by this PR.
 
+
 ## 3. Acquire and verify (egress to the blob endpoint only)
 
 ```bash
 export PARKIO_DRILL_ID=rd-$(date -u +%Y%m%d)-01
 git clone --depth 1 --branch api https://github.com/ADBERILGEN35/parkio.git ~/parkio && cd ~/parkio
-umask 077; mkdir -p ~/rd/evidence
-STAMP=<newest COMPLETE stamp from §0>
-# SAS token: typed at a hidden prompt, used by this command only, then unset.
+umask 077; mkdir -p ~/rd/stamps ~/rd/evidence
+DATA_STAMP=<stamp to restore>   LEDGER_STAMP=<newest stamp, if newer than DATA_STAMP>
 read -rs -p 'read-only SAS: ' BACKUP_AZURE_SAS_TOKEN; echo
-BACKUP_OFFSITE_KIND=azure BACKUP_AZURE_STORAGE_ACCOUNT=<account> BACKUP_AZURE_CONTAINER=<container> \
-  BACKUP_AZURE_SAS_TOKEN="$BACKUP_AZURE_SAS_TOKEN" \
-  ./scripts/backup-offsite-pull.sh --stamp "$STAMP" --dest ~/rd/stamp
+for s in "$DATA_STAMP" ${LEDGER_STAMP:+"$LEDGER_STAMP"}; do
+  BACKUP_OFFSITE_KIND=azure BACKUP_AZURE_STORAGE_ACCOUNT=<account> BACKUP_AZURE_CONTAINER=<container> \
+    BACKUP_AZURE_SAS_TOKEN="$BACKUP_AZURE_SAS_TOKEN" \
+    ./scripts/backup-offsite-pull.sh --stamp "$s" --dest ~/rd/stamps/"$s"
+done
 unset BACKUP_AZURE_SAS_TOKEN
-python3 scripts/lib/restore-stamp-preflight.py ~/rd/stamp --max-age-hours 48 | tee ~/rd/evidence/stamp-preflight.json
 ```
 
-Continue only on `"verdict": "PASS"`. Record `summary.dumpBytesTotal` and the transfer time.
-**Now apply the egress-deny rule** at the cloud firewall.
+The newer stamp is needed **only for its erasure ledger**; its dumps are never restored. Now
+**apply the egress-deny rule** at the cloud firewall.
 
-## 4. Isolation preflight
+## 4. Isolated target
 
 ```bash
-cat > ~/rd/drill.env <<'EOF'
-PARKIO_RESTORE_REQUIRE_ERASURE_LEDGER=1
-PARKIO_EMAIL_PROVIDER=logging
-PARKIO_WAITLIST_EMAIL_PROVIDER=logging
-PARKIO_PUSH_DELIVERY_PROVIDER=noop
-EOF
+printf '%s\n' PARKIO_EMAIL_PROVIDER=logging PARKIO_WAITLIST_EMAIL_PROVIDER=logging \
+  PARKIO_PUSH_DELIVERY_PROVIDER=noop > ~/rd/drill.env
 docker network create --internal rd-net
 docker run -d --name rd-postgres --network rd-net --memory 1500m \
   -e POSTGRES_USER=rd_admin -e POSTGRES_PASSWORD="dummy-$(openssl rand -hex 12)" \
   -e POSTGRES_DB=rd_admin <live parking image digest from §0>
-docker ps --format '{{.Names}}' > ~/rd/containers.txt
-set -a; . ~/rd/drill.env; set +a
-python3 scripts/lib/restore-drill-isolation-preflight.py --env-file ~/rd/drill.env \
-  --containers-file ~/rd/containers.txt --probe-default-egress | tee ~/rd/evidence/isolation.json
+# Restore client is identified separately. Do not use the target image's psql if
+# pg_dump is newer (\\restrict). Record dump-client / restore-client / server / PostGIS.
+export PARKIO_RESTORE_PSQL_IMAGE=postgres:16.10
+export PARKIO_RESTORE_PSQL_NETWORK=rd-net
+export PARKIO_RESTORE_PSQL_HOST=rd-postgres
 ```
 
-It must be `PASS`: no live outbound credential, no credential-shaped value, email and push
-inert, no sender or poller flag, only database containers, and every default egress target
-unreachable. The blob endpoint must also be unreachable by now.
-
-## 5. Restore order and validation
-
-Order: **auth** first, because the erasure replay depends on it. Then gateway, user,
-parking, media, gamification, notification, moderation, analytics, ai-validation.
-Names and users come from `PARKIO_DB_SERVICES` in `scripts/lib/backup-common.sh`.
+## 5. Run the procedure
 
 ```bash
 read -rs -p 'backup passphrase: ' BACKUP_ENCRYPT_PASSPHRASE; echo; export BACKUP_ENCRYPT_PASSPHRASE
-dec() { openssl enc -d -aes-256-cbc -pbkdf2 -pass env:BACKUP_ENCRYPT_PASSPHRASE < ~/rd/stamp/$1.sql.gz.enc | gunzip; }
-q()   { docker exec -i rd-postgres psql -v ON_ERROR_STOP=1 -U rd_admin "$@"; }
-T0=$(date -u +%s)
-for entry in auth:parkio_auth gateway:parkio_gateway user:parkio_user parking:parkio_parking \
-             media:parkio_media gamification:parkio_gamification notification:parkio_notification \
-             moderation:parkio_moderation analytics:parkio_analytics ai-validation:parkio_aivalidation; do
-  svc=${entry%%:*}; db=${entry#*:}
-  set -o pipefail
-  dec "$svc" | python3 scripts/lib/restore-dump-profile.py profile > ~/rd/evidence/$svc.profile.json || { echo "FAIL profile $svc"; break; }
-  for role in $(python3 -c 'import json,sys;print(" ".join(json.load(open(sys.argv[1]))["grantRoles"]))' ~/rd/evidence/$svc.profile.json) $db; do
-    q -d rd_admin -c "DO \$\$BEGIN CREATE ROLE \"$role\" LOGIN PASSWORD 'dummy-drill'; EXCEPTION WHEN duplicate_object THEN NULL; END\$\$" >/dev/null
-  done
-  # Mirrors production, where each service user is its container's superuser; the
-  # --clean dump drops/recreates extensions (postgis) and needs that privilege.
-  q -d rd_admin -c "ALTER ROLE \"$db\" SUPERUSER" >/dev/null
-  q -d rd_admin -c "CREATE DATABASE \"$db\" OWNER \"$db\"" >/dev/null
-  s=$(date -u +%s)
-  dec "$svc" | docker exec -i rd-postgres psql -q -v ON_ERROR_STOP=1 -U "$db" -d "$db" >/dev/null 2>~/rd/$svc.restore.err \
-    || { echo "FAIL restore $svc (see ~/rd/$svc.restore.err; do not publish it)"; break; }
-  python3 scripts/lib/restore-dump-profile.py count-sql ~/rd/evidence/$svc.profile.json \
-    | q -d "$db" -At -F'|' > ~/rd/$svc.counts
-  python3 scripts/lib/restore-dump-profile.py compare ~/rd/evidence/$svc.profile.json ~/rd/$svc.counts \
-    > ~/rd/evidence/$svc.parity.json || echo "FAIL parity $svc"
-  echo "$svc restore_seconds=$(( $(date -u +%s) - s ))" | tee -a ~/rd/evidence/timings.txt
-done
-unset BACKUP_ENCRYPT_PASSPHRASE
+./scripts/restore-drill-01.sh \
+  --stamp ~/rd/stamps/"$DATA_STAMP" ${LEDGER_STAMP:+--ledger-stamp ~/rd/stamps/"$LEDGER_STAMP"} \
+  --recovery-cutoff "${LEDGER_STAMP:-$DATA_STAMP}" \
+  --container rd-postgres --env-file ~/rd/drill.env --probe-default-egress --max-age-hours 72 \
+  --work ~/rd/work --evidence ~/rd/evidence
+echo "exit=$?"; unset BACKUP_ENCRYPT_PASSPHRASE
 ```
 
-Erasure replay and inert-state checks. These produce counts only, never identifiers:
+The script runs these phases in order and fails closed at each one:
 
-```bash
-source scripts/lib/erasure-tombstones.sh
-PARKIO_RESTORE_REQUIRE_ERASURE_LEDGER=1 parkio_replay_erasure_tombstones \
-  ~/rd/stamp/erasure-tombstones.json rd-postgres parkio_auth parkio_auth
-q -d parkio_auth -At -c "select count(*) from auth_users u join erased_user_tombstones t on t.auth_user_id=u.id where u.status='ACTIVE'" \
-  | sed 's/^/active_after_erasure=/' | tee ~/rd/evidence/erasure.txt
-for db in parkio_auth parkio_user parkio_parking parkio_media parkio_gamification parkio_notification \
-          parkio_moderation parkio_analytics parkio_aivalidation; do
-  q -d $db -At -c "select '$db', coalesce(sum(case when not published then 1 end),0) from outbox_events" 2>/dev/null
-done | tee ~/rd/evidence/outbox-unpublished.txt
-q -d parkio_gateway -At -c "select status, count(*) from waitlist_ops_notification_outbox group by 1" \
-  | tee ~/rd/evidence/waitlist-outbox.txt
-echo "total_restore_seconds=$(( $(date -u +%s) - T0 ))" | tee -a ~/rd/evidence/timings.txt
-```
+| Phase | What it does | Stops with |
+|---|---|---|
+| 1 | `restore-stamp-preflight.py` on every stamp: `COMPLETE`/`SHA256SUMS`, ciphertext magic, no plaintext, manifest, ledger shape | exit 1, nothing decrypted |
+| 2 | `restore-erasure-ledger.py`: union of ledgers (append-only check) + optional supplement, coverage vs cutoff | exit 3 **BLOCKED**, nothing decrypted |
+| 3 | `restore-drill-isolation-preflight.py`: no live outbound credentials or credential-shaped values, inert email/push, sender/poller flags off, only DB containers, egress denied | exit 1 |
+| 4 | Per DB, auth first: dump profile, **client-compatibility preflight** (dump-client / restore-client / target-server / PostGIS), then roles and database created, then identified `psql -v ON_ERROR_STOP=1` (never strip `\\restrict`), then row-count parity | exit 1 on first failure |
+| 5 | Replay the erasure set into restored auth. **Require** zero ACTIVE accounts in the set | exit 1 |
+| 6 | Unpublished `outbox_events` per DB and waitlist outbox status counts: the re-publish exposure | always recorded |
 
-The unpublished-outbox counts are the events that **would be re-published** if this point in
-time became live. That is the practical duplicate exposure of a restore, and an input to the RPO decision.
+Operator-compiled erasures after the newest stamp, for a real recovery rather than this drill,
+are passed with `--supplemental-ledger FILE --supplemental-covered-through TS`. The file holds
+identifiers, so it stays on the drill host.
 
 ### Pass criteria
 
-1. The stamp preflight passes, and the isolation preflight passes before decryption.
-2. All 10 databases restore with `ON_ERROR_STOP=1`. Every `parity.json` is `PASS`, meaning the
-   row count equals the dump's COPY count for every table.
-3. `extensions` include `postgis` for parking, and `flywayHead` is recorded for each DB with `flywayFailedRows=0`.
-4. `active_after_erasure=0`.
-5. Wall-clock time from the start of the download to the last parity check is recorded as the
-   **measured restore duration**. This is the first real input to the RTO in the readiness doc.
+1. `summary.json` verdict `PASS`, exit 0.
+2. Every `<svc>.parity.json` is `PASS`. `parking.profile.json` lists `postgis`.
+   `flywayHead` is recorded and `flywayFailedRows=0` for each DB.
+3. `erasure-set.json` verdict `PASS`. `erasure-replay.txt` shows `active_in_erasure_set_after_replay=0`.
+4. `timings.txt` `total_seconds` plus the §3 transfer time gives the **measured restore duration**.
+   This is the first real RTO input.
 
 ## 6. Failure handling
 
-- **Checksum, COMPLETE or ledger failure:** stop. Do not try an older stamp in the same
-  authorization unless it names one. Report the preflight JSON; it contains no data.
-- **Wrong passphrase or decryption error:** stop. That is a **G1 custody finding**, not a drill bug.
-- **Restore error:** keep `~/rd/<svc>.restore.err` on the drill host only; it may quote data. Record the SQLSTATE
-  and object name by hand in the evidence. Typical causes are a missing role (add it to the
-  profiler's `grantRoles` handling) or an extension version mismatch (re-run with the §0 image).
-- **Any sign of outbound traffic or a non-database container:** stop, destroy the host, report.
+- **Exit 1 in phase 1:** checksum, `COMPLETE`, plaintext or ledger failure. Stop. Report the preflight JSON; it contains no data.
+- **Exit 3:** erasure evidence does not reach the cutoff. Nothing was decrypted. Close the gap,
+  or record that privacy-safe recovery is BLOCKED.
+- **Decryption or profile failure:** wrong passphrase or damaged dump. That is a **G1 custody
+  finding**, not a drill bug.
+- **Client compatibility failure:** dump-client, restore-client, target-server or PostGIS do
+  not match. Typical case: `pg_dump` 16.10+ emitted `\\restrict` and the restore `psql` is older
+  (`invalid command \\restrict`, CI run 35883781803). Use an identified restore client at least
+  as new as that restrict-capable release (`postgres:16.10` in the synthetic workflow). Do **not**
+  strip those commands or ignore SQL errors.
+- **Restore failure:** `~/rd/work/<svc>.restore.err` may quote data, so it stays on the host.
+  Record the SQLSTATE and object by hand. Typical causes are a missing role or an extension version mismatch.
+- **Any outbound traffic or non-database container:** stop, destroy the host, report.
 
 ## 7. Cleanup (task-owned only)
 
 ```bash
 unset BACKUP_ENCRYPT_PASSPHRASE BACKUP_AZURE_SAS_TOKEN
-docker rm -f rd-postgres && docker network rm rd-net && docker volume prune -f   # drill host only
-shred -u ~/rd/stamp/* 2>/dev/null; rm -rf ~/rd/stamp ~/rd/*.counts ~/rd/*.restore.err
+docker rm -f rd-postgres && docker network rm rd-net && docker volume prune -f   # disposable drill host only
+rm -rf ~/rd/stamps ~/rd/work
 ```
 
-Then delete the VM **and its disks**, and revoke or let expire the read-only SAS. Record the
-deletion time. Nothing on the production host or in the storage account is touched.
+Then delete the VM **and its disks**, and let the read-only SAS expire or revoke it. Nothing on the
+production host or in the storage account is touched.
 
 ## 8. Evidence to keep (secret-free)
 
-Keep only `~/rd/evidence/`: `stamp-preflight.json`, `isolation.json`, `*.profile.json`
-(versions, table names, counts), `*.parity.json`, `timings.txt`, `erasure.txt` (a count),
-the outbox count files, and the stamp name. Review these before committing them under
-`agent-tools/parkio-restore-drill-01/<UTC>/`. **Never** commit dumps, restore error logs,
-ledger files, SAS tokens or the passphrase, and never upload them as GitHub artifacts.
-Table names come from migrations and are not personal data.
+Keep only `~/rd/evidence/`. Its files contain versions, table names, counts, timings and verdicts,
+never identifiers:
+- `summary.json`
+- `stamp-preflight.json`, `ledger-stamp-*-preflight.json`
+- `erasure-set.json`, `erasure-replay.txt`
+- `isolation.json`
+- `*.profile.json`, `*.parity.json`
+- `outbox-pending.txt`, `timings.txt`
+
+Review it, then commit it under `agent-tools/parkio-restore-drill-01/<UTC>/`. **Never** commit
+or upload stamps, `~/rd/work` (merged ledger, counts, restore errors), SAS tokens or the passphrase.
 
 ## Next drills (not prepared here)
 
-- **02:** MinIO `minio.tar.gz.enc` into an isolated MinIO (`restore-hosted-beta.sh --only minio`
-  with a throwaway `MINIO_RESTORE_BUCKET`), with object-count parity against the manifest.
-- **03:** An application-level smoke on the restored copy, with every sender, poller and relay disabled
-  and egress still denied. It needs the same isolation preflight plus service-level kill switches.
+- **02:** MinIO `minio.tar.gz.enc` into an isolated MinIO, with object-count parity against the manifest.
+- **03:** An application-level smoke on the restored copy, with all senders, pollers and relays
+  disabled and egress still denied. It exercises participant PII re-erasure
+  (`/internal/erasure/replay`), which drill 01 cannot.
+- **Operational state:** relay and NR ledger snapshot restore per readiness §6. This needs a
+  separate change that adds consistent SQLite snapshots to the stamp.

@@ -39,7 +39,15 @@ env:
   COMPOSE_PROJECT_NAME: parkio-rd01-${{ github.run_id }}-${{ github.run_attempt }}
   MINIO_IMAGE: quay.io/minio/minio@sha256:cd04ea408e185cb50076ea1c3988d444119b19aaae15aab45387ccf14b2a2f86
   MINIO_MC_IMAGE: quay.io/minio/mc@sha256:a5399b66b88543efac8afb08eb2bdcce5904e548ea6fe1a921600cd74f766668
+  # Identified clients. postgres:16-alpine (floating) dumped \\restrict; the
+  # postgis/postgis:16-3.4 in-container psql rejected it (CI run 35883781803).
+  # Restore uses official postgres:16.10 psql, not the target image's older client.
+  POSTGRES_IMAGE: postgres:16.10
+  POSTGIS_IMAGE: postgis/postgis:16-3.4
   TARGET_IMAGE: postgis/postgis:16-3.4
+  PARKIO_RESTORE_PSQL_IMAGE: postgres:16.10
+  PARKIO_RESTORE_PSQL_NETWORK: rd-net
+  PARKIO_RESTORE_PSQL_HOST: rd-postgres
   PROBE_IMAGE: python:3.12-alpine
   # Synthetic, CI-only. Never a production value.
   BACKUP_ENCRYPT_PASSPHRASE: parkio-rd01-synthetic-not-prod
@@ -59,8 +67,9 @@ jobs:
       - name: Create throwaway env file
         run: |
           cp docker/.env.example docker/.env
-          printf '%s\n' "MINIO_IMAGE=$MINIO_IMAGE" "MINIO_MC_IMAGE=$MINIO_MC_IMAGE" >> docker/.env
-          chmod +x scripts/*.sh scripts/lib/*.sh scripts/ci/*.sh
+          printf '%s\n' "MINIO_IMAGE=$MINIO_IMAGE" "MINIO_MC_IMAGE=$MINIO_MC_IMAGE" \
+            "POSTGRES_IMAGE=$POSTGRES_IMAGE" "POSTGIS_IMAGE=$POSTGIS_IMAGE" >> docker/.env
+          chmod +x scripts/*.sh scripts/lib/*.sh scripts/ci/*.sh scripts/lib/*.py
 
       - name: Start synthetic SOURCE stack (10 PostgreSQL + MinIO)
         run: |
@@ -80,6 +89,7 @@ jobs:
         run: |
           set -euo pipefail
           docker pull -q "$PROBE_IMAGE" >/dev/null
+          docker pull -q "$PARKIO_RESTORE_PSQL_IMAGE" >/dev/null
           docker network create --internal rd-net
           docker run -d --name rd-postgres --network rd-net --memory 1500m \
             -e POSTGRES_USER=rd_admin -e POSTGRES_PASSWORD="dummy-$(openssl rand -hex 12)" \
@@ -146,7 +156,7 @@ jobs:
       - name: Print secret-free evidence
         if: always()
         run: |
-          for f in summary.json erasure-set.json erasure-replay.txt outbox-pending.txt timings.txt; do
+          for f in summary.json erasure-set.json erasure-replay.txt outbox-pending.txt timings.txt client-tooling.txt auth.compat.json parking.compat.json; do
             echo "== $f"; cat "$RUNNER_TEMP/rd/evidence/$f" 2>/dev/null || true
           done
 

@@ -15,6 +15,7 @@ import unittest
 ROOT = Path(__file__).resolve().parents[1]
 STAMP_TOOL = ROOT / "scripts/lib/restore-stamp-preflight.py"
 PROFILE_TOOL = ROOT / "scripts/lib/restore-dump-profile.py"
+COMPAT_TOOL = ROOT / "scripts/lib/restore-client-compat.py"
 ISOLATION_TOOL = ROOT / "scripts/lib/restore-drill-isolation-preflight.py"
 DATABASES = ("auth", "gateway", "user", "parking", "media",
              "gamification", "notification", "moderation", "analytics", "ai-validation")
@@ -227,6 +228,7 @@ class DumpProfileTest(unittest.TestCase):
         self.assertEqual(prof["flywayHead"], "10")  # numeric, not lexicographic; failed V11 excluded
         self.assertEqual(prof["flywayFailedRows"], 1)
         self.assertEqual(prof["grantRoles"], ["parkio_readonly", "parkio_migrator"])
+        self.assertFalse(prof["restrictCommands"])
         for secret in PII + ("bob@example.test",):
             self.assertNotIn(secret.encode(), result.stdout)
 
@@ -263,6 +265,17 @@ class DumpProfileTest(unittest.TestCase):
     def test_usage(self):
         self.assertEqual(run(PROFILE_TOOL).returncode, 2)
 
+    def test_profile_records_restrict_commands(self):
+        dump = "-- Dumped from database version 16.15\n-- Dumped by pg_dump version 16.15\n"
+        dump += "\\restrict deadbeefcafebabe\nCREATE TABLE public.t (id int);\n"
+        dump += "COPY public.t (id) FROM stdin;\n1\n\\.\n\\unrestrict deadbeefcafebabe\n"
+        result = self.profile(dump)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        prof = json.loads(result.stdout)
+        self.assertTrue(prof["restrictCommands"])
+        self.assertEqual(prof["rowCounts"], {"public.t": 1})
+        self.assertNotIn("deadbeefcafebabe", result.stdout.decode())
+
     def test_runbook_pipeline_on_real_backup_encryption(self):
         """Same cipher as backup-databases.sh; synthetic passphrase and data only."""
         if not shutil.which("openssl") or not shutil.which("gzip"):
@@ -284,6 +297,70 @@ class DumpProfileTest(unittest.TestCase):
                                 "_", enc, sys.executable, PROFILE_TOOL],
                                capture_output=True, check=False)
         self.assertNotEqual(wrong.returncode, 0)
+
+
+class ClientCompatTest(unittest.TestCase):
+    def setUp(self):
+        self.work = Path(tempfile.mkdtemp())
+        self.addCleanup(shutil.rmtree, self.work)
+
+    def write_profile(self, **extra):
+        path = self.work / "p.json"
+        payload = {"serverVersion": "16.15", "pgDumpVersion": "16.15",
+                   "extensions": [], "restrictCommands": False}
+        payload.update(extra)
+        path.write_text(json.dumps(payload))
+        return path
+
+    def compat(self, profile, restore="psql (PostgreSQL) 16.10", server="16.4", postgis=""):
+        args = [COMPAT_TOOL, "--dump-profile", profile,
+                "--restore-client-version", restore, "--target-server-version", server]
+        if postgis:
+            args += ["--postgis-available-version", postgis]
+        return run(*args)
+
+    def test_restrict_dump_rejected_by_old_restore_client(self):
+        path = self.write_profile(restrictCommands=True, pgDumpVersion="16.15")
+        result = self.compat(path, restore="psql (PostgreSQL) 16.4")
+        report = json.loads(result.stdout)
+        self.assertEqual(result.returncode, 1)
+        self.assertEqual(report["verdict"], "FAIL")
+        self.assertTrue(report["dumpEmitsRestrict"])
+        self.assertTrue(any("\\restrict" in reason for reason in report["reasons"]))
+
+    def test_restrict_dump_accepted_by_identified_16_10_client(self):
+        path = self.write_profile(restrictCommands=True, pgDumpVersion="16.15",
+                                  extensions=["postgis"])
+        result = self.compat(path, restore="psql (PostgreSQL) 16.10 (Debian 16.10-1)",
+                             server="16.4", postgis="3.4.2")
+        report = json.loads(result.stdout)
+        self.assertEqual((result.returncode, report["verdict"]), (0, "PASS"), result.stdout)
+
+    def test_dump_version_alone_implies_restrict(self):
+        path = self.write_profile(restrictCommands=False, pgDumpVersion="16.10")
+        result = self.compat(path, restore="psql (PostgreSQL) 16.9")
+        self.assertEqual(json.loads(result.stdout)["verdict"], "FAIL")
+
+    def test_older_dump_without_restrict_may_use_older_client(self):
+        path = self.write_profile(restrictCommands=False, pgDumpVersion="16.4",
+                                  serverVersion="16.4")
+        result = self.compat(path, restore="psql (PostgreSQL) 16.4", server="16.4")
+        self.assertEqual(json.loads(result.stdout)["verdict"], "PASS")
+
+    def test_major_mismatch_and_missing_postgis_fail(self):
+        path = self.write_profile(pgDumpVersion="16.4", serverVersion="16.4",
+                                  extensions=["postgis"])
+        major = self.compat(path, restore="psql (PostgreSQL) 15.14", server="16.4")
+        self.assertEqual(json.loads(major.stdout)["verdict"], "FAIL")
+        missing = self.compat(path, restore="psql (PostgreSQL) 16.10", server="16.4")
+        self.assertEqual(json.loads(missing.stdout)["verdict"], "FAIL")
+        self.assertTrue(any("postgis" in reason for reason in json.loads(missing.stdout)["reasons"]))
+
+    def test_does_not_offer_to_strip_restrict(self):
+        path = self.write_profile(restrictCommands=True)
+        text = self.compat(path, restore="psql (PostgreSQL) 16.4").stdout.decode()
+        self.assertNotIn("strip", text.lower())
+        self.assertNotIn("ignore", text.lower())
 
 
 LEDGER_TOOL = ROOT / "scripts/lib/restore-erasure-ledger.py"
