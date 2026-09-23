@@ -147,14 +147,21 @@ export BACKUP_PRODUCTION_MODE=1 BACKUP_OFFSITE_KIND=s3 BACKUP_MC_DEST=offsite/pa
 export BACKUP_MC_URL="http://${OFFSITE_NAME}:9000" BACKUP_MC_ACCESS_KEY=offsiteadmin
 export BACKUP_MC_SECRET_KEY=offsite-ci-not-prod-minio BACKUP_OFFSITE_MINIO_CONTAINER="${OFFSITE_NAME}"
 export BACKUP_MC_DOCKER_NETWORK="${NETWORK}" PARKIO_ENV_FILE="${ENV_FILE}"
-BACKUP_ROOT="$(mktemp -d)"
-export BACKUP_DIR="${BACKUP_ROOT}"
-
-newest_stamp() { ls -1t "${BACKUP_ROOT}" | head -1; }
+# BACKUP_DIR comes from the env file (parkio_backup_load_env), so take each stamp's
+# location from the orchestrator's own "destination=" line instead of guessing.
+DESTS=()
+run_backup() {
+  local log="${OUT}/backup-$1.log" dest
+  "${ROOT}/scripts/backup-hosted-beta.sh" --operator restore-drill-01-ci | tee "${log}"
+  dest="$(sed -n 's/^destination=//p' "${log}" | head -1)"
+  [ -n "${dest}" ] && [ -f "${dest}/COMPLETE" ] || { echo "ERROR: no COMPLETE stamp from backup $1" >&2; exit 1; }
+  DESTS+=("${dest}")
+  basename "${dest}"
+}
 
 # ---- 4. stamp S --------------------------------------------------------------------------
-"${ROOT}/scripts/backup-hosted-beta.sh" --operator restore-drill-01-ci
-STAMP_S="$(newest_stamp)"
+run_backup S > "${OUT}/stamp-S.name"
+STAMP_S="$(tail -1 "${OUT}/stamp-S.name")"
 
 # ---- 5. changes after S: an erasure and outbox progress -------------------------------------
 erase "${ERASE_AFTER_ID}"
@@ -164,16 +171,15 @@ src "${GW_C}" "${GW_U}" "${GW_D}" -c "UPDATE waitlist_ops_notification_outbox SE
 sleep 2  # stamp names have one-second resolution
 
 # ---- 6. stamp L --------------------------------------------------------------------------
-"${ROOT}/scripts/backup-hosted-beta.sh" --operator restore-drill-01-ci
-STAMP_L="$(newest_stamp)"
+run_backup L > "${OUT}/stamp-L.name"
+STAMP_L="$(tail -1 "${OUT}/stamp-L.name")"
 [ "${STAMP_S}" != "${STAMP_L}" ] || { echo "ERROR: stamps collide" >&2; exit 1; }
 
 # ---- 7. lose the local copies; retrieve both from offsite ---------------------------------
-rm -rf "${BACKUP_ROOT:?}"/*
+for dest in "${DESTS[@]}"; do rm -rf "${dest:?}"; done
 for stamp in "${STAMP_S}" "${STAMP_L}"; do
   "${ROOT}/scripts/backup-offsite-pull.sh" --stamp "${stamp}" --dest "${OUT}/stamps/${stamp}"
 done
-rm -rf "${BACKUP_ROOT}"
 
 # ---- 8. expectations (synthetic values only) ----------------------------------------------
 {
