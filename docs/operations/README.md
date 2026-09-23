@@ -26,6 +26,8 @@ not asserted.
 | [Rollback Runbook](rollback-runbook.md) | Code, config, policy, database rollback |
 | [Incident Management](incident-management.md) | Severity, roles, escalation |
 | [Backup & Restore](backup-restore.md) | Data durability status (not volume = backup) |
+| [Backup & Restore Readiness](backup-restore-readiness.md) | BRR-01 recovery scope, evidence matrix, ranked gaps, proposed RPO/RTO |
+| [Restore Drill 01](restore-drill-01-isolated-database.md) | Prepared isolated real-stamp database restore (not authorized) |
 | [Disaster Recovery](disaster-recovery.md) | DR scenarios and sequencing |
 | [Database Migration Policy](database-migration-policy.md) | Flyway safety and expand/contract |
 | [Managed Parking Flyway Baseline](managed-parking-flyway-baseline.md) | Why `parkio_parking` begins at V2 on Azure, and the one-time preparation |

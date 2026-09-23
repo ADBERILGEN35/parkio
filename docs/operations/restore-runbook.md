@@ -20,7 +20,9 @@ PARKIO_ENV_FILE=docker/.env \
 # 2. Checksums (fail closed)
 sha256sum -c /tmp/parkio-restore-<stamp>/SHA256SUMS
 
-# 3. Isolated DB proof (does not overwrite live service DBs)
+# 3. Isolated DB proof (does not overwrite live service DBs).
+#    NOTE: --from-dir asserts the CI drill canary row, so it only passes on drill-made
+#    stamps. For a real production stamp use restore-drill-01-isolated-database.md.
 PARKIO_ENV_FILE=docker/.env \
   ./scripts/restore-drill.sh --from-dir /tmp/parkio-restore-<stamp>
 
