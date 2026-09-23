@@ -1,11 +1,11 @@
-# PR #102 release decision (draft — do not merge or enable)
+﻿# PR #102 release decision (draft â€” do not merge or enable)
 
 **PR:** https://github.com/ADBERILGEN35/parkio/pull/102
 **Base:** `origin/api` `aa865a255564464bed207a9061244af2641edd3d`
 **First head:** `c86fd69b825691427a0fa19ee39b56b7b3a6c0bc`
 **Prior review head:** `c50f2a5fe9a9048baaef4f1b34c93ebb1d664bfa`
-**Closeout head:** *(filled after this commit)*
-**Decision:** **HOLD** — standalone tools only. Production disabled.
+**Closeout head:** `7dda96723f2d6e64f8790f6fd38aa92663f950d7`
+**Decision:** **HOLD** â€” standalone tools only. Production disabled.
 Keep draft. No merge, deploy, enablement, or real recovery.
 
 Sibling Codex PR #101 (`fix/slack-nr-operational-state-backup`) and NR
@@ -23,7 +23,7 @@ guard work are out of scope. Those files were not modified.
 
 `api` protection remains `strict` required contexts `Build & unit tests` +
 `Secret scan`. Closeout-head checks are recorded after the follow-up push
-in the PR conversation / this file’s tip SHA.
+in the PR conversation / this fileâ€™s tip SHA.
 
 ### First head `c86fd69b` (reused, pre-Postgres-workflow)
 
@@ -43,7 +43,7 @@ bounded (`lock_timeout` 12s, `statement_timeout` 20s). Errors abort; they
 cannot produce publishable coverage. The DB transaction is released
 before any remote persist.
 
-It does **not** mean every row with `erased_at ≤ coveredThrough` is present.
+It does **not** mean every row with `erased_at â‰¤ coveredThrough` is present.
 
 ## 3. Recovery limitation
 
@@ -62,13 +62,13 @@ or deletion/rollback protection.
 
 ## 5. Next integration decisions (not implemented)
 
-1. **Remote storage and authentication** — off-host prefix; already
+1. **Remote storage and authentication** â€” off-host prefix; already
    authorized identity; no secret retrieval here. Container/WORM: blocker.
-2. **Publication integrity** — signed seals or immutable versions.
-3. **Exporter scheduling** — independent lock-protocol job, not
+2. **Publication integrity** â€” signed seals or immutable versions.
+3. **Exporter scheduling** â€” independent lock-protocol job, not
    nightly-backup-only.
-4. **Freshness monitoring** — watermark-age alert; backup COMPLETE ≠ coverage.
-5. **Uncovered tail after host loss** — refuse restore; do not lower cutoff.
+4. **Freshness monitoring** â€” watermark-age alert; backup COMPLETE â‰  coverage.
+5. **Uncovered tail after host loss** â€” refuse restore; do not lower cutoff.
 
 ## 6. Acceptance layers
 
@@ -80,3 +80,4 @@ or deletion/rollback protection.
 | Actual recovery acceptance | **Not accepted** |
 
 **HOLD.** Keep #102 draft.
+
