@@ -4,6 +4,9 @@
 FROM node:22-alpine3.24@sha256:b6f26b36c8ff49624cfdac716b8ea1138d606df02586a77d364bb5536a634f85 AS build
 WORKDIR /workspace
 
+# Patch the bundled npm used in the build environment.
+RUN npm install -g npm@11.20.0 --ignore-scripts
+
 # pnpm via corepack (matches repo toolchain).
 RUN corepack enable
 
@@ -11,7 +14,7 @@ COPY frontend/package.json frontend/pnpm-lock.yaml frontend/pnpm-workspace.yaml 
 COPY frontend/packages ./packages
 COPY frontend/apps/web ./apps/web
 
-RUN corepack pnpm install --frozen-lockfile
+RUN corepack pnpm@10.34.5 install --frozen-lockfile
 
 # Build-time public config (baked into the static bundle).
 ARG VITE_API_BASE_URL
@@ -50,7 +53,7 @@ ENV VITE_API_BASE_URL=$VITE_API_BASE_URL \
 # RUN instruction never expands them into BuildKit's progress log.
 RUN node apps/web/scripts/validate-build-env.mjs
 
-RUN corepack pnpm --filter @parkio/web build
+RUN corepack pnpm@10.34.5 --filter @parkio/web build
 
 # Post-build gate: assert the emitted artifact itself carries non-empty required values and
 # was built for the intended app env. This catches build-arg mis-wiring that the pre-build

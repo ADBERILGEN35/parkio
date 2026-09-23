@@ -50,7 +50,8 @@
       "@types/react-dom": "19.2.3",
       "@expo/metro-runtime": "56.0.16",
       "@expo/dom-webview": "56.0.6",
-      "browserslist": "^4.28.7"
+      "browserslist": "^4.28.7",
+      "vite@6.4.3>esbuild": "0.27.4"
     }
   }
 }
