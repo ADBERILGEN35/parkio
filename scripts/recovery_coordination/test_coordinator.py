@@ -101,7 +101,8 @@ class CoordinatorLifecycleTest(unittest.TestCase):
         self.assertFalse(result["productionPauseMeasured"])
         self.assertFalse(result["userFacingRequestsPaused"])
         self.assertFalse(result["remoteUploadImplemented"])
-        self.assertEqual(result["liveWriterControl"], "NOT_IMPLEMENTED")
+        self.assertEqual(result["liveWriterControl"], "simulated")
+        self.assertIn("measuredWallPauseSeconds", result)
         self.assertEqual(result["writersPaused"],
                          ["slack_worker", "fluent_bit", "gateway_exporter",
                           "inbox_consumer", "nr_source", "nr_gate"])
