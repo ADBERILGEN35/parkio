@@ -3,7 +3,7 @@
 **PR:** https://github.com/ADBERILGEN35/parkio/pull/102
 **Base:** `origin/api` `aa865a255564464bed207a9061244af2641edd3d`
 **First reviewed head:** `c86fd69b825691427a0fa19ee39b56b7b3a6c0bc`
-**Correctness-review head:** *(filled after the follow-up commit)*
+**Correctness-review head:** `47f0f26810a3aa180e3a8bfa677a9aaad30ae660`
 **Decision:** **HOLD** — standalone tools only. Not production-ready.
 Keep draft. No merge, deploy, enablement, or real recovery.
 

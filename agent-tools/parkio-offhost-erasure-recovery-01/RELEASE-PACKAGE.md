@@ -4,6 +4,7 @@
 **Branch:** `feat/offhost-erasure-recovery`
 **Reviewed base:** `origin/api` `aa865a255564464bed207a9061244af2641edd3d`
 **First head:** `c86fd69b825691427a0fa19ee39b56b7b3a6c0bc`
+**Review head:** `47f0f26810a3aa180e3a8bfa677a9aaad30ae660`
 **Decision:** see `PR102-RELEASE-DECISION.md`
 
 **Production:** disabled. No host access, no real erasure, no backup
