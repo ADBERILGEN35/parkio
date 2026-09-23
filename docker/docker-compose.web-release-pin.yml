@@ -1,15 +1,10 @@
-# Parkio hosted-beta web release pin - PR #91 web builder pnpm security (2026-09-23)
-# Reviewed head: 3bb89c6ca473e386e9a6c3288a3282732f169478
-# Source merge: 1fd02394418b3ca13ab0bccebcc4553b064357d8
-# Artifact 10751533597 exact tested runtime; OCI revision 3bb89c6c
-# Published linux/amd64 OCI manifest:
-#   ghcr.io/adberilgen35/parkio/web@sha256:8d9bfca43d577afd62d20f7ffe3fcb2566fbf3bce9dbd758368562aec641487d
-# Image/config ID:
-#   sha256:985fd8a7684a63ea21cf10cbb36f8f2fc092b7d3f13ccbc8c18311380945f68c
-# Single-platform publish of the tested archive; no separate multi-arch index.
-# Bake: Explore ON, municipal ON, registration CLOSED, smart-return ON, assistant OFF, waitlist API
-# Previous / rollback pin:
+# Parkio hosted-beta web release pin - restore pre-PR #91 rollback (2026-09-23)
+# Live correction after the PR #91 synthetic MapTiler image 8d9bfca4 was rolled back.
+# Restored digest / previous production pin:
 #   ghcr.io/adberilgen35/parkio/web@sha256:32f03b4401d655ae76d465587604a6cc900bafb7938eea4ea718ba21f60316a6
+# Runtime source: bf45d0c7b908f221e1049a6fe533b170f97b94ed
+# Do not pin 8d9bfca4; it bakes the CI synthetic MapTiler key.
+# A corrected #91 candidate will replace this pin after exact-image acceptance.
 # Applied last in docker/compose.production.files via scripts/parkio-prod-compose.sh.
 # Recreate with: scripts/parkio-prod-compose.sh up -d --no-build --no-deps --force-recreate web
 #
@@ -18,4 +13,4 @@ name: parkio
 
 services:
   web:
-    image: ghcr.io/adberilgen35/parkio/web@sha256:8d9bfca43d577afd62d20f7ffe3fcb2566fbf3bce9dbd758368562aec641487d
+    image: ghcr.io/adberilgen35/parkio/web@sha256:32f03b4401d655ae76d465587604a6cc900bafb7938eea4ea718ba21f60316a6
