@@ -31,9 +31,18 @@ someone needs it. `backup-hosted-beta.sh` also writes `COMPLETE` and uploads whe
    - update `scripts/test-invite-production-backup-scheduler.sh`, which greps for the
      export call.
 4. Rollout note: the host runs scripts from its own `/opt/parkio` checkout, which had drifted
-   as of 2026-09-22 (WSN-F7). The fix takes effect only after that checkout is reconciled.
-   Before enabling it, run `restore-stamp-preflight.py` on the newest stamp. If its ledger is
-   already missing, the first run after the fix turns red, which is correct.
+   as of 2026-09-22 (WSN-F7, `bf9cad51`). **Do not** reconcile that checkout with a host
+   `git pull` / `reset`. Install only the four changed scripts by copying them onto
+   `/opt/parkio/scripts/...` after backing up the current host copies. Preserve existing
+   `COMPLETE` stamps and secrets. Cron and the flock lock stay unchanged.
+   Installing the fix is **not** the same as observing a successful real backup.
+   Before the first real run after install, run `restore-stamp-preflight.py` on the newest
+   stamp. If its ledger is already missing, the first run after the fix turns red, which
+   is correct.
+
+Draft: PR #97 (`fix/backup-fail-closed-complete`). Merge only after #94, and only after
+the draft is refreshed onto current `api` (it conflicted with #99/#100 observability
+workflow paths; keep both the Alertmanager render checks and the fail-closed test).
 
 **Not in scope:** changing ledger contents, cadence, encryption or retention.
 
@@ -81,6 +90,22 @@ a small, targeted PR **into `master`** that touches only workflow files:
 Rejected alternative: keeping `master`'s old workflow and adding `ref: api` to its checkout.
 The steps would still come from `master`'s stale YAML while the scripts come from `api`, so
 the two would drift.
+
+**Source/configuration verification (PR #98, `af2552b0`, no dispatch executed):**
+
+| Check | Result |
+|---|---|
+| Default branch | `master`. Do not change it. Do not merge `api` wholesale into `master`. |
+| Dispatcher permissions | `actions: write`, `contents: read`. Enough for `gh workflow run` with `GITHUB_TOKEN`. |
+| `backup-restore-drill.yml` on `api` | Present, has `workflow_dispatch`. |
+| `restore-drill-01-procedure.yml` on `api` | **Absent (404)** until #94 merges. Dispatching it today would fail. |
+| `--ref api` | Correct: starts the workflow file that exists on `api` at `api`'s HEAD. |
+| Downstream failure visibility | The dispatcher only starts the workflows (`timeout-minutes: 10`). It does **not** `gh run watch`. A failed drill is visible on the **api** workflow run, not on the schedule job. Adding watch needs a longer timeout (drills are 45 minutes). |
+| Order | Merge #94 (so the procedure workflow exists on `api`) **before** scheduling or manually dispatching #98 onto that workflow. |
+
+Draft: PR #98 (`ci/scheduled-restore-drills`) targets `master` only. Its PR checks include
+the stale `master` canary drill and `master` container scans; those failures are the
+defect being retired, not a reason to merge `api` into `master`.
 
 **Owner decision needed:** a PR into `master` is unusual in this repo. It needs the release
 owner's approval even though it touches only the two workflow files above.

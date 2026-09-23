@@ -1,6 +1,7 @@
 # Backup and restore readiness (BRR-01)
 
-**Assessed:** 2026-09-23. Repository reviewed at `origin/api` `1fd02394`.
+**Assessed:** 2026-09-23 (facts corrected after #99/#100 and the later host audit).
+Repository reviewed at `origin/api` `b7aaea39` (includes #99 and #100).
 **Target:** production host `parkio-civo-prod`.
 **Scope:** preparation only. Nothing here creates a backup, downloads a real backup, or
 restores real data.
@@ -17,10 +18,11 @@ Every live-state statement below carries one of these tags:
 | Tag | Meaning |
 |---|---|
 | **[OBS 2026-09-22]** | A dated read-only observation of the host from the waitlist release preparation (`agent-tools/parkio-waitlist-slack-release-prep-02/20260922T161335Z/production-readonly-facts.md`, waitlist worktree). It is true as of that date and may have changed since. |
+| **[OBS 2026-09-23]** | A later authorized production observation (backup/Alertmanager work on 2026-09-23). Used only for the facts recorded here. |
 | **[OP 2026-09-23]** | A current operator report, not independently verified in this assessment. |
 | **[REPO]** | Derived from repository code, configuration or documentation at the reviewed SHA. It describes intended behaviour, not proof that the host runs it. |
 | **[CI]** | Actually executed in GitHub Actions, with the run id recorded in §8. |
-| **UNKNOWN** | Live state not observed. This assessment had **no host access**: the session's tool permissions refused a bounded read-only SSH probe, and that denial was not retried or worked around. |
+| **UNKNOWN** | Live state not observed, or observed only in part. |
 
 ## 1. What production runs
 
@@ -33,10 +35,39 @@ Every live-state statement below carries one of these tags:
   (`postgres:16-alpine`). The host checkout was `/opt/parkio` at `bf9cad51`, with 69 local changes (WSN-F7).
 - **[OBS 2026-09-22]** The New Relic log pipeline was present (own compose project and
   systemd units, state under `/var/lib/parkio-nr-log-continuous/*`).
-- **[OP 2026-09-23]** The waitlist Slack relay is **installed and active**, and named production
-  delivery passed on 2026-09-23. This supersedes the 2026-09-22 observation that it was not
-  installed. **[REPO]** Its state lives in `/var/lib/parkio/slack-biz` (SQLite in WAL mode) and
-  `/var/lib/parkio/waitlist-ops-inbox`.
+- **[OBS 2026-09-23]** `budget.db` exists on that pipeline's persistent host bind
+  (`PARKIO_NR_BUDGET_STATE_ROOT=/var/lib/parkio-nr-log-continuous/budget` → container
+  `/var/lib/parkio-nr-budget/budget.db`). It is still **outside** the nightly consistent
+  backup.
+- **[OP 2026-09-23]** The waitlist Slack relay is **installed and active**, and named
+  production delivery passed on 2026-09-23. This supersedes the 2026-09-22 observation
+  that it was not installed.
+- **[OBS 2026-09-23]** The Slack data directory `/var/lib/parkio/slack-biz` was **located**.
+  SQLite file existence was **not** established because directory access was restricted.
+  **[REPO]** intended state is SQLite in WAL mode under that directory, plus
+  `/var/lib/parkio/waitlist-ops-inbox`. The directory (and any file inside it) remains
+  **outside** the nightly consistent backup.
+- **[OBS 2026-09-23]** Alertmanager #99 restored genuine Slack delivery. #100
+  presentation is deployed (`b7aaea39`). New-message visual acceptance remains
+  **awaiting** a natural page. Do not treat lingering municipal groups as a new outage.
+
+### PostgreSQL / PostGIS versions (record separately)
+
+| Role | Version | Provenance |
+|---|---|---|
+| Live gateway **server** | PostgreSQL **16.15** (`postgres:16-alpine`) | **[OBS 2026-09-22]** |
+| Live parking **server** | UNKNOWN | Not independently confirmed on the host |
+| Live **client** (`psql` / `pg_dump` on the host or in the dump container) | UNKNOWN | Not separately recorded on the host |
+| Live **PostGIS** | UNKNOWN | Not independently confirmed on the host |
+| Intended parking image | `postgis/postgis:16-3.4` | **[REPO]** |
+| CI restore **client** | `psql` **16.10** (`postgres:16.10`, Debian 16.10-1.pgdg13+1) | **[CI]** run `35888589173` |
+| CI auth dump **client** | **16.10** | **[CI]** same run |
+| CI parking dump **client** | **16.4** | **[CI]** same run |
+| CI target **server** | **16.4** (`postgis/postgis:16-3.4`, Debian 16.4-1.pgdg110+2) | **[CI]** same run |
+| CI **PostGIS** | **3.4.3** | **[CI]** same run |
+
+Do not collapse server, client, and PostGIS into one number. The live gateway server
+(16.15) is not the CI drill target (16.4 / PostGIS 3.4.3).
 
 ## 2. Recovery scope and classification
 
@@ -49,7 +80,7 @@ state needed to avoid duplicates or budget resets · **S** = configuration/secre
 | `parkio_auth` | `postgres-auth-data` | A | yes | Accounts, roles, `erased_user_tombstones` (append-only: no delete path in code), auth outbox |
 | `parkio_gateway` | `postgres-gateway-data` | A + O | yes | Waitlist (V1–V5). `waitlist_ops_notification_outbox` status (`PENDING/EXPORTED/FAILED`) is what prevents re-export |
 | `parkio_user`, `_media`, `_gamification`, `_notification`, `_moderation`, `_analytics`, `_aivalidation` | per-service volumes | A + O | yes | `outbox_events.published`, plus consumer dedup in `inbox_events` / `idempotency_records` |
-| `parkio_parking` (PostGIS) | `postgres-parking-data` | A + O | yes | Default image `postgis/postgis:16-3.4` **[REPO]**. Live PostGIS version **UNKNOWN** |
+| `parkio_parking` (PostGIS) | `postgres-parking-data` | A + O | yes | Intended image `postgis/postgis:16-3.4` **[REPO]**. Live parking server and PostGIS versions **UNKNOWN** (see the version table). CI target-server 16.4 / PostGIS 3.4.3 **[CI]** |
 | Erasure ledger | `erasure-tombstones.json` in each stamp | A (privacy) | yes, export failure tolerated (FU-1) | A ledger only knows erasures up to its own stamp. See §5 |
 | MinIO media | `minio-data` | A | yes (`minio.tar.gz.enc`) | User photos |
 | Kafka log / offsets | `kafka-data` | R | no | Outboxes are the republish source |
@@ -57,9 +88,9 @@ state needed to avoid duplicates or budget resets · **S** = configuration/secre
 | ClamAV, Prometheus, Loki, Tempo, Grafana | volumes | R | no | Rules and dashboards are in git |
 | Alertmanager silences | `alertmanager-data` | O (minor) | no | Muted alerts may page again |
 | Caddy ACME | `caddy-data` | R, rate-limited | no | Re-issuance is limited by CA rate limits |
-| NR budget ledger | host bind → container `/var/lib/parkio-nr-budget/budget.db` (SQLite, rollback journal `TRUNCATE`) | **O** | **no** | See §6.2 |
+| NR budget ledger | persistent host bind `/var/lib/parkio-nr-log-continuous/budget` → `/var/lib/parkio-nr-budget/budget.db` | **O** | **no** | File **exists** **[OBS 2026-09-23]**. Still excluded from consistent backups. See §6.2 |
 | NR source cursors and Fluent Bit checkpoints | `/var/lib/parkio-nr-log-continuous/{source,collector}` | O | no | Loss re-ships logs, and those bytes are charged against the budget |
-| **Slack relay queue, dedup, DLT** | `/var/lib/parkio/slack-biz` (SQLite, `journal_mode=WAL`, `synchronous=NORMAL`) | **O** | **no** | Active **[OP 2026-09-23]**. See §6.3 |
+| **Slack relay queue, dedup, DLT** | `/var/lib/parkio/slack-biz` | **O** | **no** | Directory **located** **[OBS 2026-09-23]**; SQLite file existence **not** established (directory access restricted). Active **[OP 2026-09-23]**. Still excluded from consistent backups. See §6.3 |
 | Slack relay inbox | `/var/lib/parkio/waitlist-ops-inbox` | O | no | Envelopes not yet consumed |
 | Host env file | `/opt/parkio/docker/.env.azure-hosted-beta` | **S** | no (by design) | DB passwords, JWT key, `PARKIO_WAITLIST_HASH_SECRET`, `BACKUP_ENCRYPT_PASSPHRASE` |
 | Backup passphrase | env | **S (critical)** | no | Without an off-host copy, offsite backups cannot be decrypted after host loss |
@@ -104,7 +135,7 @@ The two synthetic drills prove different things and must not be conflated:
 | MinIO media | **[REPO]** sealed tar | **UNKNOWN** | Same | **[CI]** synthetic (`restore-drill-minio.sh`) | Photos lost. Media metadata dangles |
 | Outbox/dedup tables | In DB dumps | Same as DBs | Same | **[CI]** drill 01 records unpublished counts at the stamp | Rows still pending at the stamp are re-published after a restore (§6.3) |
 | NR budget ledger + cursors | **None** | n/a | **No** | None | Budget undercount or reset (§6.2) |
-| Slack relay state (**active**) | **None** | n/a | **No** | None | Queued messages lost, dedup lost, duplicates possible (§6.3) |
+| Slack relay state (**directory located; file unproven**) | **None** | n/a | **No** | None | If a SQLite file is present: queued messages / dedup can be lost. File existence was not established (§6.3) |
 | Kafka, Redis, TSDB, ClamAV | None (regenerable) | n/a | n/a | n/a | Cold start |
 | Caddy ACME | None | n/a | **No** | n/a | Re-issuance, rate-limit risk |
 | Secrets | None in repo (correct) | n/a | Escrow **UNKNOWN** | n/a | Backups unusable without the passphrase. Waitlist hashes unusable without the HMAC secret |
@@ -175,6 +206,9 @@ Adding these snapshots to the nightly stamp is a separate change, not in this PR
 
 ### 6.2 New Relic budget ledger
 
+- **Live file** **[OBS 2026-09-23]**: `budget.db` exists on the persistent host bind
+  `/var/lib/parkio-nr-log-continuous/budget` (container `/var/lib/parkio-nr-budget/budget.db`).
+  It is still **not** part of the nightly consistent backup.
 - **Missing ledger** **[REPO]**: `budget_gate.py` silently creates a new ledger with 0 spent.
 - **Older restored ledger:** spending between the snapshot and the loss is **not counted**.
   The gate then permits up to that much extra ingest in the current daily and monthly windows.
@@ -203,6 +237,12 @@ Conservative recovery when later spending is unknown (documented only; nothing i
 
 ### 6.3 Slack relay queue and gateway outbox
 
+The Slack data directory `/var/lib/parkio/slack-biz` was located **[OBS 2026-09-23]**.
+SQLite file existence was **not** established because directory access was restricted.
+**[REPO]** intended store is SQLite (`journal_mode=WAL`, `synchronous=NORMAL`) under that
+directory. Treat the store as **present in layout, unproven as a file, and excluded from
+consistent backups**.
+
 The gateway outbox (in the nightly dump) and the relay SQLite (not backed up) are two stores
 snapshotted at different times:
 
@@ -230,12 +270,17 @@ the maximum re-export on restore. Recovery guidance:
    encrypted stamps in CI (§8). A real-stamp drill needs separate authorization.
 4. **G4: live backup execution unverified.** Cron, newest `COMPLETE` stamp, offsite
    listing, lifecycle and telemetry are all **UNKNOWN**.
-5. **G5: the active Slack relay and the NR budget have no consistent backup** (§6).
+5. **G5: both operational stores remain excluded from consistent backups** (§6).
+   Slack directory located, SQLite file unproven (access restricted). NR `budget.db`
+   exists on the persistent bind. Neither is in the nightly stamp.
 6. **G6: erasure export failure tolerated, and `COMPLETE` written despite DB failures** (FU-1).
 7. **G7: scheduled canary drill red on stale `master`** (FU-2).
 8. **G8: host reproducibility** (checkout drift, host-only inputs, unknown image digests).
 9. **G9: participant PII re-erasure is not exercised** by a DB-only drill (drill 03).
-10. **G10: no agreed RPO/RTO.** The stamp manifest's offsite flag is stale (known). RESOLVED alert delivery failed in the 2026-09-18 acceptance.
+10. **G10: no agreed RPO/RTO.** The stamp manifest's offsite flag is stale (known).
+    Alertmanager #99 restored genuine Slack **delivery** **[OBS 2026-09-23]**. #100
+    presentation is deployed; new-message **visual** acceptance remains awaiting.
+    The 2026-09-18 acceptance (FIRING delivered, RESOLVED not delivered) is historical.
 
 ## 8. What is actually proven, and how
 
@@ -244,7 +289,7 @@ the maximum re-export on restore. Recovery guidance:
 | `python3 scripts/test_restore_readiness.py` | Unit tests, synthetic fixtures | 49 cases. Linux CI is authoritative; Windows host skips openssl pipeline and cannot assert Unix 0600 / blocked egress |
 | `restore-drill-01-procedure.yml` run `35883781803` on merge `29bbbdb0` of #94 | **Executed** on a GitHub-hosted runner | **FAIL** at restore auth: `invalid command \\restrict`. Dump-client was floating `postgres:16-alpine` (`pg_dump` emits `\\restrict`); restore-client was the older `psql` inside `postgis/postgis:16-3.4`. Commands were not stripped. |
 | `restore-drill-01-procedure.yml` run `35887774967` on `0431dfd9` | **Executed** on a GitHub-hosted runner | Restrict accepted. Restore-client `psql` 16.10 (`postgres:16.10`); dump-client parking 16.4; target-server 16.4 (`postgis/postgis:16-3.4`); PostGIS 3.4.3. Auth/gateway/user parity PASS. **FAIL** row-count parity parking: dump COPY of `spatial_ref_sys` / `tiger.pagc_*` was 0 rows; `CREATE EXTENSION` reseeded 8500 / 835 / 2938 / 4354. Application tables were not the mismatch. SQL was not stripped. |
-| `restore-drill-01-procedure.yml` run `35888589173` on `0e49d740` | **Executed** on a GitHub-hosted runner | **PASS.** Restore-client `psql` 16.10; auth dump-client 16.10 with `\\restrict` accepted (not stripped); parking dump-client 16.4; target-server 16.4; PostGIS 3.4.3. All 10 DBs application-table parity PASS. Parking `extensionCatalogsExcluded` records the reseeded catalogs. Erasure replay: 1 ACTIVE before, 0 after. Bundled-ledger-only cutoff is BLOCKED. Outbox inventory recorded without publishers. Evidence: `agent-tools/parkio-backup-restore-readiness-01/20260923T162700Z/ci-35888589173/`. |
+| `restore-drill-01-procedure.yml` run `35888589173` on `0e49d740` | **Executed** on a GitHub-hosted runner | **PASS.** Versions recorded separately: restore **client** `psql` 16.10 (`postgres:16.10`); auth dump **client** 16.10 (`\\restrict` accepted, not stripped); parking dump **client** 16.4; target **server** 16.4 (`postgis/postgis:16-3.4`); **PostGIS** 3.4.3. These are not the live gateway server 16.15. All 10 DBs application-table parity PASS. Parking `extensionCatalogsExcluded` records the reseeded catalogs. Erasure replay: 1 ACTIVE before, 0 after. Bundled-ledger-only cutoff is BLOCKED. Outbox inventory recorded without publishers. Evidence: `agent-tools/parkio-backup-restore-readiness-01/20260923T162700Z/ci-35888589173/`. |
 | `bash -n` on runbook blocks | **Syntax check only.** Nothing is executed | OK |
 
 What the CI execution covers. All data is synthetic; no application service, sender,
