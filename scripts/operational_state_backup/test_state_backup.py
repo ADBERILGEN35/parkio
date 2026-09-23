@@ -4,6 +4,8 @@
 from __future__ import annotations
 
 from contextlib import contextmanager
+from datetime import datetime, timezone
+import io
 import json
 import os
 from pathlib import Path
@@ -12,6 +14,7 @@ import sys
 import tempfile
 import threading
 import time
+import tarfile
 import unittest
 from unittest.mock import patch
 
@@ -21,7 +24,8 @@ with tempfile.TemporaryDirectory(prefix="parkio-nr-import-fixture-") as import_r
     os.environ, {"PARKIO_NR_BUDGET_STATE_DB": str(Path(import_root) / "budget.db"),
                  "PARKIO_NR_BUDGET_BYTES": "100"}
 ):
-    from newrelic_log_pilot.budget_gate import Budget  # noqa: E402
+    from newrelic_log_pilot import budget_gate  # noqa: E402
+Budget = budget_gate.Budget
 from operational_state_backup import state_backup as backup  # noqa: E402
 
 
@@ -135,6 +139,9 @@ class BackupTests(unittest.TestCase):
         with test_passphrase(), self.assertRaises(backup.SnapshotError):
             with backup.opened_snapshot(self.destination, self.root):
                 pass
+        with self.assertRaises(backup.SnapshotError):
+            self.recover()
+        self.assertFalse((self.root / "prepared").exists())
 
     def test_schema_mismatch_and_interrupted_snapshot(self):
         self.slack_writer.execute("UPDATE schema_meta SET value='999' WHERE key='version'")
@@ -164,6 +171,35 @@ class BackupTests(unittest.TestCase):
         self.slack_db.write_bytes(b"not SQLite")
         with self.assertRaises(backup.SnapshotError):
             self.make_snapshot()
+        self.assertFalse(self.destination.exists())
+
+    def test_inbox_membership_and_content_mutation_abort(self):
+        pending = self.inbox / "pending.json"
+        pending.write_text('{"eventId":"pending"}')
+        original_copy_tree = backup.copy_tree
+
+        def add_after_copy(source, stage, prefix, schemas, **kwargs):
+            original_copy_tree(source, stage, prefix, schemas, **kwargs)
+            if prefix == "slack/inbox":
+                (self.inbox / "late.json").write_text('{"eventId":"late"}')
+
+        with patch.object(backup, "copy_tree", side_effect=add_after_copy):
+            with self.assertRaisesRegex(backup.SnapshotError, "inbox changed"):
+                self.make_snapshot()
+        self.assertFalse(self.destination.exists())
+        (self.inbox / "late.json").unlink()
+
+        original_copy = backup.shutil.copyfileobj
+
+        def mutate_while_copying(source, target, *args, **kwargs):
+            target.write(source.read(8))
+            with pending.open("ab") as stream:
+                stream.write(b" ")
+            return original_copy(source, target, *args, **kwargs)
+
+        with patch.object(backup.shutil, "copyfileobj", side_effect=mutate_while_copying):
+            with self.assertRaisesRegex(backup.SnapshotError, "file changed"):
+                self.make_snapshot()
         self.assertFalse(self.destination.exists())
 
     def test_reconciliation_mismatch_duplicate_and_invalid_retention(self):
@@ -199,6 +235,86 @@ class BackupTests(unittest.TestCase):
         self.assertFalse(gate.reserve(1, 1, 1, "synthetic-digest"))
         with sqlite3.connect(prepared) as db:
             self.assertEqual(db.execute("SELECT exhausted FROM budget WHERE id=1").fetchone(), (1,))
+
+    def test_real_gate_day_month_rollover_and_missing_ledger_limit(self):
+        self.make_snapshot()
+        self.recover()
+        prepared = self.root / "prepared/nr/budget.db"
+        for old_day, old_month, now in (
+            ("2026-05-01", "2026-05", datetime(2026, 5, 2, tzinfo=timezone.utc)),
+            ("2026-05-31", "2026-05", datetime(2026, 6, 1, tzinfo=timezone.utc)),
+        ):
+            with self.subTest(now=now), sqlite3.connect(prepared) as db:
+                db.execute("UPDATE budget SET daily_window=?, monthly_window=?, "
+                           "daily_spent=99, monthly_spent=999, exhausted=1 WHERE id=1",
+                           (old_day, old_month))
+            with patch.object(budget_gate, "utc_now", return_value=now):
+                gate = Budget(prepared, 0, daily=100, monthly=1000)
+                self.assertTrue(gate.snapshot()["exhausted"])
+                self.assertFalse(gate.reserve(1, 1, 1, "synthetic"))
+                self.assertEqual(gate.snapshot()["daily_spent"], 0)
+        # This is the current integration gap: Budget creates a fresh ledger if
+        # a restored DB was not installed at the actual runtime bind path.
+        missing = self.root / "missing-mounted-ledger/budget.db"
+        with patch.object(budget_gate, "utc_now", return_value=datetime(2026, 6, 1, tzinfo=timezone.utc)):
+            self.assertTrue(Budget(missing, 0, daily=100, monthly=1000).reserve(1, 1, 1, "synthetic"))
+
+    def test_archive_password_traversal_symlink_and_no_overwrite(self):
+        self.make_snapshot()
+        live = self.root / "live-state"
+        live.mkdir()
+        (live / "sentinel").write_text("untouched")
+        with self.assertRaises(backup.SnapshotError):
+            from argparse import Namespace
+            with test_passphrase():
+                backup.prepare_recovery(Namespace(snapshot=self.destination,
+                    gateway_outbox_export=self.gateway(), destination=live, staging_root=self.root))
+        self.assertEqual((live / "sentinel").read_text(), "untouched")
+        dangling = self.root / "dangling-destination"
+        dangling.symlink_to(self.root / "nonexistent")
+        with self.assertRaises(backup.SnapshotError):
+            backup.prepare_recovery(Namespace(snapshot=self.destination,
+                gateway_outbox_export=self.gateway(), destination=dangling, staging_root=self.root))
+        self.assertTrue(dangling.is_symlink())
+        with patch.dict(os.environ, {"BACKUP_ENCRYPT_PASSPHRASE": "wrong-synthetic-password"}):
+            with self.assertRaises(backup.SnapshotError):
+                with backup.opened_snapshot(self.destination, self.root):
+                    pass
+        self.assertFalse(list(self.root.glob("parkio-opstate-verify-*")))
+
+        for name, kind in (("../escape", "regular"), ("slack/link", "symlink")):
+            with self.subTest(kind=kind):
+                hostile = self.root / f"hostile-{kind}"
+                hostile.mkdir()
+                plain = self.root / f"hostile-{kind}.tar.gz"
+                with tarfile.open(plain, "w:gz") as archive:
+                    info = tarfile.TarInfo(name)
+                    if kind == "symlink":
+                        info.type = tarfile.SYMTYPE
+                        info.linkname = str(live)
+                        archive.addfile(info)
+                    else:
+                        payload = b"synthetic"
+                        info.size = len(payload)
+                        archive.addfile(info, io.BytesIO(payload))
+                encrypted = hostile / "snapshot.tar.gz.enc"
+                with test_passphrase(), encrypted.open("xb") as output:
+                    backup.openssl(["-in", str(plain)], output_file=output)
+                stamp = backup.digest(encrypted)
+                backup.private_file(hostile / "SHA256SUMS", f"{stamp}  snapshot.tar.gz.enc\n".encode())
+                backup.private_file(hostile / "COMPLETE", f"{stamp}\n".encode())
+                with test_passphrase(), self.assertRaises(backup.SnapshotError):
+                    with backup.opened_snapshot(hostile, self.root):
+                        pass
+                self.assertFalse((self.root / "escape").exists())
+                self.assertEqual((live / "sentinel").read_text(), "untouched")
+
+        report = self.recover()
+        self.assertEqual(report["status"], "manual_reconciliation_required")
+        prepared = self.root / "prepared"
+        self.assertEqual(prepared.stat().st_mode & 0o777, 0o700)
+        self.assertEqual((prepared / "nr/budget.db").stat().st_mode & 0o777, 0o600)
+        self.assertEqual((prepared / "RECOVERY-PLAN.json").stat().st_mode & 0o777, 0o600)
 
     def test_secret_named_file_rejected(self):
         (self.source_state / ".env").write_text("synthetic")

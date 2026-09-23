@@ -172,6 +172,27 @@ def copy_tree(source: Path, stage: Path, prefix: str, schemas: dict, *, json_onl
                         raise SnapshotError(f"invalid JSON state: {relative}") from exc
 
 
+def inbox_inventory(source: Path) -> dict[str, tuple[int, int, int, int]]:
+    """Detect ordinary inbox membership/content changes across the capture window.
+
+    This is a drift check, not a substitute for quiescing every writer.
+    """
+    if not source.is_dir() or source.is_symlink():
+        raise SnapshotError("required inbox directory missing or unsafe")
+    root_metadata = source.lstat()
+    result = {".": (root_metadata.st_ino, root_metadata.st_size,
+                    root_metadata.st_mtime_ns, root_metadata.st_ctime_ns)}
+    for root, dirs, files in os.walk(source, followlinks=False):
+        for name in dirs + files:
+            path = Path(root) / name
+            metadata = path.lstat()
+            if stat.S_ISLNK(metadata.st_mode):
+                raise SnapshotError("symlink in inbox directory")
+            result[path.relative_to(source).as_posix()] = (
+                metadata.st_ino, metadata.st_size, metadata.st_mtime_ns, metadata.st_ctime_ns)
+    return result
+
+
 def openssl(args: list[str], *, input_file=None, output_file=None) -> None:
     if not os.environ.get("BACKUP_ENCRYPT_PASSPHRASE"):
         raise SnapshotError("BACKUP_ENCRYPT_PASSPHRASE is required; no plaintext snapshot")
@@ -271,7 +292,7 @@ def snapshot(args: argparse.Namespace) -> dict:
     sources = [args.slack_db, args.slack_inbox, args.nr_budget_db, args.nr_source_state,
                args.nr_source_spool, args.nr_collector_state]
     destination = args.destination
-    if destination.exists():
+    if destination.exists() or destination.is_symlink():
         raise SnapshotError("destination already exists")
     if any(destination.resolve().is_relative_to(source.resolve()) for source in sources):
         raise SnapshotError("destination must be outside every source")
@@ -284,12 +305,15 @@ def snapshot(args: argparse.Namespace) -> dict:
             os.chmod(stage, 0o700)
             schemas: dict = {}
             started = utc()
+            inbox_before = inbox_inventory(args.slack_inbox)
             schemas["slack/slack_biz.sqlite3"] = sqlite_backup(args.slack_db, stage / "slack/slack_biz.sqlite3", "slack")
             schemas["nr/budget.db"] = sqlite_backup(args.nr_budget_db, stage / "nr/budget.db", "nr-budget")
             copy_tree(args.slack_inbox, stage, "slack/inbox", schemas, json_only=True)
             copy_tree(args.nr_source_state, stage, "nr/source-state", schemas)
             copy_tree(args.nr_source_spool, stage, "nr/source-spool", schemas)
             copy_tree(args.nr_collector_state, stage, "nr/collector-state", schemas)
+            if inbox_inventory(args.slack_inbox) != inbox_before:
+                raise SnapshotError("inbox changed during capture")
             files = {p.relative_to(stage).as_posix(): {"bytes": p.stat().st_size, "sha256": digest(p)}
                      for p in sorted(stage.rglob("*")) if p.is_file()}
             manifest = {"format_version": FORMAT, "started_at": started, "finished_at": utc(),
@@ -298,6 +322,8 @@ def snapshot(args: argparse.Namespace) -> dict:
                         "encryption": "aes-256-cbc-pbkdf2", "sqlite_schemas": schemas, "files": files}
             private_file(stage / "manifest.json", json.dumps(manifest, sort_keys=True).encode())
             encrypt_stage(stage, work / "snapshot.tar.gz.enc")
+            if inbox_inventory(args.slack_inbox) != inbox_before:
+                raise SnapshotError("inbox changed during sealing")
         archive_hash = digest(work / "snapshot.tar.gz.enc")
         private_file(work / "SHA256SUMS", f"{archive_hash}  snapshot.tar.gz.enc\n".encode())
         # Check the complete encrypted artifact before publishing the marker.
@@ -328,7 +354,7 @@ def envelope_ids(root: Path) -> tuple[set[str], set[str]]:
 
 
 def prepare_recovery(args: argparse.Namespace) -> dict:
-    if args.destination.exists():
+    if args.destination.exists() or args.destination.is_symlink():
         raise SnapshotError("offline recovery destination already exists")
     with opened_snapshot(args.snapshot, args.staging_root) as (source, manifest):
         gateway = json.loads(args.gateway_outbox_export.read_text(encoding="utf-8"))
@@ -374,6 +400,7 @@ def prepare_recovery(args: argparse.Namespace) -> dict:
                 db.commit()
             report = {"status": "manual_reconciliation_required", "resume_slack": False,
                       "resume_new_relic": False, "nr_budget": "offline staged ledger forced exhausted=1",
+                      "reconciliation_complete": False,
                       "source_archive_sha256": digest(args.snapshot / "snapshot.tar.gz.enc"),
                       "staged_nr_budget_sha256": digest(args.destination / "nr/budget.db"),
                       "gateway_backup_id_matches": True, "snapshot_started_at": manifest["started_at"],
