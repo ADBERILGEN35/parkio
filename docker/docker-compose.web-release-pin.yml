@@ -1,12 +1,15 @@
-# Parkio hosted-beta web release pin — PR #84 waitlist admin name display (2026-09-23)
-# Runtime source / merge: bf45d0c7b908f221e1049a6fe533b170f97b94ed
-# Reviewed tip: 1869f0a6; runtime code identity: 05041de8
-# Index digest: sha256:32f03b4401d655ae76d465587604a6cc900bafb7938eea4ea718ba21f60316a6
-# linux/amd64 platform manifest: sha256:8505c85bdf81a81e318a2f2bdd2f079392125e2e8f384b6c9da1ffd7d38f5905
-# Bake: Explore ON, municipal ON, registration CLOSED, smart-return ON
-#   (docker/web-hosted-beta.release-bake.env)
+# Parkio hosted-beta web release pin - PR #91 web builder pnpm security (2026-09-23)
+# Reviewed head: 3bb89c6ca473e386e9a6c3288a3282732f169478
+# Source merge: 1fd02394418b3ca13ab0bccebcc4553b064357d8
+# Artifact 10751533597 exact tested runtime; OCI revision 3bb89c6c
+# Published linux/amd64 OCI manifest:
+#   ghcr.io/adberilgen35/parkio/web@sha256:8d9bfca43d577afd62d20f7ffe3fcb2566fbf3bce9dbd758368562aec641487d
+# Image/config ID:
+#   sha256:985fd8a7684a63ea21cf10cbb36f8f2fc092b7d3f13ccbc8c18311380945f68c
+# Single-platform publish of the tested archive; no separate multi-arch index.
+# Bake: Explore ON, municipal ON, registration CLOSED, smart-return ON, assistant OFF, waitlist API
 # Previous / rollback pin:
-#   ghcr.io/adberilgen35/parkio/web@sha256:5915693451ed8d7b6c84ceb795cd685e6cfb68b906d4f46473fc6ba8252dd21b
+#   ghcr.io/adberilgen35/parkio/web@sha256:32f03b4401d655ae76d465587604a6cc900bafb7938eea4ea718ba21f60316a6
 # Applied last in docker/compose.production.files via scripts/parkio-prod-compose.sh.
 # Recreate with: scripts/parkio-prod-compose.sh up -d --no-build --no-deps --force-recreate web
 #
@@ -15,4 +18,4 @@ name: parkio
 
 services:
   web:
-    image: ghcr.io/adberilgen35/parkio/web@sha256:32f03b4401d655ae76d465587604a6cc900bafb7938eea4ea718ba21f60316a6
+    image: ghcr.io/adberilgen35/parkio/web@sha256:8d9bfca43d577afd62d20f7ffe3fcb2566fbf3bce9dbd758368562aec641487d
