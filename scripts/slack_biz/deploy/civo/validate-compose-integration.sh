@@ -7,9 +7,10 @@
 #
 # BASE_REF (default origin/api) is rendered from `git archive` into a temp dir
 # and compared service-by-service with this checkout:
-#   1. disabled default: the ONLY difference is two gateway env keys
-#      (ENABLED=false, ENVIRONMENT) — every image/pin, other service, volume
-#      and network is identical (auth/web/GMP pins and NR untouched);
+#   1. disabled default: images/pins, mounts, group_add, volumes, networks
+#      and non-allowlisted env must match BASE_REF. Allowlisted keys are the
+#      documented production compose mappings (waitlist ops + auth
+#      registration). A surprise pin, mount, or extra env key still fails.
 #   2. activation overlay: gateway gains exactly group_add + one bind mount
 #      (create_host_path=false) + EXPORT_DIR; nothing else changes;
 #   3. overlay without PARKIO_WAITLIST_OPS_INBOX_GID fails to render.
@@ -80,20 +81,35 @@ def check(name, ok, detail=""):
     if not ok:
         fails.append(name)
 
-ADDED = {"PARKIO_WAITLIST_OPS_NOTIFICATIONS_ENABLED", "PARKIO_WAITLIST_OPS_NOTIFICATIONS_ENVIRONMENT"}
-def strip_gateway_keys(model, keys):
+GATEWAY_ALLOWED = {
+    "PARKIO_WAITLIST_OPS_NOTIFICATIONS_ENABLED",
+    "PARKIO_WAITLIST_OPS_NOTIFICATIONS_ENVIRONMENT",
+    "PARKIO_WAITLIST_OPS_NOTIFICATIONS_CONTRACT_VERSION",
+    "PARKIO_WAITLIST_FULL_NAME_REQUIRED",
+}
+AUTH_ALLOWED = {
+    "PARKIO_REGISTRATION_MODE",
+    "PARKIO_REGISTRATION_INVITE_CREATION_ENABLED",
+    "PARKIO_REGISTRATION_INVITE_OPERATOR_TOKEN",
+    "PARKIO_REGISTRATION_INVITE_TTL",
+}
+
+def strip_allowlisted_env(model):
     m = json.loads(json.dumps(model))
-    env = m["services"]["gateway-service"].get("environment") or {}
-    for k in keys:
-        env.pop(k, None)
+    genv = m["services"]["gateway-service"].setdefault("environment", {})
+    aenv = m["services"]["auth-service"].setdefault("environment", {})
+    for k in GATEWAY_ALLOWED:
+        genv.pop(k, None)
+    for k in AUTH_ALLOWED:
+        aenv.pop(k, None)
     return m
 
 # 1. disabled default vs base
 check("same service set", set(base["services"]) == set(dis["services"]),
       f"{len(dis['services'])} services")
 diff_services = [s for s in base["services"]
-                 if strip_gateway_keys(base, ADDED)["services"][s] != strip_gateway_keys(dis, ADDED)["services"][s]]
-check("only gateway env keys differ from " + base_ref, diff_services == [], ",".join(diff_services) or "none")
+                 if strip_allowlisted_env(base)["services"][s] != strip_allowlisted_env(dis)["services"][s]]
+check("only allowlisted env keys differ from " + base_ref, diff_services == [], ",".join(diff_services) or "none")
 for top in ("volumes", "networks", "secrets", "configs"):
     check(f"top-level {top} unchanged", base.get(top) == dis.get(top))
 images = {s: dis["services"][s].get("image") for s in dis["services"]}
@@ -103,7 +119,34 @@ for svc in ("gateway-service", "auth-service", "web"):
     if svc in images:
         print(f"      {svc}: {images[svc]}")
 genv = dis["services"]["gateway-service"]["environment"]
+aenv = dis["services"]["auth-service"]["environment"]
 check("gateway ops disabled by default", genv.get("PARKIO_WAITLIST_OPS_NOTIFICATIONS_ENABLED") == "false")
+check("gateway contract version mapped", genv.get("PARKIO_WAITLIST_OPS_NOTIFICATIONS_CONTRACT_VERSION") in {"1", "2"})
+check("gateway full-name-required mapped", genv.get("PARKIO_WAITLIST_FULL_NAME_REQUIRED") in {"true", "false"})
+check("auth registration CLOSED by example/default", aenv.get("PARKIO_REGISTRATION_MODE") == "closed")
+check("auth invite creation false by example/default", aenv.get("PARKIO_REGISTRATION_INVITE_CREATION_ENABLED") == "false")
+check("auth invite ttl mapped", aenv.get("PARKIO_REGISTRATION_INVITE_TTL") == "P7D")
+check(
+    "auth invite token is interpolated synthetic value",
+    aenv.get("PARKIO_REGISTRATION_INVITE_OPERATOR_TOKEN") == "SYNTH_PLACEHOLDER_value_0123456789abcdef",
+)
+prod_files = [
+    ln.strip()
+    for ln in open(f"{root}/docker/compose.production.files", encoding="utf-8")
+    if ln.strip() and not ln.strip().startswith("#")
+]
+check(
+    "auth overlay is in the production file set before the auth pin",
+    "docker/docker-compose.auth-registration-env.yml" in prod_files
+    and prod_files.index("docker/docker-compose.auth-registration-env.yml")
+    < prod_files.index("docker/docker-compose.auth-release-pin.yml"),
+)
+check(
+    "waitlist inbox stays activation-only (not in production file set)",
+    "docker/docker-compose.waitlist-ops-inbox.yml" not in prod_files,
+)
+auth_overlay = open(f"{root}/docker/docker-compose.auth-registration-env.yml", encoding="utf-8").read()
+check("auth overlay declares no image or volumes", "image:" not in auth_overlay and "volumes:" not in auth_overlay)
 check("no export dir by default", not genv.get("PARKIO_WAITLIST_OPS_NOTIFICATIONS_EXPORT_DIR"))
 check("no group_add / inbox mount by default",
       not dis["services"]["gateway-service"].get("group_add")

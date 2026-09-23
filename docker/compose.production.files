@@ -1,11 +1,15 @@
 # Canonical production compose file set for parkio-civo-prod (post GMP pin).
 # Paths relative to repository root (e.g. /opt/parkio).
 # Consumed by scripts/parkio-prod-compose.sh — keep digest pins last.
-# Order: GMP service pins, then auth release pin, then web release pin.
+# Order: GMP service pins, then auth registration env, then auth/web pins.
 docker/docker-compose.yml
 docker/docker-compose.apps.yml
 docker/docker-compose.hosted-beta.yml
 docker/docker-compose.azure-hosted-beta.yml
 docker/docker-compose.gmp-release-pins.yml
+# Auth registration flags (no image, no volumes). Before the auth pin so
+# the pin remains image-only. Do not add waitlist-ops-inbox.yml here:
+# that overlay stays activation-only and fails without INBOX_GID.
+docker/docker-compose.auth-registration-env.yml
 docker/docker-compose.auth-release-pin.yml
 docker/docker-compose.web-release-pin.yml
