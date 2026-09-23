@@ -244,6 +244,7 @@ the maximum re-export on restore. Recovery guidance:
 | `python3 scripts/test_restore_readiness.py` | Unit tests, synthetic fixtures | 49 cases. Linux CI is authoritative; Windows host skips openssl pipeline and cannot assert Unix 0600 / blocked egress |
 | `restore-drill-01-procedure.yml` run `35883781803` on merge `29bbbdb0` of #94 | **Executed** on a GitHub-hosted runner | **FAIL** at restore auth: `invalid command \\restrict`. Dump-client was floating `postgres:16-alpine` (`pg_dump` emits `\\restrict`); restore-client was the older `psql` inside `postgis/postgis:16-3.4`. Commands were not stripped. |
 | `restore-drill-01-procedure.yml` run `35887774967` on `0431dfd9` | **Executed** on a GitHub-hosted runner | Restrict accepted. Restore-client `psql` 16.10 (`postgres:16.10`); dump-client parking 16.4; target-server 16.4 (`postgis/postgis:16-3.4`); PostGIS 3.4.3. Auth/gateway/user parity PASS. **FAIL** row-count parity parking: dump COPY of `spatial_ref_sys` / `tiger.pagc_*` was 0 rows; `CREATE EXTENSION` reseeded 8500 / 835 / 2938 / 4354. Application tables were not the mismatch. SQL was not stripped. |
+| `restore-drill-01-procedure.yml` run `35888589173` on `0e49d740` | **Executed** on a GitHub-hosted runner | **PASS.** Restore-client `psql` 16.10; auth dump-client 16.10 with `\\restrict` accepted (not stripped); parking dump-client 16.4; target-server 16.4; PostGIS 3.4.3. All 10 DBs application-table parity PASS. Parking `extensionCatalogsExcluded` records the reseeded catalogs. Erasure replay: 1 ACTIVE before, 0 after. Bundled-ledger-only cutoff is BLOCKED. Outbox inventory recorded without publishers. Evidence: `agent-tools/parkio-backup-restore-readiness-01/20260923T162700Z/ci-35888589173/`. |
 | `bash -n` on runbook blocks | **Syntax check only.** Nothing is executed | OK |
 
 What the CI execution covers. All data is synthetic; no application service, sender,
@@ -259,7 +260,8 @@ scheduler, relay or notification runs.
    - a tampered stamp gives exit 1;
    - the bundled ledger alone with cutoff L gives exit 3 BLOCKED.
 6. Restore of S with the erasure set through L. The following are asserted:
-   - all 10 DBs pass row-count parity;
+   - all 10 DBs pass application-table row-count parity (PostGIS catalogs
+     reseeded by `CREATE EXTENSION` are recorded, not treated as app-data mismatches);
    - Flyway heads match;
    - PostGIS is present and a spatial query works;
    - the account erased after S was ACTIVE before replay and is not ACTIVE after it;
