@@ -104,7 +104,6 @@ def unlocked_select_with_client_clock():
 
 
 LOCKED_SNAPSHOT_C = """
-BEGIN;
 LOCK TABLE erased_user_tombstones IN SHARE MODE;
 SELECT json_build_object(
     'visibilityProtocol', 'table-share-lock',
@@ -117,14 +116,25 @@ SELECT json_build_object(
         FROM erased_user_tombstones
     ), '[]'::json)
 );
-COMMIT;
 """
 
 
 def locked_snapshot():
     """SHARE-lock the table, read it, watermark with lock-held clock_timestamp()."""
-    raw = psql_one(LOCKED_SNAPSHOT_C)
-    line = raw.splitlines()[-1] if raw else ""
+    cmd = _psql_base() + ["--single-transaction", "-t", "-A", "-c", LOCKED_SNAPSHOT_C]
+    try:
+        result = subprocess.run(
+            cmd, check=False, capture_output=True, text=True, timeout=60
+        )
+    except (OSError, subprocess.TimeoutExpired) as exc:
+        raise PostgresError(f"locked snapshot failed: {type(exc).__name__}") from exc
+    if result.returncode != 0:
+        raise PostgresError("locked snapshot rejected")
+    line = ""
+    for candidate in reversed(result.stdout.splitlines()):
+        if candidate.strip().startswith("{"):
+            line = candidate.strip()
+            break
     try:
         body = json.loads(line)
     except ValueError as exc:
