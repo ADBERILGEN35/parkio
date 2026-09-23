@@ -1,5 +1,13 @@
 # Exact HIGH/CRITICAL finding ledger
 
+## Final remediation result
+
+This document retains the prior builder's complete HIGH/CRITICAL ledger below. It is historical evidence, not the final scan. `HIGH-CRITICAL-DELTA.csv` maps all 63 prior CRITICAL/HIGH records to the final installed builder: 3 CRITICAL and 56 HIGH are fixed; 4 HIGH remain in Corepack pnpm 10.34.5's bundled dependencies. `FINAL-RESIDUAL-ALL.csv` lists every final finding, including exact installed version, CVE, scanner fixed version and package path. The final builder scan is **0 CRITICAL / 4 HIGH / 2 MEDIUM / 1 LOW / 0 UNKNOWN**; the final nginx runtime is zero at every severity. All seven final records have a scanner fixed version. The reason each cannot safely be advanced in this web-only change is documented in `RELEASE-PACKAGE.md`.
+
+The esbuild Go binary finding maps to `apps/web → vite@6.4.3 → esbuild@0.25.9 → @esbuild/linux-x64@0.25.9` in the prior image. Trivy's `gobinary` target was the executed pnpm-store binary (`root/.local/share/pnpm/store/v3/files/e8/fe5565d348ec52426c93bd74e516659b5302081e641dd5859c986f5824bbc5429066d8efce0bb2542988388e01429e19023365b102604e517eea4ff725891b-exec`); Go stdlib records lack `PkgPath`, so this target supplies the binary path. The final builder installs esbuild 0.27.4 compiled with Go 1.25.7; no Go CRITICAL/HIGH record remains.
+
+## Prior builder baseline and base-refresh evidence
+
 All rows come from the **actual installed builder images** in `evidence/baseline-builder.json.gz` and `evidence/candidate-builder.json.gz`, scanned with Trivy 0.74.0 and one DB snapshot. A fixed version is Trivy metadata, not proof that the package can be updated independently within this web-only change. Repeated CVEs on separate packages or package copies are separate scanner records.
 
 ## Baseline Debian OS findings
