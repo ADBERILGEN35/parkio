@@ -258,7 +258,9 @@ public class JdbcWaitlistInterestRepository implements WaitlistInterestRepositor
 
     @Override
     public Optional<WaitlistInterest> findById(UUID id) {
-        return queryOne("SELECT * FROM waitlist_interest WHERE id = ?", id.toString());
+        // Bind UUID as UUID. Passing id.toString() makes PostgreSQL raise
+        // "operator does not exist: uuid = character varying" (BadSqlGrammarException).
+        return queryOne("SELECT * FROM waitlist_interest WHERE id = ?", id);
     }
 
     @Override
@@ -280,7 +282,7 @@ public class JdbcWaitlistInterestRepository implements WaitlistInterestRepositor
         return count == null ? 0L : count;
     }
 
-    private Optional<WaitlistInterest> queryOne(String sql, String arg) {
+    private Optional<WaitlistInterest> queryOne(String sql, Object arg) {
         List<WaitlistInterest> rows = jdbcTemplate.query(sql, (rs, rowNum) -> mapRow(rs), arg);
         return rows.stream().findFirst();
     }

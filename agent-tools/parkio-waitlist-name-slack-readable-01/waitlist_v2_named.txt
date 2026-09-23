@@ -1,6 +1,7 @@
-*🎉 Yeni bekleme listesi kaydı onaylandı*
+🎉 Yeni bekleme listesi kaydı onaylandı
 Ad soyad: Ayşe Yılmaz
+Bugün onaylanan: 2 kişi
+Toplam onaylı: 17 kişi
 Onay zamanı: 2026-09-22 14:04 (Türkiye saati)
-Yönetim: https://app.parkio.dev/admin/waitlist
-Dışa aktarım özeti (Europe/Istanbul günü): onaylı toplam=17, bugün=2
-_Sayımlar dışa aktarım anındaki veritabanı anlık görüntüsüdür; Slack yeniden denemelerinde değişmez._
+Bekleme listesini aç → https://app.parkio.dev/admin/waitlist
+Sayımlar: 2026-09-22 14:04 (Türkiye saati) itibarıyla

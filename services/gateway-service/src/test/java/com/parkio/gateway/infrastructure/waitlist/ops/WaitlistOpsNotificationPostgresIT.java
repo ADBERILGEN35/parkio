@@ -7,6 +7,7 @@ import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.Mockito.doAnswer;
 import static org.mockito.Mockito.when;
 
+import com.fasterxml.jackson.databind.ObjectMapper;
 import com.parkio.gateway.application.waitlist.SubmitWaitlistCommand;
 import com.parkio.gateway.application.waitlist.WaitlistApplicationService;
 import com.parkio.gateway.application.waitlist.WaitlistEmailSender;
@@ -22,6 +23,7 @@ import java.nio.file.Path;
 import java.sql.Timestamp;
 import java.time.Instant;
 import java.time.temporal.ChronoUnit;
+import java.util.Map;
 import java.util.UUID;
 import java.util.concurrent.atomic.AtomicReference;
 import org.junit.jupiter.api.BeforeEach;
@@ -162,6 +164,37 @@ class WaitlistOpsNotificationPostgresIT {
         assertThat(exporter.exportDue().exported()).isEqualTo(1);
         assertThat(jdbcTemplate.queryForObject(
                 "SELECT status FROM waitlist_ops_notification_outbox", String.class)).isEqualTo("EXPORTED");
+    }
+
+    @Test
+    void namedConfirmationExportsAllowlistedFullNameOnPostgres() throws Exception {
+        token.set(null);
+        service.submit(new SubmitWaitlistCommand(
+                "pg.named@example.test",
+                Instant.now(),
+                "Ayşe Yılmaz",
+                null,
+                null,
+                "parkio.dev-landing",
+                "tr",
+                "198.51.100.40",
+                null)).block();
+        service.confirm(token.get()).block();
+        assertThat(status()).isEqualTo("CONFIRMED");
+        assertThat(exporter.exportDue().exported()).isEqualTo(1);
+
+        Path file;
+        try (var files = Files.list(inbox)) {
+            file = files.filter(path -> path.getFileName().toString().endsWith(".json"))
+                    .findFirst()
+                    .orElseThrow();
+        }
+        @SuppressWarnings("unchecked")
+        Map<String, Object> envelope = new ObjectMapper().readValue(Files.readString(file), Map.class);
+        assertThat(envelope.get("contractVersion")).isEqualTo(2);
+        assertThat(envelope.get("fullName")).isEqualTo("Ayşe Yılmaz");
+        assertThat(envelope.get("eventId")).isNotEqualTo(interestId().toString());
+        assertThat(Files.readString(file)).doesNotContain("pg.named@example.test", "198.51.100.40");
     }
 
     @Test
