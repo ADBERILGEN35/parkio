@@ -1,0 +1,14 @@
+{
+  "dumpClientVersion": "16.10",
+  "dumpEmitsRestrict": true,
+  "dumpServerVersion": "16.10",
+  "extensions": [],
+  "postgisAvailableVersion": "3.4.3",
+  "reasons": [],
+  "restoreClientVersion": "16.10",
+  "restrictCommandsInDump": true,
+  "schemaVersion": 1,
+  "targetServerVersion": "16.4 (Debian 16.4-1.pgdg110+2)",
+  "tool": "restore-client-compat",
+  "verdict": "PASS"
+}

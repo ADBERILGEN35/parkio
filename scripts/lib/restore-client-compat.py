@@ -1,0 +1,140 @@
+#!/usr/bin/env python3
+"""Compatibility preflight for dump-client, restore-client, target-server, PostGIS.
+
+Does not rewrite dumps, strip \\restrict/\\unrestrict, or ignore SQL errors.
+Newer pg_dump (16.10+, 15.14+, 17.6+, 14.19+, 13.22+) emits those meta-commands;
+an older restore psql rejects them with "invalid command \\restrict".
+
+Usage:
+  restore-client-compat.py --dump-profile FILE \\
+    --restore-client-version "psql (PostgreSQL) 16.10" \\
+    --target-server-version 16.4 \\
+    [--postgis-available-version 3.4.2]
+
+Exit: 0 = PASS, 1 = FAIL, 2 = usage.
+"""
+import argparse
+import json
+import re
+import sys
+
+# First PostgreSQL minor that emits \\restrict / \\unrestrict (14 Aug 2025).
+RESTRICT_MIN = {
+    13: (13, 22),
+    14: (14, 19),
+    15: (15, 14),
+    16: (16, 10),
+    17: (17, 6),
+}
+
+
+def version_tuple(value):
+    parts = [int(p) for p in re.findall(r"\d+", value or "")]
+    return tuple(parts) if parts else ()
+
+
+def parse_psql_version(text):
+    match = re.search(r"(\d+(?:\.\d+)+)", text or "")
+    return match.group(1) if match else ""
+
+
+def restrict_min_for(version):
+    key = version_tuple(version)
+    if not key:
+        return None
+    major = key[0]
+    if major >= 18:
+        return (major, 0)
+    return RESTRICT_MIN.get(major)
+
+
+def dump_emits_restrict(pg_dump_version, restrict_commands):
+    if restrict_commands:
+        return True
+    minimum = restrict_min_for(pg_dump_version)
+    key = version_tuple(pg_dump_version)
+    return bool(minimum and key and key >= minimum)
+
+
+def client_understands_restrict(restore_version):
+    minimum = restrict_min_for(restore_version)
+    key = version_tuple(restore_version)
+    return bool(minimum and key and key >= minimum)
+
+
+def check(profile, restore_client_version, target_server_version, postgis_available_version=""):
+    dump_version = profile.get("pgDumpVersion") or ""
+    dump_server = profile.get("serverVersion") or ""
+    restore_version = parse_psql_version(restore_client_version)
+    restrict = dump_emits_restrict(dump_version, bool(profile.get("restrictCommands")))
+    reasons = []
+
+    if not dump_version:
+        reasons.append("dump profile is missing pgDumpVersion")
+    if not restore_version:
+        reasons.append("restore client version could not be parsed")
+    if not target_server_version:
+        reasons.append("target server version is empty")
+
+    dump_major = version_tuple(dump_version)[:1]
+    restore_major = version_tuple(restore_version)[:1]
+    server_major = version_tuple(target_server_version)[:1]
+    dump_server_major = version_tuple(dump_server)[:1]
+
+    if dump_major and restore_major and restore_major[0] < dump_major[0]:
+        reasons.append(
+            f"restore-client {restore_version} is an older major than dump-client {dump_version}"
+        )
+    if dump_server_major and server_major and dump_server_major != server_major:
+        reasons.append(
+            f"target-server {target_server_version} major does not match dump-server {dump_server}"
+        )
+    if restrict and not client_understands_restrict(restore_version):
+        minimum = restrict_min_for(dump_version) or restrict_min_for(restore_version)
+        reasons.append(
+            "dump contains or is from a pg_dump that emits \\restrict/\\unrestrict; "
+            f"restore-client {restore_version or restore_client_version} is older than "
+            f"{'.'.join(map(str, minimum)) if minimum else 'the restrict-capable release'}"
+        )
+    if "postgis" in (profile.get("extensions") or []) and not postgis_available_version:
+        reasons.append("dump requires postgis but the target image did not report it available")
+
+    report = {
+        "tool": "restore-client-compat",
+        "schemaVersion": 1,
+        "verdict": "FAIL" if reasons else "PASS",
+        "dumpClientVersion": dump_version,
+        "dumpServerVersion": dump_server,
+        "restoreClientVersion": restore_version or restore_client_version,
+        "targetServerVersion": target_server_version,
+        "postgisAvailableVersion": postgis_available_version or None,
+        "restrictCommandsInDump": bool(profile.get("restrictCommands")),
+        "dumpEmitsRestrict": restrict,
+        "extensions": list(profile.get("extensions") or []),
+        "reasons": reasons,
+    }
+    return report
+
+
+def main(argv):
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("--dump-profile", required=True)
+    parser.add_argument("--restore-client-version", required=True)
+    parser.add_argument("--target-server-version", required=True)
+    parser.add_argument("--postgis-available-version", default="")
+    args = parser.parse_args(argv)
+    with open(args.dump_profile, encoding="utf-8") as handle:
+        profile = json.load(handle)
+    report = check(
+        profile,
+        args.restore_client_version,
+        args.target_server_version,
+        args.postgis_available_version,
+    )
+    json.dump(report, sys.stdout, indent=2, sort_keys=True)
+    sys.stdout.write("\n")
+    return 0 if report["verdict"] == "PASS" else 1
+
+
+if __name__ == "__main__":
+    sys.exit(main(sys.argv[1:]))

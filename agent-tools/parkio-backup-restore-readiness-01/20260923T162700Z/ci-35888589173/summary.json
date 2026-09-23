@@ -1,0 +1,19 @@
+{
+  "tool": "restore-drill-01",
+  "schemaVersion": 1,
+  "verdict": "PASS",
+  "reason": "restore, parity and erasure replay passed",
+  "elapsedSeconds": 12,
+  "parity": {
+    "ai-validation": "PASS",
+    "analytics": "PASS",
+    "auth": "PASS",
+    "gamification": "PASS",
+    "gateway": "PASS",
+    "media": "PASS",
+    "moderation": "PASS",
+    "notification": "PASS",
+    "parking": "PASS",
+    "user": "PASS"
+  }
+}

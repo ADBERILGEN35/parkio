@@ -1,0 +1,52 @@
+{
+  "tool": "restore-drill-isolation-preflight",
+  "schemaVersion": 1,
+  "verdict": "PASS",
+  "checks": [
+    {
+      "id": "drill-id",
+      "status": "PASS",
+      "detail": "PARKIO_DRILL_ID set"
+    },
+    {
+      "id": "outbound-credentials",
+      "status": "PASS",
+      "detail": "all absent or dummy"
+    },
+    {
+      "id": "credential-shapes",
+      "status": "PASS",
+      "detail": "none found"
+    },
+    {
+      "id": "senders-and-pollers-off",
+      "status": "PASS",
+      "detail": "no sender/poller flag enabled"
+    },
+    {
+      "id": "inert-providers",
+      "status": "PASS",
+      "detail": "email=logging/unset, push=noop/unset"
+    },
+    {
+      "id": "erasure-ledger-required",
+      "status": "PASS",
+      "detail": "restore fail-closes without ledger"
+    },
+    {
+      "id": "host",
+      "status": "PASS",
+      "detail": "not a known production host"
+    },
+    {
+      "id": "containers",
+      "status": "PASS",
+      "detail": "1 database/object-store containers only"
+    },
+    {
+      "id": "egress-blocked",
+      "status": "WARN",
+      "detail": "not probed"
+    }
+  ]
+}

@@ -3,6 +3,8 @@
 **Docker volumes are not backups.** This document records durability posture per
 datastore. Detailed procedures: [backup-runbook.md](backup-runbook.md),
 [restore-runbook.md](restore-runbook.md).
+Current evidence, gaps and the first real-stamp drill:
+[backup-restore-readiness.md](backup-restore-readiness.md).
 
 **Hosted-beta:** logical `pg_dump` for **10** service databases (see matrix below).
 Logical `pg_dump` is **not** managed provider PITR. Topology is decided in

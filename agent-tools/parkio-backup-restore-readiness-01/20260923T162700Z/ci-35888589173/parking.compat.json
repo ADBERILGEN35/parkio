@@ -1,0 +1,19 @@
+{
+  "dumpClientVersion": "16.4",
+  "dumpEmitsRestrict": false,
+  "dumpServerVersion": "16.4",
+  "extensions": [
+    "fuzzystrmatch",
+    "postgis",
+    "postgis_tiger_geocoder",
+    "postgis_topology"
+  ],
+  "postgisAvailableVersion": "3.4.3",
+  "reasons": [],
+  "restoreClientVersion": "16.10",
+  "restrictCommandsInDump": false,
+  "schemaVersion": 1,
+  "targetServerVersion": "16.4 (Debian 16.4-1.pgdg110+2)",
+  "tool": "restore-client-compat",
+  "verdict": "PASS"
+}

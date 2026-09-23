@@ -1,0 +1,117 @@
+{
+  "tool": "restore-stamp-preflight",
+  "schemaVersion": 1,
+  "verdict": "PASS",
+  "summary": {
+    "stamp": "2026-09-23T16-26-05Z",
+    "gitSha": "8f3db34b594afda6e3beea2fcc799f9c98f9d46d",
+    "ageHours": 0.01,
+    "dumpBytes": {
+      "auth": 4816,
+      "gateway": 2352,
+      "user": 5296,
+      "parking": 21488,
+      "media": 3040,
+      "gamification": 3472,
+      "notification": 2752,
+      "moderation": 3008,
+      "analytics": 2096,
+      "ai-validation": 2880
+    },
+    "dumpBytesTotal": 51200,
+    "minioObjectCount": 1,
+    "erasureTombstones": 2
+  },
+  "checks": [
+    {
+      "id": "complete-marker",
+      "status": "PASS",
+      "detail": "COMPLETE binds SHA256SUMS"
+    },
+    {
+      "id": "sha256sums",
+      "status": "PASS",
+      "detail": "25 files verified"
+    },
+    {
+      "id": "manifest",
+      "status": "PASS",
+      "detail": "schema v3, no failures"
+    },
+    {
+      "id": "manifest-offsite-flag",
+      "status": "WARN",
+      "detail": "stamp manifest says offsite.uploaded=false; known stale-copy defect"
+    },
+    {
+      "id": "dump:auth",
+      "status": "PASS",
+      "detail": "encrypted dump present"
+    },
+    {
+      "id": "dump:gateway",
+      "status": "PASS",
+      "detail": "encrypted dump present"
+    },
+    {
+      "id": "dump:user",
+      "status": "PASS",
+      "detail": "encrypted dump present"
+    },
+    {
+      "id": "dump:parking",
+      "status": "PASS",
+      "detail": "encrypted dump present"
+    },
+    {
+      "id": "dump:media",
+      "status": "PASS",
+      "detail": "encrypted dump present"
+    },
+    {
+      "id": "dump:gamification",
+      "status": "PASS",
+      "detail": "encrypted dump present"
+    },
+    {
+      "id": "dump:notification",
+      "status": "PASS",
+      "detail": "encrypted dump present"
+    },
+    {
+      "id": "dump:moderation",
+      "status": "PASS",
+      "detail": "encrypted dump present"
+    },
+    {
+      "id": "dump:analytics",
+      "status": "PASS",
+      "detail": "encrypted dump present"
+    },
+    {
+      "id": "dump:ai-validation",
+      "status": "PASS",
+      "detail": "encrypted dump present"
+    },
+    {
+      "id": "no-plaintext",
+      "status": "PASS",
+      "detail": "no plaintext dumps or object tree"
+    },
+    {
+      "id": "minio-artifact",
+      "status": "PASS",
+      "detail": "sealed object archive"
+    },
+    {
+      "id": "erasure-ledger",
+      "status": "PASS",
+      "detail": "2 tombstones (identifiers not printed)"
+    },
+    {
+      "id": "stamp-age",
+      "status": "PASS",
+      "detail": "age 0.01h"
+    }
+  ]
+}
