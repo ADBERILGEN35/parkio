@@ -568,6 +568,14 @@ grep -q '^BACKUP_PRODUCTION_MODE=1$' docker/.env.invite-production.example \
 grep -q 'parkio_export_erasure_tombstones' scripts/backup-databases.sh \
   && ok "backup exports the PRIV-001 erasure tombstone ledger" \
   || bad "backup must export the PRIV-001 erasure tombstone ledger"
+if grep -E 'parkio_export_erasure_tombstones .*\| *true' scripts/backup-databases.sh; then
+  bad "production ledger export must not be ignored with || true"
+else
+  ok "ledger export failures are counted"
+fi
+grep -q 'parkio_backup_allow_complete' scripts/backup-hosted-beta.sh \
+  && ok "orchestrator refuses COMPLETE without a valid ledger and dumps" \
+  || bad "orchestrator must gate COMPLETE on parkio_backup_allow_complete"
 grep -q 'parkio_replay_erasure_tombstones' scripts/restore-drill.sh \
   && ok "restore replays the erasure tombstone ledger" \
   || bad "restore must replay the erasure tombstone ledger"
