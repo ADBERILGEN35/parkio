@@ -57,7 +57,11 @@ ENV VITE_API_BASE_URL=$VITE_API_BASE_URL \
 # RUN instruction never expands them into BuildKit's progress log.
 RUN node apps/web/scripts/validate-build-env.mjs
 
-RUN corepack pnpm@11.18.0 --filter @parkio/web build
+# The immediately preceding layer completed a frozen install for this graph.
+# pnpm 11's implicit pre-run check otherwise attempts an unfiltered reinstall
+# against absent mobile manifests and rejects their unrelated lockfile peers.
+RUN corepack pnpm@11.18.0 --config.verify-deps-before-run=false \
+    --filter @parkio/web build
 
 # Post-build gate: assert the emitted artifact itself carries non-empty required values and
 # was built for the intended app env. This catches build-arg mis-wiring that the pre-build

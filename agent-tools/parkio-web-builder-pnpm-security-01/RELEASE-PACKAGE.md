@@ -66,7 +66,12 @@ builder and uses pnpm's frozen filtered install for `@parkio/web...`.
 Developer and CI installs retain their former hoisted setting. No package is
 removed after installation or before scanning. The next CI scan must verify
 that the actual install scope excludes the unrelated binary and introduces
-no new findings.
+no new findings. The isolated filtered install fetched 523 packages, versus
+1,410 under the hoisted all-workspace install. pnpm 11 then tried an implicit
+unfiltered reinstall before `pnpm build`, which failed on an absent mobile
+peer snapshot. The Dockerfile disables that redundant pre-run reinstall for
+this build command only. The preceding explicit frozen install remains
+mandatory and unchanged; no script restriction or scan gate is relaxed.
 
 ## CI acceptance and artifacts
 
