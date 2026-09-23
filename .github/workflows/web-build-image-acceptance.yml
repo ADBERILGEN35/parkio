@@ -2,10 +2,11 @@ name: Web build image acceptance
 
 on:
   pull_request:
-    branches: [api]
+    branches: [api, fix/web-build-image-security]
     paths:
       - .github/workflows/web-build-image-acceptance.yml
       - agent-tools/parkio-web-build-image-security-01/**
+      - agent-tools/parkio-web-builder-pnpm-security-01/**
       - frontend/**
       - docker/web-hosted-beta.release-bake.env
 
@@ -18,7 +19,7 @@ concurrency:
 
 jobs:
   web-image:
-    if: github.event.pull_request.number == 87 && github.event.pull_request.head.ref == 'fix/web-build-image-security'
+    if: github.event.pull_request.number == 87 || github.event.pull_request.number == 91
     runs-on: ubuntu-latest
     timeout-minutes: 45
     steps:

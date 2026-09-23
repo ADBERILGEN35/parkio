@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# PR #87 only: build and test the exact image on an isolated Actions runner.
+# Build and test the exact PR image on an isolated Actions runner.
 set -euo pipefail
 
 source_sha="$(git rev-parse HEAD)"
@@ -16,6 +16,10 @@ VITE_MAPTILER_KEY=ci-web-build-security-synthetic
 created="$(git show -s --format=%cI HEAD)"
 builder_tag="parkio-web-build-security-01:builder-${source_sha:0:12}"
 runtime_tag="parkio-web-build-security-01:runtime-${source_sha:0:12}"
+baseline_sha=94745782fd7e5b9d7a331f8318d8d1d84bf18b91
+baseline_dir="${RUNNER_TEMP}/web-build-security-01-baseline-source"
+baseline_builder_tag="parkio-web-build-security-01:baseline-builder-${baseline_sha:0:12}"
+baseline_runtime_tag="parkio-web-build-security-01:baseline-runtime-${baseline_sha:0:12}"
 build_args=(
   --build-arg "VITE_API_BASE_URL=$VITE_API_BASE_URL"
   --build-arg "VITE_APP_ENV=$VITE_APP_ENV"
@@ -61,13 +65,28 @@ docker build --platform linux/amd64 --target runtime -f frontend/apps/web/Docker
   -t "$runtime_tag" "${build_args[@]}" \
   --build-arg "IMAGE_REVISION=$source_sha" --build-arg "IMAGE_CREATED=$created" .
 
+# Use the reviewed PR #87 head as the installed-image baseline in this runner.
+git worktree add --detach "$baseline_dir" "$baseline_sha"
+baseline_created="$(git show -s --format=%cI "$baseline_sha")"
+docker build --platform linux/amd64 --target build -f "$baseline_dir/frontend/apps/web/Dockerfile" \
+  -t "$baseline_builder_tag" "${build_args[@]}" "$baseline_dir"
+docker build --platform linux/amd64 --target runtime -f "$baseline_dir/frontend/apps/web/Dockerfile" \
+  -t "$baseline_runtime_tag" "${build_args[@]}" \
+  --build-arg "IMAGE_REVISION=$baseline_sha" --build-arg "IMAGE_CREATED=$baseline_created" "$baseline_dir"
+git worktree remove "$baseline_dir"
+
 builder_id="$(docker image inspect --format '{{.Id}}' "$builder_tag")"
 runtime_id="$(docker image inspect --format '{{.Id}}' "$runtime_tag")"
+baseline_builder_id="$(docker image inspect --format '{{.Id}}' "$baseline_builder_tag")"
+baseline_runtime_id="$(docker image inspect --format '{{.Id}}' "$baseline_runtime_tag")"
 test "$(docker image inspect --format '{{.Os}}/{{.Architecture}}' "$runtime_id")" = linux/amd64
 test "$(docker image inspect --format '{{index .Config.Labels "org.opencontainers.image.revision"}}' "$runtime_id")" = "$source_sha"
 docker image inspect "$builder_id" > "$out/builder-image-inspect.json"
 docker image inspect "$runtime_id" > "$out/runtime-image-inspect.json"
-printf 'builder_image_id=%s\nruntime_image_id=%s\n' "$builder_id" "$runtime_id" | tee "$out/image-identities.txt"
+docker image inspect "$baseline_builder_id" > "$out/baseline-builder-image-inspect.json"
+docker image inspect "$baseline_runtime_id" > "$out/baseline-runtime-image-inspect.json"
+printf 'source_sha=%s\nbuilder_image_id=%s\nruntime_image_id=%s\nbaseline_source_sha=%s\nbaseline_builder_image_id=%s\nbaseline_runtime_image_id=%s\n' \
+  "$source_sha" "$builder_id" "$runtime_id" "$baseline_sha" "$baseline_builder_id" "$baseline_runtime_id" | tee "$out/image-identities.txt"
 
 # One fresh DB snapshot for both installed-stage scans. No ignorefile, severity
 # filter, ignore-unfixed option, or package removal is used.
@@ -83,6 +102,12 @@ cp "$trivy_cache/db/metadata.json" "$out/trivy-db-metadata.json"
   --format json --output /evidence/ci-builder-scan.json "$builder_tag"
 "${trivy[@]}" image --skip-db-update --scanners vuln --list-all-pkgs \
   --format json --output /evidence/ci-runtime-scan.json "$runtime_tag"
+"${trivy[@]}" image --skip-db-update --scanners vuln --list-all-pkgs \
+  --format json --output /evidence/ci-baseline-builder-scan.json "$baseline_builder_tag"
+"${trivy[@]}" image --skip-db-update --scanners vuln --list-all-pkgs \
+  --format json --output /evidence/ci-baseline-runtime-scan.json "$baseline_runtime_tag"
+docker save "$runtime_tag" | gzip -1 > "$out/tested-runtime-image.tar.gz"
+sha256sum "$out/tested-runtime-image.tar.gz" > "$out/tested-runtime-image.tar.gz.sha256"
 python3 agent-tools/parkio-web-build-image-security-01/summarize-ci-scans.py "$out"
 
 container="parkio-web-build-security-01-ci-${GITHUB_RUN_ID:?}"
@@ -111,8 +136,6 @@ SMOKE_MOCK_EXTERNAL=1 node frontend/apps/web/scripts/smoke-image.mjs \
   --image "$runtime_id" --app-env "$VITE_APP_ENV" --port 18208 \
   | tee "$out/browser-smoke.txt"
 
-docker save "$runtime_tag" | gzip -1 > "$out/tested-runtime-image.tar.gz"
-sha256sum "$out/tested-runtime-image.tar.gz" > "$out/tested-runtime-image.tar.gz.sha256"
 printf 'source=%s\nbuilder=%s\nruntime=%s\nhealth=healthy\nhttp=PASS\nbrowser=PASS\n' \
   "$source_sha" "$builder_id" "$runtime_id" | tee "$out/acceptance-result.txt"
 if [ -n "${GITHUB_STEP_SUMMARY:-}" ]; then

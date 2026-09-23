@@ -48,9 +48,9 @@ signal forwarding, and core-flow wiring are documented in
 
 ## Prerequisites
 
-- Node.js ≥ 20
-- pnpm 9.15.0 via Corepack (`corepack enable` recommended; `corepack pnpm -v`
-  should print `9.15.0`)
+- Node.js ≥ 22.13
+- pnpm 11.18.0 via Corepack (`corepack enable` recommended; `corepack pnpm -v`
+  should print `11.18.0`)
 - Parkio backend running locally (gateway on port **8080**)
 
 ## Install
@@ -171,7 +171,7 @@ Prefer the project-pinned pnpm through Corepack:
 corepack pnpm install --frozen-lockfile
 ```
 
-A global pnpm 11 install can leave a mismatched Windows `node_modules` layout for
+A global pnpm install different from the project pin can leave a mismatched Windows `node_modules` layout for
 optional native packages. Symptoms include Jest failing before tests execute with
 `string-length` / `charRegex is not a function`, Vitest/Rollup failing to load
 `@rollup/rollup-win32-x64-msvc`, or ESLint failing to load the `unrs-resolver`

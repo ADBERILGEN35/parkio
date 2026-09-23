@@ -480,6 +480,12 @@ jobs:
           echo "digest=${version_digest}" >> "$GITHUB_OUTPUT"
           echo "ref=${IMAGE}@${version_digest}" >> "$GITHUB_OUTPUT"
 
+      - name: Set up supported web build Node
+        if: ${{ matrix.service == 'web' }}
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+
       - name: Install web image-smoke dependencies
         if: ${{ matrix.service == 'web' }}
         working-directory: frontend

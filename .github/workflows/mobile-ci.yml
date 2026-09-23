@@ -51,10 +51,10 @@ jobs:
         with:
           package_json_file: frontend/package.json
 
-      - name: Set up Node.js 20
+      - name: Set up Node.js 22
         uses: actions/setup-node@v4
         with:
-          node-version: "20"
+          node-version: "22"
           cache: pnpm
           cache-dependency-path: frontend/pnpm-lock.yaml
 
@@ -102,10 +102,10 @@ jobs:
         with:
           package_json_file: frontend/package.json
 
-      - name: Set up Node.js 20
+      - name: Set up Node.js 22
         uses: actions/setup-node@v4
         with:
-          node-version: "20"
+          node-version: "22"
           cache: pnpm
           cache-dependency-path: frontend/pnpm-lock.yaml
 
@@ -119,7 +119,7 @@ jobs:
         run: pnpm --filter @parkio/mobile lint
 
       - name: Unit tests
-        run: pnpm --filter @parkio/mobile test -- --ci
+        run: pnpm --filter @parkio/mobile exec jest --ci
 
       - name: Expo doctor
         run: pnpm --filter @parkio/mobile exec expo-doctor
