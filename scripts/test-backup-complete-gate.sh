@@ -320,7 +320,7 @@ run_hosted() {
   export OFFSITE_LOG="${case_dir}/mc.log"
   unset BACKUP_SKIP_MC_UPLOAD BACKUP_MC_URL
   unset PARKIO_ENV_FILE
-  "${ROOT}/scripts/backup-hosted-beta.sh"
+  bash "${ROOT}/scripts/backup-hosted-beta.sh"
 }
 
 run_db_only() {
@@ -332,7 +332,7 @@ run_db_only() {
   export OFFSITE_LOG="${case_dir}/mc.log"
   unset BACKUP_DEST_DIR BACKUP_SKIP_MC_UPLOAD BACKUP_MC_URL
   unset PARKIO_ENV_FILE
-  "${ROOT}/scripts/backup-databases.sh"
+  bash "${ROOT}/scripts/backup-databases.sh"
 }
 
 # --- trap / stale COMPLETE marker ---
@@ -562,7 +562,7 @@ export PARKIO_PROMETHEUS_TEXTFILE_DIR="${case_int}/textfile"
 export BACKUP_MC_DEST="${case_int}/offsite/parkio-backups"
 export OFFSITE_LOG="${case_int}/mc.log"
 unset BACKUP_SKIP_MC_UPLOAD BACKUP_MC_URL PARKIO_ENV_FILE
-"${ROOT}/scripts/backup-hosted-beta.sh" > "${case_int}/run.log" 2>&1 &
+bash "${ROOT}/scripts/backup-hosted-beta.sh" > "${case_int}/run.log" 2>&1 &
 int_pid=$!
 slept=0
 while [ "${slept}" -lt 30 ]; do
