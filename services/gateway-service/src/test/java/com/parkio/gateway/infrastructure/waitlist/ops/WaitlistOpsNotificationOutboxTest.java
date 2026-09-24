@@ -19,9 +19,12 @@ import com.parkio.gateway.application.waitlist.WaitlistRateLimiter;
 import com.parkio.gateway.application.waitlist.WaitlistTokenException;
 import com.parkio.gateway.infrastructure.security.JwtTokenValidator;
 import io.micrometer.core.instrument.MeterRegistry;
+import java.io.IOException;
+import java.io.UncheckedIOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.time.Instant;
+import java.util.Comparator;
 import java.util.List;
 import java.util.Map;
 import java.util.UUID;
@@ -109,11 +112,9 @@ class WaitlistOpsNotificationOutboxTest {
     @BeforeEach
     void setUp() throws Exception {
         properties.setExportDir(inbox.toString());
-        try (Stream<Path> files = Files.list(inbox)) {
-            for (Path file : files.toList()) {
-                Files.delete(file);
-            }
-        }
+        properties.setExportPaused(false);
+        properties.setExportPauseFile("");
+        deleteInboxContents(inbox);
         when(rateLimiter.check(anyString(), anyString())).thenReturn(Mono.empty());
         doAnswer(invocation -> {
             verificationToken.set(invocation.getArgument(1));
@@ -514,8 +515,25 @@ class WaitlistOpsNotificationOutboxTest {
     private List<Path> inboxFiles() {
         try (Stream<Path> files = Files.list(inbox)) {
             return files.filter(p -> p.getFileName().toString().endsWith(".json")).toList();
-        } catch (java.io.IOException ex) {
+        } catch (IOException ex) {
             throw new IllegalStateException(ex);
+        }
+    }
+
+    private static void deleteInboxContents(Path dir) throws IOException {
+        if (!Files.isDirectory(dir)) {
+            return;
+        }
+        try (Stream<Path> walk = Files.walk(dir)) {
+            walk.sorted(Comparator.reverseOrder())
+                    .filter(path -> !path.equals(dir))
+                    .forEach(path -> {
+                        try {
+                            Files.deleteIfExists(path);
+                        } catch (IOException ex) {
+                            throw new UncheckedIOException(ex);
+                        }
+                    });
         }
     }
 }
