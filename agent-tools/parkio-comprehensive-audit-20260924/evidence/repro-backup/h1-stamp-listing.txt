@@ -1,0 +1,9 @@
+COMPLETE
+SHA256SUMS
+auth.sql.gz.enc
+backup-manifest.json
+erasure-tombstones.json
+gateway.sql.gz.enc
+minio-encryption.json
+minio.tar.gz.enc
+minio.tar.gz.enc.sha256

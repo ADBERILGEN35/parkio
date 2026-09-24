@@ -1,0 +1,9 @@
+IncompleteRead -> UNCAUGHT IncompleteRead
+BadStatusLine -> UNCAUGHT BadStatusLine
+LineTooLong -> UNCAUGHT LineTooLong
+activation_ready True
+poll {'processed': 1, 'enqueued': 1, 'suppressed': 0, 'rejected': 0, 'write_failures': 0, 'acked': 1, 'deferred': None}
+cycle 0 worker crashed: IncompleteRead
+cycle 2 worker crashed: IncompleteRead
+cycle 4 worker crashed: IncompleteRead
+sends 3 row {'status': 'in_flight', 'attempts': 0}

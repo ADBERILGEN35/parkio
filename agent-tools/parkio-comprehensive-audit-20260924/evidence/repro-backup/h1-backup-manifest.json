@@ -1,0 +1,46 @@
+{
+    "schemaVersion": 3,
+    "action": "backup",
+    "timestamp": "2026-09-24T07-09-50Z",
+    "gitSha": "HEAD\nunknown",
+    "operator": "unknown",
+    "envProfile": "<env>",
+    "deploymentProfile": "hosted-beta",
+    "destination": "$SCRATCH/ops/h1/backups/2026-09-24T07-09-50Z",
+    "databases": [
+        "auth",
+        "gateway",
+        "user",
+        "parking",
+        "media",
+        "gamification",
+        "notification",
+        "moderation",
+        "analytics",
+        "ai-validation"
+    ],
+    "minio": {
+        "bucket": "parkio-media",
+        "objectCount": 0,
+        "path": "$SCRATCH/ops/h1/backups/2026-09-24T07-09-50Z/minio",
+        "clientSideEncryption": true,
+        "artifact": "minio.tar.gz.enc",
+        "algorithm": "aes-256-cbc-pbkdf2"
+    },
+    "databasesOk": 10,
+    "databasesFailed": 0,
+    "minioOk": 0,
+    "retentionDays": 14,
+    "offsiteRetentionDays": 14,
+    "encryption": {
+        "enabled": true,
+        "algorithm": "aes-256-cbc-pbkdf2"
+    },
+    "offsite": {
+        "kind": "s3",
+        "uploaded": false
+    },
+    "checksums": {
+        "sha256sums": "SHA256SUMS"
+    }
+}
