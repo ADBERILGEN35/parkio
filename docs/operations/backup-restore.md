@@ -43,7 +43,7 @@ Public production remains **NO-GO** until remaining readiness blockers close.
 
 Dev/CI: optional `BACKUP_ENCRYPT_PASSPHRASE` for DB dumps.
 
-`BACKUP_PRODUCTION_MODE=1`: encryption **required** (fail-closed). MinIO mirror is not client-side encrypted; offsite SSE + TLS apply. See backup-runbook.
+`BACKUP_PRODUCTION_MODE=1`: encryption **required** (fail-closed). DB dumps and the MinIO archive are client-side sealed. A full production stamp is not `COMPLETE` unless every expected DB, a valid erasure ledger, MinIO capture/seal, and integrity succeed. See backup-runbook.
 
 ## Restore Order
 

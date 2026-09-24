@@ -55,6 +55,8 @@ MC_DEST="${BACKUP_MC_DEST:-}"
 STAMP="$(date -u +%Y-%m-%dT%H-%M-%SZ)"
 DEST_DIR="${BACKUP_DEST_DIR:-${BACKUP_DIR}/${STAMP}}"
 mkdir -p "${DEST_DIR}"
+PARKIO_BACKUP_FINALIZED=0
+trap 'parkio_backup_clear_unfinalized_complete' INT TERM EXIT
 
 # service:container:user:db  (defaults match docker/.env.example)
 # WP-06.2B: set PARKIO_PG_CONTAINER_PREFIX=<compose-project> for isolated stacks.
@@ -128,17 +130,40 @@ fi
 
 # Optional off-box upload. The hosted-beta orchestrator sets BACKUP_SKIP_MC_UPLOAD=1
 # and uploads AFTER MinIO mirror so object storage is included in the same stamp.
-if [ -z "${BACKUP_SKIP_MC_UPLOAD:-}" ] && [ "$(parkio_backup_offsite_kind)" != "none" ]; then
-  parkio_backup_write_stamp_integrity "${DEST_DIR}" "${STAMP}" \
-    && parkio_backup_offsite_upload "${DEST_DIR}" "${MC_DEST}" "${STAMP}" \
-    || { echo "ERROR: offsite upload failed" >&2; failures=$((failures + 1)); }
-elif [ -n "${BACKUP_SKIP_MC_UPLOAD:-}" ]; then
+# Standalone DB-only scope: dumps + valid ledger + integrity. No MinIO required.
+if [ -n "${BACKUP_SKIP_MC_UPLOAD:-}" ]; then
   echo "Offsite upload deferred to orchestrator (BACKUP_SKIP_MC_UPLOAD=1)."
+elif [ "${failures}" -eq 0 ] && parkio_backup_allow_complete "${DEST_DIR}" "${failures}"; then
+  if parkio_backup_write_stamp_integrity "${DEST_DIR}" "${STAMP}"; then
+    PARKIO_BACKUP_FINALIZED=1
+    if [ "$(parkio_backup_offsite_kind)" != "none" ]; then
+      if ! parkio_backup_offsite_upload "${DEST_DIR}" "${MC_DEST}" "${STAMP}"; then
+        echo "ERROR: offsite upload failed" >&2
+        failures=$((failures + 1))
+      fi
+    fi
+  else
+    echo "ERROR: stamp integrity/COMPLETE write failed." >&2
+    rm -f "${DEST_DIR}/COMPLETE"
+    failures=$((failures + 1))
+  fi
+else
+  echo "ERROR: DB-only stamp left incomplete (no COMPLETE, no offsite upload)." >&2
+  rm -f "${DEST_DIR}/COMPLETE"
+  if [ "${failures}" -eq 0 ]; then
+    failures=1
+  fi
 fi
 
-# Prune local backups older than the retention window.
-if [ -d "${BACKUP_DIR}" ]; then
-  find "${BACKUP_DIR}" -mindepth 1 -maxdepth 1 -type d -mtime "+${RETENTION_DAYS}" -exec rm -rf {} + 2>/dev/null || true
+# Prune only after a successful standalone complete run. The orchestrator
+# owns prune for full stamps (BACKUP_SKIP_MC_UPLOAD=1) so a later MinIO
+# failure cannot delete the last good backup.
+if [ -z "${BACKUP_SKIP_MC_UPLOAD:-}" ] && [ "${failures}" -eq 0 ]; then
+  parkio_backup_prune_expired_stamps "${BACKUP_DIR}" "${RETENTION_DAYS}"
+elif [ -n "${BACKUP_SKIP_MC_UPLOAD:-}" ]; then
+  echo "Local prune deferred to orchestrator (BACKUP_SKIP_MC_UPLOAD=1)."
+else
+  echo "Previous complete stamps were not pruned." >&2
 fi
 
 if [ "${failures}" -ne 0 ]; then
