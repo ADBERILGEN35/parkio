@@ -7,10 +7,10 @@
 **Decision:** **HOLD**. Production disabled. Keep draft. Do not open another
 integration PR. Do not merge or close #101/#102/#103/#104.
 
-Production integration (preflight, pause file, NR guards, deploy scope,
-remote storage) is recorded in
-`PR104-PRODUCTION-INTEGRATION-DECISION.md`. Isolated implementation is
-complete. Production remains HOLD.
+Production integration and Phase A/B completion are recorded in
+`PR104-COMPLETION-DECISION.md`. Isolated implementation plus the
+production-shaped systemd adapter and exporter handshake are present.
+Production remains HOLD. No merge.
 
 Preparation worktrees and PRs are unchanged:
 #101 `2f04d01636ab23f2e0881bb2f8018fe3eb0ed815`,

@@ -31,13 +31,14 @@ CATALOG = {
         "note": "No compose service exists in docker-compose.slack-biz.yml; systemd only in the Civo unit.",
     },
     "fluent_bit": {
-        "systemd_unit": None,
+        "systemd_unit": "parkio-nr-log-continuous.service",
+        "systemd_source": "scripts/newrelic_log_pilot/systemd/parkio-nr-log-continuous.service",
         "compose_service": "fluent-bit-nr-pilot",
         "compose_source": "docker/docker-compose.newrelic-log-pilot.yml",
         "compose_project_documented": "parkio-nr-log-continuous",
         "isolated_compose_service": "fluent-bit-nr-pilot",
         "mechanism": "compose",
-        "note": "Production unit parkio-nr-log-continuous.service stops helper+gate+collector together; unused here.",
+        "note": "Production oneshot stops helper+gate+collector together. Isolated compose still uses the service name.",
     },
     "nr_gate": {
         "systemd_unit": None,
@@ -62,8 +63,13 @@ CATALOG = {
         "isolated_compose_service": None,
         "mechanism": "export_pause_file",
         "deploy_requirement": "PARKIO_WAITLIST_OPS_NOTIFICATIONS_EXPORT_PAUSE_FILE on a later gateway deploy",
-        "note": "Not a process. Pausing export must not disable ops-notifications.enabled or admission.",
+        "note": "Not a process. Correlated pause request/ack on the inbox bind. Do not flip ops-notifications.enabled.",
     },
+}
+
+NR_GUARD_TIMER = {
+    "systemd_unit": "parkio-nr-log-continuous-guard.timer",
+    "systemd_source": "scripts/newrelic_log_pilot/systemd/parkio-nr-log-continuous-guard.timer",
 }
 
 FORBIDDEN_COMPOSE_PROJECTS = frozenset({
@@ -102,6 +108,9 @@ def verify_catalog_against_repo(root: Path | None = None) -> list[str]:
                 errors.append(f"{name}: missing {compose_file}")
             elif f"{service}:" not in path.read_text(encoding="utf-8"):
                 errors.append(f"{name}: {service} not in {compose_file}")
+    timer = root / NR_GUARD_TIMER["systemd_source"]
+    if not timer.is_file():
+        errors.append(f"missing {NR_GUARD_TIMER['systemd_source']}")
     isolated = root / ISOLATED_COMPOSE_FILE
     if not isolated.is_file():
         errors.append(f"missing isolated compose {ISOLATED_COMPOSE_FILE}")

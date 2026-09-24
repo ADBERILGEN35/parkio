@@ -21,6 +21,7 @@ import time
 
 try:
     from coordinator import CoordinationError, WRITERS  # type: ignore
+    from export_pause import ExportPauseHandshake  # type: ignore
     from writer_catalog import (  # type: ignore
         CATALOG,
         FORBIDDEN_COMPOSE_PROJECTS,
@@ -30,6 +31,7 @@ try:
     )
 except ImportError:
     from recovery_coordination.coordinator import CoordinationError, WRITERS
+    from recovery_coordination.export_pause import ExportPauseHandshake
     from recovery_coordination.writer_catalog import (
         CATALOG,
         FORBIDDEN_COMPOSE_PROJECTS,
@@ -58,6 +60,7 @@ class AllowlistedWriterControl:
         self.compose_project = compose_project
         self.compose_file = Path(compose_file)
         self.pause_file = Path(pause_file)
+        self.handshake = ExportPauseHandshake(self.pause_file, wait_seconds=wait_seconds)
         self.repo_root = Path(repo_root)
         self.wait_seconds = wait_seconds
         self.compose_bin = compose_bin or shutil.which("docker")
@@ -77,7 +80,7 @@ class AllowlistedWriterControl:
             self._compose(["version"], check=True)
         except (OSError, subprocess.CalledProcessError) as exc:
             raise MissingCapability("docker compose is unavailable") from exc
-        self.pause_file.parent.mkdir(parents=True, exist_ok=True)
+        self.handshake.control_dir.mkdir(parents=True, exist_ok=True)
         for name in names:
             spec = catalog_entry(name)
             if spec["mechanism"] == "export_pause_file":
@@ -91,7 +94,7 @@ class AllowlistedWriterControl:
         compose_states = self._compose_states()
         for name, spec in CATALOG.items():
             if spec["mechanism"] == "export_pause_file":
-                states[name] = "stopped" if self.pause_file.is_file() else "running"
+                states[name] = "stopped" if self.handshake.requested() else "running"
                 continue
             service = spec["isolated_compose_service"]
             states[name] = compose_states.get(service, "stopped")
@@ -100,8 +103,7 @@ class AllowlistedWriterControl:
     def pause(self, name):
         spec = catalog_entry(name)
         if spec["mechanism"] == "export_pause_file":
-            self.pause_file.write_text("export_paused\n", encoding="utf-8")
-            self.paused.append(name)
+            self._pause_exporter()
             return
         service = spec["isolated_compose_service"]
         result = self._compose(["stop", "-t", "8", service], check=False)
@@ -113,7 +115,7 @@ class AllowlistedWriterControl:
     def resume(self, name):
         spec = catalog_entry(name)
         if spec["mechanism"] == "export_pause_file":
-            self.pause_file.unlink(missing_ok=True)
+            self.handshake.resume()
             self.resumed.append(name)
             return
         service = spec["isolated_compose_service"]
@@ -141,8 +143,16 @@ class AllowlistedWriterControl:
         raise CoordinationError("isolated writers did not become running")
 
     def tear_down(self):
-        self.pause_file.unlink(missing_ok=True)
+        self.handshake.resume()
         self._compose(["down", "-v", "--remove-orphans"], check=False)
+
+    def _pause_exporter(self):
+        request_id = self.handshake.request_pause()
+        if self.env.get("PARKIO_EXPORT_PAUSE_AUTO_ACK", "1") == "1":
+            self.handshake.write_ack(request_id, "isolated-compose")
+        else:
+            self.handshake.wait_acknowledged(request_id)
+        self.paused.append("gateway_exporter")
 
     def _wait_until(self, name, wanted):
         deadline = time.monotonic() + self.wait_seconds
@@ -191,13 +201,14 @@ class IsolatedProcessControl:
         if self.env.get("PARKIO_ENVIRONMENT", "").lower() == "production":
             raise MissingCapability("refusing writer control when PARKIO_ENVIRONMENT=production")
         self.pause_file = Path(pause_file)
+        self.handshake = ExportPauseHandshake(self.pause_file, wait_seconds=wait_seconds)
         self.wait_seconds = wait_seconds
         self.procs: dict[str, subprocess.Popen] = {}
         self.paused = []
         self.resumed = []
 
     def require_capabilities(self, names=None):
-        self.pause_file.parent.mkdir(parents=True, exist_ok=True)
+        self.handshake.control_dir.mkdir(parents=True, exist_ok=True)
         for name in names or WRITERS:
             catalog_entry(name)
         return True
@@ -206,7 +217,7 @@ class IsolatedProcessControl:
         states = {}
         for name, spec in CATALOG.items():
             if spec["mechanism"] == "export_pause_file":
-                states[name] = "stopped" if self.pause_file.is_file() else "running"
+                states[name] = "stopped" if self.handshake.requested() else "running"
                 continue
             proc = self.procs.get(name)
             states[name] = "running" if proc is not None and proc.poll() is None else "stopped"
@@ -215,7 +226,11 @@ class IsolatedProcessControl:
     def pause(self, name):
         spec = catalog_entry(name)
         if spec["mechanism"] == "export_pause_file":
-            self.pause_file.write_text("export_paused\n", encoding="utf-8")
+            request_id = self.handshake.request_pause()
+            if self.env.get("PARKIO_EXPORT_PAUSE_AUTO_ACK", "1") == "1":
+                self.handshake.write_ack(request_id, "isolated-process")
+            else:
+                self.handshake.wait_acknowledged(request_id)
             self.paused.append(name)
             return
         proc = self.procs.get(name)
@@ -237,7 +252,7 @@ class IsolatedProcessControl:
     def resume(self, name):
         spec = catalog_entry(name)
         if spec["mechanism"] == "export_pause_file":
-            self.pause_file.unlink(missing_ok=True)
+            self.handshake.resume()
             self.resumed.append(name)
             return
         current = self.procs.get(name)
@@ -251,13 +266,12 @@ class IsolatedProcessControl:
     def bring_up(self):
         for name, spec in CATALOG.items():
             if spec["mechanism"] == "export_pause_file":
-                self.pause_file.unlink(missing_ok=True)
                 continue
             self._spawn(name)
         return self.inventory()
 
     def tear_down(self):
-        self.pause_file.unlink(missing_ok=True)
+        self.handshake.resume()
         for name in list(self.procs):
             proc = self.procs[name]
             if proc.poll() is None:
@@ -277,6 +291,17 @@ class IsolatedProcessControl:
 def isolated_control(repo_root, project, pause_file, wait_seconds=20, env=None, backend=None):
     env = os.environ if env is None else env
     backend = backend or env.get("PARKIO_WRITER_CONTROL_BACKEND", "process")
+    if backend == "systemd":
+        try:
+            from systemd_control import SystemdWriterControl  # type: ignore
+        except ImportError:
+            from recovery_coordination.systemd_control import SystemdWriterControl
+        return SystemdWriterControl(
+            pause_dir=pause_file,
+            env=env,
+            wait_seconds=wait_seconds,
+            systemctl_bin=env.get("PARKIO_WRITER_CONTROL_SYSTEMCTL"),
+        )
     if backend == "compose":
         root = Path(repo_root)
         return AllowlistedWriterControl(

@@ -162,7 +162,10 @@ class Coordinator:
         self.upstream_forwards = 0
 
     def _record_pre_state(self):
-        self.pre_state = self.writers.inventory()
+        if hasattr(self.writers, "record_pre_state"):
+            self.pre_state = self.writers.record_pre_state()
+        else:
+            self.pre_state = self.writers.inventory()
         return dict(self.pre_state)
 
     def _pause_running(self, started_at):

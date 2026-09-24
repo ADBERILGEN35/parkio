@@ -143,16 +143,18 @@ class WaitlistOpsNotificationOutboxTest {
         assertThat(outboxCount()).isEqualTo(1);
         assertThat(interestStatus()).isEqualTo("CONFIRMED");
 
-        Path pauseFile = inbox.resolve(".export-paused");
-        Files.writeString(pauseFile, "isolated-exporter-pause\n");
-        properties.setExportPauseFile(pauseFile.toString());
+        Path pauseDir = inbox.resolve(".export-pause");
+        Files.createDirectories(pauseDir);
+        Files.writeString(pauseDir.resolve("request"), "requestId=req-one\nissuedAt=1\n");
+        properties.setExportPauseFile(pauseDir.toString());
 
         assertThat(exporter.exportDue().exported()).isZero();
         assertThat(exporter.exportDue().deferred()).isEqualTo("export_paused");
         assertThat(outboxStatus()).isEqualTo("PENDING");
         assertThat(inboxFiles()).isEmpty();
+        assertThat(Files.readString(pauseDir.resolve("ack"))).contains("requestId=req-one");
+        assertThat(Files.readString(pauseDir.resolve("ack"))).contains("exporterInstanceId=");
 
-        // A second confirmation still admits and writes the durable outbox.
         String firstToken = verificationToken.get();
         service.submit(new SubmitWaitlistCommand(
                 "second.subscriber@example.test", Instant.now(), "Ada Lovelace", "Izmir", "driver",
@@ -163,10 +165,49 @@ class WaitlistOpsNotificationOutboxTest {
         assertThat(exporter.exportDue().deferred()).isEqualTo("export_paused");
         assertThat(inboxFiles()).isEmpty();
 
-        Files.deleteIfExists(pauseFile);
+        Files.deleteIfExists(pauseDir.resolve("request"));
+        Files.deleteIfExists(pauseDir.resolve("ack"));
         makeDue();
         assertThat(exporter.exportDue().exported()).isEqualTo(2);
         assertThat(inboxFiles()).hasSize(2);
+    }
+
+    @Test
+    void exportPauseAckMatchesCurrentRequestAndIgnoresStaleAck() throws Exception {
+        submitPending();
+        service.confirm(verificationToken.get()).block();
+        Path pauseDir = inbox.resolve(".export-pause");
+        Files.createDirectories(pauseDir);
+        Files.writeString(pauseDir.resolve("ack"), "requestId=stale\nexporterInstanceId=old\nacknowledgedAt=0\n");
+        Files.writeString(pauseDir.resolve("request"), "requestId=req-two\nissuedAt=2\n");
+        properties.setExportPauseFile(pauseDir.toString());
+
+        assertThat(exporter.exportDue().deferred()).isEqualTo("export_paused");
+        String ack = Files.readString(pauseDir.resolve("ack"));
+        assertThat(ack).contains("requestId=req-two");
+        assertThat(ack).doesNotContain("requestId=stale");
+        assertThat(outboxCount()).isEqualTo(1);
+        assertThat(inboxFiles()).isEmpty();
+    }
+
+    @Test
+    void unreadablePauseControlPreventsExportAndDoesNotAcknowledge() throws Exception {
+        submitPending();
+        service.confirm(verificationToken.get()).block();
+        Path pauseDir = inbox.resolve(".export-pause");
+        Files.createDirectories(pauseDir);
+        Path request = pauseDir.resolve("request");
+        Files.createDirectory(request);
+        properties.setExportPauseFile(pauseDir.toString());
+
+        assertThat(exporter.exportDue().deferred()).isEqualTo("export_paused");
+        assertThat(Files.exists(pauseDir.resolve("ack"))).isFalse();
+        assertThat(outboxStatus()).isEqualTo("PENDING");
+        service.submit(new SubmitWaitlistCommand(
+                "third.subscriber@example.test", Instant.now(), "Ada Lovelace", "Izmir", "driver",
+                "parkio.dev-landing", "tr", "198.51.100.24", "synthetic-agent")).block();
+        service.confirm(verificationToken.get()).block();
+        assertThat(outboxCount()).isEqualTo(2);
     }
 
     @Test

@@ -15,6 +15,10 @@ services:
       - "${PARKIO_WAITLIST_OPS_INBOX_GID:?set PARKIO_WAITLIST_OPS_INBOX_GID (gid of parkio-waitlist-inbox)}"
     environment:
       PARKIO_WAITLIST_OPS_NOTIFICATIONS_EXPORT_DIR: /var/lib/parkio/waitlist-ops-inbox
+      # Correlated handshake directory on the existing inbox bind. Coordinator
+      # writes request; gateway uid 10001 writes ack. Mode 2770
+      # parkio-slackbiz:parkio-waitlist-inbox. Consumer glob is *.json only.
+      PARKIO_WAITLIST_OPS_NOTIFICATIONS_EXPORT_PAUSE_FILE: /var/lib/parkio/waitlist-ops-inbox/.export-pause
     volumes:
       - type: bind
         source: /var/lib/parkio/waitlist-ops-inbox

@@ -26,6 +26,8 @@ jobs:
         run: python3 -m unittest scripts.recovery_coordination.test_coordinator -v
       - name: Isolated writer-control adapter
         run: python3 -m unittest scripts.recovery_coordination.test_writer_control -v
+      - name: Isolated systemd adapter
+        run: python3 -m unittest scripts.recovery_coordination.test_systemd_control -v
       - name: Reuse #102 synthetic tests
         run: python3 -m unittest scripts.test_offhost_erasure_recovery -v
       - name: Reuse #103 recovery-guard tests

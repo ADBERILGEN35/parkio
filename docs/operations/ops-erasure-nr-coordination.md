@@ -40,13 +40,16 @@ User-facing HTTP is not paused. `gateway_exporter` is a pause file, not
 a gateway process stop. Production hook still refuses live host units.
 
 **Later gateway deploy requirement:** set
-`PARKIO_WAITLIST_OPS_NOTIFICATIONS_EXPORT_PAUSE_FILE=/var/lib/parkio/waitlist-ops-inbox/.export-paused`
-on the existing inbox bind (host and container path are the same). File
-presence is not drain proof; wait for no `.waitlist-*.json.tmp`, one
-completed poll after mtime, and a flat exported counter. Coordinator
-(root) creates and removes the gate. Gateway uid 10001 only stats it.
-If the JVM cannot see the file, export continues. Do not flip
-`ops-notifications.enabled` to pause export.
+`PARKIO_WAITLIST_OPS_NOTIFICATIONS_EXPORT_PAUSE_FILE=/var/lib/parkio/waitlist-ops-inbox/.export-pause`
+on the existing inbox bind (directory, 2770
+`parkio-slackbiz:parkio-waitlist-inbox`). Coordinator writes `request`
+with a `requestId`. The gateway writes `ack` with the same `requestId`
+and a per-JVM `exporterInstanceId` only after in-flight export work
+finishes and new `findDue` work is prevented. Missing ack, unreadable
+control state, or timeout aborts capture. A flat counter, missing temp
+files, or one poll interval is not drain proof. Do not flip
+`ops-notifications.enabled`. Do not unlink leftover request/ack on
+coordinator startup. Consumer glob remains `*.json`.
 
 Production NR stop is `systemctl stop` of the guard timer, then
 `parkio-nr-log-continuous.service` (ExecStop stops helper + both
@@ -88,18 +91,22 @@ or permissions exist for operational-state archives or erasure seals.
 | Retention / delete protection | Documented 14-day lifecycle; immutability UNKNOWN | Need a **dedicated** prefix, versioning, MFA-delete or object lock |
 | Freshness | Nightly stamp | Independent of nightly COMPLETE; watermark age is a separate SLA |
 
-Written proposal (not provisioned; `BACKUP_AZURE_*` not retrieved):
+Written proposal (not provisioned; `BACKUP_AZURE_*` not retrieved).
+2026-09-24 control-plane for `stparkiobakwesteu` is Succeeded/available;
+Blob list of `parkio-backups` with `--auth-mode login` returned
+`AccountIsDisabled` (request `26196423-601e-0081-45f1-4ba395000000`).
+That does **not** verify historical lifecycle or object-lock. Do not
+create containers or issue credentials until the data plane is usable.
 
-- Account model: `stparkiobakwesteu` in `rg-parkio-backups`.
-- New container `parkio-ops-erasure`, not a prefix inside `parkio-backups`.
-- Prefixes `ops-state/<stamp>/` and `erasure-seals/`.
+- Intended ops container remains `parkio-ops-erasure` on that account,
+  prefixes `ops-state/<stamp>/` and `erasure-seals/`, only after Blob
+  access is restored.
 - Dedicated `rcwl` SAS or identity; no Delete; do not reuse the DB SAS.
-- 14-day lifecycle is wrong for erasure seals; no lifecycle until legal
-  sets a floor (or operator names a number).
-- SHA-256 + COMPLETE is not a signature. Object-lock remains UNKNOWN.
+- Operator still chooses delete-protection mode and erasure retention.
 
-Operator confirmations still required: container name, delete-protection
-mode, erasure retention. Do not retrieve `BACKUP_AZURE_*` here.
+Operator confirmations: why the account data plane is disabled; then
+container name, delete-protection, retention. Do not retrieve
+`BACKUP_AZURE_*` here.
 
 ## 3. Flags (all default off)
 

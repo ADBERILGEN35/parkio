@@ -81,7 +81,7 @@ class IsolatedProcessAdapterTest(unittest.TestCase):
         before = self.control.inventory()
         self.assertEqual(before["fluent_bit"], "running")
         self.assertEqual(before["slack_worker"], "running")
-        self.assertFalse(self.pause_file.exists())
+        self.assertFalse((self.pause_file / "request").exists())
 
         dest = self.root / "snap"
         captured = []
@@ -119,7 +119,7 @@ class IsolatedProcessAdapterTest(unittest.TestCase):
         after = self.control.inventory()
         self.assertEqual(after["fluent_bit"], "running")
         self.assertEqual(after["slack_worker"], "running")
-        self.assertFalse(self.pause_file.exists())
+        self.assertFalse((self.pause_file / "request").exists())
         self.assertTrue((dest / "COMPLETE").is_file())
 
     def test_stop_failure_resumes_pre_state(self):
@@ -176,7 +176,7 @@ class IsolatedProcessAdapterTest(unittest.TestCase):
         states = self.control.inventory()
         self.assertEqual(states["nr_source"], "running")
         self.assertEqual(states["nr_gate"], "running")
-        self.assertFalse(self.pause_file.exists())
+        self.assertFalse((self.pause_file / "request").exists())
 
     def test_disaster_release_keeps_publishers_stopped_until_review(self):
         def erasure(*_args):
@@ -193,7 +193,7 @@ class IsolatedProcessAdapterTest(unittest.TestCase):
         self.assertEqual(states["fluent_bit"], "stopped")
         self.assertEqual(states["slack_worker"], "stopped")
         self.assertEqual(states["nr_gate"], "running")
-        self.assertFalse(self.pause_file.exists())
+        self.assertFalse((self.pause_file / "request").exists())
         report = reconcile_slack_events(["e1"], [("e1", "e1", "queued")])
         with self.assertRaises(CoordinationError):
             coord.release_collection()

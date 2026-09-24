@@ -4,7 +4,9 @@ import jakarta.validation.constraints.Max;
 import jakarta.validation.constraints.Min;
 import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.NotNull;
+import java.io.IOException;
 import java.nio.file.Files;
+import java.nio.file.NoSuchFileException;
 import java.nio.file.Path;
 import java.time.Duration;
 import org.springframework.boot.context.properties.ConfigurationProperties;
@@ -71,8 +73,9 @@ public class WaitlistOpsNotificationProperties {
     private Duration retention = Duration.ofDays(30);
 
     /**
-     * When this regular file exists, the export loop is paused. Outbox admission,
-     * confirmation, and user-facing HTTP stay enabled. Empty means no file gate.
+     * Control directory for the correlated export-pause handshake. The
+     * coordinator writes {@code request}; the exporter writes {@code ack}
+     * only after in-flight work finishes. Empty means no file gate.
      * Later gateway deploy must set
      * {@code PARKIO_WAITLIST_OPS_NOTIFICATIONS_EXPORT_PAUSE_FILE}.
      */
@@ -198,9 +201,82 @@ public class WaitlistOpsNotificationProperties {
         if (exportPaused) {
             return true;
         }
+        if (pauseControlUnreadable()) {
+            return true;
+        }
+        Path request = pauseRequestPath();
+        return request != null && Files.isRegularFile(request);
+    }
+
+    public Path exportPauseControlDir() {
         if (exportPauseFile == null || exportPauseFile.isBlank()) {
+            return null;
+        }
+        return Path.of(exportPauseFile);
+    }
+
+    /**
+     * Readable {@code requestId} from the current pause request, or null when
+     * no request is present. Unreadable control state is {@link #pauseControlUnreadable()}.
+     */
+    public String pauseRequestId() {
+        Path request = pauseRequestPath();
+        if (request == null) {
+            return null;
+        }
+        try {
+            String text = Files.readString(request);
+            for (String line : text.split("\\R")) {
+                if (line.startsWith("requestId=")) {
+                    String value = line.substring("requestId=".length()).strip();
+                    return value.isBlank() ? null : value;
+                }
+            }
+            return null;
+        } catch (NoSuchFileException ex) {
+            return null;
+        } catch (IOException ex) {
+            return null;
+        }
+    }
+
+    public boolean pauseControlUnreadable() {
+        Path request = pauseRequestPath();
+        if (request == null) {
             return false;
         }
-        return Files.isRegularFile(Path.of(exportPauseFile));
+        try {
+            if (!Files.exists(request)) {
+                return false;
+            }
+            Files.readString(request);
+            return false;
+        } catch (NoSuchFileException ex) {
+            return false;
+        } catch (IOException ex) {
+            return true;
+        }
+    }
+
+    Path pauseRequestPath() {
+        Path dir = exportPauseControlDir();
+        if (dir == null) {
+            return null;
+        }
+        if (Files.isDirectory(dir)) {
+            return dir.resolve("request");
+        }
+        return dir;
+    }
+
+    Path pauseAckPath() {
+        Path dir = exportPauseControlDir();
+        if (dir == null) {
+            return null;
+        }
+        if (Files.isDirectory(dir)) {
+            return dir.resolve("ack");
+        }
+        return Path.of(dir.toString() + ".ack");
     }
 }
