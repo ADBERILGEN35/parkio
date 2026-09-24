@@ -43,9 +43,10 @@ class AccountStatusGlobalFilterTest {
     private final UserStatusCache cache = new UserStatusCache(
             Clock.fixed(Instant.parse("2026-06-09T00:00:00Z"), ZoneOffset.UTC), new UserStatusProperties());
     private final AccountStatusGlobalFilter filter = new AccountStatusGlobalFilter(
-            new PublicEndpoints(new GatewayPublicSurfaceProperties()), client, cache,
-            new GatewayErrorResponseWriter(new ObjectMapper().findAndRegisterModules(),
-                    Clock.fixed(Instant.parse("2026-06-09T00:00:00Z"), ZoneOffset.UTC)));
+            new PublicEndpoints(new GatewayPublicSurfaceProperties()),
+            new AccountStatusVerifier(client, cache,
+                    new GatewayErrorResponseWriter(new ObjectMapper().findAndRegisterModules(),
+                            Clock.fixed(Instant.parse("2026-06-09T00:00:00Z"), ZoneOffset.UTC))));
 
     @Test
     void activeUserReachesProtectedRoute() {
