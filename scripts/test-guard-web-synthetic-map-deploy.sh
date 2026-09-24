@@ -68,6 +68,13 @@ case "$1" in
       fi
     done
     echo "MUTATION $*" >>"$d/mutations.log"
+    prev=""
+    for a in "$@"; do
+      if [ "$prev" = "-f" ] && [ "${a##*/}" = "web-binding.yml" ]; then
+        echo "BINDING $(cat "$a")" >>"$d/mutations.log"
+      fi
+      prev="$a"
+    done
     ;;
   *) exit 1 ;;
 esac
@@ -203,7 +210,7 @@ else
 fi
 GOOD_FP="$(printf '%s' "$GOOD_KEY" | sha256sum | cut -c1-12)"
 guard 0 "expected fingerprint of the authorized key passes" --image "$REPO@$GOOD_DIG" --expected-map-key-fingerprint "$GOOD_FP"
-grep -q 'fingerprintMatched=yes' "$TMP/out" && pass "pass line states the fingerprint was matched" || bad "pass line states the fingerprint was matched"
+grep -q 'fingerprintCheck=matched' "$TMP/out" && pass "pass line states the fingerprint was matched" || bad "pass line states the fingerprint was matched"
 guard 1 "non-synthetic key with a different fingerprint is blocked" --image "$REPO@$GOOD_DIG" --expected-map-key-fingerprint 000000000000
 PARKIO_WEB_EXPECTED_MAP_KEY_FINGERPRINT=000000000000 guard 1 "fingerprint from the environment is enforced" --image "$REPO@$GOOD_DIG"
 guard 2 "malformed expected fingerprint is a usage error" --image "$REPO@$GOOD_DIG" --expected-map-key-fingerprint XYZ
@@ -353,6 +360,71 @@ fake_reset; compose_model "$REPO:synthetic"
 PARKIO_SKIP_WEB_MAP_GUARD=I_ACCEPT_UNVERIFIED_WEB_IMAGE wrapper 0 yes "explicit break-glass token skips with a warning" up -d --no-deps web
 grep -q 'break-glass' "$TMP/err" && pass "break-glass warning printed" || bad "break-glass warning printed"
 
+echo "--- compose argument parsing (real wrapper) ---"
+fake_reset; compose_model "$REPO:synthetic"
+wrapper 1 no "run --no-deps --use-aliases web <cmd>: --use-aliases is a flag, web is gated" run --no-deps --use-aliases web echo hi
+fake_reset; compose_model "$REPO:synthetic"
+wrapper 0 yes "run --no-deps --use-aliases gateway-service web: command arg 'web' is not a service" run --no-deps --use-aliases gateway-service web
+fake_reset; compose_model "$REPO:synthetic"
+wrapper 0 yes "run --no-deps gateway-service --no-deps --pull=always web: command args resembling options are ignored" run --no-deps gateway-service --no-deps --pull=always web
+fake_reset; compose_model "$REPO:synthetic"
+wrapper 1 no "run --rm -T --no-deps -e K=V web sh: value option then web is gated" run --rm -T --no-deps -e K=V web sh
+fake_reset; compose_model "$REPO:synthetic"
+wrapper 0 yes "up --pull=missing --no-deps gateway-service (option=value form) is not gated" up -d --pull=missing --no-deps gateway-service
+fake_reset; compose_model "$REPO:synthetic"
+wrapper 0 yes "up --no-deps gateway-service --timeout=30 (trailing option=value) is not gated" up --no-deps -d gateway-service --timeout=30
+fake_reset; compose_model "$REPO:synthetic"
+wrapper 0 yes "-p parkio up -d --no-deps gateway-service (global value option) is not gated" -p parkio up -d --no-deps gateway-service
+fake_reset; compose_model "$REPO:synthetic"
+wrapper 1 no "up --no-deps=false gateway-service keeps dependencies and is gated" up -d --no-deps=false gateway-service
+fake_reset; compose_model "$REPO:synthetic"
+wrapper 1 no "up --no-deps --scale web=2 gateway-service is gated" up -d --no-deps --scale web=2 gateway-service
+fake_reset; compose_model "$REPO:synthetic"
+wrapper 1 no "unrecognised up option is ambiguous and gated" up -d --made-up-flag --no-deps gateway-service
+fake_reset; compose_model "$REPO:synthetic"
+wrapper 1 no "combined short flags (-dV) are ambiguous and gated" up -dV --no-deps gateway-service
+fake_reset; compose_model "$REPO:synthetic"
+wrapper 1 no "unrecognised global option before up is ambiguous and gated" --made-up-global value up -d --no-deps gateway-service
+fake_reset; compose_model "$REPO:synthetic"
+wrapper 1 no "--profile=ops (global option=value) up -d is gated" --profile=ops up -d
+fake_reset; compose_model "$REPO:synthetic"
+wrapper 0 yes "up --no-deps -- gateway-service is not gated" up -d --no-deps -- gateway-service
+fake_reset; compose_model "$REPO:synthetic"
+wrapper 1 no "up --no-deps -- web is gated" up -d --no-deps -- web
+fake_reset; compose_model "$REPO@$GOOD_DIG"
+wrapper 1 no "up --build=true web is refused" up -d --build=true web
+fake_reset; compose_model "$REPO@$GOOD_DIG"
+wrapper 1 no "run --build web is refused" run --build web true
+
+echo "--- binding override passed to Compose (real wrapper) ---"
+fake_reset; compose_model "$REPO@$GOOD_DIG"
+wrapper 0 yes "digest-pinned web: compose runs with the binding override" up -d --no-build --no-deps web
+if grep -q "^BINDING .*\"image\": \"$REPO@$GOOD_DIG\".*\"pull_policy\": \"never\"" "$FAKE/mutations.log"; then
+  pass "digest-pinned web is bound to the verified manifest ref with pull_policy never"
+else
+  bad "digest-pinned web is bound to the verified manifest ref with pull_policy never"
+fi
+if grep -Eq '^MUTATION .* -f [^ ]*web-binding\.yml up -d --no-build --no-deps web$' "$FAKE/mutations.log"; then
+  pass "binding override is the last -f, after the operator's arguments' globals"
+else
+  bad "binding override is the last -f, after the operator's arguments' globals"
+fi
+fake_reset; compose_model "$REPO:good-tag"
+wrapper 0 yes "tag-selected web: compose runs with the binding override" -f "$TMP/extra.yml" up -d --no-deps web
+if grep -q "^BINDING .*\"image\": \"$GOOD_ID\"" "$FAKE/mutations.log" && grep -Eq -- "-f $TMP/extra.yml -f [^ ]*web-binding\.yml up" "$FAKE/mutations.log"; then
+  pass "tag-selected web is bound to the verified config ID, override after operator -f"
+else
+  bad "tag-selected web is bound to the verified config ID, override after operator -f"
+fi
+fake_reset; compose_model "$REPO:synthetic"
+wrapper 0 yes "gateway-only op gets no binding override" up -d --no-build --no-deps gateway-service
+grep -q 'web-binding' "$FAKE/mutations.log" && bad "gateway-only op gets no binding override (file)" || pass "gateway-only op gets no binding override (file)"
+if ls "${TMPDIR:-/tmp}"/tmp.* 2>/dev/null | xargs -r grep -l 'pull_policy' 2>/dev/null | grep -q .; then
+  bad "no binding/model temp files left behind"
+else
+  pass "no binding/model temp files left behind"
+fi
+
 # ---------------------------------------------------------------------------
 # Real caller: parkio_compose_up (deploy-hosted-beta, deploy-invite-production, rollback)
 # ---------------------------------------------------------------------------
@@ -384,6 +456,11 @@ compose_up 1 no "deploy/rollback up with synthetic web image aborts before compo
 grep -q AFTER_UP "$TMP/out" && bad "set -e caller stops after guard failure" || pass "set -e caller stops after guard failure"
 fake_reset; compose_model "local/parkio-web:sha-abc123"
 compose_up 0 yes "deploy/rollback up with locally built valid web image proceeds" gateway-service web caddy
+if grep -q "^BINDING .*\"image\": \"$(cfg_id 30)\".*\"pull_policy\": \"never\"" "$FAKE/mutations.log" && grep -Eq '^MUTATION .* -f [^ ]*web-binding\.yml up -d gateway-service web caddy$' "$FAKE/mutations.log"; then
+  pass "parkio_compose_up binds web to the verified config ID as the last -f"
+else
+  bad "parkio_compose_up binds web to the verified config ID as the last -f"
+fi
 fake_reset; compose_model "-"
 compose_up 0 yes "deploy/rollback up with no web service in the model proceeds" gateway-service
 fake_reset; compose_model "$REPO@$BAD_MANIFEST"
@@ -444,6 +521,216 @@ else
     echo "FAIL real docker required (PARKIO_GUARD_TEST_REQUIRE_DOCKER=1) but unavailable"
   else
     echo "SKIP Part B: docker daemon not available"
+  fi
+fi
+
+# ---------------------------------------------------------------------------
+# Part C: image-to-deployment binding against real Compose + real daemon.
+# A docker shim substitutes an UNVERIFIED image between verification and the
+# Compose mutation; each scenario has a break-glass control proving the
+# substitution would otherwise have been deployed.
+# ---------------------------------------------------------------------------
+echo "=== Part C: binding with real docker compose ==="
+if docker version >/dev/null 2>&1 && docker compose version >/dev/null 2>&1 && [ "${PARKIO_GUARD_TEST_REAL_DOCKER:-1}" != "0" ]; then
+  REAL_DOCKER="$(command -v docker)"
+  BASE_IMG="nginx:1.30.5-alpine3.24"   # the web runtime base (frontend/apps/web/Dockerfile)
+  docker image inspect "$BASE_IMG" >/dev/null 2>&1 || docker pull -q "$BASE_IMG" >/dev/null
+  C="$TMP/partc"; mkdir -p "$C/good/root" "$C/bad/root" "$C/shim"
+  PROJ="pwgc$$"
+  bundle good "$C/good/root"; bundle synthetic "$C/bad/root"
+  for k in good bad; do printf 'FROM %s\nCOPY root/ /\n' "$BASE_IMG" >"$C/$k/Dockerfile"; done
+  docker build -q -t "pwg.invalid/web:good-$PROJ" "$C/good" >/dev/null
+  docker build -q -t "pwg.invalid/web:bad-$PROJ" "$C/bad" >/dev/null
+  CG="$(docker image inspect -f '{{.Id}}' "pwg.invalid/web:good-$PROJ")"
+  CB="$(docker image inspect -f '{{.Id}}' "pwg.invalid/web:bad-$PROJ")"
+  REG_CID=""
+  cleanup_c() {
+    docker compose -p "$PROJ" -f "$C/base.yml" down -t 0 --remove-orphans >/dev/null 2>&1 || true
+    [ -n "$REG_CID" ] && docker rm -f "$REG_CID" >/dev/null 2>&1 || true
+    docker images -q --filter "reference=pwg.invalid/web" | sort -u | xargs -r docker rmi -f >/dev/null 2>&1 || true
+    docker images -q --filter "reference=127.0.0.1:*/pwg/web" | sort -u | xargs -r docker rmi -f >/dev/null 2>&1 || true
+    if declare -F cleanup_real >/dev/null; then cleanup_real; else rm -rf "$TMP"; fi
+  }
+  trap cleanup_c EXIT
+
+  # Shim: on the first Compose mutation, run $C/action (tag move / model edit), then pass through.
+  cat >"$C/shim/docker" <<SH
+#!/usr/bin/env bash
+if [ "\$1" = "compose" ] && [ -f "$C/action" ]; then
+  mut=0; for a in "\$@"; do case "\$a" in config) mut=0; break ;; up|create|run) mut=1 ;; esac; done
+  if [ "\$mut" -eq 1 ]; then bash "$C/action"; rm -f "$C/action"; fi
+fi
+if [ "\$1" = "compose" ]; then
+  for a in "\$@"; do case "\$a" in config) break ;; up|create|run) echo "\$*" >>"$C/mutations.log"; break ;; esac; done
+fi
+exec "$REAL_DOCKER" "\$@"
+SH
+  chmod +x "$C/shim/docker"
+
+  base_model() { # base_model IMAGE
+    cat >"$C/base.yml" <<YML
+name: $PROJ
+services:
+  web:
+    image: $1
+    network_mode: none
+    build:
+      context: $C/bad
+YML
+  }
+  rel_base="$(python3 -c 'import os,sys; print(os.path.relpath(sys.argv[1], sys.argv[2]))' "$C/base.yml" "$ROOT")"
+  printf '%s\n' "$rel_base" >"$C/files.list"
+  printf 'VITE_MAPTILER_KEY=%s\n' "$GOOD_KEY" >"$C/env"
+
+  reset_c() {
+    docker compose -p "$PROJ" -f "$C/base.yml" down -t 0 >/dev/null 2>&1 || true
+    docker tag "$CG" "pwg.invalid/web:moving-$PROJ"
+    base_model "pwg.invalid/web:moving-$PROJ"
+    rm -f "$C/action" "$C/mutations.log"
+  }
+  blocked_before_compose() { # blocked_before_compose NAME GUARD_REASON_REGEX
+    if [ "$CRC" -ne 0 ] && [ ! -s "$C/mutations.log" ] && [ "$(web_image)" = "none" ] && grep -Eq "$2" "$TMP/err"; then
+      pass "real compose: $1"
+    else
+      bad "real compose: $1 (rc $CRC, compose mutation $( [ -s "$C/mutations.log" ] && echo ran || echo none))"
+    fi
+  }
+  web_image() {
+    if [ -z "$("$REAL_DOCKER" ps -aq --filter "name=^/${PROJ}-web-1\$")" ]; then echo none; return; fi
+    "$REAL_DOCKER" inspect -f '{{.Image}}' "$PROJ-web-1"
+  }
+  wrap_c() { # wrap_C ARGS... (env: extra vars already exported by caller)
+    set +e
+    PATH="$C/shim:$REAL_PATH" PARKIO_ENV_FILE="$C/env" PARKIO_COMPOSE_FILES_LIST="$C/files.list" \
+      bash "$ROOT/scripts/parkio-prod-compose.sh" "$@" >"$TMP/out" 2>"$TMP/err"
+    CRC=$?
+    set -e
+  }
+  expect_image() { # expect_image NAME WANT_ID
+    local got; got="$(web_image)"
+    if [ "$got" = "$2" ]; then pass "real compose: $1"; else bad "real compose: $1 (container image ${got:0:19}, want ${2:0:19})"; fi
+  }
+
+  # C1 mutable tag moves to an unverified image after verification.
+  reset_c; echo "docker tag $CB pwg.invalid/web:moving-$PROJ" >"$C/action"
+  wrap_c up -d --no-build --no-deps web
+  expect_image "tag moved after verification: wrapper deploys the VERIFIED image" "$CG"
+  reset_c; echo "docker tag $CB pwg.invalid/web:moving-$PROJ" >"$C/action"
+  PARKIO_SKIP_WEB_MAP_GUARD=I_ACCEPT_UNVERIFIED_WEB_IMAGE wrap_c up -d --no-build --no-deps web
+  expect_image "control: without binding the moved tag deploys the unverified image" "$CB"
+
+  # C2 model edited after verification (web image line rewritten).
+  reset_c; echo "sed -i 's#image: .*#image: pwg.invalid/web:bad-$PROJ#' $C/base.yml" >"$C/action"
+  wrap_c up -d --no-build --no-deps web
+  expect_image "model edited after verification: wrapper deploys the VERIFIED image" "$CG"
+  reset_c; echo "sed -i 's#image: .*#image: pwg.invalid/web:bad-$PROJ#' $C/base.yml" >"$C/action"
+  PARKIO_SKIP_WEB_MAP_GUARD=I_ACCEPT_UNVERIFIED_WEB_IMAGE wrap_c up -d --no-build --no-deps web
+  expect_image "control: without binding the edited model deploys the unverified image" "$CB"
+
+  # C3 operator overlay forces pull_policy: always (registry .invalid would fail any pull).
+  reset_c; printf 'services:\n  web:\n    pull_policy: always\n' >"$C/ov-pull.yml"
+  wrap_c -f "$C/ov-pull.yml" up -d --no-build --no-deps web
+  if [ "$CRC" -eq 0 ] && ! grep -q 'Pulling' "$TMP/out" "$TMP/err"; then
+    pass "real compose: overlay pull_policy always is neutralised (no pull attempted)"
+  else
+    bad "real compose: overlay pull_policy always is neutralised (rc $CRC)"
+  fi
+  expect_image "overlay pull_policy always: verified image deployed" "$CG"
+  reset_c
+  PARKIO_SKIP_WEB_MAP_GUARD=I_ACCEPT_UNVERIFIED_WEB_IMAGE wrap_c -f "$C/ov-pull.yml" up -d --no-build --no-deps web
+  if grep -q 'Pulling' "$TMP/out" "$TMP/err"; then
+    pass "real compose: control: without binding the overlay pull_policy makes Compose pull"
+  else
+    bad "real compose: control: overlay pull_policy honoured without binding"
+  fi
+
+  # C4 operator overlay forces an implicit build (pull_policy: build) of the synthetic context.
+  reset_c; printf 'services:\n  web:\n    pull_policy: build\n' >"$C/ov-build.yml"
+  wrap_c -f "$C/ov-build.yml" up -d --no-deps web
+  expect_image "overlay pull_policy build: no rebuild, verified image deployed" "$CG"
+  reset_c
+  PARKIO_SKIP_WEB_MAP_GUARD=I_ACCEPT_UNVERIFIED_WEB_IMAGE wrap_c -f "$C/ov-build.yml" up -d --no-deps web
+  got="$(web_image)"
+  if [ "$got" != "$CG" ] && [ "$got" != "none" ]; then pass "real compose: control: without binding the overlay rebuilds an unverified image"; else bad "real compose: control: overlay rebuild without binding (got ${got:0:19})"; fi
+
+  # C5 effective platform selection.
+  reset_c; printf 'services:\n  web:\n    platform: linux/arm64\n' >"$C/ov-plat.yml"
+  wrap_c -f "$C/ov-plat.yml" up -d --no-build --no-deps web
+  blocked_before_compose "model platform differing from the verified image is blocked by the guard before Compose" "compose model selects platform linux/arm64"
+  reset_c
+  DOCKER_DEFAULT_PLATFORM=linux/arm64 wrap_c up -d --no-build --no-deps web
+  blocked_before_compose "DOCKER_DEFAULT_PLATFORM differing from the verified image is blocked by the guard before Compose" "DOCKER_DEFAULT_PLATFORM=linux/arm64 differs"
+
+  # C6 synthetic image selected: nothing is created.
+  reset_c; base_model "pwg.invalid/web:bad-$PROJ"
+  wrap_c up -d --no-build --no-deps web
+  blocked_before_compose "synthetic web image is blocked before Compose, never created" "SYNTHETIC"
+
+  # C7 shared deploy/rollback caller: parkio_compose_up with a tag move after verification.
+  dc_up() {
+    set +e
+    PATH="$C/shim:$REAL_PATH" bash -c '
+      set -euo pipefail
+      source "$1/scripts/lib/deploy-common.sh"
+      PARKIO_COMPOSE_FILES="-p $3 -f $2/base.yml"
+      PARKIO_RUNTIME_SERVICES=(web)
+      parkio_compose_up "$2/env"
+    ' _ "$ROOT" "$C" "$PROJ" >"$TMP/out" 2>"$TMP/err"
+    CRC=$?
+    set -e
+  }
+  reset_c; echo "docker tag $CB pwg.invalid/web:moving-$PROJ" >"$C/action"
+  dc_up
+  expect_image "parkio_compose_up: tag moved after verification deploys the VERIFIED image" "$CG"
+  reset_c; echo "docker tag $CB pwg.invalid/web:moving-$PROJ" >"$C/action"
+  PARKIO_SKIP_WEB_MAP_GUARD=I_ACCEPT_UNVERIFIED_WEB_IMAGE dc_up
+  expect_image "parkio_compose_up control: without binding the moved tag deploys the unverified image" "$CB"
+  reset_c; echo "sed -i 's#image: .*#image: pwg.invalid/web:bad-$PROJ#' $C/base.yml" >"$C/action"
+  dc_up
+  expect_image "parkio_compose_up: model edited after verification deploys the VERIFIED image" "$CG"
+
+  # C8 digest-pinned selection (production shape) through a throwaway local registry.
+  # Needs plain-HTTP push to 127.0.0.1 (native Linux daemons, e.g. CI). Docker
+  # Desktop's VM daemon cannot reach a host-loopback registry without daemon
+  # config changes, so it is reported as SKIP there and FAIL anywhere else.
+  set +e
+  c8_ok=0
+  if docker image inspect registry:2 >/dev/null 2>&1 || docker pull -q registry:2 >/dev/null 2>&1; then
+    REG_CID="$(docker run -d --rm -p 127.0.0.1::5000 registry:2)"
+    REG_PORT="$(docker port "$REG_CID" 5000/tcp | head -n1 | sed 's/.*://')"
+    REG="127.0.0.1:$REG_PORT/pwg/web"
+    for _ in $(seq 1 30); do curl -fsS "http://127.0.0.1:$REG_PORT/v2/" >/dev/null 2>&1 && break; sleep 0.5; done
+    docker tag "$CG" "$REG:good" && docker push -q "$REG:good" >/dev/null 2>&1 && c8_ok=1
+  fi
+  set -e
+  if [ "$c8_ok" -eq 1 ]; then
+    GOOD_REF="$(docker image inspect -f '{{range .RepoDigests}}{{println .}}{{end}}' "$CG" | grep "^$REG@" | head -n1)"
+    reset_c; base_model "$GOOD_REF"
+    docker tag "$CB" "$REG:good"
+    wrap_c up -d --no-build --no-deps web
+    expect_image "digest-pinned web: verified manifest ref deployed" "$CG"
+    if grep -q "bound=$GOOD_REF" "$TMP/out"; then pass "real compose: digest-pinned web is bound to its manifest ref"; else bad "real compose: digest-pinned web is bound to its manifest ref"; fi
+    before="$("$REAL_DOCKER" inspect -f '{{.Id}}' "$PROJ-web-1" 2>/dev/null)"
+    wrap_c up -d --no-build --no-deps web
+    after="$("$REAL_DOCKER" inspect -f '{{.Id}}' "$PROJ-web-1" 2>/dev/null)"
+    if [ -n "$before" ] && [ "$before" = "$after" ]; then pass "real compose: repeated guarded up does not recreate a digest-pinned web"; else bad "real compose: repeated guarded up recreated web"; fi
+    # Activation check (RELEASE-PACKAGE §9.3): the binding must not change the web config hash.
+    bash "$GUARD" --compose-config-json <(docker compose -p "$PROJ" -f "$C/base.yml" config --format json) \
+      --bind-override-out "$C/bind-check.yml" >/dev/null 2>&1 || true
+    h1="$(docker compose -p "$PROJ" -f "$C/base.yml" config --hash web 2>/dev/null)"
+    h2="$(docker compose -p "$PROJ" -f "$C/base.yml" -f "$C/bind-check.yml" config --hash web 2>/dev/null)"
+    if [ -n "$h1" ] && [ -s "$C/bind-check.yml" ] && [ "$h1" = "$h2" ]; then pass "real compose: config --hash web is unchanged by a digest binding (no-recreate check)"; else bad "real compose: config --hash web unchanged by digest binding ('$h1' vs '$h2')"; fi
+  elif docker info --format '{{.OperatingSystem}}' 2>/dev/null | grep -q 'Docker Desktop'; then
+    echo "SKIP C8 digest-pinned registry scenario: Docker Desktop cannot push to a host-loopback registry"
+  else
+    bad "real compose: local registry push failed for the digest-pinned scenario"
+  fi
+else
+  if [ "${PARKIO_GUARD_TEST_REQUIRE_DOCKER:-0}" = "1" ]; then
+    TESTS=$((TESTS + 1)); FAILED=$((FAILED + 1))
+    echo "FAIL real docker compose required (PARKIO_GUARD_TEST_REQUIRE_DOCKER=1) but unavailable"
+  else
+    echo "SKIP Part C: docker compose not available"
   fi
 fi
 

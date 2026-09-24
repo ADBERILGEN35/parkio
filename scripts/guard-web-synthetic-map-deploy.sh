@@ -5,7 +5,7 @@
 # Usage:
 #   bash scripts/guard-web-synthetic-map-deploy.sh --image REF [--env-file FILE] \
 #     [--pin-file FILE] [--evidence-out FILE] [--expected-platform OS/ARCH] \
-#     [--expected-map-key-fingerprint HEX12]
+#     [--expected-map-key-fingerprint HEX12] [--bind-override-out FILE]
 #   bash scripts/guard-web-synthetic-map-deploy.sh --compose-config-json FILE ...
 #
 # --image is the web image the deploy will actually start (callers resolve it from
@@ -15,8 +15,14 @@
 # image, bundle or verdict fails closed. Nothing is pulled and no provider is
 # contacted. Key values are never printed; only a 12-hex SHA-256 fingerprint.
 # --expected-map-key-fingerprint (or PARKIO_WEB_EXPECTED_MAP_KEY_FINGERPRINT)
-# additionally requires the baked key to match a fingerprint recorded from the
-# authorized release key; without it the guard proves "not synthetic", not "authorized".
+# additionally requires the baked key's fingerprint to equal the supplied one. That
+# proves equality to whatever key the fingerprint was computed from - not that the
+# fingerprint came from an approved release, nor that MapTiler accepts the key.
+#
+# --bind-override-out writes a Compose override (use it as the LAST -f) that pins
+# services.web to exactly what was verified: the verified repo@sha256 manifest
+# reference when one was requested (immutable), otherwise the verified config ID;
+# plus pull_policy: never, so no pull or tag move can substitute another image.
 #
 # Exit 0 = pass, 1 = blocked, 2 = usage.
 set -euo pipefail
@@ -30,6 +36,8 @@ PIN_FILE=""
 EVIDENCE_OUT=""
 EXPECTED_PLATFORM=""
 EXPECTED_FINGERPRINT="${PARKIO_WEB_EXPECTED_MAP_KEY_FINGERPRINT:-}"
+BIND_OUT=""
+MODEL_PLATFORM=""
 WEB_ROOT_IN_IMAGE="/usr/share/nginx/html"
 
 # Known bad runtime (PR #91 incident): the CI-acceptance archive published as
@@ -39,7 +47,7 @@ BAD_MANIFEST="sha256:8d9bfca43d577afd62d20f7ffe3fcb2566fbf3bce9dbd758368562aec64
 BAD_CONFIG="sha256:985fd8a7684a63ea21cf10cbb36f8f2fc092b7d3f13ccbc8c18311380945f68c"
 SYNTHETIC_CLASS="ci-web-build-security-synthetic"
 
-usage() { sed -n '2,21p' "$0"; }
+usage() { sed -n '2,/^# Exit 0/p' "$0"; }
 
 while [ "$#" -gt 0 ]; do
   case "$1" in
@@ -50,6 +58,7 @@ while [ "$#" -gt 0 ]; do
     --evidence-out) EVIDENCE_OUT="${2:-}"; shift 2 ;;
     --expected-platform) EXPECTED_PLATFORM="${2:-}"; shift 2 ;;
     --expected-map-key-fingerprint) EXPECTED_FINGERPRINT="${2:-}"; shift 2 ;;
+    --bind-override-out) BIND_OUT="${2:-}"; shift 2 ;;
     -h|--help) usage; exit 0 ;;
     *) echo "ERROR: unknown argument '$1'" >&2; usage >&2; exit 2 ;;
   esac
@@ -59,6 +68,11 @@ fail() {
   echo "web-map-deploy-guard: BLOCKED: $1" >&2
   exit 1
 }
+
+# A stale override from an earlier run must never be mistaken for this verdict.
+if [ -n "$BIND_OUT" ]; then
+  rm -f "$BIND_OUT" || { echo "ERROR: cannot clear $BIND_OUT" >&2; exit 2; }
+fi
 
 if [ -n "$EXPECTED_FINGERPRINT" ] && ! printf '%s' "$EXPECTED_FINGERPRINT" | grep -Eq '^[0-9a-f]{12}$'; then
   echo "ERROR: expected map key fingerprint must be 12 lowercase hex characters" >&2
@@ -78,8 +92,11 @@ web = (model.get("services") or {}).get("web")
 if web is None:
     sys.exit(4)
 print(web.get("image") or "")
+print(web.get("platform") or "")
 PY
 )" || fail "cannot read services.web.image from the rendered compose config"
+  MODEL_PLATFORM="$(printf '%s\n' "$IMAGE" | sed -n 2p)"
+  IMAGE="$(printf '%s\n' "$IMAGE" | sed -n 1p)"
 fi
 if [ -z "$IMAGE" ]; then
   echo "ERROR: --image or --compose-config-json with a web service image is required" >&2
@@ -171,6 +188,13 @@ if [ -z "$EXPECTED_PLATFORM" ]; then
 fi
 [ "$PLATFORM" = "$EXPECTED_PLATFORM" ] \
   || fail "web image platform ${PLATFORM} does not match the runtime platform ${EXPECTED_PLATFORM}"
+# Any platform selection Compose would apply must agree with what was verified.
+if [ -n "$MODEL_PLATFORM" ] && [ "$MODEL_PLATFORM" != "$PLATFORM" ]; then
+  fail "compose model selects platform ${MODEL_PLATFORM} for web but the verified image is ${PLATFORM}"
+fi
+if [ -n "${DOCKER_DEFAULT_PLATFORM:-}" ] && [ "$DOCKER_DEFAULT_PLATFORM" != "$PLATFORM" ]; then
+  fail "DOCKER_DEFAULT_PLATFORM=${DOCKER_DEFAULT_PLATFORM} differs from the verified image platform ${PLATFORM}"
+fi
 
 # --- Baked configuration: copy the bundle out of that exact config ID ----------
 WORK="$(mktemp -d)"
@@ -193,17 +217,33 @@ verdict_rc=$?
 set -e
 [ -n "$verdict" ] || fail "bundle classifier produced no verdict for ${CONFIG_ID}"
 
-evidence="$("$PYTHON" - "$IMAGE" "$CONFIG_ID" "$PLATFORM" "$REPO_DIGESTS" "$verdict" "$verdict_rc" <<'PY'
+fingerprint="$(printf '%s' "$verdict" | "$PYTHON" -c 'import json,sys; print(json.load(sys.stdin)["mapKeyFingerprint"] or "")')"
+reason="$(printf '%s' "$verdict" | "$PYTHON" -c 'import json,sys; v=json.load(sys.stdin); print(v["mapKeyStatus"]+": "+v["reason"])')"
+fp_status="not-requested"
+if [ -n "$EXPECTED_FINGERPRINT" ]; then
+  fp_status="mismatch"
+  [ -n "$fingerprint" ] && [ "$fingerprint" = "$EXPECTED_FINGERPRINT" ] && fp_status="matched"
+fi
+result="PASS"
+[ "$verdict_rc" -eq 0 ] || result="BLOCKED"
+[ "$fp_status" = "mismatch" ] && result="BLOCKED"
+# Immutable deployment selection: a verified manifest digest ref, else the config ID.
+BOUND_IMAGE="$CONFIG_ID"
+[ -n "$REQUESTED_DIGEST" ] && BOUND_IMAGE="$IMAGE"
+
+evidence="$("$PYTHON" - "$IMAGE" "$CONFIG_ID" "$PLATFORM" "$REPO_DIGESTS" "$verdict" "$result" "$fp_status" "$BOUND_IMAGE" <<'PY'
 import json, sys
-image, config_id, platform, repo_digests, verdict, rc = sys.argv[1:7]
+image, config_id, platform, repo_digests, verdict, result, fp_status, bound = sys.argv[1:9]
 print(json.dumps({
-    "guard": "web-map-deploy-guard/2",
+    "guard": "web-map-deploy-guard/3",
     "requestedImage": image,
     "configId": config_id,
     "platform": platform,
     "repoDigests": repo_digests.split(),
     "bundle": json.loads(verdict),
-    "result": "PASS" if rc == "0" else "BLOCKED",
+    "fingerprintCheck": fp_status,
+    "boundImage": bound if result == "PASS" else None,
+    "result": result,
 }, sort_keys=True))
 PY
 )"
@@ -211,13 +251,22 @@ if [ -n "$EVIDENCE_OUT" ]; then
   printf '%s\n' "$evidence" > "$EVIDENCE_OUT"
 fi
 
-reason="$(printf '%s' "$verdict" | "$PYTHON" -c 'import json,sys; v=json.load(sys.stdin); print(v["mapKeyStatus"]+": "+v["reason"])')"
 if [ "$verdict_rc" -ne 0 ]; then
   fail "web image ${CONFIG_ID} (${PLATFORM}, requested '$IMAGE'): ${reason}"
 fi
-fingerprint="$(printf '%s' "$verdict" | "$PYTHON" -c 'import json,sys; print(json.load(sys.stdin)["mapKeyFingerprint"])')"
-if [ -n "$EXPECTED_FINGERPRINT" ] && [ "$fingerprint" != "$EXPECTED_FINGERPRINT" ]; then
-  fail "web image ${CONFIG_ID}: baked map key fingerprint ${fingerprint} is not the expected release fingerprint ${EXPECTED_FINGERPRINT}"
+if [ "$fp_status" = "mismatch" ]; then
+  fail "web image ${CONFIG_ID}: baked map key fingerprint ${fingerprint} is not the expected fingerprint ${EXPECTED_FINGERPRINT}"
 fi
-echo "web-map-deploy-guard: PASS image=${IMAGE} configId=${CONFIG_ID} platform=${PLATFORM} mapKey=PRESENT fingerprint=${fingerprint} fingerprintMatched=$([ -n "$EXPECTED_FINGERPRINT" ] && echo yes || echo not-requested)"
+if [ -n "$BIND_OUT" ]; then
+  "$PYTHON" - "$BIND_OUT" "$BOUND_IMAGE" <<'PY' || fail "cannot write the binding override"
+import json, os, sys
+path, image = sys.argv[1:3]
+fd = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
+with os.fdopen(fd, "w") as fh:
+    # JSON is valid YAML; Compose merges this last, so it wins for these keys.
+    json.dump({"services": {"web": {"image": image, "pull_policy": "never"}}}, fh)
+    fh.write("\n")
+PY
+fi
+echo "web-map-deploy-guard: PASS image=${IMAGE} configId=${CONFIG_ID} platform=${PLATFORM} mapKey=PRESENT fingerprint=${fingerprint} fingerprintCheck=${fp_status} bound=${BOUND_IMAGE}"
 exit 0
