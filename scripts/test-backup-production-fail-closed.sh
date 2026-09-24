@@ -168,6 +168,44 @@ fi
   && ok "DB_FAILED>0: no COMPLETE and no offsite call" \
   || bad "dump failure must not seal or upload"
 
+if parkio_backup_allow_complete "${stamp_ok}" 0 0 2>/dev/null; then
+  bad "COMPLETE must be refused when minioOk=0"
+else
+  ok "COMPLETE refused when minioOk=0"
+fi
+if parkio_backup_allow_complete "${stamp_ok}" 0 1 2>/dev/null; then
+  bad "COMPLETE must be refused when MinIO artifact is missing"
+else
+  ok "COMPLETE refused when MinIO artifact is missing"
+fi
+mkdir -p "${stamp_ok}/minio"
+if parkio_backup_allow_complete "${stamp_ok}" 0 1; then
+  ok "COMPLETE allowed when minioOk=1 and plaintext MinIO tree exists"
+else
+  bad "COMPLETE must be allowed for a valid DB+MinIO stamp"
+fi
+rm -rf "${stamp_ok}/minio"
+touch "${stamp_ok}/minio.tar.gz.enc"
+export BACKUP_ENCRYPT_PASSPHRASE="fu1-test-not-a-secret"
+if parkio_backup_allow_complete "${stamp_ok}" 0 1; then
+  ok "COMPLETE allowed when minioOk=1 and MinIO is sealed"
+else
+  bad "COMPLETE must be allowed for a sealed MinIO stamp"
+fi
+mkdir -p "${stamp_ok}/minio"
+if parkio_backup_allow_complete "${stamp_ok}" 0 1 2>/dev/null; then
+  bad "COMPLETE must be refused when plaintext MinIO remains after seal"
+else
+  ok "COMPLETE refused when sealed stamp still has plaintext MinIO"
+fi
+unset BACKUP_ENCRYPT_PASSPHRASE
+rm -f "${stamp_ok}/minio.tar.gz.enc"
+rm -rf "${stamp_ok}/minio"
+grep -q 'parkio_backup_allow_complete "${DEST_DIR}" "${DB_FAILED}" "${MINIO_OK}"' \
+  "${ROOT}/scripts/backup-hosted-beta.sh" \
+  && ok "hosted-beta passes MINIO_OK into allow_complete" \
+  || bad "hosted-beta must gate COMPLETE on MINIO_OK"
+
 echo
 echo "=== backup production fail-closed: pass=${pass} fail=${fail} ==="
 if [ "${fail}" -ne 0 ]; then

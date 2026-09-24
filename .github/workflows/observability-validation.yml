@@ -18,6 +18,7 @@ on:
       - "scripts/lib/backup-metrics.py"
       - "scripts/test_backup_metrics.py"
       - "scripts/test-backup-production-fail-closed.sh"
+      - "scripts/test-backup-complete-gate.sh"
       - "docker/docker-compose.invite-*.yml"
       - "infra/systemd/parkio-invite-backup.service"
       - "scripts/observability-validate.sh"
@@ -50,6 +51,7 @@ on:
       - "scripts/lib/backup-metrics.py"
       - "scripts/test_backup_metrics.py"
       - "scripts/test-backup-production-fail-closed.sh"
+      - "scripts/test-backup-complete-gate.sh"
       - "docker/docker-compose.invite-*.yml"
       - "infra/systemd/parkio-invite-backup.service"
       - "scripts/observability-validate.sh"
@@ -231,17 +233,20 @@ jobs:
             scripts/observability-validate.sh scripts/alerting-acceptance.sh \
             scripts/test-alertmanager-slack-render.sh \
             scripts/test-backup-azure-sas-minio-encryption.sh \
-            scripts/test-backup-production-fail-closed.sh
+            scripts/test-backup-production-fail-closed.sh \
+            scripts/test-backup-complete-gate.sh
           for f in scripts/backup-hosted-beta.sh scripts/backup-minio.sh scripts/restore-hosted-beta.sh \
             scripts/lib/backup-common.sh scripts/observability-validate.sh scripts/alerting-acceptance.sh \
             scripts/test-alertmanager-slack-render.sh \
             scripts/test-backup-azure-sas-minio-encryption.sh \
-            scripts/test-backup-production-fail-closed.sh; do
+            scripts/test-backup-production-fail-closed.sh \
+            scripts/test-backup-complete-gate.sh; do
             bash -n "$f"
           done
           python3 -m py_compile scripts/alerting-acceptance-receiver.py scripts/ci/alertmanager-slack-mock.py
           ./scripts/test-backup-azure-sas-minio-encryption.sh
           ./scripts/test-backup-production-fail-closed.sh
+          ./scripts/test-backup-complete-gate.sh
 
       - name: Backup dry-run manifest
         run: |

@@ -399,10 +399,14 @@ parkio_backup_write_checksum() {
 }
 
 # COMPLETE and offsite upload require every dump to succeed and a valid ledger.
+# Full production scope also requires a successful MinIO capture/seal.
 # Existing stamps are never rewritten by this check.
+# Usage: parkio_backup_allow_complete <dest_dir> <db_failed> [minio_ok]
+# Two-argument form is the documented DB-only scope (ledger + dumps).
 parkio_backup_allow_complete() {
   local dest_dir="$1"
   local db_failed="${2:-0}"
+  local minio_ok="${3-}"
   if [ "${db_failed}" -ne 0 ]; then
     echo "ERROR: refusing COMPLETE: database dump failures=${db_failed}" >&2
     return 1
@@ -424,7 +428,55 @@ except Exception as exc:
 if not isinstance(data, list):
     print("ERROR: erasure ledger must be a JSON array", file=sys.stderr)
     sys.exit(1)
-' "${ledger}"
+' "${ledger}" || return 1
+  if [ -n "${minio_ok}" ]; then
+    if [ "${minio_ok}" != "1" ]; then
+      echo "ERROR: refusing COMPLETE: MinIO capture/seal failed (minioOk=${minio_ok})" >&2
+      return 1
+    fi
+    if [ -n "${BACKUP_ENCRYPT_PASSPHRASE:-}" ]; then
+      if [ ! -f "${dest_dir}/minio.tar.gz.enc" ]; then
+        echo "ERROR: refusing COMPLETE: sealed MinIO artifact missing" >&2
+        return 1
+      fi
+      if [ -d "${dest_dir}/minio" ]; then
+        echo "ERROR: refusing COMPLETE: plaintext MinIO tree still present" >&2
+        return 1
+      fi
+    elif [ ! -d "${dest_dir}/minio" ]; then
+      echo "ERROR: refusing COMPLETE: MinIO tree missing" >&2
+      return 1
+    fi
+  fi
+}
+
+# Remove only this run's unfinished MinIO artifacts. Never touch other stamps.
+parkio_backup_discard_partial_minio() {
+  local dest_dir="$1"
+  [ -n "${dest_dir}" ] && [ -d "${dest_dir}" ] || return 0
+  chmod -R u+w "${dest_dir}/minio" 2>/dev/null || true
+  rm -rf "${dest_dir}/minio"
+  find "${dest_dir}" -maxdepth 1 -name '.minio-seal.*' -exec rm -rf {} + 2>/dev/null || true
+  rm -f "${dest_dir}/minio.tar.gz.enc" "${dest_dir}/minio.tar.gz.enc.sha256" \
+    "${dest_dir}/minio-encryption.json"
+}
+
+# If the current stamp was interrupted before finalize, drop COMPLETE only.
+# Leaves dumps, ledger, SHA256SUMS, and other diagnostics in place.
+parkio_backup_clear_unfinalized_complete() {
+  if [ "${PARKIO_BACKUP_FINALIZED:-0}" != "1" ] && [ -n "${DEST_DIR:-}" ]; then
+    rm -f "${DEST_DIR}/COMPLETE"
+    find "${DEST_DIR}" -maxdepth 1 -name '.COMPLETE.*' -type f -exec rm -f {} + 2>/dev/null || true
+  fi
+}
+
+parkio_backup_prune_expired_stamps() {
+  local backup_dir="$1"
+  local retention="${2:-${BACKUP_RETENTION_DAYS:-14}}"
+  if [ ! -d "${backup_dir}" ]; then
+    return 0
+  fi
+  find "${backup_dir}" -mindepth 1 -maxdepth 1 -type d -mtime "+${retention}" -exec rm -rf {} + 2>/dev/null || true
 }
 
 parkio_backup_write_stamp_integrity() {
@@ -434,21 +486,33 @@ parkio_backup_write_stamp_integrity() {
     echo "ERROR: cannot write SHA256SUMS (no sha256sum/shasum)." >&2
     return 1
   fi
-  (
+  if ! (
     cd "${dest_dir}"
     if command -v sha256sum >/dev/null 2>&1; then
-      find . -type f ! -name SHA256SUMS ! -name COMPLETE | LC_ALL=C sort | xargs -r sha256sum > SHA256SUMS
+      find . -type f ! -name SHA256SUMS ! -name COMPLETE ! -name '.COMPLETE.*' | LC_ALL=C sort | xargs -r sha256sum > SHA256SUMS
     else
-      find . -type f ! -name SHA256SUMS ! -name COMPLETE | LC_ALL=C sort | xargs -r shasum -a 256 > SHA256SUMS
+      find . -type f ! -name SHA256SUMS ! -name COMPLETE ! -name '.COMPLETE.*' | LC_ALL=C sort | xargs -r shasum -a 256 > SHA256SUMS
     fi
-  )
+  ); then
+    echo "ERROR: failed to write SHA256SUMS" >&2
+    rm -f "${dest_dir}/SHA256SUMS" "${dest_dir}/COMPLETE"
+    return 1
+  fi
   local sums_hash
   if command -v sha256sum >/dev/null 2>&1; then
-    sums_hash="$(sha256sum "${dest_dir}/SHA256SUMS" | awk '{print $1}')"
+    sums_hash="$(sha256sum "${dest_dir}/SHA256SUMS" | awk '{print $1}')" || return 1
   else
-    sums_hash="$(shasum -a 256 "${dest_dir}/SHA256SUMS" | awk '{print $1}')"
+    sums_hash="$(shasum -a 256 "${dest_dir}/SHA256SUMS" | awk '{print $1}')" || return 1
   fi
-  printf 'stamp=%s\nsha256sums=%s\n' "${stamp}" "${sums_hash}" > "${dest_dir}/COMPLETE"
+  if [ -z "${sums_hash}" ]; then
+    echo "ERROR: empty SHA256SUMS digest; refusing COMPLETE" >&2
+    rm -f "${dest_dir}/COMPLETE"
+    return 1
+  fi
+  local complete_tmp
+  complete_tmp="$(mktemp "${dest_dir}/.COMPLETE.XXXXXX")"
+  printf 'stamp=%s\nsha256sums=%s\n' "${stamp}" "${sums_hash}" > "${complete_tmp}"
+  mv "${complete_tmp}" "${dest_dir}/COMPLETE"
 }
 
 parkio_backup_verify_stamp() {

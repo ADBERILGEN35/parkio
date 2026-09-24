@@ -48,11 +48,12 @@ def publish(directory, scope, success, stamp, failed, objects, offsite, encrypti
             os.fsync(output.fileno())
         os.replace(temporary, directory / "parkio_backup.prom")
         temporary = None
-        descriptor = os.open(directory, os.O_RDONLY | os.O_DIRECTORY)
-        try:
-            os.fsync(descriptor)
-        finally:
-            os.close(descriptor)
+        if hasattr(os, "O_DIRECTORY"):
+            descriptor = os.open(directory, os.O_RDONLY | os.O_DIRECTORY)
+            try:
+                os.fsync(descriptor)
+            finally:
+                os.close(descriptor)
     finally:
         if temporary is not None:
             os.unlink(temporary)

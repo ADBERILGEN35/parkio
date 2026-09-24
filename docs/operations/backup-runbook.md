@@ -52,6 +52,9 @@ CI weekly drill: `.github/workflows/backup-restore-drill.yml` at `23 4 * * 1` (U
 - offsite upload failure → overall backup **FAILED** (local-only is not “protected”)
 - dump checksums are required
 - stamp is incomplete until `COMPLETE` exists
+- full production `COMPLETE` also requires a successful MinIO capture/seal (`minioOk=1`) plus a valid erasure ledger
+- a required-stage failure exits nonzero, does not upload, and does not prune previous good stamps
+- `backup-databases.sh` standalone is DB+ledger only; it must not `COMPLETE` or prune after a dump/ledger failure
 
 Local/dev defaults remain optional (`BACKUP_PRODUCTION_MODE=0` or unset).
 
@@ -63,10 +66,11 @@ Secrets live in operator `.env` / Key Vault / GitHub Actions secrets. **Never gi
 backup-hosted-beta.sh
   1. preflight (production mode: encrypt + offsite required)
   2. pg_dump × 10 → <stamp>/*.sql.gz.enc + .sha256
-  3. mc mirror MinIO → <stamp>/minio/<bucket>/
-  4. backup-manifest.json + SHA256SUMS + COMPLETE (COMPLETE last)
-  5. offsite upload of the COMPLETE stamp (dumps + minio + checksums)
-  6. Prometheus textfile
+  3. mc mirror MinIO → <stamp>/minio/<bucket>/ then seal to minio.tar.gz.enc
+  4. COMPLETE only if dumps + valid ledger + MinIO + integrity succeed
+  5. offsite upload of that COMPLETE stamp only (never a failed stamp)
+  6. Prometheus textfile (success and failure both recorded truthfully)
+  7. prune expired local stamps only after a successful complete run
 ```
 
 Consumers must refuse a remote stamp without `COMPLETE`.
