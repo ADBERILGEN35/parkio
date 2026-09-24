@@ -56,8 +56,12 @@ Acceptance layers stay separate:
 1. Local stamp integrity: `COMPLETE` binds `SHA256SUMS`; checksums and path
    containment pass.
 2. Scope: a DB-only COMPLETE stamp is not a full-system backup.
-3. Erasure coverage through an explicit `--recovery-cutoff`. A stamp-time or
-   empty ledger does not prove later erasures. Never lower the cutoff.
+3. Erasure **necessary gate** through an explicit `--recovery-cutoff`.
+   Certified coverage is the newest stamp ledger's `manifest.timestamp` only.
+   A stamp-time or empty ledger, caller timestamp, file mtime, upload time,
+   newer nightly ledger, or `--supplemental-covered-through` does not certify
+   commit-visible completeness of the unlocked SELECT. Never lower the cutoff.
+   Production recovery remains BLOCKED for certified completeness.
 4. `offsite.uploaded` on a sealed stamp is not local integrity and not
    independent remote presence. Do not rewrite stamps to flip it.
 5. Dump-client, restore-client, target-server and PostGIS are checked

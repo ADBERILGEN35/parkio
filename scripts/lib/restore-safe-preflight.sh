@@ -77,7 +77,8 @@ parkio_restore_run_stamp_preflight() {
 }
 
 # Coverage through an explicit cutoff. Never lower the cutoff. An empty
-# ledger or stamp-time ledger does not prove later erasures.
+# ledger, stamp-time ledger, caller timestamp, file mtime, or supplemental
+# covered-through does not certify later erasures or commit visibility.
 parkio_restore_run_coverage() {
   local stamp="$1"
   local cutoff="$2"

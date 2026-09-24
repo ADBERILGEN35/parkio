@@ -321,6 +321,18 @@ else
   if no_destroy; then ok "missing recovery cutoff fails closed"; else bad "missing cutoff leaked commands"; fi
 fi
 
+# --- incomplete supplemental with an apparently sufficient timestamp ---
+printf '[]\n' > "${WORK}/incomplete-supplement.json"
+: > "${LOG}"
+if PARKIO_ENV_FILE="${ENV_FILE}" "${ROOT}/scripts/restore-hosted-beta.sh" \
+    --manifest "${MANIFEST}" --yes --recovery-cutoff "2026-09-21T15:00:00Z" \
+    --supplemental-ledger "${WORK}/incomplete-supplement.json" \
+    --supplemental-covered-through "2026-09-21T15:00:00Z" >/dev/null 2>&1; then
+  bad "incomplete supplemental must not certify coverage"
+else
+  if no_destroy; then ok "incomplete supplemental timestamp does not certify coverage"; else bad "uncertified supplemental leaked commands"; fi
+fi
+
 # --- restore-database standalone path traversal ---
 : > "${LOG}"
 if PARKIO_ENV_FILE="${ENV_FILE}" "${ROOT}/scripts/restore-database.sh" \
