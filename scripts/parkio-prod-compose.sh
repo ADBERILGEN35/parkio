@@ -30,18 +30,34 @@ if [ "${PARKIO_GMP_RECOVERY:-0}" = "1" ]; then
   ARGS+=(-f "$recovery")
 fi
 cd "$ROOT"
-# Narrow deploy-time guard: reject the known CI synthetic MapTiler key / digest.
-# Mock CI image acceptance does not use this wrapper and is unchanged.
-want_up=0
-for arg in "$@"; do
-  if [ "$arg" = "up" ]; then
-    want_up=1
-    break
-  fi
-done
-if [ "$want_up" = "1" ] && [ "${PARKIO_SKIP_WEB_MAP_GUARD:-0}" != "1" ]; then
-  "$ROOT/scripts/guard-web-synthetic-map-deploy.sh" \
-    --env-file "$ENV_FILE" \
-    --pin-file "$ROOT/docker/docker-compose.web-release-pin.yml"
-fi
+# Web map deploy guard (audit F-05). Any invocation that can create the web
+# container verifies the exact web image the merged model selects — including
+# operator-supplied -f/--profile globals — before Compose runs. Invocations that
+# cannot touch web (e.g. `up -d --no-deps gateway-service`, logs, ps) are not gated.
+# shellcheck source=lib/web-map-guard.sh
+source "$ROOT/scripts/lib/web-map-guard.sh"
+parkio_web_guard_split_args "$@"
+parkio_web_guard_decide
+case "$PWG_DECISION" in
+  refuse)
+    echo "ERROR: web map deploy guard: $PWG_REASON" >&2
+    exit 1
+    ;;
+  run)
+    skip_rc=0
+    parkio_web_guard_skip_requested || skip_rc=$?
+    if [ "$skip_rc" -eq 2 ]; then
+      exit 1
+    elif [ "$skip_rc" -ne 0 ]; then
+      guard_config="$(mktemp)"
+      trap 'rm -f "$guard_config"' EXIT
+      docker compose --env-file "$ENV_FILE" "${ARGS[@]}" "${PWG_GLOBAL[@]}" config --format json >"$guard_config" \
+        || { echo "ERROR: web map deploy guard: cannot render the compose model" >&2; exit 1; }
+      parkio_web_guard_check_config "$guard_config" --env-file "$ENV_FILE" \
+        || { echo "ERROR: web map deploy guard failed; nothing was started" >&2; exit 1; }
+      rm -f "$guard_config"
+      trap - EXIT
+    fi
+    ;;
+esac
 exec docker compose --env-file "$ENV_FILE" "${ARGS[@]}" "$@"

@@ -264,8 +264,39 @@ parkio_validate_azure_disabled_services() {
   return 0
 }
 
+# Web map deploy guard (audit F-05): verify the exact web image the rendered
+# model selects before anything starts. Covers deploy, invite deploy and rollback.
+parkio_web_guard_before_up() {
+  local env_file="$1" skip_rc=0 config_json rc=0
+  # shellcheck source=web-map-guard.sh
+  source "$(parkio_repo_root)/scripts/lib/web-map-guard.sh"
+  if [ "${#PARKIO_RUNTIME_SERVICES[@]}" -gt 0 ]; then
+    parkio_web_guard_split_args up -d "${PARKIO_RUNTIME_SERVICES[@]}"
+  else
+    parkio_web_guard_split_args up -d
+  fi
+  parkio_web_guard_decide
+  [ "$PWG_DECISION" = "run" ] || return 0
+  parkio_web_guard_skip_requested || skip_rc=$?
+  [ "$skip_rc" -eq 0 ] && return 0
+  [ "$skip_rc" -eq 2 ] && return 1
+  config_json="$(mktemp)"
+  if ! parkio_compose "$env_file" config --format json >"$config_json"; then
+    rm -f "$config_json"
+    echo "ERROR: web map deploy guard: cannot render the compose model" >&2
+    return 1
+  fi
+  parkio_web_guard_check_config "$config_json" --env-file "$env_file" || rc=$?
+  rm -f "$config_json"
+  if [ "$rc" -ne 0 ]; then
+    echo "ERROR: web map deploy guard failed; nothing was started" >&2
+    return 1
+  fi
+}
+
 parkio_compose_up() {
   local env_file="$1"
+  parkio_web_guard_before_up "$env_file" || return 1
   if [ "${#PARKIO_RUNTIME_SERVICES[@]}" -gt 0 ]; then
     parkio_compose "$env_file" up -d "${PARKIO_RUNTIME_SERVICES[@]}"
   else
