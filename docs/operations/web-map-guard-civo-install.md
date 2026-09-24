@@ -29,16 +29,22 @@ The binding override does not change any service hash, including web.
 Do **not** replace the wrapper solely because the checkout is old. Re-hash
 immediately before copy. Any subsequent drift of the live wrapper is a stop.
 
-## Installation set (post-image = `59a8e3d6` / reviewed `1e14f3f3`)
+## Installation set (sole source: merged #110 tree)
 
-Obtain files with `git show <SHA>:<path>` (LF blob bytes). Do not use a
-Windows `git archive` of `*.py` (`text=auto` can rewrite CRLF). Re-hash every
-byte in the staging directory; do not reuse an old `/tmp` tree.
+The four files come only from the merged #110 commit. There is no
+`#108 or #110` choice.
+
+Obtain files with `git show <merged-#110-SHA>:<path>` (LF blob bytes). Do not
+use a Windows `git archive` of `*.py` (`text=auto` can rewrite CRLF). Re-hash
+every byte in the staging directory; do not reuse an old `/tmp` tree.
+
+Post-image SHA-256 is of the **git blob** (`git show <merged-#110-SHA>:<path>`),
+not a Windows checkout of `text=auto` files.
 
 | File | Action | Post-image SHA-256 | Mode after copy |
 |---|---|---|---|
 | `scripts/parkio-prod-compose.sh` | replace | `08492bc5ea9a8a2047ac9835212298998c042166b6ead6ae94262e7942b7e97a` | preserve live (`civo:civo` `775` observed) |
-| `scripts/guard-web-synthetic-map-deploy.sh` | new | `49a21daf3d870ec81f572da62fb79e1cfc8b8eb3a8998f8a1773c398992fc5f0` | `0644` (invoked via `bash`) |
+| `scripts/guard-web-synthetic-map-deploy.sh` | new | `e38a6cabdee35c78e003a22315423996db556a397259e6b5fc45dca622f37f7b` | `0644` (invoked via `bash`) |
 | `scripts/lib/web-map-guard.sh` | new | `ed2d13474aa473a3341c704837bd9c90f71e9661cdb877d1246caa42f5149a68` | `0644`, owner of `scripts/lib/` |
 | `scripts/lib/web_bundle_map_config.py` | new | `c02c4d4f13a2c20588f6f34cf7cdb85040b15dbd8acd433bdcba7e8acc17bf68` | `0644`, owner of `scripts/lib/` |
 
@@ -104,9 +110,11 @@ separate:
 
 - repository/index digest (registry; may be absent locally)
 - platform manifest digest (`Descriptor.digest` / `RepoDigests`)
-- image configuration digest (established only when inspect `.Id` is not a
-  known manifest digest, or from independent local metadata)
+- image configuration digest (classic graphdriver: inspect `.Id` when it is not
+  a known manifest digest; containerd: `config.digest` from the local OCI
+  manifest of that same image)
 - daemon image ID (inspect `.Id`)
 
-Do not treat `.Id` as `configId` unless established. Digest-pinned production
+Do not treat `.Id` as `configId` unless established. If the configuration
+digest cannot be verified, the guard fails closed. Digest-pinned production
 binding uses the requested `repo@sha256` reference and is unchanged.

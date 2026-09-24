@@ -27,8 +27,11 @@
 # daemon image ID; plus pull_policy: never, so no pull or tag move can substitute
 # another image. The daemon image ID is not reported as configId unless it is
 # established as the configuration digest (classic graphdriver). On a containerd
-# snapshotter, inspect .Id is typically the platform manifest digest and is left
-# unverified as a config digest.
+# snapshotter, inspect .Id is typically the platform manifest digest and is not
+# treated as a config digest. The configuration digest is then taken from the
+# local image's own OCI manifest (same image that was inspected). If that digest
+# cannot be verified, the guard fails closed. A PASS always has an established
+# config digest that is not the known-bad configuration.
 #
 # Exit 0 = pass, 1 = blocked, 2 = usage.
 set -euo pipefail
@@ -47,10 +50,12 @@ MODEL_PLATFORM=""
 WEB_ROOT_IN_IMAGE="/usr/share/nginx/html"
 
 # Known bad runtime (PR #91 incident): the CI-acceptance archive published as
-# the production web image. The requested digest and every RepoDigest are
-# checked against the known-bad manifest. The known-bad configuration digest is
-# checked only when that digest is independently established. When inspect .Id
-# equals a RepoDigest or Descriptor digest it is not treated as a config digest.
+# the production web image. The requested digest, Descriptor digest and every
+# RepoDigest are checked against the known-bad manifest. The known-bad
+# configuration digest is checked against an established OCI config digest
+# (classic graphdriver image ID, or the config descriptor of the local
+# manifest). Unavailable config identity fails closed; the known-bad manifest
+# check is the only other verified rejection of that same runtime.
 BAD_MANIFEST="sha256:8d9bfca43d577afd62d20f7ffe3fcb2566fbf3bce9dbd758368562aec641487d"
 BAD_CONFIG="sha256:985fd8a7684a63ea21cf10cbb36f8f2fc092b7d3f13ccbc8c18311380945f68c"
 SYNTHETIC_CLASS="ci-web-build-security-synthetic"
@@ -200,13 +205,118 @@ case "$DAEMON_IMAGE_ID" in
   *) fail "web image '$IMAGE' has no daemon image ID" ;;
 esac
 
-if [ "$CONFIG_DIGEST_STATUS" = "established" ] && [ "$CONFIG_DIGEST" = "$BAD_CONFIG" ]; then
-  fail "web image config digest is the known synthetic-map runtime ${BAD_CONFIG} (requested as '$IMAGE')"
+if [ "$DESCRIPTOR_DIGEST" = "$BAD_MANIFEST" ]; then
+  fail "web image '$IMAGE' Descriptor digest is the known synthetic-map runtime ${BAD_MANIFEST}"
 fi
 for rd in $REPO_DIGESTS; do
   [ "${rd##*@}" != "$BAD_MANIFEST" ] \
     || fail "web image '$IMAGE' resolves to the known synthetic-map manifest ${BAD_MANIFEST}"
 done
+if [ "$CONFIG_DIGEST_STATUS" != "established" ] || [ -z "$CONFIG_DIGEST" ]; then
+  save_dir="$(mktemp -d)"
+  chmod 700 "$save_dir"
+  extracted=""
+  if docker save --output "$save_dir/img.tar" "$IMAGE" 2>/dev/null; then
+    extracted="$("$PYTHON" - "$save_dir/img.tar" "$DAEMON_IMAGE_ID" "$DESCRIPTOR_DIGEST" "$REPO_DIGESTS" "$REQUESTED_DIGEST" "$IMAGE" <<'PY'
+import hashlib, json, sys, tarfile
+
+tar_path, daemon_id, descriptor, repo_csv, requested, image = sys.argv[1:7]
+allowed = set()
+for item in (daemon_id, descriptor, requested):
+    if item.startswith("sha256:"):
+        allowed.add(item)
+for rd in repo_csv.split():
+    if "@" in rd:
+        allowed.add(rd.split("@", 1)[1])
+    elif rd.startswith("sha256:"):
+        allowed.add(rd)
+
+def digest_hex(value):
+    return value[7:] if value.startswith("sha256:") else value
+
+def read_member(archive, name):
+    member = archive.extractfile(name)
+    if member is None:
+        return None
+    return member.read()
+
+def is_config_digest(value):
+    return isinstance(value, str) and value.startswith("sha256:") and len(value) == 71
+
+try:
+    archive = tarfile.open(tar_path, "r")
+except Exception:
+    sys.exit(3)
+try:
+    names = archive.getnames()
+    name_by_hex = {}
+    for name in names:
+        base = name.rsplit("/", 1)[-1]
+        if len(base) == 64 and all(c in "0123456789abcdef" for c in base):
+            name_by_hex[base] = name
+    if "index.json" in names:
+        try:
+            index = json.loads(read_member(archive, "index.json"))
+        except Exception:
+            index = None
+        if isinstance(index, dict):
+            for entry in index.get("manifests") or []:
+                manifest_digest = entry.get("digest") or ""
+                if allowed and manifest_digest not in allowed:
+                    continue
+                blob_name = name_by_hex.get(digest_hex(manifest_digest))
+                if not blob_name:
+                    continue
+                try:
+                    manifest = json.loads(read_member(archive, blob_name))
+                except Exception:
+                    continue
+                config_digest = (manifest.get("config") or {}).get("digest") or ""
+                if is_config_digest(config_digest):
+                    print(config_digest)
+                    sys.exit(0)
+    if "manifest.json" in names:
+        try:
+            docker_manifests = json.loads(read_member(archive, "manifest.json"))
+        except Exception:
+            docker_manifests = None
+        if isinstance(docker_manifests, list) and len(docker_manifests) == 1:
+            entry = docker_manifests[0] or {}
+            tags = entry.get("RepoTags") or []
+            # Saved from the exact inspected reference: tag match, or a
+            # single-image digest save with no tags.
+            if tags and image not in tags and not any(t.endswith("@" + requested) for t in tags if requested):
+                sys.exit(4)
+            cfg_name = entry.get("Config") or ""
+            if not cfg_name or cfg_name not in names:
+                sys.exit(4)
+            data = read_member(archive, cfg_name)
+            if not data:
+                sys.exit(4)
+            digest = "sha256:" + hashlib.sha256(data).hexdigest()
+            base = cfg_name.rsplit("/", 1)[-1]
+            if len(base) == 64 and all(c in "0123456789abcdef" for c in base) and digest != "sha256:" + base:
+                sys.exit(4)
+            print(digest)
+            sys.exit(0)
+    sys.exit(4)
+finally:
+    archive.close()
+PY
+)" || extracted=""
+  fi
+  rm -rf "$save_dir"
+  if [ -n "$extracted" ]; then
+    CONFIG_DIGEST="$extracted"
+    CONFIG_DIGEST_STATUS="established"
+  fi
+fi
+if [ "$CONFIG_DIGEST_STATUS" != "established" ] || [ -z "$CONFIG_DIGEST" ]; then
+  fail "web image '$IMAGE' has no verified configuration digest; refuse to start it"
+fi
+if [ "$CONFIG_DIGEST" = "$BAD_CONFIG" ]; then
+  fail "web image config digest is the known synthetic-map runtime ${BAD_CONFIG} (requested as '$IMAGE')"
+fi
 if [ -n "$REQUESTED_DIGEST" ]; then
   matched=0
   for rd in $REPO_DIGESTS; do
