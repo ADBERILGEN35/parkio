@@ -40,9 +40,20 @@ User-facing HTTP is not paused. `gateway_exporter` is a pause file, not
 a gateway process stop. Production hook still refuses live host units.
 
 **Later gateway deploy requirement:** set
-`PARKIO_WAITLIST_OPS_NOTIFICATIONS_EXPORT_PAUSE_FILE` on the gateway.
-Until that deploy, production export-only pause cannot be armed. Do not
-flip `ops-notifications.enabled` to pause export.
+`PARKIO_WAITLIST_OPS_NOTIFICATIONS_EXPORT_PAUSE_FILE=/var/lib/parkio/waitlist-ops-inbox/.export-paused`
+on the existing inbox bind (host and container path are the same). File
+presence is not drain proof; wait for no `.waitlist-*.json.tmp`, one
+completed poll after mtime, and a flat exported counter. Coordinator
+(root) creates and removes the gate. Gateway uid 10001 only stats it.
+If the JVM cannot see the file, export continues. Do not flip
+`ops-notifications.enabled` to pause export.
+
+Production NR stop is `systemctl stop` of the guard timer, then
+`parkio-nr-log-continuous.service` (ExecStop stops helper + both
+containers). Per-service compose stop while the oneshot unit stays
+active is incompatible with the one-minute guard. Isolated compose
+control remains refused for production. See
+`agent-tools/parkio-ops-erasure-nr-integration-01/PR104-PRODUCTION-INTEGRATION-DECISION.md`.
 
 Isolated adapter only: `PARKIO_WRITER_CONTROL_ISOLATED=1` and compose
 project prefix `parkio-writer-control-isolated-`. Documented production
@@ -77,18 +88,18 @@ or permissions exist for operational-state archives or erasure seals.
 | Retention / delete protection | Documented 14-day lifecycle; immutability UNKNOWN | Need a **dedicated** prefix, versioning, MFA-delete or object lock |
 | Freshness | Nightly stamp | Independent of nightly COMPLETE; watermark age is a separate SLA |
 
-Operator decisions still required (no secrets retrieved here):
+Written proposal (not provisioned; `BACKUP_AZURE_*` not retrieved):
 
-1. Whether a **new** container/prefix is created vs an isolated prefix in
-   the existing account. Existing `BACKUP_AZURE_CONTAINER` is for DB/MinIO
-   stamps; do not mix journals into that prefix without a written decision.
-2. Identity: already-authorized principal vs new SAS. Do not retrieve
-   `BACKUP_AZURE_*` in this PR.
-3. Object-lock / WORM vs versioning-only.
-4. Freshness alert threshold for erasure `coveredThrough` and ops-archive
-   age.
-5. Who may decrypt operational archives and who may attest lock-protocol
-   erasure seals.
+- Account model: `stparkiobakwesteu` in `rg-parkio-backups`.
+- New container `parkio-ops-erasure`, not a prefix inside `parkio-backups`.
+- Prefixes `ops-state/<stamp>/` and `erasure-seals/`.
+- Dedicated `rcwl` SAS or identity; no Delete; do not reuse the DB SAS.
+- 14-day lifecycle is wrong for erasure seals; no lifecycle until legal
+  sets a floor (or operator names a number).
+- SHA-256 + COMPLETE is not a signature. Object-lock remains UNKNOWN.
+
+Operator confirmations still required: container name, delete-protection
+mode, erasure retention. Do not retrieve `BACKUP_AZURE_*` here.
 
 ## 3. Flags (all default off)
 

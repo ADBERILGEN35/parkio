@@ -2,9 +2,15 @@
 
 **PR:** https://github.com/ADBERILGEN35/parkio/pull/104
 **Base:** `origin/api` `aa865a255564464bed207a9061244af2641edd3d`
-**Reported head (CI reused below):** `126727c6c41fd54b8b5b1ad7979bbc1aabbaa31a`
+**Reviewed head:** `e7a29c73d24feefdd75a2da4cbeeaa778ed1457c`
+**Earlier synthetic CI head (still valid evidence):** `126727c6c41fd54b8b5b1ad7979bbc1aabbaa31a`
 **Decision:** **HOLD**. Production disabled. Keep draft. Do not open another
 integration PR. Do not merge or close #101/#102/#103/#104.
+
+Production integration (preflight, pause file, NR guards, deploy scope,
+remote storage) is recorded in
+`PR104-PRODUCTION-INTEGRATION-DECISION.md`. Isolated implementation is
+complete. Production remains HOLD.
 
 Preparation worktrees and PRs are unchanged:
 #101 `2f04d01636ab23f2e0881bb2f8018fe3eb0ed815`,
@@ -13,7 +19,16 @@ Preparation worktrees and PRs are unchanged:
 
 Accepted web and Alertmanager deployments are out of scope.
 
-## 1. Required CI on reported head `126727c6`
+## 1. Required CI
+
+On reviewed head `e7a29c73`: Build & unit tests PASS
+(https://github.com/ADBERILGEN35/parkio/actions/runs/35920746085);
+Secret scan PASS
+(https://github.com/ADBERILGEN35/parkio/actions/runs/35920746129);
+Synthetic coordination lifecycle PASS
+(https://github.com/ADBERILGEN35/parkio/actions/runs/35920746192).
+
+On earlier head `126727c6` (reused dedicated evidence):
 
 `api` protection: `strict` required contexts `Build & unit tests` + `Secret scan`.
 

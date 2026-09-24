@@ -1,8 +1,9 @@
 # Coordinated integration -- draft release package
 
 **PR target:** `api` (draft only). **Decision: HOLD. Production disabled.**
-**Reported CI head:** `126727c6c41fd54b8b5b1ad7979bbc1aabbaa31a`
-See `PR104-RELEASE-DECISION.md` for the finite blocker table.
+**Reviewed head:** `e7a29c73d24feefdd75a2da4cbeeaa778ed1457c`
+See `PR104-PRODUCTION-INTEGRATION-DECISION.md` for the production HOLD
+decision. See `PR104-RELEASE-DECISION.md` for the earlier blocker table.
 
 ## Included source identities
 
