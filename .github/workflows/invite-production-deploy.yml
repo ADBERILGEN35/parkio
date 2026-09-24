@@ -199,6 +199,9 @@ jobs:
           node --test frontend/apps/web/scripts/verify-bundle-env.test.mjs
           node --test frontend/apps/web/scripts/assert-hosted-beta-web-bake.test.mjs
           bash scripts/guard-hosted-beta-web-bake.sh
+          # F-05 web map deploy guard + its real callers; Part B needs the
+          # runner's docker daemon and must not silently skip here.
+          PARKIO_GUARD_TEST_REQUIRE_DOCKER=1 bash scripts/test-guard-web-synthetic-map-deploy.sh
 
       - name: Meta
         id: meta
