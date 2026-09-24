@@ -4,9 +4,10 @@
 
 ## Single database
 
-The dump must sit inside a COMPLETE stamp. Production restore fail-closes
-before decrypt unless `--recovery-cutoff` is supplied and erasure coverage
-reaches that cutoff. A stamp-time ledger is not enough for a later cutoff.
+The dump must sit inside a COMPLETE stamp. Production restore is BLOCKED
+before decrypt or apply: a manifest timestamp is not verified coverage.
+Standalone `restore-database.sh` does not replay erasures and is refused.
+`--isolated-fixture` is synthetic only.
 
 ```bash
 PARKIO_ENV_FILE=docker/.env ./scripts/restore-database.sh auth \

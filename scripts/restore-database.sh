@@ -9,7 +9,9 @@
 #
 # Usage:
 #   scripts/restore-database.sh <service> <dump-file> [--yes] [--env-file <path>]
-#                [--recovery-cutoff <ISO-8601-UTC>]
+#                [--recovery-cutoff <ISO-8601-UTC>] [--isolated-fixture]
+# Standalone production apply is BLOCKED: this path does not replay erasures
+# and has no verified coverage evidence.
 #
 #   <service>    one of: auth gateway user parking media gamification notification moderation
 #                analytics ai-validation
@@ -47,6 +49,8 @@ while [ "$#" -gt 0 ]; do
     --yes) ASSUME_YES="yes"; shift ;;
     --env-file) ENV_FILE="${2:-}"; shift 2 ;;
     --recovery-cutoff) PARKIO_RESTORE_RECOVERY_CUTOFF="${2:-}"; shift 2 ;;
+    --isolated-fixture) PARKIO_RESTORE_ISOLATED_FIXTURE=1; shift ;;
+    --isolated-ticket) PARKIO_RESTORE_ISOLATED_TICKET="${2:-}"; shift 2 ;;
     -h|--help) sed -n '2,40p' "$0"; exit 0 ;;
     -*) echo "ERROR: unknown flag '$1'" >&2; exit 2 ;;
     *)
@@ -84,8 +88,13 @@ esac
 
 # ---- optional env file (caller secrets win over blank placeholders) ----
 parkio_backup_load_env "${ENV_FILE}"
+if ! parkio_restore_accept_isolated_fixture "${STAMP_DIR}"; then
+  exit 2
+fi
+parkio_restore_refuse_standalone_database || exit 3
+parkio_restore_refuse_unverified_production || exit 3
 
-if ! parkio_restore_preflight_done && ! parkio_restore_isolated_drill; then
+if ! parkio_restore_preflight_done; then
   if [ ! -f "${STAMP_DIR}/COMPLETE" ] || [ ! -f "${STAMP_DIR}/backup-manifest.json" ]; then
     echo "ERROR: refusing dump that is not inside a COMPLETE stamp: ${STAMP_DIR}" >&2
     exit 2

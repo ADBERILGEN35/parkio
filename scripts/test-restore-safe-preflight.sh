@@ -203,8 +203,15 @@ run_hosted() {
     "${ROOT}/scripts/restore-hosted-beta.sh" --manifest "${MANIFEST}" --yes "$@"
 }
 
+run_isolated() {
+  : > "${LOG}"
+  PARKIO_ENV_FILE="${ENV_FILE}" \
+    "${ROOT}/scripts/restore-hosted-beta.sh" --manifest "${MANIFEST}" --yes \
+    --isolated-fixture "$@"
+}
+
 no_destroy() {
-  if grep -E 'PSQL_APPLY|DOCKER_RUN' "${LOG}" >/dev/null; then
+  if grep -E 'PSQL_APPLY|DOCKER_RUN|OPENSSL .* -d' "${LOG}" >/dev/null; then
     return 1
   fi
   return 0
@@ -333,6 +340,65 @@ else
   if no_destroy; then ok "incomplete supplemental timestamp does not certify coverage"; else bad "uncertified supplemental leaked commands"; fi
 fi
 
+# --- incomplete ledger with a sufficiently new manifest timestamp ---
+python3 - "${STAMP}" <<'PY'
+import json,sys
+from pathlib import Path
+p=Path(sys.argv[1])/"erasure-tombstones.json"
+p.write_text("[]")
+PY
+write_integrity "${STAMP}"
+: > "${LOG}"
+if run_hosted --recovery-cutoff "2026-09-20T03:30:01Z" >/dev/null 2>&1; then
+  bad "empty ledger plus stamp-clock cutoff must not authorize production"
+else
+  if no_destroy; then ok "incomplete ledger with new manifest timestamp stays BLOCKED"; else bad "incomplete ledger leaked commands"; fi
+fi
+make_full_stamp "${STAMP}"
+
+# --- equal/earlier cutoff without certified coverage ---
+: > "${LOG}"
+if run_hosted --recovery-cutoff "2026-09-20T03:30:01Z" >/dev/null 2>&1; then
+  bad "equal cutoff must not authorize production without verified coverage"
+else
+  if no_destroy; then ok "equal cutoff without verified coverage stays BLOCKED"; else bad "equal cutoff leaked commands"; fi
+fi
+
+# --- standalone database production apply ---
+: > "${LOG}"
+if PARKIO_ENV_FILE="${ENV_FILE}" "${ROOT}/scripts/restore-database.sh" \
+    auth "${STAMP}/auth.sql.gz.enc" --yes --recovery-cutoff "2026-09-20T03:30:01Z" >/dev/null 2>&1; then
+  bad "standalone restore-database must refuse production apply"
+else
+  if no_destroy; then ok "standalone database production apply refused"; else bad "standalone database leaked commands"; fi
+fi
+
+# --- MinIO-only unsupported production scope ---
+: > "${LOG}"
+if run_hosted --only minio --recovery-cutoff "2026-09-20T03:30:01Z" >/dev/null 2>&1; then
+  bad "MinIO-only production restore must be refused"
+else
+  if no_destroy; then ok "MinIO-only production scope refused"; else bad "MinIO-only leaked commands"; fi
+fi
+
+# --- env bypass flags without isolated-fixture ticket ---
+: > "${LOG}"
+if PARKIO_RESTORE_ISOLATED_DRILL=1 PARKIO_RESTORE_PREFLIGHT_DONE=1 \
+    PARKIO_ENV_FILE="${ENV_FILE}" "${ROOT}/scripts/restore-hosted-beta.sh" \
+    --manifest "${MANIFEST}" --yes --recovery-cutoff "2026-09-20T03:30:01Z" >/dev/null 2>&1; then
+  bad "env bypass flags must not authorize production restore"
+else
+  if no_destroy; then ok "preflight/drill env flags do not bypass production refusal"; else bad "env bypass leaked commands"; fi
+fi
+: > "${LOG}"
+if PARKIO_RESTORE_ISOLATED_DRILL=1 PARKIO_RESTORE_PREFLIGHT_DONE=1 \
+    PARKIO_ENV_FILE="${ENV_FILE}" "${ROOT}/scripts/restore-database.sh" \
+    auth "${STAMP}/auth.sql.gz.enc" --yes --recovery-cutoff "2026-09-20T03:30:01Z" >/dev/null 2>&1; then
+  bad "env bypass flags must not authorize standalone apply"
+else
+  if no_destroy; then ok "standalone env flags do not bypass production refusal"; else bad "standalone env bypass leaked commands"; fi
+fi
+
 # --- restore-database standalone path traversal ---
 : > "${LOG}"
 if PARKIO_ENV_FILE="${ENV_FILE}" "${ROOT}/scripts/restore-database.sh" \
@@ -356,7 +422,8 @@ export PARKIO_RESTORE_DUMP_PROFILE="${STAMP}/auth.dump-profile.json"
 export PARKIO_RESTORE_CLIENT_VERSION="psql (PostgreSQL) 16.4"
 export PARKIO_RESTORE_TARGET_SERVER_VERSION=16.15
 if PARKIO_ENV_FILE="${ENV_FILE}" "${ROOT}/scripts/restore-database.sh" \
-    auth "${STAMP}/auth.sql.gz.enc" --yes --recovery-cutoff "2026-09-20T03:30:01Z" >/dev/null 2>&1; then
+    auth "${STAMP}/auth.sql.gz.enc" --yes --isolated-fixture \
+    --recovery-cutoff "2026-09-20T03:30:01Z" >/dev/null 2>&1; then
   bad "incompatible restore client must fail"
 else
   if grep PSQL_APPLY "${LOG}" >/dev/null; then
@@ -372,7 +439,7 @@ export PARKIO_RESTORE_CLIENT_VERSION="psql (PostgreSQL) 16.15"
 if PARKIO_ENV_FILE="${ENV_FILE}" \
     PARKIO_RESTORE_DUMP_PROFILE="${STAMP}/auth.dump-profile.json" \
     "${ROOT}/scripts/restore-hosted-beta.sh" \
-    --manifest "${MANIFEST}" --yes --only databases \
+    --manifest "${MANIFEST}" --yes --only databases --isolated-fixture \
     --recovery-cutoff "2026-09-20T03:30:01Z" >/tmp/parkio-f03-valid.out 2>&1; then
   if grep -q 'Applications, publishers' /tmp/parkio-f03-valid.out \
      && grep PSQL_APPLY "${LOG}" >/dev/null; then
@@ -392,7 +459,7 @@ export PARKIO_STUB_PSQL_FAIL=1
 if PARKIO_ENV_FILE="${ENV_FILE}" \
     PARKIO_RESTORE_DUMP_PROFILE="${STAMP}/auth.dump-profile.json" \
     "${ROOT}/scripts/restore-hosted-beta.sh" \
-    --manifest "${MANIFEST}" --yes --only databases \
+    --manifest "${MANIFEST}" --yes --only databases --isolated-fixture \
     --recovery-cutoff "2026-09-20T03:30:01Z" >/dev/null 2>&1; then
   bad "failed apply must propagate"
 else
@@ -436,7 +503,7 @@ export PARKIO_RESTORE_MERGED_LEDGER="${WORK}/merged.json"
 if PARKIO_ENV_FILE="${ENV_FILE}" \
     PARKIO_RESTORE_DUMP_PROFILE="${STAMP}/auth.dump-profile.json" \
     "${ROOT}/scripts/restore-hosted-beta.sh" \
-    --manifest "${MANIFEST}" --yes --only databases \
+    --manifest "${MANIFEST}" --yes --only databases --isolated-fixture \
     --recovery-cutoff "2026-09-21T03:30:01Z" \
     --ledger-stamp "${NEWER}" >/dev/null 2>&1; then
   python3 - "${WORK}/merged.json" <<'PY'

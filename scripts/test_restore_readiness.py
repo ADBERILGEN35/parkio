@@ -455,6 +455,9 @@ class ErasureLedgerTest(unittest.TestCase):
         code, report, text = self.build("--ledger-stamp", self.newer,
                                         "--recovery-cutoff", "2026-09-21T03:30:01Z")
         self.assertEqual((code, report["verdict"]), (0, "PASS"), text)
+        self.assertFalse(report["verifiedCoverage"])
+        self.assertFalse(report["certified"])
+        self.assertEqual(report["snapshotClockVerdict"], "PASS")
         self.assertEqual(report["mergedTombstones"], 2)
         self.assertEqual(report["erasedAfterDataStamp"], 1)
         merged = {e["authUserId"] for e in json.loads(self.out.read_text())}

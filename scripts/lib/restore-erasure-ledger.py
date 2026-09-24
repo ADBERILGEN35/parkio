@@ -13,14 +13,12 @@ set are:
     identifiers after the newest stamp. --supplemental-covered-through is
     recorded as assertedCoveredThrough only. It does not certify coverage.
 
-Certified coverage is the newest stamp ledger's manifest.timestamp. That clock
-is not commit-visible completeness of the unlocked nightly SELECT: a user
-timestamp, empty ledger, newer nightly ledger, file mtime, or upload time
-does not independently prove every transaction committed before the claimed
-watermark is present. PASS means declared stamp clocks reach the cutoff, not
-production attestation.
+Declared snapshot time is the newest stamp ledger's manifest.timestamp.
+verifiedCoverage is always false: no supported commit-visible attestation
+exists. PASS/verdict is snapshotClockVerdict only (declared clocks vs cutoff)
+for isolated drills. It does not authorize production decrypt/apply.
 
-If certified coverage does not reach the cutoff, the verdict is BLOCKED
+If the declared snapshot does not reach the cutoff, the verdict is BLOCKED
 (exit 3). Never lower the cutoff to obtain PASS.
 
 Usage:
@@ -105,8 +103,8 @@ def build(data_stamp, ledger_stamps, cutoff, supplemental=None, supplemental_thr
     for ledger in ledgers:
         for user_id, erased_at in ledger["entries"].items():
             merged.setdefault(user_id, erased_at)
-    # Certified coverage is the newest stamp ledger clock only. Manifest
-    # timestamp is not commit-visible completeness of the unlocked SELECT.
+    # Declared snapshot time is the newest stamp ledger clock only.
+    # It is not verified commit-visible coverage of the unlocked SELECT.
     coverage = ledgers[-1]["epoch"]
     asserted_through = None
     supplemental_count = 0
@@ -130,18 +128,21 @@ def build(data_stamp, ledger_stamps, cutoff, supplemental=None, supplemental_thr
         "mergedTombstones": len(merged),
         "erasedAfterDataStamp": len(set(merged) - set(data["entries"])),
         "coverageThrough": iso(coverage),
-        "certifiedCoverageThrough": iso(coverage),
+        "declaredSnapshotThrough": iso(coverage),
+        "verifiedCoverage": False,
+        "verifiedCoverageThrough": None,
         "assertedCoveredThrough": iso(asserted_through),
         "recoveryCutoff": iso(cutoff),
         "uncoveredSeconds": max(gap, 0),
-        "certified": gap <= 0,
+        "certified": False,
+        "snapshotClockVerdict": "BLOCKED" if gap > 0 else "PASS",
         "verdict": "BLOCKED" if gap > 0 else "PASS",
     }
     if gap > 0:
         report["blockedReason"] = (
-            "erasures between certifiedCoverageThrough and recoveryCutoff are unknown; "
-            "a supplemental covered-through timestamp is operator assertion, not certification; "
-            "privacy-safe recovery is BLOCKED until stamp-ledger evidence reaches the cutoff"
+            "declared snapshot time does not reach recoveryCutoff; "
+            "a supplemental covered-through timestamp is operator assertion, not verification; "
+            "merged identifiers are not verified coverage"
         )
     ledger = [{"authUserId": k, "erasedAt": v} if v else {"authUserId": k} for k, v in sorted(merged.items())]
     return report, ledger

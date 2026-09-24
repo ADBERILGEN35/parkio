@@ -528,9 +528,9 @@ PARKIO_ENV_FILE=docker/.env \
 ```
 
 Real restore requires explicit confirmation and `--recovery-cutoff`.
-The production path fail-closes before decrypt unless the stamp is COMPLETE,
-checksums pass, and erasure evidence reaches that cutoff. It does not start
-applications, Slack, or Fluent Bit.
+The production path is BLOCKED before decrypt or apply: a manifest timestamp
+is not verified coverage. Standalone database apply and `--only minio` are
+refused. It does not start applications, Slack, or Fluent Bit.
 
 ```bash
 PARKIO_ENV_FILE=docker/.env \

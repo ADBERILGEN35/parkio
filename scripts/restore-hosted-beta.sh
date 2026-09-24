@@ -10,9 +10,9 @@
 #   PARKIO_ENV_FILE=docker/.env ./scripts/restore-hosted-beta.sh --manifest ... --dry-run
 #   PARKIO_ENV_FILE=docker/.env ./scripts/restore-hosted-beta.sh --manifest ... --yes --only minio
 #
-# Production path fail-closes before decrypt or destructive apply unless
-# PARKIO_RESTORE_ISOLATED_DRILL=1 (CI/isolated drills only).
-# Does not start applications, Slack, or Fluent Bit.
+# Production path is BLOCKED before decrypt or apply: a manifest timestamp
+# is not verified coverage. --isolated-fixture is the only supported
+# synthetic path. Env flags alone do not bypass. Does not start applications.
 #
 set -euo pipefail
 
@@ -44,6 +44,8 @@ while [ "$#" -gt 0 ]; do
     --ledger-stamp) LEDGER_STAMPS+=("${2:-}"); shift 2 ;;
     --supplemental-ledger) PARKIO_RESTORE_SUPPLEMENTAL_LEDGER="${2:-}"; shift 2 ;;
     --supplemental-covered-through) PARKIO_RESTORE_SUPPLEMENTAL_THROUGH="${2:-}"; shift 2 ;;
+    --isolated-fixture) PARKIO_RESTORE_ISOLATED_FIXTURE=1; shift ;;
+    --isolated-ticket) PARKIO_RESTORE_ISOLATED_TICKET="${2:-}"; shift 2 ;;
     -h|--help) sed -n '2,20p' "$0"; exit 0 ;;
     *) echo "ERROR: unknown argument '$1'" >&2; exit 2 ;;
   esac
@@ -61,6 +63,9 @@ if ! parkio_restore_resolve_stamp_from_manifest "${MANIFEST}" "${STAMP_OVERRIDE}
   exit 2
 fi
 DEST_DIR="${PARKIO_RESTORE_STAMP_DIR}"
+if ! parkio_restore_accept_isolated_fixture "${DEST_DIR}"; then
+  exit 2
+fi
 BUCKET="$(jq -r '.minio.bucket // empty' "${MANIFEST}")"
 GIT_SHA="$(jq -r '.gitSha // empty' "${MANIFEST}")"
 STAMP="$(jq -r '.timestamp // empty' "${MANIFEST}")"
@@ -103,21 +108,21 @@ elif [ -f "${DEST_DIR}/COMPLETE" ]; then
   fi
   if [ "$DRY_RUN" -ne 1 ]; then
     parkio_restore_require_cutoff_unless_exempt || exit 2
-    if ! parkio_restore_isolated_drill; then
-      echo "=== erasure coverage through ${PARKIO_RESTORE_RECOVERY_CUTOFF} ==="
-      set +e
-      parkio_restore_run_coverage "${DEST_DIR}" "${PARKIO_RESTORE_RECOVERY_CUTOFF}" "${LEDGER_STAMPS[@]}"
-      coverage_rc=$?
-      set -e
-      if [ "${coverage_rc}" -eq 3 ]; then
-        echo "ERROR: erasure evidence does not reach the recovery cutoff; restore BLOCKED." >&2
-        echo "Never lower the cutoff to obtain PASS." >&2
-        exit 3
-      elif [ "${coverage_rc}" -ne 0 ]; then
-        echo "ERROR: erasure coverage evidence is invalid." >&2
-        exit 1
-      fi
+    echo "=== erasure snapshot clock through ${PARKIO_RESTORE_RECOVERY_CUTOFF} ==="
+    set +e
+    parkio_restore_run_coverage "${DEST_DIR}" "${PARKIO_RESTORE_RECOVERY_CUTOFF}" "${LEDGER_STAMPS[@]}"
+    coverage_rc=$?
+    set -e
+    if [ "${coverage_rc}" -eq 3 ]; then
+      echo "ERROR: declared snapshot time does not reach the recovery cutoff; restore BLOCKED." >&2
+      echo "Never lower the cutoff to obtain PASS." >&2
+      exit 3
+    elif [ "${coverage_rc}" -ne 0 ]; then
+      echo "ERROR: erasure coverage evidence is invalid." >&2
+      exit 1
     fi
+    parkio_restore_refuse_unsupported_production_scope "${ONLY:-all}" || exit 3
+    parkio_restore_refuse_unverified_production || exit 3
   fi
 elif [ "$DRY_RUN" -eq 1 ]; then
   echo "WARN: ${DEST_DIR} is not a COMPLETE stamp (dry-run continues)."
@@ -146,7 +151,14 @@ restore_databases() {
     echo "Restoring database '${svc}' from ${dump} ..."
     local args=(--yes)
     if [ -n "${ENV_FILE}" ]; then args+=(--env-file "${ENV_FILE}"); fi
+    if ! parkio_restore_isolated_fixture_ok; then
+      echo "ERROR: production restore cannot apply databases without verified coverage." >&2
+      return 3
+    fi
+    args+=(--isolated-fixture --isolated-ticket "${PARKIO_RESTORE_ISOLATED_TICKET}")
     PARKIO_RESTORE_PREFLIGHT_DONE=1 \
+    PARKIO_RESTORE_ISOLATED_FIXTURE=1 \
+    PARKIO_RESTORE_ISOLATED_TICKET="${PARKIO_RESTORE_ISOLATED_TICKET}" \
       "${ROOT}/scripts/restore-database.sh" "${svc}" "${dump}" "${args[@]}"
   done < <(jq -r '.databases[]' "${MANIFEST}")
 }
