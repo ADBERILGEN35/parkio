@@ -10,19 +10,25 @@
 #
 # --image is the web image the deploy will actually start (callers resolve it from
 # the rendered Compose model; --compose-config-json does that from a file). The
-# image must already be present locally: it is identified by its immutable config
-# ID, and its bundle is copied out of that exact ID and classified. A missing
-# image, bundle or verdict fails closed. Nothing is pulled and no provider is
-# contacted. Key values are never printed; only a 12-hex SHA-256 fingerprint.
+# image must already be present locally. The daemon image ID, any inspect
+# Descriptor digest, RepoDigests, and (only when established) the OCI config
+# digest are recorded separately. The bundle is copied from the daemon image ID
+# and classified. A missing image, bundle or verdict fails closed. Nothing is
+# pulled and no provider is contacted. Key values are never printed; only a
+# 12-hex SHA-256 fingerprint.
 # --expected-map-key-fingerprint (or PARKIO_WEB_EXPECTED_MAP_KEY_FINGERPRINT)
 # additionally requires the baked key's fingerprint to equal the supplied one. That
 # proves equality to whatever key the fingerprint was computed from - not that the
 # fingerprint came from an approved release, nor that MapTiler accepts the key.
 #
 # --bind-override-out writes a Compose override (use it as the LAST -f) that pins
-# services.web to exactly what was verified: the verified repo@sha256 manifest
-# reference when one was requested (immutable), otherwise the verified config ID;
-# plus pull_policy: never, so no pull or tag move can substitute another image.
+# services.web to exactly what was verified: the verified repo@sha256 reference
+# when one was requested (platform or index digest as written), otherwise the
+# daemon image ID; plus pull_policy: never, so no pull or tag move can substitute
+# another image. The daemon image ID is not reported as configId unless it is
+# established as the configuration digest (classic graphdriver). On a containerd
+# snapshotter, inspect .Id is typically the platform manifest digest and is left
+# unverified as a config digest.
 #
 # Exit 0 = pass, 1 = blocked, 2 = usage.
 set -euo pipefail
@@ -41,8 +47,10 @@ MODEL_PLATFORM=""
 WEB_ROOT_IN_IMAGE="/usr/share/nginx/html"
 
 # Known bad runtime (PR #91 incident): the CI-acceptance archive published as
-# the production web image. Blocked by manifest AND by config ID, so a re-push,
-# retag or different manifest wrapping the same image is still refused.
+# the production web image. The requested digest and every RepoDigest are
+# checked against the known-bad manifest. The known-bad configuration digest is
+# checked only when that digest is independently established. When inspect .Id
+# equals a RepoDigest or Descriptor digest it is not treated as a config digest.
 BAD_MANIFEST="sha256:8d9bfca43d577afd62d20f7ffe3fcb2566fbf3bce9dbd758368562aec641487d"
 BAD_CONFIG="sha256:985fd8a7684a63ea21cf10cbb36f8f2fc092b7d3f13ccbc8c18311380945f68c"
 SYNTHETIC_CLASS="ci-web-build-security-synthetic"
@@ -156,20 +164,45 @@ data = json.load(sys.stdin)
 if not isinstance(data, list) or len(data) != 1:
     sys.exit(3)
 img = data[0]
-print(img.get("Id") or "")
-print((img.get("Os") or "") + "/" + (img.get("Architecture") or ""))
-print(" ".join(img.get("RepoDigests") or []))
+daemon_id = img.get("Id") or ""
+platform = (img.get("Os") or "") + "/" + (img.get("Architecture") or "")
+repo_digests = img.get("RepoDigests") or []
+descriptor = img.get("Descriptor") or {}
+descriptor_digest = descriptor.get("digest") or "" if isinstance(descriptor, dict) else ""
+known_manifests = set()
+for rd in repo_digests:
+    if "@" in rd:
+        known_manifests.add(rd.split("@", 1)[1])
+    elif isinstance(rd, str) and rd.startswith("sha256:"):
+        known_manifests.add(rd)
+if descriptor_digest:
+    known_manifests.add(descriptor_digest)
+config_digest = ""
+status = "unverified"
+if daemon_id.startswith("sha256:") and daemon_id not in known_manifests:
+    config_digest = daemon_id
+    status = "established"
+print(daemon_id)
+print(platform)
+print(" ".join(repo_digests))
+print(descriptor_digest)
+print(config_digest)
+print(status)
 ')" || fail "cannot parse docker image inspect for '$IMAGE'"
-CONFIG_ID="$(printf '%s\n' "$identity" | sed -n 1p)"
+DAEMON_IMAGE_ID="$(printf '%s\n' "$identity" | sed -n 1p)"
 PLATFORM="$(printf '%s\n' "$identity" | sed -n 2p)"
 REPO_DIGESTS="$(printf '%s\n' "$identity" | sed -n 3p)"
-case "$CONFIG_ID" in
+DESCRIPTOR_DIGEST="$(printf '%s\n' "$identity" | sed -n 4p)"
+CONFIG_DIGEST="$(printf '%s\n' "$identity" | sed -n 5p)"
+CONFIG_DIGEST_STATUS="$(printf '%s\n' "$identity" | sed -n 6p)"
+case "$DAEMON_IMAGE_ID" in
   sha256:[0-9a-f]*) ;;
-  *) fail "web image '$IMAGE' has no immutable config ID" ;;
+  *) fail "web image '$IMAGE' has no daemon image ID" ;;
 esac
 
-[ "$CONFIG_ID" != "$BAD_CONFIG" ] \
-  || fail "web image config ID is the known synthetic-map runtime ${BAD_CONFIG} (requested as '$IMAGE')"
+if [ "$CONFIG_DIGEST_STATUS" = "established" ] && [ "$CONFIG_DIGEST" = "$BAD_CONFIG" ]; then
+  fail "web image config digest is the known synthetic-map runtime ${BAD_CONFIG} (requested as '$IMAGE')"
+fi
 for rd in $REPO_DIGESTS; do
   [ "${rd##*@}" != "$BAD_MANIFEST" ] \
     || fail "web image '$IMAGE' resolves to the known synthetic-map manifest ${BAD_MANIFEST}"
@@ -196,7 +229,7 @@ if [ -n "${DOCKER_DEFAULT_PLATFORM:-}" ] && [ "$DOCKER_DEFAULT_PLATFORM" != "$PL
   fail "DOCKER_DEFAULT_PLATFORM=${DOCKER_DEFAULT_PLATFORM} differs from the verified image platform ${PLATFORM}"
 fi
 
-# --- Baked configuration: copy the bundle out of that exact config ID ----------
+# --- Baked configuration: copy the bundle out of that exact daemon image ID ---
 WORK="$(mktemp -d)"
 CID=""
 cleanup() {
@@ -205,17 +238,17 @@ cleanup() {
 }
 trap cleanup EXIT
 # Created, never started; no network; the entrypoint is never executed.
-CID="$(docker create --pull never --network none --entrypoint /parkio-web-map-guard-noop "$CONFIG_ID" 2>/dev/null)" \
-  || fail "cannot create an inspection container from ${CONFIG_ID}"
+CID="$(docker create --pull never --network none --entrypoint /parkio-web-map-guard-noop "$DAEMON_IMAGE_ID" 2>/dev/null)" \
+  || fail "cannot create an inspection container from ${DAEMON_IMAGE_ID}"
 mkdir -p "$WORK/extract"
 docker cp "$CID:$WEB_ROOT_IN_IMAGE" - 2>/dev/null | tar -x -C "$WORK/extract" 2>/dev/null \
-  || fail "cannot copy ${WEB_ROOT_IN_IMAGE} out of ${CONFIG_ID} (missing or unreadable bundle)"
+  || fail "cannot copy ${WEB_ROOT_IN_IMAGE} out of ${DAEMON_IMAGE_ID} (missing or unreadable bundle)"
 
 set +e
 verdict="$("$PYTHON" "$ROOT/scripts/lib/web_bundle_map_config.py" "$WORK/extract/$(basename "$WEB_ROOT_IN_IMAGE")")"
 verdict_rc=$?
 set -e
-[ -n "$verdict" ] || fail "bundle classifier produced no verdict for ${CONFIG_ID}"
+[ -n "$verdict" ] || fail "bundle classifier produced no verdict for ${DAEMON_IMAGE_ID}"
 
 fingerprint="$(printf '%s' "$verdict" | "$PYTHON" -c 'import json,sys; print(json.load(sys.stdin)["mapKeyFingerprint"] or "")')"
 reason="$(printf '%s' "$verdict" | "$PYTHON" -c 'import json,sys; v=json.load(sys.stdin); print(v["mapKeyStatus"]+": "+v["reason"])')"
@@ -227,24 +260,33 @@ fi
 result="PASS"
 [ "$verdict_rc" -eq 0 ] || result="BLOCKED"
 [ "$fp_status" = "mismatch" ] && result="BLOCKED"
-# Immutable deployment selection: a verified manifest digest ref, else the config ID.
-BOUND_IMAGE="$CONFIG_ID"
+# Immutable deployment selection: a verified digest reference when one was
+# requested, otherwise the daemon image ID (not labelled configId unless
+# established).
+BOUND_IMAGE="$DAEMON_IMAGE_ID"
 [ -n "$REQUESTED_DIGEST" ] && BOUND_IMAGE="$IMAGE"
 
-evidence="$("$PYTHON" - "$IMAGE" "$CONFIG_ID" "$PLATFORM" "$REPO_DIGESTS" "$verdict" "$result" "$fp_status" "$BOUND_IMAGE" <<'PY'
+evidence="$("$PYTHON" - "$IMAGE" "$DAEMON_IMAGE_ID" "$DESCRIPTOR_DIGEST" "$CONFIG_DIGEST" "$CONFIG_DIGEST_STATUS" "$PLATFORM" "$REPO_DIGESTS" "$verdict" "$result" "$fp_status" "$BOUND_IMAGE" <<'PY'
 import json, sys
-image, config_id, platform, repo_digests, verdict, result, fp_status, bound = sys.argv[1:9]
-print(json.dumps({
-    "guard": "web-map-deploy-guard/3",
+(image, daemon_id, descriptor_digest, config_digest, config_status,
+ platform, repo_digests, verdict, result, fp_status, bound) = sys.argv[1:12]
+payload = {
+    "guard": "web-map-deploy-guard/4",
     "requestedImage": image,
-    "configId": config_id,
+    "daemonImageId": daemon_id,
+    "descriptorDigest": descriptor_digest or None,
+    "configDigest": config_digest or None,
+    "configDigestStatus": config_status,
     "platform": platform,
     "repoDigests": repo_digests.split(),
     "bundle": json.loads(verdict),
     "fingerprintCheck": fp_status,
     "boundImage": bound if result == "PASS" else None,
     "result": result,
-}, sort_keys=True))
+}
+if config_status == "established" and config_digest:
+    payload["configId"] = config_digest
+print(json.dumps(payload, sort_keys=True))
 PY
 )"
 if [ -n "$EVIDENCE_OUT" ]; then
@@ -252,10 +294,10 @@ if [ -n "$EVIDENCE_OUT" ]; then
 fi
 
 if [ "$verdict_rc" -ne 0 ]; then
-  fail "web image ${CONFIG_ID} (${PLATFORM}, requested '$IMAGE'): ${reason}"
+  fail "web image ${DAEMON_IMAGE_ID} (${PLATFORM}, requested '$IMAGE'): ${reason}"
 fi
 if [ "$fp_status" = "mismatch" ]; then
-  fail "web image ${CONFIG_ID}: baked map key fingerprint ${fingerprint} is not the expected fingerprint ${EXPECTED_FINGERPRINT}"
+  fail "web image ${DAEMON_IMAGE_ID}: baked map key fingerprint ${fingerprint} is not the expected fingerprint ${EXPECTED_FINGERPRINT}"
 fi
 if [ -n "$BIND_OUT" ]; then
   "$PYTHON" - "$BIND_OUT" "$BOUND_IMAGE" <<'PY' || fail "cannot write the binding override"
@@ -268,5 +310,10 @@ with os.fdopen(fd, "w") as fh:
     fh.write("\n")
 PY
 fi
-echo "web-map-deploy-guard: PASS image=${IMAGE} configId=${CONFIG_ID} platform=${PLATFORM} mapKey=PRESENT fingerprint=${fingerprint} fingerprintCheck=${fp_status} bound=${BOUND_IMAGE}"
+if [ "$CONFIG_DIGEST_STATUS" = "established" ]; then
+  identity_note="configId=${CONFIG_DIGEST}"
+else
+  identity_note="configDigest=unverified daemonImageId=${DAEMON_IMAGE_ID}"
+fi
+echo "web-map-deploy-guard: PASS image=${IMAGE} ${identity_note} platform=${PLATFORM} mapKey=PRESENT fingerprint=${fingerprint} fingerprintCheck=${fp_status} bound=${BOUND_IMAGE}"
 exit 0

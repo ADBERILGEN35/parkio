@@ -123,7 +123,18 @@ fake_image() {
 import json, sys
 id_, platform, digests = sys.argv[1:4]
 os_, arch = platform.split("/", 1)
-print(json.dumps([{"Id": id_, "Os": os_, "Architecture": arch, "RepoDigests": digests.split()}]))
+repo = [d for d in digests.split() if d]
+known = set()
+for rd in repo:
+    known.add(rd.split("@", 1)[-1] if "@" in rd else rd)
+payload = {"Id": id_, "Os": os_, "Architecture": arch, "RepoDigests": repo}
+if id_ in known:
+    payload["Descriptor"] = {
+        "mediaType": "application/vnd.oci.image.manifest.v1+json",
+        "digest": id_,
+        "size": 1,
+    }
+print(json.dumps([payload]))
 PY
   rm -rf "$FAKE/roots/${id#sha256:}"
   mkdir -p "$FAKE/roots/${id#sha256:}"
@@ -203,10 +214,10 @@ done
 guard 0 "valid non-synthetic image by digest passes" --image "$REPO@$GOOD_DIG" --evidence-out "$TMP/evidence.json"
 assert_no_key_leak "digest pass"
 if grep -q "fingerprint=$(printf '%s' "$GOOD_KEY" | sha256sum | cut -c1-12)" "$TMP/out"; then pass "pass line carries the key fingerprint"; else bad "pass line carries the key fingerprint"; fi
-if python3 -c 'import json,sys; e=json.load(open(sys.argv[1])); sys.exit(0 if e["configId"]==sys.argv[2] and e["result"]=="PASS" and sys.argv[3] not in open(sys.argv[1]).read() else 1)' "$TMP/evidence.json" "$GOOD_ID" "$GOOD_KEY"; then
-  pass "evidence JSON records config ID and omits the key"
+if python3 -c 'import json,sys; e=json.load(open(sys.argv[1])); sys.exit(0 if e.get("configId")==sys.argv[2] and e.get("configDigest")==sys.argv[2] and e.get("configDigestStatus")=="established" and e.get("daemonImageId")==sys.argv[2] and e["result"]=="PASS" and sys.argv[3] not in open(sys.argv[1]).read() else 1)' "$TMP/evidence.json" "$GOOD_ID" "$GOOD_KEY"; then
+  pass "evidence JSON records established config digest and omits the key"
 else
-  bad "evidence JSON records config ID and omits the key"
+  bad "evidence JSON records established config digest and omits the key"
 fi
 GOOD_FP="$(printf '%s' "$GOOD_KEY" | sha256sum | cut -c1-12)"
 guard 0 "expected fingerprint of the authorized key passes" --image "$REPO@$GOOD_DIG" --expected-map-key-fingerprint "$GOOD_FP"
@@ -218,6 +229,45 @@ guard 0 "mutable tag passes only via its resolved config ID" --image "$REPO:good
 grep -q "configId=$GOOD_ID" "$TMP/out" && pass "tag pass reports the resolved config ID" || bad "tag pass reports the resolved config ID"
 guard 0 "locally built image without repo digests passes" --image "local/parkio-web:sha-abc123"
 if grep -q "^create .*$GOOD_ID" "$FAKE/calls.log"; then pass "bundle is read from the resolved config ID, not the tag"; else bad "bundle is read from the resolved config ID, not the tag"; fi
+
+# --- containerd-style inspect: .Id is the platform manifest, not a config digest
+CTRD_DIG="$(dig containerd-style)"
+fake_image "$REPO@$CTRD_DIG" "$CTRD_DIG" linux/amd64 "$REPO@$CTRD_DIG" good
+fake_reset
+guard 0 "containerd-style Id equal to repo digest passes" --image "$REPO@$CTRD_DIG" \
+  --evidence-out "$TMP/ctrd.json" --bind-override-out "$TMP/ctrd.yml"
+if grep -q "configId=$CTRD_DIG" "$TMP/out"; then
+  bad "containerd-style pass does not call the manifest digest configId"
+else
+  pass "containerd-style pass does not call the manifest digest configId"
+fi
+grep -q "configDigest=unverified" "$TMP/out" && pass "containerd-style pass reports config digest unverified" \
+  || bad "containerd-style pass reports config digest unverified"
+grep -q "daemonImageId=$CTRD_DIG" "$TMP/out" && pass "containerd-style pass reports daemon image ID" \
+  || bad "containerd-style pass reports daemon image ID"
+if python3 -c 'import json,sys; e=json.load(open(sys.argv[1])); sys.exit(0 if e.get("configDigestStatus")=="unverified" and e.get("configDigest") is None and "configId" not in e and e.get("daemonImageId")==sys.argv[2] and e.get("descriptorDigest")==sys.argv[2] and e.get("boundImage")==sys.argv[3] and e.get("result")=="PASS" else 1)' \
+  "$TMP/ctrd.json" "$CTRD_DIG" "$REPO@$CTRD_DIG"; then
+  pass "containerd-style evidence keeps identities separate and binds the requested digest"
+else
+  bad "containerd-style evidence keeps identities separate and binds the requested digest"
+fi
+if python3 -c 'import json,sys; b=json.load(open(sys.argv[1])); sys.exit(0 if b.get("services",{}).get("web",{}).get("image")==sys.argv[2] and b["services"]["web"].get("pull_policy")=="never" else 1)' \
+  "$TMP/ctrd.yml" "$REPO@$CTRD_DIG"; then
+  pass "containerd-style override still binds the requested digest with pull_policy never"
+else
+  bad "containerd-style override still binds the requested digest with pull_policy never"
+fi
+if grep -q "^create .*$CTRD_DIG" "$FAKE/calls.log"; then
+  pass "containerd-style bundle is copied from the daemon image ID"
+else
+  bad "containerd-style bundle is copied from the daemon image ID"
+fi
+# Id equals the known-bad *config* digest AND that digest is also a RepoDigest:
+# it is a manifest identity on this daemon, so BAD_CONFIG must not fire. The
+# known-bad *manifest* check still applies when RepoDigests name BAD_MANIFEST.
+fake_image "$REPO:ctrd-config-hash-as-manifest" "$BAD_CONFIG" linux/amd64 "$REPO@$BAD_CONFIG" good
+guard 0 "Id equal to a repo digest is not treated as the known-bad config digest" \
+  --image "$REPO:ctrd-config-hash-as-manifest"
 
 # --- host env signal: accepted parser forms ---------------------------------
 i=0
