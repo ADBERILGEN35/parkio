@@ -1,14 +1,17 @@
-# Parkio GMP release pins — PR #86 named Slack/AM 2026-09-23
-# Feature merge: 92d28cae509032688273c1a5d7cac39bb2fbe88d (PR #86)
-# Reviewed head: 09b09cb3175ba4f93cfbc0ad482e8f6de9830001
-# Gateway runtime / OCI revision: 031d48340926abb1075e6e553e40c7ec4ee73cc8
-# Published index digest:
+# Parkio GMP release pins — PR #106 waitlist admin access control 2026-09-24
+# Feature merge: f9710aa0f7c8db3d9409e79be3ff4f5882a12dc7 (PR #106)
+# Reviewed head: 8a545331a5e8265de65c67a1a16a04899614901d
+# Gateway runtime / OCI revision: f9710aa0f7c8db3d9409e79be3ff4f5882a12dc7
+# Single-platform OCI image manifest (no separate index; provenance=false load+push):
+#   ghcr.io/adberilgen35/parkio/gateway-service@sha256:866a7fe09ccc5fd2148db893fc8abb013a2c2e8ac9567f85a4eb6c7c11f9bb48
+# linux/amd64 platform manifest (same as registry digest above):
+#   sha256:866a7fe09ccc5fd2148db893fc8abb013a2c2e8ac9567f85a4eb6c7c11f9bb48
+# Image config:
+#   sha256:2176c4b3fd325a1c08b9df4aa7e38135b4cfff55b8240314e287bb537dba2a1b
+# Rollback (live pre-PR #106 gateway):
 #   ghcr.io/adberilgen35/parkio/gateway-service@sha256:7458e4fb4cadf978130cce1efbcd61de5ed5c3ea84dba450ea4a4ba96fda180b
-# linux/amd64 platform manifest:
-#   sha256:cf763ccb931d566fd2f8cfc7570d2a64711ce1d2cc6b6b2b3cbbe9e744c302e7
-# Do not claim this image was built from the later test-only head 09b09cb3.
-# Rollback (live pre-PR #86 gateway):
-#   ghcr.io/adberilgen35/parkio/gateway-service@sha256:0c04d757a381fdf8458aa013f2c26b6df86d6e9ce1fc0a44c92019a8f8d51ff0
+#   linux/amd64 platform: sha256:cf763ccb931d566fd2f8cfc7570d2a64711ce1d2cc6b6b2b3cbbe9e744c302e7
+#   OCI revision: 031d48340926abb1075e6e553e40c7ec4ee73cc8
 # ONLY gateway/media/parking image references. Do not broaden.
 # Applied via docker/compose.production.files (before auth/web pins).
 # Recreate with:
@@ -21,7 +24,7 @@ name: parkio
 
 services:
   gateway-service:
-    image: ghcr.io/adberilgen35/parkio/gateway-service@sha256:7458e4fb4cadf978130cce1efbcd61de5ed5c3ea84dba450ea4a4ba96fda180b
+    image: ghcr.io/adberilgen35/parkio/gateway-service@sha256:866a7fe09ccc5fd2148db893fc8abb013a2c2e8ac9567f85a4eb6c7c11f9bb48
 
   media-service:
     image: ghcr.io/adberilgen35/parkio/media-service@sha256:62f49d04087fb7aa475db0a42c7f8d1e7d1511f84e6b496a58c5beda58f864ec
