@@ -13,8 +13,12 @@ on:
   pull_request:
     paths:
       - "scripts/restore-drill-01.sh"
+      - "scripts/restore-hosted-beta.sh"
+      - "scripts/restore-database.sh"
       - "scripts/lib/restore-*.py"
+      - "scripts/lib/restore-safe-preflight.sh"
       - "scripts/test_restore_readiness.py"
+      - "scripts/test-restore-safe-preflight.sh"
       - "scripts/ci/restore-drill-01-fixture.sh"
       - "scripts/ci/assert-restore-drill-01.py"
       - "scripts/lib/backup-common.sh"
@@ -62,7 +66,9 @@ jobs:
       - uses: actions/checkout@v4
 
       - name: Helper unit tests (synthetic fixtures)
-        run: python3 scripts/test_restore_readiness.py
+        run: |
+          python3 scripts/test_restore_readiness.py
+          bash scripts/test-restore-safe-preflight.sh
 
       - name: Create throwaway env file
         run: |

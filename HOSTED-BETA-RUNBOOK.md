@@ -527,11 +527,16 @@ PARKIO_ENV_FILE=docker/.env \
 ./scripts/restore-hosted-beta.sh --manifest backup-artifacts/backup-current.json --dry-run
 ```
 
-Real restore requires explicit confirmation:
+Real restore requires explicit confirmation and `--recovery-cutoff`.
+The production path fail-closes before decrypt unless the stamp is COMPLETE,
+checksums pass, and erasure evidence reaches that cutoff. It does not start
+applications, Slack, or Fluent Bit.
 
 ```bash
 PARKIO_ENV_FILE=docker/.env \
-./scripts/restore-hosted-beta.sh --manifest backup-artifacts/backup-current.json
+./scripts/restore-hosted-beta.sh \
+  --manifest /var/backups/parkio/<stamp>/backup-manifest.json \
+  --recovery-cutoff <ISO-8601-UTC>
 ```
 
 Scope options:

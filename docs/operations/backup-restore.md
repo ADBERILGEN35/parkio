@@ -45,6 +45,25 @@ Dev/CI: optional `BACKUP_ENCRYPT_PASSPHRASE` for DB dumps.
 
 `BACKUP_PRODUCTION_MODE=1`: encryption **required** (fail-closed). DB dumps and the MinIO archive are client-side sealed. A full production stamp is not `COMPLETE` unless every expected DB, a valid erasure ledger, MinIO capture/seal, and integrity succeed. See backup-runbook.
 
+## Production restore safety (F-03)
+
+Documented production entrypoints are `restore-hosted-beta.sh` and
+`restore-database.sh`. They now refuse incomplete, failed, malformed or
+out-of-scope stamps **before** decrypt or destructive apply.
+
+Acceptance layers stay separate:
+
+1. Local stamp integrity: `COMPLETE` binds `SHA256SUMS`; checksums and path
+   containment pass.
+2. Scope: a DB-only COMPLETE stamp is not a full-system backup.
+3. Erasure coverage through an explicit `--recovery-cutoff`. A stamp-time or
+   empty ledger does not prove later erasures. Never lower the cutoff.
+4. `offsite.uploaded` on a sealed stamp is not local integrity and not
+   independent remote presence. Do not rewrite stamps to flip it.
+5. Dump-client, restore-client, target-server and PostGIS are checked
+   separately. CI `psql 16.10` is not assumed sufficient for a 16.15 dump.
+6. Source/CI acceptance is not a real restore.
+
 ## Restore Order
 
 1. PostgreSQL instances (auth → user → parking → … per service dependency)

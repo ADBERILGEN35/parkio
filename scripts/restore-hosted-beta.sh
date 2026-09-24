@@ -5,9 +5,14 @@
 # required after managed PITR restore — see docs/architecture/pp-01-managed-postgresql-pitr-ha.md
 #
 # Usage:
-#   PARKIO_ENV_FILE=docker/.env ./scripts/restore-hosted-beta.sh --manifest backup-artifacts/backup-....json
+#   PARKIO_ENV_FILE=docker/.env ./scripts/restore-hosted-beta.sh \\
+#     --manifest /path/to/stamp/backup-manifest.json --recovery-cutoff 2026-09-24T12:00:00Z
 #   PARKIO_ENV_FILE=docker/.env ./scripts/restore-hosted-beta.sh --manifest ... --dry-run
 #   PARKIO_ENV_FILE=docker/.env ./scripts/restore-hosted-beta.sh --manifest ... --yes --only minio
+#
+# Production path fail-closes before decrypt or destructive apply unless
+# PARKIO_RESTORE_ISOLATED_DRILL=1 (CI/isolated drills only).
+# Does not start applications, Slack, or Fluent Bit.
 #
 set -euo pipefail
 
@@ -16,12 +21,16 @@ ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 source "$ROOT/scripts/lib/backup-common.sh"
 # shellcheck source=lib/erasure-tombstones.sh
 source "$ROOT/scripts/lib/erasure-tombstones.sh"
+# shellcheck source=lib/restore-safe-preflight.sh
+source "$ROOT/scripts/lib/restore-safe-preflight.sh"
 
 ENV_FILE="${PARKIO_ENV_FILE:-}"
 MANIFEST=""
 DRY_RUN=0
 ASSUME_YES="no"
 ONLY=""
+STAMP_OVERRIDE=""
+LEDGER_STAMPS=()
 
 while [ "$#" -gt 0 ]; do
   case "$1" in
@@ -30,7 +39,12 @@ while [ "$#" -gt 0 ]; do
     --dry-run) DRY_RUN=1; shift ;;
     --yes) ASSUME_YES="yes"; shift ;;
     --only) ONLY="${2:-}"; shift 2 ;;
-    -h|--help) sed -n '2,16p' "$0"; exit 0 ;;
+    --stamp-dir) STAMP_OVERRIDE="${2:-}"; shift 2 ;;
+    --recovery-cutoff) PARKIO_RESTORE_RECOVERY_CUTOFF="${2:-}"; shift 2 ;;
+    --ledger-stamp) LEDGER_STAMPS+=("${2:-}"); shift 2 ;;
+    --supplemental-ledger) PARKIO_RESTORE_SUPPLEMENTAL_LEDGER="${2:-}"; shift 2 ;;
+    --supplemental-covered-through) PARKIO_RESTORE_SUPPLEMENTAL_THROUGH="${2:-}"; shift 2 ;;
+    -h|--help) sed -n '2,20p' "$0"; exit 0 ;;
     *) echo "ERROR: unknown argument '$1'" >&2; exit 2 ;;
   esac
 done
@@ -43,16 +57,25 @@ fi
 parkio_backup_load_env "${ENV_FILE}"
 parkio_backup_validate_deployment_profile
 
-DEST_DIR="$(jq -r .destination "${MANIFEST}")"
-BUCKET="$(jq -r .minio.bucket "${MANIFEST}")"
-GIT_SHA="$(jq -r .gitSha "${MANIFEST}")"
-STAMP="$(jq -r .timestamp "${MANIFEST}")"
+if ! parkio_restore_resolve_stamp_from_manifest "${MANIFEST}" "${STAMP_OVERRIDE}"; then
+  exit 2
+fi
+DEST_DIR="${PARKIO_RESTORE_STAMP_DIR}"
+BUCKET="$(jq -r '.minio.bucket // empty' "${MANIFEST}")"
+GIT_SHA="$(jq -r '.gitSha // empty' "${MANIFEST}")"
+STAMP="$(jq -r '.timestamp // empty' "${MANIFEST}")"
 MANIFEST_PROFILE="$(jq -r '.deploymentProfile // "hosted-beta"' "${MANIFEST}")"
 
 if [ "${PARKIO_DEPLOYMENT_PROFILE}" != "${MANIFEST_PROFILE}" ]; then
   echo "ERROR: restore profile '${PARKIO_DEPLOYMENT_PROFILE}' does not match manifest profile '${MANIFEST_PROFILE}'." >&2
   exit 2
 fi
+
+SCOPE="full"
+case "${ONLY}" in
+  databases|db) SCOPE="databases" ;;
+  ""|all|minio) SCOPE="full" ;;
+esac
 
 echo "=== Parkio hosted-beta restore ==="
 echo "manifest=${MANIFEST}"
@@ -62,6 +85,8 @@ echo "stamp=${STAMP}"
 echo "deploymentProfile=${PARKIO_DEPLOYMENT_PROFILE}"
 echo "dryRun=${DRY_RUN}"
 echo "only=${ONLY:-all}"
+echo "scope=${SCOPE}"
+echo "recoveryCutoff=${PARKIO_RESTORE_RECOVERY_CUTOFF:-}"
 
 if [ ! -d "${DEST_DIR}" ]; then
   if [ "$DRY_RUN" -eq 1 ]; then
@@ -70,6 +95,35 @@ if [ ! -d "${DEST_DIR}" ]; then
     echo "ERROR: backup destination not found: ${DEST_DIR}" >&2
     exit 2
   fi
+elif [ -f "${DEST_DIR}/COMPLETE" ]; then
+  echo "=== stamp preflight (${SCOPE}) ==="
+  if ! parkio_restore_run_stamp_preflight "${DEST_DIR}" "${SCOPE}"; then
+    echo "ERROR: stamp preflight failed; nothing was decrypted or restored." >&2
+    exit 1
+  fi
+  if [ "$DRY_RUN" -ne 1 ]; then
+    parkio_restore_require_cutoff_unless_exempt || exit 2
+    if ! parkio_restore_isolated_drill; then
+      echo "=== erasure coverage through ${PARKIO_RESTORE_RECOVERY_CUTOFF} ==="
+      set +e
+      parkio_restore_run_coverage "${DEST_DIR}" "${PARKIO_RESTORE_RECOVERY_CUTOFF}" "${LEDGER_STAMPS[@]}"
+      coverage_rc=$?
+      set -e
+      if [ "${coverage_rc}" -eq 3 ]; then
+        echo "ERROR: erasure evidence does not reach the recovery cutoff; restore BLOCKED." >&2
+        echo "Never lower the cutoff to obtain PASS." >&2
+        exit 3
+      elif [ "${coverage_rc}" -ne 0 ]; then
+        echo "ERROR: erasure coverage evidence is invalid." >&2
+        exit 1
+      fi
+    fi
+  fi
+elif [ "$DRY_RUN" -eq 1 ]; then
+  echo "WARN: ${DEST_DIR} is not a COMPLETE stamp (dry-run continues)."
+else
+  echo "ERROR: refusing restore of incomplete stamp (missing COMPLETE): ${DEST_DIR}" >&2
+  exit 2
 fi
 
 restore_databases() {
@@ -92,7 +146,8 @@ restore_databases() {
     echo "Restoring database '${svc}' from ${dump} ..."
     local args=(--yes)
     if [ -n "${ENV_FILE}" ]; then args+=(--env-file "${ENV_FILE}"); fi
-    "${ROOT}/scripts/restore-database.sh" "${svc}" "${dump}" "${args[@]}"
+    PARKIO_RESTORE_PREFLIGHT_DONE=1 \
+      "${ROOT}/scripts/restore-database.sh" "${svc}" "${dump}" "${args[@]}"
   done < <(jq -r '.databases[]' "${MANIFEST}")
 }
 
@@ -182,7 +237,7 @@ replay_erasure_ledger() {
     echo "DRY-RUN: would replay ${DEST_DIR}/erasure-tombstones.json into auth"
     return 0
   fi
-  local ledger="${DEST_DIR}/erasure-tombstones.json"
+  local ledger="${PARKIO_RESTORE_MERGED_LEDGER:-${DEST_DIR}/erasure-tombstones.json}"
   PARKIO_RESTORE_REQUIRE_ERASURE_LEDGER="${PARKIO_RESTORE_REQUIRE_ERASURE_LEDGER:-1}" \
     parkio_replay_erasure_tombstones "${ledger}" \
       "${PARKIO_POSTGRES_AUTH_CONTAINER:-parkio-postgres-auth}" \
@@ -211,3 +266,5 @@ case "${ONLY}" in
 esac
 
 echo "Restore completed."
+echo "Applications, publishers, schedulers, Slack and Fluent Bit were not started."
+echo "A successful data restore is not authorization to expose applications."

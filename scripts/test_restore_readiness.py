@@ -138,6 +138,20 @@ class StampPreflightTest(unittest.TestCase):
         code, report, _ = self.preflight(stamp)
         self.assertEqual((code, statuses(report)["dump:gateway"]), (1, "FAIL"))
 
+    def test_db_only_stamp_is_not_a_full_system_backup(self):
+        stamp = make_stamp(self.work)
+        (stamp / "minio.tar.gz.enc").unlink()
+        manifest = json.loads((stamp / "backup-manifest.json").read_text())
+        manifest["minioOk"] = 0
+        (stamp / "backup-manifest.json").write_text(json.dumps(manifest))
+        write_integrity(stamp)
+        code, report, _ = self.preflight(stamp)
+        self.assertEqual(code, 1)
+        self.assertEqual(statuses(report)["restore-scope"], "FAIL")
+        db_code, db_report, _ = self.preflight(stamp, "--scope", "databases")
+        self.assertEqual(db_code, 0, db_report)
+        self.assertEqual(db_report["verdict"], "PASS")
+
     def test_missing_ledger_fails_closed(self):
         stamp = make_stamp(self.work)
         (stamp / "erasure-tombstones.json").unlink()

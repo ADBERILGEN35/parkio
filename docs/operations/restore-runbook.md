@@ -4,11 +4,19 @@
 
 ## Single database
 
+The dump must sit inside a COMPLETE stamp. Production restore fail-closes
+before decrypt unless `--recovery-cutoff` is supplied and erasure coverage
+reaches that cutoff. A stamp-time ledger is not enough for a later cutoff.
+
 ```bash
-PARKIO_ENV_FILE=docker/.env ./scripts/restore-database.sh auth /var/backups/parkio/<stamp>/auth.sql.gz.enc
+PARKIO_ENV_FILE=docker/.env ./scripts/restore-database.sh auth \
+  /var/backups/parkio/<stamp>/auth.sql.gz.enc \
+  --recovery-cutoff 2026-09-24T12:00:00Z
 ```
 
 Supports `.sql`, `.sql.gz`, `.sql.gz.enc` (needs `BACKUP_ENCRYPT_PASSPHRASE`). Missing/wrong key fails closed.
+A dump outside a COMPLETE stamp, a DB-only stamp used as a full-system backup,
+or a checksum/path-traversal failure is rejected with zero destructive commands.
 
 ## Recover from offsite (VM lost)
 
@@ -42,8 +50,14 @@ Stop. Confirm the stamp, checksums, and that this is not a drill.
 PARKIO_ENV_FILE=docker/.env \
   PARKIO_ALLOW_LIVE_MINIO_RESTORE=yes \
   ./scripts/restore-hosted-beta.sh \
-  --manifest backup-artifacts/backup-<timestamp>.json
+  --manifest /var/backups/parkio/<stamp>/backup-manifest.json \
+  --recovery-cutoff <ISO-8601-UTC>
 ```
+
+`--manifest` must be the copy you reviewed (usually `backup-manifest.json` inside
+the stamp). The script refuses a stale `.destination` that points at a different
+directory. `offsite.uploaded=false` is a known sealed-stamp defect; it is not
+local integrity proof and not independent remote presence. Do not rewrite stamps.
 
 Dry-run:
 
@@ -71,7 +85,11 @@ Operator stop points:
 
 ## After restore
 
-1. `docker compose ... up -d` if services were stopped.
+A successful data restore is **not** authorization to expose applications.
+`restore-hosted-beta.sh` and `restore-database.sh` do not start applications,
+publishers, schedulers, Slack, or Fluent Bit.
+
+1. `docker compose ... up -d` if services were stopped — operator decision, not part of restore.
 2. Wait for healthchecks (`docker compose ps`).
 3. `./scripts/smoke-hosted-beta.sh`
 4. Verify Grafana dashboards and outbox/DLQ metrics.
