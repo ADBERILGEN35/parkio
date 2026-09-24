@@ -43,8 +43,9 @@ class SessionEpochGlobalFilterTest {
     private final SessionEpochClient client = mock(SessionEpochClient.class);
     private final SessionEpochCache cache = new SessionEpochCache(CLOCK, new SessionEpochProperties());
     private final SessionEpochGlobalFilter filter = new SessionEpochGlobalFilter(
-            new PublicEndpoints(new GatewayPublicSurfaceProperties()), client, cache,
-            new GatewayErrorResponseWriter(new ObjectMapper().findAndRegisterModules(), CLOCK));
+            new PublicEndpoints(new GatewayPublicSurfaceProperties()),
+            new SessionEpochVerifier(client, cache,
+                    new GatewayErrorResponseWriter(new ObjectMapper().findAndRegisterModules(), CLOCK)));
 
     @Test
     void tokenWithCurrentEpochReachesProtectedRoute() {

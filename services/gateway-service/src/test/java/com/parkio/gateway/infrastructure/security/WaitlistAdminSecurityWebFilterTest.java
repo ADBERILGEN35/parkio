@@ -6,6 +6,13 @@ import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.when;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.parkio.gateway.infrastructure.client.SessionEpochCache;
+import com.parkio.gateway.infrastructure.client.SessionEpochClient;
+import com.parkio.gateway.infrastructure.client.SessionEpochProperties;
+import com.parkio.gateway.infrastructure.client.UserStatusCache;
+import com.parkio.gateway.infrastructure.client.UserStatusClient;
+import com.parkio.gateway.infrastructure.client.UserStatusLookup;
+import com.parkio.gateway.infrastructure.client.UserStatusProperties;
 import com.parkio.gateway.infrastructure.web.GatewayErrorResponseWriter;
 import com.parkio.gateway.shared.GatewayHeaders;
 import java.nio.charset.StandardCharsets;
@@ -34,33 +41,73 @@ class WaitlistAdminSecurityWebFilterTest {
     @BeforeEach
     void setUp() {
         tokenValidator = mock(JwtTokenValidator.class);
+        SessionEpochClient epochClient = mock(SessionEpochClient.class);
+        UserStatusClient statusClient = mock(UserStatusClient.class);
+        when(epochClient.fetchCurrentEpoch(anyString())).thenReturn(Mono.just(0L));
+        when(statusClient.fetchStatus(anyString())).thenReturn(Mono.just(UserStatusLookup.found("ACTIVE")));
+        GatewayErrorResponseWriter errorWriter = new GatewayErrorResponseWriter(new ObjectMapper(), Clock.systemUTC());
         filter = new WaitlistAdminSecurityWebFilter(
                 tokenValidator,
-                new GatewayErrorResponseWriter(new ObjectMapper(), Clock.systemUTC()));
+                new SessionEpochVerifier(epochClient,
+                        new SessionEpochCache(Clock.systemUTC(), new SessionEpochProperties()), errorWriter),
+                new AccountStatusVerifier(statusClient,
+                        new UserStatusCache(Clock.systemUTC(), new UserStatusProperties()), errorWriter),
+                errorWriter);
     }
 
     @Test
-    void pathMatchingCoversExportAdminAndTrailingSlash() {
-        assertThat(WaitlistAdminSecurityWebFilter.isProtected(
-                HttpMethod.GET, path("/api/v1/waitlist/export"))).isTrue();
-        assertThat(WaitlistAdminSecurityWebFilter.isProtected(
-                HttpMethod.GET, path("/api/v1/waitlist/export/"))).isTrue();
-        assertThat(WaitlistAdminSecurityWebFilter.isProtected(
-                HttpMethod.GET, path("/api/v1/waitlist/admin"))).isTrue();
-        assertThat(WaitlistAdminSecurityWebFilter.isProtected(
-                HttpMethod.GET, path("/api/v1/waitlist/admin/summary"))).isTrue();
-        assertThat(WaitlistAdminSecurityWebFilter.isProtected(
-                HttpMethod.POST, path("/api/v1/waitlist/export"))).isFalse();
-        assertThat(WaitlistAdminSecurityWebFilter.isProtected(
-                HttpMethod.POST, path("/api/v1/waitlist"))).isFalse();
-        assertThat(WaitlistAdminSecurityWebFilter.isProtected(
-                HttpMethod.POST, path("/api/v1/waitlist/confirm"))).isFalse();
-        assertThat(WaitlistAdminSecurityWebFilter.isProtected(
-                HttpMethod.POST, path("/api/v1/waitlist/withdraw"))).isFalse();
-        assertThat(WaitlistAdminSecurityWebFilter.isProtected(
-                HttpMethod.POST, path("/api/v1/waitlist/resend"))).isFalse();
-        assertThat(WaitlistAdminSecurityWebFilter.isProtected(
-                HttpMethod.GET, path("/api/v1/waitlist"))).isFalse();
+    void pathMatchingCoversExportAdminAndTrailingSlashIndependentOfMethod() {
+        for (String protectedPath : List.of(
+                "/api/v1/waitlist/export",
+                "/api/v1/waitlist/export/",
+                "/api/v1/waitlist/admin",
+                "/api/v1/waitlist/admin/",
+                "/api/v1/waitlist/admin/summary",
+                "/api/v1/waitlist/admin/summary/")) {
+            assertThat(WaitlistAdminSecurityWebFilter.isProtected(path(protectedPath)))
+                    .as(protectedPath).isTrue();
+        }
+        for (String publicPath : List.of(
+                "/api/v1/waitlist",
+                "/api/v1/waitlist/",
+                "/api/v1/waitlist/confirm",
+                "/api/v1/waitlist/withdraw",
+                "/api/v1/waitlist/resend",
+                "/api/v1/waitlist/exports",
+                "/api/v1/waitlist/administrator")) {
+            assertThat(WaitlistAdminSecurityWebFilter.isProtected(path(publicPath)))
+                    .as(publicPath).isFalse();
+        }
+    }
+
+    @Test
+    void anonymousNonGetMethodsDeniedWithoutInvokingChain() {
+        for (HttpMethod method : List.of(HttpMethod.HEAD, HttpMethod.POST, HttpMethod.PUT,
+                HttpMethod.PATCH, HttpMethod.DELETE, HttpMethod.OPTIONS)) {
+            var exchange = MockServerWebExchange.from(
+                    MockServerHttpRequest.method(method, "/api/v1/waitlist/export").build());
+            var chain = new CapturingChain();
+
+            filter.filter(exchange, chain).block();
+
+            assertThat(chain.invoked).as(method.name()).isFalse();
+            assertThat(exchange.getResponse().getStatusCode()).as(method.name()).isEqualTo(HttpStatus.UNAUTHORIZED);
+        }
+    }
+
+    @Test
+    void emptyValidationResultDenied() {
+        when(tokenValidator.validate("empty")).thenReturn(Mono.empty());
+        var exchange = MockServerWebExchange.from(MockServerHttpRequest.get("/api/v1/waitlist/export")
+                .header(HttpHeaders.AUTHORIZATION, "Bearer empty")
+                .build());
+        var chain = new CapturingChain();
+
+        filter.filter(exchange, chain).block();
+
+        assertThat(chain.invoked).isFalse();
+        assertThat(exchange.getResponse().getStatusCode()).isEqualTo(HttpStatus.UNAUTHORIZED);
+        assertThat(statusBody(exchange)).contains("INVALID_TOKEN");
     }
 
     @Test

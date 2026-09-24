@@ -6,6 +6,9 @@ import static org.mockito.Mockito.when;
 import com.parkio.gateway.application.waitlist.WaitlistEmailSender;
 import com.parkio.gateway.application.waitlist.WaitlistRateLimitExceededException;
 import com.parkio.gateway.application.waitlist.WaitlistRateLimiter;
+import com.parkio.gateway.infrastructure.client.SessionEpochClient;
+import com.parkio.gateway.infrastructure.client.UserStatusClient;
+import com.parkio.gateway.infrastructure.client.UserStatusLookup;
 import com.parkio.gateway.infrastructure.security.AuthenticatedUser;
 import com.parkio.gateway.infrastructure.security.JwtTokenValidator;
 import java.util.List;
@@ -45,12 +48,20 @@ class WaitlistControllerTest {
     @MockBean
     private JwtTokenValidator tokenValidator;
 
+    @MockBean
+    private SessionEpochClient sessionEpochClient;
+
+    @MockBean
+    private UserStatusClient userStatusClient;
+
     private final AtomicReference<String> lastVerificationToken = new AtomicReference<>();
     private final AtomicReference<String> lastWithdrawToken = new AtomicReference<>();
 
     @BeforeEach
     void setUp() {
         when(rateLimiter.check(anyString(), anyString())).thenReturn(Mono.empty());
+        when(sessionEpochClient.fetchCurrentEpoch(anyString())).thenReturn(Mono.just(0L));
+        when(userStatusClient.fetchStatus(anyString())).thenReturn(Mono.just(UserStatusLookup.found("ACTIVE")));
         when(tokenValidator.validate("admin-token")).thenReturn(Mono.just(
                 new AuthenticatedUser(UUID.randomUUID().toString(), "admin@parkio.test",
                         List.of("ADMIN"), "ACTIVE", 0L)));
