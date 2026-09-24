@@ -175,6 +175,7 @@ jobs:
           bash scripts/test-invite-production-backup-scheduler.sh
           python3 scripts/test_backup_metrics.py
           bash scripts/test-backup-production-fail-closed.sh
+          chmod +x scripts/backup-hosted-beta.sh scripts/backup-databases.sh scripts/backup-minio.sh
           bash scripts/test-backup-complete-gate.sh
           bash scripts/test-invite-production-runtime-release.sh
           bash scripts/test-deploy-prune-rollback-integrity.sh

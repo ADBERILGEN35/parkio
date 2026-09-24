@@ -5,6 +5,9 @@
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
+chmod +x "${ROOT}/scripts/backup-hosted-beta.sh" \
+  "${ROOT}/scripts/backup-databases.sh" \
+  "${ROOT}/scripts/backup-minio.sh"
 pass=0
 fail=0
 ok() { echo "PASS $1"; pass=$((pass + 1)); }
