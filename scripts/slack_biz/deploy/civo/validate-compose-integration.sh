@@ -46,6 +46,11 @@ render() { # root envfile out [extra -f args...]
 
 mkdir -p "$TMP/base"
 git archive "$BASE_REF" docker scripts/lib 2>/dev/null | tar -x -C "$TMP/base"
+if [[ ! -f "$TMP/base/docker/compose.production.files" ]]; then
+  echo "FAIL: ${BASE_REF} has no docker/compose.production.files." >&2
+  echo "The production compose contract lives on origin/api; refusing a pre-contract comparison base." >&2
+  exit 1
+fi
 synth_env "$TMP/base/docker/.env.azure-hosted-beta.example" "$TMP/base.env"
 synth_env docker/.env.azure-hosted-beta.example "$TMP/head.env"
 # Same synthetic env on both sides except keys this change adds.

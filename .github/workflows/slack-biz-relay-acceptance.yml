@@ -82,7 +82,16 @@ jobs:
 
       - name: Production Compose integration (synthetic env)
         run: |
-          base="origin/${{ github.base_ref || 'api' }}"
+          set -euo pipefail
+          # Production compose contract lives on api. Umbrella PRs that target
+          # master (pre-contract tree) must not compare against a missing file set.
+          base_ref="${{ github.base_ref }}"
+          if [ -z "${base_ref}" ] || [ "${base_ref}" = "master" ]; then
+            base="origin/api"
+          else
+            base="origin/${base_ref}"
+          fi
+          git fetch --no-tags origin api
           ./scripts/slack_biz/deploy/civo/validate-compose-integration.sh "$base"
 
       - name: Upload acceptance evidence
