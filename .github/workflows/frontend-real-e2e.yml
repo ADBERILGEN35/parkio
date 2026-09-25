@@ -217,7 +217,7 @@ jobs:
         run: pnpm e2e:real
 
       - name: Isolated OPEN registration + logging-token verify (local only)
-        if: inputs.mode == 'local'
+        if: ${{ always() && !cancelled() && inputs.mode == 'local' }}
         working-directory: frontend
         env:
           PARKIO_REAL_E2E: "true"

@@ -323,7 +323,7 @@ test('MODERATOR can access the moderation queue when a seeded account is supplie
   await login(page, moderatorEmail as string, moderatorPassword as string);
   await page.goto('/moderation');
   await expect(page.getByRole('heading', { name: 'Moderation' })).toBeVisible();
-  await expect(page.getByRole('heading', { name: 'Cases' })).toBeVisible();
+  await expect(page.getByRole('heading', { name: 'Cases', exact: true })).toBeVisible();
 });
 
 test('ADMIN can access admin-only analytics when a seeded account is supplied', async ({ page }) => {
