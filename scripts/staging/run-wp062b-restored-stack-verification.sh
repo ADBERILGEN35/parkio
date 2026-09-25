@@ -208,7 +208,7 @@ export PARKIO_GATEWAY_URL="http://127.0.0.1:${GATEWAY_PORT}"
 export PARKIO_JOURNEY_STORE_MODE=source_pre_backup
 export POSTGRES_AUTH_DB="${SRC_AUTH}"
 export POSTGRES_USER_DB="${SRC_USER}"
-if ! "${SCRIPT_DIR}/run-critical-journeys.sh" >"${EVID}/logs/source-journeys.log" 2>&1; then
+if ! bash "${SCRIPT_DIR}/run-critical-journeys.sh" >"${EVID}/logs/source-journeys.log" 2>&1; then
   echo "ERROR: source journeys failed — non-waivable if auth/parking seed incomplete" >&2
   OVERALL="FAILED"
   cp -a "${EVID}/critical-journeys" "${EVID}/source-critical-journeys" 2>/dev/null || true
@@ -244,7 +244,7 @@ for svc_entry in \
 done
 true >"${EVID}/logs/backup-db.log"
 PARKIO_ENV_FILE="${TMP_ENV}" PARKIO_MINIO_CONTAINER="${MINIO_C}" MINIO_BUCKET="${SRC_BUCKET}" \
-  "${ROOT_DIR}/scripts/backup-minio.sh" "${BACKUP_ROOT}" >"${EVID}/logs/backup-minio.log" 2>&1 || true
+  bash "${ROOT_DIR}/scripts/backup-minio.sh" "${BACKUP_ROOT}" >"${EVID}/logs/backup-minio.log" 2>&1 || true
 emit "${EVID}/backup-manifest.json" "{\"backupRoot\":\"backups/wp062b-${RUN_SUFFIX}\",\"status\":\"COMPLETED\",\"sourceBucket\":\"${SRC_BUCKET}\"}"
 
 echo "==> [4/10] Restore into drill databases + restore MinIO bucket"
@@ -395,7 +395,7 @@ export PARKIO_AUTH_PG_CONTAINER="${AUTH_C}"
 export PARKIO_USER_PG_CONTAINER="${USER_C}"
 # Move prior journey dir aside
 rm -rf "${EVID}/critical-journeys-restored" 2>/dev/null || true
-if "${SCRIPT_DIR}/run-critical-journeys.sh" >"${EVID}/logs/restored-journeys.log" 2>&1; then
+if bash "${SCRIPT_DIR}/run-critical-journeys.sh" >"${EVID}/logs/restored-journeys.log" 2>&1; then
   JOURNEY_RC=0
 else
   JOURNEY_RC=$?
