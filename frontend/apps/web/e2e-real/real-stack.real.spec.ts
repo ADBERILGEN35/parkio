@@ -155,14 +155,29 @@ test('protected routes redirect anonymous users to login', async ({ page }) => {
   await expect(page).toHaveURL(/\/login(?:\?.*)?$/);
 });
 
-test('registers a real pending account through the gateway', async ({ page, request }) => {
+async function readRegistrationMode(request: {
+  get: (url: string) => Promise<{ ok: () => boolean; json: () => Promise<{ mode?: string }> }>;
+}): Promise<string> {
   const modeResponse = await request.get(`${apiBaseUrl}/auth/registration-mode`);
-  const modeBody = modeResponse.ok()
-    ? ((await modeResponse.json()) as { mode?: string })
-    : {};
+  if (!modeResponse.ok()) return '';
+  const modeBody = (await modeResponse.json()) as { mode?: string };
+  return String(modeBody.mode ?? '').toUpperCase();
+}
+
+test('closed registration is visible when the stack is closed', async ({ page, request }) => {
+  const mode = await readRegistrationMode(request);
+  test.skip(mode === 'OPEN', 'This stack is the isolated OPEN registration profile.');
+  expect(mode, 'default/local auth registration mode').toBe('CLOSED');
+  await page.goto('/register');
+  await expect(page.getByText(/New account registrations are currently closed/i)).toBeVisible();
+  await expect(page.getByLabel('Full name')).toHaveCount(0);
+});
+
+test('registers a real pending account through the gateway', async ({ page, request }) => {
+  const mode = await readRegistrationMode(request);
   test.skip(
-    String(modeBody.mode ?? '').toUpperCase() !== 'OPEN',
-    'Public registration is closed on this stack; isolated CI seeds ACTIVE accounts instead of opening signup.',
+    mode !== 'OPEN',
+    'OPEN registration is exercised only on the isolated local overlay, not the default CLOSED stack.',
   );
 
   const email = `q5-${Date.now()}-${Math.random().toString(16).slice(2)}@${emailDomain}`;
@@ -180,7 +195,7 @@ test('registers a real pending account through the gateway', async ({ page, requ
 test('verifies email when a real verification token is supplied', async ({ page }) => {
   test.skip(
     !verificationToken,
-    'PARKIO_REAL_E2E_VERIFICATION_TOKEN is required because production does not expose raw email tokens.',
+    'Need a token from the isolated logging sender (PARKIO_EMAIL_VERIFICATION_LOG_TOKEN=true) or an explicit local test token. Production does not expose raw email tokens and real mail is not sent.',
   );
 
   await page.goto(`/verify-email?token=${encodeURIComponent(verificationToken as string)}`);

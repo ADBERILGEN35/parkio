@@ -89,7 +89,11 @@ jobs:
             --env-file docker/.env.ci-wp062b \
             config >/tmp/wp062b-compose.yml
           test -s /tmp/wp062b-compose.yml
-          echo "isolated-preflight OK (compose render + pin assert; full restored APIs still need PARKIO_CI_HAS_STAGING_ENV=yes)"
+          echo "isolated-preflight OK (compose render + pin assert)."
+          echo "This is preflight only. Full restored-stack APIs are a separate job."
+          echo "CI_EPHEMERAL/LOCAL_REPRESENTATIVE execute against disposable compose + synthetic backups."
+          echo "SHARED_STAGING also needs an authorized isolated host, endpoints, credentials, and cleanup."
+          echo "PARKIO_CI_HAS_STAGING_ENV=yes is only an operator attestation; it is not sufficient by itself."
 
   restored-stack:
     needs: guard
@@ -126,18 +130,25 @@ jobs:
         run: python3 --version
       - name: Runner capability note
         run: |
-          echo "Full restored app stack may be INFRA_INPUT_REQUIRED on small GitHub-hosted runners."
-          echo "Use a capable self-hosted runner label when SHARED_STAGING capacity exists."
-      - name: Structural validation only when secrets missing
-        if: ${{ env.PARKIO_CI_HAS_STAGING_ENV != 'yes' }}
+          echo "CI_EPHEMERAL/LOCAL_REPRESENTATIVE: GitHub-hosted ubuntu-latest + Docker + GHCR MinIO pins."
+          echo "SHARED_STAGING is not this runner. Do not set PARKIO_CI_HAS_STAGING_ENV=yes to unlock a job."
+      - name: Refuse SHARED_STAGING on this GitHub-hosted runner
+        if: ${{ inputs.execution_environment == 'SHARED_STAGING' }}
+        run: |
+          echo "SHARED_STAGING requires an authorized isolated host, restored synthetic data,"
+          echo "service endpoints, credentials, and cleanup — not merely PARKIO_CI_HAS_STAGING_ENV=yes."
+          echo "INFRA_INPUT_REQUIRED: no authorized shared-staging host is attached to this workflow."
+          exit 1
+      - name: Prepare disposable env for isolated execute
+        if: ${{ inputs.execution_environment != 'SHARED_STAGING' }}
         run: |
           set -euo pipefail
-          bash -n scripts/staging/run-wp062b-restored-stack-verification.sh
-          bash -n scripts/staging/lib/safety-guards.sh
-          test -f docker/docker-compose.restored-application-verification.yml
-          echo "INFRA_INPUT_REQUIRED: staging .env/secrets not provisioned for full stack on this runner"
+          cp docker/.env.example docker/.env
+          echo "Prepared docker/.env from example for disposable CI_EPHEMERAL restore (synthetic passwords only)."
       - name: Execute WP-06.2B restored stack
-        if: ${{ env.PARKIO_CI_HAS_STAGING_ENV == 'yes' }}
+        if: ${{ inputs.execution_environment != 'SHARED_STAGING' }}
+        env:
+          PARKIO_WP062B_BUILD_IMAGES: "yes"
         run: ./scripts/staging/run-wp062b-restored-stack-verification.sh
       - name: Diagnostics
         if: always()

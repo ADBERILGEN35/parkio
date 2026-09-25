@@ -178,7 +178,12 @@ PY
 )"
 
 echo "==> [1/10] Starting isolated SOURCE_STAGING slim stack (${COMPOSE_PROJECT_NAME})"
-"${COMPOSE[@]}" up -d --no-build "${SLIM_SERVICES[@]}" >"${EVID}/logs/compose-up-source.log" 2>&1
+UP_ARGS=(up -d --no-build)
+if [ "${PARKIO_WP062B_BUILD_IMAGES:-}" = "yes" ]; then
+  UP_ARGS=(up -d --build)
+  echo "PARKIO_WP062B_BUILD_IMAGES=yes — building slim service images on this runner"
+fi
+"${COMPOSE[@]}" "${UP_ARGS[@]}" "${SLIM_SERVICES[@]}" >"${EVID}/logs/compose-up-source.log" 2>&1
 
 echo "==> Waiting for gateway readiness on :${GATEWAY_PORT}"
 READY=0
