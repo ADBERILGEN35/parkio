@@ -8,7 +8,7 @@ report is safe to keep as drill evidence.
 
 Usage:
   restore-stamp-preflight.py STAMP_DIR [--max-age-hours N] [--allow-plaintext]
-                             [--databases a,b,...] [--now EPOCH]
+                             [--databases a,b,...] [--scope full|databases] [--now EPOCH]
 
 Exit: 0 = PASS (warnings allowed), 1 = FAIL, 2 = usage error.
 """
@@ -140,7 +140,7 @@ def check_dumps(stamp, databases, allow_plaintext, report):
     return sizes
 
 
-def check_minio(stamp, manifest, allow_plaintext, report):
+def check_minio(stamp, manifest, allow_plaintext, report, scope="full"):
     sealed = stamp / "minio.tar.gz.enc"
     if sealed.is_file():
         status = "PASS" if check_encrypted(sealed) else "FAIL"
@@ -150,11 +150,14 @@ def check_minio(stamp, manifest, allow_plaintext, report):
     if (stamp / "minio").is_dir() and allow_plaintext:
         report.add("minio-artifact", "WARN", "plaintext object tree (dev mode only)")
         return
+    if scope == "databases":
+        report.add("minio-artifact", "PASS", "DB-only scope: MinIO artifact not required")
+        return
     objects = (manifest.get("minio") or {}).get("objectCount")
     report.add("minio-artifact", "FAIL", f"object archive missing (manifest objectCount={objects})")
 
 
-def check_manifest(stamp, databases, allow_plaintext, report):
+def check_manifest(stamp, databases, allow_plaintext, report, scope="full"):
     path = stamp / "backup-manifest.json"
     try:
         manifest = json.loads(path.read_text())
@@ -166,18 +169,25 @@ def check_manifest(stamp, databases, allow_plaintext, report):
         problems.append("schemaVersion<3")
     if manifest.get("databasesFailed") != 0:
         problems.append("databasesFailed!=0")
-    if manifest.get("minioOk") != 1:
-        problems.append("minioOk!=1")
+    minio_ok = manifest.get("minioOk")
+    if scope == "full" and minio_ok != 1:
+        problems.append("minioOk!=1 (DB-only stamp is not a full-system backup)")
     if set(manifest.get("databases") or []) != set(databases):
         problems.append("database list differs from expected inventory")
     if not allow_plaintext and not (manifest.get("encryption") or {}).get("enabled"):
         problems.append("encryption disabled")
     report.add("manifest", "FAIL" if problems else "PASS", "; ".join(problems) or "schema v3, no failures")
+    if scope == "full":
+        report.add("restore-scope", "PASS" if minio_ok == 1 else "FAIL",
+                   "full-system stamp" if minio_ok == 1 else "refusing to treat a DB-only stamp as full")
+    else:
+        report.add("restore-scope", "PASS", "databases-only restore scope")
     if not (manifest.get("offsite") or {}).get("uploaded"):
         # Known defect: the stamp copy is written before the offsite upload
         # (docs/operations/gmp-release-pins.md). Presence offsite is the proof.
+        # This flag is neither local integrity nor independent remote presence.
         report.add("manifest-offsite-flag", "WARN",
-                   "stamp manifest says offsite.uploaded=false; known stale-copy defect")
+                   "stamp manifest says offsite.uploaded=false; not local integrity; not remote proof")
     return manifest
 
 
@@ -205,16 +215,19 @@ def stamp_epoch(value):
     return calendar.timegm(tuple(int(g) for g in match.groups()) + (0, 0, 0))
 
 
-def run(stamp, databases, allow_plaintext=False, max_age_hours=None, now=None):
+def run(stamp, databases, allow_plaintext=False, max_age_hours=None, now=None, scope="full"):
     report = Report()
     stamp = Path(stamp)
+    if scope not in ("full", "databases"):
+        report.add("restore-scope", "FAIL", f"unsupported scope {scope}")
+        return report, {}
     if not stamp.is_dir():
         report.add("stamp-dir", "FAIL", "stamp directory not found")
         return report, {}
     check_integrity(stamp, report)
-    manifest = check_manifest(stamp, databases, allow_plaintext, report)
+    manifest = check_manifest(stamp, databases, allow_plaintext, report, scope)
     sizes = check_dumps(stamp, databases, allow_plaintext, report)
-    check_minio(stamp, manifest, allow_plaintext, report)
+    check_minio(stamp, manifest, allow_plaintext, report, scope)
     tombstones = check_ledger(stamp, report)
 
     taken = stamp_epoch(manifest.get("timestamp"))
@@ -243,13 +256,14 @@ def main(argv=None):
     parser = argparse.ArgumentParser(description=__doc__.split("\n")[0])
     parser.add_argument("stamp_dir")
     parser.add_argument("--databases", default=",".join(DEFAULT_DATABASES))
+    parser.add_argument("--scope", choices=("full", "databases"), default="full")
     parser.add_argument("--allow-plaintext", action="store_true")
     parser.add_argument("--max-age-hours", type=float)
     parser.add_argument("--now", type=float, help=argparse.SUPPRESS)
     args = parser.parse_args(argv)
     databases = [d for d in args.databases.split(",") if d]
     report, summary = run(args.stamp_dir, databases, args.allow_plaintext,
-                          args.max_age_hours, args.now)
+                          args.max_age_hours, args.now, args.scope)
     verdict = "FAIL" if report.failed else "PASS"
     json.dump({"tool": "restore-stamp-preflight", "schemaVersion": 1, "verdict": verdict,
                "summary": summary, "checks": report.checks}, sys.stdout, indent=2)

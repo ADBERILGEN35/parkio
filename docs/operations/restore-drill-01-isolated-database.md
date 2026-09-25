@@ -161,9 +161,10 @@ The script runs these phases in order and fails closed at each one:
 | 5 | Replay the erasure set into restored auth. **Require** zero ACTIVE accounts in the set | exit 1 |
 | 6 | Unpublished `outbox_events` per DB and waitlist outbox status counts: the re-publish exposure | always recorded |
 
-Operator-compiled erasures after the newest stamp, for a real recovery rather than this drill,
-are passed with `--supplemental-ledger FILE --supplemental-covered-through TS`. The file holds
-identifiers, so it stays on the drill host.
+Operator-compiled identifiers after the newest stamp may be passed with
+`--supplemental-ledger FILE --supplemental-covered-through TS`. The file holds
+identifiers, so it stays on the drill host. The covered-through timestamp is
+operator assertion only; it does not certify coverage or unlock a BLOCKED cutoff.
 
 ### Pass criteria
 
