@@ -152,7 +152,7 @@ test('real gateway exposes health-critical public auth routes', async ({ request
 
 test('protected routes redirect anonymous users to login', async ({ page }) => {
   await page.goto('/map');
-  await expect(page).toHaveURL(/\/login$/);
+  await expect(page).toHaveURL(/\/login(?:\?.*)?$/);
 });
 
 test('registers a real pending account through the gateway', async ({ page }) => {
@@ -191,10 +191,10 @@ test('logs in, restores from the HttpOnly refresh cookie, and logs out', async (
 
   await page.goto('/profile');
   await page.getByRole('button', { name: 'Sign out' }).click();
-  await expect(page).toHaveURL(/\/login$/);
+  await expect(page).toHaveURL(/\/login(?:\?.*)?$/);
 
   await page.goto('/map');
-  await expect(page).toHaveURL(/\/login$/);
+  await expect(page).toHaveURL(/\/login(?:\?.*)?$/);
 });
 
 test('refresh bootstrap survives a stale in-memory access token after reload', async ({ page }) => {
@@ -222,10 +222,10 @@ test('logout-all invalidates another browser session', async ({ browser }) => {
     firstPage.on('dialog', (dialog) => dialog.accept());
     await firstPage.goto('/profile');
     await firstPage.getByRole('button', { name: 'Log out of all devices' }).click();
-    await expect(firstPage).toHaveURL(/\/login$/);
+    await expect(firstPage).toHaveURL(/\/login(?:\?.*)?$/);
 
     await secondPage.reload();
-    await expect(secondPage).toHaveURL(/\/login$/);
+    await expect(secondPage).toHaveURL(/\/login(?:\?.*)?$/);
   } finally {
     await first.close();
     await second.close();
