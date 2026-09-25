@@ -34,6 +34,9 @@ permissions:
   actions: read
   packages: read
 
+env:
+  PARKIO_CI_HAS_STAGING_ENV: ${{ vars.PARKIO_CI_HAS_STAGING_ENV }}
+
 concurrency:
   group: shared-staging-verification-${{ github.ref }}
   cancel-in-progress: false
@@ -51,6 +54,42 @@ jobs:
             echo "production execution rejected" >&2
             exit 1
           fi
+      - name: Fail closed when SHARED_STAGING is selected without capacity
+        if: ${{ inputs.execution_environment == 'SHARED_STAGING' && vars.PARKIO_CI_HAS_STAGING_ENV != 'yes' }}
+        run: |
+          echo "SHARED_STAGING requires repository variable PARKIO_CI_HAS_STAGING_ENV=yes and an authorized isolated host."
+          echo "This is fail-closed, not a skip."
+          exit 1
+
+  isolated-preflight:
+    name: Isolated CI_EPHEMERAL preflight
+    needs: guard
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - name: Log in to GHCR for private MinIO pins
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - name: Syntax, pins, and compose render
+        run: |
+          set -euo pipefail
+          bash -n scripts/staging/run-wp062b-restored-stack-verification.sh
+          bash -n scripts/staging/lib/safety-guards.sh
+          bash -n scripts/staging/cleanup-isolated-stack.sh
+          test -f docker/docker-compose.restored-application-verification.yml
+          bash scripts/ci/assert-minio-image-pins.sh
+          cp docker/.env.example docker/.env.ci-wp062b
+          docker compose \
+            -f docker/docker-compose.yml \
+            -f docker/docker-compose.restored-application-verification.yml \
+            --env-file docker/.env.ci-wp062b \
+            config >/tmp/wp062b-compose.yml
+          test -s /tmp/wp062b-compose.yml
+          echo "isolated-preflight OK (compose render + pin assert; full restored APIs still need PARKIO_CI_HAS_STAGING_ENV=yes)"
 
   restored-stack:
     needs: guard

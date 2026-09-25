@@ -35,10 +35,19 @@ with `GITHUB_TOKEN` + `packages: read`.
 Unresolved compatibility constraints (no working supported path yet):
 
 - Fork PRs cannot read these private parent packages with `GITHUB_TOKEN`.
-  Workflows fail closed. Do not use `pull_request_target`, privileged untrusted
-  execution, or exposed credentials to paper over that.
-- Hosted-beta ARM64 is **not verified**. A `MINIO_IMAGE` override alone does
-  not prove ARM support.
+  Workflows that pull MinIO fail closed. Do not use `pull_request_target`,
+  privileged untrusted execution, or exposed credentials to paper over that.
+  Supported contribution path until a better registry grant exists: open the
+  change as a same-repository branch PR, or ask a maintainer to copy the fork
+  branch into `ADBERILGEN35/parkio` after review. A later
+  `workflow_dispatch` on the trusted ref can rerun stack jobs. That is not a
+  silent skip.
+- Hosted-beta ARM64 is **not a supported deployment contract**.
+  `docs/azure/AZURE-HOSTED-BETA-READINESS.md` records ARM64 as **NOT VERIFIED**.
+  Do not choose an Ampere/ARM SKU. A `MINIO_IMAGE` override alone does not
+  prove ARM support. A verified `linux/arm64` dest image plus a full ARM
+  build/smoke/backup/restore run would be required before treating ARM as
+  supported. That artifact does not exist.
 
 The previous isolated offsite fixture
 `quay.io/minio/minio@sha256:7d80fd232a2f7108aa6f133fcfe5fade3f1626d92d31ae1318076e7aa61928a2`

@@ -24,9 +24,12 @@ regenerate native files. Waiting for Expo to change the check does not
 reconcile ownership.
 
 The doctor check therefore cannot represent the supported setup. CI does not
-disable expo-doctor. `scripts/run-expo-doctor.mjs` still fails the job on every
-non-CNG doctor failure. The CNG finding is replaced by
-`scripts/assert-native-ownership.mjs`, which asserts the live native tree.
+disable expo-doctor. `scripts/run-expo-doctor.mjs` accepts only that exact
+20/21 CNG diagnostic (name plus native-folder/Prebuild text). Spawn errors,
+unexpected exits, extra failed checks, or a changed output format fail closed.
+The CNG finding is replaced by `scripts/assert-native-ownership.mjs`, which
+cross-checks the committed `android/` tree against the retained `app.json`
+recipe.
 
 ## Replacement gate
 

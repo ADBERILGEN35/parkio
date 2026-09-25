@@ -7,7 +7,9 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
-const appRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
+const appRoot = process.env.PARKIO_NATIVE_APP_ROOT
+  ? path.resolve(process.env.PARKIO_NATIVE_APP_ROOT)
+  : path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const failures = [];
 
 function fail(message) {
@@ -73,11 +75,17 @@ for (const rel of [
 const gradle = read('android/app/build.gradle') ?? '';
 const idMatch = gradle.match(/applicationId\s+'([^']+)'/);
 const nsMatch = gradle.match(/namespace\s+'([^']+)'/);
+if (!pkg) {
+  fail('app.json expo.android.package is required; native identity is derived from it');
+}
 if (!idMatch || idMatch[1] !== pkg) {
-  fail(`gradle applicationId ${idMatch?.[1] ?? '(missing)'} != package ${pkg}`);
+  fail(`gradle applicationId ${idMatch?.[1] ?? '(missing)'} != app.json package ${pkg}`);
 }
 if (!nsMatch || nsMatch[1] !== pkg) {
-  fail(`gradle namespace ${nsMatch?.[1] ?? '(missing)'} != package ${pkg}`);
+  fail(`gradle namespace ${nsMatch?.[1] ?? '(missing)'} != app.json package ${pkg}`);
+}
+if (idMatch && nsMatch && idMatch[1] !== nsMatch[1]) {
+  fail(`gradle applicationId ${idMatch[1]} != namespace ${nsMatch[1]}`);
 }
 
 const versionName = gradle.match(/versionName\s+"([^"]+)"/)?.[1];
@@ -90,14 +98,18 @@ if (!versionCode) {
 }
 
 const manifest = read('android/app/src/main/AndroidManifest.xml') ?? '';
-if (!manifest.includes('android:allowBackup="false"')) {
-  fail('manifest allowBackup must be false');
+const allowBackup = manifest.match(/android:allowBackup="([^"]+)"/);
+if (!allowBackup || allowBackup[1] !== 'false') {
+  fail(`manifest allowBackup must be false to match the retained backup plugin; got ${allowBackup?.[1] ?? '(missing)'}`);
 }
-if (!manifest.includes('android:scheme="parkio-v2"')) {
-  fail('manifest missing parkio-v2 scheme');
+if (!scheme || !manifest.includes(`android:scheme="${scheme}"`)) {
+  fail(`manifest scheme must match app.json scheme ${scheme}`);
 }
-if (!manifest.includes('android:screenOrientation="portrait"')) {
-  fail('manifest must be portrait');
+if (orientation === 'portrait' && !manifest.includes('android:screenOrientation="portrait"')) {
+  fail('manifest orientation must match app.json portrait');
+}
+if (orientation !== 'portrait') {
+  fail(`app.json orientation must stay portrait for the committed release activity; got ${orientation}`);
 }
 if (!manifest.includes('android.permission.RECORD_AUDIO') || !manifest.includes('tools:node="remove"')) {
   fail('RECORD_AUDIO must be present with tools:node=remove');

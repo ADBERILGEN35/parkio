@@ -42,6 +42,7 @@ on:
 
 permissions:
   contents: read
+  packages: read
 
 concurrency:
   group: frontend-real-e2e-${{ github.ref }}
@@ -66,16 +67,26 @@ jobs:
           fi
 
       # --- local mode: bring up infra + apps and seed the test accounts ---------- #
+      - name: Log in to GHCR for private MinIO pulls
+        if: inputs.mode == 'local'
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
       - name: Write docker/.env (local mode)
         if: inputs.mode == 'local'
         env:
           PARKIO_LOCAL_ENV: ${{ secrets.PARKIO_LOCAL_ENV }}
         run: |
-          if [ -z "${PARKIO_LOCAL_ENV}" ]; then
-            echo "::error::local mode requires the PARKIO_LOCAL_ENV secret (contents of docker/.env)."
-            exit 1
+          if [ -n "${PARKIO_LOCAL_ENV}" ]; then
+            printf '%s' "${PARKIO_LOCAL_ENV}" > docker/.env
+            echo "Using PARKIO_LOCAL_ENV secret for local compose."
+          else
+            cp docker/.env.example docker/.env
+            echo "PARKIO_LOCAL_ENV unset; using docker/.env.example for disposable synthetic local mode."
           fi
-          printf '%s' "${PARKIO_LOCAL_ENV}" > docker/.env
 
       - name: Boot the stack (local mode)
         if: inputs.mode == 'local'
@@ -89,16 +100,30 @@ jobs:
             sleep 5
           done
 
+      - name: Materialize synthetic accounts when secrets are absent
+        if: inputs.mode == 'local'
+        id: accounts
+        env:
+          PARKIO_REAL_USER_EMAIL: ${{ secrets.PARKIO_REAL_USER_EMAIL }}
+          PARKIO_REAL_USER_PASSWORD: ${{ secrets.PARKIO_REAL_USER_PASSWORD }}
+        run: |
+          if [ -n "${PARKIO_REAL_USER_EMAIL}" ] && [ -n "${PARKIO_REAL_USER_PASSWORD}" ]; then
+            echo "source=secrets" >> "$GITHUB_OUTPUT"
+            echo "PARKIO_REAL_USER_EMAIL=${PARKIO_REAL_USER_EMAIL}" >> "$GITHUB_ENV"
+            echo "PARKIO_REAL_USER_PASSWORD=${PARKIO_REAL_USER_PASSWORD}" >> "$GITHUB_ENV"
+            exit 0
+          fi
+          echo "source=synthetic" >> "$GITHUB_OUTPUT"
+          echo "PARKIO_REAL_USER_EMAIL=user@real-e2e.parkio.local" >> "$GITHUB_ENV"
+          echo "PARKIO_REAL_USER_PASSWORD=Parkio-Synthetic-E2E-1234" >> "$GITHUB_ENV"
+          echo "PARKIO_REAL_MODERATOR_EMAIL=moderator@real-e2e.parkio.local" >> "$GITHUB_ENV"
+          echo "PARKIO_REAL_MODERATOR_PASSWORD=Parkio-Synthetic-E2E-1234" >> "$GITHUB_ENV"
+          echo "Using disposable real-e2e.parkio.local accounts; hosted/shared credentials were not provided."
+
       - name: Seed real-stack accounts (local mode)
         if: inputs.mode == 'local' && inputs.seed
         env:
           PARKIO_ENV_FILE: docker/.env
-          PARKIO_REAL_USER_EMAIL: ${{ secrets.PARKIO_REAL_USER_EMAIL }}
-          PARKIO_REAL_USER_PASSWORD: ${{ secrets.PARKIO_REAL_USER_PASSWORD }}
-          PARKIO_REAL_MODERATOR_EMAIL: ${{ secrets.PARKIO_REAL_MODERATOR_EMAIL }}
-          PARKIO_REAL_MODERATOR_PASSWORD: ${{ secrets.PARKIO_REAL_MODERATOR_PASSWORD }}
-          PARKIO_REAL_ADMIN_EMAIL: ${{ secrets.PARKIO_REAL_ADMIN_EMAIL }}
-          PARKIO_REAL_ADMIN_PASSWORD: ${{ secrets.PARKIO_REAL_ADMIN_PASSWORD }}
         run: ./scripts/seed-real-e2e.sh --target local --update-passwords
 
       # --- frontend toolchain --------------------------------------------------- #
@@ -130,10 +155,6 @@ jobs:
           PARKIO_REAL_BASE_URL: ${{ inputs.mode == 'local' && 'http://localhost:5173' || inputs.base_url }}
           PARKIO_REAL_API_BASE_URL: ${{ inputs.mode == 'local' && 'http://localhost:8080/api/v1' || inputs.api_base_url }}
           PARKIO_REAL_E2E_START_WEB: ${{ inputs.mode == 'local' && 'true' || 'false' }}
-          PARKIO_REAL_USER_EMAIL: ${{ secrets.PARKIO_REAL_USER_EMAIL }}
-          PARKIO_REAL_USER_PASSWORD: ${{ secrets.PARKIO_REAL_USER_PASSWORD }}
-          PARKIO_REAL_MODERATOR_EMAIL: ${{ secrets.PARKIO_REAL_MODERATOR_EMAIL }}
-          PARKIO_REAL_MODERATOR_PASSWORD: ${{ secrets.PARKIO_REAL_MODERATOR_PASSWORD }}
           PARKIO_REAL_ADMIN_EMAIL: ${{ secrets.PARKIO_REAL_ADMIN_EMAIL }}
           PARKIO_REAL_ADMIN_PASSWORD: ${{ secrets.PARKIO_REAL_ADMIN_PASSWORD }}
           PARKIO_REAL_E2E_VERIFICATION_TOKEN: ${{ secrets.PARKIO_REAL_E2E_VERIFICATION_TOKEN }}
