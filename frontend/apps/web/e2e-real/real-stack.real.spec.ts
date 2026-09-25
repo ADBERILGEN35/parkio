@@ -155,7 +155,16 @@ test('protected routes redirect anonymous users to login', async ({ page }) => {
   await expect(page).toHaveURL(/\/login(?:\?.*)?$/);
 });
 
-test('registers a real pending account through the gateway', async ({ page }) => {
+test('registers a real pending account through the gateway', async ({ page, request }) => {
+  const modeResponse = await request.get(`${apiBaseUrl}/auth/registration-mode`);
+  const modeBody = modeResponse.ok()
+    ? ((await modeResponse.json()) as { mode?: string })
+    : {};
+  test.skip(
+    String(modeBody.mode ?? '').toUpperCase() !== 'OPEN',
+    'Public registration is closed on this stack; isolated CI seeds ACTIVE accounts instead of opening signup.',
+  );
+
   const email = `q5-${Date.now()}-${Math.random().toString(16).slice(2)}@${emailDomain}`;
   await page.goto('/register');
   await page.getByLabel('Full name').fill('Q5 Real E2E');
