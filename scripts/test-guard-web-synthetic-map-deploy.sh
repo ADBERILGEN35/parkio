@@ -58,6 +58,48 @@ case "$1" in
     tar -C "$root$(dirname "$path")" -cf - "$(basename "$path")"
     ;;
   rm) ;;
+  save)
+    out=""; img=""
+    shift
+    while [ "$#" -gt 0 ]; do
+      case "$1" in
+        -o|--output) out="${2:-}"; shift 2 ;;
+        *) img="$1"; shift ;;
+      esac
+    done
+    [ -n "$out" ] && [ -n "$img" ] || exit 1
+    [ -f "$d/save-fail" ] && exit 1
+    meta="$d/images/$(key "$img").save.json"
+    [ -f "$meta" ] || exit 1
+    python3 - "$meta" "$out" "$d/save-mismatch" "$d/save-nocfg" <<'PY'
+import json, sys, tarfile, io
+from pathlib import Path
+meta = json.loads(Path(sys.argv[1]).read_text())
+out = Path(sys.argv[2])
+mismatch = Path(sys.argv[3]).exists()
+nocfg = Path(sys.argv[4]).exists()
+manifest = "sha256:0000000000000000000000000000000000000000000000000000000000000000" if mismatch else meta["manifest"]
+config = "" if nocfg else meta["config"]
+man_hex = manifest[7:]
+cfg_hex = config[7:] if config.startswith("sha256:") else ""
+manifest_obj = {"schemaVersion": 2, "mediaType": "application/vnd.oci.image.manifest.v1+json", "layers": []}
+if config:
+    manifest_obj["config"] = {"mediaType": "application/vnd.oci.image.config.v1+json", "digest": config, "size": 1}
+index = {"schemaVersion": 2, "manifests": [{"mediaType": "application/vnd.oci.image.manifest.v1+json", "digest": manifest, "size": 1}]}
+man_bytes = json.dumps(manifest_obj, separators=(",", ":")).encode()
+idx_bytes = json.dumps(index, separators=(",", ":")).encode()
+with tarfile.open(out, "w") as tf:
+    def add(name, data):
+        info = tarfile.TarInfo(name)
+        info.size = len(data)
+        tf.addfile(info, io.BytesIO(data))
+    add("oci-layout", b'{"imageLayoutVersion":"1.0.0"}')
+    add("index.json", idx_bytes)
+    add("blobs/sha256/" + man_hex, man_bytes)
+    if cfg_hex:
+        add("blobs/sha256/" + cfg_hex, b"{}")
+PY
+    ;;
   compose)
     for a in "$@"; do
       if [ "$a" = "config" ]; then
@@ -84,6 +126,7 @@ export FAKE_DOCKER_DIR="$FAKE"
 
 fake_reset() {
   rm -f "$FAKE"/calls.log "$FAKE"/config.log "$FAKE"/mutations.log "$FAKE"/compose-fail
+  rm -f "$FAKE"/save-fail "$FAKE"/save-mismatch "$FAKE"/save-nocfg
   unset FAKE_DAEMON_PLATFORM || true
 }
 
@@ -115,15 +158,30 @@ bundle() {
   esac
 }
 
-# image REF CONFIG_ID PLATFORM REPO_DIGESTS(space-separated) BUNDLE_KIND
+# image REF ID PLATFORM REPO_DIGESTS BUNDLE_KIND [OCI_CONFIG_DIGEST]
 fake_image() {
-  local ref="$1" id="$2" platform="$3" digests="$4" kind="$5" k
+  local ref="$1" id="$2" platform="$3" digests="$4" kind="$5" oci="${6:-}" k
   k="$(printf '%s' "$ref" | sha256sum | cut -c1-16)"
-  python3 - "$id" "$platform" "$digests" >"$FAKE/images/$k.json" <<'PY'
+  python3 - "$id" "$platform" "$digests" "$oci" "$FAKE/images/$k.json" "$FAKE/images/$k.save.json" <<'PY'
 import json, sys
-id_, platform, digests = sys.argv[1:4]
+from pathlib import Path
+id_, platform, digests, oci, inspect_path, save_path = sys.argv[1:7]
 os_, arch = platform.split("/", 1)
-print(json.dumps([{"Id": id_, "Os": os_, "Architecture": arch, "RepoDigests": digests.split()}]))
+repo = [d for d in digests.split() if d]
+known = set()
+for rd in repo:
+    known.add(rd.split("@", 1)[-1] if "@" in rd else rd)
+payload = {"Id": id_, "Os": os_, "Architecture": arch, "RepoDigests": repo}
+if id_ in known:
+    payload["Descriptor"] = {
+        "mediaType": "application/vnd.oci.image.manifest.v1+json",
+        "digest": id_,
+        "size": 1,
+    }
+Path(inspect_path).write_text(json.dumps([payload]))
+if not oci:
+    oci = id_ if id_ not in known else "sha256:" + ("c" * 64)
+Path(save_path).write_text(json.dumps({"manifest": id_ if id_ in known else id_, "config": oci}))
 PY
   rm -rf "$FAKE/roots/${id#sha256:}"
   mkdir -p "$FAKE/roots/${id#sha256:}"
@@ -203,10 +261,10 @@ done
 guard 0 "valid non-synthetic image by digest passes" --image "$REPO@$GOOD_DIG" --evidence-out "$TMP/evidence.json"
 assert_no_key_leak "digest pass"
 if grep -q "fingerprint=$(printf '%s' "$GOOD_KEY" | sha256sum | cut -c1-12)" "$TMP/out"; then pass "pass line carries the key fingerprint"; else bad "pass line carries the key fingerprint"; fi
-if python3 -c 'import json,sys; e=json.load(open(sys.argv[1])); sys.exit(0 if e["configId"]==sys.argv[2] and e["result"]=="PASS" and sys.argv[3] not in open(sys.argv[1]).read() else 1)' "$TMP/evidence.json" "$GOOD_ID" "$GOOD_KEY"; then
-  pass "evidence JSON records config ID and omits the key"
+if python3 -c 'import json,sys; e=json.load(open(sys.argv[1])); sys.exit(0 if e.get("configId")==sys.argv[2] and e.get("configDigest")==sys.argv[2] and e.get("configDigestStatus")=="established" and e.get("daemonImageId")==sys.argv[2] and e["result"]=="PASS" and sys.argv[3] not in open(sys.argv[1]).read() else 1)' "$TMP/evidence.json" "$GOOD_ID" "$GOOD_KEY"; then
+  pass "evidence JSON records established config digest and omits the key"
 else
-  bad "evidence JSON records config ID and omits the key"
+  bad "evidence JSON records established config digest and omits the key"
 fi
 GOOD_FP="$(printf '%s' "$GOOD_KEY" | sha256sum | cut -c1-12)"
 guard 0 "expected fingerprint of the authorized key passes" --image "$REPO@$GOOD_DIG" --expected-map-key-fingerprint "$GOOD_FP"
@@ -218,6 +276,50 @@ guard 0 "mutable tag passes only via its resolved config ID" --image "$REPO:good
 grep -q "configId=$GOOD_ID" "$TMP/out" && pass "tag pass reports the resolved config ID" || bad "tag pass reports the resolved config ID"
 guard 0 "locally built image without repo digests passes" --image "local/parkio-web:sha-abc123"
 if grep -q "^create .*$GOOD_ID" "$FAKE/calls.log"; then pass "bundle is read from the resolved config ID, not the tag"; else bad "bundle is read from the resolved config ID, not the tag"; fi
+
+# --- identity stores: classic config ID vs containerd manifest ID --------------
+CTRD_DIG="$(dig containerd-style)"
+CTRD_CFG="$(dig containerd-style-config)"
+fake_image "$REPO@$CTRD_DIG" "$CTRD_DIG" linux/amd64 "$REPO@$CTRD_DIG" good "$CTRD_CFG"
+fake_reset
+guard 0 "containerd-style Id equal to repo digest passes after local config establishment" --image "$REPO@$CTRD_DIG" \
+  --evidence-out "$TMP/ctrd.json" --bind-override-out "$TMP/ctrd.yml"
+if grep -q "configId=$CTRD_DIG" "$TMP/out"; then
+  bad "containerd-style pass does not call the manifest digest configId"
+else
+  pass "containerd-style pass does not call the manifest digest configId"
+fi
+grep -q "configId=$CTRD_CFG" "$TMP/out" && pass "containerd-style pass reports the extracted config digest" \
+  || bad "containerd-style pass reports the extracted config digest"
+if python3 -c 'import json,sys; e=json.load(open(sys.argv[1])); sys.exit(0 if e.get("configDigestStatus")=="established" and e.get("configDigest")==sys.argv[3] and e.get("configId")==sys.argv[3] and e.get("daemonImageId")==sys.argv[2] and e.get("descriptorDigest")==sys.argv[2] and e.get("boundImage")==sys.argv[4] and e.get("result")=="PASS" else 1)' \
+  "$TMP/ctrd.json" "$CTRD_DIG" "$CTRD_CFG" "$REPO@$CTRD_DIG"; then
+  pass "containerd-style evidence separates manifest ID from established config digest and binds the requested digest"
+else
+  bad "containerd-style evidence separates manifest ID from established config digest and binds the requested digest"
+fi
+if python3 -c 'import json,sys; b=json.load(open(sys.argv[1])); sys.exit(0 if b.get("services",{}).get("web",{}).get("image")==sys.argv[2] and b["services"]["web"].get("pull_policy")=="never" else 1)' \
+  "$TMP/ctrd.yml" "$REPO@$CTRD_DIG"; then
+  pass "containerd-style override still binds the requested digest with pull_policy never"
+else
+  bad "containerd-style override still binds the requested digest with pull_policy never"
+fi
+if grep -q "^create .*$CTRD_DIG" "$FAKE/calls.log"; then
+  pass "containerd-style bundle is copied from the daemon image ID"
+else
+  bad "containerd-style bundle is copied from the daemon image ID"
+fi
+NEW_MANIFEST="$(dig bad-config-new-manifest)"
+fake_image "$REPO@$NEW_MANIFEST" "$NEW_MANIFEST" linux/amd64 "$REPO@$NEW_MANIFEST" good "$BAD_CONFIG"
+guard 1 "a different manifest that contains the known-bad configuration is blocked" --image "$REPO@$NEW_MANIFEST"
+touch "$FAKE/save-fail"
+guard 1 "unavailable local config identity fails closed" --image "$REPO@$CTRD_DIG"
+rm -f "$FAKE/save-fail"
+touch "$FAKE/save-nocfg"
+guard 1 "malformed saved manifest without a config digest fails closed" --image "$REPO@$CTRD_DIG"
+rm -f "$FAKE/save-nocfg"
+touch "$FAKE/save-mismatch"
+guard 1 "saved metadata that is not the inspected image fails closed" --image "$REPO@$CTRD_DIG"
+rm -f "$FAKE/save-mismatch"
 
 # --- host env signal: accepted parser forms ---------------------------------
 i=0
