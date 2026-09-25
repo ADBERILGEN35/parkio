@@ -149,7 +149,7 @@ jobs:
         if: ${{ inputs.execution_environment != 'SHARED_STAGING' }}
         env:
           PARKIO_WP062B_BUILD_IMAGES: "yes"
-        run: ./scripts/staging/run-wp062b-restored-stack-verification.sh
+        run: bash scripts/staging/run-wp062b-restored-stack-verification.sh
       - name: Diagnostics
         if: always()
         run: |
@@ -157,7 +157,7 @@ jobs:
           docker ps --filter "label=com.docker.compose.project=${COMPOSE_PROJECT_NAME}" || true
       - name: Cleanup isolated project
         if: always()
-        run: ./scripts/staging/cleanup-isolated-stack.sh || true
+        run: bash scripts/staging/cleanup-isolated-stack.sh || true
       - name: Upload evidence
         if: always()
         uses: actions/upload-artifact@v4
