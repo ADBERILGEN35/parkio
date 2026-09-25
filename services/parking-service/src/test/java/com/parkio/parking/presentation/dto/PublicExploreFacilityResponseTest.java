@@ -49,6 +49,26 @@ class PublicExploreFacilityResponseTest {
                 .hasMessageContaining("attribution");
     }
 
+    @Test
+    void closedOccupancySerializesUnavailableAndNullAvailableSpaces() throws Exception {
+        var response = PublicExploreFacilityMapper.from(new PublicExploreQueryService.FacilityView(
+                UUID.fromString("81279bd3-5c60-42a1-81bc-8255e22a1a48"),
+                "Avcılar İdo", "İSPARK", MunicipalFacilityType.OFF_STREET, "AVCILAR",
+                40.9712, 28.7185, 270, null,
+                MunicipalOccupancyFreshness.UNAVAILABLE, Instant.parse("2026-09-25T07:14:19Z"),
+                "İstanbul Büyükşehir Belediyesi / İSPARK",
+                "Includes public sector information from Istanbul Buyuksehir Belediyesi.",
+                MunicipalAccessClassification.PUBLIC));
+        var json = new ObjectMapper().findAndRegisterModules().readTree(
+                new ObjectMapper().findAndRegisterModules().writeValueAsString(response));
+
+        assertThat(json.get("availabilityFreshness").asText()).isEqualTo("UNAVAILABLE");
+        assertThat(json.get("availableSpaces").isNull()).isTrue();
+        assertThat(json.has("availableSpaces")).isTrue();
+        assertThat(json.get("capacityTotal").asInt()).isEqualTo(270);
+        assertThat(json.get("id").asText()).isEqualTo("81279bd3-5c60-42a1-81bc-8255e22a1a48");
+    }
+
     private static PublicExploreQueryService.FacilityView view(String label, String attribution) {
         return new PublicExploreQueryService.FacilityView(
                 UUID.fromString("00000000-0000-0000-0000-000000000901"),

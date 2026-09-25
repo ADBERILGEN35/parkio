@@ -4,6 +4,7 @@ import com.parkio.parking.application.port.MunicipalFacilityRepository;
 import com.parkio.parking.application.port.MunicipalOccupancySnapshotRepository;
 import com.parkio.parking.externalsource.MunicipalAccessClassification;
 import com.parkio.parking.externalsource.MunicipalFacilityType;
+import com.parkio.parking.externalsource.IsparkOccupancyPublicationPolicy;
 import com.parkio.parking.externalsource.MunicipalOccupancyFreshness;
 import com.parkio.parking.externalsource.MunicipalSourceIdentity;
 import com.parkio.parking.externalsource.MunicipalSourcePublicationPolicy;
@@ -144,7 +145,7 @@ public class MunicipalFacilityQueryService {
 
     private FacilityView project(MunicipalFacilityRepository.Facility facility) {
         Set<String> linked = linkedKeys(facility);
-        var snapshot = snapshots.latestForFacility(facility.id());
+        var snapshot = occupancySnapshot(facility, linked);
         MunicipalOccupancyFreshness freshness = MunicipalOccupancyFreshness.UNAVAILABLE;
         Integer available = null;
         Integer occupied = null;
@@ -180,6 +181,23 @@ public class MunicipalFacilityQueryService {
                 && !publicationPolicy.mayContributeOsmFields(linked)) {
             capacity = null;
         }
+        if (IsparkOccupancyPublicationPolicy.suppressOccupancyForLinkedSources(
+                linked, facility.isparkSourceMetadataJson())) {
+            freshness = MunicipalOccupancyFreshness.UNAVAILABLE;
+            available = null;
+            occupied = null;
+        }
+        if (snapshot.isEmpty()
+                && IsparkOccupancyPublicationPolicy.mustWithholdIsparkOccupancy(
+                        linked, facility.isparkSourceMetadataJson())) {
+            var inventory = snapshots.latestForFacility(facility.id());
+            if (inventory.isPresent() && inventory.get().capacityTotal() != null) {
+                capacity = inventory.get().capacityTotal();
+            }
+            if (lastUpdated == null && inventory.isPresent()) {
+                lastUpdated = inventory.get().fetchedAt();
+            }
+        }
 
         DisplayProvenance display = displayProvenance(facility, linked);
         String availabilitySource = available == null
@@ -206,6 +224,26 @@ public class MunicipalFacilityQueryService {
                 facility.accessClassification() == null
                         ? MunicipalAccessClassification.UNKNOWN
                         : facility.accessClassification());
+    }
+
+    /**
+     * When İSPARK is linked and not explicitly open, do not use {@code latestForFacility}:
+     * that row may be the closed İSPARK snapshot. Publish only another live-occupancy
+     * authority's snapshot, if one exists.
+     */
+    private java.util.Optional<MunicipalOccupancySnapshotRepository.Snapshot> occupancySnapshot(
+            MunicipalFacilityRepository.Facility facility, Set<String> linked) {
+        if (!IsparkOccupancyPublicationPolicy.mustWithholdIsparkOccupancy(
+                linked, facility.isparkSourceMetadataJson())) {
+            return snapshots.latestForFacility(facility.id());
+        }
+        return linked.stream()
+                .filter(key -> !MunicipalSourceIdentity.isIspark(key))
+                .filter(ParkingProviderCatalog::supportsLiveOccupancy)
+                .sorted()
+                .map(key -> snapshots.latestForFacilityAndSourceKey(facility.id(), key))
+                .flatMap(java.util.Optional::stream)
+                .findFirst();
     }
 
     private DisplayProvenance displayProvenance(

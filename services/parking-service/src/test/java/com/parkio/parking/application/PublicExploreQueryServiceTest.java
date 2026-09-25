@@ -112,7 +112,8 @@ class PublicExploreQueryServiceTest {
         when(facilities.publicExploreNearby(40.99, 29.03, 5_000, 6, BOTH_KEYS))
                 .thenReturn(List.of(
                         facility(izumId, 40.9902, 29.0291, MunicipalSourceIdentity.IZUM),
-                        facility(isparkId, 40.9903, 29.0292, MunicipalSourceIdentity.ISPARK)));
+                        facility(isparkId, 40.9903, 29.0292, MunicipalSourceIdentity.ISPARK,
+                                "{\"isOpen\":1}")));
         when(snapshots.latestForFacilityAndSourceKey(izumId, MunicipalSourceIdentity.IZUM))
                 .thenReturn(Optional.of(new MunicipalOccupancySnapshotRepository.Snapshot(
                         100, 20, 50, NOW.minusSeconds(5), 5L, true)));
@@ -239,6 +240,131 @@ class PublicExploreQueryServiceTest {
     }
 
     @Test
+    void closedIsparkWithPositiveEmptyCapacityPublishesUnavailableAndOmitsSpaces() {
+        UUID id = UUID.fromString("81279bd3-5c60-42a1-81bc-8255e22a1a48");
+        var view = discoverIspark(
+                facility(id, 40.9712, 28.7185, MunicipalSourceIdentity.ISPARK,
+                        "{\"isOpen\":0,\"district\":\"AVCILAR\",\"workHours\":\"Kapalı\"}"),
+                new MunicipalOccupancySnapshotRepository.Snapshot(
+                        270, 7, 263, NOW.minusSeconds(5), 5L, true));
+
+        assertThat(view.id()).isEqualTo(id);
+        assertThat(view.displayName()).isEqualTo("Konak Otopark");
+        assertThat(view.capacityTotal()).isEqualTo(270);
+        assertThat(view.availabilityFreshness()).isEqualTo(MunicipalOccupancyFreshness.UNAVAILABLE);
+        assertThat(view.availableSpaces()).isNull();
+        assertThat(view.sourceLabel()).isEqualTo(ParkingProviderCatalog.ISPARK_DISPLAY_NAME);
+    }
+
+    @Test
+    void openIsparkPreservesPositiveAvailability() {
+        UUID id = UUID.randomUUID();
+        var view = discoverIspark(
+                facility(id, 40.99, 29.03, MunicipalSourceIdentity.ISPARK, "{\"isOpen\":1}"),
+                new MunicipalOccupancySnapshotRepository.Snapshot(
+                        120, 40, 80, NOW.minusSeconds(5), 5L, true));
+
+        assertThat(view.availabilityFreshness()).isEqualTo(MunicipalOccupancyFreshness.LIVE);
+        assertThat(view.availableSpaces()).isEqualTo(80);
+    }
+
+    @Test
+    void openIsparkPreservesZeroAvailability() {
+        UUID id = UUID.randomUUID();
+        var view = discoverIspark(
+                facility(id, 40.99, 29.03, MunicipalSourceIdentity.ISPARK, "{\"isOpen\":1}"),
+                new MunicipalOccupancySnapshotRepository.Snapshot(
+                        50, 50, 0, NOW.minusSeconds(5), 5L, true));
+
+        assertThat(view.availabilityFreshness()).isEqualTo(MunicipalOccupancyFreshness.LIVE);
+        assertThat(view.availableSpaces()).isZero();
+    }
+
+    @Test
+    void missingNullAndUnrecognizedIsparkOpenStatusAreNotTreatedAsOpen() {
+        UUID missingId = UUID.randomUUID();
+        UUID nullId = UUID.randomUUID();
+        UUID unrecognizedId = UUID.randomUUID();
+        var live = new MunicipalOccupancySnapshotRepository.Snapshot(
+                80, 39, 41, NOW.minusSeconds(5), 5L, true);
+
+        var missing = discoverIspark(
+                facility(missingId, 40.97, 28.71, MunicipalSourceIdentity.ISPARK, null), live);
+        var nullStatus = discoverIspark(
+                facility(nullId, 40.97, 28.71, MunicipalSourceIdentity.ISPARK, "{\"isOpen\":null}"), live);
+        var unrecognized = discoverIspark(
+                facility(unrecognizedId, 40.97, 28.71, MunicipalSourceIdentity.ISPARK, "{\"isOpen\":\"maybe\"}"),
+                live);
+
+        assertThat(missing.availabilityFreshness()).isEqualTo(MunicipalOccupancyFreshness.UNAVAILABLE);
+        assertThat(missing.availableSpaces()).isNull();
+        assertThat(nullStatus.availabilityFreshness()).isEqualTo(MunicipalOccupancyFreshness.UNAVAILABLE);
+        assertThat(nullStatus.availableSpaces()).isNull();
+        assertThat(unrecognized.availabilityFreshness()).isEqualTo(MunicipalOccupancyFreshness.UNAVAILABLE);
+        assertThat(unrecognized.availableSpaces()).isNull();
+    }
+
+    @Test
+    void closedIsparkFacilityRemainsDiscoverable() {
+        UUID id = UUID.fromString("d1b866b1-fe41-4ac3-b91b-601a07b57b2a");
+        var facilities = mock(MunicipalFacilityRepository.class);
+        var snapshots = mock(MunicipalOccupancySnapshotRepository.class);
+        Set<String> isparkKeys = Set.of(MunicipalSourceIdentity.ISPARK);
+        when(facilities.countPublicExploreNearby(40.9723, 28.714, 5_000, isparkKeys)).thenReturn(1L);
+        when(facilities.publicExploreNearby(40.9723, 28.714, 5_000, 6, isparkKeys))
+                .thenReturn(List.of(facility(
+                        id, 40.9723, 28.714, MunicipalSourceIdentity.ISPARK, "{\"isOpen\":0}")));
+        when(snapshots.latestForFacilityAndSourceKey(id, MunicipalSourceIdentity.ISPARK))
+                .thenReturn(Optional.of(new MunicipalOccupancySnapshotRepository.Snapshot(
+                        80, 39, 41, NOW.minusSeconds(5), 5L, true)));
+
+        var result = service(facilities, snapshots, enabledFamilies("ISPARK"))
+                .discover(new PublicExploreQueryService.DiscoveryQuery(40.9723, 28.714, 5_000, 6));
+
+        assertThat(result.facilities()).extracting(PublicExploreQueryService.FacilityView::id)
+                .containsExactly(id);
+        assertThat(result.municipalTotalInScope()).isEqualTo(1L);
+        assertThat(result.municipalHiddenCount()).isZero();
+        assertThat(result.facilities().getFirst().availabilityFreshness())
+                .isEqualTo(MunicipalOccupancyFreshness.UNAVAILABLE);
+        assertThat(result.facilities().getFirst().availableSpaces()).isNull();
+    }
+
+    @Test
+    void isparkStaleSuppressionRemainsIntactForOpenFacilities() {
+        UUID id = UUID.randomUUID();
+        var view = discoverIspark(
+                facility(id, 40.99, 29.03, MunicipalSourceIdentity.ISPARK, "{\"isOpen\":1}"),
+                new MunicipalOccupancySnapshotRepository.Snapshot(
+                        120, 30, 90, NOW.minusSeconds(60), 60L, true));
+
+        assertThat(view.availabilityFreshness()).isEqualTo(MunicipalOccupancyFreshness.STALE);
+        assertThat(view.availableSpaces()).isNull();
+    }
+
+    @Test
+    void izumOccupancyIsUnchangedWhenIsparkMetadataWouldBeClosed() {
+        UUID id = UUID.randomUUID();
+        var facilities = mock(MunicipalFacilityRepository.class);
+        var snapshots = mock(MunicipalOccupancySnapshotRepository.class);
+        when(facilities.countPublicExploreNearby(38.4237, 27.1428, 5_000, IZUM_KEYS)).thenReturn(1L);
+        when(facilities.publicExploreNearby(38.4237, 27.1428, 5_000, 6, IZUM_KEYS))
+                .thenReturn(List.of(facility(
+                        id, 38.4237, 27.1428, MunicipalSourceIdentity.IZUM, "{\"isOpen\":0}")));
+        when(snapshots.latestForFacilityAndSourceKey(id, MunicipalSourceIdentity.IZUM))
+                .thenReturn(Optional.of(new MunicipalOccupancySnapshotRepository.Snapshot(
+                        120, 30, 90, NOW.minusSeconds(10), 10L, true)));
+
+        var view = service(facilities, snapshots, enabledFamilies("izum"))
+                .discover(new PublicExploreQueryService.DiscoveryQuery(null, null, null, null))
+                .facilities()
+                .getFirst();
+
+        assertThat(view.availabilityFreshness()).isEqualTo(MunicipalOccupancyFreshness.LIVE);
+        assertThat(view.availableSpaces()).isEqualTo(90);
+    }
+
+    @Test
     void emptySourceAllowlistReturnsNoDataAndDoesNotQueryRepository() {
         var facilities = mock(MunicipalFacilityRepository.class);
         var snapshots = mock(MunicipalOccupancySnapshotRepository.class);
@@ -316,11 +442,35 @@ class PublicExploreQueryServiceTest {
 
     private static MunicipalFacilityRepository.Facility facility(
             UUID id, double lat, double lng, String sourceKey) {
+        return facility(id, lat, lng, sourceKey, null);
+    }
+
+    private static MunicipalFacilityRepository.Facility facility(
+            UUID id, double lat, double lng, String sourceKey, String isparkSourceMetadataJson) {
         return new MunicipalFacilityRepository.Facility(
                 id, "Konak Otopark", "IZELMAN A.S.", MunicipalFacilityType.OFF_STREET,
                 "Konak, Izmir", lat, lng, 120, true, true,
                 "ignored", "ignored", 60, 120, sourceKey,
-                Set.of(sourceKey), MunicipalAccessClassification.PUBLIC);
+                Set.of(sourceKey), MunicipalAccessClassification.PUBLIC, isparkSourceMetadataJson);
+    }
+
+    private static PublicExploreQueryService.FacilityView discoverIspark(
+            MunicipalFacilityRepository.Facility facility,
+            MunicipalOccupancySnapshotRepository.Snapshot snapshot) {
+        var facilities = mock(MunicipalFacilityRepository.class);
+        var snapshots = mock(MunicipalOccupancySnapshotRepository.class);
+        Set<String> isparkKeys = Set.of(MunicipalSourceIdentity.ISPARK);
+        when(facilities.countPublicExploreNearby(facility.latitude(), facility.longitude(), 5_000, isparkKeys))
+                .thenReturn(1L);
+        when(facilities.publicExploreNearby(facility.latitude(), facility.longitude(), 5_000, 6, isparkKeys))
+                .thenReturn(List.of(facility));
+        when(snapshots.latestForFacilityAndSourceKey(facility.id(), MunicipalSourceIdentity.ISPARK))
+                .thenReturn(Optional.of(snapshot));
+        return service(facilities, snapshots, enabledFamilies("ISPARK"))
+                .discover(new PublicExploreQueryService.DiscoveryQuery(
+                        facility.latitude(), facility.longitude(), 5_000, 6))
+                .facilities()
+                .getFirst();
     }
 
     private static PublicExploreProperties enabledFamilies(String... families) {

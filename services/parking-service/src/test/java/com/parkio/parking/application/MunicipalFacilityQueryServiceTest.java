@@ -240,13 +240,177 @@ class MunicipalFacilityQueryServiceTest {
         assertThat(service(facilities, snapshots, props, new IzelmanProperties()).findById(id)).isPresent();
     }
 
+    @Test
+    void closedIsparkOmitsOccupancyOnAuthenticatedFindAndNearby() {
+        UUID id = UUID.fromString("81279bd3-5c60-42a1-81bc-8255e22a1a48");
+        var facilities = mock(MunicipalFacilityRepository.class);
+        var snapshots = mock(MunicipalOccupancySnapshotRepository.class);
+        var closed = facility(
+                id, "Avcılar İdo", "İSPARK", MunicipalFacilityQueryService.ISPARK_SOURCE_LABEL,
+                MunicipalFacilityQueryService.ISPARK_ATTRIBUTION,
+                MunicipalSourceIdentity.ISPARK, Set.of(MunicipalSourceIdentity.ISPARK),
+                "{\"isOpen\":0,\"district\":\"AVCILAR\"}");
+        when(facilities.findById(id)).thenReturn(Optional.of(closed));
+        when(facilities.nearby(40.9712, 28.7185, 1000, 10)).thenReturn(List.of(closed));
+        when(snapshots.latestForFacility(id)).thenReturn(Optional.of(
+                new MunicipalOccupancySnapshotRepository.Snapshot(
+                        270, 7, 263, Instant.parse("2026-07-30T05:59:50Z"), 5L, true)));
+        var service = service(facilities, snapshots, new MunicipalSourceProperties(), new IzelmanProperties());
+
+        var byId = service.findById(id).orElseThrow();
+        var nearby = service.nearby(40.9712, 28.7185, 1000, 10);
+
+        assertThat(nearby).extracting(MunicipalFacilityQueryService.FacilityView::id).containsExactly(id);
+        assertThat(byId.freshness()).isEqualTo(MunicipalOccupancyFreshness.UNAVAILABLE);
+        assertThat(byId.availableSpaces()).isNull();
+        assertThat(byId.occupiedSpaces()).isNull();
+        assertThat(byId.capacityTotal()).isEqualTo(270);
+        assertThat(nearby.getFirst().availableSpaces()).isNull();
+        assertThat(nearby.getFirst().freshness()).isEqualTo(MunicipalOccupancyFreshness.UNAVAILABLE);
+    }
+
+    @Test
+    void openIsparkPreservesZeroAndPositiveAvailabilityOnAuthenticatedPath() {
+        UUID openId = UUID.randomUUID();
+        UUID zeroId = UUID.randomUUID();
+        var facilities = mock(MunicipalFacilityRepository.class);
+        var snapshots = mock(MunicipalOccupancySnapshotRepository.class);
+        var open = facility(
+                openId, "Open lot", "İSPARK", MunicipalFacilityQueryService.ISPARK_SOURCE_LABEL,
+                MunicipalFacilityQueryService.ISPARK_ATTRIBUTION,
+                MunicipalSourceIdentity.ISPARK, Set.of(MunicipalSourceIdentity.ISPARK),
+                "{\"isOpen\":1}");
+        var zero = facility(
+                zeroId, "Full lot", "İSPARK", MunicipalFacilityQueryService.ISPARK_SOURCE_LABEL,
+                MunicipalFacilityQueryService.ISPARK_ATTRIBUTION,
+                MunicipalSourceIdentity.ISPARK, Set.of(MunicipalSourceIdentity.ISPARK),
+                "{\"isOpen\":true}");
+        when(facilities.findById(openId)).thenReturn(Optional.of(open));
+        when(facilities.findById(zeroId)).thenReturn(Optional.of(zero));
+        when(snapshots.latestForFacility(openId)).thenReturn(Optional.of(
+                new MunicipalOccupancySnapshotRepository.Snapshot(
+                        120, 40, 80, Instant.parse("2026-07-30T05:59:50Z"), 5L, true)));
+        when(snapshots.latestForFacility(zeroId)).thenReturn(Optional.of(
+                new MunicipalOccupancySnapshotRepository.Snapshot(
+                        50, 50, 0, Instant.parse("2026-07-30T05:59:50Z"), 5L, true)));
+        var service = service(facilities, snapshots, new MunicipalSourceProperties(), new IzelmanProperties());
+
+        assertThat(service.findById(openId).orElseThrow().availableSpaces()).isEqualTo(80);
+        assertThat(service.findById(openId).orElseThrow().freshness())
+                .isEqualTo(MunicipalOccupancyFreshness.LIVE);
+        assertThat(service.findById(zeroId).orElseThrow().availableSpaces()).isZero();
+        assertThat(service.findById(zeroId).orElseThrow().freshness())
+                .isEqualTo(MunicipalOccupancyFreshness.LIVE);
+    }
+
+    @Test
+    void unknownIsparkOpenStatusOmitsAuthenticatedOccupancyAndStaysDiscoverable() {
+        UUID id = UUID.randomUUID();
+        var facilities = mock(MunicipalFacilityRepository.class);
+        var snapshots = mock(MunicipalOccupancySnapshotRepository.class);
+        var unknown = facility(
+                id, "Unknown lot", "İSPARK", MunicipalFacilityQueryService.ISPARK_SOURCE_LABEL,
+                MunicipalFacilityQueryService.ISPARK_ATTRIBUTION,
+                MunicipalSourceIdentity.ISPARK, Set.of(MunicipalSourceIdentity.ISPARK),
+                "{\"district\":\"AVCILAR\"}");
+        when(facilities.findById(id)).thenReturn(Optional.of(unknown));
+        when(snapshots.latestForFacility(id)).thenReturn(Optional.of(
+                new MunicipalOccupancySnapshotRepository.Snapshot(
+                        80, 39, 41, Instant.parse("2026-07-30T05:59:50Z"), 5L, true)));
+        var service = service(facilities, snapshots, new MunicipalSourceProperties(), new IzelmanProperties());
+
+        var view = service.findById(id).orElseThrow();
+        assertThat(view.freshness()).isEqualTo(MunicipalOccupancyFreshness.UNAVAILABLE);
+        assertThat(view.availableSpaces()).isNull();
+        assertThat(view.displayName()).isEqualTo("Unknown lot");
+    }
+
+    @Test
+    void izumPlusIsparkDoesNotLetClosedIsparkHideIzumOccupancy() {
+        UUID id = UUID.randomUUID();
+        var facilities = mock(MunicipalFacilityRepository.class);
+        var snapshots = mock(MunicipalOccupancySnapshotRepository.class);
+        var shared = facility(
+                id, "Shared lot", "IZELMAN A.S.", MunicipalFacilityQueryService.IZUM_SOURCE_LABEL,
+                MunicipalFacilityQueryService.IZUM_ATTRIBUTION,
+                MunicipalSourceIdentity.IZUM,
+                Set.of(MunicipalSourceIdentity.IZUM, MunicipalSourceIdentity.ISPARK),
+                "{\"isOpen\":0}");
+        when(facilities.findById(id)).thenReturn(Optional.of(shared));
+        when(snapshots.latestForFacility(id)).thenReturn(Optional.of(
+                new MunicipalOccupancySnapshotRepository.Snapshot(
+                        270, 7, 263, Instant.parse("2026-07-30T05:59:50Z"), 5L, true)));
+        when(snapshots.latestForFacilityAndSourceKey(id, MunicipalSourceIdentity.IZUM))
+                .thenReturn(Optional.of(new MunicipalOccupancySnapshotRepository.Snapshot(
+                        120, 30, 90, Instant.parse("2026-07-30T05:59:50Z"), 5L, true)));
+        var service = service(facilities, snapshots, new MunicipalSourceProperties(), new IzelmanProperties());
+
+        var view = service.findById(id).orElseThrow();
+        assertThat(view.availableSpaces()).isEqualTo(90);
+        assertThat(view.freshness()).isEqualTo(MunicipalOccupancyFreshness.LIVE);
+        assertThat(view.sourceLabel()).isEqualTo(MunicipalFacilityQueryService.IZUM_SOURCE_LABEL);
+    }
+
+    @Test
+    void closedIsparkDoesNotPublishLatestSnapshotJustBecauseIzumIsLinked() {
+        UUID id = UUID.randomUUID();
+        var facilities = mock(MunicipalFacilityRepository.class);
+        var snapshots = mock(MunicipalOccupancySnapshotRepository.class);
+        var shared = facility(
+                id, "Shared lot", "İSPARK", MunicipalFacilityQueryService.ISPARK_SOURCE_LABEL,
+                MunicipalFacilityQueryService.ISPARK_ATTRIBUTION,
+                MunicipalSourceIdentity.ISPARK,
+                Set.of(MunicipalSourceIdentity.IZUM, MunicipalSourceIdentity.ISPARK),
+                "{\"isOpen\":0}");
+        when(facilities.findById(id)).thenReturn(Optional.of(shared));
+        when(snapshots.latestForFacility(id)).thenReturn(Optional.of(
+                new MunicipalOccupancySnapshotRepository.Snapshot(
+                        270, 7, 263, Instant.parse("2026-07-30T05:59:50Z"), 5L, true)));
+        when(snapshots.latestForFacilityAndSourceKey(id, MunicipalSourceIdentity.IZUM))
+                .thenReturn(Optional.empty());
+        var service = service(facilities, snapshots, new MunicipalSourceProperties(), new IzelmanProperties());
+
+        var view = service.findById(id).orElseThrow();
+        assertThat(view.freshness()).isEqualTo(MunicipalOccupancyFreshness.UNAVAILABLE);
+        assertThat(view.availableSpaces()).isNull();
+        assertThat(view.occupiedSpaces()).isNull();
+        assertThat(view.displayName()).isEqualTo("Shared lot");
+    }
+
+    @Test
+    void openIsparkStaleSuppressionRemainsIntactOnAuthenticatedPath() {
+        UUID id = UUID.randomUUID();
+        var facilities = mock(MunicipalFacilityRepository.class);
+        var snapshots = mock(MunicipalOccupancySnapshotRepository.class);
+        var open = facility(
+                id, "Stale open", "İSPARK", MunicipalFacilityQueryService.ISPARK_SOURCE_LABEL,
+                MunicipalFacilityQueryService.ISPARK_ATTRIBUTION,
+                MunicipalSourceIdentity.ISPARK, Set.of(MunicipalSourceIdentity.ISPARK),
+                "{\"isOpen\":1}");
+        when(facilities.findById(id)).thenReturn(Optional.of(open));
+        when(snapshots.latestForFacility(id)).thenReturn(Optional.of(
+                new MunicipalOccupancySnapshotRepository.Snapshot(
+                        100, 60, 40, Instant.parse("2026-07-30T05:00:00Z"), null, true)));
+        var service = service(facilities, snapshots, new MunicipalSourceProperties(), new IzelmanProperties());
+
+        var view = service.findById(id).orElseThrow();
+        assertThat(view.freshness()).isEqualTo(MunicipalOccupancyFreshness.STALE);
+        assertThat(view.availableSpaces()).isNull();
+    }
+
     private static MunicipalFacilityRepository.Facility facility(
             UUID id, String name, String operator, String sourceLabel, String attribution,
             String primaryKey, Set<String> linked) {
+        return facility(id, name, operator, sourceLabel, attribution, primaryKey, linked, null);
+    }
+
+    private static MunicipalFacilityRepository.Facility facility(
+            UUID id, String name, String operator, String sourceLabel, String attribution,
+            String primaryKey, Set<String> linked, String isparkSourceMetadataJson) {
         return new MunicipalFacilityRepository.Facility(
                 id, name, operator, MunicipalFacilityType.OFF_STREET, "", 38.4, 27.1,
                 100, true, true, sourceLabel, attribution, 60, 120, primaryKey, linked,
-                MunicipalAccessClassification.PUBLIC);
+                MunicipalAccessClassification.PUBLIC, isparkSourceMetadataJson);
     }
 
     private static MunicipalFacilityQueryService service(

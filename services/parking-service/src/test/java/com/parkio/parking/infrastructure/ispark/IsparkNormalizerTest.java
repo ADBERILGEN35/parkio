@@ -32,6 +32,23 @@ class IsparkNormalizerTest {
         assertThat(occupancy.occupiedSpaces()).isEqualTo(75);
         assertThat(occupancy.timestampProvenance()).isEqualTo(MunicipalTimestampProvenance.FETCH);
         assertThat(occupancy.sourceObservedAt()).isNull();
+        assertThat(facility.sourceMetadata()).containsEntry("isOpen", 1);
+    }
+
+    @Test
+    void storesClosedIsOpenInMetadataWithoutChangingIngestedOccupancy() throws IOException {
+        List<IsparkParkingRecordDto> records = mapper.readerForListOf(IsparkParkingRecordDto.class)
+                .readValue(getClass().getResourceAsStream("/fixtures/municipal/ispark/park-sample.json"));
+        var closed = records.get(3);
+        var facility = normalizer.facility(closed);
+        var occupancy = normalizer.occupancy(closed, Instant.parse("2026-08-07T09:00:00Z"));
+
+        assertThat(closed.isOpen()).isZero();
+        assertThat(facility.sourceMetadata()).containsEntry("isOpen", 0);
+        assertThat(facility.sourceMetadata()).containsEntry("workHours", "Kapalı");
+        assertThat(occupancy.availableSpaces()).isEqualTo(80);
+        assertThat(occupancy.occupancyStatus()).isEqualTo(
+                com.parkio.parking.externalsource.MunicipalOccupancyFreshness.LIVE);
     }
 
     @Test

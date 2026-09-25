@@ -5,6 +5,7 @@ import com.parkio.parking.application.port.MunicipalOccupancySnapshotRepository;
 import com.parkio.parking.application.port.RoadsideDiscoveryQueryPort;
 import com.parkio.parking.externalsource.MunicipalAccessClassification;
 import com.parkio.parking.externalsource.MunicipalFacilityType;
+import com.parkio.parking.externalsource.IsparkOccupancyPublicationPolicy;
 import com.parkio.parking.externalsource.MunicipalOccupancyFreshness;
 import com.parkio.parking.externalsource.OccupancyFreshnessPolicy;
 import com.parkio.parking.externalsource.PublicExplorePublicationPolicy.ReviewedPublicFamily;
@@ -188,6 +189,11 @@ public class PublicExploreQueryService {
                 capacityTotal = value.capacityTotal();
             }
             dataUpdatedAt = value.fetchedAt();
+        }
+        if (IsparkOccupancyPublicationPolicy.suppressOccupancy(
+                publishingKey, facility.isparkSourceMetadataJson())) {
+            freshness = MunicipalOccupancyFreshness.UNAVAILABLE;
+            availableSpaces = null;
         }
 
         return new FacilityView(

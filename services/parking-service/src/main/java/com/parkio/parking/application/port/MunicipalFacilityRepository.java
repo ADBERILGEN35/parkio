@@ -15,7 +15,24 @@ public interface MunicipalFacilityRepository {
                     boolean paid, boolean nonstop, String sourceLabel, String attribution,
                     long agingAfterSeconds, long staleAfterSeconds,
                     String primarySourceKey, Set<String> linkedSourceKeys,
-                    MunicipalAccessClassification accessClassification) {}
+                    MunicipalAccessClassification accessClassification,
+                    String isparkSourceMetadataJson) {
+        /**
+         * Callers that do not load İSPARK link metadata. Publication treats a missing
+         * {@code isOpen} value as unknown, not open.
+         */
+        public Facility(
+                UUID id, String displayName, String operatorName, MunicipalFacilityType facilityType,
+                String addressText, double latitude, double longitude, Integer capacityTotal,
+                boolean paid, boolean nonstop, String sourceLabel, String attribution,
+                long agingAfterSeconds, long staleAfterSeconds,
+                String primarySourceKey, Set<String> linkedSourceKeys,
+                MunicipalAccessClassification accessClassification) {
+            this(id, displayName, operatorName, facilityType, addressText, latitude, longitude,
+                    capacityTotal, paid, nonstop, sourceLabel, attribution, agingAfterSeconds,
+                    staleAfterSeconds, primarySourceKey, linkedSourceKeys, accessClassification, null);
+        }
+    }
     record Upserted(UUID id, boolean inserted, boolean changed) {}
     Upserted upsert(UUID sourceId, NormalizedMunicipalFacility facility, Instant now);
     List<Facility> nearby(double lat, double lng, int radiusMeters, int limit);
