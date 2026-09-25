@@ -37,7 +37,7 @@ parkio_backup_load_env "${ENV_FILE}"
 
 BUCKET="${MINIO_BUCKET:-parkio-media}"
 MINIO_ROOT_PASSWORD="${MINIO_ROOT_PASSWORD:?set MINIO_ROOT_PASSWORD in env}"
-MC_IMAGE="${MINIO_MC_IMAGE:-quay.io/minio/mc@sha256:a5399b66b88543efac8afb08eb2bdcce5904e548ea6fe1a921600cd74f766668}"
+MC_IMAGE="${MINIO_MC_IMAGE:-quay.io/minio/mc@sha256:a7fe349ef4bd8521fb8497f55c6042871b2ae640607cf99d9bede5e9bdf11727}"
 MIRROR_DEST="${DEST_DIR}/minio/${BUCKET}"
 
 MINIO_CONTAINER="${PARKIO_MINIO_CONTAINER:-parkio-minio}"

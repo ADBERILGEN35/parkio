@@ -1,0 +1,38 @@
+# Isolated MinIO digest compatibility (old → candidate). Not a required check.
+name: MinIO digest compatibility
+
+on:
+  workflow_dispatch:
+  pull_request:
+    paths:
+      - "scripts/ci/minio-old-to-candidate-upgrade-drill.sh"
+      - ".github/workflows/minio-digest-compat.yml"
+      - "scripts/ci/assert-minio-image-pins.sh"
+      - "docker/docker-compose.yml"
+      - "docker/.env.example"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: minio-digest-compat-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  old-to-candidate:
+    name: Old→candidate MinIO upgrade + restore (synthetic)
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Assert pin parity
+        run: bash scripts/ci/assert-minio-image-pins.sh
+
+      - name: Old→candidate upgrade drill
+        env:
+          MINIO_OLD_IMAGE: quay.io/minio/minio@sha256:cd04ea408e185cb50076ea1c3988d444119b19aaae15aab45387ccf14b2a2f86
+          MINIO_OLD_MC_IMAGE: quay.io/minio/mc@sha256:a5399b66b88543efac8afb08eb2bdcce5904e548ea6fe1a921600cd74f766668
+          MINIO_IMAGE: quay.io/minio/minio@sha256:cf3dadcfa1fb0324f43958bad1abba986d53c4ecc04d4d50b46c7dcda28bd3cd
+          MINIO_MC_IMAGE: quay.io/minio/mc@sha256:a7fe349ef4bd8521fb8497f55c6042871b2ae640607cf99d9bede5e9bdf11727
+        run: bash scripts/ci/minio-old-to-candidate-upgrade-drill.sh

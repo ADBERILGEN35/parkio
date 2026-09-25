@@ -49,7 +49,7 @@ if [ -z "${NETWORK}" ]; then
   echo "ERROR: could not resolve Docker network for ${MINIO_CONTAINER}." >&2
   exit 1
 fi
-MC_IMAGE="${MINIO_MC_IMAGE:-quay.io/minio/mc@sha256:a5399b66b88543efac8afb08eb2bdcce5904e548ea6fe1a921600cd74f766668}"
+MC_IMAGE="${MINIO_MC_IMAGE:-quay.io/minio/mc@sha256:a7fe349ef4bd8521fb8497f55c6042871b2ae640607cf99d9bede5e9bdf11727}"
 
 cleanup() {
   docker run --rm --network "${NETWORK}" --entrypoint /bin/sh \

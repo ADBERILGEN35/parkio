@@ -781,7 +781,7 @@ parkio_backup_mc_docker() {
   local action="$1"
   local src="$2"
   local dest="$3"
-  local mc_image="${MINIO_MC_IMAGE:-quay.io/minio/mc@sha256:a5399b66b88543efac8afb08eb2bdcce5904e548ea6fe1a921600cd74f766668}"
+  local mc_image="${MINIO_MC_IMAGE:-quay.io/minio/mc@sha256:a7fe349ef4bd8521fb8497f55c6042871b2ae640607cf99d9bede5e9bdf11727}"
   local network="${BACKUP_MC_DOCKER_NETWORK:-}"
   if [ -z "${network}" ]; then
     network="$(parkio_backup_backend_network "${BACKUP_OFFSITE_MINIO_CONTAINER:-parkio-offsite-minio}")"
