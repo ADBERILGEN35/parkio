@@ -4,6 +4,7 @@ import com.parkio.parking.application.port.MunicipalFacilityRepository;
 import com.parkio.parking.application.port.MunicipalOccupancySnapshotRepository;
 import com.parkio.parking.externalsource.MunicipalAccessClassification;
 import com.parkio.parking.externalsource.MunicipalFacilityType;
+import com.parkio.parking.externalsource.IsparkOccupancyPublicationPolicy;
 import com.parkio.parking.externalsource.MunicipalOccupancyFreshness;
 import com.parkio.parking.externalsource.MunicipalSourceIdentity;
 import com.parkio.parking.externalsource.MunicipalSourcePublicationPolicy;
@@ -179,6 +180,12 @@ public class MunicipalFacilityQueryService {
                 && !publicationPolicy.mayContributeIzelmanInventoryFields(linked)
                 && !publicationPolicy.mayContributeOsmFields(linked)) {
             capacity = null;
+        }
+        if (IsparkOccupancyPublicationPolicy.suppressOccupancyForLinkedSources(
+                linked, facility.isparkSourceMetadataJson())) {
+            freshness = MunicipalOccupancyFreshness.UNAVAILABLE;
+            available = null;
+            occupied = null;
         }
 
         DisplayProvenance display = displayProvenance(facility, linked);

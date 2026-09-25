@@ -70,6 +70,24 @@ recommendations OFF (parking recreate). No temporary Dockerfile or SPA compose o
 
 `AUTHORITATIVE_FULL_SET` after successful non-empty validated feed. Soft-deactivate missing İSPARK links only. Failures / empty / partial never mass-deactivate. Large-shrink warning retained from WP-SPA-13.
 
+### Open-status occupancy publication
+
+İSPARK list `isOpen` is stored on the facility source-link metadata and is **not** used to
+deactivate the facility or to rewrite occupancy snapshots at ingest. Public Explore and the
+authenticated municipal projection share `IsparkOccupancyPublicationPolicy`:
+
+| Stored `isOpen` | Occupancy publication |
+|---|---|
+| Explicit closed (`0`, `false`, `"0"`, `"false"`) | `UNAVAILABLE`; omit `availableSpaces` / occupied |
+| Explicit open (`1`, `true`, `"1"`, `"true"`) | Preserve LIVE/AGING occupancy, including zero spaces |
+| Missing, null, malformed, or unrecognized | Not treated as open; occupancy withheld; facility stays discoverable |
+
+Closure is never inferred from `workHours`. Existing stored closed metadata is read at query
+time, so already-ingested closed rows receive the protection after `parking-service` deploy
+without a re-sync. İZUM, OSM, source flags, and registration are unchanged.
+
+The İSPARK stale-as-static UI presentation remains a separate frontend follow-up.
+
 ## Rollback
 
 1. Set `parkio.municipal.ispark.enabled=false` (and scheduler false)
