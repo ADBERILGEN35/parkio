@@ -16,6 +16,11 @@ name: Frontend Real Stack E2E
 # Local mode additionally needs the DB/object-store passwords the compose stack requires,
 # provided as a single secret blob:
 #   PARKIO_LOCAL_ENV  — full contents of docker/.env (POSTGRES_*_PASSWORD, MINIO_*, etc.)
+# When PARKIO_LOCAL_ENV is unset, local mode copies docker/.env.example and
+# injects a disposable PKCS#8 JWT. That is isolated CI material, not a
+# production or shared-environment secret. Hosted mode still needs deployed
+# URLs plus PARKIO_REAL_* secrets and is not executed from this workflow
+# without those inputs.
 
 on:
   workflow_dispatch:
@@ -80,6 +85,7 @@ jobs:
         env:
           PARKIO_LOCAL_ENV: ${{ secrets.PARKIO_LOCAL_ENV }}
         run: |
+          set -euo pipefail
           if [ -n "${PARKIO_LOCAL_ENV}" ]; then
             printf '%s' "${PARKIO_LOCAL_ENV}" > docker/.env
             echo "Using PARKIO_LOCAL_ENV secret for local compose."
@@ -87,18 +93,50 @@ jobs:
             cp docker/.env.example docker/.env
             echo "PARKIO_LOCAL_ENV unset; using docker/.env.example for disposable synthetic local mode."
           fi
+          # .env.example intentionally has no JWT. Isolated CI generates a
+          # throwaway PKCS#8 key. This is not a production or shared secret.
+          if ! grep -Eq '^PARKIO_JWT_PRIVATE_KEY_PEM=.+' docker/.env || \
+             grep -Eq '^PARKIO_JWT_PRIVATE_KEY_PEM=(""|)$' docker/.env; then
+            openssl genpkey -algorithm RSA -pkeyopt rsa_keygen_bits:2048 -out /tmp/parkio-real-e2e-jwt.pem
+            python3 - <<'PY'
+          from pathlib import Path
+          env_path = Path("docker/.env")
+          pem = Path("/tmp/parkio-real-e2e-jwt.pem").read_text().strip().replace("\n", "\\n")
+          lines = []
+          replaced = False
+          for line in env_path.read_text().splitlines():
+              if line.startswith("PARKIO_JWT_PRIVATE_KEY_PEM="):
+                  lines.append(f'PARKIO_JWT_PRIVATE_KEY_PEM="{pem}"')
+                  replaced = True
+              else:
+                  lines.append(line)
+          if not replaced:
+              lines.append(f'PARKIO_JWT_PRIVATE_KEY_PEM="{pem}"')
+          env_path.write_text("\n".join(lines) + "\n")
+          PY
+            rm -f /tmp/parkio-real-e2e-jwt.pem
+            echo "Injected disposable PKCS#8 JWT for isolated local E2E."
+          fi
 
       - name: Boot the stack (local mode)
         if: inputs.mode == 'local'
         run: |
+          set -euo pipefail
           docker compose -f docker/docker-compose.yml -f docker/docker-compose.apps.yml up -d --build
           echo "Waiting for the gateway to answer..."
+          up=0
           for i in $(seq 1 60); do
             if curl -fsS http://localhost:8080/api/v1/auth/.well-known/jwks.json >/dev/null 2>&1; then
-              echo "gateway up"; break
+              echo "gateway up"
+              up=1
+              break
             fi
             sleep 5
           done
+          if [ "$up" != 1 ]; then
+            echo "ERROR: gateway did not answer on :8080 after 300s. Isolated local E2E cannot continue."
+            exit 1
+          fi
 
       - name: Materialize synthetic accounts when secrets are absent
         if: inputs.mode == 'local'
