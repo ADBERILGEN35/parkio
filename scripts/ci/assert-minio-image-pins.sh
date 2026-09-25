@@ -66,6 +66,13 @@ do
   forbid_hub_short_tag "$ROOT/$f" "script $f"
 done
 
+require_contains "$ROOT/scripts/restore-drill-offsite.sh" "$EXPECTED_SERVER" "script offsite minio default"
+if grep -F -q '7d80fd232a2f7108aa6f133fcfe5fade3f1626d92d31ae1318076e7aa61928a2' \
+  "$ROOT/scripts/restore-drill-offsite.sh"; then
+  echo "FAIL: restore-drill-offsite.sh still pins the unauthorized Quay fixture digest" >&2
+  FAIL=1
+fi
+
 forbid_hub_short_tag "$ROOT/docker/docker-compose.yml" "compose"
 forbid_hub_short_tag "$ROOT/docker/.env.example" ".env.example"
 

@@ -28,14 +28,21 @@ log in with `GITHUB_TOKEN` and `packages: read` before any compose/Testcontainer
 pull. Fork PRs fail closed (explicit error, not a hidden skip).
 `pull_request_target` is not used.
 
-Remaining access decision: GHCR user packages were published with a user token
-and remain **private and unlinked** (`repository: null`). REST/GraphQL “connect
-repository / inherit access” endpoints returned 404 for this credential.
-`GITHUB_TOKEN` inside `ADBERILGEN35/parkio` workflows can read the packages only
-after an operator uses the package Settings → **Connect repository** →
-`ADBERILGEN35/parkio` (Actions read). Packages stay private. Do not make them
-public.
+Actions Read for `ADBERILGEN35/parkio` is now granted on both private packages.
+Packages stay **private**. Do not make them public. Same-repo workflows pull
+with `GITHUB_TOKEN` + `packages: read`.
 
-The isolated offsite fixture image
+Unresolved compatibility constraints (no working supported path yet):
+
+- Fork PRs cannot read these private parent packages with `GITHUB_TOKEN`.
+  Workflows fail closed. Do not use `pull_request_target`, privileged untrusted
+  execution, or exposed credentials to paper over that.
+- Hosted-beta ARM64 is **not verified**. A `MINIO_IMAGE` override alone does
+  not prove ARM support.
+
+The previous isolated offsite fixture
 `quay.io/minio/minio@sha256:7d80fd232a2f7108aa6f133fcfe5fade3f1626d92d31ae1318076e7aa61928a2`
-is unchanged (different digest, not this republication).
+returns `unauthorized` from Quay. `scripts/restore-drill-offsite.sh` now starts
+the ephemeral offsite container from the verified private GHCR dest (or
+`BACKUP_OFFSITE_MINIO_IMAGE` / `MINIO_IMAGE`). Isolation remains a second
+container, credentials, and network role — not a second unpullable digest.

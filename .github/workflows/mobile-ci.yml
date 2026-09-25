@@ -75,12 +75,16 @@ jobs:
       - name: Unit tests
         run: pnpm --filter @parkio/mobile-v2 test
 
+      - name: Native ownership
+        run: pnpm --filter @parkio/mobile-v2 run validate:native-ownership
+
       - name: Expo doctor
-        # Pre-existing Expo config / dependency drift may warn; Task 8 requires
-        # the doctor gate to execute against Mobile-v2. Use `run doctor` so pnpm
-        # invokes the package script (expo-doctor), not pnpm's built-in doctor.
-        # See docs/testing/TASK-08-END-TO-END-VERIFICATION.md.
-        continue-on-error: true
+        # Blocking. Use `run doctor` so pnpm invokes the package script
+        # (run-expo-doctor.mjs), not pnpm's built-in doctor. The CNG sync
+        # check cannot represent committed android/ plus a retained prebuild
+        # recipe; that single finding is replaced by Native ownership.
+        # Every other expo-doctor failure still fails the job.
+        # See frontend/apps/mobile-v2/NATIVE-BUILD.md.
         run: pnpm --filter @parkio/mobile-v2 run doctor
 
   # Legacy `apps/mobile` is deprecated and is NOT a release artifact (see
