@@ -31,3 +31,6 @@ overrides:
   '@expo/dom-webview': '56.0.6'
   'browserslist': '^4.28.7'
   'vite@6.4.3>esbuild': '0.27.4'
+  # Official image-size 2.0.4 is CJS+ESM and is past CVE-2025-71329/71330
+  # (last affected 1.2.1 / 2.0.2). metro@0.84.4 still declares ^1.0.2.
+  'image-size': '2.0.4'
