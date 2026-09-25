@@ -99,6 +99,10 @@ AUTH_ALLOWED = {
     "PARKIO_REGISTRATION_INVITE_TTL",
 }
 
+# Authorized GHCR linux/amd64 MinIO pin retarget (see docs/operations/minio-ghcr-amd64.md).
+MINIO_IMAGE_SERVICES = ("minio", "minio-setup")
+
+
 def strip_allowlisted_env(model):
     m = json.loads(json.dumps(model))
     genv = m["services"]["gateway-service"].setdefault("environment", {})
@@ -107,6 +111,9 @@ def strip_allowlisted_env(model):
         genv.pop(k, None)
     for k in AUTH_ALLOWED:
         aenv.pop(k, None)
+    for svc in MINIO_IMAGE_SERVICES:
+        if svc in m.get("services", {}):
+            m["services"][svc].pop("image", None)
     return m
 
 # 1. disabled default vs base
@@ -117,9 +124,9 @@ diff_services = [s for s in base["services"]
 check("only allowlisted env keys differ from " + base_ref, diff_services == [], ",".join(diff_services) or "none")
 for top in ("volumes", "networks", "secrets", "configs"):
     check(f"top-level {top} unchanged", base.get(top) == dis.get(top))
-images = {s: dis["services"][s].get("image") for s in dis["services"]}
-check("all images/pins identical to base",
-      images == {s: base["services"][s].get("image") for s in base["services"]})
+images = {s: dis["services"][s].get("image") for s in dis["services"] if s not in MINIO_IMAGE_SERVICES}
+base_images = {s: base["services"][s].get("image") for s in base["services"] if s not in MINIO_IMAGE_SERVICES}
+check("all images/pins identical to base", images == base_images)
 for svc in ("gateway-service", "auth-service", "web"):
     if svc in images:
         print(f"      {svc}: {images[svc]}")
