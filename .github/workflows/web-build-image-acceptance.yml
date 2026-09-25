@@ -1,3 +1,8 @@
+# Historical one-off acceptance for security PRs #87 and #91.
+# This is not an active api release gate. Do not generalize the
+# `if: pull_request.number == 87 || 91` condition to current PRs;
+# web image identity is enforced by the hosted-beta / pin workflows.
+#
 name: Web build image acceptance
 
 on:

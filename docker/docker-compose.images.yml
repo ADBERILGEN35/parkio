@@ -80,6 +80,8 @@ services:
   web:
     image: parkio/web:${PARKIO_IMAGE_TAG:?PARKIO_IMAGE_TAG is required}
     build:
+      context: ..
+      dockerfile: frontend/apps/web/Dockerfile
       args:
         IMAGE_VERSION: ${PARKIO_IMAGE_VERSION:-0.0.1-SNAPSHOT}
         IMAGE_REVISION: ${PARKIO_GIT_SHA:-unknown}

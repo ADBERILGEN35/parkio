@@ -1,0 +1,55 @@
+# GHA reliability durable status
+
+Baseline: origin/api 99497e51c0e516b596310b825535fcb31438b452 (merge of #112).
+Worktree: parkio-wt-gha-reliability branch ci/gha-reliability-01.
+#104 HOLD c24f4f3d. #109 unchanged aa99ef29. Production not touched.
+
+## Root-cause groups (99497e51, PR #44 umbrella + #112)
+
+1. MinIO Quay 401 — backup-restore-drill, restore-drill-01, backend-integration media IT, runtime-validation, chaos, performance/k6.
+   Pinned quay.io/minio/minio@sha256:cd04ea408e185cb50076ea1c3988d444119b19aaae15aab45387ccf14b2a2f86
+   and quay.io/minio/mc@sha256:a5399b66b88543efac8afb08eb2bdcce5904e548ea6fe1a921600cd74f766668
+   cannot be fetched anonymously. BLOCKED. Identity proven locally. GHCR republish not authorized.
+
+2. image-size CVE — Security CI deps + summary.
+   metro@0.84.4 resolved image-size@1.2.1 (CVE-2025-71329 / CVE-2025-71330).
+   FIXED on this branch: official image-size@2.0.4 (CJS+ESM; last affected 1.2.1 / 2.0.2).
+
+3. slack_biz vs master — slack_biz relay acceptance.
+   PR #44 base=master lacks docker/compose.production.files.
+   FIXED: compare origin/api when base is master or empty; fail closed if the contract file is missing.
+
+4. master-only push — security/backend/frontend/mobile/supply-chain/prod-muni-01.
+   FIXED: push branches now [api, master].
+
+5. Schedule on default branch — GitHub runs on.schedule from default master.
+   Separate master PR needed to checkout api. Not done in this api PR.
+
+Required checks remain only Build & unit tests and Secret scan.
+
+## MinIO identity (local cache; public pull NOT RUN)
+
+Server RELEASE.2024-09-13T20-26-02Z Id/digest sha256:cd04ea408e185cb50076ea1c3988d444119b19aaae15aab45387ccf14b2a2f86
+RepoDigests: minio/minio@that and quay.io/minio/minio@that.
+
+mc RELEASE.2024-09-16T17-43-14Z Id/digest sha256:a5399b66b88543efac8afb08eb2bdcce5904e548ea6fe1a921600cd74f766668
+RepoDigests: minio/mc@that and quay.io/minio/mc@that.
+
+Public Hub/Quay/GHCR pulls of those exact refs fail (401 / insufficient_scope / not found).
+Do not retarget to latest or an unverified upgrade. PR #48 is a distinct CVE-reduction upgrade, not an identity-preserving mirror.
+
+### Smallest operator action (MinIO)
+
+Authorize publishing the two already-local images to GHCR without rebuild:
+- ghcr.io/adberilgen35/parkio/minio@sha256:cd04ea40...
+- ghcr.io/adberilgen35/parkio/mc@sha256:a5399b66...
+Confirm registry imagetools config/layers match local inspect.
+Then retarget compose/CI/Testcontainers/pin-parity to those GHCR digest refs.
+Unlocks: restore drills, media IT, compose runtime, chaos, k6.
+
+## Workflow classification
+
+A safe synthetic: backend-ci, frontend-ci, mobile-ci, security-ci deps+secrets, slack_biz mock, pp-01b, prod-muni-01 static, observability config, staging-verification synthetic, invite dry-run.
+B existing credential: restore Azure offsite input; CodeQL/attestations when vars set.
+C production mutate/publish: hosted-beta deploy, invite-production deploy/rollback, release image publish (PUBLISH_IMAGES), alerting-operator real Slack.
+Isolated implementation can be tested; production execution NOT RUN.

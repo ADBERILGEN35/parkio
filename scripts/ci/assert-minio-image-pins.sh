@@ -1,12 +1,12 @@
 #!/usr/bin/env bash
 # Fail-closed parity check: compose/env/script MinIO defaults must match the
-# quay digest pins used by stack-backed CI (backup/runtime/performance/chaos).
+# GHCR linux/amd64 digest pins used by stack-backed CI (backup/runtime/performance/chaos).
 # Hub short tags previously broke image pull and caused PA-11 false skips.
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
-EXPECTED_SERVER='quay.io/minio/minio@sha256:cd04ea408e185cb50076ea1c3988d444119b19aaae15aab45387ccf14b2a2f86'
-EXPECTED_MC='quay.io/minio/mc@sha256:a5399b66b88543efac8afb08eb2bdcce5904e548ea6fe1a921600cd74f766668'
+EXPECTED_SERVER='ghcr.io/adberilgen35/parkio/minio@sha256:efba309ba4dc89e48f37304db52a0b854c0e701ba944ca02205c4e292c1a756c'
+EXPECTED_MC='ghcr.io/adberilgen35/parkio/mc@sha256:456b1e641897329fc9491f9bc8b31df351d728af9a328bf5653707af62d0d6bf'
 FAIL=0
 
 require_contains() {
@@ -43,7 +43,7 @@ require_contains "$ROOT/docker/docker-compose.yml" "$EXPECTED_MC" "compose mc de
 require_contains "$ROOT/docker/.env.example" "$EXPECTED_SERVER" ".env.example MINIO_IMAGE"
 require_contains "$ROOT/docker/.env.example" "$EXPECTED_MC" ".env.example MINIO_MC_IMAGE"
 
-for wf in backup-restore-drill.yml runtime-validation.yml performance-smoke.yml chaos-validation.yml; do
+for wf in backup-restore-drill.yml runtime-validation.yml performance-smoke.yml chaos-validation.yml restore-drill-01-procedure.yml; do
   require_contains "$ROOT/.github/workflows/$wf" "$EXPECTED_SERVER" "workflow $wf MINIO_IMAGE"
   require_contains "$ROOT/.github/workflows/$wf" "$EXPECTED_MC" "workflow $wf MINIO_MC_IMAGE"
 done
@@ -65,6 +65,13 @@ do
   require_contains "$ROOT/$f" "$EXPECTED_MC" "script mc default $f"
   forbid_hub_short_tag "$ROOT/$f" "script $f"
 done
+
+require_contains "$ROOT/scripts/restore-drill-offsite.sh" "$EXPECTED_SERVER" "script offsite minio default"
+if grep -F -q '7d80fd232a2f7108aa6f133fcfe5fade3f1626d92d31ae1318076e7aa61928a2' \
+  "$ROOT/scripts/restore-drill-offsite.sh"; then
+  echo "FAIL: restore-drill-offsite.sh still pins the unauthorized Quay fixture digest" >&2
+  FAIL=1
+fi
 
 forbid_hub_short_tag "$ROOT/docker/docker-compose.yml" "compose"
 forbid_hub_short_tag "$ROOT/docker/.env.example" ".env.example"

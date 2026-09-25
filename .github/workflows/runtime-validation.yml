@@ -17,6 +17,7 @@ on:
 
 permissions:
   contents: read
+  packages: read
 
 concurrency:
   group: runtime-validation-${{ github.ref }}
@@ -25,8 +26,8 @@ concurrency:
 env:
   COMPOSE_PROJECT_NAME: parkio-ci-${{ github.run_id }}-${{ github.run_attempt }}
   # CI-only: preserve the existing server/mc releases from the official publisher.
-  MINIO_IMAGE: quay.io/minio/minio@sha256:cd04ea408e185cb50076ea1c3988d444119b19aaae15aab45387ccf14b2a2f86
-  MINIO_MC_IMAGE: quay.io/minio/mc@sha256:a5399b66b88543efac8afb08eb2bdcce5904e548ea6fe1a921600cd74f766668
+  MINIO_IMAGE: ghcr.io/adberilgen35/parkio/minio@sha256:efba309ba4dc89e48f37304db52a0b854c0e701ba944ca02205c4e292c1a756c
+  MINIO_MC_IMAGE: ghcr.io/adberilgen35/parkio/mc@sha256:456b1e641897329fc9491f9bc8b31df351d728af9a328bf5653707af62d0d6bf
   COMPOSE_ENV_FILE: docker/.env.runtime-validation
   COMPOSE_FILES: >-
     -f docker/docker-compose.yml
@@ -42,6 +43,23 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event_name == 'schedule' && 'api' || github.sha }}
+
+      - name: Fail closed on fork PRs needing private MinIO
+        if: github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository
+        run: |
+          echo "Fork PRs cannot read private ghcr.io/adberilgen35/parkio/{minio,mc} with GITHUB_TOKEN."
+          echo "This is fail-closed, not a skip. Open the change from ADBERILGEN35/parkio."
+          exit 1
+
+      - name: Log in to GHCR for private MinIO pulls
+        if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Assert MinIO image pin parity (compose/CI/scripts)
         run: |

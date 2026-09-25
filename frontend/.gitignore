@@ -9,6 +9,7 @@ dist
 *.log
 coverage
 .turbo
+.expo/
 
 # Playwright
 playwright-report

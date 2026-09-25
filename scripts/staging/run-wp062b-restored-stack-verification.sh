@@ -178,7 +178,12 @@ PY
 )"
 
 echo "==> [1/10] Starting isolated SOURCE_STAGING slim stack (${COMPOSE_PROJECT_NAME})"
-"${COMPOSE[@]}" up -d --no-build "${SLIM_SERVICES[@]}" >"${EVID}/logs/compose-up-source.log" 2>&1
+UP_ARGS=(up -d --no-build)
+if [ "${PARKIO_WP062B_BUILD_IMAGES:-}" = "yes" ]; then
+  UP_ARGS=(up -d --build)
+  echo "PARKIO_WP062B_BUILD_IMAGES=yes — building slim service images on this runner"
+fi
+"${COMPOSE[@]}" "${UP_ARGS[@]}" "${SLIM_SERVICES[@]}" >"${EVID}/logs/compose-up-source.log" 2>&1
 
 echo "==> Waiting for gateway readiness on :${GATEWAY_PORT}"
 READY=0
@@ -203,7 +208,7 @@ export PARKIO_GATEWAY_URL="http://127.0.0.1:${GATEWAY_PORT}"
 export PARKIO_JOURNEY_STORE_MODE=source_pre_backup
 export POSTGRES_AUTH_DB="${SRC_AUTH}"
 export POSTGRES_USER_DB="${SRC_USER}"
-if ! "${SCRIPT_DIR}/run-critical-journeys.sh" >"${EVID}/logs/source-journeys.log" 2>&1; then
+if ! bash "${SCRIPT_DIR}/run-critical-journeys.sh" >"${EVID}/logs/source-journeys.log" 2>&1; then
   echo "ERROR: source journeys failed — non-waivable if auth/parking seed incomplete" >&2
   OVERALL="FAILED"
   cp -a "${EVID}/critical-journeys" "${EVID}/source-critical-journeys" 2>/dev/null || true
@@ -239,7 +244,7 @@ for svc_entry in \
 done
 true >"${EVID}/logs/backup-db.log"
 PARKIO_ENV_FILE="${TMP_ENV}" PARKIO_MINIO_CONTAINER="${MINIO_C}" MINIO_BUCKET="${SRC_BUCKET}" \
-  "${ROOT_DIR}/scripts/backup-minio.sh" "${BACKUP_ROOT}" >"${EVID}/logs/backup-minio.log" 2>&1 || true
+  bash "${ROOT_DIR}/scripts/backup-minio.sh" "${BACKUP_ROOT}" >"${EVID}/logs/backup-minio.log" 2>&1 || true
 emit "${EVID}/backup-manifest.json" "{\"backupRoot\":\"backups/wp062b-${RUN_SUFFIX}\",\"status\":\"COMPLETED\",\"sourceBucket\":\"${SRC_BUCKET}\"}"
 
 echo "==> [4/10] Restore into drill databases + restore MinIO bucket"
@@ -284,7 +289,7 @@ if dump_g="$(find_dump gateway 2>/dev/null)"; then
 fi
 
 # MinIO restore into isolated restore bucket (same isolated MinIO endpoint)
-MC_IMAGE="${MINIO_MC_IMAGE:-quay.io/minio/mc@sha256:a5399b66b88543efac8afb08eb2bdcce5904e548ea6fe1a921600cd74f766668}"
+MC_IMAGE="${MINIO_MC_IMAGE:-ghcr.io/adberilgen35/parkio/mc@sha256:456b1e641897329fc9491f9bc8b31df351d728af9a328bf5653707af62d0d6bf}"
 NETWORK="$(docker inspect -f '{{range $k,$v := .NetworkSettings.Networks}}{{$k}}{{end}}' "${MINIO_C}")"
 # shellcheck disable=SC1090
 set -a; . "${TMP_ENV}"; set +a
@@ -390,7 +395,7 @@ export PARKIO_AUTH_PG_CONTAINER="${AUTH_C}"
 export PARKIO_USER_PG_CONTAINER="${USER_C}"
 # Move prior journey dir aside
 rm -rf "${EVID}/critical-journeys-restored" 2>/dev/null || true
-if "${SCRIPT_DIR}/run-critical-journeys.sh" >"${EVID}/logs/restored-journeys.log" 2>&1; then
+if bash "${SCRIPT_DIR}/run-critical-journeys.sh" >"${EVID}/logs/restored-journeys.log" 2>&1; then
   JOURNEY_RC=0
 else
   JOURNEY_RC=$?

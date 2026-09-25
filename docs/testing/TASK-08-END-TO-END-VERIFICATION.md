@@ -125,9 +125,11 @@ Workflow: `.github/workflows/mobile-ci.yml`
     (`run` is required so pnpm invokes the script, not pnpm's built-in `doctor`)
 - Legacy job `mobile-legacy-checks` preserves previous `@parkio/mobile` coverage
 - Retries remain disabled; no unrelated repository jobs duplicated
-- Only the Mobile-v2 Expo Doctor step uses `continue-on-error`; Doctor currently
-  exits non-zero due to documented pre-existing Expo config / dependency drift
-  (not Task 8 scope). Typecheck, lint, and tests stay hard failures.
+- Mobile-v2 Expo Doctor is blocking. The CNG sync check cannot represent
+  committed `android/` plus a retained `app.json` prebuild recipe; that single
+  finding is replaced by `validate:native-ownership`
+  (`frontend/apps/mobile-v2/NATIVE-BUILD.md`). Every other doctor failure
+  still fails the job. Typecheck, lint, and tests stay hard failures.
 
 Frontend CI (`frontend-ci.yml`) continues to run WP-07 focused gates and
 recursive workspace tests. Backend integration remains

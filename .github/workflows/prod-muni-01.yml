@@ -22,7 +22,7 @@ on:
       - "services/parking-service/src/main/resources/application.yml"
       - ".github/workflows/prod-muni-01.yml"
   push:
-    branches: [master]
+    branches: [api, master]
     paths:
       - "scripts/prod-muni-01/**"
       - "frontend/apps/web/scripts/validate-build-env.*"

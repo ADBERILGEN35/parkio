@@ -1,4 +1,4 @@
-# Backend quality gate: every PR (and every push to master) must compile and
+# Backend quality gate: every PR (and every push to api/master) must compile and
 # pass the unit-test suite (`./gradlew build` excludes the `integration` tag,
 # so this job never needs Docker and stays fast).
 #
@@ -12,7 +12,7 @@ name: Backend CI
 on:
   pull_request:
   push:
-    branches: [master]
+    branches: [api, master]
   workflow_dispatch:
 
 permissions:
