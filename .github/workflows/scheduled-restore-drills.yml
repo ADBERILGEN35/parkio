@@ -1,16 +1,30 @@
-# Dispatch current restore drills from the default branch onto api.
+# Dispatch current scheduled work from the default branch onto api.
 #
 # GitHub only runs `on: schedule` from the default branch (master). master's
-# backup-restore-drill.yml is stale (no postgres-gateway) and does not prove
-# current code. This dispatcher starts the workflows that live on api.
+# copies of backup/security/integration/runtime workflows are stale and do not
+# prove current api code. This dispatcher starts the workflows that live on api.
 #
+# Adding `push.branches: [api]` on those workflows does not fix schedules.
 # Do not change the default branch. Do not merge api into master.
 name: Scheduled restore drills
 
 on:
   schedule:
     - cron: "23 4 * * 1"
+    - cron: "17 3 * * *"
+    - cron: "23 3 * * 1"
+    - cron: "41 4 * * 1"
+    - cron: "41 5 * * 1"
+    - cron: "47 5 * * 3"
+    - cron: "12 6 * * 4"
+    - cron: "17 6 * * 1"
+    - cron: "17 6 * * 2"
   workflow_dispatch:
+    inputs:
+      only:
+        description: "Optional single workflow file to dispatch (default: all scheduled api workflows)"
+        required: false
+        type: string
 
 permissions:
   actions: write
@@ -18,7 +32,7 @@ permissions:
 
 jobs:
   dispatch:
-    name: Dispatch api restore drills
+    name: Dispatch api scheduled workflows
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:
@@ -26,8 +40,49 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
           GH_REPO: ${{ github.repository }}
+          ONLY: ${{ inputs.only }}
+          EVENT: ${{ github.event_name }}
+          CRON: ${{ github.event.schedule }}
         run: |
           set -euo pipefail
-          gh workflow run backup-restore-drill.yml --ref api
-          gh workflow run restore-drill-01-procedure.yml --ref api
-          echo "Dispatched backup-restore-drill.yml and restore-drill-01-procedure.yml at ref api"
+          dispatch_one() {
+            local wf="$1"
+            echo "Dispatching $wf --ref api"
+            gh workflow run "$wf" --ref api
+          }
+          if [ -n "${ONLY:-}" ]; then
+            dispatch_one "$ONLY"
+            exit 0
+          fi
+          # Monday 04:23 restore pair (existing).
+          if [ "$EVENT" = "workflow_dispatch" ] || [ "$CRON" = "23 4 * * 1" ]; then
+            dispatch_one backup-restore-drill.yml
+            dispatch_one restore-drill-01-procedure.yml
+          fi
+          # Nightly integration.
+          if [ "$EVENT" = "workflow_dispatch" ] || [ "$CRON" = "17 3 * * *" ]; then
+            dispatch_one backend-integration.yml
+          fi
+          # Weekly security / supply-chain / runtime / staging / chaos / k6.
+          if [ "$EVENT" = "workflow_dispatch" ] || [ "$CRON" = "23 3 * * 1" ]; then
+            dispatch_one security-ci.yml
+          fi
+          if [ "$EVENT" = "workflow_dispatch" ] || [ "$CRON" = "41 4 * * 1" ]; then
+            dispatch_one supply-chain.yml
+          fi
+          if [ "$EVENT" = "workflow_dispatch" ] || [ "$CRON" = "41 5 * * 1" ]; then
+            dispatch_one runtime-validation.yml
+          fi
+          if [ "$EVENT" = "workflow_dispatch" ] || [ "$CRON" = "47 5 * * 3" ]; then
+            dispatch_one staging-verification.yml
+          fi
+          if [ "$EVENT" = "workflow_dispatch" ] || [ "$CRON" = "12 6 * * 4" ]; then
+            dispatch_one runtime-baseline.yml
+          fi
+          if [ "$EVENT" = "workflow_dispatch" ] || [ "$CRON" = "17 6 * * 1" ]; then
+            dispatch_one chaos-validation.yml
+          fi
+          if [ "$EVENT" = "workflow_dispatch" ] || [ "$CRON" = "17 6 * * 2" ]; then
+            dispatch_one performance-smoke.yml
+          fi
+          echo "Dispatch complete"
