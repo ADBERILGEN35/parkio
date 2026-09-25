@@ -1,8 +1,16 @@
 import { useQuery } from '@tanstack/react-query';
-import type { NearbySearchParams } from '@parkio/types';
+import type {
+  MunicipalFacilityNearbyParams,
+  NearbySearchParams,
+  RoadsideSegmentNearbyParams,
+} from '@parkio/types';
 import { useParkioSdk } from '@/app/AppRuntimeContext';
+import { DEFAULT_MUNICIPAL_RADIUS_METERS } from '@/lib/municipalDiscoveryRadius';
 import {
+  municipalFacilityDetailQueryOptions,
   mySpotsQueryOptions,
+  nearbyMunicipalFacilitiesQueryOptions,
+  nearbyRoadsideSegmentsQueryOptions,
   nearbySpotsQueryOptions,
   spotDetailQueryOptions,
   spotMediaAccessUrlQueryOptions,
@@ -21,6 +29,47 @@ export function useNearbySpotsQuery(params: NearbySearchParams | null) {
       params ?? { lat: 0, lng: 0 },
     ),
     enabled: params !== null,
+  });
+}
+
+/** Municipal facilities nearby — enable only when WEB-MUNI discovery flag is on. */
+export function useNearbyMunicipalFacilitiesQuery(
+  params: MunicipalFacilityNearbyParams | null,
+  options?: { enabled?: boolean },
+) {
+  const sdk = useParkioSdk();
+  return useQuery({
+    ...nearbyMunicipalFacilitiesQueryOptions(
+      sdk,
+      params ?? { lat: 0, lng: 0, radiusMeters: DEFAULT_MUNICIPAL_RADIUS_METERS },
+    ),
+    enabled: (options?.enabled ?? true) && params !== null,
+  });
+}
+
+/** İZELMAN roadside nearby — authenticated map inventory (max r=5 km). */
+export function useNearbyRoadsideSegmentsQuery(
+  params: RoadsideSegmentNearbyParams | null,
+  options?: { enabled?: boolean },
+) {
+  const sdk = useParkioSdk();
+  return useQuery({
+    ...nearbyRoadsideSegmentsQueryOptions(
+      sdk,
+      params ?? { lat: 0, lng: 0, radiusMeters: DEFAULT_MUNICIPAL_RADIUS_METERS, limit: 50 },
+    ),
+    enabled: (options?.enabled ?? true) && params !== null,
+  });
+}
+
+export function useMunicipalFacilityDetailQuery(
+  facilityId: string | null,
+  options?: { enabled?: boolean },
+) {
+  const sdk = useParkioSdk();
+  return useQuery({
+    ...municipalFacilityDetailQueryOptions(sdk, facilityId ?? ''),
+    enabled: (options?.enabled ?? true) && Boolean(facilityId),
   });
 }
 

@@ -4,6 +4,8 @@ import { useTranslation } from 'react-i18next';
 import { useNavigate, useSearchParams } from 'react-router-dom';
 import { describeAuthError } from '@/api/error-messages';
 import { useParkioSdk } from '@/app/AppRuntimeContext';
+import { localeFromSearchParam } from '@/i18n/localeFromSearchParam';
+import { useLocaleStore } from '@/i18n/localeStore';
 import { AuthSplitLayout } from '@/pages/auth/AuthSplitLayout';
 import { showError, showSuccess } from '@/lib/toast';
 
@@ -14,9 +16,17 @@ export function VerifyEmailPage() {
   const { t } = useTranslation(['auth', 'common', 'errors']);
   const navigate = useNavigate();
   const [searchParams] = useSearchParams();
+  const setLocale = useLocaleStore((s) => s.setLocale);
   const [state, setState] = useState<VerifyState>('verifying');
   const [apiError, setApiError] = useState<string | null>(null);
   const [traceId, setTraceId] = useState<string | undefined>();
+
+  useEffect(() => {
+    const linkLocale = localeFromSearchParam(searchParams.get('lang'));
+    if (linkLocale) {
+      setLocale(linkLocale);
+    }
+  }, [searchParams, setLocale]);
 
   useEffect(() => {
     const token = searchParams.get('token');

@@ -1,0 +1,86 @@
+[
+  {
+    "_id": 1,
+    "bolgeadi": "ZİNDANKALE",
+    "bolgeadresi": "Konya Zindankale",
+    "bolgekapasite": 77,
+    "peronadi": "ZİNDANKALE PERON 2",
+    "peronadres": "ZİNDANKALE",
+    "peronkapasite": 23,
+    "peronkoordinat": "[[32.48686462640762, 37.8728907124379], [32.487594187259674, 37.87337768241885]]",
+    "peronacilissaati": 800,
+    "peronkapanissaati": 1900
+  },
+  {
+    "_id": 2,
+    "bolgeadi": "ZİNDANKALE",
+    "bolgeadresi": "Konya Zindankale",
+    "bolgekapasite": 77,
+    "peronadi": "ZİNDANKALE PERON 1",
+    "peronadres": "ZİNDANKALE",
+    "peronkapasite": 30,
+    "peronkoordinat": "[[32.4868753552437, 37.8728949469733], [32.4874064326286, 37.8732591161112]]",
+    "peronacilissaati": 0,
+    "peronkapanissaati": 2400
+  },
+  {
+    "_id": 3,
+    "bolgeadi": "ZİNDANKALE",
+    "bolgeadresi": "Konya Zindankale",
+    "bolgekapasite": 77,
+    "peronadi": "ZİNDANKALE PERON 3",
+    "peronadres": "Hüsnü Ağa Çk.",
+    "peronkapasite": 24,
+    "peronkoordinat": "[[[32.48814672231674, 37.8729881066916], [32.487803399562836, 37.87337556516502], [32.48780071735382, 37.87333533733089], [32.48812526464462, 37.872973285835215], [32.48814672231674, 37.8729881066916]]]",
+    "peronacilissaati": 800,
+    "peronkapanissaati": 1900
+  },
+  {
+    "_id": 4,
+    "bolgeadi": "MERAM BÖLGESİ",
+    "bolgeadresi": "KONYA MERAM",
+    "bolgekapasite": 636,
+    "peronadi": "MERAM-1",
+    "peronadres": "MERAM",
+    "peronkapasite": 300,
+    "peronkoordinat": "[[32.7478837966919, 39.8770403869553], [32.7476692199707, 39.8767357450676], [32.7474117279053, 39.8764146345857], [32.7473258972168, 39.8761346908878]]",
+    "peronacilissaati": 1230,
+    "peronkapanissaati": 2300
+  },
+  {
+    "_id": 5,
+    "bolgeadi": "MERAM BÖLGESİ",
+    "bolgeadresi": "KONYA MERAM",
+    "bolgekapasite": 636,
+    "peronadi": "MERAM BAĞLARI",
+    "peronadres": "MERAM BAĞLARI",
+    "peronkapasite": 100,
+    "peronkoordinat": "[32.4200373888016, 37.8516916957049]",
+    "peronacilissaati": 800,
+    "peronkapanissaati": 2400
+  },
+  {
+    "_id": 6,
+    "bolgeadi": "MEVLANA ÇARŞI KATLI OTOPARKI",
+    "bolgeadresi": "Mevlana Cad.",
+    "bolgekapasite": 0,
+    "peronadi": "MEVLANA",
+    "peronadres": "Mevlana",
+    "peronkapasite": 0,
+    "peronkoordinat": "not-json",
+    "peronacilissaati": 800,
+    "peronkapanissaati": 2400
+  },
+  {
+    "_id": 7,
+    "bolgeadi": "SELÇUKLU MERKEZ",
+    "bolgeadresi": "Selçuklu",
+    "bolgekapasite": 45,
+    "peronadi": "SELÇUKLU-1",
+    "peronadres": "Selçuklu",
+    "peronkapasite": 45,
+    "peronkoordinat": "[32.500500, 37.880100]",
+    "peronacilissaati": 900,
+    "peronkapanissaati": 2100
+  }
+]

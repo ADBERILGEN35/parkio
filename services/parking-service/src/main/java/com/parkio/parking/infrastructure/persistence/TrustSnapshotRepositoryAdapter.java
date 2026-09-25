@@ -12,7 +12,10 @@ import com.parkio.parking.trust.TrustSnapshot;
 import com.parkio.parking.trust.TrustSubject;
 import java.time.Clock;
 import java.util.Optional;
+import java.util.function.Supplier;
+import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.dao.OptimisticLockingFailureException;
+import org.springframework.dao.PessimisticLockingFailureException;
 import org.springframework.stereotype.Component;
 
 @Component
@@ -36,11 +39,23 @@ public class TrustSnapshotRepositoryAdapter implements TrustSnapshotReadPort, Tr
 
     @Override
     public void upsert(TrustSnapshot snapshot) {
+        persist(snapshot, jpa.findBySubjectTypeAndSubjectIdAndTrustDomain(
+                snapshot.subject().type().name(),
+                snapshot.subject().subjectId(),
+                snapshot.domain().name()));
+    }
+
+    @Override
+    public void replaceLocked(TrustSubject subject, TrustDomain domain, Supplier<TrustSnapshot> nextSnapshot) {
+        Optional<TrustSnapshotEntity> existing = jpa.lockBySubjectTypeAndSubjectIdAndTrustDomain(
+                subject.type().name(),
+                subject.subjectId(),
+                domain.name());
+        persist(nextSnapshot.get(), existing);
+    }
+
+    private void persist(TrustSnapshot snapshot, Optional<TrustSnapshotEntity> existing) {
         try {
-            Optional<TrustSnapshotEntity> existing = jpa.findBySubjectTypeAndSubjectIdAndTrustDomain(
-                    snapshot.subject().type().name(),
-                    snapshot.subject().subjectId(),
-                    snapshot.domain().name());
             if (existing.isPresent()) {
                 TrustSnapshotEntity current = existing.get();
                 TrustSnapshotEntity updated =
@@ -51,9 +66,10 @@ public class TrustSnapshotRepositoryAdapter implements TrustSnapshotReadPort, Tr
             }
             jpa.save(mapper.toEntity(snapshot, clock.instant(), clock.instant(), null));
             jpa.flush();
-        } catch (OptimisticLockingFailureException ex) {
+        } catch (OptimisticLockingFailureException
+                | PessimisticLockingFailureException
+                | DataIntegrityViolationException ex) {
             throw new TrustShadowProjectionConflictException("Concurrent trust snapshot update", ex);
         }
     }
 }
-

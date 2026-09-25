@@ -1,6 +1,8 @@
 #!/usr/bin/env bash
 #
 # Parkio - restore hosted-beta backups from a manifest produced by backup-hosted-beta.sh.
+# After DB restore, replay erasure-tombstones.json (PRIV-001). The same replay is
+# required after managed PITR restore — see docs/architecture/pp-01-managed-postgresql-pitr-ha.md
 #
 # Usage:
 #   PARKIO_ENV_FILE=docker/.env ./scripts/restore-hosted-beta.sh --manifest backup-artifacts/backup-....json
@@ -12,6 +14,8 @@ set -euo pipefail
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 # shellcheck source=lib/backup-common.sh
 source "$ROOT/scripts/lib/backup-common.sh"
+# shellcheck source=lib/erasure-tombstones.sh
+source "$ROOT/scripts/lib/erasure-tombstones.sh"
 
 ENV_FILE="${PARKIO_ENV_FILE:-}"
 MANIFEST=""
@@ -93,31 +97,74 @@ restore_databases() {
 }
 
 restore_minio() {
-  local mirror_src="${DEST_DIR}/minio/${BUCKET}"
+  local restore_bucket="${MINIO_RESTORE_BUCKET:-${BUCKET}}"
+  local stage=""
+  local mirror_src=""
+  local cleanup_stage=0
+
+  if [ -f "${DEST_DIR}/minio.tar.gz.enc" ] || [ -d "${DEST_DIR}/minio" ]; then
+    stage="$(mktemp -d "${TMPDIR:-/tmp}/parkio-restore-minio.XXXXXX")"
+    chmod 700 "${stage}"
+    cleanup_stage=1
+    if ! parkio_backup_unseal_minio "${DEST_DIR}" "${stage}"; then
+      rm -rf "${stage}"
+      return 1
+    fi
+    mirror_src="${stage}/minio/${BUCKET}"
+    if [ ! -d "${mirror_src}" ]; then
+      local alt
+      alt="$(find "${stage}/minio" -mindepth 1 -maxdepth 1 -type d 2>/dev/null | head -1 || true)"
+      if [ -n "${alt}" ]; then
+        mirror_src="${alt}"
+      fi
+    fi
+  else
+    mirror_src="${DEST_DIR}/minio/${BUCKET}"
+    if [ ! -d "${mirror_src}" ]; then
+      local alt
+      alt="$(find "${DEST_DIR}/minio" -mindepth 1 -maxdepth 1 -type d 2>/dev/null | head -1 || true)"
+      if [ -n "${alt}" ]; then
+        mirror_src="${alt}"
+      fi
+    fi
+  fi
+
   if [ "$DRY_RUN" -eq 1 ]; then
-    echo "DRY-RUN: would mirror ${mirror_src} -> local/${BUCKET}"
+    echo "DRY-RUN: would mirror ${mirror_src} -> local/${restore_bucket}"
+    if [ "${cleanup_stage}" -eq 1 ]; then rm -rf "${stage}"; fi
     return 0
   fi
   if [ ! -d "${mirror_src}" ]; then
     echo "ERROR: MinIO mirror not found: ${mirror_src}" >&2
+    if [ "${cleanup_stage}" -eq 1 ]; then rm -rf "${stage}"; fi
     return 1
   fi
-  local network mc_image
-  network="$(parkio_backup_backend_network parkio-minio)"
-  mc_image="${MINIO_MC_IMAGE:-minio/mc:RELEASE.2024-09-16T17-43-14Z}"
+  if [ "${restore_bucket}" = "${BUCKET}" ] && [ "${PARKIO_ALLOW_LIVE_MINIO_RESTORE:-}" != "yes" ]; then
+    echo "ERROR: refusing to overwrite live bucket '${BUCKET}'." >&2
+    echo "Set MINIO_RESTORE_BUCKET to an isolated bucket, or PARKIO_ALLOW_LIVE_MINIO_RESTORE=yes after operator confirmation." >&2
+    if [ "${cleanup_stage}" -eq 1 ]; then rm -rf "${stage}"; fi
+    return 2
+  fi
+  local network mc_image minio_container
+  minio_container="${PARKIO_MINIO_CONTAINER:-parkio-minio}"
+  network="$(parkio_backup_backend_network "${minio_container}")"
+  mc_image="${MINIO_MC_IMAGE:-ghcr.io/adberilgen35/parkio/mc@sha256:456b1e641897329fc9491f9bc8b31df351d728af9a328bf5653707af62d0d6bf}"
   docker run --rm \
     --network "${network}" \
+    --entrypoint /bin/sh \
     -v "${mirror_src}:/restore:ro" \
     -e "MINIO_ROOT_USER=${MINIO_ROOT_USER:-minioadmin}" \
     -e "MINIO_ROOT_PASSWORD=${MINIO_ROOT_PASSWORD:?set MINIO_ROOT_PASSWORD}" \
-    -e "BUCKET=${BUCKET}" \
+    -e "BUCKET=${restore_bucket}" \
     "${mc_image}" \
-    /bin/sh -c '
+    -c '
       set -eu
       mc alias set local http://minio:9000 "$MINIO_ROOT_USER" "$MINIO_ROOT_PASSWORD"
+      mc mb -p "local/${BUCKET}" >/dev/null 2>&1 || true
       mc mirror --overwrite /restore "local/${BUCKET}"
     '
-  echo "MinIO restore completed from ${mirror_src}"
+  echo "MinIO restore completed from ${mirror_src} -> ${restore_bucket}"
+  if [ "${cleanup_stage}" -eq 1 ]; then rm -rf "${stage}"; fi
 }
 
 if [ "${ASSUME_YES}" != "yes" ] && [ "$DRY_RUN" -ne 1 ]; then
@@ -130,13 +177,29 @@ if [ "${ASSUME_YES}" != "yes" ] && [ "$DRY_RUN" -ne 1 ]; then
   fi
 fi
 
+replay_erasure_ledger() {
+  if [ "$DRY_RUN" -eq 1 ]; then
+    echo "DRY-RUN: would replay ${DEST_DIR}/erasure-tombstones.json into auth"
+    return 0
+  fi
+  local ledger="${DEST_DIR}/erasure-tombstones.json"
+  PARKIO_RESTORE_REQUIRE_ERASURE_LEDGER="${PARKIO_RESTORE_REQUIRE_ERASURE_LEDGER:-1}" \
+    parkio_replay_erasure_tombstones "${ledger}" \
+      "${PARKIO_POSTGRES_AUTH_CONTAINER:-parkio-postgres-auth}" \
+      "${POSTGRES_AUTH_USER:-parkio_auth}" \
+      "${POSTGRES_AUTH_DB:-parkio_auth}"
+  echo "Erasure ledger replayed; do not serve traffic until auth POST /internal/erasure/replay (or Kafka) finishes participant erase."
+}
+
 case "${ONLY}" in
   ""|all)
     restore_databases
+    replay_erasure_ledger
     restore_minio
     ;;
   databases|db)
     restore_databases
+    replay_erasure_ledger
     ;;
   minio)
     restore_minio

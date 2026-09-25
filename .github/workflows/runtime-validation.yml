@@ -8,18 +8,26 @@ on:
       - "services/**/Dockerfile"
       - "services/**/src/main/resources/application*.yml"
       - ".github/workflows/runtime-validation.yml"
+      - "benchmarks/scripts/wait-http-ready.mjs"
+      - "benchmarks/scripts/wait-tempo-ready.mjs"
+      - "benchmarks/scripts/ci-result-integrity.test.mjs"
   schedule:
     # Weekly runtime drift check, after the security and backup jobs.
     - cron: "41 5 * * 1"
 
 permissions:
   contents: read
+  packages: read
 
 concurrency:
   group: runtime-validation-${{ github.ref }}
   cancel-in-progress: true
 
 env:
+  COMPOSE_PROJECT_NAME: parkio-ci-${{ github.run_id }}-${{ github.run_attempt }}
+  # CI-only: preserve the existing server/mc releases from the official publisher.
+  MINIO_IMAGE: ghcr.io/adberilgen35/parkio/minio@sha256:efba309ba4dc89e48f37304db52a0b854c0e701ba944ca02205c4e292c1a756c
+  MINIO_MC_IMAGE: ghcr.io/adberilgen35/parkio/mc@sha256:456b1e641897329fc9491f9bc8b31df351d728af9a328bf5653707af62d0d6bf
   COMPOSE_ENV_FILE: docker/.env.runtime-validation
   COMPOSE_FILES: >-
     -f docker/docker-compose.yml
@@ -35,6 +43,28 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event_name == 'schedule' && 'api' || github.sha }}
+
+      - name: Fail closed on fork PRs needing private MinIO
+        if: github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository
+        run: |
+          echo "Fork PRs cannot read private ghcr.io/adberilgen35/parkio/{minio,mc} with GITHUB_TOKEN."
+          echo "This is fail-closed, not a skip. Open the change from ADBERILGEN35/parkio."
+          exit 1
+
+      - name: Log in to GHCR for private MinIO pulls
+        if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Assert MinIO image pin parity (compose/CI/scripts)
+        run: |
+          chmod +x scripts/ci/assert-minio-image-pins.sh
+          ./scripts/ci/assert-minio-image-pins.sh
 
       - name: Set up JDK 21
         uses: actions/setup-java@v4
@@ -48,10 +78,10 @@ jobs:
         with:
           package_json_file: frontend/package.json
 
-      - name: Set up Node.js 20
+      - name: Set up Node.js 22
         uses: actions/setup-node@v4
         with:
-          node-version: "20"
+          node-version: "22"
           cache: pnpm
           cache-dependency-path: frontend/pnpm-lock.yaml
 
@@ -71,10 +101,10 @@ jobs:
       - name: Frontend build smoke
         working-directory: frontend
         run: |
-          pnpm -r typecheck
-          pnpm -r lint
-          pnpm -r test
-          pnpm -r build
+          pnpm -r --filter='!@parkio/mobile' --filter='!@parkio/mobile-v2' typecheck
+          pnpm -r --filter='!@parkio/mobile' --filter='!@parkio/mobile-v2' lint
+          pnpm -r --filter='!@parkio/mobile' --filter='!@parkio/mobile-v2' test
+          pnpm -r --filter='!@parkio/mobile' --filter='!@parkio/mobile-v2' build
 
       - name: Prepare CI-only hosted-beta env
         run: |
@@ -101,6 +131,7 @@ jobs:
               "PARKIO_MEDIA_DOMAIN": "media.runtime-validation.localhost",
               "PARKIO_ACME_EMAIL": "ops@example.invalid",
               "VITE_API_BASE_URL": "https://api.runtime-validation.localhost/api/v1",
+              "VITE_MAPTILER_KEY": "ci-public-map-key",
               "PARKIO_IMAGE_TAG": "ci-runtime",
               "PARKIO_GIT_SHA": "ci-runtime",
               "PARKIO_IMAGE_CREATED": "1970-01-01T00:00:00Z",
@@ -211,44 +242,52 @@ jobs:
 
           for svc in "${!ports[@]}"; do
             port="${ports[$svc]}"
+            container_artifact="/tmp/${svc}-readiness.json"
             docker compose --env-file "$COMPOSE_ENV_FILE" $COMPOSE_FILES exec -T "$svc" \
-              curl -fsS "http://localhost:${port}/actuator/health/readiness" \
-              | tee "runtime-validation-artifacts/${svc}-readiness.json"
+              curl -fsS -o "$container_artifact" "http://localhost:${port}/actuator/health/readiness"
+            docker compose --env-file "$COMPOSE_ENV_FILE" $COMPOSE_FILES cp \
+              "${svc}:${container_artifact}" "runtime-validation-artifacts/${svc}-readiness.json"
           done
 
           docker compose --env-file "$COMPOSE_ENV_FILE" $COMPOSE_FILES exec -T gateway-service \
-            curl -fsS http://localhost:8080/api/v1/auth/.well-known/jwks.json \
-            | tee runtime-validation-artifacts/gateway-jwks.json
+            curl -fsS -o /tmp/gateway-jwks.json \
+            http://localhost:8080/api/v1/auth/.well-known/jwks.json
+          docker compose --env-file "$COMPOSE_ENV_FILE" $COMPOSE_FILES cp \
+            gateway-service:/tmp/gateway-jwks.json runtime-validation-artifacts/gateway-jwks.json
 
-          status="$(docker compose --env-file "$COMPOSE_ENV_FILE" $COMPOSE_FILES exec -T gateway-service \
-            curl -sS -o runtime-validation-artifacts/gateway-protected-401.json -w '%{http_code}' \
+          capture_status() {
+            local service="$1" artifact="$2" url="$3" container_artifact status
+            container_artifact="/tmp/${artifact}"
+            status="$(docker compose --env-file "$COMPOSE_ENV_FILE" $COMPOSE_FILES exec -T "$service" \
+              curl --path-as-is -sS -o "$container_artifact" -w '%{http_code}' "$url")"
+            docker compose --env-file "$COMPOSE_ENV_FILE" $COMPOSE_FILES cp \
+              "${service}:${container_artifact}" "runtime-validation-artifacts/${artifact}" >/dev/null
+            printf '%s' "$status"
+          }
+
+          status="$(capture_status gateway-service gateway-protected-401.json \
             'http://localhost:8080/api/v1/parking/spots/nearby?latitude=41.0&longitude=29.0&radiusMeters=1000')"
           test "$status" = "401"
 
-          status="$(docker compose --env-file "$COMPOSE_ENV_FILE" $COMPOSE_FILES exec -T gateway-service \
-            curl -sS -o runtime-validation-artifacts/gateway-geocoding-401.json -w '%{http_code}' \
+          status="$(capture_status gateway-service gateway-geocoding-401.json \
             'http://localhost:8080/api/v1/parking/geocode/reverse?latitude=41.0&longitude=29.0')"
           test "$status" = "401"
 
-          status="$(docker compose --env-file "$COMPOSE_ENV_FILE" $COMPOSE_FILES exec -T parking-service \
-            curl -sS -o runtime-validation-artifacts/direct-parking-gateway-auth-required.json -w '%{http_code}' \
+          status="$(capture_status parking-service direct-parking-gateway-auth-required.json \
             'http://localhost:8083/api/v1/parking/spots/nearby?latitude=41.0&longitude=29.0&radiusMeters=1000')"
           test "$status" = "401"
           grep -q "GATEWAY_AUTH_REQUIRED" runtime-validation-artifacts/direct-parking-gateway-auth-required.json
 
-          status="$(docker compose --env-file "$COMPOSE_ENV_FILE" $COMPOSE_FILES exec -T gateway-service \
-            curl -sS -o runtime-validation-artifacts/gateway-traversal-400.json -w '%{http_code}' \
+          status="$(capture_status gateway-service gateway-traversal-400.json \
             'http://localhost:8080/api/v1/analytics/users/../overview')"
           test "$status" = "400"
           grep -q "INVALID_REQUEST_PATH" runtime-validation-artifacts/gateway-traversal-400.json
 
-          status="$(docker compose --env-file "$COMPOSE_ENV_FILE" $COMPOSE_FILES exec -T gateway-service \
-            curl -sS -o runtime-validation-artifacts/gateway-encoded-traversal-400.json -w '%{http_code}' \
+          status="$(capture_status gateway-service gateway-encoded-traversal-400.json \
             'http://localhost:8080/api/v1/parking/%2e%2e/%2e%2e/internal')"
           test "$status" = "400"
 
-          status="$(docker compose --env-file "$COMPOSE_ENV_FILE" $COMPOSE_FILES exec -T gateway-service \
-            curl -sS -o runtime-validation-artifacts/gateway-valid-route.json -w '%{http_code}' \
+          status="$(capture_status gateway-service gateway-valid-route.json \
             'http://localhost:8080/api/v1/auth/.well-known/jwks.json')"
           test "$status" = "200"
 
@@ -295,9 +334,13 @@ jobs:
             sleep 10
           done
 
+      - name: Verify CI result-integrity unit gates
+        run: node --test benchmarks/scripts/ci-result-integrity.test.mjs
+
       - name: Observability smoke checks
         run: |
           set -euo pipefail
+          mkdir -p runtime-validation-artifacts
           curl -fsS http://127.0.0.1:9090/-/ready | tee runtime-validation-artifacts/prometheus-ready.txt
           curl -fsS http://127.0.0.1:3000/api/health | tee runtime-validation-artifacts/grafana-health.json
           curl -fsS http://127.0.0.1:3100/ready | tee runtime-validation-artifacts/loki-ready.txt
@@ -306,12 +349,12 @@ jobs:
           head -50 runtime-validation-artifacts/kafka-exporter-metrics.txt
           curl -fsS http://127.0.0.1:9100/metrics -o runtime-validation-artifacts/node-exporter-metrics.txt
           head -50 runtime-validation-artifacts/node-exporter-metrics.txt
-          if curl -fsS http://127.0.0.1:3200/ready -o runtime-validation-artifacts/tempo-ready.txt; then
-            cat runtime-validation-artifacts/tempo-ready.txt
-          else
-            curl -fsS http://127.0.0.1:3200/status -o runtime-validation-artifacts/tempo-ready.txt
-            cat runtime-validation-artifacts/tempo-ready.txt
-          fi
+          # Tempo: bounded /ready polling only. /status is diagnostic and must never
+          # be accepted as readiness evidence (CI-TEMPO-01).
+          TEMPO_EVIDENCE_DIR=runtime-validation-artifacts \
+          TEMPO_READY_TIMEOUT_MS=180000 \
+          TEMPO_READY_INTERVAL_MS=5000 \
+            node benchmarks/scripts/wait-tempo-ready.mjs
 
       - name: Collect runtime artifacts
         if: always()

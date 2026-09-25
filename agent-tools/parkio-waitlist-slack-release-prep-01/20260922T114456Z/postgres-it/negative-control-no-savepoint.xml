@@ -1,0 +1,30 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<testsuite name="com.parkio.gateway.infrastructure.waitlist.ops.WaitlistOpsNotificationPostgresIT" tests="1" skipped="0" failures="1" errors="0" timestamp="2026-09-22T11:44:40" hostname="redacted" time="1.42">
+  <properties/>
+  <testcase name="genuineSqlFailureInsideSavepointKeepsConfirmationCommittable()" classname="com.parkio.gateway.infrastructure.waitlist.ops.WaitlistOpsNotificationPostgresIT" time="1.42">
+    <failure message="org.springframework.transaction.UnexpectedRollbackException: Transaction rolled back because it has been marked as rollback-only" type="org.springframework.transaction.UnexpectedRollbackException">org.springframework.transaction.UnexpectedRollbackException: Transaction rolled back because it has been marked as rollback-only
+	at app//org.springframework.transaction.support.AbstractPlatformTransactionManager.processRollback(AbstractPlatformTransactionManager.java:938)
+	at app//org.springframework.transaction.support.AbstractPlatformTransactionManager.commit(AbstractPlatformTransactionManager.java:754)
+	at app//org.springframework.transaction.support.TransactionTemplate.execute(TransactionTemplate.java:152)
+	at app//com.parkio.gateway.application.waitlist.WaitlistApplicationService.lambda$confirm$3(WaitlistApplicationService.java:136)
+	at app//reactor.core.publisher.MonoCallable.call(MonoCallable.java:72)
+	at app//reactor.core.publisher.FluxSubscribeOnCallable$CallableSubscribeOnSubscription.run(FluxSubscribeOnCallable.java:228)
+	at app//reactor.core.scheduler.SchedulerTask.call(SchedulerTask.java:68)
+	at app//reactor.core.scheduler.SchedulerTask.call(SchedulerTask.java:28)
+	at java.base@21.0.11/java.util.concurrent.FutureTask.run(FutureTask.java:317)
+	at java.base@21.0.11/java.util.concurrent.ScheduledThreadPoolExecutor$ScheduledFutureTask.run(ScheduledThreadPoolExecutor.java:304)
+	at java.base@21.0.11/java.util.concurrent.ThreadPoolExecutor.runWorker(ThreadPoolExecutor.java:1144)
+	at java.base@21.0.11/java.util.concurrent.ThreadPoolExecutor$Worker.run(ThreadPoolExecutor.java:642)
+	at java.base@21.0.11/java.lang.Thread.run(Thread.java:1583)
+	Suppressed: java.lang.Exception: #block terminated with an error
+		at reactor.core.publisher.BlockingSingleSubscriber.blockingGet(BlockingSingleSubscriber.java:104)
+		at reactor.core.publisher.Mono.block(Mono.java:1779)
+		at com.parkio.gateway.infrastructure.waitlist.ops.WaitlistOpsNotificationPostgresIT.genuineSqlFailureInsideSavepointKeepsConfirmationCommittable(WaitlistOpsNotificationPostgresIT.java:204)
+		at java.base/java.lang.reflect.Method.invoke(Method.java:580)
+		at java.base/java.util.ArrayList.forEach(ArrayList.java:1596)
+		at java.base/java.util.ArrayList.forEach(ArrayList.java:1596)
+</failure>
+  </testcase>
+  <system-out><![CDATA[]]></system-out>
+  <system-err><![CDATA[]]></system-err>
+</testsuite>

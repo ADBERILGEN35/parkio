@@ -20,7 +20,8 @@
 - RPO: nightly maximum for databases/media; additionally back up before every deploy, destructive operation, and exit.
 - RTO: not proven. Measure the parking restore drill and full restore before beta. The single operator must record actual durations.
 - Keep at least three verified daily sets off the Azure VM. A backup on the same managed disk is staging, not disaster recovery.
-- Use `BACKUP_ENCRYPT_PASSPHRASE`; keep the passphrase separately from archives.
+- Canonical offsite: Azure Blob in dedicated RG `rg-parkio-backups` (westeurope; VM is francecentral). TLS 1.2+, SSE, versioning, 14-day lifecycle. Set `BACKUP_PRODUCTION_MODE=1` so encryption + offsite are fail-closed.
+- Use `BACKUP_ENCRYPT_PASSPHRASE`; keep the passphrase separately from archives. Never git.
 - Do not use Azure Backup for this 30-day plan: its protected-instance/storage cost and crash-consistent VM focus are inferior to the existing app-consistent logical path for portable exit.
 
 ## Nightly procedure
@@ -32,7 +33,15 @@ PARKIO_ENV_FILE=docker/.env.azure-hosted-beta ./scripts/backup-hosted-beta.sh
 jq . backup-artifacts/backup-current.json
 ```
 
-From the operator machine:
+Offsite pull (preferred over scp from the VM):
+
+```bash
+PARKIO_ENV_FILE=docker/.env.azure-hosted-beta \
+  ./scripts/backup-offsite-pull.sh --stamp <BACKUP_STAMP> --dest /tmp/parkio-restore-<BACKUP_STAMP>
+sha256sum -c /tmp/parkio-restore-<BACKUP_STAMP>/SHA256SUMS
+```
+
+Optional extra copy from the operator machine (does not replace Blob offsite):
 
 ```bash
 mkdir -p <LOCAL_ENCRYPTED_BACKUP_ROOT>/<YYYY-MM-DD>

@@ -1,0 +1,6 @@
+f34707d31e9698851a8407b9a0517f7014224e116994523e6307a823f56e81f7  izmir-admin-izbb-2024-10-18-v1.osm.pbf  bytes=28685100
+c8cd74c917509b525ed0a450858ac34e20500194d7d71893e9f7ff684a5dcac3  izmir-parking-complete.osm.pbf  bytes=110251
+9d62ba76cf15706bbec3880f31f9d7eb5159b0df9317d93839ca60b53c362bc4  izmir-parking-osmium.geojson  bytes=589864
+2344db92b21d72ebe252d02b858837ccc964db222faca17236588fdf7eabd81c  izmir-parking-parkio.geojson  bytes=643108
+4c864cf5b4f7430769dac611730b5ee89e7d485ab5abd3abac969e515d1f7542  osmium-export-parkio.json  bytes=632
+87f2b4c21cdd8447d514c525065c36c1002c82b69e713bea1cb1743a84f6953d  turkey-latest.osm.pbf  bytes=647228228

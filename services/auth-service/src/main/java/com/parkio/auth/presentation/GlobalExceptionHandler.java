@@ -2,6 +2,7 @@ package com.parkio.auth.presentation;
 
 import com.parkio.auth.domain.exception.AuthErrorCode;
 import com.parkio.auth.domain.exception.AuthException;
+import com.parkio.auth.infrastructure.notification.EmailDeliveryException;
 import com.parkio.platform.api.ApiError;
 import java.time.Clock;
 import java.util.List;
@@ -89,6 +90,23 @@ public class GlobalExceptionHandler {
         return ResponseEntity.status(HttpStatus.CONFLICT).body(body);
     }
 
+    /**
+     * Provider rejection or transport failure during synchronous transactional email.
+     * Used for paths that must surface delivery failure (register, admin resend).
+     * Public resend-verification / forgot-password catch {@link EmailDeliveryException}
+     * in the controller so HTTP responses stay enumeration-safe while the service
+     * transaction still rolls back.
+     */
+    @ExceptionHandler(EmailDeliveryException.class)
+    public ResponseEntity<ApiError> handleEmailDelivery(EmailDeliveryException ex) {
+        log.warn("Transactional email delivery failed: {}", ex.getMessage());
+        ApiError body = ApiError.of(
+                "EMAIL_DELIVERY_UNAVAILABLE",
+                "Email delivery is temporarily unavailable. Please try again later.",
+                clock.instant());
+        return ResponseEntity.status(HttpStatus.SERVICE_UNAVAILABLE).body(body);
+    }
+
     /** Catch-all: anything unmapped becomes a consistent 500 with no leaked detail. */
     @ExceptionHandler(Exception.class)
     public ResponseEntity<ApiError> handleUnexpected(Exception ex) {
@@ -101,7 +119,9 @@ public class GlobalExceptionHandler {
         return switch (code) {
             case EMAIL_ALREADY_EXISTS, CONFLICT, LAST_SUPER_ADMIN, PRIVILEGE_ESCALATION -> HttpStatus.CONFLICT;
             case INVALID_CREDENTIALS, INVALID_REFRESH_TOKEN -> HttpStatus.UNAUTHORIZED;
-            case ACCOUNT_NOT_VERIFIED, USER_NOT_ACTIVE, FORBIDDEN, BOOTSTRAP_DISABLED -> HttpStatus.FORBIDDEN;
+            case ACCOUNT_NOT_VERIFIED, USER_NOT_ACTIVE, FORBIDDEN, BOOTSTRAP_DISABLED,
+                    ACCOUNT_ERASURE_DISABLED, ACCOUNT_ERASURE_IN_PROGRESS, REGISTRATION_CLOSED,
+                    REGISTRATION_INVITE_REQUIRED, REGISTRATION_INVITE_INVALID -> HttpStatus.FORBIDDEN;
             case INVALID_VERIFICATION_TOKEN, INVALID_RESET_TOKEN, WEAK_PASSWORD, INVALID_ADMIN_ACTION ->
                     HttpStatus.BAD_REQUEST;
             case USER_NOT_FOUND, SESSION_NOT_FOUND -> HttpStatus.NOT_FOUND;

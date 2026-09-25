@@ -47,7 +47,12 @@ stays empty; spots you create expire for real.
 pnpm typecheck   # tsc --noEmit (strict)
 pnpm lint        # eslint (expo flat config)
 pnpm test        # jest — unit + render suites
+pnpm validate:native-ownership  # committed android/ is the release source of truth
+pnpm doctor                     # expo-doctor; CNG-only miss is replaced by the gate above
 ```
+
+See [`NATIVE-BUILD.md`](./NATIVE-BUILD.md) for why the expo-doctor CNG check
+cannot represent this setup.
 
 ## What's implemented
 

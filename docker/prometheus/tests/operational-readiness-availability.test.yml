@@ -1,0 +1,75 @@
+# Unit tests for operational-readiness availability recording + baselining alerts.
+# Rule files under test include both recording and alert definitions.
+
+rule_files:
+  - /etc/prometheus/operational-readiness-recording-rules.yml
+  - /etc/prometheus/operational-readiness-alert-rules.yml
+
+evaluation_interval: 1m
+
+tests:
+  - name: low traffic all-200 yields availability 1 and no baselining fire
+    interval: 1m
+    input_series:
+      # ~0.13 req/s equivalent sparse counters: +1 every minute ≈ 1/60 ≈ 0.0167;
+      # use steady +8/min ≈ 0.133/s over the window.
+      - series: 'http_server_requests_seconds_count{service="parking-service",status="200",uri="/actuator/health/**"}'
+        values: "0+4x90"
+      - series: 'http_server_requests_seconds_count{service="parking-service",status="200",uri="/actuator/prometheus"}'
+        values: "0+4x90"
+      - series: 'http_server_requests_seconds_count{service="gateway-service",status="200",uri="/actuator/health/**"}'
+        values: "0+4x90"
+      - series: 'http_server_requests_seconds_count{service="gateway-service",status="200",uri="/actuator/prometheus"}'
+        values: "0+4x90"
+    promql_expr_test:
+      - expr: parkio:parking:availability_ratio5m
+        eval_time: 40m
+        exp_samples:
+          - labels: 'parkio:parking:availability_ratio5m'
+            value: 1
+      - expr: parkio:gateway:availability_ratio5m
+        eval_time: 40m
+        exp_samples:
+          - labels: 'parkio:gateway:availability_ratio5m'
+            value: 1
+    alert_rule_test:
+      - eval_time: 40m
+        alertname: ParkingAvailabilityBaselining
+        exp_alerts: []
+      - eval_time: 40m
+        alertname: GatewayAvailabilityBaselining
+        exp_alerts: []
+
+  - name: sustained parking 5xx below 99 percent fires baselining
+    interval: 1m
+    input_series:
+      - series: 'http_server_requests_seconds_count{service="parking-service",status="200"}'
+        values: "0+90x70"
+      - series: 'http_server_requests_seconds_count{service="parking-service",status="500"}'
+        values: "0+10x70"
+    alert_rule_test:
+      - eval_time: 25m
+        alertname: ParkingAvailabilityBaselining
+        exp_alerts: []
+      - eval_time: 40m
+        alertname: ParkingAvailabilityBaselining
+        exp_alerts:
+          - exp_labels:
+              alertname: ParkingAvailabilityBaselining
+              severity: warning
+              owner: parking
+            exp_annotations:
+              summary: Parking availability below PROPOSED 99% (baselining)
+              runbook_url: https://github.com/ADBERILGEN35/parkio/blob/api/docs/operations/runbooks/mutation-failure-rate.md
+
+  - name: zero traffic yields no availability sample and no baselining fire
+    interval: 1m
+    input_series: []
+    promql_expr_test:
+      - expr: parkio:parking:availability_ratio5m
+        eval_time: 40m
+        exp_samples: []
+    alert_rule_test:
+      - eval_time: 40m
+        alertname: ParkingAvailabilityBaselining
+        exp_alerts: []

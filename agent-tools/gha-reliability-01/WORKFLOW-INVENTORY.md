@@ -1,0 +1,37 @@
+# Workflow inventory (origin/api 99497e51)
+
+Required on api: Build & unit tests; Secret scan. All others non-required.
+
+| Workflow | Path | Triggers | Checkout | Class | Latest 99497e51 (PR #44) | Safe validation |
+|---|---|---|---|---|---|---|
+| Backend CI | backend-ci.yml | PR; push master (now api+master); dispatch | default SHA | A | PASS 36132523176 | gradle build |
+| Backend integration | backend-integration.yml | PR paths; nightly schedule; dispatch | default; schedule=master | A (needs MinIO) | FAIL media ContainerFetchException 36132523020 | integrationTest |
+| Security CI | security-ci.yml | PR; push master (now api+master); weekly; dispatch | default | A | FAIL deps image-size 36132523224 | trivy fs HIGH/CRITICAL |
+| Frontend CI | frontend-ci.yml | PR/push paths; push was master | default | A | PASS 36132522992 | pnpm test/build |
+| Mobile CI | mobile-ci.yml | PR/push mobile paths; push was master | default | A | PASS 36132523081 | jest + expo-doctor |
+| Runtime validation | runtime-validation.yml | PR; schedule; dispatch | default | A (needs MinIO) | FAIL 36132523158 | compose up synthetic |
+| Chaos validation | chaos-validation.yml | PR; schedule; dispatch | default | A (needs MinIO) | FAIL 36132522996 | compose recovery |
+| Performance smoke | performance-smoke.yml | PR; schedule; dispatch | default | A (needs MinIO) | FAIL 36132523254 | k6 vs compose |
+| Backup restore drill | backup-restore-drill.yml | push api paths; PR paths; weekly; dispatch | default | A (needs MinIO) | FAIL start MinIO 36132523000 | isolated restore |
+| Restore drill 01 | restore-drill-01-procedure.yml | PR; dispatch | default | A (needs MinIO) | FAIL start MinIO 36132523002 | fixture script |
+| slack_biz relay | slack-biz-relay-acceptance.yml | PR paths; dispatch | fetch-depth 0 | A | FAIL master compose files 36132523132 | mock Slack + compose json |
+| Observability | observability-validation.yml | push api paths; PR; dispatch | default | A | PASS 36132523148 | script checks |
+| Staging verification | staging-verification.yml | PR; schedule; dispatch | default | A | PASS 36132523146 | synthetic staging |
+| shared-staging-verification | shared-staging-verification.yml | dispatch | default | B/C | no 99497e51 run | dry-run only |
+| PP-01B Terraform Offline | pp-01b-terraform-offline.yml | PR; push api+master; dispatch | default | A | PASS 36132523145 | terraform validate |
+| PROD-MUNI-01 | prod-muni-01.yml | PR/push paths; push was master | default | A | PASS 36132523138 | static drills |
+| Invite-production deploy | invite-production-deploy.yml | PR api+master (dry-run); dispatch deploy | input SHA | C deploy / A dry-run | PASS dry-run 36132523021 | fixture only |
+| Hosted-beta deploy | hosted-beta-deploy.yml | dispatch | workflow SHA | C | NOT RUN | build job only |
+| Release | release.yml | tag v*; dispatch | tag | C publish gated | NOT RUN | draft release path |
+| Supply chain | supply-chain.yml | push master (now api+master); weekly; dispatch | default | A | no 99497e51 push run | SBOM artifacts |
+| Frontend real E2E | frontend-real-e2e.yml | dispatch | default | B | NOT RUN | needs PARKIO_LOCAL_ENV |
+| Web build image acceptance | web-build-image-acceptance.yml | PR | PR head | A | not on #44 path | image build |
+| Runtime baseline | runtime-baseline.yml | dispatch; schedule | default | A | no recent 99497e51 | compose baseline |
+| Alerting operator | alerting-operator-acceptance.yml | dispatch | default | C real Slack | NOT RUN | isolated mock exists |
+| PROD-MUNI-01 already listed | | | | | | |
+
+PR #44 (api -> master) is the umbrella that re-runs most PR workflows on every api push.
+Scheduled workflows execute from default branch master (e.g. backend-integration 36114984308 on 440a8d28).
+Do not change the default branch. A master-only checkout-api PR is the schedule fix.
+
+Distinguish: #112 head 3ae8ef7f PR checks vs api merge SHA 99497e51 umbrella checks. Same failure groups.

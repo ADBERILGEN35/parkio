@@ -1,0 +1,15 @@
+{
+  "createTableCount": 3,
+  "extensions": [],
+  "flywayFailedRows": 0,
+  "flywayHead": "5",
+  "grantRoles": [],
+  "pgDumpVersion": "16.10",
+  "restrictCommands": true,
+  "rowCounts": {
+    "public.flyway_schema_history": 5,
+    "public.waitlist_interest": 0,
+    "public.waitlist_ops_notification_outbox": 2
+  },
+  "serverVersion": "16.10"
+}

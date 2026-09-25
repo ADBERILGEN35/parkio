@@ -3,6 +3,7 @@ package com.parkio.gateway.infrastructure.security;
 import static org.assertj.core.api.Assertions.assertThat;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.parkio.gateway.infrastructure.config.GatewayPublicSurfaceProperties;
 import com.parkio.gateway.infrastructure.web.GatewayErrorResponseWriter;
 import com.parkio.gateway.shared.GatewayHeaders;
 import io.jsonwebtoken.JwtException;
@@ -82,6 +83,91 @@ class AuthenticationGlobalFilterTest {
     }
 
     @Test
+    void waitlistConfirmWithdrawAndResendArePublic() {
+        for (String path : List.of(
+                "/api/v1/waitlist/confirm",
+                "/api/v1/waitlist/withdraw",
+                "/api/v1/waitlist/resend")) {
+            var request = MockServerHttpRequest.post(path).build();
+            var chain = new CapturingChain();
+            filter().filter(MockServerWebExchange.from(request), chain).block();
+            assertThat(chain.wasInvoked()).as(path).isTrue();
+        }
+    }
+
+    @Test
+    void publicExploreFlagOffReturnsCanonicalMissingToken() {
+        var exchange = MockServerWebExchange.from(MockServerHttpRequest
+                .get("/api/v1/public/explore/facilities").build());
+        var chain = new CapturingChain();
+
+        filter().filter(exchange, chain).block();
+
+        assertThat(chain.wasInvoked()).isFalse();
+        assertThat(exchange.getResponse().getStatusCode()).isEqualTo(HttpStatus.UNAUTHORIZED);
+    }
+
+    @Test
+    void publicExploreFlagOnIsCredentialInvariantAndStripsForgedIdentity() {
+        GatewayPublicSurfaceProperties properties = new GatewayPublicSurfaceProperties();
+        properties.setPublicExploreEnabled(true);
+        var filter = filter(properties);
+        String normalUserToken = validToken(UUID.randomUUID(), "rider@parkio.test", List.of("USER"));
+
+        var anonymousChain = new CapturingChain();
+        filter.filter(MockServerWebExchange.from(MockServerHttpRequest
+                .get("/api/v1/public/explore/facilities").build()), anonymousChain).block();
+
+        var credentialedChain = new CapturingChain();
+        filter.filter(MockServerWebExchange.from(MockServerHttpRequest
+                .get("/api/v1/public/explore/facilities")
+                .header(HttpHeaders.AUTHORIZATION, "Bearer " + normalUserToken)
+                .header(GatewayHeaders.USER_ID, "forged-user")
+                .build()), credentialedChain).block();
+
+        assertThat(anonymousChain.wasInvoked()).isTrue();
+        assertThat(credentialedChain.wasInvoked()).isTrue();
+        assertThat(forwardedHeader(credentialedChain, GatewayHeaders.USER_ID)).isNull();
+    }
+
+    @Test
+    void publicGeocodingFlagOffReturnsCanonicalMissingToken() {
+        var exchange = MockServerWebExchange.from(MockServerHttpRequest
+                .get("/api/v1/public/geocoding/search").build());
+        var chain = new CapturingChain();
+
+        filter().filter(exchange, chain).block();
+
+        assertThat(chain.wasInvoked()).isFalse();
+        assertThat(exchange.getResponse().getStatusCode()).isEqualTo(HttpStatus.UNAUTHORIZED);
+    }
+
+    @Test
+    void publicGeocodingFlagOnIsCredentialInvariantAndStripsForgedIdentity() {
+        GatewayPublicSurfaceProperties properties = new GatewayPublicSurfaceProperties();
+        properties.setPublicExploreEnabled(true);
+        var filter = filter(properties);
+        String normalUserToken = validToken(UUID.randomUUID(), "rider@parkio.test", List.of("USER"));
+
+        var anonymousChain = new CapturingChain();
+        filter.filter(MockServerWebExchange.from(MockServerHttpRequest
+                .get("/api/v1/public/geocoding/search").build()), anonymousChain).block();
+
+        var credentialedChain = new CapturingChain();
+        filter.filter(MockServerWebExchange.from(MockServerHttpRequest
+                .get("/api/v1/public/geocoding/search")
+                .header(HttpHeaders.AUTHORIZATION, "Bearer " + normalUserToken)
+                .header(GatewayHeaders.USER_ID, "forged-user")
+                .header(GatewayHeaders.USER_ROLES, "ADMIN")
+                .build()), credentialedChain).block();
+
+        assertThat(anonymousChain.wasInvoked()).isTrue();
+        assertThat(credentialedChain.wasInvoked()).isTrue();
+        assertThat(forwardedHeader(credentialedChain, GatewayHeaders.USER_ID)).isNull();
+        assertThat(forwardedHeader(credentialedChain, GatewayHeaders.USER_ROLES)).isNull();
+    }
+
+    @Test
     void protectedRouteWithoutTokenIsRejected() {
         var exchange = MockServerWebExchange.from(MockServerHttpRequest
                 .get("/api/v1/users/me").build());
@@ -91,6 +177,29 @@ class AuthenticationGlobalFilterTest {
 
         assertThat(chain.wasInvoked()).isFalse();
         assertThat(exchange.getResponse().getStatusCode()).isEqualTo(HttpStatus.UNAUTHORIZED);
+    }
+
+    @Test
+    void waitlistAdminAndExportRequireAuthentication() {
+        for (String path : List.of(
+                "/api/v1/waitlist/admin",
+                "/api/v1/waitlist/admin/summary",
+                "/api/v1/waitlist/export")) {
+            var exchange = MockServerWebExchange.from(MockServerHttpRequest.get(path).build());
+            var chain = new CapturingChain();
+            filter().filter(exchange, chain).block();
+            assertThat(chain.wasInvoked()).as(path).isFalse();
+            assertThat(exchange.getResponse().getStatusCode()).as(path).isEqualTo(HttpStatus.UNAUTHORIZED);
+        }
+    }
+
+    @Test
+    void publicWaitlistSubmitRemainsAnonymous() {
+        var exchange = MockServerWebExchange.from(MockServerHttpRequest
+                .post("/api/v1/waitlist").build());
+        var chain = new CapturingChain();
+        filter().filter(exchange, chain).block();
+        assertThat(chain.wasInvoked()).isTrue();
     }
 
     @Test
@@ -127,6 +236,10 @@ class AuthenticationGlobalFilterTest {
     }
 
     private static AuthenticationGlobalFilter filter() {
+        return filter(new GatewayPublicSurfaceProperties());
+    }
+
+    private static AuthenticationGlobalFilter filter(GatewayPublicSurfaceProperties publicSurface) {
         JwtProperties properties = new JwtProperties();
         properties.setIssuer(ISSUER);
         properties.setAudience(AUDIENCE);
@@ -138,7 +251,7 @@ class AuthenticationGlobalFilterTest {
         JwtTokenValidator validator = new JwtTokenValidator(
                 properties, resolver, new ObjectMapper().findAndRegisterModules());
         return new AuthenticationGlobalFilter(
-                new PublicEndpoints(),
+                new PublicEndpoints(publicSurface),
                 validator,
                 new GatewayErrorResponseWriter(
                         new ObjectMapper().findAndRegisterModules(),

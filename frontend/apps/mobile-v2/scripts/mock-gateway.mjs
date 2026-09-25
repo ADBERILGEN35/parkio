@@ -170,7 +170,9 @@ const moderator = makeUser('mod@parkio.dev', 'Parkio-Demo-1234', {
 });
 
 makeSpot(mert, {
-  lat: 38.4382, lng: 27.1421,
+  // Kept away from the Y04C synthetic municipal marker (38.4410,27.1460)
+  // so marker hit-testing can target the municipal green-P without community collision.
+  lat: 38.4555, lng: 27.1105,
   address: 'Kıbrıs Şehitleri yan sokağı, Alsancak',
   description: 'Eczanenin önü az önce boşaldı, sedan rahat sığar. Gölgede.',
   vehicles: ['SEDAN'], context: 'STREET_PARKING', legal: 'LEGAL',
@@ -211,6 +213,81 @@ makeSpot(elif, {
 });
 
 for (const spot of spots.values()) seededSpotIds.add(spot.id);
+
+// ── Municipal facilities (Y04C RN acceptance fixture) ─────────────────────────
+// Deterministic synthetic İzmir/İZUM inventory for map marker → preview → detail.
+// Coordinates sit slightly NE of the Alsancak community seed so the municipal
+// marker is distinct from community spots while remaining in the default viewport.
+const facilities = new Map();
+
+function makeFacility(fields) {
+  const facility = {
+    id: fields.id,
+    displayName: fields.displayName ?? null,
+    operatorName: fields.operatorName ?? null,
+    facilityType: fields.facilityType ?? 'OFF_STREET',
+    addressText: fields.addressText ?? null,
+    latitude: fields.lat,
+    longitude: fields.lng,
+    capacityTotal: fields.capacityTotal ?? null,
+    availableSpaces: fields.availableSpaces ?? null,
+    occupiedSpaces: fields.occupiedSpaces ?? null,
+    freshness: fields.freshness ?? 'UNAVAILABLE',
+    attribution: fields.attribution ?? null,
+    sourceLabel: fields.sourceLabel ?? null,
+    lastUpdatedAt: fields.lastUpdatedAt ?? nowIso(),
+    contributingSourceKeys: fields.contributingSourceKeys ?? null,
+    selectedFieldProvenanceSummary: fields.selectedFieldProvenanceSummary ?? null,
+    registryConfidenceOrReviewStatus: null,
+    availabilitySource: fields.availabilitySource ?? null,
+    availabilityFreshness: fields.availabilityFreshness ?? fields.freshness ?? null,
+    availabilityObservationTimestamp: fields.availabilityObservationTimestamp ?? null,
+  };
+  facilities.set(facility.id, facility);
+  return facility;
+}
+
+makeFacility({
+  id: '11111111-1111-4111-8111-111111111101',
+  displayName: 'Konak Belediye Otoparkı',
+  operatorName: 'İzmir Büyükşehir Belediyesi',
+  facilityType: 'OFF_STREET',
+  addressText: 'Konak, İzmir',
+  lat: 38.4192,
+  lng: 27.1287,
+  capacityTotal: 120,
+  availableSpaces: 34,
+  occupiedSpaces: 86,
+  freshness: 'LIVE',
+  attribution: 'İzmir Büyükşehir Belediyesi / İZUM',
+  sourceLabel: 'IZUM',
+  availabilitySource: 'IZUM',
+  availabilityFreshness: 'LIVE',
+  availabilityObservationTimestamp: nowIso(),
+  contributingSourceKeys: ['izmir-izum-otoparklar'],
+});
+
+makeFacility({
+  id: '11111111-1111-4111-8111-111111111102',
+  displayName: 'Alsancak Kıbrıs Şehitleri Otoparkı',
+  operatorName: 'İzmir Büyükşehir Belediyesi',
+  facilityType: 'OFF_STREET',
+  addressText: 'Alsancak, Konak, İzmir',
+  // Co-located with Alsancak place-search flyTo so the municipal green-P is
+  // at map center after destination framing (community seed moved away).
+  lat: 38.4382,
+  lng: 27.1421,
+  capacityTotal: 80,
+  availableSpaces: 12,
+  occupiedSpaces: 68,
+  freshness: 'LIVE',
+  attribution: 'İzmir Büyükşehir Belediyesi / İZUM',
+  sourceLabel: 'IZUM',
+  availabilitySource: 'IZUM',
+  availabilityFreshness: 'LIVE',
+  availabilityObservationTimestamp: nowIso(),
+  contributingSourceKeys: ['izmir-izum-otoparklar'],
+});
 
 notify(demo.id, 'POINT_EARNED', '+20 puan', "Alsancak'taki yerin doğrulandı.", { deeplink: '/impact' });
 notify(demo.id, 'LEVEL_UP', 'Seviye 3', 'Arama yarıçapın artık 1200 m.', { deeplink: '/impact' });
@@ -525,7 +602,47 @@ function route(req, res, method, path, url, body) {
     return;
   }
 
-  // ── Parking ──
+  // ── Parking sessions (active null = 204; clears map banner) ──
+  if (path === '/parking/sessions/active' && method === 'GET') {
+    send(res, 204);
+    return;
+  }
+  if (path === '/parking/sessions/lifecycle-config' && method === 'GET') {
+    send(res, 200, {
+      sessionEnabled: true,
+      allowManualStart: true,
+      confirmAfterMinutes: 30,
+      autoCompleteAfterMinutes: 720,
+    });
+    return;
+  }
+
+  // ── Parking — municipal facilities ──
+  if (path === '/parking/facilities/nearby' && method === 'GET') {
+    const lat = Number(url.searchParams.get('lat'));
+    const lng = Number(url.searchParams.get('lng'));
+    const radius = Number(
+      url.searchParams.get('radiusMeters') ?? url.searchParams.get('radius') ?? 2000,
+    );
+    const limit = Number(url.searchParams.get('limit') ?? 50);
+    const results = [...facilities.values()]
+      .filter((facility) => haversine(lat, lng, facility.latitude, facility.longitude) <= radius)
+      .slice(0, limit);
+    send(res, 200, results);
+    return;
+  }
+  const facilityMatch = path.match(/^\/parking\/facilities\/([^/]+)$/);
+  if (facilityMatch && method === 'GET') {
+    const facility = facilities.get(facilityMatch[1]);
+    if (!facility) {
+      fail(res, 404, 'FACILITY_NOT_FOUND', 'Facility not found.');
+      return;
+    }
+    send(res, 200, facility);
+    return;
+  }
+
+  // ── Parking — community spots ──
   if (path === '/parking/spots/nearby' && method === 'GET') {
     // Demo convenience: seeded spots re-arm after expiry so the map never
     // stays empty (real spots created via the app expire for real).

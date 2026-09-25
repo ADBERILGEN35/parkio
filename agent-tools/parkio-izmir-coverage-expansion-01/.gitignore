@@ -1,0 +1,14 @@
+# Large Geofabrik / osmium intermediates — keep local only
+osm-ops/data/turkey-latest.osm.pbf
+osm-ops/pbf/
+osm-ops/tmp-extract/
+osm-ops/data/izmir-admin-izbb-2024-10-18-v1.osm.pbf
+osm-ops/data/izmir-parking-complete.osm.pbf
+osm-ops/data/izmir-parking-parkio-reduced.geojson
+parking-rc-docker-build.txt
+*.jar
+osm-ops/boundary/ilceler.geojson
+osm-ops/boundary/izmir-ilceler-source.geojson
+osm-ops/boundary/izmir-admin-boundary.geojson
+osm-ops/data/izmir-parking-osmium.geojson
+sources/izum/otoparklar.json

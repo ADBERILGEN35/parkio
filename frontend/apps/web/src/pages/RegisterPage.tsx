@@ -1,26 +1,49 @@
 import { zodResolver } from '@hookform/resolvers/zod';
+import { isParkioApiError } from '@parkio/api-client';
+import type { ParkioLocale } from '@parkio/types';
 import { passwordRequirementState, type RegisterProfileFormValues } from '@parkio/validation';
 import { Button, ErrorMessage, Icon, Input } from '@parkio/ui';
-import { useMemo, useState } from 'react';
+import { useMemo, useState, useEffect } from 'react';
 import { useForm } from 'react-hook-form';
 import { useTranslation } from 'react-i18next';
-import { Link, useNavigate } from 'react-router-dom';
+import { Link, useNavigate, useSearchParams } from 'react-router-dom';
 import { describeAuthError } from '@/api/error-messages';
 import { useParkioSdk } from '@/app/AppRuntimeContext';
 import { AuthSplitLayout } from '@/pages/auth/AuthSplitLayout';
 import { setPendingProfile } from '@/auth/pendingProfile';
+import { localeFromSearchParam } from '@/i18n/localeFromSearchParam';
+import { useLocaleStore } from '@/i18n/localeStore';
 import {
   createRegisterProfileSchema,
   getPasswordRequirements,
 } from '@/lib/validation/localized-schemas';
 import { showError, showSuccess } from '@/lib/toast';
+import { useRegistrationMode } from '@/auth/useRegistrationMode';
+import { trackProductEvent } from '@/services/productAnalytics';
+
+function registrationLocale(linkLocale: ParkioLocale | null, language: string): ParkioLocale {
+  if (linkLocale) return linkLocale;
+  return language === 'en' ? 'en' : 'tr';
+}
+
+function mapSignupFailureReason(error: unknown): 'validation' | 'network' | 'unknown' {
+  if (isParkioApiError(error) && error.fieldErrors?.length) return 'validation';
+  if (error instanceof TypeError) return 'network';
+  return 'unknown';
+}
 
 export function RegisterPage() {
   const { authApi } = useParkioSdk();
   const { t, i18n } = useTranslation(['auth', 'common', 'validation', 'errors']);
   const navigate = useNavigate();
+  const [searchParams, setSearchParams] = useSearchParams();
+  const setLocale = useLocaleStore((s) => s.setLocale);
+  const [inviteToken, setInviteToken] = useState<string | null>(null);
+  /** Explicit `lang` from the invite URL; wins over persisted browser language. */
+  const [linkLocale, setLinkLocale] = useState<ParkioLocale | null>(null);
   const [apiError, setApiError] = useState<string | null>(null);
   const [traceId, setTraceId] = useState<string | undefined>();
+  const registrationMode = useRegistrationMode();
 
   const schema = useMemo(() => createRegisterProfileSchema(t), [t]);
   const requirements = useMemo(() => getPasswordRequirements(t), [t]);
@@ -45,22 +68,52 @@ export function RegisterPage() {
   const passwordValue = watch('password') ?? '';
   const passwordState = passwordRequirementState(passwordValue);
 
+  useEffect(() => {
+    const token = searchParams.get('invite')?.trim() || null;
+    const lang = localeFromSearchParam(searchParams.get('lang'));
+    if (!token && !lang) {
+      return;
+    }
+    const next = new URLSearchParams(searchParams);
+    let changed = false;
+    if (token) {
+      setInviteToken(token);
+      next.delete('invite');
+      changed = true;
+    }
+    if (lang) {
+      setLinkLocale(lang);
+      setLocale(lang);
+      next.delete('lang');
+      changed = true;
+    }
+    if (changed) {
+      setSearchParams(next, { replace: true });
+    }
+  }, [searchParams, setSearchParams, setLocale]);
+
   const onSubmit = handleSubmit(async (values) => {
     setApiError(null);
     setTraceId(undefined);
+    trackProductEvent('auth_signup_attempted');
     try {
       await authApi.register({
         email: values.email,
         password: values.password,
-        locale: i18n.language === 'en' ? 'en' : 'tr',
+        locale: registrationLocale(linkLocale, i18n.language),
+        inviteToken: inviteToken ?? undefined,
       });
       setPendingProfile({
         displayName: values.displayName.trim(),
         phoneNumber: values.phoneNumber?.trim() || undefined,
       });
+      trackProductEvent('auth_signup_api_succeeded');
       showSuccess(t('auth:register.success'));
       navigate(`/check-email?email=${encodeURIComponent(values.email.trim())}`);
     } catch (error) {
+      trackProductEvent('auth_signup_failed', {
+        authFailureReason: mapSignupFailureReason(error),
+      });
       const friendly = describeAuthError(error, t('errors:auth.registrationFailed'), t);
       setApiError(friendly.message);
       setTraceId(friendly.traceId);
@@ -72,6 +125,35 @@ export function RegisterPage() {
       });
     }
   });
+
+  if (registrationMode === 'CLOSED') {
+    return (
+      <AuthSplitLayout title={t('auth:register.closedTitle')} subtitle={t('auth:register.closedMessage')}>
+        <div className="flex flex-col gap-sm">
+          <Link
+            to="/explore"
+            className="inline-flex min-h-11 items-center justify-center rounded-full bg-primary px-lg py-sm text-label-md font-semibold text-on-primary"
+          >
+            {t('auth:register.exploreLive')}
+          </Link>
+          <Link
+            to="/login"
+            className="inline-flex min-h-11 items-center justify-center rounded-full border border-outline px-lg py-sm text-label-md font-semibold text-on-surface"
+          >
+            {t('auth:register.signInLink')}
+          </Link>
+          <a
+            href="https://parkio.dev/"
+            target="_blank"
+            rel="noopener noreferrer"
+            className="mt-xs self-center text-center text-label-sm font-medium text-on-surface-variant underline-offset-2 hover:text-on-surface hover:underline focus:outline-none focus-visible:rounded-sm focus-visible:ring-2 focus-visible:ring-primary/40"
+          >
+            {t('auth:register.learnMoreAboutParkio')}
+          </a>
+        </div>
+      </AuthSplitLayout>
+    );
+  }
 
   return (
     <AuthSplitLayout title={t('auth:register.title')} subtitle={t('auth:register.subtitle')}>
@@ -138,13 +220,13 @@ export function RegisterPage() {
             />
             <span>
               {t('auth:register.termsPrefix')}{' '}
-              <Link to="/terms" className="font-semibold text-primary hover:underline">
+              <a href="https://parkio.dev/terms/" className="font-semibold text-primary hover:underline">
                 {t('auth:register.terms')}
-              </Link>{' '}
+              </a>{' '}
               {t('auth:register.termsAnd')}{' '}
-              <Link to="/privacy" className="font-semibold text-primary hover:underline">
+              <a href="https://parkio.dev/privacy/" className="font-semibold text-primary hover:underline">
                 {t('auth:register.privacy')}
-              </Link>
+              </a>
               .
             </span>
           </label>

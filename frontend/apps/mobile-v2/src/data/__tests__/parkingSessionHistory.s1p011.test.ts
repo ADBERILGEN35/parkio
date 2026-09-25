@@ -62,17 +62,17 @@ describe('S1-P0-11 ParkingSession history query options', () => {
     expect(options.getNextPageParam({ items: [], nextCursor: null }, [], undefined, [])).toBeUndefined();
   });
 
-  it('clears history with sessionsRoot on logout while preserving nearby', () => {
+  it('clears history with sessionsRoot on logout including authenticated nearby (PA-02)', async () => {
     const client = new QueryClient();
     client.setQueryData(parkingKeys.sessionHistory(20), {
       pages: [{ items: [{ id: 'h1', latitude: 1, longitude: 2 }], nextCursor: null }],
       pageParams: [undefined],
     });
-    client.setQueryData(parkingKeys.nearby({ lat: 1, lng: 2 }), [{ id: 'public' }]);
+    client.setQueryData(parkingKeys.nearby({ lat: 1, lng: 2 }), [{ id: 'community' }]);
 
-    clearUserSessionQueries(client);
+    await clearUserSessionQueries(client);
 
     expect(client.getQueryData(parkingKeys.sessionHistory(20))).toBeUndefined();
-    expect(client.getQueryData(parkingKeys.nearby({ lat: 1, lng: 2 }))).toEqual([{ id: 'public' }]);
+    expect(client.getQueryData(parkingKeys.nearby({ lat: 1, lng: 2 }))).toBeUndefined();
   });
 });

@@ -1,14 +1,20 @@
-# Prometheus scrape configuration for the Parkio local stack.
+# Prometheus scrape configuration for Parkio (local compose and Civo production).
 #
 # Service targets are resolved over the parkio-backend Docker network. Every service
 # ships `micrometer-registry-prometheus` and exposes /actuator/prometheus (see
 # docs/architecture/observability-metrics.md for the metric catalogue).
+#
+# external_labels.monitor identifies THIS Prometheus instance in Alertmanager
+# templates — it is not proof of where the agent or operator laptop sits.
+# Civo production uses parkio-civo-prod; local compose may override via a local
+# overlay if needed.
 
 global:
   scrape_interval: 15s
   evaluation_interval: 15s
   external_labels:
-    monitor: parkio-local
+    monitor: parkio-civo-prod
+    environment: civo-prod
 
 # Alert rules (docker/prometheus/alerts.yml, mounted at /etc/prometheus/alerts.yml).
 # Absolute path: Prometheus resolves rule_files against its working directory, not the
@@ -25,6 +31,8 @@ rule_files:
   - /etc/prometheus/continuous-calibration-recording-rules.yml
   - /etc/prometheus/operational-readiness-recording-rules.yml
   - /etc/prometheus/operational-readiness-alert-rules.yml
+  - /etc/prometheus/municipal-source-health-recording-rules.yml
+  - /etc/prometheus/municipal-source-health-alert-rules.yml
 
 alerting:
   alertmanagers:
@@ -65,6 +73,14 @@ scrape_configs:
       - targets: ["kafka-exporter:9308"]
         labels: { service: kafka-exporter }
 
+  # blackbox-exporter process scrape (distinct from /probe jobs below).
+  # up{job="blackbox-exporter"} detects exporter/scrape failure; probe_success
+  # on blackbox-infra/tcp detects target failure while the exporter is healthy.
+  - job_name: blackbox-exporter
+    static_configs:
+      - targets: ["blackbox-exporter:9115"]
+        labels: { service: blackbox-exporter }
+
   # node-exporter — host-level metrics (CPU/memory/disk/filesystem/inodes) for the single VPS.
   # Scraped in-network; the exporter is never publicly exposed (loopback-only host bind).
   - job_name: node-exporter
@@ -103,6 +119,10 @@ scrape_configs:
           - clamav:3310
         labels:
           component: clamav
+      - targets:
+          - postgres-gateway:5432
+        labels:
+          component: postgres-gateway
       - targets:
           - postgres-auth:5432
         labels:

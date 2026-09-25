@@ -21,7 +21,12 @@ public enum AuthErrorCode {
     PRIVILEGE_ESCALATION("This role change is not permitted."),
     INVALID_ADMIN_ACTION("The administrative action is invalid."),
     SESSION_NOT_FOUND("Session not found."),
-    BOOTSTRAP_DISABLED("Admin bootstrap is disabled.");
+    BOOTSTRAP_DISABLED("Admin bootstrap is disabled."),
+    ACCOUNT_ERASURE_DISABLED("Account deletion is not available."),
+    ACCOUNT_ERASURE_IN_PROGRESS("Account deletion is already in progress."),
+    REGISTRATION_CLOSED("Registration is currently closed."),
+    REGISTRATION_INVITE_REQUIRED("A valid registration invite is required."),
+    REGISTRATION_INVITE_INVALID("Registration invite is invalid or expired.");
 
     private final String defaultMessage;
 

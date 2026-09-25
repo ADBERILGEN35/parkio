@@ -5,7 +5,7 @@ import { useOnboardingStore } from '@/state/onboardingStore';
 /**
  * Entry router. Root layout blocks render until bootstrap settles, so the
  * decision here is synchronous: first-run → onboarding; signed-in → map;
- * suspended → the suspended wall; otherwise → welcome/auth.
+ * suspended → the suspended wall; anonymous post-onboarding → public Explore.
  */
 export default function Index() {
   const authStatus = useAuthStore((s) => s.status);
@@ -20,5 +20,5 @@ export default function Index() {
   if (!onboardingCompleted) {
     return <Redirect href="/(onboarding)/language" />;
   }
-  return <Redirect href="/(onboarding)/welcome" />;
+  return <Redirect href="/(public)/explore" />;
 }

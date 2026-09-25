@@ -1,0 +1,101 @@
+{
+  "summary": {
+    "PASS": 15,
+    "FAIL": 0,
+    "NOT_EXECUTED": 0
+  },
+  "results": [
+    {
+      "id": "1",
+      "name": "registration_commit_produces_event",
+      "status": "PASS",
+      "detail": ""
+    },
+    {
+      "id": "2",
+      "name": "failed_registration_no_completion",
+      "status": "PASS",
+      "detail": ""
+    },
+    {
+      "id": "3",
+      "name": "duplicate_replay_dedup",
+      "status": "PASS",
+      "detail": ""
+    },
+    {
+      "id": "4",
+      "name": "concurrent_dedup",
+      "status": "PASS",
+      "detail": ""
+    },
+    {
+      "id": "5",
+      "name": "crash_restart_preserves_pending",
+      "status": "PASS",
+      "detail": ""
+    },
+    {
+      "id": "6",
+      "name": "http_429_retry_after",
+      "status": "PASS",
+      "detail": ""
+    },
+    {
+      "id": "7",
+      "name": "transient_retry_bounds",
+      "status": "PASS",
+      "detail": ""
+    },
+    {
+      "id": "8",
+      "name": "permanent_and_exhausted_dlt",
+      "status": "PASS",
+      "detail": ""
+    },
+    {
+      "id": "9",
+      "name": "transport_rejection_not_success",
+      "status": "PASS",
+      "detail": ""
+    },
+    {
+      "id": "10",
+      "name": "incident_recovery_correlation",
+      "status": "PASS",
+      "detail": ""
+    },
+    {
+      "id": "11",
+      "name": "local_offsite_backup_distinct",
+      "status": "PASS",
+      "detail": ""
+    },
+    {
+      "id": "12",
+      "name": "sensitive_mention_safety",
+      "status": "PASS",
+      "detail": ""
+    },
+    {
+      "id": "13",
+      "name": "disabled_no_outbound",
+      "status": "PASS",
+      "detail": ""
+    },
+    {
+      "id": "14",
+      "name": "slack_outage_isolated",
+      "status": "PASS",
+      "detail": ""
+    },
+    {
+      "id": "15",
+      "name": "alertmanager_compat",
+      "status": "PASS",
+      "detail": ""
+    }
+  ],
+  "real_slack_delivery": "NOT_EXECUTED",
+  "slack_messages_sent": 0
+}

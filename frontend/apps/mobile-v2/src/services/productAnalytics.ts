@@ -1,18 +1,34 @@
 /**
- * Mobile-v2 product analytics seam (S1-P0-10).
- * Closed union — only intentional client interaction events.
+ * Mobile-v2 product analytics seam (S1-P0-10 + WP-SPA-12 + Y04).
+ * Closed union — intentional client interaction + SPA funnel events.
  *
  * Never attach precise coordinates, maps URLs, share message text, session
  * UUIDs, tokens, or free-text errors as parameters.
  *
- * Authoritative ParkingSession lifecycle facts (parking_session_started /
- * completed / cancelled) are backend-only and must not be emitted here.
+ * Backend Kafka remains authoritative for domain ParkingSession lifecycle;
+ * client `parking_session_*` events are privacy-safe funnel proxies only.
  *
- * Transport: __DEV__ logs to console; release buffers into a queue that a
- * vendor SDK drains once wired (same pattern as legacy mobile analytics).
+ * Vendor (PostHog HTTP) OFF by default. No RN PostHog SDK → no autocapture /
+ * session replay by construction. EXPO_PUBLIC_PRODUCT_ANALYTICS_* gates vendor.
  */
 
+import {
+  ProductAnalyticsClient,
+  type AnalyticsConsentState,
+  type AnalyticsStorage,
+  LocalCaptureTransport,
+} from '@parkio/product-analytics';
+import {
+  SPA_TELEMETRY_EVENT_NAMES,
+  type SpaTelemetryEventName,
+  type SpaTelemetryParams,
+} from '@parkio/types';
+import { sanitizeSpaTelemetryParams } from '@parkio/validation';
+import Constants from 'expo-constants';
+import { readJson, removeJson, writeJson } from '@/services/jsonStore';
+
 export type ProductAnalyticsEventName =
+  | SpaTelemetryEventName
   | 'return_to_car_clicked'
   | 'parking_location_shared'
   | 'parking_action_failed';
@@ -26,61 +42,214 @@ export type ParkingActionFailureReason =
   | 'unknown';
 
 /** Coarse, non-identifying parameters only. */
-export type ProductAnalyticsParams = {
+export type ProductAnalyticsParams = Omit<SpaTelemetryParams, 'platform'> & {
   platform?: string;
   action?: 'navigation' | 'share';
   reason?: ParkingActionFailureReason;
 };
 
-interface QueuedEvent {
-  name: ProductAnalyticsEventName;
-  params?: ProductAnalyticsParams;
-  at: number;
+type VendorTransport = (name: ProductAnalyticsEventName, params?: ProductAnalyticsParams) => void;
+
+const SPA_NAME_SET = new Set<string>(SPA_TELEMETRY_EVENT_NAMES as readonly string[]);
+const STORAGE_BAG_KEY = 'product-analytics-v1';
+
+let client: ProductAnalyticsClient | null = null;
+let vendorTransport: VendorTransport | null = null;
+let bootstrapped = false;
+
+function createJsonStoreAdapter(): AnalyticsStorage {
+  type Bag = Record<string, string>;
+  async function load(): Promise<Bag> {
+    return (await readJson<Bag>(STORAGE_BAG_KEY)) ?? {};
+  }
+  return {
+    getItem: async (key) => {
+      const bag = await load();
+      return bag[key] ?? null;
+    },
+    setItem: async (key, value) => {
+      const bag = await load();
+      bag[key] = value;
+      await writeJson(STORAGE_BAG_KEY, bag);
+    },
+    removeItem: async (key) => {
+      const bag = await load();
+      if (key in bag) {
+        delete bag[key];
+        if (Object.keys(bag).length === 0) await removeJson(STORAGE_BAG_KEY);
+        else await writeJson(STORAGE_BAG_KEY, bag);
+      }
+    },
+  };
 }
 
-const MAX_QUEUED = 100;
-const queue: QueuedEvent[] = [];
+/**
+ * Static `process.env.EXPO_PUBLIC_*` member expressions only — babel-preset-expo
+ * inlines these at bundle time. Dynamic `process.env[name]` is always undefined
+ * in release / export:embed builds (see src/config/env.ts).
+ */
+function readPublicAnalyticsEnv(): {
+  vendorEnabled: boolean;
+  allowTestSink: boolean;
+  apiKey: string | undefined;
+  host: string | undefined;
+} {
+  const fromExtra = (name: string): string | undefined => {
+    try {
+      const extra = Constants.expoConfig?.extra as Record<string, unknown> | undefined;
+      const value = extra?.[name];
+      return typeof value === 'string' && value.length > 0 ? value : undefined;
+    } catch {
+      return undefined;
+    }
+  };
+  const pick = (staticValue: string | undefined, extraName: string): string | undefined => {
+    if (typeof staticValue === 'string' && staticValue.length > 0) return staticValue;
+    return fromExtra(extraName);
+  };
+  return {
+    vendorEnabled:
+      pick(process.env.EXPO_PUBLIC_PRODUCT_ANALYTICS_VENDOR_ENABLED, 'EXPO_PUBLIC_PRODUCT_ANALYTICS_VENDOR_ENABLED') ===
+      'true',
+    allowTestSink:
+      pick(
+        process.env.EXPO_PUBLIC_PRODUCT_ANALYTICS_ALLOW_TEST_SINK,
+        'EXPO_PUBLIC_PRODUCT_ANALYTICS_ALLOW_TEST_SINK',
+      ) === 'true',
+    apiKey: pick(process.env.EXPO_PUBLIC_POSTHOG_KEY, 'EXPO_PUBLIC_POSTHOG_KEY'),
+    host: pick(process.env.EXPO_PUBLIC_POSTHOG_HOST, 'EXPO_PUBLIC_POSTHOG_HOST'),
+  };
+}
 
-type VendorTransport = (name: ProductAnalyticsEventName, params?: ProductAnalyticsParams) => void;
-let vendorTransport: VendorTransport | null = null;
+function ensureClient(): ProductAnalyticsClient {
+  if (client) return client;
+  const { vendorEnabled, allowTestSink, apiKey, host } = readPublicAnalyticsEnv();
+  client = new ProductAnalyticsClient({
+    platform: 'mobile_v2',
+    storage: createJsonStoreAdapter(),
+    vendorEnabled,
+    allowTestSink,
+    posthog: apiKey && host ? { apiKey, host } : undefined,
+    idleTimeoutMs: 60_000,
+    heartbeatIntervalMs: 0,
+    appVersion: Constants.expoConfig?.version,
+  });
+  return client;
+}
 
-/** Wire a vendor SDK. Flushes the in-memory release queue immediately. */
+export async function initProductAnalytics(): Promise<void> {
+  if (bootstrapped) return;
+  bootstrapped = true;
+  const c = ensureClient();
+  if (readPublicAnalyticsEnv().allowTestSink) {
+    c.useLocalCapture();
+  }
+  await c.init();
+}
+
+export function getProductAnalyticsClient(): ProductAnalyticsClient {
+  return ensureClient();
+}
+
+/** Wire a legacy vendor callback. Flushes are consent-gated by the client. */
 export function setProductAnalyticsTransport(transport: VendorTransport): void {
   vendorTransport = transport;
-  for (const event of queue.splice(0)) {
-    transport(event.name, event.params);
-  }
+}
+
+export function useLocalProductAnalyticsCapture(): LocalCaptureTransport {
+  return ensureClient().useLocalCapture();
 }
 
 /** Test helper — clears queue and vendor wiring. */
 export function resetProductAnalyticsForTests(): void {
-  queue.length = 0;
+  client?.dispose();
+  client = null;
   vendorTransport = null;
+  bootstrapped = false;
+}
+
+export async function setProductAnalyticsConsent(
+  consent: AnalyticsConsentState,
+): Promise<void> {
+  await ensureClient().setConsent(consent);
+}
+
+export function getProductAnalyticsConsent(): AnalyticsConsentState {
+  return ensureClient().getConsent();
+}
+
+export async function identifyProductAnalyticsUser(
+  pseudonymousDistinctId: string,
+): Promise<void> {
+  await ensureClient().identify(pseudonymousDistinctId);
+}
+
+export async function resetProductAnalyticsIdentity(): Promise<void> {
+  await ensureClient().resetIdentity();
 }
 
 export function trackProductEvent(
   name: ProductAnalyticsEventName,
   params?: ProductAnalyticsParams,
+  options?: { strict?: boolean },
 ): void {
-  assertPrivacySafeParams(params);
-  if (__DEV__) {
-    console.info('[product-analytics]', name, params ?? '');
-    return;
-  }
-  if (vendorTransport) {
-    vendorTransport(name, params);
-    return;
-  }
-  queue.push({ name, params, at: Date.now() });
-  if (queue.length > MAX_QUEUED) {
-    queue.shift();
+  try {
+    if (SPA_NAME_SET.has(name)) {
+      const { platform: _legacyPlatform, action: _a, reason: _r, ...spaParams } = params ?? {};
+      void _legacyPlatform;
+      void _a;
+      void _r;
+      const sanitized = sanitizeSpaTelemetryParams(spaParams as SpaTelemetryParams);
+      ensureClient().track(
+        name,
+        {
+          ...(sanitized ?? {}),
+          platform: 'mobile_v2',
+        },
+        options,
+      );
+    } else {
+      assertLegacyPrivacySafeParams(params);
+      if (ensureClient().getConsent() !== 'granted') return;
+      if (vendorTransport) {
+        try {
+          vendorTransport(name, params);
+        } catch {
+          // fail-open
+        }
+      }
+      return;
+    }
+    if (vendorTransport && ensureClient().getConsent() === 'granted') {
+      try {
+        vendorTransport(name, params);
+      } catch {
+        // fail-open
+      }
+    }
+  } catch (error) {
+    if (options?.strict) throw error;
   }
 }
 
-function assertPrivacySafeParams(params?: ProductAnalyticsParams): void {
-  if (!params) {
-    return;
-  }
+export function trackScreenViewed(route: string): void {
+  ensureClient().trackScreenViewed(route);
+}
+
+export function noteAnalyticsInteraction(): void {
+  ensureClient().noteInteraction();
+}
+
+export function setAnalyticsForeground(active: boolean): void {
+  ensureClient().setForeground(active);
+}
+
+export function setAnalyticsFocused(focused: boolean): void {
+  ensureClient().setFocused(focused);
+}
+
+function assertLegacyPrivacySafeParams(params?: ProductAnalyticsParams): void {
+  if (!params) return;
   const forbiddenKeys = new Set([
     'latitude',
     'longitude',

@@ -79,6 +79,7 @@ public class AuthApplicationService {
     private final EmailVerificationSender emailVerificationSender;
     private final PasswordResetEmailSender passwordResetEmailSender;
     private final PasswordPolicy passwordPolicy;
+    private final RegistrationGateService registrationGate;
     private final Clock clock;
     private final Duration refreshTokenTtl;
     private final Duration refreshAbsoluteTtl;
@@ -101,6 +102,7 @@ public class AuthApplicationService {
                                   EmailVerificationSender emailVerificationSender,
                                   PasswordResetEmailSender passwordResetEmailSender,
                                   PasswordPolicy passwordPolicy,
+                                  RegistrationGateService registrationGate,
                                   Clock clock,
                                   @Value("${parkio.security.jwt.refresh-token-ttl}") Duration refreshTokenTtl,
                                   @Value("${parkio.security.jwt.refresh-absolute-ttl:P90D}")
@@ -125,6 +127,7 @@ public class AuthApplicationService {
         this.emailVerificationSender = emailVerificationSender;
         this.passwordResetEmailSender = passwordResetEmailSender;
         this.passwordPolicy = passwordPolicy;
+        this.registrationGate = registrationGate;
         this.clock = clock;
         this.refreshTokenTtl = refreshTokenTtl;
         this.refreshAbsoluteTtl = refreshAbsoluteTtl;
@@ -135,6 +138,7 @@ public class AuthApplicationService {
     public RegisterResult register(RegisterCommand command) {
         String email = AuthUser.normalizeEmail(command.email());
         passwordPolicy.validate(command.rawPassword());
+        registrationGate.assertRegistrationAllowed(email, command.inviteToken());
 
         if (authUsers.existsByEmail(email)) {
             throw new AuthException(AuthErrorCode.EMAIL_ALREADY_EXISTS);
@@ -144,6 +148,8 @@ public class AuthApplicationService {
                 .orElseThrow(() -> new IllegalStateException("USER role is not seeded"));
 
         Instant now = clock.instant();
+        registrationGate.consumeInviteIfRequired(email, command.inviteToken());
+
         String rawVerificationToken = tokenGenerator.generate();
         Instant verificationExpiresAt = now.plus(emailVerificationTtl);
         String passwordHash = passwordHasher.hash(command.rawPassword());
@@ -153,12 +159,13 @@ public class AuthApplicationService {
                 refreshTokenHasher.hash(rawVerificationToken),
                 verificationExpiresAt,
                 now,
+                command.locale(),
                 Set.of(userRole),
                 now);
         AuthUser saved = authUsers.save(user);
 
         outbox.append(UserRegisteredEvent.of(saved.id(), saved.email(), now));
-        emailVerificationSender.sendVerificationLink(saved.email(), rawVerificationToken, command.locale());
+        emailVerificationSender.sendVerificationLink(saved.email(), rawVerificationToken, saved.preferredLocale());
 
         return new RegisterResult(saved, verificationExpiresAt);
     }
@@ -216,12 +223,12 @@ public class AuthApplicationService {
 
         authUsers.findByEmail(email)
                 .filter(user -> !user.emailVerified())
-                .ifPresent(user -> issueAndSendVerificationToken(user, command.locale()));
+                .ifPresent(user -> issueAndSendVerificationToken(user, user.preferredLocale()));
     }
 
     /**
      * Admin-triggered resend for a known user. Throws when already verified; still
-     * respects the per-email cooldown.
+     * respects the per-email cooldown. Uses the locale stored at registration.
      */
     public void resendVerificationForUser(AuthUser user) {
         if (user.emailVerified()) {
@@ -230,7 +237,7 @@ public class AuthApplicationService {
         if (!verificationResendLimiter.tryAcquire(user.email())) {
             throw new AuthException(AuthErrorCode.INVALID_ADMIN_ACTION, "Verification resend is on cooldown.");
         }
-        issueAndSendVerificationToken(user, EmailLocale.TR);
+        issueAndSendVerificationToken(user, user.preferredLocale());
     }
 
     private void issueAndSendVerificationToken(AuthUser user, EmailLocale locale) {

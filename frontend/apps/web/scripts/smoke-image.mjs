@@ -107,6 +107,41 @@ async function readServedEnv() {
   throw new Error('could not find the injected import.meta.env object in any served asset');
 }
 
+async function checkPublicStaticSurface() {
+  const required = [
+    '/robots.txt',
+    '/sitemap.xml',
+    '/icons/favicon-32.png',
+    '/icons/parkio-icon-192.png',
+    '/icons/parkio-icon-512.png',
+    '/og-parkio.png',
+    '/social-preview.png',
+    '/manifest.webmanifest',
+    '/sw.js',
+  ];
+  for (const path of required) {
+    const response = await fetch(`${baseUrl}${path}`);
+    console.log(`smoke-image: static ${path} = HTTP ${response.status}`);
+    if (!response.ok) failures.push(`required static resource ${path} returned HTTP ${response.status}`);
+  }
+
+  const explore = await fetch(`${baseUrl}/explore`);
+  const exploreHtml = await explore.text();
+  if (!explore.ok || !exploreHtml.includes('Public parking explore')) {
+    failures.push('/explore did not return the crawler-readable public entry');
+  }
+
+  for (const [path, location] of [
+    ['/privacy', 'https://parkio.dev/privacy/'],
+    ['/terms', 'https://parkio.dev/terms/'],
+  ]) {
+    const response = await fetch(`${baseUrl}${path}`, { redirect: 'manual' });
+    if (response.status !== 302 || response.headers.get('location') !== location) {
+      failures.push(`${path} did not return the authoritative 302 redirect`);
+    }
+  }
+}
+
 async function checkMount() {
   let chromium;
   try {
@@ -122,6 +157,28 @@ async function checkMount() {
   const browser = await chromium.launch();
   try {
     const page = await browser.newPage();
+    // CI image acceptance uses the production-shaped public API URL in the bundle,
+    // but must never contact live APIs or map providers. Opt in only for that run.
+    if (process.env.SMOKE_MOCK_EXTERNAL === '1') {
+      await page.route('**/*', (route) => {
+        const url = new URL(route.request().url());
+        if (url.origin === baseUrl) return route.continue();
+        if (url.hostname === 'api.parkio.dev') {
+          if (url.pathname.endsWith('/public/explore/facilities')) {
+            return route.fulfill({
+              status: 200,
+              contentType: 'application/json',
+              body: JSON.stringify({
+                facilities: [], municipalTotalInScope: 0, municipalHiddenCount: 0,
+                communitySpotCountInScope: null,
+              }),
+            });
+          }
+          return route.fulfill({ status: 401, contentType: 'application/json', body: '{}' });
+        }
+        return route.abort();
+      });
+    }
     const pageErrors = [];
     page.on('pageerror', (error) => pageErrors.push(String(error)));
 
@@ -145,8 +202,22 @@ async function checkMount() {
 
     const textLength = await page.evaluate(() => document.body.innerText.trim().length);
     const inputCount = await page.locator('input').count();
+    const routes = [];
+    if (process.env.SMOKE_MOCK_EXTERNAL === '1') {
+      for (const path of ['/explore', '/map', '/admin/waitlist', '/register?lang=tr', '/register?lang=en']) {
+        await page.goto(`${baseUrl}${path}`, { waitUntil: 'domcontentloaded', timeout: 45_000 });
+        await page.waitForFunction(
+          () => (document.getElementById('root')?.children.length ?? 0) > 0,
+          undefined,
+          { timeout: 20_000 },
+        );
+        const visible = await page.evaluate(() => document.body.innerText.trim().length);
+        if (visible === 0) throw new Error(`${path} rendered no visible text`);
+        routes.push(path);
+      }
+    }
     await browser.close();
-    return { rootChildren, textLength, inputCount, pageErrors };
+    return { rootChildren, textLength, inputCount, pageErrors, routes };
   } catch (error) {
     await browser.close();
     throw error;
@@ -183,7 +254,10 @@ async function main() {
       if (status !== 'PRESENT') failures.push(`${key} is ${status} in the served bundle`);
     }
 
-    // ---- 4: the SPA must actually mount ----
+    // ---- 4: crawler/static files and legal redirects must be readable in the image ----
+    await checkPublicStaticSurface();
+
+    // ---- 5: the SPA must actually mount ----
     const mount = await checkMount();
     if (mount.skipped) {
       failures.push(
@@ -191,7 +265,7 @@ async function main() {
       );
     } else {
       console.log(
-        `smoke-image: #root children=${mount.rootChildren} bodyText=${mount.textLength} inputs=${mount.inputCount} pageErrors=${mount.pageErrors.length}`,
+        `smoke-image: #root children=${mount.rootChildren} bodyText=${mount.textLength} inputs=${mount.inputCount} pageErrors=${mount.pageErrors.length} routes=${mount.routes.join(',')}`,
       );
       if (mount.rootChildren === 0) {
         failures.push('SPA white-screen: #root received no children (React never mounted)');

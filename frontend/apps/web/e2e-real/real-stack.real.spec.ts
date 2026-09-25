@@ -152,10 +152,34 @@ test('real gateway exposes health-critical public auth routes', async ({ request
 
 test('protected routes redirect anonymous users to login', async ({ page }) => {
   await page.goto('/map');
-  await expect(page).toHaveURL(/\/login$/);
+  await expect(page).toHaveURL(/\/login(?:\?.*)?$/);
 });
 
-test('registers a real pending account through the gateway', async ({ page }) => {
+async function readRegistrationMode(request: {
+  get: (url: string) => Promise<{ ok: () => boolean; json: () => Promise<{ mode?: string }> }>;
+}): Promise<string> {
+  const modeResponse = await request.get(`${apiBaseUrl}/auth/registration-mode`);
+  if (!modeResponse.ok()) return '';
+  const modeBody = (await modeResponse.json()) as { mode?: string };
+  return String(modeBody.mode ?? '').toUpperCase();
+}
+
+test('closed registration is visible when the stack is closed', async ({ page, request }) => {
+  const mode = await readRegistrationMode(request);
+  test.skip(mode === 'OPEN', 'This stack is the isolated OPEN registration profile.');
+  expect(mode, 'default/local auth registration mode').toBe('CLOSED');
+  await page.goto('/register');
+  await expect(page.getByText(/New account registrations are currently closed/i)).toBeVisible();
+  await expect(page.getByLabel('Full name')).toHaveCount(0);
+});
+
+test('registers a real pending account through the gateway', async ({ page, request }) => {
+  const mode = await readRegistrationMode(request);
+  test.skip(
+    mode !== 'OPEN',
+    'OPEN registration is exercised only on the isolated local overlay, not the default CLOSED stack.',
+  );
+
   const email = `q5-${Date.now()}-${Math.random().toString(16).slice(2)}@${emailDomain}`;
   await page.goto('/register');
   await page.getByLabel('Full name').fill('Q5 Real E2E');
@@ -171,7 +195,7 @@ test('registers a real pending account through the gateway', async ({ page }) =>
 test('verifies email when a real verification token is supplied', async ({ page }) => {
   test.skip(
     !verificationToken,
-    'PARKIO_REAL_E2E_VERIFICATION_TOKEN is required because production does not expose raw email tokens.',
+    'Need a token from the isolated logging sender (PARKIO_EMAIL_VERIFICATION_LOG_TOKEN=true) or an explicit local test token. Production does not expose raw email tokens and real mail is not sent.',
   );
 
   await page.goto(`/verify-email?token=${encodeURIComponent(verificationToken as string)}`);
@@ -191,10 +215,10 @@ test('logs in, restores from the HttpOnly refresh cookie, and logs out', async (
 
   await page.goto('/profile');
   await page.getByRole('button', { name: 'Sign out' }).click();
-  await expect(page).toHaveURL(/\/login$/);
+  await expect(page).toHaveURL(/\/login(?:\?.*)?$/);
 
   await page.goto('/map');
-  await expect(page).toHaveURL(/\/login$/);
+  await expect(page).toHaveURL(/\/login(?:\?.*)?$/);
 });
 
 test('refresh bootstrap survives a stale in-memory access token after reload', async ({ page }) => {
@@ -222,10 +246,10 @@ test('logout-all invalidates another browser session', async ({ browser }) => {
     firstPage.on('dialog', (dialog) => dialog.accept());
     await firstPage.goto('/profile');
     await firstPage.getByRole('button', { name: 'Log out of all devices' }).click();
-    await expect(firstPage).toHaveURL(/\/login$/);
+    await expect(firstPage).toHaveURL(/\/login(?:\?.*)?$/);
 
     await secondPage.reload();
-    await expect(secondPage).toHaveURL(/\/login$/);
+    await expect(secondPage).toHaveURL(/\/login(?:\?.*)?$/);
   } finally {
     await first.close();
     await second.close();
@@ -299,7 +323,7 @@ test('MODERATOR can access the moderation queue when a seeded account is supplie
   await login(page, moderatorEmail as string, moderatorPassword as string);
   await page.goto('/moderation');
   await expect(page.getByRole('heading', { name: 'Moderation' })).toBeVisible();
-  await expect(page.getByRole('heading', { name: 'Cases' })).toBeVisible();
+  await expect(page.getByRole('heading', { name: 'Cases', exact: true })).toBeVisible();
 });
 
 test('ADMIN can access admin-only analytics when a seeded account is supplied', async ({ page }) => {

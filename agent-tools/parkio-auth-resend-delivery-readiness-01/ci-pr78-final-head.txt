@@ -1,0 +1,50 @@
+﻿Integration tests (Testcontainers)	pass	8m3s	https://github.com/ADBERILGEN35/parkio/actions/runs/35749627931/job/106820069540	
+Trivy	pass	2s	https://github.com/ADBERILGEN35/parkio/runs/106822045831	
+Build & unit tests	pass	3m47s	https://github.com/ADBERILGEN35/parkio/actions/runs/35749628082/job/106820062710	
+Build images + secret-safe dry-run manifest	pass	1m49s	https://github.com/ADBERILGEN35/parkio/actions/runs/35749628057/job/106820580266	
+CodeQL	pass	2s	https://github.com/ADBERILGEN35/parkio/runs/106822430862	
+CodeQL (java-kotlin)	pass	9m2s	https://github.com/ADBERILGEN35/parkio/actions/runs/35749628121/job/106821891570	
+CodeQL (javascript-typescript)	pass	1m28s	https://github.com/ADBERILGEN35/parkio/actions/runs/35749628121/job/106821891743	
+Container scan (ai-validation-service)	pass	3m37s	https://github.com/ADBERILGEN35/parkio/actions/runs/35749628121/job/106821892142	
+Container scan (analytics-service)	pass	3m31s	https://github.com/ADBERILGEN35/parkio/actions/runs/35749628121/job/106821892115	
+Container scan (auth-service)	pass	3m25s	https://github.com/ADBERILGEN35/parkio/actions/runs/35749628121/job/106821892158	
+Container scan (gamification-service)	pass	3m17s	https://github.com/ADBERILGEN35/parkio/actions/runs/35749628121/job/106821892184	
+Container scan (gateway-service)	pass	3m5s	https://github.com/ADBERILGEN35/parkio/actions/runs/35749628121/job/106821892117	
+Container scan (media-service)	pass	3m17s	https://github.com/ADBERILGEN35/parkio/actions/runs/35749628121/job/106821891903	
+Container scan (moderation-service)	pass	3m26s	https://github.com/ADBERILGEN35/parkio/actions/runs/35749628121/job/106821897541	
+Container scan (notification-service)	pass	3m17s	https://github.com/ADBERILGEN35/parkio/actions/runs/35749628121/job/106821891898	
+Container scan (parking-service)	pass	3m55s	https://github.com/ADBERILGEN35/parkio/actions/runs/35749628121/job/106821892042	
+Container scan (user-service)	pass	3m18s	https://github.com/ADBERILGEN35/parkio/actions/runs/35749628121/job/106821891735	
+Dependency vulnerability scan	pass	31s	https://github.com/ADBERILGEN35/parkio/actions/runs/35749628121/job/106821891773	
+Secret scan	pass	20s	https://github.com/ADBERILGEN35/parkio/actions/runs/35749628121/job/106821892048	
+Deploy invite-production	skipping	0	https://github.com/ADBERILGEN35/parkio/actions/runs/35749628057/job/106821263575	
+Rollback invite-production	skipping	0	https://github.com/ADBERILGEN35/parkio/actions/runs/35749628057/job/106820630210	
+Security CI summary	pass	4s	https://github.com/ADBERILGEN35/parkio/actions/runs/35749628121/job/106825670726	
+Migrate legacy workspace bind mounts	skipping	0	https://github.com/ADBERILGEN35/parkio/actions/runs/35749628057/job/106820581994	
+Non-deploy production runner acceptance	skipping	0	https://github.com/ADBERILGEN35/parkio/actions/runs/35749628057/job/106820581422	
+Integration tests (Testcontainers)	pass	8m3s	https://github.com/ADBERILGEN35/parkio/actions/runs/35749627931/job/106820069540	
+Trivy	pass	2s	https://github.com/ADBERILGEN35/parkio/runs/106822045831	
+Build & unit tests	pass	3m47s	https://github.com/ADBERILGEN35/parkio/actions/runs/35749628082/job/106820062710	
+Build images + secret-safe dry-run manifest	pass	1m49s	https://github.com/ADBERILGEN35/parkio/actions/runs/35749628057/job/106820580266	
+CodeQL	pass	2s	https://github.com/ADBERILGEN35/parkio/runs/106822430862	
+CodeQL (java-kotlin)	pass	9m2s	https://github.com/ADBERILGEN35/parkio/actions/runs/35749628121/job/106821891570	
+CodeQL (javascript-typescript)	pass	1m28s	https://github.com/ADBERILGEN35/parkio/actions/runs/35749628121/job/106821891743	
+Container scan (ai-validation-service)	pass	3m37s	https://github.com/ADBERILGEN35/parkio/actions/runs/35749628121/job/106821892142	
+Container scan (analytics-service)	pass	3m31s	https://github.com/ADBERILGEN35/parkio/actions/runs/35749628121/job/106821892115	
+Container scan (auth-service)	pass	3m25s	https://github.com/ADBERILGEN35/parkio/actions/runs/35749628121/job/106821892158	
+Container scan (gamification-service)	pass	3m17s	https://github.com/ADBERILGEN35/parkio/actions/runs/35749628121/job/106821892184	
+Container scan (gateway-service)	pass	3m5s	https://github.com/ADBERILGEN35/parkio/actions/runs/35749628121/job/106821892117	
+Container scan (media-service)	pass	3m17s	https://github.com/ADBERILGEN35/parkio/actions/runs/35749628121/job/106821891903	
+Container scan (moderation-service)	pass	3m26s	https://github.com/ADBERILGEN35/parkio/actions/runs/35749628121/job/106821897541	
+Container scan (notification-service)	pass	3m17s	https://github.com/ADBERILGEN35/parkio/actions/runs/35749628121/job/106821891898	
+Container scan (parking-service)	pass	3m55s	https://github.com/ADBERILGEN35/parkio/actions/runs/35749628121/job/106821892042	
+Container scan (user-service)	pass	3m18s	https://github.com/ADBERILGEN35/parkio/actions/runs/35749628121/job/106821891735	
+Dependency vulnerability scan	pass	31s	https://github.com/ADBERILGEN35/parkio/actions/runs/35749628121/job/106821891773	
+Secret scan	pass	20s	https://github.com/ADBERILGEN35/parkio/actions/runs/35749628121/job/106821892048	
+Deploy invite-production	skipping	0	https://github.com/ADBERILGEN35/parkio/actions/runs/35749628057/job/106821263575	
+Rollback invite-production	skipping	0	https://github.com/ADBERILGEN35/parkio/actions/runs/35749628057/job/106820630210	
+Security CI summary	pass	4s	https://github.com/ADBERILGEN35/parkio/actions/runs/35749628121/job/106825670726	
+Migrate legacy workspace bind mounts	skipping	0	https://github.com/ADBERILGEN35/parkio/actions/runs/35749628057/job/106820581994	
+Non-deploy production runner acceptance	skipping	0	https://github.com/ADBERILGEN35/parkio/actions/runs/35749628057/job/106820581422	
+Integration tests (Testcontainers)	pass	8m3s	https://github.com/ADBERILGEN35/parkio/actions/runs/35749627931/job/106820069540	
+Trivy	pass	2s	https://github.com/ADBERILGEN35/parkio/runs/106822045831	

@@ -9,7 +9,7 @@ groups:
           owner: platform
         annotations:
           summary: Gateway availability below PROPOSED 99.5% (baselining)
-          runbook_url: docs/operations/runbooks/auth-outage.md
+          runbook_url: https://github.com/ADBERILGEN35/parkio/blob/api/docs/operations/runbooks/auth-outage.md
       - alert: ParkingAvailabilityBaselining
         expr: parkio:parking:availability_ratio5m < 0.99
         for: 30m
@@ -18,4 +18,4 @@ groups:
           owner: parking
         annotations:
           summary: Parking availability below PROPOSED 99% (baselining)
-          runbook_url: docs/operations/runbooks/mutation-failure-rate.md
+          runbook_url: https://github.com/ADBERILGEN35/parkio/blob/api/docs/operations/runbooks/mutation-failure-rate.md

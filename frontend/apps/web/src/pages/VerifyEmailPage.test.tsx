@@ -1,7 +1,8 @@
 import { http, HttpResponse } from 'msw';
-import { screen } from '@testing-library/react';
+import { screen, waitFor } from '@testing-library/react';
 import { Route, Routes } from 'react-router-dom';
 import { describe, expect, it } from 'vitest';
+import { useLocaleStore } from '@/i18n/localeStore';
 import { API_BASE, apiErrorBody, server } from '@/test/server';
 import { renderWithProviders } from '@/test/utils';
 import { VerifyEmailPage } from './VerifyEmailPage';
@@ -13,14 +14,14 @@ const verifiedUser = {
   roles: ['USER'],
 };
 
-function renderVerify(token = 'verify-token') {
+function renderVerify(query: string) {
   return renderWithProviders(
     <Routes>
       <Route path="/verify-email" element={<VerifyEmailPage />} />
       <Route path="/login" element={<div>Login page stub</div>} />
       <Route path="/check-email" element={<div>Check email stub</div>} />
     </Routes>,
-    { initialEntries: [`/verify-email${token ? `?token=${token}` : ''}`] },
+    { initialEntries: [`/verify-email${query}`] },
   );
 }
 
@@ -34,11 +35,23 @@ describe('VerifyEmailPage', () => {
       }),
     );
 
-    renderVerify('valid-token');
+    renderVerify('?token=valid-token');
 
     expect(await screen.findByText('Email verified')).toBeInTheDocument();
     expect(screen.getByText('Your account is ready for sign in.')).toBeInTheDocument();
     expect(body).toEqual({ token: 'valid-token' });
+  });
+
+  it('applies lang from the verification link before rendering copy', async () => {
+    useLocaleStore.getState().setLocale('en');
+    server.use(
+      http.post(`${API_BASE}/auth/verify-email`, () => HttpResponse.json(verifiedUser)),
+    );
+
+    renderVerify('?token=valid-token&lang=tr');
+
+    await waitFor(() => expect(useLocaleStore.getState().locale).toBe('tr'));
+    expect(await screen.findByText('E-posta doğrulandı')).toBeInTheDocument();
   });
 
   it('shows failure when verification is rejected', async () => {
@@ -51,7 +64,7 @@ describe('VerifyEmailPage', () => {
       ),
     );
 
-    renderVerify('expired-token');
+    renderVerify('?token=expired-token');
 
     expect(
       await screen.findByText('Email verification token is invalid or expired.'),
