@@ -23,6 +23,8 @@ import java.util.Map;
 import org.slf4j.Logger;
 import io.micrometer.core.instrument.Gauge;
 import io.micrometer.core.instrument.MeterRegistry;
+import java.util.UUID;
+import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicLong;
 import org.slf4j.LoggerFactory;
 import org.springframework.scheduling.annotation.Scheduled;
@@ -61,6 +63,8 @@ public class WaitlistOpsNotificationExporter {
     private final ObjectMapper objectMapper = new ObjectMapper();
     private final AtomicLong pendingRows = new AtomicLong();
     private final AtomicLong inboxBacklog = new AtomicLong();
+    private final AtomicBoolean inFlight = new AtomicBoolean();
+    private final String exporterInstanceId = UUID.randomUUID().toString();
     private volatile String lastDeferral;
 
     public WaitlistOpsNotificationExporter(
@@ -96,6 +100,11 @@ public class WaitlistOpsNotificationExporter {
         if (!outbox.isActive()) {
             return new ExportResult(0, 0, 0, null);
         }
+        if (properties.exportLoopIsPaused()) {
+            pendingRows.set(outbox.countPending());
+            acknowledgePauseIfIdle();
+            return new ExportResult(0, 0, 0, "export_paused");
+        }
         Instant now = clock.instant();
         outbox.purgeTerminalBefore(now.minus(properties.getRetention()));
         pendingRows.set(outbox.countPending());
@@ -113,11 +122,16 @@ public class WaitlistOpsNotificationExporter {
             log.info("Waitlist ops notification export resumed after deferral; reason={}", lastDeferral);
             lastDeferral = null;
         }
-        List<JdbcWaitlistOpsNotificationOutbox.OutboxRow> due = outbox.findDue(now, properties.getBatchSize());
+        inFlight.set(true);
         int exported = 0;
         int retried = 0;
         int failed = 0;
+        try {
+        List<JdbcWaitlistOpsNotificationOutbox.OutboxRow> due = outbox.findDue(now, properties.getBatchSize());
         for (JdbcWaitlistOpsNotificationOutbox.OutboxRow row : due) {
+            if (properties.exportLoopIsPaused()) {
+                break;
+            }
             String category = writeEnvelope(dir, row, now);
             if (category == null) {
                 outbox.markExported(row.id(), clock.instant());
@@ -139,6 +153,47 @@ public class WaitlistOpsNotificationExporter {
         }
         pendingRows.set(outbox.countPending());
         return new ExportResult(exported, retried, failed, null);
+        } finally {
+            inFlight.set(false);
+            if (properties.exportLoopIsPaused()) {
+                acknowledgePauseIfIdle();
+            }
+        }
+    }
+
+    void acknowledgePauseIfIdle() {
+        if (inFlight.get() || properties.pauseControlUnreadable()) {
+            return;
+        }
+        String requestId = properties.pauseRequestId();
+        if (requestId == null || requestId.isBlank()) {
+            return;
+        }
+        Path ack = properties.pauseAckPath();
+        Path dir = properties.exportPauseControlDir();
+        if (ack == null || dir == null) {
+            return;
+        }
+        try {
+            Files.createDirectories(dir);
+            Path tmp = dir.resolve(".ack.tmp");
+            String body = "requestId=" + requestId
+                    + "\nexporterInstanceId=" + exporterInstanceId
+                    + "\nacknowledgedAt=" + clock.instant().toEpochMilli()
+                    + "\n";
+            Files.writeString(tmp, body);
+            try {
+                Files.move(tmp, ack, StandardCopyOption.ATOMIC_MOVE, StandardCopyOption.REPLACE_EXISTING);
+            } catch (AtomicMoveNotSupportedException ex) {
+                Files.move(tmp, ack, StandardCopyOption.REPLACE_EXISTING);
+            }
+        } catch (IOException ex) {
+            log.warn("Waitlist ops export pause ack failed; category={}", ex.getClass().getSimpleName());
+        }
+    }
+
+    String exporterInstanceId() {
+        return exporterInstanceId;
     }
 
     /** @return null when exporting may proceed, otherwise a bounded deferral reason */

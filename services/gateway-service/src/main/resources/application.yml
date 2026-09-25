@@ -378,6 +378,8 @@ parkio:
       # Dedicated key so enabling this never changes info.deployment.environment.
       environment: ${PARKIO_WAITLIST_OPS_NOTIFICATIONS_ENVIRONMENT:${PARKIO_ENVIRONMENT:local}}
       export-dir: ${PARKIO_WAITLIST_OPS_NOTIFICATIONS_EXPORT_DIR:}
+      # Correlated export-pause control directory (request/ack). Admission stays on.
+      export-pause-file: ${PARKIO_WAITLIST_OPS_NOTIFICATIONS_EXPORT_PAUSE_FILE:}
       poll-interval: ${PARKIO_WAITLIST_OPS_NOTIFICATIONS_POLL_INTERVAL:PT30S}
       batch-size: ${PARKIO_WAITLIST_OPS_NOTIFICATIONS_BATCH_SIZE:20}
       max-export-attempts: ${PARKIO_WAITLIST_OPS_NOTIFICATIONS_MAX_EXPORT_ATTEMPTS:5}
