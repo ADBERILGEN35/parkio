@@ -6,10 +6,10 @@ import { spawnSync } from 'node:child_process';
 const ownershipScript = path.join(__dirname, '../../../scripts/assert-native-ownership.mjs');
 const doctorScript = path.join(__dirname, '../../../scripts/run-expo-doctor.mjs');
 
-function runOwnership(env: NodeJS.ProcessEnv = {}) {
+function runOwnership(extraEnv: Record<string, string> = {}) {
   return spawnSync(process.execPath, [ownershipScript], {
     encoding: 'utf8',
-    env: { ...process.env, ...env },
+    env: { ...process.env, ...extraEnv },
   });
 }
 
