@@ -18,7 +18,7 @@ on:
       - "frontend/packages/**"
       - ".github/workflows/mobile-ci.yml"
   push:
-    branches: [master]
+    branches: [api, master]
     paths:
       - "frontend/apps/mobile/**"
       - "frontend/apps/mobile-v2/**"

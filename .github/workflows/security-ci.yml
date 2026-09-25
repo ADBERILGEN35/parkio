@@ -20,7 +20,7 @@ name: Security CI
 on:
   pull_request:
   push:
-    branches: [master]
+    branches: [api, master]
   schedule:
     # Weekly drift check, early Monday UTC.
     - cron: "23 3 * * 1"
