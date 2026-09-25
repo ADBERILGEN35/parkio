@@ -32,6 +32,8 @@ jobs:
       PARKIO_BASELINE_PROFILE: ${{ github.event.inputs.profile || 'SMOKE' }}
     steps:
       - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event_name == 'schedule' && 'api' || github.sha }}
       - name: Collect baseline metadata
         run: |
           chmod +x scripts/staging/collect-runtime-baseline.sh

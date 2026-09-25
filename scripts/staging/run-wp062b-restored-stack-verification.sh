@@ -284,7 +284,7 @@ if dump_g="$(find_dump gateway 2>/dev/null)"; then
 fi
 
 # MinIO restore into isolated restore bucket (same isolated MinIO endpoint)
-MC_IMAGE="${MINIO_MC_IMAGE:-quay.io/minio/mc@sha256:a5399b66b88543efac8afb08eb2bdcce5904e548ea6fe1a921600cd74f766668}"
+MC_IMAGE="${MINIO_MC_IMAGE:-ghcr.io/adberilgen35/parkio/mc@sha256:456b1e641897329fc9491f9bc8b31df351d728af9a328bf5653707af62d0d6bf}"
 NETWORK="$(docker inspect -f '{{range $k,$v := .NetworkSettings.Networks}}{{$k}}{{end}}' "${MINIO_C}")"
 # shellcheck disable=SC1090
 set -a; . "${TMP_ENV}"; set +a

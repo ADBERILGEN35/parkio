@@ -23,7 +23,7 @@ source "${SCRIPT_DIR}/lib/restore-drill-services.sh"
 ENV_FILE="${PARKIO_ENV_FILE:-${ROOT}/docker/.env}"
 STARTED_OFFSITE=0
 OFFSITE_NAME="${BACKUP_OFFSITE_MINIO_CONTAINER:-parkio-offsite-minio}"
-MC_IMAGE="${MINIO_MC_IMAGE:-quay.io/minio/mc@sha256:a5399b66b88543efac8afb08eb2bdcce5904e548ea6fe1a921600cd74f766668}"
+MC_IMAGE="${MINIO_MC_IMAGE:-ghcr.io/adberilgen35/parkio/mc@sha256:456b1e641897329fc9491f9bc8b31df351d728af9a328bf5653707af62d0d6bf}"
 
 while [ "$#" -gt 0 ]; do
   case "$1" in
