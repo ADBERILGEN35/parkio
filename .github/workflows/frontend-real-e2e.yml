@@ -265,7 +265,7 @@ jobs:
             echo "ERROR: isolated OPEN auth overlay did not become reachable."
             exit 1
           fi
-          pnpm e2e:real -- --grep "registers a real pending account"
+          pnpm --filter @parkio/web exec -- playwright test -c playwright.real.config.ts --grep "registers a real pending account"
           python3 - <<'PY'
           import re, subprocess
           from pathlib import Path
@@ -294,7 +294,7 @@ jobs:
           export PARKIO_REAL_E2E_VERIFICATION_TOKEN
           PARKIO_REAL_E2E_VERIFICATION_TOKEN="$(cat /tmp/parkio-real-e2e-verify.token)"
           rm -f /tmp/parkio-real-e2e-verify.token
-          pnpm e2e:real -- --grep "verifies email when a real verification"
+          pnpm --filter @parkio/web exec playwright test -c playwright.real.config.ts --grep "verifies email when a real verification"
           python3 - <<'PY'
           from pathlib import Path
           env_path = Path("../docker/.env")
