@@ -45,8 +45,16 @@ jobs:
           CRON: ${{ github.event.schedule }}
         run: |
           set -euo pipefail
+          allowed='backup-restore-drill.yml restore-drill-01-procedure.yml backend-integration.yml security-ci.yml supply-chain.yml runtime-validation.yml staging-verification.yml runtime-baseline.yml chaos-validation.yml performance-smoke.yml'
           dispatch_one() {
             local wf="$1"
+            case " $allowed " in
+              *" $wf "*) ;;
+              *)
+                echo "Refusing to dispatch '$wf'. Allowlisted scheduled api workflows only." >&2
+                exit 2
+                ;;
+            esac
             echo "Dispatching $wf --ref api"
             gh workflow run "$wf" --ref api
           }
