@@ -26,7 +26,8 @@ import java.util.Set;
  *
  * <p>Closure is never inferred from {@code workHours} or other metadata text. İZUM, OSM, and
  * other municipal sources are a no-op. When another live-occupancy authority is also linked,
- * İSPARK {@code isOpen} does not hide that other source's occupancy.
+ * İSPARK occupancy must still be withheld if open-status is not explicitly OPEN; only that
+ * other source's snapshot may be published.
  */
 public final class IsparkOccupancyPublicationPolicy {
     public enum OpenStatus {
@@ -51,8 +52,22 @@ public final class IsparkOccupancyPublicationPolicy {
     }
 
     /**
-     * Authenticated municipal projection: suppress only when İSPARK is the sole live-occupancy
-     * authority among linked keys and open-status is not explicitly OPEN.
+     * True when an İSPARK link is present and open-status is not explicitly OPEN.
+     * İSPARK occupancy must then be withheld even if another live-occupancy source
+     * is also linked. Callers may still publish that other source's snapshot.
+     */
+    public static boolean mustWithholdIsparkOccupancy(
+            Set<String> linkedSourceKeys, String isparkSourceMetadataJson) {
+        Set<String> keys = MunicipalSourceIdentity.normalizeKeys(linkedSourceKeys);
+        if (keys.stream().noneMatch(MunicipalSourceIdentity::isIspark)) {
+            return false;
+        }
+        return classifyStoredMetadata(isparkSourceMetadataJson) != OpenStatus.OPEN;
+    }
+
+    /**
+     * Authenticated municipal projection: suppress the selected snapshot when İSPARK is the
+     * sole live-occupancy authority among linked keys and open-status is not explicitly OPEN.
      */
     public static boolean suppressOccupancyForLinkedSources(
             Set<String> linkedSourceKeys, String isparkSourceMetadataJson) {
@@ -66,7 +81,7 @@ public final class IsparkOccupancyPublicationPolicy {
         if (otherLiveAuthority) {
             return false;
         }
-        return classifyStoredMetadata(isparkSourceMetadataJson) != OpenStatus.OPEN;
+        return mustWithholdIsparkOccupancy(keys, isparkSourceMetadataJson);
     }
 
     public static OpenStatus classifyStoredMetadata(String sourceMetadataJson) {

@@ -91,10 +91,12 @@ class IsparkOccupancyPublicationPolicyTest {
     }
 
     @Test
-    void izumPlusIsparkKeepsIzumOccupancy() {
+    void izumPlusIsparkStillWithholdsIsparkOccupancy() {
+        Set<String> mixed = Set.of(MunicipalSourceIdentity.IZUM, MunicipalSourceIdentity.ISPARK);
+        assertThat(IsparkOccupancyPublicationPolicy.mustWithholdIsparkOccupancy(
+                mixed, "{\"isOpen\":0}")).isTrue();
         assertThat(IsparkOccupancyPublicationPolicy.suppressOccupancyForLinkedSources(
-                Set.of(MunicipalSourceIdentity.IZUM, MunicipalSourceIdentity.ISPARK),
-                "{\"isOpen\":0}")).isFalse();
+                mixed, "{\"isOpen\":0}")).isFalse();
     }
 
     @Test

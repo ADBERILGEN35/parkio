@@ -86,6 +86,11 @@ Closure is never inferred from `workHours`. Existing stored closed metadata is r
 time, so already-ingested closed rows receive the protection after `parking-service` deploy
 without a re-sync. İZUM, OSM, source flags, and registration are unchanged.
 
+When another live-occupancy authority (İZUM) is also linked, İSPARK occupancy is still
+withheld unless `isOpen` is explicitly OPEN. Only that other source's snapshot may be
+published. An İZUM link alone does not authorize publishing `latestForFacility` when that
+row is the closed İSPARK snapshot.
+
 The İSPARK stale-as-static UI presentation remains a separate frontend follow-up.
 
 ## Rollback

@@ -339,6 +339,9 @@ class MunicipalFacilityQueryServiceTest {
         when(facilities.findById(id)).thenReturn(Optional.of(shared));
         when(snapshots.latestForFacility(id)).thenReturn(Optional.of(
                 new MunicipalOccupancySnapshotRepository.Snapshot(
+                        270, 7, 263, Instant.parse("2026-07-30T05:59:50Z"), 5L, true)));
+        when(snapshots.latestForFacilityAndSourceKey(id, MunicipalSourceIdentity.IZUM))
+                .thenReturn(Optional.of(new MunicipalOccupancySnapshotRepository.Snapshot(
                         120, 30, 90, Instant.parse("2026-07-30T05:59:50Z"), 5L, true)));
         var service = service(facilities, snapshots, new MunicipalSourceProperties(), new IzelmanProperties());
 
@@ -346,6 +349,32 @@ class MunicipalFacilityQueryServiceTest {
         assertThat(view.availableSpaces()).isEqualTo(90);
         assertThat(view.freshness()).isEqualTo(MunicipalOccupancyFreshness.LIVE);
         assertThat(view.sourceLabel()).isEqualTo(MunicipalFacilityQueryService.IZUM_SOURCE_LABEL);
+    }
+
+    @Test
+    void closedIsparkDoesNotPublishLatestSnapshotJustBecauseIzumIsLinked() {
+        UUID id = UUID.randomUUID();
+        var facilities = mock(MunicipalFacilityRepository.class);
+        var snapshots = mock(MunicipalOccupancySnapshotRepository.class);
+        var shared = facility(
+                id, "Shared lot", "İSPARK", MunicipalFacilityQueryService.ISPARK_SOURCE_LABEL,
+                MunicipalFacilityQueryService.ISPARK_ATTRIBUTION,
+                MunicipalSourceIdentity.ISPARK,
+                Set.of(MunicipalSourceIdentity.IZUM, MunicipalSourceIdentity.ISPARK),
+                "{\"isOpen\":0}");
+        when(facilities.findById(id)).thenReturn(Optional.of(shared));
+        when(snapshots.latestForFacility(id)).thenReturn(Optional.of(
+                new MunicipalOccupancySnapshotRepository.Snapshot(
+                        270, 7, 263, Instant.parse("2026-07-30T05:59:50Z"), 5L, true)));
+        when(snapshots.latestForFacilityAndSourceKey(id, MunicipalSourceIdentity.IZUM))
+                .thenReturn(Optional.empty());
+        var service = service(facilities, snapshots, new MunicipalSourceProperties(), new IzelmanProperties());
+
+        var view = service.findById(id).orElseThrow();
+        assertThat(view.freshness()).isEqualTo(MunicipalOccupancyFreshness.UNAVAILABLE);
+        assertThat(view.availableSpaces()).isNull();
+        assertThat(view.occupiedSpaces()).isNull();
+        assertThat(view.displayName()).isEqualTo("Shared lot");
     }
 
     @Test
