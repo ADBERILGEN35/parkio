@@ -28,7 +28,7 @@ cadence and operator response.
 2. Install Docker, clone repo at known good tag, copy `docker/.env` from secrets store.
 3. `docker compose -f docker/docker-compose.yml -f docker/docker-compose.apps.yml -f docker/docker-compose.images.yml -f docker/docker-compose.hosted-beta.yml up -d`
 4. Copy backup set from offsite (`BACKUP_MC_DEST`) to `BACKUP_DIR`.
-5. `restore-hosted-beta.sh --manifest backup-artifacts/backup-current.json --yes`
+5. `restore-hosted-beta.sh --manifest <stamp>/backup-manifest.json --recovery-cutoff <ISO-8601-UTC> --yes`
 6. `deploy-hosted-beta.sh` if images must match current commit.
 7. Smoke + alert silence removal.
 
@@ -60,7 +60,9 @@ PARKIO_ENV_FILE=docker/.env ./scripts/rollback-hosted-beta.sh
 
 ```bash
 cd /opt/parkio
-PARKIO_ENV_FILE=docker/.env ./scripts/restore-database.sh <service> /var/backups/parkio/<date>/<service>.sql.gz
+PARKIO_ENV_FILE=docker/.env ./scripts/restore-database.sh <service> \
+  /var/backups/parkio/<stamp>/<service>.sql.gz.enc \
+  --recovery-cutoff <ISO-8601-UTC>
 ```
 
 ### Full stack restore (same or new VPS)
@@ -71,7 +73,8 @@ PARKIO_ENV_FILE=docker/.env ./scripts/restore-database.sh <service> /var/backups
 # 3. Copy backup set to BACKUP_DIR
 cd /opt/parkio
 PARKIO_ENV_FILE=docker/.env ./scripts/restore-hosted-beta.sh \
-  --manifest /var/backups/parkio/backup-artifacts/backup-current.json --yes
+  --manifest /var/backups/parkio/<stamp>/backup-manifest.json \
+  --recovery-cutoff <ISO-8601-UTC> --yes
 # 4. Redeploy known-good images if needed
 PARKIO_ENV_FILE=docker/.env ./scripts/deploy-hosted-beta.sh
 # 5. Smoke + remove alert silences
@@ -81,7 +84,9 @@ PARKIO_ENV_FILE=docker/.env ./scripts/smoke-hosted-beta.sh
 ### MinIO-only restore
 
 ```bash
-PARKIO_ENV_FILE=docker/.env ./scripts/restore-hosted-beta.sh --only minio --yes
+PARKIO_ENV_FILE=docker/.env ./scripts/restore-hosted-beta.sh \
+  --manifest /var/backups/parkio/<stamp>/backup-manifest.json \
+  --recovery-cutoff <ISO-8601-UTC> --yes --only minio
 ```
 
 ## Contacts / secrets (owner)

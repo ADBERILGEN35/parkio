@@ -156,12 +156,17 @@ must be known before any restored data is exposed.
 2. the ledgers of every **newer** retrievable stamp, even stamps whose dumps are unusable
    (each ledger is the full, append-only tombstone table; a newer ledger that lacks an older
    identifier fails the build);
-3. optionally, an **operator-compiled supplement** with an explicit `covered-through` time.
-   Examples: erasure requests received through support channels after the newest stamp.
-   It uses the same `{authUserId, erasedAt}` shape and is handled only on the drill host.
+3. optionally, an **operator-compiled supplement** of additional identifiers.
+   `--supplemental-covered-through` is recorded as `assertedCoveredThrough` only.
+   It does **not** certify coverage. Examples: known support-channel erasures
+   after the newest stamp. Same `{authUserId, erasedAt}` shape; drill host only.
 
-Coverage is the newest ledger's time, or the supplement's `covered-through` if later.
-**If coverage < C, privacy-safe recovery is BLOCKED** (exit 3), and nothing is decrypted.
+Certified coverage is the newest **stamp ledger** `manifest.timestamp` only.
+That clock is not commit-visible completeness of the unlocked nightly SELECT.
+A user timestamp, empty ledger, newer nightly ledger, file mtime, upload time,
+or asserted covered-through does not independently prove every transaction
+committed before the claimed watermark is present.
+**If certified coverage < C, privacy-safe recovery is BLOCKED** (exit 3), and nothing is decrypted.
 In an emergency with a known uncovered window, the copy can be restored
 (`--allow-privacy-blocked`) only for validation, and it must be destroyed without exposure.
 

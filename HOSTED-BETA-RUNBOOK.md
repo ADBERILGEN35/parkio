@@ -527,11 +527,16 @@ PARKIO_ENV_FILE=docker/.env \
 ./scripts/restore-hosted-beta.sh --manifest backup-artifacts/backup-current.json --dry-run
 ```
 
-Real restore requires explicit confirmation:
+Real restore requires explicit confirmation and `--recovery-cutoff`.
+The production path is BLOCKED before decrypt or apply: a manifest timestamp
+is not verified coverage. Standalone database apply and `--only minio` are
+refused. It does not start applications, Slack, or Fluent Bit.
 
 ```bash
 PARKIO_ENV_FILE=docker/.env \
-./scripts/restore-hosted-beta.sh --manifest backup-artifacts/backup-current.json
+./scripts/restore-hosted-beta.sh \
+  --manifest /var/backups/parkio/<stamp>/backup-manifest.json \
+  --recovery-cutoff <ISO-8601-UTC>
 ```
 
 Scope options:

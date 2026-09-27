@@ -138,6 +138,20 @@ class StampPreflightTest(unittest.TestCase):
         code, report, _ = self.preflight(stamp)
         self.assertEqual((code, statuses(report)["dump:gateway"]), (1, "FAIL"))
 
+    def test_db_only_stamp_is_not_a_full_system_backup(self):
+        stamp = make_stamp(self.work)
+        (stamp / "minio.tar.gz.enc").unlink()
+        manifest = json.loads((stamp / "backup-manifest.json").read_text())
+        manifest["minioOk"] = 0
+        (stamp / "backup-manifest.json").write_text(json.dumps(manifest))
+        write_integrity(stamp)
+        code, report, _ = self.preflight(stamp)
+        self.assertEqual(code, 1)
+        self.assertEqual(statuses(report)["restore-scope"], "FAIL")
+        db_code, db_report, _ = self.preflight(stamp, "--scope", "databases")
+        self.assertEqual(db_code, 0, db_report)
+        self.assertEqual(db_report["verdict"], "PASS")
+
     def test_missing_ledger_fails_closed(self):
         stamp = make_stamp(self.work)
         (stamp / "erasure-tombstones.json").unlink()
@@ -441,6 +455,9 @@ class ErasureLedgerTest(unittest.TestCase):
         code, report, text = self.build("--ledger-stamp", self.newer,
                                         "--recovery-cutoff", "2026-09-21T03:30:01Z")
         self.assertEqual((code, report["verdict"]), (0, "PASS"), text)
+        self.assertFalse(report["verifiedCoverage"])
+        self.assertFalse(report["certified"])
+        self.assertEqual(report["snapshotClockVerdict"], "PASS")
         self.assertEqual(report["mergedTombstones"], 2)
         self.assertEqual(report["erasedAfterDataStamp"], 1)
         merged = {e["authUserId"] for e in json.loads(self.out.read_text())}
@@ -460,14 +477,32 @@ class ErasureLedgerTest(unittest.TestCase):
                                      "--recovery-cutoff", "2026-09-21T15:00:00Z")
         self.assertEqual((code, report["verdict"]), (3, "BLOCKED"))
 
-    def test_supplement_closes_the_gap(self):
+    def test_supplement_merges_identifiers_but_does_not_certify_coverage(self):
         supplement = self.work / "supplement.json"
         supplement.write_text(json.dumps([{"authUserId": ERASED_MANUAL}]))
         code, report, _ = self.build("--ledger-stamp", self.newer, "--supplemental", supplement,
                                      "--supplemental-covered-through", "2026-09-21T15:00:00Z",
                                      "--recovery-cutoff", "2026-09-21T15:00:00Z")
-        self.assertEqual((code, report["verdict"]), (0, "PASS"))
+        self.assertEqual((code, report["verdict"]), (3, "BLOCKED"))
+        self.assertFalse(report["certified"])
+        self.assertEqual(report["coverageThrough"], "2026-09-21T03:30:01Z")
+        self.assertEqual(report["assertedCoveredThrough"], "2026-09-21T15:00:00Z")
         self.assertEqual((report["mergedTombstones"], report["supplementalTombstones"]), (3, 1))
+        merged = {e["authUserId"] for e in json.loads(self.out.read_text())}
+        self.assertIn(ERASED_MANUAL, merged)
+
+    def test_incomplete_supplement_with_sufficient_timestamp_does_not_certify(self):
+        # Operator asserts coverage through 15:00 but omits the known later erasure.
+        supplement = self.work / "incomplete.json"
+        supplement.write_text("[]")
+        code, report, _ = self.build("--supplemental", supplement,
+                                     "--supplemental-covered-through", "2026-09-21T15:00:00Z",
+                                     "--recovery-cutoff", "2026-09-21T15:00:00Z")
+        self.assertEqual((code, report["verdict"]), (3, "BLOCKED"))
+        self.assertFalse(report["certified"])
+        self.assertEqual(report["coverageThrough"], "2026-09-20T03:30:01Z")
+        self.assertEqual(report["assertedCoveredThrough"], "2026-09-21T15:00:00Z")
+        self.assertEqual(report["mergedTombstones"], 1)
 
     def test_supplement_needs_covered_through(self):
         supplement = self.work / "supplement.json"
