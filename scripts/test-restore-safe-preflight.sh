@@ -390,6 +390,26 @@ if PARKIO_RESTORE_ISOLATED_DRILL=1 PARKIO_RESTORE_PREFLIGHT_DONE=1 \
 else
   if no_destroy; then ok "preflight/drill env flags do not bypass production refusal"; else bad "env bypass leaked commands"; fi
 fi
+
+# --- merged CI_EPHEMERAL / WP-06.2B flags must not authorize production restore ---
+: > "${LOG}"
+if PARKIO_ENVIRONMENT_TYPE=CI_EPHEMERAL \
+    PARKIO_CI_HAS_STAGING_ENV=yes \
+    PARKIO_STAGING_ALLOW_DESTRUCTIVE=yes \
+    PARKIO_WP062B_EXECUTION_CLASS=CI_EPHEMERAL \
+    PARKIO_WP062B_BUILD_IMAGES=yes \
+    PARKIO_ENV_FILE="${ENV_FILE}" "${ROOT}/scripts/restore-hosted-beta.sh" \
+    --manifest "${MANIFEST}" --yes --recovery-cutoff "2026-09-20T03:30:01Z" >/dev/null 2>&1; then
+  bad "CI_EPHEMERAL restored-stack flags must not authorize production restore"
+else
+  if no_destroy; then ok "CI_EPHEMERAL restored-stack flags do not bypass production refusal"; else bad "CI_EPHEMERAL flags leaked commands"; fi
+fi
+if grep -E 'restore-hosted-beta\.sh|restore-database\.sh' \
+    "${ROOT}/scripts/staging/run-wp062b-restored-stack-verification.sh" >/dev/null; then
+  bad "WP-06.2B must not invoke production restore entrypoints"
+else
+  ok "WP-06.2B restored-stack uses its own drill DBs, not production entrypoints"
+fi
 : > "${LOG}"
 if PARKIO_RESTORE_ISOLATED_DRILL=1 PARKIO_RESTORE_PREFLIGHT_DONE=1 \
     PARKIO_ENV_FILE="${ENV_FILE}" "${ROOT}/scripts/restore-database.sh" \

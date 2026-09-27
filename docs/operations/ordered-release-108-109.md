@@ -20,6 +20,24 @@ This documentation commit, if present on #109 after `f3bfe297`, is a
 **docs head** only. Do not carry the `f3bfe297` CI evidence onto a later
 implementation SHA.
 
+## 0.1 Refresh after #116 (2026-09-27)
+
+Normal merge of `origin/api` `b1c9c824` into `fix/restore-safe-preflight`.
+Original #109 head: `aa99ef29`. Merge parents:
+`aa99ef29` + `b1c9c824`. #104 HOLD remains `c24f4f3d`.
+
+Preserved: production refusal before decrypt/apply, `verifiedCoverage=false`,
+no cutoff lowering, standalone database and MinIO-only refusal,
+isolated-fixture ticket gate. Taken from api: GHCR MinIO/mc pins,
+restore-drill GHCR login, CI_EPHEMERAL WP-06.2B tooling.
+
+WP-06.2B restored-stack does not call `restore-hosted-beta.sh` or
+`restore-database.sh`. `PARKIO_ENVIRONMENT_TYPE=CI_EPHEMERAL` and
+`PARKIO_CI_HAS_STAGING_ENV=yes` do not bypass production refusal.
+Local synthetic evidence after refresh: `test-restore-safe-preflight.sh`
+**25 passed, 0 failed**; `test_restore_readiness.py` **51 tests OK**.
+Do not reuse `f3bfe297` CI counts for this head.
+
 Previously accepted production work (unchanged by this package):
 
 - #106 gateway ACL and #107 gateway pin are deployed.
