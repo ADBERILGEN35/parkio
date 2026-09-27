@@ -214,31 +214,153 @@ fixtures may continue to use `--isolated-fixture`. This package does
 **not** set `verifiedCoverage=true` and does not add an evidence-file
 bypass.
 
-## 7. Unresolved design decisions
+## 7. Recommended architecture
 
-1. When (if ever) auth HTTP ACK waits for persist-ack.
-2. Off-host store account, WORM/versioning, and deletion resistance
-   (`#104` blocker). Not designed here.
-3. Producer key distribution, rotation, and retirement (`not-before`).
-4. `databaseIdentity` schema (system identifier vs DSN).
-5. Whether `#104` seal JSON is adopted or replaced.
-6. How restore-attempt ACKs are stored so they cannot be reused across
-   runs (production table is request-scoped only).
-7. Whether Kafka / participant-local tombstones after auth-DB loss are
-   treated as residue to reconcile or as untrusted.
-8. Independent monotonic publication sequence vs DB `clock_timestamp()`
-   under clock rollback.
-9. Completeness proof a consumer can verify without trusting the
-   producer’s protocol claim.
+One design. Not implemented. `verifiedCoverage` stays false.
 
-## 8. Implementation sequence
+### Trust boundary
 
-1. This draft: corrected contract, inventory, trust split, synthetic
-   tests including disposable PostgreSQL SHARE-lock, restore refusal
-   retained.
-2. Later, without un-HOLD of #104: adapt lock-capture **output** to this
-   consumer (still disabled in production).
-3. Later: real off-host store and producer-key distribution.
-4. Later: product change for persist-before-ACK, if accepted.
-5. Later: bind replay-completion into `restore-hosted-beta.sh` **after**
-   a production watermark exists. Not in this PR.
+The **trusted producer** is the auth-database capture process that holds
+the SHARE lock, reads `erased_user_tombstones`, and signs the result
+with a pre-distributed `keyId`. The consumer trusts that this producer
+followed the tested lock protocol. The consumer does **not**
+mathematically re-prove a remote snapshot.
+
+The consumer verifies, independently of the producer host:
+
+1. producer authenticity (`keyId` + signature over the signed subset)
+2. byte integrity (recomputed ledger digest)
+3. durable publication (store receipt from a store that is not the
+   primary host)
+4. freshness (monotonic `sequence`, not wall clock)
+5. cutoff (`sequence`/`coveredThrough` covers the incident cutoff)
+6. `databaseIdentity` equals the pre-distributed auth DB identity
+   (`system_identifier` + `datname`, not a DSN)
+
+Completeness through the lock is a **producer protocol claim** backed by
+the disposable PostgreSQL SHARE-lock tests. HMAC plus a receipt never
+prove it.
+
+### API states
+
+| Public state | When | Durable if primary host is lost? |
+|---|---|---|
+| `ACCEPTED` | Auth TX committed (today's `IN_PROGRESS`) | No |
+| `PENDING_DURABLE` | Persist in flight or last persist failed | No |
+| `DURABLY_RECORDED` | Identifier is in a persist-acked pending record or checkpoint | Yes, from the off-host store |
+| `COMPLETE` | All required participant SUCCESS acks for that request | Live-system complete only; restore still needs the durable set |
+
+`DURABLY_RECORDED` is the first acknowledgement that may be treated as
+an erasure record. `ACCEPTED` is not. Clients retry `PENDING_DURABLE`.
+Retry is not how recovery fills an unknown tail.
+
+### Recording before host loss
+
+After the auth TX commits, and **before** any durable ACK:
+
+1. Append a signed **pending record** `{sequence, erasureRequestId,
+   authUserId, erasedAt, databaseIdentity}` to the off-host store.
+2. Persist-ack that object.
+3. Then return `DURABLY_RECORDED` (or keep `IN_PROGRESS` as the public
+   umbrella only if the server has already persist-acked — see operator
+   note).
+
+A periodic **checkpoint** is a SHARE-lock full-table snapshot with the
+next `sequence`. Recovery after total primary-host loss loads the latest
+trusted checkpoint plus pending records with higher `sequence`. If that
+set does not cover the cutoff, restore is `BLOCKED` and the copy stays
+**unexposed**. Do not lower the cutoff. Do not expose because a client
+can delete again later. Kafka and participant-local tombstones are
+untrusted residue.
+
+### Participants and restore ACKs
+
+Required: `auth` plus `user`, `parking`, `media`, `moderation`,
+`gamification`, `notification`, `analytics`, `ai-validation`.
+Media object storage is covered by the media ACK. Gateway waitlist and
+aggregates stay excluded.
+
+Restore ACKs are
+`{recoveryAttemptId, restoredDatasetId, participant, erasureSetDigest}`.
+Live `erasure_service_acks` stay request-scoped and cannot authorize a
+new restore.
+
+### #104 reuse vs replacement
+
+Reuse later (do not import while HOLD):
+
+- `offhost-erasure-locked-snapshot.sql` (READ COMMITTED, SHARE,
+  `clock_timestamp()` while locked, abort-on-error)
+- The rule that persist happens after the DB transaction ends
+- Disabled-by-default production flag posture
+
+Replace:
+
+- `FileStore` / local files as durability
+- `--visibility-protocol` operator attestation
+- SHA-256 of a still-present file as authenticity
+- unlocked `erasure-tombstones.sh` SELECT as coverage
+- persist-after-commit **without** gating the durable ACK
+- any four-service participant set
+- `#104` seal JSON as the consumer format
+
+`coveredThrough` remains a human commit-horizon. Ordering and freshness
+use `sequence`.
+
+### Trade-offs
+
+- Persist-before-ACK adds off-host latency to deletion. That is the cost
+  of a record that survives the primary host.
+- The consumer trusts the producer for lock completeness. Removing that
+  trust would require a second independent observer inside the database,
+  which this design rejects as a new framework.
+- Dual-writing pending records and checkpoints can go out of order;
+  `sequence` makes the later object win. Delayed older objects are
+  rejected.
+
+## 8. Implementation stages
+
+0. **This draft.** Contract, inventory, trust split, synthetic tests,
+   real PostgreSQL SHARE-lock, production refusal intact.
+1. **Next slice (acceptance below).** Isolated persist-before-ACK of
+   pending records. Flag off. No production store.
+2. Signed lock-protocol checkpoints using the #104 SQL **output** only.
+   Still disabled in production. Do not un-HOLD #104.
+3. Real off-host WORM/versioned store and `keyId` rotation.
+4. Restore-hosted-beta consumes the latest trusted checkpoint + pending
+   tail; expose stays refused when the tail is unknown.
+   `verifiedCoverage` stays false until a later, separate certification.
+
+### Smallest next slice — acceptance criteria
+
+Scope: isolated auth + directory/versioned fixture store. No #104
+changes. No production enablement.
+
+1. After commit, a durable ACK is issued only if a signed pending record
+   for that `authUserId` was persist-acked.
+2. Persist failure → `PENDING_DURABLE`, no durable ACK, coverage
+   unchanged.
+3. Simulated primary-host loss after commit and before persist: the
+   request is absent from the store; restore with a later cutoff is
+   `BLOCKED`; the restored copy is not exposed.
+4. Simulated host loss after persist-ack: the pending record is still
+   in the store and verify succeeds without the auth DB.
+5. `sequence` is monotonic; an older valid signed object is rejected
+   after a newer accept.
+6. Production `verifiedCoverage` remains hardcoded false. Existing
+   restore-hosted-beta refusal remains intact.
+7. Tests stay classified (model/unit vs disposable PostgreSQL vs
+   restore-entrypoint stubs).
+
+## 9. Operator input still required
+
+1. **Off-host store location.** Must not be the primary host. Product
+   choice (object-lock bucket vs equivalent WORM). Isolated directory
+   is not that store.
+2. **Public DELETE status.** Either add `DURABLY_RECORDED` /
+   `PENDING_DURABLE` to the API, or keep returning `IN_PROGRESS` until
+   persist-ack and document that today's immediate `IN_PROGRESS` is
+   only `ACCEPTED`.
+
+No other open design question is deferred. CSRF and marketing CodeQL
+findings are outside this contract.
