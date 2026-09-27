@@ -23,7 +23,10 @@ source "${SCRIPT_DIR}/lib/restore-drill-services.sh"
 ENV_FILE="${PARKIO_ENV_FILE:-${ROOT}/docker/.env}"
 STARTED_OFFSITE=0
 OFFSITE_NAME="${BACKUP_OFFSITE_MINIO_CONTAINER:-parkio-offsite-minio}"
-MC_IMAGE="${MINIO_MC_IMAGE:-quay.io/minio/mc@sha256:a5399b66b88543efac8afb08eb2bdcce5904e548ea6fe1a921600cd74f766668}"
+MC_IMAGE="${MINIO_MC_IMAGE:-ghcr.io/adberilgen35/parkio/mc@sha256:456b1e641897329fc9491f9bc8b31df351d728af9a328bf5653707af62d0d6bf}"
+# Quay sha256:7d80fd23… now returns unauthorized. Isolation is a second
+# container + credentials + network role, not a second unpullable digest.
+OFFSITE_IMAGE="${BACKUP_OFFSITE_MINIO_IMAGE:-${MINIO_IMAGE:-ghcr.io/adberilgen35/parkio/minio@sha256:efba309ba4dc89e48f37304db52a0b854c0e701ba944ca02205c4e292c1a756c}}"
 
 while [ "$#" -gt 0 ]; do
   case "$1" in
@@ -81,7 +84,7 @@ if [ "${KIND}" = "none" ] || [ "${KIND}" = "s3" ]; then
       docker run -d --name "${OFFSITE_NAME}" --network "${NETWORK}" \
         -e MINIO_ROOT_USER="${BACKUP_MC_ACCESS_KEY:-offsiteadmin}" \
         -e MINIO_ROOT_PASSWORD="${BACKUP_MC_SECRET_KEY:-offsite-ci-not-prod-minio}" \
-        quay.io/minio/minio@sha256:7d80fd232a2f7108aa6f133fcfe5fade3f1626d92d31ae1318076e7aa61928a2 server /data >/dev/null
+        "${OFFSITE_IMAGE}" server /data >/dev/null
       STARTED_OFFSITE=1
       ready=0
       for _ in $(seq 1 30); do

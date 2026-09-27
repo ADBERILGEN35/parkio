@@ -24,7 +24,7 @@ on:
       - "scripts/validate-marketing-site.mjs"
       - ".github/workflows/frontend-ci.yml"
   push:
-    branches: [master]
+    branches: [api, master]
     paths:
       - "frontend/**"
       - "web/marketing/**"

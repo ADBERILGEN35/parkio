@@ -111,6 +111,15 @@ class IsparkMunicipalSyncIntegrationTest {
                 .findFirst();
         assertThat(zeroAvail).isPresent();
 
+        var closed = nearby.stream()
+                .filter(view -> "Kapalı Gece Otoparkı".equals(view.displayName()))
+                .findFirst()
+                .orElseThrow();
+        assertThat(closed.freshness()).isEqualTo(MunicipalOccupancyFreshness.UNAVAILABLE);
+        assertThat(closed.availableSpaces()).isNull();
+        assertThat(closed.occupiedSpaces()).isNull();
+        assertThat(nearby).hasSize(4);
+
         long izumLinks = jdbc.queryForObject(
                 """
                 SELECT count(*) FROM municipal_facility_source_links l

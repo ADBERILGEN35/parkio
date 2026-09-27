@@ -264,13 +264,59 @@ parkio_validate_azure_disabled_services() {
   return 0
 }
 
-parkio_compose_up() {
-  local env_file="$1"
+# Web map deploy guard (audit F-05). Verify the web image the rendered model
+# selects, then start the stack with a binding override as the LAST -f that pins
+# services.web to the verified immutable reference with pull_policy: never.
+# Covers deploy-hosted-beta, deploy-invite-production and both rollbacks.
+parkio_web_guard_before_up() {
+  local env_file="$1" binding_out="$2" skip_rc=0 guard_dir rc=0
+  # shellcheck source=web-map-guard.sh
+  source "$(parkio_repo_root)/scripts/lib/web-map-guard.sh"
   if [ "${#PARKIO_RUNTIME_SERVICES[@]}" -gt 0 ]; then
-    parkio_compose "$env_file" up -d "${PARKIO_RUNTIME_SERVICES[@]}"
+    parkio_web_guard_split_args up -d "${PARKIO_RUNTIME_SERVICES[@]}"
   else
-    parkio_compose "$env_file" up -d
+    parkio_web_guard_split_args up -d
   fi
+  parkio_web_guard_decide
+  [ "$PWG_DECISION" = "run" ] || return 0
+  parkio_web_guard_skip_requested || skip_rc=$?
+  [ "$skip_rc" -eq 0 ] && return 0
+  [ "$skip_rc" -eq 2 ] && return 1
+  guard_dir="$(mktemp -d)"
+  chmod 700 "$guard_dir"
+  if ! parkio_compose "$env_file" config --format json >"$guard_dir/model.json"; then
+    rm -rf "$guard_dir"
+    echo "ERROR: web map deploy guard: cannot render the compose model" >&2
+    return 1
+  fi
+  parkio_web_guard_bind "$guard_dir/model.json" "$binding_out" --env-file "$env_file" || rc=$?
+  rm -rf "$guard_dir"
+  if [ "$rc" -ne 0 ]; then
+    echo "ERROR: web map deploy guard failed; nothing was started" >&2
+    return 1
+  fi
+}
+
+parkio_compose_up() {
+  local env_file="$1" binding_dir rc=0
+  binding_dir="$(mktemp -d)"
+  chmod 700 "$binding_dir"
+  if ! parkio_web_guard_before_up "$env_file" "$binding_dir/web-binding.yml"; then
+    rm -rf "$binding_dir"
+    return 1
+  fi
+  # Dynamic scope: parkio_compose below sees the binding override appended last.
+  local PARKIO_COMPOSE_FILES="$PARKIO_COMPOSE_FILES"
+  if [ -f "$binding_dir/web-binding.yml" ]; then
+    PARKIO_COMPOSE_FILES="$PARKIO_COMPOSE_FILES -f $binding_dir/web-binding.yml"
+  fi
+  if [ "${#PARKIO_RUNTIME_SERVICES[@]}" -gt 0 ]; then
+    parkio_compose "$env_file" up -d "${PARKIO_RUNTIME_SERVICES[@]}" || rc=$?
+  else
+    parkio_compose "$env_file" up -d || rc=$?
+  fi
+  rm -rf "$binding_dir"
+  return "$rc"
 }
 
 parkio_default_gateway_url() {

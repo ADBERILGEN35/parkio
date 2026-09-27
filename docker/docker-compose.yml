@@ -254,9 +254,12 @@ services:
 
   # ------------------------------------------------------------------------- #
   # MinIO — S3-compatible object storage for media bytes (media-service only).#
+  # Default pin is the verified linux/amd64 platform manifest on private GHCR.#
+  # ARM64 is not verified for hosted-beta. Override MINIO_IMAGE / MINIO_MC_IMAGE
+  # for local non-amd64 work. Do not add platform: linux/amd64 (forces qemu). #
   # ------------------------------------------------------------------------- #
   minio:
-    image: ${MINIO_IMAGE:-quay.io/minio/minio@sha256:cd04ea408e185cb50076ea1c3988d444119b19aaae15aab45387ccf14b2a2f86}
+    image: ${MINIO_IMAGE:-ghcr.io/adberilgen35/parkio/minio@sha256:efba309ba4dc89e48f37304db52a0b854c0e701ba944ca02205c4e292c1a756c}
     container_name: parkio-minio
     restart: unless-stopped
     logging: *default-logging
@@ -278,7 +281,7 @@ services:
 
   # One-shot: create the media bucket so media-service has somewhere to write.
   minio-setup:
-    image: ${MINIO_MC_IMAGE:-quay.io/minio/mc@sha256:a5399b66b88543efac8afb08eb2bdcce5904e548ea6fe1a921600cd74f766668}
+    image: ${MINIO_MC_IMAGE:-ghcr.io/adberilgen35/parkio/mc@sha256:456b1e641897329fc9491f9bc8b31df351d728af9a328bf5653707af62d0d6bf}
     container_name: parkio-minio-setup
     depends_on:
       minio:

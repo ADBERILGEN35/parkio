@@ -74,6 +74,13 @@ public class MunicipalFacilityRepositoryAdapter implements MunicipalFacilityRepo
                      FROM municipal_facility_source_links lx
                      JOIN municipal_data_sources ds ON ds.id=lx.source_id AND ds.active=true
                      WHERE lx.facility_id=f.id AND lx.active=true) AS linked_source_keys,
+                    (SELECT lx.source_metadata_json
+                     FROM municipal_facility_source_links lx
+                     JOIN municipal_data_sources ds ON ds.id=lx.source_id AND ds.active=true
+                     WHERE lx.facility_id=f.id AND lx.active=true
+                       AND ds.source_key='istanbul-ispark-parks'
+                     ORDER BY lx.last_seen_at DESC NULLS LAST
+                     LIMIT 1) AS ispark_source_metadata_json,
                     ST_Distance(f.location, ST_SetSRID(ST_MakePoint(:lng,:lat),4326)::geography) AS dist
                   FROM municipal_parking_facilities f
                   JOIN municipal_facility_source_links l ON l.facility_id=f.id AND l.active=true
@@ -104,7 +111,14 @@ public class MunicipalFacilityRepositoryAdapter implements MunicipalFacilityRepo
                   (SELECT string_agg(ds.source_key, ',' ORDER BY ds.source_key)
                    FROM municipal_facility_source_links lx
                    JOIN municipal_data_sources ds ON ds.id=lx.source_id AND ds.active=true
-                   WHERE lx.facility_id=f.id AND lx.active=true) AS linked_source_keys
+                   WHERE lx.facility_id=f.id AND lx.active=true) AS linked_source_keys,
+                  (SELECT lx.source_metadata_json
+                   FROM municipal_facility_source_links lx
+                   JOIN municipal_data_sources ds ON ds.id=lx.source_id AND ds.active=true
+                   WHERE lx.facility_id=f.id AND lx.active=true
+                     AND ds.source_key='istanbul-ispark-parks'
+                   ORDER BY lx.last_seen_at DESC NULLS LAST
+                   LIMIT 1) AS ispark_source_metadata_json
                 FROM municipal_parking_facilities f
                 JOIN municipal_facility_source_links l ON l.facility_id=f.id AND l.active=true
                 JOIN municipal_data_sources s ON s.id=l.source_id AND s.active=true
@@ -130,7 +144,7 @@ public class MunicipalFacilityRepositoryAdapter implements MunicipalFacilityRepo
                        latitude, longitude, capacity_total, is_paid, nonstop,
                        access_classification,
                        publisher, attribution_text, aging_after_seconds, stale_after_seconds,
-                       primary_source_key, linked_source_keys
+                       primary_source_key, linked_source_keys, ispark_source_metadata_json
                 FROM (
                   SELECT DISTINCT ON (f.id)
                          f.id, f.display_name, f.operator_name, f.facility_type, f.address_text,
@@ -138,6 +152,13 @@ public class MunicipalFacilityRepositoryAdapter implements MunicipalFacilityRepo
                          f.access_classification,
                          s.publisher, s.attribution_text, s.aging_after_seconds, s.stale_after_seconds,
                          f.primary_source_key, s.source_key AS linked_source_keys,
+                         (SELECT lx.source_metadata_json
+                          FROM municipal_facility_source_links lx
+                          JOIN municipal_data_sources ds ON ds.id=lx.source_id AND ds.active=true
+                          WHERE lx.facility_id=f.id AND lx.active=true
+                            AND ds.source_key='istanbul-ispark-parks'
+                          ORDER BY lx.last_seen_at DESC NULLS LAST
+                          LIMIT 1) AS ispark_source_metadata_json,
                          ST_Distance(f.location, ST_SetSRID(ST_MakePoint(:lng,:lat),4326)::geography) AS dist
                   FROM municipal_parking_facilities f
                   JOIN municipal_facility_source_links l
@@ -206,14 +227,21 @@ public class MunicipalFacilityRepositoryAdapter implements MunicipalFacilityRepo
                        latitude, longitude, capacity_total, is_paid, nonstop,
                        access_classification,
                        publisher, attribution_text, aging_after_seconds, stale_after_seconds,
-                       primary_source_key, linked_source_keys
+                       primary_source_key, linked_source_keys, ispark_source_metadata_json
                 FROM (
                   SELECT DISTINCT ON (f.id)
                          f.id, f.display_name, f.operator_name, f.facility_type, f.address_text,
                          f.latitude, f.longitude, f.capacity_total, f.is_paid, f.nonstop,
                          f.access_classification,
                          s.publisher, s.attribution_text, s.aging_after_seconds, s.stale_after_seconds,
-                         f.primary_source_key, s.source_key AS linked_source_keys
+                         f.primary_source_key, s.source_key AS linked_source_keys,
+                         (SELECT lx.source_metadata_json
+                          FROM municipal_facility_source_links lx
+                          JOIN municipal_data_sources ds ON ds.id=lx.source_id AND ds.active=true
+                          WHERE lx.facility_id=f.id AND lx.active=true
+                            AND ds.source_key='istanbul-ispark-parks'
+                          ORDER BY lx.last_seen_at DESC NULLS LAST
+                          LIMIT 1) AS ispark_source_metadata_json
                   FROM municipal_parking_facilities f
                   JOIN municipal_facility_source_links l
                     ON l.facility_id=f.id AND l.active=true
@@ -258,6 +286,7 @@ public class MunicipalFacilityRepositoryAdapter implements MunicipalFacilityRepo
                 rs.getLong("aging_after_seconds"), rs.getLong("stale_after_seconds"),
                 rs.getString("primary_source_key"),
                 MunicipalSourceIdentity.parseLinkedKeys(rs.getString("linked_source_keys")),
-                accessClassification);
+                accessClassification,
+                rs.getString("ispark_source_metadata_json"));
     }
 }

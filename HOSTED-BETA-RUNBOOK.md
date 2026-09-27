@@ -379,8 +379,8 @@ limits. Defaults come from compose files.
 | `KAFKA_EXPORTER_IMAGE` | Optional | `danielqsj/kafka-exporter:v1.8.0` | No |
 | `BLACKBOX_EXPORTER_IMAGE` | Optional | `prom/blackbox-exporter:v0.25.0` | No |
 | `NODE_EXPORTER_IMAGE` | Optional | `prom/node-exporter:v1.8.2` | No |
-| `MINIO_IMAGE` | Optional | `quay.io/minio/minio@sha256:cd04ea408e185cb50076ea1c3988d444119b19aaae15aab45387ccf14b2a2f86` | No |
-| `MINIO_MC_IMAGE` | Optional | `quay.io/minio/mc@sha256:a5399b66b88543efac8afb08eb2bdcce5904e548ea6fe1a921600cd74f766668` | No |
+| `MINIO_IMAGE` | Optional | `ghcr.io/adberilgen35/parkio/minio@sha256:efba309ba4dc89e48f37304db52a0b854c0e701ba944ca02205c4e292c1a756c` | No |
+| `MINIO_MC_IMAGE` | Optional | `ghcr.io/adberilgen35/parkio/mc@sha256:456b1e641897329fc9491f9bc8b31df351d728af9a328bf5653707af62d0d6bf` | No |
 | `CLAMAV_IMAGE` | Optional | compose default | No |
 | `CADDY_IMAGE` | Optional | `caddy:2.8-alpine` | No |
 | `PROMETHEUS_IMAGE` | Optional | compose default | No |

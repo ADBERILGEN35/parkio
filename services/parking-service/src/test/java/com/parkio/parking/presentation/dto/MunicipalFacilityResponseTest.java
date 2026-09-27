@@ -93,4 +93,26 @@ class MunicipalFacilityResponseTest {
         assertThat(response.occupiedSpaces()).isEqualTo(75);
         assertThat(response.capacityTotal()).isEqualTo(100);
     }
+
+    @Test
+    void closedIsparkViewSerializesUnavailableWithoutSpaces() throws Exception {
+        MunicipalFacilityQueryService.FacilityView closed = new MunicipalFacilityQueryService.FacilityView(
+                UUID.fromString("81279bd3-5c60-42a1-81bc-8255e22a1a48"),
+                "Avcılar İdo", "İSPARK", MunicipalFacilityType.OFF_STREET, "AVCILAR",
+                40.9712, 28.7185, 270, null, null, MunicipalOccupancyFreshness.UNAVAILABLE,
+                "Attribution", "İstanbul Büyükşehir Belediyesi / İSPARK",
+                Instant.parse("2026-09-25T07:14:19Z"), null,
+                com.parkio.parking.externalsource.MunicipalAccessClassification.PUBLIC);
+        MunicipalFacilityResponse response = MunicipalFacilityResponse.from(closed);
+        String json = new ObjectMapper().findAndRegisterModules().writeValueAsString(response);
+        JsonNode root = new ObjectMapper().findAndRegisterModules().readTree(json);
+
+        assertThat(response.availableSpaces()).isNull();
+        assertThat(response.occupiedSpaces()).isNull();
+        assertThat(response.freshness()).isEqualTo(MunicipalOccupancyFreshness.UNAVAILABLE);
+        assertThat(response.availabilityFreshness()).isNull();
+        assertThat(root.get("availableSpaces").isNull()).isTrue();
+        assertThat(root.get("occupiedSpaces").isNull()).isTrue();
+        assertThat(json).doesNotContain("263");
+    }
 }

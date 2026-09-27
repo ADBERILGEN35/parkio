@@ -46,6 +46,11 @@ render() { # root envfile out [extra -f args...]
 
 mkdir -p "$TMP/base"
 git archive "$BASE_REF" docker scripts/lib 2>/dev/null | tar -x -C "$TMP/base"
+if [[ ! -f "$TMP/base/docker/compose.production.files" ]]; then
+  echo "FAIL: ${BASE_REF} has no docker/compose.production.files." >&2
+  echo "The production compose contract lives on origin/api; refusing a pre-contract comparison base." >&2
+  exit 1
+fi
 synth_env "$TMP/base/docker/.env.azure-hosted-beta.example" "$TMP/base.env"
 synth_env docker/.env.azure-hosted-beta.example "$TMP/head.env"
 # Same synthetic env on both sides except keys this change adds.
@@ -94,6 +99,10 @@ AUTH_ALLOWED = {
     "PARKIO_REGISTRATION_INVITE_TTL",
 }
 
+# Authorized GHCR linux/amd64 MinIO pin retarget (see docs/operations/minio-ghcr-amd64.md).
+MINIO_IMAGE_SERVICES = ("minio", "minio-setup")
+
+
 def strip_allowlisted_env(model):
     m = json.loads(json.dumps(model))
     genv = m["services"]["gateway-service"].setdefault("environment", {})
@@ -102,6 +111,9 @@ def strip_allowlisted_env(model):
         genv.pop(k, None)
     for k in AUTH_ALLOWED:
         aenv.pop(k, None)
+    for svc in MINIO_IMAGE_SERVICES:
+        if svc in m.get("services", {}):
+            m["services"][svc].pop("image", None)
     return m
 
 # 1. disabled default vs base
@@ -112,9 +124,9 @@ diff_services = [s for s in base["services"]
 check("only allowlisted env keys differ from " + base_ref, diff_services == [], ",".join(diff_services) or "none")
 for top in ("volumes", "networks", "secrets", "configs"):
     check(f"top-level {top} unchanged", base.get(top) == dis.get(top))
-images = {s: dis["services"][s].get("image") for s in dis["services"]}
-check("all images/pins identical to base",
-      images == {s: base["services"][s].get("image") for s in base["services"]})
+images = {s: dis["services"][s].get("image") for s in dis["services"] if s not in MINIO_IMAGE_SERVICES}
+base_images = {s: base["services"][s].get("image") for s in base["services"] if s not in MINIO_IMAGE_SERVICES}
+check("all images/pins identical to base", images == base_images)
 for svc in ("gateway-service", "auth-service", "web"):
     if svc in images:
         print(f"      {svc}: {images[svc]}")

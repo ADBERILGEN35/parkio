@@ -111,7 +111,7 @@ if [ "${PARKIO_JOURNEY_AUTH_ONLY_SEED:-no}" = "yes" ]; then
 fi
 if PARKIO_ENV_FILE="${PARKIO_ENV_FILE:-${ROOT_DIR}/docker/.env}" \
   PARKIO_REAL_USER_EMAIL="${EMAIL}" PARKIO_REAL_USER_PASSWORD="${PASSWORD}" \
-  "${ROOT_DIR}/scripts/seed-real-e2e.sh" "${SEED_ARGS[@]}" \
+  bash "${ROOT_DIR}/scripts/seed-real-e2e.sh" "${SEED_ARGS[@]}" \
   > "${JOURNEY_DIR}/logs/seed.log" 2>&1; then
   write_stage synthetic_seed PASSED "" "" true "${started}"
 else

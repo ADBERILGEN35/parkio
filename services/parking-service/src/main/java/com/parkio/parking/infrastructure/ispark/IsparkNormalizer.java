@@ -31,6 +31,8 @@ public class IsparkNormalizer {
 
     public NormalizedMunicipalFacility facility(IsparkParkingRecordDto record) {
         Map<String, Object> metadata = new LinkedHashMap<>();
+        // Stored for query-time occupancy publication. Occupancy snapshots stay LIVE at ingest
+        // so already-persisted closed rows are corrected without waiting for a new sync.
         if (record.isOpen() != null) {
             metadata.put("isOpen", record.isOpen());
         }
@@ -61,6 +63,10 @@ public class IsparkNormalizer {
                 hash(record));
     }
 
+    /**
+     * Ingest occupancy remains the list emptyCapacity. Closed {@code isOpen} is applied at
+     * publication, not here, so stored snapshots stay available for freshness aging.
+     */
     public NormalizedMunicipalOccupancy occupancy(IsparkParkingRecordDto record, Instant fetchedAt) {
         int capacity = record.capacity();
         int available = record.emptyCapacity();

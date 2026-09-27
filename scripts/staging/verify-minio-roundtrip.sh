@@ -28,7 +28,7 @@ BACKUP_DIR="$(cd "${BACKUP_ROOT}" && pwd)/minio-backup"
 echo "wp062-synthetic-minio-payload-${RUN_ID}" > "${PAYLOAD}"
 CHECKSUM_BEFORE="$(sha256sum "${PAYLOAD}" | awk '{print $1}')"
 NETWORK="$(docker inspect parkio-minio --format '{{range $n,$_ := .NetworkSettings.Networks}}{{$n}}{{"\n"}}{{end}}' | grep -E 'backend|parkio' | head -1)"
-MC_IMAGE="${MINIO_MC_IMAGE:-quay.io/minio/mc@sha256:a5399b66b88543efac8afb08eb2bdcce5904e548ea6fe1a921600cd74f766668}"
+MC_IMAGE="${MINIO_MC_IMAGE:-ghcr.io/adberilgen35/parkio/mc@sha256:456b1e641897329fc9491f9bc8b31df351d728af9a328bf5653707af62d0d6bf}"
 
 docker run --rm --network "${NETWORK}" --entrypoint /bin/sh \
   -v "${PAYLOAD}:/payload:ro" \
