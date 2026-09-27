@@ -17,8 +17,10 @@ on:
       - "scripts/restore-database.sh"
       - "scripts/lib/restore-*.py"
       - "scripts/lib/restore-safe-preflight.sh"
+      - "scripts/lib/recovery_evidence_contract.py"
       - "scripts/test_restore_readiness.py"
       - "scripts/test-restore-safe-preflight.sh"
+      - "scripts/test-recovery-evidence-contract.py"
       - "scripts/ci/restore-drill-01-fixture.sh"
       - "scripts/ci/assert-restore-drill-01.py"
       - "scripts/lib/backup-common.sh"
@@ -84,6 +86,7 @@ jobs:
       - name: Helper unit tests (synthetic fixtures)
         run: |
           python3 scripts/test_restore_readiness.py
+          python3 scripts/test-recovery-evidence-contract.py
           bash scripts/test-restore-safe-preflight.sh
 
       - name: Create throwaway env file

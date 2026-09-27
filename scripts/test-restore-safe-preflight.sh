@@ -410,6 +410,30 @@ if grep -E 'restore-hosted-beta\.sh|restore-database\.sh' \
 else
   ok "WP-06.2B restored-stack uses its own drill DBs, not production entrypoints"
 fi
+
+# --- complete-looking recovery-evidence claim file is not production coverage ---
+python3 - "${STAMP}" <<'PY'
+import json, sys
+from pathlib import Path
+Path(sys.argv[1], "recovery-evidence-claim.json").write_text(json.dumps({
+    "kind": "recovery-evidence-claim",
+    "ledgerDigest": "a" * 64,
+    "coveredThrough": "2026-09-20T03:30:01Z",
+    "captureProtocol": "table-share-lock",
+    "databaseIdentity": "auth-db:isolated-fixture",
+    "producerId": "fixture-producer",
+    "signature": "f" * 64,
+    "publicationId": "watermarks/local-only.json",
+}))
+PY
+write_integrity "${STAMP}"
+: > "${LOG}"
+if run_hosted --recovery-cutoff "2026-09-20T03:30:01Z" >/dev/null 2>&1; then
+  bad "recovery-evidence claim file must not authorize production restore"
+else
+  if no_destroy; then ok "recovery-evidence claim file does not bypass production refusal"; else bad "claim file leaked commands"; fi
+fi
+make_full_stamp "${STAMP}"
 : > "${LOG}"
 if PARKIO_RESTORE_ISOLATED_DRILL=1 PARKIO_RESTORE_PREFLIGHT_DONE=1 \
     PARKIO_ENV_FILE="${ENV_FILE}" "${ROOT}/scripts/restore-database.sh" \
