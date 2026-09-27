@@ -2,12 +2,12 @@
 """Isolated recovery-evidence contract.
 
 A claim file is never trusted evidence. The consumer recomputes the ledger
-digest from durable store bytes, checks protocol, database identity,
-producer HMAC, and a publication receipt. Production verifiedCoverage stays
-false: this module does not authorize restore-hosted-beta.sh.
+digest from store bytes, checks protocol, database identity, producer HMAC,
+publication presence, and freshness against a consumer high-water mark.
 
-#104 SHARE-lock capture is reference only. This file is a disposable
-protocol model plus consumer. It does not import or enable #104.
+This module is a disposable protocol model plus consumer. It does not
+implement persist-before-ACK in production, import #104, or set
+verifiedCoverage=true.
 """
 from __future__ import annotations
 
@@ -15,14 +15,34 @@ import calendar
 import hashlib
 import hmac
 import json
-import os
-import threading
+import re
 import time
 from pathlib import Path
 
 PROTOCOL_LOCK = "table-share-lock"
-REQUIRED_PARTICIPANTS = ("auth", "user", "parking", "media")
-TS_RE = __import__("re").compile(
+# Auth is the coordinator and is not in the configured CSV.
+# The eight names match AccountErasureApplicationService.DEFAULT_PARTICIPANTS.
+CONFIGURED_PARTICIPANTS = (
+    "user",
+    "parking",
+    "media",
+    "moderation",
+    "gamification",
+    "notification",
+    "analytics",
+    "ai-validation",
+)
+REQUIRED_PARTICIPANTS = ("auth",) + CONFIGURED_PARTICIPANTS
+SIGNED_FIELDS = (
+    "schemaVersion",
+    "kind",
+    "ledgerDigest",
+    "coveredThrough",
+    "captureProtocol",
+    "databaseIdentity",
+    "producerId",
+)
+TS_RE = re.compile(
     r"^(\d{4})-(\d{2})-(\d{2})T(\d{2})[:-](\d{2})[:-](\d{2})(?:\.\d+)?Z$"
 )
 
@@ -44,7 +64,7 @@ class AckRefused(ContractError):
 
 
 class ExposeRefused(ContractError):
-    """A required participant ACK is missing or mismatched."""
+    """A required participant ACK is missing, mismatched, or unbound."""
 
 
 def parse_ts(value, label="timestamp"):
@@ -73,6 +93,23 @@ def sign(payload, key):
 def verify_hmac(payload, key, signature):
     expected = sign(payload, key)
     return hmac.compare_digest(expected, signature or "")
+
+
+def configured_participants_from_auth(root=None):
+    """Read the configured participant CSV from auth source. Auth is not listed."""
+    root = Path(root or Path(__file__).resolve().parents[2])
+    text = (root / "services/auth-service/src/main/java/com/parkio/auth/"
+            "application/AccountErasureApplicationService.java").read_text(encoding="utf-8")
+    start = text.find("DEFAULT_PARTICIPANTS = List.of(")
+    if start < 0:
+        raise ContractError("DEFAULT_PARTICIPANTS missing from auth")
+    block = text[start:text.find(");", start)]
+    names = tuple(re.findall(r'"([a-z0-9-]+)"', block))
+    if names != CONFIGURED_PARTICIPANTS:
+        raise ContractError(
+            f"configured participants drifted: {names} != {CONFIGURED_PARTICIPANTS}"
+        )
+    return names
 
 
 class IsolatedObjectStore:
@@ -113,13 +150,13 @@ class IsolatedAuthTable:
     """In-process SHARE-lock model of READ COMMITTED tombstone capture.
 
     Writers wait while a snapshot holds SHARE. An aborted capture publishes
-    nothing. This is isolated proof, not live Postgres.
+    nothing. This is a model/unit fixture, not live PostgreSQL.
     """
 
     def __init__(self, database_identity, clock=None):
         self.database_identity = database_identity
         self._rows = {}
-        self._share = threading.Lock()
+        self._share = __import__("threading").Lock()
         self._clock = clock or (lambda: int(time.time()))
         self.fail_next_capture = False
         self.hold_share = None
@@ -183,15 +220,13 @@ def build_store_object(snapshot, producer_id):
     return body, ledger
 
 
+def signed_subset(body):
+    return {key: body[key] for key in SIGNED_FIELDS}
+
+
 def publish_snapshot(store, snapshot, producer_id, producer_key):
     body, ledger = build_store_object(snapshot, producer_id)
-    body["signature"] = sign(
-        {key: body[key] for key in (
-            "schemaVersion", "kind", "ledgerDigest", "coveredThrough",
-            "captureProtocol", "databaseIdentity", "producerId",
-        )},
-        producer_key,
-    )
+    body["signature"] = sign(signed_subset(body), producer_key)
     encoded = canonical_bytes(body)
     publication_id = f"watermarks/{body['ledgerDigest']}.json"
     receipt = store.put(publication_id, encoded)
@@ -219,8 +254,13 @@ def write_claim_file(path, body, publication_id):
     return claim
 
 
-def verify_evidence(store, expected_db, trusted_keys, cutoff, claim=None, publication_id=None):
-    """Reject unless store bytes, HMAC, protocol, and identity independently match."""
+def verify_evidence(store, expected_db, trusted_keys, cutoff, claim=None,
+                    publication_id=None, last_accepted=None):
+    """Reject unless store bytes, HMAC, protocol, identity, and freshness match.
+
+    HMAC plus a publication receipt do not prove completeness through a
+    capture boundary. verifiedCoverage stays false.
+    """
     pub_id = publication_id or (claim or {}).get("publicationId")
     if not pub_id:
         raise ContractError("no publication identity; a claim file is not evidence")
@@ -239,11 +279,7 @@ def verify_evidence(store, expected_db, trusted_keys, cutoff, claim=None, public
     key = trusted_keys.get(producer)
     if not key:
         raise ContractError("unknown producer")
-    signed = {key_name: body[key_name] for key_name in (
-        "schemaVersion", "kind", "ledgerDigest", "coveredThrough",
-        "captureProtocol", "databaseIdentity", "producerId",
-    )}
-    if not verify_hmac(signed, key, body.get("signature")):
+    if not verify_hmac(signed_subset(body), key, body.get("signature")):
         raise ContractError("producer signature mismatch")
     ledger = store.get(f"ledgers/{body['ledgerDigest']}.json")
     if sha256_hex(ledger) != body["ledgerDigest"]:
@@ -261,6 +297,15 @@ def verify_evidence(store, expected_db, trusted_keys, cutoff, claim=None, public
         raise ContractError(
             "cutoff exceeds durable watermark; do not lower the cutoff"
         )
+    if last_accepted is not None:
+        last_epoch = parse_ts(last_accepted["coveredThrough"], "last-accepted")
+        if covered_epoch < last_epoch:
+            raise ContractError(
+                "older valid evidence replayed; freshness failed"
+            )
+        if (covered_epoch == last_epoch
+                and body["ledgerDigest"] != last_accepted["ledgerDigest"]):
+            raise ContractError("conflicting evidence at the same watermark")
     return {
         "verdict": "ACCEPT_ISOLATED",
         "verifiedCoverage": False,
@@ -270,12 +315,40 @@ def verify_evidence(store, expected_db, trusted_keys, cutoff, claim=None, public
         "captureProtocol": body["captureProtocol"],
         "databaseIdentity": body["databaseIdentity"],
         "erasureSetDigest": body["ledgerDigest"],
+        "publicationId": pub_id,
         "ids": [item["authUserId"] for item in body["entries"]],
+        "trustProved": (
+            "producer-authenticity",
+            "byte-integrity",
+        ),
+        "trustNotProved": (
+            "durable-store-publication",
+            "completeness-through-boundary",
+            "freshness-without-consumer-watermark",
+        ),
     }
 
 
+class EvidenceConsumer:
+    """Consumer-side high-water mark. Independent of submitted evidence."""
+
+    def __init__(self):
+        self.last_accepted = None
+
+    def accept(self, store, expected_db, trusted_keys, cutoff, **kwargs):
+        verified = verify_evidence(
+            store, expected_db, trusted_keys, cutoff,
+            last_accepted=self.last_accepted, **kwargs,
+        )
+        self.last_accepted = {
+            "coveredThrough": verified["coveredThrough"],
+            "ledgerDigest": verified["ledgerDigest"],
+        }
+        return verified
+
+
 class DurableAckGate:
-    """ACK only after a persist-acked watermark includes the identifier."""
+    """Proposed persist-before-ACK gate. Not the production API response."""
 
     def __init__(self):
         self._acks = {}
@@ -296,31 +369,48 @@ class DurableAckGate:
 
 
 class ReplayCompletion:
-    def __init__(self, erasure_set_digest, required=REQUIRED_PARTICIPANTS):
+    """ACKs bind to this recovery attempt, restored dataset, and erasure-set digest."""
+
+    def __init__(self, recovery_attempt_id, restored_dataset_id, erasure_set_digest,
+                 required=REQUIRED_PARTICIPANTS):
+        self.recovery_attempt_id = recovery_attempt_id
+        self.restored_dataset_id = restored_dataset_id
         self.erasure_set_digest = erasure_set_digest
         self.required = required
         self._acks = {}
 
-    def ack(self, participant, erasure_set_digest):
+    def ack(self, participant, recovery_attempt_id, restored_dataset_id, erasure_set_digest):
+        if recovery_attempt_id != self.recovery_attempt_id:
+            raise ExposeRefused("ACK recoveryAttemptId mismatch")
+        if restored_dataset_id != self.restored_dataset_id:
+            raise ExposeRefused("ACK restoredDatasetId mismatch")
         if erasure_set_digest != self.erasure_set_digest:
             raise ExposeRefused("participant ACK digest mismatch")
-        self._acks[participant] = erasure_set_digest
+        self._acks[participant] = {
+            "recoveryAttemptId": recovery_attempt_id,
+            "restoredDatasetId": restored_dataset_id,
+            "erasureSetDigest": erasure_set_digest,
+        }
 
     def expose(self):
-        missing = [name for name in self.required if self._acks.get(name) != self.erasure_set_digest]
+        missing = [
+            name for name in self.required
+            if self._acks.get(name, {}).get("erasureSetDigest") != self.erasure_set_digest
+        ]
         if missing:
             raise ExposeRefused(f"incomplete participant ACKs: {','.join(missing)}")
         return {"expose": False, "replayComplete": True, "publicTraffic": "REFUSED_UNTIL_OPERATOR"}
 
 
-def isolated_replay(auth_status, media, erased_ids, unrelated_id, digest):
+def isolated_replay(auth_status, media, erased_ids, unrelated_id, digest,
+                    recovery_attempt_id, restored_dataset_id):
     """Apply isolated erase. Does not start applications."""
     for user_id in erased_ids:
         auth_status[user_id] = "ERASED"
         media.erase_owner(user_id)
-    completion = ReplayCompletion(digest)
+    completion = ReplayCompletion(recovery_attempt_id, restored_dataset_id, digest)
     for participant in REQUIRED_PARTICIPANTS:
-        completion.ack(participant, digest)
+        completion.ack(participant, recovery_attempt_id, restored_dataset_id, digest)
     completion.expose()
     if any(auth_status.get(user_id) == "ACTIVE" for user_id in erased_ids):
         raise ExposeRefused("erased account remained ACTIVE")
@@ -339,6 +429,25 @@ def restore_erasure_ledger_still_unverified(root=None):
     text = (root / "scripts/lib/restore-erasure-ledger.py").read_text(encoding="utf-8")
     if '"verifiedCoverage": False' not in text and '"verifiedCoverage":False' not in text:
         raise ContractError("restore-erasure-ledger.py lost verifiedCoverage=false")
-    if "verifiedCoverage\": True" in text or "verifiedCoverage = True" in text:
+    if '"verifiedCoverage": True' in text or "verifiedCoverage = True" in text:
         raise ContractError("production verifiedCoverage was enabled")
+    return True
+
+
+def persist_before_ack_is_not_implemented(root=None):
+    """Production requestDeletion ACKs the HTTP request after auth TX commit."""
+    root = Path(root or Path(__file__).resolve().parents[2])
+    path = (root / "services/auth-service/src/main/java/com/parkio/auth/"
+            "application/AccountErasureApplicationService.java")
+    text = path.read_text(encoding="utf-8")
+    start = text.find("public AccountDeletionStatusView requestDeletion")
+    if start < 0:
+        raise ContractError("requestDeletion missing")
+    method = text[start:text.find("\n    @Transactional", start + 1)]
+    if 'return new AccountDeletionStatusView(requestId, "IN_PROGRESS")' not in method:
+        raise ContractError("requestDeletion no longer returns IN_PROGRESS after commit")
+    lowered = method.lower()
+    for needle in ("offhost", "watermark", "persist-ack", "publicationid"):
+        if needle in lowered:
+            raise ContractError(f"requestDeletion unexpectedly mentions {needle}")
     return True

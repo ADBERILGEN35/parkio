@@ -8,141 +8,237 @@ not modified.
 file that *contains* digest, covered-through, protocol, database identity,
 producer, and publication fields is **not** trusted evidence.
 
-## 1. Trustworthy coverage
+This revision corrects the first draft: persist-before-ACK is **proposed**,
+the required participant set is **not** auth/user/parking/media, and HMAC
+plus a publication receipt do **not** prove completeness or freshness.
 
-The consumer verifies six independent facts. All must pass. Any one
-missing is `REJECT`.
+## 1. Current erasure path (implemented)
 
-| Fact | How it is verified | Not sufficient |
+`DELETE /api/v1/account` + password, flag
+`parkio.privacy.account-erasure.enabled` default **false**.
+
+In one auth transaction `AccountErasureApplicationService.requestDeletion`:
+
+1. Application clock `now = clock.instant()` at request start.
+2. `beginErasure`, revoke refresh, consume reset tokens.
+3. Insert `erased_user_tombstones` (`erased_at = now`).
+4. Insert `erasure_requests` status `IN_PROGRESS`.
+5. Append outbox `UserErasureRequested` (`eventId`, `erasureRequestId`,
+   `authUserId`, `occurredAt`).
+6. Commit. HTTP returns `IN_PROGRESS` immediately.
+
+After commit, auth outbox relay publishes to Kafka `parkio.privacy.erasure`
+(14d). Each configured participant consumes, inserts its local tombstone,
+mutates its store, then `POST /internal/erasure/acks`. Auth upserts
+`erasure_service_acks`. `COMPLETE` is set only after SUCCESS acks from
+**every configured participant**. `replayTombstones` republishes the
+outbox; it does not create an off-host record.
+
+There is **no** durable off-host publication in production.
+`PARKIO_OFFHOST_ERASURE_ENABLED` stays unset. `#104` lock-capture remains
+HOLD. Nightly `erasure-tombstones.sh` is an unlocked `SELECT`, not a
+lock-protocol watermark.
+
+### Acknowledgement states
+
+| State | What is true | Implemented today? |
 |---|---|---|
-| Ledger digest | SHA-256 of the **store** object bytes, recomputed by the consumer | A `ledgerDigest` field on a local file |
-| Covered-through | Taken from the **signed store object**, compared to the requested cutoff | Stamp `timestamp`, merged IDs, `--supplemental-covered-through` |
-| Capture protocol | Must be `table-share-lock` on the signed object | Operator-written protocol on a claim file |
-| Database identity | Signed `databaseIdentity` must equal the expected auth DB | Hostname or env guess |
-| Producer authenticity | HMAC over the canonical store object with a **pre-distributed** fixture/producer key | Checksum of a still-present file |
-| Durable publication | The object store returns the bytes and a publication receipt **before** ACK | “We wrote a file next to the stamp” |
+| **Request accepted** | Auth TX committed. API returned `IN_PROGRESS`. Tombstone + request + outbox exist in auth DB. | Yes. This is the HTTP ACK. |
+| **Erasure pending durable recording** | Identifier is not in any persist-acked lock-protocol watermark. | Yes, for every erasure: no such watermark exists. |
+| **Erasure durably recorded** | A SHARE-lock snapshot that includes the identifier was persist-acked in an off-host store and can be re-verified. | **Proposed only.** `DurableAckGate` is the isolated model. Production does not wait for persist. |
+| **Erasure completed across participants** | Auth `erasure_requests.status = COMPLETE` after all configured participant SUCCESS acks. Local participant tombstones / deletes / sentinel rewrites done. | Yes, in the service databases and (for media) object storage. Still not off-host coverage. |
 
-Handing the consumer only a claim file, with no store object, is `REJECT`
-even when every field looks complete.
+Do not present persist-before-ACK as current behavior. A client that
+received `IN_PROGRESS` has a **request accepted**, not a durable
+erasure record.
 
-### #104 SHARE-lock capture (reference, not imported)
+## 2. Primary-host loss and unknown tail
 
-`#104` `offhost-erasure-locked-snapshot.sql` is the intended live capture:
+Pending requests live in:
 
-1. `BEGIN` at **READ COMMITTED**
-2. Bounded `lock_timeout` / `statement_timeout`
-3. `LOCK TABLE erased_user_tombstones IN SHARE MODE`
-4. `SELECT` the full table and `clock_timestamp()` **while the lock is held**
-5. `COMMIT` or abort. Persist happens **after** the DB transaction ends.
+- auth PostgreSQL (`erasure_requests`, `erased_user_tombstones`, outbox)
+- Kafka `parkio.privacy.erasure` for 14d **if** the outbox already relayed
+  **and** Kafka survives
+- participant local DBs / media objects **if** those handlers already ran
+- backup stamp `erasure-tombstones.json` only up to an unlocked SELECT RPO
 
-Reviewed properties (not re-implemented here, not enabled):
+None of those is a persist-acked erasure record. Calling a lost request
+**unacknowledged** does not preserve it. After auth-DB loss, the coordinator
+row is gone unless a dump contains it. Kafka, if still present, is a
+14-day command, not coverage. Participant tombstones, if those hosts
+survived, are local residue, not a certified watermark.
 
-- **Isolation.** SHARE waits for in-flight writers and blocks new
-  `INSERT`/`UPDATE`/`DELETE` on the table. The following `SELECT` sees
-  every row whose inserting transaction has committed.
-- **Snapshot timing.** `coveredThrough` is the auth-DB
-  `clock_timestamp()` in the same locked statement as the row set. It is
-  a commit horizon on that clock, **not** a bound on `erased_at`
-  (request-start application clock).
-- **Concurrent writes.** A concurrent insert waits. It cannot commit
-  during the lock, so it cannot enter that snapshot. After `COMMIT` the
-  lock is released; later commits are the post-watermark gap.
-- **Rollback / timeout.** `ON_ERROR_STOP` aborts. Nonzero psql is not
-  publishable coverage (`#104` `locked_snapshot` raises).
-- **Persist-after-transaction.** `#104` `snapshot_then_publish` returns
-  from psql (lock released) before `persist_complete_snapshot`. A persist
-  failure writes no seal and does not advance coverage. The window
-  between COMMIT and persist-ack is uncertified.
+**Unknown missing tail** (cutoff later than the last persist-acked
+watermark, or no watermark at all):
 
-`#104` does **not** yet provide producer authenticity, database-identity
-binding, or a durable publication receipt independent of a local file.
-`--visibility-protocol` on a file is operator attestation. `FileStore`
-is not off-host. This contract treats those as unresolved.
+1. Restore verdict is `BLOCKED`.
+2. Do **not** lower the cutoff to an older watermark to obtain PASS.
+3. Do **not** expose the restored copy because an older watermark or a
+   COMPLETE stamp exists.
+4. Do **not** invent coverage from backup RPO, Kafka, or “unacknowledged”.
+5. The operator keeps the copy unexposed. Clients re-request erasure after
+   recovery if the identifier is still present and they still need it.
 
-## 2. Post-watermark erasure gap
+Database backup RPO is not erasure-record durability.
 
-If an erasure **commits** after the last persist-acked watermark and the
-primary host is then lost, that erasure is **uncertified**. The recovery
-cutoff is the incident requirement. It is not lowered to the watermark
-to obtain PASS. An older watermark is not permission to resurrect a
-later-deleted principal from a dump that still has them `ACTIVE`.
+## 3. Participant inventory (from the repository)
 
-**Acknowledgement semantics**
+Configured ACK set (`DEFAULT_PARTICIPANTS` /
+`parkio.privacy.account-erasure.participants`):
 
-An erasure is **acknowledged** only after:
-
-1. the tombstone is committed in auth, and
-2. a lock-protocol snapshot that **includes that identifier** is
-   persist-acked in the off-host store, and
-3. the consumer can re-verify that store object.
-
-Until then the requester sees `ERASURE_PENDING_DURABLE`. Client retries
-are expected. A committed-but-unpublished tombstone on a host that later
-dies is **not** an ACK.
-
-**Failure handling**
-
-| Failure | Durable effect | Caller |
+| Participant | Why required | Recoverable user-linked data |
 |---|---|---|
-| Capture TX abort / lock timeout | No snapshot, no ACK | Retry capture |
-| Persist failure after successful capture | No publication receipt, no ACK, coverage does not advance | Retry persist of that snapshot; do not ACK |
-| Host loss after ACK | Watermark + ledger survive in the off-host store | Restore may use that watermark only |
-| Host loss before ACK | Erasure is uncertified and unacknowledged | Restore BLOCKED if cutoff exceeds last ACK’d watermark; user/client retries erasure after recovery |
+| **auth** (coordinator, not in CSV) | Tombstone, request, outbox, ERASED row, refresh/reset revocation | `erased_user_tombstones`, `erasure_requests`, `erasure_service_acks`, `auth_users`, outbox |
+| **user** | Handler hard-deletes profile graph | profile, saved/favourite/recent places, prefs, vehicle, trust projection, pending status |
+| **parking** | Handler deletes sessions/logs and anonymizes shared facts | sessions, search/view/verify logs, idempotency; spots `owner_user_id` → sentinel; trust/fraud/reward subject ids |
+| **media** | Handler deletes objects then soft-deletes metadata | `media_files` + object storage keys; idempotency |
+| **moderation** | Handler retains cases; rewrites identities | reports, cases, appeals, violations → sentinel |
+| **gamification** | Handler deletes progress; anonymizes points | level progress, trust scores, contribution snapshots, `point_transactions` |
+| **notification** | Handler hard-deletes tokens and messages | device tokens, prefs, notifications, delivery attempts |
+| **analytics** | Handler deletes user-keyed rows | `analytics_events`, `user_analytics_snapshots` |
+| **ai-validation** | Handler anonymizes requester | `ai_validation_results.requested_by_user_id` → sentinel |
 
-**Database backup RPO ≠ erasure-record durability.** A COMPLETE stamp
-can be minutes or hours behind. Nightly dump export is an unlocked
-`SELECT` and does not certify commit-visible coverage. Erasure-record
-durability is only the persist-acked lock-protocol watermark. Backup
-RPO may lose recent rows; it must not be used as erasure ACK.
+### Other stores (required for restore completeness, not extra ACK names)
 
-## 3. Replay completion
+| Store | Role | Why not a ninth ACK name |
+|---|---|---|
+| Media object storage (MinIO) | User-owned bytes | Covered by the **media** ACK. Replay must delete restored objects, not only DB rows. |
+| Kafka `parkio.privacy.erasure` + auth outbox | Durable command (14d) | Transport, not a participant store of profile data. |
+| Backup stamp `erasure-tombstones.json` | Unlocked export in each stamp | RPO artifact. Not lock-protocol coverage. |
+| Per-participant `erased_user_tombstones` | Local idempotency | Follows the service ACK; not a separate expose voter. |
 
-Public traffic stays disabled until every required participant has a
-**durable ACK** for the same erasure-set digest.
+### Excluded (not in this workflow)
 
-Required isolated participants: `auth`, `user`, `parking`, `media`.
+| Store | Why excluded |
+|---|---|
+| Gateway waitlist | Email-hash only; no `authUserId`. Separate workflow. |
+| Ranking evaluation / shadow tables | No account user id (aggregates / correlation ids). |
+| Analytics daily/parking snapshots | Documented as aggregates without `user_id`. |
+| Municipal operator VARCHAR / public explore | Not account-linked. |
+| SPA telemetry | Designed without user id / coords / facility ids. |
+| Gateway Redis status cache | Derived cache, not a recovery dataset. |
 
-- **auth:** replay tombstones; no tombstoned account is `ACTIVE`.
-- **user / parking:** participant erase/de-identify for those IDs.
-- **media:** listed objects for those IDs are absent from the isolated
-  bucket; unrelated objects remain.
+auth/user/parking/media is **not** exhaustive. Expose after restore
+requires durable ACKs from **auth plus the eight configured services**,
+bound as below.
 
-ACKs are `{participant, erasureSetDigest, status=erased}` and are
-idempotent. Retry repeats the same digest. If any required participant
-is missing or reports a different digest, expose is `REFUSED`. This
-check does not start gateway, Slack, or Fluent Bit.
+### ACK binding (proposed restore gate)
 
-## 4. Production path
+Each participant ACK is
+`{participant, recoveryAttemptId, restoredDatasetId, erasureSetDigest}`.
+
+- `recoveryAttemptId` — this restore run, not a previous drill.
+- `restoredDatasetId` — the restored stamp / dump identity.
+- `erasureSetDigest` — SHA-256 of the verified ledger bytes.
+
+An ACK from an earlier attempt, a different restored dataset, or a
+different digest cannot authorize a new restore. Production
+`erasure_service_acks` today bind only `(erasure_request_id, service_name)`
+and are **not** restore-attempt scoped.
+
+## 4. Evidence trust (five facts)
+
+Serialization of the signed subset and of the ledger is
+`json.dumps(..., separators=(",", ":"), sort_keys=True)` UTF-8.
+HMAC-SHA256 is over that canonical signed subset only.
+
+Signed fields: `schemaVersion`, `kind`, `ledgerDigest`, `coveredThrough`,
+`captureProtocol`, `databaseIdentity`, `producerId`.
+`entries` are bound only through `ledgerDigest` (SHA-256 of
+`{"kind":"erasure-ledger","entries":...}`).
+`signature`, `publicationId`, and the store receipt are **not** signed.
+
+Producer keys and the expected `databaseIdentity` are taken from
+**pre-distributed consumer config**, never from the submitted object.
+
+| Fact | What would prove it | What this consumer actually checks | Not proved by HMAC + receipt |
+|---|---|---|---|
+| **Producer authenticity** | HMAC with a pre-distributed key for `producerId` | Yes, over `SIGNED_FIELDS` | — |
+| **Byte integrity** | Recomputed SHA-256 of store ledger bytes equals `ledgerDigest`; entries rematch | Yes | — |
+| **Durable store publication** | Off-host WORM/versioned ack independent of the producer host | Directory `put` + etag only (fixture) | Receipt is local; FileStore is not off-host |
+| **Completeness through a boundary** | SHARE lock held at capture; every commit-visible row included | **Not checked.** Protocol is a signed claim | A valid signature on an incomplete snapshot is still `ACCEPT_ISOLATED` |
+| **Freshness** | Consumer high-water mark refuses older valid objects | Yes, only if the consumer retained `last_accepted` | First verify, or a reset consumer, accepts any old valid object with cutoff ≤ coveredThrough |
+
+`ACCEPT_ISOLATED` therefore proves producer authenticity and byte
+integrity of the presented object. It does **not** certify production,
+durable off-host publication, completeness, or freshness without a
+consumer watermark. `verifiedCoverage` stays false.
+
+### Assumptions and remaining limitations
+
+- **Delayed / out-of-order publication.** Two valid objects can exist.
+  The consumer rejects an older `coveredThrough` after a newer accept,
+  and rejects a different digest at the same watermark. It cannot order
+  publications that the store has not yet shown it.
+- **Old valid evidence.** HMAC remains valid after rotation if the old
+  key is still trusted. Freshness is a consumer watermark, not a
+  signature expiry or key `not-before`.
+- **Key rotation.** No key id, not-before, or retirement schedule.
+  Tests use a fixture HMAC key.
+- **Transaction isolation.** The consumer cannot verify that SHARE was
+  held. Isolation is a capture-time property.
+- **Clock rollback.** `coveredThrough` is the capture clock. A rolled-back
+  DB clock can emit an older legitimate watermark (rejected as stale) or,
+  if the consumer watermark is reset, re-accept an older signed object.
+- `#104` `FileStore` and `--visibility-protocol` remain operator
+  attestation, not this consumer.
+
+## 5. Test classification
+
+| Scenario | Class |
+|---|---|
+| `verifiedCoverage` stays false | model/unit (source guard) |
+| persist-before-ACK is not implemented | model/unit (source guard) |
+| configured participant inventory | model/unit (auth source) |
+| claim file alone rejected | model/unit (directory store) |
+| store-backed `ACCEPT_ISOLATED` | model/unit; **not** a real object-store test |
+| in-process SHARE wait | model/unit simulation |
+| capture abort publishes nothing | model/unit |
+| persist failure does not ACK | model/unit (proposed gate) |
+| missing / tampered / wrong DB | model/unit |
+| post-watermark host loss / unknown tail | model/unit |
+| HMAC+receipt incomplete snapshot | model/unit negative |
+| older valid evidence freshness | model/unit negative |
+| key rotation / retired key | model/unit |
+| missing participant ACK | model/unit |
+| prior-attempt ACK replay | model/unit negative |
+| isolated replay preserves unrelated | **modeled replay**, not production-entrypoint acceptance |
+| concurrent SHARE vs INSERT | **real PostgreSQL locking** (`test-recovery-evidence-pg-share-lock.py`) |
+| aborted SHARE capture | **real PostgreSQL locking** |
+| `test-restore-safe-preflight.sh` | **real restore-entrypoint** with docker/openssl/psql **stubs**; existing production refusal intact |
+
+## 6. Production path
 
 `parkio_restore_refuse_unverified_production` is unchanged. Isolated
 fixtures may continue to use `--isolated-fixture`. This package does
 **not** set `verifiedCoverage=true` and does not add an evidence-file
 bypass.
 
-## 5. Implementation sequence
+## 7. Unresolved design decisions
 
-1. This draft: contract consumer, isolated capture/persist/replay model,
-   synthetic tests, restore-entrypoint refusal retained.
-2. Later, without un-HOLD of #104: adapt #104 lock-capture **output** to
-   this consumer’s store object (still disabled in production).
-3. Later: real off-host WORM/versioned store and producer-key
-   distribution. Checksums alone stay insufficient.
-4. Later: auth ACK only after persist-ack (product change).
-5. Later: wire replay-completion into `restore-hosted-beta.sh` **after**
+1. When (if ever) auth HTTP ACK waits for persist-ack.
+2. Off-host store account, WORM/versioning, and deletion resistance
+   (`#104` blocker). Not designed here.
+3. Producer key distribution, rotation, and retirement (`not-before`).
+4. `databaseIdentity` schema (system identifier vs DSN).
+5. Whether `#104` seal JSON is adopted or replaced.
+6. How restore-attempt ACKs are stored so they cannot be reused across
+   runs (production table is request-scoped only).
+7. Whether Kafka / participant-local tombstones after auth-DB loss are
+   treated as residue to reconcile or as untrusted.
+8. Independent monotonic publication sequence vs DB `clock_timestamp()`
+   under clock rollback.
+9. Completeness proof a consumer can verify without trusting the
+   producer’s protocol claim.
+
+## 8. Implementation sequence
+
+1. This draft: corrected contract, inventory, trust split, synthetic
+   tests including disposable PostgreSQL SHARE-lock, restore refusal
+   retained.
+2. Later, without un-HOLD of #104: adapt lock-capture **output** to this
+   consumer (still disabled in production).
+3. Later: real off-host store and producer-key distribution.
+4. Later: product change for persist-before-ACK, if accepted.
+5. Later: bind replay-completion into `restore-hosted-beta.sh` **after**
    a production watermark exists. Not in this PR.
-
-## 6. Unresolved assumptions and #104 overlap
-
-- Producer key distribution and rotation are not designed for
-  production. Tests use a fixture HMAC key.
-- The durable store (account, container, WORM, deletion resistance) is
-  still a `#104` blocker. This PR uses a disposable directory store.
-- Auth `databaseIdentity` schema (system identifier vs DSN) is not
-  finalized.
-- Whether `#104` seal JSON is adopted or replaced is open. Do not merge
-  the formats by copying `#104` files here.
-- `#104` `restore-drill-01.sh` sources recovery-coordination; this PR
-  does not.
-- Live Postgres SHARE-lock behavior is accepted as `#104`’s claim; this
-  PR models it in-process for isolated proof and does not start
-  production exporters.
