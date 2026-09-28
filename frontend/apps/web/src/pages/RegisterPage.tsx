@@ -97,16 +97,21 @@ export function RegisterPage() {
     setTraceId(undefined);
     trackProductEvent('auth_signup_attempted');
     try {
-      await authApi.register({
+      const registered = await authApi.register({
         email: values.email,
         password: values.password,
         locale: registrationLocale(linkLocale, i18n.language),
         inviteToken: inviteToken ?? undefined,
       });
-      setPendingProfile({
-        displayName: values.displayName.trim(),
-        phoneNumber: values.phoneNumber?.trim() || undefined,
-      });
+      // Bind the deferred profile fields to the account the backend just created.
+      setPendingProfile(
+        {
+          displayName: values.displayName.trim(),
+          phoneNumber: values.phoneNumber?.trim() || undefined,
+        },
+        // A response without an id stores nothing (fail closed).
+        registered.user?.id ?? '',
+      );
       trackProductEvent('auth_signup_api_succeeded');
       showSuccess(t('auth:register.success'));
       navigate(`/check-email?email=${encodeURIComponent(values.email.trim())}`);

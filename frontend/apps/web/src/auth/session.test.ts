@@ -9,7 +9,7 @@ import type { AuthResponse, User } from '@parkio/types';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { createAuthStore, type AuthStore } from './auth-store';
 import type { CrossTabSessionSync } from './crossTabSync';
-import { setPendingProfile } from './pendingProfile';
+import { getPendingProfile, setPendingProfile } from './pendingProfile';
 import { createAuthSession, type AuthSession } from './session';
 
 const user: User = {
@@ -120,12 +120,23 @@ describe('deterministic authentication bootstrap', () => {
   });
 
   it('settles restoration with pending profile data as provisioning', async () => {
-    setPendingProfile({ displayName: 'New Driver' });
+    setPendingProfile({ displayName: 'New Driver' }, user.id);
 
     await expect(authSession.bootstrap('protected')).resolves.toBe('provisioning');
 
     expect(authStore.getState().provisioning).toBe(true);
     expect(authStore.getState().identity.state).toBe('provisioning');
+  });
+
+  it('discards pending profile data owned by another account when restoring a session', async () => {
+    // e.g. another tab signed in as a different account; this tab restores that cookie session.
+    setPendingProfile({ displayName: 'New Driver', phoneNumber: '5551234567' }, replacementUser.id);
+
+    await expect(authSession.bootstrap('protected')).resolves.toBe('authenticated');
+
+    expect(authStore.getState().provisioning).toBe(false);
+    expect(getPendingProfile()).toBeNull();
+    expect(sessionStorage.getItem('parkio.pendingProfile')).toBeNull();
   });
 
   it('settles ACCOUNT_NOT_ACTIVE as account-restricted', async () => {
