@@ -137,8 +137,6 @@ class PrivilegedEpochSignedHttpIT {
         registry.add("parkio.gateway.session-epoch.request-timeout", () -> "PT5S");
         registry.add("spring.datasource.url",
                 () -> "jdbc:h2:mem:parkio_gateway_epoch_http_it;MODE=PostgreSQL;DATABASE_TO_LOWER=TRUE;DB_CLOSE_DELAY=-1");
-        registry.add("spring.datasource.url",
-                () -> "jdbc:h2:mem:parkio_gateway_epoch_http_it;MODE=PostgreSQL;DATABASE_TO_LOWER=TRUE;DB_CLOSE_DELAY=-1");
     }
 
     @AfterAll
