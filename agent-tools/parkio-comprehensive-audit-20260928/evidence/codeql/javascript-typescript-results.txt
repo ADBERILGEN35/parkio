@@ -1,0 +1,5 @@
+7.8 js/xss-through-dom frontend/apps/web/src/pages/UploadPage.tsx:433 | [DOM text](1) is reinterpreted as HTML without escaping meta-characters.
+7.8 js/xss-through-dom frontend/apps/web/src/pages/UploadPage.tsx:879 | [DOM text](1) is reinterpreted as HTML without escaping meta-characters.
+7.8 js/incomplete-url-substring-sanitization scripts/validate-marketing-site.mjs:155 | '[https://www.linkedin.com/in/oguzhan-tasyaran/](1)' can be anywhere in the URL, and arbitrary hosts may come before or 
+7.8 js/incomplete-url-substring-sanitization scripts/validate-marketing-site.mjs:159 | '[https://www.linkedin.com/company/parkio-app](1)' can be anywhere in the URL, and arbitrary hosts may come before or af
+7.8 js/incomplete-url-substring-sanitization scripts/validate-marketing-site.mjs:164 | '[https://www.linkedin.com/company/parkio-app](1)' can be anywhere in the URL, and arbitrary hosts may come before or af

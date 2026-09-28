@@ -1,0 +1,51 @@
+PASS unfinalized trap removes COMPLETE and stale .COMPLETE.* markers
+PASS finalized COMPLETE is left in place by the trap
+=== Parkio hosted-beta backup ===
+PASS full production path exits 0
+PASS full success writes COMPLETE and sealed MinIO only
+PASS full success dumped 10 encrypted databases
+PASS full success uploaded COMPLETE
+PASS full success updates backup-current.json
+PASS full success metrics report local and offsite success
+PASS success-path prune of expired stamps is allowed
+=== Parkio hosted-beta backup ===
+PASS partial MinIO mirror exits nonzero
+PASS partial MinIO run writes no COMPLETE
+PASS partial MinIO tree was discarded and not sealed
+PASS partial MinIO did not upload COMPLETE
+PASS previous good stamp survives MinIO failure
+PASS MinIO failure does not publish backup-current.json
+=== Parkio hosted-beta backup ===
+FAILED (dump errored or empty)
+PASS DB dump failure exits nonzero
+PASS DB dump failure has no COMPLETE and no upload
+PASS previous good stamp survives DB dump failure
+=== Parkio hosted-beta backup ===
+PASS malformed ledger exits nonzero
+PASS malformed ledger has no COMPLETE and no upload
+PASS previous good stamp survives ledger failure
+=== Parkio hosted-beta backup ===
+PASS ledger query failure exits nonzero without COMPLETE
+=== Parkio hosted-beta backup ===
+PASS MinIO seal failure exits nonzero
+PASS seal failure discards MinIO and does not upload
+PASS previous good stamp survives seal failure
+=== Parkio hosted-beta backup ===
+PASS SHA256SUMS failure exits nonzero without COMPLETE or upload
+PASS interrupted run leaves no usable COMPLETE and no upload
+PASS standalone DB-only path exits 0
+PASS DB-only success writes COMPLETE without requiring MinIO
+PASS DB-only success uploads COMPLETE
+FAILED (dump errored or empty)
+PASS standalone DB-only dump failure exits nonzero
+PASS standalone DB-only failure has no COMPLETE and no upload
+PASS previous good stamp survives standalone DB-only failure
+PASS standalone malformed ledger exits nonzero without COMPLETE
+=== Parkio hosted-beta backup ===
+PASS offsite failure exits nonzero
+PASS local COMPLETE remains after local gates pass and offsite fails
+PASS offsite failure did not publish COMPLETE remotely
+PASS offsite failure metrics are last_success=0 offsite_last_success=0
+PASS offsite failure does not publish backup-current.json as success
+PASS previous good stamp survives offsite failure
+=== backup complete gate: pass=40 fail=0 ===

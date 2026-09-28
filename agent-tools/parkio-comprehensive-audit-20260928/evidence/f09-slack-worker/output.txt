@@ -1,0 +1,7 @@
+IncompleteRead -> UNCAUGHT IncompleteRead
+BadStatusLine -> UNCAUGHT BadStatusLine
+LineTooLong -> UNCAUGHT LineTooLong
+cycle 0 worker crashed: IncompleteRead
+cycle 2 worker crashed: IncompleteRead
+cycle 4 worker crashed: IncompleteRead
+sends 3 row {'status': 'in_flight', 'attempts': 0}

@@ -1,0 +1,25 @@
+PASS missing COMPLETE fails with zero destructive commands
+PASS malformed manifest fails closed
+PASS failed DB/MinIO manifest fails closed
+PASS checksum mismatch fails before decrypt
+PASS missing dump fails closed
+PASS path traversal in SHA256SUMS fails closed
+PASS DB-only stamp refused as full-system backup
+PASS missing ledger fails closed
+PASS malformed ledger fails closed
+PASS insufficient recovery coverage blocks before decrypt
+PASS missing recovery cutoff fails closed
+PASS incomplete supplemental timestamp does not certify coverage
+PASS incomplete ledger with new manifest timestamp stays BLOCKED
+PASS equal cutoff without verified coverage stays BLOCKED
+PASS standalone database production apply refused
+PASS MinIO-only production scope refused
+PASS preflight/drill env flags do not bypass production refusal
+PASS CI_EPHEMERAL restored-stack flags do not bypass production refusal
+PASS WP-06.2B restored-stack uses its own drill DBs, not production entrypoints
+PASS standalone env flags do not bypass production refusal
+PASS standalone dump outside stamp fails closed
+PASS incompatible client fails before apply
+PASS valid synthetic databases restore through the safe path
+PASS failed apply stops further database restores
+PASS post-stamp erasure is in merged set; unrelated account stays out

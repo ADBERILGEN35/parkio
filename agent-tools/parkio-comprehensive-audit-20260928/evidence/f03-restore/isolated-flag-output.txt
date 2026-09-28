@@ -1,0 +1,10 @@
+--- A: production path without flag ---
+exit=3
+destructive lines: 0
+--- B: same command + --isolated-fixture (no ticket supplied) ---
+exit=0
+destructive lines: 11
+PSQL_APPLY psql -v ON_ERROR_STOP=1 -U parkio_auth -d parkio_auth
+PSQL_APPLY psql -v ON_ERROR_STOP=1 -U parkio_gateway -d parkio_gateway
+PSQL_APPLY psql -v ON_ERROR_STOP=1 -U parkio_user -d parkio_user
+PSQL_APPLY psql -v ON_ERROR_STOP=1 -U parkio_parking -d parkio_parking

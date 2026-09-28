@@ -1,0 +1,2 @@
+results: 1
+8.8 java/spring-disabled-csrf-protection services/auth-service/src/main/java/com/parkio/auth/infrastructure/security/SecurityConfig.java:27 | CSRF vulnerability due to protection being disabled.
