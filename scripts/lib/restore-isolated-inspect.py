@@ -3,9 +3,14 @@
 
 A CLI flag, env var, container name, or marker file is not isolation proof.
 The orchestrator records docker context/host/engine plus container, network
-and volume identities; apply must use those same identities after a live
-re-inspect. This prevents accidental/misrouted supported-script use. It does
-not stop a malicious root operator who can edit these scripts.
+and volume identities; apply and teardown must use those same identities after
+a live re-inspect. This prevents accidental/misrouted supported-script use. It
+does not stop a malicious root operator who can edit these scripts.
+
+Supported fixture volume topology: Docker local driver, Scope=local, empty
+Options, fixture labels, and consumers limited to ticket container IDs.
+Local-driver bind/device/NFS/CIFS options are rejected. Ticket bodyDigest is
+SHA-256 integrity of the ticket body, not producer authentication.
 """
 from __future__ import annotations
 
@@ -43,6 +48,7 @@ PG_NAME_RE = re.compile(r"^/parkio-iso-[0-9a-f]{12}-pg(?:-[a-z0-9-]+)?$")
 MINIO_NAME_RE = re.compile(r"^/parkio-iso-[0-9a-f]{12}-minio$")
 VOLUME_RE = re.compile(r"^parkio-iso-[0-9a-f]{12}-vol(?:-[a-z0-9-]+)?$")
 NETWORK_RE = re.compile(r"^parkio-iso-[0-9a-f]{12}$")
+RECORDED_ID_RE = re.compile(r"^[0-9a-f]{64}$")
 FORBIDDEN_NETWORKS = {
     "parkio-backend",
     "backend",
@@ -58,6 +64,22 @@ FORBIDDEN_VOLUME_HINT = re.compile(
     r"(parkio-postgres|minio-data|parkio_postgres|parkio_minio|rd-postgres)",
     re.I,
 )
+FIXTURE_LABEL = "parkio.isolated.fixture"
+PROJECT_LABEL = "parkio.isolated.project"
+ABSENT_NEEDLES = (
+    "no such object",
+    "no such container",
+    "no such volume",
+    "no such network",
+)
+UNAVAILABLE_NEEDLES = (
+    "permission denied",
+    "cannot connect",
+    "connection refused",
+    "daemon",
+    "access denied",
+    "operation not permitted",
+)
 
 
 def fail(message: str) -> None:
@@ -71,22 +93,35 @@ def docker_argv(args: tuple[str, ...]) -> list[str]:
     return ["docker", *args]
 
 
-def docker(*args: str) -> str:
+def docker(*args: str, allow_absent: bool = False) -> str:
     argv = docker_argv(args)
     try:
         completed = subprocess.run(
             argv,
-            check=True,
+            check=False,
             capture_output=True,
             text=True,
             stdin=subprocess.DEVNULL,
         )
     except FileNotFoundError as exc:
         raise ValueError("docker CLI is not available") from exc
-    except subprocess.CalledProcessError as exc:
-        err = (exc.stderr or exc.stdout or "").strip()
-        raise ValueError(f"docker {' '.join(args)} failed: {err or exc.returncode}") from exc
-    return completed.stdout
+    if completed.returncode == 0:
+        return completed.stdout
+    err = (completed.stderr or completed.stdout or "").strip()
+    err_l = err.lower()
+    if allow_absent and _is_absent_error(err_l):
+        return ""
+    raise ValueError(f"docker {' '.join(args)} failed: {err or completed.returncode}")
+
+
+def _is_absent_error(err: str) -> bool:
+    if any(needle in err for needle in ABSENT_NEEDLES):
+        return True
+    return re.search(r"\b(network|volume|container) \S+ not found\b", err) is not None
+
+
+def _is_unavailable_error(err: str) -> bool:
+    return any(needle in err for needle in UNAVAILABLE_NEEDLES)
 
 
 def docker_json(*args: str):
@@ -142,11 +177,51 @@ def inspect_container(ref: str) -> dict:
 
 
 def inspect_network(ref: str) -> dict:
-    return docker_json("inspect", "--type=network", ref)
+    return docker_json("network", "inspect", ref)
 
 
 def inspect_volume(ref: str) -> dict:
-    return docker_json("inspect", "--type=volume", ref)
+    return docker_json("volume", "inspect", ref)
+
+
+def inspect_maybe(kind: str, ref: str) -> dict | None:
+    if not (ref or "").strip():
+        fail(f"refusing {kind} operation without a recorded identity")
+    if kind == "network":
+        argv = docker_argv(("network", "inspect", ref))
+    elif kind == "volume":
+        argv = docker_argv(("volume", "inspect", ref))
+    elif kind == "container":
+        argv = docker_argv(("inspect", "--type=container", ref))
+    else:
+        fail(f"unsupported inspect kind {kind}")
+    try:
+        completed = subprocess.run(
+            argv,
+            check=False,
+            capture_output=True,
+            text=True,
+            stdin=subprocess.DEVNULL,
+        )
+    except FileNotFoundError as exc:
+        raise ValueError("docker CLI is not available") from exc
+    err = (completed.stderr or completed.stdout or "").strip()
+    err_l = err.lower()
+    if completed.returncode != 0:
+        if _is_absent_error(err_l):
+            return None
+        fail(f"docker inspect {kind} {ref} failed: {err or completed.returncode}")
+    raw = (completed.stdout or "").strip()
+    if not raw:
+        fail(f"docker inspect {kind} {ref} returned empty output")
+    data = json.loads(raw)
+    if isinstance(data, list):
+        if not data:
+            return None
+        if len(data) != 1:
+            fail(f"docker inspect {kind} {ref} returned an ambiguous list")
+        return data[0]
+    return data
 
 
 def assert_not_production_name(name: str) -> None:
@@ -170,10 +245,28 @@ def assert_network(net: dict, project: str, expected_id: str | None = None) -> s
         fail("fixture network must be internal")
     if net.get("Ingress"):
         fail("fixture network must not be ingress")
+    assert_fixture_labels(net, project, f"network '{name}'")
     return net_id
 
 
-def assert_volume(name: str, project: str) -> None:
+def object_labels(obj: dict) -> dict:
+    labels = obj.get("Labels")
+    if isinstance(labels, dict) and labels:
+        return labels
+    cfg = obj.get("Config") or {}
+    nested = cfg.get("Labels")
+    return nested if isinstance(nested, dict) else {}
+
+
+def assert_fixture_labels(obj: dict, project: str, kind: str) -> None:
+    labels = object_labels(obj)
+    if str(labels.get(FIXTURE_LABEL) or "") != "1":
+        fail(f"{kind} is not labeled as a parkio isolated fixture")
+    if str(labels.get(PROJECT_LABEL) or "") != project:
+        fail(f"{kind} project label is not {project}")
+
+
+def assert_volume(name: str, project: str, allowed_consumer_ids: set[str] | None = None) -> None:
     if not VOLUME_RE.match(name or "") or not name.startswith(project):
         fail(f"volume '{name}' is not a fixture volume")
     if FORBIDDEN_VOLUME_HINT.search(name or ""):
@@ -181,19 +274,57 @@ def assert_volume(name: str, project: str) -> None:
     vol = inspect_volume(name)
     if (vol.get("Name") or "") != name:
         fail(f"volume name drifted for {name}")
-    if (vol.get("Driver") or "local") != "local":
+    if (vol.get("Driver") or "") != "local":
         fail(f"volume '{name}' uses unsupported driver")
+    scope = (vol.get("Scope") or "local").lower()
+    if scope != "local":
+        fail(f"volume '{name}' has unsupported scope {scope}")
+    options = vol.get("Options")
+    if options in (None, "", []):
+        options = {}
+    if not isinstance(options, dict) or options:
+        fail(
+            f"volume '{name}' uses unsupported local-driver options {options!r}; "
+            "supported topology is Driver=local with empty Options "
+            "(no bind/device/NFS/CIFS or other storage opts)"
+        )
+    assert_fixture_labels(vol, project, f"volume '{name}'")
+    consumers = volume_consumer_ids(name)
+    allowed = allowed_consumer_ids if allowed_consumer_ids is not None else None
+    if allowed is not None:
+        extra = [cid for cid in consumers if cid not in allowed]
+        if extra:
+            fail(f"volume '{name}' is attached to unrelated containers {extra}")
 
 
-def live_container_state(container: dict, project: str, name_re: re.Pattern) -> dict:
+def volume_consumer_ids(name: str) -> list[str]:
+    raw = docker("ps", "-aq", "--no-trunc", "--filter", f"volume={name}")
+    return [norm_id(line.strip()) for line in raw.splitlines() if line.strip()]
+
+
+def live_container_state(
+    container: dict,
+    project: str,
+    name_re: re.Pattern,
+    *,
+    require_running: bool = True,
+    expected_name: str | None = None,
+    expected_id: str | None = None,
+) -> dict:
     name = container.get("Name") or ""
     assert_not_production_name(name)
+    assert_fixture_labels(container, project, f"container {name}")
     if not name_re.match(name):
         fail(f"container name '{name}' is not a supported fixture identity")
     if not container_basename(name).startswith(project):
         fail(f"container '{name}' does not belong to project {project}")
+    if expected_name and container_basename(name) != expected_name:
+        fail(f"container '{name}' is not the ticket identity {expected_name}")
+    cid = norm_id(container.get("Id") or "")
+    if expected_id and cid != norm_id(expected_id):
+        fail(f"container '{name}' id drifted from the ticket")
     state = container.get("State") or {}
-    if not state.get("Running"):
+    if require_running and not state.get("Running"):
         fail(f"container {name} is not running")
     host_config = container.get("HostConfig") or {}
     if host_config.get("NetworkMode") in ("host", "none", "container"):
@@ -215,10 +346,10 @@ def live_container_state(container: dict, project: str, name_re: re.Pattern) -> 
         if mtype != "volume":
             fail(f"container {name} has unsupported mount type {mtype}")
         vol_name = mount.get("Name") or ""
-        assert_volume(vol_name, project)
+        assert_volume(vol_name, project, allowed_consumer_ids={cid})
         volume_names.append(vol_name)
-    if not volume_names:
-        fail(f"container {name} has no fixture volume")
+    if len(volume_names) != 1:
+        fail(f"container {name} must mount exactly one fixture volume (found {len(volume_names)})")
     networks = (container.get("NetworkSettings") or {}).get("Networks") or {}
     if len(networks) != 1:
         fail(f"container {name} is attached to {len(networks)} networks; expected exactly one")
@@ -231,11 +362,12 @@ def live_container_state(container: dict, project: str, name_re: re.Pattern) -> 
         if alias in FORBIDDEN_ALIASES:
             fail(f"container {name} has production DNS alias '{alias}'")
     return {
-        "id": norm_id(container.get("Id") or ""),
+        "id": cid,
         "name": container_basename(name),
         "networkName": net_name,
         "networkId": norm_id(net_cfg.get("NetworkID") or ""),
         "volumeName": volume_names[0],
+        "volumeNames": volume_names,
         "env": _env_map(container),
     }
 
@@ -436,6 +568,153 @@ def resolve_minio(ticket_path: str, stamp_dir: str) -> dict:
     }
 
 
+def require_recorded_id(value: str, label: str) -> str:
+    ident = norm_id(value or "")
+    if not ident:
+        fail(f"{label} is missing a recorded docker id")
+    base = container_basename(ident)
+    if base in PRODUCTION_CONTAINERS or base.startswith("parkio-postgres-") or base in FORBIDDEN_NETWORKS:
+        fail(f"{label} is a production/default identity")
+    if not RECORDED_ID_RE.match(ident):
+        fail(f"{label} is not a recorded docker id")
+    return ident
+
+
+def ticket_destinations(ticket: dict) -> list[tuple[str, dict, re.Pattern]]:
+    dests: list[tuple[str, dict, re.Pattern]] = []
+    for service, dest in postgres_destinations(ticket).items():
+        dests.append((f"postgres.{service}", dest, PG_NAME_RE))
+    minio = ticket.get("minio")
+    if minio is not None:
+        if not isinstance(minio, dict):
+            fail("ticket minio destination is invalid")
+        dests.append(("minio", minio, MINIO_NAME_RE))
+    if not dests:
+        fail("isolated-fixture ticket has no destinations")
+    return dests
+
+
+def authorize_ticket_dest(label: str, dest: dict, project: str, name_re: re.Pattern) -> tuple[str, str, str]:
+    if not isinstance(dest, dict):
+        fail(f"{label} is invalid")
+    cid = require_recorded_id(dest.get("containerId") or "", f"{label} containerId")
+    cname = dest.get("containerName") or ""
+    assert_not_production_name(cname)
+    inspect_name = cname if cname.startswith("/") else f"/{cname}"
+    if not name_re.match(inspect_name):
+        fail(f"{label} containerName is not a supported fixture identity")
+    if not container_basename(cname).startswith(project):
+        fail(f"{label} containerName does not belong to project {project}")
+    vol = dest.get("volumeName") or ""
+    if not VOLUME_RE.match(vol) or not vol.startswith(project):
+        fail(f"{label} volume is not a fixture volume")
+    if FORBIDDEN_VOLUME_HINT.search(vol):
+        fail(f"{label} volume resembles a production volume")
+    return cid, container_basename(cname), vol
+
+
+def teardown_ticket(ticket_path: str) -> None:
+    """Fail-closed fixture teardown. Mutates only after a complete authorized plan.
+
+    bodyDigest is integrity of the ticket bytes, not producer authentication.
+    """
+    ticket = load_ticket(ticket_path)
+    verify_schema(ticket)
+    verify_digest(ticket)
+    live = daemon_identity()
+    verify_daemon(ticket, live)
+    project = ticket.get("project")
+    if not PROJECT_RE.match(project or ""):
+        fail("ticket project is not parkio-iso-<12-hex>")
+    net = ticket.get("network") or {}
+    if not isinstance(net, dict):
+        fail("ticket network is invalid")
+    net_id = require_recorded_id(net.get("id") or "", "ticket network id")
+    if (net.get("name") or "") != project:
+        fail("ticket network name is not the fixture project")
+    if project in FORBIDDEN_NETWORKS:
+        fail("ticket network is a production/shared network")
+
+    dests = ticket_destinations(ticket)
+    ticket_container_ids: set[str] = set()
+    ticket_names: dict[str, tuple[str, re.Pattern]] = {}
+    ticket_volumes: list[str] = []
+    seen_volumes: set[str] = set()
+    for label, dest, name_re in dests:
+        cid, cname, vol = authorize_ticket_dest(label, dest, project, name_re)
+        ticket_container_ids.add(cid)
+        prev = ticket_names.get(cid)
+        if prev and prev[0] != cname:
+            fail(f"{label} reuses a container id with a different name")
+        ticket_names[cid] = (cname, name_re)
+        if vol not in seen_volumes:
+            ticket_volumes.append(vol)
+            seen_volumes.add(vol)
+
+    planned: list[tuple[str, str]] = []
+    seen_plan: set[tuple[str, str]] = set()
+
+    def plan(kind: str, ident: str) -> None:
+        item = (kind, ident)
+        if item not in seen_plan:
+            planned.append(item)
+            seen_plan.add(item)
+
+    for cid, (cname, name_re) in ticket_names.items():
+        obj = inspect_maybe("container", cid)
+        if obj is None:
+            continue
+        live_container_state(
+            obj,
+            project,
+            name_re,
+            require_running=False,
+            expected_name=cname,
+            expected_id=cid,
+        )
+        plan("container", cid)
+
+    for vol in ticket_volumes:
+        obj = inspect_maybe("volume", vol)
+        if obj is None:
+            continue
+        assert_volume(vol, project, allowed_consumer_ids=ticket_container_ids)
+        plan("volume", vol)
+
+    net_obj = inspect_maybe("network", net_id)
+    if net_obj is None:
+        by_name = inspect_maybe("network", project)
+        if by_name is not None:
+            other_id = norm_id(by_name.get("Id") or "")
+            if other_id != net_id:
+                fail("fixture network name exists with a different id; refusing name-based delete")
+            assert_network(by_name, project, net_id)
+            plan("network", net_id)
+    else:
+        assert_network(net_obj, project, net_id)
+        plan("network", net_id)
+
+    for kind, ident in planned:
+        try:
+            if kind == "container":
+                docker("rm", "-f", ident)
+            elif kind == "volume":
+                docker("volume", "rm", ident)
+            else:
+                docker("network", "rm", ident)
+        except ValueError as exc:
+            fail(f"failed to delete {kind} {ident}: {exc}")
+
+    for cid in ticket_container_ids:
+        if inspect_maybe("container", cid) is not None:
+            fail(f"container {cid} still exists after teardown")
+    for vol in ticket_volumes:
+        if inspect_maybe("volume", vol) is not None:
+            fail(f"volume {vol} still exists after teardown")
+    if inspect_maybe("network", net_id) is not None:
+        fail("fixture network still exists after teardown")
+
+
 def _pg_user(service: str) -> tuple[str, str]:
     if service not in SERVICE_CREDS:
         fail(f"unknown service '{service}'")
@@ -506,6 +785,7 @@ def main(argv=None) -> int:
     parser.add_argument("--resolve-postgres")
     parser.add_argument("--resolve-minio", action="store_true")
     parser.add_argument("--issue-from-live", action="store_true")
+    parser.add_argument("--teardown", action="store_true")
     parser.add_argument("--out")
     parser.add_argument("--project")
     parser.add_argument("--network-name")
@@ -519,6 +799,11 @@ def main(argv=None) -> int:
                 fail("--issue-from-live requires --out --stamp --project --network-name --postgres-name --services")
             issue_from_live(args)
             print(args.out)
+            return 0
+        if args.teardown:
+            if not args.ticket:
+                fail("--teardown requires --ticket")
+            teardown_ticket(args.ticket)
             return 0
         if not args.ticket or not args.stamp:
             fail("--ticket/--check-ticket and --stamp are required")
