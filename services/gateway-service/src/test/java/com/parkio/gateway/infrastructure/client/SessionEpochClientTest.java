@@ -70,6 +70,28 @@ class SessionEpochClientTest {
                 .isInstanceOf(SessionEpochUnavailableException.class);
     }
 
+    @Test
+    void missingEpochFieldIsUnavailable() {
+        ClientResponse missingEpoch = ClientResponse.create(HttpStatus.OK)
+                .header("Content-Type", MediaType.APPLICATION_JSON_VALUE)
+                .body("{\"userId\":\"u1\"}")
+                .build();
+
+        assertThatThrownBy(() -> clientReturning(missingEpoch).fetchCurrentEpoch("u1").block())
+                .isInstanceOf(SessionEpochUnavailableException.class);
+    }
+
+    @Test
+    void mismatchedUserIdIsUnavailable() {
+        ClientResponse wrongUser = ClientResponse.create(HttpStatus.OK)
+                .header("Content-Type", MediaType.APPLICATION_JSON_VALUE)
+                .body("{\"userId\":\"other\",\"sessionEpoch\":0}")
+                .build();
+
+        assertThatThrownBy(() -> clientReturning(wrongUser).fetchCurrentEpoch("u1").block())
+                .isInstanceOf(SessionEpochUnavailableException.class);
+    }
+
     private static ExchangeFunction stub(ClientResponse response) {
         return request -> Mono.just(response);
     }
