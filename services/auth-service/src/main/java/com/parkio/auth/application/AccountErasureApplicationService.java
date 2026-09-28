@@ -1,6 +1,9 @@
 package com.parkio.auth.application;
 
 import com.parkio.auth.application.port.AuthUserRepository;
+import com.parkio.auth.application.port.DurableErasurePutResult;
+import com.parkio.auth.application.port.DurableErasureRecord;
+import com.parkio.auth.application.port.DurableErasureRecordStore;
 import com.parkio.auth.application.port.InboxEventRepository;
 import com.parkio.auth.application.port.OutboxEventAppender;
 import com.parkio.auth.application.port.PasswordHasher;
@@ -31,9 +34,16 @@ import java.util.UUID;
 import java.util.stream.Collectors;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.beans.factory.ObjectProvider;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.PlatformTransactionManager;
+import org.springframework.transaction.TransactionDefinition;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.transaction.support.TransactionSynchronization;
+import org.springframework.transaction.support.TransactionSynchronizationManager;
+import org.springframework.transaction.support.TransactionTemplate;
 
 @Service
 public class AccountErasureApplicationService {
@@ -63,6 +73,10 @@ public class AccountErasureApplicationService {
     private final Clock clock;
     private final boolean enabled;
     private final Set<String> participants;
+    private final boolean durableRecordingEnabled;
+    private final DurableErasureRecordStore durableStore;
+    private final TransactionTemplate requiresNew;
+    private final TransactionTemplate withoutTransaction;
 
     public AccountErasureApplicationService(
             AuthUserRepository users,
@@ -76,9 +90,30 @@ public class AccountErasureApplicationService {
             ErasedUserTombstoneJpaRepository tombstones,
             ErasureMetrics metrics,
             Clock clock,
-            @Value("${parkio.privacy.account-erasure.enabled:false}") boolean enabled,
-            @Value("${parkio.privacy.account-erasure.participants:user,parking,media,moderation,gamification,notification,analytics,ai-validation}")
-                    String participantsCsv) {
+            boolean enabled,
+            String participantsCsv) {
+        this(users, refreshTokens, passwordResets, passwordHasher, outbox, inbox,
+                requests, acks, tombstones, metrics, clock, enabled, participantsCsv,
+                false, (DurableErasureRecordStore) null, (PlatformTransactionManager) null);
+    }
+
+    public AccountErasureApplicationService(
+            AuthUserRepository users,
+            RefreshTokenRepository refreshTokens,
+            PasswordResetRepository passwordResets,
+            PasswordHasher passwordHasher,
+            OutboxEventAppender outbox,
+            InboxEventRepository inbox,
+            ErasureRequestJpaRepository requests,
+            ErasureServiceAckJpaRepository acks,
+            ErasedUserTombstoneJpaRepository tombstones,
+            ErasureMetrics metrics,
+            Clock clock,
+            boolean enabled,
+            String participantsCsv,
+            boolean durableRecordingEnabled,
+            DurableErasureRecordStore durableStore,
+            PlatformTransactionManager transactionManager) {
         this.users = users;
         this.refreshTokens = refreshTokens;
         this.passwordResets = passwordResets;
@@ -95,12 +130,53 @@ public class AccountErasureApplicationService {
                 .map(String::trim)
                 .filter(s -> !s.isEmpty())
                 .collect(Collectors.toUnmodifiableSet());
+        this.durableRecordingEnabled = durableRecordingEnabled;
+        this.durableStore = durableStore;
+        if (transactionManager == null) {
+            this.requiresNew = null;
+            this.withoutTransaction = null;
+        } else {
+            TransactionTemplate newTx = new TransactionTemplate(transactionManager);
+            newTx.setPropagationBehavior(TransactionDefinition.PROPAGATION_REQUIRES_NEW);
+            this.requiresNew = newTx;
+            TransactionTemplate suspended = new TransactionTemplate(transactionManager);
+            suspended.setPropagationBehavior(TransactionDefinition.PROPAGATION_NOT_SUPPORTED);
+            this.withoutTransaction = suspended;
+        }
+    }
+
+    @Autowired
+    public AccountErasureApplicationService(
+            AuthUserRepository users,
+            RefreshTokenRepository refreshTokens,
+            PasswordResetRepository passwordResets,
+            PasswordHasher passwordHasher,
+            OutboxEventAppender outbox,
+            InboxEventRepository inbox,
+            ErasureRequestJpaRepository requests,
+            ErasureServiceAckJpaRepository acks,
+            ErasedUserTombstoneJpaRepository tombstones,
+            ErasureMetrics metrics,
+            Clock clock,
+            @Value("${parkio.privacy.account-erasure.enabled:false}") boolean enabled,
+            @Value("${parkio.privacy.account-erasure.participants:user,parking,media,moderation,gamification,notification,analytics,ai-validation}")
+                    String participantsCsv,
+            @Value("${parkio.privacy.account-erasure.durable-recording-enabled:false}") boolean durableRecordingEnabled,
+            ObjectProvider<DurableErasureRecordStore> durableStores,
+            ObjectProvider<PlatformTransactionManager> transactionManagers) {
+        this(users, refreshTokens, passwordResets, passwordHasher, outbox, inbox,
+                requests, acks, tombstones, metrics, clock, enabled, participantsCsv,
+                durableRecordingEnabled, durableStores.getIfAvailable(),
+                transactionManagers.getIfAvailable());
     }
 
     @Transactional
     public AccountDeletionStatusView requestDeletion(UUID principalUserId, String password) {
         if (!enabled) {
             throw new AuthException(AuthErrorCode.ACCOUNT_ERASURE_DISABLED);
+        }
+        if (durableRecordingEnabled && durableStore == null) {
+            throw new AuthException(AuthErrorCode.DURABLE_RECORDING_UNAVAILABLE);
         }
         AuthUser user = users.findById(principalUserId)
                 .orElseThrow(() -> new AuthException(AuthErrorCode.USER_NOT_FOUND));
@@ -113,6 +189,9 @@ public class AccountErasureApplicationService {
             String status = existing.get().getStatus();
             if ("COMPLETE".equals(status) || "IN_PROGRESS".equals(status) || "REQUESTED".equals(status)
                     || "FAILED_RETRYING".equals(status)) {
+                if (durableRecordingEnabled && "PENDING_DURABLE".equals(existing.get().getDurableRecordingStatus())) {
+                    schedulePersistAfterCommit(existing.get().getId());
+                }
                 return new AccountDeletionStatusView(existing.get().getId(), publicStatus(existing.get()));
             }
         }
@@ -125,10 +204,16 @@ public class AccountErasureApplicationService {
         tombstones.save(new ErasedUserTombstoneEntity(user.id(), now));
         UUID requestId = UUID.randomUUID();
         ErasureRequestEntity request = new ErasureRequestEntity(requestId, user.id(), "IN_PROGRESS", now);
+        if (durableRecordingEnabled) {
+            request.markPendingDurable();
+        }
         requests.save(request);
         outbox.append(UserErasureRequestedEvent.of(requestId, user.id(), now));
         metrics.requested();
         log.info("erasure requested requestId={} service=auth status=IN_PROGRESS", requestId);
+        if (durableRecordingEnabled) {
+            schedulePersistAfterCommit(requestId);
+        }
         return new AccountDeletionStatusView(requestId, "IN_PROGRESS");
     }
 
@@ -173,6 +258,32 @@ public class AccountErasureApplicationService {
         }
     }
 
+    public void persistDurableRecord(UUID requestId) {
+        if (!durableRecordingEnabled) {
+            return;
+        }
+        if (durableStore == null) {
+            throw new AuthException(AuthErrorCode.DURABLE_RECORDING_UNAVAILABLE);
+        }
+        ErasureRequestEntity request = requests.findById(requestId)
+                .orElseThrow(() -> new AuthException(AuthErrorCode.USER_NOT_FOUND));
+        DurableErasureRecord candidate = DurableErasureRecord.of(
+                request.getId(), request.getAuthUserId(), request.getRequestedAt());
+        var existing = durableStore.findByRequestId(requestId);
+        if (existing.isPresent() && !existing.get().bodyDigest().equals(candidate.bodyDigest())) {
+            throw new AuthException(AuthErrorCode.CONFLICT, "ambiguous durable recording retry");
+        }
+        if (existing.isEmpty()) {
+            if (withoutTransaction != null) {
+                withoutTransaction.executeWithoutResult(status -> putDurable(candidate));
+            } else {
+                putDurable(candidate);
+            }
+        }
+        markDurablyRecorded(requestId);
+        tryCompleteIfReady(requestId);
+    }
+
     @Transactional
     public int replayTombstones() {
         int replayed = 0;
@@ -189,7 +300,14 @@ public class AccountErasureApplicationService {
                 var existing = requests.findFirstByAuthUserIdOrderByRequestedAtDesc(user.id());
                 UUID requestId = existing.map(ErasureRequestEntity::getId).orElseGet(UUID::randomUUID);
                 if (existing.isEmpty()) {
-                    requests.save(new ErasureRequestEntity(requestId, user.id(), "IN_PROGRESS", now));
+                    ErasureRequestEntity created = new ErasureRequestEntity(requestId, user.id(), "IN_PROGRESS", now);
+                    if (durableRecordingEnabled) {
+                        created.markPendingDurable();
+                    }
+                    requests.save(created);
+                    if (durableRecordingEnabled) {
+                        schedulePersistAfterCommit(requestId);
+                    }
                 } else if ("COMPLETE".equals(existing.get().getStatus())) {
                     completeLocal(existing.get());
                     replayed++;
@@ -210,6 +328,58 @@ public class AccountErasureApplicationService {
         return requests.countStuckBefore(clock.instant().minus(sla));
     }
 
+    private void putDurable(DurableErasureRecord candidate) {
+        DurableErasurePutResult result = durableStore.putIfAbsent(candidate);
+        if (result.conflict()) {
+            throw new AuthException(AuthErrorCode.CONFLICT, "ambiguous durable recording retry");
+        }
+    }
+
+    private void schedulePersistAfterCommit(UUID requestId) {
+        if (TransactionSynchronizationManager.isSynchronizationActive()) {
+            TransactionSynchronizationManager.registerSynchronization(new TransactionSynchronization() {
+                @Override
+                public void afterCommit() {
+                    persistDurableRecord(requestId);
+                }
+            });
+        } else {
+            persistDurableRecord(requestId);
+        }
+    }
+
+    private void markDurablyRecorded(UUID requestId) {
+        Runnable update = () -> {
+            ErasureRequestEntity request = requests.findById(requestId)
+                    .orElseThrow(() -> new AuthException(AuthErrorCode.USER_NOT_FOUND));
+            request.markDurablyRecorded();
+            requests.save(request);
+        };
+        if (requiresNew != null) {
+            requiresNew.executeWithoutResult(status -> update.run());
+        } else {
+            update.run();
+        }
+    }
+
+    private void tryCompleteIfReady(UUID requestId) {
+        Runnable work = () -> {
+            ErasureRequestEntity request = requests.findById(requestId).orElse(null);
+            if (request == null) {
+                return;
+            }
+            long success = acks.countByErasureRequestIdAndStatus(requestId, "SUCCESS");
+            if (success >= participants.size()) {
+                completeLocal(request);
+            }
+        };
+        if (requiresNew != null && !TransactionSynchronizationManager.isActualTransactionActive()) {
+            requiresNew.executeWithoutResult(status -> work.run());
+        } else {
+            work.run();
+        }
+    }
+
     private void completeLocalIfAcksPresent(UUID authUserId) {
         requests.findFirstByAuthUserIdOrderByRequestedAtDesc(authUserId).ifPresent(request -> {
             long success = acks.countByErasureRequestIdAndStatus(request.getId(), "SUCCESS");
@@ -221,6 +391,9 @@ public class AccountErasureApplicationService {
 
     private void completeLocal(ErasureRequestEntity request) {
         if ("COMPLETE".equals(request.getStatus())) {
+            return;
+        }
+        if (!durableEvidenceSatisfied(request)) {
             return;
         }
         Instant now = clock.instant();
@@ -235,6 +408,19 @@ public class AccountErasureApplicationService {
         requests.save(request);
         metrics.completed(Duration.between(request.getRequestedAt(), now));
         log.info("erasure completed requestId={} service=auth status=COMPLETE", request.getId());
+    }
+
+    private boolean durableEvidenceSatisfied(ErasureRequestEntity request) {
+        if (!durableRecordingEnabled) {
+            return true;
+        }
+        if (durableStore == null) {
+            return false;
+        }
+        if (!"DURABLY_RECORDED".equals(request.getDurableRecordingStatus())) {
+            return false;
+        }
+        return durableStore.findByRequestId(request.getId()).isPresent();
     }
 
     private static String publicStatus(ErasureRequestEntity row) {

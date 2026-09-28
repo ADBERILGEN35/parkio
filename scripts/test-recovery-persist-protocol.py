@@ -30,6 +30,7 @@ from recovery_evidence_contract import (  # noqa: E402
     restore_erasure_ledger_still_unverified,
 )
 from recovery_persist_protocol import (  # noqa: E402
+    FRONTIER_KEY,
     IsolatedErasureCoordinator,
     IsolatedVersionedStore,
     SequenceAllocator,
@@ -42,6 +43,8 @@ ERASED = "00000000-0000-4000-a000-0000000000a1"
 OTHER = "00000000-0000-4000-a000-0000000000b2"
 REQ1 = "11111111-1111-4111-8111-111111111111"
 REQ2 = "22222222-2222-4222-8222-222222222222"
+REQ3 = "33333333-3333-4333-8333-333333333333"
+THIRD = "00000000-0000-4000-a000-0000000000c3"
 DB = "auth-db:isolated-fixture"
 PRODUCER = "fixture-producer"
 KEY = b"parkio-isolated-persist-slice-not-prod"
@@ -100,6 +103,8 @@ class PersistProtocolTest(unittest.TestCase):
         self.assertFalse(failing.exists(erasure_record_id(REQ1)))
         recovered = recover_latest_trusted(failing, DB, self.keys, required_through_sequence=None)
         self.assertIsNone(recovered["latestTrustedSequence"])
+        self.assertEqual(recovered["verdict"], "BLOCKED")
+        self.assertEqual(recovered["abandonedReservations"], [1])
         expected = {
             "recoveryAttemptId": ATTEMPT,
             "restoredDatasetId": DATASET,
@@ -126,13 +131,17 @@ class PersistProtocolTest(unittest.TestCase):
         self.coord.publish_checkpoint(1, [{"authUserId": ERASED, "erasedAt": "2026-09-27T10:00:00Z"}])
         self.coord.crash_forget_memory()
         recovered = IsolatedErasureCoordinator(self.store, DB, PRODUCER, KEY).recover_from_store(self.keys)
+        self.assertEqual(recovered["verdict"], "ACCEPT_ISOLATED")
         self.assertEqual(recovered["latestTrustedSequence"], 1)
+        self.assertEqual(recovered["expectedThrough"], 1)
         self.assertFalse(recovered["certifiedOffHostWorm"])
         self.assertEqual(recovered["durabilityClass"], "process-crash-local")
         self.assertEqual(recovered["pending"][0]["authUserId"], ERASED)
         lost = IsolatedVersionedStore(Path(self.tmp.name) / "empty-host")
         empty = recover_latest_trusted(lost, DB, self.keys)
+        self.assertEqual(empty["verdict"], "UNKNOWN")
         self.assertIsNone(empty["latestTrustedSequence"])
+        self.assertFalse(empty["completenessEstablished"])
         with self.assertRaises(ContractError) as ctx:
             recover_latest_trusted(lost, DB, self.keys, required_through_sequence=1)
         self.assertIn("BLOCKED", str(ctx.exception))
@@ -165,7 +174,9 @@ class PersistProtocolTest(unittest.TestCase):
         other.request_deletion(OTHER, REQ2, "2026-09-27T11:00:00Z")
         self.assertEqual(other.internal(REQ2)["sequence"], 2)
         recovered = recover_latest_trusted(other_store, DB, self.keys)
+        self.assertEqual(recovered["verdict"], "BLOCKED")
         self.assertEqual(recovered["gaps"], [1])
+        self.assertEqual(recovered["expectedThrough"], 2)
         self.assertIsNone(recovered["latestTrustedSequence"])
         self.assertEqual(other.internal(REQ2)["sequence"], 2)
         with self.assertRaises(ContractError) as ctx:
@@ -195,6 +206,87 @@ class PersistProtocolTest(unittest.TestCase):
             coord.ack_participant(REQ1, name, ATTEMPT, DATASET, DIGEST, expected)
         last = coord.try_complete(REQ1, DIGEST)
         self.assertEqual(last["publicStatus"], "COMPLETE")
+
+    def test_missing_highest_record_is_not_certified_by_contiguous_prefix(self):
+        self.coord.request_deletion(ERASED, REQ1, "2026-09-27T10:00:00Z")
+        self.coord.request_deletion(OTHER, REQ2, "2026-09-27T11:00:00Z")
+        self.coord.request_deletion(THIRD, REQ3, "2026-09-27T12:00:00Z")
+        (self.store.root / erasure_record_id(REQ3)).unlink()
+        recovered = recover_latest_trusted(self.store, DB, self.keys)
+        self.assertEqual(recovered["verdict"], "BLOCKED")
+        self.assertFalse(recovered["completenessEstablished"])
+        self.assertEqual(recovered["expectedThrough"], 3)
+        self.assertEqual(recovered["listedMaximumSequence"], 2)
+        self.assertEqual(recovered["gaps"], [3])
+        self.assertIsNone(recovered["latestTrustedSequence"])
+        self.assertEqual(recovered["pending"], [])
+        with self.assertRaises(ContractError) as ctx:
+            recover_latest_trusted(self.store, DB, self.keys, required_through_sequence=3)
+        self.assertIn("BLOCKED", str(ctx.exception))
+
+    def test_lost_reservation_before_publication_blocks_required_sequence(self):
+        failing = IsolatedVersionedStore(Path(self.tmp.name) / "lost-res", fail_on_prefix="records/")
+        coord = IsolatedErasureCoordinator(failing, DB, PRODUCER, KEY)
+        with self.assertRaises(PersistFailed):
+            coord.request_deletion(ERASED, REQ1, "2026-09-27T10:00:00Z")
+        self.assertTrue(failing.exists("sequences/0000000000000001.json"))
+        self.assertFalse(failing.exists(erasure_record_id(REQ1)))
+        recovered = recover_latest_trusted(failing, DB, self.keys)
+        self.assertEqual(recovered["verdict"], "BLOCKED")
+        self.assertEqual(recovered["abandonedReservations"], [1])
+        self.assertEqual(recovered["expectedThrough"], 0)
+        with self.assertRaises(ContractError) as ctx:
+            recover_latest_trusted(failing, DB, self.keys, required_through_sequence=1)
+        self.assertIn("BLOCKED", str(ctx.exception))
+
+    def test_concurrent_writers_and_conflicting_retry_payloads(self):
+        allocated = []
+        errors = []
+
+        def publish(user, req, erased_at):
+            try:
+                view = self.coord.request_deletion(user, req, erased_at)
+                allocated.append((req, view["sequence"]))
+            except Exception as exc:  # noqa: BLE001 — capture worker failures
+                errors.append(exc)
+
+        workers = [
+            threading.Thread(target=publish, args=(ERASED, REQ1, "2026-09-27T10:00:00Z")),
+            threading.Thread(target=publish, args=(OTHER, REQ2, "2026-09-27T11:00:00Z")),
+        ]
+        for worker in workers:
+            worker.start()
+        for worker in workers:
+            worker.join()
+        self.assertEqual(errors, [])
+        self.assertEqual(sorted(seq for _, seq in allocated), [1, 2])
+        retry = IsolatedErasureCoordinator(self.store, DB, PRODUCER, KEY)
+        again = retry.request_deletion(ERASED, REQ1, "2026-09-27T10:00:00Z")
+        self.assertEqual(again["sequence"], dict(allocated)[REQ1])
+        recovered = recover_latest_trusted(self.store, DB, self.keys)
+        self.assertEqual(recovered["verdict"], "ACCEPT_ISOLATED")
+        self.assertEqual(recovered["expectedThrough"], 2)
+        with self.assertRaises(ContractError) as ctx:
+            IsolatedErasureCoordinator(self.store, DB, PRODUCER, KEY).request_deletion(
+                ERASED, REQ1, "2026-09-27T13:00:00Z",
+            )
+        self.assertIn("conflicting", str(ctx.exception))
+
+    def test_losing_local_high_water_marks_uses_only_store_frontier(self):
+        self.coord.request_deletion(ERASED, REQ1, "2026-09-27T10:00:00Z")
+        self.coord.request_deletion(OTHER, REQ2, "2026-09-27T11:00:00Z")
+        self.coord.crash_forget_memory()
+        recovered = IsolatedErasureCoordinator(self.store, DB, PRODUCER, KEY).recover_from_store(self.keys)
+        self.assertEqual(recovered["verdict"], "ACCEPT_ISOLATED")
+        self.assertEqual(recovered["expectedThrough"], 2)
+        self.assertEqual(recovered["latestTrustedSequence"], 2)
+        (self.store.root / FRONTIER_KEY).unlink()
+        unknown = recover_latest_trusted(self.store, DB, self.keys)
+        self.assertEqual(unknown["verdict"], "UNKNOWN")
+        self.assertFalse(unknown["completenessEstablished"])
+        self.assertEqual(unknown["listedMaximumSequence"], 2)
+        self.assertIsNone(unknown["latestTrustedSequence"])
+        self.assertEqual(unknown["pending"], [])
 
 
 if __name__ == "__main__":

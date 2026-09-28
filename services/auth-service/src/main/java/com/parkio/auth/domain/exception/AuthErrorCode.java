@@ -24,6 +24,7 @@ public enum AuthErrorCode {
     BOOTSTRAP_DISABLED("Admin bootstrap is disabled."),
     ACCOUNT_ERASURE_DISABLED("Account deletion is not available."),
     ACCOUNT_ERASURE_IN_PROGRESS("Account deletion is already in progress."),
+    DURABLE_RECORDING_UNAVAILABLE("Durable erasure recording is unavailable."),
     REGISTRATION_CLOSED("Registration is currently closed."),
     REGISTRATION_INVITE_REQUIRED("A valid registration invite is required."),
     REGISTRATION_INVITE_INVALID("Registration invite is invalid or expired.");

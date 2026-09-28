@@ -31,6 +31,9 @@ public class ErasureRequestEntity {
     @Column(name = "last_error_code")
     private String lastErrorCode;
 
+    @Column(name = "durable_recording_status")
+    private String durableRecordingStatus;
+
     @Version
     @Column(name = "version", nullable = false)
     private Long version;
@@ -63,6 +66,18 @@ public class ErasureRequestEntity {
 
     public Instant getCompletedAt() {
         return completedAt;
+    }
+
+    public String getDurableRecordingStatus() {
+        return durableRecordingStatus;
+    }
+
+    public void markPendingDurable() {
+        this.durableRecordingStatus = "PENDING_DURABLE";
+    }
+
+    public void markDurablyRecorded() {
+        this.durableRecordingStatus = "DURABLY_RECORDED";
     }
 
     public void markInProgress() {
