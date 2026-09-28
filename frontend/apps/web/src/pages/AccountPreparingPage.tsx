@@ -80,6 +80,10 @@ export function AccountPreparingPage() {
       }
 
       const requestPhoneReentry = Boolean(pending.needsPhoneReentry && !pending.phoneNumber);
+      // The exact credential of the verified session; the SDK stamps this token
+      // (not whatever replaced it in storage) and only retries after a refresh
+      // that still yields this account.
+      const boundAccessToken = authStore.getState().accessToken;
 
       // Re-entry-only: nothing to PATCH; ask the user to add phone from Profile.
       if (!pending.displayName && !pending.phoneNumber && requestPhoneReentry) {
@@ -87,12 +91,26 @@ export function AccountPreparingPage() {
         return;
       }
 
+      if (!boundAccessToken) {
+        endProvisioning();
+        return;
+      }
+
       setPhase('saving-profile');
       try {
-        await usersApi.updateMyProfile({
-          displayName: pending.displayName || undefined,
-          phoneNumber: pending.phoneNumber || undefined,
-        });
+        await usersApi.updateMyProfileAs(
+          {
+            accessToken: boundAccessToken,
+            allowRetry: (refreshedAccessToken) => {
+              const state = authStore.getState();
+              return state.accessToken === refreshedAccessToken && state.user?.id === user.id;
+            },
+          },
+          {
+            displayName: pending.displayName || undefined,
+            phoneNumber: pending.phoneNumber || undefined,
+          },
+        );
         if (!isCurrentRun(runId) || !sessionUnchanged()) return;
         if (requestPhoneReentry) {
           setPhoneReentryNotice(true);
