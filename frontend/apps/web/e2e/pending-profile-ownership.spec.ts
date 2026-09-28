@@ -26,13 +26,14 @@ interface ProfilePatch {
   authorization: string | undefined;
 }
 
-function tokenFor(account: Account) {
-  return `access-${account.id}`;
+/** Access tokens rotate on every login/refresh: `access-<accountId>-<generation>`. */
+function tokenFor(account: Account, generation = 1) {
+  return `access-${account.id}-${generation}`;
 }
 
-function authResponse(account: Account) {
+function authResponse(account: Account, generation = 1) {
   return {
-    accessToken: tokenFor(account),
+    accessToken: tokenFor(account, generation),
     tokenType: 'Bearer',
     accessTokenExpiresAt: '2999-01-01T00:00:00Z',
     refreshTokenExpiresAt: '2999-01-01T00:00:00Z',
@@ -42,9 +43,21 @@ function authResponse(account: Account) {
 
 /** Context-wide mock so every tab shares one synthetic cookie session. */
 async function installMockApi(context: BrowserContext) {
-  const state = { cookieSession: null as Account | null, patches: [] as ProfilePatch[] };
+  const state = {
+    cookieSession: null as Account | null,
+    patches: [] as ProfilePatch[],
+    refreshes: [] as string[],
+    /** Bearers the backend treats as expired (answered 401 everywhere). */
+    expired: new Set<string>(),
+    /** Awaited before answering a PATCH, to hold a controlled async boundary. */
+    beforePatchResponse: null as null | ((patch: ProfilePatch) => Promise<void>),
+  };
+  let generation = 1;
   const byEmail = new Map([accountA, accountB].map((a) => [a.email, a]));
-  const byToken = new Map([accountA, accountB].map((a) => [`Bearer ${tokenFor(a)}`, a]));
+  const accountForBearer = (authorization: string | undefined) => {
+    if (!authorization || state.expired.has(authorization)) return undefined;
+    return [accountA, accountB].find((a) => authorization.startsWith(`Bearer access-${a.id}-`));
+  };
 
   await context.addInitScript(() => {
     localStorage.setItem('parkio.locale', 'en');
@@ -58,10 +71,14 @@ async function installMockApi(context: BrowserContext) {
     const path = new URL(request.url()).pathname.replace(/^\/api\/v1/, '');
     const json = (data: unknown, status = 200) =>
       route.fulfill({ status, contentType: 'application/json', body: JSON.stringify(data) });
-    const bearerAccount = byToken.get(request.headers().authorization ?? '');
+    const bearerAccount = accountForBearer(request.headers().authorization);
 
     if (method === 'POST' && path === '/auth/refresh-token') {
-      if (state.cookieSession) return json(authResponse(state.cookieSession));
+      if (state.cookieSession) {
+        state.refreshes.push(state.cookieSession.id);
+        generation += 1;
+        return json(authResponse(state.cookieSession, generation));
+      }
       return json({ code: 'INVALID_TOKEN', message: 'No session', traceId: 'e2e-refresh' }, 401);
     }
     if (method === 'GET' && path === '/auth/registration-mode') return json({ mode: 'OPEN' });
@@ -85,7 +102,8 @@ async function installMockApi(context: BrowserContext) {
       const account = byEmail.get(body.email ?? '');
       if (!account) return json({ code: 'INVALID_CREDENTIALS', message: 'no' }, 401);
       state.cookieSession = account;
-      return json(authResponse(account));
+      generation += 1;
+      return json(authResponse(account, generation));
     }
     if (method === 'POST' && path === '/auth/logout') {
       state.cookieSession = null;
@@ -95,10 +113,15 @@ async function installMockApi(context: BrowserContext) {
       return bearerAccount ? json(bearerAccount) : json({ code: 'UNAUTHORIZED', message: 'no' }, 401);
     }
     if (method === 'PATCH' && path === '/users/me') {
-      state.patches.push({
+      const patch = {
         body: request.postDataJSON() as Record<string, unknown>,
         authorization: request.headers().authorization,
-      });
+      };
+      state.patches.push(patch);
+      await state.beforePatchResponse?.(patch);
+      if (!accountForBearer(patch.authorization)) {
+        return json({ code: 'INVALID_TOKEN', message: 'expired', traceId: 'e2e-patch' }, 401);
+      }
       return json(request.postDataJSON());
     }
     if (method === 'GET' && path === '/notifications/me') return json([]);
@@ -140,9 +163,12 @@ function pendingStorage(page: Page) {
   return page.evaluate(() => sessionStorage.getItem('parkio.pendingProfile'));
 }
 
-test.beforeEach(({}, testInfo) => {
-  test.skip(testInfo.project.name !== 'chromium', 'identity handoff is viewport-independent');
-});
+/** Bearer of a recorded request, as the account it authenticates. */
+function bearerOwner(authorization: string | undefined) {
+  if (authorization?.startsWith(`Bearer access-${accountA.id}-`)) return 'A';
+  if (authorization?.startsWith(`Bearer access-${accountB.id}-`)) return 'B';
+  return 'none';
+}
 
 test('A registers, B signs in in the same tab: no profile PATCH', async ({ context, page }) => {
   const api = await installMockApi(context);
@@ -167,7 +193,7 @@ test('A registers, A signs in: exactly one PATCH with A\'s fields under A\'s bea
   expect(api.patches).toEqual([
     {
       body: { displayName: 'Registrant A', phoneNumber: '5551234567' },
-      authorization: `Bearer ${tokenFor(accountA)}`,
+      authorization: `Bearer ${tokenFor(accountA, 2)}`,
     },
   ]);
   expect(await pendingStorage(page)).toBeNull();
@@ -237,4 +263,70 @@ test('multi-tab: another tab signs in as B, the registering tab reloads into B a
   await page.waitForTimeout(500);
   expect(api.patches).toEqual([]);
   expect(await pendingStorage(page)).toBeNull();
+});
+
+test('SDK retry: another tab signs in as B while A\'s PATCH awaits a 401; the retry never carries A\'s fields as B', async ({
+  context,
+  page,
+}) => {
+  const api = await installMockApi(context);
+  await register(page, accountA);
+  await spaGoto(page, '/login');
+
+  let releasePatch!: () => void;
+  const patchHeld = new Promise<void>((resolve) => {
+    releasePatch = resolve;
+  });
+  let firstPatchSeen!: () => void;
+  const firstPatch = new Promise<void>((resolve) => {
+    firstPatchSeen = resolve;
+  });
+  api.beforePatchResponse = async (patch) => {
+    if (api.patches.length === 1) {
+      // A's access token has expired server-side: this attempt is answered 401.
+      api.expired.add(patch.authorization ?? '');
+      firstPatchSeen();
+      await patchHeld;
+    }
+  };
+
+  await login(page, accountA);
+  await firstPatch;
+  // A real second tab signs in as B, replacing the shared refresh cookie.
+  const other = await context.newPage();
+  await other.goto('/login');
+  await login(other, accountB);
+  await expect(other).toHaveURL(/\/map$/);
+  releasePatch();
+
+  await expect.poll(() => api.refreshes.length).toBe(1);
+  await page.waitForTimeout(500);
+  expect(api.refreshes).toEqual([accountB.id]);
+  expect(api.patches.map((p) => bearerOwner(p.authorization))).toEqual(['A']);
+  expect(api.patches[0].body).toEqual({ displayName: 'Registrant A', phoneNumber: '5551234567' });
+});
+
+test('SDK retry: same-account refresh retries A\'s PATCH once under A\'s rotated token', async ({ context, page }) => {
+  const api = await installMockApi(context);
+  await register(page, accountA);
+  await spaGoto(page, '/login');
+  api.beforePatchResponse = async (patch) => {
+    if (api.patches.length === 1) api.expired.add(patch.authorization ?? '');
+  };
+
+  await login(page, accountA);
+
+  await expect(page).toHaveURL(/\/map$/);
+  await page.waitForTimeout(500);
+  expect(api.refreshes).toEqual([accountA.id]);
+  expect(api.patches).toEqual([
+    {
+      body: { displayName: 'Registrant A', phoneNumber: '5551234567' },
+      authorization: `Bearer ${tokenFor(accountA, 2)}`,
+    },
+    {
+      body: { displayName: 'Registrant A', phoneNumber: '5551234567' },
+      authorization: `Bearer ${tokenFor(accountA, 3)}`,
+    },
+  ]);
 });

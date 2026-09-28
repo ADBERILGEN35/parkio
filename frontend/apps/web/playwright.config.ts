@@ -14,6 +14,9 @@ import { defineConfig, devices } from '@playwright/test';
 const PORT = 5193;
 const BASE_URL = `http://localhost:${PORT}`;
 const WP03_ACCEPTANCE = /wp03-routing\.spec\.ts/;
+// CX-F04 identity-handoff acceptance: viewport-independent, run once in its own
+// project so CI can target it without relying on project-name skips.
+const OWNERSHIP_ACCEPTANCE = /pending-profile-ownership\.spec\.ts/;
 
 export default defineConfig({
   testDir: './e2e',
@@ -35,8 +38,13 @@ export default defineConfig({
       use: { ...devices['Desktop Chrome'] },
     },
     {
+      name: 'ownership-chromium',
+      testMatch: OWNERSHIP_ACCEPTANCE,
+      use: { ...devices['Desktop Chrome'] },
+    },
+    {
       name: 'chromium',
-      testIgnore: WP03_ACCEPTANCE,
+      testIgnore: [WP03_ACCEPTANCE, OWNERSHIP_ACCEPTANCE],
       use: { ...devices['Desktop Chrome'] },
     },
     {
@@ -44,7 +52,7 @@ export default defineConfig({
       // phones). The tightest layout we support: validates no horizontal overflow,
       // no clipped CTAs, no chip wrapping, and that the preview clears the sheet.
       name: 'galaxy-360',
-      testIgnore: WP03_ACCEPTANCE,
+      testIgnore: [WP03_ACCEPTANCE, OWNERSHIP_ACCEPTANCE],
       use: {
         ...devices['Pixel 7'],
         viewport: { width: 360, height: 800 },
@@ -55,7 +63,7 @@ export default defineConfig({
     },
     {
       name: 'iphone-14',
-      testIgnore: WP03_ACCEPTANCE,
+      testIgnore: [WP03_ACCEPTANCE, OWNERSHIP_ACCEPTANCE],
       use: {
         ...devices['Desktop Chrome'],
         viewport: { width: 390, height: 844 },
@@ -66,7 +74,7 @@ export default defineConfig({
     },
     {
       name: 'pixel-8',
-      testIgnore: WP03_ACCEPTANCE,
+      testIgnore: [WP03_ACCEPTANCE, OWNERSHIP_ACCEPTANCE],
       use: {
         ...devices['Pixel 7'],
         viewport: { width: 412, height: 915 },
