@@ -206,7 +206,6 @@ async function main() {
         captured.push({
           url: req.url(),
           method: req.method(),
-          cookie: headers.cookie ?? headers.Cookie ?? '',
           origin: headers.origin ?? headers.Origin ?? '',
         });
       }
@@ -227,11 +226,8 @@ async function main() {
     if (!refreshCapture) {
       throw new Error('did not capture cross-site refresh request headers');
     }
-    if (refreshCapture.cookie.includes('parkio_refresh=')) {
-      throw new Error(
-        `SameSite=Strict failed: cross-site request carried parkio_refresh (${refreshCapture.cookie})`,
-      );
-    }
+    // Cookie omission is asserted from the actual HTTP request received by the lab server.
+    // Playwright request.headers() intentionally excludes cookie-related headers.
     // Playwright's request.headers() may omit Origin; when present it must be the evil page.
     if (refreshCapture.origin && refreshCapture.origin !== evilOrigin) {
       throw new Error(`expected Origin ${evilOrigin}, got ${refreshCapture.origin}`);
@@ -249,10 +245,8 @@ async function main() {
       throw new Error(`cross-site logout unexpectedly succeeded: ${JSON.stringify(crossLogout)}`);
     }
     const logoutCapture = outcome.checks.crossSiteLogoutCapture.at(-1);
-    if (logoutCapture?.cookie?.includes('parkio_refresh=')) {
-      throw new Error(
-        `SameSite=Strict failed: cross-site logout carried parkio_refresh (${logoutCapture.cookie})`,
-      );
+    if (!logoutCapture) {
+      throw new Error('did not capture cross-site logout request');
     }
 
     const logoutOk = await appPage.evaluate(async () =>

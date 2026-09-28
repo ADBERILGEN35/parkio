@@ -86,7 +86,7 @@ $env:PARKIO_CSRF_BROWSER=1
 
 - Secure / HttpOnly / SameSite=Strict in the real Chromium cookie jar
 - Allowed-origin refresh + logout
-- Cross-site page on `http://127.0.0.1` does **not** attach the `localhost` Strict cookie (request capture)
+- Cross-site page on `http://127.0.0.1` does **not** attach the `localhost` Strict cookie (asserted from the lab server's received `Cookie` header for both POSTs). Playwright `request.headers()` omits cookie-related headers and is not used as proof.
 - Forged `X-Parkio-Client: mobile` with browser Origin stays on cookie path (no JSON refresh token)
 - After cross-site rejection, the live refresh row is later revoked by legitimate logout (`LOGOUT`), not reuse/epoch bump
 
@@ -125,7 +125,7 @@ CodeQL models `String.prototype.includes` as substring sanitization of **URLs**.
 |---|---|
 | Base / start SHA | `9159c794ffe393450eacc49b40597b14e7b1aa4e` (`origin/api`) |
 | Before reproduction | GHAS check-run `109092933811` failure; 4 annotations (#2–#4, #7); no Chromium CSRF lab; #125 MockMvc already merged on tip |
-| After (this branch) | Evidence doc + opt-in Chromium harness; **no** production CSRF change; **no** alert dismiss |
+| After (this branch) | Evidence doc + opt-in Chromium harness; server-received Cookie assertions replace a Playwright-header false green; **no** production CSRF change or alert dismiss |
 | `CookieCsrfGuardHttpIntegrationTest` | PASS (default CI path) |
 | `CookieCsrfChromiumAcceptanceIT` without `PARKIO_CSRF_BROWSER` | Aborted (Assumption) — does not claim browser pass |
 | `CookieCsrfChromiumAcceptanceIT` with `PARKIO_CSRF_BROWSER=1` + Playwright Chromium | PASS locally (Secure/HttpOnly/Strict jar; allowed refresh/logout; cross-site cookie omit; forged mobile stays cookie path; no reuse/epoch bump) |

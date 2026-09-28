@@ -35,6 +35,7 @@ import java.util.List;
 import java.util.Locale;
 import java.util.Map;
 import java.util.UUID;
+import java.util.concurrent.CopyOnWriteArrayList;
 import java.util.concurrent.Executors;
 import org.junit.jupiter.api.AfterAll;
 import org.junit.jupiter.api.BeforeEach;
@@ -68,7 +69,8 @@ import jakarta.servlet.http.HttpServletResponse;
  *
  * <p><b>Proven when enabled:</b> Chromium stores Secure/HttpOnly/SameSite=Strict refresh
  * cookies from a real auth HTTP port; allowed-origin refresh/logout succeed; a
- * {@code 127.0.0.1} attacker document does not attach the localhost Strict cookie; forged
+ * {@code 127.0.0.1} attacker document does not attach the localhost Strict cookie
+ * (verified from the server-received Cookie header); forged
  * {@code X-Parkio-Client: mobile} with a browser Origin stays on the cookie path; rejected
  * cross-site attempts leave the refresh row for legitimate logout (no reuse/epoch bump).
  *
@@ -159,6 +161,7 @@ class CookieCsrfChromiumAcceptanceIT {
         String authBase = "http://localhost:" + authPort;
         LAB.rewritePages(authBase, GATEWAY_SECRET);
 
+        LAB.clearCrossSitePosts();
         Path resultFile = Files.createTempFile("parkio-csrf-chromium-", ".json");
         Path script = repoRoot().resolve("scripts/auth-csrf-chromium-acceptance.mjs");
         assertThat(script).exists();
@@ -199,6 +202,14 @@ class CookieCsrfChromiumAcceptanceIT {
         assertThat(result.path("checks").path("crossSiteRefreshStatus").asInt()).isNotEqualTo(200);
         assertThat(result.path("checks").path("crossSiteLogoutStatus").asInt())
                 .isNotIn(200, 204);
+
+        List<LabRequest> crossSitePosts = LAB.crossSitePosts();
+        assertThat(crossSitePosts).extracting(LabRequest::path)
+                .contains("/api/v1/auth/refresh-token", "/api/v1/auth/logout");
+        assertThat(crossSitePosts).allSatisfy(post ->
+                assertThat(post.cookieHeader())
+                        .as("server-received Cookie on cross-site %s", post.path())
+                        .doesNotContain("parkio_refresh="));
 
         String rawBeforeCrossSite = result.path("refreshCookieValuesBeforeCrossSite").get(0).asText();
         RefreshToken token = refreshTokens.findByTokenHash(refreshTokenHasher.hash(rawBeforeCrossSite))
@@ -271,6 +282,12 @@ class CookieCsrfChromiumAcceptanceIT {
                                         FilterChain filterChain)
                 throws ServletException, IOException {
             String origin = request.getHeader("Origin");
+            if ("POST".equalsIgnoreCase(request.getMethod())
+                    && LAB.evilOrigin().equals(origin)
+                    && ("/api/v1/auth/refresh-token".equals(request.getRequestURI())
+                        || "/api/v1/auth/logout".equals(request.getRequestURI()))) {
+                LAB.recordCrossSitePost(request.getRequestURI(), request.getHeader("Cookie"));
+            }
             if (origin != null
                     && (origin.equals(LAB.appOrigin()) || origin.equals(LAB.evilOrigin()))) {
                 response.setHeader("Access-Control-Allow-Origin", origin);
@@ -289,11 +306,15 @@ class CookieCsrfChromiumAcceptanceIT {
         }
     }
 
+    private record LabRequest(String path, String cookieHeader) {
+    }
+
     private static final class LabOrigins implements AutoCloseable {
         private final HttpServer app;
         private final HttpServer evil;
         private final String appOrigin;
         private final String evilOrigin;
+        private final List<LabRequest> crossSitePosts = new CopyOnWriteArrayList<>();
         private volatile byte[] appHtml;
         private volatile byte[] evilHtml;
 
@@ -333,6 +354,18 @@ class CookieCsrfChromiumAcceptanceIT {
 
         String evilOrigin() {
             return evilOrigin;
+        }
+
+        void clearCrossSitePosts() {
+            crossSitePosts.clear();
+        }
+
+        void recordCrossSitePost(String path, String cookieHeader) {
+            crossSitePosts.add(new LabRequest(path, cookieHeader == null ? "" : cookieHeader));
+        }
+
+        List<LabRequest> crossSitePosts() {
+            return List.copyOf(crossSitePosts);
         }
 
         void rewritePages(String authBase, String gatewaySecret) {
