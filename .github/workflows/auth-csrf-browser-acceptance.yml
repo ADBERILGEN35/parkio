@@ -60,6 +60,8 @@ jobs:
         env:
           PARKIO_CSRF_BROWSER: "1"
         run: |
+          export PARKIO_CSRF_PLAYWRIGHT_PACKAGE="$(cd frontend/apps/web && node -e 'process.stdout.write(require("path").dirname(require.resolve("@playwright/test")))')"
+          test -f "$PARKIO_CSRF_PLAYWRIGHT_PACKAGE/index.mjs"
           chmod +x gradlew
           ./gradlew --no-daemon :services:auth-service:test --tests com.parkio.auth.presentation.CookieCsrfChromiumAcceptanceIT
 

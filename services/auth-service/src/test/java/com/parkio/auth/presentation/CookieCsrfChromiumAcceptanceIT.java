@@ -149,7 +149,7 @@ class CookieCsrfChromiumAcceptanceIT {
 
         Path playwrightPackage = resolvePlaywrightPackage();
         assertThat(playwrightPackage)
-                .as("@playwright/test missing under frontend/apps/web/node_modules; install pnpm and Chromium")
+                .as("@playwright/test missing at resolved package path; install pnpm and Chromium")
                 .isNotNull();
 
         String email = "csrf-browser-" + UUID.randomUUID() + "@example.com";
@@ -244,6 +244,11 @@ class CookieCsrfChromiumAcceptanceIT {
     }
 
     private static Path resolvePlaywrightPackage() {
+        String resolved = System.getenv("PARKIO_CSRF_PLAYWRIGHT_PACKAGE");
+        if (resolved != null && !resolved.isBlank()) {
+            Path candidate = Path.of(resolved).toAbsolutePath().normalize();
+            return Files.isDirectory(candidate) ? candidate : null;
+        }
         Path candidate = repoRoot().resolve("frontend/apps/web/node_modules/@playwright/test");
         return Files.isDirectory(candidate) ? candidate : null;
     }
