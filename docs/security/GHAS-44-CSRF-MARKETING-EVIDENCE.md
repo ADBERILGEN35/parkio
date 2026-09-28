@@ -67,7 +67,7 @@ Cookie attributes (production defaults): **HttpOnly**, **Secure**, **SameSite=St
 | Artifact | Role |
 |---|---|
 | `scripts/auth-csrf-chromium-acceptance.mjs` | Drives headless Chromium against lab origins |
-| `CookieCsrfChromiumAcceptanceIT` | RANDOM_PORT auth + static app/evil origins; opt-in via `PARKIO_CSRF_BROWSER=1` |
+| `CookieCsrfChromiumAcceptanceIT` | RANDOM_PORT auth + static app/evil origins; enabled in the dedicated PR workflow with `PARKIO_CSRF_BROWSER=1` |
 | `CookieCsrfGuardHttpIntegrationTest` (#125, merged) | MockMvc Origin/Referer/mobile/no-mutation matrix — **kept** |
 
 **Enable locally:**
@@ -80,7 +80,7 @@ $env:PARKIO_CSRF_BROWSER=1
 ./gradlew :services:auth-service:test --tests com.parkio.auth.presentation.CookieCsrfChromiumAcceptanceIT
 ```
 
-**When the flag is unset:** the IT **aborts** (Assumption) with an explicit limitation — it does **not** mark browser boundary proof as passed.
+**When the flag is unset:** the IT **aborts** (Assumption) with an explicit limitation — it does **not** mark browser boundary proof as passed. With the flag set, missing Playwright is a test failure, and the dedicated workflow also checks that exactly one test ran with zero skips.
 
 ### What the Chromium lab proves (when enabled)
 
@@ -96,7 +96,7 @@ $env:PARKIO_CSRF_BROWSER=1
 2. **Test-only CORS bean** on auth — production browsers rely on **gateway** CORS.
 3. **HTTP localhost secure-context**, not TLS `app.parkio.dev` ↔ `api.parkio.dev` sibling-subdomain SameSite+Origin.
 4. **Missing Origin / Referer** cannot be omitted by Chromium cross-origin `fetch` — remains #125 MockMvc evidence.
-5. Default CI does not install Playwright Chromium unless operators set `PARKIO_CSRF_BROWSER=1` and deps.
+5. The dedicated PR workflow installs Playwright Chromium and runs this test with `PARKIO_CSRF_BROWSER=1`; general Backend CI still does not run the browser lab.
 
 ## 4. Marketing alerts #2–#4 triage (no validator rewrite)
 
@@ -128,7 +128,7 @@ CodeQL models `String.prototype.includes` as substring sanitization of **URLs**.
 | After (this branch) | Evidence doc + opt-in Chromium harness; server-received Cookie assertions replace a Playwright-header false green; **no** production CSRF change or alert dismiss |
 | `CookieCsrfGuardHttpIntegrationTest` | PASS (default CI path) |
 | `CookieCsrfChromiumAcceptanceIT` without `PARKIO_CSRF_BROWSER` | Aborted (Assumption) — does not claim browser pass |
-| `CookieCsrfChromiumAcceptanceIT` with `PARKIO_CSRF_BROWSER=1` + Playwright Chromium | **PENDING on this head.** The earlier local pass used Playwright `request.headers()` and did not prove cookie omission. Rerun the corrected server-received Cookie assertion before acceptance. |
+| `CookieCsrfChromiumAcceptanceIT` with `PARKIO_CSRF_BROWSER=1` + Playwright Chromium | **PENDING on this head.** The dedicated CI job must prove one executed test and zero skips with server-received Cookie assertions. The earlier local pass used Playwright `request.headers()` and did not prove cookie omission. |
 | Gateway TLS sibling stack | **Skipped** — not exercised |
 | GHAS alerts #2–#4, #7 | Still **open** (expected; no disposition close) |
 | #104 / #118 / #119 | Untouched |

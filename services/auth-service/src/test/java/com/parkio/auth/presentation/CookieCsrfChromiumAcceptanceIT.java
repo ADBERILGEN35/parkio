@@ -148,12 +148,9 @@ class CookieCsrfChromiumAcceptanceIT {
                         """);
 
         Path playwrightPackage = resolvePlaywrightPackage();
-        assumeTrue(
-                playwrightPackage != null,
-                () -> """
-                        @playwright/test not found under frontend/apps/web/node_modules.
-                        Run: cd frontend/apps/web && pnpm install && pnpm exec playwright install chromium
-                        """);
+        assertThat(playwrightPackage)
+                .as("@playwright/test missing under frontend/apps/web/node_modules; install pnpm and Chromium")
+                .isNotNull();
 
         String email = "csrf-browser-" + UUID.randomUUID() + "@example.com";
         registerAndVerify(email);
