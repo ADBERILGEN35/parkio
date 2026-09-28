@@ -59,53 +59,93 @@ PY
   chmod +x "${BIN}/jq"
 fi
 
-cat > "${BIN}/docker" <<'SH'
-#!/usr/bin/env bash
-echo "DOCKER $*" >> "${PARKIO_F03_LOG}"
-case "$1" in
-  inspect) exit 0 ;;
-  exec)
-    shift
-    while [ "$#" -gt 0 ]; do
-      case "$1" in
-        -i) shift ;;
-        -U|-d|-c|-At|-v|-X|-q) shift 2 ;;
-        psql)
-          if [ "${2:-}" = "--version" ]; then
-            echo "psql (PostgreSQL) ${PARKIO_STUB_PSQL_VERSION:-16.15}"
-            exit 0
-          fi
-          if echo "$*" | grep -q "show server_version"; then
-            echo "${PARKIO_STUB_SERVER_VERSION:-16.15}"
-            exit 0
-          fi
-          if echo "$*" | grep -q postgis; then
-            echo "${PARKIO_STUB_POSTGIS_VERSION:-3.4.2}"
-            exit 0
-          fi
-          if echo "$*" | grep -q to_regclass; then
-            echo "erased_user_tombstones"
-            exit 0
-          fi
-          echo "PSQL_APPLY $*" >> "${PARKIO_F03_LOG}"
-          cat >/dev/null || true
-          if [ "${PARKIO_STUB_PSQL_FAIL:-0}" = "1" ]; then
-            exit 1
-          fi
-          exit 0
-          ;;
-        *) shift ;;
-      esac
-    done
-    exit 0
-    ;;
-  run)
-    echo "DOCKER_RUN $*" >> "${PARKIO_F03_LOG}"
-    exit 0
-    ;;
-  *) exit 0 ;;
-esac
-SH
+cat > "${BIN}/docker" <<'PY'
+#!/usr/bin/env python3
+import json, os, sys
+log = os.environ["PARKIO_F03_LOG"]
+with open(log, "a", encoding="utf-8") as handle:
+    handle.write("DOCKER " + " ".join(sys.argv[1:]) + "\n")
+args = sys.argv[1:]
+inspect_dir = os.environ.get("PARKIO_F03_INSPECT_DIR", "")
+
+def load(name):
+    if not inspect_dir:
+        return None
+    base = name.lstrip("/")
+    for candidate in (name, base, name.split(":")[-1]):
+        path = os.path.join(inspect_dir, f"{candidate}.json")
+        if os.path.isfile(path):
+            return json.loads(open(path, encoding="utf-8").read())
+    return None
+
+if not args:
+    sys.exit(0)
+cmd = args[0]
+if cmd == "context":
+    if len(args) > 1 and args[1] == "show":
+        print("default")
+        sys.exit(0)
+    if len(args) > 1 and args[1] == "inspect":
+        data = load("context") or {
+            "Name": "default",
+            "Endpoints": {"docker": {"Host": "unix:///var/run/docker.sock"}},
+        }
+        json.dump([data], sys.stdout)
+        sys.exit(0)
+if cmd == "info":
+    data = load("info") or {"ID": "stub-engine", "Name": "stub", "Swarm": {"LocalNodeState": "inactive"}}
+    json.dump(data, sys.stdout)
+    sys.exit(0)
+if cmd == "inspect":
+    ref = args[-1]
+    data = load(ref)
+    if data is None:
+        # Old bypass: production names "existed" for a dummy inspect.
+        if os.environ.get("PARKIO_STUB_INSPECT_ALWAYS", "0") == "1":
+            sys.exit(0)
+        sys.exit(1)
+    json.dump([data], sys.stdout)
+    sys.exit(0)
+if cmd == "exec":
+    rest = args[1:]
+    i = 0
+    while i < len(rest):
+        tok = rest[i]
+        if tok == "-i":
+            i += 1
+            continue
+        if tok in ("-U", "-d", "-c", "-At", "-v", "-X", "-q"):
+            i += 2
+            continue
+        if tok == "psql":
+            joined = " ".join(rest[i:])
+            if len(rest) > i + 1 and rest[i + 1] == "--version":
+                print(f"psql (PostgreSQL) {os.environ.get('PARKIO_STUB_PSQL_VERSION', '16.15')}")
+                sys.exit(0)
+            if "show server_version" in joined:
+                print(os.environ.get("PARKIO_STUB_SERVER_VERSION", "16.15"))
+                sys.exit(0)
+            if "postgis" in joined:
+                print(os.environ.get("PARKIO_STUB_POSTGIS_VERSION", "3.4.2"))
+                sys.exit(0)
+            if "to_regclass" in joined:
+                print("erased_user_tombstones")
+                sys.exit(0)
+            with open(log, "a", encoding="utf-8") as handle:
+                handle.write("PSQL_APPLY " + joined + "\n")
+            try:
+                sys.stdin.read()
+            except Exception:
+                pass
+            sys.exit(1 if os.environ.get("PARKIO_STUB_PSQL_FAIL", "0") == "1" else 0)
+        i += 1
+    sys.exit(0)
+if cmd == "run":
+    with open(log, "a", encoding="utf-8") as handle:
+        handle.write("DOCKER_RUN " + " ".join(args[1:]) + "\n")
+    sys.exit(0)
+sys.exit(0)
+PY
 chmod +x "${BIN}/docker"
 
 REAL_OPENSSL="$(command -v openssl)"
@@ -185,6 +225,13 @@ EOF
 
 export PATH="${BIN}:${PATH}"
 export PARKIO_F03_LOG="${LOG}"
+export PARKIO_F03_INSPECT_DIR="${WORK}/inspect"
+export PARKIO_RESTORE_DOCKER="${BIN}/docker"
+mkdir -p "${PARKIO_F03_INSPECT_DIR}"
+export PARKIO_F03_DOCKER_STUB="${BIN}/docker"
+docker() { python3 "${PARKIO_F03_DOCKER_STUB}" "$@"; }
+export -f docker
+export PARKIO_F03_DOCKER_STUB
 export PARKIO_ENV_FILE="${ENV_FILE}"
 export PARKIO_STUB_PSQL_VERSION=16.15
 export PARKIO_STUB_SERVER_VERSION=16.15
@@ -205,9 +252,25 @@ run_hosted() {
 
 run_isolated() {
   : > "${LOG}"
+  local extra=()
+  if [ -n "${PARKIO_RESTORE_ISOLATED_TICKET:-}" ]; then
+    extra+=(--isolated-ticket "${PARKIO_RESTORE_ISOLATED_TICKET}")
+  fi
   PARKIO_ENV_FILE="${ENV_FILE}" \
     "${ROOT}/scripts/restore-hosted-beta.sh" --manifest "${MANIFEST}" --yes \
-    --isolated-fixture "$@"
+    --isolated-fixture "${extra[@]}" "$@"
+}
+
+mint_ticket() {
+  local mode="${1:-ok}"
+  local ticket="${WORK}/ticket-${mode}.json"
+  python3 "${ROOT}/scripts/test-restore-isolated-topology.py" \
+    --inspect-dir "${PARKIO_F03_INSPECT_DIR}" \
+    --stamp "${STAMP}" \
+    --out-ticket "${ticket}" \
+    --mode "${mode}"
+  PARKIO_RESTORE_ISOLATED_TICKET="${ticket}"
+  export PARKIO_RESTORE_ISOLATED_TICKET
 }
 
 no_destroy() {
@@ -419,6 +482,69 @@ else
   if no_destroy; then ok "standalone env flags do not bypass production refusal"; else bad "standalone env bypass leaked commands"; fi
 fi
 
+# --- N-01 / U01: CLI flag must not self-authorize (old bypass) ---
+: > "${LOG}"
+unset PARKIO_RESTORE_ISOLATED_TICKET || true
+if run_isolated --only databases --recovery-cutoff "2026-09-20T03:30:01Z" >/dev/null 2>&1; then
+  bad "CLI --isolated-fixture without orchestrator ticket must not apply"
+else
+  applies="$(grep -c PSQL_APPLY "${LOG}" || true)"
+  if [ "${applies}" = "0" ] && no_destroy; then
+    ok "CLI flag without destination-bound ticket is zero apply (old 11-apply bypass closed)"
+  else
+    bad "CLI flag leaked decrypt/apply (${applies})"
+  fi
+fi
+
+: > "${LOG}"
+if PARKIO_RESTORE_ISOLATED_FIXTURE=1 PARKIO_ENV_FILE="${ENV_FILE}" \
+    "${ROOT}/scripts/restore-hosted-beta.sh" --manifest "${MANIFEST}" --yes \
+    --recovery-cutoff "2026-09-20T03:30:01Z" >/dev/null 2>&1; then
+  bad "env ISOLATED_FIXTURE=1 without ticket must not apply"
+else
+  if no_destroy; then ok "environment flag alone does not authorize isolation"; else bad "env isolated flag leaked commands"; fi
+fi
+
+refuse_ticket_mode() {
+  local mode="$1"
+  local label="$2"
+  mint_ticket "${mode}"
+  : > "${LOG}"
+  if PARKIO_ENV_FILE="${ENV_FILE}" \
+      "${ROOT}/scripts/restore-hosted-beta.sh" --manifest "${MANIFEST}" --yes \
+      --only databases --isolated-fixture --isolated-ticket "${PARKIO_RESTORE_ISOLATED_TICKET}" \
+      --recovery-cutoff "2026-09-20T03:30:01Z" >/dev/null 2>&1; then
+    bad "${label} must fail closed"
+  else
+    if no_destroy; then ok "${label} produces zero decrypt/apply"; else bad "${label} leaked commands"; fi
+  fi
+}
+
+refuse_ticket_mode old-marker "legacy stamp-only marker ticket"
+refuse_ticket_mode forged "forged/mismatched ticket digest"
+refuse_ticket_mode wrong-stamp "ticket bound to a different stamp"
+refuse_ticket_mode wrong-target "ticket missing manifest postgres targets"
+refuse_ticket_mode production-name "production/default container names"
+refuse_ticket_mode misleading-name "misleading production DNS aliases"
+refuse_ticket_mode published-port "published-port fixture topology"
+refuse_ticket_mode extra-network "unsafe extra network attachment"
+refuse_ticket_mode prod-volume "production-like volume mapping"
+refuse_ticket_mode drift "live destination identity drift"
+
+OTHER_STAMP="${WORK}/other-stamp"
+mkdir -p "${OTHER_STAMP}"
+mint_ticket ok
+: > "${LOG}"
+if PARKIO_ENV_FILE="${ENV_FILE}" \
+    "${ROOT}/scripts/restore-hosted-beta.sh" --manifest "${MANIFEST}" --yes \
+    --only databases --isolated-fixture --isolated-ticket "${PARKIO_RESTORE_ISOLATED_TICKET}" \
+    --stamp-dir "${OTHER_STAMP}" --recovery-cutoff "2026-09-20T03:30:01Z" >/dev/null 2>&1; then
+  bad "selected stamp override must not use a ticket for another stamp"
+else
+  if no_destroy; then ok "wrong selected stamp vs ticket is zero apply"; else bad "stamp override leaked commands"; fi
+fi
+unset PARKIO_RESTORE_ISOLATED_TICKET || true
+
 # --- restore-database standalone path traversal ---
 : > "${LOG}"
 if PARKIO_ENV_FILE="${ENV_FILE}" "${ROOT}/scripts/restore-database.sh" \
@@ -437,12 +563,14 @@ else
 fi
 
 # --- incompatible restore client (16.4 vs 16.15 restrict dump) ---
+mint_ticket ok
 : > "${LOG}"
 export PARKIO_RESTORE_DUMP_PROFILE="${STAMP}/auth.dump-profile.json"
 export PARKIO_RESTORE_CLIENT_VERSION="psql (PostgreSQL) 16.4"
 export PARKIO_RESTORE_TARGET_SERVER_VERSION=16.15
 if PARKIO_ENV_FILE="${ENV_FILE}" "${ROOT}/scripts/restore-database.sh" \
     auth "${STAMP}/auth.sql.gz.enc" --yes --isolated-fixture \
+    --isolated-ticket "${PARKIO_RESTORE_ISOLATED_TICKET}" \
     --recovery-cutoff "2026-09-20T03:30:01Z" >/dev/null 2>&1; then
   bad "incompatible restore client must fail"
 else
@@ -455,17 +583,20 @@ fi
 export PARKIO_RESTORE_CLIENT_VERSION="psql (PostgreSQL) 16.15"
 
 # --- valid synthetic recovery through the safe path ---
+mint_ticket ok
 : > "${LOG}"
 if PARKIO_ENV_FILE="${ENV_FILE}" \
     PARKIO_RESTORE_DUMP_PROFILE="${STAMP}/auth.dump-profile.json" \
     "${ROOT}/scripts/restore-hosted-beta.sh" \
     --manifest "${MANIFEST}" --yes --only databases --isolated-fixture \
+    --isolated-ticket "${PARKIO_RESTORE_ISOLATED_TICKET}" \
     --recovery-cutoff "2026-09-20T03:30:01Z" >/tmp/parkio-f03-valid.out 2>&1; then
   if grep -q 'Applications, publishers' /tmp/parkio-f03-valid.out \
-     && grep PSQL_APPLY "${LOG}" >/dev/null; then
-    ok "valid synthetic databases restore through the safe path"
+     && grep PSQL_APPLY "${LOG}" >/dev/null \
+     && ! grep -E 'parkio-postgres-|parkio-minio' "${LOG}" >/dev/null; then
+    ok "valid synthetic databases restore through destination-bound ticket"
   else
-    bad "valid path did not restore or started apps"
+    bad "valid path did not restore, used production names, or started apps"
     cat /tmp/parkio-f03-valid.out >&2 || true
   fi
 else
@@ -474,12 +605,14 @@ else
 fi
 
 # --- interrupted restore / failure propagation ---
+mint_ticket ok
 : > "${LOG}"
 export PARKIO_STUB_PSQL_FAIL=1
 if PARKIO_ENV_FILE="${ENV_FILE}" \
     PARKIO_RESTORE_DUMP_PROFILE="${STAMP}/auth.dump-profile.json" \
     "${ROOT}/scripts/restore-hosted-beta.sh" \
     --manifest "${MANIFEST}" --yes --only databases --isolated-fixture \
+    --isolated-ticket "${PARKIO_RESTORE_ISOLATED_TICKET}" \
     --recovery-cutoff "2026-09-20T03:30:01Z" >/dev/null 2>&1; then
   bad "failed apply must propagate"
 else
@@ -520,10 +653,12 @@ def integ(stamp):
 integ(sys.argv[1]); integ(sys.argv[2])
 PY
 export PARKIO_RESTORE_MERGED_LEDGER="${WORK}/merged.json"
+mint_ticket ok
 if PARKIO_ENV_FILE="${ENV_FILE}" \
     PARKIO_RESTORE_DUMP_PROFILE="${STAMP}/auth.dump-profile.json" \
     "${ROOT}/scripts/restore-hosted-beta.sh" \
     --manifest "${MANIFEST}" --yes --only databases --isolated-fixture \
+    --isolated-ticket "${PARKIO_RESTORE_ISOLATED_TICKET}" \
     --recovery-cutoff "2026-09-21T03:30:01Z" \
     --ledger-stamp "${NEWER}" >/dev/null 2>&1; then
   python3 - "${WORK}/merged.json" <<'PY'
