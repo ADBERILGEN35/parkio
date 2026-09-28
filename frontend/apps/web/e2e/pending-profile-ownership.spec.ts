@@ -260,9 +260,11 @@ test('multi-tab: another tab signs in as B, the registering tab reloads into B a
   // Registering tab restores the shared cookie session (now B) on a protected route.
   await page.goto('/map');
   await expect(page).toHaveURL(/\/map$/);
-  await page.waitForTimeout(500);
   expect(api.patches).toEqual([]);
-  expect(await pendingStorage(page)).toBeNull();
+  // Protected bootstrap calls getPendingProfileFor(B) after refresh restores B;
+  // that discards A's payload. Wait for that identity check, not a wall-clock
+  // pause — 500ms was racing the refresh.
+  await expect.poll(async () => pendingStorage(page)).toBeNull();
 });
 
 test('SDK retry: another tab signs in as B while A\'s PATCH awaits a 401; the retry never carries A\'s fields as B', async ({
