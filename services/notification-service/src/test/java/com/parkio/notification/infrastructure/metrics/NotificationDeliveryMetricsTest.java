@@ -7,6 +7,7 @@ import static org.mockito.Mockito.when;
 import com.parkio.notification.domain.DeliveryStatus;
 import com.parkio.notification.infrastructure.persistence.jpa.NotificationDeliveryAttemptJpaRepository;
 import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
+import java.lang.ref.Reference;
 import org.junit.jupiter.api.Test;
 
 /** Verifies the per-status delivery gauges read the repository counts. */
@@ -22,11 +23,15 @@ class NotificationDeliveryMetricsTest {
         when(attempts.countByStatus(DeliveryStatus.SKIPPED)).thenReturn(5L);
         SimpleMeterRegistry registry = new SimpleMeterRegistry();
 
-        new NotificationDeliveryMetrics(attempts, registry);
-
-        assertThat(registry.get("parkio.notification.delivery.pending.count").gauge().value()).isEqualTo(3.0);
-        assertThat(registry.get("parkio.notification.delivery.sent.count").gauge().value()).isEqualTo(40.0);
-        assertThat(registry.get("parkio.notification.delivery.failed.count").gauge().value()).isEqualTo(2.0);
-        assertThat(registry.get("parkio.notification.delivery.skipped.count").gauge().value()).isEqualTo(5.0);
+        NotificationDeliveryMetrics metrics = new NotificationDeliveryMetrics(attempts, registry);
+        try {
+            assertThat(registry.get("parkio.notification.delivery.pending.count").gauge().value()).isEqualTo(3.0);
+            assertThat(registry.get("parkio.notification.delivery.sent.count").gauge().value()).isEqualTo(40.0);
+            assertThat(registry.get("parkio.notification.delivery.failed.count").gauge().value()).isEqualTo(2.0);
+            assertThat(registry.get("parkio.notification.delivery.skipped.count").gauge().value()).isEqualTo(5.0);
+        } finally {
+            // Micrometer observes this object weakly; keep it alive through every gauge read.
+            Reference.reachabilityFence(metrics);
+        }
     }
 }
