@@ -35,6 +35,8 @@ dependencies {
     }
 
     testImplementation(libs.spring.boot.starter.test)
+    // Contract proof: real auth-service role mutation and JWT issuer against the gateway filters.
+    testImplementation(project(":services:auth-service"))
     // Real-PostgreSQL proof of waitlist migrations/transactions (`integrationTest`, Docker).
     testImplementation(libs.testcontainers.junit)
     testImplementation(libs.testcontainers.postgresql)

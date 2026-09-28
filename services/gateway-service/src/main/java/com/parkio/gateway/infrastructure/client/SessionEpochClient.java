@@ -34,6 +34,8 @@ public class SessionEpochClient {
                     return response.releaseBody().then(Mono.error(new SessionEpochUnavailableException(
                             "auth-service returned status " + response.statusCode().value())));
                 })
+                .switchIfEmpty(Mono.error(new SessionEpochUnavailableException(
+                        "auth-service returned no session epoch")))
                 .timeout(properties.getRequestTimeout())
                 // Anything not already an "unavailable" signal (timeout, connection refused,
                 // malformed body, ...) is normalised to fail-closed unavailability.

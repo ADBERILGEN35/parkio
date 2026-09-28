@@ -62,6 +62,14 @@ class SessionEpochClientTest {
                 .isInstanceOf(SessionEpochUnavailableException.class);
     }
 
+    @Test
+    void emptySuccessfulResponseIsUnavailable() {
+        ClientResponse empty = ClientResponse.create(HttpStatus.OK).build();
+
+        assertThatThrownBy(() -> clientReturning(empty).fetchCurrentEpoch("u1").block())
+                .isInstanceOf(SessionEpochUnavailableException.class);
+    }
+
     private static ExchangeFunction stub(ClientResponse response) {
         return request -> Mono.just(response);
     }
