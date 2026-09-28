@@ -251,10 +251,10 @@ public final class AuthUser {
     /**
      * Advances the session epoch (token version), invalidating every access token the
      * user currently holds. Each issued access token carries the epoch as a claim; the
-     * gateway rejects any token whose epoch is below the user's current value. Bump on
-     * security-sensitive session invalidation — refresh-token reuse detection,
-     * logout-all, suspension, and (future) password reset — so a stolen or
-     * just-logged-out access token stops working within the gateway's short cache TTL
+     * gateway rejects any token whose epoch differs from the user's current value. Bump on
+     * security-sensitive session and authorization changes, including role mutation,
+     * logout-all, admin revocation, suspension, password changes and refresh-token
+     * reuse detection, so an outdated access token stops working within the gateway's cache TTL
      * instead of lingering until its 15-minute expiry. Returns the new epoch.
      */
     public long bumpSessionEpoch() {

@@ -19,6 +19,11 @@ public interface AuthUserRepository {
 
     Optional<AuthUser> findById(UUID id);
 
+    /** Serializes authorization mutations for one account inside the caller's transaction. */
+    default Optional<AuthUser> findByIdForUpdate(UUID id) {
+        return findById(id);
+    }
+
     Optional<AuthUser> findByEmail(String email);
 
     Optional<AuthUser> findByEmailVerificationTokenHash(String tokenHash);

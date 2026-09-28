@@ -70,6 +70,18 @@ class SessionEpochGlobalFilterTest {
     }
 
     @Test
+    void futureTokenEpochIsRejectedWith401() {
+        when(client.fetchCurrentEpoch(USER_ID)).thenReturn(Mono.just(2L));
+        CapturingChain chain = new CapturingChain();
+        ServerWebExchange exchange = protectedExchange(3L);
+
+        filter.filter(exchange, chain).block();
+
+        assertThat(chain.wasInvoked()).isFalse();
+        assertThat(exchange.getResponse().getStatusCode()).isEqualTo(HttpStatus.UNAUTHORIZED);
+    }
+
+    @Test
     void missingEpochClaimTreatedAsZeroPassesWhenCurrentIsZero() {
         when(client.fetchCurrentEpoch(USER_ID)).thenReturn(Mono.just(0L));
         CapturingChain chain = new CapturingChain();
@@ -98,6 +110,18 @@ class SessionEpochGlobalFilterTest {
                 .thenReturn(Mono.error(new SessionEpochUnavailableException("auth-service down")));
         CapturingChain chain = new CapturingChain();
         ServerWebExchange exchange = protectedExchange(1L);
+
+        filter.filter(exchange, chain).block();
+
+        assertThat(chain.wasInvoked()).isFalse();
+        assertThat(exchange.getResponse().getStatusCode()).isEqualTo(HttpStatus.SERVICE_UNAVAILABLE);
+    }
+
+    @Test
+    void emptyEpochLookupFailsClosedWith503() {
+        when(client.fetchCurrentEpoch(USER_ID)).thenReturn(Mono.empty());
+        CapturingChain chain = new CapturingChain();
+        ServerWebExchange exchange = protectedExchange(0L);
 
         filter.filter(exchange, chain).block();
 

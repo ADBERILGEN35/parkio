@@ -48,6 +48,7 @@ public class SessionEpochVerifier {
         }
 
         return epochClient.fetchCurrentEpoch(userId)
+                .switchIfEmpty(Mono.error(new SessionEpochUnavailableException("session epoch lookup was empty")))
                 .flatMap(currentEpoch -> {
                     epochCache.put(userId, currentEpoch);
                     return decide(exchange, tokenEpoch, currentEpoch, onValid);
@@ -59,8 +60,9 @@ public class SessionEpochVerifier {
 
     private Mono<Void> decide(ServerWebExchange exchange, long tokenEpoch, long currentEpoch,
                               Supplier<Mono<Void>> onValid) {
-        // A token from before a session-invalidating event carries an older epoch.
-        return tokenEpoch < currentEpoch ? reject(exchange) : onValid.get();
+        // Both stale and future epochs are invalid. Equality is the only valid
+        // authorization snapshot, including after a database recovery.
+        return tokenEpoch != currentEpoch ? reject(exchange) : onValid.get();
     }
 
     private Mono<Void> reject(ServerWebExchange exchange) {
