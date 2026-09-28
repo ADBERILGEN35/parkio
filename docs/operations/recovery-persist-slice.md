@@ -101,3 +101,39 @@ Required properties, not a selected production config:
 Until those exist, recovery after true primary-host loss cannot be
 certified. `certifiedOffHostWorm` stays false. Do not set
 `PARKIO_ACCOUNT_ERASURE_DURABLE_RECORDING_ENABLED=true` in production.
+
+## What an old but valid signed frontier proves
+
+HMAC validity plus monotonic fields prove only that **some** trusted
+producer signed that `expectedThrough` / `highestReserved` pair for that
+`databaseIdentity`. They do **not** prove the frontier is the latest
+write, and they do **not** prevent restoring an older copy of
+`frontier/expected-through.json` or rolling back the entire visible
+directory/store snapshot.
+
+If that older frontier is the only trusted boundary, recovery accepts
+only `1..expectedThrough` from **that** file. A higher listing max is
+not certified. If no trusted latest boundary exists (missing frontier,
+untrusted producer, or unrestorable store), the verdict stays
+`UNKNOWN` or `BLOCKED`. Do not invent completeness from listing.
+
+Crash after record write and before the frontier `expectedThrough`
+advance leaves the request `PENDING_DURABLE`. Durable acknowledgement
+is not granted. Recovery still uses the previous frontier.
+
+## Java remaining (not built in this slice)
+
+- `persistDurableRecord` is the retry entrypoint. `ErasureStuckGaugeJob`
+  only counts stuck requests. There is no automatic `PENDING_DURABLE`
+  recovery worker.
+- There is no production `DurableErasureRecordStore` adapter. The
+  in-memory store is test-only. A local directory must not be wired
+  under `src/main`.
+- Java records bind `erasureRequestId` + `authUserId` + `erasedAt`.
+  They do not carry Python `databaseIdentity`.
+- `PROPAGATION_NOT_SUPPORTED` is not a commit proof. Persist is invoked
+  from `afterCommit` (the erasure TX has already committed). The
+  template only unbinds leftover Spring transaction thread-locals so
+  the put is not enlisted in a persistence context. If persist is
+  called while a live TX has synchronizations, it is deferred; if a
+  live TX has no synchronizations, it is refused.

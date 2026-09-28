@@ -80,7 +80,7 @@ class IsolatedVersionedStore:
         self.fail_puts = fail_puts
         self.fail_on_prefix = fail_on_prefix
         self.put_attempts = 0
-        self._io = threading.Lock()
+        self._io = threading.RLock()
 
     def _path(self, key):
         path = Path(key)
@@ -285,6 +285,7 @@ class IsolatedErasureCoordinator:
         self.required = required
         self.allocator = SequenceAllocator(store)
         self._lock = threading.Lock()
+        self._frontier_lock = threading.Lock()
         self._requests = {}
 
     def request_deletion(self, auth_user_id, erasure_request_id, erased_at):
@@ -366,27 +367,33 @@ class IsolatedErasureCoordinator:
         return recovered
 
     def advance_frontier(self, expected_through=None, highest_reserved=None):
-        """Write the independently durable expected boundary. Not derived from listing."""
-        existing = verify_frontier(
-            self.store, self.expected_db, {self.producer_id: self.producer_key},
-        )
-        old_expected = 0 if existing is None else int(existing["expectedThrough"])
-        old_reserved = 0 if existing is None else int(existing["highestReserved"])
-        new_expected = old_expected if expected_through is None else max(old_expected, int(expected_through))
-        new_reserved = old_reserved if highest_reserved is None else max(old_reserved, int(highest_reserved))
-        new_reserved = max(new_reserved, new_expected)
-        body = {
-            "schemaVersion": 1,
-            "kind": KIND_FRONTIER,
-            "expectedThrough": new_expected,
-            "highestReserved": new_reserved,
-            "databaseIdentity": self.expected_db,
-            "producerId": self.producer_id,
-            "frontierDigest": frontier_digest(new_expected, new_reserved),
-        }
-        body["signature"] = sign(signed_subset(body, SIGNED_FRONTIER), self.producer_key)
-        self.store.put(FRONTIER_KEY, canonical_bytes(body))
-        return body
+        """Write the independently durable expected boundary. Not derived from listing.
+
+        Concurrent updates take a lock and never decrease either field. Signing
+        and monotonic writes do not prevent replacing the whole visible store
+        with an older snapshot.
+        """
+        with self.store._io:
+            existing = verify_frontier(
+                self.store, self.expected_db, {self.producer_id: self.producer_key},
+            )
+            old_expected = 0 if existing is None else int(existing["expectedThrough"])
+            old_reserved = 0 if existing is None else int(existing["highestReserved"])
+            new_expected = old_expected if expected_through is None else max(old_expected, int(expected_through))
+            new_reserved = old_reserved if highest_reserved is None else max(old_reserved, int(highest_reserved))
+            new_reserved = max(new_reserved, new_expected)
+            body = {
+                "schemaVersion": 1,
+                "kind": KIND_FRONTIER,
+                "expectedThrough": new_expected,
+                "highestReserved": new_reserved,
+                "databaseIdentity": self.expected_db,
+                "producerId": self.producer_id,
+                "frontierDigest": frontier_digest(new_expected, new_reserved),
+            }
+            body["signature"] = sign(signed_subset(body, SIGNED_FRONTIER), self.producer_key)
+            self.store.put(FRONTIER_KEY, canonical_bytes(body))
+            return body
 
     def internal(self, erasure_request_id):
         return dict(self._require(erasure_request_id))
@@ -412,9 +419,9 @@ class IsolatedErasureCoordinator:
             )
             if existing["bodyDigest"] != body_digest:
                 raise ContractError("ambiguous retry would create a conflicting record")
+            self.advance_frontier(expected_through=existing["sequence"], highest_reserved=existing["sequence"])
             row["sequence"] = existing["sequence"]
             row["recording"] = INTERNAL_RECORDED
-            self.advance_frontier(expected_through=existing["sequence"], highest_reserved=existing["sequence"])
             return existing
         sequence = self.allocator.allocate(row["erasureRequestId"])
         self.advance_frontier(highest_reserved=sequence)
@@ -444,13 +451,18 @@ class IsolatedErasureCoordinator:
             )
             if existing["bodyDigest"] != body_digest:
                 raise ContractError("ambiguous retry would create a conflicting record")
+            self.advance_frontier(expected_through=existing["sequence"], highest_reserved=existing["sequence"])
             row["sequence"] = existing["sequence"]
             row["recording"] = INTERNAL_RECORDED
-            self.advance_frontier(expected_through=existing["sequence"], highest_reserved=existing["sequence"])
             return existing
+        try:
+            self.advance_frontier(expected_through=sequence, highest_reserved=sequence)
+        except PersistFailed:
+            row["recording"] = INTERNAL_PENDING
+            row["sequence"] = sequence
+            raise
         row["sequence"] = sequence
         row["recording"] = INTERNAL_RECORDED
-        self.advance_frontier(expected_through=sequence, highest_reserved=sequence)
         return body
 
     def publish_checkpoint(self, sequence, entries, capture_protocol="table-share-lock"):

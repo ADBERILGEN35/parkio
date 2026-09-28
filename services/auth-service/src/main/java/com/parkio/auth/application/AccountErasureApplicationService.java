@@ -262,26 +262,17 @@ public class AccountErasureApplicationService {
         if (!durableRecordingEnabled) {
             return;
         }
-        if (durableStore == null) {
-            throw new AuthException(AuthErrorCode.DURABLE_RECORDING_UNAVAILABLE);
+        if (TransactionSynchronizationManager.isActualTransactionActive()
+                && TransactionSynchronizationManager.isSynchronizationActive()) {
+            schedulePersistAfterCommit(requestId);
+            return;
         }
-        ErasureRequestEntity request = requests.findById(requestId)
-                .orElseThrow(() -> new AuthException(AuthErrorCode.USER_NOT_FOUND));
-        DurableErasureRecord candidate = DurableErasureRecord.of(
-                request.getId(), request.getAuthUserId(), request.getRequestedAt());
-        var existing = durableStore.findByRequestId(requestId);
-        if (existing.isPresent() && !existing.get().bodyDigest().equals(candidate.bodyDigest())) {
-            throw new AuthException(AuthErrorCode.CONFLICT, "ambiguous durable recording retry");
+        if (TransactionSynchronizationManager.isActualTransactionActive()) {
+            throw new AuthException(
+                    AuthErrorCode.DURABLE_RECORDING_UNAVAILABLE,
+                    "durable persist cannot run inside an open database transaction");
         }
-        if (existing.isEmpty()) {
-            if (withoutTransaction != null) {
-                withoutTransaction.executeWithoutResult(status -> putDurable(candidate));
-            } else {
-                putDurable(candidate);
-            }
-        }
-        markDurablyRecorded(requestId);
-        tryCompleteIfReady(requestId);
+        persistDurableRecordNow(requestId);
     }
 
     @Transactional
@@ -335,16 +326,43 @@ public class AccountErasureApplicationService {
         }
     }
 
+    private void persistDurableRecordNow(UUID requestId) {
+        if (durableStore == null) {
+            throw new AuthException(AuthErrorCode.DURABLE_RECORDING_UNAVAILABLE);
+        }
+        ErasureRequestEntity request = requests.findById(requestId)
+                .orElseThrow(() -> new AuthException(AuthErrorCode.USER_NOT_FOUND));
+        DurableErasureRecord candidate = DurableErasureRecord.of(
+                request.getId(), request.getAuthUserId(), request.getRequestedAt());
+        var existing = durableStore.findByRequestId(requestId);
+        if (existing.isPresent() && !existing.get().bodyDigest().equals(candidate.bodyDigest())) {
+            throw new AuthException(AuthErrorCode.CONFLICT, "ambiguous durable recording retry");
+        }
+        if (existing.isEmpty()) {
+            if (withoutTransaction != null) {
+                withoutTransaction.executeWithoutResult(status -> putDurable(candidate));
+            } else {
+                putDurable(candidate);
+            }
+        }
+        markDurablyRecorded(requestId);
+        tryCompleteIfReady(requestId);
+    }
+
     private void schedulePersistAfterCommit(UUID requestId) {
         if (TransactionSynchronizationManager.isSynchronizationActive()) {
             TransactionSynchronizationManager.registerSynchronization(new TransactionSynchronization() {
                 @Override
                 public void afterCommit() {
-                    persistDurableRecord(requestId);
+                    persistDurableRecordNow(requestId);
                 }
             });
+        } else if (TransactionSynchronizationManager.isActualTransactionActive()) {
+            throw new AuthException(
+                    AuthErrorCode.DURABLE_RECORDING_UNAVAILABLE,
+                    "durable persist cannot run inside an open database transaction");
         } else {
-            persistDurableRecord(requestId);
+            persistDurableRecordNow(requestId);
         }
     }
 
@@ -396,6 +414,9 @@ public class AccountErasureApplicationService {
         if (!durableEvidenceSatisfied(request)) {
             return;
         }
+        if (durableRecordingEnabled && !"DURABLY_RECORDED".equals(request.getDurableRecordingStatus())) {
+            request.markDurablyRecorded();
+        }
         Instant now = clock.instant();
         AuthUser user = users.findById(request.getAuthUserId()).orElse(null);
         if (user != null) {
@@ -417,10 +438,13 @@ public class AccountErasureApplicationService {
         if (durableStore == null) {
             return false;
         }
-        if (!"DURABLY_RECORDED".equals(request.getDurableRecordingStatus())) {
+        var recorded = durableStore.findByRequestId(request.getId());
+        if (recorded.isEmpty()) {
             return false;
         }
-        return durableStore.findByRequestId(request.getId()).isPresent();
+        DurableErasureRecord found = recorded.get();
+        return found.erasureRequestId().equals(request.getId())
+                && found.authUserId().equals(request.getAuthUserId());
     }
 
     private static String publicStatus(ErasureRequestEntity row) {

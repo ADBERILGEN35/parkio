@@ -11,6 +11,7 @@ Depends on #118 contract helpers. Does not enable verifiedCoverage.
 """
 from __future__ import annotations
 
+import json
 import sys
 import tempfile
 import threading
@@ -287,6 +288,74 @@ class PersistProtocolTest(unittest.TestCase):
         self.assertEqual(unknown["listedMaximumSequence"], 2)
         self.assertIsNone(unknown["latestTrustedSequence"])
         self.assertEqual(unknown["pending"], [])
+
+    def test_crash_after_record_before_frontier_does_not_durably_ack(self):
+        self.coord.request_deletion(ERASED, REQ1, "2026-09-27T10:00:00Z")
+        original = self.coord.advance_frontier
+
+        def fail_expected_through(*args, **kwargs):
+            if kwargs.get("expected_through") is not None:
+                raise PersistFailed("frontier update failed")
+            return original(*args, **kwargs)
+
+        self.coord.advance_frontier = fail_expected_through
+        with self.assertRaises(PersistFailed):
+            self.coord.request_deletion(OTHER, REQ2, "2026-09-27T11:00:00Z")
+        row = self.coord.internal(REQ2)
+        self.assertEqual(row["recording"], "PENDING_DURABLE")
+        self.assertTrue(self.store.exists(erasure_record_id(REQ2)))
+        recovered = recover_latest_trusted(self.store, DB, self.keys)
+        self.assertEqual(recovered["verdict"], "ACCEPT_ISOLATED")
+        self.assertEqual(recovered["expectedThrough"], 1)
+        self.assertEqual(recovered["listedMaximumSequence"], 2)
+        self.assertEqual([item["erasureRequestId"] for item in recovered["pending"]], [REQ1])
+        with self.assertRaises(AckRefused):
+            expected = {
+                "recoveryAttemptId": ATTEMPT,
+                "restoredDatasetId": DATASET,
+                "erasureSetDigest": DIGEST,
+            }
+            for name in REQUIRED_PARTICIPANTS:
+                self.coord.ack_participant(REQ2, name, ATTEMPT, DATASET, DIGEST, expected)
+            self.coord.try_complete(REQ2, DIGEST)
+
+    def test_old_signed_frontier_does_not_certify_listing_max(self):
+        self.coord.request_deletion(ERASED, REQ1, "2026-09-27T10:00:00Z")
+        old_frontier = (self.store.root / FRONTIER_KEY).read_bytes()
+        self.coord.request_deletion(OTHER, REQ2, "2026-09-27T11:00:00Z")
+        (self.store.root / FRONTIER_KEY).write_bytes(old_frontier)
+        recovered = recover_latest_trusted(self.store, DB, self.keys)
+        self.assertEqual(recovered["verdict"], "ACCEPT_ISOLATED")
+        self.assertEqual(recovered["expectedThrough"], 1)
+        self.assertEqual(recovered["listedMaximumSequence"], 2)
+        self.assertEqual(recovered["latestTrustedSequence"], 1)
+        self.assertEqual(len(recovered["pending"]), 1)
+
+    def test_stale_and_concurrent_frontier_updates_never_decrease(self):
+        self.coord.request_deletion(ERASED, REQ1, "2026-09-27T10:00:00Z")
+        self.coord.request_deletion(OTHER, REQ2, "2026-09-27T11:00:00Z")
+        errors = []
+
+        def stale_retry():
+            try:
+                IsolatedErasureCoordinator(self.store, DB, PRODUCER, KEY).advance_frontier(
+                    expected_through=1, highest_reserved=1,
+                )
+            except Exception as exc:  # noqa: BLE001
+                errors.append(exc)
+
+        workers = [threading.Thread(target=stale_retry) for _ in range(8)]
+        for worker in workers:
+            worker.start()
+        for worker in workers:
+            worker.join()
+        self.assertEqual(errors, [])
+        recovered = recover_latest_trusted(self.store, DB, self.keys)
+        self.assertEqual(recovered["verdict"], "ACCEPT_ISOLATED")
+        self.assertEqual(recovered["expectedThrough"], 2)
+        frontier = json.loads((self.store.root / FRONTIER_KEY).read_text(encoding="utf-8"))
+        self.assertEqual(frontier["expectedThrough"], 2)
+        self.assertGreaterEqual(frontier["highestReserved"], 2)
 
 
 if __name__ == "__main__":
