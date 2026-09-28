@@ -15,10 +15,14 @@ on:
       - "scripts/restore-drill-01.sh"
       - "scripts/restore-hosted-beta.sh"
       - "scripts/restore-database.sh"
+      - "scripts/restore-isolated-fixture.sh"
       - "scripts/lib/restore-*.py"
       - "scripts/lib/restore-safe-preflight.sh"
       - "scripts/test_restore_readiness.py"
       - "scripts/test-restore-safe-preflight.sh"
+      - "scripts/test-restore-isolated-fixture.sh"
+      - "scripts/test-restore-isolated-teardown.sh"
+      - "scripts/test-restore-isolated-topology.py"
       - "scripts/ci/restore-drill-01-fixture.sh"
       - "scripts/ci/assert-restore-drill-01.py"
       - "scripts/lib/backup-common.sh"
@@ -85,6 +89,10 @@ jobs:
         run: |
           python3 scripts/test_restore_readiness.py
           bash scripts/test-restore-safe-preflight.sh
+          bash scripts/test-restore-isolated-teardown.sh
+
+      - name: Isolated-fixture entrypoints against disposable PostgreSQL/MinIO
+        run: bash scripts/test-restore-isolated-fixture.sh
 
       - name: Create throwaway env file
         run: |
