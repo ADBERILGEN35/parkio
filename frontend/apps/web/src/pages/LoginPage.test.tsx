@@ -251,7 +251,10 @@ describe('LoginPage', () => {
   });
 
   it('resumes and completes profile provisioning for the route policy boundary', async () => {
-    setPendingProfile({ displayName: 'New Driver', phoneNumber: '5551234567' });
+    setPendingProfile(
+      { displayName: 'New Driver', phoneNumber: '5551234567' },
+      authResponse.user.id,
+    );
     server.use(
       http.post(`${API_BASE}/auth/login`, () => HttpResponse.json(authResponse)),
       http.get(`${API_BASE}/auth/me`, () => HttpResponse.json(authResponse.user)),

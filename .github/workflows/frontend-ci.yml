@@ -127,6 +127,14 @@ jobs:
       - name: WP-03 routing browser acceptance
         run: pnpm --filter @parkio/web exec playwright test e2e/wp03-routing.spec.ts --project=wp03-chromium --workers=1 --retries=0
 
+      # CX-F04 identity handoff. The report guard fails on skipped, flaky or
+      # zero-discovered tests, so a skipped-green run cannot count as acceptance.
+      # Synthetic accounts; every network call is mocked with page.route.
+      - name: Pending-profile ownership browser acceptance
+        run: |
+          node --test apps/web/scripts/assert-playwright-report.test.mjs
+          pnpm --filter @parkio/web e2e:ownership
+
       # `pnpm -r` runs each script only in the workspace packages that define it,
       # so packages without a given script are skipped rather than failing.
       #

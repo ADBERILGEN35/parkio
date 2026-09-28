@@ -1,4 +1,5 @@
 import type { AxiosInstance } from 'axios';
+import { withAuthBinding, type RequestAuthBinding } from './client';
 import type {
   Profile,
   PublicProfile,
@@ -22,6 +23,17 @@ export function createUsersApi(client: AxiosInstance) {
 
     updateMyProfile(body: UpdateProfileRequest): Promise<Profile> {
       return client.patch<Profile>('/users/me', body).then((r) => r.data);
+    },
+
+    /**
+     * `updateMyProfile` pinned to one identity across token attachment and
+     * refresh/retry (see RequestAuthBinding). For payloads owned by a specific
+     * account, such as registration-captured profile fields.
+     */
+    updateMyProfileAs(authBinding: RequestAuthBinding, body: UpdateProfileRequest): Promise<Profile> {
+      return client
+        .patch<Profile>('/users/me', body, withAuthBinding({}, authBinding))
+        .then((r) => r.data);
     },
 
     getMyPreferences(options?: RequestOptions): Promise<UserPreference> {

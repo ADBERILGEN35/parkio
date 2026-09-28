@@ -18,6 +18,7 @@
     "e2e": "playwright test",
     "e2e:ui": "playwright test --ui",
     "e2e:real": "playwright test -c playwright.real.config.ts",
+    "e2e:ownership": "PLAYWRIGHT_JSON_OUTPUT_NAME=test-results/ownership-report.json playwright test e2e/pending-profile-ownership.spec.ts --project=ownership-chromium --workers=1 --retries=0 --reporter=list,json && node scripts/assert-playwright-report.mjs test-results/ownership-report.json --project ownership-chromium --min 8",
     "test:marketing": "node ../../../scripts/validate-marketing-site.mjs && playwright test -c playwright.marketing.config.ts",
     "verify:bundle-env": "node scripts/verify-bundle-env.mjs",
     "smoke:image": "node scripts/smoke-image.mjs",
