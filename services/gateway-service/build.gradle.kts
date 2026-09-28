@@ -5,7 +5,8 @@ plugins {
 description = "API gateway and edge routing for all Parkio services"
 
 evaluationDependsOn(":services:auth-service")
-val authMainClasses = project(":services:auth-service").sourceSets["main"].output.classesDirs
+val authMain = project(":services:auth-service").sourceSets["main"]
+val authMainClasses = files(authMain.output.classesDirs).builtBy(authMain.classesTaskName)
 
 dependencies {
     implementation(libs.spring.cloud.gateway)
