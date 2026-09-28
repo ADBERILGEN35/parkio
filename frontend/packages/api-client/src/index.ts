@@ -3,9 +3,7 @@ export {
   setRefreshHandler,
   refreshSession,
   isRefreshInFlight,
-  withAuthBinding,
   type ApiClientOptions,
-  type RequestAuthBinding,
 } from './client';
 export { createAuthApi, type AuthApi } from './auth';
 export { createPublicExploreApi, type PublicExploreApi } from './public-explore';
