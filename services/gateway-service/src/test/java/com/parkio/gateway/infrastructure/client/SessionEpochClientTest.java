@@ -47,6 +47,18 @@ class SessionEpochClientTest {
     }
 
     @Test
+    void mapsLegitimateEpochZeroForMatchingUser() {
+        ClientResponse zero = ClientResponse.create(HttpStatus.OK)
+                .header("Content-Type", MediaType.APPLICATION_JSON_VALUE)
+                .body("{\"userId\":\"u1\",\"sessionEpoch\":0}")
+                .build();
+
+        Long epoch = clientReturning(zero).fetchCurrentEpoch("u1").block();
+
+        assertThat(epoch).isZero();
+    }
+
+    @Test
     void mapsNotFoundToUnavailable() {
         ClientResponse notFound = ClientResponse.create(HttpStatus.NOT_FOUND).build();
 
@@ -71,6 +83,17 @@ class SessionEpochClientTest {
     }
 
     @Test
+    void emptyJsonObjectIsUnavailable() {
+        ClientResponse emptyObject = ClientResponse.create(HttpStatus.OK)
+                .header("Content-Type", MediaType.APPLICATION_JSON_VALUE)
+                .body("{}")
+                .build();
+
+        assertThatThrownBy(() -> clientReturning(emptyObject).fetchCurrentEpoch("u1").block())
+                .isInstanceOf(SessionEpochUnavailableException.class);
+    }
+
+    @Test
     void missingEpochFieldIsUnavailable() {
         ClientResponse missingEpoch = ClientResponse.create(HttpStatus.OK)
                 .header("Content-Type", MediaType.APPLICATION_JSON_VALUE)
@@ -78,6 +101,50 @@ class SessionEpochClientTest {
                 .build();
 
         assertThatThrownBy(() -> clientReturning(missingEpoch).fetchCurrentEpoch("u1").block())
+                .isInstanceOf(SessionEpochUnavailableException.class);
+    }
+
+    @Test
+    void nullEpochFieldIsUnavailable() {
+        ClientResponse nullEpoch = ClientResponse.create(HttpStatus.OK)
+                .header("Content-Type", MediaType.APPLICATION_JSON_VALUE)
+                .body("{\"userId\":\"u1\",\"sessionEpoch\":null}")
+                .build();
+
+        assertThatThrownBy(() -> clientReturning(nullEpoch).fetchCurrentEpoch("u1").block())
+                .isInstanceOf(SessionEpochUnavailableException.class);
+    }
+
+    @Test
+    void malformedJsonIsUnavailable() {
+        ClientResponse malformed = ClientResponse.create(HttpStatus.OK)
+                .header("Content-Type", MediaType.APPLICATION_JSON_VALUE)
+                .body("{\"userId\":\"u1\",\"sessionEpoch\":")
+                .build();
+
+        assertThatThrownBy(() -> clientReturning(malformed).fetchCurrentEpoch("u1").block())
+                .isInstanceOf(SessionEpochUnavailableException.class);
+    }
+
+    @Test
+    void nonNumericEpochIsUnavailable() {
+        ClientResponse malformedEpoch = ClientResponse.create(HttpStatus.OK)
+                .header("Content-Type", MediaType.APPLICATION_JSON_VALUE)
+                .body("{\"userId\":\"u1\",\"sessionEpoch\":\"not-a-number\"}")
+                .build();
+
+        assertThatThrownBy(() -> clientReturning(malformedEpoch).fetchCurrentEpoch("u1").block())
+                .isInstanceOf(SessionEpochUnavailableException.class);
+    }
+
+    @Test
+    void missingUserIdIsUnavailable() {
+        ClientResponse missingUser = ClientResponse.create(HttpStatus.OK)
+                .header("Content-Type", MediaType.APPLICATION_JSON_VALUE)
+                .body("{\"sessionEpoch\":0}")
+                .build();
+
+        assertThatThrownBy(() -> clientReturning(missingUser).fetchCurrentEpoch("u1").block())
                 .isInstanceOf(SessionEpochUnavailableException.class);
     }
 
