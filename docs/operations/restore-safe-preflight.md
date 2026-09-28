@@ -25,6 +25,32 @@ entrypoints will not issue their own ticket from a CLI flag. The ticket binds
 the selected stamp to live docker context/host/engine and to container, network
 and volume identities; apply uses those same identities after a live re-inspect.
 A container name, environment flag, or marker file is not isolation proof.
+Ticket `bodyDigest` is SHA-256 integrity of the ticket body. It is not
+producer authentication: a process that can write a well-formed ticket can
+also compute a matching digest.
+
+Supported fixture volume topology is narrow: Docker `Driver=local`,
+`Scope=local`, empty `Options`, labels `parkio.isolated.fixture=1` and
+`parkio.isolated.project=<parkio-iso-12-hex>`, and consumers limited to the
+ticket container IDs. Each fixture container must mount exactly one such
+volume. Local-driver bind options (`type=none` / `device` / `o=bind`), NFS,
+CIFS, or any other storage options that can reference host or remote data
+are rejected on apply authorization and on teardown. Unrelated containers
+attached to a fixture-named volume are rejected.
+
+`restore-isolated-fixture.sh down` validates schema, digest, project, and
+the current docker daemon/context, inspects every remaining target, and
+authorizes fixture ownership before any `rm`. It deletes only recorded
+container/network IDs (never an unchecked name fallback) and verified
+fixture volumes. Stopped containers and already-absent objects are
+idempotent; inspect/permission/daemon errors fail closed. Incomplete
+cleanup returns nonzero and retains the ticket. The ticket file is removed
+only after verified cleanup.
+
+Remaining limits: a malicious root operator can edit these scripts, forge
+docker labels, or point the CLI at another daemon they control. Isolation
+does not survive a compromised docker engine. Production restore remains
+refused while `verifiedCoverage` is false.
 
 This closes accidental/misrouted use of the supported restore scripts. It does
 not stop a malicious root operator who can edit the scripts.

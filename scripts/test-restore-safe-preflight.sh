@@ -96,6 +96,12 @@ if cmd == "info":
     data = load("info") or {"ID": "stub-engine", "Name": "stub", "Swarm": {"LocalNodeState": "inactive"}}
     json.dump(data, sys.stdout)
     sys.exit(0)
+if cmd == "network" and len(args) > 1 and args[1] == "inspect":
+    args = ["inspect", args[-1]]
+    cmd = "inspect"
+if cmd == "volume" and len(args) > 1 and args[1] == "inspect":
+    args = ["inspect", args[-1]]
+    cmd = "inspect"
 if cmd == "inspect":
     ref = args[-1]
     data = load(ref)
@@ -103,8 +109,26 @@ if cmd == "inspect":
         # Old bypass: production names "existed" for a dummy inspect.
         if os.environ.get("PARKIO_STUB_INSPECT_ALWAYS", "0") == "1":
             sys.exit(0)
+        print(f"Error: No such object: {ref}", file=sys.stderr)
         sys.exit(1)
     json.dump([data], sys.stdout)
+    sys.exit(0)
+if cmd == "ps":
+    vol = None
+    i = 1
+    while i < len(args):
+        tok = args[i]
+        if tok == "--filter" and i + 1 < len(args):
+            spec = args[i + 1]
+            i += 2
+            if spec.startswith("volume="):
+                vol = spec.split("=", 1)[1]
+            continue
+        i += 1
+    if vol:
+        data = load(f"volume-consumers-{vol}")
+        if isinstance(data, list):
+            sys.stdout.write("\n".join(data) + ("\n" if data else ""))
     sys.exit(0)
 if cmd == "exec":
     rest = args[1:]
@@ -530,6 +554,16 @@ refuse_ticket_mode published-port "published-port fixture topology"
 refuse_ticket_mode extra-network "unsafe extra network attachment"
 refuse_ticket_mode prod-volume "production-like volume mapping"
 refuse_ticket_mode drift "live destination identity drift"
+refuse_ticket_mode bind-volume "local-driver bind volume options"
+refuse_ticket_mode device-volume "local-driver device volume options"
+refuse_ticket_mode nfs-volume "local-driver NFS volume options"
+refuse_ticket_mode cifs-volume "local-driver CIFS volume options"
+refuse_ticket_mode unlabeled-volume "unlabeled fixture-shaped volume"
+refuse_ticket_mode extra-mount "extra bind mount on fixture container"
+refuse_ticket_mode extra-volume "extra volume mount on fixture container"
+refuse_ticket_mode unrelated-consumer "volume attached to an unrelated container"
+refuse_ticket_mode stopped "stopped fixture is not an apply destination"
+refuse_ticket_mode wrong-daemon "ticket bound to a different docker engine"
 
 OTHER_STAMP="${WORK}/other-stamp"
 mkdir -p "${OTHER_STAMP}"

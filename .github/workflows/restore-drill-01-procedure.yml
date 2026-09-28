@@ -21,6 +21,7 @@ on:
       - "scripts/test_restore_readiness.py"
       - "scripts/test-restore-safe-preflight.sh"
       - "scripts/test-restore-isolated-fixture.sh"
+      - "scripts/test-restore-isolated-teardown.sh"
       - "scripts/test-restore-isolated-topology.py"
       - "scripts/ci/restore-drill-01-fixture.sh"
       - "scripts/ci/assert-restore-drill-01.py"
@@ -88,6 +89,7 @@ jobs:
         run: |
           python3 scripts/test_restore_readiness.py
           bash scripts/test-restore-safe-preflight.sh
+          bash scripts/test-restore-isolated-teardown.sh
 
       - name: Isolated-fixture entrypoints against disposable PostgreSQL/MinIO
         run: bash scripts/test-restore-isolated-fixture.sh
