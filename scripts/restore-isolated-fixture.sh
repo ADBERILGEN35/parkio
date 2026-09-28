@@ -65,27 +65,62 @@ if [ "${CMD}" = "down" ]; then
     echo "ERROR: down requires --ticket <file>" >&2
     exit 2
   fi
-  python3 - "${TICKET}" <<'PY' | while IFS= read -r line; do
-import json, sys
+  python3 - "${TICKET}" <<'PY'
+import json, subprocess, sys, time
+
 ticket = json.load(open(sys.argv[1], encoding="utf-8"))
-print("N", ticket["network"]["id"])
-seen_c=set(); seen_v=set()
+containers = []
+volumes = []
+seen_c = set()
+seen_v = set()
 for dest in (ticket.get("postgres") or {}).values():
-    if dest["containerId"] not in seen_c:
-        print("C", dest["containerId"]); seen_c.add(dest["containerId"])
-    if dest["volumeName"] not in seen_v:
-        print("V", dest["volumeName"]); seen_v.add(dest["volumeName"])
+    cid = dest.get("containerId") or ""
+    vol = dest.get("volumeName") or ""
+    if cid and cid not in seen_c:
+        containers.append(cid)
+        seen_c.add(cid)
+    if vol and vol not in seen_v:
+        volumes.append(vol)
+        seen_v.add(vol)
 minio = ticket.get("minio") or {}
-if minio:
-    print("C", minio["containerId"])
-    print("V", minio["volumeName"])
+if minio.get("containerId"):
+    containers.append(minio["containerId"])
+if minio.get("volumeName") and minio["volumeName"] not in seen_v:
+    volumes.append(minio["volumeName"])
+network_ids = []
+for key in ("id", "name"):
+    value = (ticket.get("network") or {}).get(key)
+    if value and value not in network_ids:
+        network_ids.append(value)
+if ticket.get("project") and ticket["project"] not in network_ids:
+    network_ids.append(ticket["project"])
+
+
+def run(args):
+    subprocess.run(args, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, check=False)
+
+
+for cid in containers:
+    run(["docker", "rm", "-f", cid])
+for vol in volumes:
+    run(["docker", "volume", "rm", vol])
+# Network last: docker refuses rm while endpoints still exist.
+for _ in range(10):
+    remaining = False
+    for ident in network_ids:
+        inspect = subprocess.run(
+            ["docker", "network", "inspect", ident],
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+            check=False,
+        )
+        if inspect.returncode == 0:
+            remaining = True
+            run(["docker", "network", "rm", ident])
+    if not remaining:
+        break
+    time.sleep(0.2)
 PY
-    case "${line}" in
-      C\ *) docker rm -f "${line#C }" >/dev/null 2>&1 || true ;;
-      V\ *) docker volume rm "${line#V }" >/dev/null 2>&1 || true ;;
-      N\ *) docker network rm "${line#N }" >/dev/null 2>&1 || true ;;
-    esac
-  done
   rm -f "${TICKET}"
   exit 0
 fi
