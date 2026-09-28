@@ -15,6 +15,8 @@
  *
  * Browser mount checks use locators (not page.evaluate / waitForFunction) so nginx
  * `script-src 'self'` stays enforced. bypassCSP is not used for acceptance.
+ * Extra mocked-API routes must mount into `#root`; nonempty body text outside
+ * `#root` is not a successful mount.
  *
  * No configuration value is ever printed - only names and PRESENT/EMPTY/MISSING statuses.
  *
@@ -47,6 +49,17 @@ const { image, appEnv, port, docker } = parseArgs(process.argv.slice(2));
 const containerName = `parkio-web-smoke-${process.pid}`;
 const baseUrl = `http://127.0.0.1:${port}`;
 const failures = [];
+const rootMountTimeoutMs = Number.parseInt(process.env.SMOKE_ROOT_MOUNT_TIMEOUT_MS ?? '20000', 10);
+
+async function waitForRootMount(page) {
+  const rootChild = page.locator('#root > *');
+  try {
+    await rootChild.first().waitFor({ state: 'attached', timeout: rootMountTimeoutMs });
+  } catch {
+    return { mounted: false, rootChildren: await rootChild.count() };
+  }
+  return { mounted: true, rootChildren: await rootChild.count() };
+}
 
 function sh(file, args, opts = {}) {
   return execFileSync(file, args, { encoding: 'utf8', ...opts });
@@ -196,26 +209,23 @@ async function checkMount() {
       failures.push('login response CSP contains unsafe-eval');
     }
 
-    const rootChild = page.locator('#root > *');
-    try {
-      await rootChild.first().waitFor({ state: 'attached', timeout: 20_000 });
-    } catch {
-      /* counted below; empty #root is the white-screen failure */
-    }
-
-    const rootChildren = await rootChild.count();
+    const loginMount = await waitForRootMount(page);
+    const rootChildren = loginMount.rootChildren;
     const textLength = (await page.locator('body').innerText()).trim().length;
     const inputCount = await page.locator('input').count();
     const routes = [];
     if (process.env.SMOKE_MOCK_EXTERNAL === '1') {
       for (const path of ['/explore', '/map', '/admin/waitlist', '/register?lang=tr', '/register?lang=en']) {
         await page.goto(`${baseUrl}${path}`, { waitUntil: 'domcontentloaded', timeout: 45_000 });
-        try {
-          await page.locator('#root > *').first().waitFor({ state: 'attached', timeout: 20_000 });
-        } catch {
-          /* visible-text check below */
-        }
+        const routeMount = await waitForRootMount(page);
         const visible = (await page.locator('body').innerText()).trim().length;
+        if (!routeMount.mounted) {
+          failures.push(
+            `${path} did not mount the SPA in #root` +
+              (visible > 0 ? ' (nonempty body text outside #root is not a mount)' : ''),
+          );
+          continue;
+        }
         if (visible === 0) {
           failures.push(`${path} rendered no visible text`);
           continue;
