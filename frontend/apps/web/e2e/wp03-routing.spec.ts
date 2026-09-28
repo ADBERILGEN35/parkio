@@ -643,12 +643,12 @@ test.describe('WP-03 canonical routing acceptance', () => {
   test('provisioning and authenticated users receive lifecycle-owned replacement redirects', async ({
     page,
   }) => {
-    await page.addInitScript(() => {
+    await page.addInitScript((ownerUserId) => {
       sessionStorage.setItem(
         'parkio.pendingProfile',
-        JSON.stringify({ displayName: 'Pending Driver' }),
+        JSON.stringify({ ownerUserId, displayName: 'Pending Driver' }),
       );
-    });
+    }, USER_ID);
     await installMockApi(page, {
       user: users.user,
       profileReady: false,
@@ -1019,12 +1019,12 @@ test.describe('WP-03 canonical routing acceptance', () => {
       await markUploadDirty(page);
       if (route.path === '/preparing') {
         backend.setProfileReady(false);
-        await page.evaluate(() => {
+        await page.evaluate((ownerUserId) => {
           sessionStorage.setItem(
             'parkio.pendingProfile',
-            JSON.stringify({ displayName: 'Bypass Preparing Driver' }),
+            JSON.stringify({ ownerUserId, displayName: 'Bypass Preparing Driver' }),
           );
-        });
+        }, USER_ID);
         await callRuntimeAuth(page, 'beginProvisioning');
         await expect(page.getByRole('dialog')).toHaveCount(0);
         await expect(page).toHaveURL(/\/preparing$/);
@@ -1050,12 +1050,12 @@ test.describe('WP-03 canonical routing acceptance', () => {
       profileReady: false,
     });
     await markUploadDirty(page);
-    await page.evaluate(() => {
+    await page.evaluate((ownerUserId) => {
       sessionStorage.setItem(
         'parkio.pendingProfile',
-        JSON.stringify({ displayName: 'Dirty Provisioning Driver' }),
+        JSON.stringify({ ownerUserId, displayName: 'Dirty Provisioning Driver' }),
       );
-    });
+    }, USER_ID);
     void backend;
 
     await callRuntimeAuth(page, 'beginProvisioning');
@@ -1153,12 +1153,12 @@ test.describe('WP-03 canonical routing acceptance', () => {
     await expect(page).not.toHaveURL(/\/map$/);
 
     const provisioning = await page.context().newPage();
-    await provisioning.addInitScript(() => {
+    await provisioning.addInitScript((ownerUserId) => {
       sessionStorage.setItem(
         'parkio.pendingProfile',
-        JSON.stringify({ displayName: 'History Driver' }),
+        JSON.stringify({ ownerUserId, displayName: 'History Driver' }),
       );
-    });
+    }, USER_ID);
     await installMockApi(provisioning, {
       user: users.user,
       profileReady: false,
