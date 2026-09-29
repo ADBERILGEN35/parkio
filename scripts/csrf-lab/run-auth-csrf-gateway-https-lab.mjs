@@ -185,13 +185,30 @@ function reverseProxy(tls, listenPort, targetPort, edgeFile, edgeLabel) {
  */
 /**
  * Lab-only auth-direct front on api.parkio.test (same host, different port):
- * stamps X-Gateway-Auth and proxies to auth. No CORS headers — browser JS may see
- * status 0; auth Origin proof is the server capture + session probe (simple POST
- * avoids preflight). Production allowlists unchanged.
+ * stamps X-Gateway-Auth and answers CORS only for hardcoded lab origin string
+ * literals (no raw Origin echo). Lets JSON credentialed fetch observe auth 403
+ * while production gateway allowlists stay unchanged.
  */
 function authDirectProxy(tls, listenPort, authPort, edgeFile, gatewaySecret) {
+  // Ports must stay in sync with APP_PORT / EVIL_PORT / CROSS_PORT constants above.
+  const LAB_APP = 'https://app.parkio.test:18443';
+  const LAB_EVIL = 'https://evil.parkio.test:18445';
+  const LAB_CROSS = 'https://cross.example.test:18446';
   return listenHttps(listenPort, tls, (req, res) => {
     const requestOrigin = req.headers.origin || '';
+    let acao = null;
+    if (requestOrigin === LAB_APP) acao = LAB_APP;
+    else if (requestOrigin === LAB_EVIL) acao = LAB_EVIL;
+    else if (requestOrigin === LAB_CROSS) acao = LAB_CROSS;
+    const corsHeaders = acao
+      ? {
+          'access-control-allow-origin': acao,
+          'access-control-allow-credentials': 'true',
+          'access-control-allow-headers': 'content-type,x-parkio-client',
+          'access-control-allow-methods': 'POST,OPTIONS',
+          vary: 'Origin',
+        }
+      : {};
     if (req.method === 'OPTIONS') {
       appendEdge(edgeFile, {
         edge: 'auth-direct',
@@ -201,9 +218,8 @@ function authDirectProxy(tls, listenPort, authPort, edgeFile, gatewaySecret) {
         contentType: null,
         hasCookie: Boolean(req.headers.cookie),
       });
-      // No ACAO — JSON preflight must not be mistaken for auth Origin proof.
-      res.writeHead(403, { 'content-type': 'text/plain' });
-      res.end('lab auth-direct does not answer CORS preflight');
+      res.writeHead(acao ? 204 : 403, corsHeaders);
+      res.end();
       return;
     }
     const chunks = [];
@@ -235,12 +251,12 @@ function authDirectProxy(tls, listenPort, authPort, edgeFile, gatewaySecret) {
           headers,
         },
         (uRes) => {
-          res.writeHead(uRes.statusCode || 502, uRes.headers);
+          res.writeHead(uRes.statusCode || 502, { ...uRes.headers, ...corsHeaders });
           uRes.pipe(res);
         },
       );
       uReq.on('error', (err) => {
-        res.writeHead(502, { 'content-type': 'text/plain' });
+        res.writeHead(502, { 'content-type': 'text/plain', ...corsHeaders });
         res.end(String(err));
       });
       if (body.length) uReq.write(body);

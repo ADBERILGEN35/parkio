@@ -289,11 +289,10 @@ async function main() {
     assertNoMutation(baseline, probe(attackRaw), 'siblingLogoutSimple');
 
     // --- auth Origin isolation (lab auth-direct; gateway CORS bypassed) ---
-    // Simple form POST avoids CORS preflight; browser may not read the response
-    // without ACAO — proof is auth capture 403 + unchanged session.
+    // JSON POST with lab-literal CORS on auth-direct so auth validateOrigin runs.
     since = nowIso();
     const originIsolateRefresh = await evilPage.evaluate(
-      async ({ api }) => window.__parkio.callSimple('/api/v1/auth/refresh-token', { api }),
+      async ({ api }) => window.__parkio.call('/api/v1/auth/refresh-token', { body: {}, api }),
       { api: apiAuthDirectOrigin },
     );
     outcome.checks.authOriginIsolateRefresh = originIsolateRefresh;
@@ -314,13 +313,15 @@ async function main() {
       );
     }
     if (!isolateAttr.authStatuses.includes(403)) {
-      throw new Error(`auth Origin isolate auth status must be 403: ${JSON.stringify(isolateAttr)}`);
+      throw new Error(
+        `auth Origin isolate auth status must be 403 (got ${JSON.stringify(isolateAttr)}; browser=${JSON.stringify(originIsolateRefresh)})`,
+      );
     }
     assertNoMutation(baseline, probe(attackRaw), 'authOriginIsolateRefresh');
 
     since = nowIso();
     const originIsolateLogout = await evilPage.evaluate(
-      async ({ api }) => window.__parkio.callSimple('/api/v1/auth/logout', { api }),
+      async ({ api }) => window.__parkio.call('/api/v1/auth/logout', { body: {}, api }),
       { api: apiAuthDirectOrigin },
     );
     outcome.checks.authOriginIsolateLogout = originIsolateLogout;
