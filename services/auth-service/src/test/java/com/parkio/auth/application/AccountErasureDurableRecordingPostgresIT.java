@@ -187,6 +187,27 @@ class AccountErasureDurableRecordingPostgresIT {
     }
 
     @Test
+    void requestRetryAfterFailedPersistAndAllAcksCommitsComplete() {
+        AuthUser user = newUser();
+        store.failNextPuts(1);
+        assertThatThrownBy(() -> enabledService.requestDeletion(user.id(), PASSWORD))
+                .isInstanceOf(AuthException.class)
+                .extracting(e -> ((AuthException) e).errorCode())
+                .isEqualTo(AuthErrorCode.DURABLE_RECORDING_UNAVAILABLE);
+        UUID requestId = requests.findAll().get(0).getId();
+        enabledService.handleAcknowledgement(ack(requestId, user.id()));
+        assertThat(status(requestId)).isEqualTo("IN_PROGRESS");
+        assertThat(recordingStatus(requestId)).isEqualTo("PENDING_DURABLE");
+
+        var retry = enabledService.requestDeletion(user.id(), PASSWORD);
+        assertThat(retry.erasureRequestId()).isEqualTo(requestId);
+        assertThat(recordingStatus(requestId)).isEqualTo("DURABLY_RECORDED");
+        assertThat(status(requestId)).isEqualTo("COMPLETE");
+        assertThat(user.status()).isEqualTo(AuthUserStatus.ERASED);
+        assertThat(store.size()).isEqualTo(1);
+    }
+
+    @Test
     void persistThenAckCompletesAndDoesNotHoldTransactionDuringPersist() {
         AuthUser user = newUser();
         var view = enabledService.requestDeletion(user.id(), PASSWORD);
