@@ -167,13 +167,17 @@ function reverseProxy(tls, listenPort, targetPort, edgeFile, edgeLabel) {
 function authDirectProxy(tls, listenPort, authPort, edgeFile, gatewaySecret) {
   return listenHttps(listenPort, tls, (req, res) => {
     const origin = req.headers.origin || '';
-    const corsHeaders = {
-      'access-control-allow-origin': origin || '*',
-      'access-control-allow-credentials': 'true',
-      'access-control-allow-headers': req.headers['access-control-request-headers'] || 'content-type,x-parkio-client',
-      'access-control-allow-methods': 'GET,POST,OPTIONS',
-      vary: 'Origin',
-    };
+    // Reflect concrete Origin only — never ACAO=* with credentials (CodeQL / browser rules).
+    const corsHeaders = origin
+      ? {
+          'access-control-allow-origin': origin,
+          'access-control-allow-credentials': 'true',
+          'access-control-allow-headers':
+            req.headers['access-control-request-headers'] || 'content-type,x-parkio-client',
+          'access-control-allow-methods': 'GET,POST,OPTIONS',
+          vary: 'Origin',
+        }
+      : {};
     if (req.method === 'OPTIONS') {
       appendEdge(edgeFile, {
         edge: 'auth-direct',
@@ -183,7 +187,7 @@ function authDirectProxy(tls, listenPort, authPort, edgeFile, gatewaySecret) {
         contentType: null,
         hasCookie: Boolean(req.headers.cookie),
       });
-      res.writeHead(204, corsHeaders);
+      res.writeHead(origin ? 204 : 403, corsHeaders);
       res.end();
       return;
     }
