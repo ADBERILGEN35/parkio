@@ -21,9 +21,6 @@ on:
   pull_request:
   push:
     branches: [master]
-  schedule:
-    # Weekly drift check, early Monday UTC.
-    - cron: "23 3 * * 1"
   workflow_dispatch:
 
 # Least-privilege for the Code Scanning path. security-events: write is only

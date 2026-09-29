@@ -21,8 +21,6 @@ name: Supply chain (SBOM)
 on:
   push:
     branches: [master]
-  schedule:
-    - cron: "41 4 * * 1" # weekly drift check, Monday 04:41 UTC
   workflow_dispatch:
 
 # Least privilege. id-token/attestations are only consumed by the gated attestation steps.

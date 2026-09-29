@@ -8,10 +8,6 @@ on:
       - "services/**/Dockerfile"
       - "services/**/src/main/resources/application*.yml"
       - ".github/workflows/runtime-validation.yml"
-  schedule:
-    # Weekly runtime drift check, after the security and backup jobs.
-    - cron: "41 5 * * 1"
-
 permissions:
   contents: read
 
