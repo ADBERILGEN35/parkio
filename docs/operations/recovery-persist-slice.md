@@ -152,12 +152,18 @@ transaction state bound to its thread.
   Otherwise the tick is a no-op and performs zero external puts.
 - Retry metadata lives in PostgreSQL (`durable_retry_*`, worker lease
   columns via Flyway V25). Claims use `FOR UPDATE SKIP LOCKED` with a
-  lease token; store I/O runs outside database transactions.
-- The worker retries `PENDING_DURABLE` rows with capped exponential
-  backoff, reuses the same request id and immutable record body, and can
-  reconcile `DURABLY_RECORDED` rows to `COMPLETE` when store evidence and
-  all participant ACKs are already present. Exhausted attempts stop
-  scheduling but do not discard the erasure row.
+  lease token; store I/O (reads and writes) runs outside database
+  transactions. Completion re-enters a short transaction and revalidates
+  request identity, ACKs, terminal state, and claim ownership before
+  mutating. JDBC claim/retry updates bump `@Version` so stale JPA entities
+  cannot overwrite a newer claim.
+- The worker retries `PENDING_DURABLE` rows (including `FAILED_RETRYING`
+  participant status) with capped exponential backoff and never silently
+  abandons a pending erasure. Identity conflicts stay blocked and
+  observable via `last_error_code`. Successful persist clears retry delay
+  so `DURABLY_RECORDED` reconciliation remains eligible when ACKs arrive.
+  Worker COMPLETE uses a claim-guarded JDBC update so lease/version bumps
+  cannot lose to stale JPA entities; user tombstone finish runs afterward.
 - `persistDurableRecord` remains an explicit retry entrypoint.
   `ErasureStuckGaugeJob` still only counts stuck requests.
 

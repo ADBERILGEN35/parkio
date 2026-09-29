@@ -20,6 +20,7 @@ public final class InMemoryDurableErasureRecordStore implements DurableErasureRe
     private final ConcurrentHashMap<UUID, DurableErasureRecord> records = new ConcurrentHashMap<>();
     private final AtomicInteger remainingFailures = new AtomicInteger(0);
     private volatile boolean lastPutSawActiveTransaction;
+    private volatile boolean lastFindSawActiveTransaction;
 
     public void failNextPuts(int count) {
         remainingFailures.set(count);
@@ -29,10 +30,19 @@ public final class InMemoryDurableErasureRecordStore implements DurableErasureRe
         records.clear();
         remainingFailures.set(0);
         lastPutSawActiveTransaction = false;
+        lastFindSawActiveTransaction = false;
+    }
+
+    public void clearFinds() {
+        lastFindSawActiveTransaction = false;
     }
 
     public boolean lastPutSawActiveTransaction() {
         return lastPutSawActiveTransaction;
+    }
+
+    public boolean lastFindSawActiveTransaction() {
+        return lastFindSawActiveTransaction;
     }
 
     public int size() {
@@ -57,6 +67,7 @@ public final class InMemoryDurableErasureRecordStore implements DurableErasureRe
 
     @Override
     public Optional<DurableErasureRecord> findByRequestId(UUID erasureRequestId) {
+        lastFindSawActiveTransaction = TransactionSynchronizationManager.isActualTransactionActive();
         return Optional.ofNullable(records.get(erasureRequestId));
     }
 }

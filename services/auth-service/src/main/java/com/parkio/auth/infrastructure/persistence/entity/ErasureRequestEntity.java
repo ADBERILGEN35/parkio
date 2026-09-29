@@ -108,6 +108,10 @@ public class ErasureRequestEntity {
         this.durableRecordingStatus = "DURABLY_RECORDED";
     }
 
+    public void clearDurableRetryDelay() {
+        this.durableRetryNextAt = null;
+    }
+
     public void markInProgress() {
         this.status = "IN_PROGRESS";
         this.lastErrorCode = null;

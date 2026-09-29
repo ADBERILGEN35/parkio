@@ -83,7 +83,7 @@ public class ErasureDurableRecordingWorker {
         UUID claimToken = UUID.randomUUID();
         Instant claimExpires = now.plus(lease);
         List<ErasureDurableWorkerClaim> claims =
-                workerRepository.claimBatch(now, batchSize, maxAttempts, claimExpires, claimToken);
+                workerRepository.claimBatch(now, batchSize, claimExpires, claimToken);
         for (ErasureDurableWorkerClaim claim : claims) {
             try {
                 if ("PENDING_DURABLE".equals(claim.durableRecordingStatus())) {

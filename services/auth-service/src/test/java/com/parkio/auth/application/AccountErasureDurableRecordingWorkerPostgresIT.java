@@ -1,6 +1,7 @@
 package com.parkio.auth.application;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.when;
@@ -125,6 +126,7 @@ class AccountErasureDurableRecordingWorkerPostgresIT {
     @Autowired private ErasureServiceAckJpaRepository acks;
     @Autowired private ErasedUserTombstoneJpaRepository tombstones;
     @Autowired private JdbcTemplate jdbc;
+    @Autowired private jakarta.persistence.EntityManager entityManager;
 
     @BeforeEach
     void resetState() {
@@ -170,22 +172,32 @@ class AccountErasureDurableRecordingWorkerPostgresIT {
     @Test
     void durablyRecordedReconciliationCompletesWhenAcksPresent() {
         AuthUser user = newUser();
+        store.failNextPuts(1);
         UUID requestId = erasure.requestDeletion(user.id(), PASSWORD).erasureRequestId();
         erasure.handleAcknowledgement(ack(requestId, user.id()));
-        assertThat(status(requestId)).isEqualTo("COMPLETE");
+        assertThat(status(requestId)).isEqualTo("IN_PROGRESS");
+        assertThat(recordingStatus(requestId)).isEqualTo("PENDING_DURABLE");
 
+        store.putIfAbsent(
+                com.parkio.auth.application.port.DurableErasureRecord.of(
+                        requestId, user.id(), NOW));
         jdbc.update(
                 """
                 UPDATE erasure_requests
-                SET status = 'IN_PROGRESS', completed_at = NULL
+                SET durable_recording_status = 'DURABLY_RECORDED',
+                    durable_retry_next_at = NULL,
+                    durable_worker_claim_token = NULL,
+                    durable_worker_claim_expires_at = NULL
                 WHERE id = ?
                 """,
                 requestId);
-        assertThat(status(requestId)).isEqualTo("IN_PROGRESS");
+        entityManager.clear();
         assertThat(recordingStatus(requestId)).isEqualTo("DURABLY_RECORDED");
+        assertThat(status(requestId)).isEqualTo("IN_PROGRESS");
 
         worker.tick();
         assertThat(status(requestId)).isEqualTo("COMPLETE");
+        assertThat(store.lastFindSawActiveTransaction()).isFalse();
     }
 
     @Test
@@ -214,17 +226,17 @@ class AccountErasureDurableRecordingWorkerPostgresIT {
         UUID token1 = UUID.randomUUID();
         UUID token2 = UUID.randomUUID();
         List<ErasureDurableWorkerClaim> first =
-                workerRepository.claimBatch(now, 1, 5, now.plusSeconds(60), token1);
+                workerRepository.claimBatch(now, 1, now.plusSeconds(60), token1);
         assertThat(first).hasSize(1);
         assertThat(first.get(0).requestId()).isEqualTo(requestId);
         List<ErasureDurableWorkerClaim> second =
-                workerRepository.claimBatch(now, 1, 5, now.plusSeconds(60), token2);
+                workerRepository.claimBatch(now, 1, now.plusSeconds(60), token2);
         assertThat(second.stream().map(ErasureDurableWorkerClaim::requestId))
                 .doesNotContain(requestId);
 
         workerRepository.releaseClaim(requestId, token1, NOW);
         List<ErasureDurableWorkerClaim> third =
-                workerRepository.claimBatch(now, 1, 5, now.plusSeconds(60), token2);
+                workerRepository.claimBatch(now, 1, now.plusSeconds(60), token2);
         assertThat(third.stream().map(ErasureDurableWorkerClaim::requestId)).contains(requestId);
     }
 
@@ -234,7 +246,7 @@ class AccountErasureDurableRecordingWorkerPostgresIT {
         store.failNextPuts(1);
         UUID requestId = erasure.requestDeletion(user.id(), PASSWORD).erasureRequestId();
         UUID token1 = UUID.randomUUID();
-        workerRepository.claimBatch(NOW, 1, 5, NOW.plusSeconds(1), token1);
+        workerRepository.claimBatch(NOW, 1, NOW.plusSeconds(1), token1);
         jdbc.update(
                 """
                 UPDATE erasure_requests
@@ -245,7 +257,7 @@ class AccountErasureDurableRecordingWorkerPostgresIT {
                 requestId);
         UUID token2 = UUID.randomUUID();
         List<ErasureDurableWorkerClaim> reclaimed =
-                workerRepository.claimBatch(NOW, 1, 5, NOW.plusSeconds(60), token2);
+                workerRepository.claimBatch(NOW, 1, NOW.plusSeconds(60), token2);
         assertThat(reclaimed).hasSize(1);
         assertThat(reclaimed.get(0).claimToken()).isEqualTo(token2);
     }
@@ -256,7 +268,7 @@ class AccountErasureDurableRecordingWorkerPostgresIT {
         store.failNextPuts(1);
         UUID requestId = erasure.requestDeletion(user.id(), PASSWORD).erasureRequestId();
         UUID realToken = UUID.randomUUID();
-        workerRepository.claimBatch(NOW, 1, 5, NOW.plusSeconds(60), realToken);
+        workerRepository.claimBatch(NOW, 1, NOW.plusSeconds(60), realToken);
         int stale = workerRepository.markDurablyRecordedIfClaimed(requestId, UUID.randomUUID(), NOW);
         assertThat(stale).isZero();
         assertThat(recordingStatus(requestId)).isEqualTo("PENDING_DURABLE");
@@ -270,7 +282,7 @@ class AccountErasureDurableRecordingWorkerPostgresIT {
         int attemptsBeforeWorker = retryAttempts(requestId);
         UUID token = UUID.randomUUID();
         List<ErasureDurableWorkerClaim> claims =
-                workerRepository.claimBatch(NOW, 1, 5, NOW.plusSeconds(60), token);
+                workerRepository.claimBatch(NOW, 1, NOW.plusSeconds(60), token);
         erasure.processWorkerPersistClaim(
                 claims.get(0),
                 5,
@@ -316,6 +328,148 @@ class AccountErasureDurableRecordingWorkerPostgresIT {
         assertThat(recordingStatus(id2)).isEqualTo("DURABLY_RECORDED");
     }
 
+    @Test
+    void reconcileStoreFindRunsOutsideDatabaseTransaction() {
+        AuthUser user = newUser();
+        store.failNextPuts(1);
+        UUID requestId = erasure.requestDeletion(user.id(), PASSWORD).erasureRequestId();
+        erasure.handleAcknowledgement(ack(requestId, user.id()));
+        store.putIfAbsent(
+                com.parkio.auth.application.port.DurableErasureRecord.of(
+                        requestId, user.id(), NOW));
+        jdbc.update(
+                """
+                UPDATE erasure_requests
+                SET durable_recording_status = 'DURABLY_RECORDED',
+                    durable_retry_next_at = NULL,
+                    durable_worker_claim_token = NULL,
+                    durable_worker_claim_expires_at = NULL
+                WHERE id = ?
+                """,
+                requestId);
+        entityManager.clear();
+        store.clearFinds();
+        worker.tick();
+        assertThat(status(requestId)).isEqualTo("COMPLETE");
+        assertThat(store.lastFindSawActiveTransaction()).isFalse();
+    }
+
+    @Test
+    void failedRetryingWithMissingDurableRecordRemainsClaimable() {
+        AuthUser user = newUser();
+        store.failNextPuts(1);
+        UUID requestId = erasure.requestDeletion(user.id(), PASSWORD).erasureRequestId();
+        erasure.handleAcknowledgement(failedAck(requestId, user.id()));
+        assertThat(status(requestId)).isEqualTo("FAILED_RETRYING");
+        assertThat(recordingStatus(requestId)).isEqualTo("PENDING_DURABLE");
+        UUID probe = UUID.randomUUID();
+        List<ErasureDurableWorkerClaim> claims =
+                workerRepository.claimBatch(NOW, 1, NOW.plusSeconds(60), probe);
+        assertThat(claims).extracting(ErasureDurableWorkerClaim::requestId).contains(requestId);
+        workerRepository.releaseClaim(requestId, probe, NOW);
+        worker.tick();
+        assertThat(recordingStatus(requestId)).isEqualTo("DURABLY_RECORDED");
+        assertThat(status(requestId)).isEqualTo("FAILED_RETRYING");
+    }
+
+    @Test
+    void participantFailedThenSuccessCompletesAfterDurableRecord() {
+        AuthUser user = newUser();
+        store.failNextPuts(1);
+        UUID requestId = erasure.requestDeletion(user.id(), PASSWORD).erasureRequestId();
+        erasure.handleAcknowledgement(failedAck(requestId, user.id()));
+        assertThat(status(requestId)).isEqualTo("FAILED_RETRYING");
+        worker.tick();
+        assertThat(recordingStatus(requestId)).isEqualTo("DURABLY_RECORDED");
+        when(inbox.tryClaim(any(), any(), any())).thenReturn(true);
+        erasure.handleAcknowledgement(ack(requestId, user.id()));
+        assertThat(status(requestId)).isEqualTo("COMPLETE");
+        assertThat(store.lastFindSawActiveTransaction()).isFalse();
+    }
+
+    @Test
+    void expiredTokenCannotRecordRetryOrChangeComplete() {
+        AuthUser user = newUser();
+        store.failNextPuts(1);
+        UUID requestId = erasure.requestDeletion(user.id(), PASSWORD).erasureRequestId();
+        UUID token = UUID.randomUUID();
+        workerRepository.claimBatch(NOW, 1, NOW.plusSeconds(60), token);
+        jdbc.update(
+                """
+                UPDATE erasure_requests
+                SET durable_worker_claim_expires_at = ?
+                WHERE id = ?
+                """,
+                Timestamp.from(NOW.minusSeconds(5)),
+                requestId);
+        int updated = workerRepository.recordRetryScheduled(
+                requestId,
+                token,
+                NOW,
+                99,
+                NOW.plusSeconds(30),
+                "STALE");
+        assertThat(updated).isZero();
+        assertThat(retryAttempts(requestId)).isLessThan(99);
+
+        erasure.persistDurableRecord(requestId);
+        erasure.handleAcknowledgement(ack(requestId, user.id()));
+        assertThat(status(requestId)).isEqualTo("COMPLETE");
+        int againstComplete = workerRepository.recordRetryScheduled(
+                requestId, token, NOW, 100, NOW.plusSeconds(30), "STALE");
+        assertThat(againstComplete).isZero();
+        assertThat(status(requestId)).isEqualTo("COMPLETE");
+    }
+
+    @Test
+    void recoveryContinuesBeyondPreviousAttemptLimitAndReconcilesAfterManualPersist() {
+        AuthUser user = newUser();
+        store.failNextPuts(1);
+        UUID requestId = erasure.requestDeletion(user.id(), PASSWORD).erasureRequestId();
+        jdbc.update(
+                """
+                UPDATE erasure_requests
+                SET durable_retry_attempt_count = 50,
+                    durable_retry_next_at = ?,
+                    last_error_code = 'DURABLE_PERSIST_RETRY_EXHAUSTED'
+                WHERE id = ?
+                """,
+                Timestamp.from(NOW.minusSeconds(1)),
+                requestId);
+        List<ErasureDurableWorkerClaim> claims =
+                workerRepository.claimBatch(NOW, 1, NOW.plusSeconds(60), UUID.randomUUID());
+        assertThat(claims).extracting(ErasureDurableWorkerClaim::requestId).contains(requestId);
+
+        erasure.persistDurableRecord(requestId);
+        assertThat(recordingStatus(requestId)).isEqualTo("DURABLY_RECORDED");
+        Instant next = retryNextAt(requestId);
+        assertThat(next).isNull();
+        erasure.handleAcknowledgement(ack(requestId, user.id()));
+        assertThat(status(requestId)).isEqualTo("COMPLETE");
+    }
+
+    @Test
+    void staleJpaEntityCannotOverwriteAfterJdbcClaimBumpsVersion() {
+        AuthUser user = newUser();
+        store.failNextPuts(1);
+        UUID requestId = erasure.requestDeletion(user.id(), PASSWORD).erasureRequestId();
+        var stale = requests.findById(requestId).orElseThrow();
+        Long versionBefore = jdbc.queryForObject(
+                "SELECT version FROM erasure_requests WHERE id = ?", Long.class, requestId);
+        workerRepository.claimBatch(NOW, 1, NOW.plusSeconds(60), UUID.randomUUID());
+        Long versionAfter = jdbc.queryForObject(
+                "SELECT version FROM erasure_requests WHERE id = ?", Long.class, requestId);
+        assertThat(versionAfter).isEqualTo(versionBefore + 1);
+        stale.markDurablyRecorded();
+        assertThatThrownBy(() -> {
+                    requests.saveAndFlush(stale);
+                })
+                .isInstanceOfAny(
+                        org.springframework.orm.ObjectOptimisticLockingFailureException.class,
+                        jakarta.persistence.OptimisticLockException.class);
+        assertThat(recordingStatus(requestId)).isEqualTo("PENDING_DURABLE");
+    }
+
     private AuthUser newUser() {
         AuthUser user = AuthUser.register(
                 "rider-" + UUID.randomUUID() + "@example.com",
@@ -334,6 +488,11 @@ class AccountErasureDurableRecordingWorkerPostgresIT {
     private UserErasureAcknowledgedEvent ack(UUID requestId, UUID userId) {
         return new UserErasureAcknowledgedEvent(
                 UUID.randomUUID(), requestId, userId, "user", "SUCCESS", NOW);
+    }
+
+    private UserErasureAcknowledgedEvent failedAck(UUID requestId, UUID userId) {
+        return new UserErasureAcknowledgedEvent(
+                UUID.randomUUID(), requestId, userId, "user", "FAILED", NOW);
     }
 
     private String status(UUID requestId) {

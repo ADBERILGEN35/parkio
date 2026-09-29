@@ -239,7 +239,7 @@ class AccountErasureApplicationServiceTest {
                 users, refreshTokens, passwordResets, passwordHasher, outbox, inbox,
                 requests, acks, tombstones, new ErasureMetrics(new SimpleMeterRegistry()),
                 Clock.fixed(NOW, ZoneOffset.UTC), true, PARTICIPANTS, true,
-                (DurableErasureRecordStore) null, null, (PlatformTransactionManager) null);
+                (DurableErasureRecordStore) null, null, null, (PlatformTransactionManager) null);
         assertThatThrownBy(() -> service.requestDeletion(user.id(), "pw"))
                 .isInstanceOf(AuthException.class)
                 .extracting(e -> ((AuthException) e).errorCode())
@@ -450,7 +450,7 @@ class AccountErasureApplicationServiceTest {
         return new AccountErasureApplicationService(
                 users, refreshTokens, passwordResets, passwordHasher, outbox, inbox,
                 requests, acks, tombstones, new ErasureMetrics(new SimpleMeterRegistry()),
-                Clock.fixed(NOW, ZoneOffset.UTC), true, PARTICIPANTS, true, store, null, null);
+                Clock.fixed(NOW, ZoneOffset.UTC), true, PARTICIPANTS, true, store, null, null, null);
     }
 
     private void stubRequestPersistence() {
