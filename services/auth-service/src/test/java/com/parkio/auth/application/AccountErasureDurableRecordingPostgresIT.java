@@ -161,11 +161,10 @@ class AccountErasureDurableRecordingPostgresIT {
     void persistenceFailureLeavesInProgressAndRetryAfterRestartCompletes() {
         AuthUser user = newUser();
         store.failNextPuts(1);
-        assertThatThrownBy(() -> enabledService.requestDeletion(user.id(), PASSWORD))
-                .isInstanceOf(AuthException.class)
-                .extracting(e -> ((AuthException) e).errorCode())
-                .isEqualTo(AuthErrorCode.DURABLE_RECORDING_UNAVAILABLE);
+        var accepted = enabledService.requestDeletion(user.id(), PASSWORD);
+        assertThat(accepted.status()).isEqualTo("IN_PROGRESS");
         ErasureRequestEntity pending = requests.findAll().get(0);
+        assertThat(accepted.erasureRequestId()).isEqualTo(pending.getId());
         assertThat(pending.getStatus()).isEqualTo("IN_PROGRESS");
         assertThat(pending.getDurableRecordingStatus()).isEqualTo("PENDING_DURABLE");
         assertThat(store.size()).isZero();
@@ -190,11 +189,9 @@ class AccountErasureDurableRecordingPostgresIT {
     void requestRetryAfterFailedPersistAndAllAcksCommitsComplete() {
         AuthUser user = newUser();
         store.failNextPuts(1);
-        assertThatThrownBy(() -> enabledService.requestDeletion(user.id(), PASSWORD))
-                .isInstanceOf(AuthException.class)
-                .extracting(e -> ((AuthException) e).errorCode())
-                .isEqualTo(AuthErrorCode.DURABLE_RECORDING_UNAVAILABLE);
-        UUID requestId = requests.findAll().get(0).getId();
+        var accepted = enabledService.requestDeletion(user.id(), PASSWORD);
+        assertThat(accepted.status()).isEqualTo("IN_PROGRESS");
+        UUID requestId = accepted.erasureRequestId();
         enabledService.handleAcknowledgement(ack(requestId, user.id()));
         assertThat(status(requestId)).isEqualTo("IN_PROGRESS");
         assertThat(recordingStatus(requestId)).isEqualTo("PENDING_DURABLE");
@@ -225,9 +222,9 @@ class AccountErasureDurableRecordingPostgresIT {
     void ackThenPersistCompletes() {
         AuthUser user = newUser();
         store.failNextPuts(1);
-        assertThatThrownBy(() -> enabledService.requestDeletion(user.id(), PASSWORD))
-                .isInstanceOf(AuthException.class);
-        UUID requestId = requests.findAll().get(0).getId();
+        var accepted = enabledService.requestDeletion(user.id(), PASSWORD);
+        assertThat(accepted.status()).isEqualTo("IN_PROGRESS");
+        UUID requestId = accepted.erasureRequestId();
         enabledService.handleAcknowledgement(ack(requestId, user.id()));
         assertThat(status(requestId)).isEqualTo("IN_PROGRESS");
         store.clear();

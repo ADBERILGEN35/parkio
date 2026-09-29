@@ -354,7 +354,14 @@ public class AccountErasureApplicationService {
             TransactionSynchronizationManager.registerSynchronization(new TransactionSynchronization() {
                 @Override
                 public void afterCommit() {
-                    persistDurableRecordNow(requestId);
+                    try {
+                        persistDurableRecordNow(requestId);
+                    } catch (RuntimeException ex) {
+                        // The auth transaction has already committed. Keep the public
+                        // response truthful: the request is accepted, but recording
+                        // remains pending and must be retried independently.
+                        log.error("post-commit durable recording failed requestId={}", requestId, ex);
+                    }
                 }
             });
         } else if (TransactionSynchronizationManager.isActualTransactionActive()) {
