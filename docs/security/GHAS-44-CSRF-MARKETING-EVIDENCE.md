@@ -98,6 +98,31 @@ $env:PARKIO_CSRF_BROWSER=1
 4. **Missing Origin / Referer** cannot be omitted by Chromium cross-origin `fetch` — remains #125 MockMvc evidence.
 5. The dedicated PR workflow installs Playwright Chromium and runs this test with `PARKIO_CSRF_BROWSER=1`; general Backend CI still does not run the browser lab.
 
+## 3b. Real request path (browser → gateway → auth)
+
+Production / hosted-beta shape (`docker/.env.*.example`, `CorsConfig`, `GatewayAuthHeaderGlobalFilter`, `AuthController`):
+
+1. Browser on `https://app.parkio.dev` issues credentialed `fetch` to `https://api.parkio.dev/api/v1/auth/*`.
+2. **Gateway CORS** (`parkio.gateway.cors.allowed-origins` ← `PARKIO_CORS_ALLOWED_ORIGINS`, credentials default **true**) must reflect the app origin or the browser blocks the response (and typically the preflight).
+3. **GatewayAuthHeaderGlobalFilter** strips any inbound `X-Gateway-Auth` and stamps the configured secret — browsers never hold it.
+4. Request is proxied to **auth-service** (host ports reset in hosted-beta; not browser-reachable).
+5. Auth cookie path: `parkio_refresh` HttpOnly+Secure+SameSite=Strict, host-only on the API host. Refresh/logout require `validateOrigin` against the **same** env allow-list (`parkio.security.refresh-cookie.allowed-origins` ← `PARKIO_CORS_ALLOWED_ORIGINS`).
+6. Same-site sibling (`evil.parkio.dev`): SameSite=Strict **may send** the cookie; CSRF resistance requires gateway CORS **and/or** auth Origin rejection. Cross-site: cookie omitted.
+
+### Gateway HTTPS sibling-host lab (this PR)
+
+| Artifact | Role |
+|---|---|
+| `scripts/csrf-lab/run-auth-csrf-gateway-https-lab.mjs` | Boots Postgres+Redis (Docker), real auth+gateway `bootRun`, TLS fronts, Chromium |
+| `scripts/csrf-lab/playwright-gateway-driver.mjs` | Cases: allowed login/refresh/logout, sibling evil, cross-site, forged mobile, logout-all without bearer |
+| `CsrfLabRequestCaptureFilter` | Opt-in (`parkio.csrf-lab.capture-enabled`) — records Origin/Cookie **names** / gateway-auth **presence** as seen by auth |
+| `CorsConfigTest.siblingSubdomainNotOnAllowList…` | Unit proof: evil sibling gets no ACAO |
+| `.github/workflows/auth-csrf-gateway-https-acceptance.yml` | Fail-closed CI (no skip, requires `status=passed` artifact) |
+
+Browser pages **do not** inject `X-Gateway-Auth`. Lab requires `PARKIO_CSRF_GATEWAY_BROWSER=1` (exit 2 if unset).
+
+**Local agent limitation:** Docker daemon was not running on the Windows agent host, so the full gateway HTTPS lab was not executed locally; CI on ubuntu-latest is the execution venue.
+
 ## 4. Marketing alerts #2–#4 triage (no validator rewrite)
 
 File: `scripts/validate-marketing-site.mjs` (build-time static check, not a request handler).
@@ -112,23 +137,25 @@ CodeQL models `String.prototype.includes` as substring sanitization of **URLs**.
 
 **Disposition:** leave alerts **open** for GHAS bookkeeping; do **not** rewrite the validator merely to change the CodeQL result. Not treated as an exploitable URL-validation vulnerability in this codebase path.
 
-## 5. Act on evidence
+## 5. Act on evidence / proposed dispositions (alerts remain open)
 
-- **No browser-reachable CSRF bypass reproduced** in MockMvc (#125) or the Chromium lab design.
-- Therefore: **no production CSRF fix PR**; **no** alert #7 false-positive close.
-- This draft PR carries: evidence doc + opt-in Chromium harness + keep #125 tests.
-- Alert #7 stays open for an **explicit** security disposition (e.g. accept compensating controls with documented residual risk, or a future Spring CSRF token design if product requirements change).
+- **No browser-reachable CSRF bypass reproduced** in MockMvc (#125), direct-auth Chromium (#126), gateway CORS unit sibling case, or the gateway HTTPS lab design.
+- **`csrf.disable()` is a real configuration** (CodeQL #7 is correct that Spring CSRF is off). That is **not** the same statement as “an exploitable CSRF path exists.” Compensating controls: cookie SameSite=Strict + Secure + HttpOnly, auth Origin/Referer on cookie mutations, gateway CORS allow-list with credentials, gateway-stamped secret, hosted-beta auth not published.
+- **Proposed #7 disposition (pending explicit security decision):** accept residual risk with compensating controls documented; do **not** auto-close as false positive. Optional follow-up: Spring CSRF tokens for cookie routes if product wants defense-in-depth beyond Origin.
+- **Proposed #2–#4 disposition (pending explicit decision):** informational / not exploitable URL sanitization — exact array membership on build-time JSON-LD; leave open or reclassify without rewriting the validator solely for CodeQL.
+- Therefore: **no production CSRF fix PR** in this arc; **no** alert dismissals.
 
 ## 6. Checks / verification notes (this worktree)
 
 | Item | Result |
 |---|---|
-| Base / start SHA | `9159c794ffe393450eacc49b40597b14e7b1aa4e` (`origin/api`) |
-| Before reproduction | GHAS check-run `109092933811` failure; 4 annotations (#2–#4, #7); no Chromium CSRF lab; #125 MockMvc already merged on tip |
-| After (this branch) | Evidence doc + opt-in Chromium harness; server-received Cookie assertions replace a Playwright-header false green; **no** production CSRF change or alert dismiss |
-| `CookieCsrfGuardHttpIntegrationTest` | PASS (default CI path) |
-| `CookieCsrfChromiumAcceptanceIT` without `PARKIO_CSRF_BROWSER` | Aborted (Assumption) — does not claim browser pass |
-| `CookieCsrfChromiumAcceptanceIT` with `PARKIO_CSRF_BROWSER=1` + Playwright Chromium | **PENDING on this head.** The dedicated CI job must prove one executed test and zero skips with server-received Cookie assertions. The earlier local pass used Playwright `request.headers()` and did not prove cookie omission. |
-| Gateway TLS sibling stack | **Skipped** — not exercised |
-| GHAS alerts #2–#4, #7 | Still **open** (expected; no disposition close) |
+| Reviewed starting tip | `884ed1faaf2f1e3f422e5b67c9c1139f24d28e61` on base `822828a5208e9445fc97f73c4540aaa867654fce` |
+| Drift | Fast-forward only; history preserved; no rebase/force-push |
+| `CookieCsrfGuardHttpIntegrationTest` (#125) | PASS |
+| Direct-auth Chromium IT (flag unset) | Aborted (Assumption) — not claimed as pass |
+| `CorsConfigTest` sibling case | PASS |
+| Gateway HTTPS lab locally | **Not run** — Docker engine unavailable on agent |
+| Gateway HTTPS lab CI | Workflow added; terminal status read after push |
+| GHAS alerts #2–#4, #7 | Still **open** |
 | #104 / #118 / #119 | Untouched |
+| Merge / dismiss / publish / deploy / production | **None** |

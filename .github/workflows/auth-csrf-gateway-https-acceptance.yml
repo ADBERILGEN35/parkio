@@ -1,0 +1,87 @@
+name: Auth CSRF gateway HTTPS acceptance
+
+on:
+  pull_request:
+    paths:
+      - "services/auth-service/src/main/**"
+      - "services/gateway-service/src/main/java/com/parkio/gateway/infrastructure/config/CorsConfig.java"
+      - "services/gateway-service/src/test/java/com/parkio/gateway/infrastructure/config/CorsConfigTest.java"
+      - "scripts/csrf-lab/**"
+      - "scripts/auth-csrf-chromium-acceptance.mjs"
+      - "docs/security/GHAS-44-CSRF-MARKETING-EVIDENCE.md"
+      - ".github/workflows/auth-csrf-gateway-https-acceptance.yml"
+      - ".github/workflows/auth-csrf-browser-acceptance.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: auth-csrf-gateway-https-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  gateway-https:
+    name: Auth CSRF gateway HTTPS acceptance
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up JDK 21
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "21"
+          cache: gradle
+
+      - name: Validate Gradle wrapper
+        uses: gradle/actions/wrapper-validation@v4
+
+      - name: Set up pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          package_json_file: frontend/package.json
+
+      - name: Set up Node.js 22
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: pnpm
+          cache-dependency-path: frontend/pnpm-lock.yaml
+
+      - name: Install frontend dependencies
+        working-directory: frontend
+        run: pnpm install --frozen-lockfile
+
+      - name: Install Chromium
+        working-directory: frontend
+        run: pnpm --filter @parkio/web exec playwright install --with-deps chromium
+
+      - name: Gateway CORS sibling unit evidence
+        run: |
+          chmod +x gradlew
+          ./gradlew --no-daemon :services:gateway-service:test --tests com.parkio.gateway.infrastructure.config.CorsConfigTest
+
+      - name: Run gateway HTTPS sibling-host browser lab
+        env:
+          PARKIO_CSRF_GATEWAY_BROWSER: "1"
+        run: |
+          export PARKIO_CSRF_PLAYWRIGHT_PACKAGE="$(cd frontend/apps/web && node -e 'process.stdout.write(require("path").dirname(require.resolve("@playwright/test")))')"
+          test -f "$PARKIO_CSRF_PLAYWRIGHT_PACKAGE/index.mjs"
+          node scripts/csrf-lab/run-auth-csrf-gateway-https-lab.mjs
+
+      - name: Require passed lab artifact
+        run: |
+          python3 - <<'PY'
+          import json
+          from pathlib import Path
+          path = Path("build/csrf-gateway-https-result.json")
+          if not path.is_file():
+              raise SystemExit("missing build/csrf-gateway-https-result.json — lab did not produce evidence")
+          result = json.loads(path.read_text())
+          if result.get("status") != "passed":
+              raise SystemExit(f"gateway HTTPS lab not passed: {result.get('status')}")
+          print("Gateway HTTPS CSRF lab proven:", result.get("layers"))
+          PY
