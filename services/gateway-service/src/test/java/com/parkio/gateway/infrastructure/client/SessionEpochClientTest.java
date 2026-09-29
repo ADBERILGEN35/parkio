@@ -47,6 +47,18 @@ class SessionEpochClientTest {
     }
 
     @Test
+    void mapsLegitimateEpochZeroForMatchingUser() {
+        ClientResponse zero = ClientResponse.create(HttpStatus.OK)
+                .header("Content-Type", MediaType.APPLICATION_JSON_VALUE)
+                .body("{\"userId\":\"u1\",\"sessionEpoch\":0}")
+                .build();
+
+        Long epoch = clientReturning(zero).fetchCurrentEpoch("u1").block();
+
+        assertThat(epoch).isZero();
+    }
+
+    @Test
     void mapsNotFoundToUnavailable() {
         ClientResponse notFound = ClientResponse.create(HttpStatus.NOT_FOUND).build();
 
@@ -59,6 +71,91 @@ class SessionEpochClientTest {
         ClientResponse error = ClientResponse.create(HttpStatus.INTERNAL_SERVER_ERROR).build();
 
         assertThatThrownBy(() -> clientReturning(error).fetchCurrentEpoch("u1").block())
+                .isInstanceOf(SessionEpochUnavailableException.class);
+    }
+
+    @Test
+    void emptySuccessfulResponseIsUnavailable() {
+        ClientResponse empty = ClientResponse.create(HttpStatus.OK).build();
+
+        assertThatThrownBy(() -> clientReturning(empty).fetchCurrentEpoch("u1").block())
+                .isInstanceOf(SessionEpochUnavailableException.class);
+    }
+
+    @Test
+    void emptyJsonObjectIsUnavailable() {
+        ClientResponse emptyObject = ClientResponse.create(HttpStatus.OK)
+                .header("Content-Type", MediaType.APPLICATION_JSON_VALUE)
+                .body("{}")
+                .build();
+
+        assertThatThrownBy(() -> clientReturning(emptyObject).fetchCurrentEpoch("u1").block())
+                .isInstanceOf(SessionEpochUnavailableException.class);
+    }
+
+    @Test
+    void missingEpochFieldIsUnavailable() {
+        ClientResponse missingEpoch = ClientResponse.create(HttpStatus.OK)
+                .header("Content-Type", MediaType.APPLICATION_JSON_VALUE)
+                .body("{\"userId\":\"u1\"}")
+                .build();
+
+        assertThatThrownBy(() -> clientReturning(missingEpoch).fetchCurrentEpoch("u1").block())
+                .isInstanceOf(SessionEpochUnavailableException.class);
+    }
+
+    @Test
+    void nullEpochFieldIsUnavailable() {
+        ClientResponse nullEpoch = ClientResponse.create(HttpStatus.OK)
+                .header("Content-Type", MediaType.APPLICATION_JSON_VALUE)
+                .body("{\"userId\":\"u1\",\"sessionEpoch\":null}")
+                .build();
+
+        assertThatThrownBy(() -> clientReturning(nullEpoch).fetchCurrentEpoch("u1").block())
+                .isInstanceOf(SessionEpochUnavailableException.class);
+    }
+
+    @Test
+    void malformedJsonIsUnavailable() {
+        ClientResponse malformed = ClientResponse.create(HttpStatus.OK)
+                .header("Content-Type", MediaType.APPLICATION_JSON_VALUE)
+                .body("{\"userId\":\"u1\",\"sessionEpoch\":")
+                .build();
+
+        assertThatThrownBy(() -> clientReturning(malformed).fetchCurrentEpoch("u1").block())
+                .isInstanceOf(SessionEpochUnavailableException.class);
+    }
+
+    @Test
+    void nonNumericEpochIsUnavailable() {
+        ClientResponse malformedEpoch = ClientResponse.create(HttpStatus.OK)
+                .header("Content-Type", MediaType.APPLICATION_JSON_VALUE)
+                .body("{\"userId\":\"u1\",\"sessionEpoch\":\"not-a-number\"}")
+                .build();
+
+        assertThatThrownBy(() -> clientReturning(malformedEpoch).fetchCurrentEpoch("u1").block())
+                .isInstanceOf(SessionEpochUnavailableException.class);
+    }
+
+    @Test
+    void missingUserIdIsUnavailable() {
+        ClientResponse missingUser = ClientResponse.create(HttpStatus.OK)
+                .header("Content-Type", MediaType.APPLICATION_JSON_VALUE)
+                .body("{\"sessionEpoch\":0}")
+                .build();
+
+        assertThatThrownBy(() -> clientReturning(missingUser).fetchCurrentEpoch("u1").block())
+                .isInstanceOf(SessionEpochUnavailableException.class);
+    }
+
+    @Test
+    void mismatchedUserIdIsUnavailable() {
+        ClientResponse wrongUser = ClientResponse.create(HttpStatus.OK)
+                .header("Content-Type", MediaType.APPLICATION_JSON_VALUE)
+                .body("{\"userId\":\"other\",\"sessionEpoch\":0}")
+                .build();
+
+        assertThatThrownBy(() -> clientReturning(wrongUser).fetchCurrentEpoch("u1").block())
                 .isInstanceOf(SessionEpochUnavailableException.class);
     }
 

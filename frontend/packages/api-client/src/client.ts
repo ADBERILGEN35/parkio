@@ -1,4 +1,8 @@
-import axios, { type AxiosInstance, type InternalAxiosRequestConfig } from 'axios';
+import axios, {
+  type AxiosInstance,
+  type AxiosRequestConfig,
+  type InternalAxiosRequestConfig,
+} from 'axios';
 import { CORRELATION_HEADER, createCorrelationId } from './correlation';
 import { AccountNotActiveError, getAxiosParkioError, UnauthorizedError } from './errors';
 import type { TokenStorage } from './token-storage';
@@ -19,6 +23,35 @@ export interface ApiClientOptions {
 }
 
 type RefreshHandler = () => Promise<string | null>;
+
+/**
+ * Opt-in identity binding for a single request whose payload belongs to one
+ * specific account (e.g. registration-captured profile fields). Unbound
+ * requests keep the default behaviour: Authorization is read from token
+ * storage when the request interceptor runs, and a 401 is retried once with
+ * whatever token the shared refresh returns.
+ *
+ * A bound request instead:
+ * - is stamped with `accessToken` (captured when the caller verified the
+ *   identity), never with a token that replaced it in storage meanwhile;
+ * - after a 401 and a successful shared refresh, is retried only when
+ *   `allowRetry(refreshedAccessToken)` confirms the refreshed session is still
+ *   the same identity. Without `allowRetry` it is never retried.
+ */
+export interface RequestAuthBinding {
+  readonly accessToken: string;
+  readonly allowRetry?: (refreshedAccessToken: string) => boolean;
+}
+
+type AuthBoundConfig = { authBinding?: RequestAuthBinding };
+
+/** Axios config carrying a {@link RequestAuthBinding} through the interceptors. */
+export function withAuthBinding(
+  config: AxiosRequestConfig,
+  authBinding: RequestAuthBinding | undefined,
+): AxiosRequestConfig {
+  return authBinding ? ({ ...config, authBinding } as AxiosRequestConfig) : config;
+}
 
 let refreshHandler: RefreshHandler | null = null;
 let refreshPromise: Promise<string | null> | null = null;
@@ -84,7 +117,8 @@ export function createApiClient(options: ApiClientOptions): AxiosInstance {
   client.interceptors.request.use((config: InternalAxiosRequestConfig) => {
     config.headers.set(CORRELATION_HEADER, createCorrelationId());
 
-    const token = tokenStorage.getAccessToken();
+    const binding = (config as InternalAxiosRequestConfig & AuthBoundConfig).authBinding;
+    const token = binding ? binding.accessToken : tokenStorage.getAccessToken();
     if (token) {
       config.headers.set('Authorization', `Bearer ${token}`);
     }
@@ -95,7 +129,8 @@ export function createApiClient(options: ApiClientOptions): AxiosInstance {
   client.interceptors.response.use(
     (response) => response,
     async (error) => {
-      const original = error.config as InternalAxiosRequestConfig & { _retry?: boolean };
+      const original = error.config as InternalAxiosRequestConfig &
+        AuthBoundConfig & { _retry?: boolean };
       const parkioError = getAxiosParkioError(error);
 
       if (parkioError instanceof AccountNotActiveError) {
@@ -124,6 +159,15 @@ export function createApiClient(options: ApiClientOptions): AxiosInstance {
           // Sync storage before retry — the request interceptor always stamps
           // Authorization from tokenStorage and would otherwise use the stale token.
           tokenStorage.setTokens({ accessToken: newToken });
+          const binding = original.authBinding;
+          if (binding) {
+            // The refreshed session may belong to another identity (e.g. another
+            // tab signed in): never replay this payload unless the caller confirms.
+            if (!binding.allowRetry?.(newToken)) {
+              throw parkioError;
+            }
+            original.authBinding = { ...binding, accessToken: newToken };
+          }
           return client(original);
         }
 

@@ -13,6 +13,11 @@
  *   3. wrong build-arg wiring (VITE_APP_ENV not the expected environment)
  *   4. SPA white-screen: #root never receives children, or a module-evaluation pageerror
  *
+ * Browser mount checks use locators (not page.evaluate / waitForFunction) so nginx
+ * `script-src 'self'` stays enforced. bypassCSP is not used for acceptance.
+ * Extra mocked-API routes must mount into `#root`; nonempty body text outside
+ * `#root` is not a successful mount.
+ *
  * No configuration value is ever printed - only names and PRESENT/EMPTY/MISSING statuses.
  *
  * Usage:
@@ -44,6 +49,17 @@ const { image, appEnv, port, docker } = parseArgs(process.argv.slice(2));
 const containerName = `parkio-web-smoke-${process.pid}`;
 const baseUrl = `http://127.0.0.1:${port}`;
 const failures = [];
+const rootMountTimeoutMs = Number.parseInt(process.env.SMOKE_ROOT_MOUNT_TIMEOUT_MS ?? '20000', 10);
+
+async function waitForRootMount(page) {
+  const rootChild = page.locator('#root > *');
+  try {
+    await rootChild.first().waitFor({ state: 'attached', timeout: rootMountTimeoutMs });
+  } catch {
+    return { mounted: false, rootChildren: await rootChild.count() };
+  }
+  return { mounted: true, rootChildren: await rootChild.count() };
+}
 
 function sh(file, args, opts = {}) {
   return execFileSync(file, args, { encoding: 'utf8', ...opts });
@@ -156,7 +172,9 @@ async function checkMount() {
 
   const browser = await chromium.launch();
   try {
-    const page = await browser.newPage();
+    // CSP is a product control. Do not bypass it for acceptance.
+    const context = await browser.newContext({ bypassCSP: false });
+    const page = await context.newPage();
     // CI image acceptance uses the production-shaped public API URL in the bundle,
     // but must never contact live APIs or map providers. Opt in only for that run.
     if (process.env.SMOKE_MOCK_EXTERNAL === '1') {
@@ -182,42 +200,42 @@ async function checkMount() {
     const pageErrors = [];
     page.on('pageerror', (error) => pageErrors.push(String(error)));
 
-    await page.goto(`${baseUrl}/login`, { waitUntil: 'load', timeout: 45_000 });
-
-    let rootChildren = 0;
-    try {
-      await page.waitForFunction(
-        () => (document.getElementById('root')?.children.length ?? 0) > 0,
-        undefined,
-        { timeout: 20_000 },
-      );
-      rootChildren = await page.evaluate(
-        () => document.getElementById('root')?.children.length ?? 0,
-      );
-    } catch {
-      rootChildren = await page.evaluate(
-        () => document.getElementById('root')?.children.length ?? 0,
-      );
+    const loginResponse = await page.goto(`${baseUrl}/login`, { waitUntil: 'load', timeout: 45_000 });
+    const csp = loginResponse?.headers()['content-security-policy'] ?? '';
+    if (!csp.includes("script-src 'self'")) {
+      failures.push("login response CSP missing script-src 'self'");
+    }
+    if (/\bunsafe-eval\b/.test(csp)) {
+      failures.push('login response CSP contains unsafe-eval');
     }
 
-    const textLength = await page.evaluate(() => document.body.innerText.trim().length);
+    const loginMount = await waitForRootMount(page);
+    const rootChildren = loginMount.rootChildren;
+    const textLength = (await page.locator('body').innerText()).trim().length;
     const inputCount = await page.locator('input').count();
     const routes = [];
     if (process.env.SMOKE_MOCK_EXTERNAL === '1') {
       for (const path of ['/explore', '/map', '/admin/waitlist', '/register?lang=tr', '/register?lang=en']) {
         await page.goto(`${baseUrl}${path}`, { waitUntil: 'domcontentloaded', timeout: 45_000 });
-        await page.waitForFunction(
-          () => (document.getElementById('root')?.children.length ?? 0) > 0,
-          undefined,
-          { timeout: 20_000 },
-        );
-        const visible = await page.evaluate(() => document.body.innerText.trim().length);
-        if (visible === 0) throw new Error(`${path} rendered no visible text`);
+        const routeMount = await waitForRootMount(page);
+        const visible = (await page.locator('body').innerText()).trim().length;
+        if (!routeMount.mounted) {
+          failures.push(
+            `${path} did not mount the SPA in #root` +
+              (visible > 0 ? ' (nonempty body text outside #root is not a mount)' : ''),
+          );
+          continue;
+        }
+        if (visible === 0) {
+          failures.push(`${path} rendered no visible text`);
+          continue;
+        }
         routes.push(path);
       }
     }
+    await context.close();
     await browser.close();
-    return { rootChildren, textLength, inputCount, pageErrors, routes };
+    return { rootChildren, textLength, inputCount, pageErrors, routes, cspPresent: Boolean(csp) };
   } catch (error) {
     await browser.close();
     throw error;
@@ -265,7 +283,7 @@ async function main() {
       );
     } else {
       console.log(
-        `smoke-image: #root children=${mount.rootChildren} bodyText=${mount.textLength} inputs=${mount.inputCount} pageErrors=${mount.pageErrors.length} routes=${mount.routes.join(',')}`,
+        `smoke-image: #root children=${mount.rootChildren} bodyText=${mount.textLength} inputs=${mount.inputCount} pageErrors=${mount.pageErrors.length} csp=${mount.cspPresent ? 'enforced' : 'missing'} routes=${mount.routes.join(',')}`,
       );
       if (mount.rootChildren === 0) {
         failures.push('SPA white-screen: #root received no children (React never mounted)');

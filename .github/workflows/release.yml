@@ -383,11 +383,19 @@ jobs:
           # shellcheck disable=SC1090
           source "$BAKE"
           set +a
+          case "${VITE_WEB_MUNICIPAL_DISCOVERY_ENABLED:-}" in
+            true|false) ;;
+            *)
+              echo "::error::$BAKE VITE_WEB_MUNICIPAL_DISCOVERY_ENABLED must be true or false (missing/invalid)."
+              exit 1
+              ;;
+          esac
           if [ "${WEB_APP_ENV}" = "hosted-beta" ]; then
             if [ "${VITE_APP_ENV}" != "hosted-beta" ] || \
                [ "${VITE_API_BASE_URL}" != "${WEB_API_BASE_URL}" ] || \
-               [ "${VITE_PUBLIC_EXPLORE_ENABLED}" != "true" ]; then
-              echo "::error::$BAKE must match hosted-beta live contract (app env, API base, Explore ON)."
+               [ "${VITE_PUBLIC_EXPLORE_ENABLED}" != "true" ] || \
+               [ "${VITE_WEB_MUNICIPAL_DISCOVERY_ENABLED}" != "true" ]; then
+              echo "::error::$BAKE must match hosted-beta live contract (app env, API base, Explore ON, municipal ON)."
               exit 1
             fi
           fi
@@ -438,13 +446,14 @@ jobs:
             ${{ matrix.service == 'web' && format('VITE_APP_ENV={0}', steps.web_bake.outputs.vite_app_env || vars.WEB_APP_ENV || 'hosted-beta') || '' }}
             ${{ matrix.service == 'web' && format('VITE_MAPTILER_KEY={0}', secrets.WEB_MAPTILER_KEY) || '' }}
             ${{ matrix.service == 'web' && format('VITE_PUBLIC_EXPLORE_ENABLED={0}', steps.web_bake.outputs.vite_public_explore_enabled || 'false') || '' }}
-            ${{ matrix.service == 'web' && format('VITE_WEB_MUNICIPAL_DISCOVERY_ENABLED={0}', steps.web_bake.outputs.vite_web_municipal_discovery_enabled || 'false') || '' }}
+            ${{ matrix.service == 'web' && format('VITE_WEB_MUNICIPAL_DISCOVERY_ENABLED={0}', steps.web_bake.outputs.vite_web_municipal_discovery_enabled) || '' }}
             ${{ matrix.service == 'web' && format('VITE_SMART_PARKING_ASSISTANT_ENABLED={0}', steps.web_bake.outputs.vite_smart_parking_assistant_enabled || 'false') || '' }}
             ${{ matrix.service == 'web' && format('VITE_SMART_RETURN_ENABLED={0}', steps.web_bake.outputs.vite_smart_return_enabled || 'true') || '' }}
             ${{ matrix.service == 'web' && format('VITE_WAITLIST_INTAKE_MODE={0}', steps.web_bake.outputs.vite_waitlist_intake_mode || 'api') || '' }}
             ${{ matrix.service == 'web' && format('VITE_MAPTILER_STYLE={0}', steps.web_bake.outputs.vite_maptiler_style || 'streets-v2') || '' }}
             ${{ matrix.service == 'web' && format('VITE_FRONTEND_ERROR_REPORTING={0}', steps.web_bake.outputs.vite_frontend_error_reporting || 'disabled') || '' }}
             ${{ matrix.service == 'web' && 'VERIFY_REQUIRE_PUBLIC_EXPLORE=true' || '' }}
+            ${{ matrix.service == 'web' && format('VERIFY_REQUIRE_MUNICIPAL={0}', steps.web_bake.outputs.vite_web_municipal_discovery_enabled) || '' }}
           provenance: false # we attach our own attestations below
 
       # ---- Registry evidence: never trust the runner-local digest alone ----

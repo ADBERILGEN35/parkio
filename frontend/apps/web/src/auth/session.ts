@@ -10,7 +10,7 @@ import {
   createCrossTabSessionSync,
   type CrossTabSessionSync,
 } from './crossTabSync';
-import { getPendingProfile } from './pendingProfile';
+import { getPendingProfileFor } from './pendingProfile';
 
 export interface LogoutResult {
   readonly backendSucceeded: boolean;
@@ -108,7 +108,7 @@ export function createAuthSession({
           preserveCurrentSessionFromSdkTeardown();
           return null;
         }
-        if (getPendingProfile()) {
+        if (getPendingProfileFor(result.user.id)) {
           authStore.getState().beginProvisioning();
         }
         return result.accessToken;

@@ -1,0 +1,79 @@
+name: Auth CSRF Chromium acceptance
+
+on:
+  pull_request:
+    paths:
+      - "services/auth-service/src/main/**"
+      - "services/auth-service/src/test/java/com/parkio/auth/presentation/CookieCsrfChromiumAcceptanceIT.java"
+      - "scripts/auth-csrf-chromium-acceptance.mjs"
+      - "docs/security/GHAS-44-CSRF-MARKETING-EVIDENCE.md"
+      - ".github/workflows/auth-csrf-browser-acceptance.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: auth-csrf-browser-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  chromium:
+    name: Auth CSRF Chromium acceptance
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up JDK 21
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "21"
+          cache: gradle
+
+      - name: Validate Gradle wrapper
+        uses: gradle/actions/wrapper-validation@v4
+
+      - name: Set up pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          package_json_file: frontend/package.json
+
+      - name: Set up Node.js 22
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: pnpm
+          cache-dependency-path: frontend/pnpm-lock.yaml
+
+      - name: Install frontend dependencies
+        working-directory: frontend
+        run: pnpm install --frozen-lockfile
+
+      - name: Install Chromium
+        working-directory: frontend
+        run: pnpm --filter @parkio/web exec playwright install --with-deps chromium
+
+      - name: Run browser acceptance against disposable auth
+        env:
+          PARKIO_CSRF_BROWSER: "1"
+        run: |
+          export PARKIO_CSRF_PLAYWRIGHT_PACKAGE="$(cd frontend/apps/web && node -e 'process.stdout.write(require("path").dirname(require.resolve("@playwright/test")))')"
+          test -f "$PARKIO_CSRF_PLAYWRIGHT_PACKAGE/index.mjs"
+          chmod +x gradlew
+          ./gradlew --no-daemon :services:auth-service:test --tests com.parkio.auth.presentation.CookieCsrfChromiumAcceptanceIT
+
+      - name: Require one executed browser test and zero skips
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          import xml.etree.ElementTree as ET
+          report = Path("services/auth-service/build/test-results/test/TEST-com.parkio.auth.presentation.CookieCsrfChromiumAcceptanceIT.xml")
+          suite = ET.parse(report).getroot()
+          result = {key: int(suite.attrib[key]) for key in ("tests", "skipped", "failures", "errors")}
+          if result != {"tests": 1, "skipped": 0, "failures": 0, "errors": 0}:
+              raise SystemExit(f"Chromium acceptance not proven: {result}")
+          print("Chromium acceptance proven: 1 executed, 0 skipped, 0 failed")
+          PY

@@ -9,10 +9,6 @@ on:
       - "services/**/Dockerfile"
       - "services/**/src/main/resources/application*.yml"
       - ".github/workflows/chaos-validation.yml"
-  schedule:
-    # Weekly recovery drift check, staggered after runtime validation.
-    - cron: "17 6 * * 1"
-
 permissions:
   contents: read
   packages: read

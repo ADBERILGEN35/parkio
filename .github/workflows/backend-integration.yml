@@ -26,9 +26,6 @@ on:
       - "gradle.properties"
       - "docker/**"
       - ".github/workflows/backend-integration.yml"
-  schedule:
-    # 03:17 UTC nightly (off the hour to avoid the cron stampede).
-    - cron: "17 3 * * *"
   workflow_dispatch:
 
 permissions:

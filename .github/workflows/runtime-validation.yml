@@ -11,10 +11,6 @@ on:
       - "benchmarks/scripts/wait-http-ready.mjs"
       - "benchmarks/scripts/wait-tempo-ready.mjs"
       - "benchmarks/scripts/ci-result-integrity.test.mjs"
-  schedule:
-    # Weekly runtime drift check, after the security and backup jobs.
-    - cron: "41 5 * * 1"
-
 permissions:
   contents: read
   packages: read
@@ -173,7 +169,87 @@ jobs:
           docker compose --env-file "$COMPOSE_ENV_FILE" $COMPOSE_FILES config --quiet
 
       - name: Build and start full stack
-        run: docker compose --env-file "$COMPOSE_ENV_FILE" $COMPOSE_FILES up -d --build
+        env:
+          # ubuntu-latest is 4 vCPU / 16 GiB. Job 109030891203 started ten
+          # Gradle bootJar image builds within ~11s, then logged almost
+          # nothing for 24 minutes and died on a runner shutdown signal
+          # at ~55m (below timeout-minutes: 90). Bound image-build fan-out
+          # instead of raising the timeout or using continue-on-error.
+          COMPOSE_PARALLEL_LIMIT: "2"
+          BUILDKIT_MAX_PARALLELISM: "2"
+        run: |
+          set -euo pipefail
+          mkdir -p runtime-validation-artifacts
+
+          runner_diag() {
+            echo "runner-diag utc=$(date -u +%Y-%m-%dT%H:%M:%SZ) nproc=$(nproc) load=$(tr ' ' ',' < /proc/loadavg) mem_available_kB=$(awk '/MemAvailable:/{print $2}' /proc/meminfo) mem_total_kB=$(awk '/MemTotal:/{print $2}' /proc/meminfo) disk_avail_kB=$(df -Pk / | awk 'NR==2{print $4}')"
+          }
+          runner_diag | tee runtime-validation-artifacts/runner-diag.txt
+          (
+            while true; do
+              sleep 30
+              runner_diag | tee -a runtime-validation-artifacts/runner-diag.txt
+            done
+          ) &
+          diag_pid=$!
+          trap 'kill "$diag_pid" 2>/dev/null || true' EXIT
+
+          gradle_image_services=(
+            gateway-service
+            auth-service
+            user-service
+            parking-service
+            media-service
+            gamification-service
+            notification-service
+            moderation-service
+            ai-validation-service
+            analytics-service
+          )
+
+          echo "Building Gradle service images with concurrency 2"
+          i=0
+          n=${#gradle_image_services[@]}
+          while [ "$i" -lt "$n" ]; do
+            batch=("${gradle_image_services[@]:i:2}")
+            echo "compose build batch: ${batch[*]}"
+            docker compose --env-file "$COMPOSE_ENV_FILE" $COMPOSE_FILES build --progress=plain "${batch[@]}"
+            runner_diag | tee -a runtime-validation-artifacts/runner-diag.txt
+            i=$((i + 2))
+          done
+
+          remaining="$(
+            docker compose --env-file "$COMPOSE_ENV_FILE" $COMPOSE_FILES config --format json \
+              | python3 -c '
+          import json, sys
+          gradle = {
+              "gateway-service", "auth-service", "user-service", "parking-service",
+              "media-service", "gamification-service", "notification-service",
+              "moderation-service", "ai-validation-service", "analytics-service",
+          }
+          cfg = json.load(sys.stdin)
+          names = sorted(
+              name for name, svc in cfg.get("services", {}).items()
+              if svc.get("build") and name not in gradle
+          )
+          print("\n".join(names))
+          '
+          )"
+          if [ -n "$remaining" ]; then
+            echo "Building remaining compose images with concurrency 2"
+            mapfile -t remaining_services <<< "$remaining"
+            i=0
+            n=${#remaining_services[@]}
+            while [ "$i" -lt "$n" ]; do
+              batch=("${remaining_services[@]:i:2}")
+              echo "compose build batch: ${batch[*]}"
+              docker compose --env-file "$COMPOSE_ENV_FILE" $COMPOSE_FILES build --progress=plain "${batch[@]}"
+              runner_diag | tee -a runtime-validation-artifacts/runner-diag.txt
+              i=$((i + 2))
+            done
+          fi
+
+          docker compose --env-file "$COMPOSE_ENV_FILE" $COMPOSE_FILES up -d --no-build
 
       - name: Wait for required healthchecks
         run: |
@@ -370,7 +446,7 @@ jobs:
           done
 
       - name: Upload runtime artifacts on failure
-        if: failure()
+        if: failure() || cancelled()
         uses: actions/upload-artifact@v4
         with:
           name: runtime-validation-artifacts

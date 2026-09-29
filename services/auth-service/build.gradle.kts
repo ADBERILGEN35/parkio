@@ -4,6 +4,46 @@ plugins {
 
 description = "Authentication, authorization and token issuance"
 
+// Disposable CSRF-lab instrumentation only. Never packaged into bootJar / images.
+sourceSets {
+    create("csrfLab") {
+        compileClasspath += sourceSets["main"].output + configurations["compileClasspath"]
+        runtimeClasspath += output + compileClasspath
+    }
+}
+
+tasks.named<org.springframework.boot.gradle.tasks.run.BootRun>("bootRun") {
+    if (project.findProperty("parkio.csrfLab") == "true") {
+        dependsOn("compileCsrfLabJava")
+        classpath += sourceSets["csrfLab"].output
+    }
+}
+
+tasks.register("assertCsrfLabAbsentFromBootJar") {
+    group = "verification"
+    description = "Fail if CsrfLabRequestCaptureFilter is packaged into the production bootJar"
+    dependsOn("bootJar")
+    doLast {
+        val jarFile = tasks.named<org.springframework.boot.gradle.tasks.bundling.BootJar>("bootJar")
+            .get()
+            .archiveFile
+            .get()
+            .asFile
+        var hit = false
+        zipTree(jarFile).visit {
+            if (path.contains("CsrfLabRequestCaptureFilter")) {
+                hit = true
+            }
+        }
+        if (hit) {
+            throw GradleException(
+                "CsrfLabRequestCaptureFilter must not ship in ${jarFile.name} (lab-only source set)",
+            )
+        }
+        logger.lifecycle("Verified CsrfLabRequestCaptureFilter absent from ${jarFile.name}")
+    }
+}
+
 dependencies {
     implementation(libs.spring.boot.starter.web)
     implementation(libs.springdoc.openapi.starter.webmvc.ui)

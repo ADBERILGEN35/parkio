@@ -8,4 +8,9 @@ import java.util.Optional;
 public interface RoleRepository {
 
     Optional<Role> findByName(RoleName name);
+
+    /** Serializes changes to the SUPER_ADMIN population before counting it. */
+    default Optional<Role> findByNameForUpdate(RoleName name) {
+        return findByName(name);
+    }
 }

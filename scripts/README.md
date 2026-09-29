@@ -14,7 +14,8 @@ Developer and CI helper scripts.
 | `backup-databases.sh` | Dump every service DB (`pg_dump` via `docker exec`); optional AES-256 + offsite upload. |
 | `backup-minio.sh` | Mirror the MinIO media bucket via `mc`. |
 | `backup-hosted-beta.sh` | Orchestrate DB + MinIO backup, manifest, and Prometheus metrics. |
-| `restore-hosted-beta.sh` | Restore from a backup manifest (databases and/or MinIO). |
+| `restore-isolated-fixture.sh` | Disposable orchestrator that establishes restore targets and issues a destination-bound ticket. Restore entrypoints will not self-authorize. |
+| `restore-hosted-beta.sh` | Restore from a backup manifest (databases and/or MinIO). Production apply is refused without verified coverage. Isolated apply requires the orchestrator ticket. |
 | `verify-security-boundaries.sh` | Gateway path-traversal probes + compose render (see `docs/operations/security-boundaries.md`). |
 | `lib/backup-common.sh` | Shared backup helpers (sourced, not run directly). |
 | `restore-database.sh` | Restore ONE service DB from a dump (destructive; guarded by a confirmation prompt). |

@@ -38,13 +38,28 @@ function fixtureEnvSource(scenario) {
 function buildFixtureImage(scenario) {
   const context = mkdtempSync(join(tmpdir(), `parkio-smoke-${scenario}-`));
   const image = `parkio/web-smoke-fixture:${runId}-${scenario}`;
+  const mapLocation = scenario === 'unmounted-route'
+    ? '  location = /map { try_files /map-unmounted.html =404; }'
+    : '';
   writeFileSync(
     join(context, 'Dockerfile'),
     'FROM nginx:1.27-alpine\nCOPY default.conf /etc/nginx/conf.d/default.conf\nCOPY public/ /usr/share/nginx/html/\n',
   );
   writeFileSync(
     join(context, 'default.conf'),
-    'server { listen 80; root /usr/share/nginx/html; location = /privacy { return 302 https://parkio.dev/privacy/; } location = /terms { return 302 https://parkio.dev/terms/; } location = /explore { try_files /explore/index.html =404; } location / { try_files $uri $uri/ /index.html; } }\n',
+    [
+      'server {',
+      '  listen 80;',
+      '  root /usr/share/nginx/html;',
+      "  add_header Content-Security-Policy \"default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'\" always;",
+      '  location = /privacy { return 302 https://parkio.dev/privacy/; }',
+      '  location = /terms { return 302 https://parkio.dev/terms/; }',
+      '  location = /explore { try_files /explore/index.html =404; }',
+      mapLocation,
+      '  location / { try_files $uri $uri/ /index.html; }',
+      '}',
+      '',
+    ].filter((line) => line !== '').join('\n'),
   );
   const publicDir = join(context, 'public');
   mkdirSync(join(publicDir, 'assets'), { recursive: true });
@@ -56,7 +71,16 @@ function buildFixtureImage(scenario) {
   );
   writeFileSync(join(publicDir, 'assets', 'app.js'), fixtureSource(scenario));
   writeFileSync(join(publicDir, 'assets', 'env.js'), fixtureEnvSource(scenario));
-  writeFileSync(join(publicDir, 'explore', 'index.html'), 'Public parking explore');
+  writeFileSync(
+    join(publicDir, 'explore', 'index.html'),
+    '<!doctype html><html><body><div id="root"><main>Public parking explore</main></div></body></html>',
+  );
+  if (scenario === 'unmounted-route') {
+    writeFileSync(
+      join(publicDir, 'map-unmounted.html'),
+      '<!doctype html><html><body><div id="root"></div><p>Static map chrome outside the SPA root</p></body></html>',
+    );
+  }
   for (const path of [
     'robots.txt', 'sitemap.xml', 'og-parkio.png', 'social-preview.png',
     'manifest.webmanifest', 'sw.js', 'icons/favicon-32.png',
@@ -71,7 +95,10 @@ function buildFixtureImage(scenario) {
   return image;
 }
 
-function runSmoke(image, port) {
+function runSmoke(image, port, { mockExternal = false } = {}) {
+  const env = { ...process.env, SMOKE_ROOT_MOUNT_TIMEOUT_MS: '3000' };
+  if (mockExternal) env.SMOKE_MOCK_EXTERNAL = '1';
+  else delete env.SMOKE_MOCK_EXTERNAL;
   return command(process.execPath, [
     smokeScript,
     '--image',
@@ -82,7 +109,7 @@ function runSmoke(image, port) {
     String(port),
     '--docker',
     docker,
-  ]);
+  ], { env });
 }
 
 test('production-shaped image smoke detects rc5 failure modes and accepts a mounted SPA', async (t) => {
@@ -103,9 +130,25 @@ test('production-shaped image smoke detects rc5 failure modes and accepts a moun
         const output = `${result.stdout}${result.stderr}`;
         assert.equal(result.status === 0, succeeds, output);
         assert.match(output, expected);
+        if (scenario === 'valid') {
+          assert.match(output, /csp=enforced/);
+        }
         assert.doesNotMatch(output, new RegExp(placeholder));
       });
     }
+
+    await t.test('unmounted-route', () => {
+      const image = buildFixtureImage('unmounted-route');
+      const result = runSmoke(image, port++, { mockExternal: true });
+      const output = `${result.stdout}${result.stderr}`;
+      assert.notEqual(result.status, 0, output);
+      assert.match(output, /csp=enforced/);
+      assert.match(output, /#root children=[1-9]/);
+      assert.match(output, /\/map did not mount the SPA in #root/);
+      assert.match(output, /nonempty body text outside #root is not a mount/);
+      assert.doesNotMatch(output, /smoke-image: OK/);
+      assert.doesNotMatch(output, new RegExp(placeholder));
+    });
   } finally {
     if (builtImages.length > 0) {
       command(docker, ['image', 'rm', '--force', ...builtImages]);

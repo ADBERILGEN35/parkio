@@ -5,5 +5,5 @@ package com.parkio.gateway.infrastructure.client;
  * ({@code GET /internal/auth/users/{userId}/session-epoch}). Only the current epoch is
  * used by the edge revocation check; {@code userId} is echoed for clarity.
  */
-public record SessionEpochResponse(String userId, long sessionEpoch) {
+public record SessionEpochResponse(String userId, Long sessionEpoch) {
 }

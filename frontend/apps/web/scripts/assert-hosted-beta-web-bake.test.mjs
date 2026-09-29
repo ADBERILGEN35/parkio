@@ -139,3 +139,23 @@ test('azure hosted-beta example documents Explore on for live rebuilds', () => {
   assert.equal(env.VITE_PUBLIC_EXPLORE_ENABLED, 'true');
   assert.equal(env.VITE_WEB_MUNICIPAL_DISCOVERY_ENABLED, 'false');
 });
+
+test('release.yml verifies compiled municipal using the bake municipal value', () => {
+  const yml = read('.github/workflows/release.yml');
+  assert.match(yml, /VERIFY_REQUIRE_PUBLIC_EXPLORE=true/);
+  assert.match(
+    yml,
+    /VERIFY_REQUIRE_MUNICIPAL=\{0\}',\s*steps\.web_bake\.outputs\.vite_web_municipal_discovery_enabled/,
+  );
+  assert.match(yml, /VITE_WEB_MUNICIPAL_DISCOVERY_ENABLED must be true or false/);
+  assert.doesNotMatch(yml, /VERIFY_REQUIRE_MUNICIPAL=true'/);
+});
+
+test('hosted-beta bake doc matches live municipal-on profile', () => {
+  const doc = read('docs/releases/HOSTED-BETA-WEB-BAKE.md');
+  assert.match(doc, /Explore ON, municipal ON/);
+  assert.match(doc, /VERIFY_REQUIRE_MUNICIPAL/);
+  assert.match(doc, /VITE_WEB_MUNICIPAL_DISCOVERY_ENABLED=true/);
+  assert.doesNotMatch(doc, /municipal OFF/);
+  assert.doesNotMatch(doc, /Prepared next bake/);
+});

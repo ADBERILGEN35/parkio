@@ -146,6 +146,40 @@ class CorsConfigTest {
         assertThat(responseHeaders.getFirst(HttpHeaders.ACCESS_CONTROL_ALLOW_CREDENTIALS)).isEqualTo("true");
     }
 
+    /**
+     * Same-site sibling hosts (app vs evil under parkio.test) are cross-origin. Gateway
+     * CORS must not reflect an untrusted sibling Origin even when SameSite=Strict would
+     * still attach the api-host cookie.
+     */
+    @Test
+    void siblingSubdomainNotOnAllowListIsRejectedForCredentialedAuth() {
+        String app = "https://app.parkio.test:18443";
+        String evil = "https://evil.parkio.test:18445";
+        String apiRefresh = "https://api.parkio.test:18444/api/v1/auth/refresh-token";
+        CorsWebFilter filter = corsConfig.corsWebFilter(props(List.of(app), true));
+
+        MockServerHttpRequest allowed = MockServerHttpRequest
+                .method(HttpMethod.OPTIONS, apiRefresh)
+                .header(HttpHeaders.ORIGIN, app)
+                .header(HttpHeaders.ACCESS_CONTROL_REQUEST_METHOD, "POST")
+                .build();
+        MockServerWebExchange allowedEx = MockServerWebExchange.from(allowed);
+        filter.filter(allowedEx, noOpChain()).block();
+        assertThat(allowedEx.getResponse().getHeaders().getFirst(HttpHeaders.ACCESS_CONTROL_ALLOW_ORIGIN))
+                .isEqualTo(app);
+
+        MockServerHttpRequest sibling = MockServerHttpRequest
+                .method(HttpMethod.OPTIONS, apiRefresh)
+                .header(HttpHeaders.ORIGIN, evil)
+                .header(HttpHeaders.ACCESS_CONTROL_REQUEST_METHOD, "POST")
+                .build();
+        MockServerWebExchange siblingEx = MockServerWebExchange.from(sibling);
+        filter.filter(siblingEx, noOpChain()).block();
+        assertThat(siblingEx.getResponse().getHeaders().getFirst(HttpHeaders.ACCESS_CONTROL_ALLOW_ORIGIN))
+                .as("untrusted same-site sibling must not receive ACAO")
+                .isNull();
+    }
+
     /** The dangerous combination (wildcard origin + credentials) must fail fast at startup. */
     @Test
     void credentialsWithWildcardOriginFailsFast() {
