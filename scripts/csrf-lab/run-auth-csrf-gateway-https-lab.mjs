@@ -366,8 +366,11 @@ async function main() {
     servers.push(await staticPage(tls, EVIL_PORT, apiOrigin, 'evil'));
     servers.push(await staticPage(tls, CROSS_PORT, apiOrigin, 'cross'));
 
+    // Seed via loopback HTTP to the gateway (Node has no Playwright host-resolver-rules).
+    // Browser traffic still uses https://api.parkio.test TLS front.
+    const seedBase = `http://127.0.0.1:${GATEWAY_PORT}`;
     const email = `csrf-gw-${Date.now()}@example.com`;
-    let reg = await httpJson(`${apiOrigin}/api/v1/auth/register`, {
+    let reg = await httpJson(`${seedBase}/api/v1/auth/register`, {
       headers: { Origin: appOrigin },
       body: { email, password: PASSWORD },
     });
@@ -384,7 +387,7 @@ async function main() {
     if (!tokenMatch) {
       fail(`verification token not found in ${authLog}`);
     }
-    const verify = await httpJson(`${apiOrigin}/api/v1/auth/verify-email`, {
+    const verify = await httpJson(`${seedBase}/api/v1/auth/verify-email`, {
       headers: { Origin: appOrigin },
       body: { token: tokenMatch[1] },
     });
