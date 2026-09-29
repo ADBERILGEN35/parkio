@@ -3,14 +3,16 @@
  *
  * PARKIO_CSRF_GATEWAY_BROWSER=1 required (exit 2 if unset — no silent skip).
  * Starts disposable Postgres+Redis, real auth-service + gateway-service bootRun,
- * TLS frontends for app/api/evil/cross, then Chromium. Browser pages never receive
- * X-Gateway-Auth; the gateway stamps it. Auth captures Origin/Cookie presence.
+ * TLS fronts for app/api/evil/cross, plus a disposable auth-direct front that stamps
+ * X-Gateway-Auth and reflects CORS so the auth Origin guard can be isolated from
+ * gateway CORS. Browser pages never receive the gateway secret.
  */
 import { spawn, execFileSync } from 'node:child_process';
 import { createServer as createHttpsServer } from 'node:https';
 import { request as httpRequest } from 'node:http';
 import { createConnection } from 'node:net';
 import {
+  appendFileSync,
   closeSync,
   existsSync,
   mkdirSync,
@@ -33,6 +35,7 @@ const APP_PORT = 18443;
 const API_PORT = 18444;
 const EVIL_PORT = 18445;
 const CROSS_PORT = 18446;
+const AUTH_DIRECT_PORT = 18447;
 const AUTH_PORT = 18081;
 const GATEWAY_PORT = 18080;
 const REDIS_PORT = 16379;
@@ -53,9 +56,6 @@ try {
   fail('Docker daemon required for disposable Postgres/Redis (refusing incomplete lab)', 1);
 }
 
-// Do not set NODE_TLS_REJECT_UNAUTHORIZED here: seed uses HTTP loopback, and
-// Chromium uses ignoreHTTPSErrors for lab certs. Avoid CodeQL/lab noise.
-
 function waitPort(port, host = '127.0.0.1', timeoutMs = 180_000) {
   const start = Date.now();
   return new Promise((resolve, reject) => {
@@ -74,7 +74,6 @@ function waitPort(port, host = '127.0.0.1', timeoutMs = 180_000) {
   });
 }
 
-/** Port open ≠ Postgres accepting queries; wait for pg_isready before CREATE DATABASE. */
 function waitPgReady(containerId, timeoutMs = 120_000) {
   const start = Date.now();
   return new Promise((resolve, reject) => {
@@ -111,12 +110,30 @@ function listenHttps(port, tls, handler) {
   });
 }
 
-function reverseProxy(tls, listenPort, targetPort) {
+function appendEdge(edgeFile, row) {
+  appendFileSync(edgeFile, `${JSON.stringify({ ts: new Date().toISOString(), ...row })}\n`);
+}
+
+/** TLS → HTTP reverse proxy to the real gateway; logs Origin/method for attribution. */
+function reverseProxy(tls, listenPort, targetPort, edgeFile, edgeLabel) {
   return listenHttps(listenPort, tls, (req, res) => {
     const chunks = [];
     req.on('data', (c) => chunks.push(c));
     req.on('end', () => {
       const body = Buffer.concat(chunks);
+      appendEdge(edgeFile, {
+        edge: edgeLabel,
+        method: req.method,
+        path: req.url,
+        origin: req.headers.origin || null,
+        contentType: req.headers['content-type'] || null,
+        hasCookie: Boolean(req.headers.cookie),
+        cookieNames: (req.headers.cookie || '')
+          .split(';')
+          .map((p) => p.trim().split('=')[0])
+          .filter(Boolean)
+          .join(','),
+      });
       const headers = { ...req.headers, host: `127.0.0.1:${targetPort}` };
       delete headers['x-gateway-auth'];
       const uReq = httpRequest(
@@ -142,14 +159,86 @@ function reverseProxy(tls, listenPort, targetPort) {
   });
 }
 
-function staticPage(tls, listenPort, apiOrigin, title) {
+/**
+ * Lab-only auth-direct front on api.parkio.test (same host, different port):
+ * stamps X-Gateway-Auth, reflects CORS for any Origin so browser JS can observe
+ * auth status. Isolates auth Origin guard from gateway CORS. Not production.
+ */
+function authDirectProxy(tls, listenPort, authPort, edgeFile, gatewaySecret) {
+  return listenHttps(listenPort, tls, (req, res) => {
+    const origin = req.headers.origin || '';
+    const corsHeaders = {
+      'access-control-allow-origin': origin || '*',
+      'access-control-allow-credentials': 'true',
+      'access-control-allow-headers': req.headers['access-control-request-headers'] || 'content-type,x-parkio-client',
+      'access-control-allow-methods': 'GET,POST,OPTIONS',
+      vary: 'Origin',
+    };
+    if (req.method === 'OPTIONS') {
+      appendEdge(edgeFile, {
+        edge: 'auth-direct',
+        method: 'OPTIONS',
+        path: req.url,
+        origin: origin || null,
+        contentType: null,
+        hasCookie: Boolean(req.headers.cookie),
+      });
+      res.writeHead(204, corsHeaders);
+      res.end();
+      return;
+    }
+    const chunks = [];
+    req.on('data', (c) => chunks.push(c));
+    req.on('end', () => {
+      const body = Buffer.concat(chunks);
+      appendEdge(edgeFile, {
+        edge: 'auth-direct',
+        method: req.method,
+        path: req.url,
+        origin: origin || null,
+        contentType: req.headers['content-type'] || null,
+        hasCookie: Boolean(req.headers.cookie),
+        cookieNames: (req.headers.cookie || '')
+          .split(';')
+          .map((p) => p.trim().split('=')[0])
+          .filter(Boolean)
+          .join(','),
+      });
+      const headers = { ...req.headers, host: `127.0.0.1:${authPort}` };
+      delete headers['x-gateway-auth'];
+      headers['x-gateway-auth'] = gatewaySecret;
+      const uReq = httpRequest(
+        {
+          hostname: '127.0.0.1',
+          port: authPort,
+          path: req.url,
+          method: req.method,
+          headers,
+        },
+        (uRes) => {
+          const outHeaders = { ...uRes.headers, ...corsHeaders };
+          res.writeHead(uRes.statusCode || 502, outHeaders);
+          uRes.pipe(res);
+        },
+      );
+      uReq.on('error', (err) => {
+        res.writeHead(502, { 'content-type': 'text/plain', ...corsHeaders });
+        res.end(String(err));
+      });
+      if (body.length) uReq.write(body);
+      uReq.end();
+    });
+  });
+}
+
+function staticPage(tls, listenPort, defaultApiOrigin, title) {
   const html = `<!doctype html><html><body><h1>${title}</h1>
 <script>
 window.__parkio = {
-  api: ${JSON.stringify(apiOrigin)},
-  async call(path, { headers = {}, body, method = 'POST' } = {}) {
+  api: ${JSON.stringify(defaultApiOrigin)},
+  async call(path, { headers = {}, body, method = 'POST', api } = {}) {
     try {
-      const response = await fetch(this.api + path, {
+      const response = await fetch((api || this.api) + path, {
         method, credentials: 'include',
         headers: { 'content-type': 'application/json', ...headers },
         body: body === undefined ? undefined : JSON.stringify(body),
@@ -159,9 +248,27 @@ window.__parkio = {
       try { json = text ? JSON.parse(text) : null; } catch { json = { raw: text }; }
       return { status: response.status, json, networkError: null,
         acao: response.headers.get('access-control-allow-origin'),
-        acac: response.headers.get('access-control-allow-credentials') };
+        acac: response.headers.get('access-control-allow-credentials'),
+        mode: 'json' };
     } catch (err) {
-      return { status: 0, networkError: String(err), json: null, acao: null, acac: null };
+      return { status: 0, networkError: String(err), json: null, acao: null, acac: null, mode: 'json' };
+    }
+  },
+  // Browser-sendable "simple" request: form-urlencoded avoids CORS preflight.
+  async callSimple(path, { api } = {}) {
+    try {
+      const response = await fetch((api || this.api) + path, {
+        method: 'POST',
+        credentials: 'include',
+        headers: { 'content-type': 'application/x-www-form-urlencoded' },
+        body: '',
+      });
+      const text = await response.text();
+      return { status: response.status, text: text.slice(0, 200), networkError: null,
+        acao: response.headers.get('access-control-allow-origin'),
+        mode: 'simple-form' };
+    } catch (err) {
+      return { status: 0, networkError: String(err), text: null, acao: null, mode: 'simple-form' };
     }
   }
 };
@@ -188,11 +295,11 @@ async function httpJson(url, { method = 'POST', headers = {}, body } = {}) {
   return { status: res.status, json, text };
 }
 
-function spawnBoot(module, env, logFile) {
+function spawnBoot(module, env, logFile, extraArgs = []) {
   const fd = openSync(logFile, 'w');
   const child = spawn(
     process.platform === 'win32' ? 'gradlew.bat' : './gradlew',
-    [`:${module}:bootRun`, '--no-daemon'],
+    [`:${module}:bootRun`, '--no-daemon', ...extraArgs],
     {
       cwd: REPO,
       env: { ...process.env, ...env },
@@ -213,13 +320,16 @@ async function main() {
 
   const work = mkdtempSync(join(tmpdir(), 'parkio-csrf-gw-'));
   const captureFile = join(work, 'auth-captures.jsonl');
+  const edgeFile = join(work, 'edge-captures.jsonl');
   const resultFile = join(work, 'result.json');
   writeFileSync(captureFile, '');
+  writeFileSync(edgeFile, '');
   const certs = generateLabCerts(join(work, 'certs'));
   const tls = { key: certs.key, cert: certs.cert };
 
   const appOrigin = `https://app.parkio.test:${APP_PORT}`;
   const apiOrigin = `https://api.parkio.test:${API_PORT}`;
+  const apiAuthDirectOrigin = `https://api.parkio.test:${AUTH_DIRECT_PORT}`;
   const evilOrigin = `https://evil.parkio.test:${EVIL_PORT}`;
   const crossOrigin = `https://cross.example.test:${CROSS_PORT}`;
 
@@ -275,7 +385,6 @@ async function main() {
     await waitPort(PG_PORT);
     await waitPort(REDIS_PORT);
     await waitPgReady(containers[0]);
-    // Create gateway DB (after pg_isready — port-open alone races init)
     execFileSync(
       'docker',
       [
@@ -338,8 +447,10 @@ async function main() {
       }),
     };
 
-    console.log('Booting auth-service...');
-    children.push(spawnBoot('services:auth-service', authEnv, authLog));
+    console.log('Booting auth-service (csrfLab classpath)...');
+    children.push(
+      spawnBoot('services:auth-service', authEnv, authLog, ['-Pparkio.csrfLab=true']),
+    );
     await waitPort(AUTH_PORT);
     console.log('auth ready');
 
@@ -388,16 +499,15 @@ async function main() {
     await waitPort(GATEWAY_PORT);
     console.log('gateway ready');
 
-    servers.push(await reverseProxy(tls, API_PORT, GATEWAY_PORT));
+    servers.push(await reverseProxy(tls, API_PORT, GATEWAY_PORT, edgeFile, 'gateway-tls'));
+    servers.push(await authDirectProxy(tls, AUTH_DIRECT_PORT, AUTH_PORT, edgeFile, GATEWAY_SECRET));
     servers.push(await staticPage(tls, APP_PORT, apiOrigin, 'app'));
     servers.push(await staticPage(tls, EVIL_PORT, apiOrigin, 'evil'));
     servers.push(await staticPage(tls, CROSS_PORT, apiOrigin, 'cross'));
 
-    // Seed via loopback HTTP to the gateway (Node has no Playwright host-resolver-rules).
-    // Browser traffic still uses https://api.parkio.test TLS front.
     const seedBase = `http://127.0.0.1:${GATEWAY_PORT}`;
     const email = `csrf-gw-${Date.now()}@example.com`;
-    let reg = await httpJson(`${seedBase}/api/v1/auth/register`, {
+    const reg = await httpJson(`${seedBase}/api/v1/auth/register`, {
       headers: { Origin: appOrigin },
       body: { email, password: PASSWORD },
     });
@@ -431,10 +541,13 @@ async function main() {
         PARKIO_CSRF_EVIL_ORIGIN: evilOrigin,
         PARKIO_CSRF_CROSS_ORIGIN: crossOrigin,
         PARKIO_CSRF_API_ORIGIN: apiOrigin,
+        PARKIO_CSRF_API_AUTH_DIRECT_ORIGIN: apiAuthDirectOrigin,
         PARKIO_CSRF_EMAIL: email,
         PARKIO_CSRF_PASSWORD: PASSWORD,
         PARKIO_CSRF_RESULT_FILE: resultFile,
         PARKIO_CSRF_CAPTURE_FILE: captureFile,
+        PARKIO_CSRF_EDGE_FILE: edgeFile,
+        PARKIO_CSRF_PG_CONTAINER: containers[0],
         PARKIO_CSRF_PLAYWRIGHT_PACKAGE: playwrightPkg,
       },
       stdio: 'inherit',

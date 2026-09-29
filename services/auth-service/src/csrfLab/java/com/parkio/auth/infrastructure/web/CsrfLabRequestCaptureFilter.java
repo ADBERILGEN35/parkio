@@ -24,10 +24,11 @@ import org.springframework.stereotype.Component;
 import org.springframework.web.filter.OncePerRequestFilter;
 
 /**
- * Disposable CSRF-lab capture only. When enabled, appends one JSON line per auth
- * mutation request with the Origin/Referer/Cookie <em>names</em> and gateway-auth
- * presence as seen by auth-service after the gateway hop. Never enabled in
- * production profiles; the capture file path is operator-supplied.
+ * Disposable CSRF-lab capture only. Compiled from the csrfLab source set and
+ * attached to bootRun only when -Pparkio.csrfLab=true. Never packaged into the
+ * production bootJar. When enabled, appends one JSON line per auth mutation
+ * request with Origin/Referer/Cookie names and gateway-auth presence as seen by
+ * auth-service after the gateway hop.
  */
 @Component
 @Order(Ordered.HIGHEST_PRECEDENCE + 20)

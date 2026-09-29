@@ -113,13 +113,24 @@ Production / hosted-beta shape (`docker/.env.*.example`, `CorsConfig`, `GatewayA
 
 | Artifact | Role |
 |---|---|
-| `scripts/csrf-lab/run-auth-csrf-gateway-https-lab.mjs` | Boots Postgres+Redis (Docker), real auth+gateway `bootRun`, TLS fronts, Chromium |
-| `scripts/csrf-lab/playwright-gateway-driver.mjs` | Cases: allowed login/refresh/logout, sibling evil, cross-site, forged mobile, logout-all without bearer |
-| `CsrfLabRequestCaptureFilter` | Opt-in (`parkio.csrf-lab.capture-enabled`) — records Origin/Cookie **names** / gateway-auth **presence** as seen by auth |
-| `CorsConfigTest.siblingSubdomainNotOnAllowList…` | Unit proof: evil sibling gets no ACAO |
-| `.github/workflows/auth-csrf-gateway-https-acceptance.yml` | Fail-closed CI (no skip, requires `status=passed` artifact) |
+| `scripts/csrf-lab/run-auth-csrf-gateway-https-lab.mjs` | Boots Postgres+Redis, real auth+gateway `bootRun`, TLS fronts, disposable **auth-direct** front |
+| `scripts/csrf-lab/playwright-gateway-driver.mjs` | Allowed positives + sibling/cross JSON + **simple form** + auth Origin isolate |
+| `scripts/csrf-lab/session-probe.mjs` | Postgres before/after: refresh row + `session_epoch` + active count |
+| `src/csrfLab/.../CsrfLabRequestCaptureFilter` | Lab-only source set (`-Pparkio.csrfLab=true` on bootRun). **Not** in production `bootJar` (`assertCsrfLabAbsentFromBootJar`) |
+| Edge JSONL (`gateway-tls` / `auth-direct`) | Records whether OPTIONS/POST reached the TLS edge |
+| `CorsConfigTest.siblingSubdomain…` | Unit: evil sibling gets no ACAO |
+| Workflow | Fail-closed; requires layer keys + auth Origin isolate `reachedAuth` + 403; fails on `security_defect` |
 
-Browser pages **do not** inject `X-Gateway-Auth`. Lab requires `PARKIO_CSRF_GATEWAY_BROWSER=1` (exit 2 if unset).
+**Attribution rules (browser status 0 is never enough):**
+
+| Case | What must be proven |
+|---|---|
+| Sibling/cross **JSON** | Session+epoch unchanged; layer from edge log (`gateway-preflight-blocked-post` vs auth) |
+| Sibling/cross **simple** (`application/x-www-form-urlencoded`) | No preflight; POST may reach gateway/auth; session+epoch unchanged |
+| **Auth Origin isolate** (lab auth-direct on `api.parkio.test` other port: stamps secret, reflects CORS; production allowlists unchanged) | Auth receives evil Origin → **403**; session+epoch unchanged |
+| Allowed login/refresh/logout | Positive controls; logout revokes with `LOGOUT`, no epoch bump |
+
+Browser pages **do not** inject `X-Gateway-Auth`. Lab requires `PARKIO_CSRF_GATEWAY_BROWSER=1` (exit 2 if unset). If any malicious case mutates refresh/epoch → lab exits `security_defect` (CI fails; do not treat as accepted evidence).
 
 **Local agent limitation:** Docker daemon was not running on the Windows agent host, so the full gateway HTTPS lab was not executed locally; CI on ubuntu-latest is the execution venue.
 
@@ -149,19 +160,13 @@ CodeQL models `String.prototype.includes` as substring sanitization of **URLs**.
 
 | Item | Result |
 |---|---|
-| Reviewed starting tip | `884ed1faaf2f1e3f422e5b67c9c1139f24d28e61` on base `822828a5208e9445fc97f73c4540aaa867654fce` |
-| Current tip (#126) | `a89766c3996553777b3f4c03fedf45e7db86ace6` (fast-forward only; no rebase/force-push) |
-| `CookieCsrfGuardHttpIntegrationTest` (#125) | PASS (kept; not weakened) |
-| Direct-auth Chromium CI | PASS — run `36530981507`; **1 executed / 0 skipped / 0 failed** |
-| `CorsConfigTest` sibling case | PASS (in gateway HTTPS workflow) |
-| Gateway HTTPS lab locally | **Not run** — Docker engine unavailable on agent |
-| Gateway HTTPS lab CI | **PASS** — run `36530981546` |
-| Layer attribution (CI artifact) | `siblingRefresh`/`siblingLogout`: **gateway-cors-or-network** (status 0 — auth Origin **not** reached); `crossRefresh`: **gateway-cors-or-network-or-samesite**; `logoutAllNoBearer`: **http-401** |
-| Security CI analysis | PASS — run `36530981600` (CodeQL java/js + container/dep/secret scans) |
-| GHAS comparison CodeQL on #126 tip `a89766c3` | Failed on lab `NODE_TLS_REJECT_UNAUTHORIZED` (check-run `109285233862`) — removed in follow-up; unrelated to umbrella #44 alerts #2–#4/#7 |
-| Umbrella #44 GHAS alerts #2–#4 | Still open (`most_recent_instance.state=open`); leave open |
-| GHAS alert #7 | Still **open**; leave open pending explicit security decision |
+| Continuation from tip | `031d08ffc1baf6afa4a3d78b783a82bab393c037` on base `822828a5208e9445fc97f73c4540aaa867654fce` |
+| Lab filter packaging | Moved to `src/csrfLab`; `assertCsrfLabAbsentFromBootJar` required in CI |
+| Session assertions | Malicious sibling/cross/auth-isolate cases probe Postgres refresh + epoch before/after |
+| Layer attribution | Edge JSONL + auth capture; auth Origin isolate must `reachedAuth` + 403 |
+| Simple requests | Form-urlencoded sibling/cross covered alongside JSON/preflight |
+| GHAS #2–#4 / #7 | Still open; not dismissed |
 | #104 / #118 / #119 | Untouched |
 | Merge / dismiss / publish / deploy / production | **None** |
 
-**Proposed #7:** `csrf.disable()` is real configuration, not a proven exploitable browser CSRF path under the tested gateway HTTPS sibling/cross matrix. Compensating controls held in lab; residual gaps listed in §3 limitations. Keep #7 open until an explicit accept-risk or defense-in-depth decision.
+**Proposed #7:** `csrf.disable()` is real configuration, not a proven exploitable browser CSRF path under the tested gateway HTTPS sibling/cross/simple/auth-Origin matrix. Keep #7 open until an explicit accept-risk or defense-in-depth decision. Absence of a reproduced bypass is not proof that every CSRF path is safe.

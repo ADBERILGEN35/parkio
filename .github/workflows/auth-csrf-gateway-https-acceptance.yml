@@ -4,6 +4,8 @@ on:
   pull_request:
     paths:
       - "services/auth-service/src/main/**"
+      - "services/auth-service/src/csrfLab/**"
+      - "services/auth-service/build.gradle.kts"
       - "services/gateway-service/src/main/java/com/parkio/gateway/infrastructure/config/CorsConfig.java"
       - "services/gateway-service/src/test/java/com/parkio/gateway/infrastructure/config/CorsConfigTest.java"
       - "scripts/csrf-lab/**"
@@ -59,10 +61,13 @@ jobs:
         working-directory: frontend
         run: pnpm --filter @parkio/web exec playwright install --with-deps chromium
 
-      - name: Gateway CORS sibling unit evidence
+      - name: Verify CSRF lab filter absent from production bootJar
         run: |
           chmod +x gradlew
-          ./gradlew --no-daemon :services:gateway-service:test --tests com.parkio.gateway.infrastructure.config.CorsConfigTest
+          ./gradlew --no-daemon :services:auth-service:assertCsrfLabAbsentFromBootJar
+
+      - name: Gateway CORS sibling unit evidence
+        run: ./gradlew --no-daemon :services:gateway-service:test --tests com.parkio.gateway.infrastructure.config.CorsConfigTest
 
       - name: Run gateway HTTPS sibling-host browser lab
         env:
@@ -72,7 +77,7 @@ jobs:
           test -f "$PARKIO_CSRF_PLAYWRIGHT_PACKAGE/index.mjs"
           node scripts/csrf-lab/run-auth-csrf-gateway-https-lab.mjs
 
-      - name: Require passed lab artifact
+      - name: Require passed lab artifact with session + layer attribution
         run: |
           python3 - <<'PY'
           import json
@@ -81,7 +86,33 @@ jobs:
           if not path.is_file():
               raise SystemExit("missing build/csrf-gateway-https-result.json — lab did not produce evidence")
           result = json.loads(path.read_text())
+          if result.get("status") == "security_defect":
+              raise SystemExit(f"SECURITY DEFECT reproduced: {result.get('defect')}")
           if result.get("status") != "passed":
               raise SystemExit(f"gateway HTTPS lab not passed: {result.get('status')}")
-          print("Gateway HTTPS CSRF lab proven:", result.get("layers"))
+          layers = result.get("layers") or {}
+          required = [
+              "siblingRefreshJson",
+              "siblingLogoutJson",
+              "siblingRefreshSimple",
+              "siblingLogoutSimple",
+              "authOriginIsolateRefresh",
+              "authOriginIsolateLogout",
+              "crossRefreshJson",
+              "crossRefreshSimple",
+              "crossLogoutJson",
+          ]
+          missing = [k for k in required if k not in layers]
+          if missing:
+              raise SystemExit(f"missing layer attribution: {missing}")
+          isolate = layers["authOriginIsolateRefresh"]
+          if not isolate.get("reachedAuth"):
+              raise SystemExit(f"auth Origin isolate did not reach auth: {isolate}")
+          if 403 not in (isolate.get("authStatuses") or []):
+              raise SystemExit(f"auth Origin isolate missing 403: {isolate}")
+          session = result.get("session") or {}
+          if "attackBaseline" not in session or "afterAllowedLogout" not in session:
+              raise SystemExit("missing session before/after probes")
+          print("Gateway HTTPS CSRF lab proven:")
+          print(json.dumps({"layers": layers, "sessionKeys": list(session.keys())}, indent=2))
           PY

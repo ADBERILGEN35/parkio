@@ -1,10 +1,18 @@
 /**
  * Chromium driver for the gateway HTTPS sibling-host CSRF lab.
- * Pages must NOT contain X-Gateway-Auth — the gateway stamps it.
+ * Pages must NOT contain X-Gateway-Auth — gateway / auth-direct stamp it.
+ * Browser status 0 is never sufficient: every malicious attempt asserts
+ * Postgres refresh-session + epoch unchanged and records edge/auth attribution.
  */
-import { readFileSync, writeFileSync } from 'node:fs';
+import { writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { pathToFileURL } from 'node:url';
+import {
+  assertSessionUnchanged,
+  attributeLayers,
+  readJsonl,
+  readSessionState,
+} from './session-probe.mjs';
 
 function required(name) {
   const v = process.env[name];
@@ -16,22 +24,18 @@ function writeResult(payload) {
   writeFileSync(required('PARKIO_CSRF_RESULT_FILE'), JSON.stringify(payload, null, 2));
 }
 
-function readCaptures() {
-  const path = required('PARKIO_CSRF_CAPTURE_FILE');
-  try {
-    return readFileSync(path, 'utf8')
-      .split('\n')
-      .filter(Boolean)
-      .map((line) => JSON.parse(line));
-  } catch {
-    return [];
-  }
+function nowIso() {
+  return new Date().toISOString();
 }
 
 async function loadChromium() {
   const root = required('PARKIO_CSRF_PLAYWRIGHT_PACKAGE');
   const mod = await import(pathToFileURL(join(root, 'index.mjs')).href);
   return mod.chromium;
+}
+
+function liveRefreshCookies(cookies) {
+  return cookies.filter((c) => c.name === 'parkio_refresh');
 }
 
 async function main() {
@@ -45,8 +49,12 @@ async function main() {
   const evilOrigin = required('PARKIO_CSRF_EVIL_ORIGIN');
   const crossOrigin = required('PARKIO_CSRF_CROSS_ORIGIN');
   const apiOrigin = required('PARKIO_CSRF_API_ORIGIN');
+  const apiAuthDirectOrigin = required('PARKIO_CSRF_API_AUTH_DIRECT_ORIGIN');
   const email = required('PARKIO_CSRF_EMAIL');
   const password = required('PARKIO_CSRF_PASSWORD');
+  const pgContainer = required('PARKIO_CSRF_PG_CONTAINER');
+  const captureFile = required('PARKIO_CSRF_CAPTURE_FILE');
+  const edgeFile = required('PARKIO_CSRF_EDGE_FILE');
 
   const browser = await chromium.launch({
     headless: true,
@@ -61,12 +69,50 @@ async function main() {
     evilOrigin,
     crossOrigin,
     apiOrigin,
+    apiAuthDirectOrigin,
     checks: {},
     layers: {},
+    session: {},
     captures: [],
+    edge: [],
   };
 
   const contextOpts = { ignoreHTTPSErrors: true };
+
+  const probe = (rawCookie) =>
+    readSessionState({ containerId: pgContainer, email, rawRefreshCookie: rawCookie });
+
+  const attribute = (label, { origin, pathIncludes, sinceTs, browserStatus }) => {
+    const edgeRows = readJsonl(edgeFile);
+    const authRows = readJsonl(captureFile);
+    const attr = attributeLayers({
+      edgeRows,
+      authRows,
+      origin,
+      pathIncludes,
+      sinceTs,
+      browserStatus,
+    });
+    outcome.layers[label] = attr;
+    return attr;
+  };
+
+  const assertNoMutation = (before, after, label) => {
+    try {
+      assertSessionUnchanged(before, after, label);
+    } catch (err) {
+      outcome.status = 'security_defect';
+      outcome.defect = {
+        label,
+        code: err.code || 'CSRF_SESSION_MUTATION',
+        message: String(err.message),
+        before,
+        after,
+      };
+      throw err;
+    }
+  };
+
   try {
     const appContext = await browser.newContext(contextOpts);
     const appPage = await appContext.newPage();
@@ -85,13 +131,18 @@ async function main() {
       throw new Error('login leaked refreshToken in JSON');
     }
     const cookiesAfterLogin = await appContext.cookies(`${apiOrigin}/api/v1/auth/refresh-token`);
-    const refreshCookies = cookiesAfterLogin.filter((c) => c.name === 'parkio_refresh');
+    const refreshCookies = liveRefreshCookies(cookiesAfterLogin);
     outcome.checks.cookieCount = refreshCookies.length;
     outcome.checks.cookieSecure = refreshCookies.every((c) => c.secure);
     outcome.checks.cookieHttpOnly = refreshCookies.every((c) => c.httpOnly);
     outcome.checks.cookieSameSite = refreshCookies.map((c) => c.sameSite);
     if (refreshCookies.length === 0) {
       throw new Error('no parkio_refresh cookie after login via gateway');
+    }
+    const rawCookie = refreshCookies[0].value;
+    outcome.session.afterLogin = probe(rawCookie);
+    if (outcome.session.afterLogin.revoked !== false || outcome.session.afterLogin.activeRefreshCount < 1) {
+      throw new Error(`expected active refresh after login: ${JSON.stringify(outcome.session.afterLogin)}`);
     }
 
     const refreshOk = await appPage.evaluate(async () =>
@@ -100,6 +151,20 @@ async function main() {
     outcome.checks.allowedRefresh = refreshOk;
     if (refreshOk.status !== 200) {
       throw new Error(`allowed refresh failed: ${JSON.stringify(refreshOk)}`);
+    }
+    const cookiesAfterRefresh = liveRefreshCookies(
+      await appContext.cookies(`${apiOrigin}/api/v1/auth/refresh-token`),
+    );
+    if (cookiesAfterRefresh.length === 0) {
+      throw new Error('no cookie after allowed refresh');
+    }
+    const rawAfterRefresh = cookiesAfterRefresh[0].value;
+    outcome.session.afterAllowedRefresh = probe(rawAfterRefresh);
+    if (outcome.session.afterAllowedRefresh.sessionEpoch !== outcome.session.afterLogin.sessionEpoch) {
+      throw new Error('allowed refresh must not bump session epoch');
+    }
+    if (outcome.session.afterAllowedRefresh.tokenId === outcome.session.afterLogin.tokenId) {
+      throw new Error('allowed refresh must rotate token id');
     }
 
     const forgedMobile = await appPage.evaluate(async () =>
@@ -126,10 +191,17 @@ async function main() {
     const liveCookies = await appContext.cookies([
       `${apiOrigin}/api/v1/auth/refresh-token`,
       `${apiOrigin}/api/v1/auth/logout`,
+      `${apiAuthDirectOrigin}/api/v1/auth/refresh-token`,
+      `${apiAuthDirectOrigin}/api/v1/auth/logout`,
     ]);
-    outcome.refreshCookieValuesBeforeSibling = liveCookies
-      .filter((c) => c.name === 'parkio_refresh')
-      .map((c) => c.value);
+    const liveRefresh = liveRefreshCookies(liveCookies);
+    if (liveRefresh.length === 0) throw new Error('no refresh cookie after re-login');
+    const attackRaw = liveRefresh[0].value;
+    const baseline = probe(attackRaw);
+    outcome.session.attackBaseline = baseline;
+    if (baseline.revoked !== false) {
+      throw new Error(`attack baseline token must be active: ${JSON.stringify(baseline)}`);
+    }
 
     const evilContext = await browser.newContext(contextOpts);
     await evilContext.addCookies(
@@ -146,26 +218,132 @@ async function main() {
     );
     const evilPage = await evilContext.newPage();
     await evilPage.goto(`${evilOrigin}/`, { waitUntil: 'domcontentloaded' });
+
+    // --- sibling JSON (preflight path) ---
+    let since = nowIso();
     const siblingRefresh = await evilPage.evaluate(async () =>
       window.__parkio.call('/api/v1/auth/refresh-token', { body: {} }),
     );
-    outcome.checks.siblingRefresh = siblingRefresh;
+    outcome.checks.siblingRefreshJson = siblingRefresh;
     if (siblingRefresh.status === 200) {
       throw new Error(`sibling refresh MUST NOT succeed: ${JSON.stringify(siblingRefresh)}`);
     }
-    outcome.layers.siblingRefresh =
-      siblingRefresh.status === 0 ? 'gateway-cors-or-network' : `http-${siblingRefresh.status}`;
+    attribute('siblingRefreshJson', {
+      origin: evilOrigin,
+      pathIncludes: ['refresh-token'],
+      sinceTs: since,
+      browserStatus: siblingRefresh.status,
+    });
+    assertNoMutation(baseline, probe(attackRaw), 'siblingRefreshJson');
 
+    since = nowIso();
     const siblingLogout = await evilPage.evaluate(async () =>
       window.__parkio.call('/api/v1/auth/logout', { body: {} }),
     );
-    outcome.checks.siblingLogout = siblingLogout;
+    outcome.checks.siblingLogoutJson = siblingLogout;
     if (siblingLogout.status === 200 || siblingLogout.status === 204) {
       throw new Error(`sibling logout MUST NOT succeed: ${JSON.stringify(siblingLogout)}`);
     }
-    outcome.layers.siblingLogout =
-      siblingLogout.status === 0 ? 'gateway-cors-or-network' : `http-${siblingLogout.status}`;
+    attribute('siblingLogoutJson', {
+      origin: evilOrigin,
+      pathIncludes: ['logout'],
+      sinceTs: since,
+      browserStatus: siblingLogout.status,
+    });
+    assertNoMutation(baseline, probe(attackRaw), 'siblingLogoutJson');
 
+    // --- sibling simple form (no preflight) ---
+    since = nowIso();
+    const siblingRefreshSimple = await evilPage.evaluate(async () =>
+      window.__parkio.callSimple('/api/v1/auth/refresh-token'),
+    );
+    outcome.checks.siblingRefreshSimple = siblingRefreshSimple;
+    if (siblingRefreshSimple.status === 200) {
+      throw new Error(`sibling simple refresh MUST NOT succeed: ${JSON.stringify(siblingRefreshSimple)}`);
+    }
+    const siblingSimpleAttr = attribute('siblingRefreshSimple', {
+      origin: evilOrigin,
+      pathIncludes: ['refresh-token'],
+      sinceTs: since,
+      browserStatus: siblingRefreshSimple.status,
+    });
+    assertNoMutation(baseline, probe(attackRaw), 'siblingRefreshSimple');
+    if (!siblingSimpleAttr.reachedGateway && siblingRefreshSimple.status !== 0) {
+      throw new Error(`simple sibling refresh should reach gateway edge: ${JSON.stringify(siblingSimpleAttr)}`);
+    }
+
+    since = nowIso();
+    const siblingLogoutSimple = await evilPage.evaluate(async () =>
+      window.__parkio.callSimple('/api/v1/auth/logout'),
+    );
+    outcome.checks.siblingLogoutSimple = siblingLogoutSimple;
+    if (siblingLogoutSimple.status === 200 || siblingLogoutSimple.status === 204) {
+      throw new Error(`sibling simple logout MUST NOT succeed: ${JSON.stringify(siblingLogoutSimple)}`);
+    }
+    attribute('siblingLogoutSimple', {
+      origin: evilOrigin,
+      pathIncludes: ['logout'],
+      sinceTs: since,
+      browserStatus: siblingLogoutSimple.status,
+    });
+    assertNoMutation(baseline, probe(attackRaw), 'siblingLogoutSimple');
+
+    // --- auth Origin isolation (lab auth-direct; gateway CORS bypassed) ---
+    since = nowIso();
+    const originIsolateRefresh = await evilPage.evaluate(
+      async ({ api }) => window.__parkio.call('/api/v1/auth/refresh-token', { body: {}, api }),
+      { api: apiAuthDirectOrigin },
+    );
+    outcome.checks.authOriginIsolateRefresh = originIsolateRefresh;
+    if (originIsolateRefresh.status === 200) {
+      throw new Error(
+        `auth Origin isolate refresh MUST NOT succeed: ${JSON.stringify(originIsolateRefresh)}`,
+      );
+    }
+    if (originIsolateRefresh.status !== 403) {
+      throw new Error(
+        `auth Origin isolate expected HTTP 403 from auth, got ${originIsolateRefresh.status}: ${JSON.stringify(originIsolateRefresh)}`,
+      );
+    }
+    const isolateAttr = attribute('authOriginIsolateRefresh', {
+      origin: evilOrigin,
+      pathIncludes: ['refresh-token'],
+      sinceTs: since,
+      browserStatus: originIsolateRefresh.status,
+    });
+    if (!isolateAttr.reachedAuth) {
+      throw new Error(
+        `auth Origin isolate must reach auth (got ${JSON.stringify(isolateAttr)}) — otherwise CORS still masks Origin guard`,
+      );
+    }
+    if (!isolateAttr.authStatuses.includes(403)) {
+      throw new Error(`auth Origin isolate auth status must be 403: ${JSON.stringify(isolateAttr)}`);
+    }
+    assertNoMutation(baseline, probe(attackRaw), 'authOriginIsolateRefresh');
+
+    since = nowIso();
+    const originIsolateLogout = await evilPage.evaluate(
+      async ({ api }) => window.__parkio.call('/api/v1/auth/logout', { body: {}, api }),
+      { api: apiAuthDirectOrigin },
+    );
+    outcome.checks.authOriginIsolateLogout = originIsolateLogout;
+    if (originIsolateLogout.status === 200 || originIsolateLogout.status === 204) {
+      throw new Error(`auth Origin isolate logout MUST NOT succeed: ${JSON.stringify(originIsolateLogout)}`);
+    }
+    if (originIsolateLogout.status !== 403) {
+      throw new Error(
+        `auth Origin isolate logout expected 403, got ${originIsolateLogout.status}: ${JSON.stringify(originIsolateLogout)}`,
+      );
+    }
+    attribute('authOriginIsolateLogout', {
+      origin: evilOrigin,
+      pathIncludes: ['logout'],
+      sinceTs: since,
+      browserStatus: originIsolateLogout.status,
+    });
+    assertNoMutation(baseline, probe(attackRaw), 'authOriginIsolateLogout');
+
+    // --- cross-site JSON ---
     const crossContext = await browser.newContext(contextOpts);
     await crossContext.addCookies(
       liveCookies.map((c) => ({
@@ -181,15 +359,54 @@ async function main() {
     );
     const crossPage = await crossContext.newPage();
     await crossPage.goto(`${crossOrigin}/`, { waitUntil: 'domcontentloaded' });
+
+    since = nowIso();
     const crossRefresh = await crossPage.evaluate(async () =>
       window.__parkio.call('/api/v1/auth/refresh-token', { body: {} }),
     );
-    outcome.checks.crossRefresh = crossRefresh;
+    outcome.checks.crossRefreshJson = crossRefresh;
     if (crossRefresh.status === 200) {
       throw new Error(`cross-site refresh MUST NOT succeed: ${JSON.stringify(crossRefresh)}`);
     }
-    outcome.layers.crossRefresh =
-      crossRefresh.status === 0 ? 'gateway-cors-or-network-or-samesite' : `http-${crossRefresh.status}`;
+    attribute('crossRefreshJson', {
+      origin: crossOrigin,
+      pathIncludes: ['refresh-token'],
+      sinceTs: since,
+      browserStatus: crossRefresh.status,
+    });
+    assertNoMutation(baseline, probe(attackRaw), 'crossRefreshJson');
+
+    since = nowIso();
+    const crossRefreshSimple = await crossPage.evaluate(async () =>
+      window.__parkio.callSimple('/api/v1/auth/refresh-token'),
+    );
+    outcome.checks.crossRefreshSimple = crossRefreshSimple;
+    if (crossRefreshSimple.status === 200) {
+      throw new Error(`cross-site simple refresh MUST NOT succeed: ${JSON.stringify(crossRefreshSimple)}`);
+    }
+    attribute('crossRefreshSimple', {
+      origin: crossOrigin,
+      pathIncludes: ['refresh-token'],
+      sinceTs: since,
+      browserStatus: crossRefreshSimple.status,
+    });
+    assertNoMutation(baseline, probe(attackRaw), 'crossRefreshSimple');
+
+    since = nowIso();
+    const crossLogout = await crossPage.evaluate(async () =>
+      window.__parkio.call('/api/v1/auth/logout', { body: {} }),
+    );
+    outcome.checks.crossLogoutJson = crossLogout;
+    if (crossLogout.status === 200 || crossLogout.status === 204) {
+      throw new Error(`cross-site logout MUST NOT succeed: ${JSON.stringify(crossLogout)}`);
+    }
+    attribute('crossLogoutJson', {
+      origin: crossOrigin,
+      pathIncludes: ['logout'],
+      sinceTs: since,
+      browserStatus: crossLogout.status,
+    });
+    assertNoMutation(baseline, probe(attackRaw), 'crossLogoutJson');
 
     const logoutAll = await appPage.evaluate(async () =>
       window.__parkio.call('/api/v1/auth/logout-all', { body: {} }),
@@ -198,8 +415,14 @@ async function main() {
     if (logoutAll.status === 200 || logoutAll.status === 204) {
       throw new Error(`logout-all without bearer must fail: ${JSON.stringify(logoutAll)}`);
     }
-    outcome.layers.logoutAllNoBearer = `http-${logoutAll.status}`;
+    outcome.layers.logoutAllNoBearer = {
+      rejectionLayer: `http-${logoutAll.status}`,
+      reachedAuth: true,
+    };
+    assertNoMutation(baseline, probe(attackRaw), 'logoutAllNoBearer');
 
+    // Positive control logout (allowed origin) — must revoke
+    const beforeLogout = probe(attackRaw);
     const logoutOk = await appPage.evaluate(async () =>
       window.__parkio.call('/api/v1/auth/logout', { body: {} }),
     );
@@ -207,34 +430,34 @@ async function main() {
     if (logoutOk.status !== 204) {
       throw new Error(`allowed logout failed: ${JSON.stringify(logoutOk)}`);
     }
+    const afterLogout = probe(attackRaw);
+    outcome.session.afterAllowedLogout = afterLogout;
+    if (afterLogout.revoked !== true || afterLogout.revokedReason !== 'LOGOUT') {
+      throw new Error(`allowed logout must revoke with LOGOUT: ${JSON.stringify(afterLogout)}`);
+    }
+    if (afterLogout.sessionEpoch !== beforeLogout.sessionEpoch) {
+      throw new Error('single-device logout must not bump session epoch');
+    }
 
-    outcome.captures = readCaptures();
+    outcome.captures = readJsonl(captureFile);
+    outcome.edge = readJsonl(edgeFile);
     const authBound = outcome.captures.filter((c) => c.path && c.path.includes('/api/v1/auth/'));
     if (authBound.length === 0) {
-      throw new Error('no server-side captures at auth — gateway may not have forwarded');
+      throw new Error('no server-side captures at auth — gateway/auth-direct may not have forwarded');
     }
     if (!authBound.every((c) => c.hasGatewayAuth === true)) {
-      throw new Error(`gateway did not stamp X-Gateway-Auth: ${JSON.stringify(authBound)}`);
-    }
-    const siblingReached = authBound.filter(
-      (c) => c.origin === evilOrigin && (c.path.includes('refresh') || c.path.includes('logout')),
-    );
-    outcome.checks.siblingReachedAuth = siblingReached;
-    for (const row of siblingReached) {
-      if (row.status === 200 || row.status === 204) {
-        throw new Error(`auth accepted sibling mutation: ${JSON.stringify(row)}`);
-      }
-      if (row.hasParkioRefreshCookie && row.status !== 403) {
-        throw new Error(`expected Origin 403 when sibling cookie present: ${JSON.stringify(row)}`);
-      }
+      throw new Error(`gateway/auth-direct did not stamp X-Gateway-Auth: ${JSON.stringify(authBound)}`);
     }
 
     outcome.status = 'passed';
     writeResult(outcome);
   } catch (error) {
-    outcome.status = 'failed';
+    if (outcome.status !== 'security_defect') {
+      outcome.status = 'failed';
+    }
     outcome.error = String(error?.stack || error);
-    outcome.captures = readCaptures();
+    outcome.captures = readJsonl(captureFile);
+    outcome.edge = readJsonl(edgeFile);
     writeResult(outcome);
     throw error;
   } finally {
@@ -244,5 +467,5 @@ async function main() {
 
 main().catch((err) => {
   console.error(err);
-  process.exit(1);
+  process.exit(err?.code === 'CSRF_SESSION_MUTATION' ? 3 : 1);
 });
