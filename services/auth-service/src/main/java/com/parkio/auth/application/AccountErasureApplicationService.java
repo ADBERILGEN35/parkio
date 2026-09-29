@@ -20,6 +20,7 @@ import com.parkio.auth.infrastructure.metrics.ErasureMetrics;
 import com.parkio.auth.infrastructure.persistence.entity.ErasedUserTombstoneEntity;
 import com.parkio.auth.infrastructure.persistence.entity.ErasureRequestEntity;
 import com.parkio.auth.infrastructure.persistence.entity.ErasureServiceAckEntity;
+import com.parkio.auth.infrastructure.persistence.ErasureDurableWorkerRepository;
 import com.parkio.auth.infrastructure.persistence.jpa.ErasedUserTombstoneJpaRepository;
 import com.parkio.auth.infrastructure.persistence.jpa.ErasureRequestJpaRepository;
 import com.parkio.auth.infrastructure.persistence.jpa.ErasureServiceAckJpaRepository;
@@ -59,6 +60,10 @@ public class AccountErasureApplicationService {
             "ai-validation");
 
     private static final Logger log = LoggerFactory.getLogger(AccountErasureApplicationService.class);
+    private static final Duration DEFAULT_WORKER_BASE_BACKOFF = Duration.ofSeconds(5);
+    private static final Duration DEFAULT_WORKER_MAX_BACKOFF = Duration.ofMinutes(15);
+    private static final Instant DURABLE_RETRY_EXHAUSTED_NEXT =
+            Instant.parse("9999-12-31T23:59:59Z");
 
     private final AuthUserRepository users;
     private final RefreshTokenRepository refreshTokens;
@@ -75,6 +80,7 @@ public class AccountErasureApplicationService {
     private final Set<String> participants;
     private final boolean durableRecordingEnabled;
     private final DurableErasureRecordStore durableStore;
+    private final ErasureDurableWorkerRepository workerRepository;
     private final TransactionTemplate requiresNew;
     private final TransactionTemplate withoutTransaction;
 
@@ -94,7 +100,7 @@ public class AccountErasureApplicationService {
             String participantsCsv) {
         this(users, refreshTokens, passwordResets, passwordHasher, outbox, inbox,
                 requests, acks, tombstones, metrics, clock, enabled, participantsCsv,
-                false, (DurableErasureRecordStore) null, (PlatformTransactionManager) null);
+                false, (DurableErasureRecordStore) null, null, (PlatformTransactionManager) null);
     }
 
     public AccountErasureApplicationService(
@@ -113,6 +119,7 @@ public class AccountErasureApplicationService {
             String participantsCsv,
             boolean durableRecordingEnabled,
             DurableErasureRecordStore durableStore,
+            ErasureDurableWorkerRepository workerRepository,
             PlatformTransactionManager transactionManager) {
         this.users = users;
         this.refreshTokens = refreshTokens;
@@ -132,6 +139,7 @@ public class AccountErasureApplicationService {
                 .collect(Collectors.toUnmodifiableSet());
         this.durableRecordingEnabled = durableRecordingEnabled;
         this.durableStore = durableStore;
+        this.workerRepository = workerRepository;
         if (transactionManager == null) {
             this.requiresNew = null;
             this.withoutTransaction = null;
@@ -163,11 +171,12 @@ public class AccountErasureApplicationService {
                     String participantsCsv,
             @Value("${parkio.privacy.account-erasure.durable-recording-enabled:false}") boolean durableRecordingEnabled,
             ObjectProvider<DurableErasureRecordStore> durableStores,
+            ObjectProvider<ErasureDurableWorkerRepository> workerRepositories,
             ObjectProvider<PlatformTransactionManager> transactionManagers) {
         this(users, refreshTokens, passwordResets, passwordHasher, outbox, inbox,
                 requests, acks, tombstones, metrics, clock, enabled, participantsCsv,
                 durableRecordingEnabled, durableStores.getIfAvailable(),
-                transactionManagers.getIfAvailable());
+                workerRepositories.getIfAvailable(), transactionManagers.getIfAvailable());
     }
 
     @Transactional
@@ -326,6 +335,65 @@ public class AccountErasureApplicationService {
         }
     }
 
+    /**
+     * Worker entry: persist or reconcile a claimed row. Store I/O is outside any database
+     * transaction; stale claims are ignored via the lease token.
+     */
+    public void processWorkerPersistClaim(
+            ErasureDurableWorkerClaim claim, int maxAttempts, Duration baseBackoff, Duration maxBackoff) {
+        if (workerRepository == null || durableStore == null || !durableRecordingEnabled) {
+            return;
+        }
+        try {
+            DurableErasureRecord candidate = DurableErasureRecord.of(
+                    claim.requestId(), claim.authUserId(), claim.requestedAt());
+            var existing = durableStore.findByRequestId(claim.requestId());
+            if (existing.isPresent()) {
+                if (!existing.get().bodyDigest().equals(candidate.bodyDigest())) {
+                    scheduleWorkerRetry(
+                            claim, maxAttempts, baseBackoff, maxBackoff, "DURABLE_RECORDING_CONFLICT");
+                    return;
+                }
+            } else {
+                if (withoutTransaction != null) {
+                    withoutTransaction.executeWithoutResult(status -> putDurable(candidate));
+                } else {
+                    putDurable(candidate);
+                }
+            }
+            int marked = workerRepository.markDurablyRecordedIfClaimed(
+                    claim.requestId(), claim.claimToken(), clock.instant());
+            if (marked == 0) {
+                return;
+            }
+            tryCompleteIfReady(claim.requestId());
+        } catch (RuntimeException ex) {
+            log.warn("durable persist worker failed requestId={}", claim.requestId(), ex);
+            scheduleWorkerRetry(claim, maxAttempts, baseBackoff, maxBackoff, "DURABLE_PERSIST_FAILED");
+        }
+    }
+
+    public void processWorkerReconcileClaim(ErasureDurableWorkerClaim claim) {
+        if (workerRepository == null || !durableRecordingEnabled || requiresNew == null) {
+            return;
+        }
+        requiresNew.executeWithoutResult(status -> {
+            ErasureRequestEntity request = requests.findById(claim.requestId()).orElse(null);
+            if (request == null || !claimStillHeld(request, claim)) {
+                return;
+            }
+            if ("COMPLETE".equals(request.getStatus())) {
+                workerRepository.releaseClaim(claim.requestId(), claim.claimToken(), clock.instant());
+                return;
+            }
+            long success = acks.countByErasureRequestIdAndStatus(claim.requestId(), "SUCCESS");
+            if (success >= participants.size() && durableEvidenceSatisfied(request)) {
+                completeLocal(request);
+            }
+            workerRepository.releaseClaim(claim.requestId(), claim.claimToken(), clock.instant());
+        });
+    }
+
     private void persistDurableRecordNow(UUID requestId) {
         if (durableStore == null) {
             throw new AuthException(AuthErrorCode.DURABLE_RECORDING_UNAVAILABLE);
@@ -361,6 +429,7 @@ public class AccountErasureApplicationService {
                         // response truthful: the request is accepted, but recording
                         // remains pending and must be retried independently.
                         log.error("post-commit durable recording failed requestId={}", requestId, ex);
+                        schedulePostCommitPersistFailure(requestId);
                     }
                 }
             });
@@ -414,6 +483,44 @@ public class AccountErasureApplicationService {
                 completeLocal(request);
             }
         });
+    }
+
+    private void schedulePostCommitPersistFailure(UUID requestId) {
+        if (workerRepository == null || !durableRecordingEnabled) {
+            return;
+        }
+        Instant next = DurableErasureRetryBackoff.nextAttemptAfter(
+                clock.instant(), 0, DEFAULT_WORKER_BASE_BACKOFF, DEFAULT_WORKER_MAX_BACKOFF);
+        workerRepository.scheduleInitialPersistRetry(requestId, next, "DURABLE_PERSIST_FAILED");
+    }
+
+    private void scheduleWorkerRetry(
+            ErasureDurableWorkerClaim claim,
+            int maxAttempts,
+            Duration baseBackoff,
+            Duration maxBackoff,
+            String errorCode) {
+        ErasureRequestEntity row = requests.findById(claim.requestId()).orElse(null);
+        int currentAttempts = row == null ? 0 : row.getDurableRetryAttemptCount();
+        int nextAttempts = currentAttempts + 1;
+        Instant nextAt;
+        String code = errorCode;
+        if (nextAttempts >= maxAttempts) {
+            nextAt = DURABLE_RETRY_EXHAUSTED_NEXT;
+            code = "DURABLE_PERSIST_RETRY_EXHAUSTED";
+        } else {
+            nextAt = DurableErasureRetryBackoff.nextAttemptAfter(
+                    clock.instant(), nextAttempts, baseBackoff, maxBackoff);
+        }
+        workerRepository.recordRetryScheduled(
+                claim.requestId(), claim.claimToken(), nextAttempts, nextAt, code);
+    }
+
+    private boolean claimStillHeld(ErasureRequestEntity request, ErasureDurableWorkerClaim claim) {
+        Instant now = clock.instant();
+        return claim.claimToken().equals(request.getDurableWorkerClaimToken())
+                && request.getDurableWorkerClaimExpiresAt() != null
+                && request.getDurableWorkerClaimExpiresAt().isAfter(now);
     }
 
     private void completeLocal(ErasureRequestEntity request) {

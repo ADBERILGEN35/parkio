@@ -144,11 +144,24 @@ before the user retries. Completion after that retry must be committed
 in a fresh transaction; a callback running after commit can still have
 transaction state bound to its thread.
 
-## Java remaining (not built in this slice)
+## Java durable-recording worker (default off)
 
-- `persistDurableRecord` is the retry entrypoint. `ErasureStuckGaugeJob`
-  only counts stuck requests. There is no automatic `PENDING_DURABLE`
-  recovery worker.
+- `ErasureDurableRecordingWorker` is scheduled only when
+  `parkio.privacy.account-erasure.durable-recording-retry-worker-enabled`
+  is true **and** durable recording is enabled with a store bean present.
+  Otherwise the tick is a no-op and performs zero external puts.
+- Retry metadata lives in PostgreSQL (`durable_retry_*`, worker lease
+  columns via Flyway V25). Claims use `FOR UPDATE SKIP LOCKED` with a
+  lease token; store I/O runs outside database transactions.
+- The worker retries `PENDING_DURABLE` rows with capped exponential
+  backoff, reuses the same request id and immutable record body, and can
+  reconcile `DURABLY_RECORDED` rows to `COMPLETE` when store evidence and
+  all participant ACKs are already present. Exhausted attempts stop
+  scheduling but do not discard the erasure row.
+- `persistDurableRecord` remains an explicit retry entrypoint.
+  `ErasureStuckGaugeJob` still only counts stuck requests.
+
+## Java remaining (not built in this slice)
 - There is no production `DurableErasureRecordStore` adapter. The
   in-memory store is test-only. A local directory must not be wired
   under `src/main`.

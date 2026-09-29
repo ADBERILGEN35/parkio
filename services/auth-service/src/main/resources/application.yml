@@ -232,5 +232,12 @@ parkio:
       enabled: ${PARKIO_ACCOUNT_ERASURE_ENABLED:false}
       # Persist-before-COMPLETE. Default off. COMPLETE is persist-gated only when enabled.
       durable-recording-enabled: ${PARKIO_ACCOUNT_ERASURE_DURABLE_RECORDING_ENABLED:false}
+      durable-recording-retry-worker-enabled: ${PARKIO_ACCOUNT_ERASURE_DURABLE_RECORDING_RETRY_WORKER_ENABLED:false}
+      durable-recording-retry-worker-fixed-delay-ms: 30000
+      durable-recording-retry-worker-batch-size: 20
+      durable-recording-retry-worker-max-attempts: 10
+      durable-recording-retry-worker-base-backoff-ms: 5000
+      durable-recording-retry-worker-max-backoff-ms: 900000
+      durable-recording-retry-worker-lease-ms: 120000
       participants: ${PARKIO_ACCOUNT_ERASURE_PARTICIPANTS:user,parking,media,moderation,gamification,notification,analytics,ai-validation}
       stuck-poll-ms: 60000

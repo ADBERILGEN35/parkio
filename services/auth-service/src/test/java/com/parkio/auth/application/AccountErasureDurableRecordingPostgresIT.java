@@ -130,7 +130,7 @@ class AccountErasureDurableRecordingPostgresIT {
         AuthUser user = newUser();
         AccountErasureApplicationService disabled = new AccountErasureApplicationService(
                 users, refreshTokens, passwordResets, passwordHasher, outbox, inbox,
-                requests, acks, tombstones, metrics, clock, true, "user", false, null,
+                requests, acks, tombstones, metrics, clock, true, "user", false, null, null,
                 transactionManager);
         var view = disabled.requestDeletion(user.id(), PASSWORD);
         assertThat(view.status()).isEqualTo("IN_PROGRESS");
@@ -147,7 +147,7 @@ class AccountErasureDurableRecordingPostgresIT {
         AuthUser user = newUser();
         AccountErasureApplicationService missing = new AccountErasureApplicationService(
                 users, refreshTokens, passwordResets, passwordHasher, outbox, inbox,
-                requests, acks, tombstones, metrics, clock, true, "user", true, null,
+                requests, acks, tombstones, metrics, clock, true, "user", true, null, null,
                 transactionManager);
         assertThatThrownBy(() -> missing.requestDeletion(user.id(), PASSWORD))
                 .isInstanceOf(AuthException.class)
@@ -175,7 +175,7 @@ class AccountErasureDurableRecordingPostgresIT {
 
         AccountErasureApplicationService restarted = new AccountErasureApplicationService(
                 users, refreshTokens, passwordResets, passwordHasher, outbox, inbox,
-                requests, acks, tombstones, metrics, clock, true, "user", true, store,
+                requests, acks, tombstones, metrics, clock, true, "user", true, store, null,
                 transactionManager);
         restarted.persistDurableRecord(pending.getId());
         restarted.persistDurableRecord(pending.getId());

@@ -34,6 +34,18 @@ public class ErasureRequestEntity {
     @Column(name = "durable_recording_status")
     private String durableRecordingStatus;
 
+    @Column(name = "durable_retry_attempt_count", nullable = false)
+    private int durableRetryAttemptCount;
+
+    @Column(name = "durable_retry_next_at")
+    private Instant durableRetryNextAt;
+
+    @Column(name = "durable_worker_claim_token")
+    private UUID durableWorkerClaimToken;
+
+    @Column(name = "durable_worker_claim_expires_at")
+    private Instant durableWorkerClaimExpiresAt;
+
     @Version
     @Column(name = "version", nullable = false)
     private Long version;
@@ -70,6 +82,22 @@ public class ErasureRequestEntity {
 
     public String getDurableRecordingStatus() {
         return durableRecordingStatus;
+    }
+
+    public int getDurableRetryAttemptCount() {
+        return durableRetryAttemptCount;
+    }
+
+    public Instant getDurableRetryNextAt() {
+        return durableRetryNextAt;
+    }
+
+    public UUID getDurableWorkerClaimToken() {
+        return durableWorkerClaimToken;
+    }
+
+    public Instant getDurableWorkerClaimExpiresAt() {
+        return durableWorkerClaimExpiresAt;
     }
 
     public void markPendingDurable() {
