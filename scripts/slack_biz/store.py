@@ -280,16 +280,51 @@ class DeliveryStore:
                 raise OSError(f"queue_write_failed:{exc}") from exc
 
     # ------------------------------------------------------------------ claim
-    def reclaim_expired_leases(self) -> int:
-        """Return expired in_flight rows to retry (worker crash recovery)."""
-        now = time.time()
+    def reclaim_expired_leases(
+        self, *, max_attempts: int | None = None, now: float | None = None
+    ) -> int:
+        """Recover expired in_flight rows (worker crash / kill mid-send).
+
+        The attempt was already counted at claim time and its request may have
+        reached Slack, so the outcome is ambiguous: retry while the budget
+        lasts, then delivery_unknown (never delivered, never silently dropped).
+        max_attempts=None only counts; the worker always passes its cap.
+        """
+        now = time.time() if now is None else now
         with self._lock:
             rows = self._conn.execute(
-                "SELECT id, dedup_key FROM delivery_queue "
+                "SELECT id, event_id, dedup_key, route, payload_json, attempts "
+                "FROM delivery_queue "
                 "WHERE status=? AND lease_until IS NOT NULL AND lease_until < ?",
                 (STATUS_IN_FLIGHT, now),
             ).fetchall()
             for row in rows:
+                if max_attempts is not None and row["attempts"] >= max_attempts:
+                    reason = "ambiguous_exhausted:lease_expired_reclaimed"
+                    self._conn.execute(
+                        "INSERT INTO dlt(event_id, dedup_key, reason, payload_json, created_at) "
+                        "VALUES (?, ?, ?, ?, ?)",
+                        (
+                            row["event_id"],
+                            row["dedup_key"],
+                            f"delivery_unknown:{reason}",
+                            row["payload_json"],
+                            now,
+                        ),
+                    )
+                    self._conn.execute(
+                        "UPDATE delivery_queue SET status=?, lease_owner=NULL, lease_until=NULL, "
+                        "updated_at=?, last_error=? WHERE id=?",
+                        (STATUS_DELIVERY_UNKNOWN, now, reason, row["id"]),
+                    )
+                    self._conn.execute(
+                        "UPDATE dedup SET status=? WHERE dedup_key=?",
+                        (STATUS_DELIVERY_UNKNOWN, row["dedup_key"]),
+                    )
+                    self._bump_metric(
+                        "slack_biz_delivery_unknown_total", {"route": row["route"]}
+                    )
+                    continue
                 self._conn.execute(
                     "UPDATE delivery_queue SET status=?, lease_owner=NULL, lease_until=NULL, "
                     "next_attempt_at=?, updated_at=?, last_error=? WHERE id=?",
@@ -297,7 +332,7 @@ class DeliveryStore:
                         STATUS_RETRY,
                         now,
                         now,
-                        "lease_expired_reclaimed",
+                        "ambiguous:lease_expired_reclaimed",
                         row["id"],
                     ),
                 )
@@ -310,11 +345,19 @@ class DeliveryStore:
                 self._conn.commit()
             return len(rows)
 
-    def claim_batch(self, *, worker_id: str, limit: int = 10) -> list[QueueItem]:
-        """Claim work. Network I/O must happen AFTER this returns (outside DB lock)."""
+    def claim_batch(
+        self, *, worker_id: str, limit: int = 10, max_attempts: int | None = None
+    ) -> list[QueueItem]:
+        """Claim work. Network I/O must happen AFTER this returns (outside DB lock).
+
+        The claim itself increments attempts and is committed before the
+        caller sends, so an attempt survives a crash, kill or restart mid-send.
+        QueueItem.attempts therefore includes the attempt being made.
+        """
         now = time.time()
         with self._lock:
-            self.reclaim_expired_leases()
+            # Same clock as the claim below, so a reclaimed row is due now.
+            self.reclaim_expired_leases(max_attempts=max_attempts, now=now)
             rows = self._conn.execute(
                 "SELECT * FROM delivery_queue "
                 "WHERE status IN (?, ?) "
@@ -328,7 +371,7 @@ class DeliveryStore:
                 lease_until = now + self.lease_seconds
                 updated = self._conn.execute(
                     "UPDATE delivery_queue SET status=?, lease_owner=?, "
-                    "lease_until=?, updated_at=? "
+                    "lease_until=?, updated_at=?, attempts=attempts+1 "
                     "WHERE id=? AND status IN (?, ?) "
                     "AND (lease_until IS NULL OR lease_until < ?)",
                     (
@@ -344,17 +387,37 @@ class DeliveryStore:
                 )
                 if updated.rowcount != 1:
                     continue
+                try:
+                    event = SlackBizEvent.from_dict(json.loads(row["payload_json"]))
+                except (ValueError, KeyError, TypeError) as exc:
+                    # Never sendable; dead-letter it instead of failing every claim.
+                    reason = f"undecodable_payload:{type(exc).__name__}"
+                    self._conn.execute(
+                        "INSERT INTO dlt(event_id, dedup_key, reason, payload_json, created_at) "
+                        "VALUES (?, ?, ?, ?, ?)",
+                        (row["event_id"], row["dedup_key"], reason, row["payload_json"], now),
+                    )
+                    self._conn.execute(
+                        "UPDATE delivery_queue SET status=?, last_error=?, lease_owner=NULL, "
+                        "lease_until=NULL WHERE id=?",
+                        (STATUS_DEAD, reason, row["id"]),
+                    )
+                    self._conn.execute(
+                        "UPDATE dedup SET status=? WHERE dedup_key=?",
+                        (STATUS_DEAD, row["dedup_key"]),
+                    )
+                    self._bump_metric("slack_biz_dlt_total", {"route": row["route"]})
+                    continue
                 self._conn.execute(
                     "UPDATE dedup SET status=? WHERE dedup_key=?",
                     (STATUS_IN_FLIGHT, row["dedup_key"]),
                 )
-                event = SlackBizEvent.from_dict(json.loads(row["payload_json"]))
                 items.append(
                     QueueItem(
                         id=row["id"],
                         event=event,
                         status=STATUS_IN_FLIGHT,
-                        attempts=row["attempts"],
+                        attempts=row["attempts"] + 1,
                         next_attempt_at=row["next_attempt_at"],
                         last_error=row["last_error"],
                     )
@@ -367,7 +430,7 @@ class DeliveryStore:
         now = time.time()
         with self._lock:
             self._conn.execute(
-                "UPDATE delivery_queue SET status=?, attempts=attempts+1, "
+                "UPDATE delivery_queue SET status=?, "
                 "lease_owner=NULL, lease_until=NULL, updated_at=?, last_error=NULL "
                 "WHERE id=?",
                 (STATUS_DELIVERED, now, item.id),
@@ -402,7 +465,7 @@ class DeliveryStore:
                 ),
             )
             self._conn.execute(
-                "UPDATE delivery_queue SET status=?, attempts=attempts+1, "
+                "UPDATE delivery_queue SET status=?, "
                 "last_error=?, lease_owner=NULL, lease_until=NULL, updated_at=? WHERE id=?",
                 (STATUS_DELIVERY_UNKNOWN, reason[:1000], now, item.id),
             )
@@ -426,7 +489,7 @@ class DeliveryStore:
         now = time.time()
         with self._lock:
             self._conn.execute(
-                "UPDATE delivery_queue SET status=?, attempts=attempts+1, "
+                "UPDATE delivery_queue SET status=?, "
                 "next_attempt_at=?, last_error=?, lease_owner=NULL, lease_until=NULL, "
                 "updated_at=? WHERE id=?",
                 (
@@ -457,7 +520,7 @@ class DeliveryStore:
                 (item.event.event_id, item.event.dedup_key, reason[:500], payload, now),
             )
             self._conn.execute(
-                "UPDATE delivery_queue SET status=?, attempts=attempts+1, "
+                "UPDATE delivery_queue SET status=?, "
                 "last_error=?, lease_owner=NULL, lease_until=NULL, updated_at=? WHERE id=?",
                 (STATUS_DEAD, reason[:1000], now, item.id),
             )

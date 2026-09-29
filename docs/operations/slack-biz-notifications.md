@@ -20,7 +20,19 @@
 
 - `delivered`: confirmed HTTP success (`ok`)
 - `delivery_unknown`: ambiguous exhausted; operator-visible (`--list-unknown`, `--resolve-unknown`)
-- Lease expiry returns `in_flight` → `retry` (crash recovery)
+- Lease expiry (worker crash / kill mid-send) is an **ambiguous** attempt:
+  `in_flight` → `retry`, or → `delivery_unknown` once `PARKIO_SLACK_BIZ_MAX_ATTEMPTS`
+  is used up
+- Attempts are counted when a row is **claimed** (committed before the HTTP
+  send), so the `PARKIO_SLACK_BIZ_MAX_ATTEMPTS` send budget holds across
+  exceptions, restarts and lease reclaim. A message is POSTed at most that many
+  times before an operator decision (`--resolve-unknown ... --resolution requeue`
+  resets the budget and may duplicate)
+- Malformed / unparseable Slack responses (`http.client.HTTPException`) and
+  unexpected per-message worker exceptions are ambiguous, not crashes; other
+  queued messages in the batch continue
+- A queued row whose payload cannot be decoded is dead-lettered
+  (`undecodable_payload:*`)
 
 ## Configuration
 
