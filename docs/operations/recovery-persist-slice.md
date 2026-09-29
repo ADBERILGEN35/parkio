@@ -1,7 +1,7 @@
 # Isolated persist-before-ACK slice
 
-Draft implementation. Depends on reviewed #118
-(`70ee73a00d455f76a2b739fa08204eda89cd382d`). Not a merge of #118.
+Draft implementation. #118 is merged to `api` (`bec7a4c6`); this stacked
+branch still needs integration with current `api` before any merge decision.
 #104 remains HOLD and is not imported.
 
 This slice implements persist-before-COMPLETE in isolated Python **and**
@@ -58,8 +58,13 @@ Arrival orders:
 2. Participant ACKs first, then durable record → COMPLETE on persist
    retry. ACKs alone cannot COMPLETE.
 
-Failed or ambiguous persist leaves `PENDING_DURABLE` / `IN_PROGRESS`.
-Enabled without a `DurableErasureRecordStore` bean fails with
+If the after-commit put fails, the already committed deletion request returns
+public `IN_PROGRESS` while the row remains `PENDING_DURABLE`; the failure is
+logged for operator action. A 503 would incorrectly suggest the request did
+not commit. An explicit `persistDurableRecord` retry still reports its own
+failure to its caller. No automatic retry exists, so this response change
+does not make pending rows recover by themselves. Enabled without a
+`DurableErasureRecordStore` bean fails before mutation with
 `DURABLE_RECORDING_UNAVAILABLE`. There is no local-directory production
 adapter and no silent fallback.
 
