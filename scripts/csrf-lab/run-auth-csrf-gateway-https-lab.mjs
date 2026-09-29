@@ -53,7 +53,8 @@ try {
   fail('Docker daemon required for disposable Postgres/Redis (refusing incomplete lab)', 1);
 }
 
-process.env.NODE_TLS_REJECT_UNAUTHORIZED = '0';
+// Do not set NODE_TLS_REJECT_UNAUTHORIZED here: seed uses HTTP loopback, and
+// Chromium uses ignoreHTTPSErrors for lab certs. Avoid CodeQL/lab noise.
 
 function waitPort(port, host = '127.0.0.1', timeoutMs = 180_000) {
   const start = Date.now();
@@ -435,7 +436,6 @@ async function main() {
         PARKIO_CSRF_RESULT_FILE: resultFile,
         PARKIO_CSRF_CAPTURE_FILE: captureFile,
         PARKIO_CSRF_PLAYWRIGHT_PACKAGE: playwrightPkg,
-        NODE_TLS_REJECT_UNAUTHORIZED: '0',
       },
       stdio: 'inherit',
     });

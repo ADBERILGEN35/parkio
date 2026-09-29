@@ -150,14 +150,18 @@ CodeQL models `String.prototype.includes` as substring sanitization of **URLs**.
 | Item | Result |
 |---|---|
 | Reviewed starting tip | `884ed1faaf2f1e3f422e5b67c9c1139f24d28e61` on base `822828a5208e9445fc97f73c4540aaa867654fce` |
-| Drift | Fast-forward only; history preserved; no rebase/force-push |
-| `CookieCsrfGuardHttpIntegrationTest` (#125) | PASS |
-| Direct-auth Chromium IT (flag unset) | Aborted (Assumption) — not claimed as pass |
-| Direct-auth Chromium CI | PASS on tip (dedicated job; see CI IDs in PR report) |
-| `CorsConfigTest` sibling case | PASS |
+| Current tip (#126) | `a89766c3996553777b3f4c03fedf45e7db86ace6` (fast-forward only; no rebase/force-push) |
+| `CookieCsrfGuardHttpIntegrationTest` (#125) | PASS (kept; not weakened) |
+| Direct-auth Chromium CI | PASS — run `36530981507`; **1 executed / 0 skipped / 0 failed** |
+| `CorsConfigTest` sibling case | PASS (in gateway HTTPS workflow) |
 | Gateway HTTPS lab locally | **Not run** — Docker engine unavailable on agent |
-| Gateway HTTPS lab CI | Iterating: (1) seed DNS → loopback HTTP; (2) Postgres `pg_isready` before `CREATE DATABASE` |
-| GHAS alerts #2–#4 | Still open on umbrella #44 GHAS comparison (`most_recent_instance.state=open`); leave open |
-| GHAS alert #7 | Still **open** (`java/spring-disabled-csrf-protection`); leave open |
+| Gateway HTTPS lab CI | **PASS** — run `36530981546` |
+| Layer attribution (CI artifact) | `siblingRefresh`/`siblingLogout`: **gateway-cors-or-network** (status 0 — auth Origin **not** reached); `crossRefresh`: **gateway-cors-or-network-or-samesite**; `logoutAllNoBearer`: **http-401** |
+| Security CI analysis | PASS — run `36530981600` (CodeQL java/js + container/dep/secret scans) |
+| GHAS comparison CodeQL on #126 tip `a89766c3` | Failed on lab `NODE_TLS_REJECT_UNAUTHORIZED` (check-run `109285233862`) — removed in follow-up; unrelated to umbrella #44 alerts #2–#4/#7 |
+| Umbrella #44 GHAS alerts #2–#4 | Still open (`most_recent_instance.state=open`); leave open |
+| GHAS alert #7 | Still **open**; leave open pending explicit security decision |
 | #104 / #118 / #119 | Untouched |
 | Merge / dismiss / publish / deploy / production | **None** |
+
+**Proposed #7:** `csrf.disable()` is real configuration, not a proven exploitable browser CSRF path under the tested gateway HTTPS sibling/cross matrix. Compensating controls held in lab; residual gaps listed in §3 limitations. Keep #7 open until an explicit accept-risk or defense-in-depth decision.
